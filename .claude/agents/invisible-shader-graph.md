@@ -32,8 +32,11 @@ You are the developer for **Invisible Shader Graph**.
   `$lib/graph/` (step 5).
 - `apps/launcher-api/src/lib/server/effectExport.ts`: the ship chain to mirror (step 4).
 - `tools/fx-spike/elementFx.ts`: the gate (`pnpm check:element-fx`).
-- `tools/fx-spike/shaderParity.mjs`: the render harness. Its `shaderParity.entry.ts` page draws
-  the built-ins; its `shaderGraphs.entry.ts` page draws the reference graphs and every node.
+- `tools/fx-spike/shaderParity.mjs`: the render harness (`shoot` / `diff`, by hand). Its pages
+  (`shaderPages.mjs`): `shaderParity.entry.ts` draws the built-ins, `shaderGraphs.entry.ts` the
+  reference graphs and every node.
+- `tools/fx-spike/shaderCompile.mjs`: the same pages drawn in CI (`check:all`), failing on any
+  shader the driver rejects.
 
 ## House rules for this project
 - **GLSL ES 1.00 only.** No `transpose`, `inverse`, `texelFetch`. The gate scans for them.
@@ -41,8 +44,9 @@ You are the developer for **Invisible Shader Graph**.
   gate refuses a function that copies one word for word; it can't see a copy written inline, so
   don't write one. A node's GLSL calls library entries; it never declares a function.
 - **A codegen change is reviewed as GLSL.** After a deliberate one, run the fixture with
-  `--update` and commit the changed `snapshots/*.frag`. A new or changed node must also pass a
-  `shader-parity shoot`, whose node sheet compiles every node on WebGL1 and WebGL2.
+  `--update` and commit the changed `snapshots/*.frag`. A new or changed node is compiled on WebGL1
+  and WebGL2, at every vector width when it is generic, by `pnpm --filter fx-spike shader-compile`;
+  run it before pushing.
 - **Prove no visual change.** A refactor of a built-in must render pixel-identical before and after,
   every kind at 8 moments and every starting side, on WebGL1 and WebGL2:
   `pnpm --filter fx-spike shader-parity shoot <dir> --root <worktree of the base>`, `shoot` your

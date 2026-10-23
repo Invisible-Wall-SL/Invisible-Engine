@@ -3,18 +3,23 @@
  * Run with tsx: `node_modules/.bin/tsx packages/engine-shadergraph/compile.fixture.ts` (check:all
  * runs it). Claims:
  *
- *  1. THE LIBRARY IS WELL FORMED: unique node types, unique ports per node, every node described.
- *  2. EVERY NODE COMPILES ON ITS OWN, each output wired to an Output, and its GLSL links: every
- *     `efx…` it calls is a pass-header helper or a `glslLibrary` entry, nothing GLSL ES 3.00-only,
- *     no reserved word as a name.
+ *  1. THE LIBRARY IS WELL FORMED: unique node types, unique ports per node, every node described,
+ *     every input readable unwired (a default, or a default expression of a type it takes).
+ *  2. EVERY NODE COMPILES ON ITS OWN, each output wired to an Output, and at each vector width when
+ *     it is generic; its GLSL links: every function it calls is GLSL ES 1.00's own, a pass-header
+ *     helper or a `glslLibrary` entry, no reserved word as a name. (`pnpm --filter fx-spike
+ *     shader-compile` compiles the same graphs on WebGL1 and WebGL2.)
  *  3. THE FIVE REFERENCE GRAPHS COMPILE the same way every time, link and lint clean, and match
  *     their committed GLSL in `snapshots/<id>.frag`, so a codegen change shows in review as a diff.
  *     After a deliberate one, `--update` rewrites them.
- *  4. THE SMALLEST GRAPH (an Output alone) compiles to exactly the element as it is.
+ *  4. THE SMALLEST GRAPH (an Output alone) compiles to exactly the element as it is, read once;
+ *     however many inputs read the element's colour there, it is read once and counted once; the
+ *     Output keeps the colour premultiplied (no channel above alpha).
  *  5. THE VALIDATOR names each broken doc: version, no or two Outputs, unknown node, two nodes one
  *     id, a wire to a missing port, an input wired twice, a loop, a vector into a longer port, a
- *     wrong-length value, a bad choice, a missing param, a bad param spec; and it warns on a node
- *     that reaches nothing and on a graph too heavy for a phone, which still compiles.
+ *     wrong-length value, a bad choice, a missing param, a bad param spec (a malformed one too,
+ *     without throwing); a node that reaches nothing is checked the same, then left out with a
+ *     warning; and it warns on a graph too heavy for a phone, which still compiles.
  *  6. TYPES CONVERT only one way: a float spreads, a longer vector feeds a shorter port by its
  *     leading parts.
  *  7. NOTHING AN AUTHOR TYPES REACHES THE GLSL: node ids, param ids and labels are not in it; a
@@ -33,7 +38,7 @@ import {
 	validateShaderGraph,
 	type CompileResult,
 } from './src/compile.ts';
-import { DIMS, SHADER_NODES, shaderNode } from './src/nodes.ts';
+import { DIMS, SHADER_NODES, shaderNode, type NodeDef } from './src/nodes.ts';
 import { REFERENCE_GRAPHS, graphBuilder, nodeShowcase } from './src/reference.ts';
 import type { GraphIssueCode, ShaderGraphDoc } from './src/types.ts';
 
@@ -63,7 +68,17 @@ const HEADER_HELPERS = [
 		.split('`;')[0]
 		.matchAll(/^(?:vec[234]|float|bool)\s+(efx\w+)\(/gm),
 ].map((m) => m[1]);
-const ES3_ONLY = ['transpose(', 'inverse(', 'texelFetch(', 'textureSize(', 'determinant('];
+/** What GLSL ES 1.00 itself offers to call: its built-in functions and its constructors. */
+const ES1_CALLS = new Set([
+	...['radians', 'degrees', 'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'pow', 'exp', 'log'],
+	...['exp2', 'log2', 'sqrt', 'inversesqrt', 'abs', 'sign', 'floor', 'ceil', 'fract', 'mod'],
+	...['min', 'max', 'clamp', 'mix', 'step', 'smoothstep', 'length', 'distance', 'dot', 'cross'],
+	...['normalize', 'faceforward', 'reflect', 'refract', 'matrixCompMult', 'lessThan'],
+	...['lessThanEqual', 'greaterThan', 'greaterThanEqual', 'equal', 'notEqual', 'any', 'all'],
+	...['not', 'texture2D', 'texture2DProj', 'textureCube', 'float', 'int', 'bool', 'vec2'],
+	...['vec3', 'vec4', 'ivec2', 'ivec3', 'ivec4', 'bvec2', 'bvec3', 'bvec4', 'mat2', 'mat3', 'mat4'],
+]);
+const KEYWORDS = new Set(['if', 'for', 'while', 'return']);
 const RESERVED = [
 	'input',
 	'output',
@@ -95,13 +110,13 @@ const lint = (body: string): string[] => {
 	const code = fragment.replace(/\/\/[^\n]*/g, '');
 	const defined = new Set([
 		...HEADER_HELPERS,
-		...[...code.matchAll(/^(?:float|vec[234]|mat[234])\s+(efx\w+)\s*\(/gm)].map((m) => m[1]),
+		...[...code.matchAll(/^(?:void|float|vec[234]|mat[234])\s+(\w+)\s*\(/gm)].map((m) => m[1]),
 	]);
 	const problems: string[] = [];
-	for (const [, call] of code.matchAll(/\b(efx\w+)\s*\(/g)) {
-		if (!defined.has(call)) problems.push(`calls ${call}, defined nowhere`);
+	for (const [, call] of code.matchAll(/\b([A-Za-z_]\w*)\s*\(/g)) {
+		if (!defined.has(call) && !ES1_CALLS.has(call) && !KEYWORDS.has(call))
+			problems.push(`calls ${call}, which neither GLSL ES 1.00 nor the fragment defines`);
 	}
-	for (const builtin of ES3_ONLY) if (code.includes(builtin)) problems.push(`uses ${builtin}`);
 	for (const word of RESERVED) {
 		if (new RegExp(`\\b(?:float|vec[234]|mat[234]|int|bool)\\s+${word}\\b`).test(code))
 			problems.push(`names something ${word}`);
@@ -138,6 +153,15 @@ console.log('shader graph — the node library');
 		SHADER_NODES.every((n) => n.label && n.description && n.cost >= 0),
 		'every node has a label, a description and a cost',
 	);
+	const bare = SHADER_NODES.flatMap((n) =>
+		n.inputs
+			.filter((p) => p.default === undefined && !p.defaultExpr)
+			.map((p) => `${n.type}.${p.id}`),
+	);
+	assert(
+		!bare.length,
+		`every input reads something unwired: a default or a default expression${bare.length ? `: ${bare.join(', ')}` : ''}`,
+	);
 	assert(
 		SHADER_NODES.filter((n) => n.type === 'output').length === 1 &&
 			HEADER_HELPERS.includes('efxSample') &&
@@ -157,8 +181,28 @@ console.log('shader graph — every node compiles on its own');
 		if (problems.length) failed.push(`${doc.id}: ${problems.join('; ')}`);
 	}
 	assert(
-		!failed.length && showcase.length >= 90,
+		!failed.length && showcase.length >= 150,
 		`every output of every node compiles and links (${showcase.length - failed.length})${failed.length ? `: ${failed.join(' | ')}` : ''}`,
+	);
+	const generic = SHADER_NODES.filter((n: NodeDef) => n.inputs.some((p) => p.type === 'any'));
+	const uncovered = generic.flatMap((n) =>
+		n.outputs.flatMap((o) =>
+			['vec2', 'vec3', 'vec4']
+				.map((w) => `${n.type}.${o.id}.${w}`)
+				.filter((id) => !showcase.some((d) => d.id === id)),
+		),
+	);
+	assert(
+		generic.length >= 20 && !uncovered.length,
+		`every generic node (${generic.length}) also compiles fed a vec2, a vec3 and a vec4${uncovered.length ? `: missing ${uncovered.join(', ')}` : ''}`,
+	);
+	const undercounted = [...showcase, ...REFERENCE_GRAPHS].filter((doc) => {
+		const r = compileShaderGraph(doc);
+		return r.ok && r.shader.samples < (r.shader.body.match(/efxSample\(/g) ?? []).length;
+	});
+	assert(
+		!undercounted.length,
+		`no graph reads the element more often than it reports${undercounted.length ? `: ${undercounted.map((d) => d.id).join(', ')}` : ''}`,
 	);
 	const solo = graphBuilder({ id: 'solo', name: 'Solo', phase: 'emphasis', durationMs: 1000 });
 	solo.node('output');
@@ -173,11 +217,30 @@ console.log('shader graph — every node compiles on its own');
 				'    vec2 px = efxPx();',
 				'    vec2 uv = efxToUnit(px);',
 				'    vec2 uvSquare = uv * efxSize() / max(efxSize().x, efxSize().y);',
-				'    finalColor = clamp(efxSample(px), 0.0, 1.0);',
+				'    vec4 pixel = efxSample(px);',
+				'    vec4 outColor = clamp(pixel, 0.0, 1.0);',
+				'    finalColor = vec4(min(outColor.rgb, vec3(outColor.a)), outColor.a);',
 				'}',
 				'',
-			].join('\n'),
-		'an Output alone compiles to the element as it is (exact)',
+			].join('\n') &&
+			r.ok &&
+			r.shader.samples === 1,
+		'an Output alone compiles to the element as it is, read once (exact)',
+	);
+	const chain = graphBuilder({ id: 'chain', name: 'Chain', phase: 'emphasis', durationMs: 1000 });
+	let under = chain.node('over');
+	for (let i = 0; i < 24; i++) {
+		const next = chain.node('over');
+		chain.wire(under, 'out', next, 'bottom');
+		under = next;
+	}
+	chain.wire(under, 'out', chain.node('output'), 'color');
+	const chained = compileShaderGraph(chain.doc());
+	assert(
+		chained.ok &&
+			chained.shader.samples === 1 &&
+			(chained.shader.body.match(/efxSample\(/g) ?? []).length === 1,
+		'25 nodes reading the element’s colour there read it once, and count it once',
 	);
 }
 
@@ -244,8 +307,11 @@ console.log('shader graph — the validator');
 	const version = base();
 	version.node('output');
 	assert(
-		codes({ ...version.doc(), version: 2 as 1 }).includes('version'),
-		'another version: an error',
+		codes({ ...version.doc(), version: 2 as 1 }).includes('version') &&
+			validateShaderGraph({ ...version.doc(), version: '1' as unknown as 1 }).some(
+				(i) => i.code === 'version' && i.message.includes('"1"'),
+			),
+		'another version: an error (a "1" in quotes says so)',
 	);
 	const missingPort = base();
 	const a = missingPort.node('number');
@@ -308,6 +374,33 @@ console.log('shader graph — the validator');
 	assert(
 		codes(badParam.doc()).includes('param'),
 		'a param whose default is outside its range: an error',
+	);
+	const broken = (params: unknown): GraphIssueCode[] => {
+		const g = base();
+		g.node('output');
+		try {
+			return codes({ ...g.doc(), params: params as ShaderGraphDoc['params'] });
+		} catch {
+			return ['doc', 'doc'];
+		}
+	};
+	assert(
+		broken([null]).join() === 'param' &&
+			broken([7, { id: 'x' }]).join() === 'param,param' &&
+			broken([{ id: 'k', label: 'K', kind: 'choice', default: 1, options: [1, 2] }]).join() ===
+				'param',
+		'a malformed param list (a null, a number, a choice of numbers): errors, never a throw',
+	);
+	const strayType = base();
+	strayType.node('output');
+	strayType.wire(strayType.node('uv'), 'out', strayType.node('premultiply'), 'rgb');
+	const strayLoop = base();
+	strayLoop.node('output');
+	const self = strayLoop.node('add');
+	strayLoop.wire(self, 'out', self, 'a');
+	assert(
+		codes(strayType.doc()).includes('type') && codes(strayLoop.doc()).includes('cycle'),
+		'a node that reaches nothing is still checked: its wrong wire and its loop are errors',
 	);
 	const stray = base();
 	stray.node('output');

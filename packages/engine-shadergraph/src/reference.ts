@@ -7,8 +7,8 @@
  */
 
 import type { ElementFxParamSpec } from 'constants-shared/elementFx';
-import { SHADER_NODES } from './nodes';
-import { SHADER_GRAPH_VERSION, type GraphNode, type ShaderGraphDoc } from './types';
+import { PARAM_TYPE, SHADER_NODES, type NodeDef, type PortDef } from './nodes';
+import { SHADER_GRAPH_VERSION, type GraphNode, type PortType, type ShaderGraphDoc } from './types';
 
 type Values = GraphNode['values'];
 
@@ -268,10 +268,19 @@ export const REFERENCE_GRAPHS: readonly ShaderGraphDoc[] = [
 	gildedRelief(),
 ];
 
+/** What a generic node is fed in the showcase at each vector width: a node with that output. */
+const WIDTH_SOURCES: readonly (readonly [PortType, string])[] = [
+	['vec2', 'uv'],
+	['vec3', 'color'],
+	['vec4', 'sample'],
+];
+
 /**
  * Every output of every node in a graph of its own, wired to an Output (a vec2 or vec3 through its
- * length, which the Output can take): the headless checks link and lint each, and the render
- * harness compiles each on WebGL1 and WebGL2.
+ * length, which the Output can take). A node with generic inputs comes again at each vector width,
+ * all its generic inputs fed a vec2, a vec3 and a vec4, since its GLSL must hold at every width.
+ * The headless checks link and lint each; the render harness and `shader-compile` compile each on
+ * WebGL1 and WebGL2.
  */
 export function nodeShowcase(): ShaderGraphDoc[] {
 	const params: ElementFxParamSpec[] = [
@@ -281,28 +290,46 @@ export function nodeShowcase(): ShaderGraphDoc[] {
 		{ id: 'k', label: 'K', kind: 'choice', default: 'b', options: ['a', 'b'] },
 	];
 	const docs: ShaderGraphDoc[] = [];
+	const add = (
+		def: NodeDef,
+		output: PortDef,
+		type: PortType,
+		id: string,
+		values?: GraphNode['values'],
+		feed?: readonly [PortType, string],
+	): void => {
+		const g = graphBuilder({ id, name: def.label, phase: 'emphasis', durationMs: 1000, params });
+		const node = g.node(def.type, values);
+		if (feed) {
+			const source = g.node(feed[1]);
+			for (const input of def.inputs)
+				if (input.type === 'any') g.wire(source, 'out', node, input.id);
+		}
+		const out = g.node('output');
+		if (type === 'vec2' || type === 'vec3') {
+			const length = g.node('length');
+			g.wire(node, output.id, length, 'v');
+			g.wire(length, 'out', out, 'color');
+		} else {
+			g.wire(node, output.id, out, 'color');
+		}
+		docs.push(g.doc());
+	};
 	for (const def of SHADER_NODES) {
 		if (def.type === 'output') continue;
 		for (const output of def.outputs) {
-			for (const param of def.type === 'param' ? params : [undefined]) {
-				const g = graphBuilder({
-					id: `${def.type}.${output.id}${param ? `.${param.id}` : ''}`,
-					name: def.label,
-					phase: 'emphasis',
-					durationMs: 1000,
-					params,
-				});
-				const node = g.node(def.type, param ? { param: param.id } : undefined);
-				const out = g.node('output');
-				const type = param ? (param.kind === 'color' ? 'vec3' : 'float') : output.type;
-				if (type === 'vec2' || type === 'vec3') {
-					const length = g.node('length');
-					g.wire(node, output.id, length, 'v');
-					g.wire(length, 'out', out, 'color');
-				} else {
-					g.wire(node, output.id, out, 'color');
-				}
-				docs.push(g.doc());
+			if (def.type === 'param') {
+				for (const param of params)
+					add(def, output, PARAM_TYPE[param.kind], `param.${output.id}.${param.id}`, {
+						param: param.id,
+					});
+				continue;
+			}
+			add(def, output, output.type === 'any' ? 'float' : output.type, `${def.type}.${output.id}`);
+			if (!def.inputs.some((input) => input.type === 'any')) continue;
+			for (const feed of WIDTH_SOURCES) {
+				const type = output.type === 'any' ? feed[0] : output.type;
+				add(def, output, type, `${def.type}.${output.id}.${feed[0]}`, undefined, feed);
 			}
 		}
 	}

@@ -8,8 +8,8 @@
  *    longer vector feeds a shorter port by its leading parts (`v.xy`); a shorter vector cannot feed
  *    a longer one (Combine it), so nothing is guessed;
  *  - an unwired input takes the value the author set on the node, else the port's default, else
- *    its default expression (the pixel's UV, the play's progress, the element's colour there);
- *    a port with none of those must be wired.
+ *    its default expression (the pixel's UV, the play's progress, the element's colour there,
+ *    read once as `pixel`);
  *  - an `any` port follows the node's widest input, so Add adds floats or vectors alike.
  *
  * The GLSL is assembled from the node library's templates, numeric literals and names this file
@@ -17,7 +17,14 @@
  */
 
 import { ELEMENT_FX_PHASES, type ElementFxParamSpec } from 'constants-shared/elementFx';
-import { DIMS, shaderNode, type DefaultExpr, type EmitContext, type NodeDef } from './nodes';
+import {
+	DIMS,
+	PARAM_TYPE,
+	shaderNode,
+	type DefaultExpr,
+	type EmitContext,
+	type NodeDef,
+} from './nodes';
 import {
 	SHADER_GRAPH_VERSION,
 	type GraphIssue,
@@ -58,7 +65,7 @@ const DEFAULT_EXPR: Record<DefaultExpr, { glsl: string; type: PortType }> = {
 	uvSquare: { glsl: 'uvSquare', type: 'vec2' },
 	progress: { glsl: 'uFx.x', type: 'float' },
 	seconds: { glsl: 'uFx.y', type: 'float' },
-	sample: { glsl: 'efxSample(px)', type: 'vec4' },
+	sample: { glsl: 'pixel', type: 'vec4' },
 };
 
 /** `n` as a GLSL float literal; a negative one in parentheses, so `x - -1.0` never reads `--`. */
@@ -104,13 +111,6 @@ export function paramUniformValue(spec: ElementFxParamSpec, value: unknown): num
 	}
 }
 
-const PARAM_TYPE: Record<ElementFxParamSpec['kind'], PortType> = {
-	number: 'float',
-	color: 'vec3',
-	bool: 'float',
-	choice: 'float',
-};
-
 const paramIssues = (params: unknown): GraphIssue[] => {
 	if (!Array.isArray(params))
 		return [{ level: 'error', code: 'doc', message: 'params is not a list' }];
@@ -140,9 +140,10 @@ const paramIssues = (params: unknown): GraphIssue[] => {
 			if (
 				!Array.isArray(raw.options) ||
 				!raw.options.length ||
+				!raw.options.every((option) => typeof option === 'string') ||
 				!raw.options.includes(raw.default)
 			) {
-				bad(`param "${id}": its default is not one of its options`);
+				bad(`param "${id}": its options must be words, its default one of them`);
 			}
 		} else {
 			bad(`param "${id}": unknown kind`);
@@ -155,6 +156,8 @@ interface Analysis {
 	issues: GraphIssue[];
 	/** Reachable nodes, every node after the nodes it reads. */
 	order: GraphNode[];
+	/** Whether a reachable input reads the element's own colour at this pixel (`pixel`). */
+	readsPixel: boolean;
 	/** node id → port id → resolved type (outputs and inputs). */
 	outputs: Map<string, Record<string, PortType>>;
 	inputs: Map<string, Record<string, PortType>>;
@@ -176,6 +179,7 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 	const result: Analysis = {
 		issues: [],
 		order: [],
+		readsPixel: false,
 		outputs: new Map(),
 		inputs: new Map(),
 		generic: new Map(),
@@ -199,7 +203,7 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 		return result;
 	}
 	if (doc.version !== SHADER_GRAPH_VERSION)
-		error('version', `version ${String(doc.version)} is not ${SHADER_GRAPH_VERSION}`);
+		error('version', `version ${JSON.stringify(doc.version)} is not ${SHADER_GRAPH_VERSION}`);
 	if (!(ELEMENT_FX_PHASES as readonly string[]).includes(doc.phase))
 		error('doc', `phase "${String(doc.phase)}" is not one of ${ELEMENT_FX_PHASES.join(', ')}`);
 	if (!(Number.isFinite(doc.durationMs) && doc.durationMs > 0))
@@ -211,7 +215,11 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 		error('doc', 'nodes and wires must be lists');
 		return result;
 	}
-	const params = new Map((Array.isArray(doc.params) ? doc.params : []).map((p) => [p.id, p]));
+	const params = new Map(
+		(Array.isArray(doc.params) ? doc.params : [])
+			.filter((p) => p && typeof p.id === 'string')
+			.map((p) => [p.id, p]),
+	);
 
 	const nodes = new Map<string, GraphNode>();
 	const defs = new Map<string, NodeDef>();
@@ -297,7 +305,9 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 	}
 	if (issues.some((i) => i.level === 'error')) return result;
 
-	// Order: what the Output reads, each node after what it reads; a loop cannot be ordered.
+	// Order: what the Output reads, each node after what it reads; a loop cannot be ordered. Nodes
+	// that reach nothing follow, so they are checked like the rest but left out of the GLSL.
+	const sequence: GraphNode[] = [];
 	const state = new Map<string, 'visiting' | 'done'>();
 	const visit = (id: string): boolean => {
 		if (state.get(id) === 'done') return true;
@@ -308,10 +318,11 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 		state.set(id, 'visiting');
 		for (const from of result.feeds.get(id)?.values() ?? []) if (!visit(from.node)) return false;
 		state.set(id, 'done');
-		result.order.push(nodes.get(id) as GraphNode);
+		sequence.push(nodes.get(id) as GraphNode);
 		return true;
 	};
 	if (!visit(outputs[0])) return result;
+	const reachable = sequence.length;
 	for (const id of nodes.keys()) {
 		if (!state.has(id))
 			issues.push({
@@ -321,9 +332,11 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 				node: id,
 			});
 	}
+	for (const id of nodes.keys()) if (!visit(id)) return result;
+	result.order = sequence.slice(0, reachable);
 
 	// Types, in order.
-	for (const node of result.order) {
+	for (const [index, node] of sequence.entries()) {
 		const def = defs.get(node.id) as NodeDef;
 		const feeds = result.feeds.get(node.id);
 		const sourceType = (port: string): PortType | undefined => {
@@ -349,7 +362,7 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 				if (convert('x', wired, type) === undefined) {
 					error(
 						'type',
-						`${def.label}'s ${input.label} takes a ${type}, not a ${wired}: Combine or Split it`,
+						`${def.label}'s ${input.label} takes a ${type}, not a ${wired}: ${type === 'vec4' && wired === 'vec3' ? 'Join colour gives it an alpha' : 'Combine or Split it'}`,
 						node.id,
 						input.id,
 					);
@@ -368,8 +381,18 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 						input.id,
 					);
 				}
-			} else if (input.default === undefined && !input.defaultExpr) {
-				error('unwired', `${def.label}'s ${input.label} must be wired`, node.id, input.id);
+			} else if (input.default === undefined && input.defaultExpr) {
+				const expr = DEFAULT_EXPR[input.defaultExpr];
+				if (convert('x', expr.type, type) === undefined) {
+					error(
+						'type',
+						`${def.label}'s ${input.label} takes a ${type}: wire one in`,
+						node.id,
+						input.id,
+					);
+				} else if (index < reachable && input.defaultExpr === 'sample') {
+					result.readsPixel = true;
+				}
 			}
 		}
 		result.inputs.set(node.id, inTypes);
@@ -382,6 +405,7 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 			outTypes[output.id] = fixed[output.id] ?? (output.type === 'any' ? generic : output.type);
 		}
 		result.outputs.set(node.id, outTypes);
+		if (index >= reachable) continue;
 		for (const from of feeds?.values() ?? []) {
 			const used = result.used.get(from.node) ?? new Set<string>();
 			used.add(from.port);
@@ -390,6 +414,7 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 		result.cost += def.cost;
 		result.samples += def.samples ?? 0;
 	}
+	if (result.readsPixel) result.samples += 1;
 	if (result.cost > COST_BUDGET)
 		issues.push({
 			level: 'warning',
@@ -414,7 +439,7 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
 	const usedParams = new Set<string>();
 	const lines: string[] = [];
 	const names = new Map<string, Record<string, string>>();
-	let finalColor = 'efxSample(px)';
+	let finalColor = '';
 
 	a.order.forEach((node, k) => {
 		const def = shaderNode(node.type) as NodeDef;
@@ -442,7 +467,7 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
 				);
 			} else if (input.defaultExpr) {
 				const expr = DEFAULT_EXPR[input.defaultExpr];
-				inputs[input.id] = convert(expr.glsl, expr.type, type) ?? expr.glsl;
+				inputs[input.id] = convert(expr.glsl, expr.type, type) as string;
 			}
 		}
 		let locals = 0;
@@ -508,8 +533,10 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
 		'    vec2 px = efxPx();',
 		'    vec2 uv = efxToUnit(px);',
 		'    vec2 uvSquare = uv * efxSize() / max(efxSize().x, efxSize().y);',
+		...(a.readsPixel ? ['    vec4 pixel = efxSample(px);'] : []),
 		...lines,
-		`    finalColor = clamp(${finalColor}, 0.0, 1.0);`,
+		`    vec4 outColor = clamp(${finalColor}, 0.0, 1.0);`,
+		'    finalColor = vec4(min(outColor.rgb, vec3(outColor.a)), outColor.a);',
 		'}',
 		'',
 	].join('\n');

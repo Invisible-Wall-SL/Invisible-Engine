@@ -6,7 +6,8 @@ void main(void)
     vec2 px = efxPx();
     vec2 uv = efxToUnit(px);
     vec2 uvSquare = uv * efxSize() / max(efxSize().x, efxSize().y);
-    vec4 n0_l0 = efxSample(px);
+    vec4 pixel = efxSample(px);
+    vec4 n0_l0 = pixel;
     vec3 n0_rgb = (n0_l0.rgb / max(n0_l0.a, 0.0001));
     float n0_alpha = n0_l0.a;
     vec3 n1_out = uP0;
@@ -21,7 +22,7 @@ void main(void)
     float n8_out = (n7_out * 0.3);
     float n9_progress = uFx.x;
     float n10_out = efxHold(n9_progress, 0.4);
-    float n11_out = efxGlint(uv, n10_out, 0.08);
+    float n11_out = efxGlint(uv, n10_out, max(0.08, 0.0001));
     float n12_out = (n11_out * 0.5);
     float n13_out = (n8_out + n12_out);
     float n14_out = clamp(efxEdge(px, efxSample(px).a, 1.5), 0.0, 1.0);
@@ -33,9 +34,10 @@ void main(void)
     float n20_out = (n5_nearest * 0.2);
     float n21_out = (n19_out + n20_out);
     float n22_out = (n10_out * 1.25);
-    float n23_out = (1.0 - smoothstep(n22_out - 0.06, n22_out, n21_out));
+    float n23_out = (1.0 - smoothstep(n22_out - max(0.06, 0.0001), n22_out, n21_out));
     vec3 n24_out = mix(n0_rgb, n17_out, n23_out);
     float n25_l0 = n0_alpha;
     vec4 n25_out = vec4(n24_out * n25_l0, n25_l0);
-    finalColor = clamp(n25_out, 0.0, 1.0);
+    vec4 outColor = clamp(n25_out, 0.0, 1.0);
+    finalColor = vec4(min(outColor.rgb, vec3(outColor.a)), outColor.a);
 }

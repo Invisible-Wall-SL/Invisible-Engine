@@ -5,8 +5,8 @@ void main(void)
     vec2 px = efxPx();
     vec2 uv = efxToUnit(px);
     vec2 uvSquare = uv * efxSize() / max(efxSize().x, efxSize().y);
-    vec3 n0_l0 = efxRippleUv(uv, uFx.x, 0.12, 0.04);
-    vec2 n0_uv = n0_l0.xy;
+    vec3 n0_l0 = efxRipple(efxFromUnit(uv), uFx.x, 0.12, 0.04);
+    vec2 n0_uv = efxToUnit(n0_l0.xy);
     float n0_ring = n0_l0.z;
     vec4 n1_out = efxSample(efxFromUnit(n0_uv));
     vec4 n2_l0 = n1_out;
@@ -16,5 +16,6 @@ void main(void)
     vec3 n4_out = (n2_rgb + vec3(n3_out));
     float n5_l0 = n2_alpha;
     vec4 n5_out = vec4(n4_out * n5_l0, n5_l0);
-    finalColor = clamp(n5_out, 0.0, 1.0);
+    vec4 outColor = clamp(n5_out, 0.0, 1.0);
+    finalColor = vec4(min(outColor.rgb, vec3(outColor.a)), outColor.a);
 }

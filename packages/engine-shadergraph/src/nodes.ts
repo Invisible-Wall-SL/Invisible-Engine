@@ -73,8 +73,8 @@ const port = (
 ): PortDef => ({ id, label, type, ...more });
 const f = (id: string, label: string, value?: number): PortDef =>
 	port(id, label, 'float', value === undefined ? {} : { default: value });
-const any = (id: string, label: string, value?: number): PortDef =>
-	port(id, label, 'any', value === undefined ? {} : { default: value });
+const any = (id: string, label: string, value: number): PortDef =>
+	port(id, label, 'any', { default: value });
 const uvIn = (id = 'uv', label = 'UV'): PortDef => port(id, label, 'vec2', { defaultExpr: 'uv' });
 const progressIn = (id = 't', label = 'Progress'): PortDef =>
 	port(id, label, 'float', { defaultExpr: 'progress' });
@@ -118,7 +118,8 @@ const binary = (
 		glsl(c.in.a, c.in.b),
 	);
 
-const PARAM_TYPE: Record<ElementFxParamSpec['kind'], PortType> = {
+/** The uniform type a param of each kind is read through. */
+export const PARAM_TYPE: Record<ElementFxParamSpec['kind'], PortType> = {
 	number: 'float',
 	color: 'vec3',
 	bool: 'float',
@@ -453,7 +454,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		[progressIn(), f('rate', 'Rate', 1)],
 		'float',
 		2,
-		(c) => `(0.5 + 0.5 * sin(2.0 * PI * ${c.in.rate} * ${c.in.t}))`,
+		(c) => `(0.5 - 0.5 * cos(2.0 * PI * ${c.in.rate} * ${c.in.t}))`,
 	),
 	one(
 		'flicker',
@@ -545,12 +546,14 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'gradient',
 		'Gradient',
 		'procedural',
-		'0…1 across the element at an angle (degrees, 0 = left to right).',
+		'0…1 across the element, corner to corner, at an angle (degrees, 0 = left to right).',
 		[uvIn(), f('angle', 'Angle', 0)],
 		'float',
-		4,
-		(c) =>
-			`(dot(${c.in.uv} - 0.5, vec2(cos(radians(${c.in.angle})), sin(radians(${c.in.angle})))) + 0.5)`,
+		5,
+		(c) => {
+			const d = c.local('vec2', `vec2(cos(radians(${c.in.angle})), sin(radians(${c.in.angle})))`);
+			return `(dot(${c.in.uv} - 0.5, ${d}) / (abs(${d}.x) + abs(${d}.y)) + 0.5)`;
+		},
 	),
 	one(
 		'radial',
@@ -596,7 +599,8 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		[f('reach', 'Reach', 0.5), progressIn('front', 'Front'), f('softness', 'Softness', 0.05)],
 		'float',
 		3,
-		(c) => `(1.0 - smoothstep(${c.in.front} - ${c.in.softness}, ${c.in.front}, ${c.in.reach}))`,
+		(c) =>
+			`(1.0 - smoothstep(${c.in.front} - max(${c.in.softness}, 0.0001), ${c.in.front}, ${c.in.reach}))`,
 	),
 	one(
 		'band',
@@ -606,7 +610,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		[f('x', 'X', 0), f('at', 'At', 0.5), f('width', 'Width', 0.05)],
 		'float',
 		3,
-		(c) => `efxBand(${c.in.x}, ${c.in.at}, ${c.in.width})`,
+		(c) => `efxBand(${c.in.x}, ${c.in.at}, max(${c.in.width}, 0.0001))`,
 	),
 	one(
 		'glint',
@@ -616,7 +620,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		[uvIn(), progressIn('at', 'At'), f('width', 'Width', 0.08)],
 		'float',
 		4,
-		(c) => `efxGlint(${c.in.uv}, ${c.in.at}, ${c.in.width})`,
+		(c) => `efxGlint(${c.in.uv}, ${c.in.at}, max(${c.in.width}, 0.0001))`,
 	),
 	one(
 		'edgeDistance',
@@ -685,7 +689,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		[uvIn(), f('angle', 'Angle', 90), f('radius', 'Radius', 1)],
 		'vec2',
 		12,
-		(c) => `efxTwistUv(${c.in.uv}, radians(${c.in.angle}), ${c.in.radius})`,
+		(c) => `efxToUnit(efxTwist(efxFromUnit(${c.in.uv}), radians(${c.in.angle}), ${c.in.radius}))`,
 	),
 	one(
 		'bulge',
@@ -695,7 +699,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		[uvIn(), f('strength', 'Strength', 0.5), f('radius', 'Radius', 1)],
 		'vec2',
 		12,
-		(c) => `efxBulgeUv(${c.in.uv}, ${c.in.strength}, ${c.in.radius})`,
+		(c) => `efxToUnit(efxBulge(efxFromUnit(${c.in.uv}), ${c.in.strength}, ${c.in.radius}))`,
 	),
 	{
 		type: 'ripple',
@@ -708,9 +712,9 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		emit: (c) => {
 			const r = c.local(
 				'vec3',
-				`efxRippleUv(${c.in.uv}, ${c.in.at}, ${c.in.width}, ${c.in.amount})`,
+				`efxRipple(efxFromUnit(${c.in.uv}), ${c.in.at}, ${c.in.width}, ${c.in.amount})`,
 			);
-			return { uv: `${r}.xy`, ring: `${r}.z` };
+			return { uv: `efxToUnit(${r}.xy)`, ring: `${r}.z` };
 		},
 	},
 	{
@@ -728,7 +732,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		settings: [{ id: 'axis', label: 'Axis', kind: 'choice', options: ['x', 'y'], default: 'x' }],
 		cost: 6,
 		emit: (c) => ({
-			out: `efxWaveUv(${c.in.uv}, ${c.in.amplitude}, ${c.in.wavelength}, ${c.in.phase}, ${c.setting('axis')})`,
+			out: `efxToUnit(efxWave(efxFromUnit(${c.in.uv}), ${c.in.amplitude}, ${c.in.wavelength}, ${c.in.phase}, ${c.setting('axis')}))`,
 		}),
 	},
 	one(

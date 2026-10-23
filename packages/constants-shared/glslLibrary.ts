@@ -230,13 +230,13 @@ vec2 efxRotateUv(vec2 u, float a)
     float s = sin(a);
     return efxToUnit(c + vec2(p.x * co - p.y * s, p.x * s + p.y * co));
 }`,
-	efxTwistUv: `
-// The point a swirl about the centre draws at u: turned \`angle\` radians at the centre, fading to
-// none \`radius\` half-diagonals out.
-vec2 efxTwistUv(vec2 u, float angle, float radius)
+	efxTwist: `
+// Where a swirl about the centre reads the pixel at px: turned \`angle\` radians at the centre,
+// fading to none \`radius\` half-diagonals out.
+vec2 efxTwist(vec2 px, float angle, float radius)
 {
     vec2 c = efxCenter();
-    vec2 p = efxFromUnit(u) - c;
+    vec2 p = px - c;
     float d = length(p);
     float r = max(radius * 0.5 * length(efxSize()), 1.0);
     if (d < r)
@@ -247,15 +247,15 @@ vec2 efxTwistUv(vec2 u, float angle, float radius)
         float co = cos(a);
         p = vec2(p.x * co - p.y * s, p.x * s + p.y * co);
     }
-    return efxToUnit(c + p);
+    return c + p;
 }`,
-	efxBulgeUv: `
-// The point a lens about the centre draws at u: \`strength\` −1…1 (out, or pinched in), \`radius\` in
-// half-diagonals.
-vec2 efxBulgeUv(vec2 u, float strength, float radius)
+	efxBulge: `
+// Where a lens about the centre reads the pixel at px: \`strength\` −1…1 (out, or pinched in),
+// \`radius\` in half-diagonals.
+vec2 efxBulge(vec2 px, float strength, float radius)
 {
     vec2 c = efxCenter();
-    vec2 p = efxFromUnit(u) - c;
+    vec2 p = px - c;
     float d = length(p);
     float r = max(radius * 0.5 * length(efxSize()), 1.0);
     if (d < r && d > 0.0)
@@ -270,33 +270,34 @@ vec2 efxBulgeUv(vec2 u, float strength, float radius)
             p *= mix(1.0, pow(percent, 1.0 + strength * 0.75) * r / d, 1.0 - percent);
         }
     }
-    return efxToUnit(c + p);
+    return c + p;
 }`,
-	efxRippleUv: `
+	efxRipple: `
 // A shock ring \`at\` diagonals out and \`width\` element sizes wide, pushing outward by \`amount\`
-// element sizes: .xy the point it draws at u, .z how far u is on the ring, 0…1.
-vec3 efxRippleUv(vec2 u, float at, float width, float amount)
+// element sizes: .xy where it reads the pixel at px, .z how far px is on the ring (0 off it, 1 at
+// its middle).
+vec3 efxRipple(vec2 px, float at, float width, float amount)
 {
     vec2 c = efxCenter();
-    vec2 px = efxFromUnit(u);
     vec2 p = px - c;
     float d = length(p);
     vec2 size = efxSize();
     float m = max(size.x, size.y);
     float k = (d - at * length(size)) / max(width * m, 1.0);
-    if (d < 0.001 || abs(k) >= 1.0) return vec3(u, 0.0);
+    if (d < 0.001 || abs(k) >= 1.0) return vec3(px, 0.0);
     float push = sin(k * PI) * (1.0 - k * k) * amount * m;
-    return vec3(efxToUnit(px - (p / d) * push), 1.0 - abs(k));
+    return vec3(px - (p / d) * push, 1.0 - abs(k));
 }`,
-	efxWaveUv: `
-// The point a travelling wave draws at u: rows shift sideways (axis < 0.5) or columns up and down,
-// by \`amplitude\` element sizes, \`wavelength\` element sizes apart, \`phase\` in cycles.
-vec2 efxWaveUv(vec2 u, float amplitude, float wavelength, float phase, float axis)
+	efxWave: `
+// Where a travelling wave reads the pixel at px: rows shift sideways (axis < 0.5) or columns up and
+// down, by \`amplitude\` element sizes, \`wavelength\` element sizes apart, \`phase\` in cycles.
+vec2 efxWave(vec2 px, float amplitude, float wavelength, float phase, float axis)
 {
+    vec2 size = efxSize();
+    vec2 u = efxToUnit(px);
     float wl = max(wavelength, 0.001);
-    return axis < 0.5
-        ? vec2(u.x - amplitude * sin(2.0 * PI * (u.y / wl - phase)), u.y)
-        : vec2(u.x, u.y - amplitude * sin(2.0 * PI * (u.x / wl - phase)));
+    if (axis < 0.5) return px - vec2(amplitude * size.x * sin(2.0 * PI * (u.y / wl - phase)), 0.0);
+    return px - vec2(0.0, amplitude * size.y * sin(2.0 * PI * (u.x / wl - phase)));
 }`,
 	efxHueShift: `
 // rgb turned \`turns\` round the colour wheel, keeping its brightness (in YIQ).

@@ -2,9 +2,10 @@
  * The graph page `shaderParity.mjs` renders: with `?graphs=1` the reference shader graphs posed at
  * eight moments, one row each; with `?nodes=1` every node's own graph (`nodeShowcase`), one cell
  * each. Each graph is compiled and drawn through the real `ElementFxFilter` on WebGL1 or WebGL2, so
- * a node whose GLSL does not compile there fails the shoot.
+ * a node whose GLSL does not compile there fails the shoot (and `shaderCompile.mjs`). Each graph's pass
+ * is compiled alone first, so the error the page logs names the graph.
  */
-import { Application, Container, FillGradient, Graphics, Rectangle } from 'pixi.js';
+import { Application, Container, FillGradient, Graphics, Rectangle, RenderTexture } from 'pixi.js';
 import {
 	DIMS,
 	REFERENCE_GRAPHS,
@@ -92,10 +93,15 @@ const filterFor = (doc: ShaderGraphDoc, t: number): ElementFxFilter => {
 		resolution: 1,
 	});
 	document.body.appendChild(app.canvas);
+	const probe = RenderTexture.create({ width: 64, height: 64 });
+	const report = console.error.bind(console);
 	for (const { doc, t, col, row } of cells) {
 		const card = makeCard();
-		card.position.set(col * CELL_W + CELL_W / 2, row * CELL_H + CELL_H / 2);
 		card.filters = [filterFor(doc, t)];
+		console.error = (...args: unknown[]) => report(`${doc.id}:`, ...args);
+		app.renderer.render({ container: card, target: probe });
+		console.error = report;
+		card.position.set(col * CELL_W + CELL_W / 2, row * CELL_H + CELL_H / 2);
 		app.stage.addChild(card);
 	}
 	app.renderer.render(app.stage);

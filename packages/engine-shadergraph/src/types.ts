@@ -68,7 +68,6 @@ export type GraphIssueCode =
 	| 'wired-twice'
 	| 'type'
 	| 'cycle'
-	| 'unwired'
 	| 'value'
 	| 'setting'
 	| 'unreachable'
