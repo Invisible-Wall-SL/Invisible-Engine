@@ -12,16 +12,6 @@
  * `match3` and `arcade` are the first kinds that are not slots (`docs/design/game-families.md`).
  * A consumer that only makes sense for slots derives from {@link SLOT_GAME_KINDS} instead.
  */
-export const GAME_KINDS = [
-	'lines',
-	'ways',
-	'cluster',
-	'scatter',
-	'bookOf',
-	'holdAndWin',
-	'match3',
-	'arcade',
-] as const;
 
 /** The built-in kinds that are slots: every kind a slot-only consumer may offer. */
 export const SLOT_GAME_KINDS = [
@@ -32,6 +22,8 @@ export const SLOT_GAME_KINDS = [
 	'bookOf',
 	'holdAndWin',
 ] as const;
+
+export const GAME_KINDS = [...SLOT_GAME_KINDS, 'match3', 'arcade'] as const;
 
 export type GameKind = (typeof GAME_KINDS)[number];
 

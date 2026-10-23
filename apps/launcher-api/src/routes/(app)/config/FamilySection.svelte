@@ -110,19 +110,21 @@
 				>
 			{/if}
 		</div>
-		<p class="note">
-			{#if outcome === 'rgs'}
-				The server decides every gem that falls and every win; the player's moves only reveal them.
-				The game has a stake, bet modes and a paytable.
-			{:else}
-				The game's own rules decide, and it has no wallet: no stake, no balance and no wins in
-				money. Score, moves and goals are the game's own.
-			{/if}
-			{#if family === 'arcade'}
-				An arcade game decided by the server is not built yet.
-			{/if}
-			This family has no runtime yet, so it cannot be published until the engine learns to play it.
-		</p>
+		{#if family !== 'slot'}
+			<p class="note">
+				{#if outcome === 'rgs'}
+					The server decides every gem that falls and every win; the player's moves only reveal
+					them. The game has a stake, bet modes and a paytable.
+				{:else}
+					The game's own rules decide, and it has no wallet: no stake, no balance and no wins in
+					money. Score, moves and goals are the game's own.
+				{/if}
+				{#if family === 'arcade'}
+					An arcade game decided by the server is not built yet.
+				{/if}
+				This family has no runtime yet, so it cannot be published until the engine learns to play it.
+			</p>
+		{/if}
 	</fieldset>
 	{@render issueList('family')}
 	{@render issueList('outcome')}

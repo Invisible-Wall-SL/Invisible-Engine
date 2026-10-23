@@ -916,7 +916,7 @@ sees exactly today's page.
 | Symbols | ✓ | ✓ (gems, with pays) | ✓ (gems, no pays) | — |
 | How wins are decided | ✓ | ✓ (the `match3` arm only) | — | — |
 | Free spins, Expanding symbol, Coins, Paylines, the Hold and Win / bonus / coin board / coin overlay sections | ✓ (as each kind and add-on allows today) | — | — | — |
-| Reel behaviour | ✓ | only the switches the first board's arrival uses (P10.5 decides which) | same as RGS | — |
+| Reel behaviour | ✓ | only the switches the first board's arrival uses (P10.5 decides which; hidden until then) | same as RGS | — |
 | **Match-3** (new: min run; moves, goals, score table for rules) | — | ✓ | ✓ | — |
 | **Arcade** (new: play field, fixed rate, bodies; from A3 the world) | — | — | — | ✓ |
 | Characters | — | — | — | a link to Invisible Characters (§4.3) |

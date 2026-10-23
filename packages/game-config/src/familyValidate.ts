@@ -48,7 +48,9 @@ function validateMatch3(doc: GameConfigDoc): GameConfigIssue[] {
 		issues.push({
 			severity: 'warning',
 			path: 'match3.moves',
-			message: 'No moves limit, so a round only ends when a goal is reached.',
+			message: goals?.length
+				? 'No moves limit, so a round only ends when its goals are reached.'
+				: 'No moves limit and no goal, so a round never ends.',
 		});
 	}
 	const inPlay = new Set(symbolsInPlay(doc));

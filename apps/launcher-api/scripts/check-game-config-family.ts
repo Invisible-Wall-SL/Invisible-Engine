@@ -28,6 +28,7 @@ import { SLOT_GAME_KINDS } from 'constants-shared/gameKinds';
 import { kindCapabilities, type KindCapabilities } from 'engine-layout';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { projectAddOns } from '../src/lib/addOns.ts';
 import { unplayableFamilyMessage } from '../src/lib/server/familyGate.ts';
 import * as familyDoc from '../src/routes/(app)/config/familyDoc.ts';
 
@@ -122,6 +123,28 @@ for (const kind of [...SLOT_GAME_KINDS, 'myCustomKind', undefined]) {
 		`1. ${kind}: a rules outcome on a slot changes nothing`,
 		kindCapabilities(kind, { outcome: 'rules' }),
 		caps,
+	);
+}
+{
+	// What the tools pass `kindCapabilities`: a slot config adds no family key, so its answers are
+	// unchanged; a match-3 config on a slot kind's project is offered match-3's.
+	const slotDoc = { symbols: { A: {} }, paddingReels: { basegame: [[{ name: 'A' }]] } };
+	const addOns = projectAddOns(slotDoc as never).addOns;
+	same(
+		'1. a slot config adds no family to the add-ons',
+		[Object.hasOwn(addOns, 'family'), Object.hasOwn(addOns, 'outcome')],
+		[false, false],
+	);
+	const m3 = projectAddOns({ ...slotDoc, family: 'match3', outcome: 'rules' } as never).addOns;
+	same(
+		'1. a match-3 config adds its family and outcome',
+		[m3.family, m3.outcome],
+		['match3', 'rules'],
+	);
+	same(
+		'1. …so a lines project with a match-3 config gets match-3 answers',
+		pick(kindCapabilities('lines', m3), ['freeSpins', 'board', 'wallet']),
+		{ freeSpins: false, board: true, wallet: false },
 	);
 }
 same(

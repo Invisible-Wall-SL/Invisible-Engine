@@ -36,17 +36,21 @@ authored but not published. P10.1b and later have not started.
   game-spec's schema. Game Maker still offers neither kind: it needs a full scene set (P10.5).
 - **`kindCapabilities`** takes `family` / `outcome` and gains `wallet`, `betControls` and `board`
   (all `true` for a slot). A match-3 or arcade project is offered none of a slot's sections.
+  `projectAddOns()` passes a non-slot config's family and outcome to it, so the tools follow the
+  config as `/config` does; a slot config adds neither.
 - **The family gate:** the online publish and the desktop bake's config export
   (`/api/game-config/doc`) refuse a non-slot config, with no override, until its runtime exists
   (§9 #26).
 
 **Verified (2026-10-23):**
 
-- `family.fixture.ts`, `check:family-defaults-identity` (26 configs), `check:game-config-family`
+- `family.fixture.ts`, `check:family-defaults-identity` (every shipped config; 26 normalize, the
+  cluster sample's is refused as before), `check:game-config-family`
   (setters vs normalizer; the page server-rendered per family), plus the existing
   `check:symbols-kind-gating` and `check:flow-publish-gate`, moved to the slot kinds.
 - Against `main`, by hand:
-  - `main`'s own normalizer and validator over 28 shipped configs: 0 differences.
+  - `main`'s own normalizer and validator over 28 shipped configs (the same corpus plus the
+    number-picker and price apps): 0 differences.
   - `/config` server-rendered on both sides for seven slot seeds: the same text and markup.
   - The diff runs Prettier over `+page.svelte`. With whitespace ignored, it adds only the `{#if}`
     gates and the family markup.
@@ -60,6 +64,13 @@ authored but not published. P10.1b and later have not started.
    the slot-only loops of `check:flow-publish-gate` and decides which Reel behaviour switches
    match-3 shows.
 3. The `/config` **Characters** link for arcade (§6.2) lands with Invisible Characters (P10.11).
+4. **Confirm no custom kind is named `match3` or `arcade`** in R2 (`_shared/editor-kinds/`). Such a
+   kind would now read as that family, and the built-in id would hide it from the pickers. Needs R2
+   access, which this build did not have.
+5. The runtime still prices and draws the `match3` arm as the lines default (`payoutDivisor`,
+   `winLineShapeFor`), and `engine-game/src/game/gameConfig.ts`'s note about a fifth win model
+   still stands. That code path is unreachable while the family gate holds; P10.6 honours the arm
+   (divisor 1) when RGS match-3 lands.
 
 ## Blocked (owner / external)
 
