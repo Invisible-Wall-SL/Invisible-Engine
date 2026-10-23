@@ -193,6 +193,48 @@ Shipped capabilities on `main`:
   the fallback doc: before, the fill stopped at 1920×1080; after, every edge is covered. Any
   project with a smaller top-level Rect on a background screen now fills the window too; wrap it
   in a group to keep it placed.
+- 2026-10-23 — **Keys paste onto another node; a screen timeline's `signal:` cue plays _On cue_
+  Element FX** (branch `editor/keys-paste-other-node-screen-cues`, ⏳ not browser-verified).
+  Reported on `commonoverlayproject` (Base game, timeline `Reel_Intro`):
+  - **Paste onto another node.** "I want the reel background to do exactly the same animation."
+    Ctrl+V only wrote back onto the copied track. Now, with keys of ONE node copied and another
+    node selected on the stage, the Timeline asks its host (`host.pasteTarget`, new and optional)
+    and the keys land on that node's same fields, timed from the playhead, in the ratio being
+    edited (`ensurePropertyTrack` under `propertyLayout`). Fields it cannot key are skipped
+    (`keyableChannels`), and the node becomes an actor only once something pastes. The copied node
+    still selected, nothing selected, keys from two nodes, or no hook (`/rigger`) paste as before,
+    byte-identical. The editor's hook is `pasteTarget` in `EditorTimelinePanel.svelte`; the optional
+    right-click *Copy animation to…* was not built. A group is NOT a workaround for the reel grid:
+    the game reads it only as a top-level node (`findReelGridNode`), and the guide now says so.
+  - **Cues → Element FX.** A screen timeline's cue never reached an _On cue_ Element FX, whatever
+    its name. `FlowV2Cinematics.routeCue` only broadcast on the game event bus, and `ElementFxPlayer`
+    listens on the component-signal bus, which only a Flow `fireCue` and a component's own timeline
+    fed. The editor's Animate ▶ fired no cues at all. Now, for a **screen-hosted** timeline only,
+    a `signal:NAME` cue also fires `NAME` on that bus (`screenCueSignal` in `engine-layout`'s
+    `componentEvents.ts`, routed as `routeComponentCue` routes a component timeline's cue), after
+    the unchanged broadcast. A bare, `fx:`, `sfx:` or `music:` cue and every Rigger cinematic
+    behave as before. In the editor, ▶ plays the _On cue_ entries a crossed cue reaches on the
+    screen and its nodes (`screenCueFx`) through the Element FX ▶ preview, one at a time.
+    `playbackCuesCrossed` steps as `<Cinematic>` does, on `cuesCrossed` / `pingPongCuesCrossed`.
+    The cue inspector lists the screen's _On cue_ names as `signal:` cues under **Element FX (On
+    cue)** and adds a note (`host.cueSuggestions`, new and optional; without it the markup is
+    unchanged, so the Rigger golden passes 106/106).
+  - Gates (both fail on `main`): `check:timeline-node-paste` (fields, times, eases, the ratio, a
+    skipped field, same-node paste byte-identical, the panel's hook) and `check:screen-cue-fx`
+    (the owner's timeline at 30 fps fires the Element FX's subscription once at 1.0 s; bare / `fx:`
+    / `sfx:` fire none; screen hosts only; the editor's `screenCueFx` and one-shot / loop /
+    ping-pong stepping; the inspector's suggestions, and the Rigger markup unchanged). The stub
+    harnesses `check:screen-timeline-mounts` and `cinematic-screen-timeline.mjs` learned the two
+    new `engine-layout` exports. `static/shared/timeline.mjs` was regenerated.
+  - **Parity audit (R2, 2026-10-23):** the bucket's 34 screen-hosted timelines, across every
+    project and its published snapshots, carry no cue at all, so no current game has a `signal:`
+    cue the new delivery could change. Note the emit reaches every open-bus listener of that name,
+    as a Flow `fireCue` does (rig *Plays on signal*, a component timeline's `playOn`, an Element FX
+    stop cue), not only _On cue_ entries.
+  - Review follow-up: a paste that lands nothing makes no actor (the target's `actor()` runs only
+    once a key fits), and a clipboard holding a camera key pastes as before.
+  - Editor preview gaps (in the guide): one Element FX at a time (the last a cue reaches),
+    Element FX inside a placed component's parts and stop cues not previewed.
 - 2026-10-23 — **The Interpolation panel draws its curve** (in review). The panel showed a solid
   black box with two black dots where the cubic curve belongs. The shared Timeline emits the curve
   as SVG (`.cineCurveBox` / `Arm` / `Path` / `Handle`) and `EditorTimelinePanel.svelte` had no

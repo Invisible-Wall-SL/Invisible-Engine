@@ -14,6 +14,7 @@
  */
 
 import { Filter, GlProgram } from 'pixi.js';
+import { linkGlsl } from 'constants-shared/glslLibrary';
 
 const VERTEX = `in vec2 aPosition;
 out vec2 vTextureCoord;
@@ -73,14 +74,18 @@ bool efxInside(vec2 px)
 type UniformValue = number | Float32Array;
 type UniformSpec = { value: UniformValue; type: string };
 
-/** One shader pass. `efx` is its uniform block: `uElement` and `uPad` plus the family's own. */
+/**
+ * One shader pass. `efx` is its uniform block: `uElement` and `uPad` plus the family's own. Its
+ * body calls the shared building blocks (`constants-shared/glslLibrary`) by name, and they are
+ * linked in front of it.
+ */
 export class ElementFxFilter extends Filter {
 	readonly efx: Record<string, UniformValue>;
 
 	constructor(name: string, body: string, uniforms: Record<string, UniformSpec>) {
 		const glProgram = GlProgram.from({
 			vertex: VERTEX,
-			fragment: HEADER + body,
+			fragment: HEADER + linkGlsl(body),
 			name: `element-fx-${name}`,
 		});
 		super({
@@ -134,13 +139,7 @@ void main(void)
     float m = max(size.x, size.y);
     vec2 p = efxPx() - efxCenter();
     float f = uPersp.x * m;
-    float cx = cos(uRot.x);
-    float sx = sin(uRot.x);
-    float cy = cos(uRot.y);
-    float sy = sin(uRot.y);
-    mat3 rx = mat3(1.0, 0.0, 0.0, 0.0, cx, sx, 0.0, -sx, cx);
-    mat3 ry = mat3(cy, 0.0, -sy, 0.0, 1.0, 0.0, sy, 0.0, cy);
-    mat3 r = ry * rx;
+    mat3 r = efxRotY(uRot.y) * efxRotX(uRot.x);
     vec3 n = r * vec3(0.0, 0.0, 1.0);
     vec3 eye = vec3(0.0, 0.0, -f);
     vec3 dir = vec3(p, f);
@@ -157,10 +156,7 @@ void main(void)
         finalColor = vec4(0.0);
         return;
     }
-    // The inverse of a rotation is its transpose, written out: GLSL ES 1.00 (WebGL1) has no
-    // transpose().
-    mat3 rt = mat3(r[0][0], r[1][0], r[2][0], r[0][1], r[1][1], r[2][1], r[0][2], r[1][2], r[2][2]);
-    vec3 local = rt * (eye + lambda * dir - p0);
+    vec3 local = efxTranspose(r) * (eye + lambda * dir - p0);
     vec4 color = efxSample(efxCenter() + local.xy);
     if (uPersp.y > 0.5)
     {
@@ -187,25 +183,6 @@ export const sphericonFilter = (): ElementFxFilter =>
 		`
 uniform vec3 uSpin;
 uniform vec3 uSphericon;
-
-mat3 rotX(float a)
-{
-    float c = cos(a);
-    float s = sin(a);
-    return mat3(1.0, 0.0, 0.0, 0.0, c, s, 0.0, -s, c);
-}
-
-mat3 rotY(float a)
-{
-    float c = cos(a);
-    float s = sin(a);
-    return mat3(c, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, c);
-}
-
-mat3 flip(mat3 m)
-{
-    return mat3(m[0][0], m[1][0], m[2][0], m[0][1], m[1][1], m[2][1], m[0][2], m[1][2], m[2][2]);
-}
 
 // t when o + t d lies on the face around axis a (0 <= p.a <= h) inside the half where
 // side * p.z >= 0, else -1.
@@ -247,8 +224,8 @@ void main(void)
     }
     vec2 size = efxSize();
     float h = max(uSphericon.y * min(size.x, size.y), 1.0);
-    mat3 r = rotX(uSpin.z) * rotY(uSpin.y) * rotX(uSpin.x);
-    mat3 inv = flip(r);
+    mat3 r = efxRotX(uSpin.z) * efxRotY(uSpin.y) * efxRotX(uSpin.x);
+    mat3 inv = efxTranspose(r);
     vec3 o = inv * vec3(px - efxCenter(), -4.0 * h);
     vec3 d = inv * vec3(0.0, 0.0, 1.0);
 
@@ -379,7 +356,7 @@ uniform vec4 uCurl;
 
 vec4 back(vec4 color)
 {
-    float grey = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+    float grey = efxLuma(color.rgb);
     color.rgb = mix(color.rgb, vec3(grey), 0.45) * 0.72 + 0.12 * color.a;
     return color;
 }
@@ -520,7 +497,7 @@ void main(void)
     vec2 u = efxToUnit(px) - 0.5;
     vec2 axis = vec2(cos(uShine.z), sin(uShine.z));
     float along = dot(u, axis) + 0.5;
-    float band = 1.0 - smoothstep(0.0, max(uShine.y, 0.001), abs(along - uShine.x));
+    float band = efxBand(along, uShine.x, max(uShine.y, 0.001));
     color.rgb = min(color.rgb + uShineColor * color.a * band * band * uShine.w, vec3(color.a));
     finalColor = color;
 }
@@ -556,25 +533,6 @@ export const dissolveFilter = (): ElementFxFilter =>
 uniform vec4 uDissolve;
 uniform vec3 uEdgeColor;
 
-float hash(vec2 p)
-{
-    p = fract(p * vec2(123.34, 456.21));
-    p += dot(p, p + 45.32);
-    return fract(p.x * p.y);
-}
-
-float noise(vec2 p)
-{
-    vec2 i = floor(p);
-    vec2 f = fract(p);
-    vec2 w = f * f * (3.0 - 2.0 * f);
-    float a = hash(i);
-    float b = hash(i + vec2(1.0, 0.0));
-    float c = hash(i + vec2(0.0, 1.0));
-    float d = hash(i + vec2(1.0, 1.0));
-    return mix(mix(a, b, w.x), mix(c, d, w.x), w.y);
-}
-
 void main(void)
 {
     vec2 px = efxPx();
@@ -582,7 +540,7 @@ void main(void)
     vec2 size = efxSize();
     vec2 u = efxToUnit(px) * vec2(size.x / max(size.x, size.y), size.y / max(size.x, size.y));
     vec2 q = u * uDissolve.z + uDissolve.w;
-    float n = 0.55 * noise(q) + 0.3 * noise(q * 2.03 + 7.1) + 0.15 * noise(q * 4.01 + 3.7);
+    float n = 0.55 * efxNoise(q) + 0.3 * efxNoise(q * 2.03 + 7.1) + 0.15 * efxNoise(q * 4.01 + 3.7);
     float edge = uDissolve.y;
     float threshold = uDissolve.x * (1.0 + edge);
     if (n < threshold - edge)
@@ -615,19 +573,6 @@ export const meltFilter = (): ElementFxFilter =>
 uniform vec4 uMelt;
 uniform vec4 uHeat;
 
-float meltHash(float n)
-{
-    return fract(sin(n * 12.9898 + 78.233) * 43758.5453);
-}
-
-float meltNoise(float x)
-{
-    float i = floor(x);
-    float f = fract(x);
-    f = f * f * (3.0 - 2.0 * f);
-    return mix(meltHash(i), meltHash(i + 1.0), f);
-}
-
 void main(void)
 {
     vec2 px = efxPx();
@@ -640,9 +585,9 @@ void main(void)
     vec2 u = efxToUnit(px);
     float drips = uMelt.z;
     float seed = uMelt.w;
-    float run = 0.3 + 0.35 * meltNoise(u.x * drips + seed)
-        + 0.2 * meltNoise(u.x * drips * 2.7 + seed * 1.7)
-        + 0.6 * pow(meltNoise(u.x * drips * 4.3 + seed * 2.3), 4.0);
+    float run = 0.3 + 0.35 * efxNoise1(u.x * drips + seed)
+        + 0.2 * efxNoise1(u.x * drips * 2.7 + seed * 1.7)
+        + 0.6 * pow(efxNoise1(u.x * drips * 4.3 + seed * 2.3), 4.0);
     float d = m * uMelt.y * run;
     // Row v of the element moves down by d * (0.3 + 0.7 v); this pixel shows the row that lands here.
     float v = (u.y - 0.3 * d) / (1.0 + 0.7 * d);
@@ -662,13 +607,12 @@ void main(void)
 	);
 
 /**
- * Freezing into ice: frost creeps over the element's own pixels from where `uFreeze.w` says (0 the
- * edges, 1 the centre, 2 the top, 3 the bottom), its front following the crystals, and what it
- * covers turns to ice — `uIce` shaded by the art's brightness with a hint of its own colour, so
- * it reads underneath; crystal boundaries and facets (cellular noise) lit, the frost thicker where it
- * started, the element's own edge frosted white, a bright line on the creeping front. `uFreeze` =
- * (coverage 0…1, crystals across, seed, from); `uGlint` = (how icy, 0…1; where a glint sweeping
- * across is, off below 0).
+ * Freezing into ice: frost creeps over the element's own pixels from the side `uFreeze.w` names (an
+ * `EFX_SIDES` number), its front following the crystals, and what it covers turns to ice — `uIce`
+ * shaded by the art's brightness with a hint of its own colour, so it reads underneath; crystal
+ * boundaries and facets (cellular noise) lit, the frost thicker where it started, the element's own
+ * edge frosted white, a bright line on the creeping front. `uFreeze` = (coverage 0…1, crystals
+ * across, seed, from); `uGlint` = (how icy, 0…1; where a glint sweeping across is, off below 0).
  */
 export const freezeFilter = (): ElementFxFilter =>
 	new ElementFxFilter(
@@ -677,39 +621,6 @@ export const freezeFilter = (): ElementFxFilter =>
 uniform vec4 uFreeze;
 uniform vec3 uIce;
 uniform vec2 uGlint;
-
-vec2 iceHash(vec2 p)
-{
-    p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
-    return fract(sin(p) * 43758.5453);
-}
-
-// The distance to the nearest crystal's centre and to the next nearest.
-vec2 iceCells(vec2 p)
-{
-    vec2 cell = floor(p);
-    vec2 f = fract(p);
-    float d1 = 8.0;
-    float d2 = 8.0;
-    for (int j = -1; j <= 1; j++)
-    {
-        for (int i = -1; i <= 1; i++)
-        {
-            vec2 g = vec2(float(i), float(j));
-            float d = length(g + iceHash(cell + g + uFreeze.z) - f);
-            if (d < d1)
-            {
-                d2 = d1;
-                d1 = d;
-            }
-            else if (d < d2)
-            {
-                d2 = d;
-            }
-        }
-    }
-    return vec2(d1, d2);
-}
 
 void main(void)
 {
@@ -723,12 +634,8 @@ void main(void)
     }
     vec2 size = efxSize();
     vec2 u = efxToUnit(px);
-    vec2 cells = iceCells(u * size / max(size.x, size.y) * uFreeze.y);
-    float from = uFreeze.w;
-    float away = from < 0.5
-        ? 2.0 * min(min(u.x, 1.0 - u.x), min(u.y, 1.0 - u.y))
-        : from < 1.5 ? length(u - 0.5) * 1.4142 : from < 2.5 ? u.y : 1.0 - u.y;
-    float reach = 0.8 * clamp(away, 0.0, 1.0) + 0.2 * cells.x;
+    vec2 cells = efxCells(u * size / max(size.x, size.y) * uFreeze.y, uFreeze.z, uFreeze.z).xy;
+    float reach = 0.8 * efxAway(u, uFreeze.w) + 0.2 * cells.x;
     float front = uFreeze.x * 1.25;
     float frozen = 1.0 - smoothstep(front - 0.06, front, reach);
     if (frozen <= 0.0)
@@ -737,19 +644,14 @@ void main(void)
         return;
     }
     vec3 rgb = color.rgb / color.a;
-    float lum = dot(rgb, vec3(0.299, 0.587, 0.114));
+    float lum = efxLuma(rgb);
     vec3 ice = mix(uIce * (0.35 + 0.9 * lum), rgb, 0.18);
     ice += 0.3 * (1.0 - smoothstep(0.0, 0.05, cells.y - cells.x));
     ice += 0.08 * cells.x;
     ice += 0.2 * (1.0 - smoothstep(0.0, 0.4, reach));
-    float sweep = u.x + 0.6 * u.y;
-    ice += 0.5 * (1.0 - smoothstep(0.0, 0.08, abs(sweep - uGlint.y * 1.6)));
-    float edge = color.a - min(
-        min(efxSample(px + vec2(1.5, 0.0)).a, efxSample(px - vec2(1.5, 0.0)).a),
-        min(efxSample(px + vec2(0.0, 1.5)).a, efxSample(px - vec2(0.0, 1.5)).a));
-    ice += 0.6 * clamp(edge, 0.0, 1.0);
-    float rim = 1.0 - smoothstep(0.0, 0.05, abs(reach - (front - 0.03)));
-    ice += 0.35 * rim * step(uFreeze.x, 0.999);
+    ice += 0.5 * efxGlint(u, uGlint.y, 0.08);
+    ice += 0.6 * clamp(efxEdge(px, color.a, 1.5), 0.0, 1.0);
+    ice += 0.35 * efxBand(reach, front - 0.03, 0.05) * step(uFreeze.x, 0.999);
     finalColor = vec4(mix(rgb, min(ice, vec3(1.0)), frozen * amount) * color.a, color.a);
 }
 `,
@@ -757,12 +659,12 @@ void main(void)
 	);
 
 /**
- * Burning to ashes: a fire front sweeps across from `uBurn.w` (0 bottom, 1 top, 2 the edges, 3 the
- * centre, 4 left, 5 right), ragged with noise. Ahead of it the element scorches brown; on it the
- * element's own shape burns in flickering flame; behind it lies grey ash in the element's shape,
- * embers cooling in it, lifting a little and crumbling away. Sparks rise from the flames.
- * `uBurn` = (front, raggedness, seed, from); `uFlame` = (flame colour, seconds for the flicker
- * and the sparks); `uAsh` = (ash colour, sparks on); `uGlow` = (how hot the flame burns).
+ * Burning to ashes: a fire front sweeps across from the side `uBurn.w` names (an `EFX_SIDES`
+ * number), ragged with noise. Ahead of it the element scorches brown; on it the element's own shape
+ * burns in flickering flame; behind it lies grey ash in the element's shape, embers cooling in it,
+ * lifting a little and crumbling away. Sparks rise from the flames. `uBurn` = (front, raggedness,
+ * seed, from); `uFlame` = (flame colour, seconds for the flicker and the sparks); `uAsh` = (ash
+ * colour, sparks on); `uGlow` = (how hot the flame burns).
  */
 export const burnFilter = (): ElementFxFilter =>
 	new ElementFxFilter(
@@ -773,37 +675,6 @@ uniform vec4 uFlame;
 uniform vec4 uAsh;
 uniform vec2 uGlow;
 
-float burnHash(vec2 p)
-{
-    p = fract(p * vec2(123.34, 456.21));
-    p += dot(p, p + 45.32);
-    return fract(p.x * p.y);
-}
-
-float burnNoise(vec2 p)
-{
-    vec2 i = floor(p);
-    vec2 f = fract(p);
-    vec2 w = f * f * (3.0 - 2.0 * f);
-    return mix(
-        mix(burnHash(i), burnHash(i + vec2(1.0, 0.0)), w.x),
-        mix(burnHash(i + vec2(0.0, 1.0)), burnHash(i + vec2(1.0, 1.0)), w.x),
-        w.y);
-}
-
-// How far the fire travels to reach unit point u, 0…1, roughened by the noise n.
-float burnReach(vec2 u, float n)
-{
-    float from = uBurn.w;
-    float away = from < 0.5 ? 1.0 - u.y
-        : from < 1.5 ? u.y
-        : from < 2.5 ? 2.0 * min(min(u.x, 1.0 - u.x), min(u.y, 1.0 - u.y))
-        : from < 3.5 ? length(u - 0.5) * 1.4142
-        : from < 4.5 ? u.x
-        : 1.0 - u.x;
-    return 0.75 * clamp(away, 0.0, 1.0) + 0.25 * n;
-}
-
 void main(void)
 {
     vec2 px = efxPx();
@@ -812,8 +683,9 @@ void main(void)
     vec2 u = efxToUnit(px);
     vec2 aspect = size / max(size.x, size.y);
     vec2 q = u * aspect * uBurn.y + uBurn.z;
-    float n = 0.6 * burnNoise(q) + 0.3 * burnNoise(q * 2.1 + 3.7) + 0.1 * burnNoise(q * 4.3 + 9.1);
-    float s = uBurn.x - burnReach(clamp(u, 0.0, 1.0), n);
+    float n = 0.6 * efxNoise(q) + 0.3 * efxNoise(q * 2.1 + 3.7) + 0.1 * efxNoise(q * 4.3 + 9.1);
+    // How far the fire has come past this pixel, the front roughened by the noise.
+    float s = uBurn.x - (0.75 * efxAway(clamp(u, 0.0, 1.0), uBurn.w) + 0.25 * n);
     float time = uFlame.w;
     vec4 burnt = vec4(0.0);
     if (s < 0.0)
@@ -823,7 +695,7 @@ void main(void)
     }
     else if (s < 0.05)
     {
-        float flicker = 0.75 + 0.25 * burnNoise(q * 3.0 + vec2(0.0, time * 9.0));
+        float flicker = 0.75 + 0.25 * efxNoise(q * 3.0 + vec2(0.0, time * 9.0));
         vec3 flame = mix(vec3(1.0, 0.95, 0.65), uFlame.rgb, s / 0.05) * flicker * uGlow.x;
         burnt = vec4(min(flame * 1.3, vec3(1.0)) * color.a, color.a);
     }
@@ -831,7 +703,7 @@ void main(void)
     {
         float lift = (s - 0.05) * 0.12 * size.y;
         float a = efxSample(px + vec2(0.0, lift)).a;
-        float fine = burnNoise(q * 6.0 + 1.3);
+        float fine = efxNoise(q * 6.0 + 1.3);
         a *= 1.0 - smoothstep(0.08, 0.5, s + 0.25 * (fine - 0.5) + 0.2 * (n - 0.5));
         float ember = step(0.86, fine) * (1.0 - smoothstep(0.05, 0.25, s));
         vec3 ash = mix(uAsh.rgb * (0.65 + 0.5 * fine), uFlame.rgb * 1.2 * uGlow.x, ember);
@@ -841,8 +713,8 @@ void main(void)
     {
         vec2 sq = vec2(u.x * aspect.x, u.y * aspect.y + time * 0.35) * 14.0;
         vec2 cell = floor(sq);
-        vec2 at = vec2(burnHash(cell + uBurn.z), burnHash(cell + uBurn.z + 17.0));
-        float live = step(0.6, burnHash(cell + 5.3));
+        vec2 at = vec2(efxHash(cell + uBurn.z), efxHash(cell + uBurn.z + 17.0));
+        float live = step(0.6, efxHash(cell + 5.3));
         float band = smoothstep(-0.25, -0.05, s) * (1.0 - smoothstep(0.05, 0.2, s));
         float spark = (1.0 - smoothstep(0.0, 0.12, length(fract(sq) - at))) * live * band;
         burnt += vec4(min(uFlame.rgb * 1.3, vec3(1.0)) * spark, spark);
@@ -866,24 +738,6 @@ export const poisonFilter = (): ElementFxFilter =>
 uniform vec4 uPoison;
 uniform vec4 uVenom;
 
-float poisonHash(vec2 p)
-{
-    p = fract(p * vec2(123.34, 456.21));
-    p += dot(p, p + 45.32);
-    return fract(p.x * p.y);
-}
-
-float poisonNoise(vec2 p)
-{
-    vec2 i = floor(p);
-    vec2 f = fract(p);
-    vec2 w = f * f * (3.0 - 2.0 * f);
-    return mix(
-        mix(poisonHash(i), poisonHash(i + vec2(1.0, 0.0)), w.x),
-        mix(poisonHash(i + vec2(0.0, 1.0)), poisonHash(i + vec2(1.0, 1.0)), w.x),
-        w.y);
-}
-
 void main(void)
 {
     vec2 px = efxPx();
@@ -899,16 +753,16 @@ void main(void)
     vec2 aspect = size / max(size.x, size.y);
     float time = uPoison.w;
     vec3 rgb = color.rgb / color.a;
-    float lum = dot(rgb, vec3(0.299, 0.587, 0.114));
+    float lum = efxLuma(rgb);
     vec3 sick = mix(rgb, vec3(lum) * (0.35 + 0.85 * uVenom.rgb), 0.8) + 0.15 * uVenom.rgb;
 
     vec2 q = u * aspect * uPoison.y + uPoison.z;
-    float ridge = 1.0 - abs(2.0 * poisonNoise(q) - 1.0);
-    float twig = 1.0 - abs(2.0 * poisonNoise(q * 2.3 + 5.1) - 1.0);
+    float ridge = 1.0 - abs(2.0 * efxNoise(q) - 1.0);
+    float twig = 1.0 - abs(2.0 * efxNoise(q * 2.3 + 5.1) - 1.0);
     float vein = smoothstep(0.9, 0.98, ridge) + 0.6 * smoothstep(0.93, 0.99, twig);
-    float edge = 1.0 - 2.0 * min(min(u.x, 1.0 - u.x), min(u.y, 1.0 - u.y));
+    float edge = 1.0 - efxEdgeDistance(u);
     float creep = 1.0 - dose * 1.2;
-    float reach = smoothstep(creep - 0.2, creep, edge + 0.2 * poisonNoise(q * 0.5));
+    float reach = smoothstep(creep - 0.2, creep, edge + 0.2 * efxNoise(q * 0.5));
     float pulse = 0.65 + 0.35 * sin(time * 4.0 - edge * 6.0);
     vec3 veinColor = mix(vec3(0.12, 0.02, 0.16), uVenom.rgb, 0.1 + 0.4 * pulse * pulse);
     sick = mix(sick, veinColor, clamp(vein * reach, 0.0, 1.0) * 0.85);
@@ -917,9 +771,9 @@ void main(void)
     {
         vec2 bq = vec2(u.x * aspect.x, u.y * aspect.y + time * 0.12) * 9.0;
         vec2 cell = floor(bq);
-        vec2 at = vec2(0.2 + 0.6 * poisonHash(cell + uPoison.z), 0.2 + 0.6 * poisonHash(cell + uPoison.z + 9.0));
-        float r = 0.12 + 0.18 * poisonHash(cell + 3.3);
-        float live = step(0.55, poisonHash(cell + 7.7));
+        vec2 at = vec2(0.2 + 0.6 * efxHash(cell + uPoison.z), 0.2 + 0.6 * efxHash(cell + uPoison.z + 9.0));
+        float r = 0.12 + 0.18 * efxHash(cell + 3.3);
+        float live = step(0.55, efxHash(cell + 7.7));
         vec2 off = fract(bq) - at;
         float ring = (1.0 - smoothstep(0.0, 0.05, abs(length(off) - r))) * live;
         float shine = (1.0 - smoothstep(0.0, r * 0.35, length(off + vec2(r * 0.35)))) * live;
@@ -943,19 +797,6 @@ export const electrocuteFilter = (): ElementFxFilter =>
 		`
 uniform vec4 uZap;
 uniform vec4 uArc;
-
-float zapHash(float n)
-{
-    return fract(sin(n * 12.9898 + 78.233) * 43758.5453);
-}
-
-float zapNoise(float x)
-{
-    float i = floor(x);
-    float f = fract(x);
-    f = f * f * (3.0 - 2.0 * f);
-    return mix(zapHash(i), zapHash(i + 1.0), f);
-}
 
 // A point on the element's edge, 0…4 once round it, in unit coordinates.
 vec2 zapRim(float a)
@@ -987,15 +828,15 @@ void main(void)
     {
         if (float(i) >= uZap.y) break;
         float seed = uZap.z + float(i) * 17.31 + tick * 3.7;
-        vec2 a = zapRim(zapHash(seed) * 4.0) * size;
-        vec2 b = zapRim(zapHash(seed + 1.7) * 2.0 + zapHash(seed) * 4.0 + 1.0) * size;
+        vec2 a = zapRim(efxHash1(seed) * 4.0) * size;
+        vec2 b = zapRim(efxHash1(seed + 1.7) * 2.0 + efxHash1(seed) * 4.0 + 1.0) * size;
         vec2 ab = b - a;
         float len = max(length(ab), 1.0);
         vec2 dir = ab / len;
         float along = dot(p - a, dir);
         if (along < 0.0 || along > len) continue;
         float s = along / len;
-        float jag = (zapNoise(s * 9.0 + seed) - 0.5) * 0.9 + (zapNoise(s * 23.0 + seed * 2.0) - 0.5) * 0.35;
+        float jag = (efxNoise1(s * 9.0 + seed) - 0.5) * 0.9 + (efxNoise1(s * 23.0 + seed * 2.0) - 0.5) * 0.35;
         float d = abs(dot(p - a, vec2(-dir.y, dir.x)) - jag * 0.22 * big * sin(PI * s));
         core += exp(-d / max(1.0, 0.006 * big));
         halo += exp(-d / (0.03 * big));
@@ -1005,13 +846,10 @@ void main(void)
     if (color.a > 0.0)
     {
         vec3 rgb = color.rgb / color.a;
-        float lum = dot(rgb, vec3(0.299, 0.587, 0.114));
-        float flick = uArc.a * step(0.72, zapHash(tick + uZap.z));
+        float lum = efxLuma(rgb);
+        float flick = uArc.a * step(0.72, efxHash1(tick + uZap.z));
         rgb = mix(rgb, mix(rgb, vec3(1.0 - lum) * (0.4 + 0.8 * arc), 0.85), flick * amount);
-        float edge = color.a - min(
-            min(efxSample(px + vec2(2.0, 0.0)).a, efxSample(px - vec2(2.0, 0.0)).a),
-            min(efxSample(px + vec2(0.0, 2.0)).a, efxSample(px - vec2(0.0, 2.0)).a));
-        rgb += arc * clamp(edge, 0.0, 1.0) * 0.8 * amount;
+        rgb += arc * clamp(efxEdge(px, color.a, 2.0), 0.0, 1.0) * 0.8 * amount;
         zapped = vec4(min(rgb, vec3(1.0)) * color.a, color.a);
     }
     float c = clamp(core, 0.0, 1.0) * amount;
@@ -1025,14 +863,13 @@ void main(void)
 	);
 
 /**
- * Turning to stone: granite creeps over the element's own pixels from where `uStone.w` says (0 the
- * bottom, 1 the top, 2 the edges, 3 the centre), a pale dusty line on its front. What it covers is
- * `uRock` shaded by the art's brightness and a fractal grain, speckled, split by slab cracks
- * (cellular noise), and carved in relief — the art's outline and its light and dark lit as height
- * from the top left; only some of the cracks show. Flaking off, every crack opens and the front
- * follows the slabs, so it lets go a chip at a time. `uStone` = (coverage 0…1, grain across, seed,
- * from); `uRock` = (stone colour, how stony 0…1); `uChip` = (how far it has flaked off, 0…1; how
- * dusty the creeping front is).
+ * Turning to stone: granite creeps over the element's own pixels from the side `uStone.w` names (an
+ * `EFX_SIDES` number), a pale dusty line on its front. What it covers is `uRock` shaded by the
+ * art's brightness and a fractal grain, speckled, split by slab cracks (cellular noise), and carved
+ * in relief — the art's outline and its light and dark lit as height from the top left; only some
+ * of the cracks show. Flaking off, every crack opens and the front follows the slabs, so it lets go
+ * a chip at a time. `uStone` = (coverage 0…1, grain across, seed, from); `uRock` = (stone colour,
+ * how stony 0…1); `uChip` = (how far it has flaked off, 0…1; how dusty the creeping front is).
  */
 export const petrifyFilter = (): ElementFxFilter =>
 	new ElementFxFilter(
@@ -1042,70 +879,9 @@ uniform vec4 uStone;
 uniform vec4 uRock;
 uniform vec2 uChip;
 
-float stoneHash(vec2 p)
-{
-    p = fract(p * vec2(123.34, 456.21));
-    p += dot(p, p + 45.32);
-    return fract(p.x * p.y);
-}
-
-vec2 stoneHash2(vec2 p)
-{
-    p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
-    return fract(sin(p) * 43758.5453);
-}
-
-float stoneNoise(vec2 p)
-{
-    vec2 i = floor(p);
-    vec2 f = fract(p);
-    vec2 w = f * f * (3.0 - 2.0 * f);
-    return mix(
-        mix(stoneHash(i), stoneHash(i + vec2(1.0, 0.0)), w.x),
-        mix(stoneHash(i + vec2(0.0, 1.0)), stoneHash(i + vec2(1.0, 1.0)), w.x),
-        w.y);
-}
-
 float stoneGrain(vec2 q)
 {
-    return 0.55 * stoneNoise(q) + 0.3 * stoneNoise(q * 2.3 + 3.1) + 0.15 * stoneNoise(q * 5.1 + 7.7);
-}
-
-// The distance to the nearest slab's centre and to the next nearest, and the nearest slab's own
-// random value.
-vec3 stoneSlabs(vec2 p)
-{
-    vec2 cell = floor(p);
-    vec2 f = fract(p);
-    float d1 = 8.0;
-    float d2 = 8.0;
-    float id = 0.0;
-    for (int j = -1; j <= 1; j++)
-    {
-        for (int i = -1; i <= 1; i++)
-        {
-            vec2 g = vec2(float(i), float(j));
-            float d = length(g + stoneHash2(cell + g + uStone.z) - f);
-            if (d < d1)
-            {
-                d2 = d1;
-                d1 = d;
-                id = stoneHash(cell + g + uStone.z * 3.1);
-            }
-            else if (d < d2)
-            {
-                d2 = d;
-            }
-        }
-    }
-    return vec3(d1, d2, id);
-}
-
-// The element's height at px for the relief: its outline, raised where the art is light.
-float stoneHeight(vec2 px)
-{
-    vec4 s = efxSample(px);
-    return 0.6 * s.a + 0.4 * dot(s.rgb, vec3(0.299, 0.587, 0.114));
+    return 0.55 * efxNoise(q) + 0.3 * efxNoise(q * 2.3 + 3.1) + 0.15 * efxNoise(q * 5.1 + 7.7);
 }
 
 void main(void)
@@ -1122,13 +898,8 @@ void main(void)
     vec2 u = efxToUnit(px);
     vec2 q = u * size / max(size.x, size.y) * uStone.y + uStone.z;
     float grain = stoneGrain(q);
-    vec3 slabs = stoneSlabs(q * 0.45);
-    float from = uStone.w;
-    float away = from < 0.5 ? 1.0 - u.y
-        : from < 1.5 ? u.y
-        : from < 2.5 ? 2.0 * min(min(u.x, 1.0 - u.x), min(u.y, 1.0 - u.y))
-        : length(u - 0.5) * 1.4142;
-    away = clamp(away, 0.0, 1.0);
+    vec3 slabs = efxCells(q * 0.45, uStone.z, uStone.z * 3.1);
+    float away = efxAway(u, uStone.w);
     float flaking = step(0.0001, uChip.x);
     float reach = mix(0.8 * away + 0.2 * grain, 0.3 * away + 0.7 * slabs.z, flaking);
     float front = uStone.x * mix(1.25, 1.03, flaking);
@@ -1139,20 +910,19 @@ void main(void)
         return;
     }
     vec3 rgb = color.rgb / color.a;
-    float lum = dot(rgb, vec3(0.299, 0.587, 0.114));
+    float lum = efxLuma(rgb);
     vec3 rock = uRock.rgb * (0.45 + 0.75 * lum) * (0.75 + 0.5 * grain);
-    rock *= 0.9 + 0.22 * step(0.74, stoneNoise(q * 11.0 + 5.0));
-    rock *= 1.0 - 0.3 * step(0.8, stoneNoise(q * 14.0 + 1.7));
-    float cracked = max(smoothstep(0.45, 0.65, stoneNoise(q * 0.6 + 11.0)), smoothstep(0.0, 0.3, uChip.x));
+    rock *= 0.9 + 0.22 * step(0.74, efxNoise(q * 11.0 + 5.0));
+    rock *= 1.0 - 0.3 * step(0.8, efxNoise(q * 14.0 + 1.7));
+    float cracked = max(smoothstep(0.45, 0.65, efxNoise(q * 0.6 + 11.0)), smoothstep(0.0, 0.3, uChip.x));
     rock *= 1.0 - 0.6 * cracked * (1.0 - smoothstep(0.0, 0.03, slabs.y - slabs.x));
     float e = 1.5;
-    float relief = (stoneHeight(px + vec2(e, 0.0)) - stoneHeight(px - vec2(e, 0.0)))
-        + (stoneHeight(px + vec2(0.0, e)) - stoneHeight(px - vec2(0.0, e)));
-    float bump = (stoneNoise(q * 2.3 + vec2(3.2, 3.1)) - stoneNoise(q * 2.3 + vec2(3.0, 3.1)))
-        + (stoneNoise(q * 2.3 + vec2(3.1, 3.2)) - stoneNoise(q * 2.3 + vec2(3.1, 3.0)));
+    float relief = (efxHeight(px + vec2(e, 0.0)) - efxHeight(px - vec2(e, 0.0)))
+        + (efxHeight(px + vec2(0.0, e)) - efxHeight(px - vec2(0.0, e)));
+    float bump = (efxNoise(q * 2.3 + vec2(3.2, 3.1)) - efxNoise(q * 2.3 + vec2(3.0, 3.1)))
+        + (efxNoise(q * 2.3 + vec2(3.1, 3.2)) - efxNoise(q * 2.3 + vec2(3.1, 3.0)));
     rock *= 1.0 + 0.45 * clamp(1.2 * relief + 1.5 * bump, -1.0, 1.0);
-    float rim = 1.0 - smoothstep(0.0, 0.05, abs(reach - (front - 0.03)));
-    rock = mix(rock, vec3(0.85, 0.82, 0.76), uChip.y * rim);
+    rock = mix(rock, vec3(0.85, 0.82, 0.76), uChip.y * efxBand(reach, front - 0.03, 0.05));
     rock += 0.14 * flaking * (1.0 - smoothstep(0.0, 0.05, front - reach));
     finalColor = vec4(mix(rgb, clamp(rock, 0.0, 1.0), stone * amount) * color.a, color.a);
 }
@@ -1161,13 +931,13 @@ void main(void)
 	);
 
 /**
- * Turning to gold: polished metal spreads over the element's own pixels from where `uGold.z` says
- * (0 the centre, 1 the bottom, 2 the top, 3 the edges) behind a molten white-gold front. The art's
- * outline and its light and dark become an embossed relief whose normal bends a studio reflection
- * (bright above, a dark band, warm below) and catches a highlight from the top left; the colour runs
- * from a deep version of `uMetal` through it to near white. A glint sweeps across and sparkles
- * twinkle on it. `uGold` = (coverage 0…1, seed, from, seconds); `uMetal` = (gold colour, how golden
- * 0…1); `uShine` = (where the glint is, off below 0; sparkles on; how bright the front glows).
+ * Turning to gold: polished metal spreads over the element's own pixels from the side `uGold.z`
+ * names (an `EFX_SIDES` number) behind a molten white-gold front. The art's outline and its light
+ * and dark become an embossed relief whose normal bends a studio reflection (bright above, a dark
+ * band, warm below) and catches a highlight from the top left; the colour runs from a deep version
+ * of `uMetal` through it to near white. A glint sweeps across and sparkles twinkle on it. `uGold` =
+ * (coverage 0…1, seed, from, seconds); `uMetal` = (gold colour, how golden 0…1); `uShine` = (where
+ * the glint is, off below 0; sparkles on; how bright the front glows).
  */
 export const goldFilter = (): ElementFxFilter =>
 	new ElementFxFilter(
@@ -1176,31 +946,6 @@ export const goldFilter = (): ElementFxFilter =>
 uniform vec4 uGold;
 uniform vec4 uMetal;
 uniform vec3 uShine;
-
-float goldHash(vec2 p)
-{
-    p = fract(p * vec2(123.34, 456.21));
-    p += dot(p, p + 45.32);
-    return fract(p.x * p.y);
-}
-
-float goldNoise(vec2 p)
-{
-    vec2 i = floor(p);
-    vec2 f = fract(p);
-    vec2 w = f * f * (3.0 - 2.0 * f);
-    return mix(
-        mix(goldHash(i), goldHash(i + vec2(1.0, 0.0)), w.x),
-        mix(goldHash(i + vec2(0.0, 1.0)), goldHash(i + vec2(1.0, 1.0)), w.x),
-        w.y);
-}
-
-// The element's height at px for the relief: its outline, raised where the art is light.
-float goldHeight(vec2 px)
-{
-    vec4 s = efxSample(px);
-    return 0.6 * s.a + 0.4 * dot(s.rgb, vec3(0.299, 0.587, 0.114));
-}
 
 // The metal at shade t, 0…1: a deep version of the colour, the colour, then near white.
 vec3 goldRamp(float t)
@@ -1224,42 +969,36 @@ void main(void)
     vec2 size = efxSize();
     vec2 u = efxToUnit(px);
     vec2 q = u * size / max(size.x, size.y);
-    float n = 0.65 * goldNoise(q * 5.0 + uGold.y) + 0.35 * goldNoise(q * 11.0 + uGold.y);
-    float from = uGold.z;
-    float away = from < 0.5 ? length(u - 0.5) * 1.4142
-        : from < 1.5 ? 1.0 - u.y
-        : from < 2.5 ? u.y
-        : 2.0 * min(min(u.x, 1.0 - u.x), min(u.y, 1.0 - u.y));
-    float reach = 0.82 * clamp(away, 0.0, 1.0) + 0.18 * n;
+    float n = 0.65 * efxNoise(q * 5.0 + uGold.y) + 0.35 * efxNoise(q * 11.0 + uGold.y);
+    float reach = 0.82 * efxAway(u, uGold.z) + 0.18 * n;
     float front = uGold.x * 1.22;
     float gilt = 1.0 - smoothstep(front - 0.04, front, reach);
-    float rim = (1.0 - smoothstep(0.0, 0.05, abs(reach - (front - 0.02)))) * uShine.z;
+    float rim = efxBand(reach, front - 0.02, 0.05) * uShine.z;
     if (gilt <= 0.0 && rim <= 0.0)
     {
         finalColor = color;
         return;
     }
     vec3 rgb = color.rgb / color.a;
-    float lum = dot(rgb, vec3(0.299, 0.587, 0.114));
+    float lum = efxLuma(rgb);
     float e = 1.5;
     vec2 slope = vec2(
-        goldHeight(px + vec2(e, 0.0)) - goldHeight(px - vec2(e, 0.0)),
-        goldHeight(px + vec2(0.0, e)) - goldHeight(px - vec2(0.0, e)));
+        efxHeight(px + vec2(e, 0.0)) - efxHeight(px - vec2(e, 0.0)),
+        efxHeight(px + vec2(0.0, e)) - efxHeight(px - vec2(0.0, e)));
     vec3 normal = normalize(vec3(-2.5 * slope, 1.0));
     float look = u.y + 0.9 * normal.y - 0.25 * normal.x;
     float env = 0.55 + 0.45 * cos(look * 5.0 + 0.6);
     vec3 metal = goldRamp(clamp(0.06 + 0.32 * lum + 0.62 * env, 0.0, 1.0));
     float spec = pow(max(dot(normal, normalize(vec3(-0.5, -0.6, 0.65))), 0.0), 18.0);
     metal += vec3(1.0, 0.97, 0.88) * 0.9 * spec;
-    float sweep = u.x + 0.6 * u.y;
-    metal += vec3(1.0, 0.95, 0.8) * 0.55 * (1.0 - smoothstep(0.0, 0.07, abs(sweep - uShine.x * 1.6)));
+    metal += vec3(1.0, 0.95, 0.8) * 0.55 * efxGlint(u, uShine.x, 0.07);
     if (uShine.y > 0.5)
     {
         vec2 sq = q * 6.0;
         vec2 cell = floor(sq);
-        vec2 at = 0.35 + 0.3 * vec2(goldHash(cell + uGold.y), goldHash(cell + uGold.y + 7.0));
-        float beat = max(0.0, sin((uGold.w * 1.3 + goldHash(cell + 3.3)) * 6.2832));
-        float tw = pow(beat, 6.0) * step(0.55, goldHash(cell + 9.1));
+        vec2 at = 0.35 + 0.3 * vec2(efxHash(cell + uGold.y), efxHash(cell + uGold.y + 7.0));
+        float beat = max(0.0, sin((uGold.w * 1.3 + efxHash(cell + 3.3)) * 6.2832));
+        float tw = pow(beat, 6.0) * step(0.55, efxHash(cell + 9.1));
         vec2 d = abs(fract(sq) - at);
         float arm = 0.34 * tw + 0.001;
         float star = (1.0 - smoothstep(0.0, 0.025, d.x)) * (1.0 - smoothstep(0.0, arm, d.y))

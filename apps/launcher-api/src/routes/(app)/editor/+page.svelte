@@ -52,7 +52,7 @@
 	} from 'engine-layout';
 	import ColorField from '$lib/ColorField.svelte';
 	import MenuButton, { type MenuGroup } from '$lib/MenuButton.svelte';
-	import { GAME_KINDS } from 'constants-shared/gameKinds';
+	import { SLOT_GAME_KINDS } from 'constants-shared/gameKinds';
 	import { BASE_GAME_MODE, builtinGameModes, holdAndWinModeDecl } from 'game-config';
 	import {
 		BOOT_SPLASH_DEFAULT_BACKGROUND,
@@ -2728,7 +2728,7 @@
 
 	// ---------- template authoring (§7.5) ----------
 
-	/** The game type the authored template is saved under (§7.5), picked from `GAME_KINDS`. */
+	/** The game type the authored template is saved under (§7.5), picked from `SLOT_GAME_KINDS`. */
 	let authoringGameType = $state<string>(data.template?.gameType ?? 'lines');
 
 	// ---------- game settings (jurisdiction + player-led speed features) ----------
@@ -3308,7 +3308,7 @@
 				<label class="gametype" title="Game type the template is saved under">
 					<span>type</span>
 					<select bind:value={authoringGameType} onchange={() => void onGameTypeChange()}>
-						{#each GAME_KINDS as gt (gt)}
+						{#each SLOT_GAME_KINDS as gt (gt)}
 							<option value={gt}>{gt}</option>
 						{/each}
 					</select>

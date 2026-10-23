@@ -332,11 +332,14 @@ const digest = (value: unknown): string =>
 /** The Element FX surface added to every kind's vocabulary after `main` 5743911. */
 const ELEMENT_FX_ACTIONS = ['elementEffect', 'stopElementEffect'];
 const ELEMENT_FX_ENUMS = ['ElementFxKind', 'ElementFxTarget'];
-/** `vocab` as `main` had it: without the Element FX additions. */
-const withoutElementFx = (vocab: TemplateVocabulary): TemplateVocabulary => ({
+/** The respin counter's award cue, added to the Hold and Win cues after `main` 5743911. */
+const AWARD_CUE = 'respinCounterAward';
+/** `vocab` as `main` had it: without the Element FX additions and the award cue. */
+const asOnMain = (vocab: TemplateVocabulary): TemplateVocabulary => ({
 	...vocab,
 	actions: vocab.actions.filter((a) => !ELEMENT_FX_ACTIONS.includes(a.name)),
 	enums: vocab.enums.filter((e) => !ELEMENT_FX_ENUMS.includes(e.name)),
+	cues: vocab.cues.filter((c) => c.name !== AWARD_CUE),
 });
 
 const currentDocs = (): [string, string, GameConfigDoc | null][] => {
@@ -458,10 +461,17 @@ for (const [name, kind, doc] of currentDocs()) {
 		],
 		[...ELEMENT_FX_ACTIONS, ...ELEMENT_FX_ENUMS],
 	);
+	if (docVocab.cues.some((cue) => cue.name === 'respinBoardShow')) {
+		same(
+			`5. ${name} · the award cue is there`,
+			docVocab.cues.some((cue) => cue.name === AWARD_CUE),
+			true,
+		);
+	}
 	const seed = graftAddOnSteps(freshDrivenSeedDoc(kind), addOns).doc;
 	const facts = {
 		addOns: digest(addOns),
-		vocab: digest(withoutElementFx(docVocab)),
+		vocab: digest(asOnMain(docVocab)),
 		seed: digest(seed),
 		verdict: digest(
 			validateFlowV2Against(seed, scenesFor(kind, doc), null, EMPTY_LIBRARY, [], addOns),

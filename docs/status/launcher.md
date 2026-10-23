@@ -59,6 +59,10 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-23 — **Tools per game family (Phase 10 P10.1b).** The home grid and `ToolTopBar` list
+  only the tools the active project's family uses (`FAMILY_TOOLS` in `roles.ts`; arcade hides
+  Symbols and Win Text, slots hide nothing), and a hidden tool's URL shows a notice from the
+  `(app)` layout. Detail in [game-families](game-families.md).
 - 2026-10-21 — **A desktop publish refused by the portal says why, and a desktop build gets its own
   key.** Reported on `commonoverlayproject`: ☁ Publish (launcher v1.0.57) failed with
   *"_app/immutable/assets/style….css: the portal returned HTTP 409."* and no reason. The project is

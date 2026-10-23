@@ -793,6 +793,18 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-23 — **Game families in the config: `family`, `outcome` and the `match3` / `arcade`
+  blocks** (P10.1 of [game-families.md](../design/game-families.md)). All optional, defaults never
+  stored. A slot config normalizes, validates and renders on `/config` exactly as before. That is
+  checked against `main` over 28 shipped configs, and gated by `check:family-defaults-identity`.
+  - The validator follows one section table, `configSectionsFor` (`src/familySections.ts`), so a
+    check runs only where its section shows.
+  - A project of a non-slot kind, or a config that names a family, gets the **Game family**
+    picker and the **Match-3** / **Arcade** section; the other sections are not rendered.
+  - Publish and the bake refuse a non-slot config until the runtime can play one.
+  - Detail, gates and decisions: [status/game-families.md](game-families.md). Guide:
+    [tools/game-config.md](../tools/game-config.md) (_Game family_).
+
 - 2026-10-14 — **The `coinBoard` block and `/config`'s Coin board section** (Hold and Win Phase 13a
   of [hold-and-win-coin-board.md](../design/hold-and-win-coin-board.md), PR #1200): a Hold and Win
   with no line game, its base game on the respin board. Detail and gates:
