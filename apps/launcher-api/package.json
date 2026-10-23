@@ -215,6 +215,8 @@
 		"check:family-defaults-identity": "tsx --tsconfig tsconfig.scripts.json scripts/check-family-defaults-identity.ts",
 		"precheck:game-config-family": "node scripts/ensure-svelte-kit.mjs",
 		"check:game-config-family": "tsx --tsconfig tsconfig.scripts.json scripts/check-game-config-family.ts",
+		"precheck:family-tools": "node scripts/ensure-svelte-kit.mjs",
+		"check:family-tools": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-family-tools.ts",
 		"precheck:doc-readers-unknown-fields": "node scripts/ensure-svelte-kit.mjs",
 		"check:doc-readers-unknown-fields": "tsx --tsconfig tsconfig.scripts.json scripts/check-doc-readers-unknown-fields.ts",
 		"precheck:save-keeps-unknown-blocks": "node scripts/ensure-svelte-kit.mjs",

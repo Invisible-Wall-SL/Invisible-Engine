@@ -1,17 +1,36 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { navigating } from '$app/state';
+	import type { GameFamily } from 'constants-shared/gameKinds';
+	import { resolve } from '$app/paths';
+	import { navigating, page } from '$app/state';
 	import BootSplash from '$lib/BootSplash.svelte';
 	import DialogHost from '$lib/DialogHost.svelte';
+	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { bootPhrases } from '$lib/bootPhrases';
+	import { FAMILY_LABELS, familyHiddenToolAt, type ToolDef } from '$lib/roles';
 
 	let {
 		children,
 		data,
 	}: {
 		children: Snippet;
-		data?: { tools?: { id: string; name: string; url: string; handsOff?: boolean }[] };
+		data?: {
+			tools?: ToolDef[];
+			family?: GameFamily;
+			familyProjectKey?: string;
+			projects?: { key: string; name: string }[];
+		};
 	} = $props();
+
+	// A direct link to a tool the project's family does not use gets a notice instead of the tool
+	// (game-families.md §6.5): one guard here, not one per tool.
+	const hiddenTool = $derived.by(() => {
+		const family = data?.family;
+		const tool = family && familyHiddenToolAt(page.url.pathname, family);
+		if (!tool || !family) return undefined;
+		const project = data?.projects?.find((p) => p.key === data.familyProjectKey);
+		return { tool, family, project: project?.name ?? data?.familyProjectKey ?? '' };
+	});
 
 	// Heavy tool routes (FX, Flow, Editor…) ship large JS chunks (PixiJS, rig,
 	// particle-emitter) that download AFTER the click but BEFORE the page renders —
@@ -70,7 +89,21 @@
 	});
 </script>
 
-{@render children()}
+{#if hiddenTool}
+	<div class="family-notice">
+		<ToolTopBar current="" tools={data?.tools ?? []} />
+		<main>
+			<h1>{hiddenTool.tool.name} is not used by {FAMILY_LABELS[hiddenTool.family]} games</h1>
+			<p>
+				<strong>{hiddenTool.project}</strong> is a project for {FAMILY_LABELS[hiddenTool.family]}
+				games, so the launcher does not offer this tool for it.
+			</p>
+			<a href={resolve('/')}>Back to the launcher</a>
+		</main>
+	</div>
+{:else}
+	{@render children()}
+{/if}
 
 <!--
 	The single modal host for `askConfirm()` / `askMessage()` / `askText()` (see
@@ -89,6 +122,26 @@
 {/if}
 
 <style>
+	.family-notice {
+		width: 100%;
+		box-sizing: border-box;
+		padding: 24px clamp(20px, 3vw, 40px);
+		color: #e8e8ee;
+	}
+	.family-notice main {
+		max-width: 640px;
+		margin: 48px auto;
+	}
+	.family-notice h1 {
+		font-size: 20px;
+		margin: 0 0 12px;
+	}
+	.family-notice p {
+		color: #aaa;
+	}
+	.family-notice a {
+		color: #c8a3ff;
+	}
 	:global(body) {
 		margin: 0;
 		background: #0b0b0f;
