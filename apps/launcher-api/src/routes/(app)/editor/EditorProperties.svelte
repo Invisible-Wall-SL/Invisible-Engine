@@ -26,6 +26,7 @@
 		BUTTON_VISUAL_STATES,
 		defaultHudText,
 		ENGINE_ACTION_CATALOG,
+		HOLD_AND_WIN_VALUE_SOURCE_KEYS,
 		ENGINE_ACTION_LABELS,
 		ENGINE_BINDING_PARAMS,
 		ENGINE_PARAM_CATALOG,
@@ -1893,6 +1894,22 @@
 			: ENGINE_ACTION_CATALOG;
 	}
 
+	/**
+	 * Dropdown options for a param with baked `options`. A Hold and Win panel's `source` (one whose
+	 * options carry a Hold and Win feed) also lists every Hold and Win feed from the LIVE catalog: a
+	 * copy saved off the built-in snapshots its options, and would never offer a feed added since.
+	 * The current value is kept when it is in neither list, so a hand-set source is not shown as unset.
+	 */
+	function paramOptions(p: ComponentParam, current: unknown): string[] {
+		const baked = p.options ?? [];
+		const options =
+			p.key === 'source' && baked.some((o) => HOLD_AND_WIN_VALUE_SOURCE_KEYS.includes(o))
+				? [...new Set([...HOLD_AND_WIN_VALUE_SOURCE_KEYS, ...baked])]
+				: baked;
+		const v = typeof current === 'string' ? current : '';
+		return v && !options.includes(v) ? [...options, v] : options;
+	}
+
 	/** Dropdown options for a repeater's `source`: the catalog of registered lists, plus the node's
 	 * current value when it's a custom source not in the catalog (so a hand-authored one isn't
 	 * silently rewritten to the first entry). */
@@ -2703,7 +2720,7 @@
 								onSetProjectParamDefault?.(p.key, e.currentTarget.value || undefined)}
 						>
 							<option value="">{inheritHint(p)}</option>
-							{#each p.options as opt (opt)}
+							{#each paramOptions(p, projectDefaultOf(p.key)) as opt (opt)}
 								<option value={opt}>{opt}</option>
 							{/each}
 						</select>
@@ -3022,7 +3039,7 @@
 								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
 							>
 								<option value="">(inherit default)</option>
-								{#each p.options as opt (opt)}
+								{#each paramOptions(p, instanceParamValue(node, p.key)) as opt (opt)}
 									<option value={opt}>{opt}</option>
 								{/each}
 							</select>

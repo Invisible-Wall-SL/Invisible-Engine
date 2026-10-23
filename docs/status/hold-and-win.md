@@ -1119,8 +1119,14 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
   - How-to: [Author the respin counter text](../tools/invisible-editor.md#author-the-respin-counter-text-count-respins-reset-last-respin-modifiers).
   - Gate: `pnpm --filter launcher-api run check:respin-counter-text` (same strings, suppression,
     one fire per reset / award); each check mutation-tested.
-  - Limit: a Text Box's source list does not offer the Hold and Win text sources, kept out so other
-    kinds' dropdowns stay unchanged. The how-to shows the modifiers with a Jackpot Tile.
+  - **Saved copies see the new feeds.** The editor's `source` dropdown on a Hold and Win panel
+    (Respin Counter, Jackpot Tile, Total Win Bar) now lists every Hold and Win feed from the live
+    catalog (`paramOptions`, `EditorProperties.svelte`). Before, a copy saved off the built-in froze
+    the options it was saved with. Any dropdown also keeps a current value that is not in its list.
+  - Flow v2's Hold and Win cues (`HOLD_AND_WIN_VOCAB`) list `respinCounterAward`.
+  - Limit: a Text Box's source list does not offer the Hold and Win text sources. They are kept out
+    so other kinds' dropdowns stay unchanged. The starter's **Active modifiers** Text Box already
+    has `activeModifiers`. Without one, the how-to uses a Jackpot Tile.
 
 - 2026-10-20 — **New games keep the exact built-in banner** (follow-up to #1279, owner's call).
   #1279 put the nine banner screens in every new Hold and Win game and in **＋ Add missing

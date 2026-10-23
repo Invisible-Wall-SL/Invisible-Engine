@@ -15,6 +15,7 @@
  *  2. **Nothing coded on top.** An authored counter part with content of its own draws only that: no
  *     coded count line, no coded modifiers line; the coded default steps aside for any authored
  *     counter. Only an empty part draws the coded look (parity for projects that author none).
+ *     The editor offers the new feeds on a counter saved before they existed, too.
  *  3. **The signals.** `respinReset` fires once per reset and `respinAward` once per award, from the
  *     beats that set the counter's note.
  */
@@ -37,7 +38,10 @@ import {
 	createEventEmitter,
 	type EmitterEventBase,
 } from '../../../packages/utils-event-emitter/index.ts';
+import { HOLD_AND_WIN_VOCAB } from 'engine-flow-v2';
+
 import { featureComponentSignals } from '../../lines/src/game/featureSignals.ts';
+import { LINES_EMITTER_VOCABULARY } from '../../lines/src/game/emitterVocabulary.ts';
 import { compileSlice, stripSliceTypes } from '../../../scripts/lib/compile-slice.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -210,6 +214,43 @@ eq(
 	2,
 );
 
+// The editor's `source` dropdown on a Hold and Win panel reads the live catalog, so a copy saved
+// before these feeds existed (its options snapshotted) still offers them.
+const properties = read('apps/launcher-api/src/routes/(app)/editor/EditorProperties.svelte');
+const paramOptions = compileSlice({
+	what: 'check-respin-counter-text#paramOptions',
+	names: ['HOLD_AND_WIN_VALUE_SOURCE_KEYS'],
+	body: `${stripSliceTypes(
+		'EditorProperties.svelte#paramOptions',
+		sliceBetween(properties, 'paramOptions', 'function paramOptions(', '\n\t}\n'),
+	)}
+return paramOptions;`,
+})(HOLD_AND_WIN_VALUE_SOURCE_KEYS) as (
+	p: { key: string; options?: string[] },
+	current: unknown,
+) => string[];
+const oldCopy = { key: 'source', options: ['respinsLeft', 'activeModifiers', 'bet'] };
+check(
+	'a counter copy saved before the new feeds offers them',
+	['respinCounterText', 'respinCounterNote'].every((k) => paramOptions(oldCopy, '').includes(k)) &&
+		paramOptions(oldCopy, '').includes('bet'),
+);
+eq(
+	'a non-Hold-and-Win dropdown keeps its own list',
+	paramOptions({ key: 'source', options: ['bet', 'win'] }, ''),
+	['bet', 'win'],
+);
+eq(
+	'…plus a current value not in it',
+	paramOptions({ key: 'source', options: ['bet', 'win'] }, 'activeModifiers'),
+	['bet', 'win', 'activeModifiers'],
+);
+eq(
+	'both of the panel’s dropdowns read it',
+	properties.match(/\{#each paramOptions\(p, /g)?.length,
+	2,
+);
+
 // --- 3. the signals ---
 check(
 	'the catalog offers the award and reset signals',
@@ -246,6 +287,12 @@ check(
 		trigger.match(/type: 'respinCounterAward'/g)?.length === 1,
 );
 eq('…and nothing else broadcasts it', presentation.match(/type: 'respinCounterAward'/g)?.length, 1);
+
+check(
+	'the award cue is in the game’s emitter vocabulary and Flow v2’s Hold and Win cues',
+	LINES_EMITTER_VOCABULARY.events.some((e) => e.type === 'respinCounterAward') &&
+		HOLD_AND_WIN_VOCAB.cues.some((c) => c.name === 'respinCounterAward'),
+);
 
 const { eventEmitter } = createEventEmitter<EmitterEventBase & Record<string, unknown>>();
 const live = featureComponentSignals(
