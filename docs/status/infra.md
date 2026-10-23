@@ -126,6 +126,20 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-23 — **TypeScript 5.9.3 → 6.0.3 (#1300, replaces Dependabot #1165).** No tsconfig used an
+  option TS 6 deprecates (`baseUrl`, `moduleResolution: node10`, `downlevelIteration`, …). Three
+  TS 6 changes hit:
+  - `types` now defaults to `[]`, so a package's own `@types/*` are no longer pulled in
+    automatically. `error-tracking` and `delivery-profile` (the two that rely on their
+    `@types/node`) set `"types": ["node"]`.
+  - `noUncheckedSideEffectImports` is on by default. `components-ui-html` declares `'*.scss'`
+    (`src/styles.d.ts`) for `GlobalStyle.svelte`'s `import './global.scss'`.
+  - Missing Node types are reported as ts:2591 instead of ts:2580 / ts:2307. The svelte-check
+    baseline was re-recorded for those relabelled errors only; no file's count rose.
+
+  `components-storybook` keeps a private TS 5.9.3 because Storybook 9's `@storybook/svelte-vite`
+  depends on `typescript ^5`; it goes with the Storybook 10 upgrade. typescript-eslint 8.71.2
+  accepts TS `<6.1.0`, so a TS 6.1 bump needs a typescript-eslint bump with it.
 - 2026-10-22 — **The headless-shell install waits for an orphaned `apt-get`.** On a slow Azure
   mirror, attempt 1 of `playwright install --with-deps` outlived its `timeout 240`, which kills
   pnpm but not the `sudo apt-get` it started. That apt-get ran on holding the dpkg lock, so
