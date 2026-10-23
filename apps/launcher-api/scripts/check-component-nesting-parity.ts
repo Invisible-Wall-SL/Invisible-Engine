@@ -21,10 +21,11 @@
  *     layer shares): the nodes the Component Editor expands are the ones the screen expands under
  *     the instance, at every breadcrumb depth.
  *  4. **Every renderer starts at the canvas's nest** (source-scanned): the canvas hands
- *     `componentNest` to each rig / text / effect layer, no layer starts a walk at a literal level,
+ *     `componentNest` to each rig / text / effect layer and to the selection box (`nodeBox`), no
+ *     layer starts a walk at a literal level,
  *     and the Component Editor passes its breadcrumb's nest.
  *  5. **The breadcrumb opens what the game draws** (`canEnterNested`): a nested def opens in place
- *     exactly when its own instance, at its level, is under the cap.
+ *     exactly when the screen walk expands its content.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -87,12 +88,21 @@ check(
 	'a screen draws its nodes at level 0, inside nothing',
 	SCREEN_NEST.depth === 0 && SCREEN_NEST.stack.length === 0,
 );
-const opened = componentEditorNest([], 'widget');
+const asDef = (id: string): ComponentDef => ({
+	id,
+	name: id,
+	version: 1,
+	scope: 'project',
+	category: 'ui',
+	root: { id: `${id}-root`, kind: 'container', x: 0, y: 0, children: [] },
+	params: [],
+});
+const opened = componentEditorNest([], asDef('widget'));
 check(
-	'a def opened from the list draws one level down, inside itself',
-	opened.depth === 1 && opened.stack.join() === 'widget',
+	'a def opened from the list draws one level down, inside itself, its machine resting it',
+	opened.depth === 1 && opened.stack.join() === 'widget' && opened.def?.id === 'widget',
 );
-const inPlace = componentEditorNest(['outer', 'widget'], 'counter');
+const inPlace = componentEditorNest(['outer', 'widget'], asDef('counter'));
 check(
 	'a def edited in place draws one more level per def it is inside, all on the stack',
 	inPlace.depth === 3 && inPlace.stack.join() === 'outer,widget,counter',
@@ -135,14 +145,10 @@ const screen: Scene = {
 const onScreen = expanded(screen);
 for (let open = 0; open < CHAIN; open++) {
 	const trail = Array.from({ length: open }, (_, i) => `L${i}`);
-	if (
-		!trail.every((_, i) => i === 0 || canEnterNested(i - 1)) ||
-		(open > 0 && !canEnterNested(open - 1))
-	)
-		continue;
+	if (open > 0 && !canEnterNested(open - 1)) continue;
 	const def = defs.get(`L${open}`) as ComponentDef;
 	const editor: Scene = { id: 'c', name: def.name, space: 'canvas', nodes: def.root.children };
-	const inEditor = expanded(editor, componentEditorNest(trail, def.id)).sort();
+	const inEditor = expanded(editor, componentEditorNest(trail, def)).sort();
 	// The same def's nodes on the screen: the paths under the instance of L<open>, made relative.
 	const prefix = Array.from({ length: open + 1 }, (_, i) => `i${i}`).join('/') + '/';
 	const under = onScreen
@@ -207,23 +213,25 @@ check(
 		!/depthSegments\(s, componentMap\)/.test(canvas),
 );
 check(
+	'the selection box and hit test stop expanding where the draw does',
+	/componentDefaults,\s*componentParams,\s*componentNest,\s*\)/.test(canvas),
+);
+check(
 	'the Component Editor hands the canvas its breadcrumb’s nest',
-	/componentNest=\{componentEditorNest\(trail, componentDraft\.id\)\}/.test(
+	/componentNest=\{componentEditorNest\(trail, componentDraft\)\}/.test(
 		source('ComponentWorkspace.svelte'),
 	),
 );
 
 // ── 5. the breadcrumb opens what the game draws ─────────────────────────────────────────────────
 
-for (let t = 0; t < 5; t++) {
-	// A def nested in the open one, opened in place: its instance sits at the open def's nest level.
-	const instanceLevel = componentEditorNest(
-		Array.from({ length: t }, (_, i) => `d${i}`),
-		'open',
-	).depth;
+for (let t = 0; t + 1 < CHAIN; t++) {
+	// With L0..L<t-1> above the open L<t>, the nested L<t+1> is drawn when the screen expands its
+	// content under the instance chain i0/…/i<t+1>.
+	const prefix = Array.from({ length: t + 2 }, (_, i) => `i${i}`).join('/') + '/';
 	check(
 		`with ${t} def(s) above the open one, a nested def opens in place iff the game draws it`,
-		canEnterNested(t) === instanceLevel < MAX_COMPONENT_DEPTH,
+		canEnterNested(t) === onScreen.some((k) => k.startsWith(prefix)),
 	);
 }
 

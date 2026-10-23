@@ -969,7 +969,7 @@ const PROBE_SEGMENT: ComponentDef = {
 		],
 	},
 };
-/** The TOTAL WIN widget's shape: a title over a Segmented Counter placed inside it. */
+/** The TOTAL WIN widget's shape: a Segmented Counter placed inside an author's component. */
 const WIDGET: ComponentDef = {
 	id: 'probeTotalWinWidget',
 	name: 'Total win widget',

@@ -1519,8 +1519,16 @@ selected, the first Esc clears the selection. Esc does nothing while you are typ
 **Nested components.** Inside an open component, double-click a component placed in it to edit
 that one in place. The breadcrumb grows by one crumb. Nesting stops where the game stops drawing:
 the game draws components three levels deep, so a component deeper than that is not opened, and a
-message says so. The stage draws the open component one level down, where the game draws it once
-placed, so what it shows nested is what the Scene Editor and the game show. Open it from the list instead.
+message says so. Open it from the list instead. The stage draws the open component one level down,
+where the game draws it once placed, so what it shows nested is what the Scene Editor and the game
+show.
+
+**State machines on the stage.** Outside Animate, a rig inside a component with a state machine
+shows the art its machine rests on: the state it settles in from its inputs' defaults (the entry
+state when nothing moves it). The game layers that state's animation over the rig's own resting
+animation, so a frame resting on `Grand` whose machine enters `mini` shows `mini` on the stage, as
+it does in the game. A number input fed by an engine value starts at its default here; set the
+default to preview another state.
 
 **The left tabs** while a component is open are **Library** (elements and art to drag in),
 **Outline** (the component's node tree), **Browse** (the screens and every component, to jump

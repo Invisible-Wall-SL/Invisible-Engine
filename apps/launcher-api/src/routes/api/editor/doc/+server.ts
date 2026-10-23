@@ -90,7 +90,7 @@ function resolveRigKeysForComponentDefs(
  * wins for unpinned ones. No non-latest pin ⇒ `versions` is empty and the bundle is
  * byte-identical to today (parity). The transitive nested-pin closure is not walked
  * (a nested instance's own pin is resolved against whatever the parent def shipped);
- * v1 nesting is 1–2 levels and no game pins yet, so this is the precise, sufficient
+ * nesting stops at `MAX_COMPONENT_DEPTH` (3) and no game pins yet, so this is the precise, sufficient
  * slice — see §8.9 for the scoped remainder.
  */
 async function resolveReferencedDefs(

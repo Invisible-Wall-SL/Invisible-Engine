@@ -112,7 +112,23 @@ Shipped capabilities on `main`:
   breadcrumb depth, the source wiring, the breadcrumb rule); `check:component-repeat-segments` mounts
   the widget shape (fails on a cap of 2); `test-cue-duration` and `check:component-param-forwarding`
   move their "one past the cap" cases a level down. **Game change:** any authored component nested
-  three levels deep, which the game skipped, now draws.
+  three levels deep, which the game skipped, now draws. The selection box (`nodeBox`) takes the nest
+  too, so it stops expanding where the draw does.
+- 2026-10-23 — **The stage shows the art a component's state machine rests on** (same branch, ⏳ not
+  browser-verified). Owner report: the TOTAL WIN widget's R_Widget frame was gold in both editors
+  and a teal plate in the game. Cause: the widget's machine enters `mini`, whose timeline keys the
+  frame's `mini` tier; the game layers that strip over the rig's own `Grand` (`withTimelineScrub`),
+  the editors drew `Grand` and ran no machine outside Animate. And the State machine panel's stage
+  never showed a tier either: `playerDrives` dropped a node whose only keyed channel is an animation
+  strip. Fix: `playerDrives` keeps an `animTime` sample; `segmentPreview.ts` gains `settledDrives`
+  (the memoised settle, shared with the segment preview) and `restingStateStrip`; the rig layer poses
+  every rig, top-level and nested, with the strip its def's machine settles on at its inputs'
+  defaults (a previewed timeline still wins). The open draft rides on `ComponentNest.def`, so the
+  Component Editor rests on the unsaved machine. Gate: `check:component-resting-state` (11). Owner
+  side, not a bug: the widget's `Content` input reads `featureTotal`, the HUD win meter, which is 0
+  on Feature intro and through the respins (it climbs only in the end-of-feature tally) and counts
+  hundredths of the bet (100 = 1× bet), so `Content > 5` never fires there and means 0.05× bet once
+  it does.
 - 2026-10-20 — **Segmented counters, engine side** (branch `claude/component-repeat-segments`,
   ⏳ not browser-verified; design [rive plan §6.4](../design/rive-style-editor.md#64-count-mode-repeater-segmented-counters)).
   `RepeaterNode` gains optional `count` (`{source?, preview, max?}`), `variants`

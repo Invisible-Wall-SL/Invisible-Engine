@@ -2886,7 +2886,7 @@
 						onDelete={onDeleteNode}
 						projectGameName={null}
 						componentParams={resolvedParams}
-						componentNest={componentEditorNest(trail, componentDraft.id)}
+						componentNest={componentEditorNest(trail, componentDraft)}
 						redrawNonce={editNonce}
 						onRigMeta={(meta) => (rigMeta = meta)}
 						onEditInstance={animating ? undefined : (node) => void enterInstance(node)}

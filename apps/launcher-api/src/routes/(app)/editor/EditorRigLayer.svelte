@@ -72,6 +72,8 @@
 		type SharedRigGl,
 	} from './sharedGl.client';
 	import { applyRigBoneOffset } from 'pixi-svelte/rigBoneOffset';
+	import { restingStateStrip } from '$lib/timeline/segmentPreview';
+	import { segmentTimelines } from './segmentTimelines.client.svelte';
 	import {
 		previewAnimTime,
 		previewOutputs,
@@ -533,14 +535,32 @@
 
 	/** A rig node's previewed bone offsets + scrubs (its own bindings', then the Animate playhead's
 	 *  `animation` strip, as the game poses them), or undefined when it previews none. */
-	function previewPose(node: Extract<LayoutNode, { kind: 'spine' }>): RigPreviewPose | undefined {
+	function previewPose(
+		node: Extract<LayoutNode, { kind: 'spine' }>,
+		/** The strip the rig rests on when no timeline is being previewed ({@link restingStrip}). */
+		resting?: { animation: string; time: number },
+	): RigPreviewPose | undefined {
 		const outputs = previewOutputs(node);
 		const bones = boundBoneOffsets(node.valueBindings, outputs);
 		const scrubs = withTimelineScrub(
 			boundScrubs(node.valueBindings, outputs),
-			previewAnimTime(node),
+			previewAnimTime(node) ?? resting,
 		);
 		return bones.length || scrubs.length ? { bones, scrubs } : undefined;
+	}
+
+	/**
+	 * The animation strip a rig of `def` rests on: what `def`'s state machine, settled at its inputs'
+	 * defaults, keys on it (`restingStateStrip`). The game layers the state's strip over the rig's own
+	 * animation, so a frame whose entry state plays its `mini` tier draws `mini` there, not its
+	 * `defaultAnimation`. Undefined for a rig outside a component or one no state keys.
+	 */
+	function restingStrip(
+		def: ComponentDef | undefined,
+		nodeId: string,
+		params: Record<string, unknown>,
+	): { animation: string; time: number } | undefined {
+		return def ? restingStateStrip(def, segmentTimelines(def.id), params, nodeId) : undefined;
 	}
 
 	/** engine-rig `MixBlend.replace` / `MixDirection.mixIn`, as the vendored runtime numbers them. */
@@ -623,7 +643,7 @@
 					out.push({
 						nodeId: n.id,
 						assetKey: n.assetKey,
-						pose: previewPose(n),
+						pose: previewPose(n, restingStrip(componentNest.def, n.id, componentParams)),
 						defaultAnimation: resting.animation,
 						skin: resting.skin,
 						loop: resting.loop,
@@ -682,6 +702,8 @@
 						undefined,
 						undefined,
 						undefined,
+						undefined,
+						componentNest.def,
 					);
 				} else if (n.kind === 'componentInstance') {
 					const def = instanceDef(componentMap, n);
@@ -711,6 +733,7 @@
 							rigBundle,
 							n.spineRestOverrides,
 							previewing?.animation,
+							def,
 						);
 					}
 				}
@@ -753,6 +776,9 @@
 		 * to a depth-1 bind child; deeper recursion passes undefined. Undefined ⇒ the bind plays its
 		 * first animation as before (parity). */
 		previewAnimation?: string,
+		/** The def these nodes belong to, whose state machine rests a rig among them
+		 * ({@link restingStrip}). Undefined outside any component. */
+		stateDef?: ComponentDef,
 	): void {
 		for (const n of nodes) {
 			if (!previewResolveTransform(n, layoutType).visible) continue;
@@ -783,7 +809,7 @@
 				}
 			}
 			if (n.kind === 'spine') {
-				if (here) out.push(nestedRigTarget(n, sc, nextChain, instanceParams, rigRests));
+				if (here) out.push(nestedRigTarget(n, sc, nextChain, instanceParams, rigRests, stateDef));
 			} else if (n.kind === 'reelGrid') {
 				if (here) collectReelCells(n, sc, nextChain, out);
 			} else if (n.kind === 'container') {
@@ -801,6 +827,7 @@
 					// (the win / free-spin VISUAL). A container child is a level deeper, so don't
 					// re-apply it — a bind INSIDE it would be a different component's rig.
 					undefined,
+					stateDef,
 				);
 			} else if (n.kind === 'componentInstance') {
 				const def = instanceDef(componentMap, n);
@@ -821,6 +848,8 @@
 					params,
 					rigBundle,
 					n.spineRestOverrides,
+					undefined,
+					def,
 				);
 			}
 		}
@@ -950,6 +979,8 @@
 		instanceParams?: Record<string, unknown>,
 		/** The enclosing instance's per-placement rig rests (see {@link collectNestedRigs}). */
 		rigRests?: Record<string, RigRestOverride>,
+		/** The def the rig belongs to (see {@link collectNestedRigs}). */
+		stateDef?: ComponentDef,
 	): RigRenderTarget {
 		const [a, b, c, d, tx, ty] = composeWorldMatrix(
 			chain,
@@ -987,7 +1018,7 @@
 			transform: nt,
 			space: sc.space,
 			world: { x: tx, y: ty, scaleX: scale.x, scaleY: scale.y },
-			pose: previewPose(node),
+			pose: previewPose(node, restingStrip(stateDef, node.id, instanceParams ?? componentParams)),
 		};
 	}
 

@@ -3099,6 +3099,7 @@
 			node.kind === 'repeater' ? repeaterItemCount(node) : undefined,
 			componentDefaults,
 			componentParams,
+			componentNest,
 		);
 	}
 

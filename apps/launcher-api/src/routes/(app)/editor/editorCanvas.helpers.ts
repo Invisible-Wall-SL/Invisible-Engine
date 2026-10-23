@@ -100,14 +100,16 @@ export function applyRestingPose(
 export interface ComponentNest {
 	depth: number;
 	stack: string[];
+	/** The def the top-level nodes belong to (the open one), whose state machine rests them. */
+	def?: ComponentDef;
 }
 
 export const SCREEN_NEST: ComponentNest = { depth: 0, stack: [] };
 
-/** The nest of a def open in the Component Editor, edited inside the defs of `trail` (outermost
+/** The nest of `def`, open in the Component Editor, edited inside the defs of `trail` (outermost
  * first). */
-export function componentEditorNest(trail: readonly string[], openId: string): ComponentNest {
-	return { depth: trail.length + 1, stack: [...trail, openId] };
+export function componentEditorNest(trail: readonly string[], def: ComponentDef): ComponentNest {
+	return { depth: trail.length + 1, stack: [...trail, def.id], def };
 }
 
 /** Where the editor's component map keeps a def an instance pins at an older version than the
@@ -677,6 +679,9 @@ export function nodeBox(
 	/** The ENCLOSING componentInstance's resolved params (the Component Editor's open-def params for
 	 * a top-level node), so a part sized by them frames the box it draws. Undefined ⇒ parity. */
 	instanceParams?: Record<string, unknown>,
+	/** Where the canvas's top-level nodes sit in the component nesting, so the box stops expanding
+	 * where the draw does. Undefined ⇒ a screen's. */
+	nest: ComponentNest = SCREEN_NEST,
 ): NodeBox {
 	// A node that draws OTHER nodes frames them: a componentInstance its def's content, a group or
 	// a skinned coded part its children (see {@link contentBox}). For the single-mount `HudReadout`
@@ -685,8 +690,8 @@ export function nodeBox(
 		const content = contentBox(
 			node,
 			{ naturalSize, componentMap, layoutType, componentDefaults },
-			0,
-			[],
+			nest.depth,
+			nest.stack,
 			instanceParams ?? {},
 			instanceRigBundle,
 		);
