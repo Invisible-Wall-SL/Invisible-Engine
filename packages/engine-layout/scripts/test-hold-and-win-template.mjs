@@ -601,7 +601,8 @@ assert(
 		...d,
 		scenes: d.scenes.map((sc) => {
 			if (!WINDOW_SCALED.includes(sc.id)) return sc;
-			const { scaleWithWindow: _tick, ...rest } = sc;
+			const rest = { ...sc };
+			delete rest.scaleWithWindow;
 			return rest;
 		}),
 	});
