@@ -164,6 +164,25 @@ export type OpScope =
 	/** No single project: the op returns only projects the owner can access. */
 	| 'owner';
 
+/**
+ * The launcher tool (a `TOOLS` id in `roles.ts`) each adapter tool acts as, so the gate refuses an
+ * op whose tool the project's family does not use (game-families.md §6.5). `buildRegistry` refuses
+ * an op whose tool is missing here.
+ */
+export const ADAPTER_TOOL_IDS: Readonly<Record<string, string>> = {
+	atlas: 'atlasTool',
+	comfyui: 'comfyui',
+	flipbook: 'flipbook',
+	fonts: 'fontMaker',
+	gamemaker: 'gameMaker',
+	localization: 'localization',
+	mockups: 'director',
+	rigger: 'rigger',
+	scene: 'editor',
+	symbols: 'symbols',
+	wintext: 'winText',
+};
+
 export interface AdapterContext {
 	run: DirectorRun;
 	/** The run's owner — every call acts as this user. */

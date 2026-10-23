@@ -33,7 +33,10 @@ It mirrors the live in-game Symbol Debug overlay (`SymbolDebugOverlay.svelte`, g
   thumbnail and the focused cell mounts a live WebGL rig preview.
 - **Access:** the `symbols` tool (registry name "Invisible Symbols State Machine", bar
   name "Symbols SM"). Granted to `admin`, `developer`, `artist` and `pipelineTester` roles by default;
-  overridable per role/user from the admin panel like any other tool.
+  overridable per role/user from the admin panel like any other tool. **Not offered to arcade
+  projects:** the launcher home and tool bar hide it, and a direct link shows "Invisible Symbols
+  State Machine is not used by arcade games" with a link back to the launcher
+  ([game-families.md §6.5](../design/game-families.md)).
 
 **[Invisible Game Config](game-config.md) decides which rows the grid shows**, read live (save
 `/config`, then reload this page). The grid lists exactly the symbols its Symbols table badges
