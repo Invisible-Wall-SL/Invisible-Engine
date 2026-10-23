@@ -519,7 +519,7 @@ check(
 			/async function exitToScreens\(\): Promise<void> \{\s*if \(duplicating\) return;/.test(
 				workspace,
 			),
-			workspace.includes('if (writesBlocked || duplicating) return;'),
+			workspace.includes('if (writesBlocked || duplicating || renaming) return;'),
 		],
 		[true, true, true],
 	);
