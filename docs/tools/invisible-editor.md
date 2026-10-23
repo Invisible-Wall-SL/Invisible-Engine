@@ -823,7 +823,7 @@ layout; they are never a per-layout override. While you Inspect an old version o
 section is read-only, and ▶ still plays.
 
 **Add one.** With none yet, the section shows a one-line hint and the **+ Add effect…** picker,
-which lists the 49 effects grouped by family (the table below). Picking one adds a row, opens it,
+which lists the 50 effects grouped by family (the table below). Picking one adds a row, opens it,
 and gives it the trigger that suits it: a loop effect starts as _Always_, an entrance as _When
 shown_, anything else as _On cue_.
 
@@ -878,7 +878,7 @@ An _On cue_ effect fired again restarts. Its cue (and any stop cue) shows in Inv
 Several effects on one element play together. A loop effect given a play count (_When shown_ or
 _On cue_) fades in and out. An **exit** effect ends with the element hidden and keeps it hidden
 until its stop cue fires or an entrance effect plays on it; its row says so. **Crash**,
-**Crumble**, **Shatter (glass)**, **Dissolve to particles** and **Assemble from particles** work
+**Crumble**, **Shatter (glass)**, **Crystallize (ice shards)**, **Dissolve to particles** and **Assemble from particles** work
 on a still of the
 element taken as they start, so an animating rig holds still while they play (an assemble hands
 back the live element as it ends).
@@ -904,7 +904,7 @@ whole frame. One preview plays at a time, a second ▶ replaces it, and nothing 
   screen is hidden, the element or a container above it is hidden, or it is off the visible stage),
   the row says _Nothing on the stage to play it on: show the element and its screen first._
 
-**The 49 effects.** _loop_ = built to repeat, the natural pick for _Always_; _entrance_ = starts
+**The 50 effects.** _loop_ = built to repeat, the natural pick for _Always_; _entrance_ = starts
 hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to rest.
 
 | Family         | Effect                     | What it does                                                                     |
@@ -956,6 +956,7 @@ hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to 
 | Break          | **Crash** (exit)           | Takes a hit, then smashes into shards that fly apart and fall.                   |
 |                | **Crumble** (exit)         | Falls apart into chunks that drop away, bottom first.                            |
 |                | **Shatter (glass)** (exit) | Breaks like a pane of glass: cracks race out from the **Impact** point over the first part of the play (**Cracking**), then it falls apart in spiderweb **Shards** that tumble and drop, those by the impact first. |
+|                | **Crystallize (ice shards)** (exit) | Crystallizes into ice: crystal facets in the **Ice colour** ice over one by one from the **Ice from** side (the centre by default), each flashing white as it snaps in; it holds as ice with its seams traced and points twinkling, creaks, and at **Crystallizing** of the play bursts into its **Shards**, which fly out, tumble, glint as they turn and fall (**Gravity**). |
 |                | **Dissolve to particles** (exit) | Turns to dust: specks peel away in a ragged front, starting on the side the **Wind** blows to, and blow off on it, swaying (**Turbulence**) and shrinking to nothing. **Particles** sets how many. |
 |                | **Assemble from particles** (entrance) | Dissolve to particles backwards: specks blow in from the **From** side, swaying and growing as they arrive, and settle into the element, the far side first. |
 
@@ -1299,11 +1300,15 @@ plays the result in the game. A component has its own Animate mode on the Compon
      between the Show and the play.
    - **The base game** works the same way: Show it, then play its timeline. Keys on the **reel
      grid** move the reels themselves: x/y, scale ×, rotation, alpha and visibility, about the
-     grid's position, as the canvas previews them (tint does not apply to the reels). Only the
-     drawing moves: the win line and anything else the game places from the board stay where the
-     grid is laid out, so end the intro on the grid's Design pose (x/y 0, scale 1). A node hidden
-     by a visibility key stays hidden while the base game is up, because the screen holds the
-     last frame; key it visible again at the end if it should come back.
+     grid's position, as the canvas previews them (tint does not apply to the reels). Where the
+     timeline leaves the grid is where the reels stay: once it ends, the game lays the board out
+     there, so the win line, symbol flights, the bonus board and anything else placed from the
+     board follow the reels, until the base game is hidden or the timeline plays again. That
+     takes an even, positive scale: an end pose scaled differently in x and y, to nothing or
+     flipped stays on the reels' drawing only, and the win line keeps the grid's Design pose. A
+     turn always stays on the drawing: the win line follows the move and scale, not the turn. A
+     node hidden by a visibility key stays hidden while the base game is up, because the screen
+     holds the last frame; key it visible again at the end if it should come back.
    - **A timeline reaches the game only once it keys a node and is saved.** One that never did
      (or was deleted) is skipped: the flow carries on, and the browser console says which.
 
@@ -1543,6 +1548,53 @@ node's Properties.
 **Unsaved work.** A component and its game defaults are saved by hand, not autosaved. Leaving a
 component with unsaved changes (a crumb, Esc, Browse, a screen) asks first.
 
+#### Duplicate a component
+
+**⧉** on a row of the component list (the components home, and the **Browse** tab while a
+component is open) makes a copy of that component as a new component of this project and opens
+it. It works on any component in the list: your own, a shared one, or a built-in such as **Counter
+Segment** — the copy starts from what this project shows for it (your project's copy if you made
+one, else the shared one, else the built-in), at its latest version.
+
+- The copy is named **"‹name› copy"** (**"‹name› copy 2"**, … when that name is taken). Rename it
+  with **✎** ([Rename a component](#rename-a-component)).
+- It gets its own id and fresh node ids, and keeps the whole component: nodes, params, inputs,
+  events, the state machine, category and Space.
+- **Its timelines are copied too.** Each timeline of the component (a built-in's included) becomes
+  a timeline of the copy, and the copy's state machine plays those, so editing the copy's _Lit_
+  never changes the original's. A state that plays a timeline the component only reuses from
+  another component keeps playing that one.
+- **This game's defaults become the copy's own defaults**: the copy looks the same in this game as
+  the original did, and its look lives in one place, the component itself.
+- The copy is saved straight away, like any new component (it never overwrites anything), and it
+  ships with the game the same way.
+- With unsaved changes to the open component, ⧉ asks first, as leaving does.
+
+#### Rename a component
+
+**✎** on a row of the component list (beside ⧉, on the components home and the **Browse** tab)
+renames one of **your project's own components**. On a shared or built-in row it is greyed out:
+its tooltip says _Duplicate it first to rename your copy_. Shared and built-in components are not
+renamed in place, so rename your ⧉ copy instead.
+
+- It asks for the new name, pre-filled with the current one. The name is trimmed, and it cannot
+  be empty or match another component in the list (capital letters don't count as a difference).
+  The dialog says why and lets you try again.
+- **Only the name changes.** The component keeps its id, so every screen placement, component
+  nested in another, repeater first / middle / last variant, timeline and published game keeps
+  finding it. It also keeps its version: a rename is not a new version, so placements pinned to
+  it get no **↑ vN** badge. (Inspecting that version later shows the name it was saved under.)
+- It is saved straight away, on top of the component as it is stored now, so any change saved by
+  someone else is kept. Only a save landing in the instant between its read and its write refuses
+  it (nothing changes; try again). If someone else has the component open, their next save asks
+  them to reload, as after any save of yours; their **Save on top** would put the old name back.
+- **Placed copies keep their labels.** A placement's label is set from the component's name when
+  you place it, and screen and component timelines find their nodes by that label. Renaming the
+  component does not relabel its placements, so those timelines keep working. Relabel a placement
+  in its Properties if you want it to match.
+- If the renamed component is the one open, its breadcrumb and title show the new name. Unsaved
+  edits to it stay as they were, and are still unsaved.
+
 Everything else you do with an open component — create types, params and signals, value
 bindings, skinning coded parts, the canvas Space, saving, versions, promoting to shared and this
 game's defaults — is described in the [Component Editor guide](component-editor.md).
@@ -1725,7 +1777,13 @@ and its **Counter Segment** (`segmentedCounterSegment`). Place the counter on a 
 counts respins; set its **countSource** param to `freeSpinsTotal` and **valueSource** to
 `freeSpinsLeft` for free spins. Re-skin it without touching the machine: the segment's
 **litImage** / **unlitImage** (art over the fills), **litColor** / **unlitColor**, **labelColor**,
-and the counter's **backgroundImage**. To change more, copy it and edit the copy as below.
+and the counter's **backgroundImage**. To change more, copy it: **⧉** on its row in the component
+list ([Duplicate a component](#duplicate-a-component)) makes a project copy with its own state
+machine and timelines, and you edit the copy as below. End caps work the same way: duplicate
+**Counter Segment** twice, give the copies their extra border art, and pick them as the bar's
+**first** / **last**. A copy keeps the segment's `index` / `value` contract, so the bar feeds it
+directly (wrapping a Counter Segment inside a new component does not: the inner segment never
+gets the bar's `index` / `value`, and it nests one level deeper than the game draws).
 
 **Worked example — a respin / free-spin segmented counter.**
 
@@ -1929,8 +1987,8 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   [Game Config](game-config.md) are applied only when the game builds its buy menu; the editor
   draws each card with the component's own defaults. Check per-mode art in the game.
 - **An element vanished after its Element FX and never came back.** It has an exit effect (Pop
-  out, Fade out, Dissolve out, Burn to ashes, Melt, Crash, Crumble, Shatter, Dissolve to
-  particles), which ends hidden and keeps the element hidden
+  out, Fade out, Dissolve out, Burn to ashes, Melt, Crash, Crumble, Shatter, Crystallize, Dissolve
+  to particles), which ends hidden and keeps the element hidden
   until its **Stop cue** fires or an entrance effect plays on it. Give it a stop cue, or an entrance
   on a later cue.
 - **An _On cue_ Element FX did not play.** A cue reaches an element only while it is on screen.

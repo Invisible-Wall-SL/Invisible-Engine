@@ -766,6 +766,167 @@ console.log('element fx — shatter (glass)');
 }
 
 // -------------------------------------------------------------------------------------------------
+console.log('element fx — crystallize (ice shards)');
+{
+	assert(KINDS.crystallize.breaks === 'ice', 'crystallize breaks into ice shards');
+	const box = new Rectangle(-100, -60, 200, 120);
+	const burst = 0.45;
+	const start = (from: string) => {
+		const parent = new Container();
+		const target = new Container();
+		parent.addChild(target);
+		const made: { texture: Texture; frozen: boolean }[] = [];
+		const renderer = {
+			generateTexture: ({ frame, target: drawn }: { frame: Rectangle; target: Container }) => {
+				const texture = new Texture({
+					source: new TextureSource({ width: frame.width, height: frame.height }),
+				});
+				// Read as it draws: the frozen still's holder is gone as soon as it is drawn.
+				const frozen = drawn.children.some((c) =>
+					[c.filters ?? []]
+						.flat()
+						.some((f) => /uniform vec4 uFreeze;/.test(f.glProgram?.fragment ?? '')),
+				);
+				made.push({ texture, frozen });
+				return texture;
+			},
+		};
+		const run = startBreak({
+			style: 'ice',
+			target,
+			renderer: renderer as never,
+			box,
+			rest: new Matrix(),
+			intensity: 1,
+			params: { from, pieces: 28, freeze: burst, color: '#9fdcff' },
+			playSeconds: 2.4,
+		});
+		const holder = parent.children.find((c) => c.label === 'elementFx:break');
+		const layer = holder?.children[0];
+		const meshes = (layer?.children ?? []).filter((c): c is MeshSimple => c instanceof MeshSimple);
+		const plain = meshes.filter((m) => m.texture === made[0]?.texture);
+		const ice = meshes.filter((m) => m.texture === made[1]?.texture);
+		const frost = layer?.children.find((c) => c instanceof Graphics);
+		/** Every shard as [centre x, centre y, area], in the order they were cut. */
+		const shards = (set: MeshSimple[]): number[][] =>
+			set.flatMap((mesh) => {
+				const v = mesh.vertices;
+				const ix = mesh.geometry.indices;
+				const out: number[][] = [];
+				let first = -1;
+				let area = 0;
+				let sx = 0;
+				let sy = 0;
+				let n = 0;
+				const flush = (): void => {
+					if (n) out.push([sx / n, sy / n, area]);
+					area = 0;
+					sx = 0;
+					sy = 0;
+					n = 0;
+				};
+				for (let i = 0; i < ix.length; i += 3) {
+					// A shard is a fan: its triangles share their first vertex.
+					if (ix[i] !== first) {
+						flush();
+						first = ix[i];
+					}
+					const [a, b, c] = [ix[i] * 2, ix[i + 1] * 2, ix[i + 2] * 2];
+					area +=
+						Math.abs(
+							(v[b] - v[a]) * (v[c + 1] - v[a + 1]) - (v[c] - v[a]) * (v[b + 1] - v[a + 1]),
+						) / 2;
+					for (const k of [a, b, c]) {
+						sx += v[k];
+						sy += v[k + 1];
+						n++;
+					}
+				}
+				flush();
+				return out;
+			});
+		return { run, made, holder, layer, plain, ice, frost, shards };
+	};
+
+	const { run, made, holder, layer, plain, ice, frost, shards } = start('center');
+	assert(
+		made.length === 2 && !made[0].frozen && made[1].frozen,
+		'it cuts the plain still and a frozen one (the freeze pass at full cover)',
+	);
+	assert(
+		plain.length > 0 &&
+			plain.length === ice.length &&
+			[...plain, ...ice].every((m) => m.vertices.length / 2 <= 96) &&
+			frost !== undefined,
+		'the plain and the ice shards come in matching small meshes, with the frost drawn over them',
+	);
+	const atRest = shards(plain);
+	assert(
+		near(
+			atRest.reduce((sum, [, , a]) => sum + a, 0),
+			box.width * box.height,
+			1,
+		) && shards(ice).every(([, , a]) => a < 1e-6),
+		'at the start the plain facets tile the element exactly and no ice has grown',
+	);
+	run?.update(0.4 * burst);
+	const growing = shards(ice);
+	const reach = Math.hypot(100, 60);
+	const icedShare = (from: number, to: number): number => {
+		const group = atRest
+			.map((_, i) => i)
+			.filter((i) => {
+				const d = Math.hypot(atRest[i][0], atRest[i][1]) / reach;
+				return d >= from && d < to;
+			});
+		return group.filter((i) => growing[i][2] > 0.5 * atRest[i][2]).length / group.length;
+	};
+	assert(
+		icedShare(0, 0.3) > icedShare(0.7, 1.01),
+		'the ice grows from the middle out, facet by facet',
+	);
+	run?.update(0.97 * burst);
+	const locked = shards(ice);
+	const held = locked.every(([x, y], i) => Math.hypot(x - atRest[i][0], y - atRest[i][1]) < 4);
+	assert(
+		held &&
+			locked.reduce((sum, [, , a]) => sum + a, 0) > 0.85 * box.width * box.height &&
+			plain.every((m) => !m.visible),
+		'before it bursts every facet is ice, the plain still is covered and no shard has moved',
+	);
+	run?.update(burst + 0.25);
+	const flying = shards(ice);
+	const outward = flying.filter(
+		([x, y], i) => Math.hypot(x, y) > Math.hypot(atRest[i][0], atRest[i][1]) + 2,
+	).length;
+	assert(outward > 0.7 * flying.length, 'then it bursts: the shards fly out from its middle');
+	run?.update(1);
+	assert(layer?.alpha === 0, 'by the end the shards have gone');
+	run?.destroy();
+	assert(
+		holder?.destroyed === true && made.every(({ texture }) => texture.destroyed),
+		'it cleans up its pieces and both stills',
+	);
+
+	const edges = start('edges');
+	const edgeRest = edges.shards(edges.plain);
+	edges.run?.update(0.4 * burst);
+	const edgeGrowing = edges.shards(edges.ice);
+	const fromEdge = (i: number): number => {
+		const u = (edgeRest[i][0] - box.x) / box.width;
+		const v = (edgeRest[i][1] - box.y) / box.height;
+		return Math.min(u, 1 - u, v, 1 - v);
+	};
+	const rim = edgeRest.map((_, i) => i).filter((i) => fromEdge(i) < 0.15);
+	const core = edgeRest.map((_, i) => i).filter((i) => fromEdge(i) > 0.3);
+	const share = (group: number[]): number =>
+		group.filter((i) => edgeGrowing[i][2] > 0.5 * edgeRest[i][2]).length /
+		Math.max(1, group.length);
+	assert(share(rim) > share(core), 'from the edges, the rim ices over before the middle');
+	edges.run?.destroy();
+}
+
+// -------------------------------------------------------------------------------------------------
 console.log('element fx — dissolve to particles');
 {
 	assert(KINDS.disintegrate.breaks === 'dust', 'dissolve to particles breaks into dust');

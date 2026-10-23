@@ -86,7 +86,10 @@ Open the components home: the **Invisible Component Editor** card on the launche
     a Hold and Win project, or one whose Game Config has a Hold and Win bonus; the Pot Meter also
     with the pots overlay.
 - **Components** — existing components grouped by category. Click a row to open it for
-  editing; the `✕` button deletes it from R2 and the list. The confirm asks you to type the
+  editing; **✎** renames one of the project's own components (see
+  [Rename a component](invisible-editor.md#rename-a-component)); **⧉** duplicates it (see
+  [the Components side](invisible-editor.md#duplicate-a-component));
+  the `✕` button deletes it from R2 and the list. The confirm asks you to type the
   component's name, and every saved version goes with it.
 
 Creating opens the new component immediately. You can also open a component straight from a
@@ -357,8 +360,8 @@ another tab of yours) has it open, a banner reads "*name* is editing this — re
 Save is disabled, and **Take over** moves editing to you.
 
 The server **bumps the component's `version`** automatically when the saved draft
-differs from the stored one (a re-save with no change keeps the version; a brand-new
-component keeps its starting version). This is by design (§8.9, pin-by-default):
+differs from the stored one (a re-save with no change keeps the version, and so does a change of
+the name alone; a brand-new component keeps its starting version). This is by design (§8.9, pin-by-default):
 existing scene instances keep the version they pinned and are never silently moved
 to your edit — they stay on their pinned version until you explicitly **update each
 one to latest** from its Properties panel in the Scene Editor (see §6). Every save

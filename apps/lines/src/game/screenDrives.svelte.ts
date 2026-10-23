@@ -22,6 +22,8 @@ export interface ScreenDrives {
 	isUp: (sceneId: string) => boolean;
 	/** The screen timeline moving screen `sceneId`, for its mount. Reactive. */
 	drive: (sceneId: string) => ScreenNodeDrive | undefined;
+	/** Has the timeline moving screen `sceneId` ended, so the screen holds its last frame? Reactive. */
+	holding: (sceneId: string) => boolean;
 	/** A playing screen timeline's node driver, handed over once, at mount. */
 	driveScreen: (sceneId: string, cinematicId: string, driver: CinematicNodeDriver) => void;
 	/** The flow's shown containers changed: these scenes are now the flow's up screens. */
@@ -57,6 +59,10 @@ export function createScreenDrives(
 		onStage: (sceneId) => flowUp.has(sceneId) || engineScreens.includes(sceneId),
 		isUp,
 		drive: (sceneId) => drives.get(sceneId),
+		holding: (sceneId) => {
+			const drive = drives.get(sceneId);
+			return !!drive && !playing(drive.cinematicId);
+		},
 		driveScreen: (sceneId, cinematicId, driver) =>
 			untrack(() => {
 				drives.set(sceneId, { key: `${cinematicId}#${++plays}`, driver, cinematicId });

@@ -951,7 +951,7 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 	resetComponents();
 	// Byte-identical for known-only defs: the bytes a save wrote before the graft existed.
 	const etag = seed(componentKey, normalizeComponent(structuredClone(COMPONENT) as unknown as Def));
-	const edited = { ...structuredClone(COMPONENT), name: 'Spin' } as unknown as Def;
+	const edited = { ...structuredClone(COMPONENT), category: 'overlay' } as unknown as Def;
 	await saveComponent(edited, 'p', etag);
 	check(
 		'components: a known-only def saves byte-identically',
