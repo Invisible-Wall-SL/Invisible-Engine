@@ -33,13 +33,12 @@ import {
 	formatWinText,
 	type ResolvedWinText,
 } from 'engine-layout';
+import { HOLD_AND_WIN_VOCAB } from 'engine-flow-v2';
 
 import {
 	createEventEmitter,
 	type EmitterEventBase,
 } from '../../../packages/utils-event-emitter/index.ts';
-import { HOLD_AND_WIN_VOCAB } from 'engine-flow-v2';
-
 import { featureComponentSignals } from '../../lines/src/game/featureSignals.ts';
 import { LINES_EMITTER_VOCABULARY } from '../../lines/src/game/emitterVocabulary.ts';
 import { compileSlice, stripSliceTypes } from '../../../scripts/lib/compile-slice.mjs';

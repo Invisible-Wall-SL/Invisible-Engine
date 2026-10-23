@@ -335,7 +335,7 @@ const ELEMENT_FX_ENUMS = ['ElementFxKind', 'ElementFxTarget'];
 /** The respin counter's award cue, added to the Hold and Win cues after `main` 5743911. */
 const AWARD_CUE = 'respinCounterAward';
 /** `vocab` as `main` had it: without the Element FX additions and the award cue. */
-const withoutElementFx = (vocab: TemplateVocabulary): TemplateVocabulary => ({
+const asOnMain = (vocab: TemplateVocabulary): TemplateVocabulary => ({
 	...vocab,
 	actions: vocab.actions.filter((a) => !ELEMENT_FX_ACTIONS.includes(a.name)),
 	enums: vocab.enums.filter((e) => !ELEMENT_FX_ENUMS.includes(e.name)),
@@ -471,7 +471,7 @@ for (const [name, kind, doc] of currentDocs()) {
 	const seed = graftAddOnSteps(freshDrivenSeedDoc(kind), addOns).doc;
 	const facts = {
 		addOns: digest(addOns),
-		vocab: digest(withoutElementFx(docVocab)),
+		vocab: digest(asOnMain(docVocab)),
 		seed: digest(seed),
 		verdict: digest(
 			validateFlowV2Against(seed, scenesFor(kind, doc), null, EMPTY_LIBRARY, [], addOns),
