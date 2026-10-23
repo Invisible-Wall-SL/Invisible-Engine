@@ -118,7 +118,10 @@ Shipped capabilities on `main`:
   for real, with and without its first end cap registered) and
   `check:component-repeat-segments-editor` (39: rig-look end caps made by the real duplicate, the
   fallback, the rig-layer wiring). Still open: a segment drawn only from rigs and text measures
-  0 × 0, so such segments stack (next PR: an opt-in root box).
+  0 × 0, so such segments stack (next PR: an opt-in root box); the rig layer keeps ONE skeleton
+  per rig file, so segments resting on different animations of one rig draw right while still, but
+  ▶ playing one of them (or an `enter` cue on only one look) makes them reset each other every frame
+  — the rig freezes on its first frame until play stops.
 - 2026-10-23 — **⧉ Duplicate a component** (branch `claude/component-duplicate`, in review, ⏳ not
   browser-verified). A ⧉ on each row of the Components list (home and the Browse tab) copies ANY
   listed component — project, shared or built-in — into a new project component and opens it.

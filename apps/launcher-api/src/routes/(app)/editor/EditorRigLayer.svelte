@@ -925,8 +925,8 @@
 	/**
 	 * Rigs inside a count-mode repeater's segments (a segmented counter): the SAME boxes and settled
 	 * poses the 2D canvas and the text overlay draw (`repeaterCountBoxes`), so each segment shows
-	 * the look its state machine lights. This layer draws no alpha, so a look the pose faded out
-	 * (alpha 0) is left out rather than drawn over the one shown.
+	 * the look its state machine lights. This layer draws no alpha, so a look the pose hides at
+	 * alpha 0 is left out rather than drawn over the one shown (a partial alpha draws opaque).
 	 */
 	function collectSegmentRigs(
 		n: CountRepeaterNode,

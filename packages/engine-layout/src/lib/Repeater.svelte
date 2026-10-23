@@ -137,8 +137,9 @@
 			const key = `${node.id}/${slot}/${componentId}`;
 			if (warnedMissingVariants[key]) continue;
 			warnedMissingVariants[key] = true;
+			const instead = hasComponent(middle) ? `'${middle}' draws there instead` : 'nothing draws';
 			console.warn(
-				`[engine-layout] repeater '${node.id}': its ${slot} segment '${componentId}' is not registered — '${middle}' draws there instead.`,
+				`[engine-layout] repeater '${node.id}': its ${slot} segment '${componentId}' is not registered — ${instead}.`,
 			);
 		}
 	}
