@@ -15,11 +15,12 @@
  *
  * FAMILIES (`docs/design/game-families.md` §6.1): a match-3 or arcade project is offered none of a
  * slot's sections, and its outcome decides whether it has a wallet. The family is the config's when
- * given, else the kind's (`familyOfKind`). A slot answers every family flag `true`, so no slot
+ * given, else the kind's. The kind half mirrors `familyOfKind` (`constants-shared/gameKinds`),
+ * named here because the built-in defs that read this module must load with no install
+ * (`scripts/current-games/lib/builtins.mjs`); `check:game-config-family` pins the two together. A slot answers every family flag `true`, so no slot
  * tool changes. The game itself never reads these flags; it reads its config.
  */
 
-import { familyOfKind } from 'constants-shared/gameKinds';
 import {
 	HOLD_AND_WIN_SYMBOL_STATES,
 	POTS_TOKEN_SYMBOL_STATES,
@@ -96,6 +97,7 @@ export interface KindCapabilities {
 }
 
 const CASCADE_KINDS: ReadonlySet<string> = new Set(['cluster', 'scatter']);
+const FAMILY_KINDS: ReadonlySet<string> = new Set(['match3', 'arcade']);
 const NON_LINE_KINDS: ReadonlySet<string> = new Set(['ways', 'cluster', 'scatter']);
 
 export function kindCapabilities(
@@ -103,7 +105,7 @@ export function kindCapabilities(
 	config: KindCapabilityConfig = {},
 ): KindCapabilities {
 	const kind = gameType ?? '';
-	const family = config.family ?? familyOfKind(kind);
+	const family = config.family ?? (FAMILY_KINDS.has(kind) ? kind : 'slot');
 	if (family === 'match3' || family === 'arcade') return familyCapabilities(family, config);
 	const holdAndWinKind = kind === 'holdAndWin';
 	const holdAndWin = holdAndWinKind || !!config.holdAndWin;

@@ -24,7 +24,7 @@ import {
 	type ConfigSection,
 	type GameConfigDoc,
 } from 'game-config';
-import { SLOT_GAME_KINDS } from 'constants-shared/gameKinds';
+import { GAME_KINDS, SLOT_GAME_KINDS, familyOfKind } from 'constants-shared/gameKinds';
 import { kindCapabilities, type KindCapabilities } from 'engine-layout';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -105,6 +105,14 @@ for (const [label, kind, config] of [
 		`1. ${label}: no board, no wallet`,
 		[caps.board, caps.cascade, caps.tumblePattern, caps.wallet, caps.betControls],
 		[false, false, false, false, false],
+	);
+}
+for (const kind of [...GAME_KINDS, 'myCustomKind', 'toString', undefined]) {
+	// `kindCapabilities` names the non-slot kinds itself (engine-layout loads with no install).
+	same(
+		`1. ${kind}: kindCapabilities reads the family familyOfKind gives`,
+		kindCapabilities(kind),
+		kindCapabilities(kind, { family: familyOfKind(kind) }),
 	);
 }
 for (const kind of [...SLOT_GAME_KINDS, 'myCustomKind', undefined]) {
