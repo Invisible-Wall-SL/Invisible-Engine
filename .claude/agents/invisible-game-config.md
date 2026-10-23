@@ -15,6 +15,9 @@ consumers (see `engine-pixi-svelte`).
 - **`docs/status/game-config.md`** — the LIVING current state. Update THIS when you finish work.
 - **`docs/tools/game-config.md`** — the user guide for the `/config` page (CLAUDE.md rule 9).
   Keep it in sync on any UI change.
+- **`docs/design/game-families.md`** + **`docs/status/game-families.md`** — the non-slot families
+  (match-3, arcade) the config can name (`family`, `outcome`, `match3`, `arcade`); `/config` and
+  the validator follow `configSectionsFor` (`src/familySections.ts`).
 
 ## What the tool IS
 - The **frontend's contract with the math** — NOT the math. The RGS stays the authority on

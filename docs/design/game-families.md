@@ -1,13 +1,14 @@
 # Game families: match-3 first, arcade next, cards after (Phase 10 plan)
 
 > Status: **PLAN APPROVED (owner, 2026-10-20): all nine §9 decisions accepted as recommended.
-> ON HOLD: no build phase (P10.1 onward) starts until the owner says go.**
+> STARTED 2026-10-23: the owner gave the go-ahead for Phase 10. P10.1 is built; progress lives in
+> [status/game-families.md](../status/game-families.md).**
 >
 > **Amended 2026-10-22 from the owner's questions:** whole tools are shown or hidden per family
 > (§6.5); `/config` shows only the family's sections (§6.2); arcade grows past one screen in three
 > tiers, with characters, movement, jumps and a scrolling camera (§4.3, §4.4, P10.11–P10.13);
 > Salmons is the arcade reference project (§1); card games are a fourth family with a plan of their
-> own (§10). New decisions §9 #10–#19; the hold above is unchanged.
+> own (§10). New decisions §9 #10–#19.
 >
 > **Owner answers, 2026-10-22:** Salmons is the 100-player real-time multiplayer game (each player a
 > salmon, a bear or a fisherman), so multiplayer is **in scope for arcade** as tier A4 (§4.5,
@@ -17,10 +18,11 @@
 >
 > This is Phase 10 of
 > [rive-style-editor.md](rive-style-editor.md) §10. It is the separate design that §7.2 promised for
-> games that are not slots. The owner approved starting it on 2026-10-20. Progress will live in the
-> status files of the tools each phase touches ([flow](../status/flow.md),
-> [engine](../status/engine.md), [component-editor](../status/component-editor.md),
-> [game-config](../status/game-config.md), [game-maker](../status/game-maker.md)), not here.
+> games that are not slots. The owner approved starting it on 2026-10-20. Progress lives in
+> [status/game-families.md](../status/game-families.md), with each tool's own detail in the status
+> file of the tool a phase touches ([flow](../status/flow.md), [engine](../status/engine.md),
+> [component-editor](../status/component-editor.md), [game-config](../status/game-config.md),
+> [game-maker](../status/game-maker.md)), not here.
 >
 > **Owner decision #6 (2026-10-20, recorded in rive-style-editor.md §12 #6):** the outcome source
 > is **a per-game option, not a property of the family**. A match-3 or arcade game is either:
@@ -170,6 +172,9 @@ arcade?: ArcadeBlock;                // only when family === 'arcade' (§4.2)
 winModel?: … | { type: 'match3'; minRun: number };   // a fifth arm of the existing union (RGS match-3 pricing)
 ```
 
+The fifth arm is never stored (§9 #20): `resolveWinModel()` builds it from `match3.minRun` for any
+match-3 doc, so `minRun` has one home. A slot doc never stores `outcome` (§9 #25).
+
 This follows the `winModel` precedent exactly (game-type-templates.md Phase C):
 
 - **Defaults are never stored.** The normalizer drops `family` when it would mean slot, and drops
@@ -205,7 +210,7 @@ This follows the `winModel` precedent exactly (game-type-templates.md Phase C):
   strips only seat the cosmetic first board before `boardInit` lands. Either way the in-play gate,
   `/symbols` and the export keep working unchanged.
 - **`/config` gets a picker** for family and outcome. Like the `winModel` picker, choosing the
-  default deletes the field rather than writing it.
+  default deletes the field rather than writing it. A slot project is never shown it (§9 #22).
 
 ### 2.2 The RGS-decided path (real money)
 
@@ -1110,7 +1115,7 @@ and jumps (P10.11–P10.13), then online rooms (P10.14–P10.16). Card games get
 | # | Phase | Delivers | Main code | Size |
 |---|---|---|---|---|
 | P10.0 | **Plan + decisions** (this doc) — ✅ approved 2026-10-20 | Owner review of §9; sign-off recorded in §9 | docs | S |
-| P10.1 | **Family and outcome in Game Config** | `family`, `outcome`, `match3` / `arcade` blocks and the `match3` win-model arm (optional, defaults dropped; the normalizer's whitelist learns them, and its no-symbols rule gets the arcade arm); `resolveFamily` / `resolveOutcome`; family-aware validation (paylines, empty `betModes` for rules games, board bounds); the `/config` picker and its per-family sections (§6.2); `GAME_KINDS` + `kindCapabilities` flags. No runtime behaviour yet | `packages/game-config`, `constants-shared`, `engine-layout/kindCapabilities.ts`, `/config` | M |
+| P10.1 | **Family and outcome in Game Config** — ✅ built 2026-10-23 | `family`, `outcome`, `match3` / `arcade` blocks and the `match3` win-model arm (optional, defaults dropped; the normalizer's whitelist learns them, and its no-symbols rule gets the arcade arm); `resolveFamily` / `resolveOutcome`; family-aware validation (paylines, empty `betModes` for rules games, board bounds); the `/config` picker and its per-family sections (§6.2); `GAME_KINDS` + `kindCapabilities` flags. No runtime behaviour yet | `packages/game-config`, `constants-shared`, `engine-layout/kindCapabilities.ts`, `/config` | M |
 | P10.1b | **Tools per family** | `FAMILY_TOOLS` + `familyOfKind()`; the launcher home and `ToolTopBar` list only the family's tools; the hidden-tool notice; Director's gate refuses a hidden tool's ops (§6.5) | `apps/launcher-api` (`roles.ts`, `(app)/+layout.server.ts`, `director/gate.ts`), `constants-shared` | S |
 | P10.2 | **The board module** | `packages/engine-mechanics/board.js` (+ `.d.ts`) with the full match-3 rule set, fixtures. No caller yet | new package | M |
 | P10.3 | **Flow variables, timers, tick** | §3.1 + §3.2 (tick / timers / keys): format, validator; the variable and timer store in the game-side holder, reached through the env; the preview's virtual-time event queue; the Variables panel; `var:<id>` value sources (numbers), and `source` widened to bool / text | `engine-flow-v2`, `apps/lines` (`flowV2InterpreterHolder.ts`, value sources), `/flow-v2`, `engine-layout` (`ComponentInstance`), `componentStorage.ts` | L |
@@ -1154,7 +1159,9 @@ and jumps (P10.11–P10.13), then online rooms (P10.14–P10.16). Card games get
 ## 9. Decisions (owner)
 
 **#1–#9 DECIDED (owner 2026-10-20): every recommendation is accepted as written.** The owner also
-asked that nothing be started yet: P10.1 onward waits for the owner's go.
+asked that nothing be started yet: P10.1 onward waits for the owner's go. **The owner gave the
+go-ahead on 2026-10-23** ("I think we can start on phase 10 as well … it's a long phase, so take it
+easy, there is no hurry"). #20–#27 were raised by the P10.1 build and decided the same day.
 
 **#10–#19 added 2026-10-22** from the owner's questions. #10 and #11 are the owner's own asks, and
 so is #12's scope (its shape is a recommendation); the owner answered #13–#16 the same day;
@@ -1236,6 +1243,34 @@ so is #12's scope (its shape is a recommendation); the owner answered #13–#16 
 19. **Salmons' view.** *(owner, 2026-10-22: "sort of isometric")*
     - **Isometric**, on 2:1 diamond tiles (its map uses 64 × 32). So P10.12 builds the isometric
       projection and depth order, and P10.13 builds the `hop` jump and diamond tiles first (§4.4).
+
+20. **Where `minRun` lives.** *(owner, 2026-10-23)*
+    - **`match3.minRun` is its only stored home.** A match-3 doc never stores `winModel`; the
+      normalizer drops one. `resolveWinModel()` returns `{ type: 'match3', minRun }`, built from the
+      block, for any match-3 doc.
+21. **Arcade's outcome.** *(owner, 2026-10-23)*
+    - "Absent ⇒ `rgs`" stays the one rule. An arcade doc that resolves to `rgs` is a validation
+      error until P10.10, so `/config` offers arcade only **Rules**, and the arcade seed writes
+      `outcome: 'rules'`.
+22. **The family picker on a slot page.** *(owner, 2026-10-23)*
+    - **Never shown to a slot project.** It shows only when the project's kind is `match3` or
+      `arcade`, or its config already names a family, so a slot project's page is exactly today's.
+      The outcome picker sits beside it.
+23. **Sections §6.2's table leaves out.** *(owner, 2026-10-23)*
+    - Coin board, Coin overlay, Bonus modes and Game modes are slot only (the table's "bonus" row).
+      **Sounds** shows for slot and match-3, and is hidden for arcade.
+24. **A stepped match-3 board.** *(owner, 2026-10-23)*
+    - A validation error: the board module is rectangular in v1.
+25. **`outcome` on a slot doc.** *(owner, 2026-10-23)*
+    - Dropped by the normalizer. Slots are RGS-decided only.
+26. **Publishing a non-slot config before its runtime.** *(owner, 2026-10-23)*
+    - The online publish and the desktop bake's config export refuse a match-3 or arcade config,
+      with no override, until the runtime plays that family (P10.5, P10.8). Otherwise the shared
+      runtime would play it as a slot, or draw a blank board.
+27. **`familyOfKind()` lands in P10.1**, not P10.1b. *(owner, 2026-10-23)*
+    - Adding `match3` and `arcade` to `GAME_KINDS` needs it, so that the slot-only consumers (the
+      Scene Editor's template-type picker, the flow-vocabulary generator and game-spec's schema)
+      stay unchanged. P10.1b reuses it.
 
 ---
 

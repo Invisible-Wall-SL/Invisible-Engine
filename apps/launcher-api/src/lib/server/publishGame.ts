@@ -44,6 +44,7 @@ import {
 } from './publishedRuntime';
 import { buildRuntimeBundle } from './runtimeBundle';
 import { checkSoundsForPublish, type SoundPublishCheck } from './soundPublishCheck';
+import { unplayableFamilyMessage } from './familyGate';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { invalidateRuntimeBundle, withDeployWrite } from './runtimeBundleCache';
 import { SHARED_RUNTIME_ID, runtimePointer, upsertTestServerGame } from './testServerManifest';
@@ -86,10 +87,15 @@ export class PublishBlockedError extends Error {
 	constructor(
 		message: string,
 		/** What blocked it, for a UI that can offer a way through. `own-bundle` never can — it would
-		 *  clobber a real game — while `unapproved-sounds`, `invalid-flow` and `paytable-drift` are
-		 *  deliberate-override cases (the last two for the owner role only; see the publish endpoint). */
+		 *  clobber a real game — and neither can `unplayable-family`, a game the runtime cannot play;
+		 *  `unapproved-sounds`, `invalid-flow` and `paytable-drift` are deliberate-override cases (the
+		 *  last two for the owner role only; see the publish endpoint). */
 		readonly reason:
-			'own-bundle' | 'unapproved-sounds' | 'invalid-flow' | 'paytable-drift' = 'own-bundle',
+			| 'own-bundle'
+			| 'unplayable-family'
+			| 'unapproved-sounds'
+			| 'invalid-flow'
+			| 'paytable-drift' = 'own-bundle',
 		/** The names behind the refusal, so the UI lists them instead of saying "something". */
 		readonly details: string[] = [],
 	) {
@@ -161,7 +167,7 @@ type GateOptions = {
 
 /**
  * Step 1 of {@link publishGame}: every gate it runs before the ~20 s assemble, in order, as a
- * verdict rather than a throw — the own-bundle guard, then sounds, the stored flow and the paytable.
+ * verdict rather than a throw — the own-bundle guard, then sounds, the stored flow, the family and the paytable.
  */
 async function runPublishGates(
 	clientKey: string,
@@ -213,11 +219,16 @@ async function runPublishGates(
 	);
 	if (flow) return { refusal: flow };
 
-	// 1c. THE PAYTABLE GATE. A project that captured its partner's declared paytable must not ship
-	// quoting other prices unnoticed — the info page is built from the authored config, the partner
-	// pays its own. No capture ⇒ nothing to compare ⇒ never gated.
 	const config =
 		options.config === undefined ? await loadGameConfigDoc(clientKey, projectKey) : options.config;
+	// 1c. THE FAMILY GATE. A match-3 or arcade config the runtime cannot play yet. No override: there
+	// is nothing a player could be shown.
+	const unplayable = unplayableFamilyMessage(config);
+	if (unplayable) return { refusal: new PublishBlockedError(unplayable, 'unplayable-family') };
+
+	// 1d. THE PAYTABLE GATE. A project that captured its partner's declared paytable must not ship
+	// quoting other prices unnoticed — the info page is built from the authored config, the partner
+	// pays its own. No capture ⇒ nothing to compare ⇒ never gated.
 	const drift = paytableDriftDetails(config);
 	if (drift.length && !options.allowPaytableDrift) {
 		return {

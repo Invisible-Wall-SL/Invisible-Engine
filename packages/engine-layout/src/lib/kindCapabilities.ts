@@ -12,8 +12,14 @@
  * ADD-ONS are additive (design `docs/design/pots-overlay.md` §4): a config block lights up only the
  * add-on's own parts, and everything else stays on the kind — a `bookOf` project with a Hold and
  * Win bonus keeps its free spins and book reveal. Without a block every answer is the kind's alone.
+ *
+ * FAMILIES (`docs/design/game-families.md` §6.1): a match-3 or arcade project is offered none of a
+ * slot's sections, and its outcome decides whether it has a wallet. The family is the config's when
+ * given, else the kind's (`familyOfKind`). A slot answers every family flag `true`, so no slot
+ * tool changes. The game itself never reads these flags; it reads its config.
  */
 
+import { familyOfKind } from 'constants-shared/gameKinds';
 import {
 	HOLD_AND_WIN_SYMBOL_STATES,
 	POTS_TOKEN_SYMBOL_STATES,
@@ -39,6 +45,10 @@ export interface KindCapabilityConfig {
 	/** `resolveExpandingSymbol(doc) !== undefined` — the Book-of expanding special is on
 	 *  (`docs/design/book-feature.md` §3.3). */
 	expandingSymbol?: boolean;
+	/** `resolveFamily(doc)` — `slot`, `match3` or `arcade`. Absent ⇒ the kind's family. */
+	family?: string;
+	/** `resolveOutcome(doc)` — `rgs` or `rules`. Absent ⇒ `rgs`. */
+	outcome?: string;
 }
 
 export interface KindCapabilities {
@@ -76,6 +86,13 @@ export interface KindCapabilities {
 	/** The Symbols tool's "Transition" section — the explosion → intro animation under the `emerge`
 	 *  swap style. The emerge gate still applies; this only takes it off a kind that never swaps. */
 	symbolTransition: boolean;
+	/** The game takes a stake and pays wins: the balance and win readouts. Off for a free-play game
+	 *  whose own rules decide (`outcome: 'rules'`). */
+	wallet: boolean;
+	/** The bet selector and the bet modes' menu. Follows {@link wallet}. */
+	betControls: boolean;
+	/** A board of symbols: a slot's reels or a match-3 grid. Off for arcade. */
+	board: boolean;
 }
 
 const CASCADE_KINDS: ReadonlySet<string> = new Set(['cluster', 'scatter']);
@@ -86,6 +103,8 @@ export function kindCapabilities(
 	config: KindCapabilityConfig = {},
 ): KindCapabilities {
 	const kind = gameType ?? '';
+	const family = config.family ?? familyOfKind(kind);
+	if (family === 'match3' || family === 'arcade') return familyCapabilities(family, config);
 	const holdAndWinKind = kind === 'holdAndWin';
 	const holdAndWin = holdAndWinKind || !!config.holdAndWin;
 	const potsOverlay = !!config.potsOverlay;
@@ -104,6 +123,37 @@ export function kindCapabilities(
 		bookSymbolVfx: !holdAndWinKind,
 		tumblePattern: !holdAndWinKind,
 		symbolTransition: !holdAndWinKind,
+		wallet: true,
+		betControls: true,
+		board: true,
+	};
+}
+
+/** A match-3 board pops its matches and tumbles like a cascade slot; an arcade game has no board.
+ *  Neither has any of a slot's features. */
+function familyCapabilities(
+	family: 'match3' | 'arcade',
+	config: KindCapabilityConfig,
+): KindCapabilities {
+	const match3 = family === 'match3';
+	const wallet = config.outcome !== 'rules';
+	return {
+		freeSpins: false,
+		bookReveal: false,
+		stackedPictures: false,
+		cascade: match3,
+		multiplierCollect: false,
+		holdAndWin: false,
+		coinSymbols: false,
+		pots: false,
+		potsOverlay: false,
+		winLines: false,
+		bookSymbolVfx: false,
+		tumblePattern: match3,
+		symbolTransition: false,
+		wallet,
+		betControls: wallet,
+		board: match3,
 	};
 }
 
