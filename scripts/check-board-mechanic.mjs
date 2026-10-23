@@ -27,6 +27,11 @@ import {
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const REPLAY_FIXTURE = join(ROOT, 'packages/engine-mechanics/fixtures/board-replay.json');
 
+/** A seed whose first draw stops a four-cell strip on its last cell. */
+const WRAPPING_SEED = (() => {
+	for (let seed = 0; ; seed++) if (Math.floor(createRng(seed)() * 4) === 3) return seed;
+})();
+
 let passed = 0;
 const failures = [];
 function check(name, fn) {
@@ -156,7 +161,8 @@ check('illegal swaps: no match, not adjacent, diagonal, same gem, a hole, off th
 	assert.equal(canSwap(board, { reel: 0, row: 1 }, { reel: 0, row: 1 }), false, 'itself');
 	assert.equal(canSwap(board, { reel: 2, row: 1 }, { reel: 2, row: 2 }), false, 'a hole');
 	assert.equal(canSwap(board, { reel: 3, row: 0 }, { reel: 4, row: 0 }), false, 'off the board');
-	const same = grid(['AAB', 'CDC']);
+	// Two As side by side inside a run: without the same-gem rule, the run would make it a move.
+	const same = grid(['AAAB', 'CDCD']);
 	assert.equal(canSwap(same, { reel: 0, row: 0 }, { reel: 1, row: 0 }), false, 'same gem');
 });
 
@@ -213,17 +219,18 @@ check('a book refill must fit the holes exactly, and only after gravity', () => 
 
 check('a pool refill reads the column strip from a seeded stop, wrapping', () => {
 	const pool = [['P', 'Q', 'R', 'S'], ['T']];
-	const holed = grid(['..', '.U', 'VW'], { pool, rng: createRng(7) });
-	const { board, newSymbols } = refill(holed, 'pool');
-	const stop = Math.floor(createRng(7)() * 4);
-	const strip = pool[0];
-	assert.deepEqual(
-		newSymbols[0].map((g) => g.name),
-		[strip[stop], strip[(stop + 1) % 4]],
+	const seed = WRAPPING_SEED;
+	assert.equal(
+		Math.floor(createRng(seed)() * 4),
+		3,
+		"the seed should stop on the strip's last cell",
 	);
+	const holed = grid(['..', '.U', 'VW'], { pool, rng: createRng(seed) });
+	const { board, newSymbols } = refill(holed, 'pool');
+	assert.deepEqual(newSymbols[0], gems('SP'));
 	assert.deepEqual(newSymbols[1], gems('T'));
 	assert.equal(draw(board)[2], 'VW');
-	const replayed = refill(grid(['..', '.U', 'VW'], { pool, rng: createRng(7) }), 'pool');
+	const replayed = refill(grid(['..', '.U', 'VW'], { pool, rng: createRng(seed) }), 'pool');
 	assert.deepEqual(replayed.board.cells, board.cells);
 	assert.deepEqual(replayed.newSymbols, newSymbols);
 });
@@ -234,6 +241,7 @@ check('an RGS board (rng: null) refuses every local draw', () => {
 	assert.throws(() => refill(rgs, 'pool'), /needs an rng/);
 	assert.throws(() => resolve(grid(['C', 'A', 'A', 'A'], { pool })), /needs an rng/);
 	assert.throws(() => shuffle(grid(['A', 'B'])), /shuffle needs an rng/);
+	assert.throws(() => shuffle(grid(['AB', 'CD']), createRng(1)), /shuffle needs an rng/);
 	assert.throws(() => createBoard({ cols: 1, rows: 3, pool }), /deal needs an rng/);
 	assert.deepEqual(draw(refill(rgs, [gems('Z')]).board), ['Z', 'A', 'B']);
 });
@@ -273,7 +281,7 @@ check('a book-fed cascade chains until nothing matches, each step a tumbleBoard 
 });
 
 check('a chain can come from the falls alone', () => {
-	// Clearing row 3's AAA drops reels 0–2 one row, which lines row 1's CC up with reel 3's C.
+	// Clearing row 3's AAA drops reels 0–2 one row: row 1's CC falls to row 2, beside reel 3's C.
 	const board = grid(['EDBD', 'DCCE', 'BEDC', 'AAAE']);
 	const { board: settled, steps } = resolve(board, {
 		source: [
@@ -299,6 +307,19 @@ check('a book that runs out mid-chain is refused', () => {
 			resolve(grid(['CDEC', 'DECD', 'AAAE']), { source: [[gems('B'), gems('B'), gems('B'), []]] }),
 		/ran out of refills at step 2/,
 	);
+});
+
+check('a book with refills left over, or a source that is neither, is refused', () => {
+	const board = grid(['CDEC', 'DECD', 'AAAE']);
+	const book = [
+		[gems('B'), gems('B'), gems('B'), []],
+		[gems('X'), gems('Y'), gems('Z'), []],
+	];
+	assert.throws(
+		() => resolve(board, { source: [...book, [[], [], [], []]] }),
+		/settled after 2 steps, but the book refills 3/,
+	);
+	assert.throws(() => resolve(board, { source: 'Pool' }), /'pool' or the book's refills/);
 });
 
 check('a runaway cascade stops at maxSteps and names the strips', () => {
@@ -338,7 +359,7 @@ check('hasMoves and findMoves', () => {
 });
 
 check('shuffle keeps the gems, leaves no match and a move, and replays from a seed', () => {
-	const board = grid(['ABCD', 'BCDA', 'CDAB', 'DABC']);
+	const board = grid(['ABCD', 'BCDA', 'CDAB', 'DABC'], { rng: createRng('board') });
 	const first = shuffle(board, createRng('s'));
 	const again = shuffle(board, createRng('s'));
 	assert.deepEqual(first.cells, again.cells);
@@ -346,7 +367,10 @@ check('shuffle keeps the gems, leaves no match and a move, and replays from a se
 	assert.deepEqual(findMatches(first), []);
 	assert.equal(hasMoves(first), true);
 	assert.deepEqual(draw(board), ['ABCD', 'BCDA', 'CDAB', 'DABC']);
-	assert.throws(() => shuffle(grid(['AB', 'CD']), createRng(1)), /no shuffle of these gems/);
+	assert.throws(
+		() => shuffle(grid(['AB', 'CD'], { rng: createRng(1) })),
+		/no shuffle of these gems/,
+	);
 });
 
 check('a dealt board has no match and a move, and the same seed deals it again', () => {
@@ -372,6 +396,7 @@ check('a dealt board has no match and a move, and the same seed deals it again',
 });
 
 check('malformed boards and pools are refused', () => {
+	assert.throws(() => findMatches(grid(['AB']), { minRun: 1 }), /minRun/);
 	assert.throws(() => createBoard({ cols: 0, rows: 3, cells: [] }), /whole numbers above 0/);
 	assert.throws(
 		() => createBoard({ cols: 1, rows: 1, minRun: 1, cells: [[{ name: 'A' }]] }),

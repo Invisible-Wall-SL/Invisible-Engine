@@ -26,7 +26,12 @@ game, bundle or screen changes.
   reel strip is read, wrapping; or a book's `newSymbols`, which must fit the holes exactly.
   `resolve` takes either, one book refill per step, so an RGS board can mirror the server's chain.
 - **The RGS guard (§2.2 #1):** a board built with `rng: null` (the default) throws on any deal,
-  pool refill or shuffle; it takes gems only from given cells and the book.
+  pool refill or shuffle, even one handed an rng; it takes gems only from given cells and the book.
+  A book whose refills outnumber or fall short of the local chain throws too: that is the
+  client/server mismatch §2.2 #4 logs.
+- **Replay is seed + moves.** The rng is one closure shared by every board derived from the first,
+  and its state cannot be saved, so a rules game resumes by replaying from its seed. P10.5 decides
+  whether a saved game needs more.
 - **Choices this build made** (the plan does not fix them; easy to change before P10.5 calls it):
   - a **dealt board** has no match and at least one move (up to 200 seeded deals, then it throws:
     the strips cannot make a playable board); `shuffle` keeps the same promise;
@@ -35,7 +40,7 @@ game, bundle or screen changes.
   - `resolve` stops after 100 steps and throws (a runaway chain is a strips problem); `refill`
     throws when a hole sits below a gem (gravity has not run);
   - `findMoves` (every legal swap, each pair once) is exported because `board.hint()` needs one.
-- **Gate `check:board-mechanic`** (`scripts/check-board-mechanic.mjs`, run by `check:all`): 31
+- **Gate `check:board-mechanic`** (`scripts/check-board-mechanic.mjs`, run by `check:all`): 32
   checks over drawn grids: runs, line shapes, `L` / `T`, `minRun`; legal and illegal swaps;
   gravity's falls; book and pool refills; a chain fed by refills and one made by falls alone; the
   RGS mirror (a pool chain replayed on an `rng: null` board from its own `newSymbols` gives the

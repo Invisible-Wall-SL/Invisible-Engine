@@ -85,6 +85,7 @@ export function canSwap(board: Board, a: Cell, b: Cell): boolean;
 /** Trades two cells without checking the swap is legal. Throws outside the board. */
 export function swap(board: Board, a: Cell, b: Cell): Board;
 
+/** Throws on a `minRun` below 2. */
 export function findMatches(board: Board, options?: { minRun?: number }): MatchGroup[];
 
 export function clear(board: Board, groups: readonly MatchGroup[]): Board;
@@ -95,7 +96,8 @@ export function gravity(board: Board): { board: Board; moves: Fall[] };
  *  refill of a board with no pool or no rng. */
 export function refill(board: Board, source: RefillSource): { board: Board; newSymbols: Gem[][] };
 
-/** The cascade loop. `source` is `'pool'` or the book's refills, one per step. */
+/** The cascade loop. `source` is `'pool'` or the book's refills, one per step; a book with more or
+ *  fewer refills than the chain has steps throws. */
 export function resolve(
 	board: Board,
 	options?: { source?: 'pool' | readonly BookRefill[]; minRun?: number; maxSteps?: number },
@@ -105,5 +107,6 @@ export function findMoves(board: Board, options?: { minRun?: number; limit?: num
 
 export function hasMoves(board: Board, options?: { minRun?: number }): boolean;
 
-/** Throws with no rng, and when no arrangement of the gems is playable. */
+/** Throws on an RGS board (`rng: null`) even when an `rng` is passed, and when no arrangement of
+ *  the gems is playable. */
 export function shuffle(board: Board, rng?: Rng | null): Board;

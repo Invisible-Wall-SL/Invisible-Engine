@@ -64,9 +64,7 @@ export function createBoard({
 	if (!isCount(cols) || !isCount(rows)) {
 		throw new Error(`board: cols and rows must be whole numbers above 0 (got ${cols} × ${rows})`);
 	}
-	if (!Number.isInteger(minRun) || minRun < 2) {
-		throw new Error(`board: minRun must be a whole number of at least 2 (got ${minRun})`);
-	}
+	checkMinRun(minRun);
 	const strips = pool === null ? null : readPool(pool, cols);
 	const base = { cols, rows, minRun, cells: [], strips, rng };
 	if (cells !== undefined) return { ...base, cells: readCells(cells, cols, rows) };
@@ -117,6 +115,7 @@ export function swap(board, a, b) {
  * or more. Groups and their cells are in reel-then-row order.
  */
 export function findMatches(board, { minRun = board.minRun } = {}) {
+	checkMinRun(minRun);
 	const runs = [];
 	const scan = (length, cellOf, posOf) => {
 		let start = 0;
@@ -263,17 +262,28 @@ export function refill(board, source) {
  * The cascade: match, clear, fall, refill, until nothing matches. Each step's `event` is a
  * `tumbleBoard` book event without its `index`, beside the groups that made it and the falls.
  * `source` is `'pool'`, or the book's `newSymbols` for each step in order (an RGS board mirrors
- * the server's chain this way).
+ * the server's chain this way); a book with more or fewer refills than the chain has steps throws,
+ * which is the client/server mismatch §2.2 #4 logs.
  */
 export function resolve(
 	board,
 	{ source = 'pool', minRun = board.minRun, maxSteps = DEFAULT_MAX_STEPS } = {},
 ) {
+	if (source !== 'pool' && !Array.isArray(source)) {
+		throw new Error(`board: resolve's source is 'pool' or the book's refills (got ${source})`);
+	}
 	const steps = [];
 	let current = board;
 	for (;;) {
 		const groups = findMatches(current, { minRun });
-		if (!groups.length) return { board: current, steps };
+		if (!groups.length) {
+			if (source !== 'pool' && source.length > steps.length) {
+				throw new Error(
+					`board: the board settled after ${steps.length} steps, but the book refills ${source.length}`,
+				);
+			}
+			return { board: current, steps };
+		}
 		if (steps.length >= maxSteps) {
 			throw new Error(
 				`board: the cascade is still matching after ${maxSteps} steps — check the strips`,
@@ -281,12 +291,12 @@ export function resolve(
 		}
 		let refillFrom = source;
 		if (source !== 'pool') {
-			if (!Array.isArray(source) || steps.length >= source.length) {
+			if (steps.length >= source.length) {
 				throw new Error(`board: the book ran out of refills at step ${steps.length + 1}`);
 			}
 			refillFrom = source[steps.length];
 		}
-		const explodingSymbols = uniqueCells(groups);
+		const explodingSymbols = groups.flatMap((group) => group.cells).sort(byPosition);
 		const fallen = gravity(clear(current, groups));
 		const filled = refill(fallen.board, refillFrom);
 		steps.push({
@@ -324,7 +334,9 @@ export function hasMoves(board, options) {
 
 /** The same gems in new places, with no match on the board and a move to make. Holes stay put. */
 export function shuffle(board, rng = board.rng) {
-	if (!rng) throw new Error('board: shuffle needs an rng — an RGS board is shuffled by the server');
+	if (!board.rng || !rng) {
+		throw new Error('board: shuffle needs an rng — an RGS board is shuffled by the server');
+	}
 	const places = [];
 	board.cells.forEach((column, reel) =>
 		column.forEach((cell, row) => {
@@ -347,6 +359,12 @@ export function shuffle(board, rng = board.rng) {
 	throw new Error(
 		`board: no shuffle of these gems has a move without a match (${MAX_DEAL_TRIES} tries)`,
 	);
+}
+
+function checkMinRun(minRun) {
+	if (!Number.isInteger(minRun) || minRun < 2) {
+		throw new Error(`board: minRun must be a whole number of at least 2 (got ${minRun})`);
+	}
 }
 
 const isPlayable = (board) => findMatches(board).length === 0 && hasMoves(board);
@@ -395,13 +413,6 @@ function readCell(cell, where) {
 	if (typeof cell?.name !== 'string' || !cell.name)
 		throw new Error(`board: ${where} has a cell with no name`);
 	return { ...cell };
-}
-
-function uniqueCells(groups) {
-	const seen = new Map();
-	for (const group of groups)
-		for (const cell of group.cells) seen.set(`${cell.reel}:${cell.row}`, cell);
-	return [...seen.values()].sort(byPosition);
 }
 
 const isCount = (n) => Number.isInteger(n) && n > 0;
