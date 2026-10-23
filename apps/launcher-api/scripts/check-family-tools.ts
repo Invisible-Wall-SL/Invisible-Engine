@@ -13,8 +13,8 @@
  *     load reads it TRACKED (the event has no `untrack`), so a client-side hop to another
  *     project's `?project=` re-runs it. Onboarding keeps the role's whole manifest.
  *  3. THE NOTICE. The REAL `(app)/+layout.svelte`, rendered on the server: a hidden tool's URL (and
- *     a path under it) shows the notice, naming the project, and not the page; a slot project, and any tool the family
- *     uses, render the page untouched.
+ *     a path under it) shows the notice, naming the project, and not the page; a slot project, and
+ *     any tool the family uses, render the page untouched.
  *  4. DIRECTOR'S GATE. The REAL `director/gate.ts` refuses an op on a tool the project's family
  *     does not use (`not_for_family`) and runs the same op for a slot project.
  *
