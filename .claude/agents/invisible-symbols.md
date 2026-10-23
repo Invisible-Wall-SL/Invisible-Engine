@@ -61,7 +61,7 @@ runtime, and the engine's symbol registry (see `engine-pixi-svelte` and `launche
 - **Reuse, don't rebuild** — check the `reuse-check` skill before a new shared surface.
 
 ## House style
-`pnpm` only (10.5.0), Node ≥ 22.16.0, `workspace:*`. TypeScript, no `any`. Prettier: tabs,
+`pnpm` only (10.5.0), Node ≥ 22.19.0, `workspace:*`. TypeScript, no `any`. Prettier: tabs,
 single quotes, 100 cols, trailing commas. Branding: **Invisible Symbols State Machine**;
 Invisible Wall emblem.
 

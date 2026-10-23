@@ -42,7 +42,7 @@ chain (see `engine-pixi-svelte`).
 - **Runtime publish:** `scripts/publish-runtime-bundle.mjs` (+ `POST games.invisiblewall.org/refresh`).
 
 ## House style
-`pnpm` only (10.5.0), Node ≥ 22.16.0, `workspace:*`. TypeScript, no `any`. Prettier: tabs,
+`pnpm` only (10.5.0), Node ≥ 22.19.0, `workspace:*`. TypeScript, no `any`. Prettier: tabs,
 single quotes, 100 cols, trailing commas. Branding: **Invisible Game Maker**; Invisible Wall emblem.
 
 ## How to work
