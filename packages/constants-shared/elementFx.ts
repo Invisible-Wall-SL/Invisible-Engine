@@ -1057,6 +1057,37 @@ export const ELEMENT_FX = [
 		],
 	},
 	{
+		kind: 'crystallize',
+		label: 'Crystallize (ice shards)',
+		category: 'break',
+		phase: 'exit',
+		durationMs: 2400,
+		description:
+			'Crystallizes into ice: crystals grow over it facet by facet, it locks as ice glinting and creaking, then bursts into ice shards that tumble, flash and fall.',
+		params: [
+			COLOR('color', 'Ice colour', '#9fdcff'),
+			{
+				id: 'from',
+				label: 'Ice from',
+				kind: 'choice',
+				default: 'center',
+				options: ['center', 'bottom', 'top', 'edges'],
+			},
+			{ id: 'pieces', label: 'Shards', kind: 'number', default: 28, min: 8, max: 80, step: 1 },
+			{
+				id: 'freeze',
+				label: 'Crystallizing',
+				kind: 'number',
+				default: 0.45,
+				min: 0.15,
+				max: 0.8,
+				step: 0.05,
+				note: 'The share of the play the ice grows and holds before it bursts.',
+			},
+			{ id: 'gravity', label: 'Gravity', kind: 'number', default: 1, min: 0, max: 4, step: 0.05 },
+		],
+	},
+	{
 		kind: 'disintegrate',
 		label: 'Dissolve to particles',
 		category: 'break',

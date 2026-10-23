@@ -30,7 +30,7 @@ Three ways to get one onto an element, all playing through ONE runtime:
 ## 2. The catalog (`constants-shared/elementFx`)
 
 One dependency-free list, read by the editor (kind picker, param rows), the flow vocabulary (the
-`ElementFxKind` dropdown) and the runtime. 49 kinds in five families:
+`ElementFxKind` dropdown) and the runtime. 50 kinds in five families:
 
 - **Motion** (the element's own transform; no GPU pass): shake, wobble, pulse, heartbeat, jelly,
   bounce, spin, swing, float, pop in, pop out, slam in, fade in, fade out.
@@ -55,8 +55,9 @@ One dependency-free list, read by the editor (kind picker, param rows), the flow
   glowing edge).
 - **Break** (a still of the element cut into pieces): crash (takes a hit, smashes into shards that
   fly and fall), crumble (chunks let go bottom row first and drop), shatter (glass: cracks spread
-  from an impact, then spiderweb shards tumble and fall, the ones by the impact first), dissolve to
-  particles (turns
+  from an impact, then spiderweb shards tumble and fall, the ones by the impact first),
+  crystallize (ice shards: crystal facets ice over one by one from a side, hold and creak, then
+  burst into shards that tumble, glint and fall), dissolve to particles (turns
   to dust: specks let go in a ragged front, the side the wind blows to first, and blow away on it,
   swaying and shrinking to nothing) and assemble from particles (the same dust played backwards,
   an entrance: the specks blow in and become the element).

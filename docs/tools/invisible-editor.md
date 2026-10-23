@@ -823,7 +823,7 @@ layout; they are never a per-layout override. While you Inspect an old version o
 section is read-only, and ▶ still plays.
 
 **Add one.** With none yet, the section shows a one-line hint and the **+ Add effect…** picker,
-which lists the 49 effects grouped by family (the table below). Picking one adds a row, opens it,
+which lists the 50 effects grouped by family (the table below). Picking one adds a row, opens it,
 and gives it the trigger that suits it: a loop effect starts as _Always_, an entrance as _When
 shown_, anything else as _On cue_.
 
@@ -878,7 +878,7 @@ An _On cue_ effect fired again restarts. Its cue (and any stop cue) shows in Inv
 Several effects on one element play together. A loop effect given a play count (_When shown_ or
 _On cue_) fades in and out. An **exit** effect ends with the element hidden and keeps it hidden
 until its stop cue fires or an entrance effect plays on it; its row says so. **Crash**,
-**Crumble**, **Shatter (glass)**, **Dissolve to particles** and **Assemble from particles** work
+**Crumble**, **Shatter (glass)**, **Crystallize (ice shards)**, **Dissolve to particles** and **Assemble from particles** work
 on a still of the
 element taken as they start, so an animating rig holds still while they play (an assemble hands
 back the live element as it ends).
@@ -904,7 +904,7 @@ whole frame. One preview plays at a time, a second ▶ replaces it, and nothing 
   screen is hidden, the element or a container above it is hidden, or it is off the visible stage),
   the row says _Nothing on the stage to play it on: show the element and its screen first._
 
-**The 49 effects.** _loop_ = built to repeat, the natural pick for _Always_; _entrance_ = starts
+**The 50 effects.** _loop_ = built to repeat, the natural pick for _Always_; _entrance_ = starts
 hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to rest.
 
 | Family         | Effect                     | What it does                                                                     |
@@ -956,6 +956,7 @@ hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to 
 | Break          | **Crash** (exit)           | Takes a hit, then smashes into shards that fly apart and fall.                   |
 |                | **Crumble** (exit)         | Falls apart into chunks that drop away, bottom first.                            |
 |                | **Shatter (glass)** (exit) | Breaks like a pane of glass: cracks race out from the **Impact** point over the first part of the play (**Cracking**), then it falls apart in spiderweb **Shards** that tumble and drop, those by the impact first. |
+|                | **Crystallize (ice shards)** (exit) | Crystallizes into ice: crystal facets in the **Ice colour** ice over one by one from the **Ice from** side (the centre by default), each flashing white as it snaps in; it holds as ice with its seams traced and points twinkling, creaks, and at **Crystallizing** of the play bursts into its **Shards**, which fly out, tumble, glint as they turn and fall (**Gravity**). |
 |                | **Dissolve to particles** (exit) | Turns to dust: specks peel away in a ragged front, starting on the side the **Wind** blows to, and blow off on it, swaying (**Turbulence**) and shrinking to nothing. **Particles** sets how many. |
 |                | **Assemble from particles** (entrance) | Dissolve to particles backwards: specks blow in from the **From** side, swaying and growing as they arrive, and settle into the element, the far side first. |
 
@@ -1952,8 +1953,8 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   [Game Config](game-config.md) are applied only when the game builds its buy menu; the editor
   draws each card with the component's own defaults. Check per-mode art in the game.
 - **An element vanished after its Element FX and never came back.** It has an exit effect (Pop
-  out, Fade out, Dissolve out, Burn to ashes, Melt, Crash, Crumble, Shatter, Dissolve to
-  particles), which ends hidden and keeps the element hidden
+  out, Fade out, Dissolve out, Burn to ashes, Melt, Crash, Crumble, Shatter, Crystallize, Dissolve
+  to particles), which ends hidden and keeps the element hidden
   until its **Stop cue** fires or an entrance effect plays on it. Give it a stop cue, or an entrance
   on a later cue.
 - **An _On cue_ Element FX did not play.** A cue reaches an element only while it is on screen.
