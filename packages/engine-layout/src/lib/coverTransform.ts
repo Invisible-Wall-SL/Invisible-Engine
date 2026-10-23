@@ -241,6 +241,21 @@ export function isCoverFitKind(node: { kind: string }): boolean {
 }
 
 /**
+ * Node kinds that cover the window on a `background` screen — the {@link isCoverFitKind} art, a
+ * `componentInstance` as one composed unit, and a flat `rect`, measured from its own width × height
+ * (it has no texture). Everything else there (text, a bare container) is placed at raw window
+ * pixels. A `rect` is background-only, like the instance: it never covers through `coverFit`.
+ *
+ * THE list read by the runtime (`LayoutNodeView`'s rect cover) and the editor gates
+ * (`EditorCanvas.nodeTransform` + `isBackgroundCover`, `+page.svelte`'s cover section). Before the
+ * rect was here, a "full-screen" rect filled the editor's fixed bucket frame exactly and then
+ * stopped at those pixels in any larger game window.
+ */
+export function isBackgroundCoverKind(node: { kind: string }): boolean {
+	return isCoverFitKind(node) || node.kind === 'componentInstance' || node.kind === 'rect';
+}
+
+/**
  * The subset of {@link isCoverFitKind} whose cover is measured from ONE atlas TEXTURE's natural
  * size — a still `sprite` and a `flipbook` (the same atlas art, played in order; it measures its
  * FIRST frame). Both take the identical texture → {@link coverTransform} → centred per-axis

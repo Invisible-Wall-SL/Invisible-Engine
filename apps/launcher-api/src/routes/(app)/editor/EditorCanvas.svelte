@@ -21,6 +21,7 @@
 		fillMaskRect,
 		hostedComponentSpace,
 		instancePreviewRigBundle,
+		isBackgroundCoverKind,
 		isCoverFitKind,
 		isHudScene,
 		keyableElementFxEntries,
@@ -649,10 +650,10 @@
 			return { ...t, ...anchoredPosition(t, space, frameWidth, frameHeight) };
 		}
 		if (space === 'background') {
-			if (isCoverFitKind(node) || node.kind === 'componentInstance') {
+			if (isBackgroundCoverKind(node)) {
 				return backgroundTransform(node, t);
 			}
-			// Everything ELSE on a background screen (a text label, a rect, a bare container) does
+			// Everything ELSE on a background screen (a text label, a bare container) does
 			// NOT cover — and the game draws it at RAW WINDOW pixels: `LayoutScene` wraps only
 			// `game`/`standard` in a `<MainContainer>`, and `anchoredPosition` returns x/y verbatim
 			// for this space. Without this branch such a node fell through to the game-space
@@ -743,7 +744,12 @@
 				height: box.h,
 			};
 		}
-		const nat = naturalSize(node);
+		// A flat `rect` has no art to measure: it covers by its own width × height, as the runtime's
+		// `rectCover` does, so a `contain` fit or a cover zoom letterboxes it the same in both.
+		const nat =
+			node.kind === 'rect'
+				? { w: t.width ?? node.width, h: t.height ?? node.height }
+				: naturalSize(node);
 		const cover = coverTransform({
 			artWidth: nat?.w ?? frameWidth,
 			artHeight: nat?.h ?? frameHeight,
@@ -1040,9 +1046,7 @@
 		if (scene.space === 'canvas' && node.coverFit && isCoverFitKind(node)) {
 			return true;
 		}
-		return (
-			scene.space === 'background' && (isCoverFitKind(node) || node.kind === 'componentInstance')
-		);
+		return scene.space === 'background' && isBackgroundCoverKind(node);
 	}
 
 	let canvas: HTMLCanvasElement | null = $state(null);

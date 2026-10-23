@@ -29,6 +29,7 @@
 		expandingBoardReserved,
 		reserveExpandingBoard,
 		hudScenes,
+		isBackgroundCoverKind,
 		isCoverFitKind,
 		isHudScene,
 		listFullSceneSets,
@@ -1280,10 +1281,7 @@
 		if (activeScene?.space === 'canvas' && node.coverFit && isCoverFitKind(node)) {
 			return true;
 		}
-		return (
-			activeScene?.space === 'background' &&
-			(isCoverFitKind(node) || node.kind === 'componentInstance')
-		);
+		return activeScene?.space === 'background' && isBackgroundCoverKind(node);
 	});
 
 	const sceneCount = $derived(scenes.length);

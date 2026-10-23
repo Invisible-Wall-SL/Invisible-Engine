@@ -171,6 +171,23 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-23 — **A Rect on a `background` screen fills the window** (in review). The owner's
+  `commonoverlayproject` background was a 1920×1080 Rect at (960, 540): the editor's Desktop
+  frame is exactly that box, so it looked full-bleed there, but the game draws a background Rect
+  at raw window pixels, so a larger window showed black past x 1920 / y 1080. Only image, rig,
+  clip and component nodes covered (`isCoverFitKind` + `componentInstance`, spelled out at three
+  editor gates). A Rect now covers too, measured from its own width × height with the same fit /
+  cover scale / align / stretch inputs: one predicate, `isBackgroundCoverKind` in
+  `engine-layout/coverTransform.ts`, read by the runtime (`LayoutNodeView`'s `rectCover`) and the
+  editor (`EditorCanvas.nodeTransform` + `isBackgroundCover`, `+page.svelte`'s Background section),
+  so the Rect stops being draggable there and shows the Background controls like a background
+  image. A `fill` reveal does not apply to a covering Rect (as on a cover sprite). Text and bare
+  containers on a background screen are unchanged. Gate:
+  `packages/engine-layout/scripts/test-cover-fit.mjs` (kind list + a 1920×1080 Rect filling
+  1920×1080, 2817×1585, 1080×1920 and 1366×1024 windows). Verified in the `apps/lines` dev game at 2560×1440 with a temporary
+  background Rect in the fallback doc: before, the fill stopped at 1920×1080; after, every edge
+  is covered. Any project with a smaller Rect on a background screen (a band, a panel) now fills
+  the window too; move such a Rect to a `canvas` screen to keep it placed.
 - 2026-10-23 — **The Interpolation panel draws its curve** (in review). The panel showed a solid
   black box with two black dots where the cubic curve belongs. The shared Timeline emits the curve
   as SVG (`.cineCurveBox` / `Arm` / `Path` / `Handle`) and `EditorTimelinePanel.svelte` had no
