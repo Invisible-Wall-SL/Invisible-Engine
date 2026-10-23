@@ -1,3 +1,4 @@
+import { resolveFamily, resolveMatch3 } from './family';
 import { WIN_MODEL_TYPES, type GameConfigDoc, type WinModel, type WinModelType } from './types';
 
 /**
@@ -7,10 +8,16 @@ import { WIN_MODEL_TYPES, type GameConfigDoc, type WinModel, type WinModelType }
  * `docs/design/game-type-templates.md` omits the field and means exactly that, so this is a
  * default rather than a migration — nothing stored is rewritten.
  *
+ * A match-3 doc always plays the `match3` arm, built from its `match3` block, whatever `winModel`
+ * it carries (the normalizer stores none for it).
+ *
  * Callers must go through here instead of reading `doc.winModel`, otherwise the "absent means
  * lines" rule gets re-implemented (and eventually mis-implemented) at each site.
  */
-export function resolveWinModel(doc: Pick<GameConfigDoc, 'winModel'> | undefined): WinModel {
+export function resolveWinModel(
+	doc: Pick<GameConfigDoc, 'winModel' | 'family' | 'match3'> | undefined,
+): WinModel {
+	if (resolveFamily(doc) === 'match3') return { type: 'match3', minRun: resolveMatch3(doc).minRun };
 	return doc?.winModel ?? { type: 'lines' };
 }
 
@@ -30,7 +37,8 @@ const posInt = (value: unknown, fallback: number): number => {
 /**
  * Normalize an authored `winModel`, or `undefined` when there is nothing worth storing.
  *
- * Returns `undefined` for `lines` as well as for garbage: `lines` is the default, so persisting it
+ * Returns `undefined` for `lines` and `match3` as well as for garbage (`match3` is never stored,
+ * see {@link resolveWinModel}): `lines` is the default, so persisting it
  * would add a field to every existing doc and break the round-trip parity this schema change is
  * built to preserve. The invariant is "store only what departs from the default".
  *
@@ -46,6 +54,7 @@ export function normalizeWinModel(raw: unknown): WinModel | undefined {
 
 	switch (type as WinModelType) {
 		case 'lines':
+		case 'match3':
 			return undefined;
 		case 'ways':
 			return {

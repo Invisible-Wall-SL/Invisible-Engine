@@ -16,6 +16,10 @@
 		resolveWinModel,
 		resolveCascade,
 		cascadeDefaultFor,
+		configSectionsOf,
+		configShowsPays,
+		resolveFamily,
+		resolveMatch3,
 		resolveFreeSpins,
 		resolveExpandingSymbol,
 		DEFAULT_EXPAND_MIN_REELS,
@@ -56,6 +60,7 @@
 		type PaytableImportPlan,
 	} from 'game-config';
 	import { findCapturedConfig } from 'rgs-translator-eagaming/paytable';
+	import { familyOfKind } from 'constants-shared/gameKinds';
 	import {
 		BUILTIN_RIG_NAMES,
 		builtinRigMeta,
@@ -69,6 +74,7 @@
 	import BonusModesSection from './BonusModesSection.svelte';
 	import CoinBoardSection from './CoinBoardSection.svelte';
 	import CoinOverlaySection from './CoinOverlaySection.svelte';
+	import FamilySection from './FamilySection.svelte';
 	import GameModesSection from './GameModesSection.svelte';
 	import {
 		adoptSaved,
@@ -125,10 +131,25 @@
 		const { freeSpins: _old, ...others } = config;
 		return Object.keys(rest).length ? { ...others, freeSpins: rest } : others;
 	};
+	/**
+	 * THE FAMILY (`docs/design/game-families.md` §6.2): which sections the page renders. A slot
+	 * renders every one, which is the page as it was before families existed. The family picker is
+	 * offered only to a project whose kind is not a slot, or whose config already names a family, so
+	 * a slot project never sees it.
+	 */
+	const family = $derived(resolveFamily(snapshot));
+	const sections = $derived(configSectionsOf(snapshot));
+	const showsPays = $derived(configShowsPays(snapshot));
+	const showsFamily = $derived(familyOfKind(data.gameType) !== 'slot' || family !== 'slot');
+
 	const issues = $derived([
 		...validateGameConfigDoc(withoutBookTrigger(snapshot)),
-		...undealtRouteWarnings(snapshot, data.gameType),
-		...spinsModeKindIssues(snapshot, data.gameType),
+		...(sections.has('bonusModes')
+			? [
+					...undealtRouteWarnings(snapshot, data.gameType),
+					...spinsModeKindIssues(snapshot, data.gameType),
+				]
+			: []),
 	]);
 	const errors = $derived(issues.filter((i) => i.severity === 'error'));
 	const warnings = $derived(issues.filter((i) => i.severity === 'warning'));
@@ -1467,13 +1488,22 @@
 			</div>
 		{/if}
 
-		<p class="intro">
-			What this game <em>plays</em> — its symbol dictionary and payouts, paylines, grid, bet modes,
-			and the reel strips that decide which symbols reach the board. This is the frontend's contract
-			with the math, not the math itself: the server stays the authority on outcomes. A config
-			arriving from the math team pastes straight in via
-			<button class="linkish" onclick={openRaw}>raw JSON</button>.
-		</p>
+		{#if family === 'slot'}
+			<p class="intro">
+				What this game <em>plays</em> — its symbol dictionary and payouts, paylines, grid, bet
+				modes, and the reel strips that decide which symbols reach the board. This is the frontend's
+				contract with the math, not the math itself: the server stays the authority on outcomes. A
+				config arriving from the math team pastes straight in via
+				<button class="linkish" onclick={openRaw}>raw JSON</button>.
+			</p>
+		{:else}
+			<p class="intro">
+				What this game <em>plays</em> — its family, who decides each round, and the rules and pieces
+				the game is made of. Only the sections this family uses are shown; the whole doc is always
+				in
+				<button class="linkish" onclick={openRaw}>raw JSON</button>.
+			</p>
+		{/if}
 
 		<div class="banner {source}">
 			{#if source === 'template'}
@@ -1552,6 +1582,10 @@
 			</div>
 		{/if}
 
+		{#if showsFamily}
+			<FamilySection bind:doc gems={[...inPlay]} {issuesFor} readOnly={lease.readOnly} />
+		{/if}
+
 		<!-- Return to player --------------------------------------------------------->
 		<!--
 			`providerName` / `gameName` / `gameID` USED TO BE EDITABLE HERE, under an "Identity"
@@ -1571,357 +1605,341 @@
 
 			`rtp` IS read (`gameProfile.ts` renders the "97% RTP" line), so it keeps its field.
 		-->
-		<section>
-			<h2>Return to player</h2>
-			<p class="hint">
-				Shown on the game's profile card, and on the info page's rules wherever the operator allows
-				RTP display (<code>showTheoreticalPayback</code>). The rules also state the base bet mode's
-				max win.
-			</p>
-			<div class="fields">
-				<label
-					><span>RTP</span><input
-						type="number"
-						step="0.001"
-						min="0"
-						max="1"
-						bind:value={doc.rtp}
-					/></label
-				>
-			</div>
-		</section>
-
-		<!-- Grid ------------------------------------------------------------------->
-		<section>
-			<h2>Grid</h2>
-			<p class="hint">
-				Reels and visible rows. <strong>Widening</strong> the grid auto-fills the new reels — strips
-				clone the last reel and paylines keep their shape — so you never re-enter them by hand.
-				<strong>Shrinking</strong> leaves the extra reels in place (trimming loses authored strips);
-				use <strong>Match grid</strong> to drop them down to the new count.
-			</p>
-			<p class="hint">
-				Give the reels <strong>different row counts</strong> for a stepped board — a
-				<code>3/4/5/4/3</code> diamond, or a pyramid. The game draws each column at its own height, the
-				server deals it that way, and a payline can only name a row its reel actually has.
-			</p>
-			<div class="fields">
-				<label
-					><span>Reels</span><input
-						type="number"
-						min="1"
-						value={doc.numReels}
-						oninput={(e) => setNumReels(Number(e.currentTarget.value))}
-					/></label
-				>
-				<label
-					><span>Rows (all reels)</span><input
-						type="number"
-						min="1"
-						value={maxRows}
-						oninput={(e) => setAllRows(Number(e.currentTarget.value))}
-					/></label
-				>
-			</div>
-			<div class="rows-per-reel">
-				{#each doc.numRows as rows, reel (reel)}
-					<label class="mini"
-						><span>R{reel + 1}</span><input
-							type="number"
-							min="1"
-							value={rows}
-							oninput={(e) => setRows(reel, Number(e.currentTarget.value))}
-						/></label
-					>
-				{/each}
-			</div>
-			{#if stepped}
+		{#if sections.has('rtp')}
+			<section>
+				<h2>Return to player</h2>
+				<p class="hint">
+					Shown on the game's profile card, and on the info page's rules wherever the operator
+					allows RTP display (<code>showTheoreticalPayback</code>). The rules also state the base
+					bet mode's max win.
+				</p>
 				<div class="fields">
 					<label
-						><span>Short column sits</span><select
-							value={doc.gridAlign ?? 'center'}
-							onchange={(e) => setGridAlign(e.currentTarget.value)}
-						>
-							<option value="center">Centred (diamond)</option>
-							<option value="top">Top-aligned</option>
-							<option value="bottom">Bottom-aligned (pyramid)</option>
-						</select></label
+						><span>RTP</span><input
+							type="number"
+							step="0.001"
+							min="0"
+							max="1"
+							bind:value={doc.rtp}
+						/></label
 					>
 				</div>
+			</section>
+		{/if}
+
+		<!-- Grid ------------------------------------------------------------------->
+		{#if sections.has('grid')}
+			<section>
+				<h2>Grid</h2>
 				<p class="hint">
-					Only the reels shorter than the tallest move. <strong>Centred</strong> gives the classic
-					diamond — a 4-row reel beside a 5-row one sits half a cell down.
-					<strong>Bottom-aligned</strong> stands the board on a flat floor.
+					Reels and visible rows. <strong>Widening</strong> the grid auto-fills the new reels —
+					strips clone the last reel and paylines keep their shape — so you never re-enter them by
+					hand.
+					<strong>Shrinking</strong> leaves the extra reels in place (trimming loses authored
+					strips); use <strong>Match grid</strong> to drop them down to the new count.
 				</p>
-			{/if}
-			{#if gridMismatch}
-				<div class="grid-fix">
-					<span
-						>Strips or paylines don't match the {doc.numReels}-reel grid — the config can't ship
-						until they line up.</span
+				{#if family === 'match3'}
+					<p class="hint">
+						The match-3 <strong>board</strong>: its reels are the columns, every column the same
+						height.
+					</p>
+				{/if}
+				{#if family === 'slot'}
+					<p class="hint">
+						Give the reels <strong>different row counts</strong> for a stepped board — a
+						<code>3/4/5/4/3</code> diamond, or a pyramid. The game draws each column at its own height,
+						the server deals it that way, and a payline can only name a row its reel actually has.
+					</p>
+				{/if}
+				<div class="fields">
+					<label
+						><span>Reels</span><input
+							type="number"
+							min="1"
+							value={doc.numReels}
+							oninput={(e) => setNumReels(Number(e.currentTarget.value))}
+						/></label
 					>
-					<button onclick={matchGridWidth}>Match grid ({doc.numReels} reels)</button>
+					<label
+						><span>Rows (all reels)</span><input
+							type="number"
+							min="1"
+							value={maxRows}
+							oninput={(e) => setAllRows(Number(e.currentTarget.value))}
+						/></label
+					>
 				</div>
-			{/if}
-		</section>
+				{#if family === 'slot'}
+					<div class="rows-per-reel">
+						{#each doc.numRows as rows, reel (reel)}
+							<label class="mini"
+								><span>R{reel + 1}</span><input
+									type="number"
+									min="1"
+									value={rows}
+									oninput={(e) => setRows(reel, Number(e.currentTarget.value))}
+								/></label
+							>
+						{/each}
+					</div>
+					{#if stepped}
+						<div class="fields">
+							<label
+								><span>Short column sits</span><select
+									value={doc.gridAlign ?? 'center'}
+									onchange={(e) => setGridAlign(e.currentTarget.value)}
+								>
+									<option value="center">Centred (diamond)</option>
+									<option value="top">Top-aligned</option>
+									<option value="bottom">Bottom-aligned (pyramid)</option>
+								</select></label
+							>
+						</div>
+						<p class="hint">
+							Only the reels shorter than the tallest move. <strong>Centred</strong> gives the
+							classic diamond — a 4-row reel beside a 5-row one sits half a cell down.
+							<strong>Bottom-aligned</strong> stands the board on a flat floor.
+						</p>
+					{/if}
+				{/if}
+				{#if gridMismatch}
+					<div class="grid-fix">
+						<span
+							>Strips or paylines don't match the {doc.numReels}-reel grid — the config can't ship
+							until they line up.</span
+						>
+						<button onclick={matchGridWidth}>Match grid ({doc.numReels} reels)</button>
+					</div>
+				{/if}
+			</section>
+		{/if}
 
 		<!-- Bet modes -------------------------------------------------------------->
-		<section>
-			<h2>Bet modes</h2>
-			<p class="hint">
-				Each entry in the bet selector / buy-bonus menu. The <strong>math</strong> (cost × the base
-				bet, RTP, max win, and whether the mode has the feature / is a bought bonus) is the math
-				export shape. The <strong>presentation</strong> is ours: <strong>Kind</strong> —
-				<code>base</code>, a persistent <code>ante</code>, or a one-shot <code>buy</code> (leave on
-				<em>auto</em> to derive it from the math) — a menu <strong>Order</strong>, the
-				<strong>Card</strong> component this mode's buy-feature card renders (blank ⇒ the default
-				<code>featureCard</code>), and the <strong>copy</strong> the card shows. Copy is authored
-				here as source text and translated in the <strong>Invisible Localization</strong> tool.
-			</p>
+		{#if sections.has('betModes')}
+			<section>
+				<h2>Bet modes</h2>
+				<p class="hint">
+					Each entry in the bet selector / buy-bonus menu. The <strong>math</strong> (cost × the
+					base bet, RTP, max win, and whether the mode has the feature / is a bought bonus) is the
+					math export shape. The <strong>presentation</strong> is ours: <strong>Kind</strong> —
+					<code>base</code>, a persistent <code>ante</code>, or a one-shot <code>buy</code> (leave
+					on
+					<em>auto</em> to derive it from the math) — a menu <strong>Order</strong>, the
+					<strong>Card</strong> component this mode's buy-feature card renders (blank ⇒ the default
+					<code>featureCard</code>), and the <strong>copy</strong> the card shows. Copy is authored
+					here as source text and translated in the <strong>Invisible Localization</strong> tool.
+				</p>
 
-			{#if resolvedBetModes.length}
-				<div class="menu-preview" aria-label="Resolved menu order">
-					{#each resolvedBetModes as m (m.mode)}
-						<span class="mp-chip mp-{m.kind}" title="{m.kind} · {m.costMultiplier}× bet"
-							>{m.title}<b>{m.costMultiplier}×</b></span
-						>
-					{/each}
-				</div>
-			{/if}
-
-			<div class="betmodes">
-				{#each Object.keys(doc.betModes) as key (key)}
-					{@const kind = effectiveKind(key)}
-					<!-- `data-kind` colour-codes the whole card (rail + key + tag) with the SAME palette the
-					     menu-preview chips use, so a card and its chip read as obviously the same mode. -->
-					<div class="betmode betmode-kinded" data-kind={kind}>
-						<div class="betmode-head">
-							<span class="betmode-key">{key}</span>
-							<span class="kind-tag">{kind}</span>
-							<span class="cost-tag">{doc.betModes[key].cost}× bet</span>
-							<button class="del" title="Remove" onclick={() => removeBetMode(key)}>×</button>
-						</div>
-
-						<div class="bm-block">
-							<span class="bm-legend">Math <em>the math-team export shape</em></span>
-							<div class="bm-fields bm-math">
-								<label class="fld"
-									><span>Cost ×</span><input
-										type="number"
-										step="0.01"
-										bind:value={doc.betModes[key].cost}
-									/></label
-								>
-								<label class="fld"
-									><span>RTP</span><input
-										type="number"
-										step="0.001"
-										min="0"
-										max="1"
-										bind:value={doc.betModes[key].rtp}
-									/></label
-								>
-								<label class="fld"
-									><span>Max win ×</span><input
-										type="number"
-										step="1"
-										bind:value={doc.betModes[key].max_win}
-									/></label
-								>
-								<label class="fld toggle"
-									><input type="checkbox" bind:checked={doc.betModes[key].feature} /><span
-										>Feature</span
-									></label
-								>
-								<label class="fld toggle"
-									><input type="checkbox" bind:checked={doc.betModes[key].buyBonus} /><span
-										>Buy bonus</span
-									></label
-								>
-							</div>
-						</div>
-
-						<div class="bm-block">
-							<span class="bm-legend">Menu <em>where it sits and what it renders</em></span>
-							<div class="bm-fields bm-menu">
-								<label class="fld"
-									><span>Kind</span><select
-										value={betModeKindValue(key)}
-										onchange={(e) => setBetModeKind(key, e.currentTarget.value)}
-									>
-										<option value="">auto → {derivedKind(key)}</option>
-										<option value="base">base</option>
-										<option value="ante">ante</option>
-										<option value="buy">buy</option>
-									</select></label
-								>
-								<label class="fld"
-									><span>Order</span><input
-										type="number"
-										step="1"
-										placeholder="auto"
-										value={betModeOrderValue(key)}
-										oninput={(e) => setBetModeOrder(key, e.currentTarget.value)}
-									/></label
-								>
-								<label class="fld"
-									><span>Card</span><select
-										value={betModeCardValue(key)}
-										onchange={(e) => setBetModeCard(key, e.currentTarget.value)}
-									>
-										<option value="">(default) {DEFAULT_CARD_ID}</option>
-										{#each data.components as c (c.id)}
-											<option value={c.id}>{c.name} · {c.id}</option>
-										{/each}
-									</select></label
-								>
-							</div>
-						</div>
-
-						<div class="bm-block">
-							<span class="bm-legend"
-								>Copy <em>source text — translate it in Invisible Localization</em></span
+				{#if resolvedBetModes.length}
+					<div class="menu-preview" aria-label="Resolved menu order">
+						{#each resolvedBetModes as m (m.mode)}
+							<span class="mp-chip mp-{m.kind}" title="{m.kind} · {m.costMultiplier}× bet"
+								>{m.title}<b>{m.costMultiplier}×</b></span
 							>
-							<div class="bm-fields bm-copy">
-								<label class="fld"
-									><span>Title</span><input
-										value={betModeTextValue(key, 'title')}
-										placeholder={key.toUpperCase()}
-										oninput={(e) => setBetModeText(key, 'title', e.currentTarget.value)}
-									/></label
-								>
-								<label class="fld"
-									><span>Button</span><input
-										value={betModeTextValue(key, 'button')}
-										placeholder={defaultButtonHint(key)}
-										oninput={(e) => setBetModeText(key, 'button', e.currentTarget.value)}
-									/></label
-								>
-								<label class="fld"
-									><span>Bet label</span><input
-										value={betModeTextValue(key, 'betAmountLabel')}
-										placeholder="HUD “BET”"
-										oninput={(e) => setBetModeText(key, 'betAmountLabel', e.currentTarget.value)}
-									/></label
-								>
-							</div>
-							<div class="bm-fields bm-copy-long">
-								<label class="fld"
-									><span>Description <em>on the card</em></span><textarea
-										rows="2"
-										value={betModeTextValue(key, 'description')}
-										oninput={(e) => setBetModeText(key, 'description', e.currentTarget.value)}
-									></textarea></label
-								>
-								<label class="fld"
-									><span>Dialog <em>the confirm step</em></span><textarea
-										rows="2"
-										value={betModeTextValue(key, 'dialog')}
-										oninput={(e) => setBetModeText(key, 'dialog', e.currentTarget.value)}
-									></textarea></label
-								>
-							</div>
-						</div>
+						{/each}
+					</div>
+				{/if}
 
-						{#if cardAuthorableParams(key).length}
+				<div class="betmodes">
+					{#each Object.keys(doc.betModes) as key (key)}
+						{@const kind = effectiveKind(key)}
+						<!-- `data-kind` colour-codes the whole card (rail + key + tag) with the SAME palette the
+					     menu-preview chips use, so a card and its chip read as obviously the same mode. -->
+						<div class="betmode betmode-kinded" data-kind={kind}>
+							<div class="betmode-head">
+								<span class="betmode-key">{key}</span>
+								<span class="kind-tag">{kind}</span>
+								<span class="cost-tag">{doc.betModes[key].cost}× bet</span>
+								<button class="del" title="Remove" onclick={() => removeBetMode(key)}>×</button>
+							</div>
+
+							<div class="bm-block">
+								<span class="bm-legend">Math <em>the math-team export shape</em></span>
+								<div class="bm-fields bm-math">
+									<label class="fld"
+										><span>Cost ×</span><input
+											type="number"
+											step="0.01"
+											bind:value={doc.betModes[key].cost}
+										/></label
+									>
+									<label class="fld"
+										><span>RTP</span><input
+											type="number"
+											step="0.001"
+											min="0"
+											max="1"
+											bind:value={doc.betModes[key].rtp}
+										/></label
+									>
+									<label class="fld"
+										><span>Max win ×</span><input
+											type="number"
+											step="1"
+											bind:value={doc.betModes[key].max_win}
+										/></label
+									>
+									<label class="fld toggle"
+										><input type="checkbox" bind:checked={doc.betModes[key].feature} /><span
+											>Feature</span
+										></label
+									>
+									<label class="fld toggle"
+										><input type="checkbox" bind:checked={doc.betModes[key].buyBonus} /><span
+											>Buy bonus</span
+										></label
+									>
+								</div>
+							</div>
+
+							<div class="bm-block">
+								<span class="bm-legend">Menu <em>where it sits and what it renders</em></span>
+								<div class="bm-fields bm-menu">
+									<label class="fld"
+										><span>Kind</span><select
+											value={betModeKindValue(key)}
+											onchange={(e) => setBetModeKind(key, e.currentTarget.value)}
+										>
+											<option value="">auto → {derivedKind(key)}</option>
+											<option value="base">base</option>
+											<option value="ante">ante</option>
+											<option value="buy">buy</option>
+										</select></label
+									>
+									<label class="fld"
+										><span>Order</span><input
+											type="number"
+											step="1"
+											placeholder="auto"
+											value={betModeOrderValue(key)}
+											oninput={(e) => setBetModeOrder(key, e.currentTarget.value)}
+										/></label
+									>
+									<label class="fld"
+										><span>Card</span><select
+											value={betModeCardValue(key)}
+											onchange={(e) => setBetModeCard(key, e.currentTarget.value)}
+										>
+											<option value="">(default) {DEFAULT_CARD_ID}</option>
+											{#each data.components as c (c.id)}
+												<option value={c.id}>{c.name} · {c.id}</option>
+											{/each}
+										</select></label
+									>
+								</div>
+							</div>
+
 							<div class="bm-block">
 								<span class="bm-legend"
-									>Card graphics
-									<em
-										>override <code>{betModeCardValue(key) || DEFAULT_CARD_ID}</code> for this mode —
-										blank inherits its authored default</em
-									></span
+									>Copy <em>source text — translate it in Invisible Localization</em></span
 								>
-								<!-- Bucketed by the param's declared `group`, so Panel / Icon / rig / Button read as
+								<div class="bm-fields bm-copy">
+									<label class="fld"
+										><span>Title</span><input
+											value={betModeTextValue(key, 'title')}
+											placeholder={key.toUpperCase()}
+											oninput={(e) => setBetModeText(key, 'title', e.currentTarget.value)}
+										/></label
+									>
+									<label class="fld"
+										><span>Button</span><input
+											value={betModeTextValue(key, 'button')}
+											placeholder={defaultButtonHint(key)}
+											oninput={(e) => setBetModeText(key, 'button', e.currentTarget.value)}
+										/></label
+									>
+									<label class="fld"
+										><span>Bet label</span><input
+											value={betModeTextValue(key, 'betAmountLabel')}
+											placeholder="HUD “BET”"
+											oninput={(e) => setBetModeText(key, 'betAmountLabel', e.currentTarget.value)}
+										/></label
+									>
+								</div>
+								<div class="bm-fields bm-copy-long">
+									<label class="fld"
+										><span>Description <em>on the card</em></span><textarea
+											rows="2"
+											value={betModeTextValue(key, 'description')}
+											oninput={(e) => setBetModeText(key, 'description', e.currentTarget.value)}
+										></textarea></label
+									>
+									<label class="fld"
+										><span>Dialog <em>the confirm step</em></span><textarea
+											rows="2"
+											value={betModeTextValue(key, 'dialog')}
+											oninput={(e) => setBetModeText(key, 'dialog', e.currentTarget.value)}
+										></textarea></label
+									>
+								</div>
+							</div>
+
+							{#if cardAuthorableParams(key).length}
+								<div class="bm-block">
+									<span class="bm-legend"
+										>Card graphics
+										<em
+											>override <code>{betModeCardValue(key) || DEFAULT_CARD_ID}</code> for this mode
+											— blank inherits its authored default</em
+										></span
+									>
+									<!-- Bucketed by the param's declared `group`, so Panel / Icon / rig / Button read as
 								     clusters and the group is named ONCE instead of suffixing every field. -->
-								<div class="bm-pgroups">
-									{#each cardParamGroups(key) as g (g.name)}
-										<div class="bm-pgroup">
-											<span class="bm-pgroup-name">{g.name}</span>
-											<div class="bm-fields bm-params">
-												{#each g.params as p (p.key)}
-													<label class="fld cardparam" class:toggle={p.kind === 'boolean'}>
-														<span>{p.label ?? p.key}</span>
-														{#if p.kind === 'color'}
-															<ColorField
-																class="cf-field"
-																value={toColorInput(
-																	betModeCardParamValue(key, p.key),
-																	typeof p.default === 'number' ? p.default : 0xffffff,
-																)}
-																oninput={(hex) =>
-																	setBetModeCardParam(key, p.key, fromColorInput(hex))}
-															/>
-														{:else if p.kind === 'number'}
-															<input
-																type="number"
-																value={(betModeCardParamValue(key, p.key) as number | undefined) ??
-																	''}
-																oninput={(e) =>
-																	setBetModeCardParam(
-																		key,
-																		p.key,
-																		e.currentTarget.value === ''
-																			? undefined
-																			: Number(e.currentTarget.value),
+									<div class="bm-pgroups">
+										{#each cardParamGroups(key) as g (g.name)}
+											<div class="bm-pgroup">
+												<span class="bm-pgroup-name">{g.name}</span>
+												<div class="bm-fields bm-params">
+													{#each g.params as p (p.key)}
+														<label class="fld cardparam" class:toggle={p.kind === 'boolean'}>
+															<span>{p.label ?? p.key}</span>
+															{#if p.kind === 'color'}
+																<ColorField
+																	class="cf-field"
+																	value={toColorInput(
+																		betModeCardParamValue(key, p.key),
+																		typeof p.default === 'number' ? p.default : 0xffffff,
 																	)}
-															/>
-														{:else if p.kind === 'boolean'}
-															<input
-																type="checkbox"
-																checked={(betModeCardParamValue(key, p.key) ?? p.default) === true}
-																onchange={(e) =>
-																	setBetModeCardParam(key, p.key, e.currentTarget.checked)}
-															/>
-														{:else if p.kind === 'image'}
-															<!-- The SAME art/region picker the Scene Editor uses — pick a frame (never type a
+																	oninput={(hex) =>
+																		setBetModeCardParam(key, p.key, fromColorInput(hex))}
+																/>
+															{:else if p.kind === 'number'}
+																<input
+																	type="number"
+																	value={(betModeCardParamValue(key, p.key) as
+																		number | undefined) ?? ''}
+																	oninput={(e) =>
+																		setBetModeCardParam(
+																			key,
+																			p.key,
+																			e.currentTarget.value === ''
+																				? undefined
+																				: Number(e.currentTarget.value),
+																		)}
+																/>
+															{:else if p.kind === 'boolean'}
+																<input
+																	type="checkbox"
+																	checked={(betModeCardParamValue(key, p.key) ?? p.default) ===
+																		true}
+																	onchange={(e) =>
+																		setBetModeCardParam(key, p.key, e.currentTarget.checked)}
+																/>
+															{:else if p.kind === 'image'}
+																<!-- The SAME art/region picker the Scene Editor uses — pick a frame (never type a
 												     key); the choice writes a `<assetKey>::<region>` scoped ref, clearing inherits
 												     the card's authored default. -->
-															<RegionPicker
-																sheets={data.pickSheets}
-																value={(betModeCardParamValue(key, p.key) as string | undefined) ??
-																	''}
-																scoped
-																onSelect={(region) =>
-																	setBetModeCardParam(key, p.key, region || undefined)}
-															/>
-														{:else if p.kind === 'spine'}
-															{@const cur =
-																(betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
-															<select
-																value={cur}
-																onchange={(e) =>
-																	setBetModeCardParam(
-																		key,
-																		p.key,
-																		e.currentTarget.value || undefined,
-																	)}
-															>
-																<option value=""
-																	>{typeof p.default === 'string' && p.default
-																		? `(default: ${p.default})`
-																		: '(inherit default)'}</option
-																>
-																{#each data.spines as s (s.key)}
-																	<option value={s.name}
-																		>{s.name}{s.shared ? ' [shared]' : ''}</option
-																	>
-																{/each}
-																<!-- Engine-shipped coded bundles, so a coded default is a real pickable option. A
-													     project rig of the same name wins (dropped here to avoid a dupe). -->
-																{#each BUILTIN_RIG_NAMES.filter((n) => !data.spines.some((s) => s.name === n)) as n (n)}
-																	<option value={n}>{n} [coded]</option>
-																{/each}
-																{#if cur && !data.spines.some((s) => s.name === cur) && !BUILTIN_RIG_NAMES.includes(cur)}
-																	<option value={cur}>{cur} (custom)</option>
-																{/if}
-															</select>
-														{:else if p.kind === 'spineAnimation'}
-															{@const cur =
-																(betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
-															{@const bundle = effectiveCardRigBundle(key, p)}
-															{@const opts = rigAnimationOptions(bundle)}
-															{#if opts.length > 0}
+																<RegionPicker
+																	sheets={data.pickSheets}
+																	value={(betModeCardParamValue(key, p.key) as
+																		string | undefined) ?? ''}
+																	scoped
+																	onSelect={(region) =>
+																		setBetModeCardParam(key, p.key, region || undefined)}
+																/>
+															{:else if p.kind === 'spine'}
+																{@const cur =
+																	(betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
 																<select
 																	value={cur}
 																	onchange={(e) =>
@@ -1936,210 +1954,264 @@
 																			? `(default: ${p.default})`
 																			: '(inherit default)'}</option
 																	>
-																	{#each opts as o (o)}
-																		<option value={o}>{o}</option>
+																	{#each data.spines as s (s.key)}
+																		<option value={s.name}
+																			>{s.name}{s.shared ? ' [shared]' : ''}</option
+																		>
 																	{/each}
-																	{#if cur && !opts.includes(cur)}
+																	<!-- Engine-shipped coded bundles, so a coded default is a real pickable option. A
+													     project rig of the same name wins (dropped here to avoid a dupe). -->
+																	{#each BUILTIN_RIG_NAMES.filter((n) => !data.spines.some((s) => s.name === n)) as n (n)}
+																		<option value={n}>{n} [coded]</option>
+																	{/each}
+																	{#if cur && !data.spines.some((s) => s.name === cur) && !BUILTIN_RIG_NAMES.includes(cur)}
 																		<option value={cur}>{cur} (custom)</option>
 																	{/if}
 																</select>
-															{:else}
-																<!-- No bundle chosen yet (or its animations aren't resolvable) — fall back to a
+															{:else if p.kind === 'spineAnimation'}
+																{@const cur =
+																	(betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
+																{@const bundle = effectiveCardRigBundle(key, p)}
+																{@const opts = rigAnimationOptions(bundle)}
+																{#if opts.length > 0}
+																	<select
+																		value={cur}
+																		onchange={(e) =>
+																			setBetModeCardParam(
+																				key,
+																				p.key,
+																				e.currentTarget.value || undefined,
+																			)}
+																	>
+																		<option value=""
+																			>{typeof p.default === 'string' && p.default
+																				? `(default: ${p.default})`
+																				: '(inherit default)'}</option
+																		>
+																		{#each opts as o (o)}
+																			<option value={o}>{o}</option>
+																		{/each}
+																		{#if cur && !opts.includes(cur)}
+																			<option value={cur}>{cur} (custom)</option>
+																		{/if}
+																	</select>
+																{:else}
+																	<!-- No bundle chosen yet (or its animations aren't resolvable) — fall back to a
 													     plain field so the value is still authorable. -->
+																	<input
+																		type="text"
+																		placeholder={bundle
+																			? 'animation name'
+																			: 'pick a rig bundle first'}
+																		value={cur}
+																		oninput={(e) =>
+																			setBetModeCardParam(key, p.key, e.currentTarget.value)}
+																	/>
+																{/if}
+															{:else}
 																<input
 																	type="text"
-																	placeholder={bundle
-																		? 'animation name'
-																		: 'pick a rig bundle first'}
-																	value={cur}
+																	value={(betModeCardParamValue(key, p.key) as
+																		string | undefined) ?? ''}
 																	oninput={(e) =>
 																		setBetModeCardParam(key, p.key, e.currentTarget.value)}
 																/>
 															{/if}
-														{:else}
-															<input
-																type="text"
-																value={(betModeCardParamValue(key, p.key) as string | undefined) ??
-																	''}
-																oninput={(e) =>
-																	setBetModeCardParam(key, p.key, e.currentTarget.value)}
-															/>
-														{/if}
-													</label>
-												{/each}
+														</label>
+													{/each}
+												</div>
 											</div>
-										</div>
-									{/each}
+										{/each}
+									</div>
 								</div>
-							</div>
-						{/if}
-					</div>
+							{/if}
+						</div>
+					{/each}
+				</div>
+
+				<div class="add">
+					<input placeholder="new mode key (e.g. base)" bind:value={newBetMode} />
+					<button onclick={addBetMode} disabled={!newBetMode.trim()}>Add mode</button>
+				</div>
+				{#each issuesFor('betModes') as issue (issue.message)}
+					<p class="inline-issue {issue.severity}">{issue.message}</p>
 				{/each}
-			</div>
+				{#each issuesFor('betModePresentation') as issue (issue.path + issue.message)}
+					<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
+				{/each}
+				{#if offersFreeSpins && !freeSpins.enabled}
+					<p class="hint muted-note">
+						Free spins are off for this game (see <strong>Free spins</strong>), so a buy mode has
+						nothing to sell unless the game has a Hold and Win or pots bonus.
+					</p>
+				{/if}
+			</section>
+		{/if}
 
-			<div class="add">
-				<input placeholder="new mode key (e.g. base)" bind:value={newBetMode} />
-				<button onclick={addBetMode} disabled={!newBetMode.trim()}>Add mode</button>
-			</div>
-			{#each issuesFor('betModes') as issue (issue.message)}
-				<p class="inline-issue {issue.severity}">{issue.message}</p>
-			{/each}
-			{#each issuesFor('betModePresentation') as issue (issue.path + issue.message)}
-				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
-			{/each}
-			{#if offersFreeSpins && !freeSpins.enabled}
-				<p class="hint muted-note">
-					Free spins are off for this game (see <strong>Free spins</strong>), so a buy mode has
-					nothing to sell unless the game has a Hold and Win or pots bonus.
-				</p>
-			{/if}
-		</section>
-
-		{#if data.gameType === 'holdAndWin' || doc.coinBoard}
+		{#if sections.has('coinBoard') && (data.gameType === 'holdAndWin' || doc.coinBoard)}
 			<CoinBoardSection bind:doc {issuesFor} readOnly={lease.readOnly} />
 		{/if}
 
-		<CoinOverlaySection bind:doc view={snapshot} {issuesFor} readOnly={lease.readOnly} />
+		{#if sections.has('coinOverlay')}
+			<CoinOverlaySection bind:doc view={snapshot} {issuesFor} readOnly={lease.readOnly} />
+		{/if}
 
-		<BonusModesSection
-			bind:doc
-			view={snapshot}
-			{issuesFor}
-			readOnly={lease.readOnly}
-			spinsRefusal={spinsGamesRefusal(data.gameType)}
-		/>
+		{#if sections.has('bonusModes')}
+			<BonusModesSection
+				bind:doc
+				view={snapshot}
+				{issuesFor}
+				readOnly={lease.readOnly}
+				spinsRefusal={spinsGamesRefusal(data.gameType)}
+			/>
+		{/if}
 
 		<!-- Symbols ---------------------------------------------------------------->
-		<section>
-			<h2>Symbols</h2>
-			<p class="hint">
-				The symbol <strong>dictionary</strong> — art, properties, payouts. The
-				<span class="badge in">in play</span>
-				badge means the symbol appears on a reel strip and so can actually reach the board; a
-				<span class="badge out">unused</span> symbol is defined here but dealt by no strip (a payout
-				no one can win), and Invisible Symbols does not list it. <strong>Click the badge</strong> to
-				put a symbol on the reels or take it off.
-				{#if coinNames.length}A pots overlay's coins are not reel symbols: they have their own
-					section, <strong>Coins</strong>, below.{/if} Paytable is
-				<code>count:multiplier</code> pairs, e.g. <code>5:20, 4:10, 3:5</code>. A
-				<strong>scatter</strong>'s paytable is its scatter pay — × the total bet, anywhere on the
-				board; left empty it pays <code>{formatPayRow(DEFAULT_SCATTER_PAYTABLE)}</code>.
-			</p>
-			<div class="server-import">
-				<button onclick={() => openServerImport()} disabled={!data.serverGameKeys.length}>
-					Import paytable from server
-				</button>
-				<span class="hint-inline">
-					{#if data.serverGameKeys.length}
-						Reads what <code>{data.serverGameKeys[0]}</code>'s server pays and shows the difference
-						before anything changes.
+		{#if sections.has('symbols')}
+			<section>
+				<h2>Symbols</h2>
+				<p class="hint">
+					The symbol <strong>dictionary</strong> — art, properties, payouts. The
+					<span class="badge in">in play</span>
+					badge means the symbol appears on a reel strip and so can actually reach the board; a
+					<span class="badge out">unused</span> symbol is defined here but dealt by no strip (a
+					payout no one can win), and Invisible Symbols does not list it.
+					<strong>Click the badge</strong>
+					to put a symbol on the reels or take it off.
+					{#if coinNames.length}A pots overlay's coins are not reel symbols: they have their own
+						section, <strong>Coins</strong>, below.{/if}
+					{#if showsPays}
+						Paytable is
+						<code>count:multiplier</code> pairs, e.g. <code>5:20, 4:10, 3:5</code>. A
+						<strong>scatter</strong>'s paytable is its scatter pay — × the total bet, anywhere on
+						the board; left empty it pays <code>{formatPayRow(DEFAULT_SCATTER_PAYTABLE)}</code>.
 					{:else}
-						Publish the game first — there is no game server to read for this project yet.
+						This game pays no money, so its gems have no pays; points come from the
+						<strong>Match-3</strong> section.
 					{/if}
-				</span>
-			</div>
-			<div class="server-import">
-				<button onclick={() => ((pasteError = ''), (pasteOpen = true))}>
-					Import from a pasted capture
-				</button>
-				<span class="hint-inline">
-					For a partner server the launcher can't reach: paste the <code>config</code> response captured
-					in a browser on the partner's game. It also becomes the reference Publish checks against.
-				</span>
-			</div>
-			{#if snapshot.partnerPaytable}
-				<p class="import-note partner-ref">
-					Partner reference: captured from <code>{snapshot.partnerPaytable.source}</code> on
-					{partnerCapturedOn} —
-					{#if partnerDrift.length}
-						<span class="changed"
-							>{partnerDrift.length}
-							{partnerDrift.length === 1 ? 'row differs' : 'rows differ'}</span
-						>
-					{:else}
-						<span class="badge in">matches</span>
-					{/if}
-					<button class="linkish" onclick={forgetPartnerPaytable}>Forget it</button>
 				</p>
-			{/if}
-			<div class="grid-wrap">
-				<table class="grid">
-					<thead>
-						<tr>
-							<th>Symbol</th>
-							<th></th>
-							<th>Special properties</th>
-							<th>Paytable (count:×)</th>
-							<th></th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each reelSymbolNames as name (name)}
+				{#if showsPays}
+					<div class="server-import">
+						<button onclick={() => openServerImport()} disabled={!data.serverGameKeys.length}>
+							Import paytable from server
+						</button>
+						<span class="hint-inline">
+							{#if data.serverGameKeys.length}
+								Reads what <code>{data.serverGameKeys[0]}</code>'s server pays and shows the
+								difference before anything changes.
+							{:else}
+								Publish the game first — there is no game server to read for this project yet.
+							{/if}
+						</span>
+					</div>
+					<div class="server-import">
+						<button onclick={() => ((pasteError = ''), (pasteOpen = true))}>
+							Import from a pasted capture
+						</button>
+						<span class="hint-inline">
+							For a partner server the launcher can't reach: paste the <code>config</code> response captured
+							in a browser on the partner's game. It also becomes the reference Publish checks against.
+						</span>
+					</div>
+					{#if snapshot.partnerPaytable}
+						<p class="import-note partner-ref">
+							Partner reference: captured from <code>{snapshot.partnerPaytable.source}</code> on
+							{partnerCapturedOn} —
+							{#if partnerDrift.length}
+								<span class="changed"
+									>{partnerDrift.length}
+									{partnerDrift.length === 1 ? 'row differs' : 'rows differ'}</span
+								>
+							{:else}
+								<span class="badge in">matches</span>
+							{/if}
+							<button class="linkish" onclick={forgetPartnerPaytable}>Forget it</button>
+						</p>
+					{/if}
+				{/if}
+				<div class="grid-wrap">
+					<table class="grid">
+						<thead>
 							<tr>
-								<th class="row-head">{name}</th>
-								<td class="center">
-									<button
-										type="button"
-										class="badge toggle {uses[name] === 'inPlay' ? 'in' : 'out'}"
-										title={uses[name] === 'inPlay'
-											? 'In play — click to take it off the reels'
-											: 'Unused — click to put it on the reels'}
-										onclick={() => toggleInPlay(name)}
-										>{uses[name] === 'inPlay' ? 'in play' : 'unused'}</button
-									>
-								</td>
-								<td
-									><input
-										value={(doc.symbols[name].special_properties ?? []).join(', ')}
-										placeholder="scatter, wild…"
-										oninput={(e) => setProperties(name, e.currentTarget.value)}
-									/></td
-								>
-								<td>
-									{#if isHoldAndWinSymbol(doc.symbols[name])}
-										{@const values = holdAndWinValueLabels(name)}
-										<div class="hw-pays">
-											<span class="hw-roles"
-												>Hold and Win: {symbolHoldAndWinRoles(doc.symbols[name]).join(', ')}</span
-											>
-											{#each values as label, i (i)}<span class="hw-value">{label}</span>{/each}
-											{#if doc.symbols[name].paytable?.length}
-												<button
-													class="linkish"
-													title="A Hold and Win symbol pays by its value, never on a line"
-													onclick={() => clearPaytable(name)}>Drop line pays</button
-												>
-											{/if}
-										</div>
-									{:else}
-										<input
-											value={paytableText(name)}
-											placeholder={isScatterSymbol(doc.symbols[name])
-												? `default ${formatPayRow(DEFAULT_SCATTER_PAYTABLE)} × total bet`
-												: '5:20, 4:10, 3:5'}
-											oninput={(e) => setPaytable(name, e.currentTarget.value)}
-										/>
-									{/if}
-								</td>
-								<td class="center"
-									><button class="del" title="Remove" onclick={() => removeSymbol(name)}>×</button
-									></td
-								>
+								<th>Symbol</th>
+								<th></th>
+								<th>Special properties</th>
+								{#if showsPays}<th>Paytable (count:×)</th>{/if}
+								<th></th>
 							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-			<div class="add">
-				<input placeholder="new symbol id (e.g. H1)" bind:value={newSymbol} />
-				<button onclick={addSymbol} disabled={!newSymbol.trim()}>Add symbol</button>
-			</div>
-			{#each issuesFor('symbols') as issue (issue.path + issue.message)}
-				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
-			{/each}
-		</section>
+						</thead>
+						<tbody>
+							{#each reelSymbolNames as name (name)}
+								<tr>
+									<th class="row-head">{name}</th>
+									<td class="center">
+										<button
+											type="button"
+											class="badge toggle {uses[name] === 'inPlay' ? 'in' : 'out'}"
+											title={uses[name] === 'inPlay'
+												? 'In play — click to take it off the reels'
+												: 'Unused — click to put it on the reels'}
+											onclick={() => toggleInPlay(name)}
+											>{uses[name] === 'inPlay' ? 'in play' : 'unused'}</button
+										>
+									</td>
+									<td
+										><input
+											value={(doc.symbols[name].special_properties ?? []).join(', ')}
+											placeholder="scatter, wild…"
+											oninput={(e) => setProperties(name, e.currentTarget.value)}
+										/></td
+									>
+									{#if showsPays}
+										<td>
+											{#if isHoldAndWinSymbol(doc.symbols[name])}
+												{@const values = holdAndWinValueLabels(name)}
+												<div class="hw-pays">
+													<span class="hw-roles"
+														>Hold and Win: {symbolHoldAndWinRoles(doc.symbols[name]).join(
+															', ',
+														)}</span
+													>
+													{#each values as label, i (i)}<span class="hw-value">{label}</span>{/each}
+													{#if doc.symbols[name].paytable?.length}
+														<button
+															class="linkish"
+															title="A Hold and Win symbol pays by its value, never on a line"
+															onclick={() => clearPaytable(name)}>Drop line pays</button
+														>
+													{/if}
+												</div>
+											{:else}
+												<input
+													value={paytableText(name)}
+													placeholder={isScatterSymbol(doc.symbols[name])
+														? `default ${formatPayRow(DEFAULT_SCATTER_PAYTABLE)} × total bet`
+														: '5:20, 4:10, 3:5'}
+													oninput={(e) => setPaytable(name, e.currentTarget.value)}
+												/>
+											{/if}
+										</td>
+									{/if}
+									<td class="center"
+										><button class="del" title="Remove" onclick={() => removeSymbol(name)}>×</button
+										></td
+									>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+				<div class="add">
+					<input placeholder="new symbol id (e.g. H1)" bind:value={newSymbol} />
+					<button onclick={addSymbol} disabled={!newSymbol.trim()}>Add symbol</button>
+				</div>
+				{#each issuesFor('symbols') as issue (issue.path + issue.message)}
+					<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
+				{/each}
+			</section>
+		{/if}
 
-		{#if coinNames.length}
+		{#if sections.has('coinSymbols') && coinNames.length}
 			<!-- Coins ------------------------------------------------------------------>
 			<section>
 				<h2>Coins</h2>
@@ -2190,128 +2262,139 @@
 		{/if}
 
 		<!-- Win model -------------------------------------------------------------->
-		<section>
-			<h2>How wins are decided</h2>
-			<p class="hint">
-				The <strong>win model</strong> is what makes this a lines game or a ways / cluster / scatter
-				one. It decides which symbols on the board count as a win — the paylines below only matter
-				for a <strong>Lines</strong> game.
-			</p>
-			<div class="fields">
-				<label
-					><span>Win model</span><select
-						value={winModelLinesOnly ? 'lines' : winModelType}
-						onchange={(e) => setWinModelType(e.currentTarget.value)}
-						disabled={lease.readOnly || winModelLinesOnly}
-					>
-						<option value="lines">Lines — paylines pay left to right</option>
-						<option value="ways">Ways — any adjacent reels pay</option>
-						<option value="cluster">Cluster — connected groups pay</option>
-						<option value="scatter">Scatter — anywhere on the board pays</option>
-					</select></label
-				>
-				{#if doc.winModel?.type === 'ways'}
-					<label
-						><span>Pays from</span><select
-							value={doc.winModel.direction}
-							onchange={(e) => setWinModelChoice('direction', e.currentTarget.value)}
-							disabled={lease.readOnly}
+		{#if sections.has('winModel')}
+			<section>
+				<h2>How wins are decided</h2>
+				{#if family === 'match3'}
+					<p class="hint">
+						<strong>Match-3</strong> — a run of {resolveMatch3(snapshot).minRun} or more of one gem in
+						a row or a column wins, and every board tumbles: matches explode, the gems above fall and
+						new ones refill. A win is priced on the whole bet, from the paytable in
+						<strong>Symbols</strong>. Set the run length in <strong>Match-3</strong>.
+					</p>
+				{:else}
+					<p class="hint">
+						The <strong>win model</strong> is what makes this a lines game or a ways / cluster /
+						scatter one. It decides which symbols on the board count as a win — the paylines below
+						only matter for a <strong>Lines</strong> game.
+					</p>
+					<div class="fields">
+						<label
+							><span>Win model</span><select
+								value={winModelLinesOnly ? 'lines' : winModelType}
+								onchange={(e) => setWinModelType(e.currentTarget.value)}
+								disabled={lease.readOnly || winModelLinesOnly}
+							>
+								<option value="lines">Lines — paylines pay left to right</option>
+								<option value="ways">Ways — any adjacent reels pay</option>
+								<option value="cluster">Cluster — connected groups pay</option>
+								<option value="scatter">Scatter — anywhere on the board pays</option>
+							</select></label
 						>
-							<option value="ltr">left to right</option>
-							<option value="both">both directions</option>
-						</select></label
-					>
-					<label
-						><span>Fewest reels</span><input
-							type="number"
-							min="1"
-							value={doc.winModel.minKind}
-							oninput={(e) => setWinModelNumber('minKind', e.currentTarget.value)}
-							disabled={lease.readOnly}
-						/></label
-					>
-				{:else if doc.winModel?.type === 'cluster'}
-					<label
-						><span>Fewest cells</span><input
-							type="number"
-							min="1"
-							value={doc.winModel.minCluster}
-							oninput={(e) => setWinModelNumber('minCluster', e.currentTarget.value)}
-							disabled={lease.readOnly}
-						/></label
-					>
-					<label
-						><span>Cells connect</span><select
-							value={doc.winModel.adjacency}
-							onchange={(e) => setWinModelChoice('adjacency', e.currentTarget.value)}
-							disabled={lease.readOnly}
+						{#if doc.winModel?.type === 'ways'}
+							<label
+								><span>Pays from</span><select
+									value={doc.winModel.direction}
+									onchange={(e) => setWinModelChoice('direction', e.currentTarget.value)}
+									disabled={lease.readOnly}
+								>
+									<option value="ltr">left to right</option>
+									<option value="both">both directions</option>
+								</select></label
+							>
+							<label
+								><span>Fewest reels</span><input
+									type="number"
+									min="1"
+									value={doc.winModel.minKind}
+									oninput={(e) => setWinModelNumber('minKind', e.currentTarget.value)}
+									disabled={lease.readOnly}
+								/></label
+							>
+						{:else if doc.winModel?.type === 'cluster'}
+							<label
+								><span>Fewest cells</span><input
+									type="number"
+									min="1"
+									value={doc.winModel.minCluster}
+									oninput={(e) => setWinModelNumber('minCluster', e.currentTarget.value)}
+									disabled={lease.readOnly}
+								/></label
+							>
+							<label
+								><span>Cells connect</span><select
+									value={doc.winModel.adjacency}
+									onchange={(e) => setWinModelChoice('adjacency', e.currentTarget.value)}
+									disabled={lease.readOnly}
+								>
+									<option value="orthogonal">edge to edge</option>
+									<option value="diagonal">edges + corners</option>
+								</select></label
+							>
+						{:else if doc.winModel?.type === 'scatter'}
+							<label
+								><span>Fewest symbols</span><input
+									type="number"
+									min="1"
+									value={doc.winModel.minCount}
+									oninput={(e) => setWinModelNumber('minCount', e.currentTarget.value)}
+									disabled={lease.readOnly}
+								/></label
+							>
+						{/if}
+						<label
+							><span>Winners tumble</span><select
+								value={cascadeOn ? 'on' : 'off'}
+								onchange={(e) => setCascade(e.currentTarget.value === 'on')}
+								disabled={lease.readOnly}
+							>
+								<option value="on">yes — winning symbols leave, the rest fall in</option>
+								<option value="off">no — the board stays until the next spin</option>
+							</select></label
 						>
-							<option value="orthogonal">edge to edge</option>
-							<option value="diagonal">edges + corners</option>
-						</select></label
-					>
-				{:else if doc.winModel?.type === 'scatter'}
-					<label
-						><span>Fewest symbols</span><input
-							type="number"
-							min="1"
-							value={doc.winModel.minCount}
-							oninput={(e) => setWinModelNumber('minCount', e.currentTarget.value)}
-							disabled={lease.readOnly}
-						/></label
-					>
-				{/if}
-				<label
-					><span>Winners tumble</span><select
-						value={cascadeOn ? 'on' : 'off'}
-						onchange={(e) => setCascade(e.currentTarget.value === 'on')}
-						disabled={lease.readOnly}
-					>
-						<option value="on">yes — winning symbols leave, the rest fall in</option>
-						<option value="off">no — the board stays until the next spin</option>
-					</select></label
-				>
-			</div>
-			<p class="hint">
-				<strong>Tumble (cascade)</strong> removes the symbols that just paid and drops the ones
-				above them into the gap, refilling from the top — then pays again on the new board. It
-				follows the win model unless you change it here: <strong>cluster</strong> and
-				<strong>scatter</strong>
-				games tumble by default, <strong>lines</strong> and <strong>ways</strong> do not.
-				{#if cascadeOn !== cascadeDefault}
-					<em
-						>This project overrides the default for a {winModelType} game (normally
-						{cascadeDefault ? 'on' : 'off'}).</em
-					>
-				{/if}
-				Symbols play their <strong>Explosion</strong> state from the Symbols tool as they leave — a project
-				that hasn't authored one will see them simply vanish.
-			</p>
-			{#if winModelLinesOnly}
-				<p class="hint">
-					A Hold and Win base game pays by lines.
-					{#if winModelType !== 'lines'}
-						<button
-							class="linkish"
-							onclick={() => setWinModelType('lines')}
-							disabled={lease.readOnly}>Switch it back to lines</button
-						>
+					</div>
+					<p class="hint">
+						<strong>Tumble (cascade)</strong> removes the symbols that just paid and drops the ones
+						above them into the gap, refilling from the top — then pays again on the new board. It
+						follows the win model unless you change it here: <strong>cluster</strong> and
+						<strong>scatter</strong>
+						games tumble by default, <strong>lines</strong> and <strong>ways</strong> do not.
+						{#if cascadeOn !== cascadeDefault}
+							<em
+								>This project overrides the default for a {winModelType} game (normally
+								{cascadeDefault ? 'on' : 'off'}).</em
+							>
+						{/if}
+						Symbols play their <strong>Explosion</strong> state from the Symbols tool as they leave —
+						a project that hasn't authored one will see them simply vanish.
+					</p>
+					{#if winModelLinesOnly}
+						<p class="hint">
+							A Hold and Win base game pays by lines.
+							{#if winModelType !== 'lines'}
+								<button
+									class="linkish"
+									onclick={() => setWinModelType('lines')}
+									disabled={lease.readOnly}>Switch it back to lines</button
+								>
+							{/if}
+						</p>
+					{:else if winModelType !== 'lines'}
+						<p class="hint muted-note">
+							Every win model is honoured end to end — the test server scores the board by this
+							model, and the client's payline-specific surfaces stand down for it. Republish after
+							changing it: the model reaches the test server's mock RGS only through a publish.
+						</p>
 					{/if}
-				</p>
-			{:else if winModelType !== 'lines'}
-				<p class="hint muted-note">
-					Every win model is honoured end to end — the test server scores the board by this model,
-					and the client's payline-specific surfaces stand down for it. Republish after changing it:
-					the model reaches the test server's mock RGS only through a publish.
-				</p>
-			{/if}
-			{#each issuesFor('winModel') as issue (issue.path + issue.message)}
-				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
-			{/each}
-		</section>
+					{#each issuesFor('winModel') as issue (issue.path + issue.message)}
+						<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
+					{/each}
+				{/if}
+			</section>
+		{/if}
 
 		<!-- Free spins ------------------------------------------------------------->
-		{#if offersFreeSpins}
+		{#if sections.has('freeSpins') && offersFreeSpins}
 			<section>
 				<h2>Free spins</h2>
 				<div class="fields">
@@ -2423,7 +2506,7 @@
 		<!-- A stored expanding symbol the panel does not offer here (another win model, a Book-of kind,
 		     a Hold and Win game): it can still be removed, so an error it raises never blocks Save for
 		     good. With free spins merely off it is kept, so switching them on restores it. -->
-		{#if expandingBlock && !(offersExpandingSymbol && offersFreeSpins)}
+		{#if sections.has('expandingSymbol') && expandingBlock && !(offersExpandingSymbol && offersFreeSpins)}
 			<section>
 				<h2>Expanding symbol</h2>
 				<p class="hint">
@@ -2600,339 +2683,350 @@
 		{/snippet}
 
 		<!-- Reel behaviour --------------------------------------------------------->
-		<section>
-			<h2>Reel behaviour</h2>
-			<p class="hint">
-				How a round ARRIVES on the board. This is one answer for the whole game — not per screen and
-				not per aspect ratio — which is why it lives here rather than in the Scene Editor beside the
-				board's shape.
-			</p>
-			<label class="check"
-				><input
-					type="checkbox"
-					checked={swapInPlace}
-					onchange={(e) => setReelSwitch('swapInPlace', e.currentTarget.checked)}
-					disabled={lease.readOnly}
-				/><span>Swap symbols in place — no spinning reels</span></label
-			>
-			<p class="hint">
-				The board does not roll. <strong>How</strong> the new symbols arrive is the swap style below
-				— they can fall in from above, sweep in column by column, or not travel at all and simply
-				surface where they stand. With this on, the reel-shaped behaviours stand down because there
-				is no roll left for them to describe —
-				<strong>reel anticipation</strong> (and its camera),
-				<strong>sequential reel stop</strong>
-				and <strong>stacked pictures</strong>. Nothing is lost by turning it back off. Everything
-				below only applies while this is on.
-			</p>
-
-			<div class="fields">
-				<label
-					><span>Swap style</span><select
-						value={swapStyle}
-						onchange={(e) => setSwapStyle(e.currentTarget.value)}
-						disabled={lease.readOnly || !swapInPlace}
-					>
-						<option value="dropIn">Drop in — the whole board falls at once</option>
-						<option value="columnCascade">Column cascade — left to right</option>
-						<option value="emerge">Emerge — appear in place, no travel</option>
-					</select></label
+		{#if sections.has('reelBehaviour')}
+			<section>
+				<h2>Reel behaviour</h2>
+				<p class="hint">
+					How a round ARRIVES on the board. This is one answer for the whole game — not per screen
+					and not per aspect ratio — which is why it lives here rather than in the Scene Editor
+					beside the board's shape.
+				</p>
+				<label class="check"
+					><input
+						type="checkbox"
+						checked={swapInPlace}
+						onchange={(e) => setReelSwitch('swapInPlace', e.currentTarget.checked)}
+						disabled={lease.readOnly}
+					/><span>Swap symbols in place — no spinning reels</span></label
 				>
-				{#if staggered}
+				<p class="hint">
+					The board does not roll. <strong>How</strong> the new symbols arrive is the swap style
+					below — they can fall in from above, sweep in column by column, or not travel at all and
+					simply surface where they stand. With this on, the reel-shaped behaviours stand down
+					because there is no roll left for them to describe —
+					<strong>reel anticipation</strong> (and its camera),
+					<strong>sequential reel stop</strong>
+					and <strong>stacked pictures</strong>. Nothing is lost by turning it back off. Everything
+					below only applies while this is on.
+				</p>
+
+				<div class="fields">
 					<label
-						><span>Column stagger (ms)</span><input
-							type="number"
-							min="0"
-							max={REEL_BEHAVIOUR_MAX_COLUMN_STAGGER_MS}
-							step="10"
-							placeholder={swapStyle === 'emerge' ? '0' : '140'}
-							value={columnStaggerMs ?? ''}
-							oninput={(e) => setColumnStagger(e.currentTarget.valueAsNumber)}
-							disabled={lease.readOnly}
-						/></label
-					>
-				{/if}
-			</div>
-			<p class="hint">
-				<strong>Drop in</strong> replaces the board in one movement.
-				<strong>Column cascade</strong>
-				drains the standing board out of the bottom column by column, left to right, refilling each column
-				from the top as it empties. <strong>Emerge</strong> is the one where nothing travels: each
-				symbol appears on its own seat and plays its <strong>Intro</strong> animation from the
-				Symbols tool right there — rising out of water, fading up, growing. Pair it with
-				<strong>Clear the board</strong>
-				below for the full picture: the old symbols leave, then the new ones surface.
-				{#if swapStyle === 'emerge'}
-					A symbol with no authored Intro falls back to its <strong>Land</strong> animation, so switching
-					this on before any art is bound gives a board that appears and plays its ordinary landing rather
-					than nothing at all.
-				{/if}
-				{#if staggered}
-					<strong>Column stagger</strong> is the gap between one column starting and the next, and
-					it is the one knob for "the columns arrive at different times": short overlaps them into a
-					wave, longer than a whole column makes them strictly sequential,
-					<strong>0</strong>
-					starts every column together. Blank means this style's own default —
-					{swapStyle === 'emerge'
-						? '0, the whole board surfacing at once, because a sweep is a flourish on top of this style rather than part of it'
-						: '140 ms, because a cascade reads wrong without a sweep'}.
-					{#if columnStaggerMs}
-						<em
-							>On {doc.numReels} reels the last column starts {columnStaggerTotalMs} ms after the first.</em
+						><span>Swap style</span><select
+							value={swapStyle}
+							onchange={(e) => setSwapStyle(e.currentTarget.value)}
+							disabled={lease.readOnly || !swapInPlace}
 						>
-					{/if}
-				{/if}
-			</p>
-
-			<label class="check"
-				><input
-					type="checkbox"
-					checked={clearBoard}
-					onchange={(e) => setReelSwitch('clearBoard', e.currentTarget.checked)}
-					disabled={lease.readOnly || !swapInPlace}
-				/><span>Clear the board before the new symbols fall in</span></label
-			>
-			<p class="hint">
-				The outgoing symbols play their <strong>Explosion</strong> state from the Symbols tool and
-				leave, instead of simply being replaced.
-				{#if swapStyle === 'columnCascade'}
-					Per <strong>column</strong>, on that column's own beat: the column pops away
-					<em>instead of</em>
-					draining out of the bottom. The sweep, the stagger and the refill are unchanged — this only
-					changes how each column empties.
-				{:else if swapStyle === 'emerge'}
-					Per <strong>column</strong>, on that column's own beat, ahead of the symbols surfacing
-					there. This is the half of the emerge picture that makes the old board <em>leave</em>
-					rather than simply blink out — without it, a column's old symbols are gone the instant its new
-					ones appear.
-				{:else}
-					The whole board clears at once, ahead of the fall. Off, the old board is simply gone when
-					the new one arrives.
-				{/if}
-				A symbol with no authored Explosion state vanishes rather than popping.
-				{#if clearBoard && !swapInPlace}
-					<em
-						>Inert while the reels roll — a rolling round replaces nothing, it re-spins. It stays
-						saved and takes effect the moment you tick <strong>Swap symbols in place</strong>.</em
-					>
-				{/if}
-			</p>
-			{#each issuesFor('reelBehaviour') as issue (issue.path + issue.message)}
-				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
-			{/each}
-		</section>
-
-		<GameModesSection bind:doc {issuesFor} readOnly={lease.readOnly} />
-
-		<!-- Sounds ----------------------------------------------------------------->
-		<section>
-			<h2>Sounds</h2>
-			<p class="hint">
-				Moved. What the game plays at each moment — the reel-stop ladder, the cascade pop, the
-				landing cues, the per-symbol exceptions and the win-tier stings — is authored in
-				<a href="/sound">Invisible Sound</a>, next to the library the cues are picked from and the
-				button that plays them. Splitting "which sound" from "the sounds" across two tools is what
-				let a name sit bound to nothing for the whole life of the fork.
-			</p>
-		</section>
-
-		<!-- Paylines --------------------------------------------------------------->
-		<section>
-			<h2>Paylines</h2>
-			{#if winModelType !== 'lines'}
-				<div class="banner locked">
-					<strong>This game pays by {winModelType}, so these paylines are not used.</strong> They stay
-					saved (switching back to Lines restores them) but nothing below affects play.
-				</div>
-			{/if}
-			{#if data.serverPaylines}
-				<div class="banner locked">
-					<strong>These are the live server (RGS) paylines</strong> — the {data.serverPaylines
-						.length} line{data.serverPaylines.length === 1 ? '' : 's'} this game actually deals at runtime,
-					read straight from the RGS. The shape is read-only; only the per-line
-					<strong>colour</strong> is editable.
-				</div>
-			{:else}
-				<div class="banner locked">
-					<strong>Paylines are defined by the server (RGS) at runtime</strong> — this game reads its
-					active lines from the RGS, so the shape below is read-only here. Only the per-line
-					<strong>colour</strong> is editable.
-				</div>
-				<p class="hint muted-note">
-					Couldn't reach the RGS — showing the saved config's lines instead. The game still reads
-					its active lines from the server at runtime.
-				</p>
-			{/if}
-			<p class="hint">
-				Each line is one cell per reel. The <strong>swatch</strong> sets an optional
-				<strong>line colour</strong>: the game draws that line's win in this colour and broadcasts
-				it so assets shown on the win can pick it up (leave it unset to use the single default from
-				the Symbols tool).
-			</p>
-			<div class="paylines">
-				{#each displayPaylines as line (line.id)}
-					{@const tint =
-						line.colorable && hasPaylineColor(line.id) ? paylineColorValue(line.id) : null}
-					<div class="payline">
-						<div class="payline-head">
-							<span class="payline-id" style={tint ? `color:${tint}` : ''}>Line {line.id}</span>
-							{#if line.colorable}
-								<div class="payline-tools">
-									<ColorField
-										value={paylineColorValue(line.id)}
-										oninput={(hex) => setPaylineColor(line.id, hex)}
-										title="Line colour"
-									/>
-									{#if tint}
-										<button
-											class="clear-color"
-											title="Reset this line's colour to the default (does NOT remove the line — the server owns the lines)"
-											onclick={() => clearPaylineColor(line.id)}>reset colour</button
-										>
-									{/if}
-								</div>
-							{/if}
-						</div>
-						<div
-							class="payline-grid"
-							style="grid-template-columns: repeat({line.rows.length}, 1fr);"
-						>
-							{#each line.rows as seatRow, reel (reel)}
-								<div class="reel-col">
-									{#each Array(doc.numRows[reel] ?? maxRows) as _, row (row)}
-										{@const on = seatRow === row}
-										<!-- Read-only: the RGS owns the line shape at runtime. A disabled cell so it
-										     reads out the active line but a click can't move it. -->
-										<button
-											class="cell"
-											class:on
-											style={on && tint ? `background:${tint};border-color:${tint}` : ''}
-											aria-label="Line {line.id} reel {reel + 1} row {row + 1}"
-											disabled
-										></button>
-									{/each}
-								</div>
-							{/each}
-						</div>
-					</div>
-				{/each}
-			</div>
-			{#each issuesFor('paylines') as issue (issue.path + issue.message)}
-				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
-			{/each}
-		</section>
-
-		<!-- Big win tiers ------------------------------------------------------------>
-		<section>
-			<h2>Big win tiers</h2>
-			<p class="hint">
-				The big-win celebrations, in ascending order. Each tier has a <strong>name</strong> and an
-				amount <strong>threshold</strong> (the win as a multiple of the total bet). Its
-				<strong>presentation</strong> — rig bundle, intro/idle/outro animations, duration and sound
-				— is authored on the <strong>Win Overlay</strong> component in the Scene Editor, which reads these
-				tiers by alias so the two stay in sync. Smaller wins are handled automatically and aren't shown
-				here. Leave this empty to keep the game's built-in tiers (byte-identical).
-			</p>
-
-			{#if bigResolved.length}
-				<div class="menu-preview" aria-label="Big-win tiers">
-					{#each bigResolved as t (t.alias)}
-						<span class="mp-chip mp-big" title="≥ {t.threshold}× bet"
-							>{t.name}<b>≥{t.threshold}×</b></span
-						>
-					{/each}
-				</div>
-			{:else if defaultWinTiers.length}
-				<div class="tier-seed">
-					<button type="button" onclick={loadDefaultWinTiers}>Load default big wins</button>
-					<span class="hint"
-						>Seeds the <strong>{data.gameType}</strong> template's tiers so you can rename, trim, or retune
-						them. Or add one below.</span
-					>
-				</div>
-			{/if}
-
-			<div class="betmodes">
-				{#each bigTierEntries as { tier, index } (tier.alias)}
-					<div class="betmode">
-						<div class="betmode-head">
-							<span class="betmode-key">{tier.alias}</span>
-							<span class="tier-move">
-								<button
-									title="Move up"
-									disabled={index === bigTierEntries[0].index}
-									onclick={() => moveBigTier(index, -1)}>↑</button
-								>
-								<button
-									title="Move down"
-									disabled={index === bigTierEntries[bigTierEntries.length - 1].index}
-									onclick={() => moveBigTier(index, 1)}>↓</button
-								>
-							</span>
-							<button class="del" title="Remove" onclick={() => removeBigTier(index)}>×</button>
-						</div>
-
-						<div class="betmode-row">
-							<label class="mini tier-name"
-								><span>Name</span><input bind:value={tier.name} placeholder={tier.alias} /></label
-							>
-							<label class="mini"
-								><span>Threshold ×</span><input
-									type="number"
-									step="0.5"
-									bind:value={tier.threshold}
-								/></label
-							>
-						</div>
-					</div>
-				{/each}
-			</div>
-
-			<div class="add">
-				<input placeholder="new tier alias (e.g. mega)" bind:value={newWinTier} />
-				<button onclick={addBigTier}>Add big win</button>
-			</div>
-
-			{#if managedFloorCount}
-				<p class="hint managed-note">
-					+ {managedFloorCount} smaller win band{managedFloorCount === 1 ? '' : 's'} managed automatically
-					(wins below the first big tier present as a plain count-up number).
-				</p>
-			{/if}
-
-			{#if bigTierEntries.length}
-				<div class="escalate">
-					<label class="check"
-						><input
-							type="checkbox"
-							checked={doc.escalateTiers === true}
-							onchange={(e) => setEscalate(e.currentTarget.checked)}
-						/><span>Sequential escalation — play each tier up to the winning one</span></label
-					>
-					<label class="mini"
-						><span>Start from</span><select
-							value={doc.escalateFrom ?? ''}
-							onchange={(e) => setEscalateFrom(e.currentTarget.value)}
-						>
-							<option value="">first big tier</option>
-							{#each bigTierAliases as alias (alias)}
-								<option value={alias}>{alias}</option>
-							{/each}
+							<option value="dropIn">Drop in — the whole board falls at once</option>
+							<option value="columnCascade">Column cascade — left to right</option>
+							<option value="emerge">Emerge — appear in place, no travel</option>
 						</select></label
 					>
+					{#if staggered}
+						<label
+							><span>Column stagger (ms)</span><input
+								type="number"
+								min="0"
+								max={REEL_BEHAVIOUR_MAX_COLUMN_STAGGER_MS}
+								step="10"
+								placeholder={swapStyle === 'emerge' ? '0' : '140'}
+								value={columnStaggerMs ?? ''}
+								oninput={(e) => setColumnStagger(e.currentTarget.valueAsNumber)}
+								disabled={lease.readOnly}
+							/></label
+						>
+					{/if}
 				</div>
-			{/if}
+				<p class="hint">
+					<strong>Drop in</strong> replaces the board in one movement.
+					<strong>Column cascade</strong>
+					drains the standing board out of the bottom column by column, left to right, refilling each
+					column from the top as it empties. <strong>Emerge</strong> is the one where nothing
+					travels: each symbol appears on its own seat and plays its <strong>Intro</strong>
+					animation from the Symbols tool right there — rising out of water, fading up, growing. Pair
+					it with
+					<strong>Clear the board</strong>
+					below for the full picture: the old symbols leave, then the new ones surface.
+					{#if swapStyle === 'emerge'}
+						A symbol with no authored Intro falls back to its <strong>Land</strong> animation, so switching
+						this on before any art is bound gives a board that appears and plays its ordinary landing
+						rather than nothing at all.
+					{/if}
+					{#if staggered}
+						<strong>Column stagger</strong> is the gap between one column starting and the next, and
+						it is the one knob for "the columns arrive at different times": short overlaps them into
+						a wave, longer than a whole column makes them strictly sequential,
+						<strong>0</strong>
+						starts every column together. Blank means this style's own default —
+						{swapStyle === 'emerge'
+							? '0, the whole board surfacing at once, because a sweep is a flourish on top of this style rather than part of it'
+							: '140 ms, because a cascade reads wrong without a sweep'}.
+						{#if columnStaggerMs}
+							<em
+								>On {doc.numReels} reels the last column starts {columnStaggerTotalMs} ms after the first.</em
+							>
+						{/if}
+					{/if}
+				</p>
 
-			{#each issuesFor('winLevels') as issue (issue.path + issue.message)}
-				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
-			{/each}
-			{#each issuesFor('escalateFrom') as issue (issue.path + issue.message)}
-				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
-			{/each}
-			{#each issuesFor('escalateTiers') as issue (issue.path + issue.message)}
-				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
-			{/each}
-		</section>
+				<label class="check"
+					><input
+						type="checkbox"
+						checked={clearBoard}
+						onchange={(e) => setReelSwitch('clearBoard', e.currentTarget.checked)}
+						disabled={lease.readOnly || !swapInPlace}
+					/><span>Clear the board before the new symbols fall in</span></label
+				>
+				<p class="hint">
+					The outgoing symbols play their <strong>Explosion</strong> state from the Symbols tool and
+					leave, instead of simply being replaced.
+					{#if swapStyle === 'columnCascade'}
+						Per <strong>column</strong>, on that column's own beat: the column pops away
+						<em>instead of</em>
+						draining out of the bottom. The sweep, the stagger and the refill are unchanged — this only
+						changes how each column empties.
+					{:else if swapStyle === 'emerge'}
+						Per <strong>column</strong>, on that column's own beat, ahead of the symbols surfacing
+						there. This is the half of the emerge picture that makes the old board <em>leave</em>
+						rather than simply blink out — without it, a column's old symbols are gone the instant its
+						new ones appear.
+					{:else}
+						The whole board clears at once, ahead of the fall. Off, the old board is simply gone
+						when the new one arrives.
+					{/if}
+					A symbol with no authored Explosion state vanishes rather than popping.
+					{#if clearBoard && !swapInPlace}
+						<em
+							>Inert while the reels roll — a rolling round replaces nothing, it re-spins. It stays
+							saved and takes effect the moment you tick <strong>Swap symbols in place</strong>.</em
+						>
+					{/if}
+				</p>
+				{#each issuesFor('reelBehaviour') as issue (issue.path + issue.message)}
+					<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
+				{/each}
+			</section>
+		{/if}
+
+		{#if sections.has('gameModes')}
+			<GameModesSection bind:doc {issuesFor} readOnly={lease.readOnly} />
+		{/if}
+
+		<!-- Sounds ----------------------------------------------------------------->
+		{#if sections.has('sounds')}
+			<section>
+				<h2>Sounds</h2>
+				<p class="hint">
+					Moved. What the game plays at each moment — the reel-stop ladder, the cascade pop, the
+					landing cues, the per-symbol exceptions and the win-tier stings — is authored in
+					<a href="/sound">Invisible Sound</a>, next to the library the cues are picked from and the
+					button that plays them. Splitting "which sound" from "the sounds" across two tools is what
+					let a name sit bound to nothing for the whole life of the fork.
+				</p>
+			</section>
+		{/if}
+
+		<!-- Paylines --------------------------------------------------------------->
+		{#if sections.has('paylines')}
+			<section>
+				<h2>Paylines</h2>
+				{#if winModelType !== 'lines'}
+					<div class="banner locked">
+						<strong>This game pays by {winModelType}, so these paylines are not used.</strong> They stay
+						saved (switching back to Lines restores them) but nothing below affects play.
+					</div>
+				{/if}
+				{#if data.serverPaylines}
+					<div class="banner locked">
+						<strong>These are the live server (RGS) paylines</strong> — the {data.serverPaylines
+							.length} line{data.serverPaylines.length === 1 ? '' : 's'} this game actually deals at runtime,
+						read straight from the RGS. The shape is read-only; only the per-line
+						<strong>colour</strong> is editable.
+					</div>
+				{:else}
+					<div class="banner locked">
+						<strong>Paylines are defined by the server (RGS) at runtime</strong> — this game reads
+						its active lines from the RGS, so the shape below is read-only here. Only the per-line
+						<strong>colour</strong> is editable.
+					</div>
+					<p class="hint muted-note">
+						Couldn't reach the RGS — showing the saved config's lines instead. The game still reads
+						its active lines from the server at runtime.
+					</p>
+				{/if}
+				<p class="hint">
+					Each line is one cell per reel. The <strong>swatch</strong> sets an optional
+					<strong>line colour</strong>: the game draws that line's win in this colour and broadcasts
+					it so assets shown on the win can pick it up (leave it unset to use the single default
+					from the Symbols tool).
+				</p>
+				<div class="paylines">
+					{#each displayPaylines as line (line.id)}
+						{@const tint =
+							line.colorable && hasPaylineColor(line.id) ? paylineColorValue(line.id) : null}
+						<div class="payline">
+							<div class="payline-head">
+								<span class="payline-id" style={tint ? `color:${tint}` : ''}>Line {line.id}</span>
+								{#if line.colorable}
+									<div class="payline-tools">
+										<ColorField
+											value={paylineColorValue(line.id)}
+											oninput={(hex) => setPaylineColor(line.id, hex)}
+											title="Line colour"
+										/>
+										{#if tint}
+											<button
+												class="clear-color"
+												title="Reset this line's colour to the default (does NOT remove the line — the server owns the lines)"
+												onclick={() => clearPaylineColor(line.id)}>reset colour</button
+											>
+										{/if}
+									</div>
+								{/if}
+							</div>
+							<div
+								class="payline-grid"
+								style="grid-template-columns: repeat({line.rows.length}, 1fr);"
+							>
+								{#each line.rows as seatRow, reel (reel)}
+									<div class="reel-col">
+										{#each Array(doc.numRows[reel] ?? maxRows) as _, row (row)}
+											{@const on = seatRow === row}
+											<!-- Read-only: the RGS owns the line shape at runtime. A disabled cell so it
+										     reads out the active line but a click can't move it. -->
+											<button
+												class="cell"
+												class:on
+												style={on && tint ? `background:${tint};border-color:${tint}` : ''}
+												aria-label="Line {line.id} reel {reel + 1} row {row + 1}"
+												disabled
+											></button>
+										{/each}
+									</div>
+								{/each}
+							</div>
+						</div>
+					{/each}
+				</div>
+				{#each issuesFor('paylines') as issue (issue.path + issue.message)}
+					<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
+				{/each}
+			</section>
+		{/if}
+
+		<!-- Big win tiers ------------------------------------------------------------>
+		{#if sections.has('winLevels')}
+			<section>
+				<h2>Big win tiers</h2>
+				<p class="hint">
+					The big-win celebrations, in ascending order. Each tier has a <strong>name</strong> and an
+					amount <strong>threshold</strong> (the win as a multiple of the total bet). Its
+					<strong>presentation</strong> — rig bundle, intro/idle/outro animations, duration and
+					sound — is authored on the <strong>Win Overlay</strong> component in the Scene Editor, which
+					reads these tiers by alias so the two stay in sync. Smaller wins are handled automatically and
+					aren't shown here. Leave this empty to keep the game's built-in tiers (byte-identical).
+				</p>
+
+				{#if bigResolved.length}
+					<div class="menu-preview" aria-label="Big-win tiers">
+						{#each bigResolved as t (t.alias)}
+							<span class="mp-chip mp-big" title="≥ {t.threshold}× bet"
+								>{t.name}<b>≥{t.threshold}×</b></span
+							>
+						{/each}
+					</div>
+				{:else if defaultWinTiers.length}
+					<div class="tier-seed">
+						<button type="button" onclick={loadDefaultWinTiers}>Load default big wins</button>
+						<span class="hint"
+							>Seeds the <strong>{data.gameType}</strong> template's tiers so you can rename, trim, or
+							retune them. Or add one below.</span
+						>
+					</div>
+				{/if}
+
+				<div class="betmodes">
+					{#each bigTierEntries as { tier, index } (tier.alias)}
+						<div class="betmode">
+							<div class="betmode-head">
+								<span class="betmode-key">{tier.alias}</span>
+								<span class="tier-move">
+									<button
+										title="Move up"
+										disabled={index === bigTierEntries[0].index}
+										onclick={() => moveBigTier(index, -1)}>↑</button
+									>
+									<button
+										title="Move down"
+										disabled={index === bigTierEntries[bigTierEntries.length - 1].index}
+										onclick={() => moveBigTier(index, 1)}>↓</button
+									>
+								</span>
+								<button class="del" title="Remove" onclick={() => removeBigTier(index)}>×</button>
+							</div>
+
+							<div class="betmode-row">
+								<label class="mini tier-name"
+									><span>Name</span><input bind:value={tier.name} placeholder={tier.alias} /></label
+								>
+								<label class="mini"
+									><span>Threshold ×</span><input
+										type="number"
+										step="0.5"
+										bind:value={tier.threshold}
+									/></label
+								>
+							</div>
+						</div>
+					{/each}
+				</div>
+
+				<div class="add">
+					<input placeholder="new tier alias (e.g. mega)" bind:value={newWinTier} />
+					<button onclick={addBigTier}>Add big win</button>
+				</div>
+
+				{#if managedFloorCount}
+					<p class="hint managed-note">
+						+ {managedFloorCount} smaller win band{managedFloorCount === 1 ? '' : 's'} managed automatically
+						(wins below the first big tier present as a plain count-up number).
+					</p>
+				{/if}
+
+				{#if bigTierEntries.length}
+					<div class="escalate">
+						<label class="check"
+							><input
+								type="checkbox"
+								checked={doc.escalateTiers === true}
+								onchange={(e) => setEscalate(e.currentTarget.checked)}
+							/><span>Sequential escalation — play each tier up to the winning one</span></label
+						>
+						<label class="mini"
+							><span>Start from</span><select
+								value={doc.escalateFrom ?? ''}
+								onchange={(e) => setEscalateFrom(e.currentTarget.value)}
+							>
+								<option value="">first big tier</option>
+								{#each bigTierAliases as alias (alias)}
+									<option value={alias}>{alias}</option>
+								{/each}
+							</select></label
+						>
+					</div>
+				{/if}
+
+				{#each issuesFor('winLevels') as issue (issue.path + issue.message)}
+					<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
+				{/each}
+				{#each issuesFor('escalateFrom') as issue (issue.path + issue.message)}
+					<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
+				{/each}
+				{#each issuesFor('escalateTiers') as issue (issue.path + issue.message)}
+					<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
+				{/each}
+			</section>
+		{/if}
 	</div>
 
 	{#if rawOpen}

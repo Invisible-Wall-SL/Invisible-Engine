@@ -122,7 +122,9 @@ const STUBS = {
 		'components-layout': moduleUrl(
 			'export const MainContainer = (anchor, props) => props.children?.(anchor);',
 		),
-		'engine-layout': moduleUrl(`export { cinematicSetSceneId } from '${CINEMATIC_NODES}';`),
+		'engine-layout': moduleUrl(`export { cinematicSetSceneId } from '${CINEMATIC_NODES}';
+export const emitComponentSignal = () => {};
+export const screenCueSignal = () => undefined;`),
 		'engine-layout/svelte': moduleUrl(`export { default as Cinematic } from '${CINEMATIC}';`),
 		'utils-event-emitter': moduleUrl('export const getContextEventEmitter = () => undefined;'),
 		'../editor-scenes': moduleUrl(`export const bakedCinematic = (id) => ${harness}.docs[id];`),
