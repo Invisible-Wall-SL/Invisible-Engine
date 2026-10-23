@@ -67,23 +67,20 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # The same shell and sandbox setup as the current-games render job (its comments say why).
+      # The same shell and sandbox setup as the current-games render job (its comments say why),
+      # sharing its cache.
+      - name: Key the headless shell cache
+        id: shell
+        run: echo "key=$(scripts/current-games/headless-shell.sh key)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v6
+        with:
+          path: .cache/headless-shell
+          key: ${{ steps.shell.outputs.key }}
+
       - name: Install the headless shell
         timeout-minutes: 15
-        run: |
-          printf '%s\n' 'Acquire::Retries "5";' 'Acquire::http::Timeout "30";' \
-            'Acquire::https::Timeout "30";' 'DPkg::Lock::Timeout "180";' \
-            | sudo tee /etc/apt/apt.conf.d/80-button-parity >/dev/null
-          for attempt in 1 2 3; do
-            timeout 240 pnpm dlx playwright@1.63.0 install --with-deps chromium-headless-shell && exit 0
-            echo "::warning::headless shell install attempt $attempt failed; retrying"
-            # A slow mirror can outlast the timeout, which kills pnpm but not the `sudo apt-get` it
-            # started: that apt-get runs on holding the dpkg lock, and the next attempt could only
-            # wait on it and fail. Let it finish first; the step's timeout still bounds the wait.
-            while pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null; do sleep 5; done
-            sleep 10
-          done
-          exit 1
+        run: scripts/current-games/headless-shell.sh install .cache/headless-shell button-parity
 
       - name: Let the headless shell start its sandbox
         run: |
