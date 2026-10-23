@@ -2030,6 +2030,19 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 </svg>`;
 	}
 
+	/** Linear's straight line or Hold's step, drawn in the curve editor's frame (no handles). */
+	function shapeMarkup(kind) {
+		const p = (x, y) => `${cx(x).toFixed(1)},${cy(y).toFixed(1)}`;
+		const d =
+			kind === 'hold'
+				? `M${p(0, 0)} H${cx(1).toFixed(1)} V${cy(1).toFixed(1)}`
+				: `M${p(0, 0)} L${p(1, 1)}`;
+		return `<svg class="cineCurve" viewBox="0 0 ${CURVE.vw} ${CURVE.vh}" width="${CURVE.vw}" height="${CURVE.vh}" role="img" aria-label="${kind === 'hold' ? 'Hold' : 'Linear'}">
+	<rect x="${CURVE.x0}" y="${cy(1)}" width="${CURVE.w}" height="${CURVE.h}" class="cineCurveBox"/>
+	<path class="cineCurvePath" d="${d}"/>
+</svg>`;
+	}
+
 	/** Redraw the curve editor's arms, path and handles in place (a handle keeps its capture). */
 	function moveCurve(svg, c) {
 		const [x1, y1, x2, y2] = c;
@@ -2060,7 +2073,7 @@ ${
 	kind === 'cubic'
 		? `<div class="cineCurveWrap" data-curve${scope}>${curveMarkup(c)}</div>
 <div class="cineStripInsp"><label class="wide">x1, y1, x2, y2<input type="text" data-ecubic${scope} value="${esc(cubicText(c))}" spellcheck="false" title="The cubic-bezier's two handles: x in 0..1, y may overshoot"></label></div>`
-		: ''
+		: `<div class="cineCurveWrap">${shapeMarkup(kind)}</div>`
 }`;
 	}
 
