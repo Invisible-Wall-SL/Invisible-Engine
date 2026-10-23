@@ -18,7 +18,9 @@
  *     the built-in Segmented Counter previews from the built-in timelines;
  *  5. parity: a source-list repeater (the seeded buy-feature cards) frames and expands exactly as
  *     before this change;
- *  6. the State machine panel's preview reads a param's default (`index` on a segment opened alone).
+ *  6. the State machine panel's preview reads a param's default (`index` on a segment opened alone);
+ *  7. a segment's root box (the Components side's **Size**): the canvas lays rig-only segments out
+ *     by it, as the game does, and the field writes `root.width` / `root.height` (source-scanned).
  *
  * What it cannot prove: the canvas and Properties in a browser — the owner's pass.
  */
@@ -582,6 +584,45 @@ eq(
 	),
 	true,
 );
+
+// ---- 7. a segment's root box -----------------------------------------------------------------
+
+{
+	const rigTile = (box?: { width: number; height: number }): ComponentDef => ({
+		id: 'tile',
+		name: 'Tile',
+		version: 1,
+		root: {
+			id: 'tile-root',
+			kind: 'container',
+			x: 0,
+			y: 0,
+			...box,
+			children: [{ id: 'tile-rig', kind: 'spine', x: 0, y: 0, assetKey: 'tile' } as LayoutNode],
+		},
+	});
+	const row = (def: ComponentDef) =>
+		H.repeaterPreviewLayout(
+			{
+				...H.newCountRepeater({ id: 'bar', x: 0, y: 0 }, 'tile'),
+				layout: { direction: 'row', gap: 6 },
+			},
+			new Map([[def.id, def]]),
+			'desktop',
+		).offsets.map((o) => o.x);
+	eq('rig-only segments with no box stack on the canvas, as in game', row(rigTile()), [0, 6, 12]);
+	eq('…with a box they step by it', row(rigTile({ width: 160, height: 120 })), [0, 166, 332]);
+	const workspace = read('ComponentWorkspace.svelte');
+	eq(
+		'the Size field sets and clears root.width / root.height',
+		/function setComponentSize[\s\S]{0,300}delete componentDraft\.root\[axis\][\s\S]{0,80}componentDraft\.root\[axis\] = value/.test(
+			workspace,
+		) &&
+			/setComponentSize\('width'/.test(workspace) &&
+			/setComponentSize\('height'/.test(workspace),
+		true,
+	);
+}
 
 if (failures) {
 	console.error(`\n${failures} failed, ${passes} passed`);

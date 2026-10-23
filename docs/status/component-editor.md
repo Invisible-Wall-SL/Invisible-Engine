@@ -97,6 +97,21 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-23 — **Segmented counters: a segment's box (Size)** (branch `feat/segment-root-box`, in
+  review, ⏳ not browser-verified). A segment drawn only from rigs and text (the owner's
+  R_RespinTile looks) measures 0 × 0 — a rig or a text cannot be sized without loading it — so a
+  row of them stacked 6 px apart, in game and on the canvas. Opt-in fix: `repeaterSegmentSize`
+  (`engine-layout/repeaterCount.ts`) lays a segment out by its ROOT box when the def declares both
+  `root.width` and `root.height`, from its origin right and down, else measures as before
+  (`componentDesignSize`); `Repeater.svelte` and the canvas (`repeaterPreviewLayout`) both use it.
+  The Component Editor bar gets **Size** W × H beside **Space** (`setComponentSize` in
+  `ComponentWorkspace.svelte`; empty or ≤ 0 clears it); the normalizer already kept a root box.
+  Only a count-mode repeater reads it (background cover-fit and the source-list repeater still
+  measure), and a def without both sides lays out exactly as before. Gates:
+  `check:component-repeat-segments` (70: the measure, the normalizer, rig-only segments mounted for
+  real stacking without a box and stepping 166 px with a 160 × 120 one) and
+  `check:component-repeat-segments-editor` (36: the canvas layout, the field). Guide:
+  [§ Segmented counters](../tools/invisible-editor.md#segmented-counters--repeat-count).
 - 2026-10-23 — **⧉ Duplicate a component** (branch `claude/component-duplicate`, in review, ⏳ not
   browser-verified). A ⧉ on each row of the Components list (home and the Browse tab) copies ANY
   listed component — project, shared or built-in — into a new project component and opens it.

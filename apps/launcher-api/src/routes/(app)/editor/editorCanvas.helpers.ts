@@ -6,7 +6,6 @@ import {
 	boundComponentRidesBone,
 	boundComponentSkin,
 	boundComponentTileImage,
-	componentDesignSize,
 	componentInputs,
 	forwardInstanceParams,
 	isCountRepeater,
@@ -18,6 +17,7 @@ import {
 	repeaterCount,
 	repeaterCountOffsets,
 	repeaterSegmentComponent,
+	repeaterSegmentSize,
 	repeaterSegmentValues,
 	resolveTransform,
 	type BoneRiderBinding,
@@ -512,8 +512,9 @@ export function repeaterPreviewCount(node: CountRepeaterNode): number {
 /**
  * Where a count-mode repeater's segments sit in the editor — the game's own geometry
  * (`repeaterCountOffsets`) over the game's own measure of each segment component
- * (`componentDesignSize`, no textures), so the canvas, the overlay and the selection box frame what
- * the game draws. A missing or unsizable component measures 0 × 0, as in game.
+ * (`repeaterSegmentSize`: its root box, else what it draws, no textures), so the canvas, the overlay
+ * and the selection box frame what the game draws. A missing or unsizable component measures 0 × 0,
+ * as in game.
  */
 export function repeaterPreviewLayout(
 	node: CountRepeaterNode,
@@ -525,7 +526,7 @@ export function repeaterPreviewLayout(
 	return repeaterCountOffsets(node, n, (id) => {
 		if (!sizes.has(id)) {
 			const def = componentMap?.get(id);
-			sizes.set(id, def ? componentDesignSize(def, () => null, layoutType) : null);
+			sizes.set(id, def ? repeaterSegmentSize(def, layoutType) : null);
 		}
 		return sizes.get(id) ?? null;
 	});

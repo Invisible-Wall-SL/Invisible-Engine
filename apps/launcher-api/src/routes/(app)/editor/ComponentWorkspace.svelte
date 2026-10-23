@@ -2390,6 +2390,15 @@
 		else delete componentDraft.space;
 	}
 
+	/** Set one side of the component's box (`root.width` / `root.height`), the size a Repeat (count)
+	 * lays a segment out by when both are set; empty or not positive clears it (measured instead). */
+	function setComponentSize(axis: 'width' | 'height', raw: string): void {
+		if (!componentDraft) return;
+		const value = Number(raw);
+		if (raw.trim() === '' || !(value > 0)) delete componentDraft.root[axis];
+		else componentDraft.root[axis] = value;
+	}
+
 	/** Drag payload for a palette ELEMENT (Text/Container/Rect) — the canvas spawns
 	 * the matching kind. Same wire format as a Library asset drag. */
 	function onElementDragStart(
@@ -2529,6 +2538,31 @@
 						<option value="game">Game (main box)</option>
 						<option value="canvas">Canvas (full-window overlay)</option>
 					</select>
+				</label>
+				<label
+					class="space-toggle"
+					title="The component's size when a Repeat (count) lays it out as a segment, from its origin (0, 0) right and down. Set both for a segment drawn from rigs or text — those can't be measured, so without a size such segments stack. Empty = measured from what it draws."
+				>
+					Size
+					<input
+						type="number"
+						min="0"
+						placeholder="auto"
+						aria-label="Component width"
+						value={componentDraft.root.width ?? ''}
+						disabled={isInspecting}
+						onchange={(e) => setComponentSize('width', e.currentTarget.value)}
+					/>
+					×
+					<input
+						type="number"
+						min="0"
+						placeholder="auto"
+						aria-label="Component height"
+						value={componentDraft.root.height ?? ''}
+						disabled={isInspecting}
+						onchange={(e) => setComponentSize('height', e.currentTarget.value)}
+					/>
 				</label>
 				{#if isInspecting}
 					<span
@@ -3376,6 +3410,15 @@
 		font-size: 11px;
 		color: #888;
 		white-space: nowrap;
+	}
+	.space-toggle input {
+		width: 52px;
+		font-size: 11px;
+		padding: 2px 4px;
+		border-radius: 6px;
+		border: 1px solid #2a2a33;
+		background: #14141a;
+		color: #c8c8d0;
 	}
 	.space-toggle select {
 		font-size: 11px;

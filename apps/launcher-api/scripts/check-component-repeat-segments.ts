@@ -244,6 +244,51 @@ const repeater = (over: Partial<RepeaterNode> = {}): RepeaterNode => ({
 			{ x: 6, y: 0 },
 		],
 	);
+
+	const rigOnly = (box?: { width?: number; height?: number }): ComponentDef => ({
+		...SEGMENT,
+		id: 'rigOnly',
+		root: {
+			id: 'rigOnly-root',
+			kind: 'container',
+			x: 0,
+			y: 0,
+			...box,
+			children: [
+				{ id: 'tile', kind: 'spine', x: 0, y: 0, assetKey: 'tile' } as LayoutNode,
+				{ id: 'n', kind: 'text', x: 0, y: 0, text: '1' } as LayoutNode,
+			],
+		},
+	});
+	eq(
+		'a segment drawn from a rig and a text measures nothing',
+		R.repeaterSegmentSize(rigOnly(), 'desktop'),
+		null,
+	);
+	eq(
+		'…its root box (the Component Editor’s Size) is its size',
+		R.repeaterSegmentSize(rigOnly({ width: 160, height: 120 }), 'desktop'),
+		{ width: 160, height: 120 },
+	);
+	eq(
+		'…only both sides count (one side alone is measured as before)',
+		R.repeaterSegmentSize(rigOnly({ width: 160 }), 'desktop'),
+		null,
+	);
+	const starter = R.repeaterSegmentSize(SEGMENT, 'desktop');
+	eq(
+		'a segment with no box is measured from what it draws, as before',
+		[starter?.width, starter?.height],
+		[80, 56],
+	);
+	eq(
+		'…and a box wins over what it draws',
+		R.repeaterSegmentSize(
+			{ ...SEGMENT, root: { ...SEGMENT.root, width: 100, height: 70 } },
+			'desktop',
+		),
+		{ width: 100, height: 70 },
+	);
 }
 
 // ---- 4. what each segment is handed ------------------------------------------------------------
@@ -384,6 +429,15 @@ L.registerComponentTimelines(B.BUILTIN_TIMELINES);
 		category: 'ui',
 		root: { id: 'probe-root', kind: 'container', x: 0, y: 0, children: root },
 	});
+	const boxed = normalizeComponent({
+		...asDef([]),
+		root: { ...asDef([]).root, width: 160, height: 120 },
+	} as ComponentDef);
+	eq(
+		'a root box (Size) survives the normalizer',
+		[boxed.root.width, boxed.root.height],
+		[160, 120],
+	);
 	const once = normalizeComponent(structuredClone({ ...BAR, scope: 'project' }) as ComponentDef);
 	const kept = once.root.children.find((n) => n.kind === 'repeater') as RepeaterNode;
 	eq(
@@ -746,6 +800,76 @@ export const parentContext = (parent) => {
 		step();
 		eq('a start of 0 draws none', read().length, 0);
 		H.unmount(bar.app);
+
+		// A segment drawn only from a rig and its number: with a root box the row steps by it; the
+		// rig draws nothing here (no asset), so each segment reads by its number.
+		const tiles = (box?: { width: number; height: number }): ComponentDef[] => {
+			const tile: ComponentDef = {
+				...SEGMENT,
+				id: 'tileSegment',
+				root: {
+					id: 'tile-root',
+					kind: 'container',
+					x: 0,
+					y: 0,
+					...box,
+					children: [
+						{ id: 'tile-rig', kind: 'spine', x: 0, y: 0, assetKey: 'tile' } as LayoutNode,
+						{
+							id: 'tile-number',
+							kind: 'text',
+							x: 0,
+							y: 0,
+							text: '1',
+							paramBindings: { text: 'index' },
+						},
+					],
+				},
+			};
+			const tileBar: ComponentDef = {
+				...BAR,
+				id: 'tileBar',
+				root: {
+					...BAR.root,
+					children: BAR.root.children.map((n) =>
+						n.kind === 'repeater' ? { ...n, componentId: tile.id } : n,
+					),
+				},
+			};
+			return [tile, tileBar];
+		};
+		const numbersAt = (box?: { width: number; height: number }) => {
+			E.registerComponents(byId(tiles(box)));
+			const bar = mountInstance({
+				id: 'tiles',
+				kind: 'componentInstance',
+				x: 0,
+				y: 0,
+				componentId: 'tileBar',
+			});
+			const out: [string | undefined, number][] = [];
+			walk(bar.stage, (n) => {
+				if (n instanceof H.Text) out.push([n.text, Math.round(globalX(n))]);
+			});
+			H.unmount(bar.app);
+			return out.sort((a, b) => a[1] - b[1]);
+		};
+		respinsStart.set(3);
+		respinsLeft.set(3);
+		eq('rig-only segments with no box stack, 6 px apart (as before)', numbersAt(), [
+			['1', -6],
+			['2', 0],
+			['3', 6],
+		]);
+		eq(
+			'…with a 160 × 120 box they step by it, centred on the bar',
+			numbersAt({ width: 160, height: 120 }),
+			[
+				['1', -246],
+				['2', -80],
+				['3', 86],
+			],
+		);
 
 		const probe = mountInstance({
 			id: 'probe',

@@ -30,6 +30,7 @@
 		repeaterCount,
 		repeaterCountOffsets,
 		repeaterSegmentComponent,
+		repeaterSegmentSize,
 		repeaterSegmentValues,
 		type RepeaterItemSize,
 	} from './repeaterCount';
@@ -132,9 +133,7 @@
 		const sizeOf = (componentId: string): RepeaterItemSize | null => {
 			if (!(componentId in sizes)) {
 				const segmentDef = resolveComponent(componentId).def;
-				sizes[componentId] = segmentDef
-					? componentDesignSize(segmentDef, () => null, layoutType)
-					: null;
+				sizes[componentId] = segmentDef ? repeaterSegmentSize(segmentDef, layoutType) : null;
 			}
 			return sizes[componentId];
 		};
