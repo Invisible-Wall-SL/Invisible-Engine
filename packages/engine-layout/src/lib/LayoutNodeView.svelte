@@ -19,6 +19,9 @@
 		 * (rig) node — rendered INSIDE its `<RigProvider>`, each group in one `<RigSlot>`, so the rig
 		 * drives them. Paired by the parent container's branch; only meaningful when this node is a rig. */
 		slotRiders?: LayoutNode[];
+		/** Drawn inside a parent node (a container's child, a part's skin, a rig-slot rider), in that
+		 * parent's space, rather than straight on the screen. */
+		nested?: boolean;
 	};
 </script>
 
@@ -54,6 +57,7 @@
 		backgroundFit,
 		coverAnchorOffset,
 		coverTransform,
+		coversBackgroundWindow,
 		isCoverArtKind,
 		isCoverFitKind,
 	} from './coverTransform';
@@ -101,7 +105,7 @@
 	import Repeater from './Repeater.svelte';
 	import { EDITOR_RIG_LOAD_SCALE } from './rigLoadScale';
 
-	const { node, space, attachedEffects, slotRiders }: Props = $props();
+	const { node, space, attachedEffects, slotRiders, nested }: Props = $props();
 	const layoutContext = getContextLayout();
 	const appContext = getContextApp();
 
@@ -926,13 +930,16 @@
 	const rectHeight = $derived(
 		node.kind === 'rect' ? (transform.height ?? node.height) * sizeScaleY : 0,
 	);
-	// A `rect` on a `background` screen covers the window like the background art does, measured
-	// from its own width × height (no texture), with the same fit / cover scale / stretch / align
-	// inputs — so a full-screen fill reaches every edge of a window larger than the bucket it was
-	// sized in. Drawn from its centre; the size carries the per-axis cover scale. Any other space ⇒
-	// `undefined` ⇒ the authored box above.
+	// A `rect` placed straight on a `background` screen covers the window like the background art
+	// does, measured from its own width × height (no texture), with the same fit / cover scale /
+	// stretch / align inputs — so a full-screen fill reaches every edge of a window larger than the
+	// bucket it was sized in. Drawn from its centre; the size carries the per-axis cover scale. A
+	// nested rect keeps its box, as the editor draws it (`coversBackgroundWindow`); any other space
+	// ⇒ `undefined` ⇒ the authored box above.
 	const rectCover = $derived.by(() => {
-		if (!isBackground || node.kind !== 'rect') return undefined;
+		if (!isBackground || node.kind !== 'rect' || !coversBackgroundWindow(node, !nested)) {
+			return undefined;
+		}
 		const canvasBox = layoutContext.stateLayoutDerived.canvasSizes();
 		const width = transform.width ?? node.width;
 		const height = transform.height ?? node.height;
@@ -1137,7 +1144,7 @@
 	 * owns its size).
 	 */
 	const fillRect = $derived.by(() => {
-		if (!fill || bg || rectCover) return undefined;
+		if (!fill || bg) return undefined;
 		if (node.kind === 'rect') {
 			return fillMaskRect(
 				rectWidth,
@@ -1185,6 +1192,7 @@
 				node={child}
 				{space}
 				slotRiders={child === split.host && split.riders.length ? split.riders : undefined}
+				nested
 			/>
 		{/each}
 	{/if}
@@ -1264,6 +1272,7 @@
 						node={child}
 						{space}
 						slotRiders={child === split.host && split.riders.length ? split.riders : undefined}
+						nested
 					/>
 				{/each}
 			</Container>
@@ -1559,7 +1568,7 @@
 				{#each slotRiderGroups as group (group.slot)}
 					<RigSlot slotName={group.slot}>
 						{#each group.riders as rider (rider.id)}
-							<svelte:self node={rider} {space} />
+							<svelte:self node={rider} {space} nested />
 						{/each}
 					</RigSlot>
 				{/each}

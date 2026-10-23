@@ -21,6 +21,7 @@
 		fillMaskRect,
 		hostedComponentSpace,
 		instancePreviewRigBundle,
+		coversBackgroundWindow,
 		isBackgroundCoverKind,
 		isCoverFitKind,
 		isHudScene,
@@ -1028,8 +1029,9 @@
 	/** Full-bleed cover nodes are auto-cover-fit (their transform is synthesised, not
 	 * authored), so the canvas must not drag/scale/rotate them — a write would store
 	 * the synthetic centre/size and break the cover. The cover scale is still editable
-	 * via the Properties `scale.x` control. This covers BOTH `background`-space sprite/
-	 * rig nodes AND a `cover`-placement preview anchor (the full-bleed Background).
+	 * via the Properties `scale.x` control. This covers BOTH a node that covers a
+	 * `background` screen (`coversBackgroundWindow`) AND a `cover`-placement preview anchor
+	 * (the full-bleed Background).
 	 *
 	 * Positioned/centred preview anchors (Win, Transition, FreeSpinIntro/Outro,
 	 * FreeSpinCounter) are NOT cover: their preview = placement + the node's stored x/y
@@ -1046,7 +1048,13 @@
 		if (scene.space === 'canvas' && node.coverFit && isCoverFitKind(node)) {
 			return true;
 		}
-		return scene.space === 'background' && isBackgroundCoverKind(node);
+		return (
+			scene.space === 'background' &&
+			coversBackgroundWindow(
+				node,
+				scene.nodes.some((n) => n.id === node.id),
+			)
+		);
 	}
 
 	let canvas: HTMLCanvasElement | null = $state(null);
@@ -2707,8 +2715,11 @@
 			node.kind === 'flipbook' ? clipsById.get(node.clipId)?.frames.length : undefined,
 		);
 		const previewFill = boundFillShare(previewBindings(node), previewed);
+		// A node drawn as a background cover shows whole: the game drops the reveal on a cover.
+		const drawnAsCover = !nested && sceneCtx.space === 'background' && isBackgroundCoverKind(node);
 		if (
 			previewFill &&
+			!drawnAsCover &&
 			(node.kind === 'sprite' || node.kind === 'rect' || node.kind === 'flipbook')
 		) {
 			const box = boxOf(node, t);

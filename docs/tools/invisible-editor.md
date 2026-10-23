@@ -90,6 +90,8 @@ Each screen has a coordinate **space** select: `game` (the main game box),
 (positioned against the window edges), or `background` (cover-fit, full-bleed). On a
 `background` screen an image, rig, clip, component or **Rect** fills the window edge to edge
 in the game, whatever its size; a text node or a bare group is placed at window pixels instead.
+A Rect inside a group keeps its placed box — that is how to put a band or panel on a background
+screen.
 
 ### Layer order and "Always on top"
 
@@ -967,8 +969,8 @@ Select a node that covers the window — an image, rig, clip, component or Rect 
 `background` screen, or a sprite / rig / clip with **Fill → Cover / full-screen fill** ticked
 on a `canvas` screen — and the Properties panel shows a **Background** section. A Rect covers
 by its own **width × height**: any size fills the window on `cover`, and its shape only matters
-for `contain` or a per-axis fit. A Rect sized to the Desktop frame used to stop at those pixels
-in a larger game window; it now reaches every edge, as in the editor. The node stops being
+for `contain` or a per-axis fit. A Rect inside a group is not a cover: it stays draggable at
+its placed box. The node stops being
 draggable (its transform is computed, not authored); these controls are how you shape it:
 
 - **fit** — how the art is matched to the window:
