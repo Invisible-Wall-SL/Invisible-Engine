@@ -15,7 +15,7 @@ Shared, in-repo knowledge (NOT personal memory — so the whole team sees it):
 2. **Always `git push` after committing** — Railway auto-deploys from `main`; an unpushed commit does nothing. (This wasted hours once.) **Push to `origin` (our fork), never `upstream`** — see GitHub Workflow below.
 3. **Tools are full-page — never iframes** (redirect or same-origin serve).
 4. **Engine changes go on `main`** via feature branches — never per-game engine branches. Don't dismantle the Turborepo/pnpm-workspace structure.
-5. **`pnpm` only** (10.5.0), Node ≥ 22.16.0. TypeScript, no `any` unless unavoidable. Prettier: tabs, single quotes, 100 cols. No dead code, no noise comments.
+5. **`pnpm` only** (10.5.0), Node ≥ 22.19.0. TypeScript, no `any` unless unavoidable. Prettier: tabs, single quotes, 100 cols. No dead code, no noise comments.
 6. **When you finish meaningful work, update the tool's `docs/status/<tool>.md`** (its current-state file) so the next person/session inherits the context — NOT `docs/STATUS.md` (a slim index) and NOT `docs/history.md` (a **frozen archive** — do not append). The status file owns the whole story for its tool: current state, open items, and the dated "Recent changes" detail. Keep the design doc to the *plan*; keep progress in status. One fact, one home — don't restate a fact across design/status/guide/agent (see `docs/status/README.md`).
    **Also touch the two cross-cutting surfaces when — and only when — your work changes them:** `docs/STATUS.md` if a tool crossed planned → built, a roadmap item closed, or an owner blocker cleared; `docs/tools/<slug>.md` if the UI changed (rule 9). These are the surfaces that decay, because per-tool status files get updated faithfully and these don't.
 7. **Always use the agents and skills.** Multi-step or domain work goes through the per-tool subagents in `.claude/agents/` (see the Start-here list) and the registered skills (e.g. `/deploy`, `/code-review`) — don't hand-roll what they already encode. **The plan/state is in the files, not in your memory of a past session:** before acting, read the tool's `docs/status/<tool>.md` (current state) + its `docs/design/*.md` build plan (esp. the numbered plans like `docs/design/invisible-editor.md` §"Build plan"). Find the registered next step there — or in `docs/STATUS.md`'s cross-cutting roadmap — first.
@@ -38,7 +38,7 @@ This is **Invisible Engine**, the in-house game engine owned by Invisible Wall S
 ## Repository
 - **Monorepo tool:** Turborepo + pnpm workspaces
 - **Package manager:** pnpm 10.5.0 (always use `pnpm`, never `npm` or `yarn`)
-- **Node requirement:** ≥ 22.16.0
+- **Node requirement:** ≥ 22.19.0
 - **GitHub:** owner has granted full commit + push access — commit and push freely when asked
 
 ## Architecture at a Glance
@@ -66,7 +66,7 @@ packages/      → 30 shared libraries
 | Filters | pixi-filters 6 |
 | Build | Vite 6 + Turbo 2 |
 | Testing | Node fixture gates (root + launcher `check:*` scripts, run by CI's Lint workflow), Storybook stories, and play-QA via the `game-playtester` agent. No E2E or visual-regression suite runs: no package implements the `e2e*` Turbo tasks and the Chromatic CLI is never invoked (upstream-SDK leftovers). |
-| i18n | Lingui 5 |
+| i18n | Lingui 6 |
 | Fonts | WebFontLoader |
 
 ## Key Patterns

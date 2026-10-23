@@ -35,7 +35,7 @@
 	"dependencies": {
 		"@barvynkoa/particle-emitter": "0.0.1",
 		"engine-rig": "workspace:*",
-		"@lingui/core": "5.2.0",
+		"@lingui/core": "6.10.1",
 		"@types/webfontloader": "1.6.38",
 		"constants-shared": "workspace:*",
 		"engine-flipbook": "workspace:*",

@@ -417,7 +417,10 @@ check(
 );
 check(
 	'the project save of a component names its project',
-	workspace.includes('{ ...componentDraft, project: data.projectKey }'),
+	workspace.includes('componentSaveRequest(saved, data.projectKey,') &&
+		readFileSync(`${editorDir}componentSave.client.ts`, 'utf8').includes(
+			"def.scope === 'project' ? { project: projectKey }",
+		),
 	true,
 );
 const server = fileURLToPath(new URL('../src/routes/api/', import.meta.url));

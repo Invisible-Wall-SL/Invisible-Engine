@@ -98,8 +98,8 @@
 	} from './editorCanvas.helpers';
 	import {
 		clearRegionCache,
+		canvasImageUrl,
 		fetchRegions,
-		isStaticPageKey,
 		regionNaturalSize,
 		type EditorRegion,
 		type RegionDragPayload,
@@ -1420,6 +1420,8 @@
 	const images = new Map<string, HTMLImageElement | null>();
 	function ensureImage(key: string): HTMLImageElement | null {
 		if (images.has(key)) return images.get(key) ?? null;
+		const src = canvasImageUrl(key, pageVersionByKey.get(key) ?? String(assetVersion));
+		if (!src) return null;
 		images.set(key, null);
 		imgStarted++;
 		const img = new Image();
@@ -1433,12 +1435,7 @@
 			imgSettled++;
 			console.warn('[editor] image load failed', key);
 		};
-		const v = pageVersionByKey.get(key) ?? String(assetVersion);
-		// A vendored built-in sheet's page is a launcher-static path, not an R2 key — the
-		// R2-gated proxy would 404 on it, so serve it directly.
-		img.src = isStaticPageKey(key)
-			? key
-			: `/api/editor/asset?key=${encodeURIComponent(key)}&v=${encodeURIComponent(v)}`;
+		img.src = src;
 		return null;
 	}
 

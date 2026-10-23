@@ -3,7 +3,7 @@
 Welcome. This is a Turborepo + pnpm monorepo: the Invisible Engine (Svelte 5 + PixiJS 8, forked from the Stake Engine web SDK) plus a Studio/pipeline platform (launcher + cloud asset tools). Read order: this file → root `CLAUDE.md` → `docs/INFRA.md` → `docs/STATUS.md`.
 
 ## Prerequisites
-- **Node ≥ 22.16.0**
+- **Node ≥ 22.19.0**
 - **pnpm 10.5.0** (`corepack enable` then `corepack prepare pnpm@10.5.0 --activate`). **Always use `pnpm`** — never npm/yarn.
 - For the Python tools (`services/atlas-*`): Python 3.12+.
 
