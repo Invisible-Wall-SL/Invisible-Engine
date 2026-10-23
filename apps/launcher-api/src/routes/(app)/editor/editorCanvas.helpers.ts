@@ -186,11 +186,48 @@ export function childLocalTransform(
 }
 
 /**
+ * Map a `standard`-space node (HUD bar) into the frame: fit the STANDARD reference box into the
+ * frame (centred, or hugging the edge the scene's `align` asks for), scaling position + size by the
+ * same factor — mirrors `<MainContainer standard>`. In the Scene Editor every screen renders against
+ * the one frame the standard box sizes, so the fit is the identity there whichever screen is active.
+ */
+export function standardToWorld(
+	t: ResolvedTransform,
+	std: { width: number; height: number },
+	align: Scene['align'],
+	frameWidth: number,
+	frameHeight: number,
+): ResolvedTransform {
+	const s = Math.min(frameWidth / (std.width || 1), frameHeight / (std.height || 1));
+	const drawW = std.width * s;
+	const drawH = std.height * s;
+	const offX =
+		align?.horizontal === 'left'
+			? 0
+			: align?.horizontal === 'right'
+				? frameWidth - drawW
+				: (frameWidth - drawW) / 2;
+	const offY =
+		align?.vertical === 'top'
+			? 0
+			: align?.vertical === 'bottom'
+				? frameHeight - drawH
+				: (frameHeight - drawH) / 2;
+	return {
+		...t,
+		x: offX + t.x * s,
+		y: offY + t.y * s,
+		scale: { x: (t.scale?.x ?? 1) * s, y: (t.scale?.y ?? 1) * s },
+	};
+}
+
+/**
  * Where the rig layer draws a rig node placed straight on a screen: its skeleton origin in window
- * px and its scale, y still up. In a `canvas` screen the node's `screenAnchor` is folded in by the
- * shared `anchoredPosition`, as the selection box (`nodeTransform`) and the game's `LayoutNodeView`
- * do; a `game` node is mapped through the main box like `<MainContainer>`. A `standard` node keeps
- * its raw x/y, which matches the box only while its screen is the active frame (`standardToWorld`).
+ * px and its scale, y still up. Each space maps the way the selection box (`nodeTransform`) and the
+ * game's `LayoutNodeView` do: a `canvas` node folds its `screenAnchor` in by the shared
+ * `anchoredPosition`, a `standard` node is fitted by {@link standardToWorld} like
+ * `<MainContainer standard>`, and a `game` node is mapped through the main box like
+ * `<MainContainer>`.
  */
 export function placedRigTransform(
 	t: ResolvedTransform,
@@ -198,10 +235,15 @@ export function placedRigTransform(
 	frameWidth: number,
 	frameHeight: number,
 	main: { scale: number; toWorld: (p: Vec2) => Vec2 },
+	standard: { box: { width: number; height: number }; align: Scene['align'] },
 ): { x: number; y: number; scaleX: number; scaleY: number } {
 	const sx = t.scale?.x ?? 1;
 	const sy = t.scale?.y ?? 1;
-	if (space === 'standard' || space === 'canvas') {
+	if (space === 'standard') {
+		const w = standardToWorld(t, standard.box, standard.align, frameWidth, frameHeight);
+		return { x: w.x, y: w.y, scaleX: w.scale?.x ?? 1, scaleY: w.scale?.y ?? 1 };
+	}
+	if (space === 'canvas') {
 		return { ...anchoredPosition(t, space, frameWidth, frameHeight), scaleX: sx, scaleY: sy };
 	}
 	return { ...main.toWorld({ x: t.x, y: t.y }), scaleX: sx * main.scale, scaleY: sy * main.scale };

@@ -89,6 +89,7 @@
 		reelGridGeometry,
 		type ReelGridSeat,
 		resolveBoneRiderRigKey,
+		standardToWorld,
 		type BoneRiderTransform,
 		type Vec2,
 		type NodeBox,
@@ -456,6 +457,9 @@
 		onRevealSelection,
 	}: Props = $props();
 
+	/** The box a `standard`-space node fits against (`standardToWorld`), shared with the rig layer. */
+	const standardFrameBox = $derived(standardBox ?? STANDARD_MAIN_SIZES_MAP[layoutType]);
+
 	/** Clicks reach every drawn screen (see {@link pickAnyScreen}). */
 	const pickAcross = $derived(pickAnyScreen && onPickInScene !== undefined);
 	/** The node a plain click would pick on ANOTHER screen, outlined while hovered. */
@@ -573,7 +577,7 @@
 	 *   (default `coverScale = 1` = exact cover), centred — matching the game's
 	 *   `normalBackgroundLayout({ scale: 1 })`.
 	 * - `standard`: fit the STANDARD box into the window (identity now the window IS
-	 *   the standard box; still honours bottom-align).
+	 *   the standard box; still honours the scene's `align`), via the shared `standardToWorld`.
 	 */
 	function nodeTransform(
 		node: LayoutNode,
@@ -622,7 +626,7 @@
 			};
 		}
 		if (space === 'standard') {
-			return standardToWorld(t, sceneCtx);
+			return standardToWorld(t, standardFrameBox, sceneCtx.align, frameWidth, frameHeight);
 		}
 		// A `coverFit` sprite/rig/flipbook in a `canvas`-space (flow-gated) scene cover-fits the
 		// window with the SAME true-cover helper the `background` path uses — mirroring the
@@ -679,39 +683,6 @@
 	 *  in for is hit and framed where it draws, though the layers skip it. */
 	function poseTransform(node: LayoutNode, sceneCtx: Scene = scene): ResolvedTransform {
 		return nodeTransform(node, sceneCtx, previewPoseTransform);
-	}
-
-	/**
-	 * Map a `standard`-space node (HUD bar) into the current frame: fit the STANDARD
-	 * reference box into the frame (centred; bottom-aligned when the scene asks),
-	 * scaling position + size by the same factor — mirrors `<MainContainer standard>`.
-	 * When this scene IS the active one its frame == the standard box, so the fit is
-	 * identity (unchanged); as a composited backdrop over a game-space frame it scales
-	 * the HUD into view instead of stranding it at raw standard coords.
-	 */
-	function standardToWorld(t: ResolvedTransform, sceneCtx: Scene): ResolvedTransform {
-		const std = standardBox ?? STANDARD_MAIN_SIZES_MAP[layoutType];
-		const s = Math.min(frameWidth / (std.width || 1), frameHeight / (std.height || 1));
-		const drawW = std.width * s;
-		const drawH = std.height * s;
-		// Mirror `<MainContainer standard>`'s alignment: centred by default, hug an edge
-		// when the scene asks. `left`/`right` only visibly deviate when the standard box
-		// fits NARROWER than the frame (letterboxed sides), exactly as the runtime's
-		// `getX` shifts the HUD to the window edge.
-		const offX =
-			sceneCtx.align?.horizontal === 'left'
-				? 0
-				: sceneCtx.align?.horizontal === 'right'
-					? frameWidth - drawW
-					: (frameWidth - drawW) / 2;
-		const offY =
-			sceneCtx.align?.vertical === 'bottom' ? frameHeight - drawH : (frameHeight - drawH) / 2;
-		return {
-			...t,
-			x: offX + t.x * s,
-			y: offY + t.y * s,
-			scale: { x: (t.scale?.x ?? 1) * s, y: (t.scale?.y ?? 1) * s },
-		};
 	}
 
 	/**
@@ -6083,6 +6054,7 @@
 						{layoutType}
 						{frameWidth}
 						{frameHeight}
+						standardBox={standardFrameBox}
 						{panX}
 						{panY}
 						{zoom}
@@ -6248,6 +6220,7 @@
 				{layoutType}
 				{frameWidth}
 				{frameHeight}
+				standardBox={standardFrameBox}
 				{panX}
 				{panY}
 				{zoom}
