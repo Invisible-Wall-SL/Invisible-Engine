@@ -12,8 +12,8 @@
 	import { readDrag } from '$lib/graph/dnd';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
-	import { elementFxSpec } from 'constants-shared/elementFx';
 	import { guardUnsavedWork } from '$lib/unsavedGuard';
+	import { elementFxSpec } from 'constants-shared/elementFx';
 	import {
 		COST_BUDGET,
 		SAMPLE_BUDGET,

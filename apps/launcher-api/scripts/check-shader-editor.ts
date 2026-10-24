@@ -359,21 +359,41 @@ for (const name of ['Glow', 'Power Up!', '__x', '---', '', 'Ünïcode', 'a'.repe
 console.log('6. start from a built-in');
 const powerUp = REFERENCE_GRAPHS.find((g) => g.id === 'powerUp') as ShaderGraphDoc;
 const frost = REFERENCE_GRAPHS.find((g) => g.id === 'frost') as ShaderGraphDoc;
-const started = docFromTwin({ kind: 'glow', doc: powerUp }, 'my_glow', 'My glow');
+for (const kind of ['glow', 'bounce3D', 'melt'] as const) {
+	const twin = BUILTIN_TWINS.find((t) => t.kind === kind);
+	if (!twin) {
+		check(`the ${kind} twin exists`, false, true);
+		continue;
+	}
+	const started = docFromTwin(twin, `my_${kind}`, `My ${kind}`);
+	check(
+		`starting from ${kind} keeps its build under the new id and name`,
+		[
+			started.id,
+			started.name,
+			json(started.nodes) === json(twin.doc.nodes),
+			json(started.params) === json(twin.doc.params),
+			json(started.passes) === json(twin.doc.passes),
+			json(started.motion) === json(twin.doc.motion),
+			started.padding === twin.doc.padding,
+		],
+		[`my_${kind}`, `My ${kind}`, true, true, true, true, true],
+	);
+	check('…compiles', compileShaderEffect(started).ok, true);
+	check('…and leaves the twin as it was', twin.doc.id, kind);
+}
+const has = (kind: string, key: 'passes' | 'motion' | 'padding'): boolean =>
+	BUILTIN_TWINS.find((t) => t.kind === kind)?.doc[key] !== undefined;
 check(
-	'a twin starts a graph under the new id and name, with its nodes, params, passes and motion',
+	'…which carry what is to keep: passes (glow), motion and padding (bounce 3D), padding (melt)',
 	[
-		started.id,
-		started.name,
-		json(started.nodes) === json(powerUp.nodes),
-		json(started.params) === json(powerUp.params),
-		json(started.passes) === json(powerUp.passes),
-		json(started.motion) === json(powerUp.motion),
+		has('glow', 'passes'),
+		has('bounce3D', 'motion'),
+		has('bounce3D', 'padding'),
+		has('melt', 'padding'),
 	],
-	['my_glow', 'My glow', true, true, true, true],
+	[true, true, true, true],
 );
-check('…that compiles', compileShaderEffect(started).ok, true);
-check('…and leaves the twin as it was', powerUp.id, 'powerUp');
 const groups = twinGroups([
 	{ kind: 'freeze', doc: frost },
 	{ kind: 'glow', doc: powerUp },
