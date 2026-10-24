@@ -48,6 +48,9 @@ const SKIP = {
 	// Print a rig's structure for a human; they assert nothing.
 	'tools/rigger-spike/inspect.mjs': 'a rig dump for reading, not a check',
 	'tools/rigger-spike/inspect-demo.mjs': 'a rig dump for reading, not a check',
+	// Renders a change and its base in a real browser and diffs them: run by hand, with arguments.
+	'tools/fx-spike:shader-parity':
+		'a before/after pixel comparison, not a check (docs/status/shader-graph.md)',
 };
 
 const rigs = (dir, name, atlas = name) => [
@@ -168,12 +171,13 @@ const FILE_PATTERNS = [
 const MOCK_RGS_CLIENT = /process\.env\.PORT \?\? 7777/;
 
 /**
- * A spike that drives a headless Chrome (through `tools/rigger-spike/chrome.mjs`). At most
+ * A spike that drives a headless Chrome (through `tools/rigger-spike/chrome.mjs`, imported as
+ * `./chrome.mjs` there and `../rigger-spike/chrome.mjs` from another spike package). At most
  * BROWSER_SLOTS run at once: Chrome's first launch on a fresh CI runner pays a one-time start-up of
  * several seconds, and two paying it together beside the shard's other checks on the 2-core runner
  * went past the old 20 s launch limit — both failing in the same second.
  */
-const BROWSER_CLIENT = /from '\.\/chrome\.mjs'/;
+const BROWSER_CLIENT = /from '\.\/chrome\.mjs'|from '\.\.\/rigger-spike\/chrome\.mjs'/;
 const BROWSER_SLOTS = 1;
 
 /** Codegen whose committed output must match a fresh generation. */
@@ -219,16 +223,23 @@ function discover() {
 		});
 	}
 
-	// Headless spikes: every script of every `tools/*-spike` package.
+	// Headless spikes: every script of every `tools/*-spike` package. One that runs a file driving
+	// Chrome waits for a browser slot.
 	for (const rel of trackedFiles) {
 		const m = /^(tools\/[^/]+-spike)\/package\.json$/.exec(rel);
 		if (!m) continue;
-		for (const name of Object.keys(scriptsOf(m[1])))
+		for (const [name, script] of Object.entries(scriptsOf(m[1]))) {
+			const file = /^node\s+(\S+\.mjs)\b/.exec(script)?.[1];
+			const path = file && join(ROOT, m[1], file);
 			checks.push({
 				id: `${m[1]}:${name}`,
 				cwd: join(ROOT, m[1]),
 				cmd: ['pnpm', 'run', '--silent', name],
+				browser: Boolean(
+					path && existsSync(path) && BROWSER_CLIENT.test(readFileSync(path, 'utf8')),
+				),
 			});
+		}
 	}
 
 	// The Rigger's spikes are bare scripts. One whose `node tools/rigger-spike/x.mjs …` line names a

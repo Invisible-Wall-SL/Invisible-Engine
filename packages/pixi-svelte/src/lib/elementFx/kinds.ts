@@ -9,6 +9,7 @@
  */
 
 import type { ElementFxKind } from 'constants-shared/elementFx';
+import { efxSide } from 'constants-shared/glslLibrary';
 import { BlurFilter, ColorMatrixFilter, type Filter } from 'pixi.js';
 import {
 	GlitchFilter,
@@ -204,9 +205,6 @@ const meltImpl = (): KindImpl => {
 	};
 };
 
-/** Where a freeze's frost creeps in from, as the shader's `from`. */
-const FREEZE_FROM = ['edges', 'center', 'top', 'bottom'];
-
 /**
  * The share of a held play (freeze, petrify, gold) spent setting in, and as long again letting go;
  * between, it holds.
@@ -246,7 +244,7 @@ const freezeImpl = (): KindImpl => {
 					holdCoverage(frame),
 					num(frame, 'crystals'),
 					seeds.get(filter) ?? 0,
-					Math.max(0, FREEZE_FROM.indexOf(str(frame, 'from'))),
+					efxSide(str(frame, 'from'), 'edges'),
 				);
 				filter.set('uIce', ...rgb(str(frame, 'color')));
 				const glint =
@@ -258,9 +256,6 @@ const freezeImpl = (): KindImpl => {
 		}),
 	};
 };
-
-/** Where a petrify's stone creeps in from, as the shader's `from`. */
-const PETRIFY_FROM = ['bottom', 'top', 'edges', 'center'];
 
 /**
  * Petrify: the stone runs as a shader pass, flaking off at an even pace so each chip reads; the
@@ -289,7 +284,7 @@ const petrifyImpl = (): KindImpl => {
 					coverage,
 					num(frame, 'grain'),
 					seeds.get(filter) ?? 0,
-					Math.max(0, PETRIFY_FROM.indexOf(str(frame, 'from'))),
+					efxSide(str(frame, 'from'), 'bottom'),
 				);
 				filter.set('uRock', ...rgb(str(frame, 'color')), Math.min(1, frame.intensity));
 				filter.set('uChip', flaked, flaked > 0 || coverage >= 1 ? 0 : 0.6);
@@ -297,9 +292,6 @@ const petrifyImpl = (): KindImpl => {
 		}),
 	};
 };
-
-/** Where the gold spreads from, as the shader's `from`. */
-const GOLD_FROM = ['center', 'bottom', 'top', 'edges'];
 
 /**
  * Turn to gold: the metal runs as a shader pass; the element rings with a small swell as the gold
@@ -327,7 +319,7 @@ const goldImpl = (): KindImpl => {
 					'uGold',
 					holdCoverage(frame),
 					seeds.get(filter) ?? 0,
-					Math.max(0, GOLD_FROM.indexOf(str(frame, 'from'))),
+					efxSide(str(frame, 'from'), 'center'),
 					frame.seconds,
 				);
 				filter.set('uMetal', ...rgb(str(frame, 'color')), Math.min(1, frame.intensity));
@@ -340,9 +332,6 @@ const goldImpl = (): KindImpl => {
 		}),
 	};
 };
-
-/** Where a burn starts, as the shader's `from`. */
-const BURN_FROM = ['bottom', 'top', 'edges', 'center', 'left', 'right'];
 
 /** Where a burn's front is at `t`: just short of the element at the start, past every ash by the
  *  end (the farthest point is 1 away and its ash is gone 0.65 behind the front). */
@@ -365,7 +354,7 @@ const burnImpl = (): KindImpl => {
 					burnFront(frame.t),
 					num(frame, 'grain'),
 					seeds.get(filter) ?? 0,
-					Math.max(0, BURN_FROM.indexOf(str(frame, 'from'))),
+					efxSide(str(frame, 'from'), 'bottom'),
 				);
 				filter.set('uFlame', ...rgb(str(frame, 'color')), frame.seconds);
 				filter.set('uAsh', ...rgb(str(frame, 'ash')), flag(frame, 'sparks') ? 1 : 0);

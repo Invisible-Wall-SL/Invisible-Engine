@@ -44,6 +44,8 @@
 		type Affine,
 		type DepthSlice,
 		type RepeaterSourceMap,
+		SCREEN_NEST,
+		type ComponentNest,
 	} from './editorCanvas.helpers';
 	import {
 		previewResolveTransform,
@@ -103,6 +105,8 @@
 		 * a `preview.textParam` shows that param's value (caption/number) instead of its
 		 * label. Empty/undefined in scene mode ⇒ the label fallback (parity). */
 		componentParams?: Record<string, unknown>;
+		/** Where the top-level nodes sit in the game's component nesting (see `ComponentNest`). */
+		componentNest?: ComponentNest;
 		/** Per-project component DEFAULTS by component id (§13.3) — the `projectDefaults`
 		 * layer applied UNDER a placed instance's own params, so bound text resolves to what
 		 * the game renders. Empty (the default) ⇒ every resolve passes `undefined` — parity. */
@@ -139,6 +143,7 @@
 		onMeasuredChange,
 		projectGameName = null,
 		componentParams,
+		componentNest = SCREEN_NEST,
 		componentDefaults = {},
 		componentMap = new Map<string, ComponentDef>(),
 		repeaterSources = null,
@@ -513,7 +518,15 @@
 			const nodes = nodeFilter ? sc.nodes.filter((n) => nodeFilter.has(n.id)) : sc.nodes;
 			// Top-level params source: the Component Editor's open-component params (so a
 			// HUD `preview.textParam` resolves there); empty in the scene editor — parity.
-			collectTextTargets(nodes, sc, out, [], componentParams ?? {}, 0, []);
+			collectTextTargets(
+				nodes,
+				sc,
+				out,
+				[],
+				componentParams ?? {},
+				componentNest.depth,
+				componentNest.stack,
+			);
 		}
 		return out;
 	}

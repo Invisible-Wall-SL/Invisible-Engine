@@ -18,6 +18,8 @@
  *     own list and filter area intact; nothing is filtered before the element has a size; a
  *     destroyed container settles everything; the time scale (turbo) speeds plays up.
  *  5. The shaders compile on WebGL1 too: no GLSL ES 3.00-only built-in in any fragment source.
+ *     They share one GLSL library: a pass gets exactly the building blocks it calls, and no pass
+ *     carries a private copy of one.
  *  6. The wiring: nodes, screens and the reels play authored FX and register the Flow's targets;
  *     the Flow declares and implements `elementEffect` / `stopElementEffect`.
  */
@@ -64,6 +66,14 @@ import {
 } from '../../packages/engine-layout/src/lib/cinematicNodes';
 import { blendNodeSamples } from '../../packages/engine-layout/src/lib/stateMachine';
 import { startBreak } from '../../packages/pixi-svelte/src/lib/elementFx/breakApart';
+import {
+	EFX_GLSL,
+	EFX_SIDES,
+	efxSide,
+	linkGlsl,
+} from '../../packages/constants-shared/glslLibrary';
+import * as SHADERS from '../../packages/pixi-svelte/src/lib/elementFx/shaders';
+import type { ElementFxFilter } from '../../packages/pixi-svelte/src/lib/elementFx/shaders';
 import { KINDS } from '../../packages/pixi-svelte/src/lib/elementFx/kinds';
 import { REST, type FxFrame } from '../../packages/pixi-svelte/src/lib/elementFx/frame';
 import {
@@ -1154,10 +1164,188 @@ console.log('element fx — keyed: a timeline poses it');
 }
 
 // -------------------------------------------------------------------------------------------------
+console.log('element fx — the shared GLSL library');
+{
+	const defined = (code: string): string[] =>
+		[...code.matchAll(/^(?:float|vec[234]|mat[234]|int|bool|void)\s+(\w+)\s*\(/gm)].map(
+			(m) => m[1],
+		);
+	const linked = linkGlsl(
+		'void main(void) { float g = efxGlint(u, 0.5, 0.1); float n = efxNoise(p); }',
+	);
+	const order = defined(linked);
+	assert(
+		order.join() === 'efxBand,efxGlint,efxHash,efxNoise,main',
+		`a pass gets exactly what it calls, each building block before its callers (${order.join()})`,
+	);
+	assert(
+		linkGlsl('void main(void) { efxSample(efxPx()); }') ===
+			'\nvoid main(void) { efxSample(efxPx()); }',
+		'the pass header’s own helpers are not library entries: nothing is linked for them',
+	);
+
+	const factories = Object.entries(SHADERS).filter(
+		(entry): entry is [string, () => Filter] =>
+			/^[a-z]\w*Filter$/.test(entry[0]) && typeof entry[1] === 'function',
+	);
+	const fragments = factories.map(([name, make]) => [name, make().glProgram.fragment] as const);
+	const twice = fragments.flatMap(([name, fragment]) => {
+		const names = defined(fragment);
+		return names.filter((n, i) => names.indexOf(n) !== i).map((n) => `${name}:${n}`);
+	});
+	assert(
+		factories.length === 17 && !twice.length,
+		`all 17 passes link, no function defined twice in one${twice.length ? `: ${twice.join(', ')}` : ''}`,
+	);
+	// A misspelt or missing building block is otherwise found only when the browser compiles it.
+	const unresolved = fragments.flatMap(([name, fragment]) => {
+		const have = defined(fragment);
+		const live = fragment.replace(/\/\/[^\n]*/g, '');
+		return [...new Set([...live.matchAll(/\b(efx\w+)\s*\(/g)].map((m) => m[1]))]
+			.filter((call) => !have.includes(call))
+			.map((call) => `${name}:${call}`);
+	});
+	assert(
+		!unresolved.length,
+		`every efx… a pass calls is defined in it${unresolved.length ? `: ${unresolved.join(', ')}` : ''}`,
+	);
+	const EFX_GLSL_MUTABLE = EFX_GLSL as Record<string, string>;
+	const ORIGINAL_HASH = EFX_GLSL.efxHash;
+	let cycle = '';
+	try {
+		EFX_GLSL_MUTABLE.efxHash = '\nfloat efxHash(vec2 p) { return efxNoise(p); }';
+		linkGlsl('void main(void) { efxNoise(p); }');
+	} catch (error) {
+		cycle = error instanceof Error ? error.message : String(error);
+	} finally {
+		EFX_GLSL_MUTABLE.efxHash = ORIGINAL_HASH;
+	}
+	assert(
+		cycle.includes('efxNoise → efxHash → efxNoise') &&
+			linkGlsl('void main(void) { // not efxCells(p)\n efxLuma(c); }').includes('float efxLuma') &&
+			!linkGlsl('void main(void) { // not efxCells(p)\n efxLuma(c); }').includes('float efxCells'),
+		'the linker reads calls, not comments, and names entries that call each other',
+	);
+
+	/** Every function in `code` as [name, its body with comments, whitespace and the names of the
+	 *  functions it calls normalised away], so a renamed copy reads the same as its original. */
+	const bodies = (code: string, names: string[]): [string, string][] => {
+		const out: [string, string][] = [];
+		for (const m of code.matchAll(/^(?:float|vec[234]|mat[234])\s+(\w+)\s*\(([^)]*)\)\s*\{/gm)) {
+			let depth = 1;
+			let end = (m.index ?? 0) + m[0].length;
+			while (depth && end < code.length) {
+				depth += code[end] === '{' ? 1 : code[end] === '}' ? -1 : 0;
+				end++;
+			}
+			const norm = (m[2] + code.slice((m.index ?? 0) + m[0].length, end))
+				.replace(/\/\/[^\n]*/g, '')
+				.replace(new RegExp(`\\b(${names.join('|')})\\b`, 'g'), 'F')
+				.replace(/\s+/g, ' ');
+			out.push([m[1], norm]);
+		}
+		return out;
+	};
+	const shaderSource = read('packages/pixi-svelte/src/lib/elementFx/shaders.ts');
+	const library = Object.values(EFX_GLSL).join('\n');
+	const names = [...new Set([...defined(shaderSource), ...defined(library)])];
+	const copies = (code: string): string[] => {
+		const all = bodies(code, names);
+		return all
+			.filter(([, body], i) => all.findIndex(([, other]) => other === body) !== i)
+			.map(([name]) => name);
+	};
+	const found = copies(library + '\n' + shaderSource.replace(/^[\s\S]*?const HEADER/, ''));
+	assert(
+		!found.length,
+		`no pass carries a private copy of a building block${found.length ? `: ${found.join(', ')}` : ''}`,
+	);
+	const planted = `
+float myHash(vec2 p)
+{
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+}
+`;
+	assert(
+		copies(library + planted + '\n').length === 1,
+		'and a renamed copy is caught (a planted copy of efxHash is found)',
+	);
+
+	// efxAway's arms, in order, against what each side means: arm i must read side EFX_SIDES[i].
+	const ARM: Record<string, string> = {
+		bottom: '1.0 - u.y',
+		top: 'u.y',
+		edges: 'efxEdgeDistance(u)',
+		center: 'length(u - 0.5) * 1.4142',
+		left: 'u.x',
+		right: '1.0 - u.x',
+	};
+	const arms = [
+		...EFX_GLSL.efxAway
+			.replace(/\/\/[^\n]*/g, '')
+			.matchAll(/(?:side < (\d)\.5 \?|:)\s*([^:?\n;]+?)\s*(?=\n|;)/g),
+	]
+		.map((m) => m[2].trim())
+		.filter((arm) => !arm.startsWith('side <'));
+	assert(
+		arms.length === EFX_SIDES.length && EFX_SIDES.every((side, i) => arms[i] === ARM[side]),
+		`efxAway reads the six sides in EFX_SIDES order (${arms.join(' | ')})`,
+	);
+	// Each spreading kind passes the side its param names, and its catalog default for anything else.
+	const SIDE_UNIFORM: Record<string, [string, number]> = {
+		freeze: ['uFreeze', 3],
+		petrify: ['uStone', 3],
+		turnToGold: ['uGold', 2],
+		burn: ['uBurn', 3],
+	};
+	const wrongSides = Object.entries(SIDE_UNIFORM).flatMap(([kind, [uniform, at]]) => {
+		const spec = ELEMENT_FX.find((k) => k.kind === kind);
+		const param = spec?.params.find((p) => p.id === 'from');
+		if (!param || param.kind !== 'choice') return [`${kind}: no from choice`];
+		const impl = KINDS[kind as ElementFxKind].filter;
+		const sent = (from: string): number => {
+			const frame: FxFrame = {
+				t: 0.5,
+				seconds: 0.5,
+				playSeconds: 1,
+				intensity: 1,
+				params: { ...resolveElementFxParams(kind as ElementFxKind, undefined), from },
+				looping: false,
+				width: 100,
+				height: 100,
+			};
+			const filter = impl?.create(frame) as ElementFxFilter;
+			impl?.update(filter, frame, { screenWidth: 100, screenHeight: 100 });
+			return (filter.efx[uniform] as Float32Array)[at];
+		};
+		return [
+			...param.options
+				.filter((option) => !(EFX_SIDES as readonly string[]).includes(option))
+				.map((option) => `${kind}: '${option}' is no side`),
+			...param.options
+				.filter((option) => sent(option) !== EFX_SIDES.indexOf(option as never))
+				.map((option) => `${kind}: '${option}' sent as ${sent(option)}`),
+			...(sent('nowhere') === EFX_SIDES.indexOf(param.default as never)
+				? []
+				: [`${kind}: an unknown side is not its default '${param.default}'`]),
+		];
+	});
+	assert(
+		!wrongSides.length && efxSide('nowhere', 'edges') === EFX_SIDES.indexOf('edges'),
+		`freeze, petrify, gold and burn send their side as efxAway reads it, an unknown one as their default${wrongSides.length ? `: ${wrongSides.join('; ')}` : ''}`,
+	);
+}
+
+// -------------------------------------------------------------------------------------------------
 console.log('element fx — the shaders run on WebGL1');
 {
 	const shaders = read('packages/pixi-svelte/src/lib/elementFx/shaders.ts');
-	const code = shaders.replace(/\/\/[^\n]*/g, '');
+	const code = (shaders + read('packages/constants-shared/glslLibrary.ts')).replace(
+		/\/\/[^\n]*/g,
+		'',
+	);
 	const es3Only = ['transpose(', 'inverse(', 'texelFetch(', 'textureSize(', 'determinant('];
 	// GLSL ES 1.00 and 3.00 keywords and words reserved for future use (Pixi compiles a pass as
 	// `#version 300 es` on WebGL2): none may name a variable or a function.

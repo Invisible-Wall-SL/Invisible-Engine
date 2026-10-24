@@ -1,8 +1,8 @@
 # Game families: match-3 first, arcade next, cards after (Phase 10 plan)
 
 > Status: **PLAN APPROVED (owner, 2026-10-20): all nine §9 decisions accepted as recommended.
-> STARTED 2026-10-23: the owner gave the go-ahead for Phase 10. P10.1 and P10.2 are built; progress lives in
-> [status/game-families.md](../status/game-families.md).**
+> STARTED 2026-10-23: the owner gave the go-ahead for Phase 10. P10.1, P10.1b and P10.2 are
+> built; progress lives in [status/game-families.md](../status/game-families.md).**
 >
 > **Amended 2026-10-22 from the owner's questions:** whole tools are shown or hidden per family
 > (§6.5); `/config` shows only the family's sections (§6.2); arcade grows past one screen in three
@@ -1116,7 +1116,7 @@ and jumps (P10.11–P10.13), then online rooms (P10.14–P10.16). Card games get
 |---|---|---|---|---|
 | P10.0 | **Plan + decisions** (this doc) — ✅ approved 2026-10-20 | Owner review of §9; sign-off recorded in §9 | docs | S |
 | P10.1 | **Family and outcome in Game Config** — ✅ built 2026-10-23 | `family`, `outcome`, `match3` / `arcade` blocks and the `match3` win-model arm (optional, defaults dropped; the normalizer's whitelist learns them, and its no-symbols rule gets the arcade arm); `resolveFamily` / `resolveOutcome`; family-aware validation (paylines, empty `betModes` for rules games, board bounds); the `/config` picker and its per-family sections (§6.2); `GAME_KINDS` + `kindCapabilities` flags. No runtime behaviour yet | `packages/game-config`, `constants-shared`, `engine-layout/kindCapabilities.ts`, `/config` | M |
-| P10.1b | **Tools per family** | `FAMILY_TOOLS` + `familyOfKind()`; the launcher home and `ToolTopBar` list only the family's tools; the hidden-tool notice; Director's gate refuses a hidden tool's ops (§6.5) | `apps/launcher-api` (`roles.ts`, `(app)/+layout.server.ts`, `director/gate.ts`), `constants-shared` | S |
+| P10.1b | **Tools per family** — ✅ built 2026-10-23 | `FAMILY_TOOLS` + `familyOfKind()`; the launcher home and `ToolTopBar` list only the family's tools; the hidden-tool notice; Director's gate refuses a hidden tool's ops (§6.5) | `apps/launcher-api` (`roles.ts`, `(app)/+layout.server.ts`, `director/gate.ts`), `constants-shared` | S |
 | P10.2 | **The board module** — ✅ built 2026-10-23 | `packages/engine-mechanics/board.js` (+ `.d.ts`) with the full match-3 rule set, fixtures. No caller yet | new package | M |
 | P10.3 | **Flow variables, timers, tick** | §3.1 + §3.2 (tick / timers / keys): format, validator; the variable and timer store in the game-side holder, reached through the env; the preview's virtual-time event queue; the Variables panel; `var:<id>` value sources (numbers), and `source` widened to bool / text | `engine-flow-v2`, `apps/lines` (`flowV2InterpreterHolder.ts`, value sources), `/flow-v2`, `engine-layout` (`ComponentInstance`), `componentStorage.ts` | L |
 | P10.4 | **Pointer move / drag / swipe + Align Target** | Rive Later item; the listener events with the new pointer payload kind (normalizer + keep-unknown); global move / up-outside tracking; the board cell hit-test | `engine-layout` (`LayoutNodeView`, `types.ts`), `EditorListeners.svelte` | M |

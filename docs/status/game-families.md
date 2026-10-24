@@ -3,9 +3,9 @@
 > Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `invisible-game-config`, `invisible-game-maker`, then per phase
 
 **One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1 (family and outcome in Game
-Config) is merged; P10.2 (the board module) is built** and in review. No runtime behaviour yet: a
-match-3 or arcade config can be authored but not published, and nothing calls the board module.
-P10.1b runs in parallel; P10.3 and later have not started.
+Config) and P10.1b (tools per family) are merged; P10.2 (the board module) is built** and in
+review. No runtime behaviour yet: a match-3 or arcade config can be authored but not
+published, and nothing calls the board module. P10.3 and later have not started.
 
 ## Current state
 
@@ -50,7 +50,34 @@ game, bundle or screen changes.
 - **Not done here, by plan:** the mock's import and the test-server Dockerfile lines (P10.6), the
   `MATCH3_VOCAB` nodes and any runtime caller (P10.5), specials (P10.5b).
 
-**P10.1 — family and outcome in Game Config (built 2026-10-23; merged in #1310).**
+**P10.1b — tools per family (built 2026-10-23; merged in #1324).** §6.5.
+
+- **The list:** `FAMILY_TOOLS` beside `TOOLS` in `apps/launcher-api/src/lib/roles.ts` names the
+  tools a family does **not** use: slot and match-3 nothing, arcade Symbols and Win Text. A
+  project's family is `projectFamily(key, gameType)` (`lib/server/projects.ts`): `familyOfKind()`
+  of its recorded kind, and always a slot for the shared `cloud` scope.
+- **Home and tool bar:** `(app)/+layout.server.ts` drops the hidden tools from `tools` (which feeds
+  the home grid and `ToolTopBar`) and returns `family`. It reads the family of the page's
+  `?project=` when the user may reach it, else of the session's project, because the page syncs
+  `?project=` into the session only after the layout has run. The read is tracked, so a
+  client-side hop to another project's `?project=` re-runs the layout (and only that param does).
+  Onboarding keeps the role's whole manifest: it describes what a role may use.
+- **The notice:** `(app)/+layout.svelte` renders "<tool> is not used by arcade games", names the
+  project, and links home, in place of the page when the URL is a hidden tool's (`familyHiddenToolAt`). The tool's own
+  load still runs; nothing renders from it.
+- **Director:** `ADAPTER_TOOL_IDS` (`director/adapter.ts`) maps each adapter tool to its launcher
+  tool, and `buildRegistry` refuses an op whose tool maps to none. The gate refuses an op on a tool
+  the project's family hides with 403 `not_for_family`, after the scope check.
+- **Slot parity:** for every role, a slot, legacy (no kind), custom-kind and `cloud` project gets
+  exactly `manifestForRole`, and a slot page renders exactly its children.
+- **Verified:** `check:family-tools` (151 checks: the list, the real layout load per role and
+  family, onboarding, the real layout server-rendered, the real gate), and `check:director-adapters` with its
+  fixture op moved onto a mapped tool.
+- **Not built here:** Win Text's own "this game pays no money" message for a rules-decided match-3
+  game (§6.5's outcome bullet) is not in §8's P10.1b row; it waits for a match-3 project to exist
+  (P10.5).
+
+**P10.1 — family and outcome in Game Config (built 2026-10-23; merged #1310).**
 
 - **Schema** (`packages/game-config`): four optional fields on `GameConfigDoc`: `family`
   (`match3` / `arcade`; absent ⇒ a slot), `outcome` (`rules`; absent ⇒ `rgs`), and the
@@ -99,10 +126,10 @@ game, bundle or screen changes.
 
 ## Open items / next
 
-1. **P10.1b — tools per family** (§6.5): `FAMILY_TOOLS`, the filtered launcher home and tool bar,
-   the hidden-tool notice, and Director's gate. `familyOfKind()` is already in place.
-2. P10.3 onward, in §8's order. P10.5 is the board module's first caller (the rules runtime branch
-   and the `/flow-v2` preview); P10.6 the mock's. P10.5 replaces the family gate for match-3 with the runtime
+1. Win Text's outcome message for a rules-decided match-3 game (§6.5), with P10.5 or before it.
+2. P10.3 onward, in §8's order. P10.5 is the board module's first caller (the rules runtime
+   branch and the `/flow-v2` preview); P10.6 the mock's. P10.5 replaces the family gate for
+   match-3 with the runtime
    branch, and registers the match-3 scene set, vocabulary and starter flow. It moves `match3` into
    the slot-only loops of `check:flow-publish-gate` and decides which Reel behaviour switches
    match-3 shows.
@@ -123,6 +150,10 @@ game, bundle or screen changes.
 
 - 2026-10-23 — **P10.2 built: the board module** (`packages/engine-mechanics`, `check:board-mechanic`).
   Detail above.
+- 2026-10-23 — **P10.1b built: tools per family.** Arcade projects are not offered Symbols or Win
+  Text; a direct link shows a notice; Director's gate refuses those ops. Slot projects unchanged.
+  Detail above.
+
 - 2026-10-23 — **P10.1 built: family and outcome in Game Config.** The owner gave the go-ahead
   for Phase 10, and accepted the five P10.1 recommendations and three notes the build raised
   (§9 #20–#27). Detail above.

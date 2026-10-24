@@ -1706,6 +1706,25 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
+  packages/engine-shadergraph:
+    dependencies:
+      constants-shared:
+        specifier: workspace:*
+        version: link:../constants-shared
+    devDependencies:
+      '@types/node':
+        specifier: 22.20.5
+        version: 22.20.5
+      eslint:
+        specifier: 9.21.0
+        version: 9.21.0(jiti@2.7.0)
+      eslint-config-custom:
+        specifier: workspace:*
+        version: link:../eslint-config-custom
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
   packages/envs:
     dependencies:
       '@sveltejs/kit':
@@ -2394,6 +2413,9 @@ importers:
       engine-rig:
         specifier: workspace:*
         version: link:../../packages/engine-rig
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
       pixi.js:
         specifier: 8.22.0
         version: 8.22.0

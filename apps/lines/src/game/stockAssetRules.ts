@@ -546,6 +546,8 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 	},
 	{ file: 'packages/engine-layout/src/lib/symbolStates.ts', rule: 'symbols', names: ['explosion'] },
 	{ file: 'packages/engine-layout/src/lib/winText.ts', rule: 'symbols', names: ['S'] },
+	{ file: 'packages/engine-shadergraph/src/nodes.ts', rule: 'notAsset', names: ['W'] },
+	{ file: 'packages/engine-shadergraph/src/reference.ts', rule: 'notAsset', names: ['gold'] },
 	{
 		file: 'packages/game-config/src/bookOfPresets.ts',
 		rule: 'symbols',

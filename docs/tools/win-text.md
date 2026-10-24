@@ -15,7 +15,10 @@ templates.
   signed-in area, never an iframe.
 - **Access:** the `admin`, `developer`, `artist`, `pipelineTester` and
   `localizationReviewer` roles get it by default; admins can grant or revoke it per
-  role or per user in the admin panel.
+  role or per user in the admin panel. **Not offered to arcade projects** (win copy is a slot
+  concern): the launcher home and tool bar hide it, and a direct link shows "Invisible Win Text
+  is not used by arcade games" with a link back to the launcher
+  ([game-families.md §6.5](../design/game-families.md)).
 - **Scope:** per **active project** (shown in the top bar; switch it with the project
   selector on the launcher home). Each project has its own win text.
 
