@@ -1206,9 +1206,11 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 			'stashFlowInstanceInput,',
 			'clearFlowInstanceStash,',
 			'onFlowInstanceDrop,',
-			'dispose: waits.dispose,',
+			// The flow's variables and key map (P10.3) tear down beside the waits when it has a store.
+			'dispose: state\n\t\t\t? () => {\n\t\t\t\t\twaits.dispose();',
+			': waits.dispose,',
 		].map((line) => runtime.includes(line)),
-		[true, true, true, true, true, true, true, true, true, true],
+		[true, true, true, true, true, true, true, true, true, true, true],
 	);
 	eq(
 		'8. the game releases the flow handle on destroy, and builds none for a Game already destroyed',
