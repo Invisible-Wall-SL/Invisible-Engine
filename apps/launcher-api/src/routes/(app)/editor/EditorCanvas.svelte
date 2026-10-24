@@ -90,7 +90,9 @@
 		type ReelGridSeat,
 		resolveBoneRiderRigKey,
 		standardToWorld,
+		SCREEN_NEST,
 		type BoneRiderTransform,
+		type ComponentNest,
 		type Vec2,
 		type NodeBox,
 		type NaturalSize,
@@ -352,6 +354,9 @@
 		 * default, and every scene-editor caller) ⇒ identical to today's draw — parity.
 		 */
 		componentParams?: Record<string, unknown>;
+		/** Where the top-level nodes sit in the game's component nesting (`ComponentNest`): a
+		 *  screen's at level 0 (the default), the Component Editor's open def one level down. */
+		componentNest?: ComponentNest;
 		/**
 		 * Per-project component DEFAULTS by component id (§13.3) — the `projectDefaults`
 		 * layer `resolveComponentParams` applies UNDER each placed instance's own params, so
@@ -439,6 +444,7 @@
 		viewMode = $bindable(),
 		projectGameName = null,
 		componentParams = {},
+		componentNest = SCREEN_NEST,
 		componentDefaults = {},
 		onRigMeta,
 		canUndo = false,
@@ -1693,7 +1699,7 @@
 	 * clip — ANYWHERE in its tree (incl. nested in a container / component instance)? Gates the
 	 * playback clock above — mirroring `sceneHasEffect` / `sceneHasRig`. */
 	function sceneHasFlipbook(s: Scene): boolean {
-		return nodesHaveFlipbook(s.nodes, 0, []);
+		return nodesHaveFlipbook(s.nodes, componentNest.depth, componentNest.stack);
 	}
 	function nodesHaveFlipbook(nodes: LayoutNode[], depth: number, stack: string[]): boolean {
 		for (const n of nodes) {
@@ -1960,7 +1966,13 @@
 	 * resolved preview art is a rig, or a reel BOARD whose symbols bind rig art)? Only
 	 * such scenes mount a rig sublayer in their group, so no group draws an empty one. */
 	function sceneHasRig(s: { nodes: LayoutNode[] }): boolean {
-		return nodesHaveRig(s.nodes, 0, [], undefined, componentParams);
+		return nodesHaveRig(
+			s.nodes,
+			componentNest.depth,
+			componentNest.stack,
+			undefined,
+			componentParams,
+		);
 	}
 	/** Any symbol whose STATIC binding is a rig — the reel board then needs the WebGL
 	 * layer to draw its cells (the 2D canvas can only marker them). */
@@ -2025,7 +2037,7 @@
 	 * sublayer. Walks the same tree (+ `componentInstance` expansion) as the overlay's
 	 * `collectTextTargets`, so the layer mounts exactly when the overlay has work. */
 	function sceneHasText(s: { nodes: LayoutNode[] }): boolean {
-		return nodesHaveText(s.nodes, 0, []);
+		return nodesHaveText(s.nodes, componentNest.depth, componentNest.stack);
 	}
 	function nodesHaveText(nodes: LayoutNode[], depth: number, stack: string[]): boolean {
 		for (const n of nodes) {
@@ -2054,7 +2066,7 @@
 	 * container / component instance)? Only such scenes mount the effect sublayer — mirroring
 	 * `sceneHasRig`. */
 	function sceneHasEffect(s: { nodes: LayoutNode[] }): boolean {
-		return nodesHaveEffect(s.nodes, 0, []);
+		return nodesHaveEffect(s.nodes, componentNest.depth, componentNest.stack);
 	}
 	function nodesHaveEffect(nodes: LayoutNode[], depth: number, stack: string[]): boolean {
 		for (const n of nodes) {
@@ -2433,7 +2445,7 @@
 		// shared surface, which has to blend inline — is unaffected.
 		elementCarriesBlend = true;
 		for (const s of visibleGameScenes()) {
-			for (const seg of depthSegments(s, componentMap)) {
+			for (const seg of depthSegments(s, componentMap, componentNest)) {
 				drawDepth = depthSliceFor(seg);
 				for (const run of blendRuns(seg)) {
 					const c = sceneCanvases.get(run.key);
@@ -2614,8 +2626,8 @@
 		ctx: CanvasRenderingContext2D,
 		node: LayoutNode,
 		sceneCtx: Scene = scene,
-		componentDepth = 0,
-		componentStack: string[] = [],
+		componentDepth = componentNest.depth,
+		componentStack: string[] = componentNest.stack,
 		/**
 		 * Resolved params of the ENCLOSING `componentInstance` (when this node is being
 		 * drawn as expanded def content) — threaded so a mounted `bind` chip can show the
@@ -3095,6 +3107,7 @@
 			node.kind === 'repeater' ? repeaterItemCount(node) : undefined,
 			componentDefaults,
 			componentParams,
+			componentNest,
 		);
 	}
 
@@ -6038,7 +6051,7 @@
 	     draw through two shared WebGL contexts (`sharedGl.client.ts`), never one each: past
 	     the browser's ~16 live contexts the oldest is dropped and paints white. -->
 	{#each visibleGameScenes() as s (s.id)}
-		{@const segs = depthSegments(s, componentMap)}
+		{@const segs = depthSegments(s, componentMap, componentNest)}
 		{@const scrimKey = scrimSegmentKey(segs)}
 		<div class="scene-group" data-scene-id={s.id}>
 			<!-- One stack per DEPTH SEGMENT (usually exactly one — see `depthSegments`): a
@@ -6058,6 +6071,7 @@
 				{/each}
 				{#if sceneHasRig(seg)}
 					<EditorRigLayer
+						{componentNest}
 						{scenes}
 						{mainSizesMap}
 						{layoutType}
@@ -6103,6 +6117,7 @@
 				{/if}
 				{#if sceneHasText(seg)}
 					<EditorTextLayer
+						{componentNest}
 						{scenes}
 						{layoutType}
 						{panX}
@@ -6137,6 +6152,7 @@
 				{/if}
 				{#if sceneHasEffect(seg)}
 					<EditorEffectLayer
+						{componentNest}
 						{scenes}
 						{layoutType}
 						{frameWidth}
@@ -6177,6 +6193,7 @@
 				{#each blendOverlayGroups(seg) as g (g.key)}
 					{#if sceneHasEffect(seg)}
 						<EditorEffectLayer
+							{componentNest}
 							{scenes}
 							{layoutType}
 							{frameWidth}
@@ -6224,6 +6241,7 @@
 	{#if hudRigScenes().length > 0}
 		<div class="hud-rig-layer">
 			<EditorRigLayer
+				{componentNest}
 				{scenes}
 				{mainSizesMap}
 				{layoutType}
@@ -6270,6 +6288,7 @@
 	{#if hudTextScenes().length > 0}
 		<div class="hud-text-layer">
 			<EditorTextLayer
+				{componentNest}
 				{scenes}
 				{layoutType}
 				{panX}
@@ -6303,6 +6322,7 @@
 	{#if hudEffectScenes().length > 0}
 		<div class="hud-effect-layer">
 			<EditorEffectLayer
+				{componentNest}
 				{scenes}
 				{layoutType}
 				{frameWidth}

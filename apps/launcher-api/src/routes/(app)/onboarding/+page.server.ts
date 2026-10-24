@@ -1,5 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { roleHasTool } from '$lib/roles';
+import { manifestForRole, roleHasTool } from '$lib/roles';
 import { getInstallPaths, setInstallPath } from '$lib/server/toolInstalls';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
@@ -7,7 +7,16 @@ import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/login');
-	return { installPaths: await getInstallPaths(locals.user.id) };
+	return {
+		installPaths: await getInstallPaths(locals.user.id),
+		// The role's whole manifest: onboarding describes what a role may use, not what the active
+		// project's game family uses, so it does not take the layout's family-narrowed `tools`.
+		tools: manifestForRole(
+			locals.user.role,
+			await getRoleOverrides(locals.user.role),
+			await getToolOverrides(locals.user.id),
+		),
+	};
 };
 
 export const actions: Actions = {

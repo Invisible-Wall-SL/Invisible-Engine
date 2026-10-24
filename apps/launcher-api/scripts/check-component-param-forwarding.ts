@@ -585,7 +585,7 @@ eq('3 … and on one that is not, its own value', c3.params, { lightAt: 1 });
 			[
 				/forwardInstanceParams\(n, resolveLayoutInstanceParams\(n, layoutType\), outerParams\)/,
 				/forwardInstanceParams\(node, resolveLayoutInstanceParams\(node, layoutType\), outerParams\)/,
-				/nodesHaveRig\(s\.nodes, 0, \[\], undefined, componentParams\)/,
+				/nodesHaveRig\(\s*s\.nodes,\s*componentNest\.depth,\s*componentNest\.stack,\s*undefined,\s*componentParams,?\s*\)/,
 			],
 		],
 		[
@@ -659,10 +659,18 @@ eq('3 … and on one that is not, its own value', c3.params, { lightAt: 1 });
 			} as LayoutNode,
 		],
 	);
+	const deeper = def(
+		'deeper',
+		[],
+		[{ id: 't', kind: 'text', x: 0, y: 0, text: 'DEEPER TEXT' } as LayoutNode],
+	);
 	const deep = def(
 		'deep',
 		[],
-		[{ id: 't', kind: 'text', x: 0, y: 0, text: 'DEEP TEXT' } as LayoutNode],
+		[
+			{ id: 't', kind: 'text', x: 0, y: 0, text: 'DEEP TEXT' } as LayoutNode,
+			instance('d', 'deeper'),
+		],
 	);
 	const mid = def(
 		'mid',
@@ -689,7 +697,7 @@ eq('3 … and on one that is not, its own value', c3.params, { lightAt: 1 });
 			instance('mid', 'mid'),
 		],
 	);
-	const defs = new Map([caption, deep, mid, loop, prize].map((d) => [d.id, d]));
+	const defs = new Map([caption, deeper, deep, mid, loop, prize].map((d) => [d.id, d]));
 	const doc = {
 		scenes: [
 			{
@@ -708,10 +716,18 @@ eq('3 … and on one that is not, its own value', c3.params, { lightAt: 1 });
 	} as unknown as LayoutDoc;
 	const keys =
 		(await harvestSceneText(doc, async (id) => defs.get(id)))[0]?.items.map((i) => i.key) ?? [];
-	for (const text of ['MEGA PRIZE', 'PORTRAIT PRIZE', 'GRAND', 'MINI', 'MID TEXT', 'LOOP TEXT'])
+	for (const text of [
+		'MEGA PRIZE',
+		'PORTRAIT PRIZE',
+		'GRAND',
+		'MINI',
+		'MID TEXT',
+		'DEEP TEXT',
+		'LOOP TEXT',
+	])
 		ok(`8 harvested: ${text}`, keys.includes(text));
 	ok('8 an own value hidden behind a forward is not harvested', !keys.includes('HIDDEN OWN'));
-	ok('8 a third level the game does not draw is not harvested', !keys.includes('DEEP TEXT'));
+	ok('8 a fourth level the game does not draw is not harvested', !keys.includes('DEEPER TEXT'));
 	eq(
 		'8 a component holding itself is harvested once',
 		keys.filter((k) => k === 'LOOP TEXT').length,

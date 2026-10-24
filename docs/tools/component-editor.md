@@ -712,11 +712,14 @@ These reflect the registered editor design (`docs/design/invisible-editor.md`
   stays purely non-destructive). One precise engine remainder: the bake walks only
   top-level scene pins, not the transitive nested-pin closure — to be widened when a game
   first nests a pinned instance (no game pins any version yet).
-- **Nesting depth is capped at 2.** Components-inside-components expand to
-  `MAX_COMPONENT_DEPTH = 2` (`engine-layout` `registerComponents.ts`), enforced by
-  both renderers with a transitive cycle guard (`ComponentInstance.svelte`); beyond
-  that, expansion stops rather than recursing. Editing in place follows the same cap: a
-  component nested deeper than the game draws is not opened from its parent.
+- **Nesting depth is capped at 3.** Components-inside-components expand to
+  `MAX_COMPONENT_DEPTH = 3` (`engine-layout` `registerComponents.ts`), enough for a
+  component holding a Segmented Counter (screen → your component → counter → segment). Every
+  renderer applies it with a transitive cycle guard (`ComponentInstance.svelte`); beyond that,
+  expansion stops rather than recursing. The stage counts the open component as one level, as
+  the game does once it is placed, so it cuts at the same place the Scene Editor and the game
+  do. Editing in place follows the same cap: a component nested deeper than the game draws is
+  not opened from its parent.
 - **Unsaved drafts are in-memory only.** A never-saved component exists only as the
   open draft; leaving it discards it (you are warned first). There is no autosave. **This game's
   defaults** (§4) are a second file: **Save component** writes them too, *Save for this game*

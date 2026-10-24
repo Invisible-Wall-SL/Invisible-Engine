@@ -119,7 +119,7 @@
 		placeableComponents,
 		type ComponentOpenRequest,
 	} from './componentWorkspace';
-	import { defaultSegmentComponent } from './editorCanvas.helpers';
+	import { componentEditorNest, defaultSegmentComponent } from './editorCanvas.helpers';
 	import { invalidateSegmentTimelines } from './segmentTimelines.client.svelte';
 	import {
 		exposeInstanceParam,
@@ -3141,6 +3141,7 @@
 						onDelete={onDeleteNode}
 						projectGameName={null}
 						componentParams={resolvedParams}
+						componentNest={componentEditorNest(trail, componentDraft)}
 						redrawNonce={editNonce}
 						onRigMeta={(meta) => (rigMeta = meta)}
 						onEditInstance={animating ? undefined : (node) => void enterInstance(node)}

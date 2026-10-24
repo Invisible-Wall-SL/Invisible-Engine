@@ -64,6 +64,11 @@ Tools are typed `online` (opened in the browser) or `local` (installed on your
 machine). Online tool cards are clickable and link straight into the tool;
 local tool cards show an "install" tag.
 
+The active project's **game family** can narrow this list: the home grid and the tool bar show only
+the tools that family uses, and a direct link to another tool explains why it is not offered. Your
+role still decides what you may open; the family only hides tools that kind of game has no use for
+([game-families.md §6.5](../design/game-families.md)).
+
 ### Choosing a project
 
 The **Client** and **Project** dropdowns in the header pick the project your tools

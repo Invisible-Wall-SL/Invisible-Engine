@@ -195,8 +195,13 @@ const mayReach = (userId: string, role: string, key: string) => {
 	return p.clientKey !== null && (CLIENT_GRANTS.get(userId)?.has(p.clientKey) ?? false);
 };
 
+// The real rule (`check-family-tools.ts` pins it), read before the module is faked.
+const { projectFamily } = (await import(
+	`${src('lib/server/projects.ts')}?real`
+)) as typeof import('../src/lib/server/projects.ts');
 fake('lib/server/projects.ts', {
 	DEFAULT_PROJECT_KEY: 'cloud',
+	projectFamily,
 	isValidProjectKey: (v: string) => /^[a-z0-9][a-z0-9_-]{0,63}$/.test(v),
 	listProjects: async () => [...PROJECTS.values()].filter((p) => !p.deletedAt),
 	projectExists: async (key: string) => Boolean(live(key)),
@@ -741,7 +746,7 @@ check(
 // ── 2.2 Target-key guard, whatever op declares the key ────────────────────────
 let handlerRuns = 0;
 const WRITE_OP = defineOp<{ key: string; baseEtag?: string | null }, { etag: string }>({
-	tool: 'fixture',
+	tool: 'scene',
 	name: 'write_doc',
 	description: 'A test-only write op that saves a doc where its input says.',
 	inputSchema: {
@@ -769,7 +774,7 @@ const WRITE_OP = defineOp<{ key: string; baseEtag?: string | null }, { etag: str
 const TEST_REGISTRY = buildRegistry([...GAMEMAKER_OPS, WRITE_OP]);
 const direct = (body: Record<string, unknown>) =>
 	runAdapterCall(
-		{ tool: 'fixture', op: 'write_doc', authorization: `Bearer ${TOKEN}`, body },
+		{ tool: 'scene', op: 'write_doc', authorization: `Bearer ${TOKEN}`, body },
 		TEST_REGISTRY,
 		TOKEN,
 	);
@@ -877,7 +882,7 @@ check(
 		opId: 'rw:build:9',
 		runId: 'rw',
 		agent: 'builder',
-		op: 'fixture.write_doc',
+		op: 'scene.write_doc',
 		inputHash: createHash('sha256')
 			.update(JSON.stringify({ key: DOC }))
 			.digest('hex'),
