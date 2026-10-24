@@ -213,6 +213,7 @@
 		freeSpinsRemaining,
 		freeSpinsTotal,
 		resolveWinMount,
+		runsIntent,
 		textSource,
 		valueSource,
 	} from 'engine-game';
@@ -343,6 +344,8 @@
 	import MultiplierBoard from './MultiplierBoard.svelte';
 	import OverlayTokens from './OverlayTokens.svelte';
 	import RespinBoard from './RespinBoard.svelte';
+	import Match3Input from './Match3Input.svelte';
+	import { gameMechanic } from '../game/mechanic';
 	import CoinBoardLinesSelector from './CoinBoardLinesSelector.svelte';
 	import FlightLayer from './FlightLayer.svelte';
 	import HoldAndWinBanner from './HoldAndWinBanner.svelte';
@@ -377,6 +380,15 @@
 	if (__IE_DEBUG__) {
 		void import('../game/debugTools');
 	}
+
+	/**
+	 * The mechanic this game plays as (`docs/design/game-families.md` §6.4) — read once, after the
+	 * runtime bundle landed. A slot is `reels`: it spins, so every gate below that reads it is
+	 * exactly what it was. A match-3 board never spins: no spin hotkey, no hold-to-spin, no coded HUD
+	 * (its spin button), no wager intent, and the board takes the pointer instead
+	 * (`<Match3Input />`).
+	 */
+	const mechanic = gameMechanic();
 
 	// Live runtime (Invisible Game Maker, Phase 0). `stateApp.assets` was built at
 	// import time by `createApp` (`game/stateApp.ts`), BEFORE `+layout.ts`'s `load()`
@@ -1371,8 +1383,11 @@
 	let flowV2Handle = $state<LinesFlowV2 | undefined>(undefined);
 	// Flow variables, timers and tick (game-families §3.2): one ticker callback advances the flow's
 	// store, the `tickFlights` pattern. Added only when the flow has one, so a slot game's frame is
-	// untouched.
+	// untouched. It also re-runs on `loaded`: the ticker is not reactive, and a flow built from a
+	// runtime bundle (no doc fetch to wait on) can exist before Pixi's async init has made it. A
+	// ticker that was already there keeps ticking from where it was, as before.
 	$effect(() => {
+		void stateApp.loaded;
 		const ticker = flowV2Handle?.state ? stateApp.pixiApplication?.ticker : undefined;
 		if (!ticker) return;
 		const tick = () => tickFlowV2State(ticker.deltaMS);
@@ -1962,14 +1977,21 @@
 	// identically to its coded counterpart. `boolSource` replays each live derived as
 	// the registry's `BoolSource`. Nothing mounts a button instance yet (B6.3/B6.4),
 	// so this is pure registration plumbing — no render change.
+	// A wager body runs only for a mechanic with a round to bet on (`engine-game` `runsIntent`):
+	// a free-play board ignores an authored Spin/bet button or a flow's `startSpin` rather than
+	// sending a bet. Every slot runs it, unchanged.
+	const wager = (intent: string, body: () => void) => (): void => {
+		if (runsIntent(mechanic, intent)) body();
+	};
 	// The idle→bet / else→slam-stop decision — the SAME `runSpinOrSlamStop` the coded
 	// `ButtonBetProvider` presses, so an authored Spin pin runs exactly what the hard-coded button
 	// does (design doc §8.2/§8.5). Not the sound (that stays on the button press).
-	const doSpinBetOrStop = (): void =>
+	const doSpinBetOrStop = wager('spin', () =>
 		runSpinOrSlamStop({
 			isIdle: context.stateXstateDerived.isIdle(),
 			broadcast: context.eventEmitter.broadcast,
-		});
+		}),
+	);
 
 	// Shared coded bodies for the HUD action intents (design doc §8.5). Each is the exact
 	// press behaviour of the matching coded button, extracted so ONE source of truth serves
@@ -1977,20 +1999,20 @@
 	// `invokeIntent` bridge (an authored `action → intent` edge). `doSpinBetOrStop` above is
 	// the `spin` member. None of these plays the press SOUND — that stays on the button press
 	// so an intent-invoked action doesn't double up the sound the button already made.
-	const doIncreaseBet = (): void => {
+	const doIncreaseBet = wager('increase', () => {
 		const biggest = stateConfig.betAmountOptions[stateConfig.betAmountOptions.length - 1];
 		const nextBigger = [...stateConfig.betAmountOptions]
 			.sort((a, b) => a - b)
 			.find((option) => option > stateBet.betAmount);
 		stateBetDerived.setBetAmount(nextBigger || biggest);
-	};
-	const doDecreaseBet = (): void => {
+	});
+	const doDecreaseBet = wager('decrease', () => {
 		const smallest = stateConfig.betAmountOptions[0];
 		const nextSmaller = [...stateConfig.betAmountOptions]
 			.sort((a, b) => b - a)
 			.find((option) => option < stateBet.betAmount);
 		stateBetDerived.setBetAmount(nextSmaller || smallest);
-	};
+	});
 	const doToggleTurbo = (): void => {
 		stateBetDerived.updateIsTurbo(!stateBet.isTurbo, { persistent: true });
 	};
@@ -2021,22 +2043,25 @@
 	const doToggleSound = (): void => {
 		stateSound.volumeValueMaster = stateSound.volumeValueMaster === 0 ? 50 : 0;
 	};
-	const doAutoSpin = (): void => {
+	const doAutoSpin = wager('autoSpin', () => {
 		stateBetDerived.hasAutoBetCounter()
 			? (stateBet.autoSpinsCounter = 0)
 			: (stateModal.modal = { name: 'autoSpin' });
-	};
+	});
 	// ButtonBuyBonus coded body (design doc §8.5): an ARMED `activate` mode disarms back to BASE;
 	// otherwise open the buy-bonus select modal. Extracted so the registered `buyBonus` press can
 	// route through the flow gate (a flow that OWNS the `buyBonus` intent drives it) and fall
 	// through to this exact behaviour when un-owned — byte-identical to today (parity §8.8).
-	const codedOpenBuyModal = (): void => {
+	const codedOpenBuyModal = wager('buyBonus', () => {
 		if (stateBetDerived.activeBetMode()?.type === 'activate') {
 			stateBet.activeBetModeKey = 'BASE';
 		} else {
 			stateModal.modal = { name: 'buyBonus' };
 		}
-	};
+	});
+	const doOpenBuyModal = wager('buyBonus', () => {
+		stateModal.modal = { name: 'buyBonus' };
+	});
 
 	// The intent host bridge (design doc §8.5): the game IMPLEMENTS `invokeIntent`, called by
 	// the interpreter for every `action → intent` edge. Maps an intent NAME to its shared coded
@@ -2050,7 +2075,7 @@
 		else if (intent === 'turbo') doToggleTurbo();
 		else if (intent === 'menu') doOpenMenu();
 		else if (intent === 'menuClose') doCloseMenu();
-		else if (intent === 'buyBonus') stateModal.modal = { name: 'buyBonus' };
+		else if (intent === 'buyBonus') doOpenBuyModal();
 		else if (intent === 'payTable') doOpenPayTable();
 		else if (intent === 'gameRules') doOpenGameRules();
 		else if (intent === 'settings') doOpenSettings();
@@ -2260,7 +2285,10 @@
 	// play (`EnableSpaceHold`) lives in the coded `UIDefault`, so when that is absent — an authored
 	// HUD, a v2 flow driving the screens, a flow-managed HUD not yet shown — the game mounts it.
 	const codedHudMounted = $derived(
-		(!isHudFlowManaged || isHudActive) && !suppressCodedHud && !flowV2DrivesScreens,
+		mechanic.spins &&
+			(!isHudFlowManaged || isHudActive) &&
+			!suppressCodedHud &&
+			!flowV2DrivesScreens,
 	);
 	const spinHotkeyPress = () => {
 		context.eventEmitter.broadcast(
@@ -2531,7 +2559,7 @@
 			(no double-fire). Neither ⇒ not rendered, coded hotkey is the sole binding (parity). Mirrors
 			`ButtonBet`'s binding.
 		-->
-	{#if HUD_BUTTON_INSTANCES || suppressCodedHud}
+	{#if mechanic.spins && (HUD_BUTTON_INSTANCES || suppressCodedHud)}
 		<OnHotkey
 			hotkey="Space"
 			disabled={spinHotkeyDisabled}
@@ -2541,7 +2569,7 @@
 	{/if}
 	<!-- At most one hold-Space binding, gated as in `UIDefault` (a `disabledAutoplay` jurisdiction or
 			the doc's Game Settings turn `spaceHold` off). -->
-	{#if !codedHudMounted && stateUi.config.features.spaceHold}
+	{#if mechanic.spins && !codedHudMounted && stateUi.config.features.spaceHold}
 		<EnableSpaceHold isIdle={context.stateXstateDerived.isIdle} />
 	{/if}
 
@@ -2638,6 +2666,11 @@
 			<!-- The Hold and Win respin board — an unconditional, empty container until a feature puts
 			     the per-cell board up in the reels' place (`RespinBoard.svelte`). -->
 			<RespinBoard />
+			<!-- A match-3 board's pointer surface (`Match3Input.svelte`), which also starts its session.
+			     Only a mechanic that takes board input mounts it, so no slot game builds it. -->
+			{#if mechanic.boardInput}
+				<Match3Input />
+			{/if}
 		{/snippet}
 
 		<MainContainer>

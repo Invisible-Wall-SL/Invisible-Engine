@@ -11,6 +11,7 @@ import {
 	type HoldAndWinTemplateOptions,
 } from './holdAndWin';
 import { defaultLayout } from './lines';
+import { match3ReferenceLayout } from './match3';
 import { scatterReferenceLayout } from './scatter';
 import { waysReferenceLayout } from './ways';
 
@@ -19,6 +20,7 @@ export { bookofReferenceLayout } from './bookof';
 export { waysReferenceLayout } from './ways';
 export { clusterReferenceLayout } from './cluster';
 export { scatterReferenceLayout } from './scatter';
+export { match3ReferenceLayout, MATCH3_BOARD } from './match3';
 export {
 	holdAndWinReferenceLayout,
 	HOLD_AND_WIN_BOARD,
@@ -96,6 +98,9 @@ const FULL_SCENE_SOURCES: Record<
 		name: 'Hold and Win',
 		build: (options) => holdAndWinReferenceLayout(undefined, options),
 	},
+	// Match-3 (game-families P10.5): the board that never spins, its HUD and its round screens.
+	// Engine pieces only, so scaffold-only like the skeletons.
+	match3: { name: 'Match-3', build: () => match3ReferenceLayout() },
 };
 
 /** A declared respin mode the scene set seeds screens for: its id, the name the tools show it by,

@@ -24,6 +24,8 @@ export * from './src/reference/ways';
 export * from './src/reference/cluster';
 export * from './src/reference/scatter';
 export * from './src/reference/holdAndWin';
+export * from './src/reference/match3';
+export * from './src/reference/match3Seed';
 export * from './src/reference/soundEnums.generated';
 export * from './src/reference/bookOfChoreo';
 export * from './src/reference/registry';

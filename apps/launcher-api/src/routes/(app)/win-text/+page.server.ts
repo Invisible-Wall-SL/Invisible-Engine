@@ -1,5 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import { kindCapabilities } from 'engine-layout';
+import { resolveOutcome } from 'game-config';
 import { projectAddOns } from '$lib/addOns';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
@@ -94,5 +95,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		/** The config's big-win tiers, which are the ones a caption can be drawn for. Empty when
 		 *  the config authors none — the page then offers the coded `winLevelMap` aliases. */
 		bigTiers: bigTiersOf(config.doc),
+		/** A rules-decided game (game-families §2.3, §6.5): free play, no wallet, so no win to talk
+		 *  about. A slot is always decided by the RGS, so this is false for every slot. */
+		paysNoMoney: resolveOutcome(config.doc) === 'rules',
 	};
 };

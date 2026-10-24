@@ -114,14 +114,17 @@ before — an un-authored project still runs the compiled template.
 ## Game family: match-3 and arcade
 
 Every project so far is a **slot**, and a slot project's page is exactly as described above: it
-has no family control at all. Two more families are planned
-([game-families.md](../design/game-families.md)), and from P10.1 their configs can be authored
-here, though **none can be published yet** (below).
+has no family control at all. Two more families exist
+([game-families.md](../design/game-families.md)), and their configs can be authored here, though
+**none can be published yet** (below).
 
 - **Where the picker shows:** only on a project whose kind is `match3` or `arcade`, or whose
-  config already names a family. No project can be created with those kinds yet (Game Maker offers
-  them from P10.5 and P10.8), so for now the way in is **raw JSON**: add `"family": "match3"` (or
-  `"arcade"`), apply, and the page re-renders for that family.
+  config already names a family. [Game Maker](game-maker.md) creates a **Match-3** project with
+  its config already set: Match-3, decided by the game's rules, a 7×7 board of six gems, 20 moves,
+  a score goal of 1500 and 50 / 120 / 250 points for a run of 3 / 4 / 5. No project can be created
+  as an arcade game yet, and Game Maker does not seed a match-3 decided by the server; for those
+  the way in is **raw JSON**: add `"family": "match3"` (or `"arcade"`), apply, and the page
+  re-renders for that family.
 - **Game family** (the panel at the top): the **Family** (Slot / Match-3 / Arcade) and **Who
   decides the result**:
   - **The server (RGS) — real money**: the server decides every gem that falls and every win, so
@@ -160,9 +163,11 @@ here, though **none can be published yet** (below).
   - **Steps per second** — how often motion is simulated (default 60; outside 30–240 warns).
   - **Bodies** — by component id: a **box** (width × height) or a **circle** (radius), its
     **tags** (`player`, `enemy`, `pickup`) and whether it is **solid**.
-- **Publishing:** Game Maker's publish and the desktop bake **refuse a match-3 or arcade config**
-  ("…the game runtime cannot play a match-3 game yet…"), with no override, until the engine learns
-  to play them (P10.5, P10.8). Set the family back to Slot to publish the project as a slot.
+- **Publishing:** Game Maker's publish and the desktop bake **refuse a match-3 or arcade config**,
+  with no override. A free-play match-3 plays in the launcher's authoring preview, but publishing
+  a game that is not a slot is not switched on yet; a match-3 decided by the server, or an arcade
+  game, is refused because the game runtime cannot play it yet. Set the family back to Slot to
+  publish the project as a slot.
 
 ## Coin board
 

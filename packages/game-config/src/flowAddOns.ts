@@ -1,4 +1,5 @@
 import { bonusCapabilityInputs, respinModeIds } from './bonusGames';
+import { resolveFamily } from './family';
 import { HOLD_AND_WIN_MODE, spinsModeDecls } from './modes';
 import { resolveMeters } from './potsOverlay';
 import type { GameConfigDoc } from './types';
@@ -9,7 +10,9 @@ import type { GameConfigDoc } from './types';
  * (`bonusCapabilityInputs`): is there a respin mode with rules, does the coin overlay drop tokens,
  * its meter ids, and — only when they are not the lone `holdAndWin` — the respin modes, the primary
  * first, so a project with one default respin mode resolves what it always did — and its spins modes
- * (`./spinsGame`) only when it has one. No doc ⇒ no add-ons.
+ * (`./spinsGame`) only when it has one. No doc ⇒ no add-ons, and none for a game that is not a slot:
+ * add-ons are slot features, and their Flow fragments splice into a slot's palette (a raw-JSON block
+ * beside a match-3 board is ignored rather than composed onto a palette it cannot fit).
  */
 export interface ConfigFlowAddOns {
 	holdAndWin: boolean;
@@ -20,8 +23,9 @@ export interface ConfigFlowAddOns {
 }
 
 export function flowAddOnsOf(
-	doc: Pick<GameConfigDoc, 'coinOverlay' | 'modes'> | null | undefined,
+	doc: Pick<GameConfigDoc, 'coinOverlay' | 'modes' | 'family'> | null | undefined,
 ): ConfigFlowAddOns {
+	if (resolveFamily(doc) !== 'slot') return { holdAndWin: false, potsOverlay: false, meters: [] };
 	const inputs = doc ? bonusCapabilityInputs(doc) : undefined;
 	const respinModes = doc ? respinModeIds(doc) : [];
 	const loneDefault = respinModes.length === 1 && respinModes[0] === HOLD_AND_WIN_MODE;

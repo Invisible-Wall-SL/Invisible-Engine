@@ -15,8 +15,9 @@ export const ssr = false;
 // https://kit.svelte.dev/docs/page-options#trailingslash
 export const trailingSlash = 'ignore';
 
-import { prepareRuntimeBundle } from '../editor-scenes';
+import { prepareRuntimeBundle, refuseUnplayableBoot } from '../editor-scenes';
 import { exposeBuildInfo } from '../game/buildInfo';
+import { gameMechanic } from '../game/mechanic';
 import { startErrorTracking } from '../game/errorTracking';
 import {
 	publishExpandMinReelsToFacade,
@@ -38,6 +39,8 @@ export const load = async () => {
 	exposeBuildInfo();
 	startErrorTracking();
 	await prepareRuntimeBundle();
+	const unplayable = gameMechanic().unplayable;
+	if (unplayable) await refuseUnplayableBoot(unplayable);
 	// Before `<Authenticate>` mounts: a round left open is translated inside `requestAuthenticate`,
 	// and the facade stamps its `winLevel`s (and gates a Book-of expansion) from whatever it has been
 	// given by then. The memo is dropped first, since a module may have read the config before the

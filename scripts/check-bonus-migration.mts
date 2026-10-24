@@ -78,11 +78,16 @@ const viewsOf = (doc: Doc) =>
 // ─── the corpus ───────────────────────────────────────────────────────────────────────────────
 
 const TEMPLATES = join(ROOT, 'apps/launcher-api/src/lib/data/gameConfig');
+/** The slot templates: a seed of another family (P10.5's match-3) holds no bonus to migrate. */
 const templates: Record<string, Doc> = Object.fromEntries(
 	readdirSync(TEMPLATES)
 		.filter((f) => f.endsWith('.json'))
 		.sort()
-		.map((f) => [f.replace(/\.json$/, ''), JSON.parse(readFileSync(join(TEMPLATES, f), 'utf8'))]),
+		.map((f): [string, Doc] => [
+			f.replace(/\.json$/, ''),
+			JSON.parse(readFileSync(join(TEMPLATES, f), 'utf8')),
+		])
+		.filter(([, doc]) => !('family' in (doc as object))),
 );
 const HW_PRESETS = gc.HOLD_AND_WIN_PRESETS as Record<string, Doc>;
 const HW_FIXTURES = gc.HOLD_AND_WIN_TEST_FIXTURES as Record<string, Doc>;

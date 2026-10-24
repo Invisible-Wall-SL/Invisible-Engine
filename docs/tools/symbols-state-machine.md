@@ -12,8 +12,9 @@ A grid editor for a game's `symbol × state → asset` map. Every game hardcodes
 of six animation **states** (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`) —
 plus `Clear reel` on a game that cascades or clears its board, `Intro` on one whose
 swap style is **Emerge**, the coin states on a game with **Hold and Win** (see
-[Hold and Win projects](#hold-and-win-projects)), and a token's three states on a game with a
-**pots overlay** (see [Pots overlay projects](#pots-overlay-projects)).
+[Hold and Win projects](#hold-and-win-projects)), a token's three states on a game with a
+**pots overlay** (see [Pots overlay projects](#pots-overlay-projects)), and `Selected` / `Hint`
+on a **match-3** game.
 This tool turns that map into an editable surface: each cell is a **sprite** (a sheet
 frame), a **rig** (a bundle + animation name), or a **flipbook** (an Invisible Flipbook
 clip — an ordered, timed run of atlas frames). Edits are stored as a **sparse override
@@ -72,8 +73,13 @@ tool top bar). Switch projects from the launcher before opening the tool.
    `Clear reel` (see [Two explosions](#two-explosions) below); a game whose
    `/config` → Reel behaviour → swap style is **Emerge** adds `Intro` (see
    [The Intro state](#the-intro-state) below); a game with **Hold and Win** adds the coin states (see
-   [Hold and Win projects](#hold-and-win-projects)), and a game with a **pots overlay** adds Coin
-   land, Coin idle and Fly to meter (see [Pots overlay projects](#pots-overlay-projects)).
+   [Hold and Win projects](#hold-and-win-projects)), a game with a **pots overlay** adds Coin
+   land, Coin idle and Fly to meter (see [Pots overlay projects](#pots-overlay-projects)), and a
+   **match-3** game adds `Selected` (the gem the player picked first, waiting for the gem it will
+   swap with) and `Hint` (the gems of a swap that would match, lit when the game shows a hint).
+   Left empty, the game plays the gem's `Win` binding for `Selected` and its `Land` binding for
+   `Hint`, and the grid shows those cells with that inherited art, as it does for `Clear reel`. A
+   slot game never shows those two columns.
    Stacked-picture tall art is **not** a grid column — it is
    authored in the **Stacked pictures** section (below). Each cell shows its
    **effective binding** — your override if you've made one, otherwise the game's coded

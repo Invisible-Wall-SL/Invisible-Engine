@@ -1,0 +1,167 @@
+{
+	"gameType": "match3",
+	"about": "Rules-decided match-3 games (game-families P10.5): free play, no RGS. The board is dealt from the determinism seed; every move is a scripted pointer gesture on the board's own pixels (`tap`, `swap`), its pair picked from the board on screen by the board module's rules (`legal`). 5 screens.",
+	"scenarios": [
+		{
+			"id": "base",
+			"canary": true,
+			"about": "Boot, then the dealt board with its score and moves. The draw:'every' canary.",
+			"env": {},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "step",
+					"frames": 30
+				},
+				{
+					"op": "capture",
+					"screen": "loaded"
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true,
+						"boardBusy": false
+					}
+				},
+				{
+					"op": "step",
+					"frames": 60
+				},
+				{
+					"op": "capture",
+					"screen": "board"
+				}
+			]
+		},
+		{
+			"id": "select",
+			"about": "A tap selects a gem (its `select` state).",
+			"env": {},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true,
+						"boardBusy": false
+					}
+				},
+				{
+					"op": "step",
+					"frames": 30
+				},
+				{
+					"op": "tap",
+					"cell": [3, 3]
+				},
+				{
+					"op": "step",
+					"frames": 20
+				},
+				{
+					"op": "capture",
+					"screen": "selected"
+				}
+			]
+		},
+		{
+			"id": "refused-swap",
+			"about": "A swap that makes no match flies there and back; no move is spent.",
+			"env": {},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true,
+						"boardBusy": false
+					}
+				},
+				{
+					"op": "step",
+					"frames": 30
+				},
+				{
+					"op": "swap",
+					"legal": false
+				},
+				{
+					"op": "step",
+					"frames": 10
+				},
+				{
+					"op": "capture",
+					"screen": "refused"
+				}
+			]
+		},
+		{
+			"id": "legal-swap",
+			"about": "The first legal swap on the dealt board: the cascade plays out, the score rises and a move is spent.",
+			"env": {},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true,
+						"boardBusy": false
+					}
+				},
+				{
+					"op": "step",
+					"frames": 30
+				},
+				{
+					"op": "swap",
+					"legal": true
+				},
+				{
+					"op": "step",
+					"frames": 10
+				},
+				{
+					"op": "capture",
+					"screen": "cascaded"
+				}
+			]
+		}
+	]
+}
