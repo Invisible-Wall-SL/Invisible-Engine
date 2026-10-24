@@ -229,6 +229,7 @@
 	import { coinBoardPicksLines, isCoinBoard, startCoinBoardLines } from '../game/coinBoard.svelte';
 	import {
 		activeModifiersText,
+		featureWorth,
 		shownCollectorLevel,
 		stateHoldAndWin,
 	} from '../game/stateHoldAndWin.svelte';
@@ -930,6 +931,9 @@
 		// What the authored Total Win bar reads: the win meter the feature end counts every coin into
 		// (`tallyCountUp`), so the bar and the HUD win readout can never disagree.
 		featureTotal: valueSource(() => stateBet.winBookEventAmount, bookEventAmountToCurrencyString),
+		// …and what the feature is worth so far, the reader Flow's `featureWorth` uses: it moves with
+		// each respin's snapshot (no count-up), where the bar only climbs at the end's tally.
+		featureWorth: valueSource(featureWorth, bookEventAmountToCurrencyString),
 		// Each configured jackpot's value at the current bet (`jackpot.<name>`, lower-case), what the
 		// authored jackpot tiles read: a fixed tier's multiplier, a progressive tier's LIVE pool (the
 		// server's, moving with every round and heartbeat). None configured ⇒ none registered.

@@ -287,27 +287,21 @@ uniform vec4 uWave;
 void main(void)
 {
     vec2 px = efxPx();
-    vec2 size = efxSize();
-    vec2 u = efxToUnit(px);
-    vec2 offset = vec2(0.0);
+    vec2 at = px;
     float light = 1.0;
-    float wavelength = max(uWave.y, 0.001);
-    if (uWave.w < 0.5)
+    if (uWave.w < 1.5)
     {
-        offset.x = uWave.x * size.x * sin(2.0 * PI * (u.y / wavelength - uWave.z));
-    }
-    else if (uWave.w < 1.5)
-    {
-        offset.y = uWave.x * size.y * sin(2.0 * PI * (u.x / wavelength - uWave.z));
+        at = efxWave(px, uWave.x, uWave.y, uWave.z, uWave.w);
     }
     else
     {
-        float pin = clamp(u.x, 0.0, 1.0);
-        float arg = 2.0 * PI * (u.x / wavelength - uWave.z);
-        offset.y = uWave.x * size.y * pin * sin(arg);
+        float u = efxToUnit(px).x;
+        float pin = clamp(u, 0.0, 1.0);
+        float arg = 2.0 * PI * (u / max(uWave.y, 0.001) - uWave.z);
+        at = px - vec2(0.0, uWave.x * efxSize().y * pin * sin(arg));
         light = 1.0 + 0.3 * pin * cos(arg) * clamp(uWave.x * 12.0, 0.0, 1.0);
     }
-    vec4 color = efxSample(px - offset);
+    vec4 color = efxSample(at);
     color.rgb = min(color.rgb * light, vec3(color.a));
     finalColor = color;
 }
@@ -324,19 +318,7 @@ uniform vec2 uTwist;
 
 void main(void)
 {
-    vec2 c = efxCenter();
-    vec2 p = efxPx() - c;
-    float d = length(p);
-    float radius = max(uTwist.y * 0.5 * length(efxSize()), 1.0);
-    if (d < radius)
-    {
-        float k = (radius - d) / radius;
-        float a = -uTwist.x * k * k;
-        float s = sin(a);
-        float co = cos(a);
-        p = vec2(p.x * co - p.y * s, p.x * s + p.y * co);
-    }
-    finalColor = efxSample(c + p);
+    finalColor = efxSample(efxTwist(efxPx(), uTwist.x, uTwist.y));
 }
 `,
 		{ uTwist: vec(2) },
@@ -424,22 +406,15 @@ uniform vec4 uRipple;
 
 void main(void)
 {
-    vec2 c = efxCenter();
     vec2 px = efxPx();
-    vec2 p = px - c;
-    float d = length(p);
-    vec2 size = efxSize();
-    float m = max(size.x, size.y);
-    float width = max(uRipple.y * m, 1.0);
-    float k = (d - uRipple.x * length(size)) / width;
-    if (d < 0.001 || abs(k) >= 1.0)
+    vec3 ring = efxRipple(px, uRipple.x, uRipple.y, uRipple.z);
+    if (ring.z <= 0.0)
     {
         finalColor = efxSample(px);
         return;
     }
-    float push = sin(k * PI) * (1.0 - k * k) * uRipple.z * m;
-    vec4 color = efxSample(px - (p / d) * push);
-    color.rgb = min(color.rgb + color.a * uRipple.w * (1.0 - abs(k)), vec3(color.a));
+    vec4 color = efxSample(ring.xy);
+    color.rgb = min(color.rgb + color.a * uRipple.w * ring.z, vec3(color.a));
     finalColor = color;
 }
 `,
@@ -455,24 +430,7 @@ uniform vec2 uBulge;
 
 void main(void)
 {
-    vec2 c = efxCenter();
-    vec2 p = efxPx() - c;
-    float d = length(p);
-    float radius = max(uBulge.y * 0.5 * length(efxSize()), 1.0);
-    float s = uBulge.x;
-    if (d < radius && d > 0.0)
-    {
-        float percent = d / radius;
-        if (s > 0.0)
-        {
-            p *= mix(1.0, smoothstep(0.0, radius / d, percent), s * 0.75);
-        }
-        else if (s < 0.0)
-        {
-            p *= mix(1.0, pow(percent, 1.0 + s * 0.75) * radius / d, 1.0 - percent);
-        }
-    }
-    finalColor = efxSample(c + p);
+    finalColor = efxSample(efxBulge(efxPx(), uBulge.x, uBulge.y));
 }
 `,
 		{ uBulge: vec(2) },
@@ -947,15 +905,6 @@ uniform vec4 uGold;
 uniform vec4 uMetal;
 uniform vec3 uShine;
 
-// The metal at shade t, 0…1: a deep version of the colour, the colour, then near white.
-vec3 goldRamp(float t)
-{
-    vec3 base = uMetal.rgb;
-    vec3 deep = base * base * 0.35;
-    vec3 pale = mix(base, vec3(1.0), 0.75);
-    return t < 0.5 ? mix(deep, base, t * 2.0) : mix(base, pale, t * 2.0 - 1.0);
-}
-
 void main(void)
 {
     vec2 px = efxPx();
@@ -981,14 +930,10 @@ void main(void)
     }
     vec3 rgb = color.rgb / color.a;
     float lum = efxLuma(rgb);
-    float e = 1.5;
-    vec2 slope = vec2(
-        efxHeight(px + vec2(e, 0.0)) - efxHeight(px - vec2(e, 0.0)),
-        efxHeight(px + vec2(0.0, e)) - efxHeight(px - vec2(0.0, e)));
-    vec3 normal = normalize(vec3(-2.5 * slope, 1.0));
+    vec3 normal = efxReliefNormal(px, 2.5);
     float look = u.y + 0.9 * normal.y - 0.25 * normal.x;
     float env = 0.55 + 0.45 * cos(look * 5.0 + 0.6);
-    vec3 metal = goldRamp(clamp(0.06 + 0.32 * lum + 0.62 * env, 0.0, 1.0));
+    vec3 metal = efxMetalRamp(uMetal.rgb, clamp(0.06 + 0.32 * lum + 0.62 * env, 0.0, 1.0));
     float spec = pow(max(dot(normal, normalize(vec3(-0.5, -0.6, 0.65))), 0.0), 18.0);
     metal += vec3(1.0, 0.97, 0.88) * 0.9 * spec;
     metal += vec3(1.0, 0.95, 0.8) * 0.55 * efxGlint(u, uShine.x, 0.07);

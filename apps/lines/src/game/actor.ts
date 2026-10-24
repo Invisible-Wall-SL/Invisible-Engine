@@ -10,6 +10,7 @@ import { playBet, convertTorResumableBet } from './utils';
 import { clearWinPresentation } from './winSymbolCycle';
 import { resetLuckySpinReveal } from './luckySpin';
 import { clearOverlay } from './stateOverlay.svelte';
+import { startHoldAndWinRound } from './stateHoldAndWin.svelte';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
 import { paddingReels } from './gameConfig';
 import { isCoinBoard } from './coinBoard.svelte';
@@ -35,6 +36,7 @@ const primaryMachines = createPrimaryMachines<Bet>({
 		clearWinPresentation();
 		clearOverlay();
 		resetLuckySpinReveal();
+		startHoldAndWinRound();
 		if ((stateBet.isTurbo && stateXstateDerived.isAutoBetting()) || stateBet.isSpaceHold) return;
 		stateBet.winBookEventAmount = 0;
 		// A swap-in-place board has no roll to pre-start, and this is the ONE place the roll begins

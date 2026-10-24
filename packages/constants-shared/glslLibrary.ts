@@ -175,6 +175,172 @@ mat3 efxTranspose(mat3 m)
 {
     return mat3(m[0][0], m[1][0], m[2][0], m[0][1], m[1][1], m[2][1], m[0][2], m[1][2], m[2][2]);
 }`,
+	efxFbm: `
+// Fractal value noise, 0…1: up to 5 octaves of efxNoise, each finer and half as strong.
+float efxFbm(vec2 p, float octaves)
+{
+    float sum = 0.0;
+    float weight = 0.5;
+    float total = 0.0;
+    for (int i = 0; i < 5; i++)
+    {
+        if (float(i) >= octaves) break;
+        sum += weight * efxNoise(p);
+        total += weight;
+        p = p * 2.03 + 7.1;
+        weight *= 0.5;
+    }
+    return sum / max(total, 0.0001);
+}`,
+	efxHold: `
+// In, held, out over t (0…1): up to 1 over the first (1 − hold) / 2, held, then back to 0 over the
+// last (1 − hold) / 2. The freeze, petrify and gold timing.
+float efxHold(float t, float hold)
+{
+    float span = max((1.0 - hold) * 0.5, 0.0001);
+    if (t < span)
+    {
+        float k = t / span;
+        return 1.0 - (1.0 - k) * (1.0 - k);
+    }
+    if (t <= 1.0 - span) return 1.0;
+    return 1.0 - efxEaseInOut((t - (1.0 - span)) / span);
+}`,
+	efxEaseInOut: `
+// Eased in and out (cubic), 0…1.
+float efxEaseInOut(float t)
+{
+    t = clamp(t, 0.0, 1.0);
+    return t < 0.5 ? 4.0 * t * t * t : 1.0 - pow(2.0 - 2.0 * t, 3.0) / 2.0;
+}`,
+	efxEaseOutBack: `
+// Eased out past 1 by about overshoot / 10, settling at 1.
+float efxEaseOutBack(float t, float overshoot)
+{
+    float k = clamp(t, 0.0, 1.0) - 1.0;
+    return 1.0 + (overshoot + 1.0) * k * k * k + overshoot * k * k;
+}`,
+	efxRotateUv: `
+// The point a turn of \`a\` radians about the element's centre draws at u (u in its unit space).
+vec2 efxRotateUv(vec2 u, float a)
+{
+    vec2 c = efxCenter();
+    vec2 p = efxFromUnit(u) - c;
+    float co = cos(a);
+    float s = sin(a);
+    return efxToUnit(c + vec2(p.x * co - p.y * s, p.x * s + p.y * co));
+}`,
+	efxTwist: `
+// Where a swirl about the centre reads the pixel at px: turned \`angle\` radians at the centre,
+// fading to none \`radius\` half-diagonals out.
+vec2 efxTwist(vec2 px, float angle, float radius)
+{
+    vec2 c = efxCenter();
+    vec2 p = px - c;
+    float d = length(p);
+    float r = max(radius * 0.5 * length(efxSize()), 1.0);
+    if (d < r)
+    {
+        float k = (r - d) / r;
+        float a = -angle * k * k;
+        float s = sin(a);
+        float co = cos(a);
+        p = vec2(p.x * co - p.y * s, p.x * s + p.y * co);
+    }
+    return c + p;
+}`,
+	efxBulge: `
+// Where a lens about the centre reads the pixel at px: \`strength\` −1…1 (out, or pinched in),
+// \`radius\` in half-diagonals.
+vec2 efxBulge(vec2 px, float strength, float radius)
+{
+    vec2 c = efxCenter();
+    vec2 p = px - c;
+    float d = length(p);
+    float r = max(radius * 0.5 * length(efxSize()), 1.0);
+    if (d < r && d > 0.0)
+    {
+        float percent = d / r;
+        if (strength > 0.0)
+        {
+            p *= mix(1.0, smoothstep(0.0, r / d, percent), strength * 0.75);
+        }
+        else if (strength < 0.0)
+        {
+            p *= mix(1.0, pow(percent, 1.0 + strength * 0.75) * r / d, 1.0 - percent);
+        }
+    }
+    return c + p;
+}`,
+	efxRipple: `
+// A shock ring \`at\` diagonals out and \`width\` element sizes wide, pushing outward by \`amount\`
+// element sizes: .xy where it reads the pixel at px, .z how far px is on the ring (0 off it, 1 at
+// its middle).
+vec3 efxRipple(vec2 px, float at, float width, float amount)
+{
+    vec2 c = efxCenter();
+    vec2 p = px - c;
+    float d = length(p);
+    vec2 size = efxSize();
+    float m = max(size.x, size.y);
+    float k = (d - at * length(size)) / max(width * m, 1.0);
+    if (d < 0.001 || abs(k) >= 1.0) return vec3(px, 0.0);
+    float push = sin(k * PI) * (1.0 - k * k) * amount * m;
+    return vec3(px - (p / d) * push, 1.0 - abs(k));
+}`,
+	efxWave: `
+// Where a travelling wave reads the pixel at px: rows shift sideways (axis < 0.5) or columns up and
+// down, by \`amplitude\` element sizes, \`wavelength\` element sizes apart, \`phase\` in cycles.
+vec2 efxWave(vec2 px, float amplitude, float wavelength, float phase, float axis)
+{
+    vec2 size = efxSize();
+    vec2 u = efxToUnit(px);
+    float wl = max(wavelength, 0.001);
+    if (axis < 0.5) return px - vec2(amplitude * size.x * sin(2.0 * PI * (u.y / wl - phase)), 0.0);
+    return px - vec2(0.0, amplitude * size.y * sin(2.0 * PI * (u.x / wl - phase)));
+}`,
+	efxHueShift: `
+// rgb turned \`turns\` round the colour wheel, keeping its brightness (in YIQ).
+vec3 efxHueShift(vec3 rgb, float turns)
+{
+    mat3 toYiq = mat3(0.299, 0.596, 0.211, 0.587, -0.274, -0.523, 0.114, -0.322, 0.312);
+    mat3 toRgb = mat3(1.0, 1.0, 1.0, 0.956, -0.272, -1.106, 0.621, -0.647, 1.703);
+    vec3 yiq = toYiq * rgb;
+    float a = turns * 2.0 * PI;
+    float c = cos(a);
+    float s = sin(a);
+    yiq = vec3(yiq.x, yiq.y * c - yiq.z * s, yiq.y * s + yiq.z * c);
+    return clamp(toRgb * yiq, 0.0, 1.0);
+}`,
+	efxReliefNormal: `
+// The element's relief at px as a surface normal (+z towards the viewer): efxHeight's slope 1.5 px
+// either side, steeper with \`strength\`.
+vec3 efxReliefNormal(vec2 px, float strength)
+{
+    float e = 1.5;
+    vec2 slope = vec2(
+        efxHeight(px + vec2(e, 0.0)) - efxHeight(px - vec2(e, 0.0)),
+        efxHeight(px + vec2(0.0, e)) - efxHeight(px - vec2(0.0, e)));
+    return normalize(vec3(-strength * slope, 1.0));
+}`,
+	efxMetalRamp: `
+// A metal's shade t, 0…1: a deep version of \`base\`, \`base\`, then near white.
+vec3 efxMetalRamp(vec3 base, float t)
+{
+    vec3 deep = base * base * 0.35;
+    vec3 pale = mix(base, vec3(1.0), 0.75);
+    return t < 0.5 ? mix(deep, base, t * 2.0) : mix(base, pale, t * 2.0 - 1.0);
+}`,
+	efxLight: `
+// How lit a surface facing \`normal\` is from \`light\` (+z towards the viewer): .x diffuse, .y a
+// highlight as sharp as \`shininess\`.
+vec2 efxLight(vec3 normal, vec3 light, float shininess)
+{
+    vec3 l = normalize(light);
+    float diffuse = max(dot(normal, l), 0.0);
+    float spec = pow(max(dot(reflect(-l, normal), vec3(0.0, 0.0, 1.0)), 0.0), max(shininess, 1.0));
+    return vec2(diffuse, spec);
+}`,
 };
 
 /** The library entries `code` calls (comments aside), in the order it first calls them. */
