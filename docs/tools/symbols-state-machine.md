@@ -33,7 +33,10 @@ It mirrors the live in-game Symbol Debug overlay (`SymbolDebugOverlay.svelte`, g
   thumbnail and the focused cell mounts a live WebGL rig preview.
 - **Access:** the `symbols` tool (registry name "Invisible Symbols State Machine", bar
   name "Symbols SM"). Granted to `admin`, `developer`, `artist` and `pipelineTester` roles by default;
-  overridable per role/user from the admin panel like any other tool.
+  overridable per role/user from the admin panel like any other tool. **Not offered to arcade
+  projects:** the launcher home and tool bar hide it, and a direct link shows "Invisible Symbols
+  State Machine is not used by arcade games" with a link back to the launcher
+  ([game-families.md §6.5](../design/game-families.md)).
 
 **[Invisible Game Config](game-config.md) decides which rows the grid shows**, read live (save
 `/config`, then reload this page). The grid lists exactly the symbols its Symbols table badges
@@ -289,7 +292,7 @@ orphan sweep on both bundle paths. See
 
 An **Element FX** is an effect that plays _on_ the symbol itself — it shakes, bends, lights up or
 breaks the symbol's own pixels. It is a different thing from an **FX layer** (above), which adds an
-Invisible FX particle effect beside the art. The catalog is the one the Scene Editor uses: 49 kinds
+Invisible FX particle effect beside the art. The catalog is the one the Scene Editor uses: 50 kinds
 in five families (Motion, 3D, Distort, Light & colour, Break) — see
 [Element FX in the Scene Editor](./invisible-editor.md#element-fx--effects-that-play-on-an-element)
 for what each family does.

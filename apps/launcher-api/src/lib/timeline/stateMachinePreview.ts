@@ -69,14 +69,20 @@ export function startLayers(
 	return cues;
 }
 
-/** Every node the player drives, as the canvas's drives (`setTimelinePreview`). */
+/** Every node the player drives, as the canvas's drives (`setTimelinePreview`) — a rig whose only
+ *  keyed channel is an animation strip included: the strip is the tier art the state shows. */
 export function playerDrives(player: ComponentTimelinePlayer): Map<string, TimelineNodeDrive> {
 	const out = new Map<string, TimelineNodeDrive>();
 	for (const [nodeId, channels] of player.drivenNodes()) {
 		const sample = player.sample(nodeId);
 		if (!sample) continue;
 		const bindings = nodeActorBindings(channels);
-		if (bindings.length || sample.tint !== undefined || posesElementFx(sample)) {
+		if (
+			bindings.length ||
+			sample.tint !== undefined ||
+			sample.animTime !== undefined ||
+			posesElementFx(sample)
+		) {
 			out.set(nodeId, { bindings, sample });
 		}
 	}

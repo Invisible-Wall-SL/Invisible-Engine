@@ -275,6 +275,13 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-23 — **Storybook 10.** `storybook` and every `@storybook/*` package move from 9.0.15 to
+  10.6.3 (`config-storybook`, `pixi-svelte-storybook`, `components-storybook`), and
+  `@chromatic-com/storybook` from 3.2.5 to 5.4.0; `@storybook/addon-svelte-csf` 5.1.5 already
+  supports 10. Storybook 10 is ESM-only, so `config-storybook` is `"type": "module"` and its index
+  imports carry `.ts` extensions; `preview.ts` takes its `Preview` type from the framework
+  (`@storybook/sveltekit`) rather than the renderer, which drops the direct `@storybook/svelte`
+  dependency. Story indexes are unchanged (27 in `pixi-svelte-storybook`, 88 in `apps/lines`).
 - 2026-10-20 — **A rig's `anchor` means one thing: the point of its Bounds frame that lands on
   (x, y).** `<RigProvider>` pivoted a rig by the sprite rule, `anchor × requested width/height`: it
   assumed the art's top-left at local (0, 0) and read a DISPLAY size as a LOCAL offset, while a rig's

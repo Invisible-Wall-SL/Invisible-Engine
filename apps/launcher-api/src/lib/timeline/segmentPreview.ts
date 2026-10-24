@@ -148,17 +148,16 @@ const driveCache = new WeakMap<
 const DRIVE_CACHE_LIMIT = 256;
 
 /**
- * `def`'s children at its settled pose for `inputs` — what a count-mode segment draws. The settle is
+ * The drives of `def`'s state machine settled at `inputs` and `params` ({@link settledSegmentPose}),
  * memoised per timeline list (a new list is a new load) and per def machine + inputs + params, as
- * the canvas redraws at frame rate; the fold onto the nodes is not, so a moved node shows at once.
- * `null` ⇒ the base pose.
+ * the canvas redraws at frame rate. `null` ⇒ no state machine, or none of its timelines loaded.
  */
-export function segmentPoseNodes(
+export function settledDrives(
 	def: ComponentDef,
 	docs: readonly CinematicDoc[],
 	inputs: Readonly<Record<string, number | boolean>>,
 	params: Readonly<Record<string, unknown>>,
-): LayoutNode[] | null {
+): Map<string, TimelineNodeDrive> | null {
 	if (!def.stateMachine?.layers?.length || !docs.length) return null;
 	let cache = driveCache.get(docs);
 	if (!cache) {
@@ -172,5 +171,34 @@ export function segmentPoseNodes(
 		if (cache.size >= DRIVE_CACHE_LIMIT) cache.clear();
 		cache.set(key, drives);
 	}
+	return drives;
+}
+
+/**
+ * `def`'s children at its settled pose for `inputs` — what a count-mode segment draws. The fold
+ * onto the nodes is not memoised, so a moved node shows at once. `null` ⇒ the base pose.
+ */
+export function segmentPoseNodes(
+	def: ComponentDef,
+	docs: readonly CinematicDoc[],
+	inputs: Readonly<Record<string, number | boolean>>,
+	params: Readonly<Record<string, unknown>>,
+): LayoutNode[] | null {
+	const drives = settledDrives(def, docs, inputs, params);
 	return drives ? posedNodes(def.root.children, drives) : null;
+}
+
+/**
+ * The animation strip the rig `nodeId` of `def` rests on: what the state of `def`'s machine, settled
+ * at its inputs' defaults, keys on it. The game layers that strip over the rig's own animation
+ * (`withTimelineScrub`), so a jackpot frame whose entry state plays its `mini` tier shows `mini`
+ * whatever its resting `defaultAnimation`. `undefined` ⇒ no state keys an animation on it.
+ */
+export function restingStateStrip(
+	def: ComponentDef,
+	docs: readonly CinematicDoc[],
+	params: Readonly<Record<string, unknown>>,
+	nodeId: string,
+): { animation: string; time: number } | undefined {
+	return settledDrives(def, docs, {}, params)?.get(nodeId)?.sample.animTime;
 }

@@ -72,6 +72,13 @@ export interface TimelineHost {
 	selectedActor?(): string | null;
 	/** Space: play / pause. Absent ⇒ the Timeline leaves Space to the page. */
 	togglePlay?(): void;
+	/** Ctrl+V of property keys copied from `fromActorId`: the OTHER actor they should land on (the
+	 *  node selected on the stage), the channels it can key, and `actor()` to make it an actor (called
+	 *  only when something pastes). Null ⇒ onto the copied channels, as with no host. */
+	pasteTarget?(fromActorId: string): { channels: string[]; actor(): string } | null;
+	/** Cue names the cue inspector offers beside the FX effects (the editor: the screen's _On cue_
+	 *  Element FX), each a complete cue string with what it reaches. Default: none. */
+	cueSuggestions?(): Array<{ cue: string; label: string }>;
 }
 
 type Strip = Record<string, unknown> & { id: string };

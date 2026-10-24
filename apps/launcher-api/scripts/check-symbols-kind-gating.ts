@@ -30,10 +30,13 @@
  *      project's switches hide; the Hold and Win and pots seeds list nothing and draw what the whole
  *      placeholder set drew.
  *
+ * The slot kinds only: what a match-3 or arcade project is offered is pinned by
+ * `check:game-config-family`.
+ *
  * Run:  pnpm --filter launcher-api check:symbols-kind-gating
  */
 
-import { GAME_KINDS } from 'constants-shared/gameKinds';
+import { SLOT_GAME_KINDS } from 'constants-shared/gameKinds';
 import {
 	HOLD_AND_WIN_SYMBOL_STATES,
 	kindCapabilities,
@@ -79,7 +82,7 @@ const check = (label: string, actual: unknown, expected: unknown): void => {
 };
 
 // ── 1. capabilities ─────────────────────────────────────────────────────────────────────────────
-for (const kind of [...GAME_KINDS, 'myCustomKind', undefined]) {
+for (const kind of [...SLOT_GAME_KINDS, 'myCustomKind', undefined]) {
 	const caps = kindCapabilities(kind);
 	const on = kind !== 'holdAndWin';
 	check(`${kind} · bookSymbolVfx`, caps.bookSymbolVfx, on);
@@ -110,6 +113,9 @@ const LINES_CAPS: KindCapabilities = {
 	bookSymbolVfx: true,
 	tumblePattern: true,
 	symbolTransition: true,
+	wallet: true,
+	betControls: true,
+	board: true,
 };
 const KIND_CAPS: Record<string, KindCapabilities> = {
 	lines: LINES_CAPS,
@@ -145,7 +151,7 @@ const TOKEN_STATES_ON = SYMBOL_STATES.filter(
 		!(HOLD_AND_WIN_SYMBOL_STATES as readonly string[]).includes(s) ||
 		(POTS_TOKEN_SYMBOL_STATES as readonly string[]).includes(s),
 );
-for (const kind of [...GAME_KINDS, 'myCustomKind', undefined]) {
+for (const kind of [...SLOT_GAME_KINDS, 'myCustomKind', undefined]) {
 	const table = KIND_CAPS[kind ?? ''] ?? LINES_CAPS;
 	check(`${kind} · the whole table, no config`, kindCapabilities(kind), table);
 	for (const config of ADD_ONS) {
@@ -194,7 +200,7 @@ check(
 // The Book-of expanding special as a config block (docs/design/book-feature.md §3.3): it turns the
 // book reveal on for any kind with free spins and moves nothing else; without it every answer above
 // stands, `bookOf` keeping its reveal through the kind until Phase 7.
-for (const kind of [...GAME_KINDS, 'myCustomKind', undefined]) {
+for (const kind of [...SLOT_GAME_KINDS, 'myCustomKind', undefined]) {
 	const table = KIND_CAPS[kind ?? ''] ?? LINES_CAPS;
 	check(
 		`${kind} + expanding symbol · only bookReveal moves`,
@@ -227,7 +233,7 @@ const GATES = [
 	{ clears: true },
 	{ emerge: true, clears: true },
 ];
-for (const kind of GAME_KINDS.filter((k) => k !== 'holdAndWin')) {
+for (const kind of SLOT_GAME_KINDS.filter((k) => k !== 'holdAndWin')) {
 	for (const gates of GATES) {
 		check(
 			`${kind} ${JSON.stringify(gates)} · columns unchanged`,
@@ -295,7 +301,7 @@ check(
 	visibleStatesFor('bookOf', { holdAndWin: false, potsOverlay: false }),
 	BOOK_COLS,
 );
-for (const kind of GAME_KINDS.filter((k) => k !== 'holdAndWin')) {
+for (const kind of SLOT_GAME_KINDS.filter((k) => k !== 'holdAndWin')) {
 	check(
 		`${kind} + potsOverlay {cascade, clears} · the gates still apply`,
 		visibleStatesFor(kind, { cascade: true, clears: true, potsOverlay: true }),
