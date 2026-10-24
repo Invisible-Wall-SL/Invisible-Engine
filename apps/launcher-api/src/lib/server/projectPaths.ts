@@ -549,7 +549,11 @@ export function shaderBackupsPrefix(client: string, project: string): string {
 }
 
 /** One graph → `…/shader-backups/<id>/shader-*.json`: each graph keeps its own newest 20. */
-export function shaderDocBackupTarget(client: string, project: string, id: string): DocBackupTarget {
+export function shaderDocBackupTarget(
+	client: string,
+	project: string,
+	id: string,
+): DocBackupTarget {
 	return {
 		docKey: shaderDocKey(client, project, id),
 		prefix: `${shaderBackupsPrefix(client, project)}${shaderSlug(id)}/`,

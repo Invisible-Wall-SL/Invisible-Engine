@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { replaceState } from '$app/navigation';
+	import { page } from '$app/state';
 	import { SvelteFlowProvider, type Connection, type Edge, type Node } from '@xyflow/svelte';
 	import { onMount, untrack } from 'svelte';
 	import DocHistoryModal from '$lib/DocHistoryModal.svelte';
@@ -208,19 +209,23 @@
 		saveState.adoptEtag(etag);
 		leaseGraph(next && !shared ? next.id : null);
 		fitSignal += 1;
-		const url = new URL(location.href);
-		if (next) url.searchParams.set('graph', next.id);
-		else url.searchParams.delete('graph');
-		if (next && shared) url.searchParams.set('shared', '1');
-		else url.searchParams.delete('shared');
-		replaceState(url, {});
+		const keep = [...page.url.searchParams].filter(([k]) => k !== 'graph' && k !== 'shared');
+		if (next) keep.push(['graph', next.id]);
+		if (next && shared) keep.push(['shared', '1']);
+		const query = new URLSearchParams(keep).toString();
+		// A query on this same route: `resolve()` cannot carry one.
+		// eslint-disable-next-line svelte/no-navigation-without-resolve
+		replaceState(`/shaders${query ? `?${query}` : ''}`, {});
 	}
 
 	async function open(row: GraphRow): Promise<void> {
 		if (doc && row.id === doc.id && row.shared === openShared) return;
 		if (!(await settle())) return;
-		const params = new URLSearchParams({ id: row.id, projectKey });
-		if (row.shared) params.set('shared', '1');
+		const params = new URLSearchParams({
+			id: row.id,
+			projectKey,
+			...(row.shared ? { shared: '1' } : {}),
+		});
 		const res = await fetch(`/api/shaders/doc?${params}`);
 		const out = (await res.json().catch(() => ({}))) as {
 			doc?: unknown;
