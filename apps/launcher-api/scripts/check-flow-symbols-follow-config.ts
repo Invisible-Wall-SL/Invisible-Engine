@@ -32,7 +32,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { compile } from 'svelte/compiler';
 import { render } from 'svelte/server';
-import { GAME_KINDS } from 'constants-shared/gameKinds';
+import { GAME_KINDS, familyOfKind } from 'constants-shared/gameKinds';
 import {
 	freshDrivenSeedDoc,
 	HOLD_AND_WIN_FRAGMENT,
@@ -137,7 +137,9 @@ for (const [id, vocab] of Object.entries(TEMPLATE_VOCABULARIES)) {
 	check('withSymbols · the input is not mutated', symbolsOf(vocab), []);
 }
 for (const kind of [...KINDS, undefined]) {
-	for (const [combo, addOns] of Object.entries(ADD_ON_COMBOS)) {
+	// Add-ons are slot features: a non-slot config never carries their blocks.
+	const slot = familyOfKind(kind ?? '') === 'slot';
+	for (const [combo, addOns] of Object.entries(ADD_ON_COMBOS).filter(([, a]) => slot || !a)) {
 		const vocab = withAddOns(templateVocabulary(kind), addOns);
 		const at = `templateVocabulary(${kind}) · ${combo}`;
 		check(`${at} · SymbolName declares no values`, symbolsOf(vocab), []);
@@ -163,6 +165,7 @@ const KNOWN_SYMBOL_SURFACES = [
 	['cluster', undefined, 'tumbleBoard.newSymbols'],
 	['cluster', undefined, 'tumbleBoardInit.addingBoard'],
 	['holdAndWin', undefined, 'HoldAndWinSymbol.name'],
+	['match3', undefined, 'MatchGroup.symbol'],
 	['lines', { potsOverlay: true, meters: [] }, 'OverlayCell.token'],
 ] as const;
 for (const [kind, addOns, where] of KNOWN_SYMBOL_SURFACES) {

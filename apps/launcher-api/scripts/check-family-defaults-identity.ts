@@ -51,13 +51,18 @@ const check = (name: string, ok: boolean, detail = ''): void => {
 	}
 };
 
+const seeds = readdirSync(SEEDS)
+	.filter((f) => f.endsWith('.json'))
+	.map((f): [string, unknown] => [
+		`seed ${f}`,
+		JSON.parse(readFileSync(resolve(SEEDS, f), 'utf8')),
+	]);
+/** The seeds of another family (P10.5's `match3.rules.json`): checked as what they are, below. */
+const familySeeds = seeds.filter(
+	([, raw]) => typeof (raw as { family?: unknown }).family === 'string',
+);
 const corpus: [string, unknown][] = [
-	...readdirSync(SEEDS)
-		.filter((f) => f.endsWith('.json'))
-		.map((f): [string, unknown] => [
-			`seed ${f}`,
-			JSON.parse(readFileSync(resolve(SEEDS, f), 'utf8')),
-		]),
+	...seeds.filter((seed) => !familySeeds.includes(seed)),
 	...Object.entries(HOLD_AND_WIN_PRESETS).map(([id, raw]): [string, unknown] => [
 		`preset ${id}`,
 		raw,
@@ -137,6 +142,35 @@ for (const [name, raw] of corpus) {
 	);
 }
 check('the corpus is not empty', normalized >= 15, `${normalized} configs normalized`);
+
+// A seed of another family is no slot: it is stored canonical, resolves to its family and outcome,
+// validates with no error, and `/config` shows that family's sections.
+check(
+	'the match-3 rules seed is committed',
+	familySeeds.some(([name]) => name === 'seed match3.rules.json'),
+);
+for (const [name, raw] of familySeeds) {
+	const doc = normalizeGameConfigDoc(clone(raw as object));
+	if (!doc) {
+		check(`${name}: normalizes`, false);
+		continue;
+	}
+	check(`${name}: is stored canonical`, JSON.stringify(doc) === JSON.stringify(raw));
+	check(
+		`${name}: resolves to its own family and outcome`,
+		resolveFamily(doc) === (raw as GameConfigDoc).family &&
+			resolveOutcome(doc) === ((raw as GameConfigDoc).outcome ?? 'rgs'),
+	);
+	check(
+		`${name}: validates with no error`,
+		!validateGameConfigDoc(doc).some((issue) => issue.severity === 'error'),
+	);
+	check(
+		`${name}: /config shows its family's section and no slot-only one`,
+		configSectionsOf(doc).has(resolveFamily(doc) as 'match3' | 'arcade') &&
+			!configSectionsOf(doc).has('paylines'),
+	);
+}
 
 if (fails) {
 	console.error(`\ncheck:family-defaults-identity — ${fails} FAILED, ${passes} passed`);

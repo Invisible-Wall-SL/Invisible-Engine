@@ -366,6 +366,11 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 		names: ['transition'],
 	},
 	{
+		file: 'packages/engine-flow-v2/src/reference/match3.ts',
+		rule: 'notAsset',
+		names: ['transition'],
+	},
+	{
 		file: 'packages/engine-flow-v2/src/reference/standardVocab.ts',
 		rule: 'notAsset',
 		names: ['transition'],

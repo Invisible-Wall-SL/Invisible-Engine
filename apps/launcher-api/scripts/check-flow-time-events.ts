@@ -385,9 +385,11 @@ const counterDoc = (): FlowDoc =>
 		speed: 1,
 	});
 	eq(
-		'no committed seed flow uses state',
-		Object.entries(F.DRIVEN_SEEDS).filter(([, seed]) => F.flowUsesState(seed)),
-		[],
+		'no slot seed flow uses state (only the match-3 starter keeps a score)',
+		Object.entries(F.DRIVEN_SEEDS)
+			.filter(([, seed]) => F.flowUsesState(seed))
+			.map(([id]) => id),
+		['match3'],
 	);
 }
 
@@ -549,9 +551,9 @@ const counterDoc = (): FlowDoc =>
 	eq('no flow: a frame does nothing', ran.length, 4);
 	const game = source('apps/lines/src/components/Game.svelte');
 	eq(
-		'Game.svelte adds the ticker callback only when the flow has a store',
+		'Game.svelte adds the ticker callback only when the flow has a store, once Pixi has a ticker',
 		[
-			'const ticker = flowV2Handle?.state ? stateApp.pixiApplication?.ticker : undefined;',
+			'flowV2Handle?.state && stateApp.loaded ? stateApp.pixiApplication?.ticker : undefined;',
 			'const tick = () => tickFlowV2State(ticker.deltaMS);',
 		].map((l) => game.includes(l)),
 		[true, true],
