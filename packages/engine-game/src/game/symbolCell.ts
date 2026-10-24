@@ -37,6 +37,8 @@ const INHERITS: Readonly<Record<string, string>> = {
 	jackpotReveal: 'win',
 	mysteryReveal: 'explosion',
 	flyToMeter: 'win',
+	select: 'win',
+	hint: 'land',
 };
 
 /** The state an unauthored `state` borrows its art from — the named arm of

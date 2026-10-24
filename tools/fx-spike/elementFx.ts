@@ -22,6 +22,14 @@
  *     carries a private copy of one.
  *  6. The wiring: nodes, screens and the reels play authored FX and register the Flow's targets;
  *     the Flow declares and implements `elementEffect` / `stopElementEffect`.
+ *  7. Custom effects (Invisible Shader Graph step 3): a compiled graph registered as `custom:<id>`
+ *     behaves like a built-in — read with every trigger (and kept before it is registered), posed
+ *     by a timeline, sped up by turbo, held as an exit, stopped back to rest — its graph pass, its
+ *     built-in passes (their params tied to its own) and its motion curves all playing. One reading
+ *     the per-element seed (step 6) draws one for each element it plays on, as the built-ins do, and
+ *     keeps it; one that reads none draws none. The registry leaves out an effect whose pass calls
+ *     an `efx…` function this version's library and pass header lack (one compiled by a newer
+ *     Shader Graph), or reads two seeds; `EFX_HEADER_FUNCTIONS` is what the header declares.
  */
 
 import { readFileSync } from 'node:fs';
@@ -44,17 +52,31 @@ import {
 	ELEMENT_FX,
 	ELEMENT_FX_CHANNEL_PREFIX,
 	ELEMENT_FX_KINDS,
+	ELEMENT_FX_PASS_KINDS,
+	customElementFx,
 	elementFxChannels,
 	elementFxCueNames,
 	elementFxEnterEnds,
 	elementFxIntensityChannel,
 	elementFxOfChannel,
 	elementFxProgressChannel,
+	isCustomElementFxKind,
+	isElementFxKind,
+	isPlayableElementFxKind,
+	readCustomElementFx,
 	readElementFxEntries,
 	readElementFxEntry,
 	resolveElementFxParams,
+	sampleElementFxCurve,
+	setCustomElementFx,
+	type CustomElementFx,
 	type ElementFxKind,
 } from '../../packages/constants-shared/elementFx';
+import {
+	BUILTIN_TWINS,
+	REFERENCE_GRAPHS,
+	compileShaderEffect,
+} from '../../packages/engine-shadergraph/index';
 import { stateFxGate } from '../../apps/lines/src/game/stateFxGate';
 import {
 	ELEMENT_FX_CHANNEL_PREFIX as CINEMATIC_ELEMENT_FX_PREFIX,
@@ -68,9 +90,11 @@ import { blendNodeSamples } from '../../packages/engine-layout/src/lib/stateMach
 import { startBreak } from '../../packages/pixi-svelte/src/lib/elementFx/breakApart';
 import {
 	EFX_GLSL,
+	EFX_HEADER_FUNCTIONS,
 	EFX_SIDES,
 	efxSide,
 	linkGlsl,
+	unknownEfxCalls,
 } from '../../packages/constants-shared/glslLibrary';
 import * as SHADERS from '../../packages/pixi-svelte/src/lib/elementFx/shaders';
 import type { ElementFxFilter } from '../../packages/pixi-svelte/src/lib/elementFx/shaders';
@@ -1209,6 +1233,29 @@ console.log('element fx — the shared GLSL library');
 		!unresolved.length,
 		`every efx… a pass calls is defined in it${unresolved.length ? `: ${unresolved.join(', ')}` : ''}`,
 	);
+	const header = (
+		read('packages/pixi-svelte/src/lib/elementFx/shaders.ts')
+			.split('const HEADER = `')[1]
+			?.split('`;')[0] ?? ''
+	).replace(/\/\/[^\n]*/g, '');
+	const declared = [...header.matchAll(/^(?:vec[234]|float|bool)\s+(efx\w+)\s*\(/gm)].map(
+		(m) => m[1],
+	);
+	assert(
+		declared.length >= 8 &&
+			[...declared].sort().join() === [...EFX_HEADER_FUNCTIONS].sort().join() &&
+			declared.every((name) => !(name in EFX_GLSL)),
+		`EFX_HEADER_FUNCTIONS is what the pass header declares (${declared.length}), none a library entry`,
+	);
+	assert(
+		JSON.stringify(unknownEfxCalls('void main(void) { efxSample(efxPx()); efxNoise(p); }')) ===
+			'[]' &&
+			JSON.stringify(
+				unknownEfxCalls('void main(void) { efxFuture(p); efxNoise(p); // efxGone(p)\n }'),
+			) === '["efxFuture"]' &&
+			fragments.every(([, fragment]) => !unknownEfxCalls(fragment).length),
+		'unknownEfxCalls names a call neither the library nor the header has (comments aside); no built-in pass makes one',
+	);
 	const EFX_GLSL_MUTABLE = EFX_GLSL as Record<string, string>;
 	const ORIGINAL_HASH = EFX_GLSL.efxHash;
 	let cycle = '';
@@ -1378,6 +1425,370 @@ console.log('element fx — the shaders run on WebGL1');
 }
 
 // -------------------------------------------------------------------------------------------------
+console.log('element fx — custom effects (Shader Graph)');
+{
+	assert(
+		ELEMENT_FX_PASS_KINDS.every((kind) => {
+			const impl = KINDS[kind];
+			return !!impl.filter && !impl.motion && !impl.breaks && !impl.filters;
+		}),
+		'every pass kind a custom effect may draw is a single shader pass: no motion, no break',
+	);
+	const curve = [
+		{ t: 0, v: 0, ease: 'hold' as const },
+		{ t: 0.5, v: 10, ease: 'smooth' as const },
+		{ t: 1, v: 20 },
+	];
+	assert(
+		sampleElementFxCurve(curve, -1) === 0 &&
+			sampleElementFxCurve(curve, 0.49) === 0 &&
+			sampleElementFxCurve(curve, 0.5) === 10 &&
+			near(sampleElementFxCurve(curve, 0.75), 15) &&
+			sampleElementFxCurve(curve, 2) === 20 &&
+			sampleElementFxCurve([], 0.5) === 0,
+		'a curve holds its ends, eases between keys (a hold steps), and an empty one reads 0',
+	);
+
+	const compiled = REFERENCE_GRAPHS.map((doc) => compileShaderEffect(doc));
+	const effects = compiled.flatMap((r) => (r.ok ? [r.effect] : []));
+	const PULSE = 'custom:pulseTint';
+	const POWER = 'custom:powerUp';
+	const DISSOLVE = 'custom:noiseDissolve';
+
+	assert(
+		!isPlayableElementFxKind(PULSE) &&
+			isCustomElementFxKind(PULSE) &&
+			!isCustomElementFxKind('custom:a.b') &&
+			!isCustomElementFxKind('pulseTint'),
+		'a custom kind is custom:<slug>, and plays only once registered',
+	);
+	const stored = [
+		{ id: 'a', kind: PULSE, trigger: 'always' },
+		{ id: 'b', kind: POWER, trigger: 'enter', params: { color: '#00ff00', stray: 1 } },
+		{ id: 'c', kind: PULSE, trigger: 'cue', cue: 'go', stopCue: 'halt' },
+		{ id: 'k', kind: DISSOLVE, trigger: 'keyed' },
+		{ id: 'u', kind: 'custom:later', trigger: 'cue', cue: 'later', params: { n: 2, o: {} } },
+		{ id: 'z', kind: 'custom:not.a.slug', trigger: 'cue', cue: 'x' },
+	];
+	const early = readElementFxEntries(stored);
+	assert(
+		early.map((e) => e.id).join() === 'a,b,c,k,u' &&
+			JSON.stringify(early.find((e) => e.id === 'u')?.params) === JSON.stringify({ n: 2 }),
+		'read before anything is registered, every well-formed custom entry is kept (plain values), a bad id dropped',
+	);
+	const playUnregistered = playElementFx(makeTarget(), { kind: PULSE }, makeHost().host);
+	assert(!playUnregistered.active, 'an unregistered custom kind plays nothing');
+
+	setCustomElementFx(effects);
+	assert(
+		effects.length === REFERENCE_GRAPHS.length &&
+			isPlayableElementFxKind(PULSE) &&
+			!isElementFxKind(PULSE) &&
+			customElementFx(POWER)?.passes.length === 1,
+		'registered, each reference graph is a playable custom kind (not a built-in)',
+	);
+	const entries = readElementFxEntries(stored);
+	assert(
+		JSON.stringify(entries.find((e) => e.id === 'b')?.params) ===
+			JSON.stringify({ color: '#00ff00' }) &&
+			JSON.stringify(elementFxCueNames(entries)) === JSON.stringify(['go', 'halt', 'later']) &&
+			JSON.stringify(elementFxChannels(entries)) === JSON.stringify(['efx:k', 'efx:k:intensity']) &&
+			elementFxEnterEnds(entries.find((e) => e.id === 'b') as never),
+		'registered, its params read against its spec; its cues, keyed channels and enter beat count like a built-in’s',
+	);
+	assert(
+		JSON.stringify(resolveElementFxParams(POWER, { color: '#123456' })) ===
+			JSON.stringify({ color: '#123456' }) &&
+			JSON.stringify(resolveElementFxParams('custom:later', { n: 2 })) === '{}',
+		'its params resolve over its defaults; an unregistered one resolves to none',
+	);
+
+	{
+		const { host, advance } = makeHost();
+		const target = makeTarget();
+		const own = new Filter({
+			glProgram: GlProgram.from({
+				vertex: 'void main(){}',
+				fragment: 'void main(){}',
+				name: 'own',
+			}),
+		});
+		target.filters = [own];
+		const play = playElementFx(target, { kind: PULSE, durationMs: 400 }, host);
+		advance(100);
+		const graph = target.filters?.[1] as ElementFxFilter | undefined;
+		const fx = graph?.efx.uFx as Float32Array | undefined;
+		assert(
+			target.filters?.length === 2 &&
+				target.filters[0] === own &&
+				graph instanceof SHADERS.ElementFxFilter &&
+				!!fx &&
+				fx[0] > 0.1 &&
+				fx[0] < 0.5 &&
+				near(fx[2], 1),
+			'its graph plays as one pass after the container’s own, fed its progress and strength',
+		);
+		const tint = graph?.efx.uP0 as Float32Array | undefined;
+		assert(
+			!!tint && near(tint[0], 0x66 / 255) && near(tint[2], 1),
+			'its colour param reaches its uniform',
+		);
+		let settled = false;
+		void play.done.then(() => (settled = true));
+		advance(400);
+		await Promise.resolve();
+		assert(
+			settled &&
+				!play.active &&
+				target.filters?.length === 1 &&
+				target.filters[0] === own &&
+				target.filterArea === undefined,
+			'it ends and leaves the container’s own list and filter area as they were',
+		);
+	}
+	{
+		const { host, advance } = makeHost();
+		const target = makeTarget();
+		const rest = snapshot(target);
+		playElementFx(target, { kind: POWER, durationMs: 600, params: { color: '#00ff00' } }, host);
+		advance(200);
+		const [graph, glow] = target.filters ?? [];
+		assert(
+			target.filters?.length === 2 &&
+				graph instanceof SHADERS.ElementFxFilter &&
+				!(glow instanceof SHADERS.ElementFxFilter) &&
+				String((glow as unknown as { color: unknown }).color) === '#00ff00',
+			'its built-in pass draws after its graph, its colour tied to the effect’s param',
+		);
+		assert(
+			JSON.stringify(snapshot(target)) !== JSON.stringify(rest),
+			'its motion curves move the element',
+		);
+		advance(500);
+		assert(
+			JSON.stringify(snapshot(target)) === JSON.stringify(rest) && !target.filters?.length,
+			'and it ends with every value exactly as it was',
+		);
+	}
+	{
+		const { host, advance } = makeHost();
+		const target = makeTarget();
+		const out = playElementFx(target, { kind: DISSOLVE, durationMs: 300 }, host);
+		advance(400);
+		assert(
+			out.active && target.filters?.length === 1,
+			'a custom exit holds its last frame after it plays',
+		);
+		playElementFx(target, { kind: 'popIn', durationMs: 200 }, host);
+		assert(!out.active && !target.filters?.length, 'an enter releases it');
+		advance(300);
+		const again = playElementFx(target, { kind: DISSOLVE, durationMs: 200 }, host);
+		advance(300);
+		stopElementFx(target);
+		assert(
+			!again.active && !target.filters?.length && near(target.alpha, 0.8),
+			'stop puts it back',
+		);
+	}
+	{
+		const { host, advance } = makeHost();
+		const target = makeTarget();
+		let pose: { progress?: number; intensity?: number } | undefined;
+		const keyed = playElementFx(target, { kind: PULSE, pose: () => pose }, host);
+		advance(200);
+		assert(!target.filters?.length, 'posed at nothing, it is at rest');
+		pose = { progress: 0.5, intensity: 0.5 };
+		advance(16);
+		const fx = (target.filters?.[0] as ElementFxFilter | undefined)?.efx.uFx as
+			Float32Array | undefined;
+		assert(
+			!!fx && near(fx[0], 0.5) && near(fx[2], 0.5),
+			'a timeline poses it: its progress and strength are the keys’',
+		);
+		advance(1000);
+		assert(!!fx && near(fx[0], 0.5), 'a pose holds still');
+		pose = { progress: 0 };
+		advance(16);
+		assert(!target.filters?.length && keyed.active, 'back to 0, it is at rest and waits');
+		keyed.stop();
+	}
+	{
+		const slow = makeHost(1);
+		const fast = makeHost(2);
+		const a = playElementFx(makeTarget(), { kind: PULSE, durationMs: 600 }, slow.host);
+		const b = playElementFx(makeTarget(), { kind: PULSE, durationMs: 600 }, fast.host);
+		slow.advance(320);
+		fast.advance(320);
+		assert(a.active && !b.active, 'turbo: at a time scale of 2 it plays in half the time');
+		slow.advance(400);
+	}
+	{
+		const { host, advance } = makeHost();
+		const target = makeTarget();
+		const playing = playElementFx(target, { kind: PULSE, durationMs: 400 }, host);
+		setCustomElementFx([]);
+		advance(100);
+		const next = playElementFx(target, { kind: PULSE }, host);
+		assert(
+			playing.active && target.filters?.length === 1 && !next.active,
+			'a new set leaves what is playing alone; the kind it dropped plays nothing new',
+		);
+		const later: CustomElementFx = {
+			...effects[0],
+			spec: { ...effects[0].spec, kind: 'custom:later', label: 'Later' },
+		};
+		setCustomElementFx([later]);
+		const now = playElementFx(makeTarget(), { kind: 'custom:later' }, host);
+		assert(now.active, 'and an entry kept from before plays once its effect is registered');
+		advance(2000);
+		setCustomElementFx([]);
+	}
+	{
+		const good = effects[0];
+		const named = (kind: string) => ({ ...good.spec, kind });
+		const bad = [
+			{
+				...good,
+				spec: named('custom:badUniform'),
+				shader: {
+					...good.shader,
+					uniforms: [{ name: 'uFx', type: 'mat4', source: { kind: 'time' } }],
+				},
+			},
+			{
+				...good,
+				spec: named('custom:nullParam'),
+				passes: [{ kind: 'glow', params: { color: null } }],
+			},
+			{
+				...good,
+				spec: named('custom:badEase'),
+				motion: { channels: { x: [{ t: 0, v: 0, ease: 'bounce' }] } },
+			},
+			{ spec: named('custom:noPasses'), shader: good.shader, padding: 0 },
+			{ ...good, spec: named('custom:tooWide'), padding: 5 },
+		];
+		const twice = { ...good, spec: { ...good.spec, label: 'Second' } };
+		let registered: CustomElementFx[] = [];
+		let threw = false;
+		try {
+			registered = setCustomElementFx([...bad, good, twice]);
+		} catch {
+			threw = true;
+		}
+		assert(
+			!threw &&
+				registered.length === 1 &&
+				registered[0].spec.label === 'Second' &&
+				registered[0] !== twice &&
+				bad.every((b) => !isPlayableElementFxKind(b.spec.kind)),
+			'the registry reads what it is given: a malformed effect (an unknown uniform type, a null pass value, an unknown ease, no passes, padding past 2) is left out, never thrown on; a kind given twice plays as its last, kept as a copy',
+		);
+		setCustomElementFx([
+			{ ...good, spec: named('custom:padded'), padding: 0.5 },
+			{
+				...good,
+				spec: named('custom:shrink'),
+				motion: { channels: { scale: [{ t: 0, v: 0.5 }] } },
+			},
+		]);
+		const { host, advance } = makeHost();
+		const padded = makeTarget();
+		playElementFx(padded, { kind: 'custom:padded', durationMs: 400 }, host);
+		const shrunk = makeTarget();
+		playElementFx(shrunk, { kind: 'custom:shrink', intensity: 4, durationMs: 400 }, host);
+		advance(50);
+		assert(
+			(padded.filters?.[0]?.padding ?? 0) > 2,
+			'padding asks its pass for room around the element',
+		);
+		assert(
+			shrunk.scale.x > 0 && shrunk.scale.y > 0 && near(shrunk.rotation, 0.2, 1e-3),
+			'a shrink played four times as strong stops short of nothing: it never turns the element over',
+		);
+		stopElementFx(padded);
+		stopElementFx(shrunk);
+		setCustomElementFx([]);
+	}
+	{
+		const burn = BUILTIN_TWINS.find((t) => t.kind === 'burn');
+		const seeded = burn ? compileShaderEffect(burn.doc) : undefined;
+		setCustomElementFx([...(seeded?.ok ? [seeded.effect] : []), effects[0]]);
+		const { host, advance } = makeHost();
+		const random = Math.random;
+		let draws = 0;
+		Math.random = () => {
+			draws++;
+			return random();
+		};
+		const a = makeTarget();
+		const b = makeTarget();
+		playElementFx(a, { kind: 'custom:burn', durationMs: 400 }, host);
+		playElementFx(b, { kind: 'custom:burn', durationMs: 400 }, host);
+		const seedDraws = draws;
+		const plain = makeTarget();
+		playElementFx(plain, { kind: PULSE, durationMs: 400 }, host);
+		const plainDraws = draws - seedDraws;
+		Math.random = random;
+		const seedOf = (t: Container): unknown =>
+			(t.filters?.[0] as ElementFxFilter | undefined)?.efx.uSeed;
+		const [first, second] = [seedOf(a), seedOf(b)];
+		advance(100);
+		assert(
+			seedDraws === 2 &&
+				plainDraws === 0 &&
+				typeof first === 'number' &&
+				typeof second === 'number' &&
+				first !== second &&
+				first >= 0 &&
+				first < 97 &&
+				seedOf(a) === first &&
+				seedOf(plain) === undefined,
+			'a custom effect reading the seed draws one for each element (two burning at once differ) and keeps it while it plays; one that reads none draws none',
+		);
+		for (const t of [a, b, plain]) stopElementFx(t);
+		setCustomElementFx([]);
+	}
+	{
+		// An effect compiled by a newer Shader Graph may call a library entry this version lacks:
+		// left out (it plays nothing), never handed to the GPU as a shader that fails.
+		const good = effects[0];
+		const calling = (call: string, kind: string) => ({
+			...good,
+			spec: { ...good.spec, kind },
+			shader: {
+				...good.shader,
+				body: good.shader.body.replace('void main(void)\n{', `void main(void)\n{\n    ${call};`),
+			},
+		});
+		const unknown = calling('float later = efxNotYetWritten(px)', 'custom:fromTheFuture');
+		const known = calling('float seen = efxNoise(px)', 'custom:fromNow');
+		const seed = { name: 'uSeed', type: 'float', source: { kind: 'seed' } };
+		const twoSeeds = {
+			...good,
+			spec: { ...good.spec, kind: 'custom:twoSeeds' },
+			shader: {
+				...good.shader,
+				uniforms: [...good.shader.uniforms, seed, { ...seed, name: 'uSeed2' }],
+			},
+		};
+		const shipped = [...REFERENCE_GRAPHS, ...BUILTIN_TWINS.map((t) => t.doc)].map((doc) =>
+			compileShaderEffect(doc),
+		);
+		const registered = setCustomElementFx([unknown, known, twoSeeds]);
+		const play = playElementFx(makeTarget(), { kind: 'custom:fromTheFuture' }, makeHost().host);
+		assert(
+			unknown.shader.body.includes('efxNotYetWritten(px)') &&
+				registered.map((e) => e.spec.kind).join() === 'custom:fromNow' &&
+				!play.active &&
+				shipped.every((r) => r.ok && !!readCustomElementFx(r.effect)),
+			'the registry leaves out an effect calling an efx… function neither the library nor the pass header has (it plays nothing), and one with two seeds; every reference graph and twin reads',
+		);
+		setCustomElementFx([]);
+	}
+}
+
+// -------------------------------------------------------------------------------------------------
 console.log('element fx — the wiring');
 {
 	const view = read('packages/engine-layout/src/lib/LayoutNodeView.svelte');
@@ -1489,7 +1900,8 @@ console.log('element fx — the wiring');
 		'the flow declares elementEffect / stopElementEffect',
 	);
 	assert(
-		vocab.includes("{ name: 'ElementFxKind', values: [...ELEMENT_FX_KINDS] }"),
+		vocab.includes("export const ELEMENT_FX_KIND_ENUM = 'ElementFxKind';") &&
+			vocab.includes('{ name: ELEMENT_FX_KIND_ENUM, values: [...ELEMENT_FX_KINDS] }'),
 		'its kind dropdown is the catalog',
 	);
 	const effects = read('apps/lines/src/game/flowEffects.ts');
@@ -1497,6 +1909,10 @@ console.log('element fx — the wiring');
 		/\n\telementEffect: \(payload\) =>/.test(effects) &&
 			/\n\tstopElementEffect: \(payload\) =>/.test(effects),
 		'the game implements both',
+	);
+	assert(
+		effects.includes('if (!isPlayableElementFxKind(kind) || !target) return;'),
+		'the Flow plays a registered custom kind as it does a built-in',
 	);
 	assert(ELEMENT_FX_KINDS.length === ELEMENT_FX.length, 'the kind list is the catalog’s');
 }

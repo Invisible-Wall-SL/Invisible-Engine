@@ -83,9 +83,12 @@ const digest = (value: unknown) =>
 	createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 16);
 /** The lines PRESETS beside the defaults (book-feature Phase 5a): a new file, not a changed one. */
 const PRESET_FILES = ['lines.bookOfThermopylae.json'];
+/** The rules-decided match-3 seed (game-families P10.5): a new file, and not a slot, so it has no
+ *  expanding symbol to be without; pinned by `check:family-defaults-identity`. */
+const MATCH3_SEED = 'match3.rules.json';
 /** The Hold and Win coin board template (hold-and-win-coin-board Phase 13a): also a new file,
  *  pinned by `coinBoard.fixture.ts`. */
-const LATER_FILES = [...PRESET_FILES, 'holdAndWin.coinBoard.json'];
+const LATER_FILES = [...PRESET_FILES, 'holdAndWin.coinBoard.json', MATCH3_SEED];
 const files = readdirSync(DEFAULTS).filter(
 	(name) => name.endsWith('.json') && !LATER_FILES.includes(name),
 );

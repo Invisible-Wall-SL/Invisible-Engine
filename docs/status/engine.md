@@ -137,10 +137,11 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
    `winSymbolCycle`, `freeSpinHold`, `unskippablePresentation`, `soundBindings`, the flow holders).
    A raw file count overstates the remainder. Reference scene sets for a type other than
    `lines`/`bookOf` are Phase E (a game type as an authoring KIND), not Phase A — they belong to
-   [status/editor](editor.md) and [status/flow](flow.md). **Phase B still owes** one consolidation:
-   the seam is two separate declaration-merging registries (`GameContext`, `BookEventRegistry`) and
-   a `deps` object per factory, not one named mechanic interface — fine while `lines` is the only
-   mechanic, and the thing to fold together when a second one exists.
+   [status/editor](editor.md) and [status/flow](flow.md). **Phase B's one named mechanic
+   interface** landed with the second mechanic (game-families P10.5): `engine-game`
+   `mechanicFor(config)` → `GameMechanic`, which every family branch reads
+   ([status/game-families](game-families.md)); the registries (`GameContext`, `BookEventRegistry`)
+   and the per-factory `deps` stay the state-and-events half.
 
    **The gate, and what it cost to build.** The fingerprint is exact only for **type-only** slices
    (a real file move reorders rollup's graph and reshuffles minified names), so relocation slices

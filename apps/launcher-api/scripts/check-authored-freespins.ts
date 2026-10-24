@@ -49,7 +49,8 @@ const PINNED = [
 	'479dae5bb6359279f3319db09e63a36f30f4220e6d94570f84dded9baf165483', // pragma: allowlist secret
 	'7dd3210babd5d462fe768db2e59dc39300ca0066d44863e45972f6e0be78ca0a', // pragma: allowlist secret
 	'0825a395ed07f094c07f7119e9f2f1218ab3b8b3a95cb233a3bb16df3a393125', // pragma: allowlist secret
-	'e08a8e4a7c470dfe8261319bb553424cc9b51a68e42d5566e4fda162edd57c26', // pragma: allowlist secret
+	// drivenSeed.ts, re-pinned for game-families P10.5: one import and the `match3` DRIVEN_SEEDS entry.
+	'b87a6227a4ced582e903a64d0c0cb6533ac505299ef447228c5671d649010f9f', // pragma: allowlist secret
 	'3bfe8005429caf31bec13098254b77c8d788190f38938d7cdb562cfbef531682', // pragma: allowlist secret
 ];
 

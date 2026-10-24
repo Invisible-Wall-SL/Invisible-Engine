@@ -30,6 +30,7 @@ import {
 	instanceValueOf,
 } from './instanceNodes';
 import { CUE_SCOPE_PIN } from './pins';
+import { variableEntries, type FlowStateAccess, type FlowVariableWrite } from './state';
 import type {
 	Accessor,
 	BranchNode,
@@ -142,6 +143,13 @@ export interface FlowV2Env {
 	/** A `waitForState` node — resolve once the instance's layer is in `state` (at once when it
 	 *  already is). Optional: a recorder env without it makes the wait a no-op. */
 	awaitInstanceState?(ref: InstanceRef, layer: string, state: string): Promise<void>;
+	/**
+	 * The game's variables and timers (game-families §3.1–§3.2) — a `$var` read, the Set / Change
+	 * Variable nodes and the timer nodes. The store outlives every run (`createFlowState`), held by
+	 * the game. Optional: an env without it reads every variable as `undefined` and makes the nodes
+	 * no-ops (every doc authored before P10.3 has none).
+	 */
+	state?: FlowStateAccess;
 }
 
 /** The lookups + environment a run needs — the template contract, the function library,
@@ -183,6 +191,18 @@ interface Scope {
 // data read pulls its cached outputs) keyed by call NodeId.
 // ---------------------------------------------------------------------------
 
+/**
+ * A graph with its groups flattened, kept per graph object: a doc is not edited in place (the game's
+ * is fixed for the session, the editor replaces a graph on every edit), so a tick or timer entry that
+ * builds an interpreter every frame flattens each graph once, not on every run.
+ */
+const flatGraphs = new WeakMap<Graph, Graph>();
+const flattened = (graph: Graph): Graph => {
+	let flat = flatGraphs.get(graph);
+	if (!flat) flatGraphs.set(graph, (flat = flattenGroups(graph)));
+	return flat;
+};
+
 class FlowInterpreter {
 	private readonly nodesById = new Map<NodeId, Node>();
 	/** Cached outputs per `functionCall` node id → { outputPinId: value }. */
@@ -199,11 +219,11 @@ class FlowInterpreter {
 		// §5.2: FLATTEN all `group` nodes back into their bodies BEFORE interpreting — a group is a pure
 		// fold, semantically identical to its expanded form, so the interpreter never sees one. Function
 		// bodies may also carry groups, so flatten those too.
-		this.doc = { ...doc, graph: flattenGroups(doc.graph) };
+		this.doc = { ...doc, graph: flattened(doc.graph) };
 		this.indexNodes(this.doc.graph);
 		// A function body's nodes must also resolve by id (recursion into a call's body).
 		for (const fn of ctx.library.functions) {
-			const body = flattenGroups(fn.body);
+			const body = flattened(fn.body);
 			this.fnBodies.set(fn.id, body);
 			this.indexNodes(body);
 		}
@@ -281,6 +301,22 @@ class FlowInterpreter {
 		const edge = instanceEventEdge(this.doc.graph, instanceId, event);
 		if (!edge) return;
 		await this.execFrom(this.doc.graph, edge.to.node, edge.to.pin, { trigger: payload, context });
+	}
+
+	/** This run's graph's nodes (groups flattened). */
+	nodes(): Node[] {
+		return this.doc.graph.nodes;
+	}
+
+	/** The ids of this run's graph's nodes `hit` accepts, in graph order (groups flattened). */
+	entries(hit: (node: Node) => boolean): string[] {
+		return this.doc.graph.nodes.filter(hit).map((n) => n.id);
+	}
+
+	/** Run the entry node `nodeId` (an `onVariable` / `onTick` / `onTimer` / `onInput`) with its
+	 *  payload as `$trigger`. */
+	async runEntry(nodeId: NodeId, trigger: Record<string, unknown>): Promise<void> {
+		await this.execFrom(this.doc.graph, nodeId, 'exec', { trigger, context: {} });
 	}
 
 	/**
@@ -363,7 +399,39 @@ class FlowInterpreter {
 			case 'functionEntry':
 			case 'modeTrigger':
 			case 'allModesFinished':
+			case 'onVariable':
+			case 'onTick':
+			case 'onTimer':
+			case 'onInput':
 				// Exec START points: their job is just to hand off to the exec-out.
+				return this.nextExec(graph, node.id, 'exec');
+
+			case 'setVariable': {
+				// The write applies HERE, synchronously (§3.1): the last write in execution order wins.
+				const value = this.resolveDataIn(graph, node.id, 'value', scope);
+				if (value !== undefined) this.ctx.env.state?.write(node.variable, value);
+				return this.nextExec(graph, node.id, 'exec');
+			}
+
+			case 'changeVariable': {
+				const by =
+					node.op === 'toggle' ? undefined : this.resolveDataIn(graph, node.id, 'by', scope);
+				this.ctx.env.state?.change(node.variable, node.op, by, { min: node.min, max: node.max });
+				return this.nextExec(graph, node.id, 'exec');
+			}
+
+			case 'startTimer': {
+				const ms = Number(this.resolveDataIn(graph, node.id, 'ms', scope));
+				this.ctx.env.state?.startTimer(node.timer, Number.isFinite(ms) ? ms : 0, !!node.repeat);
+				return this.nextExec(graph, node.id, 'exec');
+			}
+
+			case 'stopTimer':
+				this.ctx.env.state?.stopTimer(node.timer);
+				return this.nextExec(graph, node.id, 'exec');
+
+			case 'pauseTimer':
+				this.ctx.env.state?.pauseTimer(node.timer, execPinId !== 'resume');
 				return this.nextExec(graph, node.id, 'exec');
 
 			case 'enterMode': {
@@ -654,6 +722,8 @@ class FlowInterpreter {
 		switch (src.kind) {
 			case 'event':
 			case 'modeTrigger':
+			case 'onVariable':
+			case 'onTick':
 				// An event data-out IS the payload field named by the pin id.
 				return scope.trigger[from.pin];
 			case 'gameSignals': {
@@ -736,6 +806,8 @@ class FlowInterpreter {
 				return acc.member === undefined ? scope.trigger : scope.trigger[acc.member];
 			case 'context':
 				return acc.member === undefined ? scope.context : scope.context[acc.member];
+			case 'var':
+				return this.ctx.env.state?.read(acc.id);
 		}
 	}
 
@@ -1022,6 +1094,79 @@ export const runFlowModeTransition = async (
 		if (!graph) continue;
 		await new FlowInterpreter(withGraph(doc, graph), ctx).runModeTransition(transition);
 	}
+};
+
+/**
+ * Something the game's variable and timer store (`state.ts`) says is due: a timer ran out, a tick
+ * node's period came round, a mapped key went down or up, or a batch of variable writes was flushed.
+ */
+export type FlowStateEntry =
+	| { kind: 'timer'; timer: string }
+	| { kind: 'tick'; node: string; dt: number }
+	| { kind: 'input'; action: string; phase: 'down' | 'up' }
+	| { kind: 'variables'; batch: readonly FlowVariableWrite[] };
+
+const stateEntryHit = (
+	entry: Exclude<FlowStateEntry, { kind: 'variables' }>,
+): ((node: Node) => boolean) => {
+	switch (entry.kind) {
+		case 'timer':
+			return (n) => n.kind === 'onTimer' && n.timer === entry.timer;
+		case 'tick':
+			return (n) => n.kind === 'onTick' && n.id === entry.node;
+		case 'input':
+			return (n) =>
+				n.kind === 'onInput' && n.action === entry.action && (n.phase ?? 'down') === entry.phase;
+	}
+};
+
+/**
+ * Run the entries `entry` fires (§3.1–§3.2), one after another in graph order: the active mode's
+ * graph when it has one for it, else the global graph — the rule a signal follows. A tick names its
+ * node, so a mode's tick runs only while that mode is on screen. A variables batch is split per
+ * variable by the same rule, so a mode's On variable for one variable never hides the global graph's
+ * for another; each `onVariable` entry it fires (`variableEntries`) runs with `{ value, previous }`.
+ * A tick seeds `{ dt }`. Nothing to run ⇒ no interpreter is built.
+ */
+export const runFlowStateEntry = async (
+	doc: FlowDoc,
+	ctx: RunContext,
+	entry: FlowStateEntry,
+): Promise<void> => {
+	const modeGraph = flowModeGraph(doc, ctx.activeMode?.());
+	if (entry.kind === 'variables') {
+		const watches = (graph: Graph | undefined, id: string): boolean =>
+			!!graph && graphHas(graph, (n) => n.kind === 'onVariable' && n.variable === id);
+		const parts: { graph: Graph; batch: FlowVariableWrite[] }[] = [];
+		const part = (graph: Graph, w: FlowVariableWrite): void => {
+			const found = parts.find((p) => p.graph === graph);
+			if (found) found.batch.push(w);
+			else parts.push({ graph, batch: [w] });
+		};
+		for (const w of entry.batch) {
+			if (modeGraph && watches(modeGraph, w.id)) part(modeGraph, w);
+			else if (watches(doc.graph, w.id)) part(doc.graph, w);
+		}
+		for (const { graph, batch } of parts) {
+			const run = new FlowInterpreter(withGraph(doc, graph), ctx);
+			const fires = variableEntries({ nodes: run.nodes(), exec: [], data: [] }, batch);
+			for (const fire of fires)
+				await run.runEntry(fire.node, { value: fire.value, previous: fire.previous });
+		}
+		return;
+	}
+	const hit = stateEntryHit(entry);
+	// A tick names one node of one graph: the flattened ids the store reported tell which.
+	const holds = (graph: Graph): boolean =>
+		entry.kind === 'tick'
+			? flattened(graph).nodes.some((n) => n.id === entry.node && n.kind === 'onTick')
+			: graphHas(graph, hit);
+	const graph =
+		modeGraph && holds(modeGraph) ? modeGraph : holds(doc.graph) ? doc.graph : undefined;
+	if (!graph) return;
+	const run = new FlowInterpreter(graph === doc.graph ? doc : withGraph(doc, graph), ctx);
+	const trigger: Record<string, unknown> = entry.kind === 'tick' ? { dt: entry.dt } : {};
+	for (const id of run.entries(hit)) await run.runEntry(id, trigger);
 };
 
 /** Does the doc react to mode transitions at all (so a game can skip a run for each one)? */

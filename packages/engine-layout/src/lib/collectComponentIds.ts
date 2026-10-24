@@ -78,10 +78,11 @@ export function collectParamComponentIds(
 /**
  * Every def `nodes` need, loaded through `load`: the instances they place, the defs those nest, and
  * the components their `component`-kind params name ({@link collectParamComponentIds}), until
- * nothing new turns up. `extraSeedIds` are ids named from outside the nodes (a bet mode's card). A
- * seed with no def is skipped. `defaultsFor` reads the project's defaults for a def, and is asked
- * only for a def that has a `component`-kind param. Defs come out in load order, so a doc that names
- * no component through a param resolves exactly as the plain instance walk did.
+ * nothing new turns up. `extraSeedIds` are ids named from outside the nodes (a bet mode's card). An
+ * id with no def is skipped and handed to `onMissing`. `defaultsFor` reads the project's defaults
+ * for a def, and is asked only for a def that has a `component`-kind param. Defs come out in load
+ * order, so a doc that names no component through a param resolves exactly as the plain instance
+ * walk did.
  *
  * The one closure the doc bake, the runtime bundle and the art export share, so a def one of them
  * ships the others ship too.
@@ -92,8 +93,10 @@ export async function resolveComponentClosure(
 	{
 		extraSeedIds = [],
 		defaultsFor,
+		onMissing,
 	}: {
 		extraSeedIds?: string[];
+		onMissing?: (id: string) => void;
 		defaultsFor?: (
 			id: string,
 		) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;
@@ -109,7 +112,10 @@ export async function resolveComponentClosure(
 			if (seen.has(id)) continue;
 			seen.add(id);
 			const def = await load(id);
-			if (!def) continue;
+			if (!def) {
+				onMissing?.(id);
+				continue;
+			}
 			defs[id] = def;
 			if (defaultsFor && componentParamKeys(def).length) {
 				const own = await defaultsFor(id);

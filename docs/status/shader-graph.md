@@ -1,11 +1,16 @@
 # Invisible Shader Graph — status
 
-> Design: [docs/design/invisible-shader-graph.md](../design/invisible-shader-graph.md) · Guide: none yet (step 5) · Agent: `.claude/agents/invisible-shader-graph.md`
+> Design: [docs/design/invisible-shader-graph.md](../design/invisible-shader-graph.md) · Guide: [docs/tools/shader-graph.md](../tools/shader-graph.md) · Agent: `.claude/agents/invisible-shader-graph.md`
 
 **One-line state:** plan approved 2026-10-23. Step 1 (one shared GLSL library under the 17
 built-in shader passes, #1320) and step 2 (the `engine-shadergraph` package: nodes, validator,
-compiler, #1322) are merged. Nothing plays a graph yet, and no tool or route exists; step 3, the
-runtime, is next.
+compiler, #1322) and step 3 (the runtime: a compiled graph plays as `custom:<id>` wherever a built-in
+Element FX does, #1328) and step 4 (the pipeline: a project's graphs are stored, compiled into
+Publish and the bake, registered by the game at boot and listed by the Scene Editor, Symbols and
+Flow pickers, #1329) and step 5 (the `/shaders` editor: library, canvas, properties and a live
+Pixi preview, with a lease and history, #1330) and step 6 (the templates: graph twins of 30
+built-ins, held to a parity gate in `check:all`, offered as "Start from a built-in", #1333) are
+merged. Step 7 (editor v2) is next, when the owner asks for it.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -37,7 +42,7 @@ runtime, is next.
     - The element's colour at the pixel is read once, as `pixel`, however many inputs default to
       it.
     - The Output keeps the colour premultiplied: no channel above alpha.
-  - **The validator** names each broken doc (12 kinds of error) without throwing, even on a
+  - **The validator** names each broken doc (14 kinds of error, the effect's passes and motion included) without throwing, even on a
     malformed one. A node that reaches nothing is checked like the rest, then left out with a
     warning. A graph over the phone budget (cost 400, 16 reads of the element) gets a warning and
     still compiles.
@@ -49,24 +54,323 @@ runtime, is next.
     reference graphs and every node at every vector width through the real `ElementFxFilter` in
     headless Chromium, on WebGL1 and WebGL2. It fails on any shader the driver rejects and names
     the graph.
-- **Not started:** steps 3–8 (the runtime kinds, the pipeline, the `/shaders` editor, templates,
-  editor v2, later).
+- **Step 3, the runtime.** Merged (#1328, 2026-10-24).
+  - **Custom kinds.** A compiled graph plays as the Element FX kind `custom:<id>`. The registry is
+    in `constants-shared/elementFx`: `setCustomElementFx(list)` replaces the set,
+    `isPlayableElementFxKind` answers for built-ins and registered custom kinds alike.
+  - **The registry checks what it is given.** Each effect goes through `readCustomElementFx`
+    (spec and params, shader body and uniforms, padding, passes, motion) and is kept as a copy. A
+    malformed one is left out, so an effect loaded from storage or a bundle cannot stop the game's
+    ticker mid-play. A kind given twice plays as its last.
+  - **The reader keeps them.** A well-formed custom entry is kept even before its effect is
+    registered (its params as plain values), so the order a game reads its docs and registers its
+    effects in cannot drop one. It plays once registered and is a no-op until then.
+  - **The effect.** `compileShaderEffect(doc)` (`engine-shadergraph`) packs the graph's pass with
+    the doc's passes and motion as one plain value that can ship as JSON.
+    - **Passes:** up to 4 built-in single-pass kinds after the graph (glow, outline, shine, flash,
+      hue cycle, chromatic, glitch, blur, pixelate). Each param is set by value or tied to one of
+      the effect's own params of the same kind.
+    - **Motion:** a curve per channel over the play (x, y as shares of the element, scale,
+      rotation in degrees, alpha), keys eased linear / smooth / in / out / hold, about a pivot.
+      Each channel has a range (alpha 0…1, scale 0…10, x / y ±10, rotation ±3600). Every channel
+      but alpha scales with intensity; the runtime keeps alpha 0…1 and a scale above 0, so a strong
+      play never flips the element over.
+    - **Padding:** room the graph draws outside the element, 0…2 shares of its larger side.
+  - **The runtime** (`pixi-svelte/src/lib/elementFx/custom.ts`) plays it as a built-in plays: its
+    graph as one `ElementFxFilter`, its passes after it, its motion folded into the element's
+    transform. An effect already playing keeps what it started with when the set is replaced.
+  - **Where it plays.** Nodes, screens, the reels and symbol states play an entry naming one, and
+    the Flow's `elementEffect` plays one too (the game checks `isPlayableElementFxKind`). The gate
+    plays custom kinds through the reader and the runtime those all share. It does not mount a
+    `Symbol.svelte`: symbol states reach the same reader through `symbolStateFx`.
+  - **An unregistered custom entry still counts** where the engine counts entries: cue names,
+    keyed channels, an `enter` beat a symbol state waits for. Playing it is a no-op whose `done` is
+    already settled, so the wait ends at once.
+- **Step 4, the pipeline.** Merged (#1329, 2026-10-24).
+  - **Storage** (`apps/launcher-api/src/lib/server/shaderStorage.ts`). One file per graph: a
+    project's at `<client>/<project>/shaders/<id>.json`, the studio-shared library's at
+    `_shared/shaders/<id>.json`. A project's graph shadows a shared one of the same id; the project's
+    **set** is its own graphs plus the shared ones it does not override. The id is `shaderSlug`
+    (`r2Slug` without leading underscores), so it always makes a valid `custom:<id>`.
+    `normalizeShaderGraphDoc` (`engine-shadergraph`) is the gatekeeper: a save keeps a graph that
+    does not compile (it is being built) and drops what is not part of the doc. A save is guarded
+    by `baseEtag` (a create on a taken id and a stale ETag are 409s), and a graph over 512 KB is
+    refused (413). A setup duplicate copies `shaders/`.
+  - **Routes** (`/api/shaders/list | doc | effects | save | delete`). The reads gate on the tools
+    whose pickers list custom effects (Scene and Component Editors, Symbols, Flow) and `/shaders`;
+    save and delete gate on `/shaders` (the Scene Editor until step 5). Every route refuses a tab on another
+    project (`scopeMismatch`). `effects` answers the set compiled and the graphs left out. A shared
+    graph is read with no ETag: saving it writes the project its own copy.
+  - **The ship.** `shaderExport.ts` compiles the set into `deploy/editor-shaders/` (one compiled
+    effect per file and an `_index.json`; no id starts with `_`), names a graph that does not
+    compile, and prunes what an earlier export left. Publish (`runtimeBundle.ts`) and the bake
+    (`/api/editor/export-shaders`, called by `bake-editor-doc.mjs`; a launcher without it answers 404
+    and the bake goes on) embed the effects as `shaderEffects`. The pull mirrors `editor-shaders/`
+    (`GENERATED_SUBTREES`). The game reads them with `bakedShaderEffects()` and registers them with
+    `setCustomElementFx` before its first render.
+  - **Nothing goes missing silently.** Publish logs, and returns as `shaderEffectsMissing`, every
+    `custom:<id>` the game names (an entry, a Flow parameter) that it does not ship: its graph was
+    deleted or does not compile, so it plays nothing (`unshippedCustomKinds`). The bake logs the
+    same, and the graphs it left out with their errors. The Scene Editor tells such a row apart
+    from an unknown kind. Publish judges the flow with the kinds it ships.
+  - **The pickers.** The Scene Editor and Symbols load the compiled set and register it
+    (`$lib/customElementFx.svelte.ts`, whose version signal refreshes the panel's kind groups and
+    rows). The Element FX kind picker lists them under "Custom (Shader Graph)" (a new
+    `ELEMENT_FX_CATEGORIES` entry) and takes a registered custom kind; ▶ plays it. The Flow's kind
+    dropdown is widened with the project's custom kinds (`withCustomElementFxKinds`, enum
+    `ELEMENT_FX_KIND_ENUM`); its validator already took any text.
+  - **Proof.** `check:shader-pipeline` (75 checks: storage, the routes, the ship, the wiring of
+    both bundle paths, the boot, the pull, the pickers, the Flow vocab and the missing-effect
+    report). `scripts/playtest/shader-effect-play.mjs` plays a published game with two graphs on it
+    and passes or fails (see "Recent changes").
+- **Step 5, the editor (`/shaders`).** Merged (#1330, 2026-10-24).
+  - **The tool.** `TOOLS.shaders` ("Invisible Shader Graph", Assets stage; admin, developer,
+    artist, pipeline tester), its guide `docs/tools/shader-graph.md`, the icon on every tool bar.
+    It takes the save gate over from the Scene Editor.
+  - **Three panes.** Left: the project's graphs (its own, and the shared ones it does not
+    override, tagged) with New and Delete, then the node library by family, searched, dragged onto
+    the canvas or clicked in. Middle: the canvas. Right: the preview, the selected node's settings and
+    unwired input values, and the effect's (name, description, phase, duration, padding, params, up
+    to 4 passes, motion curves and pivot).
+  - **The canvas** is `$lib/graph/GraphCanvas.svelte`, lifted out of /flow-v2 (Flow now wraps it).
+    A node's header carries its family colour; each port is coloured by the type it resolved to;
+    an unwired input shows the value the compiler reads. A wire is refused unless the compiler
+    would take it (a float spreads, a shorter vector never widens, nothing feeds itself), and an
+    input takes one wire.
+  - **Errors on the nodes.** The page compiles the graph on every edit. A node's errors show on it
+    (red border, the messages under its ports); errors that belong to no node, and the counts, show
+    in the status bar with the cost and reads against the phone budget.
+  - **Saving.** Autosave after a second, Ctrl+S, guarded by the graph's ETag (a conflict stops and
+    says so). A per-graph lease (`LeaseState`, doc key the graph id): a second editor sees who holds
+    it and saving waits. History per graph (`/api/shaders/backups`, stem `shader`): list and
+    restore. A shared graph opens from the library; saving writes the project its own copy.
+    Undo / redo (100 steps), and a guard on leaving with unsaved work.
+  - **The live preview** (`ShaderPreview.svelte`, `shaderPreview.client.ts`). Its own Pixi
+    application plays the compiled effect through the game's Element FX runtime, posed: a `t`
+    scrubber, play / pause, loop, intensity 0–4 and a dark / light / checker backdrop. The element
+    is a drawn sample card or any atlas region (symbol art included; rotated and trimmed frames as
+    Pixi builds them). An edit that compiles to the same effect does not restart it; a graph that
+    does not compile shows the element at rest and says so.
+  - **Proof.** `check:shader-editor` (60 checks: every gesture, the wire rule, the canvas view,
+    the client's slug against the server's); `check:shader-pipeline` grew to 88 (the `shaders` gate,
+    history, a delete kept in History); the preview played headless on WebGL1 and WebGL2 (74
+    checks); the whole page played headless (67 checks).
+- **Step 6, the templates.** Merged (#1333, 2026-10-24).
+  - **The twins** (`packages/engine-shadergraph/src/twins.ts`, `BUILTIN_TWINS`; `twins/passes.ts`,
+    `distort.ts`, `material.ts`, built with `twins/graph.ts`). One graph per built-in kind it can
+    rebuild, 30 of the 50: the 3D and distortion kinds (Flip sideways / over, Bounce 3D, Sphericon,
+    Tilt 3D, Wave X / Y, Flag, Twist, Curl, Ripple, Bulge, Melt), the light kinds (Shine, Flash,
+    Freeze, Burn to ashes, Poison, Electrocute, Petrify, Turn to gold, Dissolve out / in) and the
+    pass kinds (Glow, Outline, Rainbow, Chromatic, Glitch, Blur, Pixelate: the Output alone, then
+    that pass with every param tied). Each has its kind's catalog params exactly, its phase and
+    length, and rebuilds the kind's JS timing from nodes. The 14 motion-only kinds and the 6 breaks
+    have none (a motion-only kind is curves alone; a break is not a pixel effect).
+  - **Motion gaps.** A twin whose motion a curve cannot follow says why (`motionGap`): the motion
+    follows the seconds played, a param or looping (Bounce 3D, Freeze, Poison, Electrocute, Petrify,
+    Turn to gold; Freeze's shiver also scales by the element's shorter side where the curve is in
+    widths). Their pixels are held to parity like every other twin's, and their motion too at the
+    defaults on a portrait element, except Poison and Electrocute (`motionGapAtDefaults`).
+  - **Padding gaps.** A graph's padding is one number. The waves and Bounce 3D take the room their
+    largest param needs at strength 1. Melt takes its defaults' final room (1.16 heights; the
+    built-in grows it with drip length × strength × progress), and names it (`paddingGap`).
+  - **The parity gate** (`pnpm --filter fx-spike shader-twins`, `tools/fx-spike/shaderTwins.mjs`,
+    run by `check:all`). Each built-in and its twin play through `playElementFx` with the same card,
+    seed and params, on WebGL1 and WebGL2: 8 moments at the defaults and at every number param's
+    minimum and maximum, plus every choice option, a switch flipped, another colour, strength 0.3
+    and 2, a second loop, and the defaults again on a landscape card. A pixel differs at more than 2
+    steps; a cell fails past 0.25% of its pixels (at least the element's area) or on any patch (a
+    differing pixel with four differing neighbours). Motion is compared as numbers (corners within
+    0.25 px, alpha within 0.5/255) except where the twin names a gap. The built-in must draw
+    nothing past the twin's room unless the twin names a padding gap. About 75 s.
+  - **New nodes** (76 → 91): Perspective plane, Sphericon, Flag (UV); Loop envelope, Bounce,
+    Oscillate (time); Seed (input); Pick (math); Random number, Line noise, Arcs, Sparkles
+    (procedural); Away from side N (mask); Relief slope, Page curl (colour); and a **Blend** setting
+    on the Output (Normal, or Add: a colour brighter than its alpha, for glows and halos).
+  - **Library calls fail safe.** The runtime links the library from its own copy, so an effect
+    calling an entry it lacks (compiled by a newer launcher) would draw a broken shader.
+    `readCustomElementFx` now drops such an effect (`unknownEfxCalls`, `EFX_HEADER_FUNCTIONS`), and
+    one with two seeds, so it plays nothing. A graph saved before step 6 compiles byte-identical and
+    calls nothing new; one using a step 6 node needs a runtime from step 6 on (the rollback floor
+    in `docs/design/games-deploy.md`).
+  - **A per-element seed.** The Seed node reads a `seed` uniform the custom runtime draws once per
+    element (`custom.ts`), as the built-ins draw theirs, so two elements playing one effect differ.
+    An effect that never reads it draws none and compiles as before.
+  - **Built-ins moved onto the library.** Perspective, sphericon, flag, curl, electrocute, petrify
+    and gold call the new library entries instead of private code, proven pixel-identical by
+    `shader-parity` on WebGL1 and WebGL2.
+  - **Start from a built-in** (`/shaders`). "+ New" is a menu: an empty effect, or a built-in's
+    twin by family. The new effect keeps the twin's nodes, params, passes and motion under its own
+    name and id; a twin with a motion gap says so.
+- **Not started:** steps 7–8 (editor v2, later).
 
 ## Open items / next
-1. **Step 3: the runtime.**
-   - Contents: `custom:<id>` kinds from a registry, the filter built from a compiled graph
-     (`ElementFxFilter(name, body, uniforms)`, `uFx` and the `uP<n>` written each frame), pass nodes
-     and motion curve channels.
-   - Exit: a custom effect behaves like a built-in in `check:element-fx` (triggers, keyed, symbol
-     state, turbo, stop).
-2. **Nodes the design lists that v1 does not have yet:** Perspective plane (the 3D flip's ray cast
-   as one node), star / sparkle, rim, loop envelope and the pixel input. Add them when a template
-   (step 6) or an artist needs one.
+1. **Step 7, editor v2** (design §8): per-node live thumbnails, the cost meter on the canvas,
+   subgraphs, and publishing to the studio-shared library. Not started; waits for the owner.
+2. **Step 6 follow-ups.**
+   - **Two capabilities v1 lacks**, named by the twins: padding that grows with a param × strength
+     (the waves, Bounce 3D, Melt), and motion curves that read a param or the seconds played (the
+     six motion gaps). Both are doc / runtime changes; the twins carry the gap until then.
+   - **Built-ins long term** (§9.5): they stay hand-written beside their twins until the gate has
+     held for a while; then decide whether to generate them from the twins.
+   - The gate takes about a minute of `check:all`, most of it SwiftShader drawing the widest glow.
+3. **Step 5 follow-ups.**
+   - The preview has no rig still yet (the plan's fourth source).
+   - The preview plays the params' defaults; there is no per-preview value yet.
+   - The preview uses WebGL2 where there is one (CI's `shader-compile` covers WebGL1), does not
+     follow a change of screen pixel ratio, and clips a graph padded to the 2× maximum at its edge.
+   - Delete has no lease check: the ✕ on a graph another author has open deletes it (its last
+     version is in History), and their next save is then refused as a conflict.
+4. **Step 4 follow-ups.**
+   - What ships is the project's whole set. Once the shared library has entries (step 7), ship only
+     the graphs a doc names (`custom:<id>` in the scenes, components, symbols and flow).
+   - The pickers read the set once per page load; a graph saved in another tab shows after a
+     reload.
+   - The stored-flow check before Publish's assemble composes the Flow vocab without the custom
+     kinds (Publish's own check of the shipped flow has them). An enum value is judged as text, so
+     the verdict is the same; an enum-membership check would need them there too.
+5. **Nodes the design lists that v1 does not have yet:** rim (a library entry now, `efxRim`, with
+   no node) and the pixel input. Add them when an artist needs one.
 
 ## Blocked (owner / external)
 - None.
 
 ## Recent changes
+- 2026-10-24 — **Step 6: the templates** (see "Current state"). Merged (#1333): CI green,
+  `check:all` 531/531, Current games 12 pass with all 186 compared screens byte-identical.
+  - **Proof.** `shader-twins` passes all 30 twins on WebGL1 and WebGL2. On every twin but three the
+    largest difference is 1 step (float rounding). Sphericon and the dissolves differ by more only
+    on isolated pixels where a hard edge sits on a pixel (at most 0.12% of a cell, never a patch).
+    Mutation-checked: 13 of 15 injected one-constant changes fail it, down to a 1% highlight weight;
+    the two that passed (poison's pulse 0.35 → 0.36, melt's padding) moved no channel more than 2
+    steps over a patch, and the room rule now catches the padding one. After the review, a motion
+    constant at the defaults (petrify's thud), a strength-0.3 floor (burn's glow) and a dropped
+    padding gap each fail it too. Heavy twins are named (`HEAVY`: petrify 435), so one growing
+    heavier fails. The compile fixture checks every twin: compiles clean, its id and
+    label, its params against the catalog, phase and length, one twin per kind, the pass twins'
+    ties; the node twins' GLSL is snapshotted (`snapshots/twins/`). `check:element-fx` checks the
+    seed: two elements get different seeds and keep them; an unseeded effect draws none.
+  - **Precise curves.** The headless renderer's `sin` is off by up to ~2e-4 at large arguments,
+    enough to fail Twist at ±1080°; the twins build their bells and swells on Oscillate (exact,
+    `efxSinPi`) and Bell / Swell / Pulse stay as they were, so no saved graph changes.
+  - **Review.** An independent review found one blocking item, version skew: an effect compiled by
+    a newer launcher calls library entries an older runtime lacks (fixed: the reader drops it; the
+    floor is documented; existing nodes emit what they did). Its should-fixes (motion held at the
+    defaults, a landscape card and strength 0.3, Melt's padding) and nits are fixed. One is left by
+    choice: the pass twins keep their identity graph pass (it clamps colour to alpha and gives the
+    effect its filter and margin, so skipping it would change existing effects).
+  - **Built-ins unchanged.** `shader-parity` against the base: all 50 kinds, the sides and signed
+    sheets identical on WebGL1 and WebGL2; a deliberately changed library constant shows in its
+    kinds' rows.
+- 2026-10-24 — **Step 5: the `/shaders` editor** (see "Current state"). Step 4 merged (#1329).
+  - **The canvas lift.** `$lib/graph/GraphCanvas.svelte` (the `@xyflow/svelte` shell: nodes,
+    wires, the page's node types, its connection rule, a fit signal, a palette drop) and
+    `$lib/graph/dnd.ts` (`writeDrag` / `readDrag`) came out of /flow-v2; `FlowCanvasV2.svelte` is a
+    thin wrapper keeping Flow's styles. Two props were still on their 0.x names
+    (`deleteKeyCode`, `multiSelectionKeyCode`), so Flow's Delete and multi-select keys never
+    reached the canvas; they are `deleteKey` / `multiSelectionKey` now. `docs/ui-inventory.md` §20.
+  - **The compiler's analysis** (`engine-shadergraph`): `analyzeShaderGraph(doc)` answers the
+    issues, each port's resolved type, the cost and the reads, and `canFeed(from, to)` is the wire
+    rule the canvas asks.
+  - **Gates.** The shader routes read for `shaders` too, and write for `shaders` only;
+    `check:launcher-gates` lists `shaders/backups`; `check:doc-backups` has the `shader` stem; a
+    setup duplicate leaves graph history behind.
+  - **svelte-check.** `apps/launcher-api` 46 → 45 (the Flow prop names).
+  - **Play-QA of the whole page** (the real page and children, compiled and bundled, every API route
+    answered from an in-memory store, driven in Chromium): boot, new / open / wire / refuse a wire,
+    an error on its node and in the status bar, autosave and Ctrl+S under the ETag, a 409 and
+    overwrite, undo / redo, a shared graph saved as the project's copy, delete. It found and fixed:
+    a second save after Ctrl+S; a graph switch during an autosave that copied the shared graph into
+    the project unedited (and cleared its tag, and re-leased the old graph); `?shared=1` left in the
+    URL after the copy was saved; fields overflowing the settings pane.
+  - **Review fixes.** An independent review: a delete now copies the graph into History first
+    (`deleteDocWithBackup`; an autosave copies at most every 5 minutes, so up to 5 minutes of work
+    was lost while the dialog promised History); a `?graph=` the project lacks opens nothing and
+    says so (it had opened an Output-less doc nothing could repair); a create whose id a colleague
+    took meanwhile says so instead of offering to overwrite theirs; the canvas refuses a wire the
+    compiler would (a type its node takes elsewhere, a loop through other nodes); Ctrl+S on an
+    unedited graph saves nothing (on a shared one it made the project's copy); a multi-selection
+    survives a rebuild; a slower open no longer lands after a later one; renaming a param takes its
+    Param nodes and pass ties with it. Also from the guide's read-through: an effect-level error no
+    longer stops the port types and cost, the Output cannot be deleted, a read-only canvas changes
+    nothing, Game Maker's publish note lists the shader effects a game will not play.
+- 2026-10-24 — **Step 4: the pipeline** (storage, routes, ship, pickers). See "Current state" for
+  what each part does.
+  - **Proof.**
+    - `check:shader-pipeline` (75 checks, run by `check:all`), over the real storage, export and
+      routes with an in-memory R2. Mutation-checked: dropping the pull's `editor-shaders`, the
+      shadowing, the game's registration, the slug's underscore strip, the export's prune or
+      widening the read gate each fail it.
+    - **Play-QA** (`scripts/playtest/shader-effect-play.mjs`). The current-games `cg-lines`
+      stand-in snapshot with Pulse tint and Power-up compiled into `shaderEffects` (the export's own
+      `compileShaderEffect`) and placed as Element FX (Pulse tint looping on the reel frame,
+      Power-up on its caption), served as the launcher serves a published game, played on a build
+      of this branch against the real test server. It passes: all three shader programs are on the
+      stage (`element-fx-custom-pulsetint`, `element-fx-custom-powerup` and Power-up's glow pass),
+      the frame takes the tint (30,660 pixels differ from the same snapshot without
+      `shaderEffects`, whose entries play nothing and whose stage has no such program), the effects
+      move over time (8,331 pixels between two moments, 81 without), and the boot reaches idle with
+      no errors and no stalls. It proves the game half on the runtime-bundle path; storage, the
+      export's writes and both bundle paths' wiring are `check:shader-pipeline`'s. The exit as
+      worded, a graph authored on the deployed launcher and played in a game published there,
+      follows the merge.
+  - **Review.** An independent review found nothing blocking. Fixed before the PR:
+    - Publish said nothing when a graph was left out or deleted: it now names every effect a game
+      will not play, and so does the bake;
+    - the play script never failed: it now passes or fails on the programs, the pixels, errors and
+      stalls, and says what it does not prove;
+    - a graph named "index" lost its deployed file to the index (now `_index.json`), and the
+      deployed index carried compiler errors into every build;
+    - a save had no size cap; a node value named `__proto__` set the prototype in memory; a shared
+      graph's ETag would have made the editor's override save a 409; reads were one at a time;
+    - the Scene Editor called a deleted custom effect an unknown kind; registration now runs in the
+      browser only.
+  - **Also:** `ELEMENT_FX_CATEGORIES` gains `custom`; `standardVocab.ts` exports
+    `ELEMENT_FX_KIND_ENUM` (the `check:element-fx` pin follows it); the shader routes are on
+    `check:launcher-gates`' stale-tab list; `check:project-duplicate` expects `shaders/` in a setup
+    copy.
+- 2026-10-24 — **Step 3: the runtime** (custom Element FX kinds).
+  - **Catalog** (`constants-shared/elementFx`): `ElementFxKindId` (a built-in or `custom:<id>`),
+    the registry, `ELEMENT_FX_PASS_KINDS`, the curve and motion types, `sampleElementFxCurve`, and
+    `elementFxParamUniform`, moved here from `engine-shadergraph` so the runtime and the compiler
+    share one. `findElementFxSpec` looks up any kind (`undefined` for an unregistered custom one);
+    `elementFxSpec` stays the built-ins' lookup. The launcher's label and preview lookups of a stored
+    entry use the first and take an `undefined`.
+  - **Runtime:** an effect now holds a list of passes; a built-in filter kind has one, so built-ins
+    play as before. `playElementFx` resolves a built-in or a registered custom kind, and plays
+    nothing for any other.
+  - **Compiler:** `compileShaderEffect`, and the doc's `description`, `passes` and `motion`, with
+    their validation: 12 → 14 kinds of error (`pass`, `motion`). The doc id must be a slug, and the
+    length within the runtime's 50 ms…20 s.
+  - **A sixth reference graph, Power-up**, uses both: a warm swell, a hop and growth on motion
+    curves about its base, and a glow pass tied to its colour param. Noise dissolve now masks its
+    edge glow by the element's alpha: played through the runtime, whose pass area is the element
+    plus a margin, it had painted the edge over the empty margin.
+  - **Proof.**
+    - `check:element-fx`: a new section, 24 checks (27 after the review). A custom effect read with every trigger and
+      kept before it is registered; posed by a timeline; sped up by turbo; held as an exit and
+      released by an enter; stopped back to rest. Its graph, its built-in pass with a tied colour,
+      and its motion all play. Mutation-checked: dropping the param uniform write, and the reader
+      dropping custom kinds, each fail it.
+    - The fixture: 55 checks (the effect, every bad pass and curve).
+    - `shader-parity` and `shader-compile` draw a new `custom` sheet: the six reference graphs
+      registered and played through `playElementFx` on WebGL1 and WebGL2.
+    - The 50 built-ins, every side and every signed param render identical to `main`.
+  - **Review.** An independent review found nothing blocking; the runtime refactor held under its
+    probes (stacking, removal, destroyed containers, poses back to rest). Fixed before merge:
+    - a motion curve could push alpha past 1 (Pixi wraps it) or a strong shrink through 0 (the
+      element flipped over);
+    - a length given as text or a list compiled;
+    - padding had no upper bound;
+    - the registry trusted its input, so a malformed effect could throw on every tick: it now reads
+      each one, and the gate holds four malformed effects to being left out;
+    - a pass's strength could reach 16, any built-in filter kind could be a pass at runtime, and a
+      pass resolved its params every frame;
+    - an upper-case colour was refused in a pass;
+    - `shader-parity shoot --root <a base older than step 3>` failed to bundle: such a base now
+      shoots without graph sheets.
+
+    The gate's custom section has 27 checks, each new one mutation-checked (dropping the scale
+    clamp, or the registry's reader, fails it).
 - 2026-10-23 — **Step 2: the `engine-shadergraph` package** (schema, node library, validator,
   compiler).
   - **The library grew by 13 building blocks** for the nodes to call (29 in all): FBM, the hold,

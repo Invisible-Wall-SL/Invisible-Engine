@@ -87,7 +87,11 @@ Turn it off to draw every screen at once with those boxes. The eye toggles still
 
 Each screen has a coordinate **space** select: `game` (the main game box),
 `standard` (the HUD box, with optional vertical/horizontal alignment), `canvas`
-(positioned against the window edges), or `background` (cover-fit, full-bleed).
+(positioned against the window edges), or `background` (cover-fit, full-bleed). On a
+`background` screen an image, rig, clip, component or **Rect** fills the window edge to edge
+in the game, whatever its size; a text node or a bare group is placed at window pixels instead.
+A Rect inside a group keeps its placed box — that is how to put a band or panel on a background
+screen.
 
 ### Layer order and "Always on top"
 
@@ -131,7 +135,9 @@ To start from something:
 
 - **＋ Load scenes…** (the dropdown above the list) offers **New game from
   kind** (a fresh engine-piece scaffold per game kind — `lines`, `ways`,
-  `cluster`, `scatter`, `bookOf`, `holdAndWin`, plus any author-created custom kinds) and
+  `cluster`, `scatter`, `bookOf`, `holdAndWin`, `match3`, plus any author-created custom kinds;
+  `match3` is the board that never spins, the **Score and moves** HUD and the **Round won** /
+  **Round lost** screens, listed under [Game Maker](game-maker.md)'s **Match-3**) and
   **Import composed reference** (open a reference game already laid out). Pick
   one and click **Load**. Loading a layout whose game type differs from the
   project's is flagged as a cross-type preview and will not autosave — you must
@@ -833,7 +839,7 @@ move, scale, rotate, fade or show the item, fill a sprite / flipbook / rect from
 a flipbook frame, scrub a rig animation, offset a rig bone, or set one of a placed effect's
 **exposed parameters** (**⚡ intensity** in **drives** — see below). On a screen the number is an
 engine value: respins left (÷ the cap), cells held, rows open, collector level, letters lit, the
-jackpots, bet, win and the rest. Drag the binding's **test value** to preview it on the canvas;
+feature's worth (`featureWorth`), the jackpots, bet, win and the rest. Drag the binding's **test value** to preview it on the canvas;
 it is never saved. Selection handles and dragging keep the authored position.
 
 On an **effect**, **drives** lists the effect's number and on/off parameters (the ones made with
@@ -865,7 +871,9 @@ layout; they are never a per-layout override. While you Inspect an old version o
 section is read-only, and ▶ still plays.
 
 **Add one.** With none yet, the section shows a one-line hint and the **+ Add effect…** picker,
-which lists the 50 effects grouped by family (the table below). Picking one adds a row, opens it,
+which lists the 50 effects grouped by family (the table below), then the project's own under
+**Custom (Shader Graph)** (`custom:<id>`, authored in [Invisible Shader Graph](shader-graph.md)).
+A row whose custom effect was deleted or no longer compiles says so. Picking one adds a row, opens it,
 and gives it the trigger that suits it: a loop effect starts as _Always_, an entrance as _When
 shown_, anything else as _On cue_.
 
@@ -1004,9 +1012,12 @@ hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to 
 
 #### Background — how a full-bleed cover is fitted, zoomed and aligned
 
-Select a node that covers the window — anything on a `background` screen, or a
-sprite / rig / clip with **Fill → Cover / full-screen fill** ticked on a `canvas`
-screen — and the Properties panel shows a **Background** section. The node stops being
+Select a node that covers the window — an image, rig, clip, component or Rect on a
+`background` screen, or a sprite / rig / clip with **Fill → Cover / full-screen fill** ticked
+on a `canvas` screen — and the Properties panel shows a **Background** section. A Rect covers
+by its own **width × height**: any size fills the window on `cover`, and its shape only matters
+for `contain` or a per-axis fit. A Rect inside a group is not a cover: it stays draggable at
+its placed box. The node stops being
 draggable (its transform is computed, not authored); these controls are how you shape it:
 
 - **fit** — how the art is matched to the window:
@@ -1758,6 +1769,20 @@ it, tick a bool, type a number. Three kinds:
   Each has a default; a number can also follow an engine value (**from**: `winAmount`, `balance`…,
   the same names _Bind to value_ offers). Flow sets them in game from Phase 7 on.
 
+**A Hold and Win feature's value: `featureWorth` or `featureTotal`.** Both count in hundredths of
+the total bet (100 = 1× bet, 1000 = 10×), so a threshold is typed the same way for either.
+
+- `featureWorth` — what the feature is worth so far: banked jackpots plus every held coin, the
+  same value Flow's `featureWorth` reads. It reads 0 before a feature opens, moves after each
+  respin as coins land, holds the final worth once the feature ends, and goes back to 0 when the
+  next spin starts, so a widget still on screen after the outro drops to its lowest tier on that
+  press. Pick it for anything that follows the feature while it plays, such as a
+  TOTAL WIN widget whose tier is set by its state machine. Example: a number input `worth`
+  **from** `featureWorth`, with transitions `worth >= 1000` → Medium (10× bet), `worth >= 2500`
+  → Big, `worth >= 5000` → Huge, and `worth < 1000` → Mini.
+- `featureTotal` / `totalWin` — the HUD win meter. It resets each spin and only climbs during the
+  end-of-feature tally, coin by coin. Pick it for a readout that should count up with the meter.
+
 Rename an input with **✎** — every transition condition that reads it follows. The name is what
 the game and Flow fire it as, so a rename is a delete + add: the dialog says what fires the old
 name (a declared signal, timelines that **Play on** it), and fields a newer build added to that
@@ -1883,6 +1908,14 @@ gets the bar's `index` / `value`, and it nests one level deeper than the game dr
      count. **max** caps it (20 when empty, never more than 50).
    - **Layout**: **direction** **row** / **column** / **grid** (with **columns**) and the **gap**
      between segments. A row or column steps by each segment's own size, so wider end caps fit.
+     A segment's size is measured from the rects and sized sprites it draws. **A segment drawn only
+     from rigs or text has no size the bar can measure, so set its box, or the segments stack on
+     top of each other:** open the segment (and each end cap) and fill **Size** (W × H) in the
+     editor bar, beside **Space** (both sides; one alone is ignored). The box is not drawn on the
+     stage: it runs from the component's origin (0, 0) right and down, so keep the art between
+     (0, 0) and (W, H) — art centred on the origin keeps its spacing but shifts the whole row half
+     a segment left and up. A **grid** steps by the segment's box too. Leave **Size** empty to keep
+     measuring.
    - **Pass to each segment**: one row per number input of the segment. `index` and `count` show
      as _given by the repeater_. For **`value`**, set **from value** to **Respins left**
      (`respinsLeft`) or **Free spins left** (`freeSpinsLeft`) — every copy's `value` follows it in
@@ -1892,11 +1925,14 @@ gets the bar's `index` / `value`, and it nests one level deeper than the game dr
    bar's own params) goes in **Custom source…**.
 4. **Place it and publish.** Save the bar, place it on the free-spins or Hold and Win screen like
    any component, and publish as usual — the bar, its segment and the variants travel with the
-   game.
+   game. A player link shows the LAST publish: an end cap made since then is not in it yet, so the
+   game draws the middle segment in its place (and says so in the browser console) until you
+   publish again.
 
 The canvas draws each segment from the segment's saved timelines (and the built-in ones), read
 again when you open another component — so after editing the segment, come back to the bar to see
-the change.
+the change. Looks drawn from rigs show their rig art, in the pose the segment's state machine
+lights.
 
 #### Listeners and events
 
@@ -1934,20 +1970,41 @@ and no `:` (a timeline cue names it as `event:<name>`).
 **Listeners** are per node: select a node of the component and use **Listeners → + Listener**
 (under the node's name in Properties). Each row reads **On [event] → [action]**:
 
-- **On**: `down`, `up`, `hover in`, `hover out`, `click`. `up` counts only when the pointer is
-  released over the node; a click is a down and an up on the same node.
+- **On**: `down`, `up`, `hover in`, `hover out`, `click`, `pointer move`, `drag start`, `drag`,
+  `drag end`, `swipe`. `up` counts only when the pointer is released over the node; a click is a
+  down and an up on the same node. `pointer move` is the pointer moving over the node. A press
+  becomes a drag once it has travelled 4 px (in the component), so a tap's jitter is not one:
+  `drag start` then `drag` on each move, `drag end` on release. A drag keeps tracking after the
+  pointer leaves the node, and still ends when it is released elsewhere.
+- A **swipe** is judged on release, by how far the pointer got from where the press began. Its row
+  gets a direction picker — **any direction**, `left`, `right`, `up`, `down` (the longer axis of
+  the travel decides; a tie reads as left/right) — and a threshold in **px** in the component's
+  space, 40 when left blank.
 - The action: **fire trigger** (one of the trigger inputs), **set input** (a bool to true/false or
-  a number to a value), **toggle bool**, or **raise event** — then fill the event's payload fields:
-  a value, an input's current value, or a text key (it needs at least one letter — it is the text
-  as the game shows it). An `int` or `ms` value is rounded to a whole number.
+  a number to a value), **toggle bool**, **raise event**, or **align target** — then fill the
+  event's payload fields: a value, an input's current value, or a text key (it needs at least one
+  letter — it is the text as the game shows it). An `int` or `ms` value is rounded to a whole
+  number.
+- A number payload field on a listener's raise can also read the pointer: **pointer x** / **pointer
+  y** (where it is, in the component's space) or **pointer dx** / **pointer dy** (how far it is from
+  where the press began; 0 with no press). An `int` or `ms` field gets the reading rounded. A
+  state's On enter / On exit has no pointer, so it can't use them — validation flags one that does.
+- **align target** moves a node of the component onto the pointer, in that node's parent's space.
+  Pick the node (any node but the component's root — an instance is placed by its node). Tick
+  **keep offset** to keep the distance the node had from the pointer when the press began (else
+  the node's position becomes the pointer), and choose **x and y**, **x only** or **y only**. Put
+  it on `drag` for a slider knob or a draggable piece.
 
 **Save** refuses while a listener or an On enter / On exit row would be lost by it — no trigger, input or
 event picked, say — and names the rows to fix.
 
 A node with listeners becomes clickable in game (only such nodes do — nothing else changes). It
 still works as before if it also presses a button or a dialog action: both fire. A listener acts
-on its own placed instance only. Listeners need an input or an event to act on, so **+ Listener**
-is off until the component declares one.
+on its own placed instance only. A new listener starts **On click**, firing the first trigger (or
+raising the first event, or setting the first input); on a component with no inputs or events it
+starts as an **align target** moving its own node (on the root, the first node under it).
+**+ Listener** is off only when the component has none of these — no input, no event and no node
+but the root.
 
 **On enter** and **On exit**: in the **State machine** tab, a state's inspector has **On enter →
 ＋ raise event**: the event is raised every time that state is entered (and when the machine
@@ -1961,7 +2018,9 @@ under the graph logs every raised event with its time, what raised it (`listener
 `cue`) and its payload, between the states and transitions; **Clear** empties it, **↺ Reset**
 starts it over. In the preview a
 **fire trigger** listener moves the state machine; it does not start **Plays on** timelines (the
-game does).
+game does). The preview plays only `down`, `up`, `hover in` / `hover out` and `click`:
+`pointer move`, the drag events, `swipe` and **align target** do not preview there yet — they run
+in the game.
 
 Raised events reach Flow once Phase 7 adds the component's event pins; until then they are
 previewed here and do nothing in game. Everything is read-only while Inspecting an old version.
@@ -2091,6 +2150,10 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   blend into it — and the 2D canvas folds in position, scale, rotation, opacity, show / hide and
   tint, not a fill reveal or a clip frame. Rigs and effects inside a segment are not drawn on the
   stage. Check the motion in the running game.
+- **The listener preview plays clicks and hovers only.** The State machine tab's stage runs
+  `down`, `up`, `hover in` / `hover out` and `click` listeners; `pointer move`, `drag start` /
+  `drag` / `drag end`, `swipe`, **align target** and pointer payload readings do not preview yet.
+  Check them in the running game.
 - **Interactive feel is partly unverified.** Several recent editor capabilities
   (undo/redo, copy/paste, multi-select, and the two new menu-screen buttons)
   build clean and type-check, but the auth-gated canvas makes automated

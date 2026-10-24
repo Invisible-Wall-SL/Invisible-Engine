@@ -21,6 +21,7 @@ const SCRIPT_FOR_KIND = {
 	ways: 'ways',
 	cluster: 'cluster',
 	scatter: 'scatter',
+	match3: 'match3',
 };
 export const scriptFor = (gameType) => SCRIPT_FOR_KIND[gameType] ?? 'lines';
 export const loadScript = (name) =>

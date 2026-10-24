@@ -23,6 +23,7 @@
 
 import {
 	HOLD_AND_WIN_SYMBOL_STATES,
+	MATCH3_SYMBOL_STATES,
 	POTS_TOKEN_SYMBOL_STATES,
 	SYMBOL_STATES,
 	type SymbolStateName,
@@ -94,6 +95,9 @@ export interface KindCapabilities {
 	betControls: boolean;
 	/** A board of symbols: a slot's reels or a match-3 grid. Off for arcade. */
 	board: boolean;
+	/** The player moves the board's gems (a match-3 grid): its `select` / `hint` symbol states. Off
+	 *  for every slot. */
+	boardInput: boolean;
 }
 
 const CASCADE_KINDS: ReadonlySet<string> = new Set(['cluster', 'scatter']);
@@ -128,6 +132,7 @@ export function kindCapabilities(
 		wallet: true,
 		betControls: true,
 		board: true,
+		boardInput: false,
 	};
 }
 
@@ -156,14 +161,15 @@ function familyCapabilities(
 		wallet,
 		betControls: wallet,
 		board: match3,
+		boardInput: match3,
 	};
 }
 
 /**
- * The symbol states a kind's authoring surfaces offer: every state for a project with the respin
- * feature (`holdAndWin`); for a pots overlay host without it (`pots` alone), every state but the Hold
- * and Win ones, plus the token's {@link POTS_TOKEN_SYMBOL_STATES}; otherwise every state minus the
- * Hold and Win ones. The doc schema still accepts every state, so a binding never fails to
+ * The symbol states a kind's authoring surfaces offer (the match-3 `select` / `hint` only to a
+ * project with a match-3 board): every state for a project with the respin feature (`holdAndWin`);
+ * for a pots overlay host without it (`pots` alone), every state but the Hold and Win ones, plus
+ * the token's {@link POTS_TOKEN_SYMBOL_STATES}; otherwise every state minus the Hold and Win ones. The doc schema still accepts every state, so a binding never fails to
  * round-trip; this only decides what a picker lists.
  */
 export function symbolStatesForKind(
@@ -171,8 +177,10 @@ export function symbolStatesForKind(
 	config?: KindCapabilityConfig,
 ): readonly SymbolStateName[] {
 	const capabilities = kindCapabilities(gameType, config);
-	if (capabilities.holdAndWin) return SYMBOL_STATES;
+	const match3: ReadonlySet<string> = new Set(capabilities.boardInput ? [] : MATCH3_SYMBOL_STATES);
+	const states = SYMBOL_STATES.filter((state) => !match3.has(state));
+	if (capabilities.holdAndWin) return states;
 	const holdAndWin: ReadonlySet<string> = new Set(HOLD_AND_WIN_SYMBOL_STATES);
 	const token: ReadonlySet<string> = new Set(capabilities.pots ? POTS_TOKEN_SYMBOL_STATES : []);
-	return SYMBOL_STATES.filter((state) => !holdAndWin.has(state) || token.has(state));
+	return states.filter((state) => !holdAndWin.has(state) || token.has(state));
 }

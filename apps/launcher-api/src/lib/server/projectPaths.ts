@@ -90,6 +90,7 @@ export const SUB = {
 	// Invisible Director's mockups and crops (ADR-0005). Not an asset class a game ships: deploy,
 	// bake, pull and the duplicate path all leave it alone.
 	director: (c: string, p: string) => `${projectPrefix(c, p)}/director`,
+	shaders: (c: string, p: string) => `${projectPrefix(c, p)}/shaders`,
 } as const;
 
 /** A project's published-snapshot pointer: `<client>/<project>/published/pointer.json`. */
@@ -273,7 +274,8 @@ export function editorDocKey(client: string, project: string): string {
  * UNRECOVERABLE (the Scene Editor's documented fallback was scavenging a `/api/editor/runtime`
  * dump and un-rewriting its rig keys).
  */
-export type DocBackupStem = 'scenes' | 'flow-v2' | 'symbols' | 'config' | 'component-defaults';
+export type DocBackupStem =
+	'scenes' | 'flow-v2' | 'symbols' | 'config' | 'component-defaults' | 'shader';
 
 /**
  * One doc's backup layout. Always built here from the caller's OWN `(client, project)` — never
@@ -516,6 +518,48 @@ export function fxMetaKey(client: string, project: string, id: string): string {
 export const FX_DOC_SUFFIX = '.fx.json';
 /** The `<id>.fx.meta.json` suffix that marks the editor-only sidecar. */
 export const FX_META_SUFFIX = '.fx.meta.json';
+
+/**
+ * Invisible Shader Graph docs (`docs/design/invisible-shader-graph.md` §8 step 4), one file per
+ * graph: a project's at `<client>/<project>/shaders/<id>.json`, the studio-shared library's at
+ * `_shared/shaders/<id>.json`. A graph plays as the Element FX kind `custom:<id>`, whose id must
+ * start with a letter or digit, so {@link shaderSlug} is `r2Slug` without leading underscores.
+ */
+export const SHARED_SHADERS_PREFIX = '_shared/shaders';
+
+export function shaderSlug(id: string): string {
+	return r2Slug(id).replace(/^_+/, '') || 'shader';
+}
+
+export function shaderDocKey(client: string, project: string, id: string): string {
+	return `${SUB.shaders(client, project)}/${shaderSlug(id)}.json`;
+}
+
+export function sharedShaderDocKey(id: string): string {
+	return `${SHARED_SHADERS_PREFIX}/${shaderSlug(id)}.json`;
+}
+
+/**
+ * A project's shader graph backups: `<client>/<project>/shader-backups/`, a SIBLING of `shaders/`
+ * so a listing of the graphs never meets a backup and a setup duplicate (which copies `shaders/`)
+ * never carries one.
+ */
+export function shaderBackupsPrefix(client: string, project: string): string {
+	return `${projectPrefix(client, project)}/shader-backups/`;
+}
+
+/** One graph → `…/shader-backups/<id>/shader-*.json`: each graph keeps its own newest 20. */
+export function shaderDocBackupTarget(
+	client: string,
+	project: string,
+	id: string,
+): DocBackupTarget {
+	return {
+		docKey: shaderDocKey(client, project, id),
+		prefix: `${shaderBackupsPrefix(client, project)}${shaderSlug(id)}/`,
+		stem: 'shader',
+	};
+}
 
 /**
  * Per-CLIP Invisible Flipbook document — `<client>/<project>/clips/<id>.clip.json` (design doc

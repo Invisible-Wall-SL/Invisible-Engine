@@ -40,7 +40,9 @@
 		setPlayCinematicFields,
 		setModeNodeFields,
 		setWaitForStateFields,
+		setStateNodeFields,
 		type ModeNodePatch,
+		type StateNodePatch,
 	} from './graphOps';
 	import { typeLabel } from './palette';
 	import EnumLiteral from './EnumLiteral.svelte';
@@ -97,6 +99,25 @@
 	function onModeFieldChange(patch: ModeNodePatch): void {
 		onchange(setModeNodeFields(doc, node.id, patch));
 	}
+
+	// --- variables, timers, tick and keys (game-families §3.1–§3.2) ---------------------------
+	/** The doc's variables (`ctx.variables`): what a variable node and a `$var` read can name. */
+	const variables = $derived(ctx.variables ?? []);
+	const nodeVariable = $derived(
+		'variable' in node && typeof node.variable === 'string'
+			? variables.find((v) => v.id === node.variable)
+			: undefined,
+	);
+	/** The key map's actions, for an On Input node. */
+	const inputActions = $derived((doc.inputs ?? []).map((b) => b.action));
+	function onStateFieldChange(patch: StateNodePatch): void {
+		onchange(setStateNodeFields(doc, node.id, patch));
+	}
+	/** A number field's value, or `undefined` for a blank one. */
+	const optionalNumber = (raw: string): number | undefined => {
+		const n = Number(raw);
+		return raw.trim() === '' || !Number.isFinite(n) ? undefined : n;
+	};
 	const MODE_TRIGGER_ON: { value: 'enter' | 'exit' | 'resume'; label: string }[] = [
 		{ value: 'enter', label: 'Enter — the mode starts playing' },
 		{ value: 'exit', label: 'Exit — the mode finished' },
@@ -734,6 +755,185 @@
 			</p>
 		{/if}
 
+		{#if node.kind === 'setVariable' || node.kind === 'changeVariable' || node.kind === 'onVariable'}
+			<label class="field">
+				<span class="flabel">Variable</span>
+				<select
+					value={node.variable}
+					onchange={(e) => onStateFieldChange({ variable: e.currentTarget.value })}
+				>
+					{#if !nodeVariable}
+						<option value={node.variable}>{node.variable || '(pick a variable)'}</option>
+					{/if}
+					{#each variables as v (v.id)}
+						<option value={v.id}>{v.id} · {v.type}{v.mode ? ` · ${v.mode}` : ''}</option>
+					{/each}
+				</select>
+			</label>
+			{#if variables.length === 0}
+				<p class="hint">Declare a variable in the <strong>Variables</strong> panel first.</p>
+			{/if}
+		{/if}
+
+		{#if node.kind === 'changeVariable'}
+			<label class="field">
+				<span class="flabel">Change</span>
+				<select
+					value={node.op}
+					onchange={(e) =>
+						onStateFieldChange({ op: e.currentTarget.value as 'add' | 'sub' | 'toggle' })}
+				>
+					<option value="add">Add (by, blank = 1)</option>
+					<option value="sub">Subtract (by, blank = 1)</option>
+					<option value="toggle">Toggle (a bool)</option>
+				</select>
+			</label>
+			{#if node.op !== 'toggle'}
+				<div class="row2">
+					<label class="field">
+						<span class="flabel">Min</span>
+						<input
+							type="number"
+							value={node.min ?? ''}
+							placeholder="none"
+							onchange={(e) => onStateFieldChange({ min: optionalNumber(e.currentTarget.value) })}
+						/>
+					</label>
+					<label class="field">
+						<span class="flabel">Max</span>
+						<input
+							type="number"
+							value={node.max ?? ''}
+							placeholder="none"
+							onchange={(e) => onStateFieldChange({ max: optionalNumber(e.currentTarget.value) })}
+						/>
+					</label>
+				</div>
+			{/if}
+		{/if}
+
+		{#if node.kind === 'onVariable'}
+			<label class="field">
+				<span class="flabel">Fires when</span>
+				<select
+					value={node.on ?? 'changed'}
+					onchange={(e) =>
+						onStateFieldChange({ on: e.currentTarget.value as 'changed' | 'crosses' })}
+				>
+					<option value="changed">It changes (once a frame, latest value)</option>
+					<option value="crosses">It crosses a threshold</option>
+				</select>
+			</label>
+			{#if node.on === 'crosses'}
+				<div class="row2">
+					<label class="field">
+						<span class="flabel">Threshold</span>
+						<input
+							type="number"
+							value={node.threshold ?? ''}
+							onchange={(e) =>
+								onStateFieldChange({ threshold: optionalNumber(e.currentTarget.value) })}
+						/>
+					</label>
+					<label class="field">
+						<span class="flabel">Direction</span>
+						<select
+							value={node.direction ?? 'either'}
+							onchange={(e) =>
+								onStateFieldChange({
+									direction: e.currentTarget.value as 'up' | 'down' | 'either',
+								})}
+						>
+							<option value="either">Either way</option>
+							<option value="up">Up (reaches it from below)</option>
+							<option value="down">Down (reaches it from above)</option>
+						</select>
+					</label>
+				</div>
+				<p class="hint">
+					"Lives reaches 0" is <strong>down</strong> through 0: the chain runs the write that takes it
+					there, with no polling.
+				</p>
+			{/if}
+		{/if}
+
+		{#if node.kind === 'onTick'}
+			<label class="field">
+				<span class="flabel">Every (ms)</span>
+				<input
+					type="number"
+					min="0"
+					value={node.every ?? ''}
+					placeholder="every frame"
+					onchange={(e) => onStateFieldChange({ every: optionalNumber(e.currentTarget.value) })}
+				/>
+			</label>
+			<p class="hint">
+				For game rules (spawn every 800 ms, speed up every 10 s). A tick chain may not wait (no
+				Delay, no awaited cue or cinematic); under 100 ms is warned.
+			</p>
+		{/if}
+
+		{#if node.kind === 'startTimer' || node.kind === 'stopTimer' || node.kind === 'pauseTimer' || node.kind === 'onTimer'}
+			<label class="field">
+				<span class="flabel">Timer</span>
+				<input
+					type="text"
+					value={node.timer}
+					onchange={(e) => onStateFieldChange({ timer: e.currentTarget.value.trim() })}
+				/>
+			</label>
+		{/if}
+
+		{#if node.kind === 'startTimer'}
+			<label class="field check">
+				<input
+					type="checkbox"
+					checked={node.repeat === true}
+					onchange={(e) => onStateFieldChange({ repeat: e.currentTarget.checked || undefined })}
+				/>
+				<span class="flabel">Repeat — restart each time it runs out</span>
+			</label>
+			<p class="hint">
+				Starting a running timer restarts it. Timers run on the game's frame: they stop when the game
+				stops drawing (a hidden tab), not for a menu or a modal.
+			</p>
+		{/if}
+
+		{#if node.kind === 'pauseTimer'}
+			<p class="hint">
+				Wire <strong>Pause</strong> to hold the timer, <strong>Resume</strong> to let it run on.
+			</p>
+		{/if}
+
+		{#if node.kind === 'onInput'}
+			<label class="field">
+				<span class="flabel">Action</span>
+				<select
+					value={node.action}
+					onchange={(e) => onStateFieldChange({ action: e.currentTarget.value })}
+				>
+					{#if !inputActions.includes(node.action)}
+						<option value={node.action}>{node.action || '(pick an action)'}</option>
+					{/if}
+					{#each inputActions as a (a)}
+						<option value={a}>{a}</option>
+					{/each}
+				</select>
+			</label>
+			<label class="field">
+				<span class="flabel">When the key goes</span>
+				<select
+					value={node.phase ?? 'down'}
+					onchange={(e) => onStateFieldChange({ phase: e.currentTarget.value as 'down' | 'up' })}
+				>
+					<option value="down">Down</option>
+					<option value="up">Up</option>
+				</select>
+			</label>
+			<p class="hint">Map keys to actions in the <strong>Variables</strong> panel's key map.</p>
+		{/if}
+
 		{#if node.kind === 'playCinematic'}
 			<label class="field">
 				<span class="flabel">Cinematic</span>
@@ -1244,6 +1444,7 @@
 					commit({ on: 'engine', key: engineValues[0]?.name ?? collections[0]?.name ?? '' });
 				else if (on === 'trigger') commit({ on: 'trigger' });
 				else if (on === 'context') commit({ on: 'context' });
+				else if (on === 'var') commit({ on: 'var', id: variables[0]?.id ?? '' });
 				else commit({ on: 'input', name: '' });
 			}}
 		>
@@ -1253,6 +1454,7 @@
 			<option value="engine">$engine</option>
 			<option value="context">$context</option>
 			<option value="input">$input</option>
+			<option value="var">$var</option>
 		</select>
 
 		{#if acc.on === 'item'}
@@ -1312,6 +1514,19 @@
 				value={acc.name}
 				onchange={(e) => commit({ on: 'input', name: e.currentTarget.value.trim() })}
 			/>
+		{:else if acc.on === 'var'}
+			<select
+				class="acc-detail"
+				value={acc.id}
+				onchange={(e) => commit({ on: 'var', id: e.currentTarget.value })}
+			>
+				{#if !variables.some((v) => v.id === acc.id)}
+					<option value={acc.id}>{acc.id || '(pick a variable)'}</option>
+				{/if}
+				{#each variables as v (v.id)}
+					<option value={v.id}>{v.id} · {v.type}</option>
+				{/each}
+			</select>
 		{/if}
 	</div>
 {/snippet}
@@ -1423,6 +1638,13 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: #64748b;
+	}
+	.row2 {
+		display: flex;
+		gap: 8px;
+	}
+	.row2 .field {
+		flex: 1;
 	}
 	.field.check {
 		flex-direction: row;

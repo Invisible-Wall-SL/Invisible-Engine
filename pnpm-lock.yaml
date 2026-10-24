@@ -217,9 +217,15 @@ importers:
       engine-layout:
         specifier: workspace:*
         version: link:../../packages/engine-layout
+      engine-mechanics:
+        specifier: workspace:*
+        version: link:../../packages/engine-mechanics
       engine-rig:
         specifier: workspace:*
         version: link:../../packages/engine-rig
+      engine-shadergraph:
+        specifier: workspace:*
+        version: link:../../packages/engine-shadergraph
       error-tracking:
         specifier: workspace:*
         version: link:../../packages/error-tracking
@@ -338,6 +344,9 @@ importers:
       engine-layout:
         specifier: workspace:*
         version: link:../../packages/engine-layout
+      engine-mechanics:
+        specifier: workspace:*
+        version: link:../../packages/engine-mechanics
       envs:
         specifier: workspace:*
         version: link:../../packages/envs
@@ -1540,6 +1549,9 @@ importers:
       engine-layout:
         specifier: workspace:*
         version: link:../engine-layout
+      engine-mechanics:
+        specifier: workspace:*
+        version: link:../engine-mechanics
       envs:
         specifier: workspace:*
         version: link:../envs
@@ -1677,6 +1689,18 @@ importers:
       svelte-check:
         specifier: 4.7.7
         version: 4.7.7(picomatch@4.0.7)(svelte@5.57.2(@typescript-eslint/types@8.71.2))(typescript@6.0.3)
+
+  packages/engine-mechanics:
+    devDependencies:
+      eslint:
+        specifier: 9.21.0
+        version: 9.21.0(jiti@2.7.0)
+      eslint-config-custom:
+        specifier: workspace:*
+        version: link:../eslint-config-custom
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
 
   packages/engine-rig:
     dependencies:

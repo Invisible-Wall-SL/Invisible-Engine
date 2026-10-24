@@ -300,3 +300,10 @@ value and only a second click works. Set it on the `FormData` inside the enhance
 | Outline row context menu (right-click) | A | `apps/launcher-api/src/routes/(app)/editor/EditorOutline.svelte` | inline, opens at the pointer, no keyboard navigation. Same look as `MenuButton`. Fold it in if it ever needs groups or keyboard support |
 
 → **Every key inside the menu is the menu's own** (`stopPropagation`): the editor stage listens on `window` for the arrows (nudge), Delete and Escape, so a press meant for the menu must not reach it. The menu also carries `data-esc-owner`, so the page-level Escape handlers stand down while it is open.
+
+### 20. Node-graph canvas (typed nodes, wires, drag from a palette)
+| Impl | Domain | File(s) | Status |
+|---|---|---|---|
+| **`GraphCanvas.svelte`** — the `@xyflow/svelte` shell every launcher node graph sits in: bindable `nodes`/`edges`, the page's own `nodeTypes`, `isValidConnection` + `onConnect` (the page decides what a wire may join), delete/select/drag-stop/pane-click callbacks, a `fitSignal` counter that refits the view, and a drop target that hands the page the dragged payload and its flow position. **`dnd.ts`** carries a palette drag: `writeDrag(event, mime, payload)` on the palette, `readDrag(raw, accept)` in the drop | A | `apps/launcher-api/src/lib/graph/GraphCanvas.svelte`, `apps/launcher-api/src/lib/graph/dnd.ts` | **canonical for domain A** — lifted out of `/flow-v2` (whose `FlowCanvasV2.svelte` is now a thin wrapper with Flow's styles) for Invisible Shader Graph's `/shaders` canvas |
+
+→ **The canvas knows nothing about either graph.** What a node looks like, which ports a wire may join and what a drop adds stay in the page's own model (`flow-v2/*`, `shaders/shaderEditor.ts`); the shell only draws and reports. A third graph tool imports it the same way.

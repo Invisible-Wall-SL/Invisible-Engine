@@ -3,6 +3,7 @@ import type { GameTemplate } from '../types';
 import { bookofTemplate } from './bookof';
 import { holdAndWinTemplate } from './holdAndWin';
 import { linesTemplate } from './lines';
+import { match3Template } from './match3';
 import { waysTemplate } from './ways';
 
 /**
@@ -16,6 +17,7 @@ const TEMPLATES: Record<string, GameTemplate> = {
 	bookOf: bookofTemplate,
 	ways: waysTemplate,
 	holdAndWin: holdAndWinTemplate,
+	match3: match3Template,
 };
 
 /** The built-in template for a game type, or `undefined` if none is registered. */
@@ -28,5 +30,5 @@ export function listTemplateGameTypes(): string[] {
 	return Object.keys(TEMPLATES);
 }
 
-export { linesTemplate, bookofTemplate, waysTemplate, holdAndWinTemplate };
+export { linesTemplate, bookofTemplate, waysTemplate, holdAndWinTemplate, match3Template };
 export { standardTemplate } from './standard';

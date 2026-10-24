@@ -54,6 +54,35 @@ export { createGameContext, getGameContext, type GameContext } from './src/game/
 export type { BookEventRegistry, ImplementsEngineBookEvents } from './src/game/bookEvents';
 export { createPlayBook, type PlayBookDeps } from './src/game/playBook';
 export {
+	MATCH3_RGS_MECHANIC,
+	MATCH3_RULES_MECHANIC,
+	mechanicFor,
+	REELS_MECHANIC,
+	runsIntent,
+	WAGER_INTENTS,
+	type GameMechanic,
+	type MechanicId,
+} from './src/game/mechanic';
+export {
+	createMatch3Driver,
+	type Match3Driver,
+	type Match3DriverState,
+	type Match3Mark,
+	type Match3Presenter,
+} from './src/game/match3Driver';
+export {
+	createMatch3Session,
+	DEFAULT_POINTS_PER_GEM,
+	MATCH3_PAD_ROWS,
+	paddedBoard,
+	paddedColumn,
+	scoreGroups,
+	toBookCell,
+	type Match3MoveResult,
+	type Match3Session,
+	type Match3Step,
+} from './src/game/match3Session';
+export {
 	BASE_MODE_ID,
 	activeModeId,
 	emptyModeStack,
@@ -106,7 +135,9 @@ export {
 export { resolveWinMount, type WinMount } from './src/game/winOwnership';
 export {
 	applyHoldAndWinEvent,
+	atRoundStart,
 	emptyHoldAndWinState,
+	featureWorthOf,
 	HOLD_AND_WIN_SNAPSHOT_EVENTS,
 	type HoldAndWinCause,
 	type HoldAndWinCell,

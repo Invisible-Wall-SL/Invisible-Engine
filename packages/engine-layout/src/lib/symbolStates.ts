@@ -36,6 +36,8 @@ export const SYMBOL_STATES = [
 	'jackpotReveal',
 	'mysteryReveal',
 	'flyToMeter',
+	'select',
+	'hint',
 ] as const;
 
 export type SymbolStateName = (typeof SYMBOL_STATES)[number];
@@ -330,4 +332,15 @@ export const SYMBOL_STATE_LABELS: Record<SymbolStateName, string> = {
 	jackpotReveal: 'Jackpot reveal',
 	mysteryReveal: 'Mystery reveal',
 	flyToMeter: 'Fly to meter',
+	select: 'Selected',
+	hint: 'Hint',
 };
+
+/**
+ * The MATCH-3 states (`docs/design/game-families.md` §4.1): `select` — the gem the player picked
+ * first, waiting for its partner; `hint` — a gem of a legal swap, lit by the flow's Hint action.
+ * Unauthored, `select` inherits `win` and `hint` inherits `land`
+ * (`packages/engine-game/src/game/symbolCell.ts`), so an unauthored board still shows both. Valid in
+ * the doc for every game, but the Symbols grid only offers them to a project with a match-3 board.
+ */
+export const MATCH3_SYMBOL_STATES = ['select', 'hint'] as const;

@@ -56,6 +56,10 @@ Shipped capabilities on `main`:
 4. **A per-project default only reaches a built game on its next publish/bake** — the bundle carries the map, so changing a default in the tool does not retroactively change an already-published game.
 
 ## Blocked (owner / external)
+- **⏳ Browser-verify `featureWorth`** (auth-gated, owner): in a Hold and Win project, give the
+  TOTAL WIN component a number input **from** `featureWorth` with tier transitions (≥ 1000 → medium
+  …). Play a feature: the tier steps up during the respins, not only at the end tally. Check that
+  **Bind to value → Hold and Win** lists *Feature worth*.
 - **⏳ Browser-verify segmented counters** (auth-gated, owner): (a) Components side → Library →
   create from **Segmented Counter**: the stage shows three segments 1 2 3; Properties → **Repeat
   (count)** → **Pass to each segment** → `value` test slider at 1 lights only segment 1, at 3 all
@@ -99,6 +103,67 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-23 — **Segmented counters: a segment's box (Size)** (branch `feat/segment-root-box`, in
+  review, ⏳ not browser-verified). A segment drawn only from rigs and text (the owner's
+  R_RespinTile looks) measures 0 × 0 — a rig or a text cannot be sized without loading it — so a
+  row of them stacked 6 px apart, in game and on the canvas. Opt-in fix: `repeaterSegmentSize`
+  (`engine-layout/repeaterCount.ts`) lays a segment out by its ROOT box when the def declares both
+  `root.width` and `root.height`, from its origin right and down, else measures as before
+  (`componentDesignSize`); `Repeater.svelte` and the canvas (`repeaterPreviewLayout`) both use it.
+  The Component Editor bar gets **Size** W × H beside **Space** (`setComponentSize` in
+  `ComponentWorkspace.svelte`; empty or ≤ 0 clears it); the normalizer already kept a root box.
+  Only a count-mode repeater reads it (background cover-fit and the source-list repeater still
+  measure), and a def without both sides lays out exactly as before. Gates:
+  `check:component-repeat-segments` (71: the measure, the normalizer, rig-only segments mounted for
+  real stacking without a box and stepping 166 px with a 160 × 120 one) and
+  `check:component-repeat-segments-editor` (36: the canvas layout, the field). Guide:
+  [§ Segmented counters](../tools/invisible-editor.md#segmented-counters--repeat-count).
+- 2026-10-23 — **Segmented counters: a missing end cap draws the middle segment; rig looks draw in
+  the editor** (branch `fix/segment-variant-fallback`, in review, ⏳ not browser-verified). Owner
+  report (commonoverlayproject, *Respin counter*): after making the end caps with ⧉ Duplicate, the
+  game drew only the middle segment. Root cause: the game was the player snapshot published at
+  16:12, before the copies existed (16:15 / 16:17), so its registry had no def for either variant
+  and `ComponentInstance` drew nothing for them; the middle draws because `segmentedCounterSegment`
+  is a built-in id. The duplicate, the editor and the engine were correct (the owner's exact stored
+  defs mount and light 1 / 2 / 3 in the check below); the 16:35 publish carries the copies. Changes:
+  `repeaterSegmentComponent` / `repeaterCountOffsets` take a `has` (the registry; the editor's def
+  map), so a variant naming no def draws and is sized as the middle segment, and `Repeater.svelte`
+  warns once naming the repeater, the slot and the id (`missingRepeaterVariants`);
+  `resolveComponentClosure` reports an id with no def through `onMissing`, which the runtime bundle
+  logs (live boots and Publish). Editor: the rig layer now walks count-mode repeaters
+  (`collectSegmentRigs` in `EditorRigLayer.svelte`, over the canvas's own `repeaterCountBoxes` and
+  settled poses, leaving out a look faded to alpha 0 since the layer draws no alpha) and the canvas
+  mounts it for a rig inside a segment (`nodesHaveRig`), so a segment drawn from rigs (the owner's
+  R_RespinTile looks) shows its art there; before, only a "rig:" placeholder or nothing. Gates:
+  `check:component-repeat-segments` (71: the fallback, `onMissing`, and the owner's counter mounted
+  for real, with and without its first end cap registered) and
+  `check:component-repeat-segments-editor` (39: rig-look end caps made by the real duplicate, the
+  fallback, the rig-layer wiring). Still open: a segment drawn only from rigs and text measures
+  0 × 0, so such segments stack (next PR: an opt-in root box); the rig layer keeps ONE skeleton
+  per rig file, so segments resting on different animations of one rig draw right while still, but
+  ▶ playing one of them (or an `enter` cue on only one look) makes them reset each other every frame
+  — the rig freezes on its first frame until play stops.
+- 2026-10-23 — **`featureWorth` as a component source** (branch `claude/feature-worth-source`, owner
+  ask). A Hold and Win TOTAL WIN widget can tier off the feature's running value during the respins
+  instead of `featureTotal` (the win meter, which only climbs in the end tally). One reader:
+  `featureWorthOf(state)` in `engine-game/holdAndWin.ts` (`stateHoldAndWin.total`, finite-guarded),
+  wrapped as `featureWorth()` in `apps/lines/stateHoldAndWin.svelte.ts`. Flow's
+  `$engine.featureWorth` and the new component source both call it. Unit: book-event units, 100 = 1×
+  total bet, the same as `featureTotal` / `totalWin`, so there is no conversion. It reads 0 before
+  any feature. It moves with each respin's `holdAndWinState` snapshot, recorded at the play seam
+  before the event is presented, and holds the end's total after `holdAndWinEnd`. A new spin clears
+  it: `startHoldAndWinRound()` in `onNewGameStart`, via `atRoundStart` (only `total` is written, and
+  an open feature keeps it). Before this change Flow's value held the last feature's worth until the
+  next trigger. Registered in `Game.svelte` with the win meter's formatter, so a text binding shows
+  currency. Catalog: `VALUE_BINDING_SOURCE_CATALOG` (group *Hold and Win*, the note states the unit)
+  and `HOLD_AND_WIN_PARAM_CATALOG`. That puts it in Bind to value, the number-input / repeater
+  count / `passInputs` picker (`engineSourceGroups`) and a Hold and Win part's or Text Box's `source`
+  options. Nothing to bake: it is a runtime registry entry like `featureTotal`. Gate: `pnpm
+  check:feature-worth` (95 checks, including real facade + mock rounds folded through the reducer).
+  Mutation-checked with 15 mutants, every one caught (incl. the round-reset body, a commented-out
+  call, a Flow read that bypasses the reader, and a stray `.total` read anywhere in the game). Guide: [invisible-editor
+  § The State Machine](../tools/invisible-editor.md#the-state-machine) (choosing `featureWorth` or
+  `featureTotal`).
 - 2026-10-23 — **A counter inside a component draws in every renderer, and all three cut nesting at
   the same level** (branch `claude/component-nesting-parity`, ⏳ not browser-verified). Owner report:
   the Hold and Win TOTAL WIN widget's Segmented Counter showed in the Component Editor and was

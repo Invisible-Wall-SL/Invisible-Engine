@@ -185,6 +185,30 @@ export async function putDocWithBackup(
 }
 
 /**
+ * Delete the target's doc with `remove` (the caller's `deleteObject`, which throws on a failure),
+ * preserving it first: a delete is the most destructive write there is, so it never coalesces, and
+ * the doc's History then holds its last version rather than whatever an autosave last happened to
+ * copy. The order is `putDocWithBackup`'s: a copy that throws stops the delete.
+ */
+export async function deleteDocWithBackup(
+	target: DocBackupTarget,
+	remove: (key: string) => Promise<void>,
+	now = new Date(),
+): Promise<void> {
+	const backupId = await backupBeforeOverwrite(target, 'always', undefined, now);
+	await remove(target.docKey);
+	lastBackupAtMs.delete(target.docKey);
+	lastPutEtag.delete(target.docKey);
+	if (backupId) {
+		try {
+			await pruneBackups(target);
+		} catch (e) {
+			console.error(`[doc-backups] prune of ${target.prefix} failed`, e);
+		}
+	}
+}
+
+/**
  * Copy the target's CURRENT doc aside, so the write that follows is undoable. Returns the backup
  * id, or `null` when there was provably nothing to preserve (no doc yet) or the `'auto'`
  * coalescing window suppressed it. Throws {@link ConflictError} when the stored object already

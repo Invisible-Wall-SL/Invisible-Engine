@@ -8,7 +8,12 @@
  * Scene Editor, `/symbols` and the Flow show for it.
  */
 
-import type { ElementFxParamSpec, ElementFxPhase } from 'constants-shared/elementFx';
+import type {
+	CustomElementFxMotion,
+	CustomElementFxPass,
+	ElementFxParamSpec,
+	ElementFxPhase,
+} from 'constants-shared/elementFx';
 
 export const SHADER_GRAPH_VERSION = 1;
 
@@ -17,17 +22,27 @@ export type PortType = 'float' | 'vec2' | 'vec3' | 'vec4';
 
 export interface ShaderGraphDoc {
 	version: typeof SHADER_GRAPH_VERSION;
+	/** A slug: the effect plays as the Element FX kind `custom:<id>`. */
 	id: string;
 	name: string;
+	/** What the effect does, for the pickers. */
+	description?: string;
 	phase: ElementFxPhase;
 	/** One play's length when an entry leaves `durationMs` unset. */
 	durationMs: number;
-	/** Room the pass draws outside the element's box, in screen px (a glow, an arc). */
+	/**
+	 * Room the graph draws outside the element's box (a glow, a pushed-out ring), as a share of the
+	 * element's larger side.
+	 */
 	padding?: number;
 	/** The rows an author sets where the effect is placed; a `param` node reads one. */
 	params: ElementFxParamSpec[];
 	nodes: GraphNode[];
 	wires: GraphWire[];
+	/** Built-in passes drawn after the graph (a glow, an outline, a blur), in order. */
+	passes?: CustomElementFxPass[];
+	/** The element's own motion over the play: a curve per channel. */
+	motion?: CustomElementFxMotion;
 }
 
 export interface GraphNode {
@@ -71,4 +86,6 @@ export type GraphIssueCode =
 	| 'value'
 	| 'setting'
 	| 'unreachable'
-	| 'cost';
+	| 'cost'
+	| 'pass'
+	| 'motion';

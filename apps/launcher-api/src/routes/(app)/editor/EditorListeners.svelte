@@ -1,8 +1,10 @@
 <script lang="ts">
 	/**
-	 * A node's LISTENERS (Rive plan Phase 6b, §5): "On [down/up/enter/leave/click] → [fire trigger |
-	 * set input | toggle bool | raise event]", one compact row each, the pickers fed by the open
-	 * component's inputs and events. The rows live on the draft node (`node.on`) and save with the
+	 * A node's LISTENERS (Rive plan Phase 6b, §5): "On [down/up/enter/leave/click, and — game-families
+	 * P10.4 — pointer move / drag start / drag / drag end / swipe] → [fire trigger | set input |
+	 * toggle bool | raise event | align target]", one compact row each, the pickers fed by the open
+	 * component's inputs, events and nodes. A swipe row has its direction and threshold; an align
+	 * row its target, offset and axis. The rows live on the draft node (`node.on`) and save with the
 	 * component; the game's runtime and the Animate preview run them (`ComponentEventDispatcher`).
 	 * New rows get minted ids no id of the draft or of the last-saved component uses
 	 * (`listenerEdit.ts`). Read-only while Inspecting a version.
@@ -10,21 +12,29 @@
 	import {
 		componentEvents,
 		componentInputs,
+		DEFAULT_SWIPE_THRESHOLD,
 		NODE_LISTENER_EVENTS,
+		SWIPE_DIRECTIONS,
 		validateComponentEvents,
 		type ComponentDef,
 		type LayoutNode,
 		type ListenerActionKind,
 		type NodeListener,
 		type NodeListenerEvent,
+		type SwipeDirection,
 	} from 'engine-layout';
 	import {
 		ACTION_CHOICES,
 		addListener,
+		alignTargetsFor,
+		EVENT_LABELS,
 		inputsFor,
 		removeListener,
 		setActionTarget,
+		setAlignOptions,
+		setListenerEvent,
 		setListenerKind,
+		setSwipeFilter,
 	} from '$lib/timeline/listenerEdit';
 	import EditorRaisePayload from './EditorRaisePayload.svelte';
 
@@ -58,15 +68,10 @@
 		const mine = (node.on ?? []).map((l) => l.id);
 		return validateComponentEvents(def).filter((i) => !!i.listener && mine.includes(i.listener));
 	});
-	const nothingToDo = $derived(!inputs.length && !events.length);
-
-	const EVENT_LABELS: Record<NodeListenerEvent, string> = {
-		down: 'down',
-		up: 'up',
-		enter: 'hover in',
-		leave: 'hover out',
-		click: 'click',
-	};
+	const nothingToDo = $derived.by(() => {
+		void version;
+		return !inputs.length && !events.length && !alignTargetsFor(def).length;
+	});
 
 	function edit(fn: () => void): void {
 		if (readOnly) return;
@@ -77,9 +82,15 @@
 	const targets = (l: NodeListener): { id: string; label: string }[] =>
 		l.action.kind === 'raise'
 			? events.map((e) => ({ id: e.id, label: e.id }))
-			: inputsFor(def, l.action.kind).map((i) => ({ id: i.id, label: `${i.id} (${i.kind})` }));
+			: l.action.kind === 'align'
+				? alignTargetsFor(def).map((n) => ({ id: n.id, label: `node ${n.label || n.id}` }))
+				: inputsFor(def, l.action.kind).map((i) => ({ id: i.id, label: `${i.id} (${i.kind})` }));
 	const target = (l: NodeListener): string =>
-		l.action.kind === 'raise' ? l.action.event : l.action.input;
+		l.action.kind === 'raise'
+			? l.action.event
+			: l.action.kind === 'align'
+				? l.action.target
+				: l.action.input;
 </script>
 
 <div class="listeners">
@@ -90,7 +101,7 @@
 			class="ghost-sm"
 			disabled={readOnly || nothingToDo}
 			title={nothingToDo
-				? 'Declare an input or an event first (Component variables)'
+				? 'Declare an input or an event first (Component variables), or add a node to align'
 				: 'Add a listener: a pointer event on this node acts on the component'}
 			onclick={() => edit(() => addListener(node, def, reserved))}>+ Listener</button
 		>
@@ -111,7 +122,7 @@
 							disabled={readOnly}
 							value={l.event}
 							onchange={(e) =>
-								edit(() => (l.event = e.currentTarget.value as NodeListener['event']))}
+								edit(() => setListenerEvent(l, e.currentTarget.value as NodeListenerEvent))}
 						>
 							{#each NODE_LISTENER_EVENTS as ev (ev)}<option value={ev}>{EVENT_LABELS[ev]}</option
 								>{/each}
@@ -121,7 +132,9 @@
 							disabled={readOnly}
 							value={l.action.kind}
 							onchange={(e) =>
-								edit(() => setListenerKind(def, l, e.currentTarget.value as ListenerActionKind))}
+								edit(() =>
+									setListenerKind(def, l, e.currentTarget.value as ListenerActionKind, node.id),
+								)}
 						>
 							{#each ACTION_CHOICES as c (c.kind)}<option value={c.kind}>{c.label}</option>{/each}
 						</select>
@@ -166,6 +179,73 @@
 							{/if}
 						{/if}
 					</div>
+					{#if l.event === 'swipe'}
+						<div class="line sub">
+							<select
+								disabled={readOnly}
+								title="The way the swipe must go (its longer axis)"
+								value={l.swipe?.direction ?? ''}
+								onchange={(e) =>
+									edit(() =>
+										setSwipeFilter(l, {
+											direction: (e.currentTarget.value || undefined) as SwipeDirection | undefined,
+										}),
+									)}
+							>
+								<option value="">any direction</option>
+								{#each SWIPE_DIRECTIONS as d (d)}<option value={d}>{d}</option>{/each}
+							</select>
+							<input
+								type="number"
+								min="0"
+								step="1"
+								disabled={readOnly}
+								title="How far (px, in the component) the press must travel to be a swipe"
+								placeholder={String(DEFAULT_SWIPE_THRESHOLD)}
+								value={l.swipe?.threshold ?? ''}
+								onchange={(e) =>
+									edit(() =>
+										setSwipeFilter(l, {
+											threshold:
+												e.currentTarget.value === '' ? undefined : Number(e.currentTarget.value),
+										}),
+									)}
+							/>
+							<span class="unit">px</span>
+						</div>
+					{/if}
+					{#if l.action.kind === 'align'}
+						{@const a = l.action}
+						<div class="line sub">
+							<label
+								class="check"
+								title="Keep the distance the node had from the pointer when the press began"
+							>
+								<input
+									type="checkbox"
+									disabled={readOnly}
+									checked={!!a.preserveOffset}
+									onchange={(e) =>
+										edit(() => setAlignOptions(a, { preserveOffset: e.currentTarget.checked }))}
+								/>
+								keep offset
+							</label>
+							<select
+								disabled={readOnly}
+								value={a.axis ?? ''}
+								onchange={(e) =>
+									edit(() =>
+										setAlignOptions(a, {
+											axis: (e.currentTarget.value || undefined) as 'x' | 'y' | undefined,
+										}),
+									)}
+							>
+								<option value="">x and y</option>
+								<option value="x">x only</option>
+								<option value="y">y only</option>
+							</select>
+						</div>
+					{/if}
 					{#if l.action.kind === 'raise'}
 						{@const a = l.action}
 						<EditorRaisePayload
@@ -173,6 +253,7 @@
 							event={events.find((e) => e.id === a.event)}
 							{inputs}
 							{readOnly}
+							pointer
 							onChanged={() => edit(() => {})}
 						/>
 					{/if}
@@ -259,8 +340,16 @@
 		flex: none;
 	}
 	.on,
-	.arrow {
+	.arrow,
+	.unit {
 		color: #8a7aa8;
+	}
+	.check {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		flex: none;
+		color: #b8b8c4;
 	}
 	.x {
 		width: 18px;

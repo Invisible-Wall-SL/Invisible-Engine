@@ -1,6 +1,6 @@
 ---
 name: invisible-shader-graph
-description: Expert on Invisible Shader Graph — the planned node-based shader editor (route `/shaders`) that turns the Element FX into reusable nodes, so artists author new effects that play wherever an Element FX plays. Owns the shared GLSL library under the Element FX passes (`constants-shared/glslLibrary.ts`), the graph package (`packages/engine-shadergraph`), codegen to GLSL ES 1.00, the `custom:<id>` Element FX kinds, the graph doc's export→deploy→bake→pull→register chain and the `/shaders` page. Use for ALL work on this project; it builds on engine-pixi-svelte, invisible-flow (the graph canvas) and launcher-studio.
+description: Expert on Invisible Shader Graph — the node-based shader editor (route `/shaders`) that turns the Element FX into reusable nodes, so artists author new effects that play wherever an Element FX plays. Owns the shared GLSL library under the Element FX passes (`constants-shared/glslLibrary.ts`), the graph package (`packages/engine-shadergraph`), codegen to GLSL ES 1.00, the `custom:<id>` Element FX kinds, the graph doc's export→deploy→bake→pull→register chain and the `/shaders` page. Use for ALL work on this project; it builds on engine-pixi-svelte, invisible-flow (the graph canvas) and launcher-studio.
 tools: Glob, Grep, Read, Edit, Write, Bash
 ---
 
@@ -20,23 +20,50 @@ You are the developer for **Invisible Shader Graph**.
   - `src/nodes.ts`: the node library.
   - `src/compile.ts`: the validator and compiler.
   - `src/reference.ts`: the reference graphs and the one-graph-per-node showcase.
+  - `src/doc.ts`: `normalizeShaderGraphDoc`, the shape storage keeps (a graph mid-build included).
   - `compile.fixture.ts`: the headless checks; the reference graphs' GLSL is snapshotted in
     `snapshots/`.
 - `packages/pixi-svelte/src/lib/elementFx/shaders.ts`: the built-in passes and the
   `ElementFxFilter` shell (`HEADER`: `efxPx`, `efxToUnit`, `efxSample`, `uElement`, `uPad`) that
   compiled graphs target.
 - `packages/pixi-svelte/src/lib/elementFx/kinds.ts` and `runtime.ts`: how a kind plays (triggers,
-  phases, keyed poses, turbo).
-- `packages/constants-shared/elementFx.ts`: the catalog (params: number / color / bool / choice).
-- `apps/launcher-api/src/routes/(app)/flow-v2/`: the `@xyflow/svelte` graph canvas to lift into
-  `$lib/graph/` (step 5).
-- `apps/launcher-api/src/lib/server/effectExport.ts`: the ship chain to mirror (step 4).
+  phases, keyed poses, turbo). `custom.ts`: how a custom kind (`custom:<id>`) plays: its graph, its
+  passes, its motion.
+- `packages/constants-shared/elementFx.ts`: the catalog (params: number / color / bool / choice),
+  and the custom-effect registry (`setCustomElementFx`) that `compileShaderEffect`'s output goes
+  into.
+- The editor (step 5), `apps/launcher-api/src/routes/(app)/shaders/`:
+  - `+page.svelte` (the three panes, save / lease / history, undo), `+page.server.ts`;
+  - `shaderEditor.ts`: the pure editing model (every gesture doc → doc, the wire rule, the canvas
+    view, `slugOf`), proven by `scripts/check-shader-editor.ts` (`check:shader-editor`);
+  - `ShaderLibrary.svelte`, `ShaderNode.svelte`, `NodeProperties.svelte`, `GraphSettings.svelte`;
+  - `ShaderPreview.svelte` + `shaderPreview.client.ts`: the live Pixi preview through the game's
+    Element FX runtime.
+
+  The canvas is `$lib/graph/GraphCanvas.svelte` + `dnd.ts`, shared with /flow-v2. History:
+  `routes/api/shaders/backups`, stem `shader` in `docBackups`.
+- The pipeline (step 4), in `apps/launcher-api`:
+  - `src/lib/server/shaderStorage.ts` (project + `_shared` graphs, the set, compile),
+    `shaderScope.ts` (who reads and writes), `routes/api/shaders/*`;
+  - `src/lib/server/shaderExport.ts` → `deploy/editor-shaders/`, embedded as `shaderEffects` by
+    `runtimeBundle.ts` (Publish) and `scripts/bake-editor-doc.mjs` (`/api/editor/export-shaders`);
+  - `src/lib/customElementFx.svelte.ts`: a page registers its project's set; `EditorElementFx.svelte`
+    lists it; `elementFxTargets.ts` `withCustomElementFxKinds` widens the Flow's kind dropdown;
+  - `scripts/check-shader-pipeline.ts` (`check:shader-pipeline`).
+
+  The game: `apps/lines` `bakedShaderEffects()` → `setCustomElementFx` in `Game.svelte`.
+- `scripts/playtest/shader-effect-play.mjs`: a published game with graphs on it, played headless.
 - `tools/fx-spike/elementFx.ts`: the gate (`pnpm check:element-fx`).
 - `tools/fx-spike/shaderParity.mjs`: the render harness (`shoot` / `diff`, by hand). Its pages
   (`shaderPages.mjs`): `shaderParity.entry.ts` draws the built-ins, `shaderGraphs.entry.ts` the
   reference graphs and every node.
 - `tools/fx-spike/shaderCompile.mjs`: the same pages drawn in CI (`check:all`), failing on any
   shader the driver rejects.
+- The twins (step 6): `packages/engine-shadergraph/src/twins.ts` (`BUILTIN_TWINS`, `builtinTwin`)
+  and `src/twins/{graph,passes,distort,material}.ts`; their GLSL is snapshotted in
+  `snapshots/twins/` (run the compile fixture with `--update` after changing a twin).
+  `tools/fx-spike/shaderTwins.mjs` + `shaderTwins.entry.ts` is the parity gate (`shader-twins`, in
+  `check:all`): change a built-in or a node a twin uses and it must still pass.
 
 ## House rules for this project
 - **GLSL ES 1.00 only.** No `transpose`, `inverse`, `texelFetch`. The gate scans for them.

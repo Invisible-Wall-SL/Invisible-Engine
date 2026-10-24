@@ -23,23 +23,58 @@
  *  6. TYPES CONVERT only one way: a float spreads, a longer vector feeds a shorter port by its
  *     leading parts.
  *  7. NOTHING AN AUTHOR TYPES REACHES THE GLSL: node ids, param ids and labels are not in it; a
- *     negative literal is parenthesised, so `- -1.0` never becomes `--`.
+ *     negative literal is parenthesised, so `- -1.0` never becomes `--`; a doc id is a slug.
  *  8. A PARAM'S UNIFORM HOLDS its number, colour, 0 / 1 or choice index.
+ *  9. THE EFFECT: `compileShaderEffect` packs a doc as a custom Element FX (`custom:<id>`): its
+ *     spec, its graph's body and uniforms, and plain copies of its passes and motion, which
+ *     register and read as a playable kind. Each bad pass (a kind that is not a single pass, a
+ *     param it lacks, a bad value, a tie to a missing param or one of another kind, too many, a
+ *     strength out of range) and each bad curve (an unknown channel, keys out of order or past 1, a
+ *     non-number, a value out of its channel's range, an unknown ease, too many keys, a pivot far
+ *     off) is an error; so is a length that is not a number the runtime plays, or padding past 2.
+ * 10. THE TWINS OF THE BUILT-INS (`BUILTIN_TWINS`, step 6): each compiles with no error, links and
+ *     lints clean, within the phone's budget but for those named heavy (petrify, as heavy as its
+ *     built-in), each no heavier than named; its id is its kind and it is named as the kind is; its
+ *     params deep-equal the kind's catalog params; its phase and length are the kind's; no kind has
+ *     two; every pass kind has one, and a pass twin is the element as it is, then that pass with
+ *     each param tied by id.
+ *     A node twin of a material built-in calls every library entry its built-in pass calls. The
+ *     node twins' GLSL matches `snapshots/twins/<kind>.frag`. The per-element seed: a graph reading
+ *     the Seed node gets `uSeed` (source `seed`), which the registry takes as a float only; a graph
+ *     that does not, none. The Output's Blend Add keeps a colour above its alpha.
+ *     (`pnpm --filter fx-spike shader-twins` holds each twin's pixels to its built-in's.)
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+	customElementFx,
+	elementFxParamUniform,
+	elementFxSpec,
+	findElementFxSpec,
+	isElementFxKind,
+	isPlayableElementFxKind,
+	readCustomElementFx,
+	readElementFxEntry,
+	setCustomElementFx,
+	CUSTOM_ELEMENT_FX_PASS_LIMIT as PASS_LIMIT,
+	ELEMENT_FX_CURVE_KEY_LIMIT as CURVE_KEY_LIMIT,
+	ELEMENT_FX_PASS_KINDS,
+} from 'constants-shared/elementFx';
 import { EFX_GLSL, linkGlsl } from 'constants-shared/glslLibrary';
 import {
+	SAMPLE_BUDGET,
+	compileShaderEffect,
 	compileShaderGraph,
 	glslFloat,
-	paramUniformValue,
 	validateShaderGraph,
 	type CompileResult,
 } from './src/compile.ts';
 import { DIMS, SHADER_NODES, shaderNode, type NodeDef } from './src/nodes.ts';
 import { REFERENCE_GRAPHS, graphBuilder, nodeShowcase } from './src/reference.ts';
+import { BUILTIN_TWINS, builtinTwin } from './src/twins.ts';
+import { MATERIAL_TWINS } from './src/twins/material.ts';
 import type { GraphIssueCode, ShaderGraphDoc } from './src/types.ts';
 
 let failures = 0;
@@ -188,7 +223,7 @@ console.log('shader graph — every node compiles on its own');
 	const uncovered = generic.flatMap((n) =>
 		n.outputs.flatMap((o) =>
 			['vec2', 'vec3', 'vec4']
-				.map((w) => `${n.type}.${o.id}.${w}`)
+				.map((w) => `${n.type}-${o.id}-${w}`)
 				.filter((id) => !showcase.some((d) => d.id === id)),
 		),
 	);
@@ -386,7 +421,7 @@ console.log('shader graph — the validator');
 	};
 	assert(
 		broken([null]).join() === 'param' &&
-			broken([7, { id: 'x' }]).join() === 'param,param' &&
+			broken([7, { id: 'x', label: 'X' }]).join() === 'param,param' &&
 			broken([{ id: 'k', label: 'K', kind: 'choice', default: 1, options: [1, 2] }]).join() ===
 				'param',
 		'a malformed param list (a null, a number, a choice of numbers): errors, never a throw',
@@ -481,7 +516,7 @@ console.log('shader graph — nothing typed reaches the GLSL');
 	const evil = '"); discard; // gl_FragColor';
 	const doc: ShaderGraphDoc = {
 		version: 1,
-		id: evil,
+		id: 'evil',
 		name: evil,
 		phase: 'emphasis',
 		durationMs: 1000,
@@ -500,6 +535,13 @@ console.log('shader graph — nothing typed reaches the GLSL');
 			body(r).includes('uniform float uP0;'),
 		'ids and labels never reach the GLSL: names are made (uP0, n0_out)',
 	);
+	const badIds = [evil, 'a.b', '', '-lead', 'x'.repeat(65)].map((id) =>
+		validateShaderGraph({ ...doc, id }).some((i) => i.code === 'doc' && i.message.includes('slug')),
+	);
+	assert(
+		badIds.every(Boolean) && !compileShaderEffect({ ...doc, id: evil }).ok,
+		'a doc id that is not a slug (it names the kind custom:<id>) is an error',
+	);
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -509,29 +551,342 @@ console.log('shader graph — param uniforms');
 		a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < 1e-6);
 	assert(
 		near(
-			paramUniformValue({ id: 'n', label: 'N', kind: 'number', default: 1, min: 0, max: 2 }, 1.5),
+			elementFxParamUniform(
+				{ id: 'n', label: 'N', kind: 'number', default: 1, min: 0, max: 2 },
+				1.5,
+			),
 			[1.5],
 		) &&
 			near(
-				paramUniformValue({ id: 'c', label: 'C', kind: 'color', default: '#000000' }, '#ff8000'),
+				elementFxParamUniform(
+					{ id: 'c', label: 'C', kind: 'color', default: '#000000' },
+					'#ff8000',
+				),
 				[1, 128 / 255, 0],
 			) &&
-			near(paramUniformValue({ id: 'b', label: 'B', kind: 'bool', default: false }, true), [1]) &&
 			near(
-				paramUniformValue(
+				elementFxParamUniform({ id: 'b', label: 'B', kind: 'bool', default: false }, true),
+				[1],
+			) &&
+			near(
+				elementFxParamUniform(
 					{ id: 'k', label: 'K', kind: 'choice', default: 'a', options: ['a', 'b', 'c'] },
 					'c',
 				),
 				[2],
 			) &&
 			near(
-				paramUniformValue(
+				elementFxParamUniform(
 					{ id: 'k', label: 'K', kind: 'choice', default: 'b', options: ['a', 'b'] },
 					'zzz',
 				),
 				[1],
 			),
 		'a param uniform holds its number, colour, 0 / 1 or choice index (an unknown choice reads its default)',
+	);
+}
+
+// -------------------------------------------------------------------------------------------------
+console.log('shader graph — the effect (a custom Element FX)');
+{
+	const powerUp = REFERENCE_GRAPHS.find((d) => d.id === 'powerUp') as ShaderGraphDoc;
+	const r = compileShaderEffect(powerUp);
+	const effect = r.ok ? r.effect : undefined;
+	const graph = compileShaderGraph(powerUp);
+	assert(
+		!!effect &&
+			effect.spec.kind === 'custom:powerUp' &&
+			effect.spec.category === 'custom' &&
+			effect.spec.label === 'Power-up' &&
+			effect.spec.phase === 'emphasis' &&
+			effect.spec.durationMs === 900 &&
+			effect.spec.description.length > 0 &&
+			graph.ok &&
+			effect.shader.body === graph.shader.body &&
+			JSON.stringify(effect.shader.uniforms) === JSON.stringify(graph.shader.uniforms),
+		'Power-up packs as custom:powerUp: its spec, its graph’s body and uniforms',
+	);
+	assert(
+		!!effect &&
+			JSON.stringify(effect.passes) === JSON.stringify(powerUp.passes) &&
+			effect.passes !== powerUp.passes &&
+			JSON.stringify(effect.motion) === JSON.stringify(powerUp.motion) &&
+			effect.motion !== powerUp.motion &&
+			JSON.stringify(JSON.parse(JSON.stringify(effect))) === JSON.stringify(effect),
+		'its passes and motion are plain copies, and the whole effect survives JSON (it ships as data)',
+	);
+	const all = REFERENCE_GRAPHS.map((doc) => compileShaderEffect(doc));
+	setCustomElementFx(all.flatMap((x) => (x.ok ? [x.effect] : [])));
+	assert(
+		all.every((x) => x.ok) &&
+			REFERENCE_GRAPHS.every(
+				(doc) =>
+					isPlayableElementFxKind(`custom:${doc.id}`) &&
+					findElementFxSpec(`custom:${doc.id}`)?.phase === doc.phase &&
+					customElementFx(`custom:${doc.id}`)?.spec.label === doc.name,
+			),
+		'every reference graph registers and reads as a playable kind with its own spec',
+	);
+	const read = readElementFxEntry({
+		id: 'e',
+		kind: 'custom:powerUp',
+		trigger: 'cue',
+		cue: 'go',
+		params: { color: '#00ff00', stray: 3 },
+	});
+	assert(
+		read?.kind === 'custom:powerUp' &&
+			JSON.stringify(read.params) === JSON.stringify({ color: '#00ff00' }),
+		'an entry naming it reads its params against its spec',
+	);
+	setCustomElementFx([]);
+
+	const base = (extra: Partial<ShaderGraphDoc>): ShaderGraphDoc => ({ ...powerUp, ...extra });
+	const passCode = (passes: unknown): boolean =>
+		validateShaderGraph(base({ passes: passes as ShaderGraphDoc['passes'] })).some(
+			(i) => i.code === 'pass',
+		);
+	assert(
+		passCode([{ kind: 'crash' }]) &&
+			passCode([{ kind: 'shake' }]) &&
+			passCode([{ kind: 'glow', params: { nope: 1 } }]) &&
+			passCode([{ kind: 'glow', params: { color: '#zzz' } }]) &&
+			passCode([{ kind: 'glow', params: { color: { param: 'missing' } } }]) &&
+			passCode([{ kind: 'blur', params: { amount: { param: 'color' } } }]) &&
+			passCode(Array.from({ length: PASS_LIMIT + 1 }, () => ({ kind: 'glow' }))) &&
+			passCode([{ kind: 'glow', intensity: 9 }]) &&
+			passCode('glow') &&
+			!passCode([{ kind: 'outline', params: { color: { param: 'color' } }, intensity: 0.5 }]) &&
+			!passCode([{ kind: 'glow', params: { color: '#FFD166' } }]),
+		'each bad pass is an error: not a single-pass kind, a param it lacks, a bad value, a tie to a missing or mismatched param, too many, too strong (an upper-case colour is fine)',
+	);
+	const motionCode = (motion: unknown): boolean =>
+		validateShaderGraph(base({ motion: motion as ShaderGraphDoc['motion'] })).some(
+			(i) => i.code === 'motion',
+		);
+	const keys = (n: number) => Array.from({ length: n }, (_, i) => ({ t: i / n, v: 0 }));
+	assert(
+		motionCode({ channels: { z: [{ t: 0, v: 1 }] } }) &&
+			motionCode({
+				channels: {
+					x: [
+						{ t: 0.5, v: 0 },
+						{ t: 0.2, v: 1 },
+					],
+				},
+			}) &&
+			motionCode({ channels: { x: [{ t: 1.5, v: 0 }] } }) &&
+			motionCode({ channels: { x: [{ t: 0, v: Number.NaN }] } }) &&
+			motionCode({ channels: { x: [{ t: 0, v: 0, ease: 'bounce' }] } }) &&
+			motionCode({ channels: { x: keys(CURVE_KEY_LIMIT + 1) } }) &&
+			motionCode({ channels: { x: [] } }) &&
+			motionCode({ channels: {}, pivot: { x: 5, y: 0 } }) &&
+			motionCode({}) &&
+			motionCode({ channels: { alpha: [{ t: 0, v: 1.6 }] } }) &&
+			motionCode({ channels: { scale: [{ t: 0, v: -0.5 }] } }) &&
+			motionCode({ channels: { rotation: [{ t: 0, v: 7200 }] } }) &&
+			!motionCode({ channels: { rotation: keys(CURVE_KEY_LIMIT) }, pivot: { x: 0, y: 1 } }),
+		'each bad curve is an error: an unknown channel, keys out of order or past 1, not a number, out of its channel’s range (alpha 0…1, scale ≥ 0), an unknown ease, too many or none, a pivot far off',
+	);
+	const docCode = (extra: Partial<ShaderGraphDoc>): boolean =>
+		validateShaderGraph(base(extra)).some((i) => i.code === 'doc');
+	assert(
+		docCode({ name: ' ' }) &&
+			docCode({ durationMs: 10 }) &&
+			docCode({ durationMs: 60_000 }) &&
+			docCode({ durationMs: '900' as unknown as number }) &&
+			docCode({ durationMs: [900] as unknown as number }) &&
+			docCode({ padding: 3 }) &&
+			docCode({ padding: '1' as unknown as number }) &&
+			!docCode({ padding: 0.5 }) &&
+			docCode({ description: 3 as unknown as string }) &&
+			!docCode({}),
+		'the effect needs a name, a length the runtime plays (a number, 50 ms…20 s), padding of 0…2 and text for a description',
+	);
+	assert(effect?.padding === 0, 'no padding unless the doc asks for room');
+}
+
+// -------------------------------------------------------------------------------------------------
+console.log('shader graph — the twins of the built-ins');
+{
+	// The twins over the phone budget, each as heavy as its built-in, and the most it may cost: a
+	// twin that grows heavier, or another that crosses the budget, fails.
+	const HEAVY: Record<string, number> = { petrify: 435 };
+	const failedTwins: string[] = [];
+	const lighter: string[] = [];
+	for (const twin of BUILTIN_TWINS) {
+		const r = compileShaderEffect(twin.doc);
+		const graph = compileShaderGraph(twin.doc);
+		const allowed = HEAVY[twin.kind];
+		// Only the work is excused, never the reads of the element.
+		const excused =
+			graph.ok &&
+			allowed !== undefined &&
+			graph.shader.cost <= allowed &&
+			graph.shader.samples <= SAMPLE_BUDGET;
+		const problems = r.ok
+			? [
+					...lint(r.effect.shader.body),
+					...r.warnings.filter((w) => w.code !== 'cost' || !excused).map((w) => w.message),
+				]
+			: r.issues.filter((i) => i.level === 'error').map((i) => i.message);
+		if (problems.length) failedTwins.push(`${twin.kind}: ${problems.join('; ')}`);
+		if (allowed !== undefined && r.ok && !r.warnings.some((w) => w.code === 'cost'))
+			lighter.push(twin.kind);
+	}
+	const heavy = Object.entries(HEAVY)
+		.map(([kind, cost]) => `${kind} (at most ${cost})`)
+		.join(', ');
+	assert(
+		BUILTIN_TWINS.length > 0 && !failedTwins.length && !lighter.length,
+		`every twin (${BUILTIN_TWINS.length}) compiles with no error, links and lints clean; only ${heavy} is over the phone's budget${failedTwins.length ? `: ${failedTwins.join(' | ')}` : ''}${lighter.length ? `; no longer heavy, take off HEAVY: ${lighter.join(', ')}` : ''}`,
+	);
+	const misnamed = BUILTIN_TWINS.filter(
+		(t) =>
+			!isElementFxKind(t.kind) ||
+			t.doc.id !== t.kind ||
+			t.doc.name !== elementFxSpec(t.kind).label ||
+			!t.doc.description,
+	);
+	assert(
+		!misnamed.length,
+		`each twin's id is its kind, its name the kind's label, and it has a description${misnamed.length ? `: ${misnamed.map((t) => t.kind).join(', ')}` : ''}`,
+	);
+	const unlike = BUILTIN_TWINS.filter((t) => {
+		const spec = elementFxSpec(t.kind);
+		return (
+			JSON.stringify(t.doc.params) !== JSON.stringify(spec.params) ||
+			t.doc.phase !== spec.phase ||
+			t.doc.durationMs !== spec.durationMs
+		);
+	});
+	assert(
+		!unlike.length,
+		`each twin's params deep-equal its kind's catalog params (ids, kinds, defaults, ranges, options), its phase and length are the kind's${unlike.length ? `: ${unlike.map((t) => t.kind).join(', ')}` : ''}`,
+	);
+	const kinds = BUILTIN_TWINS.map((t) => t.kind);
+	assert(
+		new Set(kinds).size === kinds.length && kinds.every((k) => builtinTwin(k)?.kind === k),
+		'no kind has two twins, and builtinTwin finds each',
+	);
+	const identity = compileShaderGraph(
+		(() => {
+			const solo = graphBuilder({ id: 'solo', name: 'Solo', phase: 'emphasis', durationMs: 1000 });
+			solo.node('output');
+			return solo.doc();
+		})(),
+	);
+	const badPasses = ELEMENT_FX_PASS_KINDS.filter((kind) => {
+		const twin = builtinTwin(kind);
+		if (!twin) return true;
+		if (twin.doc.nodes.length > 1) return false;
+		const tied = Object.fromEntries(elementFxSpec(kind).params.map((p) => [p.id, { param: p.id }]));
+		return (
+			body(compileShaderGraph(twin.doc)) !== body(identity) ||
+			JSON.stringify(twin.doc.passes) !== JSON.stringify([{ kind, params: tied }])
+		);
+	});
+	assert(
+		!badPasses.length,
+		`every pass kind has a twin; a pass twin is the element as it is, then that pass with each param tied by id${badPasses.length ? `: ${badPasses.join(', ')}` : ''}`,
+	);
+
+	// A material twin calls every building block its built-in pass does (the point of steps 1–2).
+	const PASS_OF: Record<string, string> = {
+		shine: 'shineFilter',
+		flash: 'colorMixFilter',
+		dissolveOut: 'dissolveFilter',
+		dissolveIn: 'dissolveFilter',
+		melt: 'meltFilter',
+		freeze: 'freezeFilter',
+		burn: 'burnFilter',
+		poison: 'poisonFilter',
+		electrocute: 'electrocuteFilter',
+		petrify: 'petrifyFilter',
+		turnToGold: 'goldFilter',
+	};
+	const library = (glsl: string): string[] => {
+		const linked = linkGlsl(glsl);
+		return Object.keys(EFX_GLSL).filter((name) => new RegExp(`\\b${name}\\(`).test(linked));
+	};
+	const missing = MATERIAL_TWINS.flatMap((twin) => {
+		const pass = PASS_OF[twin.kind];
+		const source = pass && SHADERS.split(`export const ${pass} = `)[1]?.split('`')[1];
+		if (!source) return [`${twin.kind}: no built-in pass found`];
+		const ours = library(body(compileShaderGraph(twin.doc)));
+		const lacks = library(source).filter((name) => !ours.includes(name));
+		return lacks.length ? [`${twin.kind} lacks ${lacks.join(', ')}`] : [];
+	});
+	assert(
+		MATERIAL_TWINS.length === Object.keys(PASS_OF).length && !missing.length,
+		`each material twin (${MATERIAL_TWINS.length}) calls every library entry its built-in pass calls${missing.length ? `: ${missing.join('; ')}` : ''}`,
+	);
+
+	const stale: string[] = [];
+	const nodeTwins = BUILTIN_TWINS.filter((t) => t.doc.nodes.length > 1);
+	for (const twin of nodeTwins) {
+		const glsl = body(compileShaderGraph(twin.doc));
+		const file = join(SNAPSHOTS, 'twins', `${twin.kind}.frag`);
+		if (UPDATE && glsl) {
+			mkdirSync(join(SNAPSHOTS, 'twins'), { recursive: true });
+			writeFileSync(file, glsl);
+		}
+		let snapshot = '';
+		try {
+			snapshot = readFileSync(file, 'utf8');
+		} catch {
+			// no snapshot yet: listed below, with how to write one
+		}
+		if (!glsl || glsl !== snapshot) stale.push(twin.kind);
+	}
+	assert(
+		!stale.length,
+		`each node twin's GLSL (${nodeTwins.length}) matches snapshots/twins/<kind>.frag${UPDATE ? ' (rewritten)' : ''}${stale.length ? `: ${stale.join(', ')} (run with --update after a deliberate change)` : ''}`,
+	);
+
+	const seeded = graphBuilder({
+		id: 'seeded',
+		name: 'Seeded',
+		phase: 'emphasis',
+		durationMs: 1000,
+	});
+	const noise = seeded.node('noise');
+	seeded.wire(seeded.node('seed'), 'out', noise, 'seed');
+	seeded.wire(noise, 'out', seeded.node('output'), 'color');
+	const withSeed = compileShaderEffect(seeded.doc());
+	const seedUniform = withSeed.ok
+		? withSeed.effect.shader.uniforms.find((u) => u.source.kind === 'seed')
+		: undefined;
+	const asVec = withSeed.ok
+		? {
+				...withSeed.effect,
+				shader: {
+					...withSeed.effect.shader,
+					uniforms: withSeed.effect.shader.uniforms.map((u) =>
+						u.source.kind === 'seed' ? { ...u, type: 'vec2' as const } : u,
+					),
+				},
+			}
+		: undefined;
+	assert(
+		seedUniform?.name === 'uSeed' &&
+			seedUniform.type === 'float' &&
+			withSeed.ok &&
+			/uniform float uSeed;/.test(withSeed.effect.shader.body) &&
+			!!readCustomElementFx(withSeed.effect) &&
+			!readCustomElementFx(asVec) &&
+			!body(identity).includes('uSeed') &&
+			BUILTIN_TWINS.filter((t) => t.doc.nodes.some((n) => n.type === 'seed')).length >= 9,
+		'a graph reading the Seed node gets uSeed (source seed), read by the registry as a float only; a graph without it has none; the twins of the seeded built-ins read it',
+	);
+	const add = graphBuilder({ id: 'add', name: 'Add', phase: 'emphasis', durationMs: 1000 });
+	add.node('output', { blend: 'add' });
+	const added = body(compileShaderGraph(add.doc()));
+	assert(
+		added.includes('    finalColor = clamp(pixel, 0.0, 1.0);') &&
+			!added.includes('min(outColor.rgb') &&
+			body(identity).includes('min(outColor.rgb, vec3(outColor.a))'),
+		'the Output’s Blend Add lets a colour outshine its alpha (clamped to 0…1 only); Normal keeps it within',
 	);
 }
 

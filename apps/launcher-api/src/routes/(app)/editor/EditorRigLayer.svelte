@@ -12,6 +12,7 @@
 		coverTransform,
 		forwardInstanceParams,
 		instancePreviewRigBundle,
+		isCountRepeater,
 		resolveAnchorPreviewArt,
 		resolveBoundValue,
 		resolveComponentParams,
@@ -21,6 +22,7 @@
 		type BoundBoneOffset,
 		type BoundScrub,
 		type ComponentDef,
+		type CountRepeaterNode,
 		type CoverFit,
 		type LayoutNode,
 		type LayoutType,
@@ -38,6 +40,7 @@
 		instanceDef,
 		placedRigTransform,
 		reelGridGeometry,
+		repeaterCountBoxes,
 		resolveBoneRider,
 		resolveBoneRiderRigKey,
 		applyRestingPose,
@@ -72,7 +75,7 @@
 		type SharedRigGl,
 	} from './sharedGl.client';
 	import { applyRigBoneOffset } from 'pixi-svelte/rigBoneOffset';
-	import { restingStateStrip } from '$lib/timeline/segmentPreview';
+	import { restingStateStrip, segmentPoseNodes } from '$lib/timeline/segmentPreview';
 	import { segmentTimelines } from './segmentTimelines.client.svelte';
 	import {
 		previewAnimTime,
@@ -708,6 +711,8 @@
 						undefined,
 						componentNest.def,
 					);
+				} else if (isCountRepeater(n)) {
+					collectSegmentRigs(n, sc, out, [n], componentNest.depth, componentNest.stack);
 				} else if (n.kind === 'componentInstance') {
 					const def = instanceDef(componentMap, n);
 					if (
@@ -832,6 +837,8 @@
 					undefined,
 					stateDef,
 				);
+			} else if (isCountRepeater(n)) {
+				collectSegmentRigs(n, sc, out, nextChain, depth, stack);
 			} else if (n.kind === 'componentInstance') {
 				const def = instanceDef(componentMap, n);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
@@ -962,6 +969,51 @@
 				region: resolved.region,
 			},
 		};
+	}
+
+	/**
+	 * Rigs inside a count-mode repeater's segments (a segmented counter): the SAME boxes and settled
+	 * poses the 2D canvas and the text overlay draw (`repeaterCountBoxes`), so each segment shows
+	 * the look its state machine lights. This layer draws no alpha, so a look the pose hides at
+	 * alpha 0 is left out rather than drawn over the one shown (a partial alpha draws opaque).
+	 * No `stateDef`: {@link restingStrip} settles at the inputs' defaults, not this segment's.
+	 */
+	function collectSegmentRigs(
+		n: CountRepeaterNode,
+		sc: Scene,
+		out: RigRenderTarget[],
+		chain: LayoutNode[],
+		depth: number,
+		stack: string[],
+	): void {
+		const anchor = previewResolveTransform(n, layoutType).anchor;
+		const { boxes } = repeaterCountBoxes(
+			n,
+			componentMap,
+			layoutType,
+			anchor?.x ?? 0,
+			anchor?.y ?? 0,
+			componentDefaults,
+			(def, inputs, params) => segmentPoseNodes(def, segmentTimelines(def.id), inputs, params),
+		);
+		const shown = (nodes: LayoutNode[]): LayoutNode[] =>
+			nodes
+				.filter((c) => previewResolveTransform(c, layoutType).alpha !== 0)
+				.map((c) => (c.kind === 'container' ? { ...c, children: shown(c.children) } : c));
+		for (const box of boxes) {
+			if (depth >= MAX_COMPONENT_DEPTH || stack.includes(box.def.id)) continue;
+			collectNestedRigs(
+				shown(box.container.children),
+				sc,
+				out,
+				[...chain, box.container],
+				depth + 1,
+				[...stack, box.def.id],
+				box.params,
+				instancePreviewRigBundle(box.def, box.params),
+				undefined,
+			);
+		}
 	}
 
 	/** Build a render target for a nested rig: its world transform composed from the

@@ -338,10 +338,11 @@ export function setInputDefault(def: ComponentDef, id: string, value: boolean | 
 	input.default = input.kind === 'bool' ? value === true : Number(value) || 0;
 }
 
-/** Name (or with '', clear) the engine value source a number input follows. */
+/** Name (or with '', clear) the engine value source — or Flow variable, `var:<id>` — a bool,
+ *  number or text input follows. */
 export function setInputSource(def: ComponentDef, id: string, source: string): void {
 	const input = (def.inputs ?? []).find((i) => i.id === id);
-	if (!input || input.kind !== 'number') return;
+	if (!input || input.kind === 'trigger') return;
 	if (source.trim()) input.source = source.trim();
 	else delete input.source;
 }

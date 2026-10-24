@@ -13,13 +13,16 @@ void main(void)
     float n2_out = efxNoise(uvSquare * n1_out + 0.0);
     float n3_progress = uFx.x;
     float n4_out = efxBand(n2_out, n3_progress, max(0.06, 0.0001));
-    float n5_l0 = n4_out;
-    vec4 n5_out = vec4(n0_out * n5_l0, n5_l0);
-    float n6_out = (n3_progress + 0.04);
-    float n7_out = smoothstep(n3_progress, n6_out, n2_out);
-    vec4 n8_out = (pixel * clamp(n7_out, 0.0, 1.0));
-    vec4 n9_l0 = n5_out;
-    vec4 n9_out = (n9_l0 + n8_out * (1.0 - n9_l0.a));
-    vec4 outColor = clamp(n9_out, 0.0, 1.0);
+    vec4 n5_l0 = pixel;
+    float n5_alpha = n5_l0.a;
+    float n6_out = (n4_out * n5_alpha);
+    float n7_l0 = n6_out;
+    vec4 n7_out = vec4(n0_out * n7_l0, n7_l0);
+    float n8_out = (n3_progress + 0.04);
+    float n9_out = smoothstep(n3_progress, n8_out, n2_out);
+    vec4 n10_out = (pixel * clamp(n9_out, 0.0, 1.0));
+    vec4 n11_l0 = n7_out;
+    vec4 n11_out = (n11_l0 + n10_out * (1.0 - n11_l0.a));
+    vec4 outColor = clamp(n11_out, 0.0, 1.0);
     finalColor = vec4(min(outColor.rgb, vec3(outColor.a)), outColor.a);
 }

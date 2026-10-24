@@ -315,6 +315,12 @@ const STALE_TAB_GUARDS = [
 	'rigger/backups',
 	'rigger/save',
 	'rigger/text',
+	'shaders/backups',
+	'shaders/delete',
+	'shaders/doc',
+	'shaders/effects',
+	'shaders/list',
+	'shaders/save',
 ];
 const readsBodyProjectKey = new Set<string>();
 for (const file of handlers) {

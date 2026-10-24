@@ -14,9 +14,24 @@
  *
  * The GLSL is assembled from the node library's templates, numeric literals and names this file
  * makes (`n3_out`, `uP0`): nothing an author types is copied into it.
+ *
+ * {@link compileShaderEffect} packs the result with the doc's passes and motion into a
+ * `CustomElementFx`, which the runtime registers and plays as the kind `custom:<id>`.
  */
 
-import { ELEMENT_FX_PHASES, type ElementFxParamSpec } from 'constants-shared/elementFx';
+import {
+	CUSTOM_ELEMENT_FX_PADDING_MAX,
+	ELEMENT_FX_LIMITS,
+	ELEMENT_FX_PHASES,
+	customElementFxKind,
+	customElementFxMotionIssues,
+	customElementFxPassIssues,
+	elementFxParamSpecIssues,
+	isCustomElementFxKind,
+	type CustomElementFx,
+	type CustomElementFxUniform,
+	type ElementFxParamSpec,
+} from 'constants-shared/elementFx';
 import {
 	DIMS,
 	PARAM_TYPE,
@@ -37,17 +52,10 @@ import {
 export const COST_BUDGET = 400;
 export const SAMPLE_BUDGET = 16;
 
-export interface CompiledUniform {
-	name: string;
-	type: PortType;
-	/** What the runtime writes into it: the play's time (`uFx`), or one of the doc's params. */
-	source: { kind: 'time' } | { kind: 'param'; id: string };
-}
-
 export interface CompiledShader {
 	/** Uniforms and `main`: the pass body `ElementFxFilter` takes. */
 	body: string;
-	uniforms: CompiledUniform[];
+	uniforms: CustomElementFxUniform[];
 	params: ElementFxParamSpec[];
 	cost: number;
 	samples: number;
@@ -57,6 +65,10 @@ export interface CompiledShader {
 
 export type CompileResult =
 	{ ok: true; shader: CompiledShader } | { ok: false; issues: GraphIssue[] };
+
+export type ShaderEffectResult =
+	| { ok: true; effect: CustomElementFx; warnings: GraphIssue[] }
+	| { ok: false; issues: GraphIssue[] };
 
 const TYPE_OF_DIMS: Record<number, PortType> = { 1: 'float', 2: 'vec2', 3: 'vec3', 4: 'vec4' };
 
@@ -95,62 +107,17 @@ const convert = (expr: string, from: PortType, to: PortType): string | undefined
 	return undefined;
 };
 
-/** What a param's uniform holds for `value`: a number, a colour, 0 / 1, or a choice's index. */
-export function paramUniformValue(spec: ElementFxParamSpec, value: unknown): number[] {
-	switch (spec.kind) {
-		case 'number':
-			return [typeof value === 'number' && Number.isFinite(value) ? value : spec.default];
-		case 'color':
-			return hexRgb(typeof value === 'string' && HEX.test(value) ? value : spec.default);
-		case 'bool':
-			return [(typeof value === 'boolean' ? value : spec.default) ? 1 : 0];
-		case 'choice': {
-			const at = spec.options.indexOf(typeof value === 'string' ? value : spec.default);
-			return [Math.max(0, at < 0 ? spec.options.indexOf(spec.default) : at)];
-		}
-	}
-}
+const paramIssues = (params: unknown): GraphIssue[] =>
+	Array.isArray(params)
+		? elementFxParamSpecIssues(params).map((message) => ({
+				level: 'error',
+				code: 'param',
+				message,
+			}))
+		: [{ level: 'error', code: 'doc', message: 'params is not a list' }];
 
-const paramIssues = (params: unknown): GraphIssue[] => {
-	if (!Array.isArray(params))
-		return [{ level: 'error', code: 'doc', message: 'params is not a list' }];
-	const issues: GraphIssue[] = [];
-	const seen = new Set<string>();
-	const bad = (message: string): void => {
-		issues.push({ level: 'error', code: 'param', message });
-	};
-	for (const raw of params as ElementFxParamSpec[]) {
-		const id = raw && typeof raw.id === 'string' ? raw.id : '';
-		if (!id) {
-			bad('a param has no id');
-			continue;
-		}
-		if (seen.has(id)) bad(`param "${id}" is defined twice`);
-		seen.add(id);
-		if (raw.kind === 'number') {
-			const ok = [raw.default, raw.min, raw.max].every(Number.isFinite);
-			if (!ok || raw.min > raw.max || raw.default < raw.min || raw.default > raw.max) {
-				bad(`param "${id}": its default must sit between its min and max`);
-			}
-		} else if (raw.kind === 'color') {
-			if (!HEX.test(String(raw.default))) bad(`param "${id}": its default is not a #rrggbb colour`);
-		} else if (raw.kind === 'bool') {
-			if (typeof raw.default !== 'boolean') bad(`param "${id}": its default is not on or off`);
-		} else if (raw.kind === 'choice') {
-			if (
-				!Array.isArray(raw.options) ||
-				!raw.options.length ||
-				!raw.options.every((option) => typeof option === 'string') ||
-				!raw.options.includes(raw.default)
-			) {
-				bad(`param "${id}": its options must be words, its default one of them`);
-			}
-		} else {
-			bad(`param "${id}": unknown kind`);
-		}
-	}
-	return issues;
-};
+/** Errors that leave no graph to order and type: an unknown or duplicated node, no single Output. */
+const UNWALKABLE = new Set<GraphIssue['code']>(['unknown-node', 'duplicate-node', 'output']);
 
 interface Analysis {
 	issues: GraphIssue[];
@@ -173,6 +140,37 @@ interface Analysis {
 /** Check a doc: every error and warning, nothing compiled. */
 export function validateShaderGraph(doc: ShaderGraphDoc): GraphIssue[] {
 	return analyze(doc).issues;
+}
+
+/**
+ * Whether an output of type `from` can feed an input of type `to`: a float spreads over a vector
+ * and a vector narrows, but a shorter vector never widens.
+ */
+export const canFeed = (from: PortType, to: PortType): boolean =>
+	convert('x', from, to) !== undefined;
+
+/** What an editor shows of a doc as it is being built. */
+export interface ShaderGraphAnalysis {
+	issues: GraphIssue[];
+	/** Node id → port id → its resolved type. A check that stopped early (no Output, a cycle)
+	 *  resolved none, and an editor falls back to the ports' declared types. */
+	inputs: Record<string, Record<string, PortType>>;
+	outputs: Record<string, Record<string, PortType>>;
+	/** Work and reads of the element per pixel, against `COST_BUDGET` and `SAMPLE_BUDGET`. */
+	cost: number;
+	samples: number;
+}
+
+/** A doc's issues, port types and cost, nothing compiled. Never throws. */
+export function analyzeShaderGraph(doc: ShaderGraphDoc): ShaderGraphAnalysis {
+	const a = analyze(doc);
+	return {
+		issues: a.issues,
+		inputs: Object.fromEntries(a.inputs),
+		outputs: Object.fromEntries(a.outputs),
+		cost: a.cost,
+		samples: a.samples,
+	};
 }
 
 function analyze(doc: ShaderGraphDoc): Analysis {
@@ -204,12 +202,29 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 	}
 	if (doc.version !== SHADER_GRAPH_VERSION)
 		error('version', `version ${JSON.stringify(doc.version)} is not ${SHADER_GRAPH_VERSION}`);
+	if (typeof doc.id !== 'string' || !isCustomElementFxKind(customElementFxKind(doc.id)))
+		error('doc', 'id must be a slug: letters, digits, - and _, up to 64');
+	if (typeof doc.name !== 'string' || !doc.name.trim()) error('doc', 'the effect needs a name');
+	if (doc.description !== undefined && typeof doc.description !== 'string')
+		error('doc', 'description must be text');
 	if (!(ELEMENT_FX_PHASES as readonly string[]).includes(doc.phase))
 		error('doc', `phase "${String(doc.phase)}" is not one of ${ELEMENT_FX_PHASES.join(', ')}`);
-	if (!(Number.isFinite(doc.durationMs) && doc.durationMs > 0))
-		error('doc', 'durationMs must be above 0');
-	if (doc.padding !== undefined && !(Number.isFinite(doc.padding) && doc.padding >= 0))
-		error('doc', 'padding must be 0 or more');
+	const { min: shortest, max: longest } = ELEMENT_FX_LIMITS.durationMs;
+	if (!(
+		typeof doc.durationMs === 'number' &&
+		doc.durationMs >= shortest &&
+		doc.durationMs <= longest
+	))
+		error('doc', `durationMs must be ${shortest}…${longest}`);
+	if (
+		doc.padding !== undefined &&
+		!(
+			typeof doc.padding === 'number' &&
+			doc.padding >= 0 &&
+			doc.padding <= CUSTOM_ELEMENT_FX_PADDING_MAX
+		)
+	)
+		error('doc', `padding must be 0…${CUSTOM_ELEMENT_FX_PADDING_MAX}`);
 	issues.push(...paramIssues(doc.params));
 	if (!Array.isArray(doc.nodes) || !Array.isArray(doc.wires)) {
 		error('doc', 'nodes and wires must be lists');
@@ -220,6 +235,8 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 			.filter((p) => p && typeof p.id === 'string')
 			.map((p) => [p.id, p]),
 	);
+	for (const message of customElementFxPassIssues(doc.passes, params)) error('pass', message);
+	for (const message of customElementFxMotionIssues(doc.motion)) error('motion', message);
 
 	const nodes = new Map<string, GraphNode>();
 	const defs = new Map<string, NodeDef>();
@@ -246,7 +263,9 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 		for (const setting of def.settings ?? []) {
 			const value = nodes.get(id)?.values?.[setting.id];
 			if (setting.kind === 'param') {
-				if (typeof value !== 'string' || !params.has(value))
+				if (value === undefined || value === '')
+					error('setting', `${def.label} needs one of the effect's params picked`, id, setting.id);
+				else if (typeof value !== 'string' || !params.has(value))
 					error('setting', `"${String(value)}" is not one of the effect's params`, id, setting.id);
 			} else if (value === undefined) {
 				continue;
@@ -303,7 +322,9 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 		feeds.set(wire.to.port, wire.from);
 		result.feeds.set(wire.to.node, feeds);
 	}
-	if (issues.some((i) => i.level === 'error')) return result;
+	// Only a graph that cannot be walked stops here: an editor still gets the port types, the cost
+	// and the reach of a graph whose name, settings or one wire is wrong.
+	if (issues.some((i) => i.level === 'error' && UNWALKABLE.has(i.code))) return result;
 
 	// Order: what the Output reads, each node after what it reads; a loop cannot be ordered. Nodes
 	// that reach nothing follow, so they are checked like the rest but left out of the GLSL.
@@ -440,6 +461,7 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
 	const lines: string[] = [];
 	const names = new Map<string, Record<string, string>>();
 	let finalColor = '';
+	let addsLight = false;
 
 	a.order.forEach((node, k) => {
 		const def = shaderNode(node.type) as NodeDef;
@@ -503,6 +525,7 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
 		const emitted = def.emit(ctx);
 		if (def.type === 'output') {
 			finalColor = inputs.color;
+			addsLight = node.values?.blend === 'add';
 			return;
 		}
 		const outTypes = a.outputs.get(node.id) ?? {};
@@ -516,7 +539,11 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
 		names.set(node.id, nodeNames);
 	});
 
-	const uniforms: CompiledUniform[] = [{ name: 'uFx', type: 'vec4', source: { kind: 'time' } }];
+	const uniforms: CustomElementFxUniform[] = [
+		{ name: 'uFx', type: 'vec4', source: { kind: 'time' } },
+	];
+	if (a.order.some((node) => node.type === 'seed'))
+		uniforms.push({ name: 'uSeed', type: 'float', source: { kind: 'seed' } });
 	for (const param of doc.params) {
 		if (!usedParams.has(param.id)) continue;
 		uniforms.push({
@@ -535,8 +562,12 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
 		'    vec2 uvSquare = uv * efxSize() / max(efxSize().x, efxSize().y);',
 		...(a.readsPixel ? ['    vec4 pixel = efxSample(px);'] : []),
 		...lines,
-		`    vec4 outColor = clamp(${finalColor}, 0.0, 1.0);`,
-		'    finalColor = vec4(min(outColor.rgb, vec3(outColor.a)), outColor.a);',
+		...(addsLight
+			? [`    finalColor = clamp(${finalColor}, 0.0, 1.0);`]
+			: [
+					`    vec4 outColor = clamp(${finalColor}, 0.0, 1.0);`,
+					'    finalColor = vec4(min(outColor.rgb, vec3(outColor.a)), outColor.a);',
+				]),
 		'}',
 		'',
 	].join('\n');
@@ -550,5 +581,36 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
 			samples: a.samples,
 			warnings: a.issues.filter((i) => i.level === 'warning'),
 		},
+	};
+}
+
+/**
+ * Compile a doc into a custom Element FX: its graph's pass body and uniforms, its passes and motion,
+ * and the spec the pickers and the reader use. Register it with `setCustomElementFx` and it plays as
+ * `custom:<id>`. Deterministic, and a plain value: it can be stored as JSON and shipped.
+ */
+export function compileShaderEffect(doc: ShaderGraphDoc): ShaderEffectResult {
+	const compiled = compileShaderGraph(doc);
+	if (!compiled.ok) return compiled;
+	const { shader } = compiled;
+	const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+	return {
+		ok: true,
+		effect: {
+			spec: {
+				kind: customElementFxKind(doc.id),
+				label: doc.name.trim(),
+				category: 'custom',
+				phase: doc.phase,
+				durationMs: doc.durationMs,
+				description: doc.description ?? '',
+				params: plain(doc.params),
+			},
+			shader: { body: shader.body, uniforms: shader.uniforms },
+			padding: doc.padding ?? 0,
+			passes: plain(doc.passes ?? []),
+			...(doc.motion ? { motion: plain(doc.motion) } : {}),
+		},
+		warnings: shader.warnings,
 	};
 }

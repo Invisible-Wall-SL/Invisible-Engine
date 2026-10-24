@@ -123,7 +123,7 @@ mobile budget.
    - An effect that cannot be rebuilt names the node the library is missing.
    - The twins become the editor's **"Start from a built-in"** templates.
 4. **Single source?** Should built-ins be *generated* from graphs later, or stay hand-written beside
-   their twins? That decision waits until step 3's parity has held for a while.
+   their twins? That decision waits until the twins' parity gate (step 6) has held for a while.
 
 ## 8. Build plan
 
@@ -157,6 +157,17 @@ Each step has its own branch, gates and status entry.
 3. **Runtime** (engine).
    - Contents: `custom:<id>` kinds from a registry, the filter built from compiled GLSL, pass nodes,
      and motion curve channels.
+   - A custom kind is `custom:<id>`, the doc id a slug. `ElementFxKind` stays the 50 built-ins, so
+     the runtime's `Record<ElementFxKind, …>` stays exhaustive. Entries and plays take either.
+   - The registry lives in `constants-shared/elementFx` (dependency-free): `setCustomElementFx(list)`
+     replaces the set (the game at boot, the editor per project), reading each effect and leaving out
+     one that cannot play. The reader keeps a well-formed custom entry even before its effect is
+     registered, so load order cannot drop one; it plays once registered.
+   - `compileShaderEffect(doc)` packs the graph's pass with the doc's **passes** and **motion** as
+     one plain, shippable value. The plan's "pass nodes" became a list on the doc, because no
+     per-pixel node can run another filter. A pass is one of the built-in single-pass kinds (glow,
+     outline, blur…), its params set by value or tied to the effect's own params. Motion is a curve
+     per channel (x, y, scale, rotation, alpha over the play).
    - Exit: a custom effect behaves like a built-in in the gate (triggers, keyed, symbol state,
      turbo, stop).
 4. **Pipeline** (launcher + engine).
@@ -165,6 +176,22 @@ Each step has its own branch, gates and status entry.
      - leases;
      - export, deploy, bake, pull and register, included in Publish;
      - the Scene Editor, /symbols and Flow pickers listing custom effects.
+   - **Storage.** One file per graph, `shaders/<id>.json`; a project's graph shadows a shared one
+     of the same id, and the project's **set** is its own graphs plus the shared ones it does not
+     override. The id is `r2Slug` without leading underscores, so it always makes a valid
+     `custom:<id>`. A save keeps a graph that does not compile (it is being built) and is guarded by
+     `baseEtag`; the lease key is the editor's to take in step 5. Shared graphs are read only here;
+     publishing to the library is step 7.
+   - **Who.** The tools whose pickers list custom effects, and `/shaders`, read the set; `/shaders`
+     writes it. Until step 5 Scene Editor users wrote graphs: a graph is presentation, compiled from
+     generated names only.
+   - **The ship.** The export compiles the set into `deploy/editor-shaders/` (one compiled effect
+     per file and an index) and names a graph that does not compile, which plays nothing rather
+     than failing the build. Publish (`runtimeBundle.ts`) and the bake (`export-shaders`) embed the
+     effects as `shaderEffects`; the pull mirrors `editor-shaders/`; the game registers them with
+     `setCustomElementFx` before its first render.
+   - **The pickers.** The Scene Editor and Symbols register the project's set, and their kind picker
+     lists it as "Custom (Shader Graph)"; the Flow's kind dropdown lists the project's custom kinds.
    - Exit: a graph authored on main plays in a published game (play-QA with the `game-playtester`
      agent).
 5. **Editor v1, `/shaders`** (launcher).
@@ -175,7 +202,24 @@ Each step has its own branch, gates and status entry.
    - Compile errors show on the nodes; saving uses a lease and keeps history.
    - Registry entry, `docs/tools/shader-graph.md` and onboarding link, all in the same change
      (rule 9).
+   - As built: the editing model is pure (`shaderEditor.ts`, every gesture doc → doc) and the
+     canvas asks the compiler's own wire rule (`canFeed`), so a wire the canvas takes is one the
+     compiler takes. The lease and the history are per graph (doc key and backup target the graph
+     id). The preview poses the effect through the game's runtime rather than a copy of it; the rig
+     still is left for later.
+   - Exit: an artist builds, previews and saves a graph on `/shaders`, and it is listed by the
+     pickers and ships with Publish (step 4's chain).
 6. **Templates.** The graph twins of the built-ins, with the parity gate, as "Start from a built-in".
+   - As built: 30 of the 50 kinds have a twin (`BUILTIN_TWINS`): every kind drawn by a pixel pass,
+     hand-written or `pixi-filters`. The 14 motion-only kinds are curves alone and the 6 breaks are
+     not pixel effects, so they have none.
+   - The gate (`shader-twins`, in `check:all`) plays each built-in and its twin through the runtime
+     on WebGL1 and WebGL2, over moments and every param extreme. A cell fails past 0.25% of pixels
+     more than 2 steps off, or on any patch; motion is compared as numbers.
+   - What a twin could not rebuild is named, not hidden: motion that follows the seconds played, a
+     param or looping (`motionGap`), and padding that grows with a param. Both are v1 doc limits.
+   - The twins needed a per-element **seed** (the built-ins draw one per element) and an Output
+     **Blend** (Add, for glows brighter than their alpha), and 15 more nodes.
 7. **Editor v2.** Per-node live thumbnails, the cost meter, subgraphs (reusable groups, like the
    flow's functions), and publishing to the studio-shared library.
 8. **Later.**

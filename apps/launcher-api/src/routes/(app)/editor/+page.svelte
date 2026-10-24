@@ -29,6 +29,7 @@
 		expandingBoardReserved,
 		reserveExpandingBoard,
 		hudScenes,
+		coversBackgroundWindow,
 		isCoverFitKind,
 		isHudScene,
 		listFullSceneSets,
@@ -102,6 +103,7 @@
 	import type { RigMeta } from './rigRuntime.client';
 	import { fetchClips } from './editorFlipbooks.client';
 	import { bindEditorProject } from './editorProject.client';
+	import { registerCustomElementFx } from '$lib/customElementFx.svelte';
 	import { findById, flattenSceneIds, genComponentId, removeNode } from './layoutTree.client';
 	import { pinnedDefKey } from './editorCanvas.helpers';
 	import { createPinnedVersionLoader } from './componentPins.client';
@@ -122,6 +124,9 @@
 	/** The page's data now describes another project: every save is blocked and a reload asked. */
 	const projectDrift = $derived(data.projectKey !== loadedProjectKey);
 	bindEditorProject(loadedProjectKey);
+	// The project's shader effects, so the Element FX pickers list them and an entry naming one reads
+	// and plays. Once, like the project itself: a page whose project moved is reloaded, not re-bound.
+	registerCustomElementFx(untrack(() => data.customElementFx));
 
 	/** Scenes the canvas renders. Lazily seeded with a `'main'` scene when the
 	 * doc has none — persistence is handled by the debounced autosave below. */
@@ -1262,7 +1267,7 @@
 	});
 
 	/** Is the selected node a full-bleed background COVER node (§10.3 step 4)? Mirrors
-	 * `EditorCanvas.isBackgroundCover`: a `background`-space sprite/rig node, OR a
+	 * `EditorCanvas.isBackgroundCover`: a node that covers a `background` screen, OR a
 	 * `bind` anchor whose resolved preview art is a `cover` placement (the full-bleed
 	 * Background). Drives the Properties "Background" cover section (scale + fit). */
 	const isBackgroundCoverSelected = $derived.by(() => {
@@ -1282,7 +1287,10 @@
 		}
 		return (
 			activeScene?.space === 'background' &&
-			(isCoverFitKind(node) || node.kind === 'componentInstance')
+			coversBackgroundWindow(
+				node,
+				activeScene.nodes.some((n) => n.id === node.id),
+			)
 		);
 	});
 
@@ -4408,6 +4416,7 @@
 					gameName: data.gameName,
 					addOns: data.addOns,
 					canPublishShared: data.canPublishShared,
+					flowVariables: data.flowVariables,
 					gameType: projectGameType,
 					mainSizesMap: data.doc.mainSizesMap,
 				}}

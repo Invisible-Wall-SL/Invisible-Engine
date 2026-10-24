@@ -4,7 +4,8 @@
  *
  *  1. N: follows the value it reads (3 → 5 → 0), rounds, clamps at 0, reads a non-number as 0, and
  *     with no source is `count.preview`; the cap (default 20, `max`, never above 50);
- *  2. variants: the first / middle / last segment for N = 1, 2, 3, each unset one falling back;
+ *  2. variants: the first / middle / last segment for N = 1, 2, 3, each unset one falling back, and
+ *     one naming no def falling back the same way (a snapshot published before it was saved);
  *  3. geometry (`repeaterCountOffsets`, shared with the editor): a row and a column laid end to end
  *     by each segment's own size, a grid on the node's pitch, the footprint the anchor reads;
  *  4. what each segment is handed: `index` (1-based) and `count`, as params;
@@ -17,18 +18,21 @@
  *     object; the launcher knows the four fields (`LAYOUT_NODE_FIELDS`);
  *  7. the ship chain (rule 8): `collectComponentIds` and `resolveComponentClosure` (the walk the
  *     bake, the runtime bundle and the art export share) reach the segment and every variant from a
- *     scene placing only the bar; a source-list repeater ships what it did; Flow projects no
- *     `onSelect` pin for a count-mode repeater;
+ *     scene placing only the bar, and names a variant it cannot load (`onMissing`); a source-list
+ *     repeater ships what it did; Flow projects no `onSelect` pin for a count-mode repeater;
  *  8. the starter is offered to every kind and placed by no reference layout or template;
  *  9. MOUNTED for real: `ComponentInstance.svelte` → `Repeater.svelte` → the segments, compiled by
  *     Vite's Svelte plugin and run under Svelte's client runtime with a real Pixi ticker: the bar
  *     fed `respinsStart` = 3 draws 3 segments numbered 1..3, all lit at 3 left and only the first
  *     at 1, then 5 segments once the start goes to 5, and none at 0; a probe segment that declares
  *     `index` / `count` inputs holds the repeater's constants over a `passInputs` entry for `index`;
- *     an instance outside a repeater is untouched (its own input source); and a bar placed inside
+ *     an instance outside a repeater is untouched (its own input source); a bar placed inside
  *     another component (the Hold and Win TOTAL WIN widget: screen → widget → bar → segment, three
  *     levels) still draws its 3 segments, offset by its place in the widget — on a cap of 2 the
- *     game skipped them.
+ *     game skipped them; the owner's Respin counter (commonoverlayproject, 2026-10-23: ⧉ Duplicate
+ *     end caps of rig looks + a border sprite) draws 1 / 2 / 3 at 2 left with the first two lit,
+ *     each end cap's sprite beside it; and with its first end cap unregistered, the middle segment
+ *     draws there instead of nothing.
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -193,6 +197,43 @@ const repeater = (over: Partial<RepeaterNode> = {}): RepeaterNode => ({
 		R.repeaterComponentIds(repeater({ count: undefined, variants: { first: 'x' } })),
 		['seg'],
 	);
+	const known =
+		(...ids: string[]) =>
+		(id: string) =>
+			ids.includes(id);
+	eq(
+		'a variant naming no def falls back as an unset one: first / last to middle',
+		[0, 1, 2].map((i) => R.repeaterSegmentComponent(node, i, 3, known('seg', 'mid'))),
+		['mid', 'mid', 'mid'],
+	);
+	eq(
+		'…and a missing middle to the componentId',
+		[0, 1, 2].map((i) => R.repeaterSegmentComponent(node, i, 3, known('seg', 'capL'))),
+		['capL', 'seg', 'seg'],
+	);
+	eq(
+		'the variants naming no def, slot by slot',
+		R.missingRepeaterVariants(node, known('seg', 'mid')),
+		[
+			{ slot: 'first', componentId: 'capL' },
+			{ slot: 'last', componentId: 'capR' },
+		],
+	);
+	eq(
+		'none when every variant resolves',
+		R.missingRepeaterVariants(node, () => true),
+		[],
+	);
+	eq(
+		'a missing end cap is sized as the segment drawn in its place',
+		R.repeaterCountOffsets(
+			repeater({ variants: { first: 'capL' } }),
+			2,
+			(id) => (id === 'capL' ? { width: 100, height: 10 } : { width: 40, height: 10 }),
+			known('seg'),
+		).offsets.map((o) => o.x),
+		[0, 40 + repeater().layout.gap],
+	);
 }
 
 // ---- 3. geometry -------------------------------------------------------------------------------
@@ -246,6 +287,56 @@ const repeater = (over: Partial<RepeaterNode> = {}): RepeaterNode => ({
 			{ x: 0, y: 0 },
 			{ x: 6, y: 0 },
 		],
+	);
+
+	const rigOnly = (box?: { width?: number; height?: number }): ComponentDef => ({
+		...SEGMENT,
+		id: 'rigOnly',
+		root: {
+			id: 'rigOnly-root',
+			kind: 'container',
+			x: 0,
+			y: 0,
+			...box,
+			children: [
+				{ id: 'tile', kind: 'spine', x: 0, y: 0, assetKey: 'tile' } as LayoutNode,
+				{ id: 'n', kind: 'text', x: 0, y: 0, text: '1' } as LayoutNode,
+			],
+		},
+	});
+	eq(
+		'a segment drawn from a rig and a text measures nothing',
+		R.repeaterSegmentSize(rigOnly(), 'desktop'),
+		null,
+	);
+	eq(
+		'…its root box (the Component Editor’s Size) is its size',
+		R.repeaterSegmentSize(rigOnly({ width: 160, height: 120 }), 'desktop'),
+		{ width: 160, height: 120 },
+	);
+	eq(
+		'…only both sides count (one side alone is measured as before)',
+		R.repeaterSegmentSize(rigOnly({ width: 160 }), 'desktop'),
+		null,
+	);
+	eq(
+		'…and a side that is not a finite positive number does not count',
+		R.repeaterSegmentSize(rigOnly({ width: Infinity, height: 120 }), 'desktop'),
+		null,
+	);
+	const starter = R.repeaterSegmentSize(SEGMENT, 'desktop');
+	eq(
+		'a segment with no box is measured from what it draws, as before',
+		[starter?.width, starter?.height],
+		[80, 56],
+	);
+	eq(
+		'…and a box wins over what it draws',
+		R.repeaterSegmentSize(
+			{ ...SEGMENT, root: { ...SEGMENT.root, width: 100, height: 70 } },
+			'desktop',
+		),
+		{ width: 100, height: 70 },
 	);
 }
 
@@ -387,6 +478,15 @@ L.registerComponentTimelines(B.BUILTIN_TIMELINES);
 		category: 'ui',
 		root: { id: 'probe-root', kind: 'container', x: 0, y: 0, children: root },
 	});
+	const boxed = normalizeComponent({
+		...asDef([]),
+		root: { ...asDef([]).root, width: 160, height: 120 },
+	} as ComponentDef);
+	eq(
+		'a root box (Size) survives the normalizer',
+		[boxed.root.width, boxed.root.height],
+		[160, 120],
+	);
 	const once = normalizeComponent(structuredClone({ ...BAR, scope: 'project' }) as ComponentDef);
 	const kept = once.root.children.find((n) => n.kind === 'repeater') as RepeaterNode;
 	eq(
@@ -508,6 +608,13 @@ L.registerComponentTimelines(B.BUILTIN_TIMELINES);
 		Object.keys(cappedClosure).sort(),
 		['cappedBar', 'capL', 'capR', SEGMENT.id].sort(),
 	);
+	const missing: string[] = [];
+	await K.resolveComponentClosure(
+		[{ id: 'bar', kind: 'componentInstance', x: 0, y: 0, componentId: 'cappedBar' }],
+		async (id) => (id === 'capR' ? undefined : defs.get(id)),
+		{ onMissing: (id) => missing.push(id) },
+	);
+	eq('a variant with no def is reported, not shipped', missing, ['capR']);
 	eq(
 		'collectComponentIds over the bar’s own root names the segment and its variants',
 		K.collectComponentIds([capped.root]),
@@ -606,7 +713,7 @@ async function mounted(): Promise<void> {
 export { mount, flushSync, unmount } from 'svelte';
 export { default as ComponentInstance } from '${lib('ComponentInstance.svelte')}';
 export * as E from '${lib('index.ts')}';
-export { Container, Graphics, Text, Ticker } from 'pixi.js';
+export { Container, Graphics, Sprite, Text, Ticker } from 'pixi.js';
 export const parentContext = (parent) => {
 	const context = {
 		parent,
@@ -750,6 +857,75 @@ export const parentContext = (parent) => {
 		eq('a start of 0 draws none', read().length, 0);
 		H.unmount(bar.app);
 
+		// A segment drawn only from a rig and its number: with a root box the row steps by it; the
+		// rig draws nothing here (no asset), so each segment reads by its number.
+		const tiles = (box?: { width: number; height: number }): ComponentDef[] => {
+			const tile: ComponentDef = {
+				...SEGMENT,
+				id: 'tileSegment',
+				root: {
+					id: 'tile-root',
+					kind: 'container',
+					x: 0,
+					y: 0,
+					...box,
+					children: [
+						{ id: 'tile-rig', kind: 'spine', x: 0, y: 0, assetKey: 'tile' } as LayoutNode,
+						{
+							id: 'tile-number',
+							kind: 'text',
+							x: 0,
+							y: 0,
+							text: '1',
+							paramBindings: { text: 'index' },
+						},
+					],
+				},
+			};
+			const tileBar: ComponentDef = {
+				...BAR,
+				id: 'tileBar',
+				root: {
+					...BAR.root,
+					children: BAR.root.children.map((n) =>
+						n.kind === 'repeater' ? { ...n, componentId: tile.id } : n,
+					),
+				},
+			};
+			return [tile, tileBar];
+		};
+		const numbersAt = (box?: { width: number; height: number }) => {
+			E.registerComponents(byId(tiles(box)));
+			const bar = mountInstance({
+				id: 'tiles',
+				kind: 'componentInstance',
+				x: 0,
+				y: 0,
+				componentId: 'tileBar',
+			});
+			const out: [string | undefined, number][] = [];
+			walk(bar.stage, (n) => {
+				if (n instanceof H.Text) out.push([n.text, Math.round(globalX(n))]);
+			});
+			H.unmount(bar.app);
+			return out.sort((a, b) => a[1] - b[1]);
+		};
+		respinsStart.set(3);
+		respinsLeft.set(3);
+		eq('rig-only segments with no box stack, 6 px apart (as before)', numbersAt(), [
+			['1', -6],
+			['2', 0],
+			['3', 6],
+		]);
+		eq(
+			'…with a 160 × 120 box they step by it, centred on the bar',
+			numbersAt({ width: 160, height: 120 }),
+			[
+				['1', -246],
+				['2', -80],
+				['3', 86],
+			],
+		);
 		respinsStart.set(3);
 		respinsLeft.set(3);
 		const widget = mountInstance({
@@ -794,6 +970,51 @@ export const parentContext = (parent) => {
 			['first'],
 		);
 		H.unmount(lone.app);
+
+		// The owner's Respin counter, as stored: its segments drawn only from rig looks (no rig
+		// asset loads here, so each segment reads by its number, its looks' alpha and its sprite).
+		E.registerComponents(byId([OWNER_MIDDLE, OWNER_FIRST, OWNER_LAST, OWNER_COUNTER]));
+		E.registerComponentTimelines([
+			...E.BUILTIN_TIMELINES,
+			...PROBE_TIMELINES,
+			...ownerTimelines(OWNER_FIRST.id),
+			...ownerTimelines(OWNER_LAST.id),
+		]);
+		respinsStart.set(3);
+		respinsLeft.set(2);
+		const owner = mountInstance(OWNER_PLACEMENT);
+		eq(
+			'the owner’s counter at 2 left: 1 and 2 lit, 3 dark, each end cap with its border sprite',
+			ownerSegments(owner.stage, H),
+			[
+				{ label: '1', lit: true, x: -67, sprite: -152 },
+				{ label: '2', lit: true, x: -1, sprite: null },
+				{ label: '3', lit: false, x: 5, sprite: 91 },
+			],
+		);
+		H.unmount(owner.app);
+
+		E.registerComponents(byId([{ ...OWNER_COUNTER, id: 'ghostCounter', root: ghostRoot() }]));
+		const warned: string[] = [];
+		const warn = console.warn;
+		console.warn = (message: string) => warned.push(message);
+		const ghost = mountInstance({ ...OWNER_PLACEMENT, componentId: 'ghostCounter' });
+		console.warn = warn;
+		eq(
+			'a first end cap that is not registered: the middle segment draws there, not nothing',
+			ownerSegments(ghost.stage, H),
+			[
+				{ label: '1', lit: true, x: -37, sprite: null },
+				{ label: '2', lit: true, x: -31, sprite: null },
+				{ label: '3', lit: false, x: -25, sprite: 61 },
+			],
+		);
+		eq(
+			'…and the game says which variant is missing',
+			warned.filter((w) => w.includes("first segment 'ghostCap'")).length,
+			1,
+		);
+		H.unmount(ghost.app);
 	} catch (error) {
 		failures++;
 		console.error('✗ the mount threw', error);
@@ -819,6 +1040,7 @@ interface MountBundle {
 	E: typeof import('engine-layout');
 	Container: new () => PixiNode;
 	Graphics: new () => PixiNode;
+	Sprite: new () => PixiNode;
 	Text: new () => PixiNode;
 	Ticker: new () => {
 		autoStart: boolean;
@@ -867,6 +1089,24 @@ function segmentsOf(stage: PixiNode, H: MountBundle) {
 		lit: shown(node) && !shown(unlit[i]),
 		x: globalX(node),
 	}));
+}
+
+/** The owner's segments, left to right: number, lit look shown, origin, border sprite (if any). */
+function ownerSegments(stage: PixiNode, H: MountBundle) {
+	const out: { label?: string; lit: boolean; x: number; sprite: number | null }[] = [];
+	walk(stage, (n) => {
+		if (!(n instanceof H.Text)) return;
+		const segment = n.parent!;
+		const [unlit, lit] = segment.children;
+		const sprite = segment.children.find((c) => c instanceof H.Sprite);
+		out.push({
+			label: n.text,
+			lit: shown(lit) && !shown(unlit),
+			x: Math.round(globalX(segment)),
+			sprite: sprite ? Math.round(globalX(sprite)) : null,
+		});
+	});
+	return out.sort((a, b) => a.x - b.x);
 }
 
 /** The probe segments' shown state markers, left to right. */
@@ -1143,6 +1383,153 @@ function installDom(): void {
 		},
 	});
 }
+
+// The owner's Respin counter (invisible_wall/commonoverlayproject, read from R2 2026-10-23): a
+// project copy of Counter Segment whose looks are the R_RespinTile rig, and two ⧉ Duplicate copies
+// of it with a border sprite each, as its first / last segments. The number's authored width /
+// height are left out: sizing a text needs a canvas this harness does not have.
+const RESPIN_TILE = 'invisible_wall/commonoverlayproject/spines/R_RespinTile/';
+const BORDERS =
+	'invisible_wall/commonoverlayproject/manifests/atlas_manifest_S_HolographicBackdrop.json';
+const ownerLook = (id: string, label: string, animation: string): LayoutNode => ({
+	id,
+	label,
+	kind: 'container',
+	x: 0,
+	y: 0,
+	alpha: 1,
+	children: [
+		{
+			id: `${id}-rig`,
+			label: 'R_RespinTile',
+			kind: 'spine',
+			x: 0,
+			y: 0,
+			anchor: { x: 0.5, y: 0.5 },
+			assetKey: RESPIN_TILE,
+			defaultAnimation: animation,
+			loop: true,
+		} as LayoutNode,
+	],
+});
+const ownerSegment = (
+	id: string,
+	timelines: { lit: string; unlit: string },
+	border?: LayoutNode,
+): ComponentDef => ({
+	...SEGMENT,
+	id,
+	version: 2,
+	scope: 'project',
+	root: {
+		id: `${id}-root`,
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			ownerLook(`${id}-unlit`, 'unlit', 'OFF'),
+			ownerLook(`${id}-lit`, 'lit', 'ON'),
+			{
+				id: `${id}-number`,
+				label: 'Number',
+				kind: 'text',
+				x: -2.96,
+				y: -11.08,
+				anchor: { x: 0.5, y: 0.5 },
+				text: '1',
+				style: { fontFamily: 'Golden', fontWeight: 'bold', fontSize: 55, fill: 0xffffff },
+				paramBindings: { text: 'index', 'style.fill': 'labelColor' },
+			},
+			...(border ? [border] : []),
+		],
+	},
+	stateMachine: {
+		layers: [
+			{
+				...SEGMENT.stateMachine!.layers[0],
+				states: [
+					{ id: 'Unlit', timeline: timelines.unlit },
+					{ id: 'Lit', timeline: timelines.lit },
+				],
+			},
+		],
+	},
+});
+const border = (id: string, region: string, x: number, width: number, height: number): LayoutNode =>
+	({
+		id,
+		label: region,
+		kind: 'sprite',
+		x,
+		y: 1.5,
+		anchor: { x: 0.5, y: 0.5 },
+		assetKey: BORDERS,
+		region,
+		width,
+		height,
+	}) as LayoutNode;
+const copyTimelines = (id: string) => ({
+	lit: `c_c_${id}_segment_lit`,
+	unlit: `c_c_${id}_segment_unlit`,
+});
+const OWNER_MIDDLE = ownerSegment(SEGMENT.id, {
+	lit: C.SEGMENTED_COUNTER_LIT_TIMELINE_ID,
+	unlit: C.SEGMENTED_COUNTER_UNLIT_TIMELINE_ID,
+});
+const OWNER_FIRST = ownerSegment(
+	'c_55h9isri',
+	copyTimelines('c_55h9isri'),
+	border('n_be1ux58e', 'UI_0004_FreespinCellBorderLeft', -85.46, 60, 106),
+);
+const OWNER_LAST = ownerSegment(
+	'c_9ocglies',
+	copyTimelines('c_9ocglies'),
+	border('n_9ocglies_border', 'UI_0003_FreespinCellBorderRight', 85.52, 62, 108),
+);
+/** A ⧉ Duplicate copy's two timelines: the starter's poses, hosted on the copy. */
+const ownerTimelines = (id: string): CinematicDoc[] =>
+	B.SEGMENTED_COUNTER_TIMELINES.map((doc) => ({
+		...doc,
+		id:
+			doc.id === C.SEGMENTED_COUNTER_LIT_TIMELINE_ID
+				? copyTimelines(id).lit
+				: copyTimelines(id).unlit,
+		host: { kind: 'component', componentId: id },
+	}));
+const OWNER_COUNTER: ComponentDef = {
+	...BAR,
+	version: 2,
+	scope: 'project',
+	root: {
+		...BAR.root,
+		children: BAR.root.children.map((n) =>
+			n.kind === 'repeater'
+				? {
+						...n,
+						previewInputs: { value: 2 },
+						variants: { first: OWNER_FIRST.id, last: OWNER_LAST.id },
+					}
+				: n,
+		),
+	},
+};
+/** The owner's counter with its first end cap naming a def no snapshot carries. */
+const ghostRoot = (): ComponentDef['root'] => ({
+	...OWNER_COUNTER.root,
+	children: OWNER_COUNTER.root.children.map((n) =>
+		n.kind === 'repeater' ? { ...n, variants: { first: 'ghostCap', last: OWNER_LAST.id } } : n,
+	),
+});
+const OWNER_PLACEMENT: LayoutNode = {
+	id: 'n_919j4mur',
+	kind: 'componentInstance',
+	label: 'Segmented Counter',
+	componentId: BAR.id,
+	componentVersion: 2,
+	x: 0,
+	y: 0,
+	anchor: { x: 0.5, y: 0.5 },
+};
 
 // ---- 9. mounted for real -----------------------------------------------------------------------
 

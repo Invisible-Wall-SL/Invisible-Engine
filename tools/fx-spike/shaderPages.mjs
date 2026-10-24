@@ -51,7 +51,8 @@ const bundle = async (root, entry, outFile) => {
 	});
 };
 
-const writePage = async (root, outDir, entry, name) => {
+/** `entry` bundled for `root` as `<outDir>/<name>.html` and its script. */
+export const writePage = async (root, outDir, entry, name) => {
 	await bundle(root, entry, join(outDir, `${name}.js`));
 	writeFileSync(
 		join(outDir, `${name}.html`),
@@ -62,10 +63,13 @@ const writePage = async (root, outDir, entry, name) => {
 /**
  * Bundle the pages for `root` into `outDir` and list the sheets they draw: the kinds ten at a time,
  * every starting side of the spreading kinds, every signed number param at its minimum and, when
- * `root` has the shader graph package, its reference graphs and every node. A sheet is `{ name,
- * page, query }`: `<page>.html?gl=<1|2>&<query>`.
+ * `root` has the shader graph package, its reference graphs (as filters, and played as custom
+ * Element FX) and every node. A sheet is `{ name, page, query }`: `<page>.html?gl=<1|2>&<query>`.
+ *
+ * `optionalGraphs`: a base older than the graph page (its package lacks what the page imports) has
+ * no graph sheets, rather than failing the shoot; `diff` skips graph sheets one side lacks.
  */
-export async function writeSheets(root, outDir) {
+export async function writeSheets(root, outDir, { optionalGraphs = false } = {}) {
 	await writePage(root, outDir, 'shaderParity.entry.ts', 'page');
 	const kinds = [
 		...readFileSync(join(root, 'packages/constants-shared/elementFx.ts'), 'utf8').matchAll(
@@ -81,10 +85,19 @@ export async function writeSheets(root, outDir) {
 		});
 	sheets.push({ name: 'sides', page: 'page', query: 'sides=1' });
 	sheets.push({ name: 'signed', page: 'page', query: 'signed=1' });
-	const graphs = existsSync(join(root, 'packages/engine-shadergraph'));
+	let graphs = existsSync(join(root, 'packages/engine-shadergraph'));
 	if (graphs) {
-		await writePage(root, outDir, 'shaderGraphs.entry.ts', 'graphs');
+		try {
+			await writePage(root, outDir, 'shaderGraphs.entry.ts', 'graphs');
+		} catch (error) {
+			if (!optionalGraphs) throw error;
+			console.log(`no graph sheets: ${root}'s shader graph package predates the graph page`);
+			graphs = false;
+		}
+	}
+	if (graphs) {
 		sheets.push({ name: 'graphs', page: 'graphs', query: 'graphs=1' });
+		sheets.push({ name: 'custom', page: 'graphs', query: 'custom=1' });
 		sheets.push({ name: 'nodes', page: 'graphs', query: 'nodes=1' });
 	}
 	return { kinds, sheets, graphs };

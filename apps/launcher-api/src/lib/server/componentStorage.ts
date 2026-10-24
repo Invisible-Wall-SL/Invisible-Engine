@@ -937,7 +937,8 @@ function normalizeInputs(input: unknown): ComponentInput[] {
 		) {
 			row.default = item.default;
 		}
-		if (row.kind === 'number' && typeof item.source === 'string' && item.source) {
+		// A bool / number / text input may follow an engine value or a Flow variable (`var:<id>`).
+		if (row.kind !== 'trigger' && typeof item.source === 'string' && item.source) {
 			row.source = item.source;
 		}
 		// A text default is a localization key (plan §8) — anything else is not a default.

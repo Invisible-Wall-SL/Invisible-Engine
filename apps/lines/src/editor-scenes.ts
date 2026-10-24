@@ -1,6 +1,7 @@
 import type { FlowDoc } from 'engine-flow';
 import type { FlowDoc as FlowDocV2, FunctionLibraryDoc as FlowV2LibraryDoc } from 'engine-flow-v2';
 import type { EffectDoc } from 'engine-fx';
+import type { CustomElementFx } from 'constants-shared/elementFx';
 import type { GameConfigDoc } from 'game-config';
 import type {
 	CoinLabelConfig,
@@ -189,6 +190,11 @@ type BakedBundle = {
 	 * plays its clip on the beat of the rig's event. The clip itself travels in `flipbooks` — this
 	 * carries only the binding. Absent/empty ⇒ `resolveRigFlipbooks()` returns [] (parity). */
 	rigFlipbooks?: Record<string, RigFlipbookBinding[]>;
+	/** The project's shader graphs (Invisible Shader Graph), compiled to custom Element FX by the
+	 * export (`deploy/editor-shaders/`): each carries its GLSL pass, built-in passes and motion. The
+	 * game registers them at boot with `setCustomElementFx(bakedShaderEffects())`, so an entry naming
+	 * `custom:<id>` plays. Absent ⇒ none registered, and such an entry plays nothing (parity). */
+	shaderEffects?: CustomElementFx[];
 	/** Symbol→state asset bindings (Invisible Symbols State Machine output) + the index
 	 * of any sprite sheets / images / rig bundles those bindings introduce, exported to
 	 * `deploy/editor-symbols/` and mirrored into `static/assets/` by the deploy pull. The
@@ -779,6 +785,17 @@ export function bakedRigFlipbooks(): Record<string, RigFlipbookBinding[]> {
 }
 
 /**
+ * The project's compiled shader effects, registered at boot with `setCustomElementFx` so every
+ * entry naming `custom:<id>` (a node, a screen, the reels, a symbol state, the Flow) plays it.
+ * Runtime → baked → empty, as {@link bakedEffects}.
+ */
+export function bakedShaderEffects(): CustomElementFx[] {
+	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
+	if (!source) return [];
+	return source.shaderEffects ?? [];
+}
+
+/**
  * The effect ids PLACED as `effect` nodes in the baked layout's scenes and shipped component defs
  * (`collectPlacedEffectIds`). `components/Effects.svelte` skips these when auto-mounting free
  * effects — a placed EffectNode already mounts the effect at its position via `LayoutNodeView`, so
@@ -853,6 +870,7 @@ const STOCK_DATA_READ_ELSEWHERE = new Set([
 	'symbols',
 	'effects',
 	'rigFx',
+	'shaderEffects',
 	'editorArt',
 	'fonts',
 	'sounds',
@@ -2035,6 +2053,16 @@ export async function prepareRuntimeBundle(): Promise<boolean> {
 	if (await fetchRuntimeBundle()) return true;
 	if (hasBakedDoc()) return false;
 	return haltBoot(runtimeFetchFailure ?? 'the runtime bundle could not be loaded');
+}
+
+/**
+ * Stop a boot whose config the runtime cannot play (`GameMechanic.unplayable`: a match-3 game the
+ * RGS decides before P10.6, an arcade game before P10.8) on the same error screen, rather than play
+ * it as a slot or draw a board nothing drives. The publish gate keeps such a config off every live
+ * game, so only an authoring or desktop boot can reach this.
+ */
+export function refuseUnplayableBoot(reason: string): Promise<never> {
+	return haltBoot(`this game cannot be played yet: ${reason}`);
 }
 
 /**
