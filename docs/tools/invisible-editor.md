@@ -833,7 +833,7 @@ move, scale, rotate, fade or show the item, fill a sprite / flipbook / rect from
 a flipbook frame, scrub a rig animation, offset a rig bone, or set one of a placed effect's
 **exposed parameters** (**⚡ intensity** in **drives** — see below). On a screen the number is an
 engine value: respins left (÷ the cap), cells held, rows open, collector level, letters lit, the
-jackpots, bet, win and the rest. Drag the binding's **test value** to preview it on the canvas;
+feature's worth (`featureWorth`), the jackpots, bet, win and the rest. Drag the binding's **test value** to preview it on the canvas;
 it is never saved. Selection handles and dragging keep the authored position.
 
 On an **effect**, **drives** lists the effect's number and on/off parameters (the ones made with
@@ -1757,6 +1757,20 @@ it, tick a bool, type a number. Three kinds:
 - a **bool** ◐ and a **number** # — typed in the row at the top of the block (name, kind, **Add**).
   Each has a default; a number can also follow an engine value (**from**: `winAmount`, `balance`…,
   the same names _Bind to value_ offers). Flow sets them in game from Phase 7 on.
+
+**A Hold and Win feature's value: `featureWorth` or `featureTotal`.** Both count in hundredths of
+the total bet (100 = 1× bet, 1000 = 10×), so a threshold is typed the same way for either.
+
+- `featureWorth` — what the feature is worth so far: banked jackpots plus every held coin, the
+  same value Flow's `featureWorth` reads. It reads 0 before a feature opens, moves after each
+  respin as coins land, holds the final worth once the feature ends, and goes back to 0 when the
+  next spin starts, so a widget still on screen after the outro drops to its lowest tier on that
+  press. Pick it for anything that follows the feature while it plays, such as a
+  TOTAL WIN widget whose tier is set by its state machine. Example: a number input `worth`
+  **from** `featureWorth`, with transitions `worth >= 1000` → Medium (10× bet), `worth >= 2500`
+  → Big, `worth >= 5000` → Huge, and `worth < 1000` → Mini.
+- `featureTotal` / `totalWin` — the HUD win meter. It resets each spin and only climbs during the
+  end-of-feature tally, coin by coin. Pick it for a readout that should count up with the meter.
 
 Rename an input with **✎** — every transition condition that reads it follows. The name is what
 the game and Flow fire it as, so a rename is a delete + add: the dialog says what fires the old

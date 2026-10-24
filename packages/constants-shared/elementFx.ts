@@ -24,7 +24,9 @@ export type ElementFxCategory = 'motion' | '3d' | 'distort' | 'light' | 'break';
  * - `enter` starts hidden and ends at rest; while its delay runs the element stays hidden.
  * - `exit` ends hidden and STAYS hidden until the effect is stopped or an `enter` kind plays.
  */
-export type ElementFxPhase = 'emphasis' | 'loop' | 'enter' | 'exit';
+export const ELEMENT_FX_PHASES = ['emphasis', 'loop', 'enter', 'exit'] as const;
+
+export type ElementFxPhase = (typeof ELEMENT_FX_PHASES)[number];
 
 export type ElementFxParamSpec =
 	| {

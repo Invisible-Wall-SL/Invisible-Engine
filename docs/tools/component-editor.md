@@ -267,7 +267,9 @@ binding; a node can carry several. Each binding has these parts:
     Meter, or your own pot). The level, maximum, size stage and full flag are each read for the
     meter the placed instance names, so one pot design serves every pot.
   - **Hold and Win** — respins left and the respins cap, cells held and cells open, rows open
-    and rows at most (an expanding board), collector level, letters lit, feature total.
+    and rows at most (an expanding board), collector level, letters lit, feature total, feature
+    worth (`featureWorth`: what the feature is worth so far, moving every respin; 100 = 1× total
+    bet — see [featureWorth or featureTotal](invisible-editor.md#the-state-machine)).
   - **Game values** — the readout feeds: bet, win, balance, free-spin counts, jackpots…
   - **Custom source…** — any engine source by name. `{key}` reads one of the component's
     params, so `meter.{meter}.level` is the level of the instance's own meter.
