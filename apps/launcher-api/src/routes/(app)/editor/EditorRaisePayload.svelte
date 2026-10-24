@@ -2,15 +2,17 @@
 	/**
 	 * The payload of one RAISE (Rive plan Phase 6b) — a node listener's, or a state's on-enter row:
 	 * one control per field the event declares, filled with a number, a bool, the current value of
-	 * a bool or number input, or a localization key (plan §8: never free text that skips the
-	 * localization stack — a key is its source text, and the harvest collects it). An empty field
-	 * arrives empty in Flow.
+	 * a bool or number input, a localization key (plan §8: never free text that skips the
+	 * localization stack — a key is its source text, and the harvest collects it), or — on a
+	 * listener's raise (`pointer`) — a reading of the pointer. An empty field arrives empty in Flow.
 	 */
 	import {
 		isLocalizationKey,
 		type ComponentEvent,
+		POINTER_PAYLOAD_FIELDS,
 		type ComponentInput,
 		type EventPayloadValue,
+		type PointerPayloadField,
 		type RaiseEventAction,
 	} from 'engine-layout';
 	import { setRaisePayload } from '$lib/timeline/listenerEdit';
@@ -20,9 +22,11 @@
 		event: ComponentEvent | undefined;
 		inputs: ComponentInput[];
 		readOnly?: boolean;
+		/** A listener's raise: a number field may read the pointer. */
+		pointer?: boolean;
 		onChanged: () => void;
 	}
-	let { action, event, inputs, readOnly = false, onChanged }: Props = $props();
+	let { action, event, inputs, readOnly = false, pointer = false, onChanged }: Props = $props();
 
 	const isNumeric = (t: string): boolean => t === 'int' || t === 'float' || t === 'ms';
 	/** Field name → why its last typed key was refused (the field keeps its previous value). */
@@ -32,12 +36,20 @@
 		keyErrors = {};
 	});
 
-	/** What a field's select shows: '' empty, 'value' a literal, 'true'/'false', '@<input>'. */
+	const POINTER_LABELS: Record<PointerPayloadField, string> = {
+		x: 'pointer x',
+		y: 'pointer y',
+		dx: 'pointer dx (from the press)',
+		dy: 'pointer dy (from the press)',
+	};
+	/** What a field's select shows: '' empty, 'value' a literal, 'true'/'false', '@<input>',
+	 *  '^<reading>' the pointer. */
 	function mode(value: EventPayloadValue | undefined): string {
 		if (value === undefined) return '';
 		if (typeof value === 'boolean') return String(value);
 		if (typeof value === 'number') return 'value';
 		if ('input' in value) return `@${value.input}`;
+		if ('pointer' in value) return `^${value.pointer}`;
 		return 'key';
 	}
 	function pick(name: string, t: string, choice: string): void {
@@ -51,7 +63,9 @@
 						? 0
 						: choice.startsWith('@')
 							? { input: choice.slice(1) }
-							: undefined;
+							: choice.startsWith('^')
+								? { pointer: choice.slice(1) as PointerPayloadField }
+								: undefined;
 		if (choice === 'value' && !isNumeric(t)) return;
 		setRaisePayload(action, name, value);
 		onChanged();
@@ -118,6 +132,11 @@
 						{#each inputs.filter( (i) => (isNumeric(t) ? i.kind === 'number' : i.kind === 'bool') ) as i (i.id)}
 							<option value={`@${i.id}`}>input {i.id}</option>
 						{/each}
+						{#if isNumeric(t) && (pointer || mode(value).startsWith('^'))}
+							{#each POINTER_PAYLOAD_FIELDS as f (f)}
+								<option value={`^${f}`}>{POINTER_LABELS[f]}</option>
+							{/each}
+						{/if}
 					</select>
 					{#if typeof value === 'number'}
 						<input

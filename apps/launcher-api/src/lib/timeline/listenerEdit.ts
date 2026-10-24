@@ -15,6 +15,9 @@ import {
 	type RaiseEventAction,
 	type SmEnterAction,
 	type SmState,
+	type AlignTargetAction,
+	type SwipeDirection,
+	type SwipeFilter,
 } from 'engine-layout';
 
 import { readEnterAction, readListener, readPayloadField } from '../componentEventRows';
@@ -85,7 +88,7 @@ export function inputReads(def: ComponentDef, id: string): string[] {
 	for (const n of defNodes(def)) {
 		for (const l of n.on ?? []) {
 			const a = l.action;
-			if ((a.kind !== 'raise' && a.input === id) || (a.kind === 'raise' && readsPayload(a.payload)))
+			if (('input' in a && a.input === id) || (a.kind === 'raise' && readsPayload(a.payload)))
 				out.push(`a listener on "${n.label || n.id}"`);
 		}
 	}
@@ -110,7 +113,7 @@ export function renameInputReads(def: ComponentDef, from: string, to: string): v
 	for (const n of defNodes(def)) {
 		for (const l of n.on ?? []) {
 			if (l.action.kind === 'raise') follow(l.action.payload);
-			else if (l.action.input === from) l.action.input = to;
+			else if ('input' in l.action && l.action.input === from) l.action.input = to;
 		}
 	}
 	for (const layer of def.stateMachine?.layers ?? []) {
@@ -126,7 +129,28 @@ export const ACTION_CHOICES: { kind: ListenerActionKind; label: string }[] = [
 	{ kind: 'set', label: 'set input' },
 	{ kind: 'toggle', label: 'toggle bool' },
 	{ kind: 'raise', label: 'raise event' },
+	{ kind: 'align', label: 'align target' },
 ];
+
+/** The listener events the editor offers, labelled as the row reads them. */
+export const EVENT_LABELS: Record<NodeListenerEvent, string> = {
+	down: 'down',
+	up: 'up',
+	enter: 'hover in',
+	leave: 'hover out',
+	click: 'click',
+	move: 'pointer move',
+	dragStart: 'drag start',
+	drag: 'drag',
+	dragEnd: 'drag end',
+	swipe: 'swipe',
+};
+
+/** The nodes an Align Target can move: every node of the def but its root (an instance is placed
+ *  by its node). */
+export function alignTargetsFor(def: Pick<ComponentDef, 'root'>): LayoutNode[] {
+	return defNodes(def).slice(1);
+}
 
 /** The inputs an action of `kind` can act on. */
 export function inputsFor(
@@ -145,12 +169,19 @@ export function inputsFor(
 }
 
 /** A fresh action of `kind`, on the first input or event that fits (empty when none does yet —
- *  validation flags it and the save drops it, never widening anything). */
+ *  validation flags it and the save drops it, never widening anything). An Align Target moves the
+ *  listener's own node `nodeId` when it can, else the first node it can. */
 export function defaultAction(
-	def: Pick<ComponentDef, 'inputs' | 'signals' | 'events'>,
+	def: Pick<ComponentDef, 'inputs' | 'signals' | 'events' | 'root'>,
 	kind: ListenerActionKind,
+	nodeId?: string,
 ): ListenerAction {
 	if (kind === 'raise') return { kind: 'raise', event: componentEvents(def)[0]?.id ?? '' };
+	if (kind === 'align') {
+		const targets = alignTargetsFor(def);
+		const own = targets.find((n) => n.id === nodeId);
+		return { kind: 'align', target: (own ?? targets[0])?.id ?? '' };
+	}
 	const input = inputsFor(def, kind)[0];
 	if (kind === 'set')
 		return { kind: 'set', input: input?.id ?? '', value: input?.kind === 'number' ? 0 : true };
@@ -166,6 +197,10 @@ export function setActionTarget(
 	if (action.kind === 'raise') {
 		action.event = target;
 		delete action.payload;
+		return;
+	}
+	if (action.kind === 'align') {
+		action.target = target;
 		return;
 	}
 	action.input = target;
@@ -203,11 +238,13 @@ export function addListener(
 			? 'raise'
 			: inputsFor(def, 'set').length
 				? 'set'
-				: 'fire';
+				: alignTargetsFor(def).length
+					? 'align'
+					: 'fire';
 	const listener: NodeListener = {
 		id: mintId('l', [...rowIds(def), ...reserved]),
 		event,
-		action: defaultAction(def, kind),
+		action: defaultAction(def, kind, node.id),
 	};
 	node.on = [...(node.on ?? []), listener];
 	return listener;
@@ -219,20 +256,63 @@ export function removeListener(node: LayoutNode, id: string): void {
 	else delete node.on;
 }
 
-/** Change what a listener does: a new action of `kind`, keeping its target when it still fits. */
+/** Change what a listener does: a new action of `kind`, keeping its target when it still fits.
+ *  `nodeId` is the listener's node (an Align Target moves it by default). */
 export function setListenerKind(
 	def: ComponentDef,
 	listener: NodeListener,
 	kind: ListenerActionKind,
+	nodeId?: string,
 ): void {
 	if (listener.action.kind === kind) return;
-	const fresh = defaultAction(def, kind);
+	const fresh = defaultAction(def, kind, nodeId);
 	const old = listener.action;
-	if (fresh.kind !== 'raise' && old.kind !== 'raise') {
+	if ('input' in fresh && 'input' in old) {
 		if (inputsFor(def, kind).some((i) => i.id === old.input))
 			setActionTarget(def, fresh, old.input);
 	}
 	listener.action = fresh;
+}
+
+/** Listen for another event; a listener that stops being a swipe loses its filter. */
+export function setListenerEvent(listener: NodeListener, event: NodeListenerEvent): void {
+	listener.event = event;
+	if (event !== 'swipe') delete listener.swipe;
+}
+
+/** Set (or with `undefined`, clear) one half of a swipe listener's filter. A threshold is a
+ *  distance: a negative or non-number one clears it. */
+export function setSwipeFilter(
+	listener: NodeListener,
+	patch: { direction?: SwipeDirection | undefined } | { threshold?: number | undefined },
+): void {
+	const next: SwipeFilter = { ...(listener.swipe ?? {}) };
+	if ('direction' in patch) {
+		if (patch.direction) next.direction = patch.direction;
+		else delete next.direction;
+	}
+	if ('threshold' in patch) {
+		const t = patch.threshold;
+		if (typeof t === 'number' && Number.isFinite(t) && t >= 0) next.threshold = t;
+		else delete next.threshold;
+	}
+	if (Object.keys(next).length) listener.swipe = next;
+	else delete listener.swipe;
+}
+
+/** Set an Align Target's options: keep the offset from the pointer, and the one axis it moves on. */
+export function setAlignOptions(
+	action: AlignTargetAction,
+	patch: { preserveOffset?: boolean } | { axis?: 'x' | 'y' | undefined },
+): void {
+	if ('preserveOffset' in patch) {
+		if (patch.preserveOffset) action.preserveOffset = true;
+		else delete action.preserveOffset;
+	}
+	if ('axis' in patch) {
+		if (patch.axis) action.axis = patch.axis;
+		else delete action.axis;
+	}
 }
 
 // ---- on enter -----------------------------------------------------------------------------------
@@ -502,6 +582,8 @@ export function actionLabel(action: ListenerAction): string {
 			return `toggle ${action.input || '?'}`;
 		case 'raise':
 			return `raise ${action.event || '?'}`;
+		case 'align':
+			return `align ${action.target || '?'} to the pointer`;
 	}
 }
 

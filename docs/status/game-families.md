@@ -2,15 +2,102 @@
 
 > Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `invisible-game-config`, `invisible-game-maker`, then per phase
 
-**One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1, P10.1b and P10.2 are
-merged; P10.3 (Flow variables, timers, tick) is built** and in review. A Flow doc can now keep
-variables, run timers and ticks, read keys, and a component input can follow a variable. Nothing
-non-slot plays yet: P10.4 (pointer drag) and P10.5 (the first match-3 runtime) are next.
+**One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.3 are merged; P10.4
+(pointer move / drag / swipe + Align Target) is built** and in review. A component can now react to
+a drag or a swipe, hand Flow the pointer's position, and move one of its nodes with the pointer; the
+board can say which cell a point is in. Nothing non-slot plays yet: P10.5 (the first match-3
+runtime) is next.
 
 ## Current state
 
-**P10.3 — Flow variables, timers, tick (built 2026-10-24; in review).** §3.1 + §3.2 (tick, timers,
-keys). Pointer drag is P10.4.
+**P10.4 — Pointer move / drag / swipe + Align Target (built 2026-10-24; in review).** §3.2's pointer
+and board-cell bullets. No game uses any of it yet.
+
+- **Format** (`packages/engine-layout/src/lib/types.ts`): `NODE_LISTENER_EVENTS` gains `move`,
+  `dragStart`, `drag`, `dragEnd` and `swipe` (after the old five); a `swipe` listener may carry
+  `swipe: { direction?: left|right|up|down, threshold? }` (`SWIPE_DIRECTIONS`,
+  `DEFAULT_SWIPE_THRESHOLD` = 40). `LISTENER_ACTION_KINDS` gains `align`: Align Target,
+  `{ kind: 'align', target, preserveOffset?: true, axis?: 'x'|'y' }`. `EventPayloadValue` gains
+  `{ pointer: 'x'|'y'|'dx'|'dy' }` (`POINTER_PAYLOAD_FIELDS`).
+- **The gesture** (`componentPointer.ts`, pure): `PointerGesture` turns one listening node's Pixi
+  events into listener events, each with a reading (`PointerAt`: x / y in the instance's space,
+  dx / dy from the press, the stage point). A press is `down`; once it moves `DRAG_SLOP` (4 instance
+  px) it sends `dragStart`, then `drag` on every move of that pointer, anywhere; its release sends
+  `dragEnd` (if it dragged) and offers `swipe`; a release over the node is `up`, as it always was.
+  `move` is a move over the node. `swipeMatches` decides a swipe listener: the press-to-release
+  distance reaches the threshold and the longer axis points the asked way (a tie is horizontal).
+- **Wiring** (`LayoutNodeView.svelte`): the listener wrapper feeds the gesture from its five
+  handlers, mapping `e.global` through the instance's space (`ComponentListen.local`, the placing
+  node's container, from `ComponentInstance`). Only a node listening for `move` also gets
+  `onpointermove`; only one listening for a drag or a swipe gets `onglobalpointermove` and
+  `onpointerupoutside`, so a drag that leaves the node keeps tracking and ends off it. Pixi hands
+  `globalpointermove` twice to a container that is both hit and an ancestor of the hit, so the
+  gesture drops a move to where it already was.
+- **The dispatcher** (`componentEvents.ts`): `pointer(node, event, at?)` runs the event's listeners
+  with the reading; a raise's `{ pointer }` value resolves from it (rounded into an `int` / `ms`
+  field) and is empty where no pointer runs the raise (a state's On enter / exit, a cue). Align
+  Target asks the host for its node (`alignTarget(id)` → `AlignSpace`) and places it on the pointer
+  in the node's parent space; `preserveOffset` keeps the offset the node had at `down` /
+  `dragStart` (or the first time it runs); `axis` moves one axis. `ComponentInstance` keeps the
+  placements (`$state`), and a target node's `LayoutNodeView` reads its placement into its position
+  (`setComponentAlign` / `getComponentAlign`, provided only when the def aligns something, or to hide
+  an outer instance's from a nested def).
+- **Validation:** `raise-payload-pointer` (not a reading, or on a raise no pointer runs),
+  `listener-align-target` (a node outside the def, or its root), `listener-swipe` (a bad direction
+  or threshold).
+- **Launcher:** the reader (`componentEventRows.ts`) reads the new events, `align`, `{ pointer }`
+  and a swipe listener's filter, and drops a malformed row whole, which the keep-unknown save puts
+  back (`componentFields.ts` knows `swipe`). The editor (`EditorListeners.svelte`,
+  `EditorRaisePayload.svelte`, `listenerEdit.ts`): the five new events, the swipe row (direction,
+  threshold), the *align target* action (node, keep offset, axis), and pointer x / y / dx / dy for a
+  number field on a listener's raise.
+- **Board cell input** (`packages/engine-game/src/game/gameState.svelte.ts`): `getCellAt(x, y)`
+  (board-local) → `{ reel, row }` or `undefined`, the inverse of `getSymbolSeat`: the cell whose
+  pitch box (its seat with the art alignment taken out, a column pitch by a row pitch, at the row's
+  scale) holds the point. Exported from `createGameState`; no caller until `<Match3Input />` (P10.5).
+- **Gate `check:component-pointer-drag`** (`apps/launcher-api/scripts/`, run by `check:all`), 69
+  checks: the gesture, the swipe filter, the dispatcher and Align Target, real Pixi (`EventBoundary`,
+  a drag leaving the node), validation, the reader and the editor edits, the cell hit-test sliced
+  from the real `gameState` over flat, gapped, non-square, led, aligned, stepped and perspective
+  lattices, and parity scans. `check:component-listeners-events`' wiring scan now reads the gesture
+  handlers; `check:component-listeners-events-editor`'s empty-def default is now Align Target;
+  `check:save-keeps-unknown-blocks`' unknown pointer event is `pinch` (it was `swipe`).
+- **Slot parity:** a def with no new event, `align` or `{ pointer }` behaves as before: the old five
+  events still fire on the same Pixi events, in the same order (the reading they now carry is read
+  by nothing); a wrapper gets no new handler; no node reads an Align placement; no built-in uses any
+  of it. `getCellAt` has no caller. Edited shared modules: `LayoutNodeView.svelte`,
+  `ComponentInstance.svelte`, `componentEvents.ts`, `componentListenerContext.ts`,
+  `gameState.svelte.ts` (one added function).
+- **Chosen in P10.4, owner may overturn** (the plan does not fix them):
+  - x / y are in the **instance's space** (its root's), dx / dy from the **press point** (0 with no
+    press); a pointer reading into an `int` / `ms` field is **rounded**;
+  - a drag starts after a **4 px slop** (instance px), `dragStart` carrying the reading at that
+    move, and the same move also sends the first `drag`;
+  - the swipe's direction and threshold live **on the listener** (`swipe`), the threshold in
+    instance px, **default 40**; a swipe is offered on **every release** of a press (dragged or
+    not), with no time limit; the longer axis decides and a tie is horizontal;
+  - `move` is a move **over the node** (`pointermove`), not anywhere; a tap still ends in a click,
+    and so does a drag released over the node (Pixi's tap);
+  - Align Target takes **`axis`** (x / y) beside Rive's `preserveOffset`, for sliders and paddles;
+    its placement **replaces** the node's x / y (a value binding or timeline on that axis no longer
+    moves it) and lasts until the instance remounts; the offset is taken at **`down` /
+    `dragStart`**; the **root** cannot be a target;
+  - a new listener on a def with no input and no event **aligns its own node** (it used to start as
+    an empty *fire*);
+  - the hit-test's cell is the **pitch box** (a gap belongs to the nearer cell), visible cells only;
+  - the validation codes' names.
+- **Not done here:** the Animate stage preview (`listenerPreview.ts` / `EditorCanvas`
+  `onStagePointer`) plays only the old five: drag, move, swipe and Align Target run in the game
+  only; `/flow-v2`'s preview scripts no pointer (open, with its key scripting); the match-3 swap from
+  a drag (P10.5).
+- **Known limits** (none reachable by a current game):
+  - one press per node at a time: a second finger's `down` on the same node takes the press over;
+  - Align Target has no bounds; a slider's clamp is Flow's (from the drag's x) until it has one;
+  - an Align Target maps through its parent's transform at the moment of the event, so a parent
+    that moves during a drag moves the node with it until the next move.
+
+**P10.3 — Flow variables, timers, tick (built 2026-10-24; merged #1326).** §3.1 + §3.2 (tick,
+timers, keys).
 
 - **Format** (`packages/engine-flow-v2/src/types.ts`): `FlowDoc.variables` (`game` / `round`),
   `FlowModeScope.variables` (`mode`), `FlowDoc.inputs` (the key map), the accessor `$var.<id>`,
@@ -68,8 +155,7 @@ keys). Pointer drag is P10.4.
   - a round starts at `onNewGameStart` (the spin press);
   - `onVariable` fires once per frame, not inside the writing chain; `tick-fast` also warns on an
     every-frame tick; `variable-duplicate` and `input-unknown` are codes the plan did not name.
-- **Not done here:** pointer move / drag (P10.4); the Data tab (9d); per-frame work belongs to the
-  mechanic (P10.8).
+- **Not done here:** the Data tab (9d); per-frame work belongs to the mechanic (P10.8).
 - **Known limits** (none reachable by a current game):
   - an `onVariable` chain that keeps changing its own variable re-runs once a frame, for good;
     nothing flags it yet;
@@ -200,17 +286,21 @@ game, bundle or screen changes.
 ## Open items / next
 
 1. Win Text's outcome message for a rules-decided match-3 game (§6.5), with P10.5 or before it.
-2. P10.4 onward, in §8's order. P10.5 is the board module's first caller (the rules runtime
+2. P10.5 onward, in §8's order. P10.5 is the board module's first caller (the rules runtime
    branch and the `/flow-v2` preview); P10.6 the mock's. P10.5 replaces the family gate for
    match-3 with the runtime
    branch, and registers the match-3 scene set, vocabulary and starter flow. It moves `match3` into
    the slot-only loops of `check:flow-publish-gate` and decides which Reel behaviour switches
    match-3 shows.
-3. The `/config` **Characters** link for arcade (§6.2) lands with Invisible Characters (P10.11).
-4. **Confirm no custom kind is named `match3` or `arcade`** in R2 (`_shared/editor-kinds/`). Such a
+3. P10.5's `<Match3Input />` is the first caller of `getCellAt` and of the drag / swipe
+   listeners (a drag or swipe from cell A into `swap(A, B)`, §3.2).
+4. The Animate stage preview and the `/flow-v2` preview do not yet drive drag, move, swipe or
+   Align Target (P10.4's "Not done here").
+5. The `/config` **Characters** link for arcade (§6.2) lands with Invisible Characters (P10.11).
+6. **Confirm no custom kind is named `match3` or `arcade`** in R2 (`_shared/editor-kinds/`). Such a
    kind would now read as that family, and the built-in id would hide it from the pickers. Needs R2
    access, which this build did not have.
-5. The runtime still prices and draws the `match3` arm as the lines default (`payoutDivisor`,
+7. The runtime still prices and draws the `match3` arm as the lines default (`payoutDivisor`,
    `winLineShapeFor`), and `engine-game/src/game/gameConfig.ts`'s note about a fifth win model
    still stands. That code path is unreachable while the family gate holds; P10.6 honours the arm
    (divisor 1) when RGS match-3 lands.
@@ -221,6 +311,8 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-24 — **P10.4 built: pointer move / drag / swipe + Align Target**, and the board cell
+  hit-test. Detail above.
 - 2026-10-24 — **P10.3 built: Flow variables, timers, tick.** Detail above.
 
 - 2026-10-23 — **P10.2 built: the board module** (`packages/engine-mechanics`, `check:board-mechanic`).

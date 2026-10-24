@@ -36,7 +36,9 @@
 		RigSlot,
 		RigTrack,
 		getContextApp,
+		getContextParent,
 	} from 'pixi-svelte';
+	import type { FederatedPointerEvent } from 'pixi.js';
 	import { getContextLayout } from 'utils-layout';
 
 	import CatalogText from './CatalogText.svelte';
@@ -64,7 +66,8 @@
 	import { foldFlipbookPlayback, resolveFlipbook } from './registerFlipbooks';
 	import { getComponentParams } from './componentParamsContext';
 	import { getComponentPress } from './componentActionsContext';
-	import { getComponentListen } from './componentListenerContext';
+	import { getComponentAlign, getComponentListen } from './componentListenerContext';
+	import { PointerGesture, type PointerPoint } from './componentPointer';
 	import {
 		getComponentSignalAnims,
 		type ComponentCuePayload,
@@ -130,6 +133,34 @@
 	const listen = componentListen?.owns(untrack(() => node.id)) ? componentListen : undefined;
 	const listenerCursor = listeners?.some((l) => l.event !== 'enter' && l.event !== 'leave')
 		? 'pointer'
+		: undefined;
+	// The pointer (game-families §3.2, P10.4): every listener event carries where the pointer is, in
+	// the instance's space (`componentPointer.ts`). Only a node listening for `move` takes
+	// `pointermove`, and only one listening for a drag or a swipe follows its press off the node
+	// (`globalpointermove`, `pointerupoutside`); every other wrapper gets exactly today's handlers.
+	const gesture = listen
+		? new PointerGesture((event, at) => listen.listen(node, event, at))
+		: undefined;
+	const hovers = !!listen && !!listeners?.some((l) => l.event === 'move');
+	const tracks =
+		!!listen &&
+		!!listeners?.some((l) => ['dragStart', 'drag', 'dragEnd', 'swipe'].includes(l.event));
+	const pointerLocal = (e: FederatedPointerEvent) => listen!.local(e.global);
+
+	// ALIGN TARGET (game-families §3.2): a node an Align Target listener of its instance moves sits
+	// where the pointer put it, in its parent's space. Asked once; every other node never reads it.
+	const componentAlign = getComponentAlign();
+	const alignParent = componentAlign?.targets(untrack(() => node.id))
+		? getContextParent().parent
+		: undefined;
+	const alignedAt: (() => Partial<PointerPoint> | undefined) | undefined = alignParent
+		? componentAlign!.attach(
+				untrack(() => node.id),
+				{
+					toLocal: (global) => alignParent.toLocal(global),
+					position: (): PointerPoint => ({ x: posX, y: posY }),
+				},
+			)
 		: undefined;
 
 	// Element FX (`docs/design/element-fx.md`): a node carrying effects renders inside one extra
@@ -307,7 +338,11 @@
 	// sits — they did, and a `game`-space node carrying a `screenAnchor` silently rendered
 	// off-screen in the game while the editor drew it in place.
 	const canvas = $derived(layoutContext.stateLayoutDerived.canvasSizes());
-	const pos = $derived(anchoredPosition(transform, space, canvas.width, canvas.height));
+	const pos = $derived.by((): { x: number; y: number } => {
+		const anchored = anchoredPosition(transform, space, canvas.width, canvas.height);
+		const at = alignedAt?.();
+		return at ? { x: at.x ?? anchored.x, y: at.y ?? anchored.y } : anchored;
+	});
 	const posX = $derived(pos.x);
 	const posY = $derived(pos.y);
 
@@ -1781,11 +1816,18 @@
 			eventMode="static"
 			cursor={listenerCursor}
 			zIndex={transform.zIndex}
-			onpointerdown={() => listen.listen(node, 'down')}
-			onpointerup={() => listen.listen(node, 'up')}
-			onpointerenter={() => listen.listen(node, 'enter')}
-			onpointerleave={() => listen.listen(node, 'leave')}
-			onpointertap={() => listen.listen(node, 'click')}
+			onpointerdown={(e) => gesture!.down(e.pointerId, pointerLocal(e), e.global)}
+			onpointerup={(e) => gesture!.release(e.pointerId, pointerLocal(e), e.global, true)}
+			onpointerenter={(e) => gesture!.plain('enter', pointerLocal(e), e.global)}
+			onpointerleave={(e) => gesture!.plain('leave', pointerLocal(e), e.global)}
+			onpointertap={(e) => gesture!.plain('click', pointerLocal(e), e.global)}
+			onpointermove={hovers ? (e) => gesture!.hover(pointerLocal(e), e.global) : undefined}
+			onglobalpointermove={tracks
+				? (e) => gesture!.move(e.pointerId, pointerLocal(e), e.global)
+				: undefined}
+			onpointerupoutside={tracks
+				? (e) => gesture!.release(e.pointerId, pointerLocal(e), e.global, false)
+				: undefined}
 		>
 			{@render nodeBody()}
 		</Container>

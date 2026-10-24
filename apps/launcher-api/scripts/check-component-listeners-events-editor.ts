@@ -172,8 +172,17 @@ const node = (d: ComponentDef, id: string): LayoutNode =>
 	eq('removing the last listener removes `on`', 'on' in btn, false);
 	const empty: ComponentDef = { ...def(), inputs: undefined };
 	eq(
-		'a component with no input and no event: a new listener’s action has nothing to act on',
+		'a component with no input and no event: a new listener aligns its own node to the pointer (P10.4)',
 		L.addListener(node(empty, 'n_glow'), empty, []).action,
+		{ kind: 'align', target: 'n_glow' },
+	);
+	const bare: ComponentDef = {
+		...empty,
+		root: { ...empty.root, children: [] },
+	};
+	eq(
+		'…and with no node to align either, it has nothing to act on',
+		L.addListener(bare.root, bare, []).action,
 		{ kind: 'fire', input: '' },
 	);
 }

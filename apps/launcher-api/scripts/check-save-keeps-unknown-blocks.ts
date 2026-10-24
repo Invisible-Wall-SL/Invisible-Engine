@@ -1514,7 +1514,7 @@ const newerP6 = (): P6Doc => {
 	Object.assign(node.on![0], { delay: 2 });
 	node.on!.push(
 		{ id: 'l_goto', event: 'click', action: { kind: 'goto', state: 's_idle' } },
-		{ id: 'l_swipe', event: 'swipe', action: { kind: 'fire', input: 'tap' } },
+		{ id: 'l_pinch', event: 'pinch', action: { kind: 'fire', input: 'tap' } },
 	);
 	doc.events![0].payload = [
 		{ name: 'n', type: { t: 'int' }, unit: 'coins' },
@@ -1586,7 +1586,7 @@ const newerP6 = (): P6Doc => {
 	check(
 		'components 6a: a deleted listener is not resurrected; the ones the author never saw stay',
 		(stored(componentKey) as unknown as P6Doc).root.children[0].on?.map((l) => l.id),
-		['l_goto', 'l_swipe'],
+		['l_goto', 'l_pinch'],
 	);
 }
 {
