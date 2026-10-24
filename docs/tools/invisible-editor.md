@@ -87,7 +87,11 @@ Turn it off to draw every screen at once with those boxes. The eye toggles still
 
 Each screen has a coordinate **space** select: `game` (the main game box),
 `standard` (the HUD box, with optional vertical/horizontal alignment), `canvas`
-(positioned against the window edges), or `background` (cover-fit, full-bleed).
+(positioned against the window edges), or `background` (cover-fit, full-bleed). On a
+`background` screen an image, rig, clip, component or **Rect** fills the window edge to edge
+in the game, whatever its size; a text node or a bare group is placed at window pixels instead.
+A Rect inside a group keeps its placed box — that is how to put a band or panel on a background
+screen.
 
 ### Layer order and "Always on top"
 
@@ -1004,9 +1008,12 @@ hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to 
 
 #### Background — how a full-bleed cover is fitted, zoomed and aligned
 
-Select a node that covers the window — anything on a `background` screen, or a
-sprite / rig / clip with **Fill → Cover / full-screen fill** ticked on a `canvas`
-screen — and the Properties panel shows a **Background** section. The node stops being
+Select a node that covers the window — an image, rig, clip, component or Rect on a
+`background` screen, or a sprite / rig / clip with **Fill → Cover / full-screen fill** ticked
+on a `canvas` screen — and the Properties panel shows a **Background** section. A Rect covers
+by its own **width × height**: any size fills the window on `cover`, and its shape only matters
+for `contain` or a per-axis fit. A Rect inside a group is not a cover: it stays draggable at
+its placed box. The node stops being
 draggable (its transform is computed, not authored); these controls are how you shape it:
 
 - **fit** — how the art is matched to the window:

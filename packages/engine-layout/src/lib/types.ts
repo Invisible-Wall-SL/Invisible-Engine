@@ -1400,8 +1400,9 @@ export interface Scene {
 	 *   cover, the node's {@link BaseNode.coverScale} acting as the uniform cover
 	 *   multiplier (default 1 = exact edge-to-edge) and `scale.x`/`scale.y` as the
 	 *   free non-uniform stretch on top. Covers a background image, rig or flipbook
-	 *   clip (`isCoverFitKind`) and a componentInstance as one composed unit;
-	 *   animated multi-state crossfade stays coded.
+	 *   clip, a componentInstance as one composed unit and a flat rect by its own
+	 *   width × height (`isBackgroundCoverKind`); text and a bare container are placed
+	 *   at raw window pixels. Animated multi-state crossfade stays coded.
 	 * Additive — absent = `game`.
 	 */
 	space?: 'game' | 'standard' | 'canvas' | 'background';
