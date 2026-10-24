@@ -26,8 +26,11 @@ You are the developer for **Invisible Shader Graph**.
   `ElementFxFilter` shell (`HEADER`: `efxPx`, `efxToUnit`, `efxSample`, `uElement`, `uPad`) that
   compiled graphs target.
 - `packages/pixi-svelte/src/lib/elementFx/kinds.ts` and `runtime.ts`: how a kind plays (triggers,
-  phases, keyed poses, turbo).
-- `packages/constants-shared/elementFx.ts`: the catalog (params: number / color / bool / choice).
+  phases, keyed poses, turbo). `custom.ts`: how a custom kind (`custom:<id>`) plays: its graph, its
+  passes, its motion.
+- `packages/constants-shared/elementFx.ts`: the catalog (params: number / color / bool / choice),
+  and the custom-effect registry (`setCustomElementFx`) that `compileShaderEffect`'s output goes
+  into.
 - `apps/launcher-api/src/routes/(app)/flow-v2/`: the `@xyflow/svelte` graph canvas to lift into
   `$lib/graph/` (step 5).
 - `apps/launcher-api/src/lib/server/effectExport.ts`: the ship chain to mirror (step 4).

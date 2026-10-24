@@ -8,6 +8,7 @@
 		elementFxIntensityChannel,
 		elementFxProgressChannel,
 		elementFxSpec,
+		findElementFxSpec,
 		isElementFxKind,
 		readElementFxEntry,
 		readElementFxParam,
@@ -86,7 +87,14 @@
 	}));
 	const CATEGORY_LABELS = new Map(ELEMENT_FX_CATEGORIES.map((c) => [c.id, c.label]));
 
-	const rows = $derived((entries ?? []).map((raw) => ({ raw, entry: readElementFxEntry(raw) })));
+	/** Each stored entry and, when this build can play it, the entry as read and its kind's spec. */
+	const rows = $derived(
+		(entries ?? []).map((raw) => {
+			const entry = readElementFxEntry(raw);
+			const spec = entry ? findElementFxSpec(entry.kind) : undefined;
+			return { raw, read: entry && spec ? { entry, spec } : undefined };
+		}),
+	);
 	/** Expanded rows, by entry id. */
 	const open = new SvelteSet<string>();
 	/** The entry whose ▶ found nothing on the stage to play on. */
@@ -287,8 +295,7 @@
 	{/if}
 
 	{#each rows as row, index (index)}
-		{@const entry = row.entry}
-		{#if !entry}
+		{#if !row.read}
 			<div class="fx-row">
 				<div class="fx-head">
 					<span class="fx-unreadable">⚠ {unreadableName(row.raw)}</span>
@@ -302,7 +309,8 @@
 				</p>
 			</div>
 		{:else}
-			{@const spec = elementFxSpec(entry.kind)}
+			{@const entry = row.read.entry}
+			{@const spec = row.read.spec}
 			{@const expanded = open.has(entry.id)}
 			<div class="fx-row" class:off={entry.disabled}>
 				<div class="fx-head">

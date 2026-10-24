@@ -1,9 +1,10 @@
 /**
- * REFERENCE GRAPHS: five effects built from the node library alone, each leaning on a different
- * family of nodes. The headless checks compile them; the render harness
- * (`pnpm --filter fx-spike shader-parity`) draws them on WebGL1 and WebGL2. Frost and Gilded relief
- * build the freeze and gold looks from nodes: close to the built-ins, not pixel twins of them (the
- * twins are step 6 of the design).
+ * REFERENCE GRAPHS: six effects built from the node library alone, each leaning on a different
+ * family of nodes; Power-up adds motion curves and a built-in pass. The headless checks compile them;
+ * the render harness (`pnpm --filter fx-spike shader-parity`) draws them on WebGL1 and WebGL2, as
+ * filters and played as custom Element FX kinds. Frost and Gilded relief build the freeze and gold
+ * looks from nodes: close to the built-ins, not pixel twins of them (the twins are step 6 of the
+ * design).
  */
 
 import type { ElementFxParamSpec } from 'constants-shared/elementFx';
@@ -14,9 +15,10 @@ type Values = GraphNode['values'];
 
 /** A small builder: `node` adds one and returns its id, `wire` joins an output to an input. */
 export function graphBuilder(
-	meta: Pick<ShaderGraphDoc, 'id' | 'name' | 'phase' | 'durationMs'> & {
-		params?: ElementFxParamSpec[];
-	},
+	meta: Pick<ShaderGraphDoc, 'id' | 'name' | 'phase' | 'durationMs'> &
+		Partial<Pick<ShaderGraphDoc, 'description' | 'padding' | 'passes' | 'motion'>> & {
+			params?: ElementFxParamSpec[];
+		},
 ) {
 	const doc: ShaderGraphDoc = {
 		version: SHADER_GRAPH_VERSION,
@@ -88,6 +90,8 @@ function noiseDissolve(): ShaderGraphDoc {
 	const ahead = g.node('add', { b: 0.04 });
 	const alive = g.node('smoothstep');
 	const glow = g.node('band', { width: 0.06 });
+	const shape = g.node('unpremultiply');
+	const onShape = g.node('multiply');
 	const edgeColor = g.node('param', { param: 'edge' });
 	const join = g.node('premultiply');
 	const body = g.node('fade');
@@ -101,7 +105,10 @@ function noiseDissolve(): ShaderGraphDoc {
 	g.wire(noise, 'out', glow, 'x');
 	g.wire(time, 'progress', glow, 'at');
 	g.wire(edgeColor, 'out', join, 'rgb');
-	g.wire(glow, 'out', join, 'alpha');
+	// The edge glows only where the element is: its band, times the element's own alpha.
+	g.wire(glow, 'out', onShape, 'a');
+	g.wire(shape, 'alpha', onShape, 'b');
+	g.wire(onShape, 'out', join, 'alpha');
 	g.wire(alive, 'out', body, 'amount');
 	g.wire(join, 'out', over, 'top');
 	g.wire(body, 'out', over, 'bottom');
@@ -260,12 +267,67 @@ function gildedRelief(): ShaderGraphDoc {
 	return g.doc();
 }
 
+/**
+ * A power-up: a warm tint swells over the element while it jumps and grows (motion curves), and a
+ * glow in the effect's own colour (a built-in pass tied to its param) breathes around it.
+ */
+function powerUp(): ShaderGraphDoc {
+	const g = graphBuilder({
+		id: 'powerUp',
+		name: 'Power-up',
+		description: 'A warm swell, a hop and a glow in one.',
+		phase: 'emphasis',
+		durationMs: 900,
+		params: [{ id: 'color', label: 'Colour', kind: 'color', default: '#ffd166' }],
+		passes: [{ kind: 'glow', params: { color: { param: 'color' } } }],
+		motion: {
+			channels: {
+				y: [
+					{ t: 0, v: 0, ease: 'out' },
+					{ t: 0.35, v: -0.12, ease: 'in' },
+					{ t: 0.7, v: 0, ease: 'out' },
+					{ t: 0.85, v: -0.02, ease: 'in' },
+					{ t: 1, v: 0 },
+				],
+				scale: [
+					{ t: 0, v: 1, ease: 'out' },
+					{ t: 0.35, v: 1.12, ease: 'smooth' },
+					{ t: 1, v: 1 },
+				],
+			},
+			pivot: { x: 0.5, y: 1 },
+		},
+	});
+	const time = g.node('time');
+	const swell = g.node('swell');
+	const strength = g.node('multiply');
+	const split = g.node('unpremultiply');
+	const tint = g.node('param', { param: 'color' });
+	const colorize = g.node('colorize');
+	const mix = g.node('mix');
+	const join = g.node('premultiply');
+	const out = g.node('output');
+	g.wire(time, 'progress', swell, 't');
+	g.wire(swell, 'out', strength, 'a');
+	g.wire(time, 'intensity', strength, 'b');
+	g.wire(split, 'rgb', colorize, 'rgb');
+	g.wire(tint, 'out', colorize, 'tint');
+	g.wire(split, 'rgb', mix, 'a');
+	g.wire(colorize, 'out', mix, 'b');
+	g.wire(strength, 'out', mix, 't');
+	g.wire(mix, 'out', join, 'rgb');
+	g.wire(split, 'alpha', join, 'alpha');
+	g.wire(join, 'out', out, 'color');
+	return g.doc();
+}
+
 export const REFERENCE_GRAPHS: readonly ShaderGraphDoc[] = [
 	pulseTint(),
 	noiseDissolve(),
 	ripple(),
 	frost(),
 	gildedRelief(),
+	powerUp(),
 ];
 
 /** What a generic node is fed in the showcase at each vector width: a node with that output. */
@@ -320,16 +382,16 @@ export function nodeShowcase(): ShaderGraphDoc[] {
 		for (const output of def.outputs) {
 			if (def.type === 'param') {
 				for (const param of params)
-					add(def, output, PARAM_TYPE[param.kind], `param.${output.id}.${param.id}`, {
+					add(def, output, PARAM_TYPE[param.kind], `param-${output.id}-${param.id}`, {
 						param: param.id,
 					});
 				continue;
 			}
-			add(def, output, output.type === 'any' ? 'float' : output.type, `${def.type}.${output.id}`);
+			add(def, output, output.type === 'any' ? 'float' : output.type, `${def.type}-${output.id}`);
 			if (!def.inputs.some((input) => input.type === 'any')) continue;
 			for (const feed of WIDTH_SOURCES) {
 				const type = output.type === 'any' ? feed[0] : output.type;
-				add(def, output, type, `${def.type}.${output.id}.${feed[0]}`, undefined, feed);
+				add(def, output, type, `${def.type}-${output.id}-${feed[0]}`, undefined, feed);
 			}
 		}
 	}

@@ -23,18 +23,35 @@
  *  6. TYPES CONVERT only one way: a float spreads, a longer vector feeds a shorter port by its
  *     leading parts.
  *  7. NOTHING AN AUTHOR TYPES REACHES THE GLSL: node ids, param ids and labels are not in it; a
- *     negative literal is parenthesised, so `- -1.0` never becomes `--`.
+ *     negative literal is parenthesised, so `- -1.0` never becomes `--`; a doc id is a slug.
  *  8. A PARAM'S UNIFORM HOLDS its number, colour, 0 / 1 or choice index.
+ *  9. THE EFFECT: `compileShaderEffect` packs a doc as a custom Element FX (`custom:<id>`): its
+ *     spec, its graph's body and uniforms, and plain copies of its passes and motion, which
+ *     register and read as a playable kind. Each bad pass (a kind that is not a single pass, a
+ *     param it lacks, a bad value, a tie to a missing param or one of another kind, too many, a
+ *     strength out of range) and each bad curve (an unknown channel, keys out of order or past 1, a
+ *     non-number, a value out of its channel's range, an unknown ease, too many keys, a pivot far
+ *     off) is an error; so is a length that is not a number the runtime plays, or padding past 2.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+	customElementFx,
+	elementFxParamUniform,
+	findElementFxSpec,
+	isPlayableElementFxKind,
+	readElementFxEntry,
+	setCustomElementFx,
+	CUSTOM_ELEMENT_FX_PASS_LIMIT as PASS_LIMIT,
+	ELEMENT_FX_CURVE_KEY_LIMIT as CURVE_KEY_LIMIT,
+} from 'constants-shared/elementFx';
 import { EFX_GLSL, linkGlsl } from 'constants-shared/glslLibrary';
 import {
+	compileShaderEffect,
 	compileShaderGraph,
 	glslFloat,
-	paramUniformValue,
 	validateShaderGraph,
 	type CompileResult,
 } from './src/compile.ts';
@@ -188,7 +205,7 @@ console.log('shader graph — every node compiles on its own');
 	const uncovered = generic.flatMap((n) =>
 		n.outputs.flatMap((o) =>
 			['vec2', 'vec3', 'vec4']
-				.map((w) => `${n.type}.${o.id}.${w}`)
+				.map((w) => `${n.type}-${o.id}-${w}`)
 				.filter((id) => !showcase.some((d) => d.id === id)),
 		),
 	);
@@ -386,7 +403,7 @@ console.log('shader graph — the validator');
 	};
 	assert(
 		broken([null]).join() === 'param' &&
-			broken([7, { id: 'x' }]).join() === 'param,param' &&
+			broken([7, { id: 'x', label: 'X' }]).join() === 'param,param' &&
 			broken([{ id: 'k', label: 'K', kind: 'choice', default: 1, options: [1, 2] }]).join() ===
 				'param',
 		'a malformed param list (a null, a number, a choice of numbers): errors, never a throw',
@@ -481,7 +498,7 @@ console.log('shader graph — nothing typed reaches the GLSL');
 	const evil = '"); discard; // gl_FragColor';
 	const doc: ShaderGraphDoc = {
 		version: 1,
-		id: evil,
+		id: 'evil',
 		name: evil,
 		phase: 'emphasis',
 		durationMs: 1000,
@@ -500,6 +517,13 @@ console.log('shader graph — nothing typed reaches the GLSL');
 			body(r).includes('uniform float uP0;'),
 		'ids and labels never reach the GLSL: names are made (uP0, n0_out)',
 	);
+	const badIds = [evil, 'a.b', '', '-lead', 'x'.repeat(65)].map((id) =>
+		validateShaderGraph({ ...doc, id }).some((i) => i.code === 'doc' && i.message.includes('slug')),
+	);
+	assert(
+		badIds.every(Boolean) && !compileShaderEffect({ ...doc, id: evil }).ok,
+		'a doc id that is not a slug (it names the kind custom:<id>) is an error',
+	);
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -509,23 +533,32 @@ console.log('shader graph — param uniforms');
 		a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < 1e-6);
 	assert(
 		near(
-			paramUniformValue({ id: 'n', label: 'N', kind: 'number', default: 1, min: 0, max: 2 }, 1.5),
+			elementFxParamUniform(
+				{ id: 'n', label: 'N', kind: 'number', default: 1, min: 0, max: 2 },
+				1.5,
+			),
 			[1.5],
 		) &&
 			near(
-				paramUniformValue({ id: 'c', label: 'C', kind: 'color', default: '#000000' }, '#ff8000'),
+				elementFxParamUniform(
+					{ id: 'c', label: 'C', kind: 'color', default: '#000000' },
+					'#ff8000',
+				),
 				[1, 128 / 255, 0],
 			) &&
-			near(paramUniformValue({ id: 'b', label: 'B', kind: 'bool', default: false }, true), [1]) &&
 			near(
-				paramUniformValue(
+				elementFxParamUniform({ id: 'b', label: 'B', kind: 'bool', default: false }, true),
+				[1],
+			) &&
+			near(
+				elementFxParamUniform(
 					{ id: 'k', label: 'K', kind: 'choice', default: 'a', options: ['a', 'b', 'c'] },
 					'c',
 				),
 				[2],
 			) &&
 			near(
-				paramUniformValue(
+				elementFxParamUniform(
 					{ id: 'k', label: 'K', kind: 'choice', default: 'b', options: ['a', 'b'] },
 					'zzz',
 				),
@@ -533,6 +566,126 @@ console.log('shader graph — param uniforms');
 			),
 		'a param uniform holds its number, colour, 0 / 1 or choice index (an unknown choice reads its default)',
 	);
+}
+
+// -------------------------------------------------------------------------------------------------
+console.log('shader graph — the effect (a custom Element FX)');
+{
+	const powerUp = REFERENCE_GRAPHS.find((d) => d.id === 'powerUp') as ShaderGraphDoc;
+	const r = compileShaderEffect(powerUp);
+	const effect = r.ok ? r.effect : undefined;
+	const graph = compileShaderGraph(powerUp);
+	assert(
+		!!effect &&
+			effect.spec.kind === 'custom:powerUp' &&
+			effect.spec.category === 'custom' &&
+			effect.spec.label === 'Power-up' &&
+			effect.spec.phase === 'emphasis' &&
+			effect.spec.durationMs === 900 &&
+			effect.spec.description.length > 0 &&
+			graph.ok &&
+			effect.shader.body === graph.shader.body &&
+			JSON.stringify(effect.shader.uniforms) === JSON.stringify(graph.shader.uniforms),
+		'Power-up packs as custom:powerUp: its spec, its graph’s body and uniforms',
+	);
+	assert(
+		!!effect &&
+			JSON.stringify(effect.passes) === JSON.stringify(powerUp.passes) &&
+			effect.passes !== powerUp.passes &&
+			JSON.stringify(effect.motion) === JSON.stringify(powerUp.motion) &&
+			effect.motion !== powerUp.motion &&
+			JSON.stringify(JSON.parse(JSON.stringify(effect))) === JSON.stringify(effect),
+		'its passes and motion are plain copies, and the whole effect survives JSON (it ships as data)',
+	);
+	const all = REFERENCE_GRAPHS.map((doc) => compileShaderEffect(doc));
+	setCustomElementFx(all.flatMap((x) => (x.ok ? [x.effect] : [])));
+	assert(
+		all.every((x) => x.ok) &&
+			REFERENCE_GRAPHS.every(
+				(doc) =>
+					isPlayableElementFxKind(`custom:${doc.id}`) &&
+					findElementFxSpec(`custom:${doc.id}`)?.phase === doc.phase &&
+					customElementFx(`custom:${doc.id}`)?.spec.label === doc.name,
+			),
+		'every reference graph registers and reads as a playable kind with its own spec',
+	);
+	const read = readElementFxEntry({
+		id: 'e',
+		kind: 'custom:powerUp',
+		trigger: 'cue',
+		cue: 'go',
+		params: { color: '#00ff00', stray: 3 },
+	});
+	assert(
+		read?.kind === 'custom:powerUp' &&
+			JSON.stringify(read.params) === JSON.stringify({ color: '#00ff00' }),
+		'an entry naming it reads its params against its spec',
+	);
+	setCustomElementFx([]);
+
+	const base = (extra: Partial<ShaderGraphDoc>): ShaderGraphDoc => ({ ...powerUp, ...extra });
+	const passCode = (passes: unknown): boolean =>
+		validateShaderGraph(base({ passes: passes as ShaderGraphDoc['passes'] })).some(
+			(i) => i.code === 'pass',
+		);
+	assert(
+		passCode([{ kind: 'crash' }]) &&
+			passCode([{ kind: 'shake' }]) &&
+			passCode([{ kind: 'glow', params: { nope: 1 } }]) &&
+			passCode([{ kind: 'glow', params: { color: '#zzz' } }]) &&
+			passCode([{ kind: 'glow', params: { color: { param: 'missing' } } }]) &&
+			passCode([{ kind: 'blur', params: { amount: { param: 'color' } } }]) &&
+			passCode(Array.from({ length: PASS_LIMIT + 1 }, () => ({ kind: 'glow' }))) &&
+			passCode([{ kind: 'glow', intensity: 9 }]) &&
+			passCode('glow') &&
+			!passCode([{ kind: 'outline', params: { color: { param: 'color' } }, intensity: 0.5 }]) &&
+			!passCode([{ kind: 'glow', params: { color: '#FFD166' } }]),
+		'each bad pass is an error: not a single-pass kind, a param it lacks, a bad value, a tie to a missing or mismatched param, too many, too strong (an upper-case colour is fine)',
+	);
+	const motionCode = (motion: unknown): boolean =>
+		validateShaderGraph(base({ motion: motion as ShaderGraphDoc['motion'] })).some(
+			(i) => i.code === 'motion',
+		);
+	const keys = (n: number) => Array.from({ length: n }, (_, i) => ({ t: i / n, v: 0 }));
+	assert(
+		motionCode({ channels: { z: [{ t: 0, v: 1 }] } }) &&
+			motionCode({
+				channels: {
+					x: [
+						{ t: 0.5, v: 0 },
+						{ t: 0.2, v: 1 },
+					],
+				},
+			}) &&
+			motionCode({ channels: { x: [{ t: 1.5, v: 0 }] } }) &&
+			motionCode({ channels: { x: [{ t: 0, v: Number.NaN }] } }) &&
+			motionCode({ channels: { x: [{ t: 0, v: 0, ease: 'bounce' }] } }) &&
+			motionCode({ channels: { x: keys(CURVE_KEY_LIMIT + 1) } }) &&
+			motionCode({ channels: { x: [] } }) &&
+			motionCode({ channels: {}, pivot: { x: 5, y: 0 } }) &&
+			motionCode({}) &&
+			motionCode({ channels: { alpha: [{ t: 0, v: 1.6 }] } }) &&
+			motionCode({ channels: { scale: [{ t: 0, v: -0.5 }] } }) &&
+			motionCode({ channels: { rotation: [{ t: 0, v: 7200 }] } }) &&
+			!motionCode({ channels: { rotation: keys(CURVE_KEY_LIMIT) }, pivot: { x: 0, y: 1 } }),
+		'each bad curve is an error: an unknown channel, keys out of order or past 1, not a number, out of its channel’s range (alpha 0…1, scale ≥ 0), an unknown ease, too many or none, a pivot far off',
+	);
+	const docCode = (extra: Partial<ShaderGraphDoc>): boolean =>
+		validateShaderGraph(base(extra)).some((i) => i.code === 'doc');
+	assert(
+		docCode({ name: ' ' }) &&
+			docCode({ durationMs: 10 }) &&
+			docCode({ durationMs: 60_000 }) &&
+			docCode({ durationMs: '900' as unknown as number }) &&
+			docCode({ durationMs: [900] as unknown as number }) &&
+			docCode({ padding: 3 }) &&
+			docCode({ padding: '1' as unknown as number }) &&
+			!docCode({ padding: 0.5 }) &&
+			docCode({ description: 3 as unknown as string }) &&
+			!docCode({}),
+		'the effect needs a name, a length the runtime plays (a number, 50 ms…20 s), padding of 0…2 and text for a description',
+	);
+	assert(effect?.padding === 0, 'no padding unless the doc asks for room');
 }
 
 console.log(
