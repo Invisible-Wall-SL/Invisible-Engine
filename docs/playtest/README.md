@@ -67,6 +67,10 @@ its `--mode recon` boots, prints the fps and exits.
   a plan of rounds and records the wire, the money and HUD checks and screenshots. Its header lists
   the round options (buys, a manual-respin hold check, a dropped connection and resume).
   [bonus-games-7c.md](bonus-games-7c.md) is its worked example.
+- **A published game with shader graphs on it:** `shader-effect-play.mjs` (Invisible Shader Graph
+  step 4) adds compiled graphs to a current-games stand-in snapshot as Publish embeds them, places
+  them as Element FX, plays it and the same snapshot without them, and reports the shader programs
+  on the stage, the pixels they changed, errors and stalls. Its header says how to run it.
 - **A virtual clock instead.** `determinism-proof.mjs` boots with `?ie_determinism=<seed>` and steps frames itself, so captures are pixel-identical run to run. See "Determinism mode" in [status/engine.md](../status/engine.md).
 - **"The game never reaches idle" in a container was the harness** (2026-10-02). The script found
   no `chrome-headless-shell`, or the shell would not start as root. Neither is an engine finding.

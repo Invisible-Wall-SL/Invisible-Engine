@@ -176,6 +176,22 @@ Each step has its own branch, gates and status entry.
      - leases;
      - export, deploy, bake, pull and register, included in Publish;
      - the Scene Editor, /symbols and Flow pickers listing custom effects.
+   - **Storage.** One file per graph, `shaders/<id>.json`; a project's graph shadows a shared one
+     of the same id, and the project's **set** is its own graphs plus the shared ones it does not
+     override. The id is `r2Slug` without leading underscores, so it always makes a valid
+     `custom:<id>`. A save keeps a graph that does not compile (it is being built) and is guarded by
+     `baseEtag`; the lease key is the editor's to take in step 5. Shared graphs are read only here;
+     publishing to the library is step 7.
+   - **Who.** The tools whose pickers list custom effects read the set. Until `/shaders` exists
+     (step 5), Scene Editor users write graphs: a graph is presentation, compiled from generated
+     names only.
+   - **The ship.** The export compiles the set into `deploy/editor-shaders/` (one compiled effect
+     per file and an index) and names a graph that does not compile, which plays nothing rather
+     than failing the build. Publish (`runtimeBundle.ts`) and the bake (`export-shaders`) embed the
+     effects as `shaderEffects`; the pull mirrors `editor-shaders/`; the game registers them with
+     `setCustomElementFx` before its first render.
+   - **The pickers.** The Scene Editor and Symbols register the project's set, and their kind picker
+     lists it as "Custom (Shader Graph)"; the Flow's kind dropdown lists the project's custom kinds.
    - Exit: a graph authored on main plays in a published game (play-QA with the `game-playtester`
      agent).
 5. **Editor v1, `/shaders`** (launcher).
