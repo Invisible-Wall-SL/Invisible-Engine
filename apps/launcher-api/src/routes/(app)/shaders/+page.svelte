@@ -309,7 +309,7 @@
 			await askText({
 				title: twin ? `New effect from ${from}` : 'New shader effect',
 				message: twin
-					? `It starts as ${from}'s graph, with its params, passes and motion: change anything.`
+					? `It starts as ${from}'s graph, with its params, passes and motion: change anything.${twin.motionGap ? `\n\nIts motion is close to ${from}'s, not exact: ${twin.motionGap}` : ''}`
 					: undefined,
 				label: 'Name',
 				value: twin ? `${from} copy` : '',

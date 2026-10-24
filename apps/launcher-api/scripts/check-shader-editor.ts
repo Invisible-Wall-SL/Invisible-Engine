@@ -395,6 +395,12 @@ check(
 	})(),
 );
 check(
+	'a twin whose motion is only close says why, in the menu',
+	twinGroups([{ kind: 'freeze', doc: frost, motionGap: 'follows the seconds played' }])[0].twins[0]
+		.motionGap,
+	'follows the seconds played',
+);
+check(
 	'every real twin is offered exactly once',
 	twinGroups()
 		.flatMap((g) => g.twins.map((t) => t.kind))

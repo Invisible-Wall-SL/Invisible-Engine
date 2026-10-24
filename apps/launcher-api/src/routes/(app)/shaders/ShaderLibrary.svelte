@@ -57,7 +57,9 @@
 				hint: String(group.twins.length),
 				items: group.twins.map((twin) => ({
 					label: twin.label,
-					title: twin.description,
+					title: twin.motionGap
+						? `${twin.description}\n\nIts motion is close, not exact: ${twin.motionGap}`
+						: twin.description,
 					onSelect: () => onNewFrom(twin.kind),
 				})),
 			})),

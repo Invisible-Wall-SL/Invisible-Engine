@@ -83,7 +83,8 @@ export function docFromTwin(twin: BuiltinTwin, id: string, name: string): Shader
 export interface TwinGroup {
 	id: string;
 	label: string;
-	twins: { kind: string; label: string; description: string }[];
+	/** `motionGap`: why the twin only approximates the built-in's motion, when it does. */
+	twins: { kind: string; label: string; description: string; motionGap?: string }[];
 }
 
 /** "Start from a built-in": the twins by the catalog's families, in the catalog's order. */
@@ -92,9 +93,14 @@ export function twinGroups(twins: readonly BuiltinTwin[] = BUILTIN_TWINS): TwinG
 		id: category.id,
 		label: category.label,
 		twins: twins
-			.map((t) => elementFxSpec(t.kind))
-			.filter((spec) => spec.category === category.id)
-			.map(({ kind, label, description }) => ({ kind, label, description })),
+			.map((t) => ({ spec: elementFxSpec(t.kind), motionGap: t.motionGap }))
+			.filter(({ spec }) => spec.category === category.id)
+			.map(({ spec, motionGap }) => ({
+				kind: spec.kind,
+				label: spec.label,
+				description: spec.description,
+				...(motionGap ? { motionGap } : {}),
+			})),
 	})).filter((g) => g.twins.length > 0);
 }
 
