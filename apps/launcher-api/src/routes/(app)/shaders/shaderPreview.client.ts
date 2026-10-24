@@ -255,8 +255,8 @@ export class ShaderPreviewStage {
 
 	/**
 	 * Pose `effect` from now on, registered as the only custom effect (on this page only the edited
-	 * graph plays), or nothing (`undefined`: the element at rest). False when the registry refused
-	 * the effect, which then cannot play.
+	 * graph plays), or nothing (`undefined`: the element at rest). False when it cannot play: the
+	 * registry refused it, or the runtime did not start it.
 	 */
 	show(effect: CustomElementFx | undefined, params?: Record<string, ElementFxParamValue>): boolean {
 		this.stopPlay();
