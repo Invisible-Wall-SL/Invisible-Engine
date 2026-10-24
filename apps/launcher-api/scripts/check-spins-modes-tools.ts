@@ -26,8 +26,9 @@
  *     add-ons, grafted seed and verdict, Win Text, Localization, `/symbols` and info data are
  *     byte-identical to `main` (`MAIN_DIGESTS`, measured by `scripts/lib/spinsToolsFacts.ts` on main
  *     4067dfb); its `/symbols` lists no spins mode and its Flow add-ons carry no `spinsModes`. The
- *     one deliberate change since is the Hold and Win banner screens (`BANNER_DIGESTS`): without
- *     them, every scene set and add-on list is still main's.
+ *     deliberate changes since are the Hold and Win banner screens (`BANNER_DIGESTS`) and the
+ *     `/symbols` per-row states (`ROW_STATES_DIGESTS`): without them, every scene set, add-on list
+ *     and `/symbols` page is still main's.
  *
  * `--print` prints the current docs' digests instead of checking them.
  */
@@ -97,6 +98,7 @@ import {
 	normalize,
 	sceneFactsOf,
 	scenesFor,
+	symbolsFactAsMain,
 	withOverlay,
 } from './lib/spinsToolsFacts.ts';
 
@@ -893,12 +895,34 @@ const BANNER_DIGESTS: Record<string, string> = {
 	'lines + potsToFreeSpins · scenes': '038bf8b4a7d4b49e',
 	'borut-pots-sample · scenes': '1150b7a0f07cc9dd',
 };
+/**
+ * The `/symbols` facts the per-row states (2026-10-23) changed, as they are now: each row's `plays`
+ * and the `holdAndWinRows` group. Each is also checked with those left out, against `MAIN_DIGESTS`.
+ */
+const ROW_STATES_DIGESTS: Record<string, string> = {
+	'no config · symbols': 'e143886602bfff15',
+	'lines · symbols': '747c2fbb5b8bd5bb',
+	'ways · symbols': 'c73380522dfce6aa',
+	'cluster · symbols': '747c2fbb5b8bd5bb',
+	'free spins (bookOf) · symbols': '747c2fbb5b8bd5bb',
+	'hw-pots-sample · symbols': '5affcda2d0ed3a5c',
+	'hw-classic-sample · symbols': '46b468141d599cb5',
+	'hw-collector-sample · symbols': '68c3e7dc77bbdc54',
+	'holdAndWin template on · symbols': '2b63129c4ccd35d2',
+	'holdAndWin template off · symbols': 'dba4655eac5ae236',
+	'lines + threePots · symbols': '707708d0f47e37bb',
+	'lines + potsToFreeSpins · symbols': 'cbe23a31a871b54c',
+	'borut-pots-sample · symbols': '707708d0f47e37bb',
+};
 /** A scene that is not a banner screen, nor a respin mode's copy of one. */
 const notBanner = (sceneId: string): boolean =>
 	!SELF_MOUNTED_BANNER_SCREENS.some((id) => sceneId === id || sceneId.startsWith(`${id}-`));
 const printed: Record<string, string> = {};
 for (const [name, kind, doc] of currentDocs()) {
-	const withoutBanners: Record<string, string> = sceneFactsOf(kind, doc, notBanner);
+	const withoutBanners: Record<string, string> = {
+		...sceneFactsOf(kind, doc, notBanner),
+		symbols: symbolsFactAsMain(kind, doc),
+	};
 	for (const [fact, value] of Object.entries(factsOf(kind, doc))) {
 		const key = `${name} · ${fact}`;
 		printed[key] = value;
@@ -908,7 +932,7 @@ for (const [name, kind, doc] of currentDocs()) {
 			MAIN_DIGESTS[key] === asMain,
 			`main ${MAIN_DIGESTS[key]} · now ${asMain}`,
 		);
-		const expected = BANNER_DIGESTS[key] ?? MAIN_DIGESTS[key];
+		const expected = BANNER_DIGESTS[key] ?? ROW_STATES_DIGESTS[key] ?? MAIN_DIGESTS[key];
 		check(`6. ${key} · as pinned`, expected === value, `pinned ${expected} · now ${value}`);
 	}
 	same(`6. ${name} · /symbols lists no spins mode`, symbolsPage(kind, doc).spinsModes, []);

@@ -13,6 +13,7 @@ import {
 import { overlayTokenPots, projectAddOns, respinModesOf } from '$lib/addOns';
 import { bigTiersOf, type ResolvedGameConfig } from './gameConfigDefaults';
 import { symbolGrid, type SymbolDefaults } from './symbolDefaults';
+import { symbolPlayFacts } from './symbolPlays';
 
 /**
  * Everything the Invisible Symbols page reads off the Game Config, from `resolveGameConfig`'s result:
@@ -44,13 +45,26 @@ export function symbolsPageConfig(
 		}
 	}
 	const reel = resolveReelBehaviour(doc ?? undefined);
+	const tokenPots = overlayTokenPots(doc);
+	// The dealt symbols with a Hold and Win role: the respin feature's coins and specials, a group of
+	// their own after the other symbols, since they play their own states.
+	const holdAndWinRows = grid.symbols.filter(
+		(name) => holdAndWinRoles[name] && uses[name] === 'inPlay' && !tokenPots[name],
+	);
+	const holdAndWinSet = new Set(holdAndWinRows);
 	return {
 		defaults: grid.defaults,
-		// The rows the grid lists, in order — see `symbolGrid`.
-		symbols: grid.symbols,
+		// The rows the grid lists: `symbolGrid`'s order with the Hold and Win group moved last. The page
+		// draws the symbols, that group, then the coins below, which is `/win-text`'s order too.
+		symbols: [...grid.symbols.filter((name) => !holdAndWinSet.has(name)), ...holdAndWinRows],
+		holdAndWinRows,
 		// The rows that are the pots overlay's coins (its tokens), in pot order — a group of their own
 		// after the symbols, as `/config` gives them a section of their own.
 		coins: doc ? symbolsUsed(doc).filter((name) => uses[name] === 'token' && listed.has(name)) : [],
+		// What the game can play on each row — `symbolStatesPlayed` (engine-layout) narrows the row's
+		// cells to it, so a state the game never draws for that symbol is not offered. Absent without a
+		// config: every row then offers every column.
+		...(doc ? { plays: symbolPlayFacts(doc, (name) => holdAndWinRoles[name] ?? []) } : {}),
 		// Does this project tumble? Gates the `Clear reel` column, which only means anything to a
 		// cascading game. Resolved (not the raw stored field) so the answer matches the one the game
 		// itself acts on: absent ⇒ the win model's default, so a cluster/scatter project gets the
@@ -81,7 +95,7 @@ export function symbolsPageConfig(
 		// on every other project, so their page data is unchanged.
 		...(doc?.coinBoard ? { coinBoard: true as const } : {}),
 		// Each pots overlay token → the pots it fills: a chip on its row head. Empty without the block.
-		tokenPots: overlayTokenPots(doc),
+		tokenPots,
 		// The add-on blocks the config carries — passed with the kind to `kindCapabilities`, so a
 		// Hold and Win bonus or a pots overlay lights its own parts on any kind.
 		addOns,
