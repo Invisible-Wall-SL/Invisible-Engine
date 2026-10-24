@@ -123,7 +123,7 @@ mobile budget.
    - An effect that cannot be rebuilt names the node the library is missing.
    - The twins become the editor's **"Start from a built-in"** templates.
 4. **Single source?** Should built-ins be *generated* from graphs later, or stay hand-written beside
-   their twins? That decision waits until step 3's parity has held for a while.
+   their twins? That decision waits until the twins' parity gate (step 6) has held for a while.
 
 ## 8. Build plan
 
@@ -210,6 +210,16 @@ Each step has its own branch, gates and status entry.
    - Exit: an artist builds, previews and saves a graph on `/shaders`, and it is listed by the
      pickers and ships with Publish (step 4's chain).
 6. **Templates.** The graph twins of the built-ins, with the parity gate, as "Start from a built-in".
+   - As built: 30 of the 50 kinds have a twin (`BUILTIN_TWINS`): every kind drawn by a pixel pass,
+     hand-written or `pixi-filters`. The 14 motion-only kinds are curves alone and the 6 breaks are
+     not pixel effects, so they have none.
+   - The gate (`shader-twins`, in `check:all`) plays each built-in and its twin through the runtime
+     on WebGL1 and WebGL2, over moments and every param extreme. A cell fails past 0.25% of pixels
+     more than 2 steps off, or on any patch; motion is compared as numbers.
+   - What a twin could not rebuild is named, not hidden: motion that follows the seconds played, a
+     param or looping (`motionGap`), and padding that grows with a param. Both are v1 doc limits.
+   - The twins needed a per-element **seed** (the built-ins draw one per element) and an Output
+     **Blend** (Add, for glows brighter than their alpha), and 15 more nodes.
 7. **Editor v2.** Per-node live thumbnails, the cost meter, subgraphs (reusable groups, like the
    flow's functions), and publishing to the studio-shared library.
 8. **Later.**

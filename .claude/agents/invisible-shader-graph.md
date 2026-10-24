@@ -59,6 +59,11 @@ You are the developer for **Invisible Shader Graph**.
   reference graphs and every node.
 - `tools/fx-spike/shaderCompile.mjs`: the same pages drawn in CI (`check:all`), failing on any
   shader the driver rejects.
+- The twins (step 6): `packages/engine-shadergraph/src/twins.ts` (`BUILTIN_TWINS`, `builtinTwin`)
+  and `src/twins/{graph,passes,distort,material}.ts`; their GLSL is snapshotted in
+  `snapshots/twins/` (run the compile fixture with `--update` after changing a twin).
+  `tools/fx-spike/shaderTwins.mjs` + `shaderTwins.entry.ts` is the parity gate (`shader-twins`, in
+  `check:all`): change a built-in or a node a twin uses and it must still pass.
 
 ## House rules for this project
 - **GLSL ES 1.00 only.** No `transpose`, `inverse`, `texelFetch`. The gate scans for them.

@@ -54,16 +54,37 @@ projects to see another project's effects. The atlases the preview offers are th
 
 ### Make a new effect or open one
 
-- **+ New** (or **+ New effect** in the empty canvas) asks for a **Name** and creates the effect
-  straight away. Its id is the name in lower case, every character but a letter or digit turned
+- **+ New ▾** opens a menu: **Empty effect**, or **Start from a built-in** (see below). **+ New
+  effect** in the empty canvas makes an empty one. Either way it asks for a **Name** and creates the
+  effect straight away. Its id is the name in lower case, every character but a letter or digit turned
   into `_`, up to 60 characters (`Pulse tint` → `pulse_tint`). If the project already has an effect
   with that id (or someone makes one while you type), a red notice asks you to pick another name.
   If the shared library has one, you are asked first: yours would take its place in this project.
-- A new effect starts with the **Output** alone. Unwired, the Output draws the element as it is, so
-  a new effect already compiles and changes nothing.
+- An empty effect starts with the **Output** alone. Unwired, the Output draws the element as it is,
+  so it already compiles and changes nothing.
 - Click a name in **Effects** to open it. Any unsaved change to the open effect is saved first.
 - The page URL carries the open effect (`/shaders?graph=<id>`), so a reload or a shared link opens
   it again. A link to an effect the project no longer has opens nothing and says so.
+
+### Start from a built-in
+
+**+ New ▾ → Start from a built-in** lists the built-in Element FX rebuilt as graphs (their *twins*),
+by family, as the Scene Editor's effect picker groups them: the 3D turns, the distortions and the
+light effects (Freeze, Burn to ashes, Gold, Electrocute, the dissolves, Glow, Blur …), 30 in all.
+Pick one, name your effect (it suggests "*Freeze* copy"), and you get that effect's whole graph to
+change: its nodes and wires, its params (the same ones, with the same defaults, as the built-in's),
+its passes and its motion. It plays as the built-in does until you change something.
+
+- **Every twin is checked against its built-in.** CI renders each beside the built-in it rebuilds,
+  at many moments and at every param's extremes, and fails when they look different.
+- **Some twins' motion is close, not exact.** Where a built-in moves the element by the seconds
+  played, a param or its looping (Bounce 3D's hops, Freeze's shiver, Poison's sway, Electrocute's
+  jitter, Petrify, Gold), a motion curve cannot follow it, and the twin's curve is that motion at
+  the defaults. The menu item and the name dialog say so. The pixels are exact either way.
+- **Not every built-in has a twin.** The motion-only effects (Shake, Pulse, Bounce, Pop in…) are
+  motion curves alone, and the breaks (Crumble, Shatter…) are not pixel effects.
+- The effect you make is your own: changing it never touches the built-in, and the built-in keeps
+  playing as before wherever it is placed.
 
 **The id never changes.** Renaming an effect (see "Effect settings") changes the label the pickers
 show, not `custom:<id>`. Placed entries keep working after a rename. To get a different id, make a
@@ -81,20 +102,33 @@ node's top edge):
 
 | Family         | What it holds                                                    | Some of its nodes                                                       |
 | -------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| **Input**      | Where the pixel is, when it is, what the element looks like there | UV, UV (square), Element size, Time, Param, Number, Colour, Sample element, Outline, Relief height |
-| **Time**       | Shapes for the play's progress                                   | Bell, Swell, Ease in-out, Overshoot, *In, hold, out*, Pulse, Flicker    |
-| **Math**       | Arithmetic on numbers or vectors alike                           | Add, Multiply, Mix, Clamp, Smooth step, Remap, Split, Combine           |
-| **Procedural** | Noise and patterns                                               | Random, Noise, Fractal noise, Cells, Gradient, Radial, Stripes          |
-| **Mask**       | Where something is, and how far it has come                      | Away from a side, Front, Band, Glint, Edge distance, Inside             |
-| **UV**         | Move where the element is read from                              | Offset, Scale, Rotate, Twist, Bulge, Ripple, Wave, Polar                |
-| **Colour**     | Colour and light                                                 | Split colour, Join colour, Brightness, Hue shift, Relief normal, Light, Metal, Over, Fade |
+| **Input**      | Where the pixel is, when it is, what the element looks like there | UV, UV (square), Element size, Time, Param, Number, Colour, Sample element, Outline, Relief height, Seed |
+| **Time**       | Shapes for the play's progress                                   | Bell, Swell, Ease in-out, Overshoot, *In, hold, out*, Pulse, Flicker, Loop envelope, Bounce, Oscillate |
+| **Math**       | Arithmetic on numbers or vectors alike                           | Add, Multiply, Mix, Clamp, Smooth step, Remap, Split, Combine, Pick     |
+| **Procedural** | Noise and patterns                                               | Random, Noise, Fractal noise, Cells, Gradient, Radial, Stripes, Random number, Line noise, Arcs, Sparkles |
+| **Mask**       | Where something is, and how far it has come                      | Away from a side, Front, Band, Glint, Edge distance, Inside, Away from side N |
+| **UV**         | Move where the element is read from                              | Offset, Scale, Rotate, Twist, Bulge, Ripple, Wave, Polar, Flag, Perspective plane, Sphericon, Page curl |
+| **Colour**     | Colour and light                                                 | Split colour, Join colour, Brightness, Hue shift, Relief normal, Relief slope, Light, Metal, Over, Fade |
 
-There are 75 nodes in the palette. The **Output** is not in it: every effect has exactly one, and
+There are 90 nodes in the palette. The **Output** is not in it: every effect has exactly one, and
 it comes with the new effect.
 
 **Time** (Input) gives the play's **Progress** (0…1), the **Seconds** since it started, the entry's
 **Strength** (its intensity) and **Looping** (1 while it loops). Wire Strength in somewhere if the
 entry's Intensity should matter.
+
+**Seed** (Input) is a random number (0…97) drawn once for each element the effect plays on. Feed it
+to Noise, Cells or Random number and two elements playing the effect at once look different, as the
+built-ins do.
+
+**Pick** (Math) turns a choice param into numbers: a choice reads as its option's place in the list
+(0, 1, 2 …), and Pick gives the value you set for each. **Away from side N** takes a side as such a
+number (0 bottom, 1 top, 2 edges, 3 centre, 4 left, 5 right), so a "starts from" choice param can
+drive it.
+
+**The Output's Blend** (its properties): **Normal** keeps each colour channel within its alpha, as
+a premultiplied colour must. **Add** lets a colour brighter than its alpha add light over what is
+behind the element: a glow or a halo past its edge (Electrocute and Poison use it).
 
 ### Read a node
 
@@ -178,9 +212,11 @@ a newer build."
   pixel, summed over the nodes that reach the Output (budget 400). **reads** is how many times each
   pixel reads the element (budget 16). Over either budget the meter turns amber. That is a warning,
   not an error: the effect still compiles and ships, but it may run slowly on a phone.
-- **The heavy nodes.** Cells costs 120, Fractal noise 90, Noise 18, Relief normal 16. Outline reads
-  the element 5 times, Relief normal 4, Sample element and Relief height once each. An input left
-  to read `sample` adds one read, however many inputs do it.
+- **The heavy nodes.** Sphericon costs 200, Arcs 160, Cells 120, Fractal noise 90, Perspective
+  plane, Page curl, Bounce and Sparkles 40 each, Noise 18, Relief normal 16. Outline reads the
+  element 5 times, Relief normal and Relief slope 4, Page curl 3, Sample element and Relief height
+  once each. An input left to read `sample` adds one read, however many inputs do it. Some twins are
+  heavy because their built-ins are: Petrify's is over the cost budget.
 
 ### Effect settings
 
@@ -386,12 +422,12 @@ Click **✕** next to an effect and confirm. If it was open, the canvas empties.
 - **The preview uses WebGL2 where the browser has it** (CI checks every shader on WebGL1 too). It
   does not follow a change of screen pixel ratio (reload after moving the window to another
   screen), and it clips a graph padded to the 2× maximum at its edge.
-- **No templates yet.** Every new effect starts from the Output alone. "Start from a built-in" (the
-  built-in effects rebuilt as graphs) is a later step.
+- **A twin's limits are the doc's.** A motion curve cannot read a param or the seconds played (the
+  motion gaps above), and an effect's padding is one number: the Wave, Bounce 3D and Melt twins take
+  the room their largest setting needs at strength 1, and can clip past the edge above it.
 - **Not yet:** per-node live thumbnails, subgraphs (reusable groups), publishing to the shared
   library, a Break output, and an admin-only Custom GLSL node. They are later steps of the plan.
-- **Nodes the plan lists that v1 lacks:** Perspective plane (the 3D flip as one node), star /
-  sparkle, rim, loop envelope and a pixel input.
+- **Nodes the plan lists that v1 lacks:** rim and a pixel input.
 - **Publish ships the project's whole set** of effects that compile, used or not.
 
 ## For developers
@@ -409,4 +445,6 @@ Click **✕** next to an effect and confirm. If it was open, the canvas empties.
 - **Storage and ship:** `src/lib/server/shaderStorage.ts` (`<client>/<project>/shaders/<id>.json`,
   shared at `_shared/shaders/`), `/api/shaders/{list,doc,effects,save,delete,backups}`, and
   `shaderExport.ts` (Publish and the bake, into `deploy/editor-shaders/`).
+- **The twins:** `packages/engine-shadergraph/src/twins.ts` (`BUILTIN_TWINS`) and `src/twins/`;
+  `pnpm --filter fx-spike shader-twins` holds each to its built-in (in `check:all`).
 - **Gates:** `pnpm --filter launcher-api check:shader-editor` and `check:shader-pipeline`.
