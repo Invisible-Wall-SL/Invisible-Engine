@@ -129,7 +129,8 @@ fake('lib/server/toolScope.ts', {
 		return { clientKey: CLIENT, projectKey: sessionProject, prefixes: [] };
 	},
 });
-fake('lib/server/appSettings.ts', { getDeployToken: async () => TOKEN });
+let deployToken: string | null = TOKEN;
+fake('lib/server/appSettings.ts', { getDeployToken: async () => deployToken });
 fake('lib/server/projects.ts', {
 	DEFAULT_PROJECT_KEY: 'cloud',
 	projectClientKey: async () => CLIENT,
@@ -139,7 +140,9 @@ fake('lib/server/runtimeBundleCache.ts', {
 });
 
 const storage = await import('../src/lib/server/shaderStorage.ts');
-const { exportShaders, shaderDeployPrefix } = await import('../src/lib/server/shaderExport.ts');
+const { exportShaders, shaderDeployPrefix, unshippedCustomKinds } =
+	await import('../src/lib/server/shaderExport.ts');
+const { normalizeShaderGraphDoc } = await import('engine-shadergraph');
 const { SHARED_SHADERS_PREFIX, SUB, shaderDocKey, shaderSlug, sharedShaderDocKey } =
 	await import('../src/lib/server/projectPaths.ts');
 const saveRoute = await import('../src/routes/api/shaders/save/+server.ts');
@@ -278,6 +281,35 @@ check(
 const missing = await storage.loadShader(CLIENT, PROJECT, 'nothing');
 check('a missing graph reads as a create', [missing.exists, missing.etag], [false, null]);
 
+const huge = {
+	...ref('frost'),
+	id: 'huge',
+	nodes: Array.from({ length: 12000 }, (_, i) => ({ id: `n${i}`, type: 'time', x: i, y: i })),
+};
+let tooLarge = '';
+try {
+	await storage.saveShader(CLIENT, PROJECT, huge, null);
+} catch (e) {
+	tooLarge = e instanceof Error ? e.name : String(e);
+}
+check(
+	'a graph over the size cap is refused',
+	[tooLarge, R2.has(`${projectDir}huge.json`)],
+	['ShaderTooLargeError', false],
+);
+const hostile = normalizeShaderGraphDoc(
+	JSON.parse('{"nodes":[{"id":"a","type":"time","values":{"__proto__":[1,2],"k":1}}]}'),
+	'x',
+);
+check(
+	'a node value named __proto__ is dropped, never set as the prototype',
+	[
+		Object.keys(hostile.nodes[0].values ?? {}),
+		Array.isArray(Object.getPrototypeOf(hostile.nodes[0].values)),
+	],
+	[['k'], false],
+);
+
 // ── 2. The routes ──────────────────────────────────────────────────────────────────────────────
 console.log('2. the routes');
 gates.length = 0;
@@ -286,6 +318,11 @@ const okSave = await call(saveRoute.POST, {
 });
 check('save stores a new graph', [okSave.status, okSave.body.id], [200, 'frost']);
 check('save gates on the Scene Editor alone', gates.at(-1), ['editor']);
+check(
+	'save over the size cap is a 413',
+	(await call(saveRoute.POST, { body: { doc: huge, baseEtag: null } })).status,
+	413,
+);
 check(
 	'save without its precondition is a 400',
 	(await call(saveRoute.POST, { body: { doc: ref('frost') } })).status,
@@ -306,12 +343,8 @@ check(
 check('…and writes nothing', R2.has(`${projectDir}other.json`), false);
 const listed = await call(listRoute.GET, { query: `?projectKey=${PROJECT}` });
 check('list answers the set', (listed.body.shaders as unknown[]).length, 4);
-check('the reads gate on the tools that pick Element FX', gates.at(-1), [
-	'editor',
-	'componentEditor',
-	'symbols',
-	'flow',
-]);
+const READ_GATE = ['editor', 'componentEditor', 'symbols', 'flow'];
+check('the reads gate on the tools that pick Element FX', gates.at(-1), READ_GATE);
 check(
 	'a read from a tab on another project is refused',
 	(await call(listRoute.GET, { query: '?projectKey=another-game' })).status,
@@ -323,7 +356,15 @@ check(
 	[read.body.exists, typeof read.body.etag],
 	[true, 'string'],
 );
+check('…on the read gate', gates.at(-1), READ_GATE);
+const sharedDoc = await call(docRoute.GET, { query: '?id=power_up&shared=1' });
+check(
+	'a shared graph answers no ETag: a save writes the project its own copy',
+	[sharedDoc.body.exists, sharedDoc.body.etag],
+	[true, null],
+);
 const compiledForEditor = await call(effectsRoute.GET, {});
+check('effects is on the read gate', gates.at(-1), READ_GATE);
 check(
 	'effects answers the set compiled, and what did not compile',
 	[
@@ -365,7 +406,7 @@ check('…with its errors', exported.skipped[0].errors.length > 0, true);
 check(
 	'deploy/editor-shaders/ holds a file per effect and an index, the stale one pruned',
 	keysUnder(deployDir).map((k) => k.slice(deployDir.length)),
-	['frost.json', 'index.json', 'power_up.json', 'pulse_tint.json'],
+	['_index.json', 'frost.json', 'power_up.json', 'pulse_tint.json'],
 );
 check(
 	'a deployed file is the effect',
@@ -373,13 +414,22 @@ check(
 	JSON.parse(json(exported.shaderEffects[0])),
 );
 check(
-	'the index lists the effects and the skipped',
-	[
-		(stored(`${deployDir}index.json`).effects as unknown[]).length,
-		(stored(`${deployDir}index.json`).skipped as unknown[]).length,
-	],
-	[3, 1],
+	'the index lists the effects, and no compiler error ships',
+	stored(`${deployDir}_index.json`),
+	exported.shaderEffects.map((e) => ({ kind: e.spec.kind, label: e.spec.label })),
 );
+await storage.saveShader(CLIENT, PROJECT, { ...ref('frost'), id: 'Index', name: 'Index' }, null);
+await exportShaders(CLIENT, PROJECT);
+check(
+	'a graph named "index" keeps its file beside the index',
+	[
+		(stored(`${deployDir}index.json`).spec as { kind?: string } | undefined)?.kind,
+		Array.isArray(stored(`${deployDir}_index.json`)),
+	],
+	['custom:index', true],
+);
+R2.delete(`${projectDir}index.json`);
+await exportShaders(CLIENT, PROJECT);
 check(
 	'every exported effect is one the game registers',
 	setCustomElementFx(exported.shaderEffects).map((e) => e.spec.kind),
@@ -391,6 +441,13 @@ check(
 	(await call(exportRoute.POST, { query: `?project=${PROJECT}&k=nope`, body: {} })).status,
 	401,
 );
+deployToken = null;
+check(
+	'…and answers 503 where no deploy token is set',
+	(await call(exportRoute.POST, { query: `?project=${PROJECT}&k=${TOKEN}`, body: {} })).status,
+	503,
+);
+deployToken = TOKEN;
 const endpoint = await call(exportRoute.POST, {
 	query: `?project=${PROJECT}&k=${TOKEN}`,
 	body: {},
@@ -410,7 +467,27 @@ const none = await exportShaders(CLIENT, PROJECT);
 check(
 	'a project with no graphs ships none',
 	[none.shaderEffects.length, keysUnder(deployDir).map((k) => k.slice(deployDir.length))],
-	[0, ['index.json']],
+	[0, ['_index.json']],
+);
+check(
+	'a bundle names no unshipped effect when every one ships',
+	unshippedCustomKinds({
+		doc: { scenes: [{ nodes: [{ elementFx: [{ kind: 'custom:frost' }] }] }] },
+		shaderEffects: exported.shaderEffects,
+	}),
+	[],
+);
+check(
+	'…and names each one it does not ship, from any section',
+	unshippedCustomKinds({
+		doc: {
+			scenes: [{ nodes: [{ elementFx: [{ kind: 'custom:gone' }, { kind: 'custom:frost' }] }] }],
+		},
+		flowV2: { nodes: { n1: { params: { kind: 'custom:broken' } } } },
+		symbols: { symbolFx: { H1: { win: [{ kind: 'glow' }] } } },
+		shaderEffects: exported.shaderEffects,
+	}),
+	['custom:broken', 'custom:gone'],
 );
 
 // ── 4. The wiring ──────────────────────────────────────────────────────────────────────────────
@@ -484,6 +561,31 @@ check(
 	'the kind picker takes a registered custom kind',
 	(panel.match(/if \(isPlayableElementFxKind\(kind\)\)/g) ?? []).length,
 	2,
+);
+for (const page of ['editor', 'symbols', 'flow-v2']) {
+	check(
+		`the ${page} page loads the project set`,
+		readLF(`${here}../src/routes/(app)/${page}/+page.server.ts`).includes(
+			'loadCustomElementFx(clientKey, projectKey)',
+		),
+		true,
+	);
+}
+const publish = readLF(`${here}../src/lib/server/publishGame.ts`);
+check(
+	'Publish names the effects a game will not play',
+	publish.includes('const shaderEffectsMissing = unshippedCustomKinds({ ...bundle });'),
+	true,
+);
+check(
+	'…and judges the flow with the kinds it ships',
+	publish.includes('shaderEffects: assembled.shaderEffects,'),
+	true,
+);
+check(
+	'the bake names them too',
+	bake.includes('shader effect(s) named in the game will play nothing'),
+	true,
 );
 const flowPage = readLF(`${here}../src/routes/(app)/flow-v2/+page.svelte`);
 check(

@@ -1,3 +1,4 @@
+import { browser } from '$app/environment';
 import { setCustomElementFx } from 'constants-shared/elementFx';
 import { untrack } from 'svelte';
 
@@ -12,10 +13,13 @@ let version = $state(0);
 export const customElementFxVersion = (): number => version;
 
 /**
- * Replace the page's custom Element FX with `effects` (its `customElementFx` load data). Call it in
- * an `$effect.pre` on that data, so a project switched in place registers its own set.
+ * Replace the page's custom Element FX with `effects` (its `customElementFx` load data): once at
+ * init on a page that reloads when its project changes, in an `$effect.pre` on that data on one
+ * that follows it in place. In the browser only: the registry is module state, which a server
+ * render would share across requests.
  */
 export function registerCustomElementFx(effects: readonly unknown[] | undefined): void {
+	if (!browser) return;
 	setCustomElementFx(effects ?? []);
 	// Untracked, so an effect that registers does not also depend on the count it bumps.
 	untrack(() => version++);

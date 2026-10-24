@@ -5,6 +5,7 @@ import {
 	type GraphIssue,
 	type ShaderGraphDoc,
 } from 'engine-shadergraph';
+import { mapWithConcurrency } from './concurrency';
 import {
 	SHARED_SHADERS_PREFIX,
 	SUB,
@@ -32,6 +33,23 @@ import {
  * keeps broken wiring and bad values (the compiler reports those) and drops anything that is not
  * part of the doc.
  */
+
+/** R2 reads in flight at once while a set loads (every editor page load, boot and Publish). */
+const SHADER_IO_CONCURRENCY = 8;
+
+/**
+ * The largest graph a save takes, as stored. A graph compiles on every editor page load, authoring
+ * boot and Publish; a real one is tens of KB, and this bounds what one save can cost them.
+ */
+export const SHADER_DOC_MAX_BYTES = 512 * 1024;
+
+/** A save over {@link SHADER_DOC_MAX_BYTES}. */
+export class ShaderTooLargeError extends Error {
+	constructor(readonly bytes: number) {
+		super(`A shader graph is at most ${SHADER_DOC_MAX_BYTES} bytes; this one is ${bytes}.`);
+		this.name = 'ShaderTooLargeError';
+	}
+}
 
 export interface ShaderRow {
 	id: string;
@@ -65,19 +83,19 @@ function idOfKey(prefix: string, key: string): string {
 }
 
 async function readDocs(prefix: string): Promise<ShaderGraphDoc[]> {
-	const docs: ShaderGraphDoc[] = [];
-	for (const key of await listAllKeys(`${prefix}/`)) {
-		const id = idOfKey(prefix, key);
-		if (!id) continue;
+	const found = (await listAllKeys(`${prefix}/`))
+		.map((key) => ({ key, id: idOfKey(prefix, key) }))
+		.filter((f) => f.id);
+	const docs = await mapWithConcurrency(found, SHADER_IO_CONCURRENCY, async ({ key, id }) => {
 		const raw = await getObjectText(key);
-		if (!raw) continue;
+		if (!raw) return undefined;
 		try {
-			docs.push(normalizeShaderGraphDoc(JSON.parse(raw), id));
+			return normalizeShaderGraphDoc(JSON.parse(raw), id);
 		} catch {
-			// an unreadable doc is not part of the set
+			return undefined;
 		}
-	}
-	return docs;
+	});
+	return docs.filter((d): d is ShaderGraphDoc => !!d);
 }
 
 /** The project's set: its own graphs, then the shared graphs it does not override, by name. */
@@ -85,9 +103,12 @@ export async function loadShaderSet(
 	clientKey: string,
 	projectKey: string,
 ): Promise<{ doc: ShaderGraphDoc; shared: boolean }[]> {
-	const own = await readDocs(SUB.shaders(clientKey, projectKey));
+	const [own, library] = await Promise.all([
+		readDocs(SUB.shaders(clientKey, projectKey)),
+		readDocs(SHARED_SHADERS_PREFIX),
+	]);
 	const ids = new Set(own.map((d) => d.id));
-	const shared = (await readDocs(SHARED_SHADERS_PREFIX)).filter((d) => !ids.has(d.id));
+	const shared = library.filter((d) => !ids.has(d.id));
 	return [
 		...own.map((doc) => ({ doc, shared: false })),
 		...shared.map((doc) => ({ doc, shared: true })),
@@ -172,7 +193,7 @@ export async function loadShader(
 /**
  * Save a project's graph under its slugged id. `baseEtag: null` asserts the id is free, which stops
  * a new graph replacing a colleague's of the same name; a stale ETag is refused the same way
- * (`ConflictError`).
+ * (`ConflictError`). A graph over {@link SHADER_DOC_MAX_BYTES} is refused (`ShaderTooLargeError`).
  */
 export async function saveShader(
 	clientKey: string,
@@ -186,9 +207,12 @@ export async function saveShader(
 			: 'shader';
 	const id = shaderSlug(requested);
 	const doc = normalizeShaderGraphDoc(rawDoc, id);
+	const text = JSON.stringify(doc, null, '\t');
+	const bytes = Buffer.byteLength(text);
+	if (bytes > SHADER_DOC_MAX_BYTES) throw new ShaderTooLargeError(bytes);
 	const etag = await putObjectText(
 		shaderDocKey(clientKey, projectKey, id),
-		JSON.stringify(doc, null, '\t'),
+		text,
 		'application/json',
 		precondition(baseEtag),
 	);

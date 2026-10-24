@@ -13,6 +13,7 @@
  * scene cues. It passes no symbols, so the gate never judges a symbol literal: `symbol-not-in-play`
  * is the editor's warning, never a refusal.
  */
+import type { CustomElementFx } from 'constants-shared/elementFx';
 import {
 	containersMissingScene,
 	respinTabIssues,
@@ -56,7 +57,8 @@ export type FlowPublishCheck =
  * `components` are the defs the scenes place (latest, plus the pinned versions the caller loaded —
  * `withPlacedComponentVersions`), whose own cue names a flow may fire too and whose interfaces the
  * placed instances' Flow nodes are judged against (§6.3). `addOns` are the project's Game Config
- * add-ons (`flowAddOnsOf`); absent ⇒ the kind's vocabulary alone.
+ * add-ons (`flowAddOnsOf`); absent ⇒ the kind's vocabulary alone. `customFxKinds` are the custom
+ * Element FX the game ships (`custom:<id>`), for the kind dropdown's list.
  */
 export function validateFlowV2Against(
 	stored: FlowDoc,
@@ -65,6 +67,7 @@ export function validateFlowV2Against(
 	library: FunctionLibraryDoc,
 	components: readonly ComponentDef[] = [],
 	addOns?: FlowAddOns,
+	customFxKinds: readonly string[] = [],
 ): FlowIssue[] {
 	const doc = JSON.parse(JSON.stringify(stored)) as FlowDoc;
 	syncFlowContainers(doc, scenes);
@@ -73,6 +76,7 @@ export function validateFlowV2Against(
 		sounds: soundOptionsFor(sounds),
 		sceneCues: collectSceneCueNames(scenes, components, doc.templateId, addOns),
 		fxTargets: collectElementFxTargets(scenes, components),
+		customFxKinds,
 	});
 	return [
 		...validateFlowDoc(
@@ -176,6 +180,8 @@ export async function checkShippedFlowV2(
 		scenes: readonly Scene[];
 		components?: readonly ComponentDef[];
 		config?: GameConfigDoc;
+		/** The custom Element FX the bundle ships. */
+		shaderEffects?: readonly CustomElementFx[];
 	},
 ): Promise<FlowPublishCheck> {
 	if (!shipped.flowV2) return { status: 'absent' };
@@ -186,6 +192,7 @@ export async function checkShippedFlowV2(
 		shipped.flowV2Library ?? { version: 2, functions: [] },
 		shipped.components,
 		flowAddOnsOf(shipped.config),
+		(shipped.shaderEffects ?? []).map((e) => e.spec.kind),
 	).filter((i) => i.severity === 'error');
 	return errors.length ? { status: 'invalid', errors } : { status: 'valid' };
 }

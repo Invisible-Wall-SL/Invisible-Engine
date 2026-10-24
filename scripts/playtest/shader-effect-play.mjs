@@ -7,8 +7,13 @@
 //
 // The same snapshot is played twice: as published, and without its `shaderEffects` (an entry
 // naming an effect the game has not registered plays nothing). Each run records the shader
-// programs on the stage, a screenshot at two moments, console errors and stalls; the report says
-// how many pixels the effects changed.
+// programs on the stage, a screenshot at two moments, console errors and stalls. It PASSES (exit 0)
+// when both graphs' programs and Power-up's glow pass are on the published run's stage and none on
+// the other's, the effects change and move the picture, and neither run has an error or a stall.
+//
+// What it proves is the game half: the compile is the export's own (`compileShaderEffect`), but
+// storage, the export's R2 writes and the bundle assembly are `check:shader-pipeline`'s to pin.
+// The runtime-bundle path is played; the baked path reads the same field the same way.
 //
 //   node --experimental-strip-types --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/shader-effect-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>]
@@ -41,6 +46,7 @@ if (!opt.runtime || !opt.out)
 const out = resolve(opt.out);
 mkdirSync(out, { recursive: true });
 const work = mkdtempSync(join(tmpdir(), 'shader-play-'));
+process.on('exit', () => rmSync(work, { recursive: true, force: true }));
 
 // 1. The stand-in published snapshot.
 const fixtures = join(work, 'fixtures');
@@ -195,6 +201,32 @@ if (!published.error && !unregistered.error) {
 		unregisteredOverTime: diff(unregistered.shots.a, unregistered.shots.b),
 	};
 }
+
+// 5. The verdict. Typekit never loads in a container (docs/playtest/README.md); any other console
+// error fails the run.
+const KNOWN_CONSOLE = /Web font load inactive/;
+const failures = [];
+const expect = (ok, what) => ok || failures.push(what);
+for (const [name, run] of Object.entries(report.runs)) {
+	expect(!run.error, `${name}: ${run.error}`);
+	expect(run.state?.errors === 0 && run.state?.stalls === 0, `${name}: errors or stalls`);
+	expect(
+		(run.console ?? []).every((line) => KNOWN_CONSOLE.test(line)),
+		`${name}: console errors`,
+	);
+}
+const programs = (run) => Object.keys(run.programs ?? {});
+const has = (run, prefix) => programs(run).some((p) => p.startsWith(prefix));
+expect(has(published, 'element-fx-custom-pulsetint'), 'published: Pulse tint is not on the stage');
+expect(has(published, 'element-fx-custom-powerup'), 'published: Power-up is not on the stage');
+expect(has(published, 'glow'), "published: Power-up's glow pass is not on the stage");
+expect(!has(unregistered, 'element-fx-custom-'), 'unregistered: a custom program is on the stage');
+const px = report.pixels ?? {};
+expect(px.publishedVsUnregistered > 1000, 'the effects change fewer than 1,000 pixels');
+expect(px.publishedOverTime > 1000, 'the effects do not move over time');
+expect(px.unregisteredOverTime * 10 < px.publishedOverTime, 'the unregistered run moves as much');
+report.verdict = failures.length ? { pass: false, failures } : { pass: true };
+
 writeFileSync(join(out, 'result.json'), JSON.stringify(report, null, '\t'));
 console.log(JSON.stringify(report, null, '\t'));
-rmSync(work, { recursive: true, force: true });
+process.exit(failures.length ? 1 : 0);

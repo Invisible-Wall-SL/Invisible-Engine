@@ -25,6 +25,8 @@ const readNode = (raw: Record<string, unknown>): GraphNode => {
 	if (isRecord(raw.values)) {
 		const values: NonNullable<GraphNode['values']> = {};
 		for (const [key, value] of Object.entries(raw.values)) {
+			// An own `__proto__` key (JSON makes one) would set the object's prototype on assignment.
+			if (key === '__proto__') continue;
 			if (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)))
 				values[key] = value;
 			else if (

@@ -9,6 +9,7 @@
 		customElementFxList,
 		elementFxProgressChannel,
 		findElementFxSpec,
+		isCustomElementFxKind,
 		isPlayableElementFxKind,
 		readElementFxEntry,
 		readElementFxParam,
@@ -317,8 +318,13 @@
 					</span>
 				</div>
 				<p class="hint warn">
-					This build cannot read or play this effect (an unknown kind, or no id or trigger). It is
-					kept as saved.
+					{#if isCustomElementFxKind(unreadableName(row.raw))}
+						This project has no shader effect of that name that plays: its graph was deleted, or
+						does not compile. It is kept as saved, and plays nothing until it does.
+					{:else}
+						This build cannot read or play this effect (an unknown kind, or no id or trigger). It is
+						kept as saved.
+					{/if}
 				</p>
 			</div>
 		{:else}

@@ -26,9 +26,11 @@ export interface FlowV2VocabInputs {
 
 /**
  * The vocabulary a project's flow is authored and judged against: the kind's, plus its Game Config
- * add-ons, its symbols, its sounds, its scene cues, its Element FX targets and its custom Element FX. ONE function, so the `/flow-v2` editor and the
- * publish gate (`validateFlowV2Against`) cannot compose it differently. Each step returns its input
- * unchanged when the project adds nothing.
+ * add-ons, its symbols, its sounds, its scene cues, its Element FX targets and its custom Element
+ * FX kinds. ONE function, so the `/flow-v2` editor and the publish gate (`validateFlowV2Against`)
+ * cannot compose it differently. Each step returns its input unchanged when the project adds
+ * nothing. (The stored-flow check before Publish's assemble passes no custom kinds; an enum value is
+ * judged as text, so its verdict is the same.)
  */
 export function composeFlowV2Vocab(
 	templateId: string | undefined,

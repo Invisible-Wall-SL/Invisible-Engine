@@ -2,7 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import { ConflictError } from '$lib/server/r2';
 import { scopeMismatch } from '$lib/server/scopeGuard';
 import { shaderWriteScope } from '$lib/server/shaderScope';
-import { saveShader } from '$lib/server/shaderStorage';
+import { ShaderTooLargeError, saveShader } from '$lib/server/shaderStorage';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
 
@@ -27,6 +27,9 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		const { id, doc, etag } = await saveShader(clientKey, projectKey, body.doc, baseEtag);
 		return json({ ok: true, id, name: doc.name, etag });
 	} catch (e) {
+		if (e instanceof ShaderTooLargeError) {
+			return json({ ok: false, error: 'too-large', message: e.message }, { status: 413 });
+		}
 		if (!(e instanceof ConflictError)) throw e;
 		return json(
 			{
