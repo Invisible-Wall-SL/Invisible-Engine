@@ -42,6 +42,11 @@ export type Match3DriverState = {
 
 export type Match3Driver = ReturnType<typeof createMatch3Driver>;
 
+const isCell = (value: unknown): value is Cell =>
+	typeof value === 'object' &&
+	value !== null &&
+	Number.isInteger((value as Cell).reel) &&
+	Number.isInteger((value as Cell).row);
 const adjacent = (a: Cell, b: Cell) => Math.abs(a.reel - b.reel) + Math.abs(a.row - b.row) === 1;
 const same = (a: Cell, b: Cell) => a.reel === b.reel && a.row === b.row;
 
@@ -95,6 +100,10 @@ export function createMatch3Driver({
 		return next;
 	};
 
+	/** A new deal is queued (the flow's Refill board, from a round-over chain): the board on screen
+	 *  is about to be replaced, so its having no move is no longer news. */
+	let redealing = false;
+
 	const inside = (cell: Cell) =>
 		cell.reel >= 0 &&
 		cell.row >= 0 &&
@@ -110,6 +119,7 @@ export function createMatch3Driver({
 	};
 
 	const deal = async (fresh: boolean) => {
+		redealing = false;
 		if (fresh) session.deal();
 		clearMarks();
 		present.seat(session.board);
@@ -129,7 +139,7 @@ export function createMatch3Driver({
 			if (!move.accepted) return;
 			await playSteps(move.steps);
 			await signal('settled', { steps: move.steps.length, points: move.points });
-			if (move.noMoves) await signal('noMoves', {});
+			if (move.noMoves && !redealing) await signal('noMoves', {});
 		});
 
 	/** Pick `cell`: the first pick is selected; a neighbour picked next swaps with it; the same cell
@@ -168,25 +178,48 @@ export function createMatch3Driver({
 				steps: resolved.steps.length,
 				points: resolved.steps.reduce((sum, step) => sum + step.points, 0),
 			});
-			if (resolved.noMoves) await signal('noMoves', {});
+			if (resolved.noMoves && !redealing) await signal('noMoves', {});
 		});
 
+	/** Shuffle the gems into a board with a move and no match. When no arrangement of these gems
+	 *  has one (a tiny board, few gem kinds), the board is dealt afresh instead; the round goes on. */
 	const shuffleBoard = () =>
 		exclusive(async () => {
 			clearMarks();
-			present.seat(session.shuffle());
+			let board: Board;
+			try {
+				board = session.shuffle();
+			} catch {
+				board = session.deal();
+			}
+			present.seat(board);
 		});
+
+	const refillBoard = () => {
+		redealing = true;
+		return exclusive(() => deal(true));
+	};
+
+	/** A flow action that touches the board waits its turn too, so it lands on the board the move
+	 *  that raised it left, never on one still playing. */
+	const queued = (run: () => void) => void exclusive(async () => run());
 
 	return {
 		/** Seat the dealt board and raise the first `boardReady`. */
 		start: () => exclusive(() => deal(false)),
+		/** Seat the board the session has again (the board view remounted), with no signal. */
+		reseat: () =>
+			void exclusive(async () => {
+				clearMarks();
+				present.seat(session.board);
+			}),
 		swapCells,
 		selectCell,
 		showHint,
 		setInput,
 		resolveBoard,
 		/** Deal a whole new board (a new round). */
-		refillBoard: () => exclusive(() => deal(true)),
+		refillBoard,
 		shuffleBoard,
 		/** The player may act: nothing is playing and the flow allows input. */
 		takesInput: () => !state.busy && state.inputEnabled,
@@ -196,15 +229,23 @@ export function createMatch3Driver({
 		 * The flow's board actions (`MATCH3_VOCAB`). They queue behind the move playing and are NOT
 		 * awaited by the chain that called them: that chain is often the move's own (`settled`,
 		 * `noMoves`), so holding it on work queued after the move would hold the move on itself.
+		 * A payload that names no cell does nothing.
 		 */
 		effects: {
-			boardSelect: (payload: Record<string, unknown>) => void selectCell(payload.cell as Cell),
-			boardHint: () => showHint(),
-			boardSwap: (payload: Record<string, unknown>) =>
-				void swapCells(payload.from as Cell, payload.to as Cell),
+			boardSelect: (payload: Record<string, unknown>) => {
+				const { cell } = payload;
+				if (isCell(cell)) queued(() => void selectCell(cell));
+			},
+			boardHint: () => queued(showHint),
+			boardSwap: (payload: Record<string, unknown>) => {
+				const { from, to } = payload;
+				if (isCell(from) && isCell(to)) void swapCells(from, to);
+			},
+			// A flag, not board work: it applies at once (a round-over chain locks the board while
+			// its screen holds, inside the move that is still playing); `busy` covers the move.
 			boardSetInput: (payload: Record<string, unknown>) => setInput(payload.enabled === true),
 			boardResolve: () => void resolveBoard(),
-			boardRefill: () => void exclusive(() => deal(true)),
+			boardRefill: () => void refillBoard(),
 			boardShuffle: () => void shuffleBoard(),
 		} satisfies Record<string, (payload: Record<string, unknown>) => void>,
 	};

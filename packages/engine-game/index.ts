@@ -58,6 +58,8 @@ export {
 	MATCH3_RULES_MECHANIC,
 	mechanicFor,
 	REELS_MECHANIC,
+	runsIntent,
+	WAGER_INTENTS,
 	type GameMechanic,
 	type MechanicId,
 } from './src/game/mechanic';

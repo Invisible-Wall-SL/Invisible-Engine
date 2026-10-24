@@ -70,11 +70,12 @@ const matches = (until, s) =>
 
 /** The first swap on `cells` (column-major gem names) that matches, or with `legal: false` the
  *  first neighbouring pair that does not; `undefined` when there is none. */
-export const pickSwap = (cells, legal) => {
+export const pickSwap = (cells, legal, minRun) => {
 	const board = createBoard({
 		cols: cells.length,
 		rows: cells[0]?.length ?? 0,
 		cells: cells.map((column) => column.map((name) => ({ name }))),
+		...(minRun ? { minRun } : {}),
 	});
 	if (legal) {
 		const move = findMoves(board, { limit: 1 })[0];
@@ -236,7 +237,10 @@ export async function playScenario(scenario, { page, draw, force, capture, trace
 			case 'swap': {
 				const now = await state();
 				const before = now.board?.moves ?? 0;
-				const pair = op.legal === undefined ? op : now.board && pickSwap(now.board.cells, op.legal);
+				const pair =
+					op.legal === undefined
+						? op
+						: now.board && pickSwap(now.board.cells, op.legal, now.board.minRun);
 				if (!pair) throw fail(i, op, now);
 				await drag(await cellPoint(i, op, pair.from), await cellPoint(i, op, pair.to));
 				if (!(await boardSettled(before + 1, op))) throw fail(i, op, await state());

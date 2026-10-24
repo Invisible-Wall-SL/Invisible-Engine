@@ -167,10 +167,9 @@ function familyCapabilities(
 
 /**
  * The symbol states a kind's authoring surfaces offer (the match-3 `select` / `hint` only to a
- * project with a match-3 board): every state for a project with the respin
- * feature (`holdAndWin`); for a pots overlay host without it (`pots` alone), every state but the Hold
- * and Win ones, plus the token's {@link POTS_TOKEN_SYMBOL_STATES}; otherwise every state minus the
- * Hold and Win ones. The doc schema still accepts every state, so a binding never fails to
+ * project with a match-3 board): every state for a project with the respin feature (`holdAndWin`);
+ * for a pots overlay host without it (`pots` alone), every state but the Hold and Win ones, plus
+ * the token's {@link POTS_TOKEN_SYMBOL_STATES}; otherwise every state minus the Hold and Win ones. The doc schema still accepts every state, so a binding never fails to
  * round-trip; this only decides what a picker lists.
  */
 export function symbolStatesForKind(

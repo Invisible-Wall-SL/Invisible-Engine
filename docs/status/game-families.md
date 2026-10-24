@@ -129,11 +129,23 @@ kind is what every scaffold gate loops over).
     not saved or resumed in v1 (§P10.2: seed + moves would replay it);
   - flow board actions **queue** behind the move playing and are not awaited by the chain that
     called them (the `settled` and `noMoves` chains call them from inside the move);
+    `boardSetInput` alone applies at once (a flag: the round-over chain locks the board while its
+    screen holds, inside the move); `noMoves` is not raised when a new deal is already queued;
+  - a config with **no Moves** has no limit: `boardReady` sends 0, the starter's `moveLimit` stays
+    0 and its out-of-moves branch never fires, so only the goal ends a round;
+  - a **shuffle** that no arrangement of the gems can make playable deals the board afresh
+    (no `boardReady`: the round goes on); a deal that fails shows the error modal;
+  - the **session outlives the board's mount**: a screen change that remounts the board re-seats
+    the board the session has, never re-deals;
+  - the **wager intents** (`spin`, `autoSpin`, `buyBonus`, `increase`, `decrease`) are no-ops for a
+    mechanic that never spins (`engine-game` `runsIntent`), whatever reaches them: an authored HUD
+    button, a flow intent such as `startSpin`, the Space key;
   - a swipe swaps once it travels **0.35 of a cell** along one axis, mid-drag; a tap selects; the
     same cell again drops the selection;
   - unauthored, `select` draws the gem's **Win** art and `hint` its **Land** art; a new
     `kindCapabilities()` flag `boardInput` gates them (P10.1's `board` is true for slots);
-  - free play refuses **any** delivery profile (`getDeliveryProfileSource() !== 'default'`);
+  - free play refuses **any** delivery profile (`getDeliveryProfileSource() !== 'default'`): the
+    game never mounts and `<Authenticate>` itself says why (the error modal lives inside the game);
   - Game Maker seeds only the **rules** outcome and asks nothing: RGS match-3 gets its seed with
     its mock (P10.6). `/config`'s Reel behaviour stays hidden for match-3 (P10.1): no switch reaches
     a board that never spins;
@@ -145,7 +157,10 @@ kind is what every scaffold gate loops over).
     serves the runtime, and the free-play branch never asks its mock.
 - **Not done here:** `/flow-v2`'s Preview does not run the board module (§5.1: it still previews a
   match-3 flow's chains with no board); Game Maker's outcome question and the RGS seed (P10.6);
-  listing the `swap` flight kind in `/symbols`; specials (P10.5b).
+  listing the `swap` flight kind in `/symbols`; specials (P10.5b). `<Match3Input />` and the board
+  module are imported statically, so every slot bundle carries them (+22.8 KB raw / +8.0 KB gz,
+  +0.6 %) although none runs them; a dynamic import would keep slot bundles byte-identical (owner's
+  call: it adds a load step to a match-3 boot).
 - **Known limits** (none reachable by a slot game):
   - the board under a swap shows the two gaps while the gems fly, and a refused swap's gems fly
     back the same way;

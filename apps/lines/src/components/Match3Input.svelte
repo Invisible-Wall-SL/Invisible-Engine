@@ -11,11 +11,11 @@
 	import { FLIGHT_BOARD_ANCHOR } from '../game/flights.svelte';
 	import { getCellAt, getSymbolSeat } from '../game/stateGame.svelte';
 	import {
+		detachMatch3,
 		match3TakesInput,
 		selectCell,
 		startMatch3,
 		stateMatch3,
-		stopMatch3,
 		swapCells,
 	} from '../game/match3.svelte';
 
@@ -94,6 +94,7 @@
 			busy: stateMatch3.busy,
 			moves: stateMatch3.moves,
 			seed: stateMatch3.seed,
+			minRun: stateMatch3.minRun,
 			cells: context.stateGame.board.map((reel) =>
 				reel.reelState.symbols.slice(1, -1).map((cell) => cell.rawSymbol.name),
 			),
@@ -104,7 +105,7 @@
 	onMount(() => void startMatch3());
 	onDestroy(() => {
 		unregisterProbe();
-		stopMatch3();
+		detachMatch3();
 	});
 </script>
 

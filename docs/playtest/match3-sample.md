@@ -36,7 +36,7 @@ lost (also a pass: the round still ends on its screen).
 neighbour, or tap one and then a neighbour. `?m3seed=` pins the board.
 
 **The determinism probe** (`window.__IE_DETERMINISM__`, `?ie_determinism=`) reports the board as
-`state().board` (`busy`, `moves`, `seed`, `cells` column-major) and answers `cellPoint(reel, row)`
+`state().board` (`busy`, `moves`, `seed`, `minRun`, `cells` column-major) and answers `cellPoint(reel, row)`
 with a cell's centre on the page, row 0 the top visible row.
 
 ## Scenarios
@@ -88,13 +88,16 @@ with a cell's centre on the page, row 0 the top visible row.
 ### S7 — No moves left
 
 - **Expect:** when no swap can match, the starter flow's `noMoves` chain shuffles the board into
-  one with a move and no match. Hard to reach by hand on a 7 × 7 board with six gems:
-  `check:match3-rules` §4 covers it headless.
+  one with a move and no match; when no arrangement of those gems has one, the board is dealt
+  afresh and the round goes on. Hard to reach by hand on a 7 × 7 board with six gems:
+  `check:match3-rules` §4 plays a real dead end headless.
 
 ### S8 — Not a real-money game
 
-- **Expect:** the runtime sends the RGS nothing (S1's signal). Under any delivery profile
-  (`?rgs_profile=…`) the boot stops on the error modal "This game is free play and pays no money…".
+- **Expect:** the runtime sends the RGS nothing (S1's signal), and an authored Spin / bet / auto /
+  buy button or a flow's `startSpin` does nothing (`engine-game` `runsIntent`). Under any delivery
+  profile (`?rgs_profile=…`) the game never mounts: the page says "This game is free play and pays
+  no money…".
 
 ## The current-games screens
 

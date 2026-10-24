@@ -46,14 +46,25 @@ const out = resolve(opt.out);
 mkdirSync(out, { recursive: true });
 const KEY = 'match3-sample';
 
-// Every request the page makes, recorded before the app's own code runs.
+// Every request the page makes (fetch, XHR, beacon), recorded before the app's own code runs.
 const WIRE_HOOK = `(() => {
 	const log = (window.__M3_WIRE__ = []);
-	const orig = window.fetch.bind(window);
+	const fetch = window.fetch.bind(window);
 	window.fetch = (input, init) => {
-		log.push(typeof input === 'string' ? input : input.url);
-		return orig(input, init);
+		log.push(typeof input === 'string' ? input : input.url ?? String(input));
+		return fetch(input, init);
 	};
+	const open = XMLHttpRequest.prototype.open;
+	XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+		log.push(String(url));
+		return open.call(this, method, url, ...rest);
+	};
+	const beacon = navigator.sendBeacon?.bind(navigator);
+	if (beacon)
+		navigator.sendBeacon = (url, data) => {
+			log.push(String(url));
+			return beacon(url, data);
+		};
 })();`;
 
 const work = mkdtempSync(join(tmpdir(), 'match3-play-'));
@@ -143,7 +154,11 @@ try {
 	let ended;
 	for (let n = 0; n < Number(opt['max-moves']) && !ended; n++) {
 		const was = (await state()).board;
-		const pair = pickSwap(was.cells, true);
+		const pair = pickSwap(was.cells, true, was.minRun);
+		if (!pair) {
+			verdict('the board always has a legal swap', false, was.cells);
+			break;
+		}
 		await play([
 			{ op: 'swap', from: pair.from, to: pair.to, orUntil: ROUND_OVER },
 			{ op: 'step', frames: 10 },

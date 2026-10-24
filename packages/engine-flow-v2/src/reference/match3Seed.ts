@@ -9,7 +9,8 @@
  *   - `boardReady` (every deal) sets the round's variables from the config: the score to 0, the
  *     moves left to the config's Moves, the target to its score goal; and opens the board to input.
  *   - `swap`, when it was accepted, spends a move; `match` adds the step's points.
- *   - `settled` checks the goal first, then the moves left. A won or lost round locks the board,
+ *   - `settled` checks the goal first, then the moves left (a config with no Moves has no limit:
+ *     `moveLimit` is 0 and the round only ends on its goal). A won or lost round locks the board,
  *     holds on its screen until the player taps it, then deals a fresh board (a new round).
  *   - `noMoves` shuffles the board.
  *
@@ -33,7 +34,12 @@ export const MATCH3_SCREENS = {
 } as const;
 
 /** The starter flow's variables. A HUD readout binds one as `var:<id>`. */
-export const MATCH3_VARIABLES = { score: 'score', movesLeft: 'movesLeft', target: 'target' };
+export const MATCH3_VARIABLES = {
+	score: 'score',
+	movesLeft: 'movesLeft',
+	moveLimit: 'moveLimit',
+	target: 'target',
+};
 
 const CONTAINERS: ContainerRef[] = [
 	{ id: MATCH3_SCREENS.basegame, sceneId: MATCH3_SCREENS.basegame, z: 0 },
@@ -119,6 +125,12 @@ const buildGraph = (): FlowDoc['graph'] => {
 			inputs: { value: trigger('moves') },
 		}),
 		add({
+			id: 'm3_reset_limit',
+			kind: 'setVariable',
+			variable: MATCH3_VARIABLES.moveLimit,
+			inputs: { value: trigger('moves') },
+		}),
+		add({
 			id: 'm3_reset_target',
 			kind: 'setVariable',
 			variable: MATCH3_VARIABLES.target,
@@ -181,7 +193,12 @@ const buildGraph = (): FlowDoc['graph'] => {
 	const outOfMoves = add({
 		id: 'm3_out_of_moves',
 		kind: 'branch',
-		guard: { all: [{ left: variable(MATCH3_VARIABLES.movesLeft), op: 'lte', right: int(0) }] },
+		guard: {
+			all: [
+				{ left: variable(MATCH3_VARIABLES.moveLimit), op: 'gt', right: int(0) },
+				{ left: variable(MATCH3_VARIABLES.movesLeft), op: 'lte', right: int(0) },
+			],
+		},
 	});
 	wire({ node: won, pin: 'else' }, outOfMoves);
 	chain({ node: outOfMoves, pin: 'then' }, roundOver('m3_lost', MATCH3_SCREENS.lost));
@@ -199,6 +216,7 @@ export const MATCH3_DRIVEN_SEED_DOC: FlowDoc = {
 	variables: [
 		{ id: MATCH3_VARIABLES.score, type: 'int', initial: 0, scope: 'game' },
 		{ id: MATCH3_VARIABLES.movesLeft, type: 'int', initial: 0, scope: 'game' },
+		{ id: MATCH3_VARIABLES.moveLimit, type: 'int', initial: 0, scope: 'game' },
 		{ id: MATCH3_VARIABLES.target, type: 'int', initial: 0, scope: 'game' },
 	],
 };

@@ -4,9 +4,11 @@ import {
 	paddedBoard,
 	type Match3Driver,
 	type Match3Presenter,
+	type Match3Session,
 } from 'engine-game';
 import type { Cell } from 'engine-mechanics';
 import { normalizeGameConfigDoc } from 'game-config';
+import { stateModal } from 'state-shared';
 
 import { bakedGameConfig } from '../editor-scenes';
 import { eventEmitter } from './eventEmitter';
@@ -50,12 +52,12 @@ export const stateMatch3 = $state({
 	inputEnabled: true,
 	selected: undefined as Cell | undefined,
 	moves: 0,
-	/** The seed the board was dealt from, for the probe. */
+	/** The seed the board was dealt from, and the shortest run that matches, for the probe. */
 	seed: '',
+	minRun: 0,
 });
 
 let driver: Match3Driver | undefined;
-let unregisterEffects: (() => void) | undefined;
 
 const seedOf = (): string => {
 	const pinned =
@@ -114,12 +116,26 @@ export const selectCell = (cell: Cell) => driver?.selectCell(cell);
 /** Input reaches the board: a session is running, nothing is playing and the flow allows it. */
 export const match3TakesInput = () => stateMatch3.active && !!driver?.takesInput();
 
+/** Board work that failed is shown to the player: a board that cannot be dealt is not playable. */
+const fail = (error: unknown) => {
+	console.error('[match3] board work failed:', error);
+	stateModal.modal = { name: 'error', error };
+};
+
 /**
- * Start the session: deal the first board from the config's strips and seed, seat it, and raise
- * `boardReady`. Without a flow driving the game, input is open from the start.
+ * Start the session, once per page: deal the first board from the config's strips and seed, seat
+ * it, and raise `boardReady`. Without a flow driving the game, input is open from the start.
+ *
+ * The session outlives the board's mount: when a screen change remounts the board, this only seats
+ * the board the session already has — the round goes on, nothing is re-dealt.
  */
 export const startMatch3 = async () => {
 	if (stateMatch3.active) return;
+	if (driver) {
+		stateMatch3.active = true;
+		driver.reseat();
+		return;
+	}
 	const doc = normalizeGameConfigDoc(bakedGameConfig());
 	if (!doc) return;
 	const seed = seedOf();
@@ -127,22 +143,22 @@ export const startMatch3 = async () => {
 	stateMatch3.moves = 0;
 	stateMatch3.selected = undefined;
 	stateMatch3.inputEnabled = !getFlowV2();
+	let session: Match3Session;
+	try {
+		session = createMatch3Session(doc, seed);
+	} catch (error) {
+		fail(error);
+		return;
+	}
+	stateMatch3.minRun = session.board.minRun;
 	stateMatch3.active = true;
-	driver = createMatch3Driver({
-		session: createMatch3Session(doc, seed),
-		state: stateMatch3,
-		signal,
-		present,
-	});
-	unregisterEffects = registerBoardEffects(driver.effects);
+	driver = createMatch3Driver({ session, state: stateMatch3, signal, present, onError: fail });
+	registerBoardEffects(driver.effects);
 	await driver.start();
 };
 
-export const stopMatch3 = () => {
-	unregisterEffects?.();
-	unregisterEffects = undefined;
-	driver = undefined;
+/** The board unmounted: it takes no input until it mounts again. The session is kept. */
+export const detachMatch3 = () => {
 	stateMatch3.active = false;
-	stateMatch3.busy = false;
 	stateMatch3.selected = undefined;
 };

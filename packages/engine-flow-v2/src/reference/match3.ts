@@ -39,7 +39,7 @@ const BOARD_EVENTS: EventDecl[] = [
 			{
 				name: 'moves',
 				type: INT,
-				description: "The moves the round allows (Game Config's Moves).",
+				description: "The moves the round allows (Game Config's Moves), or 0 for no limit.",
 			},
 			{
 				name: 'target',

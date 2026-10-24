@@ -3,16 +3,13 @@ import { MATCH3_BOARD_ACTIONS } from 'engine-flow-v2';
 
 /**
  * The board actions a family mechanic backs (`MATCH3_VOCAB`'s `boardSwap`, `boardShuffle`, …),
- * registered by the mechanic's runtime while it runs (`match3.svelte.ts`). A registry rather than an
+ * registered by the mechanic's runtime when its session starts (`match3.svelte.ts`). A registry rather than an
  * import so the Flow runtime, which every slot game builds, never loads a family's module.
  */
 let registered: Readonly<Record<string, FlowEffect>> = {};
 
 export const registerBoardEffects = (effects: Readonly<Record<string, FlowEffect>>) => {
 	registered = effects;
-	return () => {
-		if (registered === effects) registered = {};
-	};
 };
 
 export const boardEffect = (name: string): FlowEffect | undefined => registered[name];

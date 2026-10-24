@@ -75,6 +75,8 @@ export type DeterminismBoardState = {
 	moves: number;
 	/** The seed the board was dealt from. */
 	seed: string;
+	/** The shortest run that matches (the config's `minRun`). */
+	minRun: number;
 	/** The visible gems, column-major (`cells[reel][row]`). */
 	cells: string[][];
 };

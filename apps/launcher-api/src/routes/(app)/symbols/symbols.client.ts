@@ -172,9 +172,9 @@ export const POTS_TOKEN_STATE_HINTS: Partial<Record<SymbolState, string>> = {
  *  declared respin mode), just the token's land / idle / fly states for a pots overlay host without it
  *  (`pots` alone), the cascade
  *  state for a project that tumbles OR clears its board on a swap, and the swap state (`intro`) ONLY
- *  for a project that emerges, and `select` / `hint` only for a match-3 board. Every gate is RESOLVED server-side (`resolveCascade` /
- *  `resolveReelBehaviour`), so an authored `/config` answer beats the win model's default and a lines
- *  game that turned the tumble ON gets the column. The `stacked` state is never a column (see
+ *  for a project that emerges, and `select` / `hint` only for a match-3 board. Every gate is
+ *  RESOLVED server-side (`resolveCascade` / `resolveReelBehaviour`), so an authored `/config` answer
+ *  beats the win model's default and a lines game that turned the tumble ON gets the column. The `stacked` state is never a column (see
  *  {@link NON_GRID_STATE_SET}). */
 export function visibleStatesFor(
 	gameType: string | undefined,

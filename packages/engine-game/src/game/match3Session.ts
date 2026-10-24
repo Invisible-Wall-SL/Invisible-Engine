@@ -118,7 +118,7 @@ export function createMatch3Session(doc: GameConfigDoc, seed: number | string) {
 		get board() {
 			return board;
 		},
-		/** What a round starts with: the config's moves, and its score goal (0 for none). */
+		/** What a round starts with: the config's moves and its score goal (0 for none of either). */
 		ready: () => ({ moves: rules.moves ?? 0, target: scoreGoal?.target ?? 0 }),
 		/** Deal a fresh board from the pool, with no match and at least one move. */
 		deal: (): Board => (board = createBoard({ cols, rows, pool, rng, minRun })),

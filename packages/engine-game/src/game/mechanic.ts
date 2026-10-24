@@ -77,3 +77,21 @@ export function mechanicFor(doc: GameConfigDoc | null | undefined): GameMechanic
 		return { ...REELS_MECHANIC, unplayable: 'the runtime cannot play an arcade game yet (P10.8)' };
 	return REELS_MECHANIC;
 }
+
+/** The HUD intents that stake money or change the stake: a bet, auto-play, a bonus buy, the bet
+ *  steps. */
+export const WAGER_INTENTS: readonly string[] = Object.freeze([
+	'spin',
+	'autoSpin',
+	'buyBonus',
+	'increase',
+	'decrease',
+]);
+
+/**
+ * Whether the runtime runs a HUD intent for this mechanic. A mechanic that never spins has no
+ * round to bet on, so an authored Spin button or a flow's `startSpin` is a no-op rather than a bet
+ * a free-play game must never send. Every intent runs for a slot.
+ */
+export const runsIntent = (mechanic: GameMechanic, intent: string): boolean =>
+	mechanic.spins || !WAGER_INTENTS.includes(intent);

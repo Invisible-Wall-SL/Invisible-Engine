@@ -35,6 +35,9 @@
 	const props: Props = $props();
 
 	let authenticated = $state(false);
+	/** Why a free-play game refused to boot. The game never mounts, so the page says it itself:
+	 *  the error modal lives inside the game. */
+	let refusal = $state('');
 
 	/** Currency declared by the launch URL (`?currency=EUR`). It WINS over the code the
 	 *  RGS echoes back: the URL is the platform's own declaration of what the player is
@@ -254,15 +257,9 @@
 		if (props.freePlay) {
 			stateUi.config.mode = 'default';
 			if (getDeliveryProfileSource() !== 'default') {
-				stateModal.modal = {
-					name: 'error',
-					error: {
-						error: 'Free play',
-						message:
-							'This game is free play and pays no money, so it cannot run inside a ' +
-							`real-money delivery (profile "${getDeliveryProfile().id}").`,
-					},
-				};
+				refusal =
+					'This game is free play and pays no money, so it cannot run inside a ' +
+					`real-money delivery (profile "${getDeliveryProfile().id}").`;
 				return;
 			}
 			authenticated = true;
@@ -286,4 +283,21 @@
 
 {#if authenticated}
 	{@render props.children()}
+{:else if refusal}
+	<p class="refusal" role="alert">{refusal}</p>
 {/if}
+
+<style>
+	.refusal {
+		position: fixed;
+		inset: 0;
+		margin: 0;
+		display: grid;
+		place-items: center;
+		padding: 1rem;
+		background: #000;
+		color: #fff;
+		font: 16px/1.4 sans-serif;
+		text-align: center;
+	}
+</style>

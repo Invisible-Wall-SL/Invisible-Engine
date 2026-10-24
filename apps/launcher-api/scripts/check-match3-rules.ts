@@ -63,6 +63,8 @@ import {
 	MATCH3_RGS_MECHANIC,
 	MATCH3_RULES_MECHANIC,
 	mechanicFor,
+	runsIntent,
+	WAGER_INTENTS,
 	REELS_MECHANIC,
 } from 'engine-game/src/game/mechanic';
 import { MATCH3_SYMBOL_STATES, symbolStatesForKind } from 'engine-layout';
@@ -205,11 +207,11 @@ const legalMove = (board: Board) => findMoves(board, { limit: 1 })[0];
 	);
 	check('1. the win locks the board', !game.state.inputEnabled && !game.driver.takesInput());
 	check(
-		'1. every move raised swap, then match / cascadeStep per step, then settled',
-		game.signals.filter((s) => s === 'swap').length === accepted &&
-			game.signals.filter((s) => s === 'settled').length === accepted &&
-			game.signals.filter((s) => s === 'match').length === game.steps.length &&
-			game.signals.filter((s) => s === 'cascadeStep').length === game.steps.length,
+		'1. the deal raised boardReady, then every move swap, match / cascadeStep per step, settled',
+		/^boardReady( swap( match cascadeStep)+ settled( noMoves)?)+$/.test(game.signals.join(' ')) &&
+			game.signals.filter((s) => s === 'swap').length === accepted &&
+			game.signals.filter((s) => s === 'match').length === game.steps.length,
+		game.signals.join(' '),
 	);
 	const boardAtWin = game.session.board;
 	game.mount.complete(MATCH3_SCREENS.won);
@@ -248,6 +250,30 @@ const legalMove = (board: Board) => findMoves(board, { limit: 1 })[0];
 			!game.mount.isShown(MATCH3_SCREENS.won) &&
 			game.vars().movesLeft === 0 &&
 			!game.state.inputEnabled,
+		JSON.stringify(game.vars()),
+	);
+}
+
+// ── 2b. no moves limit: a round only ends on its goal ──────────────────────────────────────────
+{
+	const { moves: _moves, ...rules } = SEED_CONFIG.match3!;
+	const game = playGame(
+		{ ...SEED_CONFIG, match3: { ...rules, goals: [{ type: 'score' as const, target: 100000 }] } },
+		11,
+	);
+	await game.driver.start();
+	await game.settle();
+	for (let i = 0; i < 3; i++) {
+		const move = legalMove(game.session.board);
+		if (move) void game.driver.swapCells(move.from, move.to);
+		await game.settle();
+	}
+	check(
+		'2b. a config with no Moves never loses a round to its moves',
+		!game.mount.isShown(MATCH3_SCREENS.lost) &&
+			game.state.inputEnabled &&
+			game.driver.takesInput() &&
+			game.vars().score > 0,
 		JSON.stringify(game.vars()),
 	);
 }
@@ -340,6 +366,29 @@ const legalMove = (board: Board) => findMoves(board, { limit: 1 })[0];
 		'4. the starter flow answers noMoves with a shuffle',
 		ctxGame.seated.length === 2 && seats > 1,
 	);
+
+	// A real dead end: a 4 × 1 board whose strips deal only `H1 H1 H3 H1`. Its one move matches the
+	// three left cells, and the refill leaves a board with no move — which no shuffle of four gems
+	// can fix, so the shuffle the flow asks for deals afresh.
+	const dead = {
+		...SEED_CONFIG,
+		numReels: 4,
+		numRows: [1],
+		paddingReels: { basegame: [['H1'], ['H1', 'H2'], ['H3'], ['H1']] },
+	} as GameConfigDoc;
+	const end = playGame(dead, 1);
+	await end.driver.start();
+	await end.settle();
+	void end.driver.swapCells({ reel: 2, row: 0 }, { reel: 3, row: 0 });
+	await end.settle();
+	check(
+		'4. a move that leaves no move raises noMoves after settled, and the flow re-seats a board with a move',
+		end.signals.join(' ') === 'boardReady swap match cascadeStep settled noMoves' &&
+			hasMoves(end.session.board) &&
+			end.seated.at(-1) === end.session.board &&
+			end.driver.takesInput(),
+		end.signals.join(' '),
+	);
 }
 
 // ── 5. select / hint / input ───────────────────────────────────────────────────────────────────
@@ -373,6 +422,28 @@ const legalMove = (board: Board) => findMoves(board, { limit: 1 })[0];
 	check('5. …and back once it has', game.driver.takesInput() && game.state.moves === 1);
 	game.driver.effects.boardSetInput({ enabled: false });
 	check('5. Set board input off closes it', !game.driver.takesInput());
+}
+
+// ── 5b. a flow action with a bad payload does nothing ─────────────────────────────────────────
+{
+	const game = playGame(SEED_CONFIG, 9);
+	await game.driver.start();
+	await game.settle();
+	const signals = game.signals.length;
+	game.driver.effects.boardSelect({});
+	game.driver.effects.boardSwap({ from: { reel: 0 } });
+	game.driver.effects.boardSelect({ cell: 'a' });
+	await game.settle();
+	check(
+		'5b. Select / Swap with no cell do nothing',
+		game.signals.length === signals && !game.state.selected && game.state.moves === 0,
+	);
+	game.driver.reseat();
+	await game.settle();
+	check(
+		'5b. reseat shows the same board again and raises nothing',
+		game.seated.at(-1) === game.session.board && game.signals.length === signals,
+	);
 }
 
 // ── 6. a seed replays ──────────────────────────────────────────────────────────────────────────
@@ -485,7 +556,9 @@ const legalMove = (board: Board) => findMoves(board, { limit: 1 })[0];
 	);
 	check(
 		'9. …and refuses under any delivery profile',
-		/getDeliveryProfileSource\(\) !== 'default'/.test(branch) && /name: 'error'/.test(branch),
+		/getDeliveryProfileSource\(\) !== 'default'/.test(branch) &&
+			/refusal =/.test(branch) &&
+			/\{:else if refusal\}\s*<p class="refusal"/.test(auth),
 	);
 	check(
 		'9. the runtime layout passes the mechanic',
@@ -501,6 +574,27 @@ const legalMove = (board: Board) => findMoves(board, { limit: 1 })[0];
 				game,
 			) &&
 			/codedHudMounted = \$derived\(\s*mechanic\.spins &&/.test(game),
+	);
+	check(
+		'9. a free-play board runs no wager intent; a slot runs every one',
+		WAGER_INTENTS.every((intent) => !runsIntent(MATCH3_RULES_MECHANIC, intent)) &&
+			WAGER_INTENTS.every((intent) => runsIntent(REELS_MECHANIC, intent)) &&
+			['menu', 'settings', 'soundToggle', 'gameRules'].every((intent) =>
+				runsIntent(MATCH3_RULES_MECHANIC, intent),
+			),
+	);
+	check(
+		'9. Game.svelte: every wager body (button, hotkey, flow intent) goes through runsIntent',
+		/const wager =[\s\S]{0,80}runsIntent\(mechanic, intent\)/.test(game) &&
+			/const doSpinBetOrStop = wager\('spin'/.test(game) &&
+			/const doIncreaseBet = wager\('increase'/.test(game) &&
+			/const doDecreaseBet = wager\('decrease'/.test(game) &&
+			/const doAutoSpin = wager\('autoSpin'/.test(game) &&
+			/const codedOpenBuyModal = wager\('buyBonus'/.test(game) &&
+			/intent === 'buyBonus'\) doOpenBuyModal\(\)/.test(game) &&
+			!/runSpinOrSlamStop\(/.test(
+				game.replace(/const doSpinBetOrStop = wager\('spin', \(\) =>\s*runSpinOrSlamStop\(/, ''),
+			),
 	);
 	check(
 		'9. Game.svelte mounts <Match3Input /> only for board input',
