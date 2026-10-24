@@ -8,8 +8,9 @@ compiler, #1322) and step 3 (the runtime: a compiled graph plays as `custom:<id>
 Element FX does, #1328) and step 4 (the pipeline: a project's graphs are stored, compiled into
 Publish and the bake, registered by the game at boot and listed by the Scene Editor, Symbols and
 Flow pickers, #1329) and step 5 (the `/shaders` editor: library, canvas, properties and a live
-Pixi preview, with a lease and history, #1330) are merged. Step 6, the templates (graph twins of 30
-built-ins, held to a parity gate in `check:all`, offered as "Start from a built-in"), is in review.
+Pixi preview, with a lease and history, #1330) and step 6 (the templates: graph twins of 30
+built-ins, held to a parity gate in `check:all`, offered as "Start from a built-in", #1333) are
+merged. Step 7 (editor v2) is next, when the owner asks for it.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -154,7 +155,7 @@ built-ins, held to a parity gate in `check:all`, offered as "Start from a built-
     the client's slug against the server's); `check:shader-pipeline` grew to 88 (the `shaders` gate,
     history, a delete kept in History); the preview played headless on WebGL1 and WebGL2 (74
     checks); the whole page played headless (67 checks).
-- **Step 6, the templates.** Built and in review.
+- **Step 6, the templates.** Merged (#1333, 2026-10-24).
   - **The twins** (`packages/engine-shadergraph/src/twins.ts`, `BUILTIN_TWINS`; `twins/passes.ts`,
     `distort.ts`, `material.ts`, built with `twins/graph.ts`). One graph per built-in kind it can
     rebuild, 30 of the 50: the 3D and distortion kinds (Flip sideways / over, Bounce 3D, Sphericon,
@@ -203,7 +204,8 @@ built-ins, held to a parity gate in `check:all`, offered as "Start from a built-
 - **Not started:** steps 7–8 (editor v2, later).
 
 ## Open items / next
-1. Merge step 6.
+1. **Step 7, editor v2** (design §8): per-node live thumbnails, the cost meter on the canvas,
+   subgraphs, and publishing to the studio-shared library. Not started; waits for the owner.
 2. **Step 6 follow-ups.**
    - **Two capabilities v1 lacks**, named by the twins: padding that grows with a param × strength
      (the waves, Bounce 3D, Melt), and motion curves that read a param or the seconds played (the
@@ -233,7 +235,8 @@ built-ins, held to a parity gate in `check:all`, offered as "Start from a built-
 - None.
 
 ## Recent changes
-- 2026-10-24 — **Step 6: the templates** (see "Current state"). Step 5 merged (#1330).
+- 2026-10-24 — **Step 6: the templates** (see "Current state"). Merged (#1333): CI green,
+  `check:all` 531/531, Current games 12 pass with all 186 compared screens byte-identical.
   - **Proof.** `shader-twins` passes all 30 twins on WebGL1 and WebGL2. On every twin but three the
     largest difference is 1 step (float rounding). Sphericon and the dissolves differ by more only
     on isolated pixels where a hard edge sits on a pixel (at most 0.12% of a cell, never a patch).
