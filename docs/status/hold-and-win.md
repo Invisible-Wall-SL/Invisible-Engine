@@ -1105,6 +1105,18 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
   the next spin starts (`startHoldAndWinRound` in `onNewGameStart`), where it used to stay until the
   next trigger. Detail: [component-editor status](component-editor.md) 2026-10-23.
 
+- 2026-10-23 — **New games seed the feature intro and outro scaled with the window** (owner's call,
+  branch `claude/stoic-cori-6yyp5f`). Both are `canvas` screens, drawn in window pixels, so an
+  intro keyed to fill a 1920×1080 window left gaps on a bigger one (reported on
+  `commonoverlayproject`, whose curtains left a strip of reels open on a 2848 px window). The
+  reference (`holdAndWinReferenceLayout`) now seeds both with **Scale with the window**
+  (`Scene.scaleWithWindow`, [editor status](editor.md) 2026-10-23), so a new Hold and Win game, the
+  Hold and Win add-on merged into another kind and **＋ Add missing screens** get the screens ticked.
+  An existing game's screens are not touched: its author ticks them. Gate:
+  `test-hold-and-win-template.mjs` pins the set with the tick and asserts that, without it, every set
+  hashes as before (the tick is the only edit), and that a lines game with the add-on seeds both
+  ticked.
+
 - 2026-10-23 — **The respin counter's words are authorable** (owner report: "RESPINS RESET" and
   the gold modifiers line were hard-coded with nowhere to author them). Nothing changes for a
   project that authors no counter.

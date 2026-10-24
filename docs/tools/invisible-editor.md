@@ -93,6 +93,18 @@ in the game, whatever its size; a text node or a bare group is placed at window 
 A Rect inside a group keeps its placed box — that is how to put a band or panel on a background
 screen.
 
+A `canvas` screen is drawn in window pixels: the canvas here shows it at the
+layout's design box (1920×1080 for desktop), and on a bigger or smaller window the
+game keeps every node, its offset from the window edge and its timeline's moves the
+same number of pixels while the game around it scales. Tick **Scale with the
+window** in its Properties to draw it as it looks here on any window the shape of
+this frame: the whole screen grows or shrinks as much as the frame must to fit the
+window, each node stays pinned to its window edge, and a tap dim still covers the
+window. On a window wider or narrower than the frame the edges stay pinned, so
+something keyed to just meet in the middle (two curtains) needs a little extra to
+close there too. A new Hold and Win game starts with it ticked on **Feature intro**
+and **Feature outro**; a game made before that keeps its screens as they were.
+
 ### Layer order and "Always on top"
 
 A screen's position in the Screens list **is** its layer order in the game —

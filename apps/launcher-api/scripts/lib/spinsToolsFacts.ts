@@ -115,16 +115,18 @@ export function baseInfoData(doc: GameConfigDoc) {
 	};
 }
 
-/** The scene-set facts of `doc` over only the screens `keep` passes (all of them by default). */
+/** The scene-set facts of `doc` over only the screens `keep` passes (all of them by default), each
+ *  screen through `edit` (as it is by default). */
 export function sceneFactsOf(
 	kind: string,
 	doc: GameConfigDoc | null,
 	keep: (sceneId: string) => boolean = () => true,
+	edit: (scene: Scene) => Scene = (scene) => scene,
 ): { scenes: string; addOnScreens: string } {
 	const options = sceneSetOptionsFor(kind, doc);
 	const set = getFullSceneSet(kind, options)!;
 	return {
-		scenes: digest({ ...set, scenes: set.scenes.filter((scene) => keep(scene.id)) }),
+		scenes: digest({ ...set, scenes: set.scenes.filter((scene) => keep(scene.id)).map(edit) }),
 		addOnScreens: digest(addOnSceneIds(kind, options).filter(keep)),
 	};
 }
