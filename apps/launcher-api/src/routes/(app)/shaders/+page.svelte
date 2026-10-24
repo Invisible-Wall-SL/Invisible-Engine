@@ -126,12 +126,16 @@
 		void lease.switchDoc(id);
 	}
 
+	/** Bumped when another graph opens: a save of the one before then leaves the page alone. */
+	let shownGraph = 0;
+
 	const saveState = new SaveState({
 		initialEtag: untrack(() => data.opened?.etag ?? null),
 		autosaveMs: 1000,
 		blockWhen: () => lease.readOnly,
 		save: async ({ baseEtag, force }) => {
 			const current = doc;
+			const shown = shownGraph;
 			if (!current) return { ok: true, etag: baseEtag };
 			try {
 				const res = await fetch('/api/shaders/save', {
@@ -164,14 +168,18 @@
 						message: out.message ?? `Save failed (HTTP ${res.status}).`,
 					};
 				}
-				// A shared graph saved here is now the project's own copy.
-				openShared = false;
+				if (shown !== shownGraph) return { ok: true, etag: out.etag ?? null };
 				upsertRow({
 					id: out.id,
 					name: out.name ?? out.id,
 					description: current.description ?? '',
 					shared: false,
 				});
+				if (openShared) {
+					// A shared graph saved here is now the project's own copy.
+					openShared = false;
+					syncUrl(current, false);
+				}
 				leaseGraph(out.id);
 				return { ok: true, etag: out.etag ?? null };
 			} catch {
@@ -189,6 +197,11 @@
 
 	/** Save what is pending before the open graph changes; false when it could not be. */
 	async function settle(): Promise<boolean> {
+		// An autosave in flight decides what is left to save: let it land first (a save asked for
+		// meanwhile only joins it, and answers false).
+		for (let waited = 0; saveState.busy && waited < 10_000; waited += 50) {
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		}
 		saveState.cancelAutosave();
 		if (!saveState.dirty) return true;
 		if (await saveState.save()) return true;
@@ -200,22 +213,32 @@
 		});
 	}
 
+	/** The URL names the open graph: `?graph=`, and `&shared=1` while it is the shared library's. */
+	function syncUrl(open: ShaderGraphDoc | null, shared: boolean): void {
+		const keep = [...page.url.searchParams].filter(([k]) => k !== 'graph' && k !== 'shared');
+		if (open) keep.push(['graph', open.id]);
+		if (open && shared) keep.push(['shared', '1']);
+		const query = new URLSearchParams(keep).toString();
+		// A query on this same route: `resolve()` cannot carry one.
+		// eslint-disable-next-line svelte/no-navigation-without-resolve
+		replaceState(`/shaders${query ? `?${query}` : ''}`, {});
+	}
+
 	function showGraph(next: ShaderGraphDoc | null, etag: string | null, shared: boolean): void {
+		shownGraph += 1;
 		doc = next;
 		openShared = shared;
 		selectedId = null;
 		past = [];
 		future = [];
+		// It shows as stored: nothing of the graph before is left to save onto it (a shared one
+		// saved unedited would become the project's copy).
+		saveState.cancelAutosave();
 		saveState.adoptEtag(etag);
+		saveState.setDirty(false);
 		leaseGraph(next && !shared ? next.id : null);
 		fitSignal += 1;
-		const keep = [...page.url.searchParams].filter(([k]) => k !== 'graph' && k !== 'shared');
-		if (next) keep.push(['graph', next.id]);
-		if (next && shared) keep.push(['shared', '1']);
-		const query = new URLSearchParams(keep).toString();
-		// A query on this same route: `resolve()` cannot carry one.
-		// eslint-disable-next-line svelte/no-navigation-without-resolve
-		replaceState(`/shaders${query ? `?${query}` : ''}`, {});
+		syncUrl(next, shared);
 	}
 
 	async function open(row: GraphRow): Promise<void> {
@@ -280,10 +303,7 @@
 			notice = out.message ?? `Delete failed (HTTP ${res.status}).`;
 			return;
 		}
-		if (doc?.id === row.id && !openShared) {
-			saveState.cancelAutosave();
-			showGraph(null, null, false);
-		}
+		if (doc?.id === row.id && !openShared) showGraph(null, null, false);
 		const list = await fetch(`/api/shaders/list?projectKey=${encodeURIComponent(projectKey)}`);
 		if (list.ok) graphs = ((await list.json()) as { shaders: GraphRow[] }).shaders;
 	}
@@ -396,6 +416,8 @@
 		const k = e.key.toLowerCase();
 		if (k === 's') {
 			e.preventDefault();
+			// The armed autosave would only write the same doc again.
+			saveState.cancelAutosave();
 			void saveState.save();
 		} else if (!typing && k === 'z' && !e.shiftKey) {
 			e.preventDefault();

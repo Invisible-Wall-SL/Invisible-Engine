@@ -586,7 +586,9 @@
 	input,
 	select,
 	textarea {
+		box-sizing: border-box;
 		font-size: 12px;
+		font-family: inherit;
 		background: #0b0e13;
 		color: #e2e8f0;
 		border: 1px solid #2a323d;
