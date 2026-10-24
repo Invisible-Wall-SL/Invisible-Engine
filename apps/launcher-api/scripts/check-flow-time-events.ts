@@ -551,12 +551,13 @@ const counterDoc = (): FlowDoc =>
 	eq('no flow: a frame does nothing', ran.length, 4);
 	const game = source('apps/lines/src/components/Game.svelte');
 	eq(
-		'Game.svelte adds the ticker callback only when the flow has a store, once Pixi has a ticker',
+		'Game.svelte adds the ticker callback only when the flow has a store, and again once loaded',
 		[
-			'flowV2Handle?.state && stateApp.loaded ? stateApp.pixiApplication?.ticker : undefined;',
+			'void stateApp.loaded;',
+			'const ticker = flowV2Handle?.state ? stateApp.pixiApplication?.ticker : undefined;',
 			'const tick = () => tickFlowV2State(ticker.deltaMS);',
 		].map((l) => game.includes(l)),
-		[true, true],
+		[true, true, true],
 	);
 	const runtime = source('apps/lines/src/game/flowV2Runtime.svelte.ts');
 	eq(
