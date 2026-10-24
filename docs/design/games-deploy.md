@@ -180,7 +180,7 @@ every such region distorted, in every game at once. So never `rollback` or `pin`
 release whose commit includes #1241 (`list` shows each release's commit); to undo a newer release,
 roll back to one at or above it.
 
-**A second floor: the first release with Invisible Shader Graph step 6.** Publish compiles a
+**A second floor: the first release with Invisible Shader Graph step 6 (#1333).** Publish compiles a
 project's shader graphs into the game's bundle, and the runtime links the GLSL library functions
 they call from its own copy. Step 6 added library functions for its new nodes, so a graph that
 uses one calls functions a runtime from before it does not have, and that effect draws nothing (a
