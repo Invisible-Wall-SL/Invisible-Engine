@@ -23,22 +23,28 @@ export interface PointerPoint {
 
 /**
  * Where the pointer is when a listener runs: `x` / `y` in the instance's space (its root's), `dx` /
- * `dy` from where the press on the node began (0 with no press), and `global`, the stage point an
- * Align Target maps into its target's parent.
+ * `dy` from where the press on the node began (0 with no press), `global`, the stage point an
+ * Align Target maps into its target's parent, and `press`, the press it belongs to (unique across
+ * every node; 0 with no press), which is when an Align Target takes its offset again.
  */
 export interface PointerAt extends Record<PointerPayloadField, number> {
 	global: PointerPoint;
+	press: number;
 }
+
+let pressSerial = 0;
 
 /** How far (instance pixels) a press must travel before it is a drag: a tap's jitter is not one. */
 export const DRAG_SLOP = 4;
 
 interface Press {
 	id: number;
+	serial: number;
 	start: PointerPoint;
 	/** The last move heard: Pixi hands `globalpointermove` twice to a container that is both under
 	 *  the pointer and an interactive ancestor of what is, so a repeat of it is not a move. */
 	last: PointerPoint;
+	lastGlobal: PointerPoint;
 	dragging: boolean;
 }
 
@@ -61,18 +67,27 @@ export class PointerGesture {
 			dx: start ? local.x - start.x : 0,
 			dy: start ? local.y - start.y : 0,
 			global: { x: global.x, y: global.y },
+			press: this.press?.serial ?? 0,
 		};
 	}
 
-	/** `pointerdown` on the node: a press begins, unless another pointer's press is still on (a
-	 *  second finger is a `down`, but the first press keeps the drag, so it still ends). */
+	/**
+	 * `pointerdown` on the node: a press begins. A press still on (another finger, or a touch the
+	 * browser cancelled — Pixi forwards no `pointercancel`, so its release never comes) is
+	 * replaced, its drag ended first at the last place it was heard, so no drag is left open.
+	 */
 	down(id: number, local: PointerPoint, global: PointerPoint): void {
-		if (this.press && this.press.id !== id) {
-			this.send('down', this.at(local, global));
-			return;
-		}
+		const old = this.press;
+		if (old?.dragging) this.send('dragEnd', this.at(old.last, old.lastGlobal));
 		const start = { x: local.x, y: local.y };
-		this.press = { id, start, last: start, dragging: false };
+		this.press = {
+			id,
+			serial: ++pressSerial,
+			start,
+			last: start,
+			lastGlobal: { x: global.x, y: global.y },
+			dragging: false,
+		};
 		this.send('down', this.at(local, global));
 	}
 
@@ -88,6 +103,7 @@ export class PointerGesture {
 		if (!press || press.id !== id) return;
 		if (local.x === press.last.x && local.y === press.last.y) return;
 		press.last = { x: local.x, y: local.y };
+		press.lastGlobal = { x: global.x, y: global.y };
 		if (!press.dragging) {
 			if (Math.hypot(local.x - press.start.x, local.y - press.start.y) < this.slop) return;
 			press.dragging = true;

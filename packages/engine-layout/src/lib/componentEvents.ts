@@ -207,8 +207,12 @@ export class ComponentEventDispatcher {
 	private queue: RaisedComponentEvent[] = [];
 	/** The pointer of the listener running now, read by a raise's `{ pointer }` values. */
 	private at: PointerAt | undefined;
-	/** Each Align Target's offset from the pointer, taken the first time it runs in a press. */
-	private alignOffsets = new WeakMap<AlignTargetAction, PointerPoint>();
+	/** Each Align Target's offset from the pointer, and the press it was taken in: it is taken
+	 *  again the first time the action runs in another press. */
+	private readonly alignOffsets = new WeakMap<
+		AlignTargetAction,
+		{ press: number; offset: PointerPoint }
+	>();
 	private scheduled = false;
 	private destroyed = false;
 
@@ -251,7 +255,6 @@ export class ComponentEventDispatcher {
 	 */
 	pointer(node: Pick<LayoutNode, 'id' | 'on'>, event: NodeListenerEvent, at?: PointerAt): void {
 		if (this.destroyed || !this.owns(node.id)) return;
-		if (event === 'down') this.alignOffsets = new WeakMap();
 		this.at = at;
 		try {
 			for (const listener of node.on ?? []) {
@@ -293,21 +296,24 @@ export class ComponentEventDispatcher {
 		}
 	}
 
-	/** Place an Align Target's node on the pointer; its offset is taken the first time it runs after
-	 *  a press begins (a `down` on the node starts a new one), so every press keeps its own. */
+	/** Place an Align Target's node on the pointer; its offset is taken the first time it runs in a
+	 *  press (`PointerAt.press`), so every press keeps its own. */
 	private align(action: AlignTargetAction): void {
 		const at = this.at;
 		const space = at ? this.host.alignTarget?.(action.target) : undefined;
 		if (!at || !space) return;
 		const p = space.toLocal(at.global);
 		let offset = this.alignOffsets.get(action);
-		if (!offset) {
+		if (!offset || offset.press !== at.press) {
 			const now = space.position();
-			offset = action.preserveOffset ? { x: now.x - p.x, y: now.y - p.y } : { x: 0, y: 0 };
+			offset = {
+				press: at.press,
+				offset: action.preserveOffset ? { x: now.x - p.x, y: now.y - p.y } : { x: 0, y: 0 },
+			};
 			this.alignOffsets.set(action, offset);
 		}
-		const x = p.x + offset.x;
-		const y = p.y + offset.y;
+		const x = p.x + offset.offset.x;
+		const y = p.y + offset.offset.y;
 		space.place(action.axis === 'x' ? { x } : action.axis === 'y' ? { y } : { x, y });
 	}
 

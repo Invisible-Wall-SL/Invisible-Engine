@@ -137,16 +137,39 @@ const pt = (x: number, y: number) => ({ x, y });
 	g.release(2, pt(5, 5), pt(5, 5), true);
 	g.move(1, pt(30, 0), pt(30, 0));
 	g.release(1, pt(30, 0), pt(30, 0), false);
-	eq('a second pointer is a down and an up; the first press keeps its drag and still ends', sent, [
+	eq(
+		'a new press (a second finger, or after a cancelled touch) ends the open drag where it was, then takes over',
+		sent,
+		[
+			['down', 0, 0, 0, 0],
+			['dragStart', 20, 0, 20, 0],
+			['drag', 20, 0, 20, 0],
+			['dragEnd', 20, 0, 20, 0],
+			['down', 5, 5, 0, 0],
+			['up', 5, 5, 0, 0],
+			['swipe', 5, 5, 0, 0],
+		],
+	);
+	sent.length = 0;
+	g.down(3, pt(0, 0), pt(0, 0));
+	g.down(4, pt(1, 1), pt(1, 1));
+	g.move(4, pt(30, 1), pt(30, 1));
+	eq('a press that never dragged and never released is simply replaced; the new one drags', sent, [
 		['down', 0, 0, 0, 0],
-		['dragStart', 20, 0, 20, 0],
-		['drag', 20, 0, 20, 0],
-		['down', 5, 5, 5, 5],
-		['up', 5, 5, 5, 5],
-		['drag', 30, 0, 30, 0],
-		['dragEnd', 30, 0, 30, 0],
-		['swipe', 30, 0, 30, 0],
+		['down', 1, 1, 0, 0],
+		['dragStart', 30, 1, 29, 0],
+		['drag', 30, 1, 29, 0],
 	]);
+	const other = new P.PointerGesture(() => {});
+	other.down(1, pt(0, 0), pt(0, 0));
+	eq(
+		'every press has its own serial, across nodes (0 with none)',
+		[
+			new P.PointerGesture(() => {}).at(pt(0, 0), pt(0, 0)).press,
+			g.at(pt(0, 0), pt(0, 0)).press < other.at(pt(0, 0), pt(0, 0)).press,
+		],
+		[0, true],
+	);
 	sent.length = 0;
 	g.down(1, pt(0, 0), pt(0, 0));
 	g.release(1, pt(50, 0), pt(50, 0), false);
@@ -218,12 +241,13 @@ function sliderDef(): ComponentDef {
 		],
 	};
 }
-const at = (x: number, y: number, dx = 0, dy = 0, global = { x, y }): PointerAt => ({
+const at = (x: number, y: number, dx = 0, dy = 0, global = { x, y }, press = 0): PointerAt => ({
 	x,
 	y,
 	dx,
 	dy,
 	global,
+	press,
 });
 const on = (...listeners: NodeListener[]) => ({ id: 'n_track', on: listeners });
 const li = (id: string, event: NodeListenerEvent, action: ListenerAction, extra = {}) =>
@@ -321,23 +345,20 @@ for (const event of ['move', 'dragStart', 'drag', 'dragEnd'] as const) {
 	);
 	const preserveDrag = { ...preserve, on: [{ ...preserve.on[0], event: 'drag' as const }] };
 	preserveDrag.on[0].action = preserve.on[0].action;
-	dispatcher.pointer(preserve, 'dragStart', at(0, 0, 0, 0, { x: 120, y: 40 }));
+	dispatcher.pointer(preserve, 'dragStart', at(0, 0, 0, 0, { x: 120, y: 40 }, 1));
 	eq('…preserveOffset: at the press it stays where it was', knob(), { x: 20, y: 15 });
-	dispatcher.pointer(preserveDrag, 'drag', at(0, 0, 0, 0, { x: 130, y: 50 }));
+	dispatcher.pointer(preserveDrag, 'drag', at(0, 0, 0, 0, { x: 130, y: 50 }, 1));
 	eq('…and then keeps that offset from the pointer', knob(), { x: 25, y: 20 });
 	const dragOnly = on(li('d', 'drag', { kind: 'align', target: 'n_knob', preserveOffset: true }));
-	const press = (gx: number, gy: number) =>
-		dispatcher.pointer(on(), 'down', at(0, 0, 0, 0, { x: gx, y: gy }));
-	press(0, 0);
-	dispatcher.pointer(dragOnly, 'drag', at(0, 0, 0, 0, { x: 160, y: 40 }));
+	dispatcher.pointer(dragOnly, 'drag', at(0, 0, 0, 0, { x: 160, y: 40 }, 2));
 	eq('…a drag-only preserveOffset: the first drag of a press keeps the node where it is', knob(), {
 		x: 25,
 		y: 20,
 	});
-	dispatcher.pointer(dragOnly, 'drag', at(0, 0, 0, 0, { x: 170, y: 40 }));
-	eq('…and follows from there', knob(), { x: 30, y: 20 });
-	press(0, 0);
-	dispatcher.pointer(dragOnly, 'drag', at(0, 0, 0, 0, { x: 100, y: 0 }));
+	dispatcher.pointer(on(), 'down', at(0, 0, 0, 0, { x: 0, y: 0 }, 9));
+	dispatcher.pointer(dragOnly, 'drag', at(0, 0, 0, 0, { x: 170, y: 40 }, 2));
+	eq('…and follows from there, whatever another press does meanwhile', knob(), { x: 30, y: 20 });
+	dispatcher.pointer(dragOnly, 'drag', at(0, 0, 0, 0, { x: 100, y: 0 }, 3));
 	eq('…a new press takes a new offset (the node does not jump)', knob(), { x: 30, y: 20 });
 	placed.length = 0;
 	dispatcher.pointer(
