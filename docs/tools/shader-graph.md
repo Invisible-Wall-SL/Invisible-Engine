@@ -350,7 +350,8 @@ Click **✕** next to an effect and confirm. If it was open, the canvas empties.
 
 - **An effect that does not compile is saved but not shipped.** Entries naming it play nothing. In
   the Scene Editor such a row reads `⚠ custom:<id>`, with a note that the project has no shader
-  effect of that name that plays. Publish names every such effect in its log.
+  effect of that name that plays. After a Publish, Game Maker's publish note lists every such
+  effect the game names.
 - **The pickers read your effects when their page loads.** After saving a new effect, or renaming
   one, reload a Scene Editor, Symbols or Flow tab that is already open.
 
@@ -391,8 +392,6 @@ Click **✕** next to an effect and confirm. If it was open, the canvas empties.
 - **Nodes the plan lists that v1 lacks:** Perspective plane (the 3D flip as one node), star /
   sparkle, rim, loop envelope and a pixel input.
 - **Publish ships the project's whole set** of effects that compile, used or not.
-- **Publish names an unshipped effect in its server log only.** Game Maker's publish note does not
-  show it yet (it does for missing rigs). Check the Scene Editor's `⚠ custom:<id>` rows instead.
 
 ## For developers
 

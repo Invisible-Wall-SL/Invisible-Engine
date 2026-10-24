@@ -789,6 +789,21 @@
 						`${one ? 'it' : 'them'} from the flow; its Validation panel lists each step.`,
 				};
 			}
+			const shaderEffects: string[] = Array.isArray(out?.shaderEffectsMissing)
+				? out.shaderEffectsMissing
+				: [];
+			if (shaderEffects.length) {
+				const one = shaderEffects.length === 1;
+				publishNote = {
+					...publishNote,
+					[projectKey]:
+						`${publishNote[projectKey] ? `${publishNote[projectKey]} ` : ''}` +
+						`⚠ The game names ${shaderEffects.length} shader effect${one ? '' : 's'} it does ` +
+						`not ship, so ${one ? 'it plays' : 'they play'} nothing: ${shaderEffects.join(', ')}. ` +
+						`${one ? 'Its graph was' : 'Their graphs were'} deleted or ${one ? 'does' : 'do'} not ` +
+						'compile: fix it in Invisible Shader Graph, or pick another effect.',
+				};
+			}
 			if (out?.holdAndWinConfigMissing) {
 				publishNote = {
 					...publishNote,

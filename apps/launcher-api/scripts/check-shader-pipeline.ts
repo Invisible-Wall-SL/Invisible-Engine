@@ -591,6 +591,13 @@ check(
 	true,
 );
 check(
+	'…and the Game Maker shows them after a publish, not only the server log',
+	readLF(`${here}../src/routes/(app)/game-maker/+page.svelte`).includes(
+		'Array.isArray(out?.shaderEffectsMissing)',
+	),
+	true,
+);
+check(
 	'…and judges the flow with the kinds it ships',
 	publish.includes('shaderEffects: assembled.shaderEffects,'),
 	true,

@@ -865,7 +865,9 @@ layout; they are never a per-layout override. While you Inspect an old version o
 section is read-only, and ▶ still plays.
 
 **Add one.** With none yet, the section shows a one-line hint and the **+ Add effect…** picker,
-which lists the 50 effects grouped by family (the table below). Picking one adds a row, opens it,
+which lists the 50 effects grouped by family (the table below), then the project's own under
+**Custom (Shader Graph)** (`custom:<id>`, authored in [Invisible Shader Graph](shader-graph.md)).
+A row whose custom effect was deleted or no longer compiles says so. Picking one adds a row, opens it,
 and gives it the trigger that suits it: a loop effect starts as _Always_, an entrance as _When
 shown_, anything else as _On cue_.
 
