@@ -162,7 +162,7 @@ const SCREEN = {
 	nodes: [{ id: 'n_bar', kind: 'rect', label: 'bar', x: 0, y: 0, width: 10, height: 10 }],
 };
 
-const REACTIVE_PROPS = { doc: undefined, playing: true, startTime: undefined, loop: undefined, speed: undefined }; // prettier-ignore
+const REACTIVE_PROPS = { doc: undefined, playing: true, startTime: undefined, playId: undefined, loop: undefined, speed: undefined }; // prettier-ignore
 
 /**
  * Mount a `<Cinematic>` whose props live in a `SvelteMap`, so setting one is a reactive change of
@@ -309,10 +309,11 @@ for (const [label, initial] of [
 	run.unmount();
 }
 
-// --- 3. a new doc.id or startTime re-arms it; a new speed or playing does not --------------------
+// --- 3. a new doc.id, startTime or playId re-arms it; a new speed or playing does not ------------
 // Each case changes one prop alone. The game's `FlowV2Cinematics` hands every prop off one entry
-// object it rebuilds whenever the flow's playing set changes, which re-arms a playing cinematic
-// today; a replay of a still-playing id relies on that to restart it.
+// object it rebuilds whenever a cinematic starts or ends or a screen comes up, so a prop's getter
+// fires with nothing changed (the same doc handed again, below); a replay of a cinematic still on
+// screen comes as a new `playId`.
 {
 	const run = play({ doc: timeline() });
 	run.untilComplete();
@@ -348,6 +349,26 @@ for (const [label, initial] of [
 	check('a new doc.id on a ping-pong: back to the start', run.time() === 0, `t=${run.time()}`);
 	const [next] = run.frames(1);
 	check('a new doc.id on a ping-pong: plays out again', near(next, DT), `t=${next}`);
+	run.unmount();
+}
+{
+	const run = play({ doc: timeline(), playId: 1 });
+	run.frames(30);
+	run.set('playId', 2);
+	check('a new playId mid-play: back to the start', run.time() === 0, `t=${run.time()}`);
+	const times = run.untilComplete();
+	check('a new playId mid-play: plays it through', run.completes === 1 && rises(times, 0) && run.time() === 1, `${run.completes}× after ${times.length} frames`); // prettier-ignore
+	check('a new playId mid-play: its cues fire again', counts(run.cues)['sfx:open'] === 2 && counts(run.cues)['sfx:end'] === 1, run.cues.join()); // prettier-ignore
+	run.unmount();
+}
+{
+	const run = play({ doc: timeline() });
+	const before = run.frames(30).at(-1);
+	run.set('doc', timeline());
+	check('the same doc handed again: does not re-arm', run.time() === before, `t=${run.time()}`);
+	const times = run.untilComplete();
+	check('the same doc handed again: plays on to its end', run.completes === 1 && rises(times, before), `${times.length} frames`); // prettier-ignore
+	check('the same doc handed again: no cue fires twice', run.cues.join() === CUE_KEYS.map((k) => k.cue).join(), run.cues.join()); // prettier-ignore
 	run.unmount();
 }
 {

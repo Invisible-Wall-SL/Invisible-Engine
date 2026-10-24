@@ -111,6 +111,7 @@
 					? (driver) => flow?.driveScreen(entry.screen!, entry.id, driver)
 					: undefined}
 				playing
+				playId={entry.opts.play}
 				loop={entry.opts.loop}
 				speed={entry.opts.speed}
 				oncomplete={() => flow?.cinematicComplete(entry.id)}
