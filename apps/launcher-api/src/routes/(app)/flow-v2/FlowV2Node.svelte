@@ -79,6 +79,16 @@
 		exitMode: '#f43f5e',
 		componentInstance: '#34d399', // a placed component (Rive plan §6.2) — emerald.
 		waitForState: '#34d399',
+		// Game state (game-families §3.1–§3.2) — green, beside the instance nodes they feed.
+		setVariable: '#4ade80',
+		changeVariable: '#4ade80',
+		onVariable: '#4ade80',
+		onTick: '#2dd4bf',
+		onTimer: '#2dd4bf',
+		onInput: '#2dd4bf',
+		startTimer: '#2dd4bf',
+		stopTimer: '#2dd4bf',
+		pauseTimer: '#2dd4bf',
 	};
 
 	const headerColor = $derived(KIND_COLOR[d.node.kind] ?? '#64748b');
@@ -174,6 +184,27 @@
 				const name = decl && decl.container === n.container ? decl.name : `⚠ ${n.instance}`;
 				return `${name} · ${n.layer || '(layer)'}.state == ${n.state || '(state)'}`;
 			}
+			case 'setVariable':
+				return `${n.variable || '(variable)'} =`;
+			case 'changeVariable':
+				return n.op === 'toggle'
+					? `toggle ${n.variable || '(variable)'}`
+					: `${n.variable || '(variable)'} ${n.op === 'sub' ? '−' : '+'}=`;
+			case 'onVariable':
+				return (n.on ?? 'changed') === 'changed'
+					? `${n.variable || '(variable)'} changes`
+					: `${n.variable || '(variable)'} crosses ${n.threshold ?? '?'} (${n.direction ?? 'either'})`;
+			case 'onTick':
+				return n.every ? `every ${n.every} ms` : 'every frame';
+			case 'onTimer':
+				return `${n.timer} runs out`;
+			case 'onInput':
+				return `${n.action || '(action)'} ${n.phase ?? 'down'}`;
+			case 'startTimer':
+				return `${n.timer}${n.repeat ? ' · repeat' : ''}`;
+			case 'stopTimer':
+			case 'pauseTimer':
+				return n.timer;
 			default:
 				return '';
 		}

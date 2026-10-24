@@ -21,6 +21,20 @@ export const PRESENTATION_NODES: { kind: NodeKind; label: string }[] = [
 	{ kind: 'playCinematic', label: 'Play Cinematic' },
 ];
 
+/** The variable, timer, tick and key node kinds (`docs/design/game-families.md` §3.1–§3.2), the
+ *  palette's Variables & time group. `variable` marks the ones that name a variable. */
+export const STATE_NODES: { kind: NodeKind; label: string; variable?: true }[] = [
+	{ kind: 'setVariable', label: 'Set variable', variable: true },
+	{ kind: 'changeVariable', label: 'Change variable', variable: true },
+	{ kind: 'onVariable', label: 'On variable', variable: true },
+	{ kind: 'onTick', label: 'On tick' },
+	{ kind: 'startTimer', label: 'Start timer' },
+	{ kind: 'stopTimer', label: 'Stop timer' },
+	{ kind: 'pauseTimer', label: 'Pause timer' },
+	{ kind: 'onTimer', label: 'On timer' },
+	{ kind: 'onInput', label: 'On input' },
+];
+
 /** The game-mode node kinds (`docs/design/hold-and-win.md` §4.5), the palette's Modes group. */
 export const MODE_NODES: { kind: NodeKind; label: string }[] = [
 	{ kind: 'modeTrigger', label: 'Mode trigger' },

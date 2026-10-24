@@ -122,6 +122,8 @@ import {
 } from './triggers';
 import { SYMBOL_ENUM, symbolsOf } from './symbols';
 import { assignable } from './types-check';
+import { STATE_ENTRY_KINDS, variableDeclIssues, variableNodeIssues } from './variableValidate';
+import { docVariables } from './variables';
 import type {
 	ContainerEventDecl,
 	DataEdge,
@@ -178,7 +180,15 @@ export type FlowIssueCode =
 	| 'instance-text-key'
 	| 'instance-text-wire'
 	| 'instance-event-duplicate'
-	| 'guard-type-mismatch';
+	| 'guard-type-mismatch'
+	| 'variable-unknown'
+	| 'variable-type'
+	| 'variable-scope'
+	| 'variable-duplicate'
+	| 'variable-shadows-money'
+	| 'tick-async'
+	| 'tick-fast'
+	| 'input-unknown';
 
 /** `info` is an authoring HINT: the doc runs, nothing is wrong, but an authored surface is idle. */
 export type FlowIssueSeverity = 'error' | 'warning' | 'info';
@@ -188,7 +198,8 @@ export type FlowIssueAt =
 	| { on: 'node'; node: string }
 	| { on: 'pin'; node: string; pin: string }
 	| { on: 'execEdge'; from: PinPath; to: PinPath }
-	| { on: 'dataEdge'; from: PinPath; to: PinPath };
+	| { on: 'dataEdge'; from: PinPath; to: PinPath }
+	| { on: 'variable'; variable: string };
 
 export interface FlowIssue {
 	code: FlowIssueCode;
@@ -489,8 +500,19 @@ export const validateFlowDoc = (
 	// `componentInstance` / `waitForState` pins and every `instance-*` check. Absent ⇒ the layout is
 	// unknown: base pins only, and those checks report nothing — never guess.
 	instances?: Record<string, FlowInstanceDecl>,
+	// Who decides the outcome (game-families §2.1): absent ⇒ the RGS, as for every slot, so a
+	// variable may never stand for money (`variable-shadows-money`).
+	outcome?: PinContext['outcome'],
 ): FlowIssue[] => {
-	const ctx: PinContext = { vocab, library, containerEvents, containerTaps, instances };
+	const ctx: PinContext = {
+		vocab,
+		library,
+		containerEvents,
+		containerTaps,
+		instances,
+		variables: docVariables(doc),
+		outcome,
+	};
 	const containerIds = new Set(doc.containers.map((c) => c.id));
 	const missingScenes = new Map(
 		containersMissingScene(doc.containers, sceneIds ?? []).map((c) => [c.id, c.sceneId]),
@@ -510,12 +532,13 @@ export const validateFlowDoc = (
 			templateId: doc.templateId,
 		});
 		scoped.push(...modeScopeIssues(graph, modeId));
+		scoped.push(...variableNodeIssues(flat, ctx, modeId, doc));
 		scoped.push(...missingSceneIssues(flat, missingScenes));
 		issues.push(
 			...(modeId === undefined ? scoped : scoped.map((issue) => ({ ...issue, mode: modeId }))),
 		);
 	}
-	return [...duplicateIdIssuesFrom(idCounts), ...issues];
+	return [...duplicateIdIssuesFrom(idCounts), ...variableDeclIssues(doc, outcome), ...issues];
 };
 
 const MODE_ID = /^[A-Za-z][A-Za-z0-9_-]*$/;
@@ -746,11 +769,11 @@ const validateGraph = (
 		execOutCount.set(key(edge.from), (execOutCount.get(key(edge.from)) ?? 0) + 1);
 		// (c) an `event` (entry) node must have no incoming exec edge.
 		const target = nodeById.get(edge.to.node);
-		if (target?.kind === 'event') {
+		if (target && (target.kind === 'event' || STATE_ENTRY_KINDS.has(target.kind))) {
 			issues.push({
 				code: 'entry-has-exec-in',
 				severity: 'error',
-				message: `event node '${target.id}' is an entry point and cannot have an incoming exec edge`,
+				message: `${target.kind === 'event' ? 'event' : target.kind} node '${target.id}' is an entry point and cannot have an incoming exec edge`,
 				at: { on: 'execEdge', from: edge.from, to: edge.to },
 			});
 		}

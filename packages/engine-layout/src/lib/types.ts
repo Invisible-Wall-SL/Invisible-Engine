@@ -1749,9 +1749,10 @@ export interface ComponentInput {
 	 *  `text` default is a localization key (`isLocalizationKey`). */
 	default?: boolean | number | string;
 	/**
-	 * A `number` input the ENGINE feeds: a registered value-source name (`winAmount`, `balance`…),
-	 * the same registry a value binding's `source` reads. Absent ⇒ Flow sets it (Phase 7), else it
-	 * stays at its default.
+	 * A `number`, `bool` or `text` input the ENGINE feeds: a registered value-source name
+	 * (`winAmount`, `balance`…, or a Flow variable as `var:<id>`, game-families §3.1), the same
+	 * registry a value binding's `source` reads. A bool reads on / off or 1 / 0; a text input takes
+	 * the key the source names. Absent ⇒ Flow sets it (Phase 7), else it stays at its default.
 	 */
 	source?: string;
 	note?: string;

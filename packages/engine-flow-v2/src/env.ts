@@ -67,6 +67,9 @@ export interface FlowV2EnvDeps {
 	setInstanceInput?: FlowV2Env['setInstanceInput'];
 	readInstanceValue?: FlowV2Env['readInstanceValue'];
 	awaitInstanceState?: FlowV2Env['awaitInstanceState'];
+	/** The game's variable and timer store (`createFlowState`). Optional — omit for a doc that
+	 *  declares none: every `$var` then reads `undefined` and the variable / timer nodes no-op. */
+	state?: FlowV2Env['state'];
 }
 
 /**
@@ -101,4 +104,5 @@ export const createFlowV2Env = (deps: FlowV2EnvDeps): FlowV2Env => ({
 	readInstanceValue: (ref, value) => deps.readInstanceValue?.(ref, value),
 	awaitInstanceState: (ref, layer, state) =>
 		deps.awaitInstanceState?.(ref, layer, state) ?? Promise.resolve(),
+	...(deps.state ? { state: deps.state } : {}),
 });

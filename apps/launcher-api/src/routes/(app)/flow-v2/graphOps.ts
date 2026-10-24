@@ -16,6 +16,8 @@ import type {
 	DataSource,
 	ExecEdge,
 	FlowDoc,
+	FlowInputBinding,
+	FlowVariable,
 	Graph,
 	Guard,
 	Node as V2Node,
@@ -247,7 +249,111 @@ export const makeNode = (
 			return { id, kind, pos, ...parseInstanceNodeRef(ref) };
 		case 'waitForState':
 			return { id, kind, pos, ...parseInstanceNodeRef(ref), layer: '', state: '' };
+		// Variables, timers, tick and keys (game-families §3.1–§3.2): `ref` is the variable, timer or
+		// action the palette entry names, blank when it names none (the inspector picks it).
+		case 'setVariable':
+			return { id, kind, pos, variable: ref ?? '' };
+		case 'changeVariable':
+			return { id, kind, pos, variable: ref ?? '', op: 'add' };
+		case 'onVariable':
+			return { id, kind, pos, variable: ref ?? '', on: 'changed' };
+		case 'onTick':
+			return { id, kind, pos, every: 1000 };
+		case 'onTimer':
+			return { id, kind, pos, timer: ref ?? 'timer' };
+		case 'onInput':
+			return { id, kind, pos, action: ref ?? '', phase: 'down' };
+		case 'startTimer':
+			return {
+				id,
+				kind,
+				pos,
+				timer: ref ?? 'timer',
+				inputs: { ms: { kind: 'literal', type: { t: 'ms' }, value: 1000 } },
+			};
+		case 'stopTimer':
+		case 'pauseTimer':
+			return { id, kind, pos, timer: ref ?? 'timer' };
 	}
+};
+
+/** The fields the inspector edits on the variable, timer, tick and key nodes. A field the node's
+ *  kind does not carry is ignored; `undefined` drops an optional one. */
+export type StateNodePatch = {
+	variable?: string;
+	op?: 'add' | 'sub' | 'toggle';
+	min?: number;
+	max?: number;
+	on?: 'changed' | 'crosses';
+	threshold?: number;
+	direction?: 'up' | 'down' | 'either';
+	every?: number;
+	timer?: string;
+	repeat?: boolean;
+	action?: string;
+	phase?: 'down' | 'up';
+};
+
+const OPTIONAL_STATE_FIELDS = ['min', 'max', 'threshold', 'direction', 'every', 'repeat'] as const;
+const STATE_FIELDS: Partial<Record<V2Node['kind'], readonly (keyof StateNodePatch)[]>> = {
+	setVariable: ['variable'],
+	changeVariable: ['variable', 'op', 'min', 'max'],
+	onVariable: ['variable', 'on', 'threshold', 'direction'],
+	onTick: ['every'],
+	onTimer: ['timer'],
+	onInput: ['action', 'phase'],
+	startTimer: ['timer', 'repeat'],
+	stopTimer: ['timer'],
+	pauseTimer: ['timer'],
+};
+
+/** Patch a variable / timer / tick / key node. A Change Variable switched to `toggle` drops its
+ *  `by` source (a toggle has no amount). */
+export const setStateNodeFields = (doc: FlowDoc, nodeId: string, patch: StateNodePatch): FlowDoc =>
+	replaceNode(doc, nodeId, (n) => {
+		const fields = STATE_FIELDS[n.kind];
+		if (!fields) return n;
+		const next = { ...n } as Record<string, unknown>;
+		for (const key of fields) {
+			if (!(key in patch)) continue;
+			const value = patch[key];
+			if (value === undefined) {
+				if ((OPTIONAL_STATE_FIELDS as readonly string[]).includes(key)) delete next[key];
+				continue;
+			}
+			next[key] = value;
+		}
+		if (n.kind === 'changeVariable' && patch.op === 'toggle' && n.inputs?.by) {
+			const { by: _by, ...inputs } = n.inputs;
+			next.inputs = inputs;
+		}
+		return next as unknown as V2Node;
+	});
+
+/** Replace the variables of the doc (`modeId` null) or of one mode's section. An empty list drops
+ *  the field, so a doc that declares none stores none. */
+export const setVariables = (
+	doc: FlowDoc,
+	modeId: string | null,
+	variables: FlowVariable[],
+): FlowDoc => {
+	if (modeId === null) {
+		const { variables: _drop, ...rest } = doc;
+		return variables.length ? { ...rest, variables } : rest;
+	}
+	const scope = doc.modes?.[modeId];
+	if (!scope) return doc;
+	const { variables: _drop, ...rest } = scope;
+	return {
+		...doc,
+		modes: { ...doc.modes, [modeId]: variables.length ? { ...rest, variables } : rest },
+	};
+};
+
+/** Replace the doc's key map. An empty list drops the field. */
+export const setInputBindings = (doc: FlowDoc, inputs: FlowInputBinding[]): FlowDoc => {
+	const { inputs: _drop, ...rest } = doc;
+	return inputs.length ? { ...rest, inputs } : rest;
 };
 
 /** A `waitForState` node's layer and state (the inspector's two pickers). */
@@ -517,3 +623,87 @@ export const setPlayCinematicFields = (
 		if (patch.awaitComplete === true) next.loop = false;
 		return next;
 	});
+
+/** `src` with a `$var.<from>` read pointed at `to`; anything else unchanged. */
+const renamedSource = (src: DataSource, from: string, to: string): DataSource =>
+	src.kind === 'accessor' && src.path.on === 'var' && src.path.id === from
+		? { ...src, path: { on: 'var', id: to } }
+		: src;
+
+const renameInGraph = (graph: Graph, from: string, to: string): Graph => ({
+	...graph,
+	nodes: graph.nodes.map((n): V2Node => {
+		let next = n;
+		if (n.inputs) {
+			next = {
+				...next,
+				inputs: Object.fromEntries(
+					Object.entries(n.inputs).map(([pin, src]) => [pin, renamedSource(src, from, to)]),
+				),
+			};
+		}
+		switch (next.kind) {
+			case 'setVariable':
+			case 'changeVariable':
+			case 'onVariable':
+				return next.variable === from ? { ...next, variable: to } : next;
+			case 'branch': {
+				const side = (rows: Guard['all']) =>
+					rows?.map((c) => ({
+						...c,
+						left: renamedSource(c.left, from, to),
+						right: renamedSource(c.right, from, to),
+					}));
+				const { all, any } = next.guard;
+				return {
+					...next,
+					guard: { ...(all ? { all: side(all) } : {}), ...(any ? { any: side(any) } : {}) },
+				};
+			}
+			case 'compute': {
+				const op = next.compute;
+				return {
+					...next,
+					compute:
+						op.op === 'member'
+							? { ...op, on: renamedSource(op.on, from, to) }
+							: { ...op, a: renamedSource(op.a, from, to), b: renamedSource(op.b, from, to) },
+				};
+			}
+			case 'group':
+				return { ...next, body: renameInGraph(next.body, from, to) };
+			default:
+				return next;
+		}
+	}),
+});
+
+/**
+ * Rename variable `from` to `to` in its declaration and in every node of the doc that names or reads
+ * it: the Set / Change / On variable nodes and every `$var` read (inputs, guards, computes, group
+ * bodies, every mode's graph). A component input's `var:<id>` source lives in the component, not
+ * here, and a shared library function is not this doc's: neither is rewritten.
+ */
+export const renameVariable = (doc: FlowDoc, from: string, to: string): FlowDoc => {
+	if (!from) return doc;
+	const decl = (vars: FlowVariable[] | undefined) =>
+		vars?.map((v) => (v.id === from ? { ...v, id: to } : v));
+	const modes = doc.modes
+		? Object.fromEntries(
+				Object.entries(doc.modes).map(([id, scope]) => [
+					id,
+					{
+						...scope,
+						graph: renameInGraph(scope.graph, from, to),
+						...(scope.variables ? { variables: decl(scope.variables) } : {}),
+					},
+				]),
+			)
+		: undefined;
+	return {
+		...doc,
+		graph: renameInGraph(doc.graph, from, to),
+		...(doc.variables ? { variables: decl(doc.variables) } : {}),
+		...(modes ? { modes } : {}),
+	};
+};
