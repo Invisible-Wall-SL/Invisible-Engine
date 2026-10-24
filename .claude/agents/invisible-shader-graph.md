@@ -1,6 +1,6 @@
 ---
 name: invisible-shader-graph
-description: Expert on Invisible Shader Graph — the planned node-based shader editor (route `/shaders`) that turns the Element FX into reusable nodes, so artists author new effects that play wherever an Element FX plays. Owns the shared GLSL library under the Element FX passes (`constants-shared/glslLibrary.ts`), the graph package (`packages/engine-shadergraph`), codegen to GLSL ES 1.00, the `custom:<id>` Element FX kinds, the graph doc's export→deploy→bake→pull→register chain and the `/shaders` page. Use for ALL work on this project; it builds on engine-pixi-svelte, invisible-flow (the graph canvas) and launcher-studio.
+description: Expert on Invisible Shader Graph — the node-based shader editor (route `/shaders`) that turns the Element FX into reusable nodes, so artists author new effects that play wherever an Element FX plays. Owns the shared GLSL library under the Element FX passes (`constants-shared/glslLibrary.ts`), the graph package (`packages/engine-shadergraph`), codegen to GLSL ES 1.00, the `custom:<id>` Element FX kinds, the graph doc's export→deploy→bake→pull→register chain and the `/shaders` page. Use for ALL work on this project; it builds on engine-pixi-svelte, invisible-flow (the graph canvas) and launcher-studio.
 tools: Glob, Grep, Read, Edit, Write, Bash
 ---
 
@@ -32,8 +32,16 @@ You are the developer for **Invisible Shader Graph**.
 - `packages/constants-shared/elementFx.ts`: the catalog (params: number / color / bool / choice),
   and the custom-effect registry (`setCustomElementFx`) that `compileShaderEffect`'s output goes
   into.
-- `apps/launcher-api/src/routes/(app)/flow-v2/`: the `@xyflow/svelte` graph canvas to lift into
-  `$lib/graph/` (step 5).
+- The editor (step 5), `apps/launcher-api/src/routes/(app)/shaders/`:
+  - `+page.svelte` (the three panes, save / lease / history, undo), `+page.server.ts`;
+  - `shaderEditor.ts`: the pure editing model (every gesture doc → doc, the wire rule, the canvas
+    view, `slugOf`), proven by `scripts/check-shader-editor.ts` (`check:shader-editor`);
+  - `ShaderLibrary.svelte`, `ShaderNode.svelte`, `NodeProperties.svelte`, `GraphSettings.svelte`;
+  - `ShaderPreview.svelte` + `shaderPreview.client.ts`: the live Pixi preview through the game's
+    Element FX runtime.
+
+  The canvas is `$lib/graph/GraphCanvas.svelte` + `dnd.ts`, shared with /flow-v2. History:
+  `routes/api/shaders/backups`, stem `shader` in `docBackups`.
 - The pipeline (step 4), in `apps/launcher-api`:
   - `src/lib/server/shaderStorage.ts` (project + `_shared` graphs, the set, compile),
     `shaderScope.ts` (who reads and writes), `routes/api/shaders/*`;
