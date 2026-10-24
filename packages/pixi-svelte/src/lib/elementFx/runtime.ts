@@ -4,7 +4,8 @@
  * One runtime per container composes everything playing on it, the way `cameraEffects` composes the
  * stage: each effect's MOTION is folded into one change of the container's own transform (about the
  * element's centre, or its base, or its top), its FILTERS are stacked after any the container
- * already had, and a BREAK hides it and flies a still of it in pieces. When the last effect ends,
+ * already had, and a BREAK hides it and flies a still of it in pieces (a live break, `assemble`,
+ * redraws them from the element every frame and follows it). When the last effect ends,
  * the container is put back exactly as it was: its resting transform, alpha, filters and
  * `filterArea`.
  *
@@ -527,24 +528,45 @@ const timeScaleOf = (host: ElementFxHost): number => {
 	}
 };
 
-/** Snapshot and cut the element for a break, or mark it to fade instead. */
+/**
+ * Snapshot and cut the element for a break, or mark it to fade instead. A live break cuts the box
+ * the element has now, and one with nothing to draw yet (no size, as in a zoom from nothing; hidden,
+ * as when a key shows it this frame; not on stage) waits for it, the element hidden: it is drawn from
+ * the element every frame, so it may start late. It is tried again next frame.
+ */
 const startEffectBreak = (runtime: Runtime, effect: Effect): void => {
 	const { target } = runtime;
-	const renderer = runtime.boxPending ? undefined : runtime.host.renderer;
+	const live = !!effect.impl.live;
+	const box = live ? measure(target) : runtime.boxPending ? undefined : runtime.box;
+	const drawable = !!box && box.width >= 1 && box.height >= 1 && target.visible && !!target.parent;
+	if (live && runtime.host.renderer && !drawable) return;
+	const renderer = box ? runtime.host.renderer : undefined;
 	effect.breakRun =
-		renderer && effect.impl.breaks
+		renderer && box && effect.impl.breaks
 			? startBreak({
 					style: effect.impl.breaks,
 					target,
 					renderer,
-					box: runtime.box,
+					box,
 					rest: restMatrix(target, runtime.rest ?? readComps(target)),
 					intensity: effect.intensity,
 					params: effect.params,
 					playSeconds: effect.durationMs / 1000,
+					live,
 				})
 			: undefined;
 	if (!effect.breakRun) effect.breakFallback = true;
+};
+
+/** Lay each live break over the element as it is now: where it rests, how faded, its box. */
+const followLiveBreaks = (runtime: Runtime, frames: Map<Effect, FxFrame>): void => {
+	const { target } = runtime;
+	const live = runtime.effects.filter((e) => e.breakRun?.follow && frames.has(e));
+	if (!live.length) return;
+	const rest = runtime.rest ?? readComps(target);
+	const matrix = restMatrix(target, rest);
+	const box = measure(target);
+	for (const effect of live) effect.breakRun?.follow?.(matrix, rest.alpha, box);
 };
 
 /** An effect's filters, made on its first frame. */
@@ -625,6 +647,7 @@ const step = (runtime: Runtime, deltaMs: number): void => {
 	if (!runtime.effects.length) return;
 	applyMotion(runtime, frames);
 	applyFilters(runtime, frames);
+	followLiveBreaks(runtime, frames);
 };
 
 const runtimeFor = (target: Container, host: ElementFxHost): Runtime => {
