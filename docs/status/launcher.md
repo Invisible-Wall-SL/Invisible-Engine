@@ -50,6 +50,11 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
    and `../design/…` to a route that does not exist. Rewrite hrefs in the route (sibling `<slug>.md`
    → `/docs/<slug>`, `../…` → the file on GitHub), with a fixture; the markdown stays as is.
    Found 2026-10-24 while writing the Shader Graph guide.
+8. **`LeaseState.switchDoc` race** (`src/lib/leaseState.svelte.ts`). An acquire for item A can
+   answer after the lease was switched to item B: A's answer is applied to B's state, and A's lease,
+   if granted, is never released (it lapses at its TTL). The per-item tools (FX, Flipbook,
+   components, Shader Graph) reach it by switching items quickly. Fix: `start()` captures the
+   `docKey` and drops (and, if held, releases) an answer for a key it no longer holds.
 
 ## Blocked (owner / external)
 - **Secret rotation (owner):** rotate the secrets in `docs/INFRA.md` "Security / secret rotation";

@@ -60,18 +60,20 @@
 		alpha: 'alpha',
 	};
 
-	const PARAM_KINDS = [
-		['number', 'number'],
-		['color', 'colour'],
-		['bool', 'switch'],
-		['choice', 'choice'],
-	] as const;
+	const PARAM_KIND_LABELS: Record<ElementFxParamSpec['kind'], string> = {
+		number: 'number',
+		color: 'colour',
+		bool: 'switch',
+		choice: 'choice',
+	};
+	const PARAM_KINDS = Object.keys(PARAM_KIND_LABELS) as ElementFxParamSpec['kind'][];
 
 	const set = <K extends keyof ShaderGraphDoc>(key: K, value: ShaderGraphDoc[K]): void =>
 		onChange({ ...doc, [key]: value });
 
 	function setNumber(key: 'durationMs' | 'padding', raw: string): void {
-		if (raw.trim() === '' && key === 'padding') {
+		if (raw.trim() === '') {
+			if (key === 'durationMs') return;
 			const next = { ...doc };
 			delete next.padding;
 			return onChange(next);
@@ -311,9 +313,9 @@
 		</div>
 	{/each}
 	<div class="row adds">
-		{#each PARAM_KINDS as [kind, label] (kind)}
+		{#each PARAM_KINDS as kind (kind)}
 			<button type="button" {disabled} onclick={() => onChange(addParam(doc, kind))}
-				>+ {label}</button
+				>+ {PARAM_KIND_LABELS[kind]}</button
 			>
 		{/each}
 	</div>

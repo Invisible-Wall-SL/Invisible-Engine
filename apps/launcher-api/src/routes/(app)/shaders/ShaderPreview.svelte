@@ -1,9 +1,5 @@
 <script lang="ts">
-	import {
-		ELEMENT_FX_LIMITS,
-		type CustomElementFx,
-		type ElementFxParamValue,
-	} from 'constants-shared/elementFx';
+	import { ELEMENT_FX_LIMITS, type CustomElementFx } from 'constants-shared/elementFx';
 	import { Application, UPDATE_PRIORITY, type Ticker } from 'pixi.js';
 	import { untrack } from 'svelte';
 	import {
@@ -23,14 +19,12 @@
 		/** The graph being edited, compiled (`compileShaderEffect(doc)`'s `effect`); undefined while
 		 *  it does not compile. */
 		effect: CustomElementFx | undefined;
-		/** The param values to preview with; one left out takes its spec's default. */
-		params?: Record<string, ElementFxParamValue>;
 		/** The project's atlases, as the page's loader lists them. */
 		atlases: { manifestKey: string; label: string; regions: string[] }[];
 	}
 
 	// Not `effect`: a local of that name turns the `$effect` rune into a store read.
-	let { effect: compiled, params, atlases }: Props = $props();
+	let { effect: compiled, atlases }: Props = $props();
 
 	const INTENSITY = ELEMENT_FX_LIMITS.intensity;
 
@@ -53,7 +47,6 @@
 
 	// Keyed by content: an edit that compiles to the same effect (a node dragged) does not restart it.
 	const effectKey = $derived(compiled ? JSON.stringify(compiled) : '');
-	const paramsKey = $derived(JSON.stringify(params ?? {}));
 	const durationMs = $derived(compiled ? previewDurationMs(compiled) : 0);
 	const atlas = $derived(atlases.find((a) => a.manifestKey === atlasKey));
 	const pickedRegion = $derived(
@@ -93,6 +86,11 @@
 					height: Math.max(1, el.clientHeight),
 				});
 			} catch {
+				try {
+					next.destroy({ removeView: true });
+				} catch {
+					// Half-built: there may be nothing to tear down.
+				}
 				if (!disposed) failure = 'The preview needs WebGL, which this browser did not provide.';
 				return;
 			}
@@ -120,15 +118,14 @@
 		};
 	});
 
-	// Posing reads the playhead: untracked, or every frame would start the effect again.
+	// Posing reads the playhead: untracked, or every frame would start the effect again. Params play
+	// their defaults.
 	$effect(() => {
 		const shown = stage;
 		const fxKey = effectKey;
-		const valuesKey = paramsKey;
 		if (!shown) return;
 		const fx = fxKey ? (JSON.parse(fxKey) as CustomElementFx) : undefined;
-		const values = JSON.parse(valuesKey) as Record<string, ElementFxParamValue>;
-		refused = untrack(() => !shown.show(fx, values));
+		refused = untrack(() => !shown.show(fx));
 	});
 
 	$effect(() => {

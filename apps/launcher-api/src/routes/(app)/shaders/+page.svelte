@@ -61,7 +61,13 @@
 	let doc = $state<ShaderGraphDoc | null>(untrack(() => data.opened?.doc ?? null));
 	let openShared = $state(untrack(() => data.opened?.shared ?? false));
 	let selectedId = $state<string | null>(null);
-	let notice = $state('');
+	let notice = $state(
+		untrack(() =>
+			data.missing
+				? `This project has no effect "${data.missing}": it was deleted, or the link is old.`
+				: '',
+		),
+	);
 
 	const analysis = $derived(doc ? analyzeShaderGraph(doc) : undefined);
 	const compiled = $derived(doc ? compileShaderEffect(doc) : undefined);
@@ -75,16 +81,21 @@
 	let edges = $state.raw<Edge[]>([]);
 	let fitSignal = $state(0);
 	$effect(() => {
+		// The selection is the canvas's own (Shift / Ctrl / ⌘-click, a box): a rebuild keeps it.
+		const kept = untrack(() => nodes)
+			.filter((n) => n.selected)
+			.map((n) => n.id);
+		const picked = new Set(selectedId ? [...kept, selectedId] : kept);
 		const graph = doc
-			? canvasGraph(doc, analysis, selectedId, lease.readOnly)
+			? canvasGraph(doc, analysis, picked, lease.readOnly)
 			: { nodes: [], edges: [] };
 		nodes = graph.nodes as Node[];
 		edges = graph.edges as Edge[];
 	});
 
 	// ── Undo ──
-	let past = $state<ShaderGraphDoc[]>([]);
-	let future = $state<ShaderGraphDoc[]>([]);
+	let past = $state.raw<ShaderGraphDoc[]>([]);
+	let future = $state.raw<ShaderGraphDoc[]>([]);
 	const UNDO_DEPTH = 100;
 
 	/** Every edit: remember the doc it replaces, show the new one, autosave. */
@@ -107,7 +118,7 @@
 		const next = future[0];
 		if (!next || !doc || lease.readOnly) return;
 		future = future.slice(1);
-		past = [...past, doc];
+		past = [...past.slice(-(UNDO_DEPTH - 1)), doc];
 		doc = next;
 		saveState.markDirty();
 	}
@@ -122,8 +133,10 @@
 	});
 	/** The lease follows the open graph; a shared one is not this project's to lease until saved. */
 	let leasedId: string | null = null;
+	/** Set on unmount: a save landing after the page is gone takes no lease. */
+	let destroyed = false;
 	function leaseGraph(id: string | null): void {
-		if (id === leasedId) return;
+		if (id === leasedId || destroyed) return;
 		leasedId = id;
 		void lease.switchDoc(id);
 	}
@@ -140,22 +153,7 @@
 			const shown = shownGraph;
 			if (!current) return { ok: true, etag: baseEtag };
 			try {
-				const res = await fetch('/api/shaders/save', {
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({
-						doc: $state.snapshot(current),
-						projectKey,
-						...(force ? { force: true } : { baseEtag }),
-					}),
-				});
-				const out = (await res.json().catch(() => ({}))) as {
-					id?: string;
-					name?: string;
-					etag?: string | null;
-					error?: string;
-					message?: string;
-				};
+				const { res, out } = await postSave(current, force ? { force: true } : { baseEtag });
 				if (res.status === 409) {
 					return {
 						ok: false,
@@ -189,6 +187,30 @@
 			}
 		},
 	});
+
+	interface SaveAnswer {
+		id?: string;
+		name?: string;
+		etag?: string | null;
+		error?: string;
+		message?: string;
+	}
+	async function postSave(
+		graph: ShaderGraphDoc,
+		guard: { baseEtag: string | null } | { force: true },
+	): Promise<{ res: Response; out: SaveAnswer }> {
+		const res = await fetch('/api/shaders/save', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ doc: $state.snapshot(graph), projectKey, ...guard }),
+		});
+		return { res, out: (await res.json().catch(() => ({}))) as SaveAnswer };
+	}
+
+	async function refreshList(): Promise<void> {
+		const list = await fetch(`/api/shaders/list?projectKey=${encodeURIComponent(projectKey)}`);
+		if (list.ok) graphs = ((await list.json()) as { shaders: GraphRow[] }).shaders;
+	}
 
 	function upsertRow(row: GraphRow): void {
 		const rest = graphs.filter((g) => g.id !== row.id);
@@ -243,9 +265,12 @@
 		syncUrl(next, shared);
 	}
 
+	/** Bumped by each open: a slower answer to an earlier click is dropped. */
+	let opening = 0;
 	async function open(row: GraphRow): Promise<void> {
 		if (doc && row.id === doc.id && row.shared === openShared) return;
-		if (!(await settle())) return;
+		const ticket = ++opening;
+		if (!(await settle()) || ticket !== opening) return;
 		const params = new URLSearchParams({
 			id: row.id,
 			projectKey,
@@ -255,10 +280,17 @@
 		const out = (await res.json().catch(() => ({}))) as {
 			doc?: unknown;
 			etag?: string | null;
+			exists?: boolean;
 			message?: string;
 		};
+		if (ticket !== opening) return;
 		if (!res.ok || !out.doc) {
 			notice = out.message ?? `Could not open "${row.name}" (HTTP ${res.status}).`;
+			return;
+		}
+		if (out.exists === false) {
+			notice = `"${row.name}" is gone: someone deleted it.`;
+			await refreshList();
 			return;
 		}
 		notice = '';
@@ -290,9 +322,19 @@
 			}))
 		)
 			return;
-		showGraph(newShaderDoc(id, name), null, false);
-		saveState.markDirty();
-		await saveState.save();
+		const fresh = newShaderDoc(id, name);
+		const { res, out } = await postSave(fresh, { baseEtag: null });
+		if (!res.ok || !out.id) {
+			notice =
+				res.status === 409 && out.error !== 'scope-mismatch'
+					? `Someone just made an effect "${id}" in this project. Pick another name.`
+					: (out.message ?? `Could not create "${name}" (HTTP ${res.status}).`);
+			await refreshList();
+			return;
+		}
+		notice = '';
+		upsertRow({ id: out.id, name: out.name ?? name, description: '', shared: false });
+		showGraph(fresh, out.etag ?? null, false);
 	}
 
 	async function del(row: GraphRow): Promise<void> {
@@ -315,8 +357,7 @@
 			return;
 		}
 		if (doc?.id === row.id && !openShared) showGraph(null, null, false);
-		const list = await fetch(`/api/shaders/list?projectKey=${encodeURIComponent(projectKey)}`);
-		if (list.ok) graphs = ((await list.json()) as { shaders: GraphRow[] }).shaders;
+		await refreshList();
 	}
 
 	// ── Canvas gestures ──
@@ -361,6 +402,8 @@
 	function placeNode(type: string, pos: { x: number; y: number }): void {
 		if (!doc || !shaderNode(type)) return;
 		const added = addNode(doc, type, pos);
+		// The new node alone is selected.
+		nodes = nodes.map((n) => (n.selected ? { ...n, selected: false } : n));
 		edit(added.doc);
 		selectedId = added.id;
 	}
@@ -427,7 +470,9 @@
 		const k = e.key.toLowerCase();
 		if (k === 's') {
 			e.preventDefault();
-			// The armed autosave would only write the same doc again.
+			// Nothing to save writes nothing (a shared graph saved unedited would become the project's
+			// copy); the armed autosave would only write the same doc again.
+			if (!saveState.dirty) return;
 			saveState.cancelAutosave();
 			void saveState.save();
 		} else if (!typing && k === 'z' && !e.shiftKey) {
@@ -440,12 +485,14 @@
 	}
 
 	onMount(() => {
-		if (doc && !openShared && data.opened?.exists) leaseGraph(doc.id);
+		if (doc && !openShared) leaseGraph(doc.id);
+		if (data.missing) syncUrl(null, false);
 		const onUnload = () => lease.release();
 		window.addEventListener('pagehide', onUnload);
 		return () => {
 			window.removeEventListener('pagehide', onUnload);
 			saveState.cancelAutosave();
+			destroyed = true;
 			lease.release();
 		};
 	});

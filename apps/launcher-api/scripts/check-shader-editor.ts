@@ -8,7 +8,8 @@
  *      doc that compiles; an input takes one wire; removing a node takes its wires; the Output
  *      stays.
  *   3. The wire rule is the compiler's: a float spreads, a vector narrows, a shorter vector never
- *      widens, nothing feeds itself, an input that follows its node's type takes anything.
+ *      widens, nothing feeds itself, an input that follows its node's type takes anything, and no
+ *      wire is taken that the compiler then refuses (a type it sets elsewhere, a loop).
  *   4. The canvas shows each node's errors on it, the resolved port types and the wired inputs,
  *      even while the effect has an error of its own; read-only, nothing on it can change.
  *   5. The client's id is the store's: `slugOf` agrees with the server's `shaderSlug`.
@@ -128,6 +129,19 @@ check(
 	restCurve('rotation').every((k) => k.v === 0),
 	true,
 );
+const renamed = setParam(doc, 0, {
+	...doc.params[0],
+	id: 'tint',
+} as ShaderGraphDoc['params'][number]);
+check(
+	'renaming a param takes its Param nodes and pass ties with it',
+	[
+		renamed.nodes.find((n) => n.id === param.id)?.values?.param,
+		renamed.passes?.[0].params?.color,
+		errors(renamed),
+	],
+	['tint', { param: 'tint' }, []],
+);
 check(
 	'clearing the last motion channel drops the motion',
 	setMotionChannel(doc, 'scale', undefined).motion,
@@ -203,6 +217,43 @@ check(
 	),
 	true,
 );
+const fed = connect(
+	connect(add.doc, { node: reader.id, port: 'out' }, { node: add.id, port: 'a' }),
+	{ node: add.id, port: 'out' },
+	{ node: 'out', port: 'color' },
+);
+check(
+	'a vec2 into an input whose node a vec4 already sets is the compiler’s type error: refused',
+	canConnect(
+		fed,
+		analyzeShaderGraph(fed),
+		{ node: uv.id, port: 'out' },
+		{ node: add.id, port: 'b' },
+	),
+	false,
+);
+const add2 = addNode(fed, 'add', { x: 0, y: 0 });
+const chained = connect(add2.doc, { node: add.id, port: 'out' }, { node: add2.id, port: 'a' });
+check(
+	'a wire that closes a loop through other nodes: refused',
+	canConnect(
+		chained,
+		analyzeShaderGraph(chained),
+		{ node: add2.id, port: 'out' },
+		{ node: add.id, port: 'b' },
+	),
+	false,
+);
+check(
+	'…while the same port takes a wire that keeps the graph sound',
+	canConnect(
+		chained,
+		analyzeShaderGraph(chained),
+		{ node: f.id, port: 'out' },
+		{ node: add.id, port: 'b' },
+	),
+	true,
+);
 check(
 	'an unknown port takes nothing',
 	canConnect(wiring, a, { node: f.id, port: 'out' }, { node: 'out', port: 'nope' }),
@@ -212,7 +263,7 @@ check(
 // ── 4 ──
 console.log('4. the canvas');
 const broken = connect(doc, { node: param.id, port: 'out' }, { node: 'missing', port: 'x' });
-const view = canvasGraph(broken, analyzeShaderGraph(broken), tint.id);
+const view = canvasGraph(broken, analyzeShaderGraph(broken), new Set([tint.id]));
 check('every node is drawn', view.nodes.length, broken.nodes.length);
 check(
 	'the selected node is selected',
@@ -238,7 +289,7 @@ check(
 	view.nodes.some((n) => n.data.errors.length > 0),
 	false,
 );
-const locked = canvasGraph(doc, analyzeShaderGraph(doc), null, true);
+const locked = canvasGraph(doc, analyzeShaderGraph(doc), new Set(), true);
 check(
 	'read-only, nothing on the canvas moves, wires or deletes',
 	[...locked.nodes, ...locked.edges].some(
@@ -246,7 +297,12 @@ check(
 	),
 	false,
 );
-const typed = canvasGraph(doc, analyzeShaderGraph(doc), null);
+const typed = canvasGraph(doc, analyzeShaderGraph(doc), new Set([tint.id, fade.id]));
+check(
+	'a selection of several stays several',
+	typed.nodes.filter((n) => n.selected).map((n) => n.id),
+	[tint.id, fade.id],
+);
 check(
 	'…and when it is not, everything but the Output deletes',
 	typed.nodes.filter((n) => !n.deletable).map((n) => n.id),
@@ -258,7 +314,7 @@ check(
 	true,
 );
 const badValue = setNodeValue(doc, fade.id, 'amount', [1, 2, 3]);
-const badView = canvasGraph(badValue, analyzeShaderGraph(badValue), null);
+const badView = canvasGraph(badValue, analyzeShaderGraph(badValue), new Set());
 check(
 	'a node’s own error shows on it',
 	(badView.nodes.find((n) => n.id === fade.id)?.data.errors.length ?? 0) > 0,

@@ -18,6 +18,7 @@ import {
 import {
 	SHADER_GRAPH_VERSION,
 	SHADER_NODES,
+	analyzeShaderGraph,
 	canFeed,
 	shaderNode,
 	type GraphNode,
@@ -104,9 +105,14 @@ function portType(
 	return shaderNode(node.type)?.[side].find((p) => p.id === port)?.type;
 }
 
+const errorsOf = (a: ShaderGraphAnalysis, code: 'type' | 'cycle'): number =>
+	a.issues.filter((i) => i.level === 'error' && i.code === code).length;
+
 /**
- * Whether `from`'s output can feed `to`'s input: never a node into itself, and the types must
- * convert (an input that follows its node's type takes anything; the node then follows it).
+ * Whether `from`'s output can feed `to`'s input: never a node into itself, the types must convert
+ * (an input that follows its node's type takes anything; the node then follows it), and the graph
+ * the wire makes has no loop or type error the graph had not, so the canvas takes only a wire the
+ * compiler takes.
  */
 export function canConnect(
 	doc: ShaderGraphDoc,
@@ -120,8 +126,13 @@ export function canConnect(
 	const out = portType(analysis, source, 'outputs', from.port);
 	const declared = shaderNode(target?.type ?? '')?.inputs.find((p) => p.id === to.port)?.type;
 	if (!out || !declared) return false;
-	if (declared === 'any') return true;
-	return canFeed(out === 'any' ? 'float' : out, declared);
+	if (declared !== 'any' && !canFeed(out === 'any' ? 'float' : out, declared)) return false;
+	const before = analysis ?? analyzeShaderGraph(doc);
+	const after = analyzeShaderGraph(connect(doc, from, to));
+	return (
+		errorsOf(after, 'cycle') <= errorsOf(before, 'cycle') &&
+		errorsOf(after, 'type') <= errorsOf(before, 'type')
+	);
 }
 
 /** `doc` with `from` wired into `to`, replacing what fed `to` before: an input takes one wire. */
@@ -217,6 +228,7 @@ export function addParam(doc: ShaderGraphDoc, kind: ElementFxParamSpec['kind']):
 }
 
 /** `doc` with param `index` replaced by `spec`. */
+/** `doc` with param `index` replaced; a new id is followed by the Param nodes and pass ties reading it. */
 export function setParam(
 	doc: ShaderGraphDoc,
 	index: number,
@@ -224,7 +236,27 @@ export function setParam(
 ): ShaderGraphDoc {
 	const next = clone(doc);
 	if (index < 0 || index >= next.params.length) return doc;
+	const was = next.params[index].id;
 	next.params[index] = JSON.parse(JSON.stringify(spec)) as ElementFxParamSpec;
+	if (spec.id === was) return next;
+	for (const node of next.nodes) {
+		for (const setting of shaderNode(node.type)?.settings ?? []) {
+			if (setting.kind === 'param' && node.values?.[setting.id] === was)
+				node.values[setting.id] = spec.id;
+		}
+	}
+	next.passes = next.passes?.map((pass) => ({
+		...pass,
+		...(pass.params && {
+			params: Object.fromEntries(
+				Object.entries(pass.params).map(([k, v]) => [
+					k,
+					typeof v === 'object' && v.param === was ? { param: spec.id } : v,
+				]),
+			),
+		}),
+	}));
+	if (!next.passes) delete next.passes;
 	return next;
 }
 
@@ -342,7 +374,7 @@ export type ShaderNodeView = {
 export function canvasGraph(
 	doc: ShaderGraphDoc,
 	analysis: ShaderGraphAnalysis | undefined,
-	selectedId: string | null,
+	selected: ReadonlySet<string>,
 	readOnly = false,
 ): {
 	nodes: {
@@ -389,7 +421,7 @@ export function canvasGraph(
 			id: node.id,
 			type: 'shader' as const,
 			position: { x: node.x, y: node.y },
-			selected: node.id === selectedId,
+			selected: selected.has(node.id),
 			draggable: !readOnly,
 			connectable: !readOnly,
 			deletable: !readOnly && node.type !== 'output',

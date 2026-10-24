@@ -57,13 +57,13 @@ projects to see another project's effects. The atlases the preview offers are th
 - **+ New** (or **+ New effect** in the empty canvas) asks for a **Name** and creates the effect
   straight away. Its id is the name in lower case, every character but a letter or digit turned
   into `_`, up to 60 characters (`Pulse tint` → `pulse_tint`). If the project already has an effect
-  with that id, a red notice asks you to pick another name. If the shared library has one, you are
-  asked first: yours would take its place in this project.
+  with that id (or someone makes one while you type), a red notice asks you to pick another name.
+  If the shared library has one, you are asked first: yours would take its place in this project.
 - A new effect starts with the **Output** alone. Unwired, the Output draws the element as it is, so
   a new effect already compiles and changes nothing.
 - Click a name in **Effects** to open it. Any unsaved change to the open effect is saved first.
 - The page URL carries the open effect (`/shaders?graph=<id>`), so a reload or a shared link opens
-  it again.
+  it again. A link to an effect the project no longer has opens nothing and says so.
 
 **The id never changes.** Renaming an effect (see "Effect settings") changes the label the pickers
 show, not `custom:<id>`. Placed entries keep working after a rename. To get a different id, make a
@@ -288,8 +288,8 @@ between Bell and Mix's T, and wire Time's **Strength** into its other input.
 
 ### Save, undo and history
 
-- **It autosaves** about a second after your last change. **Ctrl+S** (⌘S) saves at once. There is
-  no Save button.
+- **It autosaves** about a second after your last change. **Ctrl+S** (⌘S) saves at once; with
+  nothing changed it saves nothing. There is no Save button.
 - **The save pill** reads **Saving…**, **Unsaved changes**, **Saved** or **Save failed — retry**
   (click it to retry). **⚠ Wrong project — not saved** means the tab is on another project than
   the launcher's; **Reload** fixes it.

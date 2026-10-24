@@ -11,7 +11,6 @@ import {
 	customElementFxList,
 	setCustomElementFx,
 	type CustomElementFx,
-	type ElementFxParamValue,
 } from 'constants-shared/elementFx';
 import {
 	elementFxHostFor,
@@ -225,8 +224,8 @@ export class RegionArt {
 
 /**
  * The preview's Pixi side: one element centred on `app`'s stage, the edited effect posed on it
- * through `playElementFx`, read from `pose` every frame. The effect starts again whenever it, its
- * params or the element's art change; the runtime puts the element back at rest in between.
+ * through `playElementFx`, read from `pose` every frame. The effect starts again whenever it or the
+ * element's art changes; the runtime puts the element back at rest in between.
  */
 export class ShaderPreviewStage {
 	readonly element = new Sprite();
@@ -235,8 +234,7 @@ export class ShaderPreviewStage {
 	/** The atlas region on the element, which this stage owns; the sample card stays. */
 	private region: Texture | undefined;
 	private artToken = 0;
-	private shown:
-		{ effect: CustomElementFx; params?: Record<string, ElementFxParamValue> } | undefined;
+	private shown: { effect: CustomElementFx } | undefined;
 	/** What {@link show} registered: taken out again at {@link destroy} if still the only one. */
 	private registered: CustomElementFx | undefined;
 	private handle: ElementFxHandle | undefined;
@@ -254,18 +252,18 @@ export class ShaderPreviewStage {
 	}
 
 	/**
-	 * Pose `effect` from now on, registered as the only custom effect (on this page only the edited
-	 * graph plays), or nothing (`undefined`: the element at rest). False when it cannot play: the
-	 * registry refused it, or the runtime did not start it.
+	 * Pose `effect` from now on, its params at their defaults, registered as the only custom effect
+	 * (on this page only the edited graph plays), or nothing (`undefined`: the element at rest).
+	 * False when it cannot play: the registry refused it, or the runtime did not start it.
 	 */
-	show(effect: CustomElementFx | undefined, params?: Record<string, ElementFxParamValue>): boolean {
+	show(effect: CustomElementFx | undefined): boolean {
 		this.stopPlay();
 		this.shown = undefined;
 		if (!effect || this.destroyed) return true;
 		const [registered] = setCustomElementFx([effect]);
 		this.registered = registered;
 		if (!registered) return false;
-		this.shown = { effect: registered, params };
+		this.shown = { effect: registered };
 		this.startPlay();
 		return this.handle?.active ?? false;
 	}
@@ -347,10 +345,10 @@ export class ShaderPreviewStage {
 
 	private startPlay(): void {
 		if (!this.shown) return;
-		const { effect, params } = this.shown;
+		const { effect } = this.shown;
 		this.handle = playElementFx(
 			this.element,
-			{ kind: effect.spec.kind, durationMs: effect.spec.durationMs, params, pose: this.pose },
+			{ kind: effect.spec.kind, durationMs: effect.spec.durationMs, pose: this.pose },
 			elementFxHostFor(this.app),
 		);
 	}

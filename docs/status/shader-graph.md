@@ -149,9 +149,10 @@ live Pixi preview, with a lease and history), is in review.
     is a drawn sample card or any atlas region (symbol art included; rotated and trimmed frames as
     Pixi builds them). An edit that compiles to the same effect does not restart it; a graph that
     does not compile shows the element at rest and says so.
-  - **Proof.** `check:shader-editor` (50 checks: every gesture, the wire rule, the canvas view,
-    the client's slug against the server's); `check:shader-pipeline` grew to 86 (the `shaders` gate
-    and history); the preview played headless on WebGL1 and WebGL2 (74 checks).
+  - **Proof.** `check:shader-editor` (60 checks: every gesture, the wire rule, the canvas view,
+    the client's slug against the server's); `check:shader-pipeline` grew to 88 (the `shaders` gate,
+    history, a delete kept in History); the preview played headless on WebGL1 and WebGL2 (74
+    checks); the whole page played headless (67 checks).
 - **Not started:** steps 6–8 (templates, editor v2, later).
 
 ## Open items / next
@@ -161,6 +162,8 @@ live Pixi preview, with a lease and history), is in review.
    - The preview plays the params' defaults; there is no per-preview value yet.
    - The preview uses WebGL2 where there is one (CI's `shader-compile` covers WebGL1), does not
      follow a change of screen pixel ratio, and clips a graph padded to the 2× maximum at its edge.
+   - Delete has no lease check: the ✕ on a graph another author has open deletes it (its last
+     version is in History), and their next save is then refused as a conflict.
 3. **Step 4 follow-ups.**
    - What ships is the project's whole set. Once the shared library has entries (step 7), ship only
      the graphs a doc names (`custom:<id>` in the scenes, components, symbols and flow).
@@ -191,6 +194,24 @@ live Pixi preview, with a lease and history), is in review.
     `check:launcher-gates` lists `shaders/backups`; `check:doc-backups` has the `shader` stem; a
     setup duplicate leaves graph history behind.
   - **svelte-check.** `apps/launcher-api` 46 → 45 (the Flow prop names).
+  - **Play-QA of the whole page** (the real page and children, compiled and bundled, every API route
+    answered from an in-memory store, driven in Chromium): boot, new / open / wire / refuse a wire,
+    an error on its node and in the status bar, autosave and Ctrl+S under the ETag, a 409 and
+    overwrite, undo / redo, a shared graph saved as the project's copy, delete. It found and fixed:
+    a second save after Ctrl+S; a graph switch during an autosave that copied the shared graph into
+    the project unedited (and cleared its tag, and re-leased the old graph); `?shared=1` left in the
+    URL after the copy was saved; fields overflowing the settings pane.
+  - **Review fixes.** An independent review: a delete now copies the graph into History first
+    (`deleteDocWithBackup`; an autosave copies at most every 5 minutes, so up to 5 minutes of work
+    was lost while the dialog promised History); a `?graph=` the project lacks opens nothing and
+    says so (it had opened an Output-less doc nothing could repair); a create whose id a colleague
+    took meanwhile says so instead of offering to overwrite theirs; the canvas refuses a wire the
+    compiler would (a type its node takes elsewhere, a loop through other nodes); Ctrl+S on an
+    unedited graph saves nothing (on a shared one it made the project's copy); a multi-selection
+    survives a rebuild; a slower open no longer lands after a later one; renaming a param takes its
+    Param nodes and pass ties with it. Also from the guide's read-through: an effect-level error no
+    longer stops the port types and cost, the Output cannot be deleted, a read-only canvas changes
+    nothing, Game Maker's publish note lists the shader effects a game will not play.
 - 2026-10-24 — **Step 4: the pipeline** (storage, routes, ship, pickers). See "Current state" for
   what each part does.
   - **Proof.**
