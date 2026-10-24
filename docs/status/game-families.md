@@ -104,6 +104,8 @@ and board-cell bullets. No game uses any of it yet.
 - **Known limits** (none reachable by a current game):
   - one press per node at a time: a second finger on a node ends the first finger's drag and drags
     in its place;
+  - a touch the browser cancels mid-drag gets its `dragEnd` only at the node's next `down` (Pixi 8
+    forwards no `pointercancel`; a native listener on the canvas would close it);
   - Align Target has no bounds; a slider's clamp is Flow's (from the drag's x) until it has one;
   - an Align Target maps through its parent's transform at the moment of the event, so a parent
     that moves during a drag moves the node with it until the next move.
