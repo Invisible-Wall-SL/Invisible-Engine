@@ -4,10 +4,10 @@
 
 **One-line state:** plan approved 2026-10-23. Step 1 (one shared GLSL library under the 17
 built-in shader passes, #1320) and step 2 (the `engine-shadergraph` package: nodes, validator,
-compiler, #1322) are merged. Step 3, the runtime (a compiled graph plays as `custom:<id>` wherever a
-built-in Element FX does), is in review (#1328). Step 4, the pipeline, is built on top of it: a
-project's graphs are stored, compiled into Publish and the bake, registered by the game at boot and
-listed by the Scene Editor, Symbols and Flow pickers. No `/shaders` tool exists yet (step 5): a
+compiler, #1322) and step 3 (the runtime: a compiled graph plays as `custom:<id>` wherever a built-in
+Element FX does, #1328) are merged. Step 4, the pipeline, is in review: a project's graphs are
+stored, compiled into Publish and the bake, registered by the game at boot and listed by the Scene
+Editor, Symbols and Flow pickers. No `/shaders` tool exists yet (step 5): a
 graph is saved through `/api/shaders/save`.
 
 ## Current state
@@ -52,7 +52,7 @@ graph is saved through `/api/shaders/save`.
     reference graphs and every node at every vector width through the real `ElementFxFilter` in
     headless Chromium, on WebGL1 and WebGL2. It fails on any shader the driver rejects and names
     the graph.
-- **Step 3, the runtime.** Built and in review.
+- **Step 3, the runtime.** Merged (#1328, 2026-10-24).
   - **Custom kinds.** A compiled graph plays as the Element FX kind `custom:<id>`. The registry is
     in `constants-shared/elementFx`: `setCustomElementFx(list)` replaces the set,
     `isPlayableElementFxKind` answers for built-ins and registered custom kinds alike.
@@ -84,7 +84,7 @@ graph is saved through `/api/shaders/save`.
   - **An unregistered custom entry still counts** where the engine counts entries: cue names,
     keyed channels, an `enter` beat a symbol state waits for. Playing it is a no-op whose `done` is
     already settled, so the wait ends at once.
-- **Step 4, the pipeline.** Built and in review, on top of step 3.
+- **Step 4, the pipeline.** Built and in review.
   - **Storage** (`apps/launcher-api/src/lib/server/shaderStorage.ts`). One file per graph: a
     project's at `<client>/<project>/shaders/<id>.json`, the studio-shared library's at
     `_shared/shaders/<id>.json`. A project's graph shadows a shared one of the same id; the project's
@@ -124,7 +124,7 @@ graph is saved through `/api/shaders/save`.
 - **Not started:** steps 5–8 (the `/shaders` editor, templates, editor v2, later).
 
 ## Open items / next
-1. Merge step 3 (#1328), then step 4.
+1. Merge step 4.
 2. **Step 5: the `/shaders` editor.** It takes the save gate over from the Scene Editor (a `shaders`
    tool in `roles.ts`, with its doc, rule 9), acquires the lease (`/api/lease`, doc key the graph
    id) and keeps history (`docBackups`, a target per graph).
