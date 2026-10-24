@@ -9,7 +9,8 @@ import { SHADER_GRAPH_VERSION, type GraphNode, type GraphWire, type ShaderGraphD
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+/** A JSON copy of what the author wrote; the validator, not this, checks it is a `T`. */
+const copyAs = <T>(value: unknown): T => JSON.parse(JSON.stringify(value)) as T;
 
 const finite = (value: unknown, fallback: number): number =>
 	typeof value === 'number' && Number.isFinite(value) ? value : fallback;
@@ -62,16 +63,15 @@ export function normalizeShaderGraphDoc(raw: unknown, id: string): ShaderGraphDo
 		name: typeof src.name === 'string' ? src.name : id,
 		phase: (typeof src.phase === 'string' ? src.phase : 'loop') as ShaderGraphDoc['phase'],
 		durationMs: finite(src.durationMs, 1000),
-		params: Array.isArray(src.params) ? plain(src.params.filter(isRecord)) : [],
+		params: Array.isArray(src.params) ? copyAs(src.params.filter(isRecord)) : [],
 		nodes: Array.isArray(src.nodes) ? src.nodes.filter(isRecord).map(readNode) : [],
 		wires: Array.isArray(src.wires)
 			? src.wires.map(readWire).filter((w): w is GraphWire => !!w)
 			: [],
-	} as ShaderGraphDoc;
+	};
 	if (typeof src.description === 'string') doc.description = src.description;
 	if (typeof src.padding === 'number' && Number.isFinite(src.padding)) doc.padding = src.padding;
-	if (Array.isArray(src.passes))
-		doc.passes = plain(src.passes.filter(isRecord)) as ShaderGraphDoc['passes'];
-	if (isRecord(src.motion)) doc.motion = plain(src.motion) as ShaderGraphDoc['motion'];
+	if (Array.isArray(src.passes)) doc.passes = copyAs(src.passes.filter(isRecord));
+	if (isRecord(src.motion)) doc.motion = copyAs(src.motion);
 	return doc;
 }
