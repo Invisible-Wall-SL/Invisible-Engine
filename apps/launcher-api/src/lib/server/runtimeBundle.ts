@@ -194,8 +194,9 @@ function resolveRigKeysForComponentDefs(
 }
 
 /**
- * Resolve the transitive set of {@link ComponentDef}s a doc references — IDENTICAL
- * to `routes/api/editor/doc/+server.ts#resolveReferencedDefs`. Each id resolves
+ * Resolve the transitive set of {@link ComponentDef}s a doc references — the same closure
+ * as `routes/api/editor/doc/+server.ts#resolveReferencedDefs`; this one also logs a
+ * referenced id that has no def, so the boot log and Publish name it. Each id resolves
  * through the built-in → shared → project precedence (`loadComponent`), so a
  * project's EDITED def shadows the coded one. `versions` carries the EXACT pinned
  * non-latest defs (§8.9 v2) so a shipped game renders the authored version; empty
@@ -216,7 +217,15 @@ async function resolveReferencedDefs(
 	const defs = await resolveComponentClosure(
 		doc.scenes.flatMap((scene) => scene.nodes),
 		(id) => loadComponent(id, projectKey),
-		{ extraSeedIds, defaultsFor: (id) => componentDefaultsFor(storedDefaults, id) },
+		{
+			extraSeedIds,
+			defaultsFor: (id) => componentDefaultsFor(storedDefaults, id),
+			// A bet mode's card with no def falls back on purpose; anything else the doc names is lost.
+			onMissing: (id) => {
+				if (extraSeedIds.includes(id)) return;
+				console.warn(`[runtime] "${projectKey}": component '${id}' is referenced but has no def.`);
+			},
+		},
 	);
 	const versions: ComponentDef[] = [];
 	for (const pin of collectComponentPins(doc.scenes.flatMap((scene) => scene.nodes))) {

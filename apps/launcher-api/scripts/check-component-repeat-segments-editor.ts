@@ -18,7 +18,12 @@
  *     the built-in Segmented Counter previews from the built-in timelines;
  *  5. parity: a source-list repeater (the seeded buy-feature cards) frames and expands exactly as
  *     before this change;
- *  6. the State machine panel's preview reads a param's default (`index` on a segment opened alone).
+ *  6. the State machine panel's preview reads a param's default (`index` on a segment opened alone);
+ *  7. end caps made by ⧉ Duplicate (`duplicateComponent`) of a segment drawn from rig looks, as the
+ *     owner's Respin counter: each segment's shown look (what the rig layer draws, which has no
+ *     alpha) is the one its machine lights; a variant naming no def draws the middle segment, as in
+ *     game; the rig layer walks count-mode repeaters and the canvas mounts it for their rigs
+ *     (source-scanned).
  *
  * What it cannot prove: the canvas and Properties in a browser — the owner's pass.
  */
@@ -278,11 +283,15 @@ eq(
 		],
 	);
 	eq(
-		'a missing variant is left out of the boxes (the others still draw)',
+		'a missing variant draws the segment an unset one would (as in game), not nothing',
 		H.repeaterCountBoxes(counter({ variants: { first: 'gone' } }), map, 'desktop', 0, 0).boxes.map(
-			(b) => b.index,
+			(b) => [b.index, b.def.id],
 		),
-		[2, 3],
+		[
+			[1, 'seg'],
+			[2, 'seg'],
+			[3, 'seg'],
+		],
 	);
 }
 
@@ -582,6 +591,118 @@ eq(
 	),
 	true,
 );
+
+// ---- 7. rig-look end caps, and a variant naming no def -----------------------------------------
+
+{
+	const D = await import('../src/routes/(app)/editor/componentDuplicate.client.ts');
+	const rigLook = (look: NonNullable<LayoutNode>): LayoutNode =>
+		look.kind === 'container'
+			? {
+					...look,
+					children: [
+						{
+							id: `${look.id}-rig`,
+							kind: 'spine',
+							x: 0,
+							y: 0,
+							assetKey: 'R_RespinTile',
+							defaultAnimation: look.label === 'lit' ? 'ON' : 'OFF',
+						} as LayoutNode,
+					],
+				}
+			: look;
+	const starter = L.SEGMENTED_COUNTER_SEGMENT_DEF;
+	const middle: ComponentDef = {
+		...starter,
+		root: { ...starter.root, children: starter.root.children.map(rigLook) },
+	};
+	let minted = 0;
+	const cap = (id: string, x: number) => {
+		const copy = D.duplicateComponent(middle, {
+			id,
+			name: `${id} copy`,
+			mintNodeId: () => `n_${minted++}`,
+			timelines: L.SEGMENTED_COUNTER_TIMELINES,
+			takenTimelineIds: L.BUILTIN_TIMELINES.map((d) => d.id),
+		});
+		copy.def.root.children.push({
+			id: `${id}-border`,
+			kind: 'sprite',
+			x,
+			y: 0,
+			anchor: { x: 0.5, y: 0.5 },
+			assetKey: 'borders',
+			region: id,
+			width: 60,
+			height: 106,
+		} as LayoutNode);
+		return copy;
+	};
+	const first = cap('capL', -85);
+	const last = cap('capR', 85);
+	const timelines = new Map<string, readonly CinematicDoc[]>([
+		[middle.id, L.SEGMENTED_COUNTER_TIMELINES],
+		[first.def.id, first.timelines],
+		[last.def.id, last.timelines],
+	]);
+	const counter = (variants: { first: string; last: string }): CountRepeater => ({
+		...H.newCountRepeater({ id: 'bar', x: 0, y: 0, anchor: { x: 0.5, y: 0.5 } }, middle.id),
+		layout: { direction: 'row', gap: 6 },
+		previewInputs: { value: 2 },
+		variants,
+	});
+	const defs = new Map([middle, first.def, last.def].map((d) => [d.id, d]));
+	const boxesOf = (node: CountRepeater) =>
+		H.repeaterCountBoxes(node, defs, 'desktop', 0.5, 0.5, {}, (def, inputs, params) =>
+			SP.segmentPoseNodes(def, timelines.get(def.id) ?? [], inputs, params),
+		).boxes;
+	const shownLooks = (box: ReturnType<typeof boxesOf>[number]) =>
+		box.container.children
+			.filter((c) => c.kind === 'container' && c.alpha !== 0)
+			.map((c) => c.label);
+	const owner = boxesOf(counter({ first: first.def.id, last: last.def.id }));
+	eq(
+		'rig-look end caps at 2 left: each segment shows the look its machine lights',
+		owner.map((b) => [b.def.id, b.index, shownLooks(b)]),
+		[
+			['capL', 1, ['lit']],
+			[middle.id, 2, ['lit']],
+			['capR', 3, ['unlit']],
+		],
+	);
+	eq(
+		'…laid out by the end caps’ sprites (a rig-only middle measures 0)',
+		owner.map((b) => b.container.x),
+		[-66, 0, 6],
+	);
+	eq(
+		'a first end cap naming no def: the middle segment draws there',
+		boxesOf(counter({ first: 'ghostCap', last: last.def.id })).map((b) => b.def.id),
+		[middle.id, middle.id, 'capR'],
+	);
+
+	const rigLayer = read('EditorRigLayer.svelte');
+	eq(
+		'the rig layer walks count-mode repeaters, at the top level and nested',
+		rigLayer.match(/isCountRepeater\(n\)\) \{\s*collectSegmentRigs\(/g)?.length,
+		2,
+	);
+	eq(
+		'…through the canvas’s own boxes and poses, leaving out a look faded to alpha 0',
+		/function collectSegmentRigs[\s\S]{0,600}repeaterCountBoxes\([\s\S]{0,300}segmentPoseNodes\([\s\S]{0,300}\.alpha !== 0/.test(
+			rigLayer,
+		),
+		true,
+	);
+	eq(
+		'the canvas mounts the rig layer for a rig inside a segment',
+		/function nodesHaveRig[\s\S]{0,2500}isCountRepeater\(n\)[\s\S]{0,200}repeaterComponentIds\(n\)/.test(
+			read('EditorCanvas.svelte'),
+		),
+		true,
+	);
+}
 
 if (failures) {
 	console.error(`\n${failures} failed, ${passes} passed`);

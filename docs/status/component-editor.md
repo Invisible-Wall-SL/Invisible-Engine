@@ -103,6 +103,31 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-23 — **Segmented counters: a missing end cap draws the middle segment; rig looks draw in
+  the editor** (branch `fix/segment-variant-fallback`, in review, ⏳ not browser-verified). Owner
+  report (commonoverlayproject, *Respin counter*): after making the end caps with ⧉ Duplicate, the
+  game drew only the middle segment. Root cause: the game was the player snapshot published at
+  16:12, before the copies existed (16:15 / 16:17), so its registry had no def for either variant
+  and `ComponentInstance` drew nothing for them; the middle draws because `segmentedCounterSegment`
+  is a built-in id. The duplicate, the editor and the engine were correct (the owner's exact stored
+  defs mount and light 1 / 2 / 3 in the check below); the 16:35 publish carries the copies. Changes:
+  `repeaterSegmentComponent` / `repeaterCountOffsets` take a `has` (the registry; the editor's def
+  map), so a variant naming no def draws and is sized as the middle segment, and `Repeater.svelte`
+  warns once naming the repeater, the slot and the id (`missingRepeaterVariants`);
+  `resolveComponentClosure` reports an id with no def through `onMissing`, which the runtime bundle
+  logs (live boots and Publish). Editor: the rig layer now walks count-mode repeaters
+  (`collectSegmentRigs` in `EditorRigLayer.svelte`, over the canvas's own `repeaterCountBoxes` and
+  settled poses, leaving out a look faded to alpha 0 since the layer draws no alpha) and the canvas
+  mounts it for a rig inside a segment (`nodesHaveRig`), so a segment drawn from rigs (the owner's
+  R_RespinTile looks) shows its art there; before, only a "rig:" placeholder or nothing. Gates:
+  `check:component-repeat-segments` (71: the fallback, `onMissing`, and the owner's counter mounted
+  for real, with and without its first end cap registered) and
+  `check:component-repeat-segments-editor` (39: rig-look end caps made by the real duplicate, the
+  fallback, the rig-layer wiring). Still open: a segment drawn only from rigs and text measures
+  0 × 0, so such segments stack (next PR: an opt-in root box); the rig layer keeps ONE skeleton
+  per rig file, so segments resting on different animations of one rig draw right while still, but
+  ▶ playing one of them (or an `enter` cue on only one look) makes them reset each other every frame
+  — the rig freezes on its first frame until play stops.
 - 2026-10-23 — **`featureWorth` as a component source** (branch `claude/feature-worth-source`, owner
   ask). A Hold and Win TOTAL WIN widget can tier off the feature's running value during the respins
   instead of `featureTotal` (the win meter, which only climbs in the end tally). One reader:
