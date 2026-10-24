@@ -443,7 +443,7 @@ const pageOf = (kind: string, stored: Stored) => {
 };
 
 let rowSetups = 0;
-for (const kind of [...GAME_KINDS, 'myCustomKind']) {
+for (const kind of [...SLOT_GAME_KINDS, 'myCustomKind']) {
 	for (const { label, stored } of setups(kind)) {
 		const { config, page, columns, project, rowOf } = pageOf(kind, stored);
 		const at = `${kind} · ${label}`;
@@ -510,7 +510,7 @@ for (const kind of [...GAME_KINDS, 'myCustomKind']) {
 		}
 	}
 }
-check('row states ran over every setup', rowSetups > GAME_KINDS.length * 3, true);
+check('row states ran over every setup', rowSetups > SLOT_GAME_KINDS.length * 3, true);
 
 const classic = pageOf('holdAndWin', {
 	doc: normalizeGameConfigDoc(structuredClone(HOLD_AND_WIN_PRESETS.classic)),
