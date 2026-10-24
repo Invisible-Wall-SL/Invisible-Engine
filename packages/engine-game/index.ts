@@ -106,7 +106,9 @@ export {
 export { resolveWinMount, type WinMount } from './src/game/winOwnership';
 export {
 	applyHoldAndWinEvent,
+	atRoundStart,
 	emptyHoldAndWinState,
+	featureWorthOf,
 	HOLD_AND_WIN_SNAPSHOT_EVENTS,
 	type HoldAndWinCause,
 	type HoldAndWinCell,
