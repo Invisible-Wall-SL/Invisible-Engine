@@ -2,6 +2,7 @@ import {
 	componentEvents,
 	componentInputs,
 	eventCueId,
+	type AlignTargetAction,
 	type CinematicDoc,
 	type ComponentDef,
 	type ComponentEvent,
@@ -15,7 +16,6 @@ import {
 	type RaiseEventAction,
 	type SmEnterAction,
 	type SmState,
-	type AlignTargetAction,
 	type SwipeDirection,
 	type SwipeFilter,
 } from 'engine-layout';

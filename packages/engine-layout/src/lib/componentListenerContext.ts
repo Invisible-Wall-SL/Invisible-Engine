@@ -47,6 +47,9 @@ export interface ComponentAlign {
 	/** Register the target; the getter is where the pointer placed it (reactive; an axis no Align
 	 *  Target moved is absent). */
 	attach(nodeId: string, target: ComponentAlignTarget): () => Partial<PointerPoint> | undefined;
+	/** The target node is gone: an Align Target no longer reaches it (only if it is still this
+	 *  registration — a remount may have attached a new one). */
+	detach(nodeId: string, target: ComponentAlignTarget): void;
 }
 
 export function setComponentAlign(align: ComponentAlign): void {

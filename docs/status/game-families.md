@@ -30,15 +30,19 @@ and board-cell bullets. No game uses any of it yet.
   handlers, mapping `e.global` through the instance's space (`ComponentListen.local`, the placing
   node's container, from `ComponentInstance`). Only a node listening for `move` also gets
   `onpointermove`; only one listening for a drag or a swipe gets `onglobalpointermove` and
-  `onpointerupoutside`, so a drag that leaves the node keeps tracking and ends off it. Pixi hands
+  `onpointerupoutside`, so a drag that leaves the node keeps tracking and ends off it (a `move`
+  listener or a pointer payload also takes `onpointerupoutside`, so a press released off the node
+  ends and later readings are back to dx / dy = 0). A second pointer on a pressed node is a `down`
+  and an `up`; the first press keeps its drag. Pixi hands
   `globalpointermove` twice to a container that is both hit and an ancestor of the hit, so the
   gesture drops a move to where it already was.
 - **The dispatcher** (`componentEvents.ts`): `pointer(node, event, at?)` runs the event's listeners
   with the reading; a raise's `{ pointer }` value resolves from it (rounded into an `int` / `ms`
   field) and is empty where no pointer runs the raise (a state's On enter / exit, a cue). Align
   Target asks the host for its node (`alignTarget(id)` → `AlignSpace`) and places it on the pointer
-  in the node's parent space; `preserveOffset` keeps the offset the node had at `down` /
-  `dragStart` (or the first time it runs); `axis` moves one axis. `ComponentInstance` keeps the
+  in the node's parent space; `preserveOffset` keeps the offset the node had when the action first
+  runs in a press (a `down` on the node starts a new press); `axis` moves one axis. A target node
+  that unmounts detaches itself. `ComponentInstance` keeps the
   placements (`$state`), and a target node's `LayoutNodeView` reads its placement into its position
   (`setComponentAlign` / `getComponentAlign`, provided only when the def aligns something, or to hide
   an outer instance's from a nested def).
@@ -54,8 +58,9 @@ and board-cell bullets. No game uses any of it yet.
 - **Board cell input** (`packages/engine-game/src/game/gameState.svelte.ts`): `getCellAt(x, y)`
   (board-local) → `{ reel, row }` or `undefined`, the inverse of `getSymbolSeat`: the cell whose
   pitch box (its seat with the art alignment taken out, a column pitch by a row pitch, at the row's
-  scale) holds the point. Exported from `createGameState`; no caller until `<Match3Input />` (P10.5).
-- **Gate `check:component-pointer-drag`** (`apps/launcher-api/scripts/`, run by `check:all`), 69
+  scale) holds the point. The box follows the seat, not the mask's window, so a perspective board
+  with a row lead other than 0.5 can leave a sliver between rows that is no cell. Exported from `createGameState`; no caller until `<Match3Input />` (P10.5).
+- **Gate `check:component-pointer-drag`** (`apps/launcher-api/scripts/`, run by `check:all`), 74
   checks: the gesture, the swipe filter, the dispatcher and Align Target, real Pixi (`EventBoundary`,
   a drag leaving the node), validation, the reader and the editor edits, the cell hit-test sliced
   from the real `gameState` over flat, gapped, non-square, led, aligned, stepped and perspective
@@ -67,7 +72,10 @@ and board-cell bullets. No game uses any of it yet.
   by nothing); a wrapper gets no new handler; no node reads an Align placement; no built-in uses any
   of it. `getCellAt` has no caller. Edited shared modules: `LayoutNodeView.svelte`,
   `ComponentInstance.svelte`, `componentEvents.ts`, `componentListenerContext.ts`,
-  `gameState.svelte.ts` (one added function).
+  `gameState.svelte.ts` (one added function). Reviewed by `code-reviewer`: no parity blocker; its
+  four findings in the new features (a stale `preserveOffset` across presses, a second finger ending
+  nobody's drag, a press left open by a release off a `move`-only node, a detached target still
+  reachable) are fixed and gated.
 - **Chosen in P10.4, owner may overturn** (the plan does not fix them):
   - x / y are in the **instance's space** (its root's), dx / dy from the **press point** (0 with no
     press); a pointer reading into an `int` / `ms` field is **rounded**;
@@ -80,8 +88,10 @@ and board-cell bullets. No game uses any of it yet.
     and so does a drag released over the node (Pixi's tap);
   - Align Target takes **`axis`** (x / y) beside Rive's `preserveOffset`, for sliders and paddles;
     its placement **replaces** the node's x / y (a value binding or timeline on that axis no longer
-    moves it) and lasts until the instance remounts; the offset is taken at **`down` /
-    `dragStart`**; the **root** cannot be a target;
+    moves it) and lasts until the instance remounts; the offset is taken at the action's **first run
+    in each press**; the **root** cannot be a target;
+  - a **second pointer** on a pressed node does not take the press over: it is a `down` / `up`, and
+    the first press keeps its drag;
   - a new listener on a def with no input and no event **aligns its own node** (it used to start as
     an empty *fire*);
   - the hit-test's cell is the **pitch box** (a gap belongs to the nearer cell), visible cells only;
@@ -91,7 +101,7 @@ and board-cell bullets. No game uses any of it yet.
   only; `/flow-v2`'s preview scripts no pointer (open, with its key scripting); the match-3 swap from
   a drag (P10.5).
 - **Known limits** (none reachable by a current game):
-  - one press per node at a time: a second finger's `down` on the same node takes the press over;
+  - one press per node at a time: a second finger on a pressed node cannot drag it;
   - Align Target has no bounds; a slider's clamp is Flow's (from the drag's x) until it has one;
   - an Align Target maps through its parent's transform at the moment of the event, so a parent
     that moves during a drag moves the node with it until the next move.

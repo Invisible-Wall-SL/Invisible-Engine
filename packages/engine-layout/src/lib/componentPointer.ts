@@ -64,8 +64,13 @@ export class PointerGesture {
 		};
 	}
 
-	/** `pointerdown` on the node: a press begins. */
+	/** `pointerdown` on the node: a press begins, unless another pointer's press is still on (a
+	 *  second finger is a `down`, but the first press keeps the drag, so it still ends). */
 	down(id: number, local: PointerPoint, global: PointerPoint): void {
+		if (this.press && this.press.id !== id) {
+			this.send('down', this.at(local, global));
+			return;
+		}
 		const start = { x: local.x, y: local.y };
 		this.press = { id, start, last: start, dragging: false };
 		this.send('down', this.at(local, global));

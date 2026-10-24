@@ -798,7 +798,7 @@
 					setInput: (id, value) => void stateMachineRunner?.setInput(id, value),
 					schedule: (drain) => queueMicrotask(drain),
 					alignTarget: (id) => {
-						const target = alignSpaces[id];
+						const target = alignSpaces[id] as ComponentAlignTarget | undefined;
 						return (
 							target && {
 								...target,
@@ -831,9 +831,12 @@
 				alignSpaces[nodeId] = target;
 				return () => aligned[nodeId];
 			},
+			detach: (nodeId, target) => {
+				if (alignSpaces[nodeId] === target) delete alignSpaces[nodeId];
+			},
 		});
 	} else if (getComponentAlign()) {
-		setComponentAlign({ targets: () => false, attach: () => () => undefined });
+		setComponentAlign({ targets: () => false, attach: () => () => undefined, detach: () => {} });
 	}
 	onDestroy(() => eventDispatcher?.destroy());
 

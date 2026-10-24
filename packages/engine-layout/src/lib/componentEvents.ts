@@ -207,8 +207,8 @@ export class ComponentEventDispatcher {
 	private queue: RaisedComponentEvent[] = [];
 	/** The pointer of the listener running now, read by a raise's `{ pointer }` values. */
 	private at: PointerAt | undefined;
-	/** Each Align Target's offset from the pointer, taken when its press begins. */
-	private readonly alignOffsets = new WeakMap<AlignTargetAction, PointerPoint>();
+	/** Each Align Target's offset from the pointer, taken the first time it runs in a press. */
+	private alignOffsets = new WeakMap<AlignTargetAction, PointerPoint>();
 	private scheduled = false;
 	private destroyed = false;
 
@@ -251,12 +251,13 @@ export class ComponentEventDispatcher {
 	 */
 	pointer(node: Pick<LayoutNode, 'id' | 'on'>, event: NodeListenerEvent, at?: PointerAt): void {
 		if (this.destroyed || !this.owns(node.id)) return;
+		if (event === 'down') this.alignOffsets = new WeakMap();
 		this.at = at;
 		try {
 			for (const listener of node.on ?? []) {
 				if (listener.event !== event) continue;
 				if (event === 'swipe' && !(at && swipeMatches(listener.swipe, at))) continue;
-				if (listener.action.kind === 'align') this.align(listener.action, event);
+				if (listener.action.kind === 'align') this.align(listener.action);
 				else this.run(listener.action, 'listener');
 			}
 		} finally {
@@ -292,15 +293,15 @@ export class ComponentEventDispatcher {
 		}
 	}
 
-	/** Place an Align Target's node on the pointer; its offset is taken when a press begins (or the
-	 *  first time it runs). */
-	private align(action: AlignTargetAction, event: NodeListenerEvent): void {
+	/** Place an Align Target's node on the pointer; its offset is taken the first time it runs after
+	 *  a press begins (a `down` on the node starts a new one), so every press keeps its own. */
+	private align(action: AlignTargetAction): void {
 		const at = this.at;
 		const space = at ? this.host.alignTarget?.(action.target) : undefined;
 		if (!at || !space) return;
 		const p = space.toLocal(at.global);
 		let offset = this.alignOffsets.get(action);
-		if (!offset || event === 'down' || event === 'dragStart') {
+		if (!offset) {
 			const now = space.position();
 			offset = action.preserveOffset ? { x: now.x - p.x, y: now.y - p.y } : { x: 0, y: 0 };
 			this.alignOffsets.set(action, offset);

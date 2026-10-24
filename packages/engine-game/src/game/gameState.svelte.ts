@@ -797,8 +797,11 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	 * holds `(x, y)`, or `undefined` off the board. A cell's box is its seat with the art's seat
 	 * alignment taken back out, one column pitch wide and one row pitch tall, both at the row's
 	 * scale, so the boxes of a flat board tile it (a gap belongs to the nearer cell) and a perspective
-	 * board's rows narrow toward the back as its seats do. A stepped column answers only for its own
-	 * cells. Read only by a board that takes the pointer; nothing on a slot calls it.
+	 * board's rows narrow toward the back as its seats do. The box follows the art's seat, not the
+	 * mask's window: under perspective with a row lead other than 0.5 each row's box shifts by its own
+	 * scale, so neighbouring rows can leave a sliver between them that is no cell. A stepped column
+	 * answers only for its own cells. Read only by a board that takes the pointer; nothing on a slot
+	 * calls it.
 	 */
 	const getCellAt = (x: number, y: number) => {
 		const geometry = boardGeometry();

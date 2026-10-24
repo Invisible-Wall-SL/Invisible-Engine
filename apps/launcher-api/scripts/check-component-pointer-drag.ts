@@ -129,6 +129,33 @@ const pt = (x: number, y: number) => ({ x, y });
 	]);
 	eq('the reading keeps the stage point, copied', g.at(pt(1, 2), pt(7, 8)).global, { x: 7, y: 8 });
 }
+{
+	const { sent, g } = recorder();
+	g.down(1, pt(0, 0), pt(0, 0));
+	g.move(1, pt(20, 0), pt(20, 0));
+	g.down(2, pt(5, 5), pt(5, 5));
+	g.release(2, pt(5, 5), pt(5, 5), true);
+	g.move(1, pt(30, 0), pt(30, 0));
+	g.release(1, pt(30, 0), pt(30, 0), false);
+	eq('a second pointer is a down and an up; the first press keeps its drag and still ends', sent, [
+		['down', 0, 0, 0, 0],
+		['dragStart', 20, 0, 20, 0],
+		['drag', 20, 0, 20, 0],
+		['down', 5, 5, 5, 5],
+		['up', 5, 5, 5, 5],
+		['drag', 30, 0, 30, 0],
+		['dragEnd', 30, 0, 30, 0],
+		['swipe', 30, 0, 30, 0],
+	]);
+	sent.length = 0;
+	g.down(1, pt(0, 0), pt(0, 0));
+	g.release(1, pt(50, 0), pt(50, 0), false);
+	sent.length = 0;
+	g.hover(pt(9, 9), pt(9, 9));
+	eq('after a press released off the node, a hover reads dx = dy = 0 again', sent, [
+		['move', 9, 9, 0, 0],
+	]);
+}
 
 // ---- 2. the swipe filter -----------------------------------------------------------------------
 
@@ -298,6 +325,20 @@ for (const event of ['move', 'dragStart', 'drag', 'dragEnd'] as const) {
 	eq('…preserveOffset: at the press it stays where it was', knob(), { x: 20, y: 15 });
 	dispatcher.pointer(preserveDrag, 'drag', at(0, 0, 0, 0, { x: 130, y: 50 }));
 	eq('…and then keeps that offset from the pointer', knob(), { x: 25, y: 20 });
+	const dragOnly = on(li('d', 'drag', { kind: 'align', target: 'n_knob', preserveOffset: true }));
+	const press = (gx: number, gy: number) =>
+		dispatcher.pointer(on(), 'down', at(0, 0, 0, 0, { x: gx, y: gy }));
+	press(0, 0);
+	dispatcher.pointer(dragOnly, 'drag', at(0, 0, 0, 0, { x: 160, y: 40 }));
+	eq('…a drag-only preserveOffset: the first drag of a press keeps the node where it is', knob(), {
+		x: 25,
+		y: 20,
+	});
+	dispatcher.pointer(dragOnly, 'drag', at(0, 0, 0, 0, { x: 170, y: 40 }));
+	eq('…and follows from there', knob(), { x: 30, y: 20 });
+	press(0, 0);
+	dispatcher.pointer(dragOnly, 'drag', at(0, 0, 0, 0, { x: 100, y: 0 }));
+	eq('…a new press takes a new offset (the node does not jump)', knob(), { x: 30, y: 20 });
 	placed.length = 0;
 	dispatcher.pointer(
 		on(li('a', 'move', { kind: 'align', target: 'n_knob', axis: 'x' })),
@@ -428,7 +469,8 @@ eq(
 			"const hovers = !!listen && !!listeners?.some((l) => l.event === 'move');",
 			"!!listeners?.some((l) => ['dragStart', 'drag', 'dragEnd', 'swipe'].includes(l.event));",
 			'onglobalpointermove={tracks',
-			'onpointerupoutside={tracks',
+			'onpointerupoutside={releasesOff',
+			'tracks ||\n\t\thovers ||',
 		].every((binding) => view.includes(binding)),
 		true,
 	);

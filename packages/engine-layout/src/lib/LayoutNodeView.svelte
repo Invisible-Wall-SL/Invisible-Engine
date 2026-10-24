@@ -23,6 +23,7 @@
 </script>
 
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import {
 		Anchor,
 		Container,
@@ -66,7 +67,11 @@
 	import { foldFlipbookPlayback, resolveFlipbook } from './registerFlipbooks';
 	import { getComponentParams } from './componentParamsContext';
 	import { getComponentPress } from './componentActionsContext';
-	import { getComponentAlign, getComponentListen } from './componentListenerContext';
+	import {
+		getComponentAlign,
+		getComponentListen,
+		type ComponentAlignTarget,
+	} from './componentListenerContext';
 	import { PointerGesture, type PointerPoint } from './componentPointer';
 	import {
 		getComponentSignalAnims,
@@ -145,6 +150,19 @@
 	const tracks =
 		!!listen &&
 		!!listeners?.some((l) => ['dragStart', 'drag', 'dragEnd', 'swipe'].includes(l.event));
+	// A press released off the node must still end, so that a later reading's dx / dy is 0 again:
+	// a hover or a pointer payload listens for that release too.
+	const releasesOff =
+		tracks ||
+		hovers ||
+		(!!listen &&
+			!!listeners?.some(
+				(l) =>
+					l.action.kind === 'raise' &&
+					Object.values(l.action.payload ?? {}).some(
+						(v) => typeof v === 'object' && 'pointer' in v,
+					),
+			));
 	const pointerLocal = (e: FederatedPointerEvent) => listen!.local(e.global);
 
 	// ALIGN TARGET (game-families §3.2): a node an Align Target listener of its instance moves sits
@@ -153,15 +171,22 @@
 	const alignParent = componentAlign?.targets(untrack(() => node.id))
 		? getContextParent().parent
 		: undefined;
-	const alignedAt: (() => Partial<PointerPoint> | undefined) | undefined = alignParent
+	const alignTarget: ComponentAlignTarget | undefined = alignParent
+		? {
+				toLocal: (global) => alignParent.toLocal(global),
+				position: (): PointerPoint => ({ x: posX, y: posY }),
+			}
+		: undefined;
+	const alignedAt: (() => Partial<PointerPoint> | undefined) | undefined = alignTarget
 		? componentAlign!.attach(
 				untrack(() => node.id),
-				{
-					toLocal: (global) => alignParent.toLocal(global),
-					position: (): PointerPoint => ({ x: posX, y: posY }),
-				},
+				alignTarget,
 			)
 		: undefined;
+	if (alignTarget) {
+		const alignId = untrack(() => node.id);
+		onDestroy(() => componentAlign!.detach(alignId, alignTarget));
+	}
 
 	// Element FX (`docs/design/element-fx.md`): a node carrying effects renders inside one extra
 	// container they play on, which takes the node's `zIndex` so it sorts among its siblings as the
@@ -1825,7 +1850,7 @@
 			onglobalpointermove={tracks
 				? (e) => gesture!.move(e.pointerId, pointerLocal(e), e.global)
 				: undefined}
-			onpointerupoutside={tracks
+			onpointerupoutside={releasesOff
 				? (e) => gesture!.release(e.pointerId, pointerLocal(e), e.global, false)
 				: undefined}
 		>
