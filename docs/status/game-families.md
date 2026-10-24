@@ -86,7 +86,7 @@ and board-cell bullets. No game uses any of it yet.
     an empty *fire*);
   - the hit-test's cell is the **pitch box** (a gap belongs to the nearer cell), visible cells only;
   - the validation codes' names.
-- **Not done here:** the Animate stage preview (`listenerPreview.ts` / `EditorCanvas`
+- **Not done here:** the State machine tab's stage preview (`listenerPreview.ts` / `EditorCanvas`
   `onStagePointer`) plays only the old five: drag, move, swipe and Align Target run in the game
   only; `/flow-v2`'s preview scripts no pointer (open, with its key scripting); the match-3 swap from
   a drag (P10.5).
@@ -294,7 +294,7 @@ game, bundle or screen changes.
    match-3 shows.
 3. P10.5's `<Match3Input />` is the first caller of `getCellAt` and of the drag / swipe
    listeners (a drag or swipe from cell A into `swap(A, B)`, §3.2).
-4. The Animate stage preview and the `/flow-v2` preview do not yet drive drag, move, swipe or
+4. The State machine tab's stage preview and the `/flow-v2` preview do not yet drive drag, move, swipe or
    Align Target (P10.4's "Not done here").
 5. The `/config` **Characters** link for arcade (§6.2) lands with Invisible Characters (P10.11).
 6. **Confirm no custom kind is named `match3` or `arcade`** in R2 (`_shared/editor-kinds/`). Such a
