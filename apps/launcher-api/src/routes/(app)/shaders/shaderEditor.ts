@@ -254,8 +254,10 @@ export function addParam(doc: ShaderGraphDoc, kind: ElementFxParamSpec['kind']):
 	return next;
 }
 
-/** `doc` with param `index` replaced by `spec`. */
-/** `doc` with param `index` replaced; a new id is followed by the Param nodes and pass ties reading it. */
+/**
+ * `doc` with param `index` replaced by `spec`; a new id is followed by the Param nodes and pass
+ * ties reading it.
+ */
 export function setParam(
 	doc: ShaderGraphDoc,
 	index: number,

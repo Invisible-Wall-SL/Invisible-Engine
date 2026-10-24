@@ -29,6 +29,7 @@
 		expandingBoardReserved,
 		reserveExpandingBoard,
 		hudScenes,
+		coversBackgroundWindow,
 		isCoverFitKind,
 		isHudScene,
 		listFullSceneSets,
@@ -1266,7 +1267,7 @@
 	});
 
 	/** Is the selected node a full-bleed background COVER node (§10.3 step 4)? Mirrors
-	 * `EditorCanvas.isBackgroundCover`: a `background`-space sprite/rig node, OR a
+	 * `EditorCanvas.isBackgroundCover`: a node that covers a `background` screen, OR a
 	 * `bind` anchor whose resolved preview art is a `cover` placement (the full-bleed
 	 * Background). Drives the Properties "Background" cover section (scale + fit). */
 	const isBackgroundCoverSelected = $derived.by(() => {
@@ -1286,7 +1287,10 @@
 		}
 		return (
 			activeScene?.space === 'background' &&
-			(isCoverFitKind(node) || node.kind === 'componentInstance')
+			coversBackgroundWindow(
+				node,
+				activeScene.nodes.some((n) => n.id === node.id),
+			)
 		);
 	});
 

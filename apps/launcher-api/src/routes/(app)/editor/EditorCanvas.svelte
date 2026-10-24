@@ -21,6 +21,8 @@
 		fillMaskRect,
 		hostedComponentSpace,
 		instancePreviewRigBundle,
+		coversBackgroundWindow,
+		isBackgroundCoverKind,
 		isCoverFitKind,
 		isHudScene,
 		keyableElementFxEntries,
@@ -655,10 +657,10 @@
 			return { ...t, ...anchoredPosition(t, space, frameWidth, frameHeight) };
 		}
 		if (space === 'background') {
-			if (isCoverFitKind(node) || node.kind === 'componentInstance') {
+			if (isBackgroundCoverKind(node)) {
 				return backgroundTransform(node, t);
 			}
-			// Everything ELSE on a background screen (a text label, a rect, a bare container) does
+			// Everything ELSE on a background screen (a text label, a bare container) does
 			// NOT cover — and the game draws it at RAW WINDOW pixels: `LayoutScene` wraps only
 			// `game`/`standard` in a `<MainContainer>`, and `anchoredPosition` returns x/y verbatim
 			// for this space. Without this branch such a node fell through to the game-space
@@ -749,7 +751,12 @@
 				height: box.h,
 			};
 		}
-		const nat = naturalSize(node);
+		// A flat `rect` has no art to measure: it covers by its own width × height, as the runtime's
+		// `rectCover` does, so a `contain` fit or a cover zoom letterboxes it the same in both.
+		const nat =
+			node.kind === 'rect'
+				? { w: t.width ?? node.width, h: t.height ?? node.height }
+				: naturalSize(node);
 		const cover = coverTransform({
 			artWidth: nat?.w ?? frameWidth,
 			artHeight: nat?.h ?? frameHeight,
@@ -1028,8 +1035,9 @@
 	/** Full-bleed cover nodes are auto-cover-fit (their transform is synthesised, not
 	 * authored), so the canvas must not drag/scale/rotate them — a write would store
 	 * the synthetic centre/size and break the cover. The cover scale is still editable
-	 * via the Properties `scale.x` control. This covers BOTH `background`-space sprite/
-	 * rig nodes AND a `cover`-placement preview anchor (the full-bleed Background).
+	 * via the Properties `scale.x` control. This covers BOTH a node that covers a
+	 * `background` screen (`coversBackgroundWindow`) AND a `cover`-placement preview anchor
+	 * (the full-bleed Background).
 	 *
 	 * Positioned/centred preview anchors (Win, Transition, FreeSpinIntro/Outro,
 	 * FreeSpinCounter) are NOT cover: their preview = placement + the node's stored x/y
@@ -1047,7 +1055,11 @@
 			return true;
 		}
 		return (
-			scene.space === 'background' && (isCoverFitKind(node) || node.kind === 'componentInstance')
+			scene.space === 'background' &&
+			coversBackgroundWindow(
+				node,
+				scene.nodes.some((n) => n.id === node.id),
+			)
 		);
 	}
 
@@ -2726,8 +2738,11 @@
 			node.kind === 'flipbook' ? clipsById.get(node.clipId)?.frames.length : undefined,
 		);
 		const previewFill = boundFillShare(previewBindings(node), previewed);
+		// A node drawn as a background cover shows whole: the game drops the reveal on a cover.
+		const drawnAsCover = !nested && sceneCtx.space === 'background' && isBackgroundCoverKind(node);
 		if (
 			previewFill &&
+			!drawnAsCover &&
 			(node.kind === 'sprite' || node.kind === 'rect' || node.kind === 'flipbook')
 		) {
 			const box = boxOf(node, t);

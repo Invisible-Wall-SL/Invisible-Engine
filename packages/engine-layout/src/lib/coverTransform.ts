@@ -241,6 +241,31 @@ export function isCoverFitKind(node: { kind: string }): boolean {
 }
 
 /**
+ * Node kinds that cover the window on a `background` screen — the {@link isCoverFitKind} art, a
+ * `componentInstance` as one composed unit, and a flat `rect`, measured from its own width × height
+ * (it has no texture). Everything else there (text, a bare container) is placed at raw window
+ * pixels. A `rect` is background-only, like the instance: it never covers through `coverFit`.
+ *
+ * The editor's top-level framing (`EditorCanvas.nodeTransform`) reads this; the selection and
+ * Properties gates read {@link coversBackgroundWindow}, which adds the rect's nesting rule.
+ */
+export function isBackgroundCoverKind(node: { kind: string }): boolean {
+	return isCoverFitKind(node) || node.kind === 'componentInstance' || node.kind === 'rect';
+}
+
+/**
+ * Whether a node on a `background` screen covers the window, given whether it sits straight on the
+ * screen (`topLevel`) or inside a group, part or rig slot. A `rect` covers only at the top level:
+ * nested, it is drawn in its parent's space, where the editor places it by its own box — so a
+ * group is how an author keeps a placed band or panel on a background screen. Read by the runtime
+ * (`LayoutNodeView`'s `rectCover`) and the editor gates (`isBackgroundCover`, the Background
+ * section), so the two cannot disagree about which rect covers.
+ */
+export function coversBackgroundWindow(node: { kind: string }, topLevel: boolean): boolean {
+	return isBackgroundCoverKind(node) && (topLevel || node.kind !== 'rect');
+}
+
+/**
  * The subset of {@link isCoverFitKind} whose cover is measured from ONE atlas TEXTURE's natural
  * size — a still `sprite` and a `flipbook` (the same atlas art, played in order; it measures its
  * FIRST frame). Both take the identical texture → {@link coverTransform} → centred per-axis

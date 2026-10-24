@@ -171,6 +171,28 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-23 — **A Rect on a `background` screen fills the window** (in review). The owner's
+  `commonoverlayproject` background was a 1920×1080 Rect at (960, 540): the editor's Desktop
+  frame is exactly that box, so it looked full-bleed there, but the game drew a background Rect
+  at raw window pixels, so a larger window showed black past x 1920 / y 1080. Only image, rig,
+  clip and component nodes covered. A Rect placed straight on a background screen now covers too,
+  measured from its own width × height with the same fit / cover scale / align / stretch inputs.
+  `engine-layout/coverTransform.ts` holds the rule: `isBackgroundCoverKind` (the kinds, read by
+  `EditorCanvas.nodeTransform`) and `coversBackgroundWindow(node, topLevel)` (a Rect covers only at
+  the top level), read by the runtime's `rectCover` in `LayoutNodeView` and by the editor's
+  `isBackgroundCover` + the Background section in `+page.svelte`. So such a Rect stops being
+  draggable and shows the Background controls, like a background image. A Rect **inside a group**
+  keeps its placed box on both sides (the runtime passes `nested` to a container's children, a
+  part's skin and rig-slot riders) — that is how to keep a band or panel on a background screen.
+  On a covering Rect a `fill` reveal does not apply, and x / y / rotation from a timeline or value
+  binding are ignored (as on a cover sprite); the editor's fill preview no longer clips any node it
+  draws as a background cover, matching the game. Text and bare containers are unchanged. Gate:
+  `packages/engine-layout/scripts/test-cover-fit.mjs` (kind list, the nesting rule, a 1920×1080
+  Rect filling 1920×1080, 2817×1585, 1080×1920 and 1366×1024 windows, align and a per-layout fit
+  override). Verified in the `apps/lines` dev game at 2560×1440 with a temporary background Rect in
+  the fallback doc: before, the fill stopped at 1920×1080; after, every edge is covered. Any
+  project with a smaller top-level Rect on a background screen now fills the window too; wrap it
+  in a group to keep it placed.
 - 2026-10-23 — **Keys paste onto another node; a screen timeline's `signal:` cue plays _On cue_
   Element FX** (branch `editor/keys-paste-other-node-screen-cues`, ⏳ not browser-verified).
   Reported on `commonoverlayproject` (Base game, timeline `Reel_Intro`):
