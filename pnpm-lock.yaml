@@ -220,6 +220,9 @@ importers:
       engine-rig:
         specifier: workspace:*
         version: link:../../packages/engine-rig
+      engine-shadergraph:
+        specifier: workspace:*
+        version: link:../../packages/engine-shadergraph
       error-tracking:
         specifier: workspace:*
         version: link:../../packages/error-tracking
