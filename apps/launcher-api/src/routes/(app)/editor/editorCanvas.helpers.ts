@@ -90,6 +90,28 @@ export function applyRestingPose(
 	return [() => skeleton.setToSetupPose()];
 }
 
+/**
+ * Where a canvas's top-level nodes sit in the component nesting the game caps at
+ * `MAX_COMPONENT_DEPTH`: `depth` is the component level they are drawn at, `stack` the defs they are
+ * inside. A screen's nodes are at level 0, inside nothing. The Component Editor's open def is
+ * placed in the game, so its nodes are one level down, and one more for each def it is edited
+ * inside: drawn at level 0, a counter nested in it showed segments the game cuts.
+ */
+export interface ComponentNest {
+	depth: number;
+	stack: string[];
+	/** The def the top-level nodes belong to (the open one), whose state machine rests them. */
+	def?: ComponentDef;
+}
+
+export const SCREEN_NEST: ComponentNest = { depth: 0, stack: [] };
+
+/** The nest of `def`, open in the Component Editor, edited inside the defs of `trail` (outermost
+ * first). */
+export function componentEditorNest(trail: readonly string[], def: ComponentDef): ComponentNest {
+	return { depth: trail.length + 1, stack: [...trail, def.id], def };
+}
+
 /** Where the editor's component map keeps a def an instance pins at an older version than the
  * latest (§8.9): beside the latest, which stays under the bare id. */
 export const pinnedDefKey = (id: string, version: number): string => `${id}@v${version}`;
@@ -657,6 +679,9 @@ export function nodeBox(
 	/** The ENCLOSING componentInstance's resolved params (the Component Editor's open-def params for
 	 * a top-level node), so a part sized by them frames the box it draws. Undefined ⇒ parity. */
 	instanceParams?: Record<string, unknown>,
+	/** Where the canvas's top-level nodes sit in the component nesting, so the box stops expanding
+	 * where the draw does. Undefined ⇒ a screen's. */
+	nest: ComponentNest = SCREEN_NEST,
 ): NodeBox {
 	// A node that draws OTHER nodes frames them: a componentInstance its def's content, a group or
 	// a skinned coded part its children (see {@link contentBox}). For the single-mount `HudReadout`
@@ -665,8 +690,8 @@ export function nodeBox(
 		const content = contentBox(
 			node,
 			{ naturalSize, componentMap, layoutType, componentDefaults },
-			0,
-			[],
+			nest.depth,
+			nest.stack,
 			instanceParams ?? {},
 			instanceRigBundle,
 		);
@@ -1662,6 +1687,7 @@ function depthChildren(
 export function depthSegments(
 	scene: Scene,
 	componentMap: Map<string, ComponentDef>,
+	nest: ComponentNest = SCREEN_NEST,
 ): DepthSegment[] {
 	const segmentOf = new Map<string, number>();
 	const touched: Set<string>[] = [new Set()];
@@ -1689,7 +1715,7 @@ export function depthSegments(
 			if (children) walk(children.nodes, path, children.depth, children.stack, top ?? n.id);
 		}
 	};
-	walk(scene.nodes, [], 0, [], null);
+	walk(scene.nodes, [], nest.depth, nest.stack, null);
 	const sig = [...segmentOf].map(([k, i]) => `${k}=${i}`).join('|');
 	return touched.map((ids, i) => ({
 		key: i === 0 ? scene.id : `${scene.id}#seg${i}`,

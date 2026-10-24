@@ -191,7 +191,7 @@
 	const resolution = resolveComponent(node.componentId, node.componentVersion);
 	const def = resolution.def;
 
-	// Nesting guard (§8.9): cap depth at 2 levels and refuse a transitive cycle
+	// Nesting guard (§8.9): cap depth at `MAX_COMPONENT_DEPTH` levels and refuse a transitive cycle
 	// (a component instancing itself). `parentNest` is a stable context value, so
 	// these guards are init-stable too.
 	const parentNest = getComponentNestState();
