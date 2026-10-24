@@ -62,7 +62,10 @@ export type FlowPreviewEntry =
 	| { kind: 'input'; at: number; action: string; phase: 'down' | 'up' };
 
 export interface FlowPreviewResult {
-	/** The ordered side-effect timeline with virtual-clock `at` stamps. */
+	/** The ordered side-effect timeline with virtual-clock `at` stamps. For a doc with variables,
+	 *  timers or ticks, a timer, tick or variable entry is stamped at the frame it runs on (as in the
+	 *  game: a 125 ms timer runs at 133.33), and a write shows up a frame after it was made, so a
+	 *  horizon of 0 shows none. */
 	timeline: FlowPreviewEntry[];
 	/** Total virtual-clock ms the flow spans (the final clock value). */
 	durationMs: number;
@@ -358,6 +361,8 @@ const previewOnClock = async (
 	};
 
 	for (const input of options.inputs ?? []) {
+		// A press at no real time would sit at the head of the queue for good.
+		if (typeof input.at !== 'number' || !Number.isFinite(input.at)) continue;
 		const phase = input.phase ?? 'down';
 		schedule(Math.max(0, input.at), () => runEntry({ kind: 'input', action: input.action, phase }));
 	}

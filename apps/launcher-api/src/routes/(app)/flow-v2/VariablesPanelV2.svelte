@@ -39,6 +39,7 @@
 		type === 'bool' ? false : type === 'string' ? '' : type === 'enum' ? (values[0] ?? '') : 0;
 
 	function write(next: FlowVariable[]): void {
+		renameError = null;
 		onchange(setVariables(doc, modeId, next));
 	}
 	function patch(i: number, change: Partial<FlowVariable>): void {
@@ -51,7 +52,7 @@
 		const from = variables[i].id;
 		const to = raw.trim();
 		if (to === from) return;
-		if (!to || takenIds.has(to)) {
+		if (!from || !to || takenIds.has(to)) {
 			renameError = to ? `"${to}" is already a variable.` : 'A variable needs an id.';
 			field.value = from;
 			return;

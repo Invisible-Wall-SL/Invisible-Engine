@@ -252,7 +252,7 @@ const STATE_NODES: ReadonlySet<Node['kind']> = new Set([
 ]);
 
 const graphUsesState = (graph: Graph): boolean =>
-	graph.nodes.some(
+	(graph.nodes ?? []).some(
 		(n) => STATE_NODES.has(n.kind) || (n.kind === 'group' && !!n.body && graphUsesState(n.body)),
 	);
 

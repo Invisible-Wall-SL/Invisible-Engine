@@ -332,6 +332,25 @@ const counterDoc = (): FlowDoc =>
 	);
 }
 
+{
+	// A scripted key at no real time is dropped, never left at the head of the queue for good.
+	const keyDoc = doc(
+		{ nodes: [{ id: 'k', kind: 'onInput', pos: at, action: 'a' }], exec: [], data: [] },
+		{ inputs: [{ action: 'a', keys: ['a'] }] },
+	);
+	const result = await F.previewFlowEvent(keyDoc, { vocab: VOCAB, library: LIBRARY }, '', {
+		inputs: [
+			{ action: 'a', at: Number.NaN },
+			{ action: 'a', at: 50 },
+		],
+	});
+	eq(
+		'a key at NaN is dropped; the one at 50 runs and the preview ends',
+		result.timeline.map((e) => `${e.kind}@${e.at}`),
+		['input@50'],
+	);
+}
+
 // ---- 3. a doc with no state previews as before -------------------------------------------------
 
 {

@@ -685,6 +685,7 @@ const renameInGraph = (graph: Graph, from: string, to: string): Graph => ({
  * here, and a shared library function is not this doc's: neither is rewritten.
  */
 export const renameVariable = (doc: FlowDoc, from: string, to: string): FlowDoc => {
+	if (!from) return doc;
 	const decl = (vars: FlowVariable[] | undefined) =>
 		vars?.map((v) => (v.id === from ? { ...v, id: to } : v));
 	const modes = doc.modes

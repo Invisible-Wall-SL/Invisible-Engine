@@ -51,7 +51,7 @@ keys). Pointer drag is P10.4.
 - **`/flow-v2`:** the Variables panel (`VariablesPanelV2.svelte`, with the key map on the Global
   tab), the *Variables & time* palette group, inspector fields, `$var` in the accessor picker, the
   new codes in Validation, and the preview's horizon and *No event* run.
-- **Gates:** `check:flow-variables` (42 checks) and `check:flow-time-events` (34 checks), both run
+- **Gates:** `check:flow-variables` (42 checks) and `check:flow-time-events` (35 checks), both run
   by `check:all`; `envFactory.fixture.ts` learns the `state` capability.
 - **Slot parity:** a doc with no variable, key map or state node gets no store, no value source, no
   key listener and no ticker callback, previews on the old clock, and gets no new issue (no

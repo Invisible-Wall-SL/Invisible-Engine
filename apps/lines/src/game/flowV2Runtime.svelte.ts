@@ -858,13 +858,23 @@ export const createLinesFlowV2 = (
 	// The key map (§3.2): a mapped key going down or up runs the `onInput` entries for its action.
 	// Only a doc that maps a key listens; a held key's repeats are not new presses.
 	// A timer / tick / key / variable chain runs on its own, outside any round: one that throws is
-	// reported once, not 60 times a second.
-	let stateFailed = false;
+	// reported once per entry (that timer, tick node, key action, or the variable batch), not 60
+	// times a second, and a later failure elsewhere is still reported.
+	const failedEntries: Record<string, true> = {};
+	const entryKey = (entry: FlowStateEntry): string =>
+		entry.kind === 'timer'
+			? `timer:${entry.timer}`
+			: entry.kind === 'tick'
+				? `tick:${entry.node}`
+				: entry.kind === 'input'
+					? `input:${entry.action}`
+					: 'variables';
 	const runStateEntry = (entry: FlowStateEntry): Promise<void> =>
 		runFlowStateEntry(doc, ctx, entry).catch((e: unknown) => {
-			if (stateFailed) return;
-			stateFailed = true;
-			console.error('[flow-v2] a timer, tick, key or variable chain failed (reported once):', e);
+			const key = entryKey(entry);
+			if (failedEntries[key]) return;
+			failedEntries[key] = true;
+			console.error(`[flow-v2] the ${key} chain failed (reported once):`, e);
 		});
 	const detachKeys = state && doc.inputs?.length ? attachFlowKeys(doc, runStateEntry) : undefined;
 	// Mode transitions are presented when the doc has Mode trigger entries, or mode variables to reset.

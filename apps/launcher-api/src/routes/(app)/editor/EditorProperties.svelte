@@ -1,5 +1,4 @@
 <script lang="ts" module>
-	let nextVariableListId = 0;
 	/** The `<datalist>` every free-text signal field suggests from — the Screen block's Element FX
 	 *  cue fields too, which render beside this panel. */
 	export const SIGNAL_SUGGESTIONS_ID = 'editor-signal-suggestions';
@@ -992,7 +991,8 @@
 	const variablesFor = (kind: string): { id: string; type: string }[] =>
 		flowVariables.filter((v) => (VARIABLE_TYPES_FOR[kind] ?? []).includes(v.type));
 	/** This panel's own datalist ids, so two mounted panels never share one. */
-	const variableListId = `flow-variable-sources-${nextVariableListId++}`;
+	const panelId = $props.id();
+	const variableListId = `flow-variable-sources-${panelId}`;
 	let newInputKey = $state('');
 	let newInputKind = $state<'bool' | 'number'>('bool');
 	function addValueInput(): void {

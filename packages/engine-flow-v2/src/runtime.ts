@@ -1156,14 +1156,15 @@ export const runFlowStateEntry = async (
 		return;
 	}
 	const hit = stateEntryHit(entry);
-	const modeRun = modeGraph ? new FlowInterpreter(withGraph(doc, modeGraph), ctx) : undefined;
-	const run =
-		modeRun && modeRun.entries(hit).length
-			? modeRun
-			: graphHas(doc.graph, hit) || entry.kind === 'tick'
-				? new FlowInterpreter(doc, ctx)
-				: undefined;
-	if (!run) return;
+	// A tick names one node of one graph: the flattened ids the store reported tell which.
+	const holds = (graph: Graph): boolean =>
+		entry.kind === 'tick'
+			? flattened(graph).nodes.some((n) => n.id === entry.node && n.kind === 'onTick')
+			: graphHas(graph, hit);
+	const graph =
+		modeGraph && holds(modeGraph) ? modeGraph : holds(doc.graph) ? doc.graph : undefined;
+	if (!graph) return;
+	const run = new FlowInterpreter(graph === doc.graph ? doc : withGraph(doc, graph), ctx);
 	const trigger: Record<string, unknown> = entry.kind === 'tick' ? { dt: entry.dt } : {};
 	for (const id of run.entries(hit)) await run.runEntry(id, trigger);
 };
