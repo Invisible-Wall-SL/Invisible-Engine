@@ -82,6 +82,9 @@ export interface KindImpl {
 	breaks?: BreakStyle;
 	/** The break plays backwards: the pieces fly in and become the element (an entrance). */
 	reversed?: boolean;
+	/** The break shows the LIVE element: its pieces are redrawn from it every frame and follow it as
+	 *  it moves and resizes, so an element a timeline animates keeps animating under them. */
+	live?: boolean;
 }
 
 export const filterImpl = <F extends Filter>(impl: FilterImpl<F>): FilterImpl<Filter> =>
@@ -862,5 +865,5 @@ export const KINDS: Record<ElementFxKind, KindImpl> = {
 	shatter: { breaks: 'glass' },
 	crystallize: { breaks: 'ice' },
 	disintegrate: { breaks: 'dust' },
-	assemble: { breaks: 'dust', reversed: true },
+	assemble: { breaks: 'dust', reversed: true, live: true },
 };

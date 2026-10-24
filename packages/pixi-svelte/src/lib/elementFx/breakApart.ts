@@ -1,21 +1,23 @@
 /**
  * The BREAK kinds (`crash`, `crumble`, `shatter`, `crystallize`, `disintegrate`, and `assemble`,
- * which plays dust backwards): the element is rendered once to a texture, hidden, and the still is
- * cut into pieces that fly. The pieces live in a few small `MeshSimple`s the batcher draws together: each frame
+ * which plays dust backwards): the element is rendered to a texture, hidden, and the still is cut
+ * into pieces that fly. The pieces live in a few small `MeshSimple`s the batcher draws together: each frame
  * moves their vertices. The pieces sit in a holder placed beside the element (same parent, same
  * depth, its resting transform), so they draw where it drew.
  *
- * A still, not the live element: a playing rig freezes on the frame it broke on, which is what
- * breaking glass would do too.
+ * Mostly a still: a playing rig freezes on the frame it broke on, which is what breaking glass would
+ * do too. A LIVE break ({@link BreakOptions.live}, `assemble`) is redrawn from the element every
+ * frame instead, and laid over wherever the element now rests and whatever box it now fills.
  */
 
 import {
 	Container,
 	Graphics,
 	MeshSimple,
+	Matrix,
 	Rectangle,
+	RenderTexture,
 	Sprite,
-	type Matrix,
 	type Renderer,
 	type Texture,
 } from 'pixi.js';
@@ -27,6 +29,11 @@ import { freezeFilter } from './shaders';
 export interface BreakRun {
 	/** Pose the pieces at `t` (0…1 of the play). */
 	update(t: number): void;
+	/**
+	 * A live break only: redraw the pieces from the element as it is now, laid over `box` (its box
+	 * now, in its own space; undefined keeps the last) where it now rests (`rest`, with `alpha`).
+	 */
+	follow?(rest: Matrix, alpha: number, box: Rectangle | undefined): void;
 	destroy(): void;
 }
 
@@ -41,6 +48,8 @@ export interface BreakOptions {
 	intensity: number;
 	params: Readonly<Record<string, unknown>>;
 	playSeconds: number;
+	/** Show the live element: the run gets a {@link BreakRun.follow} to call every frame. */
+	live?: boolean;
 }
 
 /** A small seeded generator, so one break is laid out the same way however often it is posed. */
@@ -670,6 +679,45 @@ const snapshot = (renderer: Renderer, target: Container, box: Rectangle) => {
 	return texture;
 };
 
+/** The largest side, in pixels, a live break's texture grows to. */
+const MAX_LIVE_PX = 4096;
+
+/** The size, in points, of a live break's texture for `box`, capped at {@link MAX_LIVE_PX}. */
+const liveSize = (renderer: Renderer, box: Rectangle): { width: number; height: number } => {
+	const fit = Math.min(1, MAX_LIVE_PX / (Math.max(box.width, box.height) * renderer.resolution));
+	return {
+		width: Math.max(1, Math.floor(box.width * fit)),
+		height: Math.max(1, Math.floor(box.height * fit)),
+	};
+};
+
+const liveTexture = (renderer: Renderer, box: Rectangle): RenderTexture =>
+	RenderTexture.create({
+		...liveSize(renderer, box),
+		resolution: renderer.resolution,
+		antialias: true,
+	});
+
+/**
+ * Draw `target`'s `box` into all of `texture`, at full alpha (whoever faded the element fades its
+ * pieces instead). The target stays a render group: drawing it every frame would otherwise rebuild
+ * its parent's render each time.
+ */
+const redraw = (renderer: Renderer, target: Container, box: Rectangle, texture: Texture): void => {
+	const sx = texture.width / box.width;
+	const sy = texture.height / box.height;
+	const alpha = target.alpha;
+	target.alpha = 1;
+	renderer.render({
+		container: target,
+		target: texture,
+		clearColor: [0, 0, 0, 0],
+		transform: new Matrix(sx, 0, 0, sy, -box.x * sx, -box.y * sy),
+	});
+	target.alpha = alpha;
+	texture.source.updateMipmaps();
+};
+
 /**
  * The still frozen solid, for the ice shards: the freeze pass at full cover (no front, no glint),
  * rendered once. Its crystals are finer than the facets, so each shard reads as ice inside too.
@@ -705,12 +753,21 @@ const iceStill = (
  * parent, an empty box) — the caller then plays the fallback fade.
  */
 export function startBreak(options: BreakOptions): BreakRun | undefined {
-	const { target, box, renderer, style } = options;
+	const { target, box, renderer, style, live } = options;
 	const parent = target.parent;
 	if (!parent || box.width < 1 || box.height < 1 || !target.visible) return undefined;
 
-	const texture = snapshot(renderer, target, box);
-	const still = new Rectangle(box.x, box.y, texture.width, texture.height);
+	const wasGroup = target.isRenderGroup;
+	let texture: Texture;
+	if (live) {
+		texture = liveTexture(renderer, box);
+		redraw(renderer, target, box, texture);
+	} else {
+		texture = snapshot(renderer, target, box);
+	}
+	const still = live
+		? new Rectangle(box.x, box.y, box.width, box.height)
+		: new Rectangle(box.x, box.y, texture.width, texture.height);
 	const seed = Math.random();
 	const rand = random(seed);
 	const cut = CUTS[style](still, options, rand);
@@ -753,10 +810,11 @@ export function startBreak(options: BreakOptions): BreakRun | undefined {
 	const cracks = cut.cracks ? layer.addChild(new Graphics()) : undefined;
 	const frost = cut.ice ? layer.addChild(new Graphics()) : undefined;
 	const glints = cut.ice ? layer.addChild(new Graphics()) : undefined;
-	if (frost) {
-		// The seams, flashes and twinkles lie on the element only, not on the clear parts of its box.
-		const shape = layer.addChild(new Sprite(texture));
+	// The seams, flashes and twinkles lie on the element only, not on the clear parts of its box.
+	const shape = frost ? layer.addChild(new Sprite(texture)) : undefined;
+	if (frost && shape) {
 		shape.position.set(still.x, still.y);
+		shape.setSize(still.width, still.height);
 		frost.mask = shape;
 	}
 	const holder = new Container({ label: 'elementFx:break', zIndex: target.zIndex });
@@ -996,12 +1054,52 @@ export function startBreak(options: BreakOptions): BreakRun | undefined {
 	};
 	pose(0);
 
+	/** A texture a live break outgrew: destroyed a frame later, once nothing draws with it. */
+	let retired: Texture | undefined;
+	let liveBox = still;
+	const placed = new Matrix();
+	/**
+	 * Redraw from the element now, laid over its box now: the cut stays in the box it broke in, and
+	 * the holder maps that box onto this one, so the pieces grow and move with the element. The
+	 * texture is remade when the element outgrows it, so a growing element stays sharp.
+	 */
+	const follow = (rest: Matrix, alpha: number, box: Rectangle | undefined): void => {
+		retired?.destroy(true);
+		retired = undefined;
+		if (box && box.width >= 1 && box.height >= 1) liveBox = box;
+		const fit = liveSize(renderer, liveBox);
+		if (fit.width > texture.width * 1.25 || fit.height > texture.height * 1.25) {
+			retired = texture;
+			texture = liveTexture(renderer, liveBox);
+			for (const { mesh } of meshes) mesh.texture = texture;
+			if (shape) {
+				shape.texture = texture;
+				shape.setSize(still.width, still.height);
+			}
+		}
+		redraw(renderer, target, liveBox, texture);
+		const kx = liveBox.width / still.width;
+		const ky = liveBox.height / still.height;
+		placed
+			.copyFrom(rest)
+			.append(new Matrix(kx, 0, 0, ky, liveBox.x - still.x * kx, liveBox.y - still.y * ky));
+		holder.setFromMatrix(placed);
+		holder.alpha = alpha;
+		holder.visible = target.visible;
+		holder.zIndex = target.zIndex;
+	};
+
 	return {
 		update: pose,
+		follow: live ? follow : undefined,
 		destroy(): void {
 			if (!holder.destroyed) holder.destroy({ children: true });
 			texture.destroy(true);
+			retired?.destroy(true);
 			iced?.destroy(true);
+			if (live && !wasGroup && !target.destroyed && target.isRenderGroup) {
+				target.disableRenderGroup();
+			}
 		},
 	};
 }

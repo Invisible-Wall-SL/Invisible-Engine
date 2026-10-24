@@ -1018,34 +1018,145 @@ console.log('element fx — dissolve to particles');
 	);
 	run?.destroy();
 	assert(parent.children.length === 1 && !!holder?.destroyed, 'and the pieces leave with the run');
+	assert(!KINDS.disintegrate.live && !run?.follow, 'dissolve to particles breaks a still');
 
 	assert(
 		KINDS.assemble.breaks === 'dust' && KINDS.assemble.reversed === true,
 		'assemble from particles plays the dust backwards',
 	);
+	assert(KINDS.assemble.live === true, 'assemble from particles plays on the live element');
+	// What a live break asks of the renderer: each draw, recorded. Drawing a container makes it a
+	// render group, as Pixi's does.
+	const draws: { container: Container; alpha: number; transform: Matrix; texture: Texture }[] = [];
+	const liveRenderer = {
+		...renderer,
+		resolution: 1,
+		render: (o: { container: Container; transform: Matrix; target: Texture }) => {
+			o.container.enableRenderGroup();
+			draws.push({
+				container: o.container,
+				alpha: o.container.alpha,
+				transform: o.transform.clone(),
+				texture: o.target,
+			});
+		},
+	};
+	const localOf = (c: Container): Matrix => {
+		c.updateLocalTransform();
+		return c.localTransform.clone();
+	};
+	const sameMatrix = (a: Matrix, b: Matrix): boolean =>
+		(['a', 'b', 'c', 'd', 'tx', 'ty'] as const).every((k) => near(a[k], b[k], 1e-4));
+	/** The element's resting local matrix, as it would draw at rest. */
+	const restOf = (c: Container): Matrix => {
+		const probe = new Container();
+		probe.position.copyFrom(c.position);
+		probe.scale.copyFrom(c.scale);
+		probe.pivot.copyFrom(c.pivot);
+		probe.rotation = c.rotation;
+		return localOf(probe);
+	};
 	const { host, advance } = makeHost();
+	// What it shows is a child the element holds, so a zoom of that child grows the element's box.
 	const element = makeTarget();
+	element.boundsArea = undefined as unknown as Rectangle;
+	const art = element.addChild(new Container());
+	art.boundsArea = new Rectangle(-50, -60, 100, 120);
 	const rest = snapshot(element);
 	const assemble = playElementFx(
 		element,
 		{ kind: 'assemble', durationMs: 1000, params: { particles: 200 } },
-		{ ...host, renderer: renderer as never },
+		{ ...host, renderer: liveRenderer as never },
 	);
 	advance(16);
-	const layer = element.parent?.children.find((c) => c.label === 'elementFx:break')?.children[0];
+	const assembleHolder = element.parent?.children.find((c) => c.label === 'elementFx:break');
+	const layer = assembleHolder?.children[0];
+	const assembleMeshes = (layer?.children ?? []) as MeshSimple[];
 	assert(
 		element.alpha === 0 && !!layer && layer.alpha < 0.05,
 		'it starts hidden, its specks not yet blown in',
 	);
+	const before = draws.length;
+	advance(160);
+	assert(
+		draws.length >= before + 10 &&
+			draws.every((d) => d.container === element && d.alpha === 1) &&
+			element.alpha === 0,
+		'every frame it draws the live element into its specks, at full alpha, and keeps it hidden',
+	);
+	assert(
+		near(assembleHolder?.alpha ?? 0, 0.8) &&
+			sameMatrix(localOf(assembleHolder as Container), restOf(element)),
+		'its specks sit where the element rests, faded as the element is',
+	);
+	element.position.set(340, 260);
+	element.rotation = 0.5;
+	advance(16);
+	assert(
+		sameMatrix(localOf(assembleHolder as Container), restOf(element)),
+		'the owner moving the element mid-play (a timeline) moves its specks with it',
+	);
+	const firstStill = draws[0].texture;
+	art.scale.set(2);
+	advance(16);
+	const grown = draws[draws.length - 1];
+	assert(
+		sameMatrix(
+			localOf(assembleHolder as Container),
+			restOf(element).append(new Matrix(2, 0, 0, 2, 0, 0)),
+		) &&
+			grown.texture.width === 200 &&
+			assembleMeshes.every((m) => m.texture === grown.texture) &&
+			near(grown.transform.a, 1) &&
+			near(grown.transform.tx, 100),
+		'the element growing (a zoom) lays the specks over its new box, from a still remade to fit',
+	);
+	advance(16);
+	assert(
+		firstStill !== grown.texture && firstStill.destroyed && !grown.texture.destroyed,
+		'the still it outgrew is let go a frame later',
+	);
 	advance(500);
 	assert(element.alpha === 0 && layer?.alpha === 1, 'midway the specks are coming together');
 	advance(600);
+	element.position.set(rest[0], rest[1]);
+	element.rotation = rest[4];
 	assert(
 		!assemble.active &&
 			!!layer?.destroyed &&
+			!element.isRenderGroup &&
 			JSON.stringify(snapshot(element)) === JSON.stringify(rest),
-		'at the end the element is back exactly and the specks are gone',
+		'at the end the element is back exactly, no longer a render group, and the specks are gone',
 	);
+
+	// A zoom from nothing: the cue fires while the element has no size to cut.
+	const fromNothing = makeTarget();
+	fromNothing.boundsArea = undefined as unknown as Rectangle;
+	const seed = fromNothing.addChild(new Container());
+	seed.boundsArea = new Rectangle(-50, -60, 100, 120);
+	seed.scale.set(0);
+	playElementFx(
+		fromNothing,
+		{ kind: 'assemble', durationMs: 1000, params: { particles: 200 } },
+		{ ...host, renderer: liveRenderer as never },
+	);
+	const breakOf = (c: Container) => c.parent?.children.find((x) => x.label === 'elementFx:break');
+	advance(200);
+	assert(
+		fromNothing.alpha === 0 && !breakOf(fromNothing),
+		'with no size yet it waits hidden, rather than fading in instead',
+	);
+	seed.scale.set(0.5);
+	advance(16);
+	const late = breakOf(fromNothing);
+	assert(
+		!!late &&
+			fromNothing.alpha === 0 &&
+			sameMatrix(localOf(late), restOf(fromNothing)) &&
+			draws[draws.length - 1].container === fromNothing,
+		'and breaks as soon as it has one, laid over it',
+	);
+	advance(1000);
 }
 
 // -------------------------------------------------------------------------------------------------

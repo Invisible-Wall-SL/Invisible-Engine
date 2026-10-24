@@ -158,6 +158,7 @@
 		afterFrames,
 		captureStill,
 		coverStage,
+		drawStill,
 		intersectRect,
 		isFxOverlayCanvas,
 		playOnStill,
@@ -5665,6 +5666,10 @@
 	 * hide everything else on its screen, wait for the layers to redraw, copy the screen's surfaces,
 	 * then show only the screen around it while the overlay plays. Null when this stage does not show
 	 * the target. Escape, a press or a wheel on the stage ends it.
+	 *
+	 * A screen (not a HUD one, whose surfaces it shares) plays LIVE: its surfaces go on drawing,
+	 * hidden, and are copied into the still every frame, so a timeline on it keeps playing under the
+	 * effect. A node's still follows where the previewed timeline draws the node.
 	 */
 	function previewElementFx(
 		target: ElementFxPreviewTarget,
@@ -5680,6 +5685,16 @@
 		if (!s || !plan) return null;
 
 		const view = { panX, panY, zoom, layoutType };
+		const liveScreen = target.kind === 'screen' && !plan.hud;
+		/** A live screen's own surfaces: drawing on, hidden while its still stands in for them. */
+		const hiddenSurfaces: HTMLCanvasElement[] = [];
+		const hideSurfaces = (sources: readonly StillSource[]): void => {
+			for (const { canvas: surface } of sources) {
+				if (hiddenSurfaces.includes(surface)) continue;
+				hiddenSurfaces.push(surface);
+				surface.style.visibility = 'hidden';
+			}
+		};
 		let over = false;
 		let stopOverlay: (() => void) | null = null;
 		let uncover = coverStage(stage, FX_COVER_Z);
@@ -5700,6 +5715,7 @@
 			stage.removeEventListener('wheel', cancel, true);
 			lift();
 			setFxPreviewHidden(new Set(), FX_PLAY_OWNER);
+			for (const surface of hiddenSurfaces.splice(0)) surface.style.visibility = '';
 			if (fxPreviewStop === cancel) fxPreviewStop = null;
 			finished();
 		};
@@ -5718,12 +5734,37 @@
 			if (over) return;
 			const still = fxCaptureStill(s, plan);
 			if (!still) return cancel();
+			const chain = target.kind === 'node' ? fxChain(s, target.id) : null;
+			const cutAt = chain && invertAffine(fxStageMatrix(s, chain));
+			const from = cutAt && matMul(cutAt, [1, 0, 0, 1, plan.rect.x, plan.rect.y]);
+			let placed: Affine = [1, 0, 0, 1, plan.rect.x, plan.rect.y];
+			/** Where the still goes now: on the node, where the previewed timeline draws it (where it
+			 *  last was, if the node is gone). */
+			const placement = (): Affine => {
+				const now = target.kind === 'node' ? fxChain(s, target.id) : null;
+				if (from && now) placed = matMul(fxStageMatrix(s, now), from);
+				return placed;
+			};
+			/** The screen's surfaces as they are now, copied over the still; any new one hidden too. */
+			const refresh = (): boolean => {
+				if (!canvas) return false;
+				const sources = fxStillSources(s, canvas.getBoundingClientRect());
+				hideSurfaces(sources);
+				return drawStill(still, sources, plan.rect);
+			};
 			stopOverlay = playOnStill({
 				...plan,
 				zIndex: plan.hud ? FX_HUD_OVERLAY_Z : undefined,
 				still,
 				entry,
+				refresh: liveScreen ? refresh : undefined,
+				placement: from ? placement : undefined,
 				onShown: () => {
+					if (liveScreen) {
+						if (canvas) hideSurfaces(fxStillSources(s, canvas.getBoundingClientRect()));
+						void afterFrames(1).then(lift);
+						return;
+					}
 					setFxPreviewHidden(plan.hide, FX_PLAY_OWNER);
 					void afterFrames(FX_REDRAW_FRAMES).then(lift);
 				},

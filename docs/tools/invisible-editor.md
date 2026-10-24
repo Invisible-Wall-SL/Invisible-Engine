@@ -924,26 +924,35 @@ An _On cue_ effect fired again restarts. Its cue (and any stop cue) shows in Inv
 Several effects on one element play together. A loop effect given a play count (_When shown_ or
 _On cue_) fades in and out. An **exit** effect ends with the element hidden and keeps it hidden
 until its stop cue fires or an entrance effect plays on it; its row says so. **Crash**,
-**Crumble**, **Shatter (glass)**, **Crystallize (ice shards)**, **Dissolve to particles** and **Assemble from particles** work
-on a still of the
-element taken as they start, so an animating rig holds still while they play (an assemble hands
-back the live element as it ends).
+**Crumble**, **Shatter (glass)**, **Crystallize (ice shards)** and **Dissolve to particles** work
+on a still of the element taken as they start, so an animating rig holds still while they play.
+**Assemble from particles** plays on the live element: its specks are drawn from the element every
+frame and fly in to wherever it is and however big it is now, so a timeline that moves or zooms it
+keeps playing under them. If it has no size yet when the cue fires (a zoom from nothing), the
+specks wait, the element hidden, until it has one.
+
+> **The reels of the base game:** an effect on the base game's **Screen** block plays on the base
+> game's art in front of and behind the reels, not on the reels. To play one on the reels (say, the
+> reels assembling as an intro zooms them in), put it on the **Reel grid** node.
 
 To fire a one-off effect on any element from a flow, with nothing authored here, use the Flow's
 `elementEffect`: see [Element FX in the Flow guide](flow.md#element-fx-effects-on-one-element).
 
 **Preview on the stage (▶).** The canvas does not play Element FX by itself (an _Always_ loop does
 not run on the stage), so ▶ is how you see one. It plays that one effect, with the game's own code,
-on a still of the element: the canvas shows the element alone for a moment (the stage holds its
+on a copy of the element: the canvas shows the element alone for a moment (the stage holds its
 picture meanwhile, so nothing blinks), copies it (with a margin, so a glow it draws past its box
 comes along), hides the real element and plays the effect on the copy. A screen's ▶ copies the
-whole frame. One preview plays at a time, a second ▶ replaces it, and nothing is saved.
+whole frame, and keeps copying it every frame while the effect plays, so a timeline playing on the
+screen keeps moving under the effect. One preview plays at a time, a second ▶ replaces it, and
+nothing is saved.
 
 - _Always_ loops twice. _When shown_ and _On cue_ play their **Plays** count, three times at most
   (_until stopped_ plays three). _Keyed_ plays once from rest to its end, with no delay. The last
   frame holds for a moment, so an exit effect's hidden end shows.
-- It plays on a **still**, so an animating rig or clip holds still for the preview. In the game the
-  effect plays on the live element.
+- A **node's** copy is taken once. It moves, scales and turns with the node while a timeline plays,
+  but what the node shows holds still: an animating rig or clip freezes for the preview. A **HUD
+  screen's** copy is taken once too. In the game the effect plays on the live element.
 - **Esc**, a press on the stage, the mouse wheel, a pan, a zoom or a switch of device layout stops
   it. Esc only stops the preview: the selection stays.
 - Only what the visible stage shows is copied. When there is nothing to play on (the element's
@@ -1477,7 +1486,8 @@ Three more kinds of row sit in the timeline's track area, under the keyed node's
     one, does not reach Element FX. The cue inspector lists the screen's _On cue_ Element FX under
     **Element FX (On cue)** in its picker, and its note names them; pick one to set the cue.
   - **▶ in Animate** plays those Element FX when the playhead passes the cue, the way **▶** on an
-    Element FX row does (on a still of the element). Scrubbing plays nothing, as in the game. The
+    Element FX row does: on the live screen for the screen's own, and on a copy of the node that
+    follows the timeline for a node's. Scrubbing plays nothing, as in the game. The
     preview plays one effect at a time, so when a cue reaches several (the screen's and a node's)
     you see the last one; the game plays them all. Element FX inside a placed component's own parts
     hear the cue in the game but are not previewed here, and a stop cue is not previewed.
@@ -2158,9 +2168,10 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   WebGL harness and the section, ▶ and the timeline posing were tried in standalone harnesses,
   but nobody has clicked them in `/editor` or watched them in a published game. Owner confirms
   live ([FX status](../status/fx.md)).
-- **The Element FX preview is a still.** ▶ and the timeline's posing play the effect on a copy
-  of the element, so an animating rig or clip holds still, and only what the visible stage shows
-  is copied. Check an effect on a moving element in the game.
+- **A node's Element FX preview is a still.** ▶, a timeline cue and the timeline's posing play a
+  node's effect on a copy of it that follows the node's moves, so an animating rig or clip holds
+  still, and only what the visible stage shows is copied. A screen's ▶ is live (a HUD screen's is a
+  still). Check an effect on an animating rig in the game.
 - **A rotated element plays its Element FX about its axis-aligned box.** The passes that bend or
   light an element assume it is not rotated ([design §9](../design/element-fx.md#9-open--next)).
 - **_Keyed on a timeline_ is for nodes only.** A timeline keys nodes, and in the game nothing
