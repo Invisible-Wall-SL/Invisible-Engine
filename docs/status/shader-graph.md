@@ -3,9 +3,9 @@
 > Design: [docs/design/invisible-shader-graph.md](../design/invisible-shader-graph.md) · Guide: none yet (step 5) · Agent: `.claude/agents/invisible-shader-graph.md`
 
 **One-line state:** plan approved 2026-10-23. Step 1 (one shared GLSL library under the 17
-built-in shader passes) merged as #1320. Step 2 (the `engine-shadergraph` package: nodes,
-validator, compiler) is built and in review (#1322). Nothing plays a graph yet, and no tool or route
-exists.
+built-in shader passes, #1320) and step 2 (the `engine-shadergraph` package: nodes, validator,
+compiler, #1322) are merged. Nothing plays a graph yet, and no tool or route exists; step 3, the
+runtime, is next.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -23,7 +23,7 @@ exists.
     pixel by pixel. `--root` renders
     another checkout, such as a worktree of the base.
 - **Step 2, the graph package** (`packages/engine-shadergraph`, dependency-free apart from
-  `constants-shared`). Built and in review.
+  `constants-shared`). Merged (#1322, 2026-10-24).
   - **The doc** (`ShaderGraphDoc` v1): phase, duration, padding, exposed params (the catalog's
     number / colour / bool / choice specs), nodes and wires.
   - **The node library:** 76 nodes in 8 families (input, math, time, procedural, mask, UV, colour,
@@ -49,19 +49,19 @@ exists.
     reference graphs and every node at every vector width through the real `ElementFxFilter` in
     headless Chromium, on WebGL1 and WebGL2. It fails on any shader the driver rejects and names
     the graph.
-- **Not started:** steps 3–8 (the runtime kinds, the pipeline, the `/shaders` editor, templates).
+- **Not started:** steps 3–8 (the runtime kinds, the pipeline, the `/shaders` editor, templates,
+  editor v2, later).
 
 ## Open items / next
-1. Merge step 2 (#1322).
-2. **Nodes the design lists that v1 does not have yet:** Perspective plane (the 3D flip's ray cast
-   as one node), star / sparkle, rim, loop envelope and the pixel input. Add them when a template
-   (step 6) or an artist needs one.
-3. **Step 3: the runtime.**
+1. **Step 3: the runtime.**
    - Contents: `custom:<id>` kinds from a registry, the filter built from a compiled graph
      (`ElementFxFilter(name, body, uniforms)`, `uFx` and the `uP<n>` written each frame), pass nodes
      and motion curve channels.
    - Exit: a custom effect behaves like a built-in in `check:element-fx` (triggers, keyed, symbol
      state, turbo, stop).
+2. **Nodes the design lists that v1 does not have yet:** Perspective plane (the 3D flip's ray cast
+   as one node), star / sparkle, rim, loop envelope and the pixel input. Add them when a template
+   (step 6) or an artist needs one.
 
 ## Blocked (owner / external)
 - None.
