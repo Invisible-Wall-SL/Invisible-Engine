@@ -45,6 +45,11 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 6. **`<DataTable>` extraction** (`docs/ui-inventory.md` §2): the Pipeline Changes Check 2 games
    table is the 4th matrix instance and the first read-only one, so it is the cheapest to move
    first; localization, win-text and the admin tables follow.
+7. **Relative links inside the in-app tool guides 404.** `/docs/[slug]` renders `docs/tools/*.md`
+   with plain `marked`, so a guide's `fx.md` resolves to `/docs/fx.md` (the route takes `/docs/fx`)
+   and `../design/…` to a route that does not exist. Rewrite hrefs in the route (sibling `<slug>.md`
+   → `/docs/<slug>`, `../…` → the file on GitHub), with a fixture; the markdown stays as is.
+   Found 2026-10-24 while writing the Shader Graph guide.
 
 ## Blocked (owner / external)
 - **Secret rotation (owner):** rotate the secrets in `docs/INFRA.md` "Security / secret rotation";
