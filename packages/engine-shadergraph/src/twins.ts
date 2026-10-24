@@ -16,6 +16,12 @@ export interface BuiltinTwin {
 	kind: ElementFxKind;
 	/** The graph, its id the kind's. */
 	doc: ShaderGraphDoc;
+	/**
+	 * Why the twin's motion only approximates the built-in's, when it does: what the built-in moves
+	 * by that a curve over the play cannot follow (the seconds played, a param, looping). The gate
+	 * holds every other twin's motion, and every twin's pixels, to parity.
+	 */
+	motionGap?: string;
 }
 
 export const BUILTIN_TWINS: readonly BuiltinTwin[] = [

@@ -32,6 +32,15 @@
  *     strength out of range) and each bad curve (an unknown channel, keys out of order or past 1, a
  *     non-number, a value out of its channel's range, an unknown ease, too many keys, a pivot far
  *     off) is an error; so is a length that is not a number the runtime plays, or padding past 2.
+ * 10. THE TWINS OF THE BUILT-INS (`BUILTIN_TWINS`, step 6): each compiles with no error, links and
+ *     lints clean; its id is its kind and it is named as the kind is; its params deep-equal the
+ *     kind's catalog params; its phase and length are the kind's; no kind has two; every pass kind
+ *     has one, and a pass twin is the element as it is, then that pass with each param tied by id.
+ *     A node twin of a material built-in calls every library entry its built-in pass calls. The
+ *     node twins' GLSL matches `snapshots/twins/<kind>.frag`. The per-element seed: a graph reading
+ *     the Seed node gets `uSeed` (source `seed`), which the registry takes as a float only; a graph
+ *     that does not, none. The Output's Blend Add keeps a colour above its alpha.
+ *     (`pnpm --filter fx-spike shader-twins` holds each twin's pixels to its built-in's.)
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -40,12 +49,16 @@ import { fileURLToPath } from 'node:url';
 import {
 	customElementFx,
 	elementFxParamUniform,
+	elementFxSpec,
 	findElementFxSpec,
+	isElementFxKind,
 	isPlayableElementFxKind,
+	readCustomElementFx,
 	readElementFxEntry,
 	setCustomElementFx,
 	CUSTOM_ELEMENT_FX_PASS_LIMIT as PASS_LIMIT,
 	ELEMENT_FX_CURVE_KEY_LIMIT as CURVE_KEY_LIMIT,
+	ELEMENT_FX_PASS_KINDS,
 } from 'constants-shared/elementFx';
 import { EFX_GLSL, linkGlsl } from 'constants-shared/glslLibrary';
 import {
@@ -57,6 +70,8 @@ import {
 } from './src/compile.ts';
 import { DIMS, SHADER_NODES, shaderNode, type NodeDef } from './src/nodes.ts';
 import { REFERENCE_GRAPHS, graphBuilder, nodeShowcase } from './src/reference.ts';
+import { BUILTIN_TWINS, builtinTwin } from './src/twins.ts';
+import { MATERIAL_TWINS } from './src/twins/material.ts';
 import type { GraphIssueCode, ShaderGraphDoc } from './src/types.ts';
 
 let failures = 0;
@@ -686,6 +701,173 @@ console.log('shader graph — the effect (a custom Element FX)');
 		'the effect needs a name, a length the runtime plays (a number, 50 ms…20 s), padding of 0…2 and text for a description',
 	);
 	assert(effect?.padding === 0, 'no padding unless the doc asks for room');
+}
+
+// -------------------------------------------------------------------------------------------------
+console.log('shader graph — the twins of the built-ins');
+{
+	const failedTwins: string[] = [];
+	for (const twin of BUILTIN_TWINS) {
+		const r = compileShaderEffect(twin.doc);
+		const problems = r.ok
+			? [
+					...lint(r.effect.shader.body),
+					...r.warnings.filter((w) => w.code !== 'cost').map((w) => w.message),
+				]
+			: r.issues.filter((i) => i.level === 'error').map((i) => i.message);
+		if (problems.length) failedTwins.push(`${twin.kind}: ${problems.join('; ')}`);
+	}
+	assert(
+		BUILTIN_TWINS.length > 0 && !failedTwins.length,
+		`every twin (${BUILTIN_TWINS.length}) compiles with no error, links and lints clean${failedTwins.length ? `: ${failedTwins.join(' | ')}` : ''}`,
+	);
+	const misnamed = BUILTIN_TWINS.filter(
+		(t) =>
+			!isElementFxKind(t.kind) ||
+			t.doc.id !== t.kind ||
+			t.doc.name !== elementFxSpec(t.kind).label ||
+			!t.doc.description,
+	);
+	assert(
+		!misnamed.length,
+		`each twin's id is its kind, its name the kind's label, and it has a description${misnamed.length ? `: ${misnamed.map((t) => t.kind).join(', ')}` : ''}`,
+	);
+	const unlike = BUILTIN_TWINS.filter((t) => {
+		const spec = elementFxSpec(t.kind);
+		return (
+			JSON.stringify(t.doc.params) !== JSON.stringify(spec.params) ||
+			t.doc.phase !== spec.phase ||
+			t.doc.durationMs !== spec.durationMs
+		);
+	});
+	assert(
+		!unlike.length,
+		`each twin's params deep-equal its kind's catalog params (ids, kinds, defaults, ranges, options), its phase and length are the kind's${unlike.length ? `: ${unlike.map((t) => t.kind).join(', ')}` : ''}`,
+	);
+	const kinds = BUILTIN_TWINS.map((t) => t.kind);
+	assert(
+		new Set(kinds).size === kinds.length && kinds.every((k) => builtinTwin(k)?.kind === k),
+		'no kind has two twins, and builtinTwin finds each',
+	);
+	const identity = compileShaderGraph(
+		(() => {
+			const solo = graphBuilder({ id: 'solo', name: 'Solo', phase: 'emphasis', durationMs: 1000 });
+			solo.node('output');
+			return solo.doc();
+		})(),
+	);
+	const badPasses = ELEMENT_FX_PASS_KINDS.filter((kind) => {
+		const twin = builtinTwin(kind);
+		if (!twin) return true;
+		if (twin.doc.nodes.length > 1) return false;
+		const tied = Object.fromEntries(elementFxSpec(kind).params.map((p) => [p.id, { param: p.id }]));
+		return (
+			body(compileShaderGraph(twin.doc)) !== body(identity) ||
+			JSON.stringify(twin.doc.passes) !== JSON.stringify([{ kind, params: tied }])
+		);
+	});
+	assert(
+		!badPasses.length,
+		`every pass kind has a twin; a pass twin is the element as it is, then that pass with each param tied by id${badPasses.length ? `: ${badPasses.join(', ')}` : ''}`,
+	);
+
+	// A material twin calls every building block its built-in pass does (the point of steps 1–2).
+	const PASS_OF: Record<string, string> = {
+		shine: 'shineFilter',
+		flash: 'colorMixFilter',
+		dissolveOut: 'dissolveFilter',
+		dissolveIn: 'dissolveFilter',
+		melt: 'meltFilter',
+		freeze: 'freezeFilter',
+		burn: 'burnFilter',
+		poison: 'poisonFilter',
+		electrocute: 'electrocuteFilter',
+		petrify: 'petrifyFilter',
+		turnToGold: 'goldFilter',
+	};
+	const library = (glsl: string): string[] => {
+		const linked = linkGlsl(glsl);
+		return Object.keys(EFX_GLSL).filter((name) => new RegExp(`\\b${name}\\(`).test(linked));
+	};
+	const missing = MATERIAL_TWINS.flatMap((twin) => {
+		const pass = PASS_OF[twin.kind];
+		const source = pass && SHADERS.split(`export const ${pass} = `)[1]?.split('`')[1];
+		if (!source) return [`${twin.kind}: no built-in pass found`];
+		const ours = library(body(compileShaderGraph(twin.doc)));
+		const lacks = library(source).filter((name) => !ours.includes(name));
+		return lacks.length ? [`${twin.kind} lacks ${lacks.join(', ')}`] : [];
+	});
+	assert(
+		MATERIAL_TWINS.length === Object.keys(PASS_OF).length && !missing.length,
+		`each material twin (${MATERIAL_TWINS.length}) calls every library entry its built-in pass calls${missing.length ? `: ${missing.join('; ')}` : ''}`,
+	);
+
+	const stale: string[] = [];
+	const nodeTwins = BUILTIN_TWINS.filter((t) => t.doc.nodes.length > 1);
+	for (const twin of nodeTwins) {
+		const glsl = body(compileShaderGraph(twin.doc));
+		const file = join(SNAPSHOTS, 'twins', `${twin.kind}.frag`);
+		if (UPDATE && glsl) {
+			mkdirSync(join(SNAPSHOTS, 'twins'), { recursive: true });
+			writeFileSync(file, glsl);
+		}
+		let snapshot = '';
+		try {
+			snapshot = readFileSync(file, 'utf8');
+		} catch {
+			// no snapshot yet: listed below, with how to write one
+		}
+		if (!glsl || glsl !== snapshot) stale.push(twin.kind);
+	}
+	assert(
+		!stale.length,
+		`each node twin's GLSL (${nodeTwins.length}) matches snapshots/twins/<kind>.frag${UPDATE ? ' (rewritten)' : ''}${stale.length ? `: ${stale.join(', ')} (run with --update after a deliberate change)` : ''}`,
+	);
+
+	const seeded = graphBuilder({
+		id: 'seeded',
+		name: 'Seeded',
+		phase: 'emphasis',
+		durationMs: 1000,
+	});
+	const noise = seeded.node('noise');
+	seeded.wire(seeded.node('seed'), 'out', noise, 'seed');
+	seeded.wire(noise, 'out', seeded.node('output'), 'color');
+	const withSeed = compileShaderEffect(seeded.doc());
+	const seedUniform = withSeed.ok
+		? withSeed.effect.shader.uniforms.find((u) => u.source.kind === 'seed')
+		: undefined;
+	const asVec = withSeed.ok
+		? {
+				...withSeed.effect,
+				shader: {
+					...withSeed.effect.shader,
+					uniforms: withSeed.effect.shader.uniforms.map((u) =>
+						u.source.kind === 'seed' ? { ...u, type: 'vec2' as const } : u,
+					),
+				},
+			}
+		: undefined;
+	assert(
+		seedUniform?.name === 'uSeed' &&
+			seedUniform.type === 'float' &&
+			withSeed.ok &&
+			/uniform float uSeed;/.test(withSeed.effect.shader.body) &&
+			!!readCustomElementFx(withSeed.effect) &&
+			!readCustomElementFx(asVec) &&
+			!body(identity).includes('uSeed') &&
+			BUILTIN_TWINS.filter((t) => t.doc.nodes.some((n) => n.type === 'seed')).length >= 9,
+		'a graph reading the Seed node gets uSeed (source seed), read by the registry as a float only; a graph without it has none; the twins of the seeded built-ins read it',
+	);
+	const add = graphBuilder({ id: 'add', name: 'Add', phase: 'emphasis', durationMs: 1000 });
+	add.node('output', { blend: 'add' });
+	const added = body(compileShaderGraph(add.doc()));
+	assert(
+		added.includes('    finalColor = clamp(pixel, 0.0, 1.0);') &&
+			!added.includes('min(outColor.rgb') &&
+			body(identity).includes('min(outColor.rgb, vec3(outColor.a))'),
+		'the Output’s Blend Add lets a colour outshine its alpha (clamped to 0…1 only); Normal keeps it within',
+	);
 }
 
 console.log(

@@ -25,7 +25,9 @@
  *  7. Custom effects (Invisible Shader Graph step 3): a compiled graph registered as `custom:<id>`
  *     behaves like a built-in — read with every trigger (and kept before it is registered), posed
  *     by a timeline, sped up by turbo, held as an exit, stopped back to rest — its graph pass, its
- *     built-in passes (their params tied to its own) and its motion curves all playing.
+ *     built-in passes (their params tied to its own) and its motion curves all playing. One reading
+ *     the per-element seed (step 6) draws one for each element it plays on, as the built-ins do, and
+ *     keeps it; one that reads none draws none.
  */
 
 import { readFileSync } from 'node:fs';
@@ -67,7 +69,11 @@ import {
 	type CustomElementFx,
 	type ElementFxKind,
 } from '../../packages/constants-shared/elementFx';
-import { REFERENCE_GRAPHS, compileShaderEffect } from '../../packages/engine-shadergraph/index';
+import {
+	BUILTIN_TWINS,
+	REFERENCE_GRAPHS,
+	compileShaderEffect,
+} from '../../packages/engine-shadergraph/index';
 import { stateFxGate } from '../../apps/lines/src/game/stateFxGate';
 import {
 	ELEMENT_FX_CHANNEL_PREFIX as CINEMATIC_ELEMENT_FX_PREFIX,
@@ -1674,6 +1680,45 @@ console.log('element fx — custom effects (Shader Graph)');
 		);
 		stopElementFx(padded);
 		stopElementFx(shrunk);
+		setCustomElementFx([]);
+	}
+	{
+		const burn = BUILTIN_TWINS.find((t) => t.kind === 'burn');
+		const seeded = burn ? compileShaderEffect(burn.doc) : undefined;
+		setCustomElementFx([...(seeded?.ok ? [seeded.effect] : []), effects[0]]);
+		const { host, advance } = makeHost();
+		const random = Math.random;
+		let draws = 0;
+		Math.random = () => {
+			draws++;
+			return random();
+		};
+		const a = makeTarget();
+		const b = makeTarget();
+		playElementFx(a, { kind: 'custom:burn', durationMs: 400 }, host);
+		playElementFx(b, { kind: 'custom:burn', durationMs: 400 }, host);
+		const seedDraws = draws;
+		const plain = makeTarget();
+		playElementFx(plain, { kind: PULSE, durationMs: 400 }, host);
+		const plainDraws = draws - seedDraws;
+		Math.random = random;
+		const seedOf = (t: Container): unknown =>
+			(t.filters?.[0] as ElementFxFilter | undefined)?.efx.uSeed;
+		const [first, second] = [seedOf(a), seedOf(b)];
+		advance(100);
+		assert(
+			seedDraws === 2 &&
+				plainDraws === 0 &&
+				typeof first === 'number' &&
+				typeof second === 'number' &&
+				first !== second &&
+				first >= 0 &&
+				first < 97 &&
+				seedOf(a) === first &&
+				seedOf(plain) === undefined,
+			'a custom effect reading the seed draws one for each element (two burning at once differ) and keeps it while it plays; one that reads none draws none',
+		);
+		for (const t of [a, b, plain]) stopElementFx(t);
 		setCustomElementFx([]);
 	}
 }

@@ -1223,8 +1223,12 @@ export const customElementFxKind = (id: string): CustomElementFxKind => `custom:
 export interface CustomElementFxUniform {
 	name: string;
 	type: 'float' | 'vec2' | 'vec3' | 'vec4';
-	/** `time`: `uFx` = (progress 0…1, seconds, intensity, looping 0 / 1). `param`: one param's value. */
-	source: { kind: 'time' } | { kind: 'param'; id: string };
+	/**
+	 * `time`: `uFx` = (progress 0…1, seconds, intensity, looping 0 / 1). `param`: one param's value.
+	 * `seed`: a float, a random number 0…97 drawn for each element the effect plays on (as the
+	 * built-ins seed their noise), so two elements playing it at once differ.
+	 */
+	source: { kind: 'time' } | { kind: 'seed' } | { kind: 'param'; id: string };
 }
 
 /** A pass value: a literal, or one of the effect's own params (of the same kind). */
@@ -1512,6 +1516,7 @@ export function readCustomElementFx(raw: unknown): CustomElementFx | undefined {
 				UNIFORM_TYPES.includes(u.type) &&
 				isRecord(u.source) &&
 				(u.source.kind === 'time' ||
+					(u.source.kind === 'seed' && u.type === 'float') ||
 					(u.source.kind === 'param' &&
 						typeof u.source.id === 'string' &&
 						params.has(u.source.id))),

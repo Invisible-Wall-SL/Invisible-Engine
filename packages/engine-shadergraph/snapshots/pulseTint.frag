@@ -14,7 +14,7 @@ void main(void)
     vec3 n2_out = (vec3(efxLuma(n0_rgb)) * n1_out);
     float n3_progress = uFx.x;
     float n3_intensity = uFx.z;
-    float n4_out = sin(PI * clamp(n3_progress, 0.0, 1.0));
+    float n4_out = efxSinPi(clamp(n3_progress, 0.0, 1.0));
     float n5_out = (n4_out * n3_intensity);
     vec3 n6_out = mix(n0_rgb, n2_out, n5_out);
     float n7_l0 = n0_alpha;
