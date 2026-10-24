@@ -52,6 +52,8 @@
 		playing?: boolean;
 		/** Where the playhead starts (and where a `loop`ing cinematic returns to). */
 		startTime?: number;
+		/** Which play this is. A new one starts it again from `startTime`: a replay while it plays. */
+		playId?: number;
 		/** Loop it (as a Flow node asks); a ping-pong doc still plays there and back. */
 		loop?: boolean;
 		/** Playback rate; 1 = authored speed. */
@@ -196,12 +198,19 @@
 	ticker?.add(tick);
 	onDestroy(() => ticker?.remove(tick));
 
-	// Re-arm when the caller restarts it (a screen replayed, or a different cinematic mounted). It
-	// must never READ `time`: the ticker writes it every frame, which would re-run this and pin the
-	// playhead at the start.
+	// Re-arm when the caller restarts it: a new play (`playId`), a different cinematic, or a new
+	// start. Read through `$derived` values, so only a real change re-arms: a prop read straight off
+	// `props` tracks whatever the caller's getter reads, and the flow rebuilds every entry whenever a
+	// cinematic starts or ends or a screen comes up, which sent every playing one back to its start.
+	// It must never READ `time`: the ticker writes it every frame, which would re-run this and pin
+	// the playhead at the start.
+	const armedDoc = $derived(props.doc.id);
+	const armedPlay = $derived(props.playId);
+	const armedStart = $derived(props.startTime ?? 0);
 	$effect(() => {
-		void props.doc.id;
-		const start = props.startTime ?? 0;
+		void armedDoc;
+		void armedPlay;
+		const start = armedStart;
 		time = start;
 		lap = start;
 		done = false;

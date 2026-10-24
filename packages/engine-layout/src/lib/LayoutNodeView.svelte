@@ -19,6 +19,9 @@
 		 * (rig) node — rendered INSIDE its `<RigProvider>`, each group in one `<RigSlot>`, so the rig
 		 * drives them. Paired by the parent container's branch; only meaningful when this node is a rig. */
 		slotRiders?: LayoutNode[];
+		/** Drawn inside a parent node (a container's child, a part's skin, a rig-slot rider), in that
+		 * parent's space, rather than straight on the screen. */
+		nested?: boolean;
 	};
 </script>
 
@@ -57,6 +60,7 @@
 		backgroundFit,
 		coverAnchorOffset,
 		coverTransform,
+		coversBackgroundWindow,
 		isCoverArtKind,
 		isCoverFitKind,
 	} from './coverTransform';
@@ -109,7 +113,7 @@
 	import Repeater from './Repeater.svelte';
 	import { EDITOR_RIG_LOAD_SCALE } from './rigLoadScale';
 
-	const { node, space, attachedEffects, slotRiders }: Props = $props();
+	const { node, space, attachedEffects, slotRiders, nested }: Props = $props();
 	const layoutContext = getContextLayout();
 	const appContext = getContextApp();
 
@@ -986,6 +990,38 @@
 	const rectHeight = $derived(
 		node.kind === 'rect' ? (transform.height ?? node.height) * sizeScaleY : 0,
 	);
+	// A `rect` placed straight on a `background` screen covers the window like the background art
+	// does, measured from its own width × height (no texture), with the same fit / cover scale /
+	// stretch / align inputs — so a full-screen fill reaches every edge of a window larger than the
+	// bucket it was sized in. Drawn from its centre; the size carries the per-axis cover scale. A
+	// nested rect keeps its box, as the editor draws it (`coversBackgroundWindow`); any other space
+	// ⇒ `undefined` ⇒ the authored box above.
+	const rectCover = $derived.by(() => {
+		if (!isBackground || node.kind !== 'rect' || !coversBackgroundWindow(node, !nested)) {
+			return undefined;
+		}
+		const canvasBox = layoutContext.stateLayoutDerived.canvasSizes();
+		const width = transform.width ?? node.width;
+		const height = transform.height ?? node.height;
+		const cover = coverTransform({
+			artWidth: width,
+			artHeight: height,
+			targetWidth: canvasBox.width,
+			targetHeight: canvasBox.height,
+			coverScale: bgCoverScale,
+			stretchX: bgStretch.x,
+			stretchY: bgStretch.y,
+			fit: bgFit,
+			anchorX: bgAnchor.x,
+			anchorY: bgAnchor.y,
+		});
+		return {
+			x: cover.x,
+			y: cover.y,
+			width: width * cover.scaleX,
+			height: height * cover.scaleY,
+		};
+	});
 	// A param-bound fill / border colour (Rive plan Phase 8d: the authored button's tile takes its
 	// variant colour from the instance). Unbound ⇒ the node's own `color` (parity).
 	const boundRectColor = $derived(
@@ -1216,6 +1252,7 @@
 				node={child}
 				{space}
 				slotRiders={child === split.host && split.riders.length ? split.riders : undefined}
+				nested
 			/>
 		{/each}
 	{/if}
@@ -1295,6 +1332,7 @@
 						node={child}
 						{space}
 						slotRiders={child === split.host && split.riders.length ? split.riders : undefined}
+						nested
 					/>
 				{/each}
 			</Container>
@@ -1411,9 +1449,11 @@
 				(scale folded in above); `color` → `backgroundColor` (default `0xffffff`);
 				opacity is the standard `transform.alpha`. Default anchor `{0.5,0.5}` (centred —
 				matching the editor's 2D draw, hit-test and spawn, so an anchor-less rect lands
-				identically in editor + game); set `{0,0}` to pin from the top-left.
+				identically in editor + game); set `{0,0}` to pin from the top-left. On a
+				`background` screen it covers the window instead (`rectCover`), so a fill reveal
+				— which masks the authored box — does not apply there, as on a cover sprite.
 			-->
-			{#if fillBound}
+			{#if fillBound && !rectCover}
 				<!-- A `fill` reveal — the same wrapper + mask as the sprite branch. -->
 				<Container
 					x={posX}
@@ -1433,14 +1473,14 @@
 				</Container>
 			{:else}
 				<Rectangle
-					x={posX}
-					y={posY}
-					anchor={transform.anchor ?? { x: 0.5, y: 0.5 }}
-					width={rectWidth}
-					height={rectHeight}
+					x={rectCover ? rectCover.x : posX}
+					y={rectCover ? rectCover.y : posY}
+					anchor={rectCover ? { x: 0.5, y: 0.5 } : (transform.anchor ?? { x: 0.5, y: 0.5 })}
+					width={rectCover ? rectCover.width : rectWidth}
+					height={rectCover ? rectCover.height : rectHeight}
 					backgroundColor={rectColor}
 					{...rectShape}
-					rotation={transform.rotation}
+					rotation={rectCover ? 0 : transform.rotation}
 					alpha={transform.alpha}
 					zIndex={transform.zIndex}
 				/>
@@ -1588,7 +1628,7 @@
 				{#each slotRiderGroups as group (group.slot)}
 					<RigSlot slotName={group.slot}>
 						{#each group.riders as rider (rider.id)}
-							<svelte:self node={rider} {space} />
+							<svelte:self node={rider} {space} nested />
 						{/each}
 					</RigSlot>
 				{/each}
