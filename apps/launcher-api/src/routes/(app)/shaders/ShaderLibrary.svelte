@@ -1,6 +1,7 @@
 <script lang="ts">
+	import MenuButton, { type MenuGroup } from '$lib/MenuButton.svelte';
 	import { writeDrag } from '$lib/graph/dnd';
-	import { SHADER_DROP_MIME, libraryGroups } from './shaderEditor';
+	import { SHADER_DROP_MIME, libraryGroups, twinGroups } from './shaderEditor';
 
 	// The left pane: the project's graphs (its own and the studio's shared ones it does not
 	// override), then the node library by family. A node is dragged onto the canvas, or clicked to
@@ -20,6 +21,8 @@
 		readOnly?: boolean;
 		onOpen: (row: GraphRow) => void;
 		onNew: () => void;
+		/** A new effect started from built-in `kind`'s graph twin. */
+		onNewFrom: (kind: string) => void;
 		onDelete: (row: GraphRow) => void;
 		onAdd: (type: string) => void;
 	}
@@ -30,11 +33,36 @@
 		readOnly = false,
 		onOpen,
 		onNew,
+		onNewFrom,
 		onDelete,
 		onAdd,
 	}: Props = $props();
 
 	const GROUPS = libraryGroups();
+	const TWINS = twinGroups();
+	const newMenu = $derived<MenuGroup[]>([
+		{
+			items: [
+				{
+					label: 'Empty effect',
+					title: 'The Output alone: it draws the element as it is',
+					onSelect: onNew,
+				},
+			],
+		},
+		{
+			heading: 'Start from a built-in',
+			items: TWINS.map((group) => ({
+				label: group.label,
+				hint: String(group.twins.length),
+				items: group.twins.map((twin) => ({
+					label: twin.label,
+					title: twin.description,
+					onSelect: () => onNewFrom(twin.kind),
+				})),
+			})),
+		},
+	]);
 	let query = $state('');
 	const matches = (label: string, description: string): boolean => {
 		const q = query.trim().toLowerCase();
@@ -52,7 +80,7 @@
 	<section>
 		<div class="head">
 			<h3>Effects</h3>
-			<button type="button" onclick={onNew}>+ New</button>
+			<MenuButton label="New effect" groups={newMenu}>+ New ▾</MenuButton>
 		</div>
 		{#if !graphs.length}
 			<p class="muted">No shader effects in this project yet.</p>

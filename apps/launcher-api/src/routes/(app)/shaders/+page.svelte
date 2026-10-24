@@ -12,11 +12,13 @@
 	import { readDrag } from '$lib/graph/dnd';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
+	import { elementFxSpec } from 'constants-shared/elementFx';
 	import { guardUnsavedWork } from '$lib/unsavedGuard';
 	import {
 		COST_BUDGET,
 		SAMPLE_BUDGET,
 		analyzeShaderGraph,
+		builtinTwin,
 		compileShaderEffect,
 		normalizeShaderGraphDoc,
 		shaderNode,
@@ -33,6 +35,7 @@
 		canConnect,
 		canvasGraph,
 		connect,
+		docFromTwin,
 		docIssues,
 		moveNode,
 		newShaderDoc,
@@ -297,13 +300,19 @@
 		showGraph(normalizeShaderGraphDoc(out.doc, row.id), out.etag ?? null, row.shared);
 	}
 
-	async function create(): Promise<void> {
+	/** A new effect: the Output alone, or built-in `kind`'s graph twin to change. */
+	async function create(kind?: string): Promise<void> {
 		if (!(await settle())) return;
+		const twin = kind ? builtinTwin(kind) : undefined;
+		const from = twin ? elementFxSpec(twin.kind).label : '';
 		const name = (
 			await askText({
-				title: 'New shader effect',
+				title: twin ? `New effect from ${from}` : 'New shader effect',
+				message: twin
+					? `It starts as ${from}'s graph, with its params, passes and motion: change anything.`
+					: undefined,
 				label: 'Name',
-				value: '',
+				value: twin ? `${from} copy` : '',
 				confirmLabel: 'Create',
 			})
 		)?.trim();
@@ -322,7 +331,7 @@
 			}))
 		)
 			return;
-		const fresh = newShaderDoc(id, name);
+		const fresh = twin ? docFromTwin(twin, id, name) : newShaderDoc(id, name);
 		const { res, out } = await postSave(fresh, { baseEtag: null });
 		if (!res.ok || !out.id) {
 			notice =
@@ -555,6 +564,7 @@
 				readOnly={lease.readOnly}
 				onOpen={(row) => void open(row)}
 				onNew={() => void create()}
+				onNewFrom={(kind) => void create(kind)}
 				onDelete={(row) => void del(row)}
 				onAdd={addFromLibrary}
 			/>

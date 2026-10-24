@@ -6,6 +6,7 @@
  */
 
 import {
+	ELEMENT_FX_CATEGORIES,
 	ELEMENT_FX_LIMITS,
 	ELEMENT_FX_MOTION_RANGES,
 	ELEMENT_FX_PASS_KINDS,
@@ -14,13 +15,16 @@ import {
 	type ElementFxCurve,
 	type ElementFxMotionChannel,
 	type ElementFxParamSpec,
+	elementFxSpec,
 } from 'constants-shared/elementFx';
 import {
+	BUILTIN_TWINS,
 	SHADER_GRAPH_VERSION,
 	SHADER_NODES,
 	analyzeShaderGraph,
 	canFeed,
 	shaderNode,
+	type BuiltinTwin,
 	type GraphNode,
 	type GraphWire,
 	type NodeCategory,
@@ -70,6 +74,29 @@ export function newShaderDoc(id: string, name: string): ShaderGraphDoc {
 
 const clone = (doc: ShaderGraphDoc): ShaderGraphDoc =>
 	JSON.parse(JSON.stringify(doc)) as ShaderGraphDoc;
+
+/** A new graph started from built-in `twin`: its nodes, params, passes and motion, as `id` / `name`. */
+export function docFromTwin(twin: BuiltinTwin, id: string, name: string): ShaderGraphDoc {
+	return { ...clone(twin.doc), id, name };
+}
+
+export interface TwinGroup {
+	id: string;
+	label: string;
+	twins: { kind: string; label: string; description: string }[];
+}
+
+/** "Start from a built-in": the twins by the catalog's families, in the catalog's order. */
+export function twinGroups(twins: readonly BuiltinTwin[] = BUILTIN_TWINS): TwinGroup[] {
+	return ELEMENT_FX_CATEGORIES.map((category) => ({
+		id: category.id,
+		label: category.label,
+		twins: twins
+			.map((t) => elementFxSpec(t.kind))
+			.filter((spec) => spec.category === category.id)
+			.map(({ kind, label, description }) => ({ kind, label, description })),
+	})).filter((g) => g.twins.length > 0);
+}
 
 /** A node id of `type` no node of `doc` has. */
 export function freshNodeId(doc: ShaderGraphDoc, type: string): string {

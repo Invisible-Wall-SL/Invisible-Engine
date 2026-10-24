@@ -13,11 +13,19 @@
  *   4. The canvas shows each node's errors on it, the resolved port types and the wired inputs,
  *      even while the effect has an error of its own; read-only, nothing on it can change.
  *   5. The client's id is the store's: `slugOf` agrees with the server's `shaderSlug`.
+ *   6. Start from a built-in: a twin starts a graph that keeps its build under a new id, and the
+ *      New menu lists every twin once, by the catalog's families.
  *
  *   pnpm --filter launcher-api check:shader-editor
  */
-import { isCustomElementFxKind } from 'constants-shared/elementFx';
 import {
+	ELEMENT_FX_CATEGORIES,
+	elementFxSpec,
+	isCustomElementFxKind,
+} from 'constants-shared/elementFx';
+import {
+	BUILTIN_TWINS,
+	REFERENCE_GRAPHS,
 	analyzeShaderGraph,
 	compileShaderEffect,
 	compileShaderGraph,
@@ -31,6 +39,7 @@ import {
 	canConnect,
 	canvasGraph,
 	connect,
+	docFromTwin,
 	docIssues,
 	libraryGroups,
 	moveNode,
@@ -45,6 +54,7 @@ import {
 	setPass,
 	setPivot,
 	slugOf,
+	twinGroups,
 	wireId,
 } from '../src/routes/(app)/shaders/shaderEditor.ts';
 
@@ -344,6 +354,53 @@ for (const name of ['Glow', 'Power Up!', '__x', '---', '', 'Ünïcode', 'a'.repe
 	check(`the client keys "${name}" as the store does`, slugOf(name), shaderSlug(name));
 	check(`…a valid custom kind`, isCustomElementFxKind(`custom:${slugOf(name)}`), true);
 }
+
+// ── 6 ──
+console.log('6. start from a built-in');
+const powerUp = REFERENCE_GRAPHS.find((g) => g.id === 'powerUp') as ShaderGraphDoc;
+const frost = REFERENCE_GRAPHS.find((g) => g.id === 'frost') as ShaderGraphDoc;
+const started = docFromTwin({ kind: 'glow', doc: powerUp }, 'my_glow', 'My glow');
+check(
+	'a twin starts a graph under the new id and name, with its nodes, params, passes and motion',
+	[
+		started.id,
+		started.name,
+		json(started.nodes) === json(powerUp.nodes),
+		json(started.params) === json(powerUp.params),
+		json(started.passes) === json(powerUp.passes),
+		json(started.motion) === json(powerUp.motion),
+	],
+	['my_glow', 'My glow', true, true, true, true],
+);
+check('…that compiles', compileShaderEffect(started).ok, true);
+check('…and leaves the twin as it was', powerUp.id, 'powerUp');
+const groups = twinGroups([
+	{ kind: 'freeze', doc: frost },
+	{ kind: 'glow', doc: powerUp },
+	{ kind: 'twist', doc: frost },
+]);
+check(
+	'the menu lists each twin once, under its catalog family, families in catalog order',
+	groups.map((g) => [g.id, g.twins.map((t) => t.kind)]),
+	(() => {
+		const byFamily = new Map<string, string[]>();
+		for (const kind of ['freeze', 'glow', 'twist'] as const) {
+			const family = elementFxSpec(kind).category;
+			byFamily.set(family, [...(byFamily.get(family) ?? []), kind]);
+		}
+		return ELEMENT_FX_CATEGORIES.filter((c) => byFamily.has(c.id)).map((c) => [
+			c.id,
+			byFamily.get(c.id),
+		]);
+	})(),
+);
+check(
+	'every real twin is offered exactly once',
+	twinGroups()
+		.flatMap((g) => g.twins.map((t) => t.kind))
+		.sort(),
+	BUILTIN_TWINS.map((t) => t.kind).sort(),
+);
 
 if (failures) {
 	console.log(`\ncheck:shader-editor — ${failures} of ${checks} checks FAILED`);
