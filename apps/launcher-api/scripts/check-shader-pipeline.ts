@@ -685,6 +685,25 @@ console.log('5. history');
 		400,
 	);
 	check('history needs a graph', (await call(backupsRoute.GET, { query: '' })).status, 400);
+	const third = await storage.saveShader(
+		CLIENT,
+		PROJECT,
+		{ ...ref('frost'), id: 'glow', name: 'Glow v3' },
+		restored.body.etag as string,
+	);
+	const beforeDelete = keysUnder(backupDir).length;
+	await storage.deleteShader(CLIENT, PROJECT, 'glow');
+	const afterDelete = keysUnder(backupDir);
+	check(
+		'a delete keeps the last version in History, however recent its save',
+		[
+			!!third.etag,
+			R2.has(`${projectDir}glow.json`),
+			afterDelete.length - beforeDelete,
+			afterDelete.map((k) => JSON.parse(R2.get(k)!.body).name).includes('Glow v3'),
+		],
+		[true, false, 1, true],
+	);
 }
 
 if (failures) {

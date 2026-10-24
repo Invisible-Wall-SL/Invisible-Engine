@@ -6,7 +6,7 @@ import {
 	type ShaderGraphDoc,
 } from 'engine-shadergraph';
 import { mapWithConcurrency } from './concurrency';
-import { putDocWithBackup, type BackupMode } from './docBackups';
+import { deleteDocWithBackup, putDocWithBackup, type BackupMode } from './docBackups';
 import {
 	SHARED_SHADERS_PREFIX,
 	SUB,
@@ -217,13 +217,13 @@ export async function saveShader(
 	return { id, doc, etag };
 }
 
-/** Delete a project's graph; the shared library is never touched. Idempotent. */
+/** Delete a project's graph, its last version kept in History; the shared library is never touched. */
 export async function deleteShader(
 	clientKey: string,
 	projectKey: string,
 	rawId: string,
 ): Promise<{ id: string }> {
 	const id = shaderSlug(rawId);
-	await deleteObject(shaderDocKey(clientKey, projectKey, id));
+	await deleteDocWithBackup(shaderDocBackupTarget(clientKey, projectKey, id), deleteObject);
 	return { id };
 }
