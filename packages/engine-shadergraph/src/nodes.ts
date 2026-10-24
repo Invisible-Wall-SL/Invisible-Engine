@@ -705,7 +705,8 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		type: 'ripple',
 		label: 'Ripple',
 		category: 'uv',
-		description: 'A shock ring At diagonals out pushing the element outward; Ring is 1 on it.',
+		description:
+			'A shock ring from the centre, At element diagonals out (0 → 1 sweeps it past the corners), pushing the element outward; Ring is 1 at its middle.',
 		inputs: [uvIn(), progressIn('at', 'At'), f('width', 'Width', 0.1), f('amount', 'Amount', 0.05)],
 		outputs: [port('uv', 'UV', 'vec2'), port('ring', 'Ring', 'float')],
 		cost: 14,

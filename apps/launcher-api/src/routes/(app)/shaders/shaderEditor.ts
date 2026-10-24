@@ -145,7 +145,8 @@ export function remove(
 	ids: readonly string[],
 	wireIds: readonly string[] = [],
 ): ShaderGraphDoc {
-	const gone = new Set(ids);
+	const kept = new Set(doc.nodes.filter((n) => n.type === 'output').map((n) => n.id));
+	const gone = new Set(ids.filter((id) => !kept.has(id)));
 	const cut = new Set(wireIds);
 	const next = clone(doc);
 	next.nodes = next.nodes.filter((n) => !gone.has(n.id));
@@ -334,17 +335,24 @@ export type ShaderNodeView = {
 	summary: string;
 };
 
-/** The canvas's nodes and wires for `doc`, as xyflow takes them. */
+/**
+ * The canvas's nodes and wires for `doc`, as xyflow takes them. Read-only (another editor holds the
+ * graph), nothing moves, wires or deletes; the Output never deletes, as the library cannot add one.
+ */
 export function canvasGraph(
 	doc: ShaderGraphDoc,
 	analysis: ShaderGraphAnalysis | undefined,
 	selectedId: string | null,
+	readOnly = false,
 ): {
 	nodes: {
 		id: string;
 		type: 'shader';
 		position: { x: number; y: number };
 		selected: boolean;
+		draggable: boolean;
+		connectable: boolean;
+		deletable: boolean;
 		data: ShaderNodeView;
 	}[];
 	edges: {
@@ -353,6 +361,7 @@ export function canvasGraph(
 		sourceHandle: string;
 		target: string;
 		targetHandle: string;
+		deletable: boolean;
 		style: string;
 	}[];
 } {
@@ -381,6 +390,9 @@ export function canvasGraph(
 			type: 'shader' as const,
 			position: { x: node.x, y: node.y },
 			selected: node.id === selectedId,
+			draggable: !readOnly,
+			connectable: !readOnly,
+			deletable: !readOnly && node.type !== 'output',
 			data: {
 				node,
 				def,
@@ -401,6 +413,7 @@ export function canvasGraph(
 			sourceHandle: w.from.port,
 			target: w.to.node,
 			targetHandle: w.to.port,
+			deletable: !readOnly,
 			style: `stroke:${PORT_COLORS[type]};stroke-width:2`,
 		};
 	});

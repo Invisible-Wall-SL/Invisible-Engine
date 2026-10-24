@@ -116,6 +116,9 @@ const paramIssues = (params: unknown): GraphIssue[] =>
 			}))
 		: [{ level: 'error', code: 'doc', message: 'params is not a list' }];
 
+/** Errors that leave no graph to order and type: an unknown or duplicated node, no single Output. */
+const UNWALKABLE = new Set<GraphIssue['code']>(['unknown-node', 'duplicate-node', 'output']);
+
 interface Analysis {
 	issues: GraphIssue[];
 	/** Reachable nodes, every node after the nodes it reads. */
@@ -260,7 +263,9 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 		for (const setting of def.settings ?? []) {
 			const value = nodes.get(id)?.values?.[setting.id];
 			if (setting.kind === 'param') {
-				if (typeof value !== 'string' || !params.has(value))
+				if (value === undefined || value === '')
+					error('setting', `${def.label} needs one of the effect's params picked`, id, setting.id);
+				else if (typeof value !== 'string' || !params.has(value))
 					error('setting', `"${String(value)}" is not one of the effect's params`, id, setting.id);
 			} else if (value === undefined) {
 				continue;
@@ -317,7 +322,9 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 		feeds.set(wire.to.port, wire.from);
 		result.feeds.set(wire.to.node, feeds);
 	}
-	if (issues.some((i) => i.level === 'error')) return result;
+	// Only a graph that cannot be walked stops here: an editor still gets the port types, the cost
+	// and the reach of a graph whose name, settings or one wire is wrong.
+	if (issues.some((i) => i.level === 'error' && UNWALKABLE.has(i.code))) return result;
 
 	// Order: what the Output reads, each node after what it reads; a loop cannot be ordered. Nodes
 	// that reach nothing follow, so they are checked like the rest but left out of the GLSL.

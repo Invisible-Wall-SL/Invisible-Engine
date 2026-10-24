@@ -5,10 +5,12 @@
  *
  *   1. A new graph compiles, and draws the element as it is.
  *   2. Building a graph from the gestures (add, wire, set a value, a param, a pass, motion) gives a
- *      doc that compiles; an input takes one wire; removing a node takes its wires.
+ *      doc that compiles; an input takes one wire; removing a node takes its wires; the Output
+ *      stays.
  *   3. The wire rule is the compiler's: a float spreads, a vector narrows, a shorter vector never
  *      widens, nothing feeds itself, an input that follows its node's type takes anything.
- *   4. The canvas shows each node's errors on it, the resolved port types and the wired inputs.
+ *   4. The canvas shows each node's errors on it, the resolved port types and the wired inputs,
+ *      even while the effect has an error of its own; read-only, nothing on it can change.
  *   5. The client's id is the store's: `slugOf` agrees with the server's `shaderSlug`.
  *
  *   pnpm --filter launcher-api check:shader-editor
@@ -153,6 +155,11 @@ check(
 	moveNode(doc, tint.id, 10.6, -3.2).nodes.find((n) => n.id === tint.id)?.x,
 	11,
 );
+check(
+	'the Output never goes: the library cannot add one back',
+	remove(doc, ['out']).nodes.some((n) => n.id === 'out'),
+	true,
+);
 check('no gesture changes the doc it was given', fresh.nodes.length, 1);
 check(
 	'the library lists every family but leaves the Output out',
@@ -231,7 +238,20 @@ check(
 	view.nodes.some((n) => n.data.errors.length > 0),
 	false,
 );
+const locked = canvasGraph(doc, analyzeShaderGraph(doc), null, true);
+check(
+	'read-only, nothing on the canvas moves, wires or deletes',
+	[...locked.nodes, ...locked.edges].some(
+		(e) => e.deletable || ('draggable' in e && (e.draggable || e.connectable)),
+	),
+	false,
+);
 const typed = canvasGraph(doc, analyzeShaderGraph(doc), null);
+check(
+	'…and when it is not, everything but the Output deletes',
+	typed.nodes.filter((n) => !n.deletable).map((n) => n.id),
+	['out'],
+);
 check(
 	'an output’s resolved type colours its wire',
 	typed.edges.every((e) => e.style.startsWith('stroke:#')),
@@ -243,6 +263,23 @@ check(
 	'a node’s own error shows on it',
 	(badView.nodes.find((n) => n.id === fade.id)?.data.errors.length ?? 0) > 0,
 	true,
+);
+
+const unnamed = analyzeShaderGraph({ ...doc, name: '' });
+check(
+	'a blank name is an error, and the rest is still worked out: types, cost',
+	[
+		unnamed.issues.some((i) => i.level === 'error'),
+		unnamed.outputs[fade.id]?.out,
+		unnamed.cost > 0,
+	],
+	[true, 'vec4', true],
+);
+const unpicked = addNode(doc, 'param', { x: 0, y: 0 });
+check(
+	'a Param node with none picked asks for one',
+	analyzeShaderGraph(unpicked.doc).issues.find((i) => i.node === unpicked.id)?.message,
+	"Param needs one of the effect's params picked",
 );
 
 // ── 5 ──
