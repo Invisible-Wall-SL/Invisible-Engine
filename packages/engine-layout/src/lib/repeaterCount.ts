@@ -43,17 +43,41 @@ export function repeaterCount(node: RepeaterNode, value: unknown): number {
 	return Math.min(Math.max(Math.round(n), 0), repeaterCountCap(node.count));
 }
 
+/** Whether a component id names a def that can be drawn (the game's registry, the editor's map). */
+export type HasComponent = (componentId: string) => boolean;
+
+const anyComponent: HasComponent = () => true;
+
 /**
  * The component segment `index` (0-based) of `n` draws: `variants.first` for the first, `last` for
  * the last of two or more, `middle` for the rest — each unset variant falling back to `middle`, then
- * to the node's `componentId`.
+ * to the node's `componentId`. A variant `has` knows no def for falls back the same way, so a
+ * missing end cap draws a middle segment rather than nothing.
  */
-export function repeaterSegmentComponent(node: RepeaterNode, index: number, n: number): string {
+export function repeaterSegmentComponent(
+	node: RepeaterNode,
+	index: number,
+	n: number,
+	has: HasComponent = anyComponent,
+): string {
 	const v: RepeaterVariants = node.variants ?? {};
-	const middle = v.middle || node.componentId;
-	if (index === 0 && v.first) return v.first;
-	if (index === n - 1 && n > 1 && v.last) return v.last;
+	const middle = v.middle && has(v.middle) ? v.middle : node.componentId;
+	if (index === 0 && v.first && has(v.first)) return v.first;
+	if (index === n - 1 && n > 1 && v.last && has(v.last)) return v.last;
 	return middle;
+}
+
+/** The variants of a count-mode `node` that name a def `has` does not know, slot by slot. */
+export function missingRepeaterVariants(
+	node: RepeaterNode,
+	has: HasComponent,
+): { slot: keyof RepeaterVariants; componentId: string }[] {
+	if (!isCountRepeater(node)) return [];
+	const v = node.variants ?? {};
+	return (['first', 'middle', 'last'] as const).flatMap((slot) => {
+		const componentId = v[slot];
+		return componentId && !has(componentId) ? [{ slot, componentId }] : [];
+	});
 }
 
 /** Every component a count-mode node can draw (its `componentId`, then each variant not already
@@ -108,12 +132,13 @@ export interface RepeaterCountLayout {
  * own size (`sizeOf` its component — an end cap may be wider than a middle segment), with
  * `layout.gap` between; the cross axis is the tallest / widest. `grid` keeps the source-list
  * repeater's uniform pitch, the size of the node's `componentId`. An unsizable component counts as
- * 0 × 0.
+ * 0 × 0. `has`: as {@link repeaterSegmentComponent}, so a missing end cap is sized as what draws.
  */
 export function repeaterCountOffsets(
 	node: RepeaterNode,
 	n: number,
 	sizeOf: (componentId: string) => RepeaterItemSize | null | undefined,
+	has: HasComponent = anyComponent,
 ): RepeaterCountLayout {
 	const gap = node.layout.gap;
 	if (n <= 0) return { offsets: [], width: 0, height: 0 };
@@ -135,7 +160,7 @@ export function repeaterCountOffsets(
 	let along = 0;
 	let across = 0;
 	for (let i = 0; i < n; i++) {
-		const size = sizeOf(repeaterSegmentComponent(node, i, n));
+		const size = sizeOf(repeaterSegmentComponent(node, i, n, has));
 		const w = size?.width ?? 0;
 		const h = size?.height ?? 0;
 		if (i > 0) along += gap;

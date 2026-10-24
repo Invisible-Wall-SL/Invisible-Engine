@@ -8,6 +8,8 @@
 
 	/** Count sources named but not registered: warned once per name, not per placement. */
 	const warnedCountSources: Record<string, true> = {};
+	/** Segment variants naming no registered def: warned once per repeater and variant. */
+	const warnedMissingVariants: Record<string, true> = {};
 </script>
 
 <script lang="ts">
@@ -27,6 +29,7 @@
 	import { getComponentValueSource } from './registerComponentValues';
 	import {
 		isCountRepeater,
+		missingRepeaterVariants,
 		repeaterCount,
 		repeaterCountOffsets,
 		repeaterSegmentComponent,
@@ -125,6 +128,22 @@
 				}),
 			)
 		: undefined;
+	// A variant naming no registered def (a snapshot published before it was saved) draws the middle
+	// segment in its place, as an unset variant does; the registry is filled at boot, so init-stable.
+	const hasComponent = (componentId: string): boolean => !!resolveComponent(componentId).def;
+	if (countNode) {
+		// What a middle segment draws: the one a missing variant falls back to.
+		const middle = repeaterSegmentComponent(countNode, 1, 3, hasComponent);
+		for (const { slot, componentId } of missingRepeaterVariants(countNode, hasComponent)) {
+			const key = `${node.id}/${slot}/${componentId}`;
+			if (warnedMissingVariants[key]) continue;
+			warnedMissingVariants[key] = true;
+			const instead = hasComponent(middle) ? `'${middle}' draws there instead` : 'nothing draws';
+			console.warn(
+				`[engine-layout] repeater '${node.id}': its ${slot} segment '${componentId}' is not registered — ${instead}.`,
+			);
+		}
+	}
 	const segmentCount = $derived(countNode ? repeaterCount(countNode, countValue) : 0);
 	const countLayout = $derived.by(() => {
 		if (!countNode) return undefined;
@@ -137,12 +156,12 @@
 			}
 			return sizes[componentId];
 		};
-		return repeaterCountOffsets(countNode, segmentCount, sizeOf);
+		return repeaterCountOffsets(countNode, segmentCount, sizeOf, hasComponent);
 	});
 	const segments = $derived.by(() => {
 		if (!countNode || !countLayout) return [];
 		return countLayout.offsets.map((offset, index) => {
-			const componentId = repeaterSegmentComponent(countNode, index, segmentCount);
+			const componentId = repeaterSegmentComponent(countNode, index, segmentCount, hasComponent);
 			const values = repeaterSegmentValues(index, segmentCount);
 			const instance: ComponentInstanceNode = {
 				kind: 'componentInstance',

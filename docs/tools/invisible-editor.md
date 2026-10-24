@@ -1914,11 +1914,14 @@ gets the bar's `index` / `value`, and it nests one level deeper than the game dr
    bar's own params) goes in **Custom source…**.
 4. **Place it and publish.** Save the bar, place it on the free-spins or Hold and Win screen like
    any component, and publish as usual — the bar, its segment and the variants travel with the
-   game.
+   game. A player link shows the LAST publish: an end cap made since then is not in it yet, so the
+   game draws the middle segment in its place (and says so in the browser console) until you
+   publish again.
 
 The canvas draws each segment from the segment's saved timelines (and the built-in ones), read
 again when you open another component — so after editing the segment, come back to the bar to see
-the change.
+the change. Looks drawn from rigs show their rig art, in the pose the segment's state machine
+lights.
 
 #### Listeners and events
 
