@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { projectMismatch, shaderReadScope } from '$lib/server/shaderScope';
+import { scopeMismatch } from '$lib/server/scopeGuard';
+import { shaderReadScope } from '$lib/server/shaderScope';
 import { compileProjectShaders } from '$lib/server/shaderStorage';
 import type { RequestHandler } from './$types';
 
@@ -8,11 +9,11 @@ import type { RequestHandler } from './$types';
  * registers with `setCustomElementFx` so its pickers list them and its previews play them, and the
  * graphs left out because they do not compile.
  *
- * `GET /api/shaders/effects[?project=<key>]`
+ * `GET /api/shaders/effects[?projectKey=<key>]`
  */
 export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	const { clientKey, projectKey } = await shaderReadScope(locals, cookies);
-	const mismatch = projectMismatch(url.searchParams.get('project'), projectKey);
+	const mismatch = scopeMismatch(url.searchParams.get('projectKey') ?? undefined, projectKey);
 	if (mismatch) return mismatch;
 	return json({ ok: true, ...(await compileProjectShaders(clientKey, projectKey)) });
 };

@@ -952,6 +952,40 @@ async function main() {
 			);
 		}
 
+	// Compile the project's shader graphs (Invisible Shader Graph) into R2 `deploy/editor-shaders/`
+	// and embed the returned effects, which the game registers at boot (`setCustomElementFx`) so an
+	// entry naming `custom:<id>` plays. Pure JSON (the compiled GLSL travels inside), mirrored by
+	// `pull-project-assets.mjs`. A launcher that predates the endpoint answers 404: the bake goes on
+	// without it, as for the cinematics. A project with no graphs leaves `shaderEffects` undefined
+	// (parity). A graph that does not compile is left out, and named here: its entries play nothing.
+	let shaderEffects;
+	const shadersUrl =
+		`${base}/api/editor/export-shaders?project=${encodeURIComponent(project)}` +
+		`&k=${encodeURIComponent(token)}`;
+	if (dryRun) {
+		console.info('(dry run) skipping the shader export — it writes to R2 deploy/.');
+	} else
+		try {
+			const res = await fetchRetry(shadersUrl, { method: 'POST' }, 'shader export');
+			if (res.ok) {
+				const sh = await res.json();
+				if (Array.isArray(sh?.shaderEffects) && sh.shaderEffects.length)
+					shaderEffects = sh.shaderEffects;
+				for (const skip of Array.isArray(sh?.skipped) ? sh.skipped : []) {
+					console.warn(
+						`  shader effect "${skip?.name ?? skip?.id}" does not compile and will not play: ${(Array.isArray(skip?.errors) ? skip.errors : []).join('; ')}`,
+					);
+				}
+			} else if (res.status !== 404) {
+				bail(`Shader export failed: HTTP ${res.status} — ${await bodySnippet(res)}`);
+			}
+		} catch (err) {
+			if (err instanceof BakeBail) throw err;
+			bail(
+				`Could not reach ${base}/api/editor/export-shaders — ${err instanceof Error ? err.message : err}`,
+			);
+		}
+
 	// Export the project's Invisible Flipbook clips into R2 `deploy/clips/` so the deploy mirror
 	// pulls them, and embed them so the game registers each clip (`registerFlipbooks`). A clip
 	// ships no new assets — its frames are regions of an atlas the editor-art export already
@@ -1320,6 +1354,7 @@ async function main() {
 		// rig has ≥1 bound event — `bakedRigFx()` returns {} when absent, so `resolveRigFx()` yields
 		// [] and nothing new mounts (parity).
 		...(rigFx ? { rigFx } : {}),
+		...(shaderEffects ? { shaderEffects } : {}),
 		// The authored frame animations (Invisible Flipbook). Omitted unless the project authored
 		// ≥1 clip, keeping the bundle byte-identical for every game with no flipbook work —
 		// `bakedFlipbooks()` returns [] when absent (parity).
@@ -1349,6 +1384,7 @@ async function main() {
 		: '';
 	const effectsNote = effects ? ` effects={${effects.length}},` : '';
 	const flipbooksNote = flipbooks ? ` flipbooks={${flipbooks.length}},` : '';
+	const shadersNote = shaderEffects ? ` shaderEffects={${shaderEffects.length}},` : '';
 	const highlightNote = symbols.highlight
 		? ` highlight=${symbols.highlight.assetKey}/${symbols.highlight.animationName ?? '(first)'},`
 		: '';
@@ -1378,7 +1414,7 @@ async function main() {
 			`\nWould write ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 				` (${sceneCount} scenes, ${defCount} component defs${pinnedNote}, ${defaultCount} default sets,` +
 				` ${artCount} editor-art sheets, ${fontCount} fonts,` +
-				`${highlightNote}${winLineNote}${stackedNote}${settingsNote}${flowNote}${flowV2Note}${effectsNote}${flipbooksNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
+				`${highlightNote}${winLineNote}${stackedNote}${settingsNote}${flowNote}${flowV2Note}${effectsNote}${flipbooksNote}${shadersNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 		);
 		return;
 	}

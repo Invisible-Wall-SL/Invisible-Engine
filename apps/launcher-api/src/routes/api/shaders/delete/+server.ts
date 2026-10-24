@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
-import { projectMismatch, shaderWriteScope } from '$lib/server/shaderScope';
+import { scopeMismatch } from '$lib/server/scopeGuard';
+import { shaderWriteScope } from '$lib/server/shaderScope';
 import { deleteShader } from '$lib/server/shaderStorage';
 import type { RequestHandler } from './$types';
 
@@ -15,7 +16,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
 	const rawId = body && typeof body.id === 'string' ? body.id.trim() : '';
 	if (!rawId) throw error(400, 'missing id');
-	const mismatch = projectMismatch(body?.projectKey, projectKey);
+	const mismatch = scopeMismatch(body?.projectKey, projectKey);
 	if (mismatch) return mismatch;
 	const { id } = await deleteShader(clientKey, projectKey, rawId);
 	return json({ ok: true, id });

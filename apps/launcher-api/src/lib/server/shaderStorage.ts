@@ -53,10 +53,13 @@ export interface CompiledShaderSet {
 	skipped: ShaderSkip[];
 }
 
-/** The id of a doc key directly in `prefix` (`<prefix>/<id>.json`), or '' for anything deeper. */
+/**
+ * The id of a graph's key (`<prefix>/<id>.json`), or '' for any other: a key in a sub-folder, or
+ * whose name is not a slug, is not one (`/` is never part of a slug).
+ */
 function idOfKey(prefix: string, key: string): string {
 	const rest = key.slice(prefix.length + 1);
-	if (rest.includes('/') || !rest.endsWith('.json')) return '';
+	if (!rest.endsWith('.json')) return '';
 	const id = rest.slice(0, -'.json'.length);
 	return shaderSlug(id) === id ? id : '';
 }
@@ -126,6 +129,22 @@ export async function compileProjectShaders(
 	projectKey: string,
 ): Promise<CompiledShaderSet> {
 	return compileShaderSet((await loadShaderSet(clientKey, projectKey)).map((s) => s.doc));
+}
+
+/**
+ * The compiled effects a page registers with `setCustomElementFx`. A failed read lists none rather
+ * than failing the page: an entry naming one then shows as unreadable and is kept as saved.
+ */
+export async function loadCustomElementFx(
+	clientKey: string,
+	projectKey: string,
+): Promise<CustomElementFx[]> {
+	try {
+		return (await compileProjectShaders(clientKey, projectKey)).effects;
+	} catch (e) {
+		console.error(`[shaders] could not compile ${clientKey}/${projectKey}'s shader graphs`, e);
+		return [];
+	}
 }
 
 /**

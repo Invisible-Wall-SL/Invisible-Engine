@@ -1790,7 +1790,8 @@ console.log('element fx — the wiring');
 		'the flow declares elementEffect / stopElementEffect',
 	);
 	assert(
-		vocab.includes("{ name: 'ElementFxKind', values: [...ELEMENT_FX_KINDS] }"),
+		vocab.includes("export const ELEMENT_FX_KIND_ENUM = 'ElementFxKind';") &&
+			vocab.includes('{ name: ELEMENT_FX_KIND_ENUM, values: [...ELEMENT_FX_KINDS] }'),
 		'its kind dropdown is the catalog',
 	);
 	const effects = read('apps/lines/src/game/flowEffects.ts');

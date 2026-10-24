@@ -6,19 +6,21 @@
 		ELEMENT_FX_LIMITS,
 		ELEMENT_FX_TRIGGERS,
 		elementFxIntensityChannel,
+		customElementFxList,
 		elementFxProgressChannel,
-		elementFxSpec,
 		findElementFxSpec,
-		isElementFxKind,
+		isPlayableElementFxKind,
 		readElementFxEntry,
 		readElementFxParam,
 		type ElementFxEntry,
-		type ElementFxKind,
+		type ElementFxKindId,
+		type ElementFxKindSpec,
 		type ElementFxParamSpec,
 		type ElementFxParamValue,
 		type ElementFxTrigger,
 	} from 'constants-shared/elementFx';
 	import { SvelteSet } from 'svelte/reactivity';
+	import { customElementFxVersion } from '$lib/customElementFx.svelte';
 
 	/**
 	 * "Element FX": the effects that play ON a node or on a whole screen — a shake, a 3D flip, a
@@ -81,28 +83,38 @@
 	};
 	const textOf = (trigger: ElementFxTrigger): { label: string; summary: string } =>
 		triggerText?.[trigger] ?? TRIGGER_TEXT[trigger];
-	const KIND_GROUPS = ELEMENT_FX_CATEGORIES.map((category) => ({
-		...category,
-		kinds: ELEMENT_FX.filter((spec) => spec.category === category.id),
-	}));
+	/** The kinds by category: the built-ins, then the project's shader effects once its page has
+	 *  registered them (`registerCustomElementFx`). A category with nothing in it is left out. */
+	const kindGroups = $derived.by(() => {
+		customElementFxVersion();
+		const specs: readonly ElementFxKindSpec[] = [
+			...ELEMENT_FX,
+			...customElementFxList().map((effect) => effect.spec),
+		];
+		return ELEMENT_FX_CATEGORIES.map((category) => ({
+			...category,
+			kinds: specs.filter((spec) => spec.category === category.id),
+		})).filter((group) => group.kinds.length);
+	});
 	const CATEGORY_LABELS = new Map(ELEMENT_FX_CATEGORIES.map((c) => [c.id, c.label]));
 
 	/** Each stored entry and, when this build can play it, the entry as read and its kind's spec. */
-	const rows = $derived(
-		(entries ?? []).map((raw) => {
+	const rows = $derived.by(() => {
+		customElementFxVersion();
+		return (entries ?? []).map((raw) => {
 			const entry = readElementFxEntry(raw);
 			const spec = entry ? findElementFxSpec(entry.kind) : undefined;
 			return { raw, read: entry && spec ? { entry, spec } : undefined };
-		}),
-	);
+		});
+	});
 	/** Expanded rows, by entry id. */
 	const open = new SvelteSet<string>();
 	/** The entry whose ▶ found nothing on the stage to play on. */
 	let missed = $state<string | null>(null);
 
 	/** A new entry's trigger: a loop runs always, an entrance on show, anything else on a cue. */
-	function defaultTrigger(kind: ElementFxKind): ElementFxTrigger {
-		const phase = elementFxSpec(kind).phase;
+	function defaultTrigger(kind: ElementFxKindId): ElementFxTrigger {
+		const phase = findElementFxSpec(kind)?.phase;
 		return phase === 'loop' ? 'always' : phase === 'enter' ? 'enter' : 'cue';
 	}
 
@@ -143,7 +155,7 @@
 		commit(list);
 	}
 
-	function add(kind: ElementFxKind): void {
+	function add(kind: ElementFxKindId): void {
 		const taken = new Set((entries ?? []).map((e) => e.id));
 		let n = 1;
 		while (taken.has(`efx${n}`)) n++;
@@ -172,9 +184,10 @@
 	}
 
 	/** A new kind keeps the params it also declares (read against its own ranges); the rest go. */
-	function setKind(index: number, kind: ElementFxKind): void {
+	function setKind(index: number, kind: ElementFxKindId): void {
+		const spec = findElementFxSpec(kind);
+		if (!spec) return;
 		edit(index, (e) => {
-			const spec = elementFxSpec(kind);
 			const params: Record<string, ElementFxParamValue> = {};
 			for (const p of spec.params) {
 				const value = readElementFxParam(p, e.params?.[p.id]);
@@ -260,7 +273,7 @@
 </script>
 
 {#snippet kindOptions()}
-	{#each KIND_GROUPS as group (group.id)}
+	{#each kindGroups as group (group.id)}
 		<optgroup label={group.label}>
 			{#each group.kinds as spec (spec.kind)}
 				<option value={spec.kind}>{spec.label}</option>
@@ -359,7 +372,7 @@
 									{disabled}
 									onchange={(e) => {
 										const kind = e.currentTarget.value;
-										if (isElementFxKind(kind)) setKind(index, kind);
+										if (isPlayableElementFxKind(kind)) setKind(index, kind);
 									}}
 								>
 									{@render kindOptions()}
@@ -618,7 +631,7 @@
 				onchange={(e) => {
 					const kind = e.currentTarget.value;
 					e.currentTarget.value = '';
-					if (isElementFxKind(kind)) add(kind);
+					if (isPlayableElementFxKind(kind)) add(kind);
 				}}
 			>
 				<option value="">+ Add effect…</option>

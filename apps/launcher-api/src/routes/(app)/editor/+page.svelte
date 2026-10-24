@@ -102,6 +102,7 @@
 	import type { RigMeta } from './rigRuntime.client';
 	import { fetchClips } from './editorFlipbooks.client';
 	import { bindEditorProject } from './editorProject.client';
+	import { registerCustomElementFx } from '$lib/customElementFx.svelte';
 	import { findById, flattenSceneIds, genComponentId, removeNode } from './layoutTree.client';
 	import { pinnedDefKey } from './editorCanvas.helpers';
 	import { createPinnedVersionLoader } from './componentPins.client';
@@ -122,6 +123,9 @@
 	/** The page's data now describes another project: every save is blocked and a reload asked. */
 	const projectDrift = $derived(data.projectKey !== loadedProjectKey);
 	bindEditorProject(loadedProjectKey);
+	// The project's shader effects, so the Element FX pickers list them and an entry naming one reads
+	// and plays. Once, like the project itself: a page whose project moved is reloaded, not re-bound.
+	registerCustomElementFx(untrack(() => data.customElementFx));
 
 	/** Scenes the canvas renders. Lazily seeded with a `'main'` scene when the
 	 * doc has none — persistence is handled by the debounced autosave below. */

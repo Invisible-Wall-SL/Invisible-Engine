@@ -133,6 +133,7 @@
 			sounds: data.soundOptions,
 			sceneCues: data.sceneCues ?? [],
 			fxTargets: data.fxTargets ?? [],
+			customFxKinds: data.customFxKinds ?? [],
 		}),
 	);
 

@@ -5,7 +5,11 @@
 	import { EnableHotkey, EnableSpaceHold, OnHotkey } from 'components-shared';
 	import { MainContainer } from 'components-layout';
 	import { Anchor, App, Container, Text } from 'pixi-svelte';
-	import { ELEMENT_FX_REELS_TARGET, readElementFxEntries } from 'constants-shared/elementFx';
+	import {
+		ELEMENT_FX_REELS_TARGET,
+		readElementFxEntries,
+		setCustomElementFx,
+	} from 'constants-shared/elementFx';
 	import { setParticleTimeScale } from 'pixi-svelte/particleClock';
 	import {
 		stateBet,
@@ -284,6 +288,7 @@
 		bakedFlipbooks,
 		bakedRigFlipbooks,
 		bakedRigFx,
+		bakedShaderEffects,
 		bakedSymbolAssets,
 		bakedWinCycleConfig,
 		bakedWinText,
@@ -828,6 +833,10 @@
 	// AFTER `registerFlipbooks` for readability only — a binding resolves its clip at render, not
 	// here. No-op when un-baked / no rig has a bound clip (parity).
 	registerRigFlipbooks(bakedRigFlipbooks());
+	// Register the project's compiled shader graphs, so an Element FX entry naming `custom:<id>` plays
+	// it. The set is replaced, not added to, so a re-mounted game never keeps another boot's. Before
+	// the first render, so nothing an entry starts misses it; an effect that cannot play is left out.
+	setCustomElementFx(bakedShaderEffects());
 	// Turbo speeds up the particles too: every `<ParticleEmitter>` steps by this clock and the FX
 	// emission timers divide by it when they start (`pixi-svelte` `particleClock`). Read live, so a
 	// turbo toggle lands on the next frame. The tools never set it and preview at normal speed.

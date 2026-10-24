@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { ConflictError } from '$lib/server/r2';
-import { projectMismatch, shaderWriteScope } from '$lib/server/shaderScope';
+import { scopeMismatch } from '$lib/server/scopeGuard';
+import { shaderWriteScope } from '$lib/server/shaderScope';
 import { saveShader } from '$lib/server/shaderStorage';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
@@ -19,7 +20,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await shaderWriteScope(locals, cookies);
 	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
 	if (!body || typeof body.doc !== 'object' || body.doc === null) throw error(400, 'missing doc');
-	const mismatch = projectMismatch(body.projectKey, projectKey);
+	const mismatch = scopeMismatch(body.projectKey, projectKey);
 	if (mismatch) return mismatch;
 	const baseEtag = writeBaseEtagJson(body);
 	try {
