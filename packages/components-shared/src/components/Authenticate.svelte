@@ -2,7 +2,12 @@
 	import { onDestroy, onMount, type Snippet } from 'svelte';
 
 	import { requestAuthenticate, requestBalance, requestReplay } from 'rgs-requests';
-	import { getDeliveryProfile, hostNumber, loadDeliveryProfile } from 'delivery-profile';
+	import {
+		getDeliveryProfile,
+		getDeliveryProfileSource,
+		hostNumber,
+		loadDeliveryProfile,
+	} from 'delivery-profile';
 	import { addSensitiveParam, captureRgsFailure, setErrorTags } from 'error-tracking';
 	import {
 		adoptOperatorSettings,
@@ -15,7 +20,17 @@
 	} from 'state-shared';
 	import { API_AMOUNT_MULTIPLIER, MOST_USED_BET_INDEXES } from 'constants-shared/bet';
 
-	type Props = { children: Snippet };
+	type Props = {
+		children: Snippet;
+		/**
+		 * A FREE-PLAY game (`docs/design/game-families.md` §2.3): its own rules decide every round, so
+		 * it opens no RGS session — no authenticate, no balance poll, no bet ever follows. It has no
+		 * wallet, so it must never run where an operator set up a real-money session for it: under any
+		 * delivery profile it stops on the error modal instead. Absent ⇒ a game the RGS decides, as
+		 * every slot is.
+		 */
+		freePlay?: boolean;
+	};
 
 	const props: Props = $props();
 
@@ -235,6 +250,24 @@
 		// Seeded before either branch: replay never calls `authenticate`, so this is the
 		// only place a replay link's currency can land.
 		if (launchCurrency) stateBet.currency = launchCurrency;
+
+		if (props.freePlay) {
+			stateUi.config.mode = 'default';
+			if (getDeliveryProfileSource() !== 'default') {
+				stateModal.modal = {
+					name: 'error',
+					error: {
+						error: 'Free play',
+						message:
+							'This game is free play and pays no money, so it cannot run inside a ' +
+							`real-money delivery (profile "${getDeliveryProfile().id}").`,
+					},
+				};
+				return;
+			}
+			authenticated = true;
+			return;
+		}
 
 		if (stateUrlDerived.replay()) {
 			stateUi.config.mode = 'replay';

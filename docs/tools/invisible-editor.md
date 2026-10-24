@@ -135,7 +135,9 @@ To start from something:
 
 - **＋ Load scenes…** (the dropdown above the list) offers **New game from
   kind** (a fresh engine-piece scaffold per game kind — `lines`, `ways`,
-  `cluster`, `scatter`, `bookOf`, `holdAndWin`, plus any author-created custom kinds) and
+  `cluster`, `scatter`, `bookOf`, `holdAndWin`, `match3`, plus any author-created custom kinds;
+  `match3` is the board that never spins, the **Score and moves** HUD and the **Round won** /
+  **Round lost** screens, listed under [Game Maker](game-maker.md)'s **Match-3**) and
   **Import composed reference** (open a reference game already laid out). Pick
   one and click **Load**. Loading a layout whose game type differs from the
   project's is flagged as a cross-type preview and will not autosave — you must

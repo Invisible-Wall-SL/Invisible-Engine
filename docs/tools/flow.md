@@ -30,7 +30,7 @@ signals that components — and rigs placed on a screen — listen for), waits w
   time** — an incompatible wire simply won't drop.
 - **It validates against a template vocabulary.** The flow is written against the game
   template's declared **events / actions / cues / collections** — `book-of`, `ways`,
-  `cluster`, `scatter` and `holdAndWin` are registered. The palette offers exactly those names, and a live
+  `cluster`, `scatter`, `holdAndWin` and `match3` are registered. The palette offers exactly those names, and a live
   **Validation** panel flags anything unresolved or mis-wired.
 - **Deterministic preview.** Pick one of your event nodes and run its handler headlessly
   against a fixed sample; the panel lists the resulting ordered timeline (each effect /
@@ -894,6 +894,61 @@ play its coded beat). The palette is the Hold and Win one. A project switched to
 later in Game Config keeps its stored flow: it plays, with `respinBoard` shown only during the
 feature.
 
+### Match-3 — the board signals and the starter flow
+
+A **match-3** project (a Game Maker **Match-3** game) has its own palette. It keeps the standard
+palette's presentation surfaces — screens, camera and element effects, sounds, the UI cues and the
+`load` / `tapToStart` / settings events — and drops every reel, spin, bet and payline one: the
+board never spins, and a free-play game has no wallet. What it adds is the board.
+
+A cell is `{reel, row}`: the column, and the row counted from **0 at the top visible row**.
+
+**Board signals** (the order a move plays them in):
+
+| Signal | Payload | When it fires |
+|---|---|---|
+| `boardReady` | `moves`, `target` | A fresh board is on screen: the first deal and every new deal. `moves` is Game Config's moves per round, `target` its score goal (0 with none). |
+| `swap` | `from`, `to`, `accepted` | Two gems traded places, or tried to. `accepted` is true when the swap made a match; a refused swap has already snapped back. |
+| `match` | `groups`, `points`, `step` | Gems matched and are about to explode, once per cascade step. `points` comes from the score table; `step` is 1 for the swap itself, 2+ for each cascade. |
+| `cascadeStep` | `step`, `groups` | One step has played: the matched gems exploded, the rest fell and the refills landed. |
+| `settled` | `steps`, `points` | The move is over and nothing more matches. The place to check the goal and the moves left. |
+| `noMoves` | — | No swap on the board can make a match. |
+| `roundEnd` | `totalWin`, `reason` | A match-3 decided by the server only; a free-play game never receives it. |
+
+Each match group carries its `symbol`, its `cells` and its `shape` (`line2` … `line5`, `L`, `T`).
+
+**Board actions:**
+
+- `boardSelect` (`cell`) — picks a cell as a tap does: the first pick is selected, a neighbour
+  picked next swaps with it, the same cell again drops the selection.
+- `boardHint` — lights one legal swap (its gems play their **Hint** state in
+  [Symbols](symbols-state-machine.md)).
+- `boardSwap` (`from`, `to`) — swaps two cells.
+- `boardSetInput` (`enabled`) — opens the board to the player or locks it.
+- `boardResolve` — resolves whatever matches on the board now.
+- `boardRefill` — deals a whole new board, which is a new round (`boardReady` fires again).
+- `boardShuffle` — reshuffles the gems on the board.
+
+The palette also has the seven **tumble cues** a cluster game has (`tumbleBoardShow` …
+`tumbleBoardSlideDown`), since every step after a swap is the same cascade.
+
+**The starter flow.** A new match-3 project opens on a flow that plays a whole free-play game, with
+three Global variables of scope **game** — `score`, `movesLeft` and `target` — which the **Score
+and moves** screen's readouts show (`var:score`, `var:movesLeft`, `var:target`):
+
+- `load` shows the **Loading / logo** screen; its completion, or `tapToStart` (which also starts
+  the music), hides it and shows the board and the **Score and moves** screen.
+- `boardReady` sets the score to 0, the moves left to `moves` and the target to `target`, then
+  opens the board to input. The variables are reset here, not by a spin, because a match-3 round
+  starts at a deal.
+- `swap`, when `accepted` is true, takes one from the moves left (never below 0); `match` adds its
+  `points` to the score.
+- `settled` checks the goal first — a goal above 0 that the score has reached wins the round, even
+  on the last move — then the moves left: none left loses it. Either way the flow locks the board,
+  shows **Round won** or **Round lost** and waits for the player's tap, hides it and calls
+  `boardRefill` for a fresh board.
+- `noMoves` calls `boardShuffle`.
+
 ### Pots overlay and Hold and Win on any kind — add-ons
 
 A project of any kind (a Book-of game, say) can carry a **Pots overlay** block and/or a **Hold and
@@ -1188,7 +1243,7 @@ The two cue traps (splice in series; fire after the screen shows) are in
 - **Containers and the template are data-only.** The set of containers (scene id + z) and
   the flow's `templateId` are part of the FlowDoc but are not yet editable in the UI — the
   palette shows/hides whatever containers the document already declares. `book-of`, `ways`,
-  `cluster`, `scatter` and `holdAndWin` vocabularies are registered, and each ships its own
+  `cluster`, `scatter`, `holdAndWin` and `match3` vocabularies are registered, and each ships its own
   starter flow (a `lines` project starts on the `book-of` one); an unknown template id falls back
   to `book-of`. A cluster, scatter or Hold and Win project created before 2026-10-01 keeps the
   `book-of` flow it was scaffolded with, because nothing in the editor changes a flow's template.

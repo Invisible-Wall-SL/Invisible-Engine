@@ -21,9 +21,24 @@
 //   settle   { maxFrames, tapEvery }   step until idle, tapping every `tapEvery` frames
 //   spinUntilWin { maxSpins }      spin until a spin shows a win (the seed decides which); stops
 //                                   on the first frame the win is on show
+//   tap   { cell: [reel, row] }    a match-3 board: press and release the cell (select it, or swap
+//                                   it with the selected neighbour), then wait for the board
+//   swap  { from: [r, w], to: [r, w] | legal: true|false, maxFrames }   a match-3 board: drag from
+//                                   one cell onto its neighbour, as a player swipes, then wait until
+//                                   that move has played out (the board counts it and is no longer
+//                                   busy). Rows are the board's visible rows, 0 at the top. `legal`
+//                                   picks the pair from the board on screen instead: the first swap
+//                                   that matches, or the first that does not (`engine-mechanics`'
+//                                   own rules, so the script follows whatever the seed dealt).
+//                                   Both take `orUntil` (an `until` test): a move whose flow holds
+//                                   it (a round-over screen waiting on its tap) ends there instead
 //   capture  { screen }             screenshot + the probe state at that frame
 
+import { canSwap, createBoard, findMoves } from '../../../packages/engine-mechanics/src/board.js';
+
 const DEFAULT_MAX_FRAMES = 3600;
+/** Frames a scripted swap's drag takes, press to release. */
+const DRAG_FRAMES = 6;
 
 class ScriptError extends Error {}
 
@@ -49,7 +64,32 @@ const matches = (until, s) =>
 	(until.winLevel === undefined || (s.winLevel ?? null) === until.winLevel) &&
 	(until.winLevelIn === undefined || until.winLevelIn.includes(s.winLevel)) &&
 	(until.winAbove === undefined || s.win > until.winAbove) &&
-	(until.cue === undefined || s.fresh.some((c) => c.cue === until.cue));
+	(until.cue === undefined || s.fresh.some((c) => c.cue === until.cue)) &&
+	(until.boardBusy === undefined || (s.board?.busy ?? false) === until.boardBusy) &&
+	(until.boardMoves === undefined || (s.board?.moves ?? 0) >= until.boardMoves);
+
+/** The first swap on `cells` (column-major gem names) that matches, or with `legal: false` the
+ *  first neighbouring pair that does not; `undefined` when there is none. */
+export const pickSwap = (cells, legal) => {
+	const board = createBoard({
+		cols: cells.length,
+		rows: cells[0]?.length ?? 0,
+		cells: cells.map((column) => column.map((name) => ({ name }))),
+	});
+	if (legal) {
+		const move = findMoves(board, { limit: 1 })[0];
+		return move && { from: [move.from.reel, move.from.row], to: [move.to.reel, move.to.row] };
+	}
+	for (let reel = 0; reel < board.cols; reel++)
+		for (let row = 0; row < board.rows; row++)
+			for (const [r, w] of [
+				[reel + 1, row],
+				[reel, row + 1],
+			])
+				if (r < board.cols && w < board.rows && !canSwap(board, { reel, row }, { reel: r, row: w }))
+					return { from: [reel, row], to: [r, w] };
+	return undefined;
+};
 
 /**
  * `page` is `openPage()`'s handle, `draw` the scenario's draw mode (`last` or the canary's
@@ -79,6 +119,36 @@ export async function playScenario(scenario, { page, draw, force, capture, trace
 			await step(batch);
 		}
 	};
+	/** A board cell's centre on the page (the probe's `cellPoint`), or a script error. */
+	const cellPoint = async (i, op, [reel, row]) => {
+		const point = await api(`cellPoint(${Number(reel)}, ${Number(row)})`);
+		if (!point) throw new ScriptError(`step ${i + 1} (${op.op}): no board cell ${reel},${row}`);
+		return point;
+	};
+	/** Press at `from`, move to `to` over {@link DRAG_FRAMES} frames, release there. */
+	const drag = async (from, to) => {
+		await page.mouse('mouseMoved', from.x, from.y);
+		await page.mouse('mousePressed', from.x, from.y);
+		await step(1);
+		for (let f = 1; f <= DRAG_FRAMES; f++) {
+			const t = f / DRAG_FRAMES;
+			await page.mouse('mouseMoved', from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t);
+			await step(1);
+		}
+		await page.mouse('mouseReleased', to.x, to.y);
+		await step(1);
+	};
+	/** Step until the board has counted at least `moves` swaps and is idle (or `orUntil` holds). */
+	const boardSettled = (moves, op) =>
+		until(
+			{
+				anyOf: [
+					{ boardMoves: moves, boardBusy: false },
+					...(op.orUntil ? [{ ...op.orUntil, boardMoves: moves }] : []),
+				],
+			},
+			op.maxFrames ?? DEFAULT_MAX_FRAMES,
+		);
 	let anchor;
 	const fail = (i, op, s) =>
 		new ScriptError(
@@ -153,6 +223,23 @@ export async function playScenario(scenario, { page, draw, force, capture, trace
 					won = s.win > 0;
 				}
 				if (!won) throw fail(i, op, await state());
+				break;
+			}
+			case 'tap': {
+				const before = (await state()).board?.moves ?? 0;
+				const at = await cellPoint(i, op, op.cell);
+				await drag(at, at);
+				// A swap a tap starts is already busy by the frame after the release.
+				if (!(await boardSettled(before, op))) throw fail(i, op, await state());
+				break;
+			}
+			case 'swap': {
+				const now = await state();
+				const before = now.board?.moves ?? 0;
+				const pair = op.legal === undefined ? op : now.board && pickSwap(now.board.cells, op.legal);
+				if (!pair) throw fail(i, op, now);
+				await drag(await cellPoint(i, op, pair.from), await cellPoint(i, op, pair.to));
+				if (!(await boardSettled(before + 1, op))) throw fail(i, op, await state());
 				break;
 			}
 			case 'capture':

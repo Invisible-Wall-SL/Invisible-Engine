@@ -86,6 +86,7 @@ export const {
 	getSymbolX,
 	getSymbolY,
 	getSymbolSeat,
+	getCellAt,
 	rebuildBoard,
 	stackedScrollStrip,
 	stackedPictureRuns,

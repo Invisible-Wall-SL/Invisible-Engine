@@ -2,15 +2,160 @@
 
 > Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `invisible-game-config`, `invisible-game-maker`, then per phase
 
-**One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.3 are merged; P10.4
-(pointer move / drag / swipe + Align Target) is built** and in review. A component can now react to
-a drag or a swipe, hand Flow the pointer's position, and move one of its nodes with the pointer; the
-board can say which cell a point is in. Nothing non-slot plays yet: P10.5 (the first match-3
-runtime) is next.
+**One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.4 are merged; P10.5
+(match-3, rules-decided, end to end) is built** and in review. A match-3 project can be made in
+Game Maker and plays in the shared runtime as free play: the board never spins, the player swipes
+or taps gems, matches cascade, and the starter flow keeps the score and the moves. Publishing a
+game that is not a slot stays off. RGS-decided match-3 (P10.6) is next.
 
 ## Current state
 
-**P10.4 — Pointer move / drag / swipe + Align Target (built 2026-10-24; in review).** §3.2's pointer
+**P10.5 — Match-3, rules-decided, end to end (built 2026-10-24; in review).** §8's P10.5 row, in
+one PR (the vocabulary, the scene set, Game Maker and the gates move together: registering the
+kind is what every scaffold gate loops over).
+
+- **The mechanic, declared once** (game-type-templates Phase B): `engine-game` `mechanic.ts`,
+  `mechanicFor(config)` → `GameMechanic` (`id`, `outcome`, `spins`, `rgsSession`, `wallet`,
+  `boardInput`, `bookEvents`, `unplayable`). `REELS_MECHANIC` for every slot (and no config);
+  `MATCH3_RULES_MECHANIC` (no spin, no RGS session, no wallet, board input);
+  `MATCH3_RGS_MECHANIC` and an arcade config are `unplayable` until P10.6 / P10.8. The runtime
+  asks only this (`apps/lines` `game/mechanic.ts` `gameMechanic()`).
+- **The rules** (`engine-game`): `createMatch3Session(config, seed)` over P10.2's board module
+  (deal from the config's strips, `trySwap`, `resolveNow`, `shuffle`, `hint`, the score) and
+  `createMatch3Driver({ session, state, signal, present })`, which decides every move: input taken
+  or refused, the order of the board's Flow signals, a queue for board work, and the flow's board
+  actions. The runtime supplies only `present` (seat, swap, cascade step, mark); the headless gate
+  supplies none, so both run the same code.
+- **The runtime branch** (`apps/lines`):
+  - `+layout.ts` stops an `unplayable` mechanic on the boot-failure screen
+    (`refuseUnplayableBoot`); `+layout.svelte` passes `freePlay={!gameMechanic().rgsSession}` to
+    `<Authenticate>` (`components-shared`), which then opens no RGS session — no authenticate, no
+    balance poll — and refuses to run under any delivery profile (an operator's real-money embed).
+  - `Game.svelte`: `mechanic.spins` gates the replacement Space spin hotkey, hold-to-spin and the
+    coded HUD; `<Board/>`, `<TumbleBoard/>` and the flight layer stay mounted; `mechanic.boardInput`
+    mounts `<Match3Input />` in the reel stack.
+  - `<Match3Input />` (`components/Match3Input.svelte`): an invisible surface over the board in the
+    board's own space; P10.4's `PointerGesture` feeds it; `getCellAt` picks the cell. A drag that
+    travels 0.35 of a cell along an axis swaps with that neighbour (mid-drag); a release that never
+    did is a tap: select, then a neighbour swaps. Mounting it starts the session.
+  - `game/match3.svelte.ts`: the presenter — the swap on the flight layer (flight kind `swap`, the
+    gem as the head in its `static` state, no trail: `flyTo`'s new `symbolState` / `trailless`
+    options); each cascade step through `playBookEvents([tumbleBoard])` (the coded handler, with the
+    step's cells one row down for the reel's top pad); a deal or shuffle seated with
+    `boardSettle`; `select` / `hint` as symbol states. The board's signals go to the v2 flow.
+  - `game/flowBoardEffects.ts`: the board actions reach the Flow runtime through a registry the
+    session fills, so `flowV2Runtime` never imports the match-3 module.
+- **The vocabulary** (`engine-flow-v2` `reference/match3.ts`, registered): the standard palette's
+  load / tap-to-start / settings surfaces, sounds, camera and element FX, plus the board's signals
+  `boardReady {moves, target}`, `swap {from, to, accepted}`, `match {groups, points, step}`,
+  `cascadeStep {step, groups}`, `settled {steps, points}`, `noMoves`, `roundEnd` (RGS, P10.6), the
+  actions `boardSelect`, `boardHint`, `boardSwap`, `boardSetInput`, `boardResolve`, `boardRefill`,
+  `boardShuffle` (`MATCH3_RULES_ONLY_ACTIONS` names the last three for P10.6's
+  `withOutcome('rgs')`), the seven tumble cues, the structs `Position` / `MatchGroup` and the enums
+  `MatchShape` / `RoundEndReason`. No reel, spin, bet or payline surface.
+- **The starter flow** (`reference/match3Seed.ts`, `DRIVEN_SEEDS.match3`): load → board + HUD;
+  `boardReady` sets `score` / `movesLeft` / `target` and opens input; an accepted `swap` spends a
+  move; `match` adds its points; `settled` checks the goal, then the moves left — a won or lost
+  round locks the board, holds on `roundWon` / `roundLost` until the tap, then `boardRefill` deals
+  the next round; `noMoves` shuffles.
+- **Game Maker** offers `match3` ("Match-3"): `engine-layout` has its full scene set
+  (`referenceLayouts/match3.ts`: loading, background, basegame = a 7 × 7 `reelGrid`, `match3Hud` =
+  Text Boxes fed `var:score` / `var:movesLeft` / `var:target`, `roundWon` / `roundLost` = a dimmed
+  tap-to-continue and its line) and template (`templates/match3.ts`). A new project is seeded with
+  `match3.rules.json` (free play; 7 × 7, six gems, 20 moves, a 1500 goal, 50 / 120 / 250 for runs
+  of 3 / 4 / 5), the scene set and the starter flow.
+- **`/symbols`**: the `select` and `hint` columns, for a project whose `kindCapabilities()`
+  `boardInput` (new; false for every slot) is on. `/win-text`: a rules-decided game gets "This
+  game pays no money…" above its editor.
+- **Publish** keeps refusing every non-slot config (`familyGate.ts`, owner's rule for this step);
+  the message now says a free-play match-3 plays in the authoring preview but publishing a non-slot
+  game is not switched on. Publish and `/flow-v2` validation now pass the config's outcome to the
+  validator (P10.3's open item).
+- **The harness and the sample:** the determinism probe reports `state().board` (`busy`, `moves`,
+  `seed`, `cells`) and `cellPoint(reel, row)`; `play.mjs` gains `tap` and `swap` (`from` / `to`,
+  or `legal: true|false` picked by `engine-mechanics`' own rules, `orUntil`), real mouse events at
+  those pixels; `screens/match3.json` has 5 screens (`loaded`, `board`, `selected`, `refused`,
+  `cascaded`). The fixtures write `cg-match3` from the three Game Maker seeds;
+  `scripts/playtest/match3-play.mjs` plays a whole round on it and is the sample's launcher
+  ([playtest/match3-sample.md](../playtest/match3-sample.md)).
+- **Fixed on the way (P10.3):** `Game.svelte`'s Flow-state ticker effect read the Pixi ticker
+  before Pixi's async init had made it and, the ticker not being reactive, never re-ran, so a flow
+  built from a runtime bundle never flushed its variables. It is keyed on `stateApp.loaded` too.
+  No live game declares a variable.
+- **Gates:** `check:match3-rules` (42 checks: the starter game won and lost headless on the real
+  interpreter, refused swaps, no moves, select / hint / input, seed replay, score, the mechanic,
+  the free-play branch source-scanned, the vocabulary); `check:flow-publish-gate` moves `match3`
+  into its scaffold loops (the starter flow passes against its scene set as a rules game) and
+  limits add-on combos to slot kinds; `check:symbols-kind-gating` pins slot pickers and columns
+  without `select` / `hint` and match-3's with them; `check:game-config-family` covers both
+  publish refusals and `boardInput`.
+- **Verified by playing:** `match3-play.mjs` on the branch runtime (board seed `sample-8`): a
+  refused swap left the board as it was; 13 legal swipes reached the goal; the round-won screen
+  held and locked the board; the tap dealt a fresh round (SCORE 0, MOVES 20); the page made no
+  request but the runtime bundle; no page error. The harness's 5 `match3` screens rendered on the
+  local fixture (both sides the branch runtime: no match-3 game is live).
+- **Bundle size** (the release build, `index.html`, which inlines the runtime): main 3,644,234 B /
+  1,247,187 B gzipped → branch 3,667,004 B / 1,255,211 B: **+22.8 KB raw, +8.0 KB gzipped
+  (+0.6 %)**, downloaded by every game, run by none but a match-3 one. `bundle-modules.mjs` could
+  not list the modules: the inline bundle strategy references a `.js.map` it never writes.
+- **Slot parity:** for a slot (`REELS_MECHANIC`) every new gate reads as before — the spin hotkey,
+  hold-to-spin and coded HUD conditions gain `mechanic.spins` (true); `<Authenticate>` gets
+  `freePlay={false}`; `<Match3Input />` is never mounted; no board effect is registered; `select` /
+  `hint` are in `SYMBOL_STATES` but never offered to a slot or set by one; the flight options are
+  opt-in. Edited shared runtime modules: `Game.svelte`, `+layout.ts`, `+layout.svelte`,
+  `Authenticate.svelte`, `editor-scenes.ts` (one added export), `flights.svelte.ts`,
+  `FlightLayer.svelte`, `flowV2Runtime.svelte.ts`, `determinism.ts`, `stateGame.svelte.ts` (one
+  export), `symbolStates.ts`, `symbolCell.ts`, `kindCapabilities.ts`.
+- **Chosen in P10.5, owner may overturn** (the plan does not fix them):
+  - **one PR**, not split;
+  - the swap rides the **flight layer** (§4.1's first slice): the respin board's per-cell reels
+    have no cascade, which is most of the value. The `swap` flight kind is not listed in
+    `/symbols` → Flights yet, so its look is the coded default without a trail;
+  - names: signals `boardReady`, `swap`, `match`, `cascadeStep`, `settled`, `noMoves`, `roundEnd`
+    (the plan's `on…` are their pins' labels); actions camel-cased `boardSelect` … `boardShuffle`
+    (the plan writes `board.select`); `boardSetInput` is new (a round's end must lock the board);
+    `boardRefill` deals a whole new board (a new round), and `boardResolve` resolves what matches
+    on the board now;
+  - `match` fires per cascade step **before** its explosion with the step's points;
+    `cascadeStep` **after** its refill landed;
+  - **points** are the runtime's, from the config's score table: each group priced by its gem
+    count (the longest run in the table at or under it; an L or T counts all its gems); no table
+    pays 10 a gem. The starter flow only adds them;
+  - `boardReady`'s `target` is the config's first **score** goal (0 for none); a collect goal is
+    the author's to count from `match.groups`;
+  - the starter's variables are `game`-scoped and reset by its `boardReady` chain (a match-3 round
+    starts at a deal, not a spin press);
+  - the board seed is `?m3seed=`, else `Math.random` (seeded under `?ie_determinism=`); a game is
+    not saved or resumed in v1 (§P10.2: seed + moves would replay it);
+  - flow board actions **queue** behind the move playing and are not awaited by the chain that
+    called them (the `settled` and `noMoves` chains call them from inside the move);
+  - a swipe swaps once it travels **0.35 of a cell** along one axis, mid-drag; a tap selects; the
+    same cell again drops the selection;
+  - unauthored, `select` draws the gem's **Win** art and `hint` its **Land** art; a new
+    `kindCapabilities()` flag `boardInput` gates them (P10.1's `board` is true for slots);
+  - free play refuses **any** delivery profile (`getDeliveryProfileSource() !== 'default'`);
+  - Game Maker seeds only the **rules** outcome and asks nothing: RGS match-3 gets its seed with
+    its mock (P10.6). `/config`'s Reel behaviour stays hidden for match-3 (P10.1): no switch reaches
+    a board that never spins;
+  - Win Text keeps its editor under the notice (hiding it would re-indent the whole slot page);
+  - a custom kind stored as `match3` before it was built in is **hidden** behind the built-in, with
+    a server-log warning, and never overwritten (every scaffold write is create-only). Nobody read
+    R2 to check whether one exists (open item);
+  - the `cg-match3` fixture's manifest entry names the `lines` protocol: the test server only
+    serves the runtime, and the free-play branch never asks its mock.
+- **Not done here:** `/flow-v2`'s Preview does not run the board module (§5.1: it still previews a
+  match-3 flow's chains with no board); Game Maker's outcome question and the RGS seed (P10.6);
+  listing the `swap` flight kind in `/symbols`; specials (P10.5b).
+- **Known limits** (none reachable by a slot game):
+  - the board under a swap shows the two gaps while the gems fly, and a refused swap's gems fly
+    back the same way;
+  - the stock symbols draw unauthored gems; the round screens' line is one Text Box at 64 px;
+  - `noMoves` is hard to reach on the seed board (six gems, 7 × 7): the gate covers it headless;
+  - the probe's `idle` stays true on a match-3 board (its round machine never runs); scripts wait
+    on `boardBusy`;
+  - a Text Box fed a number prints it with the integer fallback's grouping (1,500).
+
+**P10.4 — Pointer move / drag / swipe + Align Target (built 2026-10-24; merged #1327).** §3.2's pointer
 and board-cell bullets. No game uses any of it yet.
 
 - **Format** (`packages/engine-layout/src/lib/types.ts`): `NODE_LISTENER_EVENTS` gains `move`,
@@ -248,7 +393,7 @@ game, bundle or screen changes.
   fixture op moved onto a mapped tool.
 - **Not built here:** Win Text's own "this game pays no money" message for a rules-decided match-3
   game (§6.5's outcome bullet) is not in §8's P10.1b row; it waits for a match-3 project to exist
-  (P10.5).
+  (P10.5, which added it).
 
 **P10.1 — family and outcome in Game Config (built 2026-10-23; merged #1310).**
 
@@ -299,25 +444,24 @@ game, bundle or screen changes.
 
 ## Open items / next
 
-1. Win Text's outcome message for a rules-decided match-3 game (§6.5), with P10.5 or before it.
-2. P10.5 onward, in §8's order. P10.5 is the board module's first caller (the rules runtime
-   branch and the `/flow-v2` preview); P10.6 the mock's. P10.5 replaces the family gate for
-   match-3 with the runtime
-   branch, and registers the match-3 scene set, vocabulary and starter flow. It moves `match3` into
-   the slot-only loops of `check:flow-publish-gate` and decides which Reel behaviour switches
-   match-3 shows.
-3. P10.5's `<Match3Input />` is the first caller of `getCellAt` and of the drag / swipe
-   listeners (a drag or swipe from cell A into `swap(A, B)`, §3.2).
-4. The State machine tab's stage preview and the `/flow-v2` preview do not yet drive drag, move, swipe or
-   Align Target (P10.4's "Not done here").
-5. The `/config` **Characters** link for arcade (§6.2) lands with Invisible Characters (P10.11).
-6. **Confirm no custom kind is named `match3` or `arcade`** in R2 (`_shared/editor-kinds/`). Such a
-   kind would now read as that family, and the built-in id would hide it from the pickers. Needs R2
-   access, which this build did not have.
-7. The runtime still prices and draws the `match3` arm as the lines default (`payoutDivisor`,
-   `winLineShapeFor`), and `engine-game/src/game/gameConfig.ts`'s note about a fifth win model
-   still stands. That code path is unreachable while the family gate holds; P10.6 honours the arm
-   (divisor 1) when RGS match-3 lands.
+1. P10.6 (RGS-decided match-3): the `move` action, the interactive round, the mock, the
+   `MATCH3_RGS_MECHANIC` made playable, `withOutcome('rgs')` over `MATCH3_RULES_ONLY_ACTIONS`, Game
+   Maker's outcome question and the RGS seed config.
+2. **Switching publish on for a non-slot game** is the owner's call (`familyGate.ts` refuses it
+   today, by the owner's rule for P10.5). Until then a match-3 game plays only in the authoring
+   preview.
+3. `/flow-v2` Preview running the board module on its virtual clock with a seed (§5.1).
+4. The `swap` flight kind in `/symbols` → Flights, so its look is authorable.
+5. The State machine tab's stage preview and the `/flow-v2` preview do not yet drive drag, move,
+   swipe or Align Target (P10.4's "Not done here").
+6. The `/config` **Characters** link for arcade (§6.2) lands with Invisible Characters (P10.11).
+7. **Confirm no custom kind is named `match3` or `arcade`** in R2 (`_shared/editor-kinds/`). A
+   `match3` one is now hidden behind the built-in (and warned about in the launcher log, never
+   overwritten); an `arcade` one would be when P10.8 lands. Needs R2 access, which this build did
+   not have.
+8. The runtime still prices and draws the `match3` arm as the lines default (`payoutDivisor`,
+   `winLineShapeFor`), unreachable while only rules match-3 plays; P10.6 honours the arm
+   (divisor 1).
 
 ## Blocked (owner / external)
 
@@ -325,6 +469,8 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-24 — **P10.5 built: match-3, rules-decided, end to end.** A match-3 project is made in
+  Game Maker and plays as free play in the shared runtime; publishing it stays off. Detail above.
 - 2026-10-24 — **P10.4 built: pointer move / drag / swipe + Align Target**, and the board cell
   hit-test. Detail above.
 - 2026-10-24 — **P10.3 built: Flow variables, timers, tick.** Detail above.

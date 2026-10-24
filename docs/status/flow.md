@@ -55,6 +55,13 @@
 
 ## Recent changes
 
+- 2026-10-24 — **The `match3` vocabulary and starter flow** (Phase 10 step P10.5). A match-3
+  project's palette is `MATCH3_VOCAB` (the board's signals and actions, the tumble cues, no reel /
+  spin / bet surfaces) and it opens on a starter flow that keeps the score and the moves and ends
+  each round. Publish validates a flow against its config's outcome now (a rules game may name a
+  variable `win`). The game-side variable ticker no longer misses a flow built before Pixi's init.
+  Detail: [game-families status](game-families.md), P10.5.
+
 - 2026-10-24 — **Game variables, timers, tick and keys** (Phase 10 step P10.3). A FlowDoc can
   declare variables (`game` / `round`, and a mode's own), a key map, and nine new nodes (Set /
   Change / On variable, On tick, Start / Stop / Pause timer, On timer, On input); `$var` reads one;

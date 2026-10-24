@@ -343,6 +343,8 @@
 	import MultiplierBoard from './MultiplierBoard.svelte';
 	import OverlayTokens from './OverlayTokens.svelte';
 	import RespinBoard from './RespinBoard.svelte';
+	import Match3Input from './Match3Input.svelte';
+	import { gameMechanic } from '../game/mechanic';
 	import CoinBoardLinesSelector from './CoinBoardLinesSelector.svelte';
 	import FlightLayer from './FlightLayer.svelte';
 	import HoldAndWinBanner from './HoldAndWinBanner.svelte';
@@ -387,6 +389,14 @@
 	// lookups resolve unchanged. Gated on `isRuntimeBundleActive()` ⇒ a complete no-op
 	// for baked + live-doc dev (parity); `stateApp.assets` is `$state`, so the spread
 	// reactively refreshes `AssetsLoader`'s pre/post asset lists before first paint.
+	/**
+	 * The mechanic this game plays as (`docs/design/game-families.md` §6.4) — read once, after the
+	 * runtime bundle landed. A slot is `reels`: it spins, so every gate below that reads it is
+	 * exactly what it was. A match-3 board never spins: no spin hotkey, no hold-to-spin, no coded HUD
+	 * (its spin button), and the board takes the pointer instead (`<Match3Input />`).
+	 */
+	const mechanic = gameMechanic();
+
 	if (isRuntimeBundleActive()) {
 		stateApp.assets = {
 			...stateApp.assets,
@@ -1371,9 +1381,11 @@
 	let flowV2Handle = $state<LinesFlowV2 | undefined>(undefined);
 	// Flow variables, timers and tick (game-families §3.2): one ticker callback advances the flow's
 	// store, the `tickFlights` pattern. Added only when the flow has one, so a slot game's frame is
-	// untouched.
+	// untouched. Keyed on `loaded` too: the ticker is not reactive, and a flow built from a runtime
+	// bundle (no doc fetch to wait on) can exist before Pixi's async init has made the ticker.
 	$effect(() => {
-		const ticker = flowV2Handle?.state ? stateApp.pixiApplication?.ticker : undefined;
+		const ticker =
+			flowV2Handle?.state && stateApp.loaded ? stateApp.pixiApplication?.ticker : undefined;
 		if (!ticker) return;
 		const tick = () => tickFlowV2State(ticker.deltaMS);
 		ticker.add(tick);
@@ -2260,7 +2272,10 @@
 	// play (`EnableSpaceHold`) lives in the coded `UIDefault`, so when that is absent — an authored
 	// HUD, a v2 flow driving the screens, a flow-managed HUD not yet shown — the game mounts it.
 	const codedHudMounted = $derived(
-		(!isHudFlowManaged || isHudActive) && !suppressCodedHud && !flowV2DrivesScreens,
+		mechanic.spins &&
+			(!isHudFlowManaged || isHudActive) &&
+			!suppressCodedHud &&
+			!flowV2DrivesScreens,
 	);
 	const spinHotkeyPress = () => {
 		context.eventEmitter.broadcast(
@@ -2531,7 +2546,7 @@
 			(no double-fire). Neither ⇒ not rendered, coded hotkey is the sole binding (parity). Mirrors
 			`ButtonBet`'s binding.
 		-->
-	{#if HUD_BUTTON_INSTANCES || suppressCodedHud}
+	{#if mechanic.spins && (HUD_BUTTON_INSTANCES || suppressCodedHud)}
 		<OnHotkey
 			hotkey="Space"
 			disabled={spinHotkeyDisabled}
@@ -2541,7 +2556,7 @@
 	{/if}
 	<!-- At most one hold-Space binding, gated as in `UIDefault` (a `disabledAutoplay` jurisdiction or
 			the doc's Game Settings turn `spaceHold` off). -->
-	{#if !codedHudMounted && stateUi.config.features.spaceHold}
+	{#if mechanic.spins && !codedHudMounted && stateUi.config.features.spaceHold}
 		<EnableSpaceHold isIdle={context.stateXstateDerived.isIdle} />
 	{/if}
 
@@ -2638,6 +2653,11 @@
 			<!-- The Hold and Win respin board — an unconditional, empty container until a feature puts
 			     the per-cell board up in the reels' place (`RespinBoard.svelte`). -->
 			<RespinBoard />
+			<!-- A match-3 board's pointer surface (`Match3Input.svelte`), which also starts its session.
+			     Only a mechanic that takes board input mounts it, so no slot game builds it. -->
+			{#if mechanic.boardInput}
+				<Match3Input />
+			{/if}
 		{/snippet}
 
 		<MainContainer>

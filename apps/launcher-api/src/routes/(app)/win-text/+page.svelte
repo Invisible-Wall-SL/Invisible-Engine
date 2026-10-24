@@ -546,6 +546,12 @@
 				</div>
 			</div>
 		{/if}
+		{#if data.paysNoMoney}
+			<p class="warn">
+				This game pays no money, so there is no win text to author. It is free play: its own rules
+				decide every round (Invisible Game Config → Game family), and it never shows a win.
+			</p>
+		{/if}
 		<p class="intro">
 			What the game <em>says</em> about a win. Every field is a <strong>template</strong> — write
 			<code>{TOKEN_HELP}</code>

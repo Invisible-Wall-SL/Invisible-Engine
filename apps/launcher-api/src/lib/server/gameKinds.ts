@@ -37,7 +37,16 @@ export async function selectableGameKinds(): Promise<SelectableGameKind[]> {
 	const seen = new Set(builtins.map((b) => b.id));
 	const out: SelectableGameKind[] = [...builtins];
 	for (const k of await listKinds()) {
-		if (seen.has(k.id)) continue;
+		if (seen.has(k.id)) {
+			// Saving a custom kind under a built-in id is refused (`saveKind`), but one stored before
+			// its id became built-in (a `match3` made before P10.5) is still there. It is never
+			// overwritten — every scaffold write is create-only — only hidden behind the built-in.
+			if (builtins.some((b) => b.id === k.id))
+				console.warn(
+					`[kinds] the custom kind "${k.id}" (${k.name}) is hidden: "${k.id}" is a built-in kind now`,
+				);
+			continue;
+		}
 		seen.add(k.id);
 		out.push({ id: k.id, name: k.name });
 	}

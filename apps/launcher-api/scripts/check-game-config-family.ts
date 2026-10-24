@@ -85,6 +85,7 @@ for (const [label, kind, config] of [
 		[true, true, true],
 	);
 	same(`1. ${label}: RGS-decided, so a wallet`, [caps.wallet, caps.betControls], [true, true]);
+	same(`1. ${label}: the player moves its gems`, caps.boardInput, true);
 }
 same(
 	'1. a match-3 rules game has no wallet',
@@ -501,8 +502,14 @@ check(
 	unplayableFamilyMessage(SLOT) === null && unplayableFamilyMessage(null) === null,
 );
 check(
-	'4. a match-3 config is refused',
-	/match-3/.test(unplayableFamilyMessage({ ...SLOT, family: 'match3' }) ?? ''),
+	'4. an RGS-decided match-3 config is refused as unplayable',
+	/cannot play a match-3/.test(unplayableFamilyMessage({ ...SLOT, family: 'match3' }) ?? ''),
+);
+check(
+	'4. a rules-decided match-3 config is still refused: publishing a non-slot game is off',
+	/free-play match-3 .*not switched on/.test(
+		unplayableFamilyMessage({ ...SLOT, family: 'match3', outcome: 'rules' }) ?? '',
+	),
 );
 check(
 	'4. an arcade config is refused',

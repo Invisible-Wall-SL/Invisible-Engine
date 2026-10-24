@@ -151,7 +151,7 @@
 				scale={poseScale(flight, symbolSize)}
 			>
 				<Container rotation={flight.pose.artRotation}>
-					<Symbol state="flyToMeter" rawSymbol={flight.symbol} inFlight />
+					<Symbol state={flight.symbolState ?? 'flyToMeter'} rawSymbol={flight.symbol} inFlight />
 				</Container>
 			</Container>
 			{#if tokenLabel}

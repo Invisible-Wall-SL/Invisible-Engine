@@ -21,6 +21,7 @@ import holdAndWinPlainNoJackpots from '$lib/data/gameConfig/holdAndWin.plainNoJa
 import holdAndWinPots from '$lib/data/gameConfig/holdAndWin.pots.json';
 import linesBookOfThermopylae from '$lib/data/gameConfig/lines.bookOfThermopylae.json';
 import linesConfig from '$lib/data/gameConfig/lines.json';
+import match3RulesConfig from '$lib/data/gameConfig/match3.rules.json';
 import scatterConfig from '$lib/data/gameConfig/scatter.json';
 import waysConfig from '$lib/data/gameConfig/ways.json';
 
@@ -43,6 +44,9 @@ import waysConfig from '$lib/data/gameConfig/ways.json';
  */
 
 const FALLBACK_GAME_TYPE = 'lines';
+
+/** The rules-decided match-3 seed (`match3.rules.json`, hand-written: no game app compiles one). */
+const MATCH3_RULES_KEY = 'match3.rules';
 
 /** The LINES presets (`docs/design/book-feature.md` §3.5): whole configs a lines project may start
  *  from, beside the kind's own default. */
@@ -75,15 +79,18 @@ const DEFAULTS_BY_GAME_TYPE: Record<string, GameConfigDoc> = Object.fromEntries(
 		[holdAndWinTemplateKey('off')]: holdAndWinPlainNoJackpots,
 		[HOLD_AND_WIN_COIN_BOARD_KEY]: holdAndWinCoinBoard,
 		[LINES_PRESET_KEY.bookOfThermopylae]: linesBookOfThermopylae,
+		[MATCH3_RULES_KEY]: match3RulesConfig,
 	}).flatMap(([gameType, raw]) => {
 		const doc = normalizeGameConfigDoc(raw);
 		return doc ? [[gameType, doc] as const] : [];
 	}),
 );
 
-/** A kind whose defaults are PRESETS resolves to its default preset's key. */
+/** A kind whose defaults are PRESETS resolves to its default preset's key. `match3` seeds its
+ *  rules-decided game (game-families P10.5); the RGS-decided seed comes with its mock (P10.6). */
 const KIND_DEFAULT_KEY: Record<string, string> = {
 	holdAndWin: holdAndWinPresetKey(DEFAULT_HOLD_AND_WIN_PRESET),
+	match3: MATCH3_RULES_KEY,
 };
 
 export type GameConfigPreset = { id: string; label: string; doc: GameConfigDoc };

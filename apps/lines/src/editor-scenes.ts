@@ -2056,6 +2056,16 @@ export async function prepareRuntimeBundle(): Promise<boolean> {
 }
 
 /**
+ * Stop a boot whose config the runtime cannot play (`GameMechanic.unplayable`: a match-3 game the
+ * RGS decides before P10.6, an arcade game before P10.8) on the same error screen, rather than play
+ * it as a slot or draw a board nothing drives. The publish gate keeps such a config off every live
+ * game, so only an authoring or desktop boot can reach this.
+ */
+export function refuseUnplayableBoot(reason: string): Promise<never> {
+	return haltBoot(`this game cannot be played yet: ${reason}`);
+}
+
+/**
  * End a `?runtime=1` boot that has no data of its own on the "could not load" screen, and never
  * resolve — SvelteKit keeps the page unmounted while `load()` is pending, so neither the engine's
  * sample layout nor its compiled config (and its mock spins) ever start behind the overlay.

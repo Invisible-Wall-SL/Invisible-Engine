@@ -17,6 +17,7 @@ import {
 	COIN_LABEL_DEFAULTS,
 	COIN_LABEL_FALLBACK_JACKPOTS,
 	HOLD_AND_WIN_SYMBOL_STATES,
+	MATCH3_SYMBOL_STATES,
 	POTS_TOKEN_SYMBOL_STATES,
 	pruneCoinLabel,
 	SWAP_SYMBOL_STATES,
@@ -106,6 +107,9 @@ const HOLD_AND_WIN_STATE_SET = new Set<SymbolState>(HOLD_AND_WIN_STATES);
 /** The Hold and Win states a pots overlay token plays — the only ones a pots host without the
  *  respin feature shows. */
 const POTS_TOKEN_STATE_SET = new Set<SymbolState>(POTS_TOKEN_SYMBOL_STATES);
+/** The match-3 `select` / `hint` — columns only for a project whose player moves the gems
+ *  (`kindCapabilities().boardInput`). */
+const MATCH3_STATE_SET = new Set<SymbolState>(MATCH3_SYMBOL_STATES);
 
 /** Human labels for the column headers — shared with the Scene Editor's `symbolState`
  *  dropdown so a state reads the same in both tools. */
@@ -119,6 +123,9 @@ export const STATE_LABELS: Record<SymbolState, string> = SYMBOL_STATE_LABELS;
  * blank column that silently works is exactly the kind of thing an author re-authors by hand.
  */
 export const STATE_HINTS: Partial<Record<SymbolState, string>> = {
+	select:
+		'A match-3 gem the player picked first, waiting for the gem it will swap with. Leave a cell empty to reuse this symbol’s Win binding.',
+	hint: 'A match-3 gem of a swap that would match, lit when the game shows a hint. Leave a cell empty to reuse this symbol’s Land binding.',
 	intro:
 		'The animation this symbol plays when it APPEARS on its seat, under the Emerge swap style — rising out of water, fading up, growing. Nothing travels: this animation IS the arrival. Leave a cell empty to fall back to this symbol’s Land binding.',
 	clearReel:
@@ -165,7 +172,7 @@ export const POTS_TOKEN_STATE_HINTS: Partial<Record<SymbolState, string>> = {
  *  declared respin mode), just the token's land / idle / fly states for a pots overlay host without it
  *  (`pots` alone), the cascade
  *  state for a project that tumbles OR clears its board on a swap, and the swap state (`intro`) ONLY
- *  for a project that emerges. Every gate is RESOLVED server-side (`resolveCascade` /
+ *  for a project that emerges, and `select` / `hint` only for a match-3 board. Every gate is RESOLVED server-side (`resolveCascade` /
  *  `resolveReelBehaviour`), so an authored `/config` answer beats the win model's default and a lines
  *  game that turned the tumble ON gets the column. The `stacked` state is never a column (see
  *  {@link NON_GRID_STATE_SET}). */
@@ -199,6 +206,7 @@ export function visibleStatesFor(
 		// inheritance. Either reason earns the column.
 		if (CASCADE_STATE_SET.has(s)) return caps.cascade || Boolean(gates.clears);
 		if (SWAP_STATE_SET.has(s)) return Boolean(gates.emerge);
+		if (MATCH3_STATE_SET.has(s)) return caps.boardInput;
 		return true;
 	});
 }
@@ -726,6 +734,9 @@ const INHERITS_FROM = (state: SymbolState): SymbolState | null => {
 	// that rather than an empty cell — the column hint advertises the inheritance, so the preview
 	// owes the author the matching picture.
 	if (state === 'intro') return 'land';
+	// A match-3 gem with no authored selection shows its Win art, and a hinted one its Land art.
+	if (state === 'select') return 'win';
+	if (state === 'hint') return 'land';
 	// The Hold and Win beats borrow what the coded presentation played before they had names. The two
 	// that borrowed `static` (`coinIdle`, `coinLand`) are the engine's last resort, so they read unset.
 	if (state === 'coinStick') return 'land';

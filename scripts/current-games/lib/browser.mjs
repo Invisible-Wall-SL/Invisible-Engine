@@ -159,6 +159,18 @@ export async function openPage(chromePath, profile, { intercept } = {}) {
 			windowsVirtualKeyCode: 32,
 			nativeVirtualKeyCode: 32,
 		});
+	/** One mouse event at a page point, CSS px (`mousePressed` / `mouseMoved` / `mouseReleased`) —
+	 *  a scripted swap on a match-3 board presses the pixels a player would. */
+	const mouse = (type, x, y) =>
+		page('Input.dispatchMouseEvent', {
+			type,
+			x,
+			y,
+			button: 'left',
+			buttons: type === 'mouseReleased' ? 0 : 1,
+			clickCount: type === 'mouseMoved' ? 0 : 1,
+			pointerType: 'mouse',
+		});
 	const screenshot = async () => {
 		const { result, error } = await page('Page.captureScreenshot', { format: 'png' });
 		if (error) throw new Error(`screenshot: ${error.message}`);
@@ -168,6 +180,7 @@ export async function openPage(chromePath, profile, { intercept } = {}) {
 		page,
 		evaluate,
 		key,
+		mouse,
 		screenshot,
 		consoleLines,
 		external,
