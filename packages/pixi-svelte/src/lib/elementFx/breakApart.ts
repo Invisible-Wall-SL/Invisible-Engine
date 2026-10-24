@@ -19,6 +19,7 @@ import {
 	type Renderer,
 	type Texture,
 } from 'pixi.js';
+import { EFX_SIDES } from 'constants-shared/glslLibrary';
 import { clamp01, easeOutBack, rgb, smoothstep } from './frame';
 import type { BreakStyle } from './kinds';
 import { freezeFilter } from './shaders';
@@ -682,7 +683,7 @@ const iceStill = (
 	const filter = freezeFilter();
 	const color = options.params.color;
 	const crystals = Math.max(3, Math.round(Math.sqrt(param(options.params, 'pieces', 28)) * 1.4));
-	filter.set('uFreeze', 1, crystals, seed, 0);
+	filter.set('uFreeze', 1, crystals, seed, EFX_SIDES.indexOf('edges'));
 	filter.set('uIce', ...rgb(typeof color === 'string' ? color : '#9fdcff'));
 	filter.set('uGlint', 1, -10);
 	const sprite = new Sprite(still);

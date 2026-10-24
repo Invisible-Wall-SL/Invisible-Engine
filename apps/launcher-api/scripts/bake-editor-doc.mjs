@@ -182,7 +182,7 @@ function refuseAtGate({ gate, error, details, fixIn, flag, env }) {
 	const target = process.env.IE_BUILD_REFUSAL_JSON;
 	if (target) {
 		try {
-			const refusal = { gate, error, details, override: { flag, env } };
+			const refusal = { gate, error, details, override: flag ? { flag, env } : null };
 			writeFileSync(target, `${JSON.stringify(refusal, null, 2)}\n`, 'utf8');
 		} catch (err) {
 			console.warn(`⚠ bake-doc: could not write ${target} (${err?.message ?? err})`);
@@ -191,7 +191,9 @@ function refuseAtGate({ gate, error, details, fixIn, flag, env }) {
 	bail(
 		`${error}\n` +
 			details.map((d) => `    - ${d}`).join('\n') +
-			`\n  Fix it in ${fixIn}, or re-run with ${flag} (env ${env}=1) to bake it anyway.`,
+			(flag
+				? `\n  Fix it in ${fixIn}, or re-run with ${flag} (env ${env}=1) to bake it anyway.`
+				: `\n  Fix it in ${fixIn}.`),
 	);
 }
 
@@ -1145,6 +1147,15 @@ async function main() {
 			// never fall through to "no config", which would ship the template's prices instead.
 			if (gcRes.status === 409) {
 				const out = await gcRes.json().catch(() => ({}));
+				// The family gate: a match-3 or arcade config the runtime cannot play yet. No override.
+				if (out?.reason === 'unplayable-family') {
+					refuseAtGate({
+						gate: 'unplayable-family',
+						error: out.error ?? 'The runtime cannot play this game family yet.',
+						details: [],
+						fixIn: 'Invisible Game Config',
+					});
+				}
 				refuseAtGate({
 					gate: 'paytable-drift',
 					error: out?.error ?? 'The paytable disagrees with the captured partner paytable.',

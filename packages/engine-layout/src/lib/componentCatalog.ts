@@ -222,6 +222,18 @@ export const HOLD_AND_WIN_PARAM_CATALOG: EngineParamEntry[] = [
 		note: 'Respins left on the counter — resets to the start count when a coin lands.',
 	},
 	{
+		key: 'respinCounterText',
+		kind: 'string',
+		label: 'Respin Counter Line',
+		note: 'The line the coded counter shows — "RESPINS 3", and "3 RESPINS" / "RESPINS RESET" / "LAST RESPIN" on those beats (Win Text `respins.*`).',
+	},
+	{
+		key: 'respinCounterNote',
+		kind: 'string',
+		label: 'Respin Counter Note',
+		note: 'The beat the counter is announcing: "award" as the feature opens, "reset" while a reset holds, else empty.',
+	},
+	{
 		key: 'activeModifiers',
 		kind: 'string',
 		label: 'Active Modifiers',
@@ -660,6 +672,11 @@ const HOLD_AND_WIN_SIGNALS: EngineSignalEntry[] = [
 		},
 	]),
 	...featureFamily('holdAndWin', 'Respins', [
+		{
+			key: 'respinAward',
+			label: 'Respin counter — award',
+			note: 'The feature opened and the counter shows the respins awarded.',
+		},
 		{
 			key: 'respinReset',
 			label: 'Respin counter — reset',

@@ -49,6 +49,7 @@ writeFileSync(
 		'valueBindings',
 		'resolveTransform',
 		'soundLibrary',
+		'componentEvents',
 	]
 		.map((f) => `export * from ${JSON.stringify(join(LAYOUT_LIB, `${f}.ts`))};`)
 		.join('\n'),

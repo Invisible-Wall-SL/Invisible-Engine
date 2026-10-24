@@ -67,6 +67,8 @@
 		unionBox,
 		type DepthSlice,
 		type SpreadBox,
+		SCREEN_NEST,
+		type ComponentNest,
 	} from './editorCanvas.helpers';
 	import { withEditorProject } from './editorProject.client';
 	import { notePlacedEffect } from './placedEffects.client.svelte';
@@ -126,6 +128,8 @@
 		/** The open component's resolved preview params (the Component Editor; empty on a screen) —
 		 * what an effect placed at the top level of that component reads a `params.<id>` value from. */
 		componentParams?: Record<string, unknown>;
+		/** Where the top-level nodes sit in the game's component nesting (see `ComponentNest`). */
+		componentNest?: ComponentNest;
 		/** Per-component-id project param defaults, so a nested effect reads the params its instance
 		 * resolves (`resolveComponentParams`), as the rig layer does. */
 		componentDefaults?: Record<string, Record<string, unknown>>;
@@ -158,6 +162,7 @@
 		onReadyKeysChange,
 		onBoundsChange,
 		componentParams = {},
+		componentNest = SCREEN_NEST,
 		componentDefaults = {},
 		effectParamValues,
 	}: Props = $props();
@@ -314,12 +319,32 @@
 				// so the overlay must too — each nested effect's world transform composes from its
 				// ancestor chain (top link framed, descendants pure-local).
 				if (n.kind === 'container') {
-					collectNested(n.children, sc, out, [n], 0, [], componentParams);
+					collectNested(
+						n.children,
+						sc,
+						out,
+						[n],
+						componentNest.depth,
+						componentNest.stack,
+						componentParams,
+					);
 				} else if (n.kind === 'componentInstance') {
 					const def = instanceDef(componentMap, n);
-					if (def) {
+					if (
+						def &&
+						componentNest.depth < MAX_COMPONENT_DEPTH &&
+						!componentNest.stack.includes(def.id)
+					) {
 						const params = instanceParams(def, n, componentParams);
-						collectNested(def.root.children, sc, out, [n], 1, [def.id], params);
+						collectNested(
+							def.root.children,
+							sc,
+							out,
+							[n],
+							componentNest.depth + 1,
+							[...componentNest.stack, def.id],
+							params,
+						);
 					}
 				}
 			}

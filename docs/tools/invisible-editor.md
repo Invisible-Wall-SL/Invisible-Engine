@@ -221,6 +221,48 @@ is no room); hidden in a layout, the panel falls back to that spot. A project sw
 board later in Game Config keeps the screens it has: the game still plays, with the board's frame
 and tiles only during the feature, and the panel at its default spot.
 
+#### Author the respin counter text (count, RESPINS RESET, LAST RESPIN, modifiers)
+
+With no Respin Counter on screen, the game draws its built-in counter in white Arial with a black
+outline. It shows:
+
+- "RESPINS 3" over the board;
+- "3 RESPINS" as the feature opens;
+- "RESPINS RESET" when a coin puts the count back;
+- "LAST RESPIN" on the last respin;
+- a small gold modifiers line under it ("PAYER · MULTIPLIER").
+
+To replace all of it with your own look:
+
+1. **Open the Respin counter screen.** If your project has none, use **＋ Add missing screens**. A
+   project from the Hold and Win starter already has a **Respin counter** instance and an **Active
+   modifiers** Text Box on that screen. Otherwise, place a **Respin Counter** from the Components
+   list (under **UI**). While any Respin Counter is on screen, the built-in counter and its
+   modifiers line do not draw.
+2. **Pick what it says** with its **source**:
+   - **`respinCounterText`** shows exactly the built-in counter's words, every beat included. Then
+     empty its **label** so no "RESPINS" caption sits over it. An untouched label field only *looks*
+     empty: the grey text is its default, which still draws. Type a character, then delete it.
+     The **×** button puts the default back.
+   - **`respinsLeft`** (the default) shows the number only. Draw your own reset look and play it on
+     the **Respin counter — reset** signal, and on **Respin counter — award** as the feature opens.
+     Use a "Plays on signal" cue or a State Machine.
+3. **Style it.** Font, size, fill and frame image are the counter's own params. **pulse on a reset
+   or "+N"** makes it pop (1 = still).
+4. **The modifiers line** is never part of a Respin Counter.
+   - On a starter screen it is the **Active modifiers** Text Box (source `activeModifiers`). Style
+     it, or delete it to show no modifiers.
+   - Without one, place a **Jackpot Tile**, set its source to `activeModifiers`, empty its label as
+     above, and set its font size and fill: its default is the large gold jackpot figure.
+   - A Jackpot Tile used this way never pulses, and never hears jackpot signals.
+
+The words are set in [Invisible Win Text](win-text.md), under **Respins** (the special names are
+under **Hold and Win feature**), and translated from there. The `respinCounterNote` source is
+`award`, `reset` or empty, for a look that changes with the beat.
+
+On the Components side, a Respin Counter whose **Counter** part you emptied draws the built-in
+look again. Keep at least one node inside the part.
+
 #### Banner screens
 
 Every popup the Hold and Win feature announces over the board ("MINI" and its amount, "BONUS WIN",
@@ -869,7 +911,7 @@ An open row has, top to bottom:
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Always (loops while shown)** | Loops for as long as the element is on screen. Built for the _loop_ effects below.                                                              |
 | **When shown**                 | Plays when the element appears, each time it is shown (a screen the Flow shows again, a node made visible again).                               |
-| **On cue**                     | Plays each time its **Cue** fires: a Flow `fireCue`, a game or component signal, or a cue its component's own timeline or state machine raises. |
+| **On cue**                     | Plays each time its **Cue** fires: a Flow `fireCue`, a game or component signal, a cue its component's own timeline or state machine raises, or a `signal:` cue on a timeline of its screen ([below](#report-events-visibility-and-text)). |
 | **Keyed on a timeline**        | Never plays on its own. A timeline poses it, so a state-machine state can too ([below](#keyed-element-fx-on-the-timeline)). Nodes only.        |
 
 An _On cue_ effect fired again restarts. Its cue (and any stop cue) shows in Invisible Flow's
@@ -1362,7 +1404,20 @@ canvas.
 box over an empty part of the field rows (Shift adds to what is selected; a click there clears
 it). A selected key's drag moves all of them by the same amount. **Ctrl+C** copies the selected
 keys and **Ctrl+V** pastes them onto the same fields with the earliest at the playhead (a key
-already at a pasted time is replaced). **Delete** removes them all.
+already at a pasted time is replaced). **Delete** removes them all. ⌘ works as Ctrl on a Mac.
+
+**The same animation on another node.** Select the keys of one node (drag a box over its field rows,
+or Shift-click its diamonds), press **Ctrl+C**, click the other node on the stage, put the
+playhead where the animation should start, and press **Ctrl+V**. The keys land on the other node's
+same fields (y on y, scale on scale), timed from the playhead, and the node gets its rows if it had
+none. A field that node cannot key is skipped (a reel grid has no tint). The keys go into the ratio
+you are editing, like any key. With the copied node itself still selected, or nothing selected,
+Ctrl+V pastes back onto the copied fields as before. Keys copied from two nodes at once always
+paste back onto their own fields.
+
+Another way to move several nodes together: put them in one group and key the group. This does
+not work for the **reel grid**: the game reads the reel grid only as a top-level node of its
+screen, so keep it out of groups and paste its keys onto the other nodes instead.
 
 **Interpolation.** With keys selected, the right of the panel is the **Interpolation** panel: how
 the value travels from each selected key to the next one.
@@ -1407,6 +1462,18 @@ Three more kinds of row sit in the timeline's track area, under the keyed node's
   cue fires when the playhead passes it: on a component, a `signal:` cue is a signal its instance
   hears (another of its timelines can play on it); Flow can react to it too. Scrubbing never fires
   cues. All cues share one **⚡ cues** row; drag a marker to move it.
+  - **Cues and Element FX.** On a **screen** timeline, a `signal:NAME` cue plays every
+    [Element FX](#element-fx--effects-that-play-on-an-element) whose trigger is _On cue_ with the
+    cue `NAME`, as a Flow `fireCue` named `NAME` would: the screen's own entries, its nodes', and
+    any others on screen. Write the cue with `signal:` and the Element FX's **Cue** without it
+    (`signal:FX_Intro` ↔ `FX_Intro`). A cue without a prefix, or an `fx:` / `sfx:` / `music:`
+    one, does not reach Element FX. The cue inspector lists the screen's _On cue_ Element FX under
+    **Element FX (On cue)** in its picker, and its note names them; pick one to set the cue.
+  - **▶ in Animate** plays those Element FX when the playhead passes the cue, the way **▶** on an
+    Element FX row does (on a still of the element). Scrubbing plays nothing, as in the game. The
+    preview plays one effect at a time, so when a cue reaches several (the screen's and a node's)
+    you see the last one; the game plays them all. Element FX inside a placed component's own parts
+    hear the cue in the game but are not previewed here, and a stop cue is not previewed.
 - **Visible.** With a node selected, the left column has **👁 Show** and **Hide**: each keys the
   node shown or hidden from the playhead (stepped, no fade). The keys draw on a **↳ visible** row:
   a filled marker means shown from there, a hollow one hidden. Click one to select it (it outlines
@@ -1523,8 +1590,17 @@ selected, the first Esc clears the selection. Esc does nothing while you are typ
 
 **Nested components.** Inside an open component, double-click a component placed in it to edit
 that one in place. The breadcrumb grows by one crumb. Nesting stops where the game stops drawing:
-the game draws components two levels deep, so a component deeper than that is not opened, and a
-message says so. Open it from the list instead.
+the game draws components three levels deep, so a component deeper than that is not opened, and a
+message says so. Open it from the list instead. The stage draws the open component one level down,
+where the game draws it once placed, so what it shows nested is what the Scene Editor and the game
+show.
+
+**State machines on the stage.** Outside Animate, a rig inside a component with a state machine
+shows the art its machine rests on: the state it settles in from its inputs' defaults (the entry
+state when nothing moves it). The game layers that state's animation over the rig's own resting
+animation, so a frame resting on `Grand` whose machine enters `mini` shows `mini` on the stage, as
+it does in the game. A number input fed by an engine value starts at its default here; set the
+default to preview another state.
 
 **The left tabs** while a component is open are **Library** (elements and art to drag in),
 **Outline** (the component's node tree), **Browse** (the screens and every component, to jump
@@ -1998,7 +2074,10 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   on a later cue.
 - **An _On cue_ Element FX did not play.** A cue reaches an element only while it is on screen.
   Nothing is queued, so a cue fired while the element or its screen is hidden is missed. The name
-  must also match exactly on both sides.
+  must also match exactly on both sides. A cue on a screen timeline needs the `signal:` prefix
+  (`signal:FX_Intro` plays the Element FX whose cue is `FX_Intro`); one without it does not reach
+  Element FX. Check the entry's **Trigger** too: _When shown_ plays when the screen appears, not on
+  a cue.
 
 ## Known limitations / TODOs
 

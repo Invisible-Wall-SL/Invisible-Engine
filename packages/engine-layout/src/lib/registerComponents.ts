@@ -54,11 +54,13 @@ const registry = new Map<string, VersionedEntry>();
 
 /**
  * Max `componentInstance` nesting depth a renderer expands (root scene = depth 0).
- * Beyond this, expansion stops (§8.9 "Nesting", 1–2 levels for v1). Lives here —
+ * Beyond this, expansion stops (§8.9 "Nesting"). Three levels, so a component can hold a
+ * built-in that itself repeats or nests one (the Segmented Counter's segments, the jackpot
+ * bar's tiles): screen → widget → counter → segment. Lives here —
  * a Svelte-free module re-exported from `index.ts` — so both renderers (the engine
  * `ComponentInstance` and the editor's own canvas) share ONE source of truth.
  */
-export const MAX_COMPONENT_DEPTH = 2;
+export const MAX_COMPONENT_DEPTH = 3;
 
 /**
  * Register component defs (§8.9 v2 multi-version store). Each call SETS the id's

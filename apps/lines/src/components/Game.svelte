@@ -234,6 +234,7 @@
 		stateHoldAndWin,
 	} from '../game/stateHoldAndWin.svelte';
 	import { mostLetters, stateLetters } from '../game/holdAndWinLetters.svelte';
+	import { respinCounterLine, respinCounterNote } from '../game/respinCounterLine';
 	import {
 		configuredMeters,
 		meterFullShown,
@@ -884,6 +885,11 @@
 		cellsTotal: valueSource(() =>
 			stateRespinBoard.shown ? (currentRespinBoard()?.reels ?? 0) * openRespinRows() : 0,
 		),
+		// The coded counter's own line ("RESPINS 3", and "3 RESPINS" / "RESPINS RESET" / "LAST RESPIN"
+		// on those beats) and the beat it announces (`award` / `reset` / ''), so an authored counter
+		// can show exactly what the coded one does, or its own look per beat.
+		respinCounterText: textSource(respinCounterLine),
+		respinCounterNote: textSource(respinCounterNote),
 		// …and the modifiers active in the feature ("PAYER · MULTIPLIER"), what the coded counter's
 		// second line shows.
 		activeModifiers: textSource(activeModifiersText),
