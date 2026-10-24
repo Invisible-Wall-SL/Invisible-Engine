@@ -20,6 +20,7 @@ You are the developer for **Invisible Shader Graph**.
   - `src/nodes.ts`: the node library.
   - `src/compile.ts`: the validator and compiler.
   - `src/reference.ts`: the reference graphs and the one-graph-per-node showcase.
+  - `src/doc.ts`: `normalizeShaderGraphDoc`, the shape storage keeps (a graph mid-build included).
   - `compile.fixture.ts`: the headless checks; the reference graphs' GLSL is snapshotted in
     `snapshots/`.
 - `packages/pixi-svelte/src/lib/elementFx/shaders.ts`: the built-in passes and the
@@ -33,7 +34,17 @@ You are the developer for **Invisible Shader Graph**.
   into.
 - `apps/launcher-api/src/routes/(app)/flow-v2/`: the `@xyflow/svelte` graph canvas to lift into
   `$lib/graph/` (step 5).
-- `apps/launcher-api/src/lib/server/effectExport.ts`: the ship chain to mirror (step 4).
+- The pipeline (step 4), in `apps/launcher-api`:
+  - `src/lib/server/shaderStorage.ts` (project + `_shared` graphs, the set, compile),
+    `shaderScope.ts` (who reads and writes), `routes/api/shaders/*`;
+  - `src/lib/server/shaderExport.ts` → `deploy/editor-shaders/`, embedded as `shaderEffects` by
+    `runtimeBundle.ts` (Publish) and `scripts/bake-editor-doc.mjs` (`/api/editor/export-shaders`);
+  - `src/lib/customElementFx.svelte.ts`: a page registers its project's set; `EditorElementFx.svelte`
+    lists it; `elementFxTargets.ts` `withCustomElementFxKinds` widens the Flow's kind dropdown;
+  - `scripts/check-shader-pipeline.ts` (`check:shader-pipeline`).
+
+  The game: `apps/lines` `bakedShaderEffects()` → `setCustomElementFx` in `Game.svelte`.
+- `scripts/playtest/shader-effect-play.mjs`: a published game with graphs on it, played headless.
 - `tools/fx-spike/elementFx.ts`: the gate (`pnpm check:element-fx`).
 - `tools/fx-spike/shaderParity.mjs`: the render harness (`shoot` / `diff`, by hand). Its pages
   (`shaderPages.mjs`): `shaderParity.entry.ts` draws the built-ins, `shaderGraphs.entry.ts` the

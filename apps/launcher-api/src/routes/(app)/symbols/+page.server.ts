@@ -8,6 +8,7 @@ import { listEffects } from '$lib/server/fxStorage';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { loadCustomElementFx } from '$lib/server/shaderStorage';
 import { loadPublishedSymbolDefaults, symbolDefaultsFor } from '$lib/server/symbolDefaults';
 import { symbolsPageConfig } from '$lib/server/symbolsPageConfig';
 import { loadSymbolsDocWithEtag } from '$lib/server/symbolsStorage';
@@ -42,24 +43,28 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		user: locals.user,
 	});
 	const gameTypeLoad = projectGameType(projectKey);
-	const [loaded, assets, gameType, published, config, fonts, clips, effects] = await Promise.all([
-		loadSymbolsDocWithEtag(clientKey, projectKey),
-		listProjectAssets(clientKey, projectKey),
-		gameTypeLoad,
-		loadPublishedSymbolDefaults(clientKey, projectKey),
-		// The config Invisible Game Config opens with — the project's own, else its kind's template —
-		// read LIVE, so this page lists the symbols that page does not badge unused, and lights the
-		// columns and sections from the switches that page shows.
-		gameTypeLoad.then((type) => resolveGameConfig(clientKey, projectKey, type)),
-		resolveEditorFonts(clientKey, projectKey),
-		// Invisible Flipbook clips — the third binding kind a cell can take, alongside a
-		// sprite frame and a rig animation. Rows only (id/name/frame count/primary sheet/
-		// first frame); the clip's full ordered frame list is the /flipbook tool's business.
-		listClips(clientKey, projectKey),
-		// Invisible FX effects (id + name) — the fourth kind a Book-symbol VFX layer can take.
-		// Same list the editor's effect-node picker uses (`/api/editor/effects`).
-		listEffects(clientKey, projectKey),
-	]);
+	const [loaded, assets, gameType, published, config, fonts, clips, effects, customElementFx] =
+		await Promise.all([
+			loadSymbolsDocWithEtag(clientKey, projectKey),
+			listProjectAssets(clientKey, projectKey),
+			gameTypeLoad,
+			loadPublishedSymbolDefaults(clientKey, projectKey),
+			// The config Invisible Game Config opens with — the project's own, else its kind's template —
+			// read LIVE, so this page lists the symbols that page does not badge unused, and lights the
+			// columns and sections from the switches that page shows.
+			gameTypeLoad.then((type) => resolveGameConfig(clientKey, projectKey, type)),
+			resolveEditorFonts(clientKey, projectKey),
+			// Invisible Flipbook clips — the third binding kind a cell can take, alongside a
+			// sprite frame and a rig animation. Rows only (id/name/frame count/primary sheet/
+			// first frame); the clip's full ordered frame list is the /flipbook tool's business.
+			listClips(clientKey, projectKey),
+			// Invisible FX effects (id + name) — the fourth kind a Book-symbol VFX layer can take.
+			// Same list the editor's effect-node picker uses (`/api/editor/effects`).
+			listEffects(clientKey, projectKey),
+			// The project's shader graphs compiled, registered by the page so a symbol state's Element
+			// FX picker lists them and its ▶ plays them.
+			loadCustomElementFx(clientKey, projectKey),
+		]);
 	// Win-amount text is bitmap text, so the font dropdown lists the project's BITMAP
 	// fonts (Font Maker output). The four engine builtins (gold/goldblur/silver/purple)
 	// are hardcoded in each game's Game.svelte rather than in the R2 catalog, so the page
@@ -87,5 +92,6 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		clips,
 		// id + name only — the Book-VFX FX picker is a plain select; the effect's layers live in /fx.
 		effects: effects.map((e) => ({ id: e.id, name: e.name })),
+		customElementFx,
 	};
 };

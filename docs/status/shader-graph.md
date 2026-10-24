@@ -4,9 +4,11 @@
 
 **One-line state:** plan approved 2026-10-23. Step 1 (one shared GLSL library under the 17
 built-in shader passes, #1320) and step 2 (the `engine-shadergraph` package: nodes, validator,
-compiler, #1322) are merged. Step 3, the runtime, is built and in review: a compiled graph
-registered as `custom:<id>` plays wherever a built-in Element FX does. Nothing registers one in a
-game yet (step 4), and no tool or route exists.
+compiler, #1322) and step 3 (the runtime: a compiled graph plays as `custom:<id>` wherever a built-in
+Element FX does, #1328) are merged. Step 4, the pipeline, is in review: a project's graphs are
+stored, compiled into Publish and the bake, registered by the game at boot and listed by the Scene
+Editor, Symbols and Flow pickers. No `/shaders` tool exists yet (step 5): a
+graph is saved through `/api/shaders/save`.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -50,7 +52,7 @@ game yet (step 4), and no tool or route exists.
     reference graphs and every node at every vector width through the real `ElementFxFilter` in
     headless Chromium, on WebGL1 and WebGL2. It fails on any shader the driver rejects and names
     the graph.
-- **Step 3, the runtime.** Built and in review.
+- **Step 3, the runtime.** Merged (#1328, 2026-10-24).
   - **Custom kinds.** A compiled graph plays as the Element FX kind `custom:<id>`. The registry is
     in `constants-shared/elementFx`: `setCustomElementFx(list)` replaces the set,
     `isPlayableElementFxKind` answers for built-ins and registered custom kinds alike.
@@ -82,21 +84,59 @@ game yet (step 4), and no tool or route exists.
   - **An unregistered custom entry still counts** where the engine counts entries: cue names,
     keyed channels, an `enter` beat a symbol state waits for. Playing it is a no-op whose `done` is
     already settled, so the wait ends at once.
-- **Not started:** steps 4–8 (the pipeline, the `/shaders` editor, templates, editor v2, later).
+- **Step 4, the pipeline.** Built and in review.
+  - **Storage** (`apps/launcher-api/src/lib/server/shaderStorage.ts`). One file per graph: a
+    project's at `<client>/<project>/shaders/<id>.json`, the studio-shared library's at
+    `_shared/shaders/<id>.json`. A project's graph shadows a shared one of the same id; the project's
+    **set** is its own graphs plus the shared ones it does not override. The id is `shaderSlug`
+    (`r2Slug` without leading underscores), so it always makes a valid `custom:<id>`.
+    `normalizeShaderGraphDoc` (`engine-shadergraph`) is the gatekeeper: a save keeps a graph that
+    does not compile (it is being built) and drops what is not part of the doc. A save is guarded
+    by `baseEtag` (a create on a taken id and a stale ETag are 409s), and a graph over 512 KB is
+    refused (413). A setup duplicate copies `shaders/`.
+  - **Routes** (`/api/shaders/list | doc | effects | save | delete`). The reads gate on the tools
+    whose pickers list custom effects (Scene and Component Editors, Symbols, Flow); save and delete
+    gate on the Scene Editor until `/shaders` is a tool (step 5). Every route refuses a tab on another
+    project (`scopeMismatch`). `effects` answers the set compiled and the graphs left out. A shared
+    graph is read with no ETag: saving it writes the project its own copy.
+  - **The ship.** `shaderExport.ts` compiles the set into `deploy/editor-shaders/` (one compiled
+    effect per file and an `_index.json`; no id starts with `_`), names a graph that does not
+    compile, and prunes what an earlier export left. Publish (`runtimeBundle.ts`) and the bake
+    (`/api/editor/export-shaders`, called by `bake-editor-doc.mjs`; a launcher without it answers 404
+    and the bake goes on) embed the effects as `shaderEffects`. The pull mirrors `editor-shaders/`
+    (`GENERATED_SUBTREES`). The game reads them with `bakedShaderEffects()` and registers them with
+    `setCustomElementFx` before its first render.
+  - **Nothing goes missing silently.** Publish logs, and returns as `shaderEffectsMissing`, every
+    `custom:<id>` the game names (an entry, a Flow parameter) that it does not ship: its graph was
+    deleted or does not compile, so it plays nothing (`unshippedCustomKinds`). The bake logs the
+    same, and the graphs it left out with their errors. The Scene Editor tells such a row apart
+    from an unknown kind. Publish judges the flow with the kinds it ships.
+  - **The pickers.** The Scene Editor and Symbols load the compiled set and register it
+    (`$lib/customElementFx.svelte.ts`, whose version signal refreshes the panel's kind groups and
+    rows). The Element FX kind picker lists them under "Custom (Shader Graph)" (a new
+    `ELEMENT_FX_CATEGORIES` entry) and takes a registered custom kind; ▶ plays it. The Flow's kind
+    dropdown is widened with the project's custom kinds (`withCustomElementFxKinds`, enum
+    `ELEMENT_FX_KIND_ENUM`); its validator already took any text.
+  - **Proof.** `check:shader-pipeline` (75 checks: storage, the routes, the ship, the wiring of
+    both bundle paths, the boot, the pull, the pickers, the Flow vocab and the missing-effect
+    report). `scripts/playtest/shader-effect-play.mjs` plays a published game with two graphs on it
+    and passes or fails (see "Recent changes").
+- **Not started:** steps 5–8 (the `/shaders` editor, templates, editor v2, later).
 
 ## Open items / next
-1. Merge step 3.
-2. **Step 4: the pipeline.**
-   - Storage and leases; export → deploy → bake → pull, and the game registering the project's
-     compiled effects at boot (`setCustomElementFx`), in Publish.
-   - The pickers list custom effects: the Scene Editor, `/symbols`, and the Flow's kind dropdown.
-     The Flow's vocabulary enum (`ElementFxKind` in `standardVocab.ts`) lists the built-ins; its
-     validator already takes any text for an enum, so the dropdown is what needs widening.
-   - The editor registers the project's set. Until it does, an entry naming a custom kind shows as
-     "this build cannot read or play this effect" and is kept as saved.
-   - The editor's kind picker groups by `ELEMENT_FX_CATEGORIES`, which has no `custom` group yet,
-     and its rows read the registry once: they must refresh when the project's set is registered.
-3. **Nodes the design lists that v1 does not have yet:** Perspective plane (the 3D flip's ray cast
+1. Merge step 4.
+2. **Step 5: the `/shaders` editor.** It takes the save gate over from the Scene Editor (a `shaders`
+   tool in `roles.ts`, with its doc, rule 9), acquires the lease (`/api/lease`, doc key the graph
+   id) and keeps history (`docBackups`, a target per graph).
+3. **Step 4 follow-ups.**
+   - What ships is the project's whole set. Once the shared library has entries (step 7), ship only
+     the graphs a doc names (`custom:<id>` in the scenes, components, symbols and flow).
+   - The pickers read the set once per page load; a graph saved in another tab shows after a
+     reload.
+   - The stored-flow check before Publish's assemble composes the Flow vocab without the custom
+     kinds (Publish's own check of the shipped flow has them). An enum value is judged as text, so
+     the verdict is the same; an enum-membership check would need them there too.
+4. **Nodes the design lists that v1 does not have yet:** Perspective plane (the 3D flip's ray cast
    as one node), star / sparkle, rim, loop envelope and the pixel input. Add them when a template
    (step 6) or an artist needs one.
 
@@ -104,6 +144,41 @@ game yet (step 4), and no tool or route exists.
 - None.
 
 ## Recent changes
+- 2026-10-24 — **Step 4: the pipeline** (storage, routes, ship, pickers). See "Current state" for
+  what each part does.
+  - **Proof.**
+    - `check:shader-pipeline` (75 checks, run by `check:all`), over the real storage, export and
+      routes with an in-memory R2. Mutation-checked: dropping the pull's `editor-shaders`, the
+      shadowing, the game's registration, the slug's underscore strip, the export's prune or
+      widening the read gate each fail it.
+    - **Play-QA** (`scripts/playtest/shader-effect-play.mjs`). The current-games `cg-lines`
+      stand-in snapshot with Pulse tint and Power-up compiled into `shaderEffects` (the export's own
+      `compileShaderEffect`) and placed as Element FX (Pulse tint looping on the reel frame,
+      Power-up on its caption), served as the launcher serves a published game, played on a build
+      of this branch against the real test server. It passes: all three shader programs are on the
+      stage (`element-fx-custom-pulsetint`, `element-fx-custom-powerup` and Power-up's glow pass),
+      the frame takes the tint (30,660 pixels differ from the same snapshot without
+      `shaderEffects`, whose entries play nothing and whose stage has no such program), the effects
+      move over time (8,331 pixels between two moments, 81 without), and the boot reaches idle with
+      no errors and no stalls. It proves the game half on the runtime-bundle path; storage, the
+      export's writes and both bundle paths' wiring are `check:shader-pipeline`'s. The exit as
+      worded, a graph authored on the deployed launcher and played in a game published there,
+      follows the merge.
+  - **Review.** An independent review found nothing blocking. Fixed before the PR:
+    - Publish said nothing when a graph was left out or deleted: it now names every effect a game
+      will not play, and so does the bake;
+    - the play script never failed: it now passes or fails on the programs, the pixels, errors and
+      stalls, and says what it does not prove;
+    - a graph named "index" lost its deployed file to the index (now `_index.json`), and the
+      deployed index carried compiler errors into every build;
+    - a save had no size cap; a node value named `__proto__` set the prototype in memory; a shared
+      graph's ETag would have made the editor's override save a 409; reads were one at a time;
+    - the Scene Editor called a deleted custom effect an unknown kind; registration now runs in the
+      browser only.
+  - **Also:** `ELEMENT_FX_CATEGORIES` gains `custom`; `standardVocab.ts` exports
+    `ELEMENT_FX_KIND_ENUM` (the `check:element-fx` pin follows it); the shader routes are on
+    `check:launcher-gates`' stale-tab list; `check:project-duplicate` expects `shaders/` in a setup
+    copy.
 - 2026-10-24 — **Step 3: the runtime** (custom Element FX kinds).
   - **Catalog** (`constants-shared/elementFx`): `ElementFxKindId` (a built-in or `custom:<id>`),
     the registry, `ELEMENT_FX_PASS_KINDS`, the curve and motion types, `sampleElementFxCurve`, and

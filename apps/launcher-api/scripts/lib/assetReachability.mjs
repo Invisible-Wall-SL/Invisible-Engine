@@ -23,6 +23,7 @@ export const GENERATED_SUBTREES = [
 	'editor-art',
 	'editor-fonts',
 	'editor-symbols',
+	'editor-shaders',
 	'effects',
 	'clips',
 	'sounds',

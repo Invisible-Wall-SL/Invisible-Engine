@@ -140,6 +140,7 @@ const PROJECT_FILES: Record<string, string> = {
 	'glow.fx.json': '{"id":"glow"}',
 	'glow.fx.meta.json': '{}',
 	'cinematics/intro.json': '{"id":"intro"}',
+	'shaders/pulse.json': '{"version":1,"id":"pulse"}',
 	'deploy/sprites/reels.webp': 'DEPLOYED-PAGE-bytes',
 	'deploy/sprites/reels.json': '{"meta":{"image":"reels.webp"}}',
 	'deploy/editor-art/index.json': '{"sheets":[]}',
@@ -177,7 +178,7 @@ const expected = (files: Record<string, string>, takes: (rel: string) => boolean
 		.filter((rel) => takes(rel) && !isBackup(rel))
 		.sort();
 
-const SETUP_FOLDERS = ['editor/', 'config/', 'symbols/', 'win-text/', 'localization/'];
+const SETUP_FOLDERS = ['editor/', 'config/', 'symbols/', 'win-text/', 'localization/', 'shaders/'];
 const SETUP_ROOT_FILES = ['atlas_config.json', 'sheet_config.json'];
 const takesSetup = (rel: string) =>
 	SETUP_FOLDERS.some((f) => rel.startsWith(f)) || SETUP_ROOT_FILES.includes(rel);
@@ -214,6 +215,7 @@ await check('setup: the authored game and its components, no art, sounds or font
 			'config/',
 			'editor/',
 			'localization/',
+			'shaders/',
 			'sheet_config.json',
 			'symbols/',
 			'win-text/',
@@ -249,6 +251,7 @@ await check('full: the whole project, deploy/ and storybook/ included', async ()
 			'input/',
 			'localization/',
 			'manifests/',
+			'shaders/',
 			'sheet_config.json',
 			'sheets/',
 			'sounds/',

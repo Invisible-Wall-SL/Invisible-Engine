@@ -1,4 +1,8 @@
-import { ELEMENT_FX_TARGET_ENUM, type TemplateVocabulary } from 'engine-flow-v2';
+import {
+	ELEMENT_FX_KIND_ENUM,
+	ELEMENT_FX_TARGET_ENUM,
+	type TemplateVocabulary,
+} from 'engine-flow-v2';
 import {
 	ELEMENT_FX_REELS_TARGET,
 	elementFxScreenTarget,
@@ -43,17 +47,15 @@ export function collectElementFxTargets(
 	];
 }
 
-/**
- * The vocabulary with its `ElementFxTarget` enum widened to `targets`. Unchanged (the same object)
- * when there is nothing to add.
- */
-export function withElementFxTargets(
+/** The vocabulary with enum `name` widened to `values`; the same object when nothing is added. */
+function widenEnum(
 	vocab: TemplateVocabulary,
-	targets: readonly string[],
+	name: string,
+	values: readonly string[],
 ): TemplateVocabulary {
-	const decl = vocab.enums.find((e) => e.name === ELEMENT_FX_TARGET_ENUM);
+	const decl = vocab.enums.find((e) => e.name === name);
 	if (!decl) return vocab;
-	const added = targets.filter((t) => !decl.values.includes(t));
+	const added = values.filter((v) => !decl.values.includes(v));
 	if (!added.length) return vocab;
 	return {
 		...vocab,
@@ -62,3 +64,15 @@ export function withElementFxTargets(
 		),
 	};
 }
+
+/** The vocabulary with its `ElementFxTarget` enum widened to `targets`. */
+export const withElementFxTargets = (
+	vocab: TemplateVocabulary,
+	targets: readonly string[],
+): TemplateVocabulary => widenEnum(vocab, ELEMENT_FX_TARGET_ENUM, targets);
+
+/** The vocabulary with its `ElementFxKind` enum widened to the project's custom kinds. */
+export const withCustomElementFxKinds = (
+	vocab: TemplateVocabulary,
+	kinds: readonly string[],
+): TemplateVocabulary => widenEnum(vocab, ELEMENT_FX_KIND_ENUM, kinds);

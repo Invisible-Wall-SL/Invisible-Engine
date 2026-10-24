@@ -28,6 +28,7 @@
 import { type FlowDoc, isAuthoredFlow } from 'engine-flow';
 import type { FlowDoc as FlowDocV2, FunctionLibraryDoc as FlowV2LibraryDoc } from 'engine-flow-v2';
 import type { EffectDoc } from 'engine-fx';
+import type { CustomElementFx } from 'constants-shared/elementFx';
 import type { FlipbookClip } from 'engine-flipbook';
 import {
 	applyHudGameNameDefault,
@@ -71,6 +72,7 @@ import { deleteObjects, listAllKeys } from './r2';
 import { projectClientKey, projectName } from './projects';
 import { exportRigFx } from './rigFxExport';
 import { exportRigFlipbooks } from './rigFlipbookExport';
+import { exportShaders } from './shaderExport';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { withoutPartnerPaytable } from './paytableDrift';
 import { loadWinTextDoc, shippedWinText } from './winTextStorage';
@@ -128,6 +130,10 @@ export interface RuntimeBundle {
 	 * ≥1 bound event — absent ⇒ `bakedRigFlipbooks()` returns {} (parity). Mirrors the offline bake
 	 * (`scripts/bake-editor-doc.mjs`). */
 	rigFlipbooks?: Record<string, RigFlipbookBinding[]>;
+	/** The project's shader graphs compiled (Invisible Shader Graph), which the game registers with
+	 * `setCustomElementFx` so an entry naming `custom:<id>` plays. Omitted when the project has none
+	 * ⇒ `bakedShaderEffects()` returns [] (parity). Mirrors the offline bake's `shaderEffects`. */
+	shaderEffects?: CustomElementFx[];
 	/** The authored win-text templates (Invisible Win Text). Pure config, no assets, so it is read
 	 * straight from R2 with no export step — the live twin of the offline bake's
 	 * `/api/win-text/doc` fetch. Omitted when un-authored ⇒ `bakedWinText()` yields the coded
@@ -410,6 +416,7 @@ async function assembleRuntimeBundle(
 		clipIndex,
 		rigFlipbooks,
 		winTextDoc,
+		shaderIndex,
 	] = await Promise.all([
 		ensureDeployExports(projectKey, clientKey, timings),
 		step('localization', timings, () =>
@@ -422,6 +429,7 @@ async function assembleRuntimeBundle(
 		step('flipbooks', timings, () => exportClips(clientKey, projectKey, { timings })),
 		step('rigFlipbooks', timings, () => exportRigFlipbooks(clientKey, projectKey)),
 		step('winText', timings, () => loadWinTextDoc(clientKey, projectKey)),
+		step('shaders', timings, () => exportShaders(clientKey, projectKey)),
 	]);
 	const winText = shippedWinText(winTextDoc);
 	// A Book-symbol VFX layer of kind 'fx' — and the explosion transition, when it is one — references
@@ -509,6 +517,9 @@ async function assembleRuntimeBundle(
 		// …and the rig-timeline clip bindings beside them, on the same omit-when-empty rule as
 		// `rigFx`: absent ⇒ `bakedRigFlipbooks()` returns {} and nothing new mounts.
 		...(Object.keys(rigFlipbooks).length ? { rigFlipbooks } : {}),
+		// Invisible Shader Graph — omit when the project has no graph that compiles, exactly as the
+		// offline bake does: absent ⇒ `bakedShaderEffects()` returns [] and nothing is registered.
+		...(shaderIndex.shaderEffects.length ? { shaderEffects: shaderIndex.shaderEffects } : {}),
 		// Invisible Win Text — omit when un-authored so the bundle stays byte-identical and
 		// `bakedWinText()` falls back to the coded defaults (parity), exactly as the offline bake does.
 		...(winText ? { winText } : {}),

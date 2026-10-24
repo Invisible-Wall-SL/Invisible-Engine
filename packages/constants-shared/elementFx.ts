@@ -1174,6 +1174,7 @@ export const ELEMENT_FX_CATEGORIES: readonly { id: ElementFxCategory; label: str
 	{ id: 'distort', label: 'Distort' },
 	{ id: 'light', label: 'Light & colour' },
 	{ id: 'break', label: 'Break' },
+	{ id: 'custom', label: 'Custom (Shader Graph)' },
 ];
 
 const SPECS = new Map<string, ElementFxKindSpec>(ELEMENT_FX.map((spec) => [spec.kind, spec]));
