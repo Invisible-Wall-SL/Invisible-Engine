@@ -4408,6 +4408,7 @@
 					gameName: data.gameName,
 					addOns: data.addOns,
 					canPublishShared: data.canPublishShared,
+					flowVariables: data.flowVariables,
 					gameType: projectGameType,
 					mainSizesMap: data.doc.mainSizesMap,
 				}}

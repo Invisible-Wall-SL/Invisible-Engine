@@ -2,14 +2,72 @@
 
 > Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `invisible-game-config`, `invisible-game-maker`, then per phase
 
-**One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1 (family and outcome in Game
-Config) and P10.1b (tools per family) are merged; P10.2 (the board module) is built** and in
-review. No runtime behaviour yet: a match-3 or arcade config can be authored but not
-published, and nothing calls the board module. P10.3 and later have not started.
+**One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1, P10.1b and P10.2 are
+merged; P10.3 (Flow variables, timers, tick) is built** and in review. A Flow doc can now keep
+variables, run timers and ticks, read keys, and a component input can follow a variable. Nothing
+non-slot plays yet: P10.4 (pointer drag) and P10.5 (the first match-3 runtime) are next.
 
 ## Current state
 
-**P10.2 — the board module (built 2026-10-23; in review).** A new dependency-free package,
+**P10.3 — Flow variables, timers, tick (built 2026-10-24; in review).** §3.1 + §3.2 (tick, timers,
+keys). Pointer drag is P10.4.
+
+- **Format** (`packages/engine-flow-v2/src/types.ts`): `FlowDoc.variables` (`game` / `round`),
+  `FlowModeScope.variables` (`mode`), `FlowDoc.inputs` (the key map), the accessor `$var.<id>`,
+  and nine node kinds: `setVariable`, `changeVariable` (`add` / `sub` / `toggle`, `min` / `max`),
+  `onVariable` (`changed` / `crosses` a threshold, up / down / either), `onTick { every? }`,
+  `startTimer { timer, repeat }` (data-in `ms`), `stopTimer`, `pauseTimer` (exec-ins `pause` /
+  `resume`), `onTimer`, `onInput { action, phase }`. Pins in `pins.ts`.
+- **The store** (`src/state.ts`, `createFlowState`): one per session, outside the interpreter,
+  reached as `FlowV2Env.state`. A write applies at the node; a wrong kind is dropped; `round`
+  variables reset on `resetRound`, a mode's on `enterMode(id)`; a reset is a write. Writes are
+  delivered once per frame (`flush`): each `var:<id>` subscriber hears its variable once, and the
+  batch runs the `onVariable` entries (`variableEntries`: `changed` once with the latest value,
+  `crosses` per crossing write). Timers and ticks advance only through `advance(dtMs)`.
+- **Entries** (`runFlowStateEntry`): timer, tick, key and variable entries run on the active mode's
+  graph when it has one, else the global graph (the signal rule).
+- **Game side** (`apps/lines`): `createLinesFlowV2` builds a store only when `flowUsesState(doc)`;
+  it registers each variable as the value source `var:<id>` (a bool as 1 / 0), listens for mapped
+  keys (not while typing in a field, no key-repeat), and resets a mode's variables on its `enter`
+  transition. `tickFlowV2State` (holder) runs from one ticker callback that `Game.svelte` adds only
+  when the handle has a store, so timers stop when the game stops ticking. `resetFlowV2Round` runs
+  in `actor.ts` `onNewGameStart`.
+- **`source` widened to bool / text:** `<ComponentInstance>` subscribes a bool (to the state
+  machine, from on / off or 1 / 0) and a text input (to the Flow handle's text input) with a
+  `source`, as it did a number; the launcher normalizer (`componentStorage.ts`) and
+  `setInputSource` keep it on all three. The Component Editor's input row shows its "from" field on
+  bool and text rows too and suggests the project's flow variables (`/editor` loads them).
+- **Preview** (`src/preview.ts`): a doc that uses state runs on a virtual-time event queue (60 fps
+  frames, Delays as queue waits, scripted keys, a horizon, default 5000 ms). A doc with none keeps
+  the single-chain clock unchanged.
+- **Validator** (`src/variableValidate.ts`): `variable-unknown`, `variable-type`, `variable-scope`,
+  `variable-duplicate`, `variable-shadows-money`, `tick-async`, `tick-fast`, `input-unknown`.
+  `validateFlowDoc` takes an optional `outcome` (absent ⇒ RGS).
+- **`/flow-v2`:** the Variables panel (`VariablesPanelV2.svelte`, with the key map on the Global
+  tab), the *Variables & time* palette group, inspector fields, `$var` in the accessor picker, the
+  new codes in Validation, and the preview's horizon and *No event* run.
+- **Gates:** `check:flow-variables` (39 checks) and `check:flow-time-events` (28 checks), both run
+  by `check:all`; `envFactory.fixture.ts` learns the `state` capability.
+- **Slot parity:** a doc with no variable, key map or state node gets no store, no value source, no
+  key listener and no ticker callback, previews on the old clock, and gets no new issue (no
+  committed seed does). Edited shared modules: `Game.svelte` (the gated ticker effect), `actor.ts`
+  (the round reset, a no-op without a store), `flowV2Runtime.svelte.ts`, `flowV2InterpreterHolder.ts`,
+  `ComponentInstance.svelte`, and the `engine-flow-v2` interpreter.
+- **Choices this build made** (sent to the coordinator; easy to change):
+  - `variable-shadows-money` flags a variable named `balance` / `win` / `totalWin` / `bet`, and a
+    variable fed (directly or through a compute) to `amount` on `setWinBookEventAmount`,
+    `setBetAmount`, `winUpdate`, `freeSpinOutroCountUp` or `showMessage`, in an RGS game;
+  - Pause Timer has `pause` and `resume` inlets; starting a running timer restarts it;
+  - an `enum` variable is `{ type: 'enum', values }`, a string on the wire;
+  - the input-row picker is a suggestion list on the free-text field;
+  - a round starts at `onNewGameStart` (the spin press);
+  - `onVariable` fires once per frame, not inside the writing chain; `tick-fast` also warns on an
+    every-frame tick; `variable-duplicate` and `input-unknown` are codes the plan did not name.
+- **Not done here:** pointer move / drag (P10.4); the Data tab (9d); per-frame work belongs to the
+  mechanic (P10.8). An `onVariable` chain that keeps changing its own variable re-runs once a frame
+  (the preview stops after 100 rounds); nothing flags it yet.
+
+**P10.2 — the board module (built 2026-10-23; merged #1323).** A new dependency-free package,
 `packages/engine-mechanics` (§4.0): `src/board.js`, plain ESM with no imports, and its hand-written
 `src/board.d.ts`, re-exported by `index.ts` as `engine-cinematic` does. **No caller yet**, so no
 game, bundle or screen changes.
@@ -127,7 +185,7 @@ game, bundle or screen changes.
 ## Open items / next
 
 1. Win Text's outcome message for a rules-decided match-3 game (§6.5), with P10.5 or before it.
-2. P10.3 onward, in §8's order. P10.5 is the board module's first caller (the rules runtime
+2. P10.4 onward, in §8's order. P10.5 is the board module's first caller (the rules runtime
    branch and the `/flow-v2` preview); P10.6 the mock's. P10.5 replaces the family gate for
    match-3 with the runtime
    branch, and registers the match-3 scene set, vocabulary and starter flow. It moves `match3` into
@@ -147,6 +205,8 @@ game, bundle or screen changes.
 - Nothing for P10.1. §9 #18 (where an online game's rules run) is still open; it blocks only A4.
 
 ## Recent changes
+
+- 2026-10-24 — **P10.3 built: Flow variables, timers, tick.** Detail above.
 
 - 2026-10-23 — **P10.2 built: the board module** (`packages/engine-mechanics`, `check:board-mechanic`).
   Detail above.

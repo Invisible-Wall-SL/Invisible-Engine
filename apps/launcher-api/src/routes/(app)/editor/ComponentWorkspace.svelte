@@ -146,6 +146,7 @@
 			| 'gameName'
 			| 'addOns'
 			| 'canPublishShared'
+			| 'flowVariables'
 		> & {
 			gameType: string;
 			mainSizesMap: PageData['doc']['mainSizesMap'];
@@ -3244,6 +3245,7 @@
 						onRenameInput={(id) => void renameComponentInput(id)}
 						onSetInputDefault={setComponentInputDefault}
 						onSetInputSource={setComponentInputSource}
+						flowVariables={data.flowVariables}
 						{componentDraft}
 						componentReservedIds={savedRowIds}
 						componentReadOnly={isInspecting}

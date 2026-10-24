@@ -25,6 +25,7 @@
  */
 
 import { deriveInstancePins } from './instanceNodes';
+import { variableTypeRef, type FlowVariableDecl } from './variables';
 import type {
 	Accessor,
 	ComputeOp,
@@ -78,6 +79,14 @@ export interface PinContext {
 	 * is skipped (never guess — a bare harness, the game at runtime).
 	 */
 	instances?: Record<string, FlowInstanceDecl>;
+	/**
+	 * The doc's game variables (`docVariables`, game-families §3.1) — what a Set / Change / On
+	 * Variable node's pins and a `$var` read are typed by. Absent ⇒ none are known: those pins are
+	 * emitted untyped and the variable checks are skipped (a bare harness).
+	 */
+	variables?: readonly FlowVariableDecl[];
+	/** Who decides the outcome (game-families §2.1). Absent ⇒ the RGS (every slot). */
+	outcome?: 'rgs' | 'rules';
 }
 
 const EXEC_IN: Pin = { id: 'exec', dir: 'in', kind: 'exec' };
@@ -189,8 +198,24 @@ const accessorType = (ctx: PinContext, acc: Accessor, scopeItem?: TypeRef): Type
 			// A function input's type is only known inside a function body (the entry node's
 			// outputs); the top-level deriver has no such scope, so it is left unresolved here.
 			return undefined;
+		case 'var':
+			return variableType(ctx, acc.id);
 	}
 };
+
+/** The pin type of variable `id`, when the context declares it. */
+export const variableType = (ctx: PinContext, id: string): TypeRef | undefined => {
+	const decl = ctx.variables?.find((v) => v.id === id);
+	return decl ? variableTypeRef(decl) : undefined;
+};
+
+const untypedIn = (id: string, label: string, optional?: boolean): Pin => ({
+	id,
+	dir: 'in',
+	kind: 'data',
+	label,
+	...(optional ? { optional } : {}),
+});
 
 /** The output type of a `compute` op, given its operands' types (best-effort). */
 export const computeOutType = (ctx: PinContext, op: ComputeOp): TypeRef | undefined => {
@@ -454,6 +479,57 @@ export const derivePins = (node: Node, ctx: PinContext, scope: PinScope = {}): P
 		}
 		case 'waitForState':
 			return [EXEC_IN, EXEC_OUT];
+		case 'setVariable': {
+			const type = variableType(ctx, node.variable);
+			const doc = `The new value of ${node.variable}.`;
+			return [
+				EXEC_IN,
+				EXEC_OUT,
+				type ? dataIn('value', type, 'value', doc) : untypedIn('value', 'value'),
+			];
+		}
+		case 'changeVariable': {
+			if (node.op === 'toggle') return [EXEC_IN, EXEC_OUT];
+			const type = variableType(ctx, node.variable);
+			const doc = `How much to ${node.op === 'sub' ? 'subtract' : 'add'}. Blank: 1.`;
+			return [
+				EXEC_IN,
+				EXEC_OUT,
+				type ? dataIn('by', type, 'by', doc, true) : untypedIn('by', 'by', true),
+			];
+		}
+		case 'onVariable': {
+			const type = variableType(ctx, node.variable);
+			const out = (id: string, doc: string): Pin =>
+				type ? dataOut(id, type, id, doc) : { id, dir: 'out', kind: 'data', label: id };
+			const when = (node.on ?? 'changed') === 'changed' ? 'changes' : 'crosses its threshold';
+			return [
+				{ ...EXEC_OUT, doc: `Fires when ${node.variable} ${when}.` },
+				out('value', 'The new value.'),
+				out('previous', 'The value before.'),
+			];
+		}
+		case 'onTick':
+			return [
+				{ ...EXEC_OUT, doc: node.every ? `Fires every ${node.every} ms.` : 'Fires every frame.' },
+				dataOut('dt', { t: 'float' }, 'dt', 'Milliseconds since the last fire.'),
+			];
+		case 'onTimer':
+			return [{ ...EXEC_OUT, doc: `Fires when the timer ${node.timer} runs out.` }];
+		case 'onInput':
+			return [
+				{ ...EXEC_OUT, doc: `Fires when a ${node.action} key goes ${node.phase ?? 'down'}.` },
+			];
+		case 'startTimer':
+			return [EXEC_IN, EXEC_OUT, dataIn('ms', { t: 'ms' }, 'ms', 'How long the timer runs.')];
+		case 'stopTimer':
+			return [EXEC_IN, EXEC_OUT];
+		case 'pauseTimer':
+			return [
+				{ id: 'pause', dir: 'in', kind: 'exec', label: 'Pause' },
+				{ id: 'resume', dir: 'in', kind: 'exec', label: 'Resume' },
+				EXEC_OUT,
+			];
 		case 'functionResult': {
 			// The result collects the function's outputs: exec-IN + one data-IN per the
 			// FunctionDef's declared data output (§5). If `ref` doesn't resolve, only exec.

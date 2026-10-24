@@ -173,8 +173,11 @@
 		/** Rename an input everywhere it is read (the page asks for the new name). */
 		onRenameInput?: (id: string) => void;
 		onSetInputDefault?: (id: string, value: boolean | number) => void;
-		/** Name (or with '', clear) the engine value a number input follows. */
+		/** Name (or with '', clear) the engine value — or Flow variable, `var:<id>` — a bool, number
+		 *  or text input follows. */
 		onSetInputSource?: (id: string, source: string) => void;
+		/** The project's Flow variables (game-families §3.1), offered as `var:<id>` sources. */
+		flowVariables?: { id: string; type: string }[];
 		/** The open component's draft, for its Events list and a node's Listeners (Rive plan Phase 6b,
 		 *  component mode). */
 		componentDraft?: ComponentDef | null;
@@ -381,6 +384,7 @@
 		onRenameInput,
 		onSetInputDefault,
 		onSetInputSource,
+		flowVariables = [],
 		componentDraft = null,
 		componentReservedIds = [],
 		componentReadOnly = false,
@@ -2602,23 +2606,31 @@
 											onSetInputDefault?.(input.id, Number(e.currentTarget.value) || 0)}
 									/>
 								</label>
-								<label
-									class="input-default"
-									title="An engine value this number follows in game (winAmount, balance…), the same names Bind to value offers. Empty: Flow sets it."
-								>
-									from
-									<input
-										type="text"
-										value={input.source ?? ''}
-										placeholder="engine value"
-										onchange={(e) => onSetInputSource?.(input.id, e.currentTarget.value)}
-									/>
-								</label>
 							{/if}
+							<label
+								class="input-default"
+								title="An engine value this input follows in game (winAmount, balance…), the same names Bind to value offers, or a Flow variable (var:score). Empty: Flow sets it."
+							>
+								from
+								<input
+									type="text"
+									value={input.source ?? ''}
+									placeholder="engine value or var:…"
+									list={flowVariables.length ? 'flow-variable-sources' : undefined}
+									onchange={(e) => onSetInputSource?.(input.id, e.currentTarget.value)}
+								/>
+							</label>
 						</div>
 					</li>
 				{/each}
 			</ul>
+			{#if flowVariables.length}
+				<datalist id="flow-variable-sources">
+					{#each flowVariables as v (v.id)}
+						<option value={`var:${v.id}`}>{v.id} ({v.type})</option>
+					{/each}
+				</datalist>
+			{/if}
 		{/if}
 		<div class="row">
 			<label class="field">

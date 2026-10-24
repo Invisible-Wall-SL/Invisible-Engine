@@ -1,5 +1,7 @@
 export * from './src/types';
 export * from './src/pins';
+export * from './src/variables';
+export * from './src/state';
 export * from './src/textMessage';
 export * from './src/scope';
 export * from './src/triggers';
@@ -8,6 +10,7 @@ export * from './src/containerScenes';
 export * from './src/instanceNodes';
 export * from './src/types-check';
 export * from './src/validate';
+export * from './src/variableValidate';
 export * from './src/collapse';
 export * from './src/builders/confirmGate';
 export * from './src/runtime';

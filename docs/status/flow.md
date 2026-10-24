@@ -55,6 +55,16 @@
 
 ## Recent changes
 
+- 2026-10-24 — **Game variables, timers, tick and keys** (Phase 10 step P10.3). A FlowDoc can
+  declare variables (`game` / `round`, and a mode's own), a key map, and nine new nodes (Set /
+  Change / On variable, On tick, Start / Stop / Pause timer, On timer, On input); `$var` reads one;
+  a component input follows one as the value source `var:<id>`. The values and timers live in a
+  store outside the interpreter (`engine-flow-v2` `state.ts`), held by the game's handle and advanced
+  by one ticker callback, added only for a doc that uses it. The preview runs such a doc on a
+  virtual-time event queue; any other doc previews as before. The Variables panel is in the side
+  panel. Detail, choices and gates (`check:flow-variables`, `check:flow-time-events`):
+  [game-families status](game-families.md), P10.3.
+
 - 2026-10-16 — **`createFlowV2Env` forwards every capability the interpreter calls.** It had left
   out `playCinematic` / `stopCinematic` and `containerAnimationMs`, so in every game a
   `playCinematic` node did nothing (an awaited one did not wait) and a Show node's `durationMs` pin

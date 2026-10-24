@@ -135,3 +135,29 @@ export const fireTapToStartOnce = (): void => {
 	tapToStartFired = true;
 	void dispatchFlowV2Event('tapToStart');
 };
+
+/**
+ * One frame of the flow's variables and timers (game-families §3.1–§3.2), called from the game's
+ * ticker with its `deltaMS` — so a game that is not ticking (paused, a hidden tab) holds its timers.
+ * Runs every timer and tick entry that came due, in time order, then delivers the frame's variable
+ * writes: each `var:<id>` subscriber hears its variable once and the `onVariable` entries run. The
+ * entries' own writes go out with the next frame. No flow, or one that uses no variable, timer or
+ * tick ⇒ nothing (the handle has no `state`).
+ */
+export const tickFlowV2State = (dtMs: number): void => {
+	const h = flowV2;
+	const state = h?.state;
+	if (!h || !state) return;
+	for (const due of state.advance(dtMs)) {
+		void h.runStateEntry(
+			due.kind === 'timer'
+				? { kind: 'timer', timer: due.timer }
+				: { kind: 'tick', node: due.node, dt: due.dt },
+		);
+	}
+	if (state.pending()) void h.runStateEntry({ kind: 'variables', batch: state.flush() });
+};
+
+/** A round starts (the spin press, before the RGS answers): the flow's `round` variables go back to
+ *  their initial. No flow state ⇒ a no-op. */
+export const resetFlowV2Round = (): void => flowV2?.state?.resetRound();
