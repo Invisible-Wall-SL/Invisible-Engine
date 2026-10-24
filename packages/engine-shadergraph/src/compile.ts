@@ -139,6 +139,37 @@ export function validateShaderGraph(doc: ShaderGraphDoc): GraphIssue[] {
 	return analyze(doc).issues;
 }
 
+/**
+ * Whether an output of type `from` can feed an input of type `to`: a float spreads over a vector
+ * and a vector narrows, but a shorter vector never widens.
+ */
+export const canFeed = (from: PortType, to: PortType): boolean =>
+	convert('x', from, to) !== undefined;
+
+/** What an editor shows of a doc as it is being built. */
+export interface ShaderGraphAnalysis {
+	issues: GraphIssue[];
+	/** Node id → port id → its resolved type. A check that stopped early (no Output, a cycle)
+	 *  resolved none, and an editor falls back to the ports' declared types. */
+	inputs: Record<string, Record<string, PortType>>;
+	outputs: Record<string, Record<string, PortType>>;
+	/** Work and reads of the element per pixel, against `COST_BUDGET` and `SAMPLE_BUDGET`. */
+	cost: number;
+	samples: number;
+}
+
+/** A doc's issues, port types and cost, nothing compiled. Never throws. */
+export function analyzeShaderGraph(doc: ShaderGraphDoc): ShaderGraphAnalysis {
+	const a = analyze(doc);
+	return {
+		issues: a.issues,
+		inputs: Object.fromEntries(a.inputs),
+		outputs: Object.fromEntries(a.outputs),
+		cost: a.cost,
+		samples: a.samples,
+	};
+}
+
 function analyze(doc: ShaderGraphDoc): Analysis {
 	const result: Analysis = {
 		issues: [],

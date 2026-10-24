@@ -315,6 +315,7 @@ const STALE_TAB_GUARDS = [
 	'rigger/backups',
 	'rigger/save',
 	'rigger/text',
+	'shaders/backups',
 	'shaders/delete',
 	'shaders/doc',
 	'shaders/effects',

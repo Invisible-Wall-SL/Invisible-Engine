@@ -15,6 +15,7 @@
 	} from 'engine-flow-v2';
 	import { browser } from '$app/environment';
 	import type { PaletteInstanceGroup } from '$lib/flowInstanceUi';
+	import { writeDrag } from '$lib/graph/dnd';
 	import { DROP_MIME, type DropPayload } from './dnd';
 	import { PRESENTATION_NODES, STATE_NODES } from './palette';
 
@@ -112,10 +113,8 @@
 
 	// Write the add-node payload onto the drag so the canvas can drop it at the cursor.
 	function onDragStart(event: DragEvent, kind: NodeKind, ref?: string): void {
-		if (!event.dataTransfer) return;
 		const payload: DropPayload = ref === undefined ? { kind } : { kind, ref };
-		event.dataTransfer.setData(DROP_MIME, JSON.stringify(payload));
-		event.dataTransfer.effectAllowed = 'move';
+		writeDrag(event, DROP_MIME, payload);
 	}
 </script>
 

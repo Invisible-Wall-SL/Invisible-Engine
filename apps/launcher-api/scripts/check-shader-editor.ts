@@ -1,0 +1,259 @@
+/**
+ * Contract check for Invisible Shader Graph's editing model (`/shaders`,
+ * `src/routes/(app)/shaders/shaderEditor.ts`): every gesture is a pure doc → doc, and the docs it
+ * builds are ones the compiler takes.
+ *
+ *   1. A new graph compiles, and draws the element as it is.
+ *   2. Building a graph from the gestures (add, wire, set a value, a param, a pass, motion) gives a
+ *      doc that compiles; an input takes one wire; removing a node takes its wires.
+ *   3. The wire rule is the compiler's: a float spreads, a vector narrows, a shorter vector never
+ *      widens, nothing feeds itself, an input that follows its node's type takes anything.
+ *   4. The canvas shows each node's errors on it, the resolved port types and the wired inputs.
+ *   5. The client's id is the store's: `slugOf` agrees with the server's `shaderSlug`.
+ *
+ *   pnpm --filter launcher-api check:shader-editor
+ */
+import { isCustomElementFxKind } from 'constants-shared/elementFx';
+import {
+	analyzeShaderGraph,
+	compileShaderEffect,
+	compileShaderGraph,
+	type ShaderGraphDoc,
+} from 'engine-shadergraph';
+import { shaderSlug } from '../src/lib/server/projectPaths.ts';
+import {
+	addNode,
+	addParam,
+	addPass,
+	canConnect,
+	canvasGraph,
+	connect,
+	docIssues,
+	libraryGroups,
+	moveNode,
+	newShaderDoc,
+	remove,
+	removeParam,
+	removePass,
+	restCurve,
+	setMotionChannel,
+	setNodeValue,
+	setParam,
+	setPass,
+	setPivot,
+	slugOf,
+	wireId,
+} from '../src/routes/(app)/shaders/shaderEditor.ts';
+
+let failures = 0;
+let checks = 0;
+const json = (value: unknown): string => JSON.stringify(value);
+const check = (label: string, actual: unknown, expected: unknown): void => {
+	checks += 1;
+	if (json(actual) === json(expected)) return;
+	failures += 1;
+	console.log(
+		`FAIL  ${label}\n        expected ${json(expected)}\n        actual   ${json(actual)}`,
+	);
+};
+const errors = (doc: ShaderGraphDoc): string[] =>
+	analyzeShaderGraph(doc)
+		.issues.filter((i) => i.level === 'error')
+		.map((i) => i.message);
+
+// ── 1 ──
+console.log('1. a new graph');
+const fresh = newShaderDoc('glow', 'Glow');
+check('compiles', compileShaderEffect(fresh).ok, true);
+check('as the element itself, read once', compileShaderGraph(fresh).ok, true);
+
+// ── 2 ──
+console.log('2. building one');
+let doc = fresh;
+const sample = addNode(doc, 'sample', { x: -900, y: 0 });
+doc = sample.doc;
+check('a node gets an id of its type', sample.id, 'sample1');
+check('…and the next one the next', addNode(doc, 'sample', { x: 0, y: 0 }).id, 'sample2');
+check(
+	'an unknown type still lands (the validator names it)',
+	addNode(doc, 'nope', { x: 0, y: 0 }).id,
+	'nope1',
+);
+const split = addNode(doc, 'unpremultiply', { x: -700, y: 0 });
+const tint = addNode(split.doc, 'colorize', { x: -500, y: 0 });
+const join = addNode(tint.doc, 'premultiply', { x: -300, y: 0 });
+const fade = addNode(join.doc, 'fade', { x: -150, y: 0 });
+doc = fade.doc;
+doc = connect(doc, { node: sample.id, port: 'out' }, { node: split.id, port: 'color' });
+doc = connect(doc, { node: split.id, port: 'rgb' }, { node: tint.id, port: 'rgb' });
+doc = connect(doc, { node: tint.id, port: 'out' }, { node: join.id, port: 'rgb' });
+doc = connect(doc, { node: split.id, port: 'alpha' }, { node: join.id, port: 'alpha' });
+doc = connect(doc, { node: join.id, port: 'out' }, { node: fade.id, port: 'color' });
+doc = connect(doc, { node: fade.id, port: 'out' }, { node: 'out', port: 'color' });
+const firstWire = doc.wires.length;
+doc = connect(doc, { node: fade.id, port: 'out' }, { node: 'out', port: 'color' });
+check('an input takes one wire: wiring it again replaces it', doc.wires.length, firstWire);
+doc = addParam(doc, 'color');
+check(
+	'a param gets a fresh id',
+	doc.params.map((p) => p.id),
+	['color1'],
+);
+doc = setParam(doc, 0, { ...doc.params[0], label: 'Tint' } as ShaderGraphDoc['params'][number]);
+check('…and keeps an edit', doc.params[0].label, 'Tint');
+const param = addNode(doc, 'param', { x: -700, y: 160 });
+doc = setNodeValue(param.doc, param.id, 'param', 'color1');
+doc = connect(doc, { node: param.id, port: 'out' }, { node: tint.id, port: 'tint' });
+doc = setNodeValue(doc, fade.id, 'amount', 0.5);
+check(
+	'a value is stored on the node',
+	doc.nodes.find((n) => n.id === fade.id)?.values?.amount,
+	0.5,
+);
+check(
+	'…and cleared back to its default',
+	setNodeValue(doc, fade.id, 'amount', undefined).nodes.find((n) => n.id === fade.id)?.values,
+	undefined,
+);
+doc = addPass(doc);
+doc = setPass(doc, 0, { kind: 'glow', params: { color: { param: 'color1' } } });
+doc = setMotionChannel(doc, 'scale', restCurve('scale'));
+doc = setPivot(doc, { x: 0.5, y: 1 });
+check('the graph built from gestures compiles', errors(doc), []);
+check('…to an effect', compileShaderEffect(doc).ok, true);
+check(
+	'a rest curve moves nothing',
+	restCurve('rotation').every((k) => k.v === 0),
+	true,
+);
+check(
+	'clearing the last motion channel drops the motion',
+	setMotionChannel(doc, 'scale', undefined).motion,
+	undefined,
+);
+check('removing the last pass drops the passes', removePass(doc, 0).passes, undefined);
+check(
+	'removing a param a node reads is the validator’s to name',
+	errors(removeParam(doc, 0)).length > 0,
+	true,
+);
+const cut = remove(doc, [tint.id]);
+check(
+	'removing a node takes its wires',
+	cut.wires.some((w) => w.from.node === tint.id || w.to.node === tint.id),
+	false,
+);
+check(
+	'removing a wire by id takes only it',
+	remove(doc, [], [wireId(doc.wires[0])]).wires.length,
+	doc.wires.length - 1,
+);
+check(
+	'a move lands on whole pixels',
+	moveNode(doc, tint.id, 10.6, -3.2).nodes.find((n) => n.id === tint.id)?.x,
+	11,
+);
+check('no gesture changes the doc it was given', fresh.nodes.length, 1);
+check(
+	'the library lists every family but leaves the Output out',
+	libraryGroups().some((g) => g.nodes.some((n) => n.type === 'output')),
+	false,
+);
+
+// ── 3 ──
+console.log('3. the wire rule');
+let wiring = newShaderDoc('w', 'W');
+const f = addNode(wiring, 'number', { x: 0, y: 0 });
+wiring = f.doc;
+const uv = addNode(wiring, 'uv', { x: 0, y: 0 });
+wiring = uv.doc;
+const reader = addNode(wiring, 'sample', { x: 0, y: 0 });
+wiring = reader.doc;
+const a = analyzeShaderGraph(wiring);
+check(
+	'a float spreads into a colour',
+	canConnect(wiring, a, { node: f.id, port: 'out' }, { node: 'out', port: 'color' }),
+	true,
+);
+check(
+	'a vec2 never widens into a colour',
+	canConnect(wiring, a, { node: uv.id, port: 'out' }, { node: 'out', port: 'color' }),
+	false,
+);
+check(
+	'nothing feeds itself',
+	canConnect(wiring, a, { node: reader.id, port: 'out' }, { node: reader.id, port: 'uv' }),
+	false,
+);
+const add = addNode(wiring, 'add', { x: 0, y: 0 });
+check(
+	'an input that follows its node’s type takes anything',
+	canConnect(
+		add.doc,
+		analyzeShaderGraph(add.doc),
+		{ node: uv.id, port: 'out' },
+		{ node: add.id, port: 'a' },
+	),
+	true,
+);
+check(
+	'an unknown port takes nothing',
+	canConnect(wiring, a, { node: f.id, port: 'out' }, { node: 'out', port: 'nope' }),
+	false,
+);
+
+// ── 4 ──
+console.log('4. the canvas');
+const broken = connect(doc, { node: param.id, port: 'out' }, { node: 'missing', port: 'x' });
+const view = canvasGraph(broken, analyzeShaderGraph(broken), tint.id);
+check('every node is drawn', view.nodes.length, broken.nodes.length);
+check(
+	'the selected node is selected',
+	view.nodes.filter((n) => n.selected).map((n) => n.id),
+	[tint.id],
+);
+check('the wired inputs are marked', view.nodes.find((n) => n.id === tint.id)?.data.wired.sort(), [
+	'rgb',
+	'tint',
+]);
+check(
+	'a param node reads as its param',
+	view.nodes.find((n) => n.id === param.id)?.data.summary,
+	'Tint',
+);
+check(
+	'a wire to a node the graph lacks is the effect’s error, so it shows',
+	docIssues(broken, analyzeShaderGraph(broken)),
+	['a wire ends at a node the graph does not have'],
+);
+check(
+	'…and no drawn node carries it',
+	view.nodes.some((n) => n.data.errors.length > 0),
+	false,
+);
+const typed = canvasGraph(doc, analyzeShaderGraph(doc), null);
+check(
+	'an output’s resolved type colours its wire',
+	typed.edges.every((e) => e.style.startsWith('stroke:#')),
+	true,
+);
+const badValue = setNodeValue(doc, fade.id, 'amount', [1, 2, 3]);
+const badView = canvasGraph(badValue, analyzeShaderGraph(badValue), null);
+check(
+	'a node’s own error shows on it',
+	(badView.nodes.find((n) => n.id === fade.id)?.data.errors.length ?? 0) > 0,
+	true,
+);
+
+// ── 5 ──
+console.log('5. ids');
+for (const name of ['Glow', 'Power Up!', '__x', '---', '', 'Ünïcode', 'a'.repeat(90), 'x/../y']) {
+	check(`the client keys "${name}" as the store does`, slugOf(name), shaderSlug(name));
+	check(`…a valid custom kind`, isCustomElementFxKind(`custom:${slugOf(name)}`), true);
+}
+
+if (failures) {
+	console.log(`\ncheck:shader-editor — ${failures} of ${checks} checks FAILED`);
+	process.exit(1);
+}
+console.log(`\ncheck:shader-editor — all ${checks} checks passed`);

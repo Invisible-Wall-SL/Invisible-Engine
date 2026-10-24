@@ -1,4 +1,5 @@
 import { error, json } from '@sveltejs/kit';
+import { requestedBackupMode } from '$lib/server/docBackupRoutes';
 import { ConflictError } from '$lib/server/r2';
 import { scopeMismatch } from '$lib/server/scopeGuard';
 import { shaderWriteScope } from '$lib/server/shaderScope';
@@ -14,7 +15,9 @@ import type { RequestHandler } from './$types';
  * Guarded by `baseEtag` (`docs/design/multi-user-concurrency.md` Phase 1): a stale one answers 409
  * rather than replacing a colleague's save, and `null` asserts the id is free.
  *
- * Body: `{ doc: <ShaderGraphDoc>, baseEtag: string | null, projectKey?, force? }`.
+ * The bytes it replaces are kept (`/api/shaders/backups` lists and restores them).
+ *
+ * Body: `{ doc: <ShaderGraphDoc>, baseEtag: string | null, projectKey?, force?, backup? }`.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await shaderWriteScope(locals, cookies);
@@ -24,7 +27,13 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	if (mismatch) return mismatch;
 	const baseEtag = writeBaseEtagJson(body);
 	try {
-		const { id, doc, etag } = await saveShader(clientKey, projectKey, body.doc, baseEtag);
+		const { id, doc, etag } = await saveShader(
+			clientKey,
+			projectKey,
+			body.doc,
+			baseEtag,
+			requestedBackupMode(body),
+		);
 		return json({ ok: true, id, name: doc.name, etag });
 	} catch (e) {
 		if (e instanceof ShaderTooLargeError) {

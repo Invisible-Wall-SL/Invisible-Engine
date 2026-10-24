@@ -6,21 +6,16 @@ import {
 	type ShaderGraphDoc,
 } from 'engine-shadergraph';
 import { mapWithConcurrency } from './concurrency';
+import { putDocWithBackup, type BackupMode } from './docBackups';
 import {
 	SHARED_SHADERS_PREFIX,
 	SUB,
+	shaderDocBackupTarget,
 	shaderDocKey,
 	shaderSlug,
 	sharedShaderDocKey,
 } from './projectPaths';
-import {
-	deleteObject,
-	getObjectText,
-	getObjectTextWithEtag,
-	listAllKeys,
-	precondition,
-	putObjectText,
-} from './r2';
+import { deleteObject, getObjectText, getObjectTextWithEtag, listAllKeys } from './r2';
 
 /**
  * R2 load/save for Invisible Shader Graph docs (`docs/design/invisible-shader-graph.md` §8 step 4).
@@ -194,12 +189,15 @@ export async function loadShader(
  * Save a project's graph under its slugged id. `baseEtag: null` asserts the id is free, which stops
  * a new graph replacing a colleague's of the same name; a stale ETag is refused the same way
  * (`ConflictError`). A graph over {@link SHADER_DOC_MAX_BYTES} is refused (`ShaderTooLargeError`).
+ * The bytes it replaces are kept as a backup (`docBackups.ts`), `mode` as for every doc: `'auto'`
+ * coalesces a run of saves, `'always'` (a restore, a wholesale swap) keeps one each time.
  */
 export async function saveShader(
 	clientKey: string,
 	projectKey: string,
 	rawDoc: unknown,
 	baseEtag?: string | null,
+	mode: BackupMode = 'auto',
 ): Promise<{ id: string; doc: ShaderGraphDoc; etag: string | null }> {
 	const requested =
 		typeof rawDoc === 'object' && rawDoc !== null && 'id' in rawDoc && typeof rawDoc.id === 'string'
@@ -210,11 +208,11 @@ export async function saveShader(
 	const text = JSON.stringify(doc, null, '\t');
 	const bytes = Buffer.byteLength(text);
 	if (bytes > SHADER_DOC_MAX_BYTES) throw new ShaderTooLargeError(bytes);
-	const etag = await putObjectText(
-		shaderDocKey(clientKey, projectKey, id),
+	const etag = await putDocWithBackup(
+		shaderDocBackupTarget(clientKey, projectKey, id),
 		text,
-		'application/json',
-		precondition(baseEtag),
+		baseEtag,
+		mode,
 	);
 	return { id, doc, etag };
 }

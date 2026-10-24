@@ -1,9 +1,7 @@
 /**
- * Invisible Flow v2 — the palette→canvas drag-and-drop contract. A single stable custom
- * dataTransfer MIME (never `text/plain`, so unrelated drags never register as a node drop)
- * plus the payload shape carried on it. The palette WRITES this on `dragstart`; the canvas
- * READS it on `drop`, then maps the drop point through `screenToFlowPosition` and adds the
- * node at that doc-space position (replacing the old click-to-add-at-centroid).
+ * Invisible Flow v2 — the palette→canvas drag-and-drop payload, carried by the shared
+ * `$lib/graph/dnd` contract under this MIME. The palette WRITES it on `dragstart`; the canvas READS
+ * it on `drop` and adds the node at the drop point in doc space.
  */
 
 import type { NodeKind } from 'engine-flow-v2';

@@ -274,7 +274,8 @@ export function editorDocKey(client: string, project: string): string {
  * UNRECOVERABLE (the Scene Editor's documented fallback was scavenging a `/api/editor/runtime`
  * dump and un-rewriting its rig keys).
  */
-export type DocBackupStem = 'scenes' | 'flow-v2' | 'symbols' | 'config' | 'component-defaults';
+export type DocBackupStem =
+	'scenes' | 'flow-v2' | 'symbols' | 'config' | 'component-defaults' | 'shader';
 
 /**
  * One doc's backup layout. Always built here from the caller's OWN `(client, project)` — never
@@ -536,6 +537,24 @@ export function shaderDocKey(client: string, project: string, id: string): strin
 
 export function sharedShaderDocKey(id: string): string {
 	return `${SHARED_SHADERS_PREFIX}/${shaderSlug(id)}.json`;
+}
+
+/**
+ * A project's shader graph backups: `<client>/<project>/shader-backups/`, a SIBLING of `shaders/`
+ * so a listing of the graphs never meets a backup and a setup duplicate (which copies `shaders/`)
+ * never carries one.
+ */
+export function shaderBackupsPrefix(client: string, project: string): string {
+	return `${projectPrefix(client, project)}/shader-backups/`;
+}
+
+/** One graph → `…/shader-backups/<id>/shader-*.json`: each graph keeps its own newest 20. */
+export function shaderDocBackupTarget(client: string, project: string, id: string): DocBackupTarget {
+	return {
+		docKey: shaderDocKey(client, project, id),
+		prefix: `${shaderBackupsPrefix(client, project)}${shaderSlug(id)}/`,
+		stem: 'shader',
+	};
 }
 
 /**
