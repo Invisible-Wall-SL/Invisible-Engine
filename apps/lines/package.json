@@ -61,6 +61,7 @@
 		"utils-book": "workspace:*",
 		"utils-bet": "workspace:*",
 		"utils-layout": "workspace:*",
-		"utils-sound": "workspace:*"
+		"utils-sound": "workspace:*",
+		"engine-mechanics": "workspace:*"
 	}
 }

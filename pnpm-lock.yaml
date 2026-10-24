@@ -217,6 +217,9 @@ importers:
       engine-layout:
         specifier: workspace:*
         version: link:../../packages/engine-layout
+      engine-mechanics:
+        specifier: workspace:*
+        version: link:../../packages/engine-mechanics
       engine-rig:
         specifier: workspace:*
         version: link:../../packages/engine-rig
@@ -341,6 +344,9 @@ importers:
       engine-layout:
         specifier: workspace:*
         version: link:../../packages/engine-layout
+      engine-mechanics:
+        specifier: workspace:*
+        version: link:../../packages/engine-mechanics
       envs:
         specifier: workspace:*
         version: link:../../packages/envs
@@ -1543,6 +1549,9 @@ importers:
       engine-layout:
         specifier: workspace:*
         version: link:../engine-layout
+      engine-mechanics:
+        specifier: workspace:*
+        version: link:../engine-mechanics
       envs:
         specifier: workspace:*
         version: link:../envs

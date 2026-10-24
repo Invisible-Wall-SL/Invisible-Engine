@@ -101,6 +101,7 @@ import { recordDeterminismCue } from './determinism';
 import { eventEmitter } from './eventEmitter';
 import { stateApp } from './stateApp';
 import { stateLayoutDerived } from './stateLayout';
+import { boardEffect, boardEffectNames } from './flowBoardEffects';
 import { flowEffect, flowEffectNames } from './flowEffects';
 import { withMissingScreenReport } from './flowV2MissingScreens';
 import { enginePotsScreen, type EnginePotsScreen } from './flowV2PotsScreen';
@@ -150,7 +151,11 @@ declare global {
  */
 const assertVocabBacked = (vocab: TemplateVocabulary): void => {
 	// An action is backed by the `flowEffect` registry OR routed to the `invokeIntent` bridge.
-	const implemented = new Set([...flowEffectNames, ...Object.keys(INTENT_COMMANDS)]);
+	const implemented = new Set([
+		...flowEffectNames,
+		...boardEffectNames,
+		...Object.keys(INTENT_COMMANDS),
+	]);
 	const missing = vocab.actions.map((a) => a.name).filter((n) => !implemented.has(n));
 	if (missing.length) {
 		console.warn(
@@ -707,7 +712,7 @@ export const createLinesFlowV2 = (
 							invokeIntent(intent);
 						}
 					: undefined;
-			const impl = flowEffect(name);
+			const impl = flowEffect(name) ?? boardEffect(name);
 			return impl
 				? (payload) => {
 						trace('action', name);

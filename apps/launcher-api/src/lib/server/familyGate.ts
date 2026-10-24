@@ -1,16 +1,25 @@
-import { resolveFamily, type GameConfigDoc } from 'game-config';
+import { resolveFamily, resolveOutcome, type GameConfigDoc } from 'game-config';
 
 const FAMILY_NAMES = { match3: 'match-3', arcade: 'arcade' } as const;
 
 /**
- * Why a config cannot ship yet, or `null`. A match-3 or arcade config can be authored from P10.1
- * (`docs/design/game-families.md` §8), but the shared runtime only learns to play one in P10.5 and
- * P10.8. Until then it would play the config as a slot, or draw a blank board, so the online
- * publish and the desktop bake's config export both refuse it. A slot config is never refused here.
+ * Why a config cannot ship, or `null`. A slot config is never refused here; every other family is,
+ * by the online publish and by the desktop bake's config export, with no override.
+ *
+ * - A rules-decided match-3 game plays in the shared runtime since P10.5 (`docs/design/game-families.md`
+ *   §8), in the launcher's authoring preview. Publishing a non-slot game is still off: it is the
+ *   owner's call to switch on, separately from building the runtime.
+ * - An RGS-decided match-3 game needs its interactive round (P10.6), and an arcade game its runtime
+ *   (P10.8). Until then the runtime refuses to boot one (`GameMechanic.unplayable`).
  */
 export function unplayableFamilyMessage(doc: GameConfigDoc | null | undefined): string | null {
 	const family = resolveFamily(doc);
 	if (family === 'slot') return null;
+	if (family === 'match3' && resolveOutcome(doc) === 'rules')
+		return (
+			"This game's config is a free-play match-3 game. It plays in the authoring preview, but " +
+			'publishing a game that is not a slot is not switched on yet, so it is not published.'
+		);
 	return (
 		`This game's config is a ${FAMILY_NAMES[family]} game, and the game runtime cannot play ` +
 		`${family === 'arcade' ? 'an' : 'a'} ${FAMILY_NAMES[family]} game yet, so it is not published. ` +

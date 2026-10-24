@@ -29,6 +29,7 @@
 import { SLOT_GAME_KINDS } from 'constants-shared/gameKinds';
 import {
 	HOLD_AND_WIN_SYMBOL_STATES,
+	MATCH3_SYMBOL_STATES,
 	kindCapabilities,
 	POTS_TOKEN_SYMBOL_STATES,
 	SYMBOL_STATES,
@@ -59,6 +60,11 @@ const check = (label: string, actual: unknown, expected: unknown): void => {
 	console.log(`FAIL  ${label}\n        expected ${e}\n        actual   ${a}`);
 };
 
+/** Every state but the match-3 `select` / `hint`, which no slot is offered (game-families P10.5). */
+const SLOT_STATES = SYMBOL_STATES.filter(
+	(s) => !(MATCH3_SYMBOL_STATES as readonly string[]).includes(s),
+);
+
 // ── 1. capabilities ─────────────────────────────────────────────────────────────────────────────
 for (const kind of [...SLOT_GAME_KINDS, 'myCustomKind', undefined]) {
 	const caps = kindCapabilities(kind);
@@ -71,8 +77,8 @@ for (const kind of [...SLOT_GAME_KINDS, 'myCustomKind', undefined]) {
 		`${kind} · symbolStatesForKind`,
 		symbolStatesForKind(kind),
 		on
-			? SYMBOL_STATES.filter((s) => !(HOLD_AND_WIN_SYMBOL_STATES as readonly string[]).includes(s))
-			: SYMBOL_STATES,
+			? SLOT_STATES.filter((s) => !(HOLD_AND_WIN_SYMBOL_STATES as readonly string[]).includes(s))
+			: SLOT_STATES,
 	);
 }
 
@@ -94,6 +100,7 @@ const LINES_CAPS: KindCapabilities = {
 	wallet: true,
 	betControls: true,
 	board: true,
+	boardInput: false,
 };
 const KIND_CAPS: Record<string, KindCapabilities> = {
 	lines: LINES_CAPS,
@@ -120,11 +127,11 @@ const ADD_ONS: KindCapabilityConfig[] = [
 	{ potsOverlay: true },
 	{ holdAndWin: true, potsOverlay: true },
 ];
-const HW_STATES_OFF = SYMBOL_STATES.filter(
+const HW_STATES_OFF = SLOT_STATES.filter(
 	(s) => !(HOLD_AND_WIN_SYMBOL_STATES as readonly string[]).includes(s),
 );
 /** A pots host without the respin feature: the pre-Hold-and-Win list plus the token's states. */
-const TOKEN_STATES_ON = SYMBOL_STATES.filter(
+const TOKEN_STATES_ON = SLOT_STATES.filter(
 	(s) =>
 		!(HOLD_AND_WIN_SYMBOL_STATES as readonly string[]).includes(s) ||
 		(POTS_TOKEN_SYMBOL_STATES as readonly string[]).includes(s),
@@ -145,9 +152,9 @@ for (const kind of [...SLOT_GAME_KINDS, 'myCustomKind', undefined]) {
 			potsOverlay,
 		});
 		check(
-			`${label} · symbolStatesForKind: all with holdAndWin, the token's with pots alone`,
+			`${label} · symbolStatesForKind: all a slot has with holdAndWin, the token's with pots alone`,
 			symbolStatesForKind(kind, config),
-			holdAndWin ? SYMBOL_STATES : potsOverlay ? TOKEN_STATES_ON : HW_STATES_OFF,
+			holdAndWin ? SLOT_STATES : potsOverlay ? TOKEN_STATES_ON : HW_STATES_OFF,
 		);
 	}
 }
@@ -240,6 +247,12 @@ check(
 	['clearReel', ...HOLD_AND_WIN_SYMBOL_STATES],
 );
 
+check(
+	'match3 · its gems get select and hint, and no slot column a match-3 board never plays',
+	visibleStatesFor('match3').filter((s) => !BASE.includes(s)),
+	['clearReel', ...MATCH3_SYMBOL_STATES],
+);
+
 // The add-on columns on Book of Borut: the book's, plus the token's or the whole feature's.
 const BOOK_COLS = before('bookOf', {});
 const TOKEN_COLS = ['coinIdle', 'coinLand', 'flyToMeter'];
@@ -266,9 +279,9 @@ check(
 	[...BOOK_COLS, ...HOLD_AND_WIN_SYMBOL_STATES],
 );
 check(
-	'bookOf + holdAndWin · symbolStatesForKind is every state, with coin symbols',
+	'bookOf + holdAndWin · symbolStatesForKind is every state a slot has, with coin symbols',
 	[symbolStatesForKind('bookOf', { holdAndWin: true }), borutHw.coinSymbols],
-	[SYMBOL_STATES, true],
+	[SLOT_STATES, true],
 );
 check(
 	'bookOf + {holdAndWin:false, potsOverlay:false} · columns unchanged',

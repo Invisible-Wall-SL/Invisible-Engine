@@ -26,7 +26,7 @@ import {
 	type FunctionLibraryDoc,
 } from 'engine-flow-v2';
 import { collectComponentPins, type ComponentDef, type Scene, type SoundsDoc } from 'engine-layout';
-import { flowAddOnsOf, type GameConfigDoc } from 'game-config';
+import { flowAddOnsOf, resolveOutcome, type GameConfigDoc, type GameOutcome } from 'game-config';
 import { collectContainerTaps } from '$lib/containerTaps';
 import {
 	instanceDefResolver,
@@ -68,6 +68,8 @@ export function validateFlowV2Against(
 	components: readonly ComponentDef[] = [],
 	addOns?: FlowAddOns,
 	customFxKinds: readonly string[] = [],
+	/** Who decides the game's rounds (`resolveOutcome` of its config); absent ⇒ the RGS. */
+	outcome?: GameOutcome,
 ): FlowIssue[] {
 	const doc = JSON.parse(JSON.stringify(stored)) as FlowDoc;
 	syncFlowContainers(doc, scenes);
@@ -87,6 +89,7 @@ export function validateFlowV2Against(
 			collectContainerTaps(doc.containers, scenes),
 			scenes.map((s) => s.id),
 			projectFlowInstances(doc.containers, scenes, instanceDefResolver(components)),
+			outcome,
 		),
 		...respinTabIssues(doc, addOns),
 		...spinsTabIssues(
@@ -146,6 +149,8 @@ export async function validateFlowV2ForProject(
 		library ?? { version: 2, functions: [] },
 		await withPlacedComponentVersions(projectKey, layout.scenes ?? [], components, doc),
 		flowAddOnsOf(stored),
+		[],
+		resolveOutcome(stored),
 	);
 }
 
@@ -193,6 +198,7 @@ export async function checkShippedFlowV2(
 		shipped.components,
 		flowAddOnsOf(shipped.config),
 		(shipped.shaderEffects ?? []).map((e) => e.spec.kind),
+		resolveOutcome(shipped.config),
 	).filter((i) => i.severity === 'error');
 	return errors.length ? { status: 'invalid', errors } : { status: 'valid' };
 }

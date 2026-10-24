@@ -37,6 +37,8 @@ const INHERITS: Readonly<Record<string, string>> = {
 	jackpotReveal: 'win',
 	mysteryReveal: 'explosion',
 	flyToMeter: 'win',
+	select: 'win',
+	hint: 'land',
 };
 
 /**
