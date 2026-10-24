@@ -42,6 +42,7 @@
 		remove,
 		setNodeValue,
 		slugOf,
+		twinGaps,
 	} from './shaderEditor';
 	import type { PageData } from './$types';
 
@@ -309,7 +310,10 @@
 			await askText({
 				title: twin ? `New effect from ${from}` : 'New shader effect',
 				message: twin
-					? `It starts as ${from}'s graph, with its params, passes and motion: change anything.${twin.motionGap ? `\n\nIts motion is close to ${from}'s, not exact: ${twin.motionGap}` : ''}`
+					? [
+							`It starts as ${from}'s graph, with its params, passes and motion: change anything.`,
+							...twinGaps(twin),
+						].join('\n\n')
 					: undefined,
 				label: 'Name',
 				value: twin ? `${from} copy` : '',

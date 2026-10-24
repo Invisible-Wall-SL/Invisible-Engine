@@ -166,20 +166,31 @@ built-ins, held to a parity gate in `check:all`, offered as "Start from a built-
     have none (a motion-only kind is curves alone; a break is not a pixel effect).
   - **Motion gaps.** A twin whose motion a curve cannot follow says why (`motionGap`): the motion
     follows the seconds played, a param or looping (Bounce 3D, Freeze, Poison, Electrocute, Petrify,
-    Turn to gold). Their pixels are held to parity like every other twin's; their motion is close.
-    Two more gaps, in padding: a graph's padding is one number, so the waves, Bounce 3D and Melt
-    take the room their largest param needs at strength 1 and can clip above it.
+    Turn to gold; Freeze's shiver also scales by the element's shorter side where the curve is in
+    widths). Their pixels are held to parity like every other twin's, and their motion too at the
+    defaults on a portrait element, except Poison and Electrocute (`motionGapAtDefaults`).
+  - **Padding gaps.** A graph's padding is one number. The waves and Bounce 3D take the room their
+    largest param needs at strength 1. Melt takes its defaults' final room (1.16 heights; the
+    built-in grows it with drip length × strength × progress), and names it (`paddingGap`).
   - **The parity gate** (`pnpm --filter fx-spike shader-twins`, `tools/fx-spike/shaderTwins.mjs`,
     run by `check:all`). Each built-in and its twin play through `playElementFx` with the same card,
     seed and params, on WebGL1 and WebGL2: 8 moments at the defaults and at every number param's
-    minimum and maximum, plus every choice option, a switch flipped, another colour, strength 2 and
-    a second loop. A pixel differs at more than 2 steps; a cell fails past 0.25% of its pixels or on
-    any patch (a differing pixel with four differing neighbours). Motion is compared as numbers
-    (corners within 0.25 px, alpha within 0.5/255) unless the twin names a gap. About 60 s.
-  - **New nodes** (76 → 91): Perspective plane, Sphericon, Flag, Page curl (UV); Loop envelope,
-    Bounce, Oscillate (time); Seed (input); Pick (math); Random number, Line noise, Arcs, Sparkles
-    (procedural); Away from side N (mask); Relief slope (colour); and a **Blend** setting on the
-    Output (Normal, or Add: a colour brighter than its alpha, for glows and halos).
+    minimum and maximum, plus every choice option, a switch flipped, another colour, strength 0.3
+    and 2, a second loop, and the defaults again on a landscape card. A pixel differs at more than 2
+    steps; a cell fails past 0.25% of its pixels (at least the element's area) or on any patch (a
+    differing pixel with four differing neighbours). Motion is compared as numbers (corners within
+    0.25 px, alpha within 0.5/255) except where the twin names a gap. The built-in must draw
+    nothing past the twin's room unless the twin names a padding gap. About 75 s.
+  - **New nodes** (76 → 91): Perspective plane, Sphericon, Flag (UV); Loop envelope, Bounce,
+    Oscillate (time); Seed (input); Pick (math); Random number, Line noise, Arcs, Sparkles
+    (procedural); Away from side N (mask); Relief slope, Page curl (colour); and a **Blend** setting
+    on the Output (Normal, or Add: a colour brighter than its alpha, for glows and halos).
+  - **Library calls fail safe.** The runtime links the library from its own copy, so an effect
+    calling an entry it lacks (compiled by a newer launcher) would draw a broken shader.
+    `readCustomElementFx` now drops such an effect (`unknownEfxCalls`, `EFX_HEADER_FUNCTIONS`), and
+    one with two seeds, so it plays nothing. A graph saved before step 6 compiles byte-identical and
+    calls nothing new; one using a step 6 node needs a runtime from step 6 on (the rollback floor
+    in `docs/design/games-deploy.md`).
   - **A per-element seed.** The Seed node reads a `seed` uniform the custom runtime draws once per
     element (`custom.ts`), as the built-ins draw theirs, so two elements playing one effect differ.
     An effect that never reads it draws none and compiles as before.
@@ -226,15 +237,24 @@ built-ins, held to a parity gate in `check:all`, offered as "Start from a built-
   - **Proof.** `shader-twins` passes all 30 twins on WebGL1 and WebGL2. On every twin but three the
     largest difference is 1 step (float rounding). Sphericon and the dissolves differ by more only
     on isolated pixels where a hard edge sits on a pixel (at most 0.12% of a cell, never a patch).
-    Mutation-checked: 13 of 15 injected one-constant changes fail it, down to a 1% highlight weight.
-    The two that pass (poison's pulse 0.35 → 0.36, melt's padding 2 → 1.6) move no channel more
-    than 2 steps over a patch. The compile fixture checks every twin: compiles clean, its id and
+    Mutation-checked: 13 of 15 injected one-constant changes fail it, down to a 1% highlight weight;
+    the two that passed (poison's pulse 0.35 → 0.36, melt's padding) moved no channel more than 2
+    steps over a patch, and the room rule now catches the padding one. After the review, a motion
+    constant at the defaults (petrify's thud), a strength-0.3 floor (burn's glow) and a dropped
+    padding gap each fail it too. Heavy twins are named (`HEAVY`: petrify 435), so one growing
+    heavier fails. The compile fixture checks every twin: compiles clean, its id and
     label, its params against the catalog, phase and length, one twin per kind, the pass twins'
     ties; the node twins' GLSL is snapshotted (`snapshots/twins/`). `check:element-fx` checks the
     seed: two elements get different seeds and keep them; an unseeded effect draws none.
-  - **Bell, Swell and Pulse** now call `efxSinPi`: the headless renderer's `sin` is off by up to
-    ~2e-4 at large arguments, enough to fail Twist at ±1080°. Same curves; a saved graph using them
-    renders at most 1 step different when exported again (the Pulse tint reference: 1 step on 223 px).
+  - **Precise curves.** The headless renderer's `sin` is off by up to ~2e-4 at large arguments,
+    enough to fail Twist at ±1080°; the twins build their bells and swells on Oscillate (exact,
+    `efxSinPi`) and Bell / Swell / Pulse stay as they were, so no saved graph changes.
+  - **Review.** An independent review found one blocking item, version skew: an effect compiled by
+    a newer launcher calls library entries an older runtime lacks (fixed: the reader drops it; the
+    floor is documented; existing nodes emit what they did). Its should-fixes (motion held at the
+    defaults, a landscape card and strength 0.3, Melt's padding) and nits are fixed. One is left by
+    choice: the pass twins keep their identity graph pass (it clamps colour to alpha and gives the
+    effect its filter and margin, so skipping it would change existing effects).
   - **Built-ins unchanged.** `shader-parity` against the base: all 50 kinds, the sides and signed
     sheets identical on WebGL1 and WebGL2; a deliberately changed library constant shows in its
     kinds' rows.

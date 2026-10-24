@@ -80,7 +80,9 @@ its passes and its motion. It plays as the built-in does until you change someth
 - **Some twins' motion is close, not exact.** Where a built-in moves the element by the seconds
   played, a param or its looping (Bounce 3D's hops, Freeze's shiver, Poison's sway, Electrocute's
   jitter, Petrify, Gold), a motion curve cannot follow it, and the twin's curve is that motion at
-  the defaults. The menu item and the name dialog say so. The pixels are exact either way.
+  the defaults. **Melt's room** past the element's edge is set for its defaults: longer drips or a
+  stronger play can be cut off. The menu item and the name dialog say so. The pixels are exact
+  either way.
 - **Not every built-in has a twin.** The motion-only effects (Shake, Pulse, Bounce, Pop in…) are
   motion curves alone, and the breaks (Crumble, Shatter…) are not pixel effects.
 - The effect you make is your own: changing it never touches the built-in, and the built-in keeps
@@ -107,8 +109,8 @@ node's top edge):
 | **Math**       | Arithmetic on numbers or vectors alike                           | Add, Multiply, Mix, Clamp, Smooth step, Remap, Split, Combine, Pick     |
 | **Procedural** | Noise and patterns                                               | Random, Noise, Fractal noise, Cells, Gradient, Radial, Stripes, Random number, Line noise, Arcs, Sparkles |
 | **Mask**       | Where something is, and how far it has come                      | Away from a side, Front, Band, Glint, Edge distance, Inside, Away from side N |
-| **UV**         | Move where the element is read from                              | Offset, Scale, Rotate, Twist, Bulge, Ripple, Wave, Polar, Flag, Perspective plane, Sphericon, Page curl |
-| **Colour**     | Colour and light                                                 | Split colour, Join colour, Brightness, Hue shift, Relief normal, Relief slope, Light, Metal, Over, Fade |
+| **UV**         | Move where the element is read from                              | Offset, Scale, Rotate, Twist, Bulge, Ripple, Wave, Polar, Flag, Perspective plane, Sphericon |
+| **Colour**     | Colour and light                                                 | Split colour, Join colour, Brightness, Hue shift, Relief normal, Relief slope, Light, Metal, Over, Fade, Page curl |
 
 There are 90 nodes in the palette. The **Output** is not in it: every effect has exactly one, and
 it comes with the new effect.
@@ -423,8 +425,9 @@ Click **✕** next to an effect and confirm. If it was open, the canvas empties.
   does not follow a change of screen pixel ratio (reload after moving the window to another
   screen), and it clips a graph padded to the 2× maximum at its edge.
 - **A twin's limits are the doc's.** A motion curve cannot read a param or the seconds played (the
-  motion gaps above), and an effect's padding is one number: the Wave, Bounce 3D and Melt twins take
-  the room their largest setting needs at strength 1, and can clip past the edge above it.
+  motion gaps above), and an effect's padding is one number: the Wave and Bounce 3D twins take the
+  room their largest setting needs at strength 1, Melt the room its defaults need, and either can
+  clip past the edge beyond that.
 - **Not yet:** per-node live thumbnails, subgraphs (reusable groups), publishing to the shared
   library, a Break output, and an admin-only Custom GLSL node. They are later steps of the plan.
 - **Nodes the plan lists that v1 lacks:** rim and a pixel input.

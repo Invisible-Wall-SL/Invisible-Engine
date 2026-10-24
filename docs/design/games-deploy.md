@@ -182,9 +182,9 @@ roll back to one at or above it.
 
 **A second floor: the first release with Invisible Shader Graph step 6.** Publish compiles a
 project's shader graphs into the game's bundle, and the runtime links the GLSL library functions
-they call from its own copy. Step 6 added library functions (`efxSinPi`, the new nodes' entries),
-so a graph compiled since then calls functions a runtime from before it does not have, and that
-effect draws nothing (a shader that fails to compile) where it plays. Never `rollback` or `pin`
+they call from its own copy. Step 6 added library functions for its new nodes, so a graph that
+uses one calls functions a runtime from before it does not have, and that effect draws nothing (a
+shader that fails to compile) where it plays. Graphs saved before step 6 compile as they did. Never `rollback` or `pin`
 below that release. A game published in the minutes between the launcher's deploy and the
 release's promote is in the same state until the promote lands; it needs no re-publish. Runtimes
 from step 6 on refuse such an effect outright (`readCustomElementFx` drops an effect calling a

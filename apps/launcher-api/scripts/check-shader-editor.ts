@@ -415,10 +415,16 @@ check(
 	})(),
 );
 check(
-	'a twin whose motion is only close says why, in the menu',
-	twinGroups([{ kind: 'freeze', doc: frost, motionGap: 'follows the seconds played' }])[0].twins[0]
-		.motionGap,
-	'follows the seconds played',
+	'a twin that is only close says where and why, in the menu',
+	twinGroups([
+		{ kind: 'freeze', doc: frost, motionGap: 'follows the seconds played', paddingGap: 'fixed' },
+	])[0].twins[0].gaps.map((g) => g.endsWith('follows the seconds played') || g.endsWith('fixed')),
+	[true, true],
+);
+check(
+	'…and an exact one says nothing',
+	twinGroups([{ kind: 'freeze', doc: frost }])[0].twins[0].gaps,
+	[],
 );
 check(
 	'every real twin is offered exactly once',
