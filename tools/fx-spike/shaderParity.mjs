@@ -29,7 +29,7 @@ import { pathToFileURL } from 'node:url';
 import { REPO, writeSheets } from './shaderPages.mjs';
 
 const CELL_H = 190;
-const GRAPH_SHEETS = ['graphs', 'nodes'];
+const GRAPH_SHEETS = ['graphs', 'custom', 'nodes'];
 
 const arg = (name) => {
 	const i = process.argv.indexOf(`--${name}`);

@@ -1,4 +1,4 @@
-import { elementFxSpec, type ElementFxEntry } from 'constants-shared/elementFx';
+import { findElementFxSpec, type ElementFxEntry } from 'constants-shared/elementFx';
 import { playElementFx, type ElementFxHandle, type ElementFxPose } from 'pixi-svelte/elementFx';
 import { Container, Matrix, Rectangle, Sprite, Texture, Ticker, UPDATE_PRIORITY } from 'pixi.js';
 import { createPixiSurface, sharedPixiRenderer } from './sharedGl.client';
@@ -338,13 +338,12 @@ export function playOnStill(options: StillPreview): () => void {
 
 	void overlay.ready.then((parts) => {
 		if (over) return;
-		if (!parts) return end();
+		const spec = findElementFxSpec(entry.kind);
+		if (!parts || !spec) return end();
 		const { target, ticker, render } = parts;
 		const looping = entry.trigger === 'always';
 		const keyed = entry.trigger === 'keyed';
-		const loopMs =
-			(entry.delayMs ?? 0) +
-			ALWAYS_PLAYS * (entry.durationMs ?? elementFxSpec(entry.kind).durationMs);
+		const loopMs = (entry.delayMs ?? 0) + ALWAYS_PLAYS * (entry.durationMs ?? spec.durationMs);
 		let elapsedMs = 0;
 		handle = playElementFx(
 			target,

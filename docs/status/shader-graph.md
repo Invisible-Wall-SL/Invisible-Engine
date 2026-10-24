@@ -4,8 +4,9 @@
 
 **One-line state:** plan approved 2026-10-23. Step 1 (one shared GLSL library under the 17
 built-in shader passes, #1320) and step 2 (the `engine-shadergraph` package: nodes, validator,
-compiler, #1322) are merged. Nothing plays a graph yet, and no tool or route exists; step 3, the
-runtime, is next.
+compiler, #1322) are merged. Step 3, the runtime, is built and in review: a compiled graph
+registered as `custom:<id>` plays wherever a built-in Element FX does. Nothing registers one in a
+game yet (step 4), and no tool or route exists.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -37,7 +38,7 @@ runtime, is next.
     - The element's colour at the pixel is read once, as `pixel`, however many inputs default to
       it.
     - The Output keeps the colour premultiplied: no channel above alpha.
-  - **The validator** names each broken doc (12 kinds of error) without throwing, even on a
+  - **The validator** names each broken doc (14 kinds of error, the effect's passes and motion included) without throwing, even on a
     malformed one. A node that reaches nothing is checked like the rest, then left out with a
     warning. A graph over the phone budget (cost 400, 16 reads of the element) gets a warning and
     still compiles.
@@ -49,16 +50,39 @@ runtime, is next.
     reference graphs and every node at every vector width through the real `ElementFxFilter` in
     headless Chromium, on WebGL1 and WebGL2. It fails on any shader the driver rejects and names
     the graph.
-- **Not started:** steps 3–8 (the runtime kinds, the pipeline, the `/shaders` editor, templates,
+- **Step 3, the runtime.** Built and in review.
+  - **Custom kinds.** A compiled graph plays as the Element FX kind `custom:<id>`. The registry is
+    in `constants-shared/elementFx`: `setCustomElementFx(list)` replaces the set,
+    `isPlayableElementFxKind` answers for built-ins and registered custom kinds alike.
+  - **The reader keeps them.** A well-formed custom entry is kept even before its effect is
+    registered (its params as plain values), so the order a game reads its docs and registers its
+    effects in cannot drop one. It plays once registered and is a no-op until then.
+  - **The effect.** `compileShaderEffect(doc)` (`engine-shadergraph`) packs the graph's pass with
+    the doc's passes and motion as one plain value that can ship as JSON.
+    - **Passes:** up to 4 built-in single-pass kinds after the graph (glow, outline, shine, flash,
+      hue cycle, chromatic, glitch, blur, pixelate). Each param is set by value or tied to one of
+      the effect's own params of the same kind.
+    - **Motion:** a curve per channel over the play (x, y as shares of the element, scale,
+      rotation in degrees, alpha), keys eased linear / smooth / in / out / hold, about a pivot.
+      Every channel but alpha scales with intensity.
+  - **The runtime** (`pixi-svelte/src/lib/elementFx/custom.ts`) plays it as a built-in plays: its
+    graph as one `ElementFxFilter`, its passes after it, its motion folded into the element's
+    transform. An effect already playing keeps what it started with when the set is replaced.
+  - **Where it plays.** Nodes, screens, the reels and symbol states play an entry naming one, and
+    the Flow's `elementEffect` plays one too (the game checks `isPlayableElementFxKind`).
+- **Not started:** steps 4–8 (the runtime kinds, the pipeline, the `/shaders` editor, templates,
   editor v2, later).
 
 ## Open items / next
-1. **Step 3: the runtime.**
-   - Contents: `custom:<id>` kinds from a registry, the filter built from a compiled graph
-     (`ElementFxFilter(name, body, uniforms)`, `uFx` and the `uP<n>` written each frame), pass nodes
-     and motion curve channels.
-   - Exit: a custom effect behaves like a built-in in `check:element-fx` (triggers, keyed, symbol
-     state, turbo, stop).
+1. Merge step 3.
+2. **Step 4: the pipeline.**
+   - Storage and leases; export → deploy → bake → pull, and the game registering the project's
+     compiled effects at boot (`setCustomElementFx`), in Publish.
+   - The pickers list custom effects: the Scene Editor, `/symbols`, and the Flow's kind dropdown
+     (its `ElementFxKind` enum is the built-ins today, so the Flow's validator must take custom
+     kinds too).
+   - The editor registers the project's set. Until it does, an entry naming a custom kind shows as
+     "this build cannot read or play this effect" and is kept as saved.
 2. **Nodes the design lists that v1 does not have yet:** Perspective plane (the 3D flip's ray cast
    as one node), star / sparkle, rim, loop envelope and the pixel input. Add them when a template
    (step 6) or an artist needs one.
@@ -67,6 +91,33 @@ runtime, is next.
 - None.
 
 ## Recent changes
+- 2026-10-24 — **Step 3: the runtime** (custom Element FX kinds).
+  - **Catalog** (`constants-shared/elementFx`): `ElementFxKindId` (a built-in or `custom:<id>`),
+    the registry, `ELEMENT_FX_PASS_KINDS`, the curve and motion types, `sampleElementFxCurve`, and
+    `elementFxParamUniform`, moved here from `engine-shadergraph` so the runtime and the compiler
+    share one. `findElementFxSpec` looks up any kind (`undefined` for an unregistered custom one);
+    `elementFxSpec` stays the built-ins' lookup. The launcher's label and preview lookups of a stored
+    entry use the first and take an `undefined`.
+  - **Runtime:** an effect now holds a list of passes; a built-in filter kind has one, so built-ins
+    play as before. `playElementFx` resolves a built-in or a registered custom kind, and plays
+    nothing for any other.
+  - **Compiler:** `compileShaderEffect`, and the doc's `description`, `passes` and `motion`, with
+    their validation: 12 → 14 kinds of error (`pass`, `motion`). The doc id must be a slug, and the
+    length within the runtime's 50 ms…20 s.
+  - **A sixth reference graph, Power-up**, uses both: a warm swell, a hop and growth on motion
+    curves about its base, and a glow pass tied to its colour param. Noise dissolve now masks its
+    edge glow by the element's alpha: played through the runtime, whose pass area is the element
+    plus a margin, it had painted the edge over the empty margin.
+  - **Proof.**
+    - `check:element-fx`: a new section, 24 checks. A custom effect read with every trigger and
+      kept before it is registered; posed by a timeline; sped up by turbo; held as an exit and
+      released by an enter; stopped back to rest. Its graph, its built-in pass with a tied colour,
+      and its motion all play. Mutation-checked: dropping the param uniform write, and the reader
+      dropping custom kinds, each fail it.
+    - The fixture: 55 checks (the effect, every bad pass and curve).
+    - `shader-parity` and `shader-compile` draw a new `custom` sheet: the six reference graphs
+      registered and played through `playElementFx` on WebGL1 and WebGL2.
+    - The 50 built-ins, every side and every signed param render identical to `main`.
 - 2026-10-23 — **Step 2: the `engine-shadergraph` package** (schema, node library, validator,
   compiler).
   - **The library grew by 13 building blocks** for the nodes to call (29 in all): FBM, the hold,

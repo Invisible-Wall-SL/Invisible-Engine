@@ -77,6 +77,8 @@ export type BreakStyle = 'crash' | 'crumble' | 'glass' | 'ice' | 'dust';
 export interface KindImpl {
 	motion?(frame: FxFrame): Partial<Motion>;
 	filter?: FilterImpl<Filter>;
+	/** Several passes, drawn in order (a custom kind: its graph, then its built-in passes). */
+	filters?: readonly FilterImpl<Filter>[];
 	breaks?: BreakStyle;
 	/** The break plays backwards: the pieces fly in and become the element (an entrance). */
 	reversed?: boolean;

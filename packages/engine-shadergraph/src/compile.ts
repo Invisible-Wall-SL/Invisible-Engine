@@ -14,9 +14,25 @@
  *
  * The GLSL is assembled from the node library's templates, numeric literals and names this file
  * makes (`n3_out`, `uP0`): nothing an author types is copied into it.
+ *
+ * {@link compileShaderEffect} packs the result with the doc's passes and motion into a
+ * `CustomElementFx`, which the runtime registers and plays as the kind `custom:<id>`.
  */
 
-import { ELEMENT_FX_PHASES, type ElementFxParamSpec } from 'constants-shared/elementFx';
+import {
+	ELEMENT_FX_CURVE_EASES,
+	ELEMENT_FX_LIMITS,
+	ELEMENT_FX_MOTION_CHANNELS,
+	ELEMENT_FX_PASS_KINDS,
+	ELEMENT_FX_PHASES,
+	customElementFxKind,
+	elementFxSpec,
+	isCustomElementFxKind,
+	readElementFxParam,
+	type CustomElementFx,
+	type CustomElementFxUniform,
+	type ElementFxParamSpec,
+} from 'constants-shared/elementFx';
 import {
 	DIMS,
 	PARAM_TYPE,
@@ -37,17 +53,14 @@ import {
 export const COST_BUDGET = 400;
 export const SAMPLE_BUDGET = 16;
 
-export interface CompiledUniform {
-	name: string;
-	type: PortType;
-	/** What the runtime writes into it: the play's time (`uFx`), or one of the doc's params. */
-	source: { kind: 'time' } | { kind: 'param'; id: string };
-}
+/** A custom effect's passes and the keys on one motion curve, at most. */
+export const PASS_LIMIT = 4;
+export const CURVE_KEY_LIMIT = 32;
 
 export interface CompiledShader {
 	/** Uniforms and `main`: the pass body `ElementFxFilter` takes. */
 	body: string;
-	uniforms: CompiledUniform[];
+	uniforms: CustomElementFxUniform[];
 	params: ElementFxParamSpec[];
 	cost: number;
 	samples: number;
@@ -57,6 +70,10 @@ export interface CompiledShader {
 
 export type CompileResult =
 	{ ok: true; shader: CompiledShader } | { ok: false; issues: GraphIssue[] };
+
+export type ShaderEffectResult =
+	| { ok: true; effect: CustomElementFx; warnings: GraphIssue[] }
+	| { ok: false; issues: GraphIssue[] };
 
 const TYPE_OF_DIMS: Record<number, PortType> = { 1: 'float', 2: 'vec2', 3: 'vec3', 4: 'vec4' };
 
@@ -95,21 +112,100 @@ const convert = (expr: string, from: PortType, to: PortType): string | undefined
 	return undefined;
 };
 
-/** What a param's uniform holds for `value`: a number, a colour, 0 / 1, or a choice's index. */
-export function paramUniformValue(spec: ElementFxParamSpec, value: unknown): number[] {
-	switch (spec.kind) {
-		case 'number':
-			return [typeof value === 'number' && Number.isFinite(value) ? value : spec.default];
-		case 'color':
-			return hexRgb(typeof value === 'string' && HEX.test(value) ? value : spec.default);
-		case 'bool':
-			return [(typeof value === 'boolean' ? value : spec.default) ? 1 : 0];
-		case 'choice': {
-			const at = spec.options.indexOf(typeof value === 'string' ? value : spec.default);
-			return [Math.max(0, at < 0 ? spec.options.indexOf(spec.default) : at)];
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+	!!v && typeof v === 'object' && !Array.isArray(v);
+
+/** A pass's issues: a pass kind, its params by value or tied to one of the effect's, a strength. */
+const passIssues = (passes: unknown, params: ReadonlyMap<string, ElementFxParamSpec>): string[] => {
+	if (passes === undefined) return [];
+	if (!Array.isArray(passes)) return ['passes is not a list'];
+	if (passes.length > PASS_LIMIT) return [`at most ${PASS_LIMIT} passes`];
+	const out: string[] = [];
+	passes.forEach((raw: unknown, i) => {
+		const at = `pass ${i + 1}`;
+		if (!isRecord(raw)) return void out.push(`${at} is not a pass`);
+		const kind = raw.kind;
+		if (!(ELEMENT_FX_PASS_KINDS as readonly unknown[]).includes(kind)) {
+			return void out.push(
+				`${at}: "${String(kind)}" is not one of ${ELEMENT_FX_PASS_KINDS.join(', ')}`,
+			);
 		}
+		const specs = new Map(
+			elementFxSpec(kind as (typeof ELEMENT_FX_PASS_KINDS)[number]).params.map((p) => [p.id, p]),
+		);
+		if (raw.params !== undefined && !isRecord(raw.params)) out.push(`${at}: params is not a map`);
+		for (const [id, value] of Object.entries(isRecord(raw.params) ? raw.params : {})) {
+			const spec = specs.get(id);
+			if (!spec) {
+				out.push(`${at}: ${String(kind)} has no param "${id}"`);
+			} else if (isRecord(value)) {
+				const bound = typeof value.param === 'string' ? params.get(value.param) : undefined;
+				const fits =
+					bound &&
+					bound.kind === spec.kind &&
+					(bound.kind !== 'choice' ||
+						(spec.kind === 'choice' && bound.options.every((o) => spec.options.includes(o))));
+				if (!fits)
+					out.push(`${at}: "${id}" is not tied to one of the effect's ${spec.kind} params`);
+			} else if (readElementFxParam(spec, value) !== value) {
+				out.push(`${at}: "${id}" is not a valid ${spec.kind}`);
+			}
+		}
+		const { min, max } = ELEMENT_FX_LIMITS.intensity;
+		if (
+			raw.intensity !== undefined &&
+			!(typeof raw.intensity === 'number' && raw.intensity >= min && raw.intensity <= max)
+		) {
+			out.push(`${at}: intensity must be ${min}…${max}`);
+		}
+	});
+	return out;
+};
+
+const MOTION_LIMIT = 10_000;
+
+/** The motion's issues: known channels, keys in order over 0…1, finite values, known eases. */
+const motionIssues = (motion: unknown): string[] => {
+	if (motion === undefined) return [];
+	if (!isRecord(motion) || !isRecord(motion.channels)) return ['motion has no channels map'];
+	const out: string[] = [];
+	for (const [channel, curve] of Object.entries(motion.channels)) {
+		if (!(ELEMENT_FX_MOTION_CHANNELS as readonly string[]).includes(channel)) {
+			out.push(`"${channel}" is not one of ${ELEMENT_FX_MOTION_CHANNELS.join(', ')}`);
+			continue;
+		}
+		if (!Array.isArray(curve) || !curve.length || curve.length > CURVE_KEY_LIMIT) {
+			out.push(`${channel}: a curve has 1…${CURVE_KEY_LIMIT} keys`);
+			continue;
+		}
+		let last = 0;
+		curve.forEach((key: unknown, i) => {
+			if (
+				!isRecord(key) ||
+				typeof key.t !== 'number' ||
+				!(key.t >= last && key.t <= 1) ||
+				typeof key.v !== 'number' ||
+				!(Math.abs(key.v) <= MOTION_LIMIT) ||
+				(key.ease !== undefined &&
+					!(ELEMENT_FX_CURVE_EASES as readonly unknown[]).includes(key.ease))
+			) {
+				out.push(`${channel}: key ${i + 1} needs t in order over 0…1, a value, a known ease`);
+			} else {
+				last = key.t;
+			}
+		});
 	}
-}
+	const pivot = motion.pivot;
+	if (
+		pivot !== undefined &&
+		!(
+			isRecord(pivot) && [pivot.x, pivot.y].every((v) => typeof v === 'number' && v >= -1 && v <= 2)
+		)
+	) {
+		out.push('pivot needs x and y in −1…2');
+	}
+	return out;
+};
 
 const paramIssues = (params: unknown): GraphIssue[] => {
 	if (!Array.isArray(params))
@@ -204,10 +300,16 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 	}
 	if (doc.version !== SHADER_GRAPH_VERSION)
 		error('version', `version ${JSON.stringify(doc.version)} is not ${SHADER_GRAPH_VERSION}`);
+	if (typeof doc.id !== 'string' || !isCustomElementFxKind(customElementFxKind(doc.id)))
+		error('doc', 'id must be a slug: letters, digits, - and _, up to 64');
+	if (typeof doc.name !== 'string' || !doc.name.trim()) error('doc', 'the effect needs a name');
+	if (doc.description !== undefined && typeof doc.description !== 'string')
+		error('doc', 'description must be text');
 	if (!(ELEMENT_FX_PHASES as readonly string[]).includes(doc.phase))
 		error('doc', `phase "${String(doc.phase)}" is not one of ${ELEMENT_FX_PHASES.join(', ')}`);
-	if (!(Number.isFinite(doc.durationMs) && doc.durationMs > 0))
-		error('doc', 'durationMs must be above 0');
+	const { min: shortest, max: longest } = ELEMENT_FX_LIMITS.durationMs;
+	if (!(doc.durationMs >= shortest && doc.durationMs <= longest))
+		error('doc', `durationMs must be ${shortest}…${longest}`);
 	if (doc.padding !== undefined && !(Number.isFinite(doc.padding) && doc.padding >= 0))
 		error('doc', 'padding must be 0 or more');
 	issues.push(...paramIssues(doc.params));
@@ -220,6 +322,8 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 			.filter((p) => p && typeof p.id === 'string')
 			.map((p) => [p.id, p]),
 	);
+	for (const message of passIssues(doc.passes, params)) error('pass', message);
+	for (const message of motionIssues(doc.motion)) error('motion', message);
 
 	const nodes = new Map<string, GraphNode>();
 	const defs = new Map<string, NodeDef>();
@@ -516,7 +620,9 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
 		names.set(node.id, nodeNames);
 	});
 
-	const uniforms: CompiledUniform[] = [{ name: 'uFx', type: 'vec4', source: { kind: 'time' } }];
+	const uniforms: CustomElementFxUniform[] = [
+		{ name: 'uFx', type: 'vec4', source: { kind: 'time' } },
+	];
 	for (const param of doc.params) {
 		if (!usedParams.has(param.id)) continue;
 		uniforms.push({
@@ -550,5 +656,36 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
 			samples: a.samples,
 			warnings: a.issues.filter((i) => i.level === 'warning'),
 		},
+	};
+}
+
+/**
+ * Compile a doc into a custom Element FX: its graph's pass body and uniforms, its passes and motion,
+ * and the spec the pickers and the reader use. Register it with `setCustomElementFx` and it plays as
+ * `custom:<id>`. Deterministic, and a plain value: it can be stored as JSON and shipped.
+ */
+export function compileShaderEffect(doc: ShaderGraphDoc): ShaderEffectResult {
+	const compiled = compileShaderGraph(doc);
+	if (!compiled.ok) return compiled;
+	const { shader } = compiled;
+	const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+	return {
+		ok: true,
+		effect: {
+			spec: {
+				kind: customElementFxKind(doc.id),
+				label: doc.name.trim(),
+				category: 'custom',
+				phase: doc.phase,
+				durationMs: doc.durationMs,
+				description: doc.description ?? '',
+				params: plain(doc.params),
+			},
+			shader: { body: shader.body, uniforms: shader.uniforms },
+			padding: doc.padding ?? 0,
+			passes: plain(doc.passes ?? []),
+			...(doc.motion ? { motion: plain(doc.motion) } : {}),
+		},
+		warnings: shader.warnings,
 	};
 }

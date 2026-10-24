@@ -62,8 +62,8 @@ const writePage = async (root, outDir, entry, name) => {
 /**
  * Bundle the pages for `root` into `outDir` and list the sheets they draw: the kinds ten at a time,
  * every starting side of the spreading kinds, every signed number param at its minimum and, when
- * `root` has the shader graph package, its reference graphs and every node. A sheet is `{ name,
- * page, query }`: `<page>.html?gl=<1|2>&<query>`.
+ * `root` has the shader graph package, its reference graphs (as filters, and played as custom
+ * Element FX) and every node. A sheet is `{ name, page, query }`: `<page>.html?gl=<1|2>&<query>`.
  */
 export async function writeSheets(root, outDir) {
 	await writePage(root, outDir, 'shaderParity.entry.ts', 'page');
@@ -85,6 +85,7 @@ export async function writeSheets(root, outDir) {
 	if (graphs) {
 		await writePage(root, outDir, 'shaderGraphs.entry.ts', 'graphs');
 		sheets.push({ name: 'graphs', page: 'graphs', query: 'graphs=1' });
+		sheets.push({ name: 'custom', page: 'graphs', query: 'custom=1' });
 		sheets.push({ name: 'nodes', page: 'graphs', query: 'nodes=1' });
 	}
 	return { kinds, sheets, graphs };

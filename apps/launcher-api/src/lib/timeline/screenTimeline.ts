@@ -16,7 +16,7 @@ import {
 	ELEMENT_FX_LIMITS,
 	elementFxChannels,
 	elementFxOfChannel,
-	elementFxSpec,
+	findElementFxSpec,
 	type ElementFxEntry,
 } from 'constants-shared/elementFx';
 import type { EffectParam, EffectParamValues } from 'engine-fx';
@@ -672,7 +672,7 @@ export interface ElementFxChannelRow {
 export function keyableElementFxChannels(node: LayoutNode): ElementFxChannelRow[] {
 	const keyed = keyableElementFxEntries(node);
 	return keyed.flatMap((entry) => {
-		const kind = elementFxSpec(entry.kind).label;
+		const kind = findElementFxSpec(entry.kind)?.label ?? entry.kind;
 		const shared = keyed.some((other) => other !== entry && other.kind === entry.kind);
 		return elementFxChannels([entry]).map((name): ElementFxChannelRow => {
 			const channel = name as CinematicElementFxChannel;
@@ -923,7 +923,7 @@ export function screenCueFx(scene: Scene, cue: string): ScreenCueFx[] {
 export function elementFxCueSuggestions(scene: Scene): { cue: string; label: string }[] {
 	const byCue = new Map<string, string[]>();
 	for (const fx of screenOnCueFx(scene)) {
-		const name = elementFxSpec(fx.entry.kind)?.label ?? fx.entry.kind;
+		const name = findElementFxSpec(fx.entry.kind)?.label ?? fx.entry.kind;
 		const cue = `signal:${fx.entry.cue}`;
 		byCue.set(cue, [...(byCue.get(cue) ?? []), `${name} on ${fx.where}`]);
 	}

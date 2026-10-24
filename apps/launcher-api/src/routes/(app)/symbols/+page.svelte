@@ -46,7 +46,7 @@
 	import { builtinRigKey, hasBuiltinRig } from '../editor/editorRig.client';
 	import DocHistoryModal from '$lib/DocHistoryModal.svelte';
 	import {
-		elementFxSpec,
+		findElementFxSpec,
 		readElementFxEntry,
 		type ElementFxEntry,
 	} from 'constants-shared/elementFx';
@@ -778,7 +778,7 @@
 				entry.trigger === 'enter' || entry.trigger === 'always'
 					? SYMBOL_FX_TRIGGER_TEXT[entry.trigger].summary
 					: entry.trigger;
-			return `${elementFxSpec(entry.kind).label}, ${when}${entry.disabled ? ' (off)' : ''}`;
+			return `${findElementFxSpec(entry.kind)?.label ?? entry.kind}, ${when}${entry.disabled ? ' (off)' : ''}`;
 		});
 		return ['Element FX in this state:', ...lines].join('\n');
 	}

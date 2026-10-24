@@ -20,9 +20,11 @@
 
 import {
 	ELEMENT_FX_LIMITS,
-	elementFxSpec,
+	customElementFx,
+	findElementFxSpec,
+	isElementFxKind,
 	resolveElementFxParams,
-	type ElementFxKind,
+	type ElementFxKindId,
 	type ElementFxKindSpec,
 	type ElementFxParamValue,
 } from 'constants-shared/elementFx';
@@ -36,8 +38,9 @@ import {
 	type Ticker,
 } from 'pixi.js';
 import { dustWind, startBreak, type BreakRun } from './breakApart';
+import { customKindImpl } from './custom';
 import { REST, clamp01, smoothstep, TAU, type FxFrame, type Motion } from './frame';
-import { KINDS, type KindImpl } from './kinds';
+import { KINDS, type FilterImpl, type KindImpl } from './kinds';
 import { ElementFxFilter } from './shaders';
 
 export interface ElementFxHost {
@@ -59,7 +62,8 @@ export const elementFxHostFor = (
 		: undefined;
 
 export interface ElementFxPlay {
-	kind: ElementFxKind;
+	/** A built-in kind, or a registered custom effect's `custom:<id>`. */
+	kind: ElementFxKindId;
 	durationMs?: number;
 	delayMs?: number;
 	intensity?: number;
@@ -104,9 +108,11 @@ type Comps = {
 const COMPS = ['x', 'y', 'scaleX', 'scaleY', 'rotation', 'skewX', 'skewY', 'alpha'] as const;
 
 interface Effect {
-	kind: ElementFxKind;
+	kind: ElementFxKindId;
 	spec: ElementFxKindSpec;
 	impl: KindImpl;
+	/** Its passes, in order (one for a built-in filter kind; a custom kind's graph and passes). */
+	passes: readonly FilterImpl<Filter>[];
 	durationMs: number;
 	delayMs: number;
 	intensity: number;
@@ -116,7 +122,8 @@ interface Effect {
 	elapsedMs: number;
 	/** Played out; an exit kind keeps posing its last frame. */
 	held: boolean;
-	filter?: Filter;
+	/** Its passes' filters once created, in the order of {@link Effect.passes}. */
+	filters: Filter[];
 	breakRun?: BreakRun;
 	/** The break could not start (no renderer, nothing to cut): it fades out instead. */
 	breakFallback?: boolean;
@@ -412,10 +419,10 @@ const releaseFilters = (runtime: Runtime): void => {
 /** Keep the runtime's filters on the container, after its own, and feed each one its frame. */
 const applyFilters = (runtime: Runtime, frames: Map<Effect, FxFrame>): void => {
 	const { target } = runtime;
-	const ours = runtime.effects.filter((e) => e.filter && frames.has(e));
+	const ours = runtime.effects.filter((e) => e.filters.length && frames.has(e));
 	const current = target.filters ?? NO_FILTERS;
 	if (runtime.filtersOn && current !== runtime.lastFilters) {
-		const mine = new Set(runtime.effects.map((e) => e.filter).filter(Boolean));
+		const mine = new Set(runtime.effects.flatMap((e) => e.filters));
 		runtime.external = current.filter((f) => !mine.has(f));
 	}
 	// Nothing measured yet means nothing drawn yet: a filter bounded to a 1-px box would hide the
@@ -439,13 +446,15 @@ const applyFilters = (runtime: Runtime, frames: Map<Effect, FxFrame>): void => {
 	};
 	for (const effect of ours) {
 		const frame = frames.get(effect) as FxFrame;
-		const filter = effect.filter as Filter;
-		effect.impl.filter?.update(filter, frame, view);
-		const padding = effect.impl.filter?.padding?.(frame, view);
-		if (padding !== undefined) filter.padding = Math.max(0, Math.ceil(padding));
+		effect.passes.forEach((pass, i) => {
+			const filter = effect.filters[i];
+			pass.update(filter, frame, view);
+			const padding = pass.padding?.(frame, view);
+			if (padding !== undefined) filter.padding = Math.max(0, Math.ceil(padding));
+		});
 	}
 
-	const stack = [...runtime.external, ...ours.map((e) => e.filter as Filter)];
+	const stack = [...runtime.external, ...ours.flatMap((e) => e.filters)];
 	const same =
 		runtime.lastFilters.length === stack.length &&
 		stack.every((f, i) => runtime.lastFilters[i] === f);
@@ -456,16 +465,16 @@ const applyFilters = (runtime: Runtime, frames: Map<Effect, FxFrame>): void => {
 
 	const { area, box } = runtime;
 	const pad = stack.reduce((sum, f) => sum + (f.enabled ? f.padding : 0), 0) | 0;
-	for (const effect of ours) {
-		if (!(effect.filter instanceof ElementFxFilter)) continue;
-		effect.filter.set(
+	for (const filter of ours.flatMap((e) => e.filters)) {
+		if (!(filter instanceof ElementFxFilter)) continue;
+		filter.set(
 			'uElement',
 			(box.x - area.x) / area.width,
 			(box.y - area.y) / area.height,
 			box.width / area.width,
 			box.height / area.height,
 		);
-		effect.filter.set('uPad', pad);
+		filter.set('uPad', pad);
 	}
 };
 
@@ -481,15 +490,16 @@ const removeEffect = (runtime: Runtime, effect: Effect): void => {
 	if (index < 0) return;
 	runtime.effects.splice(index, 1);
 	finish(runtime, effect);
-	if (effect.filter) {
+	if (effect.filters.length) {
 		const { target } = runtime;
+		const leaving = new Set(effect.filters);
 		if (runtime.filtersOn && !target.destroyed) {
-			const left = (target.filters ?? NO_FILTERS).filter((f) => f !== effect.filter);
+			const left = (target.filters ?? NO_FILTERS).filter((f) => !leaving.has(f));
 			target.filters = left.length ? left : null;
 			runtime.lastFilters = target.filters ?? NO_FILTERS;
 		}
-		effect.filter.destroy();
-		effect.filter = undefined;
+		for (const filter of effect.filters) filter.destroy();
+		effect.filters = [];
 	}
 	if (!runtime.effects.length) {
 		if (!runtime.target.destroyed) settle(runtime);
@@ -537,12 +547,26 @@ const startEffectBreak = (runtime: Runtime, effect: Effect): void => {
 	if (!effect.breakRun) effect.breakFallback = true;
 };
 
+/** An effect's filters, made on its first frame. */
+const createFilters = (effect: Effect, frame: FxFrame): void => {
+	if (effect.passes.length && !effect.filters.length) {
+		effect.filters = effect.passes.map((pass) => pass.create(frame));
+	}
+};
+
+/** How `kind` plays: a built-in's implementation, or a registered custom effect's. */
+const implFor = (kind: ElementFxKindId): KindImpl | undefined => {
+	if (isElementFxKind(kind)) return KINDS[kind];
+	const custom = customElementFx(kind);
+	return custom ? customKindImpl(custom) : undefined;
+};
+
 const step = (runtime: Runtime, deltaMs: number): void => {
 	const { target } = runtime;
 	if (target.destroyed) {
 		for (const effect of [...runtime.effects]) {
 			finish(runtime, effect);
-			effect.filter?.destroy();
+			for (const filter of effect.filters) filter.destroy();
 		}
 		runtime.effects = [];
 		detach(runtime);
@@ -569,7 +593,7 @@ const step = (runtime: Runtime, deltaMs: number): void => {
 				continue;
 			}
 			frames.set(effect, frame);
-			if (effect.impl.filter && !effect.filter) effect.filter = effect.impl.filter.create(frame);
+			createFilters(effect, frame);
 			if (effect.impl.breaks && !effect.breakRun && !effect.breakFallback) {
 				startEffectBreak(runtime, effect);
 			}
@@ -592,7 +616,7 @@ const step = (runtime: Runtime, deltaMs: number): void => {
 		const frame = frameOf(runtime, effect) ?? delayFrame(runtime, effect);
 		if (!frame) continue;
 		frames.set(effect, frame);
-		if (effect.impl.filter && !effect.filter) effect.filter = effect.impl.filter.create(frame);
+		createFilters(effect, frame);
 		if (effect.impl.breaks && !effect.held && !effect.breakRun && !effect.breakFallback) {
 			startEffectBreak(runtime, effect);
 		}
@@ -631,14 +655,16 @@ const NOOP_HANDLE: ElementFxHandle = { done: Promise.resolve(), stop: () => {}, 
 /**
  * Play `play` on `target`. An `enter` kind first releases any exit the element is holding (a
  * dissolve-out then a dissolve-in brings it back). Plays alongside whatever else is on the element.
+ * An unknown kind, or a custom one not registered, plays nothing.
  */
 export function playElementFx(
 	target: Container | undefined | null,
 	play: ElementFxPlay,
 	host: ElementFxHost | undefined,
 ): ElementFxHandle {
-	if (!target || target.destroyed || !host || !(play.kind in KINDS)) return NOOP_HANDLE;
-	const spec = elementFxSpec(play.kind);
+	const impl = implFor(play.kind);
+	const spec = findElementFxSpec(play.kind);
+	if (!target || target.destroyed || !host || !impl || !spec) return NOOP_HANDLE;
 	const runtime = runtimeFor(target, host);
 	if (spec.phase === 'enter' && !play.pose) {
 		for (const held of runtime.effects.filter((e) => e.held)) removeEffect(runtime, held);
@@ -650,7 +676,8 @@ export function playElementFx(
 	const effect: Effect = {
 		kind: play.kind,
 		spec,
-		impl: KINDS[play.kind],
+		impl,
+		passes: impl.filter ? [impl.filter] : (impl.filters ?? []),
 		durationMs: clampTo(finite(play.durationMs, spec.durationMs), ELEMENT_FX_LIMITS.durationMs),
 		delayMs: clampTo(finite(play.delayMs, 0), ELEMENT_FX_LIMITS.delayMs),
 		intensity: clampTo(finite(play.intensity, 1), ELEMENT_FX_LIMITS.intensity),
@@ -658,6 +685,7 @@ export function playElementFx(
 		params: resolveElementFxParams(play.kind, play.params),
 		elapsedMs: 0,
 		held: false,
+		filters: [],
 		pose: play.pose,
 		resolve: () => {
 			resolve();
