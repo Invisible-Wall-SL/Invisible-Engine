@@ -33,9 +33,11 @@
  *     non-number, a value out of its channel's range, an unknown ease, too many keys, a pivot far
  *     off) is an error; so is a length that is not a number the runtime plays, or padding past 2.
  * 10. THE TWINS OF THE BUILT-INS (`BUILTIN_TWINS`, step 6): each compiles with no error, links and
- *     lints clean; its id is its kind and it is named as the kind is; its params deep-equal the
- *     kind's catalog params; its phase and length are the kind's; no kind has two; every pass kind
- *     has one, and a pass twin is the element as it is, then that pass with each param tied by id.
+ *     lints clean, within the phone's budget but for those named heavy (petrify, as heavy as its
+ *     built-in), each no heavier than named; its id is its kind and it is named as the kind is; its
+ *     params deep-equal the kind's catalog params; its phase and length are the kind's; no kind has
+ *     two; every pass kind has one, and a pass twin is the element as it is, then that pass with
+ *     each param tied by id.
  *     A node twin of a material built-in calls every library entry its built-in pass calls. The
  *     node twins' GLSL matches `snapshots/twins/<kind>.frag`. The per-element seed: a graph reading
  *     the Seed node gets `uSeed` (source `seed`), which the registry takes as a float only; a graph
@@ -62,6 +64,7 @@ import {
 } from 'constants-shared/elementFx';
 import { EFX_GLSL, linkGlsl } from 'constants-shared/glslLibrary';
 import {
+	SAMPLE_BUDGET,
 	compileShaderEffect,
 	compileShaderGraph,
 	glslFloat,
@@ -706,20 +709,37 @@ console.log('shader graph — the effect (a custom Element FX)');
 // -------------------------------------------------------------------------------------------------
 console.log('shader graph — the twins of the built-ins');
 {
+	// The twins over the phone budget, each as heavy as its built-in, and the most it may cost: a
+	// twin that grows heavier, or another that crosses the budget, fails.
+	const HEAVY: Record<string, number> = { petrify: 435 };
 	const failedTwins: string[] = [];
+	const lighter: string[] = [];
 	for (const twin of BUILTIN_TWINS) {
 		const r = compileShaderEffect(twin.doc);
+		const graph = compileShaderGraph(twin.doc);
+		const allowed = HEAVY[twin.kind];
+		// Only the work is excused, never the reads of the element.
+		const excused =
+			graph.ok &&
+			allowed !== undefined &&
+			graph.shader.cost <= allowed &&
+			graph.shader.samples <= SAMPLE_BUDGET;
 		const problems = r.ok
 			? [
 					...lint(r.effect.shader.body),
-					...r.warnings.filter((w) => w.code !== 'cost').map((w) => w.message),
+					...r.warnings.filter((w) => w.code !== 'cost' || !excused).map((w) => w.message),
 				]
 			: r.issues.filter((i) => i.level === 'error').map((i) => i.message);
 		if (problems.length) failedTwins.push(`${twin.kind}: ${problems.join('; ')}`);
+		if (allowed !== undefined && r.ok && !r.warnings.some((w) => w.code === 'cost'))
+			lighter.push(twin.kind);
 	}
+	const heavy = Object.entries(HEAVY)
+		.map(([kind, cost]) => `${kind} (at most ${cost})`)
+		.join(', ');
 	assert(
-		BUILTIN_TWINS.length > 0 && !failedTwins.length,
-		`every twin (${BUILTIN_TWINS.length}) compiles with no error, links and lints clean${failedTwins.length ? `: ${failedTwins.join(' | ')}` : ''}`,
+		BUILTIN_TWINS.length > 0 && !failedTwins.length && !lighter.length,
+		`every twin (${BUILTIN_TWINS.length}) compiles with no error, links and lints clean; only ${heavy} is over the phone's budget${failedTwins.length ? `: ${failedTwins.join(' | ')}` : ''}${lighter.length ? `; no longer heavy, take off HEAVY: ${lighter.join(', ')}` : ''}`,
 	);
 	const misnamed = BUILTIN_TWINS.filter(
 		(t) =>

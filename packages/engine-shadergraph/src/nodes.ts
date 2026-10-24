@@ -435,8 +435,8 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'0 at both ends, 1 in the middle.',
 		[progressIn()],
 		'float',
-		8,
-		(c) => `efxSinPi(clamp(${c.in.t}, 0.0, 1.0))`,
+		2,
+		(c) => `sin(PI * clamp(${c.in.t}, 0.0, 1.0))`,
 	),
 	one(
 		'swell',
@@ -445,11 +445,8 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'Up and back with no kink at the ends, so it repeats smoothly.',
 		[progressIn()],
 		'float',
-		8,
-		(c) => {
-			const s = c.local('float', `efxSinPi(${c.in.t})`);
-			return `(${s} * ${s})`;
-		},
+		2,
+		(c) => `(0.5 - 0.5 * cos(2.0 * PI * ${c.in.t}))`,
 	),
 	one(
 		'easeInOut',
@@ -488,11 +485,8 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'A wave from 0 to 1 and back, Rate times over the play.',
 		[progressIn(), f('rate', 'Rate', 1)],
 		'float',
-		9,
-		(c) => {
-			const s = c.local('float', `efxSinPi(${c.in.rate} * ${c.in.t})`);
-			return `(${s} * ${s})`;
-		},
+		2,
+		(c) => `(0.5 - 0.5 * cos(2.0 * PI * ${c.in.rate} * ${c.in.t}))`,
 	),
 	one(
 		'flicker',
@@ -980,21 +974,6 @@ export const SHADER_NODES: readonly NodeDef[] = [
 			};
 		},
 	},
-	one(
-		'curl',
-		'Page curl',
-		'uv',
-		'The element with a corner peeled back like a page (Corner 0 or 1 each way: 1, 1 is the bottom right), rolling over a cylinder Roll diagonals across whose axis has come Peel diagonals in from the corner. The flap’s back shows the element dimmed and the page darkens under the roll.',
-		[
-			port('corner', 'Corner', 'vec2', { default: [1, 1] }),
-			f('reach', 'Peel', 0.3),
-			f('radius', 'Roll', 0.1),
-		],
-		'vec4',
-		40,
-		(c) => `efxCurl(px, ${c.in.corner}, ${c.in.reach}, ${c.in.radius})`,
-		{ samples: 3 },
-	),
 
 	// --- colour and light ---
 	{
@@ -1151,6 +1130,21 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		14,
 		(c) => `efxReliefSlope(efxFromUnit(${c.in.uv}))`,
 		{ samples: 4 },
+	),
+	one(
+		'curl',
+		'Page curl',
+		'color',
+		'The element with a corner peeled back like a page (Corner 0 or 1 each way: 1, 1 is the bottom right), rolling over a cylinder Roll diagonals across whose axis has come Peel diagonals in from the corner. The flap’s back shows the element dimmed and the page darkens under the roll. A colour: it reads the element at this pixel itself, so a UV node before it does not move it.',
+		[
+			port('corner', 'Corner', 'vec2', { default: [1, 1] }),
+			f('reach', 'Peel', 0.3),
+			f('radius', 'Roll', 0.1),
+		],
+		'vec4',
+		40,
+		(c) => `efxCurl(px, ${c.in.corner}, ${c.in.reach}, ${c.in.radius})`,
+		{ samples: 3 },
 	),
 
 	// --- output ---

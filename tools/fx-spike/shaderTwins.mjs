@@ -5,28 +5,37 @@
  *
  * For every `BUILTIN_TWINS` entry, `shaderTwins.entry.ts` plays the built-in kind and its compiled
  * twin (`custom:<kind>`) through the real runtime in headless Chromium, on WebGL1 and WebGL2: the
- * same card, the same params, the same seed drawn for the element, posed at the same moments (8 for
- * the defaults and for each number param at its min and its max, 2 for a pass twin's; 2 for each
- * other choice option, a switch flipped, another colour, twice the strength, and a loop on its
- * second time round). Each pair is read back and compared pixel by pixel, with both motions at rest;
- * the motions are compared as numbers.
+ * same card, the same params, the same seed drawn for the element, posed at the same moments. Eight
+ * for the defaults, on the portrait card and on a landscape one twice as wide as tall, and for each
+ * number param at its min and its max (two for a pass twin's); two for each other choice option, a
+ * switch flipped, another colour, strength 0.3 and 2, and a loop on its second time round. Each pair
+ * is read back and compared pixel by pixel, with both motions at rest; the motions are compared as
+ * numbers.
  *
  * THE TOLERANCE. A pixel DIFFERS when one of its channels is more than THRESHOLD steps (of 255)
- * apart. A cell fails when more than SHARE of its drawn pixels differ, or when any differing pixel
- * has four differing neighbours (a PATCH). Why: the twin's GLSL is generated, the hand-written
- * pass's operations in another order, through locals, with an unpremultiply and a premultiply where
- * the pass stays premultiplied. That moves a value by its float's last bits, which a channel shows
- * as a step at most (when this was written, the largest difference was 1 on every twin but three).
- * Where a hard threshold (a step, a seam, a dissolve with no edge) passes through a pixel, those bits
- * can flip it all the way; such pixels stand alone or in one-pixel lines along the threshold (then:
- * at most 0.12% of a cell, never a patch). A real look difference, a wrong constant or a param read
- * wrong, moves a region: it makes patches, however faint, or many differing pixels. Mutation-checked:
- * one wrong constant in a twin fails it, down to a 1% change in a highlight's weight; a change that
- * moves no channel by more than 2 steps passes, as it is meant to.
+ * apart. A cell fails when more than SHARE of its drawn pixels differ (of the element's own area
+ * when less is drawn: a few flipped pixels are no share of a nearly gone element), or when any
+ * differing pixel has four differing neighbours (a PATCH). Why: the twin's GLSL is generated, the
+ * hand-written pass's operations in another order, through locals, with an unpremultiply and a
+ * premultiply where the pass stays premultiplied. That moves a value by its float's last bits,
+ * which a channel shows as a step at most (when this was written, the largest difference was 1 on
+ * every twin but three). Where a hard threshold (a step, a seam, a dissolve with no edge) passes
+ * through a pixel, those bits can flip it all the way; such pixels stand alone or in one-pixel lines
+ * along the threshold (then: a few in a cell, never a patch). A real look difference, a wrong
+ * constant or a param read wrong, moves a region: it makes patches, however faint, or many
+ * differing pixels. Mutation-checked: one wrong constant in a twin fails it, down to a 1% change in
+ * a highlight's weight; a change that moves no channel by more than 2 steps passes, as it is meant
+ * to, and so does a cut-off sliver of a pixel or two.
  *
- * Motions: the element's box corners within MOTION_PX of each other and its alpha within
- * MOTION_ALPHA, unless the twin names its motion gap (`BuiltinTwin.motionGap`: what the built-in
- * moves by that a curve cannot follow); then the gap is reported, not failed.
+ * ROOM. The built-in must draw nothing past the room the twin asks for (its filter area and its
+ * passes' padding), unless the twin names its padding gap (`BuiltinTwin.paddingGap`: the built-in's
+ * room grows with a param, the strength or the play, the doc's is fixed); then the two are compared
+ * within the twin's room, and what the built-in draws past it is reported.
+ *
+ * MOTIONS: the element's box corners within MOTION_PX of each other and its alpha within
+ * MOTION_ALPHA. A twin that names its motion gap (`BuiltinTwin.motionGap`: what the built-in moves
+ * by that a curve cannot follow) is excused, and reported, everywhere but at the defaults on the
+ * portrait card, unless it says the gap shows there too (`motionGapAtDefaults`).
  *
  *   pnpm --filter fx-spike shader-twins [--only freeze,burn] [--dump <dir>]
  *
@@ -44,7 +53,7 @@ const THRESHOLD = 2;
 const SHARE = 0.0025;
 const MOTION_PX = 0.25;
 const MOTION_ALPHA = 0.5 / 255;
-const DRAW_MS = 300_000;
+const DRAW_MS = 120_000;
 const FAILED = /^\[(error|assert|uncaught)\]/;
 
 const arg = (name) => {
@@ -116,7 +125,7 @@ const kinds = [...new Set(Object.values(runs).flatMap((r) => r.twins.map((t) => 
 if (!kinds.length) failed.push('no twin was compared');
 const rows = [];
 for (const kind of kinds) {
-	const row = { kind, gl: {}, motion: '', ms: 0 };
+	const row = { kind, gl: {}, motion: '', room: '', ms: 0 };
 	for (const gl of [1, 2]) {
 		const run = runs[gl];
 		const twin = run?.twins.find((t) => t.kind === kind);
@@ -125,34 +134,46 @@ for (const kind of kinds) {
 			continue;
 		}
 		const at = run.steps.indexOf(THRESHOLD);
-		const stat = { max: 0, share: 0, patch: 0, cell: undefined };
+		const stat = { max: 0, share: 0, patch: 0, cell: undefined, beyond: 0, past: undefined };
 		for (const cell of twin.cells) {
-			const share = cell.drawn ? cell.over[at] / cell.drawn : 0;
+			if (cell.beyond > stat.beyond) Object.assign(stat, { beyond: cell.beyond, past: cell });
+			if (cell.beyond && !twin.paddingGap)
+				failed.push(
+					`${kind}: WebGL${gl}, ${cell.label}, at ${cell.moment}: the built-in draws ${cell.beyond} px past the room the twin asks for, and the twin names no padding gap`,
+				);
+			const share = cell.over[at] / Math.max(cell.drawn, cell.area);
 			const patch = cell.solid[at];
 			stat.max = Math.max(stat.max, cell.max);
 			stat.patch = Math.max(stat.patch, patch);
 			if (share > stat.share) Object.assign(stat, { share, cell });
 			if (share > SHARE || patch)
 				failed.push(
-					`${kind}: WebGL${gl}, ${cell.label}, at ${cell.moment}: ${pct(share)} of its ${cell.drawn} drawn pixels differ by more than ${THRESHOLD}, ${patch} in patches (largest difference ${cell.max})`,
+					`${kind}: WebGL${gl}, ${cell.label}, at ${cell.moment}: ${pct(share)} of its ${Math.max(cell.drawn, cell.area)} pixels (${cell.drawn} drawn) differ by more than ${THRESHOLD}, ${patch} in patches (largest difference ${cell.max})`,
 				);
 		}
 		row.gl[gl] = stat;
 		row.ms += twin.ms;
+		if (stat.past)
+			row.room = `; past its room: ${stat.beyond} px (${stat.past.label}@${stat.past.moment}, its padding gap)`;
 	}
 	const twin = (runs[1] ?? runs[2])?.twins.find((t) => t.kind === kind);
 	if (twin) {
-		const px = Math.max(0, ...twin.motions.map((m) => m.px));
+		const worst = twin.motions.reduce((w, m) => (m.px > w.px ? m : w), twin.motions[0]);
+		const px = worst?.px ?? 0;
 		const alpha = Math.max(0, ...twin.motions.map((m) => m.alpha));
-		const off = twin.motions.find((m) => m.px > MOTION_PX || m.alpha > MOTION_ALPHA);
 		const atDefaults = Math.max(
 			0,
 			...twin.motions.filter((m) => m.label === 'defaults').map((m) => m.px),
 		);
-		row.motion = `${px.toFixed(3)} px, alpha ${alpha.toFixed(4)}${off && twin.motionGap ? ` (its gap; ${atDefaults.toFixed(3)} px at the defaults)` : ''}`;
-		if (off && !twin.motionGap)
+		// A named gap excuses the motion everywhere but at the defaults, unless it says so there too.
+		const excused = (m) => !!twin.motionGap && (m.label !== 'defaults' || twin.motionGapAtDefaults);
+		const off = twin.motions.find(
+			(m) => (m.px > MOTION_PX || m.alpha > MOTION_ALPHA) && !excused(m),
+		);
+		row.motion = `${px.toFixed(3)} px${px > MOTION_PX ? ` (${worst.label}@${worst.moment})` : ''}, alpha ${alpha.toFixed(4)}${twin.motionGap ? ` (its gap; ${atDefaults.toFixed(3)} px at the defaults${twin.motionGapAtDefaults ? ', named there too' : ''})` : ''}`;
+		if (off)
 			failed.push(
-				`${kind}: its motion is ${off.px.toFixed(3)} px and alpha ${off.alpha.toFixed(4)} off the built-in's (${off.label}, at ${off.moment})`,
+				`${kind}: its motion is ${off.px.toFixed(3)} px and alpha ${off.alpha.toFixed(4)} off the built-in's (${off.label}, at ${off.moment})${twin.motionGap ? ', where its gap does not excuse it' : ''}`,
 			);
 	}
 	rows.push(row);
@@ -168,7 +189,9 @@ console.log(
 	`\ntwin          WebGL1: largest, worst share > ${THRESHOLD}  WebGL2: largest, worst share > ${THRESHOLD}  motion (box corners, alpha)`,
 );
 for (const row of rows)
-	console.log(`${row.kind.padEnd(13)} ${statOf(row.gl[1])} ${statOf(row.gl[2])} ${row.motion}`);
+	console.log(
+		`${row.kind.padEnd(13)} ${statOf(row.gl[1])} ${statOf(row.gl[2])} ${row.motion}${row.room}`,
+	);
 const seconds = ((Date.now() - began) / 1000).toFixed(1);
 const pages = [1, 2]
 	.map((gl) => (runs[gl] ? `WebGL${gl} ${(runs[gl].ms / 1000).toFixed(1)} s` : ''))

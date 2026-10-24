@@ -123,9 +123,8 @@ const dissolve = (kind: 'dissolveOut' | 'dissolveIn'): BuiltinTwin => {
 
 const melt = (): BuiltinTwin => {
 	const g = twinGraph('melt', {
-		// The built-in's room grows with the drips (length × strength × how far it has run); a doc's
-		// is fixed, so the twin takes the most a doc may: room for the longest drips at strength 1.
-		padding: 2,
+		// The built-in's room at the end of a play at the defaults: 1.45 × the Drip length 0.8.
+		padding: 1.16,
 		motion: {
 			channels: {
 				alpha: [
@@ -162,7 +161,12 @@ const melt = (): BuiltinTwin => {
 	const heat = g.min(g.mul(g.param('color'), 1.4), 1);
 	const rgb = g.mix(ran.rgb, heat, g.mul(g.param('heat'), runny));
 	g.output(join(g, rgb, g.mul(ran.alpha, g.mul(g.step(0, v), g.step(v, 1)))));
-	return { kind: 'melt', doc: g.doc() };
+	return {
+		kind: 'melt',
+		doc: g.doc(),
+		paddingGap:
+			'The built-in makes room for the drips as they run: 1.45 × Drip length × strength × how far it has melted, in element heights. A doc’s padding is fixed, so the twin keeps 1.16 of the element’s larger side, the room the defaults end with; longer drips or a stronger play are cut off at that.',
+	};
 };
 
 const freeze = (): BuiltinTwin => {
@@ -206,7 +210,7 @@ const freeze = (): BuiltinTwin => {
 		kind: 'freeze',
 		doc: g.doc(),
 		motionGap:
-			'The shiver as the ice locks in follows the seconds played and comes when the Hold param says; the x curve is that shiver at the default hold and length.',
+			'The shiver as the ice locks in follows the seconds played, comes when the Hold param says and reaches 1.2% of the element’s shorter side; the x curve is that shiver at the default hold and length, in widths, so an element wider than tall shivers further.',
 	};
 };
 
@@ -346,6 +350,7 @@ const poison = (): BuiltinTwin => {
 		doc: g.doc(),
 		motionGap:
 			'The sway eases in and out with the loop envelope when the effect plays a set number of times; a curve cannot tell a looping play from a counted one, so the twin always sways at full strength, as the built-in does while it loops.',
+		motionGapAtDefaults: true,
 	};
 };
 
@@ -386,6 +391,7 @@ const electrocute = (): BuiltinTwin => {
 		doc: g.doc(),
 		motionGap:
 			'The element jitters by sines of the seconds played, up to 25 times a second: far past what 32 curve keys can follow, so the twin does not jitter.',
+		motionGapAtDefaults: true,
 	};
 };
 

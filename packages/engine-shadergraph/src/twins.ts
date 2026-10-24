@@ -18,10 +18,19 @@ export interface BuiltinTwin {
 	doc: ShaderGraphDoc;
 	/**
 	 * Why the twin's motion only approximates the built-in's, when it does: what the built-in moves
-	 * by that a curve over the play cannot follow (the seconds played, a param, looping). The gate
-	 * holds every other twin's motion, and every twin's pixels, to parity.
+	 * by that a curve over the play cannot follow (the seconds played, a param, looping, the
+	 * element's shape). The gate holds every other twin's motion, and every twin's pixels, to parity;
+	 * and this one's too at the defaults, unless {@link motionGapAtDefaults}.
 	 */
 	motionGap?: string;
+	/** The motion gap shows at the kind's defaults too, on the gate's card. */
+	motionGapAtDefaults?: true;
+	/**
+	 * Why the twin's room around the element (its doc's fixed padding) is short of the built-in's
+	 * in some plays, when it is: the built-in's grows with its params, strength or progress. The gate
+	 * then compares the two within the twin's room and reports what the built-in draws past it.
+	 */
+	paddingGap?: string;
 }
 
 export const BUILTIN_TWINS: readonly BuiltinTwin[] = [

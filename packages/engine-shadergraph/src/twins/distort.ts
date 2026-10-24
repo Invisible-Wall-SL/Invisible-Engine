@@ -14,6 +14,14 @@ type Graph = ReturnType<typeof twinGraph>;
 
 const TAU = 2 * Math.PI;
 
+/**
+ * The built-ins' bell (`sin(π t)`) and swell (`0.5 − 0.5 cos(2π t)`) on Oscillate, whose sine is
+ * exact to the last digits: a GPU's own sin can be 1e-4 off, which a twist of three turns shows.
+ */
+const bell = (g: Graph, t: In): Ref => g.node('oscillate', { t, rate: 0.5 }).out;
+const swell = (g: Graph, t: In): Ref =>
+	g.sub(0.5, g.mul(0.5, g.node('oscillate', { t, phase: 0.25 }).out));
+
 /** `color` (premultiplied) with its colour scaled by `k`, its alpha kept. */
 const scaleColor = (g: Graph, color: In, k: In): Ref => g.mul(color, g.combine(k, k, k, 1).xyzw);
 
@@ -39,7 +47,7 @@ function flip(kind: 'flipX' | 'flipY'): BuiltinTwin {
 	const { progress, intensity, looping } = g.time();
 	const turned = g.mix(g.node('easeInOut', { t: progress }).out, progress, looping);
 	const angle = g.mul(g.mul(g.param('turns'), 360), turned);
-	const lift = g.mul(g.mul(intensity, 0.12), g.node('bell', { t: progress }).out);
+	const lift = g.mul(g.mul(intensity, 0.12), bell(g, progress));
 	const focal = g.node('remap', { x: g.param('perspective'), outMin: 6, outMax: 1.4 }).out;
 	const plane = g.node('perspective', {
 		turnX: kind === 'flipY' ? angle : 0,
@@ -186,11 +194,7 @@ function flag(): BuiltinTwin {
 function twist(): BuiltinTwin {
 	const g = twinGraph('twist', {});
 	const { progress, intensity, looping } = g.time();
-	const k = g.mix(
-		g.node('bell', { t: progress }).out,
-		g.node('oscillate', { t: progress }).out,
-		looping,
-	);
+	const k = g.mix(bell(g, progress), g.node('oscillate', { t: progress }).out, looping);
 	const angle = g.mul(g.mul(g.param('angle'), intensity), k);
 	const at = g.node('twist', { angle, radius: g.param('radius') }).out;
 	g.output(g.node('sample', { uv: at }).out);
@@ -205,7 +209,7 @@ function curl(): BuiltinTwin {
 	const g = twinGraph('curl', {});
 	const { progress, intensity, looping } = g.time();
 	const once = g.node('hold', { t: progress, hold: 0.1 }).out;
-	const peel = g.mix(once, g.node('swell', { t: progress }).out, looping);
+	const peel = g.mix(once, swell(g, progress), looping);
 	const amount = g.min(g.mul(g.param('amount'), intensity), 1);
 	const roll = g.param('radius');
 	const reach = g.mul(g.mul(peel, amount), g.add(g.mul(roll, Math.PI), 1));
@@ -239,8 +243,10 @@ function bulge(): BuiltinTwin {
 	const g = twinGraph('bulge', {});
 	const { progress, intensity } = g.time();
 	const strength = g.clamp(g.mul(g.param('strength'), intensity), -1, 1);
-	const swell = g.node('swell', { t: progress }).out;
-	const at = g.node('bulge', { strength: g.mul(strength, swell), radius: g.param('radius') }).out;
+	const at = g.node('bulge', {
+		strength: g.mul(strength, swell(g, progress)),
+		radius: g.param('radius'),
+	}).out;
 	g.output(g.node('sample', { uv: at }).out);
 	return { kind: 'bulge', doc: g.doc() };
 }

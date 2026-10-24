@@ -17,7 +17,7 @@ void main(void)
     float n4_out = mix(n3_out, n2_progress, n2_looping);
     float n5_out = (n1_out * n4_out);
     float n6_out = (n2_intensity * 0.12);
-    float n7_out = efxSinPi(clamp(n2_progress, 0.0, 1.0));
+    float n7_out = efxSinPi(2.0 * (0.5 * n2_progress + 0.0));
     float n8_out = (n6_out * n7_out);
     float n9_out = uP1;
     float n10_out = mix(6.0, 1.4, clamp((n9_out - 0.0) / (1.0 - 0.0), 0.0, 1.0));

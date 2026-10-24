@@ -2,13 +2,14 @@
  * The page `shaderTwins.mjs` drives: every graph twin of a built-in (`BUILTIN_TWINS`) played beside
  * its built-in through the real Element FX runtime, on WebGL1 or WebGL2 (`?gl=`), and compared.
  *
- * Each CASE (the defaults, each number param at its min and its max, each other choice option, each
- * switch flipped, another colour, twice the strength, and playing in a loop) is posed or played to
- * the same moments on both: the same card, the same frame, the same seed drawn for the element (the
- * page seeds `Math.random` before each play), the same params. A case's built-in plays and twin plays
- * are drawn as one texture, a row each and a cell per moment, and read back; the page reports, per
- * cell, how many drawn pixels differ by more than each of a few channel steps, and leaves the verdict
- * to the script.
+ * Each CASE (the defaults, on a portrait card and a landscape one; each number param at its min and
+ * its max; each other choice option, each switch flipped, another colour, strength 0.3 and 2, and
+ * playing in a loop) is posed or played to the same moments on both: the same card, the same frame,
+ * the same seed drawn for the element (the page seeds `Math.random` before each play), the same
+ * params. A case's built-in plays and twin plays are drawn as one texture, a row each and a cell per
+ * moment, and read back; the page reports, per cell, how many drawn pixels differ by more than each
+ * of a few channel steps, and how many the built-in draws past the twin's room, and leaves the
+ * verdict to the script.
  *
  * Pixels are compared with both motions held at rest, so a shader is judged by what it draws; the
  * motions are compared as numbers (where the corners of the element's box land, its alpha), the
@@ -52,9 +53,19 @@ const SOME = [0.18, 0.7];
 const OTHER_COLOR = '#e0457b';
 /** Channel steps (of 255) the page counts differing pixels past. */
 const STEPS = [1, 2, 4, 8, 16, 32, 64, 128];
-/** The card's box in its own space, and the room the runtime's filter area gives it (`areaFor`). */
-const BOX = { width: 124, height: 144 };
-const MARGIN = 0.25 * Math.max(BOX.width, BOX.height);
+/**
+ * The cards' boxes in their own space: the parity harness's portrait card, and a landscape one
+ * twice as wide as tall, so a size read off the width, the height or the shorter side shows which.
+ */
+const BOXES = {
+	portrait: { width: 124, height: 144 },
+	landscape: { width: 240, height: 120 },
+} as const;
+type Shape = keyof typeof BOXES;
+
+/** The room the runtime's filter area gives a box on every side (`areaFor`). */
+const marginOf = (shape: Shape): number =>
+	Math.min(256, Math.max(8, 0.25 * Math.max(BOXES[shape].width, BOXES[shape].height)));
 
 interface Case {
 	label: string;
@@ -62,6 +73,8 @@ interface Case {
 	moments: readonly number[];
 	intensity?: number;
 	looping?: boolean;
+	/** Unset: portrait. */
+	shape?: Shape;
 }
 
 /**
@@ -71,7 +84,10 @@ interface Case {
  * they are checked at fewer moments (glow's widest reach costs seconds a cell in a software GPU).
  */
 const casesFor = (kind: ElementFxKind, passOnly: boolean): Case[] => {
-	const cases: Case[] = [{ label: 'defaults', params: {}, moments: MOMENTS }];
+	const cases: Case[] = [
+		{ label: 'defaults', params: {}, moments: MOMENTS },
+		{ label: 'landscape', params: {}, moments: MOMENTS, shape: 'landscape' },
+	];
 	for (const p of elementFxSpec(kind).params) {
 		if (p.kind === 'number') {
 			for (const value of [p.min, p.max])
@@ -94,6 +110,7 @@ const casesFor = (kind: ElementFxKind, passOnly: boolean): Case[] => {
 			});
 		}
 	}
+	cases.push({ label: 'intensity=0.3', params: {}, intensity: 0.3, moments: SOME });
 	cases.push({ label: 'intensity=2', params: {}, intensity: 2, moments: SOME });
 	cases.push({ label: 'looping', params: {}, looping: true, moments: SOME });
 	return cases;
@@ -109,8 +126,8 @@ const frameOf = (kind: ElementFxKind, c: Case, moment: number): FxFrame => {
 		intensity: c.intensity ?? 1,
 		params: resolveElementFxParams(kind, c.params),
 		looping: !!c.looping,
-		width: BOX.width,
-		height: BOX.height,
+		width: BOXES[c.shape ?? 'portrait'].width,
+		height: BOXES[c.shape ?? 'portrait'].height,
 	};
 };
 
@@ -118,16 +135,26 @@ const frameOf = (kind: ElementFxKind, c: Case, moment: number): FxFrame => {
  * The test card: the parity harness's (a rounded card, a star, a bar), its gradient running across
  * it and a translucent disc on it, so the brightness, the relief and the premultiplied edges vary.
  */
-const makeCard = (fill: FillGradient): Container => {
+const makeCard = (fill: FillGradient, shape: Shape): Container => {
 	const card = new Container();
+	const { width, height } = BOXES[shape];
+	const [w, h] = [width - 4, height - 4];
 	card.addChild(
 		new Graphics()
-			.roundRect(-60, -70, 120, 140, 18)
+			.roundRect(-w / 2, -h / 2, w, h, 18)
 			.fill(fill)
 			.stroke({ width: 4, color: 0xffffff }),
-		new Graphics().star(0, -10, 5, 34, 16).fill(0xffffff),
-		new Graphics().rect(-40, 30, 80, 16).fill(0x111111),
-		new Graphics().circle(32, 42, 16).fill({ color: 0x22ff88, alpha: 0.5 }),
+		...(shape === 'portrait'
+			? [
+					new Graphics().star(0, -10, 5, 34, 16).fill(0xffffff),
+					new Graphics().rect(-40, 30, 80, 16).fill(0x111111),
+					new Graphics().circle(32, 42, 16).fill({ color: 0x22ff88, alpha: 0.5 }),
+				]
+			: [
+					new Graphics().star(-50, -4, 5, 34, 16).fill(0xffffff),
+					new Graphics().rect(10, 18, 80, 16).fill(0x111111),
+					new Graphics().circle(70, -20, 16).fill({ color: 0x22ff88, alpha: 0.5 }),
+				]),
 	);
 	return card;
 };
@@ -181,30 +208,45 @@ const play = (
 	if (c.looping) advance((1 + moment) * durationMs);
 };
 
+/** A rectangle of a cell, in its pixels. */
+interface Region {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
 /**
- * The cell at `ax` against the one at `bx`, `rowB` rows down. Per step: its drawn pixels whose
- * largest channel difference is past it (`over`), and those of them whose four neighbours are past
- * it too (`solid`: inside a patch that differs, not a pixel or a line on the edge of a threshold);
- * and the largest difference.
+ * The cell at `x0` in the top row (the built-in) against the one below it (the twin), `height`
+ * rows down. Per step: its drawn pixels whose largest channel difference is past it (`over`), and
+ * those of them whose four neighbours are past it too (`solid`: inside a patch that differs, not a
+ * pixel or a line on the edge of a threshold); and the largest difference. Within `within` only,
+ * when given (the twin's room, for a twin that names its padding gap); `beyond` counts the
+ * built-in's drawn pixels outside the twin's `room`.
  */
 const compare = (
 	pixels: Uint8ClampedArray,
 	stride: number,
-	ax: number,
-	bx: number,
-	rowB: number,
+	x0: number,
 	width: number,
 	height: number,
+	room: Region,
+	within?: Region,
 ) => {
 	const over = STEPS.map(() => 0);
 	const solid = STEPS.map(() => 0);
 	const diff = new Uint8Array(width * height);
+	const inside = (r: Region, x: number, y: number): boolean =>
+		x >= r.x && y >= r.y && x < r.x + r.width && y < r.y + r.height;
 	let drawn = 0;
 	let max = 0;
+	let beyond = 0;
 	for (let y = 0; y < height; y++) {
-		let a = (y * stride + ax) * 4;
-		let b = ((y + rowB) * stride + bx) * 4;
+		let a = (y * stride + x0) * 4;
+		let b = ((y + height) * stride + x0) * 4;
 		for (let x = 0; x < width; x++, a += 4, b += 4) {
+			if (pixels[a + 3] && !inside(room, x, y)) beyond++;
+			if (within && !inside(within, x, y)) continue;
 			if (!pixels[a + 3] && !pixels[b + 3]) continue;
 			drawn++;
 			const d = Math.max(
@@ -225,7 +267,7 @@ const compare = (
 			for (let s = 0; s < STEPS.length && d > STEPS[s]; s++) solid[s]++;
 		}
 	}
-	return { drawn, max, over, solid };
+	return { drawn, max, over, solid, beyond };
 };
 
 /** One cell of the texture as a PNG, for `--dump`. */
@@ -329,8 +371,13 @@ const motionGap = (builtIn: KindImpl, twin: KindImpl, frame: FxFrame) => {
 	});
 	// A row of built-in plays over a row of twin plays, a card per cell: the runtime puts each back
 	// at rest after its play, so the cards serve every case.
-	const holder = new Container();
-	const cards = Array.from({ length: 2 * MOMENTS.length }, () => holder.addChild(makeCard(fill)));
+	const holders = Object.fromEntries(
+		(Object.keys(BOXES) as Shape[]).map((shape) => {
+			const holder = new Container();
+			for (let k = 0; k < 2 * MOMENTS.length; k++) holder.addChild(makeCard(fill, shape));
+			return [shape, holder];
+		}),
+	) as Record<Shape, Container>;
 	const report = console.error.bind(console);
 	const results = [];
 	const dumps: { label: string; builtIn: string; twin: string }[] = [];
@@ -348,6 +395,9 @@ const motionGap = (builtIn: KindImpl, twin: KindImpl, frame: FxFrame) => {
 		for (const c of casesFor(kind, passOnly)) {
 			console.error = (...args: unknown[]) => report(`${kind} ${c.label}:`, ...args);
 			const seeds = c.moments.map(() => (seed += 7919));
+			const shape = c.shape ?? 'portrait';
+			const holder = holders[shape];
+			const cards = holder.children;
 			cards.forEach((card, k) => {
 				const at = k % MOMENTS.length;
 				const side = Math.floor(k / MOMENTS.length);
@@ -360,11 +410,23 @@ const motionGap = (builtIn: KindImpl, twin: KindImpl, frame: FxFrame) => {
 			});
 			KINDS[kind] = builtIn;
 			// Each cell reaches as far past the filter area as the most room any card's passes take.
-			const room = Math.max(
-				...cards.map((card) => (card.filters ?? []).reduce((sum, f) => sum + f.padding, 0)),
-			);
-			const reach = Math.ceil(MARGIN + room) + 2;
-			const [w, h] = [BOX.width + 2 * reach, BOX.height + 2 * reach];
+			const padding = (card: Container): number =>
+				(card.filters ?? []).reduce((sum, f) => sum + f.padding, 0);
+			const reach = Math.ceil(marginOf(shape) + Math.max(...cards.map(padding))) + 2;
+			const box = BOXES[shape];
+			const [w, h] = [box.width + 2 * reach, box.height + 2 * reach];
+			// Where each twin play may draw: its filter area and its passes' padding, in its cell.
+			const rooms = c.moments.map((_, k): Region => {
+				const card = cards[MOMENTS.length + k];
+				const area = card.filterArea ?? { x: 0, y: 0, width: 0, height: 0 };
+				const pad = padding(card);
+				return {
+					x: Math.ceil(w / 2 + area.x - pad),
+					y: Math.ceil(h / 2 + area.y - pad),
+					width: Math.floor(area.width + 2 * pad),
+					height: Math.floor(area.height + 2 * pad),
+				};
+			});
 			cards.forEach((card, k) =>
 				card.position.set(
 					(k % MOMENTS.length) * w + w / 2,
@@ -382,8 +444,12 @@ const motionGap = (builtIn: KindImpl, twin: KindImpl, frame: FxFrame) => {
 			console.error = report;
 			const stride = target.width;
 			c.moments.forEach((moment, k) => {
-				const diff = compare(pixels, stride, k * w, k * w, h, w, h);
-				cells.push({ label: c.label, moment, ...diff });
+				const room = rooms[k];
+				const within = twin.paddingGap
+					? { x: room.x + 1, y: room.y + 1, width: room.width - 2, height: room.height - 2 }
+					: undefined;
+				const diff = compare(pixels, stride, k * w, w, h, room, within);
+				cells.push({ label: c.label, moment, area: box.width * box.height, ...diff });
 				const off = diff.over[step] / Math.max(1, diff.drawn) > dumpPast || diff.solid[step] > 0;
 				if (Number.isFinite(dumpPast) && off)
 					dumps.push({
@@ -402,6 +468,8 @@ const motionGap = (builtIn: KindImpl, twin: KindImpl, frame: FxFrame) => {
 		results.push({
 			kind,
 			motionGap: twin.motionGap ?? null,
+			motionGapAtDefaults: !!twin.motionGapAtDefaults,
+			paddingGap: twin.paddingGap ?? null,
 			ms: Math.round(performance.now() - twinBegan),
 			cells,
 			motions,

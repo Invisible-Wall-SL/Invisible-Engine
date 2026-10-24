@@ -14,6 +14,8 @@
  * `elementFx` list), which already ships: no new asset class (rule 8).
  */
 
+import { unknownEfxCalls } from './glslLibrary';
+
 /** `custom`: an effect authored in Invisible Shader Graph ({@link CustomElementFx}). */
 export type ElementFxCategory = 'motion' | '3d' | 'distort' | 'light' | 'break' | 'custom';
 
@@ -1504,10 +1506,17 @@ export function readCustomElementFx(raw: unknown): CustomElementFx | undefined {
 	}
 	const params = new Map((spec.params as ElementFxParamSpec[]).map((param) => [param.id, param]));
 	const uniforms = shader.uniforms;
+	const seeds = Array.isArray(uniforms)
+		? uniforms.filter((u) => isRecord(u) && isRecord(u.source) && u.source.kind === 'seed')
+		: [];
 	if (
 		typeof shader.body !== 'string' ||
 		!shader.body ||
+		// A pass calling a library entry this version lacks (compiled by a newer Shader Graph) would
+		// fail on the GPU: it plays nothing instead.
+		unknownEfxCalls(shader.body).length ||
 		!Array.isArray(uniforms) ||
+		seeds.length > 1 ||
 		!uniforms.every(
 			(u) =>
 				isRecord(u) &&

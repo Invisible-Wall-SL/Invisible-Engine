@@ -12,7 +12,7 @@ void main(void)
     float n1_intensity = uFx.z;
     float n1_looping = uFx.w;
     float n2_out = (n0_out * n1_intensity);
-    float n3_out = efxSinPi(clamp(n1_progress, 0.0, 1.0));
+    float n3_out = efxSinPi(2.0 * (0.5 * n1_progress + 0.0));
     float n4_out = efxSinPi(2.0 * (1.0 * n1_progress + 0.0));
     float n5_out = mix(n3_out, n4_out, n1_looping);
     float n6_out = (n2_out * n5_out);

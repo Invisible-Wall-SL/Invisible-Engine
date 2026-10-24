@@ -617,15 +617,47 @@ vec2 efxSparkle(vec2 q, float seed, float time)
 }`,
 };
 
+/**
+ * The functions the pass header (`HEADER` in pixi-svelte's `elementFx/shaders.ts`) declares in front
+ * of every pass, which a pass calls beside the library's entries. `check:element-fx` holds this list
+ * to what the header declares.
+ */
+export const EFX_HEADER_FUNCTIONS = [
+	'efxPx',
+	'efxArea',
+	'efxSize',
+	'efxOrigin',
+	'efxCenter',
+	'efxToUnit',
+	'efxFromUnit',
+	'efxSample',
+	'efxInside',
+] as const;
+
+const live = (code: string): string =>
+	code.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+
 /** The library entries `code` calls (comments aside), in the order it first calls them. */
 const calls = (code: string, self?: string): string[] => {
 	const names: string[] = [];
-	const live = code.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
-	for (const [, name] of live.matchAll(/\b(efx[A-Za-z0-9]+)\s*\(/g)) {
+	for (const [, name] of live(code).matchAll(/\b(efx[A-Za-z0-9]+)\s*\(/g)) {
 		if (name !== self && name in EFX_GLSL && !names.includes(name)) names.push(name);
 	}
 	return names;
 };
+
+/**
+ * The `efx…` functions `code` calls that neither this library nor the pass header has: what this
+ * version cannot link. A pass compiled by a newer Shader Graph, calling an entry added since, shows
+ * here, and the custom-effect registry leaves it out rather than hand the GPU a shader that fails.
+ */
+export function unknownEfxCalls(code: string): string[] {
+	const header: readonly string[] = EFX_HEADER_FUNCTIONS;
+	const names = [...live(code).matchAll(/\b(efx[A-Z]\w*)\s*\(/g)].map(([, name]) => name);
+	return [...new Set(names)].filter(
+		(name) => !Object.hasOwn(EFX_GLSL, name) && !header.includes(name),
+	);
+}
 
 /**
  * `body` with the library entries it calls in front of it, theirs first: each entry once, only
