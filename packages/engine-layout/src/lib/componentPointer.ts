@@ -44,11 +44,13 @@ interface Press {
 
 export class PointerGesture {
 	private press: Press | undefined;
+	private readonly send: (event: NodeListenerEvent, at: PointerAt) => void;
+	private readonly slop: number;
 
-	constructor(
-		private readonly send: (event: NodeListenerEvent, at: PointerAt) => void,
-		private readonly slop = DRAG_SLOP,
-	) {}
+	constructor(send: (event: NodeListenerEvent, at: PointerAt) => void, slop = DRAG_SLOP) {
+		this.send = send;
+		this.slop = slop;
+	}
 
 	/** The reading at `local` (`global` on the stage), against the press when there is one. */
 	at(local: PointerPoint, global: PointerPoint): PointerAt {
