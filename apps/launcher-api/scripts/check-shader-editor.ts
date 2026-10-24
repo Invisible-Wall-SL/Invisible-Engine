@@ -13,11 +13,19 @@
  *   4. The canvas shows each node's errors on it, the resolved port types and the wired inputs,
  *      even while the effect has an error of its own; read-only, nothing on it can change.
  *   5. The client's id is the store's: `slugOf` agrees with the server's `shaderSlug`.
+ *   6. Start from a built-in: a twin starts a graph that keeps its build under a new id, and the
+ *      New menu lists every twin once, by the catalog's families.
  *
  *   pnpm --filter launcher-api check:shader-editor
  */
-import { isCustomElementFxKind } from 'constants-shared/elementFx';
 import {
+	ELEMENT_FX_CATEGORIES,
+	elementFxSpec,
+	isCustomElementFxKind,
+} from 'constants-shared/elementFx';
+import {
+	BUILTIN_TWINS,
+	REFERENCE_GRAPHS,
 	analyzeShaderGraph,
 	compileShaderEffect,
 	compileShaderGraph,
@@ -31,6 +39,7 @@ import {
 	canConnect,
 	canvasGraph,
 	connect,
+	docFromTwin,
 	docIssues,
 	libraryGroups,
 	moveNode,
@@ -45,6 +54,7 @@ import {
 	setPass,
 	setPivot,
 	slugOf,
+	twinGroups,
 	wireId,
 } from '../src/routes/(app)/shaders/shaderEditor.ts';
 
@@ -344,6 +354,85 @@ for (const name of ['Glow', 'Power Up!', '__x', '---', '', 'Ünïcode', 'a'.repe
 	check(`the client keys "${name}" as the store does`, slugOf(name), shaderSlug(name));
 	check(`…a valid custom kind`, isCustomElementFxKind(`custom:${slugOf(name)}`), true);
 }
+
+// ── 6 ──
+console.log('6. start from a built-in');
+const powerUp = REFERENCE_GRAPHS.find((g) => g.id === 'powerUp') as ShaderGraphDoc;
+const frost = REFERENCE_GRAPHS.find((g) => g.id === 'frost') as ShaderGraphDoc;
+for (const kind of ['glow', 'bounce3D', 'melt'] as const) {
+	const twin = BUILTIN_TWINS.find((t) => t.kind === kind);
+	if (!twin) {
+		check(`the ${kind} twin exists`, false, true);
+		continue;
+	}
+	const started = docFromTwin(twin, `my_${kind}`, `My ${kind}`);
+	check(
+		`starting from ${kind} keeps its build under the new id and name`,
+		[
+			started.id,
+			started.name,
+			json(started.nodes) === json(twin.doc.nodes),
+			json(started.params) === json(twin.doc.params),
+			json(started.passes) === json(twin.doc.passes),
+			json(started.motion) === json(twin.doc.motion),
+			started.padding === twin.doc.padding,
+		],
+		[`my_${kind}`, `My ${kind}`, true, true, true, true, true],
+	);
+	check('…compiles', compileShaderEffect(started).ok, true);
+	check('…and leaves the twin as it was', twin.doc.id, kind);
+}
+const has = (kind: string, key: 'passes' | 'motion' | 'padding'): boolean =>
+	BUILTIN_TWINS.find((t) => t.kind === kind)?.doc[key] !== undefined;
+check(
+	'…which carry what is to keep: passes (glow), motion and padding (bounce 3D), padding (melt)',
+	[
+		has('glow', 'passes'),
+		has('bounce3D', 'motion'),
+		has('bounce3D', 'padding'),
+		has('melt', 'padding'),
+	],
+	[true, true, true, true],
+);
+const groups = twinGroups([
+	{ kind: 'freeze', doc: frost },
+	{ kind: 'glow', doc: powerUp },
+	{ kind: 'twist', doc: frost },
+]);
+check(
+	'the menu lists each twin once, under its catalog family, families in catalog order',
+	groups.map((g) => [g.id, g.twins.map((t) => t.kind)]),
+	(() => {
+		const byFamily = new Map<string, string[]>();
+		for (const kind of ['freeze', 'glow', 'twist'] as const) {
+			const family = elementFxSpec(kind).category;
+			byFamily.set(family, [...(byFamily.get(family) ?? []), kind]);
+		}
+		return ELEMENT_FX_CATEGORIES.filter((c) => byFamily.has(c.id)).map((c) => [
+			c.id,
+			byFamily.get(c.id),
+		]);
+	})(),
+);
+check(
+	'a twin that is only close says where and why, in the menu',
+	twinGroups([
+		{ kind: 'freeze', doc: frost, motionGap: 'follows the seconds played', paddingGap: 'fixed' },
+	])[0].twins[0].gaps.map((g) => g.endsWith('follows the seconds played') || g.endsWith('fixed')),
+	[true, true],
+);
+check(
+	'…and an exact one says nothing',
+	twinGroups([{ kind: 'freeze', doc: frost }])[0].twins[0].gaps,
+	[],
+);
+check(
+	'every real twin is offered exactly once',
+	twinGroups()
+		.flatMap((g) => g.twins.map((t) => t.kind))
+		.sort(),
+	BUILTIN_TWINS.map((t) => t.kind).sort(),
+);
 
 if (failures) {
 	console.log(`\ncheck:shader-editor — ${failures} of ${checks} checks FAILED`);

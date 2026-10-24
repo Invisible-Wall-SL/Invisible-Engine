@@ -14,6 +14,8 @@
  * `elementFx` list), which already ships: no new asset class (rule 8).
  */
 
+import { unknownEfxCalls } from './glslLibrary';
+
 /** `custom`: an effect authored in Invisible Shader Graph ({@link CustomElementFx}). */
 export type ElementFxCategory = 'motion' | '3d' | 'distort' | 'light' | 'break' | 'custom';
 
@@ -1223,8 +1225,12 @@ export const customElementFxKind = (id: string): CustomElementFxKind => `custom:
 export interface CustomElementFxUniform {
 	name: string;
 	type: 'float' | 'vec2' | 'vec3' | 'vec4';
-	/** `time`: `uFx` = (progress 0…1, seconds, intensity, looping 0 / 1). `param`: one param's value. */
-	source: { kind: 'time' } | { kind: 'param'; id: string };
+	/**
+	 * `time`: `uFx` = (progress 0…1, seconds, intensity, looping 0 / 1). `param`: one param's value.
+	 * `seed`: a float, a random number 0…97 drawn for each element the effect plays on (as the
+	 * built-ins seed their noise), so two elements playing it at once differ.
+	 */
+	source: { kind: 'time' } | { kind: 'seed' } | { kind: 'param'; id: string };
 }
 
 /** A pass value: a literal, or one of the effect's own params (of the same kind). */
@@ -1500,10 +1506,17 @@ export function readCustomElementFx(raw: unknown): CustomElementFx | undefined {
 	}
 	const params = new Map((spec.params as ElementFxParamSpec[]).map((param) => [param.id, param]));
 	const uniforms = shader.uniforms;
+	const seeds = Array.isArray(uniforms)
+		? uniforms.filter((u) => isRecord(u) && isRecord(u.source) && u.source.kind === 'seed')
+		: [];
 	if (
 		typeof shader.body !== 'string' ||
 		!shader.body ||
+		// A pass calling a library entry this version lacks (compiled by a newer Shader Graph) would
+		// fail on the GPU: it plays nothing instead.
+		unknownEfxCalls(shader.body).length ||
 		!Array.isArray(uniforms) ||
+		seeds.length > 1 ||
 		!uniforms.every(
 			(u) =>
 				isRecord(u) &&
@@ -1512,6 +1525,7 @@ export function readCustomElementFx(raw: unknown): CustomElementFx | undefined {
 				UNIFORM_TYPES.includes(u.type) &&
 				isRecord(u.source) &&
 				(u.source.kind === 'time' ||
+					(u.source.kind === 'seed' && u.type === 'float') ||
 					(u.source.kind === 'param' &&
 						typeof u.source.id === 'string' &&
 						params.has(u.source.id))),

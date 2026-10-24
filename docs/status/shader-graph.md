@@ -7,8 +7,9 @@ built-in shader passes, #1320) and step 2 (the `engine-shadergraph` package: nod
 compiler, #1322) and step 3 (the runtime: a compiled graph plays as `custom:<id>` wherever a built-in
 Element FX does, #1328) and step 4 (the pipeline: a project's graphs are stored, compiled into
 Publish and the bake, registered by the game at boot and listed by the Scene Editor, Symbols and
-Flow pickers, #1329) are merged. Step 5, the `/shaders` editor (library, canvas, properties and a
-live Pixi preview, with a lease and history), is in review.
+Flow pickers, #1329) and step 5 (the `/shaders` editor: library, canvas, properties and a live
+Pixi preview, with a lease and history, #1330) are merged. Step 6, the templates (graph twins of 30
+built-ins, held to a parity gate in `check:all`, offered as "Start from a built-in"), is in review.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -121,7 +122,7 @@ live Pixi preview, with a lease and history), is in review.
     both bundle paths, the boot, the pull, the pickers, the Flow vocab and the missing-effect
     report). `scripts/playtest/shader-effect-play.mjs` plays a published game with two graphs on it
     and passes or fails (see "Recent changes").
-- **Step 5, the editor (`/shaders`).** Built and in review.
+- **Step 5, the editor (`/shaders`).** Merged (#1330, 2026-10-24).
   - **The tool.** `TOOLS.shaders` ("Invisible Shader Graph", Assets stage; admin, developer,
     artist, pipeline tester), its guide `docs/tools/shader-graph.md`, the icon on every tool bar.
     It takes the save gate over from the Scene Editor.
@@ -153,18 +154,71 @@ live Pixi preview, with a lease and history), is in review.
     the client's slug against the server's); `check:shader-pipeline` grew to 88 (the `shaders` gate,
     history, a delete kept in History); the preview played headless on WebGL1 and WebGL2 (74
     checks); the whole page played headless (67 checks).
-- **Not started:** steps 6–8 (templates, editor v2, later).
+- **Step 6, the templates.** Built and in review.
+  - **The twins** (`packages/engine-shadergraph/src/twins.ts`, `BUILTIN_TWINS`; `twins/passes.ts`,
+    `distort.ts`, `material.ts`, built with `twins/graph.ts`). One graph per built-in kind it can
+    rebuild, 30 of the 50: the 3D and distortion kinds (Flip sideways / over, Bounce 3D, Sphericon,
+    Tilt 3D, Wave X / Y, Flag, Twist, Curl, Ripple, Bulge, Melt), the light kinds (Shine, Flash,
+    Freeze, Burn to ashes, Poison, Electrocute, Petrify, Turn to gold, Dissolve out / in) and the
+    pass kinds (Glow, Outline, Rainbow, Chromatic, Glitch, Blur, Pixelate: the Output alone, then
+    that pass with every param tied). Each has its kind's catalog params exactly, its phase and
+    length, and rebuilds the kind's JS timing from nodes. The 14 motion-only kinds and the 6 breaks
+    have none (a motion-only kind is curves alone; a break is not a pixel effect).
+  - **Motion gaps.** A twin whose motion a curve cannot follow says why (`motionGap`): the motion
+    follows the seconds played, a param or looping (Bounce 3D, Freeze, Poison, Electrocute, Petrify,
+    Turn to gold; Freeze's shiver also scales by the element's shorter side where the curve is in
+    widths). Their pixels are held to parity like every other twin's, and their motion too at the
+    defaults on a portrait element, except Poison and Electrocute (`motionGapAtDefaults`).
+  - **Padding gaps.** A graph's padding is one number. The waves and Bounce 3D take the room their
+    largest param needs at strength 1. Melt takes its defaults' final room (1.16 heights; the
+    built-in grows it with drip length × strength × progress), and names it (`paddingGap`).
+  - **The parity gate** (`pnpm --filter fx-spike shader-twins`, `tools/fx-spike/shaderTwins.mjs`,
+    run by `check:all`). Each built-in and its twin play through `playElementFx` with the same card,
+    seed and params, on WebGL1 and WebGL2: 8 moments at the defaults and at every number param's
+    minimum and maximum, plus every choice option, a switch flipped, another colour, strength 0.3
+    and 2, a second loop, and the defaults again on a landscape card. A pixel differs at more than 2
+    steps; a cell fails past 0.25% of its pixels (at least the element's area) or on any patch (a
+    differing pixel with four differing neighbours). Motion is compared as numbers (corners within
+    0.25 px, alpha within 0.5/255) except where the twin names a gap. The built-in must draw
+    nothing past the twin's room unless the twin names a padding gap. About 75 s.
+  - **New nodes** (76 → 91): Perspective plane, Sphericon, Flag (UV); Loop envelope, Bounce,
+    Oscillate (time); Seed (input); Pick (math); Random number, Line noise, Arcs, Sparkles
+    (procedural); Away from side N (mask); Relief slope, Page curl (colour); and a **Blend** setting
+    on the Output (Normal, or Add: a colour brighter than its alpha, for glows and halos).
+  - **Library calls fail safe.** The runtime links the library from its own copy, so an effect
+    calling an entry it lacks (compiled by a newer launcher) would draw a broken shader.
+    `readCustomElementFx` now drops such an effect (`unknownEfxCalls`, `EFX_HEADER_FUNCTIONS`), and
+    one with two seeds, so it plays nothing. A graph saved before step 6 compiles byte-identical and
+    calls nothing new; one using a step 6 node needs a runtime from step 6 on (the rollback floor
+    in `docs/design/games-deploy.md`).
+  - **A per-element seed.** The Seed node reads a `seed` uniform the custom runtime draws once per
+    element (`custom.ts`), as the built-ins draw theirs, so two elements playing one effect differ.
+    An effect that never reads it draws none and compiles as before.
+  - **Built-ins moved onto the library.** Perspective, sphericon, flag, curl, electrocute, petrify
+    and gold call the new library entries instead of private code, proven pixel-identical by
+    `shader-parity` on WebGL1 and WebGL2.
+  - **Start from a built-in** (`/shaders`). "+ New" is a menu: an empty effect, or a built-in's
+    twin by family. The new effect keeps the twin's nodes, params, passes and motion under its own
+    name and id; a twin with a motion gap says so.
+- **Not started:** steps 7–8 (editor v2, later).
 
 ## Open items / next
-1. Merge step 5.
-2. **Step 5 follow-ups.**
+1. Merge step 6.
+2. **Step 6 follow-ups.**
+   - **Two capabilities v1 lacks**, named by the twins: padding that grows with a param × strength
+     (the waves, Bounce 3D, Melt), and motion curves that read a param or the seconds played (the
+     six motion gaps). Both are doc / runtime changes; the twins carry the gap until then.
+   - **Built-ins long term** (§9.5): they stay hand-written beside their twins until the gate has
+     held for a while; then decide whether to generate them from the twins.
+   - The gate takes about a minute of `check:all`, most of it SwiftShader drawing the widest glow.
+3. **Step 5 follow-ups.**
    - The preview has no rig still yet (the plan's fourth source).
    - The preview plays the params' defaults; there is no per-preview value yet.
    - The preview uses WebGL2 where there is one (CI's `shader-compile` covers WebGL1), does not
      follow a change of screen pixel ratio, and clips a graph padded to the 2× maximum at its edge.
    - Delete has no lease check: the ✕ on a graph another author has open deletes it (its last
      version is in History), and their next save is then refused as a conflict.
-3. **Step 4 follow-ups.**
+4. **Step 4 follow-ups.**
    - What ships is the project's whole set. Once the shared library has entries (step 7), ship only
      the graphs a doc names (`custom:<id>` in the scenes, components, symbols and flow).
    - The pickers read the set once per page load; a graph saved in another tab shows after a
@@ -172,14 +226,38 @@ live Pixi preview, with a lease and history), is in review.
    - The stored-flow check before Publish's assemble composes the Flow vocab without the custom
      kinds (Publish's own check of the shipped flow has them). An enum value is judged as text, so
      the verdict is the same; an enum-membership check would need them there too.
-4. **Nodes the design lists that v1 does not have yet:** Perspective plane (the 3D flip's ray cast
-   as one node), star / sparkle, rim, loop envelope and the pixel input. Add them when a template
-   (step 6) or an artist needs one.
+5. **Nodes the design lists that v1 does not have yet:** rim (a library entry now, `efxRim`, with
+   no node) and the pixel input. Add them when an artist needs one.
 
 ## Blocked (owner / external)
 - None.
 
 ## Recent changes
+- 2026-10-24 — **Step 6: the templates** (see "Current state"). Step 5 merged (#1330).
+  - **Proof.** `shader-twins` passes all 30 twins on WebGL1 and WebGL2. On every twin but three the
+    largest difference is 1 step (float rounding). Sphericon and the dissolves differ by more only
+    on isolated pixels where a hard edge sits on a pixel (at most 0.12% of a cell, never a patch).
+    Mutation-checked: 13 of 15 injected one-constant changes fail it, down to a 1% highlight weight;
+    the two that passed (poison's pulse 0.35 → 0.36, melt's padding) moved no channel more than 2
+    steps over a patch, and the room rule now catches the padding one. After the review, a motion
+    constant at the defaults (petrify's thud), a strength-0.3 floor (burn's glow) and a dropped
+    padding gap each fail it too. Heavy twins are named (`HEAVY`: petrify 435), so one growing
+    heavier fails. The compile fixture checks every twin: compiles clean, its id and
+    label, its params against the catalog, phase and length, one twin per kind, the pass twins'
+    ties; the node twins' GLSL is snapshotted (`snapshots/twins/`). `check:element-fx` checks the
+    seed: two elements get different seeds and keep them; an unseeded effect draws none.
+  - **Precise curves.** The headless renderer's `sin` is off by up to ~2e-4 at large arguments,
+    enough to fail Twist at ±1080°; the twins build their bells and swells on Oscillate (exact,
+    `efxSinPi`) and Bell / Swell / Pulse stay as they were, so no saved graph changes.
+  - **Review.** An independent review found one blocking item, version skew: an effect compiled by
+    a newer launcher calls library entries an older runtime lacks (fixed: the reader drops it; the
+    floor is documented; existing nodes emit what they did). Its should-fixes (motion held at the
+    defaults, a landscape card and strength 0.3, Melt's padding) and nits are fixed. One is left by
+    choice: the pass twins keep their identity graph pass (it clamps colour to alpha and gives the
+    effect its filter and margin, so skipping it would change existing effects).
+  - **Built-ins unchanged.** `shader-parity` against the base: all 50 kinds, the sides and signed
+    sheets identical on WebGL1 and WebGL2; a deliberately changed library constant shows in its
+    kinds' rows.
 - 2026-10-24 — **Step 5: the `/shaders` editor** (see "Current state"). Step 4 merged (#1329).
   - **The canvas lift.** `$lib/graph/GraphCanvas.svelte` (the `@xyflow/svelte` shell: nodes,
     wires, the page's node types, its connection rule, a fit signal, a palette drop) and

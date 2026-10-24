@@ -25,7 +25,11 @@
  *  7. Custom effects (Invisible Shader Graph step 3): a compiled graph registered as `custom:<id>`
  *     behaves like a built-in — read with every trigger (and kept before it is registered), posed
  *     by a timeline, sped up by turbo, held as an exit, stopped back to rest — its graph pass, its
- *     built-in passes (their params tied to its own) and its motion curves all playing.
+ *     built-in passes (their params tied to its own) and its motion curves all playing. One reading
+ *     the per-element seed (step 6) draws one for each element it plays on, as the built-ins do, and
+ *     keeps it; one that reads none draws none. The registry leaves out an effect whose pass calls
+ *     an `efx…` function this version's library and pass header lack (one compiled by a newer
+ *     Shader Graph), or reads two seeds; `EFX_HEADER_FUNCTIONS` is what the header declares.
  */
 
 import { readFileSync } from 'node:fs';
@@ -59,6 +63,7 @@ import {
 	isCustomElementFxKind,
 	isElementFxKind,
 	isPlayableElementFxKind,
+	readCustomElementFx,
 	readElementFxEntries,
 	readElementFxEntry,
 	resolveElementFxParams,
@@ -67,7 +72,11 @@ import {
 	type CustomElementFx,
 	type ElementFxKind,
 } from '../../packages/constants-shared/elementFx';
-import { REFERENCE_GRAPHS, compileShaderEffect } from '../../packages/engine-shadergraph/index';
+import {
+	BUILTIN_TWINS,
+	REFERENCE_GRAPHS,
+	compileShaderEffect,
+} from '../../packages/engine-shadergraph/index';
 import { stateFxGate } from '../../apps/lines/src/game/stateFxGate';
 import {
 	ELEMENT_FX_CHANNEL_PREFIX as CINEMATIC_ELEMENT_FX_PREFIX,
@@ -81,9 +90,11 @@ import { blendNodeSamples } from '../../packages/engine-layout/src/lib/stateMach
 import { startBreak } from '../../packages/pixi-svelte/src/lib/elementFx/breakApart';
 import {
 	EFX_GLSL,
+	EFX_HEADER_FUNCTIONS,
 	EFX_SIDES,
 	efxSide,
 	linkGlsl,
+	unknownEfxCalls,
 } from '../../packages/constants-shared/glslLibrary';
 import * as SHADERS from '../../packages/pixi-svelte/src/lib/elementFx/shaders';
 import type { ElementFxFilter } from '../../packages/pixi-svelte/src/lib/elementFx/shaders';
@@ -1222,6 +1233,29 @@ console.log('element fx — the shared GLSL library');
 		!unresolved.length,
 		`every efx… a pass calls is defined in it${unresolved.length ? `: ${unresolved.join(', ')}` : ''}`,
 	);
+	const header = (
+		read('packages/pixi-svelte/src/lib/elementFx/shaders.ts')
+			.split('const HEADER = `')[1]
+			?.split('`;')[0] ?? ''
+	).replace(/\/\/[^\n]*/g, '');
+	const declared = [...header.matchAll(/^(?:vec[234]|float|bool)\s+(efx\w+)\s*\(/gm)].map(
+		(m) => m[1],
+	);
+	assert(
+		declared.length >= 8 &&
+			[...declared].sort().join() === [...EFX_HEADER_FUNCTIONS].sort().join() &&
+			declared.every((name) => !(name in EFX_GLSL)),
+		`EFX_HEADER_FUNCTIONS is what the pass header declares (${declared.length}), none a library entry`,
+	);
+	assert(
+		JSON.stringify(unknownEfxCalls('void main(void) { efxSample(efxPx()); efxNoise(p); }')) ===
+			'[]' &&
+			JSON.stringify(
+				unknownEfxCalls('void main(void) { efxFuture(p); efxNoise(p); // efxGone(p)\n }'),
+			) === '["efxFuture"]' &&
+			fragments.every(([, fragment]) => !unknownEfxCalls(fragment).length),
+		'unknownEfxCalls names a call neither the library nor the header has (comments aside); no built-in pass makes one',
+	);
 	const EFX_GLSL_MUTABLE = EFX_GLSL as Record<string, string>;
 	const ORIGINAL_HASH = EFX_GLSL.efxHash;
 	let cycle = '';
@@ -1674,6 +1708,82 @@ console.log('element fx — custom effects (Shader Graph)');
 		);
 		stopElementFx(padded);
 		stopElementFx(shrunk);
+		setCustomElementFx([]);
+	}
+	{
+		const burn = BUILTIN_TWINS.find((t) => t.kind === 'burn');
+		const seeded = burn ? compileShaderEffect(burn.doc) : undefined;
+		setCustomElementFx([...(seeded?.ok ? [seeded.effect] : []), effects[0]]);
+		const { host, advance } = makeHost();
+		const random = Math.random;
+		let draws = 0;
+		Math.random = () => {
+			draws++;
+			return random();
+		};
+		const a = makeTarget();
+		const b = makeTarget();
+		playElementFx(a, { kind: 'custom:burn', durationMs: 400 }, host);
+		playElementFx(b, { kind: 'custom:burn', durationMs: 400 }, host);
+		const seedDraws = draws;
+		const plain = makeTarget();
+		playElementFx(plain, { kind: PULSE, durationMs: 400 }, host);
+		const plainDraws = draws - seedDraws;
+		Math.random = random;
+		const seedOf = (t: Container): unknown =>
+			(t.filters?.[0] as ElementFxFilter | undefined)?.efx.uSeed;
+		const [first, second] = [seedOf(a), seedOf(b)];
+		advance(100);
+		assert(
+			seedDraws === 2 &&
+				plainDraws === 0 &&
+				typeof first === 'number' &&
+				typeof second === 'number' &&
+				first !== second &&
+				first >= 0 &&
+				first < 97 &&
+				seedOf(a) === first &&
+				seedOf(plain) === undefined,
+			'a custom effect reading the seed draws one for each element (two burning at once differ) and keeps it while it plays; one that reads none draws none',
+		);
+		for (const t of [a, b, plain]) stopElementFx(t);
+		setCustomElementFx([]);
+	}
+	{
+		// An effect compiled by a newer Shader Graph may call a library entry this version lacks:
+		// left out (it plays nothing), never handed to the GPU as a shader that fails.
+		const good = effects[0];
+		const calling = (call: string, kind: string) => ({
+			...good,
+			spec: { ...good.spec, kind },
+			shader: {
+				...good.shader,
+				body: good.shader.body.replace('void main(void)\n{', `void main(void)\n{\n    ${call};`),
+			},
+		});
+		const unknown = calling('float later = efxNotYetWritten(px)', 'custom:fromTheFuture');
+		const known = calling('float seen = efxNoise(px)', 'custom:fromNow');
+		const seed = { name: 'uSeed', type: 'float', source: { kind: 'seed' } };
+		const twoSeeds = {
+			...good,
+			spec: { ...good.spec, kind: 'custom:twoSeeds' },
+			shader: {
+				...good.shader,
+				uniforms: [...good.shader.uniforms, seed, { ...seed, name: 'uSeed2' }],
+			},
+		};
+		const shipped = [...REFERENCE_GRAPHS, ...BUILTIN_TWINS.map((t) => t.doc)].map((doc) =>
+			compileShaderEffect(doc),
+		);
+		const registered = setCustomElementFx([unknown, known, twoSeeds]);
+		const play = playElementFx(makeTarget(), { kind: 'custom:fromTheFuture' }, makeHost().host);
+		assert(
+			unknown.shader.body.includes('efxNotYetWritten(px)') &&
+				registered.map((e) => e.spec.kind).join() === 'custom:fromNow' &&
+				!play.active &&
+				shipped.every((r) => r.ok && !!readCustomElementFx(r.effect)),
+			'the registry leaves out an effect calling an efx… function neither the library nor the pass header has (it plays nothing), and one with two seeds; every reference graph and twin reads',
+		);
 		setCustomElementFx([]);
 	}
 }
