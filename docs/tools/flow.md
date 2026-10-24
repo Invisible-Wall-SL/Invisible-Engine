@@ -109,6 +109,9 @@ function library:
   screen (see [Components](#components-placed-instances-as-nodes)). The named entry adds a
   **component instance** node; **wait** adds a **wait for state** node for it. An unnamed
   placement is not listed — name it in the Scene Editor first.
+- **Variables & time** — **Set variable**, **Change variable**, **On variable**, **On tick**,
+  **Start timer**, **Stop timer**, **Pause timer**, **On timer** and **On input** (see
+  [Variables, timers and keys](#variables-timers-and-keys)).
 - **Presentation** — a **Text Message** node: one line of on-screen text you author right on
   the node (see below).
 - **Modes** — **Mode trigger**, **On all modes finished**, **Enter mode** and **Exit mode**
@@ -259,8 +262,9 @@ palette). It shows the node's derived pins and a kind-specific editor:
   dropdown of the valid names from the vocabulary (or the library / declared containers).
 - **Data-in Inputs** — for each unwired data-in, a source editor: **literal** (a typed
   value — number, text, checkbox, or an enum dropdown), or **accessor** (a read-only read
-  of `$item` / `$index` / `$engine.<key>` / `$input`). A data-in that is **fed by a wire**
-  shows a **wired** tag instead (the wire supplies it).
+  of `$item` / `$index` / `$engine.<key>` / `$input`, or `$var` — one of the flow's
+  [variables](#variables-timers-and-keys), picked from a list). A data-in that is **fed by a
+  wire** shows a **wired** tag instead (the wire supplies it).
 - **Symbol dropdowns** — every symbol picker (a symbol data-in, a branch-guard operand typed
   as a symbol) lists **this project's** symbols from
   [Invisible Game Config](game-config.md): the symbols **in play** there, then the pots
@@ -471,6 +475,56 @@ refresh when you come back to this tab after editing in `/editor`. Two nodes nam
 placement must not both wire the same event (`instance-event-duplicate`: only the first wire
 would run). A node for a placement the screen no longer has, or whose component (or pinned
 version) is gone, is `instance-missing`. All of these are errors, so Publish refuses them.
+
+### Variables, timers and keys
+
+A flow can keep its own values — a score, lives, moves left — run timers, react to time passing
+and to the keyboard. None of it is needed for a slot: a flow that declares no variable, timer,
+tick or key mapping runs exactly as before.
+
+**Declare variables.** With no node selected, the **Variables** panel sits above the Add node
+palette on the Global tab and on every mode tab (not in a function body). **+ Add** creates a
+row; give it an **id**, a **type** (`int`, `float`, `bool`, `string` or `enum` — an enum lists
+its values comma-separated and starts at one of them) and its starting value. On the Global
+tab each variable also has a **scope**: **game** keeps its value for the whole session,
+**round** restarts at its starting value each spin. A mode tab declares that mode's own
+variables, which restart each time the mode starts. **✕** removes a row.
+
+**The nodes** (palette section **Variables & time**; each one's fields are in the inspector):
+
+- **Set variable** — pick the variable; its **value** data-in takes the new value, typed like
+  the variable.
+- **Change variable** — **Add** or **Subtract** its **by** data-in (leave it blank for 1), or
+  **Toggle** a bool. An optional **Min** / **Max** clamps the result.
+- **On variable** — an entry point with **value** and **previous** data-outs. **It changes**
+  fires once a frame with the latest value, however many writes happened. **It crosses a
+  threshold** fires when the value passes a **Threshold** going **Up**, **Down** or **Either
+  way**: "lives reaches 0" is **Down** through 0.
+- **On tick** — fires every **Every (ms)**, with a **dt** data-out (milliseconds since the
+  last fire). Leave it blank for every frame, which Validation warns about. Ticks are for game
+  rules (spawn every 800 ms, speed up every 10 s), and a tick chain may not wait.
+- **Start timer** — name the **Timer**, feed **ms**, and tick **Repeat** to restart it each
+  time it runs out. Starting a timer that is already running restarts it.
+- **Stop timer**, **Pause timer** (wire **Pause** to hold it, **Resume** to let it run on) and
+  **On timer** (an entry point that fires when the named timer runs out).
+- **On input** — an entry point for an **Action** from the key map, when its key goes **Down**
+  or **Up**.
+
+**Key map.** Below the variables on the Global tab, **Key map** maps actions to keys: an action
+name, then its keys as a comma list of browser key names (`ArrowLeft, a`; type `Space` for the
+space bar). An **On input** node names the action, never the key, so rebinding a key leaves the
+graph alone. In the game a key is not heard while you type in a text field, and a held key's
+repeats are not new presses.
+
+**Read a variable** anywhere with the `$var` accessor (see
+[Edit a node](#edit-a-node-the-inspector)), or from an **On variable** node's data-outs.
+
+**Show a variable on a component — no wire.** In the Component Editor, a bool, number or text
+input's **from** field names where it reads its value in game. Type `var:<id>` (`var:score`) and
+the input follows that Flow variable; the field suggests this project's variables.
+
+**In the game** timers and ticks run on the game's frame, so they stop while the game is paused
+or its tab is hidden.
 
 ### Free-spin intro and outro — the flow holds the round
 
@@ -988,6 +1042,17 @@ Publish still ships (and lists the screens in a note); the game logs it to the c
 has in play (taken off the reels in Invisible Game Config). The flow keeps it as authored, so it
 still loads and runs; the warning names the node and the symbol. It never blocks Publish.
 
+The [variable](#variables-timers-and-keys) checks (red unless noted): `variable-unknown` (a node
+names a variable the flow does not declare), `variable-type` (no id, no known type, an enum with no
+values, a starting value of the wrong type, a threshold on a non-number, a set to a value the enum
+lacks), `variable-scope` (a mode's variable used outside that mode, or a scope that doesn't match
+where it is declared), `variable-duplicate` (two variables with one id), `variable-shadows-money`
+(in a real-money game, a variable named `balance`, `win`, `totalWin` or `bet`, or one fed into a
+money amount — money comes only from the server), and `tick-async` (a tick chain reaches a Delay,
+an awaited cue or cinematic, a held Show or a Wait for state; start a timer instead). Two are
+warnings: `tick-fast` (a tick under 100 ms, or every frame) and `input-unknown` (an **On input**
+action no key is mapped to).
+
 The **component instance** checks (all red): `instance-missing` (the node names a placement the
 screen does not have with a name, or its component or pinned version is gone), `instance-pin-
 missing` (a wire or a typed value to an input, event or state layer the component no longer has
@@ -1006,6 +1071,14 @@ step count and duration. A **component instance** node shows as **instance** row
 set, trigger fired and state waited for (a wait does not hold the headless run). Changing the
 graph clears a stale run. This proves the **order and timing** of your flow; it is **not** a live
 visual of the game — that is the running game's job.
+
+**Variables, timers and ticks.** A flow that uses any of them previews on a virtual clock for as
+long as the **ms** box beside the speed says (5000 by default), so its timers fire and its ticks
+repeat. The event list then also offers **No event — ticks and timers**, which runs only those.
+The timeline adds **var** rows (`lives = 2`) and **timer** rows (`spawn ran out`); it has **key**
+rows too, but the panel can't press a key yet (see
+[Known limitations](#known-limitations--todos)). A flow with none of them previews exactly as
+before.
 
 **Drive the editor stage.** With a component node in the flow, a tick appears beside Run. Open
 the same project's component in the Scene Editor (Animate → **State machine**, ▶ Run) in another
@@ -1133,6 +1206,8 @@ The two cue traps (splice in series; fire after the screen shows) are in
   an accessor chosen in the inspector, so you can't compare against something a **Compute**
   node worked out. Compute what you need into a data-in instead, or restate the test
   against a value `$engine` already exposes.
+- **Preview can't press a key.** The Preview panel has no control for key presses, so an **On
+  input** chain does not run there and no **key** row appears from the panel; try it in the game.
 - **Function inputs/outputs are fixed once created.** A function body's **Entry** / **Result**
   signature (its inputs/outputs) can't be edited yet; adding or removing a function's
   parameters is a later feature.
@@ -1155,7 +1230,8 @@ The two cue traps (splice in series; fire after the screen shows) are in
   auto-save, and function-view navigation. `FlowCanvasV2.svelte` hosts the flow render +
   drop-at-cursor; `FlowV2Node.svelte` renders a generic node with derived pins;
   `AddNodePalette.svelte` is the palette; `NodeInspector.svelte` is the per-node editor;
-  `ValidationPanelV2.svelte` and `PreviewPanelV2.svelte` are the two panels; `graphOps.ts`
+  `ValidationPanelV2.svelte` and `PreviewPanelV2.svelte` are the two panels, and
+  `VariablesPanelV2.svelte` declares the variables and key map; `graphOps.ts`
   holds the pure graph mutations; `dnd.ts` is the palette→canvas drag contract; `palette.ts`
   is the type → color/label map.
 - **The starter flow and the free-spin screens:**
