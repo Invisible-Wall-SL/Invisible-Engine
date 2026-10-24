@@ -1,15 +1,16 @@
 import { createHash } from 'node:crypto';
 import { isHttpError } from '@sveltejs/kit';
-import { roleHasTool } from '$lib/roles';
+import { FAMILY_LABELS, TOOLS, familyUsesTool, roleHasTool } from '$lib/roles';
 import { bearerToken } from '$lib/launcherGates';
 import { getRoleOverrides } from '../roleToolAccess';
 import { allowedPrefixes, isKeyAllowed, requireProjectScope } from '../toolScope';
 import { tokensMatch } from '../tokensMatch';
 import { getToolOverrides } from '../userToolAccess';
 import { UNASSIGNED_CLIENT, projectPrefix, r2Slug } from '../projectPaths';
-import { projectKeyTaken } from '../projects';
+import { projectFamily, projectKeyTaken, storedProjectGameType } from '../projects';
 import { ConflictError, listObjects } from '../r2';
 import {
+	ADAPTER_TOOL_IDS,
 	AdapterError,
 	RefusalError,
 	directorSavedBy,
@@ -33,7 +34,8 @@ import { claimOp, completeOp, getRun, getRunOwner, releaseOp } from './store';
  *  4. the run exists and its owner is still an active account holding Invisible Director: the
  *     owner is who every call acts as (Q5);
  *  5. the input matches the op's schema (400);
- *  6. the op's project scope, checked against the OWNER's grants (403);
+ *  6. the op's project scope, checked against the OWNER's grants (403), and the project's family
+ *     uses the op's tool (403 `not_for_family`, game-families.md §6.5);
  *  7. for a write: an `opId` (`<runId>:<step>:<seq>`) claimed in `director_ops` — a replay returns
  *     the stored result without running again — then the write-target guard;
  *  8. the handler. A storage conflict comes back as 409 `{ error: 'conflict' }`.
@@ -179,6 +181,16 @@ export async function runAdapterCall(
 		scope = await scopeFor(owner, project);
 		if (!scope) {
 			return fail(403, 'out_of_scope', `The run's owner cannot access the project "${project}".`);
+		}
+		// An `owner`-scoped op has no project, so no family: it is never hidden.
+		const family = projectFamily(scope.projectKey, await storedProjectGameType(scope.projectKey));
+		const toolId = ADAPTER_TOOL_IDS[op.tool];
+		if (!familyUsesTool(family, toolId)) {
+			return fail(
+				403,
+				'not_for_family',
+				`${TOOLS[toolId].name} is not used by ${FAMILY_LABELS[family]} games.`,
+			);
 		}
 	}
 

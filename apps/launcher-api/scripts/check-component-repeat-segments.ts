@@ -25,7 +25,10 @@
  *     fed `respinsStart` = 3 draws 3 segments numbered 1..3, all lit at 3 left and only the first
  *     at 1, then 5 segments once the start goes to 5, and none at 0; a probe segment that declares
  *     `index` / `count` inputs holds the repeater's constants over a `passInputs` entry for `index`;
- *     an instance outside a repeater is untouched (its own input source).
+ *     an instance outside a repeater is untouched (its own input source); and a bar placed inside
+ *     another component (the Hold and Win TOTAL WIN widget: screen → widget → bar → segment, three
+ *     levels) still draws its 3 segments, offset by its place in the widget — on a cap of 2 the
+ *     game skipped them.
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -715,7 +718,7 @@ export const parentContext = (parent) => {
 	const byId = (defs: ComponentDef[]) => Object.fromEntries(defs.map((d) => [d.id, d]));
 	E.registerComponents(byId(E.BUILTIN_COMPONENTS), { builtin: true });
 	E.registerComponentTimelines([...E.BUILTIN_TIMELINES, ...PROBE_TIMELINES]);
-	E.registerComponents(byId([PROBE_SEGMENT, PROBE_BAR]));
+	E.registerComponents(byId([PROBE_SEGMENT, PROBE_BAR, WIDGET]));
 	E.registerComponentValues({ respinsStart, respinsLeft, probeValue });
 
 	const mountInstance = (node: LayoutNode) => {
@@ -875,6 +878,21 @@ export const parentContext = (parent) => {
 				['3', 86],
 			],
 		);
+		respinsStart.set(3);
+		respinsLeft.set(3);
+		const widget = mountInstance({
+			id: 'widget',
+			kind: 'componentInstance',
+			x: 0,
+			y: 0,
+			componentId: WIDGET.id,
+		});
+		eq(
+			'a bar inside a component (screen → widget → bar → segment) draws its 3 segments, at its place in the widget',
+			segmentsOf(widget.stage, H).map((s) => `${s.label}:${s.x}`),
+			['1:-86', '2:0', '3:86'],
+		);
+		H.unmount(widget.app);
 
 		const probe = mountInstance({
 			id: 'probe',
@@ -1079,6 +1097,31 @@ const PROBE_SEGMENT: ComponentDef = {
 		],
 	},
 };
+/** The TOTAL WIN widget's shape: a Segmented Counter placed inside an author's component. */
+const WIDGET: ComponentDef = {
+	id: 'probeTotalWinWidget',
+	name: 'Total win widget',
+	version: 1,
+	scope: 'project',
+	category: 'ui',
+	root: {
+		id: 'probeTotalWinWidget-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'probeTotalWinWidget-counter',
+				kind: 'componentInstance',
+				componentId: C.SEGMENTED_COUNTER_ID,
+				x: 40,
+				y: 220,
+			},
+		],
+	},
+	params: [],
+};
+
 const PROBE_BAR: ComponentDef = {
 	id: 'probeBar',
 	name: 'Probe bar',

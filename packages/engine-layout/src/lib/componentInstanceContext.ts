@@ -5,7 +5,7 @@ export { MAX_COMPONENT_DEPTH } from './registerComponents';
 /**
  * Nesting guard for `componentInstance` expansion (see
  * `docs/design/invisible-editor.md` §8.9 "Nesting"). A component must not
- * instance itself transitively, and nesting is capped at 2 levels for v1. Each
+ * instance itself transitively, and nesting is capped at `MAX_COMPONENT_DEPTH` levels. Each
  * `<ComponentInstance>` reads the parent guard, derives a child guard (one level
  * deeper, with its own id added to the visited set) and provides it to the
  * sub-tree it renders.

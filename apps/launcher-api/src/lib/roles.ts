@@ -1,3 +1,5 @@
+import type { GameFamily } from 'constants-shared/gameKinds';
+
 export type Role =
 	| 'admin'
 	| 'developer'
@@ -417,6 +419,41 @@ export const TOOLS: Record<string, ToolDef> = {
 		isNew: true,
 	},
 };
+
+/**
+ * The tools each game family does NOT use (`docs/design/game-families.md` §6.5). An exclusion list,
+ * so a new tool is offered to every family until someone says otherwise. The slot family hides
+ * nothing: a slot project's manifest is exactly the role's. The role still decides what a user may
+ * open; the family only narrows it. A tool that depends on the outcome (Win Text for match-3) stays
+ * listed and checks the outcome itself.
+ */
+export const FAMILY_TOOLS: Record<GameFamily, readonly string[]> = {
+	slot: [],
+	match3: [],
+	arcade: ['symbols', 'winText'],
+};
+
+/** How a family is named in the hidden-tool notice ("not used by arcade games"). */
+export const FAMILY_LABELS: Record<GameFamily, string> = {
+	slot: 'slot',
+	match3: 'match-3',
+	arcade: 'arcade',
+};
+
+export function familyUsesTool(family: GameFamily, id: string): boolean {
+	return !FAMILY_TOOLS[family].includes(id);
+}
+
+/**
+ * The tool whose page `pathname` is (its `url` or a path under it) when `family` does not use it:
+ * the `(app)` layout shows the hidden-tool notice instead of that page.
+ */
+export function familyHiddenToolAt(pathname: string, family: GameFamily): ToolDef | undefined {
+	const tool = Object.values(TOOLS).find(
+		(t) => t.url && (pathname === t.url || pathname.startsWith(`${t.url}/`)),
+	);
+	return tool && !familyUsesTool(family, tool.id) ? tool : undefined;
+}
 
 export type ToolStage = {
 	id: string;
