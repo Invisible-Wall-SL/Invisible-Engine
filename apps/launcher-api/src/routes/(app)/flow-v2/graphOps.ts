@@ -623,3 +623,86 @@ export const setPlayCinematicFields = (
 		if (patch.awaitComplete === true) next.loop = false;
 		return next;
 	});
+
+/** `src` with a `$var.<from>` read pointed at `to`; anything else unchanged. */
+const renamedSource = (src: DataSource, from: string, to: string): DataSource =>
+	src.kind === 'accessor' && src.path.on === 'var' && src.path.id === from
+		? { ...src, path: { on: 'var', id: to } }
+		: src;
+
+const renameInGraph = (graph: Graph, from: string, to: string): Graph => ({
+	...graph,
+	nodes: graph.nodes.map((n): V2Node => {
+		let next = n;
+		if (n.inputs) {
+			next = {
+				...next,
+				inputs: Object.fromEntries(
+					Object.entries(n.inputs).map(([pin, src]) => [pin, renamedSource(src, from, to)]),
+				),
+			};
+		}
+		switch (next.kind) {
+			case 'setVariable':
+			case 'changeVariable':
+			case 'onVariable':
+				return next.variable === from ? { ...next, variable: to } : next;
+			case 'branch': {
+				const side = (rows: Guard['all']) =>
+					rows?.map((c) => ({
+						...c,
+						left: renamedSource(c.left, from, to),
+						right: renamedSource(c.right, from, to),
+					}));
+				const { all, any } = next.guard;
+				return {
+					...next,
+					guard: { ...(all ? { all: side(all) } : {}), ...(any ? { any: side(any) } : {}) },
+				};
+			}
+			case 'compute': {
+				const op = next.compute;
+				return {
+					...next,
+					compute:
+						op.op === 'member'
+							? { ...op, on: renamedSource(op.on, from, to) }
+							: { ...op, a: renamedSource(op.a, from, to), b: renamedSource(op.b, from, to) },
+				};
+			}
+			case 'group':
+				return { ...next, body: renameInGraph(next.body, from, to) };
+			default:
+				return next;
+		}
+	}),
+});
+
+/**
+ * Rename variable `from` to `to` in its declaration and in every node of the doc that names or reads
+ * it: the Set / Change / On variable nodes and every `$var` read (inputs, guards, computes, group
+ * bodies, every mode's graph). A component input's `var:<id>` source lives in the component, not
+ * here, and a shared library function is not this doc's: neither is rewritten.
+ */
+export const renameVariable = (doc: FlowDoc, from: string, to: string): FlowDoc => {
+	const decl = (vars: FlowVariable[] | undefined) =>
+		vars?.map((v) => (v.id === from ? { ...v, id: to } : v));
+	const modes = doc.modes
+		? Object.fromEntries(
+				Object.entries(doc.modes).map(([id, scope]) => [
+					id,
+					{
+						...scope,
+						graph: renameInGraph(scope.graph, from, to),
+						...(scope.variables ? { variables: decl(scope.variables) } : {}),
+					},
+				]),
+			)
+		: undefined;
+	return {
+		...doc,
+		graph: renameInGraph(doc.graph, from, to),
+		...(doc.variables ? { variables: decl(doc.variables) } : {}),
+		...(modes ? { modes } : {}),
+	};
+};

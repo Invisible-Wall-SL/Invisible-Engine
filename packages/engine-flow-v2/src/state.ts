@@ -23,6 +23,7 @@
 
 import type { ChangeVariableOp, FlowDoc, Graph, Node, OnVariableNode } from './types';
 import { flattenGroups } from './collapse';
+import type { FlowStateEntry } from './runtime';
 import {
 	coerceVariableValue,
 	docVariables,
@@ -100,15 +101,23 @@ const graphsOf = (doc: FlowDoc): Graph[] => [
 ];
 
 /** Every `onTick` node of the doc's graphs, groups flattened as the interpreter flattens them (so
- *  the ids match the ones a run looks up), with its period. */
+ *  the ids match the ones a run looks up), with its period. This runs as the game boots, so a group
+ *  that will not flatten never takes the game down here: its graph's ticks are read off the stored
+ *  nodes instead. */
 const tickNodes = (doc: FlowDoc): { id: string; every?: number }[] =>
-	graphsOf(doc).flatMap((graph) =>
-		flattenGroups(graph).nodes.flatMap((n) =>
-			n.kind === 'onTick'
+	graphsOf(doc).flatMap((graph) => {
+		let nodes: Node[];
+		try {
+			nodes = flattenGroups(graph).nodes;
+		} catch {
+			nodes = graph.nodes ?? [];
+		}
+		return nodes.flatMap((n) =>
+			n?.kind === 'onTick'
 				? [{ id: n.id, every: n.every && n.every > 0 ? n.every : undefined }]
 				: [],
-		),
-	);
+		);
+	});
 
 /** Build the store for `doc`: every variable at its initial, no timer running. */
 export const createFlowState = (doc: FlowDoc): FlowState => {
@@ -325,3 +334,32 @@ export const variableValueSources = (
 			},
 		]),
 	);
+
+/**
+ * ONE FRAME of the store (game-families §3.1–§3.2), the rule the game and the preview both run, so
+ * the two cannot drift: first the writes made since the last frame are delivered as one batch (its
+ * subscribers hear each variable once, and `run` gets the batch for the `onVariable` entries), then
+ * the clock moves on by `dtMs` and `run` gets each timer and tick that came due, in time order. A
+ * write made by any of these chains — at once or after a wait — goes out with the next frame.
+ * Returns how many entries it handed to `run`.
+ */
+export const stepFlowState = (
+	state: FlowState,
+	dtMs: number,
+	run: (entry: FlowStateEntry) => void,
+): number => {
+	let entries = 0;
+	if (state.pending()) {
+		run({ kind: 'variables', batch: state.flush() });
+		entries += 1;
+	}
+	for (const due of state.advance(dtMs)) {
+		run(
+			due.kind === 'timer'
+				? { kind: 'timer', timer: due.timer }
+				: { kind: 'tick', node: due.node, dt: due.dt },
+		);
+		entries += 1;
+	}
+	return entries;
+};

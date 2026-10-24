@@ -5,7 +5,7 @@
 	// read. A component input binds a variable as the value source `var:<id>`. Every edit hands back a
 	// whole doc; the page autosaves it like a node edit.
 	import type { FlowDoc, FlowInputBinding, FlowVariable, FlowVariableType } from 'engine-flow-v2';
-	import { setInputBindings, setVariables } from './graphOps';
+	import { renameVariable, setInputBindings, setVariables } from './graphOps';
 
 	let {
 		doc,
@@ -43,6 +43,21 @@
 	}
 	function patch(i: number, change: Partial<FlowVariable>): void {
 		write(variables.map((v, j) => (j === i ? { ...v, ...change } : v)));
+	}
+	/** Rename variable `i` and every node that names or reads it. An empty id, or one the doc already
+	 *  declares, is refused (the field goes back to the old id). */
+	let renameError = $state<string | null>(null);
+	function rename(i: number, raw: string, field: HTMLInputElement): void {
+		const from = variables[i].id;
+		const to = raw.trim();
+		if (to === from) return;
+		if (!to || takenIds.has(to)) {
+			renameError = to ? `"${to}" is already a variable.` : 'A variable needs an id.';
+			field.value = from;
+			return;
+		}
+		renameError = null;
+		onchange(renameVariable(doc, from, to));
 	}
 	function add(): void {
 		let n = variables.length + 1;
@@ -114,8 +129,12 @@
 		{:else}
 			Values only <code>{modeLabel?.(modeId) ?? modeId}</code> uses, restarted each time it starts.
 		{/if}
-		A component input follows one as <code>var:&lt;id&gt;</code>.
+		A component input follows one as <code>var:&lt;id&gt;</code>; renaming one here does not change
+		those.
 	</p>
+	{#if renameError}
+		<p class="error">{renameError}</p>
+	{/if}
 	{#each variables as v, i (i)}
 		<div class="var">
 			<div class="line">
@@ -124,7 +143,7 @@
 					type="text"
 					value={v.id}
 					aria-label="Variable id"
-					onchange={(e) => patch(i, { id: e.currentTarget.value.trim() })}
+					onchange={(e) => rename(i, e.currentTarget.value, e.currentTarget)}
 				/>
 				<select
 					value={v.type}
@@ -259,6 +278,11 @@
 	}
 	.keys-head {
 		margin-top: 8px;
+	}
+	.error {
+		margin: 0;
+		font-size: 11px;
+		color: #f87171;
 	}
 	.hint,
 	.empty {

@@ -9,7 +9,8 @@
  *  2. BATCHING: ten writes in a frame reach a subscriber once; a flush lists every write in order.
  *  3. `onVariable` THRESHOLDS (`variableEntries` + `runFlowStateEntry`): `changed` once per batch with
  *     the latest value, none when the batch left it where it was; `crosses` per crossing write, up /
- *     down / either, at-or-past the threshold; a mode's entries run while that mode is on screen.
+ *     down / either, at-or-past the threshold; a mode's entries run while that mode is on screen, and a
+ *     batch is split per variable so a mode's entry never hides a global one.
  *  4. THE INTERPRETER: Set / Change go through `env.state`; a `$var` read feeds a branch; an env with
  *     no store makes them no-ops (every doc authored before P10.3).
  *  5. VALIDATION: `variable-unknown`, `variable-type`, `variable-scope`, `variable-duplicate`,
@@ -19,7 +20,10 @@
  *     1 / 0, and hears changes once per flush; engine-layout's coercion reads 1 / 0 as on / off.
  *  7. `source` WIDENED TO BOOL / TEXT: the launcher normalizer keeps it on a bool, number and text
  *     input, never on a trigger, and drops nothing it kept before; the Component Editor's setter
- *     writes it on all three; `<ComponentInstance>` subscribes all three (source-scanned).
+ *     writes it on all three; `<ComponentInstance>` subscribes all three (source-scanned); the input
+ *     row suggests only the variables of its kind.
+ *  8. RENAMING a variable in `/flow-v2` (`renameVariable`) rewrites every node and `$var` read of it,
+ *     in group bodies and mode graphs too.
  */
 import { readFileSync } from 'node:fs';
 import type {
@@ -259,6 +263,43 @@ const GAME = doc(EMPTY, {
 	mode = 'bonus';
 	await F.runFlowStateEntry(lives, ctx, { kind: 'variables', batch: [w(1, 0)] });
 	eq('the global graph runs at base; the mode graph runs while its mode is on screen', log, [
+		'beat',
+		'winUpdate',
+	]);
+	// One batch carrying a variable only the global graph watches and one the mode's graph watches:
+	// each runs where it is watched, so a mode's On variable never hides the global game over.
+	log.length = 0;
+	const mixed = doc(
+		{
+			nodes: [
+				on('over', 'lives', { on: 'crosses', threshold: 0, direction: 'down' }),
+				{ id: 'beat', kind: 'action', pos: at, ref: 'beat' },
+			],
+			exec: [ex('over', 'beat')],
+			data: [],
+		},
+		{
+			variables: [v('lives', 'int', 1), v('combo', 'int', 0)],
+			modes: {
+				bonus: {
+					graph: {
+						nodes: [
+							on('comboUp', 'combo', {}),
+							{ id: 'b2', kind: 'action', pos: at, ref: 'winUpdate' },
+						],
+						exec: [ex('comboUp', 'b2')],
+						data: [],
+					},
+				},
+			},
+		},
+	);
+	mode = 'bonus';
+	await F.runFlowStateEntry(mixed, ctx, {
+		kind: 'variables',
+		batch: [w(1, 0), { id: 'combo', previous: 0, value: 1 }],
+	});
+	eq("a mixed batch runs the mode's entry and the global game over", log.sort(), [
 		'beat',
 		'winUpdate',
 	]);
@@ -603,15 +644,90 @@ const GAME = doc(EMPTY, {
 	);
 	const properties = source('apps/launcher-api/src/routes/(app)/editor/EditorProperties.svelte');
 	eq(
-		'the input row suggests the flow variables as var:<id>',
-		properties.includes('<option value={`var:${v.id}`}>{v.id} ({v.type})</option>'),
-		true,
+		'the input row suggests the flow variables of its kind as var:<id>',
+		[
+			'<option value={`var:${v.id}`}>{v.id} ({v.type})</option>',
+			"number: ['int', 'float'],",
+			"text: ['string', 'enum'],",
+		].map((l) => properties.includes(l)),
+		[true, true, true],
 	);
 	const runtime = source('apps/lines/src/game/flowV2Runtime.svelte.ts');
 	eq(
 		'the game registers the variables as value sources',
 		runtime.includes('registerComponentValues(variableValueSources(state, docVariables(doc)))'),
 		true,
+	);
+}
+
+// ---- 8. renaming a variable in /flow-v2 ---------------------------------------------------------
+
+{
+	const { renameVariable } = await import('../src/routes/(app)/flow-v2/graphOps.ts');
+	const before = doc(
+		{
+			nodes: [
+				{
+					id: 'set',
+					kind: 'setVariable',
+					pos: at,
+					variable: 'score',
+					inputs: { value: varRead('score') },
+				},
+				{
+					id: 'if',
+					kind: 'branch',
+					pos: at,
+					guard: { any: [{ left: varRead('score'), op: 'gt', right: int(1) }] },
+				},
+				{
+					id: 'c',
+					kind: 'compute',
+					pos: at,
+					compute: { op: 'add', a: varRead('score'), b: varRead('other') },
+				},
+				{
+					id: 'g',
+					kind: 'group',
+					pos: at,
+					label: 'g',
+					boundary: [],
+					body: {
+						nodes: [{ id: 'inner', kind: 'onVariable', pos: at, variable: 'score' }],
+						exec: [],
+						data: [],
+					},
+				},
+			],
+			exec: [],
+			data: [],
+		},
+		{
+			variables: [v('score', 'int', 0), v('other', 'int', 0)],
+			modes: {
+				bonus: {
+					graph: {
+						nodes: [{ id: 'm', kind: 'changeVariable', pos: at, variable: 'score', op: 'add' }],
+						exec: [],
+						data: [],
+					},
+				},
+			},
+		},
+	);
+	const after = renameVariable(before, 'score', 'points');
+	const text = JSON.stringify(after);
+	eq(
+		'a rename leaves no "score" behind and touches nothing else',
+		[text.includes('"score"'), text.includes('"other"')],
+		[false, true],
+	);
+	eq(
+		'…and the renamed doc validates with no variable issue',
+		F.validateFlowDoc(after, VOCAB, LIBRARY)
+			.filter((i) => i.code.startsWith('variable-'))
+			.map((i) => i.code),
+		[],
 	);
 }
 

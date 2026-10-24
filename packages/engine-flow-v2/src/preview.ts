@@ -21,8 +21,14 @@
  * modulo the real subscribers' own async work, which only the live runtime can show.
  */
 
-import { runFlowEvent, runFlowStateEntry, type FlowV2Env, type RunContext } from './runtime';
-import { createFlowState, flowUsesState } from './state';
+import {
+	runFlowEvent,
+	runFlowStateEntry,
+	type FlowStateEntry,
+	type FlowV2Env,
+	type RunContext,
+} from './runtime';
+import { createFlowState, flowUsesState, stepFlowState } from './state';
 import type { EventDecl, FlowDoc, FunctionLibraryDoc, TemplateVocabulary, TypeRef } from './types';
 
 // ---------------------------------------------------------------------------
@@ -75,7 +81,8 @@ export interface FlowPreviewOptions {
 	engine?: (key: string) => unknown;
 	/**
 	 * How far the virtual clock may run (ms) for a doc with variables, timers or ticks: the preview
-	 * stops there, or earlier once nothing is waiting and no timer or tick can fire. Default 5000.
+	 * stops there, or earlier once nothing is waiting and no timer or tick can fire. Default 5000;
+	 * held to 0 – 60000.
 	 */
 	horizonMs?: number;
 	/** Keys pressed during the preview, at virtual times (ms), for `onInput` entries. */
@@ -88,9 +95,8 @@ export const PREVIEW_HORIZON_MS = 5000;
 /** The frame the preview's clock steps tick and timer entries on (the game's 60 fps). */
 export const PREVIEW_FRAME_MS = 1000 / 60;
 
-/** The most rounds of `onVariable` deliveries one moment may chain (a variable that keeps changing
- *  itself) before the preview stops delivering and moves on. */
-const MAX_DELIVERY_ROUNDS = 100;
+/** The longest a preview may run (ms): an every-frame tick is one frame of work per 16.7 ms. */
+export const PREVIEW_MAX_HORIZON_MS = 60_000;
 
 // ---------------------------------------------------------------------------
 // A deterministic FIXED `$engine.*` feed — stable values so a `$engine.reels` forEach or a
@@ -282,17 +288,25 @@ const settle = (): Promise<void> =>
 	new Promise((resolve) => {
 		const immediate = (globalThis as { setImmediate?: (run: () => void) => void }).setImmediate;
 		if (immediate) immediate(() => resolve());
-		else setTimeout(resolve, 0);
+		else if (typeof MessageChannel !== 'undefined') {
+			// A browser has no setImmediate, and a nested setTimeout(0) waits 4 ms or more.
+			const channel = new MessageChannel();
+			channel.port1.onmessage = () => {
+				channel.port1.close();
+				resolve();
+			};
+			channel.port2.postMessage(null);
+		} else setTimeout(resolve, 0);
 	});
 
 /**
  * The VIRTUAL-TIME EVENT QUEUE (game-families §3.2), for a doc with variables, timers or ticks. A
  * Delay is a wait on the queue, not a step of one chain's clock, so chains started by timers, ticks
  * and keys run side by side and each resumes at its own time. The clock moves to whichever comes
- * first — a wait ending, a scripted key, or the next 60 fps frame, where the variable store
- * (`createFlowState`) reports the timers and ticks due — and after each moment the variable writes
- * are flushed and their `onVariable` entries run. Nothing real passes; the same doc and options give
- * the same timeline every run.
+ * first — a wait ending, a scripted key, or the next 60 fps frame — and never back. A frame runs
+ * `stepFlowState`, exactly as the game's ticker does: the writes since the last frame go out, then
+ * the timers and ticks due run, all at the frame's moment. Nothing real passes; the same doc and
+ * options give the same timeline every run.
  */
 const previewOnClock = async (
 	doc: FlowDoc,
@@ -304,8 +318,8 @@ const previewOnClock = async (
 	const engine = options.engine ?? ((key: string) => FIXED_PREVIEW_ENGINE[key]);
 	const trigger = options.payload ?? samplePayloadForEvent(lookups.vocab, eventName);
 	const horizon =
-		options.horizonMs !== undefined && options.horizonMs >= 0
-			? options.horizonMs
+		typeof options.horizonMs === 'number' && Number.isFinite(options.horizonMs)
+			? Math.min(Math.max(0, options.horizonMs), PREVIEW_MAX_HORIZON_MS)
 			: PREVIEW_HORIZON_MS;
 
 	const timeline: FlowPreviewEntry[] = [];
@@ -331,33 +345,31 @@ const previewOnClock = async (
 	};
 	const ctx: RunContext = { vocab: lookups.vocab, library: lookups.library, env };
 
-	const deliver = async (): Promise<void> => {
-		for (let round = 0; round < MAX_DELIVERY_ROUNDS && state.pending(); round++) {
-			const batch = state.flush();
-			const latest = new Map(batch.map((w) => [w.id, w.value] as const));
+	const runEntry = (entry: FlowStateEntry): void => {
+		if (entry.kind === 'variables') {
+			const latest = new Map(entry.batch.map((w) => [w.id, w.value] as const));
 			for (const [id, value] of latest) timeline.push({ kind: 'var', at: now, id, value });
-			void runFlowStateEntry(doc, ctx, { kind: 'variables', batch });
-			await settle();
+		} else if (entry.kind === 'timer') {
+			timeline.push({ kind: 'timer', at: now, timer: entry.timer });
+		} else if (entry.kind === 'input') {
+			timeline.push({ kind: 'input', at: now, action: entry.action, phase: entry.phase });
 		}
+		void runFlowStateEntry(doc, ctx, entry);
 	};
 
 	for (const input of options.inputs ?? []) {
 		const phase = input.phase ?? 'down';
-		schedule(Math.max(0, input.at), () => {
-			timeline.push({ kind: 'input', at: now, action: input.action, phase });
-			void runFlowStateEntry(doc, ctx, { kind: 'input', action: input.action, phase });
-		});
+		schedule(Math.max(0, input.at), () => runEntry({ kind: 'input', action: input.action, phase }));
 	}
 
 	void runFlowEvent(doc, ctx, eventName, trigger, options.context ?? {});
 	await settle();
-	await deliver();
 
 	let frame = 0;
 	for (;;) {
 		const frameEnd = stamp((frame + 1) * PREVIEW_FRAME_MS);
 		const nextQueued = queue.reduce((min, q) => Math.min(min, q.at), Infinity);
-		if (nextQueued === Infinity && !state.live()) break;
+		if (nextQueued === Infinity && !state.live() && !state.pending()) break;
 		if (Math.min(nextQueued, frameEnd) > horizon) break;
 		// A wait ending exactly at the frame's end comes after the frame: the time up to it has passed.
 		if (nextQueued < frameEnd) {
@@ -366,23 +378,11 @@ const previewOnClock = async (
 			for (const q of ready) queue.splice(queue.indexOf(q), 1);
 			for (const q of ready) q.run();
 			await settle();
-			await deliver();
 			continue;
 		}
-		const frameStart = frame * PREVIEW_FRAME_MS;
 		frame += 1;
-		for (const due of state.advance(PREVIEW_FRAME_MS)) {
-			now = stamp(frameStart + due.at);
-			if (due.kind === 'timer') {
-				timeline.push({ kind: 'timer', at: now, timer: due.timer });
-				void runFlowStateEntry(doc, ctx, { kind: 'timer', timer: due.timer });
-			} else {
-				void runFlowStateEntry(doc, ctx, { kind: 'tick', node: due.node, dt: due.dt });
-			}
-			await settle();
-			await deliver();
-		}
 		now = frameEnd;
+		if (stepFlowState(state, PREVIEW_FRAME_MS, runEntry) > 0) await settle();
 	}
 
 	return { timeline, durationMs: Math.min(now, horizon), speed };

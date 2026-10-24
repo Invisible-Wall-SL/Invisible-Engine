@@ -7,16 +7,18 @@
  *     `every` fires each period with `dt = every`, one without fires each step.
  *  2. THE PREVIEW'S EVENT QUEUE (`previewFlowEvent` on a doc that uses state): timers fire at their
  *     exact virtual times, a Delay inside a timer chain resumes on the queue, a tick drives a counter,
- *     a scripted key runs its `onInput` entry, pause / resume shifts a timer, and two runs of the same
- *     doc give the same timeline.
+ *     a scripted key runs its `onInput` entry, pause / resume shifts a timer, a Delay shorter than a
+ *     frame never sends the clock back, the horizon is defaulted and capped, and two runs of the same
+ *     doc give the same timeline. Writes go out with the next frame, as in game.
  *  3. A DOC WITH NO STATE previews exactly as before P10.3: the single-chain clock, every entry kind
  *     and stamp unchanged.
  *  4. VALIDATION: `tick-async` refuses a Delay, an awaited cue, an awaited cinematic, a held Show, a
  *     Wait for state and a function that holds one on a tick chain — not on a timer chain; `tick-fast`
  *     warns under 100 ms and on every frame; a wire into an entry is refused; `input-unknown` warns.
- *  5. THE GAME'S FRAME (`tickFlowV2State`, source-scanned — it imports the Svelte runtime): it
- *     advances the handle's store, runs what came due and flushes once; `Game.svelte` adds its ticker
- *     callback only when the flow has a store.
+ *  5. THE GAME'S FRAME (the real `tickFlowV2State` over a stand-in handle): the last frame's writes go
+ *     out first, once, then what came due — a chain's write after an await waits for the next frame,
+ *     exactly as in the preview; `Game.svelte` adds its ticker callback only when the flow has a
+ *     store (source-scanned: it is a component).
  */
 import { readFileSync } from 'node:fs';
 import type {
@@ -172,20 +174,24 @@ const counterDoc = (): FlowDoc =>
 					? `${e.at} effect ${e.name}`
 					: `${e.at} ${e.kind}`,
 	);
-	eq('a repeating 800 ms timer fires at 800, 1600, 2400; its Delay resumes on the queue', line, [
-		'800 timer spawn',
-		'800 delay',
-		'800 var spawned=1',
-		'900 effect beat',
-		'1600 timer spawn',
-		'1600 delay',
-		'1600 var spawned=2',
-		'1700 effect beat',
-		'2400 timer spawn',
-		'2400 delay',
-		'2400 var spawned=3',
-		'2500 effect beat',
-	]);
+	eq(
+		'a repeating 800 ms timer fires at 800, 1600, 2400; its Delay resumes on the queue; each write goes out with the next frame',
+		line,
+		[
+			'800 timer spawn',
+			'800 delay',
+			'816.666667 var spawned=1',
+			'900 effect beat',
+			'1600 timer spawn',
+			'1600 delay',
+			'1616.666667 var spawned=2',
+			'1700 effect beat',
+			'2400 timer spawn',
+			'2400 delay',
+			'2416.666667 var spawned=3',
+			'2500 effect beat',
+		],
+	);
 	eq('the preview runs up to and including its horizon', result.durationMs, 2500);
 	const again = await F.previewFlowEvent(counterDoc(), { vocab: VOCAB, library: LIBRARY }, 'go', {
 		horizonMs: 2500,
@@ -231,11 +237,11 @@ const counterDoc = (): FlowDoc =>
 		inputs: [{ at: 600, action: 'jump' }],
 	});
 	eq(
-		'a 250 ms tick adds 2 each period; the key at 600 sets 100; no event needed',
+		'a 250 ms tick adds 2 each period; the key at 600 sets 100; writes go out a frame later',
 		result.timeline
 			.filter((e) => e.kind === 'var' || e.kind === 'input')
 			.map((e) => (e.kind === 'var' ? `${Math.round(e.at)} n=${String(e.value)}` : `${e.at} key`)),
-		['250 n=2', '500 n=4', '600 key', '600 n=100', '750 n=102', '1000 n=104'],
+		['267 n=2', '517 n=4', '600 key', '617 n=100', '767 n=102'],
 	);
 }
 
@@ -271,6 +277,59 @@ const counterDoc = (): FlowDoc =>
 		[800, 800],
 	);
 	eq('…and the preview ends once nothing can fire', Math.round(result.durationMs) <= 900, true);
+}
+
+{
+	// A Delay shorter than a frame inside a timer chain, beside an every-frame tick: the clock never
+	// runs back, and the Delay ends at its own time, between frames.
+	const subFrame = doc(
+		{
+			nodes: [
+				{ id: 'go', kind: 'event', pos: at, ref: 'go' },
+				{ id: 'start', kind: 'startTimer', pos: at, timer: 't', inputs: { ms: ms(125) } },
+				{ id: 'fire', kind: 'onTimer', pos: at, timer: 't' },
+				{ id: 'wait', kind: 'delay', pos: at, inputs: { ms: ms(5) } },
+				{ id: 'beat', kind: 'action', pos: at, ref: 'beat' },
+				{ id: 'tick', kind: 'onTick', pos: at },
+				{ id: 'pop', kind: 'fireCue', pos: at, ref: 'pop' },
+			],
+			exec: [ex('go', 'start'), ex('fire', 'wait'), ex('wait', 'beat'), ex('tick', 'pop')],
+			data: [],
+		},
+		{ variables: [] },
+	);
+	const result = await F.previewFlowEvent(subFrame, { vocab: VOCAB, library: LIBRARY }, 'go', {
+		horizonMs: 200,
+	});
+	const stamps = result.timeline.map((e) => e.at);
+	eq(
+		'the clock never runs back',
+		stamps.every((t, i) => i === 0 || t >= stamps[i - 1]),
+		true,
+	);
+	eq(
+		'the timer runs at the frame it came due in (133.33), its 5 ms Delay ends at 138.33',
+		result.timeline
+			.filter((e) => e.kind === 'timer' || e.kind === 'effect')
+			.map((e) => Math.round(e.at * 100) / 100),
+		[133.33, 138.33],
+	);
+	eq(
+		'a horizon left blank or out of range is the default or the cap',
+		[
+			(
+				await F.previewFlowEvent(subFrame, { vocab: VOCAB, library: LIBRARY }, 'go', {
+					horizonMs: null as unknown as number,
+				})
+			).durationMs,
+			(
+				await F.previewFlowEvent(subFrame, { vocab: VOCAB, library: LIBRARY }, 'go', {
+					horizonMs: 10 ** 9,
+				})
+			).durationMs,
+		],
+		[F.PREVIEW_HORIZON_MS, F.PREVIEW_MAX_HORIZON_MS],
+	);
 }
 
 // ---- 3. a doc with no state previews as before -------------------------------------------------
@@ -427,17 +486,49 @@ const counterDoc = (): FlowDoc =>
 // ---- 5. the game's frame -----------------------------------------------------------------------
 
 {
-	const holder = source('apps/lines/src/game/flowV2InterpreterHolder.ts');
-	const game = source('apps/lines/src/components/Game.svelte');
-	eq(
-		'tickFlowV2State advances the store, runs what is due and flushes once',
-		[
-			'export const tickFlowV2State = (dtMs: number): void => {',
-			'for (const due of state.advance(dtMs)) {',
-			"if (state.pending()) void h.runStateEntry({ kind: 'variables', batch: state.flush() });",
-		].map((l) => holder.includes(l)),
-		[true, true, true],
+	// The real holder, with a stand-in handle: one call is one frame, and it must run the same
+	// `stepFlowState` the preview runs — the last frame's writes out first, then what came due.
+	const holder = await import('../../lines/src/game/flowV2InterpreterHolder.ts');
+	const frameDoc = doc(
+		{ nodes: [{ id: 'tick', kind: 'onTick', pos: at, every: 100 }], exec: [], data: [] },
+		{ variables: [{ id: 'n', type: 'int', initial: 0, scope: 'round' }] },
 	);
+	const state = F.createFlowState(frameDoc);
+	const ran: string[] = [];
+	const heard: unknown[] = [];
+	state.subscribe('n', (value) => heard.push(value));
+	holder.setFlowV2({
+		state,
+		runStateEntry: async (entry: { kind: string; batch?: { value: unknown }[] }) => {
+			ran.push(entry.kind === 'variables' ? `variables ${entry.batch?.length}` : entry.kind);
+			// A chain that writes after its first await, as any real chain does.
+			await Promise.resolve();
+			if (entry.kind === 'tick') state.change('n', 'add', 1, {});
+		},
+	} as unknown as Parameters<typeof holder.setFlowV2>[0]);
+	holder.tickFlowV2State(100);
+	await Promise.resolve();
+	await Promise.resolve();
+	eq('frame 1: the tick runs; its write (after an await) waits', [ran, heard], [['tick'], [0]]);
+	holder.tickFlowV2State(100);
+	await Promise.resolve();
+	await Promise.resolve();
+	eq(
+		'frame 2: the write goes out first, once, then the next tick',
+		[ran, heard],
+		[
+			['tick', 'variables 1', 'tick'],
+			[0, 1],
+		],
+	);
+	state.write('n', 9);
+	holder.resetFlowV2Round();
+	holder.tickFlowV2State(50);
+	eq('a round reset is delivered like any write', heard.at(-1), 0);
+	holder.setFlowV2(undefined);
+	holder.tickFlowV2State(100);
+	eq('no flow: a frame does nothing', ran.length, 4);
+	const game = source('apps/lines/src/components/Game.svelte');
 	eq(
 		'Game.svelte adds the ticker callback only when the flow has a store',
 		[
@@ -448,9 +539,12 @@ const counterDoc = (): FlowDoc =>
 	);
 	const runtime = source('apps/lines/src/game/flowV2Runtime.svelte.ts');
 	eq(
-		'the handle builds a store only for a doc that uses one',
-		runtime.includes('const state = flowUsesState(doc) ? createFlowState(doc) : undefined;'),
-		true,
+		'the handle builds a store only for a doc that uses one, and reports a failing chain once',
+		[
+			'const state = flowUsesState(doc) ? createFlowState(doc) : undefined;',
+			'runFlowStateEntry(doc, ctx, entry).catch((e: unknown) => {',
+		].map((l) => runtime.includes(l)),
+		[true, true],
 	);
 }
 

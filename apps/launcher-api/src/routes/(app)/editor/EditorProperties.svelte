@@ -1,4 +1,5 @@
 <script lang="ts" module>
+	let nextVariableListId = 0;
 	/** The `<datalist>` every free-text signal field suggests from — the Screen block's Element FX
 	 *  cue fields too, which render beside this panel. */
 	export const SIGNAL_SUGGESTIONS_ID = 'editor-signal-suggestions';
@@ -981,6 +982,17 @@
 
 	/** The bool / number inputs, in declaration order (triggers are the signal rows above). */
 	const valueInputRows = $derived(componentInputs.filter((i) => i.kind !== 'trigger'));
+	/** The flow variables an input of `kind` can follow (game-families §3.1): a number input a number
+	 *  variable, a bool input a bool one, a text input a string or enum one. */
+	const VARIABLE_TYPES_FOR: Record<string, readonly string[]> = {
+		number: ['int', 'float'],
+		bool: ['bool'],
+		text: ['string', 'enum'],
+	};
+	const variablesFor = (kind: string): { id: string; type: string }[] =>
+		flowVariables.filter((v) => (VARIABLE_TYPES_FOR[kind] ?? []).includes(v.type));
+	/** This panel's own datalist ids, so two mounted panels never share one. */
+	const variableListId = `flow-variable-sources-${nextVariableListId++}`;
 	let newInputKey = $state('');
 	let newInputKind = $state<'bool' | 'number'>('bool');
 	function addValueInput(): void {
@@ -2616,7 +2628,9 @@
 									type="text"
 									value={input.source ?? ''}
 									placeholder="engine value or var:…"
-									list={flowVariables.length ? 'flow-variable-sources' : undefined}
+									list={variablesFor(input.kind).length
+										? `${variableListId}-${input.kind}`
+										: undefined}
 									onchange={(e) => onSetInputSource?.(input.id, e.currentTarget.value)}
 								/>
 							</label>
@@ -2624,13 +2638,15 @@
 					</li>
 				{/each}
 			</ul>
-			{#if flowVariables.length}
-				<datalist id="flow-variable-sources">
-					{#each flowVariables as v (v.id)}
-						<option value={`var:${v.id}`}>{v.id} ({v.type})</option>
-					{/each}
-				</datalist>
-			{/if}
+			{#each ['number', 'bool', 'text'] as kind (kind)}
+				{#if variablesFor(kind).length}
+					<datalist id={`${variableListId}-${kind}`}>
+						{#each variablesFor(kind) as v (v.id)}
+							<option value={`var:${v.id}`}>{v.id} ({v.type})</option>
+						{/each}
+					</datalist>
+				{/if}
+			{/each}
 		{/if}
 		<div class="row">
 			<label class="field">

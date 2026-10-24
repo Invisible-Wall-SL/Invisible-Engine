@@ -857,10 +857,16 @@ export const createLinesFlowV2 = (
 
 	// The key map (§3.2): a mapped key going down or up runs the `onInput` entries for its action.
 	// Only a doc that maps a key listens; a held key's repeats are not new presses.
-	const detachKeys =
-		state && doc.inputs?.length
-			? attachFlowKeys(doc, (entry) => runFlowStateEntry(doc, ctx, entry))
-			: undefined;
+	// A timer / tick / key / variable chain runs on its own, outside any round: one that throws is
+	// reported once, not 60 times a second.
+	let stateFailed = false;
+	const runStateEntry = (entry: FlowStateEntry): Promise<void> =>
+		runFlowStateEntry(doc, ctx, entry).catch((e: unknown) => {
+			if (stateFailed) return;
+			stateFailed = true;
+			console.error('[flow-v2] a timer, tick, key or variable chain failed (reported once):', e);
+		});
+	const detachKeys = state && doc.inputs?.length ? attachFlowKeys(doc, runStateEntry) : undefined;
 	// Mode transitions are presented when the doc has Mode trigger entries, or mode variables to reset.
 	const handlesModes = flowHandlesModeTransitions(doc);
 	const presentsModes = handlesModes || docVariables(doc).some((v) => v.mode !== undefined);
@@ -953,7 +959,7 @@ export const createLinesFlowV2 = (
 		driveScreen: screenDrives.driveScreen,
 		engineScreenUp: screenDrives.setEngineScreen,
 		state,
-		runStateEntry: (entry) => runFlowStateEntry(doc, ctx, entry),
+		runStateEntry,
 	};
 };
 
@@ -964,8 +970,12 @@ const attachFlowKeys = (
 	run: (entry: FlowStateEntry) => Promise<void>,
 ): (() => void) | undefined => {
 	if (typeof window === 'undefined') return undefined;
+	// A letter matches either case, so Shift or Caps Lock (on the press or before the release) does
+	// not lose it; every other key name matches exactly.
+	const same = (mapped: string, key: string): boolean =>
+		mapped.length === 1 ? mapped.toLowerCase() === key.toLowerCase() : mapped === key;
 	const actionsOf = (key: string): string[] =>
-		(doc.inputs ?? []).filter((b) => b.keys.includes(key)).map((b) => b.action);
+		(doc.inputs ?? []).filter((b) => b.keys.some((k) => same(k, key))).map((b) => b.action);
 	const typing = (e: KeyboardEvent): boolean =>
 		e.target instanceof HTMLElement &&
 		(e.target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName));

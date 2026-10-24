@@ -23,9 +23,13 @@ keys). Pointer drag is P10.4.
   variables reset on `resetRound`, a mode's on `enterMode(id)`; a reset is a write. Writes are
   delivered once per frame (`flush`): each `var:<id>` subscriber hears its variable once, and the
   batch runs the `onVariable` entries (`variableEntries`: `changed` once with the latest value,
-  `crosses` per crossing write). Timers and ticks advance only through `advance(dtMs)`.
-- **Entries** (`runFlowStateEntry`): timer, tick, key and variable entries run on the active mode's
-  graph when it has one, else the global graph (the signal rule).
+  `crosses` per crossing write). Timers and ticks advance only through `advance(dtMs)`. One frame
+  is `stepFlowState`, which the game's ticker and the preview both run: first the writes since the
+  last frame go out, then the timers and ticks due run, all at the frame's moment. A write any of
+  those chains makes goes out with the next frame.
+- **Entries** (`runFlowStateEntry`): timer, tick and key entries run on the active mode's graph
+  when it has one, else the global graph (the signal rule); a variables batch is split per variable
+  by the same rule. A chain that throws is reported once per session.
 - **Game side** (`apps/lines`): `createLinesFlowV2` builds a store only when `flowUsesState(doc)`;
   it registers each variable as the value source `var:<id>` (a bool as 1 / 0), listens for mapped
   keys (not while typing in a field, no key-repeat), and resets a mode's variables on its `enter`
@@ -38,15 +42,16 @@ keys). Pointer drag is P10.4.
   `setInputSource` keep it on all three. The Component Editor's input row shows its "from" field on
   bool and text rows too and suggests the project's flow variables (`/editor` loads them).
 - **Preview** (`src/preview.ts`): a doc that uses state runs on a virtual-time event queue (60 fps
-  frames, Delays as queue waits, scripted keys, a horizon, default 5000 ms). A doc with none keeps
-  the single-chain clock unchanged.
+  frames running `stepFlowState`, Delays as queue waits, scripted keys; the clock never runs back; a
+  horizon, default 5000 ms, held to 60 s). A doc with none keeps the single-chain clock unchanged.
+  The `/flow-v2` panel scripts no keys yet, so On input chains do not run there.
 - **Validator** (`src/variableValidate.ts`): `variable-unknown`, `variable-type`, `variable-scope`,
   `variable-duplicate`, `variable-shadows-money`, `tick-async`, `tick-fast`, `input-unknown`.
   `validateFlowDoc` takes an optional `outcome` (absent ⇒ RGS).
 - **`/flow-v2`:** the Variables panel (`VariablesPanelV2.svelte`, with the key map on the Global
   tab), the *Variables & time* palette group, inspector fields, `$var` in the accessor picker, the
   new codes in Validation, and the preview's horizon and *No event* run.
-- **Gates:** `check:flow-variables` (39 checks) and `check:flow-time-events` (28 checks), both run
+- **Gates:** `check:flow-variables` (42 checks) and `check:flow-time-events` (34 checks), both run
   by `check:all`; `envFactory.fixture.ts` learns the `state` capability.
 - **Slot parity:** a doc with no variable, key map or state node gets no store, no value source, no
   key listener and no ticker callback, previews on the old clock, and gets no new issue (no
@@ -64,8 +69,18 @@ keys). Pointer drag is P10.4.
   - `onVariable` fires once per frame, not inside the writing chain; `tick-fast` also warns on an
     every-frame tick; `variable-duplicate` and `input-unknown` are codes the plan did not name.
 - **Not done here:** pointer move / drag (P10.4); the Data tab (9d); per-frame work belongs to the
-  mechanic (P10.8). An `onVariable` chain that keeps changing its own variable re-runs once a frame
-  (the preview stops after 100 rounds); nothing flags it yet.
+  mechanic (P10.8).
+- **Known limits** (none reachable by a current game):
+  - an `onVariable` chain that keeps changing its own variable re-runs once a frame, for good;
+    nothing flags it yet;
+  - a text input on a component nested inside another component does not follow a `var:` source
+    (only a top-level placement has the Flow handle that keeps text); nothing draws a text input yet;
+  - a timer started mid-frame counts from the next frame (up to 16.7 ms late); a mode's `onTick`
+    with `every` keeps counting while its mode is off screen, so its first fire on entry can be early;
+  - renaming a variable rewrites this doc's nodes, not a component's `var:<id>` source or a shared
+    library function;
+  - Publish validates without an `outcome`, so a future rules-decided game would get
+    `variable-shadows-money`: pass the config's outcome to `validateFlowDoc` in P10.5.
 
 **P10.2 — the board module (built 2026-10-23; merged #1323).** A new dependency-free package,
 `packages/engine-mechanics` (§4.0): `src/board.js`, plain ESM with no imports, and its hand-written

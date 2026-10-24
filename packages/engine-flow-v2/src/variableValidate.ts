@@ -154,8 +154,9 @@ const variableOfNode = (node: Node): string | undefined =>
 		: undefined;
 
 /**
- * The checks on one graph's nodes (`modeId` ⇒ a mode's section). Runs only when the context knows
- * the doc's variables (`ctx.variables`) — a bare caller is never judged on them.
+ * The checks on one graph's nodes (`modeId` ⇒ a mode's section). The variable checks run only when
+ * the context carries the doc's variables (`ctx.variables`; `validateFlowDoc` always passes them, an
+ * empty list for a doc that declares none) — a bare caller is never judged on them.
  */
 export const variableNodeIssues = (
 	graph: Graph,

@@ -521,10 +521,11 @@ repeats are not new presses.
 
 **Show a variable on a component — no wire.** In the Component Editor, a bool, number or text
 input's **from** field names where it reads its value in game. Type `var:<id>` (`var:score`) and
-the input follows that Flow variable; the field suggests this project's variables.
+the input follows that Flow variable; the field suggests this project's variables of the input's
+kind (number, bool, or string / enum for text).
 
-**In the game** timers and ticks run on the game's frame, so they stop while the game is paused
-or its tab is hidden.
+**In the game** timers and ticks run on the game's frame, so they stop while its tab is hidden.
+A menu or a dialog that keeps the game drawing does not pause them.
 
 ### Free-spin intro and outro — the flow holds the round
 

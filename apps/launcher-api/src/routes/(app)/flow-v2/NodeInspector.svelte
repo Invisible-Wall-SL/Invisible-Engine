@@ -895,7 +895,8 @@
 				<span class="flabel">Repeat — restart each time it runs out</span>
 			</label>
 			<p class="hint">
-				Starting a running timer restarts it. Timers stop while the game is paused.
+				Starting a running timer restarts it. Timers run on the game's frame: they stop when the game
+				stops drawing (a hidden tab), not for a menu or a modal.
 			</p>
 		{/if}
 

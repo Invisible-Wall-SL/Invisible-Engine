@@ -11,6 +11,7 @@
  * is byte-identical to current `main`. v2 is a DEV-gated opt-in for now (Phase 5 hard-cuts v1).
  */
 
+import { stepFlowState } from 'engine-flow-v2';
 import type { FlowPressResolver } from 'engine-layout';
 
 import type { LinesFlowV2 } from './flowV2Runtime.svelte';
@@ -138,24 +139,16 @@ export const fireTapToStartOnce = (): void => {
 
 /**
  * One frame of the flow's variables and timers (game-families §3.1–§3.2), called from the game's
- * ticker with its `deltaMS` — so a game that is not ticking (paused, a hidden tab) holds its timers.
- * Runs every timer and tick entry that came due, in time order, then delivers the frame's variable
- * writes: each `var:<id>` subscriber hears its variable once and the `onVariable` entries run. The
- * entries' own writes go out with the next frame. No flow, or one that uses no variable, timer or
- * tick ⇒ nothing (the handle has no `state`).
+ * ticker with its `deltaMS` — so a game that is not ticking (a hidden tab) holds its timers. It runs
+ * `stepFlowState`, the rule the `/flow-v2` preview runs too: the writes since the last frame go out
+ * (each `var:<id>` subscriber hears its variable once, the `onVariable` entries run), then every timer
+ * and tick that came due runs, in time order. No flow, or one that uses no variable, timer or tick ⇒
+ * nothing (the handle has no `state`).
  */
 export const tickFlowV2State = (dtMs: number): void => {
 	const h = flowV2;
-	const state = h?.state;
-	if (!h || !state) return;
-	for (const due of state.advance(dtMs)) {
-		void h.runStateEntry(
-			due.kind === 'timer'
-				? { kind: 'timer', timer: due.timer }
-				: { kind: 'tick', node: due.node, dt: due.dt },
-		);
-	}
-	if (state.pending()) void h.runStateEntry({ kind: 'variables', batch: state.flush() });
+	if (!h?.state) return;
+	stepFlowState(h.state, dtMs, (entry) => void h.runStateEntry(entry));
 };
 
 /** A round starts (the spin press, before the RGS answers): the flow's `round` variables go back to
