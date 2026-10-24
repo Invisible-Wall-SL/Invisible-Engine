@@ -1,0 +1,23 @@
+{
+	"name": "engine-shadergraph",
+	"version": "0.0.0",
+	"private": true,
+	"license": "MIT",
+	"main": "./index.ts",
+	"types": "./index.ts",
+	"type": "module",
+	"dependencies": {
+		"constants-shared": "workspace:*"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"format": "prettier --write --ignore-path=../../.prettierignore .",
+		"lint": "eslint \"src\""
+	},
+	"devDependencies": {
+		"@types/node": "22.20.5",
+		"eslint": "9.21.0",
+		"eslint-config-custom": "workspace:*",
+		"typescript": "6.0.3"
+	}
+}
