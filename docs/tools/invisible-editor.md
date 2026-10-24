@@ -1897,6 +1897,14 @@ gets the bar's `index` / `value`, and it nests one level deeper than the game dr
      count. **max** caps it (20 when empty, never more than 50).
    - **Layout**: **direction** **row** / **column** / **grid** (with **columns**) and the **gap**
      between segments. A row or column steps by each segment's own size, so wider end caps fit.
+     A segment's size is measured from the rects and sized sprites it draws. **A segment drawn only
+     from rigs or text has no size the bar can measure, so set its box, or the segments stack on
+     top of each other:** open the segment (and each end cap) and fill **Size** (W × H) in the
+     editor bar, beside **Space** (both sides; one alone is ignored). The box is not drawn on the
+     stage: it runs from the component's origin (0, 0) right and down, so keep the art between
+     (0, 0) and (W, H) — art centred on the origin keeps its spacing but shifts the whole row half
+     a segment left and up. A **grid** steps by the segment's box too. Leave **Size** empty to keep
+     measuring.
    - **Pass to each segment**: one row per number input of the segment. `index` and `count` show
      as _given by the repeater_. For **`value`**, set **from value** to **Respins left**
      (`respinsLeft`) or **Free spins left** (`freeSpinsLeft`) — every copy's `value` follows it in

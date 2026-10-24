@@ -3,11 +3,14 @@ import {
 	REPEATER_COUNT_HARD_MAX,
 	REPEATER_COUNT_PARAM,
 	REPEATER_INDEX_PARAM,
+	type ComponentDef,
 	type LayoutNode,
+	type LayoutType,
 	type RepeaterCount,
 	type RepeaterNode,
 	type RepeaterVariants,
 } from './types';
+import { componentDesignSize } from './componentDesignSize';
 import { bindingNumber } from './valueBindings';
 
 /**
@@ -98,6 +101,22 @@ export const repeaterSegmentValues = (index: number, n: number): Record<string, 
 export interface RepeaterItemSize {
 	width: number;
 	height: number;
+}
+
+/**
+ * A segment's size as a count-mode repeater lays it out: its ROOT box when the def declares both
+ * `width` and `height` (the Component Editor's **Size**), measured from its origin right and down;
+ * else the union of what it draws (`componentDesignSize`, no textures). A segment drawn only from
+ * rigs and text measures nothing without its box, so such segments stack.
+ */
+export function repeaterSegmentSize(
+	def: ComponentDef,
+	layoutType: LayoutType,
+): RepeaterItemSize | null {
+	const { width, height } = def.root;
+	const side = (v?: number): v is number => v !== undefined && Number.isFinite(v) && v > 0;
+	if (side(width) && side(height)) return { width, height };
+	return componentDesignSize(def, () => null, layoutType);
 }
 
 export interface RepeaterCountLayout {
