@@ -25,9 +25,10 @@ const VECTOR_TYPES = { vec2: 2, vec3: 3, vec4: 4 } as const;
 const graphPass = (effect: CustomElementFx): FilterImpl<Filter> => {
 	const params = new Map(effect.spec.params.map((spec) => [spec.id, spec]));
 	const { body, uniforms } = effect.shader;
+	const seed = uniforms.find((u) => u.source.kind === 'seed');
 	return filterImpl<ElementFxFilter>({
-		create: () =>
-			new ElementFxFilter(
+		create() {
+			const filter = new ElementFxFilter(
 				effect.spec.kind.replace(/\W/g, '-'),
 				body,
 				Object.fromEntries(
@@ -38,13 +39,18 @@ const graphPass = (effect: CustomElementFx): FilterImpl<Filter> => {
 							: { value: new Float32Array(VECTOR_TYPES[u.type]), type: `${u.type}<f32>` },
 					]),
 				),
-			),
+			);
+			// Drawn once per element, as the built-ins draw theirs; an effect that reads none draws none.
+			if (seed) filter.set(seed.name, Math.random() * 97);
+			return filter;
+		},
 		update(filter, frame) {
 			for (const u of uniforms) {
 				if (u.source.kind === 'time') {
 					filter.set(u.name, frame.t, frame.seconds, frame.intensity, frame.looping ? 1 : 0);
 					continue;
 				}
+				if (u.source.kind === 'seed') continue;
 				const spec = params.get(u.source.id);
 				if (spec) filter.set(u.name, ...elementFxParamUniform(spec, frame.params[spec.id]));
 			}

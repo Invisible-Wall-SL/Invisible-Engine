@@ -135,32 +135,16 @@ uniform vec2 uPersp;
 
 void main(void)
 {
-    vec2 size = efxSize();
-    float m = max(size.x, size.y);
-    vec2 p = efxPx() - efxCenter();
-    float f = uPersp.x * m;
-    mat3 r = efxRotY(uRot.y) * efxRotX(uRot.x);
-    vec3 n = r * vec3(0.0, 0.0, 1.0);
-    vec3 eye = vec3(0.0, 0.0, -f);
-    vec3 dir = vec3(p, f);
-    vec3 p0 = vec3(0.0, 0.0, -uRot.z * m);
-    float denom = dot(n, dir);
-    if (abs(denom) < 1e-4)
+    vec4 plane = efxPerspective(efxPx(), uRot, uPersp.x);
+    if (plane.w < 0.5)
     {
         finalColor = vec4(0.0);
         return;
     }
-    float lambda = dot(n, p0 - eye) / denom;
-    if (lambda <= 0.0)
-    {
-        finalColor = vec4(0.0);
-        return;
-    }
-    vec3 local = efxTranspose(r) * (eye + lambda * dir - p0);
-    vec4 color = efxSample(efxCenter() + local.xy);
+    vec4 color = efxSample(plane.xy);
     if (uPersp.y > 0.5)
     {
-        color.rgb *= mix(0.45, 1.0, abs(n.z));
+        color.rgb *= mix(0.45, 1.0, plane.z);
     }
     finalColor = color;
 }
@@ -184,34 +168,6 @@ export const sphericonFilter = (): ElementFxFilter =>
 uniform vec3 uSpin;
 uniform vec3 uSphericon;
 
-// t when o + t d lies on the face around axis a (0 <= p.a <= h) inside the half where
-// side * p.z >= 0, else -1.
-float onFace(vec3 o, vec3 d, vec3 a, float side, float h, float t)
-{
-    vec3 p = o + t * d;
-    float s = dot(p, a);
-    return t > 0.0 && s >= 0.0 && s <= h && side * p.z >= 0.0 ? t : -1.0;
-}
-
-// The nearer hit of the ray o + t d on that face, or -1.
-float face(vec3 o, vec3 d, vec3 a, float side, float h)
-{
-    float so = dot(o, a);
-    float sd = dot(d, a);
-    float qa = dot(d, d) - 2.0 * sd * sd;
-    float qb = 2.0 * dot(o, d) - 4.0 * so * sd + 2.0 * h * sd;
-    float qc = dot(o, o) - 2.0 * so * so + 2.0 * h * so - h * h;
-    // A ray along the cone's slope meets it once.
-    if (abs(qa) < 1e-6) return abs(qb) < 1e-6 ? -1.0 : onFace(o, d, a, side, h, -qc / qb);
-    float disc = qb * qb - 4.0 * qa * qc;
-    if (disc < 0.0) return -1.0;
-    float root = sqrt(disc);
-    float t0 = (-qb - root) / (2.0 * qa);
-    float t1 = (-qb + root) / (2.0 * qa);
-    float first = onFace(o, d, a, side, h, min(t0, t1));
-    return first > 0.0 ? first : onFace(o, d, a, side, h, max(t0, t1));
-}
-
 void main(void)
 {
     vec2 px = efxPx();
@@ -222,49 +178,16 @@ void main(void)
         finalColor = plain;
         return;
     }
-    vec2 size = efxSize();
-    float h = max(uSphericon.y * min(size.x, size.y), 1.0);
-    mat3 r = efxRotX(uSpin.z) * efxRotY(uSpin.y) * efxRotX(uSpin.x);
-    mat3 inv = efxTranspose(r);
-    vec3 o = inv * vec3(px - efxCenter(), -4.0 * h);
-    vec3 d = inv * vec3(0.0, 0.0, 1.0);
-
-    float best = -1.0;
-    vec3 axis = vec3(1.0, 0.0, 0.0);
-    float top = 1.0;
-    vec3 axes[4];
-    axes[0] = vec3(1.0, 0.0, 0.0);
-    axes[1] = vec3(-1.0, 0.0, 0.0);
-    axes[2] = vec3(0.0, 1.0, 0.0);
-    axes[3] = vec3(0.0, -1.0, 0.0);
-    for (int i = 0; i < 4; i++)
-    {
-        float side = i < 2 ? 1.0 : -1.0;
-        float hit = face(o, d, axes[i], side, h);
-        if (hit > 0.0 && (best < 0.0 || hit < best))
-        {
-            best = hit;
-            axis = axes[i];
-            top = side;
-        }
-    }
-
+    vec4 hit = efxSphericonHit(px, uSpin, uSphericon.y);
     vec4 solid = vec4(0.0);
-    if (best > 0.0)
+    if (hit.w > 0.5)
     {
-        vec3 p = o + best * d;
-        vec2 uv = top > 0.0
-            ? vec2(p.x / h * 0.5 + 0.5, atan(p.z, p.y) / PI)
-            : vec2(atan(-p.z, -p.x) / PI, p.y / h * 0.5 + 0.5);
-        solid = efxSample(efxFromUnit(clamp(uv, 0.0, 1.0)));
+        solid = efxSample(efxFromUnit(efxSphericonUv(hit, uSphericon.y)));
         if (uSphericon.z > 0.5)
         {
-            float s = dot(p, axis);
-            vec3 n = normalize(r * (p - (2.0 * s - h) * axis));
-            vec3 light = normalize(vec3(-0.45, -0.6, -1.0));
-            float diffuse = max(dot(n, light), 0.0);
-            float spec = pow(max(dot(reflect(-light, n), vec3(0.0, 0.0, -1.0)), 0.0), 18.0);
-            solid.rgb = min(solid.rgb * (0.35 + 0.75 * diffuse) + spec * 0.35 * solid.a, vec3(solid.a));
+            vec3 n = efxSphericonNormal(hit, uSpin, uSphericon.y);
+            vec2 lit = efxLight(n, vec3(-0.45, -0.6, 1.0), 18.0);
+            solid.rgb = min(solid.rgb * (0.35 + 0.75 * lit.x) + lit.y * 0.35 * solid.a, vec3(solid.a));
         }
     }
     finalColor = mix(plain, solid, k);
@@ -295,11 +218,9 @@ void main(void)
     }
     else
     {
-        float u = efxToUnit(px).x;
-        float pin = clamp(u, 0.0, 1.0);
-        float arg = 2.0 * PI * (u / max(uWave.y, 0.001) - uWave.z);
-        at = px - vec2(0.0, uWave.x * efxSize().y * pin * sin(arg));
-        light = 1.0 + 0.3 * pin * cos(arg) * clamp(uWave.x * 12.0, 0.0, 1.0);
+        vec3 flag = efxFlag(px, uWave.x, uWave.y, uWave.z);
+        at = flag.xy;
+        light = flag.z;
     }
     vec4 color = efxSample(at);
     color.rgb = min(color.rgb * light, vec3(color.a));
@@ -336,59 +257,9 @@ export const curlFilter = (): ElementFxFilter =>
 		`
 uniform vec4 uCurl;
 
-vec4 back(vec4 color)
-{
-    float grey = efxLuma(color.rgb);
-    color.rgb = mix(color.rgb, vec3(grey), 0.45) * 0.72 + 0.12 * color.a;
-    return color;
-}
-
 void main(void)
 {
-    vec2 px = efxPx();
-    vec4 page = efxSample(px);
-    float diagonal = length(efxSize());
-    float reach = uCurl.z * diagonal;
-    if (reach <= 0.0)
-    {
-        finalColor = page;
-        return;
-    }
-    vec2 corner = efxFromUnit(uCurl.xy);
-    vec2 d = normalize(efxCenter() - corner);
-    float r = max(uCurl.w * diagonal, 0.5);
-    float x = reach - dot(px - corner, d);
-    vec4 result = vec4(0.0);
-    if (x > r)
-    {
-        result = vec4(0.0);
-    }
-    else if (x >= 0.0)
-    {
-        float a = asin(clamp(x / r, -1.0, 1.0));
-        vec2 qBack = px + d * (x - r * (PI - a));
-        vec4 flapBack = efxInside(qBack) ? efxSample(qBack) : vec4(0.0);
-        if (flapBack.a > 0.004)
-        {
-            result = back(flapBack);
-        }
-        else
-        {
-            vec2 qFront = px + d * (x - r * a);
-            vec4 front = efxInside(qFront) ? efxSample(qFront) : vec4(0.0);
-            front.rgb *= mix(1.0, 0.6, x / r);
-            result = front;
-        }
-    }
-    else
-    {
-        vec2 q = px + d * (2.0 * x - PI * r);
-        vec4 flap = efxInside(q) ? back(efxSample(q)) : vec4(0.0);
-        float shadow = 1.0 - 0.4 * smoothstep(-1.5 * r, 0.0, x);
-        vec4 under = vec4(page.rgb * shadow, page.a);
-        result = flap + under * (1.0 - flap.a);
-    }
-    finalColor = result;
+    finalColor = efxCurl(efxPx(), uCurl.xy, uCurl.z, uCurl.w);
 }
 `,
 		{ uCurl: vec(4) },
@@ -756,16 +627,6 @@ export const electrocuteFilter = (): ElementFxFilter =>
 uniform vec4 uZap;
 uniform vec4 uArc;
 
-// A point on the element's edge, 0…4 once round it, in unit coordinates.
-vec2 zapRim(float a)
-{
-    a = mod(a, 4.0);
-    return a < 1.0 ? vec2(a, 0.0)
-        : a < 2.0 ? vec2(1.0, a - 1.0)
-        : a < 3.0 ? vec2(3.0 - a, 1.0)
-        : vec2(0.0, 4.0 - a);
-}
-
 void main(void)
 {
     vec2 px = efxPx();
@@ -777,28 +638,8 @@ void main(void)
         return;
     }
     vec2 size = efxSize();
-    float big = max(size.x, size.y);
-    vec2 p = efxToUnit(px) * size;
     float tick = floor(uZap.w * 14.0);
-    float core = 0.0;
-    float halo = 0.0;
-    for (int i = 0; i < 6; i++)
-    {
-        if (float(i) >= uZap.y) break;
-        float seed = uZap.z + float(i) * 17.31 + tick * 3.7;
-        vec2 a = zapRim(efxHash1(seed) * 4.0) * size;
-        vec2 b = zapRim(efxHash1(seed + 1.7) * 2.0 + efxHash1(seed) * 4.0 + 1.0) * size;
-        vec2 ab = b - a;
-        float len = max(length(ab), 1.0);
-        vec2 dir = ab / len;
-        float along = dot(p - a, dir);
-        if (along < 0.0 || along > len) continue;
-        float s = along / len;
-        float jag = (efxNoise1(s * 9.0 + seed) - 0.5) * 0.9 + (efxNoise1(s * 23.0 + seed * 2.0) - 0.5) * 0.35;
-        float d = abs(dot(p - a, vec2(-dir.y, dir.x)) - jag * 0.22 * big * sin(PI * s));
-        core += exp(-d / max(1.0, 0.006 * big));
-        halo += exp(-d / (0.03 * big));
-    }
+    vec2 arcs = efxArcs(efxToUnit(px) * size, size, uZap.y, uZap.z, tick);
     vec3 arc = uArc.rgb;
     vec4 zapped = color;
     if (color.a > 0.0)
@@ -810,8 +651,8 @@ void main(void)
         rgb += arc * clamp(efxEdge(px, color.a, 2.0), 0.0, 1.0) * 0.8 * amount;
         zapped = vec4(min(rgb, vec3(1.0)) * color.a, color.a);
     }
-    float c = clamp(core, 0.0, 1.0) * amount;
-    float g = clamp(halo * 0.35, 0.0, 1.0) * amount;
+    float c = clamp(arcs.x, 0.0, 1.0) * amount;
+    float g = clamp(arcs.y * 0.35, 0.0, 1.0) * amount;
     zapped.rgb = min(zapped.rgb + vec3(c) + arc * g, vec3(1.0));
     zapped.a = min(1.0, zapped.a + max(c, 0.8 * g) * (1.0 - zapped.a));
     finalColor = zapped;
@@ -874,9 +715,8 @@ void main(void)
     rock *= 1.0 - 0.3 * step(0.8, efxNoise(q * 14.0 + 1.7));
     float cracked = max(smoothstep(0.45, 0.65, efxNoise(q * 0.6 + 11.0)), smoothstep(0.0, 0.3, uChip.x));
     rock *= 1.0 - 0.6 * cracked * (1.0 - smoothstep(0.0, 0.03, slabs.y - slabs.x));
-    float e = 1.5;
-    float relief = (efxHeight(px + vec2(e, 0.0)) - efxHeight(px - vec2(e, 0.0)))
-        + (efxHeight(px + vec2(0.0, e)) - efxHeight(px - vec2(0.0, e)));
+    vec2 slope = efxReliefSlope(px);
+    float relief = slope.x + slope.y;
     float bump = (efxNoise(q * 2.3 + vec2(3.2, 3.1)) - efxNoise(q * 2.3 + vec2(3.0, 3.1)))
         + (efxNoise(q * 2.3 + vec2(3.1, 3.2)) - efxNoise(q * 2.3 + vec2(3.1, 3.0)));
     rock *= 1.0 + 0.45 * clamp(1.2 * relief + 1.5 * bump, -1.0, 1.0);
@@ -939,17 +779,8 @@ void main(void)
     metal += vec3(1.0, 0.95, 0.8) * 0.55 * efxGlint(u, uShine.x, 0.07);
     if (uShine.y > 0.5)
     {
-        vec2 sq = q * 6.0;
-        vec2 cell = floor(sq);
-        vec2 at = 0.35 + 0.3 * vec2(efxHash(cell + uGold.y), efxHash(cell + uGold.y + 7.0));
-        float beat = max(0.0, sin((uGold.w * 1.3 + efxHash(cell + 3.3)) * 6.2832));
-        float tw = pow(beat, 6.0) * step(0.55, efxHash(cell + 9.1));
-        vec2 d = abs(fract(sq) - at);
-        float arm = 0.34 * tw + 0.001;
-        float star = (1.0 - smoothstep(0.0, 0.025, d.x)) * (1.0 - smoothstep(0.0, arm, d.y))
-            + (1.0 - smoothstep(0.0, 0.025, d.y)) * (1.0 - smoothstep(0.0, arm, d.x))
-            + (1.0 - smoothstep(0.0, 0.07, length(d))) * tw;
-        metal += vec3(1.0, 0.98, 0.9) * star * tw * gilt;
+        vec2 sparkle = efxSparkle(q * 6.0, uGold.y, uGold.w);
+        metal += vec3(1.0, 0.98, 0.9) * sparkle.x * sparkle.y * gilt;
     }
     vec3 gilded = mix(rgb, clamp(metal, 0.0, 1.0), gilt * amount);
     gilded = mix(gilded, vec3(1.0, 0.93, 0.7), clamp(rim, 0.0, 1.0) * 0.75 * amount);

@@ -461,6 +461,7 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
 	const lines: string[] = [];
 	const names = new Map<string, Record<string, string>>();
 	let finalColor = '';
+	let addsLight = false;
 
 	a.order.forEach((node, k) => {
 		const def = shaderNode(node.type) as NodeDef;
@@ -524,6 +525,7 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
 		const emitted = def.emit(ctx);
 		if (def.type === 'output') {
 			finalColor = inputs.color;
+			addsLight = node.values?.blend === 'add';
 			return;
 		}
 		const outTypes = a.outputs.get(node.id) ?? {};
@@ -540,6 +542,8 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
 	const uniforms: CustomElementFxUniform[] = [
 		{ name: 'uFx', type: 'vec4', source: { kind: 'time' } },
 	];
+	if (a.order.some((node) => node.type === 'seed'))
+		uniforms.push({ name: 'uSeed', type: 'float', source: { kind: 'seed' } });
 	for (const param of doc.params) {
 		if (!usedParams.has(param.id)) continue;
 		uniforms.push({
@@ -558,8 +562,12 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
 		'    vec2 uvSquare = uv * efxSize() / max(efxSize().x, efxSize().y);',
 		...(a.readsPixel ? ['    vec4 pixel = efxSample(px);'] : []),
 		...lines,
-		`    vec4 outColor = clamp(${finalColor}, 0.0, 1.0);`,
-		'    finalColor = vec4(min(outColor.rgb, vec3(outColor.a)), outColor.a);',
+		...(addsLight
+			? [`    finalColor = clamp(${finalColor}, 0.0, 1.0);`]
+			: [
+					`    vec4 outColor = clamp(${finalColor}, 0.0, 1.0);`,
+					'    finalColor = vec4(min(outColor.rgb, vec3(outColor.a)), outColor.a);',
+				]),
 		'}',
 		'',
 	].join('\n');

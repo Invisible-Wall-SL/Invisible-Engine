@@ -242,6 +242,16 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		(c) => `efxHeight(efxFromUnit(${c.in.uv}))`,
 		{ samples: 1 },
 	),
+	one(
+		'seed',
+		'Seed',
+		'input',
+		'A random number, 0…97, drawn for each element the effect plays on: feed it to noise or cells so two elements playing the effect at once differ (the built-ins seed theirs so).',
+		[],
+		'float',
+		0,
+		() => 'uSeed',
+	),
 
 	// --- math: on numbers or vectors alike ---
 	binary('add', 'Add', 'A + B.', (a, b) => `(${a} + ${b})`),
@@ -394,6 +404,28 @@ export const SHADER_NODES: readonly NodeDef[] = [
 			xyzw: `vec4(${i.x}, ${i.y}, ${i.z}, ${i.w})`,
 		}),
 	},
+	one(
+		'pick',
+		'Pick',
+		'math',
+		'One of six values by Index, rounded (0 picks A, 5 or more F): turns a choice param, which reads as its option’s place in the list, into the numbers each option means.',
+		[
+			f('index', 'Index', 0),
+			any('a', 'A', 0),
+			any('b', 'B', 1),
+			any('c', 'C', 2),
+			any('d', 'D', 3),
+			any('e', 'E', 4),
+			any('f', 'F', 5),
+		],
+		'any',
+		3,
+		(c) => {
+			const i = c.local('float', c.in.index);
+			const { a, b, d, e } = c.in;
+			return `(${i} < 0.5 ? ${a} : ${i} < 1.5 ? ${b} : ${i} < 2.5 ? ${c.in.c} : ${i} < 3.5 ? ${d} : ${i} < 4.5 ? ${e} : ${c.in.f})`;
+		},
+	),
 
 	// --- time: shaping the play's progress ---
 	one(
@@ -469,6 +501,41 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'float',
 		4,
 		(c) => `step(1.0 - ${c.in.chance}, efxHash1(floor(${c.in.seconds} * ${c.in.rate})))`,
+	),
+	one(
+		'loopEnvelope',
+		'Loop envelope',
+		'time',
+		'A looping effect’s strength: 1 while it repeats forever; played a set number of times, in over the first 15% and out over the last 15%, so it starts and ends at rest (the waves and Tilt 3D).',
+		[progressIn()],
+		'float',
+		6,
+		(c) =>
+			`(uFx.w > 0.5 ? 1.0 : smoothstep(0.0, 0.15, ${c.in.t}) * (1.0 - smoothstep(0.85, 1.0, ${c.in.t})))`,
+	),
+	{
+		type: 'bounce',
+		label: 'Bounce',
+		category: 'time',
+		description:
+			'Hops (1…5), each lower than the last, over the first 85% of the play, landing at the end (Bounce 3D): Height is 0…1 of the first hop’s, Squash how hard it is pressed into the ground at each landing.',
+		inputs: [progressIn(), f('count', 'Hops', 2)],
+		outputs: [port('height', 'Height', 'float'), port('squash', 'Squash', 'float')],
+		cost: 40,
+		emit: (c) => {
+			const arcs = c.local('vec2', `efxBounce(${c.in.t}, ${c.in.count})`);
+			return { height: `${arcs}.x`, squash: `${arcs}.y` };
+		},
+	},
+	one(
+		'oscillate',
+		'Oscillate',
+		'time',
+		'A sine over the play, −1…1: Rate times round, starting Phase of a turn in (0.25 starts at the top, as a cosine). Exact to the last digits, so a sway or a spin built on it lands where a built-in’s does.',
+		[progressIn(), f('rate', 'Rate', 1), f('phase', 'Phase', 0)],
+		'float',
+		8,
+		(c) => `efxSinPi(2.0 * (${c.in.rate} * ${c.in.t} + ${c.in.phase}))`,
 	),
 
 	// --- procedural: noise and patterns ---
@@ -575,6 +642,70 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		3,
 		(c) => `(0.5 + 0.5 * sin(2.0 * PI * ${c.in.x} * ${c.in.count}))`,
 	),
+	one(
+		'hash1',
+		'Random number',
+		'procedural',
+		'A random number, 0…1, for each X: the same X, the same answer (Floor X to hold it a while).',
+		[f('x', 'X', 0)],
+		'float',
+		3,
+		(c) => `efxHash1(${c.in.x})`,
+	),
+	one(
+		'noise1',
+		'Line noise',
+		'procedural',
+		'Smooth noise along a line, 0…1: unwired, across the element (melt runs its drips on it).',
+		[port('x', 'X', 'float', { defaultExpr: 'uv' }), f('scale', 'Scale', 8), f('seed', 'Seed', 0)],
+		'float',
+		8,
+		(c) => `efxNoise1(${c.in.x} * ${c.in.scale} + ${c.in.seed})`,
+	),
+	{
+		type: 'arcs',
+		label: 'Arcs',
+		category: 'procedural',
+		description:
+			'Jagged arcs crackling across the element between points on its edge (the electrocute look): Count of them (up to 6), picked by Seed and struck anew Rate times a second. Core is their white-hot middle, Halo the glow round them; both add up where arcs cross.',
+		inputs: [
+			uvIn(),
+			f('count', 'Count', 3),
+			f('seed', 'Seed', 0),
+			port('seconds', 'Seconds', 'float', { defaultExpr: 'seconds' }),
+			f('rate', 'Rate', 14),
+		],
+		outputs: [port('core', 'Core', 'float'), port('halo', 'Halo', 'float')],
+		cost: 160,
+		emit: (c) => {
+			const arcs = c.local(
+				'vec2',
+				`efxArcs(${c.in.uv} * efxSize(), efxSize(), ${c.in.count}, ${c.in.seed}, floor(${c.in.seconds} * ${c.in.rate}))`,
+			);
+			return { core: `${arcs}.x`, halo: `${arcs}.y` };
+		},
+	},
+	one(
+		'sparkle',
+		'Sparkles',
+		'procedural',
+		'Four-pointed stars twinkling on a grid Scale cells across, about half the cells lit, each on its own beat (the gold look’s sparkles): 0 where none shows.',
+		[
+			port('p', 'Point', 'vec2', { defaultExpr: 'uvSquare' }),
+			f('scale', 'Scale', 6),
+			f('seed', 'Seed', 0),
+			port('seconds', 'Seconds', 'float', { defaultExpr: 'seconds' }),
+		],
+		'float',
+		40,
+		(c) => {
+			const s = c.local(
+				'vec2',
+				`efxSparkle(${c.in.p} * ${c.in.scale}, ${c.in.seed}, ${c.in.seconds})`,
+			);
+			return `(${s}.x * ${s}.y)`;
+		},
+	),
 
 	// --- mask: where, and how far something has come ---
 	{
@@ -644,6 +775,16 @@ export const SHADER_NODES: readonly NodeDef[] = [
 			const uv = c.local('vec2', c.in.uv);
 			return `(step(0.0, ${uv}.x) * step(${uv}.x, 1.0) * step(0.0, ${uv}.y) * step(${uv}.y, 1.0))`;
 		},
+	),
+	one(
+		'awaySide',
+		'Away from side N',
+		'mask',
+		'Away from a side, the side a number: 0 bottom, 1 top, 2 edges, 3 centre, 4 left, 5 right. Wire a choice param through a Pick, so whoever places the effect picks where it starts.',
+		[uvIn(), f('side', 'Side', 0)],
+		'float',
+		4,
+		(c) => `efxAway(${c.in.uv}, ${c.in.side})`,
 	),
 
 	// --- uv: move where the element is read from ---
@@ -749,6 +890,90 @@ export const SHADER_NODES: readonly NodeDef[] = [
 			return `vec2(atan(${p}.y, ${p}.x) / (2.0 * PI) + 0.5, length(${p}) * 2.0)`;
 		},
 	),
+	{
+		type: 'flag',
+		label: 'Flag',
+		category: 'uv',
+		description:
+			'A flag pinned at the element’s left edge: columns rise and fall in a wave that grows to the right (Amplitude in element heights, Wavelength in widths, Phase in cycles). Light is the shading on its folds (1 none), to multiply the colour by.',
+		inputs: [
+			uvIn(),
+			f('amplitude', 'Amplitude', 0.05),
+			f('wavelength', 'Wavelength', 0.6),
+			progressIn('phase', 'Phase'),
+		],
+		outputs: [port('uv', 'UV', 'vec2'), port('light', 'Light', 'float')],
+		cost: 10,
+		emit: (c) => {
+			const flag = c.local(
+				'vec3',
+				`efxFlag(efxFromUnit(${c.in.uv}), ${c.in.amplitude}, ${c.in.wavelength}, ${c.in.phase})`,
+			);
+			return { uv: `efxToUnit(${flag}.xy)`, light: `${flag}.z` };
+		},
+	},
+	{
+		type: 'perspective',
+		label: 'Perspective plane',
+		category: 'uv',
+		description:
+			'The element as a card turned in 3D and seen in perspective (the flips, Bounce 3D and Tilt 3D): turned about X, then about Y (degrees), lifted toward the eye (element sizes) and seen from Focal element sizes away. UV is where the card is read (its back shows the element mirrored), Facing 1 face on and 0 edge on, Hit 0 where the eye misses the card.',
+		inputs: [
+			uvIn(),
+			f('turnX', 'Turn X (°)', 0),
+			f('turnY', 'Turn Y (°)', 30),
+			f('lift', 'Lift', 0),
+			f('focal', 'Focal length', 3.5),
+		],
+		outputs: [
+			port('uv', 'UV', 'vec2'),
+			port('facing', 'Facing', 'float'),
+			port('hit', 'Hit', 'float'),
+		],
+		cost: 40,
+		emit: (c) => {
+			const plane = c.local(
+				'vec4',
+				`efxPerspective(efxFromUnit(${c.in.uv}), vec3(radians(${c.in.turnX}), radians(${c.in.turnY}), ${c.in.lift}), ${c.in.focal})`,
+			);
+			return { uv: `efxToUnit(${plane}.xy)`, facing: `${plane}.z`, hit: `${plane}.w` };
+		},
+	},
+	{
+		type: 'sphericon',
+		label: 'Sphericon',
+		category: 'uv',
+		description:
+			'The element wrapped round a sphericon, two half double-cones joined with a quarter turn (the Sphericon effect): rolled about its axis, swung and tilted toward the viewer (degrees), Length its half-length as a share of the element’s smaller side. UV is where it is read, Hit 0 off the solid, Normal its surface direction (for Light).',
+		inputs: [
+			uvIn(),
+			f('roll', 'Roll (°)', 0),
+			f('swing', 'Swing (°)', 0),
+			f('tilt', 'Tilt (°)', 25),
+			f('length', 'Length', 0.55),
+		],
+		outputs: [
+			port('uv', 'UV', 'vec2'),
+			port('hit', 'Hit', 'float'),
+			port('normal', 'Normal', 'vec3'),
+		],
+		cost: 200,
+		emit: (c) => {
+			const spin = c.local(
+				'vec3',
+				`vec3(radians(${c.in.roll}), radians(${c.in.swing}), radians(${c.in.tilt}))`,
+			);
+			const hit = c.local(
+				'vec4',
+				`efxSphericonHit(efxFromUnit(${c.in.uv}), ${spin}, ${c.in.length})`,
+			);
+			return {
+				uv: `efxSphericonUv(${hit}, ${c.in.length})`,
+				hit: `step(0.5, ${hit}.w)`,
+				normal: `efxSphericonNormal(${hit}, ${spin}, ${c.in.length})`,
+			};
+		},
+	},
 
 	// --- colour and light ---
 	{
@@ -895,15 +1120,51 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		1,
 		(c) => `(${c.in.color} * clamp(${c.in.amount}, 0.0, 1.0))`,
 	),
+	one(
+		'reliefSlope',
+		'Relief slope',
+		'color',
+		'How steeply the element’s relief climbs at a UV, rightward and downward (petrify carves with it; Relief normal turns it into a direction).',
+		[uvIn()],
+		'vec2',
+		14,
+		(c) => `efxReliefSlope(efxFromUnit(${c.in.uv}))`,
+		{ samples: 4 },
+	),
+	one(
+		'curl',
+		'Page curl',
+		'color',
+		'The element with a corner peeled back like a page (Corner 0 or 1 each way: 1, 1 is the bottom right), rolling over a cylinder Roll diagonals across whose axis has come Peel diagonals in from the corner. The flap’s back shows the element dimmed and the page darkens under the roll. A colour: it reads the element at this pixel itself, so a UV node before it does not move it.',
+		[
+			port('corner', 'Corner', 'vec2', { default: [1, 1] }),
+			f('reach', 'Peel', 0.3),
+			f('radius', 'Roll', 0.1),
+		],
+		'vec4',
+		40,
+		(c) => `efxCurl(px, ${c.in.corner}, ${c.in.reach}, ${c.in.radius})`,
+		{ samples: 3 },
+	),
 
 	// --- output ---
 	{
 		type: 'output',
 		label: 'Output',
 		category: 'output',
-		description: 'What the element draws: a premultiplied colour. Unwired, the element as it is.',
+		description:
+			'What the element draws: a premultiplied colour. Unwired, the element as it is. Blend Normal keeps each colour channel within its alpha; Add lets a colour brighter than its alpha add light over what is behind (an arc’s glow past the element’s edge).',
 		inputs: [sampleIn()],
 		outputs: [],
+		settings: [
+			{
+				id: 'blend',
+				label: 'Blend',
+				kind: 'choice',
+				options: ['normal', 'add'],
+				default: 'normal',
+			},
+		],
 		cost: 1,
 		emit: () => ({}),
 	},

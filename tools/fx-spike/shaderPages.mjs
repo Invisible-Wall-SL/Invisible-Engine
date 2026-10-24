@@ -51,7 +51,8 @@ const bundle = async (root, entry, outFile) => {
 	});
 };
 
-const writePage = async (root, outDir, entry, name) => {
+/** `entry` bundled for `root` as `<outDir>/<name>.html` and its script. */
+export const writePage = async (root, outDir, entry, name) => {
 	await bundle(root, entry, join(outDir, `${name}.js`));
 	writeFileSync(
 		join(outDir, `${name}.html`),
