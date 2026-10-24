@@ -381,7 +381,8 @@ reels — where `cameraEffect` moves the whole game. There are two ways to fire 
   - **target** — a dropdown of what the game can aim at in this project: `reels`, every screen
     (`screen:<id>`), and every node that is a group, a component placement, a coded mount, or
     carries Element FX of its own.
-  - **kind** — the effect (shake, flip, sphericon, wave, melt, glow, freeze, burn to ashes, poison, electrocute, petrify, turn to gold, crash, crumble, shatter, crystallize, dissolve to / assemble from particles, … 50 in all).
+  - **kind** — the effect (shake, flip, sphericon, wave, melt, glow, freeze, burn to ashes, poison, electrocute, petrify, turn to gold, crash, crumble, shatter, crystallize, dissolve to / assemble from particles, … 50 in all), then the project's own
+    `custom:<id>` effects from [Invisible Shader Graph](shader-graph.md).
   - **durationMs**, **intensity** (1 = the effect's reference strength, capped at 4), **repeat**
     (plays; `0` = until stopped) and **color** (`#rrggbb`, for glow / outline / shine / flash /
     dissolve) are optional.
@@ -1229,11 +1230,11 @@ The two cue traps (splice in series; fire after the screen shows) are in
   library (`loadFlowV2Library`, `_shared/flow-v2/functions.json`); `+page.svelte` is the
   authoring canvas (Svelte Flow / `@xyflow/svelte`), owns the doc `$state`, the debounced
   auto-save, and function-view navigation. `FlowCanvasV2.svelte` hosts the flow render +
-  drop-at-cursor; `FlowV2Node.svelte` renders a generic node with derived pins;
+  drop-at-cursor on the shared `$lib/graph/GraphCanvas.svelte` (also Invisible Shader Graph's); `FlowV2Node.svelte` renders a generic node with derived pins;
   `AddNodePalette.svelte` is the palette; `NodeInspector.svelte` is the per-node editor;
   `ValidationPanelV2.svelte` and `PreviewPanelV2.svelte` are the two panels, and
   `VariablesPanelV2.svelte` declares the variables and key map; `graphOps.ts`
-  holds the pure graph mutations; `dnd.ts` is the palette→canvas drag contract; `palette.ts`
+  holds the pure graph mutations; `dnd.ts` is the palette→canvas drag payload (carried by `$lib/graph/dnd.ts`); `palette.ts`
   is the type → color/label map.
 - **The starter flow and the free-spin screens:**
   `packages/engine-flow-v2/src/reference/drivenSeed.ts` (`withFreeSpinScreenHolds` splices the

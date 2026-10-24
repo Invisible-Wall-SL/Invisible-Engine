@@ -54,6 +54,7 @@ import {
 	gameConfigDocBackupTarget,
 	projectPrefix,
 	r2Slug,
+	shaderBackupsPrefix,
 	symbolsDocBackupTarget,
 } from './projectPaths';
 import { copyObject, getObjectText, listAllKeys, putObjectText } from './r2';
@@ -161,6 +162,7 @@ export async function planDuplicate(
 		.map((target) => target(source.clientKey, source.projectKey).prefix)
 		.concat(
 			componentDefaultsBackupsPrefix(source.projectKey),
+			shaderBackupsPrefix(source.clientKey, source.projectKey),
 			`${SUB.published(source.clientKey, source.projectKey)}/`,
 			`${SUB.director(source.clientKey, source.projectKey)}/`,
 		);

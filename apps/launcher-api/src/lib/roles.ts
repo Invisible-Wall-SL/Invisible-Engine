@@ -157,6 +157,11 @@ export const TOOL_ICONS: Record<string, string> = {
 			'<path d="M5.6 5.6l2.8 2.8"/><path d="M15.6 15.6l2.8 2.8"/>' +
 			'<path d="M18.4 5.6l-2.8 2.8"/><path d="M8.4 15.6l-2.8 2.8"/><circle cx="12" cy="12" r="1.6"/>',
 	),
+	// three nodes wired into one (a node graph)
+	shaders: I(
+		'<circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="12" r="2.2"/>' +
+			'<path d="M8.2 6.4c4 .2 4.2 5.6 7.6 5.6"/><path d="M8.2 17.6c4-.2 4.2-5.6 7.6-5.6"/>',
+	),
 	// film strip with sprocket holes (frame-by-frame animation)
 	flipbook: I(
 		'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/>' +
@@ -386,6 +391,16 @@ export const TOOLS: Record<string, ToolDef> = {
 		url: '/fx',
 		icon: TOOL_ICONS.fx,
 	},
+	shaders: {
+		id: 'shaders',
+		name: 'Invisible Shader Graph',
+		barName: 'Shaders',
+		description:
+			'Build shader effects from nodes — wire noise, masks, warps and colour into one effect, preview it live on a card or your own art, and save it to play wherever an Element FX plays.',
+		kind: 'online',
+		url: '/shaders',
+		icon: TOOL_ICONS.shaders,
+	},
 	flipbook: {
 		id: 'flipbook',
 		name: 'Invisible Flipbook',
@@ -486,7 +501,17 @@ export const TOOL_STAGES: ToolStage[] = [
 		id: 'assets',
 		label: 'Assets',
 		accent: '#f5b95c',
-		tools: ['atlasTool', 'comfyui', 'sheetMaker', 'fontMaker', 'sound', 'rigger', 'flipbook', 'fx'],
+		tools: [
+			'atlasTool',
+			'comfyui',
+			'sheetMaker',
+			'fontMaker',
+			'sound',
+			'rigger',
+			'flipbook',
+			'fx',
+			'shaders',
+		],
 	},
 	{
 		id: 'build',
@@ -551,6 +576,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'editor',
 		'flow',
 		'fx',
+		'shaders',
 		'flipbook',
 		'symbols',
 		'componentEditor',
@@ -570,6 +596,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'editor',
 		'flow',
 		'fx',
+		'shaders',
 		'flipbook',
 		'symbols',
 		'componentEditor',
@@ -583,6 +610,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'editor',
 		'flow',
 		'fx',
+		'shaders',
 		'flipbook',
 		'symbols',
 		'componentEditor',
@@ -784,6 +812,7 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	gameMaker: 'game-maker',
 	flow: 'flow',
 	fx: 'fx',
+	shaders: 'shader-graph',
 	flipbook: 'flipbook',
 	sound: 'sound',
 	director: 'director',

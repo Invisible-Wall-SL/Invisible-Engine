@@ -1,0 +1,742 @@
+<script lang="ts">
+	import { replaceState } from '$app/navigation';
+	import { page } from '$app/state';
+	import { SvelteFlowProvider, type Connection, type Edge, type Node } from '@xyflow/svelte';
+	import { onMount, untrack } from 'svelte';
+	import DocHistoryModal from '$lib/DocHistoryModal.svelte';
+	import PresenceBanner from '$lib/PresenceBanner.svelte';
+	import SaveStatusBadge from '$lib/SaveStatusBadge.svelte';
+	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import { askConfirm, askText } from '$lib/dialogs.svelte';
+	import GraphCanvas from '$lib/graph/GraphCanvas.svelte';
+	import { readDrag } from '$lib/graph/dnd';
+	import { LeaseState } from '$lib/leaseState.svelte';
+	import { SaveState } from '$lib/saveState.svelte';
+	import { guardUnsavedWork } from '$lib/unsavedGuard';
+	import {
+		COST_BUDGET,
+		SAMPLE_BUDGET,
+		analyzeShaderGraph,
+		compileShaderEffect,
+		normalizeShaderGraphDoc,
+		shaderNode,
+		type ShaderGraphDoc,
+	} from 'engine-shadergraph';
+	import GraphSettings from './GraphSettings.svelte';
+	import NodeProperties from './NodeProperties.svelte';
+	import ShaderLibrary from './ShaderLibrary.svelte';
+	import ShaderNode from './ShaderNode.svelte';
+	import ShaderPreview from './ShaderPreview.svelte';
+	import {
+		SHADER_DROP_MIME,
+		addNode,
+		canConnect,
+		canvasGraph,
+		connect,
+		docIssues,
+		moveNode,
+		newShaderDoc,
+		remove,
+		setNodeValue,
+		slugOf,
+	} from './shaderEditor';
+	import type { PageData } from './$types';
+
+	/**
+	 * Invisible Shader Graph — `/shaders` (`docs/design/invisible-shader-graph.md` §8 step 5). The
+	 * project's graphs on the left with the node library, the open graph on the canvas, and on the
+	 * right the live preview, the selected node and the effect's settings. Every edit re-checks and
+	 * re-compiles the graph in the page (`engine-shadergraph`), so errors land on their nodes as you
+	 * wire and the preview plays what the game will. It autosaves under the graph's edit lease, and
+	 * every save keeps the version it replaced (History).
+	 */
+	let { data }: { data: PageData } = $props();
+
+	type GraphRow = PageData['shaders'][number];
+
+	const projectKey = untrack(() => data.projectKey);
+	const hasProject = projectKey.length > 0;
+
+	let graphs = $state<GraphRow[]>(untrack(() => data.shaders));
+	let doc = $state<ShaderGraphDoc | null>(untrack(() => data.opened?.doc ?? null));
+	let openShared = $state(untrack(() => data.opened?.shared ?? false));
+	let selectedId = $state<string | null>(null);
+	let notice = $state(
+		untrack(() =>
+			data.missing
+				? `This project has no effect "${data.missing}": it was deleted, or the link is old.`
+				: '',
+		),
+	);
+
+	const analysis = $derived(doc ? analyzeShaderGraph(doc) : undefined);
+	const compiled = $derived(doc ? compileShaderEffect(doc) : undefined);
+	const compiledEffect = $derived(compiled?.ok ? compiled.effect : undefined);
+	const errorCount = $derived(analysis?.issues.filter((i) => i.level === 'error').length ?? 0);
+	const selected = $derived(doc?.nodes.find((n) => n.id === selectedId));
+
+	// ── The canvas ──
+	const nodeTypes = { shader: ShaderNode };
+	let nodes = $state.raw<Node[]>([]);
+	let edges = $state.raw<Edge[]>([]);
+	let fitSignal = $state(0);
+	$effect(() => {
+		// The selection is the canvas's own (Shift / Ctrl / ⌘-click, a box): a rebuild keeps it.
+		const kept = untrack(() => nodes)
+			.filter((n) => n.selected)
+			.map((n) => n.id);
+		const picked = new Set(selectedId ? [...kept, selectedId] : kept);
+		const graph = doc
+			? canvasGraph(doc, analysis, picked, lease.readOnly)
+			: { nodes: [], edges: [] };
+		nodes = graph.nodes as Node[];
+		edges = graph.edges as Edge[];
+	});
+
+	// ── Undo ──
+	let past = $state.raw<ShaderGraphDoc[]>([]);
+	let future = $state.raw<ShaderGraphDoc[]>([]);
+	const UNDO_DEPTH = 100;
+
+	/** Every edit: remember the doc it replaces, show the new one, autosave. */
+	function edit(next: ShaderGraphDoc): void {
+		if (!doc || lease.readOnly) return;
+		past = [...past.slice(-(UNDO_DEPTH - 1)), doc];
+		future = [];
+		doc = next;
+		saveState.markDirty();
+	}
+	function undo(): void {
+		const prev = past.at(-1);
+		if (!prev || !doc || lease.readOnly) return;
+		past = past.slice(0, -1);
+		future = [doc, ...future];
+		doc = prev;
+		saveState.markDirty();
+	}
+	function redo(): void {
+		const next = future[0];
+		if (!next || !doc || lease.readOnly) return;
+		future = future.slice(1);
+		past = [...past.slice(-(UNDO_DEPTH - 1)), doc];
+		doc = next;
+		saveState.markDirty();
+	}
+
+	// ── Lease + save ──
+	const lease = new LeaseState({
+		toolId: 'shaders',
+		clientKey: untrack(() => data.clientKey),
+		projectKey,
+		docKey: '',
+		enabled: hasProject,
+	});
+	/** The lease follows the open graph; a shared one is not this project's to lease until saved. */
+	let leasedId: string | null = null;
+	/** Set on unmount: a save landing after the page is gone takes no lease. */
+	let destroyed = false;
+	function leaseGraph(id: string | null): void {
+		if (id === leasedId || destroyed) return;
+		leasedId = id;
+		void lease.switchDoc(id);
+	}
+
+	/** Bumped when another graph opens: a save of the one before then leaves the page alone. */
+	let shownGraph = 0;
+
+	const saveState = new SaveState({
+		initialEtag: untrack(() => data.opened?.etag ?? null),
+		autosaveMs: 1000,
+		blockWhen: () => lease.readOnly,
+		save: async ({ baseEtag, force }) => {
+			const current = doc;
+			const shown = shownGraph;
+			if (!current) return { ok: true, etag: baseEtag };
+			try {
+				const { res, out } = await postSave(current, force ? { force: true } : { baseEtag });
+				if (res.status === 409) {
+					return {
+						ok: false,
+						reason: out.error === 'scope-mismatch' ? 'scope-mismatch' : 'conflict',
+						message: out.message ?? 'Someone else saved this effect.',
+					};
+				}
+				if (!res.ok || !out.id) {
+					return {
+						ok: false,
+						reason: 'error',
+						message: out.message ?? `Save failed (HTTP ${res.status}).`,
+					};
+				}
+				if (shown !== shownGraph) return { ok: true, etag: out.etag ?? null };
+				upsertRow({
+					id: out.id,
+					name: out.name ?? out.id,
+					description: current.description ?? '',
+					shared: false,
+				});
+				if (openShared) {
+					// A shared graph saved here is now the project's own copy.
+					openShared = false;
+					syncUrl(current, false);
+				}
+				leaseGraph(out.id);
+				return { ok: true, etag: out.etag ?? null };
+			} catch {
+				return { ok: false, reason: 'error', message: 'Save failed (network error).' };
+			}
+		},
+	});
+
+	interface SaveAnswer {
+		id?: string;
+		name?: string;
+		etag?: string | null;
+		error?: string;
+		message?: string;
+	}
+	async function postSave(
+		graph: ShaderGraphDoc,
+		guard: { baseEtag: string | null } | { force: true },
+	): Promise<{ res: Response; out: SaveAnswer }> {
+		const res = await fetch('/api/shaders/save', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ doc: $state.snapshot(graph), projectKey, ...guard }),
+		});
+		return { res, out: (await res.json().catch(() => ({}))) as SaveAnswer };
+	}
+
+	async function refreshList(): Promise<void> {
+		const list = await fetch(`/api/shaders/list?projectKey=${encodeURIComponent(projectKey)}`);
+		if (list.ok) graphs = ((await list.json()) as { shaders: GraphRow[] }).shaders;
+	}
+
+	function upsertRow(row: GraphRow): void {
+		const rest = graphs.filter((g) => g.id !== row.id);
+		graphs = [...rest, row].sort(
+			(a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
+		);
+	}
+
+	/** Save what is pending before the open graph changes; false when it could not be. */
+	async function settle(): Promise<boolean> {
+		// An autosave in flight decides what is left to save: let it land first (a save asked for
+		// meanwhile only joins it, and answers false).
+		for (let waited = 0; saveState.busy && waited < 10_000; waited += 50) {
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		}
+		saveState.cancelAutosave();
+		if (!saveState.dirty) return true;
+		if (await saveState.save()) return true;
+		return askConfirm({
+			title: 'This effect has unsaved changes',
+			message: `${saveState.message || 'It could not be saved.'}\n\nLeave it anyway? Your changes are lost.`,
+			confirmLabel: 'Leave anyway',
+			danger: true,
+		});
+	}
+
+	/** The URL names the open graph: `?graph=`, and `&shared=1` while it is the shared library's. */
+	function syncUrl(open: ShaderGraphDoc | null, shared: boolean): void {
+		const keep = [...page.url.searchParams].filter(([k]) => k !== 'graph' && k !== 'shared');
+		if (open) keep.push(['graph', open.id]);
+		if (open && shared) keep.push(['shared', '1']);
+		const query = new URLSearchParams(keep).toString();
+		// A query on this same route: `resolve()` cannot carry one.
+		// eslint-disable-next-line svelte/no-navigation-without-resolve
+		replaceState(`/shaders${query ? `?${query}` : ''}`, {});
+	}
+
+	function showGraph(next: ShaderGraphDoc | null, etag: string | null, shared: boolean): void {
+		shownGraph += 1;
+		doc = next;
+		openShared = shared;
+		selectedId = null;
+		past = [];
+		future = [];
+		// It shows as stored: nothing of the graph before is left to save onto it (a shared one
+		// saved unedited would become the project's copy).
+		saveState.cancelAutosave();
+		saveState.adoptEtag(etag);
+		saveState.setDirty(false);
+		leaseGraph(next && !shared ? next.id : null);
+		fitSignal += 1;
+		syncUrl(next, shared);
+	}
+
+	/** Bumped by each open: a slower answer to an earlier click is dropped. */
+	let opening = 0;
+	async function open(row: GraphRow): Promise<void> {
+		if (doc && row.id === doc.id && row.shared === openShared) return;
+		const ticket = ++opening;
+		if (!(await settle()) || ticket !== opening) return;
+		const params = new URLSearchParams({
+			id: row.id,
+			projectKey,
+			...(row.shared ? { shared: '1' } : {}),
+		});
+		const res = await fetch(`/api/shaders/doc?${params}`);
+		const out = (await res.json().catch(() => ({}))) as {
+			doc?: unknown;
+			etag?: string | null;
+			exists?: boolean;
+			message?: string;
+		};
+		if (ticket !== opening) return;
+		if (!res.ok || !out.doc) {
+			notice = out.message ?? `Could not open "${row.name}" (HTTP ${res.status}).`;
+			return;
+		}
+		if (out.exists === false) {
+			notice = `"${row.name}" is gone: someone deleted it.`;
+			await refreshList();
+			return;
+		}
+		notice = '';
+		showGraph(normalizeShaderGraphDoc(out.doc, row.id), out.etag ?? null, row.shared);
+	}
+
+	async function create(): Promise<void> {
+		if (!(await settle())) return;
+		const name = (
+			await askText({
+				title: 'New shader effect',
+				label: 'Name',
+				value: '',
+				confirmLabel: 'Create',
+			})
+		)?.trim();
+		if (!name) return;
+		const id = slugOf(name);
+		if (graphs.some((g) => g.id === id && !g.shared)) {
+			notice = `This project already has an effect "${id}". Pick another name.`;
+			return;
+		}
+		if (
+			graphs.some((g) => g.id === id && g.shared) &&
+			!(await askConfirm({
+				title: `The shared library has "${id}"`,
+				message: `A new effect of that id replaces the studio's in this project: every entry naming custom:${id} plays yours.`,
+				confirmLabel: 'Create anyway',
+			}))
+		)
+			return;
+		const fresh = newShaderDoc(id, name);
+		const { res, out } = await postSave(fresh, { baseEtag: null });
+		if (!res.ok || !out.id) {
+			notice =
+				res.status === 409 && out.error !== 'scope-mismatch'
+					? `Someone just made an effect "${id}" in this project. Pick another name.`
+					: (out.message ?? `Could not create "${name}" (HTTP ${res.status}).`);
+			await refreshList();
+			return;
+		}
+		notice = '';
+		upsertRow({ id: out.id, name: out.name ?? name, description: '', shared: false });
+		showGraph(fresh, out.etag ?? null, false);
+	}
+
+	async function del(row: GraphRow): Promise<void> {
+		const ok = await askConfirm({
+			title: `Delete "${row.name}"?`,
+			message:
+				'An Element FX entry naming it keeps its place. It plays the studio’s shared effect of that id if there is one, else nothing until an effect of that id exists again. Its saved versions stay in History.',
+			confirmLabel: 'Delete',
+			danger: true,
+		});
+		if (!ok) return;
+		const res = await fetch('/api/shaders/delete', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ id: row.id, projectKey }),
+		});
+		if (!res.ok) {
+			const out = (await res.json().catch(() => ({}))) as { message?: string };
+			notice = out.message ?? `Delete failed (HTTP ${res.status}).`;
+			return;
+		}
+		if (doc?.id === row.id && !openShared) showGraph(null, null, false);
+		await refreshList();
+	}
+
+	// ── Canvas gestures ──
+	const wireOf = (c: Connection | Edge) => ({
+		from: { node: c.source, port: c.sourceHandle ?? '' },
+		to: { node: c.target, port: c.targetHandle ?? '' },
+	});
+	const isValidConnection = (c: Edge | Connection): boolean => {
+		if (!doc || lease.readOnly) return false;
+		const { from, to } = wireOf(c);
+		return canConnect(doc, analysis, from, to);
+	};
+	function onConnect(c: Connection): void {
+		if (!doc || !isValidConnection(c)) return;
+		const { from, to } = wireOf(c);
+		edit(connect(doc, from, to));
+	}
+	function onGraphDelete({ nodes: gone, edges: cut }: { nodes: Node[]; edges: Edge[] }): void {
+		if (!doc) return;
+		edit(
+			remove(
+				doc,
+				gone.map((n) => n.id),
+				cut.map((e) => e.id),
+			),
+		);
+		if (selectedId && gone.some((n) => n.id === selectedId)) selectedId = null;
+	}
+	function onNodeDragStop(): void {
+		if (!doc) return;
+		let next = doc;
+		for (const n of nodes) {
+			const stored = next.nodes.find((d) => d.id === n.id);
+			if (
+				stored &&
+				(stored.x !== Math.round(n.position.x) || stored.y !== Math.round(n.position.y))
+			)
+				next = moveNode(next, n.id, n.position.x, n.position.y);
+		}
+		if (next !== doc) edit(next);
+	}
+	function placeNode(type: string, pos: { x: number; y: number }): void {
+		if (!doc || !shaderNode(type)) return;
+		const added = addNode(doc, type, pos);
+		// The new node alone is selected.
+		nodes = nodes.map((n) => (n.selected ? { ...n, selected: false } : n));
+		edit(added.doc);
+		selectedId = added.id;
+	}
+	function onDrop(raw: string, pos: { x: number; y: number }): void {
+		const payload = readDrag(
+			raw,
+			(v): v is { type: string } => !!v && typeof (v as { type?: unknown }).type === 'string',
+		);
+		if (payload) placeNode(payload.type, pos);
+	}
+	/** A clicked library node lands left of the selected node, else left of the leftmost. */
+	function addFromLibrary(type: string): void {
+		if (!doc) return;
+		const anchor =
+			selected ??
+			doc.nodes.reduce<(typeof doc.nodes)[number] | undefined>(
+				(min, n) => (!min || n.x < min.x ? n : min),
+				undefined,
+			);
+		placeNode(type, { x: (anchor?.x ?? 0) - 240, y: (anchor?.y ?? 0) + 30 });
+	}
+
+	// ── History ──
+	let historyOpen = $state(false);
+	const historyUrl = $derived(
+		doc && !openShared
+			? `/api/shaders/backups?graph=${encodeURIComponent(doc.id)}&projectKey=${encodeURIComponent(projectKey)}`
+			: '',
+	);
+	async function restoreBackup(id: string): Promise<string | null> {
+		if (!doc) return 'No effect is open.';
+		if (lease.readOnly)
+			return 'Another author is editing this effect — take over before restoring.';
+		if (saveState.busy) return 'A save is in progress — try again in a moment.';
+		saveState.cancelAutosave();
+		const res = await fetch(historyUrl, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ id, baseEtag: saveState.etag }),
+		});
+		const out = (await res.json().catch(() => ({}))) as {
+			doc?: unknown;
+			etag?: string | null;
+			message?: string;
+			error?: string;
+		};
+		if (!res.ok || !out.doc) {
+			if (saveState.dirty) saveState.rearmAutosave();
+			return out.message ?? out.error ?? `Restore failed (${res.status}).`;
+		}
+		showGraph(normalizeShaderGraphDoc(out.doc, doc.id), out.etag ?? null, false);
+		historyOpen = false;
+		return null;
+	}
+
+	// Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Ctrl+Y redo, Ctrl/Cmd+S save now; a text field keeps its own.
+	function onKey(e: KeyboardEvent): void {
+		if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+		if (document.querySelector('dialog[open]')) return;
+		const target = e.target as HTMLElement | null;
+		const typing =
+			!!target &&
+			(target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
+		const k = e.key.toLowerCase();
+		if (k === 's') {
+			e.preventDefault();
+			// Nothing to save writes nothing (a shared graph saved unedited would become the project's
+			// copy); the armed autosave would only write the same doc again.
+			if (!saveState.dirty) return;
+			saveState.cancelAutosave();
+			void saveState.save();
+		} else if (!typing && k === 'z' && !e.shiftKey) {
+			e.preventDefault();
+			undo();
+		} else if (!typing && ((k === 'z' && e.shiftKey) || k === 'y')) {
+			e.preventDefault();
+			redo();
+		}
+	}
+
+	onMount(() => {
+		if (doc && !openShared) leaseGraph(doc.id);
+		if (data.missing) syncUrl(null, false);
+		const onUnload = () => lease.release();
+		window.addEventListener('pagehide', onUnload);
+		return () => {
+			window.removeEventListener('pagehide', onUnload);
+			saveState.cancelAutosave();
+			destroyed = true;
+			lease.release();
+		};
+	});
+
+	guardUnsavedWork(() =>
+		saveState.dirty
+			? {
+					title: 'This effect has unsaved changes',
+					message: 'Leaving this page discards them.',
+					confirmLabel: 'Leave anyway',
+					danger: true,
+				}
+			: null,
+	);
+</script>
+
+<svelte:window onkeydown={onKey} />
+
+<div class="page">
+	<ToolTopBar
+		current="shaders"
+		tools={data.tools}
+		clientKey={data.clientKey}
+		projectKey={data.projectKey}
+	>
+		{#snippet meta()}
+			{#if doc && hasProject}
+				{#if lease.readOnly}
+					<PresenceBanner {lease} />
+				{:else}
+					<SaveStatusBadge
+						state={saveState}
+						okAccent
+						overwritable
+						onReloadTheirs={() => location.reload()}
+						onOverwrite={() => void saveState.save({ force: true })}
+						onRetry={() => void saveState.save()}
+					/>
+				{/if}
+				<button
+					type="button"
+					class="chrome"
+					disabled={!historyUrl}
+					onclick={() => (historyOpen = true)}
+				>
+					History
+				</button>
+			{/if}
+		{/snippet}
+	</ToolTopBar>
+
+	{#if !hasProject}
+		<p class="empty">Pick a project in the launcher first: shader effects belong to a project.</p>
+	{:else}
+		<div class="body">
+			<ShaderLibrary
+				{graphs}
+				openId={doc?.id ?? null}
+				{openShared}
+				readOnly={lease.readOnly}
+				onOpen={(row) => void open(row)}
+				onNew={() => void create()}
+				onDelete={(row) => void del(row)}
+				onAdd={addFromLibrary}
+			/>
+
+			<main class="center">
+				{#if notice}
+					<p class="notice" role="alert">
+						{notice} <button type="button" onclick={() => (notice = '')}>✕</button>
+					</p>
+				{/if}
+				{#if doc}
+					<div class="status">
+						<strong>{doc.name}</strong>
+						<span class="muted">custom:{doc.id}</span>
+						{#if openShared}<span class="tag">shared — saving keeps a copy in this project</span
+							>{/if}
+						<span class="grow"></span>
+						{#if errorCount}
+							<span class="bad"
+								>{errorCount} error{errorCount === 1 ? '' : 's'} — not playable until fixed</span
+							>
+						{:else}
+							<span class="good">Compiles</span>
+						{/if}
+						{#if analysis}
+							<span
+								class:over={analysis.cost > COST_BUDGET || analysis.samples > SAMPLE_BUDGET}
+								class="meter"
+								title="Work per pixel against what a phone affords"
+								>cost {analysis.cost}/{COST_BUDGET} · reads {analysis.samples}/{SAMPLE_BUDGET}</span
+							>
+						{/if}
+					</div>
+					<SvelteFlowProvider>
+						<GraphCanvas
+							bind:nodes
+							bind:edges
+							{nodeTypes}
+							{fitSignal}
+							dropMime={SHADER_DROP_MIME}
+							{isValidConnection}
+							{onConnect}
+							{onGraphDelete}
+							{onNodeDragStop}
+							onNodeClick={({ node }) => (selectedId = node.id)}
+							onPaneClick={() => (selectedId = null)}
+							ondrop={onDrop}
+						/>
+					</SvelteFlowProvider>
+				{:else}
+					<div class="empty">
+						<p>Open an effect on the left, or make a new one.</p>
+						<button type="button" onclick={() => void create()}>+ New effect</button>
+					</div>
+				{/if}
+			</main>
+
+			<aside class="props">
+				{#if doc}
+					<ShaderPreview effect={compiledEffect} atlases={data.atlases} />
+					{#if selected}
+						<NodeProperties
+							{doc}
+							node={selected}
+							def={shaderNode(selected.type)}
+							inTypes={analysis?.inputs[selected.id] ?? {}}
+							wired={doc.wires.filter((w) => w.to.node === selected.id).map((w) => w.to.port)}
+							errors={analysis?.issues
+								.filter((i) => i.node === selected.id && i.level === 'error')
+								.map((i) => i.message) ?? []}
+							disabled={lease.readOnly}
+							onValue={(key, value) => doc && edit(setNodeValue(doc, selected.id, key, value))}
+						/>
+					{/if}
+					<GraphSettings
+						{doc}
+						errors={docIssues(doc, analysis)}
+						disabled={lease.readOnly}
+						onChange={edit}
+					/>
+				{/if}
+			</aside>
+		</div>
+	{/if}
+</div>
+
+<DocHistoryModal
+	open={historyOpen}
+	listUrl={historyUrl}
+	docLabel="effect"
+	readOnly={lease.readOnly}
+	dirty={saveState.dirty}
+	onRestore={restoreBackup}
+	onclose={() => (historyOpen = false)}
+/>
+
+<style>
+	.page {
+		display: flex;
+		flex-direction: column;
+		height: 100vh;
+		background: #0b0e13;
+		color: #e2e8f0;
+	}
+	.body {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+	}
+	.center {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+	}
+	.status {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 6px 12px;
+		border-bottom: 1px solid #1f2937;
+		font-size: 12px;
+	}
+	.grow {
+		flex: 1;
+	}
+	.props {
+		width: 360px;
+		flex: none;
+		display: flex;
+		flex-direction: column;
+		gap: 14px;
+		padding: 10px;
+		border-left: 1px solid #1f2937;
+		overflow-y: auto;
+	}
+	.empty {
+		margin: auto;
+		text-align: center;
+		color: #94a3b8;
+		font-size: 13px;
+	}
+	.notice {
+		margin: 0;
+		padding: 6px 12px;
+		background: #3b1d1d;
+		color: #fecaca;
+		font-size: 12px;
+	}
+	.tag {
+		font-size: 10px;
+		color: #fbbf24;
+	}
+	.muted {
+		color: #64748b;
+	}
+	.bad {
+		color: #fca5a5;
+	}
+	.good {
+		color: #86efac;
+	}
+	.meter {
+		color: #94a3b8;
+	}
+	.meter.over {
+		color: #fbbf24;
+	}
+	button {
+		font-size: 12px;
+		background: #1f2937;
+		color: #e2e8f0;
+		border: 1px solid #2a323d;
+		border-radius: 4px;
+		padding: 3px 10px;
+		cursor: pointer;
+	}
+	button:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+	.chrome {
+		font-size: 11px;
+	}
+</style>

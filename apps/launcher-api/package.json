@@ -104,6 +104,8 @@
 		"check:component-state-machine-editor": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-state-machine-editor.ts",
 		"precheck:component-repeat-segments": "node scripts/ensure-svelte-kit.mjs",
 		"check:component-repeat-segments": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-repeat-segments.ts",
+		"precheck:shader-editor": "node scripts/ensure-svelte-kit.mjs",
+		"check:shader-editor": "tsx --tsconfig tsconfig.scripts.json scripts/check-shader-editor.ts",
 		"precheck:shader-pipeline": "node scripts/ensure-svelte-kit.mjs",
 		"check:shader-pipeline": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-shader-pipeline.ts",
 		"precheck:fx-node-params": "node scripts/ensure-svelte-kit.mjs",

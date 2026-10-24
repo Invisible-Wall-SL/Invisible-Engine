@@ -182,9 +182,9 @@ Each step has its own branch, gates and status entry.
      `custom:<id>`. A save keeps a graph that does not compile (it is being built) and is guarded by
      `baseEtag`; the lease key is the editor's to take in step 5. Shared graphs are read only here;
      publishing to the library is step 7.
-   - **Who.** The tools whose pickers list custom effects read the set. Until `/shaders` exists
-     (step 5), Scene Editor users write graphs: a graph is presentation, compiled from generated
-     names only.
+   - **Who.** The tools whose pickers list custom effects, and `/shaders`, read the set; `/shaders`
+     writes it. Until step 5 Scene Editor users wrote graphs: a graph is presentation, compiled from
+     generated names only.
    - **The ship.** The export compiles the set into `deploy/editor-shaders/` (one compiled effect
      per file and an index) and names a graph that does not compile, which plays nothing rather
      than failing the build. Publish (`runtimeBundle.ts`) and the bake (`export-shaders`) embed the
@@ -202,6 +202,13 @@ Each step has its own branch, gates and status entry.
    - Compile errors show on the nodes; saving uses a lease and keeps history.
    - Registry entry, `docs/tools/shader-graph.md` and onboarding link, all in the same change
      (rule 9).
+   - As built: the editing model is pure (`shaderEditor.ts`, every gesture doc → doc) and the
+     canvas asks the compiler's own wire rule (`canFeed`), so a wire the canvas takes is one the
+     compiler takes. The lease and the history are per graph (doc key and backup target the graph
+     id). The preview poses the effect through the game's runtime rather than a copy of it; the rig
+     still is left for later.
+   - Exit: an artist builds, previews and saves a graph on `/shaders`, and it is listed by the
+     pickers and ships with Publish (step 4's chain).
 6. **Templates.** The graph twins of the built-ins, with the parity gate, as "Start from a built-in".
 7. **Editor v2.** Per-node live thumbnails, the cost meter, subgraphs (reusable groups, like the
    flow's functions), and publishing to the studio-shared library.

@@ -111,6 +111,18 @@ fake('lib/server/r2.ts', {
 	deleteObject: async (key: string) => void R2.delete(key),
 	deleteObjects: async (keys: string[]) => keys.forEach((key) => R2.delete(key)),
 	listAllKeys: async (prefix: string) => keysUnder(prefix),
+	headObject: async (key: string) =>
+		R2.has(key)
+			? { etag: R2.get(key)!.etag, size: R2.get(key)!.body.length, lastModified: 1 }
+			: null,
+	copyObject: async (from: string, to: string) => {
+		const o = R2.get(from);
+		if (!o) return false;
+		R2.set(to, { ...o });
+		return true;
+	},
+	listAllObjects: async (prefix: string) =>
+		keysUnder(prefix).map((key) => ({ key, size: R2.get(key)!.body.length, lastModified: 1 })),
 });
 
 const CLIENT = 'acme';
@@ -150,6 +162,7 @@ const deleteRoute = await import('../src/routes/api/shaders/delete/+server.ts');
 const listRoute = await import('../src/routes/api/shaders/list/+server.ts');
 const effectsRoute = await import('../src/routes/api/shaders/effects/+server.ts');
 const docRoute = await import('../src/routes/api/shaders/doc/+server.ts');
+const backupsRoute = await import('../src/routes/api/shaders/backups/+server.ts');
 const exportRoute = await import('../src/routes/api/editor/export-shaders/+server.ts');
 const { composeFlowV2Vocab } = await import('../src/lib/flowV2Vocab.ts');
 const { soundOptionsFor } = await import('../src/lib/soundOptions.ts');
@@ -317,7 +330,7 @@ const okSave = await call(saveRoute.POST, {
 	body: { doc: { ...ref('frost'), id: 'Frost' }, baseEtag: null, projectKey: PROJECT },
 });
 check('save stores a new graph', [okSave.status, okSave.body.id], [200, 'frost']);
-check('save gates on the Scene Editor alone', gates.at(-1), ['editor']);
+check('save gates on Invisible Shader Graph alone', gates.at(-1), ['shaders']);
 check(
 	'save over the size cap is a 413',
 	(await call(saveRoute.POST, { body: { doc: huge, baseEtag: null } })).status,
@@ -343,7 +356,7 @@ check(
 check('…and writes nothing', R2.has(`${projectDir}other.json`), false);
 const listed = await call(listRoute.GET, { query: `?projectKey=${PROJECT}` });
 check('list answers the set', (listed.body.shaders as unknown[]).length, 4);
-const READ_GATE = ['editor', 'componentEditor', 'symbols', 'flow'];
+const READ_GATE = ['shaders', 'editor', 'componentEditor', 'symbols', 'flow'];
 check('the reads gate on the tools that pick Element FX', gates.at(-1), READ_GATE);
 check(
 	'a read from a tab on another project is refused',
@@ -578,6 +591,13 @@ check(
 	true,
 );
 check(
+	'…and the Game Maker shows them after a publish, not only the server log',
+	readLF(`${here}../src/routes/(app)/game-maker/+page.svelte`).includes(
+		'Array.isArray(out?.shaderEffectsMissing)',
+	),
+	true,
+);
+check(
 	'…and judges the flow with the kinds it ships',
 	publish.includes('shaderEffects: assembled.shaderEffects,'),
 	true,
@@ -604,6 +624,87 @@ check(
 	[kindEnum.includes('shake'), kindEnum.at(-1)],
 	[true, 'custom:frost'],
 );
+
+// ── 5. History ─────────────────────────────────────────────────────────────────────────────────
+console.log('5. history');
+{
+	const first = await storage.saveShader(
+		CLIENT,
+		PROJECT,
+		{ ...ref('frost'), id: 'glow', name: 'Glow v1' },
+		null,
+	);
+	const second = await storage.saveShader(
+		CLIENT,
+		PROJECT,
+		{ ...ref('frost'), id: 'glow', name: 'Glow v2' },
+		first.etag,
+		'always',
+	);
+	const backupDir = `${CLIENT}/${'shader_game'}/shader-backups/glow/`;
+	const kept = keysUnder(backupDir);
+	check('a save keeps the version it replaced, beside shaders/ (never in it)', kept.length, 1);
+	check('…which is the earlier version', JSON.parse(R2.get(kept[0])!.body).name, 'Glow v1');
+	check(
+		'…and the graph listing never meets it',
+		(await storage.listShaders(CLIENT, PROJECT)).map((r) => r.id).includes('glow'),
+		true,
+	);
+	const listedBackups = await call(backupsRoute.GET, { query: '?graph=glow' });
+	const backups = listedBackups.body.backups as { id: string }[];
+	check('the history lists it', [listedBackups.status, backups.length], [200, 1]);
+	check('…on the read gate', gates.at(-1), READ_GATE);
+	const stale = await call(backupsRoute.POST, {
+		query: '?graph=glow',
+		body: { id: backups[0].id, baseEtag: first.etag },
+	});
+	check('a restore from a stale tab is refused', stale.status, 409);
+	const restored = await call(backupsRoute.POST, {
+		query: '?graph=glow',
+		body: { id: backups[0].id, baseEtag: second.etag },
+	});
+	check(
+		'a restore puts the version back',
+		[
+			restored.status,
+			(restored.body.doc as { name?: string }).name,
+			stored(`${projectDir}glow.json`).name,
+		],
+		[200, 'Glow v1', 'Glow v1'],
+	);
+	check('…on the write gate', gates.at(-1), ['shaders']);
+	check('…and keeps what it replaced', keysUnder(backupDir).length, 2);
+	check(
+		'a backup id minted for another doc is refused',
+		(
+			await call(backupsRoute.POST, {
+				query: '?graph=glow',
+				body: { id: 'scenes-20261001T120000000Z-00000001', baseEtag: null },
+			})
+		).status,
+		400,
+	);
+	check('history needs a graph', (await call(backupsRoute.GET, { query: '' })).status, 400);
+	const third = await storage.saveShader(
+		CLIENT,
+		PROJECT,
+		{ ...ref('frost'), id: 'glow', name: 'Glow v3' },
+		restored.body.etag as string,
+	);
+	const beforeDelete = keysUnder(backupDir).length;
+	await storage.deleteShader(CLIENT, PROJECT, 'glow');
+	const afterDelete = keysUnder(backupDir);
+	check(
+		'a delete keeps the last version in History, however recent its save',
+		[
+			!!third.etag,
+			R2.has(`${projectDir}glow.json`),
+			afterDelete.length - beforeDelete,
+			afterDelete.map((k) => JSON.parse(R2.get(k)!.body).name).includes('Glow v3'),
+		],
+		[true, false, 1, true],
+	);
+}
 
 if (failures) {
 	console.log(`\ncheck:shader-pipeline — ${failures} of ${checks} checks FAILED`);

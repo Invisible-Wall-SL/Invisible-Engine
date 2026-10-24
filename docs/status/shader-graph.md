@@ -1,14 +1,14 @@
 # Invisible Shader Graph — status
 
-> Design: [docs/design/invisible-shader-graph.md](../design/invisible-shader-graph.md) · Guide: none yet (step 5) · Agent: `.claude/agents/invisible-shader-graph.md`
+> Design: [docs/design/invisible-shader-graph.md](../design/invisible-shader-graph.md) · Guide: [docs/tools/shader-graph.md](../tools/shader-graph.md) · Agent: `.claude/agents/invisible-shader-graph.md`
 
 **One-line state:** plan approved 2026-10-23. Step 1 (one shared GLSL library under the 17
 built-in shader passes, #1320) and step 2 (the `engine-shadergraph` package: nodes, validator,
 compiler, #1322) and step 3 (the runtime: a compiled graph plays as `custom:<id>` wherever a built-in
-Element FX does, #1328) are merged. Step 4, the pipeline, is in review: a project's graphs are
-stored, compiled into Publish and the bake, registered by the game at boot and listed by the Scene
-Editor, Symbols and Flow pickers. No `/shaders` tool exists yet (step 5): a
-graph is saved through `/api/shaders/save`.
+Element FX does, #1328) and step 4 (the pipeline: a project's graphs are stored, compiled into
+Publish and the bake, registered by the game at boot and listed by the Scene Editor, Symbols and
+Flow pickers, #1329) are merged. Step 5, the `/shaders` editor (library, canvas, properties and a
+live Pixi preview, with a lease and history), is in review.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -84,7 +84,7 @@ graph is saved through `/api/shaders/save`.
   - **An unregistered custom entry still counts** where the engine counts entries: cue names,
     keyed channels, an `enter` beat a symbol state waits for. Playing it is a no-op whose `done` is
     already settled, so the wait ends at once.
-- **Step 4, the pipeline.** Built and in review.
+- **Step 4, the pipeline.** Merged (#1329, 2026-10-24).
   - **Storage** (`apps/launcher-api/src/lib/server/shaderStorage.ts`). One file per graph: a
     project's at `<client>/<project>/shaders/<id>.json`, the studio-shared library's at
     `_shared/shaders/<id>.json`. A project's graph shadows a shared one of the same id; the project's
@@ -95,8 +95,8 @@ graph is saved through `/api/shaders/save`.
     by `baseEtag` (a create on a taken id and a stale ETag are 409s), and a graph over 512 KB is
     refused (413). A setup duplicate copies `shaders/`.
   - **Routes** (`/api/shaders/list | doc | effects | save | delete`). The reads gate on the tools
-    whose pickers list custom effects (Scene and Component Editors, Symbols, Flow); save and delete
-    gate on the Scene Editor until `/shaders` is a tool (step 5). Every route refuses a tab on another
+    whose pickers list custom effects (Scene and Component Editors, Symbols, Flow) and `/shaders`;
+    save and delete gate on `/shaders` (the Scene Editor until step 5). Every route refuses a tab on another
     project (`scopeMismatch`). `effects` answers the set compiled and the graphs left out. A shared
     graph is read with no ETag: saving it writes the project its own copy.
   - **The ship.** `shaderExport.ts` compiles the set into `deploy/editor-shaders/` (one compiled
@@ -121,13 +121,49 @@ graph is saved through `/api/shaders/save`.
     both bundle paths, the boot, the pull, the pickers, the Flow vocab and the missing-effect
     report). `scripts/playtest/shader-effect-play.mjs` plays a published game with two graphs on it
     and passes or fails (see "Recent changes").
-- **Not started:** steps 5–8 (the `/shaders` editor, templates, editor v2, later).
+- **Step 5, the editor (`/shaders`).** Built and in review.
+  - **The tool.** `TOOLS.shaders` ("Invisible Shader Graph", Assets stage; admin, developer,
+    artist, pipeline tester), its guide `docs/tools/shader-graph.md`, the icon on every tool bar.
+    It takes the save gate over from the Scene Editor.
+  - **Three panes.** Left: the project's graphs (its own, and the shared ones it does not
+    override, tagged) with New and Delete, then the node library by family, searched, dragged onto
+    the canvas or clicked in. Middle: the canvas. Right: the preview, the selected node's settings and
+    unwired input values, and the effect's (name, description, phase, duration, padding, params, up
+    to 4 passes, motion curves and pivot).
+  - **The canvas** is `$lib/graph/GraphCanvas.svelte`, lifted out of /flow-v2 (Flow now wraps it).
+    A node's header carries its family colour; each port is coloured by the type it resolved to;
+    an unwired input shows the value the compiler reads. A wire is refused unless the compiler
+    would take it (a float spreads, a shorter vector never widens, nothing feeds itself), and an
+    input takes one wire.
+  - **Errors on the nodes.** The page compiles the graph on every edit. A node's errors show on it
+    (red border, the messages under its ports); errors that belong to no node, and the counts, show
+    in the status bar with the cost and reads against the phone budget.
+  - **Saving.** Autosave after a second, Ctrl+S, guarded by the graph's ETag (a conflict stops and
+    says so). A per-graph lease (`LeaseState`, doc key the graph id): a second editor sees who holds
+    it and saving waits. History per graph (`/api/shaders/backups`, stem `shader`): list and
+    restore. A shared graph opens from the library; saving writes the project its own copy.
+    Undo / redo (100 steps), and a guard on leaving with unsaved work.
+  - **The live preview** (`ShaderPreview.svelte`, `shaderPreview.client.ts`). Its own Pixi
+    application plays the compiled effect through the game's Element FX runtime, posed: a `t`
+    scrubber, play / pause, loop, intensity 0–4 and a dark / light / checker backdrop. The element
+    is a drawn sample card or any atlas region (symbol art included; rotated and trimmed frames as
+    Pixi builds them). An edit that compiles to the same effect does not restart it; a graph that
+    does not compile shows the element at rest and says so.
+  - **Proof.** `check:shader-editor` (60 checks: every gesture, the wire rule, the canvas view,
+    the client's slug against the server's); `check:shader-pipeline` grew to 88 (the `shaders` gate,
+    history, a delete kept in History); the preview played headless on WebGL1 and WebGL2 (74
+    checks); the whole page played headless (67 checks).
+- **Not started:** steps 6–8 (templates, editor v2, later).
 
 ## Open items / next
-1. Merge step 4.
-2. **Step 5: the `/shaders` editor.** It takes the save gate over from the Scene Editor (a `shaders`
-   tool in `roles.ts`, with its doc, rule 9), acquires the lease (`/api/lease`, doc key the graph
-   id) and keeps history (`docBackups`, a target per graph).
+1. Merge step 5.
+2. **Step 5 follow-ups.**
+   - The preview has no rig still yet (the plan's fourth source).
+   - The preview plays the params' defaults; there is no per-preview value yet.
+   - The preview uses WebGL2 where there is one (CI's `shader-compile` covers WebGL1), does not
+     follow a change of screen pixel ratio, and clips a graph padded to the 2× maximum at its edge.
+   - Delete has no lease check: the ✕ on a graph another author has open deletes it (its last
+     version is in History), and their next save is then refused as a conflict.
 3. **Step 4 follow-ups.**
    - What ships is the project's whole set. Once the shared library has entries (step 7), ship only
      the graphs a doc names (`custom:<id>` in the scenes, components, symbols and flow).
@@ -144,6 +180,38 @@ graph is saved through `/api/shaders/save`.
 - None.
 
 ## Recent changes
+- 2026-10-24 — **Step 5: the `/shaders` editor** (see "Current state"). Step 4 merged (#1329).
+  - **The canvas lift.** `$lib/graph/GraphCanvas.svelte` (the `@xyflow/svelte` shell: nodes,
+    wires, the page's node types, its connection rule, a fit signal, a palette drop) and
+    `$lib/graph/dnd.ts` (`writeDrag` / `readDrag`) came out of /flow-v2; `FlowCanvasV2.svelte` is a
+    thin wrapper keeping Flow's styles. Two props were still on their 0.x names
+    (`deleteKeyCode`, `multiSelectionKeyCode`), so Flow's Delete and multi-select keys never
+    reached the canvas; they are `deleteKey` / `multiSelectionKey` now. `docs/ui-inventory.md` §20.
+  - **The compiler's analysis** (`engine-shadergraph`): `analyzeShaderGraph(doc)` answers the
+    issues, each port's resolved type, the cost and the reads, and `canFeed(from, to)` is the wire
+    rule the canvas asks.
+  - **Gates.** The shader routes read for `shaders` too, and write for `shaders` only;
+    `check:launcher-gates` lists `shaders/backups`; `check:doc-backups` has the `shader` stem; a
+    setup duplicate leaves graph history behind.
+  - **svelte-check.** `apps/launcher-api` 46 → 45 (the Flow prop names).
+  - **Play-QA of the whole page** (the real page and children, compiled and bundled, every API route
+    answered from an in-memory store, driven in Chromium): boot, new / open / wire / refuse a wire,
+    an error on its node and in the status bar, autosave and Ctrl+S under the ETag, a 409 and
+    overwrite, undo / redo, a shared graph saved as the project's copy, delete. It found and fixed:
+    a second save after Ctrl+S; a graph switch during an autosave that copied the shared graph into
+    the project unedited (and cleared its tag, and re-leased the old graph); `?shared=1` left in the
+    URL after the copy was saved; fields overflowing the settings pane.
+  - **Review fixes.** An independent review: a delete now copies the graph into History first
+    (`deleteDocWithBackup`; an autosave copies at most every 5 minutes, so up to 5 minutes of work
+    was lost while the dialog promised History); a `?graph=` the project lacks opens nothing and
+    says so (it had opened an Output-less doc nothing could repair); a create whose id a colleague
+    took meanwhile says so instead of offering to overwrite theirs; the canvas refuses a wire the
+    compiler would (a type its node takes elsewhere, a loop through other nodes); Ctrl+S on an
+    unedited graph saves nothing (on a shared one it made the project's copy); a multi-selection
+    survives a rebuild; a slower open no longer lands after a later one; renaming a param takes its
+    Param nodes and pass ties with it. Also from the guide's read-through: an effect-level error no
+    longer stops the port types and cost, the Output cannot be deleted, a read-only canvas changes
+    nothing, Game Maker's publish note lists the shader effects a game will not play.
 - 2026-10-24 — **Step 4: the pipeline** (storage, routes, ship, pickers). See "Current state" for
   what each part does.
   - **Proof.**
