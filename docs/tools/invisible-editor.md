@@ -928,8 +928,8 @@ until its stop cue fires or an entrance effect plays on it; its row says so. **C
 on a still of the element taken as they start, so an animating rig holds still while they play.
 **Assemble from particles** plays on the live element: its specks are drawn from the element every
 frame and fly in to wherever it is and however big it is now, so a timeline that moves or zooms it
-keeps playing under them. If it has no size yet when the cue fires (a zoom from nothing), the
-specks wait, the element hidden, until it has one.
+keeps playing under them. If there is nothing to draw yet when the cue fires (no size, as in a zoom
+from nothing, or hidden), the specks wait, the element hidden, until there is.
 
 > **The reels of the base game:** an effect on the base game's **Screen** block plays on the base
 > game's art in front of and behind the reels, not on the reels. To play one on the reels (say, the

@@ -1157,6 +1157,81 @@ console.log('element fx — dissolve to particles');
 		'and breaks as soon as it has one, laid over it',
 	);
 	advance(1000);
+
+	// Shown by a key on the frame its cue fires: hidden when the break would start.
+	const shownLate = makeTarget();
+	shownLate.visible = false;
+	playElementFx(
+		shownLate,
+		{ kind: 'assemble', durationMs: 1000, params: { particles: 200 } },
+		{ ...host, renderer: liveRenderer as never },
+	);
+	advance(100);
+	assert(
+		!breakOf(shownLate) && shownLate.alpha === 0,
+		'hidden when it would start, it waits rather than fading in instead',
+	);
+	shownLate.visible = true;
+	advance(16);
+	assert(!!breakOf(shownLate) && shownLate.alpha === 0, 'and breaks once shown');
+	advance(1000);
+
+	// A rig swinging: the element's box changes shape every frame.
+	const swinging = makeTarget();
+	swinging.boundsArea = undefined as unknown as Rectangle;
+	const limb = swinging.addChild(new Container());
+	limb.boundsArea = new Rectangle(-50, -60, 100, 120);
+	playElementFx(
+		swinging,
+		{ kind: 'assemble', durationMs: 1000, params: { particles: 200 } },
+		{ ...host, renderer: liveRenderer as never },
+	);
+	advance(16);
+	const swing = breakOf(swinging) as Container;
+	const scales: number[][] = [];
+	for (const [sx, sy] of [
+		[1.4, 1],
+		[1, 1],
+		[1.2, 0.8],
+		[1, 1],
+	]) {
+		limb.scale.set(sx, sy);
+		advance(16);
+		const m = localOf(swing);
+		const r = restOf(swinging);
+		scales.push([
+			Math.hypot(m.a, m.b) / Math.hypot(r.a, r.b),
+			Math.hypot(m.c, m.d) / Math.hypot(r.c, r.d),
+		]);
+	}
+	assert(
+		scales.every(([x, y]) => near(x, y, 1e-4)) &&
+			scales.every(([x], i) => i === 0 || x >= scales[i - 1][0] - 1e-6) &&
+			near(scales[0][0], 1.4, 1e-4),
+		'its specks grow evenly to what it fills and never shrink back, so a swing neither stretches nor shakes them',
+	);
+	advance(1000);
+
+	// Two at once on one element (two entries, or a keyed pose over a cued play).
+	const twice = makeTarget();
+	const first = playElementFx(
+		twice,
+		{ kind: 'assemble', durationMs: 600, params: { particles: 100 } },
+		{ ...host, renderer: liveRenderer as never },
+	);
+	advance(300);
+	playElementFx(
+		twice,
+		{ kind: 'assemble', durationMs: 600, params: { particles: 100 } },
+		{ ...host, renderer: liveRenderer as never },
+	);
+	advance(400);
+	assert(
+		!first.active && twice.isRenderGroup,
+		'two live breaks on one element: the first ending leaves it drawing for the second',
+	);
+	advance(400);
+	assert(!twice.isRenderGroup, 'and the last gives it back no longer a render group');
 }
 
 // -------------------------------------------------------------------------------------------------

@@ -691,31 +691,70 @@ const liveSize = (renderer: Renderer, box: Rectangle): { width: number; height: 
 	};
 };
 
+/** Drawn every frame, so no multisampling: the still a break cuts once keeps it. */
 const liveTexture = (renderer: Renderer, box: Rectangle): RenderTexture =>
-	RenderTexture.create({
-		...liveSize(renderer, box),
-		resolution: renderer.resolution,
-		antialias: true,
-	});
+	RenderTexture.create({ ...liveSize(renderer, box), resolution: renderer.resolution });
+
+const drawTransform = new Matrix();
 
 /**
  * Draw `target`'s `box` into all of `texture`, at full alpha (whoever faded the element fades its
- * pieces instead). The target stays a render group: drawing it every frame would otherwise rebuild
- * its parent's render each time.
+ * pieces instead). The target stays a render group ({@link holdGroup}): drawing it every frame would
+ * otherwise rebuild its parent's render each time.
  */
 const redraw = (renderer: Renderer, target: Container, box: Rectangle, texture: Texture): void => {
 	const sx = texture.width / box.width;
 	const sy = texture.height / box.height;
 	const alpha = target.alpha;
 	target.alpha = 1;
-	renderer.render({
-		container: target,
-		target: texture,
-		clearColor: [0, 0, 0, 0],
-		transform: new Matrix(sx, 0, 0, sy, -box.x * sx, -box.y * sy),
-	});
-	target.alpha = alpha;
+	try {
+		renderer.render({
+			container: target,
+			target: texture,
+			clearColor: [0, 0, 0, 0],
+			transform: drawTransform.set(sx, 0, 0, sy, -box.x * sx, -box.y * sy),
+		});
+	} finally {
+		target.alpha = alpha;
+	}
 	texture.source.updateMipmaps();
+};
+
+/** The live breaks drawing each element, and whether it was a render group before the first. */
+const liveGroups = new WeakMap<Container, { runs: number; wasGroup: boolean }>();
+
+/** A live break starts drawing `target`, which drawing makes a render group. */
+const holdGroup = (target: Container): void => {
+	const held = liveGroups.get(target);
+	if (held) held.runs++;
+	else liveGroups.set(target, { runs: 1, wasGroup: target.isRenderGroup });
+};
+
+/** A live break stops drawing `target`: the last one gives it back as it was, unless its owner has
+ *  since cached it as a texture (which needs the group). */
+const releaseGroup = (target: Container): void => {
+	const held = liveGroups.get(target);
+	if (!held || --held.runs > 0) return;
+	liveGroups.delete(target);
+	if (held.wasGroup || target.destroyed || !target.isRenderGroup || target.isCachedAsTexture)
+		return;
+	target.disableRenderGroup();
+};
+
+/**
+ * Where a live break lays its pieces now: every box the element has filled so far (`seen`, then
+ * `box`), grown about its centre to the cut's proportions. It only grows, and evenly, so a zoom
+ * carries the pieces with it while a rig swinging or a child moving neither stretches nor shakes them.
+ */
+const liveRegion = (seen: Rectangle, box: Rectangle | undefined, cut: Rectangle): Rectangle => {
+	const x0 = Math.min(seen.x, box?.x ?? seen.x);
+	const y0 = Math.min(seen.y, box?.y ?? seen.y);
+	const x1 = Math.max(seen.right, box ? box.x + box.width : seen.right);
+	const y1 = Math.max(seen.bottom, box ? box.y + box.height : seen.bottom);
+	const k = Math.max((x1 - x0) / cut.width, (y1 - y0) / cut.height);
+	const w = cut.width * k;
+	const h = cut.height * k;
+	return new Rectangle((x0 + x1 - w) / 2, (y0 + y1 - h) / 2, w, h);
 };
 
 /**
@@ -757,9 +796,9 @@ export function startBreak(options: BreakOptions): BreakRun | undefined {
 	const parent = target.parent;
 	if (!parent || box.width < 1 || box.height < 1 || !target.visible) return undefined;
 
-	const wasGroup = target.isRenderGroup;
 	let texture: Texture;
 	if (live) {
+		holdGroup(target);
 		texture = liveTexture(renderer, box);
 		redraw(renderer, target, box, texture);
 	} else {
@@ -1058,15 +1097,20 @@ export function startBreak(options: BreakOptions): BreakRun | undefined {
 	let retired: Texture | undefined;
 	let liveBox = still;
 	const placed = new Matrix();
+	const boxMap = new Matrix();
 	/**
-	 * Redraw from the element now, laid over its box now: the cut stays in the box it broke in, and
-	 * the holder maps that box onto this one, so the pieces grow and move with the element. The
-	 * texture is remade when the element outgrows it, so a growing element stays sharp.
+	 * Redraw from the element now, laid over where it now is ({@link liveRegion}): the cut stays in
+	 * the box it broke in, and the holder maps that box onto this one, so the pieces grow and move
+	 * with the element. The texture is remade when the element outgrows it, so it stays sharp.
 	 */
 	const follow = (rest: Matrix, alpha: number, box: Rectangle | undefined): void => {
 		retired?.destroy(true);
 		retired = undefined;
-		if (box && box.width >= 1 && box.height >= 1) liveBox = box;
+		liveBox = liveRegion(
+			liveBox,
+			box && box.width >= 1 && box.height >= 1 ? box : undefined,
+			still,
+		);
 		const fit = liveSize(renderer, liveBox);
 		if (fit.width > texture.width * 1.25 || fit.height > texture.height * 1.25) {
 			retired = texture;
@@ -1078,11 +1122,10 @@ export function startBreak(options: BreakOptions): BreakRun | undefined {
 			}
 		}
 		redraw(renderer, target, liveBox, texture);
-		const kx = liveBox.width / still.width;
-		const ky = liveBox.height / still.height;
+		const k = liveBox.width / still.width;
 		placed
 			.copyFrom(rest)
-			.append(new Matrix(kx, 0, 0, ky, liveBox.x - still.x * kx, liveBox.y - still.y * ky));
+			.append(boxMap.set(k, 0, 0, k, liveBox.x - still.x * k, liveBox.y - still.y * k));
 		holder.setFromMatrix(placed);
 		holder.alpha = alpha;
 		holder.visible = target.visible;
@@ -1097,9 +1140,7 @@ export function startBreak(options: BreakOptions): BreakRun | undefined {
 			texture.destroy(true);
 			retired?.destroy(true);
 			iced?.destroy(true);
-			if (live && !wasGroup && !target.destroyed && target.isRenderGroup) {
-				target.disableRenderGroup();
-			}
+			if (live) releaseGroup(target);
 		},
 	};
 }

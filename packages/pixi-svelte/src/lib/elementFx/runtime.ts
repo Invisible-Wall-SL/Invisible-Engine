@@ -530,15 +530,16 @@ const timeScaleOf = (host: ElementFxHost): number => {
 
 /**
  * Snapshot and cut the element for a break, or mark it to fade instead. A live break cuts the box
- * the element has now, and one with no size yet (a zoom from nothing) waits for it, the element
- * hidden: it is drawn from the element every frame, so it may start late. It is tried again next
- * frame.
+ * the element has now, and one with nothing to draw yet (no size, as in a zoom from nothing; hidden,
+ * as when a key shows it this frame; not on stage) waits for it, the element hidden: it is drawn from
+ * the element every frame, so it may start late. It is tried again next frame.
  */
 const startEffectBreak = (runtime: Runtime, effect: Effect): void => {
 	const { target } = runtime;
 	const live = !!effect.impl.live;
 	const box = live ? measure(target) : runtime.boxPending ? undefined : runtime.box;
-	if (live && runtime.host.renderer && !(box && box.width >= 1 && box.height >= 1)) return;
+	const drawable = !!box && box.width >= 1 && box.height >= 1 && target.visible && !!target.parent;
+	if (live && runtime.host.renderer && !drawable) return;
 	const renderer = box ? runtime.host.renderer : undefined;
 	effect.breakRun =
 		renderer && box && effect.impl.breaks

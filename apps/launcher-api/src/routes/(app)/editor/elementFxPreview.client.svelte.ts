@@ -375,13 +375,18 @@ export function playOnStill(options: StillPreview): () => void {
 		const { target, ticker, render, redrawn } = parts;
 		const { refresh, placement } = options;
 		const matrix = new Matrix();
-		// Ahead of the effect's own step, which takes what is written here as the still's rest.
+		// Ahead of the effect's own step, which takes what is written here as the still's rest. A copy
+		// that can no longer be uploaded (a cross-origin image reached a surface) ends the preview.
 		if (refresh || placement) {
 			ticker.add(
 				() => {
 					if (over) return;
 					if (placement) target.setFromMatrix(matrix.set(...placement()));
-					if (refresh?.()) redrawn();
+					try {
+						if (refresh?.()) redrawn();
+					} catch {
+						end();
+					}
 				},
 				undefined,
 				UPDATE_PRIORITY.HIGH,

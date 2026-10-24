@@ -146,10 +146,11 @@ the way `cameraEffects` composes the stage:
   `reversed` kind runs its break from the end back to the start (assemble), so its pieces fly in;
   at its end the pieces go and the element shows again. A `live` kind (assemble) is drawn from the
   element every frame instead (`BreakRun.follow`): the element is rendered into a texture remade
-  as it grows, and the pieces, cut in the box it broke in, are laid over the box it fills now and
-  where it rests now, faded as the owner fades it. A timeline that moves or zooms the element keeps
-  playing under the pieces. A live break waits, the element hidden, until the element has a size
-  (a zoom from nothing), rather than fading instead.
+  as it grows, and the pieces, cut in the box it broke in, are laid over every box it has filled
+  so far (grown evenly to the cut's proportions, so a swing never stretches them) and where it
+  rests now, faded as the owner fades it. A timeline that moves or zooms the element keeps playing
+  under the pieces. A live break waits, the element hidden, until there is something to draw (a
+  size, as after a zoom from nothing; shown; on stage), rather than fading instead.
 - **Time** follows the game's turbo through the particle clock (`particleTimeScale`).
 - **Zero cost at rest**: no runtime, no ticker callback, no filter on a container with nothing
   playing; nothing is filtered before the element has a size (art still loading).
