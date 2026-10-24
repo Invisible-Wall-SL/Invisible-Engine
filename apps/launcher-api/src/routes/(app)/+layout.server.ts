@@ -2,6 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import {
 	ADMIN_PANEL_CAPABILITY,
 	PIPELINE_MERGE_CAPABILITY,
+	familyUsesTool,
 	manifestForRole,
 	roleHasCapability,
 } from '$lib/roles';
@@ -11,6 +12,7 @@ import {
 	DEFAULT_PROJECT_KEY,
 	accessibleProjects,
 	ensureDefaultProject,
+	projectFamily,
 } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { enginePending } from '$lib/server/engineSource';
@@ -18,7 +20,7 @@ import { engineDeployStatus, type EngineDeployStatus } from '$lib/server/testSer
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { LayoutServerLoad } from './$types';
 
-export const load: LayoutServerLoad = async ({ locals, cookies }) => {
+export const load: LayoutServerLoad = async ({ locals, cookies, url }) => {
 	if (!locals.user) throw redirect(303, '/login');
 
 	await ensureDefaultProject();
@@ -43,6 +45,17 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 	const stored = await getActiveProjectKey(cookies.get(SESSION_COOKIE));
 	const activeProjectKey =
 		stored && projects.some((p) => p.key === stored) ? stored : DEFAULT_PROJECT_KEY;
+
+	// The family of the project the page is for decides which tools are offered (game-families.md
+	// §6.5). A tool page's `?project=` names it and is synced into the session by the page's own
+	// load, which runs after this one, so it is read here too. Tracked: a client-side hop to another
+	// project's `?project=` must re-run this load, or the tool bar keeps the last project's family.
+	const requested = url.searchParams.get('project');
+	const familyRow =
+		accessible.find((p) => p.key === requested) ??
+		accessible.find((p) => p.key === activeProjectKey);
+	const familyProjectKey = familyRow?.key ?? activeProjectKey;
+	const family = projectFamily(familyProjectKey, familyRow?.gameType);
 
 	// Which engine commit the live shared `lines` runtime bundle was built from + whether a release
 	// is building right now (the bundle-vs-source axis). Best-effort + a single R2 read: a test-server
@@ -69,7 +82,11 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 
 	return {
 		user: locals.user,
-		tools: manifestForRole(locals.user.role, roleOverrides, overrides),
+		tools: manifestForRole(locals.user.role, roleOverrides, overrides).filter((t) =>
+			familyUsesTool(family, t.id),
+		),
+		family,
+		familyProjectKey,
 		canAdmin: roleHasCapability(locals.user.role, ADMIN_PANEL_CAPABILITY, roleOverrides, overrides),
 		// Whether Invisible Pipeline Changes may show its Approve (and, later, Merge) controls: the
 		// same two override layers, read once here rather than again by the page.

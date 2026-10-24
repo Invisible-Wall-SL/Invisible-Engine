@@ -267,7 +267,9 @@ binding; a node can carry several. Each binding has these parts:
     Meter, or your own pot). The level, maximum, size stage and full flag are each read for the
     meter the placed instance names, so one pot design serves every pot.
   - **Hold and Win** — respins left and the respins cap, cells held and cells open, rows open
-    and rows at most (an expanding board), collector level, letters lit, feature total.
+    and rows at most (an expanding board), collector level, letters lit, feature total, feature
+    worth (`featureWorth`: what the feature is worth so far, moving every respin; 100 = 1× total
+    bet — see [featureWorth or featureTotal](invisible-editor.md#the-state-machine)).
   - **Game values** — the readout feeds: bet, win, balance, free-spin counts, jackpots…
   - **Custom source…** — any engine source by name. `{key}` reads one of the component's
     params, so `meter.{meter}.level` is the level of the instance's own meter.
@@ -712,11 +714,14 @@ These reflect the registered editor design (`docs/design/invisible-editor.md`
   stays purely non-destructive). One precise engine remainder: the bake walks only
   top-level scene pins, not the transitive nested-pin closure — to be widened when a game
   first nests a pinned instance (no game pins any version yet).
-- **Nesting depth is capped at 2.** Components-inside-components expand to
-  `MAX_COMPONENT_DEPTH = 2` (`engine-layout` `registerComponents.ts`), enforced by
-  both renderers with a transitive cycle guard (`ComponentInstance.svelte`); beyond
-  that, expansion stops rather than recursing. Editing in place follows the same cap: a
-  component nested deeper than the game draws is not opened from its parent.
+- **Nesting depth is capped at 3.** Components-inside-components expand to
+  `MAX_COMPONENT_DEPTH = 3` (`engine-layout` `registerComponents.ts`), enough for a
+  component holding a Segmented Counter (screen → your component → counter → segment). Every
+  renderer applies it with a transitive cycle guard (`ComponentInstance.svelte`); beyond that,
+  expansion stops rather than recursing. The stage counts the open component as one level, as
+  the game does once it is placed, so it cuts at the same place the Scene Editor and the game
+  do. Editing in place follows the same cap: a component nested deeper than the game draws is
+  not opened from its parent.
 - **Unsaved drafts are in-memory only.** A never-saved component exists only as the
   open draft; leaving it discards it (you are warned first). There is no autosave. **This game's
   defaults** (§4) are a second file: **Save component** writes them too, *Save for this game*

@@ -49,7 +49,7 @@ import { bakedFlowDoc } from '../editor-scenes';
 import type { ResolvedMeter } from 'game-config';
 import { boardDimensions } from './gameConfig';
 import type { LinesEngineKey } from './flowEngineKeys';
-import { stateHoldAndWin } from './stateHoldAndWin.svelte';
+import { featureWorth, stateHoldAndWin } from './stateHoldAndWin.svelte';
 import { jackpotMultiplier } from './holdAndWinJackpots.svelte';
 import { configuredMeters, meterLevelShown } from './holdAndWinMeters.svelte';
 import { platformJackpotValue } from './platformJackpot.svelte';
@@ -190,7 +190,7 @@ const ENGINE_READS: Record<LinesEngineKey, () => unknown> = {
 	// event is presented, so a guard in an event's chain already reads that event's outcome.
 	respinsLeft: () => stateHoldAndWin.left,
 	respinTotal: () => stateHoldAndWin.start,
-	featureWorth: () => stateHoldAndWin.total,
+	featureWorth,
 	activeModifiers: () => [...stateHoldAndWin.activeModifiers],
 	'jackpot.mini': () => jackpotAmount('mini'),
 	'jackpot.minor': () => jackpotAmount('minor'),

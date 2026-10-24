@@ -43,6 +43,7 @@ import {
 	type SnapshotMeta,
 } from './publishedRuntime';
 import { buildRuntimeBundle } from './runtimeBundle';
+import { unshippedCustomKinds } from './shaderExport';
 import { checkSoundsForPublish, type SoundPublishCheck } from './soundPublishCheck';
 import { unplayableFamilyMessage } from './familyGate';
 import { loadGameConfigDoc } from './gameConfigStorage';
@@ -66,6 +67,9 @@ export interface PublishResult {
 	 *  ship as nothing (`EditorArtIndex.spinesMissing` + `SymbolExportIndex.spinesMissing`).
 	 *  Never blocking — shown next to the publish so the author re-binds them. */
 	spinesMissing: { scene: string[]; symbols: string[] };
+	/** Custom Element FX kinds (`custom:<id>`) the game names but does not ship: they play nothing,
+	 *  their graph deleted or not compiling (`unshippedCustomKinds`). Never blocking. */
+	shaderEffectsMissing: string[];
 	/** Flow containers (ids) whose screen the shipped layout does not have: they draw nothing, and a
 	 *  step waiting on one never continues. Never blocking — an author may be mid-edit. */
 	flowScreensMissing: string[];
@@ -294,6 +298,7 @@ export async function publishGame(
 				...(assembled.componentVersions ?? []),
 			],
 			config: assembled.config,
+			shaderEffects: assembled.shaderEffects,
 		});
 		refuseFlow(shipped);
 		const engine = await runtimePointer(runtimeFor(gameType));
@@ -333,6 +338,16 @@ export async function publishGame(
 			`[publish] ${projectKey}: ${rigsMissing.symbols.length} bound symbol rig bundle(s) ` +
 				`resolved to NOTHING and will be MISSING in-game: ${rigsMissing.symbols.join(', ')}. ` +
 				'Re-bind the symbol in Invisible Symbols, or promote the rig to the shared library.',
+		);
+	}
+	// A custom Element FX the game names but does not ship plays nothing, silently: its graph was
+	// deleted, or no longer compiles. Logged like the rigs: the rest of the game is fine.
+	const shaderEffectsMissing = unshippedCustomKinds({ ...bundle });
+	if (shaderEffectsMissing.length > 0) {
+		console.warn(
+			`[publish] ${projectKey}: ${shaderEffectsMissing.length} shader effect(s) named in the game ` +
+				`will play NOTHING: ${shaderEffectsMissing.join(', ')}. Its graph was deleted or does not ` +
+				'compile — fix or re-save it, or pick another effect.',
 		);
 	}
 	const holdAndWinConfigMissing =
@@ -439,6 +454,7 @@ export async function publishGame(
 		sounds: soundCheck.licences,
 		flow: flowCheck.status === 'invalid' ? 'overridden' : flowCheck.status,
 		spinesMissing: rigsMissing,
+		shaderEffectsMissing,
 		flowScreensMissing: flowScreensMissing(bundle.flowV2, bundle.doc.scenes),
 		holdAndWinConfigMissing,
 		snapshot,

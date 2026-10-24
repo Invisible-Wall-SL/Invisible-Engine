@@ -173,8 +173,11 @@
 		/** Rename an input everywhere it is read (the page asks for the new name). */
 		onRenameInput?: (id: string) => void;
 		onSetInputDefault?: (id: string, value: boolean | number) => void;
-		/** Name (or with '', clear) the engine value a number input follows. */
+		/** Name (or with '', clear) the engine value — or Flow variable, `var:<id>` — a bool, number
+		 *  or text input follows. */
 		onSetInputSource?: (id: string, source: string) => void;
+		/** The project's Flow variables (game-families §3.1), offered as `var:<id>` sources. */
+		flowVariables?: { id: string; type: string }[];
 		/** The open component's draft, for its Events list and a node's Listeners (Rive plan Phase 6b,
 		 *  component mode). */
 		componentDraft?: ComponentDef | null;
@@ -381,6 +384,7 @@
 		onRenameInput,
 		onSetInputDefault,
 		onSetInputSource,
+		flowVariables = [],
 		componentDraft = null,
 		componentReservedIds = [],
 		componentReadOnly = false,
@@ -977,6 +981,18 @@
 
 	/** The bool / number inputs, in declaration order (triggers are the signal rows above). */
 	const valueInputRows = $derived(componentInputs.filter((i) => i.kind !== 'trigger'));
+	/** The flow variables an input of `kind` can follow (game-families §3.1): a number input a number
+	 *  variable, a bool input a bool one, a text input a string or enum one. */
+	const VARIABLE_TYPES_FOR: Record<string, readonly string[]> = {
+		number: ['int', 'float'],
+		bool: ['bool'],
+		text: ['string', 'enum'],
+	};
+	const variablesFor = (kind: string): { id: string; type: string }[] =>
+		flowVariables.filter((v) => (VARIABLE_TYPES_FOR[kind] ?? []).includes(v.type));
+	/** This panel's own datalist ids, so two mounted panels never share one. */
+	const panelId = $props.id();
+	const variableListId = `flow-variable-sources-${panelId}`;
 	let newInputKey = $state('');
 	let newInputKind = $state<'bool' | 'number'>('bool');
 	function addValueInput(): void {
@@ -2602,23 +2618,35 @@
 											onSetInputDefault?.(input.id, Number(e.currentTarget.value) || 0)}
 									/>
 								</label>
-								<label
-									class="input-default"
-									title="An engine value this number follows in game (winAmount, balance…), the same names Bind to value offers. Empty: Flow sets it."
-								>
-									from
-									<input
-										type="text"
-										value={input.source ?? ''}
-										placeholder="engine value"
-										onchange={(e) => onSetInputSource?.(input.id, e.currentTarget.value)}
-									/>
-								</label>
 							{/if}
+							<label
+								class="input-default"
+								title="An engine value this input follows in game (winAmount, balance…), the same names Bind to value offers, or a Flow variable (var:score). Empty: Flow sets it."
+							>
+								from
+								<input
+									type="text"
+									value={input.source ?? ''}
+									placeholder="engine value or var:…"
+									list={variablesFor(input.kind).length
+										? `${variableListId}-${input.kind}`
+										: undefined}
+									onchange={(e) => onSetInputSource?.(input.id, e.currentTarget.value)}
+								/>
+							</label>
 						</div>
 					</li>
 				{/each}
 			</ul>
+			{#each ['number', 'bool', 'text'] as kind (kind)}
+				{#if variablesFor(kind).length}
+					<datalist id={`${variableListId}-${kind}`}>
+						{#each variablesFor(kind) as v (v.id)}
+							<option value={`var:${v.id}`}>{v.id} ({v.type})</option>
+						{/each}
+					</datalist>
+				{/if}
+			{/each}
 		{/if}
 		<div class="row">
 			<label class="field">

@@ -42,6 +42,9 @@ ShaderEffectDoc (R2)                     what an artist authors in /shaders
  └─ motion       optional curve channels     → x, y, scale, rotation, alpha over t
 ```
 
+Step 2 builds the settings, params and pixel graph as `ShaderGraphDoc` v1
+(`packages/engine-shadergraph`); the passes and motion join it in step 3.
+
 - **No graph runs in the game.** On export the graph is compiled to GLSL. The game builds an
   `ElementFxFilter(name, body, uniforms)` from it, which is the same shell (`HEADER`: `efxPx`,
   `efxToUnit`, `efxSample`, `uElement`, `uPad`) the built-ins already use.
@@ -142,11 +145,29 @@ Each step has its own branch, gates and status entry.
 2. **`engine-shadergraph` package** (engine).
    - Contents: schema, node library v1, validator (types, cycles, required inputs, cost), codegen to
      GLSL ES 1.00 plus the uniform layout and the exposed params.
+   - Each node emits an expression per output that calls `glslLibrary` entries. It never declares a
+     function of its own, so a node and the built-in it was read from stay one implementation. The
+     building blocks the nodes need are added to the library, and a built-in carrying its own copy
+     of one moves onto it, proven pixel-identical by the parity harness.
+   - The uniform layout is `uFx` (progress, seconds, intensity, looping) plus one `uP<n>` per
+     param. The compiler makes every name, so nothing an author types reaches the GLSL.
    - Exit: headless codegen snapshot tests, a GLSL 1.00 lint, and compiled output for 5 reference
-     graphs rendering in the harness.
+     graphs rendering in the harness. Every node is also compiled on its own, at every vector width,
+     on WebGL1 and WebGL2, in CI (`shader-compile`), which fails on any shader the driver rejects.
 3. **Runtime** (engine).
    - Contents: `custom:<id>` kinds from a registry, the filter built from compiled GLSL, pass nodes,
      and motion curve channels.
+   - A custom kind is `custom:<id>`, the doc id a slug. `ElementFxKind` stays the 50 built-ins, so
+     the runtime's `Record<ElementFxKind, …>` stays exhaustive. Entries and plays take either.
+   - The registry lives in `constants-shared/elementFx` (dependency-free): `setCustomElementFx(list)`
+     replaces the set (the game at boot, the editor per project), reading each effect and leaving out
+     one that cannot play. The reader keeps a well-formed custom entry even before its effect is
+     registered, so load order cannot drop one; it plays once registered.
+   - `compileShaderEffect(doc)` packs the graph's pass with the doc's **passes** and **motion** as
+     one plain, shippable value. The plan's "pass nodes" became a list on the doc, because no
+     per-pixel node can run another filter. A pass is one of the built-in single-pass kinds (glow,
+     outline, blur…), its params set by value or tied to the effect's own params. Motion is a curve
+     per channel (x, y, scale, rotation, alpha over the play).
    - Exit: a custom effect behaves like a built-in in the gate (triggers, keyed, symbol state,
      turbo, stop).
 4. **Pipeline** (launcher + engine).
@@ -155,6 +176,22 @@ Each step has its own branch, gates and status entry.
      - leases;
      - export, deploy, bake, pull and register, included in Publish;
      - the Scene Editor, /symbols and Flow pickers listing custom effects.
+   - **Storage.** One file per graph, `shaders/<id>.json`; a project's graph shadows a shared one
+     of the same id, and the project's **set** is its own graphs plus the shared ones it does not
+     override. The id is `r2Slug` without leading underscores, so it always makes a valid
+     `custom:<id>`. A save keeps a graph that does not compile (it is being built) and is guarded by
+     `baseEtag`; the lease key is the editor's to take in step 5. Shared graphs are read only here;
+     publishing to the library is step 7.
+   - **Who.** The tools whose pickers list custom effects read the set. Until `/shaders` exists
+     (step 5), Scene Editor users write graphs: a graph is presentation, compiled from generated
+     names only.
+   - **The ship.** The export compiles the set into `deploy/editor-shaders/` (one compiled effect
+     per file and an index) and names a graph that does not compile, which plays nothing rather
+     than failing the build. Publish (`runtimeBundle.ts`) and the bake (`export-shaders`) embed the
+     effects as `shaderEffects`; the pull mirrors `editor-shaders/`; the game registers them with
+     `setCustomElementFx` before its first render.
+   - **The pickers.** The Scene Editor and Symbols register the project's set, and their kind picker
+     lists it as "Custom (Shader Graph)"; the Flow's kind dropdown lists the project's custom kinds.
    - Exit: a graph authored on main plays in a published game (play-QA with the `game-playtester`
      agent).
 5. **Editor v1, `/shaders`** (launcher).

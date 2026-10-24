@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
+	import { registerCustomElementFx } from '$lib/customElementFx.svelte';
 	import ColorField from '$lib/ColorField.svelte';
 	import {
 		BUILTIN_SHEETS,
@@ -46,7 +47,7 @@
 	import { builtinRigKey, hasBuiltinRig } from '../editor/editorRig.client';
 	import DocHistoryModal from '$lib/DocHistoryModal.svelte';
 	import {
-		elementFxSpec,
+		findElementFxSpec,
 		readElementFxEntry,
 		type ElementFxEntry,
 	} from 'constants-shared/elementFx';
@@ -184,6 +185,8 @@
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+	// The project's shader effects, so a state's Element FX picker lists them and its ▶ plays them.
+	$effect.pre(() => registerCustomElementFx(data.customElementFx));
 
 	/** One row of `data.clips`. Taken off `PageData` rather than imported from
 	 *  `$lib/server/flipbookStorage` — that is a server module and importing it here would drag
@@ -778,7 +781,7 @@
 				entry.trigger === 'enter' || entry.trigger === 'always'
 					? SYMBOL_FX_TRIGGER_TEXT[entry.trigger].summary
 					: entry.trigger;
-			return `${elementFxSpec(entry.kind).label}, ${when}${entry.disabled ? ' (off)' : ''}`;
+			return `${findElementFxSpec(entry.kind)?.label ?? entry.kind}, ${when}${entry.disabled ? ' (off)' : ''}`;
 		});
 		return ['Element FX in this state:', ...lines].join('\n');
 	}

@@ -105,8 +105,8 @@ export function componentInterface(
  * The interface as a Flow `componentInstance` node sees it (Rive plan §6.2, Phase 7): the same
  * inputs, events and values, in Flow's own structural shape — an input is its id and kind (a
  * default is the component's business), an event its id and payload, a value its layer and states.
- * A number input the ENGINE feeds (`source`) is left out: the source writes it on every emit, so a
- * Flow set would be overwritten — it gets no pin. The launcher projects it per placed instance
+ * An input the ENGINE feeds (`source`, a Flow variable's `var:<id>` included) is left out: the source
+ * writes it on every emit, so a Flow set would be overwritten — it gets no pin. The launcher projects it per placed instance
  * (`projectFlowInstances`).
  */
 export function flowInstanceInterface(

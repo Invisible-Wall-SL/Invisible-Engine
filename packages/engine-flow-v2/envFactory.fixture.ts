@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 
 import { createFlowV2Env, type FlowV2EnvDeps } from './src/env.ts';
 import { createContainerMountModel } from './src/mount.ts';
+import { createFlowState } from './src/state.ts';
 import { runFlowEvent, type FlowV2Env, type RunContext } from './src/runtime.ts';
 import type { FlowDoc, Node, TemplateVocabulary } from './src/types.ts';
 
@@ -39,6 +40,7 @@ const check = (label: string, actual: unknown, expected: unknown): void => {
 };
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+const EMPTY = { nodes: [], exec: [], data: [] };
 const CONTAINERS = [{ id: 'intro', sceneId: 'intro', z: 10 }];
 const VOCAB: TemplateVocabulary = {
 	templateId: 'fixture',
@@ -74,11 +76,22 @@ async function main(): Promise<void> {
 	console.log('1. every env call the interpreter makes exists on the factory env');
 	const source = readFileSync(join(HERE, 'src/runtime.ts'), 'utf8');
 	const called = [...new Set([...source.matchAll(/\benv\.(\w+)/g)].map((m) => m[1]))].sort();
-	const built = createFlowV2Env(baseDeps([]));
+	const state = createFlowState({
+		version: 2,
+		templateId: 'fixture',
+		graph: EMPTY,
+		containers: [],
+	});
+	const built = createFlowV2Env({ ...baseDeps([]), state });
 	check('the interpreter calls a dozen or more env capabilities', called.length >= 12, true);
+	// `state` is the one capability that is a store, not a call: it must arrive as given.
 	check(
 		'none is missing from createFlowV2Env',
-		called.filter((name) => typeof built[name as keyof FlowV2Env] !== 'function'),
+		called.filter((name) =>
+			name === 'state'
+				? built.state !== state
+				: typeof built[name as keyof FlowV2Env] !== 'function',
+		),
 		[],
 	);
 

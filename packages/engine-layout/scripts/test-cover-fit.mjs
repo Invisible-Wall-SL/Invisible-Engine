@@ -14,7 +14,10 @@
 //  (b) `coverFit` unset ⇒ the node uses its authored transform, no cover (byte-identical parity);
 //  (c) `background` space still covers regardless of the flag (unchanged);
 //  (d) the flag is scoped to the cover-capable kinds (`rect`/`container`/`componentInstance` never
-//      cover through it).
+//      cover through it);
+//  (f) a `rect` placed straight on a `background` screen covers the window by its own width ×
+//      height (the runtime `rectCover` derived), reaching every edge of a window larger than the
+//      bucket it was sized in, with the per-layout fit and alignment; a nested rect does not.
 import { rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -27,9 +30,12 @@ const bundled = await esbuild.build({
 	stdin: {
 		contents: `export {
 			coverTransform,
+			backgroundCoverAnchor,
 			backgroundCoverScale,
 			backgroundCoverStretch,
 			backgroundFit,
+			coversBackgroundWindow,
+			isBackgroundCoverKind,
 			isCoverArtKind,
 			isCoverFitKind,
 		} from '../src/lib/coverTransform.ts';`,
@@ -55,9 +61,12 @@ try {
 
 const {
 	coverTransform,
+	backgroundCoverAnchor,
 	backgroundCoverScale,
 	backgroundCoverStretch,
 	backgroundFit,
+	coversBackgroundWindow,
+	isBackgroundCoverKind,
 	isCoverArtKind,
 	isCoverFitKind,
 } = mod;
@@ -184,6 +193,112 @@ for (const kind of ['rect', 'container', 'componentInstance', 'text', 'effect'])
 assert(isCoverArtKind({ kind: 'sprite' }), 'sprite covers from its texture (bg path)');
 assert(isCoverArtKind({ kind: 'flipbook' }), 'flipbook covers from its first frame (bg path)');
 assert(!isCoverArtKind({ kind: 'spine' }), 'rig does NOT take the texture cover path');
+
+// The background-space list: the cover-fit art, a composed instance and a flat rect.
+for (const kind of ['sprite', 'spine', 'flipbook', 'componentInstance', 'rect']) {
+	assert(isBackgroundCoverKind({ kind }), `${kind} covers the window on a background screen`);
+}
+for (const kind of ['text', 'container', 'effect', 'reelGrid']) {
+	assert(!isBackgroundCoverKind({ kind }), `${kind} does NOT cover on a background screen`);
+}
+// Nesting: a rect covers only straight on the screen; inside a group it keeps its placed box (the
+// editor draws a nested node by its local transform). The other kinds keep their kind-only rule.
+assert(coversBackgroundWindow({ kind: 'rect' }, true), 'a top-level rect covers');
+assert(!coversBackgroundWindow({ kind: 'rect' }, false), 'a rect inside a group does NOT cover');
+assert(coversBackgroundWindow({ kind: 'sprite' }, false), 'a nested sprite keeps its rule');
+assert(!coversBackgroundWindow({ kind: 'text' }, true), 'a top-level text does NOT cover');
+
+// ---- (f) a background RECT covers the window from its own width × height ----
+// Mirrors `LayoutNodeView.svelte`'s `rectCover`: its centre goes to `cover.x/y` and its drawn size
+// is `width × scaleX` by `height × scaleY`. The owner's case: a 1920×1080 rect sized to fill the
+// editor's Desktop frame stopped at 1920×1080 window pixels in a bigger game window.
+/**
+ * @param {{ width: number, height: number, scale?: { x: number, y: number }, anchor?: { x: number, y: number }, fit?: string, overrides?: object }} node
+ * @param {{ width: number, height: number }} window
+ * @param {string} [layoutType]
+ */
+const rectCover = (node, window, layoutType) => {
+	const stretch = backgroundCoverStretch(node, layoutType);
+	const anchor = backgroundCoverAnchor(node, layoutType);
+	const cover = coverTransform({
+		artWidth: node.width,
+		artHeight: node.height,
+		targetWidth: window.width,
+		targetHeight: window.height,
+		coverScale: backgroundCoverScale(node, layoutType),
+		stretchX: stretch.x,
+		stretchY: stretch.y,
+		fit: backgroundFit(node, layoutType),
+		anchorX: anchor.x,
+		anchorY: anchor.y,
+	});
+	return {
+		left: cover.x - (node.width * cover.scaleX) / 2,
+		top: cover.y - (node.height * cover.scaleY) / 2,
+		right: cover.x + (node.width * cover.scaleX) / 2,
+		bottom: cover.y + (node.height * cover.scaleY) / 2,
+	};
+};
+const EPS = 1e-6;
+/**
+ * @param {{ left: number, top: number, right: number, bottom: number }} box
+ * @param {{ width: number, height: number }} window
+ */
+const fills = (box, window) =>
+	box.left <= EPS &&
+	box.top <= EPS &&
+	box.right >= window.width - EPS &&
+	box.bottom >= window.height - EPS;
+const fullScreenRect = {
+	kind: 'rect',
+	x: 960,
+	y: 540,
+	anchor: { x: 0.5, y: 0.5 },
+	scale: { x: 1, y: 1 },
+	width: 1920,
+	height: 1080,
+};
+for (const window of [
+	{ width: 1920, height: 1080 },
+	{ width: 2817, height: 1585 },
+	{ width: 1080, height: 1920 },
+	{ width: 1366, height: 1024 },
+]) {
+	assert(
+		fills(rectCover(fullScreenRect, window), window),
+		`a 1920×1080 background rect fills a ${window.width}×${window.height} window`,
+	);
+}
+{
+	const exact = rectCover(fullScreenRect, { width: 1920, height: 1080 });
+	assert(
+		exact.left === 0 && exact.top === 0 && exact.right === 1920 && exact.bottom === 1080,
+		'in the bucket it was sized for, the rect lands exactly where it was authored',
+	);
+	const contained = rectCover({ ...fullScreenRect, fit: 'contain' }, { width: 1080, height: 1920 });
+	assert(
+		contained.left === 0 && contained.right === 1080 && contained.bottom - contained.top < 1920,
+		"fit:'contain' letterboxes the rect by its own aspect, like a background image",
+	);
+	const hugsTop = rectCover(
+		{ ...fullScreenRect, fit: 'contain', anchor: { x: 0, y: 0 } },
+		{ width: 1080, height: 1920 },
+	);
+	assert(
+		hugsTop.left === 0 && hugsTop.top === 0,
+		'align (the anchor) slides a contained rect to the top-left edge',
+	);
+	const perLayout = { ...fullScreenRect, overrides: { portrait: { fit: 'contain' } } };
+	const PORTRAIT = { width: 1080, height: 1920 };
+	assert(
+		fills(rectCover(perLayout, PORTRAIT, 'desktop'), PORTRAIT),
+		'the base fit (cover) still fills on a layout without an override',
+	);
+	assert(
+		!fills(rectCover(perLayout, PORTRAIT, 'portrait'), PORTRAIT),
+		"a portrait override to fit:'contain' letterboxes only that layout",
+	);
+}
 
 // ---- extra: fit:'contain' flows through identically too (not just 'cover') ----
 {

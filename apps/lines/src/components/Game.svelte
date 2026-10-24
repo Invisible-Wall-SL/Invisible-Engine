@@ -5,7 +5,11 @@
 	import { EnableHotkey, EnableSpaceHold, OnHotkey } from 'components-shared';
 	import { MainContainer } from 'components-layout';
 	import { Anchor, App, Container, Text } from 'pixi-svelte';
-	import { ELEMENT_FX_REELS_TARGET, readElementFxEntries } from 'constants-shared/elementFx';
+	import {
+		ELEMENT_FX_REELS_TARGET,
+		readElementFxEntries,
+		setCustomElementFx,
+	} from 'constants-shared/elementFx';
 	import { setParticleTimeScale } from 'pixi-svelte/particleClock';
 	import {
 		stateBet,
@@ -195,6 +199,7 @@
 	import {
 		setFlowV2,
 		getFlowV2,
+		tickFlowV2State,
 		dispatchFlowV2Complete,
 		dispatchFlowV2Event,
 		resolveFlowV2Press,
@@ -229,6 +234,7 @@
 	import { coinBoardPicksLines, isCoinBoard, startCoinBoardLines } from '../game/coinBoard.svelte';
 	import {
 		activeModifiersText,
+		featureWorth,
 		shownCollectorLevel,
 		stateHoldAndWin,
 	} from '../game/stateHoldAndWin.svelte';
@@ -282,6 +288,7 @@
 		bakedFlipbooks,
 		bakedRigFlipbooks,
 		bakedRigFx,
+		bakedShaderEffects,
 		bakedSymbolAssets,
 		bakedWinCycleConfig,
 		bakedWinText,
@@ -826,6 +833,10 @@
 	// AFTER `registerFlipbooks` for readability only — a binding resolves its clip at render, not
 	// here. No-op when un-baked / no rig has a bound clip (parity).
 	registerRigFlipbooks(bakedRigFlipbooks());
+	// Register the project's compiled shader graphs, so an Element FX entry naming `custom:<id>` plays
+	// it. The set is replaced, not added to, so a re-mounted game never keeps another boot's. Before
+	// the first render, so nothing an entry starts misses it; an effect that cannot play is left out.
+	setCustomElementFx(bakedShaderEffects());
 	// Turbo speeds up the particles too: every `<ParticleEmitter>` steps by this clock and the FX
 	// emission timers divide by it when they start (`pixi-svelte` `particleClock`). Read live, so a
 	// turbo toggle lands on the next frame. The tools never set it and preview at normal speed.
@@ -930,6 +941,9 @@
 		// What the authored Total Win bar reads: the win meter the feature end counts every coin into
 		// (`tallyCountUp`), so the bar and the HUD win readout can never disagree.
 		featureTotal: valueSource(() => stateBet.winBookEventAmount, bookEventAmountToCurrencyString),
+		// …and what the feature is worth so far, the reader Flow's `featureWorth` uses: it moves with
+		// each respin's snapshot (no count-up), where the bar only climbs at the end's tally.
+		featureWorth: valueSource(featureWorth, bookEventAmountToCurrencyString),
 		// Each configured jackpot's value at the current bet (`jackpot.<name>`, lower-case), what the
 		// authored jackpot tiles read: a fixed tier's multiplier, a progressive tier's LIVE pool (the
 		// server's, moving with every round and heartbeat). None configured ⇒ none registered.
@@ -1355,6 +1369,18 @@
 	// re-renders once the flow is built at load. Independent of `flowV2DrivesScreens` — a book-events-only
 	// flow that owns no screens can still author messages. `undefined` with no v2 flow (parity: nothing).
 	let flowV2Handle = $state<LinesFlowV2 | undefined>(undefined);
+	// Flow variables, timers and tick (game-families §3.2): one ticker callback advances the flow's
+	// store, the `tickFlights` pattern. Added only when the flow has one, so a slot game's frame is
+	// untouched.
+	$effect(() => {
+		const ticker = flowV2Handle?.state ? stateApp.pixiApplication?.ticker : undefined;
+		if (!ticker) return;
+		const tick = () => tickFlowV2State(ticker.deltaMS);
+		ticker.add(tick);
+		return () => {
+			ticker.remove(tick);
+		};
+	});
 	// Whether a v2 flow drives the game — when true `<FlowV2Mount>` is the SOLE scene renderer, so the
 	// v1 interpreter is NOT built (`flow` is undefined) and the coded AUTHORED-scene mounts below
 	// suppress on `flowV2DrivesScreens` (they'd double FlowV2Mount). Engine-owned bands (reels, gates) instead

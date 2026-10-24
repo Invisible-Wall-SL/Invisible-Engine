@@ -295,6 +295,22 @@ export const emptyHoldAndWinState = (): HoldAndWinState => ({
 	jackpots: [],
 });
 
+/**
+ * What the feature is worth so far — `banked` + every held cell, as the server counts it, in
+ * book-event units (100 = 1× the total bet, the unit of `featureTotal` and `win`). The ONE reader
+ * Flow's `featureWorth` and the component source of that name share, so a branch and a bound
+ * readout cannot disagree. 0 until a feature opens; it moves with every respin's snapshot and holds
+ * the final worth after the end, until {@link atRoundStart} clears it. Finite-guarded: a malformed
+ * snapshot reads 0, never `NaN`, so a state machine comparing it stays on a sane tier.
+ */
+export const featureWorthOf = (state: HoldAndWinState): number =>
+	Number.isFinite(state.total) ? state.total : 0;
+
+/** A new round: an ended feature's worth no longer applies (an open one — a resumed feature —
+ *  carries on). */
+export const atRoundStart = (state: HoldAndWinState): HoldAndWinState =>
+	state.active ? state : { ...state, total: 0 };
+
 const samePosition = (a: Position) => (b: Position) => a.reel === b.reel && a.row === b.row;
 
 /** One cell per position — the last one named wins, so a payload that repeats a position cannot

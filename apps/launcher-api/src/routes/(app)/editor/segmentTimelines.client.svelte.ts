@@ -4,8 +4,9 @@ import { componentTimelinesOf } from '$lib/timeline/screenTimeline';
 import { withEditorProject } from './editorProject.client';
 
 /**
- * The component timelines the canvas previews a count-mode repeater's segments with
- * (`segmentPreview.ts`): the built-in ones, overridden by id by the project's, fetched once per
+ * The component timelines the canvas settles a state machine with (`segmentPreview.ts`): a
+ * count-mode repeater's segments and the rigs a component's machine rests. The built-in ones,
+ * overridden by id by the project's, fetched once per
  * component on first ask. A load bumps {@link segmentTimelinesVersion}, which the canvas and the
  * text overlay repaint on. {@link invalidateSegmentTimelines} drops them all, so a timeline saved
  * since is read again.

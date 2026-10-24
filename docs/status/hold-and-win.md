@@ -1099,6 +1099,11 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-10-23 — **`featureWorth` also a component source; it clears on the next spin** (PR #1303).
+  Flow's `$engine.featureWorth` and the new component source read one reader (`featureWorthOf` in
+  `engine-game/holdAndWin.ts`). Behaviour change: an ended feature's worth now goes back to 0 when
+  the next spin starts (`startHoldAndWinRound` in `onNewGameStart`), where it used to stay until the
+  next trigger. Detail: [component-editor status](component-editor.md) 2026-10-23.
 
 - 2026-10-23 — **New games seed the feature intro and outro scaled with the window** (owner's call,
   branch `claude/stoic-cori-6yyp5f`). Both are `canvas` screens, drawn in window pixels, so an

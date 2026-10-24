@@ -1,3 +1,5 @@
+import { docVariables } from 'engine-flow-v2';
+import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
 import { error, fail, redirect } from '@sveltejs/kit';
 import {
 	findUnfilledRequiredSlots,
@@ -42,6 +44,7 @@ import { resolveGameConfig } from '$lib/server/gameConfigDefaults';
 import { resolveLayoutProfile } from '$lib/server/layoutProfile';
 import { loadPublishedSymbolDefaults, symbolDefaultsFor } from '$lib/server/symbolDefaults';
 import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
+import { loadCustomElementFx } from '$lib/server/shaderStorage';
 import { loadTemplate, loadTemplateWithEtag } from '$lib/server/templateStorage';
 import { resolveActionScope, resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
@@ -140,6 +143,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		publishedSymbolDefaults,
 		roleOverrides,
 		toolOverrides,
+		flowDoc,
+		customElementFx,
 	] = await Promise.all([
 		loadDocWithEtag(clientKey, projectKey, resolvedProjectGameType),
 		listProjectAssets(clientKey, projectKey),
@@ -166,6 +171,12 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		loadPublishedSymbolDefaults(clientKey, projectKey),
 		getRoleOverrides(locals.user.role),
 		getToolOverrides(locals.user.id),
+		// The project's saved flow, for its game variables: an input row offers them as `var:<id>`
+		// sources (game-families §3.1). A flow that will not load offers none.
+		loadFlowV2Doc(clientKey, projectKey).catch(() => null),
+		// The project's shader graphs compiled: registered by the page, so the Element FX pickers
+		// list them, an entry naming one reads and its ▶ plays.
+		loadCustomElementFx(clientKey, projectKey),
 	]);
 	const components = componentEntries.map((e) => e.def);
 	// id → the ETag its next save must match (`null` = built-in / never stored ⇒ create).
@@ -296,6 +307,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		components,
 		componentEtags,
 		canPublishShared,
+		flowVariables: flowDoc ? docVariables(flowDoc).map((v) => ({ id: v.id, type: v.type })) : [],
 		// Re-keyed onto the real def ids: a sidecar's filename is `r2Slug(id)`, so the raw
 		// listing keys `hudReadout` as `hudreadout` and `componentDefaults[def.id]` would miss.
 		componentDefaults: keyComponentDefaultsById(
@@ -303,6 +315,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 			components.map((c) => c.id),
 		),
 		customKinds,
+		customElementFx,
 		symbolDefaults,
 		symbolsDoc,
 		referenceMainSizes,

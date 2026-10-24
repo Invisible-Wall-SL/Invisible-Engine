@@ -1,7 +1,8 @@
 /**
  * The page `shaderParity.mjs` renders: every Element FX kind posed at eight moments, one row per
- * kind (or, with `?sides=1`, one row per starting side of each spreading kind), on a test card with
- * transparent rounded corners. `@fxroot/` is the checkout being rendered (see `--root`).
+ * kind (or, with `?sides=1`, one row per starting side of each spreading kind; with `?signed=1`, one
+ * row per number param that can go below 0, at its minimum), on a test card with transparent rounded
+ * corners. `@fxroot/` is the checkout being rendered (see `--root`).
  */
 import { Application, Container, FillGradient, Graphics, Ticker } from 'pixi.js';
 import { ELEMENT_FX, type ElementFxKind } from '@fxroot/packages/constants-shared/elementFx';
@@ -14,7 +15,7 @@ const SPREADING: readonly string[] = ['freeze', 'petrify', 'turnToGold', 'burn',
 
 interface Row {
 	kind: ElementFxKind;
-	params?: Record<string, string>;
+	params?: Record<string, string | number>;
 }
 
 const makeCard = (): Container => {
@@ -42,6 +43,13 @@ const rowsFor = (query: URLSearchParams): Row[] => {
 				? from.options.map((option) => ({ kind: spec.kind, params: { from: option } }))
 				: [];
 		});
+	}
+	if (query.get('signed') === '1') {
+		return ELEMENT_FX.flatMap((spec) =>
+			spec.params.flatMap((p) =>
+				p.kind === 'number' && p.min < 0 ? [{ kind: spec.kind, params: { [p.id]: p.min } }] : [],
+			),
+		);
 	}
 	const only = (query.get('only') ?? '').split(',').filter(Boolean);
 	return ELEMENT_FX.filter((spec) => only.includes(spec.kind)).map((spec) => ({ kind: spec.kind }));
@@ -88,6 +96,12 @@ const rowsFor = (query: URLSearchParams): Row[] => {
 	for (let k = 0; k < 3; k++) ticker.update((now += 16));
 	app.renderer.render(app.stage);
 	const page = window as unknown as { rows: string[]; ready: boolean };
-	page.rows = rows.map((row) => (row.params?.from ? `${row.kind}:${row.params.from}` : row.kind));
+	page.rows = rows.map((row) =>
+		row.params
+			? `${row.kind}:${Object.entries(row.params)
+					.map(([id, value]) => `${id}=${value}`)
+					.join(',')}`
+			: row.kind,
+	);
 	page.ready = true;
 })();

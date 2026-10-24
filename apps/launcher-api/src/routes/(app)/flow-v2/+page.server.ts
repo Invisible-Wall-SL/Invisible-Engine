@@ -24,6 +24,7 @@ import {
 import { withPlacedComponentVersions } from '$lib/server/flowV2Validation';
 import { listCinematics, loadCinematic } from '$lib/server/cinematicStorage';
 import { resolveProjectCinematic } from '$lib/server/sharedCinematics';
+import { loadCustomElementFx } from '$lib/server/shaderStorage';
 import { cinematicPickerOptions, type CinematicPickerOption } from '$lib/timeline/screenTimeline';
 import { docNamesInstance } from 'engine-flow-v2';
 import { validateNodeActors, type CinematicDoc, type Scene } from 'engine-layout';
@@ -77,10 +78,11 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 	// opens on (a ways project must not be handed the Book-of flow).
 	// The project's component defs load alongside: the cue harvest below walks the placed ones.
 	// The project's kind as `/config` and `/symbols` resolve it, for the symbol pickers below.
-	const [layout, components, gameType] = await Promise.all([
+	const [layout, components, gameType, customFx] = await Promise.all([
 		loadDoc(clientKey, projectKey),
 		listComponents({ projectKey }),
 		projectGameType(projectKey),
+		loadCustomElementFx(clientKey, projectKey),
 	]);
 	// The stored Game Config, read before the flow: a coin board opens on its own starter. It also
 	// feeds the add-ons and the symbol pickers below.
@@ -122,6 +124,8 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 	);
 	// What an `elementEffect` can aim at: the reels, every screen, and every anchored node.
 	const fxTargets = collectElementFxTargets(layout.scenes ?? [], components);
+	// …and what it can play beyond the built-ins: the project's shader effects (`custom:<id>`).
+	const customFxKinds = customFx.map((e) => e.spec.kind);
 
 	// CONTAINER SYNC (`syncFlowContainers`): every Scene-Editor screen is offered as a container.
 	// Returning the merged doc means the palette offers every screen immediately, and a Save persists
@@ -189,6 +193,7 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		 *  address a placed asset (see the harvest above). Composed client-side by `withSceneCues`. */
 		sceneCues,
 		fxTargets,
+		customFxKinds,
 		containerEvents,
 		/** Placed node id → the instance's projected interface (`projectFlowInstances`), the source of
 		 *  a `componentInstance` node's pins and of every `instance-*` validation. */

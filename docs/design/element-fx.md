@@ -76,6 +76,13 @@ side"…) instead of carrying its own copy; the gate refuses a function that cop
 A change to a pass is proven by `pnpm --filter fx-spike shader-parity` (every kind, before and after,
 pixel by pixel).
 
+Custom kinds: an effect authored in Invisible Shader Graph plays as `custom:<id>`
+(`docs/design/invisible-shader-graph.md`). The catalog holds the registered set
+(`setCustomElementFx`, `customElementFx`, `isPlayableElementFxKind`), and an entry or a play names a
+built-in or a custom kind (`ElementFxKindId`). The runtime plays a custom kind through
+`pixi-svelte/src/lib/elementFx/custom.ts`: its graph as one pass, then its built-in passes, plus its
+motion curves.
+
 ## 3. Data model (all optional, additive)
 
 ```ts

@@ -3,6 +3,7 @@
 	import { onMount, untrack } from 'svelte';
 	import {
 		collapseToFunction,
+		docVariables,
 		collapseToGroup,
 		dedupeGroupBodyIds,
 		expandGroup,
@@ -43,7 +44,7 @@
 	} from '$lib/flowInstanceUi';
 	import { composeFlowV2Vocab } from '$lib/flowV2Vocab';
 	import { LIBRARY } from './sample';
-	import { MODE_NODES, modeNodeRef, offeredInSection, typeColor } from './palette';
+	import { MODE_NODES, modeNodeRef, offeredInSection, STATE_NODES, typeColor } from './palette';
 	import {
 		addDataEdgeIn,
 		addExecEdgeIn,
@@ -62,6 +63,7 @@
 	import FlowCanvasV2 from './FlowCanvasV2.svelte';
 	import AddNodePalette from './AddNodePalette.svelte';
 	import ValidationPanelV2 from './ValidationPanelV2.svelte';
+	import VariablesPanelV2 from './VariablesPanelV2.svelte';
 	import PreviewPanelV2 from './PreviewPanelV2.svelte';
 	import NodeInspector from './NodeInspector.svelte';
 	import PinDropMenu, { type PinDropCandidate } from './PinDropMenu.svelte';
@@ -131,6 +133,7 @@
 			sounds: data.soundOptions,
 			sceneCues: data.sceneCues ?? [],
 			fxTargets: data.fxTargets ?? [],
+			customFxKinds: data.customFxKinds ?? [],
 		}),
 	);
 
@@ -194,9 +197,11 @@
 		),
 	);
 	const touchesUnpinned = (issue: FlowIssue): boolean =>
-		issue.at.on === 'node' || issue.at.on === 'pin'
-			? unpinnedNodeIds.has(issue.at.node)
-			: unpinnedNodeIds.has(issue.at.from.node) || unpinnedNodeIds.has(issue.at.to.node);
+		issue.at.on === 'variable'
+			? false
+			: issue.at.on === 'node' || issue.at.on === 'pin'
+				? unpinnedNodeIds.has(issue.at.node)
+				: unpinnedNodeIds.has(issue.at.from.node) || unpinnedNodeIds.has(issue.at.to.node);
 
 	// The project's Scene-Editor screen ids (the keys of `sceneNames`), so Validation can flag a Show /
 	// Hide of a screen the layout no longer has (`container-scene-missing`). An unsaved project has
@@ -206,7 +211,15 @@
 	// `ctx` reads the LIVE `library` state (a getter, not a snapshot), so every consumer —
 	// `derivePins`, `validateFlowDoc`, the palette, the inspector — sees the current library. It also
 	// carries the container-event surface so a `showContainer` node fuses its component events (§6.1).
-	const ctx = $derived<PinContext>({ vocab, library, containerEvents, containerTaps, instances });
+	// It also carries the doc's game variables, which type the variable nodes' pins and `$var` reads.
+	const ctx = $derived<PinContext>({
+		vocab,
+		library,
+		containerEvents,
+		containerTaps,
+		instances,
+		variables: docVariables(doc),
+	});
 
 	// --- The editing TARGET (2c.3) ---------------------------------------------
 	// The canvas + all tools edit an "active graph": either the main `FlowDoc.graph` or a
@@ -462,6 +475,16 @@
 				const decl = instances[n.instance];
 				return `Wait for ${decl && decl.container === n.container ? decl.name : n.instance}`;
 			}
+			case 'setVariable':
+			case 'changeVariable':
+			case 'onVariable':
+			case 'onTick':
+			case 'startTimer':
+			case 'stopTimer':
+			case 'pauseTimer':
+			case 'onTimer':
+			case 'onInput':
+				return STATE_NODES.find((m) => m.kind === n.kind)?.label ?? n.kind;
 			default:
 				return n.kind;
 		}
@@ -1305,7 +1328,7 @@
 				return spec.ref ? `${label} · ${spec.ref}` : label;
 			}
 			default:
-				return spec.kind;
+				return STATE_NODES.find((m) => m.kind === spec.kind)?.label ?? spec.kind;
 		}
 	}
 
@@ -2100,6 +2123,16 @@
 						Double-click a <strong>function</strong> node to edit its body.
 					</p>
 				{/if}
+				<VariablesPanelV2
+					{doc}
+					modeId={activeModeId}
+					{modeLabel}
+					onchange={(next) => {
+						doc = next;
+						syncCanvas();
+						markDirty('variables');
+					}}
+				/>
 				<AddNodePalette
 					vocab={tabVocab}
 					{library}

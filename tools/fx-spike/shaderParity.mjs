@@ -3,9 +3,11 @@
  * SHADER PARITY — proves a change to the Element FX shaders draws exactly what it drew before.
  *
  * Renders every Element FX kind posed at eight moments, plus every starting side of the spreading
- * kinds, on WebGL1 and WebGL2 in headless Chromium with fixed random seeds; then compares two
- * renders pixel by pixel. A refactor of a built-in (Invisible Shader Graph step 1) must come out
- * IDENTICAL; a graph twin of a built-in (step 6) is compared the same way.
+ * kinds and every signed number param at its minimum, on WebGL1 and WebGL2 in headless Chromium
+ * with fixed random seeds (`shaderPages.mjs`); then compares two renders pixel by pixel. A refactor of a built-in (Invisible Shader Graph step 1) must come out
+ * IDENTICAL; a graph twin of a built-in (step 6) is compared the same way. A checkout with the
+ * shader graph package also gets two graph sheets: its reference graphs posed at eight moments, and
+ * every node's own graph; a graph whose GLSL does not compile fails the shoot.
  *
  *   # the base, from a worktree of it, then your change:
  *   git worktree add --detach /tmp/base origin/main
@@ -20,15 +22,14 @@
  * deliberately changed build once (a digit in a shared constant) to see that it reports one.
  */
 
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { REPO, writeSheets } from './shaderPages.mjs';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO = resolve(HERE, '../..');
 const CELL_H = 190;
-const BATCH = 10;
+const GRAPH_SHEETS = ['graphs', 'custom', 'nodes'];
 
 const arg = (name) => {
 	const i = process.argv.indexOf(`--${name}`);
@@ -55,78 +56,28 @@ const launch = async () => {
 	});
 };
 
-/** Bundle the page for `root`: `@fxroot/` and the workspace's own packages resolve inside it. */
-const bundle = async (root, outFile) => {
-	const { build } = await import('esbuild');
-	await build({
-		entryPoints: [join(HERE, 'shaderParity.entry.ts')],
-		bundle: true,
-		format: 'iife',
-		outfile: outFile,
-		logLevel: 'error',
-		nodePaths: [join(REPO, 'packages/pixi-svelte/node_modules'), join(REPO, 'node_modules')],
-		plugins: [
-			{
-				name: 'fxroot',
-				setup(b) {
-					b.onResolve({ filter: /^@fxroot\// }, (a) => ({
-						path: resolveTs(join(root, a.path.slice(8))),
-					}));
-					b.onResolve({ filter: /^constants-shared(\/|$)/ }, (a) => ({
-						path: resolveTs(
-							join(
-								root,
-								'packages',
-								a.path === 'constants-shared' ? 'constants-shared/index' : a.path,
-							),
-						),
-					}));
-				},
-			},
-		],
-	});
-};
-
-const resolveTs = (path) => {
-	for (const candidate of [path, `${path}.ts`, join(path, 'index.ts')]) {
-		try {
-			readFileSync(candidate);
-			return candidate;
-		} catch {
-			// next
-		}
-	}
-	return path;
-};
-
 const shoot = async (outDir) => {
 	const root = resolve(arg('root') ?? REPO);
 	mkdirSync(outDir, { recursive: true });
-	const script = join(outDir, 'page.js');
-	await bundle(root, script);
-	writeFileSync(
-		join(outDir, 'page.html'),
-		`<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0"><script src="page.js"></script></body></html>`,
-	);
-	const kinds = [
-		...readFileSync(join(root, 'packages/constants-shared/elementFx.ts'), 'utf8').matchAll(
-			/\n\t\tkind: '(\w+)',/g,
-		),
-	].map((m) => m[1]);
-	const sheets = [];
-	for (let b = 0; b < kinds.length; b += BATCH)
-		sheets.push({
-			name: String(b).padStart(2, '0'),
-			query: `only=${kinds.slice(b, b + BATCH).join(',')}`,
-		});
-	sheets.push({ name: 'sides', query: 'sides=1' });
+	const { kinds, sheets, graphs } = await writeSheets(root, outDir, {
+		optionalGraphs: root !== REPO,
+	});
 	const browser = await launch();
 	const rows = {};
 	const errors = [];
 	for (const gl of [1, 2]) {
 		for (const sheet of sheets) {
 			const page = await browser.newPage({ viewport: { width: 1360, height: 2000 } });
-			page.on('pageerror', (e) => errors.push(`gl${gl} ${sheet.name}: ${e.message}`));
+			let failed;
+			const failure = new Promise((ok) => (failed = ok));
+			const fail = (message) => {
+				errors.push(`gl${gl} ${sheet.name}: ${message}`);
+				failed();
+			};
+			page.on('pageerror', (e) => fail(e.message));
+			page.on('console', (m) => {
+				if (m.type() === 'error') fail(m.text());
+			});
 			await page.addInitScript(() => {
 				let s = 123456789;
 				Math.random = () => {
@@ -134,9 +85,14 @@ const shoot = async (outDir) => {
 					return (s - 1) / 2147483646;
 				};
 			});
-			await page.goto(`${pathToFileURL(join(outDir, 'page.html')).href}?gl=${gl}&${sheet.query}`);
-			await page.waitForFunction(() => window.ready === true, null, { timeout: 120000 });
-			rows[sheet.name] = await page.evaluate(() => window.rows);
+			await page.goto(
+				`${pathToFileURL(join(outDir, `${sheet.page}.html`)).href}?gl=${gl}&${sheet.query}`,
+			);
+			await Promise.race([
+				page.waitForFunction(() => window.ready === true, null, { timeout: 120000 }),
+				failure,
+			]);
+			rows[sheet.name] = await page.evaluate(() => window.rows ?? []);
 			await page.locator('canvas').screenshot({ path: join(outDir, `gl${gl}-${sheet.name}.png`) });
 			await page.close();
 		}
@@ -147,7 +103,9 @@ const shoot = async (outDir) => {
 		console.error(errors.join('\n'));
 		process.exit(1);
 	}
-	console.log(`shot ${kinds.length} kinds and the sides sheet, WebGL1 and WebGL2, into ${outDir}`);
+	console.log(
+		`shot ${kinds.length} kinds, the sides and signed sheets${graphs ? ' and the graph sheets' : ''}, WebGL1 and WebGL2, into ${outDir}`,
+	);
 };
 
 const diff = async (a, b) => {
@@ -155,10 +113,21 @@ const diff = async (a, b) => {
 	const browser = await launch();
 	const page = await browser.newPage();
 	let total = 0;
-	for (const file of readdirSync(a)
-		.filter((f) => f.endsWith('.png'))
-		.sort()) {
+	let unmatched = 0;
+	const sheetsIn = (dir) => readdirSync(dir).filter((f) => f.endsWith('.png'));
+	for (const file of [...new Set([...sheetsIn(a), ...sheetsIn(b)])].sort()) {
 		const sheet = file.replace(/^gl\d-/, '').replace(/\.png$/, '');
+		const missing = [a, b].find((d) => !existsSync(join(d, file)));
+		if (missing) {
+			// A checkout without the shader graph package has no graph sheets to compare.
+			if (GRAPH_SHEETS.includes(sheet)) {
+				console.log(`${file}: not in ${missing}, skipped`);
+				continue;
+			}
+			console.log(`${file}: not in ${missing}`);
+			unmatched++;
+			continue;
+		}
 		const [da, db] = [a, b].map(
 			(d) => `data:image/png;base64,${readFileSync(join(d, file)).toString('base64')}`,
 		);
@@ -204,7 +173,7 @@ const diff = async (a, b) => {
 		);
 		if (!result) {
 			console.log(`${file}: the sheets differ in size`);
-			total++;
+			unmatched++;
 			continue;
 		}
 		result.forEach(([count, max], r) => {
@@ -216,8 +185,10 @@ const diff = async (a, b) => {
 		});
 	}
 	await browser.close();
-	if (total) {
-		console.log(`DIFFERENT: ${total} px (a break's pieces can fly into the next row)`);
+	if (total || unmatched) {
+		console.log(
+			`DIFFERENT: ${total} px (a break's pieces can fly into the next row), ${unmatched} sheet(s) missing or resized`,
+		);
 		process.exit(1);
 	}
 	console.log('IDENTICAL: every kind, every moment, every side, WebGL1 and WebGL2');

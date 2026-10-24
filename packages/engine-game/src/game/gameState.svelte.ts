@@ -792,6 +792,37 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	};
 
 	/**
+	 * THE CELL UNDER A POINT (board-local) — the inverse of {@link getSymbolSeat}, for a board the
+	 * player touches (game-families §3.2, P10.4): `(reel, row)` of the visible cell whose PITCH BOX
+	 * holds `(x, y)`, or `undefined` off the board. A cell's box is its seat with the art's seat
+	 * alignment taken back out, one column pitch wide and one row pitch tall, both at the row's
+	 * scale, so the boxes of a flat board tile it (a gap belongs to the nearer cell) and a perspective
+	 * board's rows narrow toward the back as its seats do. The box follows the art's seat, not the
+	 * mask's window: under perspective with a row lead other than 0.5 each row's box shifts by its own
+	 * scale, so neighbouring rows can leave a sliver between them that is no cell. A stepped column
+	 * answers only for its own cells. Read only by a board that takes the pointer; nothing on a slot
+	 * calls it.
+	 */
+	const getCellAt = (x: number, y: number) => {
+		const geometry = boardGeometry();
+		const { columnExtraLocal, rowPitchLocal, cellWidthLocal, cellHeightLocal } = geometry;
+		const { symbolAlignX, symbolAlignY } = geometry;
+		const grid = deps.activeGrid();
+		for (let reel = 0; reel < grid.reels; reel++) {
+			for (let row = 0; row < grid.rowsForReel(reel); row++) {
+				const seat = getSymbolSeat(reel, row);
+				const cx = seat.x - (symbolAlignX - 0.5) * cellWidthLocal * seat.scale;
+				const cy = seat.y - (symbolAlignY - 0.5) * cellHeightLocal * seat.scale;
+				const halfW = ((SYMBOL_SIZE + columnExtraLocal) * seat.scale) / 2;
+				const halfH = (rowPitchLocal * seat.scale) / 2;
+				if (x >= cx - halfW && x < cx + halfW && y >= cy - halfH && y < cy + halfH)
+					return { reel, row };
+			}
+		}
+		return undefined;
+	};
+
+	/**
 	 * Build one spinning reel per column, sized + seeded from the ACTIVE game config (Invisible Game
 	 * Config). A FACTORY, not a module-scope const, so it can be re-run after the live runtime bundle
 	 * lands — see {@link rebuildBoard}: the online config resolves asynchronously AFTER this module
@@ -1416,6 +1447,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		getSymbolX,
 		getSymbolY,
 		getSymbolSeat,
+		getCellAt,
 		getWinLevelDataByWinLevelAlias,
 		rebuildBoard,
 		setBoardOverride,

@@ -1,6 +1,8 @@
 <script lang="ts">
 	import {
 		docComponentInstanceNodes,
+		flowUsesState,
+		PREVIEW_HORIZON_MS,
 		previewFlowEvent,
 		type FlowDoc,
 		type FlowPreviewEntry,
@@ -44,6 +46,11 @@
 		doc.graph.nodes.filter((n) => n.kind === 'event').map((n) => (n as { ref: string }).ref),
 	);
 
+	// A doc with variables, timers or ticks runs on the virtual-time event queue (game-families §3.2)
+	// for `horizon` ms, and may be previewed with no event at all: its ticks and timers alone.
+	const usesState = $derived(flowUsesState(doc));
+	let horizon = $state(PREVIEW_HORIZON_MS);
+
 	let selected = $state('');
 	let speed = $state(1);
 	let result = $state<FlowPreviewResult | null>(null);
@@ -52,18 +59,19 @@
 	// Keep the selected event valid as the graph changes: default to the first, drop a stale pick.
 	$effect(() => {
 		if (eventRefs.length === 0) selected = '';
-		else if (!eventRefs.includes(selected)) selected = eventRefs[0];
+		else if (!eventRefs.includes(selected) && !(usesState && selected === ''))
+			selected = eventRefs[0];
 	});
 
 	// A run is stale once the doc/library/event/speed changes — clear the timeline so the panel never
 	// shows a result that no longer matches the graph.
 	$effect(() => {
-		void [doc, library, selected, speed];
+		void [doc, library, selected, speed, horizon];
 		result = null;
 	});
 
 	const run = async (): Promise<void> => {
-		if (!selected) return;
+		if (!selected && !usesState) return;
 		running = true;
 		try {
 			// Snapshot the reactive doc/library to plain objects before handing them to the pure
@@ -72,7 +80,7 @@
 				$state.snapshot(doc) as FlowDoc,
 				{ vocab, library: $state.snapshot(library) as FunctionLibraryDoc },
 				selected,
-				{ speed },
+				{ speed, horizonMs: horizon },
 			);
 			if (driveStage && result) sendToStage(result.timeline);
 		} finally {
@@ -144,6 +152,9 @@
 		show: 'show',
 		hide: 'hide',
 		instance: 'instance',
+		var: 'var',
+		timer: 'timer',
+		input: 'key',
 	};
 
 	// The right-hand detail for one timeline entry (name + resolved payload, or the delay/container).
@@ -157,6 +168,12 @@
 				return e.container;
 			case 'instance':
 				return `${e.instance} · ${e.op} ${e.name}${e.value !== undefined ? ` = ${JSON.stringify(e.value)}` : ''}`;
+			case 'var':
+				return `${e.id} = ${JSON.stringify(e.value)}`;
+			case 'timer':
+				return `${e.timer} ran out`;
+			case 'input':
+				return `${e.action} ${e.phase}`;
 			default:
 				return e.name + (e.payload ? ` ${JSON.stringify(e.payload)}` : '');
 		}
@@ -165,11 +182,14 @@
 
 <div class="preview">
 	<h3>Preview</h3>
-	{#if eventRefs.length === 0}
+	{#if eventRefs.length === 0 && !usesState}
 		<p class="hint">Add an <strong>event</strong> node to preview its handler.</p>
 	{:else}
 		<div class="controls">
 			<select bind:value={selected} aria-label="Event to preview">
+				{#if usesState}
+					<option value="">No event — ticks and timers</option>
+				{/if}
 				{#each eventRefs as ref (ref)}
 					<option value={ref}>{ref}</option>
 				{/each}
@@ -178,6 +198,12 @@
 				<button type="button" class:on={speed === 1} onclick={() => (speed = 1)}>1×</button>
 				<button type="button" class:on={speed === 2} onclick={() => (speed = 2)}>2×</button>
 			</div>
+			{#if usesState}
+				<label class="horizon" title="How long the virtual clock runs for ticks and timers">
+					<input type="number" min="0" step="500" bind:value={horizon} aria-label="Run for (ms)" />
+					<span>ms</span>
+				</label>
+			{/if}
 			<button type="button" class="run" onclick={() => void run()} disabled={running}>
 				{running ? '…' : 'Run'}
 			</button>
@@ -238,6 +264,22 @@
 	select {
 		flex: 1;
 		min-width: 0;
+		background: #0f1420;
+		color: #e5e7eb;
+		border: 1px solid #334155;
+		border-radius: 6px;
+		padding: 4px 6px;
+		font-size: 11px;
+	}
+	.horizon {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		font-size: 11px;
+		color: #94a3b8;
+	}
+	.horizon input {
+		width: 5em;
 		background: #0f1420;
 		color: #e5e7eb;
 		border: 1px solid #334155;
@@ -337,6 +379,12 @@
 	.kind.hide {
 		background: #241416;
 		color: #fca5a5;
+	}
+	.kind.var,
+	.kind.timer,
+	.kind.input {
+		background: #102420;
+		color: #5eead4;
 	}
 	.detail {
 		min-width: 0;

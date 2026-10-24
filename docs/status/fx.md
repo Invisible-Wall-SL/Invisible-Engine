@@ -123,6 +123,10 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-24 — **Custom Element FX kinds** (`custom:<id>`, step 3 of the
+  [Invisible Shader Graph](../design/invisible-shader-graph.md)): a compiled shader graph,
+  registered, plays wherever a built-in does. The 50 built-ins render identical to before. Detail in
+  [status/shader-graph](shader-graph.md).
 - 2026-10-23 — **The 17 shader passes share one GLSL library** (`constants-shared/glslLibrary.ts`, step 1 of the
   [Invisible Shader Graph](../design/invisible-shader-graph.md)). No visual change: every kind
   renders pixel-identical before and after. Detail in [status/shader-graph](shader-graph.md).

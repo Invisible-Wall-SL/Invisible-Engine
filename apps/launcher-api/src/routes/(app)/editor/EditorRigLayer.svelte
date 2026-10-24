@@ -12,6 +12,7 @@
 		coverTransform,
 		forwardInstanceParams,
 		instancePreviewRigBundle,
+		isCountRepeater,
 		resolveAnchorPreviewArt,
 		resolveBoundValue,
 		resolveComponentParams,
@@ -21,6 +22,7 @@
 		type BoundBoneOffset,
 		type BoundScrub,
 		type ComponentDef,
+		type CountRepeaterNode,
 		type CoverFit,
 		type LayoutNode,
 		type LayoutType,
@@ -38,6 +40,7 @@
 		instanceDef,
 		placedRigTransform,
 		reelGridGeometry,
+		repeaterCountBoxes,
 		resolveBoneRider,
 		resolveBoneRiderRigKey,
 		applyRestingPose,
@@ -46,6 +49,8 @@
 		type BoneRiderTransform,
 		type DepthSlice,
 		type NaturalSize,
+		SCREEN_NEST,
+		type ComponentNest,
 	} from './editorCanvas.helpers';
 	import { onMount } from 'svelte';
 	import {
@@ -70,9 +75,12 @@
 		type SharedRigGl,
 	} from './sharedGl.client';
 	import { applyRigBoneOffset } from 'pixi-svelte/rigBoneOffset';
+	import { restingStateStrip, segmentPoseNodes } from '$lib/timeline/segmentPreview';
+	import { segmentTimelines } from './segmentTimelines.client.svelte';
 	import {
 		previewAnimTime,
 		previewOutputs,
+		previewTimelineActive,
 		previewResolveTransform,
 	} from './valuePreview.client.svelte';
 
@@ -171,6 +179,8 @@
 		/** The open component's resolved preview params (the Component Editor; empty on a screen) —
 		 * what an instance placed at the top level of that component forwards params from. */
 		componentParams?: Record<string, unknown>;
+		/** Where the top-level nodes sit in the game's component nesting (see `ComponentNest`). */
+		componentNest?: ComponentNest;
 		/** Frames a TOP-LEVEL node into canvas-world coords (the 2D canvas's `nodeTransform`),
 		 * so a nested rig's world transform composes from its ancestor chain identically to
 		 * the 2D canvas + text overlay + game runtime. */
@@ -236,6 +246,7 @@
 		componentMap = new Map<string, ComponentDef>(),
 		componentDefaults = {},
 		componentParams = {},
+		componentNest = SCREEN_NEST,
 		nodeFilter = null,
 		depthSlice = null,
 		blend = 'normal',
@@ -528,14 +539,34 @@
 
 	/** A rig node's previewed bone offsets + scrubs (its own bindings', then the Animate playhead's
 	 *  `animation` strip, as the game poses them), or undefined when it previews none. */
-	function previewPose(node: Extract<LayoutNode, { kind: 'spine' }>): RigPreviewPose | undefined {
+	function previewPose(
+		node: Extract<LayoutNode, { kind: 'spine' }>,
+		/** The strip the rig rests on ({@link restingStrip}), shown only while nothing previews: a
+		 * previewed state whose timeline does not key the rig leaves it on its own track, as in game. */
+		resting?: { animation: string; time: number },
+	): RigPreviewPose | undefined {
 		const outputs = previewOutputs(node);
 		const bones = boundBoneOffsets(node.valueBindings, outputs);
 		const scrubs = withTimelineScrub(
 			boundScrubs(node.valueBindings, outputs),
-			previewAnimTime(node),
+			previewTimelineActive() ? previewAnimTime(node) : resting,
 		);
 		return bones.length || scrubs.length ? { bones, scrubs } : undefined;
+	}
+
+	/**
+	 * The animation strip a rig of `def` rests on: what `def`'s state machine, settled at its inputs'
+	 * defaults, keys on it (`restingStateStrip`). The game layers the state's strip over the rig's own
+	 * animation, so a frame whose entry state plays its `mini` tier draws `mini` there, not its
+	 * `defaultAnimation`. Undefined for a rig outside a component or one no state keys.
+	 */
+	function restingStrip(
+		def: ComponentDef | undefined,
+		nodeId: string,
+		params: Record<string, unknown>,
+	): { animation: string; time: number } | undefined {
+		if (!def?.stateMachine?.layers?.length) return undefined;
+		return restingStateStrip(def, segmentTimelines(def.id), params, nodeId);
 	}
 
 	/** engine-rig `MixBlend.replace` / `MixDirection.mixIn`, as the vendored runtime numbers them. */
@@ -618,7 +649,7 @@
 					out.push({
 						nodeId: n.id,
 						assetKey: n.assetKey,
-						pose: previewPose(n),
+						pose: previewPose(n, restingStrip(componentNest.def, n.id, componentParams)),
 						defaultAnimation: resting.animation,
 						skin: resting.skin,
 						loop: resting.loop,
@@ -667,10 +698,28 @@
 				// a placed component's rig only ever shows its 2D placeholder box. Each
 				// nested rig's world transform is composed from its ancestor chain.
 				if (n.kind === 'container') {
-					collectNestedRigs(n.children, sc, out, [n], 0, [], undefined, undefined, undefined);
+					collectNestedRigs(
+						n.children,
+						sc,
+						out,
+						[n],
+						componentNest.depth,
+						componentNest.stack,
+						undefined,
+						undefined,
+						undefined,
+						undefined,
+						componentNest.def,
+					);
+				} else if (isCountRepeater(n)) {
+					collectSegmentRigs(n, sc, out, [n], componentNest.depth, componentNest.stack);
 				} else if (n.kind === 'componentInstance') {
 					const def = instanceDef(componentMap, n);
-					if (def) {
+					if (
+						def &&
+						componentNest.depth < MAX_COMPONENT_DEPTH &&
+						!componentNest.stack.includes(def.id)
+					) {
 						const params = resolveComponentParams(
 							def,
 							forwardInstanceParams(n, n.params, componentParams),
@@ -686,12 +735,13 @@
 							sc,
 							out,
 							[n],
-							1,
-							[def.id],
+							componentNest.depth + 1,
+							[...componentNest.stack, def.id],
 							params,
 							rigBundle,
 							n.spineRestOverrides,
 							previewing?.animation,
+							def,
 						);
 					}
 				}
@@ -734,6 +784,9 @@
 		 * to a depth-1 bind child; deeper recursion passes undefined. Undefined ⇒ the bind plays its
 		 * first animation as before (parity). */
 		previewAnimation?: string,
+		/** The def these nodes belong to, whose state machine rests a rig among them
+		 * ({@link restingStrip}). Undefined outside any component. */
+		stateDef?: ComponentDef,
 	): void {
 		for (const n of nodes) {
 			if (!previewResolveTransform(n, layoutType).visible) continue;
@@ -764,7 +817,7 @@
 				}
 			}
 			if (n.kind === 'spine') {
-				if (here) out.push(nestedRigTarget(n, sc, nextChain, instanceParams, rigRests));
+				if (here) out.push(nestedRigTarget(n, sc, nextChain, instanceParams, rigRests, stateDef));
 			} else if (n.kind === 'reelGrid') {
 				if (here) collectReelCells(n, sc, nextChain, out);
 			} else if (n.kind === 'container') {
@@ -782,7 +835,10 @@
 					// (the win / free-spin VISUAL). A container child is a level deeper, so don't
 					// re-apply it — a bind INSIDE it would be a different component's rig.
 					undefined,
+					stateDef,
 				);
+			} else if (isCountRepeater(n)) {
+				collectSegmentRigs(n, sc, out, nextChain, depth, stack);
 			} else if (n.kind === 'componentInstance') {
 				const def = instanceDef(componentMap, n);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
@@ -802,6 +858,8 @@
 					params,
 					rigBundle,
 					n.spineRestOverrides,
+					undefined,
+					def,
 				);
 			}
 		}
@@ -913,6 +971,51 @@
 		};
 	}
 
+	/**
+	 * Rigs inside a count-mode repeater's segments (a segmented counter): the SAME boxes and settled
+	 * poses the 2D canvas and the text overlay draw (`repeaterCountBoxes`), so each segment shows
+	 * the look its state machine lights. This layer draws no alpha, so a look the pose hides at
+	 * alpha 0 is left out rather than drawn over the one shown (a partial alpha draws opaque).
+	 * No `stateDef`: {@link restingStrip} settles at the inputs' defaults, not this segment's.
+	 */
+	function collectSegmentRigs(
+		n: CountRepeaterNode,
+		sc: Scene,
+		out: RigRenderTarget[],
+		chain: LayoutNode[],
+		depth: number,
+		stack: string[],
+	): void {
+		const anchor = previewResolveTransform(n, layoutType).anchor;
+		const { boxes } = repeaterCountBoxes(
+			n,
+			componentMap,
+			layoutType,
+			anchor?.x ?? 0,
+			anchor?.y ?? 0,
+			componentDefaults,
+			(def, inputs, params) => segmentPoseNodes(def, segmentTimelines(def.id), inputs, params),
+		);
+		const shown = (nodes: LayoutNode[]): LayoutNode[] =>
+			nodes
+				.filter((c) => previewResolveTransform(c, layoutType).alpha !== 0)
+				.map((c) => (c.kind === 'container' ? { ...c, children: shown(c.children) } : c));
+		for (const box of boxes) {
+			if (depth >= MAX_COMPONENT_DEPTH || stack.includes(box.def.id)) continue;
+			collectNestedRigs(
+				shown(box.container.children),
+				sc,
+				out,
+				[...chain, box.container],
+				depth + 1,
+				[...stack, box.def.id],
+				box.params,
+				instancePreviewRigBundle(box.def, box.params),
+				undefined,
+			);
+		}
+	}
+
 	/** Build a render target for a nested rig: its world transform composed from the
 	 * ancestor `chain` (top link framed via `worldTransformOf`, descendants pure-local via
 	 * `childLocalTransform` — the SAME rule the 2D canvas + game runtime use), decomposed
@@ -931,6 +1034,8 @@
 		instanceParams?: Record<string, unknown>,
 		/** The enclosing instance's per-placement rig rests (see {@link collectNestedRigs}). */
 		rigRests?: Record<string, RigRestOverride>,
+		/** The def the rig belongs to (see {@link collectNestedRigs}). */
+		stateDef?: ComponentDef,
 	): RigRenderTarget {
 		const [a, b, c, d, tx, ty] = composeWorldMatrix(
 			chain,
@@ -968,7 +1073,7 @@
 			transform: nt,
 			space: sc.space,
 			world: { x: tx, y: ty, scaleX: scale.x, scaleY: scale.y },
-			pose: previewPose(node),
+			pose: previewPose(node, restingStrip(stateDef, node.id, instanceParams ?? componentParams)),
 		};
 	}
 

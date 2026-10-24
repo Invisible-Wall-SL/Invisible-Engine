@@ -12,13 +12,21 @@ import {
 } from './db/schema';
 import type { Project } from './db/schema';
 import type { Role } from '$lib/roles';
-import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
+import { DEFAULT_GAME_KIND, familyOfKind, type GameFamily } from 'constants-shared/gameKinds';
 import { getDeployToken } from './appSettings';
 import { r2SlugSql, withProjectKeyLock, type Queryer } from './projectKeyLock';
 import { ProjectFolderTakenError, UNASSIGNED_CLIENT, r2Slug } from './projectPaths';
 
 /** The default project every user can always reach; null session = this key. */
 export const DEFAULT_PROJECT_KEY = 'cloud';
+
+/**
+ * The family a project plays as, which decides the tools it is offered (game-families.md §6.5).
+ * The shared `cloud` scope sees every tool, so it is a slot whatever kind its row records.
+ */
+export function projectFamily(key: string, gameType: string | null | undefined): GameFamily {
+	return key === DEFAULT_PROJECT_KEY ? 'slot' : familyOfKind(gameType);
+}
 
 /** Project key slug: `^[a-z0-9][a-z0-9_-]{0,63}$` (shared tool contract). */
 const PROJECT_KEY_RE = PROJECT_KEY_PATTERN;

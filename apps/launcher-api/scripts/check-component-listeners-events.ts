@@ -400,12 +400,15 @@ for (const event of POINTER) {
 	eq(
 		'LayoutNodeView binds each Pixi pointer event to its listener event (the map above)',
 		[
-			['onpointerdown', 'down'],
-			['onpointerup', 'up'],
-			['onpointerenter', 'enter'],
-			['onpointerleave', 'leave'],
-			['onpointertap', 'click'],
-		].every(([pixi, ours]) => view.includes(`${pixi}={() => listen.listen(node, '${ours}')}`)),
+			'onpointerdown={(e) => gesture!.down(e.pointerId, pointerLocal(e), e.global)}',
+			'onpointerup={(e) => gesture!.release(e.pointerId, pointerLocal(e), e.global, true)}',
+			"onpointerenter={(e) => gesture!.plain('enter', pointerLocal(e), e.global)}",
+			"onpointerleave={(e) => gesture!.plain('leave', pointerLocal(e), e.global)}",
+			"onpointertap={(e) => gesture!.plain('click', pointerLocal(e), e.global)}",
+			// The gesture sends each as the listener event of that name (`check:component-pointer-drag`
+			// proves down → down, a release over the node → up, and the plain three as they are).
+			'new PointerGesture((event, at) => listen.listen(node, event, at))',
+		].every((binding) => view.includes(binding)),
 		true,
 	);
 	eq(

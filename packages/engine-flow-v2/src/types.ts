@@ -105,7 +105,8 @@ export type Accessor =
 	| { on: 'input'; name: string } // a function's input, inside its body.
 	| { on: 'engine'; key: string } // a template global read (e.g. reels, slots).
 	| { on: 'trigger'; member?: string } // the event payload — whole ($trigger) or a field.
-	| { on: 'context'; member?: string }; // the dispatch context (e.g. bookEvents) — whole or a field.
+	| { on: 'context'; member?: string } // the dispatch context (e.g. bookEvents) — whole or a field.
+	| { on: 'var'; id: string }; // a game variable ($var.<id>, game-families §3.1).
 
 /** Where a data-in gets its value. `wire` means "look at the data edges". */
 export type DataSource =
@@ -173,7 +174,16 @@ export type NodeKind =
 	| 'enterMode'
 	| 'exitMode'
 	| 'componentInstance'
-	| 'waitForState';
+	| 'waitForState'
+	| 'setVariable'
+	| 'changeVariable'
+	| 'onVariable'
+	| 'onTick'
+	| 'onTimer'
+	| 'onInput'
+	| 'startTimer'
+	| 'stopTimer'
+	| 'pauseTimer';
 
 /** Shared node fields. `inputs` maps each DATA-IN pin id → its `DataSource` (a `wire`
  *  source defers to the data edges); it is absent for nodes with no data-ins. */
@@ -514,6 +524,89 @@ export interface WaitForStateNode extends NodeBase, InstanceRef {
 	state: string;
 }
 
+// ---------------------------------------------------------------------------
+// GAME VARIABLES, TIMERS, TICK AND INPUT (`docs/design/game-families.md` §3.1–§3.2). The values and
+// timers live in a store the game holds (`state.ts`), reached through `FlowV2Env.state`; none of it
+// lives in the per-run interpreter. A doc that declares none of these runs exactly as before.
+// ---------------------------------------------------------------------------
+
+/** Set Variable: write the `value` data-in to `variable`, at once, then continue. */
+export interface SetVariableNode extends NodeBase {
+	kind: 'setVariable';
+	variable: string;
+}
+
+/** How a {@link ChangeVariableNode} changes its variable: add / subtract its `by` data-in (a
+ *  number variable), or flip it (a bool). */
+export type ChangeVariableOp = 'add' | 'sub' | 'toggle';
+
+/** Change Variable: one atomic read-modify-write of `variable`, clamped to `min` / `max`. */
+export interface ChangeVariableNode extends NodeBase {
+	kind: 'changeVariable';
+	variable: string;
+	op: ChangeVariableOp;
+	min?: number;
+	max?: number;
+}
+
+/** Which way a `crosses` {@link OnVariableNode} watches its threshold. Absent ⇒ `either`. */
+export type VariableCrossing = 'up' | 'down' | 'either';
+
+/**
+ * On Variable (entry point, NO exec-in): fires when `variable` changes (`changed`, once per frame
+ * with its latest value), or when a write takes it across `threshold` (`crosses`: up is from below
+ * to at-or-above, down from above to at-or-below). Data-outs `value` and `previous`.
+ */
+export interface OnVariableNode extends NodeBase {
+	kind: 'onVariable';
+	variable: string;
+	/** Absent ⇒ `changed`. */
+	on?: 'changed' | 'crosses';
+	threshold?: number;
+	direction?: VariableCrossing;
+}
+
+/** On Tick (entry point): fires every frame, or every `every` ms. Data-out `dt` (ms since the
+ *  last fire). Its chain may not wait on anything (`tick-async`). */
+export interface OnTickNode extends NodeBase {
+	kind: 'onTick';
+	every?: number;
+}
+
+/** On Timer (entry point): fires when timer `timer` runs out (each period, for a repeating one). */
+export interface OnTimerNode extends NodeBase {
+	kind: 'onTimer';
+	timer: string;
+}
+
+/** On Input (entry point): fires when a key bound to `action` (`FlowDoc.inputs`) goes down / up. */
+export interface OnInputNode extends NodeBase {
+	kind: 'onInput';
+	action: string;
+	/** Absent ⇒ `down`. */
+	phase?: 'down' | 'up';
+}
+
+/** Start Timer: (re)start timer `timer` for the `ms` data-in; `repeat` restarts it each time it
+ *  runs out. */
+export interface StartTimerNode extends NodeBase {
+	kind: 'startTimer';
+	timer: string;
+	repeat?: boolean;
+}
+
+/** Stop Timer: cancel timer `timer` (it does not fire). */
+export interface StopTimerNode extends NodeBase {
+	kind: 'stopTimer';
+	timer: string;
+}
+
+/** Pause Timer: exec-in `pause` holds timer `timer` where it is, `resume` lets it run on. */
+export interface PauseTimerNode extends NodeBase {
+	kind: 'pauseTimer';
+	timer: string;
+}
+
 export type Node =
 	| EventNode
 	| GameSignalsNode
@@ -538,7 +631,16 @@ export type Node =
 	| EnterModeNode
 	| ExitModeNode
 	| FlowInstanceNode
-	| WaitForStateNode;
+	| WaitForStateNode
+	| SetVariableNode
+	| ChangeVariableNode
+	| OnVariableNode
+	| OnTickNode
+	| OnTimerNode
+	| OnInputNode
+	| StartTimerNode
+	| StopTimerNode
+	| PauseTimerNode;
 
 // ---------------------------------------------------------------------------
 // §5 — functions (the reuse model). A function is authored once and dropped as a
@@ -791,6 +893,32 @@ export interface FlowComment {
 	color?: string;
 }
 
+/** A game variable's type. An `enum` variable holds one of its `values` (a string). */
+export type FlowVariableType = 'int' | 'float' | 'bool' | 'string' | 'enum';
+
+/**
+ * When a variable goes back to its `initial`: never (`game`), when a round starts (`round`), or
+ * when its mode is entered (`mode` — declared in `FlowDoc.modes[id].variables` only).
+ */
+export type FlowVariableScope = 'game' | 'round' | 'mode';
+
+/** A named, typed value Flow keeps (game-families §3.1): score, lives, moves left, level. */
+export interface FlowVariable {
+	id: string;
+	type: FlowVariableType;
+	/** The `enum` type's members. */
+	values?: string[];
+	initial: number | boolean | string;
+	scope: FlowVariableScope;
+}
+
+/** One action of the key map (game-families §3.2): Flow reads `action`, never a raw key. */
+export interface FlowInputBinding {
+	action: string;
+	/** `KeyboardEvent.key` values (`ArrowLeft`, `a`, ` `). */
+	keys: string[];
+}
+
 export interface FlowDoc {
 	version: 2;
 	templateId: string; // which TemplateVocabulary this flow targets.
@@ -806,9 +934,15 @@ export interface FlowDoc {
 	 * `graph` handles everything, exactly as before.
 	 */
 	modes?: Record<string, FlowModeScope>;
+	/** The `game` and `round` variables (game-families §3.1). Absent ⇒ none. */
+	variables?: FlowVariable[];
+	/** The key map `onInput` nodes read (§3.2). Absent ⇒ none. */
+	inputs?: FlowInputBinding[];
 }
 
 /** One game mode's section of a {@link FlowDoc}. */
 export interface FlowModeScope {
 	graph: Graph;
+	/** The mode's own variables (`scope: 'mode'`), reset each time the mode is entered. */
+	variables?: FlowVariable[];
 }

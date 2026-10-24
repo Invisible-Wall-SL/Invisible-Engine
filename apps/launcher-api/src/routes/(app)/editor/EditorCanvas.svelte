@@ -21,6 +21,8 @@
 		fillMaskRect,
 		hostedComponentSpace,
 		instancePreviewRigBundle,
+		coversBackgroundWindow,
+		isBackgroundCoverKind,
 		isCoverFitKind,
 		isHudScene,
 		keyableElementFxEntries,
@@ -90,7 +92,9 @@
 		type ReelGridSeat,
 		resolveBoneRiderRigKey,
 		standardToWorld,
+		SCREEN_NEST,
 		type BoneRiderTransform,
+		type ComponentNest,
 		type Vec2,
 		type NodeBox,
 		type NaturalSize,
@@ -352,6 +356,9 @@
 		 * default, and every scene-editor caller) ⇒ identical to today's draw — parity.
 		 */
 		componentParams?: Record<string, unknown>;
+		/** Where the top-level nodes sit in the game's component nesting (`ComponentNest`): a
+		 *  screen's at level 0 (the default), the Component Editor's open def one level down. */
+		componentNest?: ComponentNest;
 		/**
 		 * Per-project component DEFAULTS by component id (§13.3) — the `projectDefaults`
 		 * layer `resolveComponentParams` applies UNDER each placed instance's own params, so
@@ -439,6 +446,7 @@
 		viewMode = $bindable(),
 		projectGameName = null,
 		componentParams = {},
+		componentNest = SCREEN_NEST,
 		componentDefaults = {},
 		onRigMeta,
 		canUndo = false,
@@ -649,10 +657,10 @@
 			return { ...t, ...anchoredPosition(t, space, frameWidth, frameHeight) };
 		}
 		if (space === 'background') {
-			if (isCoverFitKind(node) || node.kind === 'componentInstance') {
+			if (isBackgroundCoverKind(node)) {
 				return backgroundTransform(node, t);
 			}
-			// Everything ELSE on a background screen (a text label, a rect, a bare container) does
+			// Everything ELSE on a background screen (a text label, a bare container) does
 			// NOT cover — and the game draws it at RAW WINDOW pixels: `LayoutScene` wraps only
 			// `game`/`standard` in a `<MainContainer>`, and `anchoredPosition` returns x/y verbatim
 			// for this space. Without this branch such a node fell through to the game-space
@@ -743,7 +751,12 @@
 				height: box.h,
 			};
 		}
-		const nat = naturalSize(node);
+		// A flat `rect` has no art to measure: it covers by its own width × height, as the runtime's
+		// `rectCover` does, so a `contain` fit or a cover zoom letterboxes it the same in both.
+		const nat =
+			node.kind === 'rect'
+				? { w: t.width ?? node.width, h: t.height ?? node.height }
+				: naturalSize(node);
 		const cover = coverTransform({
 			artWidth: nat?.w ?? frameWidth,
 			artHeight: nat?.h ?? frameHeight,
@@ -1022,8 +1035,9 @@
 	/** Full-bleed cover nodes are auto-cover-fit (their transform is synthesised, not
 	 * authored), so the canvas must not drag/scale/rotate them — a write would store
 	 * the synthetic centre/size and break the cover. The cover scale is still editable
-	 * via the Properties `scale.x` control. This covers BOTH `background`-space sprite/
-	 * rig nodes AND a `cover`-placement preview anchor (the full-bleed Background).
+	 * via the Properties `scale.x` control. This covers BOTH a node that covers a
+	 * `background` screen (`coversBackgroundWindow`) AND a `cover`-placement preview anchor
+	 * (the full-bleed Background).
 	 *
 	 * Positioned/centred preview anchors (Win, Transition, FreeSpinIntro/Outro,
 	 * FreeSpinCounter) are NOT cover: their preview = placement + the node's stored x/y
@@ -1041,7 +1055,11 @@
 			return true;
 		}
 		return (
-			scene.space === 'background' && (isCoverFitKind(node) || node.kind === 'componentInstance')
+			scene.space === 'background' &&
+			coversBackgroundWindow(
+				node,
+				scene.nodes.some((n) => n.id === node.id),
+			)
 		);
 	}
 
@@ -1693,7 +1711,7 @@
 	 * clip — ANYWHERE in its tree (incl. nested in a container / component instance)? Gates the
 	 * playback clock above — mirroring `sceneHasEffect` / `sceneHasRig`. */
 	function sceneHasFlipbook(s: Scene): boolean {
-		return nodesHaveFlipbook(s.nodes, 0, []);
+		return nodesHaveFlipbook(s.nodes, componentNest.depth, componentNest.stack);
 	}
 	function nodesHaveFlipbook(nodes: LayoutNode[], depth: number, stack: string[]): boolean {
 		for (const n of nodes) {
@@ -1960,7 +1978,13 @@
 	 * resolved preview art is a rig, or a reel BOARD whose symbols bind rig art)? Only
 	 * such scenes mount a rig sublayer in their group, so no group draws an empty one. */
 	function sceneHasRig(s: { nodes: LayoutNode[] }): boolean {
-		return nodesHaveRig(s.nodes, 0, [], undefined, componentParams);
+		return nodesHaveRig(
+			s.nodes,
+			componentNest.depth,
+			componentNest.stack,
+			undefined,
+			componentParams,
+		);
 	}
 	/** Any symbol whose STATIC binding is a rig — the reel board then needs the WebGL
 	 * layer to draw its cells (the 2D canvas can only marker them). */
@@ -2004,6 +2028,17 @@
 				if (nodesHaveRig(def.root.children, depth + 1, [...stack, def.id], rigBundle, params))
 					return true;
 			}
+			// A segmented counter's segments: the rig layer draws their rigs (`collectSegmentRigs`).
+			if (isCountRepeater(n)) {
+				for (const id of repeaterComponentIds(n)) {
+					const def = componentMap.get(id);
+					if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
+					const params = resolveComponentParams(def, undefined, componentDefaults[def.id]);
+					const rigBundle = instancePreviewRigBundle(def, params);
+					if (nodesHaveRig(def.root.children, depth + 1, [...stack, def.id], rigBundle, params))
+						return true;
+				}
+			}
 		}
 		return false;
 	}
@@ -2014,7 +2049,7 @@
 	 * sublayer. Walks the same tree (+ `componentInstance` expansion) as the overlay's
 	 * `collectTextTargets`, so the layer mounts exactly when the overlay has work. */
 	function sceneHasText(s: { nodes: LayoutNode[] }): boolean {
-		return nodesHaveText(s.nodes, 0, []);
+		return nodesHaveText(s.nodes, componentNest.depth, componentNest.stack);
 	}
 	function nodesHaveText(nodes: LayoutNode[], depth: number, stack: string[]): boolean {
 		for (const n of nodes) {
@@ -2043,7 +2078,7 @@
 	 * container / component instance)? Only such scenes mount the effect sublayer — mirroring
 	 * `sceneHasRig`. */
 	function sceneHasEffect(s: { nodes: LayoutNode[] }): boolean {
-		return nodesHaveEffect(s.nodes, 0, []);
+		return nodesHaveEffect(s.nodes, componentNest.depth, componentNest.stack);
 	}
 	function nodesHaveEffect(nodes: LayoutNode[], depth: number, stack: string[]): boolean {
 		for (const n of nodes) {
@@ -2422,7 +2457,7 @@
 		// shared surface, which has to blend inline — is unaffected.
 		elementCarriesBlend = true;
 		for (const s of visibleGameScenes()) {
-			for (const seg of depthSegments(s, componentMap)) {
+			for (const seg of depthSegments(s, componentMap, componentNest)) {
 				drawDepth = depthSliceFor(seg);
 				for (const run of blendRuns(seg)) {
 					const c = sceneCanvases.get(run.key);
@@ -2603,8 +2638,8 @@
 		ctx: CanvasRenderingContext2D,
 		node: LayoutNode,
 		sceneCtx: Scene = scene,
-		componentDepth = 0,
-		componentStack: string[] = [],
+		componentDepth = componentNest.depth,
+		componentStack: string[] = componentNest.stack,
 		/**
 		 * Resolved params of the ENCLOSING `componentInstance` (when this node is being
 		 * drawn as expanded def content) — threaded so a mounted `bind` chip can show the
@@ -2703,8 +2738,11 @@
 			node.kind === 'flipbook' ? clipsById.get(node.clipId)?.frames.length : undefined,
 		);
 		const previewFill = boundFillShare(previewBindings(node), previewed);
+		// A node drawn as a background cover shows whole: the game drops the reveal on a cover.
+		const drawnAsCover = !nested && sceneCtx.space === 'background' && isBackgroundCoverKind(node);
 		if (
 			previewFill &&
+			!drawnAsCover &&
 			(node.kind === 'sprite' || node.kind === 'rect' || node.kind === 'flipbook')
 		) {
 			const box = boxOf(node, t);
@@ -3084,6 +3122,7 @@
 			node.kind === 'repeater' ? repeaterItemCount(node) : undefined,
 			componentDefaults,
 			componentParams,
+			componentNest,
 		);
 	}
 
@@ -3178,8 +3217,9 @@
 	 * Draw a COUNT-MODE repeater (a segmented counter): N = its preview count of segments, each the
 	 * real segment component (its first / middle / last variant) with `{ index, count }` params,
 	 * at the pose its state machine settles on for its test inputs (`segmentPoseNodes`) — so the
-	 * author sees which segments light. Built by `repeaterCountBoxes`, which the text overlay and the
-	 * selection box (`nodeBox`) share; a segment whose component is missing draws nothing, as in game.
+	 * author sees which segments light. Built by `repeaterCountBoxes`, which the text overlay, the
+	 * rig layer and the selection box (`nodeBox`) share; a variant naming no def draws the middle
+	 * segment there, as in game.
 	 */
 	function drawCountRepeater(
 		ctx: CanvasRenderingContext2D,
@@ -6026,7 +6066,7 @@
 	     draw through two shared WebGL contexts (`sharedGl.client.ts`), never one each: past
 	     the browser's ~16 live contexts the oldest is dropped and paints white. -->
 	{#each visibleGameScenes() as s (s.id)}
-		{@const segs = depthSegments(s, componentMap)}
+		{@const segs = depthSegments(s, componentMap, componentNest)}
 		{@const scrimKey = scrimSegmentKey(segs)}
 		<div class="scene-group" data-scene-id={s.id}>
 			<!-- One stack per DEPTH SEGMENT (usually exactly one — see `depthSegments`): a
@@ -6046,6 +6086,7 @@
 				{/each}
 				{#if sceneHasRig(seg)}
 					<EditorRigLayer
+						{componentNest}
 						{scenes}
 						{mainSizesMap}
 						{layoutType}
@@ -6091,6 +6132,7 @@
 				{/if}
 				{#if sceneHasText(seg)}
 					<EditorTextLayer
+						{componentNest}
 						{scenes}
 						{layoutType}
 						{panX}
@@ -6125,6 +6167,7 @@
 				{/if}
 				{#if sceneHasEffect(seg)}
 					<EditorEffectLayer
+						{componentNest}
 						{scenes}
 						{layoutType}
 						{frameWidth}
@@ -6165,6 +6208,7 @@
 				{#each blendOverlayGroups(seg) as g (g.key)}
 					{#if sceneHasEffect(seg)}
 						<EditorEffectLayer
+							{componentNest}
 							{scenes}
 							{layoutType}
 							{frameWidth}
@@ -6212,6 +6256,7 @@
 	{#if hudRigScenes().length > 0}
 		<div class="hud-rig-layer">
 			<EditorRigLayer
+				{componentNest}
 				{scenes}
 				{mainSizesMap}
 				{layoutType}
@@ -6258,6 +6303,7 @@
 	{#if hudTextScenes().length > 0}
 		<div class="hud-text-layer">
 			<EditorTextLayer
+				{componentNest}
 				{scenes}
 				{layoutType}
 				{panX}
@@ -6291,6 +6337,7 @@
 	{#if hudEffectScenes().length > 0}
 		<div class="hud-effect-layer">
 			<EditorEffectLayer
+				{componentNest}
 				{scenes}
 				{layoutType}
 				{frameWidth}

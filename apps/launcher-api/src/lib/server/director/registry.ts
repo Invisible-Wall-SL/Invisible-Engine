@@ -1,4 +1,5 @@
-import { isDirectorAgent, type AdapterOp } from './adapter';
+import { TOOLS } from '$lib/roles';
+import { ADAPTER_TOOL_IDS, isDirectorAgent, type AdapterOp } from './adapter';
 import { ATLAS_OPS } from './ops/atlas';
 import { ATLAS_SETUP_OPS } from './ops/atlasSetup';
 import { FLIPBOOK_OPS } from './ops/flipbook';
@@ -27,6 +28,9 @@ export function buildRegistry(ops: readonly AdapterOp[]): ReadonlyMap<string, Ad
 		if (out.has(id)) throw new Error(`Director adapter ${id} is registered twice`);
 		if (!/^[a-z]+$/.test(op.tool) || !/^[a-z_]+$/.test(op.name)) {
 			throw new Error(`Director adapter ${id}: tool and op names are lower-case words`);
+		}
+		if (!Object.hasOwn(ADAPTER_TOOL_IDS, op.tool) || !TOOLS[ADAPTER_TOOL_IDS[op.tool]]) {
+			throw new Error(`Director adapter ${id}: its tool must map to a launcher tool`);
 		}
 		if (op.agents.length === 0 || !op.agents.every(isDirectorAgent)) {
 			throw new Error(`Director adapter ${id}: its agents must be known and non-empty`);

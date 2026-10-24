@@ -6,7 +6,6 @@ import {
 	boundComponentRidesBone,
 	boundComponentSkin,
 	boundComponentTileImage,
-	componentDesignSize,
 	componentInputs,
 	forwardInstanceParams,
 	isCountRepeater,
@@ -18,6 +17,7 @@ import {
 	repeaterCount,
 	repeaterCountOffsets,
 	repeaterSegmentComponent,
+	repeaterSegmentSize,
 	repeaterSegmentValues,
 	resolveTransform,
 	type BoneRiderBinding,
@@ -88,6 +88,28 @@ export function applyRestingPose(
 	skeleton.setToSetupPose();
 	anim.apply(skeleton, time, time, false, null, 1, MIX_BLEND_SETUP, MIX_DIRECTION_IN);
 	return [() => skeleton.setToSetupPose()];
+}
+
+/**
+ * Where a canvas's top-level nodes sit in the component nesting the game caps at
+ * `MAX_COMPONENT_DEPTH`: `depth` is the component level they are drawn at, `stack` the defs they are
+ * inside. A screen's nodes are at level 0, inside nothing. The Component Editor's open def is
+ * placed in the game, so its nodes are one level down, and one more for each def it is edited
+ * inside: drawn at level 0, a counter nested in it showed segments the game cuts.
+ */
+export interface ComponentNest {
+	depth: number;
+	stack: string[];
+	/** The def the top-level nodes belong to (the open one), whose state machine rests them. */
+	def?: ComponentDef;
+}
+
+export const SCREEN_NEST: ComponentNest = { depth: 0, stack: [] };
+
+/** The nest of `def`, open in the Component Editor, edited inside the defs of `trail` (outermost
+ * first). */
+export function componentEditorNest(trail: readonly string[], def: ComponentDef): ComponentNest {
+	return { depth: trail.length + 1, stack: [...trail, def.id], def };
 }
 
 /** Where the editor's component map keeps a def an instance pins at an older version than the
@@ -512,8 +534,9 @@ export function repeaterPreviewCount(node: CountRepeaterNode): number {
 /**
  * Where a count-mode repeater's segments sit in the editor — the game's own geometry
  * (`repeaterCountOffsets`) over the game's own measure of each segment component
- * (`componentDesignSize`, no textures), so the canvas, the overlay and the selection box frame what
- * the game draws. A missing or unsizable component measures 0 × 0, as in game.
+ * (`repeaterSegmentSize`: its root box, else what it draws, no textures), so the canvas, the overlay
+ * and the selection box frame what the game draws. A variant naming no def lays out as the middle
+ * segment that replaces it, and an unsizable component measures 0 × 0, as in game.
  */
 export function repeaterPreviewLayout(
 	node: CountRepeaterNode,
@@ -522,13 +545,18 @@ export function repeaterPreviewLayout(
 	n = repeaterPreviewCount(node),
 ): RepeaterCountLayout {
 	const sizes = new Map<string, RepeaterItemSize | null>();
-	return repeaterCountOffsets(node, n, (id) => {
-		if (!sizes.has(id)) {
-			const def = componentMap?.get(id);
-			sizes.set(id, def ? componentDesignSize(def, () => null, layoutType) : null);
-		}
-		return sizes.get(id) ?? null;
-	});
+	return repeaterCountOffsets(
+		node,
+		n,
+		(id) => {
+			if (!sizes.has(id)) {
+				const def = componentMap?.get(id);
+				sizes.set(id, def ? repeaterSegmentSize(def, layoutType) : null);
+			}
+			return sizes.get(id) ?? null;
+		},
+		(id) => !!componentMap?.has(id),
+	);
 }
 
 /** A count-mode segment's box: the shared {@link RepeaterBox} plus what drew it. */
@@ -563,7 +591,8 @@ export function repeaterSegmentInputs(
  * its {@link repeaterPreviewLayout} offset (the group anchored against the whole footprint), with
  * params def defaults ◁ project defaults ◁ `{ index: i + 1, count: N }`. `pose` (the settled
  * state-machine pose, `segmentPreview.ts`) replaces the def's children for that segment's inputs;
- * absent or `null` ⇒ the base pose. A segment whose def is missing is left out.
+ * absent or `null` ⇒ the base pose. A variant naming no def draws the middle segment, as in game; a
+ * segment with no def at all is left out.
  */
 export function repeaterCountBoxes(
 	node: CountRepeaterNode,
@@ -584,7 +613,9 @@ export function repeaterCountBoxes(
 	const top = -layout.height * anchorY;
 	const boxes: RepeaterCountBox[] = [];
 	layout.offsets.forEach((offset, i) => {
-		const def = componentMap.get(repeaterSegmentComponent(node, i, n));
+		const def = componentMap.get(
+			repeaterSegmentComponent(node, i, n, (id) => componentMap.has(id)),
+		);
 		if (!def) return;
 		const values = repeaterSegmentValues(i, n);
 		const params = resolveComponentParams(def, values, componentDefaults?.[def.id]);
@@ -657,6 +688,9 @@ export function nodeBox(
 	/** The ENCLOSING componentInstance's resolved params (the Component Editor's open-def params for
 	 * a top-level node), so a part sized by them frames the box it draws. Undefined ⇒ parity. */
 	instanceParams?: Record<string, unknown>,
+	/** Where the canvas's top-level nodes sit in the component nesting, so the box stops expanding
+	 * where the draw does. Undefined ⇒ a screen's. */
+	nest: ComponentNest = SCREEN_NEST,
 ): NodeBox {
 	// A node that draws OTHER nodes frames them: a componentInstance its def's content, a group or
 	// a skinned coded part its children (see {@link contentBox}). For the single-mount `HudReadout`
@@ -665,8 +699,8 @@ export function nodeBox(
 		const content = contentBox(
 			node,
 			{ naturalSize, componentMap, layoutType, componentDefaults },
-			0,
-			[],
+			nest.depth,
+			nest.stack,
 			instanceParams ?? {},
 			instanceRigBundle,
 		);
@@ -1662,6 +1696,7 @@ function depthChildren(
 export function depthSegments(
 	scene: Scene,
 	componentMap: Map<string, ComponentDef>,
+	nest: ComponentNest = SCREEN_NEST,
 ): DepthSegment[] {
 	const segmentOf = new Map<string, number>();
 	const touched: Set<string>[] = [new Set()];
@@ -1689,7 +1724,7 @@ export function depthSegments(
 			if (children) walk(children.nodes, path, children.depth, children.stack, top ?? n.id);
 		}
 	};
-	walk(scene.nodes, [], 0, [], null);
+	walk(scene.nodes, [], nest.depth, nest.stack, null);
 	const sig = [...segmentOf].map(([k, i]) => `${k}=${i}`).join('|');
 	return touched.map((ids, i) => ({
 		key: i === 0 ? scene.id : `${scene.id}#seg${i}`,

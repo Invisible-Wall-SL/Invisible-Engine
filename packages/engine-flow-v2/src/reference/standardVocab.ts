@@ -53,7 +53,10 @@ const GAME_TYPE: TypeRef = { t: 'enum', name: 'GameType' };
 // literal). Their members are codegen'd from `apps/lines/src/game/sound.ts` into `soundEnums.generated`
 // (`node scripts/gen-flow-v2-sound-enums.mjs`), so adding a sound updates the dropdown automatically.
 const CAMERA_EFFECT: TypeRef = { t: 'enum', name: 'CameraEffectKind' };
-const ELEMENT_FX: TypeRef = { t: 'enum', name: 'ElementFxKind' };
+/** The `elementEffect` kind dropdown: the built-in catalog, widened per project by the launcher
+ *  with its shader graphs (`custom:<id>`). */
+export const ELEMENT_FX_KIND_ENUM = 'ElementFxKind';
+const ELEMENT_FX: TypeRef = { t: 'enum', name: ELEMENT_FX_KIND_ENUM };
 export const ELEMENT_FX_TARGET_ENUM = 'ElementFxTarget';
 const ELEMENT_FX_TARGET: TypeRef = { t: 'enum', name: ELEMENT_FX_TARGET_ENUM };
 const CONFIDENCE: TypeRef = { t: 'enum', name: 'AnticipationConfidence' };
@@ -193,7 +196,7 @@ export const standardVocabulary = ({ templateId }: { templateId: string }): Temp
 		// offer a kind the game would silently no-op.
 		{ name: 'CameraEffectKind', values: [...CAMERA_EFFECT_KINDS] },
 		// The Element FX catalog (`constants-shared/elementFx`), shared with the runtime the same way.
-		{ name: 'ElementFxKind', values: [...ELEMENT_FX_KINDS] },
+		{ name: ELEMENT_FX_KIND_ENUM, values: [...ELEMENT_FX_KINDS] },
 		// What an `elementEffect` can aim at: the reels here; the launcher adds each project's screens
 		// (`screen:<id>`) and anchored nodes (`withElementFxTargets`). The runtime takes any name.
 		{ name: ELEMENT_FX_TARGET_ENUM, values: [ELEMENT_FX_REELS_TARGET] },

@@ -28,6 +28,7 @@
 import type { LayoutDoc, Scene } from 'engine-layout';
 import {
 	componentTimelinesFor,
+	registerComponentValues,
 	cueAnimationDurationMs,
 	cueHolds,
 	WIN_PRESENTATION_COMPONENT_ID,
@@ -57,8 +58,11 @@ import type {
 import {
 	awaitCompleteContainerIds,
 	createContainerMountModel,
+	createFlowState,
 	createFlowV2Env,
+	docVariables,
 	flattenGroups,
+	flowUsesState,
 	flowGraphs,
 	flowHandlesModeTransitions,
 	flowOwnsContainerEvent,
@@ -71,11 +75,15 @@ import {
 	runFlowEvent,
 	runFlowInstanceEvent,
 	runFlowModeTransition,
+	runFlowStateEntry,
 	SCREEN_LIFECYCLE_SIGNALS,
 	signalChainCallsAction,
 	templateVocabulary,
+	variableValueSources,
 	withAddOns,
 	type ContainerMountModel,
+	type FlowState,
+	type FlowStateEntry,
 	type FlowDoc as FlowDocV2,
 	type FunctionLibraryDoc,
 	type MountedContainer,
@@ -320,9 +328,14 @@ export type LinesFlowV2 = {
 	/** The game mounted (`up`) or unmounted a screen this flow never shows (`enginePots`), so a
 	 *  screen timeline moves that mount instead of drawing a copy, and holds while it is up. */
 	engineScreenUp: (sceneId: string, up: boolean) => void;
+	/** The flow's variables and timers (game-families §3.1–§3.2), when it declares or uses any;
+	 *  `undefined` for every other doc, so nothing ticks. The holder advances it each frame. */
+	state?: FlowState;
+	/** Run the entries a due timer / tick / key / flushed variable batch fires. */
+	runStateEntry: (entry: FlowStateEntry) => Promise<void>;
 };
 
-type PlayingCinematic = { loop: boolean; speed: number; done?: () => void };
+type PlayingCinematic = { play: number; loop: boolean; speed: number; done?: () => void };
 
 /** A structural narrow for a loaded rig `SkeletonData` — just the `findAnimation` we read, so this
  *  module needs no `engine-rig` type import to measure a clip's duration. */
@@ -424,9 +437,11 @@ export const createLinesFlowV2 = (
 	 * Cinematics the flow is currently PLAYING, in mount order. `<FlowV2Cinematics>` renders one
 	 * `<Cinematic>` per entry; each entry keeps the resolver for its `awaitComplete` promise so the
 	 * component's `oncomplete` can settle the exact play that started it (a cinematic re-played
-	 * while already running gets a fresh entry, so an old promise never settles a new play).
+	 * while already running gets a fresh entry, so an old promise never settles a new play). Its
+	 * `play` number is what starts a cinematic still on screen again: a rebuilt entry alone must not.
 	 */
 	const playingCinematics = new SvelteMap<string, PlayingCinematic>();
+	let cinematicPlays = 0;
 	const enginePots = enginePotsScreen(doc, editorDoc.scenes, {
 		drivesScreens: screenStatus.drivesScreens,
 		hasMeters: configuredMeters().length > 0,
@@ -669,7 +684,16 @@ export const createLinesFlowV2 = (
 	});
 	const { instanceWhenMounted, awaitInstanceState, setInstanceInput, readInstanceValue } = waits;
 
+	// The variables and timers live here, for the whole session, not in any run (§3.1). A doc that
+	// uses none gets no store: no value source, no key listener, nothing for the ticker to do.
+	const state = flowUsesState(doc) ? createFlowState(doc) : undefined;
+	// Each variable is the value source `var:<id>`, so a component input bound to one follows it.
+	const unregisterVariables = state
+		? registerComponentValues(variableValueSources(state, docVariables(doc)))
+		: undefined;
+
 	const env = createFlowV2Env({
+		state,
 		mount,
 		// The game-side effect registry — the SAME closed map of named effects the v1/coded path
 		// runs (`flowEffect`), so a v2 `action` node is byte-identical to its coded counterpart. An
@@ -784,14 +808,16 @@ export const createLinesFlowV2 = (
 			const speed = opts.speed && opts.speed > 0 ? opts.speed : 1;
 			// A replay while it still plays releases the earlier play's wait, which nothing else would.
 			playingCinematics.get(cinematicId)?.done?.();
+			const play = ++cinematicPlays;
 			if (loop) {
-				playingCinematics.set(cinematicId, { loop, speed });
+				playingCinematics.set(cinematicId, { play, loop, speed });
 				return;
 			}
 			// A slam releases the wait (the timeline plays on to its end), like a held Show's hold.
 			return new Promise<void>((resolve) => {
 				const unsubscribe = roundSkip.onSkip(() => resolve());
 				playingCinematics.set(cinematicId, {
+					play,
 					loop,
 					speed,
 					done: () => {
@@ -832,6 +858,32 @@ export const createLinesFlowV2 = (
 	};
 	const resolveScene = (sceneId: string): Scene | undefined =>
 		editorDoc.scenes.find((scene) => scene.id === sceneId);
+
+	// The key map (§3.2): a mapped key going down or up runs the `onInput` entries for its action.
+	// Only a doc that maps a key listens; a held key's repeats are not new presses.
+	// A timer / tick / key / variable chain runs on its own, outside any round: one that throws is
+	// reported once per entry (that timer, tick node, key action, or the variable batch), not 60
+	// times a second, and a later failure elsewhere is still reported.
+	const failedEntries: Record<string, true> = {};
+	const entryKey = (entry: FlowStateEntry): string =>
+		entry.kind === 'timer'
+			? `timer:${entry.timer}`
+			: entry.kind === 'tick'
+				? `tick:${entry.node}`
+				: entry.kind === 'input'
+					? `input:${entry.action}`
+					: 'variables';
+	const runStateEntry = (entry: FlowStateEntry): Promise<void> =>
+		runFlowStateEntry(doc, ctx, entry).catch((e: unknown) => {
+			const key = entryKey(entry);
+			if (failedEntries[key]) return;
+			failedEntries[key] = true;
+			console.error(`[flow-v2] the ${key} chain failed (reported once):`, e);
+		});
+	const detachKeys = state && doc.inputs?.length ? attachFlowKeys(doc, runStateEntry) : undefined;
+	// Mode transitions are presented when the doc has Mode trigger entries, or mode variables to reset.
+	const handlesModes = flowHandlesModeTransitions(doc);
+	const presentsModes = handlesModes || docVariables(doc).some((v) => v.mode !== undefined);
 
 	// The set of event types the flow authors (has an `event` node for) — the ownership set.
 	const ownedEvents = new Set(
@@ -877,14 +929,23 @@ export const createLinesFlowV2 = (
 			trace('instanceEvent ▶', `${instanceId} on${event}`);
 			return runFlowInstanceEvent(doc, ctx, instanceId, event, payload);
 		},
-		dispose: waits.dispose,
+		dispose: state
+			? () => {
+					waits.dispose();
+					unregisterVariables?.();
+					detachKeys?.();
+				}
+			: waits.dispose,
 		textMessages,
 		messageShown: (nodeId) => flowShownMessages.has(nodeId),
-		presentModeTransition: flowHandlesModeTransitions(doc)
+		presentModeTransition: presentsModes
 			? (transition) => {
 					// `merge` / `queued` change no mode on screen: nothing to present.
 					if (transition.kind === 'merge' || transition.kind === 'queued') return Promise.resolve();
 					const mode = 'mode' in transition ? transition.mode : undefined;
+					// A mode's own variables go back to their initial each time it is entered (§3.1).
+					if (transition.kind === 'enter' && mode) state?.enterMode(mode.id);
+					if (!handlesModes) return Promise.resolve();
 					trace('mode ▶', `${transition.kind}${mode ? ` ${mode.id}` : ''}`);
 					return runFlowModeTransition(doc, ctx, {
 						kind: transition.kind,
@@ -911,5 +972,37 @@ export const createLinesFlowV2 = (
 		screenHolding: screenDrives.holding,
 		driveScreen: screenDrives.driveScreen,
 		engineScreenUp: screenDrives.setEngineScreen,
+		state,
+		runStateEntry,
+	};
+};
+
+/** Listen for the doc's mapped keys (`FlowDoc.inputs`) on the window; returns the detach. A key typed
+ *  into a text field is the field's, not the game's. */
+const attachFlowKeys = (
+	doc: FlowDocV2,
+	run: (entry: FlowStateEntry) => Promise<void>,
+): (() => void) | undefined => {
+	if (typeof window === 'undefined') return undefined;
+	// A letter matches either case, so Shift or Caps Lock (on the press or before the release) does
+	// not lose it; every other key name matches exactly.
+	const same = (mapped: string, key: string): boolean =>
+		mapped.length === 1 ? mapped.toLowerCase() === key.toLowerCase() : mapped === key;
+	const actionsOf = (key: string): string[] =>
+		(doc.inputs ?? []).filter((b) => b.keys.some((k) => same(k, key))).map((b) => b.action);
+	const typing = (e: KeyboardEvent): boolean =>
+		e.target instanceof HTMLElement &&
+		(e.target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName));
+	const onKey = (phase: 'down' | 'up') => (e: KeyboardEvent) => {
+		if (typing(e) || (phase === 'down' && e.repeat)) return;
+		for (const action of actionsOf(e.key)) void run({ kind: 'input', action, phase });
+	};
+	const down = onKey('down');
+	const up = onKey('up');
+	window.addEventListener('keydown', down);
+	window.addEventListener('keyup', up);
+	return () => {
+		window.removeEventListener('keydown', down);
+		window.removeEventListener('keyup', up);
 	};
 };

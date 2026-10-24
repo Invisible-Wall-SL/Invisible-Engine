@@ -6,6 +6,7 @@
 	// canvas `drop` handler. CLICKING still works as a fallback (centroid placement). Both carry
 	// the node KIND and (where relevant) the REFERENCE it should carry. Ref/field editing is 2b.2.
 	import {
+		docVariables,
 		instanceNodeRef,
 		type FlowDoc,
 		type FunctionLibraryDoc,
@@ -15,7 +16,7 @@
 	import { browser } from '$app/environment';
 	import type { PaletteInstanceGroup } from '$lib/flowInstanceUi';
 	import { DROP_MIME, type DropPayload } from './dnd';
-	import { PRESENTATION_NODES } from './palette';
+	import { PRESENTATION_NODES, STATE_NODES } from './palette';
 
 	let {
 		vocab,
@@ -103,6 +104,11 @@
 	// node, so two would duplicate every pin. Hide the palette entry once one exists in the active
 	// graph (`doc.graph` here; a function body never carries a gameSignals source).
 	const hasGameSignals = $derived(doc.graph.nodes.some((n) => n.kind === 'gameSignals'));
+
+	// A node that names a variable starts on the first one declared (the inspector picks another).
+	const firstVariable = $derived(docVariables(doc)[0]?.id);
+	const stateRef = (entry: (typeof STATE_NODES)[number]): string | undefined =>
+		entry.variable ? firstVariable : undefined;
 
 	// Write the add-node payload onto the drag so the canvas can drop it at the cursor.
 	function onDragStart(event: DragEvent, kind: NodeKind, ref?: string): void {
@@ -318,6 +324,23 @@
 			{/if}
 		</section>
 	{/if}
+
+	<section>
+		{@render head('state', 'Variables & time', STATE_NODES.filter((p) => matches(p.label)).length)}
+		{#if isOpen('state')}
+			{#each STATE_NODES.filter((p) => matches(p.label)) as p (p.kind)}
+				<button
+					class="entry state"
+					draggable={true}
+					ondragstart={(ev) => onDragStart(ev, p.kind, stateRef(p))}
+					onclick={() => onadd(p.kind, stateRef(p))}
+					title="{p.kind} · game variables, timers, tick and keys"
+				>
+					{p.label}
+				</button>
+			{/each}
+		{/if}
+	</section>
 
 	<section>
 		{@render head(
@@ -563,6 +586,10 @@
 	}
 	.entry.mode {
 		border-left: 3px solid #f43f5e;
+	}
+	.entry.state {
+		/* Emerald — game state: variables, timers, tick and keys. */
+		border-left: 3px solid #34d399;
 	}
 	.entry.control {
 		border-left: 3px solid #64748b;
