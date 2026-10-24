@@ -60,7 +60,12 @@
 		alpha: 'alpha',
 	};
 
-	const PARAM_KINDS = ['number', 'color', 'bool', 'choice'] as const;
+	const PARAM_KINDS = [
+		['number', 'number'],
+		['color', 'colour'],
+		['bool', 'switch'],
+		['choice', 'choice'],
+	] as const;
 
 	const set = <K extends keyof ShaderGraphDoc>(key: K, value: ShaderGraphDoc[K]): void =>
 		onChange({ ...doc, [key]: value });
@@ -306,9 +311,9 @@
 		</div>
 	{/each}
 	<div class="row adds">
-		{#each PARAM_KINDS as kind (kind)}
+		{#each PARAM_KINDS as [kind, label] (kind)}
 			<button type="button" {disabled} onclick={() => onChange(addParam(doc, kind))}
-				>+ {kind}</button
+				>+ {label}</button
 			>
 		{/each}
 	</div>

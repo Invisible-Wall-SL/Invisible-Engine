@@ -75,7 +75,9 @@
 	let edges = $state.raw<Edge[]>([]);
 	let fitSignal = $state(0);
 	$effect(() => {
-		const graph = doc ? canvasGraph(doc, analysis, selectedId) : { nodes: [], edges: [] };
+		const graph = doc
+			? canvasGraph(doc, analysis, selectedId, lease.readOnly)
+			: { nodes: [], edges: [] };
 		nodes = graph.nodes as Node[];
 		edges = graph.edges as Edge[];
 	});
@@ -279,6 +281,15 @@
 			notice = `This project already has an effect "${id}". Pick another name.`;
 			return;
 		}
+		if (
+			graphs.some((g) => g.id === id && g.shared) &&
+			!(await askConfirm({
+				title: `The shared library has "${id}"`,
+				message: `A new effect of that id replaces the studio's in this project: every entry naming custom:${id} plays yours.`,
+				confirmLabel: 'Create anyway',
+			}))
+		)
+			return;
 		showGraph(newShaderDoc(id, name), null, false);
 		saveState.markDirty();
 		await saveState.save();
@@ -288,7 +299,7 @@
 		const ok = await askConfirm({
 			title: `Delete "${row.name}"?`,
 			message:
-				'An Element FX entry naming it keeps its place and plays nothing until an effect of that id exists again. Its saved versions stay in History.',
+				'An Element FX entry naming it keeps its place. It plays the studio’s shared effect of that id if there is one, else nothing until an effect of that id exists again. Its saved versions stay in History.',
 			confirmLabel: 'Delete',
 			danger: true,
 		});
@@ -494,7 +505,7 @@
 				{graphs}
 				openId={doc?.id ?? null}
 				{openShared}
-				disabled={lease.readOnly}
+				readOnly={lease.readOnly}
 				onOpen={(row) => void open(row)}
 				onNew={() => void create()}
 				onDelete={(row) => void del(row)}

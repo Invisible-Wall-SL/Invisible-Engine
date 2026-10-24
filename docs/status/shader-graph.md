@@ -127,9 +127,9 @@ live Pixi preview, with a lease and history), is in review.
     It takes the save gate over from the Scene Editor.
   - **Three panes.** Left: the project's graphs (its own, and the shared ones it does not
     override, tagged) with New and Delete, then the node library by family, searched, dragged onto
-    the canvas or clicked in. Middle: the canvas. Right: the selected node's settings and unwired
-    input values, or the effect's (name, description, phase, duration, padding, params, up to 4
-    passes, motion curves and pivot), and the preview.
+    the canvas or clicked in. Middle: the canvas. Right: the preview, the selected node's settings and
+    unwired input values, and the effect's (name, description, phase, duration, padding, params, up
+    to 4 passes, motion curves and pivot).
   - **The canvas** is `$lib/graph/GraphCanvas.svelte`, lifted out of /flow-v2 (Flow now wraps it).
     A node's header carries its family colour; each port is coloured by the type it resolved to;
     an unwired input shows the value the compiler reads. A wire is refused unless the compiler

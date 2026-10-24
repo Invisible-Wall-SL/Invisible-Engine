@@ -57,7 +57,8 @@ projects to see another project's effects. The atlases the preview offers are th
 - **+ New** (or **+ New effect** in the empty canvas) asks for a **Name** and creates the effect
   straight away. Its id is the name in lower case, every character but a letter or digit turned
   into `_`, up to 60 characters (`Pulse tint` → `pulse_tint`). If the project already has an effect
-  with that id, a red notice asks you to pick another name.
+  with that id, a red notice asks you to pick another name. If the shared library has one, you are
+  asked first: yours would take its place in this project.
 - A new effect starts with the **Output** alone. Unwired, the Output draws the element as it is, so
   a new effect already compiles and changes nothing.
 - Click a name in **Effects** to open it. Any unsaved change to the open effect is saved first.
@@ -273,9 +274,9 @@ This builds an effect that tints the element toward a colour and back, once per 
 2. Under **Params**, click **+ color**. Set its label to `Tint` and pick a colour.
 3. Add **Split colour** (Colour). Its Colour input reads `sample`: the element's own colour.
 4. Add **Param** (Input). In its Settings, pick **Tint (color)**.
-5. Add **Colorize** (Colour). Wire Split colour's **Colour** into Colorize's **Colour**, and
-   Param's **Value** into Colorize's **Tint**.
-6. Add **Mix** (Math). Wire Split colour's **Colour** into **A**, and Colorize's **Out** into **B**.
+5. Add **Colourize** (Colour). Wire Split colour's **Colour** into Colourize's **Colour**, and
+   Param's **Value** into Colourize's **Tint**.
+6. Add **Mix** (Math). Wire Split colour's **Colour** into **A**, and Colourize's **Out** into **B**.
 7. Add **Bell** (Time). Its Progress reads `progress`. Wire its **Out** into Mix's **T**.
 8. Add **Join colour** (Colour). Wire Mix's **Out** into its **Colour**, and Split colour's
    **Alpha** into its **Alpha**.
@@ -308,9 +309,10 @@ between Bell and Mix's T, and wire Time's **Strength** into its other input.
 ### Two people on one effect
 
 Only one person edits an effect at a time. If someone else (or another tab of yours) has it open,
-the top bar reads "*name* is editing this — read-only". The library buttons, the properties and the
-settings are disabled, and nothing you do on the canvas is saved. The preview still works. **Take
-over** moves editing to you, and the other tab turns read-only.
+the top bar reads "*name* is editing this — read-only". The node library, the properties and the
+settings are disabled, nothing on the canvas moves, wires or deletes, and the effect cannot be
+deleted. You can still open or make another effect, and the preview still works. **Take over**
+moves editing to you, and the other tab turns read-only.
 
 If someone saved the effect after you opened it, the pill reads **⚠ Someone else saved this**.
 **Reload theirs** drops your changes and loads their version. **Overwrite with mine** replaces their
@@ -360,13 +362,12 @@ Click **✕** next to an effect and confirm. If it was open, the canvas empties.
 - **The whole effect stops on one error.** A single error anywhere (a node, a param, a pass, a blank
   name) means nothing ships and the preview is at rest. Fix the red items until the status bar reads
   **Compiles**.
-- **A new Param node is an error** ("…is not one of the effect's params") until you pick a param in
-  its Settings.
-- **While some errors stand, the meter and the port colours freeze.** A missing Output, a Param node
-  with no param, a bad setting, a bad param, pass or motion key, or a blank name stops the check
-  early. The meter then reads 0 and the ports show their declared types. Fix that error first.
-- **Deleting the Output.** The palette has no Output to add back. Press **Ctrl+Z** to get it back
-  (the undo history lasts until you open another effect or reload).
+- **A new Param node is an error** ("Param needs one of the effect's params picked") until you pick
+  a param in its Settings.
+- **An unknown node or a graph without its one Output freezes the meter and the port colours.** The
+  check cannot walk such a graph, so the meter reads 0 and the ports show their declared types. Any
+  other error leaves them working.
+- **The Output cannot be deleted.** Every effect has exactly one, and the palette has none to add.
 - **A colour will not drop on the Output.** A colour is a vec3 and the Output takes a premultiplied
   vec4. Put it through **Join colour** with an alpha (Split colour's Alpha keeps the element's
   shape).

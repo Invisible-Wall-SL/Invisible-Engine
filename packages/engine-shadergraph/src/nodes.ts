@@ -802,7 +802,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 	),
 	one(
 		'colorize',
-		'Colorize',
+		'Colourize',
 		'color',
 		'The colour’s brightness in Tint.',
 		[

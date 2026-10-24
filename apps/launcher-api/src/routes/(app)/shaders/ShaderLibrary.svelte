@@ -4,7 +4,7 @@
 
 	// The left pane: the project's graphs (its own and the studio's shared ones it does not
 	// override), then the node library by family. A node is dragged onto the canvas, or clicked to
-	// add it in the middle of the view.
+	// add it beside the selected node.
 	interface GraphRow {
 		id: string;
 		name: string;
@@ -16,7 +16,8 @@
 		/** The open graph's id, and whether it is the shared library's copy. */
 		openId: string | null;
 		openShared: boolean;
-		disabled?: boolean;
+		/** Another editor holds the open graph: nothing is added to it, and it is not deleted. */
+		readOnly?: boolean;
 		onOpen: (row: GraphRow) => void;
 		onNew: () => void;
 		onDelete: (row: GraphRow) => void;
@@ -26,7 +27,7 @@
 		graphs,
 		openId,
 		openShared,
-		disabled = false,
+		readOnly = false,
 		onOpen,
 		onNew,
 		onDelete,
@@ -51,7 +52,7 @@
 	<section>
 		<div class="head">
 			<h3>Effects</h3>
-			<button type="button" {disabled} onclick={onNew}>+ New</button>
+			<button type="button" onclick={onNew}>+ New</button>
 		</div>
 		{#if !graphs.length}
 			<p class="muted">No shader effects in this project yet.</p>
@@ -76,8 +77,10 @@
 						<button
 							type="button"
 							class="x"
-							title="Delete this effect"
-							{disabled}
+							title={row.id === openId && readOnly
+								? 'Another author is editing this effect'
+								: 'Delete this effect'}
+							disabled={row.id === openId && readOnly}
 							onclick={() => onDelete(row)}>✕</button
 						>
 					{/if}
@@ -97,9 +100,9 @@
 					<li>
 						<button
 							type="button"
-							draggable={!disabled}
+							draggable={!readOnly}
 							title={node.description}
-							{disabled}
+							disabled={readOnly}
 							ondragstart={(e) => writeDrag(e, SHADER_DROP_MIME, { type: node.type })}
 							onclick={() => onAdd(node.type)}
 						>
