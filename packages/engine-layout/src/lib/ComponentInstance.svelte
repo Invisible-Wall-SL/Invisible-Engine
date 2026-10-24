@@ -52,7 +52,7 @@
 </script>
 
 <script lang="ts">
-	import { Container, createPressHold, getContextApp } from 'pixi-svelte';
+	import { Container, createPressHold, getContextApp, getContextParent } from 'pixi-svelte';
 	import { CanvasSizeRectangle } from 'components-layout';
 	import { getContextLayout } from 'utils-layout';
 	import {
@@ -124,8 +124,19 @@
 	import { ComponentStateMachineRunner } from './stateMachine';
 	import { componentInputs, componentTriggers } from './componentInterface';
 	import { setCinematicNodeDriver } from './cinematicNodeContext';
-	import { ComponentEventDispatcher, hasNodeListeners, routeComponentCue } from './componentEvents';
-	import { setComponentListen } from './componentListenerContext';
+	import {
+		alignTargetIds,
+		ComponentEventDispatcher,
+		hasNodeListeners,
+		routeComponentCue,
+	} from './componentEvents';
+	import {
+		getComponentAlign,
+		setComponentAlign,
+		setComponentListen,
+		type ComponentAlignTarget,
+	} from './componentListenerContext';
+	import type { PointerPoint } from './componentPointer';
 	import { registerFlowInstance } from './flowInstances';
 	import { coerceInstanceInput, createFlowInstanceHandle } from './flowInstanceHandle';
 	import { getSceneIdContext } from './sceneIdContext';
@@ -786,13 +797,46 @@
 					input: (id) => stateMachineRunner?.input(id),
 					setInput: (id, value) => void stateMachineRunner?.setInput(id, value),
 					schedule: (drain) => queueMicrotask(drain),
+					alignTarget: (id) => {
+						const target = alignSpaces[id] as ComponentAlignTarget | undefined;
+						return (
+							target && {
+								...target,
+								place: (at) => void (aligned[id] = { ...aligned[id], ...at }),
+							}
+						);
+					},
 				})
 			: undefined;
 	if (eventDispatcher && listened) {
+		// A listener's pointer reads in the instance's space: the placing node's container, which the
+		// def's root (no transform of its own) shares.
+		const instanceSpace = getContextParent().parent;
 		setComponentListen({
 			owns: (nodeId) => eventDispatcher.owns(nodeId),
-			listen: (target, event) => eventDispatcher.pointer(target, event),
+			listen: (target, event, at) => eventDispatcher.pointer(target, event, at),
+			local: (global) => instanceSpace.toLocal(global),
 		});
+	}
+	// ALIGN TARGET (game-families §3.2): the nodes a listener of this def moves to the pointer, and
+	// where it put each. A def that aligns nothing provides the context only to hide an outer
+	// instance's from its own nodes; with none above, nothing is provided (parity).
+	const alignTargets = new Set(eventDispatcher && listened ? alignTargetIds(def) : []);
+	const alignSpaces: Record<string, ComponentAlignTarget> = {};
+	const aligned = $state<Record<string, Partial<PointerPoint>>>({});
+	if (alignTargets.size) {
+		setComponentAlign({
+			targets: (nodeId) => alignTargets.has(nodeId),
+			attach: (nodeId, target) => {
+				alignSpaces[nodeId] = target;
+				return () => aligned[nodeId];
+			},
+			detach: (nodeId, target) => {
+				if (alignSpaces[nodeId] === target) delete alignSpaces[nodeId];
+			},
+		});
+	} else if (getComponentAlign()) {
+		setComponentAlign({ targets: () => false, attach: () => () => undefined, detach: () => {} });
 	}
 	onDestroy(() => eventDispatcher?.destroy());
 

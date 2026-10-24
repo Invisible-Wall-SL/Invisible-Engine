@@ -212,6 +212,7 @@ const nodeListenerFields: Record<keyof NodeListener, true> = {
 	id: true,
 	event: true,
 	action: true,
+	swipe: true,
 };
 const smEnterActionFields: Record<keyof SmEnterAction, true> = {
 	id: true,

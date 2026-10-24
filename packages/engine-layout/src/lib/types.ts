@@ -373,21 +373,57 @@ export const BASE_NODE_FIELDS = {
 	elementFx: true,
 } as const satisfies { [K in keyof Required<BaseNode>]: boolean };
 
-/** The pointer events a {@link NodeListener} answers, as a VALUE (the normalizer imports it). */
-export const NODE_LISTENER_EVENTS = ['down', 'up', 'enter', 'leave', 'click'] as const;
+/**
+ * The pointer events a {@link NodeListener} answers, as a VALUE (the normalizer imports it). The
+ * last five are game-families §3.2 (P10.4): `move` while the pointer moves over the node, a drag
+ * (`dragStart` once a press on the node has moved, `drag` on every move after it, anywhere, and
+ * `dragEnd` on its release, anywhere) and a `swipe` on the release of a press that travelled
+ * (`componentPointer.ts`).
+ */
+export const NODE_LISTENER_EVENTS = [
+	'down',
+	'up',
+	'enter',
+	'leave',
+	'click',
+	'move',
+	'dragStart',
+	'drag',
+	'dragEnd',
+	'swipe',
+] as const;
 export type NodeListenerEvent = (typeof NODE_LISTENER_EVENTS)[number];
 
+/** The directions a `swipe` listener can ask for, as a VALUE. */
+export const SWIPE_DIRECTIONS = ['left', 'right', 'up', 'down'] as const;
+export type SwipeDirection = (typeof SWIPE_DIRECTIONS)[number];
+
+/** A `swipe` listener's filter: the dominant `direction` (absent ⇒ any) and the `threshold`, the
+ *  press-to-release distance in the instance's pixels (absent ⇒ {@link DEFAULT_SWIPE_THRESHOLD}). */
+export interface SwipeFilter {
+	direction?: SwipeDirection;
+	threshold?: number;
+}
+export const DEFAULT_SWIPE_THRESHOLD = 40;
+
 /** Every {@link ListenerAction.kind}, as a VALUE. Open: a later phase adds kinds here. */
-export const LISTENER_ACTION_KINDS = ['fire', 'set', 'toggle', 'raise'] as const;
+export const LISTENER_ACTION_KINDS = ['fire', 'set', 'toggle', 'raise', 'align'] as const;
 export type ListenerActionKind = (typeof LISTENER_ACTION_KINDS)[number];
+
+/** The pointer readings a payload field can take, as a VALUE: the pointer in the instance's space,
+ *  and how far it is from where the press began (0 with no press). */
+export const POINTER_PAYLOAD_FIELDS = ['x', 'y', 'dx', 'dy'] as const;
+export type PointerPayloadField = (typeof POINTER_PAYLOAD_FIELDS)[number];
 
 /**
  * One value of a raised event's payload: a number, a bool, the current value of a bool or number
- * input, or a LOCALIZATION KEY (plan §8). The stack is source-as-key, so a key is its source text;
+ * input, a LOCALIZATION KEY (plan §8), or a reading of the POINTER that ran the listener (a number;
+ * a raise no pointer ran leaves it empty). The stack is source-as-key, so a key is its source text;
  * the harvest collects every `{ key }` a def raises, so none bypasses localization. A bare string
  * is not a value.
  */
-export type EventPayloadValue = number | boolean | { input: string } | { key: string };
+export type EventPayloadValue =
+	number | boolean | { input: string } | { key: string } | { pointer: PointerPayloadField };
 
 /**
  * The `ParamDecl` types an event's payload field may have — a value is a number, a bool or a
@@ -404,20 +440,36 @@ export interface RaiseEventAction {
 }
 
 /**
+ * ALIGN TARGET (Rive's "follow the pointer", game-families §3.2): place node `target` of the def on
+ * the pointer, in its parent's space. `preserveOffset` keeps the distance it had from the pointer
+ * when the press began (else its position IS the pointer); `axis` moves it along one axis only.
+ */
+export interface AlignTargetAction {
+	kind: 'align';
+	target: string;
+	preserveOffset?: true;
+	axis?: 'x' | 'y';
+}
+
+/**
  * What a listener does, discriminated by `kind` so new kinds only add: `fire` a trigger input,
- * `set` a bool or number input to `value`, `toggle` a bool input, `raise` an event.
+ * `set` a bool or number input to `value`, `toggle` a bool input, `raise` an event, `align` a node
+ * to the pointer.
  */
 export type ListenerAction =
 	| { kind: 'fire'; input: string }
 	| { kind: 'set'; input: string; value: boolean | number }
 	| { kind: 'toggle'; input: string }
-	| RaiseEventAction;
+	| RaiseEventAction
+	| AlignTargetAction;
 
 export interface NodeListener {
 	/** Unique within the node; the editor selects and the keep-unknown save grafts by it. */
 	id: string;
 	event: NodeListenerEvent;
 	action: ListenerAction;
+	/** A `swipe` listener's filter; read only on `event: 'swipe'`. */
+	swipe?: SwipeFilter;
 }
 
 /** A state's on-enter action. Its `id` (unique within the state) is what the editor selects and

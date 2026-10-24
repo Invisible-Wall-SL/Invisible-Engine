@@ -8,12 +8,15 @@ import type {
 	NodeListener,
 	RaiseEventAction,
 	SmEnterAction,
+	SwipeFilter,
 } from 'engine-layout';
 import {
 	EVENT_PAYLOAD_TYPES,
 	isLocalizationKey,
+	isPointerField,
 	LISTENER_ACTION_KINDS,
 	NODE_LISTENER_EVENTS,
+	SWIPE_DIRECTIONS,
 } from 'engine-layout';
 
 /**
@@ -35,6 +38,7 @@ const isPlainObject = (value: unknown): value is Row =>
 const LISTENER_EVENTS: ReadonlySet<unknown> = new Set(NODE_LISTENER_EVENTS);
 const ACTION_KINDS: ReadonlySet<unknown> = new Set(LISTENER_ACTION_KINDS);
 const PAYLOAD_TYPES: ReadonlySet<unknown> = new Set(EVENT_PAYLOAD_TYPES);
+const SWIPES: ReadonlySet<unknown> = new Set(SWIPE_DIRECTIONS);
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isId = (v: unknown): v is string => typeof v === 'string' && v !== '';
@@ -63,13 +67,26 @@ export function readPayloadField(
 
 /**
  * An action, or `undefined` when this build cannot read it — an unknown kind, a key it does not
- * know, a missing input or event, a payload value that is not a number, a bool, `{ input }` or
- * `{ key }` holding a localization key (`isLocalizationKey`). `extra` names the keys the row the
- * action is read from may also carry (an on-enter row's `id`).
+ * know, a missing input, event or Align Target node, a payload value that is not a number, a bool,
+ * `{ input }`, `{ key }` holding a localization key (`isLocalizationKey`) or `{ pointer }` naming
+ * a reading. `extra` names the keys the row the action is read from may also carry (an on-enter
+ * row's `id`).
  */
 export function readAction(input: unknown, ...extra: string[]): ListenerAction | undefined {
 	if (!isPlainObject(input) || !ACTION_KINDS.has(input.kind)) return undefined;
 	if (input.kind === 'raise') return readRaise(input, extra);
+	if (input.kind === 'align') {
+		if (!isId(input.target) || !only(input, 'kind', 'target', 'preserveOffset', 'axis', ...extra))
+			return undefined;
+		if (input.preserveOffset !== undefined && input.preserveOffset !== true) return undefined;
+		if (input.axis !== undefined && input.axis !== 'x' && input.axis !== 'y') return undefined;
+		return {
+			kind: 'align',
+			target: input.target,
+			...(input.preserveOffset ? { preserveOffset: true as const } : {}),
+			...(input.axis ? { axis: input.axis as 'x' | 'y' } : {}),
+		};
+	}
 	if (!isId(input.input)) return undefined;
 	if (input.kind === 'set') {
 		if (!only(input, 'kind', 'input', 'value', ...extra)) return undefined;
@@ -92,16 +109,45 @@ function readRaise(input: Row, extra: string[]): RaiseEventAction | undefined {
 			payload[name] = { input: v.input };
 		else if (isPlainObject(v) && only(v, 'key') && isLocalizationKey(v.key))
 			payload[name] = { key: v.key };
+		else if (isPlainObject(v) && only(v, 'pointer') && isPointerField(v.pointer))
+			payload[name] = { pointer: v.pointer };
 		else return undefined;
 	}
 	if (Object.keys(payload).length) action.payload = payload;
 	return action;
 }
 
+/** A swipe listener's filter; `null` when it is not one this build can read whole. */
+function readSwipe(input: unknown): SwipeFilter | null {
+	if (!isPlainObject(input) || !only(input, 'direction', 'threshold')) return null;
+	const filter: SwipeFilter = {};
+	if (input.direction !== undefined) {
+		if (!SWIPES.has(input.direction)) return null;
+		filter.direction = input.direction as SwipeFilter['direction'];
+	}
+	if (input.threshold !== undefined) {
+		if (!finite(input.threshold) || input.threshold < 0) return null;
+		filter.threshold = input.threshold;
+	}
+	return filter;
+}
+
+/** A listener; a `swipe` one keeps its filter (`swipe` is read only there). */
 export function readListener(item: unknown): NodeListener | undefined {
 	if (!isPlainObject(item) || !isId(item.id) || !LISTENER_EVENTS.has(item.event)) return undefined;
 	const action = readAction(item.action);
-	return action ? { id: item.id, event: item.event as NodeListener['event'], action } : undefined;
+	if (!action) return undefined;
+	const listener: NodeListener = {
+		id: item.id,
+		event: item.event as NodeListener['event'],
+		action,
+	};
+	if (item.event === 'swipe' && item.swipe !== undefined) {
+		const swipe = readSwipe(item.swipe);
+		if (!swipe) return undefined;
+		if (Object.keys(swipe).length) listener.swipe = swipe;
+	}
+	return listener;
 }
 
 export function readEnterAction(item: unknown): SmEnterAction | undefined {

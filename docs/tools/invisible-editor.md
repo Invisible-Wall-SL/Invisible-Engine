@@ -1959,20 +1959,41 @@ and no `:` (a timeline cue names it as `event:<name>`).
 **Listeners** are per node: select a node of the component and use **Listeners → + Listener**
 (under the node's name in Properties). Each row reads **On [event] → [action]**:
 
-- **On**: `down`, `up`, `hover in`, `hover out`, `click`. `up` counts only when the pointer is
-  released over the node; a click is a down and an up on the same node.
+- **On**: `down`, `up`, `hover in`, `hover out`, `click`, `pointer move`, `drag start`, `drag`,
+  `drag end`, `swipe`. `up` counts only when the pointer is released over the node; a click is a
+  down and an up on the same node. `pointer move` is the pointer moving over the node. A press
+  becomes a drag once it has travelled 4 px (in the component), so a tap's jitter is not one:
+  `drag start` then `drag` on each move, `drag end` on release. A drag keeps tracking after the
+  pointer leaves the node, and still ends when it is released elsewhere.
+- A **swipe** is judged on release, by how far the pointer got from where the press began. Its row
+  gets a direction picker — **any direction**, `left`, `right`, `up`, `down` (the longer axis of
+  the travel decides; a tie reads as left/right) — and a threshold in **px** in the component's
+  space, 40 when left blank.
 - The action: **fire trigger** (one of the trigger inputs), **set input** (a bool to true/false or
-  a number to a value), **toggle bool**, or **raise event** — then fill the event's payload fields:
-  a value, an input's current value, or a text key (it needs at least one letter — it is the text
-  as the game shows it). An `int` or `ms` value is rounded to a whole number.
+  a number to a value), **toggle bool**, **raise event**, or **align target** — then fill the
+  event's payload fields: a value, an input's current value, or a text key (it needs at least one
+  letter — it is the text as the game shows it). An `int` or `ms` value is rounded to a whole
+  number.
+- A number payload field on a listener's raise can also read the pointer: **pointer x** / **pointer
+  y** (where it is, in the component's space) or **pointer dx** / **pointer dy** (how far it is from
+  where the press began; 0 with no press). An `int` or `ms` field gets the reading rounded. A
+  state's On enter / On exit has no pointer, so it can't use them — validation flags one that does.
+- **align target** moves a node of the component onto the pointer, in that node's parent's space.
+  Pick the node (any node but the component's root — an instance is placed by its node). Tick
+  **keep offset** to keep the distance the node had from the pointer when the press began (else
+  the node's position becomes the pointer), and choose **x and y**, **x only** or **y only**. Put
+  it on `drag` for a slider knob or a draggable piece.
 
 **Save** refuses while a listener or an On enter / On exit row would be lost by it — no trigger, input or
 event picked, say — and names the rows to fix.
 
 A node with listeners becomes clickable in game (only such nodes do — nothing else changes). It
 still works as before if it also presses a button or a dialog action: both fire. A listener acts
-on its own placed instance only. Listeners need an input or an event to act on, so **+ Listener**
-is off until the component declares one.
+on its own placed instance only. A new listener starts **On click**, firing the first trigger (or
+raising the first event, or setting the first input); on a component with no inputs or events it
+starts as an **align target** moving its own node (on the root, the first node under it).
+**+ Listener** is off only when the component has none of these — no input, no event and no node
+but the root.
 
 **On enter** and **On exit**: in the **State machine** tab, a state's inspector has **On enter →
 ＋ raise event**: the event is raised every time that state is entered (and when the machine
@@ -1986,7 +2007,9 @@ under the graph logs every raised event with its time, what raised it (`listener
 `cue`) and its payload, between the states and transitions; **Clear** empties it, **↺ Reset**
 starts it over. In the preview a
 **fire trigger** listener moves the state machine; it does not start **Plays on** timelines (the
-game does).
+game does). The preview plays only `down`, `up`, `hover in` / `hover out` and `click`:
+`pointer move`, the drag events, `swipe` and **align target** do not preview there yet — they run
+in the game.
 
 Raised events reach Flow once Phase 7 adds the component's event pins; until then they are
 previewed here and do nothing in game. Everything is read-only while Inspecting an old version.
@@ -2116,6 +2139,10 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   blend into it — and the 2D canvas folds in position, scale, rotation, opacity, show / hide and
   tint, not a fill reveal or a clip frame. Rigs and effects inside a segment are not drawn on the
   stage. Check the motion in the running game.
+- **The listener preview plays clicks and hovers only.** The State machine tab's stage runs
+  `down`, `up`, `hover in` / `hover out` and `click` listeners; `pointer move`, `drag start` /
+  `drag` / `drag end`, `swipe`, **align target** and pointer payload readings do not preview yet.
+  Check them in the running game.
 - **Interactive feel is partly unverified.** Several recent editor capabilities
   (undo/redo, copy/paste, multi-select, and the two new menu-screen buttons)
   build clean and type-check, but the auth-gated canvas makes automated
