@@ -53,7 +53,7 @@ keys). Pointer drag is P10.4.
   committed seed does). Edited shared modules: `Game.svelte` (the gated ticker effect), `actor.ts`
   (the round reset, a no-op without a store), `flowV2Runtime.svelte.ts`, `flowV2InterpreterHolder.ts`,
   `ComponentInstance.svelte`, and the `engine-flow-v2` interpreter.
-- **Choices this build made** (sent to the coordinator; easy to change):
+- **Chosen in P10.3, owner may overturn** (the coordinator accepted them for now, 2026-10-24):
   - `variable-shadows-money` flags a variable named `balance` / `win` / `totalWin` / `bet`, and a
     variable fed (directly or through a compute) to `amount` on `setWinBookEventAmount`,
     `setBetAmount`, `winUpdate`, `freeSpinOutroCountUp` or `showMessage`, in an RGS game;
