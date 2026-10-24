@@ -596,6 +596,14 @@ const legalMove = (board: Board) => findMoves(board, { limit: 1 })[0];
 				game.replace(/const doSpinBetOrStop = wager\('spin', \(\) =>\s*runSpinOrSlamStop\(/, ''),
 			),
 	);
+	const actor = read('apps/lines/src/components/EnableGameActor.svelte');
+	check(
+		'9. EnableGameActor starts no round (BET / AUTO_BET) for a mechanic that never spins',
+		/const spins = gameMechanic\(\)\.spins;/.test(actor) &&
+			(actor.match(/gameActor\.send\(\{ type: '(AUTO_)?BET' \}\)/g) ?? []).length === 2 &&
+			(actor.match(/if \(spins && !stateBet\.betToResume\?\.active\) gameActor\.send/g) ?? [])
+				.length === 2,
+	);
 	check(
 		'9. Game.svelte mounts <Match3Input /> only for board input',
 		/\{#if mechanic\.boardInput\}\s*<Match3Input \/>/.test(game),

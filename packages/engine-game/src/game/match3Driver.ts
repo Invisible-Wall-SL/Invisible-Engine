@@ -189,7 +189,8 @@ export function createMatch3Driver({
 			let board: Board;
 			try {
 				board = session.shuffle();
-			} catch {
+			} catch (error) {
+				console.warn('[match3] no shuffle is playable, dealing afresh:', error);
 				board = session.deal();
 			}
 			present.seat(board);

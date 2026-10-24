@@ -132,14 +132,17 @@ kind is what every scaffold gate loops over).
     `boardSetInput` alone applies at once (a flag: the round-over chain locks the board while its
     screen holds, inside the move); `noMoves` is not raised when a new deal is already queued;
   - a config with **no Moves** has no limit: `boardReady` sends 0, the starter's `moveLimit` stays
-    0 and its out-of-moves branch never fires, so only the goal ends a round;
+    0 and its out-of-moves branch never fires, so only the goal ends a round. The starter HUD's
+    MOVES readout then reads 0; such a project removes it in the Scene Editor;
   - a **shuffle** that no arrangement of the gems can make playable deals the board afresh
     (no `boardReady`: the round goes on); a deal that fails shows the error modal;
   - the **session outlives the board's mount**: a screen change that remounts the board re-seats
     the board the session has, never re-deals;
   - the **wager intents** (`spin`, `autoSpin`, `buyBonus`, `increase`, `decrease`) are no-ops for a
     mechanic that never spins (`engine-game` `runsIntent`), whatever reaches them: an authored HUD
-    button, a flow intent such as `startSpin`, the Space key;
+    button, a flow intent such as `startSpin`, the Space key, and `EnableGameActor` starts no round
+    (`BET` / `AUTO_BET`) for one, so a flow effect that sends `bet` (`commitBuyBonus`,
+    `startAutoSpins`, not in `MATCH3_VOCAB`) cannot either;
   - a swipe swaps once it travels **0.35 of a cell** along one axis, mid-drag; a tap selects; the
     same cell again drops the selection;
   - unauthored, `select` draws the gem's **Win** art and `hint` its **Land** art; a new
