@@ -30,7 +30,8 @@
  *     register and read as a playable kind. Each bad pass (a kind that is not a single pass, a
  *     param it lacks, a bad value, a tie to a missing param or one of another kind, too many, a
  *     strength out of range) and each bad curve (an unknown channel, keys out of order or past 1, a
- *     non-number, an unknown ease, too many keys, a pivot far off) is an error.
+ *     non-number, a value out of its channel's range, an unknown ease, too many keys, a pivot far
+ *     off) is an error; so is a length that is not a number the runtime plays, or padding past 2.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -43,11 +44,11 @@ import {
 	isPlayableElementFxKind,
 	readElementFxEntry,
 	setCustomElementFx,
+	CUSTOM_ELEMENT_FX_PASS_LIMIT as PASS_LIMIT,
+	ELEMENT_FX_CURVE_KEY_LIMIT as CURVE_KEY_LIMIT,
 } from 'constants-shared/elementFx';
 import { EFX_GLSL, linkGlsl } from 'constants-shared/glslLibrary';
 import {
-	CURVE_KEY_LIMIT,
-	PASS_LIMIT,
 	compileShaderEffect,
 	compileShaderGraph,
 	glslFloat,
@@ -402,7 +403,7 @@ console.log('shader graph — the validator');
 	};
 	assert(
 		broken([null]).join() === 'param' &&
-			broken([7, { id: 'x' }]).join() === 'param,param' &&
+			broken([7, { id: 'x', label: 'X' }]).join() === 'param,param' &&
 			broken([{ id: 'k', label: 'K', kind: 'choice', default: 1, options: [1, 2] }]).join() ===
 				'param',
 		'a malformed param list (a null, a number, a choice of numbers): errors, never a throw',
@@ -637,8 +638,9 @@ console.log('shader graph — the effect (a custom Element FX)');
 			passCode(Array.from({ length: PASS_LIMIT + 1 }, () => ({ kind: 'glow' }))) &&
 			passCode([{ kind: 'glow', intensity: 9 }]) &&
 			passCode('glow') &&
-			!passCode([{ kind: 'outline', params: { color: { param: 'color' } }, intensity: 0.5 }]),
-		'each bad pass is an error: not a single-pass kind, a param it lacks, a bad value, a tie to a missing or mismatched param, too many, too strong',
+			!passCode([{ kind: 'outline', params: { color: { param: 'color' } }, intensity: 0.5 }]) &&
+			!passCode([{ kind: 'glow', params: { color: '#FFD166' } }]),
+		'each bad pass is an error: not a single-pass kind, a param it lacks, a bad value, a tie to a missing or mismatched param, too many, too strong (an upper-case colour is fine)',
 	);
 	const motionCode = (motion: unknown): boolean =>
 		validateShaderGraph(base({ motion: motion as ShaderGraphDoc['motion'] })).some(
@@ -662,8 +664,11 @@ console.log('shader graph — the effect (a custom Element FX)');
 			motionCode({ channels: { x: [] } }) &&
 			motionCode({ channels: {}, pivot: { x: 5, y: 0 } }) &&
 			motionCode({}) &&
+			motionCode({ channels: { alpha: [{ t: 0, v: 1.6 }] } }) &&
+			motionCode({ channels: { scale: [{ t: 0, v: -0.5 }] } }) &&
+			motionCode({ channels: { rotation: [{ t: 0, v: 7200 }] } }) &&
 			!motionCode({ channels: { rotation: keys(CURVE_KEY_LIMIT) }, pivot: { x: 0, y: 1 } }),
-		'each bad curve is an error: an unknown channel, keys out of order or past 1, not a number, an unknown ease, too many or none, a pivot far off',
+		'each bad curve is an error: an unknown channel, keys out of order or past 1, not a number, out of its channel’s range (alpha 0…1, scale ≥ 0), an unknown ease, too many or none, a pivot far off',
 	);
 	const docCode = (extra: Partial<ShaderGraphDoc>): boolean =>
 		validateShaderGraph(base(extra)).some((i) => i.code === 'doc');
@@ -671,9 +676,14 @@ console.log('shader graph — the effect (a custom Element FX)');
 		docCode({ name: ' ' }) &&
 			docCode({ durationMs: 10 }) &&
 			docCode({ durationMs: 60_000 }) &&
+			docCode({ durationMs: '900' as unknown as number }) &&
+			docCode({ durationMs: [900] as unknown as number }) &&
+			docCode({ padding: 3 }) &&
+			docCode({ padding: '1' as unknown as number }) &&
+			!docCode({ padding: 0.5 }) &&
 			docCode({ description: 3 as unknown as string }) &&
 			!docCode({}),
-		'the effect needs a name, a length the runtime plays (50 ms…20 s) and text for a description',
+		'the effect needs a name, a length the runtime plays (a number, 50 ms…20 s), padding of 0…2 and text for a description',
 	);
 	assert(effect?.padding === 0, 'no padding unless the doc asks for room');
 }

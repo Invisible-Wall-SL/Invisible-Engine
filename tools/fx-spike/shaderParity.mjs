@@ -59,7 +59,9 @@ const launch = async () => {
 const shoot = async (outDir) => {
 	const root = resolve(arg('root') ?? REPO);
 	mkdirSync(outDir, { recursive: true });
-	const { kinds, sheets, graphs } = await writeSheets(root, outDir);
+	const { kinds, sheets, graphs } = await writeSheets(root, outDir, {
+		optionalGraphs: root !== REPO,
+	});
 	const browser = await launch();
 	const rows = {};
 	const errors = [];

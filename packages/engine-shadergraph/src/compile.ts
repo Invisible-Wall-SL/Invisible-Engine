@@ -20,15 +20,14 @@
  */
 
 import {
-	ELEMENT_FX_CURVE_EASES,
+	CUSTOM_ELEMENT_FX_PADDING_MAX,
 	ELEMENT_FX_LIMITS,
-	ELEMENT_FX_MOTION_CHANNELS,
-	ELEMENT_FX_PASS_KINDS,
 	ELEMENT_FX_PHASES,
 	customElementFxKind,
-	elementFxSpec,
+	customElementFxMotionIssues,
+	customElementFxPassIssues,
+	elementFxParamSpecIssues,
 	isCustomElementFxKind,
-	readElementFxParam,
 	type CustomElementFx,
 	type CustomElementFxUniform,
 	type ElementFxParamSpec,
@@ -52,10 +51,6 @@ import {
 /** Above these a graph is flagged as heavy for a phone; it still compiles. */
 export const COST_BUDGET = 400;
 export const SAMPLE_BUDGET = 16;
-
-/** A custom effect's passes and the keys on one motion curve, at most. */
-export const PASS_LIMIT = 4;
-export const CURVE_KEY_LIMIT = 32;
 
 export interface CompiledShader {
 	/** Uniforms and `main`: the pass body `ElementFxFilter` takes. */
@@ -112,141 +107,14 @@ const convert = (expr: string, from: PortType, to: PortType): string | undefined
 	return undefined;
 };
 
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-	!!v && typeof v === 'object' && !Array.isArray(v);
-
-/** A pass's issues: a pass kind, its params by value or tied to one of the effect's, a strength. */
-const passIssues = (passes: unknown, params: ReadonlyMap<string, ElementFxParamSpec>): string[] => {
-	if (passes === undefined) return [];
-	if (!Array.isArray(passes)) return ['passes is not a list'];
-	if (passes.length > PASS_LIMIT) return [`at most ${PASS_LIMIT} passes`];
-	const out: string[] = [];
-	passes.forEach((raw: unknown, i) => {
-		const at = `pass ${i + 1}`;
-		if (!isRecord(raw)) return void out.push(`${at} is not a pass`);
-		const kind = raw.kind;
-		if (!(ELEMENT_FX_PASS_KINDS as readonly unknown[]).includes(kind)) {
-			return void out.push(
-				`${at}: "${String(kind)}" is not one of ${ELEMENT_FX_PASS_KINDS.join(', ')}`,
-			);
-		}
-		const specs = new Map(
-			elementFxSpec(kind as (typeof ELEMENT_FX_PASS_KINDS)[number]).params.map((p) => [p.id, p]),
-		);
-		if (raw.params !== undefined && !isRecord(raw.params)) out.push(`${at}: params is not a map`);
-		for (const [id, value] of Object.entries(isRecord(raw.params) ? raw.params : {})) {
-			const spec = specs.get(id);
-			if (!spec) {
-				out.push(`${at}: ${String(kind)} has no param "${id}"`);
-			} else if (isRecord(value)) {
-				const bound = typeof value.param === 'string' ? params.get(value.param) : undefined;
-				const fits =
-					bound &&
-					bound.kind === spec.kind &&
-					(bound.kind !== 'choice' ||
-						(spec.kind === 'choice' && bound.options.every((o) => spec.options.includes(o))));
-				if (!fits)
-					out.push(`${at}: "${id}" is not tied to one of the effect's ${spec.kind} params`);
-			} else if (readElementFxParam(spec, value) !== value) {
-				out.push(`${at}: "${id}" is not a valid ${spec.kind}`);
-			}
-		}
-		const { min, max } = ELEMENT_FX_LIMITS.intensity;
-		if (
-			raw.intensity !== undefined &&
-			!(typeof raw.intensity === 'number' && raw.intensity >= min && raw.intensity <= max)
-		) {
-			out.push(`${at}: intensity must be ${min}…${max}`);
-		}
-	});
-	return out;
-};
-
-const MOTION_LIMIT = 10_000;
-
-/** The motion's issues: known channels, keys in order over 0…1, finite values, known eases. */
-const motionIssues = (motion: unknown): string[] => {
-	if (motion === undefined) return [];
-	if (!isRecord(motion) || !isRecord(motion.channels)) return ['motion has no channels map'];
-	const out: string[] = [];
-	for (const [channel, curve] of Object.entries(motion.channels)) {
-		if (!(ELEMENT_FX_MOTION_CHANNELS as readonly string[]).includes(channel)) {
-			out.push(`"${channel}" is not one of ${ELEMENT_FX_MOTION_CHANNELS.join(', ')}`);
-			continue;
-		}
-		if (!Array.isArray(curve) || !curve.length || curve.length > CURVE_KEY_LIMIT) {
-			out.push(`${channel}: a curve has 1…${CURVE_KEY_LIMIT} keys`);
-			continue;
-		}
-		let last = 0;
-		curve.forEach((key: unknown, i) => {
-			if (
-				!isRecord(key) ||
-				typeof key.t !== 'number' ||
-				!(key.t >= last && key.t <= 1) ||
-				typeof key.v !== 'number' ||
-				!(Math.abs(key.v) <= MOTION_LIMIT) ||
-				(key.ease !== undefined &&
-					!(ELEMENT_FX_CURVE_EASES as readonly unknown[]).includes(key.ease))
-			) {
-				out.push(`${channel}: key ${i + 1} needs t in order over 0…1, a value, a known ease`);
-			} else {
-				last = key.t;
-			}
-		});
-	}
-	const pivot = motion.pivot;
-	if (
-		pivot !== undefined &&
-		!(
-			isRecord(pivot) && [pivot.x, pivot.y].every((v) => typeof v === 'number' && v >= -1 && v <= 2)
-		)
-	) {
-		out.push('pivot needs x and y in −1…2');
-	}
-	return out;
-};
-
-const paramIssues = (params: unknown): GraphIssue[] => {
-	if (!Array.isArray(params))
-		return [{ level: 'error', code: 'doc', message: 'params is not a list' }];
-	const issues: GraphIssue[] = [];
-	const seen = new Set<string>();
-	const bad = (message: string): void => {
-		issues.push({ level: 'error', code: 'param', message });
-	};
-	for (const raw of params as ElementFxParamSpec[]) {
-		const id = raw && typeof raw.id === 'string' ? raw.id : '';
-		if (!id) {
-			bad('a param has no id');
-			continue;
-		}
-		if (seen.has(id)) bad(`param "${id}" is defined twice`);
-		seen.add(id);
-		if (raw.kind === 'number') {
-			const ok = [raw.default, raw.min, raw.max].every(Number.isFinite);
-			if (!ok || raw.min > raw.max || raw.default < raw.min || raw.default > raw.max) {
-				bad(`param "${id}": its default must sit between its min and max`);
-			}
-		} else if (raw.kind === 'color') {
-			if (!HEX.test(String(raw.default))) bad(`param "${id}": its default is not a #rrggbb colour`);
-		} else if (raw.kind === 'bool') {
-			if (typeof raw.default !== 'boolean') bad(`param "${id}": its default is not on or off`);
-		} else if (raw.kind === 'choice') {
-			if (
-				!Array.isArray(raw.options) ||
-				!raw.options.length ||
-				!raw.options.every((option) => typeof option === 'string') ||
-				!raw.options.includes(raw.default)
-			) {
-				bad(`param "${id}": its options must be words, its default one of them`);
-			}
-		} else {
-			bad(`param "${id}": unknown kind`);
-		}
-	}
-	return issues;
-};
+const paramIssues = (params: unknown): GraphIssue[] =>
+	Array.isArray(params)
+		? elementFxParamSpecIssues(params).map((message) => ({
+				level: 'error',
+				code: 'param',
+				message,
+			}))
+		: [{ level: 'error', code: 'doc', message: 'params is not a list' }];
 
 interface Analysis {
 	issues: GraphIssue[];
@@ -308,10 +176,21 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 	if (!(ELEMENT_FX_PHASES as readonly string[]).includes(doc.phase))
 		error('doc', `phase "${String(doc.phase)}" is not one of ${ELEMENT_FX_PHASES.join(', ')}`);
 	const { min: shortest, max: longest } = ELEMENT_FX_LIMITS.durationMs;
-	if (!(doc.durationMs >= shortest && doc.durationMs <= longest))
+	if (!(
+		typeof doc.durationMs === 'number' &&
+		doc.durationMs >= shortest &&
+		doc.durationMs <= longest
+	))
 		error('doc', `durationMs must be ${shortest}…${longest}`);
-	if (doc.padding !== undefined && !(Number.isFinite(doc.padding) && doc.padding >= 0))
-		error('doc', 'padding must be 0 or more');
+	if (
+		doc.padding !== undefined &&
+		!(
+			typeof doc.padding === 'number' &&
+			doc.padding >= 0 &&
+			doc.padding <= CUSTOM_ELEMENT_FX_PADDING_MAX
+		)
+	)
+		error('doc', `padding must be 0…${CUSTOM_ELEMENT_FX_PADDING_MAX}`);
 	issues.push(...paramIssues(doc.params));
 	if (!Array.isArray(doc.nodes) || !Array.isArray(doc.wires)) {
 		error('doc', 'nodes and wires must be lists');
@@ -322,8 +201,8 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 			.filter((p) => p && typeof p.id === 'string')
 			.map((p) => [p.id, p]),
 	);
-	for (const message of passIssues(doc.passes, params)) error('pass', message);
-	for (const message of motionIssues(doc.motion)) error('motion', message);
+	for (const message of customElementFxPassIssues(doc.passes, params)) error('pass', message);
+	for (const message of customElementFxMotionIssues(doc.motion)) error('motion', message);
 
 	const nodes = new Map<string, GraphNode>();
 	const defs = new Map<string, NodeDef>();

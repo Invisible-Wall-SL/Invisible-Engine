@@ -5,6 +5,8 @@
  */
 
 import {
+	ELEMENT_FX_LIMITS,
+	ELEMENT_FX_PASS_KINDS,
 	elementFxParamUniform,
 	resolveElementFxParams,
 	sampleElementFxCurve,
@@ -14,8 +16,8 @@ import {
 	type ElementFxParamValue,
 } from 'constants-shared/elementFx';
 import type { Filter } from 'pixi.js';
-import { DEG, type FxFrame, type Motion } from './frame';
-import { KINDS, type FilterImpl, type KindImpl } from './kinds';
+import { DEG, clamp01, type FxFrame, type Motion } from './frame';
+import { KINDS, filterImpl, type FilterImpl, type KindImpl } from './kinds';
 import { ElementFxFilter } from './shaders';
 
 const VECTOR_TYPES = { vec2: 2, vec3: 3, vec4: 4 } as const;
@@ -23,7 +25,7 @@ const VECTOR_TYPES = { vec2: 2, vec3: 3, vec4: 4 } as const;
 const graphPass = (effect: CustomElementFx): FilterImpl<Filter> => {
 	const params = new Map(effect.spec.params.map((spec) => [spec.id, spec]));
 	const { body, uniforms } = effect.shader;
-	const impl: FilterImpl<ElementFxFilter> = {
+	return filterImpl<ElementFxFilter>({
 		create: () =>
 			new ElementFxFilter(
 				effect.spec.kind.replace(/\W/g, '-'),
@@ -52,28 +54,39 @@ const graphPass = (effect: CustomElementFx): FilterImpl<Filter> => {
 				? (_frame, view) =>
 						Math.ceil(effect.padding * Math.max(view.screenWidth, view.screenHeight)) + 2
 				: undefined,
-	};
-	return impl as unknown as FilterImpl<Filter>;
+	});
 };
 
-/** A built-in pass: its kind's filter, fed the effect's frame with its own params and strength. */
+/**
+ * A built-in pass: its kind's filter, fed the effect's frame with its own params (resolved once
+ * per play: the effect's params are fixed for one) and its strength, within the runtime's.
+ */
 const builtInPass = (pass: CustomElementFxPass): FilterImpl<Filter> | undefined => {
-	const impl = KINDS[pass.kind]?.filter;
+	const impl = (ELEMENT_FX_PASS_KINDS as readonly string[]).includes(pass.kind)
+		? KINDS[pass.kind].filter
+		: undefined;
 	if (!impl) return undefined;
 	const given = pass.params ?? {};
 	const strength = pass.intensity ?? 1;
-	const frameOf = (frame: FxFrame): FxFrame => {
-		const values: Record<string, ElementFxParamValue> = {};
-		for (const [id, value] of Object.entries(given)) {
-			const bound = typeof value === 'object' ? frame.params[value.param] : value;
-			if (bound !== undefined) values[id] = bound;
+	const resolved = new WeakMap<object, Record<string, ElementFxParamValue>>();
+	const paramsFor = (effectParams: FxFrame['params']): Record<string, ElementFxParamValue> => {
+		let params = resolved.get(effectParams);
+		if (!params) {
+			const values: Record<string, ElementFxParamValue> = {};
+			for (const [id, value] of Object.entries(given)) {
+				const bound = typeof value === 'object' ? effectParams[value.param] : value;
+				if (bound !== undefined) values[id] = bound;
+			}
+			params = resolveElementFxParams(pass.kind, values);
+			resolved.set(effectParams, params);
 		}
-		return {
-			...frame,
-			intensity: frame.intensity * strength,
-			params: resolveElementFxParams(pass.kind, values),
-		};
+		return params;
 	};
+	const frameOf = (frame: FxFrame): FxFrame => ({
+		...frame,
+		intensity: Math.min(ELEMENT_FX_LIMITS.intensity.max, frame.intensity * strength),
+		params: paramsFor(frame.params),
+	});
 	const padding = impl.padding;
 	return {
 		create: (frame) => impl.create(frameOf(frame)),
@@ -82,7 +95,10 @@ const builtInPass = (pass: CustomElementFxPass): FilterImpl<Filter> | undefined 
 	};
 };
 
-/** The motion a custom effect's curves describe at `frame`. Alpha does not scale with intensity. */
+/**
+ * The motion a custom effect's curves describe at `frame`. Alpha does not scale with intensity and
+ * stays 0…1; a scale never reaches 0 or turns the element over, however strong the play.
+ */
 const curvedMotion =
 	(motion: CustomElementFxMotion) =>
 	(frame: FxFrame): Partial<Motion> => {
@@ -96,10 +112,10 @@ const curvedMotion =
 		return {
 			x: k * at('x', 0) * frame.width,
 			y: k * at('y', 0) * frame.height,
-			scaleX: 1 + k * (scale * at('scaleX', 1) - 1),
-			scaleY: 1 + k * (scale * at('scaleY', 1) - 1),
+			scaleX: Math.max(1e-4, 1 + k * (scale * at('scaleX', 1) - 1)),
+			scaleY: Math.max(1e-4, 1 + k * (scale * at('scaleY', 1) - 1)),
 			rotation: k * at('rotation', 0) * DEG,
-			alpha: at('alpha', 1),
+			alpha: clamp01(at('alpha', 1)),
 			pivotX: motion.pivot?.x ?? 0.5,
 			pivotY: motion.pivot?.y ?? 0.5,
 		};

@@ -54,6 +54,10 @@ game yet (step 4), and no tool or route exists.
   - **Custom kinds.** A compiled graph plays as the Element FX kind `custom:<id>`. The registry is
     in `constants-shared/elementFx`: `setCustomElementFx(list)` replaces the set,
     `isPlayableElementFxKind` answers for built-ins and registered custom kinds alike.
+  - **The registry checks what it is given.** Each effect goes through `readCustomElementFx`
+    (spec and params, shader body and uniforms, padding, passes, motion) and is kept as a copy. A
+    malformed one is left out, so an effect loaded from storage or a bundle cannot stop the game's
+    ticker mid-play. A kind given twice plays as its last.
   - **The reader keeps them.** A well-formed custom entry is kept even before its effect is
     registered (its params as plain values), so the order a game reads its docs and registers its
     effects in cannot drop one. It plays once registered and is a no-op until then.
@@ -64,26 +68,35 @@ game yet (step 4), and no tool or route exists.
       the effect's own params of the same kind.
     - **Motion:** a curve per channel over the play (x, y as shares of the element, scale,
       rotation in degrees, alpha), keys eased linear / smooth / in / out / hold, about a pivot.
-      Every channel but alpha scales with intensity.
+      Each channel has a range (alpha 0…1, scale 0…10, x / y ±10, rotation ±3600). Every channel
+      but alpha scales with intensity; the runtime keeps alpha 0…1 and a scale above 0, so a strong
+      play never flips the element over.
+    - **Padding:** room the graph draws outside the element, 0…2 shares of its larger side.
   - **The runtime** (`pixi-svelte/src/lib/elementFx/custom.ts`) plays it as a built-in plays: its
     graph as one `ElementFxFilter`, its passes after it, its motion folded into the element's
     transform. An effect already playing keeps what it started with when the set is replaced.
   - **Where it plays.** Nodes, screens, the reels and symbol states play an entry naming one, and
-    the Flow's `elementEffect` plays one too (the game checks `isPlayableElementFxKind`).
-- **Not started:** steps 4–8 (the runtime kinds, the pipeline, the `/shaders` editor, templates,
-  editor v2, later).
+    the Flow's `elementEffect` plays one too (the game checks `isPlayableElementFxKind`). The gate
+    plays custom kinds through the reader and the runtime those all share. It does not mount a
+    `Symbol.svelte`: symbol states reach the same reader through `symbolStateFx`.
+  - **An unregistered custom entry still counts** where the engine counts entries: cue names,
+    keyed channels, an `enter` beat a symbol state waits for. Playing it is a no-op whose `done` is
+    already settled, so the wait ends at once.
+- **Not started:** steps 4–8 (the pipeline, the `/shaders` editor, templates, editor v2, later).
 
 ## Open items / next
 1. Merge step 3.
 2. **Step 4: the pipeline.**
    - Storage and leases; export → deploy → bake → pull, and the game registering the project's
      compiled effects at boot (`setCustomElementFx`), in Publish.
-   - The pickers list custom effects: the Scene Editor, `/symbols`, and the Flow's kind dropdown
-     (its `ElementFxKind` enum is the built-ins today, so the Flow's validator must take custom
-     kinds too).
+   - The pickers list custom effects: the Scene Editor, `/symbols`, and the Flow's kind dropdown.
+     The Flow's vocabulary enum (`ElementFxKind` in `standardVocab.ts`) lists the built-ins; its
+     validator already takes any text for an enum, so the dropdown is what needs widening.
    - The editor registers the project's set. Until it does, an entry naming a custom kind shows as
      "this build cannot read or play this effect" and is kept as saved.
-2. **Nodes the design lists that v1 does not have yet:** Perspective plane (the 3D flip's ray cast
+   - The editor's kind picker groups by `ELEMENT_FX_CATEGORIES`, which has no `custom` group yet,
+     and its rows read the registry once: they must refresh when the project's set is registered.
+3. **Nodes the design lists that v1 does not have yet:** Perspective plane (the 3D flip's ray cast
    as one node), star / sparkle, rim, loop envelope and the pixel input. Add them when a template
    (step 6) or an artist needs one.
 
@@ -109,7 +122,7 @@ game yet (step 4), and no tool or route exists.
     edge glow by the element's alpha: played through the runtime, whose pass area is the element
     plus a margin, it had painted the edge over the empty margin.
   - **Proof.**
-    - `check:element-fx`: a new section, 24 checks. A custom effect read with every trigger and
+    - `check:element-fx`: a new section, 24 checks (27 after the review). A custom effect read with every trigger and
       kept before it is registered; posed by a timeline; sped up by turbo; held as an exit and
       released by an enter; stopped back to rest. Its graph, its built-in pass with a tied colour,
       and its motion all play. Mutation-checked: dropping the param uniform write, and the reader
@@ -118,6 +131,22 @@ game yet (step 4), and no tool or route exists.
     - `shader-parity` and `shader-compile` draw a new `custom` sheet: the six reference graphs
       registered and played through `playElementFx` on WebGL1 and WebGL2.
     - The 50 built-ins, every side and every signed param render identical to `main`.
+  - **Review.** An independent review found nothing blocking; the runtime refactor held under its
+    probes (stacking, removal, destroyed containers, poses back to rest). Fixed before merge:
+    - a motion curve could push alpha past 1 (Pixi wraps it) or a strong shrink through 0 (the
+      element flipped over);
+    - a length given as text or a list compiled;
+    - padding had no upper bound;
+    - the registry trusted its input, so a malformed effect could throw on every tick: it now reads
+      each one, and the gate holds four malformed effects to being left out;
+    - a pass's strength could reach 16, any built-in filter kind could be a pass at runtime, and a
+      pass resolved its params every frame;
+    - an upper-case colour was refused in a pass;
+    - `shader-parity shoot --root <a base older than step 3>` failed to bundle: such a base now
+      shoots without graph sheets.
+
+    The gate's custom section has 27 checks, each new one mutation-checked (dropping the scale
+    clamp, or the registry's reader, fails it).
 - 2026-10-23 — **Step 2: the `engine-shadergraph` package** (schema, node library, validator,
   compiler).
   - **The library grew by 13 building blocks** for the nodes to call (29 in all): FBM, the hold,

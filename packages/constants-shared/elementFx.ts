@@ -1299,17 +1299,255 @@ export interface CustomElementFx {
 	motion?: CustomElementFxMotion;
 }
 
+/** A custom effect's passes and the keys on one motion curve, at most. */
+export const CUSTOM_ELEMENT_FX_PASS_LIMIT = 4;
+export const ELEMENT_FX_CURVE_KEY_LIMIT = 32;
+/** Room a custom effect's graph may ask for outside the element, in shares of its larger side. */
+export const CUSTOM_ELEMENT_FX_PADDING_MAX = 2;
+
+/** The values each motion channel may take (x / y in element sizes, rotation in degrees). */
+export const ELEMENT_FX_MOTION_RANGES: Readonly<
+	Record<ElementFxMotionChannel, { min: number; max: number }>
+> = {
+	x: { min: -10, max: 10 },
+	y: { min: -10, max: 10 },
+	scale: { min: 0, max: 10 },
+	scaleX: { min: 0, max: 10 },
+	scaleY: { min: 0, max: 10 },
+	rotation: { min: -3600, max: 3600 },
+	alpha: { min: 0, max: 1 },
+};
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+	!!v && typeof v === 'object' && !Array.isArray(v);
+
+/** Why a list of param specs is malformed, or [] when it is not. */
+export function elementFxParamSpecIssues(params: readonly unknown[]): string[] {
+	const out: string[] = [];
+	const seen = new Set<string>();
+	for (const raw of params) {
+		const spec = isRecord(raw) ? raw : {};
+		const id = typeof spec.id === 'string' ? spec.id : '';
+		if (!id) {
+			out.push('a param has no id');
+			continue;
+		}
+		if (seen.has(id)) out.push(`param "${id}" is defined twice`);
+		seen.add(id);
+		if (typeof spec.label !== 'string') out.push(`param "${id}" has no label`);
+		const { default: value, min, max, options } = spec;
+		if (spec.kind === 'number') {
+			if (!(finite(value) && finite(min) && finite(max) && min <= value && value <= max)) {
+				out.push(`param "${id}": its default must sit between its min and max`);
+			}
+		} else if (spec.kind === 'color') {
+			if (typeof value !== 'string' || !HEX.test(value)) {
+				out.push(`param "${id}": its default is not a #rrggbb colour`);
+			}
+		} else if (spec.kind === 'bool') {
+			if (typeof value !== 'boolean') out.push(`param "${id}": its default is not on or off`);
+		} else if (spec.kind === 'choice') {
+			if (
+				!Array.isArray(options) ||
+				!options.length ||
+				!options.every((option) => typeof option === 'string') ||
+				typeof value !== 'string' ||
+				!options.includes(value)
+			) {
+				out.push(`param "${id}": its options must be words, its default one of them`);
+			}
+		} else {
+			out.push(`param "${id}": unknown kind`);
+		}
+	}
+	return out;
+}
+
+/**
+ * Why a custom effect's passes are malformed, or [] when they are not: each a pass kind, its params
+ * ones that kind has, each a valid value or tied to one of `params` of the same kind, its strength
+ * within the runtime's.
+ */
+export function customElementFxPassIssues(
+	passes: unknown,
+	params: ReadonlyMap<string, ElementFxParamSpec>,
+): string[] {
+	if (passes === undefined) return [];
+	if (!Array.isArray(passes)) return ['passes is not a list'];
+	if (passes.length > CUSTOM_ELEMENT_FX_PASS_LIMIT) {
+		return [`at most ${CUSTOM_ELEMENT_FX_PASS_LIMIT} passes`];
+	}
+	const out: string[] = [];
+	passes.forEach((raw: unknown, i) => {
+		const at = `pass ${i + 1}`;
+		if (!isRecord(raw)) return void out.push(`${at} is not a pass`);
+		const kind = raw.kind;
+		if (!(ELEMENT_FX_PASS_KINDS as readonly unknown[]).includes(kind)) {
+			out.push(`${at}: "${String(kind)}" is not one of ${ELEMENT_FX_PASS_KINDS.join(', ')}`);
+			return;
+		}
+		const specs = new Map(elementFxSpec(kind as ElementFxPassKind).params.map((p) => [p.id, p]));
+		if (raw.params !== undefined && !isRecord(raw.params)) out.push(`${at}: params is not a map`);
+		for (const [id, value] of Object.entries(isRecord(raw.params) ? raw.params : {})) {
+			const spec = specs.get(id);
+			if (!spec) {
+				out.push(`${at}: ${String(kind)} has no param "${id}"`);
+			} else if (isRecord(value)) {
+				const bound = typeof value.param === 'string' ? params.get(value.param) : undefined;
+				const fits =
+					!!bound &&
+					bound.kind === spec.kind &&
+					(bound.kind !== 'choice' ||
+						(spec.kind === 'choice' &&
+							Array.isArray(bound.options) &&
+							bound.options.every((o) => spec.options.includes(o))));
+				if (!fits) {
+					out.push(`${at}: "${id}" is not tied to one of the effect's ${spec.kind} params`);
+				}
+			} else {
+				const read = readElementFxParam(spec, value);
+				if (read === undefined || (spec.kind === 'number' && read !== value)) {
+					out.push(`${at}: "${id}" is not a valid ${spec.kind}`);
+				}
+			}
+		}
+		const { min, max } = ELEMENT_FX_LIMITS.intensity;
+		if (
+			raw.intensity !== undefined &&
+			!(finite(raw.intensity) && raw.intensity >= min && raw.intensity <= max)
+		) {
+			out.push(`${at}: intensity must be ${min}…${max}`);
+		}
+	});
+	return out;
+}
+
+/**
+ * Why a custom effect's motion is malformed, or [] when it is not: known channels, each curve 1…32
+ * keys in order over 0…1 with values in the channel's range and known eases, a pivot near the box.
+ */
+export function customElementFxMotionIssues(motion: unknown): string[] {
+	if (motion === undefined) return [];
+	if (!isRecord(motion) || !isRecord(motion.channels)) return ['motion has no channels map'];
+	const out: string[] = [];
+	for (const [channel, curve] of Object.entries(motion.channels)) {
+		const range = ELEMENT_FX_MOTION_RANGES[channel as ElementFxMotionChannel];
+		if (!(ELEMENT_FX_MOTION_CHANNELS as readonly string[]).includes(channel) || !range) {
+			out.push(`"${channel}" is not one of ${ELEMENT_FX_MOTION_CHANNELS.join(', ')}`);
+			continue;
+		}
+		if (!Array.isArray(curve) || !curve.length || curve.length > ELEMENT_FX_CURVE_KEY_LIMIT) {
+			out.push(`${channel}: a curve has 1…${ELEMENT_FX_CURVE_KEY_LIMIT} keys`);
+			continue;
+		}
+		let last = 0;
+		curve.forEach((key: unknown, i) => {
+			if (
+				!isRecord(key) ||
+				!finite(key.t) ||
+				!(key.t >= last && key.t <= 1) ||
+				!finite(key.v) ||
+				key.v < range.min ||
+				key.v > range.max ||
+				(key.ease !== undefined &&
+					!(ELEMENT_FX_CURVE_EASES as readonly unknown[]).includes(key.ease))
+			) {
+				out.push(
+					`${channel}: key ${i + 1} needs t in order over 0…1, a value in ${range.min}…${range.max}, a known ease`,
+				);
+			} else {
+				last = key.t;
+			}
+		});
+	}
+	const pivot = motion.pivot;
+	if (
+		pivot !== undefined &&
+		!(isRecord(pivot) && [pivot.x, pivot.y].every((v) => finite(v) && v >= -1 && v <= 2))
+	) {
+		out.push('pivot needs x and y in −1…2');
+	}
+	return out;
+}
+
+const UNIFORM_TYPES: readonly unknown[] = ['float', 'vec2', 'vec3', 'vec4'];
+const GLSL_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+
+/**
+ * A custom effect as the registry takes it, or `undefined` when it cannot play: a plain copy, every
+ * part checked (its spec and params, its shader's body and uniforms, its padding, passes and
+ * motion), so a malformed effect from storage or a bundle is dropped rather than failing mid-play.
+ */
+export function readCustomElementFx(raw: unknown): CustomElementFx | undefined {
+	if (!isRecord(raw) || !isRecord(raw.spec) || !isRecord(raw.shader)) return undefined;
+	const { spec, shader } = raw;
+	const { min: shortest, max: longest } = ELEMENT_FX_LIMITS.durationMs;
+	if (
+		!isCustomElementFxKind(spec.kind) ||
+		typeof spec.label !== 'string' ||
+		!spec.label.trim() ||
+		spec.category !== 'custom' ||
+		!(ELEMENT_FX_PHASES as readonly unknown[]).includes(spec.phase) ||
+		!finite(spec.durationMs) ||
+		spec.durationMs < shortest ||
+		spec.durationMs > longest ||
+		typeof spec.description !== 'string' ||
+		!Array.isArray(spec.params) ||
+		elementFxParamSpecIssues(spec.params).length
+	) {
+		return undefined;
+	}
+	const params = new Map((spec.params as ElementFxParamSpec[]).map((param) => [param.id, param]));
+	const uniforms = shader.uniforms;
+	if (
+		typeof shader.body !== 'string' ||
+		!shader.body ||
+		!Array.isArray(uniforms) ||
+		!uniforms.every(
+			(u) =>
+				isRecord(u) &&
+				typeof u.name === 'string' &&
+				GLSL_NAME.test(u.name) &&
+				UNIFORM_TYPES.includes(u.type) &&
+				isRecord(u.source) &&
+				(u.source.kind === 'time' ||
+					(u.source.kind === 'param' &&
+						typeof u.source.id === 'string' &&
+						params.has(u.source.id))),
+		)
+	) {
+		return undefined;
+	}
+	if (
+		!finite(raw.padding) ||
+		raw.padding < 0 ||
+		raw.padding > CUSTOM_ELEMENT_FX_PADDING_MAX ||
+		!Array.isArray(raw.passes) ||
+		customElementFxPassIssues(raw.passes, params).length ||
+		customElementFxMotionIssues(raw.motion).length
+	) {
+		return undefined;
+	}
+	return JSON.parse(JSON.stringify(raw)) as CustomElementFx;
+}
+
 const CUSTOM = new Map<string, CustomElementFx>();
 
 /**
  * The custom effects that play from now on: the given set, replacing the last one (the game at
- * boot, the editor when it opens a project). An effect already playing keeps what it started with.
+ * boot, the editor when it opens a project). Each is read through {@link readCustomElementFx}: one
+ * that cannot play is left out; a kind given twice plays as its last. An effect already playing
+ * keeps what it started with. Returns what was registered.
  */
-export function setCustomElementFx(effects: readonly CustomElementFx[]): void {
+export function setCustomElementFx(effects: readonly unknown[]): CustomElementFx[] {
 	CUSTOM.clear();
-	for (const effect of effects) {
-		if (isCustomElementFxKind(effect.spec.kind)) CUSTOM.set(effect.spec.kind, effect);
+	for (const raw of effects) {
+		const effect = readCustomElementFx(raw);
+		if (!effect) continue;
+		CUSTOM.delete(effect.spec.kind);
+		CUSTOM.set(effect.spec.kind, effect);
 	}
+	return [...CUSTOM.values()];
 }
 
 /** A registered custom effect. */

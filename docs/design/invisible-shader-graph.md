@@ -160,9 +160,9 @@ Each step has its own branch, gates and status entry.
    - A custom kind is `custom:<id>`, the doc id a slug. `ElementFxKind` stays the 50 built-ins, so
      the runtime's `Record<ElementFxKind, …>` stays exhaustive. Entries and plays take either.
    - The registry lives in `constants-shared/elementFx` (dependency-free): `setCustomElementFx(list)`
-     replaces the set (the game at boot, the editor per project). The reader keeps a well-formed
-     custom entry even before its effect is registered, so load order cannot drop one; it plays once
-     registered.
+     replaces the set (the game at boot, the editor per project), reading each effect and leaving out
+     one that cannot play. The reader keeps a well-formed custom entry even before its effect is
+     registered, so load order cannot drop one; it plays once registered.
    - `compileShaderEffect(doc)` packs the graph's pass with the doc's **passes** and **motion** as
      one plain, shippable value. The plan's "pass nodes" became a list on the doc, because no
      per-pixel node can run another filter. A pass is one of the built-in single-pass kinds (glow,

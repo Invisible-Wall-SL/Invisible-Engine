@@ -1609,6 +1609,73 @@ console.log('element fx — custom effects (Shader Graph)');
 		advance(2000);
 		setCustomElementFx([]);
 	}
+	{
+		const good = effects[0];
+		const named = (kind: string) => ({ ...good.spec, kind });
+		const bad = [
+			{
+				...good,
+				spec: named('custom:badUniform'),
+				shader: {
+					...good.shader,
+					uniforms: [{ name: 'uFx', type: 'mat4', source: { kind: 'time' } }],
+				},
+			},
+			{
+				...good,
+				spec: named('custom:nullParam'),
+				passes: [{ kind: 'glow', params: { color: null } }],
+			},
+			{
+				...good,
+				spec: named('custom:badEase'),
+				motion: { channels: { x: [{ t: 0, v: 0, ease: 'bounce' }] } },
+			},
+			{ spec: named('custom:noPasses'), shader: good.shader, padding: 0 },
+			{ ...good, spec: named('custom:tooWide'), padding: 5 },
+		];
+		const twice = { ...good, spec: { ...good.spec, label: 'Second' } };
+		let registered: CustomElementFx[] = [];
+		let threw = false;
+		try {
+			registered = setCustomElementFx([...bad, good, twice]);
+		} catch {
+			threw = true;
+		}
+		assert(
+			!threw &&
+				registered.length === 1 &&
+				registered[0].spec.label === 'Second' &&
+				registered[0] !== twice &&
+				bad.every((b) => !isPlayableElementFxKind(b.spec.kind)),
+			'the registry reads what it is given: a malformed effect (an unknown uniform type, a null pass value, an unknown ease, no passes, padding past 2) is left out, never thrown on; a kind given twice plays as its last, kept as a copy',
+		);
+		setCustomElementFx([
+			{ ...good, spec: named('custom:padded'), padding: 0.5 },
+			{
+				...good,
+				spec: named('custom:shrink'),
+				motion: { channels: { scale: [{ t: 0, v: 0.5 }] } },
+			},
+		]);
+		const { host, advance } = makeHost();
+		const padded = makeTarget();
+		playElementFx(padded, { kind: 'custom:padded', durationMs: 400 }, host);
+		const shrunk = makeTarget();
+		playElementFx(shrunk, { kind: 'custom:shrink', intensity: 4, durationMs: 400 }, host);
+		advance(50);
+		assert(
+			(padded.filters?.[0]?.padding ?? 0) > 2,
+			'padding asks its pass for room around the element',
+		);
+		assert(
+			shrunk.scale.x > 0 && shrunk.scale.y > 0 && near(shrunk.rotation, 0.2, 1e-3),
+			'a shrink played four times as strong stops short of nothing: it never turns the element over',
+		);
+		stopElementFx(padded);
+		stopElementFx(shrunk);
+		setCustomElementFx([]);
+	}
 }
 
 // -------------------------------------------------------------------------------------------------

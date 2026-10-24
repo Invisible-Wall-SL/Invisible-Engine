@@ -84,7 +84,7 @@ export interface KindImpl {
 	reversed?: boolean;
 }
 
-const filterImpl = <F extends Filter>(impl: FilterImpl<F>): FilterImpl<Filter> =>
+export const filterImpl = <F extends Filter>(impl: FilterImpl<F>): FilterImpl<Filter> =>
 	impl as unknown as FilterImpl<Filter>;
 
 /** Rest-to-rest strength curve with zero slope at both ends, so a repeat has no kink. */
