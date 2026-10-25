@@ -2439,8 +2439,12 @@ console.log('element fx — custom breaks (Shader Graph Break Output)');
 		);
 		advance(500);
 		assert(
-			play.active && target.alpha === 0 && !breakOf(target),
-			'it plays out and holds the element hidden, as an exit does',
+			play.active &&
+				target.alpha === 0 &&
+				!breakOf(target) &&
+				!target.filters?.length &&
+				target.filterArea === undefined,
+			'it plays out and holds the element hidden, as an exit does, its passes still off it',
 		);
 		play.stop();
 		assert(
@@ -2575,14 +2579,107 @@ console.log('element fx — custom breaks (Shader Graph Break Output)');
 			{ kind: 'custom:brkAssemble', durationMs: 2200, pose: () => ({ progress }) },
 			{ ...host, renderer: liveRenderer as never },
 		);
-		const hidden = target.alpha === 0 && !!breakOf(target);
+		const hidden = target.alpha === 0 && !!breakOf(target) && near(progressOf(target), 0.6, 1e-6);
 		progress = 0.8;
 		advance(16);
 		assert(
 			hidden && !breakOf(target) && near(target.alpha, 0.8) && near(progressOf(target), 0.8, 1e-6),
-			'past its window the specks are gone and the element shows, the graph playing on it',
+			'while its specks fly in its pass stays on the live element they are drawn from; past its window the specks are gone and the element shows, the graph playing on it',
 		);
 		handle.stop();
+		setCustomElementFx([]);
+	}
+	{
+		// A window with no length cuts nothing.
+		setCustomElementFx([
+			effectOf(breakDoc('shatter', 1, 'brkAtEnd')),
+			effectOf(breakDoc('assemble', 1, 'brkNoFlight')),
+		]);
+		const { host, advance } = makeHost();
+		let draws = 0;
+		const counting = {
+			resolution: 1,
+			generateTexture: (o: { frame: Rectangle; target: Container }) => {
+				draws++;
+				return stillRenderer.generateTexture(o);
+			},
+			render: (o: { container: Container }) => {
+				draws++;
+				o.container.enableRenderGroup();
+			},
+		};
+		const end = makeTarget();
+		const ending = playElementFx(
+			end,
+			{ kind: 'custom:brkAtEnd', durationMs: 1000, pose: () => ({ progress: 1 }) },
+			{ ...host, renderer: counting as never },
+		);
+		const atEnd = !draws && end.alpha === 0 && !breakOf(end);
+		ending.stop();
+		const arrive = makeTarget();
+		const arriving = playElementFx(
+			arrive,
+			{ kind: 'custom:brkNoFlight', durationMs: 1000 },
+			{ ...host, renderer: counting as never },
+		);
+		const first = !draws && arrive.alpha === 0 && !breakOf(arrive);
+		advance(16);
+		assert(
+			atEnd && first && !draws && near(arrive.alpha, 0.8) && !breakOf(arrive),
+			'a break with no time to play cuts nothing: one starting at the very end hides the element there, an assemble over none of the play hides it for its first instant, then shows it',
+		);
+		arriving.stop();
+		setCustomElementFx([]);
+	}
+	{
+		// A renderer that cannot draw the still: it fades, said once, never thrown into the ticker.
+		setCustomElementFx([effectOf(breakDoc('shatter', 0.5, 'brkThrows'))]);
+		const { host, advance } = makeHost();
+		let draws = 0;
+		const failing = {
+			generateTexture: () => {
+				draws++;
+				throw new Error('no still');
+			},
+		};
+		const warn = console.warn;
+		const warned: unknown[] = [];
+		console.warn = (...args: unknown[]) => warned.push(args);
+		let threw = false;
+		const custom = makeTarget();
+		const builtIn = makeTarget();
+		try {
+			playElementFx(
+				custom,
+				{ kind: 'custom:brkThrows', durationMs: 1000 },
+				{ ...host, renderer: failing as never },
+			);
+			playElementFx(
+				builtIn,
+				{ kind: 'shatter', durationMs: 1000 },
+				{ ...host, renderer: failing as never },
+			);
+			advance(700);
+		} catch {
+			threw = true;
+		} finally {
+			console.warn = warn;
+		}
+		const graph = graphOf(custom);
+		assert(
+			!threw &&
+				draws === 2 &&
+				warned.length === 1 &&
+				!breakOf(custom) &&
+				!breakOf(builtIn) &&
+				custom.alpha > 0 &&
+				custom.alpha < 0.8 &&
+				builtIn.alpha < 0.8 &&
+				graph?.antialias === 'off',
+			'a still the renderer cannot draw is tried once: the custom break and the built-in fade instead, said once, never thrown into the ticker; the element’s alpha and its passes’ smoothing are put back',
+		);
+		stopElementFx(custom);
+		stopElementFx(builtIn);
 		setCustomElementFx([]);
 	}
 	{
