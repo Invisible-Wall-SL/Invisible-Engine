@@ -18,8 +18,6 @@
 
 import { effectiveSpawnCap } from 'constants-shared/spawn';
 
-export { effectiveSpawnCap, SPAWN_DEFAULT_CAP, SPAWN_HARD_CAP } from 'constants-shared/spawn';
-
 /** A grid layer's lattice: `cols` × `rows` cells, `pitch` px apart, cell (0, 0) at the origin. */
 export interface SpawnGrid {
 	cols: number;

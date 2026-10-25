@@ -1,5 +1,9 @@
-import { docComponentInstanceNodes } from 'engine-flow-v2';
-import { instanceDefResolver, projectFlowInstances } from '$lib/flowV2Projection';
+import { docComponentInstanceNodes, flowUsesSpawn } from 'engine-flow-v2';
+import {
+	instanceDefResolver,
+	projectFlowInstances,
+	projectSpawnLayers,
+} from '$lib/flowV2Projection';
 import { loadAuthoredCinematics } from './cinematicExport';
 import { listComponents, loadComponent } from './componentStorage';
 import { loadDoc as loadEditorDoc } from './editorStorage';
@@ -66,12 +70,22 @@ export async function harvestProjectSections(
 					),
 				)
 			: undefined;
+	// …and the spawn layers, for the keys an Instance ref feeds a spawnable's `text` inputs — only
+	// when the flow spawns at all.
+	const spawnLayers =
+		flowV2Doc && flowUsesSpawn(flowV2Doc)
+			? projectSpawnLayers(
+					flowV2Doc.containers,
+					editorDoc.scenes ?? [],
+					instanceDefResolver(await listComponents({ projectKey })),
+				)
+			: undefined;
 	const sections = [
 		...(await harvestSceneText(editorDoc, (id, version) => loadComponent(id, projectKey, version))),
 		...harvestProjectWinText(winTextDoc, gameType, gameConfig.doc),
 		...harvestSymbolNames(symbolsDoc),
 		...harvestFlowMessages(flowV2Doc ?? undefined),
-		...harvestFlowInstanceText(flowV2Doc ?? undefined, instances),
+		...harvestFlowInstanceText(flowV2Doc ?? undefined, instances, spawnLayers),
 		...harvestBetModeText(gameConfig.doc),
 		// The engine's own coded chrome (HUD captions, menus, modals, info-page rules) — the same
 		// registry the runtime renders from, so the shipped UI is translatable per project instead of

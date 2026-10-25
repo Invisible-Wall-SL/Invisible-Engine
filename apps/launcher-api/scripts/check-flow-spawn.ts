@@ -38,6 +38,7 @@ import type {
 import type { ComponentDef, LayoutNode, Scene, SpawnLayerNode } from 'engine-layout';
 
 const F = await import('../../../packages/engine-flow-v2/index.ts');
+const { effectiveSpawnCap } = await import('../../../packages/constants-shared/spawn.ts');
 const K = await import('../../../packages/engine-layout/src/lib/collectComponentIds.ts');
 const S = await import('../../../packages/engine-layout/src/lib/spawnLayerFields.ts');
 const { projectSpawnLayers, instanceDefResolver } = await import('../src/lib/flowV2Projection.ts');
@@ -232,7 +233,7 @@ console.log('1. the live set');
 	eq('… and keeps the declarations', store.spawn('field', 'coin', at).ok, true);
 	eq(
 		'effectiveSpawnCap',
-		[undefined, 0, -3, 2.9, 999, 'x'].map((v) => F.effectiveSpawnCap(v)),
+		[undefined, 0, -3, 2.9, 999, 'x'].map((v) => effectiveSpawnCap(v)),
 		[32, 1, 1, 2, 256, 32],
 	);
 }
@@ -524,6 +525,38 @@ const LAYERS: Record<string, FlowSpawnLayerDecl> = {
 	);
 	eq("a bomb ref on the coin's event chain addresses nothing", crossLog, []);
 	eq('the trigger carries the raiser', bomb.ok && coin.ok && coin.instance.componentId, 'coin');
+
+	// A WIRED handle that resolves nothing (a refused Spawn's) addresses nothing — never the
+	// instance that raised the event the chain is on.
+	const full = F.createSpawnStore();
+	full.declare({ ...FIELD, cap: 1 });
+	const raiser = full.spawn('field', 'coin', at);
+	const fullLog: string[] = [];
+	await F.runFlowSpawnedEvent(
+		doc(
+			graph(
+				[
+					{ id: 'src', kind: 'instanceRef', componentId: 'coin', pos: at },
+					{
+						id: 'more',
+						kind: 'spawn',
+						layer: 'field',
+						componentId: 'coin',
+						pos: at,
+						inputs: { x: lit(0), y: lit(0) },
+					},
+					{ id: 'ref', kind: 'instanceRef', componentId: 'coin', pos: at },
+				],
+				[wire('src', 'event:hit', 'more', 'exec'), wire('more', 'exec', 'ref', 'fire:pop')],
+				[wire('more', 'instance', 'ref', 'instance')],
+			),
+		),
+		ctxOf(envOver(full, fullLog)),
+		'coin',
+		'hit',
+		raiser.ok && raiser.instance,
+	);
+	eq("a refused Spawn's empty handle addresses nothing (not the raiser)", fullLog, []);
 }
 
 // ---------------------------------------------------------------------------
@@ -922,6 +955,106 @@ console.log('6. the preview');
 
 // ---------------------------------------------------------------------------
 console.log('7. the ship chain');
+{
+	const { engineOwnedOnly } =
+		await import('../../../packages/engine-layout/src/lib/engineOwnedOnly.ts');
+	const scaffolded = engineOwnedOnly({
+		scenes: [
+			{
+				id: 'board',
+				name: 'Board',
+				nodes: [
+					{ id: 'art', kind: 'sprite', x: 0, y: 0 } as LayoutNode,
+					{
+						id: 'field',
+						kind: 'spawnLayer',
+						x: 0,
+						y: 0,
+						spawnable: ['coin'],
+						placement: 'free',
+					} as LayoutNode,
+				],
+			},
+		],
+		mainSizesMap: {},
+	} as unknown as Parameters<typeof engineOwnedOnly>[0]);
+	eq(
+		'a scaffold keeps a reference layout’s spawn layer (art goes)',
+		scaffolded.scenes[0].nodes.map((n) => n.id),
+		['field'],
+	);
+
+	const { harvestSceneText } = await import('../src/lib/server/localizationHarvest.ts');
+	const coinDef = {
+		id: 'coin',
+		name: 'Coin',
+		version: 1,
+		scope: 'project',
+		category: 'ui',
+		params: [],
+		root: {
+			id: 'root',
+			kind: 'container',
+			x: 0,
+			y: 0,
+			children: [{ id: 't', kind: 'text', x: 0, y: 0, text: 'Bonus coin' }],
+		},
+	} as unknown as ComponentDef;
+	const harvested = await harvestSceneText(
+		{
+			scenes: [
+				{
+					id: 'board',
+					name: 'Board',
+					nodes: [
+						{
+							id: 'field',
+							kind: 'spawnLayer',
+							x: 0,
+							y: 0,
+							spawnable: ['coin'],
+							placement: 'free',
+						} as LayoutNode,
+					],
+				},
+			],
+		} as unknown as Parameters<typeof harvestSceneText>[0],
+		async (id) => (id === 'coin' ? coinDef : undefined),
+	);
+	eq(
+		'the localization harvest takes a spawnable’s text',
+		harvested.flatMap((s) => s.items.map((i) => i.key)),
+		['Bonus coin'],
+	);
+	const keyed = doc(
+		graph([
+			{
+				id: 'r',
+				kind: 'instanceRef',
+				componentId: 'coin',
+				pos: at,
+				inputs: { 'in:label': lit('Collect me', 'string'), 'in:other': lit('7', 'string') },
+			},
+		]),
+	);
+	const textLayers: Record<string, FlowSpawnLayerDecl> = {
+		field: {
+			...LAYERS.field,
+			spawnable: [
+				{
+					componentId: 'coin',
+					interface: { inputs: [{ id: 'label', kind: 'text' }], events: [], values: [] },
+				},
+			],
+		},
+	};
+	eq(
+		'… and a key an Instance ref feeds a spawnable’s text input',
+		F.collectInstanceTextKeys(keyed, undefined, textLayers).map((k) => k.key),
+		['Collect me'],
+	);
+	eq('… none without the projection', F.collectInstanceTextKeys(keyed, undefined, undefined), []);
+}
 {
 	const layerNode = (extra: Partial<SpawnLayerNode> = {}): SpawnLayerNode => ({
 		id: 'field',

@@ -707,13 +707,16 @@ class FlowInterpreter {
 		if (trigger !== undefined) await this.ctx.env.fireInstanceTrigger?.(ref, trigger);
 	}
 
-	/** The spawned instance a node addresses: its fed `instance` data-in, else (on a spawned
-	 *  instance's event chain) the instance that raised the event. */
+	/** The spawned instance a node addresses: its `instance` data-in when it is fed (a wire or a
+	 *  stored source — one that resolves nothing, a refused Spawn's, addresses nothing), else, on a
+	 *  spawned instance's event chain, the instance that raised the event. */
 	private handleOf(graph: Graph, node: Node, scope: Scope): unknown {
-		return (
-			this.resolveDataIn(graph, node.id, SPAWN_INSTANCE_PIN, scope) ??
-			scope.trigger[SPAWN_TRIGGER_INSTANCE]
-		);
+		const fed =
+			node.inputs?.[SPAWN_INSTANCE_PIN] !== undefined ||
+			graph.data.some((e) => e.to.node === node.id && e.to.pin === SPAWN_INSTANCE_PIN);
+		return fed
+			? this.resolveDataIn(graph, node.id, SPAWN_INSTANCE_PIN, scope)
+			: scope.trigger[SPAWN_TRIGGER_INSTANCE];
 	}
 
 	/** Where `handle` lives now, when it is a live instance of `componentId` — an instance of

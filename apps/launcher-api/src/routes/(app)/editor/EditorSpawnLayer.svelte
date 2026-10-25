@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { effectiveSpawnCap, SPAWN_DEFAULT_CAP, SPAWN_HARD_CAP } from 'engine-flow-v2';
+	import { effectiveSpawnCap, SPAWN_DEFAULT_CAP, SPAWN_HARD_CAP } from 'constants-shared/spawn';
 	import { spawnLayerGrid, spawnableComponentIds, type SpawnLayerNode } from 'engine-layout';
 
 	/**

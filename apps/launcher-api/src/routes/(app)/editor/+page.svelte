@@ -54,7 +54,7 @@
 	import MenuButton, { type MenuGroup } from '$lib/MenuButton.svelte';
 	import { SLOT_GAME_KINDS } from 'constants-shared/gameKinds';
 	import { BASE_GAME_MODE, builtinGameModes, holdAndWinModeDecl } from 'game-config';
-	import { SPAWN_DEFAULT_CAP } from 'engine-flow-v2';
+	import { SPAWN_DEFAULT_CAP } from 'constants-shared/spawn';
 	import {
 		BOOT_SPLASH_DEFAULT_BACKGROUND,
 		BOOT_SPLASH_DEFAULT_SIZE,

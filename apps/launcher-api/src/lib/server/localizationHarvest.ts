@@ -21,12 +21,14 @@ import {
 	raisedPayloadKeys,
 	resolveComponentParams,
 	resolveLayoutInstanceParams,
+	spawnableComponentIds,
 } from 'engine-layout';
 import type { FlowDoc } from 'engine-flow-v2';
 import {
 	collectInstanceTextKeys,
 	collectTextMessages,
 	type FlowInstanceDecl,
+	type FlowSpawnLayerDecl,
 } from 'engine-flow-v2';
 import type { GameConfigDoc } from 'game-config';
 import { resolveBetModes } from 'game-config';
@@ -268,6 +270,15 @@ export async function harvestSceneText(
 					await collectInstanceText(def, params, feed, label, add, nesting);
 				}
 			}
+			// A spawn layer draws its spawnables at runtime, each with its def's own params
+			// (game-families §3.3): their text ships as a placed instance's does.
+			if (node.kind === 'spawnLayer') {
+				for (const id of spawnableComponentIds(node)) {
+					const def = await getDef(id);
+					const nesting = { getDef, stack: def ? [def.id] : [] };
+					await collectInstanceText(def, {}, false, `${label} · ${id}`, add, nesting);
+				}
+			}
 			for (const child of childrenOf(node)) await visit(child);
 		};
 
@@ -426,14 +437,18 @@ export const FLOW_INSTANCE_TEXT_SECTION_ID = '__flowInstanceText';
 /**
  * Collect every localization key the flow feeds a placed component's `text` input as a literal
  * (Rive plan §8: a Flow wire into a text input is harvested like a `textMessage`, so no text
- * bypasses translation). `instances` is the same projection the flow editor and the publish gate
- * use (`projectFlowInstances`). Flow owns these sources, so they're read-only here (`origin: 'flow'`).
+ * bypasses translation). `instances` and `spawnLayers` are the projections the flow editor and the
+ * publish gate use (`projectFlowInstances`, `projectSpawnLayers`: an Instance ref's text inputs are
+ * its spawnable's). Flow owns these sources, so they're read-only here (`origin: 'flow'`).
  */
 export function harvestFlowInstanceText(
 	doc: FlowDoc | undefined,
 	instances: Record<string, FlowInstanceDecl> | undefined,
+	spawnLayers?: Record<string, FlowSpawnLayerDecl>,
 ): HarvestSection[] {
-	const items = collectInstanceTextKeys(doc, instances).filter((i) => isLocalizableText(i.source));
+	const items = collectInstanceTextKeys(doc, instances, spawnLayers).filter((i) =>
+		isLocalizableText(i.source),
+	);
 	if (items.length === 0) return [];
 	return [
 		{

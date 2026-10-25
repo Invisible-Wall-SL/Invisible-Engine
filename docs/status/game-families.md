@@ -48,7 +48,10 @@ any of it yet.
   mount). A despawn forgets what was stashed for that instance (`dropFlowInstanceStash`). The
   boot's stock-asset prune (`stockAssets.ts`) walks every spawnable def.
 - **Rule 8:** `collectComponentIds` collects every `spawnable`, so the doc bake, the runtime bundle,
-  the art export and the harness's republish all ship them and what they nest.
+  the art export and the harness's republish all ship them and what they nest. Invisible
+  Localization harvests a spawnable's text (`harvestSceneText`) and the keys an Instance ref feeds
+  it (`collectInstanceTextKeys` with the spawn layers), and a scaffold keeps a reference layout's
+  spawn layer (`engineOwnedOnly`).
 - **Launcher:** `projectSpawnLayers` (`flowV2Projection.ts`) feeds the `/flow-v2` loader, its
   validation and the publish gate. The Scene Editor inserts a Spawn layer on a screen (not in the
   Component Editor), draws it as a placeholder (its grid lattice or a dashed box, `⊕ name · N
@@ -56,10 +59,11 @@ any of it yet.
   `/flow-v2` has a Spawning palette section, inspector fields, `$live` in the accessor picker and
   spawn / refused / despawn rows in Preview. Guides: [tools/invisible-editor.md](../tools/invisible-editor.md#spawn-layer--a-field-flow-fills-while-the-game-runs),
   [tools/flow.md](../tools/flow.md#spawning--create-and-remove-components-in-play).
-- **Gates:** `check:flow-spawn` (launcher, 86: the live set and its cap, the cap through the
+- **Gates:** `check:flow-spawn` (launcher, 91: the live set and its cap, the cap through the
   interpreter, despawn inside `forEach` over `$live` with a fresh or a shared array, Instance ref
-  sets / fires / events / wrong-component handles, pins, `instance<…>` typing, every code, the
-  preview, the ship walk and the projection, parity scans); `check:art-scope` §7 (a component only a
+  sets / fires / events / wrong-component and empty handles, pins, `instance<…>` typing, every
+  code, the preview, the ship walk, the localization harvest, the scaffold and the projection,
+  parity scans); `check:art-scope` §7 (a component only a
   spawn layer lists has its art in scope and shipped, with a def it nests); `stockAssets.fixture.ts`
   (a stock frame a spawnable draws is kept). Two source-scan gates re-pinned to moved lines
   (`check:flow-instance-nodes`, `check:flow-instance-nodes-editor`).
@@ -93,7 +97,7 @@ any of it yet.
   - the live set is the session's, not the screen's: a spawn into a layer not on screen is kept;
     it is not reset per round; a new flow handle starts it empty;
   - an Instance ref's `instance` pin is optional (blank on its component's event chain = the
-    raiser); the first wire of a spawned component's event wins (`instance-event-duplicate`);
+    raiser; a fed pin that resolves nothing, a refused Spawn's, addresses nothing); the first wire of a spawned component's event wins (`instance-event-duplicate`);
   - a spawnable's interface is its latest def's (a spawned instance pins no version);
   - a spawn layer belongs on a screen; one inside a component def is drawn but Flow cannot name it;
   - the validation codes' names; `spawn-handle-unfed` is a warning;

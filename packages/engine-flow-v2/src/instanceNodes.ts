@@ -25,8 +25,11 @@ import type {
 	FlowDoc,
 	FlowInstanceDecl,
 	FlowInstanceNode,
+	FlowSpawnLayerDecl,
 	Graph,
 	InstanceInputKind,
+	InstanceInterface,
+	InstanceRefNode,
 	Node,
 	Pin,
 	TypeRef,
@@ -234,30 +237,56 @@ export const docNamesInstance = (doc: FlowDoc): boolean => {
 	);
 };
 
+/** Every `instanceRef` node of a doc, in every section, group bodies included. */
+const docInstanceRefNodes = (doc: FlowDoc): InstanceRefNode[] => {
+	const out: InstanceRefNode[] = [];
+	const scan = (nodes: Node[]): void => {
+		for (const node of nodes) {
+			if (node.kind === 'instanceRef') out.push(node);
+			else if (node.kind === 'group' && node.body) scan(node.body.nodes);
+		}
+	};
+	scan(doc.graph.nodes);
+	for (const scope of Object.values(doc.modes ?? {})) if (scope?.graph) scan(scope.graph.nodes);
+	return out;
+};
+
 /**
  * Every localization key a doc feeds a `text` input as a LITERAL, for Invisible Localization's
  * harvest (plan §8: a Flow wire into a text input is harvested like a `textMessage`, so no text
- * bypasses translation). Source-as-key, exact and untrimmed, each key once; a literal that is not
- * a key (no letter) is skipped, as the validator flags it. A value arriving by WIRE is already a
- * key of its own source (an event payload's `{ key }`, harvested with its def).
+ * bypasses translation) — a placed instance's (`instances`) and a spawned one's through an Instance
+ * ref (`spawnLayers`: its spawnable's interface). Source-as-key, exact and untrimmed, each key
+ * once; a literal that is not a key (no letter) is skipped, as the validator flags it. A value
+ * arriving by WIRE is already a key of its own source (an event payload's `{ key }`, harvested with
+ * its def).
  */
 export const collectInstanceTextKeys = (
 	doc: FlowDoc | undefined,
 	instances: Record<string, FlowInstanceDecl> | undefined,
+	spawnLayers?: Record<string, FlowSpawnLayerDecl>,
 ): { key: string; source: string; label: string }[] => {
-	if (!doc || !instances) return [];
+	if (!doc) return [];
 	const out: { key: string; source: string; label: string }[] = [];
 	const seen = new Set<string>();
-	for (const node of docComponentInstanceNodes(doc)) {
-		const decl = instances[node.instance];
-		if (!decl || decl.container !== node.container) continue;
-		for (const input of decl.interface.inputs) {
+	const collect = (node: Node, inputs: InstanceInterface['inputs'], name: string): void => {
+		for (const input of inputs) {
 			if (input.kind !== 'text') continue;
 			const src = node.inputs?.[instanceInputPin(input.id)];
 			if (src?.kind !== 'literal' || !isLocalizationKey(src.value) || seen.has(src.value)) continue;
 			seen.add(src.value);
-			out.push({ key: src.value, source: src.value, label: `${decl.name} — ${input.id}` });
+			out.push({ key: src.value, source: src.value, label: `${name} — ${input.id}` });
 		}
+	};
+	for (const node of instances ? docComponentInstanceNodes(doc) : []) {
+		const decl = instances?.[node.instance];
+		if (!decl || decl.container !== node.container) continue;
+		collect(node, decl.interface.inputs, decl.name);
+	}
+	for (const node of spawnLayers ? docInstanceRefNodes(doc) : []) {
+		const spawnable = Object.values(spawnLayers ?? {})
+			.flatMap((layer) => layer.spawnable)
+			.find((s) => s.componentId === node.componentId);
+		if (spawnable) collect(node, spawnable.interface.inputs, `${node.componentId} (spawned)`);
 	}
 	return out;
 };
