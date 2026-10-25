@@ -274,6 +274,8 @@ merged (#1342). 8b (Break as an output node) is in progress on `claude/shader-gr
 - **Step 8** (the plan's "Later", split into 8a–8e in design §8). 8c in progress
   (`claude/shader-graph-step8c`, built on 8b), 8d in its design pass, 8e not started.
   - **8b, Break as an output node.** In review on `claude/shader-graph-step8b`.
+    - Left: a live cut (Assemble) that throws partway through `startBreak` can leave the element a
+      render group (at most once now, with no retry).
     - **The node** (`packages/engine-shadergraph/src/break.ts`). `breakOutput`, pixel graph only,
       one per effect: settings `kind` (one of the six break kinds, default Shatter) and `at` (0…1,
       default 0); its ports are the kind's params (number → float, colour → vec3, switch → 0 / 1,
@@ -395,6 +397,19 @@ merged (#1342). 8b (Break as an output node) is in progress on `claude/shader-gr
 - None.
 
 ## Recent changes
+- 2026-10-25 — **Step 8b: Break as an output node** (see "Current state"). Step 8a merged (#1342).
+  - **Proof.** Compile fixture 173 (the node, every error, ties, the compiled break, the fade,
+    hostile docs and a fuzz; byte-identity without a Break Output over 712 docs);
+    `check:element-fx` (the window, a still with the graph's look, ties, Assemble, the fade unseen
+    on 8b, the reader, a held exit with no passes, a failed cut fading once, a zero-length window);
+    `shader-twins` 36/36 (the six break twins: no pixel different on WebGL1 or WebGL2);
+    `shader-parity` against the base identical; `check:shader-editor` 212; `check:shader-pipeline`
+    115; the page played headless 46/46 (the element plays, then breaks; scrubbed back it returns)
+    and read-only 10/10 on WebGL2 and WebGL1; `check:all` 538/538; svelte-check at baseline.
+  - **Review.** Nothing blocking. Fixed: a held exit put its graph passes back on the hidden element
+    (an alpha-0 pass every frame); a snapshot that threw was retried every frame (now it fades once,
+    warned once, for built-ins too); a zero-length window still cut; a kind change reset values
+    without saying so (its notice now names wires dropped, values reset and Numbers out of range).
 - 2026-10-25 — **Step 8a: the motion graph** (see "Current state"). Merged (#1342): CI green,
   Current games 12 pass with no changed screen.
   - **Proof.**
