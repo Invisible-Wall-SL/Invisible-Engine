@@ -40,6 +40,16 @@
  *      nothing changes; subgraph gestures are off there; the palette offers motion nodes only; the
  *      channels it drives are named for the settings; each node's curve is its value over the play,
  *      keyed like a thumbnail; a param renamed is followed there; storage keeps it.
+ *  11. Custom GLSL: the palette offers it under Advanced to a holder of `shaderCustomGlsl` alone,
+ *      never in the motion graph; a new one is the default (a colour through) and compiles; its
+ *      code and ports change through gestures that land on it alone, in a subgraph's body too (a
+ *      port keeps its wires when relabelled or retyped, takes them when removed, moves them when
+ *      renamed, refuses a name the code cannot read); the checker's errors carry their line; for a
+ *      non-holder an edit adding or changing Custom GLSL is refused while moving, wiring, grouping
+ *      or deleting one is not, as the save judges; typing reaches the doc once per pause (one undo
+ *      step), or at once when the field is left; a driver's log is read back to the node and line
+ *      of its code (inside a subgraph, on the call outside and on the node inside, once); its
+ *      thumbnail key follows its code; storage keeps it.
  *
  *   pnpm --filter launcher-api check:shader-editor
  */
@@ -51,6 +61,8 @@ import {
 import {
 	BUILTIN_TWINS,
 	COST_BUDGET,
+	CUSTOM_GLSL,
+	CUSTOM_GLSL_DEFAULT,
 	MOTION_NODE_TYPES,
 	MOTION_OUTPUT,
 	REFERENCE_GRAPHS,
@@ -60,6 +72,8 @@ import {
 	analyzeShaderMotion,
 	compileShaderEffect,
 	compileShaderGraph,
+	customGlslDef,
+	customGlslFunction,
 	isMotionNode,
 	normalizeShaderGraphDoc,
 	shaderNode,
@@ -67,8 +81,11 @@ import {
 } from 'engine-shadergraph';
 import { shaderSlug } from '../src/lib/server/projectPaths.ts';
 import {
+	CODE_IDLE_MS,
 	COST_WEIGHTS,
 	CURVE_SAMPLES,
+	CUSTOM_GLSL_LOCKED,
+	CodeDraft,
 	FLAT_NODES,
 	MOTION_SCOPE,
 	SUBGRAPHS_PIXEL_ONLY,
@@ -79,6 +96,21 @@ import {
 	addPass,
 	addSubgraphPort,
 	analyzeScope,
+	checkerIssues,
+	codeLines,
+	codeMarks,
+	customGlslRefusal,
+	driverCodeIssues,
+	driverGraphIssues,
+	driverIssues,
+	driverSummary,
+	editCustomGlslPorts,
+	glslOf,
+	glslPortNameRefusal,
+	locateCode,
+	nodeInScope,
+	parseDriverLog,
+	setCustomGlslCode,
 	canConnect,
 	canPlace,
 	canvasGraph,
@@ -2073,6 +2105,492 @@ console.log('10. the motion graph');
 		'storage keeps the motion graph as built',
 		json(normalizeShaderGraphDoc(JSON.parse(json(m)), m.id).motionGraph),
 		json(m.motionGraph),
+	);
+}
+
+// ── 11 ──
+console.log('11. Custom GLSL');
+{
+	const base = REFERENCE_GRAPHS.find((g) => g.id === 'pulseTint') as ShaderGraphDoc;
+	const outId = base.nodes.find((n) => n.type === 'output')?.id as string;
+	const feed = base.wires.find((w) => w.to.node === outId && w.to.port === 'color');
+	const glslNodes = (d: ShaderGraphDoc) => d.nodes.filter((n) => n.type === CUSTOM_GLSL);
+
+	// The palette and where it can go.
+	const names = (groups: ReturnType<typeof libraryGroups>): string[] =>
+		groups.flatMap((g) => g.nodes.map((n) => `${g.label}:${n.type}`));
+	check(
+		'the palette offers Custom GLSL under Advanced to a holder alone, never in the motion graph',
+		[
+			names(libraryGroups(false, true)).filter((n) => n.endsWith(`:${CUSTOM_GLSL}`)),
+			names(libraryGroups(false, false)).some((n) => n.endsWith(`:${CUSTOM_GLSL}`)),
+			names(libraryGroups(true, true)).some((n) => n.endsWith(`:${CUSTOM_GLSL}`)),
+		],
+		[[`Advanced:${CUSTOM_GLSL}`], false, false],
+	);
+	check(
+		'…and it is placed by a holder alone, in the pixel graph or a body, never the motion graph',
+		[
+			canPlace(base, null, CUSTOM_GLSL, true),
+			canPlace(base, null, CUSTOM_GLSL, false),
+			canPlace(base, MOTION_SCOPE, CUSTOM_GLSL, true),
+		],
+		[true, false, false],
+	);
+
+	// A new one: the default, a colour through.
+	const added = addNodeIn(base, null, CUSTOM_GLSL, { x: 100, y: 40 });
+	const id = added.id;
+	let g = feed
+		? connect(
+				connect(added.doc, feed.from, { node: id, port: 'color' }),
+				{ node: id, port: 'color' },
+				{
+					node: outId,
+					port: 'color',
+				},
+			)
+		: added.doc;
+	check(
+		'a new Custom GLSL node is the default (a colour in, the same colour out) and compiles wired in',
+		[
+			json(glslOf(viewOf(g, null).nodes.find((n) => n.id === id) as never)),
+			compileShaderEffect(g).ok,
+			errors(g),
+		],
+		[json(CUSTOM_GLSL_DEFAULT), true, []],
+	);
+	check('…the doc it was given keeps no such node', glslNodes(base).length, 0);
+	const glslCost = nodeCosts(g, analyzeShaderGraph(g)).get(id);
+	check(
+		'…wired in, it carries its cost chip: its estimate, its reads',
+		[glslCost?.cost, glslCost?.samples],
+		[customGlslDef(g.nodes.find((n) => n.id === id) as never).cost, 0],
+	);
+
+	// Code.
+	const TINT = 'color.rgb *= vec3(1.0, 0.6, 0.3);';
+	const tinted = setCustomGlslCode(g, null, id, TINT);
+	check(
+		'setting its code changes that node alone, and it compiles to a shader holding the code',
+		[
+			glslOf(tinted.nodes.find((n) => n.id === id) as never).code,
+			json(tinted.nodes.filter((n) => n.id !== id)) === json(g.nodes.filter((n) => n.id !== id)),
+			compileShaderEffect(tinted).ok &&
+				(
+					compileShaderEffect(tinted) as { effect: { shader: { body: string } } }
+				).effect.shader.body.includes(TINT),
+		],
+		[TINT, true, true],
+	);
+	check(
+		'…the same code, an unknown node or the motion graph changes nothing',
+		[
+			setCustomGlslCode(g, null, id, glslOf(g.nodes.find((n) => n.id === id) as never).code) === g,
+			setCustomGlslCode(g, null, 'nope', TINT) === g,
+			setCustomGlslCode(g, MOTION_SCOPE, id, TINT) === g,
+		],
+		[true, true, true],
+	);
+	const refusedWhile = setCustomGlslCode(
+		g,
+		null,
+		id,
+		'float k = 0.0;\nwhile (k < 1.0) { k += 0.1; }',
+	);
+	const whileIssues = analyzeShaderGraph(refusedWhile).issues.filter(
+		(i) => i.node === id && i.level === 'error' && i.code === 'glsl',
+	);
+	check(
+		'a refused `while` is an error on the node, code glsl, naming its line',
+		[whileIssues.length > 0, checkerIssues(whileIssues, id)[0]?.line],
+		[true, 2],
+	);
+	check(
+		'…its line marked in the gutter',
+		[...codeMarks(checkerIssues(whileIssues, id)).keys()],
+		[2],
+	);
+	g = tinted;
+
+	// Ports.
+	const portsOf = (d: ShaderGraphDoc, side: 'inputs' | 'outputs') =>
+		glslOf(d.nodes.find((n) => n.id === id) as never)[side];
+	let p = editCustomGlslPorts(g, null, id, { kind: 'add', side: 'inputs', type: 'float' });
+	check(
+		'adding an input gives it an id the side lacks, a float',
+		portsOf(p, 'inputs').map((x) => [x.id, x.type]),
+		[...portsOf(g, 'inputs').map((x) => [x.id, x.type]), ['in1', 'float']],
+	);
+	p = setNodeValue(p, id, 'in1', 0.5);
+	p = editCustomGlslPorts(p, null, id, {
+		kind: 'patch',
+		side: 'inputs',
+		port: 'in1',
+		patch: { label: 'Amount', default: 0.25 },
+	});
+	check(
+		'relabelling and a default keep its id and the value set on the node',
+		[portsOf(p, 'inputs').at(-1), p.nodes.find((n) => n.id === id)?.values?.in1],
+		[{ id: 'in1', label: 'Amount', type: 'float', default: 0.25 }, 0.5],
+	);
+	const asVec2 = setNodeValue(
+		editCustomGlslPorts(p, null, id, {
+			kind: 'patch',
+			side: 'inputs',
+			port: 'in1',
+			patch: { type: 'vec2', default: [0.25, 0.75] },
+		}),
+		id,
+		'in1',
+		[0.5, 0.5],
+	);
+	const retyped = editCustomGlslPorts(asVec2, null, id, {
+		kind: 'patch',
+		side: 'inputs',
+		port: 'in1',
+		patch: { type: 'vec3' },
+	});
+	check(
+		'retyping drops a default and a value that no longer fit (a number spreads, so it fits any)',
+		[
+			portsOf(retyped, 'inputs').at(-1),
+			retyped.nodes.find((n) => n.id === id)?.values?.in1,
+			p.nodes.find((n) => n.id === id)?.values?.in1,
+		],
+		[{ id: 'in1', label: 'Amount', type: 'vec3' }, undefined, 0.5],
+	);
+	const renamed = editCustomGlslPorts(g, null, id, {
+		kind: 'rename',
+		side: 'inputs',
+		port: 'color',
+		next: 'base',
+	});
+	check(
+		'renaming a port moves its wires to the new name; the code stays as typed',
+		[
+			portsOf(renamed, 'inputs').map((x) => x.id),
+			renamed.wires.filter((w) => w.to.node === id).map((w) => w.to.port),
+			glslOf(renamed.nodes.find((n) => n.id === id) as never).code,
+		],
+		[['base'], feed ? ['base'] : [], TINT],
+	);
+	check(
+		'…a name the code cannot read, or one GLSL keeps, or another port’s, is refused and changes nothing',
+		[
+			['2x', 'gl_Color', 'efxTint', 'a__b', 'subgraph', 'float', 'uFx'].map(
+				(next) =>
+					!!glslPortNameRefusal(
+						glslOf(g.nodes.find((n) => n.id === id) as never),
+						'inputs',
+						'color',
+						next,
+					),
+			),
+			editCustomGlslPorts(g, null, id, {
+				kind: 'rename',
+				side: 'inputs',
+				port: 'color',
+				next: '2x',
+			}) === g,
+		],
+		[[true, true, true, true, true, true, true], true],
+	);
+	const two = editCustomGlslPorts(g, null, id, { kind: 'add', side: 'outputs', type: 'vec4' });
+	const cut = editCustomGlslPorts(two, null, id, {
+		kind: 'remove',
+		side: 'outputs',
+		port: 'color',
+	});
+	check(
+		'removing an output takes its wires; the last output stays',
+		[
+			portsOf(cut, 'outputs').map((x) => x.id),
+			cut.wires.some((w) => w.from.node === id),
+			editCustomGlslPorts(cut, null, id, { kind: 'remove', side: 'outputs', port: 'out1' }) === cut,
+		],
+		[['out1'], false, true],
+	);
+	let capped = g;
+	for (let k = 0; k < 40; k++)
+		capped = editCustomGlslPorts(capped, null, id, { kind: 'add', side: 'outputs' });
+	check('a side holds at most 32 ports', portsOf(capped, 'outputs').length, 32);
+
+	// In a subgraph's body.
+	const grouped = groupNodes(g, null, [id], 'Tint group');
+	const sid = grouped?.subgraph as string;
+	const call = grouped?.call as string;
+	check(
+		'grouped, it compiles to the same shader; its gestures land in the body',
+		[
+			!!grouped && compileShaderGraph(grouped.doc).ok,
+			!!grouped && glslNodes(grouped.doc).length === 0,
+			!!grouped &&
+				glslOf(
+					viewOf(setCustomGlslCode(grouped.doc, sid, id, 'color.rgb *= 0.5;'), sid).nodes.find(
+						(n) => n.id === id,
+					) as never,
+				).code,
+		],
+		[true, true, 'color.rgb *= 0.5;'],
+	);
+
+	// The holder-only rule, as the save judges it.
+	const stored = g;
+	const moved = moveNode(g, id, 500, 500);
+	check(
+		'for a non-holder: moving, wiring around, grouping or deleting Custom GLSL is taken',
+		[
+			customGlslRefusal(stored, moved),
+			customGlslRefusal(stored, remove(g, [id])),
+			customGlslRefusal(stored, grouped?.doc as ShaderGraphDoc),
+			customGlslRefusal(stored, setNodeValue(g, id, 'color', [1, 0, 0, 1])),
+		],
+		[undefined, undefined, undefined, undefined],
+	);
+	check(
+		'…adding one, or changing its code or ports, is refused, saying why',
+		[
+			customGlslRefusal(base, g),
+			customGlslRefusal(stored, setCustomGlslCode(g, null, id, 'color.a = 1.0;')),
+			customGlslRefusal(stored, editCustomGlslPorts(g, null, id, { kind: 'add', side: 'inputs' })),
+		],
+		[CUSTOM_GLSL_LOCKED, CUSTOM_GLSL_LOCKED, CUSTOM_GLSL_LOCKED],
+	);
+
+	// Undo granularity: one commit per pause.
+	let now = 0;
+	const timers: { at: number; fire: () => void; id: number }[] = [];
+	let nextTimer = 0;
+	const clock = {
+		set: (fire: () => void, ms: number) => {
+			const t = { at: now + ms, fire, id: ++nextTimer };
+			timers.push(t);
+			return t.id;
+		},
+		clear: (handle: unknown) => {
+			const at = timers.findIndex((t) => t.id === handle);
+			if (at >= 0) timers.splice(at, 1);
+		},
+	};
+	const advance = (ms: number) => {
+		now += ms;
+		for (const t of [...timers].sort((a, b) => a.at - b.at)) {
+			if (t.at > now) continue;
+			timers.splice(timers.indexOf(t), 1);
+			t.fire();
+		}
+	};
+	// The page's own undo: each commit is one edit, so one step.
+	let pageDoc = g;
+	const past: ShaderGraphDoc[] = [];
+	const draft = new CodeDraft(
+		TINT,
+		(code) => {
+			past.push(pageDoc);
+			pageDoc = setCustomGlslCode(pageDoc, null, id, code);
+		},
+		clock,
+	);
+	const typeOut = (text: string, gap: number) => {
+		for (let k = 1; k <= text.length; k++) {
+			draft.type(text.slice(0, k));
+			advance(gap);
+		}
+	};
+	typeOut('color.rgb = vec3(1.0);', 120);
+	check('typing 22 keys 120 ms apart reaches the doc not at all until it pauses', past.length, 0);
+	advance(CODE_IDLE_MS);
+	check(
+		'…then once, with all of it: one undo step',
+		[past.length, glslOf(pageDoc.nodes.find((n) => n.id === id) as never).code],
+		[1, 'color.rgb = vec3(1.0);'],
+	);
+	draft.type('color.rgb = vec3(0.5);');
+	advance(100);
+	draft.flush();
+	advance(CODE_IDLE_MS);
+	check('leaving the field sends it at once, and only once', past.length, 2);
+	draft.flush();
+	draft.type('color.rgb = vec3(0.5);');
+	advance(CODE_IDLE_MS);
+	check('…nothing new to send sends nothing', past.length, 2);
+	pageDoc = past.pop() as ShaderGraphDoc;
+	const undone = glslOf(pageDoc.nodes.find((n) => n.id === id) as never).code;
+	draft.sync(undone);
+	check(
+		'undo steps back a whole pause; the field follows the doc',
+		[undone, draft.text],
+		['color.rgb = vec3(1.0);', 'color.rgb = vec3(1.0);'],
+	);
+	draft.type('typed, waiting');
+	draft.sync('changed elsewhere');
+	check(
+		'…but keeps what is typed and still waiting',
+		[draft.text, draft.pending],
+		['typed, waiting', true],
+	);
+	draft.dispose();
+
+	// The drivers' logs read back to the node and line: the code's lines as the function holds them.
+	const asCompiled = (code: string) =>
+		customGlslFunction({
+			id: 'x',
+			type: CUSTOM_GLSL,
+			x: 0,
+			y: 0,
+			glsl: { ...CUSTOM_GLSL_DEFAULT, code },
+		}).lines;
+	const samples = [
+		CUSTOM_GLSL_DEFAULT.code,
+		'color.rgb *= 0.5; // half\r\n\r\n\tcolor.a = 1.0;',
+		'/* a\nblock */ color.rgb = vec3(1.0);\n// only a comment\ncolor.g /* inline */ = 0.25;',
+		'float k = 2.0;  \n\n\n\t\tcolor.rgb *= k / 2.0;',
+	];
+	check(
+		'the code’s lines are the compiled function’s, each with the line it came from',
+		samples.map((code) => [
+			json(codeLines(code).map((l) => l.text)) === json(asCompiled(code)),
+			codeLines(code).map((l) => l.line),
+		]),
+		[
+			[true, [3]],
+			[true, [1, 3]],
+			[true, [2, 4]],
+			[true, [1, 4]],
+		],
+	);
+	check(
+		'a driver log is read for its lines (ANGLE, NVIDIA), the summary line left out',
+		parseDriverLog(
+			"ERROR: 0:57: 'foo' : undeclared identifier\nERROR: 0:58: '=' : cannot convert from 'const int' to 'float'\nERROR: 2 compilation errors.  No code generated.\n\n0(12) : error C1008: undefined variable \"bar\"\n",
+		),
+		[
+			{ line: 57, message: "'foo' : undeclared identifier" },
+			{ line: 58, message: "'=' : cannot convert from 'const int' to 'float'" },
+			{ line: 12, message: 'undefined variable "bar"' },
+		],
+	);
+	// The checker takes this; the driver's log below is made up to name its second line.
+	const BAD = 'vec3 k = color.rgb;\nfloat f = 0.5;\ncolor.rgb = k * f;';
+	const bad = setCustomGlslCode(g, null, id, BAD);
+	const badBody =
+		(compileShaderEffect(bad) as { ok: boolean; effect?: { shader: { body: string } } }).effect
+			?.shader.body ?? '';
+	const prelude = Array.from({ length: 40 }, (_, k) => `// header ${k}`).join('\n');
+	const fragment = `${prelude}\n${badBody}`;
+	const lineOf = (text: string): number =>
+		fragment.split('\n').findIndex((l) => l.trim() === text) + 1;
+	const badNode = bad.nodes.find((n) => n.id === id) as ShaderGraphDoc['nodes'][number];
+	check(
+		'the code is found in the function it was compiled into',
+		[...(locateCode(fragment, [badNode]).get(id)?.lines.values() ?? [])].filter((l) => l !== null),
+		[1, 2, 3],
+	);
+	const reports = [1, 2].map((gl) => ({
+		gl: gl as 1 | 2,
+		missing: false,
+		ok: false,
+		log: `ERROR: 0:${lineOf('float f = 0.5;')}: '=' : cannot convert from 'const int' to 'float'\nERROR: 0:3: 'x' : syntax error`,
+		fragment,
+	}));
+	const found = driverIssues(bad, reports);
+	check(
+		'a driver’s error lands on the node and line of its code, WebGL1 and WebGL2 said once; one outside its code is the only node’s, lineless',
+		found.map((f) => [f.node, f.line, f.gl]),
+		[
+			[id, 2, [1, 2]],
+			[id, null, [1, 2]],
+		],
+	);
+	check(
+		'…shown on the canvas as the node’s error, and under its code by line',
+		[
+			driverGraphIssues(bad, null, found).map((i) => [
+				i.node,
+				i.code,
+				i.message.startsWith('WebGL1 and WebGL2 reject its GLSL: line 2:'),
+			]),
+			driverCodeIssues(bad, null, id, found).map((i) => [i.line, i.source]),
+		],
+		[
+			[
+				[id, 'glsl', true],
+				[id, 'glsl', false],
+			],
+			[
+				[2, 'WebGL1 and WebGL2'],
+				[null, 'WebGL1 and WebGL2'],
+			],
+		],
+	);
+	check(
+		'…a driver that compiled it, or that the browser lacks, says nothing',
+		driverIssues(bad, [
+			{ ...reports[0], ok: true },
+			{ ...reports[1], missing: true },
+		]),
+		[],
+	);
+	if (grouped) {
+		const badGroup = setCustomGlslCode(grouped.doc, sid, id, BAD);
+		const twice = addCall(badGroup, null, sid, { x: 0, y: 300 });
+		const flatIds = [`${call}/${id}`, `${twice.id}/${id}`];
+		const inGroup = flatIds.map((node) => ({ node, line: 2, message: 'bad', gl: [1 as const] }));
+		check(
+			'inside a subgraph: on each call outside, on the node inside once, nowhere in another graph',
+			[
+				flatIds.map((f) => nodeInScope(twice.doc, null, f)),
+				driverGraphIssues(twice.doc, sid, inGroup).map((i) => i.node),
+				driverCodeIssues(twice.doc, sid, id, inGroup).length,
+				nodeInScope(twice.doc, MOTION_SCOPE, flatIds[0]),
+			],
+			[[call, twice.id], [id], 1, undefined],
+		);
+	}
+	check(
+		'the status line: checking, then what each driver said',
+		[
+			driverSummary([], true, true).chips.map((c) => c.state),
+			driverSummary(reports, false, true).text,
+			driverSummary(
+				[
+					{ ...reports[0], ok: true },
+					{ ...reports[1], missing: true },
+				],
+				false,
+				true,
+			).text,
+			driverSummary([], false, false).chips.map((c) => c.state),
+		],
+		[
+			['wait', 'wait'],
+			'WebGL1 and WebGL2 reject its GLSL: it would draw nothing there.',
+			'WebGL1 compiles it. This browser has no WebGL2: not checked there.',
+			['off', 'off'],
+		],
+	);
+
+	// Its thumbnail follows its code; storage keeps it.
+	const before = probeKeys(g);
+	const after = probeKeys(setCustomGlslCode(g, null, id, 'color.rgb *= 0.9;'));
+	check(
+		'its code is in its thumbnail key and what reads it, nothing else',
+		[
+			before.get(id) !== after.get(id),
+			before.get(outId) !== after.get(outId),
+			[...before].filter(([k, v]) => k !== id && k !== outId && after.get(k) !== v).length,
+		],
+		[true, true, 0],
+	);
+	check(
+		'storage keeps its code and ports',
+		json(
+			glslOf(
+				normalizeShaderGraphDoc(JSON.parse(json(g)), g.id).nodes.find((n) => n.id === id) as never,
+			),
+		),
+		json(glslOf(g.nodes.find((n) => n.id === id) as never)),
 	);
 }
 

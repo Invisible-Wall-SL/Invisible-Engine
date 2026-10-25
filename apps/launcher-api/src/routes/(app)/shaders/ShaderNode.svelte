@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
+	import { CUSTOM_GLSL } from 'engine-shadergraph';
 	import MotionCurve from './MotionCurve.svelte';
 	import { PORT_COLORS, categoryColor, costText, type ShaderNodeView } from './shaderEditor';
 	import { useShaderThumbs } from './shaderThumbs.svelte';
@@ -8,7 +9,8 @@
 	// output handle per port on the right, each coloured by the type it resolved to (the analysis'
 	// types, else the port's declared one). What the compiler says about the node shows on it, and
 	// its cost and a thumbnail of its output (the page's one renderer draws into the canvas); a
-	// motion node shows its value over the play as a curve instead.
+	// motion node shows its value over the play as a curve instead. A Custom GLSL node is badged as
+	// code.
 	let { id, data, selected }: NodeProps = $props();
 	const d = $derived(data as ShaderNodeView);
 	const thumbs = useShaderThumbs();
@@ -48,7 +50,13 @@
 	title={[...d.errors, ...d.warnings].join('\n') || d.def?.description}
 >
 	<header>
-		<span class="title">{d.def?.label ?? `Unknown node "${d.node.type}"`}</span>
+		{#if d.node.type === CUSTOM_GLSL}
+			<span class="code" title="Custom GLSL: code an admin typed">&lt;/&gt;</span>
+		{/if}
+		<span class="title"
+			>{d.def?.label ??
+				(d.node.type === CUSTOM_GLSL ? 'Custom GLSL' : `Unknown node "${d.node.type}"`)}</span
+		>
 		{#if d.summary}<span class="summary">{d.summary}</span>{/if}
 		{#if d.cost}
 			<span class="cost {d.cost.weight}" title={costText(d.cost)}
@@ -146,6 +154,17 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	.code {
+		flex: none;
+		align-self: center;
+		padding: 0 4px;
+		border-radius: 3px;
+		font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+		font-size: 9px;
+		line-height: 14px;
+		color: #0b0e13;
+		background: var(--family);
 	}
 	.summary {
 		font-size: 10px;

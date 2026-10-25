@@ -16,6 +16,7 @@
 	import { CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT, elementFxSpec } from 'constants-shared/elementFx';
 	import {
 		COST_BUDGET,
+		CUSTOM_GLSL,
 		MOTION_OUTPUT,
 		SAMPLE_BUDGET,
 		analyzeShaderGraph,
@@ -26,11 +27,13 @@
 		SUBGRAPH_IN,
 		SUBGRAPH_OUT,
 		calledSubgraph,
+		hasCustomGlsl,
 		normalizeShaderGraphDoc,
 		subgraphName,
 		subgraphOf,
 		type ShaderGraphDoc,
 	} from 'engine-shadergraph';
+	import CustomGlslProperties from './CustomGlslProperties.svelte';
 	import GraphSettings from './GraphSettings.svelte';
 	import NodeProperties from './NodeProperties.svelte';
 	import ShaderLibrary from './ShaderLibrary.svelte';
@@ -38,8 +41,10 @@
 	import ShaderPreview from './ShaderPreview.svelte';
 	import SubgraphBar from './SubgraphBar.svelte';
 	import SubgraphProperties from './SubgraphProperties.svelte';
+	import { provideGlslCheck } from './glslCheck.svelte';
 	import { provideShaderThumbs } from './shaderThumbs.svelte';
 	import {
+		DRIVER_CHIP_MARKS,
 		MOTION_SCOPE,
 		SHADER_DROP_MIME,
 		SUBGRAPHS_PIXEL_ONLY,
@@ -49,12 +54,19 @@
 		canConnect,
 		canPlace,
 		canvasGraph,
+		checkerIssues,
 		connect,
+		customGlslRefusal,
 		deleteMotionGraph,
 		deleteSubgraph,
 		docFromTwin,
 		docIssues,
+		driverCodeIssues,
+		driverGraphIssues,
+		driverIssues,
+		driverSummary,
 		drivenChannels,
+		editCustomGlslPorts,
 		freshSubgraphName,
 		groupNodes,
 		groupRefusal,
@@ -67,6 +79,7 @@
 		newShaderDoc,
 		nodeDefIn,
 		remove,
+		setCustomGlslCode,
 		setNodeValue,
 		slugOf,
 		subgraphCalls,
@@ -76,6 +89,8 @@
 		ungroupRefusal,
 		viewOf,
 		type CanvasMode,
+		type GraphScope,
+		type ShaderNodeView,
 	} from './shaderEditor';
 	import type { PageData } from './$types';
 
@@ -112,9 +127,33 @@
 	const compiled = $derived(doc ? compileShaderEffect(doc) : undefined);
 	const compiledEffect = $derived(compiled?.ok ? compiled.effect : undefined);
 	const motionErrors = $derived(motionCheck?.issues.filter((i) => i.level === 'error').length ?? 0);
-	/** The whole effect's: the pixel graph's errors and the motion graph's. */
+
+	// ── Custom GLSL (step 8c): a holder of `shaderCustomGlsl` adds it and changes its code or ports ──
+	const canCustomGlsl = untrack(() => data.canCustomGlsl ?? false);
+	/** The open graph as stored (opened, restored or saved here): a save refuses a non-holder's
+	 *  graph holding Custom GLSL this one does not, so the page refuses such an edit first. */
+	let storedDoc = $state.raw<ShaderGraphDoc | null>(untrack(() => data.opened?.doc ?? null));
+	const holdsGlsl = $derived(doc ? hasCustomGlsl(doc) : false);
+	// While it holds Custom GLSL, the effect's shader is test-compiled on WebGL1 and WebGL2.
+	const glslCheck = provideGlslCheck();
+	$effect(() => {
+		const shader = holdsGlsl && compiled?.ok ? compiled.effect.shader : undefined;
+		const of = doc;
+		untrack(() => glslCheck.update(shader, of));
+	});
+	const driverFound = $derived(
+		glslCheck.doc ? driverIssues(glslCheck.doc, glslCheck.verdicts) : [],
+	);
+	const drivers = $derived(driverSummary(glslCheck.verdicts, glslCheck.pending, !!compiled?.ok));
+	/** The drivers' errors, once each on the effect's own graph. */
+	const driverErrors = $derived(doc ? driverGraphIssues(doc, null, driverFound).length : 0);
+	/** For someone without `shaderCustomGlsl`: why `next` cannot be taken (it adds Custom GLSL). */
+	const lockedGlsl = (next: ShaderGraphDoc): string | undefined =>
+		!canCustomGlsl && storedDoc ? customGlslRefusal(storedDoc, next) : undefined;
+
+	/** The whole effect's: the pixel graph's errors, the motion graph's and the drivers'. */
 	const errorCount = $derived(
-		(analysis?.issues.filter((i) => i.level === 'error').length ?? 0) + motionErrors,
+		(analysis?.issues.filter((i) => i.level === 'error').length ?? 0) + motionErrors + driverErrors,
 	);
 
 	// ── Subgraphs: the canvas shows the effect's graph, or a subgraph's body opened from it ──
@@ -139,6 +178,16 @@
 	);
 	const selected = $derived(view?.nodes.find((n) => n.id === selectedId));
 	const driven = $derived(doc ? drivenChannels(doc) : []);
+	/** The graph shown's analysis with the drivers' errors on its nodes, as the canvas shows them. */
+	const shownAnalysis = $derived.by(() => {
+		if (!doc || !viewAnalysis || !driverFound.length) return viewAnalysis;
+		const found = driverGraphIssues(doc, scope, driverFound);
+		return found.length
+			? { ...viewAnalysis, issues: [...viewAnalysis.issues, ...found] }
+			: viewAnalysis;
+	});
+	/** A key per graph shown: a symbol (the motion graph's scope) cannot be put in a string. */
+	const scopeKey = $derived(isMotionScope(scope) ? 'motion' : (scope ?? ''));
 
 	// ── The canvas ──
 	const nodeTypes = { shader: ShaderNode };
@@ -152,9 +201,22 @@
 			.map((n) => n.id);
 		const picked = new Set(selectedId ? [...kept, selectedId] : kept);
 		const graph = doc
-			? canvasGraph(doc, viewAnalysis, picked, lease.readOnly, scope)
+			? canvasGraph(doc, shownAnalysis, picked, lease.readOnly, scope)
 			: { nodes: [], edges: [] };
-		nodes = graph.nodes as Node[];
+		// A node rebuilt without its size is hidden until measured again: a click landing in that
+		// frame (the driver test-compile answers a moment after an edit) would hit the pane. It keeps
+		// its size while its ports are the same (with other ports, its dots are measured afresh).
+		const ports = (n: Node): string => {
+			const def = (n.data as ShaderNodeView).def;
+			return JSON.stringify([def?.inputs.map((p) => p.id), def?.outputs.map((p) => p.id)]);
+		};
+		const was = new Map(untrack(() => nodes).map((n) => [n.id, n]));
+		nodes = graph.nodes.map((n) => {
+			const before = was.get(n.id);
+			return before?.measured && ports(before) === ports(n as Node)
+				? { ...n, measured: before.measured }
+				: n;
+		}) as Node[];
 		edges = graph.edges as Edge[];
 	});
 	// Node thumbnails: one renderer for every node, fed the graph as edited (`shaderThumbs.svelte.ts`).
@@ -170,17 +232,29 @@
 	let future = $state.raw<ShaderGraphDoc[]>([]);
 	const UNDO_DEPTH = 100;
 
-	/** Every edit: remember the doc it replaces, show the new one, autosave. */
+	/** Every edit: remember the doc it replaces, show the new one, autosave. A gesture that changed
+	 *  nothing (it gives back the doc it was given) is no step. */
 	function edit(next: ShaderGraphDoc): void {
-		if (!doc || lease.readOnly) return;
+		if (!doc || lease.readOnly || next === doc) return;
+		const refused = lockedGlsl(next);
+		if (refused) {
+			notice = refused;
+			return;
+		}
 		past = [...past.slice(-(UNDO_DEPTH - 1)), doc];
 		future = [];
 		doc = next;
 		saveState.markDirty();
 	}
+	/** Undo or redo would bring back Custom GLSL a save since took out, which only a holder adds. */
+	const lockedStep = (to: ShaderGraphDoc): boolean => {
+		const refused = lockedGlsl(to);
+		if (refused) notice = `${refused} This step would bring back custom GLSL deleted since.`;
+		return !!refused;
+	};
 	function undo(): void {
 		const prev = past.at(-1);
-		if (!prev || !doc || lease.readOnly) return;
+		if (!prev || !doc || lease.readOnly || lockedStep(prev)) return;
 		past = past.slice(0, -1);
 		future = [doc, ...future];
 		doc = prev;
@@ -188,7 +262,7 @@
 	}
 	function redo(): void {
 		const next = future[0];
-		if (!next || !doc || lease.readOnly) return;
+		if (!next || !doc || lease.readOnly || lockedStep(next)) return;
 		future = future.slice(1);
 		past = [...past.slice(-(UNDO_DEPTH - 1)), doc];
 		doc = next;
@@ -241,6 +315,7 @@
 					};
 				}
 				if (shown !== shownGraph) return { ok: true, etag: out.etag ?? null };
+				storedDoc = current;
 				upsertRow({
 					id: out.id,
 					name: out.name ?? out.id,
@@ -325,6 +400,7 @@
 	function showGraph(next: ShaderGraphDoc | null, etag: string | null, shared: boolean): void {
 		shownGraph += 1;
 		doc = next;
+		storedDoc = next;
 		openShared = shared;
 		selectedId = null;
 		scopePath = [];
@@ -444,6 +520,8 @@
 
 	// ── The studio library ──
 	const canPublishShared = untrack(() => data.canPublishShared);
+	const PUBLISH_GLSL_LOCKED =
+		'Only an admin can publish an effect holding custom GLSL to the studio library.';
 	const openRow = $derived(
 		doc ? graphs.find((g) => g.id === doc?.id && g.shared === openShared) : undefined,
 	);
@@ -463,6 +541,15 @@
 	async function publishToLibrary(): Promise<void> {
 		if (!doc || openShared) return;
 		if (!(await settle())) return;
+		if (holdsGlsl && !canCustomGlsl) {
+			notice = PUBLISH_GLSL_LOCKED;
+			return;
+		}
+		glslCheck.checkNow();
+		if (driverErrors) {
+			notice = `${drivers.text} Only an effect WebGL1 and WebGL2 both compile can go to the studio library.`;
+			return;
+		}
 		if (errorCount) {
 			notice = 'Fix its errors first: only an effect that compiles can go to the studio library.';
 			return;
@@ -567,7 +654,7 @@
 		selectedId = id;
 	}
 	function placeNode(type: string, pos: { x: number; y: number }): void {
-		if (!doc || !canPlace(doc, scope, type)) return;
+		if (!doc || !canPlace(doc, scope, type, canCustomGlsl)) return;
 		// The motion graph's first node brings its Output: show both.
 		const first = motionShown && !view?.nodes.length;
 		const added = addNodeIn(doc, scope, type, pos);
@@ -609,6 +696,15 @@
 	}
 	function addFromLibrary(type: string): void {
 		if (doc) placeNode(type, besideSelection());
+	}
+
+	/** The doc takes `code` for Custom GLSL node `id` of graph `at`, unless another effect opened
+	 *  since (a draft still waiting when the panel closes lands where it was typed, or nowhere). */
+	function codeInto(at: GraphScope, id: string): (code: string) => void {
+		const graph = shownGraph;
+		return (code) => {
+			if (doc && graph === shownGraph) edit(setCustomGlslCode(doc, at, id, code));
+		};
 	}
 
 	// ── Subgraph gestures ──
@@ -813,6 +909,13 @@
 						onRetry={() => void saveState.save()}
 					/>
 				{/if}
+				{#if holdsGlsl && driverErrors}
+					<span
+						class="pill-mark"
+						title="{drivers.text} It still saves (a graph being built always does), but a game on that driver would draw nothing for it, and it cannot go to the studio library until it compiles."
+						>{saveState.dirty ? 'Unsaved' : 'Saved'}: GLSL rejected</span
+					>
+				{/if}
 				<button
 					type="button"
 					class="chrome"
@@ -830,8 +933,12 @@
 						<button
 							type="button"
 							class="chrome"
-							disabled={lease.readOnly}
-							title="Copy this effect, as saved, to the studio library every project takes in"
+							disabled={lease.readOnly || (holdsGlsl && (!canCustomGlsl || driverErrors > 0))}
+							title={holdsGlsl && !canCustomGlsl
+								? PUBLISH_GLSL_LOCKED
+								: holdsGlsl && driverErrors
+									? `${drivers.text} Fix it first.`
+									: 'Copy this effect, as saved, to the studio library every project takes in'}
 							onclick={() => void publishToLibrary()}
 						>
 							{openRow?.inLibrary ? 'Update library copy' : 'Publish to library'}
@@ -857,6 +964,7 @@
 				onNewFrom={(kind) => void create(kind)}
 				onDelete={(row) => void del(row)}
 				onAdd={addFromLibrary}
+				customGlsl={canCustomGlsl}
 				subgraphs={doc ? subgraphRows(doc, scope) : []}
 				boundary={doc ? missingBoundary(doc, scope) : []}
 				onAddCall={(id) => placeCall(id, besideSelection())}
@@ -883,6 +991,15 @@
 							>
 						{:else}
 							<span class="good">Compiles</span>
+						{/if}
+						{#if holdsGlsl}
+							<span class="drivers" title={drivers.text}>
+								{#each drivers.chips as chip (chip.gl)}
+									<span class="chip {chip.state}"
+										>WebGL{chip.gl} {DRIVER_CHIP_MARKS[chip.state]}</span
+									>
+								{/each}
+							</span>
 						{/if}
 						{#if analysis}
 							<span
@@ -937,7 +1054,7 @@
 						onCrumb={(i) => showScope(openPath.slice(0, i))}
 						groupable={groupCount}
 						call={selectedCall ? subgraphName(selectedCall) : ''}
-						errors={scope ? docIssues(doc, viewAnalysis, scope) : []}
+						errors={scope ? docIssues(doc, shownAnalysis, scope) : []}
 						readOnly={lease.readOnly}
 						onGroup={groupSelection}
 						onOpen={() => selectedCall && openSubgraph(selectedCall.id)}
@@ -982,8 +1099,13 @@
 							def={nodeDefIn(doc, selected, scope)}
 							inTypes={viewAnalysis?.inputs[selected.id] ?? {}}
 							wired={view.wires.filter((w) => w.to.node === selected.id).map((w) => w.to.port)}
-							errors={viewAnalysis?.issues
-								.filter((i) => i.node === selected.id && i.level === 'error')
+							errors={shownAnalysis?.issues
+								.filter(
+									(i) =>
+										i.node === selected.id &&
+										i.level === 'error' &&
+										!(selected.type === CUSTOM_GLSL && i.code === 'glsl'),
+								)
 								.map((i) => i.message) ?? []}
 							paramKinds={motionShown ? ['number', 'bool', 'choice'] : undefined}
 							undriven={motionShown && selected.type === MOTION_OUTPUT
@@ -993,6 +1115,23 @@
 							onValue={(key, value) =>
 								doc && edit(inScope(doc, scope, (d) => setNodeValue(d, selected.id, key, value)))}
 						/>
+						{#if !motionShown && selected.type === CUSTOM_GLSL}
+							{#key `${scopeKey}/${selected.id}`}
+								<CustomGlslProperties
+									node={selected}
+									holder={canCustomGlsl}
+									editable={canCustomGlsl && !lease.readOnly}
+									issues={[
+										...checkerIssues(viewAnalysis?.issues ?? [], selected.id),
+										...driverCodeIssues(doc, scope, selected.id, driverFound),
+									]}
+									driverStatus={drivers.text}
+									onCode={codeInto(scope, selected.id)}
+									onPorts={(gesture) =>
+										doc && edit(editCustomGlslPorts(doc, scope, selected.id, gesture))}
+								/>
+							{/key}
+						{/if}
 						{#if !motionShown && (selected.type === SUBGRAPH_CALL || (scope && (selected.type === SUBGRAPH_IN || selected.type === SUBGRAPH_OUT)))}
 							<SubgraphProperties
 								{doc}
@@ -1127,6 +1266,33 @@
 	}
 	.bars span.full {
 		background: #f87171;
+	}
+	.drivers {
+		display: flex;
+		gap: 4px;
+	}
+	.chip {
+		padding: 0 6px;
+		border-radius: 8px;
+		font-size: 10px;
+		line-height: 16px;
+		color: #94a3b8;
+		background: #1f2937;
+	}
+	.chip.ok {
+		color: #86efac;
+		background: #12301f;
+	}
+	.chip.bad {
+		color: #fca5a5;
+		background: #3b1d1d;
+	}
+	.pill-mark {
+		font-size: 11px;
+		padding: 1px 8px;
+		border-radius: 9px;
+		color: #fecaca;
+		background: #7f1d1d;
 	}
 	.thumbs-toggle {
 		display: flex;

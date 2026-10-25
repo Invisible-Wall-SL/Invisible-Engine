@@ -21,6 +21,12 @@ import {
 import {
 	BUILTIN_TWINS,
 	COST_BUDGET,
+	CUSTOM_GLSL,
+	CUSTOM_GLSL_BYTES_MAX,
+	CUSTOM_GLSL_COST_MAX,
+	CUSTOM_GLSL_DEFAULT,
+	CUSTOM_GLSL_LOOP_MAX,
+	CUSTOM_GLSL_SAMPLES_MAX,
 	SAMPLE_BUDGET,
 	DIMS,
 	SHADER_GRAPH_VERSION,
@@ -35,9 +41,14 @@ import {
 	analyzeShaderSubgraph,
 	calledSubgraph,
 	canFeed,
+	customGlslDef,
+	customGlslFunction,
+	customGlslNameIssue,
+	customGlslSignature,
 	flattenGraph,
 	flattenShaderGraph,
 	graphNodeDef,
+	hasCustomGlsl,
 	isMotionNode,
 	MOTION_NODES,
 	MOTION_OUTPUT,
@@ -47,6 +58,8 @@ import {
 	subgraphName,
 	subgraphOf,
 	type BuiltinTwin,
+	type CustomGlslDefinition,
+	type GraphIssue,
 	type GraphNode,
 	type GraphWire,
 	type NodeCategory,
@@ -71,6 +84,7 @@ export const NODE_CATEGORIES: readonly { id: NodeCategory; label: string; color:
 	{ id: 'uv', label: 'UV', color: '#ec4899' },
 	{ id: 'color', label: 'Colour', color: '#f43f5e' },
 	{ id: 'subgraph', label: 'Subgraphs', color: '#14b8a6' },
+	{ id: 'code', label: 'Advanced', color: '#eab308' },
 	{ id: 'output', label: 'Output', color: '#e2e8f0' },
 ];
 
@@ -304,16 +318,22 @@ export interface LibraryGroup {
 }
 
 /**
- * The library, by family, as the page lists them: every pixel node but the Output, or (`motion`)
- * every node the motion graph takes but its Output.
+ * The library, by family, as the page lists them: every pixel node but the Output, with Custom GLSL
+ * under Advanced for a holder of `shaderCustomGlsl` (`customGlsl`); or (`motion`) every node the
+ * motion graph takes but its Output.
  */
-export function libraryGroups(motion = false): LibraryGroup[] {
-	const offered = motion ? MOTION_NODES : SHADER_NODES;
+export function libraryGroups(motion = false, customGlsl = false): LibraryGroup[] {
+	const custom = customGlsl && !motion ? [paletteGlslDef()] : [];
+	const offered = [...(motion ? MOTION_NODES : SHADER_NODES), ...custom];
 	return NODE_CATEGORIES.map((c) => ({
 		...c,
 		nodes: offered.filter((d) => d.category === c.id && d.category !== 'output'),
 	})).filter((g) => g.nodes.length);
 }
+
+/** The Custom GLSL node as the palette offers it: a new one's def (its default ports). */
+const paletteGlslDef = (): NodeDef =>
+	customGlslDef({ id: 'palette', type: CUSTOM_GLSL, x: 0, y: 0, glsl: CUSTOM_GLSL_DEFAULT });
 
 export const categoryColor = (category: NodeCategory): string =>
 	NODE_CATEGORIES.find((c) => c.id === category)?.color ?? '#94a3b8';
@@ -804,9 +824,9 @@ function hashOf(text: string): string {
 
 /**
  * A key per node of the graph `scope` shows that changes when, and only when, its
- * {@link probeDoc} does: the node, its values and what feeds it however far up, what a call calls
- * (its subgraph, and those that calls), the params any node may read, a body's inputs, and which
- * outputs a wire takes onward. An edit changes the keys of the node it touches and of what reads
+ * {@link probeDoc} does: the node, its values (and a Custom GLSL node's code and ports) and what
+ * feeds it however far up, what a call calls (its subgraph, and those that calls), the params any
+ * node may read, a body's inputs, and which outputs a wire takes onward. An edit changes the keys of the node it touches and of what reads
  * it, so a thumbnail of anything else is neither compiled nor drawn again.
  */
 export function probeKeys(doc: ShaderGraphDoc, scope: GraphScope = null): Map<string, string> {
@@ -849,7 +869,9 @@ export function probeKeys(doc: ShaderGraphDoc, scope: GraphScope = null): Map<st
 		visiting.delete(id);
 		const node = byId.get(id);
 		const calls = node?.type === SUBGRAPH_CALL ? calledKey(calledSubgraph(node)) : '';
-		const key = hashOf(JSON.stringify([node?.type, node?.values ?? null, inputs, calls]));
+		const key = hashOf(
+			JSON.stringify([node?.type, node?.values ?? null, node?.glsl ?? null, inputs, calls]),
+		);
 		up.set(id, key);
 		return key;
 	};
@@ -978,7 +1000,8 @@ export function nodeCosts(
 	const wired = new Set(flat.wires.map((w) => `${w.to.node}.${w.to.port}`));
 	const totals = new Map<string, { cost: number; samples: number; readsPixel: boolean }>();
 	for (const node of flat.nodes) {
-		const def = flat.defs.get(node.id) ?? shaderNode(node.type);
+		const def =
+			flat.defs.get(node.id) ?? (isCustomGlsl(node) ? customGlslDef(node) : shaderNode(node.type));
 		if (!def || !reached.has(node.id)) continue;
 		const owner = flat.origin.get(node.id)?.node ?? node.id;
 		const total = totals.get(owner) ?? { cost: 0, samples: 0, readsPixel: false };
@@ -1147,12 +1170,22 @@ export function missingBoundary(doc: ShaderGraphDoc, scope: GraphScope): string[
 	return [SUBGRAPH_IN, SUBGRAPH_OUT].filter((type) => !nodes.some((n) => n.type === type));
 }
 
-/** Whether a node of `type` can be placed in the graph `scope` shows. */
-export const canPlace = (doc: ShaderGraphDoc, scope: GraphScope, type: string): boolean =>
+/**
+ * Whether a node of `type` can be placed in the graph `scope` shows; Custom GLSL only by a holder of
+ * `shaderCustomGlsl` (`customGlsl`), and never in the motion graph.
+ */
+export const canPlace = (
+	doc: ShaderGraphDoc,
+	scope: GraphScope,
+	type: string,
+	customGlsl = false,
+): boolean =>
 	missingBoundary(doc, scope).includes(type) ||
 	(isMotionScope(scope)
 		? isMotionNode(type) && type !== MOTION_OUTPUT
-		: !!shaderNode(type) && type !== 'output');
+		: type === CUSTOM_GLSL
+			? customGlsl
+			: !!shaderNode(type) && type !== 'output');
 
 /** `doc` with a call of subgraph `id` at `pos` in the graph `scope` shows, and the call's id. */
 export function addCall(
@@ -1574,6 +1607,35 @@ export function renameSubgraph(doc: ShaderGraphDoc, id: string, name: string): S
 
 export type PortSide = 'inputs' | 'outputs';
 
+/** An edit of a declared port: its label, its type, its default (`null` clears it). */
+export interface PortPatch {
+	label?: string;
+	type?: PortType;
+	default?: number | number[] | null;
+}
+
+/** A new `type` port for `side` of `ports` (`in1`, `out2`…), its id one the side lacks. */
+function freshPort(ports: readonly SubgraphPort[], side: PortSide, type: PortType): SubgraphPort {
+	const stem = side === 'inputs' ? 'in' : 'out';
+	const taken = new Set(ports.map((p) => p.id));
+	let n = 1;
+	while (taken.has(`${stem}${n}`)) n++;
+	return { id: `${stem}${n}`, label: `${side === 'inputs' ? 'Input' : 'Output'} ${n}`, type };
+}
+
+/** Whether `value` is a value a port of `type` reads: a number, or `type`'s width of them. */
+const fitsPort = (value: unknown, type: PortType): boolean =>
+	typeof value === 'number' || (Array.isArray(value) && value.length === DIMS[type]);
+
+/** `port` (a copy, changed in place) with `patch`; a default that no longer fits its type goes. */
+function patchPort(port: SubgraphPort, patch: PortPatch): void {
+	if (patch.label !== undefined) port.label = patch.label;
+	if (patch.type) port.type = patch.type;
+	if (patch.default === null) delete port.default;
+	else if (patch.default !== undefined) port.default = patch.default;
+	if (port.default !== undefined && !fitsPort(port.default, port.type)) delete port.default;
+}
+
 /**
  * `doc` with a new `type` input or output on subgraph `id`, its id one the side lacks; unchanged
  * when the side has its most ({@link SUBGRAPH_PORTS_MAX}).
@@ -1587,21 +1649,9 @@ export function addSubgraphPort(
 	const next = clone(doc);
 	const sub = subgraphOf(next, id);
 	if (!sub || sub[side].length >= SUBGRAPH_PORTS_MAX) return doc;
-	const stem = side === 'inputs' ? 'in' : 'out';
-	const taken = new Set(sub[side].map((p) => p.id));
-	let n = 1;
-	while (taken.has(`${stem}${n}`)) n++;
-	sub[side].push({
-		id: `${stem}${n}`,
-		label: `${side === 'inputs' ? 'Input' : 'Output'} ${n}`,
-		type,
-	});
+	sub[side].push(freshPort(sub[side], side, type));
 	return next;
 }
-
-/** Whether `value` is a value a port of `type` reads: a number, or `type`'s width of them. */
-const fitsPort = (value: unknown, type: PortType): boolean =>
-	typeof value === 'number' || (Array.isArray(value) && value.length === DIMS[type]);
 
 /**
  * `doc` with port `portId` of subgraph `id` relabelled, retyped or given another default (its id
@@ -1613,17 +1663,13 @@ export function setSubgraphPort(
 	id: string,
 	side: PortSide,
 	portId: string,
-	patch: { label?: string; type?: PortType; default?: number | number[] | null },
+	patch: PortPatch,
 ): ShaderGraphDoc {
 	const next = clone(doc);
 	const sub = subgraphOf(next, id);
 	const port = sub?.[side].find((p) => p.id === portId);
 	if (!sub || !port) return doc;
-	if (patch.label !== undefined) port.label = patch.label;
-	if (patch.type) port.type = patch.type;
-	if (patch.default === null) delete port.default;
-	else if (patch.default !== undefined) port.default = patch.default;
-	if (port.default !== undefined && !fitsPort(port.default, port.type)) delete port.default;
+	patchPort(port, patch);
 	const holders =
 		side === 'inputs'
 			? graphsOf(next).flatMap((g) =>
@@ -1719,7 +1765,8 @@ export function motionAnalysis(
 /**
  * `doc` with a `type` node at `pos` in the graph `scope` shows, and its id: one neither the
  * effect's graph nor the motion graph has, so an issue naming it is never read on the other. The
- * motion graph's first node brings its Output, to its right.
+ * motion graph's first node brings its Output, to its right. A Custom GLSL node starts as the
+ * default (a colour in, the same colour out).
  */
 export function addNodeIn(
 	doc: ShaderGraphDoc,
@@ -1740,7 +1787,15 @@ export function addNodeIn(
 			});
 		}
 		id = freshNodeId(taken(graph), type);
-		graph.nodes.push({ id, type, x: Math.round(pos.x), y: Math.round(pos.y) });
+		graph.nodes.push({
+			id,
+			type,
+			x: Math.round(pos.x),
+			y: Math.round(pos.y),
+			...(type === CUSTOM_GLSL && {
+				glsl: JSON.parse(JSON.stringify(CUSTOM_GLSL_DEFAULT)) as CustomGlslDefinition,
+			}),
+		});
 		return graph;
 	});
 	return { doc: next, id };
@@ -1845,4 +1900,616 @@ export function curvePoint(curve: MotionCurve, t: number): { x: number; y: numbe
 			: curve.values[0];
 	const span = curve.max - curve.min;
 	return { x, y: span > 0 ? (v - curve.min) / span : 0.5 };
+}
+
+// ── Custom GLSL ─────────────────────────────────────────────────────────────────────────────────
+
+/** Why the code and ports of a Custom GLSL node do not change for someone without the capability. */
+export const CUSTOM_GLSL_LOCKED = 'Only an admin can change custom GLSL.';
+
+/** What a Custom GLSL node's code may be, as its help lists it: the checker's rules, in words. */
+export const CUSTOM_GLSL_HELP: readonly string[] = [
+	'The body of a GLSL ES 1.00 function run where the node sits, in the effect’s own pass. It reads its inputs and writes its outputs by name; an input and an output of one name are one value, changed in place. An output of its own must be written (where it is not, it keeps its default, else 0).',
+	'Locals (float, int, bool, vec2–4, mat2–4, each given a value), if / else, break, continue and return;.',
+	`Loops: for, counting with an int from a literal to a literal by a literal step, at most ${CUSTOM_GLSL_LOOP_MAX} rounds. No while or do.`,
+	'GLSL’s built-in functions (not the texture ones) and the efx… library (efxNoise, efxLuma, efxToUnit…). efxSample(px) reads the element at a pixel; efxPx() is this pixel.',
+	'Not allowed: discard, #, declaring functions, structs, uniforms, varyings or precision, qualifiers, arrays and indexing, % and the bitwise operators, gl_ names and the shader’s own (uFx, uP0…).',
+	`At most ${CUSTOM_GLSL_BYTES_MAX} bytes, and ${CUSTOM_GLSL_COST_MAX} units of work and ${CUSTOM_GLSL_SAMPLES_MAX} reads of the element a pixel.`,
+	'Renaming a port does not change the code: change the name where the code reads it too.',
+];
+
+/** Each side of a Custom GLSL node holds at most this many ports. */
+export const CUSTOM_GLSL_PORTS_MAX = SUBGRAPH_PORTS_MAX;
+
+/** A Custom GLSL node's code and ports: its own, else the node's defaults. */
+export function glslOf(node: GraphNode): CustomGlslDefinition {
+	return node.glsl ?? CUSTOM_GLSL_DEFAULT;
+}
+
+export const isCustomGlsl = (node: GraphNode): boolean => node.type === CUSTOM_GLSL;
+
+const json = (value: unknown): string => JSON.stringify(value);
+
+/**
+ * `doc` with Custom GLSL node `id` of the graph `scope` shows changed by `change` (given a copy of
+ * its code and ports); unchanged when there is no such node or `change` leaves it as it was.
+ */
+function withGlsl(
+	doc: ShaderGraphDoc,
+	scope: GraphScope,
+	id: string,
+	change: (glsl: CustomGlslDefinition, node: GraphNode, view: ShaderGraphDoc) => void,
+): ShaderGraphDoc {
+	if (isMotionScope(scope)) return doc;
+	return inScope(doc, scope, (view) => {
+		const at = view.nodes.findIndex((n) => n.id === id && isCustomGlsl(n));
+		if (at < 0) return view;
+		const next = clone(view);
+		const node = next.nodes[at];
+		const glsl = JSON.parse(JSON.stringify(glslOf(node))) as CustomGlslDefinition;
+		change(glsl, node, next);
+		if (json(glsl) === json(glslOf(view.nodes[at]))) return view;
+		node.glsl = glsl;
+		return next;
+	});
+}
+
+/** `doc` with Custom GLSL node `id`'s code (in the graph `scope` shows) set to `code`. */
+export function setCustomGlslCode(
+	doc: ShaderGraphDoc,
+	scope: GraphScope,
+	id: string,
+	code: string,
+): ShaderGraphDoc {
+	return withGlsl(doc, scope, id, (glsl) => {
+		glsl.code = code;
+	});
+}
+
+/** One change to a Custom GLSL node's declared ports, as its properties make them. */
+export type GlslPortGesture =
+	| { kind: 'add'; side: PortSide; type?: PortType }
+	| { kind: 'patch'; side: PortSide; port: string; patch: PortPatch }
+	| { kind: 'remove'; side: PortSide; port: string }
+	| { kind: 'rename'; side: PortSide; port: string; next: string };
+
+/**
+ * Why port `port` on `side` of `glsl` cannot be renamed `next`, or undefined when it can: the name
+ * must be one the code can read (the checker's rule, `customGlslNameIssue`), and not another port's
+ * on that side.
+ */
+export function glslPortNameRefusal(
+	glsl: CustomGlslDefinition,
+	side: PortSide,
+	port: string,
+	next: string,
+): string | undefined {
+	const issue =
+		next === SUBGRAPH_CALL ? 'is the word a call names its subgraph by' : customGlslNameIssue(next);
+	if (issue) return `"${next}" cannot name a port: it ${issue}.`;
+	if (glsl[side].some((p) => p.id === next && p.id !== port))
+		return `This node already has ${side === 'inputs' ? 'an input' : 'an output'} "${next}".`;
+	return undefined;
+}
+
+/**
+ * `doc` with Custom GLSL node `id`'s ports (in the graph `scope` shows) changed by `gesture`, as a
+ * subgraph's are: a port keeps its id when relabelled, retyped or given a default, so its wires stay;
+ * a value set on the node that no longer fits an input's type goes. Removing a port takes its wires
+ * and value with it; the last output stays (the node gives at least one). Renaming one (a name
+ * {@link glslPortNameRefusal} takes) moves its wires and value to the new name; the code is left as
+ * it is. Adding past {@link CUSTOM_GLSL_PORTS_MAX}, or a refused name, changes nothing.
+ */
+export function editCustomGlslPorts(
+	doc: ShaderGraphDoc,
+	scope: GraphScope,
+	id: string,
+	gesture: GlslPortGesture,
+): ShaderGraphDoc {
+	const { side } = gesture;
+	const input = side === 'inputs';
+	const touches = (w: GraphWire, port: string): boolean =>
+		input ? w.to.node === id && w.to.port === port : w.from.node === id && w.from.port === port;
+	return withGlsl(doc, scope, id, (glsl, node, view) => {
+		const ports = glsl[side];
+		if (gesture.kind === 'add') {
+			if (ports.length < CUSTOM_GLSL_PORTS_MAX)
+				ports.push(freshPort(ports, side, gesture.type ?? 'float'));
+			return;
+		}
+		const port = ports.find((p) => p.id === gesture.port);
+		if (!port) return;
+		const values = node.values ?? {};
+		if (gesture.kind === 'patch') {
+			patchPort(port, gesture.patch);
+			if (input && Object.hasOwn(values, port.id) && !fitsPort(values[port.id], port.type))
+				delete values[port.id];
+		} else if (gesture.kind === 'remove') {
+			if (!input && ports.length <= 1) return;
+			glsl[side] = ports.filter((p) => p !== port);
+			view.wires = view.wires.filter((w) => !touches(w, port.id));
+			if (input) delete values[port.id];
+		} else {
+			if (gesture.next === port.id || glslPortNameRefusal(glsl, side, port.id, gesture.next))
+				return;
+			for (const w of view.wires) {
+				if (!touches(w, port.id)) continue;
+				if (input) w.to.port = gesture.next;
+				else w.from.port = gesture.next;
+			}
+			if (input && Object.hasOwn(values, port.id)) {
+				values[gesture.next] = values[port.id];
+				delete values[port.id];
+			}
+			port.id = gesture.next;
+		}
+		if (Object.keys(values).length) node.values = values;
+		else delete node.values;
+	});
+}
+
+/**
+ * For someone without the `shaderCustomGlsl` capability, why `next` cannot replace the doc: it holds
+ * Custom GLSL (a node's code and ports) that `baseline`, the doc as stored, does not, which is what
+ * the save refuses. Removing a node, or moving, wiring or grouping around one, adds none.
+ */
+export function customGlslRefusal(
+	baseline: ShaderGraphDoc,
+	next: ShaderGraphDoc,
+): string | undefined {
+	if (!hasCustomGlsl(next)) return undefined;
+	const known = new Set(customGlslSignature(baseline));
+	return customGlslSignature(next).every((s) => known.has(s)) ? undefined : CUSTOM_GLSL_LOCKED;
+}
+
+/** One thing wrong with a Custom GLSL node's code: the line it names (1-based), if any. */
+export interface CodeIssue {
+	line: number | null;
+	message: string;
+	/** Who said so: the checker, or a driver (`WebGL1`, `WebGL2`, both). */
+	source: string;
+}
+
+/** The lines of a node's code something is wrong with, each with its messages. */
+export function codeMarks(issues: readonly CodeIssue[]): Map<number, string[]> {
+	const marks = new Map<number, string[]>();
+	for (const issue of issues) {
+		if (issue.line === null) continue;
+		marks.set(issue.line, [...(marks.get(issue.line) ?? []), `${issue.source}: ${issue.message}`]);
+	}
+	return marks;
+}
+
+/**
+ * The checker's errors among `issues` (the analysis' of the graph shown) on node `id`, each with the
+ * line of the code it is on, its message without the line it leads with.
+ */
+export function checkerIssues(issues: readonly GraphIssue[], id: string): CodeIssue[] {
+	return issues
+		.filter((i) => i.node === id && i.level === 'error' && i.code === 'glsl')
+		.map((issue) => {
+			const lead = /^\s*line (\d+):\s*/.exec(issue.message);
+			const line = issue.line ?? (lead ? Number(lead[1]) : null);
+			return {
+				line,
+				message: lead ? issue.message.slice(lead[0].length) : issue.message,
+				source: 'checker',
+			};
+		});
+}
+
+/** A code field commits what was typed once typing pauses this long (or at once when it is left). */
+export const CODE_IDLE_MS = 600;
+
+/** The timers a {@link CodeDraft} waits with: the page's, or a test's. */
+export interface DraftClock {
+	set(fire: () => void, ms: number): unknown;
+	clear(handle: unknown): void;
+}
+
+const REAL_CLOCK: DraftClock = {
+	set: (fire, ms) => setTimeout(fire, ms),
+	clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
+/**
+ * What a code field holds between keystrokes and the doc. Each keystroke changes the draft only;
+ * the draft goes to the doc (`commit`, one edit, so one undo step) once typing pauses for `idleMs`,
+ * or at once on {@link flush} (the field is left, the node unselected, Ctrl+S). Committing what the
+ * doc already holds commits nothing. When the doc's code changes under it (undo, redo, a restore),
+ * {@link sync} takes the doc's unless something typed is still waiting.
+ */
+export class CodeDraft {
+	private draft: string;
+	private stored: string;
+	private timer: unknown;
+
+	constructor(
+		code: string,
+		private readonly commit: (code: string) => void,
+		private readonly clock: DraftClock = REAL_CLOCK,
+		private readonly idleMs = CODE_IDLE_MS,
+	) {
+		this.draft = code;
+		this.stored = code;
+	}
+
+	/** What the field shows. */
+	get text(): string {
+		return this.draft;
+	}
+
+	/** Something typed has not reached the doc yet. */
+	get pending(): boolean {
+		return this.draft !== this.stored;
+	}
+
+	/** A keystroke: the field now holds `text`. */
+	type(text: string): void {
+		this.draft = text;
+		this.disarm();
+		if (this.pending) this.timer = this.clock.set(() => this.flush(), this.idleMs);
+	}
+
+	/** Send what was typed to the doc now. */
+	flush(): void {
+		this.disarm();
+		if (!this.pending) return;
+		this.stored = this.draft;
+		this.commit(this.draft);
+	}
+
+	/** The doc holds `code` now; the field follows it unless something typed is still waiting. */
+	sync(code: string): void {
+		if (code === this.stored) return;
+		const waiting = this.pending;
+		this.stored = code;
+		if (!waiting) this.draft = code;
+	}
+
+	/** Stop waiting; what was typed and not sent is dropped (flush first to keep it). */
+	dispose(): void {
+		this.disarm();
+	}
+
+	private disarm(): void {
+		if (this.timer !== undefined) this.clock.clear(this.timer);
+		this.timer = undefined;
+	}
+}
+
+/** One error a driver logged compiling a shader: the line of the source it names, if any. */
+export interface DriverLogLine {
+	line: number | null;
+	message: string;
+}
+
+/**
+ * The errors in a driver's compile or link log. ANGLE, Mesa and most others write
+ * `ERROR: 0:<line>: <message>`; NVIDIA's own `0(<line>) : error <code>: <message>`. A summary line
+ * ("2 compilation errors. No code generated.") is left out; a log naming no line keeps its text.
+ */
+export function parseDriverLog(log: string): DriverLogLine[] {
+	const found: DriverLogLine[] = [];
+	for (const raw of log.replaceAll('\0', '').split('\n')) {
+		const text = raw.trim();
+		if (!text) continue;
+		const angle = /^ERROR:\s*\d+:(\d+):\s*(.*)$/i.exec(text);
+		const nvidia = /^\d+\((\d+)\)\s*:\s*error\s*(?:\w+:)?\s*(.*)$/i.exec(text);
+		const hit = angle ?? nvidia;
+		if (hit) found.push({ line: Number(hit[1]), message: hit[2].trim() });
+		else if (/^(ERROR|error)\b/.test(text) && !/compilation errors?\b/i.test(text))
+			found.push({ line: null, message: text.replace(/^ERROR:\s*/i, '') });
+	}
+	if (!found.length && log.trim()) found.push({ line: null, message: log.trim() });
+	return found;
+}
+
+/** What one driver said of the effect's shader (`glslCheck.client.ts`'s verdict). */
+export interface DriverReport {
+	gl: 1 | 2;
+	/** The browser gave no such context: nothing was checked there. */
+	missing: boolean;
+	ok: boolean;
+	log: string;
+	/** The fragment shader as compiled, whose lines the log names. */
+	fragment: string;
+}
+
+/**
+ * A driver's error, said about the node whose code it is in: a Custom GLSL node of the flattened
+ * graph (`<call>/<node>` inside a subgraph), and the line of its code; `node` null when it falls
+ * outside every node's code and the effect holds more than one.
+ */
+export interface DriverIssue {
+	node: string | null;
+	line: number | null;
+	message: string;
+	/** The drivers that said it. */
+	gl: (1 | 2)[];
+}
+
+/**
+ * A Custom GLSL body's lines as its compiled function holds them (`customGlslFunction`'s `lines`):
+ * comments blanked, tabs as four spaces, trailing space and blank lines gone, each with the line of
+ * the code it came from (from 1), so a driver's line in the function reads back as the author's.
+ */
+export function codeLines(code: string): { text: string; line: number }[] {
+	let stripped = '';
+	for (let i = 0; i < code.length;) {
+		const end = code.startsWith('//', i)
+			? code.indexOf('\n', i)
+			: code.startsWith('/*', i)
+				? code.indexOf('*/', i + 2)
+				: -2;
+		if (end === -2) {
+			if (code[i] !== '\r') stripped += code[i];
+			i++;
+			continue;
+		}
+		const to = end < 0 ? code.length : code.startsWith('//', i) ? end : end + 2;
+		stripped += code.slice(i, to).replace(/[^\n]/g, ' ');
+		i = to;
+	}
+	return stripped
+		.split('\n')
+		.map((text, i) => ({ text: text.replace(/\t/g, '    ').trimEnd(), line: i + 1 }))
+		.filter((l) => l.text.trim());
+}
+
+/** One Custom GLSL function in a compiled fragment: `void efxGlsl_<n>(…)` and its body. */
+interface GlslBlock {
+	fn: number;
+	header: string;
+	/** The header's fragment line (0-based). */
+	at: number;
+	/** The body's lines (trimmed) and the fragment line of its first. */
+	body: { from: number; lines: string[] };
+}
+
+/** The Custom GLSL functions in `lines` (a fragment's, trimmed), as the compiler writes them. */
+function glslBlocks(lines: readonly string[]): GlslBlock[] {
+	const blocks: GlslBlock[] = [];
+	for (let i = 0; i < lines.length; i++) {
+		const head = /^void efxGlsl_(\d+)\((.*)\)$/.exec(lines[i]);
+		if (!head || lines[i + 1] !== '{') continue;
+		const close = lines.indexOf('}', i + 2);
+		if (close < 0) break;
+		blocks.push({
+			fn: Number(head[1]),
+			header: head[2],
+			at: i,
+			body: { from: i + 2, lines: lines.slice(i + 2, close) },
+		});
+		i = close;
+	}
+	return blocks;
+}
+
+/**
+ * Where each Custom GLSL node's code landed in `fragment`: its function (identical definitions
+ * share one) and, for each fragment line (0-based) of that function, the line of the code it holds
+ * (from 1; null on the header and the outputs' defaults), and the lines of `main` calling it. A
+ * function is a node's when its parameters are the node's ports and its body ends with the node's
+ * {@link codeLines}. A node whose function is not found has no entry.
+ */
+export function locateCode(
+	fragment: string,
+	nodes: readonly GraphNode[],
+): Map<string, { fn: number; lines: Map<number, number | null> }> {
+	const lines = fragment.split('\n').map((l) => l.trim());
+	const blocks = glslBlocks(lines);
+	const found = new Map<string, { fn: number; lines: Map<number, number | null> }>();
+	for (const node of nodes) {
+		const code = codeLines(glslOf(node).code);
+		const ports = customGlslFunction(node).params.map((p) => `${p.port.type} ${p.port.id}`);
+		const block = blocks.find((b) => {
+			const params = b.header.split(',').map((p) => p.trim().replace(/^(inout|out) /, ''));
+			const tail = b.body.lines.slice(b.body.lines.length - code.length);
+			return (
+				json(params.filter(Boolean)) === json(ports) &&
+				tail.length === code.length &&
+				tail.every((text, k) => text === code[k].text.trim())
+			);
+		});
+		if (!block) continue;
+		const at = new Map<number, number | null>([[block.at, null]]);
+		const offset = block.body.lines.length - code.length;
+		block.body.lines.forEach((_, k) =>
+			at.set(block.body.from + k, k < offset ? null : code[k - offset].line),
+		);
+		lines.forEach((text, k) => {
+			if (text.startsWith(`efxGlsl_${block.fn}(`)) at.set(k, null);
+		});
+		found.set(node.id, { fn: block.fn, lines: at });
+	}
+	return found;
+}
+
+/** The Custom GLSL nodes the effect's shader is compiled from: every call inlined. */
+const compiledGlslNodes = (doc: ShaderGraphDoc): GraphNode[] =>
+	flattenShaderGraph(doc).nodes.filter(isCustomGlsl);
+
+/**
+ * What the drivers in `reports` refused in `doc`'s shader, each error said about every Custom GLSL
+ * node whose function it is in (identical definitions share one), with the line of the code (none on
+ * the function's header or its call): one entry per node, line and message, naming every driver
+ * that said it. An error elsewhere is the effect's only node's when it has one, else nobody's. A
+ * driver that accepted it, or that the browser lacks, says nothing.
+ */
+export function driverIssues(doc: ShaderGraphDoc, reports: readonly DriverReport[]): DriverIssue[] {
+	const failed = reports.filter((r) => !r.ok && !r.missing);
+	if (!failed.length) return [];
+	const nodes = compiledGlslNodes(doc);
+	const only = nodes.length === 1 ? nodes[0].id : null;
+	const merged = new Map<string, DriverIssue>();
+	const say = (node: string | null, line: number | null, message: string, gl: 1 | 2): void => {
+		const key = json([node, line, message]);
+		const known = merged.get(key);
+		if (!known) merged.set(key, { node, line, message, gl: [gl] });
+		else if (!known.gl.includes(gl)) known.gl.push(gl);
+	};
+	for (const report of failed) {
+		const located = [...locateCode(report.fragment, nodes)];
+		for (const error of parseDriverLog(report.log)) {
+			const at = error.line === null ? undefined : error.line - 1;
+			const hits = located.filter(([, l]) => at !== undefined && l.lines.has(at));
+			if (!hits.length) say(only, null, error.message, report.gl);
+			for (const [id, l] of hits)
+				say(id, l.lines.get(at as number) ?? null, error.message, report.gl);
+		}
+	}
+	return [...merged.values()];
+}
+
+/** `issue`'s drivers in words: `WebGL1`, `WebGL2`, `WebGL1 and WebGL2`. */
+export const driverNames = (issue: Pick<DriverIssue, 'gl'>): string =>
+	[...issue.gl]
+		.sort()
+		.map((gl) => `WebGL${gl}`)
+		.join(' and ');
+
+/**
+ * The node of the graph `scope` shows that flattened node `flat` is, or sits inside (the call it
+ * was inlined from); undefined when it is in none of that graph's (another subgraph's, or the
+ * motion graph shown).
+ */
+export function nodeInScope(
+	doc: ShaderGraphDoc,
+	scope: GraphScope,
+	flat: string,
+): string | undefined {
+	if (isMotionScope(scope)) return undefined;
+	const path = flat.split('/');
+	let graph: string | null = null;
+	for (const id of path) {
+		if (graph === scope) return id;
+		const nodes: GraphNode[] = graph === null ? doc.nodes : (subgraphOf(doc, graph)?.nodes ?? []);
+		const call = nodes.find((n) => n.id === id && n.type === SUBGRAPH_CALL);
+		const next: string | undefined = call && calledSubgraph(call);
+		if (!next) return undefined;
+		graph = next;
+	}
+	return undefined;
+}
+
+/**
+ * The drivers' errors as the analysis' issues of the graph `scope` shows (code `glsl`), each on the
+ * node it is in there (a call holding it), so the canvas marks and counts them as it does the
+ * compiler's. One the graph has no node for is the effect's own (no `node`) in its own graph.
+ */
+export function driverGraphIssues(
+	doc: ShaderGraphDoc,
+	scope: GraphScope,
+	found: readonly DriverIssue[],
+): GraphIssue[] {
+	const issues: GraphIssue[] = [];
+	const seen = new Set<string>();
+	for (const issue of found) {
+		const node = issue.node === null ? undefined : nodeInScope(doc, scope, issue.node);
+		if (issue.node !== null && node === undefined) continue;
+		if (issue.node === null && scope) continue;
+		const where = issue.line === null ? '' : `line ${issue.line}: `;
+		const message = `${driverNames(issue)} ${issue.gl.length > 1 ? 'reject' : 'rejects'} its GLSL: ${where}${issue.message}`;
+		const key = json([node, message]);
+		if (seen.has(key)) continue;
+		seen.add(key);
+		issues.push({
+			level: 'error',
+			code: 'glsl',
+			message,
+			...(node ? { node } : {}),
+			...(issue.line !== null && node === issue.node ? { line: issue.line } : {}),
+		});
+	}
+	return issues;
+}
+
+/**
+ * Node `id`'s driver errors, of the graph `scope` shows: its own code's (never those of a call's
+ * body), once each however many calls of its subgraph the shader inlined.
+ */
+export function driverCodeIssues(
+	doc: ShaderGraphDoc,
+	scope: GraphScope,
+	id: string,
+	found: readonly DriverIssue[],
+): CodeIssue[] {
+	const issues = new Map<string, CodeIssue>();
+	for (const issue of found) {
+		if (issue.node === null || nodeInScope(doc, scope, issue.node) !== id) continue;
+		if (issue.node !== id && !issue.node.endsWith(`/${id}`)) continue;
+		const shown = { line: issue.line, message: issue.message, source: driverNames(issue) };
+		issues.set(json(shown), shown);
+	}
+	return [...issues.values()];
+}
+
+/**
+ * One driver's state in the status bar: compiled, rejected, not in this browser, being checked, or
+ * not checked (`off`: the compiler refuses the effect, so there is no shader to give it).
+ */
+export interface DriverChip {
+	gl: 1 | 2;
+	state: 'ok' | 'bad' | 'missing' | 'wait' | 'off';
+}
+
+/** A driver chip's mark, by its state. */
+export const DRIVER_CHIP_MARKS: Record<DriverChip['state'], string> = {
+	ok: '✓',
+	bad: '✕',
+	missing: '–',
+	off: '–',
+	wait: '…',
+};
+
+/**
+ * What the driver test-compile says now, for the status bar's chips and the code panel's line: each
+ * driver's state, and a sentence. `pending`: a check of the current shader is still due; `compiles`:
+ * the compiler takes the effect (only then is there a shader to check).
+ */
+export function driverSummary(
+	reports: readonly DriverReport[],
+	pending: boolean,
+	compiles: boolean,
+): { chips: DriverChip[]; text: string } {
+	const chips: DriverChip[] = ([1, 2] as const).map((gl) => {
+		const report = reports.find((r) => r.gl === gl);
+		const state = pending
+			? 'wait'
+			: !report
+				? 'wait'
+				: report.missing
+					? 'missing'
+					: report.ok
+						? 'ok'
+						: 'bad';
+		return { gl, state };
+	});
+	if (!compiles)
+		return {
+			chips: chips.map((c) => ({ ...c, state: 'off' })),
+			text: 'Not test-compiled on WebGL1 and WebGL2 until the compiler takes the effect: fix its errors first.',
+		};
+	if (pending) return { chips, text: 'Test-compiling on WebGL1 and WebGL2…' };
+	const named = (state: DriverChip['state']): string =>
+		chips
+			.filter((c) => c.state === state)
+			.map((c) => `WebGL${c.gl}`)
+			.join(' and ');
+	const bad = named('bad');
+	const missing = named('missing');
+	const ok = named('ok');
+	return {
+		chips,
+		text: [
+			bad
+				? `${bad} ${bad.includes(' and ') ? 'reject' : 'rejects'} its GLSL: it would draw nothing there.`
+				: '',
+			ok ? `${ok} ${ok.includes(' and ') ? 'compile' : 'compiles'} it.` : '',
+			missing ? `This browser has no ${missing}: not checked there.` : '',
+		]
+			.filter(Boolean)
+			.join(' '),
+	};
 }
