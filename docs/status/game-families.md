@@ -168,8 +168,9 @@ in one PR.
 - **Known limits** (none reachable by a slot game):
   - with no `arcade.field` (the seed names none) the field is the current layout's design size,
     read every step, so a rotated device moves the edges at once; bodies already placed keep
-    their places (a clamped one is pulled inside the new edge); the playtest plays desktop and
-    boots portrait;
+    their places (a clamped one is pulled inside the new edge, and a `pass` one now wholly beyond a
+    narrower field has left it: it raises `leaveBounds` and the sample despawns it); the playtest
+    plays desktop and boots portrait;
   - the place a body is drawn at is the last fixed step's, so motion can judder slightly when the
     display rate is not a multiple of the step rate;
   - a steering key held across the round's end does not steer the new round until it is pressed
