@@ -35,6 +35,7 @@ import {
 	setCustomElementFx,
 } from 'constants-shared/elementFx';
 import { REFERENCE_GRAPHS, type ShaderGraphDoc } from 'engine-shadergraph';
+import { roleHasCapability, type Role } from '../src/lib/roles.ts';
 import { readLF } from '../../../scripts/lib/read-lf.mjs';
 
 let failures = 0;
@@ -147,8 +148,10 @@ fake('lib/server/toolScope.ts', {
 });
 /** The `shaderPublish` override the stubbed role table answers, when set. */
 let roleOverrides: Record<string, boolean> = {};
-fake('lib/server/roleToolAccess.ts', { getRoleOverrides: async () => roleOverrides });
-fake('lib/server/userToolAccess.ts', { getToolOverrides: async () => ({}) });
+fake('lib/server/launcherAuth.ts', {
+	userHasCapability: async (user: { role: Role }, key: string) =>
+		roleHasCapability(user.role, key, roleOverrides),
+});
 let deployToken: string | null = TOKEN;
 fake('lib/server/appSettings.ts', { getDeployToken: async () => deployToken });
 fake('lib/server/projects.ts', {
@@ -626,8 +629,19 @@ check(
 	true,
 );
 check(
-	"…naming kinds outside its shaderEffects, with the runtime's kind pattern",
-	bake.includes('JSON.stringify({ ...bundle, shaderEffects: undefined }).match('),
+	'…naming kinds as Publish does: every value outside shaderEffects, never a key',
+	[
+		bake.includes("if (section !== 'shaderEffects') nameKinds(value);"),
+		bake.includes('Object.values(value).forEach(nameKinds)'),
+		bake.includes('/^custom:[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(value)'),
+	],
+	[true, true, true],
+);
+check(
+	"…with the runtime's kind pattern",
+	readLF(`${repo}packages/constants-shared/elementFx.ts`).includes(
+		'const CUSTOM_KIND = /^custom:[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;',
+	),
 	true,
 );
 const scenes = readLF(`${repo}apps/lines/src/editor-scenes.ts`);

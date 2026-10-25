@@ -1,8 +1,7 @@
 import { error, type Cookies } from '@sveltejs/kit';
-import { SHADER_PUBLISH_CAPABILITY, roleHasCapability } from '$lib/roles';
-import { getRoleOverrides } from './roleToolAccess';
+import { SHADER_PUBLISH_CAPABILITY } from '$lib/roles';
+import { userHasCapability } from './launcherAuth';
 import { gate, type ToolScope } from './toolScope';
-import { getToolOverrides } from './userToolAccess';
 
 /**
  * Who reaches Invisible Shader Graph docs. `/shaders` reads and writes them; the tools whose
@@ -22,16 +21,8 @@ export const shaderWriteScope = (locals: App.Locals, cookies: Cookies): Promise<
 	});
 
 /** Whether `locals.user` may write the studio-shared library (`shaderPublish`). */
-export async function canPublishSharedShaders(locals: App.Locals): Promise<boolean> {
-	const user = locals.user;
-	if (!user) return false;
-	return roleHasCapability(
-		user.role,
-		SHADER_PUBLISH_CAPABILITY,
-		await getRoleOverrides(user.role),
-		await getToolOverrides(user.id),
-	);
-}
+export const canPublishSharedShaders = async (locals: App.Locals): Promise<boolean> =>
+	!!locals.user && (await userHasCapability(locals.user, SHADER_PUBLISH_CAPABILITY));
 
 /**
  * Publishing a graph to the studio-shared library, or removing one: `/shaders` plus the

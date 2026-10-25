@@ -1368,13 +1368,18 @@ async function main() {
 	// Ship only the shader effects the game names (an entry's kind, a Flow parameter), as Publish
 	// does: the project's set takes in the whole studio library. One it names but does not ship plays
 	// nothing (its graph was deleted or does not compile): say which.
-	const namedKinds = new Set(
-		(
-			JSON.stringify({ ...bundle, shaderEffects: undefined }).match(
-				/"custom:[A-Za-z0-9][A-Za-z0-9_-]{0,63}"/g,
-			) ?? []
-		).map((q) => q.slice(1, -1)),
-	);
+	// Every value is walked, never a key, as `namedShaderEffects` (shaderExport.ts) walks it for
+	// Publish; the pattern is `isCustomElementFxKind`'s (constants-shared/elementFx.ts).
+	const namedKinds = new Set();
+	const nameKinds = (value) => {
+		if (typeof value === 'string') {
+			if (/^custom:[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(value)) namedKinds.add(value);
+		} else if (Array.isArray(value)) value.forEach(nameKinds);
+		else if (value && typeof value === 'object') Object.values(value).forEach(nameKinds);
+	};
+	for (const [section, value] of Object.entries(bundle)) {
+		if (section !== 'shaderEffects') nameKinds(value);
+	}
 	if (bundle.shaderEffects) {
 		const kept = bundle.shaderEffects.filter((e) => namedKinds.has(e?.spec?.kind));
 		if (kept.length) bundle.shaderEffects = kept;

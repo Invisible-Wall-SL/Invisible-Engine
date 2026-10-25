@@ -260,7 +260,9 @@ library) is in review on `claude/shader-graph-step7`.
   - **Ship only the effects a game names.** Every project's set takes in the whole library, so
     Publish (`runtimeBundle.ts`) and the bake now embed only the effects the bundle names
     (`namedShaderEffects`: an entry's kind, a Flow parameter, anywhere outside `shaderEffects`),
-    absent when it names none. `deploy/editor-shaders/` still holds the set.
+    absent when it names none. The bake walks the bundle's values the same way (never a key).
+    `deploy/editor-shaders/` still holds the set, and the Publish snapshot copies it, so a game's
+    asset base carries the library's compiled effects too; nothing reads them at runtime.
 - **Not started:** step 8 (later).
 
 ## Open items / next
@@ -275,6 +277,8 @@ library) is in review on `claude/shader-graph-step7`.
    - The studio library's history is kept but not in the page: restoring is by hand.
    - A call's per-node cost is computed in the editor from `flattenShaderGraph`; it would sit
      better in the analysis.
+   - `deploy/editor-shaders/` holds the whole set (library included) while the bundle carries only
+     the named effects; trimming the deploy tree too needs the export to know the bundle.
 2. **Step 6 follow-ups.**
    - **Two capabilities v1 lacks**, named by the twins: padding that grows with a param × strength
      (the waves, Bounce 3D, Melt), and motion curves that read a param or the seconds played (the
@@ -323,7 +327,12 @@ library) is in review on `claude/shader-graph-step7`.
       inside, an inner error on the call, rename a port, ungroup, undo, delete-while-called);
       thumbnails 29/29 on WebGL2, WebGL1 and WebGL2 at 2× (pixels per type, one extra context,
       only the edited node redraws, only time-reading ones while playing, the cap of 40, a call's
-      thumbnail identical to its grouped nodes', the switch frees the context).
+      thumbnail identical to its grouped nodes', the switch frees the context); the studio
+      library's buttons 32/32 (publish, update as a replace, a 409 from a publish meanwhile asking
+      again, an effect with errors refused before any request, remove, a shared effect's copy
+      still tagged, no buttons without the capability). It found one bug, fixed: a save dropped
+      the open graph's in-library tag, so **Update library copy** fell back to a plain publish and
+      met a 409.
 - 2026-10-24 — **Step 6: the templates** (see "Current state"). Merged (#1333): CI green,
   `check:all` 531/531, Current games 12 pass with all 186 compared screens byte-identical.
   - **Proof.** `shader-twins` passes all 30 twins on WebGL1 and WebGL2. On every twin but three the
