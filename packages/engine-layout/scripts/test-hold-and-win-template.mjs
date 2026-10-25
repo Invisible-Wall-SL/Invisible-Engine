@@ -565,9 +565,11 @@ assert(
 
 // ─── Add-on screens (pots overlay Phase 5b, docs/design/pots-overlay.md §4) ───────────────────
 // The add-on flags merge the overlay's screens into another kind's set; with none set every set is
-// the kind's own. The Hold and Win set itself is pinned twice: as it is, and without the banner
-// screens (2026-10-20), which must hash as the set did before they joined — so every older screen
-// is byte-identical and the banners are the only change.
+// the kind's own. The Hold and Win set itself is pinned three times: as it is; without the
+// feature intro's and outro's "Scale with the window" tick (2026-10-23), which must hash as the set
+// did before it, so the tick is that change's only edit; and without the tick and the banner
+// screens (2026-10-20), which must hash as the set did before they joined, so the banners are the
+// only change before that.
 {
 	const json = (value) => JSON.stringify(value);
 	const ids = (d) => d.scenes.map((sc) => sc.id);
@@ -585,10 +587,25 @@ assert(
 	];
 	const BASE_BANNERS = ['instantWinBanner', 'randomMetreBanner', 'platformJackpotBanner'];
 	const HW_PINNED = {
+		plain: '265358b21d7952a8',
+		maxRows6: '12e3f60e1c1c65c2',
+		hotfire: '3f67ce37ad910575',
+	};
+	const BEFORE_WINDOW_SCALE = {
 		plain: '0e0893e4c367520f',
 		maxRows6: 'f1d1851de3219f2c',
 		hotfire: '1c65e0d44f24b01f',
 	};
+	const WINDOW_SCALED = ['featureIntro', 'featureOutro'];
+	const withoutWindowScale = (d) => ({
+		...d,
+		scenes: d.scenes.map((sc) => {
+			if (!WINDOW_SCALED.includes(sc.id)) return sc;
+			const rest = { ...sc };
+			delete rest.scaleWithWindow;
+			return rest;
+		}),
+	});
 	const BEFORE_BANNERS = {
 		plain: '3f585158f5da883f',
 		maxRows6: '1e65875ac8b7fa53',
@@ -606,13 +623,31 @@ assert(
 	for (const [name, set] of Object.entries(sets)) {
 		assert(hash(set) === HW_PINNED[name], `the Hold and Win set (${name}) changed`);
 		assert(
-			hash(withoutBanners(set)) === BEFORE_BANNERS[name],
+			WINDOW_SCALED.every((id) => {
+				const sc = set.scenes.find((scene) => scene.id === id);
+				return sc?.space === 'canvas' && sc.scaleWithWindow === true;
+			}),
+			`the Hold and Win set (${name}) seeds its feature intro and outro unscaled`,
+		);
+		assert(
+			hash(withoutWindowScale(set)) === BEFORE_WINDOW_SCALE[name],
+			`the Hold and Win set (${name}) changed beyond the window-scale tick`,
+		);
+		assert(
+			hash(withoutBanners(withoutWindowScale(set))) === BEFORE_BANNERS[name],
 			`the Hold and Win set (${name}) changed beyond its banner screens`,
 		);
 	}
 	assert(
 		hash(mod.holdAndWinReferenceLayout(mod.HOLD_AND_WIN_BOARD)) === HW_PINNED.plain,
 		'the Hold and Win reference changed',
+	);
+	const linesAddOn = mod.getFullSceneSet('lines', { potsOverlay: true, holdAndWin: true });
+	assert(
+		WINDOW_SCALED.every(
+			(id) => linesAddOn.scenes.find((sc) => sc.id === id)?.scaleWithWindow === true,
+		),
+		'the Hold and Win add-on on a lines game seeds its feature intro and outro unscaled',
 	);
 	const hwDefault = json(mod.getFullSceneSet('holdAndWin'));
 	assert(

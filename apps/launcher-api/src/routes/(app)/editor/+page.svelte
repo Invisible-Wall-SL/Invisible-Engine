@@ -1432,6 +1432,7 @@
 		if (value === 'game') delete sc.space;
 		else sc.space = value as NonNullable<Scene['space']>;
 		if (sc.space !== 'standard') delete sc.align;
+		if (sc.space !== 'canvas') delete sc.scaleWithWindow;
 		// Only `game`-space screens ride the anticipation camera; leaving `game` space would strand an
 		// unreachable `zoomWithAnticipation: true` (its checkbox is gated to game space), so clear it.
 		if (sc.space) delete sc.zoomWithAnticipation;
@@ -1502,6 +1503,17 @@
 		if (!sc) return;
 		if (value) sc.zoomWithAnticipation = true;
 		else delete sc.zoomWithAnticipation;
+		scenes = [...scenes];
+		markDirty();
+	}
+
+	/** Scale the active `canvas` screen with the window in game (engine `Scene.scaleWithWindow`).
+	 * The canvas here already shows the design box, so the preview does not change. Sparse. */
+	function setSceneScaleWithWindow(value: boolean): void {
+		const sc = scenes[activeSceneIdx];
+		if (!sc) return;
+		if (value) sc.scaleWithWindow = true;
+		else delete sc.scaleWithWindow;
 		scenes = [...scenes];
 		markDirty();
 	}
@@ -3949,6 +3961,24 @@
 										{activeScene.zoomWithAnticipation
 											? 'zooms toward the reel centre with the board'
 											: 'static — tick to ride the anticipation zoom'}
+									</span>
+								</label>
+							{/if}
+							{#if activeScene.space === 'canvas'}
+								<label
+									class="ontop-field"
+									title="Draw this screen in game as it looks here, on any window the shape of this frame. Unticked, a canvas screen keeps the pixel size shown here, so on a bigger or smaller window its nodes, their offsets from the edges and its timeline's moves stay the same number of pixels while the game around them scales. Ticked, the whole screen grows or shrinks as much as this frame must to fit the window, and each node stays pinned to its window edge."
+								>
+									<input
+										type="checkbox"
+										checked={activeScene.scaleWithWindow === true}
+										onchange={(e) => setSceneScaleWithWindow(e.currentTarget.checked)}
+									/>
+									<span>Scale with the window</span>
+									<span class="ontop-note">
+										{activeScene.scaleWithWindow
+											? 'scales with the window, pinned to its edges'
+											: 'window pixels — the same size on every window'}
 									</span>
 								</label>
 							{/if}

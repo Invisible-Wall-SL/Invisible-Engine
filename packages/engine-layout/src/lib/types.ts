@@ -1395,7 +1395,8 @@ export interface Scene {
 	 * - `standard` — the fixed `STANDARD_MAIN_SIZES_MAP` box, `<MainContainer standard>`
 	 *   (the HUD bottom bar). Honours {@link Scene.align}.
 	 * - `canvas` — raw window; nodes use {@link BaseNode.screenAnchor}, rendered at
-	 *   the `<App>` root with no wrapper (the HUD corners — logo / game name).
+	 *   the `<App>` root with no wrapper (the HUD corners — logo / game name). Sizes and
+	 *   offsets are window pixels unless {@link Scene.scaleWithWindow} is set.
 	 * - `background` — full-bleed cover layer: nodes cover-fit the canvas via true
 	 *   cover, the node's {@link BaseNode.coverScale} acting as the uniform cover
 	 *   multiplier (default 1 = exact edge-to-edge) and `scale.x`/`scale.y` as the
@@ -1406,6 +1407,18 @@ export interface Scene {
 	 * Additive — absent = `game`.
 	 */
 	space?: 'game' | 'standard' | 'canvas' | 'background';
+	/**
+	 * A `canvas`-space screen that SCALES WITH THE WINDOW. The editor frames a canvas screen at
+	 * the layout's design box (`resolveBucketBox`), one window pixel per unit, so without this the
+	 * game draws it at the author's pixel size on every window: a screen keyed to cover a 1920 px
+	 * window leaves a gap on a wider one. Set, `<LayoutScene>` scales the whole screen by the fit
+	 * the design box gets in the window (`mainLayoutStandard().scale`, as `<MainContainer standard>`
+	 * does) while `screenAnchor` still pins each node to its window edge: offsets, sizes and a
+	 * screen timeline's keys scale, and what fills the window (a tap dim, a cover fit) still fills
+	 * it (`scaleLayout`). Equal to the editor on any window of the design box's shape. Ignored on
+	 * other spaces. Sparse: stored only when true; absent = window pixels, as before.
+	 */
+	scaleWithWindow?: boolean;
 	/**
 	 * Alignment of a `space: 'standard'` scene within the canvas — forwarded to
 	 * `<MainContainer standard alignVertical alignHorizontal>`. The HUD bottom bar

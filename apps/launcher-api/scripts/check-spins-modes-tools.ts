@@ -26,8 +26,9 @@
  *     add-ons, grafted seed and verdict, Win Text, Localization, `/symbols` and info data are
  *     byte-identical to `main` (`MAIN_DIGESTS`, measured by `scripts/lib/spinsToolsFacts.ts` on main
  *     4067dfb); its `/symbols` lists no spins mode and its Flow add-ons carry no `spinsModes`. The
- *     one deliberate change since is the Hold and Win banner screens (`BANNER_DIGESTS`): without
- *     them, every scene set and add-on list is still main's.
+ *     deliberate changes since are the Hold and Win banner screens (`BANNER_DIGESTS`) and the feature
+ *     intro's and outro's "Scale with the window" tick (`WINDOW_SCALE_DIGESTS`): without both, every
+ *     scene set and add-on list is still main's, and without the tick alone, as the banners left it.
  *
  * `--print` prints the current docs' digests instead of checking them.
  */
@@ -61,6 +62,7 @@ import {
 	SPINS_MODE_SCREENS,
 	swapWinTextModeLines,
 	type LayoutNode,
+	type Scene,
 	type WinTextDoc,
 } from 'engine-layout';
 import {
@@ -893,12 +895,41 @@ const BANNER_DIGESTS: Record<string, string> = {
 	'lines + potsToFreeSpins · scenes': '038bf8b4a7d4b49e',
 	'borut-pots-sample · scenes': '1150b7a0f07cc9dd',
 };
+/**
+ * The facts the feature intro's and outro's "Scale with the window" tick (2026-10-23) changed, as
+ * they are now. Each is also checked with the tick taken off, against `BANNER_DIGESTS`.
+ */
+const WINDOW_SCALE_DIGESTS: Record<string, string> = {
+	'hw-pots-sample · scenes': '265358b21d7952a8',
+	'hw-classic-sample · scenes': '265358b21d7952a8',
+	'hw-collector-sample · scenes': '265358b21d7952a8',
+	'holdAndWin template on · scenes': '265358b21d7952a8',
+	'holdAndWin template off · scenes': '9738c456d6ece06e',
+	'lines + threePots · scenes': 'f24912b8cbcccfa3',
+	'borut-pots-sample · scenes': '15630f8bf8eb9261',
+};
+/** A screen as it was before new Hold and Win games seeded it scaled with the window. */
+const withoutWindowScale = (scene: Scene): Scene => {
+	const { scaleWithWindow: _tick, ...rest } = scene;
+	return rest;
+};
 /** A scene that is not a banner screen, nor a respin mode's copy of one. */
 const notBanner = (sceneId: string): boolean =>
 	!SELF_MOUNTED_BANNER_SCREENS.some((id) => sceneId === id || sceneId.startsWith(`${id}-`));
 const printed: Record<string, string> = {};
 for (const [name, kind, doc] of currentDocs()) {
-	const withoutBanners: Record<string, string> = sceneFactsOf(kind, doc, notBanner);
+	const withoutBanners: Record<string, string> = sceneFactsOf(
+		kind,
+		doc,
+		notBanner,
+		withoutWindowScale,
+	);
+	const withoutTick: Record<string, string> = sceneFactsOf(
+		kind,
+		doc,
+		undefined,
+		withoutWindowScale,
+	);
 	for (const [fact, value] of Object.entries(factsOf(kind, doc))) {
 		const key = `${name} · ${fact}`;
 		printed[key] = value;
@@ -908,8 +939,15 @@ for (const [name, kind, doc] of currentDocs()) {
 			MAIN_DIGESTS[key] === asMain,
 			`main ${MAIN_DIGESTS[key]} · now ${asMain}`,
 		);
-		const expected = BANNER_DIGESTS[key] ?? MAIN_DIGESTS[key];
+		const expected = WINDOW_SCALE_DIGESTS[key] ?? BANNER_DIGESTS[key] ?? MAIN_DIGESTS[key];
 		check(`6. ${key} · as pinned`, expected === value, `pinned ${expected} · now ${value}`);
+		if (key in WINDOW_SCALE_DIGESTS) {
+			check(
+				`6. ${key} · before the window-scale tick`,
+				BANNER_DIGESTS[key] === withoutTick[fact],
+				`pinned ${BANNER_DIGESTS[key]} · now ${withoutTick[fact]}`,
+			);
+		}
 	}
 	same(`6. ${name} · /symbols lists no spins mode`, symbolsPage(kind, doc).spinsModes, []);
 	check(`6. ${name} · the Flow add-ons carry no spins modes`, !('spinsModes' in flowAddOnsOf(doc)));

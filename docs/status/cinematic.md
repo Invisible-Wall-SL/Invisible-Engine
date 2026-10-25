@@ -488,6 +488,11 @@ through the same player; headless-proven, no editor yet (5b).
 
 ## Recent changes
 
+- 2026-10-23 — **A timeline on a canvas screen ended differently per window size** (reported on
+  `commonoverlayproject`'s feature intro). Not a timeline bug: a `canvas` screen was drawn in window
+  pixels, so its nodes and the keys moving them did not scale with the window. Fixed by the screen's
+  new **Scale with the window** tick; detail in [editor status](editor.md) 2026-10-23.
+
 - 2026-10-23 — **Fix: a timeline played without "Wait for this to finish" restarted part-way (was
   open item 10)** (branch `claude/magical-curie-th1axi`). Reported on `commonoverlayproject`:
   unticking the box on the base-game intro's `playCinematic` made the intro play twice. Unticked,

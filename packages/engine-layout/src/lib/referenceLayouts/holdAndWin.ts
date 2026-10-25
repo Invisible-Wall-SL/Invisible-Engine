@@ -539,6 +539,7 @@ export function holdAndWinReferenceLayout(
 			id: 'featureIntro',
 			name: 'Feature intro',
 			space: 'canvas',
+			scaleWithWindow: true,
 			alwaysOnTop: true,
 			nodes: [
 				tap('feature-intro-tap'),
@@ -577,6 +578,7 @@ export function holdAndWinReferenceLayout(
 			id: 'featureOutro',
 			name: 'Feature outro',
 			space: 'canvas',
+			scaleWithWindow: true,
 			alwaysOnTop: true,
 			nodes: [
 				tap('feature-outro-tap'),
