@@ -37,7 +37,7 @@ import { sceneSetOptionsFor } from '../../src/lib/addOns.ts';
 import { validateFlowV2Against } from '../../src/lib/server/flowV2Validation.ts';
 import { gameConfigDefaultFor } from '../../src/lib/server/gameConfigDefaults.ts';
 import { harvestProjectWinText } from '../../src/lib/server/localizationHarvest.ts';
-import { symbolDefaultsFor } from '../../src/lib/server/symbolDefaults.ts';
+import { symbolDefaultsFor, symbolGrid } from '../../src/lib/server/symbolDefaults.ts';
 import { symbolsPageConfig } from '../../src/lib/server/symbolsPageConfig.ts';
 
 export const normalize = (raw: unknown): GameConfigDoc => {
@@ -129,6 +129,22 @@ export function sceneFactsOf(
 		scenes: digest({ ...set, scenes: set.scenes.filter((scene) => keep(scene.id)).map(edit) }),
 		addOnScreens: digest(addOnSceneIds(kind, options).filter(keep)),
 	};
+}
+
+/**
+ * The `/symbols` fact of `doc` without what the per-row states (2026-10-23) added — each row's
+ * `plays`, the `holdAndWinRows` group and that group's place at the end of `symbols` — so the rest is
+ * still compared with `main`.
+ */
+export function symbolsFactAsMain(kind: string, doc: GameConfigDoc | null): string {
+	const defaults = symbolDefaultsFor(kind);
+	const {
+		spinsModes: _spins,
+		plays: _plays,
+		holdAndWinRows: _rows,
+		...page
+	} = symbolsPageConfig(kind, defaults, { doc, source: 'authored', etag: null });
+	return digest({ ...page, symbols: symbolGrid(defaults, doc).symbols });
 }
 
 /** Every fact of `doc`, digested. */

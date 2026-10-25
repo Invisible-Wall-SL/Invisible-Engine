@@ -41,6 +41,10 @@ const INHERITS: Readonly<Record<string, string>> = {
 	hint: 'land',
 };
 
+/** The state an unauthored `state` borrows its art from — the named arm of
+ *  {@link resolveSymbolState}, not the `static` last resort. */
+export const symbolStateDonor = (state: string): string | undefined => INHERITS[state];
+
 /**
  * The state a symbol actually draws, given what its map holds.
  *

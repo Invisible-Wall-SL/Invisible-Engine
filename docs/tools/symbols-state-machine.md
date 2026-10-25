@@ -69,8 +69,9 @@ tool top bar). Switch projects from the launcher before opening the tool.
 1. **Read the grid.** Rows are the game's symbols; the six columns are the states
    (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`). A game with the **expanding
    symbol** (`/config` → Free spins → Expanding symbol; a Book-of kind always) adds two more
-   (`Book reveal`, `Book idle`); a game that **cascades or clears its board** adds
-   `Clear reel` (see [Two explosions](#two-explosions) below); a game whose
+   (`Book reveal`, `Book idle`); a game that **cascades or clears its board**, or has **Hold and
+   Win** (the respin board takes cells off too), adds `Clear reel` (see
+   [Two explosions](#two-explosions) below); a game whose
    `/config` → Reel behaviour → swap style is **Emerge** adds `Intro` (see
    [The Intro state](#the-intro-state) below); a game with **Hold and Win** adds the coin states (see
    [Hold and Win projects](#hold-and-win-projects)), a game with a **pots overlay** adds Coin
@@ -81,7 +82,15 @@ tool top bar). Switch projects from the launcher before opening the tool.
    `Hint`, and the grid shows those cells with that inherited art, as it does for `Clear reel`. A
    slot game never shows those two columns.
    Stacked-picture tall art is **not** a grid column — it is
-   authored in the **Stacked pictures** section (below). Each cell shows its
+   authored in the **Stacked pictures** section (below).
+
+   **Each row offers only the states the game plays for that symbol.** The rows come in up to three
+   groups, each with its own column heads: the **symbols**, then (with Hold and Win) a **Hold and
+   Win** group of the respin feature's coins and specials, then (with a pots overlay) the **Coins**
+   group of tokens. A line symbol never shows a Hold and Win state; a coin never shows `Win`,
+   `Post-win` or a book state, since it pays by its value and never lights on a line; a token shows
+   only the four it plays. A state a row does not play leaves an empty dashed slot with nothing to
+   set — see [Hold and Win projects](#hold-and-win-projects) for who plays what. Each cell shows its
    **effective binding** — your override if you've made one, otherwise the game's coded
    default. Sprite cells render a frame thumbnail; rig cells render a live animation
    on the shared rig canvas (a chip labels the bundle + animation); flipbook cells render
@@ -106,6 +115,17 @@ tool top bar). Switch projects from the launcher before opening the tool.
    badge. A small **↺** button in its corner **resets that cell to the coded default**
    (removing the override). The whole grid scrolls vertically; cells resize with the
    window.
+
+   **Never played** — art or Element FX set on a state the game never plays for that symbol (set
+   before the grid narrowed each row) gets no cell. The row head lists those states under **Never
+   played: …** with a **Clear** button, and a note above the grid counts them with **Clear all**.
+   They still ship with the game until cleared, so clear them and save. Two kinds of art are never on
+   the list: a state another cell borrows (a coin's `Win`, which its empty Coin collect draws, or
+   its `Explosion`, which its empty Clear reel draws), and a state a `/config` switch hides for the
+   whole game (`Intro` with Emerge off), whose art comes back when the switch does. A new Hold and
+   Win or pots overlay project is bound only on the states each symbol plays, so it starts with
+   nothing listed.
+
 3. **Open the cell editor.** Click any cell to open the side panel for that
    `symbol · state`. The panel loads a draft of the cell's current binding.
 4. **Choose the type.** Toggle between **Sprite**, **rig**, and **Flipbook**. Switching
@@ -1308,8 +1328,20 @@ whose kind is **Hold and Win**, or a project of any other kind whose
 on the respin board) — for example a Book-of game with a Hold and Win bonus. Such a project gets the columns,
 role chips, coin value label and flights below on top of everything its own kind already has.
 
-**Eleven more columns** — the respin feature's beats. Each one, left empty, plays what the game
-played for that moment before the column existed, so a project that binds none of them looks
+**A Hold and Win group** — the symbols that carry a Hold and Win role, after the other symbols,
+under a heading and column heads of their own. Each row offers `Static` and `Spin` (on the reels, or
+rolling past a respin cell), `Land` (on the reels, or borrowed by Coin stick), `Clear reel` (a
+finished streak, an applied special or a completed column takes held cells off the respin board, and a
+board clear takes them off the reels), `Intro` and, in a book game, `Explosion` when the reels deal
+it — never `Win`, `Post-win` or a book state. On top
+of that, a symbol the respin board holds offers Coin idle, Coin land, Coin stick, Coin collect and
+Jackpot reveal; only a payer or a multiplier offers Coin boost, only an add-respins special Respins
+add, an upgrade Coin upgrade, an unlock Row unlock, a mystery Mystery reveal, and a meter's filling
+symbol Fly to meter. The blank only rolls and stops (`Static`, `Spin`, Coin land). The other symbols
+offer none of these.
+
+**Eleven Hold and Win states** — the respin feature's beats. Each one, left empty, plays what the
+game played for that moment before the state existed, so a project that binds none of them looks
 exactly as it did:
 
 | Column             | When it plays                                                                                        | Empty ⇒   |
@@ -1347,7 +1379,9 @@ stays visible while the project already authors it, so you can always switch it 
 placeholder art for the sample line symbols, `W` and every Hold and Win special, shipped with the
 engine. Which of them get a row is still the config's call: the 3 Pots preset uses `BONUS`,
 `JACKPOT`, `BOOST`, `COLLECT`, `MULTI`, `MYSTERY` and `BLANK`, Classic and Collector fewer. `BLANK`
-has no art — an empty respin cell draws nothing.
+has no art — an empty respin cell draws nothing. A new project binds each symbol's placeholder art on
+every state but `Post-win`, which a Hold and Win symbol never plays; its `Win` and `Explosion` stay
+bound because the empty beats borrow them.
 
 **A coin board** (Game Config → Coin board → _Coin board only_,
 [plan](../design/hold-and-win-coin-board.md)) has no line game, so it has no line symbols: the grid
@@ -1376,11 +1410,14 @@ need to dress them:
   of its own colour (`COLLECT`, `PAY`, `MULTI`, `?`). Binding art in the row replaces the disc.
   `BLANK` still draws nothing. The disc is decided per state: a coin bound only on `Win` shows the
   disc at rest, so bind `Static` too.
-- **Three token columns** — **Coin land** (the token landing over its cell), **Coin idle** (resting
-  there until it flies) and **Fly to meter** (lit while it flies into its pot). Empty, the first two
-  use the symbol's `Static` and Fly to meter its `Win`. Hover a column head for the token's reading
-  of it. The other Hold and Win columns appear only when the project also has
-  [Hold and Win](#hold-and-win-projects).
+- **Four token columns** — a token's row offers only what it plays: **Static** (its art, drawn
+  while it rides a rolling reel and whenever a state below is empty), **Coin idle** (resting over its
+  cell until it flies), **Coin land** (landing over its cell) and **Fly to meter** (lit while it flies
+  into its pot). Empty, Coin idle and Coin land use its `Static` and Fly to meter its `Win`. Hover a
+  column head for the token's reading of it. A token is never dealt, so `Spin`, `Land`, `Win`,
+  `Post-win` and `Explosion` are not offered; art set there earlier is listed as
+  [Never played](#how-to-use-it). The other Hold and Win columns appear only in the
+  [Hold and Win group](#hold-and-win-projects).
 - **Flights.** The [Flights](#flights-hold-and-win-pots-overlay) section lists **Into a meter (every
   meter)** (`toMeter`) and one **Into meter “&lt;id&gt;”** row per pot. Without Hold and Win the
   other flight kinds are hidden (one you already authored stays listed so you can reset it).

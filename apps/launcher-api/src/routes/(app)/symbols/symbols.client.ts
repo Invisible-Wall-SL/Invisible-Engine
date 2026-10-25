@@ -129,7 +129,7 @@ export const STATE_HINTS: Partial<Record<SymbolState, string>> = {
 	intro:
 		'The animation this symbol plays when it APPEARS on its seat, under the Emerge swap style — rising out of water, fading up, growing. Nothing travels: this animation IS the arrival. Leave a cell empty to fall back to this symbol’s Land binding.',
 	clearReel:
-		'The animation played when this symbol is TAKEN OFF the board — a cascade removing it, or the board clearing before the next spin — as opposed to the Explosion played when something morphs it in place on the reel. Leave a cell empty to reuse this symbol’s Explosion binding.',
+		'The animation played when this symbol is TAKEN OFF the board — a cascade removing it, the board clearing before the next spin, or the respin board taking a held cell off — as opposed to the Explosion played when something morphs it in place on the reel. Leave a cell empty to reuse this symbol’s Explosion binding.',
 	coinIdle:
 		'A held coin (or jackpot, or special) at rest on the respin board. Leave a cell empty to use this symbol’s Static binding.',
 	coinLand:
@@ -165,16 +165,42 @@ export const POTS_TOKEN_STATE_HINTS: Partial<Record<SymbolState, string>> = {
 		'A pots overlay token lit while it flies into its pot. Leave a cell empty to reuse this symbol’s Win binding.',
 };
 
+/**
+ * What `symbol`'s doc authors that the game never draws for it, among the project's `columns`: a
+ * cell on a state the row does not play (`played`) that no played state borrows when empty (a coin's
+ * `win` its empty Coin collect draws stays), and Element FX on a state it does not play (Element FX
+ * never borrow). A state the project's own switches hide (an `intro` with emerge off) is not a
+ * column, so it is never listed: switching it back on brings its art back.
+ */
+export function unplayedStates(
+	doc: SymbolsDoc,
+	defaults: SymbolDefaults,
+	symbol: string,
+	played: readonly SymbolState[],
+	columns: readonly SymbolState[],
+): { cells: SymbolState[]; fx: SymbolState[]; states: SymbolState[] } {
+	const borrowed = played.map((state) => effectiveCell(doc, defaults, symbol, state).inheritedFrom);
+	const cells = columns.filter(
+		(state) => doc.symbols[symbol]?.[state] && !played.includes(state) && !borrowed.includes(state),
+	);
+	const fx = columns.filter(
+		(state) => symbolFxOf(doc, symbol, state)?.length && !played.includes(state),
+	);
+	const states = columns.filter((state) => cells.includes(state) || fx.includes(state));
+	return { cells, fx, states };
+}
+
 /** The columns the grid renders for a given project: always the base states, plus the two book states
  *  ONLY for a project with the book reveal (`kindCapabilities().bookReveal` — the config's expanding
  *  symbol, or the `bookOf` kind), the Hold and Win
  *  states ONLY for a project with the respin feature (`kindCapabilities().holdAndWin` — the kind or a
  *  declared respin mode), just the token's land / idle / fly states for a pots overlay host without it
  *  (`pots` alone), the cascade
- *  state for a project that tumbles OR clears its board on a swap, and the swap state (`intro`) ONLY
- *  for a project that emerges, and `select` / `hint` only for a match-3 board. Every gate is
- *  RESOLVED server-side (`resolveCascade` / `resolveReelBehaviour`), so an authored `/config` answer
- *  beats the win model's default and a lines game that turned the tumble ON gets the column. The `stacked` state is never a column (see
+ *  state for a project that tumbles, clears its board on a swap or has the respin feature, the
+ *  swap state (`intro`) ONLY for a project that emerges, and `select` / `hint` only for a match-3
+ *  board. Every gate is RESOLVED server-side (`resolveCascade` / `resolveReelBehaviour`), so an
+ *  authored `/config` answer beats the win model's default and a lines game that turned the tumble
+ *  ON gets the column. The `stacked` state is never a column (see
  *  {@link NON_GRID_STATE_SET}). */
 export function visibleStatesFor(
 	gameType: string | undefined,
@@ -199,12 +225,13 @@ export function visibleStatesFor(
 		if (HOLD_AND_WIN_STATE_SET.has(s)) {
 			return caps.holdAndWin || (caps.pots && POTS_TOKEN_STATE_SET.has(s));
 		}
-		// The cascade state is played by TWO things, not one: a tumble removing a symbol, and the
+		// The cascade state is played by THREE things, not one: a tumble removing a symbol, the
 		// swap-in-place CLEAR step (`clearOutgoingSymbols`) emptying the board before the new symbols
-		// arrive. Gating it on `cascade` alone hid the column from exactly the projects authoring the
-		// second — a swapping lines game — which then had to bind it through `Explosion`'s silent
-		// inheritance. Either reason earns the column.
-		if (CASCADE_STATE_SET.has(s)) return caps.cascade || Boolean(gates.clears);
+		// arrive, and the respin board taking held cells off (a finished streak, an applied special,
+		// a completed column). Gating it on `cascade` alone hid the column from exactly the projects
+		// authoring the others, which then had to bind it through `Explosion`'s silent inheritance.
+		// Any reason earns the column; each row then offers it only if it plays it.
+		if (CASCADE_STATE_SET.has(s)) return caps.cascade || Boolean(gates.clears) || caps.holdAndWin;
 		if (SWAP_STATE_SET.has(s)) return Boolean(gates.emerge);
 		if (MATCH3_STATE_SET.has(s)) return caps.boardInput;
 		return true;

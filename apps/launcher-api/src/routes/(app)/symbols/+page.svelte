@@ -21,6 +21,7 @@
 		resolveFlightStyle,
 		SYMBOL_STATE_LABELS,
 		scopedFrameRef,
+		symbolStatesPlayed,
 		type FlightEase,
 		type FlightHead,
 		type FlightHeadAlign,
@@ -63,6 +64,7 @@
 		POTS_TOKEN_STATE_HINTS,
 		STATE_HINTS,
 		STATE_LABELS,
+		unplayedStates,
 		visibleStatesFor,
 		anticipationFieldValue,
 		clearAnticipation,
@@ -216,7 +218,13 @@
 	// The pots overlay's coins (its tokens) are drawn as their own group, in pot order, after the
 	// symbols.
 	const coinSet = $derived(new Set(data.coins));
-	const symbolRows = $derived(symbolNames.filter((name) => !coinSet.has(name)));
+	// The respin feature's coins and specials are a group of their own too, between the two: they play
+	// their own states.
+	const holdAndWinSet = $derived(new Set(data.holdAndWinRows));
+	const symbolRows = $derived(
+		symbolNames.filter((name) => !coinSet.has(name) && !holdAndWinSet.has(name)),
+	);
+	const holdAndWinRows = $derived(data.holdAndWinRows);
 	const coinRows = $derived(data.coins);
 
 	// Whether stacked-picture authoring is on for this project — a per-project master toggle (default
@@ -261,10 +269,72 @@
 			...data.addOns,
 		}),
 	);
-	/** A column's tooltip — a pots host without the respin feature reads its token states as a token's. */
-	const stateHint = (state: SymbolState): string | undefined =>
-		(!caps.holdAndWin && caps.pots ? POTS_TOKEN_STATE_HINTS[state] : undefined) ??
+	/** A column's tooltip — the coin group, and a pots host without the respin feature, read the token
+	 *  states as a token's. */
+	const stateHint = (state: SymbolState, tokens = false): string | undefined =>
+		(tokens || (!caps.holdAndWin && caps.pots) ? POTS_TOKEN_STATE_HINTS[state] : undefined) ??
 		STATE_HINTS[state];
+
+	/** The states the game plays for `symbol` — its row's cells. Every column when the page has no
+	 *  config to tell. */
+	const playedStates = $derived.by(() => {
+		const out: Record<string, readonly SymbolState[]> = {};
+		for (const symbol of symbolNames) {
+			const facts = data.plays?.[symbol];
+			out[symbol] = facts
+				? symbolStatesPlayed(visibleStates, facts, {
+						bookReveal: caps.bookReveal,
+						clearsBoard: Boolean(data.cascade || data.reelBehaviour.clears),
+					})
+				: visibleStates;
+		}
+		return out;
+	});
+	/** A group's columns: every state one of its rows plays, in column order. */
+	const groupColumns = (rows: readonly string[]): SymbolState[] =>
+		visibleStates.filter((state) => rows.some((symbol) => playedStates[symbol]?.includes(state)));
+	const symbolColumns = $derived(groupColumns(symbolRows));
+	const holdAndWinColumns = $derived(groupColumns(holdAndWinRows));
+	const coinColumns = $derived(groupColumns(coinRows));
+	const gridColumns = $derived(
+		Math.max(1, symbolColumns.length, holdAndWinColumns.length, coinColumns.length),
+	);
+	/** One `<col>` per column of the widest group: a fixed-layout table takes its column count from
+	 *  them, since each group's header row has only its own. */
+	const gridColumnIds = $derived(Array.from({ length: gridColumns }, (_, i) => i));
+
+	/** Each row's authored art and Element FX the game never draws for it (`unplayedStates`). None
+	 *  when the page has no config to tell what plays. */
+	const unplayed = $derived.by(() => {
+		const out: Record<string, ReturnType<typeof unplayedStates>> = {};
+		for (const symbol of symbolNames) {
+			if (!data.plays?.[symbol]) continue;
+			const found = unplayedStates(
+				doc,
+				data.defaults,
+				symbol,
+				playedStates[symbol] ?? [],
+				visibleStates,
+			);
+			if (found.states.length) out[symbol] = found;
+		}
+		return out;
+	});
+	const unplayedCount = $derived(
+		Object.values(unplayed).reduce((sum, { states }) => sum + states.length, 0),
+	);
+
+	/** Clear what `symbol`'s row lists as never played — every row's with no symbol given. */
+	function clearUnplayed(symbol?: string): void {
+		for (const [name, { cells, fx }] of Object.entries(unplayed)) {
+			if (symbol !== undefined && name !== symbol) continue;
+			for (const state of cells) doc = clearOverride(doc, name, state);
+			for (const state of fx) doc = setSymbolFx(doc, name, state, undefined);
+			if (focus?.symbol === name && (cells.includes(focus.state) || fx.includes(focus.state))) {
+				closeCell();
+			}
+		}
+	}
 
 	// ── Explosion pattern ──────────────────────────────────────────────────────
 	// The order the winning seats pop in. Shown on exactly the projects that have an explosion step
@@ -346,7 +416,7 @@
 	const animlessRigCells = $derived.by(() => {
 		const out: { symbol: string; state: SymbolState; key: string }[] = [];
 		for (const symbol of symbolNames) {
-			for (const state of visibleStates) {
+			for (const state of playedStates[symbol] ?? []) {
 				const { cell } = effectiveCell(doc, data.defaults, symbol, state);
 				if (cell?.type === 'spine' && cell.assetKey && !cell.animationName) {
 					out.push({ symbol, state, key: cell.previewKey ?? cell.assetKey });
@@ -415,7 +485,7 @@
 	});
 
 	// Responsive cell sizing — the grid fills the page WIDTH so it no longer sits tiny
-	// in the top-left, and each preview scales with the 6 state columns. Width-driven
+	// in the top-left, and each preview scales with its widest group's columns. Width-driven
 	// (with vertical scroll for the symbol rows, like the in-game debug grid) so cells
 	// stay large and legible; clamped so they're crisp on small screens and don't blow
 	// up on ultra-wide ones. A ResizeObserver on the scroll area tracks window resize +
@@ -430,7 +500,7 @@
 	let viewW = $state(1280);
 	let gridScroll = $state<HTMLElement | null>(null);
 	const previewSize = $derived.by(() => {
-		const cols = visibleStates.length;
+		const cols = gridColumns;
 		const byWidth = (viewW - LABEL_COL - GRID_GAP * (cols + 1) - GRID_PAD) / cols;
 		return Math.round(Math.max(MIN_CELL, Math.min(MAX_CELL, byWidth)));
 	});
@@ -5417,72 +5487,106 @@
 				{#if symbolNames.length === 0}
 					<p class="muted">No symbols defined for this game type.</p>
 				{:else}
+					{#if unplayedCount}
+						<div class="unplayed-note">
+							<span>
+								<strong>
+									{unplayedCount}
+									{unplayedCount === 1 ? 'state carries' : 'states carry'} art the game never plays
+								</strong>
+								— each listed on its row. It still ships with the game until it is cleared.
+							</span>
+							<button type="button" class="ghost" onclick={() => clearUnplayed()}>Clear all</button>
+						</div>
+					{/if}
 					<table class="grid" style="--cell: {previewSize}px">
-						<thead>
+						<colgroup>
+							<col class="rowhead-col" />
+							{#each gridColumnIds as id (id)}<col />{/each}
+						</colgroup>
+						{#snippet stateHeads(columns: readonly SymbolState[], tokens = false)}
 							<tr>
 								<th class="corner">Symbol</th>
-								{#each visibleStates as state (state)}
-									<th title={stateHint(state)}>{STATE_LABELS[state]}</th>
+								{#each columns as state (state)}
+									<th title={stateHint(state, tokens)}>{STATE_LABELS[state]}</th>
 								{/each}
 							</tr>
-						</thead>
-						<tbody>
-							{#snippet gridRow(symbol: string)}
-								{@const named = doc.names?.[symbol]}
-								<tr>
-									<th class="rowhead">
-										<span class="sym-id">{symbol}</span>
-										{#if data.holdAndWinRoles[symbol]}
-											<span class="roles" title="Hold and Win role, from Invisible Game Config">
-												{#each data.holdAndWinRoles[symbol] as role (role)}
-													<span class="role">{role}</span>
-												{/each}
-											</span>
-										{/if}
-										{#if spinsOnly[symbol]}
-											<span
-												class="roles"
-												title="Dealt only by spins bonus modes' reels (Invisible Game Config), never in the base game — its states here are what those modes show"
-											>
-												{#each spinsOnly[symbol] as label (label)}
-													<span class="role">{label} only</span>
-												{/each}
-											</span>
-										{/if}
-										{#if caps.pots && data.tokenPots[symbol]}
-											<span
-												class="roles"
-												title="Pots overlay token, from Invisible Game Config — drawn over a cell, never dealt by a reel"
-											>
-												{#each data.tokenPots[symbol] as pot (pot)}
-													<span class="role">token → {pot}</span>
-												{/each}
-											</span>
-										{/if}
-										<!-- The DISPLAY NAME: what the game calls this symbol out loud. Invisible Win
+						{/snippet}
+						{#snippet gridRow(symbol: string, columns: readonly SymbolState[])}
+							{@const named = doc.names?.[symbol]}
+							<tr>
+								<th class="rowhead">
+									<span class="sym-id">{symbol}</span>
+									{#if data.holdAndWinRoles[symbol]}
+										<span class="roles" title="Hold and Win role, from Invisible Game Config">
+											{#each data.holdAndWinRoles[symbol] as role (role)}
+												<span class="role">{role}</span>
+											{/each}
+										</span>
+									{/if}
+									{#if spinsOnly[symbol]}
+										<span
+											class="roles"
+											title="Dealt only by spins bonus modes' reels (Invisible Game Config), never in the base game — its states here are what those modes show"
+										>
+											{#each spinsOnly[symbol] as label (label)}
+												<span class="role">{label} only</span>
+											{/each}
+										</span>
+									{/if}
+									{#if caps.pots && data.tokenPots[symbol]}
+										<span
+											class="roles"
+											title="Pots overlay token, from Invisible Game Config — drawn over a cell, never dealt by a reel"
+										>
+											{#each data.tokenPots[symbol] as pot (pot)}
+												<span class="role">token → {pot}</span>
+											{/each}
+										</span>
+									{/if}
+									{#if unplayed[symbol]}
+										<span
+											class="unplayed"
+											title="Set on states the game never plays for {symbol}: they ship but never show"
+										>
+											Never played: {unplayed[symbol].states
+												.map((state) => STATE_LABELS[state])
+												.join(' · ')}
+											<button type="button" onclick={() => clearUnplayed(symbol)}>Clear</button>
+										</span>
+									{/if}
+									<!-- The DISPLAY NAME: what the game calls this symbol out loud. Invisible Win
 										     Text prints it as {symbolName}, so a win says "4 Bananas" instead of the
 										     unspeakable id — or "4 of a kind", which is what it had to say before a
 										     symbol had a word. Both forms are typed because "{count} {symbolName}"
 										     always reads with a number in front of it and guessed plurals are wrong
 										     ("Cherrys"); plural left blank just reuses the singular. -->
-										<input
-											class="sym-name"
-											value={named?.singular ?? ''}
-											placeholder="Name"
-											title="What the game calls {symbol} in win messages (singular)"
-											oninput={(e) => setName(symbol, 'singular', e.currentTarget.value)}
-										/>
-										<input
-											class="sym-name plural"
-											value={named?.plural ?? ''}
-											placeholder={named?.singular ? `${named.singular} (plural)` : 'Plural'}
-											title="The plural form, used whenever the count isn't 1. Blank reuses the name."
-											oninput={(e) => setName(symbol, 'plural', e.currentTarget.value)}
-										/>
-									</th>
-									{#each visibleStates as state (state)}
-										{@const eff = effectiveCell(doc, data.defaults, symbol, state)}
-										{@const fx = symbolFxOf(doc, symbol, state)}
+									<input
+										class="sym-name"
+										value={named?.singular ?? ''}
+										placeholder="Name"
+										title="What the game calls {symbol} in win messages (singular)"
+										oninput={(e) => setName(symbol, 'singular', e.currentTarget.value)}
+									/>
+									<input
+										class="sym-name plural"
+										value={named?.plural ?? ''}
+										placeholder={named?.singular ? `${named.singular} (plural)` : 'Plural'}
+										title="The plural form, used whenever the count isn't 1. Blank reuses the name."
+										oninput={(e) => setName(symbol, 'plural', e.currentTarget.value)}
+									/>
+								</th>
+								{#each columns as state (state)}
+									{@const eff = effectiveCell(doc, data.defaults, symbol, state)}
+									{@const fx = symbolFxOf(doc, symbol, state)}
+									{#if !playedStates[symbol]?.includes(state)}
+										<td>
+											<div
+												class="cell-off"
+												title="{symbol} never plays {STATE_LABELS[state]}"
+											></div>
+										</td>
+									{:else}
 										<td>
 											<button
 												type="button"
@@ -5579,26 +5683,50 @@
 												>
 											{/if}
 										</td>
-									{/each}
-								</tr>
-							{/snippet}
-							{#each symbolRows as symbol (symbol)}
-								{@render gridRow(symbol)}
-							{/each}
-							{#if coinRows.length}
+									{/if}
+								{/each}
+							</tr>
+						{/snippet}
+						{#if symbolRows.length}
+							<thead>{@render stateHeads(symbolColumns)}</thead>
+							<tbody>
+								{#each symbolRows as symbol (symbol)}
+									{@render gridRow(symbol, symbolColumns)}
+								{/each}
+							</tbody>
+						{/if}
+						{#if holdAndWinRows.length}
+							<tbody>
 								<tr class="group">
-									<th colspan={visibleStates.length + 1}>
+									<th colspan={gridColumns + 1}>
+										Hold and Win <span class="group-note"
+											>— the respin feature's coins and specials: each row offers the states the
+											respin board plays for its role</span
+										>
+									</th>
+								</tr>
+								{@render stateHeads(holdAndWinColumns)}
+								{#each holdAndWinRows as symbol (symbol)}
+									{@render gridRow(symbol, holdAndWinColumns)}
+								{/each}
+							</tbody>
+						{/if}
+						{#if coinRows.length}
+							<tbody>
+								<tr class="group">
+									<th colspan={gridColumns + 1}>
 										Coins <span class="group-note"
 											>— the pots overlay's tokens: each lands over a cell (Coin land), rests (Coin
 											idle) and flies into its pot (Fly to meter)</span
 										>
 									</th>
 								</tr>
+								{@render stateHeads(coinColumns, true)}
 								{#each coinRows as symbol (symbol)}
-									{@render gridRow(symbol)}
+									{@render gridRow(symbol, coinColumns)}
 								{/each}
-							{/if}
-						</tbody>
+							</tbody>
+						{/if}
 					</table>
 				{/if}
 			</div>
@@ -6319,6 +6447,45 @@
 		font-size: 12px;
 		font-weight: 400;
 		color: #777;
+	}
+	.grid col.rowhead-col {
+		width: 148px;
+	}
+	/* A state this symbol never plays: nothing to set. */
+	.cell-off {
+		height: calc(var(--cell, 56px) + 36px);
+		border: 1px dashed #1a1a22;
+		border-radius: 8px;
+	}
+	.unplayed-note {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		margin-bottom: 10px;
+		padding: 8px 12px;
+		border: 1px solid #4a3a1a;
+		border-radius: 8px;
+		background: #1e1810;
+		color: #d8c39a;
+		font-size: 12px;
+	}
+	.unplayed {
+		display: block;
+		margin-bottom: 4px;
+		font-size: 10px;
+		font-weight: 500;
+		color: #d8a860;
+	}
+	.unplayed button {
+		margin-left: 4px;
+		padding: 0 4px;
+		border: 1px solid #5a4520;
+		border-radius: 3px;
+		background: #2e2410;
+		color: #ffd27a;
+		font-size: 10px;
+		cursor: pointer;
 	}
 	.grid th.rowhead {
 		text-align: right;

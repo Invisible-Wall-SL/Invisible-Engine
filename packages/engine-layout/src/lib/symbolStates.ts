@@ -145,6 +145,106 @@ export const POTS_TOKEN_SYMBOL_STATES = [
 ] as const satisfies readonly (typeof HOLD_AND_WIN_SYMBOL_STATES)[number][];
 
 /**
+ * What the board knows about ONE symbol that decides which states it can ever play — read off the
+ * Game Config (`symbolsPageConfig` in the launcher). Structural on purpose: `engine-layout` does not
+ * depend on `game-config`.
+ */
+export interface SymbolPlayFacts {
+	/** A reel strip deals it — the base game's, a spins mode's or the respin board's. */
+	dealt: boolean;
+	/** The base game's or a spins mode's strip deals it, so it lands on the reels, not only on the
+	 *  respin board. */
+	onReels: boolean;
+	/** A pots overlay draws it over a cell: a pot's token. */
+	token: boolean;
+	/** Its Hold and Win roles (`special_properties`) on a project with the respin feature, else
+	 *  none. */
+	holdAndWinRoles: readonly string[];
+	/** It fills a Hold and Win meter: lit on the base board while it flies into its pot. */
+	fillsMeter: boolean;
+}
+
+/** The Hold and Win states every symbol the respin board HOLDS plays: it stops on its cell, sticks,
+ *  rests, is collected (by a collector, a full column, an instant collect) and lights on a full
+ *  board's jackpot. */
+const HELD_SYMBOL_STATES: readonly SymbolStateName[] = [
+	'coinIdle',
+	'coinLand',
+	'coinStick',
+	'coinCollect',
+	'jackpotReveal',
+];
+
+/** The roles the respin board never holds: the empty cell, which only stops, and a pot's filling
+ *  special, which only flies. */
+const UNHELD_ROLES: ReadonlySet<string> = new Set(['blank', 'meterSpecial']);
+
+/** The Hold and Win beats only one role's symbol plays, on top of {@link HELD_SYMBOL_STATES}. */
+const ROLE_SYMBOL_STATES: Readonly<Record<string, readonly SymbolStateName[]>> = {
+	payer: ['coinBoost'],
+	coinMultiplier: ['coinBoost'],
+	addRespins: ['respinsAdd'],
+	upgrade: ['coinUpgrade'],
+	unlock: ['rowUnlock'],
+	mystery: ['mysteryReveal'],
+};
+
+/**
+ * The states the game plays for ONE symbol — the Symbols grid's cells for its row — out of the
+ * project's `columns`, in their order.
+ *
+ * - A dealt symbol with no Hold and Win role plays every column but the Hold and Win ones, and
+ *   `clearReel` only on a board that cascades or clears (`clearsBoard`).
+ * - A dealt Hold and Win symbol rests and spins (on the reels, or rolling past a respin cell). It
+ *   never plays `win` or `postWinStatic`: it pays by its value, never on a line, so no win beat lights
+ *   it, and it is never the book special. On the reels it lands, appears under `emerge`, is taken off
+ *   by a cascade or a board clear, and explodes in a book game, whose column morph pops every cell it
+ *   turns. Held on the respin board it plays {@link HELD_SYMBOL_STATES} plus its role's own beat, and
+ *   lands and leaves there too (`coinStick` borrows `land`; a finished streak, an applied special or
+ *   a completed column takes its cells off with `clearReel`); the blank only stops (`coinLand`). A
+ *   meter's filling symbol plays `flyToMeter` as it flies off the reels.
+ * - A pots overlay token plays `static` (riding a rolling reel, and the art its other states fall
+ *   back to) and {@link POTS_TOKEN_SYMBOL_STATES}.
+ *
+ * A state left out may still be DRAWN through another's inheritance (`coinCollect` borrows `win`),
+ * which the grid shows on the cell that borrows it.
+ */
+export function symbolStatesPlayed(
+	columns: readonly SymbolStateName[],
+	facts: SymbolPlayFacts,
+	{ bookReveal, clearsBoard }: { bookReveal: boolean; clearsBoard: boolean },
+): SymbolStateName[] {
+	const holdAndWin: ReadonlySet<string> = new Set(HOLD_AND_WIN_SYMBOL_STATES);
+	const plays = new Set<SymbolStateName>();
+	const roles = facts.holdAndWinRoles;
+	if (facts.dealt && roles.length === 0) {
+		for (const state of columns) {
+			if (!holdAndWin.has(state) && (state !== 'clearReel' || clearsBoard)) plays.add(state);
+		}
+	}
+	if (facts.dealt && roles.length > 0) {
+		const held = roles.some((role) => !UNHELD_ROLES.has(role));
+		plays.add('static');
+		plays.add('spin');
+		if (facts.onReels || held) plays.add('land');
+		if (held || (facts.onReels && clearsBoard)) plays.add('clearReel');
+		if (facts.onReels) {
+			plays.add('intro');
+			if (bookReveal) plays.add('explosion');
+		}
+		if (held) for (const state of HELD_SYMBOL_STATES) plays.add(state);
+		if (roles.includes('blank')) plays.add('coinLand');
+		for (const role of roles) for (const state of ROLE_SYMBOL_STATES[role] ?? []) plays.add(state);
+	}
+	if (facts.onReels && facts.fillsMeter) plays.add('flyToMeter');
+	if (facts.token) {
+		plays.add('static');
+		for (const state of POTS_TOKEN_SYMBOL_STATES) plays.add(state);
+	}
+	return columns.filter((state) => plays.has(state));
+}
+
+/**
  * The states that are a WIN HIGHLIGHT — `win` and the Hold and Win beats that played `win` before
  * they had names of their own. The authored win frame (`highlight`) draws over all of them, as it did
  * when each of these beats requested `win`.
