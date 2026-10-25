@@ -109,7 +109,7 @@ export * from './registerFlowComplete';
 export * from './registerFlowValueSource';
 export * from './registerFlowPress';
 export * from './flowInstances';
-export * from './spawnLayers';
+export * from './spawnLayerFields';
 export * from './flowInstanceHandle';
 export * from './registerComponentSignals';
 export * from './registerComponentDefaults';

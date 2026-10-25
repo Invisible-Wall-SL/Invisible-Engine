@@ -39,7 +39,7 @@ import type { ComponentDef, LayoutNode, Scene, SpawnLayerNode } from 'engine-lay
 
 const F = await import('../../../packages/engine-flow-v2/index.ts');
 const K = await import('../../../packages/engine-layout/src/lib/collectComponentIds.ts');
-const S = await import('../../../packages/engine-layout/src/lib/spawnLayers.ts');
+const S = await import('../../../packages/engine-layout/src/lib/spawnLayerFields.ts');
 const { projectSpawnLayers, instanceDefResolver } = await import('../src/lib/flowV2Projection.ts');
 
 let failures = 0;

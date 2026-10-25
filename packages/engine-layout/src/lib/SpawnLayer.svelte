@@ -13,7 +13,8 @@
 
 	import ComponentInstance from './ComponentInstance.svelte';
 	import { getSceneIdContext } from './sceneIdContext';
-	import { spawnLayerSpec, spawnStore } from './spawnLayers';
+	import { spawnLayerSpec } from './spawnLayerFields';
+	import { spawnStore } from './spawnLayers';
 
 	const { node, space }: Props = $props();
 

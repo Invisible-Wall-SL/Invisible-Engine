@@ -15,10 +15,9 @@
  *    the session and never reused, so a despawned handle stays dead.
  */
 
-/** The cap a layer gets when it states none. */
-export const SPAWN_DEFAULT_CAP = 32;
-/** No layer holds more than this, whatever its `cap` says. */
-export const SPAWN_HARD_CAP = 256;
+import { effectiveSpawnCap } from 'constants-shared/spawn';
+
+export { effectiveSpawnCap, SPAWN_DEFAULT_CAP, SPAWN_HARD_CAP } from 'constants-shared/spawn';
 
 /** A grid layer's lattice: `cols` × `rows` cells, `pitch` px apart, cell (0, 0) at the origin. */
 export interface SpawnGrid {
@@ -82,12 +81,6 @@ export interface SpawnStoreOptions {
 	/** A refused spawn (the cap, a component not listed, …), for the game's trace. */
 	onRefuse?(layer: string, componentId: string, reason: SpawnRefusal): void;
 }
-
-/** The cap a layer actually holds: a whole number in 1 … {@link SPAWN_HARD_CAP}. */
-export const effectiveSpawnCap = (cap: unknown): number => {
-	const n = typeof cap === 'number' && Number.isFinite(cap) ? Math.floor(cap) : SPAWN_DEFAULT_CAP;
-	return Math.min(Math.max(1, n), SPAWN_HARD_CAP);
-};
 
 /** The id of a handle (or the id itself); `undefined` for anything else. */
 export const spawnedIdOf = (instance: unknown): string | undefined => {

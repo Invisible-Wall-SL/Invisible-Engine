@@ -1,37 +1,12 @@
 /**
- * Spawn layers (`docs/design/game-families.md` §3.3) — the layout side of the live set. A
- * `spawnLayer` node's fields are read here, defensively (the save path keeps a node's fields as
- * authored), into the spec the live set (`engine-flow-v2` `createSpawnStore`) enforces. The game's
- * one live set is the module singleton below: Flow's env writes it, every mounted `<SpawnLayer>`
- * draws its layer from it. Svelte-free and on the bare `engine-layout` entry, so a Node gate drives
- * it directly; each game bundle has its own copy.
+ * The game's live set of spawned instances (`docs/design/game-families.md` §3.3): Flow's env writes
+ * it, every mounted `<SpawnLayer>` draws its layer from it. One per game bundle. On the
+ * `engine-layout/svelte` entry, not the bare one: it is the only part of the layer that needs
+ * `engine-flow-v2` at runtime, and the bare entry is loaded by Node scripts that must not pull that
+ * barrel. The node's fields are read in `spawnLayerFields.ts`.
  */
 
-import {
-	createSpawnStore,
-	effectiveSpawnCap,
-	type SpawnLayerSpec,
-	type SpawnStore,
-} from 'engine-flow-v2';
-
-import { spawnableComponentIds, spawnLayerGrid } from './spawnLayerFields';
-import type { SpawnLayerNode } from './types';
-
-export { sceneSpawnLayers, spawnableComponentIds, spawnLayerGrid } from './spawnLayerFields';
-
-/** The spec the live set enforces for a layer node. A `grid` layer whose lattice is not whole
- *  places freely (a cell spawn into it is refused). */
-export const spawnLayerSpec = (node: SpawnLayerNode, sceneId?: string): SpawnLayerSpec => {
-	const grid = node.placement === 'grid' ? spawnLayerGrid(node) : undefined;
-	return {
-		id: node.id,
-		spawnable: spawnableComponentIds(node),
-		cap: effectiveSpawnCap(node.cap),
-		placement: grid ? 'grid' : 'free',
-		...(grid ? { grid } : {}),
-		...(sceneId !== undefined ? { sceneId } : {}),
-	};
-};
+import { createSpawnStore, type SpawnStore } from 'engine-flow-v2';
 
 let store: SpawnStore | undefined;
 

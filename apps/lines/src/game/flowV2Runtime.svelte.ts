@@ -48,9 +48,9 @@ import {
 	stashFlowInstanceInput,
 	sceneSpawnLayers,
 	spawnLayerSpec,
-	spawnStore,
 	watchFlowInstance,
 } from 'engine-layout';
+import { spawnStore } from 'engine-layout/svelte';
 import { emitterSecondsToWallMs } from 'engine-fx';
 import { flowAddOnsOf, resolveOutcome } from 'game-config';
 import type {

@@ -1,8 +1,11 @@
 /**
  * A `spawnLayer` node's fields, read defensively (the save path keeps a node's fields as authored)
- * — dependency-free, so the ship walk (`collectComponentIds`) and every Node script that loads it
+ * — free of `engine-flow-v2` at runtime, so the ship walk (`collectComponentIds`) and every Node script that loads it
  * stay free of `engine-flow-v2`. The live set itself is `spawnLayers.ts`.
  */
+
+import { effectiveSpawnCap } from 'constants-shared/spawn';
+import type { SpawnLayerSpec } from 'engine-flow-v2';
 
 import type { LayoutNode, Scene, SpawnLayerNode, SpawnLayerGrid } from './types';
 
@@ -43,4 +46,18 @@ export const sceneSpawnLayers = (
 		(scene.nodes ?? []).forEach(walk);
 	}
 	return out;
+};
+
+/** The spec the live set enforces for a layer node. A `grid` layer whose lattice is not whole
+ *  places freely (a cell spawn into it is refused). */
+export const spawnLayerSpec = (node: SpawnLayerNode, sceneId?: string): SpawnLayerSpec => {
+	const grid = node.placement === 'grid' ? spawnLayerGrid(node) : undefined;
+	return {
+		id: node.id,
+		spawnable: spawnableComponentIds(node),
+		cap: effectiveSpawnCap(node.cap),
+		placement: grid ? 'grid' : 'free',
+		...(grid ? { grid } : {}),
+		...(sceneId !== undefined ? { sceneId } : {}),
+	};
 };
