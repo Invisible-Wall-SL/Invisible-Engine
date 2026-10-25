@@ -84,15 +84,18 @@
  * 14. THE CUSTOM GLSL NODE (step 8c): a new one passes the colour through, clean. Every sample body
  *     (`customGlsl.samples.ts`) the checker takes compiles, links and lints; every one it refuses says
  *     so on the line it names (each refusal of the subset: loops, preprocessor, declarations, names
- *     out of reach, samplers, integer ÷ 0, size, outputs unwritten, the caps), and so does every
- *     malformed port. A fuzz of token soups and broken bodies never throws, never trips the checker
- *     itself, stays fast, and compiles exactly what it takes; random bodies from a grammar are all
- *     taken. The GLSL: one function per definition before `main` (one shared by identical ones, none
+ *     out of reach, samplers, integer ÷ 0, an integer or a loop counter past ±1023 (mediump), size,
+ *     outputs unwritten, the caps), and so does every malformed port. A fuzz of token soups and
+ *     broken bodies never throws, never trips the checker itself, stays fast, and compiles exactly
+ *     what it takes; random bodies from a grammar are all taken; every body taken is given to the GPU
+ *     as the very tokens checked (a lone carriage return ends a line). The GLSL: one function per definition before `main` (one shared by identical ones, none
  *     for a node that reaches nothing), its inputs passed in, an input and output of one id `inout`,
  *     each output starting at its default; matches `snapshots/customGlsl.frag`. Ports type wires as
  *     any node's do; in a subgraph it compiles flat and its issues land on the call with their line;
- *     the motion graph refuses it. Cost is never 0 and counts reads; an effect's Custom GLSL nodes
- *     are capped together. The registry keeps such an effect (its own functions are no unknown
+ *     the motion graph refuses it. Cost is never 0, counts reads and weighs work by type (a matrix
+ *     product n³); every hand-written built-in pass, as a body, checks clean but for the caps, and
+ *     the node cap sits between Petrify's work and Electrocute's; an effect's Custom GLSL nodes are
+ *     capped together. The registry keeps such an effect (its own functions are no unknown
  *     calls) and drops one calling a library entry it lacks; a runtime from before 8c drops it.
  *     The signature is order- and placement-free and moves with any code or port change. Storage
  *     keeps the definition clean. (`pnpm --filter fx-spike shader-compile` compiles the same bodies
@@ -163,9 +166,12 @@ import {
 	CUSTOM_GLSL_DEFAULT,
 	CUSTOM_GLSL_EFFECT_COST_MAX,
 	CUSTOM_GLSL_EFFECT_SAMPLES_MAX,
+	CUSTOM_GLSL_COST_MAX,
 	customGlslDef,
+	customGlslFunction,
 	customGlslIssues,
 	customGlslSignature,
+	customGlslTokens,
 	hasCustomGlsl,
 } from './src/customGlsl.ts';
 import {
@@ -3383,6 +3389,28 @@ console.log('shader graph — the Custom GLSL node');
 		!refusedGenerated.length,
 		`300 random bodies from the grammar (declarations, assignments, swizzles, branches, loops in loops, break, the library) pass the checker and compile${refusedGenerated.length ? `: ${refusedGenerated[0]}` : ''}`,
 	);
+	const takenBodies = [
+		...VALID_GLSL,
+		...fuzz,
+		...Array.from({ length: 300 }, (_, n) => generatedGlsl(5, n)),
+	].filter((sample) => !errorsOf(sample).length);
+	const unfaithful = takenBodies.filter((sample) => {
+		const emitted = customGlslFunction(glslNode(sample)).lines.join('\n');
+		const checked = customGlslTokens(sample.code);
+		return !checked || JSON.stringify(customGlslTokens(emitted)) !== JSON.stringify(checked);
+	});
+	const lineEnds = VALID_GLSL.find((sample) => sample.name === 'line ends of every kind');
+	const lineEndsEmitted = lineEnds ? customGlslFunction(glslNode(lineEnds)).lines.join('\n') : '';
+	assert(
+		!unfaithful.length &&
+			takenBodies.length > 600 &&
+			!!lineEnds &&
+			lineEndsEmitted.includes('color.g = -\n-color.g;') &&
+			lineEndsEmitted.includes('color.b += +\n+0.5;') &&
+			lineEndsEmitted.includes('int j = -\n-i;') &&
+			!/--color|--i;|\+\+0/.test(lineEndsEmitted),
+		`every body the checker takes (${takenBodies.length}) is given to the GPU as the very tokens it checked; a carriage return, alone or before a line feed, ends a line, so "-\\r-i" goes out as two minus signs, never as --${unfaithful.length ? `: ${unfaithful.map((s) => s.name).join(', ')}` : ''}`,
+	);
 	const hostile = [
 		'('.repeat(4000),
 		'{'.repeat(4000),
@@ -3596,6 +3624,63 @@ console.log('shader graph — the Custom GLSL node');
 					i.message === 'Custom GLSL works per pixel: the motion graph cannot run it',
 			),
 		'in a subgraph called twice it compiles flat (one function, two calls); what is wrong in it is said on each call, with its line; the body alone says it on the node; the motion graph refuses it',
+	);
+
+	// Cost: work weighed by type.
+	const workOf = (code: string): number =>
+		customGlslDef(
+			glslNode({ code, inputs: [port('color', 'vec4')], outputs: [port('color', 'vec4')] }),
+		).cost;
+	const weighed = [
+		['mat4 m = mat4(1.0);\nm = m * m;', 64],
+		['mat2 m = mat2(1.0);\nm = m * m;', 8],
+		['color = mat4(1.0) * color;', 16],
+		['color.rgb = mat3(1.0) * color.rgb;', 9],
+		['color = color * 2.0;', 4],
+		['color.rgb = sin(color.rgb);', 12],
+		['for (int i = 0; i < 8; i++) {\n    color.r += 1.0;\n}', 24],
+	] as const;
+	const misweighed = weighed.filter(([code, work]) => workOf(code) !== work);
+	assert(
+		!misweighed.length,
+		`work is weighed by type: a mat4 product 64, a mat2 product 8, a mat4 by a vec4 16, a mat3 by a vec3 9, a vec4 by a number 4, sin of a vec3 12, 8 rounds of one add 24${misweighed.length ? `: ${misweighed.map(([code]) => `${JSON.stringify(code)} ${workOf(code)}`).join(', ')}` : ''}`,
+	);
+	// The hand-written built-in passes as bodies (their uniforms inputs, a one-line helper inlined):
+	// what the cap is weighed against.
+	const passes = [
+		...SHADERS.matchAll(
+			/export const \w+Filter = \(\): ElementFxFilter =>\s*new ElementFxFilter\(\s*'([\w-]+)',\s*`([\s\S]*?)`,/g,
+		),
+	].map(([, name, source]) => {
+		const main = source.slice(source.indexOf('void main(void)'));
+		let code = main.slice(main.indexOf('{') + 1, main.lastIndexOf('}'));
+		for (const [, fn, arg, expr] of source.matchAll(
+			/float (\w+)\(vec2 (\w+)\)\n\{\n {4}return ([^;]+);\n\}/g,
+		))
+			code = code.replace(
+				new RegExp(`\\b${fn}\\((\\w+)\\)`, 'g'),
+				(_, a: string) => `(${expr.replace(new RegExp(`\\b${arg}\\b`, 'g'), a)})`,
+			);
+		const def: CustomGlslDefinition = {
+			code: code.replace(/\bfinalColor\b/g, 'outColor').replace(/\bPI\b/g, '3.14159265'),
+			inputs: [...source.matchAll(/uniform (float|vec[234]) (\w+);/g)].map(([, type, id]) =>
+				port(id, type as PortType),
+			),
+			outputs: [port('outColor', 'vec4')],
+		};
+		const issues = errorsOf(def).filter(
+			(i) => !/longer than 600 tokens|units of work a pixel, more than/.test(i.message),
+		);
+		return { name, cost: customGlslDef(glslNode(def)).cost, issues };
+	});
+	const passCost = (name: string): number => passes.find((p) => p.name === name)?.cost ?? 0;
+	assert(
+		passes.length === 17 &&
+			passes.every((p) => !p.issues.length) &&
+			passCost('petrify') <= CUSTOM_GLSL_COST_MAX &&
+			passCost('electrocute') > CUSTOM_GLSL_COST_MAX &&
+			passes.every((p) => p.name === 'electrocute' || p.cost <= CUSTOM_GLSL_COST_MAX),
+		`the ${passes.length} hand-written built-in passes, as bodies, check clean but for the caps; the node cap (${CUSTOM_GLSL_COST_MAX}) takes Petrify's work (${passCost('petrify')}) and every other's but Electrocute's (${passCost('electrocute')})${passes.some((p) => p.issues.length) ? `: ${passes.flatMap((p) => p.issues.map((i) => `${p.name}: ${i.message}`)).join(' | ')}` : ''}`,
 	);
 
 	// Cost.

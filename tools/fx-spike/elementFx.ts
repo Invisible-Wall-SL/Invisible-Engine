@@ -1670,9 +1670,12 @@ console.log('element fx — the shaders run on WebGL1');
 console.log('element fx — a pass the GPU refuses (the fail-safe)');
 {
 	const LINK_STATUS = 0x8b82;
-	/** A stand-in WebGL renderer whose driver links the programs `links` says, counting questions. */
+	/**
+	 * A stand-in WebGL renderer whose driver links the programs `links` says (null: no boolean, as a
+	 * context lost while asking answers), counting questions.
+	 */
 	const renderer = (
-		links: (fragment: string) => boolean,
+		links: (fragment: string) => boolean | null,
 		lost = false,
 		type = RendererType.WEBGL,
 	) => {
@@ -1758,6 +1761,47 @@ console.log('element fx — a pass the GPU refuses (the fail-safe)');
 				apply(glitch, gpu)?.filter === glitch &&
 				glitch.enabled,
 			'a lost context, or a renderer that is not WebGL, changes nothing: the pass draws as it would have',
+		);
+		const pixi = renderer(() => false);
+		const curl = SHADERS.curlFilter();
+		const ripple = SHADERS.rippleFilter();
+		let thrown = '';
+		let drawnAnyway = false;
+		try {
+			drawnAnyway =
+				apply(curl, system({ ...pixi, shader: {} as typeof pixi.shader }))?.filter === curl &&
+				apply(
+					ripple,
+					system({
+						...pixi,
+						shader: {
+							_getProgramData: () => {
+								throw new Error('a newer Pixi');
+							},
+						},
+					}),
+				)?.filter === ripple;
+		} catch (error) {
+			thrown = (error as Error).message;
+		}
+		assert(
+			!thrown && drawnAnyway && curl.enabled && ripple.enabled,
+			`a Pixi without _getProgramData, or one whose call throws, changes nothing: the pass draws and nothing throws out of apply${thrown ? `: threw ${thrown}` : ''}`,
+		);
+		const answers: (boolean | null)[] = [null, false];
+		const flaky = renderer(() => (answers.length ? (answers.shift() as boolean | null) : false));
+		const melt = SHADERS.meltFilter();
+		const asked = system(flaky);
+		const before = apply(melt, asked);
+		const wasOn = melt.enabled;
+		const after = apply(melt, asked);
+		assert(
+			before?.filter === melt &&
+				wasOn &&
+				after?.filter !== melt &&
+				!melt.enabled &&
+				flaky.asked.link === 2,
+			'a driver answering no boolean (the context lost while asking) is no answer: the pass draws, nothing is kept, and the next draw asks again',
 		);
 		const graph = compileShaderEffect(REFERENCE_GRAPHS[0]);
 		if (!graph.ok) throw new Error('reference graph');

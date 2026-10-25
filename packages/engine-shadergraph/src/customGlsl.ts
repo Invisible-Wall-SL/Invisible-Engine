@@ -23,18 +23,24 @@
  *    element is read through `efxSample`, so the padding and margin rules hold.
  *  - refused besides: `while`, `do`, `discard`, `#`, declarations of functions, structs, uniforms,
  *    attributes, varyings or precision, qualifiers, arrays and indexing, integer division by a
- *    constant 0, an integer past 32 bits, a body over {@link CUSTOM_GLSL_BYTES_MAX} bytes or
+ *    constant 0, an integer literal or constant, or a value a loop counter takes, past
+ *    ±{@link CUSTOM_GLSL_INT_MAX} (the pass's integers are mediump), a body over
+ *    {@link CUSTOM_GLSL_BYTES_MAX} bytes or
  *    {@link CUSTOM_GLSL_TOKENS_MAX} tokens, nesting past {@link CUSTOM_GLSL_DEPTH_MAX}. An output never
  *    written is an error, one written on some paths only a warning (it starts at its default, else 0).
  *
- * THE COST is estimated from the body, in the node library's units (`NodeDef.cost`): each operator 1,
- * each built-in call 1 (2 for length, normalize, smoothstep, sqrt and the like, 4 for the
- * trigonometric, exponential and power functions), each library call its own body's estimate the same
- * way, each pass-header helper 2, a loop's body times its rounds (plus 2 a round for its test and
- * step). Reads of the element are each `efxSample` call (inside the library's functions too) times its
- * loops' rounds. Never 0. It counts both sides of every branch and every round a loop may run, so it
- * reads 2–6× the hand-set cost of a library node doing the same work (Noise 40 against 18, Cells 251
- * against 120): on the safe side. A node past {@link CUSTOM_GLSL_COST_MAX} units or
+ * THE COST is estimated as the body is checked, by type, in the node library's units
+ * (`NodeDef.cost`): an arithmetic operator a step per component of its result, but a matrix product
+ * n³ and a matrix by a vector n²; a comparison or a logical operator 1 (a vector equality its width);
+ * a built-in call 1, 2 (length, normalize, smoothstep, sqrt and the like) or 4 (the trigonometric,
+ * exponential and power functions) times its widest argument's components; a library call its own
+ * body's estimate (operators and calls counted, loops by their rounds: they are fixed code); a
+ * pass-header helper 2; each statement times the rounds of the loops around it, each loop 2 a round
+ * for its test and step. Reads of the element are each `efxSample` call (inside the library's
+ * functions too) times its loops' rounds. Never 0. It counts both sides of every branch and every
+ * round a loop may run, so it reads 2–6× the hand-set cost of a library node doing the same work:
+ * on the safe side. By it the hand-written built-in passes, as bodies, do up to 1,053 units
+ * (Electrocute; Petrify 870, Sphericon 575). A node past {@link CUSTOM_GLSL_COST_MAX} units or
  * {@link CUSTOM_GLSL_SAMPLES_MAX} reads is refused, and so is an effect whose Custom GLSL nodes pass
  * {@link CUSTOM_GLSL_EFFECT_COST_MAX} / {@link CUSTOM_GLSL_EFFECT_SAMPLES_MAX} together.
  */
@@ -78,20 +84,26 @@ export const CUSTOM_GLSL_NESTED_MAX = 256;
 export const CUSTOM_GLSL_DEPTH_MAX = 48;
 /** A statement's expression, as a tree, with the blocks around it, is at most this deep. */
 export const CUSTOM_GLSL_TREE_MAX = 64;
-/** An integer literal is at most this (32 bits, as GLSL ES 3.00 requires). */
-export const CUSTOM_GLSL_INT_MAX = 2147483647;
+/**
+ * An integer literal, a constant folded from them and every value a loop counter takes (the one that
+ * ends the loop included) stay within ±this. The pass is GLSL ES 1.00 on WebGL1 and WebGL2 alike, so
+ * its integers are mediump, sure to hold only (−2^10, 2^10); past that a counter may wrap and its
+ * loop never end, which no fail-safe can catch.
+ */
+export const CUSTOM_GLSL_INT_MAX = 1023;
 /** A float literal is at most this: past it, a GPU's float overflows. */
 export const CUSTOM_GLSL_FLOAT_MAX = 1e30;
 /**
- * One node's work a pixel, and its reads of the element. By this estimate the heaviest hand-written
- * built-in pass is Electrocute's (about 1,020 units; Petrify's about 690, Sphericon's 570), and 256
- * reads is 64 rounds of a 4-read edge (`efxEdge`).
+ * One node's work a pixel, and its reads of the element. By this estimate the hand-written built-in
+ * passes do up to 1,053 units (Electrocute; Petrify 870, Sphericon 575): a node may do Petrify's work
+ * but not Electrocute's. 256 reads is 64 rounds of a 4-read edge (`efxEdge`).
  */
 export const CUSTOM_GLSL_COST_MAX = 1024;
 export const CUSTOM_GLSL_SAMPLES_MAX = 256;
 /**
  * What every Custom GLSL node of one effect may spend together, a pixel: under the built-in Glow at
- * its widest reach (40 px: 38 angles × 40 steps, about 1,521 reads and 17,000 units a pixel).
+ * its widest reach (40 px: 38 angles × 40 steps, 1,521 reads and about 21,700 units a pixel by this
+ * estimate, 14 a step).
  */
 export const CUSTOM_GLSL_EFFECT_COST_MAX = 4096;
 export const CUSTOM_GLSL_EFFECT_SAMPLES_MAX = 1024;
@@ -149,7 +161,7 @@ const TEXTURE_READS = /^(texture|texel|textureCube|texture2D)/;
  */
 const SHELL_NAMES = words(`
 	main vTextureCoord finalColor uTexture uInputSize uInputClamp uOutputFrame uElement uPad PI uFx
-	uSeed SHADER_NAME GL_ES GL_FRAGMENT_PRECISION_HIGH
+	uSeed SHADER_NAME GL_ES GL_FRAGMENT_PRECISION_HIGH aPosition uOutputTexture
 `);
 const isShellName = (name: string): boolean => SHELL_NAMES.has(name) || /^uP\d+$/.test(name);
 
@@ -159,6 +171,7 @@ export function customGlslNameIssue(name: string): string | undefined {
 		return 'is not a word of up to 32 letters, digits and _, starting with a letter';
 	if (name.includes('__')) return 'has two _ in a row, which GLSL keeps for itself';
 	if (name.startsWith('gl_') || name.startsWith('webgl')) return 'starts as GLSL’s own names do';
+	if (name.startsWith('GL_')) return 'starts as the macros a driver defines (its extensions) do';
 	if (name.startsWith('efx')) return 'starts with efx, which the library’s functions do';
 	if (KEYWORDS.has(name)) return 'is a GLSL word';
 	if (BUILTIN_NAMES.has(name)) return 'is a GLSL function';
@@ -215,6 +228,16 @@ function arithmetic(op: string, a: GType, b: GType): GType | undefined {
 	if (op === '*' && isVec(a) && isMat(b) && width(a) === width(b)) return a;
 	return undefined;
 }
+
+/**
+ * The work of `a op b` (+ − × ÷) in the cost estimate: a matrix product n³, a matrix and a vector n²,
+ * else a step per component of the result.
+ */
+const arithmeticWork = (op: string, a: GType, b: GType, result: GType): number => {
+	if (op === '*' && isMat(a) && isMat(b)) return width(a) ** 3;
+	if (op === '*' && (isMat(a) || isMat(b)) && (isVec(a) || isVec(b))) return width(a) ** 2;
+	return components(result);
+};
 
 type Resolve = (args: readonly GType[]) => GType | undefined;
 
@@ -396,11 +419,14 @@ interface Lexed {
 }
 
 /**
- * `code` as tokens. `lenient` (the library's own functions, for their cost) takes brackets and
+ * `code` as tokens. A line ends at a line feed, a carriage return or both, as GLSL's lines do: each is
+ * read as one line feed, which the stripped code keeps, so no two tokens ever run together once the
+ * comments are out. `lenient` (the library's own functions, for their cost) takes brackets and
  * anything in a comment and counts nothing; else a refused character, operator or number, an
  * unclosed comment, or too many tokens stops it.
  */
-function lex(code: string, lenient = false): Lexed {
+function lex(source: string, lenient = false): Lexed {
+	const code = source.replace(/\r\n?/g, '\n');
 	const tokens: Token[] = [];
 	let stripped = '';
 	let line = 1;
@@ -416,8 +442,8 @@ function lex(code: string, lenient = false): Lexed {
 			i++;
 			continue;
 		}
-		if (c === ' ' || c === '\t' || c === '\r') {
-			stripped += c === '\r' ? '' : c;
+		if (c === ' ' || c === '\t') {
+			stripped += c;
 			i++;
 			continue;
 		}
@@ -450,8 +476,11 @@ function lex(code: string, lenient = false): Lexed {
 			const value = Number(text);
 			if (isInt && text.length > 1 && text[0] === '0')
 				throw new Stop(`${text} would read as octal: write it without the leading 0`, line);
-			if (isInt && value > CUSTOM_GLSL_INT_MAX)
-				throw new Stop(`${text} is past the largest integer, ${CUSTOM_GLSL_INT_MAX}`, line);
+			if (isInt && value > CUSTOM_GLSL_INT_MAX && !lenient)
+				throw new Stop(
+					`${text} is past ±${CUSTOM_GLSL_INT_MAX}, all a fragment shader’s integer is sure to hold (mediump): write ${text}.0 for a float`,
+					line,
+				);
 			if (!isInt && !(value <= CUSTOM_GLSL_FLOAT_MAX))
 				throw new Stop(`${text} is past the largest number a body takes, 1e30`, line);
 			tokens.push({ kind: isInt ? 'int' : 'float', text, line, value });
@@ -610,13 +639,26 @@ function literalInt(tokens: readonly Token[], at: number): [number, number] | un
 	return t?.kind === 'int' ? [sign * (t.value as number), i + 1] : undefined;
 }
 
-/** How many rounds `start`, `test` against `bound` and `step` make: undefined past `cap`. */
-function rounds(start: number, test: string, bound: number, step: number, cap: number) {
+/**
+ * How many rounds `start`, `test` against `bound` and `step` make (undefined past `cap`: more, or
+ * never ending), and the value furthest from 0 the counter takes, the one that ends the loop included.
+ */
+function rounds(
+	start: number,
+	test: string,
+	bound: number,
+	step: number,
+	cap: number,
+): { rounds?: number; furthest: number } {
 	const holds = (x: number): boolean =>
 		test === '<' ? x < bound : test === '<=' ? x <= bound : test === '>' ? x > bound : x >= bound;
 	let n = 0;
-	for (let i = start; holds(i); i += step) if (++n > cap) return undefined;
-	return n;
+	let furthest = start;
+	for (let i = start; holds(i); i += step) {
+		if (++n > cap) return { furthest };
+		if (Math.abs(i + step) > Math.abs(furthest)) furthest = i + step;
+	}
+	return { rounds: n, furthest };
 }
 
 /**
@@ -636,7 +678,7 @@ function headerRounds(tokens: readonly Token[], cap: number): number | undefined
 	const bound = literalInt(tokens, i + 1);
 	if (!bound || tokens[bound[1]]?.text !== ';') return undefined;
 	const step = stepOf(tokens.slice(bound[1] + 1), name);
-	return step === undefined ? undefined : rounds(start[0], test, bound[0], step, cap);
+	return step === undefined ? undefined : rounds(start[0], test, bound[0], step, cap).rounds;
 }
 
 /** A loop's step (`i++`, `--i`, `i += 2`…) as a number, or undefined. */
@@ -653,7 +695,10 @@ function stepOf(tokens: readonly Token[], name: string): number | undefined {
 	return undefined;
 }
 
-/** The work and reads of `tokens[from…to)`, its loops times their rounds. */
+/**
+ * The work and reads of `tokens[from…to)`, its loops times their rounds, untyped: a library
+ * function's (fixed code), each operator and call counted once.
+ */
 function estimate(
 	tokens: readonly Token[],
 	from: number,
@@ -751,6 +796,9 @@ class Checker {
 	private dead = false;
 	/** Outputs some way out of the code leaves unwritten. */
 	private readonly partial = new Set<string>();
+	/** The work and the reads of the element so far, each times the rounds of the loops around it. */
+	work = 0;
+	reads = 0;
 
 	private readonly tokens: readonly Token[];
 	private readonly outputs: readonly string[];
@@ -832,6 +880,11 @@ class Checker {
 
 	private leave(): void {
 		this.scopes.pop();
+	}
+
+	private spend(work: number, reads = 0): void {
+		this.work += work * this.rounds;
+		this.reads += reads * this.rounds;
 	}
 
 	// --- names ---
@@ -1032,10 +1085,16 @@ class Checker {
 		if (step === undefined)
 			throw new Stop(`a loop steps its counter by a literal (i++, i--, i += 2): ${how}`, t.line);
 		this.expect(')', 'a )');
-		const n = rounds(start, test.text, bound, step, CUSTOM_GLSL_LOOP_MAX);
+		const run = rounds(start, test.text, bound, step, CUSTOM_GLSL_LOOP_MAX);
+		const n = run.rounds;
 		if (n === undefined)
 			throw new Stop(
 				`a loop runs at most ${CUSTOM_GLSL_LOOP_MAX} rounds; this one runs more, or never ends`,
+				t.line,
+			);
+		if (Math.abs(run.furthest) > CUSTOM_GLSL_INT_MAX)
+			throw new Stop(
+				`the counter reaches ${run.furthest}, past ±${CUSTOM_GLSL_INT_MAX}, all a fragment shader’s integer is sure to hold (mediump): it may wrap and never end`,
 				t.line,
 			);
 		if (this.rounds * n > CUSTOM_GLSL_NESTED_MAX)
@@ -1043,6 +1102,7 @@ class Checker {
 				`loops in loops run ${this.rounds * n} rounds here, more than ${CUSTOM_GLSL_NESTED_MAX}`,
 				t.line,
 			);
+		this.spend(LOOP_ROUND_COST * n);
 		this.scopes.push(new Map());
 		this.define(name, { type: 'int', kind: 'counter' }, nameToken.line);
 		const before = this.definite;
@@ -1153,6 +1213,7 @@ class Checker {
 				);
 			else if (arith === '/' && left.type === 'int' && right.int === 0)
 				this.note('error', 'an integer is divided by 0', line);
+			else this.spend(arithmeticWork(arith, left.type, right.type, left.type));
 		}
 		return { type: left.type, height };
 	}
@@ -1205,6 +1266,7 @@ class Checker {
 				),
 				height,
 			};
+		this.spend(1);
 		return { type: then.type, height };
 	}
 
@@ -1239,14 +1301,20 @@ class Checker {
 							: op === '*'
 								? a.int * b.int
 								: Math.trunc(a.int / b.int);
-				if (Math.abs(value) > CUSTOM_GLSL_INT_MAX) return fail('this integer overflows 32 bits');
+				if (Math.abs(value) > CUSTOM_GLSL_INT_MAX)
+					return fail(
+						`this integer comes to ${value}, past ±${CUSTOM_GLSL_INT_MAX}, all a fragment shader’s integer is sure to hold (mediump)`,
+					);
 				return { type, height, int: value };
 			}
+			this.spend(arithmeticWork(op, a.type, b.type, type));
 			return { type, height };
 		}
 		if (op === '<' || op === '>' || op === '<=' || op === '>=') {
-			if ((a.type === 'int' || a.type === 'float') && b.type === a.type)
+			if ((a.type === 'int' || a.type === 'float') && b.type === a.type) {
+				this.spend(1);
 				return { type: 'bool', height };
+			}
 			return fail(
 				isVec(a.type)
 					? `${op} compares numbers: compare vectors with lessThan() and the like`
@@ -1254,10 +1322,15 @@ class Checker {
 			);
 		}
 		if (op === '==' || op === '!=') {
-			if (a.type === b.type) return { type: 'bool', height };
-			return fail(`${op} cannot compare ${article(a.type)} and ${article(b.type)}`);
+			if (a.type !== b.type)
+				return fail(`${op} cannot compare ${article(a.type)} and ${article(b.type)}`);
+			this.spend(components(a.type));
+			return { type: 'bool', height };
 		}
-		if (a.type === 'bool' && b.type === 'bool') return { type: 'bool', height };
+		if (a.type === 'bool' && b.type === 'bool') {
+			this.spend(1);
+			return { type: 'bool', height };
+		}
 		return fail(`${op} takes bools, not ${article(a.type)} and ${article(b.type)}`);
 	}
 
@@ -1273,6 +1346,7 @@ class Checker {
 			if (t.text === '!') {
 				if (operand.type !== 'bool')
 					return { ...this.error(`! takes a bool, not ${article(operand.type)}`, t.line), height };
+				this.spend(1);
 				return { type: 'bool', height };
 			}
 			if (!isNumeric(operand.type))
@@ -1282,8 +1356,10 @@ class Checker {
 				};
 			if (t.text === '++' || t.text === '--') {
 				if (!this.writable(operand, t.line)) return { ...ERROR, height };
+				this.spend(components(operand.type));
 				return { type: operand.type, height };
 			}
+			if (t.text === '-' && operand.int === undefined) this.spend(components(operand.type));
 			const int =
 				operand.int === undefined ? undefined : t.text === '-' ? -operand.int : operand.int;
 			return { type: operand.type, height, ...(int === undefined ? {} : { int }) };
@@ -1317,7 +1393,10 @@ class Checker {
 					};
 					continue;
 				}
-				info = this.writable(info, t.line) ? { type: info.type, height } : { ...ERROR, height };
+				if (this.writable(info, t.line)) {
+					this.spend(components(info.type));
+					info = { type: info.type, height };
+				} else info = { ...ERROR, height };
 				continue;
 			}
 			return info;
@@ -1419,9 +1498,9 @@ class Checker {
 		}
 		if (resolve) {
 			const type = resolve(types);
-			return type
-				? { type, height }
-				: { ...this.error(`${fn} does not take (${shown})`, name.line), height };
+			if (!type) return { ...this.error(`${fn} does not take (${shown})`, name.line), height };
+			this.spend(BUILTIN_COST[fn] * Math.max(...types.map(components)));
+			return { type, height };
 		}
 		const signature = librarySignature(fn);
 		if (!signature) return { ...this.error(`${fn} cannot be called from here`, name.line), height };
@@ -1430,6 +1509,8 @@ class Checker {
 				...this.error(`${fn} takes (${signature.params.join(', ')}), not (${shown})`, name.line),
 				height,
 			};
+		const cost = libraryCost(fn);
+		this.spend(cost.ops, cost.reads);
 		return { type: signature.returns, height };
 	}
 
@@ -1572,13 +1653,14 @@ function check(code: unknown, inputs: unknown, outputs: unknown): Checked {
 	}
 	try {
 		const { tokens, stripped } = lex(code);
-		const cost = estimate(tokens, 0, tokens.length);
-		checked.cost = Math.max(1, Math.ceil(cost.ops));
-		checked.samples = cost.reads;
 		checked.lines = stripped
 			.split('\n')
 			.map((line) => line.replace(/\t/g, '    ').trimEnd())
 			.filter((line) => line.trim());
+		// What the GPU is given must read as the tokens checked here, one for one.
+		const emitted = lex(checked.lines.join('\n')).tokens;
+		if (emitted.length !== tokens.length || emitted.some((t, i) => t.text !== tokens[i].text))
+			throw new Error('the emitted body does not read as the code checked');
 		const ports = new Map<string, Variable>();
 		for (const { port, mode } of params)
 			ports.set(port.id, {
@@ -1594,6 +1676,8 @@ function check(code: unknown, inputs: unknown, outputs: unknown): Checked {
 			checker.run();
 		} finally {
 			issues.push(...checker.notes);
+			checked.cost = Math.max(1, Math.ceil(checker.work));
+			checked.samples = checker.reads;
 		}
 	} catch (error) {
 		issues.push(
@@ -1687,6 +1771,18 @@ export function customGlslFunction(node: GraphNode): {
 } {
 	const { params, lines } = checkedOf(node);
 	return { params, lines };
+}
+
+/**
+ * The tokens the checker reads in `code`, as text (undefined where it cannot read it): what the GPU is
+ * given of a body it takes reads as these, one for one.
+ */
+export function customGlslTokens(code: string): string[] | undefined {
+	try {
+		return lex(code).tokens.map((t) => t.text);
+	} catch {
+		return undefined;
+	}
 }
 
 /** Every node of `doc` (its graph, its subgraphs' bodies and its motion graph) of type `type`. */

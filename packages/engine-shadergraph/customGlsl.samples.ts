@@ -217,6 +217,10 @@ color.rgb = clamp(reflect(color.rgb, vec3(0.0, 0.0, 1.0)), 0.0, 1.0);
 color.rgb = min(color.rgb, vec3(color.a));`,
 	),
 	sample(
+		'line ends of every kind',
+		'// a carriage return ends a line comment\rcolor.g = -\r-color.g;\r\ncolor.b += +\r+0.5;\n\rfor (int i = 0; i < 4; i++) { int j = -\r-i; color.a += float(j) * 0.0; }\r',
+	),
+	sample(
 		'assignments in expressions',
 		`float a = 0.0;
 float b = 0.0;
@@ -311,8 +315,64 @@ export const INVALID_GLSL: readonly InvalidGlsl[] = [
 	invalid('int ÷ 0', 'int a = 4 / 0;', /divided by 0/, 1),
 	invalid('int ÷ constant 0', 'int a = 7;\nint b = a / (3 - 3);', /divided by 0/, 2),
 	invalid('int ÷= 0', 'int a = 7;\na /= 0;', /divided by 0/, 2),
-	invalid('int overflow', 'int a = 65536 * 65536;', /overflows 32 bits/, 1),
-	invalid('int literal', 'int a = 3000000000;', /past the largest integer/, 1),
+	invalid('int overflow', 'int a = 65536 * 65536;', /65536 is past ±1023/, 1),
+	invalid('int literal', 'int a = 3000000000;', /3000000000 is past ±1023/, 1),
+	invalid('int past mediump', 'int a = 1024;', /1024 is past ±1023.*write 1024\.0 for a float/, 1),
+	invalid('a sum past mediump', 'int a = 1000 + 100;', /comes to 1100, past ±1023/, 1),
+	invalid(
+		'a product past mediump',
+		'int a = 7;\nint b = 40 * 40 + a;',
+		/comes to 1600, past ±1023/,
+		2,
+	),
+	invalid(
+		'a counter starting past mediump',
+		'for (int i = 2147483640; i <= 2147483647; i++) { color.r += 0.001; }',
+		/2147483640 is past ±1023/,
+		1,
+	),
+	invalid(
+		'a step past mediump',
+		'for (int i = 0; i < 2147483647; i += 2147483000) { color.r += 0.001; }',
+		/2147483647 is past ±1023/,
+		1,
+	),
+	invalid(
+		'a counter past 16 bits',
+		'for (int i = 32760; i <= 32767; i++) { color.r += 0.001; }',
+		/32760 is past ±1023/,
+		1,
+	),
+	invalid(
+		'a counter ending past mediump',
+		'color.r = 0.0;\nfor (int i = 1020; i <= 1023; i++) { color.r += 0.001; }',
+		/the counter reaches 1024, past ±1023.*may wrap and never end/,
+		2,
+	),
+	invalid(
+		'a counter stepping past mediump',
+		'for (int i = 1000; i < 1023; i += 20) { color.r += 0.001; }',
+		/the counter reaches 1040, past ±1023/,
+		1,
+	),
+	invalid(
+		'a counter counting down past mediump',
+		'\n\nfor (int i = -1000; i > -1023; i -= 30) { color.r += 0.001; }',
+		/the counter reaches -1030, past ±1023/,
+		3,
+	),
+	invalid(
+		'a counter stepping past mediump from its bound',
+		'for (int i = 0; i <= 1023; i += 16) { color.r += 0.001; }',
+		/the counter reaches 1024, past ±1023/,
+		1,
+	),
+	invalid(
+		'a line comment ended by a carriage return',
+		'// a note\rfloat a = 1;',
+		/"a" is a float, given an int/,
+		2,
+	),
 	invalid('float literal', 'float a = 1e31;', /past the largest number/, 1),
 	invalid('bytes', `${'// padding\n'.repeat(400)}color.r = 1.0;`, /longer than 4096 bytes/),
 	invalid('bytes (UTF-8)', `// ${'é'.repeat(2100)}\ncolor.r = 1.0;`, /longer than 4096 bytes/),
@@ -476,6 +536,17 @@ export const INVALID_GLSL: readonly InvalidGlsl[] = [
 	invalid('a declaration without a value', 'float a;', /give "a" a value where it is declared/, 1),
 	invalid('a reserved word', 'float input = 1.0;', /"input" is a GLSL word/, 1),
 	invalid('a GLSL ES 3.00 word', 'float sample = 1.0;', /"sample" is a GLSL word/, 1),
+	invalid(
+		'a driver’s extension macro',
+		'float GL_OES_standard_derivatives = 1.0;',
+		/starts as the macros a driver defines/,
+		1,
+	),
+	invalid(
+		'matrix work in loops',
+		'mat4 m = mat4(color, color, color, color);\nfor (int i = 0; i < 64; i++) {\n    for (int j = 0; j < 4; j++) {\n        m = m * m;\n    }\n}\ncolor = m * color;',
+		/units of work a pixel, more than the 1024 a node may/,
+	),
 	invalid('a GLSL function as a name', 'float sin = 1.0;', /"sin" is a GLSL function/, 1),
 	invalid('two underscores', 'float a__b = 1.0;', /two _ in a row/, 1),
 	invalid('an efx name', 'float efxMine = 1.0;', /starts with efx/, 1),
@@ -800,7 +871,8 @@ class BodyWriter {
 				])();
 			case 'int':
 				return this.pick([
-					() => `(${this.expr('int', d)} ${this.pick(['+', '-', '*'])} ${this.expr('int', d)})`,
+					() => `(${this.expr('int', d)} ${this.pick(['+', '-'])} ${this.expr('int', d)})`,
+					() => `(${this.expr('int', d)} * ${this.pick(['2', '3'])})`,
 					() => `int(${this.expr('float', d)})`,
 					() => `(${this.expr('bool', d)} ? ${this.expr('int', d)} : ${this.int()})`,
 					() => `(${this.expr('int', d)} / ${1 + Math.floor(this.rand() * 4)})`,
@@ -1072,6 +1144,8 @@ const SOUP = [
 	'/*',
 	'*/',
 	'\n',
+	'\r',
+	'\r\n',
 	'é',
 	'"',
 	'\\',

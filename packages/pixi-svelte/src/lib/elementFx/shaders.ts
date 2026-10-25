@@ -125,19 +125,26 @@ const reported = new WeakSet<GlProgram>();
 /**
  * Whether `program` compiled and linked on `renderer`'s GPU, asked of the driver once per program
  * and context. Asking compiles it as Pixi's own first draw would (Pixi keeps the result for that
- * draw). A renderer that is not WebGL, or a lost context, answers yes: nothing is known.
+ * draw), through Pixi's internal `_getProgramData`. When nothing is known it answers yes and keeps no
+ * answer: a renderer that is not WebGL, a lost context (before or while asking, when the driver
+ * answers no boolean), or a Pixi whose internals differ (the call missing, or throwing).
  */
 export function programLinks(renderer: FilterSystem['renderer'], program: GlProgram): boolean {
 	if (renderer.type !== RendererType.WEBGL) return true;
-	const { gl, shader } = renderer as WebGLRenderer;
-	if (gl.isContextLost()) return true;
-	const compiled = shader._getProgramData(program).program;
-	let ok = linked.get(compiled);
-	if (ok === undefined) {
-		ok = gl.getProgramParameter(compiled, gl.LINK_STATUS) === true;
-		linked.set(compiled, ok);
+	try {
+		const { gl, shader } = renderer as WebGLRenderer;
+		if (typeof shader?._getProgramData !== 'function' || gl.isContextLost()) return true;
+		const compiled = shader._getProgramData(program)?.program;
+		if (!compiled || typeof compiled !== 'object') return true;
+		const known = linked.get(compiled);
+		if (known !== undefined) return known;
+		const answer: unknown = gl.getProgramParameter(compiled, gl.LINK_STATUS);
+		if (typeof answer !== 'boolean') return true;
+		linked.set(compiled, answer);
+		return answer;
+	} catch {
+		return true;
 	}
-	return ok;
 }
 
 /**
