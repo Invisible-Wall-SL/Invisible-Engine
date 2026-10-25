@@ -28,6 +28,7 @@
 	 */
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import {
+		easeShape,
 		keysLayout,
 		playbackTime,
 		putKey,
@@ -202,6 +203,7 @@
 		resolvePlace: resolvePlace as TimelineEvaluator['resolvePlace'],
 		resolveVisible: resolveVisible as TimelineEvaluator['resolveVisible'],
 		putKey: putKey as TimelineEvaluator['putKey'],
+		easeShape,
 	};
 
 	let rows = $state<Row[]>([]);

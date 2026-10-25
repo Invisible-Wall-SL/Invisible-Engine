@@ -620,6 +620,10 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-25 — **P10.9's Elastic / Bounce eases built** (ahead of the rest of P10.9, which the
+  plan allowed): two named `CinematicEase` presets in `engine-cinematic` and the Timeline's
+  Interpolation panel. Detail in [cinematic status](cinematic.md) 2026-10-25. N-slice, rulers and
+  guides and the Graph Editor are still P10.9's.
 - 2026-10-25 — **P10.6 built: match-3, RGS-decided.** The bet deals the server's board, each swap
   is a `move`, the round is collected once; our own wire on the test server's `match3` mock; live
   real money waits on the partner. Detail above.

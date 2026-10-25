@@ -18,10 +18,13 @@ export interface TimelineEvaluator {
 		t: number,
 	): boolean;
 	putKey(keys: unknown[], time: number, value: number, ease?: TimelineEase): void;
+	/** The shape `u → eased u` of an `ease`: the Interpolation panel draws Elastic / Bounce with it. */
+	easeShape(ease: unknown): (u: number) => number;
 }
 
 /** A key's outgoing interpolation: a named ease, or a cubic `[x1, y1, x2, y2]`. */
-export type TimelineEase = 'linear' | 'ease' | 'hold' | [number, number, number, number];
+export type TimelineEase =
+	'linear' | 'ease' | 'hold' | 'elastic' | 'bounce' | [number, number, number, number];
 
 /** One selected key: its track, channel and time. */
 export interface TimelineKeyRef {
