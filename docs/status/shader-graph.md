@@ -12,7 +12,8 @@ Pixi preview, with a lease and history, #1330) and step 6 (the templates: graph 
 built-ins, held to a parity gate in `check:all`, offered as "Start from a built-in", #1333) and
 step 7 (editor v2: subgraphs, node thumbnails, cost chips, publishing to the studio library,
 #1340) are merged. Step 8 (the plan's "Later") is split into 8a–8e; 8a, the motion graph, is
-merged (#1342). 8b (Break as an output node) is next, when the owner asks.
+merged (#1342), and so are 8b, Break as an output node (#1347), and 8c, the admin-only Custom
+GLSL node (#1349). 8d (particle materials) is designed and awaits the owner's decisions.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -271,7 +272,82 @@ merged (#1342). 8b (Break as an output node) is next, when the owner asks.
     absent when it names none. The bake walks the bundle's values the same way (never a key).
     `deploy/editor-shaders/` still holds the set, and the Publish snapshot copies it, so a game's
     asset base carries the library's compiled effects too; nothing reads them at runtime.
-- **Step 8** (the plan's "Later", split into 8a–8e in design §8). 8b–8e not started.
+- **Step 8** (the plan's "Later", split into 8a–8e in design §8). 8d designed
+  (`docs/design/shader-graph-particles.md`, on `claude/shader-graph-step8d`), awaiting the owner's
+  decisions; 8e not started.
+  - **8c, the Custom GLSL node.** Merged (#1349, 2026-10-25).
+    - **The node** (`packages/engine-shadergraph/src/customGlsl.ts`). `customGlsl`, pixel graph and
+      subgraph bodies: `glsl: { code, inputs, outputs }`, ports with the subgraph port rules
+      (`src/ports.ts`), default a vec4 `color` passed through. `customGlslIssues` is a typed
+      recursive-descent checker of a GLSL ES 1.00 subset (its ports, locals, built-ins, `efx*`
+      library functions; constant-bounded `for` loops, 64 rounds, 256 nested; no `while`, `do`,
+      `discard`, `#`, declarations, `texture2D` or foreign names; 4 KB / 600 tokens), errors as
+      `'glsl'` with `line N:`. Codegen: one `efxGlsl_<n>` function per distinct definition before
+      `main`. Integers (literals, folded constants, every value a loop counter takes) stay within
+      ±1023, all a mediump integer is sure to hold. Cost estimated by type as the body is checked
+      (a matrix product n³, a matrix by a vector n², a built-in by its widest argument), capped per
+      node (1,024 / 256 reads) and per effect; the built-in passes as bodies come to up to 1,053
+      (Electrocute; Petrify 870).
+    - **The server gate.** `shaderCustomGlsl` (admin by default): a save or restore adding Custom
+      GLSL, or changing one's code or ports, against the stored graph (or the shared one it would
+      shadow) is a 403 `custom-glsl`; moving, wiring around or deleting one is not; publishing a
+      graph holding one takes it too (`customGlslSignature`, `hasCustomGlsl`).
+    - **The runtime fail-safe** (`shaders.ts` `programLinks`, `ElementFxFilter.apply`). Pixi 8.22
+      logs a failed compile and then draws with the unlinked program every frame, so the element
+      vanished. Now each program's link is asked once; one that did not link draws the element as
+      it is, disables the filter and warns once. It covers every built-in pass and custom effect.
+    - **The editor.** Advanced › Custom GLSL for holders; `GlslCodeEditor.svelte` (line numbers,
+      gutter marks, one undo step per pause), `CustomGlslProperties.svelte` (errors, help, ports via
+      the shared `PortListEditor.svelte`), read-only for others; a test-compile on offscreen WebGL1
+      and WebGL2 (`glslCheck.client.ts`) whose rejection shows on the node and its lines, marks the
+      save pill and blocks Publish to library.
+    - **Review.** An independent review found three blocking items and four should-fix; all are
+      fixed and each fix is mutation-checked:
+      - a loop counter could pass a mediump integer's range, wrap and never end (now ±1023);
+      - a lone carriage return ended a line for the driver but not the checker, so a `//` comment
+        could hide code (now read as a line end, and the emitted body must re-read as the checked
+        tokens);
+      - the FTP Browser's scoped mode could upload or move a graph into `shaders/` or
+        `shader-backups/`, skipping the gate (refused now; an admin's full view still can);
+      - a copy of an approved node did not count as adding one (definitions are counted now, here
+        and in the editor's holder rule);
+      - a forced save by a non-holder is pinned to the version the gate read;
+      - a 4×4 matrix product was costed as one step (the cost is typed now);
+      - `programLinks` used Pixi's internal `_getProgramData` unguarded (a missing or throwing call,
+        or a driver answering no boolean, now means "not known": the pass draws and nothing is kept).
+      Also: names starting `GL_` are refused (driver macros); the browser test-compile reports a
+      lost context as "not known yet" and re-runs, and leaves no programs in Pixi's cache.
+  - **8b, Break as an output node.** Merged (#1347, 2026-10-25).
+    - Left: a live cut (Assemble) that throws partway through `startBreak` can leave the element a
+      render group (at most once now, with no retry).
+    - **The node** (`packages/engine-shadergraph/src/break.ts`). `breakOutput`, pixel graph only,
+      one per effect: settings `kind` (one of the six break kinds, default Shatter) and `at` (0…1,
+      default 0); its ports are the kind's params (number → float, colour → vec3, switch → 0 / 1,
+      choice → the option's index). A port takes a Param of the same kind (a tie; a choice needs
+      the same option set), a Number (number, switch and choice ports) or a Colour (colour ports);
+      anything else, a constant out of range, a bad kind or `at`, two of them, or a phase not the
+      kind's is a `'break'` error. What feeds only the Break Output counts as used and costs 0.
+    - **Compiled** as `CustomElementFx.break` (`{ kind, at, params: value | { param } }`); the
+      reader drops a break it cannot play (a kind or param it lacks, a bad tie, the wrong phase) and
+      keeps the effect. Docs without a Break Output compile byte-identically (712 docs dumped).
+    - **The runtime.** The graph, passes and motion play until `at`, then are held there while the
+      break runs over the rest of the play (progress and seconds over the window); the still is cut
+      with the graph's filters on, at the held pose, antialiasing inherited (WebGL2 stills kept
+      their smooth edges only with this). A forward break takes the passes off the hidden element
+      once cut; Assemble flies its pieces in over [0, 1 − at], redrawn live with the graph's look,
+      then the graph plays the last `at`. A built-in break plays exactly as before
+      (`shader-parity` identical).
+    - **Older runtimes.** An exit effect also carries a fade (from 0.15 into the window, smooth to
+      0) in its compiled alpha curve, or its motion program when that drives alpha, so a pre-8b
+      runtime fades it out instead of leaving it on screen; on 8b it never shows (exactly 1 before
+      `at`, the motion held in the window). A doc's own alpha curve is kept up to the fade.
+    - **Twins.** The six break kinds have twins (the Output alone plus a Break Output at 0 with
+      every param tied), held to their built-ins by `shader-twins` with no pixel different on WebGL1
+      or WebGL2: 36 twins now.
+    - **The editor.** The palette's Output family (while there is none), `BreakProperties.svelte`
+      (the break, Starts at, a control per setting, the tie line, the phase fix), the engine's own
+      refusal shown while a wire hovers a port, a kind change dropping wires it cannot keep in one
+      undo step, Group refusing it and what feeds it. The phase fix is also in the settings.
   - **8a, the motion graph.** Merged (#1342, 2026-10-25).
     - **The doc.** `motionGraph` (`{ nodes, wires }`, still version 1): float nodes into one
       **Motion Output** (x, y, scale, scale x / y, rotation, alpha, padding). 39 motion nodes: the
@@ -321,7 +397,15 @@ merged (#1342). 8b (Break as an output node) is next, when the owner asks.
       defaults.
 
 ## Open items / next
-1. **Step 7 follow-ups.**
+1. **Step 8c follow-ups.**
+   - The test-compile runs in the author's browser only (the server has no GPU), so a phone's
+     driver may still refuse a body the author's took; the runtime then draws the element as it is
+     and warns once.
+   - Integers stay within ±1023 on WebGL2 too: the pass is GLSL ES 1.00 everywhere, so its ints
+     are mediump.
+   - The cost reads every branch and every round a loop may run, so a body often costs less than
+     its chip says.
+2. **Step 7 follow-ups.**
    - **Thumbnail compile cost.** A new probe's first draw compiles a shader: 100–1,500 ms each on
      SwiftShader, one per frame, so opening the 113-node Petrify twin takes about 7 s of drawing
      there (real GPUs compile far faster, not measured). `KHR_parallel_shader_compile` or a cap on
@@ -334,37 +418,62 @@ merged (#1342). 8b (Break as an output node) is next, when the owner asks.
      better in the analysis.
    - `deploy/editor-shaders/` holds the whole set (library included) while the bundle carries only
      the named effects; trimming the deploy tree too needs the export to know the bundle.
-2. **Step 8a follow-ups.**
+3. **Step 8a follow-ups.**
    - **Degenerate ranges.** Smoothstep with From = To, and Remap with From min = From max, at the
      single point x = the edge (0 ÷ 0) give 0 in a motion graph but 0 (smoothstep) and 0.5 (remap)
      on the GPU. `shader-motion` excludes that one point and prints both; either side of it the two
      agree. No GLSL was changed for it (that would move existing pixel graphs).
    - The cost meter does not count padding: a program may ask for up to 11.6 shares of room, a
      filter area up to about 590× the element's.
-3. **Step 6 follow-ups.**
+4. **Step 6 follow-ups.**
    - **Built-ins long term** (§9.5): they stay hand-written beside their twins until the gate has
      held for a while; then decide whether to generate them from the twins.
    - The gate takes about a minute of `check:all`, most of it SwiftShader drawing the widest glow.
-4. **Step 5 follow-ups.**
+5. **Step 5 follow-ups.**
    - The preview has no rig still yet (the plan's fourth source).
    - The preview plays the params' defaults; there is no per-preview value yet.
    - The preview uses WebGL2 where there is one (CI's `shader-compile` covers WebGL1), does not
      follow a change of screen pixel ratio, and clips a graph padded to the 2× maximum at its edge.
    - Delete has no lease check: the ✕ on a graph another author has open deletes it (its last
      version is in History), and their next save is then refused as a conflict.
-5. **Step 4 follow-ups.**
+6. **Step 4 follow-ups.**
    - The pickers read the set once per page load; a graph saved in another tab shows after a
      reload.
    - The stored-flow check before Publish's assemble composes the Flow vocab without the custom
      kinds (Publish's own check of the shipped flow has them). An enum value is judged as text, so
      the verdict is the same; an enum-membership check would need them there too.
-6. **Nodes the design lists that v1 does not have yet:** rim (a library entry now, `efxRim`, with
+7. **Nodes the design lists that v1 does not have yet:** rim (a library entry now, `efxRim`, with
    no node) and the pixel input. Add them when an artist needs one.
 
 ## Blocked (owner / external)
 - None.
 
 ## Recent changes
+- 2026-10-25 — **Step 8c: the Custom GLSL node** (see "Current state"). Merged (#1349): CI green,
+  Current games 12 pass with no changed screen. Step 8b merged (#1347).
+  - **Proof.** Compile fixture 193 (the checker's every refusal, hostile and fuzzed bodies, the
+    integer range, a lone CR, typed cost, codegen, the gate's signature, storage);
+    `check:element-fx` (the link fail-safe for built-in and custom passes, a Pixi without the
+    internal call, a driver answering no boolean); `shader-compile` 26 sheets on WebGL1 and WebGL2
+    (a new `glsl` sheet); `shader-parity` against the base differs only in the new sheet;
+    `check:shader-editor` 251; `check:shader-pipeline` 133 (the gate on save, restore, publish, the
+    copies, the forced-save pin and the FTP Browser); the page played headless as a holder 40/40, a
+    non-holder 11/11 and read-only 7/7, and 8b's break drives still 46/46 and 10/10; `check:all` 538/538;
+    svelte-check at baseline (launcher 45, pixi-svelte 14).
+  - **Review.** Three blocking items and four should-fix, all fixed (listed under 8c above).
+- 2026-10-25 — **Step 8b: Break as an output node** (see "Current state"). Step 8a merged (#1342).
+  - **Proof.** Compile fixture 173 (the node, every error, ties, the compiled break, the fade,
+    hostile docs and a fuzz; byte-identity without a Break Output over 712 docs);
+    `check:element-fx` (the window, a still with the graph's look, ties, Assemble, the fade unseen
+    on 8b, the reader, a held exit with no passes, a failed cut fading once, a zero-length window);
+    `shader-twins` 36/36 (the six break twins: no pixel different on WebGL1 or WebGL2);
+    `shader-parity` against the base identical; `check:shader-editor` 212; `check:shader-pipeline`
+    115; the page played headless 46/46 (the element plays, then breaks; scrubbed back it returns)
+    and read-only 10/10 on WebGL2 and WebGL1; `check:all` 538/538; svelte-check at baseline.
+  - **Review.** Nothing blocking. Fixed: a held exit put its graph passes back on the hidden element
+    (an alpha-0 pass every frame); a snapshot that threw was retried every frame (now it fades once,
+    warned once, for built-ins too); a zero-length window still cut; a kind change reset values
+    without saying so (its notice now names wires dropped, values reset and Numbers out of range).
 - 2026-10-25 — **Step 8a: the motion graph** (see "Current state"). Merged (#1342): CI green,
   Current games 12 pass with no changed screen.
   - **Proof.**

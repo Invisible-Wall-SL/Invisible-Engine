@@ -2,9 +2,11 @@
  * The saved doc's shape, as storage keeps it. A graph is saved while it is still being built, so
  * this keeps whatever the author wrote that has the doc's shape, broken wiring and bad values
  * included (the validator reports those), and drops anything that is not part of the doc. The
- * motion graph is kept as the pixel graph is; an empty one is dropped.
+ * motion graph is kept as the pixel graph is; an empty one is dropped. A Custom GLSL node keeps its
+ * definition (`glsl`): its code as text, its ports as a subgraph's are kept.
  */
 
+import { CUSTOM_GLSL } from './customGlsl';
 import {
 	SHADER_GRAPH_VERSION,
 	type GraphNode,
@@ -45,6 +47,12 @@ const readNode = (raw: Record<string, unknown>): GraphNode => {
 		}
 		node.values = values;
 	}
+	if (node.type === CUSTOM_GLSL && isRecord(raw.glsl))
+		node.glsl = {
+			code: typeof raw.glsl.code === 'string' ? raw.glsl.code : '',
+			inputs: readList(raw.glsl.inputs, readPort),
+			outputs: readList(raw.glsl.outputs, readPort),
+		};
 	return node;
 };
 

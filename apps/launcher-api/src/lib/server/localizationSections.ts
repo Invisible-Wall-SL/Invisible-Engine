@@ -1,5 +1,9 @@
-import { docComponentInstanceNodes } from 'engine-flow-v2';
-import { instanceDefResolver, projectFlowInstances } from '$lib/flowV2Projection';
+import { docComponentInstanceNodes, flowUsesSpawn } from 'engine-flow-v2';
+import {
+	instanceDefResolver,
+	projectFlowInstances,
+	projectSpawnLayers,
+} from '$lib/flowV2Projection';
 import { loadAuthoredCinematics } from './cinematicExport';
 import { listComponents, loadComponent } from './componentStorage';
 import { loadDoc as loadEditorDoc } from './editorStorage';
@@ -52,6 +56,8 @@ export async function harvestProjectSections(
 	]);
 	// The flow's placed-instance projection (Rive plan §6.2), for the keys it feeds `text` inputs —
 	// only when the flow places an instance at all, so a project without one reads no components.
+	let components: Promise<Awaited<ReturnType<typeof listComponents>>> | undefined;
+	const projectComponents = () => (components ??= listComponents({ projectKey }));
 	const instances =
 		flowV2Doc && docComponentInstanceNodes(flowV2Doc).length
 			? projectFlowInstances(
@@ -61,9 +67,19 @@ export async function harvestProjectSections(
 						await withPlacedComponentVersions(
 							projectKey,
 							editorDoc.scenes ?? [],
-							await listComponents({ projectKey }),
+							await projectComponents(),
 						),
 					),
+				)
+			: undefined;
+	// …and the spawn layers, for the keys an Instance ref feeds a spawnable's `text` inputs — only
+	// when the flow spawns at all.
+	const spawnLayers =
+		flowV2Doc && flowUsesSpawn(flowV2Doc)
+			? projectSpawnLayers(
+					flowV2Doc.containers,
+					editorDoc.scenes ?? [],
+					instanceDefResolver(await projectComponents()),
 				)
 			: undefined;
 	const sections = [
@@ -71,7 +87,7 @@ export async function harvestProjectSections(
 		...harvestProjectWinText(winTextDoc, gameType, gameConfig.doc),
 		...harvestSymbolNames(symbolsDoc),
 		...harvestFlowMessages(flowV2Doc ?? undefined),
-		...harvestFlowInstanceText(flowV2Doc ?? undefined, instances),
+		...harvestFlowInstanceText(flowV2Doc ?? undefined, instances, spawnLayers),
 		...harvestBetModeText(gameConfig.doc),
 		// The engine's own coded chrome (HUD captions, menus, modals, info-page rules) — the same
 		// registry the runtime renders from, so the shipped UI is translatable per project instead of

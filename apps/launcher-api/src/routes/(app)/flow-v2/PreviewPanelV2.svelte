@@ -4,10 +4,12 @@
 		flowUsesState,
 		PREVIEW_HORIZON_MS,
 		previewFlowEvent,
+		spawnSpecsOf,
 		type FlowDoc,
 		type FlowPreviewEntry,
 		type FlowPreviewResult,
 		type FlowInstanceDecl,
+		type FlowSpawnLayerDecl,
 		type FunctionLibraryDoc,
 		type TemplateVocabulary,
 	} from 'engine-flow-v2';
@@ -25,6 +27,7 @@
 		library,
 		vocab,
 		instances = {},
+		spawnLayers = {},
 		projectKey = '',
 	}: {
 		doc: FlowDoc;
@@ -32,6 +35,8 @@
 		vocab: TemplateVocabulary;
 		/** The placed instances (node id → decl), to name a component for the stage bridge. */
 		instances?: Record<string, FlowInstanceDecl>;
+		/** The spawn layers on the flow's screens (layer id → decl): what a Spawn node may create. */
+		spawnLayers?: Record<string, FlowSpawnLayerDecl>;
 		projectKey?: string;
 	} = $props();
 
@@ -80,7 +85,11 @@
 				$state.snapshot(doc) as FlowDoc,
 				{ vocab, library: $state.snapshot(library) as FunctionLibraryDoc },
 				selected,
-				{ speed, horizonMs: horizon },
+				{
+					speed,
+					horizonMs: horizon,
+					spawnLayers: spawnSpecsOf(Object.values($state.snapshot(spawnLayers))),
+				},
 			);
 			if (driveStage && result) sendToStage(result.timeline);
 		} finally {
@@ -155,6 +164,16 @@
 		var: 'var',
 		timer: 'timer',
 		input: 'key',
+		spawn: 'spawn',
+		despawn: 'despawn',
+	};
+
+	const layerName = (layer: string): string => spawnLayers[layer]?.name ?? layer;
+	const REFUSED: Record<string, string> = {
+		'unknown-layer': 'no such layer',
+		'not-spawnable': 'the layer does not list it',
+		cap: 'the layer is full',
+		cell: 'the cell is off the grid',
 	};
 
 	// The right-hand detail for one timeline entry (name + resolved payload, or the delay/container).
@@ -174,6 +193,10 @@
 				return `${e.timer} ran out`;
 			case 'input':
 				return `${e.action} ${e.phase}`;
+			case 'spawn':
+				return `${e.componentId} → ${layerName(e.layer)}${e.instance ? ` · ${e.instance}` : ` · refused: ${REFUSED[e.refused ?? ''] ?? e.refused ?? 'unknown'}`}`;
+			case 'despawn':
+				return e.instance;
 			default:
 				return e.name + (e.payload ? ` ${JSON.stringify(e.payload)}` : '');
 		}
@@ -227,7 +250,11 @@
 					{#each result.timeline as entry, i (i)}
 						<li>
 							<span class="at">{entry.at}</span>
-							<span class="kind {entry.kind}">{KIND_LABEL[entry.kind]}</span>
+							<span
+								class="kind {entry.kind}"
+								class:refused={entry.kind === 'spawn' && entry.refused !== undefined}
+								>{KIND_LABEL[entry.kind]}</span
+							>
 							<span class="detail">{detail(entry)}</span>
 						</li>
 					{/each}
@@ -385,6 +412,15 @@
 	.kind.input {
 		background: #102420;
 		color: #5eead4;
+	}
+	.kind.spawn,
+	.kind.despawn {
+		background: #1c2410;
+		color: #bef264;
+	}
+	.kind.spawn.refused {
+		background: #241416;
+		color: #fca5a5;
 	}
 	.detail {
 		min-width: 0;

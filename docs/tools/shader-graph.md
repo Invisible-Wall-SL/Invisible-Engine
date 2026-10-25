@@ -75,7 +75,8 @@ projects to see another project's effects. The atlases the preview offers are th
 
 **+ New ▾ → Start from a built-in** lists the built-in Element FX rebuilt as graphs (their *twins*),
 by family, as the Scene Editor's effect picker groups them: the 3D turns, the distortions and the
-light effects (Freeze, Burn to ashes, Gold, Electrocute, the dissolves, Glow, Blur …), 30 in all.
+light effects (Freeze, Burn to ashes, Gold, Electrocute, the dissolves, Glow, Blur …) and the
+breaks (Crash, Crumble, Shatter, Crystallize, Disintegrate, Assemble), 36 in all.
 Pick one, name your effect (it suggests "*Freeze* copy"), and you get that effect's whole graph to
 change: its nodes and wires, its params (the same ones, with the same defaults, as the built-in's),
 its passes and its motion. It plays as the built-in does until you change something.
@@ -87,8 +88,11 @@ its passes and its motion. It plays as the built-in does until you change someth
   Petrify, Gold), or grows its room as it plays (Melt, the waves, Flag), the twin does it with a
   **motion graph** (see "The motion graph"), so its movement and room are checked against the
   built-in too.
+- **A break's twin** is the element as it is plus a **Break Output** (see "End in a break") with
+  every setting tied to the effect's own param of the same name: start there to add a look before
+  the element shatters.
 - **Not every built-in has a twin.** The motion-only effects (Shake, Pulse, Bounce, Pop in…) are
-  motion curves alone, and the breaks (Crumble, Shatter…) are not pixel effects.
+  motion curves alone.
 - The effect you make is your own: changing it never touches the built-in, and the built-in keeps
   playing as before wherever it is placed.
 
@@ -285,6 +289,83 @@ random number per element, or room that grows as the effect plays.
 The preview plays the motion as the game will. A game whose runtime predates this release plays the
 effect without the motion graph's motion (its curves still play), so for a must-have motion on old
 games, key it as a curve too.
+
+### End in a break
+
+An effect can end by breaking the element into pieces with one of the six built-in breaks:
+**Crash**, **Crumble**, **Shatter** (glass), **Crystallize** (ice shards), **Disintegrate** (dust),
+or **Assemble** (dust flying in: an entrance). The graph plays on the element first; at **Starts
+at** the element breaks, and its pieces are cut from what the graph draws at that moment, so a
+frozen or golden look shatters as it is.
+
+- **Add one.** The palette's last family, **Output**, has **Break Output** while the effect has
+  none. Click it and it lands under the Output. One per effect; not in a subgraph or the Motion
+  view, and Group leaves it (and what feeds it) out.
+- **The node.** Its header names the break (e.g. Shatter (glass)). Its inputs are that break's
+  settings (Shards, Cracking, Gravity, Impact…); an unwired one shows its value: a number, a colour
+  swatch, an option name. It has no thumbnail and no cost chip.
+- **Properties.**
+  - **Break** picks one of the six (each with its description). Switching says everything it
+    changed, and Ctrl+Z brings it back: wires and values in settings the new break does not have
+    are dropped ("Shatter (glass) has no Spread: its wire was dropped."); a value the new break
+    cannot take goes back to its default ("Shards: 300 is past Shatter (glass)'s 16…160, so it
+    went back to 56."); a Number wired into a setting it now overshoots stays, with an error to fix
+    ("Shards takes 16…160, not 300: set the Number wired into it within that.").
+  - **Starts at** (0…1) reads, for example, "It breaks at 600 ms of 1200 ms; the graph plays alone
+    until then". 0 means the whole play is the break. For Assemble it reads **Graph plays for the
+    last**: the pieces fly in first, then the graph plays on the whole element.
+  - Each setting has its own control (a number within the break's range, a colour, an option), with
+    ↺ back to the default.
+- **Let the placer set it.** Wire a **Param** into a setting, and whoever places the effect sets it
+  on its row, as with the passes' ties. Only a Param of the same kind (a choice needs the same
+  options), a **Number**, or a **Colour** (colour settings only) can feed a setting: a break is set
+  once per play, not per pixel. Hold any other wire over a port and the node says why. A Number
+  outside the setting's range is taken, but shows an error until you change its value.
+- **The phase.** A break makes the element leave, so the effect must play as **Exit** (Assemble:
+  **Enter**). Until it does, the node is red; **Set phase to Exit** in its properties, or under
+  "Plays as" in the effect settings, fixes it in one click.
+- **Older games.** A game whose runtime predates this release plays the effect without the break:
+  an exit effect fades the element out instead of breaking it, so it still leaves; an Assemble just
+  shows the element.
+- **Limits.** The pieces are cut from the element's own box, so what the graph draws in its padding
+  (past the edge) is not in them.
+
+### Custom GLSL (admins)
+
+For what no node does, an admin can write the code: **Advanced › Custom GLSL** in the palette
+(Pixel view only; shown only to roles holding **Write custom GLSL in shader effects**, admins by
+default). The node runs its GLSL ES 1.00 body inside the effect's pass like any other node, with
+the ports you declare. It shows a `</>` badge, its ports, a thumbnail and a cost chip.
+
+- **The code** (its properties): a code field with line numbers. Changes land when you pause or
+  leave the field, and one pause is one undo step (Ctrl+Z inside the field is the field's own).
+  Errors are listed with their line numbers and marked in the gutter; click one to jump to it.
+- **What the code may use** (the help panel lists it): its ports (read the inputs, write the
+  outputs; an input and an output of one name are one value), local variables, GLSL's built-in
+  functions and the effect library's `efx…` functions (`efxSample(px)` reads the element at a
+  pixel position). `for`
+  loops need an int counter with fixed bounds, at most 64 rounds each and 256 nested in all.
+  Integers stay within ±1023 (a phone's integers may hold no more): write `2048.0` for a bigger
+  number, and keep a loop's counter inside that range.
+- **What it may not:** `while`, `do`, `discard`, `#` lines, declaring functions, structs, uniforms
+  or precision, `texture2D`, or any name that is not its own (no other node's values, no `gl_…`
+  or `GL_…`). A body is at most 4 KB. Its cost is estimated from the code, counting every branch
+  and loop round (a matrix product costs far more than a number's), and capped per node and per
+  effect: a node may do about Petrify's work, not Electrocute's.
+- **The ports:** Inputs and Outputs editors (the name used in the code, a label, a type, a
+  default). Renaming a port does not change the code. At least one output stays.
+- **Tested on real WebGL.** Each change is compiled in your browser on WebGL1 and WebGL2; the
+  status bar shows a ✓ / ✕ for each. A driver that rejects the code puts its error on the node and
+  its line, marks the save pill **Saved: GLSL rejected** (the work is still saved) and blocks
+  **Publish to library**.
+- **Everyone else** sees the code and ports read-only ("Only an admin can change custom GLSL."),
+  and can still move, wire, group or delete the node. The server refuses a save that adds Custom
+  GLSL (a copy of an existing node counts) or changes its code or ports without the permission;
+  Undo will not bring back a node whose deletion was already saved. The FTP Browser cannot write a
+  project's shader graphs or their history either (only an admin's full view can).
+- **In a game.** If a phone's driver rejects any effect's shader, the element is drawn as it is
+  (the effect skipped, a warning logged) instead of vanishing. A game whose runtime predates this
+  release skips an effect holding Custom GLSL.
 
 ### Edit a node (properties)
 

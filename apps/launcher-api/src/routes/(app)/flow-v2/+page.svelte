@@ -44,7 +44,15 @@
 	} from '$lib/flowInstanceUi';
 	import { composeFlowV2Vocab } from '$lib/flowV2Vocab';
 	import { LIBRARY } from './sample';
-	import { MODE_NODES, modeNodeRef, offeredInSection, STATE_NODES, typeColor } from './palette';
+	import {
+		MODE_NODES,
+		modeNodeRef,
+		offeredInSection,
+		spawnableComponents,
+		spawnNodeRef,
+		STATE_NODES,
+		typeColor,
+	} from './palette';
 	import {
 		addDataEdgeIn,
 		addExecEdgeIn,
@@ -224,6 +232,7 @@
 		instances,
 		variables: docVariables(doc),
 		outcome: data.outcome,
+		spawnLayers: data.spawnLayers ?? {},
 	});
 
 	// --- The editing TARGET (2c.3) ---------------------------------------------
@@ -442,6 +451,12 @@
 	// A placed node id the Scene Editor's *Show in Flow* sent here that no node names yet.
 	let highlightInstance = $state<string | null>(null);
 
+	// The spawn layers on the flow's screens (game-families §3.3), for the palette, the titles and
+	// the preview. A project placing none sees no spawning surface at all.
+	const spawnLayers = $derived(data.spawnLayers ?? {});
+	const spawnLayerName = (layer: string): string =>
+		spawnLayers[layer]?.name ?? (layer || '(layer)');
+
 	// A human title for a node (its ref, else its kind) shown in the node header.
 	const nodeTitle = (n: V2Node): string => {
 		switch (n.kind) {
@@ -477,9 +492,17 @@
 				return decl && decl.container === n.container ? decl.name : n.instance;
 			}
 			case 'waitForState': {
+				if (n.componentId !== undefined)
+					return `Wait for ${n.componentId || '(component)'} (spawned)`;
 				const decl = instances[n.instance];
 				return `Wait for ${decl && decl.container === n.container ? decl.name : n.instance}`;
 			}
+			case 'spawn':
+				return `Spawn ${n.componentId || '(component)'} → ${spawnLayerName(n.layer)}`;
+			case 'despawn':
+				return 'Despawn';
+			case 'instanceRef':
+				return `${n.componentId || '(component)'} (spawned)`;
 			case 'setVariable':
 			case 'changeVariable':
 			case 'onVariable':
@@ -511,6 +534,7 @@
 						sceneIds,
 						instances,
 						data.outcome,
+						data.spawnLayers ?? {},
 					).filter((issue) => !touchesUnpinned(issue)),
 					...respinTabIssues(doc, data.addOns),
 					...spinsTabIssues(doc, data.addOns, sceneIds),
@@ -574,7 +598,9 @@
 				// A placed instance's wires to pins its component no longer has: drawn as red pins so
 				// the wire stays visible and reads as broken (the validator lists it too).
 				stalePins:
-					n.kind === 'componentInstance' && !instances[n.instance]?.unpinned
+					(n.kind === 'componentInstance' && !instances[n.instance]?.unpinned) ||
+					n.kind === 'instanceRef' ||
+					n.kind === 'spawn'
 						? stalePinsOf(activeGraph, n.id, graphPins.pins.get(n.id) ?? [])
 						: undefined,
 			},
@@ -1308,6 +1334,21 @@
 			specs.push({ kind, section: 'control' });
 		}
 		for (const m of paletteModeNodes) specs.push({ kind: m.kind, ref: m.ref, section: 'mode' });
+		if (view.kind !== 'function') {
+			for (const l of Object.values(spawnLayers)) {
+				for (const s of l.spawnable) {
+					specs.push({
+						kind: 'spawn',
+						ref: spawnNodeRef(l.layer, s.componentId),
+						section: 'spawn',
+					});
+				}
+			}
+			for (const c of spawnableComponents(spawnLayers)) {
+				specs.push({ kind: 'instanceRef', ref: c, section: 'spawn' });
+			}
+			if (Object.keys(spawnLayers).length > 0) specs.push({ kind: 'despawn', section: 'spawn' });
+		}
 		return specs;
 	}
 
@@ -1333,6 +1374,10 @@
 				const label = MODE_NODES.find((m) => m.kind === spec.kind)?.label ?? spec.kind;
 				return spec.ref ? `${label} · ${spec.ref}` : label;
 			}
+			case 'spawn':
+			case 'despawn':
+			case 'instanceRef':
+				return nodeTitle(makeNode(spec.kind, '', { x: 0, y: 0 }, spec.ref));
 			default:
 				return STATE_NODES.find((m) => m.kind === spec.kind)?.label ?? spec.kind;
 		}
@@ -2151,6 +2196,7 @@
 					modeNodes={paletteModeNodes}
 					{instanceGroups}
 					{highlightInstance}
+					{spawnLayers}
 				/>
 			{/if}
 			<ValidationPanelV2
@@ -2161,7 +2207,14 @@
 				{modeLabel}
 			/>
 			{#if view.kind === 'flow'}
-				<PreviewPanelV2 {doc} {library} {vocab} {instances} projectKey={data.projectKey} />
+				<PreviewPanelV2
+					{doc}
+					{library}
+					{vocab}
+					{instances}
+					{spawnLayers}
+					projectKey={data.projectKey}
+				/>
 			{/if}
 		</aside>
 

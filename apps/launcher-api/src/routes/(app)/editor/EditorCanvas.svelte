@@ -84,6 +84,7 @@
 		newCountRepeater,
 		repeaterCountBoxes,
 		REPEATER_SEGMENT_PLACEHOLDER,
+		spawnLayerPlaceholder,
 		resizeOriginShift,
 		resizePivot,
 		topMidWorld,
@@ -3089,6 +3090,8 @@
 			}
 		} else if (node.kind === 'repeater') {
 			drawRepeater(ctx, node, t, sceneCtx, componentDepth, componentStack);
+		} else if (node.kind === 'spawnLayer') {
+			drawSpawnLayer(ctx, node);
 		}
 
 		ctx.restore();
@@ -3209,6 +3212,54 @@
 		ctx.font = '14px sans-serif';
 		ctx.fillText(
 			`⧉ ${node.label ?? 'Repeater'} · ${node.componentId} ×${g.count}`,
+			left + 8,
+			top + 20,
+		);
+	}
+
+	/**
+	 * Draw a `spawnLayer` node's stand-in: its children exist only while a flow runs, which the
+	 * editor doesn't, so it draws the field they spawn into — a grid layer's cols × rows cells at
+	 * pitch (a dot on each spawn point), a free layer a dashed box — labelled with what it may spawn.
+	 * The geometry is `spawnLayerPlaceholder`'s, the same box `nodeBox` selects.
+	 */
+	function drawSpawnLayer(
+		ctx: CanvasRenderingContext2D,
+		node: Extract<LayoutNode, { kind: 'spawnLayer' }>,
+	): void {
+		const { spec, box } = spawnLayerPlaceholder(node);
+		const left = -box.w * box.ax;
+		const top = -box.h * box.ay;
+		ctx.fillStyle = 'rgba(120, 220, 190, 0.06)';
+		ctx.fillRect(left, top, box.w, box.h);
+		ctx.lineWidth = 1;
+		ctx.strokeStyle = 'rgba(120, 220, 190, 0.55)';
+		const grid = spec.grid;
+		if (grid) {
+			ctx.beginPath();
+			for (let c = 0; c <= grid.cols; c++) {
+				ctx.moveTo(left + c * grid.pitch, top);
+				ctx.lineTo(left + c * grid.pitch, top + box.h);
+			}
+			for (let r = 0; r <= grid.rows; r++) {
+				ctx.moveTo(left, top + r * grid.pitch);
+				ctx.lineTo(left + box.w, top + r * grid.pitch);
+			}
+			ctx.stroke();
+			ctx.fillStyle = 'rgba(120, 220, 190, 0.7)';
+			const dot = Math.min(3, grid.pitch / 6);
+			for (let r = 0; r < grid.rows; r++)
+				for (let c = 0; c < grid.cols; c++)
+					ctx.fillRect(c * grid.pitch - dot, r * grid.pitch - dot, dot * 2, dot * 2);
+		} else {
+			ctx.setLineDash([6, 4]);
+			ctx.strokeRect(left, top, box.w, box.h);
+			ctx.setLineDash([]);
+		}
+		ctx.fillStyle = '#e8e8ee';
+		ctx.font = '14px sans-serif';
+		ctx.fillText(
+			`⊕ ${node.label ?? 'Spawn layer'} · ${spec.spawnable.length} spawnable · cap ${spec.cap}`,
 			left + 8,
 			top + 20,
 		);

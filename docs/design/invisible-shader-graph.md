@@ -210,7 +210,7 @@ Each step has its own branch, gates and status entry.
    - Exit: an artist builds, previews and saves a graph on `/shaders`, and it is listed by the
      pickers and ships with Publish (step 4's chain).
 6. **Templates.** The graph twins of the built-ins, with the parity gate, as "Start from a built-in".
-   - As built: 30 of the 50 kinds have a twin (`BUILTIN_TWINS`): every kind drawn by a pixel pass,
+   - As built: 30 of the 50 kinds have a twin (`BUILTIN_TWINS`; 36 since 8b added the six breaks): every kind drawn by a pixel pass,
      hand-written or `pixi-filters`. The 14 motion-only kinds are curves alone and the 6 breaks are
      not pixel effects, so they have none.
    - The gate (`shader-twins`, in `check:all`) plays each built-in and its twin through the runtime
@@ -268,11 +268,44 @@ Each step has its own branch, gates and status entry.
      six break styles and its params (tied to the effect's params like a pass), played by the
      existing `breakApart.ts` after the graph. Breaks stay coded (§2): the node only chooses and
      sets one.
+     - Shape (2026-10-25): the node's settings are the break kind and **starts at** (a share of the
+       play); its input ports are that kind's params (number → float, colour → vec3, switch →
+       0 / 1, choice → the option's index). A port takes only a Param node (a tie, as a pass's
+       params are tied) or a constant: a break is set once per play, not per pixel.
+     - The graph plays on the element until "starts at"; then the element breaks, its pieces cut
+       from it as drawn at that instant (the graph's look in the still). Assemble mirrors it: the
+       pieces fly in first, then the graph plays. The effect's phase must be the kind's.
+     - An older runtime ignores the break; an exit effect must still leave there, so the compiled
+       effect also carries a fade that reads as nothing on a runtime that breaks.
+     - As built: `at` 0 means the whole play is the break; Assemble's pieces fly in over
+       [0, 1 − at] and the graph has the last `at`. While the break plays, the effect's passes and
+       motion are held at the edge; the still is cut with the graph's filters on, at the effect's
+       held pose (antialiasing inherited, so WebGL2 keeps its smooth edges). The fade for older
+       runtimes starts 0.15 into the window; it keeps a doc's own alpha curve (or motion program)
+       up to that point. A break the reader cannot play is dropped and the effect kept. The six
+       break kinds have twins (an identity graph plus a Break Output with every param tied), held
+       to their built-ins by `shader-twins` with no pixel different.
    - **8c. The Custom GLSL node** (admin only, §9.3). A node whose body an author types, with
      declared typed ports. A `shaderCustomGlsl` capability gates saving or publishing a doc that
      holds one, checked on the server; the body is checked as the compiler checks generated code
      (GLSL ES 1.00 only, no loops past a cap, names kept inside the node) and compiled headless on
      WebGL1 and WebGL2 before it can ship.
+     - As built: a typed recursive-descent checker over a tokenized body (caps 4 KB, 600 tokens,
+       nesting 48, loops 64 rounds each and 256 nested, locals initialised, no shadowing, constant
+       integer division by 0 refused; integer literals, folded constants and every value a loop
+       counter takes within ±1023, as mediump integers are only sure to hold that and a wrapped
+       counter never ends; a lone CR read as a line end, and the emitted body re-read against the
+       checked tokens); each node compiles to `efxGlsl_<n>` before `main` (no `in` qualifier: Pixi
+       defines `in` as `varying` in our fragments; one id in and out is `inout`); cost estimated by
+       type as the body is checked (a matrix product n³, a matrix by a vector n², a built-in by its
+       widest argument; the built-in passes as bodies come to up to 1,053, Electrocute, and Petrify
+       870), capped at 1,024 units and 256 reads a node and 4,096 / 1,024 an effect. The server gate is the `shaderCustomGlsl` capability on save,
+       restore and publish, judged against the stored graph's definitions (counted, so a copy is an
+       addition; a forced save by a non-holder is pinned to the version judged), and the FTP
+       Browser's scoped mode cannot write `shaders/` or `shader-backups/`. The test-compile runs in
+       the author's browser on WebGL1 and WebGL2 (the server has no GPU), and the runtime asks the
+       driver whether each Element FX program linked, drawing the element unchanged when not: that
+       fail-safe covers every built-in pass too.
    - **8d. Particle materials for Invisible FX.** A graph as the material an emitter's particles
      draw with, picked in `/fx`. Needs its own design pass with the `invisible-fx` agent first:
      per-particle inputs (age, life, colour, index) and the cost of a filter per emitter.

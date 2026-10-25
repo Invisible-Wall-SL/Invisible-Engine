@@ -15,6 +15,11 @@
  * so a shader is judged by what it draws; the motions are compared as numbers (where the corners of
  * the element's box land, its alpha), the built-in's sampler against the twin's curves and motion
  * graph, in every case, and so is the room each asks its passes for.
+ *
+ * A BREAK's twin (step 8b: the element as it is, and a Break Output) plays with its motion as
+ * compiled, the fade it carries for older runtimes included. Its pieces fly past any room and into
+ * any neighbour, so each play is drawn alone, the element in the middle of three times its box, and
+ * the built-in's drawing is compared with the twin's as a cell is.
  */
 import {
 	Application,
@@ -34,7 +39,12 @@ import {
 	type ElementFxKindId,
 	type ElementFxParamValue,
 } from '@fxroot/packages/constants-shared/elementFx';
-import { BUILTIN_TWINS, compileShaderEffect } from '@fxroot/packages/engine-shadergraph/index';
+import {
+	BUILTIN_TWINS,
+	compileShaderEffect,
+	isBreakTwin,
+	type BuiltinTwin,
+} from '@fxroot/packages/engine-shadergraph/index';
 import { customKindImpl } from '@fxroot/packages/pixi-svelte/src/lib/elementFx/custom';
 import {
 	REST,
@@ -209,6 +219,15 @@ const play = (
 	if (c.looping) advance((1 + moment) * durationMs);
 };
 
+/**
+ * A break's cases: the defaults on both cards at every moment; each param moved, both strengths and
+ * a loop while it cracks or sets in and later on.
+ */
+const breakCasesFor = (kind: ElementFxKind): Case[] =>
+	casesFor(kind, false).map((c) =>
+		c.label === 'defaults' || c.label === 'landscape' ? c : { ...c, moments: SOME },
+	);
+
 /** A rectangle of a cell, in its pixels. */
 interface Region {
 	x: number;
@@ -331,6 +350,69 @@ const motionApart = (builtIn: KindImpl, twin: KindImpl, frame: FxFrame) => {
 	return { px, alpha: Math.abs(a.alpha - b.alpha) };
 };
 
+/**
+ * A break's twin against its built-in: each play drawn alone (the element in the middle of three
+ * times its box, the pieces about it), the two drawings compared as a cell.
+ */
+const compareBreak = (
+	renderer: Renderer,
+	fill: FillGradient,
+	twin: BuiltinTwin,
+	twinImpl: KindImpl,
+	step: number,
+	dumpPast: number,
+	dumps: { label: string; builtIn: string; twin: string }[],
+) => {
+	const kind = twin.kind;
+	const durationMs = elementFxSpec(kind).durationMs;
+	const cells = [];
+	const motions = [];
+	let seed = 1;
+	for (const c of breakCasesFor(kind)) {
+		const shape = c.shape ?? 'portrait';
+		const box = BOXES[shape];
+		const [w, h] = [3 * box.width, 3 * box.height];
+		const target = RenderTexture.create({ width: w, height: 2 * h });
+		for (const moment of c.moments) {
+			const at = (seed += 7919);
+			const drawn = new Uint8ClampedArray(w * 2 * h * 4);
+			for (const side of [0, 1]) {
+				const parent = new Container();
+				const card = parent.addChild(makeCard(fill, shape));
+				card.position.set(w / 2, h / 2);
+				const played: ElementFxKindId = side ? `custom:${kind}` : kind;
+				play(renderer, card, played, c, moment, durationMs, at);
+				renderer.render({ container: parent, target, clear: true });
+				const { pixels } = (
+					renderer as unknown as {
+						texture: { getPixels(t: RenderTexture): { pixels: Uint8ClampedArray } };
+					}
+				).texture.getPixels(target);
+				drawn.set(pixels.subarray(0, w * h * 4), side * w * h * 4);
+				stopElementFx(card);
+				parent.destroy({ children: true });
+			}
+			const diff = compare(drawn, w, 0, w, h, { x: 0, y: 0, width: w, height: h });
+			cells.push({ label: c.label, moment, area: box.width * box.height, ...diff });
+			const off = diff.over[step] / Math.max(1, diff.drawn) > dumpPast || diff.solid[step] > 0;
+			if (Number.isFinite(dumpPast) && off)
+				dumps.push({
+					label: `${kind}-${c.label}-${moment}`,
+					builtIn: cellPng(drawn, w, 0, 0, w, h),
+					twin: cellPng(drawn, w, 0, h, w, h),
+				});
+			motions.push({
+				label: c.label,
+				moment,
+				...motionApart(KINDS[kind], twinImpl, frameOf(kind, c, moment)),
+				room: 0,
+			});
+		}
+		target.destroy(true);
+	}
+	return { cells, motions };
+};
+
 (async () => {
 	const query = new URLSearchParams(location.search);
 	const only = (query.get('twins') ?? '').split(',').filter(Boolean);
@@ -355,9 +437,10 @@ const motionApart = (builtIn: KindImpl, twin: KindImpl, frame: FxFrame) => {
 		return r.effect;
 	});
 	// The twins play with their motion at rest (compared as numbers below), as the built-ins do; the
-	// room a motion graph grows stays.
+	// room a motion graph grows stays. A break's plays as compiled.
 	setCustomElementFx(
 		effects.map((e) => {
+			if (e.break) return e;
 			const program = e.motion?.program;
 			const padding = program?.outputs.padding;
 			return {
@@ -399,6 +482,16 @@ const motionApart = (builtIn: KindImpl, twin: KindImpl, frame: FxFrame) => {
 		const durationMs = elementFxSpec(kind).durationMs;
 		const builtIn = KINDS[kind];
 		const twinImpl = customKindImpl(effects[i]);
+		if (isBreakTwin(twin)) {
+			console.error = (...args: unknown[]) => report(`${kind}:`, ...args);
+			results.push({
+				kind,
+				...compareBreak(renderer, fill, twin, twinImpl, step, dumpPast, dumps),
+				ms: Math.round(performance.now() - twinBegan),
+			});
+			console.error = report;
+			continue;
+		}
 		const cells = [];
 		const motions = [];
 		let seed = 1;

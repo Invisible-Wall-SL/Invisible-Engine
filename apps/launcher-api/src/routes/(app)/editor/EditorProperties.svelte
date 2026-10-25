@@ -10,6 +10,7 @@
 	import EditorElementFx from './EditorElementFx.svelte';
 	import EditorValueBindings from './EditorValueBindings.svelte';
 	import EditorRepeaterCount from './EditorRepeaterCount.svelte';
+	import EditorSpawnLayer from './EditorSpawnLayer.svelte';
 	import EditorEvents from './EditorEvents.svelte';
 	import EditorListeners from './EditorListeners.svelte';
 	import {
@@ -3795,6 +3796,11 @@
 				A rig is placed by its origin (the ⊕ on the canvas). To move the origin, use ⊕ Centre origin
 				in the Rigger.
 			</p>
+		{:else if node.kind === 'spawnLayer'}
+			<!-- The game draws each spawn at its place in the layer's space; the layer has no anchor. -->
+			<p class="muted small">
+				A spawn layer is placed by its origin: a spawn's x / y (or cell 0, 0) is measured from it.
+			</p>
 		{:else}
 			<div class="row">
 				<label class="field">
@@ -5992,6 +5998,8 @@
 				+ add cue
 			</button>
 		</section>
+	{:else if node.kind === 'spawnLayer'}
+		<EditorSpawnLayer {node} {componentDefs} onChange={markDirty} />
 	{:else if node.kind === 'repeater' && isCountRepeater(node)}
 		<EditorRepeaterCount
 			{node}

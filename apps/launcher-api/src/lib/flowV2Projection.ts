@@ -5,6 +5,7 @@ import {
 	componentTriggers,
 	flowInstanceInterface,
 	isCountRepeater,
+	spawnLayerSpec,
 } from 'engine-layout';
 import {
 	deriveContainerEvents,
@@ -13,6 +14,7 @@ import {
 	type ContainerEventDecl,
 	type FlowDoc,
 	type FlowInstanceDecl,
+	type FlowSpawnLayerDecl,
 } from 'engine-flow-v2';
 
 /**
@@ -205,4 +207,51 @@ export function unpinnedProjection(
 			];
 		}),
 	);
+}
+
+/**
+ * §3.3 (game-families) — the `spawnLayer` nodes placed on the flow's screens, keyed by node id →
+ * what Flow sees of each (`FlowSpawnLayerDecl`): its screen, its name, its placement, the cap the
+ * game enforces (`spawnLayerSpec`, the same reading the runtime makes) and each spawnable
+ * component's LATEST interface (a spawned instance has no version pin), or `missing` when the def
+ * cannot be resolved. Walks every container's scene tree. The ONE projection the `/flow-v2` editor
+ * and the publish gate share, beside `projectFlowInstances`.
+ */
+export function projectSpawnLayers(
+	containers: FlowDoc['containers'],
+	scenes: readonly Scene[],
+	resolve: ComponentDefResolver,
+): Record<string, FlowSpawnLayerDecl> {
+	const scenesById = new Map(scenes.map((s) => [s.id, s]));
+	const layers: Record<string, FlowSpawnLayerDecl> = {};
+	const empty = { inputs: [], events: [], values: [] };
+	for (const container of containers) {
+		const scene = scenesById.get(container.sceneId);
+		if (!scene) continue;
+		const walk = (node: LayoutNode): void => {
+			if (node.kind === 'spawnLayer' && !layers[node.id]) {
+				const spec = spawnLayerSpec(node, scene.id);
+				const name =
+					typeof node.label === 'string' && node.label.trim() ? node.label.trim() : node.id;
+				layers[node.id] = {
+					container: container.id,
+					layer: node.id,
+					name,
+					placement: spec.placement,
+					...(spec.grid ? { grid: spec.grid } : {}),
+					cap: spec.cap,
+					spawnable: spec.spawnable.map((componentId) => {
+						const def = resolve(componentId);
+						return def
+							? { componentId, interface: flowInstanceInterface(def) }
+							: { componentId, interface: empty, missing: 'def' as const };
+					}),
+				};
+			}
+			const children = (node as { children?: LayoutNode[] }).children;
+			if (Array.isArray(children)) children.forEach(walk);
+		};
+		(scene.nodes ?? []).forEach(walk);
+	}
+	return layers;
 }

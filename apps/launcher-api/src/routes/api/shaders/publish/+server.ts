@@ -1,8 +1,9 @@
 import { error, json } from '@sveltejs/kit';
 import { ConflictError } from '$lib/server/r2';
 import { scopeMismatch } from '$lib/server/scopeGuard';
-import { shaderPublishScope } from '$lib/server/shaderScope';
+import { canWriteCustomGlsl, shaderPublishScope } from '$lib/server/shaderScope';
 import {
+	CustomGlslNotAllowedError,
 	ShaderDoesNotCompileError,
 	ShaderNotFoundError,
 	ShaderTooLargeError,
@@ -14,6 +15,8 @@ import type { RequestHandler } from './$types';
  * Publish one of the active project's shader graphs to the studio-shared library, which every
  * project's set takes in. Needs the `shaderPublish` capability. The graph published is the one
  * saved, and it must compile.
+ *
+ * A graph holding Custom GLSL also takes `shaderCustomGlsl`: the library reaches every project.
  *
  * Without `replace`, a library graph of that id answers 409 `exists` instead of being replaced;
  * `replace: true` is the publisher's explicit overwrite. The library keeps what a publish replaced.
@@ -28,9 +31,18 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const mismatch = scopeMismatch(body?.projectKey, projectKey);
 	if (mismatch) return mismatch;
 	try {
-		const { id, etag } = await publishShader(clientKey, projectKey, rawId, body?.replace === true);
+		const { id, etag } = await publishShader(
+			clientKey,
+			projectKey,
+			rawId,
+			body?.replace === true,
+			await canWriteCustomGlsl(locals),
+		);
 		return json({ ok: true, id, etag });
 	} catch (e) {
+		if (e instanceof CustomGlslNotAllowedError) {
+			return json({ ok: false, error: 'custom-glsl', message: e.message }, { status: 403 });
+		}
 		if (e instanceof ShaderNotFoundError) {
 			return json({ ok: false, error: 'not-found', message: e.message }, { status: 404 });
 		}

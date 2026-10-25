@@ -2,6 +2,7 @@
 	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
 	import {
 		derivePins,
+		spawnableDecl,
 		type Node as FlowNode,
 		type Pin,
 		type PinContext,
@@ -89,6 +90,10 @@
 		startTimer: '#2dd4bf',
 		stopTimer: '#2dd4bf',
 		pauseTimer: '#2dd4bf',
+		// Spawning (game-families §3.3) — lime, the palette's Spawning accent.
+		spawn: '#a3e635',
+		despawn: '#a3e635',
+		instanceRef: '#a3e635',
 	};
 
 	const headerColor = $derived(KIND_COLOR[d.node.kind] ?? '#64748b');
@@ -180,6 +185,8 @@
 				return `${decl.name} · ${at}`;
 			}
 			case 'waitForState': {
+				if (n.componentId !== undefined)
+					return `${n.componentId || '(component)'} (spawned) · ${n.layer || '(layer)'}.state == ${n.state || '(state)'}`;
 				const decl = d.ctx.instances?.[n.instance];
 				const name = decl && decl.container === n.container ? decl.name : `⚠ ${n.instance}`;
 				return `${name} · ${n.layer || '(layer)'}.state == ${n.state || '(state)'}`;
@@ -205,6 +212,19 @@
 			case 'stopTimer':
 			case 'pauseTimer':
 				return n.timer;
+			case 'spawn': {
+				const layer = d.ctx.spawnLayers?.[n.layer];
+				if (!layer) return `⚠ ${n.layer || '(layer)'} · no such spawn layer`;
+				return `${layer.name} · at ${n.at === 'cell' ? 'a cell' : 'x / y'} · cap ${layer.cap}`;
+			}
+			case 'despawn':
+				return 'remove a spawned instance';
+			case 'instanceRef': {
+				const spawnable = spawnableDecl(d.ctx, n.componentId);
+				if (!spawnable) return `⚠ ${n.componentId || '(component)'} · no spawn layer lists it`;
+				if (spawnable.missing) return `⚠ ${n.componentId} · component missing`;
+				return `${n.componentId} · the fed or the raising instance`;
+			}
 			default:
 				return '';
 		}

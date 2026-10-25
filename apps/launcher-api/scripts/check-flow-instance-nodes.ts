@@ -1206,8 +1206,9 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 			'stashFlowInstanceInput,',
 			'clearFlowInstanceStash,',
 			'onFlowInstanceDrop,',
-			// The flow's variables and key map (P10.3) tear down beside the waits when it has a store.
-			'dispose: state\n\t\t\t? () => {\n\t\t\t\t\twaits.dispose();',
+			// The flow's variables and key map (P10.3) and its live set (P10.7) tear down beside the
+			// waits when it has a store or spawns.
+			'dispose:\n\t\t\tstate || live\n\t\t\t\t? () => {\n\t\t\t\t\t\twaits.dispose();',
 			': waits.dispose,',
 		].map((line) => runtime.includes(line)),
 		[true, true, true, true, true, true, true, true, true, true, true],

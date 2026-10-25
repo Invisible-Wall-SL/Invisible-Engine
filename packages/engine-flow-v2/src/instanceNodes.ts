@@ -27,6 +27,7 @@ import type {
 	FlowInstanceNode,
 	Graph,
 	InstanceInputKind,
+	InstanceInterface,
 	Node,
 	Pin,
 	TypeRef,
@@ -234,30 +235,54 @@ export const docNamesInstance = (doc: FlowDoc): boolean => {
 	);
 };
 
+/** A node that feeds a component's inputs, those inputs, and what to call it in the harvest. */
+export interface InstanceTextSource {
+	node: Node;
+	inputs: InstanceInterface['inputs'];
+	name: string;
+}
+
 /**
- * Every localization key a doc feeds a `text` input as a LITERAL, for Invisible Localization's
+ * The localization keys `sources` feed `text` inputs as LITERALS, for Invisible Localization's
  * harvest (plan §8: a Flow wire into a text input is harvested like a `textMessage`, so no text
- * bypasses translation). Source-as-key, exact and untrimmed, each key once; a literal that is not
- * a key (no letter) is skipped, as the validator flags it. A value arriving by WIRE is already a
- * key of its own source (an event payload's `{ key }`, harvested with its def).
+ * bypasses translation). Source-as-key, exact and untrimmed, each key once; a literal that is not a
+ * key (no letter) is skipped, as the validator flags it. A value arriving by WIRE is already a key
+ * of its own source (an event payload's `{ key }`, harvested with its def).
  */
-export const collectInstanceTextKeys = (
-	doc: FlowDoc | undefined,
-	instances: Record<string, FlowInstanceDecl> | undefined,
+export const instanceTextKeys = (
+	sources: readonly InstanceTextSource[],
 ): { key: string; source: string; label: string }[] => {
-	if (!doc || !instances) return [];
 	const out: { key: string; source: string; label: string }[] = [];
 	const seen = new Set<string>();
-	for (const node of docComponentInstanceNodes(doc)) {
-		const decl = instances[node.instance];
-		if (!decl || decl.container !== node.container) continue;
-		for (const input of decl.interface.inputs) {
+	for (const { node, inputs, name } of sources) {
+		for (const input of inputs) {
 			if (input.kind !== 'text') continue;
 			const src = node.inputs?.[instanceInputPin(input.id)];
 			if (src?.kind !== 'literal' || !isLocalizationKey(src.value) || seen.has(src.value)) continue;
 			seen.add(src.value);
-			out.push({ key: src.value, source: src.value, label: `${decl.name} — ${input.id}` });
+			out.push({ key: src.value, source: src.value, label: `${name} — ${input.id}` });
 		}
 	}
 	return out;
 };
+
+/** The placed instances' `componentInstance` nodes of a doc, with their projected inputs. */
+export const placedInstanceTextSources = (
+	doc: FlowDoc | undefined,
+	instances: Record<string, FlowInstanceDecl> | undefined,
+): InstanceTextSource[] => {
+	if (!doc || !instances) return [];
+	return docComponentInstanceNodes(doc).flatMap((node) => {
+		const decl = instances[node.instance];
+		return decl && decl.container === node.container
+			? [{ node, inputs: decl.interface.inputs, name: decl.name }]
+			: [];
+	});
+};
+
+/** Every literal key a doc feeds a placed instance's `text` input ({@link instanceTextKeys}). */
+export const collectInstanceTextKeys = (
+	doc: FlowDoc | undefined,
+	instances: Record<string, FlowInstanceDecl> | undefined,
+): { key: string; source: string; label: string }[] =>
+	instanceTextKeys(placedInstanceTextSources(doc, instances));

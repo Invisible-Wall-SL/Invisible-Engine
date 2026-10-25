@@ -54,6 +54,9 @@
 		'tick-async': '⏱',
 		'tick-fast': '⏱',
 		'input-unknown': '⌨',
+		'spawn-layer-unknown': '✗',
+		'spawn-not-spawnable': '⊘',
+		'spawn-cell-free': '⊞',
 	};
 
 	// Best-effort node id an issue points at — a node/pin `at`, or an edge's TARGET node.

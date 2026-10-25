@@ -528,6 +528,33 @@ kind (number, bool, or string / enum for text).
 **In the game** timers and ticks run on the game's frame, so they stop while its tab is hidden.
 A menu or a dialog that keeps the game drawing does not pause them.
 
+### Spawning — create and remove components in play
+
+A flow can create component instances while the game runs (an enemy, a coin) and remove them
+later. They appear in a **Spawn layer** placed on a screen in the Scene Editor, which lists the
+components it may spawn (see
+[Spawn layer](./invisible-editor.md#spawn-layer--a-field-flow-fills-while-the-game-runs)). The
+palette's **Spawning** section shows only when a screen of this flow places one, and never in a
+function body. The engine design is in [game families §3.3](../design/game-families.md).
+
+- **Spawn ‹component›** — one entry per layer and component it lists. In the inspector pick the
+  **Spawn layer**, the **Component** and **Place at**: a point (**x** / **y** data-ins, in the
+  layer's space) or, on a grid layer, a cell (**col** / **row**). Its **instance** data-out is the
+  new instance's handle; **spawned** is off when the layer refused it: it is full (its cap), does
+  not list the component, or the cell is off its grid. A refused spawn is dropped.
+- **Despawn** — removes the instance fed to **instance**. One already gone is ignored.
+- **Instance ref** (the component's entry under **Spawned instances**) — the component's own pins,
+  as on a [placed instance](#components-placed-instances-as-nodes), plus an **instance** data-in
+  (the handle to address) and a **handle** data-out. Its **on‹Event›** outlets run when ANY spawned
+  instance of that component raises the event; on that chain a blank **instance** means the one
+  that raised it, also on **handle** and `$trigger.instance`.
+- **wait** (beside it) — a **Wait for state** on a spawned instance: pick the layer and state, and
+  feed **instance** (blank on an event chain: the raising instance).
+
+**Read the live set.** The accessor picker offers **`$live`** once a layer exists: pick the layer
+to read every instance alive in it right now. Feed it to a **forEach** to visit each one; `$item`
+is its handle (with `id`, `x`, `y`, `col`, `row`, …). Despawning inside that loop is safe.
+
 ### Free-spin intro and outro — the flow holds the round
 
 The engine no longer draws a free-spin intro or outro of its own, and it no longer waits for the
@@ -1118,6 +1145,12 @@ never enters), `instance-text-key` (a typed value for a text input that is not a
 key), `instance-event-duplicate` (two nodes for one placement wire the same event). A broken wire
 is still an error when it targets any node: it reads `edge-endpoint` there.
 
+The [spawning](#spawning--create-and-remove-components-in-play) checks (all red):
+`spawn-layer-unknown` (a Spawn or a `$live` read names a layer no screen of this flow places),
+`spawn-not-spawnable` (a Spawn names a component its layer does not list, or an Instance ref or a
+spawned wait names one no layer lists), `spawn-cell-free` (a Spawn at a cell into a free layer,
+which has no grid). An Instance ref or a spawned wait also gets the component instance checks.
+
 ### Preview (deterministic timeline)
 
 The left **Preview** panel runs a chosen **event** node's handler headlessly through the
@@ -1136,6 +1169,10 @@ The timeline adds **var** rows (`lives = 2`) and **timer** rows (`spawn ran out`
 rows too, but the panel can't press a key yet (see
 [Known limitations](#known-limitations--todos)). A flow with none of them previews exactly as
 before.
+
+**Spawns.** A Spawn shows as a **spawn** row (`coin → Field · <instance>`), or, when the layer
+refused it, a highlighted row naming why (`refused: the layer is full`). A Despawn shows as a
+**despawn** row with the instance it removed.
 
 **Drive the editor stage.** With a component node in the flow, a tick appears beside Run. Open
 the same project's component in the Scene Editor (Animate → **State machine**, ▶ Run) in another

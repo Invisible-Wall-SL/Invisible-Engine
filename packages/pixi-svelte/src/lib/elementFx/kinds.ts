@@ -8,7 +8,11 @@
  * returns to rest at the end of a play (`t = 1`), except the `exit` kinds, which end hidden.
  */
 
-import type { ElementFxKind } from 'constants-shared/elementFx';
+import type {
+	ElementFxBreakKind,
+	ElementFxKind,
+	ElementFxParamValue,
+} from 'constants-shared/elementFx';
 import { efxSide } from 'constants-shared/glslLibrary';
 import { BlurFilter, ColorMatrixFilter, type Filter } from 'pixi.js';
 import {
@@ -85,6 +89,27 @@ export interface KindImpl {
 	/** The break shows the LIVE element: its pieces are redrawn from it every frame and follow it as
 	 *  it moves and resizes, so an element a timeline animates keeps animating under them. */
 	live?: boolean;
+	/** A custom effect's break (Shader Graph's Break Output), played over part of the play. */
+	breakWindow?: BreakWindow;
+}
+
+/**
+ * A built-in break a custom effect plays over a window of its play, [from, to]: forward, from where
+ * its graph meets it (`edge`) to the end; reversed (`assemble`), from the start to `edge`. While the
+ * break plays, the effect's passes and motion are held at `edge`.
+ */
+export interface BreakWindow {
+	kind: ElementFxBreakKind;
+	style: BreakStyle;
+	reversed: boolean;
+	live: boolean;
+	from: number;
+	to: number;
+	edge: number;
+	/** The break's params for a play's own (each play's worked out once). */
+	params(
+		effectParams: Readonly<Record<string, ElementFxParamValue>>,
+	): Record<string, ElementFxParamValue>;
 }
 
 export const filterImpl = <F extends Filter>(impl: FilterImpl<F>): FilterImpl<Filter> =>

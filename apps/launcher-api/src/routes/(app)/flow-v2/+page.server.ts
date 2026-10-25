@@ -18,6 +18,7 @@ import {
 	instanceDefResolver,
 	projectContainerEvents,
 	projectFlowInstances,
+	projectSpawnLayers,
 	syncFlowContainers,
 	unpinnedProjection,
 } from '$lib/flowV2Projection';
@@ -157,6 +158,14 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		? projected
 		: unpinnedProjection(projected, (id) => components.find((def) => def.id === id));
 
+	// §3.3 (game-families) — the spawn layers on the flow's screens, with their spawnables' latest
+	// interfaces: what the spawn nodes, an Instance ref and a `$live` read are typed and judged by.
+	const spawnLayers = projectSpawnLayers(
+		doc.containers,
+		layout.scenes ?? [],
+		instanceDefResolver(components),
+	);
+
 	// GAME MODES (`docs/design/hold-and-win.md` §4.5) — the project's mode registry (the built-ins plus
 	// its Game Config `modes`), offered by the "+ Mode" tab picker and the mode nodes' inspector. An
 	// unauthored config resolves to the built-ins.
@@ -198,6 +207,9 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		/** Placed node id → the instance's projected interface (`projectFlowInstances`), the source of
 		 *  a `componentInstance` node's pins and of every `instance-*` validation. */
 		instances,
+		/** Spawn layer node id → its projected decl (`projectSpawnLayers`), the source of the spawn
+		 *  nodes' and Instance refs' pins and of every spawn check. */
+		spawnLayers,
 		/** ContainerId → whether that screen can complete itself (a tap-to-continue / completeOnLoaded
 		 *  surface). Fed to `validateFlowDoc` so an unreleasable round-block hold is caught at authoring
 		 *  time; a container absent from the map is unresolved and stays unchecked. */

@@ -154,6 +154,12 @@ export function stashFlowInstanceInput(
 	return 'stashed';
 }
 
+/** Forget the values kept for one id's next mount (a spawned instance despawned before it mounted
+ *  never mounts: its id is not reused). */
+export function dropFlowInstanceStash(instanceId: string): void {
+	stashed.delete(instanceId);
+}
+
 /** Forget every value kept for a mount (a game being torn down must not hand its sets to the next
  *  one). Mounted handles and watchers stay. */
 export function clearFlowInstanceStash(): void {

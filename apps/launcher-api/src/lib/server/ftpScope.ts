@@ -51,14 +51,24 @@ export function assertAllowed(key: string, scope: FtpScope): void {
 /** `_shared/storybook/…` or `<client>/<project>/storybook/…` — a published storybook build. */
 const STORYBOOK_TREE = /^(?:_shared|[^/]+\/[^/]+)\/storybook\//;
 
+/** `<client>/<project>/shaders/…` or `…/shader-backups/…` — a project's shader graphs and their history. */
+const SHADER_TREE = /^[^/]+\/[^/]+\/(?:shaders|shader-backups)\//;
+
 /**
  * Throw 403 unless the browser may WRITE `key`: inside the scope, and not in a storybook tree.
  * Storybooks are served as live pages, so they only arrive through `publish-storybook.mjs`.
+ *
+ * In scoped mode a project's shader graphs and their history are not writable either: a graph may
+ * hold Custom GLSL, which only `shaderCustomGlsl` may add or change, and `/shaders` saves keep the
+ * lease, the ETag and History that an upload or a move would skip. Deleting stays allowed.
  */
 export function assertWritable(key: string, scope: FtpScope): void {
 	assertAllowed(key, scope);
 	if (STORYBOOK_TREE.test(key)) {
 		throw error(403, 'Storybooks are published with publish-storybook.mjs, not uploaded here.');
+	}
+	if (!scope.full && SHADER_TREE.test(key)) {
+		throw error(403, 'Shader graphs are saved from Invisible Shader Graph, not uploaded here.');
 	}
 }
 

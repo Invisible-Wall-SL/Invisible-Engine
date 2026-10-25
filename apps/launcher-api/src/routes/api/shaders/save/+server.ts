@@ -2,8 +2,12 @@ import { error, json } from '@sveltejs/kit';
 import { requestedBackupMode } from '$lib/server/docBackupRoutes';
 import { ConflictError } from '$lib/server/r2';
 import { scopeMismatch } from '$lib/server/scopeGuard';
-import { shaderWriteScope } from '$lib/server/shaderScope';
-import { ShaderTooLargeError, saveShader } from '$lib/server/shaderStorage';
+import { canWriteCustomGlsl, shaderWriteScope } from '$lib/server/shaderScope';
+import {
+	CustomGlslNotAllowedError,
+	ShaderTooLargeError,
+	saveShader,
+} from '$lib/server/shaderStorage';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
 
@@ -16,6 +20,9 @@ import type { RequestHandler } from './$types';
  * rather than replacing a colleague's save, and `null` asserts the id is free.
  *
  * The bytes it replaces are kept (`/api/shaders/backups` lists and restores them).
+ *
+ * Adding Custom GLSL, or changing its code or ports, takes `shaderCustomGlsl` (403 `custom-glsl`
+ * without it); saving a graph that keeps an admin's Custom GLSL as it was, or removes it, does not.
  *
  * Body: `{ doc: <ShaderGraphDoc>, baseEtag: string | null, projectKey?, force?, backup? }`.
  */
@@ -33,9 +40,13 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			body.doc,
 			baseEtag,
 			requestedBackupMode(body),
+			await canWriteCustomGlsl(locals),
 		);
 		return json({ ok: true, id, name: doc.name, etag });
 	} catch (e) {
+		if (e instanceof CustomGlslNotAllowedError) {
+			return json({ ok: false, error: 'custom-glsl', message: e.message }, { status: 403 });
+		}
 		if (e instanceof ShaderTooLargeError) {
 			return json({ ok: false, error: 'too-large', message: e.message }, { status: 413 });
 		}

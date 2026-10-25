@@ -272,6 +272,8 @@
 				return '⊞';
 			case 'repeater':
 				return '⧉';
+			case 'spawnLayer':
+				return '⊕';
 			case 'flipbook':
 				return '🎞';
 			case 'effect':

@@ -23,12 +23,15 @@
 		MOTION_LIMITS,
 		addParam,
 		addPass,
+		breakPhaseMismatch,
+		phaseName,
 		removeParam,
 		removePass,
 		restCurve,
 		setMotionChannel,
 		setParam,
 		setPass,
+		setPhase,
 		setPivot,
 	} from './shaderEditor';
 
@@ -36,6 +39,7 @@
 	// length, padding), the rows an author sets where it is placed (params), the built-in passes
 	// drawn after the graph, and the element's own motion. Every change hands the page a new doc.
 	// A channel (or the padding) the motion graph drives says so: its curve plays only unwired.
+	// A phase the Break Output's break cannot play as says so, with the fix a click away.
 	interface Props {
 		doc: ShaderGraphDoc;
 		/** Doc-level messages (`doc`, `param`, `pass`, `motion` issues). */
@@ -73,6 +77,8 @@
 		choice: 'choice',
 	};
 	const PARAM_KINDS = Object.keys(PARAM_KIND_LABELS) as ElementFxParamSpec['kind'][];
+
+	const mismatch = $derived(breakPhaseMismatch(doc));
 
 	const set = <K extends keyof ShaderGraphDoc>(key: K, value: ShaderGraphDoc[K]): void =>
 		onChange({ ...doc, [key]: value });
@@ -180,6 +186,14 @@
 			{/each}
 		</select>
 	</label>
+	{#if mismatch}
+		<p class="hint warn fix">
+			{mismatch.message}
+			<button type="button" {disabled} onclick={() => onChange(setPhase(doc, mismatch.phase))}
+				>Set phase to {phaseName(mismatch.phase)}</button
+			>
+		</p>
+	{/if}
 	<label class="field">
 		<span>Length (ms)</span>
 		<input
@@ -670,6 +684,12 @@
 	}
 	.warn {
 		color: #fca5a5;
+	}
+	.fix {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
 	}
 	.muted {
 		color: #64748b;

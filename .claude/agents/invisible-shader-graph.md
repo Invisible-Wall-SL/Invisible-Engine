@@ -26,6 +26,16 @@ You are the developer for **Invisible Shader Graph**.
     `compileShaderMotion` / `motionGraphSeries` in `src/compile.ts`; the program runs through
     `packages/constants-shared/motionLibrary.ts` (`runMotionProgram`), held to the GLSL by
     `tools/fx-spike/shaderMotion.mjs` (`shader-motion`).
+  - the Break Output (step 8b): `src/break.ts` (`BREAK_OUTPUT`, `breakOutputDef`,
+    `breakOutputIssues`, `compileBreak`, the old-runtime fade); compiled as `CustomElementFx.break`
+    (`constants-shared/elementFx.ts`: `customElementFxBreakIssues`, `customElementFxBreakWindow`),
+    played by `runtime.ts` / `custom.ts` with the existing `breakApart.ts`; break twins in
+    `src/twins/breaks.ts`.
+  - Custom GLSL (step 8c): `src/customGlsl.ts` (the checker, codegen, cost, `customGlslSignature`),
+    `src/ports.ts` (the shared port rules); the runtime's link fail-safe in `pixi-svelte`
+    `shaders.ts`; the editor's `GlslCodeEditor.svelte`, `CustomGlslProperties.svelte`,
+    `PortListEditor.svelte`, `glslCheck.client.ts`; the server gate (`shaderCustomGlsl`) in
+    `shaderStorage.ts` / `shaderScope.ts`.
   - `src/subgraph.ts` (step 7): `flattenShaderGraph` inlines every subgraph call (ids
     `<call>/<node>`, a typed pass-through per port) before the compiler sees the graph, and
     `liftIssues` reports inner issues on their call; `analyzeShaderSubgraph` analyses a body alone.

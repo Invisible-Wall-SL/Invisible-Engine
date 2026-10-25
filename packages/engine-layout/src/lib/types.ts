@@ -1314,6 +1314,37 @@ export interface RepeaterVariants {
 	last?: string;
 }
 
+/** A grid {@link SpawnLayerNode}'s lattice: `cols` × `rows` cells, `pitch` px apart, cell (0, 0) at
+ *  the node's origin. */
+export interface SpawnLayerGrid {
+	cols: number;
+	rows: number;
+	pitch: number;
+}
+
+/**
+ * A SPAWN LAYER (`docs/design/game-families.md` §3.3): a container whose children are created while
+ * the game runs — by Flow's `spawn` node, removed by `despawn`, walked as `$live.<id>`. Each live
+ * instance renders as a `ComponentInstance` at the place it was spawned (a point in this node's
+ * space, or a cell of its grid), as the repeater renders its items.
+ *
+ * `spawnable` is declared HERE, not in the flow, so the ship chain can collect every component a
+ * game may spawn (CLAUDE.md rule 8): `collectComponentIds` walks it like a placed instance. A spawn
+ * of a component not listed, over `cap`, or into a cell off the grid is refused and logged. The
+ * editor draws a labelled placeholder (it runs no flow). Additive — a doc with no `spawnLayer` is
+ * byte-identical to before.
+ */
+export interface SpawnLayerNode extends BaseNode {
+	kind: 'spawnLayer';
+	/** The components Flow may spawn here (collected onto the bake/pull chain). */
+	spawnable: string[];
+	/** `free`: a spawn names x / y. `grid`: it may name a cell of {@link grid} instead. */
+	placement: 'free' | 'grid';
+	grid?: SpawnLayerGrid;
+	/** The most live instances at once (1 … `SPAWN_HARD_CAP`; absent ⇒ `SPAWN_DEFAULT_CAP`). */
+	cap?: number;
+}
+
 export type LayoutNode =
 	| ContainerNode
 	| SpriteNode
@@ -1324,7 +1355,8 @@ export type LayoutNode =
 	| ReelGridNode
 	| EffectNode
 	| FlipbookNode
-	| RepeaterNode;
+	| RepeaterNode
+	| SpawnLayerNode;
 
 /**
  * Every {@link LayoutNode} kind as a RUNTIME value — the one list a validator may enumerate.
@@ -1349,6 +1381,7 @@ export const LAYOUT_NODE_KINDS = [
 	'effect',
 	'flipbook',
 	'repeater',
+	'spawnLayer',
 ] as const satisfies readonly LayoutNode['kind'][];
 
 export interface Scene {
@@ -2144,7 +2177,8 @@ export interface CinematicDoc {
 	 * a named ease or a cubic `[x1, y1, x2, y2]`. Authoring-only: every key carries its own `ease`,
 	 * so no player reads this. Absent ⇒ linear.
 	 */
-	defaultEase?: 'linear' | 'ease' | 'hold' | [number, number, number, number];
+	defaultEase?:
+		'linear' | 'ease' | 'hold' | 'elastic' | 'bounce' | [number, number, number, number];
 	/**
 	 * Authoring-only (Rive plan Phase 9d): this project timeline is a LINK to a shared one in
 	 * `_shared/cinematics/` — it plays version `version` of shared timeline `id`, its actors
