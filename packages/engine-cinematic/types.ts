@@ -60,8 +60,11 @@ export interface CinematicStrip {
  */
 export type CinematicCubicEase = [number, number, number, number];
 
-/** A key's outgoing interpolation: a named one, or a cubic. Absent or unknown ⇒ linear. */
-export type CinematicEase = 'linear' | 'ease' | 'hold' | CinematicCubicEase;
+/**
+ * A key's outgoing interpolation: a named one, or a cubic. Absent or unknown ⇒ linear. `elastic`
+ * overshoots the next key and rings onto it; `bounce` lands on it and rebounds.
+ */
+export type CinematicEase = 'linear' | 'ease' | 'hold' | 'elastic' | 'bounce' | CinematicCubicEase;
 
 /** One keyframe on a property/camera channel. `ease` is the key's OUTGOING interpolation. */
 export interface CinematicKey {

@@ -16,6 +16,9 @@
  *  5. The component player honours the loop type: `loop` wraps (and crosses its cue each lap),
  *     `pingPong` comes back (the way back crosses no cue), neither ends or holds a cue, and a doc
  *     without the field still ends on its last frame.
+ *  7. ELASTIC and BOUNCE (game-families P10.9) settle on the next key: elastic overshoots it by
+ *     about a third and rings down, bounce lands on it and rebounds without passing it; both
+ *     match Penner's ease-out values, on number and tint channels.
  */
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -464,6 +467,54 @@ console.log('6. a ping-pong crosses its cues on the way out, a step over the tur
 		`a cue at the very end fires once per lap in the component player (${ends} in 3 laps)`,
 		ends === 3,
 	);
+}
+
+// ---- 7. elastic and bounce ------------------------------------------------------------------
+
+console.log('7. elastic and bounce settle on the next key');
+{
+	const D = 2.75;
+	const dense = Array.from({ length: 2001 }, (_, i) => i / 2000);
+	const curve = (ease: string): number[] => dense.map((u) => at(ease, u) / 100);
+	const elastic = curve('elastic');
+	const bounce = curve('bounce');
+	const peak = Math.max(...elastic);
+	ok('elastic starts on the key and ends on the next', elastic[0] === 0 && elastic[2000] === 1);
+	ok(
+		'elastic overshoots the next key once, by about a third',
+		peak > 1.3 && peak < 1.4,
+		`peak ${peak}`,
+	);
+	ok(
+		'elastic rings down: past the middle it stays within 2% of the next key',
+		elastic.slice(1000).every((v) => Math.abs(v - 1) < 0.02),
+	);
+	ok('elastic(0.1) is 1.25 (Penner ease-out)', Math.abs(at('elastic', 0.1) - 125) < 1e-9);
+	ok('bounce starts on the key and ends on the next', bounce[0] === 0 && bounce[2000] === 1);
+	ok(
+		'bounce never passes the next key',
+		bounce.every((v) => v >= 0 && v <= 1 + 1e-12),
+	);
+	ok(
+		'bounce lands on the next key first at 1/2.75, then rebounds',
+		Math.abs(at('bounce', 1 / D) - 100) < 1e-9 && at('bounce', 1.5 / D) < 100,
+	);
+	ok('bounce(0.5) is 0.765625 (Penner ease-out)', Math.abs(at('bounce', 0.5) - 76.5625) < 1e-9);
+	ok(
+		'easeShape names them, and the evaluator and its /rigger copy agree',
+		EV.easeShape('bounce')(0.5) === 0.765625 &&
+			readFileSync(new URL('../static/shared/cinematicEval.mjs', import.meta.url), 'utf8').includes(
+				'elastic: (u) =>',
+			),
+	);
+	const tint = EV.sampleTint(
+		[
+			{ time: 0, value: 0x000000, ease: 'bounce' },
+			{ time: 1, value: 0x0000ff },
+		],
+		0.5,
+	) as number;
+	ok('a tint channel bounces per RGB channel', (tint & 0xff) === Math.round(255 * 0.765625));
 }
 
 if (failures) {

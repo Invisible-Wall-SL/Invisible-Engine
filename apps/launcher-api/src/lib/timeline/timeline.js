@@ -91,9 +91,11 @@ const cubicOf = (ease) =>
 const SMOOTH_CUBIC = [1 / 3, 0, 2 / 3, 1];
 /** Where the Cubic button starts a key that is not cubic yet: CSS `ease-in-out`. */
 const DEFAULT_CUBIC = [0.42, 0, 0.58, 1];
-/** Linear / Cubic / Hold — how the Interpolation panel names a key's `ease`. */
+/** The named eases the Interpolation panel offers beside Cubic (the evaluator draws them). */
+const NAMED_KINDS = ['linear', 'hold', 'elastic', 'bounce'];
+/** Linear / Cubic / Hold / Elastic / Bounce — how the Interpolation panel names a key's `ease`. */
 const easeKind = (ease) =>
-	ease === 'hold' ? 'hold' : cubicOf(ease) || ease === 'ease' ? 'cubic' : 'linear';
+	cubicOf(ease) || ease === 'ease' ? 'cubic' : NAMED_KINDS.includes(ease) ? ease : 'linear';
 const cubicValues = (ease) => cubicOf(ease) || (ease === 'ease' ? SMOOTH_CUBIC : DEFAULT_CUBIC);
 const n3 = (n) => +(+n).toFixed(3);
 const cubicText = (c) => c.map(n3).join(', ');
@@ -2065,7 +2067,7 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 	<label>time<input type="number" step="0.05" min="0" data-kact="time" value="${+k.time.toFixed(3)}"></label>
 	<label>value${valueField}</label>
 	<label class="wide">out<select data-kact="ease">
-		${cubicOpt}${opt('linear', 'linear')}${opt('ease', 'ease in-out')}${opt('hold', 'hold (stepped)')}
+		${cubicOpt}${opt('linear', 'linear')}${opt('ease', 'ease in-out')}${opt('hold', 'hold (stepped)')}${opt('elastic', 'elastic')}${opt('bounce', 'bounce')}
 	</select></label>
 </div>
 <div class="cineRow"><button id="cineDelKey" title="Delete this key">🗑 Delete key</button></div>`;
@@ -2073,10 +2075,11 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 
 	// ---- the Interpolation panel (`options.interpolation`) ---------------------
 	//
-	// Linear / Cubic / Hold for the segment LEAVING the selected keys (all of them, when several are
-	// selected), a curve editor with two draggable handles plus the typed `x1, y1, x2, y2`, and *Set
-	// as default* (the ease a new key gets in this doc). The curve is drawn as an SVG cubic, which is
-	// the very curve the evaluator samples.
+	// Linear / Cubic / Hold / Elastic / Bounce for the segment LEAVING the selected keys (all of
+	// them, when several are selected), a curve editor with two draggable handles plus the typed
+	// `x1, y1, x2, y2`, and *Set as default* (the ease a new key gets in this doc). The cubic is drawn
+	// as an SVG cubic and Elastic / Bounce from the evaluator's own `easeShape`, so each is the very
+	// curve the evaluator samples.
 
 	/** Curve-editor geometry: x 0..1 → 20..140, y 0..1 → 160..40 (room to overshoot both ways). */
 	const CURVE = { x0: 20, w: 120, y0: 160, h: 120, vw: 160, vh: 200 };
@@ -2096,14 +2099,20 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 </svg>`;
 	}
 
-	/** Linear's straight line or Hold's step, drawn in the curve editor's frame (no handles). */
+	/** A named ease's shape (Linear, Hold, Elastic, Bounce), drawn in the curve editor's frame. */
 	function shapeMarkup(kind) {
 		const p = (x, y) => `${cx(x).toFixed(1)},${cy(y).toFixed(1)}`;
-		const d =
-			kind === 'hold'
-				? `M${p(0, 0)} H${cx(1).toFixed(1)} V${cy(1).toFixed(1)}`
-				: `M${p(0, 0)} L${p(1, 1)}`;
-		return `<svg class="cineCurve" viewBox="0 0 ${CURVE.vw} ${CURVE.vh}" width="${CURVE.vw}" height="${CURVE.vh}" role="img" aria-label="${kind === 'hold' ? 'Hold' : 'Linear'}">
+		let d = `M${p(0, 0)} L${p(1, 1)}`;
+		if (kind === 'hold') d = `M${p(0, 0)} H${cx(1).toFixed(1)} V${cy(1).toFixed(1)}`;
+		else if ((kind === 'elastic' || kind === 'bounce') && EV && EV.easeShape) {
+			const shape = EV.easeShape(kind);
+			const steps = 96;
+			d = `M${p(0, 0)}`;
+			for (let i = 1; i <= steps; i++) d += ` L${p(i / steps, shape(i / steps))}`;
+		}
+		const label = kind.charAt(0).toUpperCase() + kind.slice(1);
+		// Elastic's peak (1.37) rises past the frame's headroom; let it show rather than clip it.
+		return `<svg class="cineCurve" viewBox="0 0 ${CURVE.vw} ${CURVE.vh}" width="${CURVE.vw}" height="${CURVE.vh}"${kind === 'elastic' ? ' overflow="visible"' : ''} role="img" aria-label="${label}">
 	<rect x="${CURVE.x0}" y="${cy(1)}" width="${CURVE.w}" height="${CURVE.h}" class="cineCurveBox"/>
 	<path class="cineCurvePath" d="${d}"/>
 </svg>`;
@@ -2133,7 +2142,7 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 			`<button data-ekind${scope}="${v}" class="${kind === v ? 'on' : ''}" title="${title}">${label}</button>`;
 		return `
 <div class="cineRow cineEaseKinds">
-	${btn('linear', 'Linear', 'A straight line to the next key')}${btn('cubic', 'Cubic', 'A curve with two handles')}${btn('hold', 'Hold', 'Hold this value until the next key (stepped)')}
+	${btn('linear', 'Linear', 'A straight line to the next key')}${btn('cubic', 'Cubic', 'A curve with two handles')}${btn('hold', 'Hold', 'Hold this value until the next key (stepped)')}${btn('elastic', 'Elastic', 'Overshoot the next key and spring back onto it')}${btn('bounce', 'Bounce', 'Land on the next key and bounce')}
 </div>
 ${
 	kind === 'cubic'
