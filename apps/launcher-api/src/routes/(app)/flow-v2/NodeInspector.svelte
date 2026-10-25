@@ -11,6 +11,7 @@
 		flattenGroups,
 		guardLiteralMismatch,
 		guardOperandType,
+		spawnedInstanceDecl,
 		triggerOwners,
 		type Accessor,
 		type CompareOp,
@@ -24,6 +25,7 @@
 		type PinScope,
 		type TextMessageNode,
 		type PlayCinematicNode,
+		type SpawnAtMode,
 		type TypeRef,
 	} from 'engine-flow-v2';
 	import {
@@ -41,10 +43,12 @@
 		setModeNodeFields,
 		setWaitForStateFields,
 		setStateNodeFields,
+		setSpawnFields,
+		setInstanceRefComponent,
 		type ModeNodePatch,
 		type StateNodePatch,
 	} from './graphOps';
-	import { typeLabel } from './palette';
+	import { spawnableComponents, typeLabel } from './palette';
 	import EnumLiteral from './EnumLiteral.svelte';
 	import { fetchFontCatalog, type EditorFont } from '../editor/fonts.client';
 	import type { FlowDoc } from 'engine-flow-v2';
@@ -79,14 +83,19 @@
 	} = $props();
 
 	// --- placed component instances (Rive plan §6.2, Phase 7) --------------------------------
-	/** The projected instance this node names — on ITS screen, else undefined. */
+	/** A Wait for state on a SPAWNED instance (game-families §3.3): it names a component, not a node. */
+	const spawnedWait = $derived(node.kind === 'waitForState' && node.componentId !== undefined);
+	/** The projected instance this node names — on ITS screen, else undefined; for a spawned wait, its
+	 *  component's interface. */
 	const instanceDecl = $derived(
-		node.kind === 'componentInstance' || node.kind === 'waitForState'
-			? (() => {
-					const decl = ctx.instances?.[node.instance];
-					return decl && decl.container === node.container ? decl : undefined;
-				})()
-			: undefined,
+		node.kind === 'waitForState' && node.componentId !== undefined
+			? spawnedInstanceDecl(ctx, node.componentId)
+			: node.kind === 'componentInstance' || node.kind === 'waitForState'
+				? (() => {
+						const decl = ctx.instances?.[node.instance];
+						return decl && decl.container === node.container ? decl : undefined;
+					})()
+				: undefined,
 	);
 	const waitLayers = $derived(instanceDecl?.interface.values ?? []);
 	const waitStates = $derived(
@@ -94,6 +103,30 @@
 			? (waitLayers.find((v) => v.layer === node.layer)?.states ?? [])
 			: [],
 	);
+
+	// --- spawning (game-families §3.3) ----------------------------------------------------------
+	const spawnLayers = $derived(ctx.spawnLayers ?? {});
+	const spawnLayerList = $derived(Object.values(spawnLayers));
+	/** Every component some layer lists: what an Instance ref or a spawned wait can name. */
+	const spawnComponents = $derived(spawnableComponents(spawnLayers));
+	const spawnLayer = $derived(node.kind === 'spawn' ? spawnLayers[node.layer] : undefined);
+	/** A layer change keeps the component when the new layer lists it (else its first), and falls
+	 *  back to x / y on a layer with no grid. */
+	function onSpawnLayerChange(layer: string): void {
+		if (node.kind !== 'spawn') return;
+		const decl = spawnLayers[layer];
+		const lists = decl?.spawnable.some((s) => s.componentId === node.componentId);
+		onchange(
+			setSpawnFields(doc, node.id, {
+				layer,
+				...(decl && !lists ? { componentId: decl.spawnable[0]?.componentId ?? '' } : {}),
+				...(decl && decl.placement !== 'grid' && node.at === 'cell' ? { at: 'xy' } : {}),
+			}),
+		);
+	}
+	function onSpawnFieldChange(patch: { componentId?: string; at?: SpawnAtMode }): void {
+		onchange(setSpawnFields(doc, node.id, patch));
+	}
 
 	// --- game-mode nodes --------------------------------------------------------
 	function onModeFieldChange(patch: ModeNodePatch): void {
@@ -480,12 +513,14 @@
 				return { kind: 'literal', type: t, value: enumValues(t.name)[0] ?? '' };
 			case 'list':
 				// A list of a SCALAR element (float/int/ms/bool/string/enum) is authorable as a
-				// literal (comma-separated in the editor below), seeded EMPTY. A list of structs
-				// (or nested lists) still has no literal form → wire.
-				if (t.of.t === 'struct' || t.of.t === 'list') return { kind: 'wire' };
+				// literal (comma-separated in the editor below), seeded EMPTY. A list of structs or
+				// handles (or nested lists) still has no literal form → wire.
+				if (t.of.t === 'struct' || t.of.t === 'list' || t.of.t === 'instance')
+					return { kind: 'wire' };
 				return { kind: 'literal', type: t, value: [] };
 			case 'struct':
-				// Structs cannot be literals — they must be wired.
+			case 'instance':
+				// Structs and instance handles cannot be literals — they must be wired.
 				return { kind: 'wire' };
 			default:
 				return { kind: 'literal', type: t, value: 0 };
@@ -596,7 +631,7 @@
 			</p>
 		{/if}
 
-		{#if node.kind === 'componentInstance' || node.kind === 'waitForState'}
+		{#if (node.kind === 'componentInstance' || node.kind === 'waitForState') && !spawnedWait}
 			{#if instanceDecl}
 				<p class="hint">
 					<strong>{instanceDecl.name}</strong> on screen <code>{node.container}</code> — component
@@ -639,6 +674,35 @@
 			</p>
 		{/if}
 
+		{#if node.kind === 'waitForState' && node.componentId !== undefined}
+			<label class="field">
+				<span class="flabel">Spawned component</span>
+				<select
+					value={node.componentId}
+					onchange={(e) =>
+						onchange(
+							setWaitForStateFields(doc, node.id, {
+								componentId: e.currentTarget.value,
+								layer: '',
+								state: '',
+							}),
+						)}
+				>
+					{#if !spawnComponents.includes(node.componentId)}
+						<option value={node.componentId}>{node.componentId || '(pick a component)'}</option>
+					{/if}
+					{#each spawnComponents as c (c)}
+						<option value={c}>{c}</option>
+					{/each}
+				</select>
+			</label>
+			{#if instanceDecl?.missing === 'def'}
+				<p class="hint">
+					<strong>Its component is not in this project</strong> — restore it in the Scene Editor.
+				</p>
+			{/if}
+		{/if}
+
 		{#if node.kind === 'waitForState'}
 			<label class="field">
 				<span class="flabel">Layer</span>
@@ -671,6 +735,100 @@
 			<p class="hint">
 				Holds the chain until the layer is in that state (at once when it already is). An instance
 				not on screen, or hidden, does not hold; a slam releases it.
+			</p>
+			{#if spawnedWait}
+				<p class="hint">
+					Feed <strong>instance</strong> the handle to wait on (a Spawn's output, a
+					<code>$live</code> loop's <code>$item</code>). Blank on a chain a spawned instance's event
+					started: that instance.
+				</p>
+			{/if}
+		{/if}
+
+		{#if node.kind === 'spawn'}
+			<label class="field">
+				<span class="flabel">Spawn layer</span>
+				<select value={node.layer} onchange={(e) => onSpawnLayerChange(e.currentTarget.value)}>
+					{#if !spawnLayer}
+						<option value={node.layer}>{node.layer || '(pick a layer)'}</option>
+					{/if}
+					{#each spawnLayerList as l (l.layer)}
+						<option value={l.layer}>{l.name} · {l.placement} · cap {l.cap}</option>
+					{/each}
+				</select>
+			</label>
+			<label class="field">
+				<span class="flabel">Component</span>
+				<select
+					value={node.componentId}
+					onchange={(e) => onSpawnFieldChange({ componentId: e.currentTarget.value })}
+				>
+					{#if !spawnLayer?.spawnable.some((s) => s.componentId === node.componentId)}
+						<option value={node.componentId}>{node.componentId || '(pick a component)'}</option>
+					{/if}
+					{#each spawnLayer?.spawnable ?? [] as sp (sp.componentId)}
+						<option value={sp.componentId}
+							>{sp.componentId}{sp.missing ? ' (component missing)' : ''}</option
+						>
+					{/each}
+				</select>
+			</label>
+			<label class="field">
+				<span class="flabel">Place at</span>
+				<select
+					value={node.at ?? 'xy'}
+					onchange={(e) =>
+						onSpawnFieldChange({ at: e.currentTarget.value === 'cell' ? 'cell' : 'xy' })}
+				>
+					<option value="xy">A point (x / y, in the layer's space)</option>
+					{#if spawnLayer?.placement === 'grid' || node.at === 'cell'}
+						<option value="cell">A cell (col / row of the layer's grid)</option>
+					{/if}
+				</select>
+			</label>
+			{#if spawnLayerList.length === 0}
+				<p class="hint">
+					No screen of this flow places a <strong>Spawn layer</strong>. Add one in the Scene Editor
+					and list the components it may spawn.
+				</p>
+			{:else}
+				<p class="hint">
+					<strong>spawned</strong> is off when the layer refuses it: it is full (cap {spawnLayer?.cap ??
+						'?'}), does not list the component, or the cell is off its grid. The layer lists what it
+					may spawn in the Scene Editor.
+				</p>
+			{/if}
+		{/if}
+
+		{#if node.kind === 'despawn'}
+			<p class="hint">
+				Removes the instance on <strong>instance</strong> (a Spawn's output, a <code>$live</code>
+				loop's <code>$item</code>). One already gone is ignored, so removing inside a loop over the
+				same layer is safe.
+			</p>
+		{/if}
+
+		{#if node.kind === 'instanceRef'}
+			<label class="field">
+				<span class="flabel">Spawned component</span>
+				<select
+					value={node.componentId}
+					onchange={(e) => onchange(setInstanceRefComponent(doc, node.id, e.currentTarget.value))}
+				>
+					{#if !spawnComponents.includes(node.componentId)}
+						<option value={node.componentId}>{node.componentId || '(pick a component)'}</option>
+					{/if}
+					{#each spawnComponents as c (c)}
+						<option value={c}>{c}</option>
+					{/each}
+				</select>
+			</label>
+			<p class="hint">
+				Its pins follow the component, as on a placed instance. Feed <strong>instance</strong> the
+				handle to address; its <strong>on‹Event›</strong> outlets run when ANY spawned
+				<code>{node.componentId || '…'}</code> raises the event, and then a blank
+				<strong>instance</strong> means the one that raised it (also on
+				<code>$trigger.instance</code>).
 			</p>
 		{/if}
 
@@ -1395,7 +1553,7 @@
 					value={src.value}
 					commit={(value) => commit({ kind: 'literal', type: lt, value })}
 				/>
-			{:else if lt.t === 'list' && lt.of.t !== 'struct' && lt.of.t !== 'list'}
+			{:else if lt.t === 'list' && lt.of.t !== 'struct' && lt.of.t !== 'list' && lt.of.t !== 'instance'}
 				<input
 					type="text"
 					class="listlit"
@@ -1408,7 +1566,7 @@
 							value: parseListLiteral(e.currentTarget.value, lt.of),
 						})}
 				/>
-			{:else if lt.t === 'struct' || lt.t === 'list'}
+			{:else if lt.t === 'struct' || lt.t === 'list' || lt.t === 'instance'}
 				<span class="note">{typeLabel(lt)} must be wired</span>
 			{:else}
 				<input
@@ -1445,6 +1603,7 @@
 				else if (on === 'trigger') commit({ on: 'trigger' });
 				else if (on === 'context') commit({ on: 'context' });
 				else if (on === 'var') commit({ on: 'var', id: variables[0]?.id ?? '' });
+				else if (on === 'live') commit({ on: 'live', layer: spawnLayerList[0]?.layer ?? '' });
 				else commit({ on: 'input', name: '' });
 			}}
 		>
@@ -1455,6 +1614,9 @@
 			<option value="context">$context</option>
 			<option value="input">$input</option>
 			<option value="var">$var</option>
+			{#if spawnLayerList.length > 0 || acc.on === 'live'}
+				<option value="live">$live</option>
+			{/if}
 		</select>
 
 		{#if acc.on === 'item'}
@@ -1525,6 +1687,19 @@
 				{/if}
 				{#each variables as v (v.id)}
 					<option value={v.id}>{v.id} · {v.type}</option>
+				{/each}
+			</select>
+		{:else if acc.on === 'live'}
+			<select
+				class="acc-detail"
+				value={acc.layer}
+				onchange={(e) => commit({ on: 'live', layer: e.currentTarget.value })}
+			>
+				{#if !spawnLayers[acc.layer]}
+					<option value={acc.layer}>{acc.layer || '(pick a layer)'}</option>
+				{/if}
+				{#each spawnLayerList as l (l.layer)}
+					<option value={l.layer}>{l.name}</option>
 				{/each}
 			</select>
 		{/if}

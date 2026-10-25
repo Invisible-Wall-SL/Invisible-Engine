@@ -8,6 +8,8 @@ export * from './src/triggers';
 export * from './src/containerEvents';
 export * from './src/containerScenes';
 export * from './src/instanceNodes';
+export * from './src/spawn';
+export * from './src/spawnNodes';
 export * from './src/types-check';
 export * from './src/validate';
 export * from './src/variableValidate';

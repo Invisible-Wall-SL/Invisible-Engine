@@ -20,12 +20,18 @@ const sameScalar = (a: TypeRef['t'], b: TypeRef['t']): boolean => {
  * Is a value of type `from` assignable to a pin of type `to`?
  *
  * Structural equality with the single `ms`↔`int` widening. Recurses into `list.of`;
- * matches `enum`/`struct` by declared name.
+ * matches `enum`/`struct` by declared name, and an `instance` by its component (none ⇒ any).
  */
 export const assignable = (from: TypeRef, to: TypeRef): boolean => {
 	// Lists: element types must themselves be assignable (invariant, structural).
 	if (from.t === 'list' && to.t === 'list') return assignable(from.of, to.of);
 	if (from.t === 'list' || to.t === 'list') return false;
+
+	// A spawned instance's handle: an `instance` of no component is any instance, either way (a
+	// live set with several spawnable components feeds an instance ref of one of them).
+	if (from.t === 'instance' && to.t === 'instance')
+		return !from.component || !to.component || from.component === to.component;
+	if (from.t === 'instance' || to.t === 'instance') return false;
 
 	// Named nominal types: same kind AND same declared name.
 	if (from.t === 'enum' && to.t === 'enum') return from.name === to.name;

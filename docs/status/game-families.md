@@ -2,8 +2,9 @@
 
 > Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `invisible-game-config`, `invisible-game-maker`, then per phase
 
-**One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.5 are merged; P10.6
-(match-3, RGS-decided) is built** and in review. A match-3 project can be made in Game Maker as free
+**One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.6 are merged; P10.7
+(spawning) is built** and in review: a screen can hold a Spawn layer that Flow fills, empties and
+walks while the game runs; nothing uses it until arcade (P10.8). A match-3 project can be made in Game Maker as free
 play (P10.5) or real money (P10.6): in the second the bet deals the server's board, every swap is a
 `move` request, the server ends the round and it is collected once. It plays against the test
 server's `match3` mock on our own wire. Publishing a game that is not a slot stays off, and live
@@ -11,7 +12,110 @@ real money waits on the partner (§9 #2).
 
 ## Current state
 
-**P10.6 — Match-3, RGS-decided (built 2026-10-25; in review).** §8's P10.6 row, in one PR.
+**P10.7 — Spawning (built 2026-10-25; in review).** §8's P10.7 row (§3.3), in one PR. No game uses
+any of it yet.
+
+- **The layout node** (`engine-layout` `types.ts`): `spawnLayer { spawnable: componentId[],
+  placement: 'free'|'grid', grid?: {cols, rows, pitch}, cap? }`, in `LAYOUT_NODE_KINDS` (the save
+  keeps it; `componentFields.ts` knows its four fields). Its fields are read defensively in
+  `spawnLayerFields.ts` (`spawnableComponentIds`, `spawnLayerGrid`, `spawnLayerSpec`,
+  `sceneSpawnLayers`); the caps live in `constants-shared/spawn.ts` (default 32, hard 256).
+  `<SpawnLayer>` (from `LayoutNodeView`, under the node's transform) draws one `ComponentInstance`
+  per live instance at its spawned place, keyed by its handle id.
+- **The live set** (`engine-flow-v2` `spawn.ts`, `createSpawnStore`): pure, shared by the game, the
+  `/flow-v2` preview and the gate. A spawn needs a declared layer that lists the component, room
+  under its cap and, for a cell, a grid that holds it; anything else is refused, reported and
+  dropped. `live(layer)` is a fresh array on every read. The game's one store is
+  `engine-layout/svelte`'s `spawnStore()` (off the bare entry, which Node scripts load).
+- **Flow** (`engine-flow-v2`): nodes `spawn {layer, componentId, at?: 'xy'|'cell'}` (data-ins x / y or
+  col / row; data-outs `instance`, `spawned`), `despawn` (data-in `instance`), `instanceRef
+  {componentId}` (the component's interface pins, plus data-in `instance` and data-out `handle`),
+  a spawned `waitForState` (`componentId` set, handle on `instance`); the type `instance<component>`;
+  the accessor `$live.<layer>` (`list<instance<…>>`); `$item.id / layer / componentId / x / y / col /
+  row` over it. Pins and lookups in `spawnNodes.ts`; env hooks `spawn`, `despawn`,
+  `liveInstances`, `spawnedRef` (`env.ts` passes them through). A spawned instance's raised event
+  runs the `event:<e>` chain of the Instance ref of its component (`runFlowSpawnedEvent`,
+  `flowOwnsSpawnedEvent`), with the raiser in `$trigger.instance`.
+- **Validation** (`spawnValidate.ts`, judged only with the projection): `spawn-layer-unknown`
+  (also a `$live` read), `spawn-not-spawnable`, `spawn-cell-free`, `spawn-handle-unfed` (a warning),
+  `instance-missing` for a spawnable whose def is gone, and the instance checks for an Instance ref
+  and a spawned wait (`instance-pin-missing`, `instance-state-unknown`, `instance-text-key`,
+  `instance-event-duplicate`).
+- **The game** (`apps/lines` `flowV2Runtime.svelte.ts`): only a doc that spawns
+  (`flowUsesSpawn`) gets the live set — cleared, then every layer of the screens declared, so a
+  spawn into one not on screen is kept. A handle is reached as a placement on its layer's screen
+  (the shown container first), so the Phase 7 waits apply (a fire right after a spawn waits for the
+  mount). A despawn forgets what was stashed for that instance (`dropFlowInstanceStash`). The
+  boot's stock-asset prune (`stockAssets.ts`) walks every spawnable def.
+- **Rule 8:** `collectComponentIds` collects every `spawnable`, so the doc bake, the runtime bundle,
+  the art export and the harness's republish all ship them and what they nest. Invisible
+  Localization harvests a spawnable's text (`harvestSceneText`) and the keys an Instance ref feeds
+  it (`instanceTextKeys` over `placedInstanceTextSources` and `spawnedInstanceTextSources`), and a
+  scaffold keeps a reference layout's spawn layer (`engineOwnedOnly`).
+- **Launcher:** `projectSpawnLayers` (`flowV2Projection.ts`) feeds the `/flow-v2` loader, its
+  validation and the publish gate. The Scene Editor inserts a Spawn layer on a screen (not in the
+  Component Editor), draws it as a placeholder (its grid lattice or a dashed box, `⊕ name · N
+  spawnable · cap C`) and edits its list, placement, grid and cap (`EditorSpawnLayer.svelte`).
+  `/flow-v2` has a Spawning palette section, inspector fields, `$live` in the accessor picker and
+  spawn / refused / despawn rows in Preview. Guides: [tools/invisible-editor.md](../tools/invisible-editor.md#spawn-layer--a-field-flow-fills-while-the-game-runs),
+  [tools/flow.md](../tools/flow.md#spawning--create-and-remove-components-in-play).
+- **Gates:** `check:flow-spawn` (launcher, 91: the live set and its cap, the cap through the
+  interpreter, despawn inside `forEach` over `$live` with a fresh or a shared array, Instance ref
+  sets / fires / events / wrong-component and empty handles, pins, `instance<…>` typing, every
+  code, the preview, the ship walk, the localization harvest, the scaffold and the projection,
+  parity scans); `check:art-scope` §7 (a component only a
+  spawn layer lists has its art in scope and shipped, with a def it nests); `stockAssets.fixture.ts`
+  (a stock frame a spawnable draws is kept). Two source-scan gates re-pinned to moved lines
+  (`check:flow-instance-nodes`, `check:flow-instance-nodes-editor`).
+- **Verified by playing:** `scripts/playtest/spawn-play.mjs` on the branch runtime (the match-3 rules
+  sample plus a Spawn layer of cap 4 and four chains): coins spawned on a 300 ms tick, each one's
+  `pop` reached the mounted instance, its `popped` event ran the Instance-ref chain that despawned
+  it; rocks filled the layer and the cap refused the rest, never more than 4 live; the sweep
+  (`forEach` over `$live`, Despawn) emptied it; no page error.
+- **Bundle size** (the release build's `index.html`; `main` at 45164ec vs this branch merged with
+  it): 3,694,259 B / 1,264,128 B gz → 3,701,791 B / 1,266,582 B gz: **+7.5 KB raw, +2.5 KB gz
+  (+0.20 %)**, downloaded by every game, run by none that does not spawn.
+- **Slot parity:** a doc with no spawn node and a layout with no `spawnLayer` behave as before: the
+  game builds no live set and wires no spawn hook; `ownsInstanceEvent` / `dispatchInstanceEvent`
+  take the old path; the `componentInstance` node's body moved into `applyInstance` unchanged; the
+  instance-event edge lookup is generalised with the same result for a placed instance. Edited
+  shared modules: `runtime.ts`, `pins.ts`, `validate.ts`, `triggers.ts`, `types-check.ts`,
+  `env.ts`, `preview.ts`, `LayoutNodeView.svelte`, `collectComponentIds.ts`, `flowInstances.ts` (one
+  added function), `flowV2Runtime.svelte.ts`, `stockAssets.ts`, `componentFields.ts`, the editor's
+  canvas / outline / properties. The current-games harness is not edited.
+- **Chosen in P10.7, owner may overturn** (the plan does not fix them):
+  - **one PR**, not split;
+  - a handle is a frozen snapshot `{ id, layer, componentId, x, y, col?, row? }`, its id
+    `<layer>#<n>`, never reused; it does not move (motion is P10.8);
+  - `instance` with no component is any instance and is assignable both ways, so a mixed live set
+    feeds an Instance ref; at runtime an Instance ref or spawned wait skips a handle of another
+    component;
+  - cap default 32, hard 256; a refused spawn is dropped, warned once per layer / component /
+    reason and traced; Spawn's `spawned` reads false;
+  - grid cell (col, row) sits at (col × pitch, row × pitch), one square pitch; occupancy is not
+    checked; x / y is allowed on a grid layer; an incomplete lattice places freely;
+  - the live set is the session's, not the screen's: a spawn into a layer not on screen is kept;
+    it is not reset per round; a new flow handle starts it empty;
+  - an Instance ref's `instance` pin is optional (blank on its component's event chain = the
+    raiser; a fed pin that resolves nothing, a refused Spawn's, addresses nothing); the first wire of a spawned component's event wins (`instance-event-duplicate`);
+  - a spawnable's interface is its latest def's (a spawned instance pins no version);
+  - a spawn layer belongs on a screen; one inside a component def is drawn but Flow cannot name it;
+  - the validation codes' names; `spawn-handle-unfed` is a warning;
+  - the editor UI: the Spawning palette section, `$live` and the pin-drop entries show only when a
+    screen has a spawn layer, never in a function body; one Spawn entry per layer and component;
+    a new Spawn's x / y start unset; grid cells drawn as squares centred on their spawn points; the
+    free placeholder a nominal 320 × 200; no anchor on a spawn layer; switching to grid seeds 6 × 4
+    at 120; no art preview of the spawnables; double-clicking an Instance ref opens nothing.
+- **Not done here:** motion, tags and the arcade game (P10.8); `despawnOutsideView` (P10.12); the
+  State machine tab / `/flow-v2` previews do not run a spawned instance's state machine, so a
+  spawned instance's events never fire in Preview; no current-games fixture spawns.
+- **Known limits** (none reachable by a current game):
+  - a spawned instance remounted (its screen hidden and shown) restarts its state machine;
+  - a component event payload field named `instance` is shadowed by the handle on its chain;
+  - in a `parallel` `forEach`, a Spawn's outputs are the node's last run (as a function call's);
+  - spawned instances stack in spawn order; there is no z per instance.
+
+**P10.6 — Match-3, RGS-decided (built 2026-10-25; merged #1337).** §8's P10.6 row, in one PR.
 
 - **The wire — ours, labelled** ([reference/match3-wire.md](../reference/match3-wire.md)): `bet`+
   `play` → `match3Board`; one stored `move {from, to}` per swap under the `gid` → `match3Move` (its
@@ -620,6 +724,8 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-25 — **P10.7 built: spawning.** The `spawnLayer` node, the Spawn / Despawn / Instance ref
+  nodes, `$live` sets, the cap, and spawnables on the ship chain. Detail above.
 - 2026-10-25 — **The A4 design is approved** (owner): all eight decisions in
   [realtime-multiplayer.md](../design/realtime-multiplayer.md) §14 as recommended (Colyseus 0.18;
   rules on the server as `engine-mechanics` data, which settles §9 #18; a 30 Hz step with two physics

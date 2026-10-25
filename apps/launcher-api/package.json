@@ -120,6 +120,8 @@
 		"check:flow-instance-nodes": "tsx --tsconfig tsconfig.scripts.json scripts/check-flow-instance-nodes.ts",
 		"precheck:flow-instance-nodes-editor": "node scripts/ensure-svelte-kit.mjs",
 		"check:flow-instance-nodes-editor": "tsx --tsconfig tsconfig.scripts.json scripts/check-flow-instance-nodes-editor.ts",
+		"precheck:flow-spawn": "node scripts/ensure-svelte-kit.mjs",
+		"check:flow-spawn": "tsx --tsconfig tsconfig.scripts.json scripts/check-flow-spawn.ts",
 		"precheck:flow-time-events": "node scripts/ensure-svelte-kit.mjs",
 		"check:flow-time-events": "tsx --tsconfig tsconfig.scripts.json scripts/check-flow-time-events.ts",
 		"precheck:match3-rules": "node scripts/ensure-svelte-kit.mjs",

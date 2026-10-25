@@ -469,6 +469,9 @@ It is grouped into:
   buy-feature cards). A layout may carry as many repeaters as you like. On the Components side,
   **Repeat (count)** draws one component N times instead — a
   [segmented counter](#segmented-counters--repeat-count) of free spins or respins.
+  On a screen (not in the Component Editor), click **Spawn layer** to insert a field that
+  [Invisible Flow](./flow.md) fills with components while the game runs — see
+  [Spawn layer](#spawn-layer--a-field-flow-fills-while-the-game-runs).
 - **Atlases** — composed atlas pages and atlas manifests. Manifest entries
   expand to their individual regions, which you drag in one at a time.
 - **Rigs** — the project's rig bundles (plus shared `_shared/` bundles,
@@ -1182,6 +1185,30 @@ the moment a per-ratio override moves the board.
 Tiles paint behind every symbol, scale with their row under perspective, and dim
 with the win highlight — the paying cells' tiles stay bright while the rest darken,
 in lockstep with the symbols above them.
+
+#### Spawn layer — a field Flow fills while the game runs
+
+A **Spawn layer** holds component instances that a flow creates and removes during play: enemies,
+coins, falling stars. Insert one from **Library → Elements → Spawn layer**; it lands at the centre
+of the active screen. Position it with **Transform** like any node. The editor runs no flow, so the
+canvas draws the field, not the instances: a grid layer draws its cells with a dot on each spawn
+point, a free layer a dashed box. The label reads `⊕ <name> · N spawnable · cap N`.
+
+Its Properties block:
+
+- **spawnable** — the components Flow may spawn here. Pick one in **add component**; reorder with
+  **↑** / **↓**, remove with **×**. A component that is no longer in the project reads
+  **(missing)**. These are the components shipped with the game, even when no screen places one,
+  so list every component the flow spawns: one it spawns but this list leaves out does not ship.
+- **placement** — **free** (a spawn names a point x / y in the layer's space) or **grid** (a spawn
+  names a cell col / row, or a point). Grid shows **cols**, **rows** and **pitch** (px between
+  cells, starting at 6 × 4 at 120). Cell (0, 0) sits at the layer's origin. Until cols and rows are
+  whole and pitch is above 0, the layer places freely.
+- **cap** — the most instances alive at once, 1 to 256; blank means 32. A spawn over the cap is
+  dropped.
+
+How Flow spawns into the layer: [Spawning](./flow.md#spawning--create-and-remove-components-in-play).
+The engine design is in [game families §3.3](../design/game-families.md).
 
 ### 5. Author across device layouts
 

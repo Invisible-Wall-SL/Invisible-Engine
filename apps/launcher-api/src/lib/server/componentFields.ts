@@ -126,6 +126,10 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	variants: true,
 	passInputs: true,
 	previewInputs: true,
+	spawnable: true,
+	placement: true,
+	grid: true,
+	cap: true,
 };
 const componentDefFields: Record<keyof ComponentDef, true> = {
 	id: true,

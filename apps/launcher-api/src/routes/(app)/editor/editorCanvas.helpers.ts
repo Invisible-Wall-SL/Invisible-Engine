@@ -20,6 +20,7 @@ import {
 	repeaterSegmentSize,
 	repeaterSegmentValues,
 	resolveTransform,
+	spawnLayerSpec,
 	type BoneRiderBinding,
 	type CountRepeaterNode,
 	type ComponentDef,
@@ -31,6 +32,7 @@ import {
 	type ResolvedTransform,
 	type RigRestOverride,
 	type Scene,
+	type SpawnLayerNode,
 } from 'engine-layout';
 import type { Skeleton } from 'engine-rig';
 
@@ -523,6 +525,32 @@ export function repeaterBoxes(
 	return boxes;
 }
 
+/** A `free` spawn layer's editor stand-in, centred on the layer's origin: a free spawn names any
+ *  point in the layer's space, and the editor runs no flow, so the extent is nominal. */
+export const SPAWN_LAYER_FREE_PLACEHOLDER = { w: 320, h: 200 } as const;
+
+/** A `spawnLayer`'s editor placeholder: the spec the game enforces (`spawnLayerSpec` — a grid
+ *  layer whose lattice is not whole places freely there, so it draws free here) and the box the
+ *  canvas draws and selects. A grid cell (col, row) is a `pitch`-square centred on its spawn point
+ *  (col·pitch, row·pitch); the layer ignores its anchor in game, so the box is fixed to the origin. */
+export function spawnLayerPlaceholder(node: SpawnLayerNode): {
+	spec: ReturnType<typeof spawnLayerSpec>;
+	box: NodeBox;
+} {
+	const spec = spawnLayerSpec(node);
+	const grid = spec.grid;
+	if (!grid) return { spec, box: { ...SPAWN_LAYER_FREE_PLACEHOLDER, ax: 0.5, ay: 0.5 } };
+	return {
+		spec,
+		box: {
+			w: grid.cols * grid.pitch,
+			h: grid.rows * grid.pitch,
+			ax: 1 / (2 * grid.cols),
+			ay: 1 / (2 * grid.rows),
+		},
+	};
+}
+
 /** The selectable frame of a count-mode repeater that draws nothing (no segment, or unsized ones). */
 export const REPEATER_SEGMENT_PLACEHOLDER = { w: 80, h: 80 } as const;
 
@@ -868,6 +896,7 @@ function ownBox(
 		});
 		return { w: g.w, h: g.h, ax, ay };
 	}
+	if (node.kind === 'spawnLayer') return spawnLayerPlaceholder(node).box;
 	// A rect frames at its own width/height (the fill box) — like a sprite, but the
 	// size is intrinsic to the node (no art), so the transform handles resize it.
 	if (node.kind === 'rect') {

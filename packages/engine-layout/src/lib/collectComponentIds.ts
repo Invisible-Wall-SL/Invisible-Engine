@@ -1,4 +1,5 @@
 import { repeaterComponentIds } from './repeaterCount';
+import { spawnableComponentIds } from './spawnLayerFields';
 import type { ComponentDef, LayoutNode } from './types';
 
 /**
@@ -26,6 +27,9 @@ export function collectComponentIds(nodes: LayoutNode[]): string[] {
 		// config side that owns them. This walk still ships the repeater's shared `componentId`, and a
 		// count-mode repeater's first / middle / last segment variants.
 		if (node.kind === 'repeater') for (const id of repeaterComponentIds(node)) ids.add(id);
+		// A `spawnLayer` instantiates any of its `spawnable` components at runtime (game-families
+		// §3.3), so each rides the chain like a placed instance: declared on the node for exactly this.
+		if (node.kind === 'spawnLayer') for (const id of spawnableComponentIds(node)) ids.add(id);
 		const children = (node as { children?: LayoutNode[] }).children;
 		if (Array.isArray(children)) children.forEach(walk);
 	};
