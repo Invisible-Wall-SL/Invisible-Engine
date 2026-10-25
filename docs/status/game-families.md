@@ -614,12 +614,22 @@ game, bundle or screen changes.
 
 ## Blocked (owner / external)
 
-- Nothing for P10.1. §9 #18 (where an online game's rules run) is still open; it blocks only A4.
-  The A4 design, [realtime-multiplayer.md](../design/realtime-multiplayer.md), recommends
-  `engine-mechanics` data on the server; its decisions §14 #1–#8 wait on the owner.
+- Nothing for P10.1. The A4 design, [realtime-multiplayer.md](../design/realtime-multiplayer.md),
+  is approved (2026-10-25), which settles §9 #18. When P10.14 ships, the owner creates the
+  `rooms.invisiblewall.org` DNS record (its §14 #8).
 
 ## Recent changes
 
+- 2026-10-25 — **The A4 design is approved** (owner): all eight decisions in
+  [realtime-multiplayer.md](../design/realtime-multiplayer.md) §14 as recommended (Colyseus 0.18;
+  rules on the server as `engine-mechanics` data, which settles §9 #18; a 30 Hz step with two physics
+  sub-steps and state at 20 Hz; Salmons' river stays generated; bots fill to 20 as bears and
+  fishermen and cannot win; a new round 15 s after a win; a service in this repository's Railway
+  project; `rooms.invisiblewall.org`).
+- 2026-10-25 — **P10.9's Elastic / Bounce eases built** (ahead of the rest of P10.9, which the
+  plan allowed): two named `CinematicEase` presets in `engine-cinematic` and the Timeline's
+  Interpolation panel. Detail in [cinematic status](cinematic.md) 2026-10-25. N-slice, rulers and
+  guides and the Graph Editor are still P10.9's.
 - 2026-10-25 — **P10.6 built: match-3, RGS-decided.** The bet deals the server's board, each swap
   is a `move`, the round is collected once; our own wire on the test server's `match3` mock; live
   real money waits on the partner. Detail above.

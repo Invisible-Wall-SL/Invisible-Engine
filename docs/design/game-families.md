@@ -14,7 +14,8 @@
 > salmon, a bear or a fisherman), so multiplayer is **in scope for arcade** as tier A4 (§4.5,
 > P10.14–P10.16); character data lives in Game Config; the card family is confirmed; card-game PvP
 > stays later. Later the same day: Colyseus is the game server, and Salmons is isometric; its art
-> gets a pass before the rebuild (§1). §9 #13–#17 and #19 decided; #18 open.
+> gets a pass before the rebuild (§1). §9 #13–#17 and #19 decided; #18 decided 2026-10-25 with the
+> A4 design.
 >
 > This is Phase 10 of
 > [rive-style-editor.md](rive-style-editor.md) §10. It is the separate design that §7.2 promised for
@@ -806,8 +807,8 @@ the camera comes first (§8).
 **In short:** up to 100 players in one game, each on their own device. The server owns the game; a
 device only sends what its player presses and draws what the server says, with its own player
 predicted so the controls feel instant. This is new ground for the engine, so A4 gets a design doc
-of its own, [realtime-multiplayer.md](realtime-multiplayer.md) (a plan awaiting the owner's
-review), before any build. This section records its shape; that doc owns the detail.
+of its own, [realtime-multiplayer.md](realtime-multiplayer.md) (approved by the owner
+2026-10-25), before any build. This section records its shape; that doc owns the detail.
 
 - **The server owns the game.** It runs the simulation (`engine-mechanics`: motion, behaviours,
   abilities) at a fixed 60 Hz and sends state at 20 Hz (Salmons sends at 60 Hz today; the A4 doc's §5
@@ -824,9 +825,8 @@ review), before any build. This section records its shape; that doc owns the det
   `engine-mechanics`.
 - **Rules move to the server.** In a single-player rules game, Flow owns the rules on the device
   (§2.3). Online, the rules that decide the game (who was caught, who scored, when the round ends)
-  must run on the server. Whether the Flow interpreter runs headless there (it already runs headless
-  in `/flow-v2` Preview) or online rules are limited to `engine-mechanics` data is the A4 design's
-  main question (§9 #18). Presentation stays in the device's Flow either way.
+  must run on the server, as `engine-mechanics` data, with a named rules module for what the data
+  cannot say (§9 #18). Presentation stays in the device's Flow.
 - **Config:** `GameConfigDoc.arcade.online`: `maxPlayers` (Salmons: 100), the playable characters
   and how many of each a room allows, the tick rates, and whether bots fill empty places.
 - **The runtime** gets an online branch, as it has a free-play one (§2.3): it joins a room instead
@@ -871,7 +871,7 @@ each one is assigned to the phase that first needs it.
 | **Tags** | Arcade collision filters (`enemy`, `pickup`); a `spawnable` group | **P10.8** | S |
 | **N-slice** | Goal panels, progress bars and HUD frames that resize per board size and device layout | **P10.9** | M |
 | **Rulers and guides** | Laying out a play field and board precisely | **P10.9** | S |
-| **Graph Editor + Elastic / Bounce** | Match-3 "juice": gems that land with a bounce, pops that overshoot | **P10.9** (Elastic/Bounce as `CinematicEase` presets can land earlier, with P10.5) | M |
+| **Graph Editor + Elastic / Bounce** | Match-3 "juice": gems that land with a bounce, pops that overshoot | **P10.9**. Elastic / Bounce as `CinematicEase` presets: ✅ built 2026-10-25 | M |
 | **Blend states (1D)** | An arcade character's idle → run, blended by speed | **P10.11** (characters need it; moved from P10.10 on 2026-10-22) | L |
 | **Text modifiers** | Per-glyph score pops | Stays **Later**; not needed for v1 | — |
 
@@ -1133,12 +1133,12 @@ and jumps (P10.11–P10.13), then online rooms (P10.14–P10.16). Card games get
 | P10.6 | **Match-3, RGS-decided** — ✅ built 2026-10-25 (on our mock; live real money waits on the partner) | The `move` action and events (ours, labelled); the **interactive round** path in the primary machine (a round open across player-paced requests); the `move` request exported from both transports; `mock-rgs-server-match3.mjs` (deals from the project's config, fixed-at-bet math, resume mid-round), with the Dockerfile copying `board.js` + its `package.json`, and `match3` added to every protocol list; facade translation; `withOutcome('rgs')`; the outcome guards; the RGS sample. **Live real money waits on the partner (§9 #2)** | `rgs-translator-eagaming`, `rgs-requests`, `utils-xstate`, `scripts/`, `services/test-server`, `engine-flow-v2`, launcher | L+ |
 | P10.7 | **Spawning** | `spawnLayer` node, `spawn` / `despawn` / `instanceRef`, `live:<layer>` sets, cap, the ship-chain collection of spawnables | `engine-layout`, `engine-flow-v2`, `apps/lines`, exporters | M–L |
 | P10.8 | **Arcade, rules-decided** | `motion.js`, the fixed-step loop, tags, `ARCADE_VOCAB` + seed, `<ArcadeStage />`, the arcade layout template, a catcher / dodger sample + playbook. Re-checks §6.4 before starting | `engine-mechanics`, `engine-game`, `engine-flow-v2`, `apps/lines`, launcher | L |
-| P10.9 | **Editor polish (Rive Later)** | N-slice; rulers and guides; the Graph Editor; Elastic / Bounce eases | `/editor`, `engine-cinematic` (ease presets), `engine-layout` | M each |
+| P10.9 | **Editor polish (Rive Later)** | N-slice; rulers and guides; the Graph Editor; Elastic / Bounce eases (✅ built 2026-10-25) | `/editor`, `engine-cinematic` (ease presets), `engine-layout` | M each |
 | P10.10 | *(optional, after a decision)* **Arcade on the RGS** | A server-decided "prize" arcade (the server sends the result, the arcade plays to it). 1D blend states moved to P10.11 | `rgs-translator-eagaming` | L |
 | P10.11 | **Arcade A2: characters** | `behaviours.js` and the brain; `motion.js` acceleration, solid response and paths; the player controllers; `animInputs`; 1D blend states; the `path` node; **Invisible Characters** (`/characters`) with its sandbox, and its docs under rule 9; a sample with an enemy that patrols and chases | `engine-mechanics`, `engine-game`, `engine-layout` (state machine, `path`), `engine-flow-v2`, `packages/game-config`, launcher | L |
 | P10.12 | **Arcade A3a: world and camera** | `world` + `camera` on a play-field screen; follow, dead zone, auto-scroll, shake; parallax; despawn outside the view; culling; the camera Flow nodes and keys | `engine-game` (`<ArcadeStage />`), `engine-layout`, `engine-flow-v2`, `/editor` | M–L |
 | P10.13 | **Arcade A3b: gravity, jumps and levels** | Gravity, grounded, one-way platforms, sub-steps; the `gravity` and `hop` jumps and the `flap` controller; the `tilemap` node, its paint mode and the tileset export | `engine-mechanics`, `engine-layout`, `/editor`, exporters | L |
-| P10.14 | **Arcade A4a: the game server** | Needs the A4 design doc first. `services/game-server` (§9 #17) running `engine-mechanics` at a fixed step; rooms; join, leave and rejoin; inputs-only messages; `GameConfigDoc.arcade.online`; the runtime's online branch | new service, `engine-mechanics`, `apps/lines`, `packages/game-config`, `docs/INFRA.md` | L |
+| P10.14 | **Arcade A4a: the game server** | Per the A4 design ([realtime-multiplayer.md](realtime-multiplayer.md), approved 2026-10-25). `services/game-server` (§9 #17) running `engine-mechanics` at a fixed step; rooms; join, leave and rejoin; inputs-only messages; `GameConfigDoc.arcade.online`; the runtime's online branch | new service, `engine-mechanics`, `apps/lines`, `packages/game-config`, `docs/INFRA.md` | L |
 | P10.15 | **Arcade A4b: netcode** | Own-player prediction and reconciliation; interpolation of everyone else; the online rules, as §9 #18 decides | `engine-game`, `apps/lines`, the game server | L |
 | P10.16 | **Arcade A4c: 100 players and Salmons** | Server-side bots that fill places (A2 brains); the 100-bot load test; nearby-only sending if the test needs it; Salmons rebuilt as data on the engine from S0's art, with `docs/playtest/salmons.md` | the game server, launcher, docs | L |
 
@@ -1244,12 +1244,14 @@ so is #12's scope (its shape is a recommendation); the owner answered #13–#16 
     - **Colyseus**, in a new `services/game-server`, because Salmons already runs on it and its
       rooms, schema and lobby are proven there. Its movement and collision move to
       `engine-mechanics`, so there is one simulation.
-18. **Where an online game's rules run.** *(open; the A4 design doc's main question)*
-    - Either the Flow interpreter runs headless on the server, so online rules are authored in Flow
-      as single-player ones are, or online rules are limited to `engine-mechanics` data.
-      Presentation stays on the device either way.
-    - The A4 design recommends **`engine-mechanics` data on the server**, with a named rules module
-      for what the data cannot say ([realtime-multiplayer.md](realtime-multiplayer.md) §4, §14 #2).
+18. **Where an online game's rules run.** *(owner, 2026-10-25: on the server, as `engine-mechanics`
+    data)*
+    - The choice was the Flow interpreter running headless on the server, so online rules are
+      authored in Flow as single-player ones are, or online rules limited to `engine-mechanics`
+      data. Presentation stays on the device either way.
+    - Decided with the A4 design: **`engine-mechanics` data on the server**, with a named rules
+      module for what the data cannot say ([realtime-multiplayer.md](realtime-multiplayer.md) §4,
+      §14 #2).
 19. **Salmons' view.** *(owner, 2026-10-22: "sort of isometric")*
     - **Isometric**, on 2:1 diamond tiles (its map uses 64 × 32). So P10.12 builds the isometric
       projection and depth order, and P10.13 builds the `hop` jump and diamond tiles first (§4.4).

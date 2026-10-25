@@ -625,7 +625,7 @@
 			},
 			"tl": "ff11292aa4cbc66c",
 			"panel": "678c2f0931759155",
-			"props": "0b49029db592f2c6"
+			"props": "f1ba6d88dbb90bf6"
 		},
 		{
 			"name": "key inspector: ease",
@@ -644,7 +644,7 @@
 			},
 			"tl": "14cb151de1ea43ac",
 			"panel": "9e98e3a0063086bc",
-			"props": "204b8d2a39b864fa"
+			"props": "4c462a53375f2b5d"
 		},
 		{
 			"name": "key inspector: value",
@@ -663,7 +663,7 @@
 			},
 			"tl": "1ffa0a4df945cf0d",
 			"panel": "9e98e3a0063086bc",
-			"props": "0fd2ac672ee32d06"
+			"props": "a39a51c9c1121aed"
 		},
 		{
 			"name": "key inspector: time",
@@ -682,7 +682,7 @@
 			},
 			"tl": "ddf061880f9c9348",
 			"panel": "9e98e3a0063086bc",
-			"props": "2cda860ad9336ca3"
+			"props": "9e5aa422b651c485"
 		},
 		{
 			"name": "drag the key",
@@ -701,7 +701,7 @@
 			},
 			"tl": "bc60b152c631d0a7",
 			"panel": "d8e114e4d7c43aca",
-			"props": "541652edc4f1a4f6"
+			"props": "b3ed76c05ae1958a"
 		},
 		{
 			"name": "Delete the selected key",

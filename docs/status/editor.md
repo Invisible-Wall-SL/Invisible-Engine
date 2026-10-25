@@ -171,6 +171,9 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-25 — **Elastic and Bounce in the Interpolation panel** (in review): two more kinds beside
+  Linear / Cubic / Hold, drawn from the evaluator. Detail in [cinematic status](cinematic.md)
+  2026-10-25.
 - 2026-10-23 — **A canvas screen can scale with the window** (branch `claude/stoic-cori-6yyp5f`, in
   review). Reported on `commonoverlayproject`: the Hold and Win feature intro ended differently on
   two computers. Its screen (`featureIntro`) is `canvas` space, which the game drew one window pixel
