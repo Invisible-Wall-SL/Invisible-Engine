@@ -307,8 +307,12 @@ Each step has its own branch, gates and status entry.
        driver whether each Element FX program linked, drawing the element unchanged when not: that
        fail-safe covers every built-in pass too.
    - **8d. Particle materials for Invisible FX.** A graph as the material an emitter's particles
-     draw with, picked in `/fx`. Needs its own design pass with the `invisible-fx` agent first:
-     per-particle inputs (age, life, colour, index) and the cost of a filter per emitter.
+     draw with, picked in `/fx`. Designed in [shader-graph-particles.md](shader-graph-particles.md)
+     (decided 2026-10-25): a per-particle shader, the layer's particles drawn as one mesh through
+     the compiled body in a particle shell, with a Particle input node (colour, wave index, spawn
+     order). Built as 8d.1–8d.8, one PR each (its §15): the shell and the node; the material
+     renderer; the material in the game; the ship chain; `/fx` authoring; the other previews;
+     `/shaders` (Made for particles, the Particles preview); play-QA and calibration.
    - **8e. Screen transitions and post FX.** A graph that reads two screens (from, to) over a
      transition, and one applied to the whole stage. Needs its own design pass first: where
      transitions and post FX live in the Scene Editor and the Flow, and their phone budget.

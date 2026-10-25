@@ -1,7 +1,8 @@
 # Invisible Shader Graph: particle materials (step 8d)
 
-> **Draft 2026-10-25.** Design pass for step 8d of [invisible-shader-graph.md](invisible-shader-graph.md)
-> §8, done with the `invisible-fx` agent. Not approved yet: the owner decides §16. Plan for the
+> **Decided 2026-10-25.** Design pass for step 8d of [invisible-shader-graph.md](invisible-shader-graph.md)
+> §8, done with the `invisible-fx` agent. §16 is decided: the recommendations, under the owner's
+> standing instruction to go with them. Being built as 8d.1–8d.8 (§15). Plan for the
 > particles side: [invisible-fx.md](invisible-fx.md). Current state: [status/shader-graph](../status/shader-graph.md),
 > [status/fx](../status/fx.md). Each step in §15 is its own PR, merged only when every gate passes.
 
@@ -490,7 +491,10 @@ svelte-check at baseline, and the current games building with no changed screen.
    - **Owner pass:** a phone check reading `?fxdebug=1`, then the caps in §10 updated from it.
    - **Exit:** the play passes; the status and guides are current.
 
-## 16. Decisions (owner)
+## 16. Decisions (owner, 2026-10-25)
+
+Each is decided as recommended (the owner's standing "go with your recommendations"); the
+alternatives are kept for the record.
 
 1. **Which option.** *Recommended:* (b), a per-particle shader, for v1. (c) stays a later "Bake to
    frames" escape hatch, and (a) is not built for 8d: an Element FX on an effect node already is
