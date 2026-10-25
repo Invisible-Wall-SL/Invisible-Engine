@@ -2,8 +2,9 @@
  * The graph page `shaderParity.mjs` renders: with `?graphs=1` the reference shader graphs posed at
  * eight moments, one row each; with `?custom=1` the same graphs compiled as custom Element FX
  * (`compileShaderEffect`), registered and played through the runtime (`playElementFx`) posed at the
- * eight moments, their passes and motion included; with `?nodes=1` every node's own graph
- * (`nodeShowcase`), one cell each. Everything is drawn through the real `ElementFxFilter` on WebGL1
+ * eight moments, their passes and motion included; with `?subgraphs=1` each reference graph moved
+ * into a subgraph its effect calls, one and two calls deep (`wrapped`), which draws as the graph
+ * does; with `?nodes=1` every node's own graph (`nodeShowcase`), one cell each. Everything is drawn through the real `ElementFxFilter` on WebGL1
  * or WebGL2, so a shader that does not compile there fails the shoot (and `shaderCompile.mjs`). Each
  * cell is drawn alone first, so the error the page logs names its graph.
  */
@@ -79,6 +80,47 @@ const filterFor = (doc: ShaderGraphDoc, t: number): ElementFxFilter => {
 	return filter;
 };
 
+/**
+ * `doc` with its graph moved into a subgraph its effect calls, `depth` calls deep: every node but the
+ * Output in the innermost body, whose one output feeds the Output. It compiles to the same shader,
+ * so it draws as `doc` does.
+ */
+const wrapped = (doc: ShaderGraphDoc, depth: number): ShaderGraphDoc => {
+	let current = doc;
+	for (let d = 0; d < depth; d++) {
+		const output = current.nodes.find((n) => n.type === 'output');
+		if (!output) return current;
+		const feed = current.wires.find((w) => w.to.node === output.id && w.to.port === 'color');
+		const id = `wrap${d}`;
+		current = {
+			...current,
+			id: `${doc.id}-wrapped${d + 1}`,
+			name: `${doc.name} (${d + 1} deep)`,
+			subgraphs: [
+				...(current.subgraphs ?? []),
+				{
+					id,
+					name: `Wrap ${d}`,
+					inputs: [],
+					outputs: [{ id: 'color', label: 'Colour', type: 'vec4' }],
+					nodes: [
+						{ id: 'in', type: 'subgraphIn', x: 0, y: 0 },
+						...current.nodes.filter((n) => n !== output),
+						{ id: 'out', type: 'subgraphOut', x: 0, y: 0 },
+					],
+					wires: [
+						...current.wires.filter((w) => w !== feed),
+						...(feed ? [{ from: feed.from, to: { node: 'out', port: 'color' } }] : []),
+					],
+				},
+			],
+			nodes: [{ id: 'call', type: 'subgraph', x: 0, y: 0, values: { subgraph: id } }, output],
+			wires: [{ from: { node: 'call', port: 'color' }, to: { node: output.id, port: 'color' } }],
+		};
+	}
+	return current;
+};
+
 (async () => {
 	const query = new URLSearchParams(location.search);
 	const custom = query.get('custom') === '1';
@@ -86,6 +128,11 @@ const filterFor = (doc: ShaderGraphDoc, t: number): ElementFxFilter => {
 	const rows: string[] = [];
 	if (query.get('graphs') === '1' || custom) {
 		REFERENCE_GRAPHS.forEach((doc, row) => {
+			rows.push(doc.name);
+			MOMENTS.forEach((t, col) => cells.push({ doc, t, col, row }));
+		});
+	} else if (query.get('subgraphs') === '1') {
+		REFERENCE_GRAPHS.flatMap((doc) => [wrapped(doc, 1), wrapped(doc, 2)]).forEach((doc, row) => {
 			rows.push(doc.name);
 			MOMENTS.forEach((t, col) => cells.push({ doc, t, col, row }));
 		});

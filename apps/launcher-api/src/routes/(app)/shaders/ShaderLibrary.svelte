@@ -1,11 +1,18 @@
 <script lang="ts">
 	import MenuButton, { type MenuGroup } from '$lib/MenuButton.svelte';
 	import { writeDrag } from '$lib/graph/dnd';
-	import { SHADER_DROP_MIME, libraryGroups, twinGroups } from './shaderEditor';
+	import { SUBGRAPH_CALL, SUBGRAPH_IN } from 'engine-shadergraph';
+	import {
+		SHADER_DROP_MIME,
+		categoryColor,
+		libraryGroups,
+		twinGroups,
+		type SubgraphRow,
+	} from './shaderEditor';
 
 	// The left pane: the project's graphs (its own and the studio's shared ones it does not
-	// override), then the node library by family. A node is dragged onto the canvas, or clicked to
-	// add it beside the selected node.
+	// override), then the node library: the open effect's subgraphs, then the nodes by family. A
+	// node is dragged onto the canvas, or clicked to add it beside the selected node.
 	interface GraphRow {
 		id: string;
 		name: string;
@@ -27,6 +34,13 @@
 		onNewFrom: (kind: string) => void;
 		onDelete: (row: GraphRow) => void;
 		onAdd: (type: string) => void;
+		/** The open effect's subgraphs, each called by a node dropped from here. */
+		subgraphs?: SubgraphRow[];
+		/** A body's Input or Output the opened subgraph lacks (`subgraphIn` / `subgraphOut`). */
+		boundary?: string[];
+		onAddCall?: (id: string) => void;
+		onOpenSubgraph?: (id: string) => void;
+		onDeleteSubgraph?: (id: string) => void;
 	}
 	let {
 		graphs,
@@ -38,6 +52,11 @@
 		onNewFrom,
 		onDelete,
 		onAdd,
+		subgraphs = [],
+		boundary = [],
+		onAddCall,
+		onOpenSubgraph,
+		onDeleteSubgraph,
 	}: Props = $props();
 
 	const GROUPS = libraryGroups();
@@ -127,6 +146,62 @@
 		<h3>Nodes</h3>
 		<input type="search" placeholder="Search nodes" bind:value={query} aria-label="Search nodes" />
 		<p class="muted small">Drag onto the canvas, or click to add.</p>
+		{#if openId}
+			<h4 style="--family:{categoryColor('subgraph')}">Subgraphs</h4>
+			{#if boundary.length}
+				<ul class="palette">
+					{#each boundary as type (type)}
+						<li>
+							<button
+								type="button"
+								draggable={!readOnly}
+								disabled={readOnly}
+								title="Put back the subgraph's {type === SUBGRAPH_IN ? 'Input' : 'Output'} node"
+								ondragstart={(e) => writeDrag(e, SHADER_DROP_MIME, { type })}
+								onclick={() => onAdd(type)}
+							>
+								{type === SUBGRAPH_IN ? 'Input' : 'Output'}
+							</button>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+			{#if !subgraphs.length}
+				<p class="muted small">Select nodes and Group them (Ctrl+G) to make one.</p>
+			{/if}
+			<ul class="subgraphs">
+				{#each subgraphs.filter((s) => matches(s.name, '')) as row (row.id)}
+					<li>
+						<button
+							type="button"
+							class="call"
+							draggable={!readOnly && !row.blocked}
+							disabled={readOnly || !!row.blocked}
+							title={row.blocked || `Add a call of ${row.name}: drag onto the canvas, or click`}
+							ondragstart={(e) =>
+								writeDrag(e, SHADER_DROP_MIME, { type: SUBGRAPH_CALL, subgraph: row.id })}
+							onclick={() => onAddCall?.(row.id)}
+						>
+							{row.name}
+						</button>
+						<span class="muted calls" title="Calls of it">{row.calls}×</span>
+						<button
+							type="button"
+							class="x"
+							title="Open {row.name} to edit its nodes"
+							onclick={() => onOpenSubgraph?.(row.id)}>✎</button
+						>
+						<button
+							type="button"
+							class="x"
+							disabled={readOnly}
+							title="Delete {row.name}"
+							onclick={() => onDeleteSubgraph?.(row.id)}>✕</button
+						>
+					</li>
+				{/each}
+			</ul>
+		{/if}
 		{#each shown as group (group.id)}
 			<h4 style="--family:{group.color}">{group.label}</h4>
 			<ul class="palette">
@@ -214,6 +289,31 @@
 	}
 	.tag.lib {
 		color: #7dd3fc;
+	}
+	.subgraphs li {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		margin-bottom: 3px;
+	}
+	.subgraphs .call {
+		flex: 1;
+		min-width: 0;
+		text-align: left;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		background: #141a22;
+		border-color: #115e59;
+		cursor: grab;
+	}
+	.subgraphs .call:disabled {
+		cursor: default;
+		opacity: 0.5;
+	}
+	.calls {
+		font-size: 10px;
+		margin: 0;
 	}
 	.palette {
 		display: flex;

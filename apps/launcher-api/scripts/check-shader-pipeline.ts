@@ -494,6 +494,54 @@ check(
 	[none.shaderEffects.length, keysUnder(deployDir).map((k) => k.slice(deployDir.length))],
 	[0, ['_index.json']],
 );
+{
+	const frost = ref('frost');
+	const output = frost.nodes.find((n) => n.type === 'output')!;
+	const feed = frost.wires.find((w) => w.to.node === output.id && w.to.port === 'color')!;
+	const grouped: ShaderGraphDoc = {
+		...frost,
+		id: 'grouped',
+		name: 'Grouped frost',
+		subgraphs: [
+			{
+				id: 'look',
+				name: 'Look',
+				inputs: [],
+				outputs: [{ id: 'color', label: 'Colour', type: 'vec4' }],
+				nodes: [
+					{ id: 'in', type: 'subgraphIn', x: 0, y: 0 },
+					...frost.nodes.filter((n) => n !== output),
+					{ id: 'out', type: 'subgraphOut', x: 0, y: 0 },
+				],
+				wires: [
+					...frost.wires.filter((w) => w !== feed),
+					{ from: feed.from, to: { node: 'out', port: 'color' } },
+				],
+			},
+		],
+		nodes: [{ id: 'call', type: 'subgraph', x: 0, y: 0, values: { subgraph: 'look' } }, output],
+		wires: [{ from: { node: 'call', port: 'color' }, to: { node: output.id, port: 'color' } }],
+	};
+	await storage.saveShader(CLIENT, PROJECT, grouped, null);
+	check(
+		'a graph with a subgraph is stored with it',
+		((stored(`${projectDir}grouped.json`).subgraphs as { id: string }[]) ?? []).map((g) => g.id),
+		['look'],
+	);
+	const flat = await exportShaders(CLIENT, PROJECT);
+	check(
+		'…and ships flat: one effect, no call left in it, one the game registers',
+		[
+			flat.skipped.length,
+			flat.shaderEffects.map((e) => e.spec.kind),
+			R2.get(`${deployDir}grouped.json`)!.body.includes('subgraph'),
+			setCustomElementFx(flat.shaderEffects).length,
+		],
+		[0, ['custom:grouped'], false, 1],
+	);
+	setCustomElementFx([]);
+	R2.delete(`${projectDir}grouped.json`);
+}
 check(
 	'a bundle names no unshipped effect when every one ships',
 	unshippedCustomKinds({

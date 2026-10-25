@@ -1,12 +1,18 @@
 <script lang="ts">
 	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
-	import { PORT_COLORS, categoryColor, type ShaderNodeView } from './shaderEditor';
+	import { PORT_COLORS, categoryColor, costText, type ShaderNodeView } from './shaderEditor';
+	import { useShaderThumbs } from './shaderThumbs.svelte';
 
 	// One graph node: its family colour on the header, an input handle per port on the left and an
 	// output handle per port on the right, each coloured by the type it resolved to (the analysis'
-	// types, else the port's declared one). What the compiler says about the node shows on it.
-	let { data, selected }: NodeProps = $props();
+	// types, else the port's declared one). What the compiler says about the node shows on it, and
+	// its cost and a thumbnail of its output (the page's one renderer draws into the canvas).
+	let { id, data, selected }: NodeProps = $props();
 	const d = $derived(data as ShaderNodeView);
+	const thumbs = useShaderThumbs();
+	const drawInto = (canvas: HTMLCanvasElement, node: string) => ({
+		destroy: thumbs?.mount(node, canvas),
+	});
 
 	const typeOf = (side: 'in' | 'out', id: string, declared: string): string =>
 		(side === 'in' ? d.inTypes : d.outTypes)[id] ?? declared;
@@ -39,6 +45,11 @@
 	<header>
 		<span class="title">{d.def?.label ?? `Unknown node "${d.node.type}"`}</span>
 		{#if d.summary}<span class="summary">{d.summary}</span>{/if}
+		{#if d.cost}
+			<span class="cost {d.cost.weight}" title={costText(d.cost)}
+				>{d.cost.cost}{#if d.cost.samples}<span class="reads">· {d.cost.samples}r</span>{/if}</span
+			>
+		{/if}
 	</header>
 	<div class="ports">
 		<ul class="col">
@@ -59,6 +70,11 @@
 				</li>
 			{/each}
 		</ul>
+		{#if thumbs?.enabled && d.thumb}
+			<div class="thumb {thumbs.background}" title="Its output on the element, at the preview’s t">
+				<canvas use:drawInto={id}></canvas>
+			</div>
+		{/if}
 		<ul class="col out">
 			{#each d.def?.outputs ?? [] as port (port.id)}
 				{@const type = typeOf('out', port.id, port.type)}
@@ -127,6 +143,62 @@
 		font-size: 10px;
 		color: #94a3b8;
 		white-space: nowrap;
+	}
+	.cost {
+		flex: none;
+		padding: 0 5px;
+		border-radius: 8px;
+		font-size: 9px;
+		line-height: 15px;
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+		color: #94a3b8;
+		background: #1f2937;
+	}
+	.cost.medium {
+		color: #fcd34d;
+		background: #3a2f12;
+	}
+	.cost.heavy {
+		color: #fca5a5;
+		background: #3b1d1d;
+	}
+	.reads {
+		margin-left: 3px;
+		opacity: 0.85;
+	}
+	.thumb {
+		flex: none;
+		align-self: center;
+		width: 72px;
+		height: 72px;
+		border-radius: 4px;
+		overflow: hidden;
+		box-shadow: 0 0 0 1px #2a323d;
+	}
+	.thumb.dark {
+		background: #0b0b10;
+	}
+	.thumb.light {
+		background: #e8e8ee;
+	}
+	.thumb.checker {
+		background: repeating-conic-gradient(#3a3a44 0% 25%, #22222a 0% 50%) 50% / 12px 12px;
+	}
+	.thumb canvas {
+		display: block;
+		width: 100%;
+		height: 100%;
+	}
+	/* `data-thumb` is the scheduler's to set (`thumbScheduler.client.ts`), never the template's. */
+	.thumb :global(canvas[data-thumb='wait']) {
+		background: #10151c;
+	}
+	.thumb :global(canvas[data-thumb='none']) {
+		background: repeating-linear-gradient(-45deg, #222a35 0 5px, #141a22 5px 10px);
+	}
+	.thumb :global(canvas[data-thumb='still']) {
+		opacity: 0.55;
 	}
 	.ports {
 		display: flex;

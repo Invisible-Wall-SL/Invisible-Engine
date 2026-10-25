@@ -20,8 +20,14 @@
 		analyzeShaderGraph,
 		builtinTwin,
 		compileShaderEffect,
+		SUBGRAPH_CALL,
+		SUBGRAPH_IN,
+		SUBGRAPH_OUT,
+		calledSubgraph,
+		graphNodeDef,
 		normalizeShaderGraphDoc,
-		shaderNode,
+		subgraphName,
+		subgraphOf,
 		type ShaderGraphDoc,
 	} from 'engine-shadergraph';
 	import GraphSettings from './GraphSettings.svelte';
@@ -29,20 +35,36 @@
 	import ShaderLibrary from './ShaderLibrary.svelte';
 	import ShaderNode from './ShaderNode.svelte';
 	import ShaderPreview from './ShaderPreview.svelte';
+	import SubgraphBar from './SubgraphBar.svelte';
+	import SubgraphProperties from './SubgraphProperties.svelte';
+	import { provideShaderThumbs } from './shaderThumbs.svelte';
 	import {
 		SHADER_DROP_MIME,
+		addCall,
 		addNode,
+		analyzeScope,
 		canConnect,
+		canPlace,
 		canvasGraph,
 		connect,
+		deleteSubgraph,
 		docFromTwin,
 		docIssues,
+		freshSubgraphName,
+		groupNodes,
+		groupable,
+		inScope,
+		missingBoundary,
 		moveNode,
 		newShaderDoc,
 		remove,
 		setNodeValue,
 		slugOf,
+		subgraphCalls,
+		subgraphRows,
 		twinGaps,
+		ungroupCall,
+		viewOf,
 	} from './shaderEditor';
 	import type { PageData } from './$types';
 
@@ -77,7 +99,19 @@
 	const compiled = $derived(doc ? compileShaderEffect(doc) : undefined);
 	const compiledEffect = $derived(compiled?.ok ? compiled.effect : undefined);
 	const errorCount = $derived(analysis?.issues.filter((i) => i.level === 'error').length ?? 0);
-	const selected = $derived(doc?.nodes.find((n) => n.id === selectedId));
+
+	// ── Subgraphs: the canvas shows the effect's graph, or a subgraph's body opened from it ──
+	/** The subgraphs opened, outermost first; what the doc no longer has (undone, deleted) closes. */
+	let scopePath = $state<string[]>([]);
+	const openPath = $derived.by(() => {
+		const gone = doc ? scopePath.findIndex((id) => !subgraphOf(doc as ShaderGraphDoc, id)) : 0;
+		return gone < 0 ? scopePath : scopePath.slice(0, gone);
+	});
+	const scope = $derived(openPath.at(-1) ?? null);
+	/** The doc as the canvas edits it: the shown graph's nodes and wires. */
+	const view = $derived(doc ? viewOf(doc, scope) : null);
+	const viewAnalysis = $derived(doc && scope ? analyzeScope(doc, scope) : analysis);
+	const selected = $derived(view?.nodes.find((n) => n.id === selectedId));
 
 	// ── The canvas ──
 	const nodeTypes = { shader: ShaderNode };
@@ -91,10 +125,16 @@
 			.map((n) => n.id);
 		const picked = new Set(selectedId ? [...kept, selectedId] : kept);
 		const graph = doc
-			? canvasGraph(doc, analysis, picked, lease.readOnly)
+			? canvasGraph(doc, viewAnalysis, picked, lease.readOnly, scope)
 			: { nodes: [], edges: [] };
 		nodes = graph.nodes as Node[];
 		edges = graph.edges as Edge[];
+	});
+	// Node thumbnails: one renderer for every node, fed the graph as edited (`shaderThumbs.svelte.ts`).
+	const thumbs = provideShaderThumbs();
+	$effect(() => {
+		const [graph, checked, picked, shown] = [doc, viewAnalysis, selectedId, scope];
+		untrack(() => thumbs.update(graph, checked, picked ? [picked] : [], shown));
 	});
 
 	// ── Undo ──
@@ -257,6 +297,7 @@
 		doc = next;
 		openShared = shared;
 		selectedId = null;
+		scopePath = [];
 		past = [];
 		future = [];
 		// It shows as stored: nothing of the graph before is left to save onto it (a shared one
@@ -458,27 +499,29 @@
 	const isValidConnection = (c: Edge | Connection): boolean => {
 		if (!doc || lease.readOnly) return false;
 		const { from, to } = wireOf(c);
-		return canConnect(doc, analysis, from, to);
+		return canConnect(doc, viewAnalysis, from, to, scope);
 	};
 	function onConnect(c: Connection): void {
 		if (!doc || !isValidConnection(c)) return;
 		const { from, to } = wireOf(c);
-		edit(connect(doc, from, to));
+		edit(inScope(doc, scope, (d) => connect(d, from, to)));
 	}
 	function onGraphDelete({ nodes: gone, edges: cut }: { nodes: Node[]; edges: Edge[] }): void {
 		if (!doc) return;
 		edit(
-			remove(
-				doc,
-				gone.map((n) => n.id),
-				cut.map((e) => e.id),
+			inScope(doc, scope, (d) =>
+				remove(
+					d,
+					gone.map((n) => n.id),
+					cut.map((e) => e.id),
+				),
 			),
 		);
 		if (selectedId && gone.some((n) => n.id === selectedId)) selectedId = null;
 	}
 	function onNodeDragStop(): void {
-		if (!doc) return;
-		let next = doc;
+		if (!doc || !view) return;
+		let next = view;
 		for (const n of nodes) {
 			const stored = next.nodes.find((d) => d.id === n.id);
 			if (
@@ -487,33 +530,113 @@
 			)
 				next = moveNode(next, n.id, n.position.x, n.position.y);
 		}
-		if (next !== doc) edit(next);
+		if (next !== view) edit(inScope(doc, scope, () => next));
+	}
+	/** The new node alone is selected. */
+	function selectOnly(id: string): void {
+		nodes = nodes.map((n) => (n.selected ? { ...n, selected: false } : n));
+		selectedId = id;
 	}
 	function placeNode(type: string, pos: { x: number; y: number }): void {
-		if (!doc || !shaderNode(type)) return;
-		const added = addNode(doc, type, pos);
-		// The new node alone is selected.
-		nodes = nodes.map((n) => (n.selected ? { ...n, selected: false } : n));
+		if (!doc || !canPlace(doc, scope, type)) return;
+		let id = '';
+		const next = inScope(doc, scope, (d) => {
+			const added = addNode(d, type, pos);
+			id = added.id;
+			return added.doc;
+		});
+		edit(next);
+		selectOnly(id);
+	}
+	/** A call of subgraph `id`, unless it would call itself from the graph shown. */
+	function placeCall(id: string, pos: { x: number; y: number }): void {
+		if (!doc) return;
+		const row = subgraphRows(doc, scope).find((r) => r.id === id);
+		if (!row || row.blocked) {
+			notice = row?.blocked ?? `This effect has no subgraph "${id}".`;
+			return;
+		}
+		const added = addCall(doc, scope, id, pos);
 		edit(added.doc);
-		selectedId = added.id;
+		selectOnly(added.id);
 	}
 	function onDrop(raw: string, pos: { x: number; y: number }): void {
 		const payload = readDrag(
 			raw,
-			(v): v is { type: string } => !!v && typeof (v as { type?: unknown }).type === 'string',
+			(v): v is { type: string; subgraph?: string } =>
+				!!v && typeof (v as { type?: unknown }).type === 'string',
 		);
-		if (payload) placeNode(payload.type, pos);
+		if (payload?.type === SUBGRAPH_CALL && typeof payload.subgraph === 'string')
+			placeCall(payload.subgraph, pos);
+		else if (payload) placeNode(payload.type, pos);
 	}
-	/** A clicked library node lands left of the selected node, else left of the leftmost. */
-	function addFromLibrary(type: string): void {
-		if (!doc) return;
+	/** Where a clicked library node lands: left of the selected node, else left of the leftmost. */
+	function besideSelection(): { x: number; y: number } {
 		const anchor =
 			selected ??
-			doc.nodes.reduce<(typeof doc.nodes)[number] | undefined>(
+			(view?.nodes ?? []).reduce<ShaderGraphDoc['nodes'][number] | undefined>(
 				(min, n) => (!min || n.x < min.x ? n : min),
 				undefined,
 			);
-		placeNode(type, { x: (anchor?.x ?? 0) - 240, y: (anchor?.y ?? 0) + 30 });
+		return { x: (anchor?.x ?? 0) - 240, y: (anchor?.y ?? 0) + 30 };
+	}
+	function addFromLibrary(type: string): void {
+		if (doc) placeNode(type, besideSelection());
+	}
+
+	// ── Subgraph gestures ──
+	/** The canvas's selection (Shift / Ctrl / ⌘-click, a box) and the clicked node. */
+	const pickedIds = $derived([
+		...new Set([
+			...nodes.filter((n) => n.selected).map((n) => n.id),
+			...(selectedId ? [selectedId] : []),
+		]),
+	]);
+	const groupCount = $derived(doc ? groupable(doc, scope, pickedIds).length : 0);
+	const selectedCall = $derived(
+		selected?.type === SUBGRAPH_CALL && doc ? subgraphOf(doc, calledSubgraph(selected)) : undefined,
+	);
+	/** Show another graph: the effect (`[]`) or the subgraphs opened down to one. */
+	function showScope(path: string[]): void {
+		scopePath = path;
+		selectedId = null;
+		nodes = [];
+		fitSignal += 1;
+	}
+	function openSubgraph(id: string): void {
+		if (doc && subgraphOf(doc, id)) showScope([...openPath, id]);
+	}
+	function groupSelection(): void {
+		if (!doc || lease.readOnly) return;
+		const grouped = groupNodes(doc, scope, pickedIds, freshSubgraphName(doc), viewAnalysis);
+		if (!grouped) return;
+		edit(grouped.doc);
+		selectOnly(grouped.call);
+	}
+	function ungroup(callId: string): void {
+		if (!doc || lease.readOnly) return;
+		const done = ungroupCall(doc, scope, callId);
+		if (!done) return;
+		edit(done.doc);
+		selectedId = null;
+	}
+	async function removeSubgraph(id: string): Promise<void> {
+		if (!doc || lease.readOnly) return;
+		const sub = subgraphOf(doc, id);
+		const calls = subgraphCalls(doc, id).length;
+		if (!sub) return;
+		if (
+			calls &&
+			!(await askConfirm({
+				title: `Delete "${subgraphName(sub)}"?`,
+				message: `${calls} node${calls === 1 ? ' calls' : 's call'} it. Deleting it deletes ${calls === 1 ? 'that call' : 'those calls'} too, with their wires (Undo brings them back).`,
+				confirmLabel: 'Delete',
+				danger: true,
+			}))
+		)
+			return;
+		const next = doc && deleteSubgraph(doc, id, true);
+		if (next) edit(next);
 	}
 
 	// ── History ──
@@ -571,6 +694,10 @@
 		} else if (!typing && ((k === 'z' && e.shiftKey) || k === 'y')) {
 			e.preventDefault();
 			redo();
+		} else if (!typing && k === 'g') {
+			e.preventDefault();
+			if (!e.shiftKey) groupSelection();
+			else if (selectedCall && selected) ungroup(selected.id);
 		}
 	}
 
@@ -665,6 +792,11 @@
 				onNewFrom={(kind) => void create(kind)}
 				onDelete={(row) => void del(row)}
 				onAdd={addFromLibrary}
+				subgraphs={doc ? subgraphRows(doc, scope) : []}
+				boundary={doc ? missingBoundary(doc, scope) : []}
+				onAddCall={(id) => placeCall(id, besideSelection())}
+				onOpenSubgraph={openSubgraph}
+				onDeleteSubgraph={(id) => void removeSubgraph(id)}
 			/>
 
 			<main class="center">
@@ -691,11 +823,45 @@
 							<span
 								class:over={analysis.cost > COST_BUDGET || analysis.samples > SAMPLE_BUDGET}
 								class="meter"
-								title="Work per pixel against what a phone affords"
-								>cost {analysis.cost}/{COST_BUDGET} · reads {analysis.samples}/{SAMPLE_BUDGET}</span
+								title="Work per pixel against what a phone affords. The bars: the work (top) and the reads of the element (bottom), as shares of the budget; each node's chip is its part."
 							>
+								<span class="bars" aria-hidden="true">
+									{#each [analysis.cost / COST_BUDGET, analysis.samples / SAMPLE_BUDGET] as share, i (i)}
+										<span
+											class:warm={share >= 0.75}
+											class:full={share > 1}
+											style="width:{Math.min(100, share * 100)}%"
+										></span>
+									{/each}
+								</span>
+								cost {analysis.cost}/{COST_BUDGET} · reads {analysis.samples}/{SAMPLE_BUDGET}
+							</span>
 						{/if}
+						<label
+							class="thumbs-toggle"
+							title={thumbs.failure || 'A picture of each node’s output'}
+						>
+							<input type="checkbox" bind:checked={thumbs.enabled} />
+							Thumbnails
+						</label>
 					</div>
+					<SubgraphBar
+						crumbs={[
+							'Effect',
+							...openPath.map((id) => {
+								const sub = subgraphOf(doc as ShaderGraphDoc, id);
+								return sub ? subgraphName(sub) : id;
+							}),
+						]}
+						onCrumb={(i) => showScope(openPath.slice(0, i))}
+						groupable={groupCount}
+						call={selectedCall ? subgraphName(selectedCall) : ''}
+						errors={scope ? docIssues(doc, viewAnalysis, scope) : []}
+						readOnly={lease.readOnly}
+						onGroup={groupSelection}
+						onOpen={() => selectedCall && openSubgraph(selectedCall.id)}
+						onUngroup={() => selected && ungroup(selected.id)}
+					/>
 					<SvelteFlowProvider>
 						<GraphCanvas
 							bind:nodes
@@ -708,6 +874,11 @@
 							{onGraphDelete}
 							{onNodeDragStop}
 							onNodeClick={({ node }) => (selectedId = node.id)}
+							onNodeDoubleClick={({ node }) => {
+								const call = view?.nodes.find((n) => n.id === node.id);
+								const id = call?.type === SUBGRAPH_CALL ? calledSubgraph(call) : undefined;
+								if (id) openSubgraph(id);
+							}}
 							onPaneClick={() => (selectedId = null)}
 							ondrop={onDrop}
 						/>
@@ -723,19 +894,31 @@
 			<aside class="props">
 				{#if doc}
 					<ShaderPreview effect={compiledEffect} atlases={data.atlases} />
-					{#if selected}
+					{#if selected && view}
 						<NodeProperties
 							{doc}
 							node={selected}
-							def={shaderNode(selected.type)}
-							inTypes={analysis?.inputs[selected.id] ?? {}}
-							wired={doc.wires.filter((w) => w.to.node === selected.id).map((w) => w.to.port)}
-							errors={analysis?.issues
+							def={graphNodeDef(doc, selected, scope)}
+							inTypes={viewAnalysis?.inputs[selected.id] ?? {}}
+							wired={view.wires.filter((w) => w.to.node === selected.id).map((w) => w.to.port)}
+							errors={viewAnalysis?.issues
 								.filter((i) => i.node === selected.id && i.level === 'error')
 								.map((i) => i.message) ?? []}
 							disabled={lease.readOnly}
-							onValue={(key, value) => doc && edit(setNodeValue(doc, selected.id, key, value))}
+							onValue={(key, value) =>
+								doc && edit(inScope(doc, scope, (d) => setNodeValue(d, selected.id, key, value)))}
 						/>
+						{#if selected.type === SUBGRAPH_CALL || (scope && (selected.type === SUBGRAPH_IN || selected.type === SUBGRAPH_OUT))}
+							<SubgraphProperties
+								{doc}
+								{scope}
+								node={selected}
+								disabled={lease.readOnly}
+								onChange={edit}
+								onOpen={openSubgraph}
+								onUngroup={ungroup}
+							/>
+						{/if}
 					{/if}
 					<GraphSettings
 						{doc}
@@ -826,10 +1009,40 @@
 		color: #86efac;
 	}
 	.meter {
+		display: flex;
+		align-items: center;
+		gap: 6px;
 		color: #94a3b8;
 	}
 	.meter.over {
 		color: #fbbf24;
+	}
+	.bars {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		width: 56px;
+		padding: 2px;
+		border-radius: 3px;
+		background: #1f2937;
+	}
+	.bars span {
+		height: 3px;
+		border-radius: 2px;
+		background: #60a5fa;
+	}
+	.bars span.warm {
+		background: #fbbf24;
+	}
+	.bars span.full {
+		background: #f87171;
+	}
+	.thumbs-toggle {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		color: #94a3b8;
+		cursor: pointer;
 	}
 	button {
 		font-size: 12px;

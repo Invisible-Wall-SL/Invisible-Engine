@@ -4,7 +4,14 @@
  * included (the validator reports those), and drops anything that is not part of the doc.
  */
 
-import { SHADER_GRAPH_VERSION, type GraphNode, type GraphWire, type ShaderGraphDoc } from './types';
+import {
+	SHADER_GRAPH_VERSION,
+	type GraphNode,
+	type GraphWire,
+	type ShaderGraphDoc,
+	type ShaderSubgraph,
+	type SubgraphPort,
+} from './types';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -52,6 +59,38 @@ const readWire = (raw: unknown): GraphWire | undefined => {
 	return from && to ? { from, to } : undefined;
 };
 
+const readPort = (raw: unknown): SubgraphPort | undefined => {
+	if (!isRecord(raw) || typeof raw.id !== 'string' || typeof raw.type !== 'string')
+		return undefined;
+	const port: SubgraphPort = {
+		id: raw.id,
+		label: typeof raw.label === 'string' ? raw.label : raw.id,
+		type: raw.type as SubgraphPort['type'],
+	};
+	if (typeof raw.default === 'number' && Number.isFinite(raw.default)) port.default = raw.default;
+	else if (
+		Array.isArray(raw.default) &&
+		raw.default.every((v) => typeof v === 'number' && Number.isFinite(v))
+	)
+		port.default = [...(raw.default as number[])];
+	return port;
+};
+
+const readList = <T>(raw: unknown, read: (item: unknown) => T | undefined): T[] =>
+	Array.isArray(raw) ? raw.map(read).filter((item): item is T => item !== undefined) : [];
+
+const readSubgraph = (raw: unknown): ShaderSubgraph | undefined =>
+	isRecord(raw) && typeof raw.id === 'string'
+		? {
+				id: raw.id,
+				name: typeof raw.name === 'string' ? raw.name : raw.id,
+				inputs: readList(raw.inputs, readPort),
+				outputs: readList(raw.outputs, readPort),
+				nodes: Array.isArray(raw.nodes) ? raw.nodes.filter(isRecord).map(readNode) : [],
+				wires: readList(raw.wires, readWire),
+			}
+		: undefined;
+
 /**
  * `raw` as a {@link ShaderGraphDoc} under `id`: the doc's own fields, copied. Nothing here
  * validates the graph; `validateShaderGraph` and the compiler do, and an unreadable `raw` comes
@@ -75,5 +114,7 @@ export function normalizeShaderGraphDoc(raw: unknown, id: string): ShaderGraphDo
 	if (typeof src.padding === 'number' && Number.isFinite(src.padding)) doc.padding = src.padding;
 	if (Array.isArray(src.passes)) doc.passes = copyAs(src.passes.filter(isRecord));
 	if (isRecord(src.motion)) doc.motion = copyAs(src.motion);
+	const subgraphs = readList(src.subgraphs, readSubgraph);
+	if (subgraphs.length) doc.subgraphs = subgraphs;
 	return doc;
 }

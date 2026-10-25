@@ -15,6 +15,23 @@
  *   5. The client's id is the store's: `slugOf` agrees with the server's `shaderSlug`.
  *   6. Start from a built-in: a twin starts a graph that keeps its build under a new id, and the
  *      New menu lists every twin once, by the catalog's families.
+ *   7. Node thumbnails: a node's probe is its upstream with an Output showing its output made
+ *      visible (a float grey, a vec2 as x, y, 0, a vec3 opaque, a vec4 as it is), through library
+ *      nodes; every node of every twin and reference graph gets one that compiles; an unrelated
+ *      broken node spoils none, one upstream does; flat nodes and the Output get none; a key per
+ *      probe changes with the node and what feeds it only; the live ones are those on screen,
+ *      selected first then nearest the centre, capped.
+ *   8. The cost on the canvas: each node reaching the Output carries its cost and reads, which
+ *      sum to the analysis' total; one reaching nothing, or any while the graph cannot be walked,
+ *      carries none; the chip's weight reads against the phone budget.
+ *   9. Subgraphs: grouping a selection and ungrouping the call gives back byte-identical GLSL over
+ *      seeded selections of every reference graph and twin, and the group itself compiles to the
+ *      same shader (its port pass-throughs read through), cost and reads. The group's inputs and
+ *      outputs are one per output crossing it, typed as the analysis resolved them. Every gesture
+ *      works inside a subgraph and lands in its body; the canvas and the wire rule there are the
+ *      body's (its Input and Output pinned, its errors on its nodes, outside on the call). A
+ *      subgraph still called is not deleted unless its calls go too; ungrouping its last call drops
+ *      it; a body cannot call itself or a caller; ports follow every call; storage keeps it all.
  *
  *   pnpm --filter launcher-api check:shader-editor
  */
@@ -25,36 +42,64 @@ import {
 } from 'constants-shared/elementFx';
 import {
 	BUILTIN_TWINS,
+	COST_BUDGET,
 	REFERENCE_GRAPHS,
+	SAMPLE_BUDGET,
+	SHADER_NODES,
 	analyzeShaderGraph,
 	compileShaderEffect,
 	compileShaderGraph,
+	normalizeShaderGraphDoc,
+	shaderNode,
 	type ShaderGraphDoc,
 } from 'engine-shadergraph';
 import { shaderSlug } from '../src/lib/server/projectPaths.ts';
 import {
+	COST_WEIGHTS,
+	FLAT_NODES,
+	addCall,
 	addNode,
 	addParam,
 	addPass,
+	addSubgraphPort,
+	analyzeScope,
 	canConnect,
+	canPlace,
 	canvasGraph,
 	connect,
+	costWeight,
+	deleteSubgraph,
 	docFromTwin,
 	docIssues,
+	groupNodes,
+	hasThumbnail,
+	inScope,
 	libraryGroups,
+	liveThumbs,
+	missingBoundary,
 	moveNode,
 	newShaderDoc,
+	nodeCosts,
+	probeDoc,
+	probeKeys,
 	remove,
 	removeParam,
 	removePass,
+	removeSubgraphPort,
+	renameSubgraph,
 	restCurve,
 	setMotionChannel,
 	setNodeValue,
 	setParam,
 	setPass,
 	setPivot,
+	setSubgraphPort,
 	slugOf,
+	subgraphCalls,
+	subgraphRows,
 	twinGroups,
+	ungroupCall,
+	viewOf,
 	wireId,
 } from '../src/routes/(app)/shaders/shaderEditor.ts';
 
@@ -433,6 +478,970 @@ check(
 		.sort(),
 	BUILTIN_TWINS.map((t) => t.kind).sort(),
 );
+
+// ── 7 ──
+console.log('7. node thumbnails');
+const byType = (() => {
+	let doc = newShaderDoc('byType', 'Typed');
+	const ids: string[] = [];
+	for (const type of ['noise', 'uv', 'reliefNormal', 'sample']) {
+		const added = addNode(doc, type, { x: 0, y: ids.length * 120 });
+		doc = added.doc;
+		ids.push(added.id);
+	}
+	return { doc, ids };
+})();
+const feeding = (probe: ShaderGraphDoc, node: string, port: string) =>
+	probe.wires.find((w) => w.to.node === node && w.to.port === port)?.from;
+const typeOf = (probe: ShaderGraphDoc, id: string | undefined) =>
+	probe.nodes.find((n) => n.id === id)?.type;
+const outputOf = (probe: ShaderGraphDoc) => probe.nodes.find((n) => n.type === 'output');
+const unwiredDefault = (type: string, port: string) =>
+	shaderNode(type)?.inputs.find((p) => p.id === port)?.default;
+const [floatId, vec2Id, vec3Id, vec4Id] = byType.ids;
+const probes = byType.ids.map((id) => probeDoc(byType.doc, id, analyzeShaderGraph(byType.doc)));
+check(
+	"each output type's probe compiles",
+	probes.map((p) => [p?.type, p ? compileShaderEffect(p.doc).ok : false]),
+	[
+		['float', true],
+		['vec2', true],
+		['vec3', true],
+		['vec4', true],
+	],
+);
+{
+	const [f, v2, v3, v4] = probes.map((p) => p?.doc as ShaderGraphDoc);
+	const fOut = outputOf(f)?.id ?? '';
+	const fJoin = feeding(f, fOut, 'color');
+	check(
+		'a float shows as grey: the Output takes Join colour, its colour the float spread, its alpha 1',
+		[
+			typeOf(f, fJoin?.node),
+			feeding(f, fJoin?.node ?? '', 'rgb'),
+			feeding(f, fJoin?.node ?? '', 'alpha'),
+			unwiredDefault('premultiply', 'alpha'),
+		],
+		['premultiply', { node: floatId, port: 'out' }, undefined, 1],
+	);
+	const v2Out = outputOf(v2)?.id ?? '';
+	const combine = feeding(v2, v2Out, 'color');
+	const split = feeding(v2, combine?.node ?? '', 'x');
+	check(
+		'a vec2 shows as (x, y, 0): Split into Combine, its z 0 and its alpha 1',
+		[
+			[typeOf(v2, combine?.node), combine?.port],
+			[typeOf(v2, split?.node), split?.port],
+			feeding(v2, combine?.node ?? '', 'y'),
+			feeding(v2, split?.node ?? '', 'v'),
+			[feeding(v2, combine?.node ?? '', 'z'), feeding(v2, combine?.node ?? '', 'w')],
+			[unwiredDefault('combine', 'z'), unwiredDefault('combine', 'w')],
+		],
+		[
+			['combine', 'xyzw'],
+			['split', 'x'],
+			{ node: split?.node, port: 'y' },
+			{ node: vec2Id, port: 'out' },
+			[undefined, undefined],
+			[0, 1],
+		],
+	);
+	const v3Join = feeding(v3, outputOf(v3)?.id ?? '', 'color');
+	check(
+		'a vec3 shows as an opaque colour: Join colour, alpha 1',
+		[typeOf(v3, v3Join?.node), feeding(v3, v3Join?.node ?? '', 'rgb')],
+		['premultiply', { node: vec3Id, port: 'out' }],
+	);
+	check(
+		'a vec4 shows as the colour it is: straight into a Normal Output',
+		[feeding(v4, outputOf(v4)?.id ?? '', 'color'), outputOf(v4)?.values?.blend ?? 'normal'],
+		[{ node: vec4Id, port: 'out' }, 'normal'],
+	);
+	const body = (doc: ShaderGraphDoc): string => {
+		const compiled = compileShaderGraph(doc);
+		return compiled.ok ? compiled.shader.body : '';
+	};
+	check(
+		'…in GLSL: grey is the float spread at alpha 1, a vec2 gets z 0 and alpha 1',
+		[
+			/vec4 n\d+_out = vec4\(vec3\(n\d+_out\) \* (n\d+_l0), \1\);/.test(body(f)) &&
+				/float n\d+_l0 = 1\.0;/.test(body(f)),
+			/vec4 n\d+_xyzw = vec4\(n\d+_x, n\d+_y, 0\.0, 1\.0\);/.test(body(v2)),
+		],
+		[true, true],
+	);
+	check(
+		'a probe is a probe: no passes, no motion, no padding, the probe id, and only what the node reads',
+		[f.passes, f.motion, f.padding, f.id, f.nodes.filter((n) => byType.ids.includes(n.id)).length],
+		[undefined, undefined, undefined, 'probe', 1],
+	);
+}
+let probed = 0;
+const refused: string[] = [];
+for (const doc of [...BUILTIN_TWINS.map((t) => t.doc), ...REFERENCE_GRAPHS]) {
+	const a = analyzeShaderGraph(doc);
+	for (const node of doc.nodes) {
+		if (!hasThumbnail(node, a)) continue;
+		const probe = probeDoc(doc, node.id, a);
+		probed += 1;
+		if (!probe || !compileShaderEffect(probe.doc).ok) refused.push(`${doc.id}.${node.id}`);
+	}
+}
+check(
+	`every node of every twin and reference graph has a probe that compiles (${probed})`,
+	refused,
+	[],
+);
+check('…which is hundreds of probes', probed > 500, true);
+{
+	// A mid-build graph: a node fed a type it cannot take, and an unknown node elsewhere.
+	let doc = newShaderDoc('mid', 'Mid');
+	const add = (type: string): string => {
+		const added = addNode(doc, type, { x: 0, y: 0 });
+		doc = added.doc;
+		return added.id;
+	};
+	const noise = add('noise');
+	const uv = add('uv');
+	const join = add('premultiply');
+	const after = add('oneMinus');
+	doc = connect(doc, { node: uv, port: 'out' }, { node: join, port: 'rgb' });
+	doc = connect(doc, { node: join, port: 'out' }, { node: after, port: 'x' });
+	doc = { ...doc, nodes: [...doc.nodes, { id: 'ghost', type: 'nope', x: 0, y: 0 }] };
+	const a = analyzeShaderGraph(doc);
+	const compiles = (id: string): boolean => {
+		const probe = probeDoc(doc, id, a);
+		return !!probe && compileShaderEffect(probe.doc).ok;
+	};
+	check(
+		'mid-build: the graph does not compile, yet a node upstream of nothing broken draws',
+		[compileShaderEffect(doc).ok, compiles(noise), compiles(uv)],
+		[false, true, true],
+	);
+	check(
+		'…and a node fed a type it cannot take, and what reads it, do not (a placeholder)',
+		[compiles(join), compiles(after), compiles('ghost')],
+		[false, false, false],
+	);
+}
+{
+	const out = byType.doc.nodes.find(
+		(n) => n.type === 'output',
+	) as (typeof byType.doc.nodes)[number];
+	let doc = byType.doc;
+	const flats = [...FLAT_NODES].map((type) => {
+		const added = addNode(doc, type, { x: 0, y: 0 });
+		doc = added.doc;
+		return added.id;
+	});
+	check(
+		'the Output and the flat nodes have no thumbnail and no probe',
+		[out.id, ...flats].map((id) => [
+			hasThumbnail(doc.nodes.find((n) => n.id === id) as (typeof doc.nodes)[number]),
+			probeDoc(doc, id),
+		]),
+		[out.id, ...flats].map(() => [false, undefined]),
+	);
+	const view = canvasGraph(doc, analyzeShaderGraph(doc), new Set());
+	check(
+		'…and the canvas shows one on every other node',
+		view.nodes.filter((n) => n.data.thumb).map((n) => n.id),
+		byType.ids,
+	);
+}
+{
+	// A flat node is one value over the element; every other node without inputs varies over it.
+	const POSITION = /\b(uv|uvSquare|px|pixel)\b/;
+	const varies = (type: string): boolean => {
+		const emitted = shaderNode(type)?.emit({
+			in: {},
+			type: 'float',
+			splat: (x) => x,
+			setting: () => 'uP0',
+			local: (_type, expr) => expr,
+		});
+		return Object.values(emitted ?? {}).some((glsl) => POSITION.test(glsl));
+	};
+	const inputless = SHADER_NODES.filter((d) => d.inputs.length === 0 && d.type !== 'output');
+	check(
+		'flat nodes have no inputs and read no position; every other node without inputs does',
+		inputless.map((d) => [d.type, FLAT_NODES.has(d.type) ? !varies(d.type) : varies(d.type)]),
+		inputless.map((d) => [d.type, true]),
+	);
+	check(
+		'every flat node is a node',
+		[...FLAT_NODES].every((type) => shaderNode(type)?.inputs.length === 0),
+		true,
+	);
+}
+{
+	const cells = REFERENCE_GRAPHS.find((g) => g.nodes.some((n) => n.type === 'cells'));
+	const multi = (() => {
+		let doc = newShaderDoc('multi', 'Multi');
+		const c = addNode(doc, 'cells', { x: 0, y: 0 });
+		doc = c.doc;
+		const o = addNode(doc, 'oneMinus', { x: 200, y: 0 });
+		doc = o.doc;
+		return { doc, cells: c.id, after: o.id };
+	})();
+	check(
+		'a node with several outputs shows its first, until a wire takes another onward',
+		[
+			probeDoc(multi.doc, multi.cells)?.port,
+			probeDoc(
+				connect(multi.doc, { node: multi.cells, port: 'id' }, { node: multi.after, port: 'x' }),
+				multi.cells,
+			)?.port,
+		],
+		['nearest', 'id'],
+	);
+	check('(a reference graph has Cells)', !!cells, true);
+}
+{
+	const twin = BUILTIN_TWINS.find((t) => t.kind === 'petrify')?.doc as ShaderGraphDoc;
+	const before = probeKeys(twin);
+	const target = twin.nodes.find((n) => n.type === 'noise') ?? twin.nodes[1];
+	const touched = setNodeValue(twin, target.id, 'scale', 123.5);
+	const after = probeKeys(touched);
+	const downstream = new Set([target.id]);
+	for (let grew = true; grew;) {
+		grew = false;
+		for (const w of twin.wires)
+			if (downstream.has(w.from.node) && !downstream.has(w.to.node)) {
+				downstream.add(w.to.node);
+				grew = true;
+			}
+	}
+	const changed = twin.nodes.filter((n) => before.get(n.id) !== after.get(n.id)).map((n) => n.id);
+	check(
+		'an edit changes the probe keys of the node and what reads it, and no other',
+		changed.sort(),
+		[...downstream].sort(),
+	);
+	check('…which is not every node', changed.length < twin.nodes.length, true);
+	check(
+		'moving a node changes no key',
+		[...probeKeys(moveNode(twin, target.id, 999, 999)).entries()],
+		[...before.entries()],
+	);
+	check(
+		'equal keys mean equal probes (same doc, every node)',
+		twin.nodes.every((n) => {
+			const p = probeDoc(twin, n.id);
+			const q = probeDoc(structuredClone(twin), n.id);
+			return JSON.stringify(p) === JSON.stringify(q);
+		}),
+		true,
+	);
+	check(
+		'a param edited changes every key (a param node may read it anywhere)',
+		[...probeKeys({ ...twin, params: [...twin.params].reverse() }).entries()].some(
+			([id, key]) => before.get(id) === key,
+		),
+		false,
+	);
+}
+{
+	const spot = (id: string, x: number, y: number, visible = true) => ({ id, x, y, visible });
+	const spots = [
+		spot('far', 900, 0),
+		spot('near', 10, 0),
+		spot('mid', 300, 0),
+		spot('off', 0, 0, false),
+	];
+	check(
+		'live thumbnails: on screen only, nearest the centre first',
+		liveThumbs(spots, { x: 0, y: 0 }, new Set()),
+		['near', 'mid', 'far'],
+	);
+	check(
+		'…the selected node first, wherever it is',
+		liveThumbs(spots, { x: 0, y: 0 }, new Set(['far'])),
+		['far', 'near', 'mid'],
+	);
+	check(
+		'…an off-screen selection is not drawn',
+		liveThumbs(spots, { x: 0, y: 0 }, new Set(['off'])),
+		['near', 'mid', 'far'],
+	);
+	const many = Array.from({ length: 100 }, (_, i) => spot(`n${i}`, i * 10, 0));
+	check(
+		'…and at most the cap (40 of 100), the nearest',
+		liveThumbs(many, { x: 0, y: 0 }, new Set()),
+		many.slice(0, 40).map((s) => s.id),
+	);
+}
+
+// ── 8 ──
+console.log('8. the cost on the canvas');
+let summed = 0;
+const mismatched: string[] = [];
+for (const doc of [...BUILTIN_TWINS.map((t) => t.doc), ...REFERENCE_GRAPHS]) {
+	const a = analyzeShaderGraph(doc);
+	const costs = [...nodeCosts(doc, a).values()];
+	const cost = costs.reduce((sum, c) => sum + c.cost, 0);
+	const reads =
+		costs.reduce((sum, c) => sum + c.samples, 0) + (costs.some((c) => c.readsPixel) ? 1 : 0);
+	summed += 1;
+	if (cost !== a.cost || reads !== a.samples)
+		mismatched.push(`${doc.id}: ${cost}/${a.cost} cost, ${reads}/${a.samples} reads`);
+}
+check(`the chips sum to the analysis' cost and reads (${summed} graphs)`, mismatched, []);
+{
+	let doc = newShaderDoc('stray', 'Stray');
+	const add = (type: string): string => {
+		const added = addNode(doc, type, { x: 0, y: 0 });
+		doc = added.doc;
+		return added.id;
+	};
+	const used = add('fbm');
+	const join = add('premultiply');
+	const stray = add('cells');
+	const out = doc.nodes.find((n) => n.type === 'output')?.id ?? '';
+	doc = connect(doc, { node: used, port: 'out' }, { node: join, port: 'rgb' });
+	doc = connect(doc, { node: join, port: 'out' }, { node: out, port: 'color' });
+	const a = analyzeShaderGraph(doc);
+	const view = canvasGraph(doc, a, new Set());
+	const chip = (id: string) => view.nodes.find((n) => n.id === id)?.data.cost;
+	check(
+		'a node not reaching the Output has no chip; those reaching it have theirs',
+		[chip(stray), chip(used)?.cost, chip(join)?.cost, chip(out)?.cost],
+		[
+			undefined,
+			shaderNode('fbm')?.cost,
+			shaderNode('premultiply')?.cost,
+			shaderNode('output')?.cost,
+		],
+	);
+	check(
+		'…and they sum to the status bar total',
+		[...nodeCosts(doc, a).values()].reduce((sum, c) => sum + c.cost, 0),
+		a.cost,
+	);
+	const bogus = {
+		...doc,
+		wires: [
+			...doc.wires,
+			{ from: { node: stray, port: 'nearest' }, to: { node: join, port: 'nope' } },
+		],
+	};
+	check(
+		'a wire the analysis refuses (to a port Join colour lacks) does not give the node it leaves a chip',
+		[nodeCosts(bogus, analyzeShaderGraph(bogus)).has(stray), analyzeShaderGraph(bogus).cost],
+		[false, a.cost],
+	);
+	const flip = add('oneMinus');
+	const looped = connect(
+		connect(doc, { node: join, port: 'out' }, { node: flip, port: 'x' }),
+		{ node: flip, port: 'out' },
+		{ node: join, port: 'alpha' },
+	);
+	check(
+		'a graph that cannot be walked (a loop) shows no chip, as its total is 0',
+		[nodeCosts(looped, analyzeShaderGraph(looped)).size, analyzeShaderGraph(looped).cost],
+		[0, 0],
+	);
+	const pixel = nodeCosts(
+		newShaderDoc('plain', 'Plain'),
+		analyzeShaderGraph(newShaderDoc('plain', 'Plain')),
+	);
+	check(
+		"the pixel read is counted once, on the analysis' total, and named on the nodes reading it",
+		[
+			[...pixel.values()].map((c) => [c.samples, c.readsPixel]),
+			analyzeShaderGraph(newShaderDoc('p', 'P')).samples,
+		],
+		[[[0, true]], 1],
+	);
+}
+check(
+	'weights: under 2.5% of the budget light, under 10% medium, else heavy; reads count as their share',
+	[
+		costWeight(9 / COST_BUDGET),
+		costWeight(10 / COST_BUDGET),
+		costWeight(39 / COST_BUDGET),
+		costWeight(40 / COST_BUDGET),
+		costWeight(1 / SAMPLE_BUDGET),
+		costWeight(2 / SAMPLE_BUDGET),
+		COST_WEIGHTS,
+	],
+	['light', 'medium', 'medium', 'heavy', 'medium', 'heavy', { medium: 0.025, heavy: 0.1 }],
+);
+{
+	const doc = BUILTIN_TWINS.find((t) => t.kind === 'petrify')?.doc as ShaderGraphDoc;
+	const costs = nodeCosts(doc, analyzeShaderGraph(doc));
+	const weightOf = (type: string) =>
+		costs.get(doc.nodes.find((n) => n.type === type)?.id ?? '')?.weight;
+	check(
+		'on Petrify: cells heavy, a relief slope heavy (4 reads), an add light',
+		[weightOf('cells'), weightOf('reliefSlope'), weightOf('add')],
+		['heavy', 'heavy', 'light'],
+	);
+}
+
+{
+	// With subgraphs: seeded groups over every reference graph and twin.
+	let seed = 7;
+	const rand = (): number => {
+		seed = (seed * 1103515245 + 12345) % 2147483648;
+		return seed / 2147483648;
+	};
+	const sums: string[] = [];
+	const calls: string[] = [];
+	const bodies: string[] = [];
+	let grouped = 0;
+	let bodyProbes = 0;
+	for (const doc of [...REFERENCE_GRAPHS, ...BUILTIN_TWINS.map((t) => t.doc)]) {
+		if (!compileShaderGraph(doc).ok) continue;
+		for (let k = 0; k < 3; k++) {
+			const ids = doc.nodes.filter((n) => n.type !== 'output' && rand() < 0.4).map((n) => n.id);
+			const made = ids.length ? groupNodes(doc, null, ids, 'G') : undefined;
+			if (!made) continue;
+			grouped += 1;
+			const a = analyzeShaderGraph(made.doc);
+			const costs = [...nodeCosts(made.doc, a).values()];
+			const reads =
+				costs.reduce((sum, c) => sum + c.samples, 0) + (costs.some((c) => c.readsPixel) ? 1 : 0);
+			if (costs.reduce((sum, c) => sum + c.cost, 0) !== a.cost || reads !== a.samples)
+				sums.push(`${doc.id}[${ids.length}]`);
+			const call = made.doc.nodes.find(
+				(n) => n.id === made.call,
+			) as (typeof made.doc.nodes)[number];
+			const outputs = made.doc.subgraphs?.find((sub) => sub.id === made.subgraph)?.outputs ?? [];
+			const probe = probeDoc(made.doc, made.call, a);
+			if (hasThumbnail(call, a, made.doc) !== outputs.length > 0)
+				calls.push(`${doc.id}[${ids.length}] thumb`);
+			else if (outputs.length && !(probe && compileShaderEffect(probe.doc).ok))
+				calls.push(`${doc.id}[${ids.length}] probe`);
+			const body = analyzeScope(made.doc, made.subgraph);
+			const inBody = [...nodeCosts(made.doc, body, made.subgraph).values()];
+			if (inBody.reduce((sum, c) => sum + c.cost, 0) !== body.cost)
+				bodies.push(`${doc.id}[${ids.length}] cost`);
+			for (const node of viewOf(made.doc, made.subgraph).nodes) {
+				if (!hasThumbnail(node, body, made.doc, made.subgraph)) continue;
+				bodyProbes += 1;
+				const p = probeDoc(made.doc, node.id, body, made.subgraph);
+				if (!p || !compileShaderEffect(p.doc).ok)
+					bodies.push(`${doc.id}[${ids.length}] ${node.id}`);
+			}
+		}
+	}
+	check(
+		`with a group (${grouped} seeded groups): the chips still sum to the analysis, a call carrying its body's cost`,
+		sums,
+		[],
+	);
+	check(
+		'…a call with outputs shows its output through the same probe, which compiles; one without has no thumbnail',
+		calls,
+		[],
+	);
+	check(
+		`…and inside a body every node's probe compiles, its inputs at their defaults (${bodyProbes} probes), its chips summing to one call's cost`,
+		bodies,
+		[],
+	);
+	check('…which were enough', grouped > 50 && bodyProbes > 200, true);
+
+	// One group, looked at closely: Petrify's cells and what feeds them.
+	const petrify = BUILTIN_TWINS.find((t) => t.kind === 'petrify')?.doc as ShaderGraphDoc;
+	const cells = petrify.nodes.find((n) => n.type === 'cells') as (typeof petrify.nodes)[number];
+	const feeding = new Set(
+		petrify.wires.filter((w) => w.to.node === cells.id).map((w) => w.from.node),
+	);
+	const made = groupNodes(
+		petrify,
+		null,
+		[cells.id, ...feeding].filter((id) =>
+			petrify.nodes.some((n) => n.id === id && n.type !== 'output'),
+		),
+		'Cells group',
+	);
+	if (!made) throw new Error('no group');
+	const a = analyzeShaderGraph(made.doc);
+	check(
+		"the call's chip is its body's cost, cells (120) included, heavy",
+		[
+			(nodeCosts(made.doc, a).get(made.call)?.cost ?? 0) >= 120,
+			nodeCosts(made.doc, a).get(made.call)?.weight,
+		],
+		[true, 'heavy'],
+	);
+	const body = viewOf(made.doc, made.subgraph);
+	const input = body.nodes.find((n) => n.type === 'subgraphIn');
+	check(
+		"a body's Input has no thumbnail; its Output none either",
+		[
+			input
+				? hasThumbnail(input, analyzeScope(made.doc, made.subgraph), made.doc, made.subgraph)
+				: 'no input',
+			body.nodes
+				.filter((n) => n.type === 'subgraphOut')
+				.map((n) => hasThumbnail(n, undefined, made.doc, made.subgraph)),
+		],
+		[false, [false]],
+	);
+	const before = probeKeys(made.doc);
+	const bodyBefore = probeKeys(made.doc, made.subgraph);
+	const inner = body.nodes.find((n) => n.type === 'cells') as (typeof body.nodes)[number];
+	const edited = inScope(made.doc, made.subgraph, (d) => setNodeValue(d, inner.id, 'scale', 3.25));
+	const after = probeKeys(edited);
+	const reads = new Set([made.call]);
+	for (let grew = true; grew;) {
+		grew = false;
+		for (const w of made.doc.wires)
+			if (reads.has(w.from.node) && !reads.has(w.to.node)) {
+				reads.add(w.to.node);
+				grew = true;
+			}
+	}
+	check(
+		'an edit inside a body changes the keys of its calls and what reads them, and no other',
+		made.doc.nodes
+			.filter((n) => before.get(n.id) !== after.get(n.id))
+			.map((n) => n.id)
+			.sort(),
+		[...reads].sort(),
+	);
+	check(
+		"…and inside the body, the edited node's and what reads it there",
+		[...probeKeys(edited, made.subgraph)].filter(([id, key]) => bodyBefore.get(id) !== key).length >
+			0 && [...probeKeys(edited, made.subgraph)].some(([id, key]) => bodyBefore.get(id) === key),
+		true,
+	);
+	const twice = inScope(
+		{ ...made.doc, nodes: [...made.doc.nodes, { id: 'twin1', type: 'uv', x: 0, y: 0 }] },
+		made.subgraph,
+		(d) => ({ ...d, nodes: [...d.nodes, { id: 'twin1', type: 'uv', x: 0, y: 0 }] }),
+	);
+	check(
+		'one node id, alike, in the effect and in a body: two keys (a thumbnail never shows the other)',
+		[
+			probeKeys(twice).get('twin1') !== probeKeys(twice, made.subgraph).get('twin1'),
+			!!probeKeys(twice).get('twin1'),
+		],
+		[true, true],
+	);
+}
+
+// ── 9 ──
+console.log('9. subgraphs');
+{
+	/** GLSL with its `T a = b;` aliases read through and every generated name renumbered in order. */
+	const canonical = (glsl: string): string => {
+		const alias = new Map<string, string>();
+		const lines: string[] = [];
+		for (const line of glsl.split('\n')) {
+			const m = /^ {4}(?:float|vec[234]) (n\d+_\w+) = (n\d+_\w+);$/.exec(line);
+			if (m) alias.set(m[1], alias.get(m[2]) ?? m[2]);
+			else lines.push(line);
+		}
+		const names = new Map<string, string>();
+		return lines.join('\n').replace(/\bn\d+_\w+\b/g, (name) => {
+			const real = alias.get(name) ?? name;
+			if (!names.has(real)) names.set(real, `v${names.size}`);
+			return names.get(real) as string;
+		});
+	};
+	const glsl = (doc: ShaderGraphDoc): string => {
+		const r = compileShaderGraph(doc);
+		return r.ok ? r.shader.body : `ERRORS ${r.issues.map((i) => i.message).join('; ')}`;
+	};
+
+	// Group, then ungroup: over the reference graphs and twins, seeded selections.
+	let seed = 11;
+	const rand = (): number => {
+		seed = (seed * 1103515245 + 12345) % 2147483648;
+		return seed / 2147483648;
+	};
+	let trips = 0;
+	const failed: string[] = [];
+	for (const doc of [...REFERENCE_GRAPHS, ...BUILTIN_TWINS.map((t) => t.doc)]) {
+		const base = compileShaderGraph(doc);
+		if (!base.ok) continue;
+		for (let k = 0; k < 8; k++) {
+			const ids = doc.nodes.filter((n) => n.type !== 'output' && rand() < 0.4).map((n) => n.id);
+			if (!ids.length) continue;
+			trips += 1;
+			const grouped = groupNodes(doc, null, ids, 'G');
+			const compiled = grouped && compileShaderGraph(grouped.doc);
+			const back = grouped && ungroupCall(grouped.doc, null, grouped.call);
+			const same =
+				!!compiled?.ok &&
+				!!back &&
+				glsl(back.doc) === base.shader.body &&
+				canonical(compiled.shader.body) === canonical(base.shader.body) &&
+				compiled.shader.cost === base.shader.cost &&
+				compiled.shader.samples === base.shader.samples &&
+				!back.doc.subgraphs &&
+				back.doc.nodes.length === doc.nodes.length;
+			if (!same) failed.push(`${doc.id}[${ids.join(',')}]`);
+		}
+	}
+	check(
+		`group then ungroup, ${trips} seeded selections over every reference graph and twin: the group compiles to the same shader (its pass-throughs read through), cost and reads; ungrouping it gives byte-identical GLSL and drops the subgraph`,
+		failed,
+		[],
+	);
+	check('…and there were enough of them', trips > 200, true);
+
+	// Boundary typing: Pulse tint's tint grouped.
+	const pulse = REFERENCE_GRAPHS.find((d) => d.id === 'pulseTint') as ShaderGraphDoc;
+	const tint = groupNodes(pulse, null, ['param5', 'colorize6', 'mix7', 'output9'], 'Tint');
+	const tintSub = tint?.doc.subgraphs?.[0];
+	check(
+		'grouping: the Output is never taken; one input per output feeding the group (two nodes read the RGB), one output per output read outside, typed as the analysis resolved them',
+		tintSub && { inputs: tintSub.inputs, outputs: tintSub.outputs },
+		{
+			inputs: [
+				{ id: 'in1', label: 'Colour', type: 'vec3' },
+				{ id: 'in2', label: 'T', type: 'float' },
+			],
+			outputs: [{ id: 'out1', label: 'Mix', type: 'vec3' }],
+		},
+	);
+	check(
+		'…the call takes their place, wired as they were; the body holds them between its Input and Output',
+		tint && {
+			call: tint.doc.nodes.find((n) => n.id === tint.call),
+			wires: tint.doc.wires.filter((w) => w.from.node === tint.call || w.to.node === tint.call),
+			body: tintSub?.nodes.map((n) => n.type),
+		},
+		tint && {
+			call: { id: 'subgraph1', type: 'subgraph', x: 900, y: 0, values: { subgraph: 'tint' } },
+			wires: [
+				{ from: { node: 'unpremultiply4', port: 'rgb' }, to: { node: 'subgraph1', port: 'in1' } },
+				{ from: { node: 'multiply3', port: 'out' }, to: { node: 'subgraph1', port: 'in2' } },
+				{ from: { node: 'subgraph1', port: 'out1' }, to: { node: 'premultiply8', port: 'rgb' } },
+			],
+			body: ['subgraphIn', 'param', 'colorize', 'mix', 'subgraphOut'],
+		},
+	);
+	const generic = (() => {
+		let doc = newShaderDoc('generic', 'Generic');
+		const uv = addNode(doc, 'uv', { x: 0, y: 0 });
+		const add = addNode(uv.doc, 'add', { x: 200, y: 0 });
+		const len = addNode(add.doc, 'length', { x: 400, y: 0 });
+		const neg = addNode(len.doc, 'oneMinus', { x: 400, y: 200 });
+		doc = connect(neg.doc, { node: uv.id, port: 'out' }, { node: add.id, port: 'a' });
+		doc = connect(doc, { node: add.id, port: 'out' }, { node: len.id, port: 'v' });
+		doc = connect(doc, { node: add.id, port: 'out' }, { node: neg.id, port: 'x' });
+		return { doc, add: add.id, len: len.id };
+	})();
+	const typedIn = groupNodes(generic.doc, null, [generic.len], 'L')?.doc.subgraphs?.[0].inputs;
+	const typedOut = groupNodes(generic.doc, null, [generic.add], 'A');
+	check(
+		'an Add fed a vec2 is a vec2: a group reading it takes a vec2 input, a group of it gives a vec2 output, read by both nodes outside from one port',
+		{
+			in: typedIn?.map((p) => p.type),
+			out: typedOut?.doc.subgraphs?.[0].outputs.map((p) => p.type),
+			reads: typedOut?.doc.wires.filter((w) => w.from.node === typedOut.call).length,
+		},
+		{ in: ['vec2'], out: ['vec2'], reads: 2 },
+	);
+	check(
+		'nothing to group (only the Output, or nothing) groups nothing',
+		[groupNodes(pulse, null, ['output9'], 'X'), groupNodes(pulse, null, [], 'X')],
+		[undefined, undefined],
+	);
+
+	// Editing inside a subgraph: every gesture lands in its body, the effect's graph untouched.
+	let doc = (tint as NonNullable<typeof tint>).doc;
+	const scope = 'tint';
+	const effectGraph = json({ nodes: doc.nodes, wires: doc.wires });
+	const added = inScope(doc, scope, (d) => addNode(d, 'oneMinus', { x: 10, y: 20 }).doc);
+	const body = (d: ShaderGraphDoc) => d.subgraphs?.find((s) => s.id === scope);
+	check(
+		'adding a node inside lands in the body, the effect’s graph as it was',
+		[body(added)?.nodes.at(-1)?.type, json({ nodes: added.nodes, wires: added.wires })],
+		['oneMinus', effectGraph],
+	);
+	const inAnalysis = analyzeScope(added, scope);
+	const fromIn = { node: 'subgraphIn1', port: 'in2' };
+	check(
+		'inside, the wire rule is the body’s: a float input into One minus is taken, a vec3 output fed a float from One minus is taken (it spreads), the Input’s vec3 into a float port is taken (it narrows)',
+		[
+			canConnect(added, inAnalysis, fromIn, { node: 'oneMinus1', port: 'x' }, scope),
+			canConnect(
+				added,
+				inAnalysis,
+				{ node: 'oneMinus1', port: 'out' },
+				{ node: 'subgraphOut1', port: 'out1' },
+				scope,
+			),
+			canConnect(
+				added,
+				inAnalysis,
+				{ node: 'subgraphIn1', port: 'in1' },
+				{ node: 'mix7', port: 't' },
+				scope,
+			),
+		],
+		[true, true, true],
+	);
+	check(
+		'…and refuses a loop inside: the Mix into the Colorize it reads',
+		canConnect(
+			added,
+			inAnalysis,
+			{ node: 'mix7', port: 'out' },
+			{ node: 'colorize6', port: 'rgb' },
+			scope,
+		),
+		false,
+	);
+	const withUv = inScope(added, scope, (d) => addNode(d, 'uv', { x: 0, y: 0 }).doc);
+	check(
+		'…and refuses what the body would not take: a UV (vec2) into its vec3 output',
+		canConnect(
+			withUv,
+			analyzeScope(withUv, scope),
+			{ node: 'uv1', port: 'out' },
+			{ node: 'subgraphOut1', port: 'out1' },
+			scope,
+		),
+		false,
+	);
+	doc = inScope(added, scope, (d) => connect(d, fromIn, { node: 'oneMinus1', port: 'x' }));
+	doc = inScope(doc, scope, (d) =>
+		connect(d, { node: 'oneMinus1', port: 'out' }, { node: 'mix7', port: 't' }),
+	);
+	doc = inScope(doc, scope, (d) => setNodeValue(d, 'colorize6', 'tint', [0, 1, 0]));
+	doc = inScope(doc, scope, (d) => moveNode(d, 'oneMinus1', 33.4, 44.6));
+	check(
+		'wiring, a value and a move inside land in the body; it compiles, the effect’s graph as it was',
+		[
+			body(doc)
+				?.wires.filter((w) => w.to.node === 'mix7' && w.to.port === 't')
+				.map((w) => w.from.node),
+			body(doc)?.nodes.find((n) => n.id === 'colorize6')?.values,
+			((n) => n && { x: n.x, y: n.y })(body(doc)?.nodes.find((n) => n.id === 'oneMinus1')),
+			compileShaderEffect(doc).ok,
+			json({ nodes: doc.nodes, wires: doc.wires }),
+		],
+		[['oneMinus1'], { tint: [0, 1, 0] }, { x: 33, y: 45 }, true, effectGraph],
+	);
+	const pinned = inScope(doc, scope, (d) =>
+		remove(d, ['subgraphIn1', 'subgraphOut1', 'oneMinus1']),
+	);
+	check(
+		'deleting inside keeps the body’s Input and Output, and takes the node’s wires',
+		[
+			body(pinned)?.nodes.map((n) => n.type),
+			body(pinned)?.wires.some((w) => w.from.node === 'oneMinus1' || w.to.node === 'oneMinus1'),
+		],
+		[['subgraphIn', 'param', 'colorize', 'mix', 'subgraphOut'], false],
+	);
+	const inner = canvasGraph(doc, analyzeScope(doc, scope), new Set(), false, scope);
+	const innerView = (id: string) => inner.nodes.find((n) => n.id === id);
+	check(
+		'the canvas inside shows the body: its Input and Output with the ports as declared, not deletable; the rest deletable',
+		[
+			inner.nodes.map((n) => n.id),
+			innerView('subgraphIn1')?.data.def?.label,
+			innerView('subgraphIn1')?.data.outTypes,
+			innerView('subgraphOut1')?.data.inTypes,
+			inner.nodes.filter((n) => !n.deletable).map((n) => n.id),
+		],
+		[
+			['subgraphIn1', 'param5', 'colorize6', 'mix7', 'subgraphOut1', 'oneMinus1'],
+			'Input',
+			{ in1: 'vec3', in2: 'float' },
+			{ out1: 'vec3' },
+			['subgraphIn1', 'subgraphOut1'],
+		],
+	);
+	const outerView = canvasGraph(doc, analyzeShaderGraph(doc), new Set(), false);
+	const callView = outerView.nodes.find((n) => n.id === 'subgraph1');
+	check(
+		'outside, the call shows its subgraph’s name and ports with their types',
+		[
+			callView?.data.def?.label,
+			callView?.data.summary,
+			callView?.data.inTypes,
+			callView?.data.outTypes,
+		],
+		['Tint', 'subgraph', { in1: 'vec3', in2: 'float' }, { out1: 'vec3' }],
+	);
+	const ghost = inScope(doc, scope, (d) => setNodeValue(d, 'param5', 'param', 'ghost'));
+	const ghostInner = canvasGraph(ghost, analyzeScope(ghost, scope), new Set(), false, scope);
+	const ghostOuter = canvasGraph(ghost, analyzeShaderGraph(ghost), new Set(), false);
+	check(
+		'an error inside shows on its node inside, and on the call outside led by the subgraph’s name',
+		[
+			ghostInner.nodes.find((n) => n.id === 'param5')?.data.errors,
+			ghostOuter.nodes.find((n) => n.id === 'subgraph1')?.data.errors,
+		],
+		[
+			['"ghost" is not one of the effect\'s params'],
+			['Tint › "ghost" is not one of the effect\'s params'],
+		],
+	);
+	const outless = (() => {
+		const next = JSON.parse(json(doc)) as ShaderGraphDoc;
+		const sub = body(next) as NonNullable<ReturnType<typeof body>>;
+		sub.nodes = sub.nodes.filter((n) => n.type !== 'subgraphOut');
+		sub.wires = sub.wires.filter((w) => w.to.node !== 'subgraphOut1');
+		return next;
+	})();
+	check(
+		'a body that lost its Output says so as the body’s own error; the palette offers it back, and only there',
+		[
+			docIssues(outless, analyzeScope(outless, scope), scope),
+			missingBoundary(outless, scope),
+			canPlace(outless, scope, 'subgraphOut'),
+			canPlace(outless, scope, 'subgraphIn'),
+			canPlace(outless, null, 'subgraphOut'),
+			canPlace(outless, scope, 'output'),
+			canPlace(outless, scope, 'noise'),
+		],
+		[['the subgraph has no Output node'], ['subgraphOut'], true, false, false, false, true],
+	);
+
+	// Calls: more of them, the palette, deleting.
+	const second = addCall(doc, null, 'tint', { x: 700, y: 300 });
+	check(
+		'a call dropped from the palette names its subgraph; the palette counts both calls',
+		[
+			second.doc.nodes.find((n) => n.id === second.id)?.values,
+			subgraphRows(second.doc, null),
+			subgraphCalls(second.doc, 'tint'),
+		],
+		[
+			{ subgraph: 'tint' },
+			[{ id: 'tint', name: 'Tint', calls: 2, blocked: '' }],
+			[
+				{ scope: null, node: 'subgraph1' },
+				{ scope: null, node: second.id },
+			],
+		],
+	);
+	const keep = ungroupCall(second.doc, null, 'subgraph1');
+	check(
+		'ungrouping one of two calls keeps the subgraph for the other, and still compiles',
+		[keep?.doc.subgraphs?.length, keep && compileShaderEffect(keep.doc).ok],
+		[1, true],
+	);
+	check(
+		'deleting a subgraph still called is refused…',
+		deleteSubgraph(second.doc, 'tint'),
+		undefined,
+	);
+	const gone = deleteSubgraph(second.doc, 'tint', true);
+	check(
+		'…unless its calls go too, with their wires; an uncalled one deletes outright',
+		[
+			gone?.subgraphs,
+			gone?.nodes.some((n) => n.type === 'subgraph'),
+			gone?.wires.some((w) => w.from.node === 'subgraph1' || w.to.node === 'subgraph1'),
+			gone && compileShaderEffect(gone).ok,
+			deleteSubgraph(remove(doc, ['subgraph1']), 'tint')?.subgraphs,
+		],
+		[undefined, false, false, true, undefined],
+	);
+
+	// Nesting: a group inside a subgraph, and what a body may call.
+	const nested = groupNodes(doc, scope, ['colorize6', 'mix7'], 'Blend');
+	check(
+		'grouping inside a subgraph nests a call in its body; the effect compiles to the same shader',
+		nested && [
+			body(nested.doc)
+				?.nodes.filter((n) => n.type === 'subgraph')
+				.map((n) => n.values?.subgraph),
+			canonical(glsl(nested.doc)) === canonical(glsl(doc)),
+		],
+		[['blend'], true],
+	);
+	const rows = nested && subgraphRows(nested.doc, 'blend');
+	check(
+		'inside Blend, neither Blend nor Tint (which calls it) can be called; outside, both can',
+		[
+			rows?.map((r) => [r.id, !!r.blocked]),
+			nested && subgraphRows(nested.doc, null).map((r) => !!r.blocked),
+		],
+		[
+			[
+				['blend', true],
+				['tint', true],
+			],
+			[false, false],
+		],
+	);
+
+	// Ports: added, renamed, retyped, removed, every call following.
+	let ported = addSubgraphPort(second.doc, 'tint', 'inputs', 'vec2');
+	ported = setNodeValue(ported, second.id, 'in3', [1, 2]);
+	ported = setSubgraphPort(ported, 'tint', 'inputs', 'in3', {
+		label: 'Offset',
+		default: [0.5, 0.5],
+	});
+	const portList = body(ported)?.inputs.at(-1);
+	const retyped = setSubgraphPort(ported, 'tint', 'inputs', 'in3', { type: 'vec3' });
+	check(
+		'a new input is a port on every call; renamed and given a default it keeps its id; retyped, a default and call values that no longer fit go',
+		[
+			portList,
+			canvasGraph(ported, analyzeShaderGraph(ported), new Set())
+				.nodes.find((n) => n.id === second.id)
+				?.data.def?.inputs.map((p) => p.id),
+			body(retyped)?.inputs.at(-1),
+			retyped.nodes.find((n) => n.id === second.id)?.values,
+		],
+		[
+			{ id: 'in3', label: 'Offset', type: 'vec2', default: [0.5, 0.5] },
+			['in1', 'in2', 'in3'],
+			{ id: 'in3', label: 'Offset', type: 'vec3' },
+			{ subgraph: 'tint' },
+		],
+	);
+	const unported = removeSubgraphPort(second.doc, 'tint', 'inputs', 'in1');
+	check(
+		'removing an input takes every wire to it: into each call, and from the body’s Input',
+		[
+			body(unported)?.inputs.map((p) => p.id),
+			unported.wires.filter((w) => w.to.port === 'in1').length,
+			body(unported)?.wires.filter((w) => w.from.port === 'in1').length,
+			compileShaderEffect(unported).ok,
+		],
+		[['in2'], 0, 0, true],
+	);
+	const renamed = renameSubgraph(second.doc, 'tint', '  Warm tint ');
+	check(
+		'renaming a subgraph renames every call',
+		[
+			body(renamed)?.name,
+			subgraphRows(renamed, null)[0].name,
+			renameSubgraph(second.doc, 'tint', ' '),
+		],
+		['Warm tint', 'Warm tint', second.doc],
+	);
+
+	// Params followed into bodies; storage keeps it all.
+	const paramIndex = doc.params.findIndex((p) => p.id === 'color');
+	const reParam = setParam(doc, paramIndex, { ...doc.params[paramIndex], id: 'hue' });
+	check(
+		'renaming a param follows its Param nodes into subgraphs',
+		[body(reParam)?.nodes.find((n) => n.id === 'param5')?.values, compileShaderEffect(reParam).ok],
+		[{ param: 'hue' }, true],
+	);
+	const stored = normalizeShaderGraphDoc(JSON.parse(json(nested?.doc)), doc.id);
+	check(
+		'a doc with nested subgraphs survives storage as it was',
+		[
+			json(stored.subgraphs) === json(nested?.doc.subgraphs),
+			glsl(stored) === glsl(nested?.doc as ShaderGraphDoc),
+		],
+		[true, true],
+	);
+	check(
+		'ungroup(group(x)) on a graph edited inside first: the same GLSL as the edited graph inlined by hand',
+		(() => {
+			const back = ungroupCall(doc, null, 'subgraph1');
+			return back ? canonical(glsl(back.doc)) === canonical(glsl(doc)) : false;
+		})(),
+		true,
+	);
+}
 
 if (failures) {
 	console.log(`\ncheck:shader-editor — ${failures} of ${checks} checks FAILED`);

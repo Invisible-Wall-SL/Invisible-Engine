@@ -35,12 +35,16 @@ shader and plays as the Element FX kind **`custom:<id>`**, next to the 50 built-
 ## The screen
 
 - **Top bar.** The launcher's shared tool bar. With an effect open, its right side shows the **save
-  pill** (or, while someone else is editing, the presence banner) and **History**.
+  pill** (or, while someone else is editing, the presence banner), **History**, and, if your role
+  may publish to the studio library, **Publish to library** (see "The studio library").
 - **Left: the library.** **Effects** lists the project's effects, with **+ New** and a **✕** to
-  delete each one. **Nodes** below it is the node palette, grouped by family, with a search box.
-- **Middle: the canvas.** A status bar on top, then the graph. The status bar shows the effect's
-  name, its kind (`custom:<id>`), then either **Compiles** or **N errors — not playable until
-  fixed**, and the cost meter **cost X/400 · reads Y/16**.
+  delete each one. **Nodes** below it is the node palette: the open effect's **Subgraphs** first,
+  then the nodes grouped by family, with a search box.
+- **Middle: the canvas.** A status bar on top, then the subgraph bar, then the graph. The status
+  bar shows the effect's name, its kind (`custom:<id>`), then either **Compiles** or **N errors —
+  not playable until fixed**, the cost meter **cost X/400 · reads Y/16** with its two bars, and the
+  **Thumbnails** switch. The subgraph bar shows
+  where the canvas is (**Effect › Subgraph…**) and the **Group** / **Open** / **Ungroup** buttons.
 - **Right: preview and properties.** The live preview, then the selected node's properties (when a
   node is selected), then the effect's own settings (always).
 
@@ -143,6 +147,23 @@ behind the element: a glow or a halo past its edge (Electrocute and Poison use i
   element, 0…1 across and down), `uvSquare` (the same in square units, so noise stays round on a
   tall element), `progress` (how far through the play), `seconds` (time since it started) or
   `sample` (the element's own colour at this pixel).
+- **The thumbnail**, between the inputs and the outputs: what the node's first output (the first
+  one wired onward) looks like over the element, at the preview's `t`, strength, element and
+  backdrop. A number shows as grey, a vec2 as red–green, a colour as itself, a vec4 as the colour
+  it is. It redraws a moment after an edit, only on the nodes the edit reaches, and live while the
+  preview plays when the node reads the time.
+  - **A hatched square:** the node does not compile on its own yet (something upstream of it is
+    broken or unwired). An error elsewhere in the graph never blanks it.
+  - **A dimmed picture:** an earlier picture, not redrawing now. Only the 40 thumbnails nearest the
+    selection (or the middle of the view) stay live.
+  - **No thumbnail:** the Output (the preview is its picture), the nodes that give one value
+    everywhere (Number, Param, Colour, Seed, Time, Element size), and a subgraph's Input.
+  - **Thumbnails** in the status bar turns them all off (remembered in this browser), for a slow
+    machine or a very large graph.
+- **The cost chip**, in the header: the node's work per pixel, and its reads of the element when it
+  has any (`16 · 4r`). It is light when the node is a small part of the phone budget, amber from
+  2.5% and red from 10%. Hover it for the numbers. A node that does not reach the Output has none;
+  a call's chip is its whole subgraph's.
 - **A red border** and red lines under the ports are the node's errors.
 - **A dimmed node** has a warning: usually it "does not reach the Output and is left out". It is
   checked like the rest but costs nothing and draws nothing.
@@ -185,6 +206,37 @@ Drag on empty canvas to box-select; **Shift**, **Ctrl** or **⌘**-click adds to
 with the **middle or right mouse button**, zoom with the **scroll wheel**, and use the buttons in
 the corner to zoom or fit the graph.
 
+### Subgraphs (reusable groups)
+
+A **subgraph** is a group of nodes kept once in the effect and used as one node, a **call**, as
+many times as you like. Editing the subgraph changes every call. It is how you name a piece of an
+effect ("Rim light", "Wobble") and reuse it, like a function in the Flow.
+
+- **Group.** Select nodes (box-select, or Shift / Ctrl-click) and press **Group N nodes** in the
+  subgraph bar, or **Ctrl+G**. They become one call named "Group 1" (rename it in its properties).
+  Each wire that crossed into the selection becomes one of its inputs, and each that crossed out
+  one of its outputs; a value read twice inside enters once. The effect draws exactly as before.
+  The Output is left out of a group (and a subgraph's own Input and Output too).
+- **Open.** Double-click a call, press **Open** in the subgraph bar or the call's properties, or
+  **✎** on its row in the palette. The canvas shows the subgraph's own nodes between its **Input**
+  and **Output** nodes, and the bar reads **Effect › Group 1**. Click **Effect** (or an earlier
+  name) to go back. Everything you do inside (add, wire, delete, undo) edits the subgraph.
+- **Inputs and outputs.** Select the subgraph's **Input** or **Output** node to edit its ports:
+  **+ Add input / output**, a name, a type (float, vec2, vec3, vec4), a default, and **✕** to remove
+  one (with every wire to it). Every call gets the change. A call input left unwired reads the value
+  set on the call, else the default, else 0.
+- **Ungroup.** Select a call and press **Ungroup** (or **Ctrl+Shift+G**). Its nodes come back in its
+  place, wired as they were. When it was the last call, the subgraph goes too.
+- **Add another call.** Drag the subgraph's row in **Subgraphs** onto the canvas, or click it. The
+  `N×` beside it counts its calls. A subgraph cannot call itself, directly or through another, so
+  its row is greyed out where that would happen.
+- **Delete.** **✕** on its row. If it is still called, it asks first, then removes the calls too.
+- **Errors.** An error inside a subgraph shows on the call as "Name › …", so the effect's status bar
+  still counts it. Open the subgraph to see it on the node that has it. Calls nest at most 4 deep.
+- **The cost meter** counts every call in full: a subgraph called three times costs three times.
+
+A subgraph belongs to its effect. To use the same group in another effect, rebuild it there.
+
 ### Edit a node (properties)
 
 Click a node. Its properties open on the right, under the preview:
@@ -212,8 +264,10 @@ a newer build."
   the effect's settings.
 - **The cost meter** compares the effect with what a phone affords. **cost** is the rough work per
   pixel, summed over the nodes that reach the Output (budget 400). **reads** is how many times each
-  pixel reads the element (budget 16). Over either budget the meter turns amber. That is a warning,
-  not an error: the effect still compiles and ships, but it may run slowly on a phone.
+  pixel reads the element (budget 16). Two thin bars show each as a share of its budget (amber from
+  75%, red over). Over either budget the meter turns amber. That is a warning, not an error: the
+  effect still compiles and ships, but it may run slowly on a phone. Each node's **chip** is its
+  part, so the chips show where the cost is.
 - **The heavy nodes.** Sphericon costs 200, Arcs 160, Cells 120, Fractal noise 90, Perspective
   plane, Page curl, Bounce and Sparkles 40 each, Noise 18, Relief normal 16. Outline reads the
   element 5 times, Relief normal and Relief slope 4, Page curl 3, Sample element and Relief height
@@ -366,8 +420,29 @@ The list can include effects from the studio's **shared library**, tagged **shar
 - The shared original is never changed. Delete your copy to go back to it.
 - History starts once the copy exists.
 
-Nothing in the tool publishes an effect to the shared library yet, so most projects list only their
-own effects.
+### The studio library
+
+The **studio library** is a set of effects every project takes in. Publishing an effect there lets
+any project place it as `custom:<id>` without copying it.
+
+- **Who.** Admins, by default. An admin can grant **Publish shared shader effects** to another role
+  or user in the admin panel. Without it the button is not shown, and the server refuses anyway.
+- **Publish.** Open one of the project's own effects and press **Publish to library** in the top
+  bar. It saves first, then copies the effect **as saved**. Only an effect that compiles can go;
+  otherwise it says to fix the errors first. In the list the effect is then tagged **in library**.
+- **Update.** On an effect already in the library the button reads **Update library copy**. It
+  asks before replacing the library's version. If someone published an effect of that id since you
+  opened the page, it says so and asks again.
+- **Remove.** Open the library's effect (tagged **shared**) and press **Remove from library**.
+  Projects with their own effect of that id keep it. Projects that only placed the library's play
+  nothing for it from their next Publish, which names those entries.
+- **Nothing is lost.** Each replace and each removal keeps the version it replaced, under
+  `_shared/shader-backups/<id>/`. The page has no History for the library yet: an admin restores a
+  version by copying it back to `_shared/shaders/<id>.json` in Invisible FTP Browser.
+- **A project's own effect wins.** A project with an effect of the same id keeps playing its own.
+
+Only the effects a game names are shipped with it (see "Getting an effect into a game"), so a large
+library does not make games bigger.
 
 ### Delete an effect
 
@@ -386,7 +461,9 @@ Click **✕** next to an effect and confirm. If it was open, the canvas empties.
    the same way. In the Flow, the `elementEffect` action's **kind** dropdown lists them as
    `custom:<id>`. The entry's **Parameters** rows are your effect's params; **▶** previews it.
 2. **Publish.** Saving does not change a published game. The next **Publish** (or bake) compiles
-   the project's effects and ships them with the game, which registers them before its first frame.
+   the project's effects, the studio library's included, and ships the ones the game names (in a
+   scene, a component, a symbol or the Flow), which it registers before its first frame. An effect
+   nothing names is not shipped.
 
 - **An effect that does not compile is saved but not shipped.** Entries naming it play nothing. In
   the Scene Editor such a row reads `⚠ custom:<id>`, with a note that the project has no shader
@@ -428,10 +505,15 @@ Click **✕** next to an effect and confirm. If it was open, the canvas empties.
   motion gaps above), and an effect's padding is one number: the Wave and Bounce 3D twins take the
   room their largest setting needs at strength 1, Melt the room its defaults need, and either can
   clip past the edge beyond that.
-- **Not yet:** per-node live thumbnails, subgraphs (reusable groups), publishing to the shared
-  library, a Break output, and an admin-only Custom GLSL node. They are later steps of the plan.
+- **Not yet:** a Break output and an admin-only Custom GLSL node. They are later steps of the
+  plan.
+- **Subgraphs belong to one effect.** There is no way yet to share a subgraph between effects.
+- **Thumbnails take a moment on a large graph.** Each new picture compiles a small shader the first
+  time; opening a 100-node graph draws its pictures over a few seconds. Turn **Thumbnails** off if
+  it slows a machine down. Nodes after a subgraph's Input show the inputs' defaults.
+- **The studio library's history is not in the page.** A replaced or removed library version is
+  kept, but restoring it takes an admin and Invisible FTP Browser.
 - **Nodes the plan lists that v1 lacks:** rim and a pixel input.
-- **Publish ships the project's whole set** of effects that compile, used or not.
 
 ## For developers
 
@@ -444,10 +526,15 @@ Click **✕** next to an effect and confirm. If it was open, the canvas empties.
   `pixi-svelte/elementFx`. The canvas is the shared `$lib/graph/GraphCanvas.svelte`.
 - **The package:** `packages/engine-shadergraph` — the doc (`types.ts`, `doc.ts`), the node library
   (`nodes.ts`, with each node's cost and reads), the validator and compiler (`compile.ts`:
-  `analyzeShaderGraph`, `compileShaderEffect`, `COST_BUDGET`, `SAMPLE_BUDGET`).
+  `analyzeShaderGraph`, `compileShaderEffect`, `COST_BUDGET`, `SAMPLE_BUDGET`), and subgraphs
+  (`subgraph.ts`: `flattenShaderGraph` inlines every call before the compiler sees the graph, so
+  nothing past the compiler knows they exist).
 - **Storage and ship:** `src/lib/server/shaderStorage.ts` (`<client>/<project>/shaders/<id>.json`,
-  shared at `_shared/shaders/`), `/api/shaders/{list,doc,effects,save,delete,backups}`, and
-  `shaderExport.ts` (Publish and the bake, into `deploy/editor-shaders/`).
+  shared at `_shared/shaders/`, its history at `_shared/shader-backups/`),
+  `/api/shaders/{list,doc,effects,save,delete,backups,publish,unpublish}` (publish and unpublish
+  need the `shaderPublish` capability, `shaderScope.ts`), and `shaderExport.ts` (Publish and the
+  bake, into `deploy/editor-shaders/`; a bundle embeds only the effects it names,
+  `namedShaderEffects`).
 - **The twins:** `packages/engine-shadergraph/src/twins.ts` (`BUILTIN_TWINS`) and `src/twins/`;
   `pnpm --filter fx-spike shader-twins` holds each to its built-in (in `check:all`).
 - **Gates:** `pnpm --filter launcher-api check:shader-editor` and `check:shader-pipeline`.

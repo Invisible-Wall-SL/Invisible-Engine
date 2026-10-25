@@ -22,24 +22,31 @@ import { ElementFxFilter } from './shaders';
 
 const VECTOR_TYPES = { vec2: 2, vec3: 3, vec4: 4 } as const;
 
+/**
+ * The filter a compiled graph's pass draws with, its uniforms declared and zeroed. The runtime plays
+ * a custom kind through it; `/shaders` draws its node thumbnails through it too.
+ */
+export const graphFilter = (name: string, shader: CustomElementFx['shader']): ElementFxFilter =>
+	new ElementFxFilter(
+		name.replace(/\W/g, '-'),
+		shader.body,
+		Object.fromEntries(
+			shader.uniforms.map((u) => [
+				u.name,
+				u.type === 'float'
+					? { value: 0, type: 'f32' }
+					: { value: new Float32Array(VECTOR_TYPES[u.type]), type: `${u.type}<f32>` },
+			]),
+		),
+	);
+
 const graphPass = (effect: CustomElementFx): FilterImpl<Filter> => {
 	const params = new Map(effect.spec.params.map((spec) => [spec.id, spec]));
-	const { body, uniforms } = effect.shader;
+	const { uniforms } = effect.shader;
 	const seed = uniforms.find((u) => u.source.kind === 'seed');
 	return filterImpl<ElementFxFilter>({
 		create() {
-			const filter = new ElementFxFilter(
-				effect.spec.kind.replace(/\W/g, '-'),
-				body,
-				Object.fromEntries(
-					uniforms.map((u) => [
-						u.name,
-						u.type === 'float'
-							? { value: 0, type: 'f32' }
-							: { value: new Float32Array(VECTOR_TYPES[u.type]), type: `${u.type}<f32>` },
-					]),
-				),
-			);
+			const filter = graphFilter(effect.spec.kind, effect.shader);
 			// Drawn once per element, as the built-ins draw theirs; an effect that reads none draws none.
 			if (seed) filter.set(seed.name, Math.random() * 97);
 			return filter;

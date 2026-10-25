@@ -222,6 +222,22 @@ Each step has its own branch, gates and status entry.
      **Blend** (Add, for glows brighter than their alpha), and 15 more nodes.
 7. **Editor v2.** Per-node live thumbnails, the cost meter, subgraphs (reusable groups, like the
    flow's functions), and publishing to the studio-shared library.
+   - As built, **subgraphs** are part of the doc (`subgraphs`, still version 1): a body between an
+     Input and an Output node with typed ports, called by a `subgraph` node. `flattenShaderGraph`
+     inlines every call (a typed pass-through per port, so a body computes what it does alone)
+     before the compiler sees the graph, so the runtime, the ship chain and the rollback floor are
+     untouched; issues are reported on the call. Nesting stops at 4, recursion is an error, and a
+     doc with no calls compiles byte-identical. Group / Open / Ungroup are editor gestures, and
+     ungroup gives back the graph it grouped.
+   - **Thumbnails** draw a probe per node (the node and what feeds it, shown through library nodes)
+     in one offscreen renderer through the runtime's own filter, keyed by the node and its
+     upstream, so an edit redraws only what it reaches; only the nodes on screen, 40 at most, stay
+     live. **The cost meter** is a chip per node (its part of the phone budget) and bars in the
+     status bar.
+   - **Publishing** needs the `shaderPublish` capability (admin by default). It copies the saved
+     graph, which must compile, never replaces a library id without saying so, and keeps what a
+     replace or removal replaced. Since every project's set now takes in a real library, Publish
+     and the bake embed only the effects a bundle names (step 4's open item).
 8. **Later.**
    - Break as an output node.
    - A richer motion graph.

@@ -10,7 +10,8 @@ Publish and the bake, registered by the game at boot and listed by the Scene Edi
 Flow pickers, #1329) and step 5 (the `/shaders` editor: library, canvas, properties and a live
 Pixi preview, with a lease and history, #1330) and step 6 (the templates: graph twins of 30
 built-ins, held to a parity gate in `check:all`, offered as "Start from a built-in", #1333) are
-merged. Step 7 (editor v2) is next, when the owner asks for it.
+merged. Step 7 (editor v2: subgraphs, node thumbnails, cost chips, publishing to the studio
+library) is in review on `claude/shader-graph-step7`.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -201,11 +202,79 @@ merged. Step 7 (editor v2) is next, when the owner asks for it.
   - **Start from a built-in** (`/shaders`). "+ New" is a menu: an empty effect, or a built-in's
     twin by family. The new effect keeps the twin's nodes, params, passes and motion under its own
     name and id; a twin with a motion gap says so.
-- **Not started:** steps 7–8 (editor v2, later).
+- **Step 7, editor v2.** In review (`claude/shader-graph-step7`).
+  - **Subgraphs** (`packages/engine-shadergraph/src/subgraph.ts`). A doc may carry `subgraphs`
+    (still version 1): each a body between one Input and one Output node, with typed ports (float
+    to vec4, a default each), called by a `subgraph` node.
+    - `flattenShaderGraph` inlines every call before the compiler sees the graph: inner ids become
+      `<call>/<node>`, and each port becomes a typed pass-through, so a generic node inside keeps
+      the port's width and a call computes what its body does alone. An unwired call input reads
+      the call's value, else the port's default, else 0.
+    - What it refuses, named on the call: a missing or duplicate subgraph, recursion (direct or
+      through another), nesting past 4, a body without exactly one Input and Output (or holding the
+      effect's Output), a malformed port, a wire to a port the definition lacks, an input wired
+      twice, and more than 2000 inlined nodes (a hostile fan-out is refused in about 20 ms).
+    - `compileShaderGraph`, `analyzeShaderGraph` and `validateShaderGraph` flatten first, then
+      report each inner issue on its call ("Name › …"); cost and reads sum the inlined nodes.
+      `analyzeShaderSubgraph` analyses a body alone for the editor.
+    - A doc with no calls comes back as the same object, so every existing graph compiles,
+      analyses and validates byte-identical. Nothing past the compiler knows subgraphs exist: no
+      runtime change, and the rollback floor does not move.
+    - The editor: Group (Ctrl+G; one input per outer output read inside), Open (double-click, ✎ or
+      the button) with a breadcrumb, Ungroup (Ctrl+Shift+G; byte-identical GLSL back, and the
+      subgraph goes with its last call), ports edited on the Input / Output nodes (every call
+      follows), a palette group with call counts, delete-while-called asks first. Every existing
+      gesture works inside a body (`GraphScope`). `GraphCanvas` gained an optional node
+      double-click (capture phase; xyflow 1.7 has none); /flow-v2 passes nothing.
+  - **Node thumbnails** (`shaderThumbs.client.ts`, `thumbScheduler.client.ts`,
+    `shaderThumbs.svelte.ts`; `probeDoc` in `shaderEditor.ts`).
+    - A probe per node: the node and everything upstream, with a new Output showing its first
+      wired-onward output through library nodes (a float grey, a vec2 as red–green, a vec3 opaque,
+      a vec4 as is). It compiles with `compileShaderEffect` and goes through the runtime's reader;
+      a broken node elsewhere never blanks it. Passes and motion are left out.
+    - One offscreen Pixi renderer draws every probe through `graphFilter` (the filter the runtime
+      plays a custom kind with, pulled out of `custom.ts` unchanged) and copies it into each node's
+      2-D canvas, following the preview's `t`, strength, element and backdrop, params at their
+      defaults and a fixed seed.
+    - Cost control: a 250 ms debounce; a key per node over it and its upstream, so an edit
+      recompiles only what it reaches (probes cached by key, programs by GLSL); while playing only
+      time-reading thumbnails redraw, 5 times a second; only the 40 on-screen nodes nearest the
+      selection stay live, about 8 ms of work per frame; the renderer is replaced after 320
+      programs. A "Thumbnails" switch turns them off (frees the context), remembered per browser.
+    - None for the Output, the one-value nodes (Number, Param, Colour, Seed, Time, Element size; a
+      check keeps the list honest) and a body's Input. Inside a body, nodes draw with its inputs at
+      their defaults.
+  - **The cost meter on the canvas.** Each node reaching the Output carries a chip (cost, and reads
+    when it has any), light / amber / red at 2.5% / 10% of the phone budget; the chips sum to the
+    analysis total; a call's chip is its inlined body. The status bar keeps its text and gains two
+    bars (work, reads; amber from 75%, red over).
+  - **Publishing to the studio library.** A `shaderPublish` capability (admin by default,
+    `roles.ts`) gates `/api/shaders/publish` and `/unpublish` (`shaderPublishScope`).
+    - Publish copies the project's **saved** graph to `_shared/shaders/<id>.json`; one that does
+      not compile is refused (400 `does-not-compile`, with its errors). A library id is never
+      replaced without `replace: true` (409 `exists`), and every replace or removal keeps what it
+      replaced under `_shared/shader-backups/<id>/` (`putDocWithBackup` / `deleteDocWithBackup`).
+    - The listing tags a project graph that is in the library (`inLibrary`). The page offers
+      **Publish to library** / **Update library copy** on a project graph and **Remove from
+      library** on a shared one, only to a role that holds the capability.
+  - **Ship only the effects a game names.** Every project's set takes in the whole library, so
+    Publish (`runtimeBundle.ts`) and the bake now embed only the effects the bundle names
+    (`namedShaderEffects`: an entry's kind, a Flow parameter, anywhere outside `shaderEffects`),
+    absent when it names none. `deploy/editor-shaders/` still holds the set.
+- **Not started:** step 8 (later).
 
 ## Open items / next
-1. **Step 7, editor v2** (design §8): per-node live thumbnails, the cost meter on the canvas,
-   subgraphs, and publishing to the studio-shared library. Not started; waits for the owner.
+1. **Step 7 follow-ups.**
+   - **Thumbnail compile cost.** A new probe's first draw compiles a shader: 100–1,500 ms each on
+     SwiftShader, one per frame, so opening the 113-node Petrify twin takes about 7 s of drawing
+     there (real GPUs compile far faster, not measured). `KHR_parallel_shader_compile` or a cap on
+     probes per open would help; the switch turns them off meanwhile.
+   - Pixi keeps every distinct shader source for the page's life (the preview's too), so memory
+     grows slowly over a long session.
+   - A subgraph belongs to one effect; there is no cross-effect subgraph library yet.
+   - The studio library's history is kept but not in the page: restoring is by hand.
+   - A call's per-node cost is computed in the editor from `flattenShaderGraph`; it would sit
+     better in the analysis.
 2. **Step 6 follow-ups.**
    - **Two capabilities v1 lacks**, named by the twins: padding that grows with a param × strength
      (the waves, Bounce 3D, Melt), and motion curves that read a param or the seconds played (the
@@ -221,8 +290,6 @@ merged. Step 7 (editor v2) is next, when the owner asks for it.
    - Delete has no lease check: the ✕ on a graph another author has open deletes it (its last
      version is in History), and their next save is then refused as a conflict.
 4. **Step 4 follow-ups.**
-   - What ships is the project's whole set. Once the shared library has entries (step 7), ship only
-     the graphs a doc names (`custom:<id>` in the scenes, components, symbols and flow).
    - The pickers read the set once per page load; a graph saved in another tab shows after a
      reload.
    - The stored-flow check before Publish's assemble composes the Flow vocab without the custom
@@ -235,6 +302,28 @@ merged. Step 7 (editor v2) is next, when the owner asks for it.
 - None.
 
 ## Recent changes
+- 2026-10-25 — **Step 7: editor v2** (see "Current state"). Step 6 merged (#1333).
+  - **Proof.**
+    - `compile.fixture.ts` 99 (35 new: single, repeated and nested calls, every refusal, how issues
+      land on the call, port types, cost, a body alone, storage, a flat shipped effect;
+      mutation-checked, 14 of 14 mutants fail it). A dump of 414 docs (references, twins, the node
+      showcase, 150 broken variants) compiles, analyses and validates byte-identical before and
+      after; `snapshots/` unchanged.
+    - `check:shader-editor` 145 (section 9, subgraphs: 400+ seeded group-then-ungroup round trips
+      over every reference and twin, byte-identical; sections 7–8, thumbnails and chips: 872
+      probes over every twin and reference compile, keys change only for an edited node and what
+      reads it, the live cap, chips sum to the analysis; 1,051 body probes; mutation-checked).
+    - `check:shader-pipeline` 113 (publish and remove behind `shaderPublish`, 409 `exists`, an
+      explicit replace, a graph that does not compile refused, backups beside the library,
+      `inLibrary`, the bundle trimmed to named effects in both the runtime bundle and the bake, a
+      graph with a subgraph saved and shipped flat).
+    - `shader-compile` 22 sheets on WebGL1 and WebGL2, a new `subgraphs` sheet (each reference
+      graph called one and two deep) pixel-identical to its `graphs` row; `shader-twins` 30/30.
+    - The page played headless: subgraphs 30/30 editable and 12/12 read-only (group, open, edit
+      inside, an inner error on the call, rename a port, ungroup, undo, delete-while-called);
+      thumbnails 29/29 on WebGL2, WebGL1 and WebGL2 at 2× (pixels per type, one extra context,
+      only the edited node redraws, only time-reading ones while playing, the cap of 40, a call's
+      thumbnail identical to its grouped nodes', the switch frees the context).
 - 2026-10-24 — **Step 6: the templates** (see "Current state"). Merged (#1333): CI green,
   `check:all` 531/531, Current games 12 pass with all 186 compared screens byte-identical.
   - **Proof.** `shader-twins` passes all 30 twins on WebGL1 and WebGL2. On every twin but three the

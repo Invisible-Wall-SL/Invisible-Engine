@@ -21,6 +21,9 @@ You are the developer for **Invisible Shader Graph**.
   - `src/compile.ts`: the validator and compiler.
   - `src/reference.ts`: the reference graphs and the one-graph-per-node showcase.
   - `src/doc.ts`: `normalizeShaderGraphDoc`, the shape storage keeps (a graph mid-build included).
+  - `src/subgraph.ts` (step 7): `flattenShaderGraph` inlines every subgraph call (ids
+    `<call>/<node>`, a typed pass-through per port) before the compiler sees the graph, and
+    `liftIssues` reports inner issues on their call; `analyzeShaderSubgraph` analyses a body alone.
   - `compile.fixture.ts`: the headless checks; the reference graphs' GLSL is snapshotted in
     `snapshots/`.
 - `packages/pixi-svelte/src/lib/elementFx/shaders.ts`: the built-in passes and the
@@ -35,18 +38,25 @@ You are the developer for **Invisible Shader Graph**.
 - The editor (step 5), `apps/launcher-api/src/routes/(app)/shaders/`:
   - `+page.svelte` (the three panes, save / lease / history, undo), `+page.server.ts`;
   - `shaderEditor.ts`: the pure editing model (every gesture doc → doc, the wire rule, the canvas
-    view, `slugOf`), proven by `scripts/check-shader-editor.ts` (`check:shader-editor`);
-  - `ShaderLibrary.svelte`, `ShaderNode.svelte`, `NodeProperties.svelte`, `GraphSettings.svelte`;
+    view, `slugOf`; step 7: `GraphScope` and the subgraph gestures, `probeDoc` and the thumbnail
+    keys, the cost chips), proven by `scripts/check-shader-editor.ts` (`check:shader-editor`);
+  - `ShaderLibrary.svelte`, `ShaderNode.svelte`, `NodeProperties.svelte`, `GraphSettings.svelte`,
+    `SubgraphBar.svelte` (breadcrumb, Group / Open / Ungroup), `SubgraphProperties.svelte`;
   - `ShaderPreview.svelte` + `shaderPreview.client.ts`: the live Pixi preview through the game's
-    Element FX runtime.
+    Element FX runtime;
+  - the node thumbnails: `shaderThumbs.client.ts` (one offscreen renderer drawing every probe
+    through the runtime's `graphFilter`), `thumbScheduler.client.ts` (debounce, keys, the live cap,
+    the frame budget), `shaderThumbs.svelte.ts` (the toggle and context).
 
   The canvas is `$lib/graph/GraphCanvas.svelte` + `dnd.ts`, shared with /flow-v2. History:
   `routes/api/shaders/backups`, stem `shader` in `docBackups`.
 - The pipeline (step 4), in `apps/launcher-api`:
-  - `src/lib/server/shaderStorage.ts` (project + `_shared` graphs, the set, compile),
-    `shaderScope.ts` (who reads and writes), `routes/api/shaders/*`;
+  - `src/lib/server/shaderStorage.ts` (project + `_shared` graphs, the set, compile; step 7:
+    `publishShader` / `unpublishShader`), `shaderScope.ts` (who reads, writes and publishes:
+    `shaderPublish`), `routes/api/shaders/*`;
   - `src/lib/server/shaderExport.ts` → `deploy/editor-shaders/`, embedded as `shaderEffects` by
-    `runtimeBundle.ts` (Publish) and `scripts/bake-editor-doc.mjs` (`/api/editor/export-shaders`);
+    `runtimeBundle.ts` (Publish) and `scripts/bake-editor-doc.mjs` (`/api/editor/export-shaders`),
+    each trimmed to the effects the bundle names (`namedShaderEffects`);
   - `src/lib/customElementFx.svelte.ts`: a page registers its project's set; `EditorElementFx.svelte`
     lists it; `elementFxTargets.ts` `withCustomElementFxKinds` widens the Flow's kind dropdown;
   - `scripts/check-shader-pipeline.ts` (`check:shader-pipeline`).
