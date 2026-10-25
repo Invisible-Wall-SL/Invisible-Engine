@@ -268,7 +268,8 @@ library) is in review on `claude/shader-graph-step7`.
     absent when it names none. The bake walks the bundle's values the same way (never a key).
     `deploy/editor-shaders/` still holds the set, and the Publish snapshot copies it, so a game's
     asset base carries the library's compiled effects too; nothing reads them at runtime.
-- **Not started:** step 8 (later).
+- **Step 8** (the plan's "Later", split into 8a–8e in design §8). **8a, the motion graph**, in
+  progress on `claude/shader-graph-step8a` (built on step 7's branch). 8b–8e not started.
 
 ## Open items / next
 1. **Step 7 follow-ups.**
