@@ -780,8 +780,8 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 		listFullSceneSets().some((s) => s.gameType === 'arcade') && !!getFullSceneSet('arcade'),
 	);
 	check(
-		'10. the publish gate still refuses an arcade config',
-		/free-play arcade/.test(unplayableFamilyMessage(SEED_CONFIG) ?? ''),
+		'10. the publish gate refuses an arcade game decided by the RGS',
+		unplayableFamilyMessage({ ...SEED_CONFIG, outcome: undefined }) !== null,
 	);
 	check(
 		'10. the seed config is a free-play arcade game the validator passes',

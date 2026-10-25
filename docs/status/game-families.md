@@ -85,9 +85,11 @@ in one PR.
   and template (`templates/arcade.ts`). A new project is seeded with `arcade.rules.json`, the scene
   set, the starter flow and the four placeholder components (`ARCADE_SAMPLE_COMPONENTS`, saved as the
   project's own, create-only, in `projectScaffold.ts`). No outcome question: arcade is free play only.
-- **Publish:** `familyGate.ts` still refuses every non-slot config (switching publishing on for a
-  non-slot game stays the owner's call); a free-play arcade config now gets "plays in
-  the authoring preview, but publishing a game that is not a slot is not switched on yet".
+- **Publish:** not touched here. `familyGate.ts` still refuses every non-slot config (its message for
+  an arcade one predates this step); a separate change moves the gate onto `mechanicFor(…).unplayable`,
+  which makes a free-play arcade game publishable as a match-3 one is. The runtime already refuses to
+  boot a free-play game under any delivery profile (`<Authenticate freePlay>`, P10.5), arcade
+  included (`rgsSession: false`).
 - **Gates:** `check:arcade-motion` (root, 18 checks: the fixed step, the same state at 30 / 60 / 144
   fps and an uneven frame feed, the committed replay `fixtures/arcade-replay.json` (`--update`),
   clamp / wrap / pass and `outsideEdge`, touching by shape, overlap by tag pair (order, a = the tagA

@@ -537,9 +537,8 @@ game) plus a few seconds to copy its files.
   match-3 decided by the server with _"This game's config is a real-money match-3 game. It plays
   against the test server's match-3 mock in the authoring preview, but publishing a game that is
   not a slot is not switched on yet, and live real money waits on a real provider's match-3 wire,
-  so it is not published."_; a free-play arcade game with _"This game's config is a free-play arcade game. It plays in
-  the authoring preview, but publishing a game that is not a slot is not switched on yet, so it is
-  not published."_ The desktop bake's config export refuses them the same way. Set
+  so it is not published."_; an arcade game is refused too, though it plays in the authoring
+  preview. The desktop bake's config export refuses them the same way. Set
   [Game Config](game-config.md#game-family-match-3-and-arcade)'s family back to Slot to publish
   the project as a slot.
 
