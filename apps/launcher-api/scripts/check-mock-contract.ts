@@ -817,14 +817,17 @@ await check(
 	'a rules-decided config is dealt freePlay, with no grid, whatever its kind asks',
 	() => {
 		const rules = template('match3.rules');
-		for (const protocol of ['match3', 'lines'] as const)
-		eq(mockContractOfBundle(protocol, { config: rules, symbols: NO_SYMBOLS }, 'fp'), { protocol: 'freePlay' }, protocol); // prettier-ignore
+		for (const protocol of ['match3', 'lines'] as const) {
+			const contract = mockContractOfBundle(protocol, { config: rules, symbols: NO_SYMBOLS }, 'fp');
+			eq(contract, { protocol: 'freePlay' }, protocol);
+		}
 	},
 );
 
 await check('an RGS-decided match-3 config keeps the match3 mock', () => {
 	const rgs = template('match3.rgs');
-	eq(mockContractOfBundle('match3', { config: rgs, symbols: NO_SYMBOLS }, 'm3').protocol, 'match3', 'protocol'); // prettier-ignore
+	const contract = mockContractOfBundle('match3', { config: rgs, symbols: NO_SYMBOLS }, 'm3');
+	eq(contract.protocol, 'match3', 'protocol');
 });
 
 if (failures) {

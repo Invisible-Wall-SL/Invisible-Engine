@@ -1,7 +1,10 @@
 import { mechanicFor } from 'engine-game/src/game/mechanic';
-import { resolveFamily, type GameConfigDoc } from 'game-config';
+import { resolveFamily, type ConfigFamily, type GameConfigDoc } from 'game-config';
 
-const FAMILY_NAMES = { slot: 'slot', match3: 'match-3', arcade: 'arcade' } as const;
+const FAMILY_NAMES: Record<Exclude<ConfigFamily, 'slot'>, string> = {
+	match3: 'match-3',
+	arcade: 'arcade',
+};
 
 /**
  * Why a config cannot ship, or `null`. Gated on what the shared runtime can PLAY
@@ -15,8 +18,9 @@ const FAMILY_NAMES = { slot: 'slot', match3: 'match-3', arcade: 'arcade' } as co
  * delivery profile at boot.
  */
 export function unplayableFamilyMessage(doc: GameConfigDoc | null | undefined): string | null {
-	if (!mechanicFor(doc).unplayable) return null;
-	const family = FAMILY_NAMES[resolveFamily(doc)];
+	const kind = resolveFamily(doc);
+	if (!mechanicFor(doc).unplayable || kind === 'slot') return null;
+	const family = FAMILY_NAMES[kind];
 	return (
 		`This game's config is ${family === 'arcade' ? 'an' : 'a'} ${family} game, and the game ` +
 		`runtime cannot play ${family === 'arcade' ? 'an' : 'a'} ${family} game yet, so it is not ` +

@@ -258,10 +258,10 @@ export const makeMock = (
 		grid = { ...grid };
 		delete grid.holdAndWinRejected;
 	}
-	// A match-3 game (P10.6): its board, strips, moves and paytable ride `match3`
-	// (`match3MockInputs` in game-config). Without them the mock stands up on its built-in game, so a
-	// rules-decided project's entry, whose mock is never asked, cannot break the server.
 	if (protocol === 'freePlay') return createFreePlayMock(label);
+	// A match-3 game (P10.6): its board, strips, moves and paytable ride `match3`
+	// (`match3MockInputs` in game-config). Without them the mock stands up on its built-in game, so an
+	// entry stamped `match3` with no inputs cannot break the server.
 	if (protocol === 'match3') {
 		return createMatch3Mock({ label, allowForce: twin || !runtime, match3: grid?.match3 });
 	}

@@ -226,7 +226,8 @@ const contractSourceFor = (meta, channel) =>
  */
 const platformJackpots = new Map();
 const platformJackpotFor = (gameKey, meta, channel) => {
-	if (meta.hostSettings?.mockPlatformJackpot !== true) return null;
+	// A free-play game takes no request at all, the platform's included.
+	if (meta.protocol === 'freePlay' || meta.hostSettings?.mockPlatformJackpot !== true) return null;
 	const key = channel ? `${gameKey}/${channel}` : gameKey;
 	if (!platformJackpots.has(key)) {
 		platformJackpots.set(

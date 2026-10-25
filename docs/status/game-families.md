@@ -30,16 +30,27 @@ on. In one launcher-side PR:
   project card's protocol-drift chip expects `freePlay` for a rules config. An RGS match-3 game
   keeps `match3`.
 - **Delivery stays slot-only.** `scripts/delivery-family-gate.mjs` (used by `build-delivery.mjs`
-  after the build, on the config the bake wrote; no override) refuses a rules game for any
-  delivery profile, an RGS match-3 game until the partner wire exists (§9 #2), and an arcade game.
-  The runtime's P10.5 refusal of a free-play game under a delivery profile is the second wall.
+  after the build or `--skip-build`, on the config the bake wrote; no override) passes only a slot.
+  It refuses a rules game for any delivery profile, an RGS match-3 game until the partner wire
+  exists (§9 #2), and every other family (it fails closed). The runtime's P10.5 refusal of a
+  free-play game under a delivery profile is the second wall.
+- **An RGS match-3 game never talks to a partner RGS.** Published, it has a stable URL, and the
+  shared runtime's `?rgs_profile=` could point it at a partner. `<Authenticate mockOnly>` (passed
+  `gameMechanic().interactiveRound` by `apps/lines`' layout) refuses it under any delivery profile
+  before authenticate or replay, as the free-play branch does. Slots never set it.
 - **Can a rules game reach a real-money session?** Four walls: it never authenticates (P10.5,
   `rgsSession: false`); its runtime refuses a delivery profile at boot; the delivery build refuses
-  it; and on our test server its mock refuses every request.
+  it; and on our test server its mock refuses every request (the platform-jackpot wrapper is
+  skipped for it too).
+- **Not done:** §2.3 guarantee 1 also names "an operator session id" as a boot refusal for a rules
+  game. The runtime checks only the delivery profile, so a default-profile URL carrying
+  `?sessionID=` still free-plays. It never reaches an RGS, so no money moves; owner to decide
+  whether to add the refusal or amend the wording. Predates this change.
 - **Gates:** `check:game-config-family` (§4: match-3 publishes, the gate follows `mechanicFor()`),
   `check:mock-contract` (a rules config is dealt `freePlay`, an RGS match-3 keeps `match3`),
-  `check:match3-wire` (every list knows `freePlay`, the mock refuses, the delivery gate's four
-  cases).
+  `check:match3-wire` (every list knows `freePlay`, the mock refuses, the delivery gate's cases
+  and that `build-delivery.mjs` calls it before packaging), `check:match3-rules` (the `mockOnly`
+  wall).
 - **Left as is:** the desktop profile (`derivePublishBlock`) still stamps `protocolFor(kind)`
   (`match3`), because it has no config; the test server's live re-read of the contract replaces it
   with `freePlay` for a rules game pinned to its project. The current-games harness is not edited:

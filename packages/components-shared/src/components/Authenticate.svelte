@@ -30,6 +30,12 @@
 		 * every slot is.
 		 */
 		freePlay?: boolean;
+		/**
+		 * A game whose RGS wire exists only on our test server's mock (an RGS-decided match-3 game,
+		 * §2.2, §9 #2). It must never authenticate against a partner's RGS: under any delivery profile
+		 * it stops on the error modal, as a free-play game does. Absent ⇒ a game every RGS can deal.
+		 */
+		mockOnly?: boolean;
 	};
 
 	const props: Props = $props();
@@ -263,6 +269,12 @@
 				return;
 			}
 			authenticated = true;
+			return;
+		}
+		if (props.mockOnly && getDeliveryProfileSource() !== 'default') {
+			refusal =
+				"This game's real-money wire exists only on our test server, so it cannot run against " +
+				`a partner's RGS (profile "${getDeliveryProfile().id}").`;
 			return;
 		}
 

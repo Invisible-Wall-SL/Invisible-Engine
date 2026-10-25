@@ -150,6 +150,21 @@ check(MAPPINGS.freePlay === MAPPINGS.identity, 'PUBLIC_RGS_GAME=freePlay maps by
 		'an RGS match-3 delivery waits on the partner wire',
 	);
 	check(/arcade/.test(refusal({ family: 'arcade' })), 'an arcade game is refused for delivery');
+	check(
+		/non-slot/.test(refusal({ family: 'card' })),
+		'a family the gate does not know is refused (it fails closed)',
+	);
+	check(deliveryFamilyRefusal({ family: 'slot' }) === null, "an explicit 'slot' is deliverable");
+	const delivery = read('scripts/build-delivery.mjs');
+	const gate = delivery.indexOf('const family = familyRefusal();');
+	check(
+		/import \{ deliveryFamilyRefusal \} from '\.\/delivery-family-gate\.mjs';/.test(delivery) &&
+			gate > delivery.indexOf("run('pnpm', ['build']") &&
+			gate > delivery.indexOf('if (skipBuild) {') &&
+			gate < delivery.indexOf("resolve(ENGINE_ROOT, 'scripts/build-embed.mjs')") &&
+			/if \(family\)\s*throw refused\(family/.test(delivery.slice(gate)),
+		'build-delivery.mjs refuses on the gate after the build (or --skip-build), before packaging',
+	);
 }
 
 // ── The contract the launcher sends, and the mock the test server builds from it ──
@@ -191,7 +206,7 @@ check(
 			true,
 		)?.handle,
 	),
-	'a rules-decided project still stands its (never asked) mock up',
+	'a match-3 entry with only rules inputs still stands its mock up',
 );
 
 // ── The total table ──────────────────────────────────────────────────────────
