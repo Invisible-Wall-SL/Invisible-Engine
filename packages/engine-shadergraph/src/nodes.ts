@@ -10,6 +10,7 @@
 
 import { EFX_SIDES } from 'constants-shared/glslLibrary';
 import type { ElementFxParamSpec } from 'constants-shared/elementFx';
+import type { MotionInput, MotionOpName } from 'constants-shared/motionLibrary';
 import type { PortType } from './types';
 
 /** `any` follows the node's widest wired input, so `add` adds floats or vectors alike. */
@@ -49,6 +50,28 @@ export interface EmitContext {
 	local(type: PortType, expr: string): string;
 }
 
+/**
+ * What a node appends to a motion program (`constants-shared/motionLibrary`), each step returning
+ * the register that holds its result.
+ */
+export interface MotionEmitContext {
+	/** Each input as a register. */
+	in: Record<string, number>;
+	/** The inputs as registers, in the node's order. */
+	args: number[];
+	/** A setting as a register: a number setting's value, a param's. */
+	setting(id: string): number;
+	op(name: MotionOpName, ...args: number[]): number;
+	read(input: MotionInput): number;
+}
+
+/** How a node runs in the motion graph, on the CPU each frame: a register per output. */
+export interface NodeMotion {
+	emit(ctx: MotionEmitContext): Record<string, number>;
+	/** What an input left unwired reads there, where the pixel graph's default is per pixel. */
+	defaults?: Readonly<Record<string, 'progress' | 'seconds'>>;
+}
+
 export interface NodeDef {
 	type: string;
 	label: string;
@@ -64,6 +87,11 @@ export interface NodeDef {
 	/** Output types that depend on the doc (a param node's kind). */
 	outputTypes?(param: ElementFxParamSpec | undefined): Record<string, PortType>;
 	emit(ctx: EmitContext): Record<string, string>;
+	/**
+	 * The node in the motion graph: the library ops computing, for floats, what `emit`'s GLSL does.
+	 * Absent: it works per pixel only.
+	 */
+	motion?: NodeMotion;
 }
 
 const port = (
@@ -105,18 +133,38 @@ const one = (
 	...more,
 });
 
-/** A node `out = fn(in…)` on any type. */
-const unary = (type: string, label: string, description: string, glsl: (x: string) => string) =>
-	one(type, label, 'math', description, [any('x', 'X', 0)], 'any', 1, (c) => glsl(c.in.x));
+/** In the motion graph, `out` is library op `name` on the node's inputs in order. */
+const cpu = (name: MotionOpName): NodeMotion => ({
+	emit: (c) => ({ out: c.op(name, ...c.args) }),
+});
+
+/** A node `out = fn(in…)` on any type; in the motion graph, the op of its name. */
+const unary = (
+	type: MotionOpName,
+	label: string,
+	description: string,
+	glsl: (x: string) => string,
+) =>
+	one(type, label, 'math', description, [any('x', 'X', 0)], 'any', 1, (c) => glsl(c.in.x), {
+		motion: cpu(type),
+	});
 const binary = (
-	type: string,
+	type: MotionOpName,
 	label: string,
 	description: string,
 	glsl: (a: string, b: string) => string,
 	b = 0,
 ) =>
-	one(type, label, 'math', description, [any('a', 'A', 0), any('b', 'B', b)], 'any', 1, (c) =>
-		glsl(c.in.a, c.in.b),
+	one(
+		type,
+		label,
+		'math',
+		description,
+		[any('a', 'A', 0), any('b', 'B', b)],
+		'any',
+		1,
+		(c) => glsl(c.in.a, c.in.b),
+		{ motion: cpu(type) },
 	);
 
 /** The uniform type a param of each kind is read through. */
@@ -174,6 +222,14 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		],
 		cost: 0,
 		emit: () => ({ progress: 'uFx.x', seconds: 'uFx.y', intensity: 'uFx.z', looping: 'uFx.w' }),
+		motion: {
+			emit: (c) => ({
+				progress: c.read('progress'),
+				seconds: c.read('seconds'),
+				intensity: c.read('intensity'),
+				looping: c.read('looping'),
+			}),
+		},
 	},
 	{
 		type: 'param',
@@ -187,6 +243,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		cost: 0,
 		outputTypes: (param) => ({ out: param ? PARAM_TYPE[param.kind] : 'float' }),
 		emit: (c) => ({ out: c.setting('param') }),
+		motion: { emit: (c) => ({ out: c.setting('param') }) },
 	},
 	{
 		type: 'number',
@@ -198,6 +255,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		settings: [{ id: 'value', label: 'Value', kind: 'number', default: 1 }],
 		cost: 0,
 		emit: (c) => ({ out: c.setting('value') }),
+		motion: { emit: (c) => ({ out: c.setting('value') }) },
 	},
 	{
 		type: 'color',
@@ -252,6 +310,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'float',
 		0,
 		() => 'uSeed',
+		{ motion: { emit: (c) => ({ out: c.read('seed') }) } },
 	),
 
 	// --- math: on numbers or vectors alike ---
@@ -270,6 +329,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'any',
 		2,
 		(c) => `mix(${c.in.a}, ${c.in.b}, ${c.in.t})`,
+		{ motion: cpu('mix') },
 	),
 	one(
 		'clamp',
@@ -280,6 +340,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'any',
 		1,
 		(c) => `clamp(${c.in.x}, ${c.in.min}, ${c.in.max})`,
+		{ motion: cpu('clamp') },
 	),
 	one(
 		'smoothstep',
@@ -290,6 +351,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'any',
 		3,
 		(c) => `smoothstep(${c.in.from}, ${c.in.to}, ${c.in.x})`,
+		{ motion: cpu('smoothstep') },
 	),
 	one(
 		'step',
@@ -300,6 +362,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'any',
 		1,
 		(c) => `step(${c.in.edge}, ${c.in.x})`,
+		{ motion: cpu('step') },
 	),
 	one(
 		'pow',
@@ -310,6 +373,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'any',
 		3,
 		(c) => `pow(max(${c.in.x}, 0.0), ${c.splat(c.in.power)})`,
+		{ motion: cpu('pow') },
 	),
 	unary('abs', 'Absolute', 'X without its sign.', (x) => `abs(${x})`),
 	unary('fract', 'Fraction', 'The part of X after the point.', (x) => `fract(${x})`),
@@ -334,6 +398,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		4,
 		(c) =>
 			`mix(${c.splat(c.in.outMin)}, ${c.splat(c.in.outMax)}, clamp((${c.in.x} - ${c.in.inMin}) / (${c.in.inMax} - ${c.in.inMin}), 0.0, 1.0))`,
+		{ motion: cpu('remap') },
 	),
 	one(
 		'length',
@@ -426,6 +491,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 			const { a, b, d, e } = c.in;
 			return `(${i} < 0.5 ? ${a} : ${i} < 1.5 ? ${b} : ${i} < 2.5 ? ${c.in.c} : ${i} < 3.5 ? ${d} : ${i} < 4.5 ? ${e} : ${c.in.f})`;
 		},
+		{ motion: cpu('pick') },
 	),
 
 	// --- time: shaping the play's progress ---
@@ -438,6 +504,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'float',
 		2,
 		(c) => `sin(PI * clamp(${c.in.t}, 0.0, 1.0))`,
+		{ motion: cpu('bell') },
 	),
 	one(
 		'swell',
@@ -448,6 +515,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'float',
 		2,
 		(c) => `(0.5 - 0.5 * cos(2.0 * PI * ${c.in.t}))`,
+		{ motion: cpu('swell') },
 	),
 	one(
 		'easeInOut',
@@ -458,6 +526,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'float',
 		3,
 		(c) => `efxEaseInOut(${c.in.t})`,
+		{ motion: cpu('easeInOut') },
 	),
 	one(
 		'easeOutBack',
@@ -468,6 +537,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'float',
 		3,
 		(c) => `efxEaseOutBack(${c.in.t}, ${c.in.overshoot})`,
+		{ motion: cpu('easeOutBack') },
 	),
 	one(
 		'hold',
@@ -478,6 +548,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'float',
 		5,
 		(c) => `efxHold(${c.in.t}, ${c.in.hold})`,
+		{ motion: cpu('hold') },
 	),
 	one(
 		'pulse',
@@ -488,6 +559,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'float',
 		2,
 		(c) => `(0.5 - 0.5 * cos(2.0 * PI * ${c.in.rate} * ${c.in.t}))`,
+		{ motion: cpu('pulse') },
 	),
 	one(
 		'flicker',
@@ -502,6 +574,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'float',
 		4,
 		(c) => `step(1.0 - ${c.in.chance}, efxHash1(floor(${c.in.seconds} * ${c.in.rate})))`,
+		{ motion: cpu('flicker') },
 	),
 	one(
 		'loopEnvelope',
@@ -513,6 +586,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		6,
 		(c) =>
 			`(uFx.w > 0.5 ? 1.0 : smoothstep(0.0, 0.15, ${c.in.t}) * (1.0 - smoothstep(0.85, 1.0, ${c.in.t})))`,
+		{ motion: { emit: (c) => ({ out: c.op('loopEnvelope', c.in.t, c.read('looping')) }) } },
 	),
 	{
 		type: 'bounce',
@@ -527,6 +601,12 @@ export const SHADER_NODES: readonly NodeDef[] = [
 			const arcs = c.local('vec2', `efxBounce(${c.in.t}, ${c.in.count})`);
 			return { height: `${arcs}.x`, squash: `${arcs}.y` };
 		},
+		motion: {
+			emit: (c) => ({
+				height: c.op('bounceHeight', ...c.args),
+				squash: c.op('bounceSquash', ...c.args),
+			}),
+		},
 	},
 	one(
 		'oscillate',
@@ -537,6 +617,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'float',
 		8,
 		(c) => `efxSinPi(2.0 * (${c.in.rate} * ${c.in.t} + ${c.in.phase}))`,
+		{ motion: cpu('oscillate') },
 	),
 
 	// --- procedural: noise and patterns ---
@@ -652,6 +733,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'float',
 		3,
 		(c) => `efxHash1(${c.in.x})`,
+		{ motion: cpu('hash1') },
 	),
 	one(
 		'noise1',
@@ -662,6 +744,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'float',
 		8,
 		(c) => `efxNoise1(${c.in.x} * ${c.in.scale} + ${c.in.seed})`,
+		{ motion: { ...cpu('noise1'), defaults: { x: 'progress' } } },
 	),
 	{
 		type: 'arcs',
@@ -743,6 +826,7 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		'float',
 		3,
 		(c) => `efxBand(${c.in.x}, ${c.in.at}, max(${c.in.width}, 0.0001))`,
+		{ motion: cpu('band') },
 	),
 	one(
 		'glint',
@@ -1176,3 +1260,88 @@ export const DIMS: Record<PortType, number> = { float: 1, vec2: 2, vec3: 3, vec4
 const BY_TYPE = new Map(SHADER_NODES.map((def) => [def.type, def]));
 
 export const shaderNode = (type: string): NodeDef | undefined => BY_TYPE.get(type);
+
+/** The Motion Output's inputs: the channels a motion graph may drive, and the effect's padding. */
+const MOTION_OUTPUT_PORTS: readonly PortDef[] = [
+	port('x', 'X (widths)', 'float'),
+	port('y', 'Y (heights)', 'float'),
+	port('scale', 'Scale', 'float'),
+	port('scaleX', 'Scale X', 'float'),
+	port('scaleY', 'Scale Y', 'float'),
+	port('rotation', 'Rotation (°)', 'float'),
+	port('alpha', 'Alpha', 'float'),
+	port('padding', 'Padding', 'float'),
+];
+
+/**
+ * The nodes only the MOTION graph has: the element's shape, and the Motion Output. They have no
+ * GLSL and the pixel graph refuses them.
+ */
+const MOTION_ONLY_NODES: readonly NodeDef[] = [
+	{
+		type: 'shape',
+		label: 'Element shape',
+		category: 'input',
+		description:
+			'The element’s width and height in its own units, and its aspect (width ÷ height). X and Y move in shares of the element’s width and height: divide a move in its units by them.',
+		inputs: [],
+		outputs: [
+			port('width', 'Width', 'float'),
+			port('height', 'Height', 'float'),
+			port('aspect', 'Aspect', 'float'),
+		],
+		cost: 1,
+		emit: () => ({}),
+		motion: {
+			emit: (c) => {
+				const width = c.read('width');
+				const height = c.read('height');
+				return { width, height, aspect: c.op('divide', width, height) };
+			},
+		},
+	},
+	{
+		type: 'motionOutput',
+		label: 'Motion Output',
+		category: 'output',
+		description:
+			'What the motion graph drives each frame: the element’s move (X in its widths, Y in its heights), its scale, its turn (degrees), its alpha (0…1) and the room drawn around it (Padding, in shares of its larger side). The values are final: read Strength to scale them. An input left unwired leaves its channel to its curve, or at rest.',
+		inputs: MOTION_OUTPUT_PORTS,
+		outputs: [],
+		cost: 0,
+		emit: () => ({}),
+		motion: { emit: () => ({}) },
+	},
+];
+
+/** `def` as the motion graph sees it: every port a float, a per-pixel default read off the play. */
+const motionView = (def: NodeDef): NodeDef => {
+	const float = (p: PortDef): PortDef => {
+		const typed: PortDef = p.type === 'any' ? { ...p, type: 'float' } : p;
+		const read = def.motion?.defaults?.[p.id];
+		return read ? { ...typed, defaultExpr: read } : typed;
+	};
+	return { ...def, inputs: def.inputs.map(float), outputs: def.outputs.map(float) };
+};
+
+/**
+ * The MOTION graph's nodes, as it sees them: the library's float nodes that have a CPU form (the
+ * same ids, so a node means the same in both graphs), the element's shape and the Motion Output.
+ */
+export const MOTION_NODES: readonly NodeDef[] = [
+	...SHADER_NODES.filter((def) => def.motion),
+	...MOTION_ONLY_NODES,
+].map(motionView);
+
+export const MOTION_NODE_TYPES: readonly string[] = MOTION_NODES.map((def) => def.type);
+
+const MOTION_BY_TYPE = new Map(MOTION_NODES.map((def) => [def.type, def]));
+
+/** A node the motion graph has, as it sees it (every port a float). */
+export const motionNode = (type: string): NodeDef | undefined => MOTION_BY_TYPE.get(type);
+
+export const isMotionNode = (type: string): boolean => MOTION_BY_TYPE.has(type);
+
+/** A node only the motion graph has (the pixel graph refuses it). */
+export const isMotionOnlyNode = (type: string): boolean =>
+	MOTION_ONLY_NODES.some((def) => def.type === type);

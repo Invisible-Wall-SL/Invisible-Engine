@@ -53,6 +53,20 @@
  *     the effect's Output, a malformed port, a wire to a port it lacks, calls multiplying past the
  *     inlined-node cap. What is wrong inside a call is said about the call; a body analysed on its own
  *     says it about its own nodes. Storage keeps subgraphs; the shipped effect is flat.
+ * 12. THE MOTION GRAPH (step 8a): its nodes are the library's float nodes with a CPU form (the same
+ *     ids), the element's shape and one Motion Output, every port a float, every op the library has
+ *     emitted by some node. Each compiles alone to a program the registry reads; a graph compiles to
+ *     the exact program expected (constants once, what drives nothing left out, an unwired output
+ *     driving nothing), which runs to the values the nodes mean, a NaN never. Each broken graph is an
+ *     error on its node, tagged as the motion graph's, and stops the effect compiling while the
+ *     pixel analysis is untouched: an unknown, pixel-only or pixel-output node, a call, two Motion
+ *     Outputs, a loop, a colour or missing param, a bad wire, a vector value, too many steps, nodes
+ *     or wires. No Motion Output, or nothing wired into it, is no program. The effect carries the
+ *     doc's curves and the program; the registry drops a program it cannot run (an unknown op, a
+ *     forward operand, too many ops, a bad output or param) and keeps the effect. Storage keeps the
+ *     motion graph clean; a doc without one (or an empty one) compiles, analyses and validates
+ *     byte-identically; hostile graphs are refused in milliseconds with a bounded heap and
+ *     messages; `motionNodeSeries` plots a node over a play.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -60,6 +74,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
 	customElementFx,
+	customElementFxMotionProgramIssues,
 	elementFxParamUniform,
 	elementFxSpec,
 	findElementFxSpec,
@@ -68,23 +83,47 @@ import {
 	readCustomElementFx,
 	readElementFxEntry,
 	setCustomElementFx,
+	CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT as OP_LIMIT,
 	CUSTOM_ELEMENT_FX_PASS_LIMIT as PASS_LIMIT,
 	ELEMENT_FX_CURVE_KEY_LIMIT as CURVE_KEY_LIMIT,
+	ELEMENT_FX_MOTION_OUTPUTS,
 	ELEMENT_FX_PASS_KINDS,
+	type CustomElementFx,
+	type ElementFxParamSpec,
 } from 'constants-shared/elementFx';
 import { EFX_GLSL, linkGlsl } from 'constants-shared/glslLibrary';
 import {
+	MOTION_INPUTS,
+	MOTION_OPS,
+	runMotionProgram,
+	type MotionFrame,
+} from 'constants-shared/motionLibrary';
+import {
+	MOTION_GRAPH_NODE_LIMIT,
+	MOTION_GRAPH_WIRE_LIMIT,
 	SAMPLE_BUDGET,
 	analyzeShaderGraph,
+	analyzeShaderMotion,
 	analyzeShaderSubgraph,
 	compileShaderEffect,
 	compileShaderGraph,
+	compileShaderMotion,
 	glslFloat,
+	motionNodeSeries,
 	validateShaderGraph,
 	type CompileResult,
 } from './src/compile.ts';
 import { normalizeShaderGraphDoc } from './src/doc.ts';
-import { DIMS, SHADER_NODES, shaderNode, type NodeDef } from './src/nodes.ts';
+import {
+	DIMS,
+	MOTION_NODES,
+	MOTION_NODE_TYPES,
+	SHADER_NODES,
+	isMotionNode,
+	motionNode,
+	shaderNode,
+	type NodeDef,
+} from './src/nodes.ts';
 import { REFERENCE_GRAPHS, graphBuilder, nodeShowcase } from './src/reference.ts';
 import {
 	SUBGRAPH_COUNT_MAX,
@@ -1578,6 +1617,678 @@ console.log('shader graph — subgraphs');
 			!JSON.stringify(effect.effect).includes('subgraph') &&
 			!!readCustomElementFx(effect.effect),
 		'the compiled effect is one flat pass, read by the registry as any other',
+	);
+}
+
+// -------------------------------------------------------------------------------------------------
+console.log('shader graph — the motion graph');
+{
+	const w = (from: string, to: string): GraphWire => {
+		const [fn, fp] = from.split('.');
+		const [tn, tp] = to.split('.');
+		return { from: { node: fn, port: fp }, to: { node: tn, port: tp } };
+	};
+	const n = (id: string, type: string, values?: GraphNode['values']): GraphNode => ({
+		id,
+		type,
+		x: 0,
+		y: 0,
+		...(values ? { values } : {}),
+	});
+	const PARAMS: ElementFxParamSpec[] = [
+		{ id: 'amp', label: 'Amp', kind: 'number', default: 0.5, min: 0, max: 2 },
+		{ id: 'on', label: 'On', kind: 'bool', default: true },
+		{ id: 'pick', label: 'Pick', kind: 'choice', default: 'c', options: ['a', 'b', 'c'] },
+		{ id: 'tint', label: 'Tint', kind: 'color', default: '#ff0000' },
+	];
+	const base = graphBuilder({ id: 'moving', name: 'Moving', phase: 'emphasis', durationMs: 1000 });
+	base.wire(base.node('sample'), 'out', base.node('output'), 'color');
+	const pixel = base.doc();
+	const moving = (nodes: GraphNode[], wires: GraphWire[], more: Partial<ShaderGraphDoc> = {}) =>
+		({ ...pixel, params: PARAMS, motionGraph: { nodes, wires }, ...more }) as ShaderGraphDoc;
+	const frame = (more: Partial<MotionFrame> = {}): MotionFrame => ({
+		t: 0.5,
+		seconds: 0.5,
+		intensity: 1,
+		looping: false,
+		params: { amp: 0.5, on: 1, pick: 2 },
+		seed: 41,
+		width: 120,
+		height: 60,
+		...more,
+	});
+	const issuesOf = (doc: ShaderGraphDoc) => analyzeShaderMotion(doc).issues;
+
+	// The library.
+	const views = MOTION_NODES;
+	assert(
+		new Set(MOTION_NODE_TYPES).size === MOTION_NODE_TYPES.length &&
+			views.every((d) => [...d.inputs, ...d.outputs].every((p) => p.type === 'float')) &&
+			views.every((d) =>
+				d.inputs.every((p) => !p.defaultExpr || ['progress', 'seconds'].includes(p.defaultExpr)),
+			),
+		`${views.length} motion nodes, none twice, every port a float, no input reading per pixel`,
+	);
+	const pixelOnes = views.filter((d) => !['shape', 'motionOutput'].includes(d.type));
+	assert(
+		pixelOnes.every(
+			(d) =>
+				shaderNode(d.type)?.motion &&
+				shaderNode(d.type)
+					?.inputs.map((p) => p.id)
+					.join() === d.inputs.map((p) => p.id).join(),
+		) &&
+			!shaderNode('shape') &&
+			!shaderNode('motionOutput') &&
+			SHADER_NODES.filter((d) => d.motion).length === pixelOnes.length,
+		'every motion node but the shape and the Motion Output is the pixel node of its id, its ports the same',
+	);
+	const named = ['time', 'param', 'number', 'seed', 'add', 'multiply', 'mix', 'clamp'];
+	named.push('smoothstep', 'remap', 'bell', 'swell', 'pulse', 'oscillate', 'bounce');
+	named.push('loopEnvelope', 'hash1', 'noise1', 'pick', 'hold', 'shape', 'motionOutput');
+	assert(
+		named.every(isMotionNode) &&
+			!['uv', 'sample', 'noise', 'away', 'output', 'color', 'size', 'split'].some(isMotionNode) &&
+			!isMotionNode('__proto__') &&
+			!isMotionNode('toString'),
+		'the time, param, number, seed, math, time-shape, oscillator and 1-D noise nodes are motion nodes; per-pixel, colour and vector ones are not',
+	);
+	assert(
+		JSON.stringify(motionNode('motionOutput')?.inputs.map((p) => p.id)) ===
+			JSON.stringify(ELEMENT_FX_MOTION_OUTPUTS) &&
+			motionNode('motionOutput')?.outputs.length === 0 &&
+			!!motionNode('motionOutput')?.inputs.every((p) => p.default === undefined && !p.defaultExpr),
+		'the Motion Output takes x, y, scale, scale x / y, rotation, alpha and padding, none read unwired',
+	);
+
+	// Every node compiles alone into a program the registry reads; every op is some node's.
+	const used = new Set<string>();
+	const alone: string[] = [];
+	for (const def of views) {
+		if (def.type === 'motionOutput') continue;
+		for (const output of def.outputs) {
+			const values = def.type === 'param' ? { param: 'amp' } : undefined;
+			const doc = moving(
+				[n('node', def.type, values), n('out', 'motionOutput')],
+				[w(`node.${output.id}`, 'out.x')],
+			);
+			const result = compileShaderMotion(doc);
+			const program = result.ok ? result.program : undefined;
+			const read = program
+				? customElementFxMotionProgramIssues(program, new Map(PARAMS.map((p) => [p.id, p])))
+				: ['none'];
+			const value = program ? runMotionProgram(program, frame()).x : NaN;
+			if (!program || read.length || !Number.isFinite(value))
+				alone.push(`${def.type}.${output.id}`);
+			for (const op of program?.ops ?? []) used.add(op[0]);
+		}
+	}
+	assert(
+		!alone.length,
+		`every motion node output compiles alone to a program the registry reads${alone.length ? `: ${alone.join(', ')}` : ''}`,
+	);
+	const unused = Object.keys(MOTION_OPS).filter((op) => !used.has(op));
+	assert(
+		!unused.length && MOTION_INPUTS.every((input) => used.has(input)),
+		`every library op and frame read is some node's${unused.length ? ` (none emits ${unused.join(', ')})` : ''}`,
+	);
+
+	// A graph compiles to the exact program: constants once, dead nodes out, unwired outputs undriven.
+	const doc = moving(
+		[
+			n('time', 'time'),
+			n('bell', 'bell'),
+			n('amp', 'param', { param: 'amp' }),
+			n('mul', 'multiply'),
+			n('lift', 'add', { b: 0.5 }),
+			n('again', 'add', { b: 0.5 }),
+			n('dead', 'sin'),
+			n('out', 'motionOutput', { alpha: 0.2 }),
+		],
+		[
+			w('time.progress', 'bell.t'),
+			w('bell.out', 'mul.a'),
+			w('amp.out', 'mul.b'),
+			w('mul.out', 'lift.a'),
+			w('lift.out', 'out.y'),
+			w('mul.out', 'again.a'),
+			w('again.out', 'out.padding'),
+			w('time.seconds', 'dead.x'),
+		],
+	);
+	const compiled = compileShaderMotion(doc);
+	const expected = {
+		ops: [
+			['progress'],
+			['bell', 0],
+			['param', 'amp'],
+			['multiply', 1, 2],
+			['const', 0.5],
+			['add', 3, 4],
+			['add', 3, 4],
+		],
+		outputs: { y: 5, padding: 6 },
+	};
+	assert(
+		compiled.ok &&
+			JSON.stringify(compiled.program) === JSON.stringify(expected) &&
+			compiled.warnings.length === 1 &&
+			compiled.warnings[0].node === 'dead' &&
+			compiled.warnings[0].graph === 'motion',
+		'a graph compiles to the exact program: one constant for two 0.5s, the node reaching nothing left out (and warned of), a value on an unwired Motion Output input driving nothing',
+	);
+	const program = compiled.ok ? compiled.program : undefined;
+	const registers = new Float64Array(7);
+	const ran = program ? runMotionProgram(program, frame({ t: 0.5 }), registers) : {};
+	assert(
+		JSON.stringify(Object.keys(ran)) === '["y","padding"]' &&
+			Math.abs((ran.y ?? 0) - 1) < 1e-12 &&
+			registers[3] === 0.5,
+		'it runs to what the nodes mean (Bell at the middle × Amp 0.5, + 0.5), its registers filled',
+	);
+	const bits = (ops: unknown[], frameMore: Partial<MotionFrame> = {}) =>
+		runMotionProgram({ ops: ops as never, outputs: { x: ops.length - 1 } }, frame(frameMore)).x;
+	assert(
+		bits([
+			['const', 1],
+			['const', 0],
+			['divide', 0, 1],
+		]) === 0 &&
+			bits([['param', 'missing']]) === 0 &&
+			bits([['param', 'toString']]) === 0 &&
+			bits([['param', '__proto__']]) === 0 &&
+			bits([['looping']], { looping: true }) === 1 &&
+			bits([['width'], ['height'], ['divide', 0, 1]]) === 2 &&
+			bits([
+				['const', 4],
+				['const', 9],
+				['const', 1],
+				['const', 2],
+				['const', 3],
+				['const', 5],
+				['const', 6],
+				['pick', 0, 1, 2, 3, 4, 5, 6],
+			]) === 5 &&
+			bits([
+				['const', -1],
+				['const', 2],
+				['pow', 0, 1],
+			]) === 0,
+		'a division by 0 runs to 0, an unknown param (a prototype name too) to 0; looping, the shape, Pick and a negative Power read as their nodes do',
+	);
+
+	// Each broken graph is an error on its node, tagged, and stops the effect, not the pixel graph.
+	const broken = (
+		label: string,
+		graph: ShaderGraphDoc,
+		code: GraphIssueCode,
+		node: string | undefined,
+		message: RegExp,
+	): void => {
+		const issues = issuesOf(graph);
+		const hit = issues.find(
+			(i) => i.level === 'error' && i.code === code && i.message.match(message),
+		);
+		const effect = compileShaderEffect(graph);
+		const plain = { ...graph };
+		delete plain.motionGraph;
+		assert(
+			!!hit &&
+				(node === undefined || hit.node === node) &&
+				issues.every((i) => i.graph === 'motion') &&
+				!effect.ok &&
+				effect.issues.some((i) => i.graph === 'motion' && i.code === code) &&
+				JSON.stringify(analyzeShaderGraph(graph)) === JSON.stringify(analyzeShaderGraph(plain)) &&
+				compileShaderGraph(graph).ok,
+			`${label}: "${hit?.message ?? '?'}" on ${hit?.node ?? 'the graph'}; the effect does not compile, the pixel graph is untouched`,
+		);
+	};
+	const out = n('out', 'motionOutput');
+	broken(
+		'an unknown node',
+		moving([n('q', 'nope'), out], []),
+		'unknown-node',
+		'q',
+		/"nope" is not a node/,
+	);
+	broken(
+		'a pixel-only node',
+		moving([n('q', 'sample'), out], []),
+		'unknown-node',
+		'q',
+		/works per pixel/,
+	);
+	broken(
+		'the pixel Output',
+		moving([n('q', 'output'), out], []),
+		'unknown-node',
+		'q',
+		/belongs in the pixel graph/,
+	);
+	broken(
+		'a subgraph call',
+		moving([n('q', 'subgraph', { subgraph: 's' }), out], []),
+		'unknown-node',
+		'q',
+		/cannot be called/,
+	);
+	broken(
+		'two Motion Outputs',
+		moving([out, n('out2', 'motionOutput')], []),
+		'output',
+		undefined,
+		/one Motion Output/,
+	);
+	broken(
+		'a loop',
+		moving(
+			[n('a', 'add'), n('b', 'add'), out],
+			[w('a.out', 'b.a'), w('b.out', 'a.a'), w('b.out', 'out.x')],
+		),
+		'cycle',
+		undefined,
+		/loop/,
+	);
+	broken(
+		'a colour param',
+		moving([n('p', 'param', { param: 'tint' }), out], [w('p.out', 'out.x')]),
+		'setting',
+		'p',
+		/is a colour/,
+	);
+	broken(
+		'a missing param',
+		moving([n('p', 'param', { param: 'gone' }), out], [w('p.out', 'out.x')]),
+		'setting',
+		'p',
+		/not one of the effect's params/,
+	);
+	broken(
+		'a wire to a port it lacks',
+		moving([n('a', 'abs'), out], [w('a.out', 'out.z')]),
+		'wire',
+		'out',
+		/no input "z"/,
+	);
+	broken(
+		'an input wired twice',
+		moving([n('a', 'abs'), n('b', 'abs'), out], [w('a.out', 'out.x'), w('b.out', 'out.x')]),
+		'wired-twice',
+		'out',
+		/wired twice/,
+	);
+	broken(
+		'a vector value',
+		moving([n('a', 'abs', { x: [1, 2] }), out], [w('a.out', 'out.x')]),
+		'value',
+		'a',
+		/takes a number/,
+	);
+	const many = Array.from({ length: 120 }, (_, i) =>
+		n(`r${i}`, 'remap', { inMin: i + 0.1, inMax: i + 0.2, outMin: i + 0.3, outMax: i + 0.4 }),
+	);
+	broken(
+		'too many steps',
+		moving(
+			[...many, out],
+			[...many.slice(1).map((r, i) => w(`r${i}.out`, `${r.id}.x`)), w('r119.out', 'out.x')],
+		),
+		'cost',
+		undefined,
+		new RegExp(`more than the ${OP_LIMIT}`),
+	);
+	broken(
+		`${MOTION_GRAPH_NODE_LIMIT + 1} nodes`,
+		moving(
+			Array.from({ length: MOTION_GRAPH_NODE_LIMIT + 1 }, (_, i) => n(`k${i}`, 'number')),
+			[],
+		),
+		'motion',
+		undefined,
+		/at most 256/,
+	);
+	broken(
+		'a motion graph that is not one',
+		{ ...pixel, motionGraph: { nodes: 'x' } } as unknown as ShaderGraphDoc,
+		'doc',
+		undefined,
+		/needs a nodes list/,
+	);
+	const inPixel = { ...pixel, nodes: [...pixel.nodes, n('m', 'motionOutput')] };
+	assert(
+		validateShaderGraph(inPixel).some(
+			(i) =>
+				i.code === 'unknown-node' &&
+				i.node === 'm' &&
+				/belongs in the motion graph/.test(i.message),
+		),
+		'the pixel graph refuses a motion-only node, saying where it belongs',
+	);
+	const noOutput = moving([n('a', 'abs')], []);
+	const unwired = moving([n('a', 'abs'), out], []);
+	const both = compileShaderEffect({ ...noOutput, nodes: [] });
+	const effectOf = (graph: ShaderGraphDoc): string => {
+		const result = compileShaderEffect(graph);
+		return JSON.stringify(result.ok ? result.effect : result.issues);
+	};
+	assert(
+		compileShaderMotion(noOutput).ok &&
+			!(compileShaderMotion(noOutput) as { program?: unknown }).program &&
+			issuesOf(noOutput).some((i) => i.level === 'warning' && /no Motion Output/.test(i.message)) &&
+			!issuesOf(noOutput).some((i) => i.code === 'unreachable') &&
+			compileShaderMotion(unwired).ok &&
+			!(compileShaderMotion(unwired) as { program?: unknown }).program &&
+			compileShaderEffect(unwired).ok &&
+			effectOf(unwired) === effectOf({ ...unwired, motionGraph: undefined }) &&
+			!both.ok &&
+			both.issues.some((i) => i.code === 'output' && !i.graph),
+		'no Motion Output (a warning, not one per node) or none of its inputs wired: no program, the effect as without one; a broken pixel graph still says so',
+	);
+	assert(
+		analyzeShaderMotion(doc).cost === 2 + 1 + 1 + 1 &&
+			analyzeShaderMotion(doc).ops === 7 &&
+			analyzeShaderMotion(doc).types.outputs.time?.seconds === 'float' &&
+			analyzeShaderMotion(moving([n('p', 'param', { param: 'tint' }), out], [])).types.outputs.p
+				?.out === 'vec3',
+		'the analysis gives the reachable cost, the program size and every port’s type (a colour param’s a vec3)',
+	);
+
+	// The effect carries the doc's curves and the program; the registry reads it.
+	const curves = {
+		channels: {
+			alpha: [
+				{ t: 0, v: 1 },
+				{ t: 1, v: 0 },
+			],
+		},
+		pivot: { x: 0.5, y: 1 },
+	};
+	const withCurves = compileShaderEffect({
+		...doc,
+		motion: { ...curves, program: { ops: [['const', 9]], outputs: { x: 0 } } } as never,
+	});
+	const bare = compileShaderEffect(doc);
+	const read = withCurves.ok ? readCustomElementFx(withCurves.effect) : undefined;
+	assert(
+		withCurves.ok &&
+			bare.ok &&
+			JSON.stringify(withCurves.effect.motion) ===
+				JSON.stringify({ ...curves, program: expected }) &&
+			JSON.stringify(bare.effect.motion) === JSON.stringify({ channels: {}, program: expected }) &&
+			JSON.stringify(read?.motion) === JSON.stringify(withCurves.effect.motion) &&
+			withCurves.warnings.some((i) => i.graph === 'motion'),
+		'the effect carries the doc’s curves (a program written into them is dropped) and the compiled program, which the registry keeps',
+	);
+
+	// The registry drops a program it cannot run, never the effect.
+	const good = bare.ok ? bare.effect : (undefined as unknown as CustomElementFx);
+	const withProgram = (programRaw: unknown): unknown => ({
+		...good,
+		motion: { channels: { alpha: [{ t: 0, v: 1 }] }, program: programRaw },
+	});
+	const badPrograms: [string, unknown][] = [
+		[
+			'an unknown op',
+			{
+				ops: [
+					['const', 1],
+					['fromTheFuture', 0],
+				],
+				outputs: { x: 1 },
+			},
+		],
+		[
+			'a forward operand',
+			{
+				ops: [
+					['abs', 1],
+					['const', 1],
+				],
+				outputs: { x: 0 },
+			},
+		],
+		[
+			'a wrong operand count',
+			{
+				ops: [
+					['const', 1],
+					['add', 0],
+				],
+				outputs: { x: 1 },
+			},
+		],
+		[
+			'a fraction operand',
+			{
+				ops: [
+					['const', 1],
+					['abs', 0.5],
+				],
+				outputs: { x: 1 },
+			},
+		],
+		[
+			`${OP_LIMIT + 1} ops`,
+			{ ops: Array.from({ length: OP_LIMIT + 1 }, () => ['const', 1]), outputs: { x: 0 } },
+		],
+		['no ops', { ops: [], outputs: { x: 0 } }],
+		['an unknown output', { ops: [['const', 1]], outputs: { skew: 0 } }],
+		['a __proto__ output', JSON.parse('{"ops":[["const",1]],"outputs":{"__proto__":0}}')],
+		['an output past the ops', { ops: [['const', 1]], outputs: { x: 1 } }],
+		['no outputs', { ops: [['const', 1]], outputs: {} }],
+		['a null const', { ops: [['const', null]], outputs: { x: 0 } }],
+		['a colour param', { ops: [['param', 'tint']], outputs: { x: 0 } }],
+		['a missing param', { ops: [['param', 'gone']], outputs: { x: 0 } }],
+		['an input with an operand', { ops: [['progress', 0]], outputs: { x: 0 } }],
+		['ops that are not a list', { ops: 'add', outputs: { x: 0 } }],
+	];
+	const kept = badPrograms.filter(([, p]) => {
+		const effect = readCustomElementFx({
+			...(withProgram(p) as object),
+			spec: { ...good.spec, params: PARAMS },
+		});
+		return (
+			!effect || effect.motion?.program !== undefined || effect.motion?.channels.alpha === undefined
+		);
+	});
+	assert(
+		!kept.length &&
+			!!readCustomElementFx({
+				...(withProgram(expected) as object),
+				spec: { ...good.spec, params: PARAMS },
+			})?.motion?.program,
+		`the registry drops a program it cannot run and keeps the effect and its curves: ${badPrograms.map(([l]) => l).join(', ')}${kept.length ? ` (mishandled: ${kept.map(([l]) => l).join(', ')})` : ''}`,
+	);
+
+	// Storage keeps the motion graph clean; an empty one is dropped.
+	const stored = normalizeShaderGraphDoc(
+		JSON.parse(
+			JSON.stringify({
+				...doc,
+				motionGraph: {
+					nodes: [
+						...doc.motionGraph!.nodes,
+						'junk',
+						{ id: 'v', type: 'abs', values: JSON.parse('{"__proto__":{"x":1},"x":2,"bad":{}}') },
+					],
+					wires: [...doc.motionGraph!.wires, { from: { node: 'v' } }, 3],
+					extra: true,
+				},
+			}),
+		),
+		'moving',
+	);
+	assert(
+		stored.motionGraph?.nodes.length === doc.motionGraph!.nodes.length + 1 &&
+			JSON.stringify(stored.motionGraph?.nodes.at(-1)) ===
+				JSON.stringify(n('v', 'abs', { x: 2 })) &&
+			stored.motionGraph?.wires.length === doc.motionGraph!.wires.length &&
+			!('extra' in (stored.motionGraph ?? {})) &&
+			!(
+				'motionGraph' in
+				normalizeShaderGraphDoc({ ...pixel, motionGraph: { nodes: [], wires: [] } }, 'p')
+			) &&
+			!('motionGraph' in normalizeShaderGraphDoc({ ...pixel, motionGraph: 'x' }, 'p')) &&
+			JSON.stringify(compileShaderMotion({ ...stored, params: PARAMS })) ===
+				JSON.stringify(
+					compileShaderMotion({
+						...doc,
+						motionGraph: {
+							...doc.motionGraph!,
+							nodes: [...doc.motionGraph!.nodes, n('v', 'abs', { x: 2 })],
+						},
+					}),
+				),
+		'storage keeps the motion graph as written, drops what is not part of it (a __proto__ value too) and an empty or malformed one',
+	);
+
+	// Without a motion graph, or with an empty one, nothing changes.
+	const every = [...REFERENCE_GRAPHS, ...BUILTIN_TWINS.map((t) => t.doc), ...nodeShowcase()];
+	const changed = every.filter((d) => {
+		const empty = { ...d, motionGraph: { nodes: [], wires: [] } };
+		const motion = analyzeShaderMotion(empty);
+		return (
+			JSON.stringify([compileShaderEffect(d), analyzeShaderGraph(d), validateShaderGraph(d)]) !==
+				JSON.stringify([
+					compileShaderEffect(empty),
+					analyzeShaderGraph(empty),
+					validateShaderGraph(empty),
+				]) ||
+			motion.issues.length ||
+			motion.ops ||
+			analyzeShaderMotion(d).issues.length
+		);
+	});
+	assert(
+		!changed.length,
+		`${every.length} docs (references, twins, the node showcase) compile, analyse and validate the same with no motion graph and an empty one${changed.length ? `: not ${changed.map((d) => d.id).join(', ')}` : ''}`,
+	);
+
+	// Hostile motion graphs are refused fast, bounded.
+	/** `plotted`: the editor's series ignores the step cap a shipped program has, so it may plot. */
+	const refusedFast = (label: string, raw: unknown, pattern: RegExp, plotted = false): void => {
+		const graph = normalizeShaderGraphDoc(raw, 'h');
+		const heap = process.memoryUsage().heapUsed;
+		const t0 = performance.now();
+		const analysis = analyzeShaderMotion(graph);
+		const effect = compileShaderEffect(graph);
+		const series = motionNodeSeries(graph, 'k0', 64);
+		const ms = performance.now() - t0;
+		const grew = (process.memoryUsage().heapUsed - heap) / 1e6;
+		const longest = Math.max(0, ...analysis.issues.map((i) => i.message.length));
+		assert(
+			!effect.ok &&
+				(plotted || series === undefined) &&
+				analysis.issues.some((i) => pattern.test(i.message)) &&
+				ms < 500 &&
+				grew < 64 &&
+				longest < 400,
+			`${label}: refused in ${ms.toFixed(1)} ms, the heap ${grew.toFixed(1)} MB larger, no message over 400 characters (${longest})`,
+		);
+	};
+	refusedFast(
+		'100 000 nodes',
+		{
+			...pixel,
+			motionGraph: {
+				nodes: Array.from({ length: 100_000 }, (_, i) => n(`k${i}`, 'abs')),
+				wires: [],
+			},
+		},
+		/at most/,
+	);
+	refusedFast(
+		'100 000 wires',
+		{
+			...pixel,
+			motionGraph: {
+				nodes: [n('k0', 'abs')],
+				wires: Array.from({ length: 100_000 }, () => w('k0.out', 'k0.x')),
+			},
+		},
+		new RegExp(`at most ${MOTION_GRAPH_NODE_LIMIT} and ${MOTION_GRAPH_WIRE_LIMIT}`),
+	);
+	refusedFast(
+		'256 nodes typed 10 000 letters each',
+		{
+			...pixel,
+			motionGraph: {
+				nodes: Array.from({ length: 256 }, (_, i) => n(`k${i}`, 'z'.repeat(10_000))),
+				wires: [],
+			},
+		},
+		/"z{40}…" is not a node/,
+	);
+	refusedFast(
+		'a 256-node loop',
+		{
+			...pixel,
+			motionGraph: {
+				nodes: [
+					...Array.from({ length: 255 }, (_, i) => n(`k${i}`, 'add')),
+					n('out', 'motionOutput'),
+				],
+				wires: [
+					...Array.from({ length: 255 }, (_, i) => w(`k${i}.out`, `k${(i + 1) % 255}.a`)),
+					w('k0.out', 'out.x'),
+				],
+			},
+		},
+		/loop/,
+	);
+	refusedFast(
+		'255 nodes each with 10 distinct constants past the step cap',
+		{
+			...pixel,
+			motionGraph: {
+				nodes: [
+					...Array.from({ length: 255 }, (_, i) =>
+						n(`k${i}`, 'pick', {
+							index: i,
+							a: i + 0.1,
+							b: i + 0.2,
+							c: i + 0.3,
+							d: i + 0.4,
+							e: i + 0.5,
+							f: i + 0.6,
+						}),
+					),
+					n('out', 'motionOutput'),
+				],
+				wires: [
+					...Array.from({ length: 254 }, (_, i) => w(`k${i}.out`, `k${i + 1}.a`)),
+					w('k254.out', 'out.x'),
+				],
+			},
+		},
+		/more than the 256/,
+		true,
+	);
+
+	// A node's value over the play, as an editor plots it.
+	const bell = motionNodeSeries(doc, 'bell', 5);
+	const lift = motionNodeSeries(doc, 'lift', 3, { frame: { params: { amp: 2 } } });
+	const channel = motionNodeSeries(doc, 'out', 3, { port: 'padding' });
+	const seconds = motionNodeSeries(doc, 'time', 3, { port: 'seconds' });
+	assert(
+		!!bell &&
+			bell.every((v, i) => Math.abs(v - Math.sin((Math.PI * i) / 4)) < 1e-12) &&
+			JSON.stringify(lift?.map((v) => Math.round(v * 1e9) / 1e9)) === '[0.5,2.5,0.5]' &&
+			JSON.stringify(channel?.map((v) => Math.round(v * 1e9) / 1e9)) === '[0.5,1,0.5]' &&
+			JSON.stringify(seconds) === '[0,0.5,1]' &&
+			motionNodeSeries(doc, 'dead', 2)?.length === 2 &&
+			motionNodeSeries(doc, 'out', 2) !== undefined &&
+			motionNodeSeries(doc, 'out', 2, { port: 'x' }) === undefined &&
+			motionNodeSeries(doc, 'nope', 2) === undefined &&
+			motionNodeSeries(
+				moving(
+					[n('p', 'param', { param: 'gone' }), n('a', 'abs'), out],
+					[w('p.out', 'a.x'), w('a.out', 'out.x')],
+				),
+				'a',
+				2,
+			) === undefined,
+		'a node’s series over the play: Bell is sin(π t); params at their defaults unless given; a Motion Output input plots what drives it; a node reaching nothing is plotted; an unwired channel, an unknown node and one fed by a broken node have none',
 	);
 }
 

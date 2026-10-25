@@ -35,14 +35,20 @@
 	// The effect as a whole: what the pickers show (name, description), how it plays (phase,
 	// length, padding), the rows an author sets where it is placed (params), the built-in passes
 	// drawn after the graph, and the element's own motion. Every change hands the page a new doc.
+	// A channel (or the padding) the motion graph drives says so: its curve plays only unwired.
 	interface Props {
 		doc: ShaderGraphDoc;
 		/** Doc-level messages (`doc`, `param`, `pass`, `motion` issues). */
 		errors: readonly string[];
+		/** The Motion Output's wired channels (`drivenChannels`). */
+		driven?: readonly string[];
 		disabled?: boolean;
 		onChange: (doc: ShaderGraphDoc) => void;
 	}
-	let { doc, errors, disabled = false, onChange }: Props = $props();
+	let { doc, errors, driven = [], disabled = false, onChange }: Props = $props();
+
+	const DRIVEN_TITLE =
+		'The motion graph’s Output has a wire into this channel, so the graph moves it each frame and its curve here does nothing. Unwire it there and the curve plays again.';
 
 	const PHASE_TEXT: Record<string, string> = {
 		loop: 'Loop — plays over and over',
@@ -202,6 +208,14 @@
 			onchange={(e) => setNumber('padding', e.currentTarget.value)}
 		/>
 	</label>
+	{#if driven.includes('padding')}
+		<p
+			class="driven"
+			title="The motion graph’s Output has a wire into its padding, so the room past the edge is worked out each frame and this number does nothing. Unwire it there and this number counts again."
+		>
+			Padding is driven by the motion graph.
+		</p>
+	{/if}
 
 	<h4>Params <span class="muted">— rows set where the effect is placed</span></h4>
 	{#each doc.params as param, index (index)}
@@ -425,7 +439,8 @@
 	<h4>Motion <span class="muted">— the element's own movement over a play</span></h4>
 	{#each ELEMENT_FX_MOTION_CHANNELS as channel (channel)}
 		{@const curve = doc.motion?.channels[channel]}
-		<div class="card" class:off={!curve}>
+		{@const graphDriven = driven.includes(channel)}
+		<div class="card" class:off={!curve} class:overridden={graphDriven}>
 			<div class="row">
 				<label class="grow"
 					><input
@@ -443,7 +458,9 @@
 					/>
 					{CHANNEL_TEXT[channel]}</label
 				>
-				{#if curve}
+				{#if graphDriven}
+					<span class="driven" title={DRIVEN_TITLE}>driven by the motion graph</span>
+				{:else if curve}
 					<span class="muted">{MOTION_LIMITS[channel].min}…{MOTION_LIMITS[channel].max}</span>
 				{/if}
 			</div>
@@ -573,6 +590,14 @@
 	}
 	.card.off {
 		padding: 3px 6px;
+	}
+	.card.overridden .key {
+		opacity: 0.5;
+	}
+	.driven {
+		margin: 0;
+		font-size: 11px;
+		color: #38bdf8;
 	}
 	.row {
 		display: flex;

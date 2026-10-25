@@ -17,9 +17,16 @@
  *
  * {@link compileShaderEffect} packs the result with the doc's passes and motion into a
  * `CustomElementFx`, which the runtime registers and plays as the kind `custom:<id>`.
+ *
+ * THE MOTION GRAPH (`doc.motionGraph`, step 8a) is checked by the same walk with every port a float
+ * and compiled by {@link compileShaderMotion} to a motion program (`constants-shared/motionLibrary`)
+ * the runtime interprets each frame; an effect whose motion graph is broken does not compile.
+ * {@link compileShaderGraph}, {@link analyzeShaderGraph} and {@link validateShaderGraph} answer for
+ * the pixel graph alone.
  */
 
 import {
+	CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT,
 	CUSTOM_ELEMENT_FX_PADDING_MAX,
 	ELEMENT_FX_LIMITS,
 	ELEMENT_FX_PHASES,
@@ -27,17 +34,31 @@ import {
 	customElementFxMotionIssues,
 	customElementFxPassIssues,
 	elementFxParamSpecIssues,
+	elementFxParamUniform,
 	isCustomElementFxKind,
 	type CustomElementFx,
+	type CustomElementFxMotionProgram,
 	type CustomElementFxUniform,
+	type ElementFxMotionOutput,
 	type ElementFxParamSpec,
 } from 'constants-shared/elementFx';
 import {
+	isMotionOpName,
+	runMotionProgram,
+	type MotionFrame,
+	type MotionInput,
+	type MotionOp,
+	type MotionOpName,
+} from 'constants-shared/motionLibrary';
+import {
 	DIMS,
 	PARAM_TYPE,
+	isMotionOnlyNode,
+	motionNode,
 	shaderNode,
 	type DefaultExpr,
 	type EmitContext,
+	type MotionEmitContext,
 	type NodeDef,
 } from './nodes';
 import {
@@ -138,6 +159,8 @@ interface Analysis {
 	defOf: (node: GraphNode) => NodeDef | undefined;
 	/** Reachable nodes, every node after the nodes it reads. */
 	order: GraphNode[];
+	/** Every node, reachable first, each after the nodes it reads. */
+	sequence: GraphNode[];
 	/** Whether a reachable input reads the element's own colour at this pixel (`pixel`). */
 	readsPixel: boolean;
 	/** node id → port id → resolved type (outputs and inputs). */
@@ -269,6 +292,7 @@ const newAnalysis = (): Analysis => ({
 	issues: [],
 	defOf: (node) => shaderNode(node.type),
 	order: [],
+	sequence: [],
 	readsPixel: false,
 	outputs: new Map(),
 	inputs: new Map(),
@@ -302,12 +326,17 @@ const paramsOf = (doc: ShaderGraphDoc): Map<string, ElementFxParamSpec> =>
 			.map((p) => [p.id, p]),
 	);
 
-/** A graph to check: its nodes and wires, how a node's def is found, and the node it flows into. */
+/**
+ * A graph to check: its nodes and wires, how a node's def is found (and what to say of a type it
+ * does not know), and the node it flows into. An `optional` root may be missing: then nothing is
+ * reached and nothing is said of it.
+ */
 interface GraphWalk {
 	nodes: GraphNode[];
 	wires: GraphWire[];
 	defOf: (node: GraphNode) => NodeDef | undefined;
-	root: { type: string; none: string; several: string };
+	unknown?: (type: string) => string | undefined;
+	root: { type: string; none: string; several: string; optional?: boolean; reach?: string };
 }
 
 /** `doc` checked; its graph as `flat` has it (every call inlined) when given. */
@@ -358,6 +387,8 @@ function analyze(doc: ShaderGraphDoc, flat?: FlatShaderGraph): Analysis {
 		nodes: flat?.nodes ?? doc.nodes,
 		wires: flat?.wires ?? doc.wires,
 		defOf: (node) => flat?.defs.get(node.id) ?? shaderNode(node.type),
+		unknown: (type) =>
+			isMotionOnlyNode(type) ? `${motionNode(type)?.label} belongs in the motion graph` : undefined,
 		root: {
 			type: 'output',
 			none: 'the graph has no Output',
@@ -403,11 +434,17 @@ function walk(
 		if (nodes.has(node.id)) error('duplicate-node', `two nodes are "${node.id}"`, node.id);
 		nodes.set(node.id, node);
 		const def = graph.defOf(node);
-		if (!def) error('unknown-node', `"${String(node.type)}" is not a node`, node.id);
+		if (!def)
+			error(
+				'unknown-node',
+				graph.unknown?.(String(node.type)) ?? `"${String(node.type)}" is not a node`,
+				node.id,
+			);
 		else defs.set(node.id, def);
 	}
 	const outputs = [...defs].filter(([, def]) => def.type === graph.root.type).map(([id]) => id);
-	if (outputs.length !== 1) error('output', outputs.length ? graph.root.several : graph.root.none);
+	if (outputs.length > 1 || (!outputs.length && !graph.root.optional))
+		error('output', outputs.length ? graph.root.several : graph.root.none);
 
 	// Settings: a choice among its options, a param the doc has, a number, a colour.
 	for (const [id, def] of defs) {
@@ -493,19 +530,20 @@ function walk(
 		sequence.push(nodes.get(id) as GraphNode);
 		return true;
 	};
-	if (!visit(outputs[0])) return false;
+	if (outputs.length && !visit(outputs[0])) return false;
 	const reachable = sequence.length;
-	for (const id of nodes.keys()) {
+	for (const id of outputs.length ? nodes.keys() : []) {
 		if (!state.has(id))
 			issues.push({
 				level: 'warning',
 				code: 'unreachable',
-				message: `${defs.get(id)?.label ?? id} does not reach the Output and is left out`,
+				message: `${defs.get(id)?.label ?? id} does not reach ${graph.root.reach ?? 'the Output'} and is left out`,
 				node: id,
 			});
 	}
 	for (const id of nodes.keys()) if (!visit(id)) return false;
 	result.order = sequence.slice(0, reachable);
+	result.sequence = sequence;
 
 	// Types, in order.
 	for (const [index, node] of sequence.entries()) {
@@ -735,9 +773,18 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
  */
 export function compileShaderEffect(doc: ShaderGraphDoc): ShaderEffectResult {
 	const compiled = compileShaderGraph(doc);
+	const moving = compileShaderMotion(doc);
+	if (!moving.ok)
+		return { ok: false, issues: [...(compiled.ok ? [] : compiled.issues), ...moving.issues] };
 	if (!compiled.ok) return compiled;
 	const { shader } = compiled;
 	const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+	const curves = doc.motion ? plain(doc.motion) : undefined;
+	// The doc's motion is curves and a pivot; only its motion graph makes a program.
+	if (curves && 'program' in curves) delete curves.program;
+	const motion = moving.program
+		? { ...(curves ?? { channels: {} }), program: moving.program }
+		: curves;
 	return {
 		ok: true,
 		effect: {
@@ -753,8 +800,369 @@ export function compileShaderEffect(doc: ShaderGraphDoc): ShaderEffectResult {
 			shader: { body: shader.body, uniforms: shader.uniforms },
 			padding: doc.padding ?? 0,
 			passes: plain(doc.passes ?? []),
-			...(doc.motion ? { motion: plain(doc.motion) } : {}),
+			...(motion ? { motion } : {}),
 		},
-		warnings: shader.warnings,
+		warnings: moving.warnings.length ? [...shader.warnings, ...moving.warnings] : shader.warnings,
 	};
+}
+
+// -------------------------------------------------------------------------------------------------
+// THE MOTION GRAPH: float nodes evaluated on the CPU each frame into one Motion Output. It is checked
+// by the walk above, every node seen through `motionNode` (every port a float), and compiled to a
+// motion program: a flat list of library ops on registers, each register written once, so the
+// runtime interprets it in one pass and evaluates no code.
+// -------------------------------------------------------------------------------------------------
+
+export const MOTION_OUTPUT = 'motionOutput';
+/** A motion graph has at most this many nodes and wires: a stored doc must not stall its compile. */
+export const MOTION_GRAPH_NODE_LIMIT = 256;
+export const MOTION_GRAPH_WIRE_LIMIT = 1024;
+
+/** What an editor shows of a doc's motion graph as it is being built. */
+export interface ShaderMotionAnalysis {
+	/** Each names a node of the motion graph and carries `graph: 'motion'`. */
+	issues: GraphIssue[];
+	/** Node id → port id → its type (a float, but for a colour param, which is an error there). */
+	types: {
+		inputs: Record<string, Record<string, PortType>>;
+		outputs: Record<string, Record<string, PortType>>;
+	};
+	/** The reachable nodes' cost, in the units the pixel graph's nodes count. */
+	cost: number;
+	/** The compiled program's ops, against `CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT`; 0 without one. */
+	ops: number;
+}
+
+export type ShaderMotionResult =
+	| { ok: true; program?: CustomElementFxMotionProgram; warnings: GraphIssue[] }
+	| { ok: false; issues: GraphIssue[] };
+
+/** A motion graph's walk, and what it compiled to. */
+interface MotionRun {
+	analysis: Analysis;
+	/** Walked to the end: ordered and typed (no node it cannot place, no loop). */
+	walked: boolean;
+	program?: CustomElementFxMotionProgram;
+}
+
+const MOTION_ROOT = {
+	type: MOTION_OUTPUT,
+	none: 'the motion graph has no Motion Output, so it moves nothing',
+	several: 'a motion graph has one Motion Output, this one has several',
+	optional: true,
+	reach: 'the Motion Output',
+};
+
+const motionUnknown = (type: string): string => {
+	if (type === 'subgraph') return 'a subgraph cannot be called from the motion graph';
+	const pixel = shaderNode(type);
+	if (!pixel) return `"${type.length > 40 ? `${type.slice(0, 40)}…` : type}" is not a node`;
+	return pixel.category === 'output'
+		? `${pixel.label} belongs in the pixel graph`
+		: `${pixel.label} works per pixel: the motion graph cannot run it`;
+};
+
+const motionGraphOf = (doc: ShaderGraphDoc): ShaderGraphDoc['motionGraph'] =>
+	doc && typeof doc === 'object' ? doc.motionGraph : undefined;
+
+/** The motion graph's ops so far, its constants, frame reads and params each made once. */
+class MotionWriter {
+	readonly ops: MotionOp[] = [];
+	private readonly made = new Map<string, number>();
+
+	private once(key: string, op: MotionOp): number {
+		const at = this.made.get(key);
+		if (at !== undefined) return at;
+		this.ops.push(op);
+		this.made.set(key, this.ops.length - 1);
+		return this.ops.length - 1;
+	}
+
+	constant(value: number): number {
+		const v = Number.isFinite(value) ? value || 0 : 0;
+		return this.once(`c${v}`, ['const', v]);
+	}
+
+	read(input: MotionInput): number {
+		return this.once(`r${input}`, [input]);
+	}
+
+	param(id: string): number {
+		return this.once(`p${id}`, ['param', id]);
+	}
+
+	op(name: MotionOpName, args: number[]): number {
+		this.ops.push([name, ...args]);
+		return this.ops.length - 1;
+	}
+}
+
+/**
+ * Append `nodes` (in order, each after what feeds it) to `writer`: node id → output port → register.
+ * A node in `broken`, or fed by one, is left out (and joins it). The Motion Output's wired inputs
+ * become `outputs`.
+ */
+function writeMotion(
+	run: MotionRun,
+	nodes: readonly GraphNode[],
+	broken: Set<string>,
+	writer: MotionWriter,
+): {
+	regs: Map<string, Record<string, number>>;
+	outputs: Partial<Record<ElementFxMotionOutput, number>>;
+} {
+	const a = run.analysis;
+	const regs = new Map<string, Record<string, number>>();
+	const outputs: Partial<Record<ElementFxMotionOutput, number>> = {};
+	for (const node of nodes) {
+		if (broken.has(node.id)) continue;
+		const def = a.defOf(node) as NodeDef;
+		const feeds = a.feeds.get(node.id);
+		const inputs: Record<string, number> = {};
+		let fed = true;
+		for (const input of def.inputs) {
+			const from = feeds?.get(input.id);
+			if (from) {
+				const reg = regs.get(from.node)?.[from.port];
+				if (reg === undefined) fed = false;
+				else inputs[input.id] = reg;
+				continue;
+			}
+			const value = node.values?.[input.id] ?? input.default;
+			if (value !== undefined) {
+				inputs[input.id] = writer.constant(Array.isArray(value) ? value[0] : (value as number));
+			} else if (input.defaultExpr === 'progress' || input.defaultExpr === 'seconds') {
+				inputs[input.id] = writer.read(input.defaultExpr);
+			}
+		}
+		if (!fed) {
+			broken.add(node.id);
+			continue;
+		}
+		if (def.type === MOTION_OUTPUT) {
+			for (const input of def.inputs) {
+				if (feeds?.has(input.id))
+					outputs[input.id as ElementFxMotionOutput] = inputs[input.id] as number;
+			}
+			continue;
+		}
+		const ctx: MotionEmitContext = {
+			in: inputs,
+			args: def.inputs.map((input) => inputs[input.id] as number),
+			setting: (id) => {
+				const setting = def.settings?.find((s) => s.id === id);
+				const value = node.values?.[id];
+				if (setting?.kind === 'param') return writer.param(String(value));
+				if (setting?.kind === 'number')
+					return writer.constant(typeof value === 'number' ? value : setting.default);
+				return writer.constant(0);
+			},
+			op: (name, ...args) => writer.op(name, args),
+			read: (input) => writer.read(input),
+		};
+		regs.set(node.id, def.motion?.emit(ctx) ?? {});
+	}
+	return { regs, outputs };
+}
+
+/** `ops` with only what `roots` read, renumbered; `at` maps an old register to its new one. */
+function pruneMotion(ops: readonly MotionOp[], roots: readonly number[]) {
+	const live = new Uint8Array(ops.length);
+	for (const r of roots) live[r] = 1;
+	for (let i = ops.length - 1; i >= 0; i--) {
+		const op = ops[i];
+		if (!live[i] || !isMotionOpName(op[0])) continue;
+		for (let k = 1; k < op.length; k++) live[op[k] as number] = 1;
+	}
+	const at = new Int32Array(ops.length).fill(-1);
+	const kept: MotionOp[] = [];
+	ops.forEach((op, i) => {
+		if (!live[i]) return;
+		at[i] = kept.length;
+		kept.push(
+			isMotionOpName(op[0])
+				? [op[0], ...(op.slice(1) as number[]).map((r) => at[r])]
+				: (op.slice() as unknown as MotionOp),
+		);
+	});
+	return { ops: kept, at };
+}
+
+/** Check `doc`'s motion graph and, when it is sound and drives something, compile its program. */
+function runMotion(doc: ShaderGraphDoc): MotionRun {
+	const run: MotionRun = { analysis: newAnalysis(), walked: false };
+	const issues = run.analysis.issues;
+	const graph = motionGraphOf(doc);
+	if (graph === undefined) return run;
+	if (
+		!graph ||
+		typeof graph !== 'object' ||
+		!Array.isArray(graph.nodes) ||
+		!Array.isArray(graph.wires)
+	) {
+		pushError(issues, 'doc', 'the motion graph needs a nodes list and a wires list');
+		return run;
+	}
+	if (!graph.nodes.length && !graph.wires.length) return run;
+	if (
+		graph.nodes.length > MOTION_GRAPH_NODE_LIMIT ||
+		graph.wires.length > MOTION_GRAPH_WIRE_LIMIT
+	) {
+		pushError(
+			issues,
+			'motion',
+			`the motion graph has ${graph.nodes.length} nodes and ${graph.wires.length} wires: at most ${MOTION_GRAPH_NODE_LIMIT} and ${MOTION_GRAPH_WIRE_LIMIT}`,
+		);
+		return run;
+	}
+	const params = paramsOf(doc);
+	run.walked = walk(run.analysis, params, {
+		nodes: graph.nodes,
+		wires: graph.wires,
+		defOf: (node) => motionNode(node.type),
+		unknown: motionUnknown,
+		root: MOTION_ROOT,
+	});
+	for (const node of graph.nodes) {
+		const spec = node?.type === 'param' ? params.get(String(node.values?.param)) : undefined;
+		if (spec?.kind === 'color')
+			pushError(
+				issues,
+				'setting',
+				`"${spec.label}" is a colour: the motion graph reads number, switch and choice params`,
+				node.id,
+				'param',
+			);
+	}
+	const root = graph.nodes.some((n) => n?.type === MOTION_OUTPUT);
+	if (run.walked && !root)
+		issues.push({ level: 'warning', code: 'output', message: MOTION_ROOT.none });
+	if (!run.walked || !root || issues.some((i) => i.level === 'error')) return run;
+
+	const writer = new MotionWriter();
+	const { outputs } = writeMotion(run, run.analysis.order, new Set(), writer);
+	const driven = Object.entries(outputs) as [ElementFxMotionOutput, number][];
+	if (!driven.length) return run;
+	const pruned = pruneMotion(
+		writer.ops,
+		driven.map(([, r]) => r),
+	);
+	if (pruned.ops.length > CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT) {
+		pushError(
+			issues,
+			'cost',
+			`the motion graph compiles to ${pruned.ops.length} steps, more than the ${CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT} a game runs`,
+		);
+		return run;
+	}
+	run.program = {
+		ops: pruned.ops,
+		outputs: Object.fromEntries(driven.map(([key, r]) => [key, pruned.at[r]])),
+	};
+	return run;
+}
+
+const tagged = (issues: GraphIssue[]): GraphIssue[] =>
+	issues.map((issue) => ({ ...issue, graph: 'motion' }));
+
+/**
+ * A doc's motion graph: its issues (each on a motion-graph node, tagged `graph: 'motion'`), port
+ * types, cost and program size, as an editor shows it. Never throws; a doc without one has none.
+ */
+export function analyzeShaderMotion(doc: ShaderGraphDoc): ShaderMotionAnalysis {
+	const run = runMotion(doc);
+	const a = run.analysis;
+	return {
+		issues: tagged(a.issues),
+		types: { inputs: Object.fromEntries(a.inputs), outputs: Object.fromEntries(a.outputs) },
+		cost: a.cost,
+		ops: run.program?.ops.length ?? 0,
+	};
+}
+
+/**
+ * Compile a doc's motion graph to the program its effect carries (`CustomElementFxMotion.program`),
+ * or say why not. No program when it has no motion graph or drives nothing (no Motion Output, or
+ * none of its inputs wired). Deterministic.
+ */
+export function compileShaderMotion(doc: ShaderGraphDoc): ShaderMotionResult {
+	const run = runMotion(doc);
+	const issues = tagged(run.analysis.issues);
+	if (issues.some((i) => i.level === 'error')) return { ok: false, issues };
+	return { ok: true, ...(run.program ? { program: run.program } : {}), warnings: issues };
+}
+
+/** The seed a motion series reads unless told otherwise: the node thumbnails' (`/shaders`). */
+const SERIES_SEED = 41;
+
+export interface MotionSeriesOptions {
+	/** The output to plot; on the Motion Output, the input (the channel it drives). Unset: the first. */
+	port?: string;
+	/**
+	 * The frame but its time: unset, strength 1, looping when the effect is a loop, the params at
+	 * their defaults, seed 41 and a 100 × 100 element.
+	 */
+	frame?: Partial<Omit<MotionFrame, 't' | 'seconds'>>;
+}
+
+/**
+ * Motion-graph node `nodeId`'s value at `samples` moments over one play, t = 0 … 1 (its seconds as
+ * the play's), for an editor to draw as a curve; built on the same program the game runs. Undefined
+ * when it cannot be worked out: no such node or port, an unwired Motion Output input, a node that is
+ * broken or fed by a broken one, or a graph that cannot be walked (a loop). A node that reaches
+ * nothing is plotted all the same.
+ */
+export function motionNodeSeries(
+	doc: ShaderGraphDoc,
+	nodeId: string,
+	samples: number,
+	options: MotionSeriesOptions = {},
+): number[] | undefined {
+	const run = runMotion(doc);
+	const a = run.analysis;
+	const node = a.sequence.find((n) => n.id === nodeId);
+	if (!run.walked || !node) return undefined;
+	const broken = new Set(a.issues.flatMap((i) => (i.level === 'error' && i.node ? [i.node] : [])));
+	const writer = new MotionWriter();
+	const { regs } = writeMotion(run, a.sequence, broken, writer);
+	let reg: number | undefined;
+	if (node.type === MOTION_OUTPUT) {
+		const channel =
+			options.port ??
+			motionNode(MOTION_OUTPUT)?.inputs.find((p) => a.feeds.get(nodeId)?.has(p.id))?.id;
+		const from = channel ? a.feeds.get(nodeId)?.get(channel) : undefined;
+		reg = from ? regs.get(from.node)?.[from.port] : undefined;
+	} else {
+		const port = options.port ?? a.defOf(node)?.outputs[0]?.id;
+		reg = port ? regs.get(nodeId)?.[port] : undefined;
+	}
+	if (reg === undefined) return undefined;
+	const pruned = pruneMotion(writer.ops, [reg]);
+	const program = { ops: pruned.ops, outputs: { value: pruned.at[reg] } };
+	const params = Array.isArray(doc.params) ? doc.params : [];
+	const given = options.frame ?? {};
+	const frame: MotionFrame = {
+		t: 0,
+		seconds: 0,
+		intensity: given.intensity ?? 1,
+		looping: given.looping ?? doc.phase === 'loop',
+		params:
+			given.params ??
+			Object.fromEntries(
+				params.flatMap((p) =>
+					p && p.kind !== 'color' ? [[p.id, elementFxParamUniform(p, p.default)[0]]] : [],
+				),
+			),
+		seed: given.seed ?? SERIES_SEED,
+		width: given.width ?? 100,
+		height: given.height ?? 100,
+	};
+	const registers = new Float64Array(program.ops.length);
+	const count = Math.max(2, Math.min(4096, Math.floor(samples)));
+	const playSeconds = (Number.isFinite(doc.durationMs) ? doc.durationMs : 1000) / 1000;
+	return Array.from({ length: count }, (_, i) => {
+		frame.t = i / (count - 1);
+		frame.seconds = frame.t * playSeconds;
+		return runMotionProgram(program, frame, registers).value as number;
+	});
 }

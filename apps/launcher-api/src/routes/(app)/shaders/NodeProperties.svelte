@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ColorField from '$lib/ColorField.svelte';
+	import type { ElementFxParamSpec } from 'constants-shared/elementFx';
 	import {
 		DIMS,
 		type GraphNode,
@@ -19,10 +20,33 @@
 		inTypes: Record<string, PortType>;
 		wired: readonly string[];
 		errors: readonly string[];
+		/** The params a Param setting may pick, by kind (the motion graph reads no colour). */
+		paramKinds?: readonly ElementFxParamSpec['kind'][];
+		/** The Motion Output's: what each channel left unwired plays instead of a value. */
+		undriven?: Record<string, string>;
 		disabled?: boolean;
 		onValue: (key: string, value: number | number[] | string | undefined) => void;
 	}
-	let { doc, node, def, inTypes, wired, errors, disabled = false, onValue }: Props = $props();
+	let {
+		doc,
+		node,
+		def,
+		inTypes,
+		wired,
+		errors,
+		paramKinds,
+		undriven,
+		disabled = false,
+		onValue,
+	}: Props = $props();
+
+	const UNDRIVEN_TEXT: Record<string, string> = {
+		curve: 'not driven: its curve in the effect settings plays',
+		rest: 'not driven: at rest',
+	};
+	const pickable = $derived(
+		paramKinds ? doc.params.filter((p) => paramKinds.includes(p.kind)) : doc.params,
+	);
 
 	const AXES = ['x', 'y', 'z', 'w'];
 
@@ -98,7 +122,7 @@
 						onchange={(e) => onValue(setting.id, e.currentTarget.value || undefined)}
 					>
 						<option value="">— pick a param —</option>
-						{#each doc.params as param (param.id)}
+						{#each pickable as param (param.id)}
 							<option value={param.id}>{param.label} ({param.kind})</option>
 						{/each}
 					</select>
@@ -134,6 +158,11 @@
 				<span>{port.label} <em class="muted">{type}</em></span>
 				{#if wired.includes(port.id)}
 					<span class="muted">wired</span>
+				{:else if undriven?.[port.id] !== undefined}
+					<span class="muted"
+						>{UNDRIVEN_TEXT[undriven[port.id]] ??
+							`not driven: the effect's padding (${undriven[port.id]})`}</span
+					>
 				{:else}
 					<span class="vec">
 						{#each numbers(port.id, width) as value, i (i)}

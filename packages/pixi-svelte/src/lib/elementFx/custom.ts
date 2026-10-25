@@ -1,20 +1,28 @@
 /**
  * A CUSTOM kind (`custom:<id>`, authored in Invisible Shader Graph) as the runtime plays it: the same
  * {@link KindImpl} a built-in has. Its graph is one `ElementFxFilter` pass, its built-in passes are
- * those kinds' own filters playing in step with it, and its motion is a curve per channel.
+ * those kinds' own filters playing in step with it, and its motion is a curve per channel. A motion
+ * program (its motion graph, compiled) runs each frame and drives the channels it names, each over
+ * its curve, and the graph pass's padding.
  */
 
 import {
+	CUSTOM_ELEMENT_FX_PADDING_MAX,
 	ELEMENT_FX_LIMITS,
+	ELEMENT_FX_MOTION_RANGES,
 	ELEMENT_FX_PASS_KINDS,
 	elementFxParamUniform,
 	resolveElementFxParams,
 	sampleElementFxCurve,
 	type CustomElementFx,
 	type CustomElementFxMotion,
+	type CustomElementFxMotionProgram,
 	type CustomElementFxPass,
+	type ElementFxMotionChannel,
+	type ElementFxMotionOutput,
 	type ElementFxParamValue,
 } from 'constants-shared/elementFx';
+import { runMotionProgram } from 'constants-shared/motionLibrary';
 import type { Filter } from 'pixi.js';
 import { DEG, clamp01, type FxFrame, type Motion } from './frame';
 import { KINDS, filterImpl, type FilterImpl, type KindImpl } from './kinds';
@@ -40,15 +48,25 @@ export const graphFilter = (name: string, shader: CustomElementFx['shader']): El
 		),
 	);
 
-const graphPass = (effect: CustomElementFx): FilterImpl<Filter> => {
+/** An element's seed, by its play's params (one object per play): drawn on first asking. */
+type SeedOf = (params: FxFrame['params']) => number;
+
+/** A motion program's driven values at a frame, worked out once a frame however often asked. */
+type Driven = (frame: FxFrame) => Partial<Record<ElementFxMotionOutput, number>>;
+
+const graphPass = (
+	effect: CustomElementFx,
+	seedOf: SeedOf,
+	driven?: Driven,
+): FilterImpl<Filter> => {
 	const params = new Map(effect.spec.params.map((spec) => [spec.id, spec]));
 	const { uniforms } = effect.shader;
 	const seed = uniforms.find((u) => u.source.kind === 'seed');
 	return filterImpl<ElementFxFilter>({
-		create() {
+		create(frame) {
 			const filter = graphFilter(effect.spec.kind, effect.shader);
 			// Drawn once per element, as the built-ins draw theirs; an effect that reads none draws none.
-			if (seed) filter.set(seed.name, Math.random() * 97);
+			if (seed) filter.set(seed.name, seedOf(frame.params));
 			return filter;
 		},
 		update(filter, frame) {
@@ -63,10 +81,20 @@ const graphPass = (effect: CustomElementFx): FilterImpl<Filter> => {
 			}
 		},
 		padding:
-			effect.padding > 0
-				? (_frame, view) =>
-						Math.ceil(effect.padding * Math.max(view.screenWidth, view.screenHeight)) + 2
-				: undefined,
+			driven && effect.motion?.program?.outputs.padding !== undefined
+				? (frame, view) => {
+						const room = Math.min(
+							CUSTOM_ELEMENT_FX_PADDING_MAX,
+							Math.max(0, driven(frame).padding ?? 0),
+						);
+						return room > 0
+							? Math.ceil(room * Math.max(view.screenWidth, view.screenHeight)) + 2
+							: 0;
+					}
+				: effect.padding > 0
+					? (_frame, view) =>
+							Math.ceil(effect.padding * Math.max(view.screenWidth, view.screenHeight)) + 2
+					: undefined,
 	});
 };
 
@@ -134,19 +162,125 @@ const curvedMotion =
 		};
 	};
 
+/**
+ * `program` run at a frame: each play's params as the uniforms hold them (worked out once a play),
+ * the element's seed; the last frame's answer kept, as the motion and the padding both ask for it.
+ */
+const drivenBy = (
+	effect: CustomElementFx,
+	program: CustomElementFxMotionProgram,
+	seedOf: SeedOf,
+): Driven => {
+	const specs = effect.spec.params.filter((spec) => spec.kind !== 'color');
+	const numbers = new WeakMap<object, Record<string, number>>();
+	const registers = new Float64Array(program.ops.length);
+	let last: { frame: FxFrame; values: ReturnType<Driven> } | undefined;
+	return (frame) => {
+		if (last?.frame === frame) return last.values;
+		let params = numbers.get(frame.params);
+		if (!params) {
+			params = Object.fromEntries(
+				specs.map((spec) => [spec.id, elementFxParamUniform(spec, frame.params[spec.id])[0]]),
+			);
+			numbers.set(frame.params, params);
+		}
+		const values = runMotionProgram(
+			program,
+			{
+				t: frame.t,
+				seconds: frame.seconds,
+				intensity: frame.intensity,
+				looping: frame.looping,
+				params,
+				seed: seedOf(frame.params),
+				width: frame.width,
+				height: frame.height,
+			},
+			registers,
+		);
+		last = { frame, values };
+		return values;
+	};
+};
+
+const SCALES = ['scale', 'scaleX', 'scaleY'] as const;
+
+/**
+ * The motion of an effect with a motion program at `frame`: each channel the program drives at its
+ * value, final and kept to the channel's range; the rest from their curves (scaled by intensity) or
+ * at rest. Alpha stays 0…1 and a scale above 0.
+ */
+const programMotion =
+	(motion: CustomElementFxMotion, driven: Driven) =>
+	(frame: FxFrame): Partial<Motion> => {
+		const values = driven(frame);
+		const { channels } = motion;
+		const k = frame.intensity;
+		const curve = (channel: ElementFxMotionChannel, rest: number): number => {
+			const keys = channels[channel];
+			return keys ? sampleElementFxCurve(keys, frame.t) : rest;
+		};
+		const value = (channel: ElementFxMotionChannel): number | undefined => {
+			const v = values[channel];
+			if (v === undefined) return undefined;
+			const range = ELEMENT_FX_MOTION_RANGES[channel];
+			return Math.min(range.max, Math.max(range.min, v));
+		};
+		let scaleX: number;
+		let scaleY: number;
+		if (SCALES.some((channel) => values[channel] !== undefined)) {
+			// A driven factor as it is, a curved one scaled by intensity on its own.
+			const factor = (channel: ElementFxMotionChannel): number =>
+				value(channel) ?? 1 + k * (curve(channel, 1) - 1);
+			scaleX = factor('scale') * factor('scaleX');
+			scaleY = factor('scale') * factor('scaleY');
+		} else {
+			const scale = curve('scale', 1);
+			scaleX = 1 + k * (scale * curve('scaleX', 1) - 1);
+			scaleY = 1 + k * (scale * curve('scaleY', 1) - 1);
+		}
+		return {
+			x: (value('x') ?? k * curve('x', 0)) * frame.width,
+			y: (value('y') ?? k * curve('y', 0)) * frame.height,
+			scaleX: Math.max(1e-4, scaleX),
+			scaleY: Math.max(1e-4, scaleY),
+			rotation: (value('rotation') ?? k * curve('rotation', 0)) * DEG,
+			alpha: clamp01(value('alpha') ?? curve('alpha', 1)),
+			pivotX: motion.pivot?.x ?? 0.5,
+			pivotY: motion.pivot?.y ?? 0.5,
+		};
+	};
+
 const impls = new WeakMap<CustomElementFx, KindImpl>();
 
 /** How `effect` plays: its graph, then its passes, plus its motion. Built once per registered effect. */
 export function customKindImpl(effect: CustomElementFx): KindImpl {
 	const cached = impls.get(effect);
 	if (cached) return cached;
+	// One seed per element (per play), shared by its graph's pass and its motion program.
+	const seeds = new WeakMap<object, number>();
+	const seedOf: SeedOf = (params) => {
+		let seed = seeds.get(params);
+		if (seed === undefined) {
+			seed = Math.random() * 97;
+			seeds.set(params, seed);
+		}
+		return seed;
+	};
+	const motion = effect.motion;
+	const program = motion?.program;
+	const driven = program ? drivenBy(effect, program, seedOf) : undefined;
+	const drivesChannels =
+		!!program && Object.keys(program.outputs).some((output) => output !== 'padding');
 	const passes = effect.passes.map(builtInPass).filter((p): p is FilterImpl<Filter> => !!p);
 	const impl: KindImpl = {
-		filters: [graphPass(effect), ...passes],
+		filters: [graphPass(effect, seedOf, driven), ...passes],
 		motion:
-			effect.motion && Object.keys(effect.motion.channels).length
-				? curvedMotion(effect.motion)
-				: undefined,
+			motion && driven && drivesChannels
+				? programMotion(motion, driven)
+				: motion && Object.keys(motion.channels).length
+					? curvedMotion(motion)
+					: undefined,
 	};
 	impls.set(effect, impl);
 	return impl;

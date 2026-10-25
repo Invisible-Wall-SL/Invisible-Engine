@@ -13,18 +13,19 @@
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
 	import { guardUnsavedWork } from '$lib/unsavedGuard';
-	import { elementFxSpec } from 'constants-shared/elementFx';
+	import { CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT, elementFxSpec } from 'constants-shared/elementFx';
 	import {
 		COST_BUDGET,
+		MOTION_OUTPUT,
 		SAMPLE_BUDGET,
 		analyzeShaderGraph,
+		analyzeShaderMotion,
 		builtinTwin,
 		compileShaderEffect,
 		SUBGRAPH_CALL,
 		SUBGRAPH_IN,
 		SUBGRAPH_OUT,
 		calledSubgraph,
-		graphNodeDef,
 		normalizeShaderGraphDoc,
 		subgraphName,
 		subgraphOf,
@@ -39,34 +40,43 @@
 	import SubgraphProperties from './SubgraphProperties.svelte';
 	import { provideShaderThumbs } from './shaderThumbs.svelte';
 	import {
+		MOTION_SCOPE,
 		SHADER_DROP_MIME,
+		SUBGRAPHS_PIXEL_ONLY,
 		addCall,
-		addNode,
+		addNodeIn,
 		analyzeScope,
 		canConnect,
 		canPlace,
 		canvasGraph,
 		connect,
+		deleteMotionGraph,
 		deleteSubgraph,
 		docFromTwin,
 		docIssues,
+		drivenChannels,
 		freshSubgraphName,
 		groupNodes,
 		groupRefusal,
 		groupable,
 		inScope,
+		isMotionScope,
 		missingBoundary,
+		motionAnalysis,
 		moveNode,
 		newShaderDoc,
+		nodeDefIn,
 		remove,
 		setNodeValue,
 		slugOf,
 		subgraphCalls,
 		subgraphRows,
 		twinGaps,
+		undrivenChannels,
 		ungroupCall,
 		ungroupRefusal,
 		viewOf,
+		type CanvasMode,
 	} from './shaderEditor';
 	import type { PageData } from './$types';
 
@@ -76,7 +86,8 @@
 	 * right the live preview, the selected node and the effect's settings. Every edit re-checks and
 	 * re-compiles the graph in the page (`engine-shadergraph`), so errors land on their nodes as you
 	 * wire and the preview plays what the game will. It autosaves under the graph's edit lease, and
-	 * every save keeps the version it replaced (History).
+	 * every save keeps the version it replaced (History). The canvas shows the pixel graph (and the
+	 * subgraphs opened from it) or, switched to Motion, the motion graph (step 8a).
 	 */
 	let { data }: { data: PageData } = $props();
 
@@ -98,9 +109,14 @@
 	);
 
 	const analysis = $derived(doc ? analyzeShaderGraph(doc) : undefined);
+	const motionCheck = $derived(doc ? analyzeShaderMotion(doc) : undefined);
 	const compiled = $derived(doc ? compileShaderEffect(doc) : undefined);
 	const compiledEffect = $derived(compiled?.ok ? compiled.effect : undefined);
-	const errorCount = $derived(analysis?.issues.filter((i) => i.level === 'error').length ?? 0);
+	const motionErrors = $derived(motionCheck?.issues.filter((i) => i.level === 'error').length ?? 0);
+	/** The whole effect's: the pixel graph's errors and the motion graph's. */
+	const errorCount = $derived(
+		(analysis?.issues.filter((i) => i.level === 'error').length ?? 0) + motionErrors,
+	);
 
 	// ── Subgraphs: the canvas shows the effect's graph, or a subgraph's body opened from it ──
 	/** The subgraphs opened, outermost first; what the doc no longer has (undone, deleted) closes. */
@@ -109,11 +125,21 @@
 		const gone = doc ? scopePath.findIndex((id) => !subgraphOf(doc as ShaderGraphDoc, id)) : 0;
 		return gone < 0 ? scopePath : scopePath.slice(0, gone);
 	});
-	const scope = $derived(openPath.at(-1) ?? null);
+	/** Pixel (the effect's graph, or the subgraphs opened from it) or Motion (the motion graph). */
+	let mode = $state<CanvasMode>('pixel');
+	const scope = $derived(mode === 'motion' ? MOTION_SCOPE : (openPath.at(-1) ?? null));
+	const motionShown = $derived(isMotionScope(scope));
 	/** The doc as the canvas edits it: the shown graph's nodes and wires. */
 	const view = $derived(doc ? viewOf(doc, scope) : null);
-	const viewAnalysis = $derived(doc && scope ? analyzeScope(doc, scope) : analysis);
+	const viewAnalysis = $derived(
+		!doc || !scope
+			? analysis
+			: isMotionScope(scope)
+				? motionAnalysis(doc, motionCheck)
+				: analyzeScope(doc, scope),
+	);
 	const selected = $derived(view?.nodes.find((n) => n.id === selectedId));
+	const driven = $derived(doc ? drivenChannels(doc) : []);
 
 	// ── The canvas ──
 	const nodeTypes = { shader: ShaderNode };
@@ -135,7 +161,8 @@
 	// Node thumbnails: one renderer for every node, fed the graph as edited (`shaderThumbs.svelte.ts`).
 	const thumbs = provideShaderThumbs();
 	$effect(() => {
-		const [graph, checked, picked, shown] = [doc, viewAnalysis, selectedId, scope];
+		const [graph, checked, picked] = [doc, viewAnalysis, selectedId];
+		const shown = scope;
 		untrack(() => thumbs.update(graph, checked, picked ? [picked] : [], shown));
 	});
 
@@ -302,6 +329,7 @@
 		openShared = shared;
 		selectedId = null;
 		scopePath = [];
+		mode = 'pixel';
 		past = [];
 		future = [];
 		// It shows as stored: nothing of the graph before is left to save onto it (a shared one
@@ -518,6 +546,7 @@
 					d,
 					gone.map((n) => n.id),
 					cut.map((e) => e.id),
+					scope,
 				),
 			),
 		);
@@ -543,14 +572,12 @@
 	}
 	function placeNode(type: string, pos: { x: number; y: number }): void {
 		if (!doc || !canPlace(doc, scope, type)) return;
-		let id = '';
-		const next = inScope(doc, scope, (d) => {
-			const added = addNode(d, type, pos);
-			id = added.id;
-			return added.doc;
-		});
-		edit(next);
-		selectOnly(id);
+		// The motion graph's first node brings its Output: show both.
+		const first = motionShown && !view?.nodes.length;
+		const added = addNodeIn(doc, scope, type, pos);
+		edit(added.doc);
+		selectOnly(added.id);
+		if (first) fitSignal += 1;
 	}
 	/** A call of subgraph `id`, unless it would call itself from the graph shown. */
 	function placeCall(id: string, pos: { x: number; y: number }): void {
@@ -607,8 +634,35 @@
 		nodes = [];
 		fitSignal += 1;
 	}
+	/** Show the pixel graph (where it was left) or the motion graph. Viewing changes nothing. */
+	function showMode(next: CanvasMode): void {
+		if (next === mode) return;
+		mode = next;
+		selectedId = null;
+		nodes = [];
+		fitSignal += 1;
+	}
 	function openSubgraph(id: string): void {
+		if (motionShown) {
+			notice = SUBGRAPHS_PIXEL_ONLY;
+			return;
+		}
 		if (doc && subgraphOf(doc, id)) showScope([...openPath, id]);
+	}
+	/** Delete the whole motion graph, asking first. */
+	async function removeMotionGraph(): Promise<void> {
+		if (!doc?.motionGraph || lease.readOnly) return;
+		const count = doc.motionGraph.nodes.length;
+		const ok = await askConfirm({
+			title: 'Delete the motion graph?',
+			message: `Its ${count} node${count === 1 ? '' : 's'} go, and the curves in the effect settings move the element again. Undo brings it back.`,
+			confirmLabel: 'Delete',
+			danger: true,
+		});
+		if (ok && doc?.motionGraph) {
+			edit(deleteMotionGraph(doc));
+			selectedId = null;
+		}
 	}
 	function groupSelection(): void {
 		if (!doc || lease.readOnly) return;
@@ -797,6 +851,7 @@
 	{:else}
 		<div class="body">
 			<ShaderLibrary
+				motion={motionShown}
 				{graphs}
 				openId={doc?.id ?? null}
 				{openShared}
@@ -851,15 +906,31 @@
 								cost {analysis.cost}/{COST_BUDGET} · reads {analysis.samples}/{SAMPLE_BUDGET}
 							</span>
 						{/if}
+						{#if motionShown && motionCheck}
+							<span
+								class:over={motionCheck.ops > CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT}
+								class="meter"
+								title="The motion graph’s steps each frame, against the most an effect may take."
+								>ops {motionCheck.ops}/{CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT}</span
+							>
+						{/if}
 						<label
 							class="thumbs-toggle"
-							title={thumbs.failure || 'A picture of each node’s output'}
+							title={thumbs.failure ||
+								'A picture of each node’s output (in the motion graph, its value over the play)'}
 						>
 							<input type="checkbox" bind:checked={thumbs.enabled} />
 							Thumbnails
 						</label>
 					</div>
 					<SubgraphBar
+						{mode}
+						onMode={showMode}
+						{motionErrors}
+						subgraphsOff={motionShown ? SUBGRAPHS_PIXEL_ONLY : ''}
+						{driven}
+						hasMotion={!!doc.motionGraph}
+						onDeleteMotion={() => void removeMotionGraph()}
 						crumbs={[
 							'Effect',
 							...openPath.map((id) => {
@@ -912,17 +983,21 @@
 						<NodeProperties
 							{doc}
 							node={selected}
-							def={graphNodeDef(doc, selected, scope)}
+							def={nodeDefIn(doc, selected, scope)}
 							inTypes={viewAnalysis?.inputs[selected.id] ?? {}}
 							wired={view.wires.filter((w) => w.to.node === selected.id).map((w) => w.to.port)}
 							errors={viewAnalysis?.issues
 								.filter((i) => i.node === selected.id && i.level === 'error')
 								.map((i) => i.message) ?? []}
+							paramKinds={motionShown ? ['number', 'bool', 'choice'] : undefined}
+							undriven={motionShown && selected.type === MOTION_OUTPUT
+								? undrivenChannels(doc)
+								: undefined}
 							disabled={lease.readOnly}
 							onValue={(key, value) =>
 								doc && edit(inScope(doc, scope, (d) => setNodeValue(d, selected.id, key, value)))}
 						/>
-						{#if selected.type === SUBGRAPH_CALL || (scope && (selected.type === SUBGRAPH_IN || selected.type === SUBGRAPH_OUT))}
+						{#if !motionShown && (selected.type === SUBGRAPH_CALL || (scope && (selected.type === SUBGRAPH_IN || selected.type === SUBGRAPH_OUT)))}
 							<SubgraphProperties
 								{doc}
 								{scope}
@@ -936,7 +1011,13 @@
 					{/if}
 					<GraphSettings
 						{doc}
-						errors={docIssues(doc, analysis)}
+						errors={[
+							...docIssues(doc, analysis),
+							...docIssues(doc, motionAnalysis(doc, motionCheck), MOTION_SCOPE).map(
+								(m) => `Motion graph: ${m}`,
+							),
+						]}
+						{driven}
 						disabled={lease.readOnly}
 						onChange={edit}
 					/>
