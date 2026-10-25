@@ -271,8 +271,37 @@ merged (#1342). 8b (Break as an output node) is in progress on `claude/shader-gr
     absent when it names none. The bake walks the bundle's values the same way (never a key).
     `deploy/editor-shaders/` still holds the set, and the Publish snapshot copies it, so a game's
     asset base carries the library's compiled effects too; nothing reads them at runtime.
-- **Step 8** (the plan's "Later", split into 8a–8e in design §8). 8b in progress
-  (`claude/shader-graph-step8b`); 8c–8e not started.
+- **Step 8** (the plan's "Later", split into 8a–8e in design §8). 8c in progress
+  (`claude/shader-graph-step8c`, built on 8b), 8d in its design pass, 8e not started.
+  - **8b, Break as an output node.** In review on `claude/shader-graph-step8b`.
+    - **The node** (`packages/engine-shadergraph/src/break.ts`). `breakOutput`, pixel graph only,
+      one per effect: settings `kind` (one of the six break kinds, default Shatter) and `at` (0…1,
+      default 0); its ports are the kind's params (number → float, colour → vec3, switch → 0 / 1,
+      choice → the option's index). A port takes a Param of the same kind (a tie; a choice needs
+      the same option set), a Number (number, switch and choice ports) or a Colour (colour ports);
+      anything else, a constant out of range, a bad kind or `at`, two of them, or a phase not the
+      kind's is a `'break'` error. What feeds only the Break Output counts as used and costs 0.
+    - **Compiled** as `CustomElementFx.break` (`{ kind, at, params: value | { param } }`); the
+      reader drops a break it cannot play (a kind or param it lacks, a bad tie, the wrong phase) and
+      keeps the effect. Docs without a Break Output compile byte-identically (712 docs dumped).
+    - **The runtime.** The graph, passes and motion play until `at`, then are held there while the
+      break runs over the rest of the play (progress and seconds over the window); the still is cut
+      with the graph's filters on, at the held pose, antialiasing inherited (WebGL2 stills kept
+      their smooth edges only with this). A forward break takes the passes off the hidden element
+      once cut; Assemble flies its pieces in over [0, 1 − at], redrawn live with the graph's look,
+      then the graph plays the last `at`. A built-in break plays exactly as before
+      (`shader-parity` identical).
+    - **Older runtimes.** An exit effect also carries a fade (from 0.15 into the window, smooth to
+      0) in its compiled alpha curve, or its motion program when that drives alpha, so a pre-8b
+      runtime fades it out instead of leaving it on screen; on 8b it never shows (exactly 1 before
+      `at`, the motion held in the window). A doc's own alpha curve is kept up to the fade.
+    - **Twins.** The six break kinds have twins (the Output alone plus a Break Output at 0 with
+      every param tied), held to their built-ins by `shader-twins` with no pixel different on WebGL1
+      or WebGL2: 36 twins now.
+    - **The editor.** The palette's Output family (while there is none), `BreakProperties.svelte`
+      (the break, Starts at, a control per setting, the tie line, the phase fix), the engine's own
+      refusal shown while a wire hovers a port, a kind change dropping wires it cannot keep in one
+      undo step, Group refusing it and what feeds it. The phase fix is also in the settings.
   - **8a, the motion graph.** Merged (#1342, 2026-10-25).
     - **The doc.** `motionGraph` (`{ nodes, wires }`, still version 1): float nodes into one
       **Motion Output** (x, y, scale, scale x / y, rotation, alpha, padding). 39 motion nodes: the
