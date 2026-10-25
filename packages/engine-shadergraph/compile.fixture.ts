@@ -84,11 +84,14 @@ import {
 	readElementFxEntry,
 	setCustomElementFx,
 	CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT as OP_LIMIT,
+	CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX as MOTION_PADDING_MAX,
 	CUSTOM_ELEMENT_FX_PASS_LIMIT as PASS_LIMIT,
 	ELEMENT_FX_CURVE_KEY_LIMIT as CURVE_KEY_LIMIT,
+	ELEMENT_FX_LIMITS,
 	ELEMENT_FX_MOTION_OUTPUTS,
 	ELEMENT_FX_PASS_KINDS,
 	type CustomElementFx,
+	type ElementFxMotionOutput,
 	type ElementFxParamSpec,
 } from 'constants-shared/elementFx';
 import { EFX_GLSL, linkGlsl } from 'constants-shared/glslLibrary';
@@ -2144,7 +2147,10 @@ console.log('shader graph — the motion graph');
 
 	// Without a motion graph, or with an empty one, nothing changes.
 	const every = [...REFERENCE_GRAPHS, ...BUILTIN_TWINS.map((t) => t.doc), ...nodeShowcase()];
-	const changed = every.filter((d) => {
+	const changed = every.filter((withMotion) => {
+		// A twin's own motion graph aside: the doc without one, and with an empty one.
+		const d = { ...withMotion };
+		delete d.motionGraph;
 		const empty = { ...d, motionGraph: { nodes: [], wires: [] } };
 		const motion = analyzeShaderMotion(empty);
 		return (
@@ -2162,6 +2168,71 @@ console.log('shader graph — the motion graph');
 	assert(
 		!changed.length,
 		`${every.length} docs (references, twins, the node showcase) compile, analyse and validate the same with no motion graph and an empty one${changed.length ? `: not ${changed.map((d) => d.id).join(', ')}` : ''}`,
+	);
+
+	// The twins whose motion or room a curve or a fixed padding could not follow have motion graphs.
+	const MOVING: Record<string, ElementFxMotionOutput[]> = {
+		freeze: ['x'],
+		petrify: ['y'],
+		turnToGold: ['scale'],
+		electrocute: ['x', 'y', 'rotation', 'padding'],
+		poison: ['rotation', 'scaleX', 'scaleY'],
+		bounce3D: ['scaleX', 'scaleY', 'padding'],
+		melt: ['padding'],
+		waveX: ['padding'],
+		waveY: ['padding'],
+		flag: ['padding'],
+	};
+	const unmoved = BUILTIN_TWINS.filter((twin) => {
+		const result = compileShaderEffect(twin.doc);
+		const motion = result.ok ? result.effect.motion : undefined;
+		const program = motion?.program;
+		const drives = Object.keys(program?.outputs ?? {})
+			.sort()
+			.join();
+		const params = new Map(twin.doc.params.map((p) => [p.id, p]));
+		return (
+			drives !== [...(MOVING[twin.kind] ?? [])].sort().join() ||
+			(program && customElementFxMotionProgramIssues(program, params).length) ||
+			(program && !readCustomElementFx(result.ok ? result.effect : undefined)?.motion?.program) ||
+			(result.ok && result.warnings.some((w) => w.graph === 'motion'))
+		);
+	});
+	assert(
+		!unmoved.length,
+		`the ${Object.keys(MOVING).length} twins that move by the seconds played, a param, looping or the element's shape, or grow their room, compile with a motion program driving exactly that, which the registry reads, warning-free${unmoved.length ? `: not ${unmoved.map((t) => t.kind).join(', ')}` : ''}`,
+	);
+	const dead = BUILTIN_TWINS.filter((twin) => {
+		const outputs = compileShaderMotion(twin.doc);
+		const driven = outputs.ok ? Object.keys(outputs.program?.outputs ?? {}) : [];
+		return (
+			driven.some((c) => c in (twin.doc.motion?.channels ?? {})) ||
+			(driven.includes('padding') && twin.doc.padding !== undefined)
+		);
+	});
+	assert(
+		!dead.length,
+		`no twin keeps a curve on a channel its motion graph drives, nor a fixed padding beside a driven one${dead.length ? `: ${dead.map((t) => t.kind).join(', ')}` : ''}`,
+	);
+	const most = (kind: string, id: string): number => {
+		const p = findElementFxSpec(kind as never)?.params.find((q) => q.id === id);
+		return p?.kind === 'number' ? p.max : NaN;
+	};
+	assert(
+		MOTION_PADDING_MAX === 1.45 * most('melt', 'length') * ELEMENT_FX_LIMITS.intensity.max &&
+			MOTION_PADDING_MAX >=
+				0.3 + 0.8 * most('bounce3D', 'height') * ELEMENT_FX_LIMITS.intensity.max &&
+			MOTION_PADDING_MAX >= most('waveX', 'amplitude') * ELEMENT_FX_LIMITS.intensity.max &&
+			issuesOf(
+				moving(
+					[n('k', 'number', { value: MOTION_PADDING_MAX + 1 }), out],
+					[w('k.out', 'out.padding')],
+				),
+			).some((i) => i.level === 'warning' && i.node === 'out' && i.port === 'padding') &&
+			!issuesOf(
+				moving([n('k', 'number', { value: MOTION_PADDING_MAX }), out], [w('k.out', 'out.padding')]),
+			).length,
+		`a program's room may reach ${MOTION_PADDING_MAX} shares, Melt's at its longest drips and strongest play (Bounce 3D's and the waves' fit under it); a graph reaching past it at its defaults is warned of, on the Motion Output's padding`,
 	);
 
 	// Hostile motion graphs are refused fast, bounded.

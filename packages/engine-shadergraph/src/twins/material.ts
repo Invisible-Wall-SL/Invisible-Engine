@@ -3,15 +3,11 @@
  * melt, freeze, burn, poison, electrocute, petrify, gold). Each is the pass rebuilt from nodes,
  * expression for expression, and the JS each kind runs to turn its progress, params, strength and
  * looping into uniforms (`kinds.ts`) is rebuilt from nodes too, so a param means the same on either
- * and the gate (`pnpm --filter fx-spike shader-twins`) holds the two to the same pixels.
+ * and the gate (`pnpm --filter fx-spike shader-twins`) holds the two to the same pixels. What a kind
+ * moves, and the room it grows, is its twin's motion graph, held to the same numbers.
  */
 
-import {
-	ELEMENT_FX_CURVE_KEY_LIMIT,
-	elementFxSpec,
-	type ElementFxCurve,
-	type ElementFxKind,
-} from 'constants-shared/elementFx';
+import { elementFxSpec, type ElementFxKind } from 'constants-shared/elementFx';
 import { EFX_SIDES } from 'constants-shared/glslLibrary';
 import type { BuiltinTwin } from '../twins';
 import { twinGraph, type In, type Ref } from './graph';
@@ -53,28 +49,19 @@ const heldTiming = (g: Graph, hold: Ref) => {
 	return { span, glint: g.mix(-10, along, holding) };
 };
 
-/**
- * A built-in's motion `f` over `[from, to]` of the play (`k` 0…1 across it, back at `rest` by its
- * end) as a curve of evenly spaced linear keys, held at `rest` until it starts.
- */
-const keyed = (
-	from: number,
-	to: number,
-	f: (k: number) => number,
-	rest: number,
-): ElementFxCurve => {
-	const inner = ELEMENT_FX_CURVE_KEY_LIMIT - 3;
-	const keys: { t: number; v: number; ease?: 'hold' }[] = [{ t: 0, v: rest, ease: 'hold' }];
-	for (let i = 0; i <= inner; i++) {
-		const k = i / inner;
-		keys.push({ t: from + (to - from) * k, v: Math.round(f(k) * 1e5) / 1e5 });
-	}
-	keys.push({ t: 1, v: rest });
-	return keys;
-};
+type Motion = ReturnType<Graph['motion']>;
 
-/** The held kinds move just after setting in: at the default hold, `(1 − 0.4) / 2` of the play. */
-const DEFAULT_SPAN = 0.3;
+/**
+ * The held kinds' motion window, in the motion graph: `k` 0…1 over `window` of the play from where
+ * the ice, stone or gold has set in (the Hold param's `holdSpan`), and `settle`, `1 − k` inside the
+ * window and 0 outside it (the built-ins move only there).
+ */
+const settling = (m: Motion, window: number) => {
+	const span = m.mul(m.oneMinus(m.param('hold')), 0.5);
+	const k = m.div(m.sub(m.time().progress, span), window);
+	const inside = m.mul(m.step(0, k), m.step(k, 1));
+	return { k, settle: m.mul(m.oneMinus(k), inside) };
+};
 
 const shine = (): BuiltinTwin => {
 	const g = twinGraph('shine', {});
@@ -123,8 +110,6 @@ const dissolve = (kind: 'dissolveOut' | 'dissolveIn'): BuiltinTwin => {
 
 const melt = (): BuiltinTwin => {
 	const g = twinGraph('melt', {
-		// The built-in's room at the end of a play at the defaults: 1.45 × the Drip length 0.8.
-		padding: 1.16,
 		motion: {
 			channels: {
 				alpha: [
@@ -161,29 +146,18 @@ const melt = (): BuiltinTwin => {
 	const heat = g.min(g.mul(g.param('color'), 1.4), 1);
 	const rgb = g.mix(ran.rgb, heat, g.mul(g.param('heat'), runny));
 	g.output(join(g, rgb, g.mul(ran.alpha, g.mul(g.step(0, v), g.step(v, 1)))));
-	return {
-		kind: 'melt',
-		doc: g.doc(),
-		paddingGap:
-			'The built-in makes room for the drips as they run: 1.45 × Drip length × strength × how far it has melted, in element heights. A doc’s padding is fixed, so the twin keeps 1.16 of the element’s larger side, the room the defaults end with; longer drips or a stronger play are cut off at that.',
-	};
+	// Room for the drips as they run: 1.45 × Drip length × strength × how far it has melted, in
+	// element heights (the padding is in shares of the larger side).
+	const mo = g.motion();
+	const shape = mo.shape();
+	const melted = mo.pow(mo.time().progress, 1.6);
+	const drip = mo.mul(mo.mul(mo.mul(1.45, mo.param('length')), mo.time().intensity), melted);
+	mo.out({ padding: mo.mul(drip, mo.div(shape.height, mo.max(shape.width, shape.height))) });
+	return { kind: 'melt', doc: g.doc() };
 };
 
 const freeze = (): BuiltinTwin => {
-	const window = 0.06;
-	const seconds = elementFxSpec('freeze').durationMs / 1000;
-	const g = twinGraph('freeze', {
-		motion: {
-			channels: {
-				x: keyed(
-					DEFAULT_SPAN,
-					DEFAULT_SPAN + window,
-					(k) => 0.012 * (1 - k) * Math.sin(95 * seconds * (DEFAULT_SPAN + window * k)),
-					0,
-				),
-			},
-		},
-	});
+	const g = twinGraph('freeze', {});
 	const time = g.time();
 	const hold = g.param('hold');
 	const coverage = g.node('hold', { t: time.progress, hold }).out;
@@ -206,12 +180,16 @@ const freeze = (): BuiltinTwin => {
 	ice = g.add(ice, g.mul(g.mul(0.35, line), g.step(coverage, 0.999)));
 	const amount = g.min(time.intensity, 1);
 	g.output(join(g, g.mix(here.rgb, g.min(ice, 1), g.mul(frozen, amount)), here.alpha));
-	return {
-		kind: 'freeze',
-		doc: g.doc(),
-		motionGap:
-			'The shiver as the ice locks in follows the seconds played, comes when the Hold param says and reaches 1.2% of the element’s shorter side; the x curve is that shiver at the default hold and length, in widths, so an element wider than tall shivers further.',
-	};
+	// It shivers as the ice locks in: 95 radians a second of the seconds played, over 6% of the play,
+	// 1.2% of the element's shorter side × strength, dying away (x is in its widths).
+	const mo = g.motion();
+	const shape = mo.shape();
+	const { settle } = settling(mo, 0.06);
+	const shorter = mo.min(shape.width, shape.height);
+	const amp = mo.mul(mo.mul(mo.mul(0.012, shorter), mo.time().intensity), settle);
+	const shiver = mo.mul(amp, mo.sin(mo.mul(mo.time().seconds, 95)));
+	mo.out({ x: mo.div(shiver, shape.width) });
+	return { kind: 'freeze', doc: g.doc() };
 };
 
 const burn = (): BuiltinTwin => {
@@ -283,25 +261,8 @@ const burn = (): BuiltinTwin => {
 	return { kind: 'burn', doc: g.doc() };
 };
 
-/** One looping turn of poison's queasy sway (`poisonImpl`'s motion at full strength) as keys. */
-const sway = (f: (a: number) => number): ElementFxCurve => {
-	const last = ELEMENT_FX_CURVE_KEY_LIMIT - 1;
-	return Array.from({ length: last + 1 }, (_, i) => ({
-		t: i / last,
-		v: Math.round(f((2 * Math.PI * i) / last) * 1e5) / 1e5,
-	}));
-};
-
 const poison = (): BuiltinTwin => {
-	const g = twinGraph('poison', {
-		motion: {
-			channels: {
-				rotation: sway((a) => (0.035 * Math.sin(a) * 180) / Math.PI),
-				scaleX: sway((a) => 1 + 0.025 * Math.sin(2 * a)),
-				scaleY: sway((a) => 1 - 0.025 * Math.sin(2 * a)),
-			},
-		},
-	});
+	const g = twinGraph('poison', {});
 	const time = g.time();
 	const seed = g.seed();
 	const venom = g.param('color');
@@ -345,17 +306,22 @@ const poison = (): BuiltinTwin => {
 	sick = g.mix(sick, g.min(g.add(g.mul(venom, 1.3), 0.2), 1), bubble);
 	// The sick colour may outshine the element's alpha, as the built-in's does.
 	g.output(join(g, g.mix(here.rgb, sick, dose), here.alpha), 'add');
-	return {
-		kind: 'poison',
-		doc: g.doc(),
-		motionGap:
-			'The sway eases in and out with the loop envelope when the effect plays a set number of times; a curve cannot tell a looping play from a counted one, so the twin always sways at full strength, as the built-in does while it loops.',
-		motionGapAtDefaults: true,
-	};
+	// It sways queasily: a turn of 0.035 radians and a squeeze of 2.5% twice a play, × strength over
+	// the loop envelope (steady while it loops, seeping in and out of a counted play).
+	const mo = g.motion();
+	const t = mo.time().progress;
+	const k = mo.mul(mo.node('loopEnvelope', { t }).out, mo.time().intensity);
+	const squeeze = mo.mul(mo.mul(0.025, k), mo.sin(mo.mul(t, 4 * Math.PI)));
+	mo.out({
+		rotation: mo.mul(mo.mul((0.035 * 180) / Math.PI, k), mo.sin(mo.mul(t, 2 * Math.PI))),
+		scaleX: mo.add(1, squeeze),
+		scaleY: mo.sub(1, squeeze),
+	});
+	return { kind: 'poison', doc: g.doc() };
 };
 
 const electrocute = (): BuiltinTwin => {
-	const g = twinGraph('electrocute', { padding: 0.15 });
+	const g = twinGraph('electrocute', {});
 	const time = g.time();
 	const t = time.progress;
 	const seed = g.seed();
@@ -386,29 +352,29 @@ const electrocute = (): BuiltinTwin => {
 	const cover = g.mul(g.max(core, g.mul(0.8, halo)), g.sub(1, here.alpha));
 	// The arcs' light adds over what is behind, brighter than their alpha.
 	g.output(g.combine(lit.x, lit.y, lit.z, g.min(1, g.add(here.alpha, cover))).xyzw, 'add');
-	return {
-		kind: 'electrocute',
-		doc: g.doc(),
-		motionGap:
-			'The element jitters by sines of the seconds played, up to 25 times a second: far past what 32 curve keys can follow, so the twin does not jitter.',
-		motionGapAtDefaults: true,
-	};
+	// While it bites it jitters by sines of the seconds played (up to 25 times a second), by 2% of the
+	// shorter side kept within 1.5…12 of the element's units, × strength, and makes room for the arcs.
+	const mo = g.motion();
+	const shape = mo.shape();
+	const mt = mo.time();
+	const bite = mo.mul(mo.smooth(0, 0.06, mt.progress), mo.oneMinus(mo.smooth(0.8, 1, mt.progress)));
+	const zap = mo.mix(bite, 1, mt.looping);
+	const zk = mo.mul(zap, mt.intensity);
+	const size = mo.min(12, mo.max(1.5, mo.mul(0.02, mo.min(shape.width, shape.height))));
+	const amp = mo.mul(size, zk);
+	const wave = (rate: number, phase = 0) =>
+		mo.sin(phase ? mo.add(mo.mul(mt.seconds, rate), phase) : mo.mul(mt.seconds, rate));
+	mo.out({
+		x: mo.div(mo.mul(mo.mul(amp, wave(157)), wave(23)), shape.width),
+		y: mo.div(mo.mul(mo.mul(amp, wave(131, 1.3)), wave(17)), shape.height),
+		rotation: mo.mul(mo.mul((0.02 * 180) / Math.PI, zk), wave(97)),
+		padding: mo.mul(0.15, mo.oneMinus(mo.step(zap, 0))),
+	});
+	return { kind: 'electrocute', doc: g.doc() };
 };
 
 const petrify = (): BuiltinTwin => {
-	const window = 0.08;
-	const g = twinGraph('petrify', {
-		motion: {
-			channels: {
-				y: keyed(
-					DEFAULT_SPAN,
-					DEFAULT_SPAN + window,
-					(k) => 0.014 * Math.sin(Math.PI * k) * (1 - k),
-					0,
-				),
-			},
-		},
-	});
+	const g = twinGraph('petrify', {});
 	const time = g.time();
 	const t = time.progress;
 	const seed = g.seed();
@@ -463,28 +429,17 @@ const petrify = (): BuiltinTwin => {
 	);
 	const amount = g.min(time.intensity, 1);
 	g.output(join(g, g.mix(here.rgb, g.clamp(rock, 0, 1), g.mul(stone, amount)), here.alpha));
-	return {
-		kind: 'petrify',
-		doc: g.doc(),
-		motionGap:
-			'The thud as the stone locks in comes when it has set in, which the Hold param moves; the y curve is that thud at the default hold.',
-	};
+	// It drops a little as the stone locks in, with a thud: 1.4% of its height × strength over 8%
+	// of the play from where it has set in.
+	const mo = g.motion();
+	const { k, settle } = settling(mo, 0.08);
+	const thud = mo.mul(mo.mul(0.014, mo.time().intensity), mo.node('bell', { t: k }).out);
+	mo.out({ y: mo.mul(thud, settle) });
+	return { kind: 'petrify', doc: g.doc() };
 };
 
 const turnToGold = (): BuiltinTwin => {
-	const window = 0.1;
-	const g = twinGraph('turnToGold', {
-		motion: {
-			channels: {
-				scale: keyed(
-					DEFAULT_SPAN,
-					DEFAULT_SPAN + window,
-					(k) => 1 + 0.04 * Math.sin(Math.PI * k) * (1 - k),
-					1,
-				),
-			},
-		},
-	});
+	const g = twinGraph('turnToGold', {});
 	const time = g.time();
 	const t = time.progress;
 	const seed = g.seed();
@@ -520,12 +475,13 @@ const turnToGold = (): BuiltinTwin => {
 	let gilded = g.mix(here.rgb, g.clamp(metal, 0, 1), g.mul(gilt, amount));
 	gilded = g.mix(gilded, [1, 0.93, 0.7], g.mul(g.mul(g.clamp(rim, 0, 1), 0.75), amount));
 	g.output(join(g, gilded, here.alpha));
-	return {
-		kind: 'turnToGold',
-		doc: g.doc(),
-		motionGap:
-			'The ring as the gold sets comes when it has set in, which the Hold param moves; the scale curve is that ring at the default hold.',
-	};
+	// It rings with a small swell as the gold sets: 4% × strength over 10% of the play from where it
+	// has set in.
+	const mo = g.motion();
+	const { k, settle } = settling(mo, 0.1);
+	const ring = mo.mul(mo.mul(0.04, mo.time().intensity), mo.node('bell', { t: k }).out);
+	mo.out({ scale: mo.add(1, mo.mul(ring, settle)) });
+	return { kind: 'turnToGold', doc: g.doc() };
 };
 
 export const MATERIAL_TWINS: readonly BuiltinTwin[] = [

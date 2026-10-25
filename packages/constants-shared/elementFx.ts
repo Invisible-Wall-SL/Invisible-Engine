@@ -1197,6 +1197,14 @@ export const elementFxSpec = (kind: ElementFxKind): ElementFxKindSpec =>
 export const findElementFxSpec = (kind: ElementFxKindId): ElementFxKindSpec | undefined =>
 	SPECS.get(kind) ?? CUSTOM.get(kind)?.spec;
 
+/** What an entry or a play may set: a length, a delay, a strength and a number of plays. */
+export const ELEMENT_FX_LIMITS = {
+	durationMs: { min: 50, max: 20_000 },
+	delayMs: { min: 0, max: 20_000 },
+	intensity: { min: 0, max: 4 },
+	repeat: { min: 0, max: 100 },
+} as const;
+
 // -------------------------------------------------------------------------------------------------
 // CUSTOM EFFECTS — authored in Invisible Shader Graph (`docs/design/invisible-shader-graph.md`) and
 // compiled there (`engine-shadergraph`'s `compileShaderEffect`). The game and the tools register the
@@ -1325,6 +1333,27 @@ export const CUSTOM_ELEMENT_FX_PASS_LIMIT = 4;
 export const ELEMENT_FX_CURVE_KEY_LIMIT = 32;
 /** Room a custom effect's graph may ask for outside the element, in shares of its larger side. */
 export const CUSTOM_ELEMENT_FX_PADDING_MAX = 2;
+
+const numberMax = (kind: ElementFxKind, id: string): number => {
+	const param = SPECS.get(kind)?.params.find((p) => p.id === id);
+	return param?.kind === 'number' ? param.max : 0;
+};
+
+/**
+ * Room a custom effect's MOTION PROGRAM may ask for on a frame, in shares of the element's larger
+ * side: the most any built-in grows to (`kinds.ts`), at its params' tops and the strongest play.
+ * Melt's drips (1.45 × Drip length), Bounce 3D's lift (0.3 + 0.8 × Lift) and the waves' and the
+ * flag's amplitude, each × strength: 11.6, Melt's. The doc's fixed padding stays within
+ * {@link CUSTOM_ELEMENT_FX_PADDING_MAX}. COST: a pass padded P shares draws up to (1 + 2P)² times
+ * the element's area, about 590 times at this cap (as the built-in Melt does at its strongest).
+ */
+export const CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX = Math.max(
+	1.45 * numberMax('melt', 'length') * ELEMENT_FX_LIMITS.intensity.max,
+	0.3 + 0.8 * numberMax('bounce3D', 'height') * ELEMENT_FX_LIMITS.intensity.max,
+	...(['waveX', 'waveY', 'flag'] as const).map(
+		(kind) => numberMax(kind, 'amplitude') * ELEMENT_FX_LIMITS.intensity.max,
+	),
+);
 /** The ops in a custom effect's motion program, at most. */
 export const CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT = 256;
 
@@ -1739,13 +1768,6 @@ export interface ElementFxEntry {
 	/** Off in the editor without deleting it: never plays. */
 	disabled?: boolean;
 }
-
-export const ELEMENT_FX_LIMITS = {
-	durationMs: { min: 50, max: 20_000 },
-	delayMs: { min: 0, max: 20_000 },
-	intensity: { min: 0, max: 4 },
-	repeat: { min: 0, max: 100 },
-} as const;
 
 /**
  * The timeline channels that pose a `keyed` entry — `engine-cinematic`'s `ELEMENT_FX_CHANNEL_PREFIX`

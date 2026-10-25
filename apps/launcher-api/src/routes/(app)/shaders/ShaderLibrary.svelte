@@ -93,7 +93,7 @@
 				hint: String(group.twins.length),
 				items: group.twins.map((twin) => ({
 					label: twin.label,
-					title: [twin.description, ...twin.gaps].join('\n\n'),
+					title: twin.description,
 					onSelect: () => onNewFrom(twin.kind),
 				})),
 			})),

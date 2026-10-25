@@ -11,9 +11,10 @@
  * of a few channel steps, and how many the built-in draws past the twin's room, and leaves the
  * verdict to the script.
  *
- * Pixels are compared with both motions held at rest, so a shader is judged by what it draws; the
- * motions are compared as numbers (where the corners of the element's box land, its alpha), the
- * built-in's sampler against the twin's curves.
+ * Pixels are compared with both motions held at rest (a twin keeps the room its motion graph grows),
+ * so a shader is judged by what it draws; the motions are compared as numbers (where the corners of
+ * the element's box land, its alpha), the built-in's sampler against the twin's curves and motion
+ * graph, in every case, and so is the room each asks its passes for.
  */
 import {
 	Application,
@@ -220,8 +221,7 @@ interface Region {
  * The cell at `x0` in the top row (the built-in) against the one below it (the twin), `height`
  * rows down. Per step: its drawn pixels whose largest channel difference is past it (`over`), and
  * those of them whose four neighbours are past it too (`solid`: inside a patch that differs, not a
- * pixel or a line on the edge of a threshold); and the largest difference. Within `within` only,
- * when given (the twin's room, for a twin that names its padding gap); `beyond` counts the
+ * pixel or a line on the edge of a threshold); and the largest difference. `beyond` counts the
  * built-in's drawn pixels outside the twin's `room`.
  */
 const compare = (
@@ -231,7 +231,6 @@ const compare = (
 	width: number,
 	height: number,
 	room: Region,
-	within?: Region,
 ) => {
 	const over = STEPS.map(() => 0);
 	const solid = STEPS.map(() => 0);
@@ -246,7 +245,6 @@ const compare = (
 		let b = ((y + height) * stride + x0) * 4;
 		for (let x = 0; x < width; x++, a += 4, b += 4) {
 			if (pixels[a + 3] && !inside(room, x, y)) beyond++;
-			if (within && !inside(within, x, y)) continue;
 			if (!pixels[a + 3] && !pixels[b + 3]) continue;
 			drawn++;
 			const d = Math.max(
@@ -322,7 +320,7 @@ const corners = (m: Motion, width: number, height: number): number[] => {
 };
 
 /** How far apart the two motions put the box's corners (px) and its alpha, at `frame`. */
-const motionGap = (builtIn: KindImpl, twin: KindImpl, frame: FxFrame) => {
+const motionApart = (builtIn: KindImpl, twin: KindImpl, frame: FxFrame) => {
 	const a: Motion = { ...REST, ...(builtIn.motion?.(frame) ?? {}) };
 	const b: Motion = { ...REST, ...(twin.motion?.(frame) ?? {}) };
 	const ca = corners(a, frame.width, frame.height);
@@ -356,8 +354,21 @@ const motionGap = (builtIn: KindImpl, twin: KindImpl, frame: FxFrame) => {
 		if (!r.ok) throw new Error(`${t.kind}: ${r.issues.map((i) => i.message).join('; ')}`);
 		return r.effect;
 	});
-	// The twins play with their motion at rest (compared as numbers below), as the built-ins do.
-	setCustomElementFx(effects.map((e) => ({ ...e, motion: undefined })));
+	// The twins play with their motion at rest (compared as numbers below), as the built-ins do; the
+	// room a motion graph grows stays.
+	setCustomElementFx(
+		effects.map((e) => {
+			const program = e.motion?.program;
+			const padding = program?.outputs.padding;
+			return {
+				...e,
+				motion:
+					program && padding !== undefined
+						? { channels: {}, program: { ops: program.ops, outputs: { padding } } }
+						: undefined,
+			};
+		}),
+	);
 	const fill = new FillGradient({
 		type: 'linear',
 		start: { x: 0, y: 0 },
@@ -412,7 +423,8 @@ const motionGap = (builtIn: KindImpl, twin: KindImpl, frame: FxFrame) => {
 			// Each cell reaches as far past the filter area as the most room any card's passes take.
 			const padding = (card: Container): number =>
 				(card.filters ?? []).reduce((sum, f) => sum + f.padding, 0);
-			const reach = Math.ceil(marginOf(shape) + Math.max(...cards.map(padding))) + 2;
+			const pads = cards.map(padding);
+			const reach = Math.ceil(marginOf(shape) + Math.max(...pads)) + 2;
 			const box = BOXES[shape];
 			const [w, h] = [box.width + 2 * reach, box.height + 2 * reach];
 			// Where each twin play may draw: its filter area and its passes' padding, in its cell.
@@ -444,11 +456,7 @@ const motionGap = (builtIn: KindImpl, twin: KindImpl, frame: FxFrame) => {
 			console.error = report;
 			const stride = target.width;
 			c.moments.forEach((moment, k) => {
-				const room = rooms[k];
-				const within = twin.paddingGap
-					? { x: room.x + 1, y: room.y + 1, width: room.width - 2, height: room.height - 2 }
-					: undefined;
-				const diff = compare(pixels, stride, k * w, w, h, room, within);
+				const diff = compare(pixels, stride, k * w, w, h, rooms[k]);
 				cells.push({ label: c.label, moment, area: box.width * box.height, ...diff });
 				const off = diff.over[step] / Math.max(1, diff.drawn) > dumpPast || diff.solid[step] > 0;
 				if (Number.isFinite(dumpPast) && off)
@@ -457,19 +465,22 @@ const motionGap = (builtIn: KindImpl, twin: KindImpl, frame: FxFrame) => {
 						builtIn: cellPng(pixels, stride, k * w, 0, w, h),
 						twin: cellPng(pixels, stride, k * w, h, w, h),
 					});
+				// The room each asks for, as numbers: a room of nothing is 0, where a built-in still adds
+				// its 2 px margin.
+				const [asked, given] = [pads[k], pads[MOMENTS.length + k]].map((pad) =>
+					Math.max(0, pad - 2),
+				);
 				motions.push({
 					label: c.label,
 					moment,
-					...motionGap(builtIn, twinImpl, frameOf(kind, c, moment)),
+					...motionApart(builtIn, twinImpl, frameOf(kind, c, moment)),
+					room: Math.abs(asked - given),
 				});
 			});
 			target.destroy(true);
 		}
 		results.push({
 			kind,
-			motionGap: twin.motionGap ?? null,
-			motionGapAtDefaults: !!twin.motionGapAtDefaults,
-			paddingGap: twin.paddingGap ?? null,
 			ms: Math.round(performance.now() - twinBegan),
 			cells,
 			motions,

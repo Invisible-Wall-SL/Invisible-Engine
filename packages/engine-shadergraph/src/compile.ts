@@ -27,6 +27,7 @@
 
 import {
 	CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT,
+	CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX,
 	CUSTOM_ELEMENT_FX_PADDING_MAX,
 	ELEMENT_FX_LIMITS,
 	ELEMENT_FX_PHASES,
@@ -1059,6 +1060,24 @@ function runMotion(doc: ShaderGraphDoc): MotionRun {
 		ops: pruned.ops,
 		outputs: Object.fromEntries(driven.map(([key, r]) => [key, pruned.at[r]])),
 	};
+	if (run.program.outputs.padding !== undefined) {
+		const frame = seriesFrame(doc);
+		const registers = new Float64Array(run.program.ops.length);
+		let most = 0;
+		for (let i = 0; i <= 32; i++) {
+			frame.t = i / 32;
+			frame.seconds = frame.t * playSecondsOf(doc);
+			most = Math.max(most, runMotionProgram(run.program, frame, registers).padding ?? 0);
+		}
+		if (most > CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX)
+			issues.push({
+				level: 'warning',
+				code: 'motion',
+				message: `the padding reaches ${Math.round(most * 100) / 100} of the element's larger side at the params' defaults, past the ${CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX} a game makes room for: it is held there`,
+				node: graph.nodes.find((n) => n?.type === MOTION_OUTPUT)?.id,
+				port: 'padding',
+			});
+	}
 	return run;
 }
 
@@ -1139,9 +1158,23 @@ export function motionNodeSeries(
 	if (reg === undefined) return undefined;
 	const pruned = pruneMotion(writer.ops, [reg]);
 	const program = { ops: pruned.ops, outputs: { value: pruned.at[reg] } };
+	const frame = seriesFrame(doc, options.frame);
+	const registers = new Float64Array(program.ops.length);
+	const count = Math.max(2, Math.min(4096, Math.floor(samples)));
+	return Array.from({ length: count }, (_, i) => {
+		frame.t = i / (count - 1);
+		frame.seconds = frame.t * playSecondsOf(doc);
+		return runMotionProgram(program, frame, registers).value as number;
+	});
+}
+
+const playSecondsOf = (doc: ShaderGraphDoc): number =>
+	(Number.isFinite(doc.durationMs) ? doc.durationMs : 1000) / 1000;
+
+/** A frame of `doc` as a series reads it (see {@link MotionSeriesOptions}), at t = 0. */
+function seriesFrame(doc: ShaderGraphDoc, given: MotionSeriesOptions['frame'] = {}): MotionFrame {
 	const params = Array.isArray(doc.params) ? doc.params : [];
-	const given = options.frame ?? {};
-	const frame: MotionFrame = {
+	return {
 		t: 0,
 		seconds: 0,
 		intensity: given.intensity ?? 1,
@@ -1157,12 +1190,4 @@ export function motionNodeSeries(
 		width: given.width ?? 100,
 		height: given.height ?? 100,
 	};
-	const registers = new Float64Array(program.ops.length);
-	const count = Math.max(2, Math.min(4096, Math.floor(samples)));
-	const playSeconds = (Number.isFinite(doc.durationMs) ? doc.durationMs : 1000) / 1000;
-	return Array.from({ length: count }, (_, i) => {
-		frame.t = i / (count - 1);
-		frame.seconds = frame.t * playSeconds;
-		return runMotionProgram(program, frame, registers).value as number;
-	});
 }

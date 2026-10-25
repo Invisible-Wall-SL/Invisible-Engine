@@ -7,7 +7,7 @@
  */
 
 import {
-	CUSTOM_ELEMENT_FX_PADDING_MAX,
+	CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX,
 	ELEMENT_FX_LIMITS,
 	ELEMENT_FX_MOTION_RANGES,
 	ELEMENT_FX_PASS_KINDS,
@@ -84,7 +84,7 @@ const graphPass = (
 			driven && effect.motion?.program?.outputs.padding !== undefined
 				? (frame, view) => {
 						const room = Math.min(
-							CUSTOM_ELEMENT_FX_PADDING_MAX,
+							CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX,
 							Math.max(0, driven(frame).padding ?? 0),
 						);
 						return room > 0

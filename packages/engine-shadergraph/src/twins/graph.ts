@@ -1,8 +1,9 @@
 /**
  * How a twin's graph is written: as expressions. Each call adds one node of the library, wires the
  * inputs given as another node's output, sets those given as numbers, and hands back the node's
- * outputs to wire on. `doc()` lays the nodes out left to right by how deep they sit, so a twin opens
- * in /shaders as a readable graph.
+ * outputs to wire on. Its motion graph (`motion()`) is written the same way, ending in `out()`.
+ * `doc()` lays the nodes out left to right by how deep they sit, so a twin opens in /shaders as a
+ * readable graph.
  */
 
 import {
@@ -10,9 +11,10 @@ import {
 	type CustomElementFxMotion,
 	type CustomElementFxPass,
 	type ElementFxKind,
+	type ElementFxMotionOutput,
 	type ElementFxParamSpec,
 } from 'constants-shared/elementFx';
-import { shaderNode } from '../nodes';
+import { motionNode, shaderNode, type NodeDef } from '../nodes';
 import {
 	SHADER_GRAPH_VERSION,
 	type GraphNode,
@@ -46,8 +48,11 @@ const COLUMN = 300;
 const ROW = 22;
 const GAP = 48;
 
-/** A builder for built-in `kind`'s twin: its id, name, phase, length and params are the kind's. */
-export function twinGraph(kind: ElementFxKind, meta: TwinMeta) {
+/**
+ * The expressions over one graph of `kind`'s twin, its nodes found by `lookup`: the pixel graph's
+ * library, or the motion graph's.
+ */
+function expressions(kind: ElementFxKind, lookup: (type: string) => NodeDef | undefined) {
 	const spec = elementFxSpec(kind);
 	const nodes: GraphNode[] = [];
 	const wires: GraphWire[] = [];
@@ -58,7 +63,7 @@ export function twinGraph(kind: ElementFxKind, meta: TwinMeta) {
 		inputs: Record<string, In> = {},
 		settings: Record<string, Setting> = {},
 	): Record<string, Ref> => {
-		const def = shaderNode(type);
+		const def = lookup(type);
 		if (!def) throw new Error(`twin ${kind}: no node "${type}"`);
 		const id = `${type}${nodes.length + 1}`;
 		const values: NonNullable<GraphNode['values']> = { ...settings };
@@ -85,11 +90,11 @@ export function twinGraph(kind: ElementFxKind, meta: TwinMeta) {
 	const params = new Map<string, Ref>();
 
 	return {
+		nodes,
+		wires,
 		node,
+		once,
 		time: () => once('time'),
-		uv: () => once('uv').out,
-		uvSquare: () => once('uvSquare').out,
-		seed: () => once('seed').out,
 		/** The kind's param `id`, read once however often it is wired. */
 		param(id: string): Ref {
 			if (!spec.params.some((p) => p.id === id)) throw new Error(`twin ${kind}: no param "${id}"`);
@@ -117,6 +122,24 @@ export function twinGraph(kind: ElementFxKind, meta: TwinMeta) {
 		fract: (x: In) => out('fract', { x }),
 		sin: (x: In) => out('sin', { x }),
 		cos: (x: In) => out('cos', { x }),
+	};
+}
+
+/** A builder for built-in `kind`'s twin: its id, name, phase, length and params are the kind's. */
+export function twinGraph(kind: ElementFxKind, meta: TwinMeta) {
+	const spec = elementFxSpec(kind);
+	const pixel = expressions(kind, shaderNode);
+	const { nodes, wires, node, once } = pixel;
+	const out = (type: string, inputs: Record<string, In>, settings?: Record<string, Setting>) =>
+		node(type, inputs, settings).out;
+	const moving = expressions(kind, motionNode);
+	let motionGraph: ShaderGraphDoc['motionGraph'];
+
+	return {
+		...pixel,
+		uv: () => once('uv').out,
+		uvSquare: () => once('uvSquare').out,
+		seed: () => once('seed').out,
 		length: (v: In) => out('length', { v }),
 		dot: (a: In, b: In) => out('dot', { a, b }),
 		/** Numbers into a vec2 (`xy`), a vec3 (`xyz`) or a vec4 (`xyzw`). */
@@ -130,8 +153,22 @@ export function twinGraph(kind: ElementFxKind, meta: TwinMeta) {
 		output(color?: In, blend?: 'normal' | 'add'): void {
 			node('output', color === undefined ? {} : { color }, blend ? { blend } : {});
 		},
+		/**
+		 * The twin's motion graph, run on the CPU each frame: its time, the element's shape and the
+		 * kind's params read as in the pixel graph, and `out` wiring what it drives into the Motion
+		 * Output.
+		 */
+		motion: () => ({
+			...moving,
+			shape: () => moving.once('shape'),
+			out(drives: Partial<Record<ElementFxMotionOutput, Ref>>): void {
+				moving.node('motionOutput', drives);
+				motionGraph = { nodes: moving.nodes, wires: moving.wires };
+			},
+		}),
 		doc(): ShaderGraphDoc {
-			layout(nodes, wires);
+			layout(nodes, wires, shaderNode, 'output');
+			if (motionGraph) layout(motionGraph.nodes, motionGraph.wires, motionNode, 'motionOutput');
 			return {
 				version: SHADER_GRAPH_VERSION,
 				id: kind,
@@ -145,13 +182,22 @@ export function twinGraph(kind: ElementFxKind, meta: TwinMeta) {
 				wires,
 				...(meta.passes ? { passes: meta.passes } : {}),
 				...(meta.motion ? { motion: meta.motion } : {}),
+				...(motionGraph ? { motionGraph } : {}),
 			};
 		},
 	};
 }
 
-/** Columns by depth (a node right of every node it reads), stacked in the order they were made. */
-function layout(nodes: GraphNode[], wires: readonly GraphWire[]): void {
+/**
+ * Columns by depth (a node right of every node it reads, the graph's `last` node rightmost), stacked
+ * in the order they were made.
+ */
+function layout(
+	nodes: GraphNode[],
+	wires: readonly GraphWire[],
+	lookup: (type: string) => NodeDef | undefined,
+	last: string,
+): void {
 	const depth = new Map<string, number>();
 	const feeds = new Map<string, string[]>();
 	for (const wire of wires)
@@ -163,11 +209,11 @@ function layout(nodes: GraphNode[], wires: readonly GraphWire[]): void {
 		depth.set(id, d);
 		return d;
 	};
-	const last = Math.max(0, ...nodes.map((n) => depthOf(n.id)));
+	const deepest = Math.max(0, ...nodes.map((n) => depthOf(n.id)));
 	const heights = new Map<number, number>();
 	for (const n of nodes) {
-		const column = n.type === 'output' ? last : depthOf(n.id);
-		const def = shaderNode(n.type);
+		const column = n.type === last ? deepest : depthOf(n.id);
+		const def = lookup(n.type);
 		const rows = Math.max(def?.inputs.length ?? 0, def?.outputs.length ?? 0, 1);
 		const y = heights.get(column) ?? 0;
 		n.x = column * COLUMN;

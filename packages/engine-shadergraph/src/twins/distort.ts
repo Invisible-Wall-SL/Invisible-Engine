@@ -6,7 +6,6 @@
  * `glslLibrary` functions the built-in's calls. Angles go to the nodes in degrees.
  */
 
-import type { ElementFxCurve } from 'constants-shared/elementFx';
 import type { BuiltinTwin } from '../twins';
 import { twinGraph, type In, type Ref } from './graph';
 
@@ -60,37 +59,13 @@ function flip(kind: 'flipX' | 'flipY'): BuiltinTwin {
 }
 
 /**
- * The built-in's squash at its default 2 hops, as a scale curve (`sign` 1 widens, −1 shortens by
- * 0.12 × the squash): 0 until the first hop nears the ground, 1 as it lands, 0 again as the second
- * takes off, up to that hop's weight (√0.45) as it lands at 85% of the play, eased out by the end.
- */
-const squashCurve = (sign: 1 | -1): ElementFxCurve => {
-	const second = Math.sqrt(0.45);
-	const landed = 0.85 / (1 + second);
-	const span = 0.85 - landed;
-	const v = (squash: number): number => 1 + sign * 0.12 * squash;
-	return [
-		{ t: 0, v: v(0) },
-		{ t: 0.88 * landed, v: v(0) },
-		{ t: landed, v: v(1) },
-		{ t: landed + 0.12 * span, v: v(0) },
-		{ t: landed + 0.88 * span, v: v(0) },
-		{ t: 0.85, v: v(second), ease: 'smooth' },
-		{ t: 1, v: v(0) },
-	];
-};
-
-/**
  * Bounce 3D: `bounces` hops out of the screen (the first `height` × strength element sizes toward
  * the eye), tilting up to `tilt` × strength about both axes and settling; focal 3.47, shaded. Each
- * landing squashes the element (its motion). The built-in pads by 0.3 + 0.8 × `height` × strength;
- * the twin by `height`'s top at strength 1.
+ * landing squashes the element by 12% × strength (no harder past 1.5), and the room grows with the
+ * lift: 0.3 + 0.8 × `height` × strength (the motion graph).
  */
 function bounce3D(): BuiltinTwin {
-	const g = twinGraph('bounce3D', {
-		padding: 1.1,
-		motion: { channels: { scaleX: squashCurve(1), scaleY: squashCurve(-1) } },
-	});
+	const g = twinGraph('bounce3D', {});
 	const { progress, intensity } = g.time();
 	const arcs = g.node('bounce', { t: progress, count: g.param('bounces') });
 	const tilt = g.mul(g.mul(g.param('tilt'), intensity), g.oneMinus(progress));
@@ -101,12 +76,16 @@ function bounce3D(): BuiltinTwin {
 		focal: 3.47,
 	});
 	g.output(card(g, plane));
-	return {
-		kind: 'bounce3D',
-		doc: g.doc(),
-		motionGap:
-			'The squash lands where the default 2 hops land: a curve cannot read the Bounces param (the lift, in the graph, follows it), and above strength 1.5 the built-in stops squashing harder.',
-	};
+	const mo = g.motion();
+	const mt = mo.time();
+	const hops = mo.node('bounce', { t: mt.progress, count: mo.param('bounces') });
+	const squash = mo.mul(mo.mul(0.12, mo.min(1.5, mt.intensity)), hops.squash);
+	mo.out({
+		scaleX: mo.add(1, squash),
+		scaleY: mo.sub(1, squash),
+		padding: mo.add(0.3, mo.mul(0.8, mo.mul(mo.param('height'), mt.intensity))),
+	});
+	return { kind: 'bounce3D', doc: g.doc() };
 }
 
 /**
@@ -172,21 +151,31 @@ const waveDrive = (g: Graph): Record<string, Ref> => {
 };
 
 /**
- * Wave (X) / (Y): rows slide sideways, or columns up and down. The built-in pads by the amplitude ×
- * strength; the twin by the amplitude's top (0.25), so nothing is cut at strength 1.
+ * A wave's room, in its motion graph: the amplitude × strength of the element's width (`across`) or
+ * its height, as a share of its larger side.
  */
+const waveRoom = (g: Graph, across: boolean): void => {
+	const mo = g.motion();
+	const shape = mo.shape();
+	const side = mo.div(across ? shape.width : shape.height, mo.max(shape.width, shape.height));
+	mo.out({ padding: mo.mul(mo.mul(mo.param('amplitude'), mo.time().intensity), side) });
+};
+
+/** Wave (X) / (Y): rows slide sideways, or columns up and down, with room for the amplitude. */
 function wave(kind: 'waveX' | 'waveY'): BuiltinTwin {
-	const g = twinGraph(kind, { padding: 0.25 });
+	const g = twinGraph(kind, {});
 	const at = g.node('wave', waveDrive(g), { axis: kind === 'waveX' ? 'x' : 'y' }).out;
 	g.output(g.node('sample', { uv: at }).out);
+	waveRoom(g, kind === 'waveX');
 	return { kind, doc: g.doc() };
 }
 
-/** Flag: a wave pinned at the left edge, lit on its folds; padded as the waves are. */
+/** Flag: a wave pinned at the left edge, lit on its folds; its columns rise and fall, so room above. */
 function flag(): BuiltinTwin {
-	const g = twinGraph('flag', { padding: 0.25 });
+	const g = twinGraph('flag', {});
 	const cloth = g.node('flag', waveDrive(g));
 	g.output(scaleColor(g, g.node('sample', { uv: cloth.uv }).out, cloth.light));
+	waveRoom(g, false);
 	return { kind: 'flag', doc: g.doc() };
 }
 

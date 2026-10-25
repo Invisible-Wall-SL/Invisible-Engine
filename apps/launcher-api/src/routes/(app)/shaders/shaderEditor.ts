@@ -106,19 +106,10 @@ export function docFromTwin(twin: BuiltinTwin, id: string, name: string): Shader
 	return { ...clone(twin.doc), id, name };
 }
 
-/** Where `twin` is close to its built-in rather than exact, in words. */
-export const twinGaps = (twin: BuiltinTwin): string[] => [
-	...(twin.motionGap ? [`Its motion is close, not exact: ${twin.motionGap}`] : []),
-	...(twin.paddingGap
-		? [`Its room past the edge is set for the defaults: ${twin.paddingGap}`]
-		: []),
-];
-
 export interface TwinGroup {
 	id: string;
 	label: string;
-	/** `gaps`: where the twin only approximates the built-in (its motion, its room), and why. */
-	twins: { kind: string; label: string; description: string; gaps: string[] }[];
+	twins: { kind: string; label: string; description: string }[];
 }
 
 /** "Start from a built-in": the twins by the catalog's families, in the catalog's order. */
@@ -127,14 +118,9 @@ export function twinGroups(twins: readonly BuiltinTwin[] = BUILTIN_TWINS): TwinG
 		id: category.id,
 		label: category.label,
 		twins: twins
-			.map((t) => ({ spec: elementFxSpec(t.kind), gaps: twinGaps(t) }))
-			.filter(({ spec }) => spec.category === category.id)
-			.map(({ spec, gaps }) => ({
-				kind: spec.kind,
-				label: spec.label,
-				description: spec.description,
-				gaps,
-			})),
+			.map((t) => elementFxSpec(t.kind))
+			.filter((spec) => spec.category === category.id)
+			.map((spec) => ({ kind: spec.kind, label: spec.label, description: spec.description })),
 	})).filter((g) => g.twins.length > 0);
 }
 

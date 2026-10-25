@@ -30,11 +30,11 @@
  *     keeps it; one that reads none draws none. The registry leaves out an effect whose pass calls
  *     an `efx…` function this version's library and pass header lack (one compiled by a newer
  *     Shader Graph), or reads two seeds; `EFX_HEADER_FUNCTIONS` is what the header declares.
- *  8. Motion programs (Shader Graph step 8a): a motion graph closes every gap the twins name — the
- *     freeze shiver, petrify thud and gold ring timed by Hold, the electrocute jitter of the seconds
- *     played, the poison sway counted or looping, the Bounce 3D squash by its Bounces param, the
- *     room of Bounce 3D, Melt and the waves growing with a param × strength (× progress) — moving
- *     and padding exactly as the built-ins' own samplers over every param, size, strength and play.
+ *  8. Motion programs (Shader Graph step 8a): the twins' motion graphs move and pad as the built-ins'
+ *     own samplers do over every param, size, strength and play — the freeze shiver, petrify thud
+ *     and gold ring timed by Hold, the electrocute jitter of the seconds played, the poison sway
+ *     counted or looping, the Bounce 3D squash by its Bounces param, and the room of Bounce 3D,
+ *     Melt, the waves and the flag growing with a param × strength (× progress), to the top.
  *     The runtime: a driven channel overrides its curve at its final value, kept to its range; the
  *     padding is per frame; the program reads the seed the graph's pass reads, one per element; a
  *     program this version cannot run is dropped and the effect plays its curves.
@@ -57,6 +57,7 @@ import {
 	Ticker,
 } from 'pixi.js';
 import {
+	CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX,
 	ELEMENT_FX,
 	ELEMENT_FX_CHANNEL_PREFIX,
 	ELEMENT_FX_KINDS,
@@ -2060,123 +2061,29 @@ console.log('element fx — motion programs (Shader Graph motion graph)');
 			);
 		return read;
 	};
-	/** The held kinds' window: k 0…1 over `window` of the play from where the Hold param sets in. */
-	const held = (g: G, window: number) => {
-		const span = g.mul(g.f('oneMinus', { x: g.param('hold') }), 0.5);
-		const k = g.f('divide', { a: g.f('subtract', { a: g.t, b: span }), b: window });
-		const inside = g.mul(g.f('step', { edge: 0, x: k }), g.f('step', { edge: k, x: 1 }));
-		return { k, inside, settle: g.mul(g.f('oneMinus', { x: k }), inside) };
+	/** What the twins' motion graphs move by, or grow their room with, that a curve could not. */
+	const MOVES: Partial<Record<ElementFxKind, string>> = {
+		freeze:
+			'a shiver at 95 rad/s of the seconds played, when the Hold param says, 1.2% of the shorter side',
+		petrify: 'a thud when the Hold param says',
+		turnToGold: 'a ring when the Hold param says',
+		electrocute:
+			'a jitter up to 25 Hz of the seconds played, sized in the element’s units, full while looping; room only while it bites',
+		poison: 'a sway eased in and out when counted, full while looping',
+		bounce3D:
+			'a squash landing as the Bounces param lands it, no harder past strength 1.5; room growing with Lift × strength',
+		melt: 'room growing with Drip length × strength × how far it has melted',
+		waveX: 'room growing with Amplitude × strength',
+		waveY: 'room growing with Amplitude × strength',
+		flag: 'room growing with Amplitude × strength',
 	};
-	const DEGREES = 180 / Math.PI;
-	const GAPS: { kind: ElementFxKind; gap: string; effect: CustomElementFx }[] = [
-		{
-			kind: 'freeze',
-			gap: 'a shiver at 95 rad/s of the seconds played, when the Hold param says, 1.2% of the shorter side',
-			effect: effectOf('freeze', (g) => {
-				const { settle } = held(g, 0.06);
-				const shorter = g.f('min', { a: g.width, b: g.height });
-				const amp = g.mul(g.mul(g.mul(0.012, shorter), g.intensity), settle);
-				const x = g.mul(amp, g.sin(g.mul(g.seconds, 95)));
-				return g.graph({ x: g.f('divide', { a: x, b: g.width }) });
-			}),
-		},
-		{
-			kind: 'petrify',
-			gap: 'a thud when the Hold param says',
-			effect: effectOf('petrify', (g) => {
-				const { k, settle } = held(g, 0.08);
-				const y = g.mul(g.mul(g.mul(0.014, g.intensity), g.f('bell', { t: k })), settle);
-				return g.graph({ y });
-			}),
-		},
-		{
-			kind: 'turnToGold',
-			gap: 'a ring when the Hold param says',
-			effect: effectOf('turnToGold', (g) => {
-				const { k, settle } = held(g, 0.1);
-				const swell = g.mul(g.mul(g.mul(0.04, g.intensity), g.f('bell', { t: k })), settle);
-				return g.graph({ scale: g.f('add', { a: 1, b: swell }) });
-			}),
-		},
-		{
-			kind: 'electrocute',
-			gap: 'a jitter up to 25 Hz of the seconds played, sized in the element’s units, full while looping; room only while it bites',
-			effect: effectOf('electrocute', (g) => {
-				const struck = g.mul(
-					g.f('smoothstep', { from: 0, to: 0.06, x: g.t }),
-					g.f('oneMinus', { x: g.f('smoothstep', { from: 0.8, to: 1, x: g.t }) }),
-				);
-				const zap = g.f('mix', { a: struck, b: 1, t: g.looping });
-				const k = g.mul(zap, g.intensity);
-				const shorter = g.f('min', { a: g.width, b: g.height });
-				const size = g.f('min', { a: 12, b: g.f('max', { a: 1.5, b: g.mul(0.02, shorter) }) });
-				const amp = g.mul(size, k);
-				const at = (rate: number) => g.sin(g.mul(g.seconds, rate));
-				const x = g.mul(g.mul(amp, at(157)), at(23));
-				const y = g.mul(
-					g.mul(amp, g.sin(g.f('add', { a: g.mul(g.seconds, 131), b: 1.3 }))),
-					at(17),
-				);
-				return g.graph({
-					x: g.f('divide', { a: x, b: g.width }),
-					y: g.f('divide', { a: y, b: g.height }),
-					rotation: g.mul(g.mul(0.02 * DEGREES, k), at(97)),
-					padding: g.mul(0.15, g.f('oneMinus', { x: g.f('step', { edge: zap, x: 0 }) })),
-				});
-			}),
-		},
-		{
-			kind: 'poison',
-			gap: 'a sway eased in and out when counted, full while looping',
-			effect: effectOf('poison', (g) => {
-				const k = g.mul(g.f('loopEnvelope', { t: g.t }), g.intensity);
-				const turn = g.sin(g.mul(g.t, 2 * Math.PI));
-				const q = g.mul(g.mul(0.025, k), g.sin(g.mul(g.t, 4 * Math.PI)));
-				return g.graph({
-					rotation: g.mul(g.mul(0.035 * DEGREES, k), turn),
-					scaleX: g.f('add', { a: 1, b: q }),
-					scaleY: g.f('subtract', { a: 1, b: q }),
-				});
-			}),
-		},
-		{
-			kind: 'bounce3D',
-			gap: 'a squash landing as the Bounces param lands it, no harder past strength 1.5; room growing with Lift × strength',
-			effect: effectOf('bounce3D', (g) => {
-				const squash: Ref = [g.add('bounce', { t: g.t, count: g.param('bounces') }), 'squash'];
-				const q = g.mul(g.mul(0.12, g.f('min', { a: 1.5, b: g.intensity })), squash);
-				return g.graph({
-					scaleX: g.f('add', { a: 1, b: q }),
-					scaleY: g.f('subtract', { a: 1, b: q }),
-					padding: g.f('add', { a: 0.3, b: g.mul(0.8, g.mul(g.param('height'), g.intensity)) }),
-				});
-			}),
-		},
-		{
-			kind: 'melt',
-			gap: 'room growing with Drip length × strength × how far it has melted',
-			effect: effectOf('melt', (g) => {
-				const run = g.f('pow', { x: g.t, power: 1.6 });
-				const drips = g.mul(g.mul(g.mul(1.45, g.param('length')), g.intensity), run);
-				const tall = g.f('divide', { a: g.height, b: g.f('max', { a: g.width, b: g.height }) });
-				return g.graph({
-					padding: g.mul(drips, tall),
-					alpha: g.f('oneMinus', { x: g.f('smoothstep', { from: 0.7, to: 1, x: g.t }) }),
-				});
-			}),
-		},
-		...(['waveX', 'waveY'] as const).map((kind) => ({
-			kind,
-			gap: 'room growing with Amplitude × strength',
-			effect: effectOf(kind, (g) => {
-				const side = g.f('divide', {
-					a: kind === 'waveX' ? g.width : g.height,
-					b: g.f('max', { a: g.width, b: g.height }),
-				});
-				return g.graph({ padding: g.mul(g.mul(g.param('amplitude'), g.intensity), side) });
-			}),
-		})),
-	];
+	const GAPS = Object.entries(MOVES).map(([kind, gap]) => {
+		const twin = BUILTIN_TWINS.find((t) => t.kind === kind);
+		const compiled = twin ? compileShaderEffect(twin.doc) : undefined;
+		const effect = compiled?.ok ? readCustomElementFx(compiled.effect) : undefined;
+		if (!effect?.motion?.program) throw new Error(`the ${kind} twin has no motion program`);
+		return { kind: kind as ElementFxKind, gap, effect };
+	});
 	const SIZES = [
 		[100, 120],
 		[200, 80],
@@ -2198,10 +2105,9 @@ console.log('element fx — motion programs (Shader Graph motion graph)');
 		let worst = 0;
 		let rooms = 0;
 		let roomOff = 0;
-		let clamped = 0;
 		for (const value of swept ? range(swept.id) : [undefined])
 			for (const [width, height] of SIZES)
-				for (const intensity of [0.5, 1, 2, 3])
+				for (const intensity of [0.5, 1, 2, 3, 4])
 					for (const looping of [false, true])
 						for (const loop of [0, 2])
 							for (let i = 0; i <= 64; i++) {
@@ -2225,11 +2131,6 @@ console.log('element fx — motion programs (Shader Graph motion graph)');
 								const want = builtIn.filter?.padding?.(frame, view);
 								const room = ours.filters?.[0].padding?.(frame, view);
 								if (want === undefined) continue;
-								// Past the 2 shares a graph may ask for, the program holds at 2.
-								if (want > 2 * 1.5 * Math.max(width, height) + 3) {
-									clamped++;
-									continue;
-								}
 								rooms++;
 								// A room of nothing is 0 px here; a built-in still adds its 2 px margin.
 								roomOff = Math.max(
@@ -2239,7 +2140,7 @@ console.log('element fx — motion programs (Shader Graph motion graph)');
 							}
 		assert(
 			worst < 1e-9 && roomOff <= 1,
-			`${kind}: ${gap} — a motion graph moves it as the built-in does over ${frames} frames (every ${swept ? `${swept.id}, ` : ''}size, strength, counted or looping, first or third play; largest difference ${worst.toExponential(1)})${rooms ? `, its room within ${roomOff} px over ${rooms}${clamped ? ` (${clamped} past the 2-share cap left out)` : ''}` : ''}`,
+			`${kind}: ${gap} — its twin's motion graph moves it as the built-in does over ${frames} frames (every ${swept ? `${swept.id}, ` : ''}size, strength up to 4, counted or looping, first or third play; largest difference ${worst.toExponential(1)})${rooms ? `, its room within ${roomOff} px over ${rooms}` : ''}`,
 		);
 	}
 
@@ -2283,7 +2184,7 @@ console.log('element fx — motion programs (Shader Graph motion graph)');
 				alpha: g.f('number', {}, { value: 3 }),
 				scaleX: g.f('number', {}, { value: -5 }),
 				rotation: g.f('number', {}, { value: 1e6 }),
-				padding: g.f('number', {}, { value: 9 }),
+				padding: g.f('number', {}, { value: 50 }),
 			}),
 		),
 	);
@@ -2294,8 +2195,9 @@ console.log('element fx — motion programs (Shader Graph motion graph)');
 			w.alpha === 1 &&
 			(w.scaleX ?? 0) > 0 &&
 			near(w.rotation ?? NaN, (3600 * Math.PI) / 180) &&
-			wild.filters?.[0].padding?.(at(0.5), { screenWidth: 100, screenHeight: 120 }) === 2 * 120 + 2,
-		'a driven value is kept to its channel’s range: x within 10 widths, alpha 0…1, a scale above 0, rotation within 3600°, padding within 2 shares',
+			wild.filters?.[0].padding?.(at(0.5), { screenWidth: 100, screenHeight: 120 }) ===
+				Math.ceil(CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX * 120) + 2,
+		`a driven value is kept to its channel’s range: x within 10 widths, alpha 0…1, a scale above 0, rotation within 3600°, padding within ${CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX} shares`,
 	);
 	const roomOnly = customKindImpl(curved({}, (g) => g.graph({ padding: g.t })));
 	assert(

@@ -71,7 +71,6 @@
 		slugOf,
 		subgraphCalls,
 		subgraphRows,
-		twinGaps,
 		undrivenChannels,
 		ungroupCall,
 		ungroupRefusal,
@@ -383,10 +382,7 @@
 			await askText({
 				title: twin ? `New effect from ${from}` : 'New shader effect',
 				message: twin
-					? [
-							`It starts as ${from}'s graph, with its params, passes and motion: change anything.`,
-							...twinGaps(twin),
-						].join('\n\n')
+					? `It starts as ${from}'s graph, with its params, passes and motion: change anything.`
 					: undefined,
 				label: 'Name',
 				value: twin ? `${from} copy` : '',

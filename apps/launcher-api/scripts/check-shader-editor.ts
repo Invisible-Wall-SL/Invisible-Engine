@@ -448,24 +448,26 @@ for (const kind of ['glow', 'bounce3D', 'melt'] as const) {
 			json(started.params) === json(twin.doc.params),
 			json(started.passes) === json(twin.doc.passes),
 			json(started.motion) === json(twin.doc.motion),
+			json(started.motionGraph) === json(twin.doc.motionGraph),
 			started.padding === twin.doc.padding,
 		],
-		[`my_${kind}`, `My ${kind}`, true, true, true, true, true],
+		[`my_${kind}`, `My ${kind}`, true, true, true, true, true, true],
 	);
 	check('…compiles', compileShaderEffect(started).ok, true);
 	check('…and leaves the twin as it was', twin.doc.id, kind);
 }
-const has = (kind: string, key: 'passes' | 'motion' | 'padding'): boolean =>
+const has = (kind: string, key: 'passes' | 'motion' | 'motionGraph' | 'padding'): boolean =>
 	BUILTIN_TWINS.find((t) => t.kind === kind)?.doc[key] !== undefined;
 check(
-	'…which carry what is to keep: passes (glow), motion and padding (bounce 3D), padding (melt)',
+	'…which carry what is to keep: passes (glow), a motion graph (bounce 3D, melt), curves (melt), padding (flip)',
 	[
 		has('glow', 'passes'),
-		has('bounce3D', 'motion'),
-		has('bounce3D', 'padding'),
-		has('melt', 'padding'),
+		has('bounce3D', 'motionGraph'),
+		has('melt', 'motionGraph'),
+		has('melt', 'motion'),
+		has('flipX', 'padding'),
 	],
-	[true, true, true, true],
+	[true, true, true, true, true],
 );
 const groups = twinGroups([
 	{ kind: 'freeze', doc: frost },
@@ -488,16 +490,13 @@ check(
 	})(),
 );
 check(
-	'a twin that is only close says where and why, in the menu',
-	twinGroups([
-		{ kind: 'freeze', doc: frost, motionGap: 'follows the seconds played', paddingGap: 'fixed' },
-	])[0].twins[0].gaps.map((g) => g.endsWith('follows the seconds played') || g.endsWith('fixed')),
-	[true, true],
-);
-check(
-	'…and an exact one says nothing',
-	twinGroups([{ kind: 'freeze', doc: frost }])[0].twins[0].gaps,
-	[],
+	'a menu entry is the kind’s label and description',
+	twinGroups([{ kind: 'freeze', doc: frost }])[0].twins[0],
+	{
+		kind: 'freeze',
+		label: elementFxSpec('freeze').label,
+		description: elementFxSpec('freeze').description,
+	},
 );
 check(
 	'every real twin is offered exactly once',
