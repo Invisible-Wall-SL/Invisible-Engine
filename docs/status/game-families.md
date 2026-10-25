@@ -50,8 +50,8 @@ any of it yet.
 - **Rule 8:** `collectComponentIds` collects every `spawnable`, so the doc bake, the runtime bundle,
   the art export and the harness's republish all ship them and what they nest. Invisible
   Localization harvests a spawnable's text (`harvestSceneText`) and the keys an Instance ref feeds
-  it (`collectInstanceTextKeys` with the spawn layers), and a scaffold keeps a reference layout's
-  spawn layer (`engineOwnedOnly`).
+  it (`instanceTextKeys` over `placedInstanceTextSources` and `spawnedInstanceTextSources`), and a
+  scaffold keeps a reference layout's spawn layer (`engineOwnedOnly`).
 - **Launcher:** `projectSpawnLayers` (`flowV2Projection.ts`) feeds the `/flow-v2` loader, its
   validation and the publish gate. The Scene Editor inserts a Spawn layer on a screen (not in the
   Component Editor), draws it as a placeholder (its grid lattice or a dashed box, `⊕ name · N
