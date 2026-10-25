@@ -101,6 +101,9 @@ real money waits on the partner (§9 #2).
     `roundEnd` signal itself, with the win in currency;
   - each move carries the server's **settled board** (`match3Move.board` → `movesLeft.board`), so
     the client mirrors it rather than trusting its own replay;
+  - the mirror plays by the **server's `minRun`** (`boardInit.minRun`, from its boot `config`);
+    a board that cannot be mirrored keeps the round open behind the error modal (a reload resumes
+    it) rather than collecting a round nobody played, and a refused match-3 collect is an error;
   - the client **pre-checks** a swap on the server's board and sends nothing for one that cannot
     match (UX only; the server refuses it too, and a refused move is still stored);
   - the mock draws the total at the **`play`** of the opening request (where `force:` rides), reads
@@ -119,7 +122,8 @@ real money waits on the partner (§9 #2).
   board, a `ValidationPanelV2` icon for `rules-only-in-rgs` (falls back to ⚠).
 - **Known limits** (none reachable by a slot game):
   - while a round is open the HUD Spin button reads STOP; pressing it slams the presentation;
-  - a bought bonus or autoplay is refused, not hidden: the coded HUD still draws AUTO SPIN;
+  - a bonus buy is refused, not hidden (the RGS seed sells none); autoplay and hold-to-spin are
+    switched off for an interactive round (`setUiFeatures`), so the HUD drops AUTO SPIN;
   - the scaffolded scene set's board is sized for the desktop layout; tablet / portrait keep the
     centred placement of the rules set;
   - the current-games harness's own `protocolFor` copy (`scripts/current-games/lib/plan.mjs`) still
