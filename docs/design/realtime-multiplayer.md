@@ -88,8 +88,9 @@ What changes, and why:
 
 ### 2.1 What a room costs today (measured)
 
-**In short:** today's server cannot hold 100 players. One core is full at about 50, and the time
-goes to the rules, not to the network.
+**In short:** as built, the server could not hold 100 players. One core was full at about 50,
+and the time went to the rules, not to the network. Indexing the river's obstacles fixed that, and
+a full room's cost is now its bandwidth.
 
 Salmons' `scripts/room-load.mjs` fills one room with bots that play like the real client (`move`
 every 50 ms; salmon jump, bears swipe, fishermen cast) and reads the bytes on every socket and the
@@ -116,6 +117,11 @@ used at most 1.5 cores, so the limit is the server's own:
 - **Joining** downloads about 44 KB of full state, mostly obstacles that every device already
   generates from the seed.
 - **Each device sends** 0.7 KB/s.
+- **Indexing the obstacles** (Salmon PR #5: plain copies, only the kinds each loop acts on, the
+  sandbanks in a grid by tile; the same player state on every tick of a seeded comparison) takes
+  `update()` from 20–24 ms to 1.5–1.9 ms a tick at 100 players. The room then holds 61 updates a
+  second at 42% of a core, and each device receives 86 KB/s (0.7 Mbit/s), with 8.4 MB/s leaving the
+  server. That is §6's grid requirement, measured, and the bandwidth §5 brings down.
 
 A deployed server runs on different hardware; the same script measures one with `--url`.
 
@@ -399,7 +405,8 @@ P10.13 (the hop and diamond tiles) before it can be rebuilt.
 3. **Rates.**
    - *Recommend:* **a 30 Hz fixed step with 2 physics sub-steps (physics at 60 Hz, one input per
      step), and state at 20 Hz** for the players near each device, smoothed on the device (§5, §6).
-     Today's server aims at 60 state updates a second and reaches 27–34 with 100 players (§2.1).
+     Today's server sends 60 state updates a second, 86 KB/s to each device with 100 players once
+     its obstacles are indexed (§2.1).
 4. **Salmons' river: generated or authored?** Today every room gets a new river from a seed.
    - *Recommend:* **keep it generated**: a seeded level generator in `engine-mechanics`, run by both
      the server and the device. The other option is fixed levels painted as tilemaps (P10.13).

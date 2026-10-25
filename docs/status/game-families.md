@@ -496,7 +496,9 @@ game, bundle or screen changes.
   Revised the same day: Salmons' costs measured with bots (its server fills one core at about 50
   players; at 100 it reaches 27–34 of its 60 updates a second, and the time is its rules' pass over
   every obstacle), and Colyseus 0.18, which already ships the per-client views, typed inputs,
-  prediction, reconciliation and lag compensation, is now the recommended version.
+  prediction, reconciliation and lag compensation, is now the recommended version. Indexing the
+  obstacles (Salmon PR #5) then let today's server hold 100 players at the full 60 updates a
+  second, at 86 KB/s to each device: bandwidth, not CPU, is now a full room's cost.
 - 2026-10-24 — **P10.5 built: match-3, rules-decided, end to end.** A match-3 project is made in
   Game Maker and plays as free play in the shared runtime; publishing it stays off. Detail above.
 - 2026-10-24 — **P10.4 built: pointer move / drag / swipe + Align Target**, and the board cell
