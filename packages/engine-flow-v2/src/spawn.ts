@@ -10,7 +10,8 @@
  *    spawns into it — a spawn into an undeclared layer, of a component the layer does not list, over
  *    its cap, or into a cell off its grid is REFUSED and reported, never grown;
  *  - `live(layer)` returns a FRESH array on every read, so a `forEach` over it may despawn as it
- *    goes (the interpreter iterates the array it is handed without copying it);
+ *    goes (the interpreter copies a `$live` read as well, so an env handing back its own array is
+ *    safe too);
  *  - a handle is a frozen snapshot `{ id, layer, componentId, x, y, col?, row? }`; its `id` is unique for
  *    the session and never reused, so a despawned handle stays dead.
  */

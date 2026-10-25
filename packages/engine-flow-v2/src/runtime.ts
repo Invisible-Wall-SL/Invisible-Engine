@@ -631,7 +631,7 @@ class FlowInterpreter {
 			case 'instanceRef': {
 				// §3.3: the handle fed (or, on an event chain, the instance that raised it), reached where
 				// it lives now; a despawned one takes nothing.
-				const ref = this.ctx.env.spawnedRef?.(this.handleOf(graph, node, scope));
+				const ref = this.spawnedRefOf(node.componentId, this.handleOf(graph, node, scope));
 				if (ref) await this.applyInstance(graph, node, execPinId, ref, scope);
 				return this.nextExec(graph, node.id, 'exec');
 			}
@@ -664,7 +664,7 @@ class FlowInterpreter {
 				const ref: InstanceRef | undefined =
 					node.componentId === undefined
 						? { container: node.container, instance: node.instance }
-						: this.ctx.env.spawnedRef?.(this.handleOf(graph, node, scope));
+						: this.spawnedRefOf(node.componentId, this.handleOf(graph, node, scope));
 				if (ref) await this.ctx.env.awaitInstanceState?.(ref, node.layer, node.state);
 				return this.nextExec(graph, node.id, 'exec');
 			}
@@ -714,6 +714,14 @@ class FlowInterpreter {
 			this.resolveDataIn(graph, node.id, SPAWN_INSTANCE_PIN, scope) ??
 			scope.trigger[SPAWN_TRIGGER_INSTANCE]
 		);
+	}
+
+	/** Where `handle` lives now, when it is a live instance of `componentId` — an instance of
+	 *  another component (a mixed live set, another component's event chain) is never addressed. */
+	private spawnedRefOf(componentId: string, handle: unknown): InstanceRef | undefined {
+		const of = isRecord(handle) ? handle.componentId : undefined;
+		if (typeof of === 'string' && of !== componentId) return undefined;
+		return this.ctx.env.spawnedRef?.(handle);
 	}
 
 	// -------------------------------------------------------------------------
@@ -873,10 +881,12 @@ class FlowInterpreter {
 			}
 			case 'instanceRef': {
 				const handle = this.handleOf(graph, src, scope);
-				if (from.pin === INSTANCE_REF_HANDLE_PIN) return handle;
+				const of = isRecord(handle) ? handle.componentId : undefined;
+				if (from.pin === INSTANCE_REF_HANDLE_PIN)
+					return typeof of === 'string' && of !== src.componentId ? undefined : handle;
 				const value = instanceValueOf(from.pin);
 				if (value !== undefined) {
-					const ref = this.ctx.env.spawnedRef?.(handle);
+					const ref = this.spawnedRefOf(src.componentId, handle);
 					return ref ? this.ctx.env.readInstanceValue?.(ref, value) : undefined;
 				}
 				const field = instanceEventFieldOf(from.pin);

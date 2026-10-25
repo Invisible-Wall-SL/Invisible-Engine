@@ -12,6 +12,7 @@ import {
 	repeaterComponentIds,
 	resolveComponentParams,
 	resolveLayoutInstanceParams,
+	spawnableComponentIds,
 	type ComponentDef,
 	type ComponentInstanceNode,
 	type LayoutDoc,
@@ -19,6 +20,7 @@ import {
 	type LayoutType,
 	type RepeaterNode,
 	type Scene,
+	type SpawnLayerNode,
 } from 'engine-layout';
 import { createSymbolMap } from 'engine-game/src/game/symbolMap';
 import { resolveSymbolState } from 'engine-game/src/game/symbolCell';
@@ -440,6 +442,18 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 			if (node.kind === 'repeater') {
 				for (const componentId of repeaterComponentIds(node as unknown as RepeaterNode).slice(1)) {
 					expandInstance({ kind: 'repeater', componentId } as LayoutNode, params, stack, true);
+				}
+			}
+			// A spawn layer draws any of its spawnables at runtime, each with its def's own params
+			// (game-families §3.3).
+			if (node.kind === 'spawnLayer') {
+				for (const componentId of spawnableComponentIds(node as unknown as SpawnLayerNode)) {
+					expandInstance(
+						{ kind: 'componentInstance', componentId } as LayoutNode,
+						params,
+						stack,
+						false,
+					);
 				}
 			}
 			if (children !== undefined) walkNodes(children, params, stack, origin);

@@ -7,6 +7,8 @@
  *  - `spawn-not-spawnable`  a Spawn names a component its layer does not list, or an Instance ref /
  *                           spawned Wait for state names one no layer lists (nothing could address);
  *  - `spawn-cell-free`      a Spawn at a cell into a free layer (it has no grid);
+ *  - `spawn-handle-unfed`   an Instance ref / spawned Wait with nothing on its `instance` pin, off its
+ *                           own component's event chain: it addresses nothing (a WARNING);
  *  - `instance-missing` / `instance-pin-missing` / `instance-state-unknown` / `instance-text-key` /
  *    `instance-event-duplicate` — the placed-instance checks, for an Instance ref or a spawned Wait.
  */
@@ -18,7 +20,7 @@ import {
 	isLocalizationKey,
 } from './instanceNodes';
 import type { PinContext } from './pins';
-import { spawnableDecl } from './spawnNodes';
+import { SPAWN_INSTANCE_PIN, spawnableDecl } from './spawnNodes';
 import type { FlowIssue } from './validate';
 import type { FlowDoc, Node, Pin } from './types';
 
@@ -30,12 +32,21 @@ const layerNames = (ctx: PinContext): string =>
 export const spawnNodeIssues = (
 	nodes: Node[],
 	pinsById: Map<string, Pin[]>,
-	exec: FlowDoc['graph']['exec'],
+	{ exec, data }: Pick<FlowDoc['graph'], 'exec' | 'data'>,
 	ctx: PinContext,
+	/** Which entry chains reach each node (`triggerOwners`); a node absent from it is unreached. */
+	owners: Map<string, Set<string>>,
 ): FlowIssue[] => {
 	const issues: FlowIssue[] = [];
 	const layers = ctx.spawnLayers;
 	if (!layers) return issues;
+	const nodeById = new Map(nodes.map((n) => [n.id, n]));
+	/** Is chain owner `owner` an Instance ref's event chain of `componentId` (`instanceEventOwner`)? */
+	const ownComponentChain = (owner: string, componentId: string): boolean => {
+		const at = owner.lastIndexOf('.event:');
+		const source = at > 0 ? nodeById.get(owner.slice(0, at)) : undefined;
+		return source?.kind === 'instanceRef' && source.componentId === componentId;
+	};
 	for (const node of nodes) {
 		if (node.kind === 'spawn') {
 			const layer = layers[node.layer];
@@ -48,7 +59,16 @@ export const spawnNodeIssues = (
 				});
 				continue;
 			}
-			if (!layer.spawnable.some((s) => s.componentId === node.componentId)) {
+			const spawnable = layer.spawnable.find((s) => s.componentId === node.componentId);
+			if (spawnable?.missing) {
+				issues.push({
+					code: 'instance-missing',
+					severity: 'error',
+					message: `spawn node '${node.id}' spawns '${node.componentId}', which is not in this project — it would draw nothing; restore it in /editor`,
+					at: { on: 'node', node: node.id },
+				});
+			}
+			if (!spawnable) {
 				issues.push({
 					code: 'spawn-not-spawnable',
 					severity: 'error',
@@ -74,6 +94,20 @@ export const spawnNodeIssues = (
 					: undefined;
 		if (addressed === undefined) continue;
 		const label = node.kind === 'instanceRef' ? 'instance ref' : 'wait-for-state node';
+		// Unfed, the node addresses the instance that raised the event its chain started from — only
+		// an Instance ref's event chain of the same component has one.
+		const fed =
+			node.inputs?.[SPAWN_INSTANCE_PIN] !== undefined ||
+			data.some((e) => e.to.node === node.id && e.to.pin === SPAWN_INSTANCE_PIN);
+		const reached = owners.get(node.id);
+		if (!fed && reached?.size && ![...reached].every((o) => ownComponentChain(o, addressed))) {
+			issues.push({
+				code: 'spawn-handle-unfed',
+				severity: 'warning',
+				message: `${label} '${node.id}' has nothing on its instance pin and runs on a chain no spawned '${addressed}' raised — it addresses nothing. Feed it a handle (a Spawn's instance, $item over $live), or move it onto that component's Instance-ref event chain`,
+				at: { on: 'pin', node: node.id, pin: SPAWN_INSTANCE_PIN },
+			});
+		}
 		const spawnable = spawnableDecl(ctx, addressed);
 		if (!spawnable) {
 			issues.push({
@@ -142,7 +176,6 @@ export const spawnNodeIssues = (
 		}
 	}
 	// The runtime walks the FIRST wire out of a spawned component's event pin.
-	const nodeById = new Map(nodes.map((n) => [n.id, n]));
 	const first = new Map<string, string>();
 	for (const edge of exec) {
 		const node = nodeById.get(edge.from.node);

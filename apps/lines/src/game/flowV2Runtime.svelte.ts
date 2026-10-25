@@ -37,6 +37,7 @@ import {
 	flipbookCycleMs,
 	getComponent,
 	clearFlowInstanceStash,
+	dropFlowInstanceStash,
 	getFlowInstance,
 	getFlowInstanceOn,
 	onFlowInstanceDrop,
@@ -894,7 +895,9 @@ export const createLinesFlowV2 = (
 					},
 					despawn: (instance: unknown) => {
 						const gone = live.despawn(spawnedIdOf(instance) ?? '');
-						if (gone) trace('despawn', gone.id);
+						if (!gone) return;
+						dropFlowInstanceStash(gone.id);
+						trace('despawn', gone.id);
 					},
 					liveInstances: (layer: string) => live.live(layer),
 					// A spawned instance is reached like a placement on its layer's screen: the instance
@@ -903,7 +906,9 @@ export const createLinesFlowV2 = (
 						const spawned = spawnedOf(instance);
 						if (!spawned) return undefined;
 						const sceneId = live.layer(spawned.layer)?.sceneId;
-						const container = doc.containers.find((c) => c.sceneId === sceneId)?.id ?? '';
+						// The container shown with the layer's scene, else any that shows it.
+						const showing = doc.containers.filter((c) => c.sceneId === sceneId);
+						const container = (showing.find((c) => mount.isShown(c.id)) ?? showing[0])?.id ?? '';
 						return { container, instance: spawned.id };
 					},
 				}

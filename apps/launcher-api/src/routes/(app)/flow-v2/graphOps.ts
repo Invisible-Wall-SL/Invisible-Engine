@@ -411,21 +411,29 @@ export const setSpawnFields = (
 	doc: FlowDoc,
 	nodeId: string,
 	patch: { layer?: string; componentId?: string; at?: SpawnAtMode },
-): FlowDoc =>
-	replaceNode(doc, nodeId, (n) => {
-		if (n.kind !== 'spawn') return n;
-		const { at: _at, inputs, ...rest } = n;
-		const at = patch.at ?? n.at ?? 'xy';
-		const gone = SPAWN_AT_PINS[at === 'cell' ? 'xy' : 'cell'];
-		const kept = Object.entries(inputs ?? {}).filter(([pin]) => !gone.includes(pin));
-		return {
-			...rest,
-			layer: patch.layer ?? n.layer,
-			componentId: patch.componentId ?? n.componentId,
-			...(at === 'cell' ? { at } : {}),
-			...(kept.length ? { inputs: Object.fromEntries(kept) } : {}),
-		};
-	});
+): FlowDoc => {
+	const node = doc.graph.nodes.find((n) => n.id === nodeId);
+	if (node?.kind !== 'spawn') return doc;
+	const at = patch.at ?? node.at ?? 'xy';
+	// The pins of the mode left behind go, with what fed them: their stored sources and their wires.
+	const gone = SPAWN_AT_PINS[at === 'cell' ? 'xy' : 'cell'];
+	const { at: _at, inputs, ...rest } = node;
+	const kept = Object.entries(inputs ?? {}).filter(([pin]) => !gone.includes(pin));
+	const next = replaceNode(doc, nodeId, () => ({
+		...rest,
+		layer: patch.layer ?? node.layer,
+		componentId: patch.componentId ?? node.componentId,
+		...(at === 'cell' ? { at } : {}),
+		...(kept.length ? { inputs: Object.fromEntries(kept) } : {}),
+	}));
+	return {
+		...next,
+		graph: {
+			...next.graph,
+			data: next.graph.data.filter((e) => e.to.node !== nodeId || !gone.includes(e.to.pin)),
+		},
+	};
+};
 
 /** Point an Instance ref at another spawnable component. */
 export const setInstanceRefComponent = (

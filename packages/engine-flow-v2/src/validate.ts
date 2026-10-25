@@ -90,7 +90,7 @@
  *                            the runtime runs the first wire only, so the second is dead (an ERROR).
  *                            Every instance check runs only when the caller projects the instances
  *                            in (`PinContext.instances`); absent ⇒ unknown layout ⇒ never guess.
- *  - `spawn-layer-unknown` / `spawn-not-spawnable` / `spawn-cell-free` — the spawn checks
+ *  - `spawn-layer-unknown` / `spawn-not-spawnable` / `spawn-cell-free` / `spawn-handle-unfed` — the spawn checks
  *                            (`spawnValidate.ts`, game-families §3.3), judged only when the caller
  *                            projects the spawn layers in (`PinContext.spawnLayers`).
  *  - `guard-type-mismatch` — a branch guard row tests a `bool`/`string`/enum read of KNOWN type
@@ -201,7 +201,8 @@ export type FlowIssueCode =
 	| 'input-unknown'
 	| 'spawn-layer-unknown'
 	| 'spawn-not-spawnable'
-	| 'spawn-cell-free';
+	| 'spawn-cell-free'
+	| 'spawn-handle-unfed';
 
 /** `info` is an authoring HINT: the doc runs, nothing is wrong, but an authored surface is idle. */
 export type FlowIssueSeverity = 'error' | 'warning' | 'info';
@@ -745,7 +746,7 @@ const validateGraph = (
 	// when the caller projected the instances in — an absent map is an unknown layout.
 	issues.push(...instanceIssues(nodes, pinsById, data, ctx));
 	issues.push(...instanceEventDuplicateIssues(nodes, exec, ctx));
-	issues.push(...spawnNodeIssues(nodes, pinsById, exec, ctx));
+	issues.push(...spawnNodeIssues(nodes, pinsById, graph, ctx, owners));
 
 	// --- (b + c) edge endpoints + fan-in + fan-out + entry-has-no-exec-in ---
 	const execInCount = new Map<string, number>(); // keyed by `key(pin)`.

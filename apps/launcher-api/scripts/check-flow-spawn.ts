@@ -470,7 +470,60 @@ const LAYERS: Record<string, FlowSpawnLayerDecl> = {
 		['bomb'],
 	);
 	eq('… and its payload field reads on the chain', evLog, ['effect beat']);
-	eq('the trigger carries the handle', bomb.ok, true);
+
+	// An Instance ref addresses only its own component's instances: a mixed live set, or another
+	// component's event chain, never reaches the wrong def.
+	const mixed = F.createSpawnStore();
+	mixed.declare(FIELD);
+	mixed.spawn('field', 'bomb', at);
+	mixed.spawn('field', 'coin', at);
+	const mixedLog: string[] = [];
+	await F.runFlowEvent(
+		doc(
+			graph(
+				[
+					{ id: 'go', kind: 'event', ref: 'go', pos: at },
+					{
+						id: 'loop',
+						kind: 'forEach',
+						mode: 'sequence',
+						pos: at,
+						inputs: { in: { kind: 'accessor', path: { on: 'live', layer: 'field' } } },
+					},
+					{
+						id: 'ref',
+						kind: 'instanceRef',
+						componentId: 'coin',
+						pos: at,
+						inputs: { instance: { kind: 'accessor', path: { on: 'item' } } },
+					},
+				],
+				[wire('go', 'exec', 'loop', 'exec'), wire('loop', 'body', 'ref', 'fire:pop')],
+			),
+		),
+		ctxOf(envOver(mixed, mixedLog)),
+		'go',
+		{},
+	);
+	eq('over a mixed live set a coin ref fires the coin only', mixedLog, ['fire field#2▸pop']);
+	const crossLog: string[] = [];
+	await F.runFlowSpawnedEvent(
+		doc(
+			graph(
+				[
+					{ id: 'coinRef', kind: 'instanceRef', componentId: 'coin', pos: at },
+					{ id: 'bombRef', kind: 'instanceRef', componentId: 'bomb', pos: at },
+				],
+				[wire('coinRef', 'event:hit', 'bombRef', 'fire:pop')],
+			),
+		),
+		ctxOf(envOver(mixed, crossLog)),
+		'coin',
+		'hit',
+		mixed.get('field#2'),
+	);
+	eq("a bomb ref on the coin's event chain addresses nothing", crossLog, []);
+	eq('the trigger carries the raiser', bomb.ok && coin.ok && coin.instance.componentId, 'coin');
 }
 
 // ---------------------------------------------------------------------------
@@ -601,7 +654,7 @@ console.log('5. pins and validation');
 	eq(
 		'an instance ref no layer lists',
 		codes(chain({ id: 'r', kind: 'instanceRef', componentId: 'gem', pos: at })),
-		['spawn-not-spawnable'],
+		['spawn-handle-unfed', 'spawn-not-spawnable'],
 	);
 	eq(
 		'a stored set the interface lacks',
@@ -614,7 +667,7 @@ console.log('5. pins and validation');
 				inputs: { 'in:gone': lit(1) },
 			}),
 		),
-		['instance-pin-missing'],
+		['instance-pin-missing', 'spawn-handle-unfed'],
 	);
 	eq(
 		'a spawned wait on a state its layer lacks',
@@ -630,7 +683,7 @@ console.log('5. pins and validation');
 				pos: at,
 			}),
 		),
-		['instance-state-unknown'],
+		['instance-state-unknown', 'spawn-handle-unfed'],
 	);
 	const live = (layer: string) => ({
 		kind: 'accessor' as const,
@@ -688,7 +741,10 @@ console.log('5. pins and validation');
 				kind: 'instanceRef',
 				componentId: 'coin',
 				pos: at,
-				inputs: { 'in:value': { kind: 'accessor', path: { on: 'item', member: 'speed' } } },
+				inputs: {
+					instance: { kind: 'accessor', path: { on: 'item' } },
+					'in:value': { kind: 'accessor', path: { on: 'item', member: 'speed' } },
+				},
 			}),
 		),
 		['accessor-unresolved'],
@@ -738,6 +794,42 @@ console.log('5. pins and validation');
 			chain({ id: 'd', kind: 'despawn', pos: at, inputs: { instance: lit('field#1', 'string') } }),
 		),
 		['literal-type'],
+	);
+	const unfedRef: Node = { id: 'r', kind: 'instanceRef', componentId: 'coin', pos: at };
+	eq('an unfed instance ref off any event chain of its own', codes(chain(unfedRef)), [
+		'spawn-handle-unfed',
+	]);
+	eq(
+		"… is fine on its component's event chain",
+		codes(
+			graph(
+				[{ id: 'src', kind: 'instanceRef', componentId: 'coin', pos: at }, unfedRef],
+				[wire('src', 'event:hit', 'r', 'set')],
+			),
+		),
+		[],
+	);
+	eq(
+		"… but not on another component's",
+		codes(
+			graph(
+				[
+					{ id: 'src', kind: 'instanceRef', componentId: 'coin', pos: at },
+					{ id: 'x', kind: 'action', ref: 'beat', pos: at },
+					{ ...unfedRef, componentId: 'bomb' } as Node,
+				],
+				[wire('src', 'event:hit', 'x', 'exec'), wire('x', 'exec', 'r', 'set')],
+			),
+		),
+		['spawn-handle-unfed'],
+	);
+	eq(
+		'a spawn of a component missing from the project',
+		codes(chain(spawnTo('field', 'coin')), {
+			...LAYERS,
+			field: { ...LAYERS.field, spawnable: [{ ...LAYERS.field.spawnable[0], missing: 'def' }] },
+		}),
+		['instance-missing'],
 	);
 	eq(
 		'a tick may spawn (spawning never waits)',
@@ -993,6 +1085,28 @@ console.log('8. parity');
 		true,
 	);
 	eq('… and gives its instance node that id', /id: instance\.id,/.test(view), true);
+	eq(
+		'a despawn forgets what was kept for the instance’s mount',
+		/dropFlowInstanceStash\(gone\.id\)/.test(runtime),
+		true,
+	);
+	const { setSpawnFields, makeNode } = await import('../src/routes/(app)/flow-v2/graphOps.ts');
+	const spawnDoc = doc(
+		graph(
+			[
+				{ id: 'n', kind: 'compute', pos: at, compute: { op: 'add', a: lit(1), b: lit(2) } },
+				{ ...makeNode('spawn', 's', at, 'field/coin'), inputs: { x: lit(1), y: lit(2) } } as Node,
+			],
+			[],
+			[wire('n', 'out', 's', 'x'), wire('n', 'out', 's', 'y')],
+		),
+	);
+	const toCell = setSpawnFields(spawnDoc, 's', { at: 'cell' });
+	eq(
+		'switching a Spawn to a cell drops the x / y sources and wires',
+		[toCell.graph.nodes[1].inputs ?? {}, toCell.graph.data],
+		[{}, []],
+	);
 }
 
 console.log(`\nflow-spawn: ${passes} passed, ${failures} failed`);
