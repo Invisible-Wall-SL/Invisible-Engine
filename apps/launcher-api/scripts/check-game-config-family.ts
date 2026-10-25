@@ -30,7 +30,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { projectAddOns } from '../src/lib/addOns.ts';
 import { mechanicFor } from 'engine-game/src/game/mechanic';
-import { unplayableFamilyMessage } from '../src/lib/server/familyGate.ts';
+import { partnerRgsRefusal, unplayableFamilyMessage } from '../src/lib/server/familyGate.ts';
 import * as familyDoc from '../src/routes/(app)/config/familyDoc.ts';
 
 let fails = 0;
@@ -523,6 +523,15 @@ check(
 	'4. an arcade config is refused while its mechanic is unplayable (P10.8)',
 	!mechanicFor({ ...SLOT, family: 'arcade' }).unplayable ||
 		/an arcade/.test(unplayableFamilyMessage({ ...SLOT, family: 'arcade' }) ?? ''),
+);
+
+check(
+	'4. only a slot is launched against a partner RGS',
+	partnerRgsRefusal(SLOT) === null &&
+		partnerRgsRefusal(null) === null &&
+		/free play/.test(partnerRgsRefusal({ ...SLOT, family: 'match3', outcome: 'rules' }) ?? '') &&
+		/not a slot/.test(partnerRgsRefusal({ ...SLOT, family: 'match3' }) ?? '') &&
+		/not a slot/.test(partnerRgsRefusal({ ...SLOT, family: 'arcade' }) ?? ''),
 );
 
 if (fails) {

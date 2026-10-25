@@ -27,3 +27,18 @@ export function unplayableFamilyMessage(doc: GameConfigDoc | null | undefined): 
 		'published. Set it back to a slot in Invisible Game Config to publish it as one.'
 	);
 }
+
+/**
+ * Why a game may not be launched against a PARTNER RGS (`/api/partner-session`), or `null`. Only a
+ * slot is: a free-play game has no wallet, and an RGS match-3 game's wire exists only on our test
+ * server until a real provider's does (§9 #2). The server-side twin of the delivery build's gate and
+ * of the runtime's `<Authenticate freePlay | mockOnly>` refusal, so no partner session is minted
+ * for a game that would refuse it.
+ */
+export function partnerRgsRefusal(doc: GameConfigDoc | null | undefined): string | null {
+	if (resolveFamily(doc) === 'slot') return null;
+	return mechanicFor(doc).outcome === 'rules'
+		? 'This game is free play: it has no wallet, so it is never launched against a partner RGS.'
+		: 'This game is not a slot: its real-money wire exists only on our test server until a real ' +
+				"provider's, so it is not launched against a partner RGS.";
+}

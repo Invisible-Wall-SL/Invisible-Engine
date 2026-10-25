@@ -26,14 +26,14 @@
 		 * A FREE-PLAY game (`docs/design/game-families.md` §2.3): its own rules decide every round, so
 		 * it opens no RGS session — no authenticate, no balance poll, no bet ever follows. It has no
 		 * wallet, so it must never run where an operator set up a real-money session for it: under any
-		 * delivery profile it stops on the error modal instead. Absent ⇒ a game the RGS decides, as
+		 * delivery profile it stops on a full-page refusal instead. Absent ⇒ a game the RGS decides, as
 		 * every slot is.
 		 */
 		freePlay?: boolean;
 		/**
 		 * A game whose RGS wire exists only on our test server's mock (an RGS-decided match-3 game,
-		 * §2.2, §9 #2). It must never authenticate against a partner's RGS: under any delivery profile
-		 * it stops on the error modal, as a free-play game does. Absent ⇒ a game every RGS can deal.
+		 * §2.2, §9 #2). It must never authenticate against a partner's RGS: under any partner profile
+		 * it stops on the same full-page refusal. Absent ⇒ a game every RGS can deal.
 		 */
 		mockOnly?: boolean;
 	};

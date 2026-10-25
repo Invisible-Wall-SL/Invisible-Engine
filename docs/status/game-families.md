@@ -37,7 +37,14 @@ on. In one launcher-side PR:
 - **An RGS match-3 game never talks to a partner RGS.** Published, it has a stable URL, and the
   shared runtime's `?rgs_profile=` could point it at a partner. `<Authenticate mockOnly>` (passed
   `gameMechanic().interactiveRound` by `apps/lines`' layout) refuses it under any delivery profile
-  before authenticate or replay, as the free-play branch does. Slots never set it.
+  before authenticate or replay, as the free-play branch does. Slots never set it. It refuses
+  any partner **profile**; it is not "our test server only": the default profile still takes the
+  launch URL's `?rgs_url=`, so a hand-built URL carrying a partner host and a partner session
+  token would reach that host (CORS and the partner's own session rules stand in the way, not our
+  code). Every partner launch we mint goes through `?rgs_profile=` and is refused.
+- **No partner session is minted for a non-slot game.** `/api/partner-session` refuses (409) a
+  card whose project config is not a slot (`partnerRgsRefusal` in `familyGate.ts`), or whose
+  config cannot be read, before it asks the partner's admin endpoint.
 - **Can a rules game reach a real-money session?** Four walls: it never authenticates (P10.5,
   `rgsSession: false`); its runtime refuses a delivery profile at boot; the delivery build refuses
   it; and on our test server its mock refuses every request (the platform-jackpot wrapper is

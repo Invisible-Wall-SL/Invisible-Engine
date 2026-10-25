@@ -7,12 +7,13 @@
  * - an RGS-decided match-3 game waits on a real provider's match-3 wire: ours is a mock extension;
  * - any other family (arcade, and any added later) has no real-money path at all.
  *
- * Fails closed: only a config with no family, or `slot`, passes. No override. Plain JS over the stored fields (`family`, `outcome`) because `build-delivery.mjs`
- * runs from a game repo's engine submodule with no TypeScript loader.
+ * Fails closed: only a config with no family, or `slot`, passes. No override. Plain JS over the
+ * stored fields (`family`, `outcome`) because `build-delivery.mjs` runs from a game repo's engine
+ * submodule with no TypeScript loader.
  */
 export const deliveryFamilyRefusal = (config) => {
 	const family = config?.family;
-	if (family === undefined || family === 'slot') return null;
+	if (family == null || family === 'slot') return null;
 	const name = family === 'match3' ? 'a match-3' : family === 'arcade' ? 'an arcade' : 'a non-slot';
 	if (config.outcome === 'rules')
 		return (
