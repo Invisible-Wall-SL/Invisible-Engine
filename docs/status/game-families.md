@@ -606,7 +606,7 @@ game, bundle or screen changes.
    match-3 branch, slot runtimes built without it (a build-time define + dead-code elimination), so
    slot bundles stop carrying the match-3 code (P10.5 + P10.6: about +24 KB raw / +8.6 KB gz).
 10. Add the RGS sample as a current-games fixture (`cg-match3-rgs`) and the harness's `protocolFor`
-   copy, in a harness change the owner reviews.
+    copy, in a harness change the owner reviews.
 
 ## Blocked (owner / external)
 
