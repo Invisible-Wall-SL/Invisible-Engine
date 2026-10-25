@@ -84,6 +84,9 @@ function fake(rel: string, impl: Record<string, unknown>): void {
 	mock.module(src(rel), { namedExports });
 }
 
+/** Runs after a read, to land a colleague's write between a read and the write that follows. */
+let afterRead: ((key: string) => void) | undefined;
+
 // ── In-memory R2 ───────────────────────────────────────────────────────────────────────────────
 type Obj = { body: string; etag: string };
 const R2 = new Map<string, Obj>();
@@ -114,7 +117,9 @@ fake('lib/server/r2.ts', {
 	getObjectText: async (key: string) => R2.get(key)?.body ?? null,
 	getObjectTextWithEtag: async (key: string) => {
 		const o = R2.get(key);
-		return o ? { text: o.body, etag: o.etag } : null;
+		const read = o ? { text: o.body, etag: o.etag } : null;
+		afterRead?.(key);
+		return read;
 	},
 	putObjectText: async (key: string, text: string, _type: string, cond?: Cond) =>
 		put(key, text, cond),
@@ -150,7 +155,10 @@ fake('lib/server/toolScope.ts', {
 		gates.push([opts.tool, ...(opts.altTools ?? [])]);
 		return { clientKey: CLIENT, projectKey: sessionProject, prefixes: [] };
 	},
+	allowedPrefixes: (client: string, project: string) => [`${client}/${shaderSlugOf(project)}/`],
+	isKeyAllowed: (key: string, prefixes: string[]) => prefixes.some((p) => key.startsWith(p)),
 });
+const shaderSlugOf = (project: string) => project.replace(/-/g, '_');
 /** The `shaderPublish` override the stubbed role table answers, when set. */
 let roleOverrides: Record<string, boolean> = {};
 fake('lib/server/launcherAuth.ts', {
@@ -180,6 +188,7 @@ const effectsRoute = await import('../src/routes/api/shaders/effects/+server.ts'
 const docRoute = await import('../src/routes/api/shaders/doc/+server.ts');
 const backupsRoute = await import('../src/routes/api/shaders/backups/+server.ts');
 const publishRoute = await import('../src/routes/api/shaders/publish/+server.ts');
+const ftpScope = await import('../src/lib/server/ftpScope.ts');
 const unpublishRoute = await import('../src/routes/api/shaders/unpublish/+server.ts');
 const exportRoute = await import('../src/routes/api/editor/export-shaders/+server.ts');
 const { composeFlowV2Vocab } = await import('../src/lib/flowV2Vocab.ts');
@@ -1093,6 +1102,71 @@ console.log('7. custom GLSL');
 	roleOverrides = {};
 	const publishedByAdmin = await call(publishRoute.POST, { body: { id: 'coded' }, user: ADMIN });
 	check('…which an admin holds', publishedByAdmin.status, 200);
+
+	// Copies count: a second copy of an approved node is an added node.
+	const live = await call(docRoute.GET, { query: '?id=coded' });
+	const one = live.body.doc as ShaderGraphDoc;
+	const copy = { ...one.nodes.find((n) => n.type === CUSTOM_GLSL)!, id: 'g2', x: 200 };
+	const twice: ShaderGraphDoc = { ...one, nodes: [...one.nodes, copy] };
+	check(
+		'a copy of an approved node is refused without the capability',
+		[
+			(await save(twice, live.body.etag as string, ARTIST)).status,
+			R2.get(key)!.body.includes('"g2"'),
+		],
+		[403, false],
+	);
+	const twoCopies = await save(twice, live.body.etag as string, ADMIN);
+	const oneLeft: ShaderGraphDoc = { ...twice, nodes: twice.nodes.filter((n) => n.id !== 'g2') };
+	check(
+		'…and deleting one of two copies is allowed',
+		(await save(oneLeft, twoCopies.body.etag as string, ARTIST)).status,
+		200,
+	);
+
+	// A forced save is pinned to the version the gate read.
+	const before = await call(docRoute.GET, { query: '?id=coded' });
+	const adminCode = 'color.rgb = color.bgr;';
+	afterRead = (read) => {
+		if (read !== key) return;
+		afterRead = undefined;
+		const doc = { ...(before.body.doc as ShaderGraphDoc) };
+		doc.nodes = doc.nodes.map((n) =>
+			n.type === CUSTOM_GLSL && n.glsl ? { ...n, glsl: { ...n.glsl, code: adminCode } } : n,
+		);
+		put(key, JSON.stringify(doc));
+	};
+	const forced = await call(saveRoute.POST, {
+		body: { doc: { ...(before.body.doc as ShaderGraphDoc), name: 'Forced' }, force: true },
+		user: ARTIST,
+	});
+	afterRead = undefined;
+	check(
+		"a forced save is pinned to what the gate read: an admin's change meanwhile answers a conflict",
+		[forced.status, R2.get(key)!.body.includes(adminCode)],
+		[409, true],
+	);
+
+	// The FTP Browser: a scoped user may not write a project's shader graphs or their history.
+	const scoped = { full: false, clientKey: CLIENT, projectKey: PROJECT };
+	const writes = (k: string, scope = scoped): number | 'ok' => {
+		try {
+			ftpScope.assertWritable(k, scope);
+			return 'ok';
+		} catch (e) {
+			return (e as { status?: number }).status ?? -1;
+		}
+	};
+	check(
+		'the FTP Browser refuses a scoped write into shaders/ and shader-backups/, not elsewhere',
+		[
+			writes(key),
+			writes(`${CLIENT}/shader_game/shader-backups/coded/shader-1.json`),
+			writes(`${CLIENT}/shader_game/fx/x.json`),
+			writes(key, { ...scoped, full: true }),
+		],
+		[403, 403, 'ok', 'ok'],
+	);
 }
 
 if (failures) {

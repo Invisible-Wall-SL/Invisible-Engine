@@ -215,20 +215,29 @@ export async function loadShader(
 
 /**
  * Whether `doc` holds Custom GLSL the project does not already store for `id` (its own graph, else
- * the shared one it would shadow): a node added, or one's code or ports changed. Removing a node,
- * or editing around one, adds none.
+ * the shared one it would shadow): a node added (a copy of one included), or one's code or ports
+ * changed. Removing a node, or editing around one, adds none. Also the ETag of the project's own
+ * graph as read (null when it has none), which the write is then pinned to.
  */
-async function addsCustomGlsl(
+async function customGlslAdded(
 	clientKey: string,
 	projectKey: string,
 	id: string,
 	doc: ShaderGraphDoc,
-): Promise<boolean> {
-	if (!hasCustomGlsl(doc)) return false;
+): Promise<{ adds: boolean; storedEtag: string | null }> {
 	const own = await loadShader(clientKey, projectKey, id);
 	const stored = own.exists ? own.doc : (await loadShader(clientKey, projectKey, id, true)).doc;
-	const known = new Set(customGlslSignature(stored));
-	return customGlslSignature(doc).some((definition) => !known.has(definition));
+	const known = new Map<string, number>();
+	for (const definition of customGlslSignature(stored)) {
+		known.set(definition, (known.get(definition) ?? 0) + 1);
+	}
+	let adds = false;
+	for (const definition of customGlslSignature(doc)) {
+		const left = known.get(definition) ?? 0;
+		if (left === 0) adds = true;
+		known.set(definition, left - 1);
+	}
+	return { adds, storedEtag: own.exists ? own.etag : null };
 }
 
 /**
@@ -238,9 +247,10 @@ async function addsCustomGlsl(
  * The bytes it replaces are kept as a backup (`docBackups.ts`), `mode` as for every doc: `'auto'`
  * coalesces a run of saves, `'always'` (a restore, a wholesale swap) keeps one each time.
  *
- * Unless `mayWriteCustomGlsl` (the saver holds `shaderCustomGlsl`), a graph that adds Custom GLSL or
- * changes its code or ports is refused (`CustomGlslNotAllowedError`). The stored version it is
- * judged against is read before the write, which its `baseEtag` then pins.
+ * Unless `mayWriteCustomGlsl` (the saver holds `shaderCustomGlsl`), a graph that adds Custom GLSL
+ * (a copy included) or changes its code or ports is refused (`CustomGlslNotAllowedError`). The
+ * stored version it is judged against is read before the write, which is pinned to it: by
+ * `baseEtag`, or, for a forced save, by the ETag read.
  */
 export async function saveShader(
 	clientKey: string,
@@ -259,13 +269,18 @@ export async function saveShader(
 	const text = JSON.stringify(doc, null, '\t');
 	const bytes = Buffer.byteLength(text);
 	if (bytes > SHADER_DOC_MAX_BYTES) throw new ShaderTooLargeError(bytes);
-	if (!mayWriteCustomGlsl && (await addsCustomGlsl(clientKey, projectKey, id, doc))) {
-		throw new CustomGlslNotAllowedError();
+	let precondition = baseEtag;
+	if (!mayWriteCustomGlsl && hasCustomGlsl(doc)) {
+		const { adds, storedEtag } = await customGlslAdded(clientKey, projectKey, id, doc);
+		if (adds) throw new CustomGlslNotAllowedError();
+		// Judged against the version just read: a forced write is pinned to it too, so one that
+		// landed meanwhile (an admin's new code) answers a conflict instead of being overwritten.
+		if (precondition === undefined) precondition = storedEtag;
 	}
 	const etag = await putDocWithBackup(
 		shaderDocBackupTarget(clientKey, projectKey, id),
 		text,
-		baseEtag,
+		precondition,
 		mode,
 	);
 	return { id, doc, etag };

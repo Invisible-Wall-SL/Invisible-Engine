@@ -342,7 +342,8 @@ the ports you declare. It shows a `</>` badge, its ports, a thumbnail and a cost
   Errors are listed with their line numbers and marked in the gutter; click one to jump to it.
 - **What the code may use** (the help panel lists it): its ports (read the inputs, write the
   outputs; an input and an output of one name are one value), local variables, GLSL's built-in
-  functions and the effect library's `efx…` functions (`efxSample(uv)` reads the element). `for`
+  functions and the effect library's `efx…` functions (`efxSample(px)` reads the element at a
+  pixel position). `for`
   loops need an int counter with fixed bounds, at most 64 rounds each and 256 nested in all.
 - **What it may not:** `while`, `do`, `discard`, `#` lines, declaring functions, structs, uniforms
   or precision, `texture2D`, or any name that is not its own (no other node's values, no `gl_…`).
@@ -356,8 +357,9 @@ the ports you declare. It shows a `</>` badge, its ports, a thumbnail and a cost
   **Publish to library**.
 - **Everyone else** sees the code and ports read-only ("Only an admin can change custom GLSL."),
   and can still move, wire, group or delete the node. The server refuses a save that adds Custom
-  GLSL or changes its code or ports without the permission; Undo will not bring back a node whose
-  deletion was already saved.
+  GLSL (a copy of an existing node counts) or changes its code or ports without the permission;
+  Undo will not bring back a node whose deletion was already saved. The FTP Browser cannot write a
+  project's shader graphs or their history either (only an admin's full view can).
 - **In a game.** If a phone's driver rejects any effect's shader, the element is drawn as it is
   (the effect skipped, a warning logged) instead of vanishing. A game whose runtime predates this
   release skips an effect holding Custom GLSL.
