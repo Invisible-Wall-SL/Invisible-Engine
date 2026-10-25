@@ -69,7 +69,10 @@ this step's pay and the round's running pay after it. All amounts are cents.
 **Refusals.** A `move` that names a cell off the board, two cells that are not neighbours, or a swap
 that makes no match is answered `match3Move { accepted: false }` and changes nothing but `seq` (it is
 stored). A `move` with no open round, or after `match3End`, is an error envelope (`errorCode` 102),
-as is any action other than `move` / `collect` while a round is open.
+as is any action other than `move` / `collect` while a round is open (a second `bet` included —
+unlike the slot mocks, an open match-3 round is never settled over). A `collect` before `match3End`
+is `errorCode` 110 (`unexpected action`); a `move` whose context is not two integer cells is 101 and
+is not stored. The total is drawn at the `play` of the opening request (where a `force:` rides).
 
 **Never auto-collected.** A match-3 round stays open after `match3End` until the client posts
 `collect`, whatever the win (zero included): the balance changes only there.
