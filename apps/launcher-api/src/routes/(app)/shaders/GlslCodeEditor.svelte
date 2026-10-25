@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
-	import { CodeDraft } from './shaderEditor';
+	import { CodeDraft, normalizeNewlines } from './shaderEditor';
 
 	// A Custom GLSL node's code: a monospace field with line numbers, the lines something is wrong
 	// with marked in the gutter (their messages on hover). Tab types a tab; Esc then Tab leaves the
 	// field. What is typed reaches the doc as one edit (one undo step) once typing pauses, or when the
 	// field is left (`CodeDraft`); Ctrl+Z inside the field is the field's own. Read-only, it can still
-	// be read, scrolled and copied.
+	// be read, scrolled and copied. Its lines are the checker's: any `\r\n` or lone `\r` breaks a line.
 	interface Props {
 		code: string;
 		readOnly?: boolean;
@@ -19,18 +19,15 @@
 	let { code, readOnly = false, marks = new Map(), label, onCommit }: Props = $props();
 
 	const commit = untrack(() => onCommit);
-	const draft = new CodeDraft(
-		untrack(() => code),
-		(text) => commit(text),
-	);
-	let text = $state(untrack(() => code));
+	const draft = new CodeDraft(normalizeNewlines(untrack(() => code)), (text) => commit(text));
+	let text = $state(draft.text);
 	let field: HTMLTextAreaElement | undefined = $state();
 	let gutter: HTMLDivElement | undefined = $state();
 	/** Esc was pressed: the next Tab moves on rather than typing a tab. */
 	let leaving = false;
 
 	$effect(() => {
-		draft.sync(code);
+		draft.sync(normalizeNewlines(code));
 		text = draft.text;
 	});
 	onDestroy(() => {
@@ -41,8 +38,8 @@
 	const lineCount = $derived(text.split('\n').length);
 
 	function typed(value: string): void {
-		text = value;
-		draft.type(value);
+		text = normalizeNewlines(value);
+		draft.type(text);
 	}
 
 	function onKeydown(e: KeyboardEvent): void {

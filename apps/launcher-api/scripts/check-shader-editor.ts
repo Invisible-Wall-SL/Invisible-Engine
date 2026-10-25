@@ -2968,6 +2968,28 @@ console.log('12. Custom GLSL');
 		],
 		[CUSTOM_GLSL_LOCKED, CUSTOM_GLSL_LOCKED, CUSTOM_GLSL_LOCKED],
 	);
+	// Copies count: a pasted or duplicated approved node is another Custom GLSL node.
+	const node = g.nodes.find((n) => n.id === id) as ShaderGraphDoc['nodes'][number];
+	const twice: ShaderGraphDoc = {
+		...g,
+		nodes: [...g.nodes, { ...JSON.parse(json(node)), id: 'customGlsl9', y: node.y + 200 }],
+	};
+	const ungroupedTwice = grouped && addCall(grouped.doc, null, sid, { x: 0, y: 400 }).doc;
+	check(
+		'…a copy of an approved node is refused too (copies count, as the save counts them); deleting one of two is taken',
+		[
+			customGlslRefusal(stored, twice),
+			customGlslRefusal(twice, remove(twice, ['customGlsl9'])),
+			customGlslRefusal(twice, remove(twice, [id])),
+			customGlslRefusal(twice, twice),
+			!!ungroupedTwice &&
+				customGlslRefusal(
+					ungroupedTwice,
+					ungroupCall(ungroupedTwice, null, call)?.doc as ShaderGraphDoc,
+				),
+		],
+		[CUSTOM_GLSL_LOCKED, undefined, undefined, undefined, CUSTOM_GLSL_LOCKED],
+	);
 
 	// Undo granularity: one commit per pause.
 	let now = 0;
@@ -3057,6 +3079,7 @@ console.log('12. Custom GLSL');
 		'color.rgb *= 0.5; // half\r\n\r\n\tcolor.a = 1.0;',
 		'/* a\nblock */ color.rgb = vec3(1.0);\n// only a comment\ncolor.g /* inline */ = 0.25;',
 		'float k = 2.0;  \n\n\n\t\tcolor.rgb *= k / 2.0;',
+		'color.r *= 0.5;\rcolor.g *= 0.5; // lone CR above\r\n\rcolor.b *= 0.5;',
 	];
 	check(
 		'the code’s lines are the compiled function’s, each with the line it came from',
@@ -3069,7 +3092,41 @@ console.log('12. Custom GLSL');
 			[true, [1, 3]],
 			[true, [2, 4]],
 			[true, [1, 4]],
+			[true, [1, 2, 4]],
 		],
+	);
+	const crCode = 'color.r *= 0.5;\rcolor.g *= 0.5;\r\ncolor.b *= 0.5;';
+	const crSet = setCustomGlslCode(g, null, id, crCode);
+	check(
+		'a lone CR ends a line as \\r\\n does: the code the doc takes has \\n alone, and its lines are read so',
+		[
+			glslOf(crSet.nodes.find((n) => n.id === id) as never).code,
+			codeLines(crCode).map((l) => [l.line, l.text]),
+		],
+		[
+			'color.r *= 0.5;\ncolor.g *= 0.5;\ncolor.b *= 0.5;',
+			[
+				[1, 'color.r *= 0.5;'],
+				[2, 'color.g *= 0.5;'],
+				[3, 'color.b *= 0.5;'],
+			],
+		],
+	);
+	// A doc stored with a lone CR (not typed here): its driver error still lands on its line.
+	const crStored: ShaderGraphDoc = {
+		...g,
+		nodes: g.nodes.map((n) => (n.id === id ? { ...n, glsl: { ...glslOf(n), code: crCode } } : n)),
+	};
+	const crBody =
+		(compileShaderEffect(crStored) as { effect?: { shader: { body: string } } }).effect?.shader
+			.body ?? '';
+	const crLine = crBody.split('\n').findIndex((l) => l.trim() === 'color.b *= 0.5;') + 1;
+	check(
+		'…a stored body with a lone CR compiles a line per line, and a driver error there reads back to line 3',
+		driverIssues(crStored, [
+			{ gl: 1, missing: false, ok: false, log: `ERROR: 0:${crLine}: 'x' : bad`, fragment: crBody },
+		]).map((f) => [f.node, f.line]),
+		[[id, 3]],
 	);
 	check(
 		'a driver log is read for its lines (ANGLE, NVIDIA), the summary line left out',

@@ -6,18 +6,23 @@
  * contexts the preview and the thumbnails draw with. The compiler's checker refuses what it can
  * see in the code; this catches what only a driver does (a type it infers, a built-in it lacks).
  * The page reads the verdicts through `shaderEditor.ts` (`driverIssues`), which maps a log's lines
- * back to the node's.
+ * back to the node's. A check leaves nothing behind: its program is built outside Pixi's program
+ * cache (which keeps every program it builds for the page's life) and its GL objects are deleted.
  */
 import type { CustomElementFx } from 'constants-shared/elementFx';
 import { graphFilter } from 'pixi-svelte/elementFx';
+import { GlProgram } from 'pixi.js';
 
 export type GlVersion = 1 | 2;
 
 /** What one driver said of a shader. */
 export interface DriverVerdict {
 	gl: GlVersion;
-	/** The browser gave no such context: nothing was checked there. */
+	/** Nothing was checked there: the browser gave no such context, or it was lost meanwhile. */
 	missing: boolean;
+	/** The context was lost during the check: it is made again for the next one. */
+	lost: boolean;
+	/** The driver compiled and linked it. Never true for a check that did not happen. */
 	ok: boolean;
 	/** The compile log of the shader that failed, else the link log. */
 	log: string;
@@ -37,11 +42,7 @@ export class DriverCompiler {
 
 	/** `shader` compiled and linked on WebGL1 and on WebGL2. */
 	compile(shader: CustomElementFx['shader']): DriverVerdict[] {
-		const filter = graphFilter('glsl-check', shader);
-		const vertex = filter.glProgram.vertex ?? '';
-		const fragment = filter.glProgram.fragment ?? '';
-		// The program stays in Pixi's cache, where the preview's filter of the same GLSL finds it.
-		filter.destroy();
+		const { vertex, fragment } = programSources(shader);
 		return ([1, 2] as const).map((gl) => this.check(gl, vertex, fragment));
 	}
 
@@ -68,14 +69,16 @@ export class DriverCompiler {
 	}
 
 	private check(version: GlVersion, vertex: string, fragment: string): DriverVerdict {
-		const verdict = (
-			ok: boolean,
-			stage: DriverVerdict['stage'] = '',
-			log = '',
-			missing = false,
-		): DriverVerdict => ({ gl: version, missing, ok, log, stage, fragment });
+		const base = { gl: version, ok: false, missing: false, lost: false, log: '', fragment };
+		/** Not checked: no context, or (`lost`) it went while checking, so its answers mean nothing. */
+		const unchecked = (lost: boolean): DriverVerdict => ({
+			...base,
+			missing: true,
+			lost,
+			stage: '',
+		});
 		const gl = this.context(version);
-		if (!gl) return verdict(true, '', '', true);
+		if (!gl) return unchecked(false);
 		const made: WebGLShader[] = [];
 		const program = gl.createProgram();
 		try {
@@ -84,21 +87,46 @@ export class DriverCompiler {
 				['fragment', gl.FRAGMENT_SHADER, fragment],
 			] as const) {
 				const shader = gl.createShader(type);
-				if (!shader || !program) return verdict(true, '', '', true);
+				if (!shader || !program) return unchecked(gl.isContextLost());
 				made.push(shader);
 				gl.shaderSource(shader, source);
 				gl.compileShader(shader);
-				if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS) && !gl.isContextLost())
-					return verdict(false, stage, gl.getShaderInfoLog(shader) ?? '');
+				const compiled = gl.getShaderParameter(shader, gl.COMPILE_STATUS) === true;
+				if (gl.isContextLost()) return unchecked(true);
+				if (!compiled) return { ...base, stage, log: gl.getShaderInfoLog(shader) ?? '' };
 				gl.attachShader(program, shader);
 			}
 			gl.linkProgram(program);
-			if (!gl.getProgramParameter(program, gl.LINK_STATUS) && !gl.isContextLost())
-				return verdict(false, 'link', gl.getProgramInfoLog(program) ?? '');
-			return verdict(true);
+			const linked = gl.getProgramParameter(program, gl.LINK_STATUS) === true;
+			if (gl.isContextLost()) return unchecked(true);
+			if (!linked) return { ...base, stage: 'link', log: gl.getProgramInfoLog(program) ?? '' };
+			return { ...base, ok: true, stage: '' };
 		} finally {
 			for (const shader of made) gl.deleteShader(shader);
 			if (program) gl.deleteProgram(program);
 		}
 	}
+}
+
+/**
+ * The vertex and fragment shaders the runtime's filter for `shader` compiles (`graphFilter`, with
+ * Pixi's WebGL1 defines and precision), its program built outside Pixi's program cache: the filter
+ * asks `GlProgram.from`, which would keep it for the page's life, so for the one synchronous
+ * construction that asks for a program of its own instead. Nothing of it is kept.
+ */
+function programSources(shader: CustomElementFx['shader']): { vertex: string; fragment: string } {
+	const cached = GlProgram.from;
+	GlProgram.from = (options) => new GlProgram(options);
+	let filter: ReturnType<typeof graphFilter>;
+	try {
+		filter = graphFilter('glsl-check', shader);
+	} finally {
+		GlProgram.from = cached;
+	}
+	const sources = {
+		vertex: filter.glProgram.vertex ?? '',
+		fragment: filter.glProgram.fragment ?? '',
+	};
+	filter.destroy();
+	return sources;
 }

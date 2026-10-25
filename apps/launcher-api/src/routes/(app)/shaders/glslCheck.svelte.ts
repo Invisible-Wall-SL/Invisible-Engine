@@ -45,9 +45,12 @@ export class GlslCheck {
 		else this.run();
 	}
 
-	/** Check what waits now (a compile is synchronous): the verdicts are then of the last shader. */
+	/**
+	 * Check what waits now (a compile is synchronous), and again a shader a lost context left
+	 * unchecked: the verdicts are then of the last shader.
+	 */
 	checkNow(): void {
-		if (!this.pending) return;
+		if (!this.pending && !this.verdicts.some((v) => v.lost)) return;
 		clearTimeout(this.timer);
 		this.run();
 	}
@@ -75,7 +78,8 @@ export class GlslCheck {
 			this.verdicts = ([1, 2] as const).map((gl) => ({
 				gl,
 				missing: true,
-				ok: true,
+				lost: false,
+				ok: false,
 				log,
 				stage: '' as const,
 				fragment: '',

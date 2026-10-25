@@ -2370,7 +2370,13 @@ function withGlsl(
 	});
 }
 
-/** `doc` with Custom GLSL node `id`'s code (in the graph `scope` shows) set to `code`. */
+/** `code` with every line break as `\n`: a `\r\n` or a lone `\r` (old Mac) ends a line too. */
+export const normalizeNewlines = (code: string): string => code.replace(/\r\n?/g, '\n');
+
+/**
+ * `doc` with Custom GLSL node `id`'s code (in the graph `scope` shows) set to `code`, its line breaks
+ * as `\n` ({@link normalizeNewlines}), as the checker reads them.
+ */
 export function setCustomGlslCode(
 	doc: ShaderGraphDoc,
 	scope: GraphScope,
@@ -2378,7 +2384,7 @@ export function setCustomGlslCode(
 	code: string,
 ): ShaderGraphDoc {
 	return withGlsl(doc, scope, id, (glsl) => {
-		glsl.code = code;
+		glsl.code = normalizeNewlines(code);
 	});
 }
 
@@ -2464,18 +2470,28 @@ export function editCustomGlslPorts(
 	});
 }
 
+/** How many times `doc` holds each Custom GLSL definition (`customGlslSignature`, a multiset). */
+function glslCounts(doc: ShaderGraphDoc): Map<string, number> {
+	const counts = new Map<string, number>();
+	for (const s of customGlslSignature(doc)) counts.set(s, (counts.get(s) ?? 0) + 1);
+	return counts;
+}
+
 /**
  * For someone without the `shaderCustomGlsl` capability, why `next` cannot replace the doc: it holds
- * Custom GLSL (a node's code and ports) that `baseline`, the doc as stored, does not, which is what
- * the save refuses. Removing a node, or moving, wiring or grouping around one, adds none.
+ * a Custom GLSL definition (a node's code and ports) more times than `baseline`, the doc as stored,
+ * does: a new or changed one, or another copy of one already there. That is what the save refuses.
+ * Removing a node, or moving, wiring or grouping around one, adds none.
  */
 export function customGlslRefusal(
 	baseline: ShaderGraphDoc,
 	next: ShaderGraphDoc,
 ): string | undefined {
 	if (!hasCustomGlsl(next)) return undefined;
-	const known = new Set(customGlslSignature(baseline));
-	return customGlslSignature(next).every((s) => known.has(s)) ? undefined : CUSTOM_GLSL_LOCKED;
+	const known = glslCounts(baseline);
+	for (const [definition, count] of glslCounts(next))
+		if (count > (known.get(definition) ?? 0)) return CUSTOM_GLSL_LOCKED;
+	return undefined;
 }
 
 /** One thing wrong with a Custom GLSL node's code: the line it names (1-based), if any. */
@@ -2624,8 +2640,10 @@ export function parseDriverLog(log: string): DriverLogLine[] {
 /** What one driver said of the effect's shader (`glslCheck.client.ts`'s verdict). */
 export interface DriverReport {
 	gl: 1 | 2;
-	/** The browser gave no such context: nothing was checked there. */
+	/** Nothing was checked there: the browser gave no such context, or (`lost`) it went meanwhile. */
 	missing: boolean;
+	lost?: boolean;
+	/** The driver compiled and linked it; never true for a check that did not happen. */
 	ok: boolean;
 	log: string;
 	/** The fragment shader as compiled, whose lines the log names. */
@@ -2647,10 +2665,12 @@ export interface DriverIssue {
 
 /**
  * A Custom GLSL body's lines as its compiled function holds them (`customGlslFunction`'s `lines`):
- * comments blanked, tabs as four spaces, trailing space and blank lines gone, each with the line of
- * the code it came from (from 1), so a driver's line in the function reads back as the author's.
+ * line breaks as `\n` (a lone `\r` ends a line, as the checker reads it), comments blanked, tabs as
+ * four spaces, trailing space and blank lines gone, each with the line of the code it came from
+ * (from 1), so a driver's line in the function reads back as the author's.
  */
-export function codeLines(code: string): { text: string; line: number }[] {
+export function codeLines(source: string): { text: string; line: number }[] {
+	const code = normalizeNewlines(source);
 	let stripped = '';
 	for (let i = 0; i < code.length;) {
 		const end = code.startsWith('//', i)
@@ -2659,7 +2679,7 @@ export function codeLines(code: string): { text: string; line: number }[] {
 				? code.indexOf('*/', i + 2)
 				: -2;
 		if (end === -2) {
-			if (code[i] !== '\r') stripped += code[i];
+			stripped += code[i];
 			i++;
 			continue;
 		}
@@ -2862,12 +2882,13 @@ export function driverCodeIssues(
 }
 
 /**
- * One driver's state in the status bar: compiled, rejected, not in this browser, being checked, or
+ * One driver's state in the status bar: compiled, rejected, not in this browser, its context lost
+ * while checking (unknown: checked again on the next change, or before Publish), being checked, or
  * not checked (`off`: the compiler refuses the effect, so there is no shader to give it).
  */
 export interface DriverChip {
 	gl: 1 | 2;
-	state: 'ok' | 'bad' | 'missing' | 'wait' | 'off';
+	state: 'ok' | 'bad' | 'missing' | 'lost' | 'wait' | 'off';
 }
 
 /** A driver chip's mark, by its state. */
@@ -2875,6 +2896,7 @@ export const DRIVER_CHIP_MARKS: Record<DriverChip['state'], string> = {
 	ok: '✓',
 	bad: '✕',
 	missing: '–',
+	lost: '?',
 	off: '–',
 	wait: '…',
 };
@@ -2895,11 +2917,13 @@ export function driverSummary(
 			? 'wait'
 			: !report
 				? 'wait'
-				: report.missing
-					? 'missing'
-					: report.ok
-						? 'ok'
-						: 'bad';
+				: report.lost
+					? 'lost'
+					: report.missing
+						? 'missing'
+						: report.ok
+							? 'ok'
+							: 'bad';
 		return { gl, state };
 	});
 	if (!compiles)
@@ -2915,6 +2939,7 @@ export function driverSummary(
 			.join(' and ');
 	const bad = named('bad');
 	const missing = named('missing');
+	const lost = named('lost');
 	const ok = named('ok');
 	return {
 		chips,
@@ -2924,6 +2949,9 @@ export function driverSummary(
 				: '',
 			ok ? `${ok} ${ok.includes(' and ') ? 'compile' : 'compiles'} it.` : '',
 			missing ? `This browser has no ${missing}: not checked there.` : '',
+			lost
+				? `${lost} lost ${lost.includes(' and ') ? 'their contexts' : 'its context'} while checking: not known yet, checked again on the next change.`
+				: '',
 		]
 			.filter(Boolean)
 			.join(' '),
