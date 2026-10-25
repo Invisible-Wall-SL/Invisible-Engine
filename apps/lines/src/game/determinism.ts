@@ -65,6 +65,16 @@ export type DeterminismProbeState = {
 	win: number;
 	/** A board that takes input (match-3), while its session runs; absent for every slot. */
 	board?: DeterminismBoardState;
+	/** An arcade play field, while it is mounted; absent for every slot. */
+	arcade?: DeterminismArcadeState;
+};
+
+/** An arcade play field, as `registerDeterminismArcade` reads it. */
+export type DeterminismArcadeState = {
+	/** Fixed steps run so far. */
+	steps: number;
+	/** Every body, in spawn order: its instance id, place, velocity and tags. */
+	bodies: { id: string; x: number; y: number; vx: number; vy: number; tags: string[] }[];
 };
 
 /** A match-3 board, as `registerDeterminismBoard` reads it. */
@@ -268,6 +278,20 @@ export function registerDeterminismBoard(board: NonNullable<typeof boardProbe>):
 	boardProbe = board;
 	return () => {
 		if (boardProbe === board) boardProbe = undefined;
+	};
+}
+
+let arcadeProbe: { read(): DeterminismArcadeState } | undefined;
+
+/**
+ * `<ArcadeStage />` hands over its loop while the play field is mounted. A no-op when the mode is
+ * off; returns the unregister.
+ */
+export function registerDeterminismArcade(arcade: NonNullable<typeof arcadeProbe>): () => void {
+	if (!globalThis.__IE_DETERMINISM__) return () => {};
+	arcadeProbe = arcade;
+	return () => {
+		if (arcadeProbe === arcade) arcadeProbe = undefined;
 	};
 }
 
@@ -683,10 +707,13 @@ export function installDeterminism(): void {
 
 	const readProbe = (): DeterminismProbeState => {
 		const read = probe?.();
-		const board = boardProbe ? { board: boardProbe.read() } : {};
+		const families = {
+			...(boardProbe ? { board: boardProbe.read() } : {}),
+			...(arcadeProbe ? { arcade: arcadeProbe.read() } : {}),
+		};
 		// The screen set is a Svelte state proxy; hand out a plain copy.
 		return read
-			? { ...read, screens: [...read.screens], ...board }
+			? { ...read, screens: [...read.screens], ...families }
 			: {
 					screens: [],
 					idle: false,
@@ -694,7 +721,7 @@ export function installDeterminism(): void {
 					playerIn: false,
 					winLevel: undefined,
 					win: 0,
-					...board,
+					...families,
 				};
 	};
 	const state = (): DeterminismState => ({

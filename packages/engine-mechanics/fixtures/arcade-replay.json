@@ -1,0 +1,321 @@
+{
+	"steps": 600,
+	"player": {
+		"x": 80,
+		"y": 560
+	},
+	"alive": [
+		{
+			"id": "pickup36",
+			"x": 154,
+			"y": 520
+		},
+		{
+			"id": "hazard37",
+			"x": 5,
+			"y": 576.4000000000003
+		},
+		{
+			"id": "pickup39",
+			"x": 629,
+			"y": 512.7999999999989
+		},
+		{
+			"id": "hazard40",
+			"x": 517,
+			"y": 435.39999999999907
+		},
+		{
+			"id": "hazard41",
+			"x": 312,
+			"y": 466.00000000000085
+		},
+		{
+			"id": "pickup42",
+			"x": 17,
+			"y": 482.19999999999914
+		},
+		{
+			"id": "hazard43",
+			"x": 213,
+			"y": 325.6000000000002
+		},
+		{
+			"id": "hazard44",
+			"x": 629,
+			"y": 264.1999999999998
+		},
+		{
+			"id": "pickup45",
+			"x": 331,
+			"y": 212.79999999999967
+		},
+		{
+			"id": "hazard46",
+			"x": 376,
+			"y": 263.99999999999966
+		},
+		{
+			"id": "hazard47",
+			"x": 242,
+			"y": 215.9999999999999
+		},
+		{
+			"id": "pickup48",
+			"x": 214,
+			"y": 106.59999999999998
+		},
+		{
+			"id": "hazard49",
+			"x": 606,
+			"y": 95.59999999999995
+		},
+		{
+			"id": "hazard50",
+			"x": 758,
+			"y": 38.2
+		}
+	],
+	"trace": [
+		{
+			"step": 149,
+			"left": "hazard2",
+			"edge": "bottom"
+		},
+		{
+			"step": 172,
+			"left": "hazard4",
+			"edge": "bottom"
+		},
+		{
+			"step": 184,
+			"left": "hazard1",
+			"edge": "bottom"
+		},
+		{
+			"step": 187,
+			"left": "pickup3",
+			"edge": "bottom"
+		},
+		{
+			"step": 200,
+			"hit": "player|hazard7",
+			"tagB": "hazard"
+		},
+		{
+			"step": 213,
+			"hit": "player|hazard8",
+			"tagB": "hazard"
+		},
+		{
+			"step": 219,
+			"left": "pickup6",
+			"edge": "bottom"
+		},
+		{
+			"step": 222,
+			"left": "hazard7",
+			"edge": "bottom"
+		},
+		{
+			"step": 236,
+			"left": "hazard8",
+			"edge": "bottom"
+		},
+		{
+			"step": 241,
+			"left": "hazard10",
+			"edge": "bottom"
+		},
+		{
+			"step": 245,
+			"left": "hazard5",
+			"edge": "bottom"
+		},
+		{
+			"step": 251,
+			"left": "pickup9",
+			"edge": "bottom"
+		},
+		{
+			"step": 269,
+			"left": "pickup12",
+			"edge": "bottom"
+		},
+		{
+			"step": 280,
+			"hit": "player|pickup15",
+			"tagB": "pickup"
+		},
+		{
+			"step": 293,
+			"hit": "player|hazard13",
+			"tagB": "hazard"
+		},
+		{
+			"step": 300,
+			"left": "pickup15",
+			"edge": "bottom"
+		},
+		{
+			"step": 319,
+			"left": "hazard13",
+			"edge": "bottom"
+		},
+		{
+			"step": 333,
+			"left": "hazard11",
+			"edge": "bottom"
+		},
+		{
+			"step": 341,
+			"hit": "player|hazard16",
+			"tagB": "hazard"
+		},
+		{
+			"step": 347,
+			"left": "hazard14",
+			"edge": "bottom"
+		},
+		{
+			"step": 354,
+			"hit": "player|hazard17",
+			"tagB": "hazard"
+		},
+		{
+			"step": 354,
+			"hit": "player|pickup21",
+			"tagB": "pickup"
+		},
+		{
+			"step": 368,
+			"left": "pickup18",
+			"edge": "bottom"
+		},
+		{
+			"step": 369,
+			"left": "hazard16",
+			"edge": "bottom"
+		},
+		{
+			"step": 374,
+			"left": "pickup21",
+			"edge": "bottom"
+		},
+		{
+			"step": 382,
+			"left": "hazard19",
+			"edge": "bottom"
+		},
+		{
+			"step": 383,
+			"left": "hazard17",
+			"edge": "bottom"
+		},
+		{
+			"step": 391,
+			"left": "hazard20",
+			"edge": "bottom"
+		},
+		{
+			"step": 392,
+			"hit": "player|pickup24",
+			"tagB": "pickup"
+		},
+		{
+			"step": 413,
+			"left": "pickup24",
+			"edge": "bottom"
+		},
+		{
+			"step": 416,
+			"hit": "player|hazard23",
+			"tagB": "hazard"
+		},
+		{
+			"step": 432,
+			"left": "hazard23",
+			"edge": "bottom"
+		},
+		{
+			"step": 436,
+			"left": "hazard25",
+			"edge": "bottom"
+		},
+		{
+			"step": 437,
+			"left": "hazard22",
+			"edge": "bottom"
+		},
+		{
+			"step": 463,
+			"left": "pickup27",
+			"edge": "bottom"
+		},
+		{
+			"step": 488,
+			"left": "hazard26",
+			"edge": "bottom"
+		},
+		{
+			"step": 497,
+			"hit": "player|hazard28",
+			"tagB": "hazard"
+		},
+		{
+			"step": 500,
+			"left": "pickup30",
+			"edge": "bottom"
+		},
+		{
+			"step": 527,
+			"left": "hazard28",
+			"edge": "bottom"
+		},
+		{
+			"step": 534,
+			"left": "hazard31",
+			"edge": "bottom"
+		},
+		{
+			"step": 535,
+			"left": "hazard29",
+			"edge": "bottom"
+		},
+		{
+			"step": 552,
+			"left": "hazard32",
+			"edge": "bottom"
+		},
+		{
+			"step": 555,
+			"hit": "player|hazard38",
+			"tagB": "hazard"
+		},
+		{
+			"step": 565,
+			"left": "hazard35",
+			"edge": "bottom"
+		},
+		{
+			"step": 575,
+			"left": "hazard38",
+			"edge": "bottom"
+		},
+		{
+			"step": 575,
+			"left": "pickup33",
+			"edge": "bottom"
+		},
+		{
+			"step": 581,
+			"left": "hazard34",
+			"edge": "bottom"
+		},
+		{
+			"step": 585,
+			"hit": "player|hazard37",
+			"tagB": "hazard"
+		}
+	]
+}

@@ -17,8 +17,8 @@
  *  7. SCORE: the score table prices each group by its gem count; no table pays per gem; each step
  *     carries the padded `tumbleBoard` the runtime plays.
  *  8. THE MECHANIC: a slot config is `reels`, exactly as before; a rules match-3 is free play (no
- *     RGS session, no spin, no wallet, board input); an RGS match-3 and an arcade config refuse to
- *     boot until their phase.
+ *     RGS session, no spin, no wallet, board input); an RGS-decided arcade config refuses to boot
+ *     (a rules one is P10.8's `check:arcade-rules`).
  *  9. THE FREE-PLAY BRANCH SENDS NO RGS REQUEST (source-scanned): `<Authenticate freePlay>` returns
  *     before `requestAuthenticate` and the balance poll, and refuses under a delivery profile; the
  *     runtime layout passes the mechanic's `rgsSession`; `Game.svelte` gates the spin hotkey, the
@@ -537,8 +537,11 @@ const legalMove = (board: Board) => findMoves(board, { limit: 1 })[0];
 			MATCH3_RGS_MECHANIC.unplayable === undefined,
 	);
 	check(
-		'8. an arcade config refuses to boot until P10.8',
-		!!mechanicFor({ ...SEED_CONFIG, family: 'arcade' } as GameConfigDoc).unplayable,
+		'8. an RGS-decided arcade config refuses to boot (a rules one plays since P10.8)',
+		!!mechanicFor({ ...SEED_CONFIG, family: 'arcade', outcome: undefined } as GameConfigDoc)
+			.unplayable &&
+			!mechanicFor({ ...SEED_CONFIG, family: 'arcade', outcome: 'rules' } as GameConfigDoc)
+				.unplayable,
 	);
 }
 

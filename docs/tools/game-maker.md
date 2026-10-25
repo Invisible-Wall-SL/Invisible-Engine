@@ -52,7 +52,7 @@ overlay add-on.
 2. Pick a **Client** from the dropdown, or leave it **Unassigned**.
 3. Pick a **Game type**. The list is the same union the `/admin` create-project
    action offers — the built-in scene sets (`lines`, `ways`, `cluster`,
-   `scatter`, `holdAndWin`, `match3`) plus any author-created custom kinds. The game type seeds
+   `scatter`, `holdAndWin`, `match3`, `arcade`) plus any author-created custom kinds. The game type seeds
    the project's starting layout template. **Book of** is no longer a game type of its own (its
    existing projects keep it until they are moved to lines): a Book-of game is a **Lines** game with
    the expanding symbol.
@@ -135,6 +135,23 @@ overlay add-on.
      Its starter Flow sets the moves when a board lands, spends one per accepted swap and locks the
      board when the round ends. It plays in the authoring preview against the test server's match-3
      mock; publishing it is refused (see below).
+   - **Arcade** asks nothing more: an arcade game is always free play, decided by its own rules —
+     no stake, no balance, no wins in money. You get a playable sample, _Salmon Run_: a salmon
+     swims along the bottom of the river, steered with the arrow keys or **A** / **D**; bears and
+     hooks fall towards it and cost a life each, fish drift down and score 10, and the round is
+     over at no lives (three to start). Its [Game Config](game-config.md#game-family-match-3-and-arcade)
+     is Arcade: a 1422 × 800 play field, a body for each of the four sample components (the salmon
+     tagged `player`, the bear and the hook `hazard`, the fish `pickup`) and the collisions
+     `player + hazard`, `player + pickup`. Its screens are the arcade set (see
+     [Scene Editor](invisible-editor.md)): **Loading / logo**, **Background**, **Play field** (a
+     [Spawn layer](invisible-editor.md#spawn-layer--a-field-flow-fills-while-the-game-runs) named
+     `field`), **Score and lives** (SCORE and LIVES readouts, Text Boxes fed by `var:score` and
+     `var:lives`) and **Round over** (a dimmed tap-to-continue with one line of text). There is no
+     board and no slot HUD. Its starter [Flow](flow.md#arcade--the-play-field-signals-and-the-starter-flow)
+     spawns the bodies, keeps the score and the lives and ends the round. The four components —
+     **Salmon**, **Bear**, **Hook** and **Fish (placeholder)**, flat coloured shapes — are the
+     project's own; re-skin them in the Component Editor. It plays in the authoring preview;
+     publishing it is refused (see below).
 4. Optionally tick **Add a coin overlay** and pick its preset from the dropdown beside it. The
    new project then gets the same add-on as the card's **＋ Coin overlay…** (see
    [Add a coin overlay](#add-a-coin-overlay-to-a-project) below), run on its fresh scaffold.
@@ -150,7 +167,7 @@ overlay add-on.
    also gets the plain Hold and Win (or the coin board one) as its own [Game Config](game-config.md)
    and `symbols/symbols.json` binding its Hold and Win symbols, so its first publish
    already deals and draws the feature; a **Match-3** project gets the config of the result you
-   picked the same way). A confirmation appears and
+   picked the same way, and an **Arcade** project its config and its four placeholder components). A confirmation appears and
    the project shows up under **Your projects** below. With the overlay ticked, the confirmation
    reads _"… with the coin overlay"_ and the add-on's report shows under the form.
 
@@ -520,8 +537,9 @@ game) plus a few seconds to copy its files.
   match-3 decided by the server with _"This game's config is a real-money match-3 game. It plays
   against the test server's match-3 mock in the authoring preview, but publishing a game that is
   not a slot is not switched on yet, and live real money waits on a real provider's match-3 wire,
-  so it is not published."_; an arcade game with _"…the game runtime cannot play an arcade game
-  yet, so it is not published."_ The desktop bake's config export refuses them the same way. Set
+  so it is not published."_; a free-play arcade game with _"This game's config is a free-play arcade game. It plays in
+  the authoring preview, but publishing a game that is not a slot is not switched on yet, so it is
+  not published."_ The desktop bake's config export refuses them the same way. Set
   [Game Config](game-config.md#game-family-match-3-and-arcade)'s family back to Slot to publish
   the project as a slot.
 
@@ -735,6 +753,8 @@ graduate later; its R2 authoring data carries over.
   A match-3 project is refused at publish (see _Publish can refuse_ above). Changing the answer
   later is Game Config's **Who decides the result**; the screens and Flow stay the ones the project
   was created with.
+- **Arcade does not publish.** An arcade game plays only in the authoring preview and is refused
+  at publish (see _Publish can refuse_ above). There is no real-money arcade game.
 - **A custom kind saved as `match3` before Match-3 was built in is hidden.** The built-in kind
   takes its place in every kind picker; the custom kind is never overwritten (the server log
   warns that it is hidden).

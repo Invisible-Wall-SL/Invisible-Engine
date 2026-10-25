@@ -1,7 +1,7 @@
 # Game families: match-3 first, arcade next, cards after (Phase 10 plan)
 
 > Status: **PLAN APPROVED (owner, 2026-10-20): all nine §9 decisions accepted as recommended.
-> STARTED 2026-10-23: the owner gave the go-ahead for Phase 10. P10.1–P10.5 are built; progress
+> STARTED 2026-10-23: the owner gave the go-ahead for Phase 10. P10.1–P10.8 are built; progress
 > lives in [status/game-families.md](../status/game-families.md).**
 >
 > **Amended 2026-10-22 from the owner's questions:** whole tools are shown or hidden per family
@@ -995,7 +995,9 @@ Option A wins on reuse and drift. Its two costs are risk to slots, which this re
 tooling to measure (§7), and a bigger download, which P10.5 measures. Option B stays available:
 `runtimeFor()` is the seam if a family ever needs bespoke compiled code, or its size becomes a
 problem. Arcade shares the least with slots, so P10.8 re-checks the choice before it starts
-(§9 #3).
+(§9 #3). **Re-checked 2026-10-25 (P10.8): option A stands** — arcade needs the Flow state, spawning,
+free-play boot and determinism already in the shared runtime, and its size is the owner's accepted
+static cost; the reasoning is in [status/game-families](../status/game-families.md) (P10.8).
 
 ### 6.5 Which tools a family uses (owner, 2026-10-22; P10.1b)
 
@@ -1132,7 +1134,7 @@ and jumps (P10.11–P10.13), then online rooms (P10.14–P10.16). Card games get
 | P10.5b | *(optional)* **Match-3 specials** | The `specials` table (§4.1) | `engine-mechanics`, `/config` | M |
 | P10.6 | **Match-3, RGS-decided** — ✅ built 2026-10-25 (on our mock; live real money waits on the partner) | The `move` action and events (ours, labelled); the **interactive round** path in the primary machine (a round open across player-paced requests); the `move` request exported from both transports; `mock-rgs-server-match3.mjs` (deals from the project's config, fixed-at-bet math, resume mid-round), with the Dockerfile copying `board.js` + its `package.json`, and `match3` added to every protocol list; facade translation; `withOutcome('rgs')`; the outcome guards; the RGS sample. **Live real money waits on the partner (§9 #2)** | `rgs-translator-eagaming`, `rgs-requests`, `utils-xstate`, `scripts/`, `services/test-server`, `engine-flow-v2`, launcher | L+ |
 | P10.7 | **Spawning** — ✅ built 2026-10-25 | `spawnLayer` node, `spawn` / `despawn` / `instanceRef`, `live:<layer>` sets, cap, the ship-chain collection of spawnables | `engine-layout`, `engine-flow-v2`, `apps/lines`, exporters | M–L |
-| P10.8 | **Arcade, rules-decided** | `motion.js`, the fixed-step loop, tags, `ARCADE_VOCAB` + seed, `<ArcadeStage />`, the arcade layout template, a catcher / dodger sample + playbook. Re-checks §6.4 before starting | `engine-mechanics`, `engine-game`, `engine-flow-v2`, `apps/lines`, launcher | L |
+| P10.8 | **Arcade, rules-decided** — ✅ built 2026-10-25 (publishing it stays off) | `motion.js`, the fixed-step loop, tags, `ARCADE_VOCAB` + seed, `<ArcadeStage />`, the arcade layout template, a catcher / dodger sample + playbook. Re-checks §6.4 before starting | `engine-mechanics`, `engine-game`, `engine-flow-v2`, `apps/lines`, launcher | L |
 | P10.9 | **Editor polish (Rive Later)** | N-slice; rulers and guides; the Graph Editor; Elastic / Bounce eases (✅ built 2026-10-25) | `/editor`, `engine-cinematic` (ease presets), `engine-layout` | M each |
 | P10.10 | *(optional, after a decision)* **Arcade on the RGS** | A server-decided "prize" arcade (the server sends the result, the arcade plays to it). 1D blend states moved to P10.11 | `rgs-translator-eagaming` | L |
 | P10.11 | **Arcade A2: characters** | `behaviours.js` and the brain; `motion.js` acceleration, solid response and paths; the player controllers; `animInputs`; 1D blend states; the `path` node; **Invisible Characters** (`/characters`) with its sandbox, and its docs under rule 9; a sample with an enemy that patrols and chases | `engine-mechanics`, `engine-game`, `engine-layout` (state machine, `path`), `engine-flow-v2`, `packages/game-config`, launcher | L |

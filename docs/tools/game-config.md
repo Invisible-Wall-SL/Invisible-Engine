@@ -125,8 +125,10 @@ has no family control at all. Two more families exist
   50 / 120 / 250 points for a run of 3 / 4 / 5; for **Real money**, Match-3 decided by the server,
   the same board and gems, one base bet mode, 10 moves (read by the test server's mock) and gem
   pays of 0.1 / 0.25 / 0.5× (low) or 0.2 / 0.5 / 1.5× (high) the whole bet for a run of 3 / 4 /
-  5+. No project can be created as an arcade game yet; for that the way in is **raw JSON**: add
-  `"family": "arcade"`, apply, and the page re-renders for that family.
+  5+. An **Arcade** project starts as Arcade decided by its rules, with the sample's 1422 × 800
+  field, its four bodies and two collisions (see [Game Maker](game-maker.md)). On any other
+  project the way in is **raw JSON**: add `"family": "arcade"`, apply, and the page re-renders
+  for that family.
 - **Game family** (the panel at the top): the **Family** (Slot / Match-3 / Arcade) and **Who
   decides the result**:
   - **The server (RGS) — real money**: the server decides every gem that falls and every win, so
@@ -164,13 +166,22 @@ has no family control at all. Two more families exist
   - **Field width / height** — the play field in design pixels; empty = the screen.
   - **Steps per second** — how often motion is simulated (default 60; outside 30–240 warns).
   - **Bodies** — by component id: a **box** (width × height) or a **circle** (radius), its
-    **tags** (`player`, `enemy`, `pickup`) and whether it is **solid**.
+    **tags** (`player`, `enemy`, `pickup`), its **Edges** and whether it is **solid**. **Edges**
+    is what the body does at the field's edge: `clamp` stops it there (the default), `wrap`
+    brings it back on the far side, `pass` lets it leave, which raises Flow's `leaveBounds`.
+  - **Collisions** — a comma list of tag pairs, `player + hazard, player + pickup`. Two bodies
+    carrying a pair's tags raise Flow's `collide` when they start touching. Bodies whose tags no
+    pair names never collide. A pair naming a tag no body carries warns.
+  - **Zones** — **Add zone** adds a 200 × 200 square at the field's corner; set its **Zone** id,
+    **x** / **y** (its top-left corner) and **Width** / **Height**, in design pixels. A body
+    moving in or out raises Flow's `enterZone` / `leaveZone`. A zone wholly off the field warns.
+  See [Flow → Arcade](flow.md#arcade--the-play-field-signals-and-the-starter-flow) for the signals.
 - **Publishing:** Game Maker's publish and the desktop bake **refuse a match-3 or arcade config**,
   with no override. A free-play match-3 plays in the launcher's authoring preview, and a match-3
   decided by the server plays there against the test server's match-3 mock, but publishing a game
   that is not a slot is not switched on yet — and live real money for a server-decided match-3
-  also waits on a real provider's match-3 wire. An arcade game is refused because the game runtime
-  cannot play it yet. Set the family back to Slot to publish the project as a slot.
+  also waits on a real provider's match-3 wire. An arcade game plays in the authoring preview too,
+  and is refused for the same reason. Set the family back to Slot to publish the project as a slot.
 
 ## Coin board
 

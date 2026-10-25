@@ -1,0 +1,52 @@
+{
+	"version": 1,
+	"family": "arcade",
+	"providerName": "sample_provider",
+	"gameName": "Salmon Run",
+	"gameID": "sample_arcade",
+	"rtp": 0,
+	"numReels": 0,
+	"numRows": [],
+	"betModes": {},
+	"paylines": {},
+	"symbols": {},
+	"paddingReels": {},
+	"outcome": "rules",
+	"arcade": {
+		"field": {
+			"w": 1422,
+			"h": 800
+		},
+		"bodies": {
+			"arcadeSalmon": {
+				"shape": "box",
+				"w": 90,
+				"h": 44,
+				"tags": ["player"]
+			},
+			"arcadeBear": {
+				"shape": "circle",
+				"r": 46,
+				"tags": ["hazard"],
+				"edges": "pass"
+			},
+			"arcadeHook": {
+				"shape": "box",
+				"w": 24,
+				"h": 70,
+				"tags": ["hazard"],
+				"edges": "pass"
+			},
+			"arcadeFish": {
+				"shape": "circle",
+				"r": 22,
+				"tags": ["pickup"],
+				"edges": "pass"
+			}
+		},
+		"pairs": [
+			["player", "hazard"],
+			["player", "pickup"]
+		]
+	}
+}

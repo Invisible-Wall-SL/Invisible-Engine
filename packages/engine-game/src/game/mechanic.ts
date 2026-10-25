@@ -11,7 +11,7 @@ import { resolveFamily, resolveOutcome, type GameConfigDoc, type GameOutcome } f
  * results come from. Everything else (scenes, components, symbols, Flow) is data the shared runtime
  * already plays for every type.
  */
-export type MechanicId = 'reels' | 'match3';
+export type MechanicId = 'reels' | 'match3' | 'arcade';
 
 export interface GameMechanic {
 	id: MechanicId;
@@ -31,6 +31,8 @@ export interface GameMechanic {
 	wallet: boolean;
 	/** The board takes the pointer: a cell hit-test, selection and swaps. */
 	boardInput: boolean;
+	/** The game is a play field (§4.2): `<ArcadeStage />` and its loop stand in for the reel stack. */
+	playField: boolean;
 	/** The book events the mechanic adds to the shared runtime's union. */
 	bookEvents: readonly string[];
 	/** Why the runtime cannot play this mechanic yet, or `undefined` when it can. */
@@ -47,6 +49,7 @@ export const REELS_MECHANIC: GameMechanic = Object.freeze({
 	rgsSession: true,
 	wallet: true,
 	boardInput: false,
+	playField: false,
 	bookEvents: [],
 });
 
@@ -60,6 +63,7 @@ export const MATCH3_RULES_MECHANIC: GameMechanic = Object.freeze({
 	rgsSession: false,
 	wallet: false,
 	boardInput: true,
+	playField: false,
 	bookEvents: [],
 });
 
@@ -74,19 +78,41 @@ export const MATCH3_RGS_MECHANIC: GameMechanic = Object.freeze({
 	rgsSession: true,
 	wallet: true,
 	boardInput: true,
+	playField: false,
 	bookEvents: ['boardInit', 'swap', 'movesLeft', 'match3RoundEnd'],
 });
 
+/** A rules-decided arcade game (§4.2): a play field of moving bodies; no reels, no RGS, no wallet. */
+export const ARCADE_RULES_MECHANIC: GameMechanic = Object.freeze({
+	id: 'arcade',
+	outcome: 'rules',
+	spins: false,
+	bets: false,
+	interactiveRound: false,
+	rgsSession: false,
+	wallet: false,
+	boardInput: false,
+	playField: true,
+	bookEvents: [],
+});
+
 /**
- * The mechanic a config plays as. An arcade config (P10.8) has none yet, and the publish gate never
- * lets one reach the runtime; it is played as `reels`, with `unplayable` set so the boot refuses it.
+ * The mechanic a config plays as. An arcade game is decided by its rules (an RGS-decided one is the
+ * optional P10.10, and the config validator refuses it), so an arcade config that says otherwise is
+ * `unplayable` and the boot refuses it.
  */
 export function mechanicFor(doc: GameConfigDoc | null | undefined): GameMechanic {
 	const family = resolveFamily(doc);
 	if (family === 'match3')
 		return resolveOutcome(doc) === 'rules' ? MATCH3_RULES_MECHANIC : MATCH3_RGS_MECHANIC;
 	if (family === 'arcade')
-		return { ...REELS_MECHANIC, unplayable: 'the runtime cannot play an arcade game yet (P10.8)' };
+		return resolveOutcome(doc) === 'rules'
+			? ARCADE_RULES_MECHANIC
+			: {
+					...ARCADE_RULES_MECHANIC,
+					outcome: 'rgs',
+					unplayable: 'an arcade game decided by the RGS is not built yet (P10.10)',
+				};
 	return REELS_MECHANIC;
 }
 

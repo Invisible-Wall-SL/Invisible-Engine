@@ -111,7 +111,7 @@ import { recordDeterminismCue } from './determinism';
 import { eventEmitter } from './eventEmitter';
 import { stateApp } from './stateApp';
 import { stateLayoutDerived } from './stateLayout';
-import { boardEffect, boardEffectNames } from './flowBoardEffects';
+import { boardEffect, boardEffectNames, boardValue } from './flowBoardEffects';
 import { flowEffect, flowEffectNames } from './flowEffects';
 import { withMissingScreenReport } from './flowV2MissingScreens';
 import { enginePotsScreen, type EnginePotsScreen } from './flowV2PotsScreen';
@@ -803,8 +803,9 @@ export const createLinesFlowV2 = (
 		// turbo toggle mid-round scales the v2 interpreter's delays identically.
 		timeScale: stateBetDerived.timeScale,
 		// The bounded `$engine.*` reader — reused verbatim from the v1 wiring (one source of truth
-		// for what a guard/readout sees).
-		engineRead: linesEngineReader,
+		// for what a guard/readout sees); a family mechanic's own values (an arcade game's
+		// `random`) answer only a key it does not.
+		engineRead: (key) => linesEngineReader(key) ?? boardValue(key),
 		// The `showContainer.durationMs` pin — the shown scene's longest animation, in wall-clock ms.
 		containerAnimationMs,
 		// A `textMessage` node's `show`/`hide` exec toggles its FLOW-SHOWN flag in a reactive set;

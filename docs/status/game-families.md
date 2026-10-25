@@ -2,15 +2,160 @@
 
 > Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `invisible-game-config`, `invisible-game-maker`, then per phase
 
-**One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.6 are merged; P10.7
-(spawning) is built** and in review: a screen can hold a Spawn layer that Flow fills, empties and
-walks while the game runs; nothing uses it until arcade (P10.8). A match-3 project can be made in Game Maker as free
-play (P10.5) or real money (P10.6): in the second the bet deals the server's board, every swap is a
-`move` request, the server ends the round and it is collected once. It plays against the test
-server's `match3` mock on our own wire. Publishing a game that is not a slot stays off, and live
-real money waits on the partner (§9 #2).
+**One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.7 are merged; P10.8
+(arcade, rules-decided) is built** and in review: an arcade project can be made in Game Maker and
+plays as free play in the shared runtime — a catcher / dodger sample whose spawned bodies move on a
+fixed-step loop, collide by tag and keep score in Flow. A match-3 project can be made in Game Maker as
+free play (P10.5) or real money (P10.6): in the second the bet deals the server's board, every swap
+is a `move` request, the server ends the round and it is collected once. It plays against the test
+server's `match3` mock on our own wire. Publishing a game that is not a slot stays off, and live real
+money waits on the partner (§9 #2).
 
 ## Current state
+
+**P10.8 — Arcade, rules-decided (built 2026-10-25; in review).** §8's P10.8 row (§4.2, §3.4, §9 #6),
+in one PR.
+
+- **§6.4 re-checked first, as the plan asks: the shared `apps/lines` runtime stays.** Arcade shares
+  less with slots than match-3 does, but everything it needs beyond `motion.js` already lives in
+  that runtime: the Flow interpreter with variables, timers and keys (P10.3), spawn layers and their
+  ship chain (P10.7), components, the free-play boot branch (`<Authenticate freePlay>`, P10.5), the
+  boot-failure screen, determinism and live assets. A second app would first have to extract or copy
+  them (the drift §6.4 warns about). The size cost is the owner's already-accepted static cost
+  (below), with the per-family runtime build as the later fix — still one app. The A4 design also
+  keeps one runtime. So the recommendation held and the step went ahead.
+- **`motion.js`** (`engine-mechanics`, plain ESM + `motion.d.ts`, beside `board.js`):
+  `createFixedStep` (an accumulator at the config's `fixedHz`, at most 5 steps a frame, a backlog
+  dropped), `stepBody` / `step` (position += velocity · dt; per body `clamp` / `wrap` / `pass` at the
+  field's edges), `outsideEdge`, `touching` (box, circle, point), `overlaps(bodies, pairs)` by tag
+  pair (a uniform-grid broad phase above 64 bodies), `inZone`, and the static index
+  (`createStaticIndex` / `queryStatic` / `zonesOf`: a level's static shapes indexed once in a grid;
+  `scanStatic` is the full scan it must agree with). `stepBody` is the one-body step the A4 server
+  and a predicting device will share.
+- **The loop** (`engine-game` `arcadeLoop.ts`, `createArcadeLoop`): every spawned instance of the
+  game's spawn layers is a body (its component's shape, tags and edges from
+  `GameConfigDoc.arcade.bodies`, else a point that moves and touches nothing). A frame runs the
+  fixed steps its time holds — `step` → edges → `overlaps` → zones — then writes the bodies' new
+  places to the live set and raises the queued Flow signals in order; Flow is never inside a step.
+  Signals are edges: `collide {a, b, tagA, tagB}` when a configured pair starts touching,
+  `leaveBounds {instance, edge}` when a `pass` body that was on the field is wholly off it,
+  `enterZone` / `leaveZone {instance, zone}`. Actions `setVelocity`, `moveTo`, `setTag`, each aimed at
+  an `instance` or at every body carrying `tagged`; values `$engine.random` (seeded),
+  `fieldWidth`, `fieldHeight`. The same loop runs in the game and in the headless gate.
+- **The live set moves** (`engine-flow-v2` `spawn.ts`): `move(moves)` replaces each moved handle with
+  one at its new place (so `$live` and `get` read where it is now) and tells `subscribePlaces`
+  listeners once per layer; the set listeners are not told. `layers()` lists the declared layers.
+  `<SpawnLayer>` keeps a `$state` place per moved instance, so a frame of motion re-draws only what
+  moved.
+- **Tags** (§5.2's Rive item): a body's tags come from its component's config body and change at run
+  time with `setTag`; collision filters are tag pairs (`GameConfigDoc.arcade.pairs`); `tagged`
+  aims an action at every carrier (the "spawnable group").
+- **Config** (`game-config` `family.ts`, all optional, defaults dropped): a body's `edges`
+  (absent ⇒ `clamp`), `arcade.pairs` (`[tagA, tagB][]`, one pair either way round) and
+  `arcade.zones` (`{id, x, y, w, h}`, top-left, unique ids). `/config`'s Arcade section gains an
+  Edges column, a Collisions field (`player + hazard, …`) and a Zones table (`familyDoc.ts`
+  setters); the validator warns on a pair whose tag no body carries and a zone wholly off the field.
+- **The mechanic:** `ARCADE_RULES_MECHANIC` (`id: 'arcade'`; no spin, bet, RGS session, wallet or board
+  input) and a new `GameMechanic.playField` (false for every other mechanic). `mechanicFor` returns it
+  for an arcade rules config; an RGS-decided arcade config stays `unplayable` (P10.10).
+- **The runtime branch** (`apps/lines`): `Game.svelte` mounts `<ArcadeStage />` (in its own
+  `MainContainer`) in place of the reel stack when `mechanic.playField`, and the reel stack exactly as
+  before otherwise. `<ArcadeStage />` starts the loop once per page (`game/arcade.ts` `startArcade`:
+  the baked config's arcade rules, the field — the config's, else the screen's design size — the
+  declared spawn layers, `?arseed=` else `Math.random`), ticks it on the Pixi ticker and registers the
+  determinism probe's `state().arcade`. The loop's actions and values reach the Flow runtime through
+  the family registry (`flowBoardEffects.ts`: `registerBoardEffects`, new `registerBoardValues` /
+  `boardValue`; the env's `engineRead` is `linesEngineReader(key) ?? boardValue(key)`), so the Flow
+  runtime never imports the arcade module. Free play is P10.5's branch (`rgsSession: false`).
+- **The vocabulary** (`engine-flow-v2` `reference/arcade.ts`, `ARCADE_VOCAB`, registered): the standard
+  palette's load / tap / settings surfaces, sounds, camera and element FX; the four loop signals, the
+  three loop actions (`ARCADE_LOOP_ACTIONS`), the enum `ArcadeEdge`, the three values. `onTick`,
+  `onTimer`, `onInput`, the timers and spawning are P10.3 / P10.7 node kinds every vocabulary has.
+- **The starter flow = the sample** (`reference/arcadeSeed.ts`, `DRIVEN_SEEDS.arcade`): a salmon
+  dodger. The tap (and the loading screen's completion) start one round through the `startRound`
+  timer; a round sets SCORE 0, LIVES 3, spawns the salmon and starts three repeating spawners (bears
+  every 900 ms at 240 px/s, hooks 1400 ms at 380, fish 1700 ms at 200, at `random × field width`
+  above the field); ← / → (A / D) set the salmon's speed while held; `collide` with a `hazard`
+  despawns it and takes a life, with a `pickup` despawns it and scores 10; `leaveBounds` despawns;
+  at no lives the spawners stop, `roundOver` holds until the tap, the field is swept (`forEach` over
+  `$live.field`) and a new round starts.
+- **Game Maker** offers `arcade` ("Arcade"): `engine-layout` has its full scene set
+  (`referenceLayouts/arcade.ts`: loading, background, `basegame` = the spawn layer `field` at the
+  origin, cap 48, `arcadeHud` = SCORE / LIVES Text Boxes fed `var:score` / `var:lives`, `roundOver`)
+  and template (`templates/arcade.ts`). A new project is seeded with `arcade.rules.json`, the scene
+  set, the starter flow and the four placeholder components (`ARCADE_SAMPLE_COMPONENTS`, saved as the
+  project's own, create-only, in `projectScaffold.ts`). No outcome question: arcade is free play only.
+- **Publish:** `familyGate.ts` still refuses every non-slot config (switching publishing on for a
+  non-slot game stays the owner's call); a free-play arcade config now gets "plays in
+  the authoring preview, but publishing a game that is not a slot is not switched on yet".
+- **Gates:** `check:arcade-motion` (root, 18 checks: the fixed step, the same state at 30 / 60 / 144
+  fps and an uneven frame feed, the committed replay `fixtures/arcade-replay.json` (`--update`),
+  clamp / wrap / pass and `outsideEdge`, touching by shape, overlap by tag pair (order, a = the tagA
+  body, same-tag pairs once), the grid broad phase equal to the full test at 65 / 200 / 600 bodies and
+  any cell size, zones, and the static index equal to a full scan over 1,700 shapes);
+  `check:arcade-rules` (launcher, 68: the starter played headless on the real interpreter and loop —
+  one round per tap, the spawners, steering and the edge, hazards, pickups, one signal per touch,
+  falling off, the round over and again, seed replay; the loop's pairs, `tagged`, `setTag`, zones,
+  signal order, the live set's places; the mechanic; source scans that slots never mount or import
+  it; the sample's pieces agree; the publish refusal). `family.fixture.ts` covers the new config
+  fields. Re-pinned for arcade: `check:match3-rules` §8 (an RGS arcade config refuses to boot, a rules
+  one boots), `check:flow-publish-gate` (arcade in the scaffold loops, with its sample components),
+  `check:flow-spawn` and `check:flow-time-events` (the arcade starter is the one seed that spawns /
+  the second that keeps state).
+- **Verified by playing:** `scripts/playtest/arcade-play.mjs` on the branch runtime
+  ([playtest/arcade-sample.md](../playtest/arcade-sample.md)): one salmon at the start; bears, hooks
+  and fish falling; ← moved it 260 px in half a second and stopped on release; → held it at x = 1377;
+  three hazards ended the round on `roundOver` (SCORE 10 from a fish on the way); nothing spawned while
+  it held; its tap cleared the field and started again; the same seeds and keys on a second page
+  reached the same bodies; no request but the runtime and the snapshot; no page error.
+- **Bundle size** (the release build's `index.html`; `main` at 5915171 vs this branch): 3,707,559 B /
+  1,271,056 B gz → 3,725,930 B / 1,277,432 B gz: **+18.4 KB raw, +6.4 KB gz (+0.50 %)**, downloaded by
+  every game, run by none but an arcade one. Static, by the owner's decision (P10.5); the per-family
+  runtime build is the later fix.
+- **Slot parity:** every new path is keyed on `mechanic.playField`, which only an arcade config
+  sets; a slot's `Game.svelte` renders the reel stack exactly as before (the block moved into an
+  `{:else}`), its engine reads answer as before (the family registry answers nothing until an arcade
+  loop registers), and no slot layout has a spawn layer for `<SpawnLayer>`'s new place tracking.
+  Edited shared modules: `Game.svelte`, `flowV2Runtime.svelte.ts` (the `engineRead` line),
+  `flowBoardEffects.ts`, `determinism.ts` (the arcade probe), `spawn.ts` (`move`, `subscribePlaces`,
+  `layers`), `SpawnLayer.svelte`, `mechanic.ts`, `game-config` `family.ts` / `familyValidate.ts`.
+  The current-games harness is not edited.
+- **Chosen in P10.8, owner may overturn** (the plan does not fix them):
+  - **one PR**, not split;
+  - the loop is `arcadeLoop.ts` (plain TS, no runes) rather than the plan's `arcadeLoop.svelte.ts`, so
+    the headless gate runs the very file; the game's ticker and probe are `<ArcadeStage />`'s;
+  - a body's `x` / `y` is its **centre**; a zone is a **top-left** rectangle; the field is the play
+    field spawn layer's own space from its origin; the sample's components are drawn centred;
+  - **every spawned instance is a body**; one whose component has no config body is a point that moves
+    and never touches;
+  - edges are a per-body **`clamp` (default) / `wrap` / `pass`**; a clamped body keeps its velocity at
+    the edge; `leaveBounds` is only for `pass` bodies, and only once one that was on the field is
+    wholly off it (spawning above the field to fall in is not leaving);
+  - collision is opt-in by **tag pairs in the config** (`arcade.pairs`), not every tag against every
+    tag; signals are **edges** (once per touch / entry / exit), raised **after** the frame, not
+    awaited, in the order they happened;
+  - actions aim at an **`instance`, else every body `tagged`**; `setTag`'s `on` defaults to true;
+  - randomness is **`$engine.random`**, seeded by `?arseed=` (else `Math.random`, itself seeded under
+    `?ie_determinism=`); the runtime's engine read falls through to the family registry for a key the
+    lines reader does not answer;
+  - places are written **once per frame** (the last step's), not interpolated between steps;
+  - the loop **outlives the play field's mount** (a screen change keeps the bodies) and stops
+    stepping while the field is off screen;
+  - the sample: placeholder shapes, keyboard steering, three lives, 10 points a fish, the spawner
+    rates above, the round started through a 50 ms `startRound` timer (two entries ask; a timer
+    restarted is one round);
+  - the validation messages and the config's UI wording.
+- **Not done here:** the Salmons art (owner follow-up: swap it in when S0 lands; this build read no
+  R2); touch / pointer steering (the `pointer` controller, P10.11); a current-games fixture for the
+  sample (it would edit the harness); `/flow-v2` Preview running the loop; solid response, behaviours
+  and the camera (P10.11–P10.13); publishing.
+- **Known limits** (none reachable by a slot game):
+  - the field is one size for every layout; the sample is laid out for the desktop design size;
+  - the place a body is drawn at is the last fixed step's, so motion can judder slightly when the
+    display rate is not a multiple of the step rate;
+  - a steering key held across the round's end does not steer the new round until it is pressed
+    again (the round-over chain stops the salmon, and key repeats are not new presses);
+  - an `onTick` / timer chain that spawns many bodies per frame is bounded by the layer's cap only.
 
 **P10.7 — Spawning (built 2026-10-25; in review).** §8's P10.7 row (§3.3), in one PR. No game uses
 any of it yet.
@@ -702,19 +847,25 @@ game, bundle or screen changes.
 5. The State machine tab's stage preview and the `/flow-v2` preview do not yet drive drag, move,
    swipe or Align Target (P10.4's "Not done here").
 6. The `/config` **Characters** link for arcade (§6.2) lands with Invisible Characters (P10.11).
-7. **Confirm no custom kind is named `match3` or `arcade`** in R2 (`_shared/editor-kinds/`). A
-   `match3` one is now hidden behind the built-in (and warned about in the launcher log, never
-   overwritten); an `arcade` one would be when P10.8 lands. Needs R2 access, which this build did
-   not have.
+7. **Confirm no custom kind is named `match3` or `arcade`** in R2 (`_shared/editor-kinds/`). Either
+   is now hidden behind its built-in (and warned about in the launcher log, never overwritten).
+   Needs R2 access, which neither build had.
 8. The runtime still prices and draws the `match3` arm as the lines default (`payoutDivisor`,
    `winLineShapeFor`). An RGS match-3 game never reads either (its wins are the server's amounts,
    presented by the cascade, with no win lines), so P10.6 left them; honour the arm (divisor 1) if
    anything starts reading it.
 9. **A per-family runtime build** (owner, 2026-10-25, later): `_runtime/match3` built with the
    match-3 branch, slot runtimes built without it (a build-time define + dead-code elimination), so
-   slot bundles stop carrying the match-3 code (P10.5 + P10.6: about +24 KB raw / +8.6 KB gz).
+   slot bundles stop carrying the match-3 code (P10.5 + P10.6: about +24 KB raw / +8.6 KB gz) and the
+   arcade code (P10.8: +18.4 KB raw / +6.4 KB gz).
 10. Add the RGS sample as a current-games fixture (`cg-match3-rgs`) and the harness's `protocolFor`
-    copy, in a harness change the owner reviews.
+    copy, in a harness change the owner reviews; likewise an arcade fixture (`cg-arcade`), which
+    needs a key-press step in the screen-script format.
+11. **Swap the Salmons art into the arcade sample** (owner): the sample draws placeholder shapes. When
+    the Salmons art pass (S0) lands, re-skin `arcadeSalmon` / `arcadeBear` / `arcadeHook` /
+    `arcadeFish` (or a Salmons project's own components) in the Component Editor and size the config
+    bodies to the art.
+12. Touch steering for the arcade sample: the `pointer` controller (P10.11).
 
 ## Blocked (owner / external)
 
@@ -724,6 +875,10 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-25 — **P10.8 built: arcade, rules-decided.** `motion.js`, the fixed-step loop, tags,
+  `ARCADE_VOCAB` and its starter (a salmon dodger), `<ArcadeStage />`, the arcade scene set in Game
+  Maker, `check:arcade-motion` / `check:arcade-rules`. §6.4 re-checked: the shared runtime stays.
+  Detail above.
 - 2026-10-25 — **P10.7 built: spawning.** The `spawnLayer` node, the Spawn / Despawn / Instance ref
   nodes, `$live` sets, the cap, and spawnables on the ship chain. Detail above.
 - 2026-10-25 — **The A4 design is approved** (owner): all eight decisions in

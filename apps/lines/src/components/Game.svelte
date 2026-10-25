@@ -345,6 +345,7 @@
 	import OverlayTokens from './OverlayTokens.svelte';
 	import RespinBoard from './RespinBoard.svelte';
 	import Match3Input from './Match3Input.svelte';
+	import ArcadeStage from './ArcadeStage.svelte';
 	import { gameMechanic } from '../game/mechanic';
 	import CoinBoardLinesSelector from './CoinBoardLinesSelector.svelte';
 	import FlightLayer from './FlightLayer.svelte';
@@ -2675,23 +2676,31 @@
 			{/if}
 		{/snippet}
 
-		<MainContainer>
-			<!-- ELEMENT FX on the reels: the reel stack's own container, aimed at as `reels` by a Flow
+		<!-- An arcade game's play field (`ArcadeStage.svelte`) stands in for the reel stack: it has no
+		     board. Only a mechanic that is a play field mounts it, so a slot game renders the reel stack
+		     exactly as before. -->
+		{#if mechanic.playField}
+			<MainContainer>
+				<ArcadeStage />
+			</MainContainer>
+		{:else}
+			<MainContainer>
+				<!-- ELEMENT FX on the reels: the reel stack's own container, aimed at as `reels` by a Flow
 			     `elementEffect` and playing the reel grid node's authored effects. Neither adds a child. -->
-			<Anchor name={ELEMENT_FX_REELS_TARGET} />
-			{#key reelFx}
-				{#if reelFx.length}
-					<ElementFxPlayer entries={reelFx} />
-				{/if}
-			{/key}
-			<BoardDrive
-				drive={basegameDrive}
-				node={basegameReelGrid}
-				layoutType={context.stateLayoutDerived.layoutType()}
-				layoutHeld={!!basegameHeldReelGrid}
-			>
-				{#if stateGameDerived.anticipationActive()}
-					<!-- Reel-anticipation mode (Phase 3): a dedicated camera wraps the reel stack +
+				<Anchor name={ELEMENT_FX_REELS_TARGET} />
+				{#key reelFx}
+					{#if reelFx.length}
+						<ElementFxPlayer entries={reelFx} />
+					{/if}
+				{/key}
+				<BoardDrive
+					drive={basegameDrive}
+					node={basegameReelGrid}
+					layoutType={context.stateLayoutDerived.layoutType()}
+					layoutHeld={!!basegameHeldReelGrid}
+				>
+					{#if stateGameDerived.anticipationActive()}
+						<!-- Reel-anticipation mode (Phase 3): a dedicated camera wraps the reel stack +
 							 the anticipation overlays (rig stack + grey-out) so the zoom/pan never fights
 							 MainContainer or the editor coordinate boxes. Both are inside the camera so they
 							 zoom together; the camera + overlays are identity until a reel arms. The camera is
@@ -2704,20 +2713,21 @@
 							 overlays. That also takes the geometry-bound anticipation GREY-OUT down with it.
 							 The per-symbol win dim is a different feature entirely (`SYMBOL_DIM_TINT` through
 							 `SymbolWrap`, no geometry) and is untouched. -->
-					{#if stateGame.anticipationZoom}
-						<AnticipationCamera>
+						{#if stateGame.anticipationZoom}
+							<AnticipationCamera>
+								{@render reelStack()}
+								<Anticipations />
+							</AnticipationCamera>
+						{:else}
 							{@render reelStack()}
 							<Anticipations />
-						</AnticipationCamera>
+						{/if}
 					{:else}
 						{@render reelStack()}
-						<Anticipations />
 					{/if}
-				{:else}
-					{@render reelStack()}
-				{/if}
-			</BoardDrive>
-		</MainContainer>
+				</BoardDrive>
+			</MainContainer>
+		{/if}
 
 		{#if basegameMount}
 			{#if basegameMountAboveReel && basegameMountAboveReel.nodes.length}

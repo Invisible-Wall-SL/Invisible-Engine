@@ -93,7 +93,32 @@ function validateArcade(doc: GameConfigDoc): GameConfigIssue[] {
 				'An arcade game decided by the RGS is not built yet, so an arcade game is decided by its own rules.',
 		});
 	}
-	const { fixedHz } = resolveArcade(doc);
+	const { fixedHz, bodies, pairs, zones } = resolveArcade(doc);
+	// A pair naming a tag no body carries never collides: almost always a typo.
+	const carried = new Set(Object.values(bodies).flatMap((body) => body.tags ?? []));
+	pairs.forEach((pair, i) => {
+		const missing = pair.filter((tag) => !carried.has(tag));
+		if (missing.length) {
+			issues.push({
+				severity: 'warning',
+				path: `arcade.pairs[${i}]`,
+				message: `No body has the tag ${[...new Set(missing)].map((t) => `"${t}"`).join(' or ')}, so ${pair.join(' + ')} never collides.`,
+			});
+		}
+	});
+	const field = doc.arcade?.field;
+	zones.forEach((zone, i) => {
+		if (
+			field &&
+			(zone.x >= field.w || zone.y >= field.h || zone.x + zone.w <= 0 || zone.y + zone.h <= 0)
+		) {
+			issues.push({
+				severity: 'warning',
+				path: `arcade.zones[${i}]`,
+				message: `The zone "${zone.id}" lies wholly outside the play field, so no body can enter it.`,
+			});
+		}
+	});
 	if (fixedHz < ARCADE_FIXED_HZ_RANGE.min || fixedHz > ARCADE_FIXED_HZ_RANGE.max) {
 		issues.push({
 			severity: 'warning',
