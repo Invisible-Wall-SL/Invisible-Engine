@@ -8,7 +8,8 @@
 // bodies that fall; ArrowLeft / ArrowRight steer the salmon and the field's edge holds it; what
 // touches the salmon is despawned and what falls off the bottom is too; three hazards end the round
 // on the round-over screen, where nothing spawns; its tap clears the field and starts again; the
-// same seeds and keys replay to the same bodies on a second page; free play sends the RGS nothing;
+// same seeds and keys replay to the same bodies on a second page; a portrait screen starts the
+// salmon at the portrait field's bottom centre; free play sends the RGS nothing;
 // no page error. It builds its own snapshot, so the current-games harness is not touched.
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
@@ -135,8 +136,14 @@ const params = new URLSearchParams({
 const KEYS = { ArrowLeft: 37, ArrowRight: 39 };
 
 /** Open the game on a fresh page and play into a round. */
-async function boot(profile) {
+async function boot(profile, metrics) {
 	const page = await openPage(headlessShell(opt.chrome), join(work, profile));
+	if (metrics)
+		await page.page('Emulation.setDeviceMetricsOverride', {
+			...metrics,
+			deviceScaleFactor: 1,
+			mobile: false,
+		});
 	await page.page('Page.addScriptToEvaluateOnNewDocument', { source: HOOK });
 	await page.navigate(`${server.origin}/${KEY}/?${params}`);
 	for (let i = 0; i < 300; i++) {
@@ -266,6 +273,18 @@ try {
 		await g.page.close();
 		return s;
 	};
+	// A portrait screen: the field is the portrait layout's design size, so the salmon starts at its
+	// bottom centre.
+	const tall = await boot('portrait', { width: 720, height: 1280 });
+	await tall.play([{ op: 'step', frames: 10 }]);
+	const tallStart = salmonOf(await tall.state());
+	verdict(
+		'on a portrait screen the field is the portrait layout’s: the salmon starts at its bottom centre',
+		tallStart?.x === 400 && tallStart?.y === 1422 - 80,
+		tallStart,
+	);
+	await tall.page.close();
+
 	const a = await runScript('replay-a');
 	const b = await runScript('replay-b');
 	verdict(

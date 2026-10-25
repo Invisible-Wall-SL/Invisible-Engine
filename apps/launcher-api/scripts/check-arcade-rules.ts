@@ -126,7 +126,7 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 	const rules = resolveArcade(SEED_CONFIG);
 	const loop = createArcadeLoop({
 		rules,
-		field: rules.field ?? ARCADE_SAMPLE_FIELD,
+		field: () => rules.field ?? ARCADE_SAMPLE_FIELD,
 		layers: () => store.layers(),
 		live: store,
 		seed,
@@ -466,7 +466,7 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 	const store = createSpawnStore();
 	const loop = createArcadeLoop({
 		rules: resolveArcade(SEED_CONFIG),
-		field: ARCADE_SAMPLE_FIELD,
+		field: () => ARCADE_SAMPLE_FIELD,
 		layers: () => store.layers(),
 		live: store,
 		seed: 1,
@@ -489,6 +489,32 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 	check(
 		'5c. a disposed loop runs no frame',
 		loop.frame(FRAME * 5) === 0 && store.live(ARCADE_FIELD_LAYER)[0]?.y === y,
+	);
+	loop.effects.setVelocity({ tagged: 'pickup', vy: 1 });
+	check('5c. …and an action does not bring it back', loop.bodies().length === 0);
+}
+
+// ── 5d. the field follows the layout ──────────────────────────────────────────────────────────
+{
+	const store = createSpawnStore();
+	store.declare({ id: 'f', spawnable: ['p'], cap: 4, placement: 'free' });
+	let area = { w: 1422, h: 800 };
+	const loop = createArcadeLoop({
+		rules: { fixedHz: 60, bodies: { p: { shape: 'box', w: 90, h: 44 } }, pairs: [], zones: [] },
+		field: () => area,
+		layers: () => ['f'],
+		live: store,
+		seed: 1,
+		signal: () => {},
+	});
+	const r = store.spawn('f', 'p', { x: 1300, y: 700 });
+	loop.frame(FRAME);
+	area = { w: 800, h: 1422 };
+	loop.frame(FRAME);
+	check(
+		'5d. a layout change moves the edges: a body past the new width is held inside it',
+		r.ok && loop.bodies()[0]?.x === 800 - 45 && loop.value('fieldWidth') === 800,
+		JSON.stringify(loop.bodies()),
 	);
 }
 
@@ -536,7 +562,7 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 			pairs: [['player', 'enemy']],
 			zones: [{ id: 'pool', x: 100, y: 0, w: 50, h: 50 }],
 		},
-		field: { w: 400, h: 400 },
+		field: () => ({ w: 400, h: 400 }),
 		layers: () => ['f'],
 		live: store,
 		seed: 1,
@@ -617,7 +643,7 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 			pairs: [['player', 'enemy']],
 			zones: [],
 		},
-		field: { w: 100, h: 100 },
+		field: () => ({ w: 100, h: 100 }),
 		layers: () => ['f'],
 		live: ordered,
 		seed: 1,
@@ -651,7 +677,7 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 		(() => {
 			const a = createArcadeLoop({
 				rules: { fixedHz: 60, bodies: {}, pairs: [], zones: [] },
-				field: { w: 7, h: 9 },
+				field: () => ({ w: 7, h: 9 }),
 				layers: () => [],
 				live: store,
 				seed: 'x',
@@ -659,7 +685,7 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 			});
 			const b = createArcadeLoop({
 				rules: { fixedHz: 60, bodies: {}, pairs: [], zones: [] },
-				field: { w: 7, h: 9 },
+				field: () => ({ w: 7, h: 9 }),
 				layers: () => [],
 				live: store,
 				seed: 'x',
@@ -787,7 +813,7 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 		.filter((n) => ARCADE_LOOP_ACTIONS.includes(n));
 	const loop = createArcadeLoop({
 		rules: resolveArcade(SEED_CONFIG),
-		field: { w: 1, h: 1 },
+		field: () => ({ w: 1, h: 1 }),
 		layers: () => [],
 		live: createSpawnStore(),
 		seed: 1,
@@ -839,7 +865,24 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 	check(
 		"10. the seed config names no field: it is the layout's design size, and the flow places by it",
 		SEED_CONFIG.arcade?.field === undefined &&
-			!JSON.stringify(ARCADE_DRIVEN_SEED_DOC.graph).includes(String(ARCADE_SAMPLE_FIELD.w)),
+			(() => {
+				const nodes = ARCADE_DRIVEN_SEED_DOC.graph.nodes;
+				const reads = (key: string) =>
+					JSON.stringify(nodes).includes(JSON.stringify({ on: 'engine', key }));
+				const spawners = nodes.filter(
+					(n) => n.kind === 'spawn' && n.componentId !== ARCADE_SAMPLE.player,
+				);
+				return (
+					spawners.length === 3 &&
+					spawners.every(
+						(n) =>
+							JSON.stringify(n.inputs?.x) ===
+							JSON.stringify({ kind: 'accessor', path: { on: 'engine', key: 'randomX' } }),
+					) &&
+					reads('fieldWidth') &&
+					reads('fieldHeight')
+				);
+			})(),
 	);
 	check(
 		"10. the vocabulary's loop signals are exactly the loop's",

@@ -17,7 +17,7 @@
 
 	const context = getContext();
 	const app = getContextApp();
-	const loop = startArcade(context.stateLayoutDerived.mainLayout());
+	const loop = startArcade(() => context.stateLayoutDerived.mainLayout());
 
 	$effect(() => {
 		const ticker = app.stateApp.pixiApplication?.ticker;

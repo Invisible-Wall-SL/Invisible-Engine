@@ -17,8 +17,9 @@
  *      `MATCH3_BOARD_ACTIONS` by `check:match3-rules`) or an arcade loop action
  *      (`ARCADE_LOOP_ACTIONS`, pinned by `check:arcade-rules`), each cue an emitter member (the
  *      generated `emitterVocabulary.ts`, kept fresh by `gen:flow-vocab:check`), each value and
- *      collection a `linesEngineReader` key or an arcade loop value (`ARCADE_LOOP_VALUES`) — and each Hold and Win cue carries the emitter member's fields. A
- *      planted unbacked action is caught.
+ *      collection a `linesEngineReader` key or an arcade loop value (`ARCADE_LOOP_VALUES`) — and
+ *      each Hold and Win cue carries the emitter member's fields. A planted unbacked action is
+ *      caught.
  *   5. The starter flow validates with no error, keeps the feature in `modes.holdAndWin` and the base
  *      game in the global graph, owns exactly the beats the runtime backs, and declares the Hold and
  *      Win template's screens it shows and none of the free-spin ones or the tap-held intro/outro.

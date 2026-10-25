@@ -2706,7 +2706,7 @@
 								 zoom together; the camera + overlays are identity until a reel arms. The camera is
 								 gated on the Flow-authored `anticipationZoom` toggle (default on ⇒ Phase 3 unchanged);
 								 off ⇒ the overlays render without the zoom (rig stack + grey-out only).
-	
+
 								 `anticipationActive()` rather than the raw flag: on a swap-in-place board the whole
 								 feature stands down (there is no roll to hold), and the `{:else}` here is the exact
 								 path a game with the mode off already takes — the bare reel stack, no camera, no

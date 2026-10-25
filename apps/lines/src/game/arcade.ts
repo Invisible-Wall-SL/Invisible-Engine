@@ -37,15 +37,20 @@ const seedOf = (): string => {
  * Start the loop, once per page. The loop outlives the play field's mount: a screen change that
  * remounts it goes on with the bodies it has.
  *
- * `designSize` is the screen's: the field when the config names none.
+ * `designSize` reads the current layout's design size: the field when the config names none, so a
+ * rotated device moves the field's edges with it.
  */
-export const startArcade = (designSize: { width: number; height: number }): ArcadeLoop => {
+export const startArcade = (designSize: () => { width: number; height: number }): ArcadeLoop => {
 	if (loop) return loop;
 	const rules = resolveArcade(normalizeGameConfigDoc(bakedGameConfig()));
 	const live = spawnStore();
 	loop = createArcadeLoop({
 		rules,
-		field: rules.field ?? { w: designSize.width, h: designSize.height },
+		field: () => {
+			if (rules.field) return rules.field;
+			const { width, height } = designSize();
+			return { w: width, h: height };
+		},
 		layers: () => live.layers(),
 		live,
 		seed: seedOf(),

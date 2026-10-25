@@ -18,8 +18,8 @@
  *     every body tagged `player`).
  *   - `collide` with a `hazard` despawns it and takes a life; with a `pickup` despawns it and scores.
  *   - `leaveBounds` despawns whatever fell off the field.
- *   - At no lives (`onVariable` lives crosses 0) the timers stop, the round-over screen holds until a tap, the field is cleared
- *     (`forEach` over `$live.field`) and a new round starts.
+ *   - At no lives (`onVariable` lives crosses 0) the timers stop, the round-over screen holds until
+ *     a tap, the field is cleared (`forEach` over `$live.field`) and a new round starts.
  *
  * The variables are `game`-scoped: an arcade round starts here, not at a spin press.
  */

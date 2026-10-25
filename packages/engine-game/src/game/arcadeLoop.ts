@@ -54,8 +54,9 @@ export interface ArcadeRules {
 
 export interface ArcadeLoopOptions {
 	rules: ArcadeRules;
-	/** The play field: the config's `field`, else the screen's design size. */
-	field: Field;
+	/** The play field: the config's `field`, else the current layout's design size. Read again
+	 *  each step and each value read, so a layout change (a rotated device) moves the edges. */
+	field(): Field;
 	/** The spawn layers whose instances are bodies, read again each frame: a layer declared after the
 	 *  loop started (its screen's flow built later) is watched from then on. */
 	layers(): readonly string[];
@@ -123,7 +124,7 @@ function bodyFor(instance: SpawnedInstance, rules: ArcadeRules): LoopBody {
 }
 
 export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
-	const { rules, field, live, signal } = options;
+	const { rules, live, signal, field } = options;
 	const clock = createFixedStep({ hz: rules.fixedHz });
 	const rng: Rng = createRng(options.seed);
 	const zoneIndex: StaticIndex<ArcadeZone> = createStaticIndex(rules.zones);
@@ -156,12 +157,13 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 				const body = bodyFor(instance, rules);
 				bodies.set(instance.id, body);
 				// One spawned off the field (above it, to fall in) has not left it.
-				const edge = outsideEdge(body, field);
+				const edge = outsideEdge(body, field());
 				if (edge) outside.set(body.id, edge);
 			}
 			watched.set(layer, ids);
 		});
 	const watchNewLayers = () => {
+		if (disposed) return;
 		for (const layer of options.layers()) {
 			if (watched.has(layer)) continue;
 			watched.set(layer, new Set());
@@ -183,10 +185,11 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 	const runStep = () => {
 		const list = [...bodies.values()];
 		for (const body of list) if (body.vx || body.vy) moved.add(body.id);
-		step(list, clock.dt, field);
+		const area = field();
+		step(list, clock.dt, area);
 		for (const body of list) {
 			if ((body.edges ?? 'clamp') !== 'pass') continue;
-			const edge = outsideEdge(body, field);
+			const edge = outsideEdge(body, area);
 			if (edge && !outside.has(body.id)) {
 				outside.set(body.id, edge);
 				queue.push({ name: ARCADE_SIGNALS.leaveBounds, payload: { instance: handle(body), edge } });
@@ -290,9 +293,9 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 		effects,
 		value(key) {
 			if (key === ARCADE_VALUES.random) return rng();
-			if (key === ARCADE_VALUES.randomX) return rng() * field.w;
-			if (key === ARCADE_VALUES.fieldWidth) return field.w;
-			if (key === ARCADE_VALUES.fieldHeight) return field.h;
+			if (key === ARCADE_VALUES.randomX) return rng() * field().w;
+			if (key === ARCADE_VALUES.fieldWidth) return field().w;
+			if (key === ARCADE_VALUES.fieldHeight) return field().h;
 			return undefined;
 		},
 		get steps() {

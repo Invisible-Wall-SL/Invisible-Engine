@@ -162,7 +162,8 @@ const KEPT_ENUMS = new Set([
 	'SoundName',
 ]);
 
-/** The `$engine` values the arcade loop answers (`createArcadeLoop`'s `value`). */
+/** The `$engine` values the arcade loop answers (`createArcadeLoop`'s `value`, whose `ARCADE_VALUES`
+ *  `check:arcade-rules` pins this list to: add a value in both places). */
 export const ARCADE_LOOP_VALUES: readonly string[] = [
 	'random',
 	'randomX',

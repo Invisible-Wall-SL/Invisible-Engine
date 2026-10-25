@@ -41,8 +41,9 @@ in one PR.
   `leaveBounds {instance, edge}` when a `pass` body that was on the field is wholly off it,
   `enterZone` / `leaveZone {instance, zone}`. Actions `setVelocity`, `moveTo`, `setTag`, each aimed at
   an `instance` or at every body carrying `tagged`; values `$engine.random` and `randomX`
-  (seeded), `fieldWidth`, `fieldHeight`. Its layers are read each frame (a getter), so a layer
-  declared after the loop started is watched from then on. The same loop runs in the game and in
+  (seeded), `fieldWidth`, `fieldHeight`. Its layers and its field are getters, read each frame and
+  each step: a layer declared after the loop started is watched from then on, and the field follows
+  the layout. A disposed loop runs no frame and no action revives it. The same loop runs in the game and in
   the headless gate.
 - **The live set moves** (`engine-flow-v2` `spawn.ts`): `move(moves)` replaces each moved handle with
   one at its new place (so `$live` and `get` read where it is now) and tells `subscribePlaces`
@@ -100,10 +101,10 @@ in one PR.
   clamp / wrap / pass and `outsideEdge`, touching by shape, overlap by tag pair (order, a = the tagA
   body, same-tag pairs once), the grid broad phase equal to the full test at 65 / 200 / 600 bodies and
   any cell size, zones, and the static index equal to a full scan over 1,700 shapes);
-  `check:arcade-rules` (launcher, 73: the starter played headless on the real interpreter and loop —
+  `check:arcade-rules` (launcher, 75: the starter played headless on the real interpreter and loop —
   one round per tap, the spawners, steering and the edge, hazards, pickups, one signal per touch,
   falling off, the round over and again, two hazards in one frame ending it once, a layer declared
-  after the loop started, a disposed loop, seed replay; the loop's pairs, `tagged`, `setTag`, zones,
+  after the loop started, a disposed loop, the field following a layout change, seed replay; the loop's pairs, `tagged`, `setTag`, zones,
   signal order, the live set's places; the mechanic; source scans that slots never mount or import
   it; the sample's pieces agree; the publish refusal). `family.fixture.ts` covers the new config
   fields. Re-pinned for arcade: `check:match3-rules` §8 (an RGS arcade config refuses to boot, a rules
@@ -120,9 +121,10 @@ in one PR.
   and fish falling; ← moved it 260 px in half a second and stopped on release; → held it at x = 1377;
   three hazards ended the round on `roundOver` (SCORE 10 from a fish on the way); nothing spawned while
   it held; its tap cleared the field and started again; the same seeds and keys on a second page
-  reached the same bodies; no request but the runtime and the snapshot; no page error.
+  reached the same bodies; on a portrait screen the salmon started at the portrait field's bottom
+  centre (400, 1342); no request but the runtime and the snapshot; no page error.
 - **Bundle size** (the release build's `index.html`; `main` at 5915171 vs this branch): 3,707,559 B /
-  1,271,056 B gz → 3,726,502 B / 1,277,660 B gz: **+18.9 KB raw, +6.6 KB gz (+0.51 %)**, downloaded by
+  1,271,056 B gz → 3,726,583 B / 1,277,681 B gz: **+19.0 KB raw, +6.6 KB gz (+0.51 %)**, downloaded by
   every game, run by none but an arcade one. Static, by the owner's decision (P10.5); the per-family
   runtime build is the later fix.
 - **Slot parity:** every new path is keyed on `mechanic.playField`, which only an arcade config
@@ -164,8 +166,10 @@ in one PR.
   sample (it would edit the harness); `/flow-v2` Preview running the loop; solid response, behaviours
   and the camera (P10.11–P10.13); publishing.
 - **Known limits** (none reachable by a slot game):
-  - the field is the layout's design size when the loop starts (the seed names none); turning the
-    device mid-round keeps the round's field, and the browser playtest plays the desktop layout;
+  - with no `arcade.field` (the seed names none) the field is the current layout's design size,
+    read every step, so a rotated device moves the edges at once; bodies already placed keep
+    their places (a clamped one is pulled inside the new edge); the playtest plays desktop and
+    boots portrait;
   - the place a body is drawn at is the last fixed step's, so motion can judder slightly when the
     display rate is not a multiple of the step rate;
   - a steering key held across the round's end does not steer the new round until it is pressed
@@ -872,7 +876,7 @@ game, bundle or screen changes.
 9. **A per-family runtime build** (owner, 2026-10-25, later): `_runtime/match3` built with the
    match-3 branch, slot runtimes built without it (a build-time define + dead-code elimination), so
    slot bundles stop carrying the match-3 code (P10.5 + P10.6: about +24 KB raw / +8.6 KB gz) and the
-   arcade code (P10.8: +18.9 KB raw / +6.6 KB gz).
+   arcade code (P10.8: +19.0 KB raw / +6.6 KB gz).
 10. Add the RGS sample as a current-games fixture (`cg-match3-rgs`) and the harness's `protocolFor`
     copy, in a harness change the owner reviews; likewise an arcade fixture (`cg-arcade`), which
     needs a key-press step in the screen-script format.
