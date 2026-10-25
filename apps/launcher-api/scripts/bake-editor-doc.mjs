@@ -1181,7 +1181,7 @@ async function main() {
 			// never fall through to "no config", which would ship the template's prices instead.
 			if (gcRes.status === 409) {
 				const out = await gcRes.json().catch(() => ({}));
-				// The family gate: a match-3 or arcade config the runtime cannot play yet. No override.
+				// The family gate: a config the runtime cannot play yet. No override.
 				if (out?.reason === 'unplayable-family') {
 					refuseAtGate({
 						gate: 'unplayable-family',

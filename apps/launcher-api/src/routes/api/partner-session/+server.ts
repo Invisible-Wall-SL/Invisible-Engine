@@ -1,7 +1,10 @@
 import { json, redirect } from '@sveltejs/kit';
 import { ENV } from '$lib/server/env';
+import { partnerRgsRefusal } from '$lib/server/familyGate';
+import { loadGameConfigDoc } from '$lib/server/gameConfigStorage';
 import { getGame } from '$lib/server/games';
-import { canAccessProject } from '$lib/server/projects';
+import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
+import { canAccessProject, projectClientKey } from '$lib/server/projects';
 import { assertAlias, assertVersionPath, listSealedVersions } from '$lib/server/partnerDelivery';
 import {
 	PartnerRgsError,
@@ -66,6 +69,16 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 			!(await canAccessProject(locals.user.id, locals.user.role, game.projectKey)))
 	) {
 		return json({ error: `No game card for key "${key}"` }, { status: 404, headers: NO_STORE });
+	}
+	// Only a slot reaches a partner (`partnerRgsRefusal`). Read before minting, from the project's
+	// config: an R2 error refuses rather than mint for a game of unknown family, and no stored config
+	// reads as the slot the runtime would play. A card with no project has no config to read.
+	if (game.projectKey !== null) {
+		const clientKey = (await projectClientKey(game.projectKey)) ?? UNASSIGNED_CLIENT;
+		const doc = await loadGameConfigDoc(clientKey, game.projectKey).catch(() => undefined);
+		const refusal =
+			doc === undefined ? 'The game config could not be read.' : partnerRgsRefusal(doc);
+		if (refusal) return json({ error: refusal }, { status: 409, headers: NO_STORE });
 	}
 
 	// Minting is the only fallible step, so it is the only thing inside the catch. `redirect()`

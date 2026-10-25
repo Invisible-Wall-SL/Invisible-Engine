@@ -7,10 +7,62 @@
 walks while the game runs; nothing uses it until arcade (P10.8). A match-3 project can be made in Game Maker as free
 play (P10.5) or real money (P10.6): in the second the bet deals the server's board, every swap is a
 `move` request, the server ends the round and it is collected once. It plays against the test
-server's `match3` mock on our own wire. Publishing a game that is not a slot stays off, and live
-real money waits on the partner (§9 #2).
+server's `match3` mock on our own wire. **Publishing is on for every family the runtime plays**
+(owner, 2026-10-25; in review): a match-3 game publishes to our test server; delivery stays
+slot-only, and live real money waits on the partner (§9 #2).
 
 ## Current state
+
+**Publishing playable non-slot games (built 2026-10-25; in review).** The owner switched §9 #26
+on. In one launcher-side PR:
+
+- **The gate is on playability, not family.** `familyGate.ts` refuses a config only while
+  `mechanicFor(config).unplayable` (`engine-game`) is set, the same answer that stops the runtime's
+  boot. Match-3, rules or RGS, publishes now; arcade publishes once P10.8 declares its mechanic
+  playable, with no change in the launcher. Same gate in the online publish and in the desktop
+  bake's config export (`/api/game-config/doc`).
+- **`freePlay`, a protocol for every rules game** (§6.3). The contract (`deriveMockContract`) deals
+  a rules-decided config `freePlay`, whatever its kind, with no grid, so the publish's manifest
+  entry and the test server's live re-read agree. The test server's `freePlay` mock refuses every
+  request (`403 ERR_FREE_PLAY`; a CORS preflight still answers) and opens no session. It is in
+  every protocol list: `MOCK_PROTOCOLS` in `testServerManifest.ts`, the test server's
+  `MOCK_PROTOCOLS` / `protocolOf`, both publish scripts and `MAPPINGS` (`PUBLIC_RGS_GAME`). The
+  project card's protocol-drift chip expects `freePlay` for a rules config. An RGS match-3 game
+  keeps `match3`.
+- **Delivery stays slot-only.** `scripts/delivery-family-gate.mjs` (used by `build-delivery.mjs`
+  after the build or `--skip-build`, on the config the bake wrote; no override) passes only a slot.
+  It refuses a rules game for any delivery profile, an RGS match-3 game until the partner wire
+  exists (§9 #2), and every other family (it fails closed). The runtime's P10.5 refusal of a
+  free-play game under a delivery profile is the second wall.
+- **An RGS match-3 game never talks to a partner RGS.** Published, it has a stable URL, and the
+  shared runtime's `?rgs_profile=` could point it at a partner. `<Authenticate mockOnly>` (passed
+  `gameMechanic().interactiveRound` by `apps/lines`' layout) refuses it under any delivery profile
+  before authenticate or replay, as the free-play branch does. Slots never set it. It refuses
+  any partner **profile**; it is not "our test server only": the default profile still takes the
+  launch URL's `?rgs_url=`, so a hand-built URL carrying a partner host and a partner session
+  token would reach that host (CORS and the partner's own session rules stand in the way, not our
+  code). Every partner launch we mint goes through `?rgs_profile=` and is refused.
+- **No partner session is minted for a non-slot game.** `/api/partner-session` refuses (409) a
+  card whose project config is not a slot (`partnerRgsRefusal` in `familyGate.ts`), or when R2
+  fails the read, before it asks the partner's admin endpoint. No stored config reads as a slot,
+  as the runtime plays it; a card with no project is not checked.
+- **Can a rules game reach a real-money session?** Four walls: it never authenticates (P10.5,
+  `rgsSession: false`); its runtime refuses a delivery profile at boot; the delivery build refuses
+  it; and on our test server its mock refuses every request (the platform-jackpot wrapper is
+  skipped for it too).
+- **Not done:** §2.3 guarantee 1 also names "an operator session id" as a boot refusal for a rules
+  game. The runtime checks only the delivery profile, so a default-profile URL carrying
+  `?sessionID=` still free-plays. It never reaches an RGS, so no money moves; owner to decide
+  whether to add the refusal or amend the wording. Predates this change.
+- **Gates:** `check:game-config-family` (§4: match-3 publishes, the gate follows `mechanicFor()`),
+  `check:mock-contract` (a rules config is dealt `freePlay`, an RGS match-3 keeps `match3`),
+  `check:match3-wire` (every list knows `freePlay`, the mock refuses, the delivery gate's cases
+  and that `build-delivery.mjs` calls it before packaging), `check:match3-rules` (the `mockOnly`
+  wall).
+- **Left as is:** the desktop profile (`derivePublishBlock`) still stamps `protocolFor(kind)`
+  (`match3`), because it has no config; the test server's live re-read of the contract replaces it
+  with `freePlay` for a rules game pinned to its project. The current-games harness is not edited:
+  its `cg-match3` fixture keeps its own `lines` entry and drops the live link.
 
 **P10.7 — Spawning (built 2026-10-25; in review).** §8's P10.7 row (§3.3), in one PR. No game uses
 any of it yet.
@@ -675,7 +727,7 @@ game, bundle or screen changes.
   config as `/config` does; a slot config adds neither.
 - **The family gate:** the online publish and the desktop bake's config export
   (`/api/game-config/doc`) refuse a non-slot config, with no override, until its runtime exists
-  (§9 #26).
+  (§9 #26). Since 2026-10-25 it refuses only an unplayable one (above).
 
 **Verified (2026-10-23):**
 
@@ -694,9 +746,8 @@ game, bundle or screen changes.
 
 1. **Live real-money match-3** waits on a real provider's match-3 wire (§9 #2); our wire
    (`docs/reference/match3-wire.md`) and its facade mapping are rewritten when one arrives.
-2. **Switching publish on for a non-slot game** is the owner's call (`familyGate.ts` refuses it
-   today, by the owner's rule for P10.5). Until then a match-3 game plays only in the authoring
-   preview.
+2. **Delivering a non-slot game** stays off: a rules game never (no wallet), an RGS match-3 game
+   once the partner wire exists (§9 #2). Publishing to our test server is on (2026-10-25).
 3. `/flow-v2` Preview running the board module on its virtual clock with a seed (§5.1).
 4. The `swap` flight kind in `/symbols` → Flights, so its look is authorable.
 5. The State machine tab's stage preview and the `/flow-v2` preview do not yet drive drag, move,
@@ -724,6 +775,9 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-25 — **Publishing switched on for playable non-slot games** (owner, §9 #26): the gate
+  follows `mechanicFor().unplayable`; a rules game is dealt the refusing `freePlay` mock; delivery
+  stays slot-only. Detail above.
 - 2026-10-25 — **P10.7 built: spawning.** The `spawnLayer` node, the Spawn / Despawn / Instance ref
   nodes, `$live` sets, the cap, and spawnables on the ship chain. Detail above.
 - 2026-10-25 — **The A4 design is approved** (owner): all eight decisions in

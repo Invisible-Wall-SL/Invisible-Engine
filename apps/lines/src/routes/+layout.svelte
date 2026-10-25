@@ -17,7 +17,7 @@
 </script>
 
 <GlobalStyle>
-	<Authenticate freePlay={!gameMechanic().rgsSession}>
+	<Authenticate freePlay={!gameMechanic().rgsSession} mockOnly={gameMechanic().interactiveRound}>
 		<LoadI18n messagesMap={getMessagesMap()}>
 			<Game />
 		</LoadI18n>

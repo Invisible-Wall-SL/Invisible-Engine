@@ -28,7 +28,8 @@ export function protocolFor(gameType: string): MockProtocol {
 	// which is why the project's own paytable (shipped for every model) matters most here.
 	if (gameType === 'scatter') return 'scatter';
 	// A match-3 board (P10.6) has its own mock: the `move` action and its events are our wire
-	// (`docs/reference/match3-wire.md`). A rules-decided one never asks it, but the entry stays valid.
+	// (`docs/reference/match3-wire.md`). A rules-decided one (any kind) is `freePlay` instead, read off
+	// its config by the contract (`deriveMockContract`), since the kind alone cannot say.
 	if (gameType === 'match3') return 'match3';
 	// `holdAndWin` is a lines game with a classic coin overlay (bonus-games Phase 2): its lines
 	// contract carries its Hold and Win inputs (`projectGrid`, by the kind), and the test server deals

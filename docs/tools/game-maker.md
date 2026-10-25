@@ -106,8 +106,8 @@ overlay add-on.
    - **Match-3** shows a **Who decides the result?** dropdown, with one line under it describing
      the choice. It starts on **Free play (rules)**:
      - **Free play (rules)** — _The game's own rules, no wallet._ (below).
-     - **Real money (RGS)** — _The server deals every board and win — plays on the test server's
-       mock. Publishing a non-slot game and live real money are not switched on yet._ (below).
+     - **Real money (RGS)** — _The server deals every board and win — publishes to the test
+       server's mock. Live real money is not switched on yet._ (below).
 
      **Free play** makes a free-play match-3 game: no stake, no balance, no wins in money — the
      game's own rules decide every round. It is saved with its own [Game Config](game-config.md)
@@ -514,16 +514,14 @@ game) plus a few seconds to copy its files.
   lists the differing rows. Same rule as flow errors — an **admin** gets **Publish anyway**;
   anyone else fixes the rows in `/config` or asks an admin.
 - **A game with its own desktop build.** Final — republish it from the desktop launcher.
-- **A game that is not a slot.** Final, with no override. A free-play match-3 is refused with
-  _"This game's config is a free-play match-3 game. It plays in the authoring preview, but
-  publishing a game that is not a slot is not switched on yet, so it is not published."_; a
-  match-3 decided by the server with _"This game's config is a real-money match-3 game. It plays
-  against the test server's match-3 mock in the authoring preview, but publishing a game that is
-  not a slot is not switched on yet, and live real money waits on a real provider's match-3 wire,
-  so it is not published."_; an arcade game with _"…the game runtime cannot play an arcade game
-  yet, so it is not published."_ The desktop bake's config export refuses them the same way. Set
-  [Game Config](game-config.md#game-family-match-3-and-arcade)'s family back to Slot to publish
-  the project as a slot.
+- **A game the runtime cannot play yet.** Final, with no override: today an arcade game, refused
+  with _"This game's config is an arcade game, and the game runtime cannot play an arcade game
+  yet, so it is not published. Set it back to a slot in Invisible Game Config to publish it as
+  one."_ The desktop bake's config export refuses it the same way. A match-3 game publishes, free
+  play or real money, to the test server: free play takes no request there, and a real-money one
+  plays the test server's match-3 mock. Neither can be built for a partner delivery: the delivery
+  build refuses a game that is not a slot (free play has no wallet; real-money match-3 waits on a
+  real provider's wire).
 
 Step by step, with what to do after each refusal: the
 [publish and deliver runbook](../guides/publish-and-deliver.md).

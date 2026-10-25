@@ -30,8 +30,9 @@ import type { RequestHandler } from './$types';
  * override (the bake's `--allow-paytable-drift`). Like the flow gate, the override is as restricted
  * as the deploy token this route requires.
  *
- * THE FAMILY GATE — the desktop half of the online publish's: a match-3 or arcade doc the runtime
- * cannot play yet is refused with a 409 `{ error, reason: 'unplayable-family' }`, with no override.
+ * THE FAMILY GATE — the desktop half of the online publish's: a doc the runtime cannot play yet
+ * (`unplayableFamilyMessage`) is refused with a 409 `{ error, reason: 'unplayable-family' }`, with no
+ * override. A playable non-slot doc is served; `build-delivery.mjs` still refuses to deliver one.
  *
  * See `docs/design/invisible-game-config.md`.
  */
