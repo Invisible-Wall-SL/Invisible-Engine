@@ -123,12 +123,13 @@ and never a second copy of the engine.**
   attacks and the fishermen.
 - **Where it is today:** the portal has the project `salmons` (client `invisible_wall`) with no
   published game. The game itself lives outside this repository (`GuiltyForever/Salmon-`): a
-  Colyseus 0.15 game server (Node.js) and a PixiJS 8 + Svelte 5 client. Its server already has the
-  shape A4 needs: the room owns the state, players send inputs, a 60 Hz simulation runs in pure
-  "systems" with no Colyseus imports, and state patches go out at 20 Hz.
+  Colyseus 0.15 game server (Node.js) and a PixiJS 8 + Svelte 5 client. Its server already has much
+  of the shape A4 needs: the room owns the state, players send inputs, and every rule runs on the
+  server in one 60 Hz `update()`; state patches also go out at 60 Hz. What A4 changes is in
+  [realtime-multiplayer.md](realtime-multiplayer.md) §2.
 - **How it comes onto the engine:** the client is **rebuilt on the shared runtime as data**
   (screens, components, characters, Flow), never ported in as a second engine (the rule in "What a
-  family means"). The server keeps Colyseus, and its own systems are replaced by
+  family means"). The server keeps Colyseus, and its `update()` rules are replaced by
   `engine-mechanics`, so the server and the client's prediction run one simulation (§4.5).
 - **Its art comes first (owner, 2026-10-22).** It was made as a test and is not ready for the
   pipeline: loose images instead of atlas sheets, two JPEGs whose backgrounds are cut out while the
@@ -799,11 +800,12 @@ the camera comes first (§8).
 **In short:** up to 100 players in one game, each on their own device. The server owns the game; a
 device only sends what its player presses and draws what the server says, with its own player
 predicted so the controls feel instant. This is new ground for the engine, so A4 gets a design doc
-of its own (`docs/design/realtime-multiplayer.md`, not written yet) before any build. This section
-records its shape.
+of its own, [realtime-multiplayer.md](realtime-multiplayer.md) (a plan awaiting the owner's
+review), before any build. This section records its shape; that doc owns the detail.
 
 - **The server owns the game.** It runs the simulation (`engine-mechanics`: motion, behaviours,
-  abilities) at a fixed 60 Hz and sends state at 20 Hz, the rates Salmons uses. A device sends
+  abilities) at a fixed 60 Hz and sends state at 20 Hz (Salmons sends at 60 Hz today; the A4 doc's §5
+  explains the change). A device sends
   **inputs only** (move, jump, ability), never positions or hits, so a modified client cannot
   teleport or claim a catch. It is §2.2's "the client cannot decide money", applied to the game.
 - **One simulation, two places.** `engine-mechanics` is dependency-free plain JS for exactly this
@@ -812,7 +814,7 @@ records its shape.
   **interpolated** between the last two server states, about 100 ms behind.
 - **The game server** is a new service, `services/game-server` (new), on Railway, speaking
   WebSocket. Colyseus is recommended because Salmons already runs on it (§9 #17): its rooms, state
-  schema and lobby are the pattern; its own movement and collision systems give way to
+  schema and lobby are the pattern; its own movement and collision rules give way to
   `engine-mechanics`.
 - **Rules move to the server.** In a single-player rules game, Flow owns the rules on the device
   (§2.3). Online, the rules that decide the game (who was caught, who scored, when the round ends)
@@ -1240,6 +1242,8 @@ so is #12's scope (its shape is a recommendation); the owner answered #13–#16 
     - Either the Flow interpreter runs headless on the server, so online rules are authored in Flow
       as single-player ones are, or online rules are limited to `engine-mechanics` data.
       Presentation stays on the device either way.
+    - The A4 design recommends **`engine-mechanics` data on the server**, with a named rules module
+      for what the data cannot say ([realtime-multiplayer.md](realtime-multiplayer.md) §4, §14 #2).
 19. **Salmons' view.** *(owner, 2026-10-22: "sort of isometric")*
     - **Isometric**, on 2:1 diamond tiles (its map uses 64 × 32). So P10.12 builds the isometric
       projection and depth order, and P10.13 builds the `hop` jump and diamond tiles first (§4.4).

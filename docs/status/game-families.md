@@ -484,9 +484,15 @@ game, bundle or screen changes.
 ## Blocked (owner / external)
 
 - Nothing for P10.1. §9 #18 (where an online game's rules run) is still open; it blocks only A4.
+  The A4 design, [realtime-multiplayer.md](../design/realtime-multiplayer.md), recommends
+  `engine-mechanics` data on the server; its decisions §14 #1–#8 wait on the owner.
 
 ## Recent changes
 
+- 2026-10-25 — **A4 design written (plan, not approved):**
+  [realtime-multiplayer.md](../design/realtime-multiplayer.md), grounded in Salmons' server. It
+  answers §9 #18 with a recommendation and lists eight decisions for the owner. The families plan
+  now says Salmons sends state at 60 Hz (it said 20 Hz) and runs its rules in one `update()`.
 - 2026-10-24 — **P10.5 built: match-3, rules-decided, end to end.** A match-3 project is made in
   Game Maker and plays as free play in the shared runtime; publishing it stays off. Detail above.
 - 2026-10-24 — **P10.4 built: pointer move / drag / swipe + Align Target**, and the board cell
