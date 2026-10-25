@@ -257,8 +257,10 @@
 	}
 
 	function upsertRow(row: GraphRow): void {
+		// The project's own graph of an id the studio library has: still in the library.
+		const inLibrary = graphs.some((g) => g.id === row.id && (g.shared || g.inLibrary));
 		const rest = graphs.filter((g) => g.id !== row.id);
-		graphs = [...rest, row].sort(
+		graphs = [...rest, inLibrary ? { ...row, inLibrary } : row].sort(
 			(a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
 		);
 	}
