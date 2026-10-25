@@ -28,6 +28,8 @@ export interface Match3Translate {
 	amount: (cents: number) => number;
 	/** Rows the engine pads ABOVE the visible grid — a cascade's exploding cells are padded rows. */
 	paddingRows: number;
+	/** The server's shortest matching run (boot `config.match3.minRun`), which the mirror plays by. */
+	minRun: number;
 }
 
 /**
@@ -61,6 +63,7 @@ const boardInit = (board: string[][], movesLeft: number, t: Match3Translate) => 
 	type: 'boardInit',
 	board: boardOf(board, t),
 	movesLeft,
+	minRun: t.minRun,
 });
 
 /**
@@ -106,7 +109,9 @@ export const translateMatch3Event = (
 		}
 		case 'match3End': {
 			const ctx = (context ?? {}) as Partial<Match3EndContext>;
-			return [{ type: 'match3RoundEnd', totalWin: t.amount(ctx.totalWin ?? 0), reason: ctx.reason }];
+			return [
+				{ type: 'match3RoundEnd', totalWin: t.amount(ctx.totalWin ?? 0), reason: ctx.reason },
+			];
 		}
 		case MATCH3_RESUME: {
 			const ctx = context as Match3ResumeContext;

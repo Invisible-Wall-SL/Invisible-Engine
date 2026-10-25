@@ -629,7 +629,7 @@ const scenesFor = (kind: string, outcome?: 'rgs' | 'rules') => {
 	const actor = read('apps/lines/src/game/actor.ts');
 	check(
 		'6. the round machine waits on the open round between the bet and the collect',
-		/checkIsInteractiveRound: \(bet\) => bet\.state\.some\(\(bookEvent\) => bookEvent\.type === 'boardInit'\)/.test(
+		/checkIsInteractiveRound: \(bet\) =>\s*gameMechanic\(\)\.interactiveRound &&\s*bet\.state\.some\(\(bookEvent\) => bookEvent\.type === 'boardInit'\)/.test(
 			actor,
 		) && /onInteractiveRound: \(\) => awaitMatch3Round\(\)/.test(actor),
 	);

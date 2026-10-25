@@ -2419,6 +2419,8 @@
 			// settings ⇒ engine defaults (all on) — parity for un-authored docs.
 			if (doc.settings?.jurisdiction === 'UK') setUiFeatures(UI_FEATURES_UK);
 			else if (doc.settings?.features) setUiFeatures(doc.settings.features);
+			// A round that waits on the player's moves is never chained: no autoplay, no hold-to-spin.
+			if (mechanic.interactiveRound) setUiFeatures({ autoplay: false, spaceHold: false });
 			// Invisible Flow (Phase 4): build the interpreter from the (optional) FlowDoc +
 			// the just-loaded scenes, and publish it for the book-event play path. Returns
 			// `undefined` when no FlowDoc is authored ⇒ the holder stays null ⇒ pure coded

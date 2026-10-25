@@ -342,7 +342,7 @@ const tab = await openTab();
 	check('seq moves on by two', tab.getSessionState(sid)?.seq, 2);
 	check('the round is ACTIVE', answer.round?.active, true);
 	check('…and its book is the first board', stripIndex(answer.round?.state), [
-		{ type: 'boardInit', board: raw(BOARD0), movesLeft: 2 },
+		{ type: 'boardInit', board: raw(BOARD0), movesLeft: 2, minRun: 3 },
 	]);
 	check('…indexed', indices(answer.round?.state), [0]);
 	check(
@@ -463,7 +463,7 @@ console.log('\n6. resume condenses the replayed round to one board');
 		[true, '0'],
 	);
 	check('…as ONE board (the last) and the running win', stripIndex(answer.round?.state), [
-		{ type: 'boardInit', board: raw(BOARD1), movesLeft: 1 },
+		{ type: 'boardInit', board: raw(BOARD1), movesLeft: 1, minRun: 3 },
 		{ type: 'updateTumbleWin', amount: 50 },
 	]);
 	check('…indexed', indices(answer.round?.state), [0, 1]);
@@ -499,7 +499,7 @@ console.log('\n6. resume condenses the replayed round to one board');
 		'an ended round resumes on its last board, its win and its end',
 		stripIndex(answer.round?.state),
 		[
-			{ type: 'boardInit', board: raw(BOARD2), movesLeft: 0 },
+			{ type: 'boardInit', board: raw(BOARD2), movesLeft: 0, minRun: 3 },
 			{ type: 'updateTumbleWin', amount: 120 },
 			{ type: 'match3RoundEnd', totalWin: 1500, reason: 'movesUsed' },
 			{ type: 'setWin', amount: 1500, winLevel: 6 },

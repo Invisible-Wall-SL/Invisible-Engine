@@ -503,20 +503,14 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	// a move's book is played by the match-3 driver, which raises the board's Flow signals around its
 	// swap and cascade and hands the rest here.
 	boardInit: async (bookEvent: BookEventOfType<'boardInit'>) => {
-		await presentMatch3Board(bookEvent.board, bookEvent.movesLeft);
+		await presentMatch3Board(bookEvent.board, bookEvent.movesLeft, bookEvent.minRun);
 	},
 	// The driver plays the swap itself (`match3.svelte.ts` `present.swap`), before the book's cascade.
 	swap: async () => {},
 	movesLeft: async (bookEvent: BookEventOfType<'movesLeft'>) => {
 		presentMatch3MovesLeft(bookEvent.count);
 	},
-	// The meter ends on the round's whole total: the steps' running win leaves out the part the server
-	// pays only at the end (`settle`, docs/reference/match3-wire.md).
 	match3RoundEnd: async (bookEvent: BookEventOfType<'match3RoundEnd'>) => {
-		if (bookEvent.totalWin > 0) {
-			eventEmitter.broadcast({ type: 'winShow' });
-			eventEmitter.broadcast({ type: 'winUpdate', amount: bookEvent.totalWin, winLevel: 0 });
-		}
 		await endMatch3Round(bookEvent.totalWin, bookEvent.reason);
 	},
 };

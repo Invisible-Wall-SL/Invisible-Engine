@@ -213,17 +213,19 @@ const moveOnServer = async (from: Cell, to: Cell) => {
  * An RGS round's board landed (`boardInit`: the bet's book, or a resumed round): mirror it in a
  * fresh session, seat it, and raise `boardReady` with the server's moves. Input opens with the round.
  */
-export const presentMatch3Board = async (board: RawSymbol[][], movesLeft: number) => {
-	const doc = normalizeGameConfigDoc(bakedGameConfig());
+export const presentMatch3Board = async (
+	board: RawSymbol[][],
+	movesLeft: number,
+	minRun = resolveMatch3(normalizeGameConfigDoc(bakedGameConfig())).minRun,
+) => {
 	let session: ReturnType<typeof createMatch3RgsSession>;
 	try {
-		session = createMatch3RgsSession({
-			board,
-			movesLeft,
-			minRun: resolveMatch3(doc).minRun,
-			requestMove: moveOnServer,
-		});
+		session = createMatch3RgsSession({ board, movesLeft, minRun, requestMove: moveOnServer });
 	} catch (error) {
+		// The round stays open, so the round machine waits on it instead of collecting a round nobody
+		// played; with no driver, nothing takes input. The error modal asks for a reload, which resumes it.
+		driver = undefined;
+		stateMatch3.roundOpen = true;
 		fail(error);
 		return;
 	}

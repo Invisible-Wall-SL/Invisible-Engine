@@ -835,6 +835,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 		symbol: (cell) => toRawSymbol(activeMapping, cell),
 		amount: (cents) => toBookEventAmount(cents, betBaseCents),
 		paddingRows: BOARD_PADDING_ROWS,
+		minRun: capturedMatch3.get(sid)?.minRun ?? 3,
 	};
 	let pendingWins: {
 		what: string;
@@ -2339,6 +2340,16 @@ export const requestEndRound = async (options: { sessionID: string; rgsUrl: stri
 		pendingFinalBalance.delete(options.sessionID);
 		const failed = httpFailure(collectResult);
 		if (failed) return failed;
+		// A refused match-3 collect leaves its round open on the server: say so, rather than report a
+		// settled round the next bet would collide with.
+		if (capturedMatch3.has(options.sessionID) && isPlay4FunError(collectResult.response)) {
+			const raw = collectResult.response;
+			return {
+				status: { statusCode: `ERR_${raw.errorCode}`, statusMessage: raw.error },
+				error: raw.error,
+				message: `${raw.error} (code ${raw.errorCode})`,
+			};
+		}
 		const balance = balanceOf(collectResult.response);
 		return {
 			status: { statusCode: 'SUCCESS' as const },

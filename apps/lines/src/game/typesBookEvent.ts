@@ -129,8 +129,6 @@ type BookEventTumbleBoard = {
 	newSymbols: RawSymbol[][];
 };
 
-// The running total ACROSS the cascade chain, which is not the same number as `setWin`: a tumble
-// round pays once at the end, but the player watches it climb step by step.
 // The match-3 board's own events (`docs/reference/match3-wire.md`, "Engine book events"): an
 // RGS-decided round's board, each swap and what it leaves, and the round's end. The cascade between
 // a swap and its moves left is the existing `tumbleBoard` + `updateTumbleWin`.
@@ -140,6 +138,8 @@ type BookEventBoardInit = {
 	/** The round's board, visible rows only, column-major. */
 	board: RawSymbol[][];
 	movesLeft: number;
+	/** The server's shortest matching run; absent ⇒ the config's. */
+	minRun?: number;
 };
 
 type BookEventSwap = {
@@ -165,6 +165,8 @@ type BookEventRoundEnd = {
 	reason: 'movesUsed' | 'noMoves';
 };
 
+// The running total ACROSS the cascade chain, which is not the same number as `setWin`: a tumble
+// round pays once at the end, but the player watches it climb step by step.
 type BookEventUpdateTumbleWin = {
 	index: number;
 	type: 'updateTumbleWin';

@@ -64,7 +64,9 @@ const primaryMachines = createPrimaryMachines<Bet>({
 	onPlayGame: async (bet) => await playBet(bet),
 	checkIsBonusGame: (bet) => checkIsMultipleRevealEvents({ bookEvents: bet.state }),
 	// An RGS match-3 round stays open while the player swaps (`match3.svelte.ts`); a slot's never does.
-	checkIsInteractiveRound: (bet) => bet.state.some((bookEvent) => bookEvent.type === 'boardInit'),
+	checkIsInteractiveRound: (bet) =>
+		gameMechanic().interactiveRound &&
+		bet.state.some((bookEvent) => bookEvent.type === 'boardInit'),
 	onInteractiveRound: () => awaitMatch3Round(),
 });
 
