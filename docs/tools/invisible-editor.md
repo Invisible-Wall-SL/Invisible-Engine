@@ -1484,6 +1484,9 @@ the value travels from each selected key to the next one.
 - **Cubic**: a curve. Drag its two handles, or type the four numbers `x1, y1, x2, y2` (a CSS
   cubic-bezier: x stays between 0 and 1; y may go past to overshoot).
 - **Hold**: the value holds until the next key (stepped).
+- **Elastic**: shoots past the next key by about a third and springs back onto it, like a pop.
+- **Bounce**: lands on the next key and bounces a few times, never going past it, like a gem
+  dropping into place.
 
 **Set as default** makes the selected key's interpolation the one every new key in this timeline
 gets; with nothing selected the panel shows and edits that default. An older timeline's *ease in-out*

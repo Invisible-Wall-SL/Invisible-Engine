@@ -305,17 +305,30 @@ export function evaluateActor(rig, actor, t, resolveClip) {
 // LEFT of a segment (its outgoing interpolation) — the same convention rig and every dope
 // sheet uses, so "make this key stepped" affects the segment that leaves it. `ease` is one of the
 // names below, or a CUBIC `[x1, y1, x2, y2]` (a CSS cubic-bezier: x clamped to [0, 1], y free to
-// overshoot). Anything else reads as linear, exactly as an unknown name always has.
+// overshoot). Anything else reads as linear, exactly as an unknown name always has. `elastic` and
+// `bounce` settle on the next key (Penner's ease-out curves), which no cubic can draw: elastic
+// overshoots it and rings, bounce lands on it and rebounds, never passing it.
 //
 // Outside the keyed range a channel HOLDS its first/last value rather than falling back to the
 // actor's static placement. A channel with keys owns that property outright for the whole
 // cinematic; mixing "keys in the middle, static value at the edges" would make the actor jump at
 // the first and last key, which is never what an author means.
 
+const BOUNCE_N = 7.5625;
+const BOUNCE_D = 2.75;
+
 const EASE = {
 	hold: () => 0,
 	linear: (u) => u,
 	ease: (u) => u * u * (3 - 2 * u), // smoothstep — ease in AND out
+	elastic: (u) =>
+		u <= 0 ? 0 : u >= 1 ? 1 : 2 ** (-10 * u) * Math.sin((u * 10 - 0.75) * ((2 * Math.PI) / 3)) + 1,
+	bounce: (u) => {
+		if (u < 1 / BOUNCE_D) return BOUNCE_N * u * u;
+		if (u < 2 / BOUNCE_D) return BOUNCE_N * (u -= 1.5 / BOUNCE_D) * u + 0.75;
+		if (u < 2.5 / BOUNCE_D) return BOUNCE_N * (u -= 2.25 / BOUNCE_D) * u + 0.9375;
+		return BOUNCE_N * (u -= 2.625 / BOUNCE_D) * u + 0.984375;
+	},
 };
 
 /** Whether `ease` is a cubic `[x1, y1, x2, y2]` of four finite numbers. */

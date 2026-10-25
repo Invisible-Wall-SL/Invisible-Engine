@@ -488,6 +488,20 @@ through the same player; headless-proven, no editor yet (5b).
 
 ## Recent changes
 
+- 2026-10-25 — **Elastic and Bounce eases** (game-families P10.9's ease item; branch
+  `claude/commonoverlay-publish-error-njebx9`, in review). A key's `ease` may now be `'elastic'` or
+  `'bounce'`, Penner's ease-out curves, which no cubic can draw: elastic overshoots the next key by
+  about a third (peak 1.37) and rings down onto it, bounce lands on it at 1/2.75 of the segment and
+  rebounds, never passing it. They live in `cinematicEval.js`'s named-ease table, so every channel
+  kind (number, tint, countUp) and both hosts (the package, and `/rigger`'s regenerated
+  `static/shared/cinematicEval.mjs`) play them; a runtime without them reads them as linear, as any
+  unknown name. The Timeline's Interpolation panel offers **Elastic** and **Bounce** beside Linear /
+  Cubic / Hold, drawing each from the injected evaluator's `easeShape` (no copy of the formula in
+  `timeline.js`), and `/rigger`'s key `<select>` lists them too. `check:cinematic-ease` §7 pins both
+  curves (ends, overshoot, ring-down, never-past, Penner's values, tint) and §1's golden is
+  unchanged, so every existing timeline samples byte-identically. The state machine's transition
+  blend stays cubic-only. ⏳ Not clicked in a browser.
+
 - 2026-10-23 — **A timeline on a canvas screen ended differently per window size** (reported on
   `commonoverlayproject`'s feature intro). Not a timeline bug: a `canvas` screen was drawn in window
   pixels, so its nodes and the keys moving them did not scale with the window. Fixed by the screen's

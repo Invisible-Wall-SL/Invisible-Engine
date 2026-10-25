@@ -2177,7 +2177,8 @@ export interface CinematicDoc {
 	 * a named ease or a cubic `[x1, y1, x2, y2]`. Authoring-only: every key carries its own `ease`,
 	 * so no player reads this. Absent ⇒ linear.
 	 */
-	defaultEase?: 'linear' | 'ease' | 'hold' | [number, number, number, number];
+	defaultEase?:
+		'linear' | 'ease' | 'hold' | 'elastic' | 'bounce' | [number, number, number, number];
 	/**
 	 * Authoring-only (Rive plan Phase 9d): this project timeline is a LINK to a shared one in
 	 * `_shared/cinematics/` — it plays version `version` of shared timeline `id`, its actors
