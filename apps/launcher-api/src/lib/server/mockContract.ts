@@ -40,6 +40,7 @@ import {
 	resolveBetModes,
 	resolveExpandingSymbol,
 	resolveFreeSpins,
+	resolveOutcome,
 	resolveWinModel,
 	symbolsInPlay,
 	type GameConfigDoc,
@@ -718,6 +719,9 @@ function deriveMockContract(
 	projectKey: string,
 	gameType: string | undefined,
 ): MockContract {
+	// A rules-decided game has no RGS (§2.3): its entry serves the runtime only, and the test server's
+	// `freePlay` mock refuses every request, whatever the project's kind would deal.
+	if (resolveOutcome(doc) === 'rules') return { protocol: 'freePlay' };
 	const grid = projectGrid(protocol, doc, symbolFacts, projectKey, gameType);
 	const cascade = projectCascade(doc);
 	return {

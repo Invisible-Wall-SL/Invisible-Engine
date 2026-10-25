@@ -1279,6 +1279,12 @@ so is #12's scope (its shape is a recommendation); the owner answered #13–#16 
     - The online publish and the desktop bake's config export refuse a match-3 or arcade config,
       with no override, until the runtime plays that family (P10.5, P10.8). Otherwise the shared
       runtime would play it as a slot, or draw a blank board.
+    - **Switched on 2026-10-25** *(owner)*: the gate is on playability, not family. A config is
+      refused only while `mechanicFor(config).unplayable` is set, so match-3 (rules or RGS)
+      publishes to our test server now and arcade does once P10.8 makes it playable. A rules game
+      is dealt the `freePlay` protocol, whose mock refuses every request. Delivery stays slot-only:
+      `build-delivery.mjs` refuses every non-slot config (a rules game for any delivery profile, an
+      RGS match-3 until the partner wire, §9 #2).
 27. **`familyOfKind()` lands in P10.1**, not P10.1b. *(owner, 2026-10-23)*
     - Adding `match3` and `arcade` to `GAME_KINDS` needs it, so that the slot-only consumers (the
       Scene Editor's template-type picker, the flow-vocabulary generator and game-spec's schema)

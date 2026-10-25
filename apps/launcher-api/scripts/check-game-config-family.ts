@@ -29,6 +29,7 @@ import { kindCapabilities, type KindCapabilities } from 'engine-layout';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { projectAddOns } from '../src/lib/addOns.ts';
+import { mechanicFor } from 'engine-game/src/game/mechanic';
 import { unplayableFamilyMessage } from '../src/lib/server/familyGate.ts';
 import * as familyDoc from '../src/routes/(app)/config/familyDoc.ts';
 
@@ -502,20 +503,26 @@ check(
 	unplayableFamilyMessage(SLOT) === null && unplayableFamilyMessage(null) === null,
 );
 check(
-	'4. an RGS-decided match-3 config is refused: it plays on the mock, publishing is off',
-	/real-money match-3 .*test server's match-3 mock.*not switched on.*real provider's match-3 wire/.test(
-		unplayableFamilyMessage({ ...SLOT, family: 'match3' }) ?? '',
-	),
+	'4. an RGS-decided match-3 config publishes: the runtime plays it (P10.6)',
+	unplayableFamilyMessage({ ...SLOT, family: 'match3' }) === null,
 );
 check(
-	'4. a rules-decided match-3 config is still refused: publishing a non-slot game is off',
-	/free-play match-3 .*not switched on/.test(
-		unplayableFamilyMessage({ ...SLOT, family: 'match3', outcome: 'rules' }) ?? '',
-	),
+	'4. a rules-decided match-3 config publishes: the runtime plays it (P10.5)',
+	unplayableFamilyMessage({ ...SLOT, family: 'match3', outcome: 'rules' }) === null,
 );
 check(
-	'4. an arcade config is refused',
-	/an arcade/.test(unplayableFamilyMessage({ ...SLOT, family: 'arcade' }) ?? ''),
+	'4. the gate follows the runtime: refused exactly when mechanicFor() says unplayable',
+	[
+		SLOT,
+		null,
+		{ ...SLOT, family: 'match3' as const },
+		{ ...SLOT, family: 'arcade' as const },
+	].every((doc) => (unplayableFamilyMessage(doc) === null) === !mechanicFor(doc).unplayable),
+);
+check(
+	'4. an arcade config is refused while its mechanic is unplayable (P10.8)',
+	!mechanicFor({ ...SLOT, family: 'arcade' }).unplayable ||
+		/an arcade/.test(unplayableFamilyMessage({ ...SLOT, family: 'arcade' }) ?? ''),
 );
 
 if (fails) {

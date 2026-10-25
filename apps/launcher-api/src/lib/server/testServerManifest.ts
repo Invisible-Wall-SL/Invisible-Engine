@@ -229,6 +229,7 @@ export const MOCK_PROTOCOLS = [
 	'scatter',
 	'holdAndWin',
 	'match3',
+	'freePlay',
 ] as const;
 
 export type MockProtocol = (typeof MOCK_PROTOCOLS)[number];

@@ -165,12 +165,12 @@ has no family control at all. Two more families exist
   - **Steps per second** — how often motion is simulated (default 60; outside 30–240 warns).
   - **Bodies** — by component id: a **box** (width × height) or a **circle** (radius), its
     **tags** (`player`, `enemy`, `pickup`) and whether it is **solid**.
-- **Publishing:** Game Maker's publish and the desktop bake **refuse a match-3 or arcade config**,
-  with no override. A free-play match-3 plays in the launcher's authoring preview, and a match-3
-  decided by the server plays there against the test server's match-3 mock, but publishing a game
-  that is not a slot is not switched on yet — and live real money for a server-decided match-3
-  also waits on a real provider's match-3 wire. An arcade game is refused because the game runtime
-  cannot play it yet. Set the family back to Slot to publish the project as a slot.
+- **Publishing:** a **match-3** config publishes from Game Maker to the test server, free play or
+  decided by the server (against the test server's match-3 mock). An **arcade** config is refused
+  by Game Maker's publish and the desktop bake, with no override, while the game runtime cannot
+  play it. Neither family can be built for a partner delivery: free play has no wallet, and live
+  real money for a server-decided match-3 waits on a real provider's match-3 wire. Set the family
+  back to Slot to publish or deliver the project as a slot.
 
 ## Coin board
 

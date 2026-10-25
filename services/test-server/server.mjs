@@ -245,6 +245,7 @@ const MOCK_PROTOCOLS = new Set([
 	'scatter',
 	'holdAndWin',
 	'match3',
+	'freePlay',
 ]);
 /** A known protocol, else `fallback`. A `holdAndWin` stamp (before bonus-games Phase 2) is the lines
  *  contract the launcher now sends for the same game, so the two fingerprint the same and a refresh

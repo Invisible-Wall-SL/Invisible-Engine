@@ -202,6 +202,34 @@ const makeBookMock = (label, grid, gameKey, runtime, twin) => {
 	}
 };
 
+/**
+ * A rules-decided game's mock (game-families §2.3): it has none. The test server serves its runtime
+ * only, and every RGS request is refused, so nothing can open a session, stake a bet or report a
+ * balance for a game with no wallet, even if its client were made to ask.
+ */
+const createFreePlayMock = (label) => ({
+	sessions: new Map(),
+	startBalance: 0,
+	handle: (req, res) => {
+		const preflight = req.method === 'OPTIONS';
+		const text = preflight
+			? ''
+			: JSON.stringify({
+					error: {
+						code: 'ERR_FREE_PLAY',
+						message: `${label} is free play: it has no RGS, so it takes no request.`,
+					},
+				});
+		res.writeHead(preflight ? 204 : 403, {
+			'Access-Control-Allow-Origin': '*',
+			'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+			'Access-Control-Allow-Headers': 'Content-Type',
+			...(preflight ? {} : { 'Content-Type': 'application/json' }),
+		});
+		res.end(text);
+	},
+});
+
 /** Whether a game's client prices a bet-option table: a runtime game, or a desktop build stamped
  *  table-capable. The one rule `makeMock` sells by and every carry of a session follows. */
 export const sellsTable = (meta) => Boolean(meta?.runtime) || meta?.tableCapable === true;
@@ -233,6 +261,7 @@ export const makeMock = (
 	// A match-3 game (P10.6): its board, strips, moves and paytable ride `match3`
 	// (`match3MockInputs` in game-config). Without them the mock stands up on its built-in game, so a
 	// rules-decided project's entry, whose mock is never asked, cannot break the server.
+	if (protocol === 'freePlay') return createFreePlayMock(label);
 	if (protocol === 'match3') {
 		return createMatch3Mock({ label, allowForce: twin || !runtime, match3: grid?.match3 });
 	}

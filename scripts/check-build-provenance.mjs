@@ -142,7 +142,7 @@ const GATES = [
 	{
 		gate: 'unplayable-family',
 		path: '/api/game-config/doc',
-		body: { error: 'The runtime cannot play a match-3 game yet.', reason: 'unplayable-family' },
+		body: { error: 'The runtime cannot play an arcade game yet.', reason: 'unplayable-family' },
 	},
 ];
 
