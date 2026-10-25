@@ -112,7 +112,7 @@ node's top edge):
 
 | Family         | What it holds                                                    | Some of its nodes                                                       |
 | -------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| **Input**      | Where the pixel is, when it is, what the element looks like there | UV, UV (square), Element size, Time, Param, Number, Colour, Sample element, Outline, Relief height, Seed |
+| **Input**      | Where the pixel is, when it is, what the element looks like there | UV, UV (square), Element size, Time, Param, Number, Colour, Sample element, Outline, Relief height, Seed, Particle |
 | **Time**       | Shapes for the play's progress                                   | Bell, Swell, Ease in-out, Overshoot, *In, hold, out*, Pulse, Flicker, Loop envelope, Bounce, Oscillate |
 | **Math**       | Arithmetic on numbers or vectors alike                           | Add, Multiply, Mix, Clamp, Smooth step, Remap, Split, Combine, Pick     |
 | **Procedural** | Noise and patterns                                               | Random, Noise, Fractal noise, Cells, Gradient, Radial, Stripes, Random number, Line noise, Arcs, Sparkles |
@@ -120,7 +120,7 @@ node's top edge):
 | **UV**         | Move where the element is read from                              | Offset, Scale, Rotate, Twist, Bulge, Ripple, Wave, Polar, Flag, Perspective plane, Sphericon |
 | **Colour**     | Colour and light                                                 | Split colour, Join colour, Brightness, Hue shift, Relief normal, Relief slope, Light, Metal, Over, Fade, Page curl |
 
-There are 90 nodes in the palette. The **Output** is not in it: every effect has exactly one, and
+There are 91 nodes in the palette. The **Output** is not in it: every effect has exactly one, and
 it comes with the new effect.
 
 **Time** (Input) gives the play's **Progress** (0…1), the **Seconds** since it started, the entry's
@@ -130,6 +130,13 @@ entry's Intensity should matter.
 **Seed** (Input) is a random number (0…97) drawn once for each element the effect plays on. Feed it
 to Noise, Cells or Random number and two elements playing the effect at once look different, as the
 built-ins do.
+
+**Particle** (Input) is for a graph drawing a particle: its **Colour** (its tint × alpha,
+premultiplied), its **Wave index** (its place in its spawn wave, 0…1 across a burst) and its **Spawn
+order** (0…1, wrapping at Max particles). Read its Colour and the graph owns the particle's colour
+and alpha: it is not tinted or faded after. On an element, which is all an effect plays on today,
+it reads white, 0 and 0. Using a graph as a particle's material on an Invisible FX layer arrives in
+a later release.
 
 **Pick** (Math) turns a choice param into numbers: a choice reads as its option's place in the list
 (0, 1, 2 …), and Pick gives the value you set for each. **Away from side N** takes a side as such a
@@ -161,7 +168,7 @@ behind the element: a glow or a halo past its edge (Electrocute and Poison use i
   - **A dimmed picture:** an earlier picture, not redrawing now. Only the 40 thumbnails nearest the
     selection (or the middle of the view) stay live.
   - **No thumbnail:** the Output (the preview is its picture), the nodes that give one value
-    everywhere (Number, Param, Colour, Seed, Time, Element size), and a subgraph's Input.
+    everywhere (Number, Param, Colour, Seed, Time, Element size, Particle), and a subgraph's Input.
   - **Thumbnails** in the status bar turns them all off (remembered in this browser), for a slow
     machine or a very large graph.
 - **The cost chip**, in the header: the node's work per pixel, and its reads of the element when it
