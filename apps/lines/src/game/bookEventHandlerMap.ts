@@ -60,6 +60,7 @@ import {
 } from './flowEffects';
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
 import { activeWinLevelData, boardDimensions } from './gameConfig';
+import { endMatch3Round, presentMatch3Board, presentMatch3MovesLeft } from './match3.svelte';
 import { bakedWinLineConfig } from '../editor-scenes';
 
 export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContext> = {
@@ -497,5 +498,19 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		if (lastHoldAndWinStateEvent && bookEvents.indexOf(lastHoldAndWinStateEvent) > featureEndedAt) {
 			await playBookEvent(lastHoldAndWinStateEvent, { bookEvents });
 		}
+	},
+	// An RGS-decided match-3 round (`docs/reference/match3-wire.md`). The bet's book deals the board;
+	// a move's book is played by the match-3 driver, which raises the board's Flow signals around its
+	// swap and cascade and hands the rest here.
+	boardInit: async (bookEvent: BookEventOfType<'boardInit'>) => {
+		await presentMatch3Board(bookEvent.board, bookEvent.movesLeft, bookEvent.minRun);
+	},
+	// The driver plays the swap itself (`match3.svelte.ts` `present.swap`), before the book's cascade.
+	swap: async () => {},
+	movesLeft: async (bookEvent: BookEventOfType<'movesLeft'>) => {
+		presentMatch3MovesLeft(bookEvent.count);
+	},
+	match3RoundEnd: async (bookEvent: BookEventOfType<'match3RoundEnd'>) => {
+		await endMatch3Round(bookEvent.totalWin, bookEvent.reason);
 	},
 };

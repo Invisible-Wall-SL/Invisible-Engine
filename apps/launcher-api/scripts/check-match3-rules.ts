@@ -529,10 +529,12 @@ const legalMove = (board: Board) => findMoves(board, { limit: 1 })[0];
 	);
 	const { outcome: _outcome, ...rgsDoc } = SEED_CONFIG;
 	check(
-		'8. an RGS match-3 never takes the free-play branch, and refuses to boot until P10.6',
+		'8. an RGS match-3 never takes the free-play branch, and plays its interactive round (P10.6)',
 		mechanicFor(rgsDoc as GameConfigDoc) === MATCH3_RGS_MECHANIC &&
 			MATCH3_RGS_MECHANIC.rgsSession &&
-			!!MATCH3_RGS_MECHANIC.unplayable,
+			MATCH3_RGS_MECHANIC.bets &&
+			MATCH3_RGS_MECHANIC.interactiveRound &&
+			MATCH3_RGS_MECHANIC.unplayable === undefined,
 	);
 	check(
 		'8. an arcade config refuses to boot until P10.8',
@@ -568,12 +570,12 @@ const legalMove = (board: Board) => findMoves(board, { limit: 1 })[0];
 	);
 	const game = read('apps/lines/src/components/Game.svelte');
 	check(
-		'9. Game.svelte: no spin hotkey, no hold-to-spin and no coded HUD without a spin',
-		/\{#if mechanic\.spins && \(HUD_BUTTON_INSTANCES \|\| suppressCodedHud\)\}/.test(game) &&
-			/\{#if mechanic\.spins && !codedHudMounted && stateUi\.config\.features\.spaceHold\}/.test(
+		'9. Game.svelte: no spin hotkey, no hold-to-spin and no coded HUD without a bet',
+		/\{#if mechanic\.bets && \(HUD_BUTTON_INSTANCES \|\| suppressCodedHud\)\}/.test(game) &&
+			/\{#if mechanic\.bets &&\s*!mechanic\.interactiveRound &&\s*!codedHudMounted &&\s*stateUi\.config\.features\.spaceHold\}/.test(
 				game,
 			) &&
-			/codedHudMounted = \$derived\(\s*mechanic\.spins &&/.test(game),
+			/codedHudMounted = \$derived\(\s*mechanic\.bets &&/.test(game),
 	);
 	check(
 		'9. a free-play board runs no wager intent; a slot runs every one',
@@ -598,11 +600,15 @@ const legalMove = (board: Board) => findMoves(board, { limit: 1 })[0];
 	);
 	const actor = read('apps/lines/src/components/EnableGameActor.svelte');
 	check(
-		'9. EnableGameActor starts no round (BET / AUTO_BET) for a mechanic that never spins',
-		/const spins = gameMechanic\(\)\.spins;/.test(actor) &&
+		'9. EnableGameActor starts no round (BET / AUTO_BET) for a mechanic with no bet, and no autoplay for an interactive round',
+		/const \{ bets, interactiveRound \} = gameMechanic\(\);/.test(actor) &&
 			(actor.match(/gameActor\.send\(\{ type: '(AUTO_)?BET' \}\)/g) ?? []).length === 2 &&
-			(actor.match(/if \(spins && !stateBet\.betToResume\?\.active\) gameActor\.send/g) ?? [])
-				.length === 2,
+			/if \(bets && !stateBet\.betToResume\?\.active\) gameActor\.send\(\{ type: 'BET' \}\)/.test(
+				actor,
+			) &&
+			/if \(bets && !interactiveRound && !stateBet\.betToResume\?\.active\)\s*gameActor\.send\(\{ type: 'AUTO_BET' \}\)/.test(
+				actor,
+			),
 	);
 	check(
 		'9. Game.svelte mounts <Match3Input /> only for board input',

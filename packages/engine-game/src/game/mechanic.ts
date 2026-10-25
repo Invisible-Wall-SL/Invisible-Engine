@@ -17,8 +17,14 @@ export interface GameMechanic {
 	id: MechanicId;
 	/** Who decides a round (§2): the RGS, or the game's own rules (free play, no wallet). */
 	outcome: GameOutcome;
-	/** The round machine runs: bet → spin → book → idle. */
+	/** The reels spin: the pre-spin roll on a bet, the Space spin hotkey and hold-to-spin. */
 	spins: boolean;
+	/** A bet opens a round on the RGS: the round machine runs (bet → book → end), and the wager
+	 *  intents and the coded HUD reach it. */
+	bets: boolean;
+	/** A round stays open across player-paced requests (§2.2): the bet's book deals a board, each
+	 *  move is a request of its own, and the server ends the round. No autoplay, no bonus buy. */
+	interactiveRound: boolean;
 	/** The runtime opens an RGS session: authenticate, the balance heartbeat, bets. */
 	rgsSession: boolean;
 	/** The bet and balance parts of the HUD are shown. */
@@ -36,6 +42,8 @@ export const REELS_MECHANIC: GameMechanic = Object.freeze({
 	id: 'reels',
 	outcome: 'rgs',
 	spins: true,
+	bets: true,
+	interactiveRound: false,
 	rgsSession: true,
 	wallet: true,
 	boardInput: false,
@@ -47,22 +55,26 @@ export const MATCH3_RULES_MECHANIC: GameMechanic = Object.freeze({
 	id: 'match3',
 	outcome: 'rules',
 	spins: false,
+	bets: false,
+	interactiveRound: false,
 	rgsSession: false,
 	wallet: false,
 	boardInput: true,
 	bookEvents: [],
 });
 
-/** An RGS-decided match-3 game (§2.2). Its interactive round and `move` request are P10.6. */
+/** An RGS-decided match-3 game (§2.2): the bet deals the board, each swap is a `move` request, and
+ *  the server ends the round. The board never spins. */
 export const MATCH3_RGS_MECHANIC: GameMechanic = Object.freeze({
 	id: 'match3',
 	outcome: 'rgs',
 	spins: false,
+	bets: true,
+	interactiveRound: true,
 	rgsSession: true,
 	wallet: true,
 	boardInput: true,
-	bookEvents: ['boardInit', 'swap', 'movesLeft', 'roundEnd'],
-	unplayable: 'a match-3 game whose results come from the RGS needs its interactive round (P10.6)',
+	bookEvents: ['boardInit', 'swap', 'movesLeft', 'match3RoundEnd'],
 });
 
 /**
@@ -88,10 +100,16 @@ export const WAGER_INTENTS: readonly string[] = Object.freeze([
 	'decrease',
 ]);
 
+/** The wager intents that chain or buy rounds, which a round waiting on the player cannot take. */
+export const CONTINUOUS_INTENTS: readonly string[] = Object.freeze(['autoSpin', 'buyBonus']);
+
 /**
- * Whether the runtime runs a HUD intent for this mechanic. A mechanic that never spins has no
- * round to bet on, so an authored Spin button or a flow's `startSpin` is a no-op rather than a bet
- * a free-play game must never send. Every intent runs for a slot.
+ * Whether the runtime runs a HUD intent for this mechanic. A mechanic with no bet has no round to
+ * bet on, so an authored Spin button or a flow's `startSpin` is a no-op rather than a bet a
+ * free-play game must never send; an interactive round takes a bet but no autoplay or bonus buy.
+ * Every intent runs for a slot.
  */
-export const runsIntent = (mechanic: GameMechanic, intent: string): boolean =>
-	mechanic.spins || !WAGER_INTENTS.includes(intent);
+export const runsIntent = (mechanic: GameMechanic, intent: string): boolean => {
+	if (!mechanic.bets) return !WAGER_INTENTS.includes(intent);
+	return !mechanic.interactiveRound || !CONTINUOUS_INTENTS.includes(intent);
+};

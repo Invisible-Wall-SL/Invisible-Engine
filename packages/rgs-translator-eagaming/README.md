@@ -141,6 +141,17 @@ buildSingleAction('myCustomAction', { foo: 1 });
 
 `buildBetActions` defaults to **auto-collect** (`play.context = ''`). Pass `playContext: null` to keep the round open and call `buildCollectAction()` separately.
 
+### Match-3 (ours, not the partner's)
+
+A match-3 round speaks **our** wire, [docs/reference/match3-wire.md](../../docs/reference/match3-wire.md):
+a boot `config.match3` block, a stored `move` action (`buildMoveAction(from, to)` →
+`[{action:'move', context:{from:[reel,row], to:[reel,row]}}]`) and the `match3Board` /
+`match3Move` / `match3End` events. The facade's `requestMove` posts a move under the round's `gid`
+(the stock `rgs-requests` answers it `ERR_UNSUPPORTED`); `src/match3.ts` translates the events into
+`boardInit` / `swap` / `tumbleBoard` / `updateTumbleWin` / `movesLeft` / `roundEnd`. The round stays
+open until `requestEndRound` collects it, and a resume hands the engine one condensed board. Gated
+on the boot block: a session without one is untouched. Fixture: `match3.fixture.ts`.
+
 ### `translateBetResponse(raw, currency?)`
 
 Reshapes a `Play4FunResponse` into the Invisible Engine `res_play` shape so the existing `utils-book` event pipeline can consume it unchanged.
@@ -235,6 +246,7 @@ node scripts/smoke-mock.mjs              # full round-lifecycle smoke test
 | `src/sessionState.ts`    | sid + seq + gid lifecycle.                                                                    |
 | `src/translator.ts`      | Action builders + `translateBetResponse`.                                                     |
 | `src/eagamingFetcher.ts` | HTTP transport (`createPlay4FunFetcher`). Auto-binds gid.                                     |
+| `src/match3.ts`          | The match-3 wire (ours) → the engine's book events, and the condensed resume.                 |
 
 ## License
 

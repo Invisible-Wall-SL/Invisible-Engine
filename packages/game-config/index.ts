@@ -15,6 +15,7 @@ export * from './src/bookOfPresets';
 export * from './src/holdAndWin';
 export * from './src/holdAndWinPresets';
 export * from './src/holdAndWinMock';
+export * from './src/match3Mock';
 export * from './src/holdAndWinGame';
 export * from './src/coinOverlay';
 export * from './src/coinBoard';

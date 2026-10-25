@@ -38,6 +38,8 @@ export type Match3Step = {
 	groups: MatchGroup[];
 	points: number;
 	event: { type: 'tumbleBoard'; explodingSymbols: Cell[]; newSymbols: Gem[][] };
+	/** Book events the RGS sent with this step (its running win), played after its cascade. */
+	tail?: readonly object[];
 };
 
 export type Match3MoveResult = {
@@ -50,6 +52,9 @@ export type Match3MoveResult = {
 	points: number;
 	/** No swap on the settled board can match. */
 	noMoves: boolean;
+	/** Book events the RGS sent after the move's cascade (the moves left, the round's end), played
+	 *  once the move has settled. A rules session sends none. */
+	tail?: readonly object[];
 };
 
 export type Match3Session = ReturnType<typeof createMatch3Session>;

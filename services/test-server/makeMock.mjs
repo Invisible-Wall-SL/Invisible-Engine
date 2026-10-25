@@ -16,6 +16,7 @@ import {
 } from '../../scripts/mock-rgs-server.mjs';
 import { createMockRgs as createBookMock } from '../../scripts/mock-rgs-server-book.mjs';
 import { createMockRgs as createHoldAndWinMock } from '../../scripts/mock-rgs-server-holdandwin.mjs';
+import { createMockRgs as createMatch3Mock } from '../../scripts/mock-rgs-server-match3.mjs';
 import { withPotsOverlay } from '../../scripts/mock-pots-overlay.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -228,6 +229,12 @@ export const makeMock = (
 	if (grid?.holdAndWinRejected) {
 		grid = { ...grid };
 		delete grid.holdAndWinRejected;
+	}
+	// A match-3 game (P10.6): its board, strips, moves and paytable ride `match3`
+	// (`match3MockInputs` in game-config). Without them the mock stands up on its built-in game, so a
+	// rules-decided project's entry, whose mock is never asked, cannot break the server.
+	if (protocol === 'match3') {
+		return createMatch3Mock({ label, allowForce: twin || !runtime, match3: grid?.match3 });
 	}
 	// `book` owns its board and paylines; what it reads of the contract is the project's authored line
 	// table, so it pays (and declares) what `/config` set rather than its captured one, its in-play
@@ -581,6 +588,43 @@ export const validGrid = (grid) => {
 			'[test-server] ignored a malformed potsOverlay (its pots, drops, Hold and Win or reels modes)',
 		);
 	}
+	// A match-3 game's inputs (`match3MockInputs`): the board, one strip of names per column, minRun,
+	// moves and the paytable. Shape-checked as far as the mock needs to stand up; malformed ⇒ dropped,
+	// and the match-3 mock deals its built-in game.
+	const m3 = grid.match3;
+	const match3 =
+		m3 &&
+		typeof m3 === 'object' &&
+		Number.isInteger(m3.cols) &&
+		m3.cols > 0 &&
+		Number.isInteger(m3.rows) &&
+		m3.rows > 0 &&
+		Array.isArray(m3.strips) &&
+		m3.strips.length === m3.cols &&
+		m3.strips.every(
+			(s) => Array.isArray(s) && s.length && s.every((n) => typeof n === 'string' && n),
+		) &&
+		Number.isInteger(m3.minRun) &&
+		m3.minRun >= 2 &&
+		(m3.moves === undefined || (Number.isInteger(m3.moves) && m3.moves > 0)) &&
+		m3.paytable &&
+		typeof m3.paytable === 'object' &&
+		Object.values(m3.paytable).every(
+			(row) =>
+				row && typeof row === 'object' && Object.values(row).every((v) => typeof v === 'number'),
+		)
+			? {
+					cols: m3.cols,
+					rows: m3.rows,
+					strips: m3.strips,
+					minRun: m3.minRun,
+					...(m3.moves === undefined ? {} : { moves: m3.moves }),
+					paytable: m3.paytable,
+				}
+			: null;
+	if (m3 !== undefined && !match3) {
+		console.warn('[test-server] ignored a malformed match3 block (its board, strips or paytable)');
+	}
 	return {
 		reels,
 		rows,
@@ -604,5 +648,6 @@ export const validGrid = (grid) => {
 		...(freeSpinsAwards ? { freeSpinsAwards } : {}),
 		...(expandingSymbol ? { expandingSymbol } : {}),
 		...(scatterWild ? { scatterWild: true } : {}),
+		...(match3 ? { match3 } : {}),
 	};
 };

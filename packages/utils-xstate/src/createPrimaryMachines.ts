@@ -55,7 +55,7 @@ const handleRequestBet = async ({ onError }: { onError: () => void }) => {
 };
 
 const handleRequestEndRound = async () => {
-	if(stateUrlDerived.replay()) return;
+	if (stateUrlDerived.replay()) return;
 
 	try {
 		const data = await requestEndRound({
@@ -92,6 +92,14 @@ type Options<TBet extends BaseBet> = {
 	onNewGameError: () => any;
 	onPlayGame: (bet: TBet) => Promise<void>;
 	checkIsBonusGame: (bet: TBet) => boolean;
+	/**
+	 * An INTERACTIVE round (`docs/design/game-families.md` §2.2): the bet's book deals a board and the
+	 * round stays open while the player makes moves, each its own request. `onInteractiveRound` runs
+	 * after the bet's book has played and resolves once the server has ended the round; the round is
+	 * then collected, whatever it won. Absent ⇒ no round is interactive (every slot).
+	 */
+	checkIsInteractiveRound?: (bet: TBet) => boolean;
+	onInteractiveRound?: (bet: TBet) => Promise<void>;
 };
 
 function createPrimaryMachines<TBet extends BaseBet>(options: Options<TBet>) {
@@ -102,6 +110,8 @@ function createPrimaryMachines<TBet extends BaseBet>(options: Options<TBet>) {
 		onNewGameError,
 		onPlayGame,
 		checkIsBonusGame,
+		checkIsInteractiveRound = () => false,
+		onInteractiveRound = async () => undefined,
 	} = options;
 
 	let balanceAmountFromApiHolder: null | number = null;
@@ -135,9 +145,19 @@ function createPrimaryMachines<TBet extends BaseBet>(options: Options<TBet>) {
 				}
 			},
 		},
+		// Open until its end round: the win is known only once the player has made the moves, and the
+		// end round is what closes it on the server, so it is sent whatever the round won.
+		interactive: {
+			newGame: async () => undefined,
+			endGame: async () => {
+				const data = await handleRequestEndRound();
+				if (data?.balance) handleUpdateBalance({ balanceAmountFromApi: data.balance.amount });
+			},
+		},
 	} as const;
 
 	const getBetType: (args: { bet: TBet }) => keyof typeof BET_TYPE_METHODS_MAP = ({ bet }) => {
+		if (checkIsInteractiveRound(bet)) return 'interactive';
 		const isBonusGame = checkIsBonusGame(bet);
 
 		if (bet.active === true) {
@@ -209,7 +229,9 @@ function createPrimaryMachines<TBet extends BaseBet>(options: Options<TBet>) {
 
 	// playGame
 	const playGame = fromPromise<void, { bet: TBet | null }>(async ({ input }) => {
-		if (input.bet) await onPlayGame(input.bet); // context.bet is hydrated from newGame
+		if (!input.bet) return; // context.bet is hydrated from newGame
+		await onPlayGame(input.bet);
+		if (checkIsInteractiveRound(input.bet)) await onInteractiveRound(input.bet);
 	});
 
 	// endGame

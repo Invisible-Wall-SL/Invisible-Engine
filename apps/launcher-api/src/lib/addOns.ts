@@ -9,6 +9,7 @@ import {
 	respinModeDecls,
 	spinsModeDecls,
 	type GameConfigDoc,
+	type GameOutcome,
 } from 'game-config';
 
 /** What a project's Game Config adds to its kind (docs/design/pots-overlay.md §4, bonus-games.md
@@ -22,7 +23,7 @@ export type ProjectAddOns = {
 	potsOverlay: boolean;
 	expandingSymbol: boolean;
 	family?: string;
-	outcome?: string;
+	outcome?: GameOutcome;
 };
 
 type AddOnDoc =

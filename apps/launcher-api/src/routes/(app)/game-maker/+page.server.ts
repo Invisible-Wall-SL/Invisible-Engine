@@ -33,6 +33,7 @@ import {
 	gameConfigSeedFor,
 	holdAndWinCoinBoardSeed,
 	holdAndWinTemplateSeed,
+	isGameOutcome,
 	isLinesPresetId,
 	LINES_PRESET_IDS,
 	resolveGameConfig,
@@ -332,6 +333,7 @@ export const actions: Actions = {
 		const rawBase = String(data.get('holdAndWinBase') ?? '').trim();
 		const rawLinesPreset = String(data.get('linesPreset') ?? '').trim();
 		const rawOverlay = String(data.get('potsOverlayPreset') ?? '').trim();
+		const rawOutcome = String(data.get('outcome') ?? '').trim();
 
 		if (!isValidProjectKey(key)) {
 			return fail(400, { action: 'create', error: PROJECT_KEY_WORDS });
@@ -354,6 +356,18 @@ export const actions: Actions = {
 			return fail(400, {
 				action: 'create',
 				error: kind === 'lines' ? 'Unknown lines preset.' : 'A lines preset needs a Lines game.',
+			});
+		}
+		// Who decides a match-3 game's result (game-families §6.1). None asked ⇒ the rules game, as
+		// before, so a caller that sends no outcome gets what it always got.
+		const outcome = isGameOutcome(rawOutcome) ? rawOutcome : undefined;
+		if (rawOutcome !== '' && (kind !== 'match3' || !outcome)) {
+			return fail(400, {
+				action: 'create',
+				error:
+					kind === 'match3'
+						? 'The result is decided by the RGS or by the rules.'
+						: 'Only a match-3 game asks who decides the result.',
 			});
 		}
 		// The plain Hold and Win (bonus-games §0): jackpots on unless asked off. Pots and Collector are
@@ -407,6 +421,7 @@ export const actions: Actions = {
 			holdAndWinJackpots: rawGameType === 'holdAndWin' ? (holdAndWinJackpots ?? 'on') : undefined,
 			holdAndWinBase: rawGameType === 'holdAndWin' ? holdAndWinBase : undefined,
 			linesPreset,
+			outcome,
 		});
 		// The add-on runs on the scaffolded project exactly as the card's "＋ Pots overlay" does, so a
 		// new game and an existing one get the same parts. The game exists by now, so a refusal or a

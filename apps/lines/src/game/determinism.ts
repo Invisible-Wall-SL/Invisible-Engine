@@ -79,6 +79,10 @@ export type DeterminismBoardState = {
 	minRun: number;
 	/** The visible gems, column-major (`cells[reel][row]`). */
 	cells: string[][];
+	/** An RGS round is open (its board dealt, the server has not ended it); always false in free play. */
+	roundOpen: boolean;
+	/** The moves the server says an RGS round has left; 0 in free play. */
+	movesLeft: number;
 };
 
 export type DeterminismCondition = {

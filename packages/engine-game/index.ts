@@ -54,6 +54,7 @@ export { createGameContext, getGameContext, type GameContext } from './src/game/
 export type { BookEventRegistry, ImplementsEngineBookEvents } from './src/game/bookEvents';
 export { createPlayBook, type PlayBookDeps } from './src/game/playBook';
 export {
+	CONTINUOUS_INTENTS,
 	MATCH3_RGS_MECHANIC,
 	MATCH3_RULES_MECHANIC,
 	mechanicFor,
@@ -65,6 +66,7 @@ export {
 } from './src/game/mechanic';
 export {
 	createMatch3Driver,
+	type Match3Board,
 	type Match3Driver,
 	type Match3DriverState,
 	type Match3Mark,
@@ -82,6 +84,11 @@ export {
 	type Match3Session,
 	type Match3Step,
 } from './src/game/match3Session';
+export {
+	createMatch3RgsSession,
+	type Match3RgsMoveRequest,
+	type Match3RgsSession,
+} from './src/game/match3RgsSession';
 export {
 	BASE_MODE_ID,
 	activeModeId,

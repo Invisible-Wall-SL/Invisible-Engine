@@ -95,6 +95,8 @@
 			moves: stateMatch3.moves,
 			seed: stateMatch3.seed,
 			minRun: stateMatch3.minRun,
+			roundOpen: stateMatch3.roundOpen,
+			movesLeft: stateMatch3.movesLeft,
 			cells: context.stateGame.board.map((reel) =>
 				reel.reelState.symbols.slice(1, -1).map((cell) => cell.rawSymbol.name),
 			),

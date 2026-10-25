@@ -49,7 +49,7 @@ import {
 	watchFlowInstance,
 } from 'engine-layout';
 import { emitterSecondsToWallMs } from 'engine-fx';
-import { flowAddOnsOf } from 'game-config';
+import { flowAddOnsOf, resolveOutcome } from 'game-config';
 import type {
 	CinematicNodeDriver,
 	MountedContainerRef,
@@ -81,6 +81,7 @@ import {
 	templateVocabulary,
 	variableValueSources,
 	withAddOns,
+	withOutcome,
 	type ContainerMountModel,
 	type FlowState,
 	type FlowStateEntry,
@@ -375,10 +376,15 @@ export const createLinesFlowV2 = (
 ): LinesFlowV2 | undefined => {
 	const doc = loadFlowV2Doc();
 	if (!doc) return undefined;
-	// Resolve the template vocabulary from the doc's `templateId` (shared registry), plus the add-ons
-	// of the config this game runs (`withAddOns`) — the SAME contract the /flow-v2 editor authors
-	// against and the publish gate checks. No add-on block ⇒ the kind's vocabulary alone.
-	const vocab = withAddOns(templateVocabulary(doc.templateId), flowAddOnsOf(getActiveGameConfig()));
+	// Resolve the template vocabulary from the doc's `templateId` (shared registry), less what the
+	// config's outcome forbids (`withOutcome`), plus the add-ons of the config this game runs
+	// (`withAddOns`) — the SAME contract the /flow-v2 editor authors against and the publish gate
+	// checks (`composeFlowV2Vocab`). A slot with no add-on block ⇒ the kind's vocabulary alone.
+	const config = getActiveGameConfig();
+	const vocab = withAddOns(
+		withOutcome(templateVocabulary(doc.templateId), resolveOutcome(config)),
+		flowAddOnsOf(config),
+	);
 	assertVocabBacked(vocab); // dev: warn if the vocabulary declares an action the game doesn't implement.
 
 	// HALF-ON GUARD (safety net). A flow that has `showContainer`/`hideContainer` nodes (so the author
