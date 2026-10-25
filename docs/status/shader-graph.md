@@ -9,9 +9,10 @@ Element FX does, #1328) and step 4 (the pipeline: a project's graphs are stored,
 Publish and the bake, registered by the game at boot and listed by the Scene Editor, Symbols and
 Flow pickers, #1329) and step 5 (the `/shaders` editor: library, canvas, properties and a live
 Pixi preview, with a lease and history, #1330) and step 6 (the templates: graph twins of 30
-built-ins, held to a parity gate in `check:all`, offered as "Start from a built-in", #1333) are
-merged. Step 7 (editor v2: subgraphs, node thumbnails, cost chips, publishing to the studio
-library) is in review on `claude/shader-graph-step7`.
+built-ins, held to a parity gate in `check:all`, offered as "Start from a built-in", #1333) and
+step 7 (editor v2: subgraphs, node thumbnails, cost chips, publishing to the studio library,
+#1340) are merged. Step 8 (the plan's "Later") is split into 8a–8e; 8a, the motion graph, is in
+progress on `claude/shader-graph-step8a`.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -204,7 +205,7 @@ library) is in review on `claude/shader-graph-step7`.
   - **Start from a built-in** (`/shaders`). "+ New" is a menu: an empty effect, or a built-in's
     twin by family. The new effect keeps the twin's nodes, params, passes and motion under its own
     name and id; a twin with a motion gap says so.
-- **Step 7, editor v2.** In review (`claude/shader-graph-step7`).
+- **Step 7, editor v2.** Merged (#1340, 2026-10-25).
   - **Subgraphs** (`packages/engine-shadergraph/src/subgraph.ts`). A doc may carry `subgraphs`
     (still version 1): each a body between one Input and one Output node, with typed ports (float
     to vec4, a default each), called by a `subgraph` node.
@@ -356,7 +357,8 @@ library) is in review on `claude/shader-graph-step7`.
 - None.
 
 ## Recent changes
-- 2026-10-25 — **Step 7: editor v2** (see "Current state"). Step 6 merged (#1333).
+- 2026-10-25 — **Step 7: editor v2** (see "Current state"). Merged (#1340): CI green,
+  Current games 12 pass with no changed screen.
   - **Proof.**
     - `compile.fixture.ts` 108 (44 new: single, repeated and nested calls, every refusal, how issues
       land on the call, port types, cost, a body alone, storage, a flat shipped effect, and eight
