@@ -11,6 +11,7 @@
 	import {
 		BREAK_CHOICES,
 		breakEdgeMs,
+		breakKindNotice,
 		breakParamsOf,
 		breakPhaseMismatch,
 		breakPortSources,
@@ -24,16 +25,17 @@
 	} from './shaderEditor';
 
 	// The selected Break Output: which break plays, where in the play it begins, and each of its
-	// params left unwired, edited with a control fit to its kind. A kind change drops the wires into
-	// the params the new break lacks, and says so (Undo brings them back). The phase the break needs
-	// is one click away, under the node's errors, when the effect plays as another.
+	// params left unwired, edited with a control fit to its kind. A kind change says everything it did
+	// besides: the settings the new break lacks dropped, values past its range reset, Number wires
+	// past it now errors (Undo brings them back). The phase the break needs is one click away, under
+	// the node's errors, when the effect plays as another.
 	interface Props {
 		doc: ShaderGraphDoc;
 		node: GraphNode;
 		errors: readonly string[];
 		disabled?: boolean;
 		onChange: (doc: ShaderGraphDoc) => void;
-		/** A line for the page's notice bar (the wires a kind change dropped). */
+		/** A line for the page's notice bar (what a kind change did besides the kind). */
 		onNotice: (text: string) => void;
 	}
 	let { doc, node, errors, disabled = false, onChange, onNotice }: Props = $props();
@@ -63,12 +65,10 @@
 	function pickKind(next: string): void {
 		const picked = BREAK_CHOICES.find((c) => c.kind === next);
 		if (!picked) return;
-		const { doc: changed, dropped } = setBreakKind(doc, node.id, picked.kind);
-		onChange(changed);
-		if (dropped.length)
-			onNotice(
-				`${picked.label} has no ${dropped.join(', ')}: ${dropped.length === 1 ? 'its wire was' : 'their wires were'} dropped. Undo brings ${dropped.length === 1 ? 'it' : 'them'} back.`,
-			);
+		const change = setBreakKind(doc, node.id, picked.kind);
+		onChange(change.doc);
+		const notice = breakKindNotice(change, picked.label);
+		if (notice) onNotice(notice);
 	}
 
 	function setAt(raw: string): void {
@@ -111,8 +111,8 @@
 	</label>
 	{#if choice}
 		<p class="hint">
-			{choice.description} Plays as {phaseName(choice.phase)}. Picking another break drops the wires
-			into the settings it lacks.
+			{choice.description} Plays as {phaseName(choice.phase)}. Picking another break drops the
+			settings it lacks and resets values past its ranges, and says what changed.
 		</p>
 	{/if}
 

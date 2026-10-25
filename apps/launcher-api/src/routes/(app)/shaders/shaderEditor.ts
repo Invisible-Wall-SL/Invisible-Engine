@@ -1941,35 +1941,108 @@ export function breakPaletteEntry(
 	return { refusal: breakPlacement(doc, scope) };
 }
 
+/** What a kind change did to a Break Output, beyond the kind: each is said in its notice. */
+export interface BreakKindChange {
+	doc: ShaderGraphDoc;
+	/** The old break's ports the new one lacks that held a wire or a value: both went with them. */
+	dropped: { label: string; wire: boolean; value: boolean }[];
+	/** Values set on a port both breaks have that the new one's param cannot take: the port reads
+	 *  the new break's default (`was` as it was set, `why` it cannot stay). */
+	reset: { label: string; was: string; why: string; default: string }[];
+	/** Number wires kept into a port whose new range their value is past, in the engine's words: an
+	 *  error on the node until the Number is set within it. */
+	outOfRange: string[];
+}
+
+/** Why break `label`'s param `spec` cannot take a value it was set to. */
+const refusedBy = (spec: ElementFxParamSpec, label: string): string =>
+	spec.kind === 'number'
+		? `is past ${label}’s ${spec.min}…${spec.max}`
+		: spec.kind === 'choice'
+			? `is not one of ${label}’s options (${spec.options.join(', ')})`
+			: `is not a value ${label} takes`;
+
 /**
- * `doc` with Break Output `id` playing `kind`, and the labels of the ports whose wires went. Its
- * ports are the kind's params, so a wire into one the new kind lacks goes, and so does a value set
- * for one; a value the new kind's param of that id cannot take (a number past its range, an option
- * it lacks) goes too, and the port reads the kind's default. Where it starts stays. One gesture, so
- * one undo step brings the wires back.
+ * `doc` with Break Output `id` playing `kind`, and what else that changed. Its ports are the kind's
+ * params, so a port the new kind lacks goes with its wire and its value (`dropped`); a value set on a
+ * port both have that the new param cannot take (a number past its range, an option it lacks) goes,
+ * the port reading the new default (`reset`); a Number wired into a port both have stays, so its
+ * value past the new range is an error until mended (`outOfRange`), as when it was wired. Where it
+ * starts stays. One gesture, so one undo step brings it all back.
  */
-export function setBreakKind(
-	doc: ShaderGraphDoc,
-	id: string,
-	kind: BreakKind,
-): { doc: ShaderGraphDoc; dropped: string[] } {
+export function setBreakKind(doc: ShaderGraphDoc, id: string, kind: BreakKind): BreakKindChange {
 	const node = doc.nodes.find((n) => n.id === id && n.type === BREAK_OUTPUT);
-	if (!node || !isBreakKind(kind)) return { doc, dropped: [] };
+	if (!node || !isBreakKind(kind)) return { doc, dropped: [], reset: [], outOfRange: [] };
 	const was = breakParamsOf(node);
 	const now = new Map(breakKindParams(kind).map((p) => [p.id, p]));
+	const label = elementFxSpec(kind).label;
 	const next = clone(doc);
 	const values: NonNullable<GraphNode['values']> = { kind };
+	const reset: BreakKindChange['reset'] = [];
 	for (const [key, value] of Object.entries(node.values ?? {})) {
 		const spec = now.get(key);
 		if (key === 'at' || (spec && readBreakValue(spec, value) !== undefined)) values[key] = value;
+		else if (spec && !doc.wires.some((w) => w.to.node === id && w.to.port === key))
+			reset.push({
+				label: spec.label,
+				was: String(value),
+				why: refusedBy(spec, label),
+				default: String(spec.default),
+			});
 	}
 	(next.nodes.find((n) => n.id === id) as GraphNode).values = values;
-	const lost = next.wires.filter((w) => w.to.node === id && !now.has(w.to.port));
-	next.wires = next.wires.filter((w) => !lost.includes(w));
-	const dropped = [
-		...new Set(lost.map((w) => was.find((p) => p.id === w.to.port)?.label ?? w.to.port)),
-	];
-	return { doc: next, dropped };
+	next.wires = next.wires.filter((w) => w.to.node !== id || now.has(w.to.port));
+	const dropped = was
+		.filter((p) => !now.has(p.id))
+		.map((p) => ({
+			label: p.label,
+			wire: doc.wires.some((w) => w.to.node === id && w.to.port === p.id),
+			value: node.values?.[p.id] !== undefined,
+		}))
+		.filter((p) => p.wire || p.value);
+	const numbers = new Set(next.nodes.filter((n) => n.type === 'number').map((n) => n.id));
+	const fromNumber = new Set(
+		next.wires.filter((w) => w.to.node === id && numbers.has(w.from.node)).map((w) => w.to.port),
+	);
+	const outOfRange = breakOutputIssues(
+		next.nodes,
+		next.wires,
+		new Map(next.params.map((p) => [p.id, p])),
+		next.phase,
+	)
+		.filter((i) => i.node === id && i.port && fromNumber.has(i.port))
+		.map((i) => i.message);
+	return { doc: next, dropped, reset, outOfRange };
+}
+
+/**
+ * What the notice says after a kind change to the break `label` (`change`): the ports it lacks and
+ * what went with them, each value reset to its default, each Number wire now an error; '' when the
+ * change touched nothing but the kind.
+ */
+export function breakKindNotice(change: BreakKindChange, label: string): string {
+	const { dropped, reset, outOfRange } = change;
+	const lines: string[] = [];
+	if (dropped.length) {
+		const wires = dropped.every((p) => p.wire && !p.value);
+		const values = dropped.every((p) => p.value && !p.wire);
+		const what =
+			dropped.length === 1
+				? `its ${wires ? 'wire was' : values ? 'value was' : 'wire and value were'}`
+				: wires
+					? 'their wires were'
+					: values
+						? 'their values were'
+						: 'what was wired or set there was';
+		lines.push(`${label} has no ${dropped.map((p) => p.label).join(', ')}: ${what} dropped.`);
+	}
+	for (const r of reset)
+		lines.push(`${r.label}: ${r.was} ${r.why}, so it went back to ${r.default}.`);
+	for (const message of outOfRange)
+		lines.push(`${sentence(message)}: set the Number wired into it within that.`);
+	const count = dropped.length + reset.length + outOfRange.length;
+	if (count) lines.push(`Undo brings ${count === 1 ? 'it' : 'them'} back.`);
+	return lines.join(' ');
 }
 
 /** `doc` with Break Output `id` starting at `at` (kept 0…1), or at the default (`undefined`). */

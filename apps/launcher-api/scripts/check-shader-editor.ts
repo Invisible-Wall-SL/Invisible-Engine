@@ -43,7 +43,8 @@
  *  11. The Break Output: the palette offers it in the effect's own graph while it has none (greyed
  *      out in a subgraph, saying why; never in the motion graph); it adds and deletes; its header
  *      names the break, its ports are the break's params, with no thumbnail or cost chip; a kind
- *      change drops the wires (and values) the new break lacks in one step, naming them; the wire
+ *      change drops what the new break lacks, resets values past its ranges and keeps Number wires
+ *      past them as errors, in one step, its notice naming each; the wire
  *      rule is the engine's over every source and port kind, and the canvas says why a port
  *      refuses a wire; each unwired port shows its value as the break reads it, and is set as the
  *      break stores it; the phase the break needs is one fix away; Starts at reads in ms; no gesture
@@ -100,6 +101,7 @@ import {
 	analyzeScope,
 	breakEdgeMs,
 	breakFeedRefusal,
+	breakKindNotice,
 	breakOutputOf,
 	breakPaletteEntry,
 	breakPhaseMismatch,
@@ -2489,25 +2491,104 @@ console.log('11. the Break Output');
 	const before = json(k);
 	const toCrumble = setBreakKind(k, brk, 'crumble');
 	check(
-		'to Crumble: the wires into Impact and Cracking go (named), Gravity’s stays; Impact’s value goes, Shards 150 stays in Crumble’s range; Starts at stays; it compiles',
+		'to Crumble: Impact (wired and set) and Cracking (wired) go, named; Gravity’s wire stays; Shards 150 stays in Crumble’s range; Starts at stays; it compiles; the notice says so',
 		[
 			toCrumble.dropped,
+			toCrumble.reset,
+			toCrumble.outOfRange,
 			toCrumble.doc.wires.filter((x) => x.to.node === brk).map((x) => x.to.port),
 			toCrumble.doc.nodes.find((n) => n.id === brk)?.values,
 			compileShaderEffect(toCrumble.doc).ok,
+			breakKindNotice(toCrumble, 'Crumble'),
 		],
-		[['Impact', 'Cracking'], ['gravity'], { kind: 'crumble', at: 0.25, pieces: 150 }, true],
+		[
+			[
+				{ label: 'Impact', wire: true, value: true },
+				{ label: 'Cracking', wire: true, value: false },
+			],
+			[],
+			[],
+			['gravity'],
+			{ kind: 'crumble', at: 0.25, pieces: 150 },
+			true,
+			'Crumble has no Impact, Cracking: what was wired or set there was dropped. Undo brings them back.',
+		],
 	);
 	const toCrash = setBreakKind(toCrumble.doc, brk, 'crash');
 	check(
-		'…then to Crash: nothing to drop, but Shards 150 is past Crash’s 4…60, so it goes and the port reads the default',
+		'…then to Crash: nothing to drop, but Shards 150 is past Crash’s 4…60, so it goes back to the default, and the notice says so',
 		[
 			toCrash.dropped,
+			toCrash.reset,
 			toCrash.doc.nodes.find((n) => n.id === brk)?.values,
 			breakErrors(toCrash.doc, brk),
+			breakKindNotice(toCrash, 'Crash'),
 		],
-		[[], { kind: 'crash', at: 0.25 }, []],
+		[
+			[],
+			[{ label: 'Shards', was: '150', why: 'is past Crash’s 4…60', default: '18' }],
+			{ kind: 'crash', at: 0.25 },
+			[],
+			'Shards: 150 is past Crash’s 4…60, so it went back to 18. Undo brings it back.',
+		],
 	);
+	{
+		// A Number of 300 into Crumble's Chunks (16…600), then Shatter (16…160): the wire stays, an
+		// error until the Number is mended, and the notice says so; a lone wire or value, likewise.
+		const n300 = addNode(toCrumble.doc, 'number', { x: -300, y: 600 });
+		const wired = connect(
+			setNodeValue(n300.doc, n300.id, 'value', 300),
+			{ node: n300.id, port: 'out' },
+			{ node: brk, port: 'pieces' },
+		);
+		const toShatter = setBreakKind(wired, brk, 'shatter');
+		check(
+			'a Number past the new break’s range stays wired, its error named in the engine’s words and in the notice',
+			[
+				breakErrors(wired, brk),
+				toShatter.outOfRange,
+				toShatter.reset,
+				toShatter.doc.wires.some((x) => x.from.node === n300.id && x.to.port === 'pieces'),
+				breakErrors(toShatter.doc, brk),
+				breakKindNotice(toShatter, 'Shatter (glass)'),
+			],
+			[
+				[],
+				['Shards takes 16…160, not 300'],
+				[],
+				true,
+				['Shards takes 16…160, not 300'],
+				'Shards takes 16…160, not 300: set the Number wired into it within that. Undo brings it back.',
+			],
+		);
+		const lone = setBreakValue(
+			setBreakValue(toCrumble.doc, brk, 'spread', 1.5),
+			brk,
+			'pieces',
+			300,
+		);
+		const toCrash2 = setBreakKind(lone, brk, 'crash');
+		check(
+			'…to Crash from Crumble with Spread set and Shards 300: Spread’s value dropped and Shards reset; with Spread wired instead, its wire; a kind change touching nothing says nothing',
+			[
+				breakKindNotice(toCrash2, 'Crash'),
+				breakKindNotice(setBreakKind(toCrumble.doc, brk, 'crumble'), 'Crumble'),
+				breakKindNotice(
+					setBreakKind(
+						connect(toCrumble.doc, { node: p1.id, port: 'out' }, { node: brk, port: 'spread' }),
+						brk,
+						'crash',
+					),
+					'Crash',
+				),
+			],
+			[
+				'Crash has no Spread: its value was dropped. Shards: 300 is past Crash’s 4…60, so it went back to 18. Undo brings them back.',
+				'',
+				'Crash has no Spread: its wire was dropped. Shards: 150 is past Crash’s 4…60, so it went back to 18. Undo brings them back.',
+			],
+		);
+	}
 	check('what feeds each wired port, in words', breakPortSources(k, brk), {
 		gravity: 'Param · Amount',
 		impact: 'Param · Mode',
@@ -2524,11 +2605,15 @@ console.log('11. the Break Output');
 			remove(k, [brk]);
 			return [
 				json(k) === before,
-				setBreakKind(k, brk, 'shatter').dropped,
+				setBreakKind(k, brk, 'shatter'),
 				setBreakKind(k, 'nope', 'crumble').doc === k,
 			];
 		})(),
-		[true, [], true],
+		[
+			true,
+			{ doc: setBreakKind(k, brk, 'shatter').doc, dropped: [], reset: [], outOfRange: [] },
+			true,
+		],
 	);
 	const gone = remove(k, [brk]);
 	check(

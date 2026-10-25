@@ -305,8 +305,12 @@ frozen or golden look shatters as it is.
   settings (Shards, Cracking, Gravity, Impact…); an unwired one shows its value: a number, a colour
   swatch, an option name. It has no thumbnail and no cost chip.
 - **Properties.**
-  - **Break** picks one of the six (each with its description). Switching drops the wires into
-    settings the new break does not have, says which, and Ctrl+Z brings them back.
+  - **Break** picks one of the six (each with its description). Switching says everything it
+    changed, and Ctrl+Z brings it back: wires and values in settings the new break does not have
+    are dropped ("Shatter (glass) has no Spread: its wire was dropped."); a value the new break
+    cannot take goes back to its default ("Shards: 300 is past Shatter (glass)'s 16…160, so it
+    went back to 56."); a Number wired into a setting it now overshoots stays, with an error to fix
+    ("Shards takes 16…160, not 300: set the Number wired into it within that.").
   - **Starts at** (0…1) reads, for example, "It breaks at 600 ms of 1200 ms; the graph plays alone
     until then". 0 means the whole play is the break. For Assemble it reads **Graph plays for the
     last**: the pieces fly in first, then the graph plays on the whole element.
