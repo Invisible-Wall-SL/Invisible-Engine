@@ -73,8 +73,10 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   whose two parts around the reels each play the screen's FX. In the editor: a posed node can be
   clicked and dragged mid-effect, Esc during ▶ keeps the selection, a cut never blinks the stage,
   and panning or zooming a posed still cuts it again once you stop.
-- **Element FX preview, known limits** (editor only; the game plays on the live element): a still
-  copies its canvases with plain compositing, so an additive or screen-blended element previews as
+- **Element FX preview, known limits** (editor only; the game plays on the live element): a
+  screen's ▶ (and a timeline cue's) is live since 2026-10-24, but a node's still holds its content
+  (an animating rig freezes; the still follows the node's moves), and a HUD screen's is a still; a
+  still copies its canvases with plain compositing, so an additive or screen-blended element previews as
   a normal one (and a rig layer's dimming scrim, when up, is copied with it); each posed node keeps
   a stage-sized overlay canvas while its timeline previews; a still that cannot be read back (a
   cross-origin image) ends ▶ without a message.
@@ -123,6 +125,51 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-24 — **Assemble from particles plays on the live element; the editor's Element FX preview
+  plays on the live screen** (branch `claude/magical-curie-th1axi`). Owner report on
+  `commonoverlayproject`: an Element FX cued on the base-game intro (Assemble, then Wobble and
+  others) stopped the timeline's animation when its cue was reached, in the editor; asked for
+  Assemble to play on the live element.
+  - **Game (`pixi-svelte/elementFx`).** A break kind may be `live` (`KindImpl.live`, set on
+    `assemble`). Its run gets `follow(rest, alpha, box)`, called every frame after the motion step:
+    the element is rendered into the break's texture (`redraw`, at full alpha, restored in a
+    `finally`; the element stays a render group while any live break draws it, refcounted, and is
+    given back as it was by the last, unless its owner has since cached it as a texture), the
+    texture (no MSAA) is remade 1.25× larger when the element outgrows it (capped at 4096 px; the
+    old one let go a frame later), and the holder maps the box the cut was made in onto
+    `liveRegion`: every box the element has filled so far, grown about its centre to the cut's
+    proportions, at its current rest and alpha. It only grows, and evenly, so a zoom carries the
+    specks while a rig swinging neither stretches nor shakes them. A live break with nothing to draw
+    yet (no size, as in an intro zooming in from scale 0; hidden; not on stage) waits, the element
+    hidden, and starts once it can; it used to fall back to a plain fade for good. The other breaks
+    keep their still. Motion and filter kinds already composed with the owner in game.
+  - **Editor (`elementFxPreview.client.svelte.ts`, `EditorCanvas.svelte`).** ▶ (and a screen
+    timeline's cue, which plays through it) on a **screen** keeps the screen's surfaces drawing,
+    hidden by CSS `visibility`, and copies them into the still every frame (`refresh` →
+    `drawStill` → texture upload), so a playing timeline keeps moving under every kind. On a
+    **node**, the still follows the node's drawn pose (`placement`, as the posed overlays do). HUD
+    screens keep a still (their surfaces are shared). A copy that can no longer be uploaded (a
+    cross-origin image reaching a surface mid-preview) ends the preview. Bone riders (the stand-in
+    symbols on a shared canvas above the screens) are not in a screen's copy: during a live screen
+    ▶ they draw on top, untouched by the effect (they used to vanish with the screen).
+  - **Not changed:** a Screen-block effect on the base game plays on the base game's art around the
+    reels, not on the reels (the guide now says to put a reels effect on the Reel grid node).
+  - **Gates:** `check:element-fx` 163 → 177: assemble is live, dissolve stays a still; every frame
+    the live element is drawn at full alpha and kept hidden; the specks sit at its rest, faded as it
+    is; an owner move carries them; a zoom lays them over the new box from a remade still and lets
+    the old one go a frame later; a zoom from nothing, and a hidden element, wait, then break; a
+    swinging box grows the specks evenly and never shrinks them; two live breaks on one element give
+    it back no longer a render group only when the last ends; back exactly at the end. Each check
+    fails with its fix removed (the live flag, the wait, the refcount, the steady region). `check:svelte`
+    (launcher, lines, pixi-svelte, engine-layout) at baseline, `pnpm lint`, `check:undefined-names`,
+    `check:vendored-bundles`, `check:element-fx-flow` green.
+  - **Verified in Chromium:** the real `playOnStill` on a moving square (a still kept the square at
+    its start under Wobble and Assemble; live and placed, it followed), and a local build of the game
+    against `commonoverlayproject`'s runtime bundle with Assemble injected on the Reel grid node,
+    cued by the intro's `signal:introParticles`: it waited for the reels to have a size, then the
+    specks' holder grew evenly with the zoom (board scale 0.01 → 1.05, then held as it settled) and
+    the reels landed whole, no render group left behind. ⏳ The editor change is not clicked in a
+    logged-in `/editor`.
 - 2026-10-24 — **Custom Element FX kinds** (`custom:<id>`, step 3 of the
   [Invisible Shader Graph](../design/invisible-shader-graph.md)): a compiled shader graph,
   registered, plays wherever a built-in does. The 50 built-ins render identical to before. Detail in
