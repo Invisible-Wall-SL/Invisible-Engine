@@ -210,6 +210,13 @@ breaks, so this floor is soft. Graphs without a Break Output compile byte-identi
 from 8b on drop a break they cannot play (a kind or param added later, a phase mismatch) and play
 the effect as an older runtime does.
 
+**A floor for Custom GLSL: the first release with Invisible Shader Graph step 8c.** An effect
+holding a Custom GLSL node ships functions (`efxGlsl_<n>`) that runtimes from step 6 to 8b take for
+library calls they lack, so they drop the effect: it plays nothing on its element (which stays as it
+is). Rolling back below 8c silently removes every such effect; graphs without Custom GLSL are
+unaffected. From 8c on, the runtime also asks the driver whether each Element FX program linked and
+draws the element unchanged when one did not, so a shader a phone rejects never blanks the element.
+
 **Races.** Rollback is deliberately NOT in the release's concurrency group: GitHub cancels a
 *pending* run when a newer one joins the group, so a rollback queued behind a bad release's 15-minute
 served check could be silently replaced by the next merge's release. Instead every pointer write is

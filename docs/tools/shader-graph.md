@@ -330,6 +330,38 @@ frozen or golden look shatters as it is.
 - **Limits.** The pieces are cut from the element's own box, so what the graph draws in its padding
   (past the edge) is not in them.
 
+### Custom GLSL (admins)
+
+For what no node does, an admin can write the code: **Advanced › Custom GLSL** in the palette
+(Pixel view only; shown only to roles holding **Write custom GLSL in shader effects**, admins by
+default). The node runs its GLSL ES 1.00 body inside the effect's pass like any other node, with
+the ports you declare. It shows a `</>` badge, its ports, a thumbnail and a cost chip.
+
+- **The code** (its properties): a code field with line numbers. Changes land when you pause or
+  leave the field, and one pause is one undo step (Ctrl+Z inside the field is the field's own).
+  Errors are listed with their line numbers and marked in the gutter; click one to jump to it.
+- **What the code may use** (the help panel lists it): its ports (read the inputs, write the
+  outputs; an input and an output of one name are one value), local variables, GLSL's built-in
+  functions and the effect library's `efx…` functions (`efxSample(uv)` reads the element). `for`
+  loops need an int counter with fixed bounds, at most 64 rounds each and 256 nested in all.
+- **What it may not:** `while`, `do`, `discard`, `#` lines, declaring functions, structs, uniforms
+  or precision, `texture2D`, or any name that is not its own (no other node's values, no `gl_…`).
+  A body is at most 4 KB. Its cost is estimated from the code, counting every branch and loop
+  round, and capped per node and per effect.
+- **The ports:** Inputs and Outputs editors (the name used in the code, a label, a type, a
+  default). Renaming a port does not change the code. At least one output stays.
+- **Tested on real WebGL.** Each change is compiled in your browser on WebGL1 and WebGL2; the
+  status bar shows a ✓ / ✕ for each. A driver that rejects the code puts its error on the node and
+  its line, marks the save pill **Saved: GLSL rejected** (the work is still saved) and blocks
+  **Publish to library**.
+- **Everyone else** sees the code and ports read-only ("Only an admin can change custom GLSL."),
+  and can still move, wire, group or delete the node. The server refuses a save that adds Custom
+  GLSL or changes its code or ports without the permission; Undo will not bring back a node whose
+  deletion was already saved.
+- **In a game.** If a phone's driver rejects any effect's shader, the element is drawn as it is
+  (the effect skipped, a warning logged) instead of vanishing. A game whose runtime predates this
+  release skips an effect holding Custom GLSL.
+
 ### Edit a node (properties)
 
 Click a node. Its properties open on the right, under the preview:

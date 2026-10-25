@@ -271,8 +271,31 @@ merged (#1342). 8b (Break as an output node) is in progress on `claude/shader-gr
     absent when it names none. The bake walks the bundle's values the same way (never a key).
     `deploy/editor-shaders/` still holds the set, and the Publish snapshot copies it, so a game's
     asset base carries the library's compiled effects too; nothing reads them at runtime.
-- **Step 8** (the plan's "Later", split into 8a–8e in design §8). 8c in progress
-  (`claude/shader-graph-step8c`, built on 8b), 8d in its design pass, 8e not started.
+- **Step 8** (the plan's "Later", split into 8a–8e in design §8). 8d designed
+  (`docs/design/shader-graph-particles.md`, on `claude/shader-graph-step8d`), awaiting the owner's
+  decisions; 8e not started.
+  - **8c, the Custom GLSL node.** In review on `claude/shader-graph-step8c` (built on 8b).
+    - **The node** (`packages/engine-shadergraph/src/customGlsl.ts`). `customGlsl`, pixel graph and
+      subgraph bodies: `glsl: { code, inputs, outputs }`, ports with the subgraph port rules
+      (`src/ports.ts`), default a vec4 `color` passed through. `customGlslIssues` is a typed
+      recursive-descent checker of a GLSL ES 1.00 subset (its ports, locals, built-ins, `efx*`
+      library functions; constant-bounded `for` loops, 64 rounds, 256 nested; no `while`, `do`,
+      `discard`, `#`, declarations, `texture2D` or foreign names; 4 KB / 600 tokens), errors as
+      `'glsl'` with `line N:`. Codegen: one `efxGlsl_<n>` function per distinct definition before
+      `main`. Cost estimated from the body, capped per node (1,024 / 256 reads) and per effect.
+    - **The server gate.** `shaderCustomGlsl` (admin by default): a save or restore adding Custom
+      GLSL, or changing one's code or ports, against the stored graph (or the shared one it would
+      shadow) is a 403 `custom-glsl`; moving, wiring around or deleting one is not; publishing a
+      graph holding one takes it too (`customGlslSignature`, `hasCustomGlsl`).
+    - **The runtime fail-safe** (`shaders.ts` `programLinks`, `ElementFxFilter.apply`). Pixi 8.22
+      logs a failed compile and then draws with the unlinked program every frame, so the element
+      vanished. Now each program's link is asked once; one that did not link draws the element as
+      it is, disables the filter and warns once. It covers every built-in pass and custom effect.
+    - **The editor.** Advanced › Custom GLSL for holders; `GlslCodeEditor.svelte` (line numbers,
+      gutter marks, one undo step per pause), `CustomGlslProperties.svelte` (errors, help, ports via
+      the shared `PortListEditor.svelte`), read-only for others; a test-compile on offscreen WebGL1
+      and WebGL2 (`glslCheck.client.ts`) whose rejection shows on the node and its lines, marks the
+      save pill and blocks Publish to library.
   - **8b, Break as an output node.** In review on `claude/shader-graph-step8b`.
     - Left: a live cut (Assemble) that throws partway through `startBreak` can leave the element a
       render group (at most once now, with no retry).

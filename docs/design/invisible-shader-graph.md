@@ -290,6 +290,16 @@ Each step has its own branch, gates and status entry.
      holds one, checked on the server; the body is checked as the compiler checks generated code
      (GLSL ES 1.00 only, no loops past a cap, names kept inside the node) and compiled headless on
      WebGL1 and WebGL2 before it can ship.
+     - As built: a typed recursive-descent checker over a tokenized body (caps 4 KB, 600 tokens,
+       nesting 48, loops 64 rounds each and 256 nested, locals initialised, no shadowing, constant
+       integer division by 0 and overflow refused); each node compiles to `efxGlsl_<n>` before
+       `main` (no `in` qualifier: Pixi defines `in` as `varying` in our fragments; one id in and
+       out is `inout`); cost estimated from the body, capped at 1,024 units and 256 reads a node and
+       4,096 / 1,024 an effect. The server gate is the `shaderCustomGlsl` capability on save,
+       restore and publish, judged against the stored graph's definitions. The test-compile runs in
+       the author's browser on WebGL1 and WebGL2 (the server has no GPU), and the runtime asks the
+       driver whether each Element FX program linked, drawing the element unchanged when not: that
+       fail-safe covers every built-in pass too.
    - **8d. Particle materials for Invisible FX.** A graph as the material an emitter's particles
      draw with, picked in `/fx`. Needs its own design pass with the `invisible-fx` agent first:
      per-particle inputs (age, life, colour, index) and the cost of a filter per emitter.
