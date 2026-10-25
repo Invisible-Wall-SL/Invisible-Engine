@@ -1,18 +1,15 @@
 <script lang="ts">
 	import {
-		DIMS,
 		SUBGRAPH_CALL,
 		SUBGRAPH_IN,
 		SUBGRAPH_PORTS_MAX,
-		SUBGRAPH_PORT_TYPES,
 		calledSubgraph,
 		subgraphName,
 		subgraphOf,
 		type GraphNode,
-		type PortType,
 		type ShaderGraphDoc,
-		type SubgraphPort,
 	} from 'engine-shadergraph';
+	import PortListEditor from './PortListEditor.svelte';
 	import {
 		addSubgraphPort,
 		removeSubgraphPort,
@@ -37,33 +34,10 @@
 	}
 	let { doc, scope, node, disabled = false, onChange, onOpen, onUngroup }: Props = $props();
 
-	const AXES = ['x', 'y', 'z', 'w'];
 	const isCall = $derived(node.type === SUBGRAPH_CALL);
 	const sub = $derived(subgraphOf(doc, isCall ? calledSubgraph(node) : scope));
 	const side = $derived<PortSide>(node.type === SUBGRAPH_IN ? 'inputs' : 'outputs');
 	const calls = $derived(sub ? subgraphCalls(doc, sub.id).length : 0);
-
-	const components = (port: SubgraphPort): (number | undefined)[] => {
-		const width = DIMS[port.type];
-		const value = port.default;
-		if (Array.isArray(value)) return Array.from({ length: width }, (_, i) => value[i]);
-		return Array.from({ length: width }, () => value);
-	};
-
-	/** Set component `i` of a port's default; all empty clears it, so it reads 0. */
-	function setDefault(port: SubgraphPort, i: number, raw: string): void {
-		if (!sub) return;
-		const current = components(port);
-		const parsed = raw.trim() === '' ? undefined : Number(raw);
-		if (parsed !== undefined && !Number.isFinite(parsed)) return;
-		current[i] = parsed;
-		const value = current.every((v) => v === undefined)
-			? null
-			: current.length === 1
-				? (current[0] ?? 0)
-				: current.map((v) => v ?? 0);
-		onChange(setSubgraphPort(doc, sub.id, side, port.id, { default: value }));
-	}
 </script>
 
 <section class="subgraph-props">
@@ -99,63 +73,15 @@
 				? 'Each is a port on every call. A call left unwired there reads the value set on it, else the default here, else 0.'
 				: 'Each is a port on every call. One left unwired here gives its default, else 0.'}
 		</p>
-		{#each sub[side] as port (port.id)}
-			<div class="port">
-				<input
-					type="text"
-					aria-label="Name of {port.id}"
-					value={port.label}
-					placeholder={port.id}
-					{disabled}
-					onchange={(e) =>
-						onChange(setSubgraphPort(doc, sub.id, side, port.id, { label: e.currentTarget.value }))}
-				/>
-				<select
-					aria-label="Type of {port.label || port.id}"
-					value={port.type}
-					{disabled}
-					onchange={(e) =>
-						onChange(
-							setSubgraphPort(doc, sub.id, side, port.id, {
-								type: e.currentTarget.value as PortType,
-							}),
-						)}
-				>
-					{#each SUBGRAPH_PORT_TYPES as type (type)}
-						<option value={type}>{type}</option>
-					{/each}
-				</select>
-				<button
-					type="button"
-					class="x"
-					title="Remove {port.label || port.id}, and every wire to it"
-					{disabled}
-					onclick={() => onChange(removeSubgraphPort(doc, sub.id, side, port.id))}>✕</button
-				>
-				<span class="vec" title="Default">
-					{#each components(port) as value, i (i)}
-						<input
-							type="number"
-							step="any"
-							aria-label="{port.label || port.id} default {AXES[i]}"
-							value={value ?? ''}
-							placeholder="0"
-							{disabled}
-							onchange={(e) => setDefault(port, i, e.currentTarget.value)}
-						/>
-					{/each}
-				</span>
-			</div>
-		{/each}
-		<button
-			type="button"
-			disabled={disabled || sub[side].length >= SUBGRAPH_PORTS_MAX}
-			title={sub[side].length >= SUBGRAPH_PORTS_MAX
-				? `A subgraph takes at most ${SUBGRAPH_PORTS_MAX} ${side}`
-				: undefined}
-			onclick={() => onChange(addSubgraphPort(doc, sub.id, side))}
-			>+ Add {side === 'inputs' ? 'input' : 'output'}</button
-		>
+		<PortListEditor
+			ports={sub[side]}
+			noun={side === 'inputs' ? 'input' : 'output'}
+			max={SUBGRAPH_PORTS_MAX}
+			{disabled}
+			onAdd={() => onChange(addSubgraphPort(doc, sub.id, side))}
+			onPatch={(port, patch) => onChange(setSubgraphPort(doc, sub.id, side, port, patch))}
+			onRemove={(port) => onChange(removeSubgraphPort(doc, sub.id, side, port))}
+		/>
 	{/if}
 </section>
 
@@ -179,20 +105,7 @@
 		align-items: center;
 		gap: 8px;
 	}
-	.port {
-		display: grid;
-		grid-template-columns: 1fr 64px auto;
-		gap: 4px;
-		padding: 4px 0;
-		border-bottom: 1px solid #1f2937;
-	}
-	.vec {
-		grid-column: 1 / -1;
-		display: flex;
-		gap: 4px;
-	}
-	input,
-	select {
+	input {
 		min-width: 0;
 		width: 100%;
 		font-size: 12px;
@@ -219,9 +132,6 @@
 	button:disabled {
 		opacity: 0.5;
 		cursor: default;
-	}
-	.x {
-		padding: 1px 6px;
 	}
 	.hint {
 		margin: 0;

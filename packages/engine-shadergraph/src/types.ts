@@ -97,6 +97,19 @@ export interface GraphNode {
 	 * by the port's type), and the node's settings (a choice, a param id, a colour).
 	 */
 	values?: Record<string, number | number[] | string>;
+	/** A Custom GLSL node's (`customGlsl`) definition: its body and its declared ports. */
+	glsl?: CustomGlslDefinition;
+}
+
+/**
+ * What a Custom GLSL node runs: `code`, the body of a GLSL ES 1.00 function that reads its inputs
+ * and writes its outputs by their ids. Ports follow the subgraph ports' rules; an input and an output
+ * of one id are one value, passed in and changed in place. At least one output.
+ */
+export interface CustomGlslDefinition {
+	code: string;
+	inputs: SubgraphPort[];
+	outputs: SubgraphPort[];
 }
 
 export interface GraphWire {
@@ -114,6 +127,8 @@ export interface GraphIssue {
 	port?: string;
 	/** Set on an issue in the motion graph: its `node` is one of the motion graph's. */
 	graph?: 'motion';
+	/** For an issue in a Custom GLSL node's code, the line of the code it is on (from 1). */
+	line?: number;
 }
 
 export type GraphIssueCode =
@@ -134,4 +149,5 @@ export type GraphIssueCode =
 	| 'pass'
 	| 'motion'
 	| 'subgraph'
-	| 'break';
+	| 'break'
+	| 'glsl';

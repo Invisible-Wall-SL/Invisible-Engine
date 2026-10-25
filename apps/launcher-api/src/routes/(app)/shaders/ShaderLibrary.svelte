@@ -15,6 +15,7 @@
 	// override), then the node library: the open effect's subgraphs, then the nodes by family. A
 	// node is dragged onto the canvas, or clicked to add it beside the selected node. While the
 	// canvas shows the motion graph, the library is the motion nodes (floats alone), no subgraph.
+	// Custom GLSL is listed under Advanced for a holder of `shaderCustomGlsl` alone.
 	// The Output family offers a Break Output while the effect has none (greyed out in a subgraph).
 	interface GraphRow {
 		id: string;
@@ -44,6 +45,8 @@
 		boundary?: string[];
 		/** The canvas shows the motion graph. */
 		motion?: boolean;
+		/** The user may add Custom GLSL (holds `shaderCustomGlsl`). */
+		customGlsl?: boolean;
 		/** The Break Output's entry (`breakPaletteEntry`): absent while not offered, greyed out with
 		 *  its `refusal` where it cannot go. */
 		breakEntry?: { refusal: string };
@@ -64,13 +67,14 @@
 		subgraphs = [],
 		boundary = [],
 		motion = false,
+		customGlsl = false,
 		breakEntry,
 		onAddCall,
 		onOpenSubgraph,
 		onDeleteSubgraph,
 	}: Props = $props();
 
-	const PIXEL_GROUPS = libraryGroups();
+	const PIXEL_GROUPS = $derived(libraryGroups(false, customGlsl));
 	const MOTION_GROUPS = libraryGroups(true);
 	const TWINS = twinGroups();
 	const BOUNDARY_TEXT: Record<string, { label: string; title: string }> = {

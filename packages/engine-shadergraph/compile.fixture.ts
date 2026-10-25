@@ -81,6 +81,25 @@
  *     plays (curves kept exactly before it, a driven alpha × it in steps after the graph's), an
  *     assemble none; a curve too full to take it is an error. Each break twin is the identity and
  *     its kind tied by id. Hostile ones are refused fast and bounded, and a fuzz never throws.
+ * 14. THE CUSTOM GLSL NODE (step 8c): a new one passes the colour through, clean. Every sample body
+ *     (`customGlsl.samples.ts`) the checker takes compiles, links and lints; every one it refuses says
+ *     so on the line it names (each refusal of the subset: loops, preprocessor, declarations, names
+ *     out of reach, samplers, integer ÷ 0, an integer or a loop counter past ±1023 (mediump), size,
+ *     outputs unwritten, the caps), and so does every malformed port. A fuzz of token soups and
+ *     broken bodies never throws, never trips the checker itself, stays fast, and compiles exactly
+ *     what it takes; random bodies from a grammar are all taken; every body taken is given to the GPU
+ *     as the very tokens checked (a lone carriage return ends a line). The GLSL: one function per definition before `main` (one shared by identical ones, none
+ *     for a node that reaches nothing), its inputs passed in, an input and output of one id `inout`,
+ *     each output starting at its default; matches `snapshots/customGlsl.frag`. Ports type wires as
+ *     any node's do; in a subgraph it compiles flat and its issues land on the call with their line;
+ *     the motion graph refuses it. Cost is never 0, counts reads and weighs work by type (a matrix
+ *     product n³); every hand-written built-in pass, as a body, checks clean but for the caps, and
+ *     the node cap sits between Petrify's work and Electrocute's; an effect's Custom GLSL nodes are
+ *     capped together. The registry keeps such an effect (its own functions are no unknown
+ *     calls) and drops one calling a library entry it lacks; a runtime from before 8c drops it.
+ *     The signature is order- and placement-free and moves with any code or port change. Storage
+ *     keeps the definition clean. (`pnpm --filter fx-spike shader-compile` compiles the same bodies
+ *     and random ones on WebGL1 and WebGL2.)
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -110,7 +129,7 @@ import {
 	type ElementFxMotionOutput,
 	type ElementFxParamSpec,
 } from 'constants-shared/elementFx';
-import { EFX_GLSL, linkGlsl } from 'constants-shared/glslLibrary';
+import { EFX_GLSL, linkGlsl, unknownEfxCalls } from 'constants-shared/glslLibrary';
 import {
 	MOTION_INPUTS,
 	MOTION_OPS,
@@ -141,6 +160,30 @@ import {
 	isBreakKind,
 	readBreakValue,
 } from './src/break.ts';
+import {
+	CHECKER_FAILED,
+	CUSTOM_GLSL,
+	CUSTOM_GLSL_DEFAULT,
+	CUSTOM_GLSL_EFFECT_COST_MAX,
+	CUSTOM_GLSL_EFFECT_SAMPLES_MAX,
+	CUSTOM_GLSL_COST_MAX,
+	customGlslDef,
+	customGlslFunction,
+	customGlslIssues,
+	customGlslSignature,
+	customGlslTokens,
+	hasCustomGlsl,
+} from './src/customGlsl.ts';
+import {
+	CUSTOM_GLSL_EXAMPLES,
+	INVALID_GLSL,
+	VALID_GLSL,
+	customGlslChain,
+	generatedGlsl,
+	mutatedGlsl,
+	nearMissGlsl,
+	soupGlsl,
+} from './customGlsl.samples.ts';
 import { normalizeShaderGraphDoc } from './src/doc.ts';
 import {
 	DIMS,
@@ -164,6 +207,7 @@ import {
 import { BUILTIN_TWINS, builtinTwin, isBreakTwin } from './src/twins.ts';
 import { MATERIAL_TWINS } from './src/twins/material.ts';
 import type {
+	CustomGlslDefinition,
 	GraphIssue,
 	GraphIssueCode,
 	GraphNode,
@@ -3173,6 +3217,667 @@ console.log('shader graph — the Break Output');
 	assert(
 		!thrown.length && !unread.length && compiled > 20,
 		`400 random Break Outputs (kinds, starts, values, wires and phases, as storage keeps them) never throw; each of the ${compiled} that compile ships a break the registry reads${thrown.length ? `: threw ${thrown[0]}` : ''}${unread.length ? `: unread ${unread[0]}` : ''}`,
+	);
+}
+
+// -------------------------------------------------------------------------------------------------
+console.log('shader graph — the Custom GLSL node');
+{
+	const glslNode = (
+		def: CustomGlslDefinition,
+		id = 'g',
+		values?: GraphNode['values'],
+	): GraphNode => ({
+		id,
+		type: CUSTOM_GLSL,
+		x: 0,
+		y: 0,
+		glsl: JSON.parse(JSON.stringify(def)) as CustomGlslDefinition,
+		...(values ? { values } : {}),
+	});
+	const errorsOf = (def: CustomGlslDefinition): GraphIssue[] =>
+		customGlslIssues(glslNode(def)).filter((i) => i.level === 'error');
+	/** The compiler's part of a body (its Custom GLSL functions declared, their bodies out), linted as
+	 *  every graph is; the functions' calls must all link. */
+	const lintGlsl = (b: string): string[] => [
+		...lint(b.replace(/(void efxGlsl_\d+\([^)]*\))\n\{\n[\s\S]*?\n\}\n/g, '$1;\n')),
+		...unknownEfxCalls(b).map((name) => `calls ${name}, which nothing declares`),
+	];
+	const port = (id: string, type: PortType, value?: number | number[]): SubgraphPort => ({
+		id,
+		label: id,
+		type,
+		...(value === undefined ? {} : { default: value }),
+	});
+
+	const fresh = glslNode(CUSTOM_GLSL_DEFAULT);
+	const def = customGlslDef(fresh);
+	const passed = compileShaderGraph(customGlslChain('passed', [CUSTOM_GLSL_DEFAULT]));
+	assert(
+		!customGlslIssues(fresh).length &&
+			JSON.stringify(def.inputs.map((p) => [p.id, p.type])) === '[["color","vec4"]]' &&
+			JSON.stringify(def.outputs.map((p) => [p.id, p.type])) === '[["color","vec4"]]' &&
+			def.category === 'code' &&
+			def.cost === 1 &&
+			passed.ok &&
+			passed.shader.body.includes('void efxGlsl_0(inout vec4 color)\n{\n    color = color;\n}\n') &&
+			!lintGlsl(passed.shader.body).length,
+		'a new Custom GLSL node passes the colour through (one vec4 in and out, `color`, one value), with no issue, a cost of 1 and its comments out of the GLSL',
+	);
+
+	const unexpected = VALID_GLSL.flatMap((sample) => {
+		const issues = customGlslIssues(glslNode(sample));
+		const errors = issues.filter((i) => i.level === 'error');
+		const warned = issues.some((i) => i.level === 'warning');
+		const r = compileShaderGraph(customGlslChain('valid', [sample]));
+		const problems = [
+			...errors.map((i) => i.message),
+			...(warned === !!sample.warns ? [] : [`warning ${warned}`]),
+			...(r.ok
+				? lintGlsl(r.shader.body)
+				: r.issues.filter((i) => i.level === 'error').map((i) => i.message)),
+		];
+		return problems.length ? [`${sample.name}: ${problems.join('; ')}`] : [];
+	});
+	assert(
+		VALID_GLSL.length >= 20 && !unexpected.length,
+		`${VALID_GLSL.length} sample bodies (loops, branches, matrices, integers, swizzles, the library, comments, outputs) pass the checker, compile, link and lint${unexpected.length ? `: ${unexpected.join(' | ')}` : ''}`,
+	);
+
+	const missed = INVALID_GLSL.flatMap((sample) => {
+		const issues = customGlslIssues(glslNode(sample));
+		const hit = issues.find(
+			(i) => sample.expect.test(i.message) && i.level === (sample.warning ? 'warning' : 'error'),
+		);
+		const placed =
+			hit &&
+			hit.code === 'glsl' &&
+			hit.node === 'g' &&
+			hit.line === sample.line &&
+			(sample.line === undefined || hit.message.startsWith(`line ${sample.line}: `));
+		const compiles = compileShaderGraph(customGlslChain('invalid', [sample])).ok;
+		return placed && compiles === !!sample.warning
+			? []
+			: [`${sample.name}: ${JSON.stringify(issues.map((i) => [i.level, i.message]))}`];
+	});
+	assert(
+		INVALID_GLSL.length >= 100 && !missed.length,
+		`${INVALID_GLSL.length} bodies and ports the checker refuses, each said on its line (line N: …, \`line\`), the effect not compiling (a warning only for an output written on some paths)${missed.length ? `: ${missed.join(' | ')}` : ''}`,
+	);
+	const refusals = [
+		/while/,
+		/do loops/,
+		/discard/,
+		/preprocessor/,
+		/functions cannot be declared/,
+		/struct declarations/,
+		/uniform declarations/,
+		/attribute declarations/,
+		/varying declarations/,
+		/precision declarations/,
+		/belongs to the effect’s shader/,
+		/is not declared/,
+		/gl_ names/,
+		/samplers/,
+		/reads a texture/,
+		/divided by 0/,
+		/4096 bytes/,
+		/600 tokens/,
+		/never written/,
+		/some paths only/,
+		/at most 64 rounds/,
+		/more than 256/,
+	];
+	const uncovered = refusals.filter(
+		(r) =>
+			!INVALID_GLSL.some(
+				(sample) =>
+					r.test(sample.expect.source) ||
+					INVALID_GLSL.some((s2) => customGlslIssues(glslNode(s2)).some((i) => r.test(i.message))),
+			),
+	);
+	assert(
+		!uncovered.length,
+		`every refusal of the subset is held by a sample${uncovered.length ? `: ${uncovered.join(', ')}` : ''}`,
+	);
+
+	// The fuzz.
+	const thrown: string[] = [];
+	const tripped: string[] = [];
+	const mismatched: string[] = [];
+	let taken = 0;
+	let worst = 0;
+	const began = performance.now();
+	const fuzz = [
+		...Array.from({ length: 700 }, (_, n) => soupGlsl(11, n)),
+		...Array.from({ length: 700 }, (_, n) => mutatedGlsl(13, n)),
+		...nearMissGlsl(),
+	];
+	for (const sample of fuzz) {
+		const t0 = performance.now();
+		try {
+			const issues = customGlslIssues(glslNode(sample));
+			if (issues.some((i) => i.message.includes(CHECKER_FAILED))) tripped.push(sample.name);
+			const clean = !issues.some((i) => i.level === 'error');
+			const r = compileShaderEffect(customGlslChain('fuzz', [sample]));
+			if (clean) taken++;
+			if (r.ok !== clean || (r.ok && lintGlsl(r.effect.shader.body).length))
+				mismatched.push(
+					`${sample.name}: ${r.ok ? lintGlsl(r.effect.shader.body).join('; ') : 'refused'}`,
+				);
+		} catch (error) {
+			thrown.push(`${sample.name}: ${(error as Error).message}`);
+		}
+		worst = Math.max(worst, performance.now() - t0);
+	}
+	const fuzzMs = performance.now() - began;
+	assert(
+		!thrown.length && !tripped.length && !mismatched.length && taken >= 40 && worst < 100,
+		`${fuzz.length} token soups, broken bodies and bodies one slip from valid never throw, never trip the checker, and compile exactly when it takes them (${taken} taken, all linting clean): ${Math.round(fuzzMs)} ms in all, ${worst.toFixed(1)} ms at worst${thrown.length ? `: threw ${thrown[0]}` : ''}${tripped.length ? `: tripped on ${tripped[0]}` : ''}${mismatched.length ? `: ${mismatched[0]}` : ''}`,
+	);
+	const refusedGenerated: string[] = [];
+	for (let n = 0; n < 300; n++) {
+		const sample = generatedGlsl(5, n);
+		const errors = errorsOf(sample);
+		const r = compileShaderGraph(customGlslChain('generated', [sample]));
+		if (errors.length || !r.ok || lintGlsl(r.shader.body).length)
+			refusedGenerated.push(
+				`${sample.name}: ${errors.map((i) => i.message).join('; ')}\n${sample.code}`,
+			);
+	}
+	assert(
+		!refusedGenerated.length,
+		`300 random bodies from the grammar (declarations, assignments, swizzles, branches, loops in loops, break, the library) pass the checker and compile${refusedGenerated.length ? `: ${refusedGenerated[0]}` : ''}`,
+	);
+	const takenBodies = [
+		...VALID_GLSL,
+		...fuzz,
+		...Array.from({ length: 300 }, (_, n) => generatedGlsl(5, n)),
+	].filter((sample) => !errorsOf(sample).length);
+	const unfaithful = takenBodies.filter((sample) => {
+		const emitted = customGlslFunction(glslNode(sample)).lines.join('\n');
+		const checked = customGlslTokens(sample.code);
+		return !checked || JSON.stringify(customGlslTokens(emitted)) !== JSON.stringify(checked);
+	});
+	const lineEnds = VALID_GLSL.find((sample) => sample.name === 'line ends of every kind');
+	const lineEndsEmitted = lineEnds ? customGlslFunction(glslNode(lineEnds)).lines.join('\n') : '';
+	assert(
+		!unfaithful.length &&
+			takenBodies.length > 600 &&
+			!!lineEnds &&
+			lineEndsEmitted.includes('color.g = -\n-color.g;') &&
+			lineEndsEmitted.includes('color.b += +\n+0.5;') &&
+			lineEndsEmitted.includes('int j = -\n-i;') &&
+			!/--color|--i;|\+\+0/.test(lineEndsEmitted),
+		`every body the checker takes (${takenBodies.length}) is given to the GPU as the very tokens it checked; a carriage return, alone or before a line feed, ends a line, so "-\\r-i" goes out as two minus signs, never as --${unfaithful.length ? `: ${unfaithful.map((s) => s.name).join(', ')}` : ''}`,
+	);
+	const hostile = [
+		'('.repeat(4000),
+		'{'.repeat(4000),
+		'/*'.repeat(2000),
+		'a'.repeat(4096),
+		`${'x = '.repeat(1000)}1.0;`,
+		`${'1.0 + '.repeat(680)}1.0`,
+		'x'.repeat(5_000_000),
+	];
+	const hostileStart = performance.now();
+	const hostileOk = hostile.every((code) => errorsOf({ ...CUSTOM_GLSL_DEFAULT, code }).length > 0);
+	const hostileMs = performance.now() - hostileStart;
+	assert(
+		hostileOk && hostileMs < 300,
+		`hostile bodies (4,000 brackets or braces, an unclosed comment, a 4 KB name, chained assignments, 5 MB) are refused in ${hostileMs.toFixed(1)} ms`,
+	);
+
+	// The GLSL.
+	const shaded = (nodes: GraphNode[], wires: GraphWire[]): ShaderGraphDoc => ({
+		version: 1,
+		id: 'glsl',
+		name: 'GLSL',
+		phase: 'loop',
+		durationMs: 1000,
+		params: [],
+		nodes,
+		wires,
+	});
+	const glow: CustomGlslDefinition = {
+		code: 'glow = color.rgb * amount; // brighter\n\tcolor.rgb += glow;   ',
+		inputs: [port('color', 'vec4'), port('amount', 'float', 0.5)],
+		outputs: [port('color', 'vec4'), port('glow', 'vec3')],
+	};
+	const wire = (from: string, fromPort: string, to: string, toPort: string): GraphWire => ({
+		from: { node: from, port: fromPort },
+		to: { node: to, port: toPort },
+	});
+	const single = compileShaderGraph(
+		shaded(
+			[
+				{ id: 's', type: 'sample', x: 0, y: 0 },
+				glslNode(glow),
+				{ id: 'o', type: 'output', x: 0, y: 0 },
+			],
+			[wire('s', 'out', 'g', 'color'), wire('g', 'color', 'o', 'color')],
+		),
+	);
+	const expected = [
+		'uniform vec4 uFx;',
+		'',
+		'void efxGlsl_0(inout vec4 color, float amount, out vec3 glow)',
+		'{',
+		'    glow = vec3(0.0, 0.0, 0.0);',
+		'    glow = color.rgb * amount;',
+		'        color.rgb += glow;',
+		'}',
+		'',
+		'void main(void)',
+		'{',
+		'    vec2 px = efxPx();',
+		'    vec2 uv = efxToUnit(px);',
+		'    vec2 uvSquare = uv * efxSize() / max(efxSize().x, efxSize().y);',
+		'    vec4 n0_out = efxSample(efxFromUnit(uv));',
+		'    vec4 n1_o0 = n0_out;',
+		'    vec3 n1_o1;',
+		'    efxGlsl_0(n1_o0, 0.5, n1_o1);',
+		'    vec4 outColor = clamp(n1_o0, 0.0, 1.0);',
+		'    finalColor = vec4(min(outColor.rgb, vec3(outColor.a)), outColor.a);',
+		'}',
+		'',
+	].join('\n');
+	assert(
+		body(single) === expected,
+		'a Custom GLSL node compiles to its function before main (inputs in, an input and output of one id inout, each output from its default) and one call where it sits (exact)',
+	);
+	const twice = compileShaderGraph(
+		shaded(
+			[
+				{ id: 's', type: 'sample', x: 0, y: 0 },
+				glslNode(glow, 'a', { amount: 0.25 }),
+				glslNode(glow, 'b'),
+				glslNode({ ...glow, code: 'glow = vec3(amount);' }, 'c'),
+				glslNode({ ...glow, code: 'glow = vec3(1.0);' }, 'unused'),
+				{ id: 'o', type: 'output', x: 0, y: 0 },
+			],
+			[
+				wire('s', 'out', 'a', 'color'),
+				wire('a', 'color', 'b', 'color'),
+				wire('b', 'color', 'c', 'color'),
+				wire('c', 'color', 'o', 'color'),
+			],
+		),
+	);
+	assert(
+		twice.ok &&
+			(twice.shader.body.match(/^void efxGlsl_\d+/gm) ?? []).join() ===
+				'void efxGlsl_0,void efxGlsl_1' &&
+			twice.shader.body.includes('efxGlsl_0(n1_o0, 0.25, n1_o1);') &&
+			twice.shader.body.includes('efxGlsl_0(n2_o0, 0.5, n2_o1);') &&
+			twice.shader.body.includes('efxGlsl_1(n3_o0, 0.5, n3_o1);') &&
+			twice.shader.warnings.some((w) => w.code === 'unreachable' && w.node === 'unused') &&
+			!lintGlsl(twice.shader.body).length,
+		'two nodes of one definition share a function; another gets its own; one that reaches nothing gets none (and a warning); an unwired input reads the value set on the node',
+	);
+	const examples = compileShaderEffect(customGlslChain('customGlsl', CUSTOM_GLSL_EXAMPLES));
+	const exampleFile = join(SNAPSHOTS, 'customGlsl.frag');
+	if (UPDATE && examples.ok) writeFileSync(exampleFile, examples.effect.shader.body);
+	let exampleSnapshot = '';
+	try {
+		exampleSnapshot = readFileSync(exampleFile, 'utf8');
+	} catch {
+		// no snapshot yet: the check below fails and says how to write one
+	}
+	assert(
+		examples.ok && examples.effect.shader.body === exampleSnapshot,
+		`the example nodes (tint, ripple, blur) compile to snapshots/customGlsl.frag${UPDATE ? ' (rewritten)' : exampleSnapshot ? '' : ' (missing: run with --update)'}`,
+	);
+
+	// Ports and types.
+	const typed = shaded(
+		[
+			{ id: 'n', type: 'number', x: 0, y: 0, values: { value: 0.5 } },
+			glslNode(glow),
+			{ id: 'add', type: 'add', x: 0, y: 0 },
+			{ id: 'join', type: 'premultiply', x: 0, y: 0 },
+			{ id: 'o', type: 'output', x: 0, y: 0 },
+		],
+		[
+			wire('n', 'out', 'g', 'color'),
+			wire('g', 'glow', 'add', 'a'),
+			wire('add', 'out', 'join', 'rgb'),
+			wire('join', 'out', 'o', 'color'),
+		],
+	);
+	const typedAnalysis = analyzeShaderGraph(typed);
+	const typedBody = body(compileShaderGraph(typed));
+	const narrow = shaded(
+		[{ id: 'u', type: 'uv', x: 0, y: 0 }, glslNode(glow), { id: 'o', type: 'output', x: 0, y: 0 }],
+		[wire('u', 'out', 'g', 'color'), wire('g', 'color', 'o', 'color')],
+	);
+	const valued = shaded(
+		[glslNode(glow, 'g', { amount: [1, 2] }), { id: 'o', type: 'output', x: 0, y: 0 }],
+		[wire('g', 'color', 'o', 'color')],
+	);
+	assert(
+		typedAnalysis.outputs.g?.glow === 'vec3' &&
+			typedAnalysis.inputs.g?.color === 'vec4' &&
+			typedAnalysis.outputs.add?.out === 'vec3' &&
+			typedBody.includes('vec4 n1_o0 = vec4(n0_out);') &&
+			codes(narrow).includes('type') &&
+			validateShaderGraph(narrow).some(
+				(i) => i.code === 'type' && i.node === 'g' && i.port === 'color',
+			) &&
+			validateShaderGraph(valued).some(
+				(i) => i.code === 'value' && i.node === 'g' && i.port === 'amount',
+			) &&
+			JSON.stringify(graphNodeDef(typed, glslNode(glow))?.outputs.map((p) => p.type)) ===
+				'["vec4","vec3"]' &&
+			graphNodeDef(typed, glslNode(glow), 'anySubgraph')?.type === CUSTOM_GLSL,
+		'its ports are typed as declared: a float spreads into its vec4, its vec3 output types an Add, a vec2 cannot feed its vec4 and a value of the wrong width is refused, each on its port; graphNodeDef answers it in the graph and in a body',
+	);
+
+	// Subgraphs and the motion graph.
+	const broken: CustomGlslDefinition = { ...glow, code: 'glow = color.rgb;\ncolor = nope;' };
+	const wrapped = (inner: CustomGlslDefinition): ShaderGraphDoc => ({
+		...shaded(
+			[
+				{ id: 'call1', type: 'subgraph', x: 0, y: 0, values: { subgraph: 'warm' } },
+				{ id: 'call2', type: 'subgraph', x: 0, y: 0, values: { subgraph: 'warm' } },
+				{ id: 'o', type: 'output', x: 0, y: 0 },
+			],
+			[wire('call1', 'out', 'call2', 'in'), wire('call2', 'out', 'o', 'color')],
+		),
+		subgraphs: [
+			{
+				id: 'warm',
+				name: 'Warm',
+				inputs: [port('in', 'vec4')],
+				outputs: [port('out', 'vec4')],
+				nodes: [
+					{ id: 'i', type: 'subgraphIn', x: 0, y: 0 },
+					glslNode(inner, 'inner'),
+					{ id: 'j', type: 'subgraphOut', x: 0, y: 0 },
+				],
+				wires: [wire('i', 'in', 'inner', 'color'), wire('inner', 'color', 'j', 'out')],
+			},
+		],
+	});
+	const flat = compileShaderGraph(wrapped(glow));
+	const lifted = validateShaderGraph(wrapped(broken)).filter((i) => i.code === 'glsl');
+	const alone = analyzeShaderSubgraph(wrapped(broken), 'warm').issues.filter(
+		(i) => i.code === 'glsl',
+	);
+	const moving = analyzeShaderMotion({
+		...shaded([], []),
+		motionGraph: { nodes: [glslNode(glow, 'm')], wires: [] },
+	}).issues;
+	assert(
+		flat.ok &&
+			(flat.shader.body.match(/^void efxGlsl_/gm) ?? []).length === 1 &&
+			(flat.shader.body.match(/efxGlsl_0\(/g) ?? []).length === 3 &&
+			lifted.length === 2 &&
+			lifted.every((i) => i.message === 'Warm › line 2: "nope" is not declared' && i.line === 2) &&
+			lifted.map((i) => i.node).join() === 'call1,call2' &&
+			alone.length === 1 &&
+			alone[0].node === 'inner' &&
+			alone[0].line === 2 &&
+			moving.some(
+				(i) =>
+					i.node === 'm' &&
+					i.message === 'Custom GLSL works per pixel: the motion graph cannot run it',
+			),
+		'in a subgraph called twice it compiles flat (one function, two calls); what is wrong in it is said on each call, with its line; the body alone says it on the node; the motion graph refuses it',
+	);
+
+	// Cost: work weighed by type.
+	const workOf = (code: string): number =>
+		customGlslDef(
+			glslNode({ code, inputs: [port('color', 'vec4')], outputs: [port('color', 'vec4')] }),
+		).cost;
+	const weighed = [
+		['mat4 m = mat4(1.0);\nm = m * m;', 64],
+		['mat2 m = mat2(1.0);\nm = m * m;', 8],
+		['color = mat4(1.0) * color;', 16],
+		['color.rgb = mat3(1.0) * color.rgb;', 9],
+		['color = color * 2.0;', 4],
+		['color.rgb = sin(color.rgb);', 12],
+		['for (int i = 0; i < 8; i++) {\n    color.r += 1.0;\n}', 24],
+	] as const;
+	const misweighed = weighed.filter(([code, work]) => workOf(code) !== work);
+	assert(
+		!misweighed.length,
+		`work is weighed by type: a mat4 product 64, a mat2 product 8, a mat4 by a vec4 16, a mat3 by a vec3 9, a vec4 by a number 4, sin of a vec3 12, 8 rounds of one add 24${misweighed.length ? `: ${misweighed.map(([code]) => `${JSON.stringify(code)} ${workOf(code)}`).join(', ')}` : ''}`,
+	);
+	// The hand-written built-in passes as bodies (their uniforms inputs, a one-line helper inlined):
+	// what the cap is weighed against.
+	const passes = [
+		...SHADERS.matchAll(
+			/export const \w+Filter = \(\): ElementFxFilter =>\s*new ElementFxFilter\(\s*'([\w-]+)',\s*`([\s\S]*?)`,/g,
+		),
+	].map(([, name, source]) => {
+		const main = source.slice(source.indexOf('void main(void)'));
+		let code = main.slice(main.indexOf('{') + 1, main.lastIndexOf('}'));
+		for (const [, fn, arg, expr] of source.matchAll(
+			/float (\w+)\(vec2 (\w+)\)\n\{\n {4}return ([^;]+);\n\}/g,
+		))
+			code = code.replace(
+				new RegExp(`\\b${fn}\\((\\w+)\\)`, 'g'),
+				(_, a: string) => `(${expr.replace(new RegExp(`\\b${arg}\\b`, 'g'), a)})`,
+			);
+		const def: CustomGlslDefinition = {
+			code: code.replace(/\bfinalColor\b/g, 'outColor').replace(/\bPI\b/g, '3.14159265'),
+			inputs: [...source.matchAll(/uniform (float|vec[234]) (\w+);/g)].map(([, type, id]) =>
+				port(id, type as PortType),
+			),
+			outputs: [port('outColor', 'vec4')],
+		};
+		const issues = errorsOf(def).filter(
+			(i) => !/longer than 600 tokens|units of work a pixel, more than/.test(i.message),
+		);
+		return { name, cost: customGlslDef(glslNode(def)).cost, issues };
+	});
+	const passCost = (name: string): number => passes.find((p) => p.name === name)?.cost ?? 0;
+	assert(
+		passes.length === 17 &&
+			passes.every((p) => !p.issues.length) &&
+			passCost('petrify') <= CUSTOM_GLSL_COST_MAX &&
+			passCost('electrocute') > CUSTOM_GLSL_COST_MAX &&
+			passes.every((p) => p.name === 'electrocute' || p.cost <= CUSTOM_GLSL_COST_MAX),
+		`the ${passes.length} hand-written built-in passes, as bodies, check clean but for the caps; the node cap (${CUSTOM_GLSL_COST_MAX}) takes Petrify's work (${passCost('petrify')}) and every other's but Electrocute's (${passCost('electrocute')})${passes.some((p) => p.issues.length) ? `: ${passes.flatMap((p) => p.issues.map((i) => `${p.name}: ${i.message}`)).join(' | ')}` : ''}`,
+	);
+
+	// Cost.
+	const heavy = (n: number): CustomGlslDefinition => ({
+		code: `float s = 0.0;\nfor (int i = 0; i < 64; i++) {\n    s += sin(s + float(i) + ${n}.0) * 0.5;\n}\ncolor.r += s;`,
+		inputs: [port('color', 'vec4')],
+		outputs: [port('color', 'vec4')],
+	});
+	const reader = (n: number): CustomGlslDefinition => ({
+		code: `vec4 s = vec4(0.0);\nfor (int i = 0; i < 50; i++) {\n    s += efxSample(efxPx() + vec2(float(i), ${n}.0)) + efxSample(efxPx() - vec2(float(i), 0.0));\n    s += efxSample(efxPx() + vec2(0.0, float(i))) + efxSample(efxPx() - vec2(0.0, float(i)));\n}\ncolor = s / 200.0;`,
+		inputs: [port('color', 'vec4')],
+		outputs: [port('color', 'vec4')],
+	});
+	const heavyCost = customGlslDef(glslNode(heavy(0))).cost;
+	const readerReads = customGlslDef(glslNode(reader(0))).samples ?? 0;
+	const tooHeavy = Math.floor(CUSTOM_GLSL_EFFECT_COST_MAX / heavyCost) + 1;
+	const tooRead = Math.floor(CUSTOM_GLSL_EFFECT_SAMPLES_MAX / readerReads) + 1;
+	const heavyDoc = customGlslChain(
+		'heavy',
+		Array.from({ length: tooHeavy }, (_, n) => heavy(n)),
+	);
+	const readDoc = customGlslChain(
+		'read',
+		Array.from({ length: tooRead }, (_, n) => reader(n)),
+	);
+	const fitDoc = customGlslChain(
+		'fit',
+		Array.from({ length: tooHeavy - 1 }, (_, n) => heavy(n)),
+	);
+	const blur = customGlslDef(glslNode(CUSTOM_GLSL_EXAMPLES[2]));
+	const blurDoc = analyzeShaderGraph(customGlslChain('blur', [CUSTOM_GLSL_EXAMPLES[2]]));
+	assert(
+		[...VALID_GLSL, ...INVALID_GLSL].every((sample) => customGlslDef(glslNode(sample)).cost >= 1) &&
+			blur.samples === 25 &&
+			blurDoc.samples === 26 &&
+			blurDoc.cost >= blur.cost &&
+			readerReads === 200 &&
+			validateShaderGraph(heavyDoc).some(
+				(i) => i.code === 'glsl' && /units of work a pixel together/.test(i.message),
+			) &&
+			validateShaderGraph(readDoc).some(
+				(i) => i.code === 'glsl' && /times a pixel together/.test(i.message),
+			) &&
+			!validateShaderGraph(fitDoc).some((i) => i.level === 'error'),
+		`a body's cost is never 0 and counts its reads (the blur's 25, the graph's 26 with the Sample); ${tooHeavy} nodes of ${heavyCost} units, or ${tooRead} of ${readerReads} reads, pass what an effect's Custom GLSL may spend together (${CUSTOM_GLSL_EFFECT_COST_MAX}, ${CUSTOM_GLSL_EFFECT_SAMPLES_MAX}); one fewer fits`,
+	);
+
+	// The registry, and older runtimes.
+	const effect = examples.ok ? examples.effect : undefined;
+	/** `unknownEfxCalls` as runtimes from step 6 to 8b have it: blind to a pass's own functions. */
+	const before8c = (code: string): string[] => {
+		const names = [...code.replace(/\/\/[^\n]*/g, '').matchAll(/\b(efx[A-Z]\w*)\s*\(/g)].map(
+			([, n]) => n,
+		);
+		const header = [
+			'efxPx',
+			'efxArea',
+			'efxSize',
+			'efxOrigin',
+			'efxCenter',
+			'efxToUnit',
+			'efxFromUnit',
+			'efxSample',
+			'efxInside',
+		];
+		return [...new Set(names)].filter((n) => !Object.hasOwn(EFX_GLSL, n) && !header.includes(n));
+	};
+	const library = EFX_GLSL as Record<string, string>;
+	library.efxFuture = '\n// Test only.\nfloat efxFuture(vec2 p)\n{\n    return p.x;\n}';
+	const future = compileShaderEffect(
+		customGlslChain('future', [{ ...glow, code: 'glow = vec3(efxFuture(color.xy));' }]),
+	);
+	delete library.efxFuture;
+	assert(
+		!!effect &&
+			!unknownEfxCalls(effect.shader.body).length &&
+			!!readCustomElementFx(effect) &&
+			before8c(effect.shader.body).join() === 'efxGlsl_0,efxGlsl_1,efxGlsl_2' &&
+			future.ok &&
+			JSON.stringify(unknownEfxCalls(future.effect.shader.body)) === '["efxFuture"]' &&
+			readCustomElementFx(future.effect) === undefined,
+		'the registry keeps an effect with Custom GLSL (its functions are its own); a runtime from before 8c leaves it out; a new library entry is callable at once, and a runtime without it leaves the effect out',
+	);
+
+	// The signature.
+	const definitions = [glow, { ...glow, code: 'glow = vec3(1.0);' }, CUSTOM_GLSL_DEFAULT];
+	const signed = (order: number[], ids: string[], inBody: number): ShaderGraphDoc => ({
+		...shaded(
+			order
+				.filter((i) => i !== inBody)
+				.map((i, k) => ({ ...glslNode(definitions[i], ids[k]), x: k * 10 })),
+			[],
+		),
+		subgraphs: [
+			{
+				id: 'sub',
+				name: 'Sub',
+				inputs: [],
+				outputs: [],
+				nodes: [glslNode(definitions[inBody], 'deep')],
+				wires: [],
+			},
+		],
+	});
+	const base = customGlslSignature(signed([0, 1, 2], ['a', 'b'], 2));
+	const changed = (edit: (d: CustomGlslDefinition) => void): boolean => {
+		const doc = signed([0, 1, 2], ['a', 'b'], 2);
+		edit(doc.nodes[0].glsl as CustomGlslDefinition);
+		return JSON.stringify(customGlslSignature(doc)) !== JSON.stringify(base);
+	};
+	const added = signed([0, 1, 2], ['a', 'b'], 2);
+	added.nodes.push(glslNode(glow, 'copy'));
+	const removed = signed([0, 1, 2], ['a', 'b'], 2);
+	removed.nodes.pop();
+	assert(
+		base.length === 3 &&
+			JSON.stringify(customGlslSignature(signed([2, 1, 0], ['q', 'r'], 0))) ===
+				JSON.stringify(base) &&
+			JSON.stringify(customGlslSignature(signed([1, 0, 2], ['x', 'y'], 2))) ===
+				JSON.stringify(base) &&
+			JSON.stringify(
+				customGlslSignature({ ...signed([0, 1, 2], ['a', 'b'], 2), subgraphs: [] }).concat(),
+			) !== JSON.stringify(base) &&
+			changed((d) => (d.code += ' ')) &&
+			changed((d) => (d.inputs[1].id = 'amt')) &&
+			changed((d) => (d.inputs[1].label = 'Amount')) &&
+			changed((d) => (d.outputs[1].type = 'vec4')) &&
+			changed((d) => (d.inputs[1].default = 0.6)) &&
+			changed((d) => d.outputs.push(port('more', 'float'))) &&
+			JSON.stringify(customGlslSignature(added)) !== JSON.stringify(base) &&
+			JSON.stringify(customGlslSignature(removed)) !== JSON.stringify(base),
+		'the signature is the same however the nodes are ordered, named or placed (the graph or a body), and moves with the code, a port’s id, label, type or default, a port added, a node added or removed',
+	);
+	const quiet = (
+		[
+			null,
+			undefined,
+			5,
+			'x',
+			{},
+			{ nodes: 5 },
+			{ nodes: [null, 5, { type: CUSTOM_GLSL }] },
+			{ subgraphs: [null, { nodes: [{ type: CUSTOM_GLSL, glsl: 5 }] }] },
+		] as unknown[]
+	).every((raw) => {
+		try {
+			customGlslSignature(raw as ShaderGraphDoc);
+			hasCustomGlsl(raw as ShaderGraphDoc);
+			return true;
+		} catch {
+			return false;
+		}
+	});
+	assert(
+		hasCustomGlsl(signed([0, 1, 2], ['a', 'b'], 2)) &&
+			hasCustomGlsl({ ...signed([0], ['a'], 0), nodes: [] }) &&
+			![...REFERENCE_GRAPHS, ...BUILTIN_TWINS.map((t) => t.doc), ...nodeShowcase()].some(
+				(doc) =>
+					hasCustomGlsl(doc as ShaderGraphDoc) || customGlslSignature(doc as ShaderGraphDoc).length,
+			) &&
+			quiet,
+		'hasCustomGlsl finds one in the graph or a body, and none in the references, twins or showcase; neither throws on a malformed doc',
+	);
+
+	// Storage.
+	const stored = normalizeShaderGraphDoc(
+		{
+			name: 'S',
+			nodes: [
+				{
+					id: 'g',
+					type: CUSTOM_GLSL,
+					glsl: {
+						code: 'color = color;',
+						inputs: [{ id: 'color', type: 'vec4', junk: 1 }],
+						outputs: [{ id: 'color', label: 'C', type: 'vec4', default: 1 }, 5],
+						extra: true,
+					},
+				},
+				{ id: 'h', type: CUSTOM_GLSL, glsl: { code: 12, inputs: 'no' } },
+				{ id: 'n', type: 'number', glsl: { code: 'x' } },
+			],
+		},
+		'stored',
+	);
+	assert(
+		JSON.stringify(stored.nodes.map((n) => n.glsl ?? null)) ===
+			JSON.stringify([
+				{
+					code: 'color = color;',
+					inputs: [{ id: 'color', label: 'color', type: 'vec4' }],
+					outputs: [{ id: 'color', label: 'C', type: 'vec4', default: 1 }],
+				},
+				{ code: '', inputs: [], outputs: [] },
+				null,
+			]),
+		'storage keeps a Custom GLSL node’s code and ports, clean (junk fields and malformed ports out, code that is not text as empty), and no definition on any other node',
 	);
 }
 

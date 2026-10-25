@@ -4,10 +4,14 @@
  * it as `pnpm --filter fx-spike shader-compile`).
  *
  * Draws every sheet `shaderParity.mjs` shoots (every built-in kind, every starting side, every
- * signed param at its minimum, the reference shader graphs, and every node at every vector width)
- * through the real `ElementFxFilter` in headless Chromium, and fails on any error the page logs or
- * throws: a shader the driver rejects shows there as Pixi's "Could not initialize shader". The
- * headless fixtures cannot see that: they lint GLSL as text, not as a driver compiles it.
+ * signed param at its minimum, the reference shader graphs, every node at every vector width, and
+ * the Custom GLSL bodies: samples, examples and random ones from a grammar) through the real
+ * `ElementFxFilter` in headless Chromium, and fails on any error the page logs or throws: a shader
+ * the driver rejects shows there as Pixi's "Could not initialize shader". The headless fixtures
+ * cannot see that: they lint GLSL as text, not as a driver compiles it. A Custom GLSL body the
+ * checker takes and the driver refuses is a checker bug, named with its code. The `failsafe` sheet
+ * plays passes the driver refuses through the runtime and logs an error only for a claim of the
+ * fail-safe that does not hold.
  */
 
 import { mkdtempSync, rmSync } from 'node:fs';

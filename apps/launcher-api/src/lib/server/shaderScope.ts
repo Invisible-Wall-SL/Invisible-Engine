@@ -1,5 +1,5 @@
 import { error, type Cookies } from '@sveltejs/kit';
-import { SHADER_PUBLISH_CAPABILITY } from '$lib/roles';
+import { SHADER_CUSTOM_GLSL_CAPABILITY, SHADER_PUBLISH_CAPABILITY } from '$lib/roles';
 import { userHasCapability } from './launcherAuth';
 import { gate, type ToolScope } from './toolScope';
 
@@ -23,6 +23,10 @@ export const shaderWriteScope = (locals: App.Locals, cookies: Cookies): Promise<
 /** Whether `locals.user` may write the studio-shared library (`shaderPublish`). */
 export const canPublishSharedShaders = async (locals: App.Locals): Promise<boolean> =>
 	!!locals.user && (await userHasCapability(locals.user, SHADER_PUBLISH_CAPABILITY));
+
+/** Whether `locals.user` may add Custom GLSL or change its code or ports (`shaderCustomGlsl`). */
+export const canWriteCustomGlsl = async (locals: App.Locals): Promise<boolean> =>
+	!!locals.user && (await userHasCapability(locals.user, SHADER_CUSTOM_GLSL_CAPABILITY));
 
 /**
  * Publishing a graph to the studio-shared library, or removing one: `/shaders` plus the

@@ -8,8 +8,12 @@ import {
 import { listBackups } from '$lib/server/docBackups';
 import { shaderDocBackupTarget, shaderSlug } from '$lib/server/projectPaths';
 import { scopeMismatch } from '$lib/server/scopeGuard';
-import { shaderReadScope, shaderWriteScope } from '$lib/server/shaderScope';
-import { ShaderTooLargeError, saveShader } from '$lib/server/shaderStorage';
+import { canWriteCustomGlsl, shaderReadScope, shaderWriteScope } from '$lib/server/shaderScope';
+import {
+	CustomGlslNotAllowedError,
+	ShaderTooLargeError,
+	saveShader,
+} from '$lib/server/shaderStorage';
 import type { RequestHandler } from './$types';
 
 /**
@@ -40,7 +44,8 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
  * Restore a backup over the live graph. Body: `{ id, baseEtag: string | null }` (or
  * `{ id, force: true }`). Goes through the graph's save with `'always'`, so it keeps the ETag CAS (a
  * stale tab answers 409) and backs up what it replaces. The backup is saved under the graph the
- * request names, whatever id it carries.
+ * request names, whatever id it carries. A version whose Custom GLSL differs from the live graph's
+ * takes `shaderCustomGlsl` to restore, as a save does.
  */
 export const POST: RequestHandler = async ({ request, url, locals, cookies }) => {
 	const { clientKey, projectKey } = await shaderWriteScope(locals, cookies);
@@ -59,9 +64,11 @@ export const POST: RequestHandler = async ({ request, url, locals, cookies }) =>
 			{ ...restored, id: graph },
 			baseEtag,
 			'always',
+			await canWriteCustomGlsl(locals),
 		);
 		return json({ ok: true, id, etag, doc });
 	} catch (e) {
+		if (e instanceof CustomGlslNotAllowedError) throw error(403, e.message);
 		if (e instanceof ShaderTooLargeError) throw error(422, e.message);
 		return restoreWriteFailed(e, 'this shader graph');
 	}

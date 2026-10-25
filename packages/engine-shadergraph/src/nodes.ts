@@ -33,9 +33,21 @@ export type SettingDef =
 	| { id: string; label: string; kind: 'number'; default: number }
 	| { id: string; label: string; kind: 'color'; default: string };
 
-/** `subgraph`: a call to one of the effect's subgraphs, and a body's Input and Output (`subgraph.ts`). */
+/**
+ * `subgraph`: a call to one of the effect's subgraphs, and a body's Input and Output (`subgraph.ts`).
+ * `code`: a Custom GLSL node (`customGlsl.ts`).
+ */
 export type NodeCategory =
-	'input' | 'math' | 'time' | 'procedural' | 'mask' | 'uv' | 'color' | 'output' | 'subgraph';
+	| 'input'
+	| 'math'
+	| 'time'
+	| 'procedural'
+	| 'mask'
+	| 'uv'
+	| 'color'
+	| 'output'
+	| 'subgraph'
+	| 'code';
 
 export interface EmitContext {
 	/** Each input as a GLSL expression of its port's type. */

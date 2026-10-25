@@ -634,6 +634,24 @@ export const EFX_HEADER_FUNCTIONS = [
 	'efxInside',
 ] as const;
 
+/**
+ * What each of the pass header's functions takes and gives, as the header declares it: what a Custom
+ * GLSL node's checker types a call by. `check:element-fx` holds each to the header.
+ */
+export const EFX_HEADER_SIGNATURES: Readonly<
+	Record<(typeof EFX_HEADER_FUNCTIONS)[number], string>
+> = {
+	efxPx: 'vec2 efxPx()',
+	efxArea: 'vec2 efxArea()',
+	efxSize: 'vec2 efxSize()',
+	efxOrigin: 'vec2 efxOrigin()',
+	efxCenter: 'vec2 efxCenter()',
+	efxToUnit: 'vec2 efxToUnit(vec2 px)',
+	efxFromUnit: 'vec2 efxFromUnit(vec2 u)',
+	efxSample: 'vec4 efxSample(vec2 px)',
+	efxInside: 'bool efxInside(vec2 px)',
+};
+
 const live = (code: string): string =>
 	code.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
@@ -647,15 +665,23 @@ const calls = (code: string, self?: string): string[] => {
 };
 
 /**
- * The `efx…` functions `code` calls that neither this library nor the pass header has: what this
- * version cannot link. A pass compiled by a newer Shader Graph, calling an entry added since, shows
- * here, and the custom-effect registry leaves it out rather than hand the GPU a shader that fails.
+ * The `efx…` functions `code` calls that neither this library, the pass header nor `code` itself
+ * declares: what this version cannot link. A pass compiled by a newer Shader Graph, calling an entry
+ * added since, shows here, and the custom-effect registry leaves it out rather than hand the GPU a
+ * shader that fails. A function the pass declares (a Custom GLSL node's `efxGlsl_<n>`) is its own;
+ * a runtime from before such functions does not know this and leaves the effect out.
  */
 export function unknownEfxCalls(code: string): string[] {
 	const header: readonly string[] = EFX_HEADER_FUNCTIONS;
-	const names = [...live(code).matchAll(/\b(efx[A-Z]\w*)\s*\(/g)].map(([, name]) => name);
+	const text = live(code);
+	const own = new Set(
+		[...text.matchAll(/\b(?:void|float|int|bool|vec[234]|mat[234])\s+(efx\w+)\s*\(/g)].map(
+			([, name]) => name,
+		),
+	);
+	const names = [...text.matchAll(/\b(efx[A-Z]\w*)\s*\(/g)].map(([, name]) => name);
 	return [...new Set(names)].filter(
-		(name) => !Object.hasOwn(EFX_GLSL, name) && !header.includes(name),
+		(name) => !Object.hasOwn(EFX_GLSL, name) && !header.includes(name) && !own.has(name),
 	);
 }
 
