@@ -39,7 +39,8 @@ export type TypeRef =
 	| { t: 'ms' } // Int milliseconds (semantic alias; still an int — widens to/from `int`, §9.1).
 	| { t: 'enum'; name: string } // a template-declared enum (e.g. SymbolName).
 	| { t: 'struct'; name: string } // a template-declared struct (Reel, Slot, Win…).
-	| { t: 'list'; of: TypeRef }; // a collection (what ForEach iterates).
+	| { t: 'list'; of: TypeRef } // a collection (what ForEach iterates).
+	| { t: 'instance'; component?: string }; // a spawned instance's handle (§3.3); no component ⇒ any.
 
 // ---------------------------------------------------------------------------
 // §2 — pins & edges. Pins are DERIVED (shown, not persisted on the node); edges
@@ -106,7 +107,8 @@ export type Accessor =
 	| { on: 'engine'; key: string } // a template global read (e.g. reels, slots).
 	| { on: 'trigger'; member?: string } // the event payload — whole ($trigger) or a field.
 	| { on: 'context'; member?: string } // the dispatch context (e.g. bookEvents) — whole or a field.
-	| { on: 'var'; id: string }; // a game variable ($var.<id>, game-families §3.1).
+	| { on: 'var'; id: string } // a game variable ($var.<id>, game-families §3.1).
+	| { on: 'live'; layer: string }; // a spawn layer's live instances ($live.<layer>, §3.3).
 
 /** Where a data-in gets its value. `wire` means "look at the data edges". */
 export type DataSource =
@@ -183,7 +185,10 @@ export type NodeKind =
 	| 'onInput'
 	| 'startTimer'
 	| 'stopTimer'
-	| 'pauseTimer';
+	| 'pauseTimer'
+	| 'spawn'
+	| 'despawn'
+	| 'instanceRef';
 
 /** Shared node fields. `inputs` maps each DATA-IN pin id → its `DataSource` (a `wire`
  *  source defers to the data edges); it is absent for nodes with no data-ins. */
@@ -517,11 +522,15 @@ export interface FlowInstanceNode extends NodeBase, InstanceRef {
  * Wait for state (Phase 7): hold the exec chain until the instance's state-machine layer `layer`
  * is in state `state` — at once when it already is. exec-in `exec`, exec-out `exec`. What the wait
  * does for an instance that is not on screen is the game env's rule (`FlowV2Env.awaitInstanceState`).
+ *
+ * With `componentId` set it waits on a SPAWNED instance of that component instead (§3.3): the
+ * handle arrives on its `instance` data-in, and `container` / `instance` are blank.
  */
 export interface WaitForStateNode extends NodeBase, InstanceRef {
 	kind: 'waitForState';
 	layer: string;
 	state: string;
+	componentId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -607,6 +616,45 @@ export interface PauseTimerNode extends NodeBase {
 	timer: string;
 }
 
+// ---------------------------------------------------------------------------
+// SPAWNING (`docs/design/game-families.md` §3.3). A `spawnLayer` layout node is a container whose
+// children are created while the game runs; these nodes create, remove and address them. The live
+// set is held by the game (`spawn.ts` `createSpawnStore`), reached through `FlowV2Env`.
+// ---------------------------------------------------------------------------
+
+/** Where a {@link SpawnNode} places its instance: a point (`x` / `y` data-ins, in the layer's space)
+ *  or a cell of a grid layer (`col` / `row`). Absent ⇒ `xy`. */
+export type SpawnAtMode = 'xy' | 'cell';
+
+/**
+ * Spawn: create an instance of `componentId` in spawn layer `layer` (a `spawnLayer` node id), then
+ * continue. Data-outs `instance` (its handle, `instance<componentId>`) and `spawned` (false when
+ * the layer refused it: full, not spawnable there, a cell off the grid).
+ */
+export interface SpawnNode extends NodeBase {
+	kind: 'spawn';
+	layer: string;
+	componentId: string;
+	at?: SpawnAtMode;
+}
+
+/** Despawn: remove the instance on its `instance` data-in (a handle no longer live does nothing). */
+export interface DespawnNode extends NodeBase {
+	kind: 'despawn';
+}
+
+/**
+ * Instance ref: the Phase 7 instance node for a SPAWNED instance of `componentId`. Its pins are
+ * that component's interface (`deriveInstancePins`) plus a data-in `instance` (the handle to
+ * address) and a data-out `handle`. Its `event:<event>` exec-outs run when ANY spawned instance of
+ * the component raises the event, with the raising instance in `$trigger.instance` (and on
+ * `handle`, when the `instance` data-in is not fed).
+ */
+export interface InstanceRefNode extends NodeBase {
+	kind: 'instanceRef';
+	componentId: string;
+}
+
 export type Node =
 	| EventNode
 	| GameSignalsNode
@@ -640,7 +688,10 @@ export type Node =
 	| OnInputNode
 	| StartTimerNode
 	| StopTimerNode
-	| PauseTimerNode;
+	| PauseTimerNode
+	| SpawnNode
+	| DespawnNode
+	| InstanceRefNode;
 
 // ---------------------------------------------------------------------------
 // §5 — functions (the reuse model). A function is authored once and dropped as a
@@ -762,6 +813,31 @@ export interface FlowInstanceDecl extends InstanceRef {
 	 *  no version warning, marks no wire or pin stale, and re-reads the exact pins once a node names
 	 *  the placement. */
 	unpinned?: true;
+}
+
+/** One component a spawn layer may spawn, as Flow sees it. */
+export interface FlowSpawnableDecl {
+	componentId: string;
+	interface: InstanceInterface;
+	/** The def could not be resolved: its pins are derived from nothing. */
+	missing?: 'def';
+}
+
+/**
+ * One `spawnLayer` node placed on a screen, as Flow sees it (§3.3), keyed in
+ * `PinContext.spawnLayers` by the node's id. Derived from the LayoutDoc, never stored.
+ */
+export interface FlowSpawnLayerDecl {
+	/** The container whose scene holds the layer. */
+	container: ContainerId;
+	/** The `spawnLayer` node id. */
+	layer: string;
+	/** The author's name for it (the node's label), else its id. */
+	name: string;
+	placement: 'free' | 'grid';
+	grid?: { cols: number; rows: number; pitch: number };
+	cap: number;
+	spawnable: FlowSpawnableDecl[];
 }
 
 // ---------------------------------------------------------------------------

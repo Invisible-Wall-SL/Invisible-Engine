@@ -224,6 +224,7 @@
 		instances,
 		variables: docVariables(doc),
 		outcome: data.outcome,
+		spawnLayers: data.spawnLayers ?? {},
 	});
 
 	// --- The editing TARGET (2c.3) ---------------------------------------------
@@ -511,6 +512,7 @@
 						sceneIds,
 						instances,
 						data.outcome,
+						data.spawnLayers ?? {},
 					).filter((issue) => !touchesUnpinned(issue)),
 					...respinTabIssues(doc, data.addOns),
 					...spinsTabIssues(doc, data.addOns, sceneIds),

@@ -28,6 +28,7 @@ import {
 	type FlowV2Env,
 	type RunContext,
 } from './runtime';
+import { createSpawnStore, spawnedIdOf, type SpawnLayerSpec } from './spawn';
 import { createFlowState, flowUsesState, stepFlowState } from './state';
 import type { EventDecl, FlowDoc, FunctionLibraryDoc, TemplateVocabulary, TypeRef } from './types';
 
@@ -59,7 +60,18 @@ export type FlowPreviewEntry =
 	/** A timer ran out (§3.2). */
 	| { kind: 'timer'; at: number; timer: string }
 	/** A scripted key (`FlowPreviewOptions.inputs`) went down or up. */
-	| { kind: 'input'; at: number; action: string; phase: 'down' | 'up' };
+	| { kind: 'input'; at: number; action: string; phase: 'down' | 'up' }
+	/** A Spawn node (§3.3): the new instance's id, or why the layer refused it. */
+	| {
+			kind: 'spawn';
+			at: number;
+			layer: string;
+			componentId: string;
+			instance?: string;
+			refused?: string;
+	  }
+	/** A Despawn node removed a live instance. */
+	| { kind: 'despawn'; at: number; instance: string };
 
 export interface FlowPreviewResult {
 	/** The ordered side-effect timeline with virtual-clock `at` stamps. For a doc with variables,
@@ -90,6 +102,11 @@ export interface FlowPreviewOptions {
 	horizonMs?: number;
 	/** Keys pressed during the preview, at virtual times (ms), for `onInput` entries. */
 	inputs?: { at: number; action: string; phase?: 'down' | 'up' }[];
+	/**
+	 * The spawn layers the flow's screens place (§3.3, `spawnSpecsOf` of the projected decls): what a
+	 * Spawn node may create, under each layer's cap. Absent ⇒ none, so every spawn is refused.
+	 */
+	spawnLayers?: readonly SpawnLayerSpec[];
 }
 
 /** The default `horizonMs`. */
@@ -155,6 +172,8 @@ const sampleValue = (type: TypeRef, vocab: TemplateVocabulary, ordinal = 0): unk
 		}
 		case 'list':
 			return [0, 1, 2].map((i) => sampleValue(type.of, vocab, i));
+		case 'instance':
+			return undefined; // a handle exists only once something spawned it.
 	}
 };
 
@@ -195,7 +214,12 @@ const recorderEnv = (
 	speed: number,
 	engine: (key: string) => unknown,
 	waitForTimeout: FlowV2Env['waitForTimeout'],
+	spawnLayers: readonly SpawnLayerSpec[] = [],
 ): FlowV2Env => {
+	// The live set, headless: the same store and rules as the game, nothing drawn. A spawned
+	// instance runs no state machine here, so its sets / fires / waits are recorded like a placed one's.
+	const live = createSpawnStore();
+	for (const spec of spawnLayers) live.declare(spec);
 	const withPayload = (payload: Record<string, unknown>) =>
 		Object.keys(payload).length > 0 ? { payload } : {};
 	return {
@@ -243,6 +267,26 @@ const recorderEnv = (
 				value: state,
 			});
 		},
+		spawn: (layer, componentId, place) => {
+			const result = live.spawn(layer, componentId, place);
+			timeline.push({
+				kind: 'spawn',
+				at: at(),
+				layer,
+				componentId,
+				...(result.ok ? { instance: result.instance.id } : { refused: result.reason }),
+			});
+			return result.ok ? result.instance : undefined;
+		},
+		despawn: (instance) => {
+			const gone = live.despawn(spawnedIdOf(instance) ?? '');
+			if (gone) timeline.push({ kind: 'despawn', at: at(), instance: gone.id });
+		},
+		liveInstances: (layer) => live.live(layer),
+		spawnedRef: (instance) => {
+			const id = spawnedIdOf(instance);
+			return id && live.get(id) ? { container: '', instance: id } : undefined;
+		},
 	};
 };
 
@@ -275,6 +319,7 @@ const previewChain = async (
 			clock += elapsed;
 			await Promise.resolve();
 		},
+		options.spawnLayers,
 	);
 
 	const ctx: RunContext = { vocab: lookups.vocab, library: lookups.library, env };
@@ -343,6 +388,7 @@ const previewOnClock = async (
 				timeline.push({ kind: 'delay', at: now, ms: elapsed });
 				return new Promise<void>((resolve) => schedule(now + elapsed, resolve));
 			},
+			options.spawnLayers,
 		),
 		state,
 	};

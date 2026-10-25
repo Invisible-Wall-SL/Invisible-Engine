@@ -33,6 +33,7 @@ import {
 	instanceDefResolver,
 	projectContainerEvents,
 	projectFlowInstances,
+	projectSpawnLayers,
 	syncFlowContainers,
 } from '$lib/flowV2Projection';
 import { composeFlowV2Vocab } from '$lib/flowV2Vocab';
@@ -92,6 +93,7 @@ export function validateFlowV2Against(
 			scenes.map((s) => s.id),
 			projectFlowInstances(doc.containers, scenes, instanceDefResolver(components)),
 			outcome,
+			projectSpawnLayers(doc.containers, scenes, instanceDefResolver(components)),
 		),
 		...respinTabIssues(doc, addOns),
 		...spinsTabIssues(

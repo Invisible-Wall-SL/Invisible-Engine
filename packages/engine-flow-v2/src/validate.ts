@@ -90,6 +90,9 @@
  *                            the runtime runs the first wire only, so the second is dead (an ERROR).
  *                            Every instance check runs only when the caller projects the instances
  *                            in (`PinContext.instances`); absent ⇒ unknown layout ⇒ never guess.
+ *  - `spawn-layer-unknown` / `spawn-not-spawnable` / `spawn-cell-free` — the spawn checks
+ *                            (`spawnValidate.ts`, game-families §3.3), judged only when the caller
+ *                            projects the spawn layers in (`PinContext.spawnLayers`).
  *  - `guard-type-mismatch` — a branch guard row tests a `bool`/`string`/enum read of KNOWN type
  *                            (an `$engine` value, a `$trigger` field of the chain's event) with
  *                            `eq`/`ne` against a literal of another kind (`guardLiteralMismatch`).
@@ -118,6 +121,8 @@ import { isRulesOnlyInRgs } from './reference/outcome';
 import { flowGraphs } from './runtime';
 import { dataSourceType, type PinContext } from './pins';
 import { deriveGraphPins } from './scope';
+import { INSTANCE_HANDLE_FIELDS } from './spawnNodes';
+import { spawnNodeIssues } from './spawnValidate';
 import {
 	guardLiteralMismatch,
 	instanceEventOwner,
@@ -193,7 +198,10 @@ export type FlowIssueCode =
 	| 'rules-only-in-rgs'
 	| 'tick-async'
 	| 'tick-fast'
-	| 'input-unknown';
+	| 'input-unknown'
+	| 'spawn-layer-unknown'
+	| 'spawn-not-spawnable'
+	| 'spawn-cell-free';
 
 /** `info` is an authoring HINT: the doc runs, nothing is wrong, but an authored surface is idle. */
 export type FlowIssueSeverity = 'error' | 'warning' | 'info';
@@ -248,6 +256,8 @@ const literalMatches = (type: TypeRef, value: unknown): boolean => {
 			return typeof value === 'object' && value !== null;
 		case 'list':
 			return Array.isArray(value);
+		case 'instance':
+			return false; // a handle comes from a spawn or a live set, never a literal.
 	}
 };
 
@@ -508,6 +518,9 @@ export const validateFlowDoc = (
 	// Who decides the outcome (game-families §2.1): absent ⇒ the RGS, as for every slot, so a
 	// variable may never stand for money (`variable-shadows-money`).
 	outcome?: PinContext['outcome'],
+	// §3.3: the spawn layers on the flow's screens (layer node id → decl). Feeds the spawn nodes'
+	// pins and every spawn check. Absent ⇒ the layout is unknown: those checks report nothing.
+	spawnLayers?: PinContext['spawnLayers'],
 ): FlowIssue[] => {
 	const ctx: PinContext = {
 		vocab,
@@ -517,6 +530,7 @@ export const validateFlowDoc = (
 		instances,
 		variables: docVariables(doc),
 		outcome,
+		spawnLayers,
 	};
 	const containerIds = new Set(doc.containers.map((c) => c.id));
 	const missingScenes = new Map(
@@ -731,6 +745,7 @@ const validateGraph = (
 	// when the caller projected the instances in — an absent map is an unknown layout.
 	issues.push(...instanceIssues(nodes, pinsById, data, ctx));
 	issues.push(...instanceEventDuplicateIssues(nodes, exec, ctx));
+	issues.push(...spawnNodeIssues(nodes, pinsById, exec, ctx));
 
 	// --- (b + c) edge endpoints + fan-in + fan-out + entry-has-no-exec-in ---
 	const execInCount = new Map<string, number>(); // keyed by `key(pin)`.
@@ -750,7 +765,15 @@ const validateGraph = (
 	const stalePin = (p: PinPath, kind: PinKind, dir: PinDir): string | undefined => {
 		if (endpointOk(p, kind, dir)) return undefined;
 		const node = nodeById.get(p.node);
-		if (node?.kind !== 'componentInstance' || !resolvedInstance(node, ctx)) return undefined;
+		const resolved =
+			node?.kind === 'componentInstance'
+				? !!resolvedInstance(node, ctx)
+				: node?.kind === 'instanceRef' &&
+					!!ctx.spawnLayers &&
+					Object.values(ctx.spawnLayers).some((l) =>
+						l.spawnable.some((s) => s.componentId === node.componentId && !s.missing),
+					);
+		if (!resolved) return undefined;
 		const interfacePin =
 			instanceTriggerOf(p.pin) ??
 			instanceInputOf(p.pin) ??
@@ -881,7 +904,7 @@ const validateGraph = (
 			const dot = edge.from.pin.indexOf('.');
 			if (dot === -1) continue;
 			event = owner = edge.from.pin.slice(0, dot);
-		} else if (fromNode?.kind === 'componentInstance') {
+		} else if (fromNode?.kind === 'componentInstance' || fromNode?.kind === 'instanceRef') {
 			// An instance event's payload data-out (`event:<event>:<field>`) reads the same way: only on
 			// the chain its `event:<event>` pin starts.
 			const field = instanceEventFieldOf(edge.from.pin);
@@ -1046,6 +1069,7 @@ const instanceIssues = (
 		instanceEventFieldOf(from.pin) !== undefined;
 	for (const node of nodes) {
 		if (node.kind !== 'componentInstance' && node.kind !== 'waitForState') continue;
+		if (node.kind === 'waitForState' && node.componentId !== undefined) continue; // spawned (§3.3)
 		const label = node.kind === 'componentInstance' ? 'component node' : 'wait-for-state node';
 		const decl = ctx.instances[node.instance];
 		if (!decl || decl.container !== node.container) {
@@ -1360,7 +1384,26 @@ const validateDataSource = (
 			return;
 		}
 	}
-	if (acc.on === 'item' && acc.member !== undefined && scopeItem) {
+	if (acc.on === 'live' && ctx.spawnLayers && !ctx.spawnLayers[acc.layer]) {
+		issues.push({
+			code: 'spawn-layer-unknown',
+			severity: 'error',
+			message: `accessor $live.${acc.layer} on ${node.id}.${pin.id} reads a layer no screen of this flow places`,
+			at: { on: 'pin', node: node.id, pin: pin.id },
+		});
+		return;
+	}
+	if (acc.on === 'item' && acc.member !== undefined && scopeItem?.t === 'instance') {
+		if (!(acc.member in INSTANCE_HANDLE_FIELDS)) {
+			issues.push({
+				code: 'accessor-unresolved',
+				severity: 'error',
+				message: `accessor $item.${acc.member} on ${node.id}.${pin.id} is not a field of an instance (${Object.keys(INSTANCE_HANDLE_FIELDS).join(', ')})`,
+				at: { on: 'pin', node: node.id, pin: pin.id },
+			});
+			return;
+		}
+	} else if (acc.on === 'item' && acc.member !== undefined && scopeItem) {
 		if (scopeItem.t !== 'struct') {
 			issues.push({
 				code: 'accessor-unresolved',
@@ -1410,6 +1453,8 @@ const typeName = (t: TypeRef): string => {
 			return `struct ${t.name}`;
 		case 'list':
 			return `list<${typeName(t.of)}>`;
+		case 'instance':
+			return t.component ? `instance<${t.component}>` : 'instance';
 		default:
 			return t.t;
 	}

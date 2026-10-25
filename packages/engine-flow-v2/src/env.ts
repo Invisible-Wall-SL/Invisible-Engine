@@ -70,6 +70,13 @@ export interface FlowV2EnvDeps {
 	/** The game's variable and timer store (`createFlowState`). Optional — omit for a doc that
 	 *  declares none: every `$var` then reads `undefined` and the variable / timer nodes no-op. */
 	state?: FlowV2Env['state'];
+	/** The live set of spawned instances (game-families §3.3) — the Spawn / Despawn nodes, `$live`
+	 *  and where a handle lives for an Instance ref. Optional — omit for a doc that spawns nothing:
+	 *  a spawn then creates nothing, `$live` reads `[]` and no handle is reached. */
+	spawn?: FlowV2Env['spawn'];
+	despawn?: FlowV2Env['despawn'];
+	liveInstances?: FlowV2Env['liveInstances'];
+	spawnedRef?: FlowV2Env['spawnedRef'];
 }
 
 /**
@@ -104,5 +111,9 @@ export const createFlowV2Env = (deps: FlowV2EnvDeps): FlowV2Env => ({
 	readInstanceValue: (ref, value) => deps.readInstanceValue?.(ref, value),
 	awaitInstanceState: (ref, layer, state) =>
 		deps.awaitInstanceState?.(ref, layer, state) ?? Promise.resolve(),
+	spawn: (layer, componentId, at) => deps.spawn?.(layer, componentId, at),
+	despawn: (instance) => deps.despawn?.(instance),
+	liveInstances: (layer) => deps.liveInstances?.(layer) ?? [],
+	spawnedRef: (instance) => deps.spawnedRef?.(instance),
 	...(deps.state ? { state: deps.state } : {}),
 });

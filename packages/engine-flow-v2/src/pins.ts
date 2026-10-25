@@ -25,6 +25,7 @@
  */
 
 import { deriveInstancePins } from './instanceNodes';
+import { deriveSpawnPins, INSTANCE_HANDLE_FIELDS, liveElementType } from './spawnNodes';
 import { variableTypeRef, type FlowVariableDecl } from './variables';
 import type {
 	Accessor,
@@ -32,6 +33,7 @@ import type {
 	ContainerEventDecl,
 	DataSource,
 	FlowInstanceDecl,
+	FlowSpawnLayerDecl,
 	FunctionDef,
 	FunctionLibraryDoc,
 	Guard,
@@ -87,6 +89,13 @@ export interface PinContext {
 	variables?: readonly FlowVariableDecl[];
 	/** Who decides the outcome (game-families §2.1). Absent ⇒ the RGS (every slot). */
 	outcome?: 'rgs' | 'rules';
+	/**
+	 * §3.3 — the `spawnLayer` nodes placed on the flow's screens, keyed by node id, each with its
+	 * spawnable components' interfaces. What the spawn nodes, an `instanceRef` and a `$live` read
+	 * are typed and judged by. Absent ⇒ the layout is unknown: their pins derive from nothing and
+	 * every spawn check is skipped (never guess).
+	 */
+	spawnLayers?: Record<string, FlowSpawnLayerDecl>;
 }
 
 const EXEC_IN: Pin = { id: 'exec', dir: 'in', kind: 'exec' };
@@ -187,6 +196,7 @@ const accessorType = (ctx: PinContext, acc: Accessor, scopeItem?: TypeRef): Type
 		case 'item': {
 			if (!scopeItem) return undefined;
 			if (acc.member === undefined) return scopeItem;
+			if (scopeItem.t === 'instance') return INSTANCE_HANDLE_FIELDS[acc.member];
 			if (scopeItem.t !== 'struct') return undefined;
 			return structFieldType(ctx, scopeItem.name, acc.member);
 		}
@@ -200,6 +210,10 @@ const accessorType = (ctx: PinContext, acc: Accessor, scopeItem?: TypeRef): Type
 			return undefined;
 		case 'var':
 			return variableType(ctx, acc.id);
+		case 'live': {
+			const elem = liveElementType(ctx, acc.layer);
+			return elem ? { t: 'list', of: elem } : undefined;
+		}
 	}
 };
 
@@ -221,6 +235,7 @@ const untypedIn = (id: string, label: string, optional?: boolean): Pin => ({
 export const computeOutType = (ctx: PinContext, op: ComputeOp): TypeRef | undefined => {
 	if (op.op === 'member') {
 		const on = dataSourceType(ctx, op.on);
+		if (on?.t === 'instance') return INSTANCE_HANDLE_FIELDS[op.member];
 		if (on?.t !== 'struct') return undefined;
 		return structFieldType(ctx, on.name, op.member);
 	}
@@ -276,6 +291,8 @@ export interface PinScope {
 }
 
 export const derivePins = (node: Node, ctx: PinContext, scope: PinScope = {}): Pin[] => {
+	const spawned = deriveSpawnPins(node, ctx);
+	if (spawned) return spawned;
 	switch (node.kind) {
 		case 'event': {
 			const decl = ctx.vocab.events.find((e) => e.name === node.ref);
@@ -530,6 +547,10 @@ export const derivePins = (node: Node, ctx: PinContext, scope: PinScope = {}): P
 				{ id: 'resume', dir: 'in', kind: 'exec', label: 'Resume' },
 				EXEC_OUT,
 			];
+		case 'spawn':
+		case 'despawn':
+		case 'instanceRef':
+			return []; // derived above (`deriveSpawnPins`).
 		case 'functionResult': {
 			// The result collects the function's outputs: exec-IN + one data-IN per the
 			// FunctionDef's declared data output (§5). If `ref` doesn't resolve, only exec.

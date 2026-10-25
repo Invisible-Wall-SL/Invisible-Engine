@@ -33,7 +33,8 @@ const isContainerEventPin = (node: Node | undefined, pin: string): boolean =>
  *  entry root: `runInstanceEvent` starts a fresh run at the wire's target with the raised event's
  *  payload as `trigger`, never continuing the chain that set the node's inputs. */
 const isInstanceEventPin = (node: Node | undefined, pin: string): boolean =>
-	node?.kind === 'componentInstance' && instanceEventOf(pin) !== undefined;
+	(node?.kind === 'componentInstance' || node?.kind === 'instanceRef') &&
+	instanceEventOf(pin) !== undefined;
 
 /** The owner key an instance-event chain runs under: the node and its pin, since two placements
  *  of one component raise the same event ids. */

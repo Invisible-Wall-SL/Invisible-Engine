@@ -46,6 +46,9 @@ import {
 	sceneAnimationDurationMs,
 	sceneLayerZIndex,
 	stashFlowInstanceInput,
+	sceneSpawnLayers,
+	spawnLayerSpec,
+	spawnStore,
 	watchFlowInstance,
 } from 'engine-layout';
 import { emitterSecondsToWallMs } from 'engine-fx';
@@ -68,14 +71,18 @@ import {
 	flowOwnsContainerEvent,
 	flowOwnsInstanceEvent,
 	flowOwnsSignal,
+	flowOwnsSpawnedEvent,
 	flowScreenDrivingStatus,
+	flowUsesSpawn,
 	hideContainerIds,
 	modeEntryHolds,
 	runFlowContainerEvent,
 	runFlowEvent,
 	runFlowInstanceEvent,
 	runFlowModeTransition,
+	runFlowSpawnedEvent,
 	runFlowStateEntry,
+	spawnedIdOf,
 	SCREEN_LIFECYCLE_SIGNALS,
 	signalChainCallsAction,
 	templateVocabulary,
@@ -89,6 +96,7 @@ import {
 	type FunctionLibraryDoc,
 	type MountedContainer,
 	type RunContext,
+	type SpawnAt,
 	type TemplateVocabulary,
 	type TextMessageNode,
 } from 'engine-flow-v2';
@@ -695,6 +703,21 @@ export const createLinesFlowV2 = (
 	});
 	const { instanceWhenMounted, awaitInstanceState, setInstanceInput, readInstanceValue } = waits;
 
+	// SPAWNING (game-families §3.3): the live set is `engine-layout`'s singleton, which every mounted
+	// `<SpawnLayer>` draws. Each layer of the screens is declared now, so a spawn into one not on
+	// screen yet is kept; a new session starts empty. A doc that spawns nothing touches none of it.
+	const live = flowUsesSpawn(doc) ? spawnStore() : undefined;
+	if (live) {
+		live.clear();
+		for (const { node, sceneId } of sceneSpawnLayers(editorDoc.scenes))
+			live.declare(spawnLayerSpec(node, sceneId));
+	}
+	/** The live spawned instance a handle names, if it is still alive. */
+	const spawnedOf = (instance: unknown) => {
+		const id = spawnedIdOf(instance);
+		return id ? live?.get(id) : undefined;
+	};
+
 	// The variables and timers live here, for the whole session, not in any run (§3.1). A doc that
 	// uses none gets no store: no value source, no key listener, nothing for the ticker to do.
 	const state = flowUsesState(doc) ? createFlowState(doc) : undefined;
@@ -858,6 +881,33 @@ export const createLinesFlowV2 = (
 		setInstanceInput,
 		readInstanceValue,
 		awaitInstanceState,
+		...(live
+			? {
+					spawn: (layer: string, componentId: string, at: SpawnAt) => {
+						const result = live.spawn(layer, componentId, at);
+						trace(
+							'spawn',
+							`${layer} + ${componentId}`,
+							result.ok ? `→ ${result.instance.id}` : `· refused (${result.reason})`,
+						);
+						return result.ok ? result.instance : undefined;
+					},
+					despawn: (instance: unknown) => {
+						const gone = live.despawn(spawnedIdOf(instance) ?? '');
+						if (gone) trace('despawn', gone.id);
+					},
+					liveInstances: (layer: string) => live.live(layer),
+					// A spawned instance is reached like a placement on its layer's screen: the instance
+					// waits (`flowInstanceWaits.ts`) defer to a mount that is imminent, stash a set for it.
+					spawnedRef: (instance: unknown) => {
+						const spawned = spawnedOf(instance);
+						if (!spawned) return undefined;
+						const sceneId = live.layer(spawned.layer)?.sceneId;
+						const container = doc.containers.find((c) => c.sceneId === sceneId)?.id ?? '';
+						return { container, instance: spawned.id };
+					},
+				}
+			: {}),
 	});
 
 	// A signal goes to the ACTIVE mode's graph first (`FlowDoc.modes`), then the global one.
@@ -934,19 +984,29 @@ export const createLinesFlowV2 = (
 			trace('containerEvent ▶', `${componentId}.${action}`);
 			return runFlowContainerEvent(doc, ctx, componentId, action, payload);
 		},
-		ownsInstanceEvent: (instanceId, event) =>
-			flowOwnsInstanceEvent(doc, instanceId, event, stateModes.active()),
+		// A spawned instance's event (§3.3) goes to the `instanceRef` of its component, with its handle.
+		ownsInstanceEvent: (instanceId, event) => {
+			const spawned = spawnedOf(instanceId);
+			return spawned
+				? flowOwnsSpawnedEvent(doc, spawned.componentId, event, stateModes.active())
+				: flowOwnsInstanceEvent(doc, instanceId, event, stateModes.active());
+		},
 		dispatchInstanceEvent: (instanceId, event, payload) => {
 			trace('instanceEvent ▶', `${instanceId} on${event}`);
-			return runFlowInstanceEvent(doc, ctx, instanceId, event, payload);
+			const spawned = spawnedOf(instanceId);
+			return spawned
+				? runFlowSpawnedEvent(doc, ctx, spawned.componentId, event, spawned, payload)
+				: runFlowInstanceEvent(doc, ctx, instanceId, event, payload);
 		},
-		dispose: state
-			? () => {
-					waits.dispose();
-					unregisterVariables?.();
-					detachKeys?.();
-				}
-			: waits.dispose,
+		dispose:
+			state || live
+				? () => {
+						waits.dispose();
+						unregisterVariables?.();
+						detachKeys?.();
+						live?.clear();
+					}
+				: waits.dispose,
 		textMessages,
 		messageShown: (nodeId) => flowShownMessages.has(nodeId),
 		presentModeTransition: presentsModes

@@ -30,6 +30,8 @@ import {
 	instanceValueOf,
 } from './instanceNodes';
 import { CUE_SCOPE_PIN } from './pins';
+import type { SpawnAt } from './spawn';
+import { INSTANCE_REF_HANDLE_PIN, SPAWN_INSTANCE_PIN, SPAWN_TRIGGER_INSTANCE } from './spawnNodes';
 import { variableEntries, type FlowStateAccess, type FlowVariableWrite } from './state';
 import type {
 	Accessor,
@@ -41,12 +43,14 @@ import type {
 	DataSource,
 	DelayNode,
 	FlowDoc,
+	FlowInstanceNode,
 	ForEachNode,
 	FunctionId,
 	FunctionLibraryDoc,
 	Graph,
 	Guard,
 	InstanceRef,
+	InstanceRefNode,
 	Node,
 	NodeId,
 	PinPath,
@@ -150,6 +154,25 @@ export interface FlowV2Env {
 	 * no-ops (every doc authored before P10.3 has none).
 	 */
 	state?: FlowStateAccess;
+	/**
+	 * A `spawn` node (game-families §3.3) — create an instance of `componentId` in spawn layer
+	 * `layer` and return its handle, or `undefined` when the layer refused it (full, not listed, a
+	 * cell off its grid). Optional: an env without it spawns nothing.
+	 */
+	spawn?(layer: string, componentId: string, at: SpawnAt): unknown;
+	/** A `despawn` node — remove the instance whose handle this is (one not live: nothing). */
+	despawn?(instance: unknown): void;
+	/** A `$live.<layer>` read — the layer's live handles. The interpreter copies what it gets, so a
+	 *  despawn inside a `forEach` over it is safe either way. Optional: an env without it reads `[]`. */
+	liveInstances?(layer: string): readonly unknown[];
+	/**
+	 * Where a spawned instance's handle lives now, as the placed-instance address the
+	 * `componentInstance` env calls take (`setInstanceInput`, `fireInstanceTrigger`,
+	 * `readInstanceValue`, `awaitInstanceState`); `undefined` once it is despawned. An
+	 * `instanceRef` node and a spawned `waitForState` go through it. Optional: an env without it
+	 * reaches no spawned instance.
+	 */
+	spawnedRef?(instance: unknown): InstanceRef | undefined;
 }
 
 /** The lookups + environment a run needs — the template contract, the function library,
@@ -207,6 +230,8 @@ class FlowInterpreter {
 	private readonly nodesById = new Map<NodeId, Node>();
 	/** Cached outputs per `functionCall` node id → { outputPinId: value }. */
 	private readonly callOutputs = new Map<NodeId, Record<string, unknown>>();
+	/** The last outputs of each `spawn` node this run → `{ instance, spawned }`. */
+	private readonly spawnOutputs = new Map<NodeId, { instance: unknown; spawned: boolean }>();
 	/** Each function's body FLATTENED of groups (§5.2), keyed by function id. */
 	private readonly fnBodies = new Map<FunctionId, Graph>();
 
@@ -299,6 +324,21 @@ class FlowInterpreter {
 		context: Record<string, unknown>,
 	): Promise<void> {
 		const edge = instanceEventEdge(this.doc.graph, instanceId, event);
+		if (!edge) return;
+		await this.execFrom(this.doc.graph, edge.to.node, edge.to.pin, { trigger: payload, context });
+	}
+
+	/**
+	 * Fire a SPAWNED instance's raised event (§3.3): the `event:<event>` exec-out on the
+	 * `instanceRef` node of `componentId`. `payload` carries the instance's handle in `instance`.
+	 */
+	async runSpawnedEvent(
+		componentId: string,
+		event: string,
+		payload: Record<string, unknown>,
+		context: Record<string, unknown>,
+	): Promise<void> {
+		const edge = spawnedEventEdge(this.doc.graph, componentId, event);
 		if (!edge) return;
 		await this.execFrom(this.doc.graph, edge.to.node, edge.to.pin, { trigger: payload, context });
 	}
@@ -578,29 +618,54 @@ class FlowInterpreter {
 				return this.nextExec(graph, node.id, 'exec');
 			}
 
-			case 'componentInstance': {
-				// §6.3: every fed `in:<input>` data-in is applied first — a wired one, or one with a stored
-				// source — so "set the amount, then fire win" is one node. An unfed input is left alone
-				// (every data-in is optional). A `fire:<trigger>` inlet then fires that trigger on the
-				// placed instance; `set` fires nothing. Both continue from the one `exec` out-pin.
-				// An `event:` pin is never an inlet: `runInstanceEvent` walks from its wired target.
-				const ref: InstanceRef = { container: node.container, instance: node.instance };
-				const fed = new Set<string>(Object.keys(node.inputs ?? {}));
-				for (const edge of graph.data) if (edge.to.node === node.id) fed.add(edge.to.pin);
-				for (const pin of fed) {
-					const input = instanceInputOf(pin);
-					if (input === undefined) continue;
-					const value = this.resolveDataIn(graph, node.id, pin, scope);
-					if (value !== undefined) this.ctx.env.setInstanceInput?.(ref, input, value);
-				}
-				const trigger = instanceTriggerOf(execPinId);
-				if (trigger !== undefined) await this.ctx.env.fireInstanceTrigger?.(ref, trigger);
+			case 'componentInstance':
+				await this.applyInstance(
+					graph,
+					node,
+					execPinId,
+					{ container: node.container, instance: node.instance },
+					scope,
+				);
+				return this.nextExec(graph, node.id, 'exec');
+
+			case 'instanceRef': {
+				// §3.3: the handle fed (or, on an event chain, the instance that raised it), reached where
+				// it lives now; a despawned one takes nothing.
+				const ref = this.ctx.env.spawnedRef?.(this.handleOf(graph, node, scope));
+				if (ref) await this.applyInstance(graph, node, execPinId, ref, scope);
+				return this.nextExec(graph, node.id, 'exec');
+			}
+
+			case 'spawn': {
+				const at: SpawnAt =
+					node.at === 'cell'
+						? {
+								cell: {
+									col: Number(this.resolveDataIn(graph, node.id, 'col', scope)),
+									row: Number(this.resolveDataIn(graph, node.id, 'row', scope)),
+								},
+							}
+						: {
+								x: Number(this.resolveDataIn(graph, node.id, 'x', scope)),
+								y: Number(this.resolveDataIn(graph, node.id, 'y', scope)),
+							};
+				const instance = this.ctx.env.spawn?.(node.layer, node.componentId, at);
+				this.spawnOutputs.set(node.id, { instance, spawned: instance !== undefined });
+				return this.nextExec(graph, node.id, 'exec');
+			}
+
+			case 'despawn': {
+				const instance = this.resolveDataIn(graph, node.id, SPAWN_INSTANCE_PIN, scope);
+				if (instance !== undefined) this.ctx.env.despawn?.(instance);
 				return this.nextExec(graph, node.id, 'exec');
 			}
 
 			case 'waitForState': {
-				const ref: InstanceRef = { container: node.container, instance: node.instance };
-				await this.ctx.env.awaitInstanceState?.(ref, node.layer, node.state);
+				const ref: InstanceRef | undefined =
+					node.componentId === undefined
+						? { container: node.container, instance: node.instance }
+						: this.ctx.env.spawnedRef?.(this.handleOf(graph, node, scope));
+				if (ref) await this.ctx.env.awaitInstanceState?.(ref, node.layer, node.state);
 				return this.nextExec(graph, node.id, 'exec');
 			}
 
@@ -615,6 +680,40 @@ class FlowInterpreter {
 				// accidental visit is a safe no-op (exhaustiveness for the Node union).
 				return undefined;
 		}
+	}
+
+	/**
+	 * §6.3: every fed `in:<input>` data-in is applied first — a wired one, or one with a stored
+	 * source — so "set the amount, then fire win" is one node. An unfed input is left alone (every
+	 * data-in is optional). A `fire:<trigger>` inlet then fires that trigger on the instance; `set`
+	 * fires nothing. An `event:` pin is never an inlet: the event runners walk from its wired target.
+	 */
+	private async applyInstance(
+		graph: Graph,
+		node: FlowInstanceNode | InstanceRefNode,
+		execPinId: string,
+		ref: InstanceRef,
+		scope: Scope,
+	): Promise<void> {
+		const fed = new Set<string>(Object.keys(node.inputs ?? {}));
+		for (const edge of graph.data) if (edge.to.node === node.id) fed.add(edge.to.pin);
+		for (const pin of fed) {
+			const input = instanceInputOf(pin);
+			if (input === undefined) continue;
+			const value = this.resolveDataIn(graph, node.id, pin, scope);
+			if (value !== undefined) this.ctx.env.setInstanceInput?.(ref, input, value);
+		}
+		const trigger = instanceTriggerOf(execPinId);
+		if (trigger !== undefined) await this.ctx.env.fireInstanceTrigger?.(ref, trigger);
+	}
+
+	/** The spawned instance a node addresses: its fed `instance` data-in, else (on a spawned
+	 *  instance's event chain) the instance that raised the event. */
+	private handleOf(graph: Graph, node: Node, scope: Scope): unknown {
+		return (
+			this.resolveDataIn(graph, node.id, SPAWN_INSTANCE_PIN, scope) ??
+			scope.trigger[SPAWN_TRIGGER_INSTANCE]
+		);
 	}
 
 	// -------------------------------------------------------------------------
@@ -772,6 +871,23 @@ class FlowInterpreter {
 				const field = instanceEventFieldOf(from.pin);
 				return field ? scope.trigger[field.field] : undefined;
 			}
+			case 'instanceRef': {
+				const handle = this.handleOf(graph, src, scope);
+				if (from.pin === INSTANCE_REF_HANDLE_PIN) return handle;
+				const value = instanceValueOf(from.pin);
+				if (value !== undefined) {
+					const ref = this.ctx.env.spawnedRef?.(handle);
+					return ref ? this.ctx.env.readInstanceValue?.(ref, value) : undefined;
+				}
+				const field = instanceEventFieldOf(from.pin);
+				return field ? scope.trigger[field.field] : undefined;
+			}
+			case 'spawn': {
+				const out = this.spawnOutputs.get(src.id);
+				if (from.pin === SPAWN_INSTANCE_PIN) return out?.instance;
+				if (from.pin === 'spawned') return out?.spawned ?? false;
+				return undefined;
+			}
 			default:
 				return undefined;
 		}
@@ -808,6 +924,10 @@ class FlowInterpreter {
 				return acc.member === undefined ? scope.context : scope.context[acc.member];
 			case 'var':
 				return this.ctx.env.state?.read(acc.id);
+			case 'live':
+				// A copy, always: `runForEach` iterates what it is handed, and a despawn in the body
+				// must not shift the walk (§3.3).
+				return [...(this.ctx.env.liveInstances?.(acc.layer) ?? [])];
 		}
 	}
 
@@ -1224,19 +1344,34 @@ const graphOwnsContainerEvent = (graph: Graph, componentId: string, event: strin
 	);
 };
 
+/** Which node an instance event belongs to: the placed `componentInstance` naming an instance, or
+ *  the `instanceRef` of a spawned component. */
+type InstanceEventOwner = (node: Node) => boolean;
+
+const placedOwner =
+	(instanceId: string): InstanceEventOwner =>
+	(node) =>
+		node.kind === 'componentInstance' && node.instance === instanceId;
+
+const spawnedOwner =
+	(componentId: string): InstanceEventOwner =>
+	(node) =>
+		node.kind === 'instanceRef' && node.componentId === componentId;
+
 /**
- * Does `pin` of `node` carry the `event:<event>` exec-out of the `componentInstance` naming
- * `instanceId` — directly, or through a group's `out_<i>` boundary pin whose `inner` leads there,
- * however many groups deep (a node inside B inside A reaches the outer graph through A's pin, whose
- * `inner` is B's pin, whose `inner` is the node's)?
+ * Does `pin` of `node` carry the `event:<event>` exec-out of a node `owns` accepts — directly, or
+ * through a group's `out_<i>` boundary pin whose `inner` leads there, however many groups deep (a
+ * node inside B inside A reaches the outer graph through A's pin, whose `inner` is B's pin, whose
+ * `inner` is the node's)?
  */
 const carriesInstanceEvent = (
 	node: Node | undefined,
 	pin: string,
-	instanceId: string,
+	owns: InstanceEventOwner,
 	eventPin: string,
 ): boolean => {
-	if (node?.kind === 'componentInstance') return node.instance === instanceId && pin === eventPin;
+	if (node?.kind === 'componentInstance' || node?.kind === 'instanceRef')
+		return owns(node) && pin === eventPin;
 	// Read defensively: this runs at click time on the stored doc, and a malformed group (no
 	// `boundary`, a pin without `inner`, a body without `nodes`) simply does not own the event.
 	if (node?.kind !== 'group') return false;
@@ -1245,22 +1380,21 @@ const carriesInstanceEvent = (
 	);
 	if (!b?.inner) return false;
 	const inner = (node.body?.nodes ?? []).find((n) => !!n && n.id === b.inner.node);
-	return carriesInstanceEvent(inner, b.inner.pin, instanceId, eventPin);
+	return carriesInstanceEvent(inner, b.inner.pin, owns, eventPin);
 };
 
 /**
- * The exec edge out of the `event:<event>` pin of the `componentInstance` node naming `instanceId`.
- * An interpreter's graph is flattened, so the edge is on it directly. The OWNERSHIP read runs on the
- * stored doc, where a group keeps its body: a wire inside the body is found there, and a wire that
- * CROSSES one or more group boundaries is stored on the graph outside them from the outermost
- * group's `out_<i>` pin, which `carriesInstanceEvent` follows back in. Never flattens (which
- * rewires and throws on a malformed group; this runs at click time). A second node naming the same
- * instance and wiring the same event is a validation error (`instance-event-duplicate`); the first
- * wire wins here.
+ * The exec edge out of the `event:<event>` pin of the node `owns` accepts. An interpreter's graph
+ * is flattened, so the edge is on it directly. The OWNERSHIP read runs on the stored doc, where a
+ * group keeps its body: a wire inside the body is found there, and a wire that CROSSES one or more
+ * group boundaries is stored on the graph outside them from the outermost group's `out_<i>` pin,
+ * which `carriesInstanceEvent` follows back in. Never flattens (which rewires and throws on a
+ * malformed group; this runs at click time). A second node owning the same event is a validation
+ * error (`instance-event-duplicate`); the first wire wins here.
  */
-const instanceEventEdge = (
+const ownedEventEdge = (
 	graph: Graph,
-	instanceId: string,
+	owns: InstanceEventOwner,
 	event: string,
 ): { to: PinPath } | undefined => {
 	// Read defensively, like `carriesInstanceEvent`: a stored group body may be malformed.
@@ -1268,17 +1402,30 @@ const instanceEventEdge = (
 	const nodes = (graph.nodes ?? []).filter((n): n is Node => !!n && typeof n === 'object');
 	const nodeById = new Map(nodes.map((n) => [n.id, n] as const));
 	const edge = (graph.exec ?? []).find(
-		(e) =>
-			!!e?.from && carriesInstanceEvent(nodeById.get(e.from.node), e.from.pin, instanceId, pin),
+		(e) => !!e?.from && carriesInstanceEvent(nodeById.get(e.from.node), e.from.pin, owns, pin),
 	);
 	if (edge) return edge;
 	for (const node of nodes) {
 		if (node?.kind !== 'group' || !node.body) continue;
-		const inner = instanceEventEdge(node.body, instanceId, event);
+		const inner = ownedEventEdge(node.body, owns, event);
 		if (inner) return inner;
 	}
 	return undefined;
 };
+
+/** The exec edge out of the `event:<event>` pin of the `componentInstance` naming `instanceId`. */
+const instanceEventEdge = (
+	graph: Graph,
+	instanceId: string,
+	event: string,
+): { to: PinPath } | undefined => ownedEventEdge(graph, placedOwner(instanceId), event);
+
+/** The exec edge out of the `event:<event>` pin of the `instanceRef` of `componentId` (§3.3). */
+const spawnedEventEdge = (
+	graph: Graph,
+	componentId: string,
+	event: string,
+): { to: PinPath } | undefined => ownedEventEdge(graph, spawnedOwner(componentId), event);
 
 /**
  * Run the authored chain for a placed instance's raised EVENT (`<instanceId>` raising `<event>`,
@@ -1316,6 +1463,47 @@ export const flowOwnsInstanceEvent = (
 	return (
 		instanceEventEdge(doc.graph, instanceId, event) !== undefined ||
 		(modeGraph !== undefined && instanceEventEdge(modeGraph, instanceId, event) !== undefined)
+	);
+};
+
+/**
+ * Run the authored chain for a SPAWNED instance's raised event (§3.3): the `event:<event>` exec-out
+ * of the `instanceRef` node of `componentId`, with the raising instance's handle in
+ * `$trigger.instance` (beside the event's payload fields). The active mode's graph first when it
+ * owns the event, else the global one. Unwired ⇒ no-op.
+ */
+export const runFlowSpawnedEvent = async (
+	doc: FlowDoc,
+	ctx: RunContext,
+	componentId: string,
+	event: string,
+	instance: unknown,
+	payload: Record<string, unknown> = {},
+	context: Record<string, unknown> = {},
+): Promise<void> => {
+	const modeGraph = flowModeGraph(doc, ctx.activeMode?.());
+	const scoped =
+		modeGraph && spawnedEventEdge(modeGraph, componentId, event) ? withGraph(doc, modeGraph) : doc;
+	await new FlowInterpreter(scoped, ctx).runSpawnedEvent(
+		componentId,
+		event,
+		{ ...payload, [SPAWN_TRIGGER_INSTANCE]: instance },
+		context,
+	);
+};
+
+/** PURE ownership predicate — does the doc wire the `event:<event>` pin of an `instanceRef` of
+ *  `componentId`, in the global graph or the active mode's? */
+export const flowOwnsSpawnedEvent = (
+	doc: FlowDoc,
+	componentId: string,
+	event: string,
+	activeMode?: string,
+): boolean => {
+	const modeGraph = flowModeGraph(doc, activeMode);
+	return (
+		spawnedEventEdge(doc.graph, componentId, event) !== undefined ||
+		(modeGraph !== undefined && spawnedEventEdge(modeGraph, componentId, event) !== undefined)
 	);
 };
 

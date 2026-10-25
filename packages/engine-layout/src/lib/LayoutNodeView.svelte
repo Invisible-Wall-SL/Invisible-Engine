@@ -111,6 +111,7 @@
 	import { getComponentValueSource } from './registerComponentValues';
 	import ParamReadoutText from './ParamReadoutText.svelte';
 	import Repeater from './Repeater.svelte';
+	import SpawnLayer from './SpawnLayer.svelte';
 	import { EDITOR_RIG_LOAD_SCALE } from './rigLoadScale';
 
 	const { node, space, attachedEffects, slotRiders, nested }: Props = $props();
@@ -1393,6 +1394,22 @@
 				zIndex={transform.zIndex}
 			>
 				<Repeater {node} {space} />
+			</Container>
+		{:else if node.kind === 'spawnLayer'}
+			<!--
+				Spawn layer (game-families §3.3): the node's own transform places the layer, then
+				<SpawnLayer> draws the live set Flow spawns into it, each instance at its spawned place.
+				Nothing spawned ⇒ nothing renders.
+			-->
+			<Container
+				x={posX}
+				y={posY}
+				scale={transform.scale}
+				rotation={transform.rotation}
+				alpha={transform.alpha}
+				zIndex={transform.zIndex}
+			>
+				<SpawnLayer {node} {space} />
 			</Container>
 		{:else if node.kind === 'sprite'}
 			{#if fillBound && !bg && spriteKey}
