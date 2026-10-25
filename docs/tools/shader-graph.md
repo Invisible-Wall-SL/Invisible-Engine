@@ -267,6 +267,10 @@ random number per element, or room that grows as the effect plays.
   - **The values are final.** Strength does not scale them unless you wire Time's Strength in.
     Oscillate alone swings ±1, so a Multiply after it (×15 on Rotation) makes a visible sway.
   - The channels keep their ranges: alpha 0…1, scale above 0.
+  - **Scale when the graph drives only some of it.** Once the graph drives Scale, Scale X or Scale
+    Y, the scale curves it does not drive each grow with the entry's intensity on their own and
+    multiply, instead of being combined first. At intensity 1 it is the same; at other intensities
+    an undriven Scale curve times a Scale Y curve can come out a little different.
 - **Curves on the nodes.** Each motion node draws its value over one play (params at their
   defaults), with its lowest and highest value under it and a line and dot at the preview's `t`.
   Hatched means it cannot be worked out yet. Number, Param, Seed and Element shape draw none. The

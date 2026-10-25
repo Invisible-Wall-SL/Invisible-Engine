@@ -581,6 +581,25 @@ check(
 	[],
 );
 
+{
+	// A compiler bug a stored doc finds is that doc's error, never the set's.
+	const throwing = { ...ref('ripple'), id: 'throws', name: 'Throws' } as ShaderGraphDoc;
+	Object.defineProperty(throwing, 'nodes', {
+		get() {
+			throw new Error('fixture: a compiler bug');
+		},
+	});
+	const quiet = console.error;
+	console.error = () => {};
+	const set = storage.compileShaderSet([ref('frost'), throwing, ref('pulseTint')]);
+	console.error = quiet;
+	check(
+		'a doc the compiler throws on is skipped with an error; the rest of the set still compiles',
+		[set.effects.length, set.skipped.map((s) => [s.id, s.errors.length > 0])],
+		[2, [['throws', true]]],
+	);
+}
+
 // ── 4. The wiring ──────────────────────────────────────────────────────────────────────────────
 console.log('4. the wiring');
 const here = fileURLToPath(new URL('.', import.meta.url));
