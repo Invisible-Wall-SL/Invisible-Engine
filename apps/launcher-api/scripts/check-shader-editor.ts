@@ -101,7 +101,7 @@ import {
 	liveThumbs,
 	missingBoundary,
 	motionAnalysis,
-	motionCurve,
+	motionCurves,
 	moveNode,
 	newShaderDoc,
 	nodeCosts,
@@ -1365,6 +1365,36 @@ console.log('9. subgraphs');
 		[keep?.doc.subgraphs?.length, keep && compileShaderEffect(keep.doc).ok],
 		[1, true],
 	);
+	{
+		// The effect's graph and its motion graph never share a node id: every id these gestures
+		// could mint is already a motion node here.
+		const minted = ['subgraph', 'colorize', 'mix', 'param', 'time', 'bell', 'multiply'].flatMap(
+			(stem) => Array.from({ length: 12 }, (_, i) => `${stem}${i + 1}`),
+		);
+		const motionIds = new Set(minted);
+		const crowded: ShaderGraphDoc = {
+			...second.doc,
+			motionGraph: {
+				nodes: minted.map((id) => ({ id, type: 'number', x: 0, y: 0 })),
+				wires: [],
+			},
+		};
+		const loose = crowded.nodes.find((n) => n.type !== 'output' && n.type !== 'subgraph');
+		const called = addCall(crowded, null, 'tint', { x: 0, y: 0 });
+		const opened = ungroupCall(crowded, null, 'subgraph1');
+		const regrouped = loose && groupNodes(crowded, null, [loose.id], 'Again');
+		check(
+			'a call added, a call ungrouped and a group made mint no id the motion graph has',
+			[
+				motionIds.has(called.id),
+				!!opened?.ids.length,
+				opened?.ids.some((id) => motionIds.has(id)),
+				!!regrouped,
+				regrouped && motionIds.has(regrouped.call),
+			],
+			[false, true, false, true, false],
+		);
+	}
 	check(
 		'deleting a subgraph still called is refused…',
 		deleteSubgraph(second.doc, 'tint'),
@@ -1940,8 +1970,9 @@ console.log('10. the motion graph');
 	);
 
 	// Curves.
-	const ramp = motionCurve(m, time.id);
-	const wave = motionCurve(m, osc.id);
+	const curves = motionCurves(m);
+	const ramp = curves.get(time.id) ?? undefined;
+	const wave = curves.get(osc.id) ?? undefined;
 	check(
 		'Time’s curve is its progress, 0…1 over the play; Oscillate at rate 2 goes round twice, −1…1',
 		[
@@ -1959,11 +1990,47 @@ console.log('10. the motion graph');
 		[
 			hasMotionCurve({ id: 'n', type: 'number', x: 0, y: 0 }),
 			hasMotionCurve({ id: 's', type: 'seed', x: 0, y: 0 }),
-			motionCurve(m, outId),
-			motionCurve(unpicked, picked.id),
+			curves.has(outId),
+			motionCurves(unpicked).get(picked.id),
 		],
-		[false, false, undefined, undefined],
+		[false, false, false, null],
 	);
+	// A curve is worked out from the whole graph each time: one that could not be (a pixel node
+	// elsewhere) comes back once the graph is sound, though its own node and upstream are unchanged.
+	const strayUv = addNodeIn(m, M, 'uv', { x: 0, y: 400 });
+	check(
+		'a curve the rest of the graph broke comes back when the graph is mended',
+		[
+			motionCurves(strayUv.doc).get(osc.id),
+			!!motionCurves(inScope(strayUv.doc, M, (v) => remove(v, [strayUv.id], [], M))).get(osc.id),
+		],
+		[null, true],
+	);
+	{
+		const chain = (n: number): ShaderGraphDoc => {
+			let doc = m;
+			let last = '';
+			for (let i = 0; i < n; i++) {
+				const add = addNodeIn(doc, M, 'add', { x: i * 10, y: 600 });
+				doc = last
+					? inScope(add.doc, M, (d) =>
+							connect(d, { node: last, port: 'out' }, { node: add.id, port: 'a' }),
+						)
+					: add.doc;
+				last = add.id;
+			}
+			return doc;
+		};
+		const long = chain(240);
+		const began = performance.now();
+		const all = motionCurves(long);
+		const ms = performance.now() - began;
+		check(
+			`every curve of a 240-node chain comes from one pass, quickly (${ms.toFixed(0)} ms)`,
+			[[...all.values()].filter((c) => c).length >= 240, ms < 300],
+			[true, true],
+		);
+	}
 	check(
 		'the playhead reads the curve between its samples',
 		ramp && [curvePoint(ramp, 0.25), curvePoint(ramp, 2)],
@@ -1972,24 +2039,15 @@ console.log('10. the motion graph');
 			{ x: 1, y: 1 },
 		],
 	);
-	const keys = probeKeys(m, M);
-	const rated = probeKeys(
-		inScope(m, M, (d) => setNodeValue(d, osc.id, 'rate', 3)),
-		M,
-	);
-	const longer = probeKeys({ ...m, durationMs: 2400 }, M);
 	check(
-		'a curve’s key changes with its node and what feeds it, and the play’s length; a motion edit leaves the pixel thumbnails’ keys',
+		'a motion edit leaves the pixel thumbnails’ keys; a motion node has no thumbnail, cost chip or probe',
 		[
-			keys.get(time.id) === rated.get(time.id),
-			keys.get(osc.id) === rated.get(osc.id),
-			keys.get(time.id) === longer.get(time.id),
 			json([...probeKeys(m)]) === json([...probeKeys(base)]),
 			hasThumbnail(viewOf(m, M).nodes[0], a10, m, M),
 			nodeCosts(viewOf(m, M), a10, M).size,
 			probeDoc(m, osc.id, a10, M),
 		],
-		[true, false, false, true, false, 0, undefined],
+		[true, false, 0, undefined],
 	);
 
 	// A broken motion graph fails the effect, never the pixel thumbnails.

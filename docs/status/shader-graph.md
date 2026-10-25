@@ -312,7 +312,9 @@ progress on `claude/shader-graph-step8a`.
       shorter side); Melt, Wave X / Y, Flag, Bounce 3D and Electrocute drive their padding per
       frame. `motionGap`, `motionGapAtDefaults`, `paddingGap` and every place that showed or
       exempted them are deleted. A twin carries no fallback curve for what its graph drives (on a
-      pre-8a runtime it plays without that motion and room).
+      pre-8a runtime it plays without that motion), but keeps its old fixed padding (Melt 1.16,
+      Bounce 3D 1.1, Electrocute 0.15, the waves and Flag 0.25) as the room a pre-8a runtime gives
+      it; on 8a the program's padding overrides it.
     - **Program padding** has its own cap, `CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX` = 11.6, the most a
       built-in asks (Melt: 1.45 × its longest drip × the strongest play); a pass padded that far
       draws up to about 590× the element's area, as built-in Melt does. The doc's fixed padding
@@ -333,30 +335,68 @@ progress on `claude/shader-graph-step8a`.
      better in the analysis.
    - `deploy/editor-shaders/` holds the whole set (library included) while the bundle carries only
      the named effects; trimming the deploy tree too needs the export to know the bundle.
-2. **Step 6 follow-ups.**
+2. **Step 8a follow-ups.**
+   - **Degenerate ranges.** Smoothstep with From = To, and Remap with From min = From max, at the
+     single point x = the edge (0 ÷ 0) give 0 in a motion graph but 0 (smoothstep) and 0.5 (remap)
+     on the GPU. `shader-motion` excludes that one point and prints both; either side of it the two
+     agree. No GLSL was changed for it (that would move existing pixel graphs).
+   - The cost meter does not count padding: a program may ask for up to 11.6 shares of room, a
+     filter area up to about 590× the element's.
+3. **Step 6 follow-ups.**
    - **Built-ins long term** (§9.5): they stay hand-written beside their twins until the gate has
      held for a while; then decide whether to generate them from the twins.
    - The gate takes about a minute of `check:all`, most of it SwiftShader drawing the widest glow.
-3. **Step 5 follow-ups.**
+4. **Step 5 follow-ups.**
    - The preview has no rig still yet (the plan's fourth source).
    - The preview plays the params' defaults; there is no per-preview value yet.
    - The preview uses WebGL2 where there is one (CI's `shader-compile` covers WebGL1), does not
      follow a change of screen pixel ratio, and clips a graph padded to the 2× maximum at its edge.
    - Delete has no lease check: the ✕ on a graph another author has open deletes it (its last
      version is in History), and their next save is then refused as a conflict.
-4. **Step 4 follow-ups.**
+5. **Step 4 follow-ups.**
    - The pickers read the set once per page load; a graph saved in another tab shows after a
      reload.
    - The stored-flow check before Publish's assemble composes the Flow vocab without the custom
      kinds (Publish's own check of the shipped flow has them). An enum value is judged as text, so
      the verdict is the same; an enum-membership check would need them there too.
-5. **Nodes the design lists that v1 does not have yet:** rim (a library entry now, `efxRim`, with
+6. **Nodes the design lists that v1 does not have yet:** rim (a library entry now, `efxRim`, with
    no node) and the pixel input. Add them when an artist needs one.
 
 ## Blocked (owner / external)
 - None.
 
 ## Recent changes
+- 2026-10-25 — **Step 8a: the motion graph** (see "Current state"). Step 7 merged (#1340).
+  - **Proof.**
+    - `compile.fixture.ts` 149: the motion graph's compile, analysis and every error, the program
+      and its caps, hostile docs refused in under 25 ms with a bounded heap, malformed params never
+      throwing (and a 400-doc fuzz of malformed docs through the motion path), byte-identity without
+      a motion graph (624 docs dumped against the base), every twin's program read by the registry,
+      no twin id shared across the two graphs.
+    - `shader-motion` (new, in `check:all`): 53 cases, every motion node's JS against its GLSL on
+      WebGL1 and WebGL2 over 2048 samples, unwired inputs included; hashed nodes compared
+      statistically. Mutation-checked.
+    - `check:element-fx`: the runtime drives channels from a program, overrides curves, clamps,
+      pads per frame and drops a program it cannot run; each twin's motion matches its built-in's
+      own sampler to 8.9e-16 up to strength 4.
+    - `shader-twins` 30/30: every twin's motion 0.000 px off at every case and its room 0 px apart
+      (now compared as numbers); mutation-checked (Gold's ring, Melt's and Bounce 3D's padding).
+    - `check:shader-editor` 183 (the Motion scope and every gesture in it, the Output pinning,
+      float-only wires, delete-the-motion-graph, driven-channel notes, curves from one pass, ids
+      unique across the graphs); `check:shader-pipeline` 115 (a doc the compiler throws on is that
+      doc's error, never the set's).
+    - The page played headless: 41/41 editable and 14/14 read-only (switch to Motion, add and wire,
+      curves, the preview turning, an error counted in both views, undo, delete with a confirm).
+    - `check:all` 538/538; svelte-check at baseline (launcher 45, pixi-svelte 14).
+  - **Review.** An independent review found one blocking item: a doc with a malformed param and a
+    motion graph driving padding made the compiler throw, and since the server compiled the set
+    with no per-doc guard, one such doc failed the effects listing, the export, the bake and
+    Publish for its whole project. Fixed at the source (the motion path only reads well-formed
+    params) and on the server (`compileStored` turns a compile that throws into that doc's error).
+    Also fixed: curves cached as unworkable stayed hatched after an unrelated fix; curves cost a
+    full compile per node (a 250-node chain 923 ms → 30 ms, one pass); node ids could repeat across
+    the two graphs; the gate never exercised unwired inputs or `pow` below 0; the twins had dropped
+    their fixed padding, which older runtimes still use.
 - 2026-10-25 — **Step 7: editor v2** (see "Current state"). Merged (#1340): CI green,
   Current games 12 pass with no changed screen.
   - **Proof.**

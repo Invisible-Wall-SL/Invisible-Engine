@@ -42,7 +42,7 @@ import {
 	MOTION_NODES,
 	MOTION_OUTPUT,
 	motionNode,
-	motionNodeSeries,
+	motionGraphSeries,
 	shaderNode,
 	subgraphName,
 	subgraphOf,
@@ -123,6 +123,20 @@ export function twinGroups(twins: readonly BuiltinTwin[] = BUILTIN_TWINS): TwinG
 			.map((spec) => ({ kind: spec.kind, label: spec.label, description: spec.description })),
 	})).filter((g) => g.twins.length > 0);
 }
+
+/**
+ * `view` (the graph `scope` shows of `doc`) with the other top-level graph's nodes beside it: the
+ * effect's graph and its motion graph never share a node id, so an issue or a gesture naming one is
+ * never read on the other. A subgraph's body is its own namespace.
+ */
+const withOtherGraph = (
+	doc: ShaderGraphDoc,
+	scope: GraphScope,
+	view: ShaderGraphDoc,
+): ShaderGraphDoc => {
+	const other = isMotionScope(scope) ? doc.nodes : !scope ? (doc.motionGraph?.nodes ?? []) : [];
+	return other.length ? { ...view, nodes: [...view.nodes, ...other] } : view;
+};
 
 /** A node id of `type` no node of `doc` has. */
 export function freshNodeId(doc: ShaderGraphDoc, type: string): string {
@@ -470,7 +484,7 @@ export type ShaderNodeView = {
 	summary: string;
 	/** It shows a thumbnail of its output (`probeDoc`). */
 	thumb: boolean;
-	/** A motion node showing its value over the play as a curve (`motionCurve`). */
+	/** A motion node showing its value over the play as a curve (`motionCurves`). */
 	curve: boolean;
 	/** What it adds to the work per pixel; none while it does not reach the Output. */
 	cost: NodeCost | undefined;
@@ -790,21 +804,16 @@ function hashOf(text: string): string {
 
 /**
  * A key per node of the graph `scope` shows that changes when, and only when, its
- * {@link probeDoc} does (in the motion graph, its {@link motionCurve}): the node, its values and
- * what feeds it however far up, what a call calls (its subgraph, and those that calls), the params
- * any node may read, a body's inputs, the play's length and phase for a curve, and which outputs a
- * wire takes onward. An edit changes the keys of the node it touches and of what reads it, so a
- * thumbnail of anything else is neither compiled nor drawn again.
+ * {@link probeDoc} does: the node, its values and what feeds it however far up, what a call calls
+ * (its subgraph, and those that calls), the params any node may read, a body's inputs, and which
+ * outputs a wire takes onward. An edit changes the keys of the node it touches and of what reads
+ * it, so a thumbnail of anything else is neither compiled nor drawn again.
  */
 export function probeKeys(doc: ShaderGraphDoc, scope: GraphScope = null): Map<string, string> {
 	const view = viewOf(doc, scope);
 	const sub = subgraphScope(scope);
 	const salt = hashOf(
-		JSON.stringify([
-			doc.params,
-			isMotionScope(scope) ? ['motion', doc.durationMs, doc.phase] : sub,
-			sub ? (subgraphOf(doc, sub)?.inputs ?? null) : null,
-		]),
+		JSON.stringify([doc.params, sub, sub ? (subgraphOf(doc, sub)?.inputs ?? null) : null]),
 	);
 	const called = new Map<string, string>();
 	const calledKey = (id: string | undefined, seen: ReadonlySet<string> = new Set()): string => {
@@ -1152,11 +1161,16 @@ export function addCall(
 	id: string,
 	pos: { x: number; y: number },
 ): { doc: ShaderGraphDoc; id: string } {
-	const callId = freshNodeId(viewOf(doc, scope), SUBGRAPH_CALL);
+	const callId = freshNodeId(withOtherGraph(doc, scope, viewOf(doc, scope)), SUBGRAPH_CALL);
 	const next = inScope(doc, scope, (view) => {
-		const added = addNode(view, SUBGRAPH_CALL, pos).doc;
-		const node = added.nodes.find((n) => n.id === callId) as GraphNode;
-		node.values = { subgraph: id };
+		const added = clone(view);
+		added.nodes.push({
+			id: callId,
+			type: SUBGRAPH_CALL,
+			x: Math.round(pos.x),
+			y: Math.round(pos.y),
+			values: { subgraph: id },
+		});
 		return added;
 	});
 	return { doc: next, id: callId };
@@ -1303,7 +1317,7 @@ export function groupNodes(
 	const inId = freshNodeId(body, SUBGRAPH_IN);
 	const outId = freshNodeId(body, SUBGRAPH_OUT);
 	const subId = freshSubgraphId(doc, name);
-	const callId = freshNodeId(view, SUBGRAPH_CALL);
+	const callId = freshNodeId(withOtherGraph(doc, scope, view), SUBGRAPH_CALL);
 
 	const bodyWires: GraphWire[] = [];
 	const outerWires: GraphWire[] = [];
@@ -1438,7 +1452,11 @@ export function ungroupCall(
 	const outNode = sub.nodes.find((n) => n.type === SUBGRAPH_OUT);
 	const inner = sub.nodes.filter((n) => !PINNED.has(n.type));
 
-	const taken = new Set(view.nodes.filter((n) => n.id !== callId).map((n) => n.id));
+	const taken = new Set(
+		withOtherGraph(doc, scope, view)
+			.nodes.filter((n) => n.id !== callId)
+			.map((n) => n.id),
+	);
 	const rename = new Map<string, string>();
 	for (const n of inner) {
 		let id = n.id;
@@ -1709,11 +1727,7 @@ export function addNodeIn(
 	type: string,
 	pos: { x: number; y: number },
 ): { doc: ShaderGraphDoc; id: string } {
-	const other = isMotionScope(scope) ? doc.nodes : !scope ? (doc.motionGraph?.nodes ?? []) : [];
-	const taken = (view: ShaderGraphDoc): ShaderGraphDoc => ({
-		...view,
-		nodes: [...view.nodes, ...other],
-	});
+	const taken = (view: ShaderGraphDoc): ShaderGraphDoc => withOtherGraph(doc, scope, view);
 	let id = '';
 	const next = inScope(doc, scope, (view) => {
 		const graph = clone(view);
@@ -1787,24 +1801,34 @@ export interface MotionCurve {
 }
 
 /**
- * Node `id` of the motion graph as a curve over one play, its params at their defaults, at full
- * strength. Undefined for a node with no curve, or one whose value cannot be worked out (something
- * it reads is broken).
+ * Every motion-graph node that shows a curve ({@link hasMotionCurve}), as its value over one play,
+ * its params at their defaults, at full strength: null for one whose value cannot be worked out
+ * (it or something it reads is broken, or the graph cannot be walked). One pass over the whole
+ * graph (`motionGraphSeries`), so an edit anywhere is seen everywhere.
  */
-export function motionCurve(
+export function motionCurves(
 	doc: ShaderGraphDoc,
-	id: string,
 	samples = CURVE_SAMPLES,
-): MotionCurve | undefined {
+): Map<string, MotionCurve | null> {
 	const graph = viewOf(doc, MOTION_SCOPE);
-	const node = graph.nodes.find((n) => n.id === id);
-	if (!node || !hasMotionCurve(node)) return undefined;
-	const outputs = motionNode(node.type)?.outputs ?? [];
-	const onward = new Set(graph.wires.filter((w) => w.from.node === id).map((w) => w.from.port));
-	const port = (outputs.find((p) => onward.has(p.id)) ?? outputs[0]).id;
-	const values = motionNodeSeries(doc, id, samples, { port });
-	if (!values?.length || values.some((v) => !Number.isFinite(v))) return undefined;
-	return { port, values, min: Math.min(...values), max: Math.max(...values) };
+	const series = motionGraphSeries(doc, samples);
+	const curves = new Map<string, MotionCurve | null>();
+	for (const node of graph.nodes) {
+		if (!hasMotionCurve(node)) continue;
+		const outputs = motionNode(node.type)?.outputs ?? [];
+		const onward = new Set(
+			graph.wires.filter((w) => w.from.node === node.id).map((w) => w.from.port),
+		);
+		const port = (outputs.find((p) => onward.has(p.id)) ?? outputs[0]).id;
+		const values = series.get(node.id)?.[port];
+		curves.set(
+			node.id,
+			values?.length && values.every((v) => Number.isFinite(v))
+				? { port, values, min: Math.min(...values), max: Math.max(...values) }
+				: null,
+		);
+	}
+	return curves;
 }
 
 /**

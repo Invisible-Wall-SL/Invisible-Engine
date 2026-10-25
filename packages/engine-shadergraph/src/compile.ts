@@ -925,8 +925,9 @@ function writeMotion(
 			const from = feeds?.get(input.id);
 			if (from) {
 				const reg = regs.get(from.node)?.[from.port];
-				if (reg === undefined) fed = false;
-				else inputs[input.id] = reg;
+				// The Motion Output drives what it can: a channel fed by a broken node is left out.
+				if (reg !== undefined) inputs[input.id] = reg;
+				else if (def.type !== MOTION_OUTPUT) fed = false;
 				continue;
 			}
 			const value = node.values?.[input.id] ?? input.default;
@@ -942,7 +943,7 @@ function writeMotion(
 		}
 		if (def.type === MOTION_OUTPUT) {
 			for (const input of def.inputs) {
-				if (feeds?.has(input.id))
+				if (feeds?.has(input.id) && inputs[input.id] !== undefined)
 					outputs[input.id as ElementFxMotionOutput] = inputs[input.id] as number;
 			}
 			continue;
@@ -1060,7 +1061,8 @@ function runMotion(doc: ShaderGraphDoc): MotionRun {
 		ops: pruned.ops,
 		outputs: Object.fromEntries(driven.map(([key, r]) => [key, pruned.at[r]])),
 	};
-	if (run.program.outputs.padding !== undefined) {
+	// The room at the defaults, when there are defaults to read (the params are sound).
+	if (run.program.outputs.padding !== undefined && !paramIssues(doc.params).length) {
 		const frame = seriesFrame(doc);
 		const registers = new Float64Array(run.program.ops.length);
 		let most = 0;
@@ -1115,8 +1117,6 @@ export function compileShaderMotion(doc: ShaderGraphDoc): ShaderMotionResult {
 const SERIES_SEED = 41;
 
 export interface MotionSeriesOptions {
-	/** The output to plot; on the Motion Output, the input (the channel it drives). Unset: the first. */
-	port?: string;
 	/**
 	 * The frame but its time: unset, strength 1, looping when the effect is a loop, the params at
 	 * their defaults, seed 41 and a 100 × 100 element.
@@ -1125,55 +1125,61 @@ export interface MotionSeriesOptions {
 }
 
 /**
- * Motion-graph node `nodeId`'s value at `samples` moments over one play, t = 0 … 1 (its seconds as
- * the play's), for an editor to draw as a curve; built on the same program the game runs. Undefined
- * when it cannot be worked out: no such node or port, an unwired Motion Output input, a node that is
- * broken or fed by a broken one, or a graph that cannot be walked (a loop). A node that reaches
- * nothing is plotted all the same.
+ * Every motion-graph node's outputs at `samples` moments over one play, t = 0 … 1 (its seconds as
+ * the play's), for an editor to draw as curves: node id → output port → values, the Motion Output's
+ * by its wired inputs (what drives each channel). One walk and one program, the game's own ops, for
+ * the whole graph. A node that is broken, or fed by a broken one, has none; a node that reaches
+ * nothing has its own; a graph that cannot be walked (a node it cannot place, a loop, more than
+ * one Motion Output, past its caps) has none at all.
  */
-export function motionNodeSeries(
+export function motionGraphSeries(
 	doc: ShaderGraphDoc,
-	nodeId: string,
 	samples: number,
 	options: MotionSeriesOptions = {},
-): number[] | undefined {
+): Map<string, Record<string, number[]>> {
+	const series = new Map<string, Record<string, number[]>>();
 	const run = runMotion(doc);
 	const a = run.analysis;
-	const node = a.sequence.find((n) => n.id === nodeId);
-	if (!run.walked || !node) return undefined;
+	if (!run.walked) return series;
 	const broken = new Set(a.issues.flatMap((i) => (i.level === 'error' && i.node ? [i.node] : [])));
 	const writer = new MotionWriter();
-	const { regs } = writeMotion(run, a.sequence, broken, writer);
-	let reg: number | undefined;
-	if (node.type === MOTION_OUTPUT) {
-		const channel =
-			options.port ??
-			motionNode(MOTION_OUTPUT)?.inputs.find((p) => a.feeds.get(nodeId)?.has(p.id))?.id;
-		const from = channel ? a.feeds.get(nodeId)?.get(channel) : undefined;
-		reg = from ? regs.get(from.node)?.[from.port] : undefined;
-	} else {
-		const port = options.port ?? a.defOf(node)?.outputs[0]?.id;
-		reg = port ? regs.get(nodeId)?.[port] : undefined;
-	}
-	if (reg === undefined) return undefined;
-	const pruned = pruneMotion(writer.ops, [reg]);
-	const program = { ops: pruned.ops, outputs: { value: pruned.at[reg] } };
+	const { regs, outputs } = writeMotion(run, a.sequence, broken, writer);
+	const plotted: { values: number[]; reg: number }[] = [];
+	const plot = (id: string, ports: Record<string, number>): void => {
+		const own: Record<string, number[]> = {};
+		for (const [port, reg] of Object.entries(ports)) {
+			own[port] = [];
+			plotted.push({ values: own[port], reg });
+		}
+		series.set(id, own);
+	};
+	for (const [id, ports] of regs) plot(id, ports);
+	const root = a.sequence.find((n) => n.type === MOTION_OUTPUT && !broken.has(n.id));
+	if (root) plot(root.id, outputs);
+	const program = { ops: writer.ops, outputs: {} };
 	const frame = seriesFrame(doc, options.frame);
 	const registers = new Float64Array(program.ops.length);
-	const count = Math.max(2, Math.min(4096, Math.floor(samples)));
-	return Array.from({ length: count }, (_, i) => {
+	const count = Math.max(2, Math.min(4096, Math.floor(samples) || 2));
+	for (let i = 0; i < count; i++) {
 		frame.t = i / (count - 1);
 		frame.seconds = frame.t * playSecondsOf(doc);
-		return runMotionProgram(program, frame, registers).value as number;
-	});
+		runMotionProgram(program, frame, registers);
+		for (const { values, reg } of plotted) values.push(registers[reg]);
+	}
+	return series;
 }
 
 const playSecondsOf = (doc: ShaderGraphDoc): number =>
 	(Number.isFinite(doc.durationMs) ? doc.durationMs : 1000) / 1000;
 
-/** A frame of `doc` as a series reads it (see {@link MotionSeriesOptions}), at t = 0. */
+/**
+ * A frame of `doc` as a series reads it (see {@link MotionSeriesOptions}), at t = 0. Only a sound
+ * param has a default to read: a malformed one (kept while the doc is built) reads 0.
+ */
 function seriesFrame(doc: ShaderGraphDoc, given: MotionSeriesOptions['frame'] = {}): MotionFrame {
-	const params = Array.isArray(doc.params) ? doc.params : [];
+	const params = (Array.isArray(doc.params) ? doc.params : []).filter(
+		(p) => !elementFxParamSpecIssues([p]).length,
+	);
 	return {
 		t: 0,
 		seconds: 0,

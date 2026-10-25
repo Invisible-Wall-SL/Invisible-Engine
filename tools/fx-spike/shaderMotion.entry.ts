@@ -113,14 +113,69 @@ interface Case {
 	port: string;
 	/** Inputs fed from the lattice, in the node's order, with their ranges. */
 	inputs: { id: string; domain: Domain }[];
+	/** Inputs left unwired: each reads its default (or the value given). */
+	unwired?: readonly string[];
 	values?: GraphNode['values'];
+	/** Where the first lattice input meets a degenerate range: 0 ÷ 0, left out of the comparison. */
+	degenerate?: number;
 	hashed: boolean;
 	atol: number;
 }
 
+/**
+ * More cases: inputs left unwired, so each reads its default in both graphs (Line noise's X reads the
+ * play's progress in the motion graph, which the pixel graph is wired to match); Power below 0; and
+ * the degenerate ranges, From = To and From min = From max, where both sides step. Their 0 ÷ 0 point
+ * itself is left out and reported: GLSL leaves it undefined (the GPU's NaN reaches the packing), the
+ * motion program reads 0 there.
+ */
+const EXTRA: {
+	type: string;
+	label: string;
+	unwired?: readonly string[];
+	domains?: Record<string, Domain>;
+	values?: GraphNode['values'];
+	degenerate?: number;
+}[] = [
+	{ type: 'bell', label: 'bell, t unwired', unwired: ['t'] },
+	{ type: 'pulse', label: 'pulse, t unwired', unwired: ['t'] },
+	{ type: 'hold', label: 'hold, Hold unwired', unwired: ['hold'] },
+	{ type: 'oscillate', label: 'oscillate, rate and phase unwired', unwired: ['rate', 'phase'] },
+	{
+		type: 'remap',
+		label: 'remap, ranges unwired',
+		unwired: ['inMin', 'inMax', 'outMin', 'outMax'],
+	},
+	// With X or the seconds held, a wide seed or rate keeps enough hash cells for a hash's statistics.
+	{ type: 'noise1', label: 'noise1, X unwired', unwired: ['x'], domains: { seed: [0, 4096] } },
+	{
+		type: 'flicker',
+		label: 'flicker, seconds unwired',
+		unwired: ['seconds'],
+		domains: { rate: [0, 4096] },
+	},
+	{ type: 'pow', label: 'pow, X below 0', domains: { x: [-1, 4], power: [0.25, 4] } },
+	{
+		type: 'smoothstep',
+		label: 'smoothstep, From = To',
+		unwired: ['from', 'to'],
+		values: { from: 0.5, to: 0.5 },
+		domains: { x: [-2, 4] },
+		degenerate: 0.5,
+	},
+	{
+		type: 'remap',
+		label: 'remap, From min = From max',
+		unwired: ['inMin', 'inMax'],
+		values: { inMin: 0.5, inMax: 0.5 },
+		domains: { x: [-2, 4] },
+		degenerate: 0.5,
+	},
+];
+
 /** Every motion node that has GLSL, each output; a param node once for each kind it reads. */
-const cases = (only: string[]): Case[] =>
-	MOTION_NODES.filter(
+const cases = (only: string[]): Case[] => [
+	...MOTION_NODES.filter(
 		(def) => shaderNode(def.type) && (!only.length || only.includes(def.type)),
 	).flatMap((def) =>
 		def.outputs.flatMap((output) => {
@@ -140,7 +195,27 @@ const cases = (only: string[]): Case[] =>
 			if (def.type === 'number') return [{ ...base, label: 'number', values: { value: 2.75 } }];
 			return [{ ...base, label: `${def.type}.${output.id}` }];
 		}),
-	);
+	),
+	...EXTRA.filter((x) => !only.length || only.includes(x.type)).map((x): Case => {
+		const def = MOTION_NODES.find((d) => d.type === x.type) as NodeDef;
+		return {
+			label: x.label,
+			def,
+			port: def.outputs[0].id,
+			inputs: def.inputs
+				.filter((input) => !x.unwired?.includes(input.id))
+				.map((input) => ({
+					id: input.id,
+					domain: x.domains?.[input.id] ?? DOMAINS[def.type]?.[input.id] ?? DEFAULT_DOMAIN,
+				})),
+			unwired: x.unwired ?? [],
+			values: x.values,
+			degenerate: x.degenerate,
+			hashed: HASHED.has(def.type),
+			atol: TOLERANCE[def.type] ?? 2e-6,
+		};
+	}),
+];
 
 /** The pixel graph: the lattice into the node, its output packed into red, green and blue. */
 function gpuDoc(c: Case, lo: number, hi: number): ShaderGraphDoc {
@@ -165,6 +240,18 @@ function gpuDoc(c: Case, lo: number, hi: number): ShaderGraphDoc {
 	g.wire(split, 'x', sample, 'a');
 	g.wire(row, 'out', sample, 'b');
 	const node = op(c.def.type, c.values);
+	// An unwired input whose motion default is the play's time, where the pixel graph's is not:
+	// wired to the time here, so both read the same.
+	for (const id of c.unwired ?? []) {
+		const read = c.def.inputs.find((p) => p.id === id)?.defaultExpr;
+		const pixel = shaderNode(c.def.type)?.inputs.find((p) => p.id === id)?.defaultExpr;
+		if (
+			(read === 'progress' || read === 'seconds') &&
+			read !== pixel &&
+			c.values?.[id] === undefined
+		)
+			g.wire(op('time'), read, node, id);
+	}
 	c.inputs.forEach(({ id, domain: [low, span] }, k) => {
 		const times = op('multiply', { b: MULTIPLIERS[k] / N });
 		g.wire(sample, 'out', times, 'a');
@@ -362,7 +449,14 @@ const paramValues = (): Record<string, number> =>
 			const tol = (v: number) => c.atol + 4e-7 * (hi - lo) + 4e-6 * Math.abs(v);
 			let worst = { s: 0, off: 0, gpu: 0, js: 0 };
 			let failures = 0;
+			// The 0 ÷ 0 point of a degenerate range: what each side gives there, not compared.
+			const atEdge = (s: number): boolean =>
+				c.degenerate !== undefined && lattice(s, 0, c.inputs[0].domain) === c.degenerate;
+			const edge = Array.from({ length: N }, (_, s) => s)
+				.filter(atEdge)
+				.map((s) => ({ gpu: gpu[s], js: js[s] }));
 			for (let s = 0; s < N; s++) {
+				if (atEdge(s)) continue;
 				const off = Math.abs(gpu[s] - js[s]);
 				if (off / tol(js[s]) > worst.off / tol(worst.js))
 					worst = { s, off, gpu: gpu[s], js: js[s] };
@@ -381,6 +475,7 @@ const paramValues = (): Record<string, number> =>
 					inputs: c.inputs.map(({ domain }, k) => lattice(worst.s, k, domain)),
 				},
 				failures,
+				...(c.degenerate !== undefined ? { edge } : {}),
 				hashed: c.hashed
 					? {
 							meanGpu: mean(gpu),

@@ -23,7 +23,7 @@ You are the developer for **Invisible Shader Graph**.
   - `src/doc.ts`: `normalizeShaderGraphDoc`, the shape storage keeps (a graph mid-build included).
   - the motion graph (step 8a): `motionGraph` in the doc, the motion nodes (`NodeDef.motion`,
     `MOTION_NODES`, `isMotionNode`) in `src/nodes.ts`, `analyzeShaderMotion` /
-    `compileShaderMotion` / `motionNodeSeries` in `src/compile.ts`; the program runs through
+    `compileShaderMotion` / `motionGraphSeries` in `src/compile.ts`; the program runs through
     `packages/constants-shared/motionLibrary.ts` (`runMotionProgram`), held to the GLSL by
     `tools/fx-spike/shaderMotion.mjs` (`shader-motion`).
   - `src/subgraph.ts` (step 7): `flattenShaderGraph` inlines every subgraph call (ids

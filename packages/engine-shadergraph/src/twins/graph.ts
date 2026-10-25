@@ -50,9 +50,14 @@ const GAP = 48;
 
 /**
  * The expressions over one graph of `kind`'s twin, its nodes found by `lookup`: the pixel graph's
- * library, or the motion graph's.
+ * library, or the motion graph's. `made` counts the nodes of both graphs, so no id names a node in
+ * each (an issue or a gesture naming one is never read on the other).
  */
-function expressions(kind: ElementFxKind, lookup: (type: string) => NodeDef | undefined) {
+function expressions(
+	kind: ElementFxKind,
+	lookup: (type: string) => NodeDef | undefined,
+	made: { count: number },
+) {
 	const spec = elementFxSpec(kind);
 	const nodes: GraphNode[] = [];
 	const wires: GraphWire[] = [];
@@ -65,7 +70,7 @@ function expressions(kind: ElementFxKind, lookup: (type: string) => NodeDef | un
 	): Record<string, Ref> => {
 		const def = lookup(type);
 		if (!def) throw new Error(`twin ${kind}: no node "${type}"`);
-		const id = `${type}${nodes.length + 1}`;
+		const id = `${type}${++made.count}`;
 		const values: NonNullable<GraphNode['values']> = { ...settings };
 		for (const [port, value] of Object.entries(inputs)) {
 			if (!def.inputs.some((p) => p.id === port))
@@ -128,11 +133,12 @@ function expressions(kind: ElementFxKind, lookup: (type: string) => NodeDef | un
 /** A builder for built-in `kind`'s twin: its id, name, phase, length and params are the kind's. */
 export function twinGraph(kind: ElementFxKind, meta: TwinMeta) {
 	const spec = elementFxSpec(kind);
-	const pixel = expressions(kind, shaderNode);
+	const made = { count: 0 };
+	const pixel = expressions(kind, shaderNode, made);
 	const { nodes, wires, node, once } = pixel;
 	const out = (type: string, inputs: Record<string, In>, settings?: Record<string, Setting>) =>
 		node(type, inputs, settings).out;
-	const moving = expressions(kind, motionNode);
+	const moving = expressions(kind, motionNode, made);
 	let motionGraph: ShaderGraphDoc['motionGraph'];
 
 	return {

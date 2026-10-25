@@ -553,7 +553,8 @@ Click **✕** next to an effect and confirm. If it was open, the canvas empties.
   does not follow a change of screen pixel ratio (reload after moving the window to another
   screen), and it clips a graph padded to the 2× maximum at its edge.
 - **Twins need a current game runtime for their movement.** A twin's motion graph is new: a game on
-  a runtime older than this release plays the twin's pixels without that movement and growing room.
+  a runtime older than this release plays the twin's pixels without that movement, and with the
+  fixed room the twin had before (enough for its defaults) instead of the growing one.
 - **Not yet:** a Break output and an admin-only Custom GLSL node. They are later steps of the
   plan.
 - **Subgraphs belong to one effect.** There is no way yet to share a subgraph between effects.

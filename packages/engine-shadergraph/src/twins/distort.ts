@@ -65,7 +65,8 @@ function flip(kind: 'flipX' | 'flipY'): BuiltinTwin {
  * lift: 0.3 + 0.8 × `height` × strength (the motion graph).
  */
 function bounce3D(): BuiltinTwin {
-	const g = twinGraph('bounce3D', {});
+	// The room a runtime from before motion graphs gives it: the Lift's top at strength 1.
+	const g = twinGraph('bounce3D', { padding: 1.1 });
 	const { progress, intensity } = g.time();
 	const arcs = g.node('bounce', { t: progress, count: g.param('bounces') });
 	const tilt = g.mul(g.mul(g.param('tilt'), intensity), g.oneMinus(progress));
@@ -163,7 +164,8 @@ const waveRoom = (g: Graph, across: boolean): void => {
 
 /** Wave (X) / (Y): rows slide sideways, or columns up and down, with room for the amplitude. */
 function wave(kind: 'waveX' | 'waveY'): BuiltinTwin {
-	const g = twinGraph(kind, {});
+	// The room a runtime from before motion graphs gives it: the amplitude's top at strength 1.
+	const g = twinGraph(kind, { padding: 0.25 });
 	const at = g.node('wave', waveDrive(g), { axis: kind === 'waveX' ? 'x' : 'y' }).out;
 	g.output(g.node('sample', { uv: at }).out);
 	waveRoom(g, kind === 'waveX');
@@ -172,7 +174,7 @@ function wave(kind: 'waveX' | 'waveY'): BuiltinTwin {
 
 /** Flag: a wave pinned at the left edge, lit on its folds; its columns rise and fall, so room above. */
 function flag(): BuiltinTwin {
-	const g = twinGraph('flag', {});
+	const g = twinGraph('flag', { padding: 0.25 });
 	const cloth = g.node('flag', waveDrive(g));
 	g.output(scaleColor(g, g.node('sample', { uv: cloth.uv }).out, cloth.light));
 	waveRoom(g, false);

@@ -111,6 +111,9 @@ for (const gl of [1, 2]) {
 					`${c.label}: WebGL${gl}, ${at}: ${o.failures} of ${run.samples} samples off, the worst ${fmt(o.worst.gpu)} on the GPU and ${fmt(o.worst.js)} here (inputs ${o.worst.inputs.map(fmt).join(', ')}; tolerance ${fmt(o.worst.tol)})`,
 				);
 		}
+		const edges = c.outcomes.flatMap((o) => o.edge ?? []);
+		if (edges.length)
+			worst += `; at 0 ÷ 0 (left out): the GPU ${[...new Set(edges.map((e) => fmt(e.gpu)))].join('/')}, here ${[...new Set(edges.map((e) => fmt(e.js)))].join('/')}`;
 		row.gl[gl] = worst;
 		rows.set(c.label, row);
 	}

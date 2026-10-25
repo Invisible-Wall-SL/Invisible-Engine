@@ -66,7 +66,8 @@
  *     forward operand, too many ops, a bad output or param) and keeps the effect. Storage keeps the
  *     motion graph clean; a doc without one (or an empty one) compiles, analyses and validates
  *     byte-identically; hostile graphs are refused in milliseconds with a bounded heap and
- *     messages; `motionNodeSeries` plots a node over a play.
+ *     messages; `motionGraphSeries` plots every node over a play in one pass. Nothing in the motion
+ *     path throws on what storage keeps: malformed params, values and node shapes are refused.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -112,7 +113,7 @@ import {
 	compileShaderGraph,
 	compileShaderMotion,
 	glslFloat,
-	motionNodeSeries,
+	motionGraphSeries,
 	validateShaderGraph,
 	type CompileResult,
 } from './src/compile.ts';
@@ -2202,17 +2203,27 @@ console.log('shader graph — the motion graph');
 		!unmoved.length,
 		`the ${Object.keys(MOVING).length} twins that move by the seconds played, a param, looping or the element's shape, or grow their room, compile with a motion program driving exactly that, which the registry reads, warning-free${unmoved.length ? `: not ${unmoved.map((t) => t.kind).join(', ')}` : ''}`,
 	);
-	const dead = BUILTIN_TWINS.filter((twin) => {
+	const ROOM: Record<string, number> = {
+		bounce3D: 1.1,
+		waveX: 0.25,
+		waveY: 0.25,
+		flag: 0.25,
+		melt: 1.16,
+		electrocute: 0.15,
+	};
+	const fallback = BUILTIN_TWINS.filter((twin) => {
 		const outputs = compileShaderMotion(twin.doc);
 		const driven = outputs.ok ? Object.keys(outputs.program?.outputs ?? {}) : [];
+		const pixelIds = new Set(twin.doc.nodes.map((node) => node.id));
 		return (
 			driven.some((c) => c in (twin.doc.motion?.channels ?? {})) ||
-			(driven.includes('padding') && twin.doc.padding !== undefined)
+			(driven.includes('padding') && twin.doc.padding !== ROOM[twin.kind]) ||
+			!!twin.doc.motionGraph?.nodes.some((node) => pixelIds.has(node.id))
 		);
 	});
 	assert(
-		!dead.length,
-		`no twin keeps a curve on a channel its motion graph drives, nor a fixed padding beside a driven one${dead.length ? `: ${dead.map((t) => t.kind).join(', ')}` : ''}`,
+		!fallback.length,
+		`no twin keeps a curve on a channel its motion graph drives; one whose graph drives the padding keeps its fixed padding as the room a runtime from before motion graphs gives it; no motion node shares an id with a pixel node${fallback.length ? `: ${fallback.map((t) => t.kind).join(', ')}` : ''}`,
 	);
 	const most = (kind: string, id: string): number => {
 		const p = findElementFxSpec(kind as never)?.params.find((q) => q.id === id);
@@ -2243,7 +2254,7 @@ console.log('shader graph — the motion graph');
 		const t0 = performance.now();
 		const analysis = analyzeShaderMotion(graph);
 		const effect = compileShaderEffect(graph);
-		const series = motionNodeSeries(graph, 'k0', 64);
+		const series = motionGraphSeries(graph, 64).get('k0');
 		const ms = performance.now() - t0;
 		const grew = (process.memoryUsage().heapUsed - heap) / 1e6;
 		const longest = Math.max(0, ...analysis.issues.map((i) => i.message.length));
@@ -2336,30 +2347,112 @@ console.log('shader graph — the motion graph');
 		true,
 	);
 
-	// A node's value over the play, as an editor plots it.
-	const bell = motionNodeSeries(doc, 'bell', 5);
-	const lift = motionNodeSeries(doc, 'lift', 3, { frame: { params: { amp: 2 } } });
-	const channel = motionNodeSeries(doc, 'out', 3, { port: 'padding' });
-	const seconds = motionNodeSeries(doc, 'time', 3, { port: 'seconds' });
+	// Every node's value over the play, in one pass, as an editor plots it.
+	const all = motionGraphSeries(doc, 5);
+	const rounded = (v?: number[]) => JSON.stringify(v?.map((x) => Math.round(x * 1e9) / 1e9));
+	const fedBroken = moving(
+		[n('p', 'param', { param: 'gone' }), n('a', 'abs'), n('b', 'abs'), out],
+		[w('p.out', 'a.x'), w('a.out', 'out.x'), w('b.out', 'out.y')],
+	);
 	assert(
-		!!bell &&
-			bell.every((v, i) => Math.abs(v - Math.sin((Math.PI * i) / 4)) < 1e-12) &&
-			JSON.stringify(lift?.map((v) => Math.round(v * 1e9) / 1e9)) === '[0.5,2.5,0.5]' &&
-			JSON.stringify(channel?.map((v) => Math.round(v * 1e9) / 1e9)) === '[0.5,1,0.5]' &&
-			JSON.stringify(seconds) === '[0,0.5,1]' &&
-			motionNodeSeries(doc, 'dead', 2)?.length === 2 &&
-			motionNodeSeries(doc, 'out', 2) !== undefined &&
-			motionNodeSeries(doc, 'out', 2, { port: 'x' }) === undefined &&
-			motionNodeSeries(doc, 'nope', 2) === undefined &&
-			motionNodeSeries(
-				moving(
-					[n('p', 'param', { param: 'gone' }), n('a', 'abs'), out],
-					[w('p.out', 'a.x'), w('a.out', 'out.x')],
-				),
-				'a',
-				2,
-			) === undefined,
-		'a node’s series over the play: Bell is sin(π t); params at their defaults unless given; a Motion Output input plots what drives it; a node reaching nothing is plotted; an unwired channel, an unknown node and one fed by a broken node have none',
+		!!all.get('bell')?.out?.every((v, i) => Math.abs(v - Math.sin((Math.PI * i) / 4)) < 1e-12) &&
+			rounded(motionGraphSeries(doc, 3, { frame: { params: { amp: 2 } } }).get('lift')?.out) ===
+				'[0.5,2.5,0.5]' &&
+			rounded(motionGraphSeries(doc, 3).get('out')?.padding) === '[0.5,1,0.5]' &&
+			JSON.stringify(motionGraphSeries(doc, 3).get('time')?.seconds) === '[0,0.5,1]' &&
+			all.get('dead')?.out?.length === 5 &&
+			!('x' in (all.get('out') ?? {})) &&
+			!all.has('nope') &&
+			!motionGraphSeries(fedBroken, 2).has('a') &&
+			!motionGraphSeries(fedBroken, 2).has('p') &&
+			JSON.stringify(Object.keys(motionGraphSeries(fedBroken, 2).get('out') ?? {})) === '["y"]' &&
+			!motionGraphSeries(moving([out, n('o2', 'motionOutput')], []), 2).size,
+		'every node’s series over the play in one pass: Bell is sin(π t); params at their defaults unless given; a Motion Output input plots what drives it; a node reaching nothing is plotted; an unwired channel, a broken node and what it feeds have none, the rest do; a graph that cannot be walked has none',
+	);
+
+	// Nothing in the motion path throws on what storage keeps.
+	const padded = (params: unknown[]): ShaderGraphDoc =>
+		normalizeShaderGraphDoc(
+			{
+				...pixel,
+				params,
+				motionGraph: {
+					nodes: [n('k', 'number', { value: 0.5 }), n('p', 'param', { param: 'c' }), out],
+					wires: [w('k.out', 'out.padding'), w('p.out', 'out.x')],
+				},
+			},
+			'padded',
+		);
+	const survives = (doc: ShaderGraphDoc): string | undefined => {
+		try {
+			const effect = compileShaderEffect(doc);
+			analyzeShaderMotion(doc);
+			compileShaderMotion(doc);
+			motionGraphSeries(doc, 9);
+			return effect.ok ? 'ok' : 'refused';
+		} catch (error) {
+			return `throws ${(error as Error).message}`;
+		}
+	};
+	assert(
+		survives(padded([{}])) === 'refused' &&
+			survives(padded([{ id: 'c', label: 'C', kind: 'choice', default: 'a' }])) === 'refused' &&
+			survives(padded([{ id: 'c', label: 'C', kind: 'weird', default: 1 }])) === 'refused' &&
+			motionGraphSeries(padded([{}]), 3).get('out')?.padding?.length === 3,
+		'a doc whose params are malformed ({}, a choice with no options, an unknown kind) with a motion graph driving the padding is refused, never thrown on; its series still plot (a malformed param reads 0)',
+	);
+	let seed = 7;
+	const random = (): number => {
+		seed = (seed * 16807) % 2147483647;
+		return (seed - 1) / 2147483646;
+	};
+	const pickOf = <T>(list: readonly T[]): T => list[Math.floor(random() * list.length)];
+	const junk = [{}, null, 3, 'x', [], [1, 'a'], { id: 7 }, { id: '__proto__' }, { kind: 'choice' }];
+	const paramJunk = [
+		...junk,
+		{ id: 'c', label: 'C', kind: 'choice', default: 'a' },
+		{ id: 'c', label: 'C', kind: 'number', default: 5, min: 9, max: 1 },
+		{ id: 'c', label: 'C', kind: 'color', default: 'red' },
+		{ id: 'c', label: 'C', kind: 'bool', default: 'yes' },
+		{ id: 'c', label: 'C', kind: 'number', default: 1, min: 0, max: 2 },
+	];
+	const types = [...MOTION_NODE_TYPES, 'sample', 'output', 'subgraph', 'nope', '__proto__', 7];
+	const ports = ['out', 'x', 'padding', 'a', 't', 'progress', '__proto__', 'nope'];
+	const thrown: string[] = [];
+	for (let k = 0; k < 400; k++) {
+		const count = 1 + Math.floor(random() * 8);
+		const nodes = Array.from({ length: count }, (_, i) => ({
+			id: random() < 0.1 ? pickOf(['n0', '', '__proto__']) : `n${i}`,
+			type: pickOf(types),
+			values: pickOf([
+				undefined,
+				{ param: 'c' },
+				{ param: pickOf(junk) },
+				{ value: pickOf([1, NaN, 'x', [1, 2]]) },
+				{ a: [1, 2, 3], hold: -5 },
+			]),
+		}));
+		const wires = Array.from({ length: Math.floor(random() * 10) }, () =>
+			random() < 0.1
+				? pickOf(junk)
+				: {
+						from: { node: `n${Math.floor(random() * count)}`, port: pickOf(ports) },
+						to: { node: `n${Math.floor(random() * count)}`, port: pickOf(ports) },
+					},
+		);
+		const raw = {
+			...pixel,
+			phase: pickOf(['loop', 'exit', 'weird', 3]),
+			durationMs: pickOf([1000, NaN, 'x', -5]),
+			params: Array.from({ length: Math.floor(random() * 3) }, () => pickOf(paramJunk)),
+			motionGraph: random() < 0.05 ? pickOf(junk) : { nodes, wires },
+		};
+		const verdict = survives(normalizeShaderGraphDoc(JSON.parse(JSON.stringify(raw)), 'fuzz'));
+		if (verdict?.startsWith('throws')) thrown.push(verdict);
+	}
+	assert(
+		!thrown.length,
+		`400 random docs (malformed params, values, node types, ids and wires, as storage keeps them) never throw in the motion path${thrown.length ? `: ${thrown[0]}` : ''}`,
 	);
 }
 

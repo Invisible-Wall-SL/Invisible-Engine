@@ -110,6 +110,9 @@ const dissolve = (kind: 'dissolveOut' | 'dissolveIn'): BuiltinTwin => {
 
 const melt = (): BuiltinTwin => {
 	const g = twinGraph('melt', {
+		// The room a runtime from before motion graphs gives it: the defaults' at the end of a play
+		// (1.45 × the Drip length 0.8). Its motion graph grows the room as the built-in does.
+		padding: 1.16,
 		motion: {
 			channels: {
 				alpha: [
@@ -321,7 +324,8 @@ const poison = (): BuiltinTwin => {
 };
 
 const electrocute = (): BuiltinTwin => {
-	const g = twinGraph('electrocute', {});
+	// The room a runtime from before motion graphs gives it; its motion graph keeps it to the bite.
+	const g = twinGraph('electrocute', { padding: 0.15 });
 	const time = g.time();
 	const t = time.progress;
 	const seed = g.seed();
