@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
+	import MotionCurve from './MotionCurve.svelte';
 	import { PORT_COLORS, categoryColor, costText, type ShaderNodeView } from './shaderEditor';
 	import { useShaderThumbs } from './shaderThumbs.svelte';
 
 	// One graph node: its family colour on the header, an input handle per port on the left and an
 	// output handle per port on the right, each coloured by the type it resolved to (the analysis'
 	// types, else the port's declared one). What the compiler says about the node shows on it, and
-	// its cost and a thumbnail of its output (the page's one renderer draws into the canvas).
+	// its cost and a thumbnail of its output (the page's one renderer draws into the canvas); a
+	// motion node shows its value over the play as a curve instead.
 	let { id, data, selected }: NodeProps = $props();
 	const d = $derived(data as ShaderNodeView);
 	const thumbs = useShaderThumbs();
@@ -19,8 +21,11 @@
 	const colorOf = (type: string): string =>
 		PORT_COLORS[type as keyof typeof PORT_COLORS] ?? PORT_COLORS.any;
 
-	/** An unwired input's value as the compiler will read it. */
+	/** An unwired input's value as the compiler will read it (a Motion Output's channel: what it
+	 *  plays instead). */
 	function unwired(id: string, fallback: string): string {
+		const instead = d.undriven?.[id];
+		if (instead !== undefined) return instead;
 		const value = d.node.values?.[id];
 		const shown = (v: number): string => String(Number(v.toFixed(3)));
 		if (Array.isArray(value)) return value.map(shown).join(', ');
@@ -92,6 +97,9 @@
 			{/each}
 		</ul>
 	</div>
+	{#if thumbs?.enabled && d.curve}
+		<MotionCurve {id} />
+	{/if}
 	{#if d.errors.length}
 		<ul class="issues">
 			{#each d.errors as message, i (i)}

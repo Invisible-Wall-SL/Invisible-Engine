@@ -1,7 +1,7 @@
 <script lang="ts">
 	import MenuButton, { type MenuGroup } from '$lib/MenuButton.svelte';
 	import { writeDrag } from '$lib/graph/dnd';
-	import { SUBGRAPH_CALL, SUBGRAPH_IN } from 'engine-shadergraph';
+	import { MOTION_OUTPUT, SUBGRAPH_CALL, SUBGRAPH_IN } from 'engine-shadergraph';
 	import {
 		SHADER_DROP_MIME,
 		categoryColor,
@@ -12,7 +12,8 @@
 
 	// The left pane: the project's graphs (its own and the studio's shared ones it does not
 	// override), then the node library: the open effect's subgraphs, then the nodes by family. A
-	// node is dragged onto the canvas, or clicked to add it beside the selected node.
+	// node is dragged onto the canvas, or clicked to add it beside the selected node. While the
+	// canvas shows the motion graph, the library is the motion nodes (floats alone), no subgraph.
 	interface GraphRow {
 		id: string;
 		name: string;
@@ -36,8 +37,11 @@
 		onAdd: (type: string) => void;
 		/** The open effect's subgraphs, each called by a node dropped from here. */
 		subgraphs?: SubgraphRow[];
-		/** A body's Input or Output the opened subgraph lacks (`subgraphIn` / `subgraphOut`). */
+		/** A body's Input or Output the opened subgraph lacks (`subgraphIn` / `subgraphOut`), or the
+		 *  Motion Output the motion graph lacks. */
 		boundary?: string[];
+		/** The canvas shows the motion graph. */
+		motion?: boolean;
 		onAddCall?: (id: string) => void;
 		onOpenSubgraph?: (id: string) => void;
 		onDeleteSubgraph?: (id: string) => void;
@@ -54,13 +58,24 @@
 		onAdd,
 		subgraphs = [],
 		boundary = [],
+		motion = false,
 		onAddCall,
 		onOpenSubgraph,
 		onDeleteSubgraph,
 	}: Props = $props();
 
-	const GROUPS = libraryGroups();
+	const PIXEL_GROUPS = libraryGroups();
+	const MOTION_GROUPS = libraryGroups(true);
 	const TWINS = twinGroups();
+	const BOUNDARY_TEXT: Record<string, { label: string; title: string }> = {
+		[SUBGRAPH_IN]: { label: 'Input', title: "Put back the subgraph's Input node" },
+		[MOTION_OUTPUT]: {
+			label: 'Motion Output',
+			title: 'Put back the Motion Output: what the motion graph moves',
+		},
+	};
+	const boundaryText = (type: string) =>
+		BOUNDARY_TEXT[type] ?? { label: 'Output', title: "Put back the subgraph's Output node" };
 	const newMenu = $derived<MenuGroup[]>([
 		{
 			items: [
@@ -78,7 +93,7 @@
 				hint: String(group.twins.length),
 				items: group.twins.map((twin) => ({
 					label: twin.label,
-					title: [twin.description, ...twin.gaps].join('\n\n'),
+					title: twin.description,
 					onSelect: () => onNewFrom(twin.kind),
 				})),
 			})),
@@ -90,10 +105,12 @@
 		return !q || label.toLowerCase().includes(q) || description.toLowerCase().includes(q);
 	};
 	const shown = $derived(
-		GROUPS.map((g) => ({
-			...g,
-			nodes: g.nodes.filter((n) => matches(n.label, n.description)),
-		})).filter((g) => g.nodes.length),
+		(motion ? MOTION_GROUPS : PIXEL_GROUPS)
+			.map((g) => ({
+				...g,
+				nodes: g.nodes.filter((n) => matches(n.label, n.description)),
+			}))
+			.filter((g) => g.nodes.length),
 	);
 </script>
 
@@ -145,26 +162,35 @@
 	<section class="nodes">
 		<h3>Nodes</h3>
 		<input type="search" placeholder="Search nodes" bind:value={query} aria-label="Search nodes" />
-		<p class="muted small">Drag onto the canvas, or click to add.</p>
-		{#if openId}
-			<h4 style="--family:{categoryColor('subgraph')}">Subgraphs</h4>
-			{#if boundary.length}
-				<ul class="palette">
-					{#each boundary as type (type)}
-						<li>
-							<button
-								type="button"
-								draggable={!readOnly}
-								disabled={readOnly}
-								title="Put back the subgraph's {type === SUBGRAPH_IN ? 'Input' : 'Output'} node"
-								ondragstart={(e) => writeDrag(e, SHADER_DROP_MIME, { type })}
-								onclick={() => onAdd(type)}
-							>
-								{type === SUBGRAPH_IN ? 'Input' : 'Output'}
-							</button>
-						</li>
-					{/each}
-				</ul>
+		<p class="muted small">
+			{motion
+				? 'Motion nodes: numbers worked out each frame. Drag onto the canvas, or click to add.'
+				: 'Drag onto the canvas, or click to add.'}
+		</p>
+		{#if openId && boundary.length}
+			<h4 style="--family:{categoryColor(motion ? 'output' : 'subgraph')}">
+				{motion ? 'Output' : 'Subgraphs'}
+			</h4>
+			<ul class="palette">
+				{#each boundary as type (type)}
+					<li>
+						<button
+							type="button"
+							draggable={!readOnly}
+							disabled={readOnly}
+							title={boundaryText(type).title}
+							ondragstart={(e) => writeDrag(e, SHADER_DROP_MIME, { type })}
+							onclick={() => onAdd(type)}
+						>
+							{boundaryText(type).label}
+						</button>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+		{#if openId && !motion}
+			{#if !boundary.length}
+				<h4 style="--family:{categoryColor('subgraph')}">Subgraphs</h4>
 			{/if}
 			{#if !subgraphs.length}
 				<p class="muted small">Select nodes and Group them (Ctrl+G) to make one.</p>

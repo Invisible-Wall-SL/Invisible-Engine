@@ -191,6 +191,15 @@ from step 6 on refuse such an effect outright (`readCustomElementFx` drops an ef
 library function it lacks), so the next addition fails safe: the effect plays nothing rather than
 drawing a broken shader.
 
+**A soft floor: the first release with Invisible Shader Graph step 8a.** A graph with a motion
+graph ships its motion as a program (`motion.program`) that the runtime runs each frame. A runtime
+from before 8a ignores it: such an effect plays its pixels, passes and curves, but not the graph's
+motion or its growing room (its room is the doc's fixed padding). Rolling back below that release
+silently drops that motion in every game that uses it; nothing breaks, so this floor is soft. Graphs
+without a motion graph compile byte-identically and are unaffected. Runtimes from 8a on drop a
+program they cannot run (one using an op added later) and play the curves, so the next op added
+degrades the same way.
+
 **Races.** Rollback is deliberately NOT in the release's concurrency group: GitHub cancels a
 *pending* run when a newer one joins the group, so a rollback queued behind a bad release's 15-minute
 served check could be silently replaced by the next merge's release. Instead every pointer write is

@@ -1,7 +1,8 @@
 /**
  * The saved doc's shape, as storage keeps it. A graph is saved while it is still being built, so
  * this keeps whatever the author wrote that has the doc's shape, broken wiring and bad values
- * included (the validator reports those), and drops anything that is not part of the doc.
+ * included (the validator reports those), and drops anything that is not part of the doc. The
+ * motion graph is kept as the pixel graph is; an empty one is dropped.
  */
 
 import {
@@ -116,5 +117,13 @@ export function normalizeShaderGraphDoc(raw: unknown, id: string): ShaderGraphDo
 	if (isRecord(src.motion)) doc.motion = copyAs(src.motion);
 	const subgraphs = readList(src.subgraphs, readSubgraph);
 	if (subgraphs.length) doc.subgraphs = subgraphs;
+	if (isRecord(src.motionGraph)) {
+		const { nodes, wires } = src.motionGraph;
+		const motionGraph = {
+			nodes: Array.isArray(nodes) ? nodes.filter(isRecord).map(readNode) : [],
+			wires: readList(wires, readWire),
+		};
+		if (motionGraph.nodes.length || motionGraph.wires.length) doc.motionGraph = motionGraph;
+	}
 	return doc;
 }

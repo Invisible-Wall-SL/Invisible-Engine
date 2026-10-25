@@ -21,6 +21,11 @@ You are the developer for **Invisible Shader Graph**.
   - `src/compile.ts`: the validator and compiler.
   - `src/reference.ts`: the reference graphs and the one-graph-per-node showcase.
   - `src/doc.ts`: `normalizeShaderGraphDoc`, the shape storage keeps (a graph mid-build included).
+  - the motion graph (step 8a): `motionGraph` in the doc, the motion nodes (`NodeDef.motion`,
+    `MOTION_NODES`, `isMotionNode`) in `src/nodes.ts`, `analyzeShaderMotion` /
+    `compileShaderMotion` / `motionGraphSeries` in `src/compile.ts`; the program runs through
+    `packages/constants-shared/motionLibrary.ts` (`runMotionProgram`), held to the GLSL by
+    `tools/fx-spike/shaderMotion.mjs` (`shader-motion`).
   - `src/subgraph.ts` (step 7): `flattenShaderGraph` inlines every subgraph call (ids
     `<call>/<node>`, a typed pass-through per port) before the compiler sees the graph, and
     `liftIssues` reports inner issues on their call; `analyzeShaderSubgraph` analyses a body alone.
@@ -41,7 +46,8 @@ You are the developer for **Invisible Shader Graph**.
     view, `slugOf`; step 7: `GraphScope` and the subgraph gestures, `probeDoc` and the thumbnail
     keys, the cost chips), proven by `scripts/check-shader-editor.ts` (`check:shader-editor`);
   - `ShaderLibrary.svelte`, `ShaderNode.svelte`, `NodeProperties.svelte`, `GraphSettings.svelte`,
-    `SubgraphBar.svelte` (breadcrumb, Group / Open / Ungroup), `SubgraphProperties.svelte`;
+    `SubgraphBar.svelte` (the Pixel | Motion switch, breadcrumb, Group / Open / Ungroup),
+    `SubgraphProperties.svelte`, `MotionCurve.svelte` (a motion node's value over the play);
   - `ShaderPreview.svelte` + `shaderPreview.client.ts`: the live Pixi preview through the game's
     Element FX runtime;
   - the node thumbnails: `shaderThumbs.client.ts` (one offscreen renderer drawing every probe

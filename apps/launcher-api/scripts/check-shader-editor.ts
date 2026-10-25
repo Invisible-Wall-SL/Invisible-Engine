@@ -32,6 +32,14 @@
  *      body's (its Input and Output pinned, its errors on its nodes, outside on the call). A
  *      subgraph still called is not deleted unless its calls go too; ungrouping its last call drops
  *      it; a body cannot call itself or a caller; ports follow every call; storage keeps it all.
+ *  10. The motion graph: viewing it changes nothing; its first node brings its Output; every gesture
+ *      (add, wire, move, set a value, select, delete) lands in it and nowhere else, its node ids
+ *      never the pixel graph's; wires join floats alone; its Output stays while other nodes do and
+ *      goes with the last; deleting the whole graph leaves the rest of the doc; each step leaves the
+ *      doc it was given, so undo is the doc before; its errors show on its nodes and count; read-only
+ *      nothing changes; subgraph gestures are off there; the palette offers motion nodes only; the
+ *      channels it drives are named for the settings; each node's curve is its value over the play,
+ *      keyed like a thumbnail; a param renamed is followed there; storage keeps it.
  *
  *   pnpm --filter launcher-api check:shader-editor
  */
@@ -43,12 +51,16 @@ import {
 import {
 	BUILTIN_TWINS,
 	COST_BUDGET,
+	MOTION_NODE_TYPES,
+	MOTION_OUTPUT,
 	REFERENCE_GRAPHS,
 	SAMPLE_BUDGET,
 	SHADER_NODES,
 	analyzeShaderGraph,
+	analyzeShaderMotion,
 	compileShaderEffect,
 	compileShaderGraph,
+	isMotionNode,
 	normalizeShaderGraphDoc,
 	shaderNode,
 	type ShaderGraphDoc,
@@ -56,9 +68,13 @@ import {
 import { shaderSlug } from '../src/lib/server/projectPaths.ts';
 import {
 	COST_WEIGHTS,
+	CURVE_SAMPLES,
 	FLAT_NODES,
+	MOTION_SCOPE,
+	SUBGRAPHS_PIXEL_ONLY,
 	addCall,
 	addNode,
+	addNodeIn,
 	addParam,
 	addPass,
 	addSubgraphPort,
@@ -68,16 +84,24 @@ import {
 	canvasGraph,
 	connect,
 	costWeight,
+	curvePoint,
+	deleteMotionGraph,
 	deleteSubgraph,
 	docFromTwin,
 	docIssues,
+	drivenChannels,
 	groupNodes,
 	groupRefusal,
+	groupable,
+	hasMotionCurve,
 	hasThumbnail,
 	inScope,
+	isMotionScope,
 	libraryGroups,
 	liveThumbs,
 	missingBoundary,
+	motionAnalysis,
+	motionCurves,
 	moveNode,
 	newShaderDoc,
 	nodeCosts,
@@ -98,7 +122,9 @@ import {
 	slugOf,
 	subgraphCalls,
 	subgraphRows,
+	subgraphScope,
 	twinGroups,
+	undrivenChannels,
 	ungroupCall,
 	ungroupRefusal,
 	viewOf,
@@ -422,24 +448,26 @@ for (const kind of ['glow', 'bounce3D', 'melt'] as const) {
 			json(started.params) === json(twin.doc.params),
 			json(started.passes) === json(twin.doc.passes),
 			json(started.motion) === json(twin.doc.motion),
+			json(started.motionGraph) === json(twin.doc.motionGraph),
 			started.padding === twin.doc.padding,
 		],
-		[`my_${kind}`, `My ${kind}`, true, true, true, true, true],
+		[`my_${kind}`, `My ${kind}`, true, true, true, true, true, true],
 	);
 	check('…compiles', compileShaderEffect(started).ok, true);
 	check('…and leaves the twin as it was', twin.doc.id, kind);
 }
-const has = (kind: string, key: 'passes' | 'motion' | 'padding'): boolean =>
+const has = (kind: string, key: 'passes' | 'motion' | 'motionGraph' | 'padding'): boolean =>
 	BUILTIN_TWINS.find((t) => t.kind === kind)?.doc[key] !== undefined;
 check(
-	'…which carry what is to keep: passes (glow), motion and padding (bounce 3D), padding (melt)',
+	'…which carry what is to keep: passes (glow), a motion graph (bounce 3D, melt), curves (melt), padding (flip)',
 	[
 		has('glow', 'passes'),
-		has('bounce3D', 'motion'),
-		has('bounce3D', 'padding'),
-		has('melt', 'padding'),
+		has('bounce3D', 'motionGraph'),
+		has('melt', 'motionGraph'),
+		has('melt', 'motion'),
+		has('flipX', 'padding'),
 	],
-	[true, true, true, true],
+	[true, true, true, true, true],
 );
 const groups = twinGroups([
 	{ kind: 'freeze', doc: frost },
@@ -462,16 +490,13 @@ check(
 	})(),
 );
 check(
-	'a twin that is only close says where and why, in the menu',
-	twinGroups([
-		{ kind: 'freeze', doc: frost, motionGap: 'follows the seconds played', paddingGap: 'fixed' },
-	])[0].twins[0].gaps.map((g) => g.endsWith('follows the seconds played') || g.endsWith('fixed')),
-	[true, true],
-);
-check(
-	'…and an exact one says nothing',
-	twinGroups([{ kind: 'freeze', doc: frost }])[0].twins[0].gaps,
-	[],
+	'a menu entry is the kind’s label and description',
+	twinGroups([{ kind: 'freeze', doc: frost }])[0].twins[0],
+	{
+		kind: 'freeze',
+		label: elementFxSpec('freeze').label,
+		description: elementFxSpec('freeze').description,
+	},
 );
 check(
 	'every real twin is offered exactly once',
@@ -1340,6 +1365,36 @@ console.log('9. subgraphs');
 		[keep?.doc.subgraphs?.length, keep && compileShaderEffect(keep.doc).ok],
 		[1, true],
 	);
+	{
+		// The effect's graph and its motion graph never share a node id: every id these gestures
+		// could mint is already a motion node here.
+		const minted = ['subgraph', 'colorize', 'mix', 'param', 'time', 'bell', 'multiply'].flatMap(
+			(stem) => Array.from({ length: 12 }, (_, i) => `${stem}${i + 1}`),
+		);
+		const motionIds = new Set(minted);
+		const crowded: ShaderGraphDoc = {
+			...second.doc,
+			motionGraph: {
+				nodes: minted.map((id) => ({ id, type: 'number', x: 0, y: 0 })),
+				wires: [],
+			},
+		};
+		const loose = crowded.nodes.find((n) => n.type !== 'output' && n.type !== 'subgraph');
+		const called = addCall(crowded, null, 'tint', { x: 0, y: 0 });
+		const opened = ungroupCall(crowded, null, 'subgraph1');
+		const regrouped = loose && groupNodes(crowded, null, [loose.id], 'Again');
+		check(
+			'a call added, a call ungrouped and a group made mint no id the motion graph has',
+			[
+				motionIds.has(called.id),
+				!!opened?.ids.length,
+				opened?.ids.some((id) => motionIds.has(id)),
+				!!regrouped,
+				regrouped && motionIds.has(regrouped.call),
+			],
+			[false, true, false, true, false],
+		);
+	}
 	check(
 		'deleting a subgraph still called is refused…',
 		deleteSubgraph(second.doc, 'tint'),
@@ -1613,6 +1668,411 @@ console.log('9. subgraphs');
 			nodeCosts(viewOf(selfish, 'x'), analyzeScope(selfish, 'x'), 'x').get('cells')?.cost,
 		],
 		[true, 0, 120],
+	);
+}
+
+// ── 10 ──
+console.log('10. the motion graph');
+{
+	const M = MOTION_SCOPE;
+	const motionErrors = (d: ShaderGraphDoc): string[] =>
+		analyzeShaderMotion(d)
+			.issues.filter((i) => i.level === 'error')
+			.map((i) => i.message);
+	const base = REFERENCE_GRAPHS.find((g) => g.id === 'pulseTint') as ShaderGraphDoc;
+	const pixelOf = (d: ShaderGraphDoc): string => json({ ...d, motionGraph: undefined });
+	check(
+		'a graph has no motion graph until given one: the Motion view shows nothing, and viewing it changes nothing',
+		[base.motionGraph, viewOf(base, M).nodes, viewOf(base, M).wires, isMotionScope(M)],
+		[undefined, [], [], true],
+	);
+	check('…no subgraph id is its scope', [subgraphScope(M), isMotionScope('motion')], [null, false]);
+
+	// Add: the first node brings the Output, to its right.
+	const time = addNodeIn(base, M, 'time', { x: -300, y: 40 });
+	let m = time.doc;
+	const out = viewOf(m, M).nodes.find((n) => n.type === MOTION_OUTPUT);
+	check(
+		'the first motion node brings the Motion Output, to its right; the pixel graph is untouched',
+		[
+			viewOf(m, M)
+				.nodes.map((n) => n.type)
+				.sort(),
+			!!out && out.x > -300,
+			pixelOf(m) === pixelOf(base),
+		],
+		[[MOTION_OUTPUT, 'time'].sort(), true, true],
+	);
+	const osc = addNodeIn(m, M, 'oscillate', { x: -100, y: 40 });
+	m = osc.doc;
+	check(
+		'a second node is added alone, with an id neither graph has',
+		[
+			viewOf(m, M).nodes.filter((n) => n.type === MOTION_OUTPUT).length,
+			viewOf(m, M).nodes.length,
+			base.nodes.some((n) => n.id === osc.id || n.id === time.id),
+		],
+		[1, 3, false],
+	);
+	const clash = addNodeIn(
+		{ ...base, nodes: [...base.nodes, { id: 'time1', type: 'time', x: 0, y: 0 }] },
+		M,
+		'time',
+		{ x: 0, y: 0 },
+	);
+	check('…a pixel node’s id is taken there too (time1 → time2)', clash.id, 'time2');
+	const outId = out?.id ?? '';
+
+	// Wire: floats alone.
+	let a10 = motionAnalysis(m);
+	check(
+		'Time’s progress feeds Oscillate; Oscillate feeds the Output’s rotation',
+		[
+			canConnect(m, a10, { node: time.id, port: 'progress' }, { node: osc.id, port: 't' }, M),
+			canConnect(m, a10, { node: osc.id, port: 'out' }, { node: outId, port: 'rotation' }, M),
+		],
+		[true, true],
+	);
+	m = inScope(m, M, (d) =>
+		connect(d, { node: time.id, port: 'progress' }, { node: osc.id, port: 't' }),
+	);
+	m = inScope(m, M, (d) =>
+		connect(d, { node: osc.id, port: 'out' }, { node: outId, port: 'rotation' }),
+	);
+	m = inScope(m, M, (d) => setNodeValue(d, osc.id, 'rate', 2));
+	a10 = motionAnalysis(m);
+	check(
+		'…the wires and the value land in the motion graph, which compiles; the pixel graph is untouched',
+		[
+			m.motionGraph?.wires.length,
+			m.motionGraph?.nodes.find((n) => n.id === osc.id)?.values?.rate,
+			motionErrors(m),
+			errors(m),
+			compileShaderEffect(m).ok,
+			pixelOf(m) === pixelOf(base),
+		],
+		[2, 2, [], [], true, true],
+	);
+	const stray = inScope(m, M, (d) => addNode(d, 'uv', { x: 0, y: 0 }).doc);
+	check(
+		'a vec2 never feeds a motion input, and nothing feeds itself',
+		[
+			canConnect(
+				stray,
+				motionAnalysis(stray),
+				{ node: 'uv1', port: 'out' },
+				{ node: outId, port: 'x' },
+				M,
+			),
+			canConnect(m, a10, { node: osc.id, port: 'out' }, { node: osc.id, port: 'rate' }, M),
+		],
+		[false, false],
+	);
+	const adder = addNodeIn(m, M, 'add', { x: 0, y: 120 });
+	const looped = inScope(adder.doc, M, (d) =>
+		connect(d, { node: osc.id, port: 'out' }, { node: adder.id, port: 'a' }),
+	);
+	check(
+		'a wire closing a loop through another node is refused there too; an unknown port takes nothing',
+		[
+			canConnect(
+				looped,
+				motionAnalysis(looped),
+				{ node: adder.id, port: 'out' },
+				{ node: osc.id, port: 'rate' },
+				M,
+			),
+			canConnect(m, a10, { node: time.id, port: 'progress' }, { node: osc.id, port: 'nope' }, M),
+		],
+		[false, false],
+	);
+	check(
+		'only motion nodes can be placed in it, and its Output only when it lost one; a motion-only node never in the pixel graph',
+		[
+			canPlace(m, M, 'oscillate'),
+			canPlace(m, M, 'uv'),
+			canPlace(m, M, 'sample'),
+			canPlace(m, M, MOTION_OUTPUT),
+			canPlace(m, null, MOTION_OUTPUT),
+			canPlace(m, null, 'shape'),
+			missingBoundary(m, M),
+			missingBoundary(
+				inScope(m, M, (d) => ({ ...d, nodes: d.nodes.filter((n) => n.id !== outId) })),
+				M,
+			),
+		],
+		[true, false, false, false, false, false, [], [MOTION_OUTPUT]],
+	);
+	check(
+		'the channels it drives, for the settings to say so',
+		[drivenChannels(base), drivenChannels(m)],
+		[[], ['rotation']],
+	);
+	const curved = setMotionChannel({ ...m, padding: 0.25 }, 'x', restCurve('x'));
+	check(
+		'…what each channel left unwired plays instead: its curve, rest, or the effect’s padding',
+		[undrivenChannels(curved).x, undrivenChannels(curved).y, undrivenChannels(curved).padding],
+		['curve', 'rest', '0.25'],
+	);
+
+	// Move, select, delete; the canvas.
+	const moved = inScope(m, M, (d) => moveNode(d, osc.id, 12.4, 80.6));
+	check(
+		'a move lands in the motion graph',
+		[moved.motionGraph?.nodes.find((n) => n.id === osc.id)?.x, pixelOf(moved) === pixelOf(base)],
+		[12, true],
+	);
+	const canvas = canvasGraph(m, a10, new Set([time.id, osc.id]), false, M);
+	const node10 = (id: string) => canvas.nodes.find((n) => n.id === id);
+	check(
+		'the canvas shows the motion graph: a box selection, the Output pinned, curves not thumbnails, no cost chips',
+		[
+			canvas.nodes.map((n) => n.id).sort(),
+			canvas.nodes
+				.filter((n) => n.selected)
+				.map((n) => n.id)
+				.sort(),
+			node10(outId)?.deletable,
+			node10(osc.id)?.deletable,
+			canvas.nodes.some((n) => n.data.thumb || n.data.cost),
+			node10(osc.id)?.data.curve,
+			node10(outId)?.data.curve,
+			node10(outId)?.data.undriven?.x,
+			canvas.edges.length,
+		],
+		[
+			[outId, osc.id, time.id].sort(),
+			[osc.id, time.id].sort(),
+			false,
+			true,
+			false,
+			true,
+			false,
+			'rest',
+			2,
+		],
+	);
+	check(
+		'the Output stays while other nodes do; the wires into what goes go too',
+		[
+			viewOf(
+				inScope(m, M, (d) => remove(d, [outId, osc.id], [], M)),
+				M,
+			)
+				.nodes.map((n) => n.id)
+				.sort(),
+			inScope(m, M, (d) => remove(d, [osc.id], [], M)).motionGraph?.wires.length,
+		],
+		[[outId, time.id].sort(), 0],
+	);
+	const alone = inScope(m, M, (d) => remove(d, [time.id, osc.id], [], M));
+	check(
+		'alone, the Output can be deleted, and the motion graph goes with it',
+		[
+			canvasGraph(alone, motionAnalysis(alone), new Set(), false, M).nodes[0]?.deletable,
+			inScope(alone, M, (d) => remove(d, [outId], [], M)).motionGraph,
+		],
+		[true, undefined],
+	);
+	check(
+		'deleting the whole motion graph leaves everything else as it was',
+		[deleteMotionGraph(m).motionGraph, pixelOf(deleteMotionGraph(m)) === pixelOf(m)],
+		[undefined, true],
+	);
+	const locked = canvasGraph(m, a10, new Set(), true, M);
+	check(
+		'read-only, nothing in it moves, wires or deletes',
+		locked.nodes.some((n) => n.draggable || n.connectable || n.deletable) ||
+			locked.edges.some((e) => e.deletable),
+		false,
+	);
+
+	// Undo: each gesture leaves the doc it was given, so the step before is the doc before.
+	const before = json(m);
+	inScope(m, M, (d) =>
+		connect(d, { node: time.id, port: 'seconds' }, { node: osc.id, port: 'phase' }),
+	);
+	inScope(m, M, (d) => remove(d, [osc.id], [], M));
+	inScope(m, M, (d) => setNodeValue(d, osc.id, 'rate', 5));
+	addNodeIn(m, M, 'bell', { x: 0, y: 0 });
+	deleteMotionGraph(m);
+	check(
+		'no gesture changes the doc it was given, so undo restores it exactly; undoing the first node leaves no motion graph',
+		[json(m) === before, base.motionGraph],
+		[true, undefined],
+	);
+
+	// Errors on their nodes, counted with the pixel graph's.
+	const picked = addNodeIn(m, M, 'param', { x: -300, y: 200 });
+	const unpicked = inScope(picked.doc, M, (d) =>
+		connect(d, { node: picked.id, port: 'out' }, { node: outId, port: 'x' }),
+	);
+	const bad = canvasGraph(unpicked, motionAnalysis(unpicked), new Set(), false, M);
+	check(
+		'an error shows on its motion node, not on the pixel canvas, and the effect does not compile',
+		[
+			(bad.nodes.find((n) => n.id === picked.id)?.data.errors.length ?? 0) > 0,
+			canvasGraph(unpicked, analyzeShaderGraph(unpicked), new Set()).nodes.some(
+				(n) => n.data.errors.length,
+			),
+			motionErrors(unpicked).length > 0,
+			compileShaderEffect(unpicked).ok,
+		],
+		[true, false, true, false],
+	);
+	check(
+		'a motion Param reading a number param is sound; renaming the param follows it in the motion graph',
+		(() => {
+			const withParam = addParam(addParam(unpicked, 'number'), 'color');
+			const set = inScope(withParam, M, (d) => setNodeValue(d, picked.id, 'param', 'number1'));
+			const at = set.params.findIndex((p) => p.id === 'number1');
+			const renamed10 = setParam(set, at, {
+				...set.params[at],
+				id: 'amount',
+			} as ShaderGraphDoc['params'][number]);
+			return [
+				motionErrors(set),
+				renamed10.motionGraph?.nodes.find((n) => n.id === picked.id)?.values?.param,
+				motionErrors(renamed10),
+			];
+		})(),
+		[[], 'amount', []],
+	);
+
+	// Subgraphs are the pixel graph's.
+	check(
+		'subgraph gestures are off in it, saying why',
+		[
+			groupable(m, M, [time.id, osc.id]),
+			groupRefusal(m, M, [time.id]),
+			groupRefusal(m, M, []),
+			groupNodes(m, M, [time.id, osc.id], 'G'),
+			ungroupRefusal(m, M, osc.id),
+			ungroupCall(m, M, osc.id),
+		],
+		[[], SUBGRAPHS_PIXEL_ONLY, undefined, undefined, SUBGRAPHS_PIXEL_ONLY, undefined],
+	);
+
+	// The palette.
+	const motionPalette = libraryGroups(true).flatMap((g) => g.nodes.map((n) => n.type));
+	check(
+		'the motion palette offers motion nodes only, by family, and no Output; the pixel palette no motion-only node',
+		[
+			motionPalette.length > 10,
+			motionPalette.every((t) => isMotionNode(t)),
+			motionPalette.includes(MOTION_OUTPUT),
+			MOTION_NODE_TYPES.filter((t) => t !== MOTION_OUTPUT).every((t) => motionPalette.includes(t)),
+			libraryGroups().some((g) =>
+				g.nodes.some((n) => n.type === MOTION_OUTPUT || n.type === 'shape'),
+			),
+		],
+		[true, true, false, true, false],
+	);
+
+	// Curves.
+	const curves = motionCurves(m);
+	const ramp = curves.get(time.id) ?? undefined;
+	const wave = curves.get(osc.id) ?? undefined;
+	check(
+		'Time’s curve is its progress, 0…1 over the play; Oscillate at rate 2 goes round twice, −1…1',
+		[
+			ramp?.port,
+			ramp?.values.length,
+			ramp && [ramp.min, ramp.max],
+			ramp && Math.abs(ramp.values[32] - 0.5) < 1e-9,
+			wave && [Math.round(wave.min * 1e6) / 1e6, Math.round(wave.max * 1e6) / 1e6],
+			wave && Math.abs(wave.values[8]) > 0.99,
+		],
+		['progress', CURVE_SAMPLES, [0, 1], true, [-1, 1], true],
+	);
+	check(
+		'no curve for a constant (Number, Param, Seed) or the Output; a broken one has none to draw',
+		[
+			hasMotionCurve({ id: 'n', type: 'number', x: 0, y: 0 }),
+			hasMotionCurve({ id: 's', type: 'seed', x: 0, y: 0 }),
+			curves.has(outId),
+			motionCurves(unpicked).get(picked.id),
+		],
+		[false, false, false, null],
+	);
+	// A curve is worked out from the whole graph each time: one that could not be (a pixel node
+	// elsewhere) comes back once the graph is sound, though its own node and upstream are unchanged.
+	const strayUv = addNodeIn(m, M, 'uv', { x: 0, y: 400 });
+	check(
+		'a curve the rest of the graph broke comes back when the graph is mended',
+		[
+			motionCurves(strayUv.doc).get(osc.id),
+			!!motionCurves(inScope(strayUv.doc, M, (v) => remove(v, [strayUv.id], [], M))).get(osc.id),
+		],
+		[null, true],
+	);
+	{
+		const chain = (n: number): ShaderGraphDoc => {
+			let doc = m;
+			let last = '';
+			for (let i = 0; i < n; i++) {
+				const add = addNodeIn(doc, M, 'add', { x: i * 10, y: 600 });
+				doc = last
+					? inScope(add.doc, M, (d) =>
+							connect(d, { node: last, port: 'out' }, { node: add.id, port: 'a' }),
+						)
+					: add.doc;
+				last = add.id;
+			}
+			return doc;
+		};
+		const long = chain(240);
+		const began = performance.now();
+		const all = motionCurves(long);
+		const ms = performance.now() - began;
+		check(
+			`every curve of a 240-node chain comes from one pass, quickly (${ms.toFixed(0)} ms)`,
+			[[...all.values()].filter((c) => c).length >= 240, ms < 300],
+			[true, true],
+		);
+	}
+	check(
+		'the playhead reads the curve between its samples',
+		ramp && [curvePoint(ramp, 0.25), curvePoint(ramp, 2)],
+		[
+			{ x: 0.25, y: 0.25 },
+			{ x: 1, y: 1 },
+		],
+	);
+	check(
+		'a motion edit leaves the pixel thumbnails’ keys; a motion node has no thumbnail, cost chip or probe',
+		[
+			json([...probeKeys(m)]) === json([...probeKeys(base)]),
+			hasThumbnail(viewOf(m, M).nodes[0], a10, m, M),
+			nodeCosts(viewOf(m, M), a10, M).size,
+			probeDoc(m, osc.id, a10, M),
+		],
+		[true, false, 0, undefined],
+	);
+
+	// A broken motion graph fails the effect, never the pixel thumbnails.
+	const brokenMotion: ShaderGraphDoc = {
+		...frost,
+		motionGraph: { nodes: [{ id: 'm1', type: 'uv', x: 0, y: 0 }], wires: [] },
+	};
+	const brokenA = analyzeShaderGraph(brokenMotion);
+	const drawn = brokenMotion.nodes.find((n) => hasThumbnail(n, brokenA));
+	const pixelProbe = drawn && probeDoc(brokenMotion, drawn.id, brokenA);
+	check(
+		'a broken motion graph leaves the pixel thumbnails: a probe carries no motion graph',
+		[
+			compileShaderEffect(brokenMotion).ok,
+			pixelProbe?.doc.motionGraph,
+			!!pixelProbe && compileShaderEffect(pixelProbe.doc).ok,
+		],
+		[false, undefined, true],
+	);
+
+	// Storage.
+	check(
+		'storage keeps the motion graph as built',
+		json(normalizeShaderGraphDoc(JSON.parse(json(m)), m.id).motionGraph),
+		json(m.motionGraph),
 	);
 }
 
