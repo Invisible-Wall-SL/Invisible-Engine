@@ -84,6 +84,10 @@ real money waits on the partner (§9 #2).
   under the gid; a reload after the third move resumed on the same board and moves; the server ended
   the round, one `collect`, the balance moved by exactly the round's total ($100 → $99 → $99.50); no
   page error. Playbook: [playtest/match3-sample.md](../playtest/match3-sample.md) R1–R5.
+- **Bundle size** (the release build's `index.html`, which inlines the runtime; `main` at 82a484b vs
+  this branch): 3,677,798 B / 1,261,162 B gz → 3,687,431 B / 1,264,207 B gz: **+9.6 KB raw, +3.0 KB
+  gz (+0.26 %)**, downloaded by every game, run only by an RGS match-3 one. Static, by the owner's
+  decision (P10.5 below); the per-family runtime build is the later fix.
 - **Slot parity:** every new path is keyed on a match-3 config, a `match3` boot block or a
   `boardInit` book event, none of which a slot has. Edited shared runtime modules:
   `createPrimaryMachines.ts`, `actor.ts`, `EnableGameActor.svelte`, `Game.svelte`,
@@ -276,8 +280,12 @@ kind is what every scaffold gate loops over).
   match-3 flow's chains with no board); Game Maker's outcome question and the RGS seed (P10.6);
   listing the `swap` flight kind in `/symbols`; specials (P10.5b). `<Match3Input />` and the board
   module are imported statically, so every slot bundle carries them (+22.8 KB raw / +8.0 KB gz,
-  +0.6 %) although none runs them; a dynamic import would keep slot bundles byte-identical (owner's
-  call: it adds a load step to a match-3 boot).
+  +0.6 %) although none runs them. **Owner's decision (2026-10-25): accept the static cost now**
+  (about 14.4 KB raw / 5.6 KB gz per slot bundle as measured then). A dynamic import cannot split it
+  out: the release build inlines every dynamic import (`bundleStrategy: 'inline'` →
+  `inlineDynamicImports`). **Later: a per-family runtime build** — `_runtime/match3` built with the
+  match-3 branch, slots built without it through a build-time define and dead-code elimination
+  (open item).
 - **Known limits** (none reachable by a slot game):
   - the board under a swap shows the two gaps while the gems fly, and a refused swap's gems fly
     back the same way;
@@ -594,7 +602,10 @@ game, bundle or screen changes.
    `winLineShapeFor`). An RGS match-3 game never reads either (its wins are the server's amounts,
    presented by the cascade, with no win lines), so P10.6 left them; honour the arm (divisor 1) if
    anything starts reading it.
-9. Add the RGS sample as a current-games fixture (`cg-match3-rgs`) and the harness's `protocolFor`
+9. **A per-family runtime build** (owner, 2026-10-25, later): `_runtime/match3` built with the
+   match-3 branch, slot runtimes built without it (a build-time define + dead-code elimination), so
+   slot bundles stop carrying the match-3 code (P10.5 + P10.6: about +24 KB raw / +8.6 KB gz).
+10. Add the RGS sample as a current-games fixture (`cg-match3-rgs`) and the harness's `protocolFor`
    copy, in a harness change the owner reviews.
 
 ## Blocked (owner / external)
