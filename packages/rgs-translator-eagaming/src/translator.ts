@@ -20,6 +20,7 @@ import {
 	type PlayContext,
 	type Play4FunActionEnvelope,
 	type Play4FunBookEvent,
+	type Play4FunMoveContext,
 	type Play4FunRequestBody,
 	type Play4FunResponse,
 } from './types';
@@ -86,6 +87,17 @@ export const buildCollectAction = (): Play4FunRequestBody => [{ action: 'collect
 export const buildSingleAction = <T>(action: string, context?: T): Play4FunRequestBody => [
 	{ action, context } as Play4FunActionEnvelope,
 ];
+
+/** A match-3 `move` (ours — `docs/reference/match3-wire.md`): swap `from` with `to`, visible rows.
+ *  Stored, so the fetcher advances `seq` by one; posted under the round's `gid`. */
+export const buildMoveAction = (
+	from: { reel: number; row: number },
+	to: { reel: number; row: number },
+): Play4FunRequestBody =>
+	buildSingleAction<Play4FunMoveContext>('move', {
+		from: [from.reel, from.row],
+		to: [to.reel, to.row],
+	});
 
 const computeRoundFinancials = (
 	events: Play4FunBookEvent[],

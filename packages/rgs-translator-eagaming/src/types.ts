@@ -29,9 +29,65 @@ export type Play4FunActionEnvelope =
 	| { action: 'bet'; context: BetContext }
 	| { action: 'play'; context: PlayContext }
 	| { action: 'collect' }
+	| { action: 'move'; context: Play4FunMoveContext }
 	| { action: string; context?: unknown };
 
 export type Play4FunRequestBody = Play4FunActionEnvelope[];
+
+// ---------- The match-3 wire — OURS, not the partner's (docs/reference/match3-wire.md) ----------
+
+/** `move.context`: the two cells the player swaps, each `[reel, row]` on the visible grid. A STORED
+ *  action posted under the round's `gid`, so it advances `seq` by one. */
+export interface Play4FunMoveContext {
+	from: [number, number];
+	to: [number, number];
+}
+
+/** The boot `config.match3` block. */
+export interface Match3BootConfig {
+	wire: number;
+	minRun: number;
+	moves: number;
+}
+
+/** A cell in an answer: visible rows, row 0 the top. */
+export interface Match3WireCell {
+	reel: number;
+	row: number;
+}
+
+/** One cascade step: the cells that matched, the gems dropped into each column (top first), this
+ *  step's pay and the round's running pay after it, in cents. */
+export interface Match3Step {
+	exploding: Match3WireCell[];
+	newSymbols: string[][];
+	win: number;
+	roundWin: number;
+}
+
+/** `match3Board`: the round's first board (column-major, visible) and the moves it allows. */
+export interface Match3BoardContext {
+	board: string[][];
+	movesLeft: number;
+}
+
+/** `match3Move`: one per `move`. A refused move has no steps and leaves moves and board unchanged. */
+export interface Match3MoveContext {
+	from: Match3WireCell;
+	to: Match3WireCell;
+	accepted: boolean;
+	steps: Match3Step[];
+	movesLeft: number;
+	roundWin: number;
+	board: string[][];
+}
+
+/** `match3End`: the round is over; `settle` is the part of `totalWin` the steps did not pay. */
+export interface Match3EndContext {
+	totalWin: number;
+	reason: 'movesUsed' | 'noMoves';
+	settle: number;
+}
 
 export interface Play4FunRequestQuery {
 	sid: string;

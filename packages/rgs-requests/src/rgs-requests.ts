@@ -30,6 +30,28 @@ export const requestBalance = async (_options: { sessionID: string; rgsUrl: stri
 	return { status: { statusCode: 'SKIPPED' as const }, balance: undefined };
 };
 
+/**
+ * A match-3 `move` belongs to the Play4Fun facade's match-3 wire (`docs/reference/match3-wire.md`);
+ * the stock RGS protocol has no such request. Declared so a match-3 game can be written once against
+ * one surface; it answers with an error, without a request, rather than inventing one.
+ */
+export const requestMove = async (_options: {
+	sessionID: string;
+	rgsUrl: string;
+	from: { reel: number; row: number };
+	to: { reel: number; row: number };
+}) => {
+	void _options;
+	const text = 'this RGS protocol has no match-3 move';
+	return {
+		status: { statusCode: 'ERR_UNSUPPORTED' as const, statusMessage: text },
+		round: undefined,
+		balance: undefined,
+		error: text,
+		message: text,
+	};
+};
+
 export const requestEndRound = async (options: { sessionID: string; rgsUrl: string }) => {
 	const data = await rgsFetcher.post({
 		rgsUrl: options.rgsUrl,
