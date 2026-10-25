@@ -699,6 +699,13 @@ export const PIPELINE_MERGE_CAPABILITY = 'pipelineMerge';
  */
 export const SHADER_PUBLISH_CAPABILITY = 'shaderPublish';
 
+/**
+ * Managed capability key for writing Custom GLSL in Invisible Shader Graph: adding a Custom GLSL
+ * node, or changing one's code or ports. Its body runs on every player's GPU, so it is default-ON
+ * for `admin` only; every `/shaders` user still sees it, wires around it and may delete it.
+ */
+export const SHADER_CUSTOM_GLSL_CAPABILITY = 'shaderCustomGlsl';
+
 /** Capabilities managed by the role matrix that are not entries in `TOOLS`. */
 export const CAPABILITIES: { key: string; name: string; isNew?: true }[] = [
 	{ key: ADMIN_PANEL_CAPABILITY, name: 'Admin panel' },
@@ -708,12 +715,14 @@ export const CAPABILITIES: { key: string; name: string; isNew?: true }[] = [
 	{ key: COMPONENT_PUBLISH_CAPABILITY, name: 'Publish shared components' },
 	{ key: PIPELINE_MERGE_CAPABILITY, name: 'Merge pipeline changes', isNew: true },
 	{ key: SHADER_PUBLISH_CAPABILITY, name: 'Publish shared shader effects', isNew: true },
+	{ key: SHADER_CUSTOM_GLSL_CAPABILITY, name: 'Write custom GLSL in shader effects', isNew: true },
 ];
 
 /**
  * `ROLE_TOOLS` baseline for a capability key. Admin-only capabilities
  * (`adminPanel`, `blueprintPublish`, `fontPublish`, `gamePublish`,
- * `componentPublish`, `pipelineMerge`, `shaderPublish`) default ON for `admin` and OFF elsewhere.
+ * `componentPublish`, `pipelineMerge`, `shaderPublish`, `shaderCustomGlsl`) default ON for `admin`
+ * and OFF elsewhere.
  */
 function capabilityDefault(role: Role, key: string): boolean {
 	if (key === ADMIN_PANEL_CAPABILITY) return role === 'admin';
@@ -723,6 +732,7 @@ function capabilityDefault(role: Role, key: string): boolean {
 	if (key === COMPONENT_PUBLISH_CAPABILITY) return role === 'admin';
 	if (key === PIPELINE_MERGE_CAPABILITY) return role === 'admin';
 	if (key === SHADER_PUBLISH_CAPABILITY) return role === 'admin';
+	if (key === SHADER_CUSTOM_GLSL_CAPABILITY) return role === 'admin';
 	return false;
 }
 

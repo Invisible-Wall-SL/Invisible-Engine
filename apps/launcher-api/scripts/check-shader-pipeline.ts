@@ -34,7 +34,12 @@ import {
 	isCustomElementFxKind,
 	setCustomElementFx,
 } from 'constants-shared/elementFx';
-import { REFERENCE_GRAPHS, type ShaderGraphDoc } from 'engine-shadergraph';
+import {
+	CUSTOM_GLSL,
+	CUSTOM_GLSL_DEFAULT,
+	REFERENCE_GRAPHS,
+	type ShaderGraphDoc,
+} from 'engine-shadergraph';
 import { roleHasCapability, type Role } from '../src/lib/roles.ts';
 import { readLF } from '../../../scripts/lib/read-lf.mjs';
 
@@ -964,6 +969,130 @@ console.log('6. the studio library');
 		(await storage.listShaders(CLIENT, PROJECT)).find((r) => r.id === 'spark')?.inLibrary,
 		undefined,
 	);
+}
+
+// ── 7. Custom GLSL ─────────────────────────────────────────────────────────────────────────────
+console.log('7. custom GLSL');
+{
+	const ADMIN: User = { id: 'u-admin', role: 'admin' };
+	const ARTIST: User = { id: 'u-artist', role: 'artist' };
+	const key = `${projectDir}coded.json`;
+	const glslNode = (code: string, label = 'Colour') => ({
+		id: 'g1',
+		type: CUSTOM_GLSL,
+		x: 0,
+		y: 0,
+		glsl: {
+			...CUSTOM_GLSL_DEFAULT,
+			code,
+			inputs: [{ id: 'color', label, type: 'vec4' as const }],
+			outputs: [{ id: 'color', label, type: 'vec4' as const }],
+		},
+	});
+	const coded = (node?: ReturnType<typeof glslNode>, name = 'Coded'): ShaderGraphDoc => {
+		const doc = { ...ref('frost'), id: 'coded', name };
+		return node ? { ...doc, nodes: [...doc.nodes, node] } : doc;
+	};
+	const save = (doc: ShaderGraphDoc, baseEtag: string | null, user: User) =>
+		call(saveRoute.POST, { body: { doc, baseEtag }, user });
+	const tint = 'color.rgb *= vec3(1.0, 0.8, 0.6);';
+
+	const refused = await save(coded(glslNode(tint)), null, ARTIST);
+	check(
+		'adding Custom GLSL needs shaderCustomGlsl, which a role lacks by default',
+		[refused.status, refused.body.error, R2.has(key)],
+		[403, 'custom-glsl', false],
+	);
+	const first = await save(coded(glslNode(tint)), null, ADMIN);
+	check('an admin adds it', [first.status, R2.has(key)], [200, true]);
+	const renamed = await save(
+		coded(glslNode(tint), 'Coded, renamed'),
+		first.body.etag as string,
+		ARTIST,
+	);
+	check('anyone may edit around it, its code as it was', renamed.status, 200);
+	const moved = { ...glslNode(tint), x: 400 };
+	const movedSave = await save(coded(moved), renamed.body.etag as string, ARTIST);
+	check('…or move it', movedSave.status, 200);
+	const changed = await save(
+		coded(glslNode('color.rgb *= 0.5;')),
+		movedSave.body.etag as string,
+		ARTIST,
+	);
+	check(
+		'but not change its code',
+		[
+			changed.status,
+			changed.body.error,
+			(stored(key).nodes as { glsl?: { code: string } }[]).find((n) => n.glsl)?.glsl?.code,
+		],
+		[403, 'custom-glsl', tint],
+	);
+	check(
+		'…or its ports',
+		(await save(coded(glslNode(tint, 'Tinted')), movedSave.body.etag as string, ARTIST)).status,
+		403,
+	);
+	const removed = await save(coded(), movedSave.body.etag as string, ARTIST);
+	check('anyone may remove it', removed.status, 200);
+	check(
+		'…and once removed, putting it back takes the capability: it is judged against what is stored',
+		(await save(coded(glslNode(tint)), removed.body.etag as string, ARTIST)).status,
+		403,
+	);
+	const restoredByAdmin = await save(coded(glslNode(tint)), removed.body.etag as string, ADMIN);
+	check('an admin may put it back', restoredByAdmin.status, 200);
+
+	const recoded = await save(
+		coded(glslNode('color.rgb *= 0.5;')),
+		restoredByAdmin.body.etag as string,
+		ADMIN,
+	);
+	const history = (await call(backupsRoute.GET, { query: '?graph=coded' })).body.backups as {
+		id: string;
+	}[];
+	const restoreArtist = await call(backupsRoute.POST, {
+		query: '?graph=coded',
+		body: { id: history[0].id, baseEtag: recoded.body.etag },
+		user: ARTIST,
+	});
+	check(
+		'restoring a version whose Custom GLSL differs from the live graph takes the capability',
+		[
+			restoreArtist.status,
+			stored(key).nodes.some(
+				(n: { glsl?: { code: string } }) => n.glsl?.code === 'color.rgb *= 0.5;',
+			),
+		],
+		[403, true],
+	);
+	const restoreAdmin = await call(backupsRoute.POST, {
+		query: '?graph=coded',
+		body: { id: history[0].id, baseEtag: recoded.body.etag },
+		user: ADMIN,
+	});
+	check('…which an admin may', restoreAdmin.status, 200);
+	R2.set(`${SHARED_SHADERS_PREFIX}/library_coded.json`, {
+		body: JSON.stringify({ ...coded(glslNode(tint)), id: 'library_coded', name: 'Library coded' }),
+		etag: '"lc"',
+	});
+	check(
+		"a shared graph's own Custom GLSL saves as the project's copy without the capability",
+		(await save({ ...coded(glslNode(tint)), id: 'library_coded', name: 'My copy' }, null, ARTIST))
+			.status,
+		200,
+	);
+
+	roleOverrides = { shaderPublish: true };
+	const publishRefused = await call(publishRoute.POST, { body: { id: 'coded' }, user: ARTIST });
+	check(
+		'publishing a graph holding Custom GLSL takes the capability too',
+		[publishRefused.status, publishRefused.body.error],
+		[403, 'custom-glsl'],
+	);
+	roleOverrides = {};
+	const publishedByAdmin = await call(publishRoute.POST, { body: { id: 'coded' }, user: ADMIN });
+	check('…which an admin holds', publishedByAdmin.status, 200);
 }
 
 if (failures) {

@@ -4,7 +4,7 @@ import { mapWithConcurrency } from '$lib/server/concurrency';
 import { loadRegionSet } from '$lib/server/editorRegions';
 import { SUB } from '$lib/server/projectPaths';
 import { listObjects } from '$lib/server/r2';
-import { canPublishSharedShaders } from '$lib/server/shaderScope';
+import { canPublishSharedShaders, canWriteCustomGlsl } from '$lib/server/shaderScope';
 import { listShaders, loadShader } from '$lib/server/shaderStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
 import type { PageServerLoad } from './$types';
@@ -44,11 +44,12 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 
 	const openId = url.searchParams.get('graph')?.trim() ?? '';
 	const openShared = url.searchParams.get('shared') === '1';
-	const [shaders, manifests, opened, canPublishShared] = await Promise.all([
+	const [shaders, manifests, opened, canPublishShared, canCustomGlsl] = await Promise.all([
 		listShaders(clientKey, projectKey),
 		listObjects(`${SUB.manifests(clientKey, projectKey)}/`, 500),
 		openId ? loadShader(clientKey, projectKey, openId, openShared) : null,
 		canPublishSharedShaders(locals),
+		canWriteCustomGlsl(locals),
 	]);
 
 	const manifestKeys = manifests.keys.filter((k) => k.toLowerCase().endsWith('.json'));
@@ -82,5 +83,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		/** Holds `shaderPublish`: may publish to the studio library and remove from it (the API
 		 *  checks it again; this only keeps the page from offering a button that 403s). */
 		canPublishShared,
+		/** Holds `shaderCustomGlsl`: may add Custom GLSL and change its code or ports (the save checks
+		 *  it again). */
+		canCustomGlsl,
 	};
 };

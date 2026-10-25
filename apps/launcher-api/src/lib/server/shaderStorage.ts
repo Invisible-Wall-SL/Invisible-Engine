@@ -1,6 +1,8 @@
 import type { CustomElementFx } from 'constants-shared/elementFx';
 import {
 	compileShaderEffect,
+	customGlslSignature,
+	hasCustomGlsl,
 	normalizeShaderGraphDoc,
 	type GraphIssue,
 	type ShaderGraphDoc,
@@ -44,6 +46,14 @@ export class ShaderTooLargeError extends Error {
 	constructor(readonly bytes: number) {
 		super(`A shader graph is at most ${SHADER_DOC_MAX_BYTES} bytes; this one is ${bytes}.`);
 		this.name = 'ShaderTooLargeError';
+	}
+}
+
+/** A save or publish that adds or changes Custom GLSL, by someone without `shaderCustomGlsl`. */
+export class CustomGlslNotAllowedError extends Error {
+	constructor() {
+		super('Only an admin can add custom GLSL or change its code or ports.');
+		this.name = 'CustomGlslNotAllowedError';
 	}
 }
 
@@ -204,11 +214,33 @@ export async function loadShader(
 }
 
 /**
+ * Whether `doc` holds Custom GLSL the project does not already store for `id` (its own graph, else
+ * the shared one it would shadow): a node added, or one's code or ports changed. Removing a node,
+ * or editing around one, adds none.
+ */
+async function addsCustomGlsl(
+	clientKey: string,
+	projectKey: string,
+	id: string,
+	doc: ShaderGraphDoc,
+): Promise<boolean> {
+	if (!hasCustomGlsl(doc)) return false;
+	const own = await loadShader(clientKey, projectKey, id);
+	const stored = own.exists ? own.doc : (await loadShader(clientKey, projectKey, id, true)).doc;
+	const known = new Set(customGlslSignature(stored));
+	return customGlslSignature(doc).some((definition) => !known.has(definition));
+}
+
+/**
  * Save a project's graph under its slugged id. `baseEtag: null` asserts the id is free, which stops
  * a new graph replacing a colleague's of the same name; a stale ETag is refused the same way
  * (`ConflictError`). A graph over {@link SHADER_DOC_MAX_BYTES} is refused (`ShaderTooLargeError`).
  * The bytes it replaces are kept as a backup (`docBackups.ts`), `mode` as for every doc: `'auto'`
  * coalesces a run of saves, `'always'` (a restore, a wholesale swap) keeps one each time.
+ *
+ * Unless `mayWriteCustomGlsl` (the saver holds `shaderCustomGlsl`), a graph that adds Custom GLSL or
+ * changes its code or ports is refused (`CustomGlslNotAllowedError`). The stored version it is
+ * judged against is read before the write, which its `baseEtag` then pins.
  */
 export async function saveShader(
 	clientKey: string,
@@ -216,6 +248,7 @@ export async function saveShader(
 	rawDoc: unknown,
 	baseEtag?: string | null,
 	mode: BackupMode = 'auto',
+	mayWriteCustomGlsl = false,
 ): Promise<{ id: string; doc: ShaderGraphDoc; etag: string | null }> {
 	const requested =
 		typeof rawDoc === 'object' && rawDoc !== null && 'id' in rawDoc && typeof rawDoc.id === 'string'
@@ -226,6 +259,9 @@ export async function saveShader(
 	const text = JSON.stringify(doc, null, '\t');
 	const bytes = Buffer.byteLength(text);
 	if (bytes > SHADER_DOC_MAX_BYTES) throw new ShaderTooLargeError(bytes);
+	if (!mayWriteCustomGlsl && (await addsCustomGlsl(clientKey, projectKey, id, doc))) {
+		throw new CustomGlslNotAllowedError();
+	}
 	const etag = await putDocWithBackup(
 		shaderDocBackupTarget(clientKey, projectKey, id),
 		text,
@@ -278,10 +314,13 @@ export async function publishShader(
 	projectKey: string,
 	rawId: string,
 	replace: boolean,
+	mayWriteCustomGlsl = false,
 ): Promise<{ id: string; etag: string | null }> {
 	const id = shaderSlug(rawId);
 	const { doc, exists } = await loadShader(clientKey, projectKey, id);
 	if (!exists) throw new ShaderNotFoundError(id);
+	// The library reaches every project: putting Custom GLSL there takes the capability too.
+	if (!mayWriteCustomGlsl && hasCustomGlsl(doc)) throw new CustomGlslNotAllowedError();
 	const compiled = compileStored(doc);
 	if (!compiled.ok) throw new ShaderDoesNotCompileError(id, compiled.errors);
 	const text = JSON.stringify(doc, null, '\t');
