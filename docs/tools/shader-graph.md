@@ -345,10 +345,13 @@ the ports you declare. It shows a `</>` badge, its ports, a thumbnail and a cost
   functions and the effect library's `efx…` functions (`efxSample(px)` reads the element at a
   pixel position). `for`
   loops need an int counter with fixed bounds, at most 64 rounds each and 256 nested in all.
+  Integers stay within ±1023 (a phone's integers may hold no more): write `2048.0` for a bigger
+  number, and keep a loop's counter inside that range.
 - **What it may not:** `while`, `do`, `discard`, `#` lines, declaring functions, structs, uniforms
-  or precision, `texture2D`, or any name that is not its own (no other node's values, no `gl_…`).
-  A body is at most 4 KB. Its cost is estimated from the code, counting every branch and loop
-  round, and capped per node and per effect.
+  or precision, `texture2D`, or any name that is not its own (no other node's values, no `gl_…`
+  or `GL_…`). A body is at most 4 KB. Its cost is estimated from the code, counting every branch
+  and loop round (a matrix product costs far more than a number's), and capped per node and per
+  effect: a node may do about Petrify's work, not Electrocute's.
 - **The ports:** Inputs and Outputs editors (the name used in the code, a label, a type, a
   default). Renaming a port does not change the code. At least one output stays.
 - **Tested on real WebGL.** Each change is compiled in your browser on WebGL1 and WebGL2; the

@@ -282,7 +282,11 @@ merged (#1342). 8b (Break as an output node) is in progress on `claude/shader-gr
       library functions; constant-bounded `for` loops, 64 rounds, 256 nested; no `while`, `do`,
       `discard`, `#`, declarations, `texture2D` or foreign names; 4 KB / 600 tokens), errors as
       `'glsl'` with `line N:`. Codegen: one `efxGlsl_<n>` function per distinct definition before
-      `main`. Cost estimated from the body, capped per node (1,024 / 256 reads) and per effect.
+      `main`. Integers (literals, folded constants, every value a loop counter takes) stay within
+      ±1023, all a mediump integer is sure to hold. Cost estimated by type as the body is checked
+      (a matrix product n³, a matrix by a vector n², a built-in by its widest argument), capped per
+      node (1,024 / 256 reads) and per effect; the built-in passes as bodies come to up to 1,053
+      (Electrocute; Petrify 870).
     - **The server gate.** `shaderCustomGlsl` (admin by default): a save or restore adding Custom
       GLSL, or changing one's code or ports, against the stored graph (or the shared one it would
       shadow) is a 403 `custom-glsl`; moving, wiring around or deleting one is not; publishing a
@@ -296,6 +300,22 @@ merged (#1342). 8b (Break as an output node) is in progress on `claude/shader-gr
       the shared `PortListEditor.svelte`), read-only for others; a test-compile on offscreen WebGL1
       and WebGL2 (`glslCheck.client.ts`) whose rejection shows on the node and its lines, marks the
       save pill and blocks Publish to library.
+    - **Review.** An independent review found three blocking items and four should-fix; all are
+      fixed and each fix is mutation-checked:
+      - a loop counter could pass a mediump integer's range, wrap and never end (now ±1023);
+      - a lone carriage return ended a line for the driver but not the checker, so a `//` comment
+        could hide code (now read as a line end, and the emitted body must re-read as the checked
+        tokens);
+      - the FTP Browser's scoped mode could upload or move a graph into `shaders/` or
+        `shader-backups/`, skipping the gate (refused now; an admin's full view still can);
+      - a copy of an approved node did not count as adding one (definitions are counted now, here
+        and in the editor's holder rule);
+      - a forced save by a non-holder is pinned to the version the gate read;
+      - a 4×4 matrix product was costed as one step (the cost is typed now);
+      - `programLinks` used Pixi's internal `_getProgramData` unguarded (a missing or throwing call,
+        or a driver answering no boolean, now means "not known": the pass draws and nothing is kept).
+      Also: names starting `GL_` are refused (driver macros); the browser test-compile reports a
+      lost context as "not known yet" and re-runs, and leaves no programs in Pixi's cache.
   - **8b, Break as an output node.** In review on `claude/shader-graph-step8b`.
     - Left: a live cut (Assemble) that throws partway through `startBreak` can leave the element a
       render group (at most once now, with no retry).
