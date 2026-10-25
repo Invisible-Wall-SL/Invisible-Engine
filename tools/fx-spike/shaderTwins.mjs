@@ -28,14 +28,13 @@
  * to, and so does a cut-off sliver of a pixel or two.
  *
  * ROOM. The built-in must draw nothing past the room the twin asks for (its filter area and its
- * passes' padding), unless the twin names its padding gap (`BuiltinTwin.paddingGap`: the built-in's
- * room grows with a param, the strength or the play, the doc's is fixed); then the two are compared
- * within the twin's room, and what the built-in draws past it is reported.
+ * passes' padding, the graph's own as its motion graph grows it), and the two rooms, as numbers,
+ * must be within ROOM_PX of each other (each pass's padding is rounded up to a whole pixel), in
+ * every case.
  *
  * MOTIONS: the element's box corners within MOTION_PX of each other and its alpha within
- * MOTION_ALPHA. A twin that names its motion gap (`BuiltinTwin.motionGap`: what the built-in moves
- * by that a curve cannot follow) is excused, and reported, everywhere but at the defaults on the
- * portrait card, unless it says the gap shows there too (`motionGapAtDefaults`).
+ * MOTION_ALPHA, in every case: what a kind moves by the seconds played, a param, looping or the
+ * element's shape is the twin's motion graph.
  *
  *   pnpm --filter fx-spike shader-twins [--only freeze,burn] [--dump <dir>]
  *
@@ -53,6 +52,7 @@ const THRESHOLD = 2;
 const SHARE = 0.0025;
 const MOTION_PX = 0.25;
 const MOTION_ALPHA = 0.5 / 255;
+const ROOM_PX = 1;
 const DRAW_MS = 120_000;
 const FAILED = /^\[(error|assert|uncaught)\]/;
 
@@ -125,7 +125,7 @@ const kinds = [...new Set(Object.values(runs).flatMap((r) => r.twins.map((t) => 
 if (!kinds.length) failed.push('no twin was compared');
 const rows = [];
 for (const kind of kinds) {
-	const row = { kind, gl: {}, motion: '', room: '', ms: 0 };
+	const row = { kind, gl: {}, motion: '', ms: 0 };
 	for (const gl of [1, 2]) {
 		const run = runs[gl];
 		const twin = run?.twins.find((t) => t.kind === kind);
@@ -134,12 +134,11 @@ for (const kind of kinds) {
 			continue;
 		}
 		const at = run.steps.indexOf(THRESHOLD);
-		const stat = { max: 0, share: 0, patch: 0, cell: undefined, beyond: 0, past: undefined };
+		const stat = { max: 0, share: 0, patch: 0, cell: undefined };
 		for (const cell of twin.cells) {
-			if (cell.beyond > stat.beyond) Object.assign(stat, { beyond: cell.beyond, past: cell });
-			if (cell.beyond && !twin.paddingGap)
+			if (cell.beyond)
 				failed.push(
-					`${kind}: WebGL${gl}, ${cell.label}, at ${cell.moment}: the built-in draws ${cell.beyond} px past the room the twin asks for, and the twin names no padding gap`,
+					`${kind}: WebGL${gl}, ${cell.label}, at ${cell.moment}: the built-in draws ${cell.beyond} px past the room the twin asks for`,
 				);
 			const share = cell.over[at] / Math.max(cell.drawn, cell.area);
 			const patch = cell.solid[at];
@@ -153,27 +152,21 @@ for (const kind of kinds) {
 		}
 		row.gl[gl] = stat;
 		row.ms += twin.ms;
-		if (stat.past)
-			row.room = `; past its room: ${stat.beyond} px (${stat.past.label}@${stat.past.moment}, its padding gap)`;
 	}
 	const twin = (runs[1] ?? runs[2])?.twins.find((t) => t.kind === kind);
 	if (twin) {
 		const worst = twin.motions.reduce((w, m) => (m.px > w.px ? m : w), twin.motions[0]);
 		const px = worst?.px ?? 0;
 		const alpha = Math.max(0, ...twin.motions.map((m) => m.alpha));
-		const atDefaults = Math.max(
-			0,
-			...twin.motions.filter((m) => m.label === 'defaults').map((m) => m.px),
-		);
-		// A named gap excuses the motion everywhere but at the defaults, unless it says so there too.
-		const excused = (m) => !!twin.motionGap && (m.label !== 'defaults' || twin.motionGapAtDefaults);
-		const off = twin.motions.find(
-			(m) => (m.px > MOTION_PX || m.alpha > MOTION_ALPHA) && !excused(m),
-		);
-		row.motion = `${px.toFixed(3)} px${px > MOTION_PX ? ` (${worst.label}@${worst.moment})` : ''}, alpha ${alpha.toFixed(4)}${twin.motionGap ? ` (its gap; ${atDefaults.toFixed(3)} px at the defaults${twin.motionGapAtDefaults ? ', named there too' : ''})` : ''}`;
-		if (off)
+		const room = Math.max(0, ...twin.motions.map((m) => m.room));
+		row.motion = `${px.toFixed(3)} px${px > MOTION_PX ? ` (${worst.label}@${worst.moment})` : ''}, alpha ${alpha.toFixed(4)}; room ${room} px apart`;
+		for (const off of twin.motions.filter((m) => m.room > ROOM_PX))
 			failed.push(
-				`${kind}: its motion is ${off.px.toFixed(3)} px and alpha ${off.alpha.toFixed(4)} off the built-in's (${off.label}, at ${off.moment})${twin.motionGap ? ', where its gap does not excuse it' : ''}`,
+				`${kind}: it asks for ${off.room} px more or less room than the built-in (${off.label}, at ${off.moment})`,
+			);
+		for (const off of twin.motions.filter((m) => m.px > MOTION_PX || m.alpha > MOTION_ALPHA))
+			failed.push(
+				`${kind}: its motion is ${off.px.toFixed(3)} px and alpha ${off.alpha.toFixed(4)} off the built-in's (${off.label}, at ${off.moment})`,
 			);
 	}
 	rows.push(row);
@@ -186,12 +179,10 @@ const statOf = (s) =>
 			)
 		: '—'.padEnd(34);
 console.log(
-	`\ntwin          WebGL1: largest, worst share > ${THRESHOLD}  WebGL2: largest, worst share > ${THRESHOLD}  motion (box corners, alpha)`,
+	`\ntwin          WebGL1: largest, worst share > ${THRESHOLD}  WebGL2: largest, worst share > ${THRESHOLD}  motion (box corners, alpha), room`,
 );
 for (const row of rows)
-	console.log(
-		`${row.kind.padEnd(13)} ${statOf(row.gl[1])} ${statOf(row.gl[2])} ${row.motion}${row.room}`,
-	);
+	console.log(`${row.kind.padEnd(13)} ${statOf(row.gl[1])} ${statOf(row.gl[2])} ${row.motion}`);
 const seconds = ((Date.now() - began) / 1000).toFixed(1);
 const pages = [1, 2]
 	.map((gl) => (runs[gl] ? `WebGL${gl} ${(runs[gl].ms / 1000).toFixed(1)} s` : ''))

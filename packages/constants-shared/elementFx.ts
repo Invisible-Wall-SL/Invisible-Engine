@@ -15,6 +15,7 @@
  */
 
 import { unknownEfxCalls } from './glslLibrary';
+import { MOTION_INPUTS, MOTION_OPS, isMotionOpName, type MotionProgram } from './motionLibrary';
 
 /** `custom`: an effect authored in Invisible Shader Graph ({@link CustomElementFx}). */
 export type ElementFxCategory = 'motion' | '3d' | 'distort' | 'light' | 'break' | 'custom';
@@ -1196,6 +1197,14 @@ export const elementFxSpec = (kind: ElementFxKind): ElementFxKindSpec =>
 export const findElementFxSpec = (kind: ElementFxKindId): ElementFxKindSpec | undefined =>
 	SPECS.get(kind) ?? CUSTOM.get(kind)?.spec;
 
+/** What an entry or a play may set: a length, a delay, a strength and a number of plays. */
+export const ELEMENT_FX_LIMITS = {
+	durationMs: { min: 50, max: 20_000 },
+	delayMs: { min: 0, max: 20_000 },
+	intensity: { min: 0, max: 4 },
+	repeat: { min: 0, max: 100 },
+} as const;
+
 // -------------------------------------------------------------------------------------------------
 // CUSTOM EFFECTS — authored in Invisible Shader Graph (`docs/design/invisible-shader-graph.md`) and
 // compiled there (`engine-shadergraph`'s `compileShaderEffect`). The game and the tools register the
@@ -1257,7 +1266,8 @@ export type ElementFxCurve = readonly { t: number; v: number; ease?: ElementFxCu
 /**
  * The motion channels a custom effect may move, and their units: `x` / `y` in shares of the
  * element's width / height, `scale` / `scaleX` / `scaleY` as multipliers, `rotation` in degrees,
- * `alpha` a multiplier. Every channel but `alpha` scales with the effect's intensity.
+ * `alpha` a multiplier. On a curve every channel but `alpha` scales with the effect's intensity; a
+ * motion program's values are final.
  */
 export const ELEMENT_FX_MOTION_CHANNELS = [
 	'x',
@@ -1274,7 +1284,19 @@ export interface CustomElementFxMotion {
 	channels: Partial<Readonly<Record<ElementFxMotionChannel, ElementFxCurve>>>;
 	/** The point scale and rotation turn about, as a share of the element's box. Unset ⇒ centre. */
 	pivot?: { x: number; y: number };
+	/**
+	 * The effect's motion graph, compiled: run each frame, it drives the channels it names (each
+	 * overriding its curve) and the effect's padding. Its values are final: no intensity scaling.
+	 */
+	program?: CustomElementFxMotionProgram;
 }
+
+/** What a motion program may drive: a channel, or the room the graph draws outside the element. */
+export const ELEMENT_FX_MOTION_OUTPUTS = [...ELEMENT_FX_MOTION_CHANNELS, 'padding'] as const;
+export type ElementFxMotionOutput = (typeof ELEMENT_FX_MOTION_OUTPUTS)[number];
+
+/** A compiled motion graph (`constants-shared/motionLibrary`), as a custom effect carries it. */
+export type CustomElementFxMotionProgram = MotionProgram<ElementFxMotionOutput>;
 
 /**
  * The built-in kinds a custom effect may draw as a pass after its graph: those that are a single
@@ -1311,6 +1333,29 @@ export const CUSTOM_ELEMENT_FX_PASS_LIMIT = 4;
 export const ELEMENT_FX_CURVE_KEY_LIMIT = 32;
 /** Room a custom effect's graph may ask for outside the element, in shares of its larger side. */
 export const CUSTOM_ELEMENT_FX_PADDING_MAX = 2;
+
+const numberMax = (kind: ElementFxKind, id: string): number => {
+	const param = SPECS.get(kind)?.params.find((p) => p.id === id);
+	return param?.kind === 'number' ? param.max : 0;
+};
+
+/**
+ * Room a custom effect's MOTION PROGRAM may ask for on a frame, in shares of the element's larger
+ * side: the most any built-in grows to (`kinds.ts`), at its params' tops and the strongest play.
+ * Melt's drips (1.45 × Drip length), Bounce 3D's lift (0.3 + 0.8 × Lift) and the waves' and the
+ * flag's amplitude, each × strength: 11.6, Melt's. The doc's fixed padding stays within
+ * {@link CUSTOM_ELEMENT_FX_PADDING_MAX}. COST: a pass padded P shares draws up to (1 + 2P)² times
+ * the element's area, about 590 times at this cap (as the built-in Melt does at its strongest).
+ */
+export const CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX = Math.max(
+	1.45 * numberMax('melt', 'length') * ELEMENT_FX_LIMITS.intensity.max,
+	0.3 + 0.8 * numberMax('bounce3D', 'height') * ELEMENT_FX_LIMITS.intensity.max,
+	...(['waveX', 'waveY', 'flag'] as const).map(
+		(kind) => numberMax(kind, 'amplitude') * ELEMENT_FX_LIMITS.intensity.max,
+	),
+);
+/** The ops in a custom effect's motion program, at most. */
+export const CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT = 256;
 
 /** The values each motion channel may take (x / y in element sizes, rotation in degrees). */
 export const ELEMENT_FX_MOTION_RANGES: Readonly<
@@ -1477,6 +1522,63 @@ export function customElementFxMotionIssues(motion: unknown): string[] {
 	return out;
 }
 
+const quoted = (value: unknown): string => {
+	const text = String(value);
+	return JSON.stringify(text.length > 40 ? `${text.slice(0, 40)}…` : text);
+};
+
+/**
+ * Why a custom effect's motion program is malformed, or [] when it is not: 1…256 ops, each one this
+ * version knows with its operands (earlier registers; a finite literal; one of `params` that is a
+ * number, a switch or a choice), and outputs naming known channels or the padding, each a register.
+ * An op a newer Shader Graph added shows here as unknown.
+ */
+export function customElementFxMotionProgramIssues(
+	program: unknown,
+	params: ReadonlyMap<string, ElementFxParamSpec>,
+): string[] {
+	if (!isRecord(program) || !Array.isArray(program.ops)) return ['a program has an ops list'];
+	const { ops, outputs } = program;
+	if (!ops.length || ops.length > CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT) {
+		return [`a program has 1…${CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT} ops`];
+	}
+	const out: string[] = [];
+	ops.forEach((op: unknown, i) => {
+		const at = `op ${i + 1}`;
+		if (!Array.isArray(op) || typeof op[0] !== 'string') return void out.push(`${at} is not an op`);
+		const [name, ...operands] = op as [string, ...unknown[]];
+		if ((MOTION_INPUTS as readonly string[]).includes(name)) {
+			if (operands.length) out.push(`${at}: ${name} takes nothing`);
+		} else if (name === 'const') {
+			if (operands.length !== 1 || !finite(operands[0])) out.push(`${at}: a const is one number`);
+		} else if (name === 'param') {
+			const spec = typeof operands[0] === 'string' ? params.get(operands[0]) : undefined;
+			if (operands.length !== 1 || !spec || spec.kind === 'color') {
+				out.push(`${at}: ${quoted(operands[0])} is not a number, switch or choice param`);
+			}
+		} else if (!isMotionOpName(name)) {
+			out.push(`${at}: ${quoted(name)} is not an op this version knows`);
+		} else if (
+			operands.length !== MOTION_OPS[name].arity ||
+			!operands.every((r) => Number.isInteger(r) && (r as number) >= 0 && (r as number) < i)
+		) {
+			out.push(`${at}: ${name} takes ${MOTION_OPS[name].arity} earlier results`);
+		}
+	});
+	const driven = Object.entries(isRecord(outputs) ? outputs : {});
+	const isResult = (r: unknown): boolean =>
+		Number.isInteger(r) && (r as number) >= 0 && (r as number) < ops.length;
+	if (
+		!driven.length ||
+		!driven.every(
+			([key, r]) => (ELEMENT_FX_MOTION_OUTPUTS as readonly string[]).includes(key) && isResult(r),
+		)
+	) {
+		out.push(`a program's outputs name ${ELEMENT_FX_MOTION_OUTPUTS.join(', ')}, each a result`);
+	}
+	return out;
+}
+
 const UNIFORM_TYPES: readonly unknown[] = ['float', 'vec2', 'vec3', 'vec4'];
 const GLSL_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 
@@ -1484,6 +1586,8 @@ const GLSL_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
  * A custom effect as the registry takes it, or `undefined` when it cannot play: a plain copy, every
  * part checked (its spec and params, its shader's body and uniforms, its padding, passes and
  * motion), so a malformed effect from storage or a bundle is dropped rather than failing mid-play.
+ * A motion program that does not read ({@link customElementFxMotionProgramIssues}) is dropped
+ * alone: the effect keeps its pass and plays its curves.
  */
 export function readCustomElementFx(raw: unknown): CustomElementFx | undefined {
 	if (!isRecord(raw) || !isRecord(raw.spec) || !isRecord(raw.shader)) return undefined;
@@ -1543,7 +1647,16 @@ export function readCustomElementFx(raw: unknown): CustomElementFx | undefined {
 	) {
 		return undefined;
 	}
-	return JSON.parse(JSON.stringify(raw)) as CustomElementFx;
+	const effect = JSON.parse(JSON.stringify(raw)) as CustomElementFx;
+	// A program this version cannot run (one using an op a newer Shader Graph added) is dropped and
+	// the effect plays its curves, as a runtime from before motion programs plays it.
+	if (
+		effect.motion?.program !== undefined &&
+		customElementFxMotionProgramIssues(effect.motion.program, params).length
+	) {
+		delete (effect.motion as { program?: unknown }).program;
+	}
+	return effect;
 }
 
 const CUSTOM = new Map<string, CustomElementFx>();
@@ -1655,13 +1768,6 @@ export interface ElementFxEntry {
 	/** Off in the editor without deleting it: never plays. */
 	disabled?: boolean;
 }
-
-export const ELEMENT_FX_LIMITS = {
-	durationMs: { min: 50, max: 20_000 },
-	delayMs: { min: 0, max: 20_000 },
-	intensity: { min: 0, max: 4 },
-	repeat: { min: 0, max: 100 },
-} as const;
 
 /**
  * The timeline channels that pose a `keyed` entry — `engine-cinematic`'s `ELEMENT_FX_CHANNEL_PREFIX`

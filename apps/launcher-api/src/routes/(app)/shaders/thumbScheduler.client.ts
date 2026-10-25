@@ -23,9 +23,11 @@ import type { PreviewBackground } from './shaderPreview.client';
 import {
 	THUMB_LIVE_CAP,
 	liveThumbs,
+	motionCurves,
 	probeDoc,
 	probeKeys,
 	type GraphScope,
+	type MotionCurve,
 	type ThumbSpot,
 } from './shaderEditor';
 import {
@@ -403,5 +405,48 @@ export class ThumbScheduler {
 			this.stop();
 			this.schedule();
 		}
+	}
+}
+
+/** Each motion node's curve by its id; null when it cannot be worked out (something it reads is
+ *  broken). */
+export type MotionCurves = ReadonlyMap<string, MotionCurve | null>;
+
+export const NO_CURVES: MotionCurves = new Map();
+
+/**
+ * When the motion graph's node curves are worked out (design §8 step 8a): another effect's at once,
+ * an edit's after {@link EDIT_DEBOUNCE_MS} of quiet as thumbnails wait. Every curve comes from one
+ * pass over the graph (`motionCurves`), a series of the program the game runs.
+ */
+export class CurveScheduler {
+	/** The doc last asked for, and the one the curves show. */
+	private asked: ShaderGraphDoc | null = null;
+	private shown: ShaderGraphDoc | null = null;
+	private timer: ReturnType<typeof setTimeout> | undefined;
+
+	/** `onCurves` hears every new set. */
+	constructor(private readonly onCurves: (curves: MotionCurves) => void) {}
+
+	/** The motion graph as edited, or null while the canvas shows another graph. */
+	update(doc: ShaderGraphDoc | null): void {
+		if (doc === this.asked) return;
+		this.asked = doc;
+		clearTimeout(this.timer);
+		if (doc && this.shown && doc.id === this.shown.id)
+			this.timer = setTimeout(() => this.workOut(doc), EDIT_DEBOUNCE_MS);
+		else this.workOut(doc);
+	}
+
+	destroy(): void {
+		clearTimeout(this.timer);
+		this.asked = null;
+	}
+
+	private workOut(doc: ShaderGraphDoc | null): void {
+		const was = this.shown;
+		this.shown = doc;
+		if (doc) this.onCurves(motionCurves(doc));
+		else if (was) this.onCurves(NO_CURVES);
 	}
 }

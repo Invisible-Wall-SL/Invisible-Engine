@@ -25,7 +25,8 @@
 		"element-fx": "tsx elementFx.ts",
 		"shader-compile": "node shaderCompile.mjs",
 		"shader-parity": "node shaderParity.mjs",
-		"shader-twins": "node shaderTwins.mjs"
+		"shader-twins": "node shaderTwins.mjs",
+		"shader-motion": "node shaderMotion.mjs"
 	},
 	"devDependencies": {
 		"tsx": "4.23.15",

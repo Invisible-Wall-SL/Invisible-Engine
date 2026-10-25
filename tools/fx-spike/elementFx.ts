@@ -30,6 +30,14 @@
  *     keeps it; one that reads none draws none. The registry leaves out an effect whose pass calls
  *     an `efx…` function this version's library and pass header lack (one compiled by a newer
  *     Shader Graph), or reads two seeds; `EFX_HEADER_FUNCTIONS` is what the header declares.
+ *  8. Motion programs (Shader Graph step 8a): the twins' motion graphs move and pad as the built-ins'
+ *     own samplers do over every param, size, strength and play — the freeze shiver, petrify thud
+ *     and gold ring timed by Hold, the electrocute jitter of the seconds played, the poison sway
+ *     counted or looping, the Bounce 3D squash by its Bounces param, and the room of Bounce 3D,
+ *     Melt, the waves and the flag growing with a param × strength (× progress), to the top.
+ *     The runtime: a driven channel overrides its curve at its final value, kept to its range; the
+ *     padding is per frame; the program reads the seed the graph's pass reads, one per element; a
+ *     program this version cannot run is dropped and the effect plays its curves.
  */
 
 import { readFileSync } from 'node:fs';
@@ -49,6 +57,7 @@ import {
 	Ticker,
 } from 'pixi.js';
 import {
+	CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX,
 	ELEMENT_FX,
 	ELEMENT_FX_CHANNEL_PREFIX,
 	ELEMENT_FX_KINDS,
@@ -71,11 +80,15 @@ import {
 	setCustomElementFx,
 	type CustomElementFx,
 	type ElementFxKind,
+	type ElementFxMotionOutput,
 } from '../../packages/constants-shared/elementFx';
 import {
 	BUILTIN_TWINS,
 	REFERENCE_GRAPHS,
 	compileShaderEffect,
+	type GraphNode,
+	type GraphWire,
+	type ShaderGraphDoc,
 } from '../../packages/engine-shadergraph/index';
 import { stateFxGate } from '../../apps/lines/src/game/stateFxGate';
 import {
@@ -99,6 +112,7 @@ import {
 import * as SHADERS from '../../packages/pixi-svelte/src/lib/elementFx/shaders';
 import type { ElementFxFilter } from '../../packages/pixi-svelte/src/lib/elementFx/shaders';
 import { KINDS } from '../../packages/pixi-svelte/src/lib/elementFx/kinds';
+import { customKindImpl } from '../../packages/pixi-svelte/src/lib/elementFx/custom';
 import { REST, type FxFrame } from '../../packages/pixi-svelte/src/lib/elementFx/frame';
 import {
 	elementFxCount,
@@ -1969,6 +1983,315 @@ console.log('element fx — custom effects (Shader Graph)');
 				!play.active &&
 				shipped.every((r) => r.ok && !!readCustomElementFx(r.effect)),
 			'the registry leaves out an effect calling an efx… function neither the library nor the pass header has (it plays nothing), and one with two seeds; every reference graph and twin reads',
+		);
+		setCustomElementFx([]);
+	}
+}
+
+// -------------------------------------------------------------------------------------------------
+console.log('element fx — motion programs (Shader Graph motion graph)');
+{
+	type Ref = readonly [string, string];
+	type In = Ref | number;
+	/** A motion graph written as expressions: each call adds a node and returns its output. */
+	const motionGraph = () => {
+		const nodes: GraphNode[] = [];
+		const wires: GraphWire[] = [];
+		const add = (type: string, inputs: Record<string, In> = {}, values = {}): string => {
+			const id = `n${nodes.length}`;
+			const own: Record<string, number | string> = { ...values };
+			for (const [port, v] of Object.entries(inputs)) {
+				if (typeof v === 'number') own[port] = v;
+				else wires.push({ from: { node: v[0], port: v[1] }, to: { node: id, port } });
+			}
+			nodes.push({ id, type, x: 0, y: 0, ...(Object.keys(own).length ? { values: own } : {}) });
+			return id;
+		};
+		const f = (type: string, inputs: Record<string, In> = {}, values = {}): Ref => [
+			add(type, inputs, values),
+			'out',
+		];
+		const time = add('time');
+		const shape = add('shape');
+		return {
+			f,
+			add,
+			t: [time, 'progress'] as Ref,
+			seconds: [time, 'seconds'] as Ref,
+			intensity: [time, 'intensity'] as Ref,
+			looping: [time, 'looping'] as Ref,
+			width: [shape, 'width'] as Ref,
+			height: [shape, 'height'] as Ref,
+			param: (id: string): Ref => f('param', {}, { param: id }),
+			mul: (a: In, b: In): Ref => f('multiply', { a, b }),
+			sin: (x: In): Ref => f('sin', { x }),
+			graph: (outputs: Partial<Record<ElementFxMotionOutput, Ref>>) => {
+				const out = add('motionOutput');
+				for (const [port, from] of Object.entries(outputs))
+					wires.push({ from: { node: from[0], port: from[1] }, to: { node: out, port } });
+				return { nodes, wires };
+			},
+		};
+	};
+	type G = ReturnType<typeof motionGraph>;
+	/** An effect of `kind`'s params, phase and length: the element as it is, moved by `graph`. */
+	const effectOf = (
+		kind: ElementFxKind,
+		graph: (g: G) => ReturnType<G['graph']>,
+		more: Partial<ShaderGraphDoc> = {},
+	): CustomElementFx => {
+		const spec = ELEMENT_FX.find((s) => s.kind === kind) as (typeof ELEMENT_FX)[number];
+		const doc: ShaderGraphDoc = {
+			version: 1,
+			id: `moving-${kind}`,
+			name: spec.label,
+			phase: spec.phase,
+			durationMs: spec.durationMs,
+			params: spec.params.map((p) => ({ ...p })),
+			nodes: [{ id: 'out', type: 'output', x: 0, y: 0 }],
+			wires: [],
+			motionGraph: graph(motionGraph()),
+			...more,
+		};
+		const result = compileShaderEffect(doc);
+		const read = result.ok ? readCustomElementFx(result.effect) : undefined;
+		if (!read?.motion?.program)
+			throw new Error(
+				`${kind}: ${result.ok ? 'not read' : result.issues.map((i) => i.message).join('; ')}`,
+			);
+		return read;
+	};
+	/** What the twins' motion graphs move by, or grow their room with, that a curve could not. */
+	const MOVES: Partial<Record<ElementFxKind, string>> = {
+		freeze:
+			'a shiver at 95 rad/s of the seconds played, when the Hold param says, 1.2% of the shorter side',
+		petrify: 'a thud when the Hold param says',
+		turnToGold: 'a ring when the Hold param says',
+		electrocute:
+			'a jitter up to 25 Hz of the seconds played, sized in the element’s units, full while looping; room only while it bites',
+		poison: 'a sway eased in and out when counted, full while looping',
+		bounce3D:
+			'a squash landing as the Bounces param lands it, no harder past strength 1.5; room growing with Lift × strength',
+		melt: 'room growing with Drip length × strength × how far it has melted',
+		waveX: 'room growing with Amplitude × strength',
+		waveY: 'room growing with Amplitude × strength',
+		flag: 'room growing with Amplitude × strength',
+	};
+	const GAPS = Object.entries(MOVES).map(([kind, gap]) => {
+		const twin = BUILTIN_TWINS.find((t) => t.kind === kind);
+		const compiled = twin ? compileShaderEffect(twin.doc) : undefined;
+		const effect = compiled?.ok ? readCustomElementFx(compiled.effect) : undefined;
+		if (!effect?.motion?.program) throw new Error(`the ${kind} twin has no motion program`);
+		return { kind: kind as ElementFxKind, gap, effect };
+	});
+	const SIZES = [
+		[100, 120],
+		[200, 80],
+	];
+	const COMPS = ['x', 'y', 'scaleX', 'scaleY', 'rotation', 'alpha', 'pivotX', 'pivotY'] as const;
+	for (const { kind, gap, effect } of GAPS) {
+		const spec = ELEMENT_FX.find((s) => s.kind === kind) as (typeof ELEMENT_FX)[number];
+		const builtIn = KINDS[kind];
+		const ours = customKindImpl(effect);
+		const range = (id: string): unknown[] => {
+			const p = spec.params.find((q) => q.id === id);
+			if (p?.kind !== 'number') return [undefined];
+			return id === 'bounces' ? [1, 2, 3, 4, 5] : [p.min, p.default, p.max];
+		};
+		const swept = spec.params.find((p) =>
+			['hold', 'bounces', 'length', 'amplitude', 'height'].includes(p.id),
+		);
+		let frames = 0;
+		let worst = 0;
+		let rooms = 0;
+		let roomOff = 0;
+		for (const value of swept ? range(swept.id) : [undefined])
+			for (const [width, height] of SIZES)
+				for (const intensity of [0.5, 1, 2, 3, 4])
+					for (const looping of [false, true])
+						for (const loop of [0, 2])
+							for (let i = 0; i <= 64; i++) {
+								const t = i / 64;
+								const playSeconds = spec.durationMs / 1000;
+								const frame: FxFrame = {
+									t,
+									seconds: (loop + t) * playSeconds,
+									playSeconds,
+									intensity,
+									params: resolveElementFxParams(kind, swept ? { [swept.id]: value } : {}),
+									looping,
+									width,
+									height,
+								};
+								const a = { ...REST, ...builtIn.motion?.(frame) };
+								const b = { ...REST, ...ours.motion?.(frame) };
+								for (const c of COMPS) worst = Math.max(worst, Math.abs(a[c] - b[c]));
+								frames++;
+								const view = { screenWidth: width * 1.5, screenHeight: height * 1.5 };
+								const want = builtIn.filter?.padding?.(frame, view);
+								const room = ours.filters?.[0].padding?.(frame, view);
+								if (want === undefined) continue;
+								rooms++;
+								// A room of nothing is 0 px here; a built-in still adds its 2 px margin.
+								roomOff = Math.max(
+									roomOff,
+									Math.abs(Math.max(0, want - 2) - Math.max(0, (room ?? 0) - 2)),
+								);
+							}
+		assert(
+			worst < 1e-9 && roomOff <= 1,
+			`${kind}: ${gap} — its twin's motion graph moves it as the built-in does over ${frames} frames (every ${swept ? `${swept.id}, ` : ''}size, strength up to 4, counted or looping, first or third play; largest difference ${worst.toExponential(1)})${rooms ? `, its room within ${roomOff} px over ${rooms}` : ''}`,
+		);
+	}
+
+	// The runtime: a driven channel overrides its curve, at its value, kept to its range.
+	const curved = (channels: object, graph: (g: G) => ReturnType<G['graph']>) =>
+		effectOf('glow', graph, { motion: { channels: channels as never } });
+	const over = customKindImpl(
+		curved({ x: [{ t: 0, v: 0.3 }], alpha: [{ t: 0, v: 0.5 }], scaleX: [{ t: 0, v: 2 }] }, (g) =>
+			g.graph({
+				x: g.mul(g.t, 0.1),
+				rotation: g.f('number', {}, { value: 30 }),
+				scale: g.f('number', {}, { value: 1.5 }),
+			}),
+		),
+	);
+	const at = (t: number, intensity = 1): FxFrame => ({
+		t,
+		seconds: t,
+		playSeconds: 1,
+		intensity,
+		params: {},
+		looping: false,
+		width: 100,
+		height: 120,
+	});
+	const m = over.motion?.(at(0.5, 4));
+	assert(
+		!!m &&
+			near(m.x ?? NaN, 0.05 * 100) &&
+			near(m.rotation ?? NaN, (30 * Math.PI) / 180) &&
+			near(m.alpha ?? NaN, 0.5) &&
+			near(m.scaleX ?? NaN, 1.5 * (1 + 4 * (2 - 1))) &&
+			near(m.scaleY ?? NaN, 1.5) &&
+			near(m.y ?? NaN, 0),
+		'a driven channel overrides its curve and is final (strength 4 does not scale it); an undriven one keeps its curve, scaled as before; a driven scale multiplies a curved scale X',
+	);
+	const wild = customKindImpl(
+		curved({}, (g) =>
+			g.graph({
+				x: g.f('number', {}, { value: 50 }),
+				alpha: g.f('number', {}, { value: 3 }),
+				scaleX: g.f('number', {}, { value: -5 }),
+				rotation: g.f('number', {}, { value: 1e6 }),
+				padding: g.f('number', {}, { value: 50 }),
+			}),
+		),
+	);
+	const w = wild.motion?.(at(0.5));
+	assert(
+		!!w &&
+			near(w.x ?? NaN, 10 * 100) &&
+			w.alpha === 1 &&
+			(w.scaleX ?? 0) > 0 &&
+			near(w.rotation ?? NaN, (3600 * Math.PI) / 180) &&
+			wild.filters?.[0].padding?.(at(0.5), { screenWidth: 100, screenHeight: 120 }) ===
+				Math.ceil(CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX * 120) + 2,
+		`a driven value is kept to its channel’s range: x within 10 widths, alpha 0…1, a scale above 0, rotation within 3600°, padding within ${CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX} shares`,
+	);
+	const roomOnly = customKindImpl(curved({}, (g) => g.graph({ padding: g.t })));
+	assert(
+		!roomOnly.motion &&
+			roomOnly.filters?.[0].padding?.(at(0), { screenWidth: 100, screenHeight: 100 }) === 0 &&
+			roomOnly.filters?.[0].padding?.(at(0.5), { screenWidth: 100, screenHeight: 100 }) === 52,
+		'a program driving the padding alone writes no transform; its room is per frame, nothing at 0',
+	);
+	{
+		const growing = curved({ alpha: [{ t: 0, v: 0.6 }] }, (g) =>
+			g.graph({ padding: g.mul(g.t, 0.5), y: g.mul(g.t, 0.25) }),
+		);
+		setCustomElementFx([growing]);
+		const { host, advance } = makeHost();
+		const target = makeTarget();
+		const rest = snapshot(target);
+		playElementFx(target, { kind: growing.spec.kind, durationMs: 1000 }, host);
+		advance(250);
+		const early = target.filters?.[0]?.padding ?? 0;
+		const moved = JSON.stringify(snapshot(target)) !== JSON.stringify(rest);
+		advance(500);
+		const late = target.filters?.[0]?.padding ?? 0;
+		advance(400);
+		assert(
+			early > 2 &&
+				late > early &&
+				moved &&
+				JSON.stringify(snapshot(target)) === JSON.stringify(rest),
+			`played, its room grows with the play (${early} px, then ${late} px), it moves, and it ends with every value as it was`,
+		);
+		setCustomElementFx([]);
+	}
+	{
+		// One seed per element, shared by the graph's pass and the program.
+		const seeded = effectOf('glow', (g) => g.graph({ x: g.mul(g.f('seed'), 0.001) }), {
+			nodes: [
+				{ id: 's', type: 'seed', x: 0, y: 0 },
+				{ id: 'f', type: 'fade', x: 0, y: 0 },
+				{ id: 'out', type: 'output', x: 0, y: 0 },
+			],
+			wires: [
+				{ from: { node: 's', port: 'out' }, to: { node: 'f', port: 'amount' } },
+				{ from: { node: 'f', port: 'out' }, to: { node: 'out', port: 'color' } },
+			],
+		});
+		setCustomElementFx([seeded]);
+		const random = Math.random;
+		let draws = 0;
+		Math.random = () => {
+			draws++;
+			return random();
+		};
+		const { host, advance } = makeHost();
+		const a = makeTarget();
+		const b = makeTarget();
+		playElementFx(a, { kind: seeded.spec.kind, durationMs: 400 }, host);
+		playElementFx(b, { kind: seeded.spec.kind, durationMs: 400 }, host);
+		advance(50);
+		Math.random = random;
+		const uSeed = (t: Container) =>
+			(t.filters?.[0] as ElementFxFilter | undefined)?.efx.uSeed as number;
+		const impl = customKindImpl(customElementFx(seeded.spec.kind) as CustomElementFx);
+		const params = {};
+		const frame = { ...at(0.5), params };
+		const filter = impl.filters?.[0].create(frame) as ElementFxFilter;
+		const shared = near(
+			(impl.motion?.(frame).x ?? NaN) / 100,
+			(filter.efx.uSeed as number) * 0.001,
+			1e-12,
+		);
+		assert(
+			draws === 2 && uSeed(a) !== uSeed(b) && shared,
+			'the program reads the element’s seed: the one its graph’s pass reads, drawn once per element (two draws for two elements)',
+		);
+		filter.destroy();
+		stopElementFx(a);
+		stopElementFx(b);
+		setCustomElementFx([]);
+	}
+	{
+		// A program this version cannot run is dropped: the effect plays, on its curves.
+		const good = curved({ x: [{ t: 0, v: 0.2 }] }, (g) => g.graph({ x: g.mul(g.t, 0.5) }));
+		const future = {
+			...good,
+			spec: { ...good.spec, kind: 'custom:fromTheFuture' },
+			motion: { ...good.motion, program: { ops: [['progress'], ['warp', 0]], outputs: { x: 1 } } },
+		};
+		const [registered] = setCustomElementFx([future]);
+		const impl = registered ? customKindImpl(registered) : undefined;
+		assert(
+			!!registered &&
+				registered.motion?.program === undefined &&
+				near(impl?.motion?.(at(0.5)).x ?? NaN, 0.2 * 100),
+			'an effect whose program uses an op this version lacks still plays: its program dropped, its curves move it, as a runtime from before motion programs plays it',
 		);
 		setCustomElementFx([]);
 	}

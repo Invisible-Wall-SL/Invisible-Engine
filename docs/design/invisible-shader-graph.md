@@ -216,8 +216,9 @@ Each step has its own branch, gates and status entry.
    - The gate (`shader-twins`, in `check:all`) plays each built-in and its twin through the runtime
      on WebGL1 and WebGL2, over moments and every param extreme. A cell fails past 0.25% of pixels
      more than 2 steps off, or on any patch; motion is compared as numbers.
-   - What a twin could not rebuild is named, not hidden: motion that follows the seconds played, a
-     param or looping (`motionGap`), and padding that grows with a param. Both are v1 doc limits.
+   - What a twin could not rebuild was named, not hidden: motion that follows the seconds played, a
+     param or looping (`motionGap`), and padding that grows with a param. Both were v1 doc limits,
+     closed in 8a by the motion graph (the gap fields are gone).
    - The twins needed a per-element **seed** (the built-ins draw one per element) and an Output
      **Blend** (Add, for glows brighter than their alpha), and 15 more nodes.
 7. **Editor v2.** Per-node live thumbnails, the cost meter, subgraphs (reusable groups, like the
@@ -239,12 +240,45 @@ Each step has its own branch, gates and status entry.
      graph, which must compile, never replaces a library id without saying so, and keeps what a
      replace or removal replaced. Since every project's set now takes in a real library, Publish
      and the bake embed only the effects a bundle names (step 4's open item).
-8. **Later.**
-   - Break as an output node.
-   - A richer motion graph.
-   - Particle materials for Invisible FX.
-   - Screen transitions and post FX.
-   - The admin-only Custom GLSL node.
+8. **Later**, split (2026-10-25) into five sub-steps, each its own branch and PR, in this order:
+   - **8a. The motion graph.** A second graph in the doc, evaluated on the CPU each frame: float
+     nodes (time, params, seed, the element's aspect, math, the time shapes, oscillators, 1-D
+     noise) into a **Motion Output** (x, y, scale, scale x / y, rotation, alpha and padding).
+     - It compiles to a bounded JSON program the runtime interprets: no code is evaluated, and the
+       op count is capped. Each motion node's JS is held to its GLSL by a gate, so a node means the
+       same thing in both graphs.
+     - A channel the graph drives overrides its curve; curves stay for simple keyframed motion.
+       Padding becomes a value per frame, so room can grow with a param × strength × progress.
+     - It closes every gap the twins name (motion following the seconds played, a param or
+       looping; padding growing with a param), so the parity gate holds their motion and room too.
+     - Editor: a Pixel | Motion switch over the canvas; motion nodes show their value over the
+       play as a curve.
+     - Version skew: an effect with a motion program needs a runtime from 8a on; an older one plays
+       it without that motion (the curves it also carries). The floor goes in `games-deploy.md`.
+     - As built: 39 motion nodes (the pixel library's number nodes, every port a float, plus
+       Element shape and the Motion Output); the program is a flat op list run by
+       `constants-shared/motionLibrary.ts`, capped at 256 ops; a driven channel's value is final and
+       clamped; one seed per element shared with the pixel graph; a program the reader cannot run
+       is dropped (the effect plays its curves), and no curve fallback is generated. The
+       `shader-motion` gate holds each node's JS to its GLSL on WebGL1 and WebGL2. The twins carry
+       motion graphs, so every twin's motion and room match its built-in and `shader-twins`
+       compares them at every case; program padding is capped at 11.6 (the most a built-in asks),
+       the doc's fixed padding at 2.
+   - **8b. Break as an output node.** An effect may end in a **Break Output** naming one of the
+     six break styles and its params (tied to the effect's params like a pass), played by the
+     existing `breakApart.ts` after the graph. Breaks stay coded (§2): the node only chooses and
+     sets one.
+   - **8c. The Custom GLSL node** (admin only, §9.3). A node whose body an author types, with
+     declared typed ports. A `shaderCustomGlsl` capability gates saving or publishing a doc that
+     holds one, checked on the server; the body is checked as the compiler checks generated code
+     (GLSL ES 1.00 only, no loops past a cap, names kept inside the node) and compiled headless on
+     WebGL1 and WebGL2 before it can ship.
+   - **8d. Particle materials for Invisible FX.** A graph as the material an emitter's particles
+     draw with, picked in `/fx`. Needs its own design pass with the `invisible-fx` agent first:
+     per-particle inputs (age, life, colour, index) and the cost of a filter per emitter.
+   - **8e. Screen transitions and post FX.** A graph that reads two screens (from, to) over a
+     transition, and one applied to the whole stage. Needs its own design pass first: where
+     transitions and post FX live in the Scene Editor and the Flow, and their phone budget.
 
 Rough size: steps 1–3 are engine work, roughly one PR each. Steps 4 and 5 are the large ones (the
 editor UI and the ship chain). Steps 6–7 build on top of them.

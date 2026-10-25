@@ -12,7 +12,7 @@ Pixi preview, with a lease and history, #1330) and step 6 (the templates: graph 
 built-ins, held to a parity gate in `check:all`, offered as "Start from a built-in", #1333) and
 step 7 (editor v2: subgraphs, node thumbnails, cost chips, publishing to the studio library,
 #1340) are merged. Step 8 (the plan's "Later") is split into 8a–8e; 8a, the motion graph, is in
-progress on `claude/shader-graph-step8a`.
+review on `claude/shader-graph-step8a`.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -172,9 +172,11 @@ progress on `claude/shader-graph-step8a`.
     Turn to gold; Freeze's shiver also scales by the element's shorter side where the curve is in
     widths). Their pixels are held to parity like every other twin's, and their motion too at the
     defaults on a portrait element, except Poison and Electrocute (`motionGapAtDefaults`).
+    **Closed in 8a:** each twin's motion graph rebuilds it exactly and the gap fields are gone.
   - **Padding gaps.** A graph's padding is one number. The waves and Bounce 3D take the room their
     largest param needs at strength 1. Melt takes its defaults' final room (1.16 heights; the
     built-in grows it with drip length × strength × progress), and names it (`paddingGap`).
+    **Closed in 8a:** the motion graph's padding grows as the built-ins' does (Flag too).
   - **The parity gate** (`pnpm --filter fx-spike shader-twins`, `tools/fx-spike/shaderTwins.mjs`,
     run by `check:all`). Each built-in and its twin play through `playElementFx` with the same card,
     seed and params, on WebGL1 and WebGL2: 8 moments at the defaults and at every number param's
@@ -269,7 +271,54 @@ progress on `claude/shader-graph-step8a`.
     absent when it names none. The bake walks the bundle's values the same way (never a key).
     `deploy/editor-shaders/` still holds the set, and the Publish snapshot copies it, so a game's
     asset base carries the library's compiled effects too; nothing reads them at runtime.
-- **Not started:** step 8 (later).
+- **Step 8** (the plan's "Later", split into 8a–8e in design §8). 8b–8e not started.
+  - **8a, the motion graph.** In review on `claude/shader-graph-step8a`.
+    - **The doc.** `motionGraph` (`{ nodes, wires }`, still version 1): float nodes into one
+      **Motion Output** (x, y, scale, scale x / y, rotation, alpha, padding). 39 motion nodes: the
+      pixel library's number nodes (time, param, number, seed, the math, the time shapes,
+      oscillators, `hash1` / `noise1`, band; every port a float there) plus two motion-only ones,
+      **Element shape** (width, height, aspect) and the Motion Output, which the pixel graph refuses.
+    - **The compiler.** `analyzeShaderMotion` / `compileShaderMotion`, folded into
+      `compileShaderEffect` (a broken motion graph means the effect does not compile;
+      `validateShaderGraph` / `analyzeShaderGraph` stay pixel-only). It emits `motion.program`: a
+      flat op list (frame reads, constants and params once each, unreached ops pruned), capped at
+      256 ops, 256 nodes and 1024 wires; a hostile doc is refused in under 25 ms. No Motion Output,
+      or nothing wired into it, is a warning and no program. A doc without a motion graph compiles
+      byte-identically (624 docs dumped against the base).
+    - **The runtime.** `runMotionProgram` (`constants-shared/motionLibrary.ts`, the CPU twin of
+      `glslLibrary.ts`, with `efxSinPi`, `efxHold`, `efxBounce`… in JS) runs the program each
+      frame; no code is evaluated. A driven channel overrides its curve, its value final and clamped
+      to the channel's range; undriven channels keep their curves. Padding from the program is per
+      frame and overrides the doc's fixed padding. One seed per element per play, shared by the
+      pixel graph's `uSeed` and the program. Effects without a program take the old paths
+      unchanged.
+    - **Fail-safe reader.** A program the reader cannot run (an unknown op, a bad operand, past the
+      cap, a bad outputs map, a colour or missing param) is dropped and the effect kept, playing its
+      curves, as a pre-8a runtime does (the soft floor in `docs/design/games-deploy.md`). No curve
+      fallback is generated: sampled keys would alias a 25 Hz jitter and cannot follow width,
+      seconds, looping or params; an author can key a curve as the fallback.
+    - **The editor.** A **Pixel | Motion** switch in the subgraph bar (`MOTION_SCOPE`, a third
+      `GraphScope`, so every gesture works in Motion); the motion palette; the Motion Output brought
+      by the first motion node (one undo step) and pinned while others exist; **Delete motion
+      graph** (asks; undoable); value-over-the-play curves on motion nodes (`MotionCurve.svelte`,
+      debounced and keyed like the thumbnails); "driven by the motion graph" on curve rows and
+      padding; pixel + motion errors in one count; `ops N/256` in Motion. Subgraphs stay
+      pixel-only. A probe for a pixel thumbnail drops the motion graph, so a broken one never blanks
+      them.
+    - **The twins match their built-ins exactly.** Freeze, Petrify, Turn to gold, Electrocute,
+      Poison and Bounce 3D carry motion graphs for the motion curves could not follow (the seconds
+      played up to 25 Hz, timing moved by Hold, looping vs counted, the Bounces param, the element's
+      shorter side); Melt, Wave X / Y, Flag, Bounce 3D and Electrocute drive their padding per
+      frame. `motionGap`, `motionGapAtDefaults`, `paddingGap` and every place that showed or
+      exempted them are deleted. A twin carries no fallback curve for what its graph drives (on a
+      pre-8a runtime it plays without that motion), but keeps its old fixed padding (Melt 1.16,
+      Bounce 3D 1.1, Electrocute 0.15, the waves and Flag 0.25) as the room a pre-8a runtime gives
+      it; on 8a the program's padding overrides it.
+    - **Program padding** has its own cap, `CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX` = 11.6, the most a
+      built-in asks (Melt: 1.45 × its longest drip × the strongest play); a pass padded that far
+      draws up to about 590× the element's area, as built-in Melt does. The doc's fixed padding
+      stays capped at 2. The analysis warns when a program's padding passes the cap at the params'
+      defaults.
 
 ## Open items / next
 1. **Step 7 follow-ups.**
@@ -285,33 +334,68 @@ progress on `claude/shader-graph-step8a`.
      better in the analysis.
    - `deploy/editor-shaders/` holds the whole set (library included) while the bundle carries only
      the named effects; trimming the deploy tree too needs the export to know the bundle.
-2. **Step 6 follow-ups.**
-   - **Two capabilities v1 lacks**, named by the twins: padding that grows with a param × strength
-     (the waves, Bounce 3D, Melt), and motion curves that read a param or the seconds played (the
-     six motion gaps). Both are doc / runtime changes; the twins carry the gap until then.
+2. **Step 8a follow-ups.**
+   - **Degenerate ranges.** Smoothstep with From = To, and Remap with From min = From max, at the
+     single point x = the edge (0 ÷ 0) give 0 in a motion graph but 0 (smoothstep) and 0.5 (remap)
+     on the GPU. `shader-motion` excludes that one point and prints both; either side of it the two
+     agree. No GLSL was changed for it (that would move existing pixel graphs).
+   - The cost meter does not count padding: a program may ask for up to 11.6 shares of room, a
+     filter area up to about 590× the element's.
+3. **Step 6 follow-ups.**
    - **Built-ins long term** (§9.5): they stay hand-written beside their twins until the gate has
      held for a while; then decide whether to generate them from the twins.
    - The gate takes about a minute of `check:all`, most of it SwiftShader drawing the widest glow.
-3. **Step 5 follow-ups.**
+4. **Step 5 follow-ups.**
    - The preview has no rig still yet (the plan's fourth source).
    - The preview plays the params' defaults; there is no per-preview value yet.
    - The preview uses WebGL2 where there is one (CI's `shader-compile` covers WebGL1), does not
      follow a change of screen pixel ratio, and clips a graph padded to the 2× maximum at its edge.
    - Delete has no lease check: the ✕ on a graph another author has open deletes it (its last
      version is in History), and their next save is then refused as a conflict.
-4. **Step 4 follow-ups.**
+5. **Step 4 follow-ups.**
    - The pickers read the set once per page load; a graph saved in another tab shows after a
      reload.
    - The stored-flow check before Publish's assemble composes the Flow vocab without the custom
      kinds (Publish's own check of the shipped flow has them). An enum value is judged as text, so
      the verdict is the same; an enum-membership check would need them there too.
-5. **Nodes the design lists that v1 does not have yet:** rim (a library entry now, `efxRim`, with
+6. **Nodes the design lists that v1 does not have yet:** rim (a library entry now, `efxRim`, with
    no node) and the pixel input. Add them when an artist needs one.
 
 ## Blocked (owner / external)
 - None.
 
 ## Recent changes
+- 2026-10-25 — **Step 8a: the motion graph** (see "Current state"). Step 7 merged (#1340).
+  - **Proof.**
+    - `compile.fixture.ts` 149: the motion graph's compile, analysis and every error, the program
+      and its caps, hostile docs refused in under 25 ms with a bounded heap, malformed params never
+      throwing (and a 400-doc fuzz of malformed docs through the motion path), byte-identity without
+      a motion graph (624 docs dumped against the base), every twin's program read by the registry,
+      no twin id shared across the two graphs.
+    - `shader-motion` (new, in `check:all`): 53 cases, every motion node's JS against its GLSL on
+      WebGL1 and WebGL2 over 2048 samples, unwired inputs included; hashed nodes compared
+      statistically. Mutation-checked.
+    - `check:element-fx`: the runtime drives channels from a program, overrides curves, clamps,
+      pads per frame and drops a program it cannot run; each twin's motion matches its built-in's
+      own sampler to 8.9e-16 up to strength 4.
+    - `shader-twins` 30/30: every twin's motion 0.000 px off at every case and its room 0 px apart
+      (now compared as numbers); mutation-checked (Gold's ring, Melt's and Bounce 3D's padding).
+    - `check:shader-editor` 183 (the Motion scope and every gesture in it, the Output pinning,
+      float-only wires, delete-the-motion-graph, driven-channel notes, curves from one pass, ids
+      unique across the graphs); `check:shader-pipeline` 115 (a doc the compiler throws on is that
+      doc's error, never the set's).
+    - The page played headless: 41/41 editable and 14/14 read-only (switch to Motion, add and wire,
+      curves, the preview turning, an error counted in both views, undo, delete with a confirm).
+    - `check:all` 538/538; svelte-check at baseline (launcher 45, pixi-svelte 14).
+  - **Review.** An independent review found one blocking item: a doc with a malformed param and a
+    motion graph driving padding made the compiler throw, and since the server compiled the set
+    with no per-doc guard, one such doc failed the effects listing, the export, the bake and
+    Publish for its whole project. Fixed at the source (the motion path only reads well-formed
+    params) and on the server (`compileStored` turns a compile that throws into that doc's error).
+    Also fixed: curves cached as unworkable stayed hatched after an unrelated fix; curves cost a
+    full compile per node (a 250-node chain 923 ms → 30 ms, one pass); node ids could repeat across
+    the two graphs; the gate never exercised unwired inputs or `pow` below 0; the twins had dropped
+    their fixed padding, which older runtimes still use.
 - 2026-10-25 — **Step 7: editor v2** (see "Current state"). Merged (#1340): CI green,
   Current games 12 pass with no changed screen.
   - **Proof.**

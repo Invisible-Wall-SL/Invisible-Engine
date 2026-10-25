@@ -44,10 +44,22 @@ export interface ShaderGraphDoc {
 	/** The element's own motion over the play: a curve per channel. */
 	motion?: CustomElementFxMotion;
 	/**
+	 * The motion graph: float nodes evaluated on the CPU each frame into one Motion Output, whose
+	 * wired inputs drive the element's transform channels (each overriding its curve) and the
+	 * padding. Absent or empty: the effect has none.
+	 */
+	motionGraph?: ShaderMotionGraph;
+	/**
 	 * Reusable groups of nodes, defined once and called by a `subgraph` node as often as the effect
 	 * likes (in its graph or in another subgraph's body). The compiler inlines every call.
 	 */
 	subgraphs?: ShaderSubgraph[];
+}
+
+/** A doc's motion graph: nodes and wires as the pixel graph's, its ports all floats. */
+export interface ShaderMotionGraph {
+	nodes: GraphNode[];
+	wires: GraphWire[];
 }
 
 /** One of a subgraph's inputs or outputs: a port on every node that calls it. */
@@ -100,6 +112,8 @@ export interface GraphIssue {
 	message: string;
 	node?: string;
 	port?: string;
+	/** Set on an issue in the motion graph: its `node` is one of the motion graph's. */
+	graph?: 'motion';
 }
 
 export type GraphIssueCode =

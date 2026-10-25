@@ -127,19 +127,32 @@ export async function listShaders(clientKey: string, projectKey: string): Promis
 const errorText = (issue: GraphIssue): string =>
 	issue.node ? `${issue.node}: ${issue.message}` : issue.message;
 
+/**
+ * `compileShaderEffect`, its errors as text. A compile that throws is a compiler bug a stored doc
+ * found: it answers as this doc's error, so one doc never fails a project's whole set.
+ */
+function compileStored(
+	doc: ShaderGraphDoc,
+): { ok: true; effect: CustomElementFx } | { ok: false; errors: string[] } {
+	try {
+		const result = compileShaderEffect(doc);
+		return result.ok
+			? result
+			: { ok: false, errors: result.issues.filter((i) => i.level === 'error').map(errorText) };
+	} catch (e) {
+		console.error(`[shaders] compiling "${doc.id}" threw`, e);
+		return { ok: false, errors: ['The compiler failed on this graph.'] };
+	}
+}
+
 /** Compile every doc: what plays as `custom:<id>`, and what did not compile and why. */
 export function compileShaderSet(docs: readonly ShaderGraphDoc[]): CompiledShaderSet {
 	const effects: CustomElementFx[] = [];
 	const skipped: ShaderSkip[] = [];
 	for (const doc of docs) {
-		const result = compileShaderEffect(doc);
+		const result = compileStored(doc);
 		if (result.ok) effects.push(result.effect);
-		else
-			skipped.push({
-				id: doc.id,
-				name: doc.name || doc.id,
-				errors: result.issues.filter((i) => i.level === 'error').map(errorText),
-			});
+		else skipped.push({ id: doc.id, name: doc.name || doc.id, errors: result.errors });
 	}
 	return { effects, skipped };
 }
@@ -269,13 +282,8 @@ export async function publishShader(
 	const id = shaderSlug(rawId);
 	const { doc, exists } = await loadShader(clientKey, projectKey, id);
 	if (!exists) throw new ShaderNotFoundError(id);
-	const compiled = compileShaderEffect(doc);
-	if (!compiled.ok) {
-		throw new ShaderDoesNotCompileError(
-			id,
-			compiled.issues.filter((i) => i.level === 'error').map(errorText),
-		);
-	}
+	const compiled = compileStored(doc);
+	if (!compiled.ok) throw new ShaderDoesNotCompileError(id, compiled.errors);
 	const text = JSON.stringify(doc, null, '\t');
 	const bytes = Buffer.byteLength(text);
 	if (bytes > SHADER_DOC_MAX_BYTES) throw new ShaderTooLargeError(bytes);
