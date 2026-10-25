@@ -368,11 +368,11 @@ await test("pins ship as the bake's `resolveReferencedDefs` does: a satisfied pi
 	);
 	assert.deepEqual(
 		made.head.componentVersions,
-		[olderReadout],
-		"the branch's counter is not at the pinned version and a built-in keeps no other, so that pin ships nothing: it draws the latest either way",
+		[head.freeSpinCounter, olderReadout],
+		"the branch's counter is not at the pinned version, so the pin ships the built-in, at any version (pins in doc order)",
 	);
-	assert.equal(made.meta.versionsChanged, false);
-	assert.equal(made.meta.affected, true, 'the counter itself moved on the branch');
+	assert.equal(made.meta.versionsChanged, true);
+	assert.equal(made.meta.affected, true);
 	// A snapshot's shipped versions the doc no longer pins are not re-shipped, as the bake would not.
 	const unpinned = snapshot();
 	unpinned.componentVersions = [olderReadout];
