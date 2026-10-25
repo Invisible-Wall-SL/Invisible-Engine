@@ -43,8 +43,9 @@ shader and plays as the Element FX kind **`custom:<id>`**, next to the 50 built-
 - **Middle: the canvas.** A status bar on top, then the subgraph bar, then the graph. The status
   bar shows the effect's name, its kind (`custom:<id>`), then either **Compiles** or **N errors —
   not playable until fixed**, the cost meter **cost X/400 · reads Y/16** with its two bars, and the
-  **Thumbnails** switch. The subgraph bar shows
-  where the canvas is (**Effect › Subgraph…**) and the **Group** / **Open** / **Ungroup** buttons.
+  **Thumbnails** switch. The subgraph bar holds
+  the **Pixel | Motion** switch, where the canvas is (**Effect › Subgraph…**) and the **Group** /
+  **Open** / **Ungroup** buttons.
 - **Right: preview and properties.** The live preview, then the selected node's properties (when a
   node is selected), then the effect's own settings (always).
 
@@ -243,6 +244,45 @@ effect ("Rim light", "Wobble") and reuse it, like a function in the Flow.
 
 A subgraph belongs to its effect. To use the same group in another effect, rebuild it there.
 
+### The motion graph (Pixel | Motion)
+
+The **Pixel | Motion** switch at the left of the subgraph bar flips the canvas between two graphs.
+**Pixel** is the graph described so far: what the element looks like at each pixel. **Motion** is a
+second, smaller graph of plain numbers, worked out once per frame, that **moves the element and
+sets its room**. Use it when a motion curve is not enough: motion that follows the seconds played
+(a fast jitter), a param (a sway as wide as the Amount param), the entry's Strength, looping, a
+random number per element, or room that grows as the effect plays.
+
+- **Start one.** An effect with no motion graph shows "No motion graph yet…". Add any node from the
+  palette and the **Motion Output** comes with it.
+- **The palette** has the number nodes only: Time (Progress, Seconds, Strength, Looping), Param,
+  Number, Seed, **Element shape** (Width, Height, Aspect), the Math nodes, the Time shapes (Bell,
+  Swell, Hold, Pulse, Flicker, Loop envelope, Bounce, Oscillate…), Random number, Line noise and
+  Band. They mean what they mean in the pixel graph, for one number. Wires join numbers only.
+- **The Motion Output's inputs:** **X** (in element widths), **Y** (in heights), **Scale**, **Scale
+  X**, **Scale Y**, **Rotation** (degrees), **Alpha** and **Padding** (room past the edge, as a share
+  of the element's larger side).
+  - A wired input **drives** that channel every frame and overrides its curve in the effect
+    settings, whose row then reads **driven by the motion graph**.
+  - Unwired, the input shows what plays instead: its curve, rest, or the effect's padding.
+  - **The values are final.** Strength does not scale them unless you wire Time's Strength in.
+    Oscillate alone swings ±1, so a Multiply after it (×15 on Rotation) makes a visible sway.
+  - The channels keep their ranges: alpha 0…1, scale above 0.
+- **Curves on the nodes.** Each motion node draws its value over one play (params at their
+  defaults), with its lowest and highest value under it and a line and dot at the preview's `t`.
+  Hatched means it cannot be worked out yet. Number, Param, Seed and Element shape draw none. The
+  **Thumbnails** switch hides the curves too.
+- **Errors** show on the node and count in the status bar's "N errors" whichever graph is shown; the
+  Motion switch shows the count, or a dot while the graph drives something. In Motion the status
+  bar shows **ops N/256**, the size of the compiled program.
+- **Delete.** The Output cannot be deleted while other motion nodes are there. **Delete motion
+  graph** in the bar removes it all after asking; Undo brings it back.
+- **No subgraphs in Motion.** Group, Open and Ungroup are greyed out there.
+
+The preview plays the motion as the game will. A game whose runtime predates this release plays the
+effect without the motion graph's motion (its curves still play), so for a must-have motion on old
+games, key it as a curve too.
+
 ### Edit a node (properties)
 
 Click a node. Its properties open on the right, under the preview:
@@ -342,6 +382,8 @@ uses the effect (in the Scene Editor, the Component Editor and Symbols), like a 
 - **Pivot** (x and y, 0…1, centre 0.5) is the point that scale and rotation turn about. It appears
   once a channel is on.
 - Every channel but alpha grows with the entry's intensity.
+- A channel the motion graph drives reads **driven by the motion graph**, its keys dimmed: the curve
+  does nothing while the graph drives it. The same goes for **Padding**.
 
 ### The preview
 
@@ -541,6 +583,10 @@ Click **✕** next to an effect and confirm. If it was open, the canvas empties.
   need the `shaderPublish` capability, `shaderScope.ts`), and `shaderExport.ts` (Publish and the
   bake, into `deploy/editor-shaders/`; a bundle embeds only the effects it names,
   `namedShaderEffects`).
+- **The motion graph:** `motionGraph` in the doc; `analyzeShaderMotion` / `compileShaderMotion`
+  (`compile.ts`) compile it to `motion.program`, a capped op list the runtime runs each frame
+  through `packages/constants-shared/motionLibrary.ts` (`runMotionProgram`, the CPU twin of
+  `glslLibrary.ts`). `pnpm --filter fx-spike shader-motion` holds each motion node's JS to its GLSL.
 - **The twins:** `packages/engine-shadergraph/src/twins.ts` (`BUILTIN_TWINS`) and `src/twins/`;
   `pnpm --filter fx-spike shader-twins` holds each to its built-in (in `check:all`).
 - **Gates:** `pnpm --filter launcher-api check:shader-editor` and `check:shader-pipeline`.

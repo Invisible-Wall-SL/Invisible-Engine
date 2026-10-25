@@ -268,8 +268,41 @@ library) is in review on `claude/shader-graph-step7`.
     absent when it names none. The bake walks the bundle's values the same way (never a key).
     `deploy/editor-shaders/` still holds the set, and the Publish snapshot copies it, so a game's
     asset base carries the library's compiled effects too; nothing reads them at runtime.
-- **Step 8** (the plan's "Later", split into 8a–8e in design §8). **8a, the motion graph**, in
-  progress on `claude/shader-graph-step8a` (built on step 7's branch). 8b–8e not started.
+- **Step 8** (the plan's "Later", split into 8a–8e in design §8). 8b–8e not started.
+  - **8a, the motion graph.** In progress on `claude/shader-graph-step8a` (built on step 7's
+    branch).
+    - **The doc.** `motionGraph` (`{ nodes, wires }`, still version 1): float nodes into one
+      **Motion Output** (x, y, scale, scale x / y, rotation, alpha, padding). 39 motion nodes: the
+      pixel library's number nodes (time, param, number, seed, the math, the time shapes,
+      oscillators, `hash1` / `noise1`, band; every port a float there) plus two motion-only ones,
+      **Element shape** (width, height, aspect) and the Motion Output, which the pixel graph refuses.
+    - **The compiler.** `analyzeShaderMotion` / `compileShaderMotion`, folded into
+      `compileShaderEffect` (a broken motion graph means the effect does not compile;
+      `validateShaderGraph` / `analyzeShaderGraph` stay pixel-only). It emits `motion.program`: a
+      flat op list (frame reads, constants and params once each, unreached ops pruned), capped at
+      256 ops, 256 nodes and 1024 wires; a hostile doc is refused in under 25 ms. No Motion Output,
+      or nothing wired into it, is a warning and no program. A doc without a motion graph compiles
+      byte-identically (624 docs dumped against the base).
+    - **The runtime.** `runMotionProgram` (`constants-shared/motionLibrary.ts`, the CPU twin of
+      `glslLibrary.ts`, with `efxSinPi`, `efxHold`, `efxBounce`… in JS) runs the program each
+      frame; no code is evaluated. A driven channel overrides its curve, its value final and clamped
+      to the channel's range; undriven channels keep their curves. Padding from the program is per
+      frame and overrides the doc's fixed padding. One seed per element per play, shared by the
+      pixel graph's `uSeed` and the program. Effects without a program take the old paths
+      unchanged.
+    - **Fail-safe reader.** A program the reader cannot run (an unknown op, a bad operand, past the
+      cap, a bad outputs map, a colour or missing param) is dropped and the effect kept, playing its
+      curves, as a pre-8a runtime does (the soft floor in `docs/design/games-deploy.md`). No curve
+      fallback is generated: sampled keys would alias a 25 Hz jitter and cannot follow width,
+      seconds, looping or params; an author can key a curve as the fallback.
+    - **The editor.** A **Pixel | Motion** switch in the subgraph bar (`MOTION_SCOPE`, a third
+      `GraphScope`, so every gesture works in Motion); the motion palette; the Motion Output brought
+      by the first motion node (one undo step) and pinned while others exist; **Delete motion
+      graph** (asks; undoable); value-over-the-play curves on motion nodes (`MotionCurve.svelte`,
+      debounced and keyed like the thumbnails); "driven by the motion graph" on curve rows and
+      padding; pixel + motion errors in one count; `ops N/256` in Motion. Subgraphs stay
+      pixel-only. A probe for a pixel thumbnail drops the motion graph, so a broken one never blanks
+      them.
 
 ## Open items / next
 1. **Step 7 follow-ups.**

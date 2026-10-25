@@ -254,6 +254,12 @@ Each step has its own branch, gates and status entry.
        play as a curve.
      - Version skew: an effect with a motion program needs a runtime from 8a on; an older one plays
        it without that motion (the curves it also carries). The floor goes in `games-deploy.md`.
+     - As built: 39 motion nodes (the pixel library's number nodes, every port a float, plus
+       Element shape and the Motion Output); the program is a flat op list run by
+       `constants-shared/motionLibrary.ts`, capped at 256 ops; a driven channel's value is final and
+       clamped; one seed per element shared with the pixel graph; a program the reader cannot run
+       is dropped (the effect plays its curves), and no curve fallback is generated. The
+       `shader-motion` gate holds each node's JS to its GLSL on WebGL1 and WebGL2.
    - **8b. Break as an output node.** An effect may end in a **Break Output** naming one of the
      six break styles and its params (tied to the effect's params like a pass), played by the
      existing `breakApart.ts` after the graph. Breaks stay coded (§2): the node only chooses and
