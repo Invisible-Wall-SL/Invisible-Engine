@@ -12,9 +12,8 @@ Pixi preview, with a lease and history, #1330) and step 6 (the templates: graph 
 built-ins, held to a parity gate in `check:all`, offered as "Start from a built-in", #1333) and
 step 7 (editor v2: subgraphs, node thumbnails, cost chips, publishing to the studio library,
 #1340) are merged. Step 8 (the plan's "Later") is split into 8a–8e; 8a, the motion graph, is
-merged (#1342), and 8b, Break as an output node (#1347). 8c, the admin-only Custom GLSL node, is
-in review on `claude/shader-graph-step8c`; 8d (particle materials) is designed and awaits the
-owner's decisions.
+merged (#1342), and so are 8b, Break as an output node (#1347), and 8c, the admin-only Custom
+GLSL node (#1349). 8d (particle materials) is designed and awaits the owner's decisions.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -276,7 +275,7 @@ owner's decisions.
 - **Step 8** (the plan's "Later", split into 8a–8e in design §8). 8d designed
   (`docs/design/shader-graph-particles.md`, on `claude/shader-graph-step8d`), awaiting the owner's
   decisions; 8e not started.
-  - **8c, the Custom GLSL node.** In review on `claude/shader-graph-step8c`.
+  - **8c, the Custom GLSL node.** Merged (#1349, 2026-10-25).
     - **The node** (`packages/engine-shadergraph/src/customGlsl.ts`). `customGlsl`, pixel graph and
       subgraph bodies: `glsl: { code, inputs, outputs }`, ports with the subgraph port rules
       (`src/ports.ts`), default a vec4 `color` passed through. `customGlslIssues` is a typed
@@ -450,7 +449,8 @@ owner's decisions.
 - None.
 
 ## Recent changes
-- 2026-10-25 — **Step 8c: the Custom GLSL node** (see "Current state"). Step 8b merged (#1347).
+- 2026-10-25 — **Step 8c: the Custom GLSL node** (see "Current state"). Merged (#1349): CI green,
+  Current games 12 pass with no changed screen. Step 8b merged (#1347).
   - **Proof.** Compile fixture 193 (the checker's every refusal, hostile and fuzzed bodies, the
     integer range, a lone CR, typed cost, codegen, the gate's signature, storage);
     `check:element-fx` (the link fail-safe for built-in and custom passes, a Pixi without the
