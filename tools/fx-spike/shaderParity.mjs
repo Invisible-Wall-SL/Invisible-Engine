@@ -30,7 +30,8 @@ import { pathToFileURL } from 'node:url';
 import { REPO, writeSheets } from './shaderPages.mjs';
 
 const CELL_H = 190;
-const GRAPH_SHEETS = ['graphs', 'custom', 'nodes', 'subgraphs'];
+/** Sheets a checkout from before the page that draws them lacks (`diff` skips them there). */
+const GRAPH_SHEETS = ['graphs', 'custom', 'nodes', 'subgraphs', 'glsl', 'failsafe'];
 
 const arg = (name) => {
 	const i = process.argv.indexOf(`--${name}`);

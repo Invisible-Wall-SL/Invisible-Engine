@@ -13,7 +13,9 @@
  *  - an `any` port follows the node's widest input, so Add adds floats or vectors alike.
  *
  * The GLSL is assembled from the node library's templates, numeric literals and names this file
- * makes (`n3_out`, `uP0`): nothing an author types is copied into it.
+ * makes (`n3_out`, `uP0`): nothing an author types is copied into it, but for a Custom GLSL node's
+ * body and port names (`customGlsl.ts`), checked first and compiled to one function each,
+ * `efxGlsl_<n>`, placed before `main` (identical definitions share one).
  *
  * {@link compileShaderEffect} packs the result with the doc's passes and motion into a
  * `CustomElementFx`, which the runtime registers and plays as the kind `custom:<id>`.
@@ -62,6 +64,14 @@ import {
 	compileBreak,
 } from './break';
 import {
+	CUSTOM_GLSL,
+	CUSTOM_GLSL_EFFECT_COST_MAX,
+	CUSTOM_GLSL_EFFECT_SAMPLES_MAX,
+	customGlslDef,
+	customGlslFunction,
+	customGlslIssues,
+} from './customGlsl';
+import {
 	DIMS,
 	PARAM_TYPE,
 	isMotionOnlyNode,
@@ -72,6 +82,7 @@ import {
 	type MotionEmitContext,
 	type NodeDef,
 } from './nodes';
+import { portDefault } from './ports';
 import {
 	BREAK_IN_SUBGRAPH,
 	SUBGRAPH_IN,
@@ -252,7 +263,9 @@ export function analyzeShaderSubgraph(doc: ShaderGraphDoc, id: string): ShaderGr
 			flat.defs.get(node.id) ??
 			(node.type === SUBGRAPH_IN || node.type === SUBGRAPH_OUT
 				? own[node.type]
-				: shaderNode(node.type)),
+				: node.type === CUSTOM_GLSL
+					? customGlslDef(node)
+					: shaderNode(node.type)),
 		unknown: (type) => (type === BREAK_OUTPUT ? BREAK_IN_SUBGRAPH : undefined),
 		root: {
 			type: SUBGRAPH_OUT,
@@ -404,7 +417,11 @@ function analyze(doc: ShaderGraphDoc, flat?: FlatShaderGraph): Analysis {
 		wires,
 		defOf: (node) =>
 			flat?.defs.get(node.id) ??
-			(node.type === BREAK_OUTPUT ? breakOutputDef(node) : shaderNode(node.type)),
+			(node.type === BREAK_OUTPUT
+				? breakOutputDef(node)
+				: node.type === CUSTOM_GLSL
+					? customGlslDef(node)
+					: shaderNode(node.type)),
 		unknown: (type) =>
 			isMotionOnlyNode(type) ? `${motionNode(type)?.label} belongs in the motion graph` : undefined,
 		root: {
@@ -428,6 +445,21 @@ function analyze(doc: ShaderGraphDoc, flat?: FlatShaderGraph): Analysis {
 			nodes.find((n) => n?.type === BREAK_OUTPUT)?.id,
 		);
 	if (!walked) return result;
+	const custom = result.order.filter((n) => n.type === CUSTOM_GLSL).map(customGlslDef);
+	if (custom.length) {
+		const cost = custom.reduce((sum, def) => sum + def.cost, 0);
+		const reads = custom.reduce((sum, def) => sum + (def.samples ?? 0), 0);
+		if (cost > CUSTOM_GLSL_EFFECT_COST_MAX)
+			error(
+				'glsl',
+				`the Custom GLSL nodes do about ${cost} units of work a pixel together, more than the ${CUSTOM_GLSL_EFFECT_COST_MAX} an effect may`,
+			);
+		if (reads > CUSTOM_GLSL_EFFECT_SAMPLES_MAX)
+			error(
+				'glsl',
+				`the Custom GLSL nodes read the element ${reads} times a pixel together, more than the ${CUSTOM_GLSL_EFFECT_SAMPLES_MAX} an effect may`,
+			);
+	}
 	if (result.cost > COST_BUDGET)
 		issues.push({
 			level: 'warning',
@@ -507,6 +539,10 @@ function walk(
 			}
 		}
 	}
+
+	// A Custom GLSL node's code and ports.
+	for (const [id, def] of defs)
+		if (def.type === CUSTOM_GLSL) issues.push(...customGlslIssues(nodes.get(id) as GraphNode));
 
 	// Wires: real ports at both ends, each input fed once.
 	for (const wire of graph.wires) {
@@ -692,6 +728,9 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
 	const usedParams = new Set<string>();
 	const lines: string[] = [];
 	const names = new Map<string, Record<string, string>>();
+	/** The Custom GLSL nodes' functions, in order, and each one's number by its text. */
+	const functions: string[] = [];
+	const numbered = new Map<string, number>();
 	let finalColor = '';
 	let addsLight = false;
 
@@ -754,6 +793,40 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
 				return name;
 			},
 		};
+		if (def.type === CUSTOM_GLSL) {
+			const { params, lines: code } = customGlslFunction(node);
+			const text = [
+				`(${params.map((p) => `${p.mode === 'in' ? '' : `${p.mode} `}${p.port.type} ${p.port.id}`).join(', ')})`,
+				'{',
+				...params
+					.filter((p) => p.mode === 'out')
+					.map((p) => {
+						const value = portDefault(p.port);
+						return `    ${p.port.id} = ${literal(typeof value === 'number' ? [value] : value, p.port.type)};`;
+					}),
+				...code.map((line) => `    ${line}`),
+				'}',
+			].join('\n');
+			let n = numbered.get(text);
+			if (n === undefined) {
+				n = functions.length;
+				numbered.set(text, n);
+				functions.push(`void efxGlsl_${n}${text}`);
+			}
+			const nodeNames: Record<string, string> = {};
+			const args = params.map((p) => {
+				if (p.mode === 'in') return inputs[p.port.id];
+				const name = `n${k}_o${def.outputs.findIndex((o) => o.id === p.port.id)}`;
+				lines.push(
+					`    ${p.port.type} ${name}${p.mode === 'inout' ? ` = ${inputs[p.port.id]}` : ''};`,
+				);
+				nodeNames[p.port.id] = name;
+				return name;
+			});
+			lines.push(`    efxGlsl_${n}(${args.join(', ')});`);
+			names.set(node.id, nodeNames);
+			return;
+		}
 		const emitted = def.emit(ctx);
 		if (def.type === 'output') {
 			finalColor = inputs.color;
@@ -787,6 +860,7 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
 	const body = [
 		...uniforms.map((u) => `uniform ${u.type} ${u.name};`),
 		'',
+		...functions.flatMap((f) => [f, '']),
 		'void main(void)',
 		'{',
 		'    vec2 px = efxPx();',
@@ -916,6 +990,7 @@ const MOTION_ROOT = {
 const motionUnknown = (type: string): string => {
 	if (type === 'subgraph') return 'a subgraph cannot be called from the motion graph';
 	if (type === BREAK_OUTPUT) return 'the Break Output belongs in the pixel graph';
+	if (type === CUSTOM_GLSL) return 'Custom GLSL works per pixel: the motion graph cannot run it';
 	const pixel = shaderNode(type);
 	if (!pixel) return `"${type.length > 40 ? `${type.slice(0, 40)}…` : type}" is not a node`;
 	return pixel.category === 'output'

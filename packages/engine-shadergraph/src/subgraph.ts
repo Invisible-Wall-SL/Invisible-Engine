@@ -23,19 +23,32 @@
  */
 
 import { BREAK_OUTPUT, breakOutputDef } from './break';
-import { DIMS, shaderNode, type NodeDef, type PortDef } from './nodes';
+import { CUSTOM_GLSL, customGlslDef } from './customGlsl';
+import { shaderNode, type NodeDef } from './nodes';
+import {
+	SUBGRAPH_CALL,
+	isRecord,
+	portDef,
+	portDefault,
+	portLabel,
+	portSideIssues,
+	portsOf,
+	quoted,
+} from './ports';
 import type {
 	GraphIssue,
 	GraphNode,
 	GraphWire,
-	PortType,
 	ShaderGraphDoc,
 	ShaderSubgraph,
 	SubgraphPort,
 } from './types';
 
-/** A call: `values.subgraph` names the subgraph, its other values are its unwired inputs'. */
-export const SUBGRAPH_CALL = 'subgraph';
+/**
+ * A call is `SUBGRAPH_CALL`: `values.subgraph` names the subgraph, its other values are its unwired
+ * inputs'. The ports' rules (`SUBGRAPH_PORTS_MAX` a side, `SUBGRAPH_PORT_TYPES`) are `ports.ts`'s.
+ */
+export { SUBGRAPH_CALL, SUBGRAPH_PORTS_MAX, SUBGRAPH_PORT_TYPES } from './ports';
 /** A body's Input (an output per input of the subgraph) and Output (an input per output). */
 export const SUBGRAPH_IN = 'subgraphIn';
 export const SUBGRAPH_OUT = 'subgraphOut';
@@ -49,29 +62,8 @@ export const SUBGRAPH_DEPTH_MAX = 4;
  * calls nested in calls multiply, and a stored doc must not stall whatever compiles it.
  */
 export const SUBGRAPH_INLINED_MAX = 4000;
-/** A subgraph has at most this many inputs, and as many outputs. */
-export const SUBGRAPH_PORTS_MAX = 32;
 /** An effect has at most this many subgraphs. */
 export const SUBGRAPH_COUNT_MAX = 64;
-
-export const SUBGRAPH_PORT_TYPES: readonly PortType[] = ['float', 'vec2', 'vec3', 'vec4'];
-const PORT_ID = /^[A-Za-z][A-Za-z0-9_]{0,31}$/;
-
-/**
- * A word a port can be named: not `subgraph` (a call's values name its subgraph by it), nor a name
- * every object answers to (`constructor`, `toString`), which an unwired call would read as a value.
- */
-const isPortId = (id: unknown): id is string =>
-	typeof id === 'string' && PORT_ID.test(id) && id !== SUBGRAPH_CALL && !(id in Object.prototype);
-
-/** `text` quoted for a message, cut short: a stored doc's ids can be any length. */
-const quoted = (text: unknown): string => {
-	const plain = String(text);
-	return JSON.stringify(plain.length > 40 ? `${plain.slice(0, 40)}…` : plain);
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /** The subgraph a call node names, if it names one. */
 export const calledSubgraph = (node: GraphNode): string | undefined =>
@@ -85,46 +77,6 @@ export const subgraphOf = (doc: ShaderGraphDoc, id: unknown): ShaderSubgraph | u
 
 export const subgraphName = (sub: ShaderSubgraph): string =>
 	typeof sub.name === 'string' && sub.name.trim() ? sub.name.trim() : String(sub.id);
-
-const isPort = (port: unknown): port is SubgraphPort =>
-	isRecord(port) &&
-	isPortId(port.id) &&
-	(SUBGRAPH_PORT_TYPES as readonly unknown[]).includes(port.type);
-
-/** A subgraph's well-formed ports on one side, as many as a call can show. */
-const portsOf = (ports: unknown): SubgraphPort[] => {
-	if (!Array.isArray(ports)) return [];
-	const seen = new Set<string>();
-	const kept: SubgraphPort[] = [];
-	for (const p of ports) {
-		if (kept.length === SUBGRAPH_PORTS_MAX) break;
-		if (!isPort(p) || seen.has(p.id)) continue;
-		seen.add(p.id);
-		kept.push(p);
-	}
-	return kept;
-};
-
-/** Whether `value` is a number, or `type`'s width of them. */
-const fits = (value: unknown, type: PortType): value is number | number[] =>
-	(typeof value === 'number' && Number.isFinite(value)) ||
-	(Array.isArray(value) &&
-		value.length === DIMS[type] &&
-		value.every((v) => typeof v === 'number' && Number.isFinite(v)));
-
-/** What a port reads unwired: its default, else 0. */
-const portDefault = (port: SubgraphPort): number | readonly number[] =>
-	fits(port.default, port.type) ? port.default : 0;
-
-const portLabel = (port: SubgraphPort): string =>
-	typeof port.label === 'string' && port.label.trim() ? port.label : port.id;
-
-const portDef = (port: SubgraphPort, unwired: boolean): PortDef => ({
-	id: port.id,
-	label: portLabel(port),
-	type: port.type,
-	...(unwired ? { default: portDefault(port) } : {}),
-});
 
 /** A call of `sub`: its inputs and outputs as ports. Its cost is its body's, once inlined. */
 export function subgraphCallDef(sub: ShaderSubgraph): NodeDef {
@@ -191,6 +143,7 @@ export function graphNodeDef(
 		return node.type === SUBGRAPH_IN ? subgraphInDef(sub) : subgraphOutDef(sub);
 	}
 	if (node.type === BREAK_OUTPUT) return scope ? undefined : breakOutputDef(node);
+	if (node.type === CUSTOM_GLSL) return customGlslDef(node);
 	return shaderNode(node.type);
 }
 
@@ -211,39 +164,8 @@ export function subgraphDefinitionIssues(
 	if (!isRecord(sub)) return [{ message: 'not a subgraph' }];
 	if (typeof sub.id !== 'string' || !sub.id) issues.push({ message: 'it has no id' });
 	if (typeof sub.name !== 'string' || !sub.name.trim()) issues.push({ message: 'it needs a name' });
-	for (const [side, ports] of [
-		['input', sub.inputs],
-		['output', sub.outputs],
-	] as const) {
-		if (!Array.isArray(ports)) {
-			issues.push({ message: `its ${side}s are not a list` });
-			continue;
-		}
-		if (ports.length > SUBGRAPH_PORTS_MAX) {
-			issues.push({ message: `it has ${ports.length} ${side}s, more than ${SUBGRAPH_PORTS_MAX}` });
-			continue;
-		}
-		const seen = new Set<string>();
-		for (const port of ports) {
-			const id = isRecord(port) ? port.id : undefined;
-			if (!isRecord(port) || !isPortId(id)) {
-				issues.push({
-					message: `an ${side} is not named with a word of up to 32 letters, digits and _ (not "${SUBGRAPH_CALL}", nor a name every object has)`,
-				});
-				continue;
-			}
-			if (seen.has(id)) issues.push({ message: `two ${side}s are "${id}"` });
-			seen.add(id);
-			if (!(SUBGRAPH_PORT_TYPES as readonly unknown[]).includes(port.type))
-				issues.push({
-					message: `${side} "${id}" is a ${quoted(port.type)}, not one of ${SUBGRAPH_PORT_TYPES.join(', ')}`,
-				});
-			else if (port.default !== undefined && !fits(port.default, port.type as PortType))
-				issues.push({
-					message: `${side} "${id}"'s default is not ${DIMS[port.type as PortType] === 1 ? 'a number' : `1 or ${DIMS[port.type as PortType]} numbers`}`,
-				});
-		}
-	}
+	for (const message of portSideIssues('input', sub.inputs)) issues.push({ message });
+	for (const message of portSideIssues('output', sub.outputs)) issues.push({ message });
 	if (!Array.isArray(sub.nodes) || !Array.isArray(sub.wires)) {
 		issues.push({ message: 'its nodes and wires must be lists' });
 		return issues;
@@ -708,6 +630,7 @@ export function liftIssues(flat: FlatShaderGraph, issues: readonly GraphIssue[])
 			message: from.path.length ? `${from.path.join(' › ')} › ${issue.message}` : issue.message,
 			node: from.node,
 			...(from.port ? { port: from.port } : {}),
+			...(issue.line ? { line: issue.line } : {}),
 		});
 	}
 	for (const [id, call] of flat.calls) {

@@ -47,6 +47,13 @@
  *     leaves, from where the graph held it. The fade an exit's break carries for older runtimes
  *     never shows on this one, and on an older one takes the element off screen. The registry
  *     drops a break it cannot play and keeps the effect.
+ * 10. A pass the GPU refuses (Shader Graph step 8c): an `ElementFxFilter` whose program did not
+ *     compile or link (the driver's own answer, asked once per program) draws the element as it is
+ *     that frame and is disabled after, logged once per program, while one that links draws as ever;
+ *     a lost context or a renderer that is not WebGL changes nothing. Every built-in pass and every
+ *     custom effect's graph pass is one. A pass's own functions (a Custom GLSL node's) are no unknown
+ *     calls; the header's signatures, which the Custom GLSL checker types calls by, are the header's.
+ *     (`pnpm --filter fx-spike shader-compile` plays broken passes on WebGL1 and WebGL2.)
  */
 
 import { readFileSync } from 'node:fs';
@@ -61,6 +68,7 @@ import {
 	Matrix,
 	MeshSimple,
 	Rectangle,
+	RendererType,
 	Texture,
 	TextureSource,
 	Ticker,
@@ -121,6 +129,7 @@ import { startBreak } from '../../packages/pixi-svelte/src/lib/elementFx/breakAp
 import {
 	EFX_GLSL,
 	EFX_HEADER_FUNCTIONS,
+	EFX_HEADER_SIGNATURES,
 	EFX_SIDES,
 	efxSide,
 	linkGlsl,
@@ -1473,6 +1482,22 @@ console.log('element fx — the shared GLSL library');
 			fragments.every(([, fragment]) => !unknownEfxCalls(fragment).length),
 		'unknownEfxCalls names a call neither the library nor the header has (comments aside); no built-in pass makes one',
 	);
+	const own =
+		'void efxGlsl_0(inout vec4 color)\n{\n    color = efxSample(efxPx());\n}\nvoid main(void) { vec4 c = vec4(0.0); efxGlsl_0(c); efxGlsl_1(c); }';
+	assert(
+		JSON.stringify(unknownEfxCalls(own)) === '["efxGlsl_1"]',
+		'a function the pass declares itself (a Custom GLSL node’s) is no unknown call; one it does not declare is',
+	);
+	const flat = (text: string): string => text.replace(/\s+/g, ' ').trim();
+	const headerSource = flat(header);
+	const signatureNames = Object.keys(EFX_HEADER_SIGNATURES).sort().join();
+	const unheld = Object.values(EFX_HEADER_SIGNATURES).filter(
+		(signature) => !headerSource.includes(flat(signature)),
+	);
+	assert(
+		signatureNames === [...EFX_HEADER_FUNCTIONS].sort().join() && !unheld.length,
+		`EFX_HEADER_SIGNATURES is each header function as the header declares it${unheld.length ? `: ${unheld.join(', ')}` : ''}`,
+	);
 	const EFX_GLSL_MUTABLE = EFX_GLSL as Record<string, string>;
 	const ORIGINAL_HASH = EFX_GLSL.efxHash;
 	let cycle = '';
@@ -1639,6 +1664,126 @@ console.log('element fx — the shaders run on WebGL1');
 		/precision highp float;/.test(shaders),
 		'fragments declare highp (they share uOutputFrame with the vertex stage)',
 	);
+}
+
+// -------------------------------------------------------------------------------------------------
+console.log('element fx — a pass the GPU refuses (the fail-safe)');
+{
+	const LINK_STATUS = 0x8b82;
+	/** A stand-in WebGL renderer whose driver links the programs `links` says, counting questions. */
+	const renderer = (
+		links: (fragment: string) => boolean,
+		lost = false,
+		type = RendererType.WEBGL,
+	) => {
+		const made = new Map<GlProgram, object>();
+		const asked = { link: 0 };
+		return {
+			asked,
+			type,
+			gl: {
+				LINK_STATUS,
+				isContextLost: () => lost,
+				getProgramParameter: (program: { fragment: string }, what: number) => {
+					if (what !== LINK_STATUS) return null;
+					asked.link++;
+					return links(program.fragment);
+				},
+			},
+			shader: {
+				_getProgramData: (program: GlProgram) => {
+					if (!made.has(program)) made.set(program, { fragment: program.fragment });
+					return { program: made.get(program) };
+				},
+			},
+		};
+	};
+	type Applied = { filter: Filter; enabled: boolean };
+	const system = (r: ReturnType<typeof renderer>) => {
+		const applied: Applied[] = [];
+		return {
+			applied,
+			manager: {
+				renderer: r,
+				applyFilter: (filter: Filter) => applied.push({ filter, enabled: filter.enabled }),
+			} as unknown as Parameters<Filter['apply']>[0],
+		};
+	};
+	const apply = (filter: Filter, s: ReturnType<typeof system>): Applied | undefined => {
+		filter.apply(s.manager, Texture.WHITE, Texture.WHITE as never, true);
+		return s.applied[s.applied.length - 1];
+	};
+	const warned: string[] = [];
+	const warn = console.warn;
+	console.warn = (...args: unknown[]) => warned.push(args.map(String).join(' '));
+	try {
+		const refuseShine = renderer((fragment) => !fragment.includes('element-fx-shine'));
+		const s = system(refuseShine);
+		const shine = SHADERS.shineFilter();
+		const wave = SHADERS.waveFilter();
+		const first = apply(shine, s);
+		const drawn = apply(wave, s);
+		const second = SHADERS.shineFilter();
+		const again = apply(second, s);
+		const later = apply(shine, s);
+		const throughs = [first, again, later].map((a) => a?.filter);
+		assert(
+			first?.filter !== shine &&
+				first?.enabled === true &&
+				/finalColor = texture\(uTexture, vTextureCoord\);/.test(
+					(first?.filter.glProgram as GlProgram).fragment,
+				) &&
+				shine.enabled === false &&
+				drawn?.filter === wave &&
+				wave.enabled === true &&
+				throughs.every((f) => f === first?.filter) &&
+				second.enabled === false,
+			'a pass the driver refuses draws the element through as it is (a pass-through of its own, not Pixi’s) and is disabled; one it links draws itself; a second filter of the refused program likewise',
+		);
+		assert(
+			warned.length === 1 && warned[0].includes('shine') && warned[0].includes('did not compile'),
+			`the refused pass is logged once, however often it is drawn (${warned.length})`,
+		);
+		assert(
+			refuseShine.asked.link === 2,
+			`the driver is asked once per program, not per frame (${refuseShine.asked.link} questions for 2 programs over 5 draws)`,
+		);
+		const lost = system(renderer(() => false, true));
+		const gpu = system(renderer(() => false, false, RendererType.WEBGPU));
+		const flag = SHADERS.twistFilter();
+		const glitch = SHADERS.bulgeFilter();
+		assert(
+			apply(flag, lost)?.filter === flag &&
+				flag.enabled &&
+				apply(glitch, gpu)?.filter === glitch &&
+				glitch.enabled,
+			'a lost context, or a renderer that is not WebGL, changes nothing: the pass draws as it would have',
+		);
+		const graph = compileShaderEffect(REFERENCE_GRAPHS[0]);
+		if (!graph.ok) throw new Error('reference graph');
+		const pass = customKindImpl({ ...graph.effect, passes: [] }).filters?.[0];
+		const frame: FxFrame = {
+			t: 0.5,
+			seconds: 0.5,
+			playSeconds: 1,
+			intensity: 1,
+			params: {},
+			looping: false,
+			width: 100,
+			height: 100,
+		};
+		const made = pass?.create(frame);
+		const refuseAll = system(renderer(() => false));
+		assert(
+			!!made &&
+				made instanceof SHADERS.ElementFxFilter &&
+				apply(made, refuseAll)?.filter !== made &&
+				made.enabled === false,
+			'a custom effect’s graph pass is such a pass: refused, it is left out the same way',
+		);
+	} finally {
+		console.warn = warn;
+	}
 }
 
 // -------------------------------------------------------------------------------------------------

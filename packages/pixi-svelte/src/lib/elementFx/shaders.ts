@@ -11,9 +11,27 @@
  * own coordinates (`efxToUnit` / `efxFromUnit`) in any pass of the stack and whatever the frame's
  * size. The mapping assumes the element is not rotated on screen; a rotated element still plays,
  * about its axis-aligned box.
+ *
+ * A PASS THE GPU REFUSES IS LEFT OUT. Pixi compiles a filter's program the first time it draws with
+ * it; when the driver refuses it, Pixi logs the driver's error once and from then on draws nothing
+ * with it, every frame, without throwing: the element vanishes while the pass is on it. Every pass
+ * here asks the driver first ({@link programLinks}); a program that did not compile or link is
+ * dropped, logged once, and the rest of the frame and the game draw on: this frame the element is
+ * drawn through as it is (by a pass of ours: Pixi's own pass-through builds a WebGPU program, which
+ * throws in a WebGL-only bundle), and from then on the filter is disabled, so Pixi skips it. This
+ * covers every built-in pass and every custom effect's graph pass (Invisible Shader Graph), its
+ * Custom GLSL nodes' code included.
  */
 
-import { Filter, GlProgram } from 'pixi.js';
+import {
+	Filter,
+	GlProgram,
+	RendererType,
+	type FilterSystem,
+	type RenderSurface,
+	type Texture,
+	type WebGLRenderer,
+} from 'pixi.js';
 import { linkGlsl } from 'constants-shared/glslLibrary';
 
 const VERTEX = `in vec2 aPosition;
@@ -74,6 +92,54 @@ bool efxInside(vec2 px)
 type UniformValue = number | Float32Array;
 type UniformSpec = { value: UniformValue; type: string };
 
+const PASS_THROUGH = `in vec2 vTextureCoord;
+out vec4 finalColor;
+
+uniform sampler2D uTexture;
+
+void main(void)
+{
+    finalColor = texture(uTexture, vTextureCoord);
+}
+`;
+
+let passThrough: Filter | undefined;
+
+/** The element as it is: what a pass the GPU refused draws instead, the frame it is found out. */
+const passThroughFilter = (): Filter =>
+	(passThrough ??= new Filter({
+		glProgram: GlProgram.from({
+			vertex: VERTEX,
+			fragment: PASS_THROUGH,
+			name: 'element-fx-pass-through',
+		}),
+		resources: {},
+		clipToViewport: false,
+	}));
+
+/** The driver's answer for each program it was handed: whether it compiled and linked. */
+const linked = new WeakMap<WebGLProgram, boolean>();
+/** Programs already said to have failed: each is logged once. */
+const reported = new WeakSet<GlProgram>();
+
+/**
+ * Whether `program` compiled and linked on `renderer`'s GPU, asked of the driver once per program
+ * and context. Asking compiles it as Pixi's own first draw would (Pixi keeps the result for that
+ * draw). A renderer that is not WebGL, or a lost context, answers yes: nothing is known.
+ */
+export function programLinks(renderer: FilterSystem['renderer'], program: GlProgram): boolean {
+	if (renderer.type !== RendererType.WEBGL) return true;
+	const { gl, shader } = renderer as WebGLRenderer;
+	if (gl.isContextLost()) return true;
+	const compiled = shader._getProgramData(program).program;
+	let ok = linked.get(compiled);
+	if (ok === undefined) {
+		ok = gl.getProgramParameter(compiled, gl.LINK_STATUS) === true;
+		linked.set(compiled, ok);
+	}
+	return ok;
+}
+
 /**
  * One shader pass. `efx` is its uniform block: `uElement` and `uPad` plus the family's own. Its
  * body calls the shared building blocks (`constants-shared/glslLibrary`) by name, and they are
@@ -81,6 +147,8 @@ type UniformSpec = { value: UniformValue; type: string };
  */
 export class ElementFxFilter extends Filter {
 	readonly efx: Record<string, UniformValue>;
+	/** The pass's name, for the line logged should the GPU refuse it. */
+	private readonly passName: string;
 
 	constructor(name: string, body: string, uniforms: Record<string, UniformSpec>) {
 		const glProgram = GlProgram.from({
@@ -102,6 +170,28 @@ export class ElementFxFilter extends Filter {
 			clipToViewport: false,
 		});
 		this.efx = (this.resources.efxUniforms as { uniforms: Record<string, UniformValue> }).uniforms;
+		this.passName = name;
+	}
+
+	/** Draw the pass, or, when the GPU refused its program, the element as it is (now and after). */
+	override apply(
+		filterManager: FilterSystem,
+		input: Texture,
+		output: RenderSurface,
+		clearMode: boolean,
+	): void {
+		if (this.enabled && programLinks(filterManager.renderer, this.glProgram)) {
+			filterManager.applyFilter(this, input, output, clearMode);
+			return;
+		}
+		this.enabled = false;
+		if (!reported.has(this.glProgram)) {
+			reported.add(this.glProgram);
+			console.warn(
+				`Element FX: the ${this.passName} pass did not compile on this GPU, so it is left out: the element plays without it.`,
+			);
+		}
+		filterManager.applyFilter(passThroughFilter(), input, output, clearMode);
 	}
 
 	/** Write a vector uniform in place (Pixi uploads the same array object). */
