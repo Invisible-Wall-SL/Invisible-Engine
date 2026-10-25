@@ -13,6 +13,7 @@ import {
 	shaderDocBackupTarget,
 	shaderDocKey,
 	shaderSlug,
+	sharedShaderDocBackupTarget,
 	sharedShaderDocKey,
 } from './projectPaths';
 import { deleteObject, getObjectText, getObjectTextWithEtag, listAllKeys } from './r2';
@@ -52,6 +53,8 @@ export interface ShaderRow {
 	description: string;
 	/** From the studio-shared library rather than the project. */
 	shared: boolean;
+	/** The project's own graph, and the library has one of its id (it was published, or shadows one). */
+	inLibrary?: boolean;
 }
 
 /** A graph that did not compile, so it is not part of what plays. */
@@ -97,25 +100,27 @@ async function readDocs(prefix: string): Promise<ShaderGraphDoc[]> {
 export async function loadShaderSet(
 	clientKey: string,
 	projectKey: string,
-): Promise<{ doc: ShaderGraphDoc; shared: boolean }[]> {
+): Promise<{ doc: ShaderGraphDoc; shared: boolean; inLibrary: boolean }[]> {
 	const [own, library] = await Promise.all([
 		readDocs(SUB.shaders(clientKey, projectKey)),
 		readDocs(SHARED_SHADERS_PREFIX),
 	]);
 	const ids = new Set(own.map((d) => d.id));
+	const libraryIds = new Set(library.map((d) => d.id));
 	const shared = library.filter((d) => !ids.has(d.id));
 	return [
-		...own.map((doc) => ({ doc, shared: false })),
-		...shared.map((doc) => ({ doc, shared: true })),
+		...own.map((doc) => ({ doc, shared: false, inLibrary: libraryIds.has(doc.id) })),
+		...shared.map((doc) => ({ doc, shared: true, inLibrary: true })),
 	].sort((a, b) => a.doc.name.localeCompare(b.doc.name) || a.doc.id.localeCompare(b.doc.id));
 }
 
 export async function listShaders(clientKey: string, projectKey: string): Promise<ShaderRow[]> {
-	return (await loadShaderSet(clientKey, projectKey)).map(({ doc, shared }) => ({
+	return (await loadShaderSet(clientKey, projectKey)).map(({ doc, shared, inLibrary }) => ({
 		id: doc.id,
 		name: doc.name || doc.id,
 		description: doc.description ?? '',
 		shared,
+		...(!shared && inLibrary ? { inLibrary } : {}),
 	}));
 }
 
@@ -225,5 +230,71 @@ export async function deleteShader(
 ): Promise<{ id: string }> {
 	const id = shaderSlug(rawId);
 	await deleteDocWithBackup(shaderDocBackupTarget(clientKey, projectKey, id), deleteObject);
+	return { id };
+}
+
+/** A publish of a graph the project does not have. */
+export class ShaderNotFoundError extends Error {
+	constructor(readonly id: string) {
+		super(`This project has no shader effect "${id}".`);
+		this.name = 'ShaderNotFoundError';
+	}
+}
+
+/** A publish of a graph that does not compile: it would reach every project and play nothing. */
+export class ShaderDoesNotCompileError extends Error {
+	constructor(
+		readonly id: string,
+		readonly errors: string[],
+	) {
+		super(`"${id}" does not compile, so it cannot go to the studio library.`);
+		this.name = 'ShaderDoesNotCompileError';
+	}
+}
+
+/**
+ * Publish a project's graph to the studio-shared library: its stored doc, as saved, copied to
+ * `_shared/shaders/<id>.json`, which every project's set then takes in (a project with its own graph
+ * of that id keeps its own). `replace: false` asserts the library has no graph of that id
+ * (`ConflictError` when it has); `replace: true` is the publisher's explicit overwrite. Either way the
+ * bytes a publish replaces are kept (`'always'`), so a publish can be undone. A graph that does not
+ * compile is refused.
+ */
+export async function publishShader(
+	clientKey: string,
+	projectKey: string,
+	rawId: string,
+	replace: boolean,
+): Promise<{ id: string; etag: string | null }> {
+	const id = shaderSlug(rawId);
+	const { doc, exists } = await loadShader(clientKey, projectKey, id);
+	if (!exists) throw new ShaderNotFoundError(id);
+	const compiled = compileShaderEffect(doc);
+	if (!compiled.ok) {
+		throw new ShaderDoesNotCompileError(
+			id,
+			compiled.issues.filter((i) => i.level === 'error').map(errorText),
+		);
+	}
+	const text = JSON.stringify(doc, null, '\t');
+	const bytes = Buffer.byteLength(text);
+	if (bytes > SHADER_DOC_MAX_BYTES) throw new ShaderTooLargeError(bytes);
+	const etag = await putDocWithBackup(
+		sharedShaderDocBackupTarget(id),
+		text,
+		replace ? undefined : null,
+		'always',
+	);
+	return { id, etag };
+}
+
+/**
+ * Remove a graph from the studio-shared library, its last version kept in the library's history.
+ * Projects that place it and have no graph of their own of that id then ship nothing for it (Publish
+ * names those entries). Idempotent.
+ */
+export async function unpublishShader(rawId: string): Promise<{ id: string }> {
+	const id = shaderSlug(rawId);
+	await deleteDocWithBackup(sharedShaderDocBackupTarget(id), deleteObject);
 	return { id };
 }

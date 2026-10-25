@@ -13,7 +13,8 @@
  * bundle embed the list as `shaderEffects`, and the game registers it with `setCustomElementFx`
  * at boot; `pull-project-assets.mjs` mirrors `deploy/editor-shaders/` with the rest of `deploy/`.
  *
- * What ships is the project's set (its own graphs and the shared ones it does not override). A
+ * The deploy tree holds the project's set (its own graphs and the shared ones it does not
+ * override); a bundle embeds only the effects it names ({@link namedShaderEffects}). A
  * graph that does not compile is left out and named in `skipped` (for the bake's log, never in a
  * file a game ships), so an entry naming it plays nothing rather than failing the build;
  * {@link unshippedCustomKinds} names such entries for Publish. Stale objects from an earlier export
@@ -80,16 +81,34 @@ function customKindsNamed(value: unknown, into: Set<string>): Set<string> {
 	return into;
 }
 
+/** The custom kinds a bundle names outside its `shaderEffects`. */
+function namedCustomKinds(bundle: Record<string, unknown>): Set<string> {
+	const named = new Set<string>();
+	for (const [section, value] of Object.entries(bundle)) {
+		if (section !== 'shaderEffects') customKindsNamed(value, named);
+	}
+	return named;
+}
+
+/**
+ * The effects a bundle ships: those it names (an entry's kind, a Flow parameter). A project's set
+ * takes in the whole studio-shared library, and a game carries only what it plays.
+ */
+export function namedShaderEffects(
+	effects: readonly CustomElementFx[],
+	bundle: Record<string, unknown>,
+): CustomElementFx[] {
+	const named = namedCustomKinds(bundle);
+	return effects.filter((e) => named.has(e.spec.kind));
+}
+
 /**
  * The custom kinds a bundle names (in its scenes, components, symbols, flow…) that it does not ship
  * in `shaderEffects`: entries that will play nothing, because their graph was deleted or does not
  * compile. Sorted; empty when every one ships.
  */
 export function unshippedCustomKinds(bundle: Record<string, unknown>): string[] {
-	const named = new Set<string>();
-	for (const [section, value] of Object.entries(bundle)) {
-		if (section !== 'shaderEffects') customKindsNamed(value, named);
-	}
+	const named = namedCustomKinds(bundle);
 	const shipped = new Set<string>(
 		((bundle.shaderEffects ?? []) as CustomElementFx[]).map((e) => e.spec.kind),
 	);

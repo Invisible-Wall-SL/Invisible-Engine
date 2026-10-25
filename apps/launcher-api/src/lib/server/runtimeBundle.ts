@@ -72,7 +72,7 @@ import { deleteObjects, listAllKeys } from './r2';
 import { projectClientKey, projectName } from './projects';
 import { exportRigFx } from './rigFxExport';
 import { exportRigFlipbooks } from './rigFlipbookExport';
-import { exportShaders } from './shaderExport';
+import { exportShaders, namedShaderEffects } from './shaderExport';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { withoutPartnerPaytable } from './paytableDrift';
 import { loadWinTextDoc, shippedWinText } from './winTextStorage';
@@ -487,7 +487,7 @@ async function assembleRuntimeBundle(
 		);
 	}
 
-	return {
+	const bundle: RuntimeBundle = {
 		doc,
 		componentDefs,
 		// Omit when empty so an unpinned project's bundle stays byte-identical (parity).
@@ -527,6 +527,13 @@ async function assembleRuntimeBundle(
 		// game keeps running its compiled `game/config.ts` (parity).
 		...(gameConfig ? { config: withoutPartnerPaytable(gameConfig) } : {}),
 	};
+	// Ship only the shader effects the game names: the set takes in the whole studio library.
+	if (bundle.shaderEffects) {
+		const shipped = namedShaderEffects(bundle.shaderEffects, { ...bundle });
+		if (shipped.length) bundle.shaderEffects = shipped;
+		else delete bundle.shaderEffects;
+	}
+	return bundle;
 }
 
 /**

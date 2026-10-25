@@ -373,6 +373,83 @@
 		await refreshList();
 	}
 
+	// ── The studio library ──
+	const canPublishShared = untrack(() => data.canPublishShared);
+	const openRow = $derived(
+		doc ? graphs.find((g) => g.id === doc?.id && g.shared === openShared) : undefined,
+	);
+	async function postLibrary(
+		action: 'publish' | 'unpublish',
+		id: string,
+		replace = false,
+	): Promise<{ res: Response; out: { error?: string; message?: string; errors?: string[] } }> {
+		const res = await fetch(`/api/shaders/${action}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ id, projectKey, ...(replace ? { replace: true } : {}) }),
+		});
+		return { res, out: await res.json().catch(() => ({})) };
+	}
+	/** Copy the open effect, as saved, to the studio library, which every project takes in. */
+	async function publishToLibrary(): Promise<void> {
+		if (!doc || openShared) return;
+		if (!(await settle())) return;
+		if (errorCount) {
+			notice = 'Fix its errors first: only an effect that compiles can go to the studio library.';
+			return;
+		}
+		const { id, name } = doc;
+		const replacing = !!openRow?.inLibrary;
+		const ok = await askConfirm({
+			title: replacing
+				? `Replace the studio library's "${id}"?`
+				: `Publish "${name}" to the studio library?`,
+			message: replacing
+				? `Every project that plays the library's custom:${id} plays yours from its next Publish. The library keeps the version you replace.`
+				: `Every project can then place it as custom:${id}. A project with its own effect of this id keeps its own.`,
+			confirmLabel: replacing ? 'Replace' : 'Publish',
+		});
+		if (!ok) return;
+		let { res, out } = await postLibrary('publish', id, replacing);
+		if (res.status === 409 && out.error === 'exists') {
+			const replace = await askConfirm({
+				title: `The studio library already has "${id}"`,
+				message: `Someone published an effect of this id meanwhile. Replace it with yours? The library keeps theirs.`,
+				confirmLabel: 'Replace',
+			});
+			if (!replace) return;
+			({ res, out } = await postLibrary('publish', id, true));
+		}
+		if (!res.ok) {
+			notice =
+				out.error === 'does-not-compile'
+					? `${out.message} ${(out.errors ?? []).join('; ')}`
+					: (out.message ?? `Publish failed (HTTP ${res.status}).`);
+			return;
+		}
+		notice = `"${name}" is in the studio library: every project can place custom:${id}.`;
+		await refreshList();
+	}
+	/** Remove the open library effect from the studio library. */
+	async function removeFromLibrary(): Promise<void> {
+		if (!doc || !openShared) return;
+		const { id, name } = doc;
+		const ok = await askConfirm({
+			title: `Remove "${name}" from the studio library?`,
+			message: `Projects that place custom:${id} and have no effect of their own of this id play nothing for it from their next Publish, which names those entries. The library keeps the removed version.`,
+			confirmLabel: 'Remove',
+			danger: true,
+		});
+		if (!ok) return;
+		const { res, out } = await postLibrary('unpublish', id);
+		if (!res.ok) {
+			notice = out.message ?? `Remove failed (HTTP ${res.status}).`;
+			return;
+		}
+		showGraph(null, null, false);
+		await refreshList();
+	}
+
 	// ── Canvas gestures ──
 	const wireOf = (c: Connection | Edge) => ({
 		from: { node: c.source, port: c.sourceHandle ?? '' },
@@ -553,6 +630,23 @@
 				>
 					History
 				</button>
+				{#if canPublishShared}
+					{#if openShared}
+						<button type="button" class="chrome" onclick={() => void removeFromLibrary()}>
+							Remove from library
+						</button>
+					{:else}
+						<button
+							type="button"
+							class="chrome"
+							disabled={lease.readOnly}
+							title="Copy this effect, as saved, to the studio library every project takes in"
+							onclick={() => void publishToLibrary()}
+						>
+							{openRow?.inLibrary ? 'Update library copy' : 'Publish to library'}
+						</button>
+					{/if}
+				{/if}
 			{/if}
 		{/snippet}
 	</ToolTopBar>

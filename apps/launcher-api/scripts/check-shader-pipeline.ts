@@ -12,13 +12,17 @@
  *   3. THE SHIP — the real export compiles the project's set into `deploy/editor-shaders/` (a file
  *      per effect and an index), names a graph that does not compile, prunes what an earlier export
  *      left, and the real export endpoint returns it; every exported effect is one the game's
- *      registry takes, so it plays as `custom:<id>`.
- *   4. THE WIRING — the bake and the runtime bundle both carry `shaderEffects`; the game registers
- *      them before its first render; the pull mirrors `editor-shaders/`; the Scene Editor and
- *      Symbols register the project's set and the Flow's kind dropdown lists it.
+ *      registry takes, so it plays as `custom:<id>`; a bundle ships only the effects it names.
+ *   4. THE WIRING — the bake and the runtime bundle both carry `shaderEffects`, trimmed to the named
+ *      ones; the game registers them before its first render; the pull mirrors `editor-shaders/`;
+ *      the Scene Editor and Symbols register the project's set and the Flow's kind dropdown lists it.
+ *   5. HISTORY — a save and a delete keep what they replace; a restore puts it back.
+ *   6. THE STUDIO LIBRARY — publishing and removing need `shaderPublish`; a publish copies the saved
+ *      graph, refuses one that does not compile and an id the library has unless told to replace,
+ *      and keeps what it replaced, as a removal does.
  *
- * `r2.ts` is an in-memory bucket honouring `If-Match` / `If-None-Match`; the tool gate, the deploy
- * token, the project lookup and the deploy lock are stubbed. Run:
+ * `r2.ts` is an in-memory bucket honouring `If-Match` / `If-None-Match`; the tool gate, the
+ * capability overrides, the deploy token, the project lookup and the deploy lock are stubbed. Run:
  *
  *   pnpm --filter launcher-api check:shader-pipeline
  */
@@ -141,6 +145,10 @@ fake('lib/server/toolScope.ts', {
 		return { clientKey: CLIENT, projectKey: sessionProject, prefixes: [] };
 	},
 });
+/** The `shaderPublish` override the stubbed role table answers, when set. */
+let roleOverrides: Record<string, boolean> = {};
+fake('lib/server/roleToolAccess.ts', { getRoleOverrides: async () => roleOverrides });
+fake('lib/server/userToolAccess.ts', { getToolOverrides: async () => ({}) });
 let deployToken: string | null = TOKEN;
 fake('lib/server/appSettings.ts', { getDeployToken: async () => deployToken });
 fake('lib/server/projects.ts', {
@@ -152,7 +160,7 @@ fake('lib/server/runtimeBundleCache.ts', {
 });
 
 const storage = await import('../src/lib/server/shaderStorage.ts');
-const { exportShaders, shaderDeployPrefix, unshippedCustomKinds } =
+const { exportShaders, namedShaderEffects, shaderDeployPrefix, unshippedCustomKinds } =
 	await import('../src/lib/server/shaderExport.ts');
 const { normalizeShaderGraphDoc } = await import('engine-shadergraph');
 const { SHARED_SHADERS_PREFIX, SUB, shaderDocKey, shaderSlug, sharedShaderDocKey } =
@@ -163,6 +171,8 @@ const listRoute = await import('../src/routes/api/shaders/list/+server.ts');
 const effectsRoute = await import('../src/routes/api/shaders/effects/+server.ts');
 const docRoute = await import('../src/routes/api/shaders/doc/+server.ts');
 const backupsRoute = await import('../src/routes/api/shaders/backups/+server.ts');
+const publishRoute = await import('../src/routes/api/shaders/publish/+server.ts');
+const unpublishRoute = await import('../src/routes/api/shaders/unpublish/+server.ts');
 const exportRoute = await import('../src/routes/api/editor/export-shaders/+server.ts');
 const { composeFlowV2Vocab } = await import('../src/lib/flowV2Vocab.ts');
 const { soundOptionsFor } = await import('../src/lib/soundOptions.ts');
@@ -177,14 +187,16 @@ const stored = (key: string): Record<string, unknown> =>
 	JSON.parse(R2.get(key)?.body ?? 'null') as Record<string, unknown>;
 
 type Handler = (event: never) => Promise<Response>;
-const call = async (handler: unknown, init: { body?: unknown; query?: string }) => {
+type User = { id: string; role: string };
+const call = async (handler: unknown, init: { body?: unknown; query?: string; user?: User }) => {
 	const url = new URL(`https://launcher.test/api/x${init.query ?? ''}`);
 	const request = new Request(url, {
 		method: init.body === undefined ? 'GET' : 'POST',
 		...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
 	});
 	try {
-		const res = await (handler as Handler)({ url, request, locals: {}, cookies: {} } as never);
+		const locals = init.user ? { user: init.user } : {};
+		const res = await (handler as Handler)({ url, request, locals, cookies: {} } as never);
 		return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 	} catch (e) {
 		const status = (e as { status?: number }).status;
@@ -503,6 +515,21 @@ check(
 	['custom:broken', 'custom:gone'],
 );
 
+check(
+	"a bundle ships the effects it names, from any section, in the set's order",
+	namedShaderEffects(exported.shaderEffects, {
+		flowV2: { nodes: { n1: { params: { kind: 'custom:pulse_tint' } } } },
+		doc: { scenes: [{ nodes: [{ elementFx: [{ kind: 'custom:frost' }] }] }] },
+		shaderEffects: exported.shaderEffects,
+	}).map((e) => e.spec.kind),
+	['custom:frost', 'custom:pulse_tint'],
+);
+check(
+	'…never counting its own shaderEffects as naming them',
+	namedShaderEffects(exported.shaderEffects, { shaderEffects: exported.shaderEffects }),
+	[],
+);
+
 // ── 4. The wiring ──────────────────────────────────────────────────────────────────────────────
 console.log('4. the wiring');
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -534,6 +561,25 @@ check(
 	runtime.includes(
 		'...(shaderIndex.shaderEffects.length ? { shaderEffects: shaderIndex.shaderEffects } : {}),',
 	),
+	true,
+);
+check(
+	'…trimmed to the effects the bundle names, absent when it names none',
+	/const shipped = namedShaderEffects\(bundle\.shaderEffects, \{ \.\.\.bundle \}\);\s*if \(shipped\.length\) bundle\.shaderEffects = shipped;\s*else delete bundle\.shaderEffects;\s*\}\s*return bundle;/.test(
+		runtime,
+	),
+	true,
+);
+check(
+	'the bake trims them the same way before it embeds them',
+	/const kept = bundle\.shaderEffects\.filter\(\(e\) => namedKinds\.has\(e\?\.spec\?\.kind\)\);\s*if \(kept\.length\) bundle\.shaderEffects = kept;\s*else delete bundle\.shaderEffects;\s*shaderEffects = bundle\.shaderEffects;/.test(
+		bake,
+	),
+	true,
+);
+check(
+	"…naming kinds outside its shaderEffects, with the runtime's kind pattern",
+	bake.includes('JSON.stringify({ ...bundle, shaderEffects: undefined }).match('),
 	true,
 );
 const scenes = readLF(`${repo}apps/lines/src/editor-scenes.ts`);
@@ -703,6 +749,139 @@ console.log('5. history');
 			afterDelete.map((k) => JSON.parse(R2.get(k)!.body).name).includes('Glow v3'),
 		],
 		[true, false, 1, true],
+	);
+}
+
+// ── 6. The studio library ──────────────────────────────────────────────────────────────────────
+console.log('6. the studio library');
+{
+	const ADMIN: User = { id: 'u-admin', role: 'admin' };
+	const ARTIST: User = { id: 'u-artist', role: 'artist' };
+	const libKey = sharedShaderDocKey('spark');
+	const libBackups = '_shared/shader-backups/spark/';
+	const v1 = await storage.saveShader(
+		CLIENT,
+		PROJECT,
+		{ ...ref('frost'), id: 'Spark', name: 'Spark v1' },
+		null,
+	);
+
+	const refused = await call(publishRoute.POST, { body: { id: 'spark' }, user: ARTIST });
+	check(
+		'publishing needs shaderPublish, which a role lacks by default',
+		[refused.status, R2.has(libKey)],
+		[403, false],
+	);
+	roleOverrides = { shaderPublish: true };
+	const granted = await call(publishRoute.POST, { body: { id: 'spark' }, user: ARTIST });
+	check('…and holds once granted', [granted.status, R2.has(libKey)], [200, true]);
+	R2.delete(libKey);
+	roleOverrides = {};
+
+	const published = await call(publishRoute.POST, {
+		body: { id: 'Spark', projectKey: PROJECT },
+		user: ADMIN,
+	});
+	check('an admin publishes', [published.status, published.body.id], [200, 'spark']);
+	check('…on the write gate', gates.at(-1), ['shaders']);
+	check('…copying the saved graph', R2.get(libKey)?.body, R2.get(`${projectDir}spark.json`)?.body);
+	check(
+		'the listing marks the project graph in the library, and lists no shared twin',
+		(await storage.listShaders(CLIENT, PROJECT))
+			.filter((r) => r.id === 'spark')
+			.map((r) => [r.shared, r.inLibrary]),
+		[[false, true]],
+	);
+	const again = await call(publishRoute.POST, { body: { id: 'spark' }, user: ADMIN });
+	check(
+		'publishing an id the library has is a 409, not a replace',
+		[again.status, again.body.error, JSON.parse(R2.get(libKey)!.body).name],
+		[409, 'exists', 'Spark v1'],
+	);
+	await storage.saveShader(
+		CLIENT,
+		PROJECT,
+		{ ...ref('frost'), id: 'spark', name: 'Spark v2' },
+		v1.etag,
+	);
+	const replaced = await call(publishRoute.POST, {
+		body: { id: 'spark', replace: true },
+		user: ADMIN,
+	});
+	check(
+		'replace: true replaces it',
+		[replaced.status, JSON.parse(R2.get(libKey)!.body).name],
+		[200, 'Spark v2'],
+	);
+	check(
+		'…keeping what it replaced, beside the library (never in it)',
+		keysUnder(libBackups).map((k) => JSON.parse(R2.get(k)!.body).name),
+		['Spark v1'],
+	);
+	check('…which the library listing never meets', keysUnder(`${SHARED_SHADERS_PREFIX}/`), [libKey]);
+
+	await storage.saveShader(CLIENT, PROJECT, { ...broken, id: 'cracked' }, null);
+	const cracked = await call(publishRoute.POST, { body: { id: 'cracked' }, user: ADMIN });
+	check(
+		'a graph that does not compile is refused, with its errors',
+		[
+			cracked.status,
+			cracked.body.error,
+			(cracked.body.errors as unknown[]).length > 0,
+			R2.has(sharedShaderDocKey('cracked')),
+		],
+		[400, 'does-not-compile', true, false],
+	);
+	const absent = await call(publishRoute.POST, { body: { id: 'nothing' }, user: ADMIN });
+	check(
+		'a graph the project lacks is a 404',
+		[absent.status, absent.body.error],
+		[404, 'not-found'],
+	);
+	check(
+		'a publish from a tab on another project is refused',
+		(
+			await call(publishRoute.POST, {
+				body: { id: 'spark', projectKey: 'another-game' },
+				user: ADMIN,
+			})
+		).body.error,
+		'scope-mismatch',
+	);
+	check(
+		'a publish without an id is a 400',
+		(await call(publishRoute.POST, { body: {}, user: ADMIN })).status,
+		400,
+	);
+
+	check(
+		'removing needs shaderPublish too',
+		[
+			(await call(unpublishRoute.POST, { body: { id: 'spark' }, user: ARTIST })).status,
+			R2.has(libKey),
+		],
+		[403, true],
+	);
+	const removed = await call(unpublishRoute.POST, {
+		body: { id: 'spark', projectKey: PROJECT },
+		user: ADMIN,
+	});
+	check(
+		'an admin removes it from the library, never from the project',
+		[removed.status, R2.has(libKey), R2.has(`${projectDir}spark.json`)],
+		[200, false, true],
+	);
+	check(
+		'…keeping the removed version',
+		keysUnder(libBackups)
+			.map((k) => JSON.parse(R2.get(k)!.body).name)
+			.sort(),
+		['Spark v1', 'Spark v2'],
+	);
+	check(
+		'…and the listing no longer marks the project graph',
+		(await storage.listShaders(CLIENT, PROJECT)).find((r) => r.id === 'spark')?.inLibrary,
+		undefined,
 	);
 }
 

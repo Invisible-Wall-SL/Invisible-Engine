@@ -320,7 +320,9 @@ const STALE_TAB_GUARDS = [
 	'shaders/doc',
 	'shaders/effects',
 	'shaders/list',
+	'shaders/publish',
 	'shaders/save',
+	'shaders/unpublish',
 ];
 const readsBodyProjectKey = new Set<string>();
 for (const file of handlers) {

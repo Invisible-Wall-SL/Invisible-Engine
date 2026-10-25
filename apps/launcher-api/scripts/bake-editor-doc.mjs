@@ -1365,16 +1365,25 @@ async function main() {
 		...(rigFlipbooks ? { rigFlipbooks } : {}),
 	};
 
-	// A custom Element FX the game names (an entry's kind, a Flow parameter) that this bake does not
-	// ship plays nothing: its graph was deleted or does not compile. Say which, as Publish does.
+	// Ship only the shader effects the game names (an entry's kind, a Flow parameter), as Publish
+	// does: the project's set takes in the whole studio library. One it names but does not ship plays
+	// nothing (its graph was deleted or does not compile): say which.
+	const namedKinds = new Set(
+		(
+			JSON.stringify({ ...bundle, shaderEffects: undefined }).match(
+				/"custom:[A-Za-z0-9][A-Za-z0-9_-]{0,63}"/g,
+			) ?? []
+		).map((q) => q.slice(1, -1)),
+	);
+	if (bundle.shaderEffects) {
+		const kept = bundle.shaderEffects.filter((e) => namedKinds.has(e?.spec?.kind));
+		if (kept.length) bundle.shaderEffects = kept;
+		else delete bundle.shaderEffects;
+		shaderEffects = bundle.shaderEffects;
+	}
 	if (!dryRun) {
 		const shipped = new Set((shaderEffects ?? []).map((e) => e?.spec?.kind));
-		const named = JSON.stringify({ ...bundle, shaderEffects: undefined }).match(
-			/"custom:[A-Za-z0-9][A-Za-z0-9_-]{0,63}"/g,
-		);
-		const unshipped = [...new Set((named ?? []).map((q) => q.slice(1, -1)))]
-			.filter((kind) => !shipped.has(kind))
-			.sort();
+		const unshipped = [...namedKinds].filter((kind) => !shipped.has(kind)).sort();
 		if (unshipped.length)
 			console.warn(
 				`  ${unshipped.length} shader effect(s) named in the game will play nothing: ${unshipped.join(', ')} — the graph was deleted or does not compile.`,

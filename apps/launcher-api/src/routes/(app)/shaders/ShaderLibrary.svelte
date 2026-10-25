@@ -11,6 +11,8 @@
 		name: string;
 		description: string;
 		shared: boolean;
+		/** The project's own effect, and the studio library has one of its id. */
+		inLibrary?: boolean;
 	}
 	interface Props {
 		graphs: GraphRow[];
@@ -99,6 +101,10 @@
 								class="tag"
 								title="From the studio's shared library: saving keeps a copy in this project"
 								>shared</span
+							>{:else if row.inLibrary}<span
+								class="tag lib"
+								title="The studio library has an effect of this id: this project plays its own"
+								>in library</span
 							>{/if}
 					</button>
 					{#if !row.shared}
@@ -205,6 +211,9 @@
 		font-size: 9px;
 		text-transform: uppercase;
 		color: #fbbf24;
+	}
+	.tag.lib {
+		color: #7dd3fc;
 	}
 	.palette {
 		display: flex;
