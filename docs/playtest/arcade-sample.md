@@ -14,8 +14,8 @@ starter flow (`engine-flow-v2` `arcadeSeed.ts`) and the four placeholder compone
 (`ARCADE_SAMPLE_COMPONENTS`: flat shapes, not the Salmons art). It has no RGS: the runtime runs the
 arcade loop itself and sends no request.
 
-It is not a published project: publishing a game that is not a slot is still switched off
-(`familyGate.ts`), and no current-games fixture plays it. The playtest builds its own snapshot.
+It is not a published project, and no current-games fixture plays it: the playtest builds its own
+snapshot. (A free-play arcade game publishes to the test server since the publishing switch-on.)
 
 ## Launch
 

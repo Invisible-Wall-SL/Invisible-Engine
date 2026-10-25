@@ -567,10 +567,21 @@ const legalMove = (board: Board) => findMoves(board, { limit: 1 })[0];
 	);
 	check(
 		'9. the runtime layout passes the mechanic',
-		/<Authenticate freePlay=\{!gameMechanic\(\)\.rgsSession\}>/.test(
+		/<Authenticate\s+freePlay=\{!gameMechanic\(\)\.rgsSession\}\s+mockOnly=\{gameMechanic\(\)\.interactiveRound\}\s*>/.test(
 			read('apps/lines/src/routes/+layout.svelte'),
 		),
 	);
+	{
+		const mockOnly = auth.indexOf('if (props.mockOnly');
+		const branch = auth.slice(mockOnly, auth.indexOf('if (stateUrlDerived.replay())'));
+		check(
+			'9. an RGS match-3 game (mockOnly) refuses any delivery profile before authenticate or replay',
+			mockOnly > freePlay &&
+				mockOnly < firstRequest &&
+				/getDeliveryProfileSource\(\) !== 'default'/.test(branch) &&
+				/refusal =[\s\S]*return;/.test(branch),
+		);
+	}
 	const game = read('apps/lines/src/components/Game.svelte');
 	check(
 		'9. Game.svelte: no spin hotkey, no hold-to-spin and no coded HUD without a bet',

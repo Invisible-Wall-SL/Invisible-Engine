@@ -69,7 +69,7 @@
 	/** Who decides a match-3 game's result: free play (its own rules) unless asked for real money. */
 	let match3Outcome = $state<GameOutcome>('rules');
 	const OUTCOME_LINES: Record<GameOutcome, string> = {
-		rgs: "The server deals every board and win — plays on the test server's mock. Publishing a non-slot game and live real money are not switched on yet.",
+		rgs: "The server deals every board and win — publishes to the test server's mock. Live real money is not switched on yet.",
 		rules: "The game's own rules, no wallet.",
 	};
 	let creating = $state(false);

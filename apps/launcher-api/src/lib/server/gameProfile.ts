@@ -34,6 +34,7 @@ import {
 	potsOverlayOf,
 	primaryHoldAndWin,
 	resolveBetModes,
+	resolveOutcome,
 	resolveWinLevels,
 	resolveWinModel,
 	symbolsInPlay,
@@ -253,7 +254,9 @@ const FACTS: readonly ChipSource[] = [
 		// entirely healthy on the card. Comparing them is the only thing that makes that visible.
 		text: (ctx) => {
 			if (!ctx.protocol) return null;
-			const expected = protocolFor(ctx.gameTypeId);
+			// A rules-decided config is `freePlay` whatever its kind (`deriveMockContract`).
+			const expected =
+				resolveOutcome(ctx.config) === 'rules' ? 'freePlay' : protocolFor(ctx.gameTypeId);
 			// A `holdAndWin` stamp is the lines deal it became (`protocolFor`), not a drift.
 			const dealt = ctx.protocol === 'holdAndWin' ? 'lines' : ctx.protocol;
 			return dealt === expected

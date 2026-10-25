@@ -79,7 +79,16 @@ if (!GAME_KEY_RE.test(gameKey)) {
 // Default the mock protocol from the key when not given (book-of games → 'book'). The list matches
 // `MOCK_PROTOCOLS` in services/test-server/server.mjs — a name this side accepts but that side does
 // not would silently downgrade the game to `lines`, which is the failure this whole flag guards.
-const MOCK_PROTOCOLS = ['lines', 'book', 'ways', 'cluster', 'scatter', 'holdAndWin', 'match3'];
+const MOCK_PROTOCOLS = [
+	'lines',
+	'book',
+	'ways',
+	'cluster',
+	'scatter',
+	'holdAndWin',
+	'match3',
+	'freePlay',
+];
 const protocol = getFlag('protocol') ?? (/book|borut/.test(gameKey) ? 'book' : 'lines');
 if (!MOCK_PROTOCOLS.includes(protocol)) {
 	console.error(`--protocol must be one of ${MOCK_PROTOCOLS.join('|')} (got '${protocol}').`);

@@ -13,7 +13,9 @@ built-ins, held to a parity gate in `check:all`, offered as "Start from a built-
 step 7 (editor v2: subgraphs, node thumbnails, cost chips, publishing to the studio library,
 #1340) are merged. Step 8 (the plan's "Later") is split into 8a–8e; 8a, the motion graph, is
 merged (#1342), and so are 8b, Break as an output node (#1347), and 8c, the admin-only Custom
-GLSL node (#1349). 8d (particle materials) is designed and awaits the owner's decisions.
+GLSL node (#1349). 8d (particle materials) is decided
+([design](../design/shader-graph-particles.md)) and being built as 8d.1–8d.8; 8d.1 (the particle
+shell and the Particle node) is in progress.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -272,9 +274,11 @@ GLSL node (#1349). 8d (particle materials) is designed and awaits the owner's de
     absent when it names none. The bake walks the bundle's values the same way (never a key).
     `deploy/editor-shaders/` still holds the set, and the Publish snapshot copies it, so a game's
     asset base carries the library's compiled effects too; nothing reads them at runtime.
-- **Step 8** (the plan's "Later", split into 8a–8e in design §8). 8d designed
-  (`docs/design/shader-graph-particles.md`, on `claude/shader-graph-step8d`), awaiting the owner's
-  decisions; 8e not started.
+- **Step 8** (the plan's "Later", split into 8a–8e in design §8). 8e not started.
+  - **8d, particle materials for Invisible FX.** Decided 2026-10-25
+    (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
+    shader). Built as 8d.1–8d.8, one PR each (its §15). 8d.1, the particle shell and the Particle
+    node, is in progress.
   - **8c, the Custom GLSL node.** Merged (#1349, 2026-10-25).
     - **The node** (`packages/engine-shadergraph/src/customGlsl.ts`). `customGlsl`, pixel graph and
       subgraph bodies: `glsl: { code, inputs, outputs }`, ports with the subgraph port rules

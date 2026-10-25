@@ -176,12 +176,13 @@ has no family control at all. Two more families exist
     **x** / **y** (its top-left corner) and **Width** / **Height**, in design pixels. A body
     moving in or out raises Flow's `enterZone` / `leaveZone`. A zone wholly off the field warns.
   See [Flow → Arcade](flow.md#arcade--the-play-field-signals-and-the-starter-flow) for the signals.
-- **Publishing:** Game Maker's publish and the desktop bake **refuse a match-3 or arcade config**,
-  with no override. A free-play match-3 plays in the launcher's authoring preview, and a match-3
-  decided by the server plays there against the test server's match-3 mock, but publishing a game
-  that is not a slot is not switched on yet — and live real money for a server-decided match-3
-  also waits on a real provider's match-3 wire. An arcade game plays in the authoring preview too,
-  and is refused for the same reason. Set the family back to Slot to publish the project as a slot.
+- **Publishing:** a **match-3** config publishes from Game Maker to the test server, free play or
+  decided by the server (against the test server's match-3 mock), and so does a free-play
+  **arcade** config. An arcade config decided by the server is refused by Game Maker's publish and
+  the desktop bake, with no override, while the game runtime cannot play it. Neither family can be
+  built for a partner delivery: free play has no wallet, and live real money for a server-decided
+  match-3 waits on a real provider's match-3 wire. Set the family back to Slot to publish or
+  deliver the project as a slot.
 
 ## Coin board
 

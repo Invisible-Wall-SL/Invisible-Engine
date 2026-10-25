@@ -35,6 +35,7 @@ const { match3MockInputs, normalizeGameConfigDoc } =
 	await import('../packages/game-config/index.ts');
 const { protocolFor } = await import('../apps/launcher-api/src/lib/server/mockProtocol.ts');
 const { makeMock, validGrid } = await import('../services/test-server/makeMock.mjs');
+const { deliveryFamilyRefusal } = await import('./delivery-family-gate.mjs');
 
 let failed = 0;
 let passed = 0;
@@ -79,11 +80,94 @@ for (const file of [
 	check(dockerfile.includes(file), `the test-server image copies ${file}`);
 check(MAPPINGS.match3 === MAPPINGS.identity, 'PUBLIC_RGS_GAME=match3 maps by identity');
 
-// ── The contract the launcher sends, and the mock the test server builds from it ──
 const docOf = (name) =>
 	normalizeGameConfigDoc(
 		JSON.parse(read(`apps/launcher-api/src/lib/data/gameConfig/${name}.json`)),
 	);
+
+// ── Free play: every list knows freePlay, its mock takes nothing, and it is never delivered ──
+console.log('free play');
+check(
+	/export const MOCK_PROTOCOLS = \[[^\]]*'freePlay'/.test(
+		read('apps/launcher-api/src/lib/server/testServerManifest.ts'),
+	),
+	'the launcher MOCK_PROTOCOLS has freePlay',
+);
+check(
+	/const MOCK_PROTOCOLS = new Set\(\[[^\]]*'freePlay'/.test(
+		read('services/test-server/server.mjs'),
+	),
+	"the test server's MOCK_PROTOCOLS has freePlay",
+);
+for (const script of [
+	'apps/launcher-api/scripts/publish-game-bundle.mjs',
+	'apps/launcher-api/scripts/publish-game-via-portal.mjs',
+])
+	check(
+		/const MOCK_PROTOCOLS = \[[^\]]*'freePlay'/.test(read(script)),
+		`${script.split('/').pop()} knows freePlay`,
+	);
+check(MAPPINGS.freePlay === MAPPINGS.identity, 'PUBLIC_RGS_GAME=freePlay maps by identity');
+{
+	const mock = makeMock('freePlay', 'fp', undefined, 'fp', undefined, 'lines');
+	const answers = [];
+	for (const [method, path] of [
+		['POST', '/api/fp/rgs/engine?sid=s&seq=0'],
+		['GET', '/api/fp/healthz'],
+		['OPTIONS', '/api/fp/rgs/engine'],
+	]) {
+		let status = 0;
+		let body = '';
+		mock.handle(
+			{ method },
+			{ writeHead: (s) => (status = s), end: (b) => (body = b) },
+			new URL(path, 'http://x'),
+		);
+		answers.push({ method, status, body });
+	}
+	check(
+		answers[0].status === 403 && /ERR_FREE_PLAY/.test(answers[0].body),
+		'the freePlay mock refuses an RGS round (403 ERR_FREE_PLAY)',
+	);
+	check(answers[1].status === 403, 'the freePlay mock answers nothing else either');
+	check(answers[2].status === 204, 'the freePlay mock still answers a CORS preflight');
+	check(mock.sessions.size === 0, 'the freePlay mock opens no session');
+}
+{
+	const refusal = (config) => deliveryFamilyRefusal(config) ?? '';
+	check(deliveryFamilyRefusal(null) === null, 'a build with no config is deliverable');
+	check(deliveryFamilyRefusal(docOf('lines')) === null, 'a slot is deliverable');
+	check(
+		/free-play .*never built for a real-money delivery/.test(refusal(docOf('match3.rules'))),
+		'a rules match-3 game is refused for any delivery',
+	);
+	check(
+		/free-play/.test(refusal({ family: 'arcade', outcome: 'rules' })),
+		'a rules arcade game is refused for any delivery',
+	);
+	check(
+		/real-money match-3 .*real provider's match-3 wire/.test(refusal(docOf('match3.rgs'))),
+		'an RGS match-3 delivery waits on the partner wire',
+	);
+	check(/arcade/.test(refusal({ family: 'arcade' })), 'an arcade game is refused for delivery');
+	check(
+		/non-slot/.test(refusal({ family: 'card' })),
+		'a family the gate does not know is refused (it fails closed)',
+	);
+	check(deliveryFamilyRefusal({ family: 'slot' }) === null, "an explicit 'slot' is deliverable");
+	const delivery = read('scripts/build-delivery.mjs');
+	const gate = delivery.indexOf('const family = familyRefusal();');
+	check(
+		/import \{ deliveryFamilyRefusal \} from '\.\/delivery-family-gate\.mjs';/.test(delivery) &&
+			gate > delivery.indexOf("run('pnpm', ['build']") &&
+			gate > delivery.indexOf('if (skipBuild) {') &&
+			gate < delivery.indexOf("resolve(ENGINE_ROOT, 'scripts/build-embed.mjs')") &&
+			/if \(family\)\s*throw refused\(family/.test(delivery.slice(gate)),
+		'build-delivery.mjs refuses on the gate after the build (or --skip-build), before packaging',
+	);
+}
+
+// ── The contract the launcher sends, and the mock the test server builds from it ──
 const rgsDoc = docOf('match3.rgs');
 const inputs = match3MockInputs(rgsDoc);
 console.log('contract');
@@ -122,7 +206,7 @@ check(
 			true,
 		)?.handle,
 	),
-	'a rules-decided project still stands its (never asked) mock up',
+	'a match-3 entry with only rules inputs still stands its mock up',
 );
 
 // ── The total table ──────────────────────────────────────────────────────────

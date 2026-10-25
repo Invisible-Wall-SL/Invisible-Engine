@@ -135,6 +135,7 @@ export const MAPPINGS: Record<string, GameMapping> = {
 	book: bookMapping,
 	identity: identityMapping,
 	match3: identityMapping,
+	freePlay: identityMapping,
 };
 
 /** Resolve the active game mapping from env, defaulting to `lines`. Reads

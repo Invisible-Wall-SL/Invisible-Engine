@@ -56,6 +56,10 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 ⏳ **Still open (live-verify):** Tier-C rig-particle **GPU/perf ceiling** in a published game (expect tens, not hundreds); owner pixel-verify of the rig-bound FX size/rotation on live WebGL across `/symbols`, `/rigger`, and the game. The rotation was wrong in the game until the 2026-10-15 fix. The best check is a bone keyed through 90°, where the old code drew the FX upside down.
 
 ## Open items / next
+- **Shader Graph materials** (decided 2026-10-25, being built) — a compiled Shader Graph effect as
+  the material a sprite layer's particles draw with, picked in `/fx`. The plan, its eight PRs and
+  their state live in [design/shader-graph-particles.md](../design/shader-graph-particles.md) and
+  [status/shader-graph](shader-graph.md) (step 8d).
 - **Owner browser-pass over Element FX** (2026-10-21) — in `/editor` add a few effects to a rig,
   a flipbook, a particle effect node, the reel grid and a screen (Screen panel), ▶ preview each,
   and Save → reopen. Then in a published game: an *Always* float / glow / flag on a node, a *When

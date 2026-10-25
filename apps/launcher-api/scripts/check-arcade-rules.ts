@@ -30,7 +30,8 @@
  * 10. THE SAMPLE IS ONE PIECE: the starter flow validates clean as a rules game over the scene set's
  *     spawn layer; the vocabulary's actions are the loop's effects and its values the loop's; the
  *     scene set, the seed config and the sample components name the same components, layer and
- *     screens; the publish gate still refuses an arcade config.
+ *     screens; the publish gate passes a free-play arcade config (dealt the `freePlay` mock) and
+ *     refuses an RGS one; a partner session and a delivery build refuse any arcade game.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -85,7 +86,8 @@ import {
 } from 'game-config';
 
 import { projectSpawnLayers } from '../src/lib/flowV2Projection.ts';
-import { unplayableFamilyMessage } from '../src/lib/server/familyGate.ts';
+import { partnerRgsRefusal, unplayableFamilyMessage } from '../src/lib/server/familyGate.ts';
+import { deliveryFamilyRefusal } from '../../../scripts/delivery-family-gate.mjs';
 
 let fails = 0;
 let passes = 0;
@@ -904,6 +906,27 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 	check(
 		'10. the publish gate refuses an arcade game decided by the RGS',
 		unplayableFamilyMessage({ ...SEED_CONFIG, outcome: undefined }) !== null,
+	);
+	check(
+		'10. …and passes the free-play arcade seed, now that its mechanic is playable',
+		unplayableFamilyMessage(SEED_CONFIG) === null,
+	);
+	const { mockContractOfBundle } = await import('../src/lib/server/mockContract.ts');
+	check(
+		'10. the published free-play arcade game is dealt the refusing freePlay mock',
+		JSON.stringify(
+			mockContractOfBundle(
+				'lines',
+				{ config: SEED_CONFIG, symbols: { map: {}, index: {} } },
+				'ar',
+				'arcade',
+			),
+		) === JSON.stringify({ protocol: 'freePlay' }),
+	);
+	check(
+		'10. it is never launched against a partner RGS nor built for a (real-money) delivery',
+		/free play/.test(partnerRgsRefusal(SEED_CONFIG) ?? '') &&
+			/never built for a real-money delivery/.test(deliveryFamilyRefusal(SEED_CONFIG) ?? ''),
 	);
 	check(
 		'10. the seed config is a free-play arcade game the validator passes with no error or warning',

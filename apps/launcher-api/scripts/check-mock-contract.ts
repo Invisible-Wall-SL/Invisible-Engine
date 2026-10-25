@@ -811,6 +811,25 @@ await check('the Paylines preview and paytable import ask the AUTHORING mock', a
 	eq(new URL(asked[0]).pathname, '/api/remake/authoring/rgs/engine', 'path');
 });
 
+console.info('free play (game-families §2.3, §6.3)');
+
+await check(
+	'a rules-decided config is dealt freePlay, with no grid, whatever its kind asks',
+	() => {
+		const rules = template('match3.rules');
+		for (const protocol of ['match3', 'lines'] as const) {
+			const contract = mockContractOfBundle(protocol, { config: rules, symbols: NO_SYMBOLS }, 'fp');
+			eq(contract, { protocol: 'freePlay' }, protocol);
+		}
+	},
+);
+
+await check('an RGS-decided match-3 config keeps the match3 mock', () => {
+	const rgs = template('match3.rgs');
+	const contract = mockContractOfBundle('match3', { config: rgs, symbols: NO_SYMBOLS }, 'm3');
+	eq(contract.protocol, 'match3', 'protocol');
+});
+
 if (failures) {
 	console.error(`\n${failures} check(s) FAILED.`);
 	process.exit(1);
