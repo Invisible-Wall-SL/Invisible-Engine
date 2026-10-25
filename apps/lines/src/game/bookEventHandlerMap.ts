@@ -510,7 +510,13 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	movesLeft: async (bookEvent: BookEventOfType<'movesLeft'>) => {
 		presentMatch3MovesLeft(bookEvent.count);
 	},
-	roundEnd: async (bookEvent: BookEventOfType<'roundEnd'>) => {
+	// The meter ends on the round's whole total: the steps' running win leaves out the part the server
+	// pays only at the end (`settle`, docs/reference/match3-wire.md).
+	match3RoundEnd: async (bookEvent: BookEventOfType<'match3RoundEnd'>) => {
+		if (bookEvent.totalWin > 0) {
+			eventEmitter.broadcast({ type: 'winShow' });
+			eventEmitter.broadcast({ type: 'winUpdate', amount: bookEvent.totalWin, winLevel: 0 });
+		}
 		await endMatch3Round(bookEvent.totalWin, bookEvent.reason);
 	},
 };

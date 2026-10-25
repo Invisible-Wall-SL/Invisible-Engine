@@ -74,7 +74,7 @@ export const MATCH3_RGS_MECHANIC: GameMechanic = Object.freeze({
 	rgsSession: true,
 	wallet: true,
 	boardInput: true,
-	bookEvents: ['boardInit', 'swap', 'movesLeft', 'roundEnd'],
+	bookEvents: ['boardInit', 'swap', 'movesLeft', 'match3RoundEnd'],
 });
 
 /**

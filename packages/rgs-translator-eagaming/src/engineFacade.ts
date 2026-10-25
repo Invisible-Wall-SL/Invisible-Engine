@@ -502,7 +502,8 @@ const warnOnStakeRounding = (
  *  knows how to translate, and the declared grid against what the facade emits.
  *  Logs once per session as a console.warn; never throws. */
 const runConfigCrossCheck = (sid: string, cfg: Play4FunConfigContext): void => {
-	if (reportedSessions.has(sid)) return;
+	// A match-3 server deals the project's own gem names, which map by identity on purpose.
+	if (reportedSessions.has(sid) || capturedMatch3.has(sid)) return;
 	reportedSessions.add(sid);
 
 	const declared = new Set(cfg.symbols ?? []);

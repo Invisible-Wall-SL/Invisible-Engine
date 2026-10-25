@@ -39,6 +39,21 @@ import { engineOwnedOnly, getFullSceneSet } from 'engine-layout';
 import { GAME_KINDS, SLOT_GAME_KINDS } from 'constants-shared/gameKinds';
 import { resolveOutcome } from 'game-config';
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+// `engine-game`'s entry also exports its Svelte components, so the modules are read directly.
+import { createMatch3Driver } from 'engine-game/src/game/match3Driver';
+import { createMatch3RgsSession } from 'engine-game/src/game/match3RgsSession';
+import {
+	CONTINUOUS_INTENTS,
+	MATCH3_RGS_MECHANIC,
+	REELS_MECHANIC,
+	runsIntent,
+	WAGER_INTENTS,
+} from 'engine-game/src/game/mechanic';
+import { canSwap, createBoard, createRng, findMoves, resolve, swap } from 'engine-mechanics';
+
 import { composeFlowV2Vocab } from '../src/lib/flowV2Vocab';
 import { BUILTIN_SOUND_OPTIONS } from '../src/lib/soundOptions';
 import { invalidFlowMessage, validateFlowV2Against } from '../src/lib/server/flowV2Validation';
@@ -427,6 +442,205 @@ const scenesFor = (kind: string, outcome?: 'rgs' | 'rules') => {
 		'5. an RGS match-3 doc feeding a variable to a money amount gets variable-shadows-money',
 		judge(fed, 'rgs').some((i) => i.code === 'variable-shadows-money' && nodeOf(i) === 'm3r_money'),
 		codes(judge(fed, 'rgs')),
+	);
+}
+
+// ── 6. the runtime: an RGS board has no local RNG, and money comes only from the server ─────────
+{
+	const ROOT = join(import.meta.dirname, '../../..');
+	const read = (path: string) => readFileSync(join(ROOT, path), 'utf8');
+
+	check(
+		'6. an RGS match-3 is playable: it bets, its round is interactive, its board never spins',
+		MATCH3_RGS_MECHANIC.unplayable === undefined &&
+			MATCH3_RGS_MECHANIC.bets &&
+			MATCH3_RGS_MECHANIC.interactiveRound &&
+			!MATCH3_RGS_MECHANIC.spins,
+	);
+	check(
+		'6. its round takes a bet and the bet steps, never autoplay or a bonus buy; a slot takes all',
+		['spin', 'increase', 'decrease'].every((i) => runsIntent(MATCH3_RGS_MECHANIC, i)) &&
+			CONTINUOUS_INTENTS.every((i) => !runsIntent(MATCH3_RGS_MECHANIC, i)) &&
+			WAGER_INTENTS.every((i) => runsIntent(REELS_MECHANIC, i)),
+	);
+
+	// A stand-in server: deal a board, and answer a move as the facade translates the wire.
+	const strips = Array.from({ length: 6 }, (_, reel) =>
+		Array.from({ length: 30 }, (_, i) => ['H1', 'H2', 'H3', 'L1', 'L2'][(i * 7 + reel * 3) % 5]),
+	);
+	const dealt = createBoard({ cols: 6, rows: 6, pool: strips, rng: createRng('guard'), minRun: 3 });
+	const names = dealt.cells.map((reel) => reel.map((gem) => ({ name: gem!.name })));
+	const legal = findMoves(dealt, { limit: 1 })[0];
+	// The one chain the server deals for that swap: a pool resolve draws from the board's shared rng,
+	// so it is resolved once and every answer and expectation reads it.
+	const chain = resolve(swap(dealt, legal.from, legal.to), { source: 'pool' });
+	const serverBook = (from: typeof legal.from, to: typeof legal.to, lie = false) => {
+		return [
+			{ index: 0, type: 'swap', from, to, accepted: true },
+			...chain.steps.flatMap((step, i) => [
+				{
+					index: 1 + i * 2,
+					type: 'tumbleBoard',
+					explodingSymbols: step.event.explodingSymbols.map((c, k) => ({
+						reel: c.reel,
+						row: c.row + 1 + (lie && k === 0 ? 1 : 0),
+					})),
+					newSymbols: step.event.newSymbols,
+				},
+				{ index: 2 + i * 2, type: 'updateTumbleWin', amount: 10 * (i + 1) },
+			]),
+			{ index: 90, type: 'movesLeft', count: 4, board: chain.board.cells },
+		];
+	};
+	let requests = 0;
+	const mismatches: string[] = [];
+	const session = createMatch3RgsSession({
+		board: names,
+		movesLeft: 5,
+		minRun: 3,
+		requestMove: async (from, to) => {
+			requests++;
+			return serverBook(from, to);
+		},
+		onMismatch: (m) => mismatches.push(m),
+	});
+	check('6. the RGS board is built with no RNG', session.board.rng === null);
+	const throws = (run: () => unknown) => {
+		try {
+			run();
+			return false;
+		} catch {
+			return true;
+		}
+	};
+	check(
+		'6. a local deal, shuffle or resolve throws on it',
+		throws(session.deal) && throws(session.shuffle) && throws(session.resolveNow),
+	);
+	let illegal: { from: typeof legal.from; to: typeof legal.to } | undefined;
+	for (let reel = 0; reel < 5 && !illegal; reel++)
+		for (let row = 0; row < 6 && !illegal; row++)
+			if (!canSwap(dealt, { reel, row }, { reel: reel + 1, row }))
+				illegal = { from: { reel, row }, to: { reel: reel + 1, row } };
+	const refused = await session.trySwap(illegal!.from, illegal!.to);
+	check(
+		'6. a swap the board cannot match is refused with no request (the pre-check is UX only)',
+		!refused.accepted && requests === 0,
+	);
+	const moved = await session.trySwap(legal.from, legal.to);
+	const expected = chain;
+	check(
+		'6. a legal swap is one request, and its cascade is the server’s',
+		requests === 1 &&
+			moved.accepted &&
+			moved.steps.length === expected.steps.length &&
+			moved.points === 0 &&
+			moved.steps.every((step) => step.points === 0 && step.tail?.[0]?.type === 'updateTumbleWin'),
+	);
+	check(
+		'6. the mirror takes the server’s settled board and moves',
+		json(session.board.cells.map((r) => r.map((g) => g?.name))) ===
+			json(expected.board.cells.map((r) => r.map((g) => g?.name))) &&
+			session.movesLeft === 4 &&
+			moved.tail?.some((e) => (e as { type: string }).type === 'movesLeft') === true,
+	);
+	check(
+		'6. a move that replays exactly reports no mismatch',
+		mismatches.length === 0,
+		json(mismatches),
+	);
+
+	const liar = createMatch3RgsSession({
+		board: names,
+		movesLeft: 5,
+		minRun: 3,
+		requestMove: async (from, to) => serverBook(from, to, true),
+		onMismatch: (m) => mismatches.push(m),
+	});
+	const lied = await liar.trySwap(legal.from, legal.to);
+	check(
+		'6. exploded cells the board’s rules do not match are logged as a wire bug, never overridden',
+		mismatches.length > 0 &&
+			lied.accepted &&
+			json(liar.board.cells.map((r) => r.map((g) => g?.name))) ===
+				json(expected.board.cells.map((r) => r.map((g) => g?.name))),
+	);
+
+	// The driver over an RGS board: the same signals, the server's tail, and no local refill.
+	const signals: string[] = [];
+	const errors: unknown[] = [];
+	const tails: string[] = [];
+	const driven = createMatch3RgsSession({
+		board: names,
+		movesLeft: 5,
+		minRun: 3,
+		requestMove: async (from, to) => [
+			...serverBook(from, to),
+			{ index: 91, type: 'match3RoundEnd', totalWin: 50, reason: 'movesUsed' },
+		],
+	});
+	const driver = createMatch3Driver({
+		session: driven,
+		state: { busy: false, inputEnabled: true, selected: undefined, moves: 0 },
+		signal: async (name) => void signals.push(name),
+		present: {
+			seat: () => {},
+			swap: async () => {},
+			step: async () => {},
+			mark: () => {},
+			tail: async (events) => void tails.push(...events.map((e) => (e as { type: string }).type)),
+		},
+		onError: (error) => errors.push(error),
+	});
+	await driver.start();
+	await driver.swapCells(legal.from, legal.to);
+	check(
+		'6. the driver raises boardReady, swap, match / cascadeStep per step, settled — never noMoves',
+		signals[0] === 'boardReady' &&
+			signals[1] === 'swap' &&
+			signals.filter((s) => s === 'match').length === expected.steps.length &&
+			signals.at(-1) === 'settled' &&
+			!signals.includes('noMoves'),
+		json(signals),
+	);
+	check(
+		'6. the server’s tail (moves left, the round’s end) is played after the move settles',
+		json(tails) === json(['movesLeft', 'match3RoundEnd']),
+		json(tails),
+	);
+	driver.effects.boardRefill({});
+	driver.effects.boardShuffle({});
+	await driver.idle();
+	check(
+		'6. a flow that still calls Refill or Shuffle board on an RGS board gets an error, not a deal',
+		errors.length === 2,
+		`${errors.length} errors`,
+	);
+
+	// The wiring, read off the source: the runtime's RGS board is the mirror, the round machine waits
+	// on it, and collects it whatever it won.
+	const runtime = read('apps/lines/src/game/match3.svelte.ts');
+	const presentBoard = runtime.slice(runtime.indexOf('export const presentMatch3Board'));
+	check(
+		'6. the runtime mirrors the server’s board (createMatch3RgsSession), never deals one',
+		/createMatch3RgsSession\(/.test(presentBoard) &&
+			!/createMatch3Session\(|createRng|createBoard/.test(presentBoard),
+	);
+	const actor = read('apps/lines/src/game/actor.ts');
+	check(
+		'6. the round machine waits on the open round between the bet and the collect',
+		/checkIsInteractiveRound: \(bet\) => bet\.state\.some\(\(bookEvent\) => bookEvent\.type === 'boardInit'\)/.test(
+			actor,
+		) && /onInteractiveRound: \(\) => awaitMatch3Round\(\)/.test(actor),
+	);
+	const machines = read('packages/utils-xstate/src/createPrimaryMachines.ts');
+	check(
+		'6. an interactive round is collected whatever it won, and a slot never is one',
+		/if \(checkIsInteractiveRound\(bet\)\) return 'interactive';/.test(machines) &&
+			/interactive: \{[\s\S]{0,120}endGame: async \(\) => \{\s*const data = await handleRequestEndRound\(\);/.test(
+				machines,
+			) &&
+			/checkIsInteractiveRound = \(\) => false/.test(machines),
 	);
 }
 

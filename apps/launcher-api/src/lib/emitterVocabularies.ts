@@ -1590,6 +1590,18 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			{
 				type: 'modeExit',
 			},
+			{
+				type: 'boardInit',
+			},
+			{
+				type: 'swap',
+			},
+			{
+				type: 'movesLeft',
+			},
+			{
+				type: 'match3RoundEnd',
+			},
 		],
 	},
 	ways: {
@@ -3165,6 +3177,18 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'modeExit',
+			},
+			{
+				type: 'boardInit',
+			},
+			{
+				type: 'swap',
+			},
+			{
+				type: 'movesLeft',
+			},
+			{
+				type: 'match3RoundEnd',
 			},
 		],
 	},
@@ -4742,6 +4766,18 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			{
 				type: 'modeExit',
 			},
+			{
+				type: 'boardInit',
+			},
+			{
+				type: 'swap',
+			},
+			{
+				type: 'movesLeft',
+			},
+			{
+				type: 'match3RoundEnd',
+			},
 		],
 	},
 	holdAndWin: {
@@ -6317,6 +6353,18 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'modeExit',
+			},
+			{
+				type: 'boardInit',
+			},
+			{
+				type: 'swap',
+			},
+			{
+				type: 'movesLeft',
+			},
+			{
+				type: 'match3RoundEnd',
 			},
 		],
 	},

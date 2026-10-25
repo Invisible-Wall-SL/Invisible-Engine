@@ -2,15 +2,129 @@
 
 > Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `invisible-game-config`, `invisible-game-maker`, then per phase
 
-**One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.4 are merged; P10.5
-(match-3, rules-decided, end to end) is built** and in review. A match-3 project can be made in
-Game Maker and plays in the shared runtime as free play: the board never spins, the player swipes
-or taps gems, matches cascade, and the starter flow keeps the score and the moves. Publishing a
-game that is not a slot stays off. RGS-decided match-3 (P10.6) is next.
+**One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.5 are merged; P10.6
+(match-3, RGS-decided) is built** and in review. A match-3 project can be made in Game Maker as free
+play (P10.5) or real money (P10.6): in the second the bet deals the server's board, every swap is a
+`move` request, the server ends the round and it is collected once. It plays against the test
+server's `match3` mock on our own wire. Publishing a game that is not a slot stays off, and live
+real money waits on the partner (§9 #2).
 
 ## Current state
 
-**P10.5 — Match-3, rules-decided, end to end (built 2026-10-24; in review).** §8's P10.5 row, in
+**P10.6 — Match-3, RGS-decided (built 2026-10-25; in review).** §8's P10.6 row, in one PR.
+
+- **The wire — ours, labelled** ([reference/match3-wire.md](../reference/match3-wire.md)): `bet`+
+  `play` → `match3Board`; one stored `move {from, to}` per swap under the `gid` → `match3Move` (its
+  steps, moves left, the settled board), with `match3End` + `gameEnd` on the move that ends the
+  round; `collect` → `gameRoundOver`. Boot `config.match3 {wire: 1, minRun, moves}`. The protocol
+  reference records it ("Ours, not theirs: the match-3 `move`").
+- **The mock** (`scripts/mock-rgs-server-match3.mjs`): deals from the project's config
+  (`game-config` `match3MockInputs` → the mock contract's `grid.match3`), board rules imported from
+  `engine-mechanics/src/board.js`; fixed-at-bet math (`MATCH3_TOTAL_TABLE`, mean 0.96 of the stake;
+  each step's pay capped at what is left; the refills steered from the strips; `match3End.settle`
+  pays the remainder, so a round always pays exactly the total drawn); replay at an occupied `seq`;
+  resume mid-round through the boot `config`; `force:<multiple>` for authoring channels only. The
+  test-server Dockerfile copies it, `board.js` and `engine-mechanics/package.json`.
+- **`match3` in every protocol list:** the test server's `MOCK_PROTOCOLS` and `makeMock` /
+  `validGrid`; the launcher's `MOCK_PROTOCOLS`, `protocolFor('match3')`, the mock contract; both
+  publish scripts; `MAPPINGS.match3` (identity) for `PUBLIC_RGS_GAME`.
+- **The facade** (`rgs-translator-eagaming` `src/match3.ts`, `engineFacade.ts`): `requestMove`
+  (`buildMoveAction`; the fetcher advances `seq` by one, no hand-written advance); the match-3 events
+  → `boardInit`, `swap`, `tumbleBoard` + `updateTumbleWin` per step, `movesLeft`,
+  `match3RoundEnd`; the round's stake kept per session for the moves' amounts; the bet's round
+  returned open (no play-out, no auto-collect); a resumed round condensed to ONE `boardInit` (the
+  last board, its moves, the running win, its end if it had one). Slot sessions take the old path
+  untouched (only a boot config with `match3.wire === 1` switches any of it on).
+- **Both transports export `requestMove`:** the stock `rgs-requests` answers `ERR_UNSUPPORTED` with
+  no request, so the non-play4fun build compiles.
+- **The interactive round** (`utils-xstate` `createPrimaryMachines`): two optional options,
+  `checkIsInteractiveRound` / `onInteractiveRound`; such a round's bet type is `interactive`, whose
+  end round always collects and updates the balance. `apps/lines` `actor.ts` marks a book with
+  `boardInit` interactive and waits on `awaitMatch3Round()`. A slot passes neither (defaults: never
+  interactive), so its machine runs exactly as before.
+- **The mechanic:** `GameMechanic` gains `bets` and `interactiveRound`; `MATCH3_RGS_MECHANIC` is
+  playable (`spins: false, bets: true, interactiveRound: true`). `runsIntent` reads `bets` (as it
+  read `spins`) and refuses `autoSpin` / `buyBonus` (`CONTINUOUS_INTENTS`) for an interactive round;
+  `EnableGameActor` starts a `BET` for any mechanic that bets and never an `AUTO_BET` for an
+  interactive one; `Game.svelte`'s coded HUD and Space hotkey gate on `bets`, hold-to-spin on
+  `bets && !interactiveRound`; the pre-spin roll stands down for a board that never spins. Every
+  gate reads as before for `REELS_MECHANIC` (`spins` = `bets` = true).
+- **The runtime** (`apps/lines` `match3.svelte.ts`): `boardInit` → a fresh `createMatch3RgsSession`
+  (`engine-game`: a mirror built with `rng: null`; its deal, shuffle and resolve throw; the pre-check
+  refuses a non-matching swap with no request; each move replayed locally with the server's refills,
+  a difference logged as a wire bug and the server's board kept) under the same driver as free play,
+  so the board's Flow signals are the same (`boardReady {moves, target: 0}`, `swap`, `match` /
+  `cascadeStep` with 0 points, `settled`, `roundEnd {totalWin, reason}` in currency; never
+  `noMoves`). The driver now awaits `trySwap` and plays an RGS move's `tail` (moves left, the round's
+  end, the win) after `settled`. Input is taken only while a round is open.
+- **Flow** (`engine-flow-v2`): `withOutcome(vocab, 'rgs')` drops `MATCH3_RULES_ONLY_ACTIONS`
+  (identity otherwise, so every slot vocabulary resolves as before); a doc that still calls one gets
+  `rules-only-in-rgs` (an error, so Publish refuses it); `composeFlowV2Vocab`, `/flow-v2`, the
+  publish checks and the runtime compose with the config's outcome. The RGS starter
+  (`match3RgsSeed.ts`): load → board, MOVES and the slot HUD; `boardReady` sets `movesLeft` and opens
+  input; an accepted swap spends one; `roundEnd` locks the board.
+- **Game Maker** asks "Who decides the result?" for `match3` (Real money (RGS) / Free play (rules),
+  free play preselected); RGS seeds `match3.rgs.json` (one base bet mode, 3 / 4 / 5+ pays priced on
+  the whole stake, 10 moves, RTP 0.96), the RGS scene set (`match3RgsReferenceLayout`: a 76 px board
+  raised above the HUD, MOVES, `hudBar` / `hudCorners`) and the RGS starter flow. A caller that
+  sends no outcome (the API, Director) gets the rules game as before. `familyGate.ts` still refuses
+  every non-slot config, with its own message for an RGS match-3.
+- **Gates:** `check:match3-wire` (root, in `check:rgs`: the real facade against the real mock —
+  bet at seq 0, each move one stored action at the next seq under the gid, a server refusal changes
+  nothing, the round takes its moves and is collected once, the heartbeat stands down, a re-post at
+  an occupied seq replays and charges nothing, 25 rounds each settle exactly the drawn total; every
+  protocol list knows `match3`; the table pays 0.96 — plus `match3.fixture.ts`, 55 translation
+  checks over a scripted server: resends, resume, the stock transport); `check:match3-outcome-guard`
+  (launcher, 79: `withOutcome`, `rules-only-in-rgs`, the RGS starter played headless, money
+  variables, the mechanic, the mirror's no-RNG guard and wire-mismatch log, the driver over an RGS
+  board, the round machine's wiring). `check:match3-rules` re-pinned to the new mechanic fields.
+- **Verified by playing:** `scripts/playtest/match3-rgs-play.mjs` on the branch runtime against the
+  real test server's mock (seed 7): Spin posted `[bet, play]` and the balance dropped by the stake;
+  the server's board landed with MOVES 10; a non-matching swap posted nothing; 10 moves at seq 2–11
+  under the gid; a reload after the third move resumed on the same board and moves; the server ended
+  the round, one `collect`, the balance moved by exactly the round's total ($100 → $99 → $99.50); no
+  page error. Playbook: [playtest/match3-sample.md](../playtest/match3-sample.md) R1–R5.
+- **Slot parity:** every new path is keyed on a match-3 config, a `match3` boot block or a
+  `boardInit` book event, none of which a slot has. Edited shared runtime modules:
+  `createPrimaryMachines.ts`, `actor.ts`, `EnableGameActor.svelte`, `Game.svelte`,
+  `bookEventHandlerMap.ts` / `typesBookEvent.ts` (four new arms), `flowV2Runtime.svelte.ts`,
+  `determinism.ts` (two probe fields), `engineFacade.ts`.
+- **Chosen in P10.6, owner may overturn** (the plan does not fix them):
+  - **one PR**, not split;
+  - the book event that ends a round is **`match3RoundEnd`**, not the plan's `roundEnd`: a book
+    event a v2 flow has a chain for is driven by the flow alone (event ownership), and every
+    match-3 flow has a `roundEnd` chain, so the round never closed. The runtime raises the
+    `roundEnd` signal itself, with the win in currency;
+  - each move carries the server's **settled board** (`match3Move.board` → `movesLeft.board`), so
+    the client mirrors it rather than trusting its own replay;
+  - the client **pre-checks** a swap on the server's board and sends nothing for one that cannot
+    match (UX only; the server refuses it too, and a refused move is still stored);
+  - the mock draws the total at the **`play`** of the opening request (where `force:` rides), reads
+    the config's `match3.moves` as its own setting (10 when absent), refuses a second `bet` while a
+    round is open (102), a `collect` before `match3End` (110) and a malformed `move` (101);
+  - an RGS round has no score goal: `boardReady.target` is 0 and `match` / `settled` carry 0 points
+    (money comes only from books);
+  - the RGS scene set uses the **slot HUD** (`hudScenes()`): its Spin places the bet; its board is
+    76 px cells raised 70 px so the bottom bar does not cover it;
+  - Game Maker preselects **Free play**, and an absent outcome means rules (back-compat);
+  - `movesLeft` reaches the HUD through the starter flow's variable (spent on each accepted swap,
+    reset from `boardReady`), not a new engine value source.
+- **Not done here:** switching publish on for a non-slot game (owner's call), live real money (the
+  partner's match-3 wire, §9 #2), a current-games fixture for the RGS sample (it would edit the
+  harness; the playtest script builds its own snapshot instead), `/flow-v2` Preview running an RGS
+  board, a `ValidationPanelV2` icon for `rules-only-in-rgs` (falls back to ⚠).
+- **Known limits** (none reachable by a slot game):
+  - while a round is open the HUD Spin button reads STOP; pressing it slams the presentation;
+  - a bought bonus or autoplay is refused, not hidden: the coded HUD still draws AUTO SPIN;
+  - the scaffolded scene set's board is sized for the desktop layout; tablet / portrait keep the
+    centred placement of the rules set;
+  - the current-games harness's own `protocolFor` copy (`scripts/current-games/lib/plan.mjs`) still
+    maps `match3` to `lines` (not edited: the harness is the owner's to change). No live game is a
+    match-3 game, so nothing renders through it yet;
+  - a match-3 game published before this shows the launcher's protocol-drift chip ("re-publish"):
+    its entry says `lines`, the kind now maps to `match3`. None is published (publishing is off).
+
+**P10.5 — Match-3, rules-decided, end to end (built 2026-10-24; merged #1332).** §8's P10.5 row, in
 one PR (the vocabulary, the scene set, Game Maker and the gates move together: registering the
 kind is what every scaffold gate loops over).
 
@@ -218,7 +332,7 @@ and board-cell bullets. No game uses any of it yet.
   and a swipe listener's filter, and drops a malformed row whole, which the keep-unknown save puts
   back (`componentFields.ts` knows `swipe`). The editor (`EditorListeners.svelte`,
   `EditorRaisePayload.svelte`, `listenerEdit.ts`): the five new events, the swipe row (direction,
-  threshold), the *align target* action (node, keep offset, axis), and pointer x / y / dx / dy for a
+  threshold), the _align target_ action (node, keep offset, axis), and pointer x / y / dx / dy for a
   number field on a listener's raise.
 - **Board cell input** (`packages/engine-game/src/game/gameState.svelte.ts`): `getCellAt(x, y)`
   (board-local) → `{ reel, row }` or `undefined`, the inverse of `getSymbolSeat`: the cell whose
@@ -257,7 +371,7 @@ and board-cell bullets. No game uses any of it yet.
     in each press**; the **root** cannot be a target;
   - a **new press** on a node whose press is still on takes over, ending the open drag first;
   - a new listener on a def with no input and no event **aligns its own node** (it used to start as
-    an empty *fire*);
+    an empty _fire_);
   - the hit-test's cell is the **pitch box** (a gap belongs to the nearer cell), visible cells only;
   - the validation codes' names.
 - **Not done here:** the State machine tab's stage preview (`listenerPreview.ts` / `EditorCanvas`
@@ -313,8 +427,8 @@ timers, keys).
   `variable-duplicate`, `variable-shadows-money`, `tick-async`, `tick-fast`, `input-unknown`.
   `validateFlowDoc` takes an optional `outcome` (absent ⇒ RGS).
 - **`/flow-v2`:** the Variables panel (`VariablesPanelV2.svelte`, with the key map on the Global
-  tab), the *Variables & time* palette group, inspector fields, `$var` in the accessor picker, the
-  new codes in Validation, and the preview's horizon and *No event* run.
+  tab), the _Variables & time_ palette group, inspector fields, `$var` in the accessor picker, the
+  new codes in Validation, and the preview's horizon and _No event_ run.
 - **Gates:** `check:flow-variables` (42 checks) and `check:flow-time-events` (35 checks), both run
   by `check:all`; `envFactory.fixture.ts` learns the `state` capability.
 - **Slot parity:** a doc with no variable, key map or state node gets no store, no value source, no
@@ -462,9 +576,8 @@ game, bundle or screen changes.
 
 ## Open items / next
 
-1. P10.6 (RGS-decided match-3): the `move` action, the interactive round, the mock, the
-   `MATCH3_RGS_MECHANIC` made playable, `withOutcome('rgs')` over `MATCH3_RULES_ONLY_ACTIONS`, Game
-   Maker's outcome question and the RGS seed config.
+1. **Live real-money match-3** waits on a real provider's match-3 wire (§9 #2); our wire
+   (`docs/reference/match3-wire.md`) and its facade mapping are rewritten when one arrives.
 2. **Switching publish on for a non-slot game** is the owner's call (`familyGate.ts` refuses it
    today, by the owner's rule for P10.5). Until then a match-3 game plays only in the authoring
    preview.
@@ -478,8 +591,11 @@ game, bundle or screen changes.
    overwritten); an `arcade` one would be when P10.8 lands. Needs R2 access, which this build did
    not have.
 8. The runtime still prices and draws the `match3` arm as the lines default (`payoutDivisor`,
-   `winLineShapeFor`), unreachable while only rules match-3 plays; P10.6 honours the arm
-   (divisor 1).
+   `winLineShapeFor`). An RGS match-3 game never reads either (its wins are the server's amounts,
+   presented by the cascade, with no win lines), so P10.6 left them; honour the arm (divisor 1) if
+   anything starts reading it.
+9. Add the RGS sample as a current-games fixture (`cg-match3-rgs`) and the harness's `protocolFor`
+   copy, in a harness change the owner reviews.
 
 ## Blocked (owner / external)
 
@@ -487,6 +603,9 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-25 — **P10.6 built: match-3, RGS-decided.** The bet deals the server's board, each swap
+  is a `move`, the round is collected once; our own wire on the test server's `match3` mock; live
+  real money waits on the partner. Detail above.
 - 2026-10-24 — **P10.5 built: match-3, rules-decided, end to end.** A match-3 project is made in
   Game Maker and plays as free play in the shared runtime; publishing it stays off. Detail above.
 - 2026-10-24 — **P10.4 built: pointer move / drag / swipe + Align Target**, and the board cell

@@ -160,7 +160,7 @@ type BookEventMovesLeft = {
 
 type BookEventRoundEnd = {
 	index: number;
-	type: 'roundEnd';
+	type: 'match3RoundEnd';
 	totalWin: number;
 	reason: 'movesUsed' | 'noMoves';
 };

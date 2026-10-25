@@ -56,11 +56,11 @@ seq 3  [move {from, to}]       → match3Move
 seq n  [collect]               → gameRoundOver                       (closes it, credits the win)
 ```
 
-| Event | Context | Notes |
-| --- | --- | --- |
-| `match3Board` | `{ board: string[][], movesLeft: number }` | The round's first board: no match on it, at least one move. |
-| `match3Move` | `{ from, to, accepted, steps: Step[], movesLeft, roundWin, board }` | One per `move`. `board` is the settled board after the move (the server's; the client mirrors it). A refused move (`accepted: false`): no steps, the moves and board unchanged. |
-| `match3End` | `{ totalWin, reason: 'movesUsed' \| 'noMoves', settle }` | The round is over. Rides the answer to the move that ended it, followed by `gameEnd {win: totalWin}`. `settle` is the part of `totalWin` the steps did not pay (below). |
+| Event         | Context                                                             | Notes                                                                                                                                                                           |
+| ------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `match3Board` | `{ board: string[][], movesLeft: number }`                          | The round's first board: no match on it, at least one move.                                                                                                                     |
+| `match3Move`  | `{ from, to, accepted, steps: Step[], movesLeft, roundWin, board }` | One per `move`. `board` is the settled board after the move (the server's; the client mirrors it). A refused move (`accepted: false`): no steps, the moves and board unchanged. |
+| `match3End`   | `{ totalWin, reason: 'movesUsed' \| 'noMoves', settle }`            | The round is over. Rides the answer to the move that ended it, followed by `gameEnd {win: totalWin}`. `settle` is the part of `totalWin` the steps did not pay (below).         |
 
 `Step = { exploding: {reel,row}[], newSymbols: string[][], win, roundWin }`: the cells that matched,
 the gems dropped into each column (top first, exactly filling that column's holes after gravity),
@@ -102,16 +102,21 @@ running win, and — when the round had already ended — its end. The player go
 
 ## Engine book events (what the facade hands the runtime)
 
-| Book event | From | Fields |
-| --- | --- | --- |
-| `boardInit` | `match3Board`, or a resume | `board: RawSymbol[][]` (visible), `movesLeft` |
-| `swap` | `match3Move` | `from`, `to` (`Position`, visible rows), `accepted` |
-| `tumbleBoard` (exists) | each `Step` | `explodingSymbols` (PADDED rows, +1), `newSymbols` |
-| `updateTumbleWin` (exists) | each `Step` | `amount`: the running round win (book units) |
-| `movesLeft` | `match3Move` | `count`, `board` (the server's settled board, visible) |
-| `roundEnd` | `match3End` | `totalWin` (book units), `reason` |
+| Book event                 | From                       | Fields                                                 |
+| -------------------------- | -------------------------- | ------------------------------------------------------ |
+| `boardInit`                | `match3Board`, or a resume | `board: RawSymbol[][]` (visible), `movesLeft`          |
+| `swap`                     | `match3Move`               | `from`, `to` (`Position`, visible rows), `accepted`    |
+| `tumbleBoard` (exists)     | each `Step`                | `explodingSymbols` (PADDED rows, +1), `newSymbols`     |
+| `updateTumbleWin` (exists) | each `Step`                | `amount`: the running round win (book units)           |
+| `movesLeft`                | `match3Move`               | `count`, `board` (the server's settled board, visible) |
+| `match3RoundEnd`           | `match3End`                | `totalWin` (book units), `reason`                      |
 
 `gameEnd` then translates as for every round (`setWin` for a big win, `setTotalWin`).
+
+The round's end is `match3RoundEnd`, not `roundEnd`: a book event a v2 flow authors a chain for is
+driven by the flow ALONE (event ownership, `playBook.ts`), and every match-3 flow has a `roundEnd`
+chain — the runtime raises that signal itself, with the win in currency, once it has closed the
+round.
 
 ## Forcing (mock only)
 

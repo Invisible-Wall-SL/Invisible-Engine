@@ -69,7 +69,7 @@ const boardInit = (board: string[][], movesLeft: number, t: Match3Translate) => 
  *
  *   match3Board → boardInit
  *   match3Move  → swap, [tumbleBoard, updateTumbleWin] per step, movesLeft
- *   match3End   → roundEnd
+ *   match3End   → match3RoundEnd
  */
 export const translateMatch3Event = (
 	name: string,
@@ -106,7 +106,7 @@ export const translateMatch3Event = (
 		}
 		case 'match3End': {
 			const ctx = (context ?? {}) as Partial<Match3EndContext>;
-			return [{ type: 'roundEnd', totalWin: t.amount(ctx.totalWin ?? 0), reason: ctx.reason }];
+			return [{ type: 'match3RoundEnd', totalWin: t.amount(ctx.totalWin ?? 0), reason: ctx.reason }];
 		}
 		case MATCH3_RESUME: {
 			const ctx = context as Match3ResumeContext;

@@ -38,7 +38,7 @@ import { playBookEvents } from './utils';
  * An RGS-decided game (§2.2) plays the same driver over a MIRROR of the server's board
  * (`createMatch3RgsSession`, no local RNG): the bet's book deals the board (`boardInit` →
  * {@link presentMatch3Board}), every swap is a `move` request whose book the driver plays, and the
- * round stays open — input taken — until the server's `roundEnd`. The round machine waits on
+ * round stays open — input taken — until the server ends it (`match3RoundEnd`). The round machine waits on
  * {@link awaitMatch3Round} between the bet and the collect.
  *
  * A slot game never starts it: `startMatch3` is called only by `<Match3Input />`, which

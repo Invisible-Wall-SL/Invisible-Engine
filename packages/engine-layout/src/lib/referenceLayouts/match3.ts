@@ -101,8 +101,13 @@ const roundOver = (id: string, name: string, line: string): Scene => ({
 });
 
 /** The screens both match-3 sets share: the loading bar, the background and the 7 × 7 board. */
-function boardScenes(): Scene[] {
-	const board = centre(MAIN_SIZES_MAP.desktop);
+/** The RGS board's cells: smaller, and raised above the slot HUD's bottom bar, which a 96 px 7 × 7
+ *  board runs under at the desktop size. */
+const MATCH3_RGS_BOARD = { cellSize: 76, raise: 70 } as const;
+
+function boardScenes({ cellSize = MATCH3_BOARD.cellSize, raise = 0 } = {}): Scene[] {
+	const centred = centre(MAIN_SIZES_MAP.desktop);
+	const board = { x: centred.x, y: centred.y - raise };
 	return [
 		{
 			id: 'loading',
@@ -150,7 +155,7 @@ function boardScenes(): Scene[] {
 					kind: 'reelGrid',
 					reels: MATCH3_BOARD.reels,
 					rows: MATCH3_BOARD.rows,
-					cellSize: MATCH3_BOARD.cellSize,
+					cellSize,
 					anchor: { x: 0.5, y: 0.5 },
 					x: board.x,
 					y: board.y,
@@ -206,7 +211,7 @@ export function match3RgsReferenceLayout(): LayoutDoc {
 		gameType: 'match3',
 		mainSizesMap: MAIN_SIZES_MAP,
 		scenes: [
-			...boardScenes(),
+			...boardScenes(MATCH3_RGS_BOARD),
 			{
 				id: 'match3Hud',
 				name: 'Moves',

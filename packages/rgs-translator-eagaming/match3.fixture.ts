@@ -11,7 +11,7 @@
  *     (`active`), and its book is the first board (`boardInit`) — nothing driven, nothing collected.
  *  2. EACH MOVE posts at the next `seq` (+1) under `&gid=`, and its book is the contract's table:
  *     `swap`, per step `tumbleBoard` (padded rows, identity symbols) + `updateTumbleWin` (book
- *     units), `movesLeft`; the move that ends the round adds `roundEnd` and the `gameEnd` translation.
+ *     units), `movesLeft`; the move that ends the round adds `match3RoundEnd` and the `gameEnd` translation.
  *  3. A LOST ANSWER TO A MOVE is resent at the SAME `seq` and `gid`, and replayed — dealt once.
  *  4. MID-ROUND the balance heartbeat stands down, and `requestEndRound` posts ONE `collect` and
  *     answers the post-collect balance — a zero win included.
@@ -320,7 +320,7 @@ const MOVE_LAST_BOOK = [
 	},
 	{ type: 'updateTumbleWin', amount: 120 },
 	{ type: 'movesLeft', count: 0, board: raw(BOARD2) },
-	{ type: 'roundEnd', totalWin: 1500, reason: 'movesUsed' },
+	{ type: 'match3RoundEnd', totalWin: 1500, reason: 'movesUsed' },
 	// 15× the stake is a big win on the coded ladder (level 6), so `gameEnd` adds `setWin`.
 	{ type: 'setWin', amount: 1500, winLevel: 6 },
 	{ type: 'setTotalWin', amount: 1500 },
@@ -389,7 +389,7 @@ const tab = await openTab();
 	check('the server dealt the move ONCE', held.get(sid)!.script.length, left - 1);
 	check('seq moved on once', tab.getSessionState(sid)?.seq, 5);
 	check(
-		'the ending move adds roundEnd and the gameEnd translation',
+		'the ending move adds match3RoundEnd and the gameEnd translation',
 		stripIndex(last.round?.state),
 		MOVE_LAST_BOOK,
 	);
@@ -501,7 +501,7 @@ console.log('\n6. resume condenses the replayed round to one board');
 		[
 			{ type: 'boardInit', board: raw(BOARD2), movesLeft: 0 },
 			{ type: 'updateTumbleWin', amount: 120 },
-			{ type: 'roundEnd', totalWin: 1500, reason: 'movesUsed' },
+			{ type: 'match3RoundEnd', totalWin: 1500, reason: 'movesUsed' },
 			{ type: 'setWin', amount: 1500, winLevel: 6 },
 			{ type: 'setTotalWin', amount: 1500 },
 		],
