@@ -1,9 +1,9 @@
 # Realtime multiplayer: online arcade rooms (tier A4)
 
-> Status: **PLAN, not approved.** Written 2026-10-25 for the owner's review. This is the design
-> that [game-families.md](game-families.md) §4.5 asks for before tier A4 (P10.14–P10.16) is built,
-> and it answers that plan's open decision §9 #18 (where an online game's rules run). Decisions
-> for the owner are in §14.
+> Status: **APPROVED (owner, 2026-10-25): every §14 decision as recommended.** Written the same
+> day. This is the design that [game-families.md](game-families.md) §4.5 asks for before tier A4
+> (P10.14–P10.16) is built, and it settles that plan's decision §9 #18 (where an online game's rules
+> run: on the server, as `engine-mechanics` data).
 >
 > Grounded against Invisible Engine `main` 854d24d and Salmons (`GuiltyForever/Salmon-`) `main`
 > c16ba9e. "Today" means those trees; "new" means proposed here. Revised the same day with Salmons'
@@ -72,11 +72,11 @@ much the server sends, and rules written as one function becoming data the next 
 
 What changes, and why:
 
-1. **Positions become the server's alone.** `move` still accepts a position if one is sent
-   (`:98–100`). The game's own client sends only a direction, so this is an open door rather than
-   how the game works, but a modified client could put itself anywhere. Likewise a client chooses
-   to be a golden salmon (`isGolden` from the join options, `:277`). A4 takes inputs only, and the
-   server decides the rest.
+1. **Positions become the server's alone.** `move` accepted a position if one was sent
+   (`:98–100`), so a modified client could put itself anywhere; Salmon PR #6 (2026-10-25) closed
+   that, capped a move's direction and checked the class against the faction. A client still
+   chooses to be a golden salmon (`isGolden` from the join options, `:277`). A4 takes inputs only,
+   and the server decides the rest.
 2. **The rates.** Every change of every player goes to every device 60 times a second, as 8-byte
    numbers. §2.1 measures what that costs, and §5 says how A4 brings it down.
 3. **Rules become reusable.** Today they are one `update` function written for Salmons. A4 moves
@@ -393,30 +393,32 @@ P10.13 (the hop and diamond tiles) before it can be rebuilt.
 
 ## 14. Decisions (owner)
 
+All eight approved by the owner on 2026-10-25, as recommended.
+
 1. **Colyseus version for the new server.**
-   - *Recommend:* **0.18**, the current line (0.18.0 in May 2026, 0.18.10 on 2026-10-22; 0.17 is
+   - *Approved:* **0.18**, the current line (0.18.0 in May 2026, 0.18.10 on 2026-10-22; 0.17 is
      now its legacy line, and 0.16's last release was October 2025). It brings the per-client views
      (§5) and most of §6: the fixed-step loop, typed inputs, prediction and reconciliation, lag
      compensation, and the message limits of §11. Salmons' current server stays on 0.15 until it is
      replaced.
 2. **Where an online game's rules run** (game-families §9 #18).
-   - *Recommend:* **on the server, as `engine-mechanics` data**, with a named rules module for
+   - *Approved:* **on the server, as `engine-mechanics` data**, with a named rules module for
      what the data cannot say; Flow on the device for presentation only (§4).
 3. **Rates.**
-   - *Recommend:* **a 30 Hz fixed step with 2 physics sub-steps (physics at 60 Hz, one input per
+   - *Approved:* **a 30 Hz fixed step with 2 physics sub-steps (physics at 60 Hz, one input per
      step), and state at 20 Hz** for the players near each device, smoothed on the device (§5, §6).
      Today's server sends 60 state updates a second, 86 KB/s to each device with 100 players once
      its obstacles are indexed (§2.1).
 4. **Salmons' river: generated or authored?** Today every room gets a new river from a seed.
-   - *Recommend:* **keep it generated**: a seeded level generator in `engine-mechanics`, run by both
+   - *Approved:* **keep it generated**: a seeded level generator in `engine-mechanics`, run by both
      the server and the device. The other option is fixed levels painted as tilemaps (P10.13).
 5. **Bots:** how full a room is kept, which characters they play, and whether a bot can win.
-   - *Recommend:* fill to 20, bears and fishermen only, and bots cannot win.
+   - *Approved:* fill to 20, bears and fishermen only, and bots cannot win.
 6. **Rounds:** lock the room when a salmon wins (today), or start a new round in the same room after
    a pause.
-   - *Recommend:* **a new round after 15 s**, so a room keeps its players.
+   - *Approved:* **a new round after 15 s**, so a room keeps its players.
 7. **Where the server runs.**
-   - *Recommend:* **a new service in this repository's Railway project**, so deploys, health and
+   - *Approved:* **a new service in this repository's Railway project**, so deploys, health and
      drift checks live in one place. The other option is Salmons' own Railway project.
 8. **Its address.**
-   - *Recommend:* **`rooms.invisiblewall.org`**. The owner creates the DNS record.
+   - *Approved:* **`rooms.invisiblewall.org`**. The owner creates the DNS record.
