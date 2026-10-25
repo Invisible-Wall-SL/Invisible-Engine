@@ -4,7 +4,8 @@
 	 * Single source of truth for the draggable Text / Rect rows so a
 	 * new palette element is a one-place change. The optional Reel row is
 	 * scene-only (a reel grid doesn't belong in a reusable component): it renders
-	 * only when a `reel` prop is supplied. Given `components`, it renders those instead: the
+	 * only when a `reel` prop is supplied; so is the Spawn layer row (Flow addresses a layer by
+	 * its screen node id, which a layer inside a def doesn't have). Given `components`, it renders those instead: the
 	 * Component Editor's draggable Components section (a nested instance of each).
 	 *
 	 * Carries its own style block (canonical = the Scene Editor's palette CSS) so the
@@ -18,12 +19,14 @@
 		onElementDragStart,
 		reel,
 		repeater,
+		spawnLayer,
 		segments,
 		components,
 	}: {
 		onElementDragStart: (e: DragEvent, payload: DragPayload) => void;
 		reel?: { active: boolean; onAdd: () => void };
 		repeater?: { onAdd: () => void };
+		spawnLayer?: { onAdd: () => void };
 		/** The Components side's "Repeat (count)" row: a segmented counter of `componentId`. */
 		segments?: { componentId: string };
 		components?: { id: string; name: string; version: number }[];
@@ -100,6 +103,17 @@
 		<button type="button" class="li-btn" onclick={repeater.onAdd}>
 			<span class="name">Repeater</span>
 			<span class="tag">list</span>
+		</button>
+	</li>
+{/if}
+{#if spawnLayer}
+	<li
+		class="click"
+		title="Insert a spawn layer — a field Flow spawns component instances into while the game runs (arcade, match-3 extras). Pick what it may spawn in Properties."
+	>
+		<button type="button" class="li-btn" onclick={spawnLayer.onAdd}>
+			<span class="name">Spawn layer</span>
+			<span class="tag">live</span>
 		</button>
 	</li>
 {/if}

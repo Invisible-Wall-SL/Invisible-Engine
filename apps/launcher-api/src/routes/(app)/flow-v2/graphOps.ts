@@ -23,9 +23,11 @@ import type {
 	Node as V2Node,
 	NodeKind,
 	PlayCinematicNode,
+	SpawnAtMode,
 	TextMessageNode,
 } from 'engine-flow-v2';
 import { parseInstanceNodeRef, TEXT_MESSAGE_DEFAULTS } from 'engine-flow-v2';
+import { parseSpawnedWaitRef, parseSpawnNodeRef } from './palette';
 
 // ---------------------------------------------------------------------------
 // Graph-level ops (2c.3). Every structural edit is fundamentally a pure `Graph → Graph`;
@@ -247,8 +249,29 @@ export const makeNode = (
 		// A placed component instance (§6.3): `ref` is the palette's `<container>/<instance>`.
 		case 'componentInstance':
 			return { id, kind, pos, ...parseInstanceNodeRef(ref) };
-		case 'waitForState':
-			return { id, kind, pos, ...parseInstanceNodeRef(ref), layer: '', state: '' };
+		case 'waitForState': {
+			const spawned = parseSpawnedWaitRef(ref);
+			return spawned === undefined
+				? { id, kind, pos, ...parseInstanceNodeRef(ref), layer: '', state: '' }
+				: {
+						id,
+						kind,
+						pos,
+						container: '',
+						instance: '',
+						componentId: spawned,
+						layer: '',
+						state: '',
+					};
+		}
+		// Spawning (game-families §3.3): a Spawn's `ref` is `<layer>/<componentId>`, an Instance ref's
+		// the component id.
+		case 'spawn':
+			return { id, kind, pos, ...parseSpawnNodeRef(ref) };
+		case 'despawn':
+			return { id, kind, pos };
+		case 'instanceRef':
+			return { id, kind, pos, componentId: ref ?? '' };
 		// Variables, timers, tick and keys (game-families §3.1–§3.2): `ref` is the variable, timer or
 		// action the palette entry names, blank when it names none (the inspector picks it).
 		case 'setVariable':
@@ -356,17 +379,61 @@ export const setInputBindings = (doc: FlowDoc, inputs: FlowInputBinding[]): Flow
 	return inputs.length ? { ...rest, inputs } : rest;
 };
 
-/** A `waitForState` node's layer and state (the inspector's two pickers). */
+/** A `waitForState` node's layer and state (the inspector's two pickers), and the component of a
+ *  wait on a spawned instance (a placed one's `componentId` stays absent). */
 export const setWaitForStateFields = (
 	doc: FlowDoc,
 	nodeId: string,
-	patch: { layer?: string; state?: string },
+	patch: { layer?: string; state?: string; componentId?: string },
 ): FlowDoc =>
 	replaceNode(doc, nodeId, (n) =>
 		n.kind === 'waitForState'
-			? { ...n, layer: patch.layer ?? n.layer, state: patch.state ?? n.state }
+			? {
+					...n,
+					layer: patch.layer ?? n.layer,
+					state: patch.state ?? n.state,
+					...(n.componentId !== undefined
+						? { componentId: patch.componentId ?? n.componentId }
+						: {}),
+				}
 			: n,
 	);
+
+/** The data-ins a Spawn places by, per `at` mode. */
+const SPAWN_AT_PINS: Record<SpawnAtMode, readonly string[]> = {
+	xy: ['x', 'y'],
+	cell: ['col', 'row'],
+};
+
+/** Patch a Spawn node. Switching `at` drops the sources stored on the other mode's pins (they are
+ *  gone from the node); `xy` is stored as absent. */
+export const setSpawnFields = (
+	doc: FlowDoc,
+	nodeId: string,
+	patch: { layer?: string; componentId?: string; at?: SpawnAtMode },
+): FlowDoc =>
+	replaceNode(doc, nodeId, (n) => {
+		if (n.kind !== 'spawn') return n;
+		const { at: _at, inputs, ...rest } = n;
+		const at = patch.at ?? n.at ?? 'xy';
+		const gone = SPAWN_AT_PINS[at === 'cell' ? 'xy' : 'cell'];
+		const kept = Object.entries(inputs ?? {}).filter(([pin]) => !gone.includes(pin));
+		return {
+			...rest,
+			layer: patch.layer ?? n.layer,
+			componentId: patch.componentId ?? n.componentId,
+			...(at === 'cell' ? { at } : {}),
+			...(kept.length ? { inputs: Object.fromEntries(kept) } : {}),
+		};
+	});
+
+/** Point an Instance ref at another spawnable component. */
+export const setInstanceRefComponent = (
+	doc: FlowDoc,
+	nodeId: string,
+	componentId: string,
+): FlowDoc =>
+	replaceNode(doc, nodeId, (n) => (n.kind === 'instanceRef' ? { ...n, componentId } : n));
 
 /** A game mode's section graph as a new mode tab seeds it: one On Enter trigger for that mode. */
 export const seedModeGraph = (modeId: string, triggerId: string): Graph => ({

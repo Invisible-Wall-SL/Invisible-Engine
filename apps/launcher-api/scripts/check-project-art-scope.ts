@@ -20,6 +20,10 @@
  *      is in the scope AND ships: the REAL `exportEditorArt` writes its sheet and its rig
  *      bundle to `deploy/editor-art/`. The editor reads R2 directly, so without this the game
  *      looks the portrait frame up in an atlas that was never exported.
+ *   7. A component placed NOWHERE but listed by a `spawnLayer` (game-families §3.3: Flow spawns it
+ *      at runtime) is in the scope and ships, with the components it nests: its default art's
+ *      sheet and a nested def's sprite sheet are written under `deploy/editor-art/`. Rule 8: a
+ *      spawnable that did not ship would spawn as a blank frame.
  *
  * Run:  pnpm --filter launcher-api check:art-scope
  */
@@ -407,6 +411,77 @@ check(
 check(
 	'… its skeleton copied under deploy/editor-art/',
 	under(artPrefix).some((o) => o.key.endsWith(`/${RIG}.json`)),
+);
+
+console.log('7. a component only a spawn layer lists is in the scope and ships');
+const SPAWN_PROJECT = 'spawn_art';
+const spawnSheet = (stem: string, frame: string) => {
+	const manifest = `${SUB.manifests(CLIENT, SPAWN_PROJECT)}/atlas_manifest_${stem}.json`;
+	const page = `${SUB.sheets(CLIENT, SPAWN_PROJECT)}/${stem}/${stem}.webp`;
+	put(page, 'x');
+	put(manifest, {
+		atlas: { source_image_path: page },
+		regions: [{ name: frame, x: 0, y: 0, w: 8, h: 8 }],
+	});
+	return manifest;
+};
+const COIN_SHEET = spawnSheet('S_Coin', 'coinFace');
+const SPARK_SHEET = spawnSheet('S_Spark', 'sparkFrame');
+put(projectComponentKey(SPAWN_PROJECT, 'spawnCoin'), {
+	...def('spawnCoin', 1, []),
+	params: [{ key: 'face', kind: 'image', default: `${COIN_SHEET}::coinFace` }],
+	root: {
+		id: 'root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [{ id: 'spark', kind: 'componentInstance', componentId: 'spawnSpark', x: 0, y: 0 }],
+	},
+});
+put(projectComponentKey(SPAWN_PROJECT, 'spawnSpark'), {
+	...def('spawnSpark', 1, []),
+	root: {
+		id: 'root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [{ id: 'f', kind: 'sprite', x: 0, y: 0, region: `${SPARK_SHEET}::sparkFrame` }],
+	},
+});
+put(editorDocKey(CLIENT, SPAWN_PROJECT), {
+	scenes: [
+		{
+			id: 'field',
+			name: 'Field',
+			nodes: [
+				{
+					id: 'layer',
+					kind: 'spawnLayer',
+					x: 0,
+					y: 0,
+					spawnable: ['spawnCoin'],
+					placement: 'free',
+					cap: 8,
+				},
+			],
+		},
+	],
+});
+const spawnScope = (key: string) => isProjectArtAllowed(key, [], CLIENT, SPAWN_PROJECT);
+check('the spawnable’s default-art sheet is in the art scope', await spawnScope(COIN_SHEET));
+check('… and the sheet of a def it nests', await spawnScope(SPARK_SHEET));
+const spawnIndex = await exportEditorArt(CLIENT, SPAWN_PROJECT);
+const spawnDeploy = `${SUB.deploy(CLIENT, SPAWN_PROJECT)}/`;
+const shippedCoin = spawnIndex.sheets.find((s) => s.key === COIN_SHEET);
+check('the spawnable’s sheet ships', !!shippedCoin);
+check(
+	'… its spritesheet written under deploy/editor-art/',
+	!!shippedCoin && bucket.has(`${spawnDeploy}${shippedCoin.json}`),
+);
+check('the nested def’s sheet ships', spawnIndex.sheets.some((s) => s.key === SPARK_SHEET));
+check(
+	'… and neither frame counts as dangling',
+	!spawnIndex.missing.includes('coinFace') && !spawnIndex.missing.includes('sparkFrame'),
 );
 
 console.log(failures === 0 ? '\nart scope: OK' : `\nart scope: ${failures} FAILED`);

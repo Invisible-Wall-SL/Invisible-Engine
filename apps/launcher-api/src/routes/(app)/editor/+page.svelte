@@ -54,6 +54,7 @@
 	import MenuButton, { type MenuGroup } from '$lib/MenuButton.svelte';
 	import { SLOT_GAME_KINDS } from 'constants-shared/gameKinds';
 	import { BASE_GAME_MODE, builtinGameModes, holdAndWinModeDecl } from 'game-config';
+	import { SPAWN_DEFAULT_CAP } from 'engine-flow-v2';
 	import {
 		BOOT_SPLASH_DEFAULT_BACKGROUND,
 		BOOT_SPLASH_DEFAULT_SIZE,
@@ -1096,6 +1097,27 @@
 			source: 'featureCards',
 			componentId: 'featureCard',
 			layout: { direction: 'row', gap: 24 },
+		};
+		onSpawn(node);
+		selectOnly(node.id);
+	}
+
+	/**
+	 * Insert a `spawnLayer` node (game-families §3.3) into the active scene, at main centre: an
+	 * empty field Flow spawns into at runtime, free placement, the default cap. The author picks its
+	 * `spawnable` components and placement in Properties; the editor draws a labelled placeholder.
+	 */
+	function insertSpawnLayer(): void {
+		const main = mainSizesMap[currentLayoutType];
+		const node: LayoutNode = {
+			id: 'n_' + Math.random().toString(36).slice(2, 10),
+			kind: 'spawnLayer',
+			label: 'Spawn layer',
+			x: Math.round(main.width / 2),
+			y: Math.round(main.height / 2),
+			spawnable: [],
+			placement: 'free',
+			cap: SPAWN_DEFAULT_CAP,
 		};
 		onSpawn(node);
 		selectOnly(node.id);
@@ -3810,6 +3832,7 @@
 								{onElementDragStart}
 								reel={{ active: !!existingReelGrid, onAdd: insertReelGrid }}
 								repeater={{ onAdd: insertRepeater }}
+								spawnLayer={{ onAdd: insertSpawnLayer }}
 							/>
 						</ul>
 					</PanelSection>

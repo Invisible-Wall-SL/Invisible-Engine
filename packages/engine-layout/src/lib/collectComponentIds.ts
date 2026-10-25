@@ -1,5 +1,5 @@
 import { repeaterComponentIds } from './repeaterCount';
-import { spawnableComponentIds } from './spawnLayers';
+import { spawnableComponentIds } from './spawnLayerFields';
 import type { ComponentDef, LayoutNode } from './types';
 
 /**
