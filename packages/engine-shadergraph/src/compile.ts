@@ -41,9 +41,22 @@ import {
 	type NodeDef,
 } from './nodes';
 import {
+	SUBGRAPH_IN,
+	SUBGRAPH_OUT,
+	flattenGraph,
+	flattenShaderGraph,
+	liftIssues,
+	subgraphDefinitionIssues,
+	subgraphInDef,
+	subgraphOf,
+	subgraphOutDef,
+	type FlatShaderGraph,
+} from './subgraph';
+import {
 	SHADER_GRAPH_VERSION,
 	type GraphIssue,
 	type GraphNode,
+	type GraphWire,
 	type PortType,
 	type ShaderGraphDoc,
 } from './types';
@@ -121,6 +134,8 @@ const UNWALKABLE = new Set<GraphIssue['code']>(['unknown-node', 'duplicate-node'
 
 interface Analysis {
 	issues: GraphIssue[];
+	/** Each node's def: a library node's, or one a flattening made (a call's port, a stub). */
+	defOf: (node: GraphNode) => NodeDef | undefined;
 	/** Reachable nodes, every node after the nodes it reads. */
 	order: GraphNode[];
 	/** Whether a reachable input reads the element's own colour at this pixel (`pixel`). */
@@ -139,7 +154,7 @@ interface Analysis {
 
 /** Check a doc: every error and warning, nothing compiled. */
 export function validateShaderGraph(doc: ShaderGraphDoc): GraphIssue[] {
-	return analyze(doc).issues;
+	return analyzeShaderGraph(doc).issues;
 }
 
 /**
@@ -161,41 +176,146 @@ export interface ShaderGraphAnalysis {
 	samples: number;
 }
 
-/** A doc's issues, port types and cost, nothing compiled. Never throws. */
+/**
+ * A doc's issues, port types and cost, nothing compiled. Never throws. A call to a subgraph is
+ * answered for as one node: what is wrong inside it is said about the call, its ports have the
+ * subgraph's types and its cost is its body's.
+ */
 export function analyzeShaderGraph(doc: ShaderGraphDoc): ShaderGraphAnalysis {
-	const a = analyze(doc);
+	const flat = flattenShaderGraph(doc);
+	const a = analyze(doc, flat);
 	return {
-		issues: a.issues,
-		inputs: Object.fromEntries(a.inputs),
-		outputs: Object.fromEntries(a.outputs),
+		issues: liftIssues(flat, a.issues),
+		...liftTypes(flat, a),
 		cost: a.cost,
 		samples: a.samples,
 	};
 }
 
-function analyze(doc: ShaderGraphDoc): Analysis {
-	const result: Analysis = {
-		issues: [],
-		order: [],
-		readsPixel: false,
-		outputs: new Map(),
-		inputs: new Map(),
-		generic: new Map(),
-		feeds: new Map(),
-		used: new Map(),
-		cost: 0,
-		samples: 0,
+/**
+ * Subgraph `id`'s body on its own, as an editor shows it opened: its nodes' issues and port types
+ * (its Input's and Output's as the subgraph declares them), and the cost of one call. A call inside
+ * it is answered for as one node, as in {@link analyzeShaderGraph}.
+ */
+export function analyzeShaderSubgraph(doc: ShaderGraphDoc, id: string): ShaderGraphAnalysis {
+	const result = newAnalysis();
+	const sub = subgraphOf(doc, id);
+	if (!sub) {
+		pushError(result.issues, 'subgraph', `the effect has no subgraph "${id}"`);
+		return { issues: result.issues, inputs: {}, outputs: {}, cost: 0, samples: 0 };
+	}
+	for (const issue of subgraphDefinitionIssues(sub, true))
+		pushError(result.issues, 'subgraph', issue.message, issue.node);
+	if (!Array.isArray(sub.nodes) || !Array.isArray(sub.wires))
+		return { issues: result.issues, inputs: {}, outputs: {}, cost: 0, samples: 0 };
+	const flat = flattenGraph(doc, sub.nodes, sub.wires, [sub], 1);
+	const own = { [SUBGRAPH_IN]: subgraphInDef(sub), [SUBGRAPH_OUT]: subgraphOutDef(sub) };
+	walk(result, paramsOf(doc), {
+		nodes: flat.nodes,
+		wires: flat.wires,
+		defOf: (node) =>
+			flat.defs.get(node.id) ??
+			(node.type === SUBGRAPH_IN || node.type === SUBGRAPH_OUT
+				? own[node.type]
+				: shaderNode(node.type)),
+		root: {
+			type: SUBGRAPH_OUT,
+			none: 'the subgraph has no Output node',
+			several: 'a subgraph has one Output node, this one has several',
+		},
+	});
+	const inputNodes = new Set(sub.nodes.filter((n) => n?.type === SUBGRAPH_IN).map((n) => n.id));
+	return {
+		// Inputs nothing inside reads are no fault of the Input.
+		issues: liftIssues(flat, result.issues).filter(
+			(i) => !(i.code === 'unreachable' && i.node && inputNodes.has(i.node)),
+		),
+		...liftTypes(flat, result),
+		cost: result.cost,
+		samples: result.samples,
 	};
+}
+
+/** The port types of a flattened graph's analysis, for the graph's own nodes: a call's are its ports'. */
+function liftTypes(
+	flat: FlatShaderGraph,
+	a: Analysis,
+): Pick<ShaderGraphAnalysis, 'inputs' | 'outputs'> {
+	if (!flat.origin.size)
+		return { inputs: Object.fromEntries(a.inputs), outputs: Object.fromEntries(a.outputs) };
+	const own = (types: Analysis['inputs']): Record<string, Record<string, PortType>> =>
+		Object.fromEntries([...types].filter(([id]) => !flat.origin.has(id)));
+	const inputs = own(a.inputs);
+	const outputs = own(a.outputs);
+	const through = (
+		ports: Map<string, string>,
+		types: Analysis['inputs'],
+		port: 'in' | 'out',
+	): Record<string, PortType> =>
+		Object.fromEntries(
+			[...ports].flatMap(([id, pass]) => {
+				const type = types.get(pass)?.[port];
+				return type ? [[id, type]] : [];
+			}),
+		);
+	for (const [id, call] of flat.calls) {
+		inputs[id] = through(call.inputs, a.inputs, 'in');
+		outputs[id] = through(call.outputs, a.outputs, 'out');
+	}
+	return { inputs, outputs };
+}
+
+const newAnalysis = (): Analysis => ({
+	issues: [],
+	defOf: (node) => shaderNode(node.type),
+	order: [],
+	readsPixel: false,
+	outputs: new Map(),
+	inputs: new Map(),
+	generic: new Map(),
+	feeds: new Map(),
+	used: new Map(),
+	cost: 0,
+	samples: 0,
+});
+
+function pushError(
+	issues: GraphIssue[],
+	code: GraphIssue['code'],
+	message: string,
+	node?: string,
+	port?: string,
+): void {
+	issues.push({
+		level: 'error',
+		code,
+		message,
+		...(node ? { node } : {}),
+		...(port ? { port } : {}),
+	});
+}
+
+const paramsOf = (doc: ShaderGraphDoc): Map<string, ElementFxParamSpec> =>
+	new Map(
+		(Array.isArray(doc.params) ? doc.params : [])
+			.filter((p) => p && typeof p.id === 'string')
+			.map((p) => [p.id, p]),
+	);
+
+/** A graph to check: its nodes and wires, how a node's def is found, and the node it flows into. */
+interface GraphWalk {
+	nodes: GraphNode[];
+	wires: GraphWire[];
+	defOf: (node: GraphNode) => NodeDef | undefined;
+	root: { type: string; none: string; several: string };
+}
+
+/** `doc` checked; its graph as `flat` has it (every call inlined) when given. */
+function analyze(doc: ShaderGraphDoc, flat?: FlatShaderGraph): Analysis {
+	const result = newAnalysis();
 	const issues = result.issues;
-	const error = (code: GraphIssue['code'], message: string, node?: string, port?: string): void => {
-		issues.push({
-			level: 'error',
-			code,
-			message,
-			...(node ? { node } : {}),
-			...(port ? { port } : {}),
-		});
-	};
+	const error = (code: GraphIssue['code'], message: string): void =>
+		pushError(issues, code, message);
 	if (!doc || typeof doc !== 'object') {
 		error('doc', 'not a shader graph');
 		return result;
@@ -230,33 +350,64 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 		error('doc', 'nodes and wires must be lists');
 		return result;
 	}
-	const params = new Map(
-		(Array.isArray(doc.params) ? doc.params : [])
-			.filter((p) => p && typeof p.id === 'string')
-			.map((p) => [p.id, p]),
-	);
+	const params = paramsOf(doc);
 	for (const message of customElementFxPassIssues(doc.passes, params)) error('pass', message);
 	for (const message of customElementFxMotionIssues(doc.motion)) error('motion', message);
 
+	const walked = walk(result, params, {
+		nodes: flat?.nodes ?? doc.nodes,
+		wires: flat?.wires ?? doc.wires,
+		defOf: (node) => flat?.defs.get(node.id) ?? shaderNode(node.type),
+		root: {
+			type: 'output',
+			none: 'the graph has no Output',
+			several: 'a graph has one Output, this one has several',
+		},
+	});
+	if (!walked) return result;
+	if (result.cost > COST_BUDGET)
+		issues.push({
+			level: 'warning',
+			code: 'cost',
+			message: `about ${result.cost} units of work a pixel, over the ${COST_BUDGET} a phone affords`,
+		});
+	if (result.samples > SAMPLE_BUDGET)
+		issues.push({
+			level: 'warning',
+			code: 'cost',
+			message: `${result.samples} reads of the element a pixel, over the ${SAMPLE_BUDGET} a phone affords`,
+		});
+	return result;
+}
+
+/**
+ * Check a graph's nodes and wires, order what reaches its root and type every port, into `result`.
+ * False when it stopped early: a graph that cannot be walked, or a loop.
+ */
+function walk(
+	result: Analysis,
+	params: Map<string, ElementFxParamSpec>,
+	graph: GraphWalk,
+): boolean {
+	const issues = result.issues;
+	const error = (code: GraphIssue['code'], message: string, node?: string, port?: string): void =>
+		pushError(issues, code, message, node, port);
+	result.defOf = graph.defOf;
 	const nodes = new Map<string, GraphNode>();
 	const defs = new Map<string, NodeDef>();
-	for (const node of doc.nodes) {
+	for (const node of graph.nodes) {
 		if (!node || typeof node.id !== 'string' || !node.id) {
 			error('doc', 'a node has no id');
 			continue;
 		}
 		if (nodes.has(node.id)) error('duplicate-node', `two nodes are "${node.id}"`, node.id);
 		nodes.set(node.id, node);
-		const def = shaderNode(node.type);
+		const def = graph.defOf(node);
 		if (!def) error('unknown-node', `"${String(node.type)}" is not a node`, node.id);
 		else defs.set(node.id, def);
 	}
-	const outputs = [...defs].filter(([, def]) => def.type === 'output').map(([id]) => id);
-	if (outputs.length !== 1)
-		error(
-			'output',
-			outputs.length ? 'a graph has one Output, this one has several' : 'the graph has no Output',
-		);
+	const outputs = [...defs].filter(([, def]) => def.type === graph.root.type).map(([id]) => id);
+	if (outputs.length !== 1) error('output', outputs.length ? graph.root.several : graph.root.none);
 
 	// Settings: a choice among its options, a param the doc has, a number, a colour.
 	for (const [id, def] of defs) {
@@ -287,7 +438,7 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 	}
 
 	// Wires: real ports at both ends, each input fed once.
-	for (const wire of doc.wires) {
+	for (const wire of graph.wires) {
 		const from = defs.get(wire?.from?.node);
 		const to = defs.get(wire?.to?.node);
 		if (!from || !to) {
@@ -324,7 +475,7 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 	}
 	// Only a graph that cannot be walked stops here: an editor still gets the port types, the cost
 	// and the reach of a graph whose name, settings or one wire is wrong.
-	if (issues.some((i) => i.level === 'error' && UNWALKABLE.has(i.code))) return result;
+	if (issues.some((i) => i.level === 'error' && UNWALKABLE.has(i.code))) return false;
 
 	// Order: what the Output reads, each node after what it reads; a loop cannot be ordered. Nodes
 	// that reach nothing follow, so they are checked like the rest but left out of the GLSL.
@@ -342,7 +493,7 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 		sequence.push(nodes.get(id) as GraphNode);
 		return true;
 	};
-	if (!visit(outputs[0])) return result;
+	if (!visit(outputs[0])) return false;
 	const reachable = sequence.length;
 	for (const id of nodes.keys()) {
 		if (!state.has(id))
@@ -353,7 +504,7 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 				node: id,
 			});
 	}
-	for (const id of nodes.keys()) if (!visit(id)) return result;
+	for (const id of nodes.keys()) if (!visit(id)) return false;
 	result.order = sequence.slice(0, reachable);
 
 	// Types, in order.
@@ -436,25 +587,18 @@ function analyze(doc: ShaderGraphDoc): Analysis {
 		result.samples += def.samples ?? 0;
 	}
 	if (result.readsPixel) result.samples += 1;
-	if (result.cost > COST_BUDGET)
-		issues.push({
-			level: 'warning',
-			code: 'cost',
-			message: `about ${result.cost} units of work a pixel, over the ${COST_BUDGET} a phone affords`,
-		});
-	if (result.samples > SAMPLE_BUDGET)
-		issues.push({
-			level: 'warning',
-			code: 'cost',
-			message: `${result.samples} reads of the element a pixel, over the ${SAMPLE_BUDGET} a phone affords`,
-		});
-	return result;
+	return true;
 }
 
-/** Compile a doc to a pass body, or say why not. Deterministic: the same doc, the same GLSL. */
+/**
+ * Compile a doc to a pass body, or say why not. Deterministic: the same doc, the same GLSL. Every
+ * call to a subgraph is inlined first, so the pass is one flat body.
+ */
 export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
-	const a = analyze(doc);
-	if (a.issues.some((i) => i.level === 'error')) return { ok: false, issues: a.issues };
+	const flat = flattenShaderGraph(doc);
+	const a = analyze(doc, flat);
+	const issues = liftIssues(flat, a.issues);
+	if (issues.some((i) => i.level === 'error')) return { ok: false, issues };
 
 	const paramIndex = new Map(doc.params.map((p, i) => [p.id, i]));
 	const usedParams = new Set<string>();
@@ -464,7 +608,7 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
 	let addsLight = false;
 
 	a.order.forEach((node, k) => {
-		const def = shaderNode(node.type) as NodeDef;
+		const def = a.defOf(node) as NodeDef;
 		const inTypes = a.inputs.get(node.id) ?? {};
 		const feeds = a.feeds.get(node.id);
 		const generic = a.generic.get(node.id) ?? 'float';
@@ -579,7 +723,7 @@ export function compileShaderGraph(doc: ShaderGraphDoc): CompileResult {
 			params: doc.params,
 			cost: a.cost,
 			samples: a.samples,
-			warnings: a.issues.filter((i) => i.level === 'warning'),
+			warnings: issues.filter((i) => i.level === 'warning'),
 		},
 	};
 }

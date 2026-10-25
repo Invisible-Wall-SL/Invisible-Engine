@@ -9,6 +9,7 @@
 		previewDurationMs,
 		type PreviewBackground,
 	} from './shaderPreview.client';
+	import { useShaderThumbs } from './shaderThumbs.svelte';
 
 	/**
 	 * The live preview pane of Invisible Shader Graph: the edited graph posed on a sample card or an
@@ -56,6 +57,12 @@
 	);
 
 	const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+	// The node thumbnails show what this shows: its playhead, strength, element and backdrop.
+	const thumbs = useShaderThumbs();
+	$effect(() => {
+		thumbs?.setView({ t, intensity, durationMs, region: pickedRegion, background });
+	});
 
 	// The renderer, once for the pane's life: a WebGL context per edit would run out of contexts.
 	$effect(() => {

@@ -6,8 +6,9 @@
  * kinds and every signed number param at its minimum, on WebGL1 and WebGL2 in headless Chromium
  * with fixed random seeds (`shaderPages.mjs`); then compares two renders pixel by pixel. A refactor of a built-in (Invisible Shader Graph step 1) must come out
  * IDENTICAL; a graph twin of a built-in (step 6) is compared the same way. A checkout with the
- * shader graph package also gets two graph sheets: its reference graphs posed at eight moments, and
- * every node's own graph; a graph whose GLSL does not compile fails the shoot.
+ * shader graph package also gets graph sheets: its reference graphs posed at eight moments (as
+ * filters, played as custom Element FX, and moved into subgraphs called one and two deep), and every
+ * node's own graph; a graph whose GLSL does not compile fails the shoot.
  *
  *   # the base, from a worktree of it, then your change:
  *   git worktree add --detach /tmp/base origin/main
@@ -29,7 +30,7 @@ import { pathToFileURL } from 'node:url';
 import { REPO, writeSheets } from './shaderPages.mjs';
 
 const CELL_H = 190;
-const GRAPH_SHEETS = ['graphs', 'custom', 'nodes'];
+const GRAPH_SHEETS = ['graphs', 'custom', 'nodes', 'subgraphs'];
 
 const arg = (name) => {
 	const i = process.argv.indexOf(`--${name}`);

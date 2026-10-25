@@ -690,6 +690,15 @@ export const COMPONENT_PUBLISH_CAPABILITY = 'componentPublish';
  */
 export const PIPELINE_MERGE_CAPABILITY = 'pipelineMerge';
 
+/**
+ * Managed capability key for publishing to the studio-shared shader library (`_shared/shaders/` in
+ * R2). Like `componentPublish` it is NOT a tool in `TOOLS`; it lives in the same override matrix.
+ * Default-ON for `admin` only — every `/shaders` user still READS the library and saves their
+ * project's own graphs, but only holders of this capability may publish a graph to it or remove one
+ * (every project's set takes in the library, so a write reaches every project's pickers).
+ */
+export const SHADER_PUBLISH_CAPABILITY = 'shaderPublish';
+
 /** Capabilities managed by the role matrix that are not entries in `TOOLS`. */
 export const CAPABILITIES: { key: string; name: string; isNew?: true }[] = [
 	{ key: ADMIN_PANEL_CAPABILITY, name: 'Admin panel' },
@@ -698,12 +707,13 @@ export const CAPABILITIES: { key: string; name: string; isNew?: true }[] = [
 	{ key: GAME_PUBLISH_CAPABILITY, name: 'Build & publish games' },
 	{ key: COMPONENT_PUBLISH_CAPABILITY, name: 'Publish shared components' },
 	{ key: PIPELINE_MERGE_CAPABILITY, name: 'Merge pipeline changes', isNew: true },
+	{ key: SHADER_PUBLISH_CAPABILITY, name: 'Publish shared shader effects', isNew: true },
 ];
 
 /**
  * `ROLE_TOOLS` baseline for a capability key. Admin-only capabilities
  * (`adminPanel`, `blueprintPublish`, `fontPublish`, `gamePublish`,
- * `componentPublish`, `pipelineMerge`) default ON for `admin` and OFF elsewhere.
+ * `componentPublish`, `pipelineMerge`, `shaderPublish`) default ON for `admin` and OFF elsewhere.
  */
 function capabilityDefault(role: Role, key: string): boolean {
 	if (key === ADMIN_PANEL_CAPABILITY) return role === 'admin';
@@ -712,6 +722,7 @@ function capabilityDefault(role: Role, key: string): boolean {
 	if (key === GAME_PUBLISH_CAPABILITY) return role === 'admin';
 	if (key === COMPONENT_PUBLISH_CAPABILITY) return role === 'admin';
 	if (key === PIPELINE_MERGE_CAPABILITY) return role === 'admin';
+	if (key === SHADER_PUBLISH_CAPABILITY) return role === 'admin';
 	return false;
 }
 

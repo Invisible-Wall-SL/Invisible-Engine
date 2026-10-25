@@ -19,11 +19,26 @@ import {
 } from 'constants-shared/elementFx';
 import {
 	BUILTIN_TWINS,
+	COST_BUDGET,
+	SAMPLE_BUDGET,
+	DIMS,
 	SHADER_GRAPH_VERSION,
 	SHADER_NODES,
+	SUBGRAPH_CALL,
+	SUBGRAPH_COUNT_MAX,
+	SUBGRAPH_IN,
+	SUBGRAPH_OUT,
+	SUBGRAPH_PORTS_MAX,
 	analyzeShaderGraph,
+	analyzeShaderSubgraph,
+	calledSubgraph,
 	canFeed,
+	flattenGraph,
+	flattenShaderGraph,
+	graphNodeDef,
 	shaderNode,
+	subgraphName,
+	subgraphOf,
 	type BuiltinTwin,
 	type GraphNode,
 	type GraphWire,
@@ -32,6 +47,8 @@ import {
 	type PortType,
 	type ShaderGraphAnalysis,
 	type ShaderGraphDoc,
+	type ShaderSubgraph,
+	type SubgraphPort,
 } from 'engine-shadergraph';
 
 export const SHADER_DROP_MIME = 'application/shader-graph-node';
@@ -45,6 +62,7 @@ export const NODE_CATEGORIES: readonly { id: NodeCategory; label: string; color:
 	{ id: 'mask', label: 'Mask', color: '#f59e0b' },
 	{ id: 'uv', label: 'UV', color: '#ec4899' },
 	{ id: 'color', label: 'Colour', color: '#f43f5e' },
+	{ id: 'subgraph', label: 'Subgraphs', color: '#14b8a6' },
 	{ id: 'output', label: 'Output', color: '#e2e8f0' },
 ];
 
@@ -137,13 +155,14 @@ export function addNode(
 function portType(
 	analysis: ShaderGraphAnalysis | undefined,
 	node: GraphNode | undefined,
+	def: NodeDef | undefined,
 	side: 'inputs' | 'outputs',
 	port: string,
 ): PortType | 'any' | undefined {
 	if (!node) return undefined;
 	const resolved = analysis?.[side][node.id]?.[port];
 	if (resolved) return resolved;
-	return shaderNode(node.type)?.[side].find((p) => p.id === port)?.type;
+	return def?.[side].find((p) => p.id === port)?.type;
 }
 
 const errorsOf = (a: ShaderGraphAnalysis, code: 'type' | 'cycle'): number =>
@@ -160,16 +179,29 @@ export function canConnect(
 	analysis: ShaderGraphAnalysis | undefined,
 	from: GraphWire['from'],
 	to: GraphWire['to'],
+	scope: GraphScope = null,
 ): boolean {
 	if (from.node === to.node) return false;
-	const source = doc.nodes.find((n) => n.id === from.node);
-	const target = doc.nodes.find((n) => n.id === to.node);
-	const out = portType(analysis, source, 'outputs', from.port);
-	const declared = shaderNode(target?.type ?? '')?.inputs.find((p) => p.id === to.port)?.type;
+	const view = viewOf(doc, scope);
+	const source = view.nodes.find((n) => n.id === from.node);
+	const target = view.nodes.find((n) => n.id === to.node);
+	const out = portType(
+		analysis,
+		source,
+		source && graphNodeDef(doc, source, scope),
+		'outputs',
+		from.port,
+	);
+	const declared = (target && graphNodeDef(doc, target, scope))?.inputs.find(
+		(p) => p.id === to.port,
+	)?.type;
 	if (!out || !declared) return false;
 	if (declared !== 'any' && !canFeed(out === 'any' ? 'float' : out, declared)) return false;
-	const before = analysis ?? analyzeShaderGraph(doc);
-	const after = analyzeShaderGraph(connect(doc, from, to));
+	const before = analysis ?? analyzeScope(doc, scope);
+	const after = analyzeScope(
+		inScope(doc, scope, (d) => connect(d, from, to)),
+		scope,
+	);
 	return (
 		errorsOf(after, 'cycle') <= errorsOf(before, 'cycle') &&
 		errorsOf(after, 'type') <= errorsOf(before, 'type')
@@ -191,13 +223,16 @@ export function connect(
 export const wireId = (w: GraphWire): string =>
 	`${w.from.node}.${w.from.port}->${w.to.node}.${w.to.port}`;
 
+/** Node types no gesture deletes: the effect's Output, and a body's Input and Output. */
+const PINNED: ReadonlySet<string> = new Set(['output', SUBGRAPH_IN, SUBGRAPH_OUT]);
+
 /** `doc` without the nodes `ids` (and every wire touching them) and the wires `wireIds`. */
 export function remove(
 	doc: ShaderGraphDoc,
 	ids: readonly string[],
 	wireIds: readonly string[] = [],
 ): ShaderGraphDoc {
-	const kept = new Set(doc.nodes.filter((n) => n.type === 'output').map((n) => n.id));
+	const kept = new Set(doc.nodes.filter((n) => PINNED.has(n.type)).map((n) => n.id));
 	const gone = new Set(ids.filter((id) => !kept.has(id)));
 	const cut = new Set(wireIds);
 	const next = clone(doc);
@@ -282,7 +317,7 @@ export function setParam(
 	const was = next.params[index].id;
 	next.params[index] = JSON.parse(JSON.stringify(spec)) as ElementFxParamSpec;
 	if (spec.id === was) return next;
-	for (const node of next.nodes) {
+	for (const node of [...next.nodes, ...(next.subgraphs ?? []).flatMap((s) => s.nodes)]) {
 		for (const setting of shaderNode(node.type)?.settings ?? []) {
 			if (setting.kind === 'param' && node.values?.[setting.id] === was)
 				node.values[setting.id] = spec.id;
@@ -408,6 +443,10 @@ export type ShaderNodeView = {
 	wired: string[];
 	/** What a setting reads as on the header (a choice, a param's label). */
 	summary: string;
+	/** It shows a thumbnail of its output (`probeDoc`). */
+	thumb: boolean;
+	/** What it adds to the work per pixel; none while it does not reach the Output. */
+	cost: NodeCost | undefined;
 };
 
 /**
@@ -415,10 +454,11 @@ export type ShaderNodeView = {
  * graph), nothing moves, wires or deletes; the Output never deletes, as the library cannot add one.
  */
 export function canvasGraph(
-	doc: ShaderGraphDoc,
+	effect: ShaderGraphDoc,
 	analysis: ShaderGraphAnalysis | undefined,
 	selected: ReadonlySet<string>,
 	readOnly = false,
+	scope: GraphScope = null,
 ): {
 	nodes: {
 		id: string;
@@ -447,19 +487,24 @@ export function canvasGraph(
 		(issue.level === 'error' ? entry.errors : entry.warnings).push(issue.message);
 		byNode.set(issue.node, entry);
 	}
+	const doc = viewOf(effect, scope);
 	const params = new Map(doc.params.map((p) => [p.id, p]));
+	const costs = nodeCosts(doc, analysis, scope);
 	const nodes = doc.nodes.map((node) => {
-		const def = shaderNode(node.type);
-		const summary = (def?.settings ?? [])
-			.map((s) => {
-				const value = node.values?.[s.id];
-				if (s.kind === 'param')
-					return value ? (params.get(String(value))?.label ?? String(value)) : '';
-				if (s.kind === 'choice') return String(value ?? s.default);
-				return '';
-			})
-			.filter(Boolean)
-			.join(' · ');
+		const def = graphNodeDef(doc, node, scope);
+		const summary =
+			node.type === SUBGRAPH_CALL
+				? 'subgraph'
+				: (def?.settings ?? [])
+						.map((s) => {
+							const value = node.values?.[s.id];
+							if (s.kind === 'param')
+								return value ? (params.get(String(value))?.label ?? String(value)) : '';
+							if (s.kind === 'choice') return String(value ?? s.default);
+							return '';
+						})
+						.filter(Boolean)
+						.join(' · ');
 		return {
 			id: node.id,
 			type: 'shader' as const,
@@ -467,7 +512,7 @@ export function canvasGraph(
 			selected: selected.has(node.id),
 			draggable: !readOnly,
 			connectable: !readOnly,
-			deletable: !readOnly && node.type !== 'output',
+			deletable: !readOnly && !PINNED.has(node.type),
 			data: {
 				node,
 				def,
@@ -477,6 +522,8 @@ export function canvasGraph(
 				warnings: byNode.get(node.id)?.warnings ?? [],
 				wired: doc.wires.filter((w) => w.to.node === node.id).map((w) => w.to.port),
 				summary,
+				thumb: hasThumbnail(node, analysis, doc, scope),
+				cost: costs.get(node.id),
 			},
 		};
 	});
@@ -499,8 +546,9 @@ export function canvasGraph(
 export function docIssues(
 	doc: ShaderGraphDoc,
 	analysis: ShaderGraphAnalysis | undefined,
+	scope: GraphScope = null,
 ): string[] {
-	const ids = new Set(doc.nodes.map((n) => n.id));
+	const ids = new Set(viewOf(doc, scope).nodes.map((n) => n.id));
 	return (analysis?.issues ?? [])
 		.filter((i) => i.level === 'error' && (!i.node || !ids.has(i.node)))
 		.map((i) => i.message);
@@ -515,4 +563,1001 @@ export function slugOf(name: string): string {
 			.replace(/[^a-z0-9]/g, '_')
 			.slice(0, 60) || 'default';
 	return r2.replace(/^_+/, '') || 'shader';
+}
+
+// ── Node thumbnails ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Nodes whose output is one value over the whole element (a number, a param, the time, the seed,
+ * the element's size): a thumbnail would be a flat swatch, so they have none. The Output has none
+ * either: what it draws is the preview's.
+ */
+export const FLAT_NODES: ReadonlySet<string> = new Set([
+	'number',
+	'param',
+	'color',
+	'seed',
+	'time',
+	'size',
+]);
+
+/** The ids of `id` and every node it reads from, however far up. */
+function upstreamOf(doc: ShaderGraphDoc, id: string): Set<string> {
+	const present = new Set(doc.nodes.map((n) => n.id));
+	const found = new Set([id]);
+	const queue = [id];
+	while (queue.length) {
+		const at = queue.pop() as string;
+		for (const w of doc.wires) {
+			if (w.to.node !== at || found.has(w.from.node) || !present.has(w.from.node)) continue;
+			found.add(w.from.node);
+			queue.push(w.from.node);
+		}
+	}
+	return found;
+}
+
+/** The output ports of `node`, as the analysis resolved them, else as its def declares them. */
+function outputsOf(
+	node: GraphNode,
+	analysis: ShaderGraphAnalysis | undefined,
+	doc: ShaderGraphDoc | undefined,
+	scope: GraphScope,
+): { id: string; type: PortType | undefined }[] {
+	const resolved = analysis?.outputs[node.id];
+	if (resolved && Object.keys(resolved).length)
+		return Object.entries(resolved).map(([id, type]) => ({ id, type }));
+	const def = doc ? graphNodeDef(doc, node, scope) : shaderNode(node.type);
+	return (def?.outputs ?? []).map((p) => ({
+		id: p.id,
+		type: p.type === 'any' ? undefined : p.type,
+	}));
+}
+
+/**
+ * Whether `node` shows a thumbnail: it has an output, and that output varies over the element. A
+ * body's Input has none: it is the call's values, one each over the element.
+ */
+export const hasThumbnail = (
+	node: GraphNode,
+	analysis?: ShaderGraphAnalysis,
+	doc?: ShaderGraphDoc,
+	scope: GraphScope = null,
+): boolean =>
+	node.type !== 'output' &&
+	node.type !== SUBGRAPH_IN &&
+	!FLAT_NODES.has(node.type) &&
+	outputsOf(node, analysis, doc, scope).length > 0;
+
+/**
+ * The graph `scope` shows, for a probe to compile: the effect's own, or a body's, its Input stood
+ * in for by a call reading each input as an unwired call does (its default, else 0).
+ */
+function probeView(doc: ShaderGraphDoc, scope: GraphScope): ShaderGraphDoc {
+	const view = clone(viewOf(doc, scope));
+	const sub = scope ? subgraphOf(doc, scope) : undefined;
+	if (!sub || !view.nodes.some((n) => n.type === SUBGRAPH_IN)) return view;
+	const taken = new Set((doc.subgraphs ?? []).map((s) => s.id));
+	let id = 'probe_inputs';
+	for (let n = 2; taken.has(id); n++) id = `probe_inputs${n}`;
+	const ports = JSON.parse(JSON.stringify(sub.inputs ?? [])) as SubgraphPort[];
+	view.subgraphs = [
+		...(view.subgraphs ?? []),
+		{
+			id,
+			name: 'Inputs',
+			inputs: ports,
+			outputs: ports,
+			nodes: [
+				{ id: 'in', type: SUBGRAPH_IN, x: 0, y: 0 },
+				{ id: 'out', type: SUBGRAPH_OUT, x: 0, y: 0 },
+			],
+			wires: ports.map((p) => ({
+				from: { node: 'in', port: p.id },
+				to: { node: 'out', port: p.id },
+			})),
+		},
+	];
+	view.nodes = view.nodes.map((n) =>
+		n.type === SUBGRAPH_IN
+			? { id: n.id, type: SUBGRAPH_CALL, x: n.x, y: n.y, values: { subgraph: id } }
+			: n,
+	);
+	return view;
+}
+
+/** What a node's thumbnail draws: a graph of its own whose Output shows one of the node's outputs. */
+export interface ShaderProbe {
+	doc: ShaderGraphDoc;
+	/** The output shown: the first one a wire takes onward, else the node's first. */
+	port: string;
+	type: PortType;
+}
+
+/**
+ * The graph node `id`'s thumbnail draws: the node and everything it reads, nothing else, with an
+ * Output fed from the node's output made visible, through library nodes only. A float shows as
+ * grey, a vec2 as (x, y, 0), a vec3 as an opaque colour, a vec4 as the premultiplied colour it is.
+ * The effect's passes and motion are left out, and its name, phase and length are a probe's, so
+ * only the node's own upstream can keep it from compiling. Undefined for a node with no thumbnail.
+ */
+export function probeDoc(
+	effect: ShaderGraphDoc,
+	id: string,
+	analysis?: ShaderGraphAnalysis,
+	scope: GraphScope = null,
+): ShaderProbe | undefined {
+	const node = viewOf(effect, scope).nodes.find((n) => n.id === id);
+	if (!node || !hasThumbnail(node, analysis, effect, scope)) return undefined;
+	const doc = probeView(effect, scope);
+	const kept = upstreamOf(doc, id);
+	const base: ShaderGraphDoc = {
+		...doc,
+		id: 'probe',
+		name: 'Probe',
+		phase: 'loop',
+		durationMs: 1000,
+		nodes: doc.nodes.filter((n) => kept.has(n.id)),
+		wires: doc.wires.filter((w) => kept.has(w.from.node) && kept.has(w.to.node)),
+	};
+	delete base.passes;
+	delete base.motion;
+	delete base.padding;
+	const out = { id: freshNodeId(base, 'output'), type: 'output', x: node.x + 260, y: node.y };
+	base.nodes.push(out);
+
+	let ports = outputsOf(node, analysis, effect, scope);
+	if (!ports.some((p) => p.type)) ports = outputsOf(node, analyzeShaderGraph(base), base, null);
+	const onward = new Set(doc.wires.filter((w) => w.from.node === id).map((w) => w.from.port));
+	const shown = ports.find((p) => onward.has(p.id) && p.type) ?? ports.find((p) => p.type);
+	if (!shown?.type) return undefined;
+
+	const at = (type: string, dx: number): GraphNode => {
+		const added = { id: freshNodeId(base, type), type, x: node.x + dx, y: node.y };
+		base.nodes.push(added);
+		return added;
+	};
+	const wire = (from: GraphNode, fromPort: string, to: GraphNode, toPort: string): void => {
+		base.wires.push({ from: { node: from.id, port: fromPort }, to: { node: to.id, port: toPort } });
+	};
+	if (shown.type === 'vec4') {
+		wire(node, shown.id, out, 'color');
+	} else if (shown.type === 'vec2') {
+		const split = at('split', 80);
+		const combine = at('combine', 160);
+		wire(node, shown.id, split, 'v');
+		wire(split, 'x', combine, 'x');
+		wire(split, 'y', combine, 'y');
+		wire(combine, 'xyzw', out, 'color');
+	} else {
+		const join = at('premultiply', 120);
+		wire(node, shown.id, join, 'rgb');
+		wire(join, 'out', out, 'color');
+	}
+	return { doc: base, port: shown.id, type: shown.type };
+}
+
+/** `text` hashed to 53 bits (cyrb53), in base 36. */
+function hashOf(text: string): string {
+	let h1 = 0xdeadbeef;
+	let h2 = 0x41c6ce57;
+	for (let i = 0; i < text.length; i++) {
+		const c = text.charCodeAt(i);
+		h1 = Math.imul(h1 ^ c, 2654435761);
+		h2 = Math.imul(h2 ^ c, 1597334677);
+	}
+	h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+	h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+	return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+
+/**
+ * A key per node of the graph `scope` shows that changes when, and only when, its
+ * {@link probeDoc} does: the node, its values and what feeds it however far up, what a call calls
+ * (its subgraph, and those that calls), the params any node may read, a body's inputs, and which
+ * outputs a wire takes onward. An edit changes the keys of the node it touches and of what reads
+ * it, so a thumbnail of anything else is neither compiled nor drawn again.
+ */
+export function probeKeys(doc: ShaderGraphDoc, scope: GraphScope = null): Map<string, string> {
+	const view = viewOf(doc, scope);
+	const salt = hashOf(
+		JSON.stringify([doc.params, scope, scope ? (subgraphOf(doc, scope)?.inputs ?? null) : null]),
+	);
+	const called = new Map<string, string>();
+	const calledKey = (id: string | undefined, seen: ReadonlySet<string> = new Set()): string => {
+		if (!id) return '-';
+		const known = called.get(id);
+		if (known) return known;
+		if (seen.has(id)) return 'loop';
+		const sub = subgraphOf(doc, id);
+		const inner = (sub?.nodes ?? [])
+			.filter((n) => n.type === SUBGRAPH_CALL)
+			.map((n) => calledKey(calledSubgraph(n), new Set([...seen, id])));
+		const key = hashOf(JSON.stringify([sub ?? null, inner]));
+		called.set(id, key);
+		return key;
+	};
+	const byId = new Map(view.nodes.map((n) => [n.id, n]));
+	const feeds = new Map<string, GraphWire[]>();
+	const onward = new Map<string, Set<string>>();
+	for (const w of view.wires) {
+		feeds.set(w.to.node, [...(feeds.get(w.to.node) ?? []), w]);
+		onward.set(w.from.node, (onward.get(w.from.node) ?? new Set()).add(w.from.port));
+	}
+	const up = new Map<string, string>();
+	const visiting = new Set<string>();
+	const upKey = (id: string): string => {
+		const known = up.get(id);
+		if (known) return known;
+		if (visiting.has(id)) return 'loop';
+		visiting.add(id);
+		const inputs = (feeds.get(id) ?? [])
+			.map((w) => `${w.to.port}<${byId.has(w.from.node) ? upKey(w.from.node) : '-'}.${w.from.port}`)
+			.sort();
+		visiting.delete(id);
+		const node = byId.get(id);
+		const calls = node?.type === SUBGRAPH_CALL ? calledKey(calledSubgraph(node)) : '';
+		const key = hashOf(JSON.stringify([node?.type, node?.values ?? null, inputs, calls]));
+		up.set(id, key);
+		return key;
+	};
+	return new Map(
+		view.nodes.map((n) => [
+			n.id,
+			hashOf(`${salt}|${upKey(n.id)}|${[...(onward.get(n.id) ?? [])].sort().join(',')}`),
+		]),
+	);
+}
+
+/** At most this many thumbnails draw live; the rest keep their last picture. */
+export const THUMB_LIVE_CAP = 40;
+
+/** Where a node's thumbnail is on screen, and whether any of it shows. */
+export interface ThumbSpot {
+	id: string;
+	x: number;
+	y: number;
+	visible: boolean;
+}
+
+/**
+ * The thumbnails kept live: of those on screen, the selected nodes', then the ones nearest the
+ * view's `centre`, `cap` at most, nearest first.
+ */
+export function liveThumbs(
+	spots: readonly ThumbSpot[],
+	centre: { x: number; y: number },
+	selected: ReadonlySet<string>,
+	cap = THUMB_LIVE_CAP,
+): string[] {
+	const distance = (s: ThumbSpot): number =>
+		selected.has(s.id) ? -1 : Math.hypot(s.x - centre.x, s.y - centre.y);
+	return spots
+		.filter((s) => s.visible)
+		.map((s) => ({ id: s.id, d: distance(s) }))
+		.sort((a, b) => a.d - b.d || a.id.localeCompare(b.id))
+		.slice(0, Math.max(0, cap))
+		.map((s) => s.id);
+}
+
+// ── Cost ────────────────────────────────────────────────────────────────────────────────────────
+
+/** A node's cost as a share of the phone budget past which it reads as medium, then heavy. */
+export const COST_WEIGHTS = { medium: 0.025, heavy: 0.1 } as const;
+
+export type CostWeight = 'light' | 'medium' | 'heavy';
+
+/** What one node adds to the graph's work per pixel, against the phone budget. */
+export interface NodeCost {
+	cost: number;
+	/** Its own reads of the element. */
+	samples: number;
+	/** It reads the element's colour at this pixel, read once for the whole graph (`pixel`). */
+	readsPixel: boolean;
+	/** The larger of its cost's and its reads' share of the budget. */
+	share: number;
+	weight: CostWeight;
+}
+
+export const costWeight = (share: number): CostWeight =>
+	share >= COST_WEIGHTS.heavy ? 'heavy' : share >= COST_WEIGHTS.medium ? 'medium' : 'light';
+
+const percent = (share: number): string => `${Math.round(share * 1000) / 10}%`;
+
+/** A node's cost in words, against the phone budget, for its chip's tooltip. */
+export function costText(c: NodeCost): string {
+	return [
+		`About ${c.cost} units of work a pixel: ${percent(c.cost / COST_BUDGET)} of the ${COST_BUDGET} a phone affords.`,
+		...(c.samples
+			? [
+					`${c.samples} read${c.samples === 1 ? '' : 's'} of the element a pixel: ${percent(c.samples / SAMPLE_BUDGET)} of ${SAMPLE_BUDGET}.`,
+				]
+			: []),
+		...(c.readsPixel
+			? ['It reads the element’s colour at the pixel, read once for the whole graph.']
+			: []),
+	].join('\n');
+}
+
+/** What stops the analysis before it adds up the cost: nothing then reaches the Output. */
+const UNWALKED = new Set(['unknown-node', 'duplicate-node', 'output', 'cycle']);
+
+/**
+ * The cost of each node of the graph `scope` shows that reaches its Output, as the analysis counts
+ * it: a call's is what its body adds once inlined. The nodes' costs sum to the analysis' `cost`, and
+ * their reads, plus one for the pixel when any node reads it, to its `samples`. A node that reaches
+ * nothing is left out of the GLSL and costs nothing, so it has no entry; nor does any node while the
+ * graph cannot be walked (no Output, a loop, an unknown node).
+ */
+export function nodeCosts(
+	doc: ShaderGraphDoc,
+	analysis: ShaderGraphAnalysis | undefined,
+	scope: GraphScope = null,
+): Map<string, NodeCost> {
+	const costs = new Map<string, NodeCost>();
+	if (!analysis || analysis.issues.some((i) => i.level === 'error' && UNWALKED.has(i.code)))
+		return costs;
+	const unreached = new Set(
+		analysis.issues.filter((i) => i.code === 'unreachable' && i.node).map((i) => i.node),
+	);
+	// Every call inlined as the analysis inlines it (an opened body one call deep, so no deeper and
+	// no self-call more than the analysis allows), each inlined node counted for its call.
+	const sub = scope ? subgraphOf(doc, scope) : undefined;
+	const flat = sub
+		? flattenGraph(doc, sub.nodes, sub.wires, [sub], 1)
+		: flattenShaderGraph(viewOf(doc, scope));
+	const byId = new Map(flat.nodes.map((n) => [n.id, n]));
+	const feeds = new Map<string, string[]>();
+	for (const w of flat.wires) feeds.set(w.to.node, [...(feeds.get(w.to.node) ?? []), w.from.node]);
+	const root = scope ? SUBGRAPH_OUT : 'output';
+	const reached = new Set<string>();
+	const stack = flat.nodes.filter((n) => n.type === root).map((n) => n.id);
+	while (stack.length) {
+		const id = stack.pop() as string;
+		if (reached.has(id) || !byId.has(id)) continue;
+		reached.add(id);
+		stack.push(...(feeds.get(id) ?? []));
+	}
+	const wired = new Set(flat.wires.map((w) => `${w.to.node}.${w.to.port}`));
+	const totals = new Map<string, { cost: number; samples: number; readsPixel: boolean }>();
+	for (const node of flat.nodes) {
+		const def = flat.defs.get(node.id) ?? shaderNode(node.type);
+		if (!def || !reached.has(node.id)) continue;
+		const owner = flat.origin.get(node.id)?.node ?? node.id;
+		const total = totals.get(owner) ?? { cost: 0, samples: 0, readsPixel: false };
+		total.cost += def.cost;
+		total.samples += def.samples ?? 0;
+		total.readsPixel ||= def.inputs.some(
+			(p) =>
+				p.defaultExpr === 'sample' &&
+				p.default === undefined &&
+				node.values?.[p.id] === undefined &&
+				!wired.has(`${node.id}.${p.id}`),
+		);
+		totals.set(owner, total);
+	}
+	for (const [id, total] of totals) {
+		if (unreached.has(id)) continue;
+		const share = Math.max(total.cost / COST_BUDGET, total.samples / SAMPLE_BUDGET);
+		costs.set(id, { ...total, share, weight: costWeight(share) });
+	}
+	return costs;
+}
+
+// ── Subgraphs ───────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Which graph the canvas shows: the effect's (`null`), or subgraph `id`'s body. Every gesture above
+ * works in either through {@link inScope}: it is given {@link viewOf} the scope, a doc whose nodes
+ * and wires are that graph's.
+ */
+export type GraphScope = string | null;
+
+/** `doc` as a gesture in `scope` sees it: the body's nodes and wires in place of the effect's. */
+export function viewOf(doc: ShaderGraphDoc, scope: GraphScope): ShaderGraphDoc {
+	if (!scope) return doc;
+	const sub = subgraphOf(doc, scope);
+	return { ...doc, nodes: sub?.nodes ?? [], wires: sub?.wires ?? [] };
+}
+
+/**
+ * `doc` with `gesture` applied to the graph `scope` shows: what it does to the view's nodes and
+ * wires lands in the body, anything else it changes (a subgraph it adds) in the doc.
+ */
+export function inScope(
+	doc: ShaderGraphDoc,
+	scope: GraphScope,
+	gesture: (view: ShaderGraphDoc) => ShaderGraphDoc,
+): ShaderGraphDoc {
+	if (!scope) return gesture(doc);
+	const view = viewOf(doc, scope);
+	const next = gesture(view);
+	if (next === view || !subgraphOf(doc, scope)) return doc;
+	return clone({
+		...next,
+		nodes: doc.nodes,
+		wires: doc.wires,
+		subgraphs: (next.subgraphs ?? []).map((s) =>
+			s.id === scope ? { ...s, nodes: next.nodes, wires: next.wires } : s,
+		),
+	});
+}
+
+/** The analysis of the graph `scope` shows: the effect's, or the body's on its own. */
+export const analyzeScope = (doc: ShaderGraphDoc, scope: GraphScope): ShaderGraphAnalysis =>
+	scope ? analyzeShaderSubgraph(doc, scope) : analyzeShaderGraph(doc);
+
+/** The graphs of `doc`: the effect's (scope `null`) and each subgraph's body. */
+const graphsOf = (doc: ShaderGraphDoc): { scope: GraphScope; nodes: GraphNode[] }[] => [
+	{ scope: null, nodes: doc.nodes },
+	...(doc.subgraphs ?? []).map((s) => ({ scope: s.id, nodes: s.nodes })),
+];
+
+/** Every call of subgraph `id`: the graph it sits in, and its node. */
+export function subgraphCalls(
+	doc: ShaderGraphDoc,
+	id: string,
+): { scope: GraphScope; node: string }[] {
+	return graphsOf(doc).flatMap((g) =>
+		g.nodes
+			.filter((n) => n.type === SUBGRAPH_CALL && calledSubgraph(n) === id)
+			.map((n) => ({ scope: g.scope, node: n.id })),
+	);
+}
+
+/** Whether subgraph `from`'s body calls subgraph `to`, itself or through others. */
+function reaches(doc: ShaderGraphDoc, from: string, to: string, seen = new Set<string>()): boolean {
+	if (seen.has(from)) return false;
+	seen.add(from);
+	const called = (subgraphOf(doc, from)?.nodes ?? [])
+		.filter((n) => n.type === SUBGRAPH_CALL)
+		.map(calledSubgraph);
+	return called.some((id) => !!id && (id === to || reaches(doc, id, to, seen)));
+}
+
+export interface SubgraphRow {
+	id: string;
+	name: string;
+	/** How many nodes call it, in the effect and in other subgraphs. */
+	calls: number;
+	/** Why a call of it cannot go in the graph shown (it would call itself), else ''. */
+	blocked: string;
+}
+
+/** The palette's subgraphs for the graph `scope` shows, by name. */
+export function subgraphRows(doc: ShaderGraphDoc, scope: GraphScope): SubgraphRow[] {
+	return (doc.subgraphs ?? [])
+		.map((s) => ({
+			id: s.id,
+			name: subgraphName(s),
+			calls: subgraphCalls(doc, s.id).length,
+			blocked: !scope
+				? ''
+				: s.id === scope
+					? 'A subgraph cannot call itself'
+					: reaches(doc, s.id, scope)
+						? `${subgraphName(s)} calls this subgraph: it would call itself`
+						: '',
+		}))
+		.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}
+
+/** A body's Input or Output the graph `scope` shows lacks, for the palette to put back. */
+export function missingBoundary(doc: ShaderGraphDoc, scope: GraphScope): string[] {
+	if (!scope) return [];
+	const nodes = viewOf(doc, scope).nodes;
+	return [SUBGRAPH_IN, SUBGRAPH_OUT].filter((type) => !nodes.some((n) => n.type === type));
+}
+
+/** Whether a node of `type` can be placed in the graph `scope` shows. */
+export const canPlace = (doc: ShaderGraphDoc, scope: GraphScope, type: string): boolean =>
+	(!!shaderNode(type) && type !== 'output') || missingBoundary(doc, scope).includes(type);
+
+/** `doc` with a call of subgraph `id` at `pos` in the graph `scope` shows, and the call's id. */
+export function addCall(
+	doc: ShaderGraphDoc,
+	scope: GraphScope,
+	id: string,
+	pos: { x: number; y: number },
+): { doc: ShaderGraphDoc; id: string } {
+	const callId = freshNodeId(viewOf(doc, scope), SUBGRAPH_CALL);
+	const next = inScope(doc, scope, (view) => {
+		const added = addNode(view, SUBGRAPH_CALL, pos).doc;
+		const node = added.nodes.find((n) => n.id === callId) as GraphNode;
+		node.values = { subgraph: id };
+		return added;
+	});
+	return { doc: next, id: callId };
+}
+
+/** A subgraph id `doc` lacks, made from `name`. */
+function freshSubgraphId(doc: ShaderGraphDoc, name: string): string {
+	const taken = new Set((doc.subgraphs ?? []).map((s) => s.id));
+	const stem =
+		name
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, '_')
+			.replace(/^_+|_+$/g, '')
+			.slice(0, 40) || 'group';
+	if (!taken.has(stem)) return stem;
+	let n = 2;
+	while (taken.has(`${stem}_${n}`)) n++;
+	return `${stem}_${n}`;
+}
+
+/** A name no subgraph of `doc` has: Group 1, Group 2… */
+export function freshSubgraphName(doc: ShaderGraphDoc): string {
+	const taken = new Set((doc.subgraphs ?? []).map((s) => subgraphName(s)));
+	let n = 1;
+	while (taken.has(`Group ${n}`)) n++;
+	return `Group ${n}`;
+}
+
+/** Nodes of the graph `scope` shows that a group can take: any but the Output, Input and Output. */
+export const groupable = (
+	doc: ShaderGraphDoc,
+	scope: GraphScope,
+	ids: Iterable<string>,
+): string[] => {
+	const wanted = new Set(ids);
+	return viewOf(doc, scope)
+		.nodes.filter((n) => wanted.has(n.id) && !PINNED.has(n.type))
+		.map((n) => n.id);
+};
+
+/** `label`, or `label 2`, `label 3`… whichever `taken` lacks; it is then taken. */
+function uniqueLabel(label: string, taken: Set<string>): string {
+	let name = label;
+	for (let n = 2; taken.has(name); n++) name = `${label} ${n}`;
+	taken.add(name);
+	return name;
+}
+
+const crossing = (end: GraphWire['from']): string => `${end.node}\u0000${end.port}`;
+
+/**
+ * Why nodes `ids` of the graph `scope` shows cannot be grouped, or undefined when they can (or
+ * nothing would be grouped): the effect holds its most subgraphs, or the group would need more
+ * inputs or outputs than a subgraph takes.
+ */
+export function groupRefusal(
+	doc: ShaderGraphDoc,
+	scope: GraphScope,
+	ids: Iterable<string>,
+): string | undefined {
+	const picked = new Set(groupable(doc, scope, ids));
+	if (!picked.size) return undefined;
+	if ((doc.subgraphs?.length ?? 0) >= SUBGRAPH_COUNT_MAX)
+		return `An effect holds at most ${SUBGRAPH_COUNT_MAX} subgraphs: delete one to group these nodes.`;
+	const inputs = new Set<string>();
+	const outputs = new Set<string>();
+	for (const w of viewOf(doc, scope).wires) {
+		const fromInside = picked.has(w.from.node);
+		if (picked.has(w.to.node) !== fromInside) (fromInside ? outputs : inputs).add(crossing(w.from));
+	}
+	if (inputs.size <= SUBGRAPH_PORTS_MAX && outputs.size <= SUBGRAPH_PORTS_MAX) return undefined;
+	return `A subgraph takes at most ${SUBGRAPH_PORTS_MAX} inputs and ${SUBGRAPH_PORTS_MAX} outputs; these nodes would need ${inputs.size} and ${outputs.size}. Group fewer of them.`;
+}
+
+/**
+ * Group nodes `ids` of the graph `scope` shows into a new subgraph named `name`, called where they
+ * were. Each output outside the group that feeds it becomes an input of the subgraph (one per
+ * output, however many nodes inside read it), each output inside read outside an output of it, both
+ * typed as the analysis resolved the output. Wires keep their order, so ungrouping the call gives
+ * back a graph that compiles to the same GLSL (not the same doc: nodes and wires change order).
+ * Undefined when no node can be grouped, or {@link groupRefusal} says why not.
+ */
+export function groupNodes(
+	doc: ShaderGraphDoc,
+	scope: GraphScope,
+	ids: Iterable<string>,
+	name: string,
+	analysis?: ShaderGraphAnalysis,
+): { doc: ShaderGraphDoc; subgraph: string; call: string } | undefined {
+	const view = viewOf(doc, scope);
+	const picked = new Set(groupable(doc, scope, ids));
+	if (!picked.size || groupRefusal(doc, scope, picked)) return undefined;
+	const a = analysis ?? analyzeScope(doc, scope);
+	const byId = new Map(view.nodes.map((n) => [n.id, n]));
+	const defOf = (id: string) => {
+		const node = byId.get(id);
+		return node && graphNodeDef(doc, node, scope);
+	};
+	const typeOf = (end: GraphWire['from']): PortType => {
+		const resolved = a.outputs[end.node]?.[end.port];
+		if (resolved) return resolved;
+		const declared = defOf(end.node)?.outputs.find((p) => p.id === end.port)?.type;
+		return declared && declared !== 'any' ? declared : 'float';
+	};
+	const key = crossing;
+
+	const inputs: SubgraphPort[] = [];
+	const outputs: SubgraphPort[] = [];
+	const inPort = new Map<string, string>();
+	const outPort = new Map<string, { port: string; from: GraphWire['from'] }>();
+	const inLabels = new Set<string>();
+	const outLabels = new Set<string>();
+	for (const w of view.wires) {
+		const fromInside = picked.has(w.from.node);
+		const toInside = picked.has(w.to.node);
+		if (toInside && !fromInside && !inPort.has(key(w.from))) {
+			const id = `in${inputs.length + 1}`;
+			const label = defOf(w.to.node)?.inputs.find((p) => p.id === w.to.port)?.label ?? w.to.port;
+			inputs.push({ id, label: uniqueLabel(label, inLabels), type: typeOf(w.from) });
+			inPort.set(key(w.from), id);
+		}
+		if (fromInside && !toInside && !outPort.has(key(w.from))) {
+			const id = `out${outputs.length + 1}`;
+			const def = defOf(w.from.node);
+			const label =
+				def && def.outputs.length > 1
+					? (def.outputs.find((p) => p.id === w.from.port)?.label ?? w.from.port)
+					: (def?.label ?? w.from.port);
+			outputs.push({ id, label: uniqueLabel(label, outLabels), type: typeOf(w.from) });
+			outPort.set(key(w.from), { port: id, from: w.from });
+		}
+	}
+
+	const inside = view.nodes.filter((n) => picked.has(n.id));
+	const xs = inside.map((n) => n.x);
+	const ys = inside.map((n) => n.y);
+	const middle = (v: number[]): number => Math.round(v.reduce((s, x) => s + x, 0) / v.length);
+	const body: ShaderGraphDoc = { ...view, nodes: inside, wires: [] };
+	const inId = freshNodeId(body, SUBGRAPH_IN);
+	const outId = freshNodeId(body, SUBGRAPH_OUT);
+	const subId = freshSubgraphId(doc, name);
+	const callId = freshNodeId(view, SUBGRAPH_CALL);
+
+	const bodyWires: GraphWire[] = [];
+	const outerWires: GraphWire[] = [];
+	const fed = new Set<string>();
+	for (const w of view.wires) {
+		const fromInside = picked.has(w.from.node);
+		const toInside = picked.has(w.to.node);
+		if (fromInside && toInside) bodyWires.push(w);
+		else if (toInside) {
+			const port = inPort.get(key(w.from)) as string;
+			bodyWires.push({ from: { node: inId, port }, to: w.to });
+			if (!fed.has(port)) outerWires.push({ from: w.from, to: { node: callId, port } });
+			fed.add(port);
+		} else if (fromInside) {
+			const port = outPort.get(key(w.from))?.port as string;
+			outerWires.push({ from: { node: callId, port }, to: w.to });
+		} else outerWires.push(w);
+	}
+	for (const { port, from } of outPort.values())
+		bodyWires.push({ from, to: { node: outId, port } });
+
+	const sub: ShaderSubgraph = {
+		id: subId,
+		name: name.trim() || subId,
+		inputs,
+		outputs,
+		nodes: [
+			{ id: inId, type: SUBGRAPH_IN, x: Math.min(...xs) - 260, y: middle(ys) },
+			...inside,
+			{ id: outId, type: SUBGRAPH_OUT, x: Math.max(...xs) + 260, y: middle(ys) },
+		],
+		wires: bodyWires,
+	};
+	const call: GraphNode = {
+		id: callId,
+		type: SUBGRAPH_CALL,
+		x: middle(xs),
+		y: middle(ys),
+		values: { subgraph: subId },
+	};
+	const next = inScope(doc, scope, (v) =>
+		clone({
+			...v,
+			nodes: [...v.nodes.filter((n) => !picked.has(n.id)), call],
+			wires: outerWires,
+			subgraphs: [...(v.subgraphs ?? []), sub],
+		}),
+	);
+	return { doc: next, subgraph: subId, call: callId };
+}
+
+const cloneNode = (node: GraphNode): GraphNode => JSON.parse(JSON.stringify(node)) as GraphNode;
+
+const withoutSubgraph = (doc: ShaderGraphDoc, id: string): ShaderGraphDoc => {
+	const next = clone(doc);
+	next.subgraphs = (next.subgraphs ?? []).filter((s) => s.id !== id);
+	if (!next.subgraphs.length) delete next.subgraphs;
+	return next;
+};
+
+/** `value`, a port's, as an input of type `type` reads it: a longer vector by its leading parts. */
+function valueFor(
+	value: number | readonly number[],
+	type: PortType | 'any' | undefined,
+): number | number[] {
+	if (typeof value === 'number' || type === undefined || type === 'any')
+		return typeof value === 'number' ? value : [...value];
+	const width = DIMS[type];
+	if (value.length <= width) return width === 1 ? value[0] : [...value];
+	return width === 1 ? value[0] : value.slice(0, width);
+}
+
+/**
+ * Why call `callId` of the graph `scope` shows cannot be ungrouped, or undefined when it can. A
+ * call's port converts what feeds it to the port's type (a float spread, a vector cut short), and
+ * ungrouping wires the two ends straight together, so it would change what is drawn wherever a
+ * port's type is not that of what feeds it: an input the body reads, fed a value of another type;
+ * an output read outside, fed one inside. Retyping such a port to match lets it ungroup. A group
+ * types its ports so, so a call nobody retyped always ungroups.
+ */
+export function ungroupRefusal(
+	doc: ShaderGraphDoc,
+	scope: GraphScope,
+	callId: string,
+): string | undefined {
+	const view = viewOf(doc, scope);
+	const call = view.nodes.find((n) => n.id === callId && n.type === SUBGRAPH_CALL);
+	const sub = call && subgraphOf(doc, calledSubgraph(call));
+	if (!call || !sub) return undefined;
+	const outside = analyzeScope(doc, scope);
+	const inside = analyzeShaderSubgraph(doc, sub.id);
+	const inNode = sub.nodes.find((n) => n.type === SUBGRAPH_IN);
+	const outNode = sub.nodes.find((n) => n.type === SUBGRAPH_OUT);
+	const label = (p: SubgraphPort): string => JSON.stringify(p.label || p.id);
+	const problems: string[] = [];
+	for (const p of sub.inputs) {
+		const read = sub.wires.some((w) => w.from.node === inNode?.id && w.from.port === p.id);
+		const feed = view.wires.find((w) => w.to.node === callId && w.to.port === p.id)?.from;
+		const type = feed && outside.outputs[feed.node]?.[feed.port];
+		if (read && type && type !== p.type)
+			problems.push(`its input ${label(p)} is a ${p.type} fed a ${type}`);
+	}
+	for (const p of sub.outputs) {
+		const read = view.wires.some((w) => w.from.node === callId && w.from.port === p.id);
+		const feed = sub.wires.find((w) => w.to.node === outNode?.id && w.to.port === p.id)?.from;
+		const type = feed && inside.outputs[feed.node]?.[feed.port];
+		if (read && type && type !== p.type)
+			problems.push(`its output ${label(p)} is a ${p.type} fed a ${type} inside`);
+	}
+	if (!problems.length) return undefined;
+	return `Ungrouping would change what ${subgraphName(sub)} draws: ${problems.join('; ')}. Make each such port the type that feeds it, then ungroup.`;
+}
+
+/**
+ * Call `callId` of the graph `scope` shows, replaced by its subgraph's nodes, wired as the call was:
+ * what fed an input feeds what the body's Input fed, what an output fed reads what fed the body's
+ * Output. An input left unwired becomes the value it read, set on the nodes that read it. When that
+ * was the subgraph's last call, the subgraph goes too. Undefined when the call names no subgraph,
+ * or {@link ungroupRefusal} says why not.
+ */
+export function ungroupCall(
+	doc: ShaderGraphDoc,
+	scope: GraphScope,
+	callId: string,
+): { doc: ShaderGraphDoc; ids: string[] } | undefined {
+	const view = viewOf(doc, scope);
+	const call = view.nodes.find((n) => n.id === callId && n.type === SUBGRAPH_CALL);
+	const sub = call && subgraphOf(doc, calledSubgraph(call));
+	if (!call || !sub || ungroupRefusal(doc, scope, callId)) return undefined;
+	const inNode = sub.nodes.find((n) => n.type === SUBGRAPH_IN);
+	const outNode = sub.nodes.find((n) => n.type === SUBGRAPH_OUT);
+	const inner = sub.nodes.filter((n) => !PINNED.has(n.type));
+
+	const taken = new Set(view.nodes.filter((n) => n.id !== callId).map((n) => n.id));
+	const rename = new Map<string, string>();
+	for (const n of inner) {
+		let id = n.id;
+		if (taken.has(id)) {
+			const stem = n.type.replace(/[^A-Za-z0-9]/g, '') || 'node';
+			let k = 1;
+			while (taken.has(`${stem}${k}`)) k++;
+			id = `${stem}${k}`;
+		}
+		taken.add(id);
+		rename.set(n.id, id);
+	}
+	const middle = (v: number[]): number =>
+		v.length ? Math.round(v.reduce((s, x) => s + x, 0) / v.length) : 0;
+	const dx = call.x - middle(inner.map((n) => n.x));
+	const dy = call.y - middle(inner.map((n) => n.y));
+
+	const feeds = new Map<string, GraphWire['from']>();
+	for (const w of view.wires)
+		if (w.to.node === callId && !feeds.has(w.to.port)) feeds.set(w.to.port, w.from);
+	const port = (side: 'inputs' | 'outputs', id: string) => sub[side].find((p) => p.id === id);
+	const unwired = (
+		side: 'inputs' | 'outputs',
+		id: string,
+		values: GraphNode['values'],
+	): { value: number | number[]; type: PortType } | undefined => {
+		const p = port(side, id);
+		if (!p) return undefined;
+		const set = values && Object.hasOwn(values, id) ? values[id] : undefined;
+		const value = typeof set === 'number' || Array.isArray(set) ? set : (p.default ?? 0);
+		return { value, type: p.type };
+	};
+	type Source = { wire: GraphWire['from'] } | { value: number | number[]; type: PortType };
+	const source = (end: GraphWire['from']): Source | undefined => {
+		if (inNode && end.node === inNode.id) {
+			const from = feeds.get(end.port);
+			return from ? { wire: from } : unwired('inputs', end.port, call.values);
+		}
+		const id = rename.get(end.node);
+		return id ? { wire: { node: id, port: end.port } } : undefined;
+	};
+	const results = new Map<string, GraphWire['from']>();
+	if (outNode)
+		for (const w of sub.wires)
+			if (w.to.node === outNode.id && !results.has(w.to.port)) results.set(w.to.port, w.from);
+
+	const nodes: GraphNode[] = [
+		...view.nodes.filter((n) => n.id !== callId).map(cloneNode),
+		...inner.map((n) => ({
+			...cloneNode(n),
+			id: rename.get(n.id) as string,
+			x: n.x + dx,
+			y: n.y + dy,
+		})),
+	];
+	const wires: GraphWire[] = [];
+	const settled: { node: string; port: string; value: number | number[]; type: PortType }[] = [];
+	const land = (s: Source | undefined, to: GraphWire['to']): void => {
+		if (!s) return;
+		if ('wire' in s) wires.push({ from: { ...s.wire }, to: { ...to } });
+		else settled.push({ ...to, ...s });
+	};
+	for (const w of view.wires) {
+		if (w.to.node === callId) continue;
+		if (w.from.node === callId) {
+			const from = results.get(w.from.port);
+			land(from ? source(from) : unwired('outputs', w.from.port, outNode?.values), w.to);
+		} else wires.push(w);
+	}
+	for (const w of sub.wires) {
+		const to = rename.get(w.to.node);
+		if (to) land(source(w.from), { node: to, port: w.to.port });
+	}
+	const placed = new Map(nodes.map((n) => [n.id, n]));
+	for (const s of settled) {
+		const node = placed.get(s.node);
+		if (!node) continue;
+		const type = graphNodeDef(doc, node, scope)?.inputs.find((p) => p.id === s.port)?.type;
+		node.values = { ...(node.values ?? {}), [s.port]: valueFor(s.value, type) };
+	}
+	let next = inScope(doc, scope, (v) => clone({ ...v, nodes, wires }));
+	if (!subgraphCalls(next, sub.id).length) next = withoutSubgraph(next, sub.id);
+	return { doc: next, ids: inner.map((n) => rename.get(n.id) as string) };
+}
+
+/**
+ * `doc` without subgraph `id`. A subgraph still called is kept (undefined) unless `withCalls`,
+ * which deletes its calls too, with their wires.
+ */
+export function deleteSubgraph(
+	doc: ShaderGraphDoc,
+	id: string,
+	withCalls = false,
+): ShaderGraphDoc | undefined {
+	const calls = subgraphCalls(doc, id);
+	if (calls.length && !withCalls) return undefined;
+	let next = doc;
+	for (const scope of new Set(calls.map((c) => c.scope)))
+		next = inScope(next, scope, (view) =>
+			remove(
+				view,
+				calls.filter((c) => c.scope === scope).map((c) => c.node),
+			),
+		);
+	return withoutSubgraph(next, id);
+}
+
+/** `doc` with subgraph `id` renamed; an empty name changes nothing. */
+export function renameSubgraph(doc: ShaderGraphDoc, id: string, name: string): ShaderGraphDoc {
+	if (!name.trim() || !subgraphOf(doc, id)) return doc;
+	const next = clone(doc);
+	(subgraphOf(next, id) as ShaderSubgraph).name = name.trim();
+	return next;
+}
+
+export type PortSide = 'inputs' | 'outputs';
+
+/**
+ * `doc` with a new `type` input or output on subgraph `id`, its id one the side lacks; unchanged
+ * when the side has its most ({@link SUBGRAPH_PORTS_MAX}).
+ */
+export function addSubgraphPort(
+	doc: ShaderGraphDoc,
+	id: string,
+	side: PortSide,
+	type: PortType = 'float',
+): ShaderGraphDoc {
+	const next = clone(doc);
+	const sub = subgraphOf(next, id);
+	if (!sub || sub[side].length >= SUBGRAPH_PORTS_MAX) return doc;
+	const stem = side === 'inputs' ? 'in' : 'out';
+	const taken = new Set(sub[side].map((p) => p.id));
+	let n = 1;
+	while (taken.has(`${stem}${n}`)) n++;
+	sub[side].push({
+		id: `${stem}${n}`,
+		label: `${side === 'inputs' ? 'Input' : 'Output'} ${n}`,
+		type,
+	});
+	return next;
+}
+
+/** Whether `value` is a value a port of `type` reads: a number, or `type`'s width of them. */
+const fitsPort = (value: unknown, type: PortType): boolean =>
+	typeof value === 'number' || (Array.isArray(value) && value.length === DIMS[type]);
+
+/**
+ * `doc` with port `portId` of subgraph `id` relabelled, retyped or given another default (its id
+ * stays, so wires keep it). A default that does not fit its type is dropped; so are values set on
+ * the calls (an input) or the body's Output (an output) that no longer fit.
+ */
+export function setSubgraphPort(
+	doc: ShaderGraphDoc,
+	id: string,
+	side: PortSide,
+	portId: string,
+	patch: { label?: string; type?: PortType; default?: number | number[] | null },
+): ShaderGraphDoc {
+	const next = clone(doc);
+	const sub = subgraphOf(next, id);
+	const port = sub?.[side].find((p) => p.id === portId);
+	if (!sub || !port) return doc;
+	if (patch.label !== undefined) port.label = patch.label;
+	if (patch.type) port.type = patch.type;
+	if (patch.default === null) delete port.default;
+	else if (patch.default !== undefined) port.default = patch.default;
+	if (port.default !== undefined && !fitsPort(port.default, port.type)) delete port.default;
+	const holders =
+		side === 'inputs'
+			? graphsOf(next).flatMap((g) =>
+					g.nodes.filter((n) => n.type === SUBGRAPH_CALL && calledSubgraph(n) === id),
+				)
+			: sub.nodes.filter((n) => n.type === SUBGRAPH_OUT);
+	for (const node of holders) {
+		if (!node.values || !Object.hasOwn(node.values, portId)) continue;
+		if (!fitsPort(node.values[portId], port.type)) delete node.values[portId];
+	}
+	return next;
+}
+
+/**
+ * `doc` without port `portId` of subgraph `id`, and every wire to it: in the body (from its Input,
+ * or into its Output) and at every call. Values set for it go too.
+ */
+export function removeSubgraphPort(
+	doc: ShaderGraphDoc,
+	id: string,
+	side: PortSide,
+	portId: string,
+): ShaderGraphDoc {
+	const next = clone(doc);
+	const sub = subgraphOf(next, id);
+	if (!sub?.[side].some((p) => p.id === portId)) return doc;
+	sub[side] = sub[side].filter((p) => p.id !== portId);
+	const boundary = new Set(
+		sub.nodes
+			.filter((n) => n.type === (side === 'inputs' ? SUBGRAPH_IN : SUBGRAPH_OUT))
+			.map((n) => n.id),
+	);
+	sub.wires = sub.wires.filter((w) =>
+		side === 'inputs'
+			? !(boundary.has(w.from.node) && w.from.port === portId)
+			: !(boundary.has(w.to.node) && w.to.port === portId),
+	);
+	for (const node of sub.nodes) if (boundary.has(node.id)) delete node.values?.[portId];
+	const graphs: { nodes: GraphNode[]; wires: GraphWire[] }[] = [next, ...(next.subgraphs ?? [])];
+	for (const g of graphs) {
+		const calls = new Set(
+			g.nodes.filter((n) => n.type === SUBGRAPH_CALL && calledSubgraph(n) === id).map((n) => n.id),
+		);
+		if (!calls.size) continue;
+		g.wires = g.wires.filter((w) =>
+			side === 'inputs'
+				? !(calls.has(w.to.node) && w.to.port === portId)
+				: !(calls.has(w.from.node) && w.from.port === portId),
+		);
+		for (const node of g.nodes) if (calls.has(node.id)) delete node.values?.[portId];
+	}
+	return next;
 }

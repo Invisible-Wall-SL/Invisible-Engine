@@ -43,6 +43,16 @@
  *     the Seed node gets `uSeed` (source `seed`), which the registry takes as a float only; a graph
  *     that does not, none. The Output's Blend Add keeps a colour above its alpha.
  *     (`pnpm --filter fx-spike shader-twins` holds each twin's pixels to its built-in's.)
+ * 11. SUBGRAPHS (step 7) are inlined before anything is checked: a graph with part of it a subgraph
+ *     compiles to the same shader (its port pass-throughs read through), once or called twice, nested
+ *     too, its cost the inlined nodes'; an unwired call input reads the call's value, else the port's
+ *     default, else 0. A graph without calls flattens to itself and compiles and analyses exactly as
+ *     before (with the snapshots above unchanged, the backward-compatibility gate). Each broken call
+ *     is an error named on the call: no such subgraph, none named, two of one id, one calling itself
+ *     (directly or through another), nesting past 4, a body without its one Input and Output or with
+ *     the effect's Output, a malformed port, a wire to a port it lacks, calls multiplying past the
+ *     inlined-node cap. What is wrong inside a call is said about the call; a body analysed on its own
+ *     says it about its own nodes. Storage keeps subgraphs; the shipped effect is flat.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -65,17 +75,35 @@ import {
 import { EFX_GLSL, linkGlsl } from 'constants-shared/glslLibrary';
 import {
 	SAMPLE_BUDGET,
+	analyzeShaderGraph,
+	analyzeShaderSubgraph,
 	compileShaderEffect,
 	compileShaderGraph,
 	glslFloat,
 	validateShaderGraph,
 	type CompileResult,
 } from './src/compile.ts';
+import { normalizeShaderGraphDoc } from './src/doc.ts';
 import { DIMS, SHADER_NODES, shaderNode, type NodeDef } from './src/nodes.ts';
 import { REFERENCE_GRAPHS, graphBuilder, nodeShowcase } from './src/reference.ts';
+import {
+	SUBGRAPH_COUNT_MAX,
+	SUBGRAPH_INLINED_MAX,
+	SUBGRAPH_PORTS_MAX,
+	flattenShaderGraph,
+} from './src/subgraph.ts';
 import { BUILTIN_TWINS, builtinTwin } from './src/twins.ts';
 import { MATERIAL_TWINS } from './src/twins/material.ts';
-import type { GraphIssueCode, ShaderGraphDoc } from './src/types.ts';
+import type {
+	GraphIssue,
+	GraphIssueCode,
+	GraphNode,
+	GraphWire,
+	PortType,
+	ShaderGraphDoc,
+	ShaderSubgraph,
+	SubgraphPort,
+} from './src/types.ts';
 
 let failures = 0;
 let passes = 0;
@@ -887,6 +915,669 @@ console.log('shader graph — the twins of the built-ins');
 			!added.includes('min(outColor.rgb') &&
 			body(identity).includes('min(outColor.rgb, vec3(outColor.a))'),
 		'the Output’s Blend Add lets a colour outshine its alpha (clamped to 0…1 only); Normal keeps it within',
+	);
+}
+
+// -------------------------------------------------------------------------------------------------
+console.log('shader graph — subgraphs');
+{
+	/** `a.port` → `b.port`. */
+	const w = (from: string, to: string): GraphWire => {
+		const [fn, fp] = from.split('.');
+		const [tn, tp] = to.split('.');
+		return { from: { node: fn, port: fp }, to: { node: tn, port: tp } };
+	};
+	const n = (id: string, type: string, values?: GraphNode['values']): GraphNode => ({
+		id,
+		type,
+		x: 0,
+		y: 0,
+		...(values ? { values } : {}),
+	});
+	const port = (id: string, type: PortType, more: Partial<SubgraphPort> = {}): SubgraphPort => ({
+		id,
+		label: id,
+		type,
+		...more,
+	});
+	/** GLSL with its `T a = b;` aliases read through and every generated name renumbered in order. */
+	const canonical = (glsl: string): string => {
+		const alias = new Map<string, string>();
+		const lines: string[] = [];
+		for (const line of glsl.split('\n')) {
+			const m = /^ {4}(?:float|vec[234]) (n\d+_\w+) = (n\d+_\w+);$/.exec(line);
+			if (m) alias.set(m[1], alias.get(m[2]) ?? m[2]);
+			else lines.push(line);
+		}
+		const names = new Map<string, string>();
+		return lines.join('\n').replace(/\bn\d+_\w+\b/g, (name) => {
+			const real = alias.get(name) ?? name;
+			if (!names.has(real)) names.set(real, `v${names.size}`);
+			return names.get(real) as string;
+		});
+	};
+	const shaderNodeCost = (type: string): number => shaderNode(type)?.cost ?? NaN;
+	const errorsOn = (doc: ShaderGraphDoc, node: string): GraphIssue[] =>
+		validateShaderGraph(doc).filter((i) => i.level === 'error' && i.node === node);
+
+	// Pulse tint, its tint (Param, Colorize, Mix) a subgraph called once.
+	const pulse = REFERENCE_GRAPHS.find((d) => d.id === 'pulseTint') as ShaderGraphDoc;
+	const pulseGlsl = body(compileShaderGraph(pulse));
+	const tint: ShaderSubgraph = {
+		id: 'tint',
+		name: 'Tint',
+		inputs: [port('rgb', 'vec3'), port('t', 'float')],
+		outputs: [port('out', 'vec3')],
+		nodes: [
+			n('i', 'subgraphIn'),
+			n('param5', 'param', { param: 'color' }),
+			n('colorize6', 'colorize'),
+			n('mix7', 'mix'),
+			n('o', 'subgraphOut'),
+		],
+		wires: [
+			w('i.rgb', 'colorize6.rgb'),
+			w('param5.out', 'colorize6.tint'),
+			w('i.rgb', 'mix7.a'),
+			w('colorize6.out', 'mix7.b'),
+			w('i.t', 'mix7.t'),
+			w('mix7.out', 'o.out'),
+		],
+	};
+	const outer = pulse.nodes.filter((x) => !['param5', 'colorize6', 'mix7'].includes(x.id));
+	const grouped: ShaderGraphDoc = {
+		...pulse,
+		id: 'grouped',
+		subgraphs: [tint],
+		nodes: [...outer, n('call', 'subgraph', { subgraph: 'tint' })],
+		wires: [
+			w('time1.progress', 'bell2.t'),
+			w('bell2.out', 'multiply3.a'),
+			w('time1.intensity', 'multiply3.b'),
+			w('unpremultiply4.rgb', 'call.rgb'),
+			w('multiply3.out', 'call.t'),
+			w('call.out', 'premultiply8.rgb'),
+			w('unpremultiply4.alpha', 'premultiply8.alpha'),
+			w('premultiply8.out', 'output9.color'),
+		],
+	};
+	const once = compileShaderGraph(grouped);
+	const flat = flattenShaderGraph(grouped);
+	const reference = compileShaderGraph(pulse);
+	assert(
+		once.ok &&
+			reference.ok &&
+			canonical(body(once)) === canonical(pulseGlsl) &&
+			body(once) !== pulseGlsl &&
+			once.shader.cost === reference.shader.cost &&
+			once.shader.samples === reference.shader.samples &&
+			JSON.stringify(once.shader.uniforms) === JSON.stringify(reference.shader.uniforms) &&
+			!lint(body(once)).length,
+		'a call inlines: Pulse tint with its tint a subgraph compiles to the same shader (its port pass-throughs read through), cost, reads and uniforms; the Param inside reads the effect’s param',
+	);
+	assert(
+		flat.nodes.some((x) => x.id === 'call/mix7') &&
+			flat.nodes.some((x) => x.id === 'call/i.rgb') &&
+			flat.nodes.some((x) => x.id === 'call/o.out') &&
+			!flat.nodes.some((x) => x.type === 'subgraph' || x.type === 'subgraphIn') &&
+			flat.origin.get('call/mix7')?.node === 'call' &&
+			flat.origin.get('call/i.rgb')?.port === 'rgb',
+		'inlined nodes are namespaced <call>/<node>, the Input and Output one pass-through per port, each traced to its call',
+	);
+	const plain = compileShaderGraph(pulse);
+	const withEmpty = compileShaderGraph({ ...pulse, subgraphs: [] });
+	const withUnused = compileShaderGraph({ ...pulse, subgraphs: [tint] });
+	assert(
+		flattenShaderGraph(pulse).nodes === pulse.nodes &&
+			flattenShaderGraph(pulse).wires === pulse.wires &&
+			JSON.stringify(withEmpty) === JSON.stringify(plain) &&
+			JSON.stringify(withUnused) === JSON.stringify(plain) &&
+			JSON.stringify(analyzeShaderGraph({ ...pulse, subgraphs: [tint] })) ===
+				JSON.stringify(analyzeShaderGraph(pulse)),
+		'a graph without calls is flattened to itself and compiles and analyses exactly as before, an unused subgraph or an empty list beside it',
+	);
+
+	// The same subgraph called twice, one input left unwired on each: its value, else the default.
+	const dim: ShaderSubgraph = {
+		id: 'dim',
+		name: 'Dim',
+		inputs: [port('color', 'vec4'), port('amount', 'float', { default: 0.5 })],
+		outputs: [port('out', 'vec4')],
+		nodes: [n('i', 'subgraphIn'), n('m', 'multiply'), n('o', 'subgraphOut')],
+		wires: [w('i.color', 'm.a'), w('i.amount', 'm.b'), w('m.out', 'o.out')],
+	};
+	const twice: ShaderGraphDoc = {
+		...graphBuilder({ id: 'twice', name: 'Twice', phase: 'loop', durationMs: 1000 }).doc(),
+		subgraphs: [dim],
+		nodes: [
+			n('sample1', 'sample'),
+			n('a', 'subgraph', { subgraph: 'dim' }),
+			n('b', 'subgraph', { subgraph: 'dim', amount: 0.25 }),
+			n('out', 'output'),
+		],
+		wires: [w('sample1.out', 'a.color'), w('a.out', 'b.color'), w('b.out', 'out.color')],
+	};
+	const two = compileShaderGraph(twice);
+	assert(
+		two.ok &&
+			(body(two).match(/ \* vec4\(/g) ?? []).length === 2 &&
+			body(two).includes('float n2_out = 0.5;') &&
+			body(two).includes('float n6_out = 0.25;') &&
+			two.shader.cost === 2 * shaderNodeCost('multiply') + shaderNodeCost('sample') + 1 &&
+			!lint(body(two)).length,
+		'a subgraph called twice is inlined twice; an unwired input reads the call’s value, else the port’s default; the cost sums both',
+	);
+	const zero = compileShaderGraph({
+		...twice,
+		subgraphs: [{ ...dim, inputs: [port('color', 'vec4'), port('amount', 'float')] }],
+		nodes: twice.nodes.map((x) => (x.id === 'b' ? n('b', 'subgraph', { subgraph: 'dim' }) : x)),
+	});
+	assert(
+		zero.ok && body(zero).includes('float n2_out = 0.0;'),
+		'an unwired input with no value and no default reads 0',
+	);
+
+	// Nested: Tinted calls Tint, the effect calls Tinted, fed the element by a Sample; against Pulse
+	// tint fed the same.
+	const sampled: ShaderGraphDoc = {
+		...pulse,
+		nodes: [...pulse.nodes, n('px', 'sample')],
+		wires: [...pulse.wires, w('px.out', 'unpremultiply4.color')],
+	};
+	const sampledGlsl = compileShaderGraph(sampled);
+	const tinted: ShaderSubgraph = {
+		id: 'tinted',
+		name: 'Tinted',
+		inputs: [port('color', 'vec4'), port('t', 'float')],
+		outputs: [port('out', 'vec4')],
+		nodes: [
+			n('i', 'subgraphIn'),
+			n('split', 'unpremultiply'),
+			n('inner', 'subgraph', { subgraph: 'tint' }),
+			n('join', 'premultiply'),
+			n('o', 'subgraphOut'),
+		],
+		wires: [
+			w('i.color', 'split.color'),
+			w('split.rgb', 'inner.rgb'),
+			w('i.t', 'inner.t'),
+			w('inner.out', 'join.rgb'),
+			w('split.alpha', 'join.alpha'),
+			w('join.out', 'o.out'),
+		],
+	};
+	const nested: ShaderGraphDoc = {
+		...pulse,
+		id: 'nested',
+		subgraphs: [tint, tinted],
+		nodes: [
+			...pulse.nodes.filter((x) => ['time1', 'bell2', 'multiply3', 'output9'].includes(x.id)),
+			n('px', 'sample'),
+			n('outer', 'subgraph', { subgraph: 'tinted' }),
+		],
+		wires: [
+			w('time1.progress', 'bell2.t'),
+			w('bell2.out', 'multiply3.a'),
+			w('time1.intensity', 'multiply3.b'),
+			w('px.out', 'outer.color'),
+			w('multiply3.out', 'outer.t'),
+			w('outer.out', 'output9.color'),
+		],
+	};
+	const deep = compileShaderGraph(nested);
+	const nestedFlat = flattenShaderGraph(nested);
+	assert(
+		deep.ok &&
+			sampledGlsl.ok &&
+			canonical(body(deep)) === canonical(body(sampledGlsl)) &&
+			deep.shader.cost === sampledGlsl.shader.cost &&
+			deep.shader.samples === sampledGlsl.shader.samples &&
+			nestedFlat.nodes.some((x) => x.id === 'outer/inner/colorize6') &&
+			nestedFlat.origin.get('outer/inner/colorize6')?.node === 'outer' &&
+			nestedFlat.origin.get('outer/inner/colorize6')?.path.join('>') === 'Tinted>Tint' &&
+			!lint(body(deep)).length,
+		'calls nest: a call in a body inlines as <call>/<call>/<node>, traced to the outer call through both names, and compiles to the shader of the same nodes unnested',
+	);
+
+	// Errors, each named on the call.
+	const calling = (
+		subgraphs: unknown,
+		values: GraphNode['values'] = { subgraph: 'x' },
+		wires: GraphWire[] = [w('c.out', 'out.color')],
+	): ShaderGraphDoc => ({
+		...graphBuilder({ id: 'e', name: 'E', phase: 'loop', durationMs: 1000 }).doc(),
+		subgraphs: subgraphs as ShaderSubgraph[],
+		nodes: [n('c', 'subgraph', values), n('out', 'output')],
+		wires,
+	});
+	const pass = (id: string, more: Partial<ShaderSubgraph> = {}): ShaderSubgraph => ({
+		id,
+		name: id.toUpperCase(),
+		inputs: [],
+		outputs: [port('out', 'vec4')],
+		nodes: [n('i', 'subgraphIn'), n('s', 'sample'), n('o', 'subgraphOut')],
+		wires: [w('s.out', 'o.out')],
+		...more,
+	});
+	const callsOf = (id: string, callee: string): ShaderSubgraph =>
+		pass(id, {
+			nodes: [
+				n('i', 'subgraphIn'),
+				n('k', 'subgraph', { subgraph: callee }),
+				n('o', 'subgraphOut'),
+			],
+			wires: [w('k.out', 'o.out')],
+		});
+	const named = (doc: ShaderGraphDoc, pattern: RegExp): boolean =>
+		errorsOn(doc, 'c').some((i) => i.code === 'subgraph' && pattern.test(i.message));
+	const cases: [string, ShaderGraphDoc, RegExp][] = [
+		['a call of a subgraph the effect lacks', calling([]), /no subgraph "x"/],
+		['a call naming none', calling([pass('x')], {}), /names no subgraph/],
+		['two subgraphs of one id', calling([pass('x'), pass('x')]), /two subgraphs are "x"/],
+		['a subgraph calling itself', calling([callsOf('x', 'x')]), /X calls itself/],
+		[
+			'a subgraph calling itself through another',
+			calling([callsOf('x', 'y'), callsOf('y', 'x')]),
+			/X calls itself through Y/,
+		],
+		[
+			'calls nested deeper than 4',
+			calling([
+				callsOf('x', 'a'),
+				callsOf('a', 'b'),
+				callsOf('b', 'c'),
+				callsOf('c', 'd'),
+				pass('d'),
+			]),
+			/nest deeper than 4/,
+		],
+		[
+			'a body without its Input',
+			calling([pass('x', { nodes: [n('s', 'sample'), n('o', 'subgraphOut')] })]),
+			/no Input node/,
+		],
+		[
+			'a body without its Output',
+			calling([pass('x', { nodes: [n('i', 'subgraphIn'), n('s', 'sample')], wires: [] })]),
+			/no Output node/,
+		],
+		[
+			'a body with two Inputs',
+			calling([
+				pass('x', {
+					nodes: [
+						n('i', 'subgraphIn'),
+						n('j', 'subgraphIn'),
+						n('s', 'sample'),
+						n('o', 'subgraphOut'),
+					],
+				}),
+			]),
+			/one Input node, this one has several/,
+		],
+		[
+			'the effect’s Output in a body',
+			calling([pass('x', { nodes: [...pass('x').nodes, n('fx', 'output')] })]),
+			/does not belong in a subgraph/,
+		],
+		[
+			'a port not named with a word',
+			calling([pass('x', { inputs: [port('two words', 'float')] })]),
+			/not named with a word/,
+		],
+		[
+			'a port named "subgraph"',
+			calling([pass('x', { inputs: [port('subgraph', 'float')] })]),
+			/not named with a word/,
+		],
+		[
+			'a port of no type',
+			calling([pass('x', { inputs: [port('a', 'mat3' as PortType)] })]),
+			/is a "mat3"/,
+		],
+		[
+			'a port named as every object’s own (constructor)',
+			calling([pass('x', { inputs: [port('constructor', 'float')] })]),
+			/not named with a word/,
+		],
+		[
+			'a default of the wrong width',
+			calling([pass('x', { inputs: [port('a', 'vec3', { default: [1, 2] })] })]),
+			/default is not 1 or 3 numbers/,
+		],
+		[
+			'a wire to an output the subgraph lacks',
+			calling([pass('x')], { subgraph: 'x' }, [w('c.nope', 'out.color')]),
+			/has no output "nope"/,
+		],
+		[
+			'a wire to an input the subgraph lacks',
+			calling([pass('x')], { subgraph: 'x' }, [w('out.color', 'c.nope'), w('c.out', 'out.color')]),
+			/has no input "nope"/,
+		],
+	];
+	for (const [label, doc, pattern] of cases)
+		assert(
+			named(doc, pattern) && !compileShaderGraph(doc).ok,
+			`${label}: an error named on the call, and nothing compiles`,
+		);
+	assert(
+		validateShaderGraph(calling([pass('x')], { subgraph: 'x' }, [w('c.nope', 'out.color')])).some(
+			(i) => i.node === 'c' && i.port === 'nope',
+		),
+		'a wire to a port the subgraph lacks names the port',
+	);
+	const twiceFed = validateShaderGraph(
+		calling([pass('x', { inputs: [port('a', 'float', { label: 'Amount' })] })], { subgraph: 'x' }, [
+			w('c.out', 'out.color'),
+			w('t.progress', 'c.a'),
+			w('t.seconds', 'c.a'),
+		]),
+	);
+	assert(
+		twiceFed.some(
+			(i) => i.node === 'c' && i.port === 'a' && i.message === "X's Amount is wired twice",
+		),
+		'two wires into one input of a call: an error naming the call’s input',
+	);
+	const okDepth = compileShaderGraph(
+		calling([callsOf('x', 'a'), callsOf('a', 'b'), callsOf('b', 'c'), pass('c')]),
+	);
+	assert(okDepth.ok, 'calls nested 4 deep compile');
+
+	// What is wrong inside a call is said about the call; its ports carry their types.
+	const broken = {
+		...grouped,
+		subgraphs: [
+			{
+				...tint,
+				nodes: tint.nodes.map((x) =>
+					x.id === 'param5' ? n('param5', 'param', { param: 'gone' }) : x,
+				),
+			},
+		],
+	};
+	const inner = errorsOn(broken, 'call');
+	assert(
+		inner.length === 1 &&
+			inner[0].code === 'setting' &&
+			inner[0].message === 'Tint › "gone" is not one of the effect\'s params' &&
+			!validateShaderGraph(broken).some((i) => i.node?.includes('/')),
+		'an error inside a call is named on the call, led by the subgraph’s name; no inlined id leaks out',
+	);
+	const wrongWidth: ShaderGraphDoc = {
+		...grouped,
+		nodes: [...grouped.nodes, n('uv9', 'uv')],
+		wires: grouped.wires.map((x) =>
+			x.to.port === 'rgb' && x.to.node === 'call' ? w('uv9.out', 'call.rgb') : x,
+		),
+	};
+	const portError = errorsOn(wrongWidth, 'call');
+	assert(
+		portError.length === 1 &&
+			portError[0].code === 'type' &&
+			portError[0].port === 'rgb' &&
+			/^Tint's rgb takes a vec3, not a vec2/.test(portError[0].message),
+		'a vec2 wired into a vec3 input of a call: a type error on the call’s port',
+	);
+	const analysis = analyzeShaderGraph(grouped);
+	assert(
+		JSON.stringify(analysis.inputs.call) === JSON.stringify({ rgb: 'vec3', t: 'float' }) &&
+			JSON.stringify(analysis.outputs.call) === JSON.stringify({ out: 'vec3' }) &&
+			Object.keys(analysis.inputs).every((id) => !id.includes('/')) &&
+			analysis.cost === (reference.ok ? reference.shader.cost : -1),
+		'a call’s ports have the subgraph’s types; the analysis names no inlined node; its cost is the inlined nodes’',
+	);
+	const unread: ShaderGraphDoc = {
+		...twice,
+		wires: [w('sample1.out', 'a.color'), w('sample1.out', 'out.color')],
+	};
+	const unreadIssues = validateShaderGraph(unread);
+	assert(
+		unreadIssues
+			.filter((i) => i.code === 'unreachable')
+			.map((i) => i.node)
+			.join() === 'a,b' && validateShaderGraph(twice).every((i) => i.code !== 'unreachable'),
+		'a call none of whose outputs is read is unreachable, once, on the call; nothing inside a read call is',
+	);
+
+	// A body on its own: its Input's and Output's types as declared, its own errors on its own nodes.
+	const own = analyzeShaderSubgraph(grouped, 'tint');
+	assert(
+		!own.issues.length &&
+			JSON.stringify(own.outputs.i) === JSON.stringify({ rgb: 'vec3', t: 'float' }) &&
+			JSON.stringify(own.inputs.o) === JSON.stringify({ out: 'vec3' }) &&
+			own.inputs.mix7?.a === 'vec3' &&
+			own.cost === shaderNodeCost('colorize') + shaderNodeCost('mix'),
+		'a body analysed on its own: its Input’s and Output’s ports as declared, its nodes typed, the cost of one call',
+	);
+	const ownBroken = analyzeShaderSubgraph(broken, 'tint');
+	assert(
+		ownBroken.issues.some(
+			(i) => i.node === 'param5' && i.message === '"gone" is not one of the effect\'s params',
+		),
+		'a body’s own error is on its own node, unprefixed',
+	);
+	const noOut = analyzeShaderSubgraph(
+		calling([pass('x', { nodes: [n('i', 'subgraphIn'), n('s', 'sample')], wires: [] })]),
+		'x',
+	);
+	const ownNested = analyzeShaderSubgraph(calling([callsOf('x', 'x')]), 'x');
+	assert(
+		noOut.issues.filter((i) => i.message === 'the subgraph has no Output node').length === 1 &&
+			ownNested.issues.some((i) => i.node === 'k' && /X calls itself/.test(i.message)) &&
+			analyzeShaderSubgraph(calling([pass('x', { inputs: [port('a', 'float')] })]), 'x').issues
+				.length === 0 &&
+			analyzeShaderSubgraph(nested, 'tinted').issues.length === 0 &&
+			JSON.stringify(analyzeShaderSubgraph(nested, 'tinted').outputs.inner) ===
+				JSON.stringify({ out: 'vec3' }) &&
+			analyzeShaderSubgraph(nested, 'ghost').issues[0]?.code === 'subgraph',
+		'on its own a body says it lacks its Output once; a call in it of itself is named on that call; an input nothing reads is no fault; a call inside has its ports’ types; a subgraph the effect lacks says so',
+	);
+
+	// Hostile docs, as storage keeps them, are refused on their calls fast and in little memory: a
+	// /shaders writer can save one, and the effects route, every editor page and Publish compile it.
+	const MS = 500;
+	const MB = 64;
+	const refusedFast = (
+		label: string,
+		raw: unknown,
+		named: (issues: GraphIssue[]) => boolean,
+	): void => {
+		const doc = normalizeShaderGraphDoc(raw, 'h');
+		const bytes = JSON.stringify(doc).length;
+		const heap = process.memoryUsage().heapUsed;
+		const t0 = performance.now();
+		const analysis = analyzeShaderGraph(doc);
+		const compiled = compileShaderGraph(doc);
+		const ms = performance.now() - t0;
+		const grew = (process.memoryUsage().heapUsed - heap) / 1e6;
+		const longest = Math.max(0, ...analysis.issues.map((i) => i.message.length));
+		assert(
+			!compiled.ok && named(analysis.issues) && ms < MS && grew < MB && longest < 400,
+			`${label} (${Math.round(bytes / 1000)} KB stored): refused on its calls in ${ms.toFixed(1)} ms (under ${MS}), the heap ${grew.toFixed(1)} MB larger (under ${MB}), no message over 400 characters (${longest})`,
+		);
+	};
+	const hostileDoc = (subgraphs: unknown[], calls: number, callee = 's'): unknown => ({
+		...graphBuilder({ id: 'h', name: 'H', phase: 'loop', durationMs: 1000 }).doc(),
+		subgraphs,
+		nodes: [
+			n('out', 'output'),
+			...Array.from({ length: calls }, (_, i) => n(`c${i}`, 'subgraph', { subgraph: callee })),
+		],
+		wires: [w('c0.out', 'out.color')],
+	});
+	const onCalls = (pattern: RegExp, calls: number) => (issues: GraphIssue[]) =>
+		issues.filter((i) => i.node?.startsWith('c') && pattern.test(i.message)).length >= calls;
+	refusedFast(
+		'2000 inputs called 500 times (the review’s 1M pass-throughs)',
+		hostileDoc(
+			[
+				{
+					...pass('s'),
+					inputs: Array.from({ length: 2000 }, (_, i) => port(`a${i}`, 'float')),
+					outputs: [],
+					wires: [],
+				},
+			],
+			500,
+		),
+		onCalls(new RegExp(`it has 2000 inputs, more than ${SUBGRAPH_PORTS_MAX}`), 500),
+	);
+	refusedFast(
+		'1500 malformed ports called 1500 times (the review’s 285 MB of messages)',
+		hostileDoc(
+			[
+				{
+					id: 's',
+					name: 's',
+					inputs: Array.from({ length: 1500 }, (_, i) => port(`a${i}`, 'mat4' as PortType)),
+					outputs: [],
+					nodes: [],
+					wires: [],
+				},
+			],
+			1500,
+		),
+		onCalls(/more than 32/, 1500),
+	);
+	refusedFast(
+		'32 inputs and 32 outputs, a malformed port each, called 1500 times: three faults shown, the rest counted',
+		hostileDoc(
+			[
+				pass('s', {
+					inputs: Array.from({ length: 32 }, (_, i) => port(`a${i}`, 'mat4' as PortType)),
+					outputs: Array.from({ length: 32 }, (_, i) => port(`b${i}`, 'mat4' as PortType)),
+				}),
+			],
+			1500,
+		),
+		onCalls(/; and 61 more$/, 1500),
+	);
+	refusedFast(
+		'32 inputs and 32 outputs, well formed, called 1000 times: the first calls inline, the rest pass the budget',
+		hostileDoc(
+			[
+				pass('s', {
+					inputs: Array.from({ length: 32 }, (_, i) => port(`a${i}`, 'float')),
+					outputs: [
+						port('out', 'vec4'),
+						...Array.from({ length: 31 }, (_, i) => port(`b${i}`, 'vec4')),
+					],
+				}),
+			],
+			1000,
+		),
+		onCalls(new RegExp(`passes ${SUBGRAPH_INLINED_MAX} nodes, wires and ports`), 900),
+	);
+	refusedFast(
+		'a body of 3000 wires called 2000 times: its wires count against the budget',
+		hostileDoc(
+			[
+				pass('s', {
+					wires: [
+						w('s.out', 'o.out'),
+						...Array.from({ length: 3000 }, (_, i) => w('s.out', `q${i}.x`)),
+					],
+				}),
+			],
+			2000,
+		),
+		onCalls(/passes 4000/, 1999),
+	);
+	refusedFast(
+		`${SUBGRAPH_COUNT_MAX + 36} subgraphs, one called 2000 times`,
+		hostileDoc(
+			Array.from({ length: SUBGRAPH_COUNT_MAX + 36 }, (_, i) => pass(i ? `s${i}` : 's')),
+			2000,
+		),
+		onCalls(
+			new RegExp(`has ${SUBGRAPH_COUNT_MAX + 36} subgraphs, more than ${SUBGRAPH_COUNT_MAX}`),
+			2000,
+		),
+	);
+	refusedFast(
+		'20 calls naming a 10 000-letter subgraph id: the message quotes 40',
+		hostileDoc([pass('s')], 20, 'z'.repeat(10_000)),
+		onCalls(/no subgraph "z{40}…"$/, 20),
+	);
+	const fan = (id: string, callee: string | undefined): ShaderSubgraph => ({
+		id,
+		name: id,
+		inputs: [],
+		outputs: [port('out', 'float')],
+		nodes: [
+			n('i', 'subgraphIn'),
+			n('o', 'subgraphOut'),
+			...Array.from({ length: 60 }, (_, k) =>
+				callee ? n(`k${k}`, 'subgraph', { subgraph: callee }) : n(`k${k}`, 'number'),
+			),
+		],
+		wires: [w('k0.out', 'o.out')],
+	});
+	refusedFast(
+		'60 calls in a body, nested 4 deep (60⁴ calls unrolled)',
+		calling([fan('x', 'a'), fan('a', 'b'), fan('b', 'c'), fan('c', undefined)], { subgraph: 'x' }, [
+			w('c.out', 'out.color'),
+		]),
+		(issues) => issues.some((i) => i.node === 'c' && /passes 4000/.test(i.message)),
+	);
+	const protoDoc = calling([pass('x', { inputs: [port('valueOf', 'float')] })]);
+	const unwiredProto = compileShaderGraph(protoDoc);
+	assert(
+		!unwiredProto.ok &&
+			unwiredProto.issues.some((i) => i.node === 'c' && /not named with a word/.test(i.message)) &&
+			!Object.hasOwn(analyzeShaderGraph(protoDoc).inputs.c ?? {}, 'valueOf') &&
+			!flattenShaderGraph(protoDoc).nodes.some((x) => typeof x.values?.in === 'function'),
+		'a port named valueOf is refused, and no call reads Object’s function as its value',
+	);
+
+	// Storage keeps subgraphs and drops what is not part of one.
+	const stored = normalizeShaderGraphDoc(
+		JSON.parse(
+			JSON.stringify({
+				...grouped,
+				subgraphs: [
+					...grouped.subgraphs!,
+					'junk',
+					{ name: 'no id' },
+					{
+						id: 'messy',
+						inputs: [{ id: 'a', type: 'float', default: [1, 'x'] }, 'junk', { label: 'no id' }],
+						outputs: 'nope',
+						nodes: [{ id: 'q', type: 'number', values: { value: 2, bad: {} } }, 3],
+						wires: [{ from: { node: 'q' } }],
+						extra: true,
+					},
+				],
+			}),
+		),
+		'grouped',
+	);
+	assert(
+		JSON.stringify(stored.subgraphs?.[0]) === JSON.stringify(tint) &&
+			stored.subgraphs?.length === 2 &&
+			JSON.stringify(stored.subgraphs?.[1]) ===
+				JSON.stringify({
+					id: 'messy',
+					name: 'messy',
+					inputs: [{ id: 'a', label: 'a', type: 'float' }],
+					outputs: [],
+					nodes: [{ id: 'q', type: 'number', x: 0, y: 0, values: { value: 2 } }],
+					wires: [],
+				}) &&
+			!('subgraphs' in normalizeShaderGraphDoc({ ...pulse, subgraphs: [] }, 'p')) &&
+			body(compileShaderGraph(stored)) === body(once),
+		'storage keeps subgraphs as written, drops what is not part of one, and an empty list',
+	);
+
+	// The effect ships flat: nothing of a subgraph reaches the runtime.
+	const effect = compileShaderEffect(grouped);
+	assert(
+		effect.ok &&
+			!JSON.stringify(effect.effect).includes('subgraph') &&
+			!!readCustomElementFx(effect.effect),
+		'the compiled effect is one flat pass, read by the registry as any other',
 	);
 }
 

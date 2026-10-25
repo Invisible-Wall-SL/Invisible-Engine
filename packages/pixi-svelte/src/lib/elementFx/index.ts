@@ -8,3 +8,5 @@ export {
 	type ElementFxPlay,
 	type ElementFxPose,
 } from './runtime';
+export { graphFilter } from './custom';
+export type { ElementFxFilter } from './shaders';

@@ -32,6 +32,7 @@
 		onGraphDelete,
 		onNodeDragStop,
 		onNodeClick,
+		onNodeDoubleClick,
 		onPaneClick,
 		ondrop,
 	}: {
@@ -57,6 +58,9 @@
 		onGraphDelete: (detail: { nodes: Node[]; edges: Edge[] }) => void;
 		onNodeDragStop: (detail: { targetNode: Node | null }) => void;
 		onNodeClick: (detail: { node: Node }) => void;
+		/** A node double-clicked (xyflow has no event for it: the node's wrapper names it). The
+		 *  canvas does not zoom on it then. */
+		onNodeDoubleClick?: (detail: { node: Node }) => void;
 		onPaneClick: () => void;
 		/** A palette drag dropped at `pos` (graph coordinates): its raw payload, for the page to read
 		 *  with `readDrag`. */
@@ -99,6 +103,17 @@
 		event.dataTransfer.dropEffect = 'move';
 	}
 
+	// Caught on the way down: on a node that cannot be dragged (a read-only canvas) the pane's zoom
+	// takes a double-click and stops it before it would bubble back up here.
+	function onDoubleClick(event: MouseEvent): void {
+		if (!onNodeDoubleClick || !(event.target instanceof Element)) return;
+		const id = event.target.closest('.svelte-flow__node')?.getAttribute('data-id');
+		const node = id ? nodes.find((n) => n.id === id) : undefined;
+		if (!node) return;
+		event.stopPropagation();
+		onNodeDoubleClick({ node });
+	}
+
 	function onDrop(event: DragEvent): void {
 		const raw = event.dataTransfer?.getData(dropMime);
 		if (!raw) return;
@@ -107,7 +122,13 @@
 	}
 </script>
 
-<div class="canvas" ondragover={onDragOver} ondrop={onDrop} role="application">
+<div
+	class="canvas"
+	ondragover={onDragOver}
+	ondrop={onDrop}
+	ondblclickcapture={onDoubleClick}
+	role="application"
+>
 	<SvelteFlow
 		bind:nodes
 		bind:edges

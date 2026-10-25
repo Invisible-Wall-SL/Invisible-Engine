@@ -562,6 +562,18 @@ export function shaderDocBackupTarget(
 }
 
 /**
+ * A studio-shared graph's backups: `_shared/shader-backups/<id>/`, a sibling of
+ * `_shared/shaders/` for the same reason, so a publish over it or a removal can be undone.
+ */
+export function sharedShaderDocBackupTarget(id: string): DocBackupTarget {
+	return {
+		docKey: sharedShaderDocKey(id),
+		prefix: `_shared/shader-backups/${shaderSlug(id)}/`,
+		stem: 'shader',
+	};
+}
+
+/**
  * Per-CLIP Invisible Flipbook document — `<client>/<project>/clips/<id>.clip.json` (design doc
  * `invisible-flipbook.md`). One file per clip, mirroring `fxDocKey`'s multi-doc layout rather
  * than the single-doc `flowDocKey` shape: clips are independently authored, so a per-clip file

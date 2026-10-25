@@ -43,6 +43,36 @@ export interface ShaderGraphDoc {
 	passes?: CustomElementFxPass[];
 	/** The element's own motion over the play: a curve per channel. */
 	motion?: CustomElementFxMotion;
+	/**
+	 * Reusable groups of nodes, defined once and called by a `subgraph` node as often as the effect
+	 * likes (in its graph or in another subgraph's body). The compiler inlines every call.
+	 */
+	subgraphs?: ShaderSubgraph[];
+}
+
+/** One of a subgraph's inputs or outputs: a port on every node that calls it. */
+export interface SubgraphPort {
+	/** Stable: wires and a call's values name it. A word, and never `subgraph`. */
+	id: string;
+	label: string;
+	type: PortType;
+	/** What an input left unwired on a call reads (an output left unwired inside, likewise); else 0. */
+	default?: number | number[];
+}
+
+/**
+ * A group of nodes with typed inputs and outputs. Its body holds one `subgraphIn` node (an output
+ * per input) and one `subgraphOut` node (an input per output) besides its own nodes; a Param node
+ * inside reads the effect's params. A node `{ type: 'subgraph', values: { subgraph: id } }` calls
+ * it, its ports being the subgraph's.
+ */
+export interface ShaderSubgraph {
+	id: string;
+	name: string;
+	inputs: SubgraphPort[];
+	outputs: SubgraphPort[];
+	nodes: GraphNode[];
+	wires: GraphWire[];
 }
 
 export interface GraphNode {
@@ -88,4 +118,5 @@ export type GraphIssueCode =
 	| 'unreachable'
 	| 'cost'
 	| 'pass'
-	| 'motion';
+	| 'motion'
+	| 'subgraph';
