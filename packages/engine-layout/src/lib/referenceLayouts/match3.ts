@@ -1,5 +1,6 @@
 import { TAP_DIM_ALPHA_PARAM, TAP_TO_CONTINUE_PARAM } from '../tapToContinue';
 import type { LayoutDoc, LayoutNode, LayoutType, NodeOverride, Scene } from '../types';
+import { hudScenes } from './hud';
 
 /**
  * The MATCH-3 scene set (`docs/design/game-families.md` §5.1, P10.5) — what "New game from kind"
@@ -20,6 +21,8 @@ import type { LayoutDoc, LayoutNode, LayoutType, NodeOverride, Scene } from '../
  *     round on the tap and then deals a new board.
  *
  * There is no slot HUD (spin, bet, balance): a rules-decided game has no wallet (§2.3).
+ *
+ * The RGS-decided game (P10.6) has its own set, {@link match3RgsReferenceLayout}.
  */
 
 const MAIN_SIZES_MAP: LayoutDoc['mainSizesMap'] = {
@@ -97,69 +100,76 @@ const roundOver = (id: string, name: string, line: string): Scene => ({
 	],
 });
 
-export function match3ReferenceLayout(): LayoutDoc {
+/** The screens both match-3 sets share: the loading bar, the background and the 7 × 7 board. */
+function boardScenes(): Scene[] {
 	const board = centre(MAIN_SIZES_MAP.desktop);
+	return [
+		{
+			id: 'loading',
+			name: 'Loading / logo',
+			role: 'loading',
+			space: 'canvas',
+			nodes: [
+				{
+					id: 'loading-bar',
+					slotId: 'loadingScreen',
+					label: 'Loading bar',
+					kind: 'componentInstance',
+					componentId: 'loadingBar',
+					x: 0,
+					y: 0,
+				},
+			],
+		},
+		{
+			id: 'background',
+			name: 'Background',
+			space: 'canvas',
+			nodes: [
+				{
+					id: 'bg',
+					slotId: 'background',
+					label: 'Background',
+					kind: 'container',
+					x: 0,
+					y: 0,
+					zIndex: -10,
+					bind: { component: 'Background' },
+					children: [],
+				},
+			],
+		},
+		{
+			id: 'basegame',
+			name: 'Board',
+			role: 'basegame',
+			nodes: [
+				{
+					id: 'reel-grid',
+					label: 'Board',
+					kind: 'reelGrid',
+					reels: MATCH3_BOARD.reels,
+					rows: MATCH3_BOARD.rows,
+					cellSize: MATCH3_BOARD.cellSize,
+					anchor: { x: 0.5, y: 0.5 },
+					x: board.x,
+					y: board.y,
+					zIndex: 1,
+					overrides: reelGridOverrides,
+				},
+			],
+		},
+	];
+}
+
+export function match3ReferenceLayout(): LayoutDoc {
 	return {
 		version: 1,
 		projectKey: 'match3',
 		gameType: 'match3',
 		mainSizesMap: MAIN_SIZES_MAP,
 		scenes: [
-			{
-				id: 'loading',
-				name: 'Loading / logo',
-				role: 'loading',
-				space: 'canvas',
-				nodes: [
-					{
-						id: 'loading-bar',
-						slotId: 'loadingScreen',
-						label: 'Loading bar',
-						kind: 'componentInstance',
-						componentId: 'loadingBar',
-						x: 0,
-						y: 0,
-					},
-				],
-			},
-			{
-				id: 'background',
-				name: 'Background',
-				space: 'canvas',
-				nodes: [
-					{
-						id: 'bg',
-						slotId: 'background',
-						label: 'Background',
-						kind: 'container',
-						x: 0,
-						y: 0,
-						zIndex: -10,
-						bind: { component: 'Background' },
-						children: [],
-					},
-				],
-			},
-			{
-				id: 'basegame',
-				name: 'Board',
-				role: 'basegame',
-				nodes: [
-					{
-						id: 'reel-grid',
-						label: 'Board',
-						kind: 'reelGrid',
-						reels: MATCH3_BOARD.reels,
-						rows: MATCH3_BOARD.rows,
-						cellSize: MATCH3_BOARD.cellSize,
-						anchor: { x: 0.5, y: 0.5 },
-						x: board.x,
-						y: board.y,
-						zIndex: 1,
-						overrides: reelGridOverrides,
-					},
-				],
-			},
+			...boardScenes(),
 			{
 				id: 'match3Hud',
 				name: 'Score and moves',
@@ -173,5 +183,37 @@ export function match3ReferenceLayout(): LayoutDoc {
 			roundOver('roundLost', 'Round lost', 'OUT OF MOVES. Tap to try again'),
 		],
 		updatedAt: '2026-10-24T00:00:00.000Z',
+	};
+}
+
+/**
+ * The RGS-DECIDED match-3 scene set (`docs/design/game-families.md` P10.6): the server deals every
+ * board and prices every win, so the game has a wallet and the slot HUD. The screens are the ones
+ * its starter flow shows (`engine-flow-v2` `MATCH3_RGS_SCREENS`):
+ *
+ *   - `loading`, `background`, `basegame` — as the rules set's;
+ *   - `match3Hud` — one readout, MOVES, a Text Box fed `var:movesLeft` (no score, no target: the win
+ *     is money, shown on the HUD's win label);
+ *   - `hudBar` / `hudCorners` — the standard slot HUD ({@link hudScenes}): balance, win and bet, and
+ *     the spin, menu and bet buttons. Spin places the bet that opens a round.
+ *
+ * No round-over screens: a round ends when the server says so, and the win is the HUD's.
+ */
+export function match3RgsReferenceLayout(): LayoutDoc {
+	return {
+		version: 1,
+		projectKey: 'match3',
+		gameType: 'match3',
+		mainSizesMap: MAIN_SIZES_MAP,
+		scenes: [
+			...boardScenes(),
+			{
+				id: 'match3Hud',
+				name: 'Moves',
+				nodes: readout('movesLeft', 'MOVES', 360),
+			},
+			...hudScenes(),
+		],
+		updatedAt: '2026-10-25T00:00:00.000Z',
 	};
 }

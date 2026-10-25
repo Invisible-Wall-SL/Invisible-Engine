@@ -8,10 +8,11 @@
  *    editor's built-in sample fallback — a call into a function the game won't carry is an error;
  *  - only `error` severity blocks. Warnings and hints are the editor's business.
  *
- * The vocabulary is composed by the editor's own function (`composeFlowV2Vocab`): the kind's, plus
- * the project's Game Config add-ons (`withAddOns`, as the game composes them), plus its sounds and
- * scene cues. It passes no symbols, so the gate never judges a symbol literal: `symbol-not-in-play`
- * is the editor's warning, never a refusal.
+ * The vocabulary is composed by the editor's own function (`composeFlowV2Vocab`): the kind's, less
+ * what the Game Config's outcome forbids (`withOutcome`), plus the project's Game Config add-ons
+ * (`withAddOns`, as the game composes them), plus its sounds and scene cues. It passes no symbols,
+ * so the gate never judges a symbol literal: `symbol-not-in-play` is the editor's warning, never a
+ * refusal.
  */
 import type { CustomElementFx } from 'constants-shared/elementFx';
 import {
@@ -75,6 +76,7 @@ export function validateFlowV2Against(
 	syncFlowContainers(doc, scenes);
 	const vocab = composeFlowV2Vocab(doc.templateId, {
 		addOns,
+		outcome,
 		sounds: soundOptionsFor(sounds),
 		sceneCues: collectSceneCueNames(scenes, components, doc.templateId, addOns),
 		fxTargets: collectElementFxTargets(scenes, components),

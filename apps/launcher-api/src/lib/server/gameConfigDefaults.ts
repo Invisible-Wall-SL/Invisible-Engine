@@ -1,5 +1,6 @@
 import {
 	DEFAULT_HOLD_AND_WIN_PRESET,
+	GAME_OUTCOMES,
 	HOLD_AND_WIN_COIN_BOARD_KEY,
 	HOLD_AND_WIN_PRESET_IDS,
 	HOLD_AND_WIN_PRESET_LABELS,
@@ -9,6 +10,7 @@ import {
 	normalizeGameConfigDoc,
 	resolveWinLevels,
 	type GameConfigDoc,
+	type GameOutcome,
 	type HoldAndWinPresetId,
 	type HoldAndWinTemplateJackpots,
 } from 'game-config';
@@ -21,6 +23,7 @@ import holdAndWinPlainNoJackpots from '$lib/data/gameConfig/holdAndWin.plainNoJa
 import holdAndWinPots from '$lib/data/gameConfig/holdAndWin.pots.json';
 import linesBookOfThermopylae from '$lib/data/gameConfig/lines.bookOfThermopylae.json';
 import linesConfig from '$lib/data/gameConfig/lines.json';
+import match3RgsConfig from '$lib/data/gameConfig/match3.rgs.json';
 import match3RulesConfig from '$lib/data/gameConfig/match3.rules.json';
 import scatterConfig from '$lib/data/gameConfig/scatter.json';
 import waysConfig from '$lib/data/gameConfig/ways.json';
@@ -47,6 +50,14 @@ const FALLBACK_GAME_TYPE = 'lines';
 
 /** The rules-decided match-3 seed (`match3.rules.json`, hand-written: no game app compiles one). */
 const MATCH3_RULES_KEY = 'match3.rules';
+
+/** The RGS-decided match-3 seed (`match3.rgs.json`, hand-written): one base bet mode and a gem
+ *  paytable priced in multiples of the whole stake. It plays on the test server's match-3 mock. */
+const MATCH3_RGS_KEY = 'match3.rgs';
+
+/** Who decides a new game's rounds — what Game Maker asks for a `match3` game. */
+export const isGameOutcome = (v: unknown): v is GameOutcome =>
+	typeof v === 'string' && (GAME_OUTCOMES as readonly string[]).includes(v);
 
 /** The LINES presets (`docs/design/book-feature.md` §3.5): whole configs a lines project may start
  *  from, beside the kind's own default. */
@@ -80,14 +91,15 @@ const DEFAULTS_BY_GAME_TYPE: Record<string, GameConfigDoc> = Object.fromEntries(
 		[HOLD_AND_WIN_COIN_BOARD_KEY]: holdAndWinCoinBoard,
 		[LINES_PRESET_KEY.bookOfThermopylae]: linesBookOfThermopylae,
 		[MATCH3_RULES_KEY]: match3RulesConfig,
+		[MATCH3_RGS_KEY]: match3RgsConfig,
 	}).flatMap(([gameType, raw]) => {
 		const doc = normalizeGameConfigDoc(raw);
 		return doc ? [[gameType, doc] as const] : [];
 	}),
 );
 
-/** A kind whose defaults are PRESETS resolves to its default preset's key. `match3` seeds its
- *  rules-decided game (game-families P10.5); the RGS-decided seed comes with its mock (P10.6). */
+/** A kind whose defaults are PRESETS resolves to its default preset's key. `match3` defaults to its
+ *  rules-decided game (game-families P10.5); the RGS-decided seed (P10.6) is asked for by outcome. */
 const KIND_DEFAULT_KEY: Record<string, string> = {
 	holdAndWin: holdAndWinPresetKey(DEFAULT_HOLD_AND_WIN_PRESET),
 	match3: MATCH3_RULES_KEY,
@@ -174,12 +186,16 @@ export const templateIsBuiltIn = (gameType: string | undefined): boolean =>
  * `holdAndWin` project was dealt plain lines until someone saved `/config`. A lines project seeds a
  * lines PRESET only when one is asked for (Game Maker's "Book of Thermopylae"). Every other kind
  * stays un-authored, so what it plays is byte-identical to before (the compiled template, `null`
- * bake).
+ * bake). A `match3` project seeds its RGS-decided game only when `outcome: 'rgs'` is asked for
+ * (Game Maker's "Who decides the result?"); without one it seeds the rules game, as before.
  */
 export function gameConfigSeedFor(
 	gameType: string,
 	preset?: HoldAndWinPresetId | LinesPresetId,
+	outcome?: GameOutcome,
 ): GameConfigDoc | null {
+	if (gameType === 'match3' && outcome === 'rgs')
+		return DEFAULTS_BY_GAME_TYPE[MATCH3_RGS_KEY] ?? null;
 	if (gameType === 'lines') {
 		return isLinesPresetId(preset)
 			? (DEFAULTS_BY_GAME_TYPE[LINES_PRESET_KEY[preset]] ?? null)

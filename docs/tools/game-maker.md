@@ -103,7 +103,13 @@ overlay add-on.
      reads _No coin overlay preset fits this game type._: pots and dropped tokens are not built
      for a coin board. A project switched to the coin board later, in Game Config, keeps the
      screens and Flow it was created with.
-   - **Match-3** makes a free-play match-3 game: no stake, no balance, no wins in money — the
+   - **Match-3** shows a **Who decides the result?** dropdown, with one line under it describing
+     the choice. It starts on **Free play (rules)**:
+     - **Free play (rules)** — _The game's own rules, no wallet._ (below).
+     - **Real money (RGS)** — _The server deals every board and win — plays on the test server's
+       mock. Publishing a non-slot game and live real money are not switched on yet._ (below).
+
+     **Free play** makes a free-play match-3 game: no stake, no balance, no wins in money — the
      game's own rules decide every round. It is saved with its own [Game Config](game-config.md)
      (Game family → Match-3, decided by the game's rules): a 7×7 board of six gems, 20 moves a
      round, a score goal of 1500, and 50 / 120 / 250 points for a run of 3 / 4 / 5. Its screens
@@ -114,8 +120,21 @@ overlay add-on.
      with one line of text). There is no slot HUD — no spin button, bet or balance. Its starter
      [Flow](flow.md#match-3--the-board-signals-and-the-starter-flow) keeps the score, spends the
      moves and ends the round. The player swaps two neighbouring gems by dragging one onto the
-     other, or by tapping one and then its neighbour. Only the free-play match-3 is offered; a
-     match-3 decided by the server is not.
+     other, or by tapping one and then its neighbour.
+
+     **Real money** makes a match-3 game the server decides: the Spin button places the bet that
+     opens a round, the server deals the board, resolves every swap and prices every win, and the
+     round ends when the server says so. Its [Game Config](game-config.md) is Match-3 decided by
+     the server: the same 7×7 board and six gems, one **base** bet mode, 10 moves a round (the
+     test server's mock reads it; a real server sends its own), and a paytable that prices a run
+     of 3 / 4 / 5 or more as a multiple of the whole stake — 0.1 / 0.25 / 0.5× for the low gems
+     (L1, L2), 0.2 / 0.5 / 1.5× for the high gems (H1–H4). Its screens are **Loading / logo**,
+     **Background**, **Board**, **Moves** (one MOVES readout, a Text Box fed by `var:movesLeft`),
+     and the standard slot HUD — **HUD — bottom bar** (balance, win and bet; the spin, menu and bet
+     buttons) and **HUD — corners**. There is no score, no target and no round won / lost screen.
+     Its starter Flow sets the moves when a board lands, spends one per accepted swap and locks the
+     board when the round ends. It plays in the authoring preview against the test server's match-3
+     mock; publishing it is refused (see below).
 4. Optionally tick **Add a coin overlay** and pick its preset from the dropdown beside it. The
    new project then gets the same add-on as the card's **＋ Coin overlay…** (see
    [Add a coin overlay](#add-a-coin-overlay-to-a-project) below), run on its fresh scaffold.
@@ -130,8 +149,8 @@ overlay add-on.
    `sheet_config.json`, `localization/strings.json`; a **Hold and Win** project
    also gets the plain Hold and Win (or the coin board one) as its own [Game Config](game-config.md)
    and `symbols/symbols.json` binding its Hold and Win symbols, so its first publish
-   already deals and draws the feature; a **Match-3** project gets its free-play config the same
-   way). A confirmation appears and
+   already deals and draws the feature; a **Match-3** project gets the config of the result you
+   picked the same way). A confirmation appears and
    the project shows up under **Your projects** below. With the overlay ticked, the confirmation
    reads _"… with the coin overlay"_ and the add-on's report shows under the form.
 
@@ -498,7 +517,10 @@ game) plus a few seconds to copy its files.
 - **A game that is not a slot.** Final, with no override. A free-play match-3 is refused with
   _"This game's config is a free-play match-3 game. It plays in the authoring preview, but
   publishing a game that is not a slot is not switched on yet, so it is not published."_; a
-  match-3 decided by the server, or an arcade game, with _"…the game runtime cannot play a … game
+  match-3 decided by the server with _"This game's config is a real-money match-3 game. It plays
+  against the test server's match-3 mock in the authoring preview, but publishing a game that is
+  not a slot is not switched on yet, and live real money waits on a real provider's match-3 wire,
+  so it is not published."_; an arcade game with _"…the game runtime cannot play an arcade game
   yet, so it is not published."_ The desktop bake's config export refuses them the same way. Set
   [Game Config](game-config.md#game-family-match-3-and-arcade)'s family back to Slot to publish
   the project as a slot.
@@ -708,9 +730,11 @@ graduate later; its R2 authoring data carries over.
 - **Per-game math is not authored here.** Symbols, paytable, paylines, win model, bet modes, reel
   strips and board size live in [Invisible Game Config](game-config.md); a project that never
   saves a config there runs the engine's compiled `lines` template, whatever its game type.
-- **Match-3 is free play only, and does not publish.** Game Maker seeds only the match-3 decided
-  by the game's rules; one decided by the server is not offered yet. A match-3 project is refused
-  at publish (see _Publish can refuse_ above).
+- **Match-3 does not publish.** Either answer to **Who decides the result?** makes a game that
+  plays only in the authoring preview — a real-money one against the test server's match-3 mock.
+  A match-3 project is refused at publish (see _Publish can refuse_ above). Changing the answer
+  later is Game Config's **Who decides the result**; the screens and Flow stay the ones the project
+  was created with.
 - **A custom kind saved as `match3` before Match-3 was built in is hidden.** The built-in kind
   takes its place in every kind picker; the custom kind is never overwritten (the server log
   warns that it is hidden).

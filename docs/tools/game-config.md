@@ -120,11 +120,13 @@ has no family control at all. Two more families exist
 
 - **Where the picker shows:** only on a project whose kind is `match3` or `arcade`, or whose
   config already names a family. [Game Maker](game-maker.md) creates a **Match-3** project with
-  its config already set: Match-3, decided by the game's rules, a 7×7 board of six gems, 20 moves,
-  a score goal of 1500 and 50 / 120 / 250 points for a run of 3 / 4 / 5. No project can be created
-  as an arcade game yet, and Game Maker does not seed a match-3 decided by the server; for those
-  the way in is **raw JSON**: add `"family": "match3"` (or `"arcade"`), apply, and the page
-  re-renders for that family.
+  its config already set, by the answer to its **Who decides the result?**: for **Free play**,
+  Match-3 decided by the game's rules, a 7×7 board of six gems, 20 moves, a score goal of 1500 and
+  50 / 120 / 250 points for a run of 3 / 4 / 5; for **Real money**, Match-3 decided by the server,
+  the same board and gems, one base bet mode, 10 moves (read by the test server's mock) and gem
+  pays of 0.1 / 0.25 / 0.5× (low) or 0.2 / 0.5 / 1.5× (high) the whole bet for a run of 3 / 4 /
+  5+. No project can be created as an arcade game yet; for that the way in is **raw JSON**: add
+  `"family": "arcade"`, apply, and the page re-renders for that family.
 - **Game family** (the panel at the top): the **Family** (Slot / Match-3 / Arcade) and **Who
   decides the result**:
   - **The server (RGS) — real money**: the server decides every gem that falls and every win, so
@@ -164,10 +166,11 @@ has no family control at all. Two more families exist
   - **Bodies** — by component id: a **box** (width × height) or a **circle** (radius), its
     **tags** (`player`, `enemy`, `pickup`) and whether it is **solid**.
 - **Publishing:** Game Maker's publish and the desktop bake **refuse a match-3 or arcade config**,
-  with no override. A free-play match-3 plays in the launcher's authoring preview, but publishing
-  a game that is not a slot is not switched on yet; a match-3 decided by the server, or an arcade
-  game, is refused because the game runtime cannot play it yet. Set the family back to Slot to
-  publish the project as a slot.
+  with no override. A free-play match-3 plays in the launcher's authoring preview, and a match-3
+  decided by the server plays there against the test server's match-3 mock, but publishing a game
+  that is not a slot is not switched on yet — and live real money for a server-decided match-3
+  also waits on a real provider's match-3 wire. An arcade game is refused because the game runtime
+  cannot play it yet. Set the family back to Slot to publish the project as a slot.
 
 ## Coin board
 

@@ -11,7 +11,7 @@ import {
 	type HoldAndWinTemplateOptions,
 } from './holdAndWin';
 import { defaultLayout } from './lines';
-import { match3ReferenceLayout } from './match3';
+import { match3ReferenceLayout, match3RgsReferenceLayout } from './match3';
 import { scatterReferenceLayout } from './scatter';
 import { waysReferenceLayout } from './ways';
 
@@ -20,7 +20,7 @@ export { bookofReferenceLayout } from './bookof';
 export { waysReferenceLayout } from './ways';
 export { clusterReferenceLayout } from './cluster';
 export { scatterReferenceLayout } from './scatter';
-export { match3ReferenceLayout, MATCH3_BOARD } from './match3';
+export { match3ReferenceLayout, match3RgsReferenceLayout, MATCH3_BOARD } from './match3';
 export {
 	holdAndWinReferenceLayout,
 	HOLD_AND_WIN_BOARD,
@@ -63,7 +63,7 @@ const FULL_SCENE_SOURCES: Record<
 	string,
 	{
 		name: string;
-		build: (options?: HoldAndWinTemplateOptions) => LayoutDoc;
+		build: (options?: SceneSetOptions) => LayoutDoc;
 		filled?: true;
 		/** Other kinds this set is a reference FOR: loaded into one of their projects it is that
 		 *  project's own layout, not another kind's (see {@link referenceLoadsAs}). */
@@ -98,9 +98,14 @@ const FULL_SCENE_SOURCES: Record<
 		name: 'Hold and Win',
 		build: (options) => holdAndWinReferenceLayout(undefined, options),
 	},
-	// Match-3 (game-families P10.5): the board that never spins, its HUD and its round screens.
+	// Match-3 (game-families P10.5): the board that never spins, its HUD and its round screens; an
+	// RGS-decided game (P10.6, `outcome: 'rgs'`) has the moves readout and the slot HUD instead.
 	// Engine pieces only, so scaffold-only like the skeletons.
-	match3: { name: 'Match-3', build: () => match3ReferenceLayout() },
+	match3: {
+		name: 'Match-3',
+		build: (options) =>
+			options?.outcome === 'rgs' ? match3RgsReferenceLayout() : match3ReferenceLayout(),
+	},
 };
 
 /** A declared respin mode the scene set seeds screens for: its id, the name the tools show it by,
@@ -138,6 +143,9 @@ export type SceneSetOptions = HoldAndWinTemplateOptions & {
 	/** Every spins mode: each gets its own copy of the kind's {@link SPINS_MODE_SCREENS}, tagged
 	 *  `modeId: <its id>`. Absent or empty ⇒ none, so the set is the kind's own. */
 	spinsModes?: readonly SpinsModeScreens[];
+	/** Who decides a match-3 game's rounds: `rgs` picks the RGS-decided set
+	 *  ({@link match3RgsReferenceLayout}). Absent ⇒ the rules set, as before; other kinds ignore it. */
+	outcome?: 'rgs' | 'rules';
 };
 
 /**

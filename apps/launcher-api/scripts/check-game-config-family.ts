@@ -502,8 +502,10 @@ check(
 	unplayableFamilyMessage(SLOT) === null && unplayableFamilyMessage(null) === null,
 );
 check(
-	'4. an RGS-decided match-3 config is refused as unplayable',
-	/cannot play a match-3/.test(unplayableFamilyMessage({ ...SLOT, family: 'match3' }) ?? ''),
+	'4. an RGS-decided match-3 config is refused: it plays on the mock, publishing is off',
+	/real-money match-3 .*test server's match-3 mock.*not switched on.*real provider's match-3 wire/.test(
+		unplayableFamilyMessage({ ...SLOT, family: 'match3' }) ?? '',
+	),
 );
 check(
 	'4. a rules-decided match-3 config is still refused: publishing a non-slot game is off',
