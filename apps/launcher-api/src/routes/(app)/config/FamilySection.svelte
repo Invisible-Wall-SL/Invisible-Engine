@@ -129,7 +129,7 @@
 				{#if family === 'arcade'}
 					An arcade game decided by the server is not built yet.
 				{/if}
-				It plays in the authoring preview; publishing a game that is not a slot is not switched on yet.
+				It publishes to our test server; it is never built for a real-money delivery.
 			</p>
 		{/if}
 	</fieldset>
