@@ -7,6 +7,7 @@
 		SPINS_MODE_ROUTE_KINDS,
 		spinsGamesRefusal,
 		type CoinOverlayStyle,
+		type GameOutcome,
 		type HoldAndWinTemplateBase,
 		type HoldAndWinTemplateJackpots,
 		type ImportableFeature,
@@ -65,6 +66,12 @@
 	let holdAndWinBase = $state<HoldAndWinTemplateBase>('lines');
 	/** A lines game's starting preset, or '' for the lines template. */
 	let linesPreset = $state('');
+	/** Who decides a match-3 game's result: free play (its own rules) unless asked for real money. */
+	let match3Outcome = $state<GameOutcome>('rules');
+	const OUTCOME_LINES: Record<GameOutcome, string> = {
+		rgs: "The server deals every board and win — plays on the test server's mock. Publishing a non-slot game and live real money are not switched on yet.",
+		rules: "The game's own rules, no wallet.",
+	};
 	let creating = $state(false);
 	let createMsg = $state('');
 	let createErr = $state('');
@@ -997,6 +1004,16 @@
 							</select>
 						</label>
 					{/if}
+					{#if gameType === 'match3'}
+						<label>
+							Who decides the result?
+							<select bind:value={match3Outcome}>
+								<option value="rgs">Real money (RGS)</option>
+								<option value="rules">Free play (rules)</option>
+							</select>
+							<span class="outcome-line">{OUTCOME_LINES[match3Outcome]}</span>
+						</label>
+					{/if}
 					{#if gameType === 'holdAndWin'}
 						<label>
 							Base game
@@ -1036,6 +1053,9 @@
 				{/if}
 				{#if gameType === 'lines' && linesPreset}
 					<input type="hidden" name="linesPreset" value={linesPreset} />
+				{/if}
+				{#if gameType === 'match3'}
+					<input type="hidden" name="outcome" value={match3Outcome} />
 				{/if}
 				<div class="add-on-row">
 					<label class="check">
@@ -1891,6 +1911,10 @@
 	}
 	.muted {
 		margin: 0;
+	}
+	.outcome-line {
+		color: #9a9aa6;
+		font-weight: 400;
 	}
 	.grid {
 		display: grid;

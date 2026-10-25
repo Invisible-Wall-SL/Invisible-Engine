@@ -1,6 +1,6 @@
 import type { Board, Cell } from 'engine-mechanics';
 
-import type { Match3Session, Match3Step } from './match3Session';
+import type { Match3MoveResult, Match3Session, Match3Step } from './match3Session';
 
 /**
  * A rules-decided match-3 game's MOVES (`docs/design/game-families.md` §2.3, §3.4): what a tap, a
@@ -27,6 +27,20 @@ export type Match3Presenter = {
 	step(step: Match3Step): Promise<void>;
 	/** Draw `cells` in a state. */
 	mark(cells: readonly Cell[], state: Match3Mark): void;
+	/** Play the book events an RGS move ends with ({@link Match3MoveResult.tail}). */
+	tail?(events: readonly object[]): Promise<void>;
+};
+
+/**
+ * The board the driver plays: a rules session (`createMatch3Session`), or an RGS-decided one
+ * (`createMatch3RgsSession`), whose swap is a request to the server and whose deal, refill and
+ * shuffle throw — the server owns those.
+ */
+export type Match3Board = Pick<
+	Match3Session,
+	'board' | 'ready' | 'deal' | 'canSwap' | 'resolveNow' | 'shuffle' | 'hint'
+> & {
+	trySwap(a: Cell, b: Cell): Match3MoveResult | Promise<Match3MoveResult>;
 };
 
 /** What the driver keeps; the runtime passes a reactive object to draw from. */
@@ -57,7 +71,7 @@ export function createMatch3Driver({
 	present,
 	onError = (error) => console.error('[match3] board work failed:', error),
 }: {
-	session: Match3Session;
+	session: Match3Board;
 	state: Match3DriverState;
 	/** Raise a board signal and resolve when its flow chain has run. */
 	signal: (name: string, payload: Record<string, unknown>) => Promise<void>;
@@ -131,7 +145,7 @@ export function createMatch3Driver({
 		exclusive(async () => {
 			if (!inside(from) || !inside(to) || !adjacent(from, to)) return;
 			clearMarks();
-			const move = session.trySwap(from, to);
+			const move = await session.trySwap(from, to);
 			await present.swap(from, to, !move.accepted);
 			if (move.accepted) present.seat(move.swapped);
 			state.moves += 1;
@@ -139,6 +153,7 @@ export function createMatch3Driver({
 			if (!move.accepted) return;
 			await playSteps(move.steps);
 			await signal('settled', { steps: move.steps.length, points: move.points });
+			if (move.tail?.length) await present.tail?.(move.tail);
 			if (move.noMoves && !redealing) await signal('noMoves', {});
 		});
 

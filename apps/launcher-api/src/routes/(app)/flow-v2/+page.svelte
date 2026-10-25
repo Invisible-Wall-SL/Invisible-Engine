@@ -118,7 +118,10 @@
 	// flow could never fire an asset the author placed. Each name becomes a payload-less CueDecl ⇒
 	// exactly `[exec-in, exec-out]`. No author-named cues ⇒ the vocabulary is returned unchanged.
 	//
-	// First of all, the Game Config's ADD-ONS (`data.addOns`) compose their surfaces onto the kind's —
+	// First, the Game Config's OUTCOME (`data.outcome`): an RGS-decided game is not offered the
+	// rules-only board actions (`withOutcome`). A slot is always RGS and has none, so nothing changes.
+	//
+	// Then the Game Config's ADD-ONS (`data.addOns`) compose their surfaces onto the kind's —
 	// a Hold and Win bonus or the pots overlay on a Book-of project — exactly as the publish gate and
 	// the game do. No add-on block ⇒ the kind's vocabulary, object identity included.
 	//
@@ -129,6 +132,7 @@
 	const vocab = $derived(
 		composeFlowV2Vocab(doc.templateId, {
 			addOns: data.addOns,
+			outcome: data.outcome,
 			symbols: data.symbols,
 			sounds: data.soundOptions,
 			sceneCues: data.sceneCues ?? [],
@@ -219,6 +223,7 @@
 		containerTaps,
 		instances,
 		variables: docVariables(doc),
+		outcome: data.outcome,
 	});
 
 	// --- The editing TARGET (2c.3) ---------------------------------------------
@@ -505,6 +510,7 @@
 						containerTaps,
 						sceneIds,
 						instances,
+						data.outcome,
 					).filter((issue) => !touchesUnpinned(issue)),
 					...respinTabIssues(doc, data.addOns),
 					...spinsTabIssues(doc, data.addOns, sceneIds),

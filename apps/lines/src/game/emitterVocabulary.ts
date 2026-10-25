@@ -1586,5 +1586,17 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 		{
 			type: 'modeExit',
 		},
+		{
+			type: 'boardInit',
+		},
+		{
+			type: 'swap',
+		},
+		{
+			type: 'movesLeft',
+		},
+		{
+			type: 'match3RoundEnd',
+		},
 	],
 };

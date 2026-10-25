@@ -57,6 +57,7 @@ import {
 	buildBetActions,
 	buildHeartbeat,
 	buildCollectAction,
+	buildMoveAction,
 	translateBetResponse,
 	responseClosedRound,
 } from './translator';
@@ -108,6 +109,13 @@ import {
 	reelsModes,
 	type PotsOverlayWireConfig,
 } from './potsOverlay';
+import {
+	condenseMatch3Replay,
+	readMatch3Config,
+	translateMatch3Event,
+	type Match3Translate,
+} from './match3';
+import type { Match3BootConfig } from './types';
 
 // ---------- mapping selection ----------
 
@@ -147,6 +155,16 @@ const capturedCoinBoard = new Map<string, CoinBoardConfig>();
  * every bonus". Absent ⇒ every path below is exactly as it was.
  */
 const capturedPotsOverlay = new Map<string, PotsOverlayWireConfig>();
+
+/** Per-session match-3 block from the boot config (`config.match3`, `docs/reference/match3-wire.md`)
+ *  — the gate for the whole match-3 path: its events, a round that stays open across `move`s, and a
+ *  resume condensed to one board. Absent ⇒ every path below is exactly as it was. */
+const capturedMatch3 = new Map<string, Match3BootConfig>();
+
+/** A match-3 round's BASE stake (cents), from its `bet` — a `move`'s answer carries no `bet`, so the
+ *  amounts of every later request in the round are read against this. Cleared when a round starts or
+ *  closes. Only a match-3 session ever writes it. */
+const match3Stake = new Map<string, number>();
 
 /** The wire events of a respin feature without rules that are dropped; its overlay events (drops,
  *  pots) still translate, and its `gameEnd` closes the round as any round's does. */
@@ -303,6 +321,8 @@ const captureConfig = (
 	// Auto-select the symbol mapping from the declared vocabulary.
 	const detected = pickMappingForConfig(cfg);
 	if (detected) activeMapping = detected;
+	const match3 = readMatch3Config(cfg);
+	if (match3) capturedMatch3.set(sid, match3);
 	const holdAndWin = readHoldAndWinModes(cfg);
 	const overlay = readPotsOverlayConfig(cfg);
 	if (holdAndWin) {
@@ -482,7 +502,8 @@ const warnOnStakeRounding = (
  *  knows how to translate, and the declared grid against what the facade emits.
  *  Logs once per session as a console.warn; never throws. */
 const runConfigCrossCheck = (sid: string, cfg: Play4FunConfigContext): void => {
-	if (reportedSessions.has(sid)) return;
+	// A match-3 server deals the project's own gem names, which map by identity on purpose.
+	if (reportedSessions.has(sid) || capturedMatch3.has(sid)) return;
 	reportedSessions.add(sid);
 
 	const declared = new Set(cfg.symbols ?? []);
@@ -806,8 +827,16 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 	const ordered: Record<string, unknown>[] = [];
 	const push = (ev: Record<string, unknown>) => ordered.push({ index: ordered.length, ...ev });
 
-	// The bet-multiplier denominator — the BASE stake, see `baseStakeCents`. Set from the `bet` event.
-	let betBaseCents = 0;
+	// The bet-multiplier denominator — the BASE stake, see `baseStakeCents`. Set from the `bet` event;
+	// a match-3 `move`'s answer has none, so its round's stake carries over from the bet's.
+	const match3 = capturedMatch3.has(sid);
+	let betBaseCents = match3 ? (match3Stake.get(sid) ?? 0) : 0;
+	const match3Tools: Match3Translate = {
+		symbol: (cell) => toRawSymbol(activeMapping, cell),
+		amount: (cents) => toBookEventAmount(cents, betBaseCents),
+		paddingRows: BOARD_PADDING_ROWS,
+		minRun: capturedMatch3.get(sid)?.minRun ?? 3,
+	};
 	let pendingWins: {
 		what: string;
 		occurs: number;
@@ -1070,6 +1099,11 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 			if (e.event === 'holdAndWinEnd') inRuleless = false;
 			continue;
 		}
+		const match3Events = match3 ? translateMatch3Event(e.event, e.context, match3Tools) : null;
+		if (match3Events) {
+			match3Events.forEach(push);
+			continue;
+		}
 		switch (e.event) {
 			case 'config':
 			case 'gameStart':
@@ -1078,6 +1112,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				break;
 			case 'bet': {
 				betBaseCents = baseStakeCents(e.context as BetEventContext);
+				if (match3) match3Stake.set(sid, betBaseCents);
 				const ids = (e.context as { paylineIds?: unknown } | undefined)?.paylineIds;
 				if (coinBoard && Array.isArray(ids)) roundPaylineIds = ids.map(String);
 				break;
@@ -1870,6 +1905,7 @@ const abandonResume = (sid: string, open: OpenRound, why: string) => {
 	);
 	sessionFor(sid).startRound();
 	pendingFinalBalance.delete(sid);
+	match3Stake.delete(sid);
 	return null;
 };
 
@@ -1923,6 +1959,7 @@ const resumeOpenRound = async (
 	const session = sessionFor(sid);
 	session.startRound();
 	session.bindRound(open.roundId);
+	match3Stake.delete(sid);
 
 	const replayed: Play4FunBookEvent[] = [];
 	let last: Play4FunResponse | null = null;
@@ -1951,6 +1988,8 @@ const resumeOpenRound = async (
 		last = r.response;
 	}
 
+	if (capturedMatch3.has(sid)) return resumeMatch3Round(sid, open, replayed, last);
+
 	const round = await playOutRound(fetcher, replayed, last);
 	if (round.refused) return abandonResume(sid, open, 'the server refused a step of it');
 
@@ -1967,6 +2006,34 @@ const resumeOpenRound = async (
 			active: true,
 			mode: serverOptions ? serverBetOptionEntries(serverOptions)[0].key : 'BASE',
 			event: String(holdAndWinResumePoint(sid, replayed)),
+		},
+	};
+};
+
+/**
+ * A match-3 round left open, handed to the engine as ONE board rather than every replayed move: the
+ * last board, its moves left and the running win — and, only when the round had already ended, its
+ * end. Never collected here; the engine's `requestEndRound` does that, as for any round.
+ */
+const resumeMatch3Round = (
+	sid: string,
+	open: OpenRound,
+	replayed: Play4FunBookEvent[],
+	last: Play4FunResponse | null,
+) => {
+	const condensed = condenseMatch3Replay(replayed);
+	if (!condensed) return abandonResume(sid, open, 'it replayed no board');
+	const settled = settleRound(sid, { events: condensed, last, refused: false }, 'USD');
+	const stake = replayed.find((e): e is BetEvent => e.event === 'bet')?.context;
+	const serverOptions = betOptionsFor(sid);
+	return {
+		balance: settled.balance,
+		round: {
+			...settled.round,
+			amount: stake ? play4FunToEngine(baseStakeCents(stake)) : undefined,
+			active: true,
+			mode: serverOptions ? serverBetOptionEntries(serverOptions)[0].key : 'BASE',
+			event: '0',
 		},
 	};
 };
@@ -2004,6 +2071,7 @@ export const requestBet = async (options: {
 	const session = sessionFor(options.sessionID);
 	const fetcher = fetcherFor(options.sessionID, options.rgsUrl);
 	session.startRound();
+	match3Stake.delete(options.sessionID);
 	// A new round holds nothing back: their client zeroes `lockedPoint` on every spin, so a win whose
 	// celebration never released it stops being held here at the latest.
 	platformLocks.delete(options.sessionID);
@@ -2066,6 +2134,19 @@ export const requestBet = async (options: {
 	// vocabulary + grid.
 	const cfg = captureConfig(options.sessionID, eventsOf(first.response));
 	if (cfg) runConfigCrossCheck(options.sessionID, cfg);
+
+	// A match-3 round stays OPEN across the player's `move`s until `requestEndRound` collects it,
+	// whatever it wins: the bet's answer is presented as it is — its first board — and nothing is
+	// driven or collected here.
+	if (capturedMatch3.has(options.sessionID)) {
+		const opened = settleRound(
+			options.sessionID,
+			{ events: eventsOf(first.response), last: first.response, refused: false },
+			options.currency,
+		);
+		if (opened.round) opened.round.active = true;
+		return opened;
+	}
 
 	const round = await playOutRound(fetcher, eventsOf(first.response), first.response);
 	// A feature cut short has no `gameEnd`, so presenting it parks the player inside it for good. The
@@ -2252,10 +2333,23 @@ export const requestEndRound = async (options: { sessionID: string; rgsUrl: stri
 	// was left open and every win went uncredited while the HUD showed one anyway, computed by us.
 	if (session.gid) {
 		const collectResult = await fetcher.post({ body: buildCollectAction() });
-		if (responseClosedRound(collectResult.response)) session.endRound();
+		if (responseClosedRound(collectResult.response)) {
+			session.endRound();
+			match3Stake.delete(options.sessionID);
+		}
 		pendingFinalBalance.delete(options.sessionID);
 		const failed = httpFailure(collectResult);
 		if (failed) return failed;
+		// A refused match-3 collect leaves its round open on the server: say so, rather than report a
+		// settled round the next bet would collide with.
+		if (capturedMatch3.has(options.sessionID) && isPlay4FunError(collectResult.response)) {
+			const raw = collectResult.response;
+			return {
+				status: { statusCode: `ERR_${raw.errorCode}`, statusMessage: raw.error },
+				error: raw.error,
+				message: `${raw.error} (code ${raw.errorCode})`,
+			};
+		}
 		const balance = balanceOf(collectResult.response);
 		return {
 			status: { statusCode: 'SUCCESS' as const },
@@ -2282,6 +2376,68 @@ export const requestEndRound = async (options: { sessionID: string; rgsUrl: stri
 	return {
 		status: { statusCode: 'SUCCESS' as const },
 		balance: balance !== undefined ? { amount: balance, currency: 'USD' } : undefined,
+	};
+};
+
+/**
+ * A match-3 `move` (ours — `docs/reference/match3-wire.md`): swap `from` with `to` (visible rows) in
+ * the round the bet opened, and answer with its book — `swap`, the cascade's `tumbleBoard` /
+ * `updateTumbleWin` steps, `movesLeft`, and `roundEnd` plus the `gameEnd` translation on the move that
+ * ended the round. The round stays open: `requestEndRound` collects it.
+ *
+ * Posted under the round's `gid`; the fetcher moves `seq` on by one when it is answered (a `move` is
+ * stored) and resends a lost answer at the same `seq` and `gid`, which replays it. Refused here, with
+ * nothing sent, when no match-3 round is open.
+ */
+export const requestMove = async (options: {
+	sessionID: string;
+	rgsUrl: string;
+	from: { reel: number; row: number };
+	to: { reel: number; row: number };
+}) => {
+	const session = sessionFor(options.sessionID);
+	if (!session.gid || !capturedMatch3.has(options.sessionID)) {
+		const text = 'no match-3 round is open, so the move was not sent';
+		return {
+			status: { statusCode: 'ERR_NO_ROUND', statusMessage: text },
+			error: text,
+			message: text,
+		};
+	}
+	const fetcher = fetcherFor(options.sessionID, options.rgsUrl);
+	const result = await fetcher.post({ body: buildMoveAction(options.from, options.to) });
+	const failed = httpFailure(result);
+	if (failed) return failed;
+	if (!result.response) {
+		const text = 'the game server sent no answer to the move';
+		return { status: { statusCode: 'ERR_UE', statusMessage: text }, error: text, message: text };
+	}
+	if (isPlay4FunError(result.response)) {
+		const raw = result.response;
+		const balanceCents = raw.platform?.balance;
+		return {
+			status: { statusCode: `ERR_${raw.errorCode}`, statusMessage: raw.error },
+			balance:
+				typeof balanceCents === 'number'
+					? { amount: play4FunToEngine(balanceCents), currency: 'USD' }
+					: undefined,
+			error: raw.error,
+			message: `${raw.error} (code ${raw.errorCode})`,
+		};
+	}
+	const settled = settleRound(
+		options.sessionID,
+		{ events: eventsOf(result.response), last: result.response, refused: false },
+		'USD',
+	);
+	return {
+		status: settled.status,
+		balance: settled.balance,
+		round: {
+			roundID: settled.round?.roundID,
+			active: true,
+			state: settled.round?.state ?? [],
+		},
 	};
 };
 

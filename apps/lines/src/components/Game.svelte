@@ -2285,7 +2285,7 @@
 	// play (`EnableSpaceHold`) lives in the coded `UIDefault`, so when that is absent — an authored
 	// HUD, a v2 flow driving the screens, a flow-managed HUD not yet shown — the game mounts it.
 	const codedHudMounted = $derived(
-		mechanic.spins &&
+		mechanic.bets &&
 			(!isHudFlowManaged || isHudActive) &&
 			!suppressCodedHud &&
 			!flowV2DrivesScreens,
@@ -2419,6 +2419,8 @@
 			// settings ⇒ engine defaults (all on) — parity for un-authored docs.
 			if (doc.settings?.jurisdiction === 'UK') setUiFeatures(UI_FEATURES_UK);
 			else if (doc.settings?.features) setUiFeatures(doc.settings.features);
+			// A round that waits on the player's moves is never chained: no autoplay, no hold-to-spin.
+			if (mechanic.interactiveRound) setUiFeatures({ autoplay: false, spaceHold: false });
 			// Invisible Flow (Phase 4): build the interpreter from the (optional) FlowDoc +
 			// the just-loaded scenes, and publish it for the book-event play path. Returns
 			// `undefined` when no FlowDoc is authored ⇒ the holder stays null ⇒ pure coded
@@ -2559,7 +2561,7 @@
 			(no double-fire). Neither ⇒ not rendered, coded hotkey is the sole binding (parity). Mirrors
 			`ButtonBet`'s binding.
 		-->
-	{#if mechanic.spins && (HUD_BUTTON_INSTANCES || suppressCodedHud)}
+	{#if mechanic.bets && (HUD_BUTTON_INSTANCES || suppressCodedHud)}
 		<OnHotkey
 			hotkey="Space"
 			disabled={spinHotkeyDisabled}
@@ -2569,7 +2571,7 @@
 	{/if}
 	<!-- At most one hold-Space binding, gated as in `UIDefault` (a `disabledAutoplay` jurisdiction or
 			the doc's Game Settings turn `spaceHold` off). -->
-	{#if mechanic.spins && !codedHudMounted && stateUi.config.features.spaceHold}
+	{#if mechanic.bets && !mechanic.interactiveRound && !codedHudMounted && stateUi.config.features.spaceHold}
 		<EnableSpaceHold isIdle={context.stateXstateDerived.isIdle} />
 	{/if}
 

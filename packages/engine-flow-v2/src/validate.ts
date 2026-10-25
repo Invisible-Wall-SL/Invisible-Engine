@@ -5,6 +5,9 @@
  *
  * Each check has a stable `code` string (so the UI + tests can key off it):
  *  - `ref-unresolved`      — a node's `ref` (event/action/cue/container/function) is unknown.
+ *  - `rules-only-in-rgs`   — an action only a rules-decided game may call (`boardResolve`,
+ *                            `boardRefill`, `boardShuffle`), in a game the RGS decides: `withOutcome`
+ *                            dropped it from the vocabulary. Reported INSTEAD of `ref-unresolved`.
  *  - `exec-in-fanin`       — an exec-in has >1 incoming exec edge (§2: at most one predecessor).
  *  - `data-in-fanin`       — a data-in has >1 incoming data edge (§2: at most one source).
  *  - `entry-has-exec-in`   — an `event` node has an incoming exec edge (§3: entry points have none).
@@ -111,6 +114,7 @@ import {
 	instanceValueOf,
 	isLocalizationKey,
 } from './instanceNodes';
+import { isRulesOnlyInRgs } from './reference/outcome';
 import { flowGraphs } from './runtime';
 import { dataSourceType, type PinContext } from './pins';
 import { deriveGraphPins } from './scope';
@@ -186,6 +190,7 @@ export type FlowIssueCode =
 	| 'variable-scope'
 	| 'variable-duplicate'
 	| 'variable-shadows-money'
+	| 'rules-only-in-rgs'
 	| 'tick-async'
 	| 'tick-fast'
 	| 'input-unknown';
@@ -676,7 +681,15 @@ const validateGraph = (
 			node.kind === 'event' &&
 			node.ref.startsWith('complete:') &&
 			containerIds.has(node.ref.slice('complete:'.length));
-		if (!refResolves(node, ctx) && !eventCompleteOk) {
+		const resolves = refResolves(node, ctx);
+		if (!resolves && node.kind === 'action' && isRulesOnlyInRgs(node.ref, ctx.outcome)) {
+			issues.push({
+				code: 'rules-only-in-rgs',
+				severity: 'error',
+				message: `action node '${node.id}' calls '${node.ref}', which only a rules-decided game may call — in an RGS game the server deals, refills and resolves the board`,
+				at: { on: 'node', node: node.id },
+			});
+		} else if (!resolves && !eventCompleteOk) {
 			issues.push({
 				code: 'ref-unresolved',
 				// EVENTS are the OPEN input boundary: the game dispatches whatever name it likes (book

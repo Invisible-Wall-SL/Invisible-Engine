@@ -23,7 +23,12 @@
  * so a concurrent merge re-reads the winner's entry before writing its own. The
  * standalone script mirrors the same conditional-retry loop.
  */
-import type { FreeSpinsAward, HoldAndWinMockInputs, PotsOverlayMockInputs } from 'game-config';
+import type {
+	FreeSpinsAward,
+	HoldAndWinMockInputs,
+	Match3MockInputs,
+	PotsOverlayMockInputs,
+} from 'game-config';
 
 import {
 	ConflictError,
@@ -223,6 +228,7 @@ export const MOCK_PROTOCOLS = [
 	'cluster',
 	'scatter',
 	'holdAndWin',
+	'match3',
 ] as const;
 
 export type MockProtocol = (typeof MOCK_PROTOCOLS)[number];
@@ -395,6 +401,10 @@ export interface TestServerGameEntry {
 		/** The project's pots overlay (`potsOverlayMockInputs`), which the book or lines mock deals token
 		 *  drops and pot bonuses from beside its own rounds. Present only when the config has the block. */
 		potsOverlay?: PotsOverlayMockInputs;
+		/** A `match3` game's board, column strips, minRun, moves and paytable in the project's OWN
+		 *  names (`match3MockInputs`), which the match-3 mock deals from. Present only for that
+		 *  protocol; such a grid carries nothing else but the board and an empty `paylines`. */
+		match3?: Match3MockInputs;
 	};
 }
 

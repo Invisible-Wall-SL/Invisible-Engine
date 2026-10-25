@@ -12,7 +12,7 @@ import { loadDoc } from '$lib/server/editorStorage';
 import { loadGameConfigDocWithEtag } from '$lib/server/gameConfigStorage';
 import { flowSymbolsFrom } from '$lib/server/flowV2Symbols';
 import { projectGameType } from '$lib/server/projects';
-import { flowAddOnsOf, resolveGameModes } from 'game-config';
+import { flowAddOnsOf, resolveGameModes, resolveOutcome } from 'game-config';
 import { resolveToolScope } from '$lib/server/toolScope';
 import {
 	instanceDefResolver,
@@ -206,6 +206,9 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		/** The Game Config add-ons (`flowAddOnsOf`) the vocabulary composes in (`withAddOns`), and
 		 *  what "＋ Add overlay steps" grafts. No block ⇒ the kind's vocabulary alone. */
 		addOns,
+		/** Who decides the rounds (`resolveOutcome` of the stored config): what the vocabulary drops
+		 *  (`withOutcome`) and how the validator judges money and rules-only nodes. */
+		outcome: resolveOutcome(configDoc),
 		/** The project's symbols (`flowSymbolsFrom`), composed in by `withSymbols`. */
 		symbols,
 	};
