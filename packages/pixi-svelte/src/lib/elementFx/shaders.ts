@@ -87,6 +87,10 @@ bool efxInside(vec2 px)
     vec2 u = efxToUnit(px);
     return u.x >= 0.0 && u.y >= 0.0 && u.x <= 1.0 && u.y <= 1.0;
 }
+
+vec4 efxParticleColor() { return vec4(1.0); }
+float efxParticleWave() { return 0.0; }
+float efxParticleOrder() { return 0.0; }
 `;
 
 type UniformValue = number | Float32Array;

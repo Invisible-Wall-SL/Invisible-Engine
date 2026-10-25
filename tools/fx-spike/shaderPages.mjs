@@ -66,7 +66,8 @@ export const writePage = async (root, outDir, entry, name) => {
  * `root` has the shader graph package, its reference graphs (as filters, played as custom Element
  * FX, and, once it has subgraphs, each moved into a subgraph called one and two deep) and every
  * node; once it has the Custom GLSL node, its bodies (`shaderGlsl.entry.ts`: samples, examples,
- * random bodies) and the runtime's fail-safe for a pass the GPU refuses. A sheet is
+ * random bodies) and the runtime's fail-safe for a pass the GPU refuses; once it has the particle
+ * shell, every one of those bodies built through it (`shaderParticles.entry.ts`). A sheet is
  * `{ name, page, query }`: `<page>.html?gl=<1|2>&<query>`.
  *
  * `optionalGraphs`: a base older than the graph page (its package lacks what the page imports) has
@@ -108,6 +109,10 @@ export async function writeSheets(root, outDir, { optionalGraphs = false } = {})
 			await writePage(root, outDir, 'shaderGlsl.entry.ts', 'glsl');
 			sheets.push({ name: 'glsl', page: 'glsl', query: 'glsl=1' });
 			sheets.push({ name: 'failsafe', page: 'glsl', query: 'failsafe=1' });
+		}
+		if (existsSync(join(root, 'packages/constants-shared/particleShell.ts'))) {
+			await writePage(root, outDir, 'shaderParticles.entry.ts', 'particles');
+			sheets.push({ name: 'particles', page: 'particles', query: 'particles=1' });
 		}
 	}
 	return { kinds, sheets, graphs };

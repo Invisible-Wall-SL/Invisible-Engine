@@ -29,7 +29,9 @@
  *     the per-element seed (step 6) draws one for each element it plays on, as the built-ins do, and
  *     keeps it; one that reads none draws none. The registry leaves out an effect whose pass calls
  *     an `efx…` function this version's library and pass header lack (one compiled by a newer
- *     Shader Graph), or reads two seeds; `EFX_HEADER_FUNCTIONS` is what the header declares.
+ *     Shader Graph), or reads two seeds; `EFX_HEADER_FUNCTIONS` is what the header declares, and
+ *     what the particle shell's header declares too (step 8d), each as `EFX_HEADER_SIGNATURES`
+ *     says. A body reading the Particle node is kept; a runtime from before its helpers drops it.
  *  8. Motion programs (Shader Graph step 8a): the twins' motion graphs move and pad as the built-ins'
  *     own samplers do over every param, size, strength and play — the freeze shiver, petrify thud
  *     and gold ring timed by Hold, the electrocute jitter of the seconds played, the poison sway
@@ -111,6 +113,7 @@ import {
 	REFERENCE_GRAPHS,
 	builtinTwin,
 	compileShaderEffect,
+	graphBuilder,
 	type GraphNode,
 	type GraphWire,
 	type ShaderGraphDoc,
@@ -135,6 +138,7 @@ import {
 	linkGlsl,
 	unknownEfxCalls,
 } from '../../packages/constants-shared/glslLibrary';
+import { PARTICLE_HEADER } from '../../packages/constants-shared/particleShell';
 import * as SHADERS from '../../packages/pixi-svelte/src/lib/elementFx/shaders';
 import type { ElementFxFilter } from '../../packages/pixi-svelte/src/lib/elementFx/shaders';
 import { KINDS } from '../../packages/pixi-svelte/src/lib/elementFx/kinds';
@@ -1498,6 +1502,62 @@ console.log('element fx — the shared GLSL library');
 		signatureNames === [...EFX_HEADER_FUNCTIONS].sort().join() && !unheld.length,
 		`EFX_HEADER_SIGNATURES is each header function as the header declares it${unheld.length ? `: ${unheld.join(', ')}` : ''}`,
 	);
+	// The particle shell (Shader Graph step 8d) runs the same bodies: its header declares the same
+	// helpers, each as the element's does.
+	const particleHeader = PARTICLE_HEADER.replace(/\/\/[^\n]*/g, '');
+	const particleDeclared = [
+		...particleHeader.matchAll(/^(?:vec[234]|float|bool)\s+(efx\w+)\s*\(/gm),
+	].map((m) => m[1]);
+	const particleUnheld = Object.values(EFX_HEADER_SIGNATURES).filter(
+		(signature) => !flat(particleHeader).includes(flat(signature)),
+	);
+	assert(
+		[...particleDeclared].sort().join() === [...EFX_HEADER_FUNCTIONS].sort().join() &&
+			particleDeclared.every((name) => !(name in EFX_GLSL)) &&
+			!particleUnheld.length,
+		`EFX_HEADER_FUNCTIONS is what the particle shell's header declares too (${particleDeclared.length}), each as EFX_HEADER_SIGNATURES says${particleUnheld.length ? `: not ${particleUnheld.join(', ')}` : ''}`,
+	);
+	// A body reading the Particle node (step 8d) calls its three helpers: this runtime keeps it, and a
+	// runtime whose header list lacks them (before 8d) leaves the effect out.
+	const reading = graphBuilder({
+		id: 'particle-reader',
+		name: 'Particle reader',
+		phase: 'emphasis',
+		durationMs: 1000,
+	});
+	const particleNode = reading.node('particle');
+	const plusWave = reading.node('add');
+	const plusOrder = reading.node('add');
+	reading.wire(particleNode, 'color', plusWave, 'a');
+	reading.wire(particleNode, 'wave', plusWave, 'b');
+	reading.wire(plusWave, 'out', plusOrder, 'a');
+	reading.wire(particleNode, 'order', plusOrder, 'b');
+	reading.wire(plusOrder, 'out', reading.node('output'), 'color');
+	const readingEffect = compileShaderEffect(reading.doc());
+	const particleBody = readingEffect.ok ? readingEffect.effect.shader.body : '';
+	const headerList = EFX_HEADER_FUNCTIONS as unknown as string[];
+	const current = [...headerList];
+	let older: { calls: string[]; read: boolean } | undefined;
+	try {
+		headerList.splice(0, headerList.length, ...current.filter((n) => !n.startsWith('efxParticle')));
+		older = {
+			calls: unknownEfxCalls(particleBody),
+			read: !!(readingEffect.ok && readCustomElementFx(readingEffect.effect)),
+		};
+	} finally {
+		headerList.splice(0, headerList.length, ...current);
+	}
+	assert(
+		readingEffect.ok &&
+			['efxParticleColor(', 'efxParticleWave(', 'efxParticleOrder('].every((c) =>
+				particleBody.includes(c),
+			) &&
+			!unknownEfxCalls(particleBody).length &&
+			!!readCustomElementFx(readingEffect.effect) &&
+			older?.calls.join() === 'efxParticleColor,efxParticleWave,efxParticleOrder' &&
+			older.read === false,
+		`the reader keeps an effect whose body calls the Particle node's helpers; with the header list before 8d (without them) it would drop it (unknown: ${older?.calls.join(', ')})`,
+	);
 	const EFX_GLSL_MUTABLE = EFX_GLSL as Record<string, string>;
 	const ORIGINAL_HASH = EFX_GLSL.efxHash;
 	let cycle = '';
@@ -1538,10 +1598,19 @@ console.log('element fx — the shared GLSL library');
 	const shaderSource = read('packages/pixi-svelte/src/lib/elementFx/shaders.ts');
 	const library = Object.values(EFX_GLSL).join('\n');
 	const names = [...new Set([...defined(shaderSource), ...defined(library)])];
+	// The pass header's helpers are no building blocks: two of its neutral ones may answer alike.
+	const helper = (name: string): boolean =>
+		(EFX_HEADER_FUNCTIONS as readonly string[]).includes(name);
 	const copies = (code: string): string[] => {
 		const all = bodies(code, names);
 		return all
-			.filter(([, body], i) => all.findIndex(([, other]) => other === body) !== i)
+			.filter(
+				([name, body], i) =>
+					all.findIndex(
+						([other, otherBody], j) =>
+							otherBody === body && (j === i || !(helper(name) && helper(other))),
+					) !== i,
+			)
 			.map(([name]) => name);
 	};
 	const found = copies(library + '\n' + shaderSource.replace(/^[\s\S]*?const HEADER/, ''));

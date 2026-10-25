@@ -60,6 +60,8 @@
  *      step), or at once when the field is left; a driver's log is read back to the node and line
  *      of its code (inside a subgraph, on the call outside and on the node inside, once); its
  *      thumbnail key follows its code; storage keeps it.
+ *  13. The Particle node (step 8d): the palette lists it with the inputs, never in the motion graph;
+ *      wired to the Output it compiles, with no thumbnail and its cost chip.
  *
  *   pnpm --filter launcher-api check:shader-editor
  */
@@ -3299,6 +3301,41 @@ console.log('12. Custom GLSL');
 			),
 		),
 		json(glslOf(g.nodes.find((n) => n.id === id) as never)),
+	);
+}
+
+// ── 13 ──
+console.log('13. the Particle node');
+{
+	const base = REFERENCE_GRAPHS.find((g) => g.id === 'pulseTint') as ShaderGraphDoc;
+	const names = (groups: ReturnType<typeof libraryGroups>): string[] =>
+		groups.flatMap((g) => g.nodes.map((n) => `${g.label}:${n.type}`));
+	check(
+		'the palette lists it with the inputs, never in the motion graph; it is placed in the pixel graph, never the motion graph',
+		[
+			names(libraryGroups()).filter((n) => n.endsWith(':particle')),
+			names(libraryGroups(true, true)).some((n) => n.endsWith(':particle')),
+			canPlace(base, null, 'particle'),
+			canPlace(base, MOTION_SCOPE, 'particle'),
+		],
+		[['Input:particle'], false, true, false],
+	);
+	const fresh = newShaderDoc('particles', 'Particles');
+	const added = addNode(fresh, 'particle', { x: 0, y: 0 });
+	const outId = fresh.nodes.find((n) => n.type === 'output')?.id as string;
+	const doc = connect(added.doc, { node: added.id, port: 'color' }, { node: outId, port: 'color' });
+	const a = analyzeShaderGraph(doc);
+	const shown = canvasGraph(doc, a, new Set()).nodes.find((n) => n.id === added.id)?.data;
+	check(
+		'wired to the Output it compiles, shows no thumbnail (one value over the element) and carries its chip, the chips summing to the analysis',
+		[
+			compileShaderEffect(doc).ok,
+			shown?.thumb,
+			probeDoc(doc, added.id),
+			shown?.cost?.cost,
+			[...nodeCosts(doc, a).values()].reduce((sum, c) => sum + c.cost, 0) === a.cost,
+		],
+		[true, false, undefined, 0, true],
 	);
 }
 
