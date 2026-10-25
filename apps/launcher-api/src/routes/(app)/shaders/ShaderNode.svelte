@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
+	import {
+		Handle,
+		Position,
+		useConnection,
+		useUpdateNodeInternals,
+		type NodeProps,
+	} from '@xyflow/svelte';
+	import { untrack } from 'svelte';
 	import MotionCurve from './MotionCurve.svelte';
 	import { PORT_COLORS, categoryColor, costText, type ShaderNodeView } from './shaderEditor';
 	import { useShaderThumbs } from './shaderThumbs.svelte';
@@ -8,9 +15,41 @@
 	// output handle per port on the right, each coloured by the type it resolved to (the analysis'
 	// types, else the port's declared one). What the compiler says about the node shows on it, and
 	// its cost and a thumbnail of its output (the page's one renderer draws into the canvas); a
-	// motion node shows its value over the play as a curve instead.
+	// motion node shows its value over the play as a curve instead. A Break Output's ports are its
+	// break's params: an unwired one shows its value as the break reads it (a colour's swatch), and a
+	// wire held over one it refuses says why.
 	let { id, data, selected }: NodeProps = $props();
 	const d = $derived(data as ShaderNodeView);
+	const connection = useConnection();
+	// Ports come and go with what the node is (a Break Output's kind, a subgraph's ports): the
+	// canvas measures them again, or wires into the new ones have nowhere to land.
+	const updateNodeInternals = useUpdateNodeInternals();
+	const portKey = $derived(
+		[...(d.def?.inputs ?? []), ...(d.def?.outputs ?? [])].map((p) => p.id).join(','),
+	);
+	let measured: string | undefined;
+	$effect(() => {
+		const key = portKey;
+		if (measured !== undefined && key !== measured) untrack(() => updateNodeInternals(id));
+		measured = key;
+	});
+	/** Why the wire held over one of this node's ports cannot go there (a Break Output's), else ''. */
+	const refusal = $derived.by(() => {
+		const { inProgress, fromHandle, toHandle } = connection.current;
+		if (!inProgress || !d.refusals || !fromHandle || !toHandle) return '';
+		if (toHandle.nodeId === id && toHandle.type === 'target')
+			return d.refusals[toHandle.id ?? '']?.[fromHandle.nodeId] ?? '';
+		if (fromHandle.nodeId === id && fromHandle.type === 'target')
+			return d.refusals[fromHandle.id ?? '']?.[toHandle.nodeId] ?? '';
+		return '';
+	});
+	/** The ports of this node a wire being drawn from another node's output cannot reach. */
+	const refused = $derived.by(() => {
+		const { inProgress, fromHandle } = connection.current;
+		if (!inProgress || !d.refusals || fromHandle?.type !== 'source') return new Set<string>();
+		const from = fromHandle.nodeId;
+		return new Set(Object.keys(d.refusals).filter((port) => d.refusals?.[port]?.[from]));
+	});
 	const thumbs = useShaderThumbs();
 	const drawInto = (canvas: HTMLCanvasElement, node: string) => ({
 		destroy: thumbs?.mount(node, canvas),
@@ -22,8 +61,10 @@
 		PORT_COLORS[type as keyof typeof PORT_COLORS] ?? PORT_COLORS.any;
 
 	/** An unwired input's value as the compiler will read it (a Motion Output's channel: what it
-	 *  plays instead). */
+	 *  plays instead; a Break Output's port: its value as the break reads it). */
 	function unwired(id: string, fallback: string): string {
+		const set = d.breakValues?.[id];
+		if (set) return set.text;
 		const instead = d.undriven?.[id];
 		if (instead !== undefined) return instead;
 		const value = d.node.values?.[id];
@@ -60,7 +101,13 @@
 		<ul class="col">
 			{#each d.def?.inputs ?? [] as port (port.id)}
 				{@const type = typeOf('in', port.id, port.type)}
-				<li>
+				{@const swatch = d.breakValues?.[port.id]?.swatch}
+				<li
+					class:refused={refused.has(port.id)}
+					title={d.breakValues
+						? 'Takes a Param (set where the effect is placed), a Number or a Colour'
+						: undefined}
+				>
 					<Handle
 						type="target"
 						position={Position.Left}
@@ -70,7 +117,10 @@
 					/>
 					<span class="plabel">{port.label}</span>
 					{#if !d.wired.includes(port.id)}
-						<span class="value">{unwired(port.id, '0')}</span>
+						<span class="value" class:bad={d.breakValues?.[port.id]?.bad}>
+							{#if swatch}<span class="swatch" style="background:{swatch}"></span>{/if}
+							{unwired(port.id, '0')}
+						</span>
 					{/if}
 				</li>
 			{/each}
@@ -99,6 +149,9 @@
 	</div>
 	{#if thumbs?.enabled && d.curve}
 		<MotionCurve {id} />
+	{/if}
+	{#if refusal}
+		<p class="refusal" role="status">{refusal}</p>
 	{/if}
 	{#if d.errors.length}
 		<ul class="issues">
@@ -240,9 +293,31 @@
 		max-width: 110px;
 	}
 	.value {
+		display: flex;
+		align-items: center;
+		gap: 4px;
 		font-size: 10px;
 		color: #64748b;
 		white-space: nowrap;
+	}
+	.value.bad {
+		color: #fca5a5;
+	}
+	.swatch {
+		width: 9px;
+		height: 9px;
+		border-radius: 2px;
+		box-shadow: 0 0 0 1px #2a323d;
+	}
+	.col li.refused {
+		opacity: 0.4;
+	}
+	.refusal {
+		margin: 0;
+		padding: 5px 10px 7px;
+		border-top: 1px solid #3b1d1d;
+		color: #fca5a5;
+		font-size: 10px;
 	}
 	.ptype {
 		font-size: 9px;

@@ -68,6 +68,19 @@
  *     byte-identically; hostile graphs are refused in milliseconds with a bounded heap and
  *     messages; `motionGraphSeries` plots every node over a play in one pass. Nothing in the motion
  *     path throws on what storage keeps: malformed params, values and node shapes are refused.
+ * 13. THE BREAK OUTPUT (step 8b): its ports are its kind's params (Shatter's unset; none for a kind
+ *     that is no break, nor in a subgraph); it reaches no GLSL (the shader, cost and types are the
+ *     same beside it, across the corpus) and compiles to the effect's break, which the registry
+ *     reads: ties, constants (a choice by index, rounded and kept in range; a number held to its
+ *     range) and its own values (a colour lower-cased, a choice by option or index), else defaults.
+ *     Each broken one is one `break` error naming its port: two, a kind that is no break, a start
+ *     past 0…1, the effect's phase not the kind's (saying which to set), a per-pixel wire, a
+ *     constant or tie of the wrong kind (a choice: other options), a value it cannot read; an
+ *     unpicked Param is its own error alone; one in a subgraph or the motion graph is refused there.
+ *     What feeds only it is used and costs nothing. An exit's break adds the fade an older runtime
+ *     plays (curves kept exactly before it, a driven alpha × it in steps after the graph's), an
+ *     assemble none; a curve too full to take it is an error. Each break twin is the identity and
+ *     its kind tied by id. Hostile ones are refused fast and bounded, and a fuzz never throws.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -83,11 +96,13 @@ import {
 	isPlayableElementFxKind,
 	readCustomElementFx,
 	readElementFxEntry,
+	sampleElementFxCurve,
 	setCustomElementFx,
 	CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT as OP_LIMIT,
 	CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX as MOTION_PADDING_MAX,
 	CUSTOM_ELEMENT_FX_PASS_LIMIT as PASS_LIMIT,
 	ELEMENT_FX_CURVE_KEY_LIMIT as CURVE_KEY_LIMIT,
+	ELEMENT_FX_BREAK_KINDS,
 	ELEMENT_FX_LIMITS,
 	ELEMENT_FX_MOTION_OUTPUTS,
 	ELEMENT_FX_PASS_KINDS,
@@ -117,11 +132,21 @@ import {
 	validateShaderGraph,
 	type CompileResult,
 } from './src/compile.ts';
+import {
+	BREAK_AT_DEFAULT,
+	BREAK_FADE_FROM,
+	BREAK_KINDS,
+	BREAK_KIND_DEFAULT,
+	BREAK_OUTPUT,
+	isBreakKind,
+	readBreakValue,
+} from './src/break.ts';
 import { normalizeShaderGraphDoc } from './src/doc.ts';
 import {
 	DIMS,
 	MOTION_NODES,
 	MOTION_NODE_TYPES,
+	PARAM_TYPE,
 	SHADER_NODES,
 	isMotionNode,
 	motionNode,
@@ -134,8 +159,9 @@ import {
 	SUBGRAPH_INLINED_MAX,
 	SUBGRAPH_PORTS_MAX,
 	flattenShaderGraph,
+	graphNodeDef,
 } from './src/subgraph.ts';
-import { BUILTIN_TWINS, builtinTwin } from './src/twins.ts';
+import { BUILTIN_TWINS, builtinTwin, isBreakTwin } from './src/twins.ts';
 import { MATERIAL_TWINS } from './src/twins/material.ts';
 import type {
 	GraphIssue,
@@ -894,7 +920,8 @@ console.log('shader graph — the twins of the built-ins');
 	);
 
 	const stale: string[] = [];
-	const nodeTwins = BUILTIN_TWINS.filter((t) => t.doc.nodes.length > 1);
+	// A break's twin draws the element as it is (its own check, under "the Break Output").
+	const nodeTwins = BUILTIN_TWINS.filter((t) => t.doc.nodes.length > 1 && !isBreakTwin(t));
 	for (const twin of nodeTwins) {
 		const glsl = body(compileShaderGraph(twin.doc));
 		const file = join(SNAPSHOTS, 'twins', `${twin.kind}.frag`);
@@ -2453,6 +2480,699 @@ console.log('shader graph — the motion graph');
 	assert(
 		!thrown.length,
 		`400 random docs (malformed params, values, node types, ids and wires, as storage keeps them) never throw in the motion path${thrown.length ? `: ${thrown[0]}` : ''}`,
+	);
+}
+
+// -------------------------------------------------------------------------------------------------
+console.log('shader graph — the Break Output');
+{
+	const n = (id: string, type: string, values?: GraphNode['values']): GraphNode => ({
+		id,
+		type,
+		x: 0,
+		y: 0,
+		...(values ? { values } : {}),
+	});
+	const w = (from: string, to: string): GraphWire => {
+		const [fn, fp] = from.split('.');
+		const [tn, tp] = to.split('.');
+		return { from: { node: fn, port: fp }, to: { node: tn, port: tp } };
+	};
+	const PARAMS: ElementFxParamSpec[] = [
+		{ id: 'shards', label: 'Shards', kind: 'number', default: 30, min: 16, max: 160 },
+		{ id: 'tint', label: 'Tint', kind: 'color', default: '#336699' },
+		{ id: 'on', label: 'On', kind: 'bool', default: true },
+		{
+			id: 'hit',
+			label: 'Hit',
+			kind: 'choice',
+			default: 'top',
+			options: ['random', 'center', 'top', 'bottom', 'left', 'right'],
+		},
+		{ id: 'few', label: 'Few', kind: 'choice', default: 'top', options: ['top', 'left'] },
+		{
+			id: 'wind',
+			label: 'Wind',
+			kind: 'choice',
+			default: 'up',
+			options: ['upRight', 'up', 'upLeft', 'right', 'left', 'down'],
+		},
+	];
+	/** An exit doc: the Output, a Break Output `b` (`values`), and `more` nodes and wires. */
+	const broken = (
+		values: GraphNode['values'],
+		more: GraphNode[] = [],
+		wires: GraphWire[] = [],
+		meta: Partial<ShaderGraphDoc> = {},
+	): ShaderGraphDoc => ({
+		version: 1,
+		id: 'brk',
+		name: 'Brk',
+		phase: 'exit',
+		durationMs: 1800,
+		params: PARAMS,
+		nodes: [n('out', 'output'), n('b', BREAK_OUTPUT, values), ...more],
+		wires,
+		...meta,
+	});
+	const breakErrors = (doc: ShaderGraphDoc): GraphIssue[] =>
+		analyzeShaderGraph(doc).issues.filter((i) => i.code === 'break');
+	const solo = (() => {
+		const g = graphBuilder({ id: 'solo', name: 'Solo', phase: 'exit', durationMs: 1800 });
+		g.node('output');
+		return g.doc();
+	})();
+	const identity = compileShaderGraph(solo);
+	const identityCost = identity.ok ? identity.shader.cost : NaN;
+
+	// The surface the editor builds on.
+	const def = graphNodeDef(
+		broken({ kind: 'crystallize' }),
+		n('b', BREAK_OUTPUT, { kind: 'crystallize' }),
+	);
+	const ice = elementFxSpec('crystallize').params;
+	assert(
+		JSON.stringify(BREAK_KINDS) === JSON.stringify(ELEMENT_FX_BREAK_KINDS) &&
+			JSON.stringify(BREAK_KINDS) ===
+				JSON.stringify(
+					ELEMENT_FX_BREAK_KINDS.filter((k) => findElementFxSpec(k)?.category === 'break'),
+				) &&
+			BREAK_KIND_DEFAULT === 'shatter' &&
+			BREAK_AT_DEFAULT === 0 &&
+			isBreakKind('assemble') &&
+			!isBreakKind('melt'),
+		'the six break kinds in catalog order; a Break Output defaults to Shatter, starting at once',
+	);
+	assert(
+		def?.type === BREAK_OUTPUT &&
+			def.category === 'output' &&
+			!def.outputs.length &&
+			JSON.stringify(def.inputs.map((p) => [p.id, p.type, p.default])) ===
+				JSON.stringify(
+					ice.map((p) => {
+						const v = elementFxParamUniform(p, p.default);
+						return [p.id, PARAM_TYPE[p.kind], v.length === 1 ? v[0] : v];
+					}),
+				) &&
+			JSON.stringify(graphNodeDef(solo, n('b', BREAK_OUTPUT))?.inputs.map((p) => p.id)) ===
+				JSON.stringify(elementFxSpec('shatter').params.map((p) => p.id)) &&
+			graphNodeDef(solo, n('b', BREAK_OUTPUT, { kind: 'melt' }))?.inputs.length === 0 &&
+			graphNodeDef(solo, n('b', BREAK_OUTPUT), 'someSubgraph') === undefined &&
+			!shaderNode(BREAK_OUTPUT) &&
+			JSON.stringify(def.settings?.map((s) => s.id)) === '["kind","at"]',
+		'graphNodeDef answers a Break Output with its kind’s params as ports (a number or switch or choice a float, a colour a vec3, each reading its default unwired), Shatter’s when it names none, none for a kind that is no break, and nothing inside a subgraph; it is no library node',
+	);
+
+	// It compiles to the effect's break, reaching no GLSL.
+	const plain = broken({});
+	const plainResult = compileShaderEffect(plain);
+	const plainAnalysis = analyzeShaderGraph(plain);
+	assert(
+		plainResult.ok &&
+			identity.ok &&
+			plainResult.effect.shader.body === identity.shader.body &&
+			JSON.stringify(plainResult.effect.shader.uniforms) ===
+				JSON.stringify(identity.shader.uniforms) &&
+			JSON.stringify(plainResult.effect.break) ===
+				JSON.stringify({
+					kind: 'shatter',
+					at: 0,
+					params: { impact: 'random', pieces: 56, crack: 0.3, gravity: 1 },
+				}) &&
+			!plainResult.warnings.length &&
+			plainAnalysis.cost === identity.shader.cost &&
+			plainAnalysis.samples === identity.shader.samples &&
+			JSON.stringify(plainAnalysis.inputs.b) ===
+				'{"impact":"float","pieces":"float","crack":"float","gravity":"float"}' &&
+			JSON.stringify(readCustomElementFx(plainResult.effect)?.break) ===
+				JSON.stringify(plainResult.effect.break),
+		'a Break Output reaches no GLSL (the shader is the Output alone’s, its cost and reads too) and compiles to the effect’s break, every param of its kind at its default, which the registry reads',
+	);
+
+	// Ties, constants and its own values.
+	const wired = broken(
+		{ kind: 'shatter', at: 0.25, crack: 0.45 },
+		[
+			n('p', 'param', { param: 'hit' }),
+			n('k', 'number', { value: 80 }),
+			n('g', 'number', { value: 2 }),
+		],
+		[w('p.out', 'b.impact'), w('k.out', 'b.pieces'), w('g.out', 'b.gravity')],
+	);
+	const ownValues = broken(
+		{ kind: 'crystallize', color: '#A0B0C0', from: 2, pieces: 20, freeze: 0.5 },
+		[n('k', 'number', { value: 1.6 })],
+		[],
+	);
+	const numbers = (value: number) =>
+		compileShaderEffect(
+			broken({ kind: 'shatter' }, [n('k', 'number', { value })], [w('k.out', 'b.impact')]),
+		);
+	const impactOf = (value: number): unknown => {
+		const r = numbers(value);
+		return r.ok ? r.effect.break?.params.impact : 'refused';
+	};
+	const colour = compileShaderEffect(
+		broken(
+			{ kind: 'crystallize' },
+			[n('c', 'color', { value: '#ABCDEF' }), n('t', 'param', { param: 'tint' })],
+			[w('c.out', 'b.color')],
+		),
+	);
+	const wiredResult = compileShaderEffect(wired);
+	const ownResult = compileShaderEffect(ownValues);
+	assert(
+		wiredResult.ok &&
+			JSON.stringify(wiredResult.effect.break) ===
+				JSON.stringify({
+					kind: 'shatter',
+					at: 0.25,
+					params: { impact: { param: 'hit' }, pieces: 80, crack: 0.45, gravity: 2 },
+				}) &&
+			ownResult.ok &&
+			JSON.stringify(ownResult.effect.break?.params) ===
+				JSON.stringify({ color: '#a0b0c0', from: 'top', pieces: 20, freeze: 0.5, gravity: 1 }) &&
+			colour.ok &&
+			colour.effect.break?.params.color === '#abcdef',
+		'a Param ties its port to the effect’s param; a Number or a Colour sets a constant; a port left unwired takes the node’s own value (a colour lower-cased, a choice by its option or its index), else the default',
+	);
+	assert(
+		impactOf(1.6) === 'top' &&
+			impactOf(99) === 'right' &&
+			impactOf(-3) === 'random' &&
+			impactOf(0.49) === 'random',
+		'a Number into a choice picks the option at its index, rounded and kept in range',
+	);
+	const driftOf = (drift: string | number): unknown => {
+		const r = compileShaderEffect(broken({ kind: 'disintegrate', drift }));
+		return r.ok ? r.effect.break?.params.drift : 'refused';
+	};
+	const glass = (value: number) => {
+		const r = compileShaderEffect(
+			broken({ kind: 'shatter' }, [n('k', 'number', { value })], [w('k.out', 'b.pieces')]),
+		);
+		return r.ok ? r.effect.break?.params.pieces : 'refused';
+	};
+	assert(
+		driftOf('left') === 'left' &&
+			driftOf(4) === 'left' &&
+			glass(16) === 16 &&
+			glass(160) === 160 &&
+			glass(161) === 'refused',
+		'a choice stored as its index reads as its option; a constant in a number port is held to the param’s range',
+	);
+	// A switch: none of the six breaks has one, so its reading is held through `readBreakValue`.
+	const sw = PARAMS[2];
+	assert(
+		readBreakValue(sw, 1) === true &&
+			readBreakValue(sw, 0) === false &&
+			readBreakValue(sw, 2) === undefined &&
+			readBreakValue(sw, true) === undefined &&
+			readBreakValue(PARAMS[1], '#ABCDEF') === '#abcdef' &&
+			readBreakValue(PARAMS[1], [1, 0, 0]) === undefined &&
+			readBreakValue(PARAMS[3], 'left') === 'left' &&
+			readBreakValue(PARAMS[3], 1) === 'center' &&
+			readBreakValue(PARAMS[3], 1.5) === undefined &&
+			readBreakValue(PARAMS[3], 6) === undefined &&
+			readBreakValue(PARAMS[0], 200) === undefined,
+		'a value of its own reads as the break takes it: a switch 1 / 0, a #rrggbb colour, a choice’s option or whole index, a number in range; nothing else',
+	);
+
+	// Every error, each a `break` error on the Break Output (and its port).
+	const errorOf = (doc: ShaderGraphDoc): string =>
+		breakErrors(doc)
+			.map((i) => `${i.node}.${i.port ?? ''}`)
+			.join(' ');
+	const cases: [string, ShaderGraphDoc, string][] = [
+		['two Break Outputs', broken({}, [n('b2', BREAK_OUTPUT)]), 'b2.'],
+		['a kind that is no break', broken({ kind: 'melt' }), 'b.kind'],
+		['a kind that is not text', broken({ kind: 5 }), 'b.kind'],
+		['a start past 1', broken({ at: 1.5 }), 'b.at'],
+		['a start below 0', broken({ at: -0.1 }), 'b.at'],
+		['a start as text', broken({ at: '0.5' }), 'b.at'],
+		['a start as a list', broken({ at: [0.5] }), 'b.at'],
+		['an exit break in a loop effect', broken({}, [], [], { phase: 'loop' }), 'b.kind'],
+		['an assemble in an exit effect', broken({ kind: 'assemble' }), 'b.kind'],
+		[
+			'a wire from a node that is no Param or constant',
+			broken({}, [n('u', 'uv')], [w('u.out', 'b.crack')]),
+			'b.crack',
+		],
+		[
+			'a Number into a colour port',
+			broken({ kind: 'crystallize' }, [n('k', 'number')], [w('k.out', 'b.color')]),
+			'b.color',
+		],
+		[
+			'a Colour into a number port',
+			broken({}, [n('c', 'color')], [w('c.out', 'b.gravity')]),
+			'b.gravity',
+		],
+		[
+			'a Param of another kind',
+			broken({}, [n('p', 'param', { param: 'tint' })], [w('p.out', 'b.gravity')]),
+			'b.gravity',
+		],
+		[
+			'a switch Param into a number port',
+			broken({}, [n('p', 'param', { param: 'on' })], [w('p.out', 'b.pieces')]),
+			'b.pieces',
+		],
+		[
+			'a choice Param with other options',
+			broken({}, [n('p', 'param', { param: 'few' })], [w('p.out', 'b.impact')]),
+			'b.impact',
+		],
+		[
+			'a constant out of range',
+			broken({}, [n('k', 'number', { value: 3 })], [w('k.out', 'b.pieces')]),
+			'b.pieces',
+		],
+		['a number of its own out of range', broken({ pieces: 999 }), 'b.pieces'],
+		['a number of its own as text', broken({ pieces: '56' }), 'b.pieces'],
+		[
+			'a colour of its own that is no colour',
+			broken({ kind: 'crystallize', color: 'blue' }),
+			'b.color',
+		],
+		['a choice of its own it lacks', broken({ impact: 'middle' }), 'b.impact'],
+		['a choice index past its options', broken({ impact: 9 }), 'b.impact'],
+	];
+	const wrong = cases.filter(([, doc, at]) => errorOf(doc) !== at);
+	assert(
+		!wrong.length &&
+			cases.every(
+				([, doc]) =>
+					!compileShaderEffect(doc).ok &&
+					breakErrors(doc).every((i) => i.level === 'error' && i.message.length < 400),
+			),
+		`each broken Break Output is one break error on it, naming the port, and does not compile (${cases.length}: ${cases.map(([label]) => label).join('; ')})${wrong.length ? `: wrong ${wrong.map(([label, doc]) => `${label} → ${errorOf(doc) || 'none'}`).join(', ')}` : ''}`,
+	);
+	const phaseDoc = broken({}, [], [], { phase: 'loop' });
+	const phaseAnalysis = analyzeShaderGraph(phaseDoc);
+	const unpicked = broken({}, [n('p', 'param')], [w('p.out', 'b.gravity')]);
+	assert(
+		/set the effect’s phase to exit/.test(breakErrors(phaseDoc)[0]?.message ?? '') &&
+			/set the effect’s phase to enter/.test(
+				breakErrors(broken({ kind: 'assemble' }))[0]?.message ?? '',
+			) &&
+			/set once per play, not per pixel/.test(
+				breakErrors(broken({}, [n('u', 'uv')], [w('u.out', 'b.crack')]))[0]?.message ?? '',
+			) &&
+			!!phaseAnalysis.inputs.b &&
+			!!phaseAnalysis.inputs.out &&
+			phaseAnalysis.cost === identityCost &&
+			!breakErrors(unpicked).length &&
+			analyzeShaderGraph(unpicked).issues.some(
+				(i) => i.code === 'setting' && i.node === 'p' && i.level === 'error',
+			),
+		'the phase error tells the author which phase to set; a per-pixel wire says the break is set once per play; a break error leaves the port types and the cost standing; a Param with none picked wired in is the Param’s own error alone',
+	);
+	const reach = analyzeShaderGraph(
+		broken(
+			{},
+			[n('p', 'param', { param: 'hit' }), n('k', 'number', { value: 1 }), n('lost', 'number')],
+			[w('p.out', 'b.impact'), w('k.out', 'b.gravity')],
+		),
+	);
+	assert(
+		JSON.stringify(reach.issues.map((i) => [i.code, i.node])) === '[["unreachable","lost"]]' &&
+			reach.cost === identityCost,
+		'what feeds only the Break Output counts as used (no “does not reach the Output”) and costs nothing per pixel; a node reaching neither is still warned of',
+	);
+	const callsBreak: ShaderGraphDoc = {
+		...plain,
+		nodes: [n('out', 'output'), n('call', 'subgraph', { subgraph: 's' })],
+		wires: [],
+		subgraphs: [
+			{
+				id: 's',
+				name: 'S',
+				inputs: [],
+				outputs: [{ id: 'o', label: 'O', type: 'float' }],
+				nodes: [n('in', 'subgraphIn'), n('so', 'subgraphOut'), n('inner', BREAK_OUTPUT)],
+				wires: [],
+			},
+		],
+	};
+	const inMotion: ShaderGraphDoc = {
+		...solo,
+		motionGraph: { nodes: [n('mb', BREAK_OUTPUT), n('mo', 'motionOutput')], wires: [] },
+	};
+	assert(
+		analyzeShaderGraph(callsBreak).issues.some(
+			(i) => i.node === 'call' && /belongs in the effect’s own graph/.test(i.message),
+		) &&
+			analyzeShaderSubgraph(callsBreak, 's').issues.some(
+				(i) => i.node === 'inner' && /belongs in the effect’s own graph/.test(i.message),
+			) &&
+			analyzeShaderMotion(inMotion).issues.some(
+				(i) => i.node === 'mb' && /belongs in the pixel graph/.test(i.message),
+			),
+		'a Break Output in a subgraph is refused on its call (and named, the body opened), and one in the motion graph is told it belongs in the pixel graph',
+	);
+
+	// The fade a runtime from before breaks plays: in the curves, and in a program driving alpha.
+	const fadeOf = (motion: ShaderGraphDoc['motion'], at = 0.4, kind = 'crumble') => {
+		const r = compileShaderEffect(broken({ kind, at }, [], [], { ...(motion ? { motion } : {}) }));
+		return r.ok ? r.effect.motion : undefined;
+	};
+	const s0 = 0.4 + BREAK_FADE_FROM * 0.6;
+	const keysAfter = [
+		{ t: 0, v: 1, ease: 'in' as const },
+		{ t: 0.7, v: 0.5, ease: 'out' as const },
+		{ t: 0.9, v: 0.4 },
+	];
+	const keysBefore = [
+		{ t: 0, v: 0.2, ease: 'smooth' as const },
+		{ t: 0.3, v: 0.9, ease: 'out' as const },
+	];
+	const keysAtEnd = [
+		{ t: 0, v: 1, ease: 'smooth' as const },
+		{ t: 1, v: 0.6 },
+	];
+	const curve = (keys: ShaderGraphDoc['motion']) => fadeOf(keys)?.channels.alpha ?? [];
+	const ts = Array.from({ length: 401 }, (_, i) => i / 400);
+	const exactBefore = (keys: readonly { t: number; v: number; ease?: 'in' | 'out' | 'smooth' }[]) =>
+		ts.every(
+			(t) =>
+				t > s0 ||
+				sampleElementFxCurve(curve({ channels: { alpha: keys } }), t) ===
+					sampleElementFxCurve(keys, t),
+		) && sampleElementFxCurve(curve({ channels: { alpha: keys } }), 1) === 0;
+	assert(
+		s0 === 0.49 &&
+			JSON.stringify(curve(undefined)) ===
+				JSON.stringify([
+					{ t: s0, v: 1, ease: 'smooth' },
+					{ t: 1, v: 0 },
+				]) &&
+			JSON.stringify(curve({ channels: { alpha: keysAfter } })) ===
+				JSON.stringify([keysAfter[0], { ...keysAfter[1], ease: 'smooth' }, { t: 1, v: 0 }]) &&
+			JSON.stringify(curve({ channels: { alpha: keysBefore } })) ===
+				JSON.stringify([...keysBefore, { t: s0, v: 0.9, ease: 'smooth' }, { t: 1, v: 0 }]) &&
+			JSON.stringify(curve({ channels: { alpha: keysAtEnd } })) ===
+				JSON.stringify([keysAtEnd[0], { ...keysAtEnd[1], ease: 'smooth' }, { t: 1, v: 0 }]) &&
+			exactBefore(keysAfter) &&
+			exactBefore(keysBefore) &&
+			exactBefore(keysAtEnd) &&
+			ts.every((t) => {
+				const k = Math.min(1, Math.max(0, (t - s0) / (1 - s0)));
+				return (
+					Math.abs(sampleElementFxCurve(curve(undefined), t) - (1 - k * k * (3 - 2 * k))) < 1e-12
+				);
+			}),
+		'an exit’s break adds an alpha fade for older runtimes: 1 until 0.15 through the break’s window, then smoothly to 0, as a break that cannot cut fades; the doc’s own curve is kept exactly up to its first key past that (none: its last value is held to it), which eases to 0 at the end (a key at the end gets a second, at 0)',
+	);
+	const programmedAlpha = (at: number) =>
+		compileShaderEffect(
+			broken({ kind: 'crumble', at }, [], [], {
+				motionGraph: {
+					nodes: [n('mt', 'time'), n('mo', 'motionOutput'), n('mk', 'number', { value: 2 })],
+					wires: [w('mt.progress', 'mo.alpha'), w('mk.out', 'mo.x')],
+				},
+			}),
+		);
+	const program = (r: ReturnType<typeof programmedAlpha>) =>
+		r.ok ? r.effect.motion?.program : undefined;
+	const run = (r: ReturnType<typeof programmedAlpha>, t: number) => {
+		const p = program(r);
+		return p
+			? runMotionProgram(p, {
+					t,
+					seconds: t,
+					intensity: 1,
+					looping: false,
+					params: {},
+					seed: 0,
+					width: 1,
+					height: 1,
+				})
+			: {};
+	};
+	const half = programmedAlpha(0.5);
+	const end = programmedAlpha(1);
+	const noAlpha = compileShaderEffect(
+		broken({ kind: 'crumble' }, [], [], {
+			motionGraph: {
+				nodes: [n('mk', 'number', { value: 2 }), n('mo', 'motionOutput')],
+				wires: [w('mk.out', 'mo.x')],
+			},
+		}),
+	);
+	const start = 0.5 + BREAK_FADE_FROM * 0.5;
+	assert(
+		ts.every((t) => t > start || run(half, t).alpha === t) &&
+			run(half, 1).alpha === 0 &&
+			ts.every((t) => run(half, t).x === 2) &&
+			(run(half, 0.9).alpha ?? 1) < 0.9 &&
+			ts.every((t) => t === 1 || run(end, t).alpha === t) &&
+			run(end, 1).alpha === 0 &&
+			noAlpha.ok &&
+			JSON.stringify(noAlpha.effect.motion?.program?.ops) === JSON.stringify([['const', 2]]) &&
+			!!readCustomElementFx(half.ok ? half.effect : undefined)?.motion?.program,
+		'a motion graph driving alpha takes the same fade as steps after its own: alpha exactly as the graph drives it until the fade starts, 0 at the end (a break at the very end: a step at the end); a program driving no alpha is left as it is; the registry runs it',
+	);
+	const entrance = compileShaderEffect(
+		broken({ kind: 'assemble', at: 0.4 }, [], [], { phase: 'enter' }),
+	);
+	assert(
+		entrance.ok && !entrance.effect.motion && entrance.effect.break?.at === 0.4,
+		'an assemble carries no fade (an entrance: an older runtime simply shows the element)',
+	);
+	const crowded = Array.from({ length: CURVE_KEY_LIMIT }, (_, i) => ({
+		t: i / (CURVE_KEY_LIMIT * 4),
+		v: 1,
+	}));
+	assert(
+		breakErrors(
+			broken({ kind: 'crumble', at: 0.5 }, [], [], { motion: { channels: { alpha: crowded } } }),
+		).some((i) => /at most 30 keys/.test(i.message)) &&
+			!breakErrors(
+				broken({ kind: 'crumble', at: 0.5 }, [], [], {
+					motion: { channels: { alpha: crowded.slice(2) } },
+				}),
+			).length,
+		`an alpha curve too full to take the fade (${CURVE_KEY_LIMIT} keys before it starts) is an error, so a shipped effect’s curve is never one the registry would refuse`,
+	);
+
+	// Nothing else moves: the corpus compiles the same with a Break Output beside it.
+	const corpus = [
+		...REFERENCE_GRAPHS,
+		...BUILTIN_TWINS.filter((t) => !isBreakTwin(t)).map((t) => t.doc),
+		...nodeShowcase(),
+	];
+	const moved = corpus.filter((doc) => {
+		const before = compileShaderGraph(doc);
+		const withBreak = {
+			...doc,
+			phase: 'exit' as const,
+			nodes: [...doc.nodes, n('brkProbe', BREAK_OUTPUT)],
+		};
+		const after = compileShaderGraph(withBreak);
+		const a = analyzeShaderGraph(doc);
+		const b = analyzeShaderGraph(withBreak);
+		delete b.inputs.brkProbe;
+		delete b.outputs.brkProbe;
+		return (
+			JSON.stringify(
+				before.ok && [
+					before.shader.body,
+					before.shader.uniforms,
+					before.shader.cost,
+					before.shader.samples,
+				],
+			) !==
+				JSON.stringify(
+					after.ok && [
+						after.shader.body,
+						after.shader.uniforms,
+						after.shader.cost,
+						after.shader.samples,
+					],
+				) ||
+			JSON.stringify([a.inputs, a.outputs, a.cost, a.samples]) !==
+				JSON.stringify([b.inputs, b.outputs, b.cost, b.samples])
+		);
+	});
+	assert(
+		!moved.length,
+		`${corpus.length} docs (references, twins, the node showcase) compile to the same shader and analyse to the same types and cost with a Break Output beside them${moved.length ? `: not ${moved.map((d) => d.id).join(', ')}` : ''}`,
+	);
+
+	// Each break twin.
+	const breakTwins = BUILTIN_TWINS.filter(isBreakTwin);
+	assert(
+		JSON.stringify(breakTwins.map((t) => t.kind)) === JSON.stringify(ELEMENT_FX_BREAK_KINDS) &&
+			breakTwins.every((t) => {
+				const r = compileShaderEffect(t.doc);
+				const params = elementFxSpec(t.kind).params;
+				return (
+					r.ok &&
+					identity.ok &&
+					r.effect.shader.body === identity.shader.body &&
+					r.effect.break?.kind === t.kind &&
+					r.effect.break.at === 0 &&
+					JSON.stringify(r.effect.break.params) ===
+						JSON.stringify(Object.fromEntries(params.map((p) => [p.id, { param: p.id }]))) &&
+					!r.warnings.length
+				);
+			}),
+		'each break twin is the element as it is (the Output alone’s shader) and a Break Output of its kind starting at once, every param tied by id, warning-free',
+	);
+
+	// Hostile Break Outputs are refused fast, bounded, never thrown on.
+	const refusedFast = (label: string, raw: unknown, pattern: RegExp): void => {
+		const heap = process.memoryUsage().heapUsed;
+		const t0 = performance.now();
+		let issues: GraphIssue[] = [];
+		let threw = '';
+		let ok = true;
+		try {
+			const doc = normalizeShaderGraphDoc(raw, 'h');
+			issues = analyzeShaderGraph(doc).issues;
+			validateShaderGraph(doc);
+			ok = compileShaderEffect(doc).ok;
+		} catch (error) {
+			threw = (error as Error).message;
+		}
+		const ms = performance.now() - t0;
+		const grew = (process.memoryUsage().heapUsed - heap) / 1e6;
+		const longest = Math.max(0, ...issues.map((i) => i.message.length));
+		assert(
+			!threw &&
+				!ok &&
+				issues.some((i) => pattern.test(i.message)) &&
+				ms < 500 &&
+				grew < 64 &&
+				longest < 400,
+			`${label}: refused in ${ms.toFixed(1)} ms, the heap ${grew.toFixed(1)} MB larger, no message over 400 characters (${longest})${threw ? `; threw ${threw}` : ''}`,
+		);
+	};
+	refusedFast(
+		'a kind of 100 000 letters',
+		broken({ kind: 'z'.repeat(100_000) }),
+		/"z{40}…" is not a break/,
+	);
+	refusedFast('a start of 1e308', broken({ at: 1e308 }), /0…1/);
+	refusedFast(
+		'10 000 values of its own and 10 000 wires into it',
+		broken(
+			Object.fromEntries(Array.from({ length: 10_000 }, (_, i) => [`v${i}`, i])),
+			[n('k', 'number')],
+			Array.from({ length: 10_000 }, (_, i) => w('k.out', `b.p${i}`)),
+		),
+		/has no input/,
+	);
+	refusedFast(
+		'10 000 Break Outputs',
+		broken(
+			{},
+			Array.from({ length: 10_000 }, (_, i) => n(`b${i}`, BREAK_OUTPUT)),
+		),
+		/one Break Output/,
+	);
+	refusedFast(
+		'prototype names (a kind, a value, a port)',
+		JSON.parse(
+			JSON.stringify(
+				broken({ kind: 'constructor' }, [n('k', 'number')], [w('k.out', 'b.toString')]),
+			).replace(
+				'"values":{"kind":"constructor"}',
+				'"values":{"kind":"constructor","__proto__":{"at":2}}',
+			),
+		),
+		/not a break/,
+	);
+	refusedFast(
+		'values that are no map',
+		{
+			...broken({}),
+			nodes: [n('out', 'output'), { id: 'b', type: BREAK_OUTPUT, values: 'shatter' }],
+			phase: 'loop',
+		},
+		/phase/,
+	);
+
+	// A fuzz: what storage keeps never throws, and what compiles reads with its break.
+	let seed = 11;
+	const random = (): number => {
+		seed = (seed * 16807) % 2147483647;
+		return (seed - 1) / 2147483646;
+	};
+	const pickOf = <T>(list: readonly T[]): T => list[Math.floor(random() * list.length)];
+	const junk = [undefined, null, 3, -1, 0.5, 1e9, 'x', '#ABCDEF', [], [1, 2, 3], {}, 'constructor'];
+	const ports = [
+		'impact',
+		'pieces',
+		'crack',
+		'gravity',
+		'color',
+		'from',
+		'freeze',
+		'drift',
+		'particles',
+		'turbulence',
+		'force',
+		'spread',
+		'nope',
+		'__proto__',
+		'toString',
+	];
+	const types = [BREAK_OUTPUT, 'param', 'number', 'color', 'uv', 'time', 'output', 'subgraph'];
+	const thrown: string[] = [];
+	const unread: string[] = [];
+	let compiled = 0;
+	for (let k = 0; k < 400; k++) {
+		const count = random() < 0.5 ? 0 : 1 + Math.floor(random() * 6);
+		const nodes = [
+			n('out', 'output'),
+			n('b', BREAK_OUTPUT, {
+				kind: pickOf([...BREAK_KINDS, ...BREAK_KINDS, 'melt', 5]) as string,
+				at: pickOf([0, 0.3, 0.7, 1, 1.2, -1, 'x']) as number,
+				...Object.fromEntries(
+					Array.from({ length: random() < 0.5 ? 0 : Math.floor(random() * 4) }, () => [
+						pickOf(ports),
+						pickOf(junk) as number,
+					]),
+				),
+			}),
+			...Array.from({ length: count }, (_, i) =>
+				n(`n${i}`, pickOf(types), {
+					param: pickOf(['shards', 'tint', 'on', 'hit', 'few', 'wind', 'gone']),
+					value: pickOf(junk) as number,
+				}),
+			),
+		];
+		const wires = Array.from({ length: count ? Math.floor(random() * 6) : 0 }, () =>
+			w(
+				`n${Math.floor(random() * count)}.${pickOf(['out', 'progress', 'x'])}`,
+				`b.${pickOf(ports)}`,
+			),
+		);
+		const raw = broken({}, [], [], {
+			phase: pickOf(['exit', 'exit', 'enter', 'loop']),
+			nodes,
+			wires,
+			...(random() < 0.3 ? { motion: { channels: { alpha: [{ t: 0, v: random() }] } } } : {}),
+		});
+		try {
+			const doc = normalizeShaderGraphDoc(JSON.parse(JSON.stringify(raw)), 'fuzz');
+			analyzeShaderGraph(doc);
+			const r = compileShaderEffect(doc);
+			if (r.ok) {
+				compiled++;
+				const read = readCustomElementFx(r.effect);
+				if (r.effect.break && JSON.stringify(read?.break) !== JSON.stringify(r.effect.break))
+					unread.push(JSON.stringify(r.effect.break));
+			}
+		} catch (error) {
+			thrown.push((error as Error).message);
+		}
+	}
+	assert(
+		!thrown.length && !unread.length && compiled > 20,
+		`400 random Break Outputs (kinds, starts, values, wires and phases, as storage keeps them) never throw; each of the ${compiled} that compile ships a break the registry reads${thrown.length ? `: threw ${thrown[0]}` : ''}${unread.length ? `: unread ${unread[0]}` : ''}`,
 	);
 }
 

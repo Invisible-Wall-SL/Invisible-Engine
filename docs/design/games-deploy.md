@@ -200,6 +200,16 @@ without a motion graph compile byte-identically and are unaffected. Runtimes fro
 program they cannot run (one using an op added later) and play the curves, so the next op added
 degrades the same way.
 
+**A soft floor: the first release with Invisible Shader Graph step 8b.** A graph with a Break
+Output ships its break as `break` beside its pass. A runtime from before 8b ignores it: an exit
+effect then plays its graph, passes and motion over the whole play and fades the element out on
+the fade its compiled alpha curve (or its motion program, when that drives alpha) carries for this,
+so it still leaves the screen, unbroken; an assemble simply shows the element and plays its graph.
+Rolling back below that release silently drops the breaks in every game that uses them; nothing
+breaks, so this floor is soft. Graphs without a Break Output compile byte-identically. Runtimes
+from 8b on drop a break they cannot play (a kind or param added later, a phase mismatch) and play
+the effect as an older runtime does.
+
 **Races.** Rollback is deliberately NOT in the release's concurrency group: GitHub cancels a
 *pending* run when a newer one joins the group, so a rollback queued behind a bad release's 15-minute
 served check could be silently replaced by the next merge's release. Instead every pointer write is

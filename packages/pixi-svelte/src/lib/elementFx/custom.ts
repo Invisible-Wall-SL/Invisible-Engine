@@ -3,7 +3,9 @@
  * {@link KindImpl} a built-in has. Its graph is one `ElementFxFilter` pass, its built-in passes are
  * those kinds' own filters playing in step with it, and its motion is a curve per channel. A motion
  * program (its motion graph, compiled) runs each frame and drives the channels it names, each over
- * its curve, and the graph pass's padding.
+ * its curve, and the graph pass's padding. A break (its Break Output) is a built-in break the runtime
+ * plays over a window of the play; while it plays, the passes and the motion are held where the
+ * graph meets it.
  */
 
 import {
@@ -11,13 +13,16 @@ import {
 	ELEMENT_FX_LIMITS,
 	ELEMENT_FX_MOTION_RANGES,
 	ELEMENT_FX_PASS_KINDS,
+	customElementFxBreakWindow,
 	elementFxParamUniform,
 	resolveElementFxParams,
 	sampleElementFxCurve,
 	type CustomElementFx,
+	type CustomElementFxBreak,
 	type CustomElementFxMotion,
 	type CustomElementFxMotionProgram,
 	type CustomElementFxPass,
+	type CustomElementFxPassValue,
 	type ElementFxMotionChannel,
 	type ElementFxMotionOutput,
 	type ElementFxParamValue,
@@ -25,7 +30,14 @@ import {
 import { runMotionProgram } from 'constants-shared/motionLibrary';
 import type { Filter } from 'pixi.js';
 import { DEG, clamp01, type FxFrame, type Motion } from './frame';
-import { KINDS, filterImpl, type FilterImpl, type KindImpl } from './kinds';
+import {
+	KINDS,
+	filterImpl,
+	type BreakStyle,
+	type BreakWindow,
+	type FilterImpl,
+	type KindImpl,
+} from './kinds';
 import { ElementFxFilter } from './shaders';
 
 const VECTOR_TYPES = { vec2: 2, vec3: 3, vec4: 4 } as const;
@@ -98,6 +110,19 @@ const graphPass = (
 	});
 };
 
+/** A pass's or a break's values, its ties read from the effect's params (left out when unset). */
+const tiedValues = (
+	given: Readonly<Record<string, CustomElementFxPassValue>>,
+	effectParams: FxFrame['params'],
+): Record<string, ElementFxParamValue> => {
+	const values: Record<string, ElementFxParamValue> = {};
+	for (const [id, value] of Object.entries(given)) {
+		const bound = typeof value === 'object' ? effectParams[value.param] : value;
+		if (bound !== undefined) values[id] = bound;
+	}
+	return values;
+};
+
 /**
  * A built-in pass: its kind's filter, fed the effect's frame with its own params (resolved once
  * per play: the effect's params are fixed for one) and its strength, within the runtime's.
@@ -113,12 +138,7 @@ const builtInPass = (pass: CustomElementFxPass): FilterImpl<Filter> | undefined 
 	const paramsFor = (effectParams: FxFrame['params']): Record<string, ElementFxParamValue> => {
 		let params = resolved.get(effectParams);
 		if (!params) {
-			const values: Record<string, ElementFxParamValue> = {};
-			for (const [id, value] of Object.entries(given)) {
-				const bound = typeof value === 'object' ? effectParams[value.param] : value;
-				if (bound !== undefined) values[id] = bound;
-			}
-			params = resolveElementFxParams(pass.kind, values);
+			params = resolveElementFxParams(pass.kind, tiedValues(given, effectParams));
 			resolved.set(effectParams, params);
 		}
 		return params;
@@ -251,6 +271,60 @@ const programMotion =
 		};
 	};
 
+/**
+ * A custom effect's break as the runtime plays it: the built-in break kind's own, over its window,
+ * its params resolved once a play from the effect's through its ties (as a built-in pass's are).
+ */
+const breakWindowOf = (brk: CustomElementFxBreak): BreakWindow => {
+	const kind = KINDS[brk.kind];
+	const resolved = new WeakMap<object, Record<string, ElementFxParamValue>>();
+	return {
+		...customElementFxBreakWindow(brk),
+		kind: brk.kind,
+		style: kind.breaks as BreakStyle,
+		reversed: !!kind.reversed,
+		live: !!kind.live,
+		params(effectParams) {
+			let params = resolved.get(effectParams);
+			if (!params) {
+				params = resolveElementFxParams(brk.kind, tiedValues(brk.params, effectParams));
+				resolved.set(effectParams, params);
+			}
+			return params;
+		},
+	};
+};
+
+/**
+ * The frame an effect with a break shows its passes and motion at: while the break plays, held where
+ * its graph meets the break (a still is cut from it there; an assemble's pieces come together into
+ * it), its seconds as they were or will be then. The same frame gives the same held one.
+ */
+const holdAt = (window: BreakWindow): ((frame: FxFrame) => FxFrame) => {
+	let last: { frame: FxFrame; held: FxFrame } | undefined;
+	return (frame) => {
+		if (frame.t < window.from || frame.t > window.to || frame.t === window.edge) return frame;
+		if (last?.frame !== frame) {
+			const seconds = Math.max(0, frame.seconds + (window.edge - frame.t) * frame.playSeconds);
+			last = { frame, held: { ...frame, t: window.edge, seconds } };
+		}
+		return last.held;
+	};
+};
+
+/** `pass` seeing the frames `hold` gives it. */
+const heldPass = (
+	pass: FilterImpl<Filter>,
+	hold: (frame: FxFrame) => FxFrame,
+): FilterImpl<Filter> => {
+	const padding = pass.padding;
+	return {
+		create: (frame) => pass.create(hold(frame)),
+		update: (filter, frame, view) => pass.update(filter, hold(frame), view),
+		padding: padding ? (frame, view) => padding(hold(frame), view) : undefined,
+	};
+};
+
 const impls = new WeakMap<CustomElementFx, KindImpl>();
 
 /** How `effect` plays: its graph, then its passes, plus its motion. Built once per registered effect. */
@@ -273,15 +347,22 @@ export function customKindImpl(effect: CustomElementFx): KindImpl {
 	const drivesChannels =
 		!!program && Object.keys(program.outputs).some((output) => output !== 'padding');
 	const passes = effect.passes.map(builtInPass).filter((p): p is FilterImpl<Filter> => !!p);
-	const impl: KindImpl = {
-		filters: [graphPass(effect, seedOf, driven), ...passes],
-		motion:
-			motion && driven && drivesChannels
-				? programMotion(motion, driven)
-				: motion && Object.keys(motion.channels).length
-					? curvedMotion(motion)
-					: undefined,
-	};
+	const filters = [graphPass(effect, seedOf, driven), ...passes];
+	const moves =
+		motion && driven && drivesChannels
+			? programMotion(motion, driven)
+			: motion && Object.keys(motion.channels).length
+				? curvedMotion(motion)
+				: undefined;
+	const breakWindow = effect.break ? breakWindowOf(effect.break) : undefined;
+	const hold = breakWindow && holdAt(breakWindow);
+	const impl: KindImpl = hold
+		? {
+				filters: filters.map((pass) => heldPass(pass, hold)),
+				motion: moves && ((frame) => moves(hold(frame))),
+				breakWindow,
+			}
+		: { filters, motion: moves };
 	impls.set(effect, impl);
 	return impl;
 }

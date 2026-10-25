@@ -16,9 +16,15 @@ import {
 	type ElementFxCurve,
 	type ElementFxMotionChannel,
 	type ElementFxParamSpec,
+	type ElementFxPhase,
+	customElementFxBreakWindow,
 	elementFxSpec,
+	isReversedElementFxBreak,
 } from 'constants-shared/elementFx';
 import {
+	BREAK_IN_SUBGRAPH,
+	BREAK_KINDS,
+	BREAK_OUTPUT,
 	BUILTIN_TWINS,
 	COST_BUDGET,
 	SAMPLE_BUDGET,
@@ -33,19 +39,25 @@ import {
 	analyzeShaderGraph,
 	analyzeShaderMotion,
 	analyzeShaderSubgraph,
+	breakKindOf,
+	breakKindParams,
+	breakOutputIssues,
 	calledSubgraph,
 	canFeed,
 	flattenGraph,
 	flattenShaderGraph,
 	graphNodeDef,
+	isBreakKind,
 	isMotionNode,
 	MOTION_NODES,
 	MOTION_OUTPUT,
 	motionNode,
 	motionGraphSeries,
+	readBreakValue,
 	shaderNode,
 	subgraphName,
 	subgraphOf,
+	type BreakKind,
 	type BuiltinTwin,
 	type GraphNode,
 	type GraphWire,
@@ -180,7 +192,8 @@ const errorsOf = (a: ShaderGraphAnalysis, code: 'type' | 'cycle'): number =>
  * Whether `from`'s output can feed `to`'s input: never a node into itself, the types must convert
  * (an input that follows its node's type takes anything; the node then follows it), and the graph
  * the wire makes has no loop or type error the graph had not, so the canvas takes only a wire the
- * compiler takes. The motion graph carries floats alone: a wire there joins two of them.
+ * compiler takes. The motion graph carries floats alone: a wire there joins two of them. A Break
+ * Output's port takes what the engine lets set a break ({@link breakFeedRefusal}).
  */
 export function canConnect(
 	doc: ShaderGraphDoc,
@@ -189,7 +202,7 @@ export function canConnect(
 	to: GraphWire['to'],
 	scope: GraphScope = null,
 ): boolean {
-	if (from.node === to.node) return false;
+	if (from.node === to.node || breakFeedRefusal(doc, from, to, scope)) return false;
 	const view = viewOf(doc, scope);
 	const source = view.nodes.find((n) => n.id === from.node);
 	const target = view.nodes.find((n) => n.id === to.node);
@@ -490,6 +503,10 @@ export type ShaderNodeView = {
 	cost: NodeCost | undefined;
 	/** The Motion Output's: what each channel it leaves unwired plays instead (`undrivenChannels`). */
 	undriven?: Record<string, string>;
+	/** A Break Output's: what each port reads unwired, in words (`breakPortValues`). */
+	breakValues?: Record<string, BreakPortValue>;
+	/** A Break Output's: per port, why each node that cannot feed it cannot (`breakFeedRefusal`). */
+	refusals?: Record<string, Record<string, string>>;
 };
 
 /**
@@ -537,19 +554,22 @@ export function canvasGraph(
 	const pinned = pinnedOf(doc, scope);
 	const nodes = doc.nodes.map((node) => {
 		const def = nodeDefIn(doc, node, scope);
+		const isBreak = node.type === BREAK_OUTPUT && !scope;
 		const summary =
 			node.type === SUBGRAPH_CALL
 				? 'subgraph'
-				: (def?.settings ?? [])
-						.map((s) => {
-							const value = node.values?.[s.id];
-							if (s.kind === 'param')
-								return value ? (params.get(String(value))?.label ?? String(value)) : '';
-							if (s.kind === 'choice') return String(value ?? s.default);
-							return '';
-						})
-						.filter(Boolean)
-						.join(' · ');
+				: isBreak
+					? breakSummary(node)
+					: (def?.settings ?? [])
+							.map((s) => {
+								const value = node.values?.[s.id];
+								if (s.kind === 'param')
+									return value ? (params.get(String(value))?.label ?? String(value)) : '';
+								if (s.kind === 'choice') return String(value ?? s.default);
+								return '';
+							})
+							.filter(Boolean)
+							.join(' · ');
 		return {
 			id: node.id,
 			type: 'shader' as const,
@@ -572,6 +592,10 @@ export function canvasGraph(
 				cost: costs.get(node.id),
 				...(isMotionScope(scope) &&
 					node.type === MOTION_OUTPUT && { undriven: undrivenChannels(effect) }),
+				...(isBreak && {
+					breakValues: breakPortValues(node),
+					refusals: readOnly ? {} : breakRefusals(effect, node, scope),
+				}),
 			},
 		};
 	});
@@ -1147,12 +1171,15 @@ export function missingBoundary(doc: ShaderGraphDoc, scope: GraphScope): string[
 	return [SUBGRAPH_IN, SUBGRAPH_OUT].filter((type) => !nodes.some((n) => n.type === type));
 }
 
-/** Whether a node of `type` can be placed in the graph `scope` shows. */
+/** Whether a node of `type` can be placed in the graph `scope` shows: a Break Output only in the
+ *  effect's own graph, while it has none ({@link breakPlacement}). */
 export const canPlace = (doc: ShaderGraphDoc, scope: GraphScope, type: string): boolean =>
-	missingBoundary(doc, scope).includes(type) ||
-	(isMotionScope(scope)
-		? isMotionNode(type) && type !== MOTION_OUTPUT
-		: !!shaderNode(type) && type !== 'output');
+	type === BREAK_OUTPUT
+		? !breakPlacement(doc, scope)
+		: missingBoundary(doc, scope).includes(type) ||
+			(isMotionScope(scope)
+				? isMotionNode(type) && type !== MOTION_OUTPUT
+				: !!shaderNode(type) && type !== 'output');
 
 /** `doc` with a call of subgraph `id` at `pos` in the graph `scope` shows, and the call's id. */
 export function addCall(
@@ -1227,8 +1254,9 @@ const crossing = (end: GraphWire['from']): string => `${end.node}\u0000${end.por
 
 /**
  * Why nodes `ids` of the graph `scope` shows cannot be grouped, or undefined when they can (or
- * nothing would be grouped): they are the motion graph's, the effect holds its most subgraphs, or
- * the group would need more inputs or outputs than a subgraph takes.
+ * nothing would be grouped): they are the motion graph's, they hold the Break Output or a node
+ * wired into it, the effect holds its most subgraphs, or the group would need more inputs or
+ * outputs than a subgraph takes.
  */
 export function groupRefusal(
 	doc: ShaderGraphDoc,
@@ -1238,6 +1266,8 @@ export function groupRefusal(
 	if (isMotionScope(scope)) return [...ids].length ? SUBGRAPHS_PIXEL_ONLY : undefined;
 	const picked = new Set(groupable(doc, scope, ids));
 	if (!picked.size) return undefined;
+	const broken = breakGroupRefusal(viewOf(doc, scope), picked);
+	if (broken) return broken;
 	if ((doc.subgraphs?.length ?? 0) >= SUBGRAPH_COUNT_MAX)
 		return `An effect holds at most ${SUBGRAPH_COUNT_MAX} subgraphs: delete one to group these nodes.`;
 	const inputs = new Set<string>();
@@ -1845,4 +1875,390 @@ export function curvePoint(curve: MotionCurve, t: number): { x: number; y: numbe
 			: curve.values[0];
 	const span = curve.max - curve.min;
 	return { x, y: span > 0 ? (v - curve.min) / span : 0.5 };
+}
+
+// ── The Break Output ────────────────────────────────────────────────────────────────────────────
+
+/** One of the six breaks, as the Break select lists it. */
+export interface BreakChoice {
+	kind: BreakKind;
+	label: string;
+	description: string;
+	/** What the effect must play as: exit for the five that take the element out, enter for
+	 *  Assemble. */
+	phase: ElementFxPhase;
+	/** Assemble: its pieces fly in first, and the graph has the last of the play. */
+	reversed: boolean;
+}
+
+/** The Break select: the six break kinds in the catalog's order, by its labels. */
+export const BREAK_CHOICES: readonly BreakChoice[] = BREAK_KINDS.map((kind) => {
+	const spec = elementFxSpec(kind);
+	return {
+		kind,
+		label: spec.label,
+		description: spec.description,
+		phase: spec.phase,
+		reversed: isReversedElementFxBreak(kind),
+	};
+});
+
+/** The effect's Break Output: the first in its pixel graph (it takes one). */
+export const breakOutputOf = (doc: ShaderGraphDoc): GraphNode | undefined =>
+	doc.nodes.find((n) => n.type === BREAK_OUTPUT);
+
+/** The ports of Break Output `node`: the params of the break it names (none for no break). */
+export const breakParamsOf = (node: GraphNode): readonly ElementFxParamSpec[] => {
+	const kind = breakKindOf(node);
+	return kind ? breakKindParams(kind) : [];
+};
+
+/** A message fragment as a sentence. */
+const sentence = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
+
+export const BREAK_PIXEL_ONLY = 'A Break Output ends the pixel graph: switch to Pixel to add one.';
+export const BREAK_NOT_IN_SUBGRAPH = `${sentence(BREAK_IN_SUBGRAPH)}: go back to Effect to add one.`;
+export const BREAK_ONLY_ONE = 'The effect already ends in a Break Output: it takes one.';
+
+/** Why a Break Output cannot go in the graph `scope` shows, else ''. */
+export function breakPlacement(doc: ShaderGraphDoc, scope: GraphScope): string {
+	if (isMotionScope(scope)) return BREAK_PIXEL_ONLY;
+	if (scope) return BREAK_NOT_IN_SUBGRAPH;
+	return breakOutputOf(doc) ? BREAK_ONLY_ONE : '';
+}
+
+/**
+ * The palette's Break Output entry for the graph `scope` shows: listed in the pixel palette while
+ * the effect has none, placeable in the effect's own graph (`refusal` ''), greyed out with the
+ * reason inside a subgraph. Undefined where it is not listed: the motion palette, or once the
+ * effect has one.
+ */
+export function breakPaletteEntry(
+	doc: ShaderGraphDoc,
+	scope: GraphScope,
+): { refusal: string } | undefined {
+	if (isMotionScope(scope) || breakOutputOf(doc)) return undefined;
+	return { refusal: breakPlacement(doc, scope) };
+}
+
+/** What a kind change did to a Break Output, beyond the kind: each is said in its notice. */
+export interface BreakKindChange {
+	doc: ShaderGraphDoc;
+	/** The old break's ports the new one lacks that held a wire or a value: both went with them. */
+	dropped: { label: string; wire: boolean; value: boolean }[];
+	/** Values set on a port both breaks have that the new one's param cannot take: the port reads
+	 *  the new break's default (`was` as it was set, `why` it cannot stay). */
+	reset: { label: string; was: string; why: string; default: string }[];
+	/** Number wires kept into a port whose new range their value is past, in the engine's words: an
+	 *  error on the node until the Number is set within it. */
+	outOfRange: string[];
+}
+
+/** Why break `label`'s param `spec` cannot take a value it was set to. */
+const refusedBy = (spec: ElementFxParamSpec, label: string): string =>
+	spec.kind === 'number'
+		? `is past ${label}’s ${spec.min}…${spec.max}`
+		: spec.kind === 'choice'
+			? `is not one of ${label}’s options (${spec.options.join(', ')})`
+			: `is not a value ${label} takes`;
+
+/**
+ * `doc` with Break Output `id` playing `kind`, and what else that changed. Its ports are the kind's
+ * params, so a port the new kind lacks goes with its wire and its value (`dropped`); a value set on a
+ * port both have that the new param cannot take (a number past its range, an option it lacks) goes,
+ * the port reading the new default (`reset`); a Number wired into a port both have stays, so its
+ * value past the new range is an error until mended (`outOfRange`), as when it was wired. Where it
+ * starts stays. One gesture, so one undo step brings it all back.
+ */
+export function setBreakKind(doc: ShaderGraphDoc, id: string, kind: BreakKind): BreakKindChange {
+	const node = doc.nodes.find((n) => n.id === id && n.type === BREAK_OUTPUT);
+	if (!node || !isBreakKind(kind)) return { doc, dropped: [], reset: [], outOfRange: [] };
+	const was = breakParamsOf(node);
+	const now = new Map(breakKindParams(kind).map((p) => [p.id, p]));
+	const label = elementFxSpec(kind).label;
+	const next = clone(doc);
+	const values: NonNullable<GraphNode['values']> = { kind };
+	const reset: BreakKindChange['reset'] = [];
+	for (const [key, value] of Object.entries(node.values ?? {})) {
+		const spec = now.get(key);
+		if (key === 'at' || (spec && readBreakValue(spec, value) !== undefined)) values[key] = value;
+		else if (spec && !doc.wires.some((w) => w.to.node === id && w.to.port === key))
+			reset.push({
+				label: spec.label,
+				was: String(value),
+				why: refusedBy(spec, label),
+				default: String(spec.default),
+			});
+	}
+	(next.nodes.find((n) => n.id === id) as GraphNode).values = values;
+	next.wires = next.wires.filter((w) => w.to.node !== id || now.has(w.to.port));
+	const dropped = was
+		.filter((p) => !now.has(p.id))
+		.map((p) => ({
+			label: p.label,
+			wire: doc.wires.some((w) => w.to.node === id && w.to.port === p.id),
+			value: node.values?.[p.id] !== undefined,
+		}))
+		.filter((p) => p.wire || p.value);
+	const numbers = new Set(next.nodes.filter((n) => n.type === 'number').map((n) => n.id));
+	const fromNumber = new Set(
+		next.wires.filter((w) => w.to.node === id && numbers.has(w.from.node)).map((w) => w.to.port),
+	);
+	const outOfRange = breakOutputIssues(
+		next.nodes,
+		next.wires,
+		new Map(next.params.map((p) => [p.id, p])),
+		next.phase,
+	)
+		.filter((i) => i.node === id && i.port && fromNumber.has(i.port))
+		.map((i) => i.message);
+	return { doc: next, dropped, reset, outOfRange };
+}
+
+/**
+ * What the notice says after a kind change to the break `label` (`change`): the ports it lacks and
+ * what went with them, each value reset to its default, each Number wire now an error; '' when the
+ * change touched nothing but the kind.
+ */
+export function breakKindNotice(change: BreakKindChange, label: string): string {
+	const { dropped, reset, outOfRange } = change;
+	const lines: string[] = [];
+	if (dropped.length) {
+		const wires = dropped.every((p) => p.wire && !p.value);
+		const values = dropped.every((p) => p.value && !p.wire);
+		const what =
+			dropped.length === 1
+				? `its ${wires ? 'wire was' : values ? 'value was' : 'wire and value were'}`
+				: wires
+					? 'their wires were'
+					: values
+						? 'their values were'
+						: 'what was wired or set there was';
+		lines.push(`${label} has no ${dropped.map((p) => p.label).join(', ')}: ${what} dropped.`);
+	}
+	for (const r of reset)
+		lines.push(`${r.label}: ${r.was} ${r.why}, so it went back to ${r.default}.`);
+	for (const message of outOfRange)
+		lines.push(`${sentence(message)}: set the Number wired into it within that.`);
+	const count = dropped.length + reset.length + outOfRange.length;
+	if (count) lines.push(`Undo brings ${count === 1 ? 'it' : 'them'} back.`);
+	return lines.join(' ');
+}
+
+/** `doc` with Break Output `id` starting at `at` (kept 0…1), or at the default (`undefined`). */
+export function setBreakAt(
+	doc: ShaderGraphDoc,
+	id: string,
+	at: number | undefined,
+): ShaderGraphDoc {
+	if (at !== undefined && !Number.isFinite(at)) return doc;
+	return setNodeValue(doc, id, 'at', at === undefined ? undefined : Math.min(1, Math.max(0, at)));
+}
+
+/**
+ * `doc` with Break Output `id`'s port `port` reading `value` while unwired, stored as the break
+ * reads it (`readBreakValue`): a number kept within the param's range, a colour as `#rrggbb`, a
+ * switch as 1 or 0, a choice as its option. `undefined` clears it back to the kind's default; a
+ * value the param cannot take changes nothing.
+ */
+export function setBreakValue(
+	doc: ShaderGraphDoc,
+	id: string,
+	port: string,
+	value: number | string | boolean | undefined,
+): ShaderGraphDoc {
+	const node = doc.nodes.find((n) => n.id === id && n.type === BREAK_OUTPUT);
+	const spec = node && breakParamsOf(node).find((p) => p.id === port);
+	if (!spec) return doc;
+	if (value === undefined) return setNodeValue(doc, id, port, undefined);
+	let stored: number | string | undefined;
+	if (spec.kind === 'number') {
+		const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+		if (Number.isFinite(n)) stored = Math.min(spec.max, Math.max(spec.min, n));
+	} else if (spec.kind === 'bool') stored = value === true || value === 1 ? 1 : 0;
+	else {
+		const read = readBreakValue(spec, value);
+		if (typeof read === 'string') stored = read;
+	}
+	return stored === undefined ? doc : setNodeValue(doc, id, port, stored);
+}
+
+/** What an unwired break port reads, in words, with its swatch for a colour. */
+export interface BreakPortValue {
+	text: string;
+	swatch?: string;
+	/** The node holds a value the break cannot read (its error says so): shown as it is. */
+	bad?: boolean;
+}
+
+/**
+ * What port `spec` of a Break Output reads while unwired: the value set on the node, else the
+ * kind's default. A number as itself, a colour as its hex and swatch, a switch on or off, a choice
+ * its option's name (stored as the option, or as its place in the list).
+ */
+export function breakPortValue(spec: ElementFxParamSpec, value: unknown): BreakPortValue {
+	const read = readBreakValue(spec, value) ?? (value === undefined ? spec.default : undefined);
+	if (read === undefined) return { text: String(value), bad: true };
+	if (spec.kind === 'number') return { text: String(Number(Number(read).toFixed(3))) };
+	if (spec.kind === 'bool') return { text: read ? 'on' : 'off' };
+	if (spec.kind === 'color') return { text: String(read), swatch: String(read) };
+	return { text: String(read) };
+}
+
+/** What a Break Output's header shows: the break it plays, by the catalog's label. */
+const breakSummary = (node: GraphNode): string => {
+	const kind = breakKindOf(node);
+	return kind ? elementFxSpec(kind).label : `no break ${JSON.stringify(String(node.values?.kind))}`;
+};
+
+/** Each port of Break Output `node`, as its node shows it unwired ({@link breakPortValue}). */
+export const breakPortValues = (node: GraphNode): Record<string, BreakPortValue> =>
+	Object.fromEntries(
+		breakParamsOf(node).map((spec) => [spec.id, breakPortValue(spec, node.values?.[spec.id])]),
+	);
+
+/**
+ * Why `from` cannot feed Break Output port `to` of the graph `scope` shows, as the engine says it
+ * (`breakOutputIssues` on the graph with the wire made), else undefined: also for an input that
+ * is no Break Output's. A break is set once, as it starts, so a port takes a Param tied to a param
+ * of its kind, a Number (a number, switch or choice) or a Colour. A Number's own value is not
+ * judged here: past the port's range it is an error on the Break Output, mended on the Number.
+ */
+export function breakFeedRefusal(
+	doc: ShaderGraphDoc,
+	from: GraphWire['from'],
+	to: GraphWire['to'],
+	scope: GraphScope = null,
+): string | undefined {
+	const view = viewOf(doc, scope);
+	const target = view.nodes.find((n) => n.id === to.node);
+	if (target?.type !== BREAK_OUTPUT || isMotionScope(scope) || scope) return undefined;
+	const spec = breakParamsOf(target).find((p) => p.id === to.port);
+	const source = view.nodes.find((n) => n.id === from.node);
+	if (!spec || !source) return undefined;
+	const probe: GraphNode =
+		source.type === 'number' && spec.kind === 'number'
+			? { ...source, values: { ...source.values, value: spec.default } }
+			: source;
+	const issues = breakOutputIssues(
+		view.nodes.map((n) => (n.id === source.id ? probe : n)),
+		[...view.wires.filter((w) => !(w.to.node === to.node && w.to.port === to.port)), { from, to }],
+		new Map(doc.params.map((p) => [p.id, p])),
+		doc.phase,
+	);
+	const issue = issues.find((i) => i.node === to.node && i.port === to.port);
+	return issue && `${sentence(issue.message)}.`;
+}
+
+/**
+ * Per port of Break Output `node`, why each other node of the graph `scope` shows cannot feed it
+ * (a node that can is absent), for the canvas to say while a wire hovers the port. Worked out once
+ * per kind of source (a Param per param, a Number, a Colour, each other node type).
+ */
+function breakRefusals(
+	doc: ShaderGraphDoc,
+	node: GraphNode,
+	scope: GraphScope,
+): Record<string, Record<string, string>> {
+	const view = viewOf(doc, scope);
+	const out: Record<string, Record<string, string>> = {};
+	for (const spec of breakParamsOf(node)) {
+		const said = new Map<string, string | undefined>();
+		const row: Record<string, string> = {};
+		for (const source of view.nodes) {
+			if (source.id === node.id) continue;
+			const key = source.type === 'param' ? `param:${String(source.values?.param)}` : source.type;
+			if (!said.has(key))
+				said.set(
+					key,
+					breakFeedRefusal(
+						doc,
+						{ node: source.id, port: 'out' },
+						{ node: node.id, port: spec.id },
+						scope,
+					),
+				);
+			const reason = said.get(key);
+			if (reason) row[source.id] = reason;
+		}
+		out[spec.id] = row;
+	}
+	return out;
+}
+
+/** The phase the effect plays as, against the one its Break Output's kind needs. */
+export interface BreakPhaseMismatch {
+	kind: BreakKind;
+	label: string;
+	/** What the effect must play as. */
+	phase: ElementFxPhase;
+	message: string;
+}
+
+const PHASE_NAME: Record<ElementFxPhase, string> = {
+	emphasis: 'Emphasis',
+	loop: 'Loop',
+	enter: 'Enter',
+	exit: 'Exit',
+};
+
+export const phaseName = (phase: ElementFxPhase): string => PHASE_NAME[phase] ?? phase;
+
+/** Whether the effect plays as a phase its Break Output's kind cannot; the fix is that phase. */
+export function breakPhaseMismatch(doc: ShaderGraphDoc): BreakPhaseMismatch | undefined {
+	const node = breakOutputOf(doc);
+	const kind = node && breakKindOf(node);
+	if (!kind) return undefined;
+	const spec = elementFxSpec(kind);
+	if (doc.phase === spec.phase) return undefined;
+	const how = spec.phase === 'enter' ? 'brings the element in' : 'takes the element out';
+	return {
+		kind,
+		label: spec.label,
+		phase: spec.phase,
+		message: `${spec.label} ${how}: the effect must play as ${phaseName(spec.phase)}, not ${phaseName(doc.phase)}.`,
+	};
+}
+
+/** `doc` playing as `phase`. */
+export const setPhase = (doc: ShaderGraphDoc, phase: ElementFxPhase): ShaderGraphDoc =>
+	doc.phase === phase ? doc : { ...clone(doc), phase };
+
+/** What feeds each wired port of Break Output `id`, in words (`Param · Amount`, `Number`). */
+export function breakPortSources(doc: ShaderGraphDoc, id: string): Record<string, string> {
+	const params = new Map(doc.params.map((p) => [p.id, p.label]));
+	return Object.fromEntries(
+		doc.wires
+			.filter((w) => w.to.node === id)
+			.map((w) => {
+				const source = doc.nodes.find((n) => n.id === w.from.node);
+				const label = (source && graphNodeDef(doc, source, null)?.label) ?? 'a node';
+				const param = source?.type === 'param' ? params.get(String(source.values?.param)) : '';
+				return [w.to.port, param ? `${label} · ${param}` : label];
+			}),
+	);
+}
+
+/** When the break meets the graph, in ms of a `durationMs` play: where an exit's begins, where an
+ *  Assemble's pieces have flown in. */
+export function breakEdgeMs(kind: BreakKind, at: number, durationMs: number): number {
+	return Math.round(customElementFxBreakWindow({ kind, at }).edge * durationMs);
+}
+
+/**
+ * Why nodes `ids` of the effect's graph cannot be grouped for the break: a group of the Break
+ * Output, or of a node wired into one, would move it into a subgraph, which neither takes.
+ */
+function breakGroupRefusal(view: ShaderGraphDoc, picked: ReadonlySet<string>): string | undefined {
+	const breaks = new Set(view.nodes.filter((n) => n.type === BREAK_OUTPUT).map((n) => n.id));
+	if (!breaks.size) return undefined;
+	const feeders = new Set(view.wires.filter((w) => breaks.has(w.to.node)).map((w) => w.from.node));
+	const caught = view.nodes.filter(
+		(n) => picked.has(n.id) && (breaks.has(n.id) || feeders.has(n.id)),
+	);
+	if (!caught.length) return undefined;
+	const names = [
+		...new Set(caught.map((n) => (n.type === BREAK_OUTPUT ? 'the Break Output' : n.id))),
+	];
+	return `The Break Output and the nodes wired into it stay in the effect’s own graph: a subgraph takes neither. Leave ${names.join(', ')} out of the group.`;
 }

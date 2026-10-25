@@ -29,6 +29,7 @@ import {
 	CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT,
 	CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX,
 	CUSTOM_ELEMENT_FX_PADDING_MAX,
+	ELEMENT_FX_CURVE_KEY_LIMIT,
 	ELEMENT_FX_LIMITS,
 	ELEMENT_FX_PHASES,
 	customElementFxKind,
@@ -52,6 +53,15 @@ import {
 	type MotionOpName,
 } from 'constants-shared/motionLibrary';
 import {
+	BREAK_OUTPUT,
+	breakFadeCurve,
+	breakFadeProgram,
+	breakFadeStart,
+	breakOutputDef,
+	breakOutputIssues,
+	compileBreak,
+} from './break';
+import {
 	DIMS,
 	PARAM_TYPE,
 	isMotionOnlyNode,
@@ -63,6 +73,7 @@ import {
 	type NodeDef,
 } from './nodes';
 import {
+	BREAK_IN_SUBGRAPH,
 	SUBGRAPH_IN,
 	SUBGRAPH_OUT,
 	flattenGraph,
@@ -242,6 +253,7 @@ export function analyzeShaderSubgraph(doc: ShaderGraphDoc, id: string): ShaderGr
 			(node.type === SUBGRAPH_IN || node.type === SUBGRAPH_OUT
 				? own[node.type]
 				: shaderNode(node.type)),
+		unknown: (type) => (type === BREAK_OUTPUT ? BREAK_IN_SUBGRAPH : undefined),
 		root: {
 			type: SUBGRAPH_OUT,
 			none: 'the subgraph has no Output node',
@@ -382,12 +394,17 @@ function analyze(doc: ShaderGraphDoc, flat?: FlatShaderGraph): Analysis {
 	}
 	const params = paramsOf(doc);
 	for (const message of customElementFxPassIssues(doc.passes, params)) error('pass', message);
-	for (const message of customElementFxMotionIssues(doc.motion)) error('motion', message);
+	const motionIssues = customElementFxMotionIssues(doc.motion);
+	for (const message of motionIssues) error('motion', message);
 
+	const nodes = flat?.nodes ?? doc.nodes;
+	const wires = flat?.wires ?? doc.wires;
 	const walked = walk(result, params, {
-		nodes: flat?.nodes ?? doc.nodes,
-		wires: flat?.wires ?? doc.wires,
-		defOf: (node) => flat?.defs.get(node.id) ?? shaderNode(node.type),
+		nodes,
+		wires,
+		defOf: (node) =>
+			flat?.defs.get(node.id) ??
+			(node.type === BREAK_OUTPUT ? breakOutputDef(node) : shaderNode(node.type)),
 		unknown: (type) =>
 			isMotionOnlyNode(type) ? `${motionNode(type)?.label} belongs in the motion graph` : undefined,
 		root: {
@@ -396,6 +413,20 @@ function analyze(doc: ShaderGraphDoc, flat?: FlatShaderGraph): Analysis {
 			several: 'a graph has one Output, this one has several',
 		},
 	});
+	issues.push(...breakOutputIssues(nodes, wires, params, doc.phase));
+	const fade = breakFadeStart(nodes);
+	const alpha = motionIssues.length ? undefined : doc.motion?.channels.alpha;
+	if (
+		fade !== undefined &&
+		alpha &&
+		breakFadeCurve(alpha, fade).length > ELEMENT_FX_CURVE_KEY_LIMIT
+	)
+		pushError(
+			issues,
+			'break',
+			`with a break, the alpha curve takes at most ${ELEMENT_FX_CURVE_KEY_LIMIT - 2} keys before ${Math.round(fade * 100) / 100}: the break adds the fade a runtime from before breaks plays`,
+			nodes.find((n) => n?.type === BREAK_OUTPUT)?.id,
+		);
 	if (!walked) return result;
 	if (result.cost > COST_BUDGET)
 		issues.push({
@@ -447,8 +478,10 @@ function walk(
 	if (outputs.length > 1 || (!outputs.length && !graph.root.optional))
 		error('output', outputs.length ? graph.root.several : graph.root.none);
 
-	// Settings: a choice among its options, a param the doc has, a number, a colour.
+	// Settings: a choice among its options, a param the doc has, a number, a colour. A Break
+	// Output's are the break's (`breakOutputIssues`).
 	for (const [id, def] of defs) {
+		if (def.type === BREAK_OUTPUT) continue;
 		for (const setting of def.settings ?? []) {
 			const value = nodes.get(id)?.values?.[setting.id];
 			if (setting.kind === 'param') {
@@ -533,8 +566,15 @@ function walk(
 	};
 	if (outputs.length && !visit(outputs[0])) return false;
 	const reachable = sequence.length;
+	// A Break Output and what feeds it are used, though they reach no GLSL.
+	const sunk = new Set<string>();
+	for (const [id, def] of defs) {
+		if (def.type !== BREAK_OUTPUT) continue;
+		sunk.add(id);
+		for (const from of result.feeds.get(id)?.values() ?? []) sunk.add(from.node);
+	}
 	for (const id of outputs.length ? nodes.keys() : []) {
-		if (!state.has(id))
+		if (!state.has(id) && !sunk.has(id))
 			issues.push({
 				level: 'warning',
 				code: 'unreachable',
@@ -549,6 +589,15 @@ function walk(
 	// Types, in order.
 	for (const [index, node] of sequence.entries()) {
 		const def = defs.get(node.id) as NodeDef;
+		if (def.type === BREAK_OUTPUT) {
+			// Its ports are typed by the break's params; what feeds them is `breakOutputIssues`'s.
+			result.inputs.set(
+				node.id,
+				Object.fromEntries(def.inputs.map((p) => [p.id, p.type as PortType])),
+			);
+			result.outputs.set(node.id, {});
+			continue;
+		}
 		const feeds = result.feeds.get(node.id);
 		const sourceType = (port: string): PortType | undefined => {
 			const from = feeds?.get(port);
@@ -783,9 +832,18 @@ export function compileShaderEffect(doc: ShaderGraphDoc): ShaderEffectResult {
 	const curves = doc.motion ? plain(doc.motion) : undefined;
 	// The doc's motion is curves and a pivot; only its motion graph makes a program.
 	if (curves && 'program' in curves) delete curves.program;
-	const motion = moving.program
+	let motion = moving.program
 		? { ...(curves ?? { channels: {} }), program: moving.program }
 		: curves;
+	const broken = compileBreak(doc.nodes, doc.wires);
+	const fade = breakFadeStart(doc.nodes);
+	if (fade !== undefined) {
+		const channels = motion?.channels ?? {};
+		motion = {
+			...motion,
+			channels: { ...channels, alpha: breakFadeCurve(channels.alpha, fade) },
+		};
+	}
 	return {
 		ok: true,
 		effect: {
@@ -802,6 +860,7 @@ export function compileShaderEffect(doc: ShaderGraphDoc): ShaderEffectResult {
 			padding: doc.padding ?? 0,
 			passes: plain(doc.passes ?? []),
 			...(motion ? { motion } : {}),
+			...(broken ? { break: broken } : {}),
 		},
 		warnings: moving.warnings.length ? [...shader.warnings, ...moving.warnings] : shader.warnings,
 	};
@@ -856,6 +915,7 @@ const MOTION_ROOT = {
 
 const motionUnknown = (type: string): string => {
 	if (type === 'subgraph') return 'a subgraph cannot be called from the motion graph';
+	if (type === BREAK_OUTPUT) return 'the Break Output belongs in the pixel graph';
 	const pixel = shaderNode(type);
 	if (!pixel) return `"${type.length > 40 ? `${type.slice(0, 40)}…` : type}" is not a node`;
 	return pixel.category === 'output'
@@ -1049,18 +1109,23 @@ function runMotion(doc: ShaderGraphDoc): MotionRun {
 		writer.ops,
 		driven.map(([, r]) => r),
 	);
-	if (pruned.ops.length > CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT) {
-		pushError(
-			issues,
-			'cost',
-			`the motion graph compiles to ${pruned.ops.length} steps, more than the ${CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT} a game runs`,
-		);
-		return run;
-	}
-	run.program = {
+	let program: CustomElementFxMotionProgram = {
 		ops: pruned.ops,
 		outputs: Object.fromEntries(driven.map(([key, r]) => [key, pruned.at[r]])),
 	};
+	// A driven alpha takes the fade an exit's break gives a runtime from before breaks.
+	const fade = Array.isArray(doc.nodes) ? breakFadeStart(doc.nodes) : undefined;
+	if (fade !== undefined) program = breakFadeProgram(program, fade);
+	if (program.ops.length > CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT) {
+		const faded = program.ops.length > pruned.ops.length;
+		pushError(
+			issues,
+			'cost',
+			`the motion graph compiles to ${program.ops.length} steps${faded ? ' (with the fade its break gives a runtime from before breaks)' : ''}, more than the ${CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT} a game runs`,
+		);
+		return run;
+	}
+	run.program = program;
 	// The room at the defaults, when there are defaults to read (the params are sound).
 	if (run.program.outputs.padding !== undefined && !paramIssues(doc.params).length) {
 		const frame = seriesFrame(doc);

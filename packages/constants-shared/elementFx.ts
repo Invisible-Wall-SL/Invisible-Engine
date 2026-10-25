@@ -1316,6 +1316,34 @@ export const ELEMENT_FX_PASS_KINDS = [
 ] as const satisfies readonly ElementFxKind[];
 export type ElementFxPassKind = (typeof ELEMENT_FX_PASS_KINDS)[number];
 
+/**
+ * The built-in BREAK kinds, in catalog order: what a custom effect's break may play (Shader Graph's
+ * Break Output). `check:element-fx` holds this list to the catalog's `break` category.
+ */
+export const ELEMENT_FX_BREAK_KINDS = [
+	'crash',
+	'crumble',
+	'shatter',
+	'crystallize',
+	'disintegrate',
+	'assemble',
+] as const satisfies readonly ElementFxKind[];
+export type ElementFxBreakKind = (typeof ELEMENT_FX_BREAK_KINDS)[number];
+
+/**
+ * A custom effect's BREAK: one of the built-in breaks (`pixi-svelte`'s `breakApart.ts`), cutting the
+ * element as the effect draws it. Forward (every kind but `assemble`), the graph plays alone over
+ * [0, at] and the break over [at, 1]. Reversed (`assemble`), mirrored: the pieces fly in over
+ * [0, 1 − at], and the graph plays alone over the last `at`. Its params are set as a pass's are: by
+ * value, or tied to one of the effect's params of the same kind.
+ */
+export interface CustomElementFxBreak {
+	kind: ElementFxBreakKind;
+	/** 0…1: the share of the play the graph has alone before the break (`assemble`: after it). */
+	at: number;
+	params: Readonly<Record<string, CustomElementFxPassValue>>;
+}
+
 /** A custom effect, compiled and ready to play. */
 export interface CustomElementFx {
 	/** Its kind, label, phase, length, description and params, as a built-in's. */
@@ -1326,6 +1354,8 @@ export interface CustomElementFx {
 	padding: number;
 	passes: readonly CustomElementFxPass[];
 	motion?: CustomElementFxMotion;
+	/** A built-in break the element ends in (an `enter` effect: begins from), over part of the play. */
+	break?: CustomElementFxBreak;
 }
 
 /** A custom effect's passes and the keys on one motion curve, at most. */
@@ -1416,6 +1446,31 @@ export function elementFxParamSpecIssues(params: readonly unknown[]): string[] {
 }
 
 /**
+ * What is wrong with `value` setting `spec` in a pass or a break: a tie (`{ param }`) to none of
+ * `params` of `spec`'s kind (a choice: one whose options are not all `spec`'s), or a value it does
+ * not take (a number outside its range). Undefined when it sets it.
+ */
+const paramValueFault = (
+	spec: ElementFxParamSpec,
+	value: unknown,
+	params: ReadonlyMap<string, ElementFxParamSpec>,
+): 'tie' | 'value' | undefined => {
+	if (isRecord(value)) {
+		const bound = typeof value.param === 'string' ? params.get(value.param) : undefined;
+		const fits =
+			!!bound &&
+			bound.kind === spec.kind &&
+			(bound.kind !== 'choice' ||
+				(spec.kind === 'choice' &&
+					Array.isArray(bound.options) &&
+					bound.options.every((o) => spec.options.includes(o))));
+		return fits ? undefined : 'tie';
+	}
+	const read = readElementFxParam(spec, value);
+	return read === undefined || (spec.kind === 'number' && read !== value) ? 'value' : undefined;
+};
+
+/**
  * Why a custom effect's passes are malformed, or [] when they are not: each a pass kind, its params
  * ones that kind has, each a valid value or tied to one of `params` of the same kind, its strength
  * within the runtime's.
@@ -1442,25 +1497,13 @@ export function customElementFxPassIssues(
 		if (raw.params !== undefined && !isRecord(raw.params)) out.push(`${at}: params is not a map`);
 		for (const [id, value] of Object.entries(isRecord(raw.params) ? raw.params : {})) {
 			const spec = specs.get(id);
+			const fault = spec && paramValueFault(spec, value, params);
 			if (!spec) {
 				out.push(`${at}: ${String(kind)} has no param "${id}"`);
-			} else if (isRecord(value)) {
-				const bound = typeof value.param === 'string' ? params.get(value.param) : undefined;
-				const fits =
-					!!bound &&
-					bound.kind === spec.kind &&
-					(bound.kind !== 'choice' ||
-						(spec.kind === 'choice' &&
-							Array.isArray(bound.options) &&
-							bound.options.every((o) => spec.options.includes(o))));
-				if (!fits) {
-					out.push(`${at}: "${id}" is not tied to one of the effect's ${spec.kind} params`);
-				}
-			} else {
-				const read = readElementFxParam(spec, value);
-				if (read === undefined || (spec.kind === 'number' && read !== value)) {
-					out.push(`${at}: "${id}" is not a valid ${spec.kind}`);
-				}
+			} else if (fault === 'tie') {
+				out.push(`${at}: "${id}" is not tied to one of the effect's ${spec.kind} params`);
+			} else if (fault === 'value') {
+				out.push(`${at}: "${id}" is not a valid ${spec.kind}`);
 			}
 		}
 		const { min, max } = ELEMENT_FX_LIMITS.intensity;
@@ -1579,6 +1622,56 @@ export function customElementFxMotionProgramIssues(
 	return out;
 }
 
+/** Whether break `kind` plays reversed: its pieces fly in and become the element (an `enter`). */
+export const isReversedElementFxBreak = (kind: ElementFxBreakKind): boolean =>
+	SPECS.get(kind)?.phase === 'enter';
+
+/**
+ * Where a custom effect's break plays, as shares of its play: forward over [at, 1]; reversed
+ * (`assemble`) over [0, 1 − at]. `edge` is where the graph, playing alone, meets it.
+ */
+export function customElementFxBreakWindow(brk: Pick<CustomElementFxBreak, 'kind' | 'at'>): {
+	from: number;
+	to: number;
+	edge: number;
+	reversed: boolean;
+} {
+	const reversed = isReversedElementFxBreak(brk.kind);
+	const edge = reversed ? 1 - brk.at : brk.at;
+	return reversed ? { from: 0, to: edge, edge, reversed } : { from: edge, to: 1, edge, reversed };
+}
+
+/**
+ * Why a custom effect's break cannot play, or [] when it can: one of the break kinds, its start
+ * 0…1, the effect's `phase` the kind's, and each param one the kind has, set to a value it takes or
+ * tied to one of `params` of the same kind (as a pass's are). It stops at the first.
+ */
+export function customElementFxBreakIssues(
+	brk: unknown,
+	params: ReadonlyMap<string, ElementFxParamSpec>,
+	phase: unknown,
+): string[] {
+	if (!isRecord(brk)) return ['a break is not a map'];
+	const { kind, at } = brk;
+	if (!(ELEMENT_FX_BREAK_KINDS as readonly unknown[]).includes(kind))
+		return [`a break is one of ${ELEMENT_FX_BREAK_KINDS.join(', ')}, not ${quoted(kind)}`];
+	const spec = elementFxSpec(kind as ElementFxBreakKind);
+	if (!finite(at) || at < 0 || at > 1) return ['a break starts at 0…1'];
+	if (phase !== spec.phase) return [`a ${spec.kind} break plays in an ${spec.phase} effect`];
+	if (!isRecord(brk.params)) return ['a break has a params map'];
+	const specs = new Map(spec.params.map((p) => [p.id, p]));
+	// Key by key, so a flood of keys is refused at its first.
+	for (const id in brk.params) {
+		if (!Object.hasOwn(brk.params, id)) continue;
+		const param = specs.get(id);
+		if (!param) return [`${spec.kind} has no param ${quoted(id)}`];
+		const fault = paramValueFault(param, brk.params[id], params);
+		if (fault === 'tie') return [`"${id}" is not tied to one of the effect's ${param.kind} params`];
+		if (fault === 'value') return [`"${id}" is not a valid ${param.kind}`];
+	}
+	return [];
+}
+
 const UNIFORM_TYPES: readonly unknown[] = ['float', 'vec2', 'vec3', 'vec4'];
 const GLSL_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 
@@ -1587,7 +1680,9 @@ const GLSL_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
  * part checked (its spec and params, its shader's body and uniforms, its padding, passes and
  * motion), so a malformed effect from storage or a bundle is dropped rather than failing mid-play.
  * A motion program that does not read ({@link customElementFxMotionProgramIssues}) is dropped
- * alone: the effect keeps its pass and plays its curves.
+ * alone: the effect keeps its pass and plays its curves. So is a break that cannot play
+ * ({@link customElementFxBreakIssues}): the effect plays as a runtime from before breaks plays it,
+ * an exit leaving on the fade its compiled curves carry for one.
  */
 export function readCustomElementFx(raw: unknown): CustomElementFx | undefined {
 	if (!isRecord(raw) || !isRecord(raw.spec) || !isRecord(raw.shader)) return undefined;
@@ -1647,7 +1742,14 @@ export function readCustomElementFx(raw: unknown): CustomElementFx | undefined {
 	) {
 		return undefined;
 	}
-	const effect = JSON.parse(JSON.stringify(raw)) as CustomElementFx;
+	// A break this version cannot play (a kind or a param a newer Shader Graph added) is dropped, and
+	// the effect plays as a runtime from before breaks plays it; it is checked before the copy, which
+	// leaves it out.
+	const unplayable =
+		raw.break !== undefined && customElementFxBreakIssues(raw.break, params, spec.phase).length > 0;
+	const effect = JSON.parse(
+		JSON.stringify(unplayable ? { ...raw, break: undefined } : raw),
+	) as CustomElementFx;
 	// A program this version cannot run (one using an op a newer Shader Graph added) is dropped and
 	// the effect plays its curves, as a runtime from before motion programs plays it.
 	if (

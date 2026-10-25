@@ -36,6 +36,11 @@
  * MOTION_ALPHA, in every case: what a kind moves by the seconds played, a param, looping or the
  * element's shape is the twin's motion graph.
  *
+ * BREAKS (step 8b): a break's twin (the element as it is and a Break Output) plays as compiled, its
+ * fade for older runtimes included, and its pieces fly past any room, so each play is drawn alone in
+ * three times its box and compared as a cell (no room to hold it to). Its still is cut through the
+ * graph's pass, so a break twin matching shows the pass leaves the still as a built-in cuts it.
+ *
  *   pnpm --filter fx-spike shader-twins [--only freeze,burn] [--dump <dir>]
  *
  * `--dump` writes each failing cell's two renders as PNGs.

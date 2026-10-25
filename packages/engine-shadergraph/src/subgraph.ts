@@ -22,6 +22,7 @@
  * `analyzeShaderSubgraph`.
  */
 
+import { BREAK_OUTPUT, breakOutputDef } from './break';
 import { DIMS, shaderNode, type NodeDef, type PortDef } from './nodes';
 import type {
 	GraphIssue,
@@ -171,8 +172,9 @@ export function subgraphOutDef(sub: ShaderSubgraph): NodeDef {
 
 /**
  * Node `node`'s def as the graph it sits in sees it: a library node's, a call's (its subgraph's
- * ports), or, inside subgraph `scope`'s body, that body's Input or Output. Undefined for a node no
- * def answers (an unknown type, a call to no subgraph, an Input outside a body).
+ * ports), the effect's Break Output (the ports of the break it names), or, inside subgraph `scope`'s
+ * body, that body's Input or Output. Undefined for a node no def answers (an unknown type, a call to
+ * no subgraph, an Input outside a body, a Break Output inside one).
  */
 export function graphNodeDef(
 	doc: ShaderGraphDoc,
@@ -188,8 +190,13 @@ export function graphNodeDef(
 		if (!sub) return undefined;
 		return node.type === SUBGRAPH_IN ? subgraphInDef(sub) : subgraphOutDef(sub);
 	}
+	if (node.type === BREAK_OUTPUT) return scope ? undefined : breakOutputDef(node);
 	return shaderNode(node.type);
 }
+
+/** Why a Break Output is refused in a subgraph's body. */
+export const BREAK_IN_SUBGRAPH =
+	'the Break Output belongs in the effect’s own graph, not in a subgraph';
 
 /**
  * What is wrong with `sub` as a definition: its name, its ports, and its body's one Input and one
@@ -255,13 +262,17 @@ export function subgraphDefinitionIssues(
 	};
 	count(SUBGRAPH_IN, 'Input', true);
 	count(SUBGRAPH_OUT, 'Output', !body);
-	for (const node of sub.nodes)
+	for (const node of sub.nodes) {
 		if (isRecord(node) && node.type === 'output')
 			issues.push({
 				message:
 					'the effect’s Output does not belong in a subgraph: wire into the subgraph’s Output',
 				node: node.id,
 			});
+		// Seen on its own, the body's analysis says so of the node.
+		if (!body && isRecord(node) && node.type === BREAK_OUTPUT)
+			issues.push({ message: BREAK_IN_SUBGRAPH, node: node.id });
+	}
 	return issues;
 }
 

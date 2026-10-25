@@ -40,6 +40,16 @@
  *      nothing changes; subgraph gestures are off there; the palette offers motion nodes only; the
  *      channels it drives are named for the settings; each node's curve is its value over the play,
  *      keyed like a thumbnail; a param renamed is followed there; storage keeps it.
+ *  11. The Break Output: the palette offers it in the effect's own graph while it has none (greyed
+ *      out in a subgraph, saying why; never in the motion graph); it adds and deletes; its header
+ *      names the break, its ports are the break's params, with no thumbnail or cost chip; a kind
+ *      change drops what the new break lacks, resets values past its ranges and keeps Number wires
+ *      past them as errors, in one step, its notice naming each; the wire
+ *      rule is the engine's over every source and port kind, and the canvas says why a port
+ *      refuses a wire; each unwired port shows its value as the break reads it, and is set as the
+ *      break stores it; the phase the break needs is one fix away; Starts at reads in ms; no gesture
+ *      changes the doc it was given (undo); read-only nothing changes; a group never takes it or
+ *      what feeds it; the six break twins start effects; storage keeps it.
  *
  *   pnpm --filter launcher-api check:shader-editor
  */
@@ -49,6 +59,10 @@ import {
 	isCustomElementFxKind,
 } from 'constants-shared/elementFx';
 import {
+	BREAK_AT_DEFAULT,
+	BREAK_KINDS,
+	BREAK_KIND_DEFAULT,
+	BREAK_OUTPUT,
 	BUILTIN_TWINS,
 	COST_BUDGET,
 	MOTION_NODE_TYPES,
@@ -60,13 +74,19 @@ import {
 	analyzeShaderMotion,
 	compileShaderEffect,
 	compileShaderGraph,
+	isBreakTwin,
 	isMotionNode,
+	readBreakValue,
 	normalizeShaderGraphDoc,
 	shaderNode,
 	type ShaderGraphDoc,
 } from 'engine-shadergraph';
 import { shaderSlug } from '../src/lib/server/projectPaths.ts';
 import {
+	BREAK_CHOICES,
+	BREAK_NOT_IN_SUBGRAPH,
+	BREAK_ONLY_ONE,
+	BREAK_PIXEL_ONLY,
 	COST_WEIGHTS,
 	CURVE_SAMPLES,
 	FLAT_NODES,
@@ -79,6 +99,16 @@ import {
 	addPass,
 	addSubgraphPort,
 	analyzeScope,
+	breakEdgeMs,
+	breakFeedRefusal,
+	breakKindNotice,
+	breakOutputOf,
+	breakPaletteEntry,
+	breakPhaseMismatch,
+	breakPlacement,
+	breakPortSources,
+	breakPortValue,
+	breakPortValues,
 	canConnect,
 	canPlace,
 	canvasGraph,
@@ -115,8 +145,12 @@ import {
 	restCurve,
 	setMotionChannel,
 	setNodeValue,
+	setBreakAt,
+	setBreakKind,
+	setBreakValue,
 	setParam,
 	setPass,
+	setPhase,
 	setPivot,
 	setSubgraphPort,
 	slugOf,
@@ -1085,6 +1119,8 @@ console.log('9. subgraphs');
 	const failed: string[] = [];
 	/** Selections a subgraph's 32 inputs or outputs cannot take, and what was said of them. */
 	const capped: string[] = [];
+	/** Selections holding a Break Output or a node wired into one (the break twins'), and why. */
+	const broke: { breaks: boolean; message: string }[] = [];
 	for (const doc of [...REFERENCE_GRAPHS, ...BUILTIN_TWINS.map((t) => t.doc)]) {
 		const base = compileShaderGraph(doc);
 		if (!base.ok) continue;
@@ -1093,7 +1129,12 @@ console.log('9. subgraphs');
 			if (!ids.length) continue;
 			const refused = groupRefusal(doc, null, ids);
 			if (refused) {
-				capped.push(refused);
+				if (refused.startsWith('The Break Output'))
+					broke.push({
+						breaks: doc.nodes.some((n) => n.type === BREAK_OUTPUT),
+						message: refused,
+					});
+				else capped.push(refused);
 				if (groupNodes(doc, null, ids, 'G')) failed.push(`${doc.id}: grouped though refused`);
 				continue;
 			}
@@ -1124,6 +1165,19 @@ console.log('9. subgraphs');
 			trips > 200,
 			capped.length < trips / 10,
 			capped.every((m) => /^A subgraph takes at most 32 inputs and 32 outputs/.test(m)),
+		],
+		[true, true, true],
+	);
+	check(
+		`…the ${broke.length} selections holding a break twin’s Break Output or a Param wired into it were refused, naming them (a subgraph takes neither)`,
+		[
+			broke.length > 10,
+			broke.every((b) => b.breaks),
+			broke.every((b) =>
+				/Leave (the Break Output|param\d+)(, (the Break Output|param\d+))* out of the group\.$/.test(
+					b.message,
+				),
+			),
 		],
 		[true, true, true],
 	);
@@ -2073,6 +2127,563 @@ console.log('10. the motion graph');
 		'storage keeps the motion graph as built',
 		json(normalizeShaderGraphDoc(JSON.parse(json(m)), m.id).motionGraph),
 		json(m.motionGraph),
+	);
+}
+
+// ── 11 ──
+console.log('11. the Break Output');
+{
+	const B = BREAK_OUTPUT;
+	const breakErrors = (doc: ShaderGraphDoc, node: string, port?: string): string[] =>
+		analyzeShaderGraph(doc)
+			.issues.filter(
+				(i) =>
+					i.level === 'error' &&
+					i.code === 'break' &&
+					i.node === node &&
+					(port === undefined || i.port === port),
+			)
+			.map((i) => i.message);
+	const pulse = REFERENCE_GRAPHS.find((d) => d.id === 'pulseTint') as ShaderGraphDoc;
+	const base: ShaderGraphDoc = { ...JSON.parse(json(pulse)), id: 'brk', name: 'Brk' };
+
+	// The palette.
+	const inGroup = groupNodes(base, null, ['colorize6'], 'G');
+	check(
+		'the palette offers a Break Output in the effect’s own graph while it has none, greyed out in a subgraph saying why, never in Motion; the pixel library lists none',
+		[
+			breakPaletteEntry(base, null),
+			breakPaletteEntry(base, MOTION_SCOPE),
+			inGroup && breakPaletteEntry(inGroup.doc, inGroup.subgraph),
+			canPlace(base, null, B),
+			canPlace(base, MOTION_SCOPE, B),
+			inGroup && canPlace(inGroup.doc, inGroup.subgraph, B),
+			breakPlacement(base, MOTION_SCOPE),
+			libraryGroups().some((g) => g.nodes.some((n) => n.type === B)),
+			libraryGroups(true).some((g) => g.nodes.some((n) => n.type === B)),
+		],
+		[
+			{ refusal: '' },
+			undefined,
+			{ refusal: BREAK_NOT_IN_SUBGRAPH },
+			true,
+			false,
+			false,
+			BREAK_PIXEL_ONLY,
+			false,
+			false,
+		],
+	);
+
+	// Add.
+	const added = addNodeIn(base, null, B, { x: 360, y: 220 });
+	let d = added.doc;
+	const brk = added.id;
+	check(
+		'it adds as one node of the effect’s graph, then is offered no more (one per effect)',
+		[
+			brk,
+			d.nodes.filter((n) => n.type === B).length,
+			breakOutputOf(d)?.id,
+			breakPaletteEntry(d, null),
+			canPlace(d, null, B),
+			breakPlacement(d, null),
+			d.motionGraph,
+		],
+		['breakOutput1', 1, brk, undefined, false, BREAK_ONLY_ONE, undefined],
+	);
+	const shatter = elementFxSpec(BREAK_KIND_DEFAULT);
+	let canvas = canvasGraph(d, analyzeShaderGraph(d), new Set([brk]));
+	let view = canvas.nodes.find((n) => n.id === brk);
+	check(
+		'on the canvas: the break’s label in its header, a port per param of the break with the catalog’s labels, no output, thumbnail or cost chip; it deletes',
+		[
+			view?.data.summary,
+			view?.data.def?.inputs.map((p) => [p.id, p.label]),
+			view?.data.def?.outputs.length,
+			view?.data.thumb,
+			view?.data.cost,
+			view?.deletable,
+		],
+		[shatter.label, shatter.params.map((p) => [p.id, p.label]), 0, false, undefined, true],
+	);
+	check(
+		'…a fresh one plays the default break from the start of the play, its ports at the break’s defaults: a choice by its option',
+		[view?.data.breakValues, BREAK_KIND_DEFAULT, BREAK_AT_DEFAULT],
+		[
+			Object.fromEntries(shatter.params.map((p) => [p.id, { text: String(p.default) }])),
+			'shatter',
+			0,
+		],
+	);
+	check(
+		'…its only error is the phase (a loop effect cannot break), on the node and not the doc; it costs nothing',
+		[
+			breakErrors(d, brk).length,
+			/exit/.test(breakErrors(d, brk)[0] ?? ''),
+			docIssues(d, analyzeShaderGraph(d)),
+			analyzeShaderGraph(d).cost === analyzeShaderGraph(base).cost,
+		],
+		[1, true, [], true],
+	);
+
+	// The phase.
+	const wrong = breakPhaseMismatch(d);
+	const fixed = setPhase(d, wrong?.phase ?? 'exit');
+	check(
+		'the phase it needs is one fix away: Exit for Shatter, the fix clearing the error; Assemble needs Enter',
+		[
+			wrong && { kind: wrong.kind, phase: wrong.phase },
+			breakErrors(fixed, brk),
+			breakPhaseMismatch(fixed),
+			compileShaderEffect(fixed).ok,
+			breakPhaseMismatch(setBreakKind(fixed, brk, 'assemble').doc)?.phase,
+			breakPhaseMismatch(setPhase(setBreakKind(fixed, brk, 'assemble').doc, 'enter')),
+			setPhase(fixed, 'exit') === fixed,
+		],
+		[{ kind: 'shatter', phase: 'exit' }, [], undefined, true, 'enter', undefined, true],
+	);
+	d = fixed;
+	check(
+		'the effect compiles with its break: the kind, where it starts, every param at the break’s default',
+		(() => {
+			const r = compileShaderEffect(d);
+			return r.ok ? r.effect.break : r.issues;
+		})(),
+		{
+			kind: 'shatter',
+			at: 0,
+			params: Object.fromEntries(shatter.params.map((p) => [p.id, p.default])),
+		},
+	);
+
+	// Values, per param kind.
+	d = setBreakKind(d, brk, 'crystallize').doc;
+	d = setPhase(d, 'exit');
+	const crystal = elementFxSpec('crystallize');
+	const set = [
+		['pieces', 9999],
+		['color', '#AABBCC'],
+		['from', 2],
+		['gravity', '1.5'],
+	] as const;
+	for (const [port, value] of set) d = setBreakValue(d, brk, port, value);
+	const node = () => d.nodes.find((n) => n.id === brk);
+	check(
+		'set as the break stores them: a number kept within its range, a colour as #rrggbb, a choice by its option (from its place too), a typed number read; the break reads each and none is an error',
+		[
+			node()?.values,
+			crystal.params.every(
+				(p) =>
+					node()?.values?.[p.id] === undefined ||
+					readBreakValue(p, node()?.values?.[p.id]) !== undefined,
+			),
+			breakErrors(d, brk),
+		],
+		[{ kind: 'crystallize', pieces: 80, color: '#aabbcc', from: 'top', gravity: 1.5 }, true, []],
+	);
+	check(
+		'…a value the param cannot take changes nothing; cleared, it reads the default again',
+		[
+			setBreakValue(d, brk, 'color', 'red') === d,
+			setBreakValue(d, brk, 'from', 'sideways') === d,
+			setBreakValue(d, brk, 'pieces', Number.NaN) === d,
+			setBreakValue(d, brk, 'nope', 1) === d,
+			setBreakValue(d, brk, 'pieces', undefined).nodes.find((n) => n.id === brk)?.values?.pieces,
+		],
+		[true, true, true, true, undefined],
+	);
+	check(
+		'each unwired port shows what it reads: a number, a colour with its swatch, a choice its option, a default as such',
+		breakPortValues(node() as NonNullable<ReturnType<typeof node>>),
+		{
+			color: { text: '#aabbcc', swatch: '#aabbcc' },
+			from: { text: 'top' },
+			pieces: { text: '80' },
+			freeze: { text: '0.45' },
+			gravity: { text: '1.5' },
+		},
+	);
+	const sw = { id: 'on', label: 'On', kind: 'bool', default: true } as const;
+	const ch = elementFxSpec('shatter').params[0];
+	check(
+		'…a switch on or off, a choice stored by its place, a value the break cannot read shown as it is, marked',
+		[
+			breakPortValue(sw, undefined),
+			breakPortValue(sw, 0),
+			breakPortValue(sw, 1),
+			breakPortValue(ch, 3),
+			breakPortValue(elementFxSpec('crash').params[0], 500),
+		],
+		[
+			{ text: 'on' },
+			{ text: 'off' },
+			{ text: 'on' },
+			{ text: 'bottom' },
+			{ text: '500', bad: true },
+		],
+	);
+	check(
+		'Starts at: kept 0…1, cleared to the default; it reads in ms, an Assemble’s where its pieces have flown in',
+		[
+			setBreakAt(d, brk, 1.5).nodes.find((n) => n.id === brk)?.values?.at,
+			setBreakAt(d, brk, -1).nodes.find((n) => n.id === brk)?.values?.at,
+			setBreakAt(setBreakAt(d, brk, 0.4), brk, undefined).nodes.find((n) => n.id === brk)?.values
+				?.at,
+			setBreakAt(d, brk, Number.NaN) === d,
+			breakEdgeMs('crumble', 0.3, 1800),
+			breakEdgeMs('assemble', 0.3, 1800),
+		],
+		[1, 0, undefined, true, 540, 1260],
+	);
+
+	// The wire rule: the engine's, over every source and port kind.
+	const ports = { number: 'pieces', color: 'color', choice: 'from' } as const;
+	let w = setPhase(
+		setBreakKind(addNodeIn(base, null, B, { x: 360, y: 220 }).doc, brk, 'crystallize').doc,
+		'exit',
+	);
+	w = addParam(
+		addParam(addParam(addParam(addParam(w, 'number'), 'color'), 'bool'), 'choice'),
+		'choice',
+	);
+	/** `doc` with choice param `id` offering `options` (its default the first). */
+	const withOptions = (
+		doc: ShaderGraphDoc,
+		id: string,
+		options: readonly string[],
+	): ShaderGraphDoc => {
+		const at = doc.params.findIndex((p) => p.id === id);
+		return setParam(doc, at, {
+			id,
+			label: doc.params[at].label,
+			kind: 'choice',
+			options: [...options],
+			default: options[0],
+		});
+	};
+	const fromSpec = crystal.params.find((p) => p.id === 'from');
+	w = withOptions(w, 'choice1', fromSpec?.kind === 'choice' ? [...fromSpec.options].reverse() : []);
+	const sources: { name: string; type: string; values?: Record<string, number | string> }[] = [
+		{ name: 'a number param', type: 'param', values: { param: 'number1' } },
+		{ name: 'a colour param', type: 'param', values: { param: 'color1' } },
+		{ name: 'a switch param', type: 'param', values: { param: 'bool1' } },
+		{ name: 'a choice param of the same options', type: 'param', values: { param: 'choice1' } },
+		{ name: 'a choice param of others', type: 'param', values: { param: 'choice2' } },
+		{ name: 'a Param with none picked', type: 'param' },
+		{ name: 'a Number', type: 'number', values: { value: 30 } },
+		{ name: 'a Colour', type: 'color', values: { value: '#336699' } },
+		{ name: 'UV', type: 'uv' },
+		{ name: 'Sample element', type: 'sample' },
+		{ name: 'Add', type: 'add' },
+		{ name: 'Time', type: 'time' },
+		{ name: 'Seed', type: 'seed' },
+	];
+	const disagree: string[] = [];
+	let pairs = 0;
+	let refusedPairs = 0;
+	for (const source of sources) {
+		const placed = addNode(w, source.type, { x: -200, y: 400 });
+		const withSource = source.values
+			? Object.entries(source.values).reduce(
+					(doc, [k, v]) => setNodeValue(doc, placed.id, k, v),
+					placed.doc,
+				)
+			: placed.doc;
+		const outPort = shaderNode(source.type)?.outputs[0]?.id ?? 'out';
+		for (const [kind, port] of Object.entries(ports)) {
+			pairs += 1;
+			const from = { node: placed.id, port: outPort };
+			const to = { node: brk, port };
+			const taken = canConnect(withSource, analyzeShaderGraph(withSource), from, to);
+			const said = breakFeedRefusal(withSource, from, to);
+			const engine = breakErrors(connect(withSource, from, to), brk, port);
+			if (!taken) refusedPairs += 1;
+			const ok =
+				taken === !engine.length &&
+				(said ?? '') ===
+					(engine[0] ? `${engine[0].charAt(0).toUpperCase()}${engine[0].slice(1)}.` : '');
+			if (!ok)
+				disagree.push(
+					`${source.name} → ${kind}: taken ${taken}, said ${said}, engine ${engine.join('; ')}`,
+				);
+		}
+	}
+	check(
+		`the wire rule is the engine’s over ${pairs} source × port-kind pairs (every port kind a break has: number, colour, choice; none has a switch), refusing ${refusedPairs} with the engine’s own words`,
+		[
+			disagree,
+			refusedPairs > 20,
+			refusedPairs < pairs - 5,
+			BREAK_KINDS.every((k) => elementFxSpec(k).params.every((p) => p.kind !== 'bool')),
+		],
+		[[], true, true, true],
+	);
+	{
+		const num = addNode(w, 'number', { x: -200, y: 400 });
+		const from = { node: num.id, port: 'out' };
+		const to = { node: brk, port: 'pieces' };
+		const wired = connect(num.doc, from, to);
+		check(
+			'a Number past the port’s range is taken as a wire (mended on the Number): the error is on the Break Output until then',
+			[
+				canConnect(num.doc, analyzeShaderGraph(num.doc), from, to),
+				breakErrors(wired, brk, 'pieces').length,
+				breakErrors(setNodeValue(wired, num.id, 'value', 40), brk, 'pieces'),
+				canConnect(w, analyzeShaderGraph(w), { node: brk, port: 'pieces' }, to),
+			],
+			[true, 1, [], false],
+		);
+		const uv = addNode(num.doc, 'uv', { x: -200, y: 600 });
+		const shown = canvasGraph(uv.doc, analyzeShaderGraph(uv.doc), new Set()).nodes.find(
+			(n) => n.id === brk,
+		);
+		check(
+			'the canvas knows why each port refuses each node, in the engine’s words, and names none it takes',
+			[
+				shown?.data.refusals?.pieces?.[uv.id] ===
+					breakFeedRefusal(uv.doc, { node: uv.id, port: 'out' }, to),
+				!!shown?.data.refusals?.color?.[num.id],
+				shown?.data.refusals?.pieces?.[num.id],
+				Object.keys(shown?.data.refusals ?? {}),
+				canvasGraph(uv.doc, analyzeShaderGraph(uv.doc), new Set()).nodes.find((n) => n.id === uv.id)
+					?.data.refusals,
+			],
+			[true, true, undefined, crystal.params.map((p) => p.id), undefined],
+		);
+	}
+
+	// A kind change drops what the new break lacks, in one step.
+	let k = setPhase(
+		setBreakKind(addNodeIn(base, null, B, { x: 360, y: 220 }).doc, brk, 'shatter').doc,
+		'exit',
+	);
+	k = addParam(addParam(k, 'number'), 'choice');
+	k = withOptions(k, 'choice1', ch.kind === 'choice' ? ch.options : []);
+	const p1 = addNode(k, 'param', { x: -300, y: 300 });
+	const p2 = addNode(p1.doc, 'param', { x: -300, y: 400 });
+	const n1 = addNode(p2.doc, 'number', { x: -300, y: 500 });
+	k = setNodeValue(
+		setNodeValue(setNodeValue(n1.doc, p1.id, 'param', 'number1'), p2.id, 'param', 'choice1'),
+		n1.id,
+		'value',
+		0.2,
+	);
+	k = connect(k, { node: p1.id, port: 'out' }, { node: brk, port: 'gravity' });
+	k = connect(k, { node: p2.id, port: 'out' }, { node: brk, port: 'impact' });
+	k = connect(k, { node: n1.id, port: 'out' }, { node: brk, port: 'crack' });
+	k = setBreakValue(
+		setBreakValue(setBreakAt(k, brk, 0.25), brk, 'pieces', 150),
+		brk,
+		'impact',
+		'top',
+	);
+	check(
+		'Shatter, wired and set, compiles with its ties',
+		[
+			analyzeShaderGraph(k)
+				.issues.filter((i) => i.level === 'error')
+				.map((i) => i.message),
+			compileShaderEffect(k).ok,
+		],
+		[[], true],
+	);
+	const before = json(k);
+	const toCrumble = setBreakKind(k, brk, 'crumble');
+	check(
+		'to Crumble: Impact (wired and set) and Cracking (wired) go, named; Gravity’s wire stays; Shards 150 stays in Crumble’s range; Starts at stays; it compiles; the notice says so',
+		[
+			toCrumble.dropped,
+			toCrumble.reset,
+			toCrumble.outOfRange,
+			toCrumble.doc.wires.filter((x) => x.to.node === brk).map((x) => x.to.port),
+			toCrumble.doc.nodes.find((n) => n.id === brk)?.values,
+			compileShaderEffect(toCrumble.doc).ok,
+			breakKindNotice(toCrumble, 'Crumble'),
+		],
+		[
+			[
+				{ label: 'Impact', wire: true, value: true },
+				{ label: 'Cracking', wire: true, value: false },
+			],
+			[],
+			[],
+			['gravity'],
+			{ kind: 'crumble', at: 0.25, pieces: 150 },
+			true,
+			'Crumble has no Impact, Cracking: what was wired or set there was dropped. Undo brings them back.',
+		],
+	);
+	const toCrash = setBreakKind(toCrumble.doc, brk, 'crash');
+	check(
+		'…then to Crash: nothing to drop, but Shards 150 is past Crash’s 4…60, so it goes back to the default, and the notice says so',
+		[
+			toCrash.dropped,
+			toCrash.reset,
+			toCrash.doc.nodes.find((n) => n.id === brk)?.values,
+			breakErrors(toCrash.doc, brk),
+			breakKindNotice(toCrash, 'Crash'),
+		],
+		[
+			[],
+			[{ label: 'Shards', was: '150', why: 'is past Crash’s 4…60', default: '18' }],
+			{ kind: 'crash', at: 0.25 },
+			[],
+			'Shards: 150 is past Crash’s 4…60, so it went back to 18. Undo brings it back.',
+		],
+	);
+	{
+		// A Number of 300 into Crumble's Chunks (16…600), then Shatter (16…160): the wire stays, an
+		// error until the Number is mended, and the notice says so; a lone wire or value, likewise.
+		const n300 = addNode(toCrumble.doc, 'number', { x: -300, y: 600 });
+		const wired = connect(
+			setNodeValue(n300.doc, n300.id, 'value', 300),
+			{ node: n300.id, port: 'out' },
+			{ node: brk, port: 'pieces' },
+		);
+		const toShatter = setBreakKind(wired, brk, 'shatter');
+		check(
+			'a Number past the new break’s range stays wired, its error named in the engine’s words and in the notice',
+			[
+				breakErrors(wired, brk),
+				toShatter.outOfRange,
+				toShatter.reset,
+				toShatter.doc.wires.some((x) => x.from.node === n300.id && x.to.port === 'pieces'),
+				breakErrors(toShatter.doc, brk),
+				breakKindNotice(toShatter, 'Shatter (glass)'),
+			],
+			[
+				[],
+				['Shards takes 16…160, not 300'],
+				[],
+				true,
+				['Shards takes 16…160, not 300'],
+				'Shards takes 16…160, not 300: set the Number wired into it within that. Undo brings it back.',
+			],
+		);
+		const lone = setBreakValue(
+			setBreakValue(toCrumble.doc, brk, 'spread', 1.5),
+			brk,
+			'pieces',
+			300,
+		);
+		const toCrash2 = setBreakKind(lone, brk, 'crash');
+		check(
+			'…to Crash from Crumble with Spread set and Shards 300: Spread’s value dropped and Shards reset; with Spread wired instead, its wire; a kind change touching nothing says nothing',
+			[
+				breakKindNotice(toCrash2, 'Crash'),
+				breakKindNotice(setBreakKind(toCrumble.doc, brk, 'crumble'), 'Crumble'),
+				breakKindNotice(
+					setBreakKind(
+						connect(toCrumble.doc, { node: p1.id, port: 'out' }, { node: brk, port: 'spread' }),
+						brk,
+						'crash',
+					),
+					'Crash',
+				),
+			],
+			[
+				'Crash has no Spread: its value was dropped. Shards: 300 is past Crash’s 4…60, so it went back to 18. Undo brings them back.',
+				'',
+				'Crash has no Spread: its wire was dropped. Shards: 150 is past Crash’s 4…60, so it went back to 18. Undo brings them back.',
+			],
+		);
+	}
+	check('what feeds each wired port, in words', breakPortSources(k, brk), {
+		gravity: 'Param · Amount',
+		impact: 'Param · Mode',
+		crack: 'Number',
+	});
+	check(
+		'no break gesture changes the doc it was given, so undo is the doc before (the wires come back in one step)',
+		(() => {
+			setBreakKind(k, brk, 'disintegrate');
+			setBreakValue(k, brk, 'pieces', 20);
+			setBreakAt(k, brk, 0.9);
+			setPhase(k, 'enter');
+			addNodeIn(k, null, B, { x: 0, y: 0 });
+			remove(k, [brk]);
+			return [
+				json(k) === before,
+				setBreakKind(k, brk, 'shatter'),
+				setBreakKind(k, 'nope', 'crumble').doc === k,
+			];
+		})(),
+		[
+			true,
+			{ doc: setBreakKind(k, brk, 'shatter').doc, dropped: [], reset: [], outOfRange: [] },
+			true,
+		],
+	);
+	const gone = remove(k, [brk]);
+	check(
+		'deleting it takes its wires; what fed it reaches nothing then, and says so',
+		[
+			breakOutputOf(gone),
+			gone.wires.some((x) => x.to.node === brk),
+			analyzeShaderGraph(gone).issues.some((i) => i.code === 'unreachable' && i.node === p1.id),
+			analyzeShaderGraph(k).issues.some((i) => i.code === 'unreachable'),
+		],
+		[undefined, false, true, false],
+	);
+
+	// Read-only, grouping, the motion graph.
+	const locked = canvasGraph(k, analyzeShaderGraph(k), new Set(), true).nodes.find(
+		(n) => n.id === brk,
+	);
+	check(
+		'read-only, it neither moves, wires nor deletes, and refuses nothing it would have to explain',
+		[locked?.draggable, locked?.connectable, locked?.deletable, locked?.data.refusals],
+		[false, false, false, {}],
+	);
+	check(
+		'a group never takes it or a node wired into it, saying why; other nodes group as before',
+		[
+			/^The Break Output and the nodes wired into it/.test(groupRefusal(k, null, [brk]) ?? ''),
+			/Leave param\d+ out of the group\.$/.test(groupRefusal(k, null, [p1.id, 'colorize6']) ?? ''),
+			groupNodes(k, null, [brk], 'G'),
+			groupRefusal(k, null, ['colorize6', 'mix7']),
+			!!groupNodes(k, null, ['colorize6', 'mix7'], 'G'),
+		],
+		[true, true, undefined, undefined, true],
+	);
+	check(
+		'in the motion graph it is no node: nothing places it there',
+		[
+			canPlace(k, MOTION_SCOPE, B),
+			addNodeIn(k, MOTION_SCOPE, B, { x: 0, y: 0 }).doc.motionGraph?.nodes.length === 2,
+		],
+		[false, true],
+	);
+
+	// The twins and storage.
+	const breakTwins = BUILTIN_TWINS.filter(isBreakTwin);
+	const family = twinGroups().find((g) => g.id === 'break');
+	check(
+		'Start from a built-in lists the six break twins under Break, by their labels; each starts an effect that compiles with its break, its Break Output showing no error',
+		[
+			breakTwins.map((t) => t.kind),
+			family?.twins.map((t) => t.label),
+			breakTwins.every((t) => {
+				const started = docFromTwin(t, `${t.kind}_copy`, 'Copy');
+				const r = compileShaderEffect(started);
+				const out = breakOutputOf(started);
+				return (
+					r.ok &&
+					r.effect.break?.kind === t.kind &&
+					!!out &&
+					canvasGraph(started, analyzeShaderGraph(started), new Set()).nodes.every(
+						(n) => !n.data.errors.length,
+					)
+				);
+			}),
+		],
+		[[...BREAK_KINDS], BREAK_CHOICES.map((c) => c.label), true],
+	);
+	check(
+		'storage keeps it as built',
+		json(normalizeShaderGraphDoc(JSON.parse(json(k)), k.id).nodes.find((n) => n.id === brk)),
+		json(k.nodes.find((n) => n.id === brk)),
 	);
 }
 
