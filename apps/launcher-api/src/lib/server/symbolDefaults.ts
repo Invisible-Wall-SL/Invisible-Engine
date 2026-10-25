@@ -3,6 +3,7 @@ import {
 	HOLD_AND_WIN_SYMBOL_ROLES,
 	holdAndWinIsOverlayBonus,
 	resolveMeters,
+	symbolHoldAndWinRoles,
 	symbolsUsed,
 	type GameConfigDoc,
 } from 'game-config';
@@ -10,6 +11,7 @@ import { z } from 'zod';
 import { symbolDefaultsKey } from './projectPaths';
 import { getObjectText, putObjectText } from './r2';
 import { stripUnknownKeysWithWarning } from './stripUnknownKeys';
+import { seededStates, symbolPlayFacts } from './symbolPlays';
 import {
 	migrateLegacySymbolStates,
 	SYMBOL_STATES,
@@ -156,11 +158,13 @@ const hasSeededRole = (roles: string[] | undefined) =>
  * `SYMBOL_INFO_MAP` with the project's symbols doc merged over it, so a Hold and Win symbol nobody
  * bound draws no art. Every symbol of `config` that carries a Hold and Win role (a `blank` draws
  * nothing by design) gets its `holdAndWin.json` cells — type / assetKey / animationName only, since
- * they bind coded game assets the exporter leaves alone.
+ * they bind coded game assets the exporter leaves alone — on the states it plays and the ones those
+ * borrow ({@link seededStates}).
  */
 export function holdAndWinSymbolsSeed(config: GameConfigDoc | null): SymbolsDoc | null {
 	if (!config) return null;
 	const defaults = DEFAULTS_BY_GAME.holdAndWin.symbols;
+	const keep = seedFilter(config);
 	const symbols: SymbolsDoc['symbols'] = {};
 	for (const [name, symbol] of Object.entries(config.symbols)) {
 		if (!hasSeededRole(symbol.special_properties)) continue;
@@ -171,17 +175,28 @@ export function holdAndWinSymbolsSeed(config: GameConfigDoc | null): SymbolsDoc 
 			);
 			continue;
 		}
-		const states = bindingsOf(cells);
+		const states = bindingsOf(cells, keep(name));
 		if (Object.keys(states).length) symbols[name] = states;
 	}
 	return Object.keys(symbols).length ? { version: 1, symbols } : null;
 }
 
+/** Each seeded symbol's {@link seededStates} under `config`; every state for a symbol the board
+ *  cannot show. */
+function seedFilter(config: GameConfigDoc): (name: string) => ReadonlySet<string> | undefined {
+	const facts = symbolPlayFacts(config, (name) => symbolHoldAndWinRoles(config.symbols[name]));
+	return (name) => facts[name] && seededStates(config, facts[name]);
+}
+
 /** A default's cells as a symbols-doc binding: type / assetKey / animationName only, since they
- *  bind coded game assets the exporter leaves alone. */
-function bindingsOf(cells: SymbolDefaults['symbols'][string]): SymbolsDoc['symbols'][string] {
+ *  bind coded game assets the exporter leaves alone. `keep` limits it to those states. */
+function bindingsOf(
+	cells: SymbolDefaults['symbols'][string],
+	keep?: ReadonlySet<string>,
+): SymbolsDoc['symbols'][string] {
 	const states: SymbolsDoc['symbols'][string] = {};
 	for (const [state, cell] of Object.entries(cells) as [SymbolState, DefaultCell][]) {
+		if (keep && !keep.has(state)) continue;
 		states[state] = {
 			type: cell.type,
 			assetKey: cell.assetKey,
@@ -213,7 +228,9 @@ function tokenArtSymbol(potId: string): string {
  * placeholder of its pot. When the Hold and Win block is the overlay's BONUS, its role symbols are
  * bound as {@link holdAndWinSymbolsSeed} binds a Hold and Win project's (a `blank` draws nothing by
  * design); a Hold and Win game's own block is its base game, whose symbols are not the add-on's. A
- * renamed symbol (`BONUS_2`) takes the art of the name it was added as.
+ * renamed symbol (`BONUS_2`) takes the art of the name it was added as. Each is bound only on the
+ * states it plays and the ones those borrow ({@link seededStates}): a token on its `static` and the
+ * `win` its Fly to meter draws.
  *
  * Pure: `current` is not mutated. `added` lists the names bound; `missingArt` the ones no default
  * covers, left for the author to bind in `/symbols`.
@@ -234,13 +251,14 @@ export function potsOverlaySymbolsSeed(
 			}
 		}
 	}
+	const keep = seedFilter(config);
 	const symbols = { ...current.symbols };
 	const added: string[] = [];
 	const missingArt: string[] = [];
 	for (const [name, source] of wanted) {
 		if (Object.keys(symbols[name] ?? {}).length) continue;
 		const cells = defaults[source];
-		const states = cells ? bindingsOf(cells) : {};
+		const states = cells ? bindingsOf(cells, keep(name)) : {};
 		if (!Object.keys(states).length) {
 			missingArt.push(name);
 			continue;
