@@ -1009,7 +1009,8 @@ every body carrying the tag in **tagged** (`player`):
 - `setTag` (`tag`, `on`) — gives it the tag, or takes it away with **on** off.
 
 **`$engine` values:** `random` (a seeded number from 0 up to 1, new on every read, so a run
-replays), `fieldWidth` and `fieldHeight` (the play field in px).
+replays), `randomX` (a seeded x on the field, from 0 up to its width), `fieldWidth` and
+`fieldHeight` (the play field in px).
 
 **The starter flow.** A new arcade project opens on a flow that plays the _Salmon Run_ sample, with
 three Global variables of scope **game** — `score`, `lives` and `playing` — and a key map of
@@ -1018,15 +1019,17 @@ three Global variables of scope **game** — `score`, `lives` and `playing` — 
 
 - `load` shows the **Loading / logo** screen; its completion, or `tapToStart` (which also starts
   the music), hides it, shows the **Play field** and **Score and lives**, and starts a round.
-- A round sets the score to 0 and the lives to 3, spawns the salmon at the bottom of the field and
-  starts three repeating timers. Each spawns a bear, a hook or a fish at a random x
-  (`$engine.random` × the field's width) just above the field and sets it falling.
+- A round sets the score to 0 and the lives to 3, spawns the salmon at the middle of the field's
+  bottom (from `fieldWidth` / `fieldHeight`) and starts three repeating timers. Each spawns a
+  bear, a hook or a fish at `$engine.randomX` just above the field and sets it falling. Both
+  `tapToStart` and the loading screen's completion ask for a round through one timer
+  (`startRound`), so a tap starts one.
 - Holding `left` or `right` sets the salmon's speed (`setVelocity` on `tagged` = `player`);
   letting go stops it.
 - `collide` with `tagB` = `hazard` despawns the hazard and takes a life (never below 0); with
   `pickup` it despawns the fish and adds 10 to the score.
 - `leaveBounds` despawns whatever fell off the field.
-- At no lives the timers stop, the **Round over** screen waits for the player's tap, a **forEach**
+- When `lives` crosses 0 (an **On variable** node), the timers stop, the **Round over** screen waits for the player's tap, a **forEach**
   over `$live` despawns everything left on the field, and a new round starts.
 
 ### Pots overlay and Hold and Win on any kind — add-ons

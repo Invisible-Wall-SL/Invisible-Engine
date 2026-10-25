@@ -14,7 +14,8 @@ import type { ComponentDef, LayoutDoc, LayoutNode, Scene } from '../types';
  *   - `loading` — the loading bar; its tap completes the screen and starts the game;
  *   - `background` — the coded background;
  *   - `basegame` — the play field: the spawn layer `field` at the screen's origin, which the arcade
- *     loop moves (its space is the field's: 0, 0 top-left, the config's `arcade.field` in size);
+ *     loop moves (its space is the field's: 0, 0 top-left; the seed config names no `arcade.field`,
+ *     so the field is the layout's design size and the starter flow places by it);
  *   - `arcadeHud` — Score and Lives, each a Text Box fed by the starter flow's variable;
  *   - `roundOver` — a dimmed tap-to-continue with its line; the flow holds the round on the tap.
  *
@@ -99,10 +100,15 @@ const textBox = (
 	params,
 });
 
-/** One HUD readout: its caption, and its value fed by the starter flow's variable. */
-const readout = (key: string, caption: string, x: number): LayoutNode[] => [
-	textBox(`ar-${key}-caption`, `${caption} caption`, x, 40, { text: caption, fontSize: 28 }),
-	textBox(`ar-${key}-value`, caption, x, 78, { text: '0', source: `var:${key}`, fontSize: 44 }),
+/** One HUD readout: its caption, and its value fed by the starter flow's variable. Both sit at the
+ *  top left, which every layout's design size has. */
+const readout = (key: string, caption: string, y: number): LayoutNode[] => [
+	textBox(`ar-${key}-caption`, `${caption} caption`, 60, y, { text: caption, fontSize: 28 }),
+	textBox(`ar-${key}-value`, caption, 60, y + 38, {
+		text: '0',
+		source: `var:${key}`,
+		fontSize: 44,
+	}),
 ];
 
 export function arcadeReferenceLayout(): LayoutDoc {
@@ -167,7 +173,7 @@ export function arcadeReferenceLayout(): LayoutDoc {
 			{
 				id: 'arcadeHud',
 				name: 'Score and lives',
-				nodes: [...readout('score', 'SCORE', 60), ...readout('lives', 'LIVES', 1222)],
+				nodes: [...readout('score', 'SCORE', 40), ...readout('lives', 'LIVES', 140)],
 			},
 			roundOver(),
 		],

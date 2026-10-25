@@ -24,7 +24,7 @@ export const boardEffectNames: readonly string[] = [
 
 let values: ((key: string) => unknown) | undefined;
 
-export const registerBoardValues = (read: ((key: string) => unknown) | undefined) => {
+export const registerBoardValues = (read: (key: string) => unknown) => {
 	values = read;
 };
 

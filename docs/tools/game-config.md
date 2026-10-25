@@ -125,8 +125,8 @@ has no family control at all. Two more families exist
   50 / 120 / 250 points for a run of 3 / 4 / 5; for **Real money**, Match-3 decided by the server,
   the same board and gems, one base bet mode, 10 moves (read by the test server's mock) and gem
   pays of 0.1 / 0.25 / 0.5× (low) or 0.2 / 0.5 / 1.5× (high) the whole bet for a run of 3 / 4 /
-  5+. An **Arcade** project starts as Arcade decided by its rules, with the sample's 1422 × 800
-  field, its four bodies and two collisions (see [Game Maker](game-maker.md)). On any other
+  5+. An **Arcade** project starts as Arcade decided by its rules, with no field size (the
+  layout's design size), the sample's four bodies and two collisions (see [Game Maker](game-maker.md)). On any other
   project the way in is **raw JSON**: add `"family": "arcade"`, apply, and the page re-renders
   for that family.
 - **Game family** (the panel at the top): the **Family** (Slot / Match-3 / Arcade) and **Who

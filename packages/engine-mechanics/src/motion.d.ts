@@ -52,18 +52,16 @@ export type FixedStep = {
 	readonly stepMs: number;
 	/** One step, in seconds. */
 	readonly dt: number;
-	/** Steps run since the start (or the last reset). */
+	/** Steps run since the start. */
 	readonly steps: number;
 	readonly alpha: number;
 	/** Add a frame's time; run `onStep` once per whole step held. Returns the steps run. */
 	advance(frameMs: number, onStep: (step: number) => void): number;
-	reset(): void;
 };
 
 export const DEFAULT_FIXED_HZ: 60;
 export const BROAD_PHASE_ABOVE: 64;
 export const MAX_STEPS_PER_FRAME: 5;
-export const BODY_EDGES: readonly BodyEdges[];
 
 export function createFixedStep(options?: { hz?: number; maxSteps?: number }): FixedStep;
 export function aabbOf(body: Body): Aabb;

@@ -20,8 +20,9 @@
  *  7. THE SHIP CHAIN (rule 8): `collectComponentIds` and `resolveComponentClosure` collect every
  *     spawnable (and what it nests); `spawnLayerSpec` reads a malformed node safely;
  *     `projectSpawnLayers` projects the layers of the flow's screens.
- *  8. PARITY: no slot seed flow spawns (the arcade starter does, P10.8); the game builds no live set for a doc that does not
- *     (source-scanned), and `<SpawnLayer>` keys each instance by its handle id.
+ *  8. PARITY: no slot seed flow spawns (the arcade starter does, P10.8); the game builds no live
+ *     set for a doc that does not (source-scanned), and `<SpawnLayer>` keys each instance by its
+ *     handle id.
  */
 import { readFileSync } from 'node:fs';
 import type {

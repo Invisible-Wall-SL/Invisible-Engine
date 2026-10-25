@@ -20,7 +20,7 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
  */
 
 /** The URL parameter that pins `$engine.random`'s seed (the playtester uses it). */
-export const ARCADE_SEED_PARAM = 'arseed';
+const ARCADE_SEED_PARAM = 'arseed';
 
 let loop: ArcadeLoop | undefined;
 
@@ -46,7 +46,7 @@ export const startArcade = (designSize: { width: number; height: number }): Arca
 	loop = createArcadeLoop({
 		rules,
 		field: rules.field ?? { w: designSize.width, h: designSize.height },
-		layers: live.layers(),
+		layers: () => live.layers(),
 		live,
 		seed: seedOf(),
 		signal: (name, payload) => {
@@ -62,5 +62,3 @@ export const startArcade = (designSize: { width: number; height: number }): Arca
 export const tickArcade = (dtMs: number) => {
 	loop?.frame(dtMs);
 };
-
-export const arcadeLoop = (): ArcadeLoop | undefined => loop;

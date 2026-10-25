@@ -9,7 +9,7 @@ three lives; at no lives the round is over. Status: [status/game-families](../st
 It is exactly what Game Maker scaffolds for a new `arcade` project: the arcade scene set
 (`engine-layout` `referenceLayouts/arcade.ts`: a spawn layer `field` on `basegame`, the SCORE / LIVES
 HUD, the round-over screen), the seed config (`apps/launcher-api/src/lib/data/gameConfig/arcade.rules.json`:
-a 1422 × 800 field, a body per component, the pairs `player + hazard` and `player + pickup`), the
+no field size, so the field is the layout's design size; a body per component, the pairs `player + hazard` and `player + pickup`), the
 starter flow (`engine-flow-v2` `arcadeSeed.ts`) and the four placeholder components
 (`ARCADE_SAMPLE_COMPONENTS`: flat shapes, not the Salmons art). It has no RGS: the runtime runs the
 arcade loop itself and sends no request.
@@ -41,8 +41,8 @@ vx / vy, tags), in spawn order. `?flowlog=1` traces every spawn, despawn and arc
 
 ## What to check
 
-1. **Boot.** After the tap, the field and the HUD are up (SCORE 0, LIVES 3) with one salmon at
-   (711, 720), the bottom centre. No console error.
+1. **Boot.** After the tap, the field and the HUD are up (SCORE 0, LIVES 3, top left) with one
+   salmon at the bottom centre: (711, 720) on the desktop field. No console error.
 2. **Spawning.** Within a couple of seconds bears (brown discs), hooks (grey bars) and fish (gold
    discs) fall from above the field at seeded places; each body falls straight down (`vx` 0).
 3. **Steering.** Holding ← moves the salmon left at 520 px/s; letting go stops it. Holding → runs it
@@ -62,4 +62,6 @@ vx / vy, tags), in spawn order. `?flowlog=1` traces every spawn, despawn and arc
 
 - The art is placeholder; swapping in the Salmons art (S0) is an owner follow-up.
 - Keyboard only: touch steering is the `pointer` controller of tier A2 (P10.11).
-- The field is the desktop design size; tablet and portrait layouts show it at that size.
+- The field is the layout's design size when the loop starts (desktop 1422 × 800, portrait
+  800 × 1422, …); turning the device mid-round keeps the field the round started with. The
+  playtest plays the desktop layout.

@@ -11,7 +11,7 @@
  *    left the field);
  *  - the actions that move bodies — `setVelocity`, `moveTo`, `setTag` — each aimed at one instance,
  *    or with `tagged` at every body carrying a tag;
- *  - `$engine.random` (seeded, so a run replays) and the field's size.
+ *  - `$engine.random` and `randomX` (seeded, so a run replays) and the field's size.
  *
  * Time and input (`onTick`, `onTimer`, `onInput`, the timers) and spawning (`spawn`, `despawn`, `$live`)
  * are Flow node kinds every vocabulary has (P10.3, P10.7), so they are not declared here.
@@ -163,7 +163,12 @@ const KEPT_ENUMS = new Set([
 ]);
 
 /** The `$engine` values the arcade loop answers (`createArcadeLoop`'s `value`). */
-export const ARCADE_LOOP_VALUES: readonly string[] = ['random', 'fieldWidth', 'fieldHeight'];
+export const ARCADE_LOOP_VALUES: readonly string[] = [
+	'random',
+	'randomX',
+	'fieldWidth',
+	'fieldHeight',
+];
 
 const standard = standardVocabulary({ templateId: ARCADE_TEMPLATE_ID });
 
@@ -183,6 +188,12 @@ export const ARCADE_VOCAB: TemplateVocabulary = {
 			name: 'random',
 			type: FLOAT,
 			description: 'A seeded random number from 0 up to 1, new on every read; a run replays.',
+		},
+		{
+			name: 'randomX',
+			type: FLOAT,
+			description:
+				'A seeded random x on the play field, from 0 up to its width; new on every read.',
 		},
 		{ name: 'fieldWidth', type: FLOAT, description: "The play field's width, px." },
 		{ name: 'fieldHeight', type: FLOAT, description: "The play field's height, px." },

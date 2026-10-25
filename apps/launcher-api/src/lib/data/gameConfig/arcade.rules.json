@@ -13,10 +13,6 @@
 	"paddingReels": {},
 	"outcome": "rules",
 	"arcade": {
-		"field": {
-			"w": 1422,
-			"h": 800
-		},
 		"bodies": {
 			"arcadeSalmon": {
 				"shape": "box",

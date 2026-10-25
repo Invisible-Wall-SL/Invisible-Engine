@@ -33,7 +33,7 @@ import type { ArcadeBody, ArcadeZone } from 'game-config';
  *
  * Flow moves bodies through the actions in {@link ArcadeLoop.effects} (`setVelocity`, `moveTo`,
  * `setTag`), each aimed at one instance or at every body carrying a tag, and reads the seeded
- * `$engine.random` and the field's size through {@link ArcadeLoop.values}.
+ * `$engine.random` / `randomX` and the field's size through {@link ArcadeLoop.value}.
  */
 
 /** The live set the loop moves: `engine-flow-v2`'s spawn store, or any store shaped like it. */
@@ -56,8 +56,9 @@ export interface ArcadeLoopOptions {
 	rules: ArcadeRules;
 	/** The play field: the config's `field`, else the screen's design size. */
 	field: Field;
-	/** The spawn layers whose instances are bodies. */
-	layers: readonly string[];
+	/** The spawn layers whose instances are bodies, read again each frame: a layer declared after the
+	 *  loop started (its screen's flow built later) is watched from then on. */
+	layers(): readonly string[];
 	live: ArcadeLiveSet;
 	/** Raise one Flow signal. Not awaited: the signals of a frame start in order. */
 	signal(name: string, payload: Record<string, unknown>): void;
@@ -79,7 +80,7 @@ export interface ArcadeLoop {
 	readonly steps: number;
 	/** Where each body is, for the probe and the gates. */
 	bodies(): { id: string; x: number; y: number; vx: number; vy: number; tags: string[] }[];
-	/** Stop watching the live set. */
+	/** Stop watching the live set; a frame after it runs nothing. */
 	dispose(): void;
 }
 
@@ -94,6 +95,7 @@ export const ARCADE_SIGNALS = {
 /** The `$engine` values an arcade game reads. */
 export const ARCADE_VALUES = {
 	random: 'random',
+	randomX: 'randomX',
 	fieldWidth: 'fieldWidth',
 	fieldHeight: 'fieldHeight',
 } as const;
@@ -127,21 +129,24 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 	const zoneIndex: StaticIndex<ArcadeZone> = createStaticIndex(rules.zones);
 	/** Bodies in spawn order: the order a step moves them and `overlaps` reports them. */
 	const bodies = new Map<string, LoopBody>();
-	const touching = new Set<string>();
+	/** The pairs touching after the last step, keyed by pair, with the two body ids each holds. */
+	const touching = new Map<string, readonly [string, string]>();
 	const outside = new Map<string, Edge>();
 	const inZones = new Map<string, string[]>();
 	const moved = new Set<string>();
 	const queue: { name: string; payload: Record<string, unknown> }[] = [];
+	let disposed = false;
 
 	const forget = (id: string) => {
 		bodies.delete(id);
 		outside.delete(id);
 		inZones.delete(id);
 		moved.delete(id);
-		for (const key of [...touching]) if (key.split('|').includes(id)) touching.delete(key);
+		for (const [key, pair] of [...touching]) if (pair.includes(id)) touching.delete(key);
 	};
 	const watched = new Map<string, Set<string>>();
-	const unsubscribe = options.layers.map((layer) =>
+	const unsubscribe: (() => void)[] = [];
+	const watch = (layer: string) =>
 		live.subscribe(layer, (now) => {
 			const before = watched.get(layer) ?? new Set<string>();
 			const ids = new Set(now.map((i) => i.id));
@@ -155,8 +160,15 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 				if (edge) outside.set(body.id, edge);
 			}
 			watched.set(layer, ids);
-		}),
-	);
+		});
+	const watchNewLayers = () => {
+		for (const layer of options.layers()) {
+			if (watched.has(layer)) continue;
+			watched.set(layer, new Set());
+			unsubscribe.push(watch(layer));
+		}
+	};
+	watchNewLayers();
 
 	/** A handle at the body's place now: what a signal carries. */
 	const handle = (body: LoopBody): SpawnedInstance => {
@@ -180,10 +192,10 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 				queue.push({ name: ARCADE_SIGNALS.leaveBounds, payload: { instance: handle(body), edge } });
 			} else if (!edge) outside.delete(body.id);
 		}
-		const now = new Set<string>();
+		const now = new Map<string, readonly [string, string]>();
 		for (const hit of overlaps(list, rules.pairs)) {
-			const key = `${hit.a.id}|${hit.b.id}|${hit.tagA}|${hit.tagB}`;
-			now.add(key);
+			const key = JSON.stringify([hit.a.id, hit.b.id, hit.tagA, hit.tagB]);
+			now.set(key, [hit.a.id, hit.b.id]);
 			if (touching.has(key)) continue;
 			queue.push({
 				name: ARCADE_SIGNALS.collide,
@@ -191,7 +203,7 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 			});
 		}
 		touching.clear();
-		for (const key of now) touching.add(key);
+		for (const [key, pair] of now) touching.set(key, pair);
 		if (rules.zones.length) {
 			for (const body of list) {
 				const was = inZones.get(body.id) ?? [];
@@ -215,6 +227,8 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 
 	/** The bodies an action aims at: its instance, else every body carrying its tag. */
 	const targets = (payload: Record<string, unknown>): LoopBody[] => {
+		// A spawn into a layer declared since the last frame is a body before it is aimed at.
+		watchNewLayers();
 		const instance = payload.instance as { id?: unknown } | undefined;
 		const id = typeof instance?.id === 'string' ? instance.id : undefined;
 		if (id) {
@@ -257,6 +271,8 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 
 	return {
 		frame(dtMs) {
+			if (disposed) return 0;
+			watchNewLayers();
 			const ran = clock.advance(dtMs, runStep);
 			if (moved.size) {
 				live.move(
@@ -274,6 +290,7 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 		effects,
 		value(key) {
 			if (key === ARCADE_VALUES.random) return rng();
+			if (key === ARCADE_VALUES.randomX) return rng() * field.w;
 			if (key === ARCADE_VALUES.fieldWidth) return field.w;
 			if (key === ARCADE_VALUES.fieldHeight) return field.h;
 			return undefined;
@@ -291,8 +308,10 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 				tags: [...b.tags],
 			})),
 		dispose() {
-			for (const off of unsubscribe) off();
-			bodies.clear();
+			disposed = true;
+			for (const off of unsubscribe.splice(0)) off();
+			for (const state of [bodies, touching, outside, inZones, moved, watched]) state.clear();
+			queue.length = 0;
 		},
 	};
 }

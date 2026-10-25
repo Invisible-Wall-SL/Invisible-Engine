@@ -24,9 +24,6 @@ export const BROAD_PHASE_ABOVE = 64;
 /** Steps one frame may run before the rest of its time is dropped (a hitch never spirals). */
 export const MAX_STEPS_PER_FRAME = 5;
 
-/** How a body meets the field's edges. */
-export const BODY_EDGES = ['clamp', 'wrap', 'pass'];
-
 /**
  * A fixed-timestep accumulator. `advance(frameMs, onStep)` adds a frame's time and runs `onStep`
  * once per whole step it holds, at most `maxSteps` a frame; a backlog past that is dropped.
@@ -57,10 +54,6 @@ export function createFixedStep({ hz = DEFAULT_FIXED_HZ, maxSteps = MAX_STEPS_PE
 			}
 			if (carried >= stepMs) carried %= stepMs;
 			return ran;
-		},
-		reset() {
-			carried = 0;
-			total = 0;
 		},
 	};
 }

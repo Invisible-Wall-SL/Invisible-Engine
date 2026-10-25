@@ -11,12 +11,14 @@
  *     and start a round through the `startRound` timer (a tap raises both; the second only restarts
  *     the timer, so one round starts).
  *   - A round resets the score and the lives, spawns the salmon and starts three repeating timers,
- *     each spawning a bear, a hook or a fish at a seeded random x above the field, falling.
+ *     each spawning a bear, a hook or a fish at a seeded random x above the field, falling. The
+ *     salmon and the spawns are placed from `$engine.fieldWidth` / `fieldHeight`, so the sample
+ *     follows the field's size.
  *   - The key map's `left` / `right` set the salmon's velocity while held (`setVelocity`, aimed at
  *     every body tagged `player`).
  *   - `collide` with a `hazard` despawns it and takes a life; with a `pickup` despawns it and scores.
  *   - `leaveBounds` despawns whatever fell off the field.
- *   - At no lives the timers stop, the round-over screen holds until a tap, the field is cleared
+ *   - At no lives (`onVariable` lives crosses 0) the timers stop, the round-over screen holds until a tap, the field is cleared
  *     (`forEach` over `$live.field`) and a new round starts.
  *
  * The variables are `game`-scoped: an arcade round starts here, not at a spin press.
@@ -62,9 +64,8 @@ export const ARCADE_VARIABLES = { score: 'score', lives: 'lives', playing: 'play
 export const ARCADE_START_LIVES = 3;
 export const ARCADE_FISH_POINTS = 10;
 
-/** Where the salmon starts, and the field the sample is laid out for (the desktop design size). */
-export const ARCADE_SAMPLE_FIELD = { w: 1422, h: 800 } as const;
-const PLAYER_START = { x: ARCADE_SAMPLE_FIELD.w / 2, y: 720 };
+/** How far above the field's bottom edge the salmon swims. */
+export const ARCADE_PLAYER_LIFT = 80;
 const PLAYER_SPEED = 520;
 /** The timer that starts a round, and how soon after it is asked for. */
 const START_TIMER = 'startRound';
@@ -94,6 +95,7 @@ const float = (value: number): DataSource => ({ kind: 'literal', type: { t: 'flo
 const bool = (value: boolean): DataSource => ({ kind: 'literal', type: { t: 'bool' }, value });
 const text = (value: string): DataSource => ({ kind: 'literal', type: { t: 'string' }, value });
 const wired: DataSource = { kind: 'wire' };
+const engine = (key: string): DataSource => ({ kind: 'accessor', path: { on: 'engine', key } });
 
 /** A node before it is placed on the canvas. */
 type Unplaced = Node extends infer N ? (N extends Node ? Omit<N, 'pos'> : never) : never;
@@ -134,6 +136,30 @@ const buildGraph = (): FlowDoc['graph'] => {
 	const signals = add({ id: 'ar_signals', kind: 'gameSignals' });
 	const pin = (name: string): PinPath => ({ node: signals, pin: name });
 
+	/** The salmon, at the middle of the field's bottom, whatever size the field is. */
+	const playerSpawn = (prefix: string): string => {
+		const x = add({
+			id: `${prefix}_player_x`,
+			kind: 'compute',
+			compute: { op: 'div', a: engine('fieldWidth'), b: float(2) },
+		});
+		const y = add({
+			id: `${prefix}_player_y`,
+			kind: 'compute',
+			compute: { op: 'sub', a: engine('fieldHeight'), b: float(ARCADE_PLAYER_LIFT) },
+		});
+		const spawn = add({
+			id: `${prefix}_player`,
+			kind: 'spawn',
+			layer: ARCADE_FIELD_LAYER,
+			componentId: ARCADE_SAMPLE.player,
+			inputs: { x: wired, y: wired },
+		});
+		feed(x, 'out', spawn, 'x');
+		feed(y, 'out', spawn, 'y');
+		return spawn;
+	};
+
 	/** A round: reset the variables, spawn the salmon, start the spawners. */
 	const startRound = (prefix: string): string[] => [
 		add({
@@ -154,13 +180,7 @@ const buildGraph = (): FlowDoc['graph'] => {
 			variable: ARCADE_VARIABLES.playing,
 			inputs: { value: bool(true) },
 		}),
-		add({
-			id: `${prefix}_player`,
-			kind: 'spawn',
-			layer: ARCADE_FIELD_LAYER,
-			componentId: ARCADE_SAMPLE.player,
-			inputs: { x: float(PLAYER_START.x), y: float(PLAYER_START.y) },
-		}),
+		playerSpawn(prefix),
 		...SPAWNERS.map((s) =>
 			add({
 				id: `${prefix}_${s.timer}`,
@@ -215,24 +235,14 @@ const buildGraph = (): FlowDoc['graph'] => {
 	for (const s of SPAWNERS) {
 		const on = add({ id: `ar_on_${s.timer}`, kind: 'onTimer', timer: s.timer });
 		const gate = playing(`ar_${s.timer}_playing`, true);
-		// A seeded spot across the field's width (`$engine.random` is 0 up to 1).
-		const x = add({
-			id: `ar_${s.timer}_x`,
-			kind: 'compute',
-			compute: {
-				op: 'mul',
-				a: { kind: 'accessor', path: { on: 'engine', key: 'random' } },
-				b: float(ARCADE_SAMPLE_FIELD.w),
-			},
-		});
 		const spawn = add({
 			id: `ar_${s.timer}_spawn`,
 			kind: 'spawn',
 			layer: ARCADE_FIELD_LAYER,
 			componentId: s.componentId,
-			inputs: { x: wired, y: float(-60) },
+			// A seeded spot across the field's width.
+			inputs: { x: engine('randomX'), y: float(-60) },
 		});
-		feed(x, 'out', spawn, 'x');
 		const fall = action(`ar_${s.timer}_fall`, 'setVelocity', {
 			instance: wired,
 			vx: float(0),
@@ -298,11 +308,6 @@ const buildGraph = (): FlowDoc['graph'] => {
 		guard: { all: [{ left: trigger('tagB'), op: 'eq', right: text('hazard') }] },
 	});
 	chain({ node: touchPlaying, pin: 'then' }, [hazard]);
-	const lastLife = add({
-		id: 'ar_last_life',
-		kind: 'branch',
-		guard: { all: [{ left: variable(ARCADE_VARIABLES.lives), op: 'lte', right: int(0) }] },
-	});
 	chain({ node: hazard, pin: 'then' }, [
 		add({ id: 'ar_hit_gone', kind: 'despawn', inputs: { instance: trigger('b') } }),
 		add({
@@ -313,9 +318,18 @@ const buildGraph = (): FlowDoc['graph'] => {
 			min: 0,
 			inputs: { by: int(1) },
 		}),
-		lastLife,
 	]);
-	chain({ node: lastLife, pin: 'then' }, roundOver);
+	// The last life ends the round once: the write that takes lives to 0 crosses the threshold, and
+	// two hazards in one frame cross it once between them (a second chain's 0 → 0 crosses nothing).
+	const lastLife = add({
+		id: 'ar_last_life',
+		kind: 'onVariable',
+		variable: ARCADE_VARIABLES.lives,
+		on: 'crosses',
+		threshold: 0,
+		direction: 'down',
+	});
+	chain({ node: lastLife, pin: 'exec' }, roundOver);
 	const pickup = add({
 		id: 'ar_touch_pickup',
 		kind: 'branch',

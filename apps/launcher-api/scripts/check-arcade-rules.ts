@@ -41,7 +41,7 @@ import {
 	ARCADE_LOOP_ACTIONS,
 	ARCADE_LOOP_VALUES,
 	ARCADE_SAMPLE,
-	ARCADE_SAMPLE_FIELD,
+	ARCADE_PLAYER_LIFT,
 	ARCADE_SCREENS,
 	ARCADE_VOCAB,
 	awaitCompleteContainerIds,
@@ -58,7 +58,7 @@ import {
 	type SpawnedInstance,
 } from 'engine-flow-v2';
 // The modules themselves: `engine-game`'s entry also exports its Svelte components.
-import { ARCADE_VALUES, createArcadeLoop } from 'engine-game/src/game/arcadeLoop';
+import { ARCADE_SIGNALS, ARCADE_VALUES, createArcadeLoop } from 'engine-game/src/game/arcadeLoop';
 import {
 	ARCADE_RULES_MECHANIC,
 	MATCH3_RGS_MECHANIC,
@@ -77,7 +77,12 @@ import {
 	sceneSpawnLayers,
 	spawnLayerSpec,
 } from 'engine-layout';
-import { normalizeGameConfigDoc, resolveArcade, type GameConfigDoc } from 'game-config';
+import {
+	normalizeGameConfigDoc,
+	resolveArcade,
+	validateGameConfigDoc,
+	type GameConfigDoc,
+} from 'game-config';
 
 import { projectSpawnLayers } from '../src/lib/flowV2Projection.ts';
 import { unplayableFamilyMessage } from '../src/lib/server/familyGate.ts';
@@ -102,6 +107,8 @@ const SEED_CONFIG = normalizeGameConfigDoc(
 const EMPTY_LIBRARY = { version: 2 as const, functions: [] };
 const LAYOUT = arcadeReferenceLayout();
 const FRAME = 1000 / 60;
+/** The field the seed config leaves to the layout: the desktop design size here. */
+const ARCADE_SAMPLE_FIELD = { w: 1422, h: 800 };
 
 /** One game: the arcade loop over a real spawn store, the starter flow on the real interpreter. */
 const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) => {
@@ -119,8 +126,8 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 	const rules = resolveArcade(SEED_CONFIG);
 	const loop = createArcadeLoop({
 		rules,
-		field: rules.field ?? { w: 1, h: 1 },
-		layers: store.layers(),
+		field: rules.field ?? ARCADE_SAMPLE_FIELD,
+		layers: () => store.layers(),
 		live: store,
 		seed,
 		signal: (name, payload) => {
@@ -235,7 +242,7 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 		'1. …with one salmon at its start',
 		game.of(ARCADE_SAMPLE.player).length === 1 &&
 			game.salmon().x === ARCADE_SAMPLE_FIELD.w / 2 &&
-			game.salmon().y === 720,
+			game.salmon().y === ARCADE_SAMPLE_FIELD.h - ARCADE_PLAYER_LIFT,
 		JSON.stringify(game.live()),
 	);
 	await game.frames(60 * 4);
@@ -427,6 +434,64 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 	check('5. …and the round-over screen is gone', !game.mount.isShown(ARCADE_SCREENS.over));
 }
 
+// ── 5b. two hazards on the last life in one frame end the round once ─────────────────────────────
+{
+	const game = playGame('both');
+	await game.start();
+	await game.quiet();
+	await game.dropOnSalmon(ARCADE_SAMPLE.hook);
+	await game.frames(15);
+	const shown: boolean[] = [];
+	const show = game.mount.show.bind(game.mount);
+	game.mount.show = (id) => {
+		if (id === ARCADE_SCREENS.over) shown.push(true);
+		show(id);
+	};
+	const s = game.salmon();
+	for (const c of [ARCADE_SAMPLE.bear, ARCADE_SAMPLE.hook]) {
+		const r = game.store.spawn(ARCADE_FIELD_LAYER, c, { x: s.x, y: s.y - 100 });
+		if (r.ok) game.loop.effects.setVelocity({ instance: r.instance, vy: 600 });
+	}
+	await game.frames(20);
+	check(
+		'5b. both hazards land in one frame and take the last two lives',
+		game.signals.filter((x) => x.name === 'collide').length === 3 && game.vars().lives === 0,
+		JSON.stringify([game.vars(), game.signals.map((x) => x.name)]),
+	);
+	check('5b. …and the round-over screen is shown once', shown.length === 1, String(shown.length));
+}
+
+// ── 5c. layers declared after the loop starts are watched ──────────────────────────────────────
+{
+	const store = createSpawnStore();
+	const loop = createArcadeLoop({
+		rules: resolveArcade(SEED_CONFIG),
+		field: ARCADE_SAMPLE_FIELD,
+		layers: () => store.layers(),
+		live: store,
+		seed: 1,
+		signal: () => {},
+	});
+	loop.frame(FRAME);
+	for (const { node, sceneId } of sceneSpawnLayers(LAYOUT.scenes))
+		store.declare(spawnLayerSpec(node, sceneId));
+	const r = store.spawn(ARCADE_FIELD_LAYER, ARCADE_SAMPLE.fish, { x: 100, y: 100 });
+	if (r.ok) loop.effects.setVelocity({ instance: r.instance, vy: 60 });
+	loop.frame(FRAME);
+	loop.frame(FRAME);
+	check(
+		'5c. a layer declared after the loop started is moved from the next frame',
+		loop.bodies().length === 1 && (store.live(ARCADE_FIELD_LAYER)[0]?.y ?? 0) > 100,
+		JSON.stringify(loop.bodies()),
+	);
+	loop.dispose();
+	const y = store.live(ARCADE_FIELD_LAYER)[0]?.y;
+	check(
+		'5c. a disposed loop runs no frame',
+		loop.frame(FRAME * 5) === 0 && store.live(ARCADE_FIELD_LAYER)[0]?.y === y,
+	);
+}
+
 // ── 6. a seed replays ─────────────────────────────────────────────────────────────────────────
 {
 	const run = async (seed: string) => {
@@ -472,7 +537,7 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 			zones: [{ id: 'pool', x: 100, y: 0, w: 50, h: 50 }],
 		},
 		field: { w: 400, h: 400 },
-		layers: ['f'],
+		layers: () => ['f'],
 		live: store,
 		seed: 1,
 		signal: (name, payload) => got.push({ name, payload }),
@@ -529,10 +594,14 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 		'7. …leaveZone',
 		got.some((g) => g.name === 'leaveZone' && g.payload.zone === 'pool'),
 	);
-	const tagless = got.filter((g) => g.name === 'collide').length;
+	const aimedBefore = JSON.stringify(loop.bodies());
 	loop.effects.setVelocity({ tagged: 'nobody', vx: 1 });
 	loop.effects.setVelocity({ instance: { id: 'f#999' }, vx: 1 });
-	check('7. an aim that names nothing changes nothing', tagless === 1);
+	loop.effects.moveTo({ x: 1, y: 1 });
+	check(
+		'7. an aim that names nothing changes nothing',
+		JSON.stringify(loop.bodies()) === aimedBefore,
+	);
 	let order: string[] = [];
 	const ordered = createSpawnStore();
 	ordered.declare({ id: 'f', spawnable: ['p', 'e'], cap: 32, placement: 'free' });
@@ -549,7 +618,7 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 			zones: [],
 		},
 		field: { w: 100, h: 100 },
-		layers: ['f'],
+		layers: () => ['f'],
 		live: ordered,
 		seed: 1,
 		signal: (name) => {
@@ -583,7 +652,7 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 			const a = createArcadeLoop({
 				rules: { fixedHz: 60, bodies: {}, pairs: [], zones: [] },
 				field: { w: 7, h: 9 },
-				layers: [],
+				layers: () => [],
 				live: store,
 				seed: 'x',
 				signal: () => {},
@@ -591,7 +660,7 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 			const b = createArcadeLoop({
 				rules: { fixedHz: 60, bodies: {}, pairs: [], zones: [] },
 				field: { w: 7, h: 9 },
-				layers: [],
+				layers: () => [],
 				live: store,
 				seed: 'x',
 				signal: () => {},
@@ -697,7 +766,7 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 		issues.length === 0,
 		JSON.stringify(issues.map((i) => `${i.code}@${i.node ?? ''}`)),
 	);
-	const issuesRgs = validateFlowDoc(
+	const issuesUnknownLayout = validateFlowDoc(
 		ARCADE_DRIVEN_SEED_DOC,
 		ARCADE_VOCAB,
 		EMPTY_LIBRARY,
@@ -710,8 +779,8 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 	);
 	check(
 		'10. …and with no layout known',
-		issuesRgs.every((i) => i.severity !== 'error'),
-		JSON.stringify(issuesRgs.map((i) => i.code)),
+		issuesUnknownLayout.every((i) => i.severity !== 'error'),
+		JSON.stringify(issuesUnknownLayout.map((i) => i.code)),
 	);
 	const vocabActions = ARCADE_VOCAB.actions
 		.map((a) => a.name)
@@ -719,7 +788,7 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 	const loop = createArcadeLoop({
 		rules: resolveArcade(SEED_CONFIG),
 		field: { w: 1, h: 1 },
-		layers: [],
+		layers: () => [],
 		live: createSpawnStore(),
 		seed: 1,
 		signal: () => {},
@@ -768,8 +837,18 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 				]),
 	);
 	check(
-		"10. the seed field is the sample's",
-		JSON.stringify(SEED_CONFIG.arcade?.field) === JSON.stringify(ARCADE_SAMPLE_FIELD),
+		"10. the seed config names no field: it is the layout's design size, and the flow places by it",
+		SEED_CONFIG.arcade?.field === undefined &&
+			!JSON.stringify(ARCADE_DRIVEN_SEED_DOC.graph).includes(String(ARCADE_SAMPLE_FIELD.w)),
+	);
+	check(
+		"10. the vocabulary's loop signals are exactly the loop's",
+		JSON.stringify(
+			ARCADE_VOCAB.events
+				.map((e) => e.name)
+				.filter((n) => !['load', 'tapToStart', 'settings', 'soundToggle', 'gameRules'].includes(n))
+				.sort(),
+		) === JSON.stringify(Object.values(ARCADE_SIGNALS).sort()),
 	);
 	check(
 		'10. the scene set has every screen the flow shows',
@@ -784,8 +863,11 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 		unplayableFamilyMessage({ ...SEED_CONFIG, outcome: undefined }) !== null,
 	);
 	check(
-		'10. the seed config is a free-play arcade game the validator passes',
-		SEED_CONFIG.family === 'arcade' && SEED_CONFIG.outcome === 'rules',
+		'10. the seed config is a free-play arcade game the validator passes with no error or warning',
+		SEED_CONFIG.family === 'arcade' &&
+			SEED_CONFIG.outcome === 'rules' &&
+			validateGameConfigDoc(SEED_CONFIG).length === 0,
+		JSON.stringify(validateGameConfigDoc(SEED_CONFIG)),
 	);
 }
 

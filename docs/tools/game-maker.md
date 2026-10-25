@@ -140,7 +140,7 @@ overlay add-on.
      swims along the bottom of the river, steered with the arrow keys or **A** / **D**; bears and
      hooks fall towards it and cost a life each, fish drift down and score 10, and the round is
      over at no lives (three to start). Its [Game Config](game-config.md#game-family-match-3-and-arcade)
-     is Arcade: a 1422 × 800 play field, a body for each of the four sample components (the salmon
+     is Arcade: no play field size (the field is the layout's design size), a body for each of the four sample components (the salmon
      tagged `player`, the bear and the hook `hazard`, the fish `pickup`) and the collisions
      `player + hazard`, `player + pickup`. Its screens are the arcade set (see
      [Scene Editor](invisible-editor.md)): **Loading / logo**, **Background**, **Play field** (a
