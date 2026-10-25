@@ -38,6 +38,15 @@
  *     The runtime: a driven channel overrides its curve at its final value, kept to its range; the
  *     padding is per frame; the program reads the seed the graph's pass reads, one per element; a
  *     program this version cannot run is dropped and the effect plays its curves.
+ *  9. Custom breaks (Shader Graph step 8b): the graph plays on the element until the break's start,
+ *     where the still is cut with the graph's pass on it (held at that moment, drawn as smoothly as
+ *     a built-in's still), placed and faded by its motion; the pieces fly over the window as the
+ *     built-in's over a play of the window's length; its params come through its ties (a constant
+ *     holds); an assemble's specks fly in over [0, 1 − at], redrawn from the live element with the
+ *     graph's look, and the graph has the element after; with no renderer it leaves as that break
+ *     leaves, from where the graph held it. The fade an exit's break carries for older runtimes
+ *     never shows on this one, and on an older one takes the element off screen. The registry
+ *     drops a break it cannot play and keeps the effect.
  */
 
 import { readFileSync } from 'node:fs';
@@ -59,10 +68,12 @@ import {
 import {
 	CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX,
 	ELEMENT_FX,
+	ELEMENT_FX_BREAK_KINDS,
 	ELEMENT_FX_CHANNEL_PREFIX,
 	ELEMENT_FX_KINDS,
 	ELEMENT_FX_PASS_KINDS,
 	customElementFx,
+	customElementFxBreakWindow,
 	elementFxChannels,
 	elementFxCueNames,
 	elementFxEnterEnds,
@@ -72,6 +83,7 @@ import {
 	isCustomElementFxKind,
 	isElementFxKind,
 	isPlayableElementFxKind,
+	isReversedElementFxBreak,
 	readCustomElementFx,
 	readElementFxEntries,
 	readElementFxEntry,
@@ -80,11 +92,16 @@ import {
 	setCustomElementFx,
 	type CustomElementFx,
 	type ElementFxKind,
+	type ElementFxKindId,
 	type ElementFxMotionOutput,
+	type ElementFxParamValue,
 } from '../../packages/constants-shared/elementFx';
 import {
+	BREAK_FADE_FROM,
+	BREAK_OUTPUT,
 	BUILTIN_TWINS,
 	REFERENCE_GRAPHS,
+	builtinTwin,
 	compileShaderEffect,
 	type GraphNode,
 	type GraphWire,
@@ -2294,6 +2311,482 @@ console.log('element fx — motion programs (Shader Graph motion graph)');
 			'an effect whose program uses an op this version lacks still plays: its program dropped, its curves move it, as a runtime from before motion programs plays it',
 		);
 		setCustomElementFx([]);
+	}
+}
+
+// -------------------------------------------------------------------------------------------------
+console.log('element fx — custom breaks (Shader Graph Break Output)');
+{
+	assert(
+		JSON.stringify(ELEMENT_FX_BREAK_KINDS) ===
+			JSON.stringify(ELEMENT_FX.filter((s) => s.category === 'break').map((s) => s.kind)) &&
+			ELEMENT_FX_BREAK_KINDS.every(
+				(kind) => !!KINDS[kind].breaks && isReversedElementFxBreak(kind) === !!KINDS[kind].reversed,
+			),
+		'the break kinds a custom effect may play are the catalog’s breaks, in order; the reversed one is the enter',
+	);
+	assert(
+		JSON.stringify(customElementFxBreakWindow({ kind: 'shatter', at: 0.3 })) ===
+			JSON.stringify({ from: 0.3, to: 1, edge: 0.3, reversed: false }) &&
+			JSON.stringify(customElementFxBreakWindow({ kind: 'assemble', at: 0.3 })) ===
+				JSON.stringify({ from: 0, to: 0.7, edge: 0.7, reversed: true }),
+		'a forward break plays over [at, 1]; an assemble, mirrored, over [0, 1 − at]',
+	);
+
+	/** A break twin's doc under `id`, its break starting at `at`, with `more` of the doc. */
+	const breakDoc = (
+		kind: ElementFxKind,
+		at: number,
+		id: string,
+		more: Partial<ShaderGraphDoc> = {},
+	): ShaderGraphDoc => {
+		const doc = JSON.parse(JSON.stringify(builtinTwin(kind)?.doc)) as ShaderGraphDoc;
+		const brk = doc.nodes.find((n) => n.type === BREAK_OUTPUT) as GraphNode;
+		brk.values = { ...brk.values, at };
+		return { ...doc, id, ...more };
+	};
+	const effectOf = (doc: ShaderGraphDoc): CustomElementFx => {
+		const r = compileShaderEffect(doc);
+		if (!r.ok) throw new Error(`${doc.id}: ${r.issues.map((i) => i.message).join('; ')}`);
+		return r.effect;
+	};
+	/** What each still was cut from: the element's filters then (the graph's progress), its alpha. */
+	const stills: { filters: Filter[]; progress: number; alpha: number; smooth: string[] }[] = [];
+	const stillRenderer = {
+		generateTexture: ({ frame, target }: { frame: Rectangle; target: Container }) => {
+			const filters = [...(target.filters ?? [])];
+			const graph = filters.find((f) => f instanceof SHADERS.ElementFxFilter) as
+				ElementFxFilter | undefined;
+			stills.push({
+				filters,
+				progress: (graph?.efx.uFx as Float32Array | undefined)?.[0] ?? NaN,
+				alpha: target.alpha,
+				smooth: filters.map((f) => String(f.antialias)),
+			});
+			return new Texture({
+				source: new TextureSource({ width: frame.width, height: frame.height }),
+			});
+		},
+	};
+	const breakOf = (c: Container) => c.parent?.children.find((x) => x.label === 'elementFx:break');
+	const localOf = (c: Container): Matrix => {
+		c.updateLocalTransform();
+		return c.localTransform.clone();
+	};
+	const sameMatrix = (a: Matrix, b: Matrix): boolean =>
+		(['a', 'b', 'c', 'd', 'tx', 'ty'] as const).every((k) => near(a[k], b[k], 1e-4));
+	const graphOf = (c: Container): ElementFxFilter | undefined =>
+		c.filters?.find((f) => f instanceof SHADERS.ElementFxFilter) as ElementFxFilter | undefined;
+	const progressOf = (c: Container): number =>
+		(graphOf(c)?.efx.uFx as Float32Array | undefined)?.[0] ?? NaN;
+
+	{
+		// The graph moves the element right and fades it over the play; it breaks halfway.
+		const doc = breakDoc('shatter', 0.5, 'brkMove', {
+			motion: {
+				channels: {
+					x: [
+						{ t: 0, v: 0 },
+						{ t: 1, v: 0.5 },
+					],
+					alpha: [
+						{ t: 0, v: 1 },
+						{ t: 1, v: 0.5 },
+					],
+				},
+			},
+		});
+		setCustomElementFx([effectOf(doc)]);
+		const { host, advance } = makeHost();
+		const target = makeTarget();
+		target.updateLocalTransform();
+		const rest = target.localTransform.clone();
+		const restValues = snapshot(target);
+		stills.length = 0;
+		const play = playElementFx(
+			target,
+			{ kind: 'custom:brkMove', durationMs: 1000 },
+			{ ...host, renderer: stillRenderer as never },
+		);
+		advance(300);
+		assert(
+			!stills.length &&
+				!breakOf(target) &&
+				near(progressOf(target), 0.3, 1e-6) &&
+				near(target.alpha, 0.8 * 0.85, 1e-6),
+			'before its break the graph plays on the element: its pass on it, its motion moving and fading it',
+		);
+		advance(300);
+		const [still] = stills;
+		const holder = breakOf(target);
+		assert(
+			stills.length === 1 &&
+				still.filters.some((f) => f instanceof SHADERS.ElementFxFilter) &&
+				still.progress === 0.5 &&
+				still.alpha === 1 &&
+				still.smooth.every((s) => s === 'inherit'),
+			'at its start the still is cut from the element with the graph’s pass on it, at the moment the break starts (0.5, not the frame’s), at full alpha, its passes drawing as smoothly as the still is cut',
+		);
+		assert(
+			!!holder &&
+				sameMatrix(localOf(holder), rest.clone().append(new Matrix(1, 0, 0, 1, 25, 0))) &&
+				near(holder.alpha, 0.8 * 0.75),
+			'its pieces start where the graph’s motion drew the element then (a quarter of its width right) and as faded (0.75 of its alpha)',
+		);
+		assert(
+			target.alpha === 0 && !target.filters?.length && target.filterArea === undefined,
+			'then the element is hidden and its passes are off it (the still has their look)',
+		);
+		advance(500);
+		assert(
+			play.active && target.alpha === 0 && !breakOf(target),
+			'it plays out and holds the element hidden, as an exit does',
+		);
+		play.stop();
+		assert(
+			JSON.stringify(snapshot(target)) === JSON.stringify(restValues),
+			'stop puts it back exactly',
+		);
+		setCustomElementFx([]);
+	}
+
+	const seeded = (seed: number) => {
+		let s = seed;
+		return () => {
+			s = (s * 16807) % 2147483647;
+			return (s - 1) / 2147483646;
+		};
+	};
+	/** The pieces a play posed at `progress` cuts (a seeded layout), and its layer's alpha. */
+	const piecesAt = (
+		kind: ElementFxKindId,
+		durationMs: number,
+		progress: number,
+		params: Record<string, ElementFxParamValue> = {},
+		renderer: object = stillRenderer,
+	) => {
+		const random = Math.random;
+		Math.random = seeded(4242);
+		try {
+			const target = makeTarget();
+			const handle = playElementFx(
+				target,
+				{ kind, durationMs, params, pose: () => ({ progress }) },
+				{ ...makeHost().host, renderer: renderer as never },
+			);
+			const layer = breakOf(target)?.children[0];
+			const meshes = (layer?.children ?? []).filter(
+				(c): c is MeshSimple => c instanceof MeshSimple,
+			);
+			const out = {
+				layer: layer?.alpha ?? NaN,
+				vertices: meshes.flatMap((m) => [...m.vertices]),
+				triangles: meshes.reduce((n, m) => n + m.geometry.indices.length / 3, 0),
+				target,
+			};
+			handle.stop();
+			return out;
+		} finally {
+			Math.random = random;
+		}
+	};
+	const samePieces = (a: { vertices: number[]; layer: number }, b: typeof a): boolean =>
+		a.vertices.length > 0 &&
+		a.vertices.length === b.vertices.length &&
+		a.vertices.every((v, i) => near(v, b.vertices[i], 1e-9)) &&
+		near(a.layer, b.layer, 1e-12);
+
+	{
+		setCustomElementFx([effectOf(breakDoc('crumble', 0.5, 'brkCrumble'))]);
+		const params = { pieces: 16 };
+		const mid = [
+			piecesAt('custom:brkCrumble', 2000, 0.75, params),
+			piecesAt('crumble', 1000, 0.5, params),
+		];
+		const late = [
+			piecesAt('custom:brkCrumble', 2000, 0.975, params),
+			piecesAt('crumble', 1000, 0.95, params),
+		];
+		assert(
+			samePieces(mid[0], mid[1]) && samePieces(late[0], late[1]) && late[0].layer < 0.5,
+			'its pieces fly over its window: a crumble starting halfway through 2 s, posed at 0.75 and 0.975, is the built-in’s posed at 0.5 and 0.95 over 1 s (its progress and seconds both the window’s)',
+		);
+		setCustomElementFx([]);
+	}
+	{
+		const tied = breakDoc('crash', 0, 'brkTied');
+		const fixed = breakDoc('crash', 0, 'brkFixed');
+		const brk = fixed.nodes.find((n) => n.type === BREAK_OUTPUT) as GraphNode;
+		fixed.wires = fixed.wires.filter((w) => w.to.port !== 'pieces' && w.to.port !== 'force');
+		fixed.nodes.push({ id: 'k', type: 'number', x: 0, y: 0, values: { value: 2 } });
+		fixed.wires.push({ from: { node: 'k', port: 'out' }, to: { node: brk.id, port: 'force' } });
+		brk.values = { ...brk.values, pieces: 10 };
+		const fixedEffect = effectOf(fixed);
+		setCustomElementFx([effectOf(tied), fixedEffect]);
+		const asked = { pieces: 40, force: 2, gravity: 0.5 };
+		assert(
+			samePieces(
+				piecesAt('custom:brkTied', 1400, 0.5, asked),
+				piecesAt('crash', 1400, 0.5, asked),
+			) &&
+				piecesAt('custom:brkTied', 1400, 0.5, asked).triangles ===
+					piecesAt('crash', 1400, 0.5, asked).triangles &&
+				piecesAt('crash', 1400, 0.5, asked).triangles !==
+					piecesAt('crash', 1400, 0.5, {}).triangles,
+			'its params are the effect’s, read through its ties each play: a crash tied by id plays an entry’s 40 shards, force and gravity as the built-in does',
+		);
+		assert(
+			JSON.stringify(fixedEffect.break?.params) ===
+				JSON.stringify({ pieces: 10, force: 2, gravity: { param: 'gravity' } }) &&
+				samePieces(
+					piecesAt('custom:brkFixed', 1400, 0.5, asked),
+					piecesAt('crash', 1400, 0.5, { pieces: 10, force: 2, gravity: 0.5 }),
+				),
+			'a constant (its own value, a Number node) holds whatever the entry sets: 10 shards at force 2, its gravity still tied',
+		);
+		setCustomElementFx([]);
+	}
+	{
+		// Assemble, mirrored: its pieces fly in over [0, 0.6], then the graph has the element.
+		setCustomElementFx([effectOf(breakDoc('assemble', 0.4, 'brkAssemble'))]);
+		const draws: { progress: number; alpha: number }[] = [];
+		const liveRenderer = {
+			resolution: 1,
+			generateTexture: stillRenderer.generateTexture,
+			render: (o: { container: Container }) => {
+				o.container.enableRenderGroup();
+				draws.push({ progress: progressOf(o.container), alpha: o.container.alpha });
+			},
+		};
+		const custom = piecesAt('custom:brkAssemble', 2200, 0.3, { particles: 100 }, liveRenderer);
+		const builtIn = piecesAt('assemble', 2200 * 0.6, 0.5, { particles: 100 }, liveRenderer);
+		assert(
+			samePieces(custom, builtIn) &&
+				draws.length >= 2 &&
+				near(draws[0].progress, 0.6, 1e-6) &&
+				draws.every((d) => d.alpha === 1),
+			'an assemble’s specks fly in over its window as the built-in’s do (posed at 0.3 of [0, 0.6] = the built-in at 0.5), redrawn from the live element with the graph’s pass on it, held where the graph takes over (0.6)',
+		);
+		const { host, advance } = makeHost();
+		const target = makeTarget();
+		let progress = 0.3;
+		const handle = playElementFx(
+			target,
+			{ kind: 'custom:brkAssemble', durationMs: 2200, pose: () => ({ progress }) },
+			{ ...host, renderer: liveRenderer as never },
+		);
+		const hidden = target.alpha === 0 && !!breakOf(target);
+		progress = 0.8;
+		advance(16);
+		assert(
+			hidden && !breakOf(target) && near(target.alpha, 0.8) && near(progressOf(target), 0.8, 1e-6),
+			'past its window the specks are gone and the element shows, the graph playing on it',
+		);
+		handle.stop();
+		setCustomElementFx([]);
+	}
+	{
+		// No renderer: it cannot cut, so it leaves as that break leaves without one.
+		const plain = (): Container => {
+			const parent = new Container();
+			const target = new Container();
+			target.boundsArea = new Rectangle(-50, -60, 100, 120);
+			target.position.set(300, 200);
+			target.alpha = 0.8;
+			parent.addChild(target);
+			return target;
+		};
+		const alpha = [
+			{ t: 0, v: 1 },
+			{ t: 1, v: 0.5 },
+		];
+		setCustomElementFx([
+			effectOf(breakDoc('crumble', 0.4, 'brkFallback', { motion: { channels: { alpha } } })),
+			effectOf(breakDoc('disintegrate', 0, 'brkDust')),
+		]);
+		const { host, advance } = makeHost();
+		const target = plain();
+		let progress = 0.2;
+		const handle = playElementFx(
+			target,
+			{ kind: 'custom:brkFallback', durationMs: 1800, pose: () => ({ progress }) },
+			host,
+		);
+		const before = target.alpha;
+		progress = 0.7;
+		advance(16);
+		const k = (0.5 - 0.15) / 0.85;
+		const fade = 1 - k * k * (3 - 2 * k);
+		assert(
+			near(before, 0.8 * 0.9) &&
+				near(target.alpha, 0.8 * 0.8 * fade, 1e-9) &&
+				near(target.y, 200 + 0.25 * 0.3 * 120, 1e-9),
+			'with no renderer, a crumble leaves as a crumble does (sinking, fading over its window) from where the graph held it at its start, its alpha then (0.8), the compiled fade for older runtimes never applied',
+		);
+		handle.stop();
+		const dust = plain();
+		const blown = playElementFx(
+			dust,
+			{ kind: 'custom:brkDust', params: { drift: 'left' }, pose: () => ({ progress: 0.6 }) },
+			host,
+		);
+		assert(
+			dust.x < 300 - 1 && near(dust.y, 200, 1e-9),
+			'a dissolve to particles drifts on its wind, as its tied Wind param says (left)',
+		);
+		blown.stop();
+		setCustomElementFx([]);
+	}
+	{
+		// The fade a runtime from before breaks plays, in an effect's curves and its motion program.
+		const keys = [
+			{ t: 0, v: 1, ease: 'smooth' as const },
+			{ t: 0.45, v: 0.9 },
+			{ t: 0.8, v: 0.6 },
+			{ t: 1, v: 0.3 },
+		];
+		const doc = breakDoc('crumble', 0.4, 'brkFade', {
+			motion: { channels: { alpha: keys } },
+			motionGraph: {
+				nodes: [
+					{ id: 'mt', type: 'time', x: 0, y: 0 },
+					{ id: 'mm', type: 'multiply', x: 0, y: 0, values: { b: -0.3 } },
+					{ id: 'ma', type: 'add', x: 0, y: 0, values: { b: 1 } },
+					{ id: 'mo', type: 'motionOutput', x: 0, y: 0 },
+				],
+				wires: [
+					{ from: { node: 'mt', port: 'progress' }, to: { node: 'mm', port: 'a' } },
+					{ from: { node: 'mm', port: 'out' }, to: { node: 'ma', port: 'a' } },
+					{ from: { node: 'ma', port: 'out' }, to: { node: 'mo', port: 'alpha' } },
+				],
+			},
+		});
+		const programmed = effectOf(doc);
+		const curved = effectOf({ ...doc, id: 'brkFadeCurve', motionGraph: undefined });
+		const start = 0.4 + BREAK_FADE_FROM * 0.6;
+		const frame = (t: number): FxFrame => ({
+			t,
+			seconds: t * 1.8,
+			playSeconds: 1.8,
+			intensity: 1,
+			params: resolveElementFxParams('crumble', {}),
+			looping: false,
+			width: 100,
+			height: 120,
+		});
+		const old = (e: CustomElementFx): CustomElementFx => {
+			const copy = JSON.parse(JSON.stringify(e)) as CustomElementFx;
+			delete copy.break;
+			return copy;
+		};
+		const alphaOf = (e: CustomElementFx, t: number): number =>
+			customKindImpl(e).motion?.(frame(t)).alpha ?? NaN;
+		const ts = Array.from({ length: 201 }, (_, i) => i / 200);
+		const raw = (t: number): number => sampleElementFxCurve(keys, t);
+		const program = (t: number): number => 1 - 0.3 * t;
+		assert(
+			JSON.stringify(curved.motion?.channels.alpha) ===
+				JSON.stringify([keys[0], keys[1], { ...keys[2], ease: 'smooth' }, { t: 1, v: 0 }]) &&
+				start === 0.49,
+			'the compiled alpha curve keeps the doc’s up to its first key past the fade’s start (0.49: 0.15 through the window), which eases to 0 at the end',
+		);
+		assert(
+			ts.every((t) => alphaOf(curved, t) === (t <= 0.4 ? raw(t) : raw(0.4))) &&
+				ts.every((t) => alphaOf(programmed, t) === (t <= 0.4 ? program(t) : program(0.4))),
+			'on a runtime with breaks the fade never shows: before the break the curve and the program are the doc’s exactly; in its window the motion holds the doc’s at its start (and the pieces hide the element)',
+		);
+		assert(
+			ts.every((t) => t > start || alphaOf(old(curved), t) === raw(t)) &&
+				ts.every((t) => t > start || alphaOf(old(programmed), t) === program(t)) &&
+				alphaOf(old(curved), 1) === 0 &&
+				alphaOf(old(programmed), 1) === 0 &&
+				alphaOf(old(curved), 0.9) < raw(0.9) &&
+				alphaOf(old(programmed), 0.9) < program(0.9),
+			'a runtime from before breaks (the break ignored) plays the doc’s alpha up to the fade’s start, then fades the element out, its curve or its program, gone by the end: an exit never stays on screen',
+		);
+		const brkId = doc.nodes.find((n) => n.type === BREAK_OUTPUT)?.id;
+		const unbroken = compileShaderEffect({
+			...doc,
+			id: 'brkNone',
+			nodes: doc.nodes.filter((n) => n.id !== brkId),
+			wires: doc.wires.filter((w) => w.to.node !== brkId),
+		});
+		const ops = programmed.motion?.program?.ops ?? [];
+		const own = unbroken.ok ? (unbroken.effect.motion?.program?.ops ?? []) : [];
+		assert(
+			own.length > 0 &&
+				ops.length - own.length >= 3 &&
+				ops.length - own.length <= 6 &&
+				JSON.stringify(ops.slice(0, own.length)) === JSON.stringify(own) &&
+				ops[ops.length - 1][0] === 'multiply',
+			'the program’s fade is a few steps after the graph’s own, which are unchanged',
+		);
+		const entrance = effectOf(breakDoc('assemble', 0.3, 'brkIn'));
+		assert(
+			!entrance.motion,
+			'an assemble carries no fade: on a runtime from before breaks the element simply shows and its graph plays',
+		);
+	}
+	{
+		const twins = BUILTIN_TWINS.filter((t) => ELEMENT_FX_BREAK_KINDS.includes(t.kind as never));
+		const compiled = twins.map((t) => effectOf(t.doc));
+		const good = compiled[ELEMENT_FX_BREAK_KINDS.indexOf('shatter')];
+		const bad: [string, unknown][] = [
+			['not a map', 5],
+			['an unknown kind', { ...good.break, kind: 'explode' }],
+			['a start past 1', { ...good.break, at: 1.5 }],
+			['a start as text', { ...good.break, at: '0' }],
+			['a param the kind lacks', { ...good.break, params: { ...good.break?.params, shards: 3 } }],
+			['a number out of range', { ...good.break, params: { pieces: 999 } }],
+			['a tie to no param', { ...good.break, params: { pieces: { param: 'nope' } } }],
+			['a tie to another kind', { ...good.break, params: { impact: { param: 'pieces' } } }],
+			[
+				'a prototype key',
+				JSON.parse('{"kind":"shatter","at":0,"params":{"__proto__":{"param":"pieces"}}}'),
+			],
+			['params as a list', { ...good.break, params: [] }],
+		];
+		let threw = false;
+		const kept = bad.map(([label, brk]) => {
+			try {
+				const read = readCustomElementFx({ ...good, break: brk });
+				return !!read && read.break === undefined && read.shader.body === good.shader.body
+					? ''
+					: label;
+			} catch {
+				threw = true;
+				return label;
+			}
+		});
+		const wrongPhase = readCustomElementFx({ ...good, spec: { ...good.spec, phase: 'loop' } });
+		const many = {
+			kind: 'shatter',
+			at: 0,
+			params: Object.fromEntries(Array.from({ length: 100_000 }, (_, i) => [`p${i}`, i])),
+		};
+		const began = performance.now();
+		const flooded = readCustomElementFx({ ...good, break: many });
+		const ms = performance.now() - began;
+		assert(
+			compiled.every(
+				(e, i) =>
+					e.break?.kind === twins[i].kind &&
+					JSON.stringify(readCustomElementFx(e)?.break) === JSON.stringify(e.break),
+			) &&
+				!threw &&
+				!kept.some(Boolean) &&
+				!!wrongPhase &&
+				wrongPhase.break === undefined &&
+				!!flooded &&
+				flooded.break === undefined &&
+				ms < 200,
+			`the registry reads each break twin’s break; a break it cannot play (not a map, an unknown kind, a start past 1 or as text, a param the kind lacks, a number out of range, a tie to no param or another kind, a prototype key, params as a list, an effect of another phase, 100 000 params in ${ms.toFixed(0)} ms) is dropped and the effect kept, never thrown on${kept.some(Boolean) ? `: kept ${kept.filter(Boolean).join(', ')}` : ''}`,
+		);
+		const plainEffect = effectOf(REFERENCE_GRAPHS[0]);
+		assert(
+			!plainEffect.break && !customKindImpl(plainEffect).breakWindow,
+			'an effect without a break has none, and plays as before',
+		);
 	}
 }
 

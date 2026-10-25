@@ -133,4 +133,5 @@ export type GraphIssueCode =
 	| 'cost'
 	| 'pass'
 	| 'motion'
-	| 'subgraph';
+	| 'subgraph'
+	| 'break';

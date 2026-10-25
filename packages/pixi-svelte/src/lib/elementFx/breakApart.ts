@@ -50,6 +50,8 @@ export interface BreakOptions {
 	playSeconds: number;
 	/** Show the live element: the run gets a {@link BreakRun.follow} to call every frame. */
 	live?: boolean;
+	/** The pieces' alpha, a still's (a live break's is given each frame). Unset ⇒ 1. */
+	alpha?: number;
 }
 
 /** A small seeded generator, so one break is laid out the same way however often it is posed. */
@@ -857,6 +859,7 @@ export function startBreak(options: BreakOptions): BreakRun | undefined {
 		frost.mask = shape;
 	}
 	const holder = new Container({ label: 'elementFx:break', zIndex: target.zIndex });
+	if (options.alpha !== undefined) holder.alpha = options.alpha;
 	holder.setFromMatrix(options.rest);
 	holder.addChild(layer);
 	parent.addChildAt(holder, Math.min(parent.children.length, parent.getChildIndex(target) + 1));
