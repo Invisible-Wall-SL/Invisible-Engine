@@ -493,6 +493,10 @@ game, bundle or screen changes.
   [realtime-multiplayer.md](../design/realtime-multiplayer.md), grounded in Salmons' server. It
   answers §9 #18 with a recommendation and lists eight decisions for the owner. The families plan
   now says Salmons sends state at 60 Hz (it said 20 Hz) and runs its rules in one `update()`.
+  Revised the same day: Salmons' costs measured with bots (its server fills one core at about 50
+  players; at 100 it reaches 27–34 of its 60 updates a second, and the time is its rules' pass over
+  every obstacle), and Colyseus 0.18, which already ships the per-client views, typed inputs,
+  prediction, reconciliation and lag compensation, is now the recommended version.
 - 2026-10-24 — **P10.5 built: match-3, rules-decided, end to end.** A match-3 project is made in
   Game Maker and plays as free play in the shared runtime; publishing it stays off. Detail above.
 - 2026-10-24 — **P10.4 built: pointer move / drag / swipe + Align Target**, and the board cell
