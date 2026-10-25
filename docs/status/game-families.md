@@ -43,8 +43,9 @@ on. In one launcher-side PR:
   token would reach that host (CORS and the partner's own session rules stand in the way, not our
   code). Every partner launch we mint goes through `?rgs_profile=` and is refused.
 - **No partner session is minted for a non-slot game.** `/api/partner-session` refuses (409) a
-  card whose project config is not a slot (`partnerRgsRefusal` in `familyGate.ts`), or whose
-  config cannot be read, before it asks the partner's admin endpoint.
+  card whose project config is not a slot (`partnerRgsRefusal` in `familyGate.ts`), or when R2
+  fails the read, before it asks the partner's admin endpoint. No stored config reads as a slot,
+  as the runtime plays it; a card with no project is not checked.
 - **Can a rules game reach a real-money session?** Four walls: it never authenticates (P10.5,
   `rgsSession: false`); its runtime refuses a delivery profile at boot; the delivery build refuses
   it; and on our test server its mock refuses every request (the platform-jackpot wrapper is

@@ -71,7 +71,8 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		return json({ error: `No game card for key "${key}"` }, { status: 404, headers: NO_STORE });
 	}
 	// Only a slot reaches a partner (`partnerRgsRefusal`). Read before minting, from the project's
-	// config; a read that fails refuses rather than mint for a game of unknown family.
+	// config: an R2 error refuses rather than mint for a game of unknown family, and no stored config
+	// reads as the slot the runtime would play. A card with no project has no config to read.
 	if (game.projectKey !== null) {
 		const clientKey = (await projectClientKey(game.projectKey)) ?? UNASSIGNED_CLIENT;
 		const doc = await loadGameConfigDoc(clientKey, game.projectKey).catch(() => undefined);
