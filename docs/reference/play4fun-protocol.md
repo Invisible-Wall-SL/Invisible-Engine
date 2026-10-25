@@ -686,11 +686,23 @@ spins imported from another project). A Play4Fun server sends none of it. The fa
 free-spin round names a mode and every one plays as the game's own free spins, as before. When the
 partner deals overlays (pots overlay Phase 8) these are the fields to map onto theirs.
 
+## Ours, not theirs: the match-3 `move` (2026-10-25)
+
+An RGS-decided match-3 round (game-families P10.6) keeps a round open across player-paced
+requests: `bet`+`play` deals the board, then one stored `move {from, to}` per swap under the round's
+`gid`, then `collect`. The action, its events and the boot `config.match3` block are OUR wire
+([match3-wire.md](match3-wire.md)), spoken only by our mock; no partner game has shown us one. It
+follows this protocol's rules (a stored action advances `seq` by one; a re-post at an occupied
+position replays; an open round resumes through the boot `config`), so a real provider's shape
+should replace the event vocabulary, not the round lifecycle.
+
 ## Things we have no equivalent for
 
 Recorded because each is a real feature of the protocol, not because any is scheduled:
 
-- **Resume across player input** — a round waiting on a pick or gamble; see "Resume" above.
+- **Resume across player input** — a round waiting on a pick or gamble; see "Resume" above. Our
+  match-3 mock resumes a round mid-move by replay ([match3-wire.md](match3-wire.md) "Resume"); a
+  partner server's behaviour is unknown.
 - **Gamble** (double-up on a finished round).
 - **Free rounds** — a separate `freerounds` endpoint with `&action=choose&frid=&betid=`, plus
   `gameRound.freeRound.totalWin` on the platform object.

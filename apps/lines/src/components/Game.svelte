@@ -2285,7 +2285,7 @@
 	// play (`EnableSpaceHold`) lives in the coded `UIDefault`, so when that is absent — an authored
 	// HUD, a v2 flow driving the screens, a flow-managed HUD not yet shown — the game mounts it.
 	const codedHudMounted = $derived(
-		mechanic.spins &&
+		mechanic.bets &&
 			(!isHudFlowManaged || isHudActive) &&
 			!suppressCodedHud &&
 			!flowV2DrivesScreens,
@@ -2559,7 +2559,7 @@
 			(no double-fire). Neither ⇒ not rendered, coded hotkey is the sole binding (parity). Mirrors
 			`ButtonBet`'s binding.
 		-->
-	{#if mechanic.spins && (HUD_BUTTON_INSTANCES || suppressCodedHud)}
+	{#if mechanic.bets && (HUD_BUTTON_INSTANCES || suppressCodedHud)}
 		<OnHotkey
 			hotkey="Space"
 			disabled={spinHotkeyDisabled}
@@ -2569,7 +2569,7 @@
 	{/if}
 	<!-- At most one hold-Space binding, gated as in `UIDefault` (a `disabledAutoplay` jurisdiction or
 			the doc's Game Settings turn `spaceHold` off). -->
-	{#if mechanic.spins && !codedHudMounted && stateUi.config.features.spaceHold}
+	{#if mechanic.bets && !mechanic.interactiveRound && !codedHudMounted && stateUi.config.features.spaceHold}
 		<EnableSpaceHold isIdle={context.stateXstateDerived.isIdle} />
 	{/if}
 

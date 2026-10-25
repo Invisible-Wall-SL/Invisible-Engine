@@ -1,5 +1,6 @@
 import {
 	createMatch3Driver,
+	createMatch3RgsSession,
 	createMatch3Session,
 	paddedBoard,
 	type Match3Driver,
@@ -7,15 +8,19 @@ import {
 	type Match3Session,
 } from 'engine-game';
 import type { Cell } from 'engine-mechanics';
-import { normalizeGameConfigDoc } from 'game-config';
-import { stateModal } from 'state-shared';
+import { normalizeGameConfigDoc, resolveMatch3 } from 'game-config';
+import { requestMove } from 'rgs-requests';
+import { stateModal, stateUrlDerived } from 'state-shared';
+import { bookEventAmountToNormalisedAmount } from 'utils-shared/amount';
 
 import { bakedGameConfig } from '../editor-scenes';
 import { eventEmitter } from './eventEmitter';
 import { flyTo } from './flights.svelte';
 import { registerBoardEffects } from './flowBoardEffects';
 import { getFlowV2 } from './flowV2InterpreterHolder';
+import { gameMechanic } from './mechanic';
 import { stateGame } from './stateGame.svelte';
+import type { BookEvent } from './typesBookEvent';
 import type { RawSymbol } from './types';
 import { playBookEvents } from './utils';
 
@@ -30,8 +35,15 @@ import { playBookEvents } from './utils';
  * `select` / `hint` as symbol states. The board's Flow signals go to the v2 flow, which keeps the
  * score and spends the moves (the starter flow).
  *
+ * An RGS-decided game (§2.2) plays the same driver over a MIRROR of the server's board
+ * (`createMatch3RgsSession`, no local RNG): the bet's book deals the board (`boardInit` →
+ * {@link presentMatch3Board}), every swap is a `move` request whose book the driver plays, and the
+ * round stays open — input taken — until the server's `roundEnd`. The round machine waits on
+ * {@link awaitMatch3Round} between the bet and the collect.
+ *
  * A slot game never starts it: `startMatch3` is called only by `<Match3Input />`, which
- * `Game.svelte` mounts only for a mechanic that takes board input.
+ * `Game.svelte` mounts only for a mechanic that takes board input, and a slot's book carries no
+ * `boardInit`.
  *
  * Cells are the board's own (`{ reel, row }`, row 0 the top VISIBLE row); a reel's symbol at that
  * cell is `symbols[row + 1]`, behind its top pad.
@@ -55,6 +67,10 @@ export const stateMatch3 = $state({
 	/** The seed the board was dealt from, and the shortest run that matches, for the probe. */
 	seed: '',
 	minRun: 0,
+	/** An RGS round is open: its board is dealt and the server has not ended it. */
+	roundOpen: false,
+	/** The moves the server says an RGS round has left. */
+	movesLeft: 0,
 });
 
 let driver: Match3Driver | undefined;
@@ -96,7 +112,12 @@ const present: Match3Presenter = {
 		gemA.removed = false;
 		gemB.removed = false;
 	},
-	step: (step) => playBookEvents([{ index: step.step, ...step.event }]),
+	step: (step) =>
+		playBookEvents([{ index: step.step, ...step.event }, ...((step.tail ?? []) as BookEvent[])]),
+	tail: async (events) => {
+		await playBookEvents(events as BookEvent[]);
+		if (!stateMatch3.roundOpen) roundSettled?.();
+	},
 	mark: (cells, state) => {
 		for (const cell of cells) {
 			const reelSymbol = reelSymbolAt(cell);
@@ -113,8 +134,12 @@ const signal = async (name: string, payload: Record<string, unknown>): Promise<v
 export const swapCells = (from: Cell, to: Cell) => driver?.swapCells(from, to);
 export const selectCell = (cell: Cell) => driver?.selectCell(cell);
 
-/** Input reaches the board: a session is running, nothing is playing and the flow allows it. */
-export const match3TakesInput = () => stateMatch3.active && !!driver?.takesInput();
+/** Input reaches the board: a session is running, nothing is playing, the flow allows it and, in an
+ *  RGS game, a round is open. */
+export const match3TakesInput = () =>
+	stateMatch3.active &&
+	!!driver?.takesInput() &&
+	(stateMatch3.roundOpen || gameMechanic().outcome === 'rules');
 
 /** Board work that failed is shown to the player: a board that cannot be dealt is not playable. */
 const fail = (error: unknown) => {
@@ -131,6 +156,12 @@ const fail = (error: unknown) => {
  */
 export const startMatch3 = async () => {
 	if (stateMatch3.active) return;
+	// An RGS board is dealt by the server, with the bet (`presentMatch3Board`).
+	if (gameMechanic().outcome === 'rgs') {
+		stateMatch3.active = true;
+		driver?.reseat();
+		return;
+	}
 	if (driver) {
 		stateMatch3.active = true;
 		driver.reseat();
@@ -162,3 +193,70 @@ export const detachMatch3 = () => {
 	stateMatch3.active = false;
 	stateMatch3.selected = undefined;
 };
+
+/** Resolves the round machine's wait once the server has ended the open round. */
+let roundSettled: (() => void) | undefined;
+
+/** Ask the server to swap two cells; the move's book, or a throw the driver shows as an error. */
+const moveOnServer = async (from: Cell, to: Cell) => {
+	const data = (await requestMove({
+		sessionID: stateUrlDerived.sessionID(),
+		rgsUrl: stateUrlDerived.rgsUrl(),
+		from,
+		to,
+	})) as { error?: unknown; round?: { state?: BookEvent[] } } | undefined;
+	if (!data || data.error || !data.round?.state) throw data ?? new Error('no answer to the move');
+	return data.round.state;
+};
+
+/**
+ * An RGS round's board landed (`boardInit`: the bet's book, or a resumed round): mirror it in a
+ * fresh session, seat it, and raise `boardReady` with the server's moves. Input opens with the round.
+ */
+export const presentMatch3Board = async (board: RawSymbol[][], movesLeft: number) => {
+	const doc = normalizeGameConfigDoc(bakedGameConfig());
+	let session: ReturnType<typeof createMatch3RgsSession>;
+	try {
+		session = createMatch3RgsSession({
+			board,
+			movesLeft,
+			minRun: resolveMatch3(doc).minRun,
+			requestMove: moveOnServer,
+		});
+	} catch (error) {
+		fail(error);
+		return;
+	}
+	if (!driver) stateMatch3.inputEnabled = !getFlowV2();
+	stateMatch3.selected = undefined;
+	stateMatch3.minRun = session.board.minRun;
+	stateMatch3.movesLeft = movesLeft;
+	stateMatch3.roundOpen = true;
+	driver = createMatch3Driver({ session, state: stateMatch3, signal, present, onError: fail });
+	registerBoardEffects(driver.effects);
+	await driver.start();
+};
+
+export const presentMatch3MovesLeft = (count: number) => {
+	stateMatch3.movesLeft = count;
+};
+
+/** The server ended the round: input closes, the flow hears `roundEnd` (its win in currency), and the
+ *  round machine goes on to collect once the move that ended it has played out. */
+export const endMatch3Round = async (totalWin: number, reason: string) => {
+	stateMatch3.roundOpen = false;
+	stateMatch3.selected = undefined;
+	await signal('roundEnd', { totalWin: bookEventAmountToNormalisedAmount(totalWin), reason });
+};
+
+/** The round machine's interactive step: resolves when the open round has ended (at once when the
+ *  bet's own book already ended it — a resumed round that had). */
+export const awaitMatch3Round = (): Promise<void> =>
+	stateMatch3.roundOpen
+		? new Promise((done) => {
+				roundSettled = () => {
+					roundSettled = undefined;
+					done();
+				};
+			})
+		: Promise.resolve();
