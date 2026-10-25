@@ -192,11 +192,12 @@ export function collectComponentPins(nodes: LayoutNode[]): ComponentPin[] {
 
 /**
  * {@link resolveComponentClosure} plus the exact older versions the placements in `nodes` pin
- * (§8.9), loaded through `loadVersion`; a pin the latest def already is needs no copy. A pinned
- * version can name a component its latest no longer does (a repeater variant swapped since). The
- * editor draws that one from the project's store, so the closure follows the pinned versions too, or
- * the game draws a fallback the author never saw. A pin nested inside a def is not followed: the
- * editor and the game both draw the latest for it.
+ * (§8.9), loaded through `loadVersion`; a pin the latest def already is needs no copy, and a store
+ * that answers with another version (a built-in has only its coded def) ships nothing for it. A
+ * pinned version can name a component its latest no longer does, through a node (a repeater variant
+ * swapped since) or a `component`-kind param. The editor draws that one from the project's store,
+ * so the closure follows the pinned versions too, or the game draws a fallback the author never
+ * saw. A pin nested inside a def is not followed: the editor and the game both draw the latest.
  */
 export async function resolveComponentClosureWithPins(
 	nodes: LayoutNode[],
@@ -215,14 +216,24 @@ export async function resolveComponentClosureWithPins(
 	for (const pin of collectComponentPins(nodes)) {
 		if (defs[pin.id]?.version === pin.version) continue;
 		const pinned = await loadVersion(pin.id, pin.version);
-		if (pinned) versions.push(pinned);
+		if (pinned?.version === pin.version) versions.push(pinned);
 	}
 	if (!versions.length) return { defs, versions };
+	// The components a pinned version's params name, read against ITS params: its own defaults, the
+	// project's defaults for it, and what the placements set.
+	const paramIds: string[] = [];
+	for (const def of versions) {
+		if (!componentParamKeys(def).length) continue;
+		const own = await options.defaultsFor?.(def.id);
+		paramIds.push(
+			...collectParamComponentIds(nodes, { [def.id]: def }, own ? { [def.id]: own } : {}),
+		);
+	}
 	const reached = await resolveComponentClosure(
 		versions.map((def) => def.root),
-		async (id) => (id in defs ? defs[id] : missing.has(id) ? undefined : load(id)),
-		{ ...options, extraSeedIds: [], onMissing },
+		async (id) => (Object.hasOwn(defs, id) ? defs[id] : missing.has(id) ? undefined : load(id)),
+		{ ...options, extraSeedIds: paramIds, onMissing },
 	);
-	for (const [id, def] of Object.entries(reached)) defs[id] ??= def;
+	for (const [id, def] of Object.entries(reached)) if (!Object.hasOwn(defs, id)) defs[id] = def;
 	return { defs, versions };
 }

@@ -27,6 +27,7 @@ import { resolveSymbolState } from 'engine-game/src/game/symbolCell';
 import type { SymbolInfoMap } from 'engine-game/src/game/types';
 import { symbolsUsed, type GameConfigDoc } from 'game-config';
 
+import stockTable from './assets';
 import { SYMBOL_INFO_MAP } from './constants';
 import { modeScreenFor } from './respinModes';
 import {
@@ -136,6 +137,13 @@ export type StockAssetsAnalysis = {
 
 /** Every collected name and where it came from. */
 type Names = Map<string, Set<string>>;
+
+/** The stock frame sheets: their frames register under bare names (`pixi-svelte` `assetLoad.ts`). */
+const FRAME_SHEET_KEYS: ReadonlySet<string> = new Set(
+	Object.entries(stockTable)
+		.filter(([, entry]) => entry.type === 'sprites')
+		.map(([key]) => key),
+);
 
 const addName = (names: Names, name: string, origin: string): void => {
 	const origins = names.get(name);
@@ -512,13 +520,6 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 		}
 	}
 
-	// A frame a project symbol sheet registers under the same bare name draws from that sheet, so it
-	// keeps no stock sheet: keeping both registered the name twice (Pixi's "[Cache] already has key")
-	// and left which one drew to load order.
-	for (const sheet of symbols?.index?.sheets ?? []) {
-		for (const name of sheet.names ?? []) names.delete(name);
-	}
-
 	// The config names symbols by the same ids as the symbol rigs; the symbol rule decides those.
 	const configNames: Names = new Map();
 	collectNames(config, configNames, 'game config');
@@ -529,12 +530,20 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 		reasons[key] = [...new Set([...(reasons[key] ?? []), ...origins])];
 	};
 	for (const key of ALWAYS_KEPT) keep(key, ['always']);
+	// A frame a project symbol sheet registers under the same bare name draws from that sheet, so it
+	// keeps no stock frame sheet: keeping both registered the name twice (Pixi's "[Cache] already has
+	// key") and left which one drew to load order. A stock rig or font of that name still keeps its key.
+	const projectFrames = new Set(
+		(symbols?.index?.sheets ?? []).flatMap((sheet) => sheet.names ?? []),
+	);
 	for (const [name, origins] of [...names, ...configNames]) {
-		for (const key of stockKeysNamedBy(name))
+		for (const key of stockKeysNamedBy(name)) {
+			if (projectFrames.has(name) && FRAME_SHEET_KEYS.has(key)) continue;
 			keep(
 				key,
 				[...origins].map((o) => `${o}: ${name}`),
 			);
+		}
 	}
 	for (const group of KEPT_TOGETHER) {
 		const by = group.find((key) => reasons[key]);

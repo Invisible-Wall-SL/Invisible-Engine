@@ -192,7 +192,7 @@ const HISTORY = { 'counter@4': counter(4, 'oldFirst'), 'counter@5': counter(5, '
 const pinnedLoads = [];
 const loadPinned = async (id) => {
 	pinnedLoads.push(id);
-	return PINNED[id] ?? null;
+	return Object.hasOwn(PINNED, id) ? PINNED[id] : null;
 };
 const loadVersion = async (id, version) => HISTORY[`${id}@${version}`] ?? null;
 const placed = (componentVersion) => [
@@ -237,6 +237,55 @@ got = await withPins([...placed(5), strip({ componentId: 'goneFirst' })], {
 });
 assert(same(got.versions, ['counter@5']), 'a pinned version naming a lost def still ships');
 assert(same(missingNamed, ['goneFirst']), '…and the lost def is reported once');
+
+console.info('pinned versions: params, lost snapshots, odd ids');
+const tileParam = (fallback) => [{ key: 'tile', kind: 'component', default: fallback }];
+PINNED.holder = { ...leaf('holder'), version: 3, params: tileParam('newTile') };
+PINNED.newTile = leaf('newTile');
+PINNED.oldTile = leaf('oldTile');
+HISTORY['holder@2'] = { ...leaf('holder'), version: 2, params: tileParam('oldTile') };
+const holder = (componentVersion, params) => [
+	{
+		id: 'h',
+		kind: 'componentInstance',
+		componentId: 'holder',
+		x: 0,
+		y: 0,
+		componentVersion,
+		params,
+	},
+];
+got = await withPins(holder(2));
+assert(
+	same(got, { ids: ['holder', 'newTile', 'oldTile'], versions: ['holder@2'] }),
+	"a component a pinned version's own param default names ships",
+);
+HISTORY['holder@2'].params = [{ key: 'backTile', kind: 'component' }];
+got = await withPins(holder(2), {
+	defaultsFor: (id) => (id === 'holder' ? { backTile: 'oldTile' } : undefined),
+});
+assert(
+	same(got.ids, ['holder', 'newTile', 'oldTile']),
+	"…as does one the project's defaults name for a param only that version declares",
+);
+HISTORY['holder@2'].params = [{ key: 'pick', kind: 'component' }];
+got = await withPins(holder(2, { pick: 'oldTile' }));
+assert(
+	same(got.ids, ['holder', 'newTile', 'oldTile']),
+	'…and one the placement sets through a param only that version declares',
+);
+HISTORY['counter@6'] = counter(7, 'oldFirst');
+got = await withPins(placed(6));
+assert(
+	same(got, { ids: ['counter', 'segment', 'newFirst'], versions: [] }),
+	'a store answering with another version (a built-in) ships nothing for the pin',
+);
+HISTORY['counter@3'] = counter(3, 'toString');
+got = await withPins(placed(3));
+assert(
+	same(got, { ids: ['counter', 'segment', 'newFirst'], versions: ['counter@3'] }),
+	"an id that is an Object property name is just a missing def, not Object's",
+);
 
 if (failures > 0) {
 	console.error(`\n${failures} assertion(s) failed`);

@@ -292,14 +292,15 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   the symbol export packs bare names beside the scoped ones, so a project bound to the shared
   `engine-symbols` sheet loaded the stock `symbolsStatic` too and registered all 17 frames twice
   (Pixi `[Cache] already has key`, the drawn one left to load order). The export now records each
-  sheet's bare frame `names` in `symbols.index.sheets[]`; a bundle without them keeps the old
-  behaviour. **Left as is, on purpose:** `totalwin.png` is packed by both stock `freeSpins` and
+  sheet's bare frame `names` in `symbols.index.sheets[]`; only stock FRAME sheets (`type:
+  'sprites'`) are skipped for them, so a stock rig or font sharing a frame's name still loads, and
+  a bundle without `names` keeps the old behaviour. **Left as is, on purpose:** `totalwin.png` is packed by both stock `freeSpins` and
   `winSmall` (kept together, every game, upstream art); the remaining lines are the project's own
   data, each already saying what to fix (Flow screens missing from the layout, a dictionary symbol
   on no strip, undeclared mapping entries, `BLANK` with no art, a state machine naming a timeline
-  with no actors). Verified: `test-component-closure`, `stockAssets.fixture` (two new cases),
-  `check:rgs`, the symbol/component/cinematic/rig gates, svelte-check at baseline, and an
-  ad-hoc unload check against the real loader. Reaching online games needs a `runtime:lines`
+  with no actors). Verified: `test-component-closure`, `stockAssets.fixture` (four new cases),
+  `check:rgs`, the symbol/component/cinematic/rig gates, svelte-check at baseline, and the new
+  `packages/engine-rig/src/pixi/assets.fixture.ts` (fails on the old unload). Reaching online games needs a `runtime:lines`
   release; the closure and `names` changes ride the launcher deploy.
 - 2026-10-23 — **Storybook 10.** `storybook` and every `@storybook/*` package move from 9.0.15 to
   10.6.3 (`config-storybook`, `pixi-svelte-storybook`, `components-storybook`), and

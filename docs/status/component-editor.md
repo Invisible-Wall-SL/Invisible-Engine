@@ -109,12 +109,14 @@ Shipped capabilities on `main`:
   closure walked latest defs only, so `c_55h9isri` never shipped and the game drew the default
   segment where the editor, which draws variants from the project's whole store, drew it. New
   `resolveComponentClosureWithPins` (`engine-layout`) runs the closure, loads the pinned older
-  versions, then follows those versions' trees, reusing every def already loaded; the doc bake,
+  versions (only an exact snapshot: `loadComponent` answers an unmatched built-in pin with the
+  coded def, which the game never draws for it), then follows those versions' trees and the
+  components their own `component`-kind params name, reusing every def already loaded; the doc bake,
   the runtime bundle and the art export all call it instead of each looping over the pins, so
   the three cannot drift. Nothing changes for a game with no non-latest pin. Separately, the
   "pins version … not registered" warning fired per instance render, hundreds of times a session
   for a def nested in a repeated part; it is now once per `id@version` (`warnPinNotHonoured`).
-  Gate: `packages/engine-layout/scripts/test-component-closure.mjs` (seven new assertions).
+  Gate: `packages/engine-layout/scripts/test-component-closure.mjs` (twelve new assertions).
 - 2026-10-23 — **Segmented counters: a segment's box (Size)** (branch `feat/segment-root-box`, in
   review, ⏳ not browser-verified). A segment drawn only from rigs and text (the owner's
   R_RespinTile looks) measures 0 × 0 — a rig or a text cannot be sized without loading it — so a
