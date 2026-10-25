@@ -497,7 +497,7 @@ shell and the Particle node) is built and in review; 8d.2 (the material renderer
     (a new `particles` sheet: every reference, twin and node body drawn as trimmed, padded, tinted
     quads through a real Pixi `Mesh`, each program's link status checked); `shader-parity` against
     the base identical; `shader-twins` 36; `shader-motion` 53; `check:shader-editor` 253;
-    `check:shader-pipeline` 133; `check:all` CHECKALL; svelte-check at baseline (launcher 45,
+    `check:shader-pipeline` 133; `check:all` 539/539; svelte-check at baseline (launcher 45,
     pixi-svelte 14). Each new check mutation-checked.
   - **Review.** Nothing blocking. Fixed: a body reading a name only the element pass declares
     (`vTextureCoord`, `uElement`…) was converted into a fragment that would not compile; now
