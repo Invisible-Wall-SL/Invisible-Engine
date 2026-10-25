@@ -12,7 +12,7 @@ Pixi preview, with a lease and history, #1330) and step 6 (the templates: graph 
 built-ins, held to a parity gate in `check:all`, offered as "Start from a built-in", #1333) and
 step 7 (editor v2: subgraphs, node thumbnails, cost chips, publishing to the studio library,
 #1340) are merged. Step 8 (the plan's "Later") is split into 8a–8e; 8a, the motion graph, is in
-progress on `claude/shader-graph-step8a`.
+review on `claude/shader-graph-step8a`.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -272,8 +272,7 @@ progress on `claude/shader-graph-step8a`.
     `deploy/editor-shaders/` still holds the set, and the Publish snapshot copies it, so a game's
     asset base carries the library's compiled effects too; nothing reads them at runtime.
 - **Step 8** (the plan's "Later", split into 8a–8e in design §8). 8b–8e not started.
-  - **8a, the motion graph.** In progress on `claude/shader-graph-step8a` (built on step 7's
-    branch).
+  - **8a, the motion graph.** In review on `claude/shader-graph-step8a`.
     - **The doc.** `motionGraph` (`{ nodes, wires }`, still version 1): float nodes into one
       **Motion Output** (x, y, scale, scale x / y, rotation, alpha, padding). 39 motion nodes: the
       pixel library's number nodes (time, param, number, seed, the math, the time shapes,
