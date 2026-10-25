@@ -478,7 +478,10 @@ check(
 	'… its spritesheet written under deploy/editor-art/',
 	!!shippedCoin && bucket.has(`${spawnDeploy}${shippedCoin.json}`),
 );
-check('the nested def’s sheet ships', spawnIndex.sheets.some((s) => s.key === SPARK_SHEET));
+check(
+	'the nested def’s sheet ships',
+	spawnIndex.sheets.some((s) => s.key === SPARK_SHEET),
+);
 check(
 	'… and neither frame counts as dangling',
 	!spawnIndex.missing.includes('coinFace') && !spawnIndex.missing.includes('sparkFrame'),

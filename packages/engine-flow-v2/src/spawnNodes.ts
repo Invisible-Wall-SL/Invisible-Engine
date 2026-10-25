@@ -14,7 +14,7 @@
  *  - waitForState with `componentId`: exec in / out and the optional data-in `instance`.
  */
 
-import { deriveInstancePins } from './instanceNodes';
+import { deriveInstancePins, type InstanceTextSource } from './instanceNodes';
 import type {
 	FlowDoc,
 	FlowInstanceDecl,
@@ -44,6 +44,10 @@ export const INSTANCE_HANDLE_FIELDS: Readonly<Record<string, TypeRef>> = {
 	col: { t: 'int' },
 	row: { t: 'int' },
 };
+
+/** The type of a handle's field `name`; `undefined` for any other name (an inherited one too). */
+export const instanceHandleField = (name: string): TypeRef | undefined =>
+	Object.hasOwn(INSTANCE_HANDLE_FIELDS, name) ? INSTANCE_HANDLE_FIELDS[name] : undefined;
 
 /** The `instance<…>` type of a component's handle (any instance when `component` is absent). */
 export const instanceType = (component?: string): TypeRef =>
@@ -245,3 +249,17 @@ export const flowUsesSpawn = (doc: FlowDoc): boolean =>
 /** Every `instanceRef` node of a graph, group bodies included. */
 export const instanceRefNodes = (graph: Graph): InstanceRefNode[] =>
 	graphNodes(graph).filter((n): n is InstanceRefNode => n.kind === 'instanceRef');
+
+/** The Instance-ref nodes of a doc with their spawnable's inputs, for the localization harvest
+ *  (`instanceTextKeys`): a literal key one feeds a spawnable's `text` input is harvested too. */
+export const spawnedInstanceTextSources = (
+	doc: FlowDoc | undefined,
+	ctx: SpawnPinContext,
+): InstanceTextSource[] =>
+	(doc ? docNodes(doc) : []).flatMap((node) => {
+		if (node.kind !== 'instanceRef') return [];
+		const spawnable = spawnableDecl(ctx, node.componentId);
+		return spawnable
+			? [{ node, inputs: spawnable.interface.inputs, name: `${node.componentId} (spawned)` }]
+			: [];
+	});

@@ -121,7 +121,7 @@ import { isRulesOnlyInRgs } from './reference/outcome';
 import { flowGraphs } from './runtime';
 import { dataSourceType, type PinContext } from './pins';
 import { deriveGraphPins } from './scope';
-import { INSTANCE_HANDLE_FIELDS } from './spawnNodes';
+import { INSTANCE_HANDLE_FIELDS, instanceHandleField } from './spawnNodes';
 import { spawnNodeIssues } from './spawnValidate';
 import {
 	guardLiteralMismatch,
@@ -1395,7 +1395,7 @@ const validateDataSource = (
 		return;
 	}
 	if (acc.on === 'item' && acc.member !== undefined && scopeItem?.t === 'instance') {
-		if (!(acc.member in INSTANCE_HANDLE_FIELDS)) {
+		if (!instanceHandleField(acc.member)) {
 			issues.push({
 				code: 'accessor-unresolved',
 				severity: 'error',

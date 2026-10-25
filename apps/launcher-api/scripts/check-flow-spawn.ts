@@ -783,6 +783,22 @@ console.log('5. pins and validation');
 		['accessor-unresolved'],
 	);
 	eq(
+		'$item.<an inherited name> over a live set',
+		codes(
+			loopOver('field', {
+				id: 'r',
+				kind: 'instanceRef',
+				componentId: 'coin',
+				pos: at,
+				inputs: {
+					instance: { kind: 'accessor', path: { on: 'item' } },
+					'in:value': { kind: 'accessor', path: { on: 'item', member: 'constructor' } },
+				},
+			}),
+		),
+		['accessor-unresolved'],
+	);
+	eq(
 		'a coin-only layer feeds a coin ref; a bomb ref is a type mismatch',
 		[
 			codes(
@@ -1050,10 +1066,12 @@ console.log('7. the ship chain');
 	};
 	eq(
 		'… and a key an Instance ref feeds a spawnable’s text input',
-		F.collectInstanceTextKeys(keyed, undefined, textLayers).map((k) => k.key),
+		F.instanceTextKeys(F.spawnedInstanceTextSources(keyed, { spawnLayers: textLayers })).map(
+			(k) => k.key,
+		),
 		['Collect me'],
 	);
-	eq('… none without the projection', F.collectInstanceTextKeys(keyed, undefined, undefined), []);
+	eq('… none without the projection', F.collectInstanceTextKeys(keyed, undefined), []);
 }
 {
 	const layerNode = (extra: Partial<SpawnLayerNode> = {}): SpawnLayerNode => ({

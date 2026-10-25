@@ -25,8 +25,10 @@ import {
 } from 'engine-layout';
 import type { FlowDoc } from 'engine-flow-v2';
 import {
-	collectInstanceTextKeys,
 	collectTextMessages,
+	instanceTextKeys,
+	placedInstanceTextSources,
+	spawnedInstanceTextSources,
 	type FlowInstanceDecl,
 	type FlowSpawnLayerDecl,
 } from 'engine-flow-v2';
@@ -446,9 +448,10 @@ export function harvestFlowInstanceText(
 	instances: Record<string, FlowInstanceDecl> | undefined,
 	spawnLayers?: Record<string, FlowSpawnLayerDecl>,
 ): HarvestSection[] {
-	const items = collectInstanceTextKeys(doc, instances, spawnLayers).filter((i) =>
-		isLocalizableText(i.source),
-	);
+	const items = instanceTextKeys([
+		...placedInstanceTextSources(doc, instances),
+		...(spawnLayers ? spawnedInstanceTextSources(doc, { spawnLayers }) : []),
+	]).filter((i) => isLocalizableText(i.source));
 	if (items.length === 0) return [];
 	return [
 		{

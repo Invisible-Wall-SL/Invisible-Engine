@@ -25,11 +25,9 @@ import type {
 	FlowDoc,
 	FlowInstanceDecl,
 	FlowInstanceNode,
-	FlowSpawnLayerDecl,
 	Graph,
 	InstanceInputKind,
 	InstanceInterface,
-	InstanceRefNode,
 	Node,
 	Pin,
 	TypeRef,
@@ -237,38 +235,26 @@ export const docNamesInstance = (doc: FlowDoc): boolean => {
 	);
 };
 
-/** Every `instanceRef` node of a doc, in every section, group bodies included. */
-const docInstanceRefNodes = (doc: FlowDoc): InstanceRefNode[] => {
-	const out: InstanceRefNode[] = [];
-	const scan = (nodes: Node[]): void => {
-		for (const node of nodes) {
-			if (node.kind === 'instanceRef') out.push(node);
-			else if (node.kind === 'group' && node.body) scan(node.body.nodes);
-		}
-	};
-	scan(doc.graph.nodes);
-	for (const scope of Object.values(doc.modes ?? {})) if (scope?.graph) scan(scope.graph.nodes);
-	return out;
-};
+/** A node that feeds a component's inputs, those inputs, and what to call it in the harvest. */
+export interface InstanceTextSource {
+	node: Node;
+	inputs: InstanceInterface['inputs'];
+	name: string;
+}
 
 /**
- * Every localization key a doc feeds a `text` input as a LITERAL, for Invisible Localization's
+ * The localization keys `sources` feed `text` inputs as LITERALS, for Invisible Localization's
  * harvest (plan §8: a Flow wire into a text input is harvested like a `textMessage`, so no text
- * bypasses translation) — a placed instance's (`instances`) and a spawned one's through an Instance
- * ref (`spawnLayers`: its spawnable's interface). Source-as-key, exact and untrimmed, each key
- * once; a literal that is not a key (no letter) is skipped, as the validator flags it. A value
- * arriving by WIRE is already a key of its own source (an event payload's `{ key }`, harvested with
- * its def).
+ * bypasses translation). Source-as-key, exact and untrimmed, each key once; a literal that is not a
+ * key (no letter) is skipped, as the validator flags it. A value arriving by WIRE is already a key
+ * of its own source (an event payload's `{ key }`, harvested with its def).
  */
-export const collectInstanceTextKeys = (
-	doc: FlowDoc | undefined,
-	instances: Record<string, FlowInstanceDecl> | undefined,
-	spawnLayers?: Record<string, FlowSpawnLayerDecl>,
+export const instanceTextKeys = (
+	sources: readonly InstanceTextSource[],
 ): { key: string; source: string; label: string }[] => {
-	if (!doc) return [];
 	const out: { key: string; source: string; label: string }[] = [];
 	const seen = new Set<string>();
-	const collect = (node: Node, inputs: InstanceInterface['inputs'], name: string): void => {
+	for (const { node, inputs, name } of sources) {
 		for (const input of inputs) {
 			if (input.kind !== 'text') continue;
 			const src = node.inputs?.[instanceInputPin(input.id)];
@@ -276,17 +262,27 @@ export const collectInstanceTextKeys = (
 			seen.add(src.value);
 			out.push({ key: src.value, source: src.value, label: `${name} — ${input.id}` });
 		}
-	};
-	for (const node of instances ? docComponentInstanceNodes(doc) : []) {
-		const decl = instances?.[node.instance];
-		if (!decl || decl.container !== node.container) continue;
-		collect(node, decl.interface.inputs, decl.name);
-	}
-	for (const node of spawnLayers ? docInstanceRefNodes(doc) : []) {
-		const spawnable = Object.values(spawnLayers ?? {})
-			.flatMap((layer) => layer.spawnable)
-			.find((s) => s.componentId === node.componentId);
-		if (spawnable) collect(node, spawnable.interface.inputs, `${node.componentId} (spawned)`);
 	}
 	return out;
 };
+
+/** The placed instances' `componentInstance` nodes of a doc, with their projected inputs. */
+export const placedInstanceTextSources = (
+	doc: FlowDoc | undefined,
+	instances: Record<string, FlowInstanceDecl> | undefined,
+): InstanceTextSource[] => {
+	if (!doc || !instances) return [];
+	return docComponentInstanceNodes(doc).flatMap((node) => {
+		const decl = instances[node.instance];
+		return decl && decl.container === node.container
+			? [{ node, inputs: decl.interface.inputs, name: decl.name }]
+			: [];
+	});
+};
+
+/** Every literal key a doc feeds a placed instance's `text` input ({@link instanceTextKeys}). */
+export const collectInstanceTextKeys = (
+	doc: FlowDoc | undefined,
+	instances: Record<string, FlowInstanceDecl> | undefined,
+): { key: string; source: string; label: string }[] =>
+	instanceTextKeys(placedInstanceTextSources(doc, instances));

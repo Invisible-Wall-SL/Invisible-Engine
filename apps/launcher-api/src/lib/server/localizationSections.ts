@@ -56,6 +56,8 @@ export async function harvestProjectSections(
 	]);
 	// The flow's placed-instance projection (Rive plan §6.2), for the keys it feeds `text` inputs —
 	// only when the flow places an instance at all, so a project without one reads no components.
+	let components: Promise<Awaited<ReturnType<typeof listComponents>>> | undefined;
+	const projectComponents = () => (components ??= listComponents({ projectKey }));
 	const instances =
 		flowV2Doc && docComponentInstanceNodes(flowV2Doc).length
 			? projectFlowInstances(
@@ -65,7 +67,7 @@ export async function harvestProjectSections(
 						await withPlacedComponentVersions(
 							projectKey,
 							editorDoc.scenes ?? [],
-							await listComponents({ projectKey }),
+							await projectComponents(),
 						),
 					),
 				)
@@ -77,7 +79,7 @@ export async function harvestProjectSections(
 			? projectSpawnLayers(
 					flowV2Doc.containers,
 					editorDoc.scenes ?? [],
-					instanceDefResolver(await listComponents({ projectKey })),
+					instanceDefResolver(await projectComponents()),
 				)
 			: undefined;
 	const sections = [

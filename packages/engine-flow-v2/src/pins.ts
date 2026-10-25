@@ -25,7 +25,7 @@
  */
 
 import { deriveInstancePins } from './instanceNodes';
-import { deriveSpawnPins, INSTANCE_HANDLE_FIELDS, liveElementType } from './spawnNodes';
+import { deriveSpawnPins, instanceHandleField, liveElementType } from './spawnNodes';
 import { variableTypeRef, type FlowVariableDecl } from './variables';
 import type {
 	Accessor,
@@ -196,7 +196,7 @@ const accessorType = (ctx: PinContext, acc: Accessor, scopeItem?: TypeRef): Type
 		case 'item': {
 			if (!scopeItem) return undefined;
 			if (acc.member === undefined) return scopeItem;
-			if (scopeItem.t === 'instance') return INSTANCE_HANDLE_FIELDS[acc.member];
+			if (scopeItem.t === 'instance') return instanceHandleField(acc.member);
 			if (scopeItem.t !== 'struct') return undefined;
 			return structFieldType(ctx, scopeItem.name, acc.member);
 		}
@@ -235,7 +235,7 @@ const untypedIn = (id: string, label: string, optional?: boolean): Pin => ({
 export const computeOutType = (ctx: PinContext, op: ComputeOp): TypeRef | undefined => {
 	if (op.op === 'member') {
 		const on = dataSourceType(ctx, op.on);
-		if (on?.t === 'instance') return INSTANCE_HANDLE_FIELDS[op.member];
+		if (on?.t === 'instance') return instanceHandleField(op.member);
 		if (on?.t !== 'struct') return undefined;
 		return structFieldType(ctx, on.name, op.member);
 	}
