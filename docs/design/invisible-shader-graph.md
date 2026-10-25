@@ -210,7 +210,7 @@ Each step has its own branch, gates and status entry.
    - Exit: an artist builds, previews and saves a graph on `/shaders`, and it is listed by the
      pickers and ships with Publish (step 4's chain).
 6. **Templates.** The graph twins of the built-ins, with the parity gate, as "Start from a built-in".
-   - As built: 30 of the 50 kinds have a twin (`BUILTIN_TWINS`): every kind drawn by a pixel pass,
+   - As built: 30 of the 50 kinds have a twin (`BUILTIN_TWINS`; 36 since 8b added the six breaks): every kind drawn by a pixel pass,
      hand-written or `pixi-filters`. The 14 motion-only kinds are curves alone and the 6 breaks are
      not pixel effects, so they have none.
    - The gate (`shader-twins`, in `check:all`) plays each built-in and its twin through the runtime
@@ -277,6 +277,14 @@ Each step has its own branch, gates and status entry.
        pieces fly in first, then the graph plays. The effect's phase must be the kind's.
      - An older runtime ignores the break; an exit effect must still leave there, so the compiled
        effect also carries a fade that reads as nothing on a runtime that breaks.
+     - As built: `at` 0 means the whole play is the break; Assemble's pieces fly in over
+       [0, 1 − at] and the graph has the last `at`. While the break plays, the effect's passes and
+       motion are held at the edge; the still is cut with the graph's filters on, at the effect's
+       held pose (antialiasing inherited, so WebGL2 keeps its smooth edges). The fade for older
+       runtimes starts 0.15 into the window; it keeps a doc's own alpha curve (or motion program)
+       up to that point. A break the reader cannot play is dropped and the effect kept. The six
+       break kinds have twins (an identity graph plus a Break Output with every param tied), held
+       to their built-ins by `shader-twins` with no pixel different.
    - **8c. The Custom GLSL node** (admin only, §9.3). A node whose body an author types, with
      declared typed ports. A `shaderCustomGlsl` capability gates saving or publishing a doc that
      holds one, checked on the server; the body is checked as the compiler checks generated code

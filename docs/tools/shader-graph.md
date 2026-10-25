@@ -75,7 +75,8 @@ projects to see another project's effects. The atlases the preview offers are th
 
 **+ New ▾ → Start from a built-in** lists the built-in Element FX rebuilt as graphs (their *twins*),
 by family, as the Scene Editor's effect picker groups them: the 3D turns, the distortions and the
-light effects (Freeze, Burn to ashes, Gold, Electrocute, the dissolves, Glow, Blur …), 30 in all.
+light effects (Freeze, Burn to ashes, Gold, Electrocute, the dissolves, Glow, Blur …) and the
+breaks (Crash, Crumble, Shatter, Crystallize, Disintegrate, Assemble), 36 in all.
 Pick one, name your effect (it suggests "*Freeze* copy"), and you get that effect's whole graph to
 change: its nodes and wires, its params (the same ones, with the same defaults, as the built-in's),
 its passes and its motion. It plays as the built-in does until you change something.
@@ -87,8 +88,11 @@ its passes and its motion. It plays as the built-in does until you change someth
   Petrify, Gold), or grows its room as it plays (Melt, the waves, Flag), the twin does it with a
   **motion graph** (see "The motion graph"), so its movement and room are checked against the
   built-in too.
+- **A break's twin** is the element as it is plus a **Break Output** (see "End in a break") with
+  every setting tied to the effect's own param of the same name: start there to add a look before
+  the element shatters.
 - **Not every built-in has a twin.** The motion-only effects (Shake, Pulse, Bounce, Pop in…) are
-  motion curves alone, and the breaks (Crumble, Shatter…) are not pixel effects.
+  motion curves alone.
 - The effect you make is your own: changing it never touches the built-in, and the built-in keeps
   playing as before wherever it is placed.
 
