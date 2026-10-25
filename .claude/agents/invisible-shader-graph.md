@@ -36,6 +36,12 @@ You are the developer for **Invisible Shader Graph**.
     `shaders.ts`; the editor's `GlslCodeEditor.svelte`, `CustomGlslProperties.svelte`,
     `PortListEditor.svelte`, `glslCheck.client.ts`; the server gate (`shaderCustomGlsl`) in
     `shaderStorage.ts` / `shaderScope.ts`.
+  - Particle materials (step 8d, `docs/design/shader-graph-particles.md`):
+    `packages/constants-shared/particleShell.ts` (the particle vertex shader, `PARTICLE_HEADER`,
+    `PARTICLE_SHELL_NAMES`, `particleShellSource`: a compiled body made a particle fragment); the
+    `particle` input node and the `efxParticleColor` / `Wave` / `Order` header helpers (neutral in
+    the element `HEADER`); held by the `particles` sheet of `shader-compile`
+    (`tools/fx-spike/shaderParticles.entry.ts`).
   - `src/subgraph.ts` (step 7): `flattenShaderGraph` inlines every subgraph call (ids
     `<call>/<node>`, a typed pass-through per port) before the compiler sees the graph, and
     `liftIssues` reports inner issues on their call; `analyzeShaderSubgraph` analyses a body alone.

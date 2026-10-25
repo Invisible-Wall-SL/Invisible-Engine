@@ -4289,6 +4289,12 @@ console.log('shader graph — the particle shell and the Particle node');
 			'a shell uniform read',
 			withBody((b) => b.replace('void main(void)\n{', 'void main(void)\n{\n    vec4 v = uColor;')),
 		],
+		[
+			'an element pass name read',
+			withBody((b) =>
+				b.replace('void main(void)\n{', 'void main(void)\n{\n    vec2 v = vTextureCoord;'),
+			),
+		],
 		['the shell’s body name taken', withBody((b) => `void efxParticleBody(void) {}\n${b}`)],
 		['no main', withBody((b) => b.replace('void main(void)', 'void mainly(void)'))],
 		['main in another form', withBody((b) => b.replace('void main(void)', 'void main()'))],

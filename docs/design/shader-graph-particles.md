@@ -399,6 +399,21 @@ svelte-check at baseline, and the current games building with no changed screen.
      - `shader-compile` gains a `particles` sheet: every reference graph, twin and node body, built
        through the particle shell, compiles and links on WebGL1 and WebGL2.
    - **Exit:** those green; nothing plays differently.
+   - **As built** (#TBD):
+     - **Layout.** 7 vertex attributes (`aPosition` = corner + unit, `aEfxFrame` = size + seed,
+       `aEfxMap`, `aEfxMap2` + wave and order, `aEfxTrim`, `aEfxColor`, `aEfxTime`; 27 floats,
+       108 B a vertex) and 7 varying rows, inside WebGL1's guaranteed 8 and 8.
+     - **Group colour always last.** The mesh's own colour (`uColor` × `uWorldColorAlpha`, the tint
+       and alpha it inherits) multiplies last even when the graph owns colour, so a layer's fade
+       still fades it. This goes past §7, which leaves an owning graph alone.
+     - **§13 "Custom mesh shaders" is settled** for the transforms and group colour: Pixi 8.22
+       binds them on a custom `Mesh` by name. A group alpha or tint below 1 is 8d.2's to check.
+     - **The conversion refuses** a preprocessor line or backslash, an unended comment, duplicate
+       or misnamed uniform sources, anything but one `void main(void)`, and any shell name (or a
+       name only the element pass declares, `vTextureCoord`, `uElement`…) in the body.
+     - **Custom GLSL** (8c) now also refuses the particle shell's 38 names as a port, local or loop
+       counter, so a stored body declaring one (`uColor`, `aEfx*`…) stops compiling.
+     - The byte-identity gate was a dump of 2,210 docs against the base, 0 differing.
 2. **The material renderer** (engine, `pixi-svelte`, no doc change).
    - **Contents:**
      - `particleMaterial/`: the hidden container, the mesh and the mirror;

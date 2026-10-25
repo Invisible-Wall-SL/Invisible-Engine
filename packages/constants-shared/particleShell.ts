@@ -18,8 +18,8 @@
  * alpha it inherits from its parents) multiplies last, as Pixi's own mesh shader does.
  *
  * Dependency-free, like `glslLibrary.ts`, so the launcher and the headless gates read it without Pixi.
- * Written, as the element's pass is, for GLSL ES 1.00 through Pixi's `GlProgram` (`in` / `out` /
- * `texture` / `finalColor` are its macros there).
+ * Written, as the element's pass is, for GLSL ES 1.00 and 3.00 alike through Pixi's `GlProgram`
+ * (`in` / `out` / `texture` / `finalColor` are its macros on WebGL1).
  */
 
 import type { CustomElementFx } from './elementFx';
@@ -140,6 +140,17 @@ float efxParticleOrder() { return vEfxMap2.w; }
 /** What the body's own `main` is renamed to: the shell's `main` calls it, then applies the colour rule. */
 const BODY_MAIN = 'efxParticleBody';
 
+/** The element pass's own names, which the particle program does not declare. */
+const ELEMENT_ONLY_NAMES = [
+	'vTextureCoord',
+	'uInputSize',
+	'uInputClamp',
+	'uOutputFrame',
+	'uOutputTexture',
+	'uElement',
+	'uPad',
+] as const;
+
 /** Each per-particle source a body reads, as the compiler declares it and the vertex shader writes it. */
 const PER_PARTICLE = {
 	time: { name: 'uFx', type: 'vec4' },
@@ -205,13 +216,13 @@ const count = (code: string, pattern: RegExp): number => code.match(pattern)?.le
  * an unended comment, two uniforms of one name, a time or seed source not under the name and type
  * the vertex shader writes, or a param under either name; either not declared once in the
  * compiler's form (`uniform vec4 uFx;` on its own line), or named in a body that reports no such
- * source; any other of the shell's names but `finalColor` in the body; no single `void main(void)`;
+ * source; any other of the shell's names but `finalColor`, or a name only the element's pass declares,
+ * in the body; no single `void main(void)`;
  * no `finalColor`.
  */
 export function particleShellSource(effect: Pick<CustomElementFx, 'shader'>): string | undefined {
 	const { body, uniforms } = effect.shader;
-	if (typeof body !== 'string' || !Array.isArray(uniforms as unknown) || /[#\\]/.test(body))
-		return undefined;
+	if (/[#\\]/.test(body)) return undefined;
 	const live = withoutComments(body);
 	if (live === undefined) return undefined;
 	const names = uniforms.map((u) => u.name);
@@ -240,7 +251,7 @@ export function particleShellSource(effect: Pick<CustomElementFx, 'shader'>): st
 	}
 	const reads = [...varyings, 'finalColor'];
 	if (
-		PARTICLE_SHELL_NAMES.some(
+		[...PARTICLE_SHELL_NAMES, ...ELEMENT_ONLY_NAMES].some(
 			(name) => !reads.includes(name) && count(live, new RegExp(`\\b${name}\\b`, 'g')),
 		) ||
 		count(live, /\bmain\b/g) !== 1 ||

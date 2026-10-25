@@ -15,7 +15,7 @@ step 7 (editor v2: subgraphs, node thumbnails, cost chips, publishing to the stu
 merged (#1342), and so are 8b, Break as an output node (#1347), and 8c, the admin-only Custom
 GLSL node (#1349). 8d (particle materials) is decided
 ([design](../design/shader-graph-particles.md)) and being built as 8d.1–8d.8; 8d.1 (the particle
-shell and the Particle node) is in progress.
+shell and the Particle node) is built and in review; 8d.2 (the material renderer) is next.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -277,8 +277,30 @@ shell and the Particle node) is in progress.
 - **Step 8** (the plan's "Later", split into 8a–8e in design §8). 8e not started.
   - **8d, particle materials for Invisible FX.** Decided 2026-10-25
     (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
-    shader). Built as 8d.1–8d.8, one PR each (its §15). 8d.1, the particle shell and the Particle
-    node, is in progress.
+    shader). Built as 8d.1–8d.8, one PR each (its §15). Nothing plays a material yet: that starts
+    with 8d.2 (the renderer) and reaches a game in 8d.3.
+    - **8d.1, the particle shell and the Particle node.** Built, in review.
+      - **The shell** (`packages/constants-shared/particleShell.ts`, dependency-free):
+        `PARTICLE_VERTEX` for a Pixi 8.22 `Mesh` custom shader, `PARTICLE_HEADER` defining all 12
+        header helpers with particle meanings, `PARTICLE_ATTRIBUTES` and `PARTICLE_SHELL_NAMES`
+        read off the shader text, and `particleShellSource(effect)`, which turns a compiled body's
+        `uniform vec4 uFx;` / `uniform float uSeed;` into varyings, renames its `main` and wraps it
+        in one applying the colour rule (design §7). The mesh's group colour (`uColor` ×
+        `uWorldColorAlpha`) multiplies last even when the graph owns colour, so a layer fade fades.
+        A body it cannot convert surely is refused (undefined) and will draw plain.
+      - **Layout:** 7 vertex attributes (27 floats, 108 B a vertex) and 7 varying rows, inside
+        WebGL1's guaranteed 8 and 8.
+      - **Three header helpers**, `efxParticleColor()`, `efxParticleWave()`,
+        `efxParticleOrder()`, in `EFX_HEADER_FUNCTIONS` / `EFX_HEADER_SIGNATURES` and in the element
+        `HEADER` (`pixi-svelte` `elementFx/shaders.ts`) as `vec4(1.0)`, `0.0`, `0.0`. A pre-8d
+        runtime drops an effect calling them (`unknownEfxCalls`).
+      - **The Particle node** (`particle`, Input): Colour, Wave index, Spawn order; cost 0; no CPU
+        form, so the motion graph refuses it; in the `/shaders` palette, with no thumbnail
+        (`FLAT_NODES`). On an element it reads white, 0 and 0.
+      - **Custom GLSL** also refuses the particle shell's 38 names (`uColor`, `uResolution`,
+        `uRound`, `aEfx*`, `vEfx*`…) as a port, local or loop counter. A stored body declaring
+        one stops compiling; reads of them were already refused, the node is admin-only and a
+        day old, and none of the samples does.
   - **8c, the Custom GLSL node.** Merged (#1349, 2026-10-25).
     - **The node** (`packages/engine-shadergraph/src/customGlsl.ts`). `customGlsl`, pixel graph and
       subgraph bodies: `glsl: { code, inputs, outputs }`, ports with the subgraph port rules
@@ -401,7 +423,19 @@ shell and the Particle node) is in progress.
       defaults.
 
 ## Open items / next
-1. **Step 8c follow-ups.**
+1. **Step 8d.2 (next): the material renderer** (design §15 step 2). Carried from 8d.1:
+   - one interleaved buffer, `aPosition` at offset 0 with an explicit stride; collapse unused
+     capacity or set the bounds, and draw only the live quads with `Geometry.indexCount`;
+   - keep the mesh non-interactive (`containsPoint` assumes packed positions); set `mesh.texture`
+     to the atlas texture so the blend is right;
+   - the attribute data: the mapping for rotated frames, per-axis padding, wall-time seconds and
+     Loop mode in `aEfxTime`, seed and indexes from `fxMaterial`;
+   - **quantise seeds to integers at spawn**: `uSeed` is now an interpolated varying, equal at all
+     four corners, so exact on SwiftShader; a GPU that interpolates with an ulp of error (or falls
+     back to mediump) under a hash would speckle inside one particle. Add it to 8d.8's phone check;
+   - the first-use link check, the Output-alone parity against plain sprites, and a group alpha or
+     tint below 1.
+2. **Step 8c follow-ups.**
    - The test-compile runs in the author's browser only (the server has no GPU), so a phone's
      driver may still refuse a body the author's took; the runtime then draws the element as it is
      and warns once.
@@ -409,7 +443,7 @@ shell and the Particle node) is in progress.
      are mediump.
    - The cost reads every branch and every round a loop may run, so a body often costs less than
      its chip says.
-2. **Step 7 follow-ups.**
+3. **Step 7 follow-ups.**
    - **Thumbnail compile cost.** A new probe's first draw compiles a shader: 100–1,500 ms each on
      SwiftShader, one per frame, so opening the 113-node Petrify twin takes about 7 s of drawing
      there (real GPUs compile far faster, not measured). `KHR_parallel_shader_compile` or a cap on
@@ -422,37 +456,52 @@ shell and the Particle node) is in progress.
      better in the analysis.
    - `deploy/editor-shaders/` holds the whole set (library included) while the bundle carries only
      the named effects; trimming the deploy tree too needs the export to know the bundle.
-3. **Step 8a follow-ups.**
+4. **Step 8a follow-ups.**
    - **Degenerate ranges.** Smoothstep with From = To, and Remap with From min = From max, at the
      single point x = the edge (0 ÷ 0) give 0 in a motion graph but 0 (smoothstep) and 0.5 (remap)
      on the GPU. `shader-motion` excludes that one point and prints both; either side of it the two
      agree. No GLSL was changed for it (that would move existing pixel graphs).
    - The cost meter does not count padding: a program may ask for up to 11.6 shares of room, a
      filter area up to about 590× the element's.
-4. **Step 6 follow-ups.**
+5. **Step 6 follow-ups.**
    - **Built-ins long term** (§9.5): they stay hand-written beside their twins until the gate has
      held for a while; then decide whether to generate them from the twins.
    - The gate takes about a minute of `check:all`, most of it SwiftShader drawing the widest glow.
-5. **Step 5 follow-ups.**
+6. **Step 5 follow-ups.**
    - The preview has no rig still yet (the plan's fourth source).
    - The preview plays the params' defaults; there is no per-preview value yet.
    - The preview uses WebGL2 where there is one (CI's `shader-compile` covers WebGL1), does not
      follow a change of screen pixel ratio, and clips a graph padded to the 2× maximum at its edge.
    - Delete has no lease check: the ✕ on a graph another author has open deletes it (its last
      version is in History), and their next save is then refused as a conflict.
-6. **Step 4 follow-ups.**
+7. **Step 4 follow-ups.**
    - The pickers read the set once per page load; a graph saved in another tab shows after a
      reload.
    - The stored-flow check before Publish's assemble composes the Flow vocab without the custom
      kinds (Publish's own check of the shipped flow has them). An enum value is judged as text, so
      the verdict is the same; an enum-membership check would need them there too.
-7. **Nodes the design lists that v1 does not have yet:** rim (a library entry now, `efxRim`, with
+8. **Nodes the design lists that v1 does not have yet:** rim (a library entry now, `efxRim`, with
    no node) and the pixel input. Add them when an artist needs one.
 
 ## Blocked (owner / external)
 - None.
 
 ## Recent changes
+- 2026-10-25 — **Step 8d.1: the particle shell and the Particle node** (see "Current state").
+  Step 8c merged (#1349); the 8d design decided (#1351).
+  - **Proof.** Compile fixture 207 (14 new: the shell's layout, every helper defined, the node at
+    every output and its neutral values, every compiled body converted, 21 refusals, comments
+    neither hiding nor faking a declaration, the colour rule; byte identity over 2,210 docs against
+    the base, 0 differing); `check:element-fx` (both headers held to the list, a reader without the
+    8d names dropping an effect that calls them); `shader-compile` 28 sheets on WebGL1 and WebGL2
+    (a new `particles` sheet: every reference, twin and node body drawn as trimmed, padded, tinted
+    quads through a real Pixi `Mesh`, each program's link status checked); `shader-parity` against
+    the base identical; `shader-twins` 36; `shader-motion` 53; `check:shader-editor` 253;
+    `check:shader-pipeline` 133; `check:all` CHECKALL; svelte-check at baseline (launcher 45,
+    pixi-svelte 14). Each new check mutation-checked.
+  - **Review.** Nothing blocking. Fixed: a body reading a name only the element pass declares
+    (`vTextureCoord`, `uElement`…) was converted into a fragment that would not compile; now
+    refused. Recorded: the Custom GLSL name list grew (above); seeds to be quantised in 8d.2.
 - 2026-10-25 — **Step 8c: the Custom GLSL node** (see "Current state"). Merged (#1349): CI green,
   Current games 12 pass with no changed screen. Step 8b merged (#1347).
   - **Proof.** Compile fixture 193 (the checker's every refusal, hostile and fuzzed bodies, the
