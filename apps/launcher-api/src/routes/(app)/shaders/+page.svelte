@@ -15,6 +15,7 @@
 	import { guardUnsavedWork } from '$lib/unsavedGuard';
 	import { CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT, elementFxSpec } from 'constants-shared/elementFx';
 	import {
+		BREAK_OUTPUT,
 		COST_BUDGET,
 		CUSTOM_GLSL,
 		MOTION_OUTPUT,
@@ -33,6 +34,7 @@
 		subgraphOf,
 		type ShaderGraphDoc,
 	} from 'engine-shadergraph';
+	import BreakProperties from './BreakProperties.svelte';
 	import CustomGlslProperties from './CustomGlslProperties.svelte';
 	import GraphSettings from './GraphSettings.svelte';
 	import NodeProperties from './NodeProperties.svelte';
@@ -51,6 +53,8 @@
 		addCall,
 		addNodeIn,
 		analyzeScope,
+		breakPaletteEntry,
+		breakPlacement,
 		canConnect,
 		canPlace,
 		canvasGraph,
@@ -654,7 +658,10 @@
 		selectedId = id;
 	}
 	function placeNode(type: string, pos: { x: number; y: number }): void {
-		if (!doc || !canPlace(doc, scope, type, canCustomGlsl)) return;
+		if (!doc) return;
+		const refused = type === BREAK_OUTPUT ? breakPlacement(doc, scope) : '';
+		if (refused) notice = refused;
+		if (refused || !canPlace(doc, scope, type, canCustomGlsl)) return;
 		// The motion graph's first node brings its Output: show both.
 		const first = motionShown && !view?.nodes.length;
 		const added = addNodeIn(doc, scope, type, pos);
@@ -694,8 +701,13 @@
 			);
 		return { x: (anchor?.x ?? 0) - 240, y: (anchor?.y ?? 0) + 30 };
 	}
+	/** Where a clicked Break Output lands: under the Output, an output beside the other. */
+	function belowOutput(): { x: number; y: number } {
+		const out = view?.nodes.find((n) => n.type === 'output');
+		return out ? { x: out.x, y: out.y + 220 } : besideSelection();
+	}
 	function addFromLibrary(type: string): void {
-		if (doc) placeNode(type, besideSelection());
+		if (doc) placeNode(type, type === BREAK_OUTPUT ? belowOutput() : besideSelection());
 	}
 
 	/** The doc takes `code` for Custom GLSL node `id` of graph `at`, unless another effect opened
@@ -967,6 +979,7 @@
 				customGlsl={canCustomGlsl}
 				subgraphs={doc ? subgraphRows(doc, scope) : []}
 				boundary={doc ? missingBoundary(doc, scope) : []}
+				breakEntry={doc ? breakPaletteEntry(doc, scope) : undefined}
 				onAddCall={(id) => placeCall(id, besideSelection())}
 				onOpenSubgraph={openSubgraph}
 				onDeleteSubgraph={(id) => void removeSubgraph(id)}
@@ -1092,7 +1105,18 @@
 			<aside class="props">
 				{#if doc}
 					<ShaderPreview effect={compiledEffect} atlases={data.atlases} />
-					{#if selected && view}
+					{#if selected && view && selected.type === BREAK_OUTPUT && !scope}
+						<BreakProperties
+							{doc}
+							node={selected}
+							errors={viewAnalysis?.issues
+								.filter((i) => i.node === selected.id && i.level === 'error')
+								.map((i) => i.message) ?? []}
+							disabled={lease.readOnly}
+							onChange={edit}
+							onNotice={(text) => (notice = text)}
+						/>
+					{:else if selected && view}
 						<NodeProperties
 							{doc}
 							node={selected}

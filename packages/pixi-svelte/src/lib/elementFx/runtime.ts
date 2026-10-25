@@ -482,9 +482,13 @@ const releaseFilters = (runtime: Runtime): void => {
 /** Keep the runtime's filters on the container, after its own, and feed each one its frame. */
 const applyFilters = (runtime: Runtime, frames: Map<Effect, FxFrame>): void => {
 	const { target } = runtime;
-	// A custom effect whose still is cut needs no passes on the element it hides.
+	// A custom effect whose still is cut (or that holds its end) needs no passes on the element it
+	// hides.
 	const ours = runtime.effects.filter(
-		(e) => e.filters.length && frames.has(e) && !(e.breakRun && e.impl.breakWindow?.live === false),
+		(e) =>
+			e.filters.length &&
+			frames.has(e) &&
+			!(e.impl.breakWindow?.live === false && (e.breakRun || e.held)),
 	);
 	const current = target.filters ?? NO_FILTERS;
 	if (runtime.filtersOn && current !== runtime.lastFilters) {
@@ -593,6 +597,24 @@ const timeScaleOf = (host: ElementFxHost): number => {
 	}
 };
 
+let cutFailed = false;
+
+/**
+ * `cut()`'s break, or undefined when it throws (a renderer that cannot draw the still): the break
+ * then leaves as one that cannot cut, rather than throwing into the ticker every frame. Said once.
+ */
+const cutOrFade = (cut: () => BreakRun | undefined): BreakRun | undefined => {
+	try {
+		return cut();
+	} catch (error) {
+		if (!cutFailed) {
+			cutFailed = true;
+			console.warn('Element FX: a break could not cut its still, so it fades instead.', error);
+		}
+		return undefined;
+	}
+};
+
 /**
  * Snapshot and cut the element for a break, or mark it to fade instead. A live break cuts the box
  * the element has now, and one with nothing to draw yet (no size, as in a zoom from nothing; hidden,
@@ -606,19 +628,22 @@ const startEffectBreak = (runtime: Runtime, effect: Effect): void => {
 	const drawable = !!box && box.width >= 1 && box.height >= 1 && target.visible && !!target.parent;
 	if (live && runtime.host.renderer && !drawable) return;
 	const renderer = box ? runtime.host.renderer : undefined;
+	const breaks = effect.impl.breaks;
 	effect.breakRun =
-		renderer && box && effect.impl.breaks
-			? startBreak({
-					style: effect.impl.breaks,
-					target,
-					renderer,
-					box,
-					rest: restMatrix(target, runtime.rest ?? readComps(target)),
-					intensity: effect.intensity,
-					params: effect.params,
-					playSeconds: effect.durationMs / 1000,
-					live,
-				})
+		renderer && box && breaks
+			? cutOrFade(() =>
+					startBreak({
+						style: breaks,
+						target,
+						renderer,
+						box,
+						rest: restMatrix(target, runtime.rest ?? readComps(target)),
+						intensity: effect.intensity,
+						params: effect.params,
+						playSeconds: effect.durationMs / 1000,
+						live,
+					}),
+				)
 			: undefined;
 	if (!effect.breakRun) effect.breakFallback = true;
 };
@@ -682,18 +707,20 @@ const startCustomBreak = (runtime: Runtime, effect: Effect, frame: FxFrame): voi
 		target.alpha = 1;
 		for (const filter of effect.filters) filter.antialias = 'inherit';
 		try {
-			effect.breakRun = startBreak({
-				style: window.style,
-				target,
-				renderer,
-				box,
-				rest: drawn.matrix,
-				alpha: drawn.alpha,
-				intensity: effect.intensity,
-				params: window.params(effect.params),
-				playSeconds: ((window.to - window.from) * effect.durationMs) / 1000,
-				live: window.live,
-			});
+			effect.breakRun = cutOrFade(() =>
+				startBreak({
+					style: window.style,
+					target,
+					renderer,
+					box,
+					rest: drawn.matrix,
+					alpha: drawn.alpha,
+					intensity: effect.intensity,
+					params: window.params(effect.params),
+					playSeconds: ((window.to - window.from) * effect.durationMs) / 1000,
+					live: window.live,
+				}),
+			);
 		} finally {
 			target.alpha = alpha;
 			effect.filters.forEach((filter, i) => (filter.antialias = smoothing[i]));
@@ -705,7 +732,8 @@ const startCustomBreak = (runtime: Runtime, effect: Effect, frame: FxFrame): voi
 /**
  * Keep a custom effect's break in step with its window: outside it, gone (the element shows; the
  * next window cuts afresh); inside it, its pieces posed, or, not cut yet, it joins `cuts` (none: an
- * exit holding its end does not cut again).
+ * exit holding its end does not cut again). A window with no length (a break starting at the very
+ * end, an assemble over none of the play) cuts nothing: the element is hidden for that instant.
  */
 const followWindow = (
 	effect: Effect,
@@ -720,8 +748,9 @@ const followWindow = (
 		effect.breakFallback = false;
 		return;
 	}
-	if (!effect.breakRun && !effect.breakFallback) cuts?.push(effect);
-	else effect.breakRun?.update(windowBreakProgress(window, u));
+	if (effect.breakRun || effect.breakFallback)
+		effect.breakRun?.update(windowBreakProgress(window, u));
+	else if (window.to > window.from) cuts?.push(effect);
 };
 
 /** An effect's filters, made on its first frame. */

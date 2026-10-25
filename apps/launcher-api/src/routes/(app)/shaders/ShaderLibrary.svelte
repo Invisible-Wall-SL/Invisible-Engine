@@ -1,8 +1,9 @@
 <script lang="ts">
 	import MenuButton, { type MenuGroup } from '$lib/MenuButton.svelte';
 	import { writeDrag } from '$lib/graph/dnd';
-	import { MOTION_OUTPUT, SUBGRAPH_CALL, SUBGRAPH_IN } from 'engine-shadergraph';
+	import { BREAK_OUTPUT, MOTION_OUTPUT, SUBGRAPH_CALL, SUBGRAPH_IN } from 'engine-shadergraph';
 	import {
+		BREAK_CHOICES,
 		SHADER_DROP_MIME,
 		categoryColor,
 		libraryGroups,
@@ -15,6 +16,7 @@
 	// node is dragged onto the canvas, or clicked to add it beside the selected node. While the
 	// canvas shows the motion graph, the library is the motion nodes (floats alone), no subgraph.
 	// Custom GLSL is listed under Advanced for a holder of `shaderCustomGlsl` alone.
+	// The Output family offers a Break Output while the effect has none (greyed out in a subgraph).
 	interface GraphRow {
 		id: string;
 		name: string;
@@ -45,6 +47,9 @@
 		motion?: boolean;
 		/** The user may add Custom GLSL (holds `shaderCustomGlsl`). */
 		customGlsl?: boolean;
+		/** The Break Output's entry (`breakPaletteEntry`): absent while not offered, greyed out with
+		 *  its `refusal` where it cannot go. */
+		breakEntry?: { refusal: string };
 		onAddCall?: (id: string) => void;
 		onOpenSubgraph?: (id: string) => void;
 		onDeleteSubgraph?: (id: string) => void;
@@ -63,6 +68,7 @@
 		boundary = [],
 		motion = false,
 		customGlsl = false,
+		breakEntry,
 		onAddCall,
 		onOpenSubgraph,
 		onDeleteSubgraph,
@@ -108,6 +114,13 @@
 		const q = query.trim().toLowerCase();
 		return !q || label.toLowerCase().includes(q) || description.toLowerCase().includes(q);
 	};
+	const BREAK_TEXT = {
+		label: 'Break Output',
+		description: `Breaks the element with a built-in break (${BREAK_CHOICES.map((c) => c.label).join(', ')}), cut from what the graph draws.`,
+	};
+	const breakShown = $derived(
+		!!breakEntry && !motion && matches(BREAK_TEXT.label, BREAK_TEXT.description),
+	);
 	const shown = $derived(
 		(motion ? MOTION_GROUPS : PIXEL_GROUPS)
 			.map((g) => ({
@@ -251,6 +264,23 @@
 				{/each}
 			</ul>
 		{/each}
+		{#if breakShown && breakEntry}
+			<h4 style="--family:{categoryColor('output')}">Output</h4>
+			<ul class="palette">
+				<li>
+					<button
+						type="button"
+						draggable={!readOnly && !breakEntry.refusal}
+						disabled={readOnly || !!breakEntry.refusal}
+						title={breakEntry.refusal || BREAK_TEXT.description}
+						ondragstart={(e) => writeDrag(e, SHADER_DROP_MIME, { type: BREAK_OUTPUT })}
+						onclick={() => onAdd(BREAK_OUTPUT)}
+					>
+						{BREAK_TEXT.label}
+					</button>
+				</li>
+			</ul>
+		{/if}
 	</section>
 </aside>
 
