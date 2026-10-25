@@ -72,6 +72,7 @@ import {
 	docFromTwin,
 	docIssues,
 	groupNodes,
+	groupRefusal,
 	hasThumbnail,
 	inScope,
 	libraryGroups,
@@ -99,6 +100,7 @@ import {
 	subgraphRows,
 	twinGroups,
 	ungroupCall,
+	ungroupRefusal,
 	viewOf,
 	wireId,
 } from '../src/routes/(app)/shaders/shaderEditor.ts';
@@ -1056,12 +1058,20 @@ console.log('9. subgraphs');
 	};
 	let trips = 0;
 	const failed: string[] = [];
+	/** Selections a subgraph's 32 inputs or outputs cannot take, and what was said of them. */
+	const capped: string[] = [];
 	for (const doc of [...REFERENCE_GRAPHS, ...BUILTIN_TWINS.map((t) => t.doc)]) {
 		const base = compileShaderGraph(doc);
 		if (!base.ok) continue;
 		for (let k = 0; k < 8; k++) {
 			const ids = doc.nodes.filter((n) => n.type !== 'output' && rand() < 0.4).map((n) => n.id);
 			if (!ids.length) continue;
+			const refused = groupRefusal(doc, null, ids);
+			if (refused) {
+				capped.push(refused);
+				if (groupNodes(doc, null, ids, 'G')) failed.push(`${doc.id}: grouped though refused`);
+				continue;
+			}
 			trips += 1;
 			const grouped = groupNodes(doc, null, ids, 'G');
 			const compiled = grouped && compileShaderGraph(grouped.doc);
@@ -1079,11 +1089,19 @@ console.log('9. subgraphs');
 		}
 	}
 	check(
-		`group then ungroup, ${trips} seeded selections over every reference graph and twin: the group compiles to the same shader (its pass-throughs read through), cost and reads; ungrouping it gives byte-identical GLSL and drops the subgraph`,
+		`group then ungroup, ${trips} seeded selections over every reference graph and twin: the group compiles to the same shader (its pass-throughs read through), cost and reads; ungrouping it gives byte-identical GLSL (not the same doc: nodes and wires change order) and drops the subgraph`,
 		failed,
 		[],
 	);
-	check('…and there were enough of them', trips > 200, true);
+	check(
+		`…and there were enough of them; the ${capped.length} selections needing more than 32 inputs or outputs were refused, saying so`,
+		[
+			trips > 200,
+			capped.length < trips / 10,
+			capped.every((m) => /^A subgraph takes at most 32 inputs and 32 outputs/.test(m)),
+		],
+		[true, true, true],
+	);
 
 	// Boundary typing: Pulse tint's tint grouped.
 	const pulse = REFERENCE_GRAPHS.find((d) => d.id === 'pulseTint') as ShaderGraphDoc;
@@ -1440,6 +1458,161 @@ console.log('9. subgraphs');
 			return back ? canonical(glsl(back.doc)) === canonical(glsl(doc)) : false;
 		})(),
 		true,
+	);
+
+	// A retyped port: its pass-through converts, a straight wire would not, so ungroup is refused.
+	const u2: ShaderGraphDoc = {
+		...newShaderDoc('u2', 'U2'),
+		nodes: [
+			{ id: 'out', type: 'output', x: 400, y: 0 },
+			{ id: 'c', type: 'subgraph', x: 200, y: 0, values: { subgraph: 's' } },
+			{ id: 'col', type: 'color', x: 0, y: 0, values: { value: '#ff8000' } },
+		],
+		wires: [
+			{ from: { node: 'col', port: 'out' }, to: { node: 'c', port: 'a' } },
+			{ from: { node: 'c', port: 'r' }, to: { node: 'out', port: 'color' } },
+		],
+		subgraphs: [
+			{
+				id: 's',
+				name: 'S',
+				inputs: [{ id: 'a', label: 'a', type: 'float' }],
+				outputs: [{ id: 'r', label: 'r', type: 'vec4' }],
+				nodes: [
+					{ id: 'i', type: 'subgraphIn', x: 0, y: 0 },
+					{ id: 'o', type: 'subgraphOut', x: 0, y: 0 },
+				],
+				wires: [{ from: { node: 'i', port: 'a' }, to: { node: 'o', port: 'r' } }],
+			},
+		],
+	};
+	check(
+		'the review’s case (a Colour into a float input, through to a vec4 output) compiles, and ungroup refuses it, naming both ports',
+		[compileShaderGraph(u2).ok, ungroupCall(u2, null, 'c'), ungroupRefusal(u2, null, 'c')],
+		[
+			true,
+			undefined,
+			'Ungrouping would change what S draws: its input "a" is a float fed a vec3; its output "r" is a vec4 fed a float inside. Make each such port the type that feeds it, then ungroup.',
+		],
+	);
+	const u2Fixed = setSubgraphPort(
+		setSubgraphPort(u2, 's', 'inputs', 'a', { type: 'vec3' }),
+		's',
+		'outputs',
+		'r',
+		{ type: 'vec3' },
+	);
+	const u2Back = ungroupCall(u2Fixed, null, 'c');
+	check(
+		'…retyped to what feeds them, it ungroups to the same GLSL as the call',
+		[
+			ungroupRefusal(u2Fixed, null, 'c'),
+			!!u2Back && canonical(glsl(u2Back.doc)) === canonical(glsl(u2Fixed)),
+		],
+		[undefined, true],
+	);
+	const retypedT = setSubgraphPort(second.doc, 'tint', 'inputs', 'in2', { type: 'vec2' });
+	check(
+		'retyping a port of a grouped call (T, a float, made a vec2) refuses ungroup, naming it; ungroup of the untouched call still goes',
+		[
+			ungroupRefusal(retypedT, null, 'subgraph1'),
+			ungroupCall(retypedT, null, 'subgraph1'),
+			ungroupRefusal(second.doc, null, 'subgraph1'),
+		],
+		[
+			'Ungrouping would change what Tint draws: its input "T" is a vec2 fed a float. Make each such port the type that feeds it, then ungroup.',
+			undefined,
+			undefined,
+		],
+	);
+
+	// The caps: 32 inputs and outputs, 64 subgraphs.
+	const wide = (() => {
+		let d = newShaderDoc('wide', 'Wide');
+		const add = addNode(d, 'add', { x: 0, y: 0 });
+		d = add.doc;
+		for (let i = 0; i < 33; i++) {
+			const num = addNode(d, 'number', { x: -200, y: i * 40 });
+			const sum = addNode(num.doc, 'add', { x: 0, y: i * 40 });
+			d = connect(sum.doc, { node: num.id, port: 'out' }, { node: sum.id, port: 'a' });
+		}
+		return d;
+	})();
+	const adds = wide.nodes.filter((n) => n.type === 'add').map((n) => n.id);
+	check(
+		'a group needing 33 inputs is refused, saying so; 32 group',
+		[
+			groupRefusal(wide, null, adds),
+			groupNodes(wide, null, adds, 'W'),
+			!!groupNodes(wide, null, adds.slice(0, 33), 'W'),
+		],
+		[
+			'A subgraph takes at most 32 inputs and 32 outputs; these nodes would need 33 and 0. Group fewer of them.',
+			undefined,
+			true,
+		],
+	);
+	const full: ShaderGraphDoc = {
+		...pulse,
+		subgraphs: Array.from({ length: 64 }, (_, i) => ({
+			id: `s${i}`,
+			name: `S${i}`,
+			inputs: [],
+			outputs: [],
+			nodes: [],
+			wires: [],
+		})),
+	};
+	check(
+		'an effect holding 64 subgraphs groups no more, saying so',
+		[groupRefusal(full, null, ['mix7']), groupNodes(full, null, ['mix7'], 'X')],
+		['An effect holds at most 64 subgraphs: delete one to group these nodes.', undefined],
+	);
+	let crowded = second.doc;
+	for (let i = 0; i < 40; i++) crowded = addSubgraphPort(crowded, 'tint', 'inputs');
+	check('adding ports stops at 32', body(crowded)?.inputs.length, 32);
+
+	// Chips inside a body count what the analysis inlines: a call of the body itself is refused
+	// there, so its chip is nothing, not the body once more.
+	const selfish: ShaderGraphDoc = {
+		...newShaderDoc('selfish', 'Selfish'),
+		nodes: [
+			{ id: 'out', type: 'output', x: 400, y: 0 },
+			{ id: 'c', type: 'subgraph', x: 0, y: 0, values: { subgraph: 'x' } },
+		],
+		wires: [{ from: { node: 'c', port: 'o1' }, to: { node: 'out', port: 'color' } }],
+		subgraphs: [
+			{
+				id: 'x',
+				name: 'X',
+				inputs: [],
+				outputs: [
+					{ id: 'o1', label: 'o1', type: 'float' },
+					{ id: 'o2', label: 'o2', type: 'float' },
+				],
+				nodes: [
+					{ id: 'i', type: 'subgraphIn', x: 0, y: 0 },
+					{ id: 'cells', type: 'cells', x: 0, y: 0 },
+					{ id: 'k', type: 'subgraph', x: 0, y: 0, values: { subgraph: 'x' } },
+					{ id: 'o', type: 'subgraphOut', x: 0, y: 0 },
+				],
+				wires: [
+					{ from: { node: 'cells', port: 'nearest' }, to: { node: 'o', port: 'o1' } },
+					{ from: { node: 'k', port: 'o1' }, to: { node: 'o', port: 'o2' } },
+				],
+			},
+		],
+	};
+	check(
+		'inside X, a call of X is refused by the analysis, and its chip is nothing; the Cells beside it 120',
+		[
+			analyzeScope(selfish, 'x').issues.some(
+				(i) => i.node === 'k' && /X calls itself/.test(i.message),
+			),
+			nodeCosts(viewOf(selfish, 'x'), analyzeScope(selfish, 'x'), 'x').get('k')?.cost,
+			nodeCosts(viewOf(selfish, 'x'), analyzeScope(selfish, 'x'), 'x').get('cells')?.cost,
+		],
+		[true, 0, 120],
 	);
 }
 

@@ -52,6 +52,7 @@
 		docIssues,
 		freshSubgraphName,
 		groupNodes,
+		groupRefusal,
 		groupable,
 		inScope,
 		missingBoundary,
@@ -64,6 +65,7 @@
 		subgraphRows,
 		twinGaps,
 		ungroupCall,
+		ungroupRefusal,
 		viewOf,
 	} from './shaderEditor';
 	import type { PageData } from './$types';
@@ -610,6 +612,11 @@
 	}
 	function groupSelection(): void {
 		if (!doc || lease.readOnly) return;
+		const refused = groupRefusal(doc, scope, pickedIds);
+		if (refused) {
+			notice = refused;
+			return;
+		}
 		const grouped = groupNodes(doc, scope, pickedIds, freshSubgraphName(doc), viewAnalysis);
 		if (!grouped) return;
 		edit(grouped.doc);
@@ -617,6 +624,11 @@
 	}
 	function ungroup(callId: string): void {
 		if (!doc || lease.readOnly) return;
+		const refused = ungroupRefusal(doc, scope, callId);
+		if (refused) {
+			notice = refused;
+			return;
+		}
 		const done = ungroupCall(doc, scope, callId);
 		if (!done) return;
 		edit(done.doc);

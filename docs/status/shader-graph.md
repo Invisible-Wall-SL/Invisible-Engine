@@ -212,18 +212,23 @@ library) is in review on `claude/shader-graph-step7`.
       the call's value, else the port's default, else 0.
     - What it refuses, named on the call: a missing or duplicate subgraph, recursion (direct or
       through another), nesting past 4, a body without exactly one Input and Output (or holding the
-      effect's Output), a malformed port, a wire to a port the definition lacks, an input wired
-      twice, and more than 2000 inlined nodes (a hostile fan-out is refused in about 20 ms).
+      effect's Output), a malformed port (a prototype name included), a wire to a port the
+      definition lacks, an input wired twice, more than 32 inputs or outputs on a subgraph, more
+      than 64 subgraphs, and more than 4000 nodes, wires and ports inlined in all. A refusal is
+      worked out once per subgraph and its message capped, so a hostile stored doc is refused in
+      milliseconds with a bounded heap.
     - `compileShaderGraph`, `analyzeShaderGraph` and `validateShaderGraph` flatten first, then
       report each inner issue on its call ("Name › …"); cost and reads sum the inlined nodes.
       `analyzeShaderSubgraph` analyses a body alone for the editor.
     - A doc with no calls comes back as the same object, so every existing graph compiles,
       analyses and validates byte-identical. Nothing past the compiler knows subgraphs exist: no
       runtime change, and the rollback floor does not move.
-    - The editor: Group (Ctrl+G; one input per outer output read inside), Open (double-click, ✎ or
-      the button) with a breadcrumb, Ungroup (Ctrl+Shift+G; byte-identical GLSL back, and the
-      subgraph goes with its last call), ports edited on the Input / Output nodes (every call
-      follows), a palette group with call counts, delete-while-called asks first. Every existing
+    - The editor: Group (Ctrl+G; one input per outer output read inside; refused past 32 ports or
+      64 subgraphs), Open (double-click, ✎ or the button) with a breadcrumb, Ungroup
+      (Ctrl+Shift+G; the same GLSL back, and the subgraph goes with its last call; refused, naming
+      the port, when a port was retyped away from what feeds it), ports edited on the Input /
+      Output nodes (every call follows), a palette group with call counts, delete-while-called
+      asks first. Every existing
       gesture works inside a body (`GraphScope`). `GraphCanvas` gained an optional node
       double-click (capture phase; xyflow 1.7 has none); /flow-v2 passes nothing.
   - **Node thumbnails** (`shaderThumbs.client.ts`, `thumbScheduler.client.ts`,
@@ -308,16 +313,18 @@ library) is in review on `claude/shader-graph-step7`.
 ## Recent changes
 - 2026-10-25 — **Step 7: editor v2** (see "Current state"). Step 6 merged (#1333).
   - **Proof.**
-    - `compile.fixture.ts` 99 (35 new: single, repeated and nested calls, every refusal, how issues
-      land on the call, port types, cost, a body alone, storage, a flat shipped effect;
-      mutation-checked, 14 of 14 mutants fail it). A dump of 414 docs (references, twins, the node
+    - `compile.fixture.ts` 108 (44 new: single, repeated and nested calls, every refusal, how issues
+      land on the call, port types, cost, a body alone, storage, a flat shipped effect, and eight
+      hostile docs refused in under 500 ms with the heap and every message bounded;
+      mutation-checked). A dump of 414 docs (references, twins, the node
       showcase, 150 broken variants) compiles, analyses and validates byte-identical before and
       after; `snapshots/` unchanged.
-    - `check:shader-editor` 145 (section 9, subgraphs: 400+ seeded group-then-ungroup round trips
-      over every reference and twin, byte-identical; sections 7–8, thumbnails and chips: 872
+    - `check:shader-editor` 152 (section 9, subgraphs: 222 seeded group-then-ungroup round trips
+      over every reference and twin, the same GLSL back, and 10 selections refused by the port cap
+      with a reason; Ungroup refused after a retype; sections 7–8, thumbnails and chips: 872
       probes over every twin and reference compile, keys change only for an edited node and what
       reads it, the live cap, chips sum to the analysis; 1,051 body probes; mutation-checked).
-    - `check:shader-pipeline` 113 (publish and remove behind `shaderPublish`, 409 `exists`, an
+    - `check:shader-pipeline` 114 (publish and remove behind `shaderPublish`, 409 `exists`, an
       explicit replace, a graph that does not compile refused, backups beside the library,
       `inLibrary`, the bundle trimmed to named effects in both the runtime bundle and the bake, a
       graph with a subgraph saved and shipped flat).
@@ -333,6 +340,15 @@ library) is in review on `claude/shader-graph-step7`.
       still tagged, no buttons without the capability). It found one bug, fixed: a save dropped
       the open graph's in-library tag, so **Update library copy** fell back to a plain publish and
       met a 409.
+    - `check:all` 534/534 (two re-run after a stale local install), svelte-check at baseline
+      (launcher 45, pixi-svelte 14, lines 156).
+  - **Review.** An independent review found one blocking item: the flatten's budget counted only
+    body nodes, so a 199 KB stored doc (one subgraph with 2000 ports, called 500 times) took 33 s
+    and 1.1 GB to analyse and blocked the launcher on every effects listing and Publish. Fixed with
+    the port, subgraph and inlined caps above (that doc now refuses in about 22 ms). Also fixed: Ungroup
+    after a port retype changed the graph (now refused, naming the port); prototype-named port ids;
+    chips in an opened body inlining one level more than the analysis; the bake counting an object
+    key as naming an effect; `canPublishSharedShaders` re-implementing `userHasCapability`.
 - 2026-10-24 — **Step 6: the templates** (see "Current state"). Merged (#1333): CI green,
   `check:all` 531/531, Current games 12 pass with all 186 compared screens byte-identical.
   - **Proof.** `shader-twins` passes all 30 twins on WebGL1 and WebGL2. On every twin but three the

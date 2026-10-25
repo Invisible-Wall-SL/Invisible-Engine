@@ -3,6 +3,7 @@
 		DIMS,
 		SUBGRAPH_CALL,
 		SUBGRAPH_IN,
+		SUBGRAPH_PORTS_MAX,
 		SUBGRAPH_PORT_TYPES,
 		calledSubgraph,
 		subgraphName,
@@ -146,7 +147,13 @@
 				</span>
 			</div>
 		{/each}
-		<button type="button" {disabled} onclick={() => onChange(addSubgraphPort(doc, sub.id, side))}
+		<button
+			type="button"
+			disabled={disabled || sub[side].length >= SUBGRAPH_PORTS_MAX}
+			title={sub[side].length >= SUBGRAPH_PORTS_MAX
+				? `A subgraph takes at most ${SUBGRAPH_PORTS_MAX} ${side}`
+				: undefined}
+			onclick={() => onChange(addSubgraphPort(doc, sub.id, side))}
 			>+ Add {side === 'inputs' ? 'input' : 'output'}</button
 		>
 	{/if}

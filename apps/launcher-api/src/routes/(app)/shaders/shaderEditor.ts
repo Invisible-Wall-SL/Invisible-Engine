@@ -25,12 +25,15 @@ import {
 	SHADER_GRAPH_VERSION,
 	SHADER_NODES,
 	SUBGRAPH_CALL,
+	SUBGRAPH_COUNT_MAX,
 	SUBGRAPH_IN,
 	SUBGRAPH_OUT,
+	SUBGRAPH_PORTS_MAX,
 	analyzeShaderGraph,
 	analyzeShaderSubgraph,
 	calledSubgraph,
 	canFeed,
+	flattenGraph,
 	flattenShaderGraph,
 	graphNodeDef,
 	shaderNode,
@@ -897,8 +900,12 @@ export function nodeCosts(
 	const unreached = new Set(
 		analysis.issues.filter((i) => i.code === 'unreachable' && i.node).map((i) => i.node),
 	);
-	// Every call inlined, each inlined node counted for the call it came from.
-	const flat = flattenShaderGraph(viewOf(doc, scope));
+	// Every call inlined as the analysis inlines it (an opened body one call deep, so no deeper and
+	// no self-call more than the analysis allows), each inlined node counted for its call.
+	const sub = scope ? subgraphOf(doc, scope) : undefined;
+	const flat = sub
+		? flattenGraph(doc, sub.nodes, sub.wires, [sub], 1)
+		: flattenShaderGraph(viewOf(doc, scope));
 	const byId = new Map(flat.nodes.map((n) => [n.id, n]));
 	const feeds = new Map<string, string[]>();
 	for (const w of flat.wires) feeds.set(w.to.node, [...(feeds.get(w.to.node) ?? []), w.from.node]);
@@ -1106,12 +1113,39 @@ function uniqueLabel(label: string, taken: Set<string>): string {
 	return name;
 }
 
+const crossing = (end: GraphWire['from']): string => `${end.node}\u0000${end.port}`;
+
+/**
+ * Why nodes `ids` of the graph `scope` shows cannot be grouped, or undefined when they can (or
+ * nothing would be grouped): the effect holds its most subgraphs, or the group would need more
+ * inputs or outputs than a subgraph takes.
+ */
+export function groupRefusal(
+	doc: ShaderGraphDoc,
+	scope: GraphScope,
+	ids: Iterable<string>,
+): string | undefined {
+	const picked = new Set(groupable(doc, scope, ids));
+	if (!picked.size) return undefined;
+	if ((doc.subgraphs?.length ?? 0) >= SUBGRAPH_COUNT_MAX)
+		return `An effect holds at most ${SUBGRAPH_COUNT_MAX} subgraphs: delete one to group these nodes.`;
+	const inputs = new Set<string>();
+	const outputs = new Set<string>();
+	for (const w of viewOf(doc, scope).wires) {
+		const fromInside = picked.has(w.from.node);
+		if (picked.has(w.to.node) !== fromInside) (fromInside ? outputs : inputs).add(crossing(w.from));
+	}
+	if (inputs.size <= SUBGRAPH_PORTS_MAX && outputs.size <= SUBGRAPH_PORTS_MAX) return undefined;
+	return `A subgraph takes at most ${SUBGRAPH_PORTS_MAX} inputs and ${SUBGRAPH_PORTS_MAX} outputs; these nodes would need ${inputs.size} and ${outputs.size}. Group fewer of them.`;
+}
+
 /**
  * Group nodes `ids` of the graph `scope` shows into a new subgraph named `name`, called where they
  * were. Each output outside the group that feeds it becomes an input of the subgraph (one per
  * output, however many nodes inside read it), each output inside read outside an output of it, both
  * typed as the analysis resolved the output. Wires keep their order, so ungrouping the call gives
- * back a graph that compiles to the same GLSL. Undefined when no node can be grouped.
+ * back a graph that compiles to the same GLSL (not the same doc: nodes and wires change order).
+ * Undefined when no node can be grouped, or {@link groupRefusal} says why not.
  */
 export function groupNodes(
 	doc: ShaderGraphDoc,
@@ -1122,7 +1156,7 @@ export function groupNodes(
 ): { doc: ShaderGraphDoc; subgraph: string; call: string } | undefined {
 	const view = viewOf(doc, scope);
 	const picked = new Set(groupable(doc, scope, ids));
-	if (!picked.size) return undefined;
+	if (!picked.size || groupRefusal(doc, scope, picked)) return undefined;
 	const a = analysis ?? analyzeScope(doc, scope);
 	const byId = new Map(view.nodes.map((n) => [n.id, n]));
 	const defOf = (id: string) => {
@@ -1135,7 +1169,7 @@ export function groupNodes(
 		const declared = defOf(end.node)?.outputs.find((p) => p.id === end.port)?.type;
 		return declared && declared !== 'any' ? declared : 'float';
 	};
-	const key = (end: GraphWire['from']): string => `${end.node}\u0000${end.port}`;
+	const key = crossing;
 
 	const inputs: SubgraphPort[] = [];
 	const outputs: SubgraphPort[] = [];
@@ -1246,10 +1280,52 @@ function valueFor(
 }
 
 /**
+ * Why call `callId` of the graph `scope` shows cannot be ungrouped, or undefined when it can. A
+ * call's port converts what feeds it to the port's type (a float spread, a vector cut short), and
+ * ungrouping wires the two ends straight together, so it would change what is drawn wherever a
+ * port's type is not that of what feeds it: an input the body reads, fed a value of another type;
+ * an output read outside, fed one inside. Retyping such a port to match lets it ungroup. A group
+ * types its ports so, so a call nobody retyped always ungroups.
+ */
+export function ungroupRefusal(
+	doc: ShaderGraphDoc,
+	scope: GraphScope,
+	callId: string,
+): string | undefined {
+	const view = viewOf(doc, scope);
+	const call = view.nodes.find((n) => n.id === callId && n.type === SUBGRAPH_CALL);
+	const sub = call && subgraphOf(doc, calledSubgraph(call));
+	if (!call || !sub) return undefined;
+	const outside = analyzeScope(doc, scope);
+	const inside = analyzeShaderSubgraph(doc, sub.id);
+	const inNode = sub.nodes.find((n) => n.type === SUBGRAPH_IN);
+	const outNode = sub.nodes.find((n) => n.type === SUBGRAPH_OUT);
+	const label = (p: SubgraphPort): string => JSON.stringify(p.label || p.id);
+	const problems: string[] = [];
+	for (const p of sub.inputs) {
+		const read = sub.wires.some((w) => w.from.node === inNode?.id && w.from.port === p.id);
+		const feed = view.wires.find((w) => w.to.node === callId && w.to.port === p.id)?.from;
+		const type = feed && outside.outputs[feed.node]?.[feed.port];
+		if (read && type && type !== p.type)
+			problems.push(`its input ${label(p)} is a ${p.type} fed a ${type}`);
+	}
+	for (const p of sub.outputs) {
+		const read = view.wires.some((w) => w.from.node === callId && w.from.port === p.id);
+		const feed = sub.wires.find((w) => w.to.node === outNode?.id && w.to.port === p.id)?.from;
+		const type = feed && inside.outputs[feed.node]?.[feed.port];
+		if (read && type && type !== p.type)
+			problems.push(`its output ${label(p)} is a ${p.type} fed a ${type} inside`);
+	}
+	if (!problems.length) return undefined;
+	return `Ungrouping would change what ${subgraphName(sub)} draws: ${problems.join('; ')}. Make each such port the type that feeds it, then ungroup.`;
+}
+
+/**
  * Call `callId` of the graph `scope` shows, replaced by its subgraph's nodes, wired as the call was:
  * what fed an input feeds what the body's Input fed, what an output fed reads what fed the body's
  * Output. An input left unwired becomes the value it read, set on the nodes that read it. When that
- * was the subgraph's last call, the subgraph goes too. Undefined when the call names no subgraph.
+ * was the subgraph's last call, the subgraph goes too. Undefined when the call names no subgraph,
+ * or {@link ungroupRefusal} says why not.
  */
 export function ungroupCall(
 	doc: ShaderGraphDoc,
@@ -1259,7 +1335,7 @@ export function ungroupCall(
 	const view = viewOf(doc, scope);
 	const call = view.nodes.find((n) => n.id === callId && n.type === SUBGRAPH_CALL);
 	const sub = call && subgraphOf(doc, calledSubgraph(call));
-	if (!call || !sub) return undefined;
+	if (!call || !sub || ungroupRefusal(doc, scope, callId)) return undefined;
 	const inNode = sub.nodes.find((n) => n.type === SUBGRAPH_IN);
 	const outNode = sub.nodes.find((n) => n.type === SUBGRAPH_OUT);
 	const inner = sub.nodes.filter((n) => !PINNED.has(n.type));
@@ -1293,7 +1369,7 @@ export function ungroupCall(
 	): { value: number | number[]; type: PortType } | undefined => {
 		const p = port(side, id);
 		if (!p) return undefined;
-		const set = values?.[id];
+		const set = values && Object.hasOwn(values, id) ? values[id] : undefined;
 		const value = typeof set === 'number' || Array.isArray(set) ? set : (p.default ?? 0);
 		return { value, type: p.type };
 	};
@@ -1382,7 +1458,10 @@ export function renameSubgraph(doc: ShaderGraphDoc, id: string, name: string): S
 
 export type PortSide = 'inputs' | 'outputs';
 
-/** `doc` with a new `type` input or output on subgraph `id`, its id one the side lacks. */
+/**
+ * `doc` with a new `type` input or output on subgraph `id`, its id one the side lacks; unchanged
+ * when the side has its most ({@link SUBGRAPH_PORTS_MAX}).
+ */
 export function addSubgraphPort(
 	doc: ShaderGraphDoc,
 	id: string,
@@ -1391,7 +1470,7 @@ export function addSubgraphPort(
 ): ShaderGraphDoc {
 	const next = clone(doc);
 	const sub = subgraphOf(next, id);
-	if (!sub) return doc;
+	if (!sub || sub[side].length >= SUBGRAPH_PORTS_MAX) return doc;
 	const stem = side === 'inputs' ? 'in' : 'out';
 	const taken = new Set(sub[side].map((p) => p.id));
 	let n = 1;
@@ -1436,8 +1515,8 @@ export function setSubgraphPort(
 				)
 			: sub.nodes.filter((n) => n.type === SUBGRAPH_OUT);
 	for (const node of holders) {
-		if (node.values?.[portId] === undefined || fitsPort(node.values[portId], port.type)) continue;
-		delete node.values[portId];
+		if (!node.values || !Object.hasOwn(node.values, portId)) continue;
+		if (!fitsPort(node.values[portId], port.type)) delete node.values[portId];
 	}
 	return next;
 }

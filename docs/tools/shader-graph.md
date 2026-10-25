@@ -226,13 +226,19 @@ effect ("Rim light", "Wobble") and reuse it, like a function in the Flow.
   one (with every wire to it). Every call gets the change. A call input left unwired reads the value
   set on the call, else the default, else 0.
 - **Ungroup.** Select a call and press **Ungroup** (or **Ctrl+Shift+G**). Its nodes come back in its
-  place, wired as they were. When it was the last call, the subgraph goes too.
+  place, wired as they were. When it was the last call, the subgraph goes too. If you changed a
+  port's type so it no longer matches what feeds it (a float input fed a colour), Ungroup would
+  change the picture, so it refuses and names the port: set the port back to the type that feeds
+  it, then ungroup.
 - **Add another call.** Drag the subgraph's row in **Subgraphs** onto the canvas, or click it. The
   `N×` beside it counts its calls. A subgraph cannot call itself, directly or through another, so
   its row is greyed out where that would happen.
 - **Delete.** **✕** on its row. If it is still called, it asks first, then removes the calls too.
 - **Errors.** An error inside a subgraph shows on the call as "Name › …", so the effect's status bar
-  still counts it. Open the subgraph to see it on the node that has it. Calls nest at most 4 deep.
+  still counts it. Open the subgraph to see it on the node that has it.
+- **Limits.** A subgraph has at most 32 inputs and 32 outputs, an effect at most 64 subgraphs, and
+  calls nest at most 4 deep. All the calls together may inline at most 4000 nodes, wires and ports;
+  past that the calls are errors. Group refuses a selection that would need more than 32 ports.
 - **The cost meter** counts every call in full: a subgraph called three times costs three times.
 
 A subgraph belongs to its effect. To use the same group in another effect, rebuild it there.

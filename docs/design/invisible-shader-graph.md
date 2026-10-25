@@ -226,8 +226,9 @@ Each step has its own branch, gates and status entry.
      Input and an Output node with typed ports, called by a `subgraph` node. `flattenShaderGraph`
      inlines every call (a typed pass-through per port, so a body computes what it does alone)
      before the compiler sees the graph, so the runtime, the ship chain and the rollback floor are
-     untouched; issues are reported on the call. Nesting stops at 4, recursion is an error, and a
-     doc with no calls compiles byte-identical. Group / Open / Ungroup are editor gestures, and
+     untouched; issues are reported on the call. Nesting stops at 4, recursion is an error, and
+     ports (32 a side), subgraphs (64) and the inlined total (4000) are capped, since the server
+     compiles stored docs. A doc with no calls compiles byte-identical. Group / Open / Ungroup are editor gestures, and
      ungroup gives back the graph it grouped.
    - **Thumbnails** draw a probe per node (the node and what feeds it, shown through library nodes)
      in one offscreen renderer through the runtime's own filter, keyed by the node and its

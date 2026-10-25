@@ -86,7 +86,12 @@ import {
 import { normalizeShaderGraphDoc } from './src/doc.ts';
 import { DIMS, SHADER_NODES, shaderNode, type NodeDef } from './src/nodes.ts';
 import { REFERENCE_GRAPHS, graphBuilder, nodeShowcase } from './src/reference.ts';
-import { SUBGRAPH_FLAT_NODES_MAX, flattenShaderGraph } from './src/subgraph.ts';
+import {
+	SUBGRAPH_COUNT_MAX,
+	SUBGRAPH_INLINED_MAX,
+	SUBGRAPH_PORTS_MAX,
+	flattenShaderGraph,
+} from './src/subgraph.ts';
 import { BUILTIN_TWINS, builtinTwin } from './src/twins.ts';
 import { MATERIAL_TWINS } from './src/twins/material.ts';
 import type {
@@ -1228,7 +1233,12 @@ console.log('shader graph — subgraphs');
 		[
 			'a port of no type',
 			calling([pass('x', { inputs: [port('a', 'mat3' as PortType)] })]),
-			/is a mat3/,
+			/is a "mat3"/,
+		],
+		[
+			'a port named as every object’s own (constructor)',
+			calling([pass('x', { inputs: [port('constructor', 'float')] })]),
+			/not named with a word/,
 		],
 		[
 			'a default of the wrong width',
@@ -1365,7 +1375,132 @@ console.log('shader graph — subgraphs');
 		'on its own a body says it lacks its Output once; a call in it of itself is named on that call; an input nothing reads is no fault; a call inside has its ports’ types; a subgraph the effect lacks says so',
 	);
 
-	// Hostile: calls multiplying past the cap are refused, fast.
+	// Hostile docs, as storage keeps them, are refused on their calls fast and in little memory: a
+	// /shaders writer can save one, and the effects route, every editor page and Publish compile it.
+	const MS = 500;
+	const MB = 64;
+	const refusedFast = (
+		label: string,
+		raw: unknown,
+		named: (issues: GraphIssue[]) => boolean,
+	): void => {
+		const doc = normalizeShaderGraphDoc(raw, 'h');
+		const bytes = JSON.stringify(doc).length;
+		const heap = process.memoryUsage().heapUsed;
+		const t0 = performance.now();
+		const analysis = analyzeShaderGraph(doc);
+		const compiled = compileShaderGraph(doc);
+		const ms = performance.now() - t0;
+		const grew = (process.memoryUsage().heapUsed - heap) / 1e6;
+		const longest = Math.max(0, ...analysis.issues.map((i) => i.message.length));
+		assert(
+			!compiled.ok && named(analysis.issues) && ms < MS && grew < MB && longest < 400,
+			`${label} (${Math.round(bytes / 1000)} KB stored): refused on its calls in ${ms.toFixed(1)} ms (under ${MS}), the heap ${grew.toFixed(1)} MB larger (under ${MB}), no message over 400 characters (${longest})`,
+		);
+	};
+	const hostileDoc = (subgraphs: unknown[], calls: number, callee = 's'): unknown => ({
+		...graphBuilder({ id: 'h', name: 'H', phase: 'loop', durationMs: 1000 }).doc(),
+		subgraphs,
+		nodes: [
+			n('out', 'output'),
+			...Array.from({ length: calls }, (_, i) => n(`c${i}`, 'subgraph', { subgraph: callee })),
+		],
+		wires: [w('c0.out', 'out.color')],
+	});
+	const onCalls = (pattern: RegExp, calls: number) => (issues: GraphIssue[]) =>
+		issues.filter((i) => i.node?.startsWith('c') && pattern.test(i.message)).length >= calls;
+	refusedFast(
+		'2000 inputs called 500 times (the review’s 1M pass-throughs)',
+		hostileDoc(
+			[
+				{
+					...pass('s'),
+					inputs: Array.from({ length: 2000 }, (_, i) => port(`a${i}`, 'float')),
+					outputs: [],
+					wires: [],
+				},
+			],
+			500,
+		),
+		onCalls(new RegExp(`it has 2000 inputs, more than ${SUBGRAPH_PORTS_MAX}`), 500),
+	);
+	refusedFast(
+		'1500 malformed ports called 1500 times (the review’s 285 MB of messages)',
+		hostileDoc(
+			[
+				{
+					id: 's',
+					name: 's',
+					inputs: Array.from({ length: 1500 }, (_, i) => port(`a${i}`, 'mat4' as PortType)),
+					outputs: [],
+					nodes: [],
+					wires: [],
+				},
+			],
+			1500,
+		),
+		onCalls(/more than 32/, 1500),
+	);
+	refusedFast(
+		'32 inputs and 32 outputs, a malformed port each, called 1500 times: three faults shown, the rest counted',
+		hostileDoc(
+			[
+				pass('s', {
+					inputs: Array.from({ length: 32 }, (_, i) => port(`a${i}`, 'mat4' as PortType)),
+					outputs: Array.from({ length: 32 }, (_, i) => port(`b${i}`, 'mat4' as PortType)),
+				}),
+			],
+			1500,
+		),
+		onCalls(/; and 61 more$/, 1500),
+	);
+	refusedFast(
+		'32 inputs and 32 outputs, well formed, called 1000 times: the first calls inline, the rest pass the budget',
+		hostileDoc(
+			[
+				pass('s', {
+					inputs: Array.from({ length: 32 }, (_, i) => port(`a${i}`, 'float')),
+					outputs: [
+						port('out', 'vec4'),
+						...Array.from({ length: 31 }, (_, i) => port(`b${i}`, 'vec4')),
+					],
+				}),
+			],
+			1000,
+		),
+		onCalls(new RegExp(`passes ${SUBGRAPH_INLINED_MAX} nodes, wires and ports`), 900),
+	);
+	refusedFast(
+		'a body of 3000 wires called 2000 times: its wires count against the budget',
+		hostileDoc(
+			[
+				pass('s', {
+					wires: [
+						w('s.out', 'o.out'),
+						...Array.from({ length: 3000 }, (_, i) => w('s.out', `q${i}.x`)),
+					],
+				}),
+			],
+			2000,
+		),
+		onCalls(/passes 4000/, 1999),
+	);
+	refusedFast(
+		`${SUBGRAPH_COUNT_MAX + 36} subgraphs, one called 2000 times`,
+		hostileDoc(
+			Array.from({ length: SUBGRAPH_COUNT_MAX + 36 }, (_, i) => pass(i ? `s${i}` : 's')),
+			2000,
+		),
+		onCalls(
+			new RegExp(`has ${SUBGRAPH_COUNT_MAX + 36} subgraphs, more than ${SUBGRAPH_COUNT_MAX}`),
+			2000,
+		),
+	);
+	refusedFast(
+		'20 calls naming a 10 000-letter subgraph id: the message quotes 40',
+		hostileDoc([pass('s')], 20, 'z'.repeat(10_000)),
+		onCalls(/no subgraph "z{40}…"$/, 20),
+	);
 	const fan = (id: string, callee: string | undefined): ShaderSubgraph => ({
 		id,
 		name: id,
@@ -1380,16 +1515,21 @@ console.log('shader graph — subgraphs');
 		],
 		wires: [w('k0.out', 'o.out')],
 	});
-	const started = Date.now();
-	const hostile = validateShaderGraph(
+	refusedFast(
+		'60 calls in a body, nested 4 deep (60⁴ calls unrolled)',
 		calling([fan('x', 'a'), fan('a', 'b'), fan('b', 'c'), fan('c', undefined)], { subgraph: 'x' }, [
 			w('c.out', 'out.color'),
 		]),
+		(issues) => issues.some((i) => i.node === 'c' && /passes 4000/.test(i.message)),
 	);
+	const protoDoc = calling([pass('x', { inputs: [port('valueOf', 'float')] })]);
+	const unwiredProto = compileShaderGraph(protoDoc);
 	assert(
-		hostile.some((i) => i.node === 'c' && /passes 2000 nodes/.test(i.message)) &&
-			Date.now() - started < 2000,
-		`calls multiplying past ${SUBGRAPH_FLAT_NODES_MAX} inlined nodes are refused on the call, quickly (${Date.now() - started} ms)`,
+		!unwiredProto.ok &&
+			unwiredProto.issues.some((i) => i.node === 'c' && /not named with a word/.test(i.message)) &&
+			!Object.hasOwn(analyzeShaderGraph(protoDoc).inputs.c ?? {}, 'valueOf') &&
+			!flattenShaderGraph(protoDoc).nodes.some((x) => typeof x.values?.in === 'function'),
+		'a port named valueOf is refused, and no call reads Object’s function as its value',
 	);
 
 	// Storage keeps subgraphs and drops what is not part of one.
