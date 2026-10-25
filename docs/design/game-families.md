@@ -670,6 +670,12 @@ is that moment, so P10.5 declares it.
   - `overlaps(bodies, pairsByTag)` (box and circle, with a uniform-grid broad phase above ~64 bodies);
   - `inZone`.
 
+  A level's static shapes (solids, one-way solids, zones) are indexed once per level in the same
+  grid, so a body tests only the cells it touches, and the step works on plain objects. Salmons'
+  server, which tested every body against all ~1,700 of its river's shapes each tick, filled a core
+  at about 50 players until it did both
+  ([realtime-multiplayer.md](realtime-multiplayer.md) §2.1, §6).
+
   A **fixed timestep** (60 Hz accumulator) makes a seed replay exactly, at any frame rate.
 - **The loop** is one ticker callback per arcade screen, in `engine-game` (new
   `arcadeLoop.svelte.ts`). It runs: read input → `step` → write each spawned instance's `x`/`y`
@@ -1073,7 +1079,7 @@ Under the Director pipeline-change rules, every Phase 10 PR is a pipeline change
 | P10.5 | `check:match3-rules`, `check:flow-publish-gate` (extended with the match-3 starter) | A starter rules game plays headless to a goal; the free-play branch sends no RGS request |
 | P10.6 | `check:match3-outcome-guard`, `check:match3-wire` | RGS mode has no local RNG; `withOutcome('rgs')` strips rules-only nodes; facade translation fixtures (`move` → `swap` + `tumbleBoard`…); `seq` advances by 1 per move; replay at the same seq; the interactive round opens, takes N moves and collects once; every protocol list knows `match3` |
 | P10.7 | `check:flow-spawn`, `check:art-scope` (extended) | Spawn cap; despawn inside `forEach`; spawnable components ship |
-| P10.8 | `check:arcade-motion` | Fixed-timestep determinism; overlap by tag; bounds |
+| P10.8 | `check:arcade-motion` | Fixed-timestep determinism; overlap by tag; bounds; the grid finds the same static shapes as a full scan |
 | P10.11 | `check:arcade-characters`, `check:art-scope` (extended) | Each behaviour preset and brain transition replays under a seed; solid response stops and slides; controllers follow the input map; `animInputs` reach the look; a character's components ship |
 | P10.12 | `check:arcade-camera` | Follow with dead zone and smoothing; clamp to the world; auto-scroll; parallax offsets; despawn outside the view; the same framing on replay |
 | P10.13 | `check:arcade-platformer`, `check:art-scope` (extended) | Jump height and time match their settings; coyote time and jump buffer; one-way platforms; no tunnelling at `maxFall`; tile solidity; tileset regions ship |
