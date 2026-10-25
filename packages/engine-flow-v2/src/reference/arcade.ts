@@ -151,6 +151,9 @@ const KEPT_CUES = new Set([
 	'transition',
 ]);
 const KEPT_ENUMS = new Set([
+	// Every vocabulary carries the one symbol enum, filled from the config's symbols (none in an
+	// arcade game's seed); no arcade surface is typed by it.
+	'SymbolName',
 	'CameraEffectKind',
 	'ElementFxKind',
 	'ElementFxTarget',
@@ -158,6 +161,9 @@ const KEPT_ENUMS = new Set([
 	'SoundEffectName',
 	'SoundName',
 ]);
+
+/** The `$engine` values the arcade loop answers (`createArcadeLoop`'s `value`). */
+export const ARCADE_LOOP_VALUES: readonly string[] = ['random', 'fieldWidth', 'fieldHeight'];
 
 const standard = standardVocabulary({ templateId: ARCADE_TEMPLATE_ID });
 

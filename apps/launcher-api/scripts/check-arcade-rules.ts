@@ -39,6 +39,7 @@ import {
 	ARCADE_DRIVEN_SEED_DOC,
 	ARCADE_FIELD_LAYER,
 	ARCADE_LOOP_ACTIONS,
+	ARCADE_LOOP_VALUES,
 	ARCADE_SAMPLE,
 	ARCADE_SAMPLE_FIELD,
 	ARCADE_SCREENS,
@@ -730,7 +731,9 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 	check(
 		"10. …and its values the loop's",
 		JSON.stringify(ARCADE_VOCAB.values.map((v) => v.name).sort()) ===
-			JSON.stringify(Object.values(ARCADE_VALUES).sort()),
+			JSON.stringify(Object.values(ARCADE_VALUES).sort()) &&
+			JSON.stringify([...ARCADE_LOOP_VALUES].sort()) ===
+				JSON.stringify(Object.values(ARCADE_VALUES).sort()),
 	);
 	check(
 		'10. …and it declares no reel, spin, bet or payline surface',

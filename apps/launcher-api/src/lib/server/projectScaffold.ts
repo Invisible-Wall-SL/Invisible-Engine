@@ -33,7 +33,6 @@ import {
 	holdAndWinTemplateSeed,
 	type LinesPresetId,
 } from './gameConfigDefaults';
-import { saveComponent } from './componentStorage';
 import { ConflictError, loadGameConfigDocWithEtag, saveGameConfigDoc } from './gameConfigStorage';
 import { normalizeDoc } from './localization';
 import { loadKind } from './kindStorage';
@@ -291,7 +290,9 @@ export async function scaffoldProject(
 	}
 	// An arcade project's sample spawns placeholder components (game-families P10.8): its own, so an
 	// author re-skins them in the Component Editor. Create-only, like every other seed.
+	// Loaded only for an arcade project, so scaffolding every other kind keeps its import graph.
 	if (gameType === 'arcade') {
+		const { saveComponent } = await import('./componentStorage');
 		for (const def of ARCADE_SAMPLE_COMPONENTS) {
 			try {
 				await saveComponent(structuredClone(def), project, null);

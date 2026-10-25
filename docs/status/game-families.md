@@ -101,7 +101,12 @@ in one PR.
   fields. Re-pinned for arcade: `check:match3-rules` §8 (an RGS arcade config refuses to boot, a rules
   one boots), `check:flow-publish-gate` (arcade in the scaffold loops, with its sample components),
   `check:flow-spawn` and `check:flow-time-events` (the arcade starter is the one seed that spawns /
-  the second that keeps state).
+  the second that keeps state), `check:authored-freespins` (`drivenSeed.ts`'s pin: one import and
+  one `DRIVEN_SEEDS` entry), `expandingSymbol.fixture.ts` (the arcade seed is a family seed),
+  `check:flow-symbols-follow-config` (an arcade vocabulary has no symbol-typed surface; it keeps the
+  empty `SymbolName` enum every vocabulary carries), the flow spike's `v2holdandwin` (the arcade
+  actions and values are backed: `ARCADE_LOOP_ACTIONS` / `ARCADE_LOOP_VALUES`) and
+  `check-stock-asset-coverage` (`transition` in `arcade.ts` is not an asset).
 - **Verified by playing:** `scripts/playtest/arcade-play.mjs` on the branch runtime
   ([playtest/arcade-sample.md](../playtest/arcade-sample.md)): one salmon at the start; bears, hooks
   and fish falling; ← moved it 260 px in half a second and stopped on release; → held it at x = 1377;
