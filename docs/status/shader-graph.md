@@ -171,9 +171,11 @@ library) is in review on `claude/shader-graph-step7`.
     Turn to gold; Freeze's shiver also scales by the element's shorter side where the curve is in
     widths). Their pixels are held to parity like every other twin's, and their motion too at the
     defaults on a portrait element, except Poison and Electrocute (`motionGapAtDefaults`).
+    **Closed in 8a:** each twin's motion graph rebuilds it exactly and the gap fields are gone.
   - **Padding gaps.** A graph's padding is one number. The waves and Bounce 3D take the room their
     largest param needs at strength 1. Melt takes its defaults' final room (1.16 heights; the
     built-in grows it with drip length × strength × progress), and names it (`paddingGap`).
+    **Closed in 8a:** the motion graph's padding grows as the built-ins' does (Flag too).
   - **The parity gate** (`pnpm --filter fx-spike shader-twins`, `tools/fx-spike/shaderTwins.mjs`,
     run by `check:all`). Each built-in and its twin play through `playElementFx` with the same card,
     seed and params, on WebGL1 and WebGL2: 8 moments at the defaults and at every number param's
@@ -303,6 +305,18 @@ library) is in review on `claude/shader-graph-step7`.
       padding; pixel + motion errors in one count; `ops N/256` in Motion. Subgraphs stay
       pixel-only. A probe for a pixel thumbnail drops the motion graph, so a broken one never blanks
       them.
+    - **The twins match their built-ins exactly.** Freeze, Petrify, Turn to gold, Electrocute,
+      Poison and Bounce 3D carry motion graphs for the motion curves could not follow (the seconds
+      played up to 25 Hz, timing moved by Hold, looping vs counted, the Bounces param, the element's
+      shorter side); Melt, Wave X / Y, Flag, Bounce 3D and Electrocute drive their padding per
+      frame. `motionGap`, `motionGapAtDefaults`, `paddingGap` and every place that showed or
+      exempted them are deleted. A twin carries no fallback curve for what its graph drives (on a
+      pre-8a runtime it plays without that motion and room).
+    - **Program padding** has its own cap, `CUSTOM_ELEMENT_FX_MOTION_PADDING_MAX` = 11.6, the most a
+      built-in asks (Melt: 1.45 × its longest drip × the strongest play); a pass padded that far
+      draws up to about 590× the element's area, as built-in Melt does. The doc's fixed padding
+      stays capped at 2. The analysis warns when a program's padding passes the cap at the params'
+      defaults.
 
 ## Open items / next
 1. **Step 7 follow-ups.**
@@ -319,9 +333,6 @@ library) is in review on `claude/shader-graph-step7`.
    - `deploy/editor-shaders/` holds the whole set (library included) while the bundle carries only
      the named effects; trimming the deploy tree too needs the export to know the bundle.
 2. **Step 6 follow-ups.**
-   - **Two capabilities v1 lacks**, named by the twins: padding that grows with a param × strength
-     (the waves, Bounce 3D, Melt), and motion curves that read a param or the seconds played (the
-     six motion gaps). Both are doc / runtime changes; the twins carry the gap until then.
    - **Built-ins long term** (§9.5): they stay hand-written beside their twins until the gate has
      held for a while; then decide whether to generate them from the twins.
    - The gate takes about a minute of `check:all`, most of it SwiftShader drawing the widest glow.

@@ -82,12 +82,11 @@ its passes and its motion. It plays as the built-in does until you change someth
 
 - **Every twin is checked against its built-in.** CI renders each beside the built-in it rebuilds,
   at many moments and at every param's extremes, and fails when they look different.
-- **Some twins' motion is close, not exact.** Where a built-in moves the element by the seconds
-  played, a param or its looping (Bounce 3D's hops, Freeze's shiver, Poison's sway, Electrocute's
-  jitter, Petrify, Gold), a motion curve cannot follow it, and the twin's curve is that motion at
-  the defaults. **Melt's room** past the element's edge is set for its defaults: longer drips or a
-  stronger play can be cut off. The menu item and the name dialog say so. The pixels are exact
-  either way.
+- **Movement and room match too.** Where a built-in moves the element by the seconds played, a
+  param or its looping (Bounce 3D's hops, Freeze's shiver, Poison's sway, Electrocute's jitter,
+  Petrify, Gold), or grows its room as it plays (Melt, the waves, Flag), the twin does it with a
+  **motion graph** (see "The motion graph"), so its movement and room are checked against the
+  built-in too.
 - **Not every built-in has a twin.** The motion-only effects (Shake, Pulse, Bounce, Pop in…) are
   motion curves alone, and the breaks (Crumble, Shatter…) are not pixel effects.
 - The effect you make is your own: changing it never touches the built-in, and the built-in keeps
@@ -549,10 +548,8 @@ Click **✕** next to an effect and confirm. If it was open, the canvas empties.
 - **The preview uses WebGL2 where the browser has it** (CI checks every shader on WebGL1 too). It
   does not follow a change of screen pixel ratio (reload after moving the window to another
   screen), and it clips a graph padded to the 2× maximum at its edge.
-- **A twin's limits are the doc's.** A motion curve cannot read a param or the seconds played (the
-  motion gaps above), and an effect's padding is one number: the Wave and Bounce 3D twins take the
-  room their largest setting needs at strength 1, Melt the room its defaults need, and either can
-  clip past the edge beyond that.
+- **Twins need a current game runtime for their movement.** A twin's motion graph is new: a game on
+  a runtime older than this release plays the twin's pixels without that movement and growing room.
 - **Not yet:** a Break output and an admin-only Custom GLSL node. They are later steps of the
   plan.
 - **Subgraphs belong to one effect.** There is no way yet to share a subgraph between effects.
