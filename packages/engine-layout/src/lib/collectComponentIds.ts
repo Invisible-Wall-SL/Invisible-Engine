@@ -79,6 +79,15 @@ export function collectParamComponentIds(
 	return [...ids];
 }
 
+/** What {@link resolveComponentClosure} takes beyond the nodes and the loader. */
+export interface ComponentClosureOptions {
+	extraSeedIds?: string[];
+	onMissing?: (id: string) => void;
+	defaultsFor?: (
+		id: string,
+	) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;
+}
+
 /**
  * Every def `nodes` need, loaded through `load`: the instances they place, the defs those nest, and
  * the components their `component`-kind params name ({@link collectParamComponentIds}), until
@@ -94,17 +103,7 @@ export function collectParamComponentIds(
 export async function resolveComponentClosure(
 	nodes: LayoutNode[],
 	load: (id: string) => Promise<ComponentDef | null | undefined>,
-	{
-		extraSeedIds = [],
-		defaultsFor,
-		onMissing,
-	}: {
-		extraSeedIds?: string[];
-		onMissing?: (id: string) => void;
-		defaultsFor?: (
-			id: string,
-		) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;
-	} = {},
+	{ extraSeedIds = [], defaultsFor, onMissing }: ComponentClosureOptions = {},
 ): Promise<Record<string, ComponentDef>> {
 	const defs: Record<string, ComponentDef> = {};
 	const defaults: Record<string, Record<string, unknown>> = {};
@@ -189,4 +188,41 @@ export function collectComponentPins(nodes: LayoutNode[]): ComponentPin[] {
 	};
 	for (const node of nodes) walk(node);
 	return out;
+}
+
+/**
+ * {@link resolveComponentClosure} plus the exact older versions the placements in `nodes` pin
+ * (§8.9), loaded through `loadVersion`; a pin the latest def already is needs no copy. A pinned
+ * version can name a component its latest no longer does (a repeater variant swapped since). The
+ * editor draws that one from the project's store, so the closure follows the pinned versions too, or
+ * the game draws a fallback the author never saw. A pin nested inside a def is not followed: the
+ * editor and the game both draw the latest for it.
+ */
+export async function resolveComponentClosureWithPins(
+	nodes: LayoutNode[],
+	load: (id: string) => Promise<ComponentDef | null | undefined>,
+	loadVersion: (id: string, version: number) => Promise<ComponentDef | null | undefined>,
+	options: ComponentClosureOptions = {},
+): Promise<{ defs: Record<string, ComponentDef>; versions: ComponentDef[] }> {
+	const missing = new Set<string>();
+	const onMissing = (id: string): void => {
+		if (missing.has(id)) return;
+		missing.add(id);
+		options.onMissing?.(id);
+	};
+	const defs = await resolveComponentClosure(nodes, load, { ...options, onMissing });
+	const versions: ComponentDef[] = [];
+	for (const pin of collectComponentPins(nodes)) {
+		if (defs[pin.id]?.version === pin.version) continue;
+		const pinned = await loadVersion(pin.id, pin.version);
+		if (pinned) versions.push(pinned);
+	}
+	if (!versions.length) return { defs, versions };
+	const reached = await resolveComponentClosure(
+		versions.map((def) => def.root),
+		async (id) => (id in defs ? defs[id] : missing.has(id) ? undefined : load(id)),
+		{ ...options, extraSeedIds: [], onMissing },
+	);
+	for (const [id, def] of Object.entries(reached)) defs[id] ??= def;
+	return { defs, versions };
 }

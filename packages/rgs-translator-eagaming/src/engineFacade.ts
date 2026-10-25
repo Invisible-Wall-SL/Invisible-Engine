@@ -689,25 +689,6 @@ const isBigWinLevel = (level: number): boolean => {
 	return level >= 6;
 };
 
-/** Opt-in trace logger. Set `localStorage.IE_DEBUG = '1'` (or `globalThis.IE_DEBUG = true`
- *  in Node) to see the cents-↔-bookEvent conversion in the browser console.
- *  Useful when win amounts on screen don't match the expected dollar value. */
-const debugEnabled = (): boolean => {
-	const g = globalThis as {
-		IE_DEBUG?: unknown;
-		localStorage?: { getItem?: (k: string) => string | null };
-	};
-	if (g.IE_DEBUG) return true;
-	try {
-		return g.localStorage?.getItem?.('IE_DEBUG') === '1';
-	} catch {
-		return false;
-	}
-};
-const ieLog = (...args: unknown[]) => {
-	if (debugEnabled()) console.log('[engine-facade]', ...args);
-};
-
 /** Convert a Play4Fun cents win + the round's bet (also in cents) to an engine
  *  bookEvent amount (the bet-multiplier in fixed-point hundredths). Returns 0
  *  for a zero bet to avoid division by zero.
@@ -718,21 +699,10 @@ const ieLog = (...args: unknown[]) => {
  *  If the on-screen amount looks off by 100× or shows only decimals, the
  *  most common causes are (a) wageredBetAmount in wrong unit (should be
  *  user-display dollars), (b) betCents here = 0 so the multiplier collapses
- *  to 0 and the engine falls back to a tiny default. Enable IE_DEBUG to
- *  trace. */
+ *  to 0 and the engine falls back to a tiny default. */
 const toBookEventAmount = (winCents: number, betCents: number): number => {
-	if (!betCents || betCents <= 0) {
-		ieLog('toBookEventAmount: betCents is 0/negative → returning 0', { winCents, betCents });
-		return 0;
-	}
-	const result = Math.round((winCents / betCents) * BOOK_AMOUNT_MULTIPLIER);
-	ieLog('toBookEventAmount', {
-		winCents,
-		betCents,
-		result,
-		displayMultiplier: result / BOOK_AMOUNT_MULTIPLIER,
-	});
-	return result;
+	if (!betCents || betCents <= 0) return 0;
+	return Math.round((winCents / betCents) * BOOK_AMOUNT_MULTIPLIER);
 };
 
 type BetEventContext = { total?: number; betPerLine?: number; paylines?: unknown[] };

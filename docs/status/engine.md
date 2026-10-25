@@ -276,6 +276,31 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-25 — **A running game's console is quiet again** (branch `claude/charming-cannon-rjv7ba`,
+  in review). Owner report on `commonoverlayproject`: a 3 MB console of warnings from one session.
+  Reproduced by playing the live game headless (boot, continue, one spin) and traced per line.
+  **Engine fixes:** (1) the facade's opt-in `IE_DEBUG` trace (`toBookEventAmount` on every win) is
+  gone; the money path it watched is pinned by `check:rgs`. (2) The version-pin warning fires once
+  per `id@version` (`warnPinNotHonoured`, `registerComponents.ts`) instead of on every instance
+  render; detail in [component editor status](component-editor.md). (3) A held screen timeline's
+  node driver no longer reads a destroyed `<Cinematic>`'s `$derived` (Svelte `derived_inert`); see
+  [cinematic status](cinematic.md). (4) `engine-rig`'s `.atlas` loader unloads each page it fetched
+  through the loader, as Pixi's spritesheet does its image; it destroyed the page's
+  `TextureSource` instead, which Pixi flagged ("destroyed instead of unloaded") whenever the boot
+  splash released its rig. A page handed in through `images` is still disposed. (5) The stock-asset
+  walk keeps no stock sheet for a frame a project SYMBOL sheet registers under the same bare name:
+  the symbol export packs bare names beside the scoped ones, so a project bound to the shared
+  `engine-symbols` sheet loaded the stock `symbolsStatic` too and registered all 17 frames twice
+  (Pixi `[Cache] already has key`, the drawn one left to load order). The export now records each
+  sheet's bare frame `names` in `symbols.index.sheets[]`; a bundle without them keeps the old
+  behaviour. **Left as is, on purpose:** `totalwin.png` is packed by both stock `freeSpins` and
+  `winSmall` (kept together, every game, upstream art); the remaining lines are the project's own
+  data, each already saying what to fix (Flow screens missing from the layout, a dictionary symbol
+  on no strip, undeclared mapping entries, `BLANK` with no art, a state machine naming a timeline
+  with no actors). Verified: `test-component-closure`, `stockAssets.fixture` (two new cases),
+  `check:rgs`, the symbol/component/cinematic/rig gates, svelte-check at baseline, and an
+  ad-hoc unload check against the real loader. Reaching online games needs a `runtime:lines`
+  release; the closure and `names` changes ride the launcher deploy.
 - 2026-10-23 — **Storybook 10.** `storybook` and every `@storybook/*` package move from 9.0.15 to
   10.6.3 (`config-storybook`, `pixi-svelte-storybook`, `components-storybook`), and
   `@chromatic-com/storybook` from 3.2.5 to 5.4.0; `@storybook/addon-svelte-csf` 5.1.5 already

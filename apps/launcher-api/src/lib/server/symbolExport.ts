@@ -74,6 +74,8 @@ export interface SymbolSheet {
 	/** Spritesheet JSON path relative to `deploy/` (= relative to `static/assets/`). */
 	json: string;
 	frames: number;
+	/** The bare frame names the sheet registers, so the game keeps no stock sheet for one. */
+	names: string[];
 	/** The KTX2 twin's spritesheet JSON — identical frames, `meta.image` pointing at the shared
 	 *  `.ktx2` page and rects rescaled to its (possibly auto-downscaled) dimensions. Absent when
 	 *  no twin was encoded (`KTX2_ENCODE` off, page under/over the encoder's size band, no page
@@ -638,8 +640,9 @@ export async function exportEditorSymbols(
 			written.add(`${deployPrefix}${jsonRel}`);
 			written.add(`${deployPrefix}${pageRel}`);
 		}
-		sheets.push({ key: set.assetKey, json: jsonRel, frames: set.regions.length, ktx2Json });
-		sheetFrameNames.push({ stem, names: set.regions.map((r) => r.name) });
+		const names = set.regions.map((r) => r.name);
+		sheets.push({ key: set.assetKey, json: jsonRel, frames: names.length, names, ktx2Json });
+		sheetFrameNames.push({ stem, names });
 		for (const r of set.regions) coveredFrames.add(r.name);
 	};
 

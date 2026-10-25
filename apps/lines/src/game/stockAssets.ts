@@ -98,6 +98,8 @@ export type StockSymbolsDoc = {
 	highlight?: { assetKey?: string };
 	boardGlow?: { assetKey?: string };
 	anticipation?: { spineKey?: string };
+	/** The project's symbol sheets, each with the bare frame names it registers. */
+	index?: { sheets?: readonly { names?: readonly string[] }[] };
 	[key: string]: unknown;
 };
 
@@ -508,6 +510,13 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 			const drawn = resolveSymbolState(states, state);
 			if (drawn) collectNames(states[drawn], names, `symbol ${name}.${drawn}`);
 		}
+	}
+
+	// A frame a project symbol sheet registers under the same bare name draws from that sheet, so it
+	// keeps no stock sheet: keeping both registered the name twice (Pixi's "[Cache] already has key")
+	// and left which one drew to load order.
+	for (const sheet of symbols?.index?.sheets ?? []) {
+		for (const name of sheet.names ?? []) names.delete(name);
 	}
 
 	// The config names symbols by the same ids as the symbol rigs; the symbol rule decides those.

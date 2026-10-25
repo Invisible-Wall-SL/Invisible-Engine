@@ -488,6 +488,14 @@ through the same player; headless-proven, no editor yet (5b).
 
 ## Recent changes
 
+- 2026-10-25 — **A held screen keeps its last frame without reading a destroyed player** (branch
+  `claude/charming-cannon-rjv7ba`, in review). A screen keeps a timeline's node driver after the
+  timeline ends, to hold its last frame — `Game.svelte`'s `basegameHeldReelGrid` samples it to lay
+  the board out where the timeline left it — but the driver read `nodeActors`, a `$derived` of the
+  now-destroyed `<Cinematic>`. Svelte answered with `derived_inert` (nine times in one owner
+  session) and a possibly stale value. The player snapshots the actors and doc tracks at teardown
+  and the driver reads those from then on; while it is mounted it reads the live deriveds, as
+  before.
 - 2026-10-25 — **Elastic and Bounce eases** (game-families P10.9's ease item; branch
   `claude/commonoverlay-publish-error-njebx9`, in review). A key's `ease` may now be `'elastic'` or
   `'bounce'`, Penner's ease-out curves, which no cubic can draw: elastic overshoots the next key by

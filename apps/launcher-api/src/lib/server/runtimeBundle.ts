@@ -32,9 +32,8 @@ import type { CustomElementFx } from 'constants-shared/elementFx';
 import type { FlipbookClip } from 'engine-flipbook';
 import {
 	applyHudGameNameDefault,
-	collectComponentPins,
 	flightEffectIds,
-	resolveComponentClosure,
+	resolveComponentClosureWithPins,
 	type ComponentDef,
 	type FontCatalog,
 	type SoundCatalog,
@@ -205,8 +204,8 @@ function resolveRigKeysForComponentDefs(
  * referenced id that has no def, so the boot log and Publish name it. Each id resolves
  * through the built-in → shared → project precedence (`loadComponent`), so a
  * project's EDITED def shadows the coded one. `versions` carries the EXACT pinned
- * non-latest defs (§8.9 v2) so a shipped game renders the authored version; empty
- * for every game with no non-latest pin (parity).
+ * non-latest defs (§8.9 v2) so a shipped game renders the authored version, and `defs` the
+ * components only those versions name; both add nothing for a game with no non-latest pin (parity).
  *
  * `extraSeedIds` are component ids referenced from OUTSIDE the scene doc — the config-assigned
  * buy-feature card ids (`betModeCardIds`), which a bet mode names at RUNTIME, so the static scene
@@ -220,9 +219,10 @@ async function resolveReferencedDefs(
 	storedDefaults: Record<string, Record<string, unknown>>,
 	extraSeedIds: string[] = [],
 ): Promise<{ defs: Record<string, ComponentDef>; versions: ComponentDef[] }> {
-	const defs = await resolveComponentClosure(
+	return resolveComponentClosureWithPins(
 		doc.scenes.flatMap((scene) => scene.nodes),
 		(id) => loadComponent(id, projectKey),
+		(id, version) => loadComponent(id, projectKey, version),
 		{
 			extraSeedIds,
 			defaultsFor: (id) => componentDefaultsFor(storedDefaults, id),
@@ -233,13 +233,6 @@ async function resolveReferencedDefs(
 			},
 		},
 	);
-	const versions: ComponentDef[] = [];
-	for (const pin of collectComponentPins(doc.scenes.flatMap((scene) => scene.nodes))) {
-		if (defs[pin.id]?.version === pin.version) continue;
-		const pinned = await loadComponent(pin.id, projectKey, pin.version);
-		if (pinned) versions.push(pinned);
-	}
-	return { defs, versions };
 }
 
 /**
