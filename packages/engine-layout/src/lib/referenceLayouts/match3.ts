@@ -105,7 +105,10 @@ const roundOver = (id: string, name: string, line: string): Scene => ({
  *  board runs under at the desktop size. */
 const MATCH3_RGS_BOARD = { cellSize: 76, raise: 70 } as const;
 
-function boardScenes({ cellSize = MATCH3_BOARD.cellSize, raise = 0 } = {}): Scene[] {
+function boardScenes({
+	cellSize = MATCH3_BOARD.cellSize,
+	raise = 0,
+}: { cellSize?: number; raise?: number } = {}): Scene[] {
 	const centred = centre(MAIN_SIZES_MAP.desktop);
 	const board = { x: centred.x, y: centred.y - raise };
 	return [
