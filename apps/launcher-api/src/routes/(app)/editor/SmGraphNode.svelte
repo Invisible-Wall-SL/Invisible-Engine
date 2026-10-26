@@ -24,6 +24,8 @@
 		/** The state's timeline is missing / the card has a validation error. */
 		broken?: boolean;
 		onopen?: () => void;
+		/** The card's tooltip; absent ⇒ the Component Editor's "open its timeline". */
+		hint?: string;
 	};
 	let { data: d, selected }: NodeProps<Node<Data>> = $props();
 </script>
@@ -38,7 +40,7 @@
 		ondblclick={() => d.onopen?.()}
 		title={d.broken
 			? 'This state has a problem — see the ⚠ list'
-			: 'Double-click to open its timeline'}
+			: (d.hint ?? 'Double-click to open its timeline')}
 	>
 		<Handle type="target" position={Position.Left} class="sm-h" />
 		<div class="title">

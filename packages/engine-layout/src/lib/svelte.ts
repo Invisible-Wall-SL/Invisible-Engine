@@ -73,4 +73,4 @@ export { getComponentNestState } from './componentInstanceContext';
 // Which component defs have an instance on screen (reactive) — how a coded default steps aside for
 // an authored twin while it is mounted.
 export { isComponentMounted, sceneMountKey, trackComponentMount } from './mountedComponents';
-export { spawnStore } from './spawnLayers';
+export { registerSpawnLayerSpace, spawnLayerPoint, spawnStore } from './spawnLayers';

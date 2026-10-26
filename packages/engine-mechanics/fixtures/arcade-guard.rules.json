@@ -1,0 +1,149 @@
+{
+	"version": 1,
+	"family": "arcade",
+	"providerName": "sample_provider",
+	"gameName": "Guarded Yard",
+	"gameID": "sample_arcade_guard",
+	"rtp": 0,
+	"numReels": 0,
+	"numRows": [],
+	"betModes": {},
+	"paylines": {},
+	"symbols": {},
+	"paddingReels": {},
+	"outcome": "rules",
+	"arcade": {
+		"field": {
+			"w": 1422,
+			"h": 800
+		},
+		"bodies": {
+			"arcadeRunner": {
+				"shape": "box",
+				"w": 44,
+				"h": 44,
+				"tags": ["player"]
+			},
+			"arcadeGuard": {
+				"shape": "box",
+				"w": 48,
+				"h": 48,
+				"tags": ["guard"]
+			},
+			"arcadeWallH": {
+				"shape": "box",
+				"w": 280,
+				"h": 36,
+				"tags": ["wall"],
+				"solid": true
+			},
+			"arcadeWallV": {
+				"shape": "box",
+				"w": 36,
+				"h": 220,
+				"tags": ["wall"],
+				"solid": true
+			}
+		},
+		"pairs": [["player", "guard"]],
+		"characters": [
+			{
+				"id": "runner",
+				"name": "Runner",
+				"component": "arcadeRunner",
+				"controller": {
+					"kind": "topDown",
+					"speed": 280
+				},
+				"brain": {
+					"initial": "stand",
+					"states": [
+						{
+							"id": "stand",
+							"behaviour": "idle"
+						}
+					],
+					"transitions": []
+				}
+			},
+			{
+				"id": "guard",
+				"name": "Guard",
+				"component": "arcadeGuard",
+				"movement": {
+					"accel": 900,
+					"decel": 1400,
+					"maxSpeed": 200
+				},
+				"brain": {
+					"initial": "patrol",
+					"states": [
+						{
+							"id": "patrol",
+							"behaviour": "patrol",
+							"params": {
+								"path": "guardRoute",
+								"speed": 110
+							},
+							"pos": {
+								"x": 80,
+								"y": 80
+							}
+						},
+						{
+							"id": "chase",
+							"behaviour": "chase",
+							"params": {
+								"tag": "player",
+								"range": 320,
+								"speed": 190
+							},
+							"pos": {
+								"x": 380,
+								"y": 80
+							}
+						},
+						{
+							"id": "rest",
+							"behaviour": "idle",
+							"pos": {
+								"x": 230,
+								"y": 240
+							}
+						}
+					],
+					"transitions": [
+						{
+							"id": "spot",
+							"from": "patrol",
+							"to": "chase",
+							"when": [
+								{
+									"kind": "targetWithin",
+									"tag": "player",
+									"px": 220
+								}
+							]
+						},
+						{
+							"id": "lose",
+							"from": "chase",
+							"to": "patrol",
+							"when": [
+								{
+									"kind": "targetBeyond",
+									"tag": "player",
+									"px": 320
+								}
+							]
+						}
+					]
+				},
+				"animInputs": {
+					"speed": "speed",
+					"chasing": "state:chase"
+				}
+			}
+		]
+	}
+}

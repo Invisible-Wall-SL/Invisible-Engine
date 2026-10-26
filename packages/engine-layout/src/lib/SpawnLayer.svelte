@@ -9,13 +9,13 @@
 
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { Container } from 'pixi-svelte';
+	import { Container, getContextParent } from 'pixi-svelte';
 	import type { SpawnedInstance } from 'engine-flow-v2';
 
 	import ComponentInstance from './ComponentInstance.svelte';
 	import { getSceneIdContext } from './sceneIdContext';
 	import { spawnLayerSpec } from './spawnLayerFields';
-	import { spawnStore } from './spawnLayers';
+	import { registerSpawnLayerSpace, spawnStore } from './spawnLayers';
 
 	const { node, space }: Props = $props();
 
@@ -53,6 +53,15 @@
 			for (const id of Object.keys(places)) if (!alive.has(id)) delete places[id];
 		});
 	});
+
+	// The layer's space for a pointer (P10.11): the container the node's transform places it in.
+	const parent = getContextParent();
+	$effect(() =>
+		registerSpawnLayerSpace(node.id, (x, y) => {
+			const local = parent.parent.toLocal({ x, y });
+			return { x: local.x, y: local.y };
+		}),
+	);
 
 	const instanceNode = (instance: SpawnedInstance): ComponentInstanceNode => ({
 		kind: 'componentInstance',

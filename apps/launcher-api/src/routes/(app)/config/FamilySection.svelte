@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
+
 	import {
 		ARCADE_BODY_EDGES,
 		ARCADE_FIXED_HZ_RANGE,
@@ -468,7 +470,7 @@
 				{characterCount === 0
 					? 'No characters yet.'
 					: `${characterCount} character${characterCount === 1 ? '' : 's'}.`}
-				<a href="/characters">Edit in Invisible Characters</a>
+				<a href={resolve('/characters')}>Edit in Invisible Characters</a>
 			</p>
 		</fieldset>
 		{@render issueList('arcade')}
