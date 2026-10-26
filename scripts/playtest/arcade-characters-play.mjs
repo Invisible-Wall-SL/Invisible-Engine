@@ -1,17 +1,19 @@
 // Plays the CHARACTERS arcade sample (game-families §4.3, P10.11) on the shared runtime, in the
-// headless shell: the guarded yard (`arcadeGuardReferenceLayout()`: a spawn layer, a `guardRoute`
-// path node), its config (`engine-mechanics/fixtures/arcade-guard.rules.json`: a played runner, a
-// guard on a patrol / chase brain, solid walls), its flow (`ARCADE_GUARD_SEED_DOC`), the placeholder
-// components and the guard's look timelines (a 1D blend on `speed`), baked into one snapshot.
+// headless shell: the guarded yard (`arcadeGuardReferenceLayout()`: a world twice the screen wide
+// with a camera following the runner (P10.12), a spawn layer, a `guardRoute` path node), its config
+// (`engine-mechanics/fixtures/arcade-guard.rules.json`: a played runner, a guard on a patrol / chase
+// brain, solid walls), its flow (`ARCADE_GUARD_SEED_DOC`), the placeholder components and the
+// guard's look timelines (a 1D blend on `speed`), baked into one snapshot.
 //
-// It reads the arcade probe (`state().arcade`: steps, bodies and each character's brain state) and
-// the flow's variables (`__IE_FLOW_V2__.state`), and checks: the round starts with the yard built;
-// the guard walks its route; the arrow keys steer the runner and a wall stops it; walking up to the
-// guard gets it spotted (patrol → chase, SPOTTED counts) and caught (a life, the runner back at the
-// start, the guard back on patrol); a held touch steers the runner; the same seeds and keys replay
-// the same yard; free play sends the RGS nothing; no page error. Screenshots of the start, the
-// patrol and the chase show the look. It builds its own snapshot, so the current-games harness is
-// untouched.
+// It reads the arcade probe (`state().arcade`: steps, bodies with each character's brain state, the
+// camera) and the flow's variables (`__IE_FLOW_V2__.state`), and checks: the round starts with the
+// yard built; the guard walks its route; the arrow keys steer the runner and a wall stops it; the
+// camera follows it across the yard, and a held touch in the scrolled view walks it to the point
+// under the finger; walking up to the guard gets it spotted (patrol → chase, SPOTTED counts) and
+// caught (a life, the runner back at the start, the guard back on patrol); the same seeds and keys
+// replay the same yard and framing; free play sends the RGS nothing; no page error. Screenshots of
+// the start, the patrol, the far side of the yard and the chase show the look. It builds its own
+// snapshot, so the current-games harness is untouched.
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/arcade-characters-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>]
@@ -28,6 +30,7 @@ import { resolveComponentClosure } from '../../packages/engine-layout/src/lib/co
 import {
 	ARCADE_GUARD_COMPONENTS,
 	ARCADE_GUARD_TIMELINES,
+	ARCADE_GUARD_WORLD,
 	arcadeGuardReferenceLayout,
 } from '../../packages/engine-layout/src/lib/referenceLayouts/arcadeGuard.ts';
 import {
@@ -178,6 +181,8 @@ async function boot(profile) {
 const runnerOf = (s) => s.arcade?.bodies.find((b) => b.tags.includes('player'));
 const guardOf = (s) => s.arcade?.bodies.find((b) => b.tags.includes('guard'));
 const walls = (s) => s.arcade?.bodies.filter((b) => b.tags.includes('wall')) ?? [];
+const onScreen = (b, cam) =>
+	!!b && b.x > cam.x && b.x < cam.x + cam.view.w && b.y > cam.y && b.y < cam.y + cam.view.h;
 
 /** Hold the arrows that point the runner at the guard for `frames` frames, re-aimed every 6. */
 async function walkTowardsGuard(game, frames, stop) {
@@ -219,8 +224,8 @@ try {
 	const r0 = runnerOf(start);
 	const g0 = guardOf(start);
 	verdict(
-		'the round starts with the yard built: three walls, the runner at its start, the guard patrolling',
-		walls(start).length === 3 &&
+		'the round starts with the yard built: five walls, the runner at its start, the guard patrolling',
+		walls(start).length === GUARD_PLACES.walls.length &&
 			!!r0 &&
 			r0.x === GUARD_PLACES.runner.x &&
 			r0.y === GUARD_PLACES.runner.y &&
@@ -260,9 +265,38 @@ try {
 	const r2 = runnerOf(await game.state());
 	verdict('the wall above stops it', r2.y === 440 && r2.x === r1.x, r2);
 
+	// Across the yard along the bottom, clear of the walls and of the guard on the top of its loop.
 	await game.key('ArrowDown', 'down');
-	await game.frames(10);
+	await game.frames(50);
 	await game.key('ArrowDown', 'up');
+	await game.key('ArrowRight', 'down');
+	await game.frames(360);
+	await game.key('ArrowRight', 'up');
+	await game.frames(60);
+	const across = await game.state();
+	const cam = across.arcade?.camera;
+	const r3 = runnerOf(across);
+	verdict(
+		'the camera follows the runner across the yard (twice the screen wide)',
+		!!cam && cam.x > 500 && onScreen(r3, cam) && r3.x > ARCADE_GUARD_WORLD.w / 2,
+		{ camera: cam, runner: r3 },
+	);
+	await shot('across');
+	// A held touch in the scrolled view: the runner walks to the field point under it.
+	const touch = { x: 650, y: 650 };
+	await game.page.mouse('mouseMoved', touch.x, touch.y);
+	await game.page.mouse('mousePressed', touch.x, touch.y);
+	await game.frames(90);
+	await game.page.mouse('mouseReleased', touch.x, touch.y);
+	await game.frames(2);
+	const scrolled = await game.state();
+	const sc = scrolled.arcade.camera;
+	const r4 = runnerOf(scrolled);
+	verdict(
+		'…and a held touch in the scrolled view walks the runner to the point under it',
+		Math.abs(r4.x - sc.x - touch.x) < 3 && Math.abs(r4.y - sc.y - touch.y) < 3 && r4.vx === 0,
+		{ camera: sc, runner: r4 },
+	);
 	await walkTowardsGuard(game, 600, (s) => guardOf(s)?.state === 'chase');
 	const chase = await game.state();
 	verdict(

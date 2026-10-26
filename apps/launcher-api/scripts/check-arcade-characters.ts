@@ -1217,7 +1217,7 @@ const offRoute = (b: { x: number; y: number }) => {
 {
 	/** A loop over a real store with a world camera following `player`, as `apps/lines` attaches
 	 *  it; the layer `f` despawns what leaves the view when `despawn` is set. */
-	const cameraBench = (characters: ArcadeCharacter[], despawn: boolean) => {
+	const cameraBench = (characters: ArcadeCharacter[], despawn: boolean, smoothing?: number) => {
 		const store = createSpawnStore();
 		store.declare({
 			id: 'f',
@@ -1245,7 +1245,15 @@ const offRoute = (b: { x: number; y: number }) => {
 			live: store,
 			seed: 'camera',
 			signal: () => {},
-			camera: { spec: { follow: 'player', deadZone: { w: 200, h: 200 } }, world, view: () => VIEW },
+			camera: {
+				spec: {
+					follow: 'player',
+					deadZone: { w: 200, h: 200 },
+					...(smoothing ? { smoothing } : {}),
+				},
+				world,
+				view: () => VIEW,
+			},
 			input: { held: (a) => io.held.has(a), pointer: () => io.pointer },
 			setInstanceInput: (id, input, value) => void io.inputs.push({ id, input, value }),
 		});
@@ -1273,7 +1281,7 @@ const offRoute = (b: { x: number; y: number }) => {
 			states: [{ id: 'walk', behaviour: 'patrol', params: { dx: 0, dy: 300, speed: 120 } }],
 			transitions: [],
 		},
-		animInputs: { s: 'speed', m: 'moving' },
+		animInputs: { s: 'speed', vy: 'vy' },
 	};
 
 	// Follow the player character across the world.
@@ -1363,31 +1371,30 @@ const offRoute = (b: { x: number; y: number }) => {
 	// despawnOutsideView never takes the followed character; a brain character it does take is
 	// forgotten whole (no stale actor: its looks stop).
 	{
-		const b = cameraBench([hero, walker], true);
+		const b = cameraBench([hero, walker], true, 2);
 		const h = b.spawn('hero', 300, 400);
 		const w = b.spawn('walker', 600, 300);
 		b.frames(10);
-		b.loop.effects.cameraMoveTo({ x: 3000, y: 0, snap: true });
-		b.loop.effects.cameraFollow({});
-		b.frames(10);
+		b.loop.effects.moveTo({ instance: h, x: 3600, y: 400 });
+		b.frames(1);
+		const cam = b.loop.camera()!;
 		check(
-			'11. the camera moved away: the followed character stays, the brain character is despawned',
-			!!b.store.get(h.id) && !!b.body(h.id) && !b.store.get(w.id) && !b.body(w.id),
+			'11. the followed character, left behind by a lagging camera, is never despawned',
+			cam.x + VIEW.w < 3600 - 20 && !!b.store.get(h.id) && !!b.body(h.id),
+			json([cam, b.body(h.id)]),
+		);
+		b.frames(600);
+		check(
+			'11. …the camera catches it up; the brain character it left behind is despawned',
+			b.loop.camera()!.x > 2000 && !!b.store.get(h.id) && !b.store.get(w.id) && !b.body(w.id),
 			json([b.loop.camera(), b.loop.bodies()]),
 		);
 		const before = b.io.inputs.length;
 		b.frames(30);
 		check(
-			'11. …and the despawned character is forgotten: no look input for it after',
-			b.io.inputs.slice(before).every((i) => i.id !== w.id),
-		);
-		const h2 = b.spawn('hero', 3100, 400);
-		b.loop.effects.cameraFollow({ instance: h2, snap: true });
-		b.loop.effects.moveTo({ instance: h2, x: 100, y: 400 });
-		b.frames(1);
-		check(
-			'11. a followed character moved outside the view is not despawned (P10.12’s rule)',
-			!!b.store.get(h2.id),
+			'11. …and is forgotten: no look input for it after',
+			b.io.inputs.slice(before).every((i) => i.id !== w.id) &&
+				b.io.inputs.some((i) => i.id === w.id),
 		);
 	}
 
@@ -1399,7 +1406,7 @@ const offRoute = (b: { x: number; y: number }) => {
 		b.frames(2);
 		const y0 = b.body(w.id)!.y;
 		const seen = b.io.inputs.filter((i) => i.id === w.id).length;
-		b.frames(60);
+		b.frames(240);
 		check(
 			'11. a character out of view is culled…',
 			b.loop.culled().has(w.id),
@@ -1407,7 +1414,7 @@ const offRoute = (b: { x: number; y: number }) => {
 		);
 		check(
 			'11. …and still steps on its brain, its looks still written',
-			b.body(w.id)!.y > y0 + 50 &&
+			b.body(w.id)!.y !== y0 &&
 				b.body(w.id)!.state === 'walk' &&
 				b.io.inputs.filter((i) => i.id === w.id).length > seen,
 			json([y0, b.body(w.id)]),

@@ -74,28 +74,40 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
   order. It saves through Game Config's endpoints and holds Game Config's lease, so the two tools
   exclude each other (§9 #14). Guide: [tools/invisible-characters](../tools/invisible-characters.md).
   `/config`'s Arcade section links to it with the character count.
+- **With the camera (P10.12):** characters live in the world's px, so they work on a world screen
+  unchanged. `follow: 'player'` follows the player character (the first body tagged `player`).
+  The pointer maps through the spawn layer's own transform, which includes the camera's world
+  container and its shake. `despawnOutsideView` never takes the followed body; a character it does
+  take is forgotten whole (`forget` drops its brain and looks). Culling only stops the drawing: a
+  culled character still steps, runs its brain and gets its looks.
 - **The sample** (a fixture, not the Game Maker default, as P10.12's river is):
   `engine-mechanics/fixtures/arcade-guard.rules.json`, `referenceLayouts/arcadeGuard.ts`,
-  `reference/arcadeGuardSeed.ts`. A runner (`topDown`, 280 px/s) in a walled yard; a guard that
-  patrols the `guardRoute` path, chases within 220 px, gives up beyond 320 px and stops at walls. A
-  catch costs a life and sends the runner home. The guard's look blends idle → run by `speed` and
-  raises an alert flag from `state:chase`. Placeholder art; no R2 read.
+  `reference/arcadeGuardSeed.ts`. A yard twice the screen wide (2844 × 800) with a camera following
+  the runner (dead zone 300 × 200, 0.15 s smoothing). A runner (`topDown`, 280 px/s) among five
+  walls; a guard that patrols the `guardRoute` loop through the yard, chases within 220 px, gives up
+  beyond 320 px and stops at walls. A catch costs a life and sends the runner home. The guard's look
+  blends idle → run by `speed` and raises an alert flag from `state:chase`. Placeholder art; no R2
+  read.
 - **Gates:** root `check:arcade-characters` (50: every preset and condition, a 900-step seeded
   replay against `fixtures/arcade-characters-replay.json`, steer, stop-and-slide, no tunnelling,
-  paths, controllers); launcher `check:arcade-characters` (70: no-characters parity with P10.8, the
+  paths, controllers); launcher `check:arcade-characters` (89: no-characters parity with P10.8, the
   stage order, controllers and touch, solids and `hitSolid` in the loop, the Flow actions and signal,
   `animInputs` only on change, `shootAt` spawning and shipping, the sample played headless on the real
-  interpreter with a seed replay); `check:characters-tool` (97); `check:layout-path` (45);
+  interpreter with a seed replay; characters + camera: follow across the world, a canvas point mapped
+  through a scrolled, shaking camera, the followed character never despawned, a culled character still
+  stepping, the sample's camera replaying); `check:characters-tool` (97); `check:layout-path` (45);
   `check:component-state-machine` (220, +36) and `-editor` (91, +12); `check:art-scope` (case 8: a
   character's look and projectile ship); `check:family-tools` (177: slot / match-3 / no-kind /
   custom / cloud manifests equal the pre-P10.11 list, arcade has Characters);
   `check:game-config-family` (145).
 - **Verified by playing:** `scripts/playtest/arcade-characters-play.mjs`
-  ([playtest/arcade-characters.md](../playtest/arcade-characters.md)) on the branch runtime, 12 / 12:
-  the guard walks its route; ArrowRight moves the runner at 280 px/s and release stops it; a wall stops
-  it; walking up to the guard turns it from patrol to chase; a catch costs a life and resets both; a
-  held touch steers; no RGS request; no page error; the same seeds and keys replay. P10.8's
-  `arcade-play.mjs` on the same build: 14 / 14.
+  ([playtest/arcade-characters.md](../playtest/arcade-characters.md)) on the branch runtime (with
+  P10.12 merged), 14 / 14: the guard walks its route; ArrowRight moves the runner at 280 px/s and
+  release stops it; a wall stops it; the camera follows it across the yard; a held touch in the
+  scrolled view walks it to the point under the finger; walking up to the guard turns it from patrol
+  to chase; a catch costs a life and resets both; no RGS request; no page error; the same seeds and
+  keys replay. On the same build P10.8's `arcade-play.mjs` 14 / 14 and P10.12's
+  `arcade-camera-play.mjs` 12 / 12.
 - **Bundle size** (the release build's `index.html`; `main` at 0a547a4 vs this branch): 3,705,095 B /
   1,268,415 B gz → 3,729,627 B / 1,277,484 B gz: **+24.0 KB raw, +8.9 KB gz (+0.71 %)**, downloaded
   by every game, run only by an arcade game with characters. Static, as before; the per-family runtime
