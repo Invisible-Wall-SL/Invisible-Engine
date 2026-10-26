@@ -133,12 +133,17 @@
 	// The set's nodes that node actors drive, keyed by node id. Read by each top-level
 	// `<LayoutNodeView>` once, at init; `sample()` reads `time`, so a driven node follows the playhead.
 	const nodeActors = $derived(resolveNodeActors(props.doc, props.scene));
+	// A screen keeps the driver after the timeline ends, to hold its last frame, when this component
+	// is gone and its deriveds are inert (reading one re-runs nothing and warns): from then on the
+	// driver reads what they held at teardown.
+	let held: { actors: typeof nodeActors; docTracks: CinematicDoc['tracks'] } | undefined;
+	onDestroy(() => (held = { actors: nodeActors, docTracks: props.doc.tracks }));
 	const readLayoutType = untrack(() => props.layoutType);
 	const driver: CinematicNodeDriver = (nodeId) => {
-		const actor = nodeActors.get(nodeId);
+		const actor = (held?.actors ?? nodeActors).get(nodeId);
 		if (!actor) return undefined;
 		const tracks = actor.tracks as unknown as CinematicTrack[];
-		const docTracks = props.doc.tracks;
+		const docTracks = held?.docTracks ?? props.doc.tracks;
 		// Most timelines key no ratio of their own: they never read the ratio, nor re-sample on resize.
 		const ratioKeyed = docTracks.some((t) => t.kind === 'property' && !!trackLayout(t));
 		return {

@@ -269,6 +269,54 @@ check(
 	['symbolsStatic'],
 );
 check(
+	'…but not a frame a project symbol sheet registers under the same name',
+	added(
+		input(
+			mutate((d) => {
+				delete mapOf(d).L1.static;
+				d.symbols!.index = { sheets: [{ names: ['l1.webp', 'myFrame.png'] }] };
+			}),
+		),
+	),
+	[],
+);
+check(
+	'…while a frame no project sheet registers still keeps it',
+	added(
+		input(
+			mutate((d) => {
+				delete mapOf(d).L1.static;
+				d.symbols!.index = { sheets: [{ names: ['h1.webp'] }] };
+			}),
+		),
+	),
+	['symbolsStatic'],
+);
+check(
+	'…and a font of a project frame’s name still keeps that font',
+	added(
+		input(
+			mutate((d) => {
+				d.symbols!.winLine = { text: { font: 'purple' } };
+				d.symbols!.index = { sheets: [{ names: ['purple'] }] };
+			}),
+		),
+	),
+	['purpleFont'],
+);
+check(
+	'…as does a rig of a project frame’s name',
+	added(
+		input(
+			mutate((d) => {
+				delete winInstance(d).winSpine;
+				d.symbols!.index = { sheets: [{ names: ['bigwin'] }] };
+			}),
+		),
+	),
+	['bigwin'],
+);
+check(
 	'no basegameOverlays scene ⇒ the reference overlays, and their Transition rig',
 	added(
 		input(

@@ -51,7 +51,7 @@ Shipped capabilities on `main`:
 
 ## Open items / next
 1. **Behaviour layer — per [rive-style-editor.md](../design/rive-style-editor.md)** (approved 2026-10-13; it supersedes the `BehaviorTrack`/`TweenStep` design in invisible-editor §8.5–8.7). Phase 4a (components in place) and Phase 4b (component timelines) are on `main`; Phase 5a (the state-machine format + runtime) and 5b (the State Machine panel) are on `main`; Phase 6a (listeners + events: format, runtime, validation, normalizer) is on `main`; 6b (the editor: Listeners, Events, On enter, the pointer preview and Events log) is in review; **next is Phase 7** (Flow instance nodes: the event pins — with their own pin id form, not the press pins' `containerEventDeclId`, plan §6.2). Open from 5b: the preview samples a state's timeline as last saved (an unsaved Timeline-tab edit shows after Save); conditions pick inputs by id (no picker for engine value sources yet — the **from** field is typed). Open from 4b: a component's own timelines are still project-scoped; since Phase 9d a timeline can be promoted to the shared library and placed on any component as a link, and the panel keys text, visibility and cues (see [editor status](editor.md) 2026-10-20, 9d). Anything needing branching/RGS math/stateful logic stays a coded `mount`.
-2. **Nesting depth capped at 3** (`MAX_COMPONENT_DEPTH`, cycle-guarded; 2 until 2026-10-23, when a counter inside a component needed 3) — widen only when a game needs it; the bake walks only top-level scene pins, not the transitive nested-pin closure (no game pins a nested version yet).
+2. **Nesting depth capped at 3** (`MAX_COMPONENT_DEPTH`, cycle-guarded; 2 until 2026-10-23, when a counter inside a component needed 3) — widen only when a game needs it; the bake walks only top-level scene pins, not the transitive nested-pin closure: a nested pin draws the latest in the editor and the game alike (`commonoverlayproject`'s `potMeter` pins `c_xoq2r4ee` v4/v7 and `c_0jd2016q` v2 that way). Honouring them needs both the bake and the editor's pin loader to walk defs, and changes how such a game looks — an owner call.
 3. **Authoring gaps** — no autosave (unsaved drafts are in-memory only, discarded on close with a warning; "This game's defaults" is a second, separate manual save); authoring a SHARED component as its only copy, and a promote-from-Library-row affordance, are not built.
 4. **A per-project default only reaches a built game on its next publish/bake** — the bundle carries the map, so changing a default in the tool does not retroactively change an already-published game.
 
@@ -103,6 +103,24 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-25 — **A pinned version ships the components only it names; a pin warns once** (branch
+  `claude/charming-cannon-rjv7ba`, in review). `commonoverlayproject` places `segmentedCounter`
+  pinned at v4, whose first segment is `c_55h9isri`; v7 (latest) switched to `c_8m57uq5p`. The
+  closure walked latest defs only, so `c_55h9isri` never shipped and the game drew the default
+  segment where the editor, which draws variants from the project's whole store, drew it. New
+  `resolveComponentClosureWithPins` (`engine-layout`) runs the closure, loads the pinned older
+  versions (only an exact snapshot: `loadComponent` answers an unmatched built-in pin with the
+  coded def, which the game never draws for it), then follows those versions' trees and the
+  components their own `component`-kind params name, reusing every def already loaded; the doc bake,
+  the runtime bundle and the art export all call it instead of each looping over the pins, so
+  the three cannot drift. Nothing changes for a game with no non-latest pin. Separately, the
+  "pins version … not registered" warning fired per instance render, hundreds of times a session
+  for a def nested in a repeated part; it is now once per `id@version` (`warnPinNotHonoured`).
+  Gate: `packages/engine-layout/scripts/test-component-closure.mjs` (twelve new assertions).
+  ⏳ Follow-up: the current-games harness (`scripts/current-games/lib/republish.mjs`) still mirrors
+  the old pin loop (an unmatched built-in pin ships the coded def; no pinned-only components). Its
+  verdict refuses a PR that edits it, so it moves to `resolveComponentClosureWithPins` in a PR of
+  its own; renders are unaffected meanwhile (neither difference changes what a game draws).
 - 2026-10-23 — **Segmented counters: a segment's box (Size)** (branch `feat/segment-root-box`, in
   review, ⏳ not browser-verified). A segment drawn only from rigs and text (the owner's
   R_RespinTile looks) measures 0 × 0 — a rig or a text cannot be sized without loading it — so a

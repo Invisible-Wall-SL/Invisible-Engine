@@ -12,7 +12,7 @@ import {
 	type ResolvedAsset,
 	type Texture,
 } from 'pixi.js';
-import { TextureAtlas } from '../atlas';
+import { TextureAtlas, type TextureAtlasPage } from '../atlas';
 import { RigPageTexture } from './pageTexture';
 
 /** Optional `data` for an `.atlas` asset: page images to use instead of the files the atlas names
@@ -21,6 +21,9 @@ export interface RigAtlasMetadata {
 	images?: TextureSource | string | Record<string, TextureSource | string>;
 	imageMetadata?: Record<string, unknown>;
 }
+
+/** The image url of each page the loader fetched — the loader's to release on unload. */
+const fetchedPageUrls = new WeakMap<TextureAtlasPage, string>();
 
 /** `.atlas` → `TextureAtlas`, each page's image loaded beside it (premultiplied once: a `pma` page
  * arrives premultiplied, any other is premultiplied on upload). */
@@ -69,14 +72,29 @@ export const rigAtlasAsset: AssetExtension<TextureAtlas, RigAtlasMetadata> = {
 							},
 						});
 						source = texture.source;
+						fetchedPageUrls.set(page, url);
 					}
 					page.setTexture(RigPageTexture.from(source));
 				}),
 			);
 			return atlas;
 		},
-		unload(atlas: TextureAtlas): void {
-			atlas.dispose();
+		// A fetched page is unloaded through the loader, as Pixi's spritesheet does its image:
+		// destroying its source left the loader's cache holding a dead texture (Pixi warns "destroyed
+		// instead of unloaded"). A page handed in through `images` is disposed as before.
+		async unload(atlas: TextureAtlas, _resolved?: ResolvedAsset, loader?: Loader): Promise<void> {
+			await Promise.all(
+				atlas.pages.map(async (page) => {
+					const texture = page.texture as RigPageTexture | null;
+					const url = fetchedPageUrls.get(page);
+					if (!url || !loader) {
+						texture?.dispose();
+						return;
+					}
+					texture?.texture.destroy();
+					await loader.unload(url);
+				}),
+			);
 		},
 	},
 } as unknown as AssetExtension<TextureAtlas, RigAtlasMetadata>;

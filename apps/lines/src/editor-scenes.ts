@@ -210,8 +210,9 @@ type BakedBundle = {
 		index: {
 			/** Sprite sheets. `key` is the source manifest (kept for the exporter); the
 			 * sheet's frames register under their own names — symbol bindings reference
-			 * those plain frame keys (e.g. `h1.webp`). */
-			sheets: { key: string; json: string; ktx2Json?: string }[];
+			 * those plain frame keys (e.g. `h1.webp`). `names` lists those frames (absent in a bundle
+			 * exported before it existed), so the stock walk loads no stock sheet for one. */
+			sheets: { key: string; json: string; ktx2Json?: string; names?: string[] }[];
 			/** Standalone images, registered under the binding's full `assetKey`. */
 			images: { key: string; file: string; ktx2?: string }[];
 			/** Rig bundles (atlas + skeleton, shared page on disk). `key` is the

@@ -63,7 +63,7 @@
 	} from 'utils-event-emitter';
 
 	import LayoutNodeView from './LayoutNodeView.svelte';
-	import { resolveComponent } from './registerComponents';
+	import { resolveComponent, warnPinNotHonoured } from './registerComponents';
 	import {
 		getComponentNestState,
 		setComponentNestState,
@@ -211,11 +211,7 @@
 	const allowed = !!def && !isCycle && !depthExceeded;
 
 	$effect(() => {
-		if (resolution.versionMismatch) {
-			console.warn(
-				`[engine-layout] component '${node.componentId}' pins version ${resolution.pinnedVersion} but that version is not registered (rendering the latest, v${resolution.registeredVersion} — pin not honoured exactly, never auto-upgraded).`,
-			);
-		}
+		warnPinNotHonoured(node.componentId, resolution);
 		if (!def) {
 			console.warn(`[engine-layout] no component registered for id '${node.componentId}'.`);
 		} else if (isCycle) {

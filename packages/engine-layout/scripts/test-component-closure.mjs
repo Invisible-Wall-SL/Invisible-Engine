@@ -5,7 +5,8 @@
 // `tile`) ships like a nested instance, whether the name is on a placed instance, a per-ratio
 // override, the def's own default or the project's defaults; a doc that names none resolves in the
 // same order as the plain instance walk; and the project's defaults are read only for a def that
-// has such a param.
+// has such a param. `resolveComponentClosureWithPins` adds the older versions placements pin, and
+// the components only those versions name.
 //
 //   node scripts/test-component-closure.mjs
 //
@@ -27,6 +28,7 @@ const bundled = await esbuild.build({
 			LETTER_TILE_DEF,
 			collectComponentIds,
 			resolveComponentClosure,
+			resolveComponentClosureWithPins,
 		} from '../src/lib/index.ts';`,
 		resolveDir: HERE,
 		loader: 'ts',
@@ -159,6 +161,130 @@ assert(same(loaded, [...plain, 'jackpotTile']), 'loaded in the plain walk’s or
 assert(
 	same(await resolve([], { extraSeedIds: ['jackpotTile', 'nope'] }), ['jackpotTile']),
 	'extra seeds still resolve, a missing one skipped',
+);
+
+console.info('pinned versions');
+const counter = (version, first) => ({
+	id: 'counter',
+	version,
+	root: {
+		id: 'segments',
+		kind: 'repeater',
+		x: 0,
+		y: 0,
+		componentId: 'segment',
+		count: { source: 'n' },
+		variants: { first },
+	},
+});
+const leaf = (id) => ({
+	id,
+	version: 1,
+	root: { id: `${id}-root`, kind: 'container', x: 0, y: 0 },
+});
+const PINNED = {
+	counter: counter(7, 'newFirst'),
+	segment: leaf('segment'),
+	newFirst: leaf('newFirst'),
+	oldFirst: leaf('oldFirst'),
+};
+const HISTORY = { 'counter@4': counter(4, 'oldFirst'), 'counter@5': counter(5, 'goneFirst') };
+const pinnedLoads = [];
+const loadPinned = async (id) => {
+	pinnedLoads.push(id);
+	return Object.hasOwn(PINNED, id) ? PINNED[id] : null;
+};
+const loadVersion = async (id, version) => HISTORY[`${id}@${version}`] ?? null;
+const placed = (componentVersion) => [
+	{ id: 'c', kind: 'componentInstance', componentId: 'counter', x: 0, y: 0, componentVersion },
+];
+const withPins = async (nodes, options) => {
+	pinnedLoads.length = 0;
+	const { defs, versions } = await mod.resolveComponentClosureWithPins(
+		nodes,
+		loadPinned,
+		loadVersion,
+		options,
+	);
+	return { ids: Object.keys(defs), versions: versions.map((d) => `${d.id}@${d.version}`) };
+};
+let got = await withPins(placed(4));
+assert(same(got.versions, ['counter@4']), 'ships the pinned older version');
+assert(
+	same(got.ids, ['counter', 'segment', 'newFirst', 'oldFirst']),
+	'…and the variant only that version names, after the latest closure',
+);
+assert(
+	same(pinnedLoads, ['counter', 'segment', 'newFirst', 'oldFirst']),
+	'…loading each def once (the pinned walk reuses what the latest closure loaded)',
+);
+got = await withPins(placed(7));
+assert(
+	same(got, { ids: ['counter', 'segment', 'newFirst'], versions: [] }),
+	'a pin the latest already is ships no copy and nothing extra',
+);
+got = await withPins(placed(undefined));
+assert(
+	same(got.ids, Object.keys(await mod.resolveComponentClosure(placed(undefined), loadPinned))) &&
+		got.versions.length === 0,
+	'no pin: the plain closure',
+);
+got = await withPins(placed(9));
+assert(same(got.versions, []), 'a pin the store has lost ships nothing');
+const missingNamed = [];
+got = await withPins([...placed(5), strip({ componentId: 'goneFirst' })], {
+	onMissing: (id) => missingNamed.push(id),
+});
+assert(same(got.versions, ['counter@5']), 'a pinned version naming a lost def still ships');
+assert(same(missingNamed, ['goneFirst']), '…and the lost def is reported once');
+
+console.info('pinned versions: params, lost snapshots, odd ids');
+const tileParam = (fallback) => [{ key: 'tile', kind: 'component', default: fallback }];
+PINNED.holder = { ...leaf('holder'), version: 3, params: tileParam('newTile') };
+PINNED.newTile = leaf('newTile');
+PINNED.oldTile = leaf('oldTile');
+HISTORY['holder@2'] = { ...leaf('holder'), version: 2, params: tileParam('oldTile') };
+const holder = (componentVersion, params) => [
+	{
+		id: 'h',
+		kind: 'componentInstance',
+		componentId: 'holder',
+		x: 0,
+		y: 0,
+		componentVersion,
+		params,
+	},
+];
+got = await withPins(holder(2));
+assert(
+	same(got, { ids: ['holder', 'newTile', 'oldTile'], versions: ['holder@2'] }),
+	"a component a pinned version's own param default names ships",
+);
+HISTORY['holder@2'].params = [{ key: 'backTile', kind: 'component' }];
+got = await withPins(holder(2), {
+	defaultsFor: (id) => (id === 'holder' ? { backTile: 'oldTile' } : undefined),
+});
+assert(
+	same(got.ids, ['holder', 'newTile', 'oldTile']),
+	"…as does one the project's defaults name for a param only that version declares",
+);
+HISTORY['holder@2'].params = [{ key: 'pick', kind: 'component' }];
+got = await withPins(holder(2, { pick: 'oldTile' }));
+assert(
+	same(got.ids, ['holder', 'newTile', 'oldTile']),
+	'…and one the placement sets through a param only that version declares',
+);
+HISTORY['counter@6'] = counter(7, 'oldFirst');
+got = await withPins(placed(6));
+assert(
+	same(got, { ids: ['counter', 'segment', 'newFirst'], versions: [] }),
+	'a store answering with another version (a built-in) ships nothing for the pin',
+);
+HISTORY['counter@3'] = counter(3, 'toString');
+got = await withPins(placed(3));
+assert(
+	same(got, { ids: ['counter', 'segment', 'newFirst'], versions: ['counter@3'] }),
+	"an id that is an Object property name is just a missing def, not Object's",
 );
 
 if (failures > 0) {
