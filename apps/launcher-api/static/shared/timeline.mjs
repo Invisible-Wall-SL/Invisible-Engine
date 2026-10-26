@@ -114,6 +114,97 @@ function parseCubic(text) {
 const cloneEase = (ease) => (Array.isArray(ease) ? ease.slice() : ease);
 const easeLabel = (ease) => (cubicOf(ease) ? 'cubic ' + cubicText(ease) : ease || 'linear');
 
+/**
+ * Cubic presets the Interpolation panel offers beside its kinds (Elastic and Bounce are kinds of
+ * their own: no cubic can draw them). Each is plain data, so a key keeps only its four numbers.
+ */
+export const CUBIC_PRESETS = [
+	{ id: 'easeIn', label: 'Ease in', cubic: [0.42, 0, 1, 1] },
+	{ id: 'easeOut', label: 'Ease out', cubic: [0, 0, 0.58, 1] },
+	{ id: 'easeInOut', label: 'Ease in-out', cubic: [0.42, 0, 0.58, 1] },
+	{ id: 'overshoot', label: 'Overshoot', cubic: [0.34, 1.56, 0.64, 1] },
+	{ id: 'anticipate', label: 'Anticipate', cubic: [0.36, 0, 0.66, -0.56] },
+];
+
+// ---- the Graph Editor's geometry (`options.graph`) ---------------------------
+//
+// Pure, so the gate checks it without a DOM: the curve is the evaluator's own `sampleChannel`
+// (the function the game samples a key channel with), and a handle is the cubic's control point
+// drawn in time × value, so dragging it writes the same four numbers the curve editor writes.
+
+/** The graph row's height and its inner margin, in px. */
+export const GRAPH_H = 140;
+const GRAPH_PAD = 12;
+
+/**
+ * A channel's value over the timeline, laid out for a `width × GRAPH_H` lane at `pps`: the
+ * sampled points (every 2 px, plus every key time), the value range (every sample and key, so an
+ * overshoot shows), and `y(v)` / `valueAt(py)` to map between value and pixel. `range` pins the
+ * range (a handle drag keeps the frame still under the pointer).
+ */
+export function graphGeometry(keys, ev, duration, pps, range) {
+	const width = Math.max(duration * pps, 1);
+	const times = new Set();
+	for (let x = 0; x <= width; x += 2) times.add(x / pps);
+	for (const k of keys) if (k.time >= 0 && k.time <= duration) times.add(k.time);
+	const points = [...times]
+		.sort((a, b) => a - b)
+		.map((t) => ({ t, v: ev.sampleChannel(keys, t) }))
+		.filter((p) => Number.isFinite(p.v));
+	let min = Infinity;
+	let max = -Infinity;
+	for (const p of points) {
+		if (p.v < min) min = p.v;
+		if (p.v > max) max = p.v;
+	}
+	for (const k of keys) {
+		if (k.value < min) min = k.value;
+		if (k.value > max) max = k.value;
+	}
+	if (range) {
+		min = range.min;
+		max = range.max;
+	}
+	if (!Number.isFinite(min)) {
+		min = 0;
+		max = 1;
+	}
+	if (max - min < 1e-9) {
+		min -= 1;
+		max += 1;
+	}
+	const span = max - min;
+	const y = (v) => GRAPH_PAD + ((max - v) / span) * (GRAPH_H - GRAPH_PAD * 2);
+	const valueAt = (py) => max - ((py - GRAPH_PAD) / (GRAPH_H - GRAPH_PAD * 2)) * span;
+	return { width, points, min, max, y, valueAt };
+}
+
+/** A cubic segment's two control points in time × value, from key `a` to key `b`. */
+export function cubicHandlePoints(a, b, cubic) {
+	const dt = b.time - a.time;
+	const dv = b.value - a.value;
+	return [
+		{ t: a.time + cubic[0] * dt, v: a.value + cubic[1] * dv },
+		{ t: a.time + cubic[2] * dt, v: a.value + cubic[3] * dv },
+	];
+}
+
+/**
+ * The cubic after dragging handle `which` (1 or 2) of segment `a → b` to (`t`, `v`): x is the
+ * time share, clamped to 0..1 (a cubic must stay a function of time); y is the value share, free
+ * to overshoot. Null when the segment has no time or no value change to shape.
+ */
+export function cubicFromHandle(a, b, cubic, which, t, v) {
+	const dt = b.time - a.time;
+	const dv = b.value - a.value;
+	if (!(dt > 0) || Math.abs(dv) < 1e-9) return null;
+	const next = cubic.slice();
+	const i = which === 1 ? 0 : 2;
+	next[i] = n3(Math.min(Math.max((t - a.time) / dt, 0), 1));
+	next[i + 1] = n3((v - a.value) / dv);
+	return next;
+}
+
 const noop = () => {};
 const HOST_DEFAULTS = {
 	evaluate: noop,
@@ -169,6 +260,12 @@ export function mount(el, options) {
 	const summaryRows = !!options.summaryRows;
 	const boxSelect = !!options.boxSelect;
 	const textRows = !!options.textRows;
+	const graph = !!options.graph;
+	/** `<trackId>|<channel>` of every channel whose Graph Editor row is open. */
+	const graphOpen = new Set();
+	const graphKey = (track, chan) => track.id + '|' + chan.key;
+	/** A channel the Graph Editor can draw: a number (a colour has no single value to plot). */
+	const graphable = (chan) => graph && chan.input !== 'color';
 	let selCueTime = null; // the selected cue key, by time (cues are global, so time identifies one)
 	let selVis = null; // the selected visibility key: { actorId, time } — Delete removes it
 	let cinePps = null; // px per second; null = fit the whole cinematic to the panel width
@@ -249,6 +346,29 @@ export function mount(el, options) {
 			dot.classList.toggle('sel', on);
 			dot.style.background = on ? '#ffd24a' : chanColor(row.dataset.track, row.dataset.channel);
 		});
+		refreshGraphRows();
+	}
+
+	/**
+	 * Redraw every open graph row in place — its curve, its keys' selection and the selected key's
+	 * handles — and re-wire it, so a graph never shows (or lets you drag) a selection that changed
+	 * without a full re-render.
+	 */
+	function refreshGraphRows() {
+		if (!el || !graph) return;
+		const pps = tlPps();
+		el.querySelectorAll('.cineGraphRow').forEach((row) => {
+			const track = doc.tracks.find((t) => t.id === row.dataset.track);
+			if (!track) return;
+			const keys = track.channels && track.channels[row.dataset.channel];
+			const chans = track.kind === 'camera' ? CAM_CHANNELS : channelsOf(castOf(track.actorId));
+			const chan = chans.find((c) => c.key === row.dataset.channel);
+			const lane = row.querySelector('.cineGraphLane');
+			if (!keys || !chan || !lane) return;
+			const geo = graphGeometry(keys, EV, doc.duration, pps);
+			lane.innerHTML = graphSvg({ track, chan }, keys, geo, pps, parseFloat(lane.style.width));
+		});
+		ROW_KINDS.graph.wire(el, pps);
 	}
 	function chanColor(trackId, channel) {
 		const track = doc.tracks.find((t) => t.id === trackId);
@@ -482,7 +602,10 @@ export function mount(el, options) {
 			const chans = channelsOf(cast);
 			for (const track of propertyTracksOf(cast.actorId)) {
 				for (const chan of chans) {
-					if (track.channels[chan.key]) out.push({ kind: 'channel', cast, track, chan });
+					if (!track.channels[chan.key]) continue;
+					out.push({ kind: 'channel', cast, track, chan });
+					if (graphable(chan) && graphOpen.has(graphKey(track, chan)))
+						out.push({ kind: 'graph', cast, track, chan });
 				}
 			}
 		}
@@ -492,8 +615,10 @@ export function mount(el, options) {
 		const cam = cameraTrack();
 		if (cam) {
 			for (const chan of CAM_CHANNELS) {
-				if (cam.channels[chan.key])
-					out.push({ kind: 'channel', cast: null, track: cam, chan, camera: true });
+				if (!cam.channels[chan.key]) continue;
+				out.push({ kind: 'channel', cast: null, track: cam, chan, camera: true });
+				if (graphable(chan) && graphOpen.has(graphKey(cam, chan)))
+					out.push({ kind: 'graph', cast: null, track: cam, chan, camera: true });
 			}
 		}
 		return out;
@@ -511,6 +636,68 @@ export function mount(el, options) {
 		l.style.width = contentW + 'px';
 		return l;
 	};
+
+	// ---- the Graph Editor's drawing (`options.graph`) ----------------------
+
+	/** The primary selected key's index on this channel, or -1. */
+	function selectedGraphKey(trackId, channel, keys) {
+		if (!selKey || selKey.trackId !== trackId || selKey.channel !== channel) return -1;
+		return keys.findIndex((k) => Math.abs(k.time - selKey.time) < 1e-6);
+	}
+
+	const graphPathD = (geo, pps) =>
+		geo.points
+			.map((p, i) => (i ? 'L' : 'M') + (p.t * pps).toFixed(1) + ',' + geo.y(p.v).toFixed(1))
+			.join(' ');
+
+	/** The segment `i → i + 1`'s handles, or null when it is not a cubic with a value to shape. */
+	function graphHandles(keys, i) {
+		const a = keys[i];
+		const b = keys[i + 1];
+		const c = cubicOf(a && a.ease);
+		if (!a || !b || !c || !(b.time > a.time) || Math.abs(b.value - a.value) < 1e-9) return null;
+		return { a, b, points: cubicHandlePoints(a, b, c) };
+	}
+
+	function graphSvg(entry, keys, geo, pps, w) {
+		const color = entry.chan.color;
+		const sel = selectedGraphKey(entry.track.id, entry.chan.key, keys);
+		const X = (t) => (t * pps).toFixed(1);
+		const Y = (v) => geo.y(v).toFixed(1);
+		const dots = keys
+			.map(
+				(k, i) =>
+					`<circle class="cineGraphKey${isKeySelected(entry.track.id, entry.chan.key, k.time) ? ' sel' : ''}" data-gkey="${i}" cx="${X(k.time)}" cy="${Y(k.value)}" r="5" fill="${color}"><title>${esc(entry.chan.label)} = ${+k.value.toFixed(3)} @ ${+k.time.toFixed(3)}s (${esc(easeLabel(k.ease))})</title></circle>`,
+			)
+			.join('');
+		const hs = sel >= 0 ? graphHandles(keys, sel) : null;
+		const handles = hs
+			? `<line class="cineCurveArm" data-garm="1" x1="${X(hs.a.time)}" y1="${Y(hs.a.value)}" x2="${X(hs.points[0].t)}" y2="${Y(hs.points[0].v)}"/>
+<line class="cineCurveArm" data-garm="2" x1="${X(hs.b.time)}" y1="${Y(hs.b.value)}" x2="${X(hs.points[1].t)}" y2="${Y(hs.points[1].v)}"/>
+<circle class="cineCurveHandle" data-ghandle="1" data-seg="${sel}" cx="${X(hs.points[0].t)}" cy="${Y(hs.points[0].v)}" r="6"/>
+<circle class="cineCurveHandle" data-ghandle="2" data-seg="${sel}" cx="${X(hs.points[1].t)}" cy="${Y(hs.points[1].v)}" r="6"/>`
+			: '';
+		return `<svg class="cineGraph" width="${w}" height="${GRAPH_H}" viewBox="0 0 ${w} ${GRAPH_H}" overflow="visible" role="img" aria-label="${esc(entry.chan.label)} over time">
+<path class="cineGraphPath" d="${graphPathD(geo, pps)}" stroke="${color}"/>
+${dots}${handles}</svg>`;
+	}
+
+	/** Mid-drag: move the curve, the arms and the handles in place (a handle keeps its capture). */
+	function redrawGraph(svg, keys, geo, pps, i) {
+		const path = svg.querySelector('.cineGraphPath');
+		if (path) path.setAttribute('d', graphPathD(geo, pps));
+		const hs = graphHandles(keys, i);
+		if (!hs) return;
+		const set = (sel, attrs) => {
+			const n = svg.querySelector(sel);
+			if (n) for (const [a, v] of Object.entries(attrs)) n.setAttribute(a, v.toFixed(1));
+		};
+		const [p1, p2] = hs.points;
+		set('[data-garm="1"]', { x2: p1.t * pps, y2: geo.y(p1.v) });
+		set('[data-garm="2"]', { x2: p2.t * pps, y2: geo.y(p2.v) });
+		set('[data-ghandle="1"]', { cx: p1.t * pps, cy: geo.y(p1.v) });
+		set('[data-ghandle="2"]', { cx: p2.t * pps, cy: geo.y(p2.v) });
+	}
 
 	/**
 	 * How each row kind draws (`render` fills the row element) and takes input (`wire`, run over the
@@ -829,7 +1016,14 @@ export function mount(el, options) {
 							';">' +
 							(entry.camera ? '🎥 ' : '↳ ') +
 							esc(entry.chan.label) +
-							'</span>',
+							'</span>' +
+							(graphable(entry.chan)
+								? '<button class="cineGraphBtn' +
+									(graphOpen.has(graphKey(track, entry.chan)) ? ' on' : '') +
+									'" data-graph="' +
+									esc(graphKey(track, entry.chan)) +
+									'" title="Graph Editor: this channel\'s value over time, and its curves">📈</button>'
+								: ''),
 					),
 				);
 				const l = lane(contentW);
@@ -854,8 +1048,17 @@ export function mount(el, options) {
 				row.appendChild(l);
 			},
 			// Channel keys: click to select (Shift / Ctrl adds or removes), drag to retime — every
-			// selected key moves by the same snapped amount.
+			// selected key moves by the same snapped amount. 📈 opens / closes the channel's graph.
 			wire(root, pps) {
+				root.querySelectorAll('.cineChanRow [data-graph]').forEach((b) => {
+					b.onclick = (e) => {
+						e.stopPropagation();
+						const id = b.dataset.graph;
+						if (graphOpen.has(id)) graphOpen.delete(id);
+						else graphOpen.add(id);
+						renderTimeline();
+					};
+				});
 				root.querySelectorAll('.cineChanRow .cineKey').forEach((dot) => {
 					const row = dot.closest('.cineChanRow');
 					const trackId = row.dataset.track;
@@ -938,6 +1141,112 @@ export function mount(el, options) {
 					};
 					dot.onpointerup = endKey;
 					dot.onpointercancel = endKey;
+				});
+			},
+		},
+
+		// A channel's GRAPH (`options.graph`, opened by the 📈 in its row): the value over time through
+		// the evaluator the game samples with, the keys on the curve and, for the selected key's
+		// outgoing cubic, its two handles in time × value. Click a key to select it (the
+		// Interpolation panel then shows it); drag a handle to shape that segment.
+		graph: {
+			render(row, entry, pps, contentW) {
+				const keys = entry.track.channels[entry.chan.key];
+				const geo = graphGeometry(keys, EV, doc.duration, pps);
+				row.classList.add('cineGraphRow');
+				row.dataset.channel = entry.chan.key;
+				row.style.height = GRAPH_H + 'px';
+				row.appendChild(
+					gutter(
+						'<span class="cineGraphRange" style="color:' +
+							entry.chan.color +
+							';"><span>' +
+							+geo.max.toFixed(2) +
+							'</span><span>' +
+							esc(entry.chan.label) +
+							'</span><span>' +
+							+geo.min.toFixed(2) +
+							'</span></span>',
+					),
+				);
+				const l = lane(contentW);
+				l.classList.add('cineGraphLane');
+				l.innerHTML = graphSvg(entry, keys, geo, pps, contentW);
+				row.appendChild(l);
+			},
+			wire(root, pps) {
+				root.querySelectorAll('.cineGraphRow').forEach((row) => {
+					const trackId = row.dataset.track;
+					const channel = row.dataset.channel;
+					const track = doc.tracks.find((t) => t.id === trackId);
+					const keys = track && track.channels && track.channels[channel];
+					const svg = row.querySelector('svg');
+					if (!keys || !svg) return;
+					svg.querySelectorAll('[data-gkey]').forEach((dot) => {
+						dot.onpointerdown = (e) => {
+							e.preventDefault();
+							e.stopPropagation();
+							const k = keys[+dot.dataset.gkey];
+							if (!k) return;
+							const me = { trackId, channel, time: k.time };
+							if (e.shiftKey || e.ctrlKey || e.metaKey) {
+								if (isKeySelected(trackId, channel, k.time))
+									selectKeys(selKeys.filter((x) => !sameKey(x, me)));
+								else selectKeys([...selKeys, me], me);
+							} else selectKeys([me], me);
+							render();
+							renderTimeline();
+						};
+					});
+					svg.querySelectorAll('[data-ghandle]').forEach((h) => {
+						h.onpointerdown = (e) => {
+							e.preventDefault();
+							e.stopPropagation();
+							const i = +h.dataset.seg;
+							const a = keys[i];
+							const b = keys[i + 1];
+							const start = cubicOf(a && a.ease);
+							if (!a || !b || !start) return;
+							const which = h.dataset.ghandle === '2' ? 2 : 1;
+							// The frame stays still under the pointer for the whole drag.
+							const frame = graphGeometry(keys, EV, doc.duration, pps);
+							const range = { min: frame.min, max: frame.max };
+							try {
+								h.setPointerCapture(e.pointerId);
+							} catch {
+								/* uncaptured drag still works */
+							}
+							let moved = false;
+							h.onpointermove = (ev) => {
+								const r = svg.getBoundingClientRect();
+								const next = cubicFromHandle(
+									a,
+									b,
+									cubicOf(a.ease) || start,
+									which,
+									(ev.clientX - r.left) / pps,
+									frame.valueAt(ev.clientY - r.top),
+								);
+								if (!next) return;
+								a.ease = next;
+								moved = true;
+								const geo = graphGeometry(keys, EV, doc.duration, pps, range);
+								redrawGraph(svg, keys, geo, pps, i);
+								host.evaluate(time);
+							};
+							const up = () => {
+								h.onpointermove = null;
+								h.onpointerup = null;
+								h.onpointercancel = null;
+								if (!moved) return;
+								commit('interpolation');
+								render();
+								renderTimeline();
+							};
+							h.onpointerup = up;
+							h.onpointercancel = up;
+						};
+					});
 				});
 			},
 		},
@@ -1885,7 +2194,10 @@ export function mount(el, options) {
 		if (!refs.length) return;
 		for (const r of refs) r.key.ease = cloneEase(ease);
 		host.evaluate(time);
-		if (live) return;
+		if (live) {
+			refreshGraphRows();
+			return;
+		}
 		commit('interpolation', 'ease:' + selKeys.length);
 		render();
 		renderTimeline();
@@ -2146,6 +2458,7 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 <div class="cineRow cineEaseKinds">
 	${btn('linear', 'Linear', 'A straight line to the next key')}${btn('cubic', 'Cubic', 'A curve with two handles')}${btn('hold', 'Hold', 'Hold this value until the next key (stepped)')}${btn('elastic', 'Elastic', 'Overshoot the next key and spring back onto it')}${btn('bounce', 'Bounce', 'Land on the next key and bounce')}
 </div>
+<div class="cineRow cineEasePresets">${CUBIC_PRESETS.map((p) => `<button data-epreset${scope}="${p.id}" class="${kind === 'cubic' && cubicText(p.cubic) === cubicText(c) ? 'on' : ''}" title="Cubic ${esc(cubicText(p.cubic))}">${esc(p.label)}</button>`).join('')}</div>
 ${
 	kind === 'cubic'
 		? `<div class="cineCurveWrap" data-curve${scope}>${curveMarkup(c)}</div>
@@ -2200,6 +2513,12 @@ ${easeEditorMarkup(doc.defaultEase, '-default')}`;
 				const v = b.getAttribute(`data-ekind${scope}`);
 				if (v === easeKind(current())) return;
 				apply(v === 'cubic' ? cubicValues(current()).slice() : v, false);
+			};
+		});
+		root.querySelectorAll(`[data-epreset${scope}]`).forEach((b) => {
+			b.onclick = () => {
+				const preset = CUBIC_PRESETS.find((p) => p.id === b.getAttribute(`data-epreset${scope}`));
+				if (preset) apply(preset.cubic.slice(), false);
 			};
 		});
 		const field = root.querySelector(`[data-ecubic${scope}]`);

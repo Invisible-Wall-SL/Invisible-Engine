@@ -50,6 +50,8 @@ import { loadDoc } from './editorStorage';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { applyClipBounds, clipFrameRefs, clipSheetKeys } from 'engine-flipbook';
 import { artBoundsRef, loadArtBoundsDoc, type ArtBounds } from './artBoundsStorage';
+import { artSliceRef, loadArtSlicesDoc, type ArtSlice } from './artSlicesStorage';
+import { sliceBorders } from '$lib/artSlices';
 import { collectPlayedClipIds } from './clipReachability';
 import { loadFlipbookDoc } from './flipbookStorage';
 import { listEffects, loadEffect } from './fxStorage';
@@ -367,6 +369,8 @@ interface TexturePackerFrame {
 	trimmed: boolean;
 	spriteSourceSize: { x: number; y: number; w: number; h: number };
 	sourceSize: { w: number; h: number };
+	/** 9-slice insets — PIXI reads them into `Texture.defaultBorders`. */
+	borders?: { left: number; top: number; right: number; bottom: number };
 }
 
 /**
@@ -382,6 +386,10 @@ interface TexturePackerFrame {
  * PIXI builds a texture's `orig`/`trim` from. So a boxed region arrives in the game already sized,
  * anchored and cover-fitted by its box, through the loader that was already there. A region with no
  * authored box writes its own packed geometry, byte-identical to before (parity).
+ *
+ * `slice` supplies a region's 9-slice insets, written as the frame's `borders` (rescaled with the
+ * rect) — again PIXI's own field, so a sliced node needs only the texture. A region without one
+ * writes no `borders` key (parity).
  */
 function toTexturePackerJson(
 	set: EditorRegionSet,
@@ -389,6 +397,7 @@ function toTexturePackerJson(
 	sx = 1,
 	sy = 1,
 	box?: (regionName: string) => ArtBounds | undefined,
+	slice?: (regionName: string) => ArtSlice | undefined,
 ): string {
 	const frames: Record<string, TexturePackerFrame> = {};
 	const rx = (n: number) => Math.round(n * sx);
@@ -426,6 +435,8 @@ function toTexturePackerJson(
 			spriteSourceSize: { x: rx(offX), y: ry(offY), w: rx(r.w), h: ry(r.h) },
 			sourceSize: { w: rx(origW), h: ry(origH) },
 		};
+		const insets = slice?.(r.name);
+		if (insets) frames[r.name].borders = sliceBorders(insets, sx, sy);
 	}
 	return JSON.stringify(
 		{
@@ -675,6 +686,16 @@ export async function exportEditorArt(
 		manifestKey: string,
 	): ((r: string) => ArtBounds | undefined) | undefined =>
 		hasArtBounds ? (region: string) => artBounds[artBoundsRef(manifestKey, region)] : undefined;
+	/** The project's 9-slice insets, folded into the same JSON as each frame's `borders`. */
+	const artSlices = await phase(
+		'slices',
+		async () => (await loadArtSlicesDoc(clientKey, projectKey)).slices,
+	);
+	const hasArtSlices = Object.keys(artSlices).length > 0;
+	const artSlicesLookup = (
+		manifestKey: string,
+	): ((r: string) => ArtSlice | undefined) | undefined =>
+		hasArtSlices ? (region: string) => artSlices[artSliceRef(manifestKey, region)] : undefined;
 
 	const deployPrefix = `${SUB.deploy(clientKey, projectKey)}/`;
 	const artPrefix = `${deployPrefix}editor-art/`;
@@ -749,7 +770,20 @@ export async function exportEditorArt(
 
 		// Stamp a content hash into the filenames so a re-authored atlas ships at a NEW
 		// URL the cache can't serve stale (see assetVersion.ts). Null = source page gone.
-		const version = await sheetVersion(set);
+		// A sheet's authored boxes and insets are written into its JSON, so an edit to them alone
+		// must move the URL too. A sheet with none hashes exactly as before.
+		const boxFor = artBoundsLookup(manifestKey);
+		const sliceFor = artSlicesLookup(manifestKey);
+		const authored: Record<string, [ArtBounds | undefined, ArtSlice | undefined]> = {};
+		for (const r of set.regions) {
+			const box = boxFor?.(r.name);
+			const slice = sliceFor?.(r.name);
+			if (box || slice) authored[r.name] = [box, slice];
+		}
+		const version = await sheetVersion(
+			set,
+			Object.keys(authored).length > 0 ? authored : undefined,
+		);
 		if (!version) return;
 
 		// Carry the page's REAL extension. The page is copied byte-for-byte below, so defaulting
@@ -766,10 +800,9 @@ export async function exportEditorArt(
 		// frame rects are unchanged (the WebP page keeps full resolution). Missing source ⇒ skip.
 		const shared = await pageStore.ensure(set.pageKey, pageExt);
 		if (!shared) return;
-		const boxFor = artBoundsLookup(manifestKey);
 		await putObjectText(
 			`${deployPrefix}${jsonRel}`,
-			toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.file}`, 1, 1, boxFor),
+			toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.file}`, 1, 1, boxFor, sliceFor),
 			'application/json',
 		);
 		written.add(`${deployPrefix}${jsonRel}`);
@@ -784,7 +817,7 @@ export async function exportEditorArt(
 			const sy = set.pageHeight ? shared.ktx2Height / set.pageHeight : 1;
 			await putObjectText(
 				`${deployPrefix}${ktx2Json}`,
-				toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.ktx2File}`, sx, sy, boxFor),
+				toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.ktx2File}`, sx, sy, boxFor, sliceFor),
 				'application/json',
 			);
 			written.add(`${deployPrefix}${ktx2Json}`);

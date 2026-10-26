@@ -40,6 +40,8 @@ export * from './builtinRegions';
 export * from './builtinRigMeta';
 export * from './aspectBox';
 export * from './coverTransform';
+export * from './editorGuides';
+export * from './nineSlice';
 export * from './componentDesignSize';
 export * from './blendMode';
 export * from './backgroundScenes';

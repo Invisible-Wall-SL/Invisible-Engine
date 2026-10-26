@@ -294,8 +294,7 @@ in one PR.
     restarted is one round);
   - the validation messages and the config's UI wording.
 - **Not done here:** the Salmons art (owner follow-up: swap it in when S0 lands; this build read no
-  R2); touch / pointer steering (the `pointer` controller, P10.11); a current-games fixture for the
-  sample (it would edit the harness); `/flow-v2` Preview running the loop; solid response, behaviours
+  R2); touch / pointer steering (the `pointer` controller, P10.11); `/flow-v2` Preview running the loop; solid response, behaviours
   and the camera (P10.11–P10.13).
 - **Known limits** (none reachable by a slot game):
   - with no `arcade.field` (the seed names none) the field is the current layout's design size,
@@ -1083,6 +1082,15 @@ game, bundle or screen changes.
 - 2026-10-26 — **P10.12 built: the arcade world and camera.** `camera.js`, `Scene.world` /
   `Scene.camera`, parallax, `despawnOutsideView`, culling, the camera Flow nodes and keys, the
   `/editor` fields, a scrolling river sample, `check:arcade-camera`. Detail above.
+- 2026-10-26 — **P10.9b built: rulers and guides** (in review, #1368). Detail in
+  [editor status](editor.md) 2026-10-26.
+- 2026-10-26 — **P10.9a built: 9-slice** (merged, #1365). A sprite's 9-slice (stretch or
+  tile) with the insets on the art region, shipped as the frame's `borders`; editor and game draw
+  it from one layout and a pixel-parity gate holds them together. Detail in
+  [editor status](editor.md) 2026-10-26.
+- 2026-10-26 — **P10.9c built: the Graph Editor** (merged, #1371). Detail in
+  [cinematic status](cinematic.md) 2026-10-26.
+
 - 2026-10-25 — **P10.8 built: arcade, rules-decided.** `motion.js`, the fixed-step loop, tags,
   `ARCADE_VOCAB` and its starter (a salmon dodger), `<ArcadeStage />`, the arcade scene set in Game
   Maker, `check:arcade-motion` / `check:arcade-rules`. §6.4 re-checked: the shared runtime stays.

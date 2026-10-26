@@ -1,9 +1,11 @@
 import {
 	getFullSceneSet,
+	normalizeEditorGuides,
 	normalizeHudScenes,
 	normalizeLayoutProfile,
 	LAYOUT_NODE_KINDS,
 	isSceneRole,
+	withoutEditorGuides,
 	type GameJurisdiction,
 	type GameSettings,
 	type LayoutDoc,
@@ -57,6 +59,8 @@ export async function loadDoc(
 	gameType?: string,
 ): Promise<LayoutDoc> {
 	const { doc } = await loadDocWithEtag(clientKey, projectKey, gameType);
+	// Ruler guides are the editor's alone: no reader past this point hands them to a game.
+	doc.scenes = doc.scenes.map(withoutEditorGuides);
 	// Ship path only, which is exactly why the repair belongs HERE and not in `loadDocWithEtag`:
 	// every reader that hands this doc onward (the runtime bundle, the editor-art export, the
 	// bake's `/api/editor/doc`) comes through this function, while the editor's own read keeps the
@@ -359,6 +363,9 @@ function normalizeScene(input: unknown): Scene | null {
 	if (world) scene.world = world;
 	const camera = sceneCamera({ ...scene, camera: input.camera as Scene['camera'] });
 	if (camera && Object.keys(camera).length) scene.camera = camera;
+	// The screen's ruler guides (editor-only; `loadDoc` strips them before any game reads the doc).
+	const guides = normalizeEditorGuides(input.guides);
+	if (guides) scene.guides = guides;
 	return scene;
 }
 

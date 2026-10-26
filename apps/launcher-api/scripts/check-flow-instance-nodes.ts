@@ -1121,7 +1121,7 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 	eq(
 		'7. runtimeBundle resolves its defs through the closure that loads every placed pin',
 		source('apps/launcher-api/src/lib/server/runtimeBundle.ts').includes(
-			'(id, version) => loadComponent(id, projectKey, version)',
+			'(id, version) => loadComponentForGame(id, projectKey, version)',
 		),
 		true,
 	);

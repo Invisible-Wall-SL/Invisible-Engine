@@ -72,6 +72,8 @@
 		"check:component-timelines": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-timelines.ts",
 		"precheck:cinematic-ease": "node scripts/ensure-svelte-kit.mjs",
 		"check:cinematic-ease": "tsx --tsconfig tsconfig.scripts.json scripts/check-cinematic-ease.ts",
+		"precheck:graph-editor": "node scripts/ensure-svelte-kit.mjs",
+		"check:graph-editor": "tsx --tsconfig tsconfig.scripts.json scripts/check-graph-editor.ts",
 		"precheck:timeline-keying": "node scripts/ensure-svelte-kit.mjs",
 		"check:timeline-keying": "tsx --tsconfig tsconfig.scripts.json scripts/check-timeline-keying.ts",
 		"precheck:timeline-rows": "node scripts/ensure-svelte-kit.mjs",

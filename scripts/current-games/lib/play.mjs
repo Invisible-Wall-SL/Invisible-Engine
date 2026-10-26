@@ -16,6 +16,8 @@
 //   step     { frames, from }       N frames; `from: 'cue'` steps to the last `until` cue's anchor
 //                                   + N, failing if that frame is already behind
 //   space                           a two-frame Space tap (spin from idle, tap past a hold)
+//   hold  { key, frames }           hold a key (`ArrowLeft`, `ArrowRight`) for N frames, then let
+//                                   go (an arcade game steers while its key is down)
 //   tapToStart                      a Space tap only while a tap-to-start screen covers the board
 //   force    { beat }               hold a forced beat for this session's next round (`…/force`)
 //   settle   { maxFrames, tapEvery }   step until idle, tapping every `tapEvery` frames
@@ -196,6 +198,11 @@ export async function playScenario(scenario, { page, draw, force, capture, trace
 			}
 			case 'space':
 				await space();
+				break;
+			case 'hold':
+				await page.key('keyDown', op.key);
+				await step(op.frames);
+				await page.key('keyUp', op.key);
 				break;
 			case 'tapToStart':
 				if (!(await state()).playerIn) await space();

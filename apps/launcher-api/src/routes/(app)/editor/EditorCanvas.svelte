@@ -55,6 +55,8 @@
 		type PlacementGeometry,
 		type ResolvedPreviewArt,
 		type ResolvedTransform,
+		type EditorGuides,
+		type SliceMode,
 		type Scene,
 	} from 'engine-layout';
 	import type { EffectParamValues } from 'engine-fx';
@@ -125,6 +127,13 @@
 		loadArtBounds,
 	} from './editorArtBounds.client.svelte';
 	import {
+		artSliceOf,
+		artSlicesVersion,
+		clearArtSlicesCache,
+		loadArtSlices,
+	} from './editorArtSlices.client.svelte';
+	import { drawNineSlice } from './nineSliceDraw';
+	import {
 		onionPreview,
 		onionResolveTransform,
 		previewBindings,
@@ -186,6 +195,14 @@
 	import EditorItemOverlay from './EditorItemOverlay.svelte';
 	import EditorEffectLayer from './EditorEffectLayer.svelte';
 	import EditorRigLayer from './EditorRigLayer.svelte';
+	import {
+		applyGuideDrag,
+		hitGuide,
+		RULER_PX,
+		rulerStep,
+		rulerTicks,
+		type GuideAxis,
+	} from './editorRulers';
 	import type { RigMeta } from './rigRuntime.client';
 	import EditorTextLayer from './EditorTextLayer.svelte';
 	import { clearFontCatalogCache } from './fonts.client';
@@ -417,6 +434,10 @@
 		onToggleMode?: () => void;
 		/** `X`: scroll the Outline to the selected node, expanding its containers. */
 		onRevealSelection?: (id: string) => void;
+		/** The edited screen's / component's ruler guides for this device layout (editor-only). */
+		guides?: EditorGuides;
+		/** A guide was added, moved or removed. Absent ⇒ the rulers show, guides can't be edited. */
+		onGuidesChange?: (next: EditorGuides) => void;
 	}
 
 	let {
@@ -466,6 +487,8 @@
 		onPickInScene,
 		onToggleMode,
 		onRevealSelection,
+		guides,
+		onGuidesChange,
 	}: Props = $props();
 
 	/** The box a `standard`-space node fits against (`standardToWorld`), shared with the rig layer. */
@@ -1130,6 +1153,8 @@
 		  };
 	let dragMode: DragMode | null = null;
 	let hoverNodeId = $state<string | null>(null);
+	/** The axis of the ruler guide under the pointer, for its resize cursor. */
+	let hoverGuideAxis = $state<GuideAxis | null>(null);
 	let hoverHandle = $state<HandleHit | null>(null);
 	let snapLines = $state<SnapLine[]>([]);
 	/** Rig node ids whose preview animation is playing (static otherwise). */
@@ -1159,6 +1184,44 @@
 	 * ABOVE every art/rig/FX layer — so the screen bounds stay visible once stacked art buries
 	 * the base-canvas guides (which sit at the bottom of the z-stack). Off by default. */
 	let showScreenBorder = $state(false);
+
+	// ---------- rulers + guides (P10.9) ----------
+	// Editor view state, kept per browser; the guides themselves are the screen's / component's.
+	const RULERS_KEY = 'ie.editor.rulers';
+	const SNAP_GUIDES_KEY = 'ie.editor.snapGuides';
+	function readFlag(key: string, fallback: boolean): boolean {
+		try {
+			const stored = localStorage.getItem(key);
+			return stored === null ? fallback : stored === '1';
+		} catch {
+			return fallback;
+		}
+	}
+	function writeFlag(key: string, on: boolean): void {
+		try {
+			localStorage.setItem(key, on ? '1' : '0');
+		} catch {
+			/* private window / blocked storage: the toggle still works for this page */
+		}
+	}
+	// Off until asked for, so the canvas edges stay as they were for everyone else.
+	let showRulers = $state(readFlag(RULERS_KEY, false));
+	let snapToGuides = $state(readFlag(SNAP_GUIDES_KEY, true));
+	let rulerTop: HTMLCanvasElement | null = $state(null);
+	let rulerLeft: HTMLCanvasElement | null = $state(null);
+	/** A guide being dragged: a new one off a ruler (`index` null) or an existing one. */
+	let guideDrag = $state<{
+		axis: GuideAxis;
+		index: number | null;
+		value: number;
+		remove: boolean;
+		/** The guide's value when grabbed: an undo or a layout switch mid-drag leaves it alone. */
+		from?: number;
+	} | null>(null);
+	/** The guides as drawn: the stored ones with an in-flight drag applied. */
+	function drawnGuides(): EditorGuides | undefined {
+		return guideDrag ? applyGuideDrag(guides, guideDrag) : guides;
+	}
 	/** What the live particle overlay applies to a placed effect's exposed parameters: the binding
 	 * test values and the previewed timeline, through the game's fold (Invisible FX Step 2). */
 	const effectPreviewValues = (
@@ -1480,6 +1543,8 @@
 		// A box authored in another tab is exactly as stale as a re-packed atlas.
 		clearArtBoundsCache();
 		void loadArtBounds();
+		clearArtSlicesCache();
+		void loadArtSlices();
 		// Drop the cross-atlas name→manifest map too, else a name-resolved sprite keeps
 		// pointing at the manifest the previous scan locked onto — Reload art would do
 		// nothing for it. Cleared + flagged for rebuild on the next draw().
@@ -1676,6 +1741,8 @@
 	// The project's authored region boxes, fetched once per page load. Absent/forbidden ⇒ an empty
 	// map ⇒ every region draws on its own packed rect, exactly as before (parity).
 	void loadArtBounds();
+	// The project's 9-slice insets — the same per-region art data, the same degradation.
+	void loadArtSlices();
 
 	/**
 	 * Wall-clock ms driving in-place clip PLAYBACK. Unlike an effect (a WebGL emitter the 2D canvas
@@ -1854,6 +1921,8 @@
 		if (node.kind === 'sprite' && node.region) {
 			const found = findRegion(node.assetKey, node.region);
 			if (!found) return null;
+			// A sliced sprite draws its packed art (`drawSlicedRegion`), so it frames that.
+			if (node.slice && !isBackgroundCover(node)) return { w: found.region.w, h: found.region.h };
 			// A boxed region sizes by its BOX — which is the point of declaring one: the selection
 			// frame, the resize handles and a cover-fit all stop tracking the packer's rect.
 			const boxed = artBoxGeometry(found.set.assetKey, found.region.name, found.region);
@@ -1934,6 +2003,15 @@
 				c.width = w;
 				c.height = h;
 			}
+		}
+		const band = Math.floor(RULER_PX * dpr);
+		if (rulerTop && (rulerTop.width !== w || rulerTop.height !== band)) {
+			rulerTop.width = w;
+			rulerTop.height = band;
+		}
+		if (rulerLeft && (rulerLeft.width !== band || rulerLeft.height !== h)) {
+			rulerLeft.width = band;
+			rulerLeft.height = h;
 		}
 	}
 
@@ -2444,6 +2522,116 @@
 		// passes through the per-scene groups, which are `pointer-events:none`).
 		drawSceneCanvases();
 		drawHud();
+		drawRulers();
+	}
+
+	/**
+	 * The two rulers: world (window-frame) pixels along the top and left edges at the current
+	 * zoom and pan, with a marker for every guide. Drawn only while the rulers are on.
+	 */
+	function drawRulers(): void {
+		if (!showRulers) return;
+		const dpr = window.devicePixelRatio || 1;
+		const step = rulerStep(zoom);
+		const shown = drawnGuides();
+		for (const axis of ['x', 'y'] as const) {
+			const c = axis === 'x' ? rulerTop : rulerLeft;
+			const ctx = c?.getContext('2d');
+			if (!c || !ctx) continue;
+			const length = (axis === 'x' ? c.width : c.height) / dpr;
+			const pan = axis === 'x' ? panX : panY;
+			ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+			ctx.fillStyle = '#15151c';
+			ctx.fillRect(0, 0, c.width / dpr, c.height / dpr);
+			ctx.strokeStyle = '#3a3a48';
+			ctx.fillStyle = '#8a8a99';
+			ctx.font = '9px system-ui, sans-serif';
+			ctx.lineWidth = 1;
+			const from = (0 - pan) / zoom;
+			const to = (length - pan) / zoom;
+			const minor = step / 5;
+			for (const v of rulerTicks(from - step, to, minor)) {
+				const at = Math.round(v * zoom + pan) + 0.5;
+				const major = Math.abs(v / step - Math.round(v / step)) < 1e-6;
+				const tick = major ? RULER_PX : RULER_PX * 0.3;
+				ctx.beginPath();
+				if (axis === 'x') {
+					ctx.moveTo(at, RULER_PX);
+					ctx.lineTo(at, RULER_PX - tick);
+				} else {
+					ctx.moveTo(RULER_PX, at);
+					ctx.lineTo(RULER_PX - tick, at);
+				}
+				ctx.stroke();
+				if (!major) continue;
+				const label = String(Math.round(v));
+				if (axis === 'x') ctx.fillText(label, at + 3, 9);
+				else {
+					ctx.save();
+					ctx.translate(9, at - 3);
+					ctx.rotate(-Math.PI / 2);
+					ctx.fillText(label, 0, 0);
+					ctx.restore();
+				}
+			}
+			// A guide's marker: on the top ruler for a vertical guide (x), on the left for a horizontal.
+			ctx.fillStyle = '#22d3ee';
+			for (const g of shown?.[axis] ?? []) {
+				const at = g * zoom + pan;
+				ctx.beginPath();
+				if (axis === 'x') {
+					ctx.moveTo(at - 4, 0);
+					ctx.lineTo(at + 4, 0);
+					ctx.lineTo(at, 6);
+				} else {
+					ctx.moveTo(0, at - 4);
+					ctx.lineTo(0, at + 4);
+					ctx.lineTo(6, at);
+				}
+				ctx.fill();
+			}
+		}
+	}
+
+	/** Start dragging a NEW guide off a ruler: the top ruler gives a horizontal one (y), the left
+	 * a vertical one (x). */
+	function startRulerGuide(axis: GuideAxis, e: MouseEvent): void {
+		// Any other button pans, as it does on the canvas.
+		if (e.button !== 0) {
+			onMouseDown(e);
+			return;
+		}
+		if (!onGuidesChange || animate) return;
+		const world = clientToWorld(e.clientX, e.clientY);
+		guideDrag = { axis, index: null, value: Math.round(world[axis]), remove: true };
+		e.preventDefault();
+		schedule();
+	}
+
+	/** Move the dragged guide; released over the rulers (or off the canvas), it is removed. */
+	function moveGuideDrag(e: MouseEvent): void {
+		if (!guideDrag || !canvas) return;
+		const rect = canvas.getBoundingClientRect();
+		const sx = e.clientX - rect.left;
+		const sy = e.clientY - rect.top;
+		const off = sx < RULER_PX || sy < RULER_PX || sx > rect.width || sy > rect.height;
+		const world = clientToWorld(e.clientX, e.clientY);
+		guideDrag = { ...guideDrag, value: Math.round(world[guideDrag.axis]), remove: off };
+		schedule();
+	}
+
+	function endGuideDrag(): void {
+		const drag = guideDrag;
+		guideDrag = null;
+		hoverGuideAxis = null;
+		schedule();
+		if (!drag) return;
+		// The guide moved under the drag (an undo, another layout): leave the guides as they are.
+		if (drag.index !== null && guides?.[drag.axis]?.[drag.index] !== drag.from) return;
+		// A click that moved nothing is no edit (no undo step, no autosave).
+		const next = applyGuideDrag(guides, drag);
+		const unchanged = applyGuideDrag(guides, { ...drag, index: null, remove: true });
+		if (JSON.stringify(next) !== JSON.stringify(unchanged)) onGuidesChange?.(next);
 	}
 
 	/**
@@ -2524,6 +2712,37 @@
 		for (const s of scenes) {
 			if (hiddenSceneIds.has(s.id) || !isHudScene(s)) continue;
 			for (const node of s.nodes) drawNode(ctx, node, s);
+		}
+
+		// Ruler guides, over the art (world space, across the whole visible stage). The one being
+		// dragged draws on its own: red while releasing it would remove it.
+		if (showRulers) {
+			const rest = guideDrag ? applyGuideDrag(guides, { ...guideDrag, remove: true }) : guides;
+			const left = -panX / zoom;
+			const top = -panY / zoom;
+			const right = left + hudCanvas.width / dpr / zoom;
+			const bottom = top + hudCanvas.height / dpr / zoom;
+			const line = (axis: GuideAxis, g: number): void => {
+				ctx.beginPath();
+				if (axis === 'x') {
+					ctx.moveTo(g, top);
+					ctx.lineTo(g, bottom);
+				} else {
+					ctx.moveTo(left, g);
+					ctx.lineTo(right, g);
+				}
+				ctx.stroke();
+			};
+			ctx.save();
+			ctx.lineWidth = 1 / zoom;
+			ctx.strokeStyle = '#22d3ee';
+			for (const g of rest?.x ?? []) line('x', g);
+			for (const g of rest?.y ?? []) line('y', g);
+			if (guideDrag) {
+				ctx.strokeStyle = guideDrag.remove ? '#f87171' : '#22d3ee';
+				line(guideDrag.axis, guideDrag.value);
+			}
+			ctx.restore();
 		}
 
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -2987,7 +3206,15 @@
 				previewTint(node) ??
 				(boundTint !== undefined && boundTint !== 0xffffff ? boundTint : undefined);
 			if (region) {
-				drawRegionSprite(ctx, node, t, region, assetKey, tint);
+				drawRegionSprite(
+					ctx,
+					node,
+					t,
+					region,
+					assetKey,
+					tint,
+					drawsAsCover(node, sceneCtx, nested),
+				);
 			} else if (!assetKey && nested && gameView) {
 				// An art slot nothing is bound to: the game draws nothing there.
 			} else {
@@ -3728,9 +3955,13 @@
 		regionOverride?: string,
 		assetKeyOverride?: string,
 		tint?: number,
+		/** Drawn as a window cover: the game ignores `slice` there, so the canvas does too. */
+		cover = false,
 	): void {
 		const assetKey = assetKeyOverride ?? node.assetKey;
 		const region = regionOverride ?? node.region ?? '';
+		if (node.slice && !cover && drawSlicedRegion(ctx, node.slice, assetKey, region, t, tint))
+			return;
 		drawArtRegionSprite(
 			ctx,
 			assetKey,
@@ -3739,6 +3970,80 @@
 			node.label,
 			tint,
 		);
+	}
+
+	const NO_SLICE = { left: 0, top: 0, right: 0, bottom: 0 };
+
+	/**
+	 * Whether a top-level node draws as a window cover — the game's `isCover` (`LayoutNodeView`):
+	 * any cover kind on a `background` screen, or a `coverFit` one on a `canvas` screen.
+	 */
+	function drawsAsCover(node: LayoutNode, sceneCtx: Scene, nested: boolean): boolean {
+		if (nested) return false;
+		if (sceneCtx.space === 'background') return isBackgroundCoverKind(node);
+		return sceneCtx.space === 'canvas' && node.coverFit === true && isCoverFitKind(node);
+	}
+
+	/** Scratch canvas a TINTED slice is composed on before `drawTintedImage` multiplies it. */
+	let sliceScratch: HTMLCanvasElement | null = null;
+
+	/**
+	 * A `slice` sprite, as the game's `SlicedSprite` draws it: the region's packed art (never its
+	 * Art bounds or trim box), sliced by its insets into the DISPLAYED box, then divided back by the
+	 * scale this context already carries, so corners keep their art size whatever the node's scale.
+	 * The box is the game's: `width·scale` when sized, the art × scale when not, and the art alone
+	 * on an axis left unsized beside a sized one (`LayoutNodeView` drops `scale` once either is
+	 * set). A negative box flips about the anchor, as the game's does. False until the region and
+	 * its page resolve; the caller then draws the usual placeholder.
+	 */
+	function drawSlicedRegion(
+		ctx: CanvasRenderingContext2D,
+		mode: SliceMode,
+		assetKey: string,
+		regionName: string,
+		t: ResolvedTransform,
+		tint?: number,
+	): boolean {
+		const found = regionName ? findRegion(assetKey, regionName) : null;
+		if (!found || !found.set.pageKey) return false;
+		const img = ensureImage(found.set.pageKey);
+		if (!img || !img.complete || img.naturalWidth === 0) return false;
+		const { region } = found;
+		const sx = t.scale?.x ?? 1;
+		const sy = t.scale?.y ?? 1;
+		const sized = t.width !== undefined || t.height !== undefined;
+		const bw = t.width !== undefined ? t.width * sx : region.w * (sized ? 1 : sx);
+		const bh = t.height !== undefined ? t.height * sy : region.h * (sized ? 1 : sy);
+		const w = Math.abs(bw);
+		const h = Math.abs(bh);
+		if (sx === 0 || sy === 0 || !(w > 0) || !(h > 0)) return true;
+		const insets = artSliceOf(found.set.assetKey, region.name) ?? NO_SLICE;
+		const ax = t.anchor?.x ?? 0;
+		const ay = t.anchor?.y ?? 0;
+		ctx.save();
+		ctx.scale(Math.sign(bw) / sx, Math.sign(bh) / sy);
+		ctx.translate(-w * ax, -h * ay);
+		if (tint === undefined || tint === 0xffffff) {
+			drawNineSlice(ctx, img, region, insets, w, h, mode);
+		} else {
+			// Composed at the canvas's own pixel density (zoom × DPR), so a tinted slice is as crisp
+			// as an untinted one.
+			const m = ctx.getTransform();
+			const res = Math.min(4, Math.max(1, Math.hypot(m.a, m.b), Math.hypot(m.c, m.d)));
+			if (!sliceScratch) sliceScratch = document.createElement('canvas');
+			sliceScratch.width = Math.max(1, Math.ceil(w * res));
+			sliceScratch.height = Math.max(1, Math.ceil(h * res));
+			const sctx = sliceScratch.getContext('2d');
+			if (sctx) {
+				sctx.scale(res, res);
+				drawNineSlice(sctx, img, region, insets, w, h, mode);
+				const cw = sliceScratch.width;
+				const ch = sliceScratch.height;
+				drawTintedImage(ctx, sliceScratch, 0, 0, cw, ch, 0, 0, cw / res, ch / res, tint);
+			}
+		}
+		ctx.restore();
+		return true;
 	}
 
 	/**
@@ -4858,6 +5163,11 @@
 
 		const xCandidates: number[] = [0, frameWidth / 2, frameWidth];
 		const yCandidates: number[] = [0, frameHeight / 2, frameHeight];
+		// Ruler guides join the candidates while their snap is on (the toolbar's ⌗ Snap).
+		if (showRulers && snapToGuides) {
+			xCandidates.push(...(guides?.x ?? []));
+			yCandidates.push(...(guides?.y ?? []));
+		}
 		for (const other of visibleSceneNodes()) {
 			if (other.id === node.id) continue;
 			const ot = nodeTransform(other);
@@ -4992,6 +5302,17 @@
 				return;
 			}
 		}
+		// 1b) a ruler guide under the pointer moves (or, dropped on a ruler, removes) it.
+		if (!e.shiftKey && !animate && showRulers && onGuidesChange) {
+			const hit = hitGuide(guides, world, zoom);
+			if (hit) {
+				const value = guides?.[hit.axis]?.[hit.index] ?? world[hit.axis];
+				guideDrag = { axis: hit.axis, index: hit.index, value, remove: false, from: value };
+				e.preventDefault();
+				schedule();
+				return;
+			}
+		}
 		// 2) body hit on any node (on any drawn screen with "Any screen" on, Shift aside)
 		const node = pickAcross && !e.shiftKey ? pickAcrossScreens(world) : hitTestNode(world);
 		if (node) {
@@ -5029,6 +5350,10 @@
 	}
 
 	function onWindowMouseMove(e: MouseEvent): void {
+		if (guideDrag) {
+			moveGuideDrag(e);
+			return;
+		}
 		if (panning && lastXY) {
 			const dx = e.clientX - lastXY[0];
 			const dy = e.clientY - lastXY[1];
@@ -5065,6 +5390,10 @@
 		if (animate && onStagePointer)
 			onStagePointer('move', deepHitId(clientToWorld(e.clientX, e.clientY)));
 		hoverHandle = hitTestHandle(screen);
+		hoverGuideAxis =
+			!hoverHandle && !animate && showRulers && onGuidesChange
+				? (hitGuide(guides, clientToWorld(e.clientX, e.clientY), zoom)?.axis ?? null)
+				: null;
 		let hoverId: string | null = null;
 		let pick: { sceneId: string; nodeId: string } | null = null;
 		if (!hoverHandle) {
@@ -5082,6 +5411,10 @@
 	}
 
 	function onWindowMouseUp(e: MouseEvent): void {
+		if (guideDrag) {
+			endGuideDrag();
+			return;
+		}
 		if (e.button === 2) openInstanceMenuAt(e);
 		if (animate && onStagePointer && canvas && e.button === 0) {
 			const rect = canvas.getBoundingClientRect();
@@ -5113,6 +5446,12 @@
 		if (isTypingTarget(e.target) || dialogQueue.current) return;
 		// Both sides' canvases listen on `window`; only the one on screen answers.
 		if (!wrap || wrap.getClientRects().length === 0) return;
+		if (guideDrag && e.key === 'Escape') {
+			guideDrag = null;
+			schedule();
+			e.preventDefault();
+			return;
+		}
 		if (cheatSheetOpen && (e.key === 'Escape' || e.key === '?')) {
 			cheatSheetOpen = false;
 			e.preventDefault();
@@ -5367,6 +5706,11 @@
 		void layoutType;
 		// Toggling the always-on-top screen-border overlay repaints the HUD canvas.
 		void showScreenBorder;
+		// Rulers and guides: the toggles, the stored guides and a guide in flight.
+		void showRulers;
+		void snapToGuides;
+		void guides;
+		void guideDrag;
 		// Forced repaint signal (undo/redo): a position-only restore reassigns `scenes`
 		// but changes no node count, so without this the composite can stay stale.
 		void redrawNonce;
@@ -5380,6 +5724,7 @@
 		// non-reactive map for the same reason `clipsById` does (`draw()` reads it, and several
 		// effects call `draw()` synchronously).
 		void artBoundsVersion();
+		void artSlicesVersion();
 		schedule();
 	});
 
@@ -5558,6 +5903,7 @@
 
 	const cursorClass = $derived.by(() => {
 		if (panning) return 'cursor-grabbing';
+		if (guideDrag) return guideDrag.axis === 'x' ? 'cursor-ew' : 'cursor-ns';
 		if (dragMode?.kind === 'rotate') return 'cursor-grabbing';
 		if (dragMode?.kind === 'translate') return 'cursor-grabbing';
 		if (dragMode?.kind === 'scale') {
@@ -5575,6 +5921,7 @@
 			// top/bottom → vertical resize, right/left → horizontal.
 			return hoverHandle.idx === 0 || hoverHandle.idx === 2 ? 'cursor-ns' : 'cursor-ew';
 		}
+		if (hoverGuideAxis) return hoverGuideAxis === 'x' ? 'cursor-ew' : 'cursor-ns';
 		if (hoverHandle?.kind === 'body' || hoverNodeId) return 'cursor-move';
 		if (pickAcross && hoverPick) return 'cursor-pick';
 		return 'cursor-cross';
@@ -6134,6 +6481,7 @@
 <div
 	bind:this={wrap}
 	class="wrap {cursorClass}"
+	class:rulers={showRulers}
 	class:animate
 	class:dragover={dragOver}
 	ondragover={onDragOver}
@@ -6378,6 +6726,23 @@
 	<canvas bind:this={riderCanvas} class="rider-layer"></canvas>
 
 	<canvas bind:this={hudCanvas} class="hud-layer"></canvas>
+	<!-- Rulers (P10.9): world pixels along the top and left edges. Drag off one to add a guide;
+	     drop a guide back on one to remove it. -->
+	<canvas
+		bind:this={rulerTop}
+		class="ruler ruler-top"
+		class:off={!showRulers}
+		onwheel={onWheel}
+		onmousedown={(e) => startRulerGuide('y', e)}
+	></canvas>
+	<canvas
+		bind:this={rulerLeft}
+		class="ruler ruler-left"
+		class:off={!showRulers}
+		onwheel={onWheel}
+		onmousedown={(e) => startRulerGuide('x', e)}
+	></canvas>
+	<div class="ruler-corner" class:off={!showRulers}></div>
 	<!-- HUD rig overlay: like the HUD text overlay below, the HUD scenes draw on the
 	     top-most `hudCanvas` and are excluded from the per-game-scene `{#each}` above — so a
 	     rig nested in a placed HUD component (a spin button's `R_SpinButton`) would only
@@ -6648,6 +7013,38 @@
 			>
 				⛶ Bounds
 			</button>
+			<button
+				class="fit"
+				class:on={showRulers}
+				onclick={() => {
+					showRulers = !showRulers;
+					writeFlag(RULERS_KEY, showRulers);
+				}}
+				type="button"
+				aria-pressed={showRulers}
+				title={showRulers
+					? 'Hide the rulers and guides'
+					: 'Show rulers on the canvas edges; drag from a ruler to add a guide'}
+			>
+				📏 Rulers
+			</button>
+			{#if showRulers}
+				<button
+					class="fit"
+					class:on={snapToGuides}
+					onclick={() => {
+						snapToGuides = !snapToGuides;
+						writeFlag(SNAP_GUIDES_KEY, snapToGuides);
+					}}
+					type="button"
+					aria-pressed={snapToGuides}
+					title={snapToGuides
+						? 'Moved objects snap to the guides. Click to stop snapping to guides.'
+						: 'Moved objects ignore the guides. Click to snap to them.'}
+				>
+					⌗ Snap to guides
+				</button>
+			{/if}
 			{#if onPickInScene}
 				<button
 					class="fit"
@@ -6796,6 +7193,43 @@
 		inset: 0;
 		z-index: 999;
 		pointer-events: none;
+	}
+	.ruler,
+	.ruler-corner {
+		position: absolute;
+		z-index: 1500;
+	}
+	.ruler.off,
+	.ruler-corner.off {
+		display: none;
+	}
+	.ruler-corner {
+		top: 0;
+		left: 0;
+		width: 18px;
+		height: 18px;
+		z-index: 1501;
+		background: #15151c;
+		border-right: 1px solid #3a3a48;
+		border-bottom: 1px solid #3a3a48;
+	}
+	.ruler-top {
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 18px;
+		cursor: ns-resize;
+	}
+	.ruler-left {
+		top: 0;
+		left: 0;
+		width: 18px;
+		height: 100%;
+		cursor: ew-resize;
+	}
+	.wrap.rulers .canvas-top {
+		top: 26px;
+		left: 26px;
 	}
 	.hud-layer {
 		/* Top-most 2D layer: overlays the base canvas + the per-scene groups so the HUD

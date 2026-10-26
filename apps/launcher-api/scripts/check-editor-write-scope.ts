@@ -53,6 +53,16 @@ mock.module(server('artBoundsStorage.ts'), {
 		},
 	},
 });
+mock.module(server('artSlicesStorage.ts'), {
+	namedExports: {
+		ConflictError: class extends Error {},
+		loadArtSlicesDocWithEtag: async () => ({ doc: { slices: {} }, etag: '"e"' }),
+		saveArtSlicesDoc: async (_c: string, _p: string, doc: unknown) => {
+			saved.push(doc);
+			return { doc, etag: '"e2"' };
+		},
+	},
+});
 
 const flipbookReads: string[] = [];
 mock.module(server('flipbookStorage.ts'), {
@@ -73,6 +83,7 @@ mock.module(server('editorRegions.ts'), {
 const routes = new URL('../src/routes/api/editor/', import.meta.url).href;
 const upload = await import(`${routes}rigs/upload/+server.ts`);
 const artBounds = await import(`${routes}art-bounds/+server.ts`);
+const artSlices = await import(`${routes}art-slices/+server.ts`);
 const importRoute = await import(`${routes}import/+server.ts`);
 const flipbooks = await import(`${routes}flipbooks/+server.ts`);
 
@@ -164,6 +175,41 @@ check('art-bounds read naming no project: 400', outcome(await call(artBounds.GET
 check(
 	'art-bounds read for the session’s project',
 	(await call(artBounds.GET, '/a?projectKey=p1')).status,
+	200,
+);
+
+// ── art-slices ───────────────────────────────────────────────────────────────
+const slices = { 'a::b': { left: 4, top: 4, right: 4, bottom: 4 } };
+check(
+	'art-slices save from a tab on another project: 409 scope-mismatch, nothing saved',
+	[
+		...outcome(await call(artSlices.POST, '/a', { slices, baseEtag: '"e"', projectKey: 'p2' })),
+		saved.length,
+	],
+	[409, 'scope-mismatch', 1],
+);
+check(
+	'art-slices save naming no project: 400 project-required, nothing saved',
+	[...outcome(await call(artSlices.POST, '/a', { slices, baseEtag: '"e"' })), saved.length],
+	[400, 'project-required', 1],
+);
+check(
+	'art-slices save for the session’s project lands',
+	[
+		(await call(artSlices.POST, '/a', { slices, baseEtag: '"e"', projectKey: 'p1' })).status,
+		saved.length,
+	],
+	[200, 2],
+);
+check(
+	'art-slices read for another project: 409',
+	outcome(await call(artSlices.GET, '/a?projectKey=p2')),
+	[409, 'scope-mismatch'],
+);
+check('art-slices read naming no project: 400', outcome(await call(artSlices.GET, '/a'))[0], 400);
+check(
+	'art-slices read for the session’s project',
+	(await call(artSlices.GET, '/a?projectKey=p1')).status,
 	200,
 );
 

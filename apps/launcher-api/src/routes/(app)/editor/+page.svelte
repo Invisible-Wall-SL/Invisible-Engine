@@ -41,6 +41,7 @@
 		winTierPresentationParams,
 		resolveBucketBox,
 		normalizeLayoutProfile,
+		normalizeEditorGuides,
 		isSceneRole,
 		SCENE_ROLES,
 		SCENE_ROLE_LABELS,
@@ -71,6 +72,7 @@
 		ComponentDef,
 		ComponentInstanceNode,
 		ContainerNode,
+		EditorGuides,
 		GameJurisdiction,
 		GameSettings,
 		GameTemplate,
@@ -1249,6 +1251,15 @@
 	);
 	/** The scene the canvas/outline/properties edit (the active doc scene). */
 	const editScene = $derived(activeScene);
+
+	/** The edited screen's ruler guides for this device layout changed (editor-only; one undo step). */
+	function setSceneGuides(next: EditorGuides): void {
+		const target = activeScene;
+		if (!target) return;
+		target.guides = normalizeEditorGuides({ ...target.guides, [currentLayoutType]: next });
+		if (!target.guides) delete target.guides;
+		markDirty();
+	}
 
 	/** All scenes the canvas may composite. */
 	const editScenes = $derived<Scene[]>(scenes);
@@ -3750,6 +3761,8 @@
 						onDelete={onDeleteNode}
 						onDeleteMany={onDeleteNodes}
 						redrawNonce={canvasRedrawNonce}
+						guides={editScene.guides?.[currentLayoutType]}
+						onGuidesChange={animating ? undefined : setSceneGuides}
 						{fillRequest}
 						hiddenSceneIds={canvasHiddenScenes}
 						bind:gameView
