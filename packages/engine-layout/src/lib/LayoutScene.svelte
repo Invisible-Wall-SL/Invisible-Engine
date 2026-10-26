@@ -197,13 +197,16 @@
 	{#each scene.nodes as node (node.id)}
 		{#if isHosted(node)}
 			<!-- rendered inside its host rig's <RigProvider> (per-rig bone hosting) — skip here -->
-		{:else if worldCamera && nodeParallax(node)}
-			{@const shift = parallaxShift(worldCameraView(), nodeParallax(node)!)}
-			<Container x={shift.x} y={shift.y} zIndex={node.zIndex}>
-				{@render nodeView(node)}
-			</Container>
 		{:else}
-			{@render nodeView(node)}
+			{@const factor = worldCamera ? nodeParallax(node) : undefined}
+			{#if factor}
+				{@const shift = parallaxShift(worldCameraView(), factor)}
+				<Container x={shift.x} y={shift.y} zIndex={node.zIndex}>
+					{@render nodeView(node)}
+				</Container>
+			{:else}
+				{@render nodeView(node)}
+			{/if}
 		{/if}
 	{/each}
 {/snippet}

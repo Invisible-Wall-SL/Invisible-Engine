@@ -72,7 +72,7 @@ the screen). No current game declares a world, so none of it runs in one.
   a bear takes a life and shakes the camera 14 px / 350 ms; the `spawningGround` zone scores a lap
   of 100 and moves the salmon back to the mouth with the camera snapped; three lives) and the config
   `engine-mechanics/fixtures/arcade-river.rules.json`.
-- **Gates:** `check:arcade-camera` (launcher, 74: the camera's dead zone, snap, smoothing,
+- **Gates:** `check:arcade-camera` (launcher, 76: the camera's dead zone, snap, smoothing,
   look-ahead, clamp at both ends and a narrow world, clamp off, auto-scroll per axis and at the
   world's end, `moveTo`, the shake's bound / decay / seed / precedence, parallax offsets equal to the
   editor's; the loop's view signals as edges, despawn with and without a margin, spawned-ahead kept,
@@ -137,6 +137,12 @@ the screen). No current game declares a world, so none of it runs in one.
   - the despawn and the view signals use the body's box, so art much larger than its body is judged
     by the body; the cull margin covers 256 px of overhang;
   - a followed body that is despawned leaves the camera where it was until Flow follows again.
+  - the loop judges bodies in the play field's space against the view in world px, so a spawn
+    layer is expected at the world's origin; a spawn layer takes no parallax (the editor hides it
+    and the runtime ignores it), but one placed off the origin is culled / despawned off by its
+    offset;
+  - `<LayoutScene>` decides on the world container when the screen mounts; adding or removing a
+    world on a live screen needs a remount (no live preview path does this).
 
 **P10.8 — Arcade, rules-decided (built 2026-10-25; in review).** §8's P10.8 row (§4.2, §3.4, §9 #6),
 in one PR.

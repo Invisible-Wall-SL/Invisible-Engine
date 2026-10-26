@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Scene, SceneCamera } from 'engine-layout';
+	import { hasWorldCamera, sceneWorld, type Scene, type SceneCamera } from 'engine-layout';
 	import {
 		cameraFields,
 		seedWorld,
@@ -21,7 +21,9 @@
 	};
 	const { scene, main, onChange }: Props = $props();
 
-	const hasWorld = $derived(!!scene.world);
+	// What the game reads: a world or a camera (a hand-written camera-only screen counts too).
+	const hasWorld = $derived(hasWorldCamera(scene));
+	const world = $derived(sceneWorld(scene));
 	const cam = $derived(cameraFields(scene));
 
 	const num = (v: number): number => (Number.isFinite(v) ? v : 0);
@@ -59,29 +61,31 @@
 		</span>
 	</label>
 
-	{#if hasWorld && scene.world}
-		<div class="row">
-			<label class="field">
-				<span>world width</span>
-				<input
-					type="number"
-					step="10"
-					min="1"
-					value={scene.world.w}
-					oninput={(e) => setSize('w', e.currentTarget.valueAsNumber)}
-				/>
-			</label>
-			<label class="field">
-				<span>world height</span>
-				<input
-					type="number"
-					step="10"
-					min="1"
-					value={scene.world.h}
-					oninput={(e) => setSize('h', e.currentTarget.valueAsNumber)}
-				/>
-			</label>
-		</div>
+	{#if hasWorld}
+		{#if world}
+			<div class="row">
+				<label class="field">
+					<span>world width</span>
+					<input
+						type="number"
+						step="10"
+						min="1"
+						value={world.w}
+						oninput={(e) => setSize('w', e.currentTarget.valueAsNumber)}
+					/>
+				</label>
+				<label class="field">
+					<span>world height</span>
+					<input
+						type="number"
+						step="10"
+						min="1"
+						value={world.h}
+						oninput={(e) => setSize('h', e.currentTarget.valueAsNumber)}
+					/>
+				</label>
+			</div>
+		{/if}
 
 		<div class="row">
 			<label

@@ -353,11 +353,12 @@ function normalizeScene(input: unknown): Scene | null {
 	}
 	// Preserve a play field's world and camera (`Scene.world` / `Scene.camera`, game-families P10.12),
 	// read through the engine's own sanitizers so the save keeps exactly what the game reads. Only a
-	// `game` screen has them. Same whitelist rule as above. Sparse: stored only when set.
+	// `game` screen has them. Same whitelist rule as above. Sparse: stored only when set (an
+	// all-default camera is dropped, so it never turns a screen's world camera on by itself).
 	const world = sceneWorld({ ...scene, world: input.world as Scene['world'] });
 	if (world) scene.world = world;
 	const camera = sceneCamera({ ...scene, camera: input.camera as Scene['camera'] });
-	if (camera) scene.camera = camera;
+	if (camera && Object.keys(camera).length) scene.camera = camera;
 	return scene;
 }
 

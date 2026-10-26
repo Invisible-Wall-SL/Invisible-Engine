@@ -41,11 +41,10 @@
 	});
 
 	const unregisterProbe = registerDeterminismArcade({
-		read: () => ({
-			steps: loop.steps,
-			bodies: loop.bodies(),
-			...(loop.camera() ? { camera: loop.camera() } : {}),
-		}),
+		read: () => {
+			const camera = loop.camera();
+			return { steps: loop.steps, bodies: loop.bodies(), ...(camera ? { camera } : {}) };
+		},
 	});
 	onDestroy(unregisterProbe);
 </script>

@@ -739,6 +739,24 @@ const playRiver = (seed: string | number, doc: FlowDoc = ARCADE_RIVER_SEED_DOC) 
 		JSON.stringify(sceneCamera({ ...base, camera: { follow: ' player ' } })),
 	);
 	check(
+		'5. an all-default camera alone turns no world camera on, and the save drops it',
+		!hasWorldCamera({ ...base, camera: {} }) &&
+			normalizeDoc({ ...RIVER, scenes: [{ ...base, camera: {} }] }, 'x').scenes[0]?.camera ===
+				undefined,
+	);
+	check(
+		'5. a spawn layer takes no parallax (its bodies are judged in world px)',
+		nodeParallax({
+			id: 'f',
+			kind: 'spawnLayer',
+			x: 0,
+			y: 0,
+			spawnable: [],
+			placement: 'free',
+			parallax: { x: 0.5, y: 0.5 },
+		}) === undefined,
+	);
+	check(
 		'5. parallax (1, 1) is no parallax',
 		nodeParallax({
 			id: 'n',
@@ -791,7 +809,7 @@ function scene4(): Scene {
 			layoutScene,
 		) &&
 			/\{#if worldCamera\}[\s\S]*?\{:else\}\s*\{@render sceneNodes\(\)\}/.test(layoutScene) &&
-			/\{:else if worldCamera && nodeParallax\(node\)\}/.test(layoutScene),
+			/\{@const factor = worldCamera \? nodeParallax\(node\) : undefined\}/.test(layoutScene),
 	);
 	const spawnLayer = read('packages/engine-layout/src/lib/SpawnLayer.svelte');
 	check(

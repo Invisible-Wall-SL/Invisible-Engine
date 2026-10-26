@@ -4072,6 +4072,7 @@
 						parallaxLayer={!!activeScene &&
 							hasWorldCamera(activeScene) &&
 							!!selectedNode &&
+							selectedNode.kind !== 'spawnLayer' &&
 							activeScene.nodes.some((n) => n.id === selectedNode.id)}
 						worldCamera={!!activeScene && hasWorldCamera(activeScene)}
 						{templateMode}

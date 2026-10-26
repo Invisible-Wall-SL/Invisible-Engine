@@ -48,17 +48,24 @@ export const sceneCamera = (scene: Scene | undefined): SceneCamera | undefined =
 	return out;
 };
 
-/** Whether a screen is drawn through a world camera: a `game` screen with a world or a camera. */
-export const hasWorldCamera = (scene: Scene | undefined): boolean =>
-	!!sceneWorld(scene) || !!sceneCamera(scene);
+/** Whether a screen is drawn through a world camera: a `game` screen with a world, or a camera that
+ *  sets anything (an all-default `camera: {}` alone is none). */
+export const hasWorldCamera = (scene: Scene | undefined): boolean => {
+	if (sceneWorld(scene)) return true;
+	const camera = sceneCamera(scene);
+	return !!camera && Object.keys(camera).length > 0;
+};
 
 /** The play field's screen: the first that declares a world or a camera, or none (the game then
  *  has no camera, as before P10.12). */
 export const worldCameraScene = (scenes: readonly Scene[]): Scene | undefined =>
 	scenes.find((scene) => hasWorldCamera(scene));
 
-/** A node's parallax factor, when it departs from moving with the world (1, 1). */
+/** A node's parallax factor, when it departs from moving with the world (1, 1). A spawn layer has
+ *  none: the arcade loop judges its bodies against the view in world px, so it must move with the
+ *  world. */
 export const nodeParallax = (node: LayoutNode): Point2D | undefined => {
+	if (node.kind === 'spawnLayer') return undefined;
 	const raw = record((node as { parallax?: unknown }).parallax);
 	if (!raw) return undefined;
 	const x = finite(raw.x) ?? 1;

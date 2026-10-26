@@ -47,11 +47,13 @@ import type { ArcadeBody, ArcadeZone } from 'game-config';
  *
  * THE CAMERA (§4.4, P10.12), only when the play field's screen declares a world or a camera
  * ({@link ArcadeLoopOptions.camera}): after the zones each step moves the camera
- * (`engine-mechanics` `camera.js`), raises `enterView` / `leaveView` as a body's box starts or stops
- * meeting the view, and despawns a body of a layer with `despawnOutsideView` once it has been within
- * the margin of the view and is wholly beyond it (never the body it follows). Flow steers the camera with `cameraFollow`,
- * `cameraMoveTo`, `cameraShake` and `cameraSetAutoScroll`, and reads `cameraX` / `cameraY` (the
- * view's top-left) and `viewWidth` / `viewHeight`. Without one, none of it runs.
+ * (`engine-mechanics` `camera.js`), raises `enterView` / `leaveView` as a body's box starts or
+ * stops meeting the view, and despawns a body of a layer with `despawnOutsideView` once it has
+ * been within the margin of the view and is wholly beyond it (never the body it follows). Flow
+ * steers the camera with `cameraFollow`, `cameraMoveTo`, `cameraShake` and `cameraSetAutoScroll`,
+ * and reads `cameraX` / `cameraY` (the view's top-left) and `viewWidth` / `viewHeight`. Without
+ * one, none of it runs. Bodies are in the play field's space, so its spawn layers sit at the
+ * world's origin (a spawn layer takes no parallax).
  */
 
 /** The live set the loop moves: `engine-flow-v2`'s spawn store, or any store shaped like it. */
