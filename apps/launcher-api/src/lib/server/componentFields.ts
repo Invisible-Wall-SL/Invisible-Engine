@@ -131,6 +131,9 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	placement: true,
 	grid: true,
 	cap: true,
+	points: true,
+	closed: true,
+	smoothing: true,
 };
 const componentDefFields: Record<keyof ComponentDef, true> = {
 	id: true,
@@ -201,6 +204,7 @@ const smStateFields: Record<keyof SmState, true> = {
 	pos: true,
 	onEnter: true,
 	onExit: true,
+	blend: true,
 };
 const componentEventFields: Record<keyof ComponentEvent, true> = {
 	id: true,

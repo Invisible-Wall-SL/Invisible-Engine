@@ -1184,7 +1184,9 @@ console.log('7. the ship chain');
 	);
 	eq(
 		'LAYOUT_NODE_KINDS carries spawnLayer (the save keeps it)',
-		source('packages/engine-layout/src/lib/types.ts').includes("\t'spawnLayer',\n] as const"),
+		/LAYOUT_NODE_KINDS = \[[^\]]*\t'spawnLayer',\n/.test(
+			source('packages/engine-layout/src/lib/types.ts'),
+		),
 		true,
 	);
 }

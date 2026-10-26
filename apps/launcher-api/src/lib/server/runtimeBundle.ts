@@ -42,7 +42,7 @@ import {
 	type RigFxBinding,
 	type WinTextDoc,
 } from 'engine-layout';
-import { betModeCardIds, type GameConfigDoc } from 'game-config';
+import { betModeCardIds, characterComponentIds, type GameConfigDoc } from 'game-config';
 import {
 	componentDefaultsFor,
 	keyComponentDefaultsById,
@@ -212,23 +212,26 @@ function resolveRigKeysForComponentDefs(
  * walk can't see them. Seeding them here folds each card def (and its nested defs) into the exported
  * set exactly like a scene component; a seed naming a non-existent def resolves to null and is
  * skipped (⇒ the mode falls back to the default `featureCard` at runtime — no broken bundle).
+ * `characterIds` (`characterComponentIds`) are seeded the same way — an arcade character's look and
+ * its `shootAt` shots are spawned at runtime — but a missing one is reported: nothing replaces it.
  */
 async function resolveReferencedDefs(
 	doc: LayoutDoc,
 	projectKey: string,
 	storedDefaults: Record<string, Record<string, unknown>>,
-	extraSeedIds: string[] = [],
+	cardIds: string[] = [],
+	characterIds: string[] = [],
 ): Promise<{ defs: Record<string, ComponentDef>; versions: ComponentDef[] }> {
 	return resolveComponentClosureWithPins(
 		doc.scenes.flatMap((scene) => scene.nodes),
 		(id) => loadComponent(id, projectKey),
 		(id, version) => loadComponent(id, projectKey, version),
 		{
-			extraSeedIds,
+			extraSeedIds: characterIds.length ? [...cardIds, ...characterIds] : cardIds,
 			defaultsFor: (id) => componentDefaultsFor(storedDefaults, id),
 			// A bet mode's card with no def falls back on purpose; anything else the doc names is lost.
 			onMissing: (id) => {
-				if (extraSeedIds.includes(id)) return;
+				if (cardIds.includes(id)) return;
 				console.warn(`[runtime] "${projectKey}": component '${id}' is referenced but has no def.`);
 			},
 		},
@@ -363,10 +366,18 @@ async function assembleRuntimeBundle(
 		step('gameConfig', timings, () => loadGameConfigDoc(clientKey, projectKey)),
 	]);
 	const cardComponentIds = gameConfig ? betModeCardIds(gameConfig) : [];
+	const characterIds = gameConfig ? characterComponentIds(gameConfig) : [];
 	const { defs: componentDefs, versions: componentVersions } = await step(
 		'componentDefs',
 		timings,
-		() => resolveReferencedDefs(doc, projectKey, storedComponentDefaults, cardComponentIds),
+		() =>
+			resolveReferencedDefs(
+				doc,
+				projectKey,
+				storedComponentDefaults,
+				cardComponentIds,
+				characterIds,
+			),
 	);
 	// A placed component's OWN rig nodes need the same prefix→bundle-name rewrite as the
 	// scene tree, or their rigs never load in the built game (key mismatch).

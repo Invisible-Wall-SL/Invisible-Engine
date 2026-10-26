@@ -2169,7 +2169,7 @@
 			title: `Remove input "${id}"?`,
 			message: [
 				used.length
-					? `${used.length} state-machine transition(s) use it. They will never fire until you fix their conditions (flagged ⚠ in the State machine tab).`
+					? `${used.length} state-machine transition(s) or blend state(s) read it. Those transitions never fire, and those blends read 0, until you fix them (flagged ⚠ in the State machine tab).`
 					: '',
 				reads.length
 					? `Also read by ${reads.join(', ')} — those stay, flagged ⚠, until you repoint them.`
@@ -2240,7 +2240,9 @@
 			message: [
 				`"${id}" is the name the game and Flow fire it as. Renaming it is a delete + add: whatever fires "${id}" today stops reaching this component until it fires the new name.`,
 				wires.length ? `In use as ${wires.join(' and ')}.` : '',
-				conditions ? `${conditions} state-machine condition(s) will follow the rename.` : '',
+				conditions
+					? `${conditions} state-machine transition(s) or blend state(s) will follow the rename.`
+					: '',
 				reads.length ? `${reads.join(', ')} will follow it too.` : '',
 			]
 				.filter(Boolean)

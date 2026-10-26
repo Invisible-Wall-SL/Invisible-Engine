@@ -158,9 +158,7 @@ const normalizeController = (raw: unknown): ArcadeController | undefined => {
 	return undefined;
 };
 
-const normalizeParams = (
-	raw: unknown,
-): Record<string, number | string | boolean> | undefined => {
+const normalizeParams = (raw: unknown): Record<string, number | string | boolean> | undefined => {
 	if (!isObject(raw)) return undefined;
 	const params: Record<string, number | string | boolean> = {};
 	for (const [key, value] of Object.entries(raw)) {
@@ -249,9 +247,7 @@ const uniqueById = <T extends { id: string }>(items: (T | undefined)[]): T[] => 
 
 const normalizeBrain = (raw: unknown): ArcadeBrain | undefined => {
 	if (!isObject(raw)) return undefined;
-	const states = uniqueById(
-		(Array.isArray(raw.states) ? raw.states : []).map(normalizeState),
-	);
+	const states = uniqueById((Array.isArray(raw.states) ? raw.states : []).map(normalizeState));
 	if (!states.length) return undefined;
 	const transitions = uniqueById(
 		(Array.isArray(raw.transitions) ? raw.transitions : []).map(normalizeTransition),

@@ -69,6 +69,8 @@ for (const kind of [
 	'effect',
 	'flipbook',
 	'repeater',
+	'spawnLayer',
+	'path',
 ]) {
 	assert(kinds.has(kind), `LAYOUT_NODE_KINDS carries "${kind}"`);
 }

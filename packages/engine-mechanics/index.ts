@@ -1,6 +1,6 @@
 /**
  * Invisible Engine — game mechanics: the rules of a non-slot family, as plain logic with no
- * drawing (`docs/design/game-families.md` §4): the match-3 board and arcade motion.
+ * drawing (`docs/design/game-families.md` §4): the match-3 board, arcade motion and characters.
  *
  * Plain, dependency-free ESM JavaScript with hand-written `.d.ts` beside it, for the reason
  * `engine-cinematic` is: two very different callers share the very same file. The client reaches
@@ -9,3 +9,4 @@
  */
 export * from './src/board.js';
 export * from './src/motion.js';
+export * from './src/behaviours.js';

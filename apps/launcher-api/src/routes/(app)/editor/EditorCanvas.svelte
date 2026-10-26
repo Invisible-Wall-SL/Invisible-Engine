@@ -132,6 +132,16 @@
 		loadArtSlices,
 	} from './editorArtSlices.client.svelte';
 	import { drawNineSlice } from './nineSliceDraw';
+	import { drawPathNode } from './pathNodeDraw';
+	import {
+		insertPathPoint,
+		nearestPathPoint,
+		nearestPathSegment,
+		pathLocalToWorld,
+		pathWorldToLocal,
+		removePathPoint,
+		setPathPoint,
+	} from '$lib/editor/pathNodeEdit';
 	import {
 		onionPreview,
 		onionResolveTransform,
@@ -3114,6 +3124,8 @@
 			drawRepeater(ctx, node, t, sceneCtx, componentDepth, componentStack);
 		} else if (node.kind === 'spawnLayer') {
 			drawSpawnLayer(ctx, node);
+		} else if (node.kind === 'path') {
+			drawPathNode(ctx, node, selectedIds.includes(node.id));
 		}
 
 		ctx.restore();
@@ -4672,6 +4684,43 @@
 		if (deltas.length) onAnimateTransform?.(deltas);
 	}
 
+	/** A `path` node's point being dragged on the stage (game-families §4.3); `moved` once it has. */
+	let pathPointDrag: { nodeId: string; index: number; moved: boolean } | null = null;
+	/** Screen px a path point or segment can be grabbed from. */
+	const PATH_GRAB_PX = 8;
+
+	/**
+	 * A press on the lone selected `path`: a point drags (Alt+click deletes it, down to two); a press
+	 * on a segment, away from the frame's handles, inserts a point there and drags it. True when the
+	 * press was the path's.
+	 */
+	function pathPointGesture(screen: Vec2, world: Vec2, alt: boolean): boolean {
+		if (selectedIds.length !== 1 || !selectedId) return false;
+		// Top-level only: that is where the game reads a path (`scenePaths`).
+		const node = scene.nodes.find((n) => n.id === selectedId);
+		if (node?.kind !== 'path' || node.locked || !Array.isArray(node.points)) return false;
+		const t = nodeTransform(node);
+		const onScreen = node.points.map((p) => worldToScreen(pathLocalToWorld(t, p)));
+		const hit = nearestPathPoint(onScreen, screen, PATH_GRAB_PX);
+		if (hit >= 0) {
+			if (alt) {
+				if (removePathPoint(node, hit)) {
+					onDirty?.();
+					schedule();
+				}
+			} else pathPointDrag = { nodeId: node.id, index: hit, moved: false };
+			return true;
+		}
+		const handle = hitTestHandle(screen);
+		if (alt || (handle && handle.kind !== 'body')) return false;
+		const seg = nearestPathSegment(onScreen, node.closed === true, screen, PATH_GRAB_PX);
+		if (!seg) return false;
+		const index = insertPathPoint(node, seg.after, pathWorldToLocal(t, world));
+		pathPointDrag = { nodeId: node.id, index, moved: true };
+		schedule();
+		return true;
+	}
+
 	function startTranslate(node: LayoutNode, world: Vec2): void {
 		const start = effectiveXY(node);
 		// The group is every selected node that can actually move (locked + background-
@@ -5036,6 +5085,10 @@
 		const world = clientToWorld(e.clientX, e.clientY);
 		if (animate) onStagePointer?.('down', deepHitId(world));
 
+		if (!e.shiftKey && !animate && pathPointGesture(screen, world, e.altKey)) {
+			e.preventDefault();
+			return;
+		}
 		// 1) handle hit (transform the lone selected node). Skipped while Shift is held —
 		// Shift+click is reserved for multi-select / pan, not scale/rotate.
 		if (!e.shiftKey && (!animate || animateKeys)) {
@@ -5091,6 +5144,18 @@
 	}
 
 	function onWindowMouseMove(e: MouseEvent): void {
+		if (pathPointDrag) {
+			const node = findNodeById(pathPointDrag.nodeId);
+			if (node?.kind === 'path') {
+				const local = pathWorldToLocal(nodeTransform(node), clientToWorld(e.clientX, e.clientY));
+				if (setPathPoint(node, pathPointDrag.index, local)) {
+					pathPointDrag.moved = true;
+					bumpFrame();
+					schedule();
+				}
+			}
+			return;
+		}
 		if (panning && lastXY) {
 			const dx = e.clientX - lastXY[0];
 			const dy = e.clientY - lastXY[1];
@@ -5157,6 +5222,10 @@
 		}
 		panning = false;
 		lastXY = null;
+		if (pathPointDrag) {
+			if (pathPointDrag.moved) onDirty?.();
+			pathPointDrag = null;
+		}
 		if (dragMode) {
 			const keying = !!animDrag;
 			if (keying) finishAnimateDrag();

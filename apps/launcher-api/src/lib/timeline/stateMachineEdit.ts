@@ -179,6 +179,96 @@ export function removeState(layer: SmLayer, stateId: string): void {
 	if (layer.entry === stateId) layer.entry = layer.states[0]?.id ?? '';
 }
 
+// ---- 1D blend states (P10.11) -----------------------------------------------------------------
+
+/** The state's points sorted by `at` (stable) and its `timeline` kept equal to the first's, as the
+ *  normalizer stores it. */
+function settleBlend(state: SmState): void {
+	if (!state.blend) return;
+	state.blend.points.sort((a, b) => a.at - b.at);
+	if (state.blend.points[0]) state.timeline = state.blend.points[0].timeline;
+}
+
+/**
+ * Make `state` a 1D blend state driven by the number input `input`: its own timeline at 0 and
+ * `second` (else its own again, for the author to change) at 1.
+ */
+export function makeBlendState(state: SmState, input: string, second?: string): void {
+	state.blend = {
+		input,
+		points: [
+			{ timeline: state.timeline, at: 0 },
+			{ timeline: second || state.timeline, at: 1 },
+		],
+	};
+	settleBlend(state);
+}
+
+/** Back to a plain state, playing the blend's first point's timeline. */
+export function clearBlendState(state: SmState): void {
+	settleBlend(state);
+	delete state.blend;
+}
+
+/** Add a point after the last one (its value one above), playing `timeline`. */
+export function addBlendPoint(state: SmState, timeline: string): void {
+	if (!state.blend) return;
+	const points = state.blend.points;
+	const last = points[points.length - 1];
+	points.push({ timeline, at: last ? last.at + 1 : 0 });
+	settleBlend(state);
+}
+
+/** Remove the point at `index` (sorted order); the last point is never removed. */
+export function removeBlendPoint(state: SmState, index: number): void {
+	if (!state.blend || state.blend.points.length <= 1) return;
+	state.blend.points.splice(index, 1);
+	settleBlend(state);
+}
+
+/** Change a point's timeline or value; the points re-sort by value. */
+export function setBlendPoint(
+	state: SmState,
+	index: number,
+	patch: { timeline?: string; at?: number },
+): void {
+	const point = state.blend?.points[index];
+	if (!point) return;
+	if (patch.timeline) point.timeline = patch.timeline;
+	if (patch.at !== undefined && Number.isFinite(patch.at)) point.at = patch.at;
+	settleBlend(state);
+}
+
+/** What a blend state's card says: `input: name at · name at`. */
+export function blendSummary(
+	state: SmState,
+	timelineNames: ReadonlyMap<string, string>,
+): string | undefined {
+	if (!state.blend) return undefined;
+	const points = state.blend.points.map(
+		(p) => `${timelineNames.get(p.timeline) ?? p.timeline} ${p.at}`,
+	);
+	return `${state.blend.input || '—'}: ${points.join(' · ')}`;
+}
+
+/** Each number input a blend state reads, with the range of its points' values — the preview
+ *  offers a slider over it. */
+export function blendInputRanges(def: ComponentDef): Map<string, { min: number; max: number }> {
+	const out = new Map<string, { min: number; max: number }>();
+	for (const layer of def.stateMachine?.layers ?? []) {
+		for (const state of layer.states) {
+			if (!state.blend?.points.length) continue;
+			const ats = state.blend.points.map((p) => p.at);
+			const range = out.get(state.blend.input);
+			out.set(state.blend.input, {
+				min: Math.min(range?.min ?? Infinity, ...ats),
+				max: Math.max(range?.max ?? -Infinity, ...ats),
+			});
+		}
+	}
+	return out;
+}
+
 /** Add a transition `from` → `to` (state ids, `any`, `exit`); none from Exit or into Any. */
 export function addTransition(
 	layer: SmLayer,
@@ -281,13 +371,15 @@ export function addInput(
 	return input;
 }
 
-/** Every transition whose conditions read `inputId`, as `<layer id>/<transition id>`. */
+/** Every transition whose conditions read `inputId`, and every blend state blending by it, as
+ *  `<layer id>/<transition or state id>`. */
 export function inputUsage(def: ComponentDef, inputId: string): string[] {
 	const out: string[] = [];
 	for (const layer of def.stateMachine?.layers ?? []) {
 		for (const t of layer.transitions) {
 			if ((t.conditions ?? []).some((c) => c.input === inputId)) out.push(`${layer.id}/${t.id}`);
 		}
+		for (const s of layer.states) if (s.blend?.input === inputId) out.push(`${layer.id}/${s.id}`);
 	}
 	return out;
 }
@@ -326,6 +418,7 @@ export function renameInput(def: ComponentDef, from: string, to: string): boolea
 		for (const t of layer.transitions) {
 			for (const c of t.conditions ?? []) if (c.input === from) c.input = next;
 		}
+		for (const s of layer.states) if (s.blend?.input === from) s.blend.input = next;
 	}
 	renameInputReads(def, from, next);
 	return true;

@@ -1353,6 +1353,22 @@ export interface SpawnLayerNode extends BaseNode {
 	cap?: number;
 }
 
+/**
+ * A PATH (`docs/design/game-families.md` §4.3, P10.11): a line an arcade character walks — a brain's
+ * `patrol` / `followPath` names it by node id. Game data, not art: the game draws nothing for it and
+ * reads it through `scenePaths`, which places each top-level path in its screen's space by the node's
+ * x / y, scale and rotation (never its anchor). The Scene Editor draws it dashed.
+ */
+export interface PathNode extends BaseNode {
+	kind: 'path';
+	/** At least two points, each relative to the node's x / y. */
+	points: Point2D[];
+	/** The last point joins back to the first (a loop). Absent ⇒ open. */
+	closed?: true;
+	/** 0 … 1: how far the corners round off (Catmull-Rom). Absent ⇒ 0, the straight polyline. */
+	smoothing?: number;
+}
+
 export type LayoutNode =
 	| ContainerNode
 	| SpriteNode
@@ -1364,7 +1380,8 @@ export type LayoutNode =
 	| EffectNode
 	| FlipbookNode
 	| RepeaterNode
-	| SpawnLayerNode;
+	| SpawnLayerNode
+	| PathNode;
 
 /**
  * Every {@link LayoutNode} kind as a RUNTIME value — the one list a validator may enumerate.
@@ -1390,6 +1407,7 @@ export const LAYOUT_NODE_KINDS = [
 	'flipbook',
 	'repeater',
 	'spawnLayer',
+	'path',
 ] as const satisfies readonly LayoutNode['kind'][];
 
 export interface Scene {

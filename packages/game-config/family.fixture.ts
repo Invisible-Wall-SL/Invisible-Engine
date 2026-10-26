@@ -15,6 +15,9 @@
  *  4. VALIDATION FOLLOWS THE FAMILY, and the section table `/config` renders from: what a family
  *     hides never refuses its save.
  *  5. The family list agrees with `constants-shared`'s, which this package cannot import.
+ *  6. ARCADE CHARACTERS (P10.11): sparse and cleaned by the normalizer, a fixed point, absent from
+ *     a doc without them, checked by the validator, and every runtime-spawned look listed for the
+ *     bake by `characterComponentIds`.
  */
 
 import { GAME_FAMILIES, familyOfKind } from '../constants-shared/gameKinds.ts';
@@ -28,6 +31,7 @@ import {
 	resolveMatch3,
 	resolveOutcome,
 } from './src/family.ts';
+import { characterComponentIds, normalizeArcadeCharacters } from './src/arcadeCharacters.ts';
 import { CONFIG_SECTIONS, configSectionsFor, configShowsPays } from './src/familySections.ts';
 import { resolveCascade } from './src/mechanics.ts';
 import { normalizeGameConfigDoc } from './src/normalize.ts';
@@ -398,6 +402,249 @@ check(
 	'a slot kind, a custom kind and none are slots',
 	['lines', 'holdAndWin', 'myKind', 'toString', undefined, ''].map(familyOfKind),
 	['slot', 'slot', 'slot', 'slot', 'slot', 'slot'],
+);
+
+console.log('\n6. arcade characters');
+check('no characters resolve to an empty list', resolveArcade({}).characters, []);
+check(
+	'a doc without characters normalizes as before: no key',
+	Object.hasOwn(arcade.arcade ?? {}, 'characters'),
+	false,
+);
+check(
+	'an empty or unusable list is not stored',
+	[
+		normalizeArcade({ characters: [] }),
+		normalizeArcade({ characters: [{ id: 'x' }, { component: 'c' }, 'y'] }),
+		normalizeArcade({ characters: {} }),
+	],
+	[undefined, undefined, undefined],
+);
+const RAW_CHARACTERS = [
+	{
+		id: ' hero ',
+		name: ' ',
+		component: 'heroLook',
+		movement: { accel: 900, decel: -1, maxSpeed: 300, turnRate: 'fast' },
+		controller: { kind: 'topDown', speed: 240 },
+		animInputs: { speed: 'speed', run: 'moving', face: 'facing', bad: 'jump', none: 'state:' },
+	},
+	{ id: 'hero', component: 'other' },
+	{ id: 'ghost', component: ' ' },
+	{
+		id: 'guard',
+		name: 'Guard',
+		component: 'guardLook',
+		movement: {},
+		controller: { kind: 'pointer', axes: 'z' },
+		brain: {
+			states: [
+				{
+					id: 'walk',
+					behaviour: 'patrol',
+					params: { speed: 80, path: 'route', x: null },
+					pos: { x: 1 },
+				},
+				{ id: 'hunt', behaviour: 'chase', params: {}, pos: { x: 10, y: 20 } },
+				{ id: 'walk', behaviour: 'idle' },
+				{ id: 'fly', behaviour: 'teleport' },
+				{ id: 'fire', behaviour: 'shootAt', params: { component: 'bullet', layer: 'shots' } },
+			],
+			transitions: [
+				{
+					id: 't1',
+					from: 'walk',
+					to: 'hunt',
+					when: [{ kind: 'targetWithin', tag: 'player', px: 200 }],
+				},
+				{ id: 't2', from: 'hunt', to: 'walk', when: [{ kind: 'teleported' }] },
+				{ id: 't3', from: '*', to: 'fire', when: [{ kind: 'random', chance: 0.5, every: 1000 }] },
+				{ id: 't4', from: 'fire', to: 'walk', when: [{ kind: 'random', chance: 2 }] },
+				{
+					id: 't5',
+					from: 'fire',
+					to: 'walk',
+					when: [{ kind: 'timer', ms: 500 }, { kind: 'hitSolid' }],
+				},
+				{ id: 't6', from: 'hunt', to: 'walk' },
+				{ id: '', from: 'hunt', to: 'walk', when: [] },
+				{
+					id: 't7',
+					from: 'hunt',
+					to: 'walk',
+					when: [{ kind: 'variable', id: 'lives', op: '<=', value: 0 }],
+				},
+				{
+					id: 't8',
+					from: 'hunt',
+					to: 'walk',
+					when: [{ kind: 'variable', id: 'lives', op: '=<', value: 0 }],
+				},
+			],
+		},
+	},
+	{
+		id: 'drone',
+		component: 'droneLook',
+		brain: { initial: 'x', states: [{ id: 'a', behaviour: 'nope' }] },
+	},
+];
+check('characters: the list, cleaned', normalizeArcadeCharacters(RAW_CHARACTERS), [
+	{
+		id: 'hero',
+		component: 'heroLook',
+		movement: { accel: 900, maxSpeed: 300 },
+		controller: { kind: 'topDown', speed: 240 },
+		animInputs: { speed: 'speed', run: 'moving', face: 'facing' },
+	},
+	{
+		id: 'guard',
+		name: 'Guard',
+		component: 'guardLook',
+		brain: {
+			initial: 'walk',
+			states: [
+				{ id: 'walk', behaviour: 'patrol', params: { speed: 80, path: 'route' } },
+				{ id: 'hunt', behaviour: 'chase', pos: { x: 10, y: 20 } },
+				{ id: 'fire', behaviour: 'shootAt', params: { component: 'bullet', layer: 'shots' } },
+			],
+			transitions: [
+				{
+					id: 't1',
+					from: 'walk',
+					to: 'hunt',
+					when: [{ kind: 'targetWithin', tag: 'player', px: 200 }],
+				},
+				{ id: 't3', from: '*', to: 'fire', when: [{ kind: 'random', chance: 0.5 }] },
+				{
+					id: 't5',
+					from: 'fire',
+					to: 'walk',
+					when: [{ kind: 'timer', ms: 500 }, { kind: 'hitSolid' }],
+				},
+				{ id: 't6', from: 'hunt', to: 'walk', when: [] },
+				{
+					id: 't7',
+					from: 'hunt',
+					to: 'walk',
+					when: [{ kind: 'variable', id: 'lives', op: '<=', value: 0 }],
+				},
+			],
+		},
+	},
+	{ id: 'drone', component: 'droneLook' },
+]);
+check(
+	'a pointer controller keeps its axes and an optional speed',
+	normalizeArcadeCharacters([
+		{ id: 'a', component: 'a', controller: { kind: 'pointer', axes: 'x' } },
+		{ id: 'b', component: 'b', controller: { kind: 'pointer', axes: 'xy', speed: 500 } },
+		{ id: 'c', component: 'c', controller: { kind: 'sideScroll' } },
+	])?.map((c) => c.controller),
+	[{ kind: 'pointer', axes: 'x' }, { kind: 'pointer', axes: 'xy', speed: 500 }, undefined],
+);
+const withCharacters = normalize({
+	...ARCADE,
+	arcade: {
+		bodies: { heroLook: { shape: 'circle', r: 20, tags: ['player'] } },
+		characters: RAW_CHARACTERS,
+	},
+});
+check(
+	'characters: a fixed point',
+	JSON.stringify(normalize(JSON.parse(JSON.stringify(withCharacters)))),
+	JSON.stringify(withCharacters),
+);
+check(
+	'characters: the sample validates clean',
+	validateGameConfigDoc(withCharacters).map((i) => `${i.severity} ${i.path}`),
+	[],
+);
+check(
+	'characterComponentIds: the looks and the shots, distinct, in order',
+	characterComponentIds(withCharacters),
+	['heroLook', 'guardLook', 'bullet', 'droneLook'],
+);
+check(
+	'characterComponentIds: none without characters',
+	[characterComponentIds(arcade), characterComponentIds(slot), characterComponentIds({})],
+	[[], [], []],
+);
+const issues = (characters: unknown[], bodies: Record<string, unknown> = {}) =>
+	validateGameConfigDoc({
+		...(normalize(ARCADE) as GameConfigDoc),
+		arcade: { bodies: bodies as never, characters: characters as never },
+	}).map((i) => `${i.severity} ${i.path}`);
+check(
+	'validation: a repeated id, a missing look and a shared look are refused',
+	issues([
+		{ id: 'a', component: 'x' },
+		{ id: 'a', component: 'y' },
+		{ id: 'b', component: '' },
+		{ id: 'c', component: 'x' },
+	]),
+	[
+		'error arcade.characters[1].id',
+		'error arcade.characters[2].component',
+		'error arcade.characters[3].component',
+	],
+);
+check(
+	'validation: an initial and transitions that name no state are refused',
+	issues([
+		{
+			id: 'a',
+			component: 'x',
+			brain: {
+				initial: 'gone',
+				states: [{ id: 's', behaviour: 'idle' }],
+				transitions: [
+					{ id: 'ok', from: '*', to: 's', when: [] },
+					{ id: 'bad', from: 'nowhere', to: 's', when: [] },
+					{ id: 'bad2', from: 's', to: 'nowhere', when: [] },
+				],
+			},
+		},
+	]),
+	[
+		'error arcade.characters[0].brain.initial',
+		'error arcade.characters[0].brain.transitions[1]',
+		'error arcade.characters[0].brain.transitions[2]',
+	],
+);
+check(
+	'validation: the warnings',
+	issues(
+		[
+			{
+				id: 'a',
+				component: 'x',
+				controller: { kind: 'topDown', speed: 100 },
+				animInputs: { hunting: 'state:hunt', idle: 'state:s' },
+				brain: {
+					initial: 's',
+					states: [
+						{ id: 's', behaviour: 'chase' },
+						{ id: 'f', behaviour: 'flee', params: { tag: 'enemy' } },
+						{ id: 'g', behaviour: 'shootAt', params: { component: 'shot' } },
+						{ id: 'h', behaviour: 'chase', params: { tag: 'enemy' } },
+					],
+					transitions: [],
+				},
+			},
+			{ id: 'b', component: 'y', controller: { kind: 'sideScroll', speed: 1 } },
+			{ id: 'c', component: 'z', animInputs: { on: 'state:s' } },
+		],
+		{ y: { shape: 'box', w: 1, h: 1, tags: ['player'] } },
+	),
+	[
+		'warning arcade.characters[0].controller',
+		'warning arcade.characters[0].brain.states[1]',
+		'warning arcade.characters[0].brain.states[2]',
+		'warning arcade.characters[0].brain.states[3]',
+		'warning arcade.characters[0].animInputs.hunting',
+		'warning arcade.characters[2].animInputs.on',
+	],
 );
 
 if (failures) {

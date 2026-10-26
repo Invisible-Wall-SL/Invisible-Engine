@@ -55,6 +55,7 @@
 	import { SLOT_GAME_KINDS } from 'constants-shared/gameKinds';
 	import { BASE_GAME_MODE, builtinGameModes, holdAndWinModeDecl } from 'game-config';
 	import { SPAWN_DEFAULT_CAP } from 'constants-shared/spawn';
+	import { newPathNode } from '$lib/editor/pathNodeEdit';
 	import {
 		BOOT_SPLASH_DEFAULT_BACKGROUND,
 		BOOT_SPLASH_DEFAULT_SIZE,
@@ -1119,6 +1120,21 @@
 			placement: 'free',
 			cap: SPAWN_DEFAULT_CAP,
 		};
+		onSpawn(node);
+		selectOnly(node.id);
+	}
+
+	/**
+	 * Insert a `path` node (game-families §4.3) into the active scene, at main centre: a line a
+	 * character's brain patrols or follows. Its points are drawn and edited on the stage.
+	 */
+	function insertPath(): void {
+		const main = mainSizesMap[currentLayoutType];
+		const node = newPathNode(
+			'n_' + Math.random().toString(36).slice(2, 10),
+			Math.round(main.width / 2),
+			Math.round(main.height / 2),
+		);
 		onSpawn(node);
 		selectOnly(node.id);
 	}
@@ -3833,6 +3849,7 @@
 								reel={{ active: !!existingReelGrid, onAdd: insertReelGrid }}
 								repeater={{ onAdd: insertRepeater }}
 								spawnLayer={{ onAdd: insertSpawnLayer }}
+								path={{ onAdd: insertPath }}
 							/>
 						</ul>
 					</PanelSection>

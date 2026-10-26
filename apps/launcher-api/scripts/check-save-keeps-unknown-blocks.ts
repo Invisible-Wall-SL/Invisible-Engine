@@ -1256,6 +1256,34 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 }
 
 {
+	// P10.11's 1D `blend` is KNOWN here: read and saved as written, and a cleared one stays cleared.
+	resetComponents();
+	const doc = newerMachine() as unknown as Required<SmDoc>;
+	const blend = {
+		input: 'speed',
+		points: [
+			{ timeline: 'idle', at: 0 },
+			{ timeline: 'win', at: 200 },
+		],
+	};
+	Object.assign(doc.stateMachine.layers[0].states[0], { timeline: 'idle', blend });
+	const etag = seed(componentKey, doc);
+	const loaded = structuredClone(olderView()) as unknown as SmDoc;
+	check(
+		'components P10.11: a blend state is read as known',
+		loaded.stateMachine?.layers[0].states[0].blend,
+		blend,
+	);
+	delete loaded.stateMachine!.layers[0].states[0].blend;
+	await saveComponent(loaded as unknown as Def, 'p', etag);
+	check(
+		'components P10.11: a cleared blend is not resurrected',
+		'blend' in machineOf(stored(componentKey)).layers[0].states[0],
+		false,
+	);
+}
+
+{
 	// The vec2 input is the ONLY difference: the save still bumps, never rewriting the v3 snapshot.
 	const onlyText = (label: SmRow | null): StoredDef => {
 		const doc = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;

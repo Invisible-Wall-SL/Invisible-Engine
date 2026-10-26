@@ -110,11 +110,14 @@ export function stateMachineTimelines(machine: ComponentStateMachine | undefined
 	const durations = new Map<string, number>();
 	for (const layer of machine?.layers ?? []) {
 		for (const state of layer.states ?? []) {
-			if (!state.timeline || durations.has(state.timeline)) continue;
-			const doc = byId.get(state.timeline);
-			if (!doc) continue;
-			docs.push(doc);
-			durations.set(doc.id, Math.max(doc.duration || 0, 0));
+			const ids = [state.timeline, ...(state.blend?.points ?? []).map((p) => p.timeline)];
+			for (const id of ids) {
+				if (!id || durations.has(id)) continue;
+				const doc = byId.get(id);
+				if (!doc) continue;
+				docs.push(doc);
+				durations.set(doc.id, Math.max(doc.duration || 0, 0));
+			}
 		}
 	}
 	return { docs, durations };
@@ -137,6 +140,10 @@ interface Running {
 	order: number;
 	/** Set on a state-machine layer's playback (`drive`): its playhead is placed, never advanced. */
 	layer?: number;
+	/** The state the slot was placed for: a blend state switching points keeps its playback. */
+	state?: string;
+	/** A blend state's upper point, mixed over this playback by `weight`. */
+	mix?: { bound: Bound; time: number; weight: number };
 	/** The pose a layer is still mixing in from (`blendNodeSamples`). */
 	from?: Mix;
 	/** A `pingPong` timeline's seconds into its there-and-back lap (`time` is where it samples). */
@@ -418,9 +425,11 @@ export class ComponentTimelinePlayer {
 			return cues;
 		}
 		let r = this.driven.get(slot);
-		if (!r || r.bound !== bound || play.entered) {
+		// A blend state whose lower point changed is the same playback on another timeline.
+		const sameState = !!r && !play.entered && r.state === play.state && r.layer === layer;
+		if (!r || play.entered || (r.bound !== bound && !sameState)) {
 			const previous = r;
-			r = { bound, time: play.time, done: true, order: ++this.started, layer };
+			r = { bound, time: play.time, done: true, order: ++this.started, layer, state: play.state };
 			this.driven.set(slot, r);
 			crossed(bound, -EPSILON, play.time);
 			if (play.from) {
@@ -431,6 +440,7 @@ export class ComponentTimelinePlayer {
 				if (previous) {
 					const nodeIds = new Set([
 						...previous.bound.actors.keys(),
+						...(previous.mix?.bound.actors.keys() ?? []),
 						...(previous.from?.snapshot.keys() ?? []),
 					]);
 					for (const nodeId of nodeIds) {
@@ -441,14 +451,20 @@ export class ComponentTimelinePlayer {
 				r.from = { snapshot, progress: 0 };
 				// Only a slot that was not itself mid-blend plays on: a half-mixed pose has no one
 				// timeline to continue, so it stays frozen.
-				if (play.from.playing && previous && !previous.from)
+				if (play.from.playing && previous && !previous.from && !previous.mix)
 					r.from.live = { bound: previous.bound, time: play.from.time };
 			}
 		} else {
 			segment(bound, play);
+			r.bound = bound;
 			r.time = play.time;
 			r.layer = layer;
+			r.state = play.state;
 		}
+		const mixBound = play.mix ? this.boundById.get(play.mix.timeline) : undefined;
+		if (play.mix && mixBound)
+			r.mix = { bound: mixBound, time: play.mix.time, weight: play.mix.weight };
+		else if (r.mix) r.mix = undefined;
 		if (r.from && play.from) {
 			r.from.progress = play.from.progress;
 			if (r.from.live) r.from.live.time = play.from.time;
@@ -457,14 +473,23 @@ export class ComponentTimelinePlayer {
 	}
 
 	/** What a state-machine slot plays, for the gates. */
-	drivenSlot(slot: string): { timeline: string; time: number } | undefined {
+	drivenSlot(
+		slot: string,
+	): { timeline: string; time: number; mix?: { timeline: string; weight: number } } | undefined {
 		const r = this.driven.get(slot);
-		return r ? { timeline: r.bound.doc.id, time: r.time } : undefined;
+		if (!r) return undefined;
+		const out = { timeline: r.bound.doc.id, time: r.time };
+		return r.mix ? { ...out, mix: { timeline: r.mix.bound.doc.id, weight: r.mix.weight } } : out;
 	}
 
 	private sampleOf(r: Running, nodeId: string): CinematicNodeSample | undefined {
 		const tracks = r.bound.actors.get(nodeId);
-		const to = tracks ? sampleNodeActor(tracks, r.time) : undefined;
+		let to = tracks ? sampleNodeActor(tracks, r.time) : undefined;
+		if (r.mix) {
+			const upperTracks = r.mix.bound.actors.get(nodeId);
+			const upper = upperTracks ? sampleNodeActor(upperTracks, r.mix.time) : undefined;
+			if (to || upper) to = blendNodeSamples(to, upper, r.mix.weight, this.fxRests.get(nodeId));
+		}
 		if (!r.from) return to;
 		const live = r.from.live;
 		const liveTracks = live?.bound.actors.get(nodeId);
@@ -484,7 +509,12 @@ export class ComponentTimelinePlayer {
 		}
 		const layers: Running[] = [];
 		for (const r of this.driven.values()) {
-			if (r.bound.actors.has(nodeId) || r.from?.snapshot.has(nodeId)) layers.push(r);
+			if (
+				r.bound.actors.has(nodeId) ||
+				r.mix?.bound.actors.has(nodeId) ||
+				r.from?.snapshot.has(nodeId)
+			)
+				layers.push(r);
 		}
 		if (!layers.length) return best ? this.sampleOf(best, nodeId) : undefined;
 		const latest = Math.max(...layers.map((r) => r.order));

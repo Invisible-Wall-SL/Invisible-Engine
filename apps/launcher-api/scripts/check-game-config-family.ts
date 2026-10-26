@@ -12,7 +12,8 @@
  *     doc exactly as a save would store it, so the page never looks dirty for a value a save drops.
  *  3. THE PAGE SHOWS EACH FAMILY §6.2's SECTIONS. `/config` is rendered on the server for a slot, a
  *     match-3 game decided each way and an arcade game: a non-slot family shows exactly its
- *     sections, and a slot project shows no family picker and no section outside the slot's.
+ *     sections, and a slot project shows no family picker and no section outside the slot's. Only
+ *     an arcade page shows the Characters line (its count and the link to Invisible Characters).
  *  4. THE FAMILY GATE. Publish and the bake refuse a non-slot config, never a slot one.
  */
 
@@ -449,6 +450,10 @@ try {
 			[...configSectionsFor(family, outcome)].sort(),
 		);
 		check(`3. ${label}: the family picker`, shown.picker);
+		check(
+			`3. ${label}: the Characters link only on an arcade page`,
+			shown.body.includes('href="/characters"') === (family === 'arcade'),
+		);
 		if (family === 'match3') {
 			check(
 				`3. ${label}: the board's size is editable, its rows per column are not`,
@@ -458,6 +463,20 @@ try {
 			);
 		}
 	}
+	const withCharacters = normalizeGameConfigDoc({
+		...arcade,
+		arcade: {
+			characters: [
+				{ id: 'hero', component: 'heroLook' },
+				{ id: 'guard', component: 'guardLook' },
+			],
+		},
+	})!;
+	check(
+		'3. arcade: the Characters line counts the characters',
+		renderPage(arcade).body.includes('No characters yet.') &&
+			renderPage(withCharacters).body.includes('2 characters.'),
+	);
 	const slotSections = configSectionsFor('slot', 'rgs');
 	const ALWAYS: ConfigSection[] = [
 		'rtp',
@@ -484,6 +503,7 @@ try {
 		const missing = ALWAYS.filter((s) => !shown.sections.has(s));
 		check(`3. ${label}: every slot section it always had`, !missing.length, missing.join());
 		check(`3. ${label}: the slot intro`, shown.body.includes('its symbol dictionary and payouts'));
+		check(`3. ${label}: no Characters link`, !shown.body.includes('href="/characters"'));
 	}
 	check(
 		'3. a match-3 project on a slot config is offered the picker',

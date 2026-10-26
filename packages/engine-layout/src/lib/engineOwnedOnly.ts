@@ -50,7 +50,8 @@ function filterNodes(nodes: LayoutNode[]): LayoutNode[] {
  * readouts/buttons + freeSpinCounter) or a `repeater` (a list of them — the
  * buy-feature cards, whose `onSelect` the starter flow wires; without it the
  * scaffolded flow's buy chain has no endpoint), or a `spawnLayer` (the field a starter flow's
- * Spawn nodes name; it carries no art). A `slotId` ALONE does not keep a node —
+ * Spawn nodes name; it carries no art), or a `path` (game data a character's brain names; no art).
+ * A `slotId` ALONE does not keep a node —
  * an artist board frame sprite has a `slotId` but no `bind`, so it drops.
  *
  * Otherwise: a plain `container` recurses (kept only if it still has surviving
@@ -62,7 +63,8 @@ function filterNode(node: LayoutNode): LayoutNode | undefined {
 		node.kind === 'reelGrid' ||
 		node.kind === 'componentInstance' ||
 		node.kind === 'repeater' ||
-		node.kind === 'spawnLayer'
+		node.kind === 'spawnLayer' ||
+		node.kind === 'path'
 	) {
 		return cloneNode(node);
 	}

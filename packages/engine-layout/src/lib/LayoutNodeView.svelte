@@ -1415,6 +1415,8 @@
 			>
 				<SpawnLayer {node} {space} />
 			</Container>
+		{:else if node.kind === 'path'}
+			<!-- A path (game-families §4.3) is game data the arcade loop reads through `scenePaths`. -->
 		{:else if node.kind === 'sprite'}
 			{#if fillBound && !bg && spriteKey}
 				<!--
