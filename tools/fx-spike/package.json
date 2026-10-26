@@ -20,6 +20,7 @@
 		"rig-bound": "tsx rigBound.ts",
 		"forces": "tsx forces.ts",
 		"sprite": "tsx sprite.ts",
+		"material-behavior": "tsx materialBehavior.ts",
 		"exposed-params": "tsx exposedParams.ts",
 		"particle-clock": "tsx particleClock.ts",
 		"element-fx": "tsx elementFx.ts",
@@ -27,6 +28,7 @@
 		"shader-parity": "node shaderParity.mjs",
 		"shader-twins": "node shaderTwins.mjs",
 		"shader-motion": "node shaderMotion.mjs",
+		"particle-material": "node particleMaterial.mjs",
 		"nine-slice-parity": "node nineSliceParity.mjs"
 	},
 	"devDependencies": {

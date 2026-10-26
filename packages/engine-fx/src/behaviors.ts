@@ -12,10 +12,12 @@
  *
  * Both are plain classes matching the library's `IEmitterBehavior` duck type (`order` +
  * `initParticles`, optional `updateParticle`) — the same pluggable seam Tier C's `spineParticle`
- * behavior stands on. They import nothing but `./forces` and `./sprite` (the `fxForces` and
- * `fxSprite` behaviors, registered here beside them): no PixiJS, no particle-emitter, so this module stays
- * pure and headlessly unit-coverable like the rest of `engine-fx`. Registration therefore takes
- * the `Emitter` class as an ARGUMENT ({@link registerFxBehaviors}) rather than importing it.
+ * behavior stands on. They import nothing but `./forces`, `./sprite` and `./material` (the
+ * `fxForces`, `fxSprite` and `fxMaterial` behaviors, registered here beside them; `./material`
+ * reads `./bindArt` and a particle-emitter TYPE, nothing at run time): no PixiJS and no
+ * particle-emitter code, so this module stays pure and headlessly unit-coverable like the rest of
+ * `engine-fx`. Registration therefore takes the `Emitter` class as an ARGUMENT
+ * ({@link registerFxBehaviors}) rather than importing it.
  *
  * ⚠ A config only carries these types when the author actually enables the feature, so every
  * effect that doesn't use them stays 100% stock. A doc that DOES use them needs
@@ -26,6 +28,7 @@
  */
 
 import { FX_FORCES_BEHAVIOR_TYPE, FxForcesBehavior } from './forces';
+import { FxMaterialBehavior } from './material';
 import { FX_SPRITE_BEHAVIOR_TYPE, FxSpriteBehavior } from './sprite';
 
 /** One point of a V3 `ValueList` curve (`{ time: 0..1, value }`). */
@@ -403,8 +406,9 @@ export const FX_BEHAVIOR_TYPES = [
 ];
 
 /**
- * Teach an `Emitter` class the FX behaviors. Idempotent (the library's registry is a plain map
- * keyed by `type`), so every renderer can call it unconditionally at module load.
+ * Teach an `Emitter` class the FX behaviors, and `fxMaterial`, which no authored config carries
+ * (the material renderer injects it). Idempotent (the library's registry is a plain map keyed by
+ * `type`), so every renderer can call it unconditionally at module load.
  */
 export function registerFxBehaviors(emitter: FxBehaviorRegistrar): void {
 	emitter.registerBehavior(FxAlphaBehavior as never);
@@ -413,4 +417,5 @@ export function registerFxBehaviors(emitter: FxBehaviorRegistrar): void {
 	emitter.registerBehavior(FxColorOverlayBehavior as never);
 	emitter.registerBehavior(FxForcesBehavior as never);
 	emitter.registerBehavior(FxSpriteBehavior as never);
+	emitter.registerBehavior(FxMaterialBehavior as never);
 }

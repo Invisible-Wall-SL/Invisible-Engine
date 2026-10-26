@@ -238,6 +238,23 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Fills the headless shell cache once, before the builds, so the 20 shards restore it instead
+      # of each fetching from the apt mirror. A failure here only costs the shards their own online
+      # install.
+      - name: Key the headless shell cache
+        id: shell
+        run: echo "key=$(scripts/current-games/headless-shell.sh key)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v6
+        with:
+          path: .cache/headless-shell
+          key: ${{ steps.shell.outputs.key }}
+
+      - name: Cache the headless shell for the shards
+        timeout-minutes: 15
+        continue-on-error: true
+        run: scripts/current-games/headless-shell.sh install .cache/headless-shell current-games
+
       # Main's runtime never changes for a SHA, so it is built once per base commit. The key's
       # version changes when a build gains a file (v2: `builtins.json`), so an older entry rebuilds.
       - name: Restore the base runtime
@@ -356,26 +373,21 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # The install apt-gets the browser's system deps, and a stalled mirror used to hang it until the
-      # job's 30-minute limit cancelled the shard, failing the run before any game rendered. apt now
-      # times out a stalled fetch and retries it itself. A retry of the whole install waits for the
-      # dpkg lock instead of failing on it: killing an attempt can leave its apt-get holding the lock.
+      # The shell and its apt deps come from the cache the build job filled for this runner image
+      # (scripts/current-games/headless-shell.sh says how, and why no pixel can change); with no
+      # entry the script installs online, retrying a stalled mirror, and fills it.
+      - name: Key the headless shell cache
+        id: shell
+        run: echo "key=$(scripts/current-games/headless-shell.sh key)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v6
+        with:
+          path: .cache/headless-shell
+          key: ${{ steps.shell.outputs.key }}
+
       - name: Install the headless shell
         timeout-minutes: 15
-        run: |
-          printf '%s\n' 'Acquire::Retries "5";' 'Acquire::http::Timeout "30";' \
-            'Acquire::https::Timeout "30";' 'DPkg::Lock::Timeout "180";' \
-            | sudo tee /etc/apt/apt.conf.d/80-current-games >/dev/null
-          for attempt in 1 2 3; do
-            timeout 240 pnpm dlx playwright@1.63.0 install --with-deps chromium-headless-shell && exit 0
-            echo "::warning::headless shell install attempt $attempt failed; retrying"
-            # A slow mirror can outlast the timeout, which kills pnpm but not the `sudo apt-get` it
-            # started: that apt-get runs on holding the dpkg lock, and the next attempt could only
-            # wait on it and fail. Let it finish first; the step's timeout still bounds the wait.
-            while pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null; do sleep 5; done
-            sleep 10
-          done
-          exit 1
+        run: scripts/current-games/headless-shell.sh install .cache/headless-shell current-games
 
       # Ubuntu 24.04 runners restrict unprivileged user namespaces through AppArmor, and only
       # binaries with an AppArmor profile (the system Chrome) are exempt. Playwright's headless

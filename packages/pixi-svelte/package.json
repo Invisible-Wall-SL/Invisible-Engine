@@ -19,9 +19,9 @@
 		"lint": "eslint *.ts*"
 	},
 	"devDependencies": {
-		"@sveltejs/package": "2.5.8",
+		"@sveltejs/package": "3.0.1",
 		"@sveltejs/vite-plugin-svelte": "5.0.3",
-		"chromatic": "11.26.1",
+		"chromatic": "18.13.3",
 		"config-lingui": "workspace:*",
 		"config-svelte": "workspace:*",
 		"config-vite": "workspace:*",
@@ -72,6 +72,11 @@
 			"types": "./src/lib/elementFx/index.ts",
 			"svelte": "./src/lib/elementFx/index.ts",
 			"default": "./src/lib/elementFx/index.ts"
+		},
+		"./particleMaterial": {
+			"types": "./src/lib/particleMaterial/index.ts",
+			"svelte": "./src/lib/particleMaterial/index.ts",
+			"default": "./src/lib/particleMaterial/index.ts"
 		}
 	}
 }

@@ -117,10 +117,9 @@ Shipped capabilities on `main`:
   "pins version … not registered" warning fired per instance render, hundreds of times a session
   for a def nested in a repeated part; it is now once per `id@version` (`warnPinNotHonoured`).
   Gate: `packages/engine-layout/scripts/test-component-closure.mjs` (twelve new assertions).
-  ⏳ Follow-up: the current-games harness (`scripts/current-games/lib/republish.mjs`) still mirrors
-  the old pin loop (an unmatched built-in pin ships the coded def; no pinned-only components). Its
-  verdict refuses a PR that edits it, so it moves to `resolveComponentClosureWithPins` in a PR of
-  its own; renders are unaffected meanwhile (neither difference changes what a game draws).
+  The current-games harness (`scripts/current-games/lib/republish.mjs`) moved onto the same
+  closure in a PR of its own (its verdict refuses a PR that edits the harness judging it), so its
+  republished variants follow both rules too.
 - 2026-10-23 — **Segmented counters: a segment's box (Size)** (branch `feat/segment-root-box`, in
   review, ⏳ not browser-verified). A segment drawn only from rigs and text (the owner's
   R_RespinTile looks) measures 0 × 0 — a rig or a text cannot be sized without loading it — so a
