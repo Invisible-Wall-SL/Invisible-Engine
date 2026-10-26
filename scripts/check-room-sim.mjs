@@ -825,15 +825,31 @@ try {
 	);
 
 	await check('live: an off-scale move is clamped by the server', async () => {
-		const server = serverRoom(a).sim.players.get(a.sessionId);
+		const sim = serverRoom(a).sim;
+		const server = sim.players.get(a.sessionId);
 		const input = a.input();
 		const seq = server.ack + 1;
-		Object.assign(input.data, { seq, moveX: 127, moveY: 127, buttons: 255, aimX: 0, aimY: 0 });
+		const raw = { seq, moveX: 127, moveY: 127, buttons: 255, aimX: 0, aimY: 0 };
+		// Read where the step after the input put the player, not its velocity: the next step, with no
+		// input, rests it, and on a busy machine that step can come before the read.
+		await wait(100);
+		const expected = stepPlayer(
+			{ ...server.body },
+			clampInput(raw, sim.game.field),
+			240,
+			sim.ctx,
+			sim.game.field,
+		);
+		Object.assign(input.data, raw);
 		input.send();
 		await until('the input', () => server.ack === seq);
-		const speed = Math.hypot(server.body.vx, server.body.vy);
-		assert.ok(speed <= 240 + 1e-9, `speed ${speed}`);
-		assert.ok(speed > 230, `speed ${speed}`);
+		await wait(100);
+		assert.deepEqual([server.body.x, server.body.y], [expected.x, expected.y]);
+		const clamped = clampInput(raw, sim.game.field);
+		assert.ok(
+			Math.hypot(clamped.moveX, clamped.moveY) <= MOVE_SCALE,
+			'the move is held to length 1',
+		);
 	});
 
 	await check('live: a burst of inputs drains within a few steps', async () => {
@@ -846,10 +862,13 @@ try {
 			Object.assign(input.data, { seq, moveX: 0, moveY: 127, buttons: 0, aimX: 0, aimY: 0 });
 			input.send();
 		}
-		const sent = Date.now();
+		// Counted in the room's steps, not wall time, which a busy machine stretches: one a step would
+		// take 19 steps from the first applied to the last; the drain, two a step, about half that.
+		const sim = serverRoom(a).sim;
+		await until('the burst begins', () => server.ack >= first, 3000);
+		const began = sim.steps;
 		await until('the burst applied', () => server.ack === first + 19, 3000);
-		// One a step would take 0.67 s at 30 Hz; the drain, two a step, about half that.
-		assert.ok(Date.now() - sent < 550, `${Date.now() - sent} ms`);
+		assert.ok(sim.steps - began <= 15, `${sim.steps - began} steps`);
 	});
 
 	await check(
