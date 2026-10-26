@@ -41,10 +41,7 @@ import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { mergeCodedParams } from '../../../packages/engine-layout/src/lib/builtinComponents.ts';
-import {
-	collectComponentPins,
-	resolveComponentClosure,
-} from '../../../packages/engine-layout/src/lib/collectComponentIds.ts';
+import { resolveComponentClosureWithPins } from '../../../packages/engine-layout/src/lib/collectComponentIds.ts';
 import { canonical } from './builtins.mjs';
 
 /** `BUILTIN_COMPONENTS` of `source` (a `builtinComponents.ts`), keyed by id. */
@@ -90,24 +87,21 @@ export async function republishWith(bundle, publishedBuiltins, sideBuiltins) {
 	);
 	const load = (id) => kept[id] ?? sideBuiltins[id];
 	const nodes = (bundle.doc?.scenes ?? []).flatMap((scene) => scene.nodes ?? []);
-	const componentDefs = await resolveComponentClosure(nodes, load, {
-		extraSeedIds: Object.keys(bundle.componentDefs ?? {}),
-		defaultsFor: (id) => bundle.componentDefaults?.[id],
-	});
-	// `resolveReferencedDefs`: a pin the resolved def's version satisfies ships nothing; any other
-	// ships the exact pinned def — the snapshot's authored one at that version, else the built-in.
-	const componentVersions = [];
-	for (const pin of collectComponentPins(nodes)) {
-		if (componentDefs[pin.id]?.version === pin.version) continue;
+	// The same closure `resolveReferencedDefs` runs: a pinned version loads as the snapshot's authored
+	// def at that version, else the side's built-in (which ships only when it is that version).
+	const loadVersion = (id, version) => {
 		const shipped = (bundle.componentVersions ?? []).find(
-			(def) => def.id === pin.id && def.version === pin.version,
+			(def) => def.id === id && def.version === version,
 		);
-		const pinned =
-			shipped && !isCopyOf(shipped, publishedBuiltins)
-				? bakeAuthored(shipped, sideBuiltins)
-				: sideBuiltins[pin.id];
-		if (pinned) componentVersions.push(pinned);
-	}
+		return shipped && !isCopyOf(shipped, publishedBuiltins)
+			? bakeAuthored(shipped, sideBuiltins)
+			: sideBuiltins[id];
+	};
+	const { defs: componentDefs, versions: componentVersions } =
+		await resolveComponentClosureWithPins(nodes, load, loadVersion, {
+			extraSeedIds: Object.keys(bundle.componentDefs ?? {}),
+			defaultsFor: (id) => bundle.componentDefaults?.[id],
+		});
 	const variant = { ...bundle, componentDefs };
 	delete variant.componentVersions;
 	if (componentVersions.length) variant.componentVersions = componentVersions;
