@@ -49,26 +49,10 @@ export const ARCADE_GUARD_LOOK = {
 	inputs: { speed: 'speed', chasing: 'chasing' },
 } as const;
 
-const rect = (
-	id: string,
-	label: string,
-	w: number,
-	h: number,
-	color: number,
-	at: { x: number; y: number } = { x: -w / 2, y: -h / 2 },
-	extra: Record<string, unknown> = {},
-): LayoutNode =>
-	({
-		id,
-		label,
-		kind: 'rect',
-		x: at.x,
-		y: at.y,
-		width: w,
-		height: h,
-		color,
-		...extra,
-	}) as LayoutNode;
+/** A flat shape centred on its node's origin (a rect's default anchor), as a body's x / y is its
+ *  centre. */
+const rect = (id: string, label: string, w: number, h: number, color: number): LayoutNode =>
+	({ id, label, kind: 'rect', x: 0, y: 0, width: w, height: h, color }) as LayoutNode;
 
 const shape = (id: string, name: string, w: number, h: number, color: number): ComponentDef => ({
 	id,
@@ -106,7 +90,7 @@ const guard: ComponentDef = {
 				kind: 'container',
 				x: 0,
 				y: 18,
-				children: [rect('arcadeGuard-legs-shape', 'LegsShape', 40, 14, 0x2d3142)],
+				children: [rect('arcadeGuard-legs-shape', 'LegsShape', 40, 14, 0xa3b1c6)],
 			} as LayoutNode,
 			{
 				id: 'arcadeGuard-body',
@@ -122,7 +106,6 @@ const guard: ComponentDef = {
 				kind: 'container',
 				x: 0,
 				y: -40,
-				alpha: 0,
 				children: [rect('arcadeGuard-alert-shape', 'AlertShape', 14, 22, 0xef233c)],
 			} as LayoutNode,
 		],
@@ -261,7 +244,9 @@ export const ARCADE_GUARD_TIMELINES: readonly CinematicDoc[] = [
 			],
 		},
 	}),
-	timeline(ARCADE_GUARD_LOOK.calm, 'Guard: calm', 1, { Alert: { alpha: [{ time: 0, value: 0 }] } }),
+	timeline(ARCADE_GUARD_LOOK.calm, 'Guard: calm', 1, {
+		Alert: { alpha: [{ time: 0, value: 0 }], scale: [{ time: 0, value: 1 }] },
+	}),
 	timeline(ARCADE_GUARD_LOOK.alert, 'Guard: alert', 0.5, {
 		Alert: {
 			alpha: [{ time: 0, value: 1 }],

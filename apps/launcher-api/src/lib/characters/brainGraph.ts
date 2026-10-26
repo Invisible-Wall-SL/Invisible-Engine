@@ -67,11 +67,12 @@ export function brainGraph(brain: ArcadeBrain | undefined): {
 	return { nodes, edges };
 }
 
+/** The state or transition the inspector shows. */
+export type BrainSelection = { kind: 'state' | 'transition'; id: string } | null;
+
 /** What a wire dragged from `source` to `target` means. */
 export type BrainConnection =
-	| { kind: 'initial'; state: string }
-	| { kind: 'transition'; from: string; to: string }
-	| undefined;
+	{ kind: 'initial'; state: string } | { kind: 'transition'; from: string; to: string } | undefined;
 
 export function brainConnection(source: string, target: string): BrainConnection {
 	if (!source || !target || target === ENTRY_NODE || target === ANY_NODE) return undefined;

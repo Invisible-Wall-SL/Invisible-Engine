@@ -73,8 +73,17 @@ export type DeterminismProbeState = {
 export type DeterminismArcadeState = {
 	/** Fixed steps run so far. */
 	steps: number;
-	/** Every body, in spawn order: its instance id, place, velocity and tags. */
-	bodies: { id: string; x: number; y: number; vx: number; vy: number; tags: string[] }[];
+	/** Every body, in spawn order: its instance id, place, velocity and tags, and a character's
+	 *  brain state (P10.11). */
+	bodies: {
+		id: string;
+		x: number;
+		y: number;
+		vx: number;
+		vy: number;
+		tags: string[];
+		state?: string;
+	}[];
 };
 
 /** A match-3 board, as `registerDeterminismBoard` reads it. */

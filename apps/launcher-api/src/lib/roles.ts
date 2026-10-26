@@ -193,6 +193,11 @@ export const TOOL_ICONS: Record<string, string> = {
 		'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="M15 4v16"/>' +
 			'<path d="M3 9.5h18"/><path d="M3 14.5h18"/>',
 	),
+	// a figure with a motion trail (something that moves by itself: an arcade character)
+	characters: I(
+		'<circle cx="14" cy="5" r="2"/><path d="M14 7.5v6l3 6.5"/><path d="M14 13.5l-3 6.5"/>' +
+			'<path d="M10.5 10.5l3.5-2 3.5 2"/><path d="M3 9h4"/><path d="M2 13h5"/><path d="M4 17h4"/>',
+	),
 	// clapperboard (direct a game's production)
 	director: I(
 		'<path d="M3 9.75h18v10.5H3z"/><path d="M3 9.75 4.8 4.5h15.9L21 9.75"/>' +
@@ -307,6 +312,16 @@ export const TOOLS: Record<string, ToolDef> = {
 		kind: 'online',
 		url: '/config',
 		icon: TOOL_ICONS.gameConfig,
+	},
+	characters: {
+		id: 'characters',
+		name: 'Invisible Characters',
+		description:
+			"An arcade game's characters: each one's look, body, movement, controller and brain, tried in a sandbox.",
+		kind: 'online',
+		url: '/characters',
+		icon: TOOL_ICONS.characters,
+		isNew: true,
 	},
 	editor: {
 		id: 'editor',
@@ -437,14 +452,15 @@ export const TOOLS: Record<string, ToolDef> = {
 
 /**
  * The tools each game family does NOT use (`docs/design/game-families.md` §6.5). An exclusion list,
- * so a new tool is offered to every family until someone says otherwise. The slot family hides
- * nothing: a slot project's manifest is exactly the role's. The role still decides what a user may
+ * so a new tool is offered to every family until someone says otherwise. Slot and match-3 hide only
+ * Invisible Characters, which is arcade-only: a slot project's manifest is the role's without it,
+ * exactly the list from before that tool existed. The role still decides what a user may
  * open; the family only narrows it. A tool that depends on the outcome (Win Text for match-3) stays
  * listed and checks the outcome itself.
  */
 export const FAMILY_TOOLS: Record<GameFamily, readonly string[]> = {
-	slot: [],
-	match3: [],
+	slot: ['characters'],
+	match3: ['characters'],
 	arcade: ['symbols', 'winText'],
 };
 
@@ -517,7 +533,15 @@ export const TOOL_STAGES: ToolStage[] = [
 		id: 'build',
 		label: 'Build',
 		accent: '#6ea8ff',
-		tools: ['editor', 'flow', 'symbols', 'componentEditor', 'winText', 'localization'],
+		tools: [
+			'editor',
+			'flow',
+			'characters',
+			'symbols',
+			'componentEditor',
+			'winText',
+			'localization',
+		],
 	},
 	{
 		id: 'reference',
@@ -573,6 +597,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'localization',
 		'winText',
 		'gameConfig',
+		'characters',
 		'editor',
 		'flow',
 		'fx',
@@ -593,6 +618,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'localization',
 		'winText',
 		'gameConfig',
+		'characters',
 		'editor',
 		'flow',
 		'fx',
@@ -607,6 +633,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 	pipelineTester: [
 		'gameMaker',
 		'gameConfig',
+		'characters',
 		'editor',
 		'flow',
 		'fx',
@@ -824,6 +851,7 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	localization: 'localization',
 	winText: 'win-text',
 	gameConfig: 'game-config',
+	characters: 'invisible-characters',
 	editor: 'invisible-editor',
 	ftpBrowser: 'ftp-browser',
 	componentEditor: 'component-editor',

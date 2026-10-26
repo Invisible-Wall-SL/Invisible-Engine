@@ -80,8 +80,7 @@ export const isBehaviour = (v: unknown): v is ArcadeBehaviourKind =>
 
 // ── the block ──────────────────────────────────────────────────────────────────────────────────
 
-export const charactersOf = (doc: GameConfigDoc): ArcadeCharacter[] =>
-	doc.arcade?.characters ?? [];
+export const charactersOf = (doc: GameConfigDoc): ArcadeCharacter[] => doc.arcade?.characters ?? [];
 
 export const findCharacter = (doc: GameConfigDoc, id: string): ArcadeCharacter | undefined =>
 	charactersOf(doc).find((c) => c.id === id);
@@ -111,7 +110,10 @@ export function freshId(base: string, taken: Iterable<string>): string {
 export function addCharacter(doc: GameConfigDoc, component: string): string | undefined {
 	const look = component.trim();
 	if (!look) return undefined;
-	const id = freshId(look, charactersOf(doc).map((c) => c.id));
+	const id = freshId(
+		look,
+		charactersOf(doc).map((c) => c.id),
+	);
 	list(doc).push({ id, component: look });
 	return id;
 }
@@ -122,8 +124,12 @@ export function duplicateCharacter(doc: GameConfigDoc, id: string): string | und
 	const characters = charactersOf(doc);
 	const index = characters.findIndex((c) => c.id === id);
 	if (index < 0) return undefined;
-	const copy = structuredClone(characters[index]);
-	copy.id = freshId(`${id}Copy`, characters.map((c) => c.id));
+	// A JSON copy: the page's doc is a `$state` proxy, which `structuredClone` refuses.
+	const copy = JSON.parse(JSON.stringify(characters[index])) as ArcadeCharacter;
+	copy.id = freshId(
+		`${id}Copy`,
+		characters.map((c) => c.id),
+	);
 	characters.splice(index + 1, 0, copy);
 	return copy.id;
 }
@@ -242,7 +248,10 @@ export function addState(
 	const character = findCharacter(doc, id);
 	if (!character) return undefined;
 	const brain = character.brain;
-	const stateId = freshId(behaviour, (brain?.states ?? []).map((s) => s.id));
+	const stateId = freshId(
+		behaviour,
+		(brain?.states ?? []).map((s) => s.id),
+	);
 	const state: ArcadeBrainState = { id: stateId, behaviour, pos: round(pos ?? autoPos(brain)) };
 	if (brain) brain.states.push(state);
 	else character.brain = { initial: stateId, states: [state], transitions: [] };
@@ -438,6 +447,8 @@ export function parseVariableValue(text: string): number | boolean | string {
 	return value !== '' && Number.isFinite(n) ? n : value;
 }
 
+export type ConditionField = 'tag' | 'px' | 'ms' | 'id' | 'op' | 'value' | 'chance' | 'every';
+
 /** One field of a condition. Anything the normalizer would refuse leaves it as it was (it would
  *  drop the WHOLE transition otherwise). */
 export function setConditionField(
@@ -445,7 +456,7 @@ export function setConditionField(
 	id: string,
 	tid: string,
 	index: number,
-	field: 'tag' | 'px' | 'ms' | 'id' | 'op' | 'value' | 'chance' | 'every',
+	field: ConditionField,
 	text: string,
 ): void {
 	const c = transitionIn(doc, id, tid)?.when[index];
@@ -455,7 +466,8 @@ export function setConditionField(
 	const number = value !== '' && Number.isFinite(n) ? n : undefined;
 	if (field === 'tag' && 'tag' in c && value) c.tag = value;
 	else if (field === 'px' && 'px' in c && number !== undefined && number >= 0) c.px = number;
-	else if (field === 'ms' && c.kind === 'timer' && number !== undefined && number >= 0) c.ms = number;
+	else if (field === 'ms' && c.kind === 'timer' && number !== undefined && number >= 0)
+		c.ms = number;
 	else if (field === 'id' && c.kind === 'variable' && value) c.id = value;
 	else if (field === 'op' && c.kind === 'variable') {
 		const op = ARCADE_VARIABLE_OPS.find((o) => o === value);
@@ -524,8 +536,7 @@ export function setAnimInput(
 export const characterIssues = (issues: GameConfigIssue[], index: number): GameConfigIssue[] =>
 	issues.filter(
 		(i) =>
-			i.path === `arcade.characters[${index}]` ||
-			i.path.startsWith(`arcade.characters[${index}].`),
+			i.path === `arcade.characters[${index}]` || i.path.startsWith(`arcade.characters[${index}].`),
 	);
 
 /** The issues of one brain state or transition (by its index in the brain). */

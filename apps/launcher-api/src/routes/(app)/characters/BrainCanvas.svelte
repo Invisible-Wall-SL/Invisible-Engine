@@ -18,11 +18,10 @@
 		brainConnection,
 		brainGraph,
 		type BrainConnection,
+		type BrainSelection,
 	} from '$lib/characters/brainGraph';
 	import { isBehaviour } from '$lib/characters/characterEdit';
 	import SmGraphNode from '../editor/SmGraphNode.svelte';
-
-	export type BrainSelection = { kind: 'state' | 'transition'; id: string } | null;
 
 	let {
 		brain,
@@ -87,10 +86,7 @@
 			label: e.label || undefined,
 			selected: sel?.kind === 'transition' && sel.id === e.id,
 			deletable: !readOnly && e.id !== INITIAL_EDGE,
-			class: [
-				e.id === INITIAL_EDGE ? 'brain-initial' : 'brain-t',
-				broken.has(e.id) ? 'broken' : '',
-			]
+			class: [e.id === INITIAL_EDGE ? 'brain-initial' : 'brain-t', broken.has(e.id) ? 'broken' : '']
 				.join(' ')
 				.trim(),
 			markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },

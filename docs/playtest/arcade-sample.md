@@ -61,7 +61,7 @@ vx / vy, tags), in spawn order. `?flowlog=1` traces every spawn, despawn and arc
 ## Known limits
 
 - The art is placeholder; swapping in the Salmons art (S0) is an owner follow-up.
-- Keyboard only: touch steering is the `pointer` controller of tier A2 (P10.11).
+- Keyboard only: the starter steers by `setVelocity` from Flow, not by a character controller (touch steering comes with characters, P10.11: [arcade-characters](arcade-characters.md)).
 - The field is the current layout's design size (desktop 1422 × 800, portrait 800 × 1422, …), read
   every step: turning the device moves the edges at once, and bodies already falling keep their
   places. The playtest plays the desktop layout and boots the portrait one.

@@ -397,10 +397,10 @@ check('controllers: with no key held, topDown / sideScroll follow a pressed poin
 		'a held key wins',
 	);
 	const side = { kind: 'sideScroll', speed: 200 };
-	assert.deepEqual(
-		controllerVelocity(side, touch([], { x: 0, y: 900 }), self, undefined, DT),
-		{ vx: -200, vy: 0 },
-	);
+	assert.deepEqual(controllerVelocity(side, touch([], { x: 0, y: 900 }), self, undefined, DT), {
+		vx: -200,
+		vy: 0,
+	});
 	assert.deepEqual(
 		controllerVelocity(side, touch(['up'], { x: 0, y: 900 }), self, undefined, DT),
 		{ vx: -200, vy: 0 },

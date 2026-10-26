@@ -5,21 +5,21 @@
 It is powered by **Svelte 5**, **PixiJS 8** and **TurboRepo**, and is organised as a single Turborepo + pnpm monorepo: the engine (`packages/*`), the reference/dev games (`apps/*`), the Studio launcher (`apps/launcher-api`), and the cloud pipeline services (`services/*`).
 
 > **New here?** Start with the in-repo guides, not this file:
+>
 > - [`docs/ONBOARDING.md`](docs/ONBOARDING.md) — setup and how to run things
 > - [`docs/INFRA.md`](docs/INFRA.md) — cloud services, URLs, env vars
 > - [`docs/STATUS.md`](docs/STATUS.md) — current state + roadmap
 >
 > The rest of this README documents the **engine internals** (book events, the event emitter, the file structure) — still accurate, since they're inherited from the SDK this fork is based on.
 
-
 # Table of Contents
 
 - [Get Started](#getStarted)
   - [Installation](#installation)
   - [Run in Storybook](#runInStorybook)
-  - [Run in DEV Mode](#runInDevMode) 
-  - [Build a Game](#buildAGame) 
-  - [Launch a Game](#launchAGame) 
+  - [Run in DEV Mode](#runInDevMode)
+  - [Build a Game](#buildAGame)
+  - [Launch a Game](#launchAGame)
 - [FAQ](#faq)
 - [Dependencies](#dependencies)
 - [Explore Storybook](#exploreStorybook)
@@ -52,6 +52,7 @@ Here is a complete tutorial to start with one of our sample games from storybook
 <a name="installation"></a>
 
 ## Installation
+
 We use [VSCode](https://code.visualstudio.com/download) as IDE but this is optional and it is up to you.
 
 - Install node with version 22.19.0. [download](https://nodejs.org/en/download)
@@ -106,9 +107,11 @@ pnpm run storybook --filter=lines
 - Run `pnpm run storybook --filter=<MODULE_NAME>` in the terminal to see the storybook of a sample game in a TurboRepo way. `<MODULE_NAME>` is the name in the package.json file of a module in apps or packages folders.
 - For example, we have `"name": "lines"` in the [apps/lines/package.json](/apps/lines/package.json), so we can find it and run its storybook.
 - For Windows users, you might need to add the script with "cross-env" to make it work:
+
 ```
 "storybook": "cross-env PUBLIC_CHROMATIC=true storybook dev -p 6001 public",
 ```
+
 - You should see this:
 
 <img src="./documentation/get-started-storybook-run.png" alt="isolated" width="100%"/>
@@ -123,9 +126,11 @@ pnpm run storybook --filter=lines
 <a name="runInDevMode"></a>
 
 ## Run in DEV Mode
+
 ```
 pnpm run dev --filter=lines
 ```
+
 - Open up the url showed in the terminal, you should see this:
 
 <img src="./documentation/get-started-dev.png" alt="isolated" width="100%"/>
@@ -137,6 +142,7 @@ pnpm run dev --filter=lines
 <a name="buildAGame"></a>
 
 ## Build a game
+
 ```
 pnpm run build --filter=lines
 ```
@@ -160,6 +166,7 @@ build
   |-favicon.svg
   |-loader.gif
 ```
+
 - Now you are ready to upload a game!
 
 <a name="launchAGame"></a>
@@ -191,6 +198,7 @@ Congratulations! You've completed the tutorial. You can explore the more content
 <a name="faq"></a>
 
 # FAQ
+
 - Q: Would it be possible to use a different programming language or framework, such as using Pixi.js only without Svelte?
   - A: You can use anything as long as it compiles to a static website, it is only recommended to use the web-sdk for the easiest development and integration experience as everything is already set up for you, but you can also just fork it or take certain parts of it.
 
@@ -240,7 +248,7 @@ const BET_TYPE_METHODS_MAP = {
 
 - Q: From what I see, most of the animated graphics seem to be rig, is their any other alternatives that you know of, besides rig?
   - A: Spritesheet animation is a good alternative.
-Check out the example of spritesheet animation here: [SpriteSheet.stories.svelte](https://github.com/Invisible-Wall-SL/Invisible-Engine/blob/main/packages/pixi-svelte-storybook/src/stories/SpriteSheet.stories.svelte)
+    Check out the example of spritesheet animation here: [SpriteSheet.stories.svelte](https://github.com/Invisible-Wall-SL/Invisible-Engine/blob/main/packages/pixi-svelte-storybook/src/stories/SpriteSheet.stories.svelte)
 
 - Q: Is there a mechanism to switch from a game type (i.e. lines) to another game type (i.e. cluster) as a mechanic?
   - A: It's easy. What you can do:
