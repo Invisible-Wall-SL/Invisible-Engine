@@ -175,7 +175,8 @@ Shipped capabilities on `main`:
   [game-families](game-families.md) §5.2 "N-slice"). A sprite node's **9-slice** (Off / Stretch /
   Tile) draws its region with the corners at art size and the edges and centre stretched or tiled
   to `width × height`; scale is folded into the size, so corners never scale with the node, and a
-  box smaller than two corners shrinks every corner by PIXI's one factor. **Where the data lives
+  box smaller than two corners shrinks every corner by PIXI's one factor; a negative scale flips it
+  about its anchor, as a plain sprite flips. **Where the data lives
   (the choice):** the insets are the ART's — per `<assetKey>::<region>` in
   `<client>/<project>/editor/art-slices.json` (`$lib/artSlices.ts`, `/api/editor/art-slices`,
   ETag-guarded like Art bounds), edited in the **9-slice insets** panel (draggable guides on the
@@ -187,7 +188,10 @@ Shipped capabilities on `main`:
   `engine-layout` `SlicedSprite.svelte` / `slicedSpriteViews.ts` (one `NineSliceSprite`, or corner
   sprites + `TilingSprite`s); editor: `nineSliceDraw.ts`; both from `nineSlice.ts`. Gates:
   `artSlices.fixture.ts`; `pnpm --filter fx-spike nine-slice-parity` diffs editor against game
-  pixel by pixel (plain, rotated-packed and trimmed frames; both modes; four boxes). Known limit: a
+  pixel by pixel (plain, rotated-packed and trimmed frames; both modes; four boxes) — the pieces at
+  the origin; the placement around them (anchor, scale folding, flip, tint) matches on reading. A
+  sheet's version token now also hashes its authored boxes and insets, so editing only those ships at
+  a new URL (Art bounds had the same gap). Known limit: a
   KTX2 page the encoder downscaled (over its ~12 Mpix cap) halves the borders with the rect, so
   corners draw smaller on that tier. ⏳ The panel and canvas are not browser-verified live.
 - 2026-10-25 — **Elastic and Bounce in the Interpolation panel** (in review): two more kinds beside

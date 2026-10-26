@@ -8,7 +8,13 @@
  * four corner sprites and five `TilingSprite`s at the corner factor.
  */
 import * as PIXI from 'pixi.js';
-import { nineSlicePieces, packedSubRect, type SliceInsets, type SliceMode } from './nineSlice';
+import {
+	clampSliceInsets,
+	nineSlicePieces,
+	packedSubRect,
+	type SliceInsets,
+	type SliceMode,
+} from './nineSlice';
 
 export interface SliceArt {
 	texture: PIXI.Texture;
@@ -17,15 +23,21 @@ export interface SliceArt {
 	insets: SliceInsets;
 }
 
-/** The art a texture slices: its kept (trimmed) rect, and its `defaultBorders` as insets. */
+/**
+ * The art a texture slices: its kept (trimmed) rect, and its `defaultBorders` as insets clamped to
+ * it, as the editor clamps them (a re-pack can shrink a region under stored insets).
+ */
 export function sliceArt(texture: PIXI.Texture): SliceArt {
 	const b = texture.defaultBorders;
-	return {
-		texture,
-		w: texture.trim?.width ?? texture.orig.width,
-		h: texture.trim?.height ?? texture.orig.height,
-		insets: { left: b?.left ?? 0, top: b?.top ?? 0, right: b?.right ?? 0, bottom: b?.bottom ?? 0 },
+	const w = texture.trim?.width ?? texture.orig.width;
+	const h = texture.trim?.height ?? texture.orig.height;
+	const raw = {
+		left: b?.left ?? 0,
+		top: b?.top ?? 0,
+		right: b?.right ?? 0,
+		bottom: b?.bottom ?? 0,
 	};
+	return { texture, w, h, insets: clampSliceInsets(raw, w, h) };
 }
 
 /** A sub-rect of the art (upright pixels) as its own untrimmed texture. */

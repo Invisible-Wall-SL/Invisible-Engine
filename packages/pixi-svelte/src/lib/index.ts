@@ -27,3 +27,5 @@ export * from './pressHold';
 export * from './rigBoneRotation';
 // One particle time scale (turbo): every `<ParticleEmitter>` steps by it, emission timers divide by it.
 export * from './particleClock';
+// The missing-asset diagnostic `Sprite` logs, for a texture-keyed view outside this package.
+export { hasAssetKey, warnMissingAsset } from './missingAsset';

@@ -1866,7 +1866,7 @@
 			const found = findRegion(node.assetKey, node.region);
 			if (!found) return null;
 			// A sliced sprite draws its packed art (`drawSlicedRegion`), so it frames that.
-			if (node.slice) return { w: found.region.w, h: found.region.h };
+			if (node.slice && !isBackgroundCover(node)) return { w: found.region.w, h: found.region.h };
 			// A boxed region sizes by its BOX — which is the point of declaring one: the selection
 			// frame, the resize handles and a cover-fit all stop tracking the packer's rect.
 			const boxed = artBoxGeometry(found.set.assetKey, found.region.name, found.region);
@@ -2963,7 +2963,15 @@
 				previewTint(node) ??
 				(boundTint !== undefined && boundTint !== 0xffffff ? boundTint : undefined);
 			if (region) {
-				drawRegionSprite(ctx, node, t, region, assetKey, tint);
+				drawRegionSprite(
+					ctx,
+					node,
+					t,
+					region,
+					assetKey,
+					tint,
+					drawsAsCover(node, sceneCtx, nested),
+				);
 			} else if (!assetKey && nested && gameView) {
 				// An art slot nothing is bound to: the game draws nothing there.
 			} else {
@@ -3704,10 +3712,13 @@
 		regionOverride?: string,
 		assetKeyOverride?: string,
 		tint?: number,
+		/** Drawn as a window cover: the game ignores `slice` there, so the canvas does too. */
+		cover = false,
 	): void {
 		const assetKey = assetKeyOverride ?? node.assetKey;
 		const region = regionOverride ?? node.region ?? '';
-		if (node.slice && drawSlicedRegion(ctx, node.slice, assetKey, region, t, tint)) return;
+		if (node.slice && !cover && drawSlicedRegion(ctx, node.slice, assetKey, region, t, tint))
+			return;
 		drawArtRegionSprite(
 			ctx,
 			assetKey,
@@ -3720,15 +3731,27 @@
 
 	const NO_SLICE = { left: 0, top: 0, right: 0, bottom: 0 };
 
+	/**
+	 * Whether a top-level node draws as a window cover — the game's `isCover` (`LayoutNodeView`):
+	 * any cover kind on a `background` screen, or a `coverFit` one on a `canvas` screen.
+	 */
+	function drawsAsCover(node: LayoutNode, sceneCtx: Scene, nested: boolean): boolean {
+		if (nested) return false;
+		if (sceneCtx.space === 'background') return isBackgroundCoverKind(node);
+		return sceneCtx.space === 'canvas' && node.coverFit === true && isCoverFitKind(node);
+	}
+
 	/** Scratch canvas a TINTED slice is composed on before `drawTintedImage` multiplies it. */
 	let sliceScratch: HTMLCanvasElement | null = null;
 
 	/**
 	 * A `slice` sprite, as the game's `SlicedSprite` draws it: the region's packed art (never its
-	 * Art bounds or trim box), sliced by its insets into the DISPLAYED box (`width·scale`, the size
-	 * the game folds scale into), then divided back by the scale this context already carries, so
-	 * corners keep their art size whatever the node's scale. False until the region and its page
-	 * resolve; the caller then draws the usual placeholder.
+	 * Art bounds or trim box), sliced by its insets into the DISPLAYED box, then divided back by the
+	 * scale this context already carries, so corners keep their art size whatever the node's scale.
+	 * The box is the game's: `width·scale` when sized, the art × scale when not, and the art alone
+	 * on an axis left unsized beside a sized one (`LayoutNodeView` drops `scale` once either is
+	 * set). A negative box flips about the anchor, as the game's does. False until the region and
+	 * its page resolve; the caller then draws the usual placeholder.
 	 */
 	function drawSlicedRegion(
 		ctx: CanvasRenderingContext2D,
@@ -3745,27 +3768,35 @@
 		const { region } = found;
 		const sx = t.scale?.x ?? 1;
 		const sy = t.scale?.y ?? 1;
-		const w = (t.width ?? region.w) * sx;
-		const h = (t.height ?? region.h) * sy;
-		if (!(w > 0) || !(h > 0)) return true;
+		const sized = t.width !== undefined || t.height !== undefined;
+		const bw = t.width !== undefined ? t.width * sx : region.w * (sized ? 1 : sx);
+		const bh = t.height !== undefined ? t.height * sy : region.h * (sized ? 1 : sy);
+		const w = Math.abs(bw);
+		const h = Math.abs(bh);
+		if (sx === 0 || sy === 0 || !(w > 0) || !(h > 0)) return true;
 		const insets = artSliceOf(found.set.assetKey, region.name) ?? NO_SLICE;
 		const ax = t.anchor?.x ?? 0;
 		const ay = t.anchor?.y ?? 0;
 		ctx.save();
-		ctx.scale(1 / sx, 1 / sy);
+		ctx.scale(Math.sign(bw) / sx, Math.sign(bh) / sy);
 		ctx.translate(-w * ax, -h * ay);
 		if (tint === undefined || tint === 0xffffff) {
 			drawNineSlice(ctx, img, region, insets, w, h, mode);
 		} else {
+			// Composed at the canvas's own pixel density (zoom × DPR), so a tinted slice is as crisp
+			// as an untinted one.
+			const m = ctx.getTransform();
+			const res = Math.min(4, Math.max(1, Math.hypot(m.a, m.b), Math.hypot(m.c, m.d)));
 			if (!sliceScratch) sliceScratch = document.createElement('canvas');
-			sliceScratch.width = Math.max(1, Math.ceil(w));
-			sliceScratch.height = Math.max(1, Math.ceil(h));
+			sliceScratch.width = Math.max(1, Math.ceil(w * res));
+			sliceScratch.height = Math.max(1, Math.ceil(h * res));
 			const sctx = sliceScratch.getContext('2d');
 			if (sctx) {
+				sctx.scale(res, res);
 				drawNineSlice(sctx, img, region, insets, w, h, mode);
 				const cw = sliceScratch.width;
 				const ch = sliceScratch.height;
-				drawTintedImage(ctx, sliceScratch, 0, 0, cw, ch, 0, 0, cw, ch, tint);
+				drawTintedImage(ctx, sliceScratch, 0, 0, cw, ch, 0, 0, cw / res, ch / res, tint);
 			}
 		}
 		ctx.restore();

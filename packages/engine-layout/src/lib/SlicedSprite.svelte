@@ -26,42 +26,72 @@
 	 * A sprite drawn as a 9-slice (`SpriteNode.slice`): the texture's `defaultBorders` — the frame's
 	 * `borders` in the shipped sheet — sliced into the node's box by `buildSliceViews`, the views
 	 * the editor-parity check renders too.
+	 *
+	 * `root` carries the placement (and a negative scale's flip, about the anchor as a sprite
+	 * flips); `body` the anchor offset. Stretch resizes its one `NineSliceSprite` in place, so a
+	 * tweened bar allocates nothing; tile rebuilds its pieces when the box changes.
 	 */
 	import * as PIXI from 'pixi.js';
-	import { getContextApp, getContextParent } from 'pixi-svelte';
+	import { untrack } from 'svelte';
+	import { getContextApp, getContextParent, hasAssetKey, warnMissingAsset } from 'pixi-svelte';
 	import { buildSliceViews, sliceArt } from './slicedSpriteViews';
 
 	const props: Props = $props();
 	const app = getContextApp();
 	const root = new PIXI.Container({ label: 'SlicedSprite' });
+	const body = new PIXI.Container();
+	root.addChild(body);
 	getContextParent().addToParent(root);
 
-	const art = $derived.by(() => {
+	const texture = $derived.by(() => {
 		const key = props.key;
 		const fallback = props.fallbackKey;
 		const t =
 			(key ? app.stateApp.loadedAssets?.[key] : undefined) ??
 			(fallback ? app.stateApp.loadedAssets?.[fallback] : undefined);
-		return t instanceof PIXI.Texture && t !== PIXI.Texture.EMPTY ? sliceArt(t) : undefined;
+		return t instanceof PIXI.Texture && t !== PIXI.Texture.EMPTY ? t : undefined;
 	});
+	const art = $derived(texture ? sliceArt(texture) : undefined);
+
+	/** The signed displayed box: a negative scale flips, it never empties the slice. */
+	const box = $derived.by(() => {
+		if (!art) return undefined;
+		return {
+			w: props.width ?? art.w * (props.scale?.x ?? 1),
+			h: props.height ?? art.h * (props.scale?.y ?? 1),
+		};
+	});
+
+	let views = $state.raw<PIXI.ViewContainer[]>([]);
 
 	$effect(() => {
 		const a = art;
-		if (!a) return;
-		const w = props.width ?? a.w * (props.scale?.x ?? 1);
-		const h = props.height ?? a.h * (props.scale?.y ?? 1);
-		if (!(w > 0) || !(h > 0)) return;
-		const { views, textures } = buildSliceViews(a, w, h, props.mode);
-		const ax = props.anchor?.x ?? 0;
-		const ay = props.anchor?.y ?? 0;
-		for (const view of views) {
-			view.position.set(view.position.x - w * ax, view.position.y - h * ay);
-			root.addChild(view);
-		}
+		const mode = props.mode;
+		// Stretch is resized in place below; only tile's pieces depend on the box.
+		const b = mode === 'tile' ? box : untrack(() => box);
+		if (!a || !b) return;
+		const built = buildSliceViews(a, Math.abs(b.w) || 1, Math.abs(b.h) || 1, mode);
+		for (const view of built.views) body.addChild(view);
+		views = built.views;
 		return () => {
-			for (const child of root.removeChildren()) child.destroy();
-			for (const t of textures) t.destroy(false);
+			for (const view of built.views) view.destroy();
+			for (const t of built.textures) t.destroy(false);
 		};
+	});
+
+	$effect(() => {
+		const b = box;
+		if (!b) return;
+		const w = Math.abs(b.w);
+		const h = Math.abs(b.h);
+		if (props.mode === 'stretch') {
+			for (const view of views) {
+				if (view instanceof PIXI.NineSliceSprite) view.setSize(w, h);
+			}
+		}
+		body.visible = w > 0 && h > 0;
+		body.position.set(-w * (props.anchor?.x ?? 0), -h * (props.anchor?.y ?? 0));
+		root.scale.set(Math.sign(b.w) || 1, Math.sign(b.h) || 1);
 	});
 
 	$effect(() => {
@@ -74,17 +104,16 @@
 	$effect(() => {
 		const tint = props.tint ?? 0xffffff;
 		const blendMode = props.blendMode ?? 'normal';
-		// Re-applied whenever the views are rebuilt.
-		void art;
-		void props.width;
-		void props.height;
-		void props.scale;
-		void props.mode;
-		void props.anchor;
-		for (const child of root.children) {
-			const view = child as PIXI.Sprite;
+		for (const view of views) {
 			view.tint = tint;
 			view.blendMode = blendMode;
 		}
+	});
+
+	// As `Sprite` reports it: only once loading is over, and only for a key that was assigned.
+	$effect(() => {
+		if (texture || !app.stateApp.loaded) return;
+		if (!hasAssetKey(props.key) && !hasAssetKey(props.fallbackKey)) return;
+		warnMissingAsset(`SlicedSprite: key "${props.key}" is not found in the loadedAssets`);
 	});
 </script>

@@ -770,7 +770,20 @@ export async function exportEditorArt(
 
 		// Stamp a content hash into the filenames so a re-authored atlas ships at a NEW
 		// URL the cache can't serve stale (see assetVersion.ts). Null = source page gone.
-		const version = await sheetVersion(set);
+		// A sheet's authored boxes and insets are written into its JSON, so an edit to them alone
+		// must move the URL too. A sheet with none hashes exactly as before.
+		const boxFor = artBoundsLookup(manifestKey);
+		const sliceFor = artSlicesLookup(manifestKey);
+		const authored: Record<string, [ArtBounds | undefined, ArtSlice | undefined]> = {};
+		for (const r of set.regions) {
+			const box = boxFor?.(r.name);
+			const slice = sliceFor?.(r.name);
+			if (box || slice) authored[r.name] = [box, slice];
+		}
+		const version = await sheetVersion(
+			set,
+			Object.keys(authored).length > 0 ? authored : undefined,
+		);
 		if (!version) return;
 
 		// Carry the page's REAL extension. The page is copied byte-for-byte below, so defaulting
@@ -787,8 +800,6 @@ export async function exportEditorArt(
 		// frame rects are unchanged (the WebP page keeps full resolution). Missing source ⇒ skip.
 		const shared = await pageStore.ensure(set.pageKey, pageExt);
 		if (!shared) return;
-		const boxFor = artBoundsLookup(manifestKey);
-		const sliceFor = artSlicesLookup(manifestKey);
 		await putObjectText(
 			`${deployPrefix}${jsonRel}`,
 			toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.file}`, 1, 1, boxFor, sliceFor),

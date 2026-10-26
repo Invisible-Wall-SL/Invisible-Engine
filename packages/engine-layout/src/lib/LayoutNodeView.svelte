@@ -1192,7 +1192,10 @@
 		const assets = appContext.stateApp.loadedAssets;
 		const tex = ((key ? assets?.[key] : undefined) ??
 			(fallbackKey ? assets?.[fallbackKey] : undefined)) as
-			{ width?: number; height?: number } | undefined;
+			{ width?: number; height?: number; trim?: { width: number; height: number } } | undefined;
+		// A sliced sprite draws its kept art (`sliceArt`), not its declared box.
+		if (node.kind === 'sprite' && node.slice && tex?.trim)
+			return { w: tex.trim.width, h: tex.trim.height };
 		return tex?.width && tex.height ? { w: tex.width, h: tex.height } : undefined;
 	};
 

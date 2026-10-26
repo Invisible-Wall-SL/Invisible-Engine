@@ -26,6 +26,7 @@
 
 	$effect(() => {
 		const key = assetKey;
+		set = null;
 		if (!key) return;
 		let live = true;
 		void fetchRegions(key).then((s) => {
@@ -37,9 +38,11 @@
 	});
 
 	const record = $derived(set ? (set.regions.find((r) => r.name === region) ?? null) : null);
+	/** The stored insets, as the canvas and the game apply them: clamped to the region now. */
 	const saved = $derived.by((): SliceInsets | undefined => {
 		void artSlicesVersion();
-		return set ? artSliceOf(set.assetKey, region) : undefined;
+		const stored = set ? artSliceOf(set.assetKey, region) : undefined;
+		return stored && record ? clampSliceInsets(stored, record.w, record.h) : stored;
 	});
 	const insets = $derived(dragging ?? saved ?? { left: 0, top: 0, right: 0, bottom: 0 });
 
