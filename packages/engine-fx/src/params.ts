@@ -95,6 +95,12 @@ const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const BEHAVIOR_PREFIX = 'behavior:';
 const MATERIAL_PARAM_PREFIX = 'material.param.';
 
+/** A material's own value for a param id (never one `Object.prototype` holds, like `toString`). */
+const materialParam = (
+	params: Readonly<Record<string, EffectParamValue>> | undefined,
+	id: string,
+): EffectParamValue | undefined => (params && Object.hasOwn(params, id) ? params[id] : undefined);
+
 const isObject = (v: unknown): v is Record<string, unknown> =>
 	typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -285,7 +291,7 @@ export function resolveEffectParamLeaf(
 			if (target.field === 'intensity') {
 				return { ok: true, kind: 'number', value: fxMaterialIntensity(material.intensity) };
 			}
-			const value = material.params?.[target.id];
+			const value = materialParam(material.params, target.id);
 			const kind = effectParamLeafKind(value);
 			if (!kind) {
 				return {
@@ -485,7 +491,7 @@ function driveLeafKind(
 		target.scope !== 'material' ||
 		target.field !== 'param' ||
 		!layer.material ||
-		layer.material.params?.[target.id] !== undefined
+		materialParam(layer.material.params, target.id) !== undefined
 	)
 		return leaf;
 	const { from, to } = drive;
@@ -655,7 +661,7 @@ function storedLayerLeaf(layer: EmitterLayer, target: EffectParamTarget): unknow
 	if (target.scope === 'material') {
 		return target.field === 'intensity'
 			? fxMaterialIntensity(layer.material?.intensity)
-			: layer.material?.params?.[target.id];
+			: materialParam(layer.material?.params, target.id);
 	}
 	if (target.scope === 'behavior') {
 		const found = nthBehavior(layer.config, target.type, target.index);
@@ -1135,7 +1141,7 @@ export function createEffectParamApplier(
 				intensity = next;
 				intensityDirty = true;
 			} else {
-				if (sameValue(materialParams[target.id], out)) return;
+				if (sameValue(materialParam(materialParams, target.id), out)) return;
 				materialParams[target.id] = out;
 				paramsDirty = true;
 			}

@@ -4,12 +4,14 @@
  * builds its emitter, kept out of the component so a coded emitter can take a material the same way.
  *
  * Decided once, at mount, and kept for the layer's life (nothing pops): a layer draws plain when its
- * particles are Tier-C rig views, when its kind is not registered (`setCustomElementFx`), when the
- * game already has {@link particleMaterialSlots}' 8 material layers drawing, or when its renderer
- * refuses it at once (a body the shell refuses, Max particles over 512, frames on several texture
- * sources). A renderer that is refused is destroyed, so a plain layer is exactly a layer with no
- * material. One that turns plain while it plays (not WebGL, a program that does not link, more
- * particles than its buffer) keeps its sprites shown for good and gives its slot back.
+ * particles are Tier-C rig views, when its kind is not registered (`setCustomElementFx`), when its
+ * game (one Pixi app, {@link particleMaterialSlotsFor}) already has 8 material layers drawing, or
+ * when its renderer refuses it at once (a body the shell refuses, Max particles over 512 or a drive
+ * that can raise it there, no frames, frames on several texture sources). A renderer that is
+ * refused is destroyed, so a plain layer is exactly a layer with no material. One that turns plain
+ * while it plays (not WebGL, a program that does not link, a frame on another source) keeps its
+ * sprites shown for good and gives its slot back. A renderer whose construction throws gives its
+ * slot back before the error goes on.
  *
  * `?fxdebug=1` on the page logs each material layer's state as it mounts and when it turns plain.
  */
@@ -19,13 +21,24 @@ import {
 	createFxMaterialSlots,
 	fxMaterialMount,
 	type EmitterMaterial,
+	type FxMaterialMountPlain,
 	type FxMaterialSlots,
 } from 'engine-fx';
 import type { Container, Texture } from 'pixi.js';
-import { ParticleMaterial } from './ParticleMaterial';
+import { ParticleMaterial, type ParticleMaterialPlain } from './ParticleMaterial';
 
-/** The game's material layers drawing at once (design §10): one count for the page. */
-export const particleMaterialSlots: FxMaterialSlots = createFxMaterialSlots();
+const appSlots = new WeakMap<object, FxMaterialSlots>();
+
+/**
+ * The material layers drawing at once in one game (design §10's cap of 8): one count per Pixi app,
+ * keyed by its app state (`createApp`'s `stateApp`), so a page with several apps (an editor canvas
+ * beside a preview) gives each its own 8.
+ */
+export function particleMaterialSlotsFor(app: object): FxMaterialSlots {
+	let slots = appSlots.get(app);
+	if (!slots) appSlots.set(app, (slots = createFxMaterialSlots()));
+	return slots;
+}
 
 /** A material as an emitter takes it: an `EmitterLayer.material`, or one a coded emitter names. */
 export interface ParticleMaterialSpec extends Omit<EmitterMaterial, 'kind'> {
@@ -40,7 +53,7 @@ export interface MountedParticleMaterial {
 	/** The renderer the emitter spawns into; undefined when the layer is plain from mount. */
 	readonly material: ParticleMaterial | undefined;
 	/** `on`, or why the layer draws plain (as it was decided at mount). */
-	readonly state: string;
+	readonly state: 'on' | FxMaterialMountPlain | ParticleMaterialPlain;
 	/** Destroy the renderer and give its slot back. Destroy the emitter first. */
 	release(): void;
 }
@@ -68,9 +81,10 @@ export function mountParticleMaterial(options: {
 	/** Tier C: the particles are pooled rig views. */
 	rigParticles: boolean;
 	emitSpeed?: number;
-	slots?: FxMaterialSlots;
+	/** The game's count ({@link particleMaterialSlotsFor}). */
+	slots: FxMaterialSlots;
 }): MountedParticleMaterial {
-	const { spec, slots = particleMaterialSlots } = options;
+	const { spec, slots } = options;
 	const effect = customElementFx(spec.kind);
 	const decided = fxMaterialMount({
 		rigParticles: options.rigParticles,
@@ -87,21 +101,27 @@ export function mountParticleMaterial(options: {
 		held = false;
 		slots.release();
 	};
-	const material = new ParticleMaterial({
-		host: options.host,
-		effect,
-		maxParticles: options.maxParticles,
-		peakParticles: spec.peakParticles,
-		textures: options.textures,
-		time: spec.time,
-		intensity: spec.intensity,
-		params: spec.params,
-		emitSpeed: options.emitSpeed,
-		onPlain: (reason) => {
-			giveBack();
-			report(spec, `plain while playing, ${reason}`, slots);
-		},
-	});
+	let material: ParticleMaterial;
+	try {
+		material = new ParticleMaterial({
+			host: options.host,
+			effect,
+			maxParticles: options.maxParticles,
+			peakParticles: spec.peakParticles,
+			textures: options.textures,
+			time: spec.time,
+			intensity: spec.intensity,
+			params: spec.params,
+			emitSpeed: options.emitSpeed,
+			onPlain: (reason) => {
+				giveBack();
+				report(spec, `plain while playing, ${reason}`, slots);
+			},
+		});
+	} catch (error) {
+		giveBack();
+		throw error;
+	}
 	const refused = material.plain;
 	if (refused) {
 		material.destroy();

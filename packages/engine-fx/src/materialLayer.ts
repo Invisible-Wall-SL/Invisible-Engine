@@ -140,28 +140,41 @@ export function fxMaterialMount(options: {
 	return { on: true };
 }
 
+/** The library's Max particles for a value that is not a positive whole number (`Emitter.init`). */
+const LIBRARY_MAX_PARTICLES = 1000;
+
+/** What the emitter holds when Max particles is set to `v`: rounded, and 1000 at 0 or below. */
+const heldMaxParticles = (v: number): number => {
+	const n = Math.round(v);
+	return n > 0 ? n : LIBRARY_MAX_PARTICLES;
+};
+
 /**
  * The most particles a layer may hold while it plays: its Max particles at mount, raised to the
  * highest value any exposed parameter's `emitter.maxParticles` drive can write across the parameter's
- * range (a number's mapping is linear, so its ends bound it). A drive on a parameter with no max
- * that writes its value as is has no bound and is not counted: driven above the mount value, that
- * layer turns plain. The material renderer sizes its buffer to this (capped at its 512).
+ * range (a mapping is linear, so the range's ends bound it). A written value at or below 0 is the
+ * library's 1000, as the applier sets it. A drive that writes its parameter's value as is, on a
+ * parameter with no max, has no bound: `Infinity`. The material renderer sizes its buffer to this,
+ * and refuses the layer at mount (plain for its whole life) when it is over its cap of 512, so a
+ * drive can never turn a drawing layer plain mid-play.
  */
 export function fxMaterialPeakParticles(
 	layer: Pick<EmitterLayer, 'key' | 'config'>,
 	params: readonly EffectParam[] | undefined,
 ): number {
 	const mount = (layer.config as { maxParticles?: unknown }).maxParticles;
-	let peak = typeof mount === 'number' && Number.isFinite(mount) ? mount : 0;
+	let peak = typeof mount === 'number' && Number.isFinite(mount) ? heldMaxParticles(mount) : 0;
 	for (const param of params ?? []) {
 		for (const drive of param.drives) {
 			if (drive.layer !== layer.key || drive.path !== 'emitter.maxParticles') continue;
 			if (typeof drive.from === 'number' && typeof drive.to === 'number') {
-				peak = Math.max(peak, drive.from, drive.to);
+				peak = Math.max(peak, heldMaxParticles(drive.from), heldMaxParticles(drive.to));
 			} else if (drive.from === undefined && drive.to === undefined && param.kind === 'number') {
-				if (typeof param.max === 'number') peak = Math.max(peak, param.max);
+				if (typeof param.max !== 'number') return Infinity;
+				const lowest = typeof param.min === 'number' ? param.min : -Infinity;
+				peak = Math.max(peak, heldMaxParticles(param.max), heldMaxParticles(lowest));
 			}
 		}
 	}
-	return Math.round(peak);
+	return peak;
 }

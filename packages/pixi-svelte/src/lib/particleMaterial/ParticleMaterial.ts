@@ -22,11 +22,11 @@
  * FAIL CLOSED, NEVER INVISIBLE: the layer draws as the plain sprites it would without a material
  * (the hidden container shown, no mesh) when the effect is missing, when the particle shell cannot
  * convert its body, when the layer's Max particles is over {@link PARTICLE_MATERIAL_CAPACITY} (one
- * that is not a positive number is the library's 1000, so over it too), when its frames are not
- * all on one texture source, when the renderer is not WebGL, or when the program does not compile
- * and link on this GPU (asked of the driver once, at first use, and logged once). A layer found
- * out while it plays (more live particles than its buffer holds, a frame on another source) turns
- * plain for the rest of its life.
+ * that is not a positive number is the library's 1000, so over it too) or a drive can raise it
+ * there, when it has no frames, when its frames are not all on one texture source, when the
+ * renderer is not WebGL, or when the program does not compile and link on this GPU (asked of the
+ * driver once, at first use, and logged once). A layer found out while it plays (more live
+ * particles than its buffer holds, a frame on another source) turns plain for the rest of its life.
  */
 
 import {
@@ -67,6 +67,9 @@ export type ParticleMaterialPlain =
 	| 'no effect'
 	| 'shell refuses the body'
 	| 'over capacity'
+	| 'Max particles can be driven over 512'
+	| 'Max particles driven with no bound'
+	| 'no frames when it mounted'
 	| 'frames on several textures'
 	| 'not WebGL'
 	| 'program does not link';
@@ -83,8 +86,9 @@ export interface ParticleMaterialOptions {
 	maxParticles: number;
 	/**
 	 * The most particles the layer may hold while it plays, when a drive can raise Max particles past
-	 * its mount value (`fxMaterialPeakParticles`): the buffer is sized to it, capped at
-	 * {@link PARTICLE_MATERIAL_CAPACITY}. Absent ⇒ `maxParticles`.
+	 * its mount value (`fxMaterialPeakParticles`; `Infinity` for a drive with no bound): the buffer
+	 * is sized to it. Over {@link PARTICLE_MATERIAL_CAPACITY} the layer is plain from mount, so a drive
+	 * never turns it plain mid-play. Absent ⇒ `maxParticles`.
 	 */
 	peakParticles?: number;
 	/** The layer's frames, as bound: they must share one texture source. */
@@ -202,12 +206,28 @@ export class ParticleMaterial {
 		const peak = options.peakParticles ?? 0;
 		this.capacity = Math.min(PARTICLE_MATERIAL_CAPACITY, Math.max(max, Math.ceil(peak)));
 		host.addChild(this.particles);
+		try {
+			this.decide(options, max, peak);
+		} catch (error) {
+			// Nothing half-built stays in the layer: no container, no mesh, no shader on the atlas.
+			this.destroy();
+			throw error;
+		}
+	}
+
+	/** Refuse the layer (plain from mount) or build its mesh. */
+	private decide(options: ParticleMaterialOptions, max: number, peak: number): void {
+		const { effect } = options;
 		const fragment = effect && particleShellSource(effect);
 		const source = options.textures[0]?.source;
 		if (!effect) this.plainBecause = 'no effect';
 		else if (!fragment) this.plainBecause = 'shell refuses the body';
 		else if (max > PARTICLE_MATERIAL_CAPACITY) this.plainBecause = 'over capacity';
-		else if (!source || options.textures.some((t) => t.source !== source))
+		else if (peak === Infinity) this.plainBecause = 'Max particles driven with no bound';
+		else if (peak > PARTICLE_MATERIAL_CAPACITY)
+			this.plainBecause = 'Max particles can be driven over 512';
+		else if (!source) this.plainBecause = 'no frames when it mounted';
+		else if (options.textures.some((t) => t.source !== source))
 			this.plainBecause = 'frames on several textures';
 		if (this.plainBecause || !effect || !fragment || !source) return;
 		this.source = source;
@@ -321,9 +341,10 @@ export class ParticleMaterial {
 	}
 
 	private dropMesh(): void {
-		if (!this.mesh) return;
-		this.host.removeChild(this.mesh);
-		this.mesh.destroy();
+		if (this.mesh) {
+			this.host.removeChild(this.mesh);
+			this.mesh.destroy();
+		}
 		this.geometry?.destroy(true);
 		// The mesh lets go of its shader without destroying it, and the shader's bind group listens
 		// to the atlas source. Its program is Pixi's shared one (`GlProgram.from`): kept.

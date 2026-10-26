@@ -1092,6 +1092,32 @@ interface Cell {
 		`a buffer sized to a drive's peak stays on when the drive raises Max particles (${sizedLive} live)`,
 		sized.mounted.material?.plain === undefined && sizedLive > 20,
 	);
+	const drivable = mountLayer(5, base([], { maxParticles: 200 }), [frame('static')], {
+		kind: 'custom:alone',
+		peakParticles: 2000,
+		label: 'drivable',
+	});
+	const unboundedDrive = mountLayer(6, base([], { maxParticles: 200 }), [frame('static')], {
+		kind: 'custom:alone',
+		peakParticles: Infinity,
+	});
+	drivable.emitter.maxParticles = 2000;
+	drivable.step(60);
+	unboundedDrive.step(60);
+	renderer.render(app.stage);
+	const drivableRead = readCanvas();
+	claim(
+		`Max particles drivable past 512: plain from mount (${drivable.mounted.state}), its sprites drawing, its slot never taken`,
+		drivable.mounted.state === 'Max particles can be driven over 512' &&
+			drivable.mounted.material === undefined &&
+			compare(drivableRead, drivableRead, 5).drawn > 500 &&
+			slots.drawing === 2,
+	);
+	claim(
+		`Max particles driven with no bound: plain from mount (${unboundedDrive.mounted.state})`,
+		unboundedDrive.mounted.state === 'Max particles driven with no bound' &&
+			compare(drivableRead, drivableRead, 6).drawn > 500,
+	);
 	const failing = mountLayer(4, base([]), [frame('static')], {
 		kind: 'custom:broken',
 		label: 'x/broken',
@@ -1121,7 +1147,7 @@ interface Cell {
 			debugLines.some((l) => l.includes('plain, frames on several textures')) &&
 			debugLines.some((l) => l.includes('x/broken: plain while playing, program does not link')),
 	);
-	for (const l of [on, twoSources, overCap, sized, failing]) {
+	for (const l of [on, twoSources, overCap, sized, drivable, unboundedDrive, failing]) {
 		l.emitter.destroy();
 		l.mounted.release();
 	}

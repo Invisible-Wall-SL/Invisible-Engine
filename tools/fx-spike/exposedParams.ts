@@ -41,6 +41,7 @@ import {
 	normalizeEffectDoc,
 	parseEffectParamPath,
 	registerFxBehaviors,
+	resolveEffectParamLeaf,
 	stepCollapsedValueLists,
 	validateEffectParams,
 	type EffectDoc,
@@ -1795,6 +1796,37 @@ console.log('fx params — material paths (Shader Graph step 8d.3)');
 		validateEffectParams(bare).filter((i) => i.code === 'unresolved').length === 4 &&
 			validateEffectParams(bare)[0].message === 'The layer has no material.',
 		'…and validation says the layer has no material',
+	);
+
+	// Ids `Object.prototype` holds are a material's own params, never the prototype's.
+	const inherited = normalizeEffectDoc({
+		...drivenDoc({ kind: 'custom:pulse' }),
+		params: [
+			{
+				id: 'hue',
+				kind: 'color',
+				default: '#336699',
+				drives: [{ id: 'c', layer: 'main', path: 'material.param.toString' }],
+			},
+			num('v', 0.5, [{ id: 'v', layer: 'main', path: 'material.param.valueOf' }]),
+		],
+	});
+	assert(
+		Object.hasOwn(inherited.layers[0].material?.params ?? {}, 'toString') &&
+			inherited.layers[0].material?.params?.toString === '#336699' &&
+			inherited.layers[0].material?.params?.valueOf === 0.5 &&
+			validateEffectParams(inherited).length === 0,
+		'a param named `toString` or `valueOf` is written as the material’s own value',
+	);
+	const bareMaterial = matLayer({ kind: 'custom:pulse', params: { glow: 1 } });
+	const hasOwnLeaf = resolveEffectParamLeaf(bareMaterial, {
+		scope: 'material',
+		field: 'param',
+		id: 'hasOwnProperty',
+	});
+	assert(
+		!hasOwnLeaf.ok && hasOwnLeaf.error === 'The material holds no value for "hasOwnProperty".',
+		'…and reading one the material does not hold finds nothing, not `Object.prototype`’s',
 	);
 
 	// The applier: a uniform write, no behaviour rebuilt, no particle lost.

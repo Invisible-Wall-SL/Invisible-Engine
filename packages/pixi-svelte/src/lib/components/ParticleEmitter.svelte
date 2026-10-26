@@ -27,7 +27,11 @@
 	registerFxBehaviors(Emitter);
 
 	import type { LoadedSpriteSheet } from '../types';
-	import { mountParticleMaterial, type ParticleMaterialSpec } from '../particleMaterial';
+	import {
+		mountParticleMaterial,
+		particleMaterialSlotsFor,
+		type ParticleMaterialSpec,
+	} from '../particleMaterial';
 	import {
 		RIG_PARTICLE_BEHAVIOR_TYPE,
 		type RigParticleBehaviorConfig,
@@ -220,12 +224,21 @@
 				maxParticles: Number((props.config as { maxParticles?: unknown }).maxParticles),
 				rigParticles: isRigParticle,
 				emitSpeed: props.emitSpeed,
+				slots: particleMaterialSlotsFor(context.stateApp),
 			})
 		: undefined;
 	const material = mounted?.material;
 	const emitterConfig = $derived(material ? material.bindConfig(updatedConfig) : updatedConfig);
-	// svelte-ignore state_referenced_locally
-	const emitter = new Emitter(material?.particles ?? parentContext.parent, emitterConfig);
+	const createEmitter = (): Emitter => {
+		try {
+			return new Emitter(material?.particles ?? parentContext.parent, emitterConfig);
+		} catch (error) {
+			// `onDestroy` never runs for a component that threw while it was created.
+			mounted?.release();
+			throw error;
+		}
+	};
+	const emitter = createEmitter();
 	let applier: EffectParamApplier | undefined;
 	/**
 	 * A fresh applier for the emitter as it stands now, given the current values at once. It also

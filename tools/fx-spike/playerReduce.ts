@@ -15,7 +15,7 @@
  */
 
 import { upgradeConfig, type EmitterConfigV3 } from '@barvynkoa/particle-emitter';
-import { Container } from 'pixi.js';
+import { Container, Texture } from 'pixi.js';
 import {
 	EFFECT_DOC_VERSION,
 	FX_MATERIAL_LAYER_CAP,
@@ -30,7 +30,10 @@ import {
 } from 'engine-fx';
 import { setCustomElementFx } from '../../packages/constants-shared/elementFx';
 import { REFERENCE_GRAPHS, compileShaderEffect } from '../../packages/engine-shadergraph/index';
-import { mountParticleMaterial } from '../../packages/pixi-svelte/src/lib/particleMaterial/mount';
+import {
+	mountParticleMaterial,
+	particleMaterialSlotsFor,
+} from '../../packages/pixi-svelte/src/lib/particleMaterial/mount';
 
 let failures = 0;
 const assert = (cond: boolean, msg: string): void => {
@@ -351,8 +354,39 @@ assert(
 				default: 1,
 				drives: [{ id: 'a', layer: 'other', path: 'emitter.maxParticles', from: 1, to: 999 }],
 			},
+		]) === Infinity,
+		'an as-is drive on a parameter with no max has no bound: Infinity',
+	);
+	assert(
+		peak([
+			{
+				id: 'o',
+				kind: 'number',
+				default: 1,
+				drives: [{ id: 'a', layer: 'other', path: 'emitter.maxParticles', from: 1, to: 999 }],
+			},
 		]) === 80,
-		'an unbounded as-is drive and another layer’s drive are not counted (driven past it, the layer goes plain)',
+		'another layer’s drive is not counted',
+	);
+	assert(
+		peak([
+			{
+				id: 'n',
+				kind: 'number',
+				default: 0.5,
+				drives: [{ id: 'a', layer: 'd', path: 'emitter.maxParticles', from: 0, to: 100 }],
+			},
+		]) === 1000 &&
+			peak([
+				{
+					id: 'n',
+					kind: 'number',
+					default: 50,
+					max: 100,
+					drives: [{ id: 'a', layer: 'd', path: 'emitter.maxParticles' }],
+				},
+			]) === 1000,
+		'a drive that can write 0 or less counts as the library’s 1000 (a mapped end, or no min)',
 	);
 }
 
@@ -392,7 +426,64 @@ assert(
 		host.children.length === 0,
 		'a plain layer leaves nothing in its host: it is a layer with no material',
 	);
+
+	// Refused by the renderer at mount: the slot is claimed, then given back.
+	const free = createFxMaterialSlots(1);
+	const refusedBy = (peakParticles: number | undefined, textures: Texture[]) =>
+		mountParticleMaterial({
+			spec: { kind: 'custom:pulse', peakParticles },
+			host,
+			textures,
+			maxParticles: 200,
+			rigParticles: false,
+			slots: free,
+		});
+	const overPeak = refusedBy(2000, [Texture.WHITE]);
+	const unbounded = refusedBy(Infinity, [Texture.WHITE]);
+	const noFrames = refusedBy(undefined, []);
+	assert(
+		overPeak.state === 'Max particles can be driven over 512' && overPeak.material === undefined,
+		'Max particles 200 at mount but drivable to 2000: plain from mount, never mid-play',
+	);
+	assert(
+		unbounded.state === 'Max particles driven with no bound' && unbounded.material === undefined,
+		'Max particles driven with no bound: plain from mount',
+	);
+	assert(
+		noFrames.state === 'no frames when it mounted',
+		'no frames when it mounted: plain, with its own reason',
+	);
+	assert(
+		free.drawing === 0 && host.children.length === 0,
+		'each refusal gives its slot back and leaves nothing in the host',
+	);
+
+	// A renderer whose construction throws (here Pixi's program, which needs a canvas Node lacks).
+	let threw = false;
+	try {
+		refusedBy(100, [Texture.WHITE]);
+	} catch {
+		threw = true;
+	}
+	assert(
+		threw && free.drawing === 0 && host.children.length === 0,
+		'a construction that throws gives its slot back and leaves nothing in the host',
+	);
 	setCustomElementFx([]);
+}
+
+{
+	// One count per game: each Pixi app's state keys its own slots.
+	const appA = {};
+	const appB = {};
+	const a = particleMaterialSlotsFor(appA);
+	assert(a === particleMaterialSlotsFor(appA), 'an app gets the same slots each time');
+	const filled = Array.from({ length: 8 }, () => a.claim()).every(Boolean);
+	const b = particleMaterialSlotsFor(appB);
+	assert(
+		filled && !a.claim() && Array.from({ length: 8 }, () => b.claim()).every(Boolean),
+		'two apps on one page each get their own 8',
+	);
 }
 
 console.log('');

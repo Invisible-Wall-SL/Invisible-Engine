@@ -7,7 +7,7 @@ export {
 } from './ParticleMaterial';
 export {
 	mountParticleMaterial,
-	particleMaterialSlots,
+	particleMaterialSlotsFor,
 	type MountedParticleMaterial,
 	type ParticleMaterialSpec,
 } from './mount';
