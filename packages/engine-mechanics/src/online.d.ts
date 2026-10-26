@@ -24,19 +24,12 @@ export type StepContext = { dt: number; subSteps: number; subDt: number };
 export const MOVE_SCALE: 127;
 export const BUTTONS: Readonly<{ jump: 1; ability1: 2; ability2: 4 }>;
 
-export const NAME_LENGTH: 24;
-
 export function sanitizeInput<I extends Partial<OnlineInput>>(
 	input: I,
 	field?: Field,
 ): I & OnlineInput;
 export function clampInput(raw: unknown, field?: Field): OnlineInput;
 export function stepContext(tickHz: number, subSteps?: number): StepContext;
-export function applyInput<B extends Body>(
-	body: B,
-	input: OnlineInput | undefined,
-	speed: number,
-): B;
 export function stepPlayer<B extends Body>(
 	body: B,
 	input: OnlineInput | undefined,

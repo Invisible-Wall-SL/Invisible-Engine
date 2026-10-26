@@ -21,7 +21,11 @@ import { bakedGameConfig, refuseOnlineBoot } from '../editor-scenes';
  * `@colyseus/sdk` is imported only here, on this path, so an offline game never loads it.
  */
 
+/** The game server's room type (`services/game-server/src/server.ts` `ROOM_NAME`). */
 const ROOM_NAME = 'arcade';
+
+/** Colyseus' close code for a leave the device asked for. */
+const CONSENTED = 4000;
 
 type PlayerState = {
 	character: string;
@@ -57,6 +61,8 @@ const held = new Set<string>();
 
 const onKey = (event: KeyboardEvent) => {
 	if (!(event.code in MOVE_KEYS) && event.code !== 'Space') return;
+	// The arrows and Space would otherwise scroll a page the game sits in.
+	event.preventDefault();
 	if (event.type === 'keydown') held.add(event.code);
 	else held.delete(event.code);
 };
@@ -110,6 +116,11 @@ export async function joinOnlineRoom(): Promise<void> {
 			`the game server did not let it in (${error instanceof Error ? error.message : String(error)})`,
 		);
 	}
+	// A room that is gone for good (disposed, a kick, a reconnect that ran out) leaves nothing to
+	// play: say so on the same screen rather than freeze on the last state.
+	room.onLeave((code: number) => {
+		if (code !== CONSENTED) void refuseOnlineBoot(`the room closed (code ${code})`);
+	});
 	session = {
 		room,
 		game: resolved,

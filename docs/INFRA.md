@@ -282,9 +282,13 @@ refuses a config that is not an online arcade game. A device sends inputs only.
 
 **Limits it enforces** (no env needed): a room holds `arcade.online.maxPlayers` (≤ 100) and each
 character's `max`; a device sending more than `2 × tickHz + 10` messages a second is disconnected
-and gets no seat held; a WebSocket message over 1 KB is refused; at most 60 inputs wait per player;
-a config is ≤ 2 MB and its fetch times out after 5 s; config answers (good or bad) are cached 60 s
-per game key; a game key must match `^[a-z0-9][a-z0-9_-]{0,63}$`.
+and gets no seat held; a WebSocket message over 1 KB is refused, and an HTTP (matchmaking) body
+over 4 KB is answered 413; matchmaking exposes `joinOrCreate`, `join`, `joinById` and `reconnect`
+only (no `create`); at most 60 inputs wait per player; a config is ≤ 2 MB, its fetch times out
+after 5 s, at most 4 run at once, and answers (good or bad) are cached 60 s per game key; a game
+key must match `^[a-z0-9][a-z0-9_-]{0,63}$`. A device whose room is refused is told only "this
+game is not available"; the reason is logged. There is **no per-IP limit** — put one at a proxy if
+abuse shows up.
 
 **Env** (names only; no secret is required to boot):
 

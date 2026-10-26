@@ -33,7 +33,7 @@ import {
 } from '../packages/engine-game/src/game/mechanic.ts';
 import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/index.ts';
 import { createConfigSource } from '../services/game-server/src/configSource.ts';
-import { createRoomSim, RoomRefusal } from '../services/game-server/src/roomSim.ts';
+import { createRoomSim, inputsThisStep, RoomRefusal } from '../services/game-server/src/roomSim.ts';
 import { messagesPerSecond } from '../services/game-server/src/arcadeRoom.ts';
 import { ROOM_NAME, createGameServer } from '../services/game-server/src/server.ts';
 
@@ -128,6 +128,10 @@ const receiver = (field) => {
 			queue.push(decoded);
 			return true;
 		},
+		/** What the room takes for a step, by the room's own rule. */
+		take() {
+			return queue.splice(0, inputsThisStep(queue.length));
+		},
 	};
 };
 
@@ -153,38 +157,47 @@ const runHeadless = (online, steps, seed) => {
 	let repeats = 0;
 	let gaps = 0;
 	let starved = 0;
+	let bursts = 0;
+	let deepest = 0;
+	const ctx = stepContext(online.tickHz ?? 30, online.subSteps ?? 2);
 	for (let s = 0; s < steps; s++) {
 		for (const id of ids) {
 			const device = devices.get(id);
 			const roll = rng();
 			if (roll < 0.04) continue; // the device sent nothing this step (a starved step)
 			if (roll < 0.07) device.nextSeq += 1 + Math.floor(rng() * 3); // a gap in seq
-			const raw = randomInput(rng, device.nextSeq);
-			device.nextSeq += 1;
-			if (device.rx.receive(raw)) device.predicted.push(clampInput(raw, game.field));
-			// The network delivers a copy again, or one from the past: both are dropped.
-			if (rng() < 0.05) (assert.equal(device.rx.receive(raw), false), (repeats += 1));
-			if (rng() < 0.02) assert.equal(device.rx.receive({ ...raw, seq: raw.seq - 5 }), false);
+			// A stall's burst: several inputs arrive in one step.
+			const count = roll > 0.98 ? 2 + Math.floor(rng() * 8) : 1;
+			if (count > 1) bursts += 1;
+			for (let n = 0; n < count; n++) {
+				const raw = randomInput(rng, device.nextSeq);
+				device.nextSeq += 1;
+				if (device.rx.receive(raw)) device.predicted.push(clampInput(raw, game.field));
+				// The network delivers a copy again, or one from the past: both are dropped.
+				if (rng() < 0.05) (assert.equal(device.rx.receive(raw), false), (repeats += 1));
+				if (rng() < 0.02) assert.equal(device.rx.receive({ ...raw, seq: raw.seq - 5 }), false);
+			}
 			if (roll >= 0.04 && roll < 0.07) gaps += 1;
 		}
-		sim.step((id) => devices.get(id).rx.queue.shift());
+		sim.step((id) => devices.get(id).rx.take());
 		for (const id of ids) {
 			const device = devices.get(id);
 			const server = sim.players.get(id);
-			const input = device.predicted.find((i) => i.seq === server.ack && !i.done);
-			if (input) input.done = true;
-			else starved += 1;
-			stepPlayer(
-				device.body,
-				input,
-				device.speed,
-				stepContext(online.tickHz ?? 30, online.subSteps ?? 2),
-				game.field,
-			);
+			deepest = Math.max(deepest, device.rx.queue.length);
+			// The device replays, in order, every input of its own the room has now applied.
+			const applied = device.predicted.filter((i) => !i.done && i.seq <= server.ack);
+			if (!applied.length) {
+				starved += 1;
+				stepPlayer(device.body, undefined, device.speed, ctx, game.field);
+			}
+			for (const input of applied) {
+				input.done = true;
+				stepPlayer(device.body, input, device.speed, ctx, game.field);
+			}
 			assert.deepEqual(bodyKey(server.body), bodyKey(device.body), `step ${s}, player ${id}`);
 		}
 	}
-	return { sim, repeats, gaps, starved };
+	return { sim, repeats, gaps, starved, bursts, deepest };
 };
 
 const RATES = [
@@ -195,7 +208,13 @@ const RATES = [
 
 for (const rates of RATES) {
 	await check(`10 000 steps at ${rates.tickHz} Hz × ${rates.subSteps}: room === device`, () => {
-		const { repeats, gaps, starved } = runHeadless(rates, 10_000, `room-sim-${rates.tickHz}`);
+		const { repeats, gaps, starved, bursts, deepest } = runHeadless(
+			rates,
+			10_000,
+			`room-sim-${rates.tickHz}`,
+		);
+		assert.ok(bursts > 500, `bursts ${bursts}`);
+		assert.ok(deepest <= 12, `a backlog of ${deepest} never drained`);
 		assert.ok(
 			repeats > 1000 && gaps > 1000 && starved > 1000,
 			JSON.stringify({ repeats, gaps, starved }),
@@ -238,7 +257,7 @@ await check('an input that claims a place, a score or a character changes nothin
 		sim.join('a', { character: 'salmon' });
 		const input = { seq: 1, moveX: 50, moveY: -20, buttons: 0, aimX: 0, aimY: 0 };
 		const raw = hostile ? { ...input, x: 0, y: 0, vx: 1e6, score: 99, character: 'bear' } : input;
-		sim.step(() => clampInput(raw, FIELD));
+		sim.step(() => [clampInput(raw, FIELD)]);
 		const p = sim.players.get('a');
 		return [...bodyKey(p.body), p.character.id];
 	};
@@ -252,7 +271,7 @@ await check('inputs apply in seq order, one per step', () => {
 	for (const seq of [1, 2, 3, 2, 1, 7, 5, 8]) rx.receive({ seq, moveX: 127, moveY: 0 });
 	const acks = [];
 	for (let i = 0; i < 6; i++) {
-		sim.step(() => rx.queue.shift());
+		sim.step(() => (rx.queue.length ? [rx.queue.shift()] : []));
 		acks.push(sim.players.get('a').ack);
 	}
 	assert.deepEqual(acks, [1, 2, 3, 7, 8, 8]);
@@ -263,7 +282,10 @@ await check(
 	'join: the room size, each character’s max, unknown and default characters, names',
 	() => {
 		const sim = createRoomSim(gameOf({ characters: CHARACTERS, maxPlayers: 4 }));
-		assert.equal(sim.join('a', { character: 'bear', name: '  Bob\u0007\u0000 ' }).name, 'Bob');
+		assert.equal(
+			sim.join('a', { character: 'bear', name: '  B\u202eo\u200bb\u0007\u0000 ' }).name,
+			'Bob',
+		);
 		sim.join('b', { character: 'bear', name: 'x'.repeat(80) });
 		assert.equal(sim.players.get('b').name.length, 24);
 		assert.throws(() => sim.join('c', { character: 'bear' }), RoomRefusal);
@@ -281,15 +303,15 @@ await check('a dropped player stands still until it rejoins; its place is kept',
 	const sim = createRoomSim(gameOf({ characters: CHARACTERS }));
 	sim.join('a', { character: 'salmon' });
 	const move = (seq) => ({ seq, moveX: 127, moveY: 0, buttons: 0, aimX: 0, aimY: 0 });
-	sim.step(() => move(1));
+	sim.step(() => [move(1)]);
 	const at = sim.players.get('a').body.x;
 	sim.drop('a');
 	let asked = 0;
-	for (let i = 0; i < 10; i++) sim.step(() => ((asked += 1), move(2 + i)));
+	for (let i = 0; i < 10; i++) sim.step(() => ((asked += 1), [move(2 + i)]));
 	assert.equal(asked, 0, 'a dropped player is never given an input');
 	assert.equal(sim.players.get('a').body.x, at);
 	sim.rejoin('a');
-	sim.step(() => move(20));
+	sim.step(() => [move(20)]);
 	assert.ok(sim.players.get('a').body.x > at);
 	assert.equal(sim.players.get('a').ack, 20);
 });
@@ -427,6 +449,34 @@ try {
 		assert.equal(game.rooms.count, 0);
 	});
 
+	await check(
+		'live: a refused room names no reason; a key that is not a string is refused',
+		async () => {
+			const refusal = await clientOf()
+				.joinOrCreate(ROOM_NAME, { game: 'nope' })
+				.then(
+					() => null,
+					(e) => e,
+				);
+			assert.equal(refusal?.message, 'this game is not available');
+			await assert.rejects(clientOf().joinOrCreate(ROOM_NAME, { game: ['river'] }));
+			await assert.rejects(clientOf().joinOrCreate(ROOM_NAME, { game: { toString: 1 } }));
+			assert.equal(game.rooms.count, 0);
+		},
+	);
+
+	await check('live: a device cannot `create` rooms, nor send a large body', async () => {
+		await assert.rejects(clientOf().create(ROOM_NAME, { game: 'river' }));
+		assert.equal(game.rooms.count, 0);
+		const big = await fetch(`http://127.0.0.1:${port}/matchmake/joinOrCreate/${ROOM_NAME}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ game: 'river', pad: 'x'.repeat(10_000) }),
+		});
+		assert.equal(big.status, 413);
+		assert.equal(game.rooms.count, 0);
+	});
+
 	const a = noAutoReconnect(
 		await clientOf().joinOrCreate(ROOM_NAME, {
 			game: 'river',
@@ -505,6 +555,20 @@ try {
 		const speed = Math.hypot(server.body.vx, server.body.vy);
 		assert.ok(speed <= 240 + 1e-9, `speed ${speed}`);
 		assert.ok(speed > 230, `speed ${speed}`);
+	});
+
+	await check('live: a burst of inputs drains within a few steps', async () => {
+		const server = serverRoom(a).sim.players.get(a.sessionId);
+		const input = a.input();
+		const first = server.ack + 1;
+		for (let seq = first; seq < first + 30; seq++) {
+			Object.assign(input.data, { seq, moveX: 0, moveY: 127, buttons: 0, aimX: 0, aimY: 0 });
+			input.send();
+		}
+		const sent = Date.now();
+		await until('the burst applied', () => server.ack === first + 29, 3000);
+		// One a step would take a second at 30 Hz; the drain takes about a third of that.
+		assert.ok(Date.now() - sent < 700, `${Date.now() - sent} ms`);
 	});
 
 	await check('live: the room holds its size and each character’s max', async () => {

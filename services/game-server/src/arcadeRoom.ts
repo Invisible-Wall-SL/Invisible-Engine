@@ -2,7 +2,7 @@ import { CloseCode, Room, type Client } from '@colyseus/core';
 import { sanitizeInput, type OnlineInput } from 'engine-mechanics';
 
 import type { LoadGame } from './configSource.ts';
-import { createRoomSim, RoomRefusal, type RoomSim } from './roomSim.ts';
+import { createRoomSim, inputsThisStep, RoomRefusal, type RoomSim } from './roomSim.ts';
 import { Input, Player, RoomState, type InputFrame, type RoomStateData } from './schema.ts';
 
 /**
@@ -11,10 +11,12 @@ import { Input, Player, RoomState, type InputFrame, type RoomStateData } from '.
  * game with space or creates one. The room runs {@link createRoomSim}; Colyseus supplies the fixed
  * step, the typed input stream and the reconnection.
  *
- * WHAT A DEVICE CAN DO: send {@link Input} (one per step, clamped by `sanitizeInput` as it is
- * decoded, a repeated or older `seq` dropped, at most {@link INPUT_BUFFER} held), and join with a
- * `name` and a `character`. Every other message is counted against the flood limit and ignored.
- * The step reads plain bodies and writes the schema once per patch, never once per step.
+ * WHAT A DEVICE CAN DO: send {@link Input} (one per step on the reliable channel the runtime uses,
+ * clamped by `sanitizeInput` as it is decoded, a repeated or older `seq` dropped, at most
+ * {@link INPUT_BUFFER} held), and join with a `name` and a `character`. Every other message is
+ * counted against the flood limit and ignored. A step applies the inputs {@link inputsThisStep}
+ * allows, each as a step of its own, so a burst after a stall drains instead of becoming lag. The
+ * step reads plain bodies and writes the schema once per patch, never once per step.
  *
  * LIMITS (§11): a room holds `maxPlayers` (≤ 100) and each character's `max`; a device sending
  * more than {@link messagesPerSecond} messages a second is disconnected; the transport caps a
@@ -22,7 +24,10 @@ import { Input, Player, RoomState, type InputFrame, type RoomStateData } from '.
  */
 
 /** Inputs a player may have waiting: one second at the fastest step rate. Overflow drops the oldest. */
-export const INPUT_BUFFER = 60;
+const INPUT_BUFFER = 60;
+
+/** What a device is told when its room cannot be made: the reason stays in the server's log. */
+const UNAVAILABLE = 'this game is not available';
 
 /** A device's allowance: one input per step, with room for a burst after a stall. */
 export const messagesPerSecond = (tickHz: number) => tickHz * 2 + 10;
@@ -54,8 +59,13 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 		async onCreate(options: CreateOptions) {
 			const full = () => deps.rooms.count >= deps.maxRooms;
 			if (full()) throw new RoomRefusal('the server holds no more rooms');
-			const game = String(options.game ?? '');
-			const loaded = await deps.loadGame(game);
+			// A key that is not a string would never match `filterBy`, so every join would make a room.
+			if (typeof options.game !== 'string') throw new RoomRefusal(UNAVAILABLE);
+			const game = options.game;
+			const loaded = await deps.loadGame(game).catch((error: unknown) => {
+				console.warn(`[game-server] no room for "${game.slice(0, 64)}": ${String(error)}`);
+				throw new RoomRefusal(UNAVAILABLE);
+			});
 			if (full()) throw new RoomRefusal('the server holds no more rooms');
 			deps.rooms.count += 1;
 			this.counted = true;
@@ -71,7 +81,10 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			this.setPatchRate(1000 / online.patchHz);
 			this.setFixedTimestep(
 				() => {
-					sim.step((id) => this.inputs.get(id).next() as OnlineInput | undefined);
+					sim.step((id) => {
+						const buffer = this.inputs.get(id);
+						return buffer.take(inputsThisStep(buffer.size)) as OnlineInput[];
+					});
 				},
 				online.tickHz,
 				{ subSteps: online.subSteps },

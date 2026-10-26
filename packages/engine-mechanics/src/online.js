@@ -31,7 +31,7 @@ const BUTTON_MASK = BUTTONS.jump | BUTTONS.ability1 | BUTTONS.ability2;
 const UINT32_MAX = 0xffffffff;
 
 /** The longest name a room keeps, in characters. */
-export const NAME_LENGTH = 24;
+const NAME_LENGTH = 24;
 
 const finite = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
@@ -93,7 +93,7 @@ export function stepContext(tickHz, subSteps = 1) {
 }
 
 /** Set a body's velocity from an input (or rest, with none) at `speed` px/s. */
-export function applyInput(body, input, speed) {
+function applyInput(body, input, speed) {
 	body.vx = input ? (input.moveX / MOVE_SCALE) * speed : 0;
 	body.vy = input ? (input.moveY / MOVE_SCALE) * speed : 0;
 	return body;
@@ -127,11 +127,14 @@ export function facingOf(input, previous = 0) {
 /** `(sy, sx)` from -1..1 → facing; the centre is never read. */
 const FACING = [5, 6, 7, 4, 0, 0, 3, 2, 1];
 
-/** A player's name as a room keeps it: control characters dropped, trimmed, capped. */
+/** A player's name as a room keeps it: control, zero-width and bidi-override characters dropped
+ *  (every player sees it), trimmed, capped. */
 export function cleanName(raw) {
 	if (typeof raw !== 'string') return '';
-	// eslint-disable-next-line no-control-regex
-	const text = raw.replace(/[\u0000-\u001f\u007f-\u009f]/g, '').trim();
+	const text = raw
+		// eslint-disable-next-line no-control-regex
+		.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, '')
+		.trim();
 	return [...text].slice(0, NAME_LENGTH).join('');
 }
 
