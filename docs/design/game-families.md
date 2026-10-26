@@ -139,7 +139,8 @@ and never a second copy of the engine.**
   water and sea drawn in code. An **art pass (S0)** fixes this in today's tools (ComfyUI, Atlas
   Maker, Flipbook, FX) before the rebuild: one isometric angle, characters animated per facing,
   transparent props, diamond tilesets, all in the `salmons` project. It needs no Phase 10 step, so
-  it can start whenever the owner says go.
+  it can start whenever the owner says go. **The owner said go on 2026-10-26**; its work list,
+  owner choices and blockers are in [status/salmons.md](../status/salmons.md).
 
 | Tier | What Salmons needs from it |
 |---|---|
@@ -1143,6 +1144,7 @@ and jumps (P10.11–P10.13), then online rooms (P10.14–P10.16). Card games get
 | P10.14 | **Arcade A4a: the game server** | Per the A4 design ([realtime-multiplayer.md](realtime-multiplayer.md), approved 2026-10-25). `services/game-server` (§9 #17) running `engine-mechanics` at a fixed step; rooms; join, leave and rejoin; inputs-only messages; `GameConfigDoc.arcade.online`; the runtime's online branch | new service, `engine-mechanics`, `apps/lines`, `packages/game-config`, `docs/INFRA.md` | L |
 | P10.15 | **Arcade A4b: netcode** | Own-player prediction and reconciliation; interpolation of everyone else; the online rules, as §9 #18 decides | `engine-game`, `apps/lines`, the game server | L |
 | P10.16 | **Arcade A4c: 100 players and Salmons** | Server-side bots that fill places (A2 brains); the 100-bot load test; nearby-only sending if the test needs it; Salmons rebuilt as data on the engine from S0's art, with `docs/playtest/salmons.md` | the game server, launcher, docs | L |
+| S0 | **Salmons art pass** — approved by the owner 2026-10-26. Not a build step: it runs in today's tools, beside the P10 steps (§1) | §1's target art in R2: the four arcade-sample sprites first, then characters per facing, props, 64 × 32 diamond tilesets and effects. Work list, owner choices and blockers: [status/salmons.md](../status/salmons.md) | no code: ComfyUI, Atlas Maker, Flipbook, FX | L |
 
 **Why this order.**
 
