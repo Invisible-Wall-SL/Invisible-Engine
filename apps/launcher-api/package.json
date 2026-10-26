@@ -299,8 +299,8 @@
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.135.0",
-		"@aws-sdk/client-s3": "^3.1152.0",
-		"@aws-sdk/s3-request-presigner": "^3.1152.0",
+		"@aws-sdk/client-s3": "^3.1156.0",
+		"@aws-sdk/s3-request-presigner": "^3.1156.0",
 		"@barvynkoa/particle-emitter": "0.0.1",
 		"engine-rig": "workspace:*",
 		"@sentry/node": "11.8.0",
