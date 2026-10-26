@@ -19,7 +19,7 @@
  *     no-ops, raises no view signal and moves its bodies exactly as before; the P10.8 scene set
  *     declares no world screen.
  *  4. THE RIVER SAMPLE, played headless on the real interpreter (`ARCADE_RIVER_SEED_DOC` on
- *     `arcadeRiverReferenceLayout()` and `arcade.river.rules.json`): the camera lands on the salmon
+ *     `arcadeRiverReferenceLayout()` and `engine-mechanics/fixtures/arcade-river.rules.json`): the camera lands on the salmon
  *     at the river's mouth; swimming up scrolls the view with the salmon inside its dead zone;
  *     spawns appear just above the view; what drifts behind is despawned; a bear shakes the camera
  *     and takes a life; the spawning ground scores a lap and snaps the camera back to the mouth;
@@ -461,7 +461,7 @@ const named = (signals: { name: string; payload: Record<string, unknown> }[], na
 
 // ── 4. the river sample ──────────────────────────────────────────────────────────────────────
 const RIVER_CONFIG = normalizeGameConfigDoc(
-	JSON.parse(read('apps/launcher-api/src/lib/data/gameConfig/arcade.river.rules.json')),
+	JSON.parse(read('packages/engine-mechanics/fixtures/arcade-river.rules.json')),
 ) as GameConfigDoc;
 const RIVER = arcadeRiverReferenceLayout();
 const EMPTY_LIBRARY = { version: 2 as const, functions: [] };

@@ -8,7 +8,7 @@
  * costs a life and shakes the camera; at no lives the round is over.
  *
  * It plays on `engine-layout`'s `arcadeRiverReferenceLayout()` and the config
- * `apps/launcher-api/src/lib/data/gameConfig/arcade.river.rules.json`. Not offered in Game Maker:
+ * `packages/engine-mechanics/fixtures/arcade-river.rules.json`. Not offered in Game Maker:
  * it is what `check:arcade-camera` and `scripts/playtest/arcade-camera-play.mjs` play, and stays off
  * the runtime's import graph (`index.ts` does not export it).
  */
