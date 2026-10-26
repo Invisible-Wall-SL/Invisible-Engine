@@ -221,10 +221,10 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		/** Who decides the rounds (`resolveOutcome` of the stored config): what the vocabulary drops
 		 *  (`withOutcome`) and how the validator judges money and rules-only nodes. */
 		outcome: resolveOutcome(configDoc),
-		/** The project's symbols (`flowSymbolsFrom`), composed in by `withSymbols`. */
-		symbols,
 		/** Why Publish refuses this flow as another family's (`flowGateRefusal`), else `null`. */
 		wrongKind: wrongKindFlowMessage(doc.templateId, gameType),
+		/** The project's symbols (`flowSymbolsFrom`), composed in by `withSymbols`. */
+		symbols,
 	};
 };
 
