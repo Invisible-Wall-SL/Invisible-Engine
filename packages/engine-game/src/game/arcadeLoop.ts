@@ -1,13 +1,23 @@
 import {
+	aabbOf,
+	createCamera,
 	createFixedStep,
 	createRng,
 	createStaticIndex,
+	followWith,
+	moveCameraTo,
 	outsideEdge,
 	overlaps,
+	shakeCamera,
 	step,
+	stepCamera,
+	viewRect,
 	zonesOf,
+	type Aabb,
 	type Body,
 	type BodyEdges,
+	type Camera,
+	type CameraSpec,
 	type Edge,
 	type Field,
 	type Rng,
@@ -34,6 +44,14 @@ import type { ArcadeBody, ArcadeZone } from 'game-config';
  * Flow moves bodies through the actions in {@link ArcadeLoop.effects} (`setVelocity`, `moveTo`,
  * `setTag`), each aimed at one instance or at every body carrying a tag, and reads the seeded
  * `$engine.random` / `randomX` and the field's size through {@link ArcadeLoop.value}.
+ *
+ * THE CAMERA (§4.4, P10.12), only when the play field's screen declares a world or a camera
+ * ({@link ArcadeLoopOptions.camera}): after the zones each step moves the camera
+ * (`engine-mechanics` `camera.js`), raises `enterView` / `leaveView` as a body's box starts or stops
+ * meeting the view, and despawns a body of a layer with `despawnOutsideView` once it has been within
+ * the margin of the view and is wholly beyond it. Flow steers the camera with `cameraFollow`,
+ * `cameraMoveTo`, `cameraShake` and `cameraSetAutoScroll`, and reads `cameraX` / `cameraY` (the
+ * view's top-left) and `viewWidth` / `viewHeight`. Without one, none of it runs.
  */
 
 /** The live set the loop moves: `engine-flow-v2`'s spawn store, or any store shaped like it. */
@@ -42,6 +60,17 @@ export interface ArcadeLiveSet {
 	get(id: string): SpawnedInstance | undefined;
 	subscribe(layer: string, listener: (live: SpawnedInstance[]) => void): () => void;
 	move(moves: readonly { id: string; x: number; y: number }[]): void;
+	layer(id: string): { despawnOutsideView?: { margin: number } } | undefined;
+	despawn(id: string): unknown;
+}
+
+/** The play field's world camera: its screen's `camera` block and `world`, and the view's size. */
+export interface ArcadeCameraOptions {
+	spec?: CameraSpec;
+	/** The world the camera is held inside (absent ⇒ unbounded). */
+	world?: Field;
+	/** The view's size: the screen's design size, read each step (a rotated device). */
+	view(): Field;
 }
 
 /** The config's arcade block, with its defaults applied (`game-config` `resolveArcade`). */
@@ -63,12 +92,26 @@ export interface ArcadeLoopOptions {
 	live: ArcadeLiveSet;
 	/** Raise one Flow signal. Not awaited: the signals of a frame start in order. */
 	signal(name: string, payload: Record<string, unknown>): void;
-	/** Seeds `$engine.random`. */
+	/** Seeds `$engine.random` (and, on a stream of its own, the camera's shake). */
 	seed: string | number;
+	/** The world camera, when the play field's screen declares one. Absent ⇒ none (as P10.8). */
+	camera?: ArcadeCameraOptions;
+}
+
+/** Past the view, px, where an instance is still drawn: the art may be larger than its body. */
+export const ARCADE_CULL_MARGIN = 256;
+
+/** Where the camera is after the last step. */
+export interface ArcadeCameraState {
+	x: number;
+	y: number;
+	shakeX: number;
+	shakeY: number;
+	view: Field;
 }
 
 /** A body the loop moves, beside the instance it is. */
-type LoopBody = Body & { componentId: string };
+type LoopBody = Body & { componentId: string; layer: string };
 
 export interface ArcadeLoop {
 	/** Run a frame of `dtMs`. Returns the steps it ran. */
@@ -79,6 +122,13 @@ export interface ArcadeLoop {
 	value(key: string): unknown;
 	/** Steps run so far. */
 	readonly steps: number;
+	/** Give the loop its world camera, once: the layout may load after the loop starts. A loop that
+	 *  has one keeps it. */
+	attachCamera(options: ArcadeCameraOptions): void;
+	/** The camera after the last step, or `undefined` without one. */
+	camera(): ArcadeCameraState | undefined;
+	/** The bodies out of view by more than {@link ARCADE_CULL_MARGIN} (none without a camera). */
+	culled(): ReadonlySet<string>;
 	/** Where each body is, for the probe and the gates. */
 	bodies(): { id: string; x: number; y: number; vx: number; vy: number; tags: string[] }[];
 	/** Stop watching the live set; a frame after it runs nothing. */
@@ -91,6 +141,8 @@ export const ARCADE_SIGNALS = {
 	enterZone: 'enterZone',
 	leaveZone: 'leaveZone',
 	leaveBounds: 'leaveBounds',
+	enterView: 'enterView',
+	leaveView: 'leaveView',
 } as const;
 
 /** The `$engine` values an arcade game reads. */
@@ -99,6 +151,10 @@ export const ARCADE_VALUES = {
 	randomX: 'randomX',
 	fieldWidth: 'fieldWidth',
 	fieldHeight: 'fieldHeight',
+	cameraX: 'cameraX',
+	cameraY: 'cameraY',
+	viewWidth: 'viewWidth',
+	viewHeight: 'viewHeight',
 } as const;
 
 const num = (v: unknown): number | undefined =>
@@ -111,6 +167,7 @@ function bodyFor(instance: SpawnedInstance, rules: ArcadeRules): LoopBody {
 	const base = {
 		id: instance.id,
 		componentId: instance.componentId,
+		layer: instance.layer,
 		x: instance.x,
 		y: instance.y,
 		vx: 0,
@@ -135,14 +192,29 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 	const outside = new Map<string, Edge>();
 	const inZones = new Map<string, string[]>();
 	const moved = new Set<string>();
+	let cameraOptions: ArcadeCameraOptions | undefined;
+	let camera: Camera | undefined;
+	const attachCamera = (opts: ArcadeCameraOptions) => {
+		if (camera || disposed) return;
+		cameraOptions = opts;
+		camera = createCamera(opts.spec, createRng(`${options.seed}:camera`));
+	};
+	/** Bodies whose box meets the view, and those that have been within their layer's margin. */
+	const inView = new Set<string>();
+	const seen = new Set<string>();
+	let culled = new Set<string>();
 	const queue: { name: string; payload: Record<string, unknown> }[] = [];
 	let disposed = false;
+	if (options.camera) attachCamera(options.camera);
 
 	const forget = (id: string) => {
 		bodies.delete(id);
 		outside.delete(id);
 		inZones.delete(id);
 		moved.delete(id);
+		inView.delete(id);
+		seen.delete(id);
+		culled.delete(id);
 		for (const [key, pair] of [...touching]) if (pair.includes(id)) touching.delete(key);
 	};
 	const watched = new Map<string, Set<string>>();
@@ -226,6 +298,56 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 				inZones.set(body.id, is);
 			}
 		}
+		if (camera && cameraOptions) stepView(camera, cameraOptions, list);
+	};
+
+	const meets = (a: Aabb, b: Aabb, margin = 0) =>
+		a.x0 <= b.x1 + margin &&
+		a.x1 >= b.x0 - margin &&
+		a.y0 <= b.y1 + margin &&
+		a.y1 >= b.y0 - margin;
+
+	const followed = (target: Camera['follow']): LoopBody | undefined => {
+		if (!target) return undefined;
+		if ('id' in target) return bodies.get(target.id);
+		for (const body of bodies.values()) if (body.tags.includes(target.tag)) return body;
+		return undefined;
+	};
+
+	const stepView = (cam: Camera, opts: ArcadeCameraOptions, list: LoopBody[]) => {
+		const view = opts.view();
+		stepCamera(cam, clock.dt, { view, world: opts.world, target: followed(cam.follow) });
+		const rect = viewRect(cam, view);
+		const gone: string[] = [];
+		for (const body of list) {
+			if (!bodies.has(body.id)) continue;
+			const box = aabbOf(body);
+			const meetsView = meets(box, rect);
+			if (meetsView && !inView.has(body.id)) {
+				inView.add(body.id);
+				queue.push({ name: ARCADE_SIGNALS.enterView, payload: { instance: handle(body) } });
+			} else if (!meetsView && inView.has(body.id)) {
+				inView.delete(body.id);
+				queue.push({ name: ARCADE_SIGNALS.leaveView, payload: { instance: handle(body) } });
+			}
+			const margin = live.layer(body.layer)?.despawnOutsideView?.margin;
+			if (margin === undefined) continue;
+			if (meets(box, rect, margin)) seen.add(body.id);
+			else if (seen.has(body.id)) gone.push(body.id);
+		}
+		for (const id of gone) {
+			live.despawn(id);
+			forget(id);
+		}
+	};
+
+	const cullNow = () => {
+		if (!camera || !cameraOptions) return;
+		const rect = viewRect(camera, cameraOptions.view());
+		const next = new Set<string>();
+		for (const body of bodies.values())
+			if (!meets(aabbOf(body), rect, ARCADE_CULL_MARGIN)) next.add(body.id);
+		culled = next;
 	};
 
 	/** The bodies an action aims at: its instance, else every body carrying its tag. */
@@ -260,6 +382,31 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 				moved.add(body.id);
 			}
 		},
+		cameraFollow: (payload) => {
+			if (!camera) return;
+			const instance = payload.instance as { id?: unknown } | undefined;
+			const id = typeof instance?.id === 'string' ? instance.id : undefined;
+			const tag = str(payload.tagged);
+			followWith(camera, id ? { id } : tag ? { tag } : undefined, payload.snap === true);
+		},
+		cameraMoveTo: (payload) => {
+			if (!camera) return;
+			const x = num(payload.x);
+			const y = num(payload.y);
+			if (x === undefined || y === undefined) return;
+			moveCameraTo(camera, x, y, payload.snap === true);
+		},
+		cameraShake: (payload) => {
+			if (!camera) return;
+			shakeCamera(camera, num(payload.strength) ?? 0, num(payload.duration) ?? 0);
+		},
+		cameraSetAutoScroll: (payload) => {
+			if (!camera) return;
+			const x = num(payload.x);
+			const y = num(payload.y);
+			if (x !== undefined) camera.autoScroll.x = x;
+			if (y !== undefined) camera.autoScroll.y = y;
+		},
 		setTag: (payload) => {
 			const tag = str(payload.tag);
 			if (!tag) return;
@@ -286,6 +433,7 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 				);
 				moved.clear();
 			}
+			cullNow();
 			const due = queue.splice(0);
 			for (const { name, payload } of due) signal(name, payload);
 			return ran;
@@ -296,8 +444,25 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 			if (key === ARCADE_VALUES.randomX) return rng() * field().w;
 			if (key === ARCADE_VALUES.fieldWidth) return field().w;
 			if (key === ARCADE_VALUES.fieldHeight) return field().h;
+			if (!camera || !cameraOptions) return undefined;
+			if (key === ARCADE_VALUES.cameraX) return camera.x;
+			if (key === ARCADE_VALUES.cameraY) return camera.y;
+			if (key === ARCADE_VALUES.viewWidth) return cameraOptions.view().w;
+			if (key === ARCADE_VALUES.viewHeight) return cameraOptions.view().h;
 			return undefined;
 		},
+		attachCamera,
+		camera: () =>
+			camera && cameraOptions
+				? {
+						x: camera.x,
+						y: camera.y,
+						shakeX: camera.offsetX,
+						shakeY: camera.offsetY,
+						view: cameraOptions.view(),
+					}
+				: undefined,
+		culled: () => culled,
 		get steps() {
 			return clock.steps;
 		},
@@ -313,7 +478,9 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 		dispose() {
 			disposed = true;
 			for (const off of unsubscribe.splice(0)) off();
-			for (const state of [bodies, touching, outside, inZones, moved, watched]) state.clear();
+			for (const state of [bodies, touching, outside, inZones, moved, watched, inView, seen])
+				state.clear();
+			culled = new Set();
 			queue.length = 0;
 		},
 	};

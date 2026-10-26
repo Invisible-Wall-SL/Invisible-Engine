@@ -1,9 +1,18 @@
+<script lang="ts" module>
+	import type { Scene } from 'engine-layout';
+
+	export type Props = {
+		/** The layout's screens: the one with a world or a camera gives the play field its camera. */
+		scenes: readonly Scene[];
+	};
+</script>
+
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 
 	import { getContextApp } from 'pixi-svelte';
 
-	import { startArcade, tickArcade } from '../game/arcade';
+	import { startArcade, tickArcade, useWorldCamera } from '../game/arcade';
 	import { getContext } from '../game/context';
 	import { registerDeterminismArcade } from '../game/determinism';
 
@@ -15,9 +24,11 @@
 	 * leaves it.
 	 */
 
+	const { scenes }: Props = $props();
 	const context = getContext();
 	const app = getContextApp();
 	const loop = startArcade(() => context.stateLayoutDerived.mainLayout());
+	$effect(() => useWorldCamera(scenes));
 
 	$effect(() => {
 		const ticker = app.stateApp.pixiApplication?.ticker;
@@ -30,7 +41,11 @@
 	});
 
 	const unregisterProbe = registerDeterminismArcade({
-		read: () => ({ steps: loop.steps, bodies: loop.bodies() }),
+		read: () => ({
+			steps: loop.steps,
+			bodies: loop.bodies(),
+			...(loop.camera() ? { camera: loop.camera() } : {}),
+		}),
 	});
 	onDestroy(unregisterProbe);
 </script>
