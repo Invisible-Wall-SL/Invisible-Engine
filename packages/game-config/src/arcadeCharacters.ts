@@ -88,6 +88,9 @@ export const ARCADE_CONDITIONS = [
 /** How often a `random` condition rolls when it names no `every`, in ms. Never stored. */
 export const DEFAULT_ARCADE_RANDOM_EVERY = 1000;
 
+/** The tag `chase` / `flee` look for when their params name none (`behaviours.js` defaults). */
+export const DEFAULT_ARCADE_TARGET_TAG = 'player';
+
 export type ArcadeBrainTransition = {
 	id: string;
 	/** A state id, or `*` for any state (never re-entering the state it fires from). */

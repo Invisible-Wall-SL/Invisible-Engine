@@ -391,9 +391,10 @@ function pushBack(body, blockers, axis, dir, already) {
  * Move one body by its velocity for `dt` seconds, stopping at solids: x first (pushed back out of
  * every solid it entered, `vx` zeroed), then y the same way, so a body driven diagonally into a
  * wall keeps sliding along it. An overlap it did not move into (a moving solid, a spawn inside one)
- * is never pushed against its motion: it is settled afterwards along the shallower axis. Then the field's edges, as {@link stepBody}. Only bodies
- * with `solid: true` block, never the body itself; every shape is resolved by its box (a circle is
- * pushed as its bounding square). A step shorter than the body never passes through a solid.
+ * is never pushed against its motion: it is settled afterwards along the shallower axis. Then the
+ * field's edges, as {@link stepBody}. Only bodies with `solid: true` block, never the body itself;
+ * every shape is resolved by its box (a circle is pushed as its bounding square). A step shorter
+ * than the body never passes through a solid.
  */
 export function stepSolid(body, dt, solids, field) {
 	const blockers = solids.filter((solid) => solid !== body && solid.solid === true);

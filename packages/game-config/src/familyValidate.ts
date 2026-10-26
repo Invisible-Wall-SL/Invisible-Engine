@@ -1,4 +1,4 @@
-import type { ArcadeCharacter } from './arcadeCharacters';
+import { DEFAULT_ARCADE_TARGET_TAG, type ArcadeCharacter } from './arcadeCharacters';
 import {
 	ARCADE_FIXED_HZ_RANGE,
 	resolveArcade,
@@ -133,7 +133,6 @@ function validateArcade(doc: GameConfigDoc): GameConfigIssue[] {
 
 /** The behaviours that look for the nearest body with a tag, and the tag they look for unset. */
 const TARGETING = new Set(['chase', 'flee']);
-const DEFAULT_TARGET_TAG = 'player';
 
 function validateCharacters(
 	characters: ArcadeCharacter[],
@@ -194,7 +193,8 @@ function validateCharacters(
 			const path = `${at}.brain.states[${k}]`;
 			if (TARGETING.has(state.behaviour)) {
 				const tag = state.params?.tag;
-				const target = typeof tag === 'string' && tag.trim() ? tag.trim() : DEFAULT_TARGET_TAG;
+				const target =
+					typeof tag === 'string' && tag.trim() ? tag.trim() : DEFAULT_ARCADE_TARGET_TAG;
 				if (!carried.has(target)) {
 					warn(
 						path,

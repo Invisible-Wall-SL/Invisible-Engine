@@ -34,6 +34,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import {
+	ARCADE_CHARACTER_CONTROLS,
 	ARCADE_FIELD_LAYER,
 	ARCADE_SCREENS,
 	ARCADE_VOCAB,
@@ -51,6 +52,7 @@ import {
 	type FlowDoc,
 	type SpawnedInstance,
 } from 'engine-flow-v2';
+import { CHARACTER_CONTROLS } from 'engine-game/src/game/arcadeCharacters';
 import { createArcadeLoop, type ArcadeRules } from 'engine-game/src/game/arcadeLoop';
 import {
 	ComponentStateMachineRunner,
@@ -61,8 +63,23 @@ import {
 	validateStateMachine,
 	type Scene,
 } from 'engine-layout';
-import { nearestDistance, pointAt, samplePath, PATH_LEAD } from 'engine-mechanics';
 import {
+	BEHAVIOURS,
+	BEHAVIOUR_DEFAULTS,
+	CONDITIONS,
+	CONTROLLER_ACTIONS,
+	RANDOM_EVERY,
+	nearestDistance,
+	pointAt,
+	samplePath,
+	PATH_LEAD,
+} from 'engine-mechanics';
+import {
+	ARCADE_BEHAVIOURS,
+	ARCADE_CONDITIONS,
+	ARCADE_CONTROLLER_ACTIONS,
+	DEFAULT_ARCADE_RANDOM_EVERY,
+	DEFAULT_ARCADE_TARGET_TAG,
 	characterComponentIds,
 	normalizeGameConfigDoc,
 	resolveArcade,
@@ -1143,6 +1160,32 @@ const offRoute = (b: { x: number; y: number }) => {
 			/registerSpawnLayerSpace\(node\.id/.test(
 				read('packages/engine-layout/src/lib/SpawnLayer.svelte'),
 			),
+	);
+}
+
+{
+	// The lists each package keeps for itself (none of them depends on the others): a behaviour
+	// `behaviours.js` gains but the config does not know would be dropped by the normalizer.
+	const same = (a: readonly unknown[], b: readonly unknown[]) =>
+		JSON.stringify(a) === JSON.stringify(b);
+	check('11. the config knows every behaviour the brain runs', same(ARCADE_BEHAVIOURS, BEHAVIOURS));
+	check('11. … and every condition', same(ARCADE_CONDITIONS, CONDITIONS));
+	check(
+		'11. the controllers read the config’s input-map actions',
+		same(ARCADE_CONTROLLER_ACTIONS, CONTROLLER_ACTIONS),
+	);
+	check(
+		'11. Flow’s control enum is the loop’s',
+		same(ARCADE_CHARACTER_CONTROLS, CHARACTER_CONTROLS),
+	);
+	check(
+		'11. a random condition’s default beat agrees',
+		DEFAULT_ARCADE_RANDOM_EVERY === RANDOM_EVERY,
+	);
+	check(
+		'11. the validator’s default chase / flee tag is the brain’s',
+		DEFAULT_ARCADE_TARGET_TAG === BEHAVIOUR_DEFAULTS.chase.tag &&
+			DEFAULT_ARCADE_TARGET_TAG === BEHAVIOUR_DEFAULTS.flee.tag,
 	);
 }
 

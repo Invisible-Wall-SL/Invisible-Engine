@@ -1,5 +1,6 @@
 import {
 	createFixedStep,
+	touching,
 	type Body,
 	type Field,
 	type FixedStep,
@@ -105,14 +106,6 @@ const shapeOf = (
 	body: ArcadeBody,
 ): { shape: 'box'; w: number; h: number } | { shape: 'circle'; r: number } =>
 	body.shape === 'box' ? { shape: 'box', w: body.w, h: body.h } : { shape: 'circle', r: body.r };
-
-const boxesTouch = (a: SimBody, b: SimBody): boolean => {
-	const half = (s: SimBody) =>
-		s.shape === 'box' ? [s.w / 2, s.h / 2] : s.shape === 'circle' ? [s.r, s.r] : [0, 0];
-	const [aw, ah] = half(a);
-	const [bw, bh] = half(b);
-	return Math.abs(a.x - b.x) <= aw + bw && Math.abs(a.y - b.y) <= ah + bh;
-};
 
 function wallBody(wall: SandboxWall): SimBody {
 	return {
@@ -254,9 +247,9 @@ export function createSandbox(setup: SandboxSetup): Sandbox {
 			const shot = shots[i];
 			shot.age += dt * 1000;
 			const out = shot.x < 0 || shot.y < 0 || shot.x > field.w || shot.y > field.h;
-			const struck = boxesTouch(shot, player);
+			const struck = touching(shot, player);
 			if (struck) hits += 1;
-			if (out || struck || shot.age >= SHOT_LIFE_MS || walls.some((w) => boxesTouch(shot, w))) {
+			if (out || struck || shot.age >= SHOT_LIFE_MS || walls.some((w) => touching(shot, w))) {
 				stage.forget(shot.id);
 				shots.splice(i, 1);
 			}
