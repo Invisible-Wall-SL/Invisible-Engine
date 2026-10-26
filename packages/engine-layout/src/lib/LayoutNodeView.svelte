@@ -47,6 +47,7 @@
 
 	import CatalogText from './CatalogText.svelte';
 	import TextBox from './TextBox.svelte';
+	import SlicedSprite from './SlicedSprite.svelte';
 	import InlineImageText from './InlineImageText.svelte';
 	import { anchoredPosition, resolveOverrideTextStyle, resolveTransform } from './resolveTransform';
 	import { pixiBlendMode } from './blendMode';
@@ -1191,7 +1192,10 @@
 		const assets = appContext.stateApp.loadedAssets;
 		const tex = ((key ? assets?.[key] : undefined) ??
 			(fallbackKey ? assets?.[fallbackKey] : undefined)) as
-			{ width?: number; height?: number } | undefined;
+			{ width?: number; height?: number; trim?: { width: number; height: number } } | undefined;
+		// A sliced sprite draws its kept art (`sliceArt`), not its declared box.
+		if (node.kind === 'sprite' && node.slice && tex?.trim)
+			return { w: tex.trim.width, h: tex.trim.height };
 		return tex?.width && tex.height ? { w: tex.width, h: tex.height } : undefined;
 	};
 
@@ -1427,19 +1431,52 @@
 					alpha={transform.alpha}
 					zIndex={transform.zIndex}
 				>
-					<Sprite
-						key={spriteKey}
-						fallbackKey={spriteFallbackKey}
-						anchor={transform.anchor}
-						scale={sizedScale}
-						width={sizedWidth}
-						height={sizedHeight}
-						contain={spriteContain}
-						tint={spriteTint}
-						{blendMode}
-					/>
+					{#if node.slice}
+						<SlicedSprite
+							key={spriteKey}
+							fallbackKey={spriteFallbackKey}
+							mode={node.slice}
+							anchor={transform.anchor}
+							scale={sizedScale}
+							width={sizedWidth}
+							height={sizedHeight}
+							tint={spriteTint}
+							{blendMode}
+						/>
+					{:else}
+						<Sprite
+							key={spriteKey}
+							fallbackKey={spriteFallbackKey}
+							anchor={transform.anchor}
+							scale={sizedScale}
+							width={sizedWidth}
+							height={sizedHeight}
+							contain={spriteContain}
+							tint={spriteTint}
+							{blendMode}
+						/>
+					{/if}
 					<Rectangle isMask={fillRect !== undefined} {...fillRect ?? NO_MASK} />
 				</Container>
+			{:else if node.slice && !bg}
+				<!-- A 9-slice (`SpriteNode.slice`): the art's insets, the node's box. A background
+				     cover draws the plain sprite below, as a slice has no cover fit. -->
+				<SlicedSprite
+					key={spriteKey}
+					fallbackKey={spriteFallbackKey}
+					mode={node.slice}
+					x={posX}
+					y={posY}
+					anchor={transform.anchor}
+					scale={sizedScale}
+					rotation={transform.rotation}
+					alpha={transform.alpha}
+					zIndex={transform.zIndex}
+					width={sizedWidth}
+					height={sizedHeight}
+					tint={spriteTint}
+					{blendMode}
+				/>
 			{:else}
 				<Sprite
 					key={spriteKey}

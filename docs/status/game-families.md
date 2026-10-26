@@ -947,7 +947,11 @@ game, bundle or screen changes.
 
 ## Recent changes
 
-- 2026-10-26 — **P10.9c built: the Graph Editor** (in review). Detail in
+- 2026-10-26 — **P10.9a built: 9-slice** (in review, #1365). A sprite's 9-slice (stretch or
+  tile) with the insets on the art region, shipped as the frame's `borders`; editor and game draw
+  it from one layout and a pixel-parity gate holds them together. Detail in
+  [editor status](editor.md) 2026-10-26.
+- 2026-10-26 — **P10.9c built: the Graph Editor** (merged, #1371). Detail in
   [cinematic status](cinematic.md) 2026-10-26.
 
 - 2026-10-25 — **P10.8 built: arcade, rules-decided.** `motion.js`, the fixed-step loop, tags,
