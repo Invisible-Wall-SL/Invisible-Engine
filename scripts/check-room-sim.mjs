@@ -36,7 +36,7 @@ import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/in
 import { createConfigSource } from '../services/game-server/src/configSource.ts';
 import { createRoomSim, inputsThisStep, RoomRefusal } from '../services/game-server/src/roomSim.ts';
 import { messagesPerSecond } from '../services/game-server/src/arcadeRoom.ts';
-import { ROOM_NAME, createGameServer } from '../services/game-server/src/server.ts';
+import { ROOM_NAME, addressKey, createGameServer } from '../services/game-server/src/server.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const gameServerRequire = createRequire(join(ROOT, 'services/game-server/package.json'));
@@ -472,6 +472,19 @@ await check(
 	},
 );
 
+await check('per-address limits count an IPv6 /64 as one address', () => {
+	assert.deepEqual(
+		[
+			'1.2.3.4',
+			'::ffff:1.2.3.4',
+			'2001:db8::1',
+			'2001:db8:0:0:5::9',
+			'2001:0db8:00aa:0001:ffff::1',
+		].map(addressKey),
+		['1.2.3.4', '1.2.3.4', '2001:db8:0:0::/64', '2001:db8:0:0::/64', '2001:db8:aa:1::/64'],
+	);
+});
+
 // --- 1b. the runtime: only an online config takes the online branch ------------------------------
 
 await check('the mechanic: an online arcade config plays in a room; nothing else does', () => {
@@ -659,9 +672,9 @@ try {
 				'GET /healthz HTTP/1.1\r\nHost: x\r\nX-Forwarded-Proto: https,evil\r\n\r\n',
 				'GET http://h/healthz HTTP/1.1\r\nHost: x\r\n\r\n',
 				'GET /healthz HTTP/1.1\r\nHost: a:b:c\r\n\r\n',
-			'TRACE /healthz HTTP/1.1\r\nHost: a\r\nContent-Length: 0\r\n\r\n',
-			'TRACE /matchmake/joinOrCreate/arcade HTTP/1.1\r\nHost: a\r\nContent-Length: 0\r\n\r\n',
-			'PROPFIND /healthz HTTP/1.1\r\nHost: a\r\nContent-Length: 0\r\n\r\n',
+				'TRACE /healthz HTTP/1.1\r\nHost: a\r\nContent-Length: 0\r\n\r\n',
+				'TRACE /matchmake/joinOrCreate/arcade HTTP/1.1\r\nHost: a\r\nContent-Length: 0\r\n\r\n',
+				'PROPFIND /healthz HTTP/1.1\r\nHost: a\r\nContent-Length: 0\r\n\r\n',
 				'GET /matchmake HTTP/1.1\r\nHost: a b\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n',
 			]) {
 				const status = await raw(request);
@@ -797,6 +810,58 @@ try {
 		// One a step would take 0.67 s at 30 Hz; the drain, two a step, about half that.
 		assert.ok(Date.now() - sent < 550, `${Date.now() - sent} ms`);
 	});
+
+	await check(
+		'live: an unreliable input frame closes its socket; the process steps on',
+		async () => {
+			const health = () =>
+				fetch(`http://127.0.0.1:${port}/healthz`, { signal: AbortSignal.timeout(2000) }).then(
+					(r) => r.status,
+				);
+			for (const first of [0x14, 0x34, 0xf4]) {
+				const r = noAutoReconnect(await clientOf().joinOrCreate(ROOM_NAME, { game: 'river' }));
+				let left = false;
+				r.onLeave(() => (left = true));
+				const room = serverRoom(r);
+				r.connection.transport.ws.send(Uint8Array.of(first, 0x00, 0xff));
+				await until('the socket closed', () => left, 3000);
+				const steps = room.sim.steps;
+				assert.equal(await health(), 200, `after 0x${first.toString(16)}`);
+				await until('the room stepping', () => room.sim.steps > steps + 3, 2000);
+			}
+		},
+	);
+
+	await check(
+		'live: one address holds at most 64 WebSockets, and a closed one frees its place',
+		async () => {
+			const open = (address) =>
+				new Promise((resolve) => {
+					const socket = connect(port, '127.0.0.1', () =>
+						socket.write(
+							'GET / HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n' +
+								'Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n' +
+								`X-Forwarded-For: ${address}\r\n\r\n`,
+						),
+					);
+					socket.once('data', (c) => resolve({ socket, status: String(c).split('\r\n')[0] }));
+					socket.once('close', () => resolve({ socket, status: '' }));
+					socket.on('error', () => {});
+				});
+			const held = await Promise.all(Array.from({ length: 64 }, () => open('198.51.100.9')));
+			assert.ok(
+				held.every((h) => h.status.includes(' 101 ')),
+				JSON.stringify(held.map((h) => h.status)),
+			);
+			assert.equal((await open('198.51.100.9')).status, '', 'the 65th is dropped');
+			assert.ok((await open('198.51.100.10')).status.includes(' 101 '), 'another address is not');
+			held[0].socket.destroy();
+			await wait(100);
+			const again = await open('198.51.100.9');
+			assert.ok(again.status.includes(' 101 '), `a freed place: ${again.status}`);
+			for (const h of [...held, again]) h.socket.destroy();
+		},
+	);
 
 	await check('live: the room holds its size and each character’s max', async () => {
 		const b = await clientOf().joinOrCreate(ROOM_NAME, { game: 'river', character: 'bear' });

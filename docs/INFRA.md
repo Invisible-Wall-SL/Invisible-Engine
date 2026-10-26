@@ -287,7 +287,9 @@ a body with no `content-length` (chunked) is answered 411 and one declaring over
 Colyseus reads it; a request whose URL Colyseus' router could not build (a bad
 `x-forwarded-proto`, an absolute-form target, a bad `Host`) is refused before it can crash the
 process, and so is a method it does not serve (405; only GET, HEAD, OPTIONS, POST); a request
-must finish within 10 s; at most 6 000 sockets, 64 WebSockets per address; one address may make 30
+must finish within 10 s; at most 6 000 sockets, 64 WebSockets per address (an IPv6 /64 is one
+address); a frame on Colyseus' unreliable-input channel closes its socket undecoded (a decoder bug
+in `@colyseus/schema` 5.0.42 loops for ever on it); one address may make 30
 matchmaking requests per 10 s (429 past it); matchmaking
 exposes `joinOrCreate`, `join`, `joinById` and `reconnect` only (no `create`); a seat is held 5 s
 for a device that has not connected; at most 60 inputs wait per player, and a player never applies

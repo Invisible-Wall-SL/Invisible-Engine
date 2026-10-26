@@ -10,6 +10,7 @@ import {
 	type Server,
 } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
+import { CloseCode, Protocol } from '@colyseus/core';
 
 import { arcadeRoomClass } from './arcadeRoom.ts';
 import type { LoadGame } from './configSource.ts';
@@ -62,6 +63,46 @@ const MAX_CONNECTIONS = 6000;
 
 /** Answer `status` and close. The socket is dropped only once the answer is out, so a refused
  *  device reads why; `connection: close` keeps Node from reading the rest of its body. */
+/** The protocol code of a WebSocket frame: its first byte's low five bits (the rest are flags). */
+const PROTOCOL_CODE = 0b11111;
+
+type RawSocket = {
+	emit(event: string | symbol, ...args: unknown[]): boolean;
+	close(code: number): void;
+};
+
+const firstByte = (data: unknown): number | undefined => {
+	const chunk = Array.isArray(data) ? data[0] : data;
+	if (chunk instanceof Uint8Array) return chunk[0];
+	if (chunk instanceof ArrayBuffer) return new Uint8Array(chunk)[0];
+	return undefined;
+};
+
+/**
+ * Close any socket that sends an UNRELIABLE input frame, before Colyseus decodes it. The runtime
+ * sends reliable inputs only, and `@colyseus/schema` 5.0.42's decoder for that channel
+ * (`InputDecoder.decodeAll`) loops for ever on a negative slot length: three bytes from one device
+ * would stop every room in the process. The hook is the WebSocket server's `connection` event,
+ * prepended so it wraps the socket before Colyseus attaches its own message listener.
+ */
+function refuseUnreliableInputs(transport: WebSocketTransport) {
+	const { wss } = transport as unknown as {
+		wss: { prependListener(event: 'connection', listener: (socket: RawSocket) => void): void };
+	};
+	wss.prependListener('connection', (socket) => {
+		const emit = socket.emit.bind(socket);
+		socket.emit = (event, ...args) => {
+			const byte = event === 'message' ? firstByte(args[0]) : undefined;
+			if (byte !== undefined && (byte & PROTOCOL_CODE) === Protocol.ROOM_INPUT_UNRELIABLE) {
+				socket.close(CloseCode.WITH_ERROR);
+				return true;
+			}
+			return emit(event, ...args);
+		};
+	});
+	return transport;
+}
+
 const refuse = (req: IncomingMessage, res: ServerResponse, status: number): true => {
 	res.on('finish', () => req.destroy());
 	res.writeHead(status, { connection: 'close', 'access-control-allow-origin': '*' }).end();
@@ -86,13 +127,34 @@ const locate = (req: IncomingMessage): URL | undefined => {
 };
 
 /**
+ * The key a per-address limit counts under: an IPv4 address (an IPv4-mapped IPv6 one unwrapped),
+ * or an IPv6 address's /64 — one host is routinely given a whole /64, so a full address would let
+ * it count as countless devices.
+ */
+export function addressKey(address: string): string {
+	const v4 = /^(?:::ffff:)?(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(address);
+	if (v4) return v4[1];
+	if (!address.includes(':')) return address;
+	const [head, tail = ''] = address.split('%')[0].toLowerCase().split('::');
+	const left = head ? head.split(':') : [];
+	const right = address.includes('::') && tail ? tail.split(':') : [];
+	const groups = address.includes('::')
+		? [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill('0'), ...right]
+		: left;
+	return `${groups
+		.slice(0, 4)
+		.map((g) => g.replace(/^0+(?=.)/, ''))
+		.join(':')}::/64`;
+}
+
+/**
  * An HTTP server that refuses, before any listener (Colyseus' router among them) sees it: a
  * request whose URL the router could not build (400); one that would carry a body with no
  * `content-length` (411 — a chunked body is streamed with no limit; Node itself rejects a request
  * naming both) or declares more than {@link MAX_BODY_BYTES} (413 — Node reads no more than the
  * declared length); and an address's requests that can carry a body (every matchmaking call)
- * past `perWindow` ({@link MATCHMAKE_PER_WINDOW}) in a window; a method it does not serve (405) (429; counted by method, so no
- * spelling of the path escapes it). `trustProxy`: the address is the last `x-forwarded-for` entry,
+ * past `perWindow` ({@link MATCHMAKE_PER_WINDOW}) in a window (429; counted by method, so no
+ * spelling of the path escapes it); and a method it does not serve (405). `trustProxy`: the address is the last `x-forwarded-for` entry,
  * the one the platform's proxy added (Railway); otherwise the socket's. The WebSocket upgrade is
  * guarded the same way for its URL, and one address holds at most {@link SOCKETS_PER_ADDRESS}
  * WebSockets.
@@ -109,7 +171,7 @@ function guardedHttpServer(trustProxy: boolean, perWindow: number) {
 	const addressOf = (req: IncomingMessage) => {
 		const forwarded = trustProxy ? req.headers['x-forwarded-for'] : undefined;
 		const last = typeof forwarded === 'string' ? forwarded.split(',').pop()?.trim() : undefined;
-		return last || req.socket.remoteAddress || '';
+		return addressKey(last || req.socket.remoteAddress || '');
 	};
 	const open = new Map<string, number>();
 	http.emit = ((event: string, ...args: unknown[]) => {
@@ -132,7 +194,10 @@ function guardedHttpServer(trustProxy: boolean, perWindow: number) {
 			const [req, res] = args as [IncomingMessage, ServerResponse];
 			if (!locate(req)) return refuse(req, res, 400);
 			const method = req.method ?? 'GET';
-			if (!SERVED.has(method)) return refuse(req, res, 405);
+			if (!SERVED.has(method)) {
+				res.setHeader('allow', [...SERVED].join(', '));
+				return refuse(req, res, 405);
+			}
 			if (!BODYLESS.has(method)) {
 				const length = req.headers['content-length'];
 				if (length === undefined) return refuse(req, res, 411);
@@ -178,13 +243,15 @@ export function createGameServer(options: GameServerOptions): GameServer {
 		Response.json({ ok: true, commit: options.commit, rooms: rooms.count }),
 	);
 	const server = defineServer({
-		transport: new WebSocketTransport({
-			server: guardedHttpServer(
-				options.trustProxy ?? false,
-				options.matchmakePerWindow ?? MATCHMAKE_PER_WINDOW,
-			),
-			maxPayload: MAX_PAYLOAD_BYTES,
-		}),
+		transport: refuseUnreliableInputs(
+			new WebSocketTransport({
+				server: guardedHttpServer(
+					options.trustProxy ?? false,
+					options.matchmakePerWindow ?? MATCHMAKE_PER_WINDOW,
+				),
+				maxPayload: MAX_PAYLOAD_BYTES,
+			}),
+		),
 		gracefullyShutdown: options.gracefullyShutdown ?? true,
 		greet: false,
 		rooms: {
