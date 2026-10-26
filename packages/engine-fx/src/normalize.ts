@@ -14,7 +14,8 @@
  * Exposed `params` are kept fail-closed — a malformed parameter or drive is dropped, a drive whose
  * path parses but no longer resolves is KEPT (validation reports it; it is inert at runtime) — and
  * every drive's value at its parameter's default is written into the configs
- * (`applyEffectParamDefaults`), so the stored config is the effect at its defaults.
+ * (`applyEffectParamDefaults`), so the stored config is the effect at its defaults. A sprite layer's
+ * `material` is kept when well-formed (clamped, `normalizeEmitterMaterial`), dropped otherwise.
  *
  * It is idempotent: re-normalizing a normalized doc yields an identical doc (the
  * save→reload fixed point the headless round-trip harness asserts).
@@ -28,6 +29,7 @@ import {
 	formatEffectParamPath,
 	parseEffectParamPath,
 } from './params';
+import { normalizeEmitterMaterial } from './materialLayer';
 import {
 	EFFECT_DOC_VERSION,
 	type EffectDoc,
@@ -150,6 +152,9 @@ const normalizeLayer = (raw: unknown): EmitterLayer | undefined => {
 	}
 	const trigger = normalizeTrigger(raw.trigger);
 	if (trigger) layer.trigger = trigger;
+	// A material draws sprites only (§10: none on Tier-C rig particles).
+	const material = particleKind === 'sprite' ? normalizeEmitterMaterial(raw.material) : undefined;
+	if (material) layer.material = material;
 	return layer;
 };
 

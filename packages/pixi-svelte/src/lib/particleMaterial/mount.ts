@@ -1,0 +1,121 @@
+/**
+ * Mounting a layer's MATERIAL in a game (Invisible Shader Graph step 8d.3,
+ * `docs/design/shader-graph-particles.md` §6 / §10): what `<ParticleEmitter material>` does before it
+ * builds its emitter, kept out of the component so a coded emitter can take a material the same way.
+ *
+ * Decided once, at mount, and kept for the layer's life (nothing pops): a layer draws plain when its
+ * particles are Tier-C rig views, when its kind is not registered (`setCustomElementFx`), when the
+ * game already has {@link particleMaterialSlots}' 8 material layers drawing, or when its renderer
+ * refuses it at once (a body the shell refuses, Max particles over 512, frames on several texture
+ * sources). A renderer that is refused is destroyed, so a plain layer is exactly a layer with no
+ * material. One that turns plain while it plays (not WebGL, a program that does not link, more
+ * particles than its buffer) keeps its sprites shown for good and gives its slot back.
+ *
+ * `?fxdebug=1` on the page logs each material layer's state as it mounts and when it turns plain.
+ */
+
+import { customElementFx } from 'constants-shared/elementFx';
+import {
+	createFxMaterialSlots,
+	fxMaterialMount,
+	type EmitterMaterial,
+	type FxMaterialSlots,
+} from 'engine-fx';
+import type { Container, Texture } from 'pixi.js';
+import { ParticleMaterial } from './ParticleMaterial';
+
+/** The game's material layers drawing at once (design §10): one count for the page. */
+export const particleMaterialSlots: FxMaterialSlots = createFxMaterialSlots();
+
+/** A material as an emitter takes it: an `EmitterLayer.material`, or one a coded emitter names. */
+export interface ParticleMaterialSpec extends Omit<EmitterMaterial, 'kind'> {
+	kind: string;
+	/** The most particles a drive can raise the layer to (`fxMaterialPeakParticles`). */
+	peakParticles?: number;
+	/** Names the layer in the `?fxdebug=1` lines. */
+	label?: string;
+}
+
+export interface MountedParticleMaterial {
+	/** The renderer the emitter spawns into; undefined when the layer is plain from mount. */
+	readonly material: ParticleMaterial | undefined;
+	/** `on`, or why the layer draws plain (as it was decided at mount). */
+	readonly state: string;
+	/** Destroy the renderer and give its slot back. Destroy the emitter first. */
+	release(): void;
+}
+
+let debugging: boolean | undefined;
+const debug = (): boolean =>
+	(debugging ??=
+		typeof location !== 'undefined' && new URLSearchParams(location.search).has('fxdebug'));
+
+function report(spec: ParticleMaterialSpec, state: string, slots: FxMaterialSlots): void {
+	if (!debug()) return;
+	console.log(
+		`[fxdebug] material layer ${spec.label ?? '(unnamed)'}: ${state} (${spec.kind}; ${slots.drawing}/${slots.cap} drawing)`,
+	);
+}
+
+export function mountParticleMaterial(options: {
+	spec: ParticleMaterialSpec;
+	/** The emitter's parent: the hidden sprites and the mesh go into it. */
+	host: Container;
+	/** The layer's frames, as bound. */
+	textures: readonly Texture[];
+	/** The layer's Max particles at mount (not a positive number = the library's 1000). */
+	maxParticles: number;
+	/** Tier C: the particles are pooled rig views. */
+	rigParticles: boolean;
+	emitSpeed?: number;
+	slots?: FxMaterialSlots;
+}): MountedParticleMaterial {
+	const { spec, slots = particleMaterialSlots } = options;
+	const effect = customElementFx(spec.kind);
+	const decided = fxMaterialMount({
+		rigParticles: options.rigParticles,
+		registered: !!effect,
+		slots,
+	});
+	if (!decided.on) {
+		report(spec, `plain, ${decided.plain}`, slots);
+		return { material: undefined, state: decided.plain, release: () => {} };
+	}
+	let held = true;
+	const giveBack = (): void => {
+		if (!held) return;
+		held = false;
+		slots.release();
+	};
+	const material = new ParticleMaterial({
+		host: options.host,
+		effect,
+		maxParticles: options.maxParticles,
+		peakParticles: spec.peakParticles,
+		textures: options.textures,
+		time: spec.time,
+		intensity: spec.intensity,
+		params: spec.params,
+		emitSpeed: options.emitSpeed,
+		onPlain: (reason) => {
+			giveBack();
+			report(spec, `plain while playing, ${reason}`, slots);
+		},
+	});
+	const refused = material.plain;
+	if (refused) {
+		material.destroy();
+		giveBack();
+		report(spec, `plain, ${refused}`, slots);
+		return { material: undefined, state: refused, release: () => {} };
+	}
+	report(spec, 'on', slots);
+	return {
+		material,
+		state: 'on',
+		release: () => {
+			material.destroy();
+			giveBack();
+		},
+	};
+}

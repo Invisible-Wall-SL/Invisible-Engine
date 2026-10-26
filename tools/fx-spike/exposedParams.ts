@@ -1668,6 +1668,198 @@ console.log('fx params — save → export → bake');
 	);
 }
 
+// -------------------------------------------------------------------------------------------------
+console.log('');
+console.log('fx params — material paths (Shader Graph step 8d.3)');
+{
+	const intensityPath = parseEffectParamPath('material.intensity');
+	assert(
+		intensityPath.ok &&
+			intensityPath.target.scope === 'material' &&
+			intensityPath.target.field === 'intensity',
+		'`material.intensity` parses to the material strength',
+	);
+	const paramPath = parseEffectParamPath('material.param.glow-size');
+	assert(
+		paramPath.ok &&
+			paramPath.target.scope === 'material' &&
+			paramPath.target.field === 'param' &&
+			paramPath.target.id === 'glow-size',
+		'`material.param.<id>` parses to that param',
+	);
+	assert(
+		[
+			'material.param.',
+			'material.param.__proto__',
+			'material.param.constructor',
+			'material.strength',
+			'material',
+		].every((p) => !parseEffectParamPath(p).ok),
+		'an empty or prototype param id, and any other `material.*` field, are refused',
+	);
+	assert(
+		canonicalEffectParamPath('material.param.tint') === 'material.param.tint' &&
+			canonicalEffectParamPath('material.intensity') === 'material.intensity',
+		'both paths are their own canonical spelling',
+	);
+
+	const matLayer = (material?: EmitterLayer['material']): EmitterLayer => ({
+		...newLayer('main'),
+		config: swapConfig(),
+		...(material ? { material } : {}),
+	});
+	const drivenDoc = (material?: EmitterLayer['material']): EffectDoc => ({
+		version: 1,
+		id: 'mat',
+		name: 'Mat',
+		layers: [matLayer(material)],
+		params: [
+			num('heat', 0.5, [{ id: 's', layer: 'main', path: 'material.intensity', from: 0, to: 4 }]),
+			num('size', 3, [{ id: 'g', layer: 'main', path: 'material.param.glow' }], 0, 10),
+			{
+				id: 'hue',
+				kind: 'color',
+				default: '#FF8800',
+				drives: [{ id: 'c', layer: 'main', path: 'material.param.tint' }],
+			},
+			{
+				id: 'on',
+				kind: 'bool',
+				default: true,
+				drives: [{ id: 'b', layer: 'main', path: 'material.param.wave', from: 0, to: 2 }],
+			},
+		],
+	});
+
+	// The mapping and the defaults in `material`.
+	const stored = normalizeEffectDoc(drivenDoc({ kind: 'custom:pulse', params: { keep: 'up' } }));
+	const m = stored.layers[0].material;
+	assert(
+		m?.intensity === 2 &&
+			m.params?.glow === 3 &&
+			m.params?.tint === '#ff8800' &&
+			m.params?.wave === 2 &&
+			m.params?.keep === 'up',
+		'the defaults are written into `material`: strength 0.5 of 0…4 = 2, a number, a colour and a mapped switch, an undriven value kept',
+	);
+	assert(
+		json(normalizeEffectDoc(JSON.parse(json(stored)))) === json(stored) &&
+			applyEffectParamDefaults(stored) === stored,
+		'the defaults writer is idempotent (a stored doc comes back as the same object)',
+	);
+	const one = normalizeEffectDoc({
+		...drivenDoc({ kind: 'custom:pulse' }),
+		params: [
+			num('heat', 0.25, [{ id: 's', layer: 'main', path: 'material.intensity', from: 0, to: 4 }]),
+		],
+	});
+	assert(
+		one.layers[0].material !== undefined && !('intensity' in one.layers[0].material),
+		'a default strength of 1 is what an absent one means, so it is not written',
+	);
+	const over = normalizeEffectDoc({
+		...drivenDoc({ kind: 'custom:pulse' }),
+		params: [
+			num('heat', 1, [{ id: 's', layer: 'main', path: 'material.intensity', from: 0, to: 9 }]),
+		],
+	});
+	assert(
+		over.layers[0].material?.intensity === 4,
+		'a strength mapped past 4 is written clamped to 4',
+	);
+	const leafs = listEffectLayerLeaves(stored.layers[0]).filter((l) =>
+		l.path.startsWith('material.'),
+	);
+	assert(
+		json(leafs.map((l) => l.path)) ===
+			json([
+				'material.intensity',
+				'material.param.glow',
+				'material.param.tint',
+				'material.param.wave',
+			]),
+		'the leaf listing offers the strength and each number, colour or switch the material holds (not a choice)',
+	);
+	assert(
+		validateEffectParams(stored).length === 0,
+		'every material drive on a layer with a material resolves',
+	);
+
+	// A layer with no material: the drive is kept (it parses), reported, and inert.
+	const bare = normalizeEffectDoc(drivenDoc());
+	assert(
+		bare.layers[0].material === undefined && bare.params?.[0].drives.length === 1,
+		'on a layer with no material the drive is kept and no material is made up',
+	);
+	assert(
+		validateEffectParams(bare).filter((i) => i.code === 'unresolved').length === 4 &&
+			validateEffectParams(bare)[0].message === 'The layer has no material.',
+		'…and validation says the layer has no material',
+	);
+
+	// The applier: a uniform write, no behaviour rebuilt, no particle lost.
+	const writes: { intensity: number[]; params: Record<string, EffectParamValue>[] } = {
+		intensity: [],
+		params: [],
+	};
+	const sink = {
+		setIntensity: (v: number) => writes.intensity.push(v),
+		setParams: (v: Readonly<Record<string, EffectParamValue>>) => writes.params.push({ ...v }),
+	};
+	const em = new Emitter(new Container(), stored.layers[0].config);
+	em.emit = true;
+	em.update(0);
+	step(em, 1);
+	const before = live(em);
+	const behaviours = [...guts(em).initBehaviors];
+	const applier = bindEffectParams({
+		params: stored.params,
+		layer: stored.layers[0],
+		emitter: em,
+		material: sink,
+	});
+	assert(
+		!!applier && writes.intensity.length === 0 && writes.params.length === 0,
+		'at the defaults the applier writes nothing',
+	);
+	applier!.apply({ heat: 0.25, size: 7, hue: '#00FF00' });
+	assert(
+		json(writes.intensity) === json([1]) &&
+			writes.params.length === 1 &&
+			json(writes.params[0]) === json({ keep: 'up', glow: 7, tint: '#00ff00', wave: 2 }),
+		'a changed value writes the mapped strength and the whole param set once, in one apply',
+	);
+	assert(
+		guts(em).initBehaviors.every((b, i) => b === behaviours[i]) &&
+			live(em).length === before.length &&
+			live(em).every((p, i) => p === before[i]),
+		'no behaviour is rebuilt and every live particle stays (a uniform write, not a re-init)',
+	);
+	applier!.apply({ heat: 0.25, size: 7, hue: '#00ff00' });
+	assert(
+		writes.intensity.length === 1 && writes.params.length === 1,
+		'the same values again write nothing',
+	);
+	applier!.apply({ heat: 2 });
+	assert(
+		writes.intensity.at(-1) === 4 &&
+			json(writes.params.at(-1)) === json({ keep: 'up', glow: 3, tint: '#ff8800', wave: 2 }),
+		'a value past the range is clamped; a value dropped goes back to its default',
+	);
+	applier!.apply({ heat: 0.25, on: false });
+	applier!.restore();
+	assert(
+		writes.intensity.at(-1) === 2 &&
+			json(writes.params.at(-1)) === json({ keep: 'up', glow: 3, tint: '#ff8800', wave: 2 }),
+		'`restore()` puts the stored strength and params back',
+	);
+	assert(
+		createEffectParamApplier({ params: stored.params, layer: stored.layers[0], emitter: em }) ===
+			undefined,
+		'with no material renderer (plain, or none) the material drives are inert: no applier at all',
+	);
+}
+
 console.log('');
 if (failures) {
 	console.error(`fx params: ${failures} FAILED`);

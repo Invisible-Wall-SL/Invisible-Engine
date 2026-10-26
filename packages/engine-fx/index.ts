@@ -5,6 +5,7 @@ export * from './src/forces';
 export * from './src/sprite';
 export * from './src/bindArt';
 export * from './src/material';
+export * from './src/materialLayer';
 export * from './src/playerPlan';
 export * from './src/playback';
 export * from './src/params';

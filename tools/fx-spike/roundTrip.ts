@@ -23,6 +23,7 @@ import { upgradeConfig, type EmitterConfigV3 } from '@barvynkoa/particle-emitter
 import {
 	EFFECT_DOC_VERSION,
 	normalizeEffectDoc,
+	validateEffectMaterials,
 	weightedTextures,
 	type EffectDoc,
 	type EmitterConfigV3 as FxEmitterConfigV3,
@@ -263,7 +264,10 @@ const weighted = normalizeEffectDoc({
 	],
 });
 assert(eq(weighted.layers[0].art.weights, [70, 30]), 'aligned mix weights survive normalize');
-assert(weighted.layers[1].art.weights === undefined, 'length-mismatched weights dropped (→ uniform)');
+assert(
+	weighted.layers[1].art.weights === undefined,
+	'length-mismatched weights dropped (→ uniform)',
+);
 assert(weighted.layers[2].art.weights === undefined, 'weights on a single-frame layer dropped');
 assert(
 	eq(normalizeEffectDoc(weighted), weighted),
@@ -290,6 +294,118 @@ assert(
 	weightedTextures([T.a, T.b], [1, 2, 3]).length === 2,
 	'a length-mismatched weights arg falls back to uniform',
 );
+
+console.log('fx round-trip — a layer material (Shader Graph step 8d.3)');
+{
+	const plainConfig = (): FxEmitterConfigV3 =>
+		({
+			lifetime: { min: 1, max: 1 },
+			frequency: 0.1,
+			pos: { x: 0, y: 0 },
+			behaviors: [],
+		}) as unknown as FxEmitterConfigV3;
+	const spriteLayer = (key: string, material?: unknown) => ({
+		key,
+		config: plainConfig(),
+		art: { assetKey: 'a', frames: ['f'] },
+		placement: { space: 'free' },
+		particleKind: 'sprite',
+		...(material === undefined ? {} : { material }),
+	});
+	const material = {
+		kind: 'custom:ember-glow',
+		time: 'loop',
+		intensity: 2.5,
+		params: { tint: '#ff8800', speed: 1.5, wobble: true, mode: 'spiral' },
+	};
+	// author → /api/fx/save (normalize) → deploy/effects (normalize + tab JSON, `effectExport.ts`).
+	const authoredDoc = {
+		id: 'mat',
+		name: 'Mat',
+		layers: [spriteLayer('ember', material), spriteLayer('plain')],
+	};
+	const saved = normalizeEffectDoc(JSON.parse(JSON.stringify(authoredDoc)), 'mat');
+	const exported = normalizeEffectDoc(JSON.parse(JSON.stringify(saved, null, '\t')), 'mat');
+	assert(eq(saved.layers[0].material, material), 'a well-formed material is saved verbatim');
+	assert(eq(exported, saved), '…and survives save → normalize → export unchanged');
+	assert(
+		eq(exported.layers[1], {
+			key: 'plain',
+			config: plainConfig(),
+			art: { assetKey: 'a', frames: ['f'] },
+			placement: { space: 'free' },
+			particleKind: 'sprite',
+		}) && !('material' in exported.layers[1]),
+		'a layer without one has no `material` key',
+	);
+	assert(
+		JSON.stringify(stored) === JSON.stringify(authored),
+		'a canonical doc with no material normalizes byte for byte to itself (no key added)',
+	);
+
+	const mixed = normalizeEffectDoc({
+		id: 'm',
+		name: 'm',
+		layers: [
+			spriteLayer('loud', {
+				kind: 'custom:x',
+				intensity: 9,
+				time: 'forever',
+				params: { a: 1, b: NaN, c: {}, __proto__x: 2 },
+			}),
+			spriteLayer('quiet', { kind: 'custom:x', intensity: -1, params: {} }),
+			spriteLayer('nokind', { intensity: 1 }),
+			spriteLayer('builtin', { kind: 'glow' }),
+			spriteLayer('badid', { kind: 'custom:has space' }),
+			spriteLayer('notobj', 'custom:x'),
+			{
+				...spriteLayer('rig', { kind: 'custom:x' }),
+				particleKind: 'spine',
+				spineParticle: { skeletonKey: 'coin', animation: 'spin' },
+			},
+		],
+	});
+	const byKey = (k: string) => mixed.layers.find((l) => l.key === k);
+	assert(
+		eq(byKey('loud')?.material, {
+			kind: 'custom:x',
+			intensity: 4,
+			params: { a: 1, __proto__x: 2 },
+		}),
+		'strength clamped to 4, an unknown time mode dropped, non-scalar / non-finite params dropped',
+	);
+	assert(
+		eq(byKey('quiet')?.material, { kind: 'custom:x', intensity: 0 }),
+		'strength clamped to 0; an empty params set left out',
+	);
+	assert(
+		['nokind', 'builtin', 'badid', 'notobj'].every((k) => byKey(k) && !('material' in byKey(k)!)),
+		'a material with no kind, a built-in kind, a malformed id or not an object is dropped (the layer is kept)',
+	);
+	assert(
+		byKey('rig')?.particleKind === 'spine' && !('material' in byKey('rig')!),
+		'a Tier-C rig layer drops its material (sprite layers only)',
+	);
+	assert(eq(normalizeEffectDoc(mixed), mixed), 'a normalized material is a fixed point');
+
+	const compiled = new Set(['custom:ember-glow']);
+	const issues = validateEffectMaterials(
+		{
+			layers: [
+				...saved.layers,
+				...normalizeEffectDoc({ layers: [spriteLayer('gone', { kind: 'custom:deleted' })] }).layers,
+			],
+		},
+		(kind) => compiled.has(kind),
+	);
+	assert(
+		issues.length === 1 &&
+			issues[0].layer === 'gone' &&
+			issues[0].kind === 'custom:deleted' &&
+			issues[0].code === 'material-not-compiled',
+		'validation names a material whose kind the project does not compile, and only it',
+	);
+}
 
 // ===========================================================================
 // B. CONFIG↔LIBRARY — the nested config is what the runtime actually eats.

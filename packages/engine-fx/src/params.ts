@@ -28,6 +28,11 @@ import {
 	stepCollapsedValueLists,
 	type BehaviorEntry,
 } from './bindArt';
+import {
+	fxMaterialIntensity,
+	isFxMaterialParamId,
+	normalizeEmitterMaterial,
+} from './materialLayer';
 import type {
 	EffectDoc,
 	EffectParam,
@@ -74,6 +79,8 @@ export type EffectParamTarget =
 	| { scope: 'emitter'; field: FxParamEmitterField }
 	| { scope: 'behavior'; type: string; index: number; path: readonly (string | number)[] }
 	| { scope: 'placement'; axis: 'x' | 'y' }
+	| { scope: 'material'; field: 'intensity' }
+	| { scope: 'material'; field: 'param'; id: string }
 	| { scope: 'effect'; field: FxParamEffectField };
 
 export type EffectParamPathResult =
@@ -86,6 +93,7 @@ const BEHAVIOR_HEAD = /^([A-Za-z_$][\w$-]*)(?:#(0|[1-9]\d*))?$/;
 /** Keys a path may never walk through: they would write onto a prototype, not into the config. */
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const BEHAVIOR_PREFIX = 'behavior:';
+const MATERIAL_PARAM_PREFIX = 'material.param.';
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
 	typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -126,6 +134,15 @@ export function parseEffectParamPath(path: string): EffectParamPathResult {
 	if (path === 'placement.offset.x' || path === 'placement.offset.y') {
 		return { ok: true, target: { scope: 'placement', axis: path.endsWith('x') ? 'x' : 'y' } };
 	}
+	if (path === 'material.intensity') {
+		return { ok: true, target: { scope: 'material', field: 'intensity' } };
+	}
+	if (path.startsWith(MATERIAL_PARAM_PREFIX)) {
+		const id = path.slice(MATERIAL_PARAM_PREFIX.length);
+		return isFxMaterialParamId(id)
+			? { ok: true, target: { scope: 'material', field: 'param', id } }
+			: fail(`"${id}" is not a material param that can be driven.`);
+	}
 	if (path.startsWith('effect.')) {
 		const field = path.slice('effect.'.length);
 		return (FX_PARAM_EFFECT_FIELDS as readonly string[]).includes(field)
@@ -144,6 +161,10 @@ export function formatEffectParamPath(target: EffectParamTarget): string {
 			return `placement.offset.${target.axis}`;
 		case 'effect':
 			return `effect.${target.field}`;
+		case 'material':
+			return target.field === 'intensity'
+				? 'material.intensity'
+				: `${MATERIAL_PARAM_PREFIX}${target.id}`;
 		case 'behavior':
 			return `${BEHAVIOR_PREFIX}${target.type}${target.index ? `#${target.index}` : ''}.${target.path.join('.')}`;
 	}
@@ -249,7 +270,7 @@ export type EffectParamLeafResult =
 
 /** Resolve a LAYER-scoped target against a layer (its config, or the bound copy a renderer built). */
 export function resolveEffectParamLeaf(
-	layer: Pick<EmitterLayer, 'config' | 'placement'>,
+	layer: Pick<EmitterLayer, 'config' | 'placement' | 'material'>,
 	target: EffectParamTarget,
 	config: EmitterConfigV3 = layer.config,
 ): EffectParamLeafResult {
@@ -258,6 +279,25 @@ export function resolveEffectParamLeaf(
 			return { ok: true, kind: 'number', value: emitterFieldOf(config, target.field) };
 		case 'placement':
 			return { ok: true, kind: 'number', value: layer.placement.offset?.[target.axis] ?? 0 };
+		case 'material': {
+			const material = layer.material;
+			if (!material) return { ok: false, error: 'The layer has no material.' };
+			if (target.field === 'intensity') {
+				return { ok: true, kind: 'number', value: fxMaterialIntensity(material.intensity) };
+			}
+			const value = material.params?.[target.id];
+			const kind = effectParamLeafKind(value);
+			if (!kind) {
+				return {
+					ok: false,
+					error:
+						value === undefined
+							? `The material holds no value for "${target.id}".`
+							: `The material's "${target.id}" is not a number, colour or on/off value.`,
+				};
+			}
+			return { ok: true, kind, value: value as EffectParamValue };
+		}
 		case 'effect':
 			return { ok: false, error: 'An effect-level path does not belong to a layer.' };
 		case 'behavior': {
@@ -420,6 +460,46 @@ function fieldValue(field: FxParamEmitterField, v: number): number {
 	return INTEGER_FIELDS.has(field) ? Math.round(v) : v;
 }
 
+/** The value a layer target is written with: an emitter field coerced, a strength clamped. */
+function writtenValue(target: EffectParamTarget, value: EffectParamValue): EffectParamValue {
+	if (target.scope === 'emitter') return fieldValue(target.field, Number(value));
+	if (target.scope === 'material' && target.field === 'intensity')
+		return fxMaterialIntensity(Number(value));
+	return value;
+}
+
+/**
+ * The kind of leaf a drive writes on a layer. A material param the material holds no value for yet
+ * (it plays its default, which only the compiled effect knows) takes the kind the drive writes, so
+ * the defaults writer can put the first value in.
+ */
+function driveLeafKind(
+	layer: Pick<EmitterLayer, 'config' | 'placement' | 'material'>,
+	target: EffectParamTarget,
+	param: EffectParam,
+	drive: Pick<EffectParamDrive, 'from' | 'to'>,
+): EffectParamLeafResult {
+	const leaf = resolveEffectParamLeaf(layer, target);
+	if (
+		leaf.ok ||
+		target.scope !== 'material' ||
+		target.field !== 'param' ||
+		!layer.material ||
+		layer.material.params?.[target.id] !== undefined
+	)
+		return leaf;
+	const { from, to } = drive;
+	const kind: EffectParamKind | undefined =
+		from === undefined && to === undefined
+			? param.kind
+			: typeof from === 'number'
+				? 'number'
+				: isHexColor(from)
+					? 'color'
+					: undefined;
+	return kind ? { ok: true, kind, value: effectParamValue(param) } : leaf;
+}
+
 // ---------------------------------------------------------------------------------------------------
 // Drives that apply.
 // ---------------------------------------------------------------------------------------------------
@@ -435,7 +515,7 @@ interface ResolvedDrive {
 /** Every drive of `params` aimed at the layer that resolves on its config and can write. */
 function layerDrives(
 	params: readonly EffectParam[] | undefined,
-	layer: Pick<EmitterLayer, 'key' | 'config' | 'placement'>,
+	layer: Pick<EmitterLayer, 'key' | 'config' | 'placement' | 'material'>,
 ): ResolvedDrive[] {
 	const out: ResolvedDrive[] = [];
 	for (const param of params ?? []) {
@@ -443,7 +523,7 @@ function layerDrives(
 			if (drive.layer !== layer.key) continue;
 			const parsed = parseEffectParamPath(drive.path);
 			if (!parsed.ok || !isLayerTarget(parsed.target)) continue;
-			const leaf = resolveEffectParamLeaf(layer, parsed.target);
+			const leaf = driveLeafKind(layer, parsed.target, param, drive);
 			if (!leaf.ok) continue;
 			if (effectParamDriveValue(param, drive, param.default, leaf.kind) === undefined) continue;
 			out.push({ param, drive, target: parsed.target, kind: leaf.kind });
@@ -529,6 +609,18 @@ function writeLayerLeaf(
 			layer.placement = { ...layer.placement, offset: { ...offset, [target.axis]: Number(value) } };
 			return;
 		}
+		case 'material': {
+			const material = layer.material;
+			if (!material) return;
+			// Rebuilt through the normalizer's rule, so its keys stay in their canonical order.
+			layer.material =
+				normalizeEmitterMaterial(
+					target.field === 'intensity'
+						? { ...material, intensity: Number(value) }
+						: { ...material, params: { ...material.params, [target.id]: value } },
+				) ?? material;
+			return;
+		}
 		case 'behavior': {
 			const found = nthBehavior(layer.config, target.type, target.index);
 			const at = found ? leafHolder(found.entry.config, target.path) : undefined;
@@ -560,6 +652,11 @@ function storedLayerLeaf(layer: EmitterLayer, target: EffectParamTarget): unknow
 		}
 	}
 	if (target.scope === 'placement') return layer.placement.offset?.[target.axis];
+	if (target.scope === 'material') {
+		return target.field === 'intensity'
+			? fxMaterialIntensity(layer.material?.intensity)
+			: layer.material?.params?.[target.id];
+	}
 	if (target.scope === 'behavior') {
 		const found = nthBehavior(layer.config, target.type, target.index);
 		return found ? readPath(found.entry.config, target.path) : undefined;
@@ -570,10 +667,12 @@ function storedLayerLeaf(layer: EmitterLayer, target: EffectParamTarget): unknow
 /**
  * The stored config IS the effect at its defaults: write every drive's value at its parameter's
  * default into the layers, so a renderer that knows nothing of parameters still draws the default
- * look. Pure (a layer is cloned only when a value actually changes; an unchanged doc comes back as
- * the same object) and idempotent. A drive that does not resolve, or cannot write its leaf, is
- * skipped. Effect-level targets have no stored leaf — a renderer applies their defaults itself.
- * When two drives write one leaf, the later one wins (the same order the applier uses).
+ * look; a material's driven strength and params land in `material` the same way, so a renderer with
+ * no live values draws the material at its defaults too. Pure (a layer is cloned only when a value
+ * actually changes; an unchanged doc comes back as the same object) and idempotent. A drive that
+ * does not resolve, or cannot write its leaf, is skipped. Effect-level targets have no stored leaf
+ * — a renderer applies their defaults itself. When two drives write one leaf, the later one wins
+ * (the same order the applier uses).
  */
 export function applyEffectParamDefaults(doc: EffectDoc): EffectDoc {
 	if (!doc.params?.length) return doc;
@@ -587,12 +686,11 @@ export function applyEffectParamDefaults(doc: EffectDoc): EffectDoc {
 			if (at === -1) continue;
 			const parsed = parseEffectParamPath(drive.path);
 			if (!parsed.ok || !isLayerTarget(parsed.target)) continue;
-			const leaf = resolveEffectParamLeaf(layers[at], parsed.target);
+			const leaf = driveLeafKind(layers[at], parsed.target, param, drive);
 			if (!leaf.ok) continue;
 			const out = effectParamDriveValue(param, drive, value, leaf.kind);
 			if (out === undefined) continue;
-			const written =
-				parsed.target.scope === 'emitter' ? fieldValue(parsed.target.field, Number(out)) : out;
+			const written = writtenValue(parsed.target, out);
 			if (sameValue(storedLayerLeaf(layers[at], parsed.target), written)) continue;
 			if (!cloned.has(at)) {
 				const source = layers[at];
@@ -638,7 +736,7 @@ export function effectParamDriveIssue(
 		if (drive.layer === undefined) return 'This path needs a layer.';
 		const layer = doc.layers.find((l) => l.key === drive.layer);
 		if (!layer) return `There is no layer "${drive.layer}".`;
-		const leaf = resolveEffectParamLeaf(layer, parsed.target);
+		const leaf = driveLeafKind(layer, parsed.target, param, drive);
 		if (!leaf.ok) return leaf.error;
 		kind = leaf.kind;
 	}
@@ -717,11 +815,11 @@ function visit(value: unknown, path: string, depth: number, out: EffectParamLeaf
 
 /**
  * Every scalar leaf of a layer a parameter can drive, as canonical paths: the emitter fields, each
- * drivable behaviour's config values (an `#n` suffix on the second and later behaviour of a type)
- * and the placement offset.
+ * drivable behaviour's config values (an `#n` suffix on the second and later behaviour of a type),
+ * the placement offset and, on a layer with a material, its strength and the param values it holds.
  */
 export function listEffectLayerLeaves(
-	layer: Pick<EmitterLayer, 'config' | 'placement'>,
+	layer: Pick<EmitterLayer, 'config' | 'placement' | 'material'>,
 ): EffectParamLeaf[] {
 	const out: EffectParamLeaf[] = FX_PARAM_EMITTER_FIELDS.map((field) => ({
 		path: `emitter.${field}`,
@@ -747,6 +845,19 @@ export function listEffectLayerLeaves(
 			kind: 'number',
 			value: layer.placement.offset?.[axis] ?? 0,
 		});
+	}
+	const material = layer.material;
+	if (material) {
+		out.push({
+			path: 'material.intensity',
+			kind: 'number',
+			value: fxMaterialIntensity(material.intensity),
+		});
+		for (const [id, value] of Object.entries(material.params ?? {})) {
+			const kind = effectParamLeafKind(value);
+			if (kind && isFxMaterialParamId(id))
+				out.push({ path: `${MATERIAL_PARAM_PREFIX}${id}`, kind, value });
+		}
 	}
 	return out;
 }
@@ -941,14 +1052,27 @@ export interface EffectParamApplier {
 	restore(): void;
 }
 
+/**
+ * Where a layer's `material.*` drives land: the material renderer's uniforms (`ParticleMaterial`'s
+ * `setIntensity` / `setParams`). A write is a uniform write, never a rebuild.
+ */
+export interface FxParamMaterial {
+	setIntensity(intensity: number): void;
+	/** Every param value the material holds (those left out play their defaults). */
+	setParams(values: Readonly<Record<string, EffectParamValue>>): void;
+}
+
 export interface EffectParamApplierOptions {
 	params: readonly EffectParam[] | undefined;
 	/** The layer the emitter was initialised from (its `config`, bound by the renderer). Read, never
 	 * written: values land on the applier's own copies. */
-	layer: Pick<EmitterLayer, 'key' | 'config' | 'placement'>;
+	layer: Pick<EmitterLayer, 'key' | 'config' | 'placement' | 'material'>;
 	emitter: FxParamEmitter;
 	/** Moves the layer's offset container. Absent ⇒ `placement.offset` drives are inert. */
 	setOffset?: (x: number, y: number) => void;
+	/** The layer's material renderer. Absent (no material, or it draws plain) ⇒ `material.*` drives
+	 * are inert. */
+	material?: FxParamMaterial;
 }
 
 /**
@@ -958,10 +1082,12 @@ export interface EffectParamApplierOptions {
 export function createEffectParamApplier(
 	options: EffectParamApplierOptions,
 ): EffectParamApplier | undefined {
-	const { params, layer, emitter, setOffset } = options;
+	const { params, layer, emitter, setOffset, material } = options;
 	const config = layer.config;
 	const resolved = layerDrives(params, layer).filter(
-		(d) => d.target.scope !== 'placement' || !!setOffset,
+		(d) =>
+			(d.target.scope !== 'placement' || !!setOffset) &&
+			(d.target.scope !== 'material' || !!material),
 	);
 	if (resolved.length === 0) return undefined;
 
@@ -991,11 +1117,29 @@ export function createEffectParamApplier(
 	const offset = { ...baseOffset };
 	const nextOffset = { ...baseOffset };
 
+	const baseIntensity = fxMaterialIntensity(layer.material?.intensity);
+	const baseParams: Record<string, EffectParamValue> = { ...layer.material?.params };
+	let intensity = baseIntensity;
+	let materialParams = { ...baseParams };
+	let intensityDirty = false;
+	let paramsDirty = false;
+
 	const write = (d: LayerDrive, out: EffectParamValue): void => {
 		const target = d.target;
 		if (target.scope === 'emitter') setEmitterField(emitter, target.field, Number(out));
 		else if (target.scope === 'placement') nextOffset[target.axis] = Number(out);
-		else if (target.scope === 'behavior' && d.slot) {
+		else if (target.scope === 'material') {
+			if (target.field === 'intensity') {
+				const next = fxMaterialIntensity(Number(out));
+				if (next === intensity) return;
+				intensity = next;
+				intensityDirty = true;
+			} else {
+				if (sameValue(materialParams[target.id], out)) return;
+				materialParams[target.id] = out;
+				paramsDirty = true;
+			}
+		} else if (target.scope === 'behavior' && d.slot) {
 			const at = leafHolder(d.slot.working, target.path);
 			if (!at || sameValue(at.holder[at.key], out)) return;
 			at.holder[at.key] = out;
@@ -1015,6 +1159,14 @@ export function createEffectParamApplier(
 			offset.x = nextOffset.x;
 			offset.y = nextOffset.y;
 			setOffset(offset.x, offset.y);
+		}
+		if (intensityDirty) {
+			intensityDirty = false;
+			material?.setIntensity(intensity);
+		}
+		if (paramsDirty) {
+			paramsDirty = false;
+			material?.setParams(materialParams);
 		}
 	};
 
@@ -1054,6 +1206,12 @@ export function createEffectParamApplier(
 			}
 			nextOffset.x = baseOffset.x;
 			nextOffset.y = baseOffset.y;
+			intensityDirty = intensity !== baseIntensity;
+			intensity = baseIntensity;
+			paramsDirty = Object.keys({ ...baseParams, ...materialParams }).some(
+				(id) => !sameValue(baseParams[id], materialParams[id]),
+			);
+			materialParams = { ...baseParams };
 			flush();
 			for (const group of groups) group.last = effectParamValue(group.param);
 		},
