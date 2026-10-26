@@ -22,6 +22,7 @@ const SCRIPT_FOR_KIND = {
 	cluster: 'cluster',
 	scatter: 'scatter',
 	match3: 'match3',
+	arcade: 'arcade',
 };
 export const scriptFor = (gameType) => SCRIPT_FOR_KIND[gameType] ?? 'lines';
 export const loadScript = (name) =>
@@ -144,6 +145,8 @@ export async function makePlan({ games, manifest, only, scenarioIds }) {
 		entry.status = 'render';
 		const contract = contractFor(g, manifest);
 		entry.contractHash = contractHash(contract);
+		// A rules-decided game (no RGS): `assemble.mjs` reads a stall main shares as the game's own.
+		if (contract.protocol === 'freePlay') entry.freePlay = true;
 		const scenarios = loadScript(entry.script).scenarios.filter(
 			(sc) => !scenarioIds || scenarioIds.includes(sc.id),
 		);

@@ -49,7 +49,7 @@ const png = (shade) => {
  * `units[scenario].republished[side]` the same for the game's republished variant, planned as
  * `republished` says. Returns the whole report.
  */
-function scenarioReport(name, units, republished) {
+function scenarioReport(name, units, republished, planned = {}) {
 	const dir = join(tmp, name);
 	const scenarios = Object.keys(units);
 	for (const scenario of scenarios)
@@ -96,6 +96,7 @@ function scenarioReport(name, units, republished) {
 				notes: [],
 				scenarios: scenarios.map((id) => ({ id })),
 				...(republished ? { republished } : {}),
+				...planned,
 			},
 		],
 	};
@@ -104,7 +105,8 @@ function scenarioReport(name, units, republished) {
 }
 
 /** The as-published row of `scenarioReport`. */
-const scenarioRun = (name, units, republished) => scenarioReport(name, units, republished).games[0];
+const scenarioRun = (name, units, republished, planned) =>
+	scenarioReport(name, units, republished, planned).games[0];
 
 const REFUSED = 'runtime bundle shape invalid (no assetBase / basegame scene)';
 const refusal = { bootStopped: REFUSED, error: `the runtime refused to boot: ${REFUSED}` };
@@ -343,6 +345,79 @@ await test('the plan carries no contract, and a lookup error carries no secret',
 		'a contract reached the plan',
 	);
 	assert.match(plan.games.find((g) => g.game.key === 'ok').contractHash, /^[0-9a-f]{16}$/);
+});
+
+const STALL = 'step 5 (swap): not reached — {"frame":412,"idle":true}';
+const stall = { screens: { loaded: 1 }, error: STALL };
+const FREE_PLAY = { freePlay: true };
+
+await test('a free-play scenario main stalls in alike is a note, the rest compared', () => {
+	const row = scenarioRun(
+		'free-play-stall',
+		{
+			base: { base: { screens: { a: 1 } }, head: { screens: { a: 1 } } },
+			swap: { base: stall, head: stall },
+		},
+		undefined,
+		FREE_PLAY,
+	);
+	assert.equal(row.looks.status, 'same');
+	assert.equal(rowVerdict(row), 'pass');
+	assert.equal(row.tests.smoke.failures.length, 0);
+	assert.ok(row.notes.some((n) => n.includes(`swap: ${STALL}`)));
+});
+
+await test('a free-play game main stalls in every scenario is a visible not-rendered row', () => {
+	const row = scenarioRun(
+		'free-play-unplayable',
+		{ swap: { base: stall, head: stall } },
+		undefined,
+		FREE_PLAY,
+	);
+	assert.equal(row.looks.status, 'unplayable');
+	assert.equal(rowVerdict(row), null);
+});
+
+await test('a free-play stall the branch does not share, or worsens, still fails', () => {
+	for (const head of [
+		{ ...stall, error: 'step 6 (capture): not reached — {"frame":500}' },
+		{ ...stall, errors: 1 },
+		{ screens: { loaded: 200 }, error: STALL },
+	]) {
+		const row = scenarioRun(
+			'free-play-worse',
+			{ swap: { base: stall, head } },
+			undefined,
+			FREE_PLAY,
+		);
+		assert.equal(rowVerdict(row), 'fail', JSON.stringify(head));
+	}
+});
+
+await test('a slot both runtimes stall in alike still fails', () => {
+	const row = scenarioRun('slot-stall', { base: { base: stall, head: stall } });
+	assert.equal(row.looks.status, 'error');
+	assert.equal(rowVerdict(row), 'fail');
+});
+
+await test('the plan marks a free-play contract, and only that one', async () => {
+	const plan = await makePlan({
+		games: ['freePlay', 'lines'].map((protocol) => ({
+			key: protocol,
+			name: protocol,
+			gameType: protocol === 'freePlay' ? 'match3' : 'lines',
+			local: { snapshot: '/tmp/x', manifestEntry: { protocol } },
+		})),
+		manifest: {},
+		only: null,
+	});
+	assert.deepEqual(
+		plan.games.map((g) => [g.game.key, g.script, Boolean(g.freePlay)]),
+		[
+			['freePlay', 'match3', true],
+			['lines', 'lines', false],
+		],
+	);
 });
 
 rmSync(tmp, { recursive: true, force: true });

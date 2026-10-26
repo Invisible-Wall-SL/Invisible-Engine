@@ -66,6 +66,7 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	boardFit: true,
 	region: true,
 	keepAspect: true,
+	slice: true,
 	tint: true,
 	defaultAnimation: true,
 	loop: true,
@@ -155,6 +156,7 @@ const componentDefFields: Record<keyof ComponentDef, true> = {
 	buttonStates: true,
 	settles: true,
 	events: true,
+	guides: true,
 };
 const componentParamFields: Record<keyof ComponentParam, true> = {
 	key: true,

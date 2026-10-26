@@ -15,8 +15,8 @@ step 7 (editor v2: subgraphs, node thumbnails, cost chips, publishing to the stu
 merged (#1342), and so are 8b, Break as an output node (#1347), and 8c, the admin-only Custom
 GLSL node (#1349). 8d (particle materials) is decided
 ([design](../design/shader-graph-particles.md)) and being built as 8d.1–8d.8; 8d.1 (the particle
-shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is built and in
-review; 8d.3 (the material in the game) is next.
+shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is merged
+(#1366); 8d.3 (the material in the game) is next.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -282,7 +282,7 @@ review; 8d.3 (the material in the game) is next.
     (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
     shader). Built as 8d.1–8d.8, one PR each (its §15). Nothing plays a material yet: the renderer
     exists (8d.2) and reaches a game in 8d.3.
-    - **8d.2, the material renderer.** Built, in review.
+    - **8d.2, the material renderer.** Merged (#1366, 2026-10-26).
       - **`ParticleMaterial`** (`packages/pixi-svelte/src/lib/particleMaterial/`, plain TS, the
         `pixi-svelte/particleMaterial` subpath; the package root does not export it, so no game
         bundle changes). It owns a hidden container (`particles`) the emitter spawns into and one
@@ -521,8 +521,10 @@ review; 8d.3 (the material in the game) is next.
 - None.
 
 ## Recent changes
-- 2026-10-26 — **Step 8d.2: the material renderer** (see "Current state"). Step 8d.1 merged
-  (#1354).
+- 2026-10-26 — **Step 8d.2: the material renderer** (see "Current state"). Merged (#1366): CI
+  green but for Current games, "12 pass · 2 fail · 0 changed screen(s)", merged on the owner's
+  approval: its two failures (match3test, testarcade, published after #1352 / #1353) fail on main
+  too, the harness's play scripts not reaching their swap / spin steps.
   - **Proof.** `particle-material` (new, `tools/fx-spike/particleMaterial.mjs`, headless Chromium,
     WebGL1 and WebGL2, in `check:all`):
     - An Output-alone material against the plain sprite path over static, rotated, trimmed,

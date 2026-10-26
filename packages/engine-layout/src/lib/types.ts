@@ -13,6 +13,8 @@ import type { EffectParamValue } from 'engine-fx';
 import type { BlendMode } from './blendMode';
 import type { CoverFit } from './coverTransform';
 import type { KindCapabilities } from './kindCapabilities';
+import type { EditorGuideSet } from './editorGuides';
+import type { SliceMode } from './nineSlice';
 
 /**
  * A layout bucket id. Historically a closed union (`desktop`/`tablet`/`landscape`/
@@ -618,6 +620,13 @@ export interface SpriteNode extends BaseNode {
 	 * ratio draws exactly as before. Absent ⇒ stretch (parity).
 	 */
 	keepAspect?: boolean;
+	/**
+	 * Draw the frame as a 9-slice: its corners keep their art size and its edges and centre
+	 * `stretch` or `tile` to fill `width × height`. The insets are the ART's (the region's slice,
+	 * shipped as the frame's `borders`), not this node's — see `nineSlice.ts`. Absent ⇒ a plain
+	 * sprite (parity); a frame with no insets then stretches whole.
+	 */
+	slice?: SliceMode;
 	tint?: number;
 }
 
@@ -1533,6 +1542,8 @@ export interface Scene {
 	 * reels, and each part plays the screen's FX on its own.
 	 */
 	elementFx?: ElementFxEntry[];
+	/** EDITOR-ONLY ruler guides per device layout (`editorGuides.ts`); stripped before a game. */
+	guides?: EditorGuideSet;
 }
 
 /** A jurisdiction preset for {@link GameSettings}. `'UK'` forces every speed
@@ -1817,6 +1828,8 @@ export interface ComponentDef {
 	 * is ever raised (parity).
 	 */
 	events?: ComponentEvent[];
+	/** EDITOR-ONLY ruler guides per device layout (`editorGuides.ts`); stripped before a game. */
+	guides?: EditorGuideSet;
 }
 
 /**

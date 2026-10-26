@@ -26,7 +26,12 @@ import { headObject } from './r2';
  * did on a 404). One HEAD per sheet — no page bytes stream through this process,
  * so the memory-flat server-side `copyObject` path is preserved.
  */
-export async function sheetVersion(set: EditorRegionSet): Promise<string | null> {
+export async function sheetVersion(
+	set: EditorRegionSet,
+	/** Authored data the exporter writes into the sheet JSON (region boxes, 9-slice insets).
+	 * Absent ⇒ the basis, and so the token, is exactly what it was without it. */
+	authored?: unknown,
+): Promise<string | null> {
 	if (!set.pageKey) return null;
 	const head = await headObject(set.pageKey);
 	if (!head) return null;
@@ -36,6 +41,7 @@ export async function sheetVersion(set: EditorRegionSet): Promise<string | null>
 		h: set.pageHeight,
 		page: pageFingerprint,
 		regions: set.regions,
+		...(authored === undefined ? {} : { authored }),
 	});
 	return createHash('sha1').update(basis).digest('hex').slice(0, 10);
 }
