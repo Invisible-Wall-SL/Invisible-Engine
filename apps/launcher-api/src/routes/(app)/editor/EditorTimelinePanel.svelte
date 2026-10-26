@@ -2203,7 +2203,9 @@
 	.tl-panel :global(.cineStripInsp input[type='number']) {
 		width: 64px;
 	}
-	.tl-panel :global(.cineEaseKinds button.on) {
+	.tl-panel :global(.cineEaseKinds button.on),
+	.tl-panel :global(.cineEasePresets button.on),
+	.tl-panel :global(.cineGraphBtn.on) {
 		border-color: var(--accent);
 		color: var(--accent);
 	}
@@ -2390,11 +2392,6 @@
 		outline: 1px solid #fff;
 	}
 	/* The Graph Editor (P10.9): 📈 in a channel's gutter opens its graph row beneath it. */
-	.tl-panel :global(.cineEasePresets button.on),
-	.tl-panel :global(.cineGraphBtn.on) {
-		border-color: var(--accent);
-		color: var(--accent);
-	}
 	.tl-panel :global(.cineGraphBtn) {
 		margin-left: auto;
 		padding: 0 3px;
@@ -2405,8 +2402,8 @@
 		flex-wrap: wrap;
 		gap: 4px;
 	}
+	/* Its height is set from the module's GRAPH_H, which the curve is laid out in. */
 	.tl-panel :global(.cineTrack.cineGraphRow) {
-		height: 140px;
 		background: rgba(0, 0, 0, 0.2);
 	}
 	.tl-panel :global(.cineGraphRange) {

@@ -346,6 +346,29 @@ export function mount(el, options) {
 			dot.classList.toggle('sel', on);
 			dot.style.background = on ? '#ffd24a' : chanColor(row.dataset.track, row.dataset.channel);
 		});
+		refreshGraphRows();
+	}
+
+	/**
+	 * Redraw every open graph row in place — its curve, its keys' selection and the selected key's
+	 * handles — and re-wire it, so a graph never shows (or lets you drag) a selection that changed
+	 * without a full re-render.
+	 */
+	function refreshGraphRows() {
+		if (!el || !graph) return;
+		const pps = tlPps();
+		el.querySelectorAll('.cineGraphRow').forEach((row) => {
+			const track = doc.tracks.find((t) => t.id === row.dataset.track);
+			if (!track) return;
+			const keys = track.channels && track.channels[row.dataset.channel];
+			const chans = track.kind === 'camera' ? CAM_CHANNELS : channelsOf(castOf(track.actorId));
+			const chan = chans.find((c) => c.key === row.dataset.channel);
+			const lane = row.querySelector('.cineGraphLane');
+			if (!keys || !chan || !lane) return;
+			const geo = graphGeometry(keys, EV, doc.duration, pps);
+			lane.innerHTML = graphSvg({ track, chan }, keys, geo, pps, parseFloat(lane.style.width));
+		});
+		ROW_KINDS.graph.wire(el, pps);
 	}
 	function chanColor(trackId, channel) {
 		const track = doc.tracks.find((t) => t.id === trackId);
@@ -1132,6 +1155,7 @@ ${dots}${handles}</svg>`;
 				const geo = graphGeometry(keys, EV, doc.duration, pps);
 				row.classList.add('cineGraphRow');
 				row.dataset.channel = entry.chan.key;
+				row.style.height = GRAPH_H + 'px';
 				row.appendChild(
 					gutter(
 						'<span class="cineGraphRange" style="color:' +
@@ -1215,7 +1239,7 @@ ${dots}${handles}</svg>`;
 								h.onpointerup = null;
 								h.onpointercancel = null;
 								if (!moved) return;
-								commit('interpolation', 'ease:graph');
+								commit('interpolation');
 								render();
 								renderTimeline();
 							};
@@ -2170,7 +2194,10 @@ ${dots}${handles}</svg>`;
 		if (!refs.length) return;
 		for (const r of refs) r.key.ease = cloneEase(ease);
 		host.evaluate(time);
-		if (live) return;
+		if (live) {
+			refreshGraphRows();
+			return;
+		}
 		commit('interpolation', 'ease:' + selKeys.length);
 		render();
 		renderTimeline();
