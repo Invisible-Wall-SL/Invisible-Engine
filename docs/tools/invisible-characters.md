@@ -25,8 +25,8 @@ document). So:
   same conflict check and the same **History** of versions (open it from Game Config);
 - the two tools share **one edit lease**: while someone has Game Config (or this tool) open on the
   project, the other shows read-only with **Take over**. Two people cannot edit both at once;
-- saving needs the Game Config grant too. A user given this tool without Game Config sees the page
-  read-only, with a note saying so;
+- the page holds the whole game config (paytable included), so it needs the Game Config grant as
+  well: a user given this tool without Game Config is refused (403), as `/config` would refuse them;
 - the whole config must be valid to save. Errors outside the characters are listed in a note at the
   top ("fix them in Invisible Game Config") and keep **Save** disabled.
 
@@ -144,7 +144,8 @@ Click an arrow to edit the **transition**: its conditions (all must hold; none f
 | `random` | a seeded roll succeeds (`chance` 0–1, rolled every `every` ms, 1000 by default) |
 
 A value the game could not read (a negative distance, a chance above 1, a blank tag) is not stored:
-the condition keeps the value it had.
+the condition keeps the value it had, and the field shows it again. (The same goes for movement,
+speed, size and parameter fields.)
 
 ### Anim inputs
 
@@ -168,11 +169,13 @@ layer, an anim input following a state the brain does not have) do not.
 
 ## The sandbox
 
-Under the editor, a play field runs the selected character with the real arcade mechanics
-(`engine-mechanics`) at the config's steps per second — the same order the game runs them in.
+Under the editor, a play field runs the selected character through **the game's own characters
+stage** (the code the arcade loop runs, on `engine-mechanics`) at the config's steps per second, so
+what you see is what the game does.
 **Placeholder shapes only**: the character is an orange box or circle (its body, or a 48 × 48 box
 when its look has none) labelled with its name and its brain state; the dummy **player** (tag
-`player`) is a blue box; walls are grey; shots are small red circles. Project art is never loaded.
+`player`) is a blue box — a plain body, as any non-character is in the game, so it walks through
+walls; walls are grey; shots are small red circles. Project art is never loaded.
 
 - **Click the field**, then the **arrow keys or WASD** move the dummy player — or the character
   itself when it has a controller. With both a controller and a brain, **Driven by** picks the
@@ -184,11 +187,15 @@ when its look has none) labelled with its name and its brain state; the dummy **
   a state names (and for `sandbox`). **Clear path** removes it.
 - **▶ Play / ❚❚ Pause**, **Step** (one fixed step while paused), **↺ Reset**.
 - **Seed** — the same seed and the same keys give the same run (`wander` and `random` draw from it).
-- The readout shows the **brain state** (also lit on the canvas), who drives it, its **speed**,
-  **facing**, how many shots hit the player, the step count and every mapped **anim input**'s
-  value as the game would set it.
+- **Variables** (shown when a transition has a `variable` condition) — stand-ins for the Flow
+  variables the game would read: `flag = true, score = 3` (one per comma or line; `true`, `false`,
+  a number, else text).
+- The readout shows the **brain state** (also lit on the canvas), who drives it, its **speed**, how
+  many shots hit the player, the step count and every mapped **anim input**'s value as the game
+  sets it (map `facing` to an input to see it).
 
-Any change to the character (or the seed, the path, who drives, a new wall) restarts the run.
+Any change to the character (or the seed, the path, who drives, the variables, a new wall) restarts
+the run.
 Moving a card on the brain canvas does not. Nothing in the sandbox is saved — not the walls, the
 path or the positions.
 
@@ -210,9 +217,9 @@ path or the positions.
   are planned, not built.
 - **Fast bodies can pass through thin walls.** A step faster than the body and the wall together
   can carry a character through a solid; sub-steps come later.
-- **The sandbox is a stand-in.** One dummy player, the walls you draw and one path stand for the
-  game's. Flow variables do not exist there, so a `variable` condition compares against nothing:
-  `==` never holds and `!=` always does.
+- **The sandbox is a stand-in.** One dummy player, the walls you draw, one path and the variables
+  you type stand for the game's. A variable left out of the **Variables** field compares against
+  nothing: `==` never holds and `!=` always does.
 - **Invisible Flow's Preview does not run characters.** Try a character here, or publish to the test
   server and play it.
 - **Renaming does not follow through.** A Flow graph that names a character by id keeps the old
