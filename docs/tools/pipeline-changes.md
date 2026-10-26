@@ -1,10 +1,11 @@
 # Invisible Pipeline Changes
 
-> **Early access.** The **Changes**, **Agents**, **History** and **Catalogue** tabs work: every
-> open change, its two checks, the changed screens and their approval, merging a Ready change,
-> rolling a merge back, Director's runtime-agent definitions with an editor that checks the text as
-> you type and submits an edit as a change with its own evaluation, and the blueprint catalogue
-> Director's agents read. **Discard branch** is not on the page yet.
+> **Early access.** The **Changes**, **Agents**, **History**, **Catalogue** and **Bugs** tabs work:
+> every open change, its two checks, the changed screens and their approval, merging a Ready
+> change, rolling a merge back, Director's runtime-agent definitions with an editor that checks the
+> text as you type and submits an edit as a change with its own evaluation, the blueprint catalogue
+> Director's agents read, and the pipeline bugs sent here from Invisible Pipeline Bug Reports.
+> **Discard branch** is not on the page yet.
 
 Invisible Pipeline Changes lists every change to tools, engine, templates, blueprints and agent
 definitions, each on its own branch, shows whether it is proven safe, and lets the people allowed
@@ -55,7 +56,8 @@ its record of each merge made from here (who merged, the approvals that counted,
    one; Dependabot's updates are listed apart under **Dependabot · N**, folded). Each card shows
    the branch, the title, who opened it and when, a `draft` tag on a draft pull request, an
    `agent definition` tag on a change that carries the `agent-definition` label (one opened from
-   the Agents tab, step 9), and its status:
+   the Agents tab, step 9), a `BUG-<n>` tag for each bug its title or branch names (step 14), and
+   its status:
    - **Testing · done of total** — checks are still running. On an agent-definition change the
      evaluation counts as one more check.
    - **Blocked** — a check failed, there is a merge conflict, the evaluation of an
@@ -369,6 +371,32 @@ read the definition, the validation preview and the open changes, and open those
     launcher. A newly published blueprint shows here as **no card** (or **draft** if you filled
     the Card section when publishing it). Agents see a change within a minute; click
     **Refresh** here to see it.
+14. The **Bugs · N** tab lists the pipeline bugs a triager sent here from
+    [Invisible Pipeline Bug Reports](pipeline-bugs.md) with **Send to Pipeline Changes**, where N
+    counts the ones still Open or Working on (the count appears once the tab has been opened). The
+    address becomes `/pipeline?tab=bugs`, so the link can be shared (Pipeline Bug Reports' **Open
+    in Pipeline Changes** opens it). Game bugs never come here, and a bug that names a project you
+    cannot open is not listed. The bugs still to do come first (Working on, then Open), each group
+    by priority with unset last, then newest. Resolved and Won't fix bugs fold under **Done · N**
+    at the end, until someone takes them back. Each card shows:
+    - `BUG-<n>`, its priority and status, the title, and the area, project (client · name),
+      reporter, when it was reported and who sent it.
+    - The pull requests that name it, each with its state (`open`, `merged`, `closed`). Click one
+      the Changes tab lists to open that change there (`?change=<n>`). Any other links to GitHub
+      (`↗`). With none, the card says "No pull request names BUG-`<n>` yet."
+    - **Copy fix brief** copies the bug as text to start the fix from, such as a Claude Code
+      session or an issue. It ends by asking for `BUG-<n>` in the pull request's title or branch
+      (for example `fix/bug-12-…`). The button then reads "Copied".
+    - **Open in Pipeline Bug Reports** (if you have that tool) opens the bug, with its
+      screenshots, triage and comments.
+
+    The fix is a pipeline change like any other. Name the bug's `BUG-<n>` in the pull request's
+    title or branch (a mention in the description does not count). The bug then shows Working on
+    while the pull request is open and Resolved once it merges, and the change's card in the
+    Changes tab carries the `BUG-<n>` tag. Triage (priority, status, Take back) happens in
+    Pipeline Bug Reports, not here. Like the other tabs, this one reads when you open it, again
+    with every Refresh, and every minute while it is open. If the GitHub App is not configured, a
+    line says linked pull requests are not read.
 
 Every tab is live. Click a
 tab, or focus the tab bar and use the arrow keys, Home and End.
@@ -405,6 +433,10 @@ This is the plan, not working features. Source: `docs/director/SPEC.md` §2 and
   of Check 2 are kept 3 days. After that the page says the report expired, or lists the
   differences without pictures.
 - The list, the open change, the open agent and History refresh every minute, not live.
+- The Bugs tab has no filters, and a sent bug stays on it after it is Resolved or Won't fix until a
+  triager clicks **Take back** in Pipeline Bug Reports. The `BUG-<n>` tag on a change card reads
+  only the title and branch, so a pull request that names the bug only in its description links
+  the bug but shows no tag.
 - The editor keeps your text only on screen: reloading the page loses it, and switching agent or
   replacing it with `main`'s newer version asks first.
 - The build plan and progress live in `docs/director/PLAN.md` and `docs/director/HISTORY.md`.

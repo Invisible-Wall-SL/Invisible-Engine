@@ -4,9 +4,11 @@
 	// the user can see. The look here is the source of truth; the Python tools
 	// (atlas/sheet) render a visually identical HTML twin fed by the launcher.
 	// See docs/design/unified-tool-bar.md.
+	import { page } from '$app/state';
+	import { BUG_TOOL } from '$lib/bugReports';
 	import Emblem from '$lib/Emblem.svelte';
 	import { TOOLS, toolBarItems, toolAccent, type ToolDef } from '$lib/roles';
-	import { withProject } from '$lib/toolLinks';
+	import { reportBugHref, withProject } from '$lib/toolLinks';
 	import { untrack, type Snippet } from 'svelte';
 
 	// `clientKey`/`projectKey` are the loudly-shown active project (project-explicit
@@ -32,6 +34,15 @@
 
 	const name = $derived(TOOLS[current]?.name ?? '');
 	const items = $derived(toolBarItems(tools, current));
+	// "Report bug": Pipeline Bug Reports' form with this tool filled in, for whoever has that tool
+	// (not on the two bug tools themselves).
+	const reportHref = $derived(
+		tools.some((t) => t.id === BUG_TOOL.pipeline) &&
+			current in TOOLS &&
+			!Object.values(BUG_TOOL).includes(current)
+			? reportBugHref('/bugs', current, page.url.origin + page.url.pathname, projectKey)
+			: null,
+	);
 
 	// Drop the tool labels (icon-only) only when the labelled row would actually
 	// overflow its track — not on a blunt viewport breakpoint. We watch the nav with a
@@ -73,7 +84,8 @@
 	{#if projectKey}
 		<div class="scope" title="Current project — every action on this page targets it">
 			<span class="scope-label">Project</span>
-			{#if clientKey}<span class="scope-client">{clientKey}</span><span class="scope-sep">/</span>{/if}
+			{#if clientKey}<span class="scope-client">{clientKey}</span><span class="scope-sep">/</span
+				>{/if}
 			<span class="scope-project">{projectKey}</span>
 		</div>
 	{/if}
@@ -84,7 +96,9 @@
 				<!-- Carries the shown project, so a tool opens what this bar says is open even after
 				     another tab moved the session (`resolveToolScope` reads `?project=`). -->
 				<a class="tool" href={tool.url && withProject(tool.url, projectKey)} title={tool.name}>
-					{#if tool.icon}<span class="ic" style="color:{toolAccent(tool.id)}">{@html tool.icon}</span>{/if}
+					{#if tool.icon}<span class="ic" style="color:{toolAccent(tool.id)}"
+							>{@html tool.icon}</span
+						>{/if}
 					<span class="label">{tool.barName ?? tool.name.replace(/^Invisible /, '')}</span>
 				</a>
 			{/each}
@@ -92,6 +106,36 @@
 	{/if}
 
 	{#if meta}<div class="meta">{@render meta()}</div>{/if}
+
+	{#if reportHref}
+		<!-- Another tool's form, with this tool filled in: `resolve()` cannot carry a query. -->
+		<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+		<a class="report" href={reportHref} title={`Report a bug in ${name}`}>
+			<span class="ic">
+				<svg
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.6"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					aria-hidden="true"
+				>
+					<!-- The Pipeline Bug Reports icon (`TOOL_ICONS.pipelineBugs`). -->
+					<path d="M9 7.5a3 3 0 0 1 6 0" />
+					<rect x="7" y="7.5" width="10" height="12.5" rx="5" />
+					<path d="M12 11v9" />
+					<path d="M7 12H3.5" />
+					<path d="M17 12h3.5" />
+					<path d="M7.5 16.5 4 18.5" />
+					<path d="M16.5 16.5l3.5 2" />
+					<path d="M9.5 5 8 3" />
+					<path d="M14.5 5 16 3" />
+				</svg>
+			</span>
+			<span class="label">Report bug</span>
+		</a>
+	{/if}
 </header>
 
 <style>
@@ -203,6 +247,25 @@
 	}
 	.label {
 		display: inline;
+	}
+	/* The HTML twins (atlas/sheet/rig/rigger) carry the same button as `.iw-report`. */
+	.report {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		flex: none;
+		padding: 5px 10px;
+		border-radius: 8px;
+		border: 1px solid #3a2a33;
+		color: #f778ba;
+		text-decoration: none;
+		font-size: 12px;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+	.report:hover {
+		background: #2a1a22;
+		border-color: #6b3550;
 	}
 	/* Icon-only when the labelled row would overflow its track (driven by the
 	   ResizeObserver above): drop labels before anything else collapses. */

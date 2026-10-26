@@ -125,8 +125,9 @@ export function sniffImage(bytes: Uint8Array): MockupExt | null {
 export const SERVED_IMAGE_TYPES = { ...MOCKUP_TYPES, webp: 'image/webp' } as const;
 
 /**
- * {@link sniffImage}, and WebP too (`RIFF....WEBP`). For serving an object back, never for what an
- * upload accepts: a WebP mockup is still refused, as `addMockup` takes only what `sniffImage` names.
+ * {@link sniffImage}, and WebP too (`RIFF....WEBP`). For serving an object back, and for a bug
+ * screenshot (`bugReports.ts`), never for what a mockup upload accepts: a WebP mockup is still
+ * refused, as `addMockup` takes only what `sniffImage` names.
  */
 export function sniffServedImage(bytes: Uint8Array): keyof typeof SERVED_IMAGE_TYPES | null {
 	const known = sniffImage(bytes);

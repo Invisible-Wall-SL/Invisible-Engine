@@ -469,6 +469,11 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
     the manifest is one write), read by the harness's read-only key. Private on purpose: Adobe's
     fonts are licensed, so they are mirrored into this bucket and never into the public repo. How
     and when to refresh: `docs/playtest/current-games.md` ("Typekit mirror").
+  - `_bugs/<number>/<id>.<png|jpg|webp>` — bug report screenshots (Invisible Pipeline / Game Bug
+    Reports, 2026-10-26). Written create-only by `/api/bugs/<n>/screenshots`, served only through
+    their Postgres row (`bug_report_screenshots`) to someone who may see the bug; no shipped asset
+    class reads them. A purged project's game bugs take theirs with them. See
+    [status/bug-reports](status/bug-reports.md).
   - `atlas/manifests/loader.json` — Svelte-era manifest (legacy path)
   - `spines/hotfruits/…` — rig assets
   - `atlas_maker/cloud/<project>/{manifests,input,output,deploy}/…` — the ported tool's store

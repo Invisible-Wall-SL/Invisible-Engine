@@ -21,6 +21,9 @@
     border-radius:8px;border:1px solid transparent;color:#b9b9c4;text-decoration:none;
     font-size:12px;font-weight:600;white-space:nowrap}
   .iw-tool:hover{background:#26262d;border-color:#2a2a31;color:#fff}
+  .iw-report{display:inline-flex;align-items:center;flex:none;padding:5px 10px;border-radius:8px;border:1px solid #3a2a33;color:#f778ba;font-size:12px;font-weight:600;text-decoration:none;white-space:nowrap}
+  .iw-report:hover{background:#2a1a22;border-color:#6b3550}
+  .iw-report[hidden]{display:none}
   .iw-tool .ic{display:inline-flex;width:16px;height:16px}
   .iw-tool .ic svg{width:16px;height:16px;display:block}
   /* Collapse to icon-only when the labelled row would overflow the bar's own track
@@ -179,6 +182,7 @@
     <span>INVISIBLE SHEET MAKER</span>
   </a>
   <nav class="iw-switcher" id="iw-switcher" aria-label="Switch tool"></nav>
+  <a class="iw-report" id="iw-report" hidden>Report bug</a>
   <div class="iw-meta">
     <span class="pill" id="build"></span>
     <span class="muted">project</span>
@@ -211,6 +215,8 @@
     gameConfig: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="M15 4v16"/><path d="M3 9.5h18"/><path d="M3 14.5h18"/>',
     director: '<path d="M3 9.75h18v10.5H3z"/><path d="M3 9.75 4.8 4.5h15.9L21 9.75"/><path d="M9 4.5 7.5 9.75"/><path d="M15 4.5l-1.5 5.25"/>',
     pipelineChanges: '<circle cx="6.75" cy="5.25" r="2"/><circle cx="6.75" cy="18.75" r="2"/><circle cx="17.25" cy="9" r="2"/><path d="M6.75 7.25v9.5"/><path d="M17.25 11c0 3.75-5.25 3.75-10.5 5.25"/>',
+    pipelineBugs: '<path d="M9 7.5a3 3 0 0 1 6 0"/><rect x="7" y="7.5" width="10" height="12.5" rx="5"/><path d="M12 11v9"/><path d="M7 12H3.5"/><path d="M17 12h3.5"/><path d="M7.5 16.5 4 18.5"/><path d="M16.5 16.5l3.5 2"/><path d="M9.5 5 8 3"/><path d="M14.5 5 16 3"/>',
+    gameBugs: '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><rect x="10" y="8" width="4" height="6" rx="2"/><path d="M8 10h2"/><path d="M14 10h2"/><path d="M8 12.5h2"/><path d="M14 12.5h2"/>',
     flow: '<rect x="3" y="4" width="6" height="5" rx="1"/><rect x="15" y="9" width="6" height="5" rx="1"/><rect x="3" y="15" width="6" height="5" rx="1"/><path d="M9 6.5h3a2 2 0 0 1 2 2v1"/><path d="M9 17.5h3a2 2 0 0 0 2-2v-1"/>',
     fx: '<path d="M12 3v4"/><path d="M12 17v4"/><path d="M3 12h4"/><path d="M17 12h4"/><path d="M5.6 5.6l2.8 2.8"/><path d="M15.6 15.6l2.8 2.8"/><path d="M18.4 5.6l-2.8 2.8"/><path d="M8.4 15.6l-2.8 2.8"/><circle cx="12" cy="12" r="1.6"/>',
     shaders: '<circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="12" r="2.2"/><path d="M8.2 6.4c4 .2 4.2 5.6 7.6 5.6"/><path d="M8.2 17.6c4-.2 4.2-5.6 7.6-5.6"/>',
@@ -228,6 +234,16 @@
   }
   var tools = [];
   try { tools = JSON.parse(qp.get('tools') || '[]'); } catch (e) {}
+  // "Report bug": Pipeline Bug Reports' form with this tool filled in, for whoever has that
+  // tool. Where it happened is this page without its query, which can carry a launch token.
+  // Mirrors reportBugHref in $lib/toolLinks.ts.
+  var bugs = Array.isArray(tools) ? tools.filter(function (t) { return t && t.id === 'pipelineBugs' && t.url; })[0] : null;
+  var report = document.getElementById('iw-report');
+  if (bugs && report) {
+    report.href = bugs.url + '?' + new URLSearchParams({ 'new': '1', 'for': 'sheetMaker', page: location.origin + location.pathname }).toString();
+    report.title = 'Report a bug in this tool';
+    report.hidden = false;
+  }
   var nav = document.getElementById('iw-switcher');
   if (nav && Array.isArray(tools)) {
     tools.forEach(function (t) {

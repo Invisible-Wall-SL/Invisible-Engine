@@ -3,6 +3,7 @@ import { PROJECT_KEY_PATTERN } from '$lib/projectKey';
 import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { getDb } from './db';
 import {
+	bugReports,
 	clients,
 	games,
 	projects,
@@ -451,9 +452,21 @@ export async function restoreProject(key: string): Promise<void> {
  * the purge action (after its R2 objects are gone) and the game-maker duplicate's
  * rollback (which is deleting a row it created seconds earlier). Never wire this to
  * a user-facing "Delete" button; that is {@link softDeleteProject}.
+ *
+ * The project's own bug list (its game bugs, which must name a project) goes with it in the same
+ * transaction; a pipeline bug that named it keeps its report and the key, so only admins and its
+ * reporter see it. Answers the game bugs' numbers, whose screenshots the caller deletes
+ * (`deleteBugScreenshots`).
  */
-export async function deleteProject(key: string): Promise<void> {
-	await getDb().delete(projects).where(eq(projects.key, key));
+export async function deleteProject(key: string): Promise<{ gameBugs: number[] }> {
+	return getDb().transaction(async (tx) => {
+		const gone = await tx
+			.delete(bugReports)
+			.where(and(eq(bugReports.kind, 'game'), eq(bugReports.projectKey, key)))
+			.returning({ number: bugReports.number });
+		await tx.delete(projects).where(eq(projects.key, key));
+		return { gameBugs: gone.map((g) => g.number) };
+	});
 }
 
 /** Ensure the default `cloud` project row exists (idempotent). */
