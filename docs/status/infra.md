@@ -126,6 +126,18 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-26 — **October Dependabot round, applied in one branch.** Landed: the npm minor/patch
+  group (#1358), `@sveltejs/package` 3.0.1 (#1362), `chromatic` 18.13.3 (#1359) and the pip group
+  (#1357). Held back, Dependabot PRs left open:
+  - `@sveltejs/vite-plugin-svelte` 7 (#1360) peers on Vite 8; we are on Vite 6.2.0. On Vite 6 it
+    compiles `svelte/server.js` as a component, which is #1360's `check-family-tools` failure.
+  - `@sveltejs/adapter-node` 6 (#1361) peers on SvelteKit 3; we are on 2.70.3.
+
+  Both go with a Vite 8 / SvelteKit 3 upgrade. Dependabot's backup lock in #1357 moved
+  `python-dateutil` to 3.0.0, which botocore forbids (`<3.0.0`), so `pip install --require-hashes`
+  would fail; the lock here is re-run through pip-compile on Python 3.12 for the boto3 chain only.
+  `svelte-package` output under v3 matches v2 file for file. The `lines` release `index.html` is
+  byte-identical in size and still self-contained.
 - 2026-10-23 — **TypeScript 5.9.3 → 6.0.3 (#1300, replaces Dependabot #1165).** No tsconfig used an
   option TS 6 deprecates (`baseUrl`, `moduleResolution: node10`, `downlevelIteration`, …). Three
   TS 6 changes hit:
