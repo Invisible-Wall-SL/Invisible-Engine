@@ -7,6 +7,8 @@ import { spawnHeadlessShell } from '../../playtest/headless-shell.mjs';
 import { TYPEKIT_HOSTS } from './typekit.mjs';
 
 const VIEWPORT = { width: 1280, height: 720, deviceScaleFactor: 1 };
+/** The keys a script presses, by DOM `code`, with their virtual key codes. */
+const KEYS = { Space: 32, ArrowLeft: 37, ArrowRight: 39 };
 
 /** Console errors and uncaught exceptions are kept (the last 50) for the report. */
 export async function openPage(chromePath, profile, { intercept } = {}) {
@@ -151,14 +153,19 @@ export async function openPage(chromePath, profile, { intercept } = {}) {
 			);
 		return result.result.value;
 	};
-	const key = (type) =>
-		page('Input.dispatchKeyEvent', {
+	/** A key event (`keyDown` / `keyUp`): Space, or a named key of {@link KEYS} (an arcade script
+	 *  steers with the arrows). */
+	const key = (type, name = 'Space') => {
+		const code = KEYS[name];
+		if (code === undefined) throw new Error(`no key "${name}"`);
+		return page('Input.dispatchKeyEvent', {
 			type,
-			key: ' ',
-			code: 'Space',
-			windowsVirtualKeyCode: 32,
-			nativeVirtualKeyCode: 32,
+			key: name === 'Space' ? ' ' : name,
+			code: name,
+			windowsVirtualKeyCode: code,
+			nativeVirtualKeyCode: code,
 		});
+	};
 	/** One mouse event at a page point, CSS px (`mousePressed` / `mouseMoved` / `mouseReleased`) —
 	 *  a scripted swap on a match-3 board presses the pixels a player would. */
 	const mouse = (type, x, y) =>

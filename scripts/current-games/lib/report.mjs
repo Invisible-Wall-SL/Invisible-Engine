@@ -70,6 +70,7 @@ const LOOKS = {
 	'no-snapshot': 'not rendered (no snapshot)',
 	unpublished: 'skip: not published',
 	refused: "not rendered (main's runtime refuses the snapshot)",
+	unplayable: "not rendered (main's runtime cannot play the game either)",
 	error: 'error',
 	skip: 'skip',
 };
@@ -144,7 +145,7 @@ function html(report) {
 @media (prefers-color-scheme: light){:root{--bg:#fff;--fg:#16181d;--muted:#5d636e;--line:#dde0e5;--pass:#cdeedb;--fail:#f7d4d7;--warn:#f6e7bf}}
 body{background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,sans-serif;margin:0;padding:16px;max-width:1400px}
 table{border-collapse:collapse;width:100%;margin:12px 0}td,th{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
-.s-pass,.s-same{background:var(--pass)}.s-fail,.s-changed,.s-error{background:var(--fail)}.s-skip,.s-no-snapshot,.s-unpublished,.s-own-bundle,.s-refused{background:var(--warn)}
+.s-pass,.s-same{background:var(--pass)}.s-fail,.s-changed,.s-error{background:var(--fail)}.s-skip,.s-no-snapshot,.s-unpublished,.s-own-bundle,.s-refused,.s-unplayable{background:var(--warn)}
 .verdict{font-size:20px;font-weight:700}.imgs{display:flex;gap:8px;flex-wrap:wrap}figure{margin:0;flex:1 1 300px}img{width:100%;border:1px solid var(--line)}
 small,.tol{color:var(--muted)}code{word-break:break-all}details{margin:12px 0}
 </style></head><body>

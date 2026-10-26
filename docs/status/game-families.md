@@ -164,8 +164,7 @@ in one PR.
     restarted is one round);
   - the validation messages and the config's UI wording.
 - **Not done here:** the Salmons art (owner follow-up: swap it in when S0 lands; this build read no
-  R2); touch / pointer steering (the `pointer` controller, P10.11); a current-games fixture for the
-  sample (it would edit the harness); `/flow-v2` Preview running the loop; solid response, behaviours
+  R2); touch / pointer steering (the `pointer` controller, P10.11); `/flow-v2` Preview running the loop; solid response, behaviours
   and the camera (P10.11–P10.13).
 - **Known limits** (none reachable by a slot game):
   - with no `arcade.field` (the seed names none) the field is the current layout's design size,
