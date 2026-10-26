@@ -27,11 +27,10 @@ export function addressKey(address: string): string {
 		.join(':')}::/64`;
 }
 
-/** Open sockets plus held seats, by address key; and the held seats alone. One process holds
- *  one book. */
+/** Open sockets plus held seats, by address key. One process holds one book. */
 const holding = new Map<string, number>();
-/** Held seats' reconnection tokens (the raw token a reconnecting device's URL carries) → address. */
-const tokens = new Map<string, string>();
+/** Held seats by their reconnection token (the raw token a reconnecting device's URL carries). */
+const tokens = new Map<string, { address: string; sessionId: string }>();
 
 /** Where each accepted upgrade came from, for the socket it becomes. */
 const requestAddress = new WeakMap<object, string>();
@@ -52,22 +51,29 @@ export const hold = (address: string): void => add(holding, address, 1);
 /** … and one fewer. */
 export const release = (address: string): void => add(holding, address, -1);
 
-/** Count a seat held for `address`'s dropped player, waiting for `token`, until it is reclaimed or
- *  let go. */
-export const holdSeat = (address: string, token: string): void => {
+/** Count a seat held for `address`'s dropped player (`sessionId`), waiting for `token`, until it
+ *  is reclaimed or let go. */
+export const holdSeat = (address: string, sessionId: string, token: string): void => {
 	add(holding, address, 1);
-	tokens.set(token, address);
+	tokens.set(token, { address, sessionId });
 };
 
 /** The held seat is reclaimed or let go. */
 export const releaseSeat = (address: string, token: string): void => {
 	add(holding, address, -1);
-	if (tokens.get(token) === address) tokens.delete(token);
+	if (tokens.get(token)?.address === address) tokens.delete(token);
 };
 
-/** Whether `token` reclaims a seat held for `address` (and so may pass its full cap, once). */
-export const reclaims = (address: string, token: string | null): boolean =>
-	token !== null && tokens.get(token) === address;
+/** Whether a socket for `sessionId` carrying `token` reclaims a seat held for `address` (and so may
+ *  pass its full cap by one): the token, the address and the session must all be the held seat's. */
+export const reclaims = (
+	address: string,
+	sessionId: string | null,
+	token: string | null,
+): boolean => {
+	const held = token === null ? undefined : tokens.get(token);
+	return held !== undefined && held.address === address && held.sessionId === sessionId;
+};
 
 /** Remember an accepted upgrade's address (`server.ts`) … */
 export const noteRequest = (req: object, address: string): void => {

@@ -79,8 +79,8 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   dropped (a graceful close otherwise goes on parsing for 30 s); a WebSocket is served only for a
   room seat (`/<process>/<room>?sessionId=…`; Colyseus' latency utility, which answers every
   frame, is not); one address holds at most 16 WebSockets and seats held for its dropped players
-  to rejoin, counted together (`addresses.ts`) — the one socket whose reconnection token a seat
-  held for that address waits for may pass the cap by one, so a full address can still rejoin its
+  to rejoin, counted together (`addresses.ts`) — the one socket that reclaims a seat held for that
+  address (its token, its address and its session) may pass the cap by one, so a full address can still rejoin its
   own dropped player, and any other token gets nothing — and opens at most 60
   a window, refused attempts included; an online room holds at least 2 players;
   an IPv6 /64 counts as one address; the entry point logs an unhandled rejection instead of exiting; Colyseus'
@@ -153,7 +153,7 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
     attempt is refused; 16 joined-then-dropped seats leave their address no room for a 17th; a
     flood of WebSocket ping frames, and one of pong frames, ends its socket; an address at its 16
     still reconnects its own dropped player while a new join, and a fresh seat claimed with a bogus
-    reconnection token, are refused; 200 PINGs from a joined device end its socket; room size and character max;
+    reconnection token or with the held seat's own token, are refused; 200 PINGs from a joined device end its socket; room size and character max;
     a drop keeps the place and `reconnect(token)` resumes it; the grace expiring; a flood of inputs
     past the message limit disconnects; `maxRooms`. `family.fixture.ts` §4c covers the config block.
 - **Verified by playing:** `scripts/playtest/online-play.mjs` on the branch runtime, two headless
@@ -222,6 +222,9 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   - the slow-reader cut-off (256 KB unsent) is **not covered by any gate or repro**: on loopback the
     kernel's buffers absorb a minute of patches before `bufferedAmount` rises; it is verified by
     reading ws (`bufferedAmount` = the socket's queued bytes + the sender's) only;
+  - a reconnect that reaches the server before it has seen the old socket close (a network switch)
+    finds no held seat yet, so an address at its cap is refused until the drop is noticed; the
+    SDK's retry backoff then gets in;
   - per-address limits stop one address, not many: one address holds at most 16 seats, so with
     2-player rooms about 4 addresses (or IPv6 /64s) can fill a 50-room process. Size
     `GAME_SERVER_MAX_ROOMS` to the hardware (P10.16's load test) and put a proxy limit in front if

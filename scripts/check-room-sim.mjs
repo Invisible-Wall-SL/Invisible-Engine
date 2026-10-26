@@ -990,6 +990,16 @@ try {
 			clientOf().consumeSeatReservation({ ...fresh, reconnectionToken: 'bogus' }),
 			'a bogus token does not lift the cap',
 		);
+		// …nor does the held seat's own token on another seat: only its own session reclaims it.
+		const other = await fetch(`http://127.0.0.1:${port}/matchmake/joinById/${room.roomId}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: '{}',
+		}).then((r) => r.json());
+		await assert.rejects(
+			clientOf().consumeSeatReservation({ ...other, reconnectionToken: token.split(':')[1] }),
+			'a real token on a fresh seat does not lift the cap',
+		);
 		assert.equal(heldBy('127.0.0.1'), 16);
 		const back = noAutoReconnect(await clientOf().reconnect(token));
 		assert.equal(back.sessionId, dropper.sessionId);

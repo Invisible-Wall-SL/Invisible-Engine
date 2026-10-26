@@ -125,7 +125,7 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			const address = addressOfSocket(client.ref);
 			// Read now: a reconnect hands the client the replacement's token.
 			const token = client.reconnectionToken;
-			if (address !== undefined) holdSeat(address, token);
+			if (address !== undefined) holdSeat(address, client.sessionId, token);
 			const settled = () => {
 				if (address !== undefined) releaseSeat(address, token);
 			};
