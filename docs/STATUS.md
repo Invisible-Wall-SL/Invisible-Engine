@@ -50,6 +50,7 @@ change piled back into one file. See [`docs/status/README.md`](status/README.md)
 | **Invisible Shader Graph** (planned 2026-10-23; steps 1–7 merged: the shared GLSL library #1320, the graph package #1322, the runtime (custom Element FX kinds) #1328, the pipeline (storage, Publish and the bake, the game's boot, the pickers) #1329, the `/shaders` editor #1330, the templates (graph twins of 30 built-ins under a parity gate, "Start from a built-in") #1333, editor v2 (subgraphs, node thumbnails, cost chips, publishing to the studio library) #1340; step 8 split into 8a–8e: 8a (the motion graph: a CPU-evaluated graph driving the element's motion and room; every twin now matches its built-in exactly) merged #1342; 8b (Break as an output node: an effect ends by breaking the element with one of the six breaks, from what the graph draws) merged #1347; 8c (the admin-only Custom GLSL node, behind the `shaderCustomGlsl` capability) merged #1349; 8d (particle materials: a graph as the material an `/fx` emitter layer's particles draw with, [design](design/shader-graph-particles.md)) decided and built as 8d.1–8d.8: 8d.1 (the particle shell and the Particle node) merged #1354, 8d.2 (the material renderer) merged #1366, 8d.3 (the material in the game) next) | [status/shader-graph](status/shader-graph.md) | [design/invisible-shader-graph](design/invisible-shader-graph.md) | [tools/shader-graph](tools/shader-graph.md) | `invisible-shader-graph` |
 | **Bug Reports** — Invisible Pipeline Bug Reports (`/bugs`) + Invisible Game Bug Reports (`/game-bugs`, per project), one set of modules (built 2026-10-26, not browser-verified) | [status/bug-reports](status/bug-reports.md) | — | [tools/pipeline-bugs](tools/pipeline-bugs.md) · [tools/game-bugs](tools/game-bugs.md) | `launcher-studio` |
 | **Invisible Playtester** (automated QA) | [status/playtester](status/playtester.md) | [design/invisible-playtester](design/invisible-playtester.md) | [playtest/](playtest/README.md) | `game-playtester` |
+| **Salmons** (the arcade reference project: the art pass S0, then the P10.16 rebuild) | [status/salmons](status/salmons.md) | [design/game-families §1](design/game-families.md#reference-project-salmons-owner-2026-10-22) | — | `atlas-python-tools`, `invisible-flipbook`, then per phase |
 | **Invisible Director** + **Invisible Pipeline Changes** (planned; Phase 0 approved 2026-10-04, Phase 1 in progress) | [director/PLAN](director/PLAN.md) | [director/SPEC](director/SPEC.md) · [ADRs](director/DECISIONS/) | [tools/director](tools/director.md) · [tools/pipeline-changes](tools/pipeline-changes.md) | `director-*`, `platform-integrator`, `regression-guardian` |
 | **Infra** (Railway/CF/R2) | [status/infra](status/infra.md) | — | [INFRA.md](INFRA.md) | `infra-railway` |
 
@@ -188,6 +189,10 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
   ([status/rigger](status/rigger.md))
 - **Model licences for shipped art** — decide the switches in the recommendation table; every
   built-in image default is non-commercial as wired today. ([reference/model-licences](reference/model-licences.md))
+- **Salmons' art pass (S0)** — approved and its choices made 2026-10-26. Left for a person in the
+  launcher: generate the 22 character clips (the recipes are in the Salmon repository's
+  `docs/art-pass.md`), and turn `salmons` into an arcade project in `/admin`.
+  ([status/salmons](status/salmons.md))
 - **Partner replay check** — run [the checks owed on the live
   node](reference/play4fun-protocol.md#checks-owed-on-the-live-node). ([status/engine](status/engine.md))
 - **Delete the old flat `_runtime/lines/**`** once satisfied the versioned pointer is permanent.
