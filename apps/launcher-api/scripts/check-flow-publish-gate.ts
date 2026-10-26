@@ -54,11 +54,19 @@
  *    the pinned interface lacks (`instance-pin-missing`), a node naming an instance the screen does
  *    not place (`instance-missing`) and a wait for a state the layer never enters
  *    (`instance-state-unknown`) are refused. Detail: `check:flow-instance-nodes`.
+ * 15. **A flow left from a kind change is refused, with no override** (`flowGateRefusal`): the
+ *    2026-10-26 `salmons` case, an arcade project still carrying its Book-of flow, which validates
+ *    clean against its own vocabulary, is refused as `flow-wrong-kind` even with `allowInvalidFlow`.
+ *    The kind's own flow passes, and so does a slot flow in another slot kind — a `lines` project on
+ *    the Book-of seed by design, a cluster / scatter / Hold and Win project scaffolded before its
+ *    own seed existed. `flowTemplateMismatch` never fires on a custom kind, an unknown template or
+ *    none.
  */
 import { GAME_KINDS, SLOT_GAME_KINDS, familyOfKind } from 'constants-shared/gameKinds';
 import {
 	BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS,
 	DRIVEN_SEEDS,
+	flowTemplateMismatch,
 	freshDrivenSeedDoc,
 	graftAddOnSteps,
 	HOLD_AND_WIN_DRIVEN_SEED_DOC,
@@ -99,7 +107,12 @@ import {
 } from 'game-config';
 
 import { gameConfigDefaultFor } from '../src/lib/server/gameConfigDefaults';
-import { flowScreensMissing, validateFlowV2Against } from '../src/lib/server/flowV2Validation';
+import {
+	flowGateRefusal,
+	flowScreensMissing,
+	validateFlowV2Against,
+	type FlowPublishCheck,
+} from '../src/lib/server/flowV2Validation';
 import { addExecEdgeIn } from '../src/routes/(app)/flow-v2/graphOps';
 
 let fails = 0;
@@ -877,6 +890,97 @@ check(
 	check(
 		'14. a wait for a state the layer never enters is refused',
 		codes(withNodes([wait], [])).includes('instance-state-unknown'),
+	);
+}
+
+{
+	check('15. a custom kind never mismatches', !flowTemplateMismatch('bookOf', 'myCustomKind'));
+	check(
+		'15. an unknown template never mismatches',
+		!flowTemplateMismatch('notATemplate', 'arcade'),
+	);
+	check('15. no template never mismatches', !flowTemplateMismatch('', 'arcade'));
+	check(
+		'15. a Book-of flow in an arcade project mismatches',
+		flowTemplateMismatch('bookOf', 'arcade'),
+	);
+	check(
+		'15. a lines project on the Book-of seed matches',
+		!flowTemplateMismatch('bookOf', 'lines'),
+	);
+
+	// The verdict the stored-flow gate reaches on a project's flow, against the scenes it was built
+	// for (an `/admin` kind change rewrites neither the flow nor the scenes).
+	const verdictOf = (templateKind: string): FlowPublishCheck => {
+		const doc = freshDrivenSeedDoc(templateKind);
+		const errors = validateFlowV2Against(
+			doc,
+			engineOwnedOnly(getFullSceneSet(templateKind)!).scenes,
+			null,
+			EMPTY_LIBRARY,
+			templateKind === 'arcade' ? ARCADE_SAMPLE_COMPONENTS : [],
+			undefined,
+			[],
+			resolveOutcome(gameConfigDefaultFor(templateKind)),
+		).filter((i) => i.severity === 'error');
+		return errors.length
+			? { status: 'invalid', templateId: doc.templateId, errors }
+			: { status: 'valid', templateId: doc.templateId };
+	};
+	const salmons = verdictOf('bookOf');
+	check(
+		'15. the left-over Book-of flow validates clean on its own vocabulary',
+		salmons.status === 'valid',
+	);
+	const refused = flowGateRefusal(salmons, 'arcade');
+	check(
+		'15. an arcade project with a Book-of flow is refused as flow-wrong-kind',
+		refused?.reason === 'flow-wrong-kind' &&
+			refused.message.includes('"arcade"') &&
+			refused.message.includes('"bookOf"') &&
+			refused.message.includes('/admin'),
+		JSON.stringify(refused),
+	);
+	check(
+		'15. allowInvalidFlow does not override flow-wrong-kind',
+		flowGateRefusal(salmons, 'arcade', true)?.reason === 'flow-wrong-kind',
+	);
+	const brokenSalmons: FlowPublishCheck = {
+		status: 'invalid',
+		templateId: 'bookOf',
+		errors: [{ severity: 'error', code: 'exec-out-fanout', message: 'x' } as FlowIssue],
+	};
+	check(
+		'15. a wrong-kind flow that is also invalid is refused as flow-wrong-kind, override or not',
+		flowGateRefusal(brokenSalmons, 'arcade')?.reason === 'flow-wrong-kind' &&
+			flowGateRefusal(brokenSalmons, 'arcade', true)?.reason === 'flow-wrong-kind',
+	);
+	check(
+		'15. a slot project carrying the arcade flow is refused too',
+		flowGateRefusal(verdictOf('arcade'), 'bookOf', true)?.reason === 'flow-wrong-kind',
+	);
+	check(
+		'15. an arcade project on the arcade flow passes',
+		flowGateRefusal(verdictOf('arcade'), 'arcade') === null,
+	);
+	check(
+		'15. a lines project on the Book-of flow passes',
+		flowGateRefusal(salmons, 'lines') === null,
+	);
+	for (const legacy of ['cluster', 'scatter', 'holdAndWin']) {
+		check(
+			`15. a ${legacy} project still on the Book-of flow passes (pre-seed scaffold)`,
+			flowGateRefusal(salmons, legacy) === null,
+		);
+	}
+	check(
+		'15. an invalid flow of the right kind is still invalid-flow, and overridable',
+		flowGateRefusal({ ...brokenSalmons }, 'lines')?.reason === 'invalid-flow' &&
+			flowGateRefusal(brokenSalmons, 'lines', true) === null,
+	);
+	check(
+		'15. no flow is never refused',
+		flowGateRefusal({ status: 'absent' }, 'arcade', false) === null,
 	);
 }
 

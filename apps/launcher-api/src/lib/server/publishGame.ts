@@ -24,8 +24,8 @@ import {
 	checkFlowV2ForPublish,
 	checkShippedFlowV2,
 	describeFlowErrors,
+	flowGateRefusal,
 	flowScreensMissing,
-	invalidFlowMessage,
 	type FlowPublishCheck,
 } from './flowV2Validation';
 import { createGame, gameExists, renameGame, setGameProject, setGameUrl } from './games';
@@ -91,12 +91,14 @@ export class PublishBlockedError extends Error {
 	constructor(
 		message: string,
 		/** What blocked it, for a UI that can offer a way through. `own-bundle` never can — it would
-		 *  clobber a real game — and neither can `unplayable-family`, a game the runtime cannot play;
+		 *  clobber a real game — and neither can `unplayable-family` or `flow-wrong-kind` (a flow left
+		 *  from a kind change), a game the runtime cannot play;
 		 *  `unapproved-sounds`, `invalid-flow` and `paytable-drift` are deliberate-override cases (the
 		 *  last two for the owner role only; see the publish endpoint). */
 		readonly reason:
 			| 'own-bundle'
 			| 'unplayable-family'
+			| 'flow-wrong-kind'
 			| 'unapproved-sounds'
 			| 'invalid-flow'
 			| 'paytable-drift' = 'own-bundle',
@@ -148,18 +150,15 @@ function runtimeFor(_gameType: string): string {
 	return SHARED_RUNTIME_ID;
 }
 
-/** The flow gate's refusal for a verdict, unless overridden. */
+/** The flow gate's refusal for a verdict on a project of kind `gameType` (`flowGateRefusal`). */
 const flowRefusal = (
 	check: FlowPublishCheck,
+	gameType: string,
 	allowInvalidFlow?: boolean,
-): PublishBlockedError | null =>
-	check.status !== 'invalid' || allowInvalidFlow
-		? null
-		: new PublishBlockedError(
-				invalidFlowMessage(check.errors),
-				'invalid-flow',
-				describeFlowErrors(check.errors),
-			);
+): PublishBlockedError | null => {
+	const refusal = flowGateRefusal(check, gameType, allowInvalidFlow);
+	return refusal && new PublishBlockedError(refusal.message, refusal.reason, refusal.details);
+};
 
 type GateOptions = {
 	allowUnapproved?: boolean;
@@ -177,6 +176,7 @@ async function runPublishGates(
 	clientKey: string,
 	projectKey: string,
 	name: string,
+	gameType: string,
 	options: GateOptions,
 ): Promise<{ refusal: PublishBlockedError } | { refusal: null; soundCheck: SoundPublishCheck }> {
 	// GUARD: never clobber a game that has its OWN built bundle. Desktop-launcher
@@ -216,9 +216,12 @@ async function runPublishGates(
 	// advisory — so an error there (a hold nothing releases, a dead second wire, an unresolved ref)
 	// would otherwise reach players as a hung or silently skipped round. Checked here on the STORED
 	// flow so a refusal is instant, and again on the flow the snapshot actually freezes — an
-	// autosave during the assemble must not slip past the gate into a player's game.
+	// autosave during the assemble must not slip past the gate into a player's game. A flow of
+	// another family than the project's kind (left from an `/admin` kind change) is refused with no
+	// override.
 	const flow = flowRefusal(
 		await checkFlowV2ForPublish(clientKey, projectKey, options.config),
+		gameType,
 		options.allowInvalidFlow,
 	);
 	if (flow) return { refusal: flow };
@@ -255,7 +258,8 @@ export async function publishGateRefusal(
 ): Promise<PublishBlockedError | null> {
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 	const name = (await projectName(projectKey)) ?? projectKey;
-	return (await runPublishGates(clientKey, projectKey, name, options)).refusal;
+	const gameType = await projectGameType(projectKey);
+	return (await runPublishGates(clientKey, projectKey, name, gameType, options)).refusal;
 }
 
 /**
@@ -277,11 +281,11 @@ export async function publishGame(
 	const name = (await projectName(projectKey)) ?? projectKey;
 	const key = projectKey;
 
-	const gates = await runPublishGates(clientKey, projectKey, name, options);
+	const gates = await runPublishGates(clientKey, projectKey, name, gameType, options);
 	if (gates.refusal) throw gates.refusal;
 	const { soundCheck } = gates;
 	const refuseFlow = (check: FlowPublishCheck) => {
-		const refusal = flowRefusal(check, options.allowInvalidFlow);
+		const refusal = flowRefusal(check, gameType, options.allowInvalidFlow);
 		if (refusal) throw refusal;
 	};
 
