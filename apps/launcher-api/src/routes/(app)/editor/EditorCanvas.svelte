@@ -55,6 +55,7 @@
 		type PlacementGeometry,
 		type ResolvedPreviewArt,
 		type ResolvedTransform,
+		type SliceMode,
 		type Scene,
 	} from 'engine-layout';
 	import type { EffectParamValues } from 'engine-fx';
@@ -124,6 +125,13 @@
 		clearArtBoundsCache,
 		loadArtBounds,
 	} from './editorArtBounds.client.svelte';
+	import {
+		artSliceOf,
+		artSlicesVersion,
+		clearArtSlicesCache,
+		loadArtSlices,
+	} from './editorArtSlices.client.svelte';
+	import { drawNineSlice } from './nineSliceDraw';
 	import {
 		onionPreview,
 		onionResolveTransform,
@@ -1479,6 +1487,8 @@
 		// A box authored in another tab is exactly as stale as a re-packed atlas.
 		clearArtBoundsCache();
 		void loadArtBounds();
+		clearArtSlicesCache();
+		void loadArtSlices();
 		// Drop the cross-atlas name→manifest map too, else a name-resolved sprite keeps
 		// pointing at the manifest the previous scan locked onto — Reload art would do
 		// nothing for it. Cleared + flagged for rebuild on the next draw().
@@ -1675,6 +1685,8 @@
 	// The project's authored region boxes, fetched once per page load. Absent/forbidden ⇒ an empty
 	// map ⇒ every region draws on its own packed rect, exactly as before (parity).
 	void loadArtBounds();
+	// The project's 9-slice insets — the same per-region art data, the same degradation.
+	void loadArtSlices();
 
 	/**
 	 * Wall-clock ms driving in-place clip PLAYBACK. Unlike an effect (a WebGL emitter the 2D canvas
@@ -1853,6 +1865,8 @@
 		if (node.kind === 'sprite' && node.region) {
 			const found = findRegion(node.assetKey, node.region);
 			if (!found) return null;
+			// A sliced sprite draws its packed art (`drawSlicedRegion`), so it frames that.
+			if (node.slice) return { w: found.region.w, h: found.region.h };
 			// A boxed region sizes by its BOX — which is the point of declaring one: the selection
 			// frame, the resize handles and a cover-fit all stop tracking the packer's rect.
 			const boxed = artBoxGeometry(found.set.assetKey, found.region.name, found.region);
@@ -3693,6 +3707,7 @@
 	): void {
 		const assetKey = assetKeyOverride ?? node.assetKey;
 		const region = regionOverride ?? node.region ?? '';
+		if (node.slice && drawSlicedRegion(ctx, node.slice, assetKey, region, t, tint)) return;
 		drawArtRegionSprite(
 			ctx,
 			assetKey,
@@ -3701,6 +3716,60 @@
 			node.label,
 			tint,
 		);
+	}
+
+	const NO_SLICE = { left: 0, top: 0, right: 0, bottom: 0 };
+
+	/** Scratch canvas a TINTED slice is composed on before `drawTintedImage` multiplies it. */
+	let sliceScratch: HTMLCanvasElement | null = null;
+
+	/**
+	 * A `slice` sprite, as the game's `SlicedSprite` draws it: the region's packed art (never its
+	 * Art bounds or trim box), sliced by its insets into the DISPLAYED box (`width·scale`, the size
+	 * the game folds scale into), then divided back by the scale this context already carries, so
+	 * corners keep their art size whatever the node's scale. False until the region and its page
+	 * resolve; the caller then draws the usual placeholder.
+	 */
+	function drawSlicedRegion(
+		ctx: CanvasRenderingContext2D,
+		mode: SliceMode,
+		assetKey: string,
+		regionName: string,
+		t: ResolvedTransform,
+		tint?: number,
+	): boolean {
+		const found = regionName ? findRegion(assetKey, regionName) : null;
+		if (!found || !found.set.pageKey) return false;
+		const img = ensureImage(found.set.pageKey);
+		if (!img || !img.complete || img.naturalWidth === 0) return false;
+		const { region } = found;
+		const sx = t.scale?.x ?? 1;
+		const sy = t.scale?.y ?? 1;
+		const w = (t.width ?? region.w) * sx;
+		const h = (t.height ?? region.h) * sy;
+		if (!(w > 0) || !(h > 0)) return true;
+		const insets = artSliceOf(found.set.assetKey, region.name) ?? NO_SLICE;
+		const ax = t.anchor?.x ?? 0;
+		const ay = t.anchor?.y ?? 0;
+		ctx.save();
+		ctx.scale(1 / sx, 1 / sy);
+		ctx.translate(-w * ax, -h * ay);
+		if (tint === undefined || tint === 0xffffff) {
+			drawNineSlice(ctx, img, region, insets, w, h, mode);
+		} else {
+			if (!sliceScratch) sliceScratch = document.createElement('canvas');
+			sliceScratch.width = Math.max(1, Math.ceil(w));
+			sliceScratch.height = Math.max(1, Math.ceil(h));
+			const sctx = sliceScratch.getContext('2d');
+			if (sctx) {
+				drawNineSlice(sctx, img, region, insets, w, h, mode);
+				const cw = sliceScratch.width;
+				const ch = sliceScratch.height;
+				drawTintedImage(ctx, sliceScratch, 0, 0, cw, ch, 0, 0, cw, ch, tint);
+			}
+		}
+		ctx.restore();
+		return true;
 	}
 
 	/**
@@ -5342,6 +5411,7 @@
 		// non-reactive map for the same reason `clipsById` does (`draw()` reads it, and several
 		// effects call `draw()` synchronously).
 		void artBoundsVersion();
+		void artSlicesVersion();
 		schedule();
 	});
 

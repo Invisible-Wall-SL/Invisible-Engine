@@ -26,7 +26,8 @@
 		"shader-compile": "node shaderCompile.mjs",
 		"shader-parity": "node shaderParity.mjs",
 		"shader-twins": "node shaderTwins.mjs",
-		"shader-motion": "node shaderMotion.mjs"
+		"shader-motion": "node shaderMotion.mjs",
+		"nine-slice-parity": "node nineSliceParity.mjs"
 	},
 	"devDependencies": {
 		"tsx": "4.23.15",
