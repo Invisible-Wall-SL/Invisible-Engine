@@ -108,8 +108,8 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
   to chase; a catch costs a life and resets both; no RGS request; no page error; the same seeds and
   keys replay. On the same build P10.8's `arcade-play.mjs` 14 / 14 and P10.12's
   `arcade-camera-play.mjs` 12 / 12.
-- **Bundle size** (the release build's `index.html`; `main` at 0a547a4 vs this branch): 3,705,095 B /
-  1,268,415 B gz → 3,729,627 B / 1,277,484 B gz: **+24.0 KB raw, +8.9 KB gz (+0.71 %)**, downloaded
+- **Bundle size** (the release build's `index.html`; `main` at 894746e, with P10.12, vs this branch): 3,714,155
+  B / 1,271,536 B gz → 3,738,757 B / 1,280,876 B gz: **+24.0 KB raw, +9.1 KB gz (+0.73 %)**, downloaded
   by every game, run only by an arcade game with characters. Static, as before; the per-family runtime
   build is the later fix.
 - **Slot parity:** every runtime path is keyed on the config having characters. Edited shared modules:
