@@ -8,7 +8,12 @@
  * returns to rest at the end of a play (`t = 1`), except the `exit` kinds, which end hidden.
  */
 
-import type { ElementFxKind } from 'constants-shared/elementFx';
+import type {
+	ElementFxBreakKind,
+	ElementFxKind,
+	ElementFxParamValue,
+} from 'constants-shared/elementFx';
+import { efxSide } from 'constants-shared/glslLibrary';
 import { BlurFilter, ColorMatrixFilter, type Filter } from 'pixi.js';
 import {
 	GlitchFilter,
@@ -71,17 +76,43 @@ export interface FilterImpl<F extends Filter> {
 	padding?(frame: FxFrame, view: FilterView): number;
 }
 
-export type BreakStyle = 'crash' | 'crumble' | 'glass' | 'dust';
+export type BreakStyle = 'crash' | 'crumble' | 'glass' | 'ice' | 'dust';
 
 export interface KindImpl {
 	motion?(frame: FxFrame): Partial<Motion>;
 	filter?: FilterImpl<Filter>;
+	/** Several passes, drawn in order (a custom kind: its graph, then its built-in passes). */
+	filters?: readonly FilterImpl<Filter>[];
 	breaks?: BreakStyle;
 	/** The break plays backwards: the pieces fly in and become the element (an entrance). */
 	reversed?: boolean;
+	/** The break shows the LIVE element: its pieces are redrawn from it every frame and follow it as
+	 *  it moves and resizes, so an element a timeline animates keeps animating under them. */
+	live?: boolean;
+	/** A custom effect's break (Shader Graph's Break Output), played over part of the play. */
+	breakWindow?: BreakWindow;
 }
 
-const filterImpl = <F extends Filter>(impl: FilterImpl<F>): FilterImpl<Filter> =>
+/**
+ * A built-in break a custom effect plays over a window of its play, [from, to]: forward, from where
+ * its graph meets it (`edge`) to the end; reversed (`assemble`), from the start to `edge`. While the
+ * break plays, the effect's passes and motion are held at `edge`.
+ */
+export interface BreakWindow {
+	kind: ElementFxBreakKind;
+	style: BreakStyle;
+	reversed: boolean;
+	live: boolean;
+	from: number;
+	to: number;
+	edge: number;
+	/** The break's params for a play's own (each play's worked out once). */
+	params(
+		effectParams: Readonly<Record<string, ElementFxParamValue>>,
+	): Record<string, ElementFxParamValue>;
+}
+
+export const filterImpl = <F extends Filter>(impl: FilterImpl<F>): FilterImpl<Filter> =>
 	impl as unknown as FilterImpl<Filter>;
 
 /** Rest-to-rest strength curve with zero slope at both ends, so a repeat has no kink. */
@@ -204,9 +235,6 @@ const meltImpl = (): KindImpl => {
 	};
 };
 
-/** Where a freeze's frost creeps in from, as the shader's `from`. */
-const FREEZE_FROM = ['edges', 'center', 'top', 'bottom'];
-
 /**
  * The share of a held play (freeze, petrify, gold) spent setting in, and as long again letting go;
  * between, it holds.
@@ -246,7 +274,7 @@ const freezeImpl = (): KindImpl => {
 					holdCoverage(frame),
 					num(frame, 'crystals'),
 					seeds.get(filter) ?? 0,
-					Math.max(0, FREEZE_FROM.indexOf(str(frame, 'from'))),
+					efxSide(str(frame, 'from'), 'edges'),
 				);
 				filter.set('uIce', ...rgb(str(frame, 'color')));
 				const glint =
@@ -258,9 +286,6 @@ const freezeImpl = (): KindImpl => {
 		}),
 	};
 };
-
-/** Where a petrify's stone creeps in from, as the shader's `from`. */
-const PETRIFY_FROM = ['bottom', 'top', 'edges', 'center'];
 
 /**
  * Petrify: the stone runs as a shader pass, flaking off at an even pace so each chip reads; the
@@ -289,7 +314,7 @@ const petrifyImpl = (): KindImpl => {
 					coverage,
 					num(frame, 'grain'),
 					seeds.get(filter) ?? 0,
-					Math.max(0, PETRIFY_FROM.indexOf(str(frame, 'from'))),
+					efxSide(str(frame, 'from'), 'bottom'),
 				);
 				filter.set('uRock', ...rgb(str(frame, 'color')), Math.min(1, frame.intensity));
 				filter.set('uChip', flaked, flaked > 0 || coverage >= 1 ? 0 : 0.6);
@@ -297,9 +322,6 @@ const petrifyImpl = (): KindImpl => {
 		}),
 	};
 };
-
-/** Where the gold spreads from, as the shader's `from`. */
-const GOLD_FROM = ['center', 'bottom', 'top', 'edges'];
 
 /**
  * Turn to gold: the metal runs as a shader pass; the element rings with a small swell as the gold
@@ -327,7 +349,7 @@ const goldImpl = (): KindImpl => {
 					'uGold',
 					holdCoverage(frame),
 					seeds.get(filter) ?? 0,
-					Math.max(0, GOLD_FROM.indexOf(str(frame, 'from'))),
+					efxSide(str(frame, 'from'), 'center'),
 					frame.seconds,
 				);
 				filter.set('uMetal', ...rgb(str(frame, 'color')), Math.min(1, frame.intensity));
@@ -340,9 +362,6 @@ const goldImpl = (): KindImpl => {
 		}),
 	};
 };
-
-/** Where a burn starts, as the shader's `from`. */
-const BURN_FROM = ['bottom', 'top', 'edges', 'center', 'left', 'right'];
 
 /** Where a burn's front is at `t`: just short of the element at the start, past every ash by the
  *  end (the farthest point is 1 away and its ash is gone 0.65 behind the front). */
@@ -365,7 +384,7 @@ const burnImpl = (): KindImpl => {
 					burnFront(frame.t),
 					num(frame, 'grain'),
 					seeds.get(filter) ?? 0,
-					Math.max(0, BURN_FROM.indexOf(str(frame, 'from'))),
+					efxSide(str(frame, 'from'), 'bottom'),
 				);
 				filter.set('uFlame', ...rgb(str(frame, 'color')), frame.seconds);
 				filter.set('uAsh', ...rgb(str(frame, 'ash')), flag(frame, 'sparks') ? 1 : 0);
@@ -869,6 +888,7 @@ export const KINDS: Record<ElementFxKind, KindImpl> = {
 	crash: { breaks: 'crash' },
 	crumble: { breaks: 'crumble' },
 	shatter: { breaks: 'glass' },
+	crystallize: { breaks: 'ice' },
 	disintegrate: { breaks: 'dust' },
-	assemble: { breaks: 'dust', reversed: true },
+	assemble: { breaks: 'dust', reversed: true, live: true },
 };

@@ -474,6 +474,17 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinCounterAward',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'left',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'respinCounterUpdate',
 				group: 'Hold and Win',
 				fields: [
@@ -1578,6 +1589,18 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'modeExit',
+			},
+			{
+				type: 'boardInit',
+			},
+			{
+				type: 'swap',
+			},
+			{
+				type: 'movesLeft',
+			},
+			{
+				type: 'match3RoundEnd',
 			},
 		],
 	},
@@ -2039,6 +2062,17 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinCounterAward',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'left',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'respinCounterUpdate',
 				group: 'Hold and Win',
 				fields: [
@@ -3143,6 +3177,18 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'modeExit',
+			},
+			{
+				type: 'boardInit',
+			},
+			{
+				type: 'swap',
+			},
+			{
+				type: 'movesLeft',
+			},
+			{
+				type: 'match3RoundEnd',
 			},
 		],
 	},
@@ -3604,6 +3650,17 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinCounterAward',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'left',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'respinCounterUpdate',
 				group: 'Hold and Win',
 				fields: [
@@ -4708,6 +4765,18 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'modeExit',
+			},
+			{
+				type: 'boardInit',
+			},
+			{
+				type: 'swap',
+			},
+			{
+				type: 'movesLeft',
+			},
+			{
+				type: 'match3RoundEnd',
 			},
 		],
 	},
@@ -5169,6 +5238,17 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'respinCounterAward',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'left',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'respinCounterUpdate',
 				group: 'Hold and Win',
 				fields: [
@@ -6273,6 +6353,18 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'modeExit',
+			},
+			{
+				type: 'boardInit',
+			},
+			{
+				type: 'swap',
+			},
+			{
+				type: 'movesLeft',
+			},
+			{
+				type: 'match3RoundEnd',
 			},
 		],
 	},

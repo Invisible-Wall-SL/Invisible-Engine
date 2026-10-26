@@ -131,9 +131,10 @@ and `lib/republish.mjs` (the TypeScript half, run under the TS loader).
 ## Screen scripts
 
 `scripts/current-games/screens/<gameType>.json` holds one file per game type: `lines`, `ways`,
-`cluster`, `scatter`, `bookOf` and `holdAndWin`. A custom kind uses its mock protocol's script,
-which is `lines`. The screens per file: `lines` 17; `bookOf` 15, 17 with the pots overlay; `ways`,
-`cluster` and `scatter` 14; `holdAndWin` 11–14 (the pots and multiplier scenarios run only where
+`cluster`, `scatter`, `bookOf`, `holdAndWin` and `match3`. A custom kind uses its mock protocol's
+script, which is `lines`. The screens per file: `lines` 17; `bookOf` 15, 17 with the pots overlay;
+`ways`, `cluster` and `scatter` 14; `match3` 5 (scripted swipes, no forced books: a rules-decided
+game has none; [match3-sample.md](match3-sample.md)); `holdAndWin` 11–14 (the pots and multiplier scenarios run only where
 the game has them). A scenario is data: the mock env it starts with (`SEED`, `FORCE_TRIGGER`,
 `WIN_X`), optional extra page-URL `query` params (added only for a stand-in game, one the fixtures
 write with `standIn: true`, never for a live game; the harness's own params always win), and a
@@ -142,7 +143,7 @@ list of steps. The ops are listed at the top of
 
 | Op | What it does |
 |---|---|
-| `waitFor` | Waits for a state the page reports: `screen`, `inSet`, `idle`, `loaded`, `playerIn` or `winLevel`. |
+| `waitFor` | Waits for a state the page reports: `screen`, `inSet`, `idle`, `loaded`, `playerIn`, `winLevel` or `boardBusy` (a match-3 board is playing a move). |
 | `until` | The same, checked by the harness, with `winAbove`, `winLevelIn`, `cue` and `anyOf` as well. `cue` waits for a Flow v2 cue the probe records after the op starts and anchors on the frame the cue fired on. |
 | `step` | Runs N frames. With `from: 'cue'`, runs to the last `cue` anchor + N, and fails if that frame has already passed. |
 | `space` | Taps Space for two frames. |
@@ -150,6 +151,8 @@ list of steps. The ops are listed at the top of
 | `force` | Holds a forced beat for the next round. `{path}` is filled from the game's own contract, for example `pot:{grid.potsOverlay.pots.0.id}`. |
 | `settle` | Steps until idle, tapping past any hold. |
 | `spinUntilWin` | Spins until a spin shows a win. |
+| `tap` | A match-3 board: presses and releases a cell (`cell: [reel, row]`, row 0 the top visible row) with real mouse events at the pixels the probe's `cellPoint` names, then waits for the board. |
+| `swap` | A match-3 board: drags from one cell onto its neighbour (`from` / `to`), or onto the pair `legal: true` / `false` picks from the board on screen with `engine-mechanics`' own rules, then waits until the move has played. `orUntil` ends the wait on another test (a round-over screen that holds the move on its tap). |
 | `capture` | Takes a screenshot. |
 
 Scenario rules:

@@ -9,9 +9,11 @@
  */
 
 import type { TemplateVocabulary } from '../types';
+import { ARCADE_VOCAB } from './arcade';
 import { BOOK_OF_VOCAB } from './bookOf';
 import { CLUSTER_VOCAB } from './cluster';
 import { HOLD_AND_WIN_VOCAB } from './holdAndWin';
+import { MATCH3_VOCAB } from './match3';
 import { SCATTER_VOCAB } from './scatter';
 import { WAYS_VOCAB } from './ways';
 
@@ -22,6 +24,8 @@ export const TEMPLATE_VOCABULARIES: Record<string, TemplateVocabulary> = {
 	[CLUSTER_VOCAB.templateId]: CLUSTER_VOCAB,
 	[SCATTER_VOCAB.templateId]: SCATTER_VOCAB,
 	[HOLD_AND_WIN_VOCAB.templateId]: HOLD_AND_WIN_VOCAB,
+	[MATCH3_VOCAB.templateId]: MATCH3_VOCAB,
+	[ARCADE_VOCAB.templateId]: ARCADE_VOCAB,
 };
 
 /**

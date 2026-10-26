@@ -373,21 +373,57 @@ export const BASE_NODE_FIELDS = {
 	elementFx: true,
 } as const satisfies { [K in keyof Required<BaseNode>]: boolean };
 
-/** The pointer events a {@link NodeListener} answers, as a VALUE (the normalizer imports it). */
-export const NODE_LISTENER_EVENTS = ['down', 'up', 'enter', 'leave', 'click'] as const;
+/**
+ * The pointer events a {@link NodeListener} answers, as a VALUE (the normalizer imports it). The
+ * last five are game-families §3.2 (P10.4): `move` while the pointer moves over the node, a drag
+ * (`dragStart` once a press on the node has moved, `drag` on every move after it, anywhere, and
+ * `dragEnd` on its release, anywhere) and a `swipe` on the release of a press that travelled
+ * (`componentPointer.ts`).
+ */
+export const NODE_LISTENER_EVENTS = [
+	'down',
+	'up',
+	'enter',
+	'leave',
+	'click',
+	'move',
+	'dragStart',
+	'drag',
+	'dragEnd',
+	'swipe',
+] as const;
 export type NodeListenerEvent = (typeof NODE_LISTENER_EVENTS)[number];
 
+/** The directions a `swipe` listener can ask for, as a VALUE. */
+export const SWIPE_DIRECTIONS = ['left', 'right', 'up', 'down'] as const;
+export type SwipeDirection = (typeof SWIPE_DIRECTIONS)[number];
+
+/** A `swipe` listener's filter: the dominant `direction` (absent ⇒ any) and the `threshold`, the
+ *  press-to-release distance in the instance's pixels (absent ⇒ {@link DEFAULT_SWIPE_THRESHOLD}). */
+export interface SwipeFilter {
+	direction?: SwipeDirection;
+	threshold?: number;
+}
+export const DEFAULT_SWIPE_THRESHOLD = 40;
+
 /** Every {@link ListenerAction.kind}, as a VALUE. Open: a later phase adds kinds here. */
-export const LISTENER_ACTION_KINDS = ['fire', 'set', 'toggle', 'raise'] as const;
+export const LISTENER_ACTION_KINDS = ['fire', 'set', 'toggle', 'raise', 'align'] as const;
 export type ListenerActionKind = (typeof LISTENER_ACTION_KINDS)[number];
+
+/** The pointer readings a payload field can take, as a VALUE: the pointer in the instance's space,
+ *  and how far it is from where the press began (0 with no press). */
+export const POINTER_PAYLOAD_FIELDS = ['x', 'y', 'dx', 'dy'] as const;
+export type PointerPayloadField = (typeof POINTER_PAYLOAD_FIELDS)[number];
 
 /**
  * One value of a raised event's payload: a number, a bool, the current value of a bool or number
- * input, or a LOCALIZATION KEY (plan §8). The stack is source-as-key, so a key is its source text;
+ * input, a LOCALIZATION KEY (plan §8), or a reading of the POINTER that ran the listener (a number;
+ * a raise no pointer ran leaves it empty). The stack is source-as-key, so a key is its source text;
  * the harvest collects every `{ key }` a def raises, so none bypasses localization. A bare string
  * is not a value.
  */
-export type EventPayloadValue = number | boolean | { input: string } | { key: string };
+export type EventPayloadValue =
+	number | boolean | { input: string } | { key: string } | { pointer: PointerPayloadField };
 
 /**
  * The `ParamDecl` types an event's payload field may have — a value is a number, a bool or a
@@ -404,20 +440,36 @@ export interface RaiseEventAction {
 }
 
 /**
+ * ALIGN TARGET (Rive's "follow the pointer", game-families §3.2): place node `target` of the def on
+ * the pointer, in its parent's space. `preserveOffset` keeps the distance it had from the pointer
+ * when the press began (else its position IS the pointer); `axis` moves it along one axis only.
+ */
+export interface AlignTargetAction {
+	kind: 'align';
+	target: string;
+	preserveOffset?: true;
+	axis?: 'x' | 'y';
+}
+
+/**
  * What a listener does, discriminated by `kind` so new kinds only add: `fire` a trigger input,
- * `set` a bool or number input to `value`, `toggle` a bool input, `raise` an event.
+ * `set` a bool or number input to `value`, `toggle` a bool input, `raise` an event, `align` a node
+ * to the pointer.
  */
 export type ListenerAction =
 	| { kind: 'fire'; input: string }
 	| { kind: 'set'; input: string; value: boolean | number }
 	| { kind: 'toggle'; input: string }
-	| RaiseEventAction;
+	| RaiseEventAction
+	| AlignTargetAction;
 
 export interface NodeListener {
 	/** Unique within the node; the editor selects and the keep-unknown save grafts by it. */
 	id: string;
 	event: NodeListenerEvent;
 	action: ListenerAction;
+	/** A `swipe` listener's filter; read only on `event: 'swipe'`. */
+	swipe?: SwipeFilter;
 }
 
 /** A state's on-enter action. Its `id` (unique within the state) is what the editor selects and
@@ -1262,6 +1314,37 @@ export interface RepeaterVariants {
 	last?: string;
 }
 
+/** A grid {@link SpawnLayerNode}'s lattice: `cols` × `rows` cells, `pitch` px apart, cell (0, 0) at
+ *  the node's origin. */
+export interface SpawnLayerGrid {
+	cols: number;
+	rows: number;
+	pitch: number;
+}
+
+/**
+ * A SPAWN LAYER (`docs/design/game-families.md` §3.3): a container whose children are created while
+ * the game runs — by Flow's `spawn` node, removed by `despawn`, walked as `$live.<id>`. Each live
+ * instance renders as a `ComponentInstance` at the place it was spawned (a point in this node's
+ * space, or a cell of its grid), as the repeater renders its items.
+ *
+ * `spawnable` is declared HERE, not in the flow, so the ship chain can collect every component a
+ * game may spawn (CLAUDE.md rule 8): `collectComponentIds` walks it like a placed instance. A spawn
+ * of a component not listed, over `cap`, or into a cell off the grid is refused and logged. The
+ * editor draws a labelled placeholder (it runs no flow). Additive — a doc with no `spawnLayer` is
+ * byte-identical to before.
+ */
+export interface SpawnLayerNode extends BaseNode {
+	kind: 'spawnLayer';
+	/** The components Flow may spawn here (collected onto the bake/pull chain). */
+	spawnable: string[];
+	/** `free`: a spawn names x / y. `grid`: it may name a cell of {@link grid} instead. */
+	placement: 'free' | 'grid';
+	grid?: SpawnLayerGrid;
+	/** The most live instances at once (1 … `SPAWN_HARD_CAP`; absent ⇒ `SPAWN_DEFAULT_CAP`). */
+	cap?: number;
+}
+
 export type LayoutNode =
 	| ContainerNode
 	| SpriteNode
@@ -1272,7 +1355,8 @@ export type LayoutNode =
 	| ReelGridNode
 	| EffectNode
 	| FlipbookNode
-	| RepeaterNode;
+	| RepeaterNode
+	| SpawnLayerNode;
 
 /**
  * Every {@link LayoutNode} kind as a RUNTIME value — the one list a validator may enumerate.
@@ -1297,6 +1381,7 @@ export const LAYOUT_NODE_KINDS = [
 	'effect',
 	'flipbook',
 	'repeater',
+	'spawnLayer',
 ] as const satisfies readonly LayoutNode['kind'][];
 
 export interface Scene {
@@ -1343,16 +1428,30 @@ export interface Scene {
 	 * - `standard` — the fixed `STANDARD_MAIN_SIZES_MAP` box, `<MainContainer standard>`
 	 *   (the HUD bottom bar). Honours {@link Scene.align}.
 	 * - `canvas` — raw window; nodes use {@link BaseNode.screenAnchor}, rendered at
-	 *   the `<App>` root with no wrapper (the HUD corners — logo / game name).
+	 *   the `<App>` root with no wrapper (the HUD corners — logo / game name). Sizes and
+	 *   offsets are window pixels unless {@link Scene.scaleWithWindow} is set.
 	 * - `background` — full-bleed cover layer: nodes cover-fit the canvas via true
 	 *   cover, the node's {@link BaseNode.coverScale} acting as the uniform cover
 	 *   multiplier (default 1 = exact edge-to-edge) and `scale.x`/`scale.y` as the
 	 *   free non-uniform stretch on top. Covers a background image, rig or flipbook
-	 *   clip (`isCoverFitKind`) and a componentInstance as one composed unit;
-	 *   animated multi-state crossfade stays coded.
+	 *   clip, a componentInstance as one composed unit and a flat rect by its own
+	 *   width × height (`isBackgroundCoverKind`); text and a bare container are placed
+	 *   at raw window pixels. Animated multi-state crossfade stays coded.
 	 * Additive — absent = `game`.
 	 */
 	space?: 'game' | 'standard' | 'canvas' | 'background';
+	/**
+	 * A `canvas`-space screen that SCALES WITH THE WINDOW. The editor frames a canvas screen at
+	 * the layout's design box (`resolveBucketBox`), one window pixel per unit, so without this the
+	 * game draws it at the author's pixel size on every window: a screen keyed to cover a 1920 px
+	 * window leaves a gap on a wider one. Set, `<LayoutScene>` scales the whole screen by the fit
+	 * the design box gets in the window (`mainLayoutStandard().scale`, as `<MainContainer standard>`
+	 * does) while `screenAnchor` still pins each node to its window edge: offsets, sizes and a
+	 * screen timeline's keys scale, and what fills the window (a tap dim, a cover fit) still fills
+	 * it (`scaleLayout`). Equal to the editor on any window of the design box's shape. Ignored on
+	 * other spaces. Sparse: stored only when true; absent = window pixels, as before.
+	 */
+	scaleWithWindow?: boolean;
 	/**
 	 * Alignment of a `space: 'standard'` scene within the canvas — forwarded to
 	 * `<MainContainer standard alignVertical alignHorizontal>`. The HUD bottom bar
@@ -1749,9 +1848,10 @@ export interface ComponentInput {
 	 *  `text` default is a localization key (`isLocalizationKey`). */
 	default?: boolean | number | string;
 	/**
-	 * A `number` input the ENGINE feeds: a registered value-source name (`winAmount`, `balance`…),
-	 * the same registry a value binding's `source` reads. Absent ⇒ Flow sets it (Phase 7), else it
-	 * stays at its default.
+	 * A `number`, `bool` or `text` input the ENGINE feeds: a registered value-source name
+	 * (`winAmount`, `balance`…, or a Flow variable as `var:<id>`, game-families §3.1), the same
+	 * registry a value binding's `source` reads. A bool reads on / off or 1 / 0; a text input takes
+	 * the key the source names. Absent ⇒ Flow sets it (Phase 7), else it stays at its default.
 	 */
 	source?: string;
 	note?: string;
@@ -2077,7 +2177,8 @@ export interface CinematicDoc {
 	 * a named ease or a cubic `[x1, y1, x2, y2]`. Authoring-only: every key carries its own `ease`,
 	 * so no player reads this. Absent ⇒ linear.
 	 */
-	defaultEase?: 'linear' | 'ease' | 'hold' | [number, number, number, number];
+	defaultEase?:
+		'linear' | 'ease' | 'hold' | 'elastic' | 'bounce' | [number, number, number, number];
 	/**
 	 * Authoring-only (Rive plan Phase 9d): this project timeline is a LINK to a shared one in
 	 * `_shared/cinematics/` — it plays version `version` of shared timeline `id`, its actors

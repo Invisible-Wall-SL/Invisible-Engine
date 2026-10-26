@@ -10,9 +10,13 @@ import { playBet, convertTorResumableBet } from './utils';
 import { clearWinPresentation } from './winSymbolCycle';
 import { resetLuckySpinReveal } from './luckySpin';
 import { clearOverlay } from './stateOverlay.svelte';
+import { startHoldAndWinRound } from './stateHoldAndWin.svelte';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
 import { paddingReels } from './gameConfig';
 import { isCoinBoard } from './coinBoard.svelte';
+import { resetFlowV2Round } from './flowV2InterpreterHolder';
+import { gameMechanic } from './mechanic';
+import { awaitMatch3Round } from './match3.svelte';
 
 const primaryMachines = createPrimaryMachines<Bet>({
 	onResumeGameActive: (betToResume) => convertTorResumableBet(betToResume),
@@ -35,6 +39,8 @@ const primaryMachines = createPrimaryMachines<Bet>({
 		clearWinPresentation();
 		clearOverlay();
 		resetLuckySpinReveal();
+		startHoldAndWinRound();
+		resetFlowV2Round();
 		if ((stateBet.isTurbo && stateXstateDerived.isAutoBetting()) || stateBet.isSpaceHold) return;
 		stateBet.winBookEventAmount = 0;
 		// A swap-in-place board has no roll to pre-start, and this is the ONE place the roll begins
@@ -46,6 +52,8 @@ const primaryMachines = createPrimaryMachines<Bet>({
 		// visible rows, and the seat's depth ramp clamps there, so every symbol draws at front-row
 		// size for the length of the roll. Off ⇒ this is unreachable and the pre-spin is untouched.
 		if (stateGameDerived.boardSwapsInPlace()) return;
+		// A board that never spins (an RGS match-3 round) is dealt by the bet's own book.
+		if (!gameMechanic().spins) return;
 		// A coin board's base game spins on the respin board, from the reveal: no reels to roll.
 		if (isCoinBoard()) return;
 		await stateGameDerived.enhancedBoard.preSpin({
@@ -55,6 +63,11 @@ const primaryMachines = createPrimaryMachines<Bet>({
 	onNewGameError: () => stateGameDerived.enhancedBoard.settle(),
 	onPlayGame: async (bet) => await playBet(bet),
 	checkIsBonusGame: (bet) => checkIsMultipleRevealEvents({ bookEvents: bet.state }),
+	// An RGS match-3 round stays open while the player swaps (`match3.svelte.ts`); a slot's never does.
+	checkIsInteractiveRound: (bet) =>
+		gameMechanic().interactiveRound &&
+		bet.state.some((bookEvent) => bookEvent.type === 'boardInit'),
+	onInteractiveRound: () => awaitMatch3Round(),
 });
 
 const intermediateMachines = createIntermediateMachines(primaryMachines);

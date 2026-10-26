@@ -57,6 +57,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 
 import { appSrcDir, isStandaloneGame } from '../packages/config-svelte/appSrc.js';
 import { BUILD_INFO_FILE, buildProvenance } from '../packages/config-vite/provenance.js';
+import { deliveryFamilyRefusal } from './delivery-family-gate.mjs';
 import { zipDir } from './zip-dir.mjs';
 
 const arg = (flag, fallback) => {
@@ -199,6 +200,13 @@ const missingAssets = () => {
 	]
 		.filter(([, keys]) => keys.length)
 		.map(([what, keys]) => ({ what, keys }));
+};
+
+/** The family gate ({@link deliveryFamilyRefusal}) over the config the bake wrote, so it is the
+ *  config that ships. A repo with no baked doc has nothing to check. */
+const familyRefusal = () => {
+	const bundlePath = resolve(appSrcDir(), 'baked-editor-bundle.json');
+	return existsSync(bundlePath) ? deliveryFamilyRefusal(readJson(bundlePath).config) : null;
 };
 
 if (flag('--print-env')) {
@@ -549,6 +557,15 @@ try {
 			throw refused([refusal.error, ...refusal.details].join('\n'), refusal);
 		}
 	}
+
+	const family = familyRefusal();
+	if (family)
+		throw refused(family, {
+			gate: 'non-slot-delivery',
+			error: family,
+			details: [],
+			override: null,
+		});
 
 	const missing = missingAssets();
 	if (missing.length) {

@@ -1,3 +1,5 @@
+import type { GameFamily } from 'constants-shared/gameKinds';
+
 export type Role =
 	| 'admin'
 	| 'developer'
@@ -154,6 +156,11 @@ export const TOOL_ICONS: Record<string, string> = {
 		'<path d="M12 3v4"/><path d="M12 17v4"/><path d="M3 12h4"/><path d="M17 12h4"/>' +
 			'<path d="M5.6 5.6l2.8 2.8"/><path d="M15.6 15.6l2.8 2.8"/>' +
 			'<path d="M18.4 5.6l-2.8 2.8"/><path d="M8.4 15.6l-2.8 2.8"/><circle cx="12" cy="12" r="1.6"/>',
+	),
+	// three nodes wired into one (a node graph)
+	shaders: I(
+		'<circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="12" r="2.2"/>' +
+			'<path d="M8.2 6.4c4 .2 4.2 5.6 7.6 5.6"/><path d="M8.2 17.6c4-.2 4.2-5.6 7.6-5.6"/>',
 	),
 	// film strip with sprocket holes (frame-by-frame animation)
 	flipbook: I(
@@ -384,6 +391,16 @@ export const TOOLS: Record<string, ToolDef> = {
 		url: '/fx',
 		icon: TOOL_ICONS.fx,
 	},
+	shaders: {
+		id: 'shaders',
+		name: 'Invisible Shader Graph',
+		barName: 'Shaders',
+		description:
+			'Build shader effects from nodes — wire noise, masks, warps and colour into one effect, preview it live on a card or your own art, and save it to play wherever an Element FX plays.',
+		kind: 'online',
+		url: '/shaders',
+		icon: TOOL_ICONS.shaders,
+	},
 	flipbook: {
 		id: 'flipbook',
 		name: 'Invisible Flipbook',
@@ -418,6 +435,41 @@ export const TOOLS: Record<string, ToolDef> = {
 	},
 };
 
+/**
+ * The tools each game family does NOT use (`docs/design/game-families.md` §6.5). An exclusion list,
+ * so a new tool is offered to every family until someone says otherwise. The slot family hides
+ * nothing: a slot project's manifest is exactly the role's. The role still decides what a user may
+ * open; the family only narrows it. A tool that depends on the outcome (Win Text for match-3) stays
+ * listed and checks the outcome itself.
+ */
+export const FAMILY_TOOLS: Record<GameFamily, readonly string[]> = {
+	slot: [],
+	match3: [],
+	arcade: ['symbols', 'winText'],
+};
+
+/** How a family is named in the hidden-tool notice ("not used by arcade games"). */
+export const FAMILY_LABELS: Record<GameFamily, string> = {
+	slot: 'slot',
+	match3: 'match-3',
+	arcade: 'arcade',
+};
+
+export function familyUsesTool(family: GameFamily, id: string): boolean {
+	return !FAMILY_TOOLS[family].includes(id);
+}
+
+/**
+ * The tool whose page `pathname` is (its `url` or a path under it) when `family` does not use it:
+ * the `(app)` layout shows the hidden-tool notice instead of that page.
+ */
+export function familyHiddenToolAt(pathname: string, family: GameFamily): ToolDef | undefined {
+	const tool = Object.values(TOOLS).find(
+		(t) => t.url && (pathname === t.url || pathname.startsWith(`${t.url}/`)),
+	);
+	return tool && !familyUsesTool(family, tool.id) ? tool : undefined;
+}
+
 export type ToolStage = {
 	id: string;
 	/** Section heading in the home grid. */
@@ -449,7 +501,17 @@ export const TOOL_STAGES: ToolStage[] = [
 		id: 'assets',
 		label: 'Assets',
 		accent: '#f5b95c',
-		tools: ['atlasTool', 'comfyui', 'sheetMaker', 'fontMaker', 'sound', 'rigger', 'flipbook', 'fx'],
+		tools: [
+			'atlasTool',
+			'comfyui',
+			'sheetMaker',
+			'fontMaker',
+			'sound',
+			'rigger',
+			'flipbook',
+			'fx',
+			'shaders',
+		],
 	},
 	{
 		id: 'build',
@@ -514,6 +576,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'editor',
 		'flow',
 		'fx',
+		'shaders',
 		'flipbook',
 		'symbols',
 		'componentEditor',
@@ -533,6 +596,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'editor',
 		'flow',
 		'fx',
+		'shaders',
 		'flipbook',
 		'symbols',
 		'componentEditor',
@@ -546,6 +610,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'editor',
 		'flow',
 		'fx',
+		'shaders',
 		'flipbook',
 		'symbols',
 		'componentEditor',
@@ -625,6 +690,22 @@ export const COMPONENT_PUBLISH_CAPABILITY = 'componentPublish';
  */
 export const PIPELINE_MERGE_CAPABILITY = 'pipelineMerge';
 
+/**
+ * Managed capability key for publishing to the studio-shared shader library (`_shared/shaders/` in
+ * R2). Like `componentPublish` it is NOT a tool in `TOOLS`; it lives in the same override matrix.
+ * Default-ON for `admin` only — every `/shaders` user still READS the library and saves their
+ * project's own graphs, but only holders of this capability may publish a graph to it or remove one
+ * (every project's set takes in the library, so a write reaches every project's pickers).
+ */
+export const SHADER_PUBLISH_CAPABILITY = 'shaderPublish';
+
+/**
+ * Managed capability key for writing Custom GLSL in Invisible Shader Graph: adding a Custom GLSL
+ * node, or changing one's code or ports. Its body runs on every player's GPU, so it is default-ON
+ * for `admin` only; every `/shaders` user still sees it, wires around it and may delete it.
+ */
+export const SHADER_CUSTOM_GLSL_CAPABILITY = 'shaderCustomGlsl';
+
 /** Capabilities managed by the role matrix that are not entries in `TOOLS`. */
 export const CAPABILITIES: { key: string; name: string; isNew?: true }[] = [
 	{ key: ADMIN_PANEL_CAPABILITY, name: 'Admin panel' },
@@ -633,12 +714,15 @@ export const CAPABILITIES: { key: string; name: string; isNew?: true }[] = [
 	{ key: GAME_PUBLISH_CAPABILITY, name: 'Build & publish games' },
 	{ key: COMPONENT_PUBLISH_CAPABILITY, name: 'Publish shared components' },
 	{ key: PIPELINE_MERGE_CAPABILITY, name: 'Merge pipeline changes', isNew: true },
+	{ key: SHADER_PUBLISH_CAPABILITY, name: 'Publish shared shader effects', isNew: true },
+	{ key: SHADER_CUSTOM_GLSL_CAPABILITY, name: 'Write custom GLSL in shader effects', isNew: true },
 ];
 
 /**
  * `ROLE_TOOLS` baseline for a capability key. Admin-only capabilities
  * (`adminPanel`, `blueprintPublish`, `fontPublish`, `gamePublish`,
- * `componentPublish`, `pipelineMerge`) default ON for `admin` and OFF elsewhere.
+ * `componentPublish`, `pipelineMerge`, `shaderPublish`, `shaderCustomGlsl`) default ON for `admin`
+ * and OFF elsewhere.
  */
 function capabilityDefault(role: Role, key: string): boolean {
 	if (key === ADMIN_PANEL_CAPABILITY) return role === 'admin';
@@ -647,6 +731,8 @@ function capabilityDefault(role: Role, key: string): boolean {
 	if (key === GAME_PUBLISH_CAPABILITY) return role === 'admin';
 	if (key === COMPONENT_PUBLISH_CAPABILITY) return role === 'admin';
 	if (key === PIPELINE_MERGE_CAPABILITY) return role === 'admin';
+	if (key === SHADER_PUBLISH_CAPABILITY) return role === 'admin';
+	if (key === SHADER_CUSTOM_GLSL_CAPABILITY) return role === 'admin';
 	return false;
 }
 
@@ -747,6 +833,7 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	gameMaker: 'game-maker',
 	flow: 'flow',
 	fx: 'fx',
+	shaders: 'shader-graph',
 	flipbook: 'flipbook',
 	sound: 'sound',
 	director: 'director',

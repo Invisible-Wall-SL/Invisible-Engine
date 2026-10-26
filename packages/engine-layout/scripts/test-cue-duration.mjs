@@ -286,7 +286,7 @@ assert(
 	'a self-containing def terminates via the cycle guard (and still measures its own cue)',
 );
 
-// The renderer refuses to expand past MAX_COMPONENT_DEPTH (2), so a cue named deeper than that is
+// The renderer refuses to expand past MAX_COMPONENT_DEPTH (3), so a cue named deeper than that is
 // never subscribed — measuring it would buy a wait for an animation that cannot play.
 const nested = (childInstanceId, cueSignal) => ({
 	root: {
@@ -301,10 +301,11 @@ const nested = (childInstanceId, cueSignal) => ({
 	},
 });
 const depthDefs = {
-	// L0 holds an instance of L1, which holds an instance of L2. Only L2's cue is out of reach.
+	// L0 → L1 → L2 → L3, each holding the next. Only L3's cue is out of reach.
 	L0: nested('L1', 'atDepth0'),
 	L1: nested('L2', 'atDepth1'),
-	L2: nested(undefined, 'atDepth2'),
+	L2: nested('L3', 'atDepth2'),
+	L3: nested(undefined, 'atDepth3'),
 };
 const withDepth = {
 	rigClipMs,
@@ -321,7 +322,11 @@ assert(
 	'…and one nested a level deeper still measures (the renderer expands it)',
 );
 assert(
-	cueAnimationDurationMs(depthScene, 'atDepth2', withDepth) === 0,
+	cueAnimationDurationMs(depthScene, 'atDepth2', withDepth) === 2500,
+	'…and one two levels deeper, the third level (a counter’s segments inside a component)',
+);
+assert(
+	cueAnimationDurationMs(depthScene, 'atDepth3', withDepth) === 0,
 	'…but one past MAX_COMPONENT_DEPTH measures 0 — <ComponentInstance> refuses to render it, so it is never subscribed',
 );
 

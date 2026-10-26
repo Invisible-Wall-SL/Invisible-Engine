@@ -12,10 +12,18 @@
  * ADD-ONS are additive (design `docs/design/pots-overlay.md` §4): a config block lights up only the
  * add-on's own parts, and everything else stays on the kind — a `bookOf` project with a Hold and
  * Win bonus keeps its free spins and book reveal. Without a block every answer is the kind's alone.
+ *
+ * FAMILIES (`docs/design/game-families.md` §6.1): a match-3 or arcade project is offered none of a
+ * slot's sections, and its outcome decides whether it has a wallet. The family is the config's when
+ * given, else the kind's. The kind half mirrors `familyOfKind` (`constants-shared/gameKinds`),
+ * named here because the built-in defs that read this module must load with no install
+ * (`scripts/current-games/lib/builtins.mjs`); `check:game-config-family` pins the two together. A slot answers every family flag `true`, so no slot
+ * tool changes. The game itself never reads these flags; it reads its config.
  */
 
 import {
 	HOLD_AND_WIN_SYMBOL_STATES,
+	MATCH3_SYMBOL_STATES,
 	POTS_TOKEN_SYMBOL_STATES,
 	SYMBOL_STATES,
 	type SymbolStateName,
@@ -39,6 +47,10 @@ export interface KindCapabilityConfig {
 	/** `resolveExpandingSymbol(doc) !== undefined` — the Book-of expanding special is on
 	 *  (`docs/design/book-feature.md` §3.3). */
 	expandingSymbol?: boolean;
+	/** `resolveFamily(doc)` — `slot`, `match3` or `arcade`. Absent ⇒ the kind's family. */
+	family?: string;
+	/** `resolveOutcome(doc)` — `rgs` or `rules`. Absent ⇒ `rgs`. */
+	outcome?: string;
 }
 
 export interface KindCapabilities {
@@ -76,9 +88,20 @@ export interface KindCapabilities {
 	/** The Symbols tool's "Transition" section — the explosion → intro animation under the `emerge`
 	 *  swap style. The emerge gate still applies; this only takes it off a kind that never swaps. */
 	symbolTransition: boolean;
+	/** The game takes a stake and pays wins: the balance and win readouts. Off for a free-play game
+	 *  whose own rules decide (`outcome: 'rules'`). */
+	wallet: boolean;
+	/** The bet selector and the bet modes' menu. Follows {@link wallet}. */
+	betControls: boolean;
+	/** A board of symbols: a slot's reels or a match-3 grid. Off for arcade. */
+	board: boolean;
+	/** The player moves the board's gems (a match-3 grid): its `select` / `hint` symbol states. Off
+	 *  for every slot. */
+	boardInput: boolean;
 }
 
 const CASCADE_KINDS: ReadonlySet<string> = new Set(['cluster', 'scatter']);
+const FAMILY_KINDS: ReadonlySet<string> = new Set(['match3', 'arcade']);
 const NON_LINE_KINDS: ReadonlySet<string> = new Set(['ways', 'cluster', 'scatter']);
 
 export function kindCapabilities(
@@ -86,6 +109,8 @@ export function kindCapabilities(
 	config: KindCapabilityConfig = {},
 ): KindCapabilities {
 	const kind = gameType ?? '';
+	const family = config.family ?? (FAMILY_KINDS.has(kind) ? kind : 'slot');
+	if (family === 'match3' || family === 'arcade') return familyCapabilities(family, config);
 	const holdAndWinKind = kind === 'holdAndWin';
 	const holdAndWin = holdAndWinKind || !!config.holdAndWin;
 	const potsOverlay = !!config.potsOverlay;
@@ -104,14 +129,47 @@ export function kindCapabilities(
 		bookSymbolVfx: !holdAndWinKind,
 		tumblePattern: !holdAndWinKind,
 		symbolTransition: !holdAndWinKind,
+		wallet: true,
+		betControls: true,
+		board: true,
+		boardInput: false,
+	};
+}
+
+/** A match-3 board pops its matches and tumbles like a cascade slot; an arcade game has no board.
+ *  Neither has any of a slot's features. */
+function familyCapabilities(
+	family: 'match3' | 'arcade',
+	config: KindCapabilityConfig,
+): KindCapabilities {
+	const match3 = family === 'match3';
+	const wallet = config.outcome !== 'rules';
+	return {
+		freeSpins: false,
+		bookReveal: false,
+		stackedPictures: false,
+		cascade: match3,
+		multiplierCollect: false,
+		holdAndWin: false,
+		coinSymbols: false,
+		pots: false,
+		potsOverlay: false,
+		winLines: false,
+		bookSymbolVfx: false,
+		tumblePattern: match3,
+		symbolTransition: false,
+		wallet,
+		betControls: wallet,
+		board: match3,
+		boardInput: match3,
 	};
 }
 
 /**
- * The symbol states a kind's authoring surfaces offer: every state for a project with the respin
- * feature (`holdAndWin`); for a pots overlay host without it (`pots` alone), every state but the Hold
- * and Win ones, plus the token's {@link POTS_TOKEN_SYMBOL_STATES}; otherwise every state minus the
- * Hold and Win ones. The doc schema still accepts every state, so a binding never fails to
+ * The symbol states a kind's authoring surfaces offer (the match-3 `select` / `hint` only to a
+ * project with a match-3 board): every state for a project with the respin feature (`holdAndWin`);
+ * for a pots overlay host without it (`pots` alone), every state but the Hold and Win ones, plus
+ * the token's {@link POTS_TOKEN_SYMBOL_STATES}; otherwise every state minus the Hold and Win ones. The doc schema still accepts every state, so a binding never fails to
  * round-trip; this only decides what a picker lists.
  */
 export function symbolStatesForKind(
@@ -119,8 +177,10 @@ export function symbolStatesForKind(
 	config?: KindCapabilityConfig,
 ): readonly SymbolStateName[] {
 	const capabilities = kindCapabilities(gameType, config);
-	if (capabilities.holdAndWin) return SYMBOL_STATES;
+	const match3: ReadonlySet<string> = new Set(capabilities.boardInput ? [] : MATCH3_SYMBOL_STATES);
+	const states = SYMBOL_STATES.filter((state) => !match3.has(state));
+	if (capabilities.holdAndWin) return states;
 	const holdAndWin: ReadonlySet<string> = new Set(HOLD_AND_WIN_SYMBOL_STATES);
 	const token: ReadonlySet<string> = new Set(capabilities.pots ? POTS_TOKEN_SYMBOL_STATES : []);
-	return SYMBOL_STATES.filter((state) => !holdAndWin.has(state) || token.has(state));
+	return states.filter((state) => !holdAndWin.has(state) || token.has(state));
 }

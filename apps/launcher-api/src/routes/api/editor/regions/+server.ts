@@ -17,7 +17,7 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	const { clientKey, projectKey, prefixes } = await gate(locals, cookies, {
 		tool: 'editor',
-		altTools: ['fx', 'rigger', 'flipbook', 'gameConfig'],
+		altTools: ['fx', 'rigger', 'flipbook', 'gameConfig', 'shaders'],
 		forbiddenMessage: 'Your role does not have access to the project assets.',
 		includeSharedRigs: true,
 		// ...and its regions are read through here, so both halves need the library in scope.

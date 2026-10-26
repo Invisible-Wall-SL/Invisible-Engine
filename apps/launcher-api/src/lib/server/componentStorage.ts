@@ -142,6 +142,20 @@ export interface ComponentWithEtag {
 }
 
 /**
+ * The project's own stored def for `id` as written (no coded-twin merge) WITH its ETag, or
+ * `undefined` when the project has none. A rename saves this back with only its name changed, so
+ * the save compares equal to what is stored and keeps the version; the merged def
+ * {@link loadComponentWithEtag} returns can differ from the stored bytes for a built-in's copy.
+ */
+export async function loadStoredProjectComponent(
+	id: string,
+	projectKey: string,
+): Promise<ComponentWithEtag | undefined> {
+	const { def, etag } = await readComponentForWrite(projectComponentKey(projectKey, id));
+	return def ? { def, etag } : undefined;
+}
+
+/**
  * Resolve the LATEST editable def for `id` (project shadows shared shadows built-in) WITH
  * the ETag of the object it was read from — the save's precondition.
  *
@@ -528,11 +542,14 @@ async function writeSnapshot(versionKey: string, body: string, guard: boolean): 
  *   STRICTLY increases and never silently overwrites the def an instance pinned.
  *
  * Comparison ignores `version` itself so a pure version field difference is not
- * mistaken for a content change.
+ * mistaken for a content change, and `name`: a rename is not a new version. The name labels the
+ * component in the editor's lists; no placement, bake or game reads it, so bumping on it would
+ * flag every pinned placement "↑ vN" with nothing to update. The renamed latest pointer keeps the
+ * version, and that version's immutable snapshot keeps the name it was saved under.
  */
 function reconcileVersion(next: ComponentDef, existing: ComponentDef | undefined): ComponentDef {
 	if (!existing) return next;
-	if (componentContentEqual(next, existing)) {
+	if (componentContentEqual({ ...next, name: existing.name }, existing)) {
 		return next.version === existing.version ? next : { ...next, version: existing.version };
 	}
 	if (next.version > existing.version) return next;
@@ -920,7 +937,8 @@ function normalizeInputs(input: unknown): ComponentInput[] {
 		) {
 			row.default = item.default;
 		}
-		if (row.kind === 'number' && typeof item.source === 'string' && item.source) {
+		// A bool / number / text input may follow an engine value or a Flow variable (`var:<id>`).
+		if (row.kind !== 'trigger' && typeof item.source === 'string' && item.source) {
 			row.source = item.source;
 		}
 		// A text default is a localization key (plan §8) — anything else is not a default.

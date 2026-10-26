@@ -1,4 +1,4 @@
-import { elementFxSpec, type ElementFxEntry } from 'constants-shared/elementFx';
+import { findElementFxSpec, type ElementFxEntry } from 'constants-shared/elementFx';
 import { playElementFx, type ElementFxHandle, type ElementFxPose } from 'pixi-svelte/elementFx';
 import { Container, Matrix, Rectangle, Sprite, Texture, Ticker, UPDATE_PRIORITY } from 'pixi.js';
 import { createPixiSurface, sharedPixiRenderer } from './sharedGl.client';
@@ -10,8 +10,11 @@ import { createPixiSurface, sharedPixiRenderer } from './sharedGl.client';
  * overlay: the canvas shows the element alone for a few frames (under a frozen copy of the stage,
  * {@link coverStage}), copies what its screen's surfaces drew into a still, hides the element, and
  * plays the effect on the still in a Pixi overlay through the runtime the game uses
- * (`pixi-svelte/elementFx`). A playing rig freezes for the preview; the game plays the effect on the
- * live element.
+ * (`pixi-svelte/elementFx`). A screen's still is LIVE: its surfaces keep drawing, hidden, and are
+ * copied into the still every frame, so a timeline playing on the screen keeps moving under the
+ * effect. A node's still follows the node's drawn pose (the timeline moving, scaling or turning it),
+ * but what it shows holds still: a playing rig freezes for the preview, while the game plays the
+ * effect on the live element.
  *
  * A timeline previewing a `keyed` entry (scrubbed, played, or a state machine's stage preview) POSES
  * it the same way ({@link poseOnStill}): a still per posed node, cut again only once its art or a
@@ -129,21 +132,15 @@ export function stageSource(canvas: HTMLCanvasElement, origin: DOMRect): StillSo
 	};
 }
 
-/**
- * `rect` of every source, bottom first, copied into one canvas at `resolution` px per CSS px. Null
- * when the copy cannot be read back — a cross-origin image tainted a surface, and the overlay could
- * not upload it.
- */
-export function captureStill(
+/** `rect` of every source, bottom first, copied over the whole of `still` (cleared first). */
+export function drawStill(
+	still: HTMLCanvasElement,
 	sources: readonly StillSource[],
 	rect: StageRect,
-	resolution: number,
-): HTMLCanvasElement | null {
-	const still = document.createElement('canvas');
-	still.width = Math.max(1, Math.round(rect.w * resolution));
-	still.height = Math.max(1, Math.round(rect.h * resolution));
+): boolean {
 	const ctx = still.getContext('2d');
-	if (!ctx) return null;
+	if (!ctx) return false;
+	ctx.clearRect(0, 0, still.width, still.height);
 	for (const s of sources) {
 		ctx.drawImage(
 			s.canvas,
@@ -157,8 +154,25 @@ export function captureStill(
 			still.height,
 		);
 	}
+	return true;
+}
+
+/**
+ * `rect` of every source, bottom first, copied into one canvas at `resolution` px per CSS px. Null
+ * when the copy cannot be read back — a cross-origin image tainted a surface, and the overlay could
+ * not upload it.
+ */
+export function captureStill(
+	sources: readonly StillSource[],
+	rect: StageRect,
+	resolution: number,
+): HTMLCanvasElement | null {
+	const still = document.createElement('canvas');
+	still.width = Math.max(1, Math.round(rect.w * resolution));
+	still.height = Math.max(1, Math.round(rect.h * resolution));
+	if (!drawStill(still, sources, rect)) return null;
 	try {
-		ctx.getImageData(0, 0, 1, 1);
+		still.getContext('2d')?.getImageData(0, 0, 1, 1);
 	} catch {
 		return null;
 	}
@@ -253,8 +267,14 @@ export interface StillOverlay {
 }
 
 interface OpenStill {
-	/** The container holding the still, once the shared renderer is up; null if it never comes. */
-	ready: Promise<{ target: Container; ticker: Ticker; render: () => void } | null>;
+	/** The container holding the still, once the shared renderer is up; null if it never comes.
+	 *  `redrawn` uploads the still again after it was drawn over in place. */
+	ready: Promise<{
+		target: Container;
+		ticker: Ticker;
+		render: () => void;
+		redrawn: () => void;
+	} | null>;
 	/** Tear the overlay down. Stop the effects on it first: the ticker they run on goes. */
 	close(): void;
 }
@@ -281,7 +301,13 @@ function openStill(options: StillOverlay): OpenStill {
 		target.boundsArea = new Rectangle(element.x, element.y, element.w, element.h);
 		target.addChild(sprite);
 		surface.stage.addChild(target);
-		return { target, ticker, render: () => surface.render() };
+		const uploaded = texture;
+		return {
+			target,
+			ticker,
+			render: () => surface.render(),
+			redrawn: () => uploaded.source.update(),
+		};
 	});
 	return {
 		ready,
@@ -305,6 +331,12 @@ export interface StillPreview extends StillOverlay {
 	onEnd: () => void;
 	/** Read every frame: true once the stage moved under the still (pan, zoom, layout). */
 	stale: () => boolean;
+	/** Read every frame, before the effect steps: draw the still again from the stage as it is now
+	 *  (a screen whose surfaces keep drawing under the overlay). False leaves it as it was. */
+	refresh?: () => boolean;
+	/** Read every frame: the still's transform on the stage now, so it follows a node the previewed
+	 *  timeline moves, scales or turns. */
+	placement?: () => readonly [number, number, number, number, number, number];
 }
 
 /**
@@ -338,13 +370,31 @@ export function playOnStill(options: StillPreview): () => void {
 
 	void overlay.ready.then((parts) => {
 		if (over) return;
-		if (!parts) return end();
-		const { target, ticker, render } = parts;
+		const spec = findElementFxSpec(entry.kind);
+		if (!parts || !spec) return end();
+		const { target, ticker, render, redrawn } = parts;
+		const { refresh, placement } = options;
+		const matrix = new Matrix();
+		// Ahead of the effect's own step, which takes what is written here as the still's rest. A copy
+		// that can no longer be uploaded (a cross-origin image reached a surface) ends the preview.
+		if (refresh || placement) {
+			ticker.add(
+				() => {
+					if (over) return;
+					if (placement) target.setFromMatrix(matrix.set(...placement()));
+					try {
+						if (refresh?.()) redrawn();
+					} catch {
+						end();
+					}
+				},
+				undefined,
+				UPDATE_PRIORITY.HIGH,
+			);
+		}
 		const looping = entry.trigger === 'always';
 		const keyed = entry.trigger === 'keyed';
-		const loopMs =
-			(entry.delayMs ?? 0) +
-			ALWAYS_PLAYS * (entry.durationMs ?? elementFxSpec(entry.kind).durationMs);
+		const loopMs = (entry.delayMs ?? 0) + ALWAYS_PLAYS * (entry.durationMs ?? spec.durationMs);
 		let elapsedMs = 0;
 		handle = playElementFx(
 			target,

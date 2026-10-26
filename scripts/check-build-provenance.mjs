@@ -139,6 +139,11 @@ const GATES = [
 		env: 'ALLOW_PAYTABLE_DRIFT',
 		body: { error: 'The paytable disagrees.', details: ['H1 x5: 50 vs 40'] },
 	},
+	{
+		gate: 'unplayable-family',
+		path: '/api/game-config/doc',
+		body: { error: 'The runtime cannot play an arcade game yet.', reason: 'unplayable-family' },
+	},
 ];
 
 const dir = mkdtempSync(join(tmpdir(), 'ie-provenance-'));
@@ -152,18 +157,20 @@ try {
 		const refusal = existsSync(target) ? JSON.parse(readFileSync(target, 'utf8')) : null;
 		check(`${g.gate}: the bake refuses (exit 1)`, code === 1, `exit ${code}`);
 		check(
-			`${g.gate}: the log still names the override`,
-			log.includes(g.flag) && log.includes(`${g.env}=1`),
+			g.flag ? `${g.gate}: the log still names the override` : `${g.gate}: the log offers none`,
+			g.flag ? log.includes(g.flag) && log.includes(`${g.env}=1`) : !log.includes('re-run with'),
 		);
 		check(`${g.gate}: refusal written as data`, refusal?.gate === g.gate, JSON.stringify(refusal));
 		check(
 			`${g.gate}: reason + every finding carried`,
 			refusal?.error === g.body.error &&
-				JSON.stringify(refusal?.details) === JSON.stringify(g.body.details),
+				JSON.stringify(refusal?.details) === JSON.stringify(g.body.details ?? []),
 		);
 		check(
-			`${g.gate}: override names the flag and env`,
-			refusal?.override?.flag === g.flag && refusal?.override?.env === g.env,
+			g.flag ? `${g.gate}: override names the flag and env` : `${g.gate}: no override`,
+			g.flag
+				? refusal?.override?.flag === g.flag && refusal?.override?.env === g.env
+				: refusal?.override === null,
 		);
 
 		rmSync(target, { force: true });

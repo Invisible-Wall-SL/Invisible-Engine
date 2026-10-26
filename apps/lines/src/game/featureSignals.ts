@@ -54,6 +54,7 @@ export const featureComponentSignals = (
 	return {
 		...platform,
 		...potFamily,
+		respinAward: on('respinCounterAward'),
 		respinReset: on('respinCounterUpdate', (event) => event.reset),
 		respinLast: on('respinCounterUpdate', (event) => !event.reset && event.left === 1),
 		coinLand: on('respinCoinsLand'),

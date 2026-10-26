@@ -10,6 +10,7 @@
 	import EditorElementFx from './EditorElementFx.svelte';
 	import EditorValueBindings from './EditorValueBindings.svelte';
 	import EditorRepeaterCount from './EditorRepeaterCount.svelte';
+	import EditorSpawnLayer from './EditorSpawnLayer.svelte';
 	import EditorEvents from './EditorEvents.svelte';
 	import EditorListeners from './EditorListeners.svelte';
 	import {
@@ -31,6 +32,7 @@
 		ENGINE_PARAM_CATALOG,
 		ENGINE_SIGNAL_CATALOG,
 		engineSignalsForKind,
+		HOLD_AND_WIN_VALUE_SOURCE_KEYS,
 		SIGNAL_SCOPE_KINDS,
 		REPEATER_SOURCE_CATALOG,
 		REPEATER_SOURCE_LABELS,
@@ -172,8 +174,11 @@
 		/** Rename an input everywhere it is read (the page asks for the new name). */
 		onRenameInput?: (id: string) => void;
 		onSetInputDefault?: (id: string, value: boolean | number) => void;
-		/** Name (or with '', clear) the engine value a number input follows. */
+		/** Name (or with '', clear) the engine value — or Flow variable, `var:<id>` — a bool, number
+		 *  or text input follows. */
 		onSetInputSource?: (id: string, source: string) => void;
+		/** The project's Flow variables (game-families §3.1), offered as `var:<id>` sources. */
+		flowVariables?: { id: string; type: string }[];
 		/** The open component's draft, for its Events list and a node's Listeners (Rive plan Phase 6b,
 		 *  component mode). */
 		componentDraft?: ComponentDef | null;
@@ -380,6 +385,7 @@
 		onRenameInput,
 		onSetInputDefault,
 		onSetInputSource,
+		flowVariables = [],
 		componentDraft = null,
 		componentReservedIds = [],
 		componentReadOnly = false,
@@ -976,6 +982,18 @@
 
 	/** The bool / number inputs, in declaration order (triggers are the signal rows above). */
 	const valueInputRows = $derived(componentInputs.filter((i) => i.kind !== 'trigger'));
+	/** The flow variables an input of `kind` can follow (game-families §3.1): a number input a number
+	 *  variable, a bool input a bool one, a text input a string or enum one. */
+	const VARIABLE_TYPES_FOR: Record<string, readonly string[]> = {
+		number: ['int', 'float'],
+		bool: ['bool'],
+		text: ['string', 'enum'],
+	};
+	const variablesFor = (kind: string): { id: string; type: string }[] =>
+		flowVariables.filter((v) => (VARIABLE_TYPES_FOR[kind] ?? []).includes(v.type));
+	/** This panel's own datalist ids, so two mounted panels never share one. */
+	const panelId = $props.id();
+	const variableListId = `flow-variable-sources-${panelId}`;
 	let newInputKey = $state('');
 	let newInputKind = $state<'bool' | 'number'>('bool');
 	function addValueInput(): void {
@@ -1893,6 +1911,22 @@
 			: ENGINE_ACTION_CATALOG;
 	}
 
+	/**
+	 * Dropdown options for a param with baked `options`. A Hold and Win panel's `source` (one whose
+	 * options carry a Hold and Win feed) also lists every Hold and Win feed from the LIVE catalog: a
+	 * copy saved off the built-in snapshots its options, and would never offer a feed added since.
+	 * The current value is kept when it is in neither list, so a hand-set source is not shown as unset.
+	 */
+	function paramOptions(p: ComponentParam, current: unknown): string[] {
+		const baked = p.options ?? [];
+		const options =
+			p.key === 'source' && baked.some((o) => HOLD_AND_WIN_VALUE_SOURCE_KEYS.includes(o))
+				? [...new Set([...HOLD_AND_WIN_VALUE_SOURCE_KEYS, ...baked])]
+				: baked;
+		const v = typeof current === 'string' ? current : '';
+		return v && !options.includes(v) ? [...options, v] : options;
+	}
+
 	/** Dropdown options for a repeater's `source`: the catalog of registered lists, plus the node's
 	 * current value when it's a custom source not in the catalog (so a hand-authored one isn't
 	 * silently rewritten to the first entry). */
@@ -2585,23 +2619,35 @@
 											onSetInputDefault?.(input.id, Number(e.currentTarget.value) || 0)}
 									/>
 								</label>
-								<label
-									class="input-default"
-									title="An engine value this number follows in game (winAmount, balance…), the same names Bind to value offers. Empty: Flow sets it."
-								>
-									from
-									<input
-										type="text"
-										value={input.source ?? ''}
-										placeholder="engine value"
-										onchange={(e) => onSetInputSource?.(input.id, e.currentTarget.value)}
-									/>
-								</label>
 							{/if}
+							<label
+								class="input-default"
+								title="An engine value this input follows in game (winAmount, balance…), the same names Bind to value offers, or a Flow variable (var:score). Empty: Flow sets it."
+							>
+								from
+								<input
+									type="text"
+									value={input.source ?? ''}
+									placeholder="engine value or var:…"
+									list={variablesFor(input.kind).length
+										? `${variableListId}-${input.kind}`
+										: undefined}
+									onchange={(e) => onSetInputSource?.(input.id, e.currentTarget.value)}
+								/>
+							</label>
 						</div>
 					</li>
 				{/each}
 			</ul>
+			{#each ['number', 'bool', 'text'] as kind (kind)}
+				{#if variablesFor(kind).length}
+					<datalist id={`${variableListId}-${kind}`}>
+						{#each variablesFor(kind) as v (v.id)}
+							<option value={`var:${v.id}`}>{v.id} ({v.type})</option>
+						{/each}
+					</datalist>
+				{/if}
+			{/each}
 		{/if}
 		<div class="row">
 			<label class="field">
@@ -2703,7 +2749,7 @@
 								onSetProjectParamDefault?.(p.key, e.currentTarget.value || undefined)}
 						>
 							<option value="">{inheritHint(p)}</option>
-							{#each p.options as opt (opt)}
+							{#each paramOptions(p, projectDefaultOf(p.key)) as opt (opt)}
 								<option value={opt}>{opt}</option>
 							{/each}
 						</select>
@@ -3022,7 +3068,7 @@
 								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
 							>
 								<option value="">(inherit default)</option>
-								{#each p.options as opt (opt)}
+								{#each paramOptions(p, instanceParamValue(node, p.key)) as opt (opt)}
 									<option value={opt}>{opt}</option>
 								{/each}
 							</select>
@@ -3749,6 +3795,11 @@
 			<p class="muted small">
 				A rig is placed by its origin (the ⊕ on the canvas). To move the origin, use ⊕ Centre origin
 				in the Rigger.
+			</p>
+		{:else if node.kind === 'spawnLayer'}
+			<!-- The game draws each spawn at its place in the layer's space; the layer has no anchor. -->
+			<p class="muted small">
+				A spawn layer is placed by its origin: a spawn's x / y (or cell 0, 0) is measured from it.
 			</p>
 		{:else}
 			<div class="row">
@@ -5947,6 +5998,8 @@
 				+ add cue
 			</button>
 		</section>
+	{:else if node.kind === 'spawnLayer'}
+		<EditorSpawnLayer {node} {componentDefs} onChange={markDirty} />
 	{:else if node.kind === 'repeater' && isCountRepeater(node)}
 		<EditorRepeaterCount
 			{node}

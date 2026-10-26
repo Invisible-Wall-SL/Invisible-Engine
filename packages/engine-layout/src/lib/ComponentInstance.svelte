@@ -52,7 +52,7 @@
 </script>
 
 <script lang="ts">
-	import { Container, createPressHold, getContextApp } from 'pixi-svelte';
+	import { Container, createPressHold, getContextApp, getContextParent } from 'pixi-svelte';
 	import { CanvasSizeRectangle } from 'components-layout';
 	import { getContextLayout } from 'utils-layout';
 	import {
@@ -63,7 +63,7 @@
 	} from 'utils-event-emitter';
 
 	import LayoutNodeView from './LayoutNodeView.svelte';
-	import { resolveComponent } from './registerComponents';
+	import { resolveComponent, warnPinNotHonoured } from './registerComponents';
 	import {
 		getComponentNestState,
 		setComponentNestState,
@@ -124,10 +124,21 @@
 	import { ComponentStateMachineRunner } from './stateMachine';
 	import { componentInputs, componentTriggers } from './componentInterface';
 	import { setCinematicNodeDriver } from './cinematicNodeContext';
-	import { ComponentEventDispatcher, hasNodeListeners, routeComponentCue } from './componentEvents';
-	import { setComponentListen } from './componentListenerContext';
+	import {
+		alignTargetIds,
+		ComponentEventDispatcher,
+		hasNodeListeners,
+		routeComponentCue,
+	} from './componentEvents';
+	import {
+		getComponentAlign,
+		setComponentAlign,
+		setComponentListen,
+		type ComponentAlignTarget,
+	} from './componentListenerContext';
+	import type { PointerPoint } from './componentPointer';
 	import { registerFlowInstance } from './flowInstances';
-	import { createFlowInstanceHandle } from './flowInstanceHandle';
+	import { coerceInstanceInput, createFlowInstanceHandle } from './flowInstanceHandle';
 	import { getSceneIdContext } from './sceneIdContext';
 
 	let {
@@ -191,7 +202,7 @@
 	const resolution = resolveComponent(node.componentId, node.componentVersion);
 	const def = resolution.def;
 
-	// Nesting guard (§8.9): cap depth at 2 levels and refuse a transitive cycle
+	// Nesting guard (§8.9): cap depth at `MAX_COMPONENT_DEPTH` levels and refuse a transitive cycle
 	// (a component instancing itself). `parentNest` is a stable context value, so
 	// these guards are init-stable too.
 	const parentNest = getComponentNestState();
@@ -200,11 +211,7 @@
 	const allowed = !!def && !isCycle && !depthExceeded;
 
 	$effect(() => {
-		if (resolution.versionMismatch) {
-			console.warn(
-				`[engine-layout] component '${node.componentId}' pins version ${resolution.pinnedVersion} but that version is not registered (rendering the latest, v${resolution.registeredVersion} — pin not honoured exactly, never auto-upgraded).`,
-			);
-		}
+		warnPinNotHonoured(node.componentId, resolution);
 		if (!def) {
 			console.warn(`[engine-layout] no component registered for id '${node.componentId}'.`);
 		} else if (isCycle) {
@@ -786,13 +793,46 @@
 					input: (id) => stateMachineRunner?.input(id),
 					setInput: (id, value) => void stateMachineRunner?.setInput(id, value),
 					schedule: (drain) => queueMicrotask(drain),
+					alignTarget: (id) => {
+						const target = alignSpaces[id] as ComponentAlignTarget | undefined;
+						return (
+							target && {
+								...target,
+								place: (at) => void (aligned[id] = { ...aligned[id], ...at }),
+							}
+						);
+					},
 				})
 			: undefined;
 	if (eventDispatcher && listened) {
+		// A listener's pointer reads in the instance's space: the placing node's container, which the
+		// def's root (no transform of its own) shares.
+		const instanceSpace = getContextParent().parent;
 		setComponentListen({
 			owns: (nodeId) => eventDispatcher.owns(nodeId),
-			listen: (target, event) => eventDispatcher.pointer(target, event),
+			listen: (target, event, at) => eventDispatcher.pointer(target, event, at),
+			local: (global) => instanceSpace.toLocal(global),
 		});
+	}
+	// ALIGN TARGET (game-families §3.2): the nodes a listener of this def moves to the pointer, and
+	// where it put each. A def that aligns nothing provides the context only to hide an outer
+	// instance's from its own nodes; with none above, nothing is provided (parity).
+	const alignTargets = new Set(eventDispatcher && listened ? alignTargetIds(def) : []);
+	const alignSpaces: Record<string, ComponentAlignTarget> = {};
+	const aligned = $state<Record<string, Partial<PointerPoint>>>({});
+	if (alignTargets.size) {
+		setComponentAlign({
+			targets: (nodeId) => alignTargets.has(nodeId),
+			attach: (nodeId, target) => {
+				alignSpaces[nodeId] = target;
+				return () => aligned[nodeId];
+			},
+			detach: (nodeId, target) => {
+				if (alignSpaces[nodeId] === target) delete alignSpaces[nodeId];
+			},
+		});
+	} else if (getComponentAlign()) {
+		setComponentAlign({ targets: () => false, attach: () => () => undefined, detach: () => {} });
 	}
 	onDestroy(() => eventDispatcher?.destroy());
 
@@ -955,24 +995,34 @@
 			});
 		}
 	});
-	// A number input with a `source` follows that engine value (the registry a value binding's
-	// `source` reads) — or the one a repeater passes it. Untracked: a source emits synchronously on
-	// subscribe.
+	// An input with a `source` follows that engine value (the registry a value binding's `source`
+	// reads) — or, for a number, the one a repeater passes it. A number or a bool lands on the state
+	// machine (a bool from on / off or 1 / 0, as a Flow set reads one); a text input keeps the key the
+	// source names, as a Flow set keeps one (game-families §3.1: a `var:<id>` source is a Flow
+	// variable). Untracked: a source emits synchronously on subscribe.
 	$effect(() =>
 		untrack(() => {
-			if (!stateMachineRunner || !def) return;
+			if (!def) return;
 			const unsubs: (() => void)[] = [];
 			const passed = inputSources;
 			for (const input of componentInputs(def)) {
-				if (input.kind !== 'number' || fixedInputs?.[input.id] !== undefined) continue;
+				if (input.kind === 'trigger' || fixedInputs?.[input.id] !== undefined) continue;
+				if (input.kind !== 'text' && !stateMachineRunner) continue;
 				const name =
-					passed?.[input.id] ??
+					(input.kind === 'number' ? passed?.[input.id] : undefined) ??
 					(input.source ? expandSourceTemplate(input.source, sourceParams) : undefined);
 				const source = name ? getComponentValueSource(name) : undefined;
 				if (!source) continue;
 				unsubs.push(
 					source.subscribe((value) => {
-						stateMachineRunner.setInput(input.id, Number(value));
+						if (input.kind === 'number') {
+							stateMachineRunner?.setInput(input.id, Number(value));
+							return;
+						}
+						const coerced = coerceInstanceInput(input.kind, value);
+						if (coerced === undefined) return;
+						if (input.kind === 'bool') stateMachineRunner?.setInput(input.id, coerced as boolean);
+						else flowInstance?.handle.setInput(input.id, coerced);
 					}),
 				);
 			}

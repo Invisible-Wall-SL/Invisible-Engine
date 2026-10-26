@@ -46,6 +46,17 @@
 		'mode-unset': '✗',
 		'mode-entry-scope': '⤫',
 		'container-scene-missing': '⊘',
+		'variable-unknown': '✗',
+		'variable-type': '≠',
+		'variable-scope': '⤫',
+		'variable-duplicate': '⧉',
+		'variable-shadows-money': '$',
+		'tick-async': '⏱',
+		'tick-fast': '⏱',
+		'input-unknown': '⌨',
+		'spawn-layer-unknown': '✗',
+		'spawn-not-spawnable': '⊘',
+		'spawn-cell-free': '⊞',
 	};
 
 	// Best-effort node id an issue points at — a node/pin `at`, or an edge's TARGET node.
@@ -57,6 +68,9 @@
 			case 'execEdge':
 			case 'dataEdge':
 				return issue.at.to.node;
+			case 'variable':
+				// A declaration lives in the Variables panel, not on the canvas.
+				return undefined;
 		}
 	};
 </script>

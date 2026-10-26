@@ -31,7 +31,7 @@ import {
 } from 'pixi-svelte';
 import { particleTimeScale } from 'pixi-svelte/particleClock';
 import { isCameraEffectKind } from 'constants-shared/camera';
-import { isElementFxKind } from 'constants-shared/elementFx';
+import { isPlayableElementFxKind } from 'constants-shared/elementFx';
 import { recordBookEvent, checkIsMultipleRevealEvents } from 'utils-book';
 import {
 	stateBet,
@@ -1212,15 +1212,16 @@ const effects: Record<string, FlowEffect> = {
 	/**
 	 * Element FX (`elementEffect`) — the camera's sibling for ONE element: the reels, a screen
 	 * (`screen:<id>`) or a node, found through the named anchors (the reel stack, every mounted
-	 * screen, groups, components and each node carrying Element FX register one). An unknown target
-	 * or kind is a no-op, as `cameraEffect`'s is. `blocking` waits for it to play out; one that plays
-	 * until stopped (`repeat: 0`) never blocks.
+	 * screen, groups, components and each node carrying Element FX register one). The kind is a
+	 * built-in or a registered custom effect (`custom:<id>`). An unknown target or kind is a no-op,
+	 * as `cameraEffect`'s is. `blocking` waits for it to play out; one that plays until stopped
+	 * (`repeat: 0`) never blocks.
 	 */
 	elementEffect: (payload) => {
 		const kind = payload.kind;
 		const name = typeof payload.target === 'string' ? payload.target : '';
 		const target = name ? resolveAnchor(name) : undefined;
-		if (!isElementFxKind(kind) || !target) return;
+		if (!isPlayableElementFxKind(kind) || !target) return;
 		const repeat = numberOrUndefined(payload.repeat);
 		const handle = playElementFx(
 			target,

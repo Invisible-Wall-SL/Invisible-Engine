@@ -470,6 +470,17 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			],
 		},
 		{
+			type: 'respinCounterAward',
+			group: 'Hold and Win',
+			fields: [
+				{
+					key: 'left',
+					kind: 'number',
+					required: true,
+				},
+			],
+		},
+		{
 			type: 'respinCounterUpdate',
 			group: 'Hold and Win',
 			fields: [
@@ -1574,6 +1585,18 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 		},
 		{
 			type: 'modeExit',
+		},
+		{
+			type: 'boardInit',
+		},
+		{
+			type: 'swap',
+		},
+		{
+			type: 'movesLeft',
+		},
+		{
+			type: 'match3RoundEnd',
 		},
 	],
 };

@@ -184,17 +184,23 @@ assert(lines, 'no lines default');
 const hwPots = normalized(HOLD_AND_WIN_PRESETS.pots);
 const defaults = symbolDefaultsFor('holdAndWin').symbols;
 const emptySymbols = { version: 1 as const, symbols: {} };
-/** The placeholder a binding must equal: the default's type / assetKey / animationName. */
-const placeholder = (source: string) =>
+/** The states a seed binds: a token its Static and the Win its Fly to meter draws; a Hold and Win
+ *  symbol every placeholder state but Post-win, which it never plays. */
+const TOKEN = ['static', 'win'];
+const COIN = ['static', 'spin', 'land', 'win', 'explosion'];
+/** The placeholder a binding must equal: the default's type / assetKey / animationName, on `states`. */
+const placeholder = (source: string, states: readonly string[]) =>
 	Object.fromEntries(
-		Object.entries(defaults[source]).map(([state, cell]) => [
-			state,
-			{
-				type: cell.type,
-				assetKey: cell.assetKey,
-				...(cell.animationName ? { animationName: cell.animationName } : {}),
-			},
-		]),
+		Object.entries(defaults[source])
+			.filter(([state]) => states.includes(state))
+			.map(([state, cell]) => [
+				state,
+				{
+					type: cell.type,
+					assetKey: cell.assetKey,
+					...(cell.animationName ? { animationName: cell.animationName } : {}),
+				},
+			]),
 	);
 
 console.log('\n1. symbols seed');
@@ -218,10 +224,22 @@ await check('3 Pots on a lines host: every token and bonus symbol, blank exclude
 		'bound symbols',
 	);
 	same(seed.missingArt, [], 'missing art');
-	same(seed.doc.symbols.POT_RED, placeholder('BOOST'), 'the red token borrows the payer art');
-	same(seed.doc.symbols.POT_BLUE, placeholder('COLLECT'), 'the blue token borrows the collector');
-	same(seed.doc.symbols.POT_GREEN, placeholder('MULTI'), 'the green token borrows the multiplier');
-	same(seed.doc.symbols.BONUS, placeholder('BONUS'), 'the coin keeps its own art');
+	same(
+		seed.doc.symbols.POT_RED,
+		placeholder('BOOST', TOKEN),
+		'the red token borrows the payer art',
+	);
+	same(
+		seed.doc.symbols.POT_BLUE,
+		placeholder('COLLECT', TOKEN),
+		'the blue token borrows the collector',
+	);
+	same(
+		seed.doc.symbols.POT_GREEN,
+		placeholder('MULTI', TOKEN),
+		'the green token borrows the multiplier',
+	);
+	same(seed.doc.symbols.BONUS, placeholder('BONUS', COIN), 'the coin keeps its own art');
 	assert(!('BLANK' in seed.doc.symbols), 'a blank was bound');
 });
 
@@ -229,7 +247,7 @@ await check('pots to free spins: one token, no Hold and Win symbols', () => {
 	const { doc } = withOverlay(lines, 'potsToFreeSpins');
 	const seed = potsOverlaySymbolsSeed(doc, emptySymbols);
 	same(seed.added, ['POT_GOLD'], 'bound symbols');
-	same(seed.doc.symbols.POT_GOLD, placeholder('BONUS'), 'an unknown pot borrows the coin');
+	same(seed.doc.symbols.POT_GOLD, placeholder('BONUS', TOKEN), 'an unknown pot borrows the coin');
 });
 
 await check('renamed names are bound, the host symbol under the old name is not', () => {
@@ -244,8 +262,8 @@ await check('renamed names are bound, the host symbol under the old name is not'
 		symbols: { BONUS: { static: { type: 'sprite' as const, assetKey: 'mine.png' } } },
 	};
 	const seed = potsOverlaySymbolsSeed(result.doc, authored);
-	same(seed.doc.symbols.BONUS_2, placeholder('BONUS'), 'BONUS_2 takes the coin art');
-	same(seed.doc.symbols.POT_RED_2, placeholder('BOOST'), 'POT_RED_2 takes the red art');
+	same(seed.doc.symbols.BONUS_2, placeholder('BONUS', COIN), 'BONUS_2 takes the coin art');
+	same(seed.doc.symbols.POT_RED_2, placeholder('BOOST', TOKEN), 'POT_RED_2 takes the red art');
 	same(seed.doc.symbols.BONUS, authored.symbols.BONUS, 'the host BONUS binding');
 	assert(!seed.added.includes('POT_RED'), 'the host POT_RED was bound');
 });
@@ -257,7 +275,7 @@ await check(
 		same(result.renamed.pots, { red: 'red_2', blue: 'blue_2', green: 'green_2' }, 'pot renames');
 		const seed = potsOverlaySymbolsSeed(result.doc, emptySymbols);
 		same([...seed.added].sort(), ['POT_BLUE', 'POT_GREEN', 'POT_RED'], 'only the tokens');
-		same(seed.doc.symbols.POT_RED, placeholder('BOOST'), 'red_2 borrows the red art');
+		same(seed.doc.symbols.POT_RED, placeholder('BOOST', TOKEN), 'red_2 borrows the red art');
 	},
 );
 

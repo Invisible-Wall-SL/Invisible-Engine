@@ -43,7 +43,9 @@ import {
 	type SnapshotMeta,
 } from './publishedRuntime';
 import { buildRuntimeBundle } from './runtimeBundle';
+import { unshippedCustomKinds } from './shaderExport';
 import { checkSoundsForPublish, type SoundPublishCheck } from './soundPublishCheck';
+import { unplayableFamilyMessage } from './familyGate';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { invalidateRuntimeBundle, withDeployWrite } from './runtimeBundleCache';
 import { SHARED_RUNTIME_ID, runtimePointer, upsertTestServerGame } from './testServerManifest';
@@ -65,6 +67,9 @@ export interface PublishResult {
 	 *  ship as nothing (`EditorArtIndex.spinesMissing` + `SymbolExportIndex.spinesMissing`).
 	 *  Never blocking — shown next to the publish so the author re-binds them. */
 	spinesMissing: { scene: string[]; symbols: string[] };
+	/** Custom Element FX kinds (`custom:<id>`) the game names but does not ship: they play nothing,
+	 *  their graph deleted or not compiling (`unshippedCustomKinds`). Never blocking. */
+	shaderEffectsMissing: string[];
 	/** Flow containers (ids) whose screen the shipped layout does not have: they draw nothing, and a
 	 *  step waiting on one never continues. Never blocking — an author may be mid-edit. */
 	flowScreensMissing: string[];
@@ -86,10 +91,15 @@ export class PublishBlockedError extends Error {
 	constructor(
 		message: string,
 		/** What blocked it, for a UI that can offer a way through. `own-bundle` never can — it would
-		 *  clobber a real game — while `unapproved-sounds`, `invalid-flow` and `paytable-drift` are
-		 *  deliberate-override cases (the last two for the owner role only; see the publish endpoint). */
+		 *  clobber a real game — and neither can `unplayable-family`, a game the runtime cannot play;
+		 *  `unapproved-sounds`, `invalid-flow` and `paytable-drift` are deliberate-override cases (the
+		 *  last two for the owner role only; see the publish endpoint). */
 		readonly reason:
-			'own-bundle' | 'unapproved-sounds' | 'invalid-flow' | 'paytable-drift' = 'own-bundle',
+			| 'own-bundle'
+			| 'unplayable-family'
+			| 'unapproved-sounds'
+			| 'invalid-flow'
+			| 'paytable-drift' = 'own-bundle',
 		/** The names behind the refusal, so the UI lists them instead of saying "something". */
 		readonly details: string[] = [],
 	) {
@@ -161,7 +171,7 @@ type GateOptions = {
 
 /**
  * Step 1 of {@link publishGame}: every gate it runs before the ~20 s assemble, in order, as a
- * verdict rather than a throw — the own-bundle guard, then sounds, the stored flow and the paytable.
+ * verdict rather than a throw — the own-bundle guard, then sounds, the stored flow, the family and the paytable.
  */
 async function runPublishGates(
 	clientKey: string,
@@ -213,11 +223,18 @@ async function runPublishGates(
 	);
 	if (flow) return { refusal: flow };
 
-	// 1c. THE PAYTABLE GATE. A project that captured its partner's declared paytable must not ship
-	// quoting other prices unnoticed — the info page is built from the authored config, the partner
-	// pays its own. No capture ⇒ nothing to compare ⇒ never gated.
 	const config =
 		options.config === undefined ? await loadGameConfigDoc(clientKey, projectKey) : options.config;
+	// 1c. THE FAMILY GATE. A config the runtime cannot play yet (`mechanicFor().unplayable`: an
+	// RGS-decided arcade game, until P10.10). No override: there is nothing a player could be
+	// shown. A playable non-slot game publishes to our test server only; a rules one is dealt the
+	// refusing `freePlay` mock.
+	const unplayable = unplayableFamilyMessage(config);
+	if (unplayable) return { refusal: new PublishBlockedError(unplayable, 'unplayable-family') };
+
+	// 1d. THE PAYTABLE GATE. A project that captured its partner's declared paytable must not ship
+	// quoting other prices unnoticed — the info page is built from the authored config, the partner
+	// pays its own. No capture ⇒ nothing to compare ⇒ never gated.
 	const drift = paytableDriftDetails(config);
 	if (drift.length && !options.allowPaytableDrift) {
 		return {
@@ -283,6 +300,7 @@ export async function publishGame(
 				...(assembled.componentVersions ?? []),
 			],
 			config: assembled.config,
+			shaderEffects: assembled.shaderEffects,
 		});
 		refuseFlow(shipped);
 		const engine = await runtimePointer(runtimeFor(gameType));
@@ -322,6 +340,16 @@ export async function publishGame(
 			`[publish] ${projectKey}: ${rigsMissing.symbols.length} bound symbol rig bundle(s) ` +
 				`resolved to NOTHING and will be MISSING in-game: ${rigsMissing.symbols.join(', ')}. ` +
 				'Re-bind the symbol in Invisible Symbols, or promote the rig to the shared library.',
+		);
+	}
+	// A custom Element FX the game names but does not ship plays nothing, silently: its graph was
+	// deleted, or no longer compiles. Logged like the rigs: the rest of the game is fine.
+	const shaderEffectsMissing = unshippedCustomKinds({ ...bundle });
+	if (shaderEffectsMissing.length > 0) {
+		console.warn(
+			`[publish] ${projectKey}: ${shaderEffectsMissing.length} shader effect(s) named in the game ` +
+				`will play NOTHING: ${shaderEffectsMissing.join(', ')}. Its graph was deleted or does not ` +
+				'compile — fix or re-save it, or pick another effect.',
 		);
 	}
 	const holdAndWinConfigMissing =
@@ -428,6 +456,7 @@ export async function publishGame(
 		sounds: soundCheck.licences,
 		flow: flowCheck.status === 'invalid' ? 'overridden' : flowCheck.status,
 		spinesMissing: rigsMissing,
+		shaderEffectsMissing,
 		flowScreensMissing: flowScreensMissing(bundle.flowV2, bundle.doc.scenes),
 		holdAndWinConfigMissing,
 		snapshot,

@@ -55,7 +55,7 @@
  *    not place (`instance-missing`) and a wait for a state the layer never enters
  *    (`instance-state-unknown`) are refused. Detail: `check:flow-instance-nodes`.
  */
-import { GAME_KINDS } from 'constants-shared/gameKinds';
+import { GAME_KINDS, SLOT_GAME_KINDS, familyOfKind } from 'constants-shared/gameKinds';
 import {
 	BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS,
 	DRIVEN_SEEDS,
@@ -79,6 +79,7 @@ import {
 	type TypeRef,
 } from 'engine-flow-v2';
 import {
+	ARCADE_SAMPLE_COMPONENTS,
 	engineOwnedOnly,
 	getFullSceneSet,
 	kindCapabilities,
@@ -92,6 +93,7 @@ import {
 	potsOverlayOf,
 	potsOverlayPreset,
 	primaryHoldAndWin,
+	resolveOutcome,
 	type GameConfigDoc,
 	type PotsOverlayPresetId,
 } from 'game-config';
@@ -110,7 +112,19 @@ const check = (name: string, ok: boolean, detail = ''): void => {
 };
 
 const EMPTY_LIBRARY = { version: 2 as const, functions: [] };
-for (const gameType of GAME_KINDS) {
+// The kinds of the other families (game-families.md §6.1) get their scene set, starter flow and
+// vocabulary with their own phase: match-3 with P10.5, arcade with P10.8. Until then no project can
+// be one, and that phase moves its kind into the loops below.
+const PLAYABLE_KINDS: readonly string[] = [...SLOT_GAME_KINDS, 'match3', 'arcade'];
+for (const gameType of GAME_KINDS.filter((kind) => !PLAYABLE_KINDS.includes(kind))) {
+	check(`1. ${gameType}: has no full scene set yet`, !getFullSceneSet(gameType));
+}
+check(
+	'1. every kind outside the slot family that has a scene set is match-3 or arcade',
+	GAME_KINDS.filter((kind) => familyOfKind(kind) !== 'slot' && getFullSceneSet(kind)).join() ===
+		'match3,arcade',
+);
+for (const gameType of PLAYABLE_KINDS) {
 	const reference = getFullSceneSet(gameType);
 	if (!reference) {
 		check(`1. ${gameType}: has a full scene set`, false);
@@ -122,6 +136,11 @@ for (const gameType of GAME_KINDS) {
 		scenes,
 		null,
 		EMPTY_LIBRARY,
+		// An arcade scaffold also writes the components its sample spawns (`projectScaffold.ts`).
+		gameType === 'arcade' ? ARCADE_SAMPLE_COMPONENTS : [],
+		undefined,
+		[],
+		resolveOutcome(gameConfigDefaultFor(gameType)),
 	).filter((i) => i.severity === 'error');
 	check(
 		`1. ${gameType}: the scaffolded starter flow passes the publish gate`,
@@ -176,9 +195,11 @@ const RESOLVES_TO: Record<string, [string, string]> = {
 	scatter: ['scatter', 'scatter'],
 	bookOf: ['bookOf', 'bookOf'],
 	holdAndWin: ['holdAndWin', 'holdAndWin'],
+	match3: ['match3', 'match3'],
+	arcade: ['arcade', 'arcade'],
 	'my-custom-kind': ['bookOf', 'bookOf'],
 };
-for (const kind of GAME_KINDS) {
+for (const kind of PLAYABLE_KINDS) {
 	check(`4. ${kind}: has a recorded resolution`, kind in RESOLVES_TO);
 }
 for (const [kind, [seedId, vocabId]] of Object.entries(RESOLVES_TO)) {
@@ -689,7 +710,9 @@ const COMBOS: Record<string, FlowAddOns> = {
 	overlay: { potsOverlay: true, meters: ['red', 'gold'] },
 	both: bonusAddOns,
 };
-for (const kind of Object.keys(RESOLVES_TO)) {
+// Add-ons are slot features: a match-3 config never carries their blocks (`flowAddOnsOf` of one is
+// empty, pinned in §7), so its vocabulary is never composed with them.
+for (const kind of Object.keys(RESOLVES_TO).filter((k) => familyOfKind(k) === 'slot')) {
 	for (const [label, addOns] of Object.entries(COMBOS)) {
 		const vocab = withAddOns(templateVocabulary(kind), addOns);
 		const issues = wellFormedIssues(vocab);
@@ -720,7 +743,7 @@ check(
 			'overlayDrop',
 );
 
-for (const gameType of GAME_KINDS) {
+for (const gameType of SLOT_GAME_KINDS) {
 	const scenes = engineOwnedOnly(getFullSceneSet(gameType)!).scenes;
 	const seedDoc = freshDrivenSeedDoc(gameType);
 	const missing = flowScreensMissing(seedDoc, scenes);

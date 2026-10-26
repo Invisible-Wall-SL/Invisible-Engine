@@ -25,6 +25,19 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
   `coinCollect`/`coinBoost`/`jackpotReveal`/`flyToMeter → win`, `mysteryReveal → explosion`)
   draws the borrowed art with an `inherits` badge; `effectiveCell` and the engine's
   `resolveSymbolState` are pinned together by `check:symbol-state-parity`.
+- **Rows offer only what they play** — the project's columns are narrowed per row by
+  `engine-layout` `symbolStatesPlayed` over facts `symbolsPageConfig` reads off the config (`plays`:
+  dealt, on the reels, token, roles, fills a meter). Three groups, each with its own column heads:
+  the symbols (no Hold and Win state), a **Hold and Win** group of the role symbols (`holdAndWinRows`,
+  drawn after the others; no `win` / `postWinStatic` / book state, the held beats, and each role's
+  own beat, and `clearReel`, now a column on any project with the respin feature) and the **Coins**
+  (`static` + the token's three). A slot a row does not play is an empty dashed box. Authored art or
+  Element FX on a project column the row never plays, and no played state borrows
+  (`unplayedStates`), is listed on the row head (**Never played … Clear**) with a **Clear all** note
+  above the grid; a state a `/config` switch hides is never listed. Without a config every row offers
+  every column and nothing is listed. The Hold and Win and pots overlay seeds bind only
+  `seededStates` (played + their donors, `$lib/server/symbolPlays.ts` over engine-game
+  `symbolStateDonor`). Pinned by `check:symbols-kind-gating` §5.
 - **Kind gating** — only through `kindCapabilities()`: `bookSymbolVfx`, `tumblePattern`,
   `symbolTransition` (true for every kind but `holdAndWin`) and `stackedPictures` hide the Book
   symbol VFX / Explosion pattern / Transition / Stacked pictures sections for Hold and Win, each
@@ -172,6 +185,44 @@ or the effect is pruned as an orphan.
 
 ## Recent changes
 
+- 2026-10-23 — **Each row offers only the states the game plays for it.** Owner: the Hold and Win
+  and pots overlay rows showed every state (17 columns on a Hold and Win + 3 Pots project), most of
+  them never played for that symbol (a token's Spin / Land / Win / Post-win / Explosion; a coin's
+  Win / Post-win; a plain coin's Coin boost / Respins add / Mystery reveal …), so art could be set
+  that ships but never shows. Traced each beat to its subject in the game (`Board.svelte` lights
+  only paying cells, and role symbols carry no paytable; `holdAndWinPresentation.ts`'s
+  `playHeldBeat` / `lightBaseCell` subjects; `RespinCell`'s `spin` / `coinLand`; `OverlayToken` /
+  the reel rider / `FlightLayer` for tokens) into `symbolStatesPlayed(columns, facts, { bookReveal })`
+  in `engine-layout/symbolStates.ts`. `symbolsPageConfig` adds `plays` (per row: `dealt`,
+  `onReels` — a non-respin strip deals it and the project is not a coin board — `token`,
+  `holdAndWinRoles`, `fillsMeter` — a symbol-filled meter's symbol) and `holdAndWinRows`, and orders
+  `symbols` with that group last so `/win-text` lists rows in the order `/symbols` draws them. Page:
+  per-group `stateHeads` + `<colgroup>` sized to the widest group (cells size by it too), an empty
+  `cell-off` slot for a state the row does not play, `unplayed` (authored cells no played state
+  borrows, and Element FX on a state not played — FX never borrow) on each row head with **Clear**,
+  and a **Clear all** note. Render-only: the doc, the export and the game are unchanged, so a
+  project looks exactly as before until someone clears what is listed. The rig-animation warning
+  now scans only the cells a row offers. Gates: `check:symbols-kind-gating` §5 (every kind × setup:
+  no bonus ⇒ every column as before; tokens their four; no Hold and Win state on a role-less row
+  except a meter filler's flight; no `win` / `postWinStatic` / book state on a role row; each role
+  beat only on its role; the held set; the classic preset's coin, blank and line rows exactly; the
+  page wiring) — 3374 checks; a mutation of the rule fails 22. `check:symbols-follow-config`,
+  `check:symbol-state-parity`, `check:symbol-fx`, the svelte-check ratchet and lint unchanged.
+  Not verified in a live browser (no launcher DB / R2 in the session).
+  **Review round:** a held coin's `clearReel` (the respin board's `presentCellsCleared` /
+  `presentColumnComplete`) had no column and its `explosion` donor was hidden, so **Clear all** would
+  have deleted the pop every seeded Hold and Win project binds. `visibleStatesFor` now shows
+  `clearReel` with the respin feature; the rule takes `clearsBoard` (cascade or board clear) so a
+  line symbol still offers it only there; `unplayedStates` (now in `symbols.client.ts`) lists only
+  project columns and nothing without a config; and the seeds (`holdAndWinSymbolsSeed`,
+  `potsOverlaySymbolsSeed`) bind only `seededStates` — a coin every placeholder state but
+  `postWinStatic`, a token `static` + `win` — so a new project lists nothing. Facts moved to
+  `$lib/server/symbolPlays.ts` (page + seeds). §5 grew to 3981 checks (Clear reel per row, the
+  reviewer's scenario, a switch-hidden state, every seed lists nothing and resolves every played
+  state to the art the whole placeholder set did); `check:project-scaffold` and
+  `check:pots-overlay-add-on` pin the trimmed seeds. Known limit: an authored flow that lights a
+  win's whole payline (the raw `boardWithAnimateSymbols` cue) can play `win` → `postWinStatic` on a
+  coin sitting on the unpaid tail; `postWinStatic` is listed as never played there.
 - 2026-10-21 — **Element FX per symbol state** (authoring + ship; the game side is in
   [status/fx](fx.md)). Owner ask: "when a symbol lands it shakes, when it wins it glows, when it
   explodes it melts". New doc section `symbolFx` (symbol → state → `ElementFxEntry[]`), beside

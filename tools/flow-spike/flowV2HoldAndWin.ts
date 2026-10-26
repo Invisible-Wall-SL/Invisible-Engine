@@ -13,10 +13,13 @@
  *      optionality, read by the TypeScript checker off the source), and its enums mirror the engine's
  *      and the Game Config's.
  *   4. EVERY registered vocabulary is backed by the shared runtime: each action is a `flowEffects.ts`
- *      effect or an intent command, each cue an emitter member (the generated
- *      `emitterVocabulary.ts`, kept fresh by `gen:flow-vocab:check`), each value and collection a
- *      `linesEngineReader` key — and each Hold and Win cue carries the emitter member's fields. A
- *      planted unbacked action is caught.
+ *      effect, an intent command, a match-3 board action (the driver's effects, pinned to
+ *      `MATCH3_BOARD_ACTIONS` by `check:match3-rules`) or an arcade loop action
+ *      (`ARCADE_LOOP_ACTIONS`, pinned by `check:arcade-rules`), each cue an emitter member (the
+ *      generated `emitterVocabulary.ts`, kept fresh by `gen:flow-vocab:check`), each value and
+ *      collection a `linesEngineReader` key or an arcade loop value (`ARCADE_LOOP_VALUES`) — and
+ *      each Hold and Win cue carries the emitter member's fields. A planted unbacked action is
+ *      caught.
  *   5. The starter flow validates with no error, keeps the feature in `modes.holdAndWin` and the base
  *      game in the global graph, owns exactly the beats the runtime backs, and declares the Hold and
  *      Win template's screens it shows and none of the free-spin ones or the tap-held intro/outro.
@@ -46,9 +49,12 @@ import { fileURLToPath } from 'node:url';
 
 import ts from 'typescript';
 import {
+	ARCADE_LOOP_ACTIONS,
+	ARCADE_LOOP_VALUES,
 	BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS,
 	CUE_SCOPE_PIN,
 	BOOK_OF_DRIVEN_SEED_LIBRARY,
+	MATCH3_BOARD_ACTIONS,
 	HOLD_AND_WIN_CAUSES,
 	HOLD_AND_WIN_DRIVEN_SEED_DOC,
 	HOLD_AND_WIN_JACKPOT_SOURCES,
@@ -262,9 +268,11 @@ check(
 const effects = new Set([
 	...LINES_EMITTER_VOCABULARY.effects.map((e) => e.name),
 	...Object.keys(INTENT_COMMANDS),
+	...MATCH3_BOARD_ACTIONS,
+	...ARCADE_LOOP_ACTIONS,
 ]);
 const emitter = new Map(LINES_EMITTER_VOCABULARY.events.map((e) => [e.type, e.fields ?? []]));
-const engineKeys = new Set<string>(LINES_ENGINE_KEYS);
+const engineKeys = new Set<string>([...LINES_ENGINE_KEYS, ...ARCADE_LOOP_VALUES]);
 const unbacked = (v: TemplateVocabulary): string[] => [
 	...v.actions.filter((a) => !effects.has(a.name)).map((a) => `action ${a.name}`),
 	...v.cues.filter((c) => !emitter.has(c.name)).map((c) => `cue ${c.name}`),

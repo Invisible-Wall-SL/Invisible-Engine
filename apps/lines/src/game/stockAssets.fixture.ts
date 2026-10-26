@@ -9,7 +9,8 @@
  *  2. A FULLY AUTHORED PROJECT keeps only the always-kept four.
  *  3. EACH FALLBACK COMES BACK: un-authoring one thing brings back exactly the stock key it falls
  *     back to — the highlight, a bone effect, the coin fountain, one symbol state, the win rig, the
- *     reference overlays' Transition, a text in a stock font.
+ *     reference overlays' Transition, a text in a stock font, a stock frame drawn by a component a
+ *     spawn layer lists (placed nowhere: Flow spawns it).
  *  4. EFFECTIVE PARAMS: a def default no node consumes is not a reference; a consumed one is.
  *  5. DOUBT KEEPS ALL: a registered part with no rule, an unreadable def or doc. An unregistered
  *     bind draws nothing, so it is not doubt.
@@ -268,6 +269,54 @@ check(
 	['symbolsStatic'],
 );
 check(
+	'…but not a frame a project symbol sheet registers under the same name',
+	added(
+		input(
+			mutate((d) => {
+				delete mapOf(d).L1.static;
+				d.symbols!.index = { sheets: [{ names: ['l1.webp', 'myFrame.png'] }] };
+			}),
+		),
+	),
+	[],
+);
+check(
+	'…while a frame no project sheet registers still keeps it',
+	added(
+		input(
+			mutate((d) => {
+				delete mapOf(d).L1.static;
+				d.symbols!.index = { sheets: [{ names: ['h1.webp'] }] };
+			}),
+		),
+	),
+	['symbolsStatic'],
+);
+check(
+	'…and a font of a project frame’s name still keeps that font',
+	added(
+		input(
+			mutate((d) => {
+				d.symbols!.winLine = { text: { font: 'purple' } };
+				d.symbols!.index = { sheets: [{ names: ['purple'] }] };
+			}),
+		),
+	),
+	['purpleFont'],
+);
+check(
+	'…as does a rig of a project frame’s name',
+	added(
+		input(
+			mutate((d) => {
+				delete winInstance(d).winSpine;
+				d.symbols!.index = { sheets: [{ names: ['bigwin'] }] };
+			}),
+		),
+	),
+	['bigwin'],
+);
+check(
 	'no basegameOverlays scene ⇒ the reference overlays, and their Transition rig',
 	added(
 		input(
@@ -374,6 +423,38 @@ check(
 	),
 	['freeSpins', 'winSmall'],
 );
+
+{
+	// A component placed nowhere but listed by a spawn layer is drawn when Flow spawns it.
+	const coin = {
+		id: 'spawnCoin',
+		name: 'Coin',
+		version: 1,
+		params: [],
+		root: {
+			id: 'r',
+			kind: 'container',
+			x: 0,
+			y: 0,
+			children: [{ id: 's', kind: 'sprite', x: 0, y: 0, assetKey: 'payFrame' }],
+		},
+	} as unknown as ComponentDef;
+	const withLayer = mutate((d) =>
+		d.doc.scenes[0].nodes.push({
+			id: 'field',
+			kind: 'spawnLayer',
+			x: 0,
+			y: 0,
+			spawnable: ['spawnCoin'],
+			placement: 'free',
+		} as LayoutNode),
+	);
+	check(
+		'a stock frame a spawnable draws',
+		added(input(withLayer, { resolveDef: (id) => (id === coin.id ? coin : builtin(id)) })),
+		['payFrame'],
+	);
+}
 
 console.log('\n4. effective params');
 const counterDef = (bound: boolean): ComponentDef =>

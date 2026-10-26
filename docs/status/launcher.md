@@ -45,6 +45,16 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 6. **`<DataTable>` extraction** (`docs/ui-inventory.md` §2): the Pipeline Changes Check 2 games
    table is the 4th matrix instance and the first read-only one, so it is the cheapest to move
    first; localization, win-text and the admin tables follow.
+7. **Relative links inside the in-app tool guides 404.** `/docs/[slug]` renders `docs/tools/*.md`
+   with plain `marked`, so a guide's `fx.md` resolves to `/docs/fx.md` (the route takes `/docs/fx`)
+   and `../design/…` to a route that does not exist. Rewrite hrefs in the route (sibling `<slug>.md`
+   → `/docs/<slug>`, `../…` → the file on GitHub), with a fixture; the markdown stays as is.
+   Found 2026-10-24 while writing the Shader Graph guide.
+8. **`LeaseState.switchDoc` race** (`src/lib/leaseState.svelte.ts`). An acquire for item A can
+   answer after the lease was switched to item B: A's answer is applied to B's state, and A's lease,
+   if granted, is never released (it lapses at its TTL). The per-item tools (FX, Flipbook,
+   components, Shader Graph) reach it by switching items quickly. Fix: `start()` captures the
+   `docKey` and drops (and, if held, releases) an answer for a key it no longer holds.
 
 ## Blocked (owner / external)
 - **Secret rotation (owner):** rotate the secrets in `docs/INFRA.md` "Security / secret rotation";
@@ -59,6 +69,10 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-23 — **Tools per game family (Phase 10 P10.1b).** The home grid and `ToolTopBar` list
+  only the tools the active project's family uses (`FAMILY_TOOLS` in `roles.ts`; arcade hides
+  Symbols and Win Text, slots hide nothing), and a hidden tool's URL shows a notice from the
+  `(app)` layout. Detail in [game-families](game-families.md).
 - 2026-10-21 — **A desktop publish refused by the portal says why, and a desktop build gets its own
   key.** Reported on `commonoverlayproject`: ☁ Publish (launcher v1.0.57) failed with
   *"_app/immutable/assets/style….css: the portal returned HTTP 409."* and no reason. The project is

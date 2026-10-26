@@ -1,7 +1,9 @@
 import {
 	applyHoldAndWinEvent,
+	atRoundStart,
 	drainMeters,
 	emptyHoldAndWinState,
+	featureWorthOf,
 	type HoldAndWinEvent,
 	type HoldAndWinMeterLevel,
 } from 'engine-game';
@@ -10,8 +12,9 @@ import { modifierLineText } from './holdAndWinText';
 
 /**
  * The client's picture of a Hold and Win feature and the persistent meters — what the respin board,
- * the counter and the pots read. Written ONLY by {@link recordHoldAndWinEvent}, from the book events
- * the server sent; a game that never receives one keeps the empty state forever.
+ * the counter and the pots read. Written by {@link recordHoldAndWinEvent}, from the book events
+ * the server sent (a game that never receives one keeps the empty state forever); a new round only
+ * clears an ended feature's worth ({@link startHoldAndWinRound}).
  */
 export const stateHoldAndWin = $state(emptyHoldAndWinState());
 
@@ -26,6 +29,16 @@ export const recordHoldAndWinEvent = (event: HoldAndWinEvent) => {
 	const before = $state.snapshot(stateHoldAndWin);
 	metersBefore = before.meters;
 	Object.assign(stateHoldAndWin, applyHoldAndWinEvent(before, event));
+};
+
+/** The feature's worth (`featureWorthOf`) — what Flow's `featureWorth` and the component source
+ *  of that name both read. */
+export const featureWorth = (): number => featureWorthOf(stateHoldAndWin);
+
+/** Only `total` is written: the rest of the picture keeps its identity, so nothing reading the
+ *  board or the pots re-renders on a spin. */
+export const startHoldAndWinRound = () => {
+	stateHoldAndWin.total = atRoundStart($state.snapshot(stateHoldAndWin)).total;
 };
 
 /** A mode a full pot started emptied those pots (`drainedMeters`) — Hold and Win's own trigger

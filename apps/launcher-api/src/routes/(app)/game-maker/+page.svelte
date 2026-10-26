@@ -7,6 +7,7 @@
 		SPINS_MODE_ROUTE_KINDS,
 		spinsGamesRefusal,
 		type CoinOverlayStyle,
+		type GameOutcome,
 		type HoldAndWinTemplateBase,
 		type HoldAndWinTemplateJackpots,
 		type ImportableFeature,
@@ -65,6 +66,12 @@
 	let holdAndWinBase = $state<HoldAndWinTemplateBase>('lines');
 	/** A lines game's starting preset, or '' for the lines template. */
 	let linesPreset = $state('');
+	/** Who decides a match-3 game's result: free play (its own rules) unless asked for real money. */
+	let match3Outcome = $state<GameOutcome>('rules');
+	const OUTCOME_LINES: Record<GameOutcome, string> = {
+		rgs: "The server deals every board and win — publishes to the test server's mock. Live real money is not switched on yet.",
+		rules: "The game's own rules, no wallet.",
+	};
 	let creating = $state(false);
 	let createMsg = $state('');
 	let createErr = $state('');
@@ -789,6 +796,21 @@
 						`${one ? 'it' : 'them'} from the flow; its Validation panel lists each step.`,
 				};
 			}
+			const shaderEffects: string[] = Array.isArray(out?.shaderEffectsMissing)
+				? out.shaderEffectsMissing
+				: [];
+			if (shaderEffects.length) {
+				const one = shaderEffects.length === 1;
+				publishNote = {
+					...publishNote,
+					[projectKey]:
+						`${publishNote[projectKey] ? `${publishNote[projectKey]} ` : ''}` +
+						`⚠ The game names ${shaderEffects.length} shader effect${one ? '' : 's'} it does ` +
+						`not ship, so ${one ? 'it plays' : 'they play'} nothing: ${shaderEffects.join(', ')}. ` +
+						`${one ? 'Its graph was' : 'Their graphs were'} deleted or ${one ? 'does' : 'do'} not ` +
+						'compile: fix it in Invisible Shader Graph, or pick another effect.',
+				};
+			}
 			if (out?.holdAndWinConfigMissing) {
 				publishNote = {
 					...publishNote,
@@ -982,6 +1004,16 @@
 							</select>
 						</label>
 					{/if}
+					{#if gameType === 'match3'}
+						<label>
+							Who decides the result?
+							<select bind:value={match3Outcome}>
+								<option value="rgs">Real money (RGS)</option>
+								<option value="rules">Free play (rules)</option>
+							</select>
+							<span class="outcome-line">{OUTCOME_LINES[match3Outcome]}</span>
+						</label>
+					{/if}
 					{#if gameType === 'holdAndWin'}
 						<label>
 							Base game
@@ -1021,6 +1053,9 @@
 				{/if}
 				{#if gameType === 'lines' && linesPreset}
 					<input type="hidden" name="linesPreset" value={linesPreset} />
+				{/if}
+				{#if gameType === 'match3'}
+					<input type="hidden" name="outcome" value={match3Outcome} />
 				{/if}
 				<div class="add-on-row">
 					<label class="check">
@@ -1876,6 +1911,10 @@
 	}
 	.muted {
 		margin: 0;
+	}
+	.outcome-line {
+		color: #9a9aa6;
+		font-weight: 400;
 	}
 	.grid {
 		display: grid;

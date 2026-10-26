@@ -63,6 +63,36 @@ export type DeterminismProbeState = {
 	winLevel: string | undefined;
 	/** The round's win so far, in book units (`stateBet.winBookEventAmount`, the HUD's Win). */
 	win: number;
+	/** A board that takes input (match-3), while its session runs; absent for every slot. */
+	board?: DeterminismBoardState;
+	/** An arcade play field, while it is mounted; absent for every slot. */
+	arcade?: DeterminismArcadeState;
+};
+
+/** An arcade play field, as `registerDeterminismArcade` reads it. */
+export type DeterminismArcadeState = {
+	/** Fixed steps run so far. */
+	steps: number;
+	/** Every body, in spawn order: its instance id, place, velocity and tags. */
+	bodies: { id: string; x: number; y: number; vx: number; vy: number; tags: string[] }[];
+};
+
+/** A match-3 board, as `registerDeterminismBoard` reads it. */
+export type DeterminismBoardState = {
+	/** A move, deal or shuffle is playing. */
+	busy: boolean;
+	/** Swaps tried this session. */
+	moves: number;
+	/** The seed the board was dealt from. */
+	seed: string;
+	/** The shortest run that matches (the config's `minRun`). */
+	minRun: number;
+	/** The visible gems, column-major (`cells[reel][row]`). */
+	cells: string[][];
+	/** An RGS round is open (its board dealt, the server has not ended it); always false in free play. */
+	roundOpen: boolean;
+	/** The moves the server says an RGS round has left; 0 in free play. */
+	movesLeft: number;
 };
 
 export type DeterminismCondition = {
@@ -74,6 +104,8 @@ export type DeterminismCondition = {
 	playerIn?: boolean;
 	/** A win tier alias (`bigWin`, …) is on show; `null` waits for none. */
 	winLevel?: string | null;
+	/** A match-3 board is (not) playing a move. With no board, never busy. */
+	boardBusy?: boolean;
 	/** Give up after this many frames (default 3600, one virtual minute). */
 	maxFrames?: number;
 	draw?: DeterminismDraw;
@@ -131,6 +163,9 @@ export type DeterminismApi = {
 	 *  variant of the same book. Routed to the game's `stateBet` once it has registered its probe; a
 	 *  call before that is kept and applied then. */
 	setTurbo(on: boolean): void;
+	/** A match-3 board cell's centre on the page, in CSS pixels (row 0 the top visible row), so a
+	 *  script can press the very pixels a player would; `undefined` with no board. */
+	cellPoint(reel: number, row: number): { x: number; y: number } | undefined;
 };
 
 declare global {
@@ -169,6 +204,12 @@ type VirtualTimer = {
 };
 
 let probe: (() => DeterminismProbeState) | undefined;
+let boardProbe:
+	| {
+			read: () => DeterminismBoardState;
+			cellPoint: (reel: number, row: number) => { x: number; y: number } | undefined;
+	  }
+	| undefined;
 /** The game's turbo setter, once registered, and the last request made before it was. */
 let turboControl: ((on: boolean) => void) | undefined;
 let turboRequested: boolean | undefined;
@@ -225,6 +266,32 @@ export function registerDeterminismProbe(
 	return () => {
 		if (probe === read) probe = undefined;
 		if (turboControl === controls?.setTurbo) turboControl = undefined;
+	};
+}
+
+/**
+ * `<Match3Input />` hands over its board while its session runs. A no-op when the mode is off;
+ * returns the unregister.
+ */
+export function registerDeterminismBoard(board: NonNullable<typeof boardProbe>): () => void {
+	if (!globalThis.__IE_DETERMINISM__) return () => {};
+	boardProbe = board;
+	return () => {
+		if (boardProbe === board) boardProbe = undefined;
+	};
+}
+
+let arcadeProbe: { read(): DeterminismArcadeState } | undefined;
+
+/**
+ * `<ArcadeStage />` hands over its loop while the play field is mounted. A no-op when the mode is
+ * off; returns the unregister.
+ */
+export function registerDeterminismArcade(arcade: NonNullable<typeof arcadeProbe>): () => void {
+	if (!globalThis.__IE_DETERMINISM__) return () => {};
+	arcadeProbe = arcade;
+	return () => {
+		if (arcadeProbe === arcade) arcadeProbe = undefined;
 	};
 }
 
@@ -640,10 +707,22 @@ export function installDeterminism(): void {
 
 	const readProbe = (): DeterminismProbeState => {
 		const read = probe?.();
+		const families = {
+			...(boardProbe ? { board: boardProbe.read() } : {}),
+			...(arcadeProbe ? { arcade: arcadeProbe.read() } : {}),
+		};
 		// The screen set is a Svelte state proxy; hand out a plain copy.
 		return read
-			? { ...read, screens: [...read.screens] }
-			: { screens: [], idle: false, loaded: false, playerIn: false, winLevel: undefined, win: 0 };
+			? { ...read, screens: [...read.screens], ...families }
+			: {
+					screens: [],
+					idle: false,
+					loaded: false,
+					playerIn: false,
+					winLevel: undefined,
+					win: 0,
+					...families,
+				};
 	};
 	const state = (): DeterminismState => ({
 		seed,
@@ -667,7 +746,8 @@ export function installDeterminism(): void {
 		(c.idle === undefined || s.idle === c.idle) &&
 		(c.loaded === undefined || s.loaded === c.loaded) &&
 		(c.playerIn === undefined || s.playerIn === c.playerIn) &&
-		(c.winLevel === undefined || (s.winLevel ?? null) === c.winLevel);
+		(c.winLevel === undefined || (s.winLevel ?? null) === c.winLevel) &&
+		(c.boardBusy === undefined || (s.board?.busy ?? false) === c.boardBusy);
 	// Calls queue behind each other, so two harness calls never interleave their frames.
 	const serial = <T>(work: () => Promise<T>): Promise<T> => {
 		const run = stepping.then(work, work);
@@ -709,5 +789,6 @@ export function installDeterminism(): void {
 			if (turboControl) turboControl(on);
 			else turboRequested = on;
 		},
+		cellPoint: (reel, row) => boardProbe?.cellPoint(reel, row),
 	};
 }

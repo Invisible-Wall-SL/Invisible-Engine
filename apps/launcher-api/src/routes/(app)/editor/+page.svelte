@@ -29,6 +29,7 @@
 		expandingBoardReserved,
 		reserveExpandingBoard,
 		hudScenes,
+		coversBackgroundWindow,
 		isCoverFitKind,
 		isHudScene,
 		listFullSceneSets,
@@ -51,8 +52,9 @@
 	} from 'engine-layout';
 	import ColorField from '$lib/ColorField.svelte';
 	import MenuButton, { type MenuGroup } from '$lib/MenuButton.svelte';
-	import { GAME_KINDS } from 'constants-shared/gameKinds';
+	import { SLOT_GAME_KINDS } from 'constants-shared/gameKinds';
 	import { BASE_GAME_MODE, builtinGameModes, holdAndWinModeDecl } from 'game-config';
+	import { SPAWN_DEFAULT_CAP } from 'constants-shared/spawn';
 	import {
 		BOOT_SPLASH_DEFAULT_BACKGROUND,
 		BOOT_SPLASH_DEFAULT_SIZE,
@@ -102,6 +104,7 @@
 	import type { RigMeta } from './rigRuntime.client';
 	import { fetchClips } from './editorFlipbooks.client';
 	import { bindEditorProject } from './editorProject.client';
+	import { registerCustomElementFx } from '$lib/customElementFx.svelte';
 	import { findById, flattenSceneIds, genComponentId, removeNode } from './layoutTree.client';
 	import { pinnedDefKey } from './editorCanvas.helpers';
 	import { createPinnedVersionLoader } from './componentPins.client';
@@ -122,6 +125,9 @@
 	/** The page's data now describes another project: every save is blocked and a reload asked. */
 	const projectDrift = $derived(data.projectKey !== loadedProjectKey);
 	bindEditorProject(loadedProjectKey);
+	// The project's shader effects, so the Element FX pickers list them and an entry naming one reads
+	// and plays. Once, like the project itself: a page whose project moved is reloaded, not re-bound.
+	registerCustomElementFx(untrack(() => data.customElementFx));
 
 	/** Scenes the canvas renders. Lazily seeded with a `'main'` scene when the
 	 * doc has none — persistence is handled by the debounced autosave below. */
@@ -1096,6 +1102,27 @@
 		selectOnly(node.id);
 	}
 
+	/**
+	 * Insert a `spawnLayer` node (game-families §3.3) into the active scene, at main centre: an
+	 * empty field Flow spawns into at runtime, free placement, the default cap. The author picks its
+	 * `spawnable` components and placement in Properties; the editor draws a labelled placeholder.
+	 */
+	function insertSpawnLayer(): void {
+		const main = mainSizesMap[currentLayoutType];
+		const node: LayoutNode = {
+			id: 'n_' + Math.random().toString(36).slice(2, 10),
+			kind: 'spawnLayer',
+			label: 'Spawn layer',
+			x: Math.round(main.width / 2),
+			y: Math.round(main.height / 2),
+			spawnable: [],
+			placement: 'free',
+			cap: SPAWN_DEFAULT_CAP,
+		};
+		onSpawn(node);
+		selectOnly(node.id);
+	}
+
 	/** Open the Components side from the component list (on `id`, or its home). The screens
 	 * stay in memory and keep autosaving, so nothing is flushed first. */
 	function openComponentEditor(id?: string): void {
@@ -1262,7 +1289,7 @@
 	});
 
 	/** Is the selected node a full-bleed background COVER node (§10.3 step 4)? Mirrors
-	 * `EditorCanvas.isBackgroundCover`: a `background`-space sprite/rig node, OR a
+	 * `EditorCanvas.isBackgroundCover`: a node that covers a `background` screen, OR a
 	 * `bind` anchor whose resolved preview art is a `cover` placement (the full-bleed
 	 * Background). Drives the Properties "Background" cover section (scale + fit). */
 	const isBackgroundCoverSelected = $derived.by(() => {
@@ -1282,7 +1309,10 @@
 		}
 		return (
 			activeScene?.space === 'background' &&
-			(isCoverFitKind(node) || node.kind === 'componentInstance')
+			coversBackgroundWindow(
+				node,
+				activeScene.nodes.some((n) => n.id === node.id),
+			)
 		);
 	});
 
@@ -1424,6 +1454,7 @@
 		if (value === 'game') delete sc.space;
 		else sc.space = value as NonNullable<Scene['space']>;
 		if (sc.space !== 'standard') delete sc.align;
+		if (sc.space !== 'canvas') delete sc.scaleWithWindow;
 		// Only `game`-space screens ride the anticipation camera; leaving `game` space would strand an
 		// unreachable `zoomWithAnticipation: true` (its checkbox is gated to game space), so clear it.
 		if (sc.space) delete sc.zoomWithAnticipation;
@@ -1494,6 +1525,17 @@
 		if (!sc) return;
 		if (value) sc.zoomWithAnticipation = true;
 		else delete sc.zoomWithAnticipation;
+		scenes = [...scenes];
+		markDirty();
+	}
+
+	/** Scale the active `canvas` screen with the window in game (engine `Scene.scaleWithWindow`).
+	 * The canvas here already shows the design box, so the preview does not change. Sparse. */
+	function setSceneScaleWithWindow(value: boolean): void {
+		const sc = scenes[activeSceneIdx];
+		if (!sc) return;
+		if (value) sc.scaleWithWindow = true;
+		else delete sc.scaleWithWindow;
 		scenes = [...scenes];
 		markDirty();
 	}
@@ -2724,7 +2766,7 @@
 
 	// ---------- template authoring (§7.5) ----------
 
-	/** The game type the authored template is saved under (§7.5), picked from `GAME_KINDS`. */
+	/** The game type the authored template is saved under (§7.5), picked from `SLOT_GAME_KINDS`. */
 	let authoringGameType = $state<string>(data.template?.gameType ?? 'lines');
 
 	// ---------- game settings (jurisdiction + player-led speed features) ----------
@@ -3304,7 +3346,7 @@
 				<label class="gametype" title="Game type the template is saved under">
 					<span>type</span>
 					<select bind:value={authoringGameType} onchange={() => void onGameTypeChange()}>
-						{#each GAME_KINDS as gt (gt)}
+						{#each SLOT_GAME_KINDS as gt (gt)}
 							<option value={gt}>{gt}</option>
 						{/each}
 					</select>
@@ -3790,6 +3832,7 @@
 								{onElementDragStart}
 								reel={{ active: !!existingReelGrid, onAdd: insertReelGrid }}
 								repeater={{ onAdd: insertRepeater }}
+								spawnLayer={{ onAdd: insertSpawnLayer }}
 							/>
 						</ul>
 					</PanelSection>
@@ -3941,6 +3984,24 @@
 										{activeScene.zoomWithAnticipation
 											? 'zooms toward the reel centre with the board'
 											: 'static — tick to ride the anticipation zoom'}
+									</span>
+								</label>
+							{/if}
+							{#if activeScene.space === 'canvas'}
+								<label
+									class="ontop-field"
+									title="Draw this screen in game as it looks here, on any window the shape of this frame. Unticked, a canvas screen keeps the pixel size shown here, so on a bigger or smaller window its nodes, their offsets from the edges and its timeline's moves stay the same number of pixels while the game around them scales. Ticked, the whole screen grows or shrinks as much as this frame must to fit the window, and each node stays pinned to its window edge."
+								>
+									<input
+										type="checkbox"
+										checked={activeScene.scaleWithWindow === true}
+										onchange={(e) => setSceneScaleWithWindow(e.currentTarget.checked)}
+									/>
+									<span>Scale with the window</span>
+									<span class="ontop-note">
+										{activeScene.scaleWithWindow
+											? 'scales with the window, pinned to its edges'
+											: 'window pixels — the same size on every window'}
 									</span>
 								</label>
 							{/if}
@@ -4408,6 +4469,7 @@
 					gameName: data.gameName,
 					addOns: data.addOns,
 					canPublishShared: data.canPublishShared,
+					flowVariables: data.flowVariables,
 					gameType: projectGameType,
 					mainSizesMap: data.doc.mainSizesMap,
 				}}

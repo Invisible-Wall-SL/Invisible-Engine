@@ -1,0 +1,862 @@
+{
+	"version": 1,
+	"family": "match3",
+	"providerName": "sample_provider",
+	"gameName": "sample_match3_rgs",
+	"gameID": "0_0_match3_rgs",
+	"rtp": 0.96,
+	"numReels": 7,
+	"numRows": [7, 7, 7, 7, 7, 7, 7],
+	"betModes": {
+		"base": {
+			"cost": 1,
+			"feature": true,
+			"buyBonus": false,
+			"rtp": 0.96,
+			"max_win": 500
+		}
+	},
+	"paylines": {},
+	"symbols": {
+		"H1": {
+			"paytable": [
+				{
+					"3": 0.2
+				},
+				{
+					"4": 0.5
+				},
+				{
+					"5": 1.5
+				}
+			]
+		},
+		"H2": {
+			"paytable": [
+				{
+					"3": 0.2
+				},
+				{
+					"4": 0.5
+				},
+				{
+					"5": 1.5
+				}
+			]
+		},
+		"H3": {
+			"paytable": [
+				{
+					"3": 0.2
+				},
+				{
+					"4": 0.5
+				},
+				{
+					"5": 1.5
+				}
+			]
+		},
+		"H4": {
+			"paytable": [
+				{
+					"3": 0.2
+				},
+				{
+					"4": 0.5
+				},
+				{
+					"5": 1.5
+				}
+			]
+		},
+		"L1": {
+			"paytable": [
+				{
+					"3": 0.1
+				},
+				{
+					"4": 0.25
+				},
+				{
+					"5": 0.5
+				}
+			]
+		},
+		"L2": {
+			"paytable": [
+				{
+					"3": 0.1
+				},
+				{
+					"4": 0.25
+				},
+				{
+					"5": 0.5
+				}
+			]
+		}
+	},
+	"paddingReels": {
+		"basegame": [
+			[
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H1"
+				}
+			],
+			[
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H1"
+				}
+			],
+			[
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H1"
+				}
+			],
+			[
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "L2"
+				}
+			],
+			[
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "L2"
+				}
+			],
+			[
+				{
+					"name": "L1"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H4"
+				}
+			],
+			[
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "L2"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H2"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H1"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "H3"
+				},
+				{
+					"name": "H4"
+				},
+				{
+					"name": "L1"
+				},
+				{
+					"name": "L2"
+				}
+			]
+		]
+	},
+	"match3": {
+		"moves": 10
+	},
+	"winLevels": [
+		{
+			"alias": "zero",
+			"name": "ZERO",
+			"threshold": 0,
+			"type": "small"
+		},
+		{
+			"alias": "standard",
+			"name": "STANDARD",
+			"threshold": 0,
+			"type": "small",
+			"durationMs": 600
+		},
+		{
+			"alias": "small",
+			"name": "SMALL",
+			"threshold": 1,
+			"type": "small",
+			"durationMs": 1000
+		},
+		{
+			"alias": "nice",
+			"name": "NICE",
+			"threshold": 2,
+			"type": "medium",
+			"durationMs": 1500
+		},
+		{
+			"alias": "substantial",
+			"name": "SUBSTANTIAL",
+			"threshold": 4,
+			"type": "medium",
+			"durationMs": 2000
+		},
+		{
+			"alias": "big",
+			"name": "BIG WIN",
+			"threshold": 8,
+			"type": "big",
+			"animation": {
+				"intro": "big_win_intro",
+				"idle": "big_win_idle",
+				"outro": "big_win_exit"
+			},
+			"sound": {
+				"bgm": "bgm_winlevel_big"
+			},
+			"durationMs": 6000
+		},
+		{
+			"alias": "superwin",
+			"name": "SUPER WIN",
+			"threshold": 15,
+			"type": "big",
+			"animation": {
+				"intro": "super_win_intro",
+				"idle": "super_win_idle",
+				"outro": "super_win_exit"
+			},
+			"sound": {
+				"bgm": "bgm_winlevel_superwin"
+			},
+			"durationMs": 18000
+		},
+		{
+			"alias": "mega",
+			"name": "MEGA WIN",
+			"threshold": 25,
+			"type": "big",
+			"animation": {
+				"intro": "mega_win_intro",
+				"idle": "mega_win_idle",
+				"outro": "mega_win_exit"
+			},
+			"sound": {
+				"bgm": "bgm_winlevel_mega"
+			},
+			"durationMs": 20000
+		},
+		{
+			"alias": "epic",
+			"name": "EPIC WIN!",
+			"threshold": 40,
+			"type": "big",
+			"animation": {
+				"intro": "epic_win_intro",
+				"idle": "epic_win_idle",
+				"outro": "epic_win_exit"
+			},
+			"sound": {
+				"bgm": "bgm_winlevel_epic"
+			},
+			"durationMs": 26000
+		},
+		{
+			"alias": "max",
+			"name": "MAX WIN",
+			"threshold": 60,
+			"type": "big",
+			"animation": {
+				"intro": "max_win_intro",
+				"idle": "max_win_idle",
+				"outro": "max_win_exit"
+			},
+			"sound": {
+				"bgm": "bgm_winlevel_max"
+			},
+			"durationMs": 32000
+		}
+	]
+}

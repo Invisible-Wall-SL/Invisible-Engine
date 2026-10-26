@@ -10,6 +10,11 @@
 Authoring for **components** (prefabs), mounted inside `/editor` as its Components side (`routes/(app)/editor/ComponentWorkspace.svelte`) — launcher-native, full-page, SSR off, gated on the **`editor`** tool (the `componentEditor` registry entry is kept: its card opens `/editor?view=components`, doc slug `component-editor`, lease key `componentEditor`). `/editor?component=<id>` opens one component; the old `/components` route is a 307 redirect (`routes/(app)/components/+server.ts` via `$lib/componentLinks.ts`) that keeps every other query param. Storage, versioning and format are unchanged (`componentStorage.ts`). Components load for the active client/project (project shadows shared shadows built-in); **Save** always writes a project-scoped component: a shared or built-in draft saves as the project's copy under the same id (`componentSave.client.ts`); only **Promote to shared** writes `_shared/`.
 
 Shipped capabilities on `main`:
+- **✎ Rename** (2026-10-23, in review) — the project's own components rename from the list; the
+  id and version stay, so no reference breaks and no pin is flagged. Detail under Recent changes.
+- **⧉ Duplicate** (2026-10-23, in review) — any component in the list (project, shared, built-in)
+  copies into a new project component with its own node ids, timelines and state machine, and
+  this game's defaults baked in. Detail under Recent changes, 2026-10-23.
 - **Author a component** — create Blank (`UI`/`Overlay`/`Scenery`) or a pre-wired **Button** (pre-declares the `action` param); build the `root` element tree on the shared editor canvas (Text/Rect/atlas/rig/sheet regions), outline + properties reused from the Scene Editor. Opened from a screen in place: double-click a placed instance, **◇ Edit component in place**, **◇ Edit as component** on a container, or the left-pane Components list. A breadcrumb tracks nested defs edited in place (Esc goes up one level; nesting stops at `MAX_COMPONENT_DEPTH` via `canEnterNested` in `editor/componentWorkspace.ts`).
 - **Declare the engine contract** (the "Component variables" block) — **Engine params** (curated catalog: bet/win/balance/…), **Your params** (custom author inputs: string/image/number/color/boolean, with per-param defaults, bound to a node's image/tint/text/font/size/colour), and **Signals** (the kind's engine signals, grouped by family, or any Flow cue name; declare-only, since cue fields are free text). **scoped by** names the param a placement's signal scope comes from (Phase 12a). Text nodes have an **Expose as params** shortcut.
 - **Per-instance engine bindings** (Flow-driven-game Phase 6, 2026-06-30) — any placed instance can be made clickable (`action`) or lifecycle-gated (`visibleSource`) without the def declaring the param (shared `engineBindings.ts` + an "Engine bindings" tray in `EditorProperties`); UI for `visibleFor` / `screenAnchor` / custom-param `options`; and **per-instance signal rebinding** (`cueSignalOverrides` — override which engine signal drives a rig cue, e.g. `win` vs `bigWin`).
@@ -46,11 +51,15 @@ Shipped capabilities on `main`:
 
 ## Open items / next
 1. **Behaviour layer — per [rive-style-editor.md](../design/rive-style-editor.md)** (approved 2026-10-13; it supersedes the `BehaviorTrack`/`TweenStep` design in invisible-editor §8.5–8.7). Phase 4a (components in place) and Phase 4b (component timelines) are on `main`; Phase 5a (the state-machine format + runtime) and 5b (the State Machine panel) are on `main`; Phase 6a (listeners + events: format, runtime, validation, normalizer) is on `main`; 6b (the editor: Listeners, Events, On enter, the pointer preview and Events log) is in review; **next is Phase 7** (Flow instance nodes: the event pins — with their own pin id form, not the press pins' `containerEventDeclId`, plan §6.2). Open from 5b: the preview samples a state's timeline as last saved (an unsaved Timeline-tab edit shows after Save); conditions pick inputs by id (no picker for engine value sources yet — the **from** field is typed). Open from 4b: a component's own timelines are still project-scoped; since Phase 9d a timeline can be promoted to the shared library and placed on any component as a link, and the panel keys text, visibility and cues (see [editor status](editor.md) 2026-10-20, 9d). Anything needing branching/RGS math/stateful logic stays a coded `mount`.
-2. **Nesting depth capped at 2** (`MAX_COMPONENT_DEPTH`, cycle-guarded) — widen only when a game needs it; the bake walks only top-level scene pins, not the transitive nested-pin closure (no game pins a nested version yet).
+2. **Nesting depth capped at 3** (`MAX_COMPONENT_DEPTH`, cycle-guarded; 2 until 2026-10-23, when a counter inside a component needed 3) — widen only when a game needs it; the bake walks only top-level scene pins, not the transitive nested-pin closure: a nested pin draws the latest in the editor and the game alike (`commonoverlayproject`'s `potMeter` pins `c_xoq2r4ee` v4/v7 and `c_0jd2016q` v2 that way). Honouring them needs both the bake and the editor's pin loader to walk defs, and changes how such a game looks — an owner call.
 3. **Authoring gaps** — no autosave (unsaved drafts are in-memory only, discarded on close with a warning; "This game's defaults" is a second, separate manual save); authoring a SHARED component as its only copy, and a promote-from-Library-row affordance, are not built.
 4. **A per-project default only reaches a built game on its next publish/bake** — the bundle carries the map, so changing a default in the tool does not retroactively change an already-published game.
 
 ## Blocked (owner / external)
+- **⏳ Browser-verify `featureWorth`** (auth-gated, owner): in a Hold and Win project, give the
+  TOTAL WIN component a number input **from** `featureWorth` with tier transitions (≥ 1000 → medium
+  …). Play a feature: the tier steps up during the respins, not only at the end tally. Check that
+  **Bind to value → Hold and Win** lists *Feature worth*.
 - **⏳ Browser-verify segmented counters** (auth-gated, owner): (a) Components side → Library →
   create from **Segmented Counter**: the stage shows three segments 1 2 3; Properties → **Repeat
   (count)** → **Pass to each segment** → `value` test slider at 1 lights only segment 1, at 3 all
@@ -94,6 +103,195 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-25 — **A pinned version ships the components only it names; a pin warns once** (branch
+  `claude/charming-cannon-rjv7ba`, in review). `commonoverlayproject` places `segmentedCounter`
+  pinned at v4, whose first segment is `c_55h9isri`; v7 (latest) switched to `c_8m57uq5p`. The
+  closure walked latest defs only, so `c_55h9isri` never shipped and the game drew the default
+  segment where the editor, which draws variants from the project's whole store, drew it. New
+  `resolveComponentClosureWithPins` (`engine-layout`) runs the closure, loads the pinned older
+  versions (only an exact snapshot: `loadComponent` answers an unmatched built-in pin with the
+  coded def, which the game never draws for it), then follows those versions' trees and the
+  components their own `component`-kind params name, reusing every def already loaded; the doc bake,
+  the runtime bundle and the art export all call it instead of each looping over the pins, so
+  the three cannot drift. Nothing changes for a game with no non-latest pin. Separately, the
+  "pins version … not registered" warning fired per instance render, hundreds of times a session
+  for a def nested in a repeated part; it is now once per `id@version` (`warnPinNotHonoured`).
+  Gate: `packages/engine-layout/scripts/test-component-closure.mjs` (twelve new assertions).
+  ⏳ Follow-up: the current-games harness (`scripts/current-games/lib/republish.mjs`) still mirrors
+  the old pin loop (an unmatched built-in pin ships the coded def; no pinned-only components). Its
+  verdict refuses a PR that edits it, so it moves to `resolveComponentClosureWithPins` in a PR of
+  its own; renders are unaffected meanwhile (neither difference changes what a game draws).
+- 2026-10-23 — **Segmented counters: a segment's box (Size)** (branch `feat/segment-root-box`, in
+  review, ⏳ not browser-verified). A segment drawn only from rigs and text (the owner's
+  R_RespinTile looks) measures 0 × 0 — a rig or a text cannot be sized without loading it — so a
+  row of them stacked 6 px apart, in game and on the canvas. Opt-in fix: `repeaterSegmentSize`
+  (`engine-layout/repeaterCount.ts`) lays a segment out by its ROOT box when the def declares both
+  `root.width` and `root.height`, from its origin right and down, else measures as before
+  (`componentDesignSize`); `Repeater.svelte` and the canvas (`repeaterPreviewLayout`) both use it.
+  The Component Editor bar gets **Size** W × H beside **Space** (`setComponentSize` in
+  `ComponentWorkspace.svelte`; empty or ≤ 0 clears it); the normalizer already kept a root box.
+  Only a count-mode repeater reads it (background cover-fit and the source-list repeater still
+  measure), and a def without both sides lays out exactly as before. Gates:
+  `check:component-repeat-segments` (71: the measure, the normalizer, rig-only segments mounted for
+  real stacking without a box and stepping 166 px with a 160 × 120 one) and
+  `check:component-repeat-segments-editor` (36: the canvas layout, the field). Guide:
+  [§ Segmented counters](../tools/invisible-editor.md#segmented-counters--repeat-count).
+- 2026-10-23 — **Segmented counters: a missing end cap draws the middle segment; rig looks draw in
+  the editor** (branch `fix/segment-variant-fallback`, in review, ⏳ not browser-verified). Owner
+  report (commonoverlayproject, *Respin counter*): after making the end caps with ⧉ Duplicate, the
+  game drew only the middle segment. Root cause: the game was the player snapshot published at
+  16:12, before the copies existed (16:15 / 16:17), so its registry had no def for either variant
+  and `ComponentInstance` drew nothing for them; the middle draws because `segmentedCounterSegment`
+  is a built-in id. The duplicate, the editor and the engine were correct (the owner's exact stored
+  defs mount and light 1 / 2 / 3 in the check below); the 16:35 publish carries the copies. Changes:
+  `repeaterSegmentComponent` / `repeaterCountOffsets` take a `has` (the registry; the editor's def
+  map), so a variant naming no def draws and is sized as the middle segment, and `Repeater.svelte`
+  warns once naming the repeater, the slot and the id (`missingRepeaterVariants`);
+  `resolveComponentClosure` reports an id with no def through `onMissing`, which the runtime bundle
+  logs (live boots and Publish). Editor: the rig layer now walks count-mode repeaters
+  (`collectSegmentRigs` in `EditorRigLayer.svelte`, over the canvas's own `repeaterCountBoxes` and
+  settled poses, leaving out a look faded to alpha 0 since the layer draws no alpha) and the canvas
+  mounts it for a rig inside a segment (`nodesHaveRig`), so a segment drawn from rigs (the owner's
+  R_RespinTile looks) shows its art there; before, only a "rig:" placeholder or nothing. Gates:
+  `check:component-repeat-segments` (71: the fallback, `onMissing`, and the owner's counter mounted
+  for real, with and without its first end cap registered) and
+  `check:component-repeat-segments-editor` (39: rig-look end caps made by the real duplicate, the
+  fallback, the rig-layer wiring). Still open: a segment drawn only from rigs and text measures
+  0 × 0, so such segments stack (next PR: an opt-in root box); the rig layer keeps ONE skeleton
+  per rig file, so segments resting on different animations of one rig draw right while still, but
+  ▶ playing one of them (or an `enter` cue on only one look) makes them reset each other every frame
+  — the rig freezes on its first frame until play stops.
+- 2026-10-23 — **`featureWorth` as a component source** (branch `claude/feature-worth-source`, owner
+  ask). A Hold and Win TOTAL WIN widget can tier off the feature's running value during the respins
+  instead of `featureTotal` (the win meter, which only climbs in the end tally). One reader:
+  `featureWorthOf(state)` in `engine-game/holdAndWin.ts` (`stateHoldAndWin.total`, finite-guarded),
+  wrapped as `featureWorth()` in `apps/lines/stateHoldAndWin.svelte.ts`. Flow's
+  `$engine.featureWorth` and the new component source both call it. Unit: book-event units, 100 = 1×
+  total bet, the same as `featureTotal` / `totalWin`, so there is no conversion. It reads 0 before
+  any feature. It moves with each respin's `holdAndWinState` snapshot, recorded at the play seam
+  before the event is presented, and holds the end's total after `holdAndWinEnd`. A new spin clears
+  it: `startHoldAndWinRound()` in `onNewGameStart`, via `atRoundStart` (only `total` is written, and
+  an open feature keeps it). Before this change Flow's value held the last feature's worth until the
+  next trigger. Registered in `Game.svelte` with the win meter's formatter, so a text binding shows
+  currency. Catalog: `VALUE_BINDING_SOURCE_CATALOG` (group *Hold and Win*, the note states the unit)
+  and `HOLD_AND_WIN_PARAM_CATALOG`. That puts it in Bind to value, the number-input / repeater
+  count / `passInputs` picker (`engineSourceGroups`) and a Hold and Win part's or Text Box's `source`
+  options. Nothing to bake: it is a runtime registry entry like `featureTotal`. Gate: `pnpm
+  check:feature-worth` (95 checks, including real facade + mock rounds folded through the reducer).
+  Mutation-checked with 15 mutants, every one caught (incl. the round-reset body, a commented-out
+  call, a Flow read that bypasses the reader, and a stray `.total` read anywhere in the game). Guide: [invisible-editor
+  § The State Machine](../tools/invisible-editor.md#the-state-machine) (choosing `featureWorth` or
+  `featureTotal`).
+- 2026-10-23 — **A counter inside a component draws in every renderer, and all three cut nesting at
+  the same level** (branch `claude/component-nesting-parity`, ⏳ not browser-verified). Owner report:
+  the Hold and Win TOTAL WIN widget's Segmented Counter showed in the Component Editor and was
+  missing in the Scene Editor. Cause: the counter spends two levels (counter → segment), so
+  screen → widget → counter → segment needs three and the cap was 2; the game skipped the segments
+  too (proven by mounting the real `ComponentInstance`). The Component Editor drew them only because
+  its stage put the open def's nodes at a screen's level 0, where the game draws them one level down
+  inside the placed instance. Fix: `MAX_COMPONENT_DEPTH` 2 → 3 (no built-in nests deeper than one
+  level of its own, so every built-in now draws whole inside an author's component), and the canvas
+  takes a `componentNest` (`editorCanvas.helpers.ts`: `SCREEN_NEST` for a screen,
+  `componentEditorNest(trail, id)` for the open def — one level down plus one per breadcrumb def,
+  all on the cycle stack) that the 2D draw, the depth split and the rig / text / effect layers start
+  from. `canEnterNested` is unchanged and now agrees with it by construction. Localization harvest
+  and cue measurement follow the constant. Gates: new `check:component-nesting-parity` (29: built-ins
+  whole inside a component, the editor's nest, the same expanded nodes as a screen at every
+  breadcrumb depth, the source wiring, the breadcrumb rule); `check:component-repeat-segments` mounts
+  the widget shape (fails on a cap of 2); `test-cue-duration` and `check:component-param-forwarding`
+  move their "one past the cap" cases a level down. **Game change:** any authored component nested
+  three levels deep, which the game skipped, now draws. The selection box (`nodeBox`) takes the nest
+  too, so it stops expanding where the draw does.
+- 2026-10-23 — **The stage shows the art a component's state machine rests on** (same branch, ⏳ not
+  browser-verified). Owner report: the TOTAL WIN widget's R_Widget frame was gold in both editors
+  and a teal plate in the game. Cause: the widget's machine enters `mini`, whose timeline keys the
+  frame's `mini` tier; the game layers that strip over the rig's own `Grand` (`withTimelineScrub`),
+  the editors drew `Grand` and ran no machine outside Animate. And the State machine panel's stage
+  never showed a tier either: `playerDrives` dropped a node whose only keyed channel is an animation
+  strip. Fix: `playerDrives` keeps an `animTime` sample; `segmentPreview.ts` gains `settledDrives`
+  (the memoised settle, shared with the segment preview) and `restingStateStrip`; the rig layer poses
+  every rig, top-level and nested, with the strip its def's machine settles on at its inputs'
+  defaults (a previewed timeline still wins). The open draft rides on `ComponentNest.def`, so the
+  Component Editor rests on the unsaved machine; while a timeline or the machine previews, the preview alone poses the rig, and only a def with a machine fetches its timelines. Gate: `check:component-resting-state` (12). Owner
+  side, not a bug: the widget's `Content` input reads `featureTotal`, the HUD win meter, which is 0
+  on Feature intro and through the respins (it climbs only in the end-of-feature tally) and counts
+  hundredths of the bet (100 = 1× bet), so `Content > 5` never fires there and means 0.05× bet once
+  it does.
+- 2026-10-23 — **✎ Rename a component** (branch `claude/component-rename`, in review, ⏳ not
+  browser-verified). A ✎ beside ⧉ on each row of the Components list (home and Browse) renames one
+  of the project's OWN components (`scope: 'project'`). On a shared or built-in row it is greyed
+  out with the tooltip "Duplicate it first to rename your copy" (owner decision: no in-place
+  rename of shared or built-in components). *How*: `componentRename.client.ts` (pure:
+  `componentRenameProblem`, which trims and rejects empty or a name another listed component uses,
+  case-blind; `writeComponentRename`) and `renameComponentDef` in `ComponentWorkspace.svelte`.
+  The project's stored def is read fresh with its ETag (`GET /api/editor/component?stored=project`
+  → `loadStoredProjectComponent`: the stored bytes without the coded-twin merge, so a built-in's
+  project copy does not gain the twin's newer params and bump) and saved back with only `name`
+  changed, as a CAS on that ETag through the existing route. A save landing in between
+  refuses the rename (409), and nothing is written. The draft save is held while the rename runs.
+  **Versioning:** `reconcileVersion` (`componentStorage.ts`) now ignores `name` when deciding a
+  bump. The name labels the def in the lists, and no placement, bake or game reads it, so a rename
+  keeps the version: the latest pointer is rewritten at the same version, no new snapshot is
+  written, and pinned placements get no "↑ vN". That version's immutable snapshot keeps the name
+  it was saved under. The next content change bumps as before, and its snapshot carries the new
+  name. `check:save-keeps-unknown-blocks` had used a name-only edit expecting a bump; it now
+  expects the kept version. **Open draft:** if the renamed component is open, the draft and its
+  saved baseline take the new name in place, so unsaved edits stay unsaved and nothing is
+  discarded, which is why no "discard?" ask is needed. It adopts the new ETag only when it was
+  based on the object the rename read; otherwise its next save conflicts as it would have. The
+  breadcrumb reads names from the list, so it follows. **Not done — placement labels:** a
+  placement's `label` (seeded from the def's name on placement) is left alone, on screens and
+  inside other components. Screen and component timelines bind node actors BY LABEL
+  (`findNodeByName` / `findActorNode`), so relabelling would silently detach animations. The write
+  would also span scenes.json plus every nesting def, each its own CAS object (non-atomic), and
+  bump every nesting def's version. The id reference is what keeps everything working. **Known
+  edges:** the lease covers only the open component, so a component another author has open can be
+  renamed; their next save conflicts, and their **Save on top** restores the old name. **◇ Edit as
+  component** reuses a project def whose name equals the container's label, so after a rename it
+  matches the new name, not the old. Gate: `pnpm --filter launcher-api check:component-rename` (38
+  checks; the real route over an in-memory R2, including a built-in's project copy).
+- 2026-10-23 — **⧉ Duplicate a component** (branch `claude/component-duplicate`, in review, ⏳ not
+  browser-verified). A ⧉ on each row of the Components list (home and the Browse tab) copies ANY
+  listed component — project, shared or built-in — into a new project component and opens it.
+  Why: the owner's segmented-counter end caps were a Counter Segment wrapped in a new component,
+  which nests 3 deep (past `MAX_COMPONENT_DEPTH` 2) and never receives the repeater's `index` /
+  `value`; a real copy fixes both. *How* (`duplicateComponentDef` in `ComponentWorkspace.svelte`,
+  pure part `editor/componentDuplicate.client.ts`): asks first when the open draft or its defaults
+  are dirty; reads the def as the project resolves it (`GET /api/editor/component?id&project`:
+  project ▸ shared ▸ built-in, latest); new id `c_xxxxxxxx` (`genComponentId`, as ＋ New), every
+  node re-id'd, `version: 1`, `scope: 'project'`, `internal` dropped; name "‹name› copy" / " copy
+  N". Its timelines — `/api/cinematics/list` rows hosted on it, merged over `BUILTIN_TIMELINES` by
+  id (`componentOwnTimelines`, as the canvas's segment preview does) — are copied under
+  `componentTimelineId(copy, name)` ids clear of every listed and built-in id, re-hosted on the
+  copy, `playOnComponents` dropped (the source's reuse stays the source's); node actors keep their
+  targets (a component timeline finds its node by label only — `findActorNode` — and the copy keeps
+  every label); the built-in-only flags (`buttonStates`, `settles`, …) are kept, since the runtime
+  reads them off the def, so a copy of a presentation plays as it does; the copy's states are re-keyed
+  onto them, a state playing a timeline reused from another component keeps it. *Defaults:* this
+  game's sidecar values are BAKED into the copy's param defaults (and override a matching
+  `defaultInstanceParams` key, which resolution layers above defaults) — the copy is already this
+  project's fork, so one source of truth (the def) beats a second sidecar file written
+  non-atomically beside it; engine-provided and undeclared keys are skipped. *Writes*
+  (`writeComponentDuplicate`, pure over injected writes): the timelines first, each create-only
+  (`baseEtag: null`), then the def through the draft `saveState.save()` (`componentSaveRequest`,
+  `baseEtag: null` ⇒ `If-None-Match: *`; deliberately not `saveComponent`, whose conflict answer
+  stacks on top). The def counts as saved when the save recorded the server's ETag (even if the tab
+  moved on), as refused only when a re-read then answers 404 — then the copy closes (only if it is
+  still the open one), the timelines it created are deleted (awaited; any left over are named), and
+  the reason shows; with no answer at all nothing is deleted and the author is told to reload (and
+  which timelines to delete if the copy is not there). The list rows, ＋ New, close, delete and
+  Back to screens are held while it runs; it asks again if the open draft changed during the reads,
+  refuses (and rolls back) if it changed while the timelines were written, and the copy opens at
+  the top of the breadcrumb. Fresh timeline ids clear every listed project timeline; a listed one
+  that reads back empty stops the copy. Accepted residue: a def POST that fails at the network
+  level while the server is still committing, followed by a 404 re-read, would delete the
+  timelines under a def that lands after — a far-fetched race. Same validation and export→bake→pull
+  chain as any project component. Gate: `pnpm --filter launcher-api check:component-duplicate`
+  (53: naming, fresh/unique node + timeline ids across two copies, state re-keying, actor targets,
+  defaults baking, the real route's create then 409 on a second create, every write/rollback
+  branch, the workspace wiring). Not run end to end: the timeline creates through the real
+  `/api/cinematics/save` (its gate needs the session/DB).
+  UI: [guide](../tools/invisible-editor.md#duplicate-a-component).
 - 2026-10-23 — **Editing a built-in no longer fails to save; the error says why; no empty-key asset
   request** (branch `fix/component-save-400`). Owner report: the re-skinned **Counter Segment**
   (`segmentedCounterSegment`, both looks swapped to the project's `R_RespinTile` rig) answered a
@@ -134,7 +332,8 @@ Shipped capabilities on `main`:
   current game places the new built-ins. Gate: `check:component-repeat-segments` (62, incl. a mount on
   the real Svelte runtime + pixi ticker). Known: a timeline keying `alpha` back to 1 on a node with no
   authored `alpha` leaves the old value on screen (the starter's looks carry `alpha: 1`); a counter
-  nested inside another component hits `MAX_COMPONENT_DEPTH` and its segments don't render.
+  nested inside another component hit `MAX_COMPONENT_DEPTH` and its segments didn't render (fixed
+  2026-10-23, below).
 - 2026-10-20 — **Segmented counters, editor side: Repeat (count)** (branch
   `claude/component-repeat-segments`, ⏳ not browser-verified; guide
   [§ Segmented counters](../tools/invisible-editor.md#segmented-counters--repeat-count)).

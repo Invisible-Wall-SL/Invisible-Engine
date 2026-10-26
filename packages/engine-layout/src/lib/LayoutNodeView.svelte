@@ -19,10 +19,14 @@
 		 * (rig) node — rendered INSIDE its `<RigProvider>`, each group in one `<RigSlot>`, so the rig
 		 * drives them. Paired by the parent container's branch; only meaningful when this node is a rig. */
 		slotRiders?: LayoutNode[];
+		/** Drawn inside a parent node (a container's child, a part's skin, a rig-slot rider), in that
+		 * parent's space, rather than straight on the screen. */
+		nested?: boolean;
 	};
 </script>
 
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import {
 		Anchor,
 		Container,
@@ -36,7 +40,9 @@
 		RigSlot,
 		RigTrack,
 		getContextApp,
+		getContextParent,
 	} from 'pixi-svelte';
+	import type { FederatedPointerEvent } from 'pixi.js';
 	import { getContextLayout } from 'utils-layout';
 
 	import CatalogText from './CatalogText.svelte';
@@ -54,6 +60,7 @@
 		backgroundFit,
 		coverAnchorOffset,
 		coverTransform,
+		coversBackgroundWindow,
 		isCoverArtKind,
 		isCoverFitKind,
 	} from './coverTransform';
@@ -64,7 +71,12 @@
 	import { foldFlipbookPlayback, resolveFlipbook } from './registerFlipbooks';
 	import { getComponentParams } from './componentParamsContext';
 	import { getComponentPress } from './componentActionsContext';
-	import { getComponentListen } from './componentListenerContext';
+	import {
+		getComponentAlign,
+		getComponentListen,
+		type ComponentAlignTarget,
+	} from './componentListenerContext';
+	import { PointerGesture, type PointerPoint } from './componentPointer';
 	import {
 		getComponentSignalAnims,
 		type ComponentCuePayload,
@@ -99,9 +111,10 @@
 	import { getComponentValueSource } from './registerComponentValues';
 	import ParamReadoutText from './ParamReadoutText.svelte';
 	import Repeater from './Repeater.svelte';
+	import SpawnLayer from './SpawnLayer.svelte';
 	import { EDITOR_RIG_LOAD_SCALE } from './rigLoadScale';
 
-	const { node, space, attachedEffects, slotRiders }: Props = $props();
+	const { node, space, attachedEffects, slotRiders, nested }: Props = $props();
 	const layoutContext = getContextLayout();
 	const appContext = getContextApp();
 
@@ -131,6 +144,54 @@
 	const listenerCursor = listeners?.some((l) => l.event !== 'enter' && l.event !== 'leave')
 		? 'pointer'
 		: undefined;
+	// The pointer (game-families §3.2, P10.4): every listener event carries where the pointer is, in
+	// the instance's space (`componentPointer.ts`). Only a node listening for `move` takes
+	// `pointermove`, and only one listening for a drag or a swipe follows its press off the node
+	// (`globalpointermove`, `pointerupoutside`); every other wrapper gets exactly today's handlers.
+	const gesture = listen
+		? new PointerGesture((event, at) => listen.listen(node, event, at))
+		: undefined;
+	const hovers = !!listen && !!listeners?.some((l) => l.event === 'move');
+	const tracks =
+		!!listen &&
+		!!listeners?.some((l) => ['dragStart', 'drag', 'dragEnd', 'swipe'].includes(l.event));
+	// A press released off the node must still end, so that a later reading's dx / dy is 0 again:
+	// a hover or a pointer payload listens for that release too.
+	const releasesOff =
+		tracks ||
+		hovers ||
+		(!!listen &&
+			!!listeners?.some(
+				(l) =>
+					l.action.kind === 'raise' &&
+					Object.values(l.action.payload ?? {}).some(
+						(v) => typeof v === 'object' && 'pointer' in v,
+					),
+			));
+	const pointerLocal = (e: FederatedPointerEvent) => listen!.local(e.global);
+
+	// ALIGN TARGET (game-families §3.2): a node an Align Target listener of its instance moves sits
+	// where the pointer put it, in its parent's space. Asked once; every other node never reads it.
+	const componentAlign = getComponentAlign();
+	const alignParent = componentAlign?.targets(untrack(() => node.id))
+		? getContextParent().parent
+		: undefined;
+	const alignTarget: ComponentAlignTarget | undefined = alignParent
+		? {
+				toLocal: (global) => alignParent.toLocal(global),
+				position: (): PointerPoint => ({ x: posX, y: posY }),
+			}
+		: undefined;
+	const alignedAt: (() => Partial<PointerPoint> | undefined) | undefined = alignTarget
+		? componentAlign!.attach(
+				untrack(() => node.id),
+				alignTarget,
+			)
+		: undefined;
+	if (alignTarget) {
+		const alignId = untrack(() => node.id);
+		onDestroy(() => componentAlign!.detach(alignId, alignTarget));
+	}
 
 	// Element FX (`docs/design/element-fx.md`): a node carrying effects renders inside one extra
 	// container they play on, which takes the node's `zIndex` so it sorts among its siblings as the
@@ -307,7 +368,11 @@
 	// sits — they did, and a `game`-space node carrying a `screenAnchor` silently rendered
 	// off-screen in the game while the editor drew it in place.
 	const canvas = $derived(layoutContext.stateLayoutDerived.canvasSizes());
-	const pos = $derived(anchoredPosition(transform, space, canvas.width, canvas.height));
+	const pos = $derived.by((): { x: number; y: number } => {
+		const anchored = anchoredPosition(transform, space, canvas.width, canvas.height);
+		const at = alignedAt?.();
+		return at ? { x: at.x ?? anchored.x, y: at.y ?? anchored.y } : anchored;
+	});
 	const posX = $derived(pos.x);
 	const posY = $derived(pos.y);
 
@@ -926,6 +991,38 @@
 	const rectHeight = $derived(
 		node.kind === 'rect' ? (transform.height ?? node.height) * sizeScaleY : 0,
 	);
+	// A `rect` placed straight on a `background` screen covers the window like the background art
+	// does, measured from its own width × height (no texture), with the same fit / cover scale /
+	// stretch / align inputs — so a full-screen fill reaches every edge of a window larger than the
+	// bucket it was sized in. Drawn from its centre; the size carries the per-axis cover scale. A
+	// nested rect keeps its box, as the editor draws it (`coversBackgroundWindow`); any other space
+	// ⇒ `undefined` ⇒ the authored box above.
+	const rectCover = $derived.by(() => {
+		if (!isBackground || node.kind !== 'rect' || !coversBackgroundWindow(node, !nested)) {
+			return undefined;
+		}
+		const canvasBox = layoutContext.stateLayoutDerived.canvasSizes();
+		const width = transform.width ?? node.width;
+		const height = transform.height ?? node.height;
+		const cover = coverTransform({
+			artWidth: width,
+			artHeight: height,
+			targetWidth: canvasBox.width,
+			targetHeight: canvasBox.height,
+			coverScale: bgCoverScale,
+			stretchX: bgStretch.x,
+			stretchY: bgStretch.y,
+			fit: bgFit,
+			anchorX: bgAnchor.x,
+			anchorY: bgAnchor.y,
+		});
+		return {
+			x: cover.x,
+			y: cover.y,
+			width: width * cover.scaleX,
+			height: height * cover.scaleY,
+		};
+	});
 	// A param-bound fill / border colour (Rive plan Phase 8d: the authored button's tile takes its
 	// variant colour from the instance). Unbound ⇒ the node's own `color` (parity).
 	const boundRectColor = $derived(
@@ -1156,6 +1253,7 @@
 				node={child}
 				{space}
 				slotRiders={child === split.host && split.riders.length ? split.riders : undefined}
+				nested
 			/>
 		{/each}
 	{/if}
@@ -1235,6 +1333,7 @@
 						node={child}
 						{space}
 						slotRiders={child === split.host && split.riders.length ? split.riders : undefined}
+						nested
 					/>
 				{/each}
 			</Container>
@@ -1296,6 +1395,22 @@
 			>
 				<Repeater {node} {space} />
 			</Container>
+		{:else if node.kind === 'spawnLayer'}
+			<!--
+				Spawn layer (game-families §3.3): the node's own transform places the layer, then
+				<SpawnLayer> draws the live set Flow spawns into it, each instance at its spawned place.
+				Nothing spawned ⇒ nothing renders.
+			-->
+			<Container
+				x={posX}
+				y={posY}
+				scale={transform.scale}
+				rotation={transform.rotation}
+				alpha={transform.alpha}
+				zIndex={transform.zIndex}
+			>
+				<SpawnLayer {node} {space} />
+			</Container>
 		{:else if node.kind === 'sprite'}
 			{#if fillBound && !bg && spriteKey}
 				<!--
@@ -1351,9 +1466,11 @@
 				(scale folded in above); `color` → `backgroundColor` (default `0xffffff`);
 				opacity is the standard `transform.alpha`. Default anchor `{0.5,0.5}` (centred —
 				matching the editor's 2D draw, hit-test and spawn, so an anchor-less rect lands
-				identically in editor + game); set `{0,0}` to pin from the top-left.
+				identically in editor + game); set `{0,0}` to pin from the top-left. On a
+				`background` screen it covers the window instead (`rectCover`), so a fill reveal
+				— which masks the authored box — does not apply there, as on a cover sprite.
 			-->
-			{#if fillBound}
+			{#if fillBound && !rectCover}
 				<!-- A `fill` reveal — the same wrapper + mask as the sprite branch. -->
 				<Container
 					x={posX}
@@ -1373,14 +1490,14 @@
 				</Container>
 			{:else}
 				<Rectangle
-					x={posX}
-					y={posY}
-					anchor={transform.anchor ?? { x: 0.5, y: 0.5 }}
-					width={rectWidth}
-					height={rectHeight}
+					x={rectCover ? rectCover.x : posX}
+					y={rectCover ? rectCover.y : posY}
+					anchor={rectCover ? { x: 0.5, y: 0.5 } : (transform.anchor ?? { x: 0.5, y: 0.5 })}
+					width={rectCover ? rectCover.width : rectWidth}
+					height={rectCover ? rectCover.height : rectHeight}
 					backgroundColor={rectColor}
 					{...rectShape}
-					rotation={transform.rotation}
+					rotation={rectCover ? 0 : transform.rotation}
 					alpha={transform.alpha}
 					zIndex={transform.zIndex}
 				/>
@@ -1528,7 +1645,7 @@
 				{#each slotRiderGroups as group (group.slot)}
 					<RigSlot slotName={group.slot}>
 						{#each group.riders as rider (rider.id)}
-							<svelte:self node={rider} {space} />
+							<svelte:self node={rider} {space} nested />
 						{/each}
 					</RigSlot>
 				{/each}
@@ -1781,11 +1898,18 @@
 			eventMode="static"
 			cursor={listenerCursor}
 			zIndex={transform.zIndex}
-			onpointerdown={() => listen.listen(node, 'down')}
-			onpointerup={() => listen.listen(node, 'up')}
-			onpointerenter={() => listen.listen(node, 'enter')}
-			onpointerleave={() => listen.listen(node, 'leave')}
-			onpointertap={() => listen.listen(node, 'click')}
+			onpointerdown={(e) => gesture!.down(e.pointerId, pointerLocal(e), e.global)}
+			onpointerup={(e) => gesture!.release(e.pointerId, pointerLocal(e), e.global, true)}
+			onpointerenter={(e) => gesture!.plain('enter', pointerLocal(e), e.global)}
+			onpointerleave={(e) => gesture!.plain('leave', pointerLocal(e), e.global)}
+			onpointertap={(e) => gesture!.plain('click', pointerLocal(e), e.global)}
+			onpointermove={hovers ? (e) => gesture!.hover(pointerLocal(e), e.global) : undefined}
+			onglobalpointermove={tracks
+				? (e) => gesture!.move(e.pointerId, pointerLocal(e), e.global)
+				: undefined}
+			onpointerupoutside={releasesOff
+				? (e) => gesture!.release(e.pointerId, pointerLocal(e), e.global, false)
+				: undefined}
 		>
 			{@render nodeBody()}
 		</Container>

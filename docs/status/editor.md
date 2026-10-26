@@ -16,7 +16,7 @@ Launcher-native, full-page WebGL/canvas layout editor at `/editor` (auth + `edit
 
 Shipped capabilities on `main`:
 
-- **Screens** — game + HUD lists (reorder, rename, hide, duplicate, delete); per-screen **space** (`game` / `standard` with left/right/top/bottom alignment / `canvas` / `background` cover-fit); **Always on top**, **Behind the reels** and **Zoom with anticipation** ticks; roles (incl. `betMenu` / `autoSpin`, one `SCENE_ROLE_LABELS` list in `engine-layout/sceneRole.ts`); scaffold from a **game kind** (`lines`, `ways` filled; `bookOf`; `cluster`/`scatter` skeleton-only by decision), **import composed reference**, add-missing-screens, "Save as new game kind", bet menu / auto spin screens. Everything that adds a screen sits in one **＋ Add screen ▾** menu under the list, and the rest in **⋯**.
+- **Screens** — game + HUD lists (reorder, rename, hide, duplicate, delete); per-screen **space** (`game` / `standard` with left/right/top/bottom alignment / `canvas` / `background` cover-fit); **Always on top**, **Behind the reels**, **Zoom with anticipation** and (canvas screens) **Scale with the window** ticks; roles (incl. `betMenu` / `autoSpin`, one `SCENE_ROLE_LABELS` list in `engine-layout/sceneRole.ts`); scaffold from a **game kind** (`lines`, `ways` filled; `bookOf`; `cluster`/`scatter` skeleton-only by decision), **import composed reference**, add-missing-screens, "Save as new game kind", bet menu / auto spin screens. Everything that adds a screen sits in one **＋ Add screen ▾** menu under the list, and the rest in **⋯**.
 - **Every authored screen ships.** `extraMountScenes` / `fullReplaceHudScenes` (`engine-layout/genericMountScenes.ts`) mount author screens the game doesn't reserve, and `sceneLayerZIndex` gives every mount path the Screens-list z; under a screen-driving v2 flow every screen mounts through `<FlowV2Mount>`. Flow owns visibility (no "Shows during" gates).
 - **Canvas** — real-texture rendering (live rig skeletons, live FX particles, playing flipbook clips, rig/sprite/flipbook board symbols through one `reelGridGeometry`), zoom/pan/Fit, multi-select, transform handles, snap guides, undo/redo, copy/cut/paste/duplicate, **⌖ Any screen** click-to-select across every drawn screen (⏳ not browser-verified). Instances preview through the project's component-defaults sidecar, and a placement pinned to an older component version draws that version, so the canvas draws what the game draws; a rig that is not playing holds its resting pose (the animation the game rests it on), not its setup pose. Every rig, text and FX overlay (both sides, HUD included) draws through TWO shared WebGL contexts and copies into a 2D canvas of its own (`sharedGl.client.ts`); nothing else in the editor route may open a context (`check:editor-gl-contexts`).
 - **Library placement** — Text / Rect / Reel, atlas pages + regions (per-region drag thumbnails), rigs (project + `_shared/spines/`, upload), sheet regions, **Invisible FX** effects, **Invisible Flipbook** clips, components.
@@ -171,6 +171,106 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-25 — **Elastic and Bounce in the Interpolation panel** (in review): two more kinds beside
+  Linear / Cubic / Hold, drawn from the evaluator. Detail in [cinematic status](cinematic.md)
+  2026-10-25.
+- 2026-10-23 — **A canvas screen can scale with the window** (branch `claude/stoic-cori-6yyp5f`, in
+  review). Reported on `commonoverlayproject`: the Hold and Win feature intro ended differently on
+  two computers. Its screen (`featureIntro`) is `canvas` space, which the game drew one window pixel
+  per unit while this editor frames it at the layout's design box (1920×1080 here). The intro's
+  curtains, 20 px wide at each window edge and keyed to ×60, cover 1200 px each: a 1920 px window,
+  but not a 2848 px one, where a strip of reels stayed open in the middle and the rockets keyed to
+  fly 2123 px right ended on screen. The reels, in `game` space, scaled as usual. A canvas screen's
+  Properties now has a **Scale with the window** tick (`Scene.scaleWithWindow`, stored only on a
+  canvas screen, dropped when the screen leaves canvas space). Ticked, `<LayoutScene>` draws the
+  whole screen (its tap surfaces and screen FX included) in one container scaled by the fit the
+  design box gets in the window (`mainLayoutStandard().scale`, the box this canvas frames), and its
+  content reads a window shrunk by the same factor (`scaleLayout` in `utils-layout`). So each node
+  stays pinned to its window edge while its offsets, size and timeline keys scale, and whatever fills
+  the window (a tap dim, the press-anywhere hit area, a cover fit, a nested game box) still fills it.
+  On any window of the design box's shape the game then matches this canvas; on a wider one the
+  edges stay pinned (a curtain keyed to just meet at 16:9 still leaves a gap on 21:9). Unticked ⇒
+  no container, the screen as before, so no current game changes until an author ticks it. The
+  canvas preview is unchanged (it already shows the design box). Gates: `pnpm
+  check:canvas-window-scale` mounts the REAL `LayoutScene`, `MainContainer` and
+  `CanvasSizeRectangle` inside the real `createLayout` on a simulated window and replays the
+  project's intro end frame (15 failures on the old `LayoutScene`: the 448 px gap and the rocket on
+  screen among them). Its `<LayoutNodeView>` is a stand-in, so it proves the tap dim and hit area
+  hoisted through the real tap portal and a nested game box, not the node view's own cover-fit or
+  game-frame paths (they read the same context, linearly; the Chromium run below draws the real
+  press-anywhere prompt); `pnpm --filter launcher-api check:scene-scale-with-window` round-trips the
+  save. The shared DOM shim (`scripts/lib/svelte-dom-shim.mjs`) learned multi-root `<template>`
+  fragments for it. Verified in Chromium on a local runtime build against the project's published
+  snapshot with a forced red pot: at 1920×1080 the end frame is pixel-identical with and without
+  the tick; at 2848×1602 the published screen shows the report's strip of reels and rockets, and
+  the ticked one the 1920×1080 frame scaled up. ⏳ The owner ticks it on Feature intro and republishes.
+  New Hold and Win games seed their feature intro and outro ticked ([hold-and-win status](hold-and-win.md)
+  2026-10-23).
+
+- 2026-10-23 — **A Rect on a `background` screen fills the window** (in review). The owner's
+  `commonoverlayproject` background was a 1920×1080 Rect at (960, 540): the editor's Desktop
+  frame is exactly that box, so it looked full-bleed there, but the game drew a background Rect
+  at raw window pixels, so a larger window showed black past x 1920 / y 1080. Only image, rig,
+  clip and component nodes covered. A Rect placed straight on a background screen now covers too,
+  measured from its own width × height with the same fit / cover scale / align / stretch inputs.
+  `engine-layout/coverTransform.ts` holds the rule: `isBackgroundCoverKind` (the kinds, read by
+  `EditorCanvas.nodeTransform`) and `coversBackgroundWindow(node, topLevel)` (a Rect covers only at
+  the top level), read by the runtime's `rectCover` in `LayoutNodeView` and by the editor's
+  `isBackgroundCover` + the Background section in `+page.svelte`. So such a Rect stops being
+  draggable and shows the Background controls, like a background image. A Rect **inside a group**
+  keeps its placed box on both sides (the runtime passes `nested` to a container's children, a
+  part's skin and rig-slot riders) — that is how to keep a band or panel on a background screen.
+  On a covering Rect a `fill` reveal does not apply, and x / y / rotation from a timeline or value
+  binding are ignored (as on a cover sprite); the editor's fill preview no longer clips any node it
+  draws as a background cover, matching the game. Text and bare containers are unchanged. Gate:
+  `packages/engine-layout/scripts/test-cover-fit.mjs` (kind list, the nesting rule, a 1920×1080
+  Rect filling 1920×1080, 2817×1585, 1080×1920 and 1366×1024 windows, align and a per-layout fit
+  override). Verified in the `apps/lines` dev game at 2560×1440 with a temporary background Rect in
+  the fallback doc: before, the fill stopped at 1920×1080; after, every edge is covered. Any
+  project with a smaller top-level Rect on a background screen now fills the window too; wrap it
+  in a group to keep it placed.
+- 2026-10-23 — **Keys paste onto another node; a screen timeline's `signal:` cue plays _On cue_
+  Element FX** (branch `editor/keys-paste-other-node-screen-cues`, ⏳ not browser-verified).
+  Reported on `commonoverlayproject` (Base game, timeline `Reel_Intro`):
+  - **Paste onto another node.** "I want the reel background to do exactly the same animation."
+    Ctrl+V only wrote back onto the copied track. Now, with keys of ONE node copied and another
+    node selected on the stage, the Timeline asks its host (`host.pasteTarget`, new and optional)
+    and the keys land on that node's same fields, timed from the playhead, in the ratio being
+    edited (`ensurePropertyTrack` under `propertyLayout`). Fields it cannot key are skipped
+    (`keyableChannels`), and the node becomes an actor only once something pastes. The copied node
+    still selected, nothing selected, keys from two nodes, or no hook (`/rigger`) paste as before,
+    byte-identical. The editor's hook is `pasteTarget` in `EditorTimelinePanel.svelte`; the optional
+    right-click *Copy animation to…* was not built. A group is NOT a workaround for the reel grid:
+    the game reads it only as a top-level node (`findReelGridNode`), and the guide now says so.
+  - **Cues → Element FX.** A screen timeline's cue never reached an _On cue_ Element FX, whatever
+    its name. `FlowV2Cinematics.routeCue` only broadcast on the game event bus, and `ElementFxPlayer`
+    listens on the component-signal bus, which only a Flow `fireCue` and a component's own timeline
+    fed. The editor's Animate ▶ fired no cues at all. Now, for a **screen-hosted** timeline only,
+    a `signal:NAME` cue also fires `NAME` on that bus (`screenCueSignal` in `engine-layout`'s
+    `componentEvents.ts`, routed as `routeComponentCue` routes a component timeline's cue), after
+    the unchanged broadcast. A bare, `fx:`, `sfx:` or `music:` cue and every Rigger cinematic
+    behave as before. In the editor, ▶ plays the _On cue_ entries a crossed cue reaches on the
+    screen and its nodes (`screenCueFx`) through the Element FX ▶ preview, one at a time.
+    `playbackCuesCrossed` steps as `<Cinematic>` does, on `cuesCrossed` / `pingPongCuesCrossed`.
+    The cue inspector lists the screen's _On cue_ names as `signal:` cues under **Element FX (On
+    cue)** and adds a note (`host.cueSuggestions`, new and optional; without it the markup is
+    unchanged, so the Rigger golden passes 106/106).
+  - Gates (both fail on `main`): `check:timeline-node-paste` (fields, times, eases, the ratio, a
+    skipped field, same-node paste byte-identical, the panel's hook) and `check:screen-cue-fx`
+    (the owner's timeline at 30 fps fires the Element FX's subscription once at 1.0 s; bare / `fx:`
+    / `sfx:` fire none; screen hosts only; the editor's `screenCueFx` and one-shot / loop /
+    ping-pong stepping; the inspector's suggestions, and the Rigger markup unchanged). The stub
+    harnesses `check:screen-timeline-mounts` and `cinematic-screen-timeline.mjs` learned the two
+    new `engine-layout` exports. `static/shared/timeline.mjs` was regenerated.
+  - **Parity audit (R2, 2026-10-23):** the bucket's 34 screen-hosted timelines, across every
+    project and its published snapshots, carry no cue at all, so no current game has a `signal:`
+    cue the new delivery could change. Note the emit reaches every open-bus listener of that name,
+    as a Flow `fireCue` does (rig *Plays on signal*, a component timeline's `playOn`, an Element FX
+    stop cue), not only _On cue_ entries.
+  - Review follow-up: a paste that lands nothing makes no actor (the target's `actor()` runs only
+    once a key fits), and a clipboard holding a camera key pastes as before.
+  - Editor preview gaps (in the guide): one Element FX at a time (the last a cue reaches),
+    Element FX inside a placed component's parts and stop cues not previewed.
 - 2026-10-23 — **The Interpolation panel draws its curve** (in review). The panel showed a solid
   black box with two black dots where the cubic curve belongs. The shared Timeline emits the curve
   as SVG (`.cineCurveBox` / `Arm` / `Path` / `Handle`) and `EditorTimelinePanel.svelte` had no

@@ -12,18 +12,20 @@ import { loadDoc } from '$lib/server/editorStorage';
 import { loadGameConfigDocWithEtag } from '$lib/server/gameConfigStorage';
 import { flowSymbolsFrom } from '$lib/server/flowV2Symbols';
 import { projectGameType } from '$lib/server/projects';
-import { flowAddOnsOf, resolveGameModes } from 'game-config';
+import { flowAddOnsOf, resolveGameModes, resolveOutcome } from 'game-config';
 import { resolveToolScope } from '$lib/server/toolScope';
 import {
 	instanceDefResolver,
 	projectContainerEvents,
 	projectFlowInstances,
+	projectSpawnLayers,
 	syncFlowContainers,
 	unpinnedProjection,
 } from '$lib/flowV2Projection';
 import { withPlacedComponentVersions } from '$lib/server/flowV2Validation';
 import { listCinematics, loadCinematic } from '$lib/server/cinematicStorage';
 import { resolveProjectCinematic } from '$lib/server/sharedCinematics';
+import { loadCustomElementFx } from '$lib/server/shaderStorage';
 import { cinematicPickerOptions, type CinematicPickerOption } from '$lib/timeline/screenTimeline';
 import { docNamesInstance } from 'engine-flow-v2';
 import { validateNodeActors, type CinematicDoc, type Scene } from 'engine-layout';
@@ -77,10 +79,11 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 	// opens on (a ways project must not be handed the Book-of flow).
 	// The project's component defs load alongside: the cue harvest below walks the placed ones.
 	// The project's kind as `/config` and `/symbols` resolve it, for the symbol pickers below.
-	const [layout, components, gameType] = await Promise.all([
+	const [layout, components, gameType, customFx] = await Promise.all([
 		loadDoc(clientKey, projectKey),
 		listComponents({ projectKey }),
 		projectGameType(projectKey),
+		loadCustomElementFx(clientKey, projectKey),
 	]);
 	// The stored Game Config, read before the flow: a coin board opens on its own starter. It also
 	// feeds the add-ons and the symbol pickers below.
@@ -122,6 +125,8 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 	);
 	// What an `elementEffect` can aim at: the reels, every screen, and every anchored node.
 	const fxTargets = collectElementFxTargets(layout.scenes ?? [], components);
+	// …and what it can play beyond the built-ins: the project's shader effects (`custom:<id>`).
+	const customFxKinds = customFx.map((e) => e.spec.kind);
 
 	// CONTAINER SYNC (`syncFlowContainers`): every Scene-Editor screen is offered as a container.
 	// Returning the merged doc means the palette offers every screen immediately, and a Save persists
@@ -152,6 +157,14 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 	const instances = docNamesInstance(doc)
 		? projected
 		: unpinnedProjection(projected, (id) => components.find((def) => def.id === id));
+
+	// §3.3 (game-families) — the spawn layers on the flow's screens, with their spawnables' latest
+	// interfaces: what the spawn nodes, an Instance ref and a `$live` read are typed and judged by.
+	const spawnLayers = projectSpawnLayers(
+		doc.containers,
+		layout.scenes ?? [],
+		instanceDefResolver(components),
+	);
 
 	// GAME MODES (`docs/design/hold-and-win.md` §4.5) — the project's mode registry (the built-ins plus
 	// its Game Config `modes`), offered by the "+ Mode" tab picker and the mode nodes' inspector. An
@@ -189,10 +202,14 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		 *  address a placed asset (see the harvest above). Composed client-side by `withSceneCues`. */
 		sceneCues,
 		fxTargets,
+		customFxKinds,
 		containerEvents,
 		/** Placed node id → the instance's projected interface (`projectFlowInstances`), the source of
 		 *  a `componentInstance` node's pins and of every `instance-*` validation. */
 		instances,
+		/** Spawn layer node id → its projected decl (`projectSpawnLayers`), the source of the spawn
+		 *  nodes' and Instance refs' pins and of every spawn check. */
+		spawnLayers,
 		/** ContainerId → whether that screen can complete itself (a tap-to-continue / completeOnLoaded
 		 *  surface). Fed to `validateFlowDoc` so an unreleasable round-block hold is caught at authoring
 		 *  time; a container absent from the map is unresolved and stays unchecked. */
@@ -201,6 +218,9 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		/** The Game Config add-ons (`flowAddOnsOf`) the vocabulary composes in (`withAddOns`), and
 		 *  what "＋ Add overlay steps" grafts. No block ⇒ the kind's vocabulary alone. */
 		addOns,
+		/** Who decides the rounds (`resolveOutcome` of the stored config): what the vocabulary drops
+		 *  (`withOutcome`) and how the validator judges money and rules-only nodes. */
+		outcome: resolveOutcome(configDoc),
 		/** The project's symbols (`flowSymbolsFrom`), composed in by `withSymbols`. */
 		symbols,
 	};

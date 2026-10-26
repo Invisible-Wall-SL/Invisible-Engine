@@ -111,6 +111,8 @@ const FULL: Record<SymbolState, SymbolCell> = {
 	respinsAdd: rig('x_respins_add'),
 	coinUpgrade: rig('x_coin_upgrade'),
 	rowUnlock: rig('x_row_unlock'),
+	select: rig('x_select'),
+	hint: rig('x_hint'),
 };
 
 // FULL has to stay exhaustive, and only a runtime assertion says so — `tsx` strips the annotation

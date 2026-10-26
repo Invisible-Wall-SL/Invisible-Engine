@@ -41,7 +41,7 @@ const { createInstanceWaits } = await import('../../lines/src/game/flowInstanceW
 const F = await import('../../../packages/engine-layout/src/lib/registerFlowPress.ts');
 const E = await import('../../../packages/engine-layout/src/lib/componentEvents.ts');
 const N = await import('../../../packages/engine-flow-v2/src/instanceNodes.ts');
-const { collectComponentPins } =
+const { collectComponentPins, resolveComponentClosureWithPins } =
 	await import('../../../packages/engine-layout/src/lib/collectComponentIds.ts');
 const { freshDrivenSeedDoc } =
 	await import('../../../packages/engine-flow-v2/src/reference/drivenSeed.ts');
@@ -1119,11 +1119,21 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		true,
 	);
 	eq(
-		'7. runtimeBundle loads every placed pin at its version',
+		'7. runtimeBundle resolves its defs through the closure that loads every placed pin',
 		source('apps/launcher-api/src/lib/server/runtimeBundle.ts').includes(
-			'loadComponent(pin.id, projectKey, pin.version)',
+			'(id, version) => loadComponent(id, projectKey, version)',
 		),
 		true,
+	);
+	const shipped = await resolveComponentClosureWithPins(
+		SCENES.flatMap((s) => s.nodes),
+		async (id) => (id === 'banner' ? BANNER_V3 : BUILTIN_COMPONENTS.find((d) => d.id === id)),
+		async (id, version) => (id === 'banner' && version === 2 ? BANNER_V2 : undefined),
+	);
+	eq(
+		'7. …and it loads the placed pin at its version, beside latest',
+		[shipped.defs.banner?.version, shipped.versions.map((d) => `${d.id}@${d.version}`)],
+		[3, ['banner@2']],
 	);
 	R.clearComponents();
 	R.registerComponents({ banner: BANNER_V2 });
@@ -1206,9 +1216,12 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 			'stashFlowInstanceInput,',
 			'clearFlowInstanceStash,',
 			'onFlowInstanceDrop,',
-			'dispose: waits.dispose,',
+			// The flow's variables and key map (P10.3) and its live set (P10.7) tear down beside the
+			// waits when it has a store or spawns.
+			'dispose:\n\t\t\tstate || live\n\t\t\t\t? () => {\n\t\t\t\t\t\twaits.dispose();',
+			': waits.dispose,',
 		].map((line) => runtime.includes(line)),
-		[true, true, true, true, true, true, true, true, true, true],
+		[true, true, true, true, true, true, true, true, true, true, true],
 	);
 	eq(
 		'8. the game releases the flow handle on destroy, and builds none for a Game already destroyed',

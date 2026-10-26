@@ -6,7 +6,7 @@
  * its element color (a collection of the same thing).
  */
 
-import type { NodeKind, TypeRef } from 'engine-flow-v2';
+import type { FlowSpawnLayerDecl, NodeKind, TypeRef } from 'engine-flow-v2';
 
 /**
  * Presentation LEAF node kinds an author drops directly. Unlike `showContainer`/`hideContainer`
@@ -19,6 +19,20 @@ import type { NodeKind, TypeRef } from 'engine-flow-v2';
 export const PRESENTATION_NODES: { kind: NodeKind; label: string }[] = [
 	{ kind: 'textMessage', label: 'Text Message' },
 	{ kind: 'playCinematic', label: 'Play Cinematic' },
+];
+
+/** The variable, timer, tick and key node kinds (`docs/design/game-families.md` §3.1–§3.2), the
+ *  palette's Variables & time group. `variable` marks the ones that name a variable. */
+export const STATE_NODES: { kind: NodeKind; label: string; variable?: true }[] = [
+	{ kind: 'setVariable', label: 'Set variable', variable: true },
+	{ kind: 'changeVariable', label: 'Change variable', variable: true },
+	{ kind: 'onVariable', label: 'On variable', variable: true },
+	{ kind: 'onTick', label: 'On tick' },
+	{ kind: 'startTimer', label: 'Start timer' },
+	{ kind: 'stopTimer', label: 'Stop timer' },
+	{ kind: 'pauseTimer', label: 'Pause timer' },
+	{ kind: 'onTimer', label: 'On timer' },
+	{ kind: 'onInput', label: 'On input' },
 ];
 
 /** The game-mode node kinds (`docs/design/hold-and-win.md` §4.5), the palette's Modes group. */
@@ -42,6 +56,28 @@ export const modeNodeRef = (kind: NodeKind, modeId: string | null): string | und
 export const offeredInSection = (kind: NodeKind, modeId: string | null): boolean =>
 	kind !== 'allModesFinished' || modeId === null || modeId === 'basegame';
 
+/** A Spawn palette entry's ref: the layer it spawns into and the component it spawns. */
+export const spawnNodeRef = (layer: string, componentId: string): string =>
+	`${layer}/${componentId}`;
+export const parseSpawnNodeRef = (
+	ref: string | undefined,
+): { layer: string; componentId: string } => {
+	const slash = ref?.indexOf('/') ?? -1;
+	if (!ref || slash < 0) return { layer: ref ?? '', componentId: '' };
+	return { layer: ref.slice(0, slash), componentId: ref.slice(slash + 1) };
+};
+
+/** A spawned Wait for state palette entry's ref, told apart from a placed one's `<screen>/<node>`. */
+const SPAWNED_WAIT = 'spawned:';
+export const spawnedWaitRef = (componentId: string): string => `${SPAWNED_WAIT}${componentId}`;
+export const parseSpawnedWaitRef = (ref: string | undefined): string | undefined =>
+	ref?.startsWith(SPAWNED_WAIT) ? ref.slice(SPAWNED_WAIT.length) : undefined;
+
+/** Every component some spawn layer lists, once each, in layer order. */
+export const spawnableComponents = (layers: Record<string, FlowSpawnLayerDecl>): string[] => [
+	...new Set(Object.values(layers).flatMap((l) => l.spawnable.map((s) => s.componentId))),
+];
+
 const SCALAR_COLOR: Record<string, string> = {
 	int: '#38bdf8', // sky — a plain integer.
 	ms: '#22d3ee', // cyan — milliseconds (kin to int, distinct so timing reads).
@@ -50,6 +86,7 @@ const SCALAR_COLOR: Record<string, string> = {
 	string: '#a3e635', // lime — text.
 	enum: '#fbbf24', // amber — a template enum (SymbolName).
 	struct: '#fb923c', // orange — a template struct (Reel, Slot).
+	instance: '#34d399', // emerald — a spawned instance's handle, the component nodes' hue.
 };
 
 /** The wire/dot color for a data type. `list<T>` inherits its element type's color. */
@@ -67,6 +104,8 @@ export const typeLabel = (t: TypeRef): string => {
 			return t.name;
 		case 'list':
 			return `${typeLabel(t.of)}[]`;
+		case 'instance':
+			return t.component ? `instance<${t.component}>` : 'instance';
 		default:
 			return t.t;
 	}

@@ -2,8 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import {
 	applyHudGameNameDefault,
 	collectComponentIds,
-	collectComponentPins,
-	resolveComponentClosure,
+	resolveComponentClosureWithPins,
 } from 'engine-layout';
 import type { ComponentDef, LayoutDoc } from 'engine-layout';
 import { getDeployToken } from '$lib/server/appSettings';
@@ -87,31 +86,22 @@ function resolveRigKeysForComponentDefs(
  * non-latest version, loaded from the multi-version store (`loadComponent(id,
  * projectKey, version)`). The game registers these BEFORE `defs` so each pinned
  * instance resolves the precise version it was authored against while latest still
- * wins for unpinned ones. No non-latest pin ⇒ `versions` is empty and the bundle is
- * byte-identical to today (parity). The transitive nested-pin closure is not walked
- * (a nested instance's own pin is resolved against whatever the parent def shipped);
- * v1 nesting is 1–2 levels and no game pins yet, so this is the precise, sufficient
- * slice — see §8.9 for the scoped remainder.
+ * wins for unpinned ones, and `defs` gains the components only those versions name. No non-latest
+ * pin ⇒ `versions` is empty and the bundle is byte-identical to today (parity). The transitive
+ * nested-pin closure is not walked (a nested instance's own pin is resolved against whatever the
+ * parent def shipped, as the editor draws it) — see §8.9 for the scoped remainder.
  */
 async function resolveReferencedDefs(
 	doc: LayoutDoc,
 	projectKey: string,
 	storedDefaults: Record<string, Record<string, unknown>>,
 ): Promise<{ defs: Record<string, ComponentDef>; versions: ComponentDef[] }> {
-	const defs = await resolveComponentClosure(
+	return resolveComponentClosureWithPins(
 		doc.scenes.flatMap((scene) => scene.nodes),
 		(id) => loadComponent(id, projectKey),
+		(id, version) => loadComponent(id, projectKey, version),
 		{ defaultsFor: (id) => componentDefaultsFor(storedDefaults, id) },
 	);
-	const versions: ComponentDef[] = [];
-	for (const pin of collectComponentPins(doc.scenes.flatMap((scene) => scene.nodes))) {
-		// Skip a pin that already equals the latest def we shipped above — registering
-		// latest covers it, so no extra version doc is needed (parity for unedited games).
-		if (defs[pin.id]?.version === pin.version) continue;
-		const pinned = await loadComponent(pin.id, projectKey, pin.version);
-		if (pinned) versions.push(pinned);
-	}
-	return { defs, versions };
 }
 
 /**

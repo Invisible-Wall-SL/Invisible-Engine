@@ -54,6 +54,7 @@ import {
 	gameConfigDocBackupTarget,
 	projectPrefix,
 	r2Slug,
+	shaderBackupsPrefix,
 	symbolsDocBackupTarget,
 } from './projectPaths';
 import { copyObject, getObjectText, listAllKeys, putObjectText } from './r2';
@@ -74,7 +75,8 @@ const COPY_CONCURRENCY = 8;
 /**
  * The per-project subfolders a `setup` copy takes: the authored GAME, no art. `editor/` carries
  * `scenes.json` + both flow docs; `config`/`symbols`/`winText`/`localization` are the other four
- * authored docs. Everything absent from this list is asset output a reskin replaces.
+ * authored docs, and `shaders` the shader graphs the scenes and symbols name as `custom:<id>`.
+ * Everything absent from this list is asset output a reskin replaces.
  */
 const SETUP_SUBFOLDERS: readonly ((c: string, p: string) => string)[] = [
 	SUB.editor,
@@ -82,6 +84,7 @@ const SETUP_SUBFOLDERS: readonly ((c: string, p: string) => string)[] = [
 	SUB.symbols,
 	SUB.winText,
 	SUB.localization,
+	SUB.shaders,
 ];
 
 /** Per-project root config files a `setup` copy takes (they sit at the project root, not in SUB). */
@@ -159,6 +162,7 @@ export async function planDuplicate(
 		.map((target) => target(source.clientKey, source.projectKey).prefix)
 		.concat(
 			componentDefaultsBackupsPrefix(source.projectKey),
+			shaderBackupsPrefix(source.clientKey, source.projectKey),
 			`${SUB.published(source.clientKey, source.projectKey)}/`,
 			`${SUB.director(source.clientKey, source.projectKey)}/`,
 		);

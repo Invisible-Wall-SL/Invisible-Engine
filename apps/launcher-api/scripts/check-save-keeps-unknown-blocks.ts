@@ -951,7 +951,7 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 	resetComponents();
 	// Byte-identical for known-only defs: the bytes a save wrote before the graft existed.
 	const etag = seed(componentKey, normalizeComponent(structuredClone(COMPONENT) as unknown as Def));
-	const edited = { ...structuredClone(COMPONENT), name: 'Spin' } as unknown as Def;
+	const edited = { ...structuredClone(COMPONENT), category: 'overlay' } as unknown as Def;
 	await saveComponent(edited, 'p', etag);
 	check(
 		'components: a known-only def saves byte-identically',
@@ -1514,7 +1514,7 @@ const newerP6 = (): P6Doc => {
 	Object.assign(node.on![0], { delay: 2 });
 	node.on!.push(
 		{ id: 'l_goto', event: 'click', action: { kind: 'goto', state: 's_idle' } },
-		{ id: 'l_swipe', event: 'swipe', action: { kind: 'fire', input: 'tap' } },
+		{ id: 'l_pinch', event: 'pinch', action: { kind: 'fire', input: 'tap' } },
 	);
 	doc.events![0].payload = [
 		{ name: 'n', type: { t: 'int' }, unit: 'coins' },
@@ -1586,7 +1586,7 @@ const newerP6 = (): P6Doc => {
 	check(
 		'components 6a: a deleted listener is not resurrected; the ones the author never saw stay',
 		(stored(componentKey) as unknown as P6Doc).root.children[0].on?.map((l) => l.id),
-		['l_goto', 'l_swipe'],
+		['l_goto', 'l_pinch'],
 	);
 }
 {

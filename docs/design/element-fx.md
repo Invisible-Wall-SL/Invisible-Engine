@@ -30,7 +30,7 @@ Three ways to get one onto an element, all playing through ONE runtime:
 ## 2. The catalog (`constants-shared/elementFx`)
 
 One dependency-free list, read by the editor (kind picker, param rows), the flow vocabulary (the
-`ElementFxKind` dropdown) and the runtime. 49 kinds in five families:
+`ElementFxKind` dropdown) and the runtime. 50 kinds in five families:
 
 - **Motion** (the element's own transform; no GPU pass): shake, wobble, pulse, heartbeat, jelly,
   bounce, spin, swing, float, pop in, pop out, slam in, fade in, fade out.
@@ -55,8 +55,9 @@ One dependency-free list, read by the editor (kind picker, param rows), the flow
   glowing edge).
 - **Break** (a still of the element cut into pieces): crash (takes a hit, smashes into shards that
   fly and fall), crumble (chunks let go bottom row first and drop), shatter (glass: cracks spread
-  from an impact, then spiderweb shards tumble and fall, the ones by the impact first), dissolve to
-  particles (turns
+  from an impact, then spiderweb shards tumble and fall, the ones by the impact first),
+  crystallize (ice shards: crystal facets ice over one by one from a side, hold and creak, then
+  burst into shards that tumble, glint and fall), dissolve to particles (turns
   to dust: specks let go in a ragged front, the side the wind blows to first, and blow away on it,
   swaying and shrinking to nothing) and assemble from particles (the same dust played backwards,
   an entrance: the specks blow in and become the element).
@@ -69,7 +70,18 @@ rest; hidden through its delay) or `exit` (ends hidden and STAYS hidden until it
 
 Adding a kind: one entry in the catalog + its implementation in
 `pixi-svelte/src/lib/elementFx/kinds.ts`, whose table is `Record<ElementFxKind, …>`, so the type
-check fails until it exists; `check:element-fx` fails too.
+check fails until it exists; `check:element-fx` fails too. A shader pass calls the shared building
+blocks of `constants-shared/glslLibrary.ts` (hash, noise, cells, relief, outline, "away from a
+side"…) instead of carrying its own copy; the gate refuses a function that copies one word for word.
+A change to a pass is proven by `pnpm --filter fx-spike shader-parity` (every kind, before and after,
+pixel by pixel).
+
+Custom kinds: an effect authored in Invisible Shader Graph plays as `custom:<id>`
+(`docs/design/invisible-shader-graph.md`). The catalog holds the registered set
+(`setCustomElementFx`, `customElementFx`, `isPlayableElementFxKind`), and an entry or a play names a
+built-in or a custom kind (`ElementFxKindId`). The runtime plays a custom kind through
+`pixi-svelte/src/lib/elementFx/custom.ts`: its graph as one pass, then its built-in passes, plus its
+motion curves.
 
 ## 3. Data model (all optional, additive)
 
@@ -132,7 +144,13 @@ the way `cameraEffects` composes the stage:
   pieces: a few small `MeshSimple`s the batcher draws together, placed beside the element at its
   depth and rest transform. With no renderer it fades instead (dust drifting on its wind). A
   `reversed` kind runs its break from the end back to the start (assemble), so its pieces fly in;
-  at its end the pieces go and the element shows again.
+  at its end the pieces go and the element shows again. A `live` kind (assemble) is drawn from the
+  element every frame instead (`BreakRun.follow`): the element is rendered into a texture remade
+  as it grows, and the pieces, cut in the box it broke in, are laid over every box it has filled
+  so far (grown evenly to the cut's proportions, so a swing never stretches them) and where it
+  rests now, faded as the owner fades it. A timeline that moves or zooms the element keeps playing
+  under the pieces. A live break waits, the element hidden, until there is something to draw (a
+  size, as after a zoom from nothing; shown; on stage), rather than fading instead.
 - **Time** follows the game's turbo through the particle clock (`particleTimeScale`).
 - **Zero cost at rest**: no runtime, no ticker callback, no filter on a container with nothing
   playing; nothing is filtered before the element has a size (art still loading).
@@ -179,7 +197,11 @@ An **Element FX** section on every node's Properties and on the Screen panel: ad
 grouped kind picker, set its trigger, cue, timing, strength and the kind's own params, reorder,
 disable, remove. **▶** previews it ON the stage: the editor captures the element alone (everything
 else hidden for a frame), hides it, and plays the real runtime on that still in a Pixi overlay — so
-the preview is the game's effect, on a still (a playing rig freezes for the preview).
+the preview is the game's effect. A screen's still is live: its surfaces keep drawing, hidden by
+CSS, and are copied into the still every frame, so a timeline playing on the screen keeps moving
+under the effect (a HUD screen, whose surfaces the other HUD screens share, keeps a still). A node's
+still follows the node's drawn pose while a timeline plays, but its content holds (a playing rig
+freezes for the preview). A timeline cue's preview takes the same path.
 
 A `keyed` entry adds two rows to the node's **Animate** timeline (progress and strength). Keying
 them and scrubbing or playing the timeline — or previewing a state of the component's state

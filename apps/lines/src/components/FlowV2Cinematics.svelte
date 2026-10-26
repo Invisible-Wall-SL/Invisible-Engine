@@ -18,7 +18,7 @@
 	 * the flow, whose mount of the screen remounts with it. Off stage, it draws its own copy.
 	 */
 	import { MainContainer } from 'components-layout';
-	import { cinematicSetSceneId } from 'engine-layout';
+	import { cinematicSetSceneId, emitComponentSignal, screenCueSignal } from 'engine-layout';
 	import { Cinematic } from 'engine-layout/svelte';
 	import { getContextEventEmitter } from 'utils-event-emitter';
 
@@ -45,6 +45,8 @@
 	 *  - `fx:` / `signal:` — broadcast on the shared event bus under the bare name. An FX layer (or
 	 *    anything else) subscribed to that name reacts, which is the SAME seam a rig's timeline
 	 *    events already use, so cinematic cues and rig events are indistinguishable downstream.
+	 *    A SCREEN timeline's `signal:` cue (`onScreen`) also fires its name on the component-signal
+	 *    bus (`screenCueSignal`), as a Flow `fireCue` does, so an _On cue_ Element FX plays on it.
 	 *  - `sfx:` / `music:` — a one-shot through the game's sound player, guarded by `hasSound`:
 	 *    howler silently declines an unknown sprite key, so without the guard a cue naming a sound
 	 *    this game's audiosprite predates would be an inaudible non-failure rather than a warning.
@@ -52,7 +54,7 @@
 	 * An unknown namespace is broadcast verbatim rather than dropped — a cue we have not taught the
 	 * game about yet is still a moment something may be listening for.
 	 */
-	function routeCue(cue: string): void {
+	function routeCue(cue: string, onScreen: boolean): void {
 		const sep = cue.indexOf(':');
 		const ns = sep > 0 ? cue.slice(0, sep) : '';
 		const name = sep > 0 ? cue.slice(sep + 1) : cue;
@@ -68,6 +70,8 @@
 			return;
 		}
 		eventEmitter?.broadcast({ type: name });
+		const signal = onScreen ? screenCueSignal(cue) : undefined;
+		if (signal) emitComponentSignal(signal);
 	}
 
 	/** Only the entries whose cinematic actually shipped — an unknown id renders nothing. */
@@ -107,10 +111,11 @@
 					? (driver) => flow?.driveScreen(entry.screen!, entry.id, driver)
 					: undefined}
 				playing
+				playId={entry.opts.play}
 				loop={entry.opts.loop}
 				speed={entry.opts.speed}
 				oncomplete={() => flow?.cinematicComplete(entry.id)}
-				oncue={routeCue}
+				oncue={(cue) => routeCue(cue, entry.doc?.host?.kind === 'screen')}
 				layoutType={stateLayoutDerived.layoutType}
 			/>
 		{/each}

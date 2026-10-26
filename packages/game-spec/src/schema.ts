@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { locales } from 'config-lingui';
-import { GAME_KINDS } from 'constants-shared/gameKinds';
+import { SLOT_GAME_KINDS } from 'constants-shared/gameKinds';
 import { HOLD_AND_WIN_SYMBOL_ROLES } from 'game-config';
 
 /**
@@ -23,8 +23,9 @@ import { HOLD_AND_WIN_SYMBOL_ROLES } from 'game-config';
 export const LocaleSchema = z.enum(locales as unknown as [string, ...string[]]);
 export type Locale = (typeof locales)[number];
 
-// Mechanic / template the game starts from — the one built-in kind list, not a copy of it.
-export const GameTypeSchema = z.enum(GAME_KINDS);
+// Mechanic / template the game starts from — the built-in slot kinds, not a copy of them. A spec
+// generates a slot's config, so the kinds of the other families are not offered.
+export const GameTypeSchema = z.enum(SLOT_GAME_KINDS);
 
 // Symbol role — drives engine behaviour AND info-page rendering. The Hold and Win roles are the
 // Game Config's own `special_properties` roles, imported rather than copied: a Hold and Win MULTI is

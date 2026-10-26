@@ -2,6 +2,7 @@
 	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
 	import {
 		derivePins,
+		spawnableDecl,
 		type Node as FlowNode,
 		type Pin,
 		type PinContext,
@@ -79,6 +80,20 @@
 		exitMode: '#f43f5e',
 		componentInstance: '#34d399', // a placed component (Rive plan §6.2) — emerald.
 		waitForState: '#34d399',
+		// Game state (game-families §3.1–§3.2) — green, beside the instance nodes they feed.
+		setVariable: '#4ade80',
+		changeVariable: '#4ade80',
+		onVariable: '#4ade80',
+		onTick: '#2dd4bf',
+		onTimer: '#2dd4bf',
+		onInput: '#2dd4bf',
+		startTimer: '#2dd4bf',
+		stopTimer: '#2dd4bf',
+		pauseTimer: '#2dd4bf',
+		// Spawning (game-families §3.3) — lime, the palette's Spawning accent.
+		spawn: '#a3e635',
+		despawn: '#a3e635',
+		instanceRef: '#a3e635',
 	};
 
 	const headerColor = $derived(KIND_COLOR[d.node.kind] ?? '#64748b');
@@ -170,9 +185,45 @@
 				return `${decl.name} · ${at}`;
 			}
 			case 'waitForState': {
+				if (n.componentId !== undefined)
+					return `${n.componentId || '(component)'} (spawned) · ${n.layer || '(layer)'}.state == ${n.state || '(state)'}`;
 				const decl = d.ctx.instances?.[n.instance];
 				const name = decl && decl.container === n.container ? decl.name : `⚠ ${n.instance}`;
 				return `${name} · ${n.layer || '(layer)'}.state == ${n.state || '(state)'}`;
+			}
+			case 'setVariable':
+				return `${n.variable || '(variable)'} =`;
+			case 'changeVariable':
+				return n.op === 'toggle'
+					? `toggle ${n.variable || '(variable)'}`
+					: `${n.variable || '(variable)'} ${n.op === 'sub' ? '−' : '+'}=`;
+			case 'onVariable':
+				return (n.on ?? 'changed') === 'changed'
+					? `${n.variable || '(variable)'} changes`
+					: `${n.variable || '(variable)'} crosses ${n.threshold ?? '?'} (${n.direction ?? 'either'})`;
+			case 'onTick':
+				return n.every ? `every ${n.every} ms` : 'every frame';
+			case 'onTimer':
+				return `${n.timer} runs out`;
+			case 'onInput':
+				return `${n.action || '(action)'} ${n.phase ?? 'down'}`;
+			case 'startTimer':
+				return `${n.timer}${n.repeat ? ' · repeat' : ''}`;
+			case 'stopTimer':
+			case 'pauseTimer':
+				return n.timer;
+			case 'spawn': {
+				const layer = d.ctx.spawnLayers?.[n.layer];
+				if (!layer) return `⚠ ${n.layer || '(layer)'} · no such spawn layer`;
+				return `${layer.name} · at ${n.at === 'cell' ? 'a cell' : 'x / y'} · cap ${layer.cap}`;
+			}
+			case 'despawn':
+				return 'remove a spawned instance';
+			case 'instanceRef': {
+				const spawnable = spawnableDecl(d.ctx, n.componentId);
+				if (!spawnable) return `⚠ ${n.componentId || '(component)'} · no spawn layer lists it`;
+				if (spawnable.missing) return `⚠ ${n.componentId} · component missing`;
+				return `${n.componentId} · the fed or the raising instance`;
 			}
 			default:
 				return '';

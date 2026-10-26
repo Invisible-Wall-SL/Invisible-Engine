@@ -11,6 +11,7 @@
 		flattenGroups,
 		guardLiteralMismatch,
 		guardOperandType,
+		spawnedInstanceDecl,
 		triggerOwners,
 		type Accessor,
 		type CompareOp,
@@ -24,6 +25,7 @@
 		type PinScope,
 		type TextMessageNode,
 		type PlayCinematicNode,
+		type SpawnAtMode,
 		type TypeRef,
 	} from 'engine-flow-v2';
 	import {
@@ -40,9 +42,13 @@
 		setPlayCinematicFields,
 		setModeNodeFields,
 		setWaitForStateFields,
+		setStateNodeFields,
+		setSpawnFields,
+		setInstanceRefComponent,
 		type ModeNodePatch,
+		type StateNodePatch,
 	} from './graphOps';
-	import { typeLabel } from './palette';
+	import { spawnableComponents, typeLabel } from './palette';
 	import EnumLiteral from './EnumLiteral.svelte';
 	import { fetchFontCatalog, type EditorFont } from '../editor/fonts.client';
 	import type { FlowDoc } from 'engine-flow-v2';
@@ -77,14 +83,19 @@
 	} = $props();
 
 	// --- placed component instances (Rive plan §6.2, Phase 7) --------------------------------
-	/** The projected instance this node names — on ITS screen, else undefined. */
+	/** A Wait for state on a SPAWNED instance (game-families §3.3): it names a component, not a node. */
+	const spawnedWait = $derived(node.kind === 'waitForState' && node.componentId !== undefined);
+	/** The projected instance this node names — on ITS screen, else undefined; for a spawned wait, its
+	 *  component's interface. */
 	const instanceDecl = $derived(
-		node.kind === 'componentInstance' || node.kind === 'waitForState'
-			? (() => {
-					const decl = ctx.instances?.[node.instance];
-					return decl && decl.container === node.container ? decl : undefined;
-				})()
-			: undefined,
+		node.kind === 'waitForState' && node.componentId !== undefined
+			? spawnedInstanceDecl(ctx, node.componentId)
+			: node.kind === 'componentInstance' || node.kind === 'waitForState'
+				? (() => {
+						const decl = ctx.instances?.[node.instance];
+						return decl && decl.container === node.container ? decl : undefined;
+					})()
+				: undefined,
 	);
 	const waitLayers = $derived(instanceDecl?.interface.values ?? []);
 	const waitStates = $derived(
@@ -93,10 +104,53 @@
 			: [],
 	);
 
+	// --- spawning (game-families §3.3) ----------------------------------------------------------
+	const spawnLayers = $derived(ctx.spawnLayers ?? {});
+	const spawnLayerList = $derived(Object.values(spawnLayers));
+	/** Every component some layer lists: what an Instance ref or a spawned wait can name. */
+	const spawnComponents = $derived(spawnableComponents(spawnLayers));
+	const spawnLayer = $derived(node.kind === 'spawn' ? spawnLayers[node.layer] : undefined);
+	/** A layer change keeps the component when the new layer lists it (else its first), and falls
+	 *  back to x / y on a layer with no grid. */
+	function onSpawnLayerChange(layer: string): void {
+		if (node.kind !== 'spawn') return;
+		const decl = spawnLayers[layer];
+		const lists = decl?.spawnable.some((s) => s.componentId === node.componentId);
+		onchange(
+			setSpawnFields(doc, node.id, {
+				layer,
+				...(decl && !lists ? { componentId: decl.spawnable[0]?.componentId ?? '' } : {}),
+				...(decl && decl.placement !== 'grid' && node.at === 'cell' ? { at: 'xy' } : {}),
+			}),
+		);
+	}
+	function onSpawnFieldChange(patch: { componentId?: string; at?: SpawnAtMode }): void {
+		onchange(setSpawnFields(doc, node.id, patch));
+	}
+
 	// --- game-mode nodes --------------------------------------------------------
 	function onModeFieldChange(patch: ModeNodePatch): void {
 		onchange(setModeNodeFields(doc, node.id, patch));
 	}
+
+	// --- variables, timers, tick and keys (game-families §3.1–§3.2) ---------------------------
+	/** The doc's variables (`ctx.variables`): what a variable node and a `$var` read can name. */
+	const variables = $derived(ctx.variables ?? []);
+	const nodeVariable = $derived(
+		'variable' in node && typeof node.variable === 'string'
+			? variables.find((v) => v.id === node.variable)
+			: undefined,
+	);
+	/** The key map's actions, for an On Input node. */
+	const inputActions = $derived((doc.inputs ?? []).map((b) => b.action));
+	function onStateFieldChange(patch: StateNodePatch): void {
+		onchange(setStateNodeFields(doc, node.id, patch));
+	}
+	/** A number field's value, or `undefined` for a blank one. */
+	const optionalNumber = (raw: string): number | undefined => {
+		const n = Number(raw);
+		return raw.trim() === '' || !Number.isFinite(n) ? undefined : n;
+	};
 	const MODE_TRIGGER_ON: { value: 'enter' | 'exit' | 'resume'; label: string }[] = [
 		{ value: 'enter', label: 'Enter — the mode starts playing' },
 		{ value: 'exit', label: 'Exit — the mode finished' },
@@ -459,12 +513,14 @@
 				return { kind: 'literal', type: t, value: enumValues(t.name)[0] ?? '' };
 			case 'list':
 				// A list of a SCALAR element (float/int/ms/bool/string/enum) is authorable as a
-				// literal (comma-separated in the editor below), seeded EMPTY. A list of structs
-				// (or nested lists) still has no literal form → wire.
-				if (t.of.t === 'struct' || t.of.t === 'list') return { kind: 'wire' };
+				// literal (comma-separated in the editor below), seeded EMPTY. A list of structs or
+				// handles (or nested lists) still has no literal form → wire.
+				if (t.of.t === 'struct' || t.of.t === 'list' || t.of.t === 'instance')
+					return { kind: 'wire' };
 				return { kind: 'literal', type: t, value: [] };
 			case 'struct':
-				// Structs cannot be literals — they must be wired.
+			case 'instance':
+				// Structs and instance handles cannot be literals — they must be wired.
 				return { kind: 'wire' };
 			default:
 				return { kind: 'literal', type: t, value: 0 };
@@ -575,7 +631,7 @@
 			</p>
 		{/if}
 
-		{#if node.kind === 'componentInstance' || node.kind === 'waitForState'}
+		{#if (node.kind === 'componentInstance' || node.kind === 'waitForState') && !spawnedWait}
 			{#if instanceDecl}
 				<p class="hint">
 					<strong>{instanceDecl.name}</strong> on screen <code>{node.container}</code> — component
@@ -618,6 +674,35 @@
 			</p>
 		{/if}
 
+		{#if node.kind === 'waitForState' && node.componentId !== undefined}
+			<label class="field">
+				<span class="flabel">Spawned component</span>
+				<select
+					value={node.componentId}
+					onchange={(e) =>
+						onchange(
+							setWaitForStateFields(doc, node.id, {
+								componentId: e.currentTarget.value,
+								layer: '',
+								state: '',
+							}),
+						)}
+				>
+					{#if !spawnComponents.includes(node.componentId)}
+						<option value={node.componentId}>{node.componentId || '(pick a component)'}</option>
+					{/if}
+					{#each spawnComponents as c (c)}
+						<option value={c}>{c}</option>
+					{/each}
+				</select>
+			</label>
+			{#if instanceDecl?.missing === 'def'}
+				<p class="hint">
+					<strong>Its component is not in this project</strong> — restore it in the Scene Editor.
+				</p>
+			{/if}
+		{/if}
+
 		{#if node.kind === 'waitForState'}
 			<label class="field">
 				<span class="flabel">Layer</span>
@@ -650,6 +735,100 @@
 			<p class="hint">
 				Holds the chain until the layer is in that state (at once when it already is). An instance
 				not on screen, or hidden, does not hold; a slam releases it.
+			</p>
+			{#if spawnedWait}
+				<p class="hint">
+					Feed <strong>instance</strong> the handle to wait on (a Spawn's output, a
+					<code>$live</code> loop's <code>$item</code>). Blank on a chain a spawned instance's event
+					started: that instance.
+				</p>
+			{/if}
+		{/if}
+
+		{#if node.kind === 'spawn'}
+			<label class="field">
+				<span class="flabel">Spawn layer</span>
+				<select value={node.layer} onchange={(e) => onSpawnLayerChange(e.currentTarget.value)}>
+					{#if !spawnLayer}
+						<option value={node.layer}>{node.layer || '(pick a layer)'}</option>
+					{/if}
+					{#each spawnLayerList as l (l.layer)}
+						<option value={l.layer}>{l.name} · {l.placement} · cap {l.cap}</option>
+					{/each}
+				</select>
+			</label>
+			<label class="field">
+				<span class="flabel">Component</span>
+				<select
+					value={node.componentId}
+					onchange={(e) => onSpawnFieldChange({ componentId: e.currentTarget.value })}
+				>
+					{#if !spawnLayer?.spawnable.some((s) => s.componentId === node.componentId)}
+						<option value={node.componentId}>{node.componentId || '(pick a component)'}</option>
+					{/if}
+					{#each spawnLayer?.spawnable ?? [] as sp (sp.componentId)}
+						<option value={sp.componentId}
+							>{sp.componentId}{sp.missing ? ' (component missing)' : ''}</option
+						>
+					{/each}
+				</select>
+			</label>
+			<label class="field">
+				<span class="flabel">Place at</span>
+				<select
+					value={node.at ?? 'xy'}
+					onchange={(e) =>
+						onSpawnFieldChange({ at: e.currentTarget.value === 'cell' ? 'cell' : 'xy' })}
+				>
+					<option value="xy">A point (x / y, in the layer's space)</option>
+					{#if spawnLayer?.placement === 'grid' || node.at === 'cell'}
+						<option value="cell">A cell (col / row of the layer's grid)</option>
+					{/if}
+				</select>
+			</label>
+			{#if spawnLayerList.length === 0}
+				<p class="hint">
+					No screen of this flow places a <strong>Spawn layer</strong>. Add one in the Scene Editor
+					and list the components it may spawn.
+				</p>
+			{:else}
+				<p class="hint">
+					<strong>spawned</strong> is off when the layer refuses it: it is full (cap {spawnLayer?.cap ??
+						'?'}), does not list the component, or the cell is off its grid. The layer lists what it
+					may spawn in the Scene Editor.
+				</p>
+			{/if}
+		{/if}
+
+		{#if node.kind === 'despawn'}
+			<p class="hint">
+				Removes the instance on <strong>instance</strong> (a Spawn's output, a <code>$live</code>
+				loop's <code>$item</code>). One already gone is ignored, so removing inside a loop over the
+				same layer is safe.
+			</p>
+		{/if}
+
+		{#if node.kind === 'instanceRef'}
+			<label class="field">
+				<span class="flabel">Spawned component</span>
+				<select
+					value={node.componentId}
+					onchange={(e) => onchange(setInstanceRefComponent(doc, node.id, e.currentTarget.value))}
+				>
+					{#if !spawnComponents.includes(node.componentId)}
+						<option value={node.componentId}>{node.componentId || '(pick a component)'}</option>
+					{/if}
+					{#each spawnComponents as c (c)}
+						<option value={c}>{c}</option>
+					{/each}
+				</select>
+			</label>
+			<p class="hint">
+				Its pins follow the component, as on a placed instance. Feed <strong>instance</strong> the
+				handle to address; its <strong>on‹Event›</strong> outlets run when ANY spawned
+				<code>{node.componentId || '…'}</code> raises the event, and then a blank
+				<strong>instance</strong> means the one that raised it (also on
+				<code>$trigger.instance</code>).
 			</p>
 		{/if}
 
@@ -732,6 +911,185 @@
 				Fires when no mode is playing or queued — back at the base game. Collect, big win and idle
 				hang off this. It only fires from the Global tab or the Base game tab.
 			</p>
+		{/if}
+
+		{#if node.kind === 'setVariable' || node.kind === 'changeVariable' || node.kind === 'onVariable'}
+			<label class="field">
+				<span class="flabel">Variable</span>
+				<select
+					value={node.variable}
+					onchange={(e) => onStateFieldChange({ variable: e.currentTarget.value })}
+				>
+					{#if !nodeVariable}
+						<option value={node.variable}>{node.variable || '(pick a variable)'}</option>
+					{/if}
+					{#each variables as v (v.id)}
+						<option value={v.id}>{v.id} · {v.type}{v.mode ? ` · ${v.mode}` : ''}</option>
+					{/each}
+				</select>
+			</label>
+			{#if variables.length === 0}
+				<p class="hint">Declare a variable in the <strong>Variables</strong> panel first.</p>
+			{/if}
+		{/if}
+
+		{#if node.kind === 'changeVariable'}
+			<label class="field">
+				<span class="flabel">Change</span>
+				<select
+					value={node.op}
+					onchange={(e) =>
+						onStateFieldChange({ op: e.currentTarget.value as 'add' | 'sub' | 'toggle' })}
+				>
+					<option value="add">Add (by, blank = 1)</option>
+					<option value="sub">Subtract (by, blank = 1)</option>
+					<option value="toggle">Toggle (a bool)</option>
+				</select>
+			</label>
+			{#if node.op !== 'toggle'}
+				<div class="row2">
+					<label class="field">
+						<span class="flabel">Min</span>
+						<input
+							type="number"
+							value={node.min ?? ''}
+							placeholder="none"
+							onchange={(e) => onStateFieldChange({ min: optionalNumber(e.currentTarget.value) })}
+						/>
+					</label>
+					<label class="field">
+						<span class="flabel">Max</span>
+						<input
+							type="number"
+							value={node.max ?? ''}
+							placeholder="none"
+							onchange={(e) => onStateFieldChange({ max: optionalNumber(e.currentTarget.value) })}
+						/>
+					</label>
+				</div>
+			{/if}
+		{/if}
+
+		{#if node.kind === 'onVariable'}
+			<label class="field">
+				<span class="flabel">Fires when</span>
+				<select
+					value={node.on ?? 'changed'}
+					onchange={(e) =>
+						onStateFieldChange({ on: e.currentTarget.value as 'changed' | 'crosses' })}
+				>
+					<option value="changed">It changes (once a frame, latest value)</option>
+					<option value="crosses">It crosses a threshold</option>
+				</select>
+			</label>
+			{#if node.on === 'crosses'}
+				<div class="row2">
+					<label class="field">
+						<span class="flabel">Threshold</span>
+						<input
+							type="number"
+							value={node.threshold ?? ''}
+							onchange={(e) =>
+								onStateFieldChange({ threshold: optionalNumber(e.currentTarget.value) })}
+						/>
+					</label>
+					<label class="field">
+						<span class="flabel">Direction</span>
+						<select
+							value={node.direction ?? 'either'}
+							onchange={(e) =>
+								onStateFieldChange({
+									direction: e.currentTarget.value as 'up' | 'down' | 'either',
+								})}
+						>
+							<option value="either">Either way</option>
+							<option value="up">Up (reaches it from below)</option>
+							<option value="down">Down (reaches it from above)</option>
+						</select>
+					</label>
+				</div>
+				<p class="hint">
+					"Lives reaches 0" is <strong>down</strong> through 0: the chain runs the write that takes it
+					there, with no polling.
+				</p>
+			{/if}
+		{/if}
+
+		{#if node.kind === 'onTick'}
+			<label class="field">
+				<span class="flabel">Every (ms)</span>
+				<input
+					type="number"
+					min="0"
+					value={node.every ?? ''}
+					placeholder="every frame"
+					onchange={(e) => onStateFieldChange({ every: optionalNumber(e.currentTarget.value) })}
+				/>
+			</label>
+			<p class="hint">
+				For game rules (spawn every 800 ms, speed up every 10 s). A tick chain may not wait (no
+				Delay, no awaited cue or cinematic); under 100 ms is warned.
+			</p>
+		{/if}
+
+		{#if node.kind === 'startTimer' || node.kind === 'stopTimer' || node.kind === 'pauseTimer' || node.kind === 'onTimer'}
+			<label class="field">
+				<span class="flabel">Timer</span>
+				<input
+					type="text"
+					value={node.timer}
+					onchange={(e) => onStateFieldChange({ timer: e.currentTarget.value.trim() })}
+				/>
+			</label>
+		{/if}
+
+		{#if node.kind === 'startTimer'}
+			<label class="field check">
+				<input
+					type="checkbox"
+					checked={node.repeat === true}
+					onchange={(e) => onStateFieldChange({ repeat: e.currentTarget.checked || undefined })}
+				/>
+				<span class="flabel">Repeat — restart each time it runs out</span>
+			</label>
+			<p class="hint">
+				Starting a running timer restarts it. Timers run on the game's frame: they stop when the game
+				stops drawing (a hidden tab), not for a menu or a modal.
+			</p>
+		{/if}
+
+		{#if node.kind === 'pauseTimer'}
+			<p class="hint">
+				Wire <strong>Pause</strong> to hold the timer, <strong>Resume</strong> to let it run on.
+			</p>
+		{/if}
+
+		{#if node.kind === 'onInput'}
+			<label class="field">
+				<span class="flabel">Action</span>
+				<select
+					value={node.action}
+					onchange={(e) => onStateFieldChange({ action: e.currentTarget.value })}
+				>
+					{#if !inputActions.includes(node.action)}
+						<option value={node.action}>{node.action || '(pick an action)'}</option>
+					{/if}
+					{#each inputActions as a (a)}
+						<option value={a}>{a}</option>
+					{/each}
+				</select>
+			</label>
+			<label class="field">
+				<span class="flabel">When the key goes</span>
+				<select
+					value={node.phase ?? 'down'}
+					onchange={(e) => onStateFieldChange({ phase: e.currentTarget.value as 'down' | 'up' })}
+				>
+					<option value="down">Down</option>
+					<option value="up">Up</option>
+				</select>
+			</label>
+			<p class="hint">Map keys to actions in the <strong>Variables</strong> panel's key map.</p>
 		{/if}
 
 		{#if node.kind === 'playCinematic'}
@@ -1195,7 +1553,7 @@
 					value={src.value}
 					commit={(value) => commit({ kind: 'literal', type: lt, value })}
 				/>
-			{:else if lt.t === 'list' && lt.of.t !== 'struct' && lt.of.t !== 'list'}
+			{:else if lt.t === 'list' && lt.of.t !== 'struct' && lt.of.t !== 'list' && lt.of.t !== 'instance'}
 				<input
 					type="text"
 					class="listlit"
@@ -1208,7 +1566,7 @@
 							value: parseListLiteral(e.currentTarget.value, lt.of),
 						})}
 				/>
-			{:else if lt.t === 'struct' || lt.t === 'list'}
+			{:else if lt.t === 'struct' || lt.t === 'list' || lt.t === 'instance'}
 				<span class="note">{typeLabel(lt)} must be wired</span>
 			{:else}
 				<input
@@ -1244,6 +1602,8 @@
 					commit({ on: 'engine', key: engineValues[0]?.name ?? collections[0]?.name ?? '' });
 				else if (on === 'trigger') commit({ on: 'trigger' });
 				else if (on === 'context') commit({ on: 'context' });
+				else if (on === 'var') commit({ on: 'var', id: variables[0]?.id ?? '' });
+				else if (on === 'live') commit({ on: 'live', layer: spawnLayerList[0]?.layer ?? '' });
 				else commit({ on: 'input', name: '' });
 			}}
 		>
@@ -1253,6 +1613,10 @@
 			<option value="engine">$engine</option>
 			<option value="context">$context</option>
 			<option value="input">$input</option>
+			<option value="var">$var</option>
+			{#if spawnLayerList.length > 0 || acc.on === 'live'}
+				<option value="live">$live</option>
+			{/if}
 		</select>
 
 		{#if acc.on === 'item'}
@@ -1312,6 +1676,32 @@
 				value={acc.name}
 				onchange={(e) => commit({ on: 'input', name: e.currentTarget.value.trim() })}
 			/>
+		{:else if acc.on === 'var'}
+			<select
+				class="acc-detail"
+				value={acc.id}
+				onchange={(e) => commit({ on: 'var', id: e.currentTarget.value })}
+			>
+				{#if !variables.some((v) => v.id === acc.id)}
+					<option value={acc.id}>{acc.id || '(pick a variable)'}</option>
+				{/if}
+				{#each variables as v (v.id)}
+					<option value={v.id}>{v.id} · {v.type}</option>
+				{/each}
+			</select>
+		{:else if acc.on === 'live'}
+			<select
+				class="acc-detail"
+				value={acc.layer}
+				onchange={(e) => commit({ on: 'live', layer: e.currentTarget.value })}
+			>
+				{#if !spawnLayers[acc.layer]}
+					<option value={acc.layer}>{acc.layer || '(pick a layer)'}</option>
+				{/if}
+				{#each spawnLayerList as l (l.layer)}
+					<option value={l.layer}>{l.name}</option>
+				{/each}
+			</select>
 		{/if}
 	</div>
 {/snippet}
@@ -1423,6 +1813,13 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: #64748b;
+	}
+	.row2 {
+		display: flex;
+		gap: 8px;
+	}
+	.row2 .field {
+		flex: 1;
 	}
 	.field.check {
 		flex-direction: row;

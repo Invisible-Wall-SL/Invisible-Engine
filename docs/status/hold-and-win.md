@@ -1099,6 +1099,51 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-10-23 — **`featureWorth` also a component source; it clears on the next spin** (PR #1303).
+  Flow's `$engine.featureWorth` and the new component source read one reader (`featureWorthOf` in
+  `engine-game/holdAndWin.ts`). Behaviour change: an ended feature's worth now goes back to 0 when
+  the next spin starts (`startHoldAndWinRound` in `onNewGameStart`), where it used to stay until the
+  next trigger. Detail: [component-editor status](component-editor.md) 2026-10-23.
+
+- 2026-10-23 — **New games seed the feature intro and outro scaled with the window** (owner's call,
+  branch `claude/stoic-cori-6yyp5f`). Both are `canvas` screens, drawn in window pixels, so an
+  intro keyed to fill a 1920×1080 window left gaps on a bigger one (reported on
+  `commonoverlayproject`, whose curtains left a strip of reels open on a 2848 px window). The
+  reference (`holdAndWinReferenceLayout`) now seeds both with **Scale with the window**
+  (`Scene.scaleWithWindow`, [editor status](editor.md) 2026-10-23), so a new Hold and Win game, the
+  Hold and Win add-on merged into another kind and **＋ Add missing screens** get the screens ticked.
+  An existing game's screens are not touched: its author ticks them. Gate:
+  `test-hold-and-win-template.mjs` pins the set with the tick and asserts that, without it, every set
+  hashes as before (the tick is the only edit), and that a lines game with the add-on seeds both
+  ticked.
+
+- 2026-10-23 — **The respin counter's words are authorable** (owner report: "RESPINS RESET" and
+  the gold modifiers line were hard-coded with nowhere to author them). Nothing changes for a
+  project that authors no counter.
+  - **New text sources** (`HOLD_AND_WIN_PARAM_CATALOG`, so the Respin Counter's **source** offers
+    them): `respinCounterText` is the coded counter's own line, every beat included ("RESPINS 3",
+    "3 RESPINS", "RESPINS RESET", "LAST RESPIN"). `respinCounterNote` is `award` / `reset` / ''.
+    Both read `apps/lines/src/game/respinCounterLine.ts`, which `RespinCounterArt` draws too, so
+    the authored and coded lines cannot disagree. The modifiers line was already the
+    `activeModifiers` source; no duplicate was added.
+  - **New signal `respinAward`** on a new `respinCounterAward` cue (the trigger beat, where the
+    note becomes `award`). `respinReset` already existed and fires once per reset.
+  - **Nothing coded draws on an authored counter with content.** That was already the code: the
+    part draws its own nodes, and `RespinCounterArt` (count + modifiers lines) only when the part
+    is empty. The coded default steps aside while any counter is mounted. Now pinned by a gate.
+  - `/win-text`'s hint said the award / reset / last lines (and feature total, pot full) had no
+    place on screen. All of them draw; the hint now says where the respin lines show.
+  - How-to: [Author the respin counter text](../tools/invisible-editor.md#author-the-respin-counter-text-count-respins-reset-last-respin-modifiers).
+  - Gate: `pnpm --filter launcher-api run check:respin-counter-text` (same strings, suppression,
+    one fire per reset / award); each check mutation-tested.
+  - **Saved copies see the new feeds.** The editor's `source` dropdown on a Hold and Win panel
+    (Respin Counter, Jackpot Tile, Total Win Bar) now lists every Hold and Win feed from the live
+    catalog (`paramOptions`, `EditorProperties.svelte`). Before, a copy saved off the built-in froze
+    the options it was saved with. Any dropdown also keeps a current value that is not in its list.
+  - Flow v2's Hold and Win cues (`HOLD_AND_WIN_VOCAB`) list `respinCounterAward`.
+  - Limit: a Text Box's source list does not offer the Hold and Win text sources. They are kept out
+    so other kinds' dropdowns stay unchanged. The starter's **Active modifiers** Text Box already
+    has `activeModifiers`. Without one, the how-to uses a Jackpot Tile.
 
 - 2026-10-20 — **New games keep the exact built-in banner** (follow-up to #1279, owner's call).
   #1279 put the nine banner screens in every new Hold and Win game and in **＋ Add missing

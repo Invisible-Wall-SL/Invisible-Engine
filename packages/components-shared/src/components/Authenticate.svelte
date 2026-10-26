@@ -2,7 +2,12 @@
 	import { onDestroy, onMount, type Snippet } from 'svelte';
 
 	import { requestAuthenticate, requestBalance, requestReplay } from 'rgs-requests';
-	import { getDeliveryProfile, hostNumber, loadDeliveryProfile } from 'delivery-profile';
+	import {
+		getDeliveryProfile,
+		getDeliveryProfileSource,
+		hostNumber,
+		loadDeliveryProfile,
+	} from 'delivery-profile';
 	import { addSensitiveParam, captureRgsFailure, setErrorTags } from 'error-tracking';
 	import {
 		adoptOperatorSettings,
@@ -15,11 +20,30 @@
 	} from 'state-shared';
 	import { API_AMOUNT_MULTIPLIER, MOST_USED_BET_INDEXES } from 'constants-shared/bet';
 
-	type Props = { children: Snippet };
+	type Props = {
+		children: Snippet;
+		/**
+		 * A FREE-PLAY game (`docs/design/game-families.md` §2.3): its own rules decide every round, so
+		 * it opens no RGS session — no authenticate, no balance poll, no bet ever follows. It has no
+		 * wallet, so it must never run where an operator set up a real-money session for it: under any
+		 * delivery profile it stops on a full-page refusal instead. Absent ⇒ a game the RGS decides, as
+		 * every slot is.
+		 */
+		freePlay?: boolean;
+		/**
+		 * A game whose RGS wire exists only on our test server's mock (an RGS-decided match-3 game,
+		 * §2.2, §9 #2). It must never authenticate against a partner's RGS: under any partner profile
+		 * it stops on the same full-page refusal. Absent ⇒ a game every RGS can deal.
+		 */
+		mockOnly?: boolean;
+	};
 
 	const props: Props = $props();
 
 	let authenticated = $state(false);
+	/** Why a free-play game refused to boot. The game never mounts, so the page says it itself:
+	 *  the error modal lives inside the game. */
+	let refusal = $state('');
 
 	/** Currency declared by the launch URL (`?currency=EUR`). It WINS over the code the
 	 *  RGS echoes back: the URL is the platform's own declaration of what the player is
@@ -236,6 +260,24 @@
 		// only place a replay link's currency can land.
 		if (launchCurrency) stateBet.currency = launchCurrency;
 
+		if (props.freePlay) {
+			stateUi.config.mode = 'default';
+			if (getDeliveryProfileSource() !== 'default') {
+				refusal =
+					'This game is free play and pays no money, so it cannot run inside a ' +
+					`real-money delivery (profile "${getDeliveryProfile().id}").`;
+				return;
+			}
+			authenticated = true;
+			return;
+		}
+		if (props.mockOnly && getDeliveryProfileSource() !== 'default') {
+			refusal =
+				"This game's real-money wire exists only on our test server, so it cannot run against " +
+				`a partner's RGS (profile "${getDeliveryProfile().id}").`;
+			return;
+		}
+
 		if (stateUrlDerived.replay()) {
 			stateUi.config.mode = 'replay';
 			await handleReplay();
@@ -253,4 +295,21 @@
 
 {#if authenticated}
 	{@render props.children()}
+{:else if refusal}
+	<p class="refusal" role="alert">{refusal}</p>
 {/if}
+
+<style>
+	.refusal {
+		position: fixed;
+		inset: 0;
+		margin: 0;
+		display: grid;
+		place-items: center;
+		padding: 1rem;
+		background: #000;
+		color: #fff;
+		font: 16px/1.4 sans-serif;
+		text-align: center;
+	}
+</style>

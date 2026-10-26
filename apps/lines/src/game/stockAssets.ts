@@ -12,6 +12,7 @@ import {
 	repeaterComponentIds,
 	resolveComponentParams,
 	resolveLayoutInstanceParams,
+	spawnableComponentIds,
 	type ComponentDef,
 	type ComponentInstanceNode,
 	type LayoutDoc,
@@ -19,12 +20,14 @@ import {
 	type LayoutType,
 	type RepeaterNode,
 	type Scene,
+	type SpawnLayerNode,
 } from 'engine-layout';
 import { createSymbolMap } from 'engine-game/src/game/symbolMap';
 import { resolveSymbolState } from 'engine-game/src/game/symbolCell';
 import type { SymbolInfoMap } from 'engine-game/src/game/types';
 import { symbolsUsed, type GameConfigDoc } from 'game-config';
 
+import stockTable from './assets';
 import { SYMBOL_INFO_MAP } from './constants';
 import { modeScreenFor } from './respinModes';
 import {
@@ -96,6 +99,8 @@ export type StockSymbolsDoc = {
 	highlight?: { assetKey?: string };
 	boardGlow?: { assetKey?: string };
 	anticipation?: { spineKey?: string };
+	/** The project's symbol sheets, each with the bare frame names it registers. */
+	index?: { sheets?: readonly { names?: readonly string[] }[] };
 	[key: string]: unknown;
 };
 
@@ -132,6 +137,13 @@ export type StockAssetsAnalysis = {
 
 /** Every collected name and where it came from. */
 type Names = Map<string, Set<string>>;
+
+/** The stock frame sheets: their frames register under bare names (`pixi-svelte` `assetLoad.ts`). */
+const FRAME_SHEET_KEYS: ReadonlySet<string> = new Set(
+	Object.entries(stockTable)
+		.filter(([, entry]) => entry.type === 'sprites')
+		.map(([key]) => key),
+);
 
 const addName = (names: Names, name: string, origin: string): void => {
 	const origins = names.get(name);
@@ -442,6 +454,18 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 					expandInstance({ kind: 'repeater', componentId } as LayoutNode, params, stack, true);
 				}
 			}
+			// A spawn layer draws any of its spawnables at runtime, each with its def's own params
+			// (game-families §3.3).
+			if (node.kind === 'spawnLayer') {
+				for (const componentId of spawnableComponentIds(node as unknown as SpawnLayerNode)) {
+					expandInstance(
+						{ kind: 'componentInstance', componentId } as LayoutNode,
+						params,
+						stack,
+						false,
+					);
+				}
+			}
 			if (children !== undefined) walkNodes(children, params, stack, origin);
 		}
 	};
@@ -506,12 +530,20 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 		reasons[key] = [...new Set([...(reasons[key] ?? []), ...origins])];
 	};
 	for (const key of ALWAYS_KEPT) keep(key, ['always']);
+	// A frame a project symbol sheet registers under the same bare name draws from that sheet, so it
+	// keeps no stock frame sheet: keeping both registered the name twice (Pixi's "[Cache] already has
+	// key") and left which one drew to load order. A stock rig or font of that name still keeps its key.
+	const projectFrames = new Set(
+		(symbols?.index?.sheets ?? []).flatMap((sheet) => sheet.names ?? []),
+	);
 	for (const [name, origins] of [...names, ...configNames]) {
-		for (const key of stockKeysNamedBy(name))
+		for (const key of stockKeysNamedBy(name)) {
+			if (projectFrames.has(name) && FRAME_SHEET_KEYS.has(key)) continue;
 			keep(
 				key,
 				[...origins].map((o) => `${o}: ${name}`),
 			);
+		}
 	}
 	for (const group of KEPT_TOGETHER) {
 		const by = group.find((key) => reasons[key]);

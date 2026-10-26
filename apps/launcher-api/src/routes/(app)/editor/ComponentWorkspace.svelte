@@ -8,6 +8,7 @@
 	import { pickSheetsFrom } from '$lib/pickSheets';
 	import {
 		boundComponentSkin,
+		BUILTIN_TIMELINES,
 		BUTTON_STATE_PARAMS,
 		CELL_TILE_DEF,
 		ENGINE_ACTION_CATALOG,
@@ -36,6 +37,7 @@
 		WHEEL_DEF,
 		POT_PIECE_LIGHT_PARAM,
 		lightOrderThresholds,
+		mergeBuiltinCodedParams,
 		potPieces,
 	} from 'engine-layout';
 	import type {
@@ -93,6 +95,18 @@
 	import PanelSection from './PanelSection.svelte';
 	import { CATEGORIES } from './componentList.client';
 	import { componentSaveError, componentSaveRequest } from './componentSave.client';
+	import {
+		componentOwnTimelines,
+		duplicateComponent,
+		duplicateComponentName,
+		writeComponentDuplicate,
+	} from './componentDuplicate.client';
+	import {
+		canRenameComponent,
+		componentRenameProblem,
+		renamedSnapshot,
+		writeComponentRename,
+	} from './componentRename.client';
 	import { findById, genComponentId, removeNode } from './layoutTree.client';
 	import { setViewHidden } from './valuePreview.client.svelte';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -105,7 +119,7 @@
 		placeableComponents,
 		type ComponentOpenRequest,
 	} from './componentWorkspace';
-	import { defaultSegmentComponent } from './editorCanvas.helpers';
+	import { componentEditorNest, defaultSegmentComponent } from './editorCanvas.helpers';
 	import { invalidateSegmentTimelines } from './segmentTimelines.client.svelte';
 	import {
 		exposeInstanceParam,
@@ -132,6 +146,7 @@
 			| 'gameName'
 			| 'addOns'
 			| 'canPublishShared'
+			| 'flowVariables'
 		> & {
 			gameType: string;
 			mainSizesMap: PageData['doc']['mainSizesMap'];
@@ -228,7 +243,7 @@
 
 	const saveState = new SaveState({
 		initialEtag: null,
-		blockWhen: () => lease.readOnly || writesBlocked,
+		blockWhen: () => lease.readOnly || writesBlocked || renaming,
 		conflictMessage: 'Someone else saved this component while you were editing it.',
 		save: async ({ baseEtag, force }) => {
 			if (!componentDraft) return { ok: false, reason: 'error', message: 'No component open.' };
@@ -984,7 +999,7 @@
 	 */
 	function createComponent(): void {
 		const name = newName.trim();
-		if (!name) return;
+		if (!name || duplicating) return;
 		let def: ComponentDef;
 		if (newType === 'readout') {
 			// Reuse the built-in's exact `source` (with its options) + engine `value` +
@@ -1064,8 +1079,9 @@
 	/** Close the open component, back to the sidebar home. Confirms first when the draft OR this
 	 * game's defaults have unsaved edits (a never-saved component would vanish entirely; the
 	 * defaults sidecar is a separate save, so a dirty panel must be warned about too). */
-	async function closeComponent(): Promise<boolean> {
-		if (!(await confirmLeaveDraft('Discard and close'))) return false;
+	async function closeComponent(confirmed = false): Promise<boolean> {
+		if (!confirmed && duplicating) return false;
+		if (!confirmed && !(await confirmLeaveDraft('Discard and close'))) return false;
 		componentDraft = null;
 		trail = [];
 		savedSnapshot = null;
@@ -1168,6 +1184,11 @@
 		nextTrail: string[],
 		nextRoot: string | null,
 	): Promise<boolean> {
+		// A duplicate in flight opens its copy itself.
+		if (duplicating) {
+			navStatus = 'Duplicating a component… try again in a moment.';
+			return false;
+		}
 		navStatus = null;
 		if (componentDraft?.id === def.id && !isInspecting) {
 			// Already open: only where it sits in the breadcrumb changes, never its draft.
@@ -1206,6 +1227,7 @@
 
 	/** Leave the components side entirely, back to the screen the author came from. */
 	async function exitToScreens(): Promise<void> {
+		if (duplicating) return;
 		if (componentDraft && !(await closeComponent())) return;
 		rootLabel = null;
 		onExit();
@@ -1275,7 +1297,7 @@
 	 * open-on-click from also firing. Closes the draft if the deleted one was open. */
 	async function deleteComponentDef(e: MouseEvent, def: ComponentDef): Promise<void> {
 		e.stopPropagation();
-		if (writesBlocked) return;
+		if (writesBlocked || duplicating || renaming) return;
 		const ok = await askConfirm({
 			title: `Delete component "${def.name}"?`,
 			message: 'Every version of it goes with it. This cannot be undone.',
@@ -1290,6 +1312,188 @@
 		if (!res.ok) return;
 		components = components.filter((c) => c.id !== def.id);
 		if (componentDraft?.id === def.id) await closeComponent();
+	}
+
+	let duplicating = $state(false);
+	/** What leaving the open component would discard, to tell whether it changed since asked. */
+	const leaveSignature = (): string =>
+		`${JSON.stringify($state.snapshot(componentDraft))}|${defaultsSignature($state.snapshot(projectDefaults))}`;
+	/**
+	 * ⧉ Duplicate: a new project component copied from `def` as this project shows it (its own
+	 * copy, else the shared one, else the built-in, at its latest version), with its timelines and
+	 * this game's defaults (`duplicateComponent`), created and opened. Every write is create-only
+	 * (`writeComponentDuplicate`); the list is held still while it runs.
+	 */
+	async function duplicateComponentDef(e: MouseEvent, def: ComponentDef): Promise<void> {
+		e.stopPropagation();
+		if (writesBlocked || busy || duplicating || renaming || !data.projectKey) return;
+		if (!(await confirmLeaveDraft('Discard and duplicate'))) return;
+		let asked = leaveSignature();
+		navStatus = null;
+		duplicating = true;
+		try {
+			const read = await fetch(
+				`/api/editor/component?id=${encodeURIComponent(def.id)}&project=${encodeURIComponent(data.projectKey)}`,
+			);
+			const source = read.ok ? ((await read.json()) as { def?: ComponentDef }).def : undefined;
+			if (!source) {
+				navStatus = `Could not read "${def.name}" (${read.status}).`;
+				return;
+			}
+			const listed: { id: string; host?: CinematicHost }[] = [];
+			const projectDocs = await componentTimelineDocs(source.id, listed);
+			// A listed timeline that read back empty would leave a state playing the source's.
+			if (componentTimelinesOf(listed, source.id).length !== projectDocs.length) {
+				navStatus = `Could not read every timeline of "${def.name}". Try again.`;
+				return;
+			}
+			const defaults = await fetch(
+				`/api/editor/component-defaults?${new URLSearchParams({ project: data.projectKey, id: source.id })}`,
+			);
+			if (!defaults.ok) {
+				navStatus = `Could not read this game’s defaults for "${def.name}" (${defaults.status}).`;
+				return;
+			}
+			let id = genComponentId();
+			while (components.some((c) => c.id === id)) id = genComponentId();
+			const copy = duplicateComponent(source, {
+				id,
+				name: duplicateComponentName(
+					source.name,
+					components.map((c) => c.name),
+				),
+				mintNodeId: genComponentId,
+				timelines: componentOwnTimelines(source.id, BUILTIN_TIMELINES, projectDocs),
+				takenTimelineIds: [...listed, ...BUILTIN_TIMELINES].map((d) => d.id),
+				projectDefaults: ((await defaults.json()) as { params?: Record<string, unknown> }).params,
+			});
+			// Edited while the reads ran: what opening the copy discards is no longer what was asked.
+			if (
+				unsavedWork &&
+				leaveSignature() !== asked &&
+				!(await confirmLeaveDraft('Discard and duplicate'))
+			) {
+				return;
+			}
+			asked = leaveSignature();
+			const cinematic = (path: string, body: Record<string, unknown>) =>
+				fetch(`/api/cinematics/${path}`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ ...body, projectKey: data.projectKey }),
+				});
+			const problem = await writeComponentDuplicate(copy, {
+				createTimeline: async (doc) => {
+					const res = await cinematic('save', { doc, baseEtag: null });
+					return res.ok ? null : componentSaveError(res);
+				},
+				deleteTimeline: async (timeline) => (await cinematic('delete', { id: timeline })).ok,
+				saveDef: async (copyDef) => {
+					// Edited while the timelines were written: opening the copy would discard that.
+					if (leaveSignature() !== asked && unsavedWork) {
+						return {
+							refused: 'the open component changed while copying. Save it, then try again.',
+						};
+					}
+					trail = [];
+					rootLabel = null;
+					await openComponent(copyDef, true);
+					// Not `saveComponent`: its conflict answer stacks on top, and a copy only creates.
+					await saveState.save({ force: false });
+					// The save records the server's ETag the moment it answers, even when the tab moved on.
+					if (componentEtags[copyDef.id] !== undefined) return 'saved';
+					const stored = await fetch(
+						`/api/editor/component?id=${encodeURIComponent(copyDef.id)}&project=${encodeURIComponent(data.projectKey)}`,
+					).catch(() => null);
+					if (stored?.status !== 404) return 'unknown';
+					const refused = saveState.message || 'the save failed.';
+					if (componentDraft?.id === copyDef.id) await closeComponent(true);
+					return { refused };
+				},
+			});
+			if (problem) navStatus = problem;
+			else saveStatus = { kind: 'ok', message: `Duplicated from "${source.name}"` };
+		} catch (err) {
+			navStatus = `Could not duplicate "${def.name}": ${err instanceof Error ? err.message : String(err)}`;
+		} finally {
+			duplicating = false;
+		}
+	}
+
+	let renaming = $state(false);
+	/**
+	 * ✎ Rename one of the project's own components (`writeComponentRename`): only its `name`
+	 * changes, through the conditional component save, so its id, version and every reference stay.
+	 * The open draft takes the new name and keeps any unsaved edits, which stay unsaved; it adopts
+	 * the new ETag only when it was based on the object the rename read, else its next save still
+	 * conflicts as it would have.
+	 */
+	async function renameComponentDef(e: MouseEvent, def: ComponentDef): Promise<void> {
+		e.stopPropagation();
+		if (writesBlocked || busy || duplicating || renaming || !data.projectKey) return;
+		if (!canRenameComponent(def) || (componentDraft?.id === def.id && lease.readOnly)) return;
+		// Open, but its ETag is still being read (`loadEtag`): that read would land on top.
+		if (componentDraft?.id === def.id && !isInspecting && saveState.etag === null) {
+			navStatus = 'This component is still loading. Try again in a moment.';
+			return;
+		}
+		let name: string | null = def.name;
+		let message: string | undefined;
+		for (;;) {
+			name = await askText({
+				title: `Rename "${def.name}"`,
+				message,
+				label: 'Name',
+				value: name,
+				confirmLabel: 'Rename',
+			});
+			if (name === null || name.trim() === def.name) return;
+			message = componentRenameProblem(name, def.id, components) ?? undefined;
+			if (!message) break;
+		}
+		navStatus = null;
+		renaming = true;
+		try {
+			const project = encodeURIComponent(data.projectKey);
+			const result = await writeComponentRename(def.id, name, {
+				read: async (id) => {
+					const res = await fetch(
+						`/api/editor/component?id=${encodeURIComponent(id)}&project=${project}&stored=project`,
+					);
+					if (!res.ok) return { status: res.status };
+					const body = (await res.json()) as { def: ComponentDef; etag?: string | null };
+					return { def: body.def, etag: body.etag ?? null };
+				},
+				save: async (renamed, baseEtag) => {
+					const res = await fetch('/api/editor/component', {
+						method: 'POST',
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify({ ...renamed, project: data.projectKey, baseEtag }),
+					});
+					if (!res.ok) return { status: res.status, message: await componentSaveError(res) };
+					const out = (await res.json()) as { version: number; etag?: string | null };
+					return { version: out.version, etag: out.etag ?? null };
+				},
+			});
+			if ('problem' in result) {
+				navStatus = `Could not rename "${def.name}": ${result.problem}`;
+				return;
+			}
+			// Listed as every other entry is: a built-in's copy with its coded twin's newer params.
+			const renamed = mergeBuiltinCodedParams(result.def);
+			components = components.map((c) => (c.id === renamed.id ? renamed : c));
+			componentEtags = { ...componentEtags, [renamed.id]: result.etag };
+			if (componentDraft?.id === renamed.id && !isInspecting) {
+				componentDraft.name = renamed.name;
+				if (savedSnapshot !== null) savedSnapshot = renamedSnapshot(savedSnapshot, renamed.name);
+				if (saveState.etag === result.readEtag) saveState.adoptEtag(result.etag);
+				saveStatus = { kind: 'ok', message: `Renamed to "${renamed.name}"` };
+			}
+		} catch (err) {
+			navStatus = `Could not rename "${def.name}": ${err instanceof Error ? err.message : String(err)}`;
+		} finally {
+			renaming = false;
+		}
 	}
 
 	/** Spawn a node into the edited list (the array the synthetic scene exposes). The
@@ -2072,16 +2276,19 @@
 			: null;
 	}
 	/** The saved timelines of component `componentId`. Throws when any read fails, so a dialog
-	 *  never under-reports. */
-	async function componentTimelineDocs(componentId: string): Promise<CinematicDoc[]> {
+	 *  never under-reports. `listed` collects every listed timeline of the project. */
+	async function componentTimelineDocs(
+		componentId: string,
+		listed?: { id: string; host?: CinematicHost }[],
+	): Promise<CinematicDoc[]> {
 		const project = encodeURIComponent(data.projectKey);
 		const res = await fetch(`/api/cinematics/list?projectKey=${project}`);
 		if (!res.ok) throw new Error(`list: ${res.status}`);
-		const rows = componentTimelinesOf(
-			((await res.json()) as { cinematics: { id: string; name: string; host?: CinematicHost }[] })
-				.cinematics,
-			componentId,
-		);
+		const all = (
+			(await res.json()) as { cinematics: { id: string; name: string; host?: CinematicHost }[] }
+		).cinematics;
+		listed?.push(...all);
+		const rows = componentTimelinesOf(all, componentId);
 		const docs = await Promise.all(
 			rows.map(async (row) => {
 				const r = await fetch(
@@ -2267,6 +2474,20 @@
 		else delete componentDraft.space;
 	}
 
+	/** Set one side of the component's box (`root.width` / `root.height`), the size a Repeat (count)
+	 * lays a segment out by when both are set; empty or not a positive number clears it (measured
+	 * instead). Returns what the field should show. */
+	function setComponentSize(axis: 'width' | 'height', raw: string): string {
+		if (!componentDraft) return '';
+		const value = Number(raw);
+		if (raw.trim() === '' || !Number.isFinite(value) || value <= 0) {
+			delete componentDraft.root[axis];
+			return '';
+		}
+		componentDraft.root[axis] = value;
+		return String(value);
+	}
+
 	/** Drag payload for a palette ELEMENT (Text/Container/Rect) — the canvas spawns
 	 * the matching kind. Same wire format as a Library asset drag. */
 	function onElementDragStart(
@@ -2407,6 +2628,33 @@
 						<option value="canvas">Canvas (full-window overlay)</option>
 					</select>
 				</label>
+				<label
+					class="space-toggle"
+					title="The component's size when a Repeat (count) lays it out as a segment, from its origin (0, 0) right and down. Set both for a segment drawn from rigs or text — those can't be measured, so without a size such segments stack. Empty = measured from what it draws."
+				>
+					Size
+					<input
+						type="number"
+						min="1"
+						placeholder="auto"
+						aria-label="Component width"
+						value={componentDraft.root.width ?? ''}
+						disabled={isInspecting}
+						onchange={(e) =>
+							(e.currentTarget.value = setComponentSize('width', e.currentTarget.value))}
+					/>
+					×
+					<input
+						type="number"
+						min="1"
+						placeholder="auto"
+						aria-label="Component height"
+						value={componentDraft.root.height ?? ''}
+						disabled={isInspecting}
+						onchange={(e) =>
+							(e.currentTarget.value = setComponentSize('height', e.currentTarget.value))}
+					/>
+				</label>
 				{#if isInspecting}
 					<span
 						class="save-pill inspecting"
@@ -2521,6 +2769,41 @@
 		style="grid-template-columns: {leftWidth}px 1fr {rightWidth}px"
 	>
 		<aside class="left">
+			{#snippet duplicateButton(def: ComponentDef)}
+				{#if data.projectKey}
+					<button
+						type="button"
+						class="cmp-dup"
+						title={`Duplicate "${def.name}" as a new component of this project`}
+						aria-label={`Duplicate component "${def.name}"`}
+						disabled={writesBlocked || busy || duplicating || renaming}
+						onclick={(e) => void duplicateComponentDef(e, def)}
+					>
+						⧉
+					</button>
+				{/if}
+			{/snippet}
+			{#snippet renameButton(def: ComponentDef)}
+				{#if data.projectKey}
+					<button
+						type="button"
+						class="cmp-dup"
+						title={canRenameComponent(def)
+							? `Rename "${def.name}"`
+							: 'Duplicate it first to rename your copy'}
+						aria-label={`Rename component "${def.name}"`}
+						aria-disabled={!canRenameComponent(def)}
+						disabled={writesBlocked ||
+							busy ||
+							duplicating ||
+							renaming ||
+							(componentDraft?.id === def.id && lease.readOnly)}
+						onclick={(e) => void renameComponentDef(e, def)}
+					>
+						✎
+					</button>
+				{/if}
+			{/snippet}
 			{#snippet screensSection()}
 				<PanelSection id="cmp-screens" title="Screens" count={screens.length}>
 					<ul class="nav-list">
@@ -2741,6 +3024,8 @@
 						{:else}
 							<ComponentList {components} onRowClick={(def) => void navigateTo(def, [], null)}>
 								{#snippet actions(def)}
+									{@render renameButton(def)}
+									{@render duplicateButton(def)}
 									<button
 										type="button"
 										class="cmp-del"
@@ -2815,7 +3100,12 @@
 					{:else if leftTab === 'browse'}
 						{@render screensSection()}
 						<PanelSection id="cmp-browse" title="Components" count={components.length}>
-							<ComponentList {components} onRowClick={(def) => void navigateTo(def, [], null)} />
+							<ComponentList {components} onRowClick={(def) => void navigateTo(def, [], null)}>
+								{#snippet actions(def)}
+									{@render renameButton(def)}
+									{@render duplicateButton(def)}
+								{/snippet}
+							</ComponentList>
 						</PanelSection>
 					{:else if leftTab === 'library'}
 						<PanelSection id="cmp-lib-elements" title="Elements">
@@ -2893,6 +3183,7 @@
 						onDelete={onDeleteNode}
 						projectGameName={null}
 						componentParams={resolvedParams}
+						componentNest={componentEditorNest(trail, componentDraft)}
 						redrawNonce={editNonce}
 						onRigMeta={(meta) => (rigMeta = meta)}
 						onEditInstance={animating ? undefined : (node) => void enterInstance(node)}
@@ -2995,6 +3286,7 @@
 						onRenameInput={(id) => void renameComponentInput(id)}
 						onSetInputDefault={setComponentInputDefault}
 						onSetInputSource={setComponentInputSource}
+						flowVariables={data.flowVariables}
 						{componentDraft}
 						componentReservedIds={savedRowIds}
 						componentReadOnly={isInspecting}
@@ -3234,6 +3526,15 @@
 		font-size: 11px;
 		color: #888;
 		white-space: nowrap;
+	}
+	.space-toggle input {
+		width: 52px;
+		font-size: 11px;
+		padding: 2px 4px;
+		border-radius: 6px;
+		border: 1px solid #2a2a33;
+		background: #14141a;
+		color: #c8c8d0;
 	}
 	.space-toggle select {
 		font-size: 11px;
@@ -3533,6 +3834,28 @@
 		padding: 5px 7px;
 		cursor: pointer;
 		font-family: inherit;
+	}
+	.cmp-dup {
+		flex: 0 0 auto;
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: 6px;
+		color: #777;
+		font-size: 12px;
+		line-height: 1;
+		padding: 5px 7px;
+		cursor: pointer;
+		font-family: inherit;
+	}
+	.cmp-dup:hover:not(:disabled, [aria-disabled='true']) {
+		background: #16161c;
+		border-color: #1f1f28;
+		color: #c8a3ff;
+	}
+	.cmp-dup:disabled,
+	.cmp-dup[aria-disabled='true'] {
+		opacity: 0.4;
+		cursor: default;
 	}
 	.cmp-del:hover {
 		background: #2a161a;

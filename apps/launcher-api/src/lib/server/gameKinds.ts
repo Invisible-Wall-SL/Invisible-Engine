@@ -28,6 +28,9 @@ export const RETIRED_GAME_KINDS: ReadonlySet<string> = new Set(['bookOf']);
 export const offeredGameKinds = (kinds: SelectableGameKind[]): SelectableGameKind[] =>
 	kinds.filter((k) => !k.retired);
 
+/** Custom kinds already reported as hidden behind a built-in, so the log says it once a process. */
+const warnedShadowed = new Set<string>();
+
 export async function selectableGameKinds(): Promise<SelectableGameKind[]> {
 	const builtins = listFullSceneSets().map((s) => ({
 		id: s.gameType,
@@ -37,7 +40,18 @@ export async function selectableGameKinds(): Promise<SelectableGameKind[]> {
 	const seen = new Set(builtins.map((b) => b.id));
 	const out: SelectableGameKind[] = [...builtins];
 	for (const k of await listKinds()) {
-		if (seen.has(k.id)) continue;
+		if (seen.has(k.id)) {
+			// Saving a custom kind under a built-in id is refused (`saveKind`), but one stored before
+			// its id became built-in (a `match3` made before P10.5) is still there. It is never
+			// overwritten — every scaffold write is create-only — only hidden behind the built-in.
+			if (builtins.some((b) => b.id === k.id) && !warnedShadowed.has(k.id)) {
+				warnedShadowed.add(k.id);
+				console.warn(
+					`[kinds] the custom kind "${k.id}" (${k.name}) is hidden: "${k.id}" is a built-in kind now`,
+				);
+			}
+			continue;
+		}
 		seen.add(k.id);
 		out.push({ id: k.id, name: k.name });
 	}

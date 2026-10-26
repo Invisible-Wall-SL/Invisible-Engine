@@ -15,6 +15,18 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-23 · Phase 10 P10.1b · claude (tools per family)
+- **Did:** The adapter gate refuses an op on a tool the project's game family does not use
+  (403 `not_for_family`, `docs/design/game-families.md` §6.5), so an agent cannot author symbols or
+  win text for an arcade game. `ADAPTER_TOOL_IDS` maps each adapter tool to its launcher tool;
+  `buildRegistry` refuses an op whose tool maps to none.
+- **Files:** `apps/launcher-api/src/lib/server/director/{adapter,gate,registry}.ts`.
+- **Branch / PR:** `claude/p10-1b-tools-per-family`.
+- **Tests:** `check:family-tools` (§4: the real gate), `check:director-adapters` (its fixture op
+  moved from the unmapped `fixture` tool to `scene`).
+- **Decisions:** none new; Director making non-slot games stays its own plan.
+- **Next:** nothing for Director in Phase 10 until a non-slot kind can be created (P10.5).
+
 ## 2026-10-08 · Phase 1 · regression-guardian (current-games: freeze the mock contracts)
 - **Did:** Fixed the "mock contract changed during the run (test_server/games.json was rewritten)"
   failures. The plan read the live manifest and pinned each contract by hash. Each render shard then

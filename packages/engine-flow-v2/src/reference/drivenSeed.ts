@@ -75,6 +75,8 @@ import type {
 	PinPath,
 	TemplateVocabulary,
 } from '../types';
+import { ARCADE_DRIVEN_SEED_DOC } from './arcadeSeed';
+import { MATCH3_DRIVEN_SEED_DOC } from './match3Seed';
 import {
 	BOOK_OF_CHOREO,
 	boolLit,
@@ -955,6 +957,8 @@ export const DRIVEN_SEEDS: Readonly<Record<string, FlowDoc>> = {
 	[CLUSTER_DRIVEN_SEED_DOC.templateId]: CLUSTER_DRIVEN_SEED_DOC,
 	[SCATTER_DRIVEN_SEED_DOC.templateId]: SCATTER_DRIVEN_SEED_DOC,
 	[HOLD_AND_WIN_DRIVEN_SEED_DOC.templateId]: HOLD_AND_WIN_DRIVEN_SEED_DOC,
+	[MATCH3_DRIVEN_SEED_DOC.templateId]: MATCH3_DRIVEN_SEED_DOC,
+	[ARCADE_DRIVEN_SEED_DOC.templateId]: ARCADE_DRIVEN_SEED_DOC,
 };
 
 /**

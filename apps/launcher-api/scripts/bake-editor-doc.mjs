@@ -182,7 +182,7 @@ function refuseAtGate({ gate, error, details, fixIn, flag, env }) {
 	const target = process.env.IE_BUILD_REFUSAL_JSON;
 	if (target) {
 		try {
-			const refusal = { gate, error, details, override: { flag, env } };
+			const refusal = { gate, error, details, override: flag ? { flag, env } : null };
 			writeFileSync(target, `${JSON.stringify(refusal, null, 2)}\n`, 'utf8');
 		} catch (err) {
 			console.warn(`⚠ bake-doc: could not write ${target} (${err?.message ?? err})`);
@@ -191,7 +191,9 @@ function refuseAtGate({ gate, error, details, fixIn, flag, env }) {
 	bail(
 		`${error}\n` +
 			details.map((d) => `    - ${d}`).join('\n') +
-			`\n  Fix it in ${fixIn}, or re-run with ${flag} (env ${env}=1) to bake it anyway.`,
+			(flag
+				? `\n  Fix it in ${fixIn}, or re-run with ${flag} (env ${env}=1) to bake it anyway.`
+				: `\n  Fix it in ${fixIn}.`),
 	);
 }
 
@@ -950,6 +952,40 @@ async function main() {
 			);
 		}
 
+	// Compile the project's shader graphs (Invisible Shader Graph) into R2 `deploy/editor-shaders/`
+	// and embed the returned effects, which the game registers at boot (`setCustomElementFx`) so an
+	// entry naming `custom:<id>` plays. Pure JSON (the compiled GLSL travels inside), mirrored by
+	// `pull-project-assets.mjs`. A launcher that predates the endpoint answers 404: the bake goes on
+	// without it, as for the cinematics. A project with no graphs leaves `shaderEffects` undefined
+	// (parity). A graph that does not compile is left out, and named here: its entries play nothing.
+	let shaderEffects;
+	const shadersUrl =
+		`${base}/api/editor/export-shaders?project=${encodeURIComponent(project)}` +
+		`&k=${encodeURIComponent(token)}`;
+	if (dryRun) {
+		console.info('(dry run) skipping the shader export — it writes to R2 deploy/.');
+	} else
+		try {
+			const res = await fetchRetry(shadersUrl, { method: 'POST' }, 'shader export');
+			if (res.ok) {
+				const sh = await res.json();
+				if (Array.isArray(sh?.shaderEffects) && sh.shaderEffects.length)
+					shaderEffects = sh.shaderEffects;
+				for (const skip of Array.isArray(sh?.skipped) ? sh.skipped : []) {
+					console.warn(
+						`  shader effect "${skip?.name ?? skip?.id}" does not compile and will not play: ${(Array.isArray(skip?.errors) ? skip.errors : []).join('; ')}`,
+					);
+				}
+			} else if (res.status !== 404) {
+				bail(`Shader export failed: HTTP ${res.status} — ${await bodySnippet(res)}`);
+			}
+		} catch (err) {
+			if (err instanceof BakeBail) throw err;
+			bail(
+				`Could not reach ${base}/api/editor/export-shaders — ${err instanceof Error ? err.message : err}`,
+			);
+		}
+
 	// Export the project's Invisible Flipbook clips into R2 `deploy/clips/` so the deploy mirror
 	// pulls them, and embed them so the game registers each clip (`registerFlipbooks`). A clip
 	// ships no new assets — its frames are regions of an atlas the editor-art export already
@@ -1145,6 +1181,15 @@ async function main() {
 			// never fall through to "no config", which would ship the template's prices instead.
 			if (gcRes.status === 409) {
 				const out = await gcRes.json().catch(() => ({}));
+				// The family gate: a config the runtime cannot play yet. No override.
+				if (out?.reason === 'unplayable-family') {
+					refuseAtGate({
+						gate: 'unplayable-family',
+						error: out.error ?? 'The runtime cannot play this game family yet.',
+						details: [],
+						fixIn: 'Invisible Game Config',
+					});
+				}
 				refuseAtGate({
 					gate: 'paytable-drift',
 					error: out?.error ?? 'The paytable disagrees with the captured partner paytable.',
@@ -1309,6 +1354,7 @@ async function main() {
 		// rig has ≥1 bound event — `bakedRigFx()` returns {} when absent, so `resolveRigFx()` yields
 		// [] and nothing new mounts (parity).
 		...(rigFx ? { rigFx } : {}),
+		...(shaderEffects ? { shaderEffects } : {}),
 		// The authored frame animations (Invisible Flipbook). Omitted unless the project authored
 		// ≥1 clip, keeping the bundle byte-identical for every game with no flipbook work —
 		// `bakedFlipbooks()` returns [] when absent (parity).
@@ -1318,6 +1364,36 @@ async function main() {
 		// `resolveRigFlipbooks()` yields [] and nothing new mounts (parity).
 		...(rigFlipbooks ? { rigFlipbooks } : {}),
 	};
+
+	// Ship only the shader effects the game names (an entry's kind, a Flow parameter), as Publish
+	// does: the project's set takes in the whole studio library. One it names but does not ship plays
+	// nothing (its graph was deleted or does not compile): say which.
+	// Every value is walked, never a key, as `namedShaderEffects` (shaderExport.ts) walks it for
+	// Publish; the pattern is `isCustomElementFxKind`'s (constants-shared/elementFx.ts).
+	const namedKinds = new Set();
+	const nameKinds = (value) => {
+		if (typeof value === 'string') {
+			if (/^custom:[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(value)) namedKinds.add(value);
+		} else if (Array.isArray(value)) value.forEach(nameKinds);
+		else if (value && typeof value === 'object') Object.values(value).forEach(nameKinds);
+	};
+	for (const [section, value] of Object.entries(bundle)) {
+		if (section !== 'shaderEffects') nameKinds(value);
+	}
+	if (bundle.shaderEffects) {
+		const kept = bundle.shaderEffects.filter((e) => namedKinds.has(e?.spec?.kind));
+		if (kept.length) bundle.shaderEffects = kept;
+		else delete bundle.shaderEffects;
+		shaderEffects = bundle.shaderEffects;
+	}
+	if (!dryRun) {
+		const shipped = new Set((shaderEffects ?? []).map((e) => e?.spec?.kind));
+		const unshipped = [...namedKinds].filter((kind) => !shipped.has(kind)).sort();
+		if (unshipped.length)
+			console.warn(
+				`  ${unshipped.length} shader effect(s) named in the game will play nothing: ${unshipped.join(', ')} — the graph was deleted or does not compile.`,
+			);
+	}
 
 	const sceneCount = doc.scenes.length;
 	const defCount = Object.keys(bundle.componentDefs).length;
@@ -1338,6 +1414,7 @@ async function main() {
 		: '';
 	const effectsNote = effects ? ` effects={${effects.length}},` : '';
 	const flipbooksNote = flipbooks ? ` flipbooks={${flipbooks.length}},` : '';
+	const shadersNote = shaderEffects ? ` shaderEffects={${shaderEffects.length}},` : '';
 	const highlightNote = symbols.highlight
 		? ` highlight=${symbols.highlight.assetKey}/${symbols.highlight.animationName ?? '(first)'},`
 		: '';
@@ -1367,7 +1444,7 @@ async function main() {
 			`\nWould write ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 				` (${sceneCount} scenes, ${defCount} component defs${pinnedNote}, ${defaultCount} default sets,` +
 				` ${artCount} editor-art sheets, ${fontCount} fonts,` +
-				`${highlightNote}${winLineNote}${stackedNote}${settingsNote}${flowNote}${flowV2Note}${effectsNote}${flipbooksNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
+				`${highlightNote}${winLineNote}${stackedNote}${settingsNote}${flowNote}${flowV2Note}${effectsNote}${flipbooksNote}${shadersNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 		);
 		return;
 	}

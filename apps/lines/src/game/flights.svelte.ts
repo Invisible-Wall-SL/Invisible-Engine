@@ -32,6 +32,7 @@ import { roundSkip } from 'utils-shared/skipToken';
 import { bakedEffects, bakedFlights } from '../editor-scenes';
 import { eventEmitter } from './eventEmitter';
 import { getSymbolSeat, stateGameDerived } from './stateGame.svelte';
+import type { SymbolState } from './types';
 import { inUnskippablePresentation } from './unskippablePresentation';
 
 /**
@@ -77,6 +78,11 @@ export type FlyToOptions = {
 	/** The {@link symbol}'s size where it rests, × a board cell (a perspective board's seat scale), so
 	 *  a token keeps its size as it lifts off. Absent ⇒ 1. */
 	symbolScale?: number;
+	/** The state the {@link symbol} draws in while it flies. Absent ⇒ `flyToMeter`. */
+	symbolState?: SymbolState;
+	/** Fly with no trail and no arrival effect, whatever the kind's style says (a match-3 swap: two
+	 *  gems trading places, not a pay-out). Absent ⇒ the kind's own. */
+	trailless?: boolean;
 	/** Called once, as the head leaves its start (after its stagger), or at once when it cannot fly —
 	 *  so the thing it carries leaves its cell then, not when the volley is set up. */
 	onStart?: () => void;
@@ -142,6 +148,8 @@ export type ActiveFlight = {
 	symbol?: FlightSymbol;
 	/** {@link FlyToOptions.symbolScale}. */
 	symbolScale?: number;
+	/** {@link FlyToOptions.symbolState}. */
+	symbolState?: SymbolState;
 	/** The trail: `'coded'` (the gold glow), the id of an authored effect the bundle carries, or
 	 *  `null` (none). An id, not the doc: this list is deep `$state`, and an emitter config must not
 	 *  be proxied. */
@@ -372,9 +380,14 @@ export const flyTo = (
 			...(options.label ? { label: options.label } : {}),
 			...(options.symbol ? { symbol: { ...options.symbol } } : {}),
 			...(options.symbolScale !== undefined ? { symbolScale: options.symbolScale } : {}),
-			...trailOf(style),
-			...(style.arrival ? { arrivalEffectId: style.arrival.effectId } : {}),
-			arrivalDone: !style.arrival,
+			...(options.symbolState ? { symbolState: options.symbolState } : {}),
+			...(options.trailless
+				? { trail: null, settleMs: 0, arrivalDone: true }
+				: {
+						...trailOf(style),
+						...(style.arrival ? { arrivalEffectId: style.arrival.effectId } : {}),
+						arrivalDone: !style.arrival,
+					}),
 		});
 	});
 };

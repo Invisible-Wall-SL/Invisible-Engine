@@ -210,7 +210,14 @@ function seed(target: DocBackupTarget, text: string): string {
 const T0 = new Date('2026-09-29T12:00:00.000Z');
 const at = (minutes: number): Date => new Date(T0.getTime() + minutes * 60_000);
 const HEX_ETAG = '"0123456789abcdef0123456789abcdef"';
-const STEMS: DocBackupStem[] = ['scenes', 'flow-v2', 'symbols', 'config', 'component-defaults'];
+const STEMS: DocBackupStem[] = [
+	'scenes',
+	'flow-v2',
+	'symbols',
+	'config',
+	'component-defaults',
+	'shader',
+];
 
 // ── Ids: one shape per stem, and the shape is a path gate ─────────────────────
 for (const stem of STEMS) {

@@ -6,16 +6,25 @@
 	// canvas `drop` handler. CLICKING still works as a fallback (centroid placement). Both carry
 	// the node KIND and (where relevant) the REFERENCE it should carry. Ref/field editing is 2b.2.
 	import {
+		docVariables,
 		instanceNodeRef,
 		type FlowDoc,
+		type FlowSpawnLayerDecl,
 		type FunctionLibraryDoc,
 		type NodeKind,
 		type TemplateVocabulary,
 	} from 'engine-flow-v2';
 	import { browser } from '$app/environment';
 	import type { PaletteInstanceGroup } from '$lib/flowInstanceUi';
+	import { writeDrag } from '$lib/graph/dnd';
 	import { DROP_MIME, type DropPayload } from './dnd';
-	import { PRESENTATION_NODES } from './palette';
+	import {
+		PRESENTATION_NODES,
+		spawnableComponents,
+		spawnedWaitRef,
+		spawnNodeRef,
+		STATE_NODES,
+	} from './palette';
 
 	let {
 		vocab,
@@ -29,6 +38,7 @@
 		modeNodes = [],
 		instanceGroups = [],
 		highlightInstance = null,
+		spawnLayers = {},
 	}: {
 		vocab: TemplateVocabulary;
 		library: FunctionLibraryDoc;
@@ -54,6 +64,9 @@
 		// A placed node id the Scene Editor's *Show in Flow* sent here that no node names yet: its
 		// entry is lit and its section opened, so the author sees where to drag from.
 		highlightInstance?: string | null;
+		// The spawn layers on the flow's screens (game-families §3.3), keyed by layer node id. None ⇒
+		// no Spawning section; a function body is handed none (a layer is one project's screen).
+		spawnLayers?: Record<string, FlowSpawnLayerDecl>;
 	} = $props();
 
 	// Control nodes carry no `ref` — their fields get defaults now (2b.1) and are edited in 2b.2.
@@ -95,6 +108,20 @@
 			0,
 		),
 	);
+	// The Spawning section: one Spawn per layer and component it lists, then each spawnable component
+	// once (its Instance ref and a wait on it), then Despawn.
+	const layerList = $derived(Object.values(spawnLayers));
+	const spawnComponents = $derived(spawnableComponents(spawnLayers));
+	const spawnRefs = $derived(spawnComponents.filter((c) => matches(c)));
+	const spawnCount = $derived(
+		layerList.reduce(
+			(n, l) =>
+				n + l.spawnable.filter((s) => matches(`Spawn ${s.componentId}`) || matches(l.name)).length,
+			0,
+		) +
+			spawnRefs.length +
+			(matches('Despawn') ? 1 : 0),
+	);
 	function toggle(key: string): void {
 		collapsed = { ...collapsed, [key]: !collapsed[key] };
 	}
@@ -104,12 +131,15 @@
 	// graph (`doc.graph` here; a function body never carries a gameSignals source).
 	const hasGameSignals = $derived(doc.graph.nodes.some((n) => n.kind === 'gameSignals'));
 
+	// A node that names a variable starts on the first one declared (the inspector picks another).
+	const firstVariable = $derived(docVariables(doc)[0]?.id);
+	const stateRef = (entry: (typeof STATE_NODES)[number]): string | undefined =>
+		entry.variable ? firstVariable : undefined;
+
 	// Write the add-node payload onto the drag so the canvas can drop it at the cursor.
 	function onDragStart(event: DragEvent, kind: NodeKind, ref?: string): void {
-		if (!event.dataTransfer) return;
 		const payload: DropPayload = ref === undefined ? { kind } : { kind, ref };
-		event.dataTransfer.setData(DROP_MIME, JSON.stringify(payload));
-		event.dataTransfer.effectAllowed = 'move';
+		writeDrag(event, DROP_MIME, payload);
 	}
 </script>
 
@@ -318,6 +348,91 @@
 			{/if}
 		</section>
 	{/if}
+
+	{#if layerList.length > 0}
+		<section>
+			{@render head('spawning', 'Spawning', spawnCount)}
+			{#if isOpen('spawning')}
+				{#each layerList as l (l.layer)}
+					{@const shown = l.spawnable.filter(
+						(s) => matches(`Spawn ${s.componentId}`) || matches(l.name),
+					)}
+					{#if shown.length > 0}
+						<div class="screen-head" title="spawn layer · {l.layer} ({l.placement}, cap {l.cap})">
+							{l.name}
+						</div>
+						{#each shown as s (s.componentId)}
+							<button
+								class="entry spawn"
+								class:missing={!!s.missing}
+								draggable={true}
+								ondragstart={(ev) => onDragStart(ev, 'spawn', spawnNodeRef(l.layer, s.componentId))}
+								onclick={() => onadd('spawn', spawnNodeRef(l.layer, s.componentId))}
+								title="spawn · {s.componentId} into {l.name}{s.missing
+									? ' — component missing'
+									: ''}"
+							>
+								Spawn {s.componentId}<span class="cat">{l.placement}</span>
+							</button>
+						{/each}
+					{/if}
+				{/each}
+				{#if spawnRefs.length > 0}
+					<div class="screen-head">Spawned instances</div>
+					{#each spawnRefs as c (c)}
+						<div class="pair">
+							<button
+								class="entry spawn"
+								draggable={true}
+								ondragstart={(ev) => onDragStart(ev, 'instanceRef', c)}
+								onclick={() => onadd('instanceRef', c)}
+								title="instanceRef · set, fire and hear a spawned {c}"
+							>
+								{c}<span class="cat">spawned</span>
+							</button>
+							<button
+								class="entry spawn wait"
+								draggable={true}
+								ondragstart={(ev) => onDragStart(ev, 'waitForState', spawnedWaitRef(c))}
+								onclick={() => onadd('waitForState', spawnedWaitRef(c))}
+								title="waitForState · hold the chain until a spawned {c} reaches a state"
+							>
+								wait
+							</button>
+						</div>
+					{/each}
+				{/if}
+				{#if matches('Despawn')}
+					<button
+						class="entry spawn"
+						draggable={true}
+						ondragstart={(ev) => onDragStart(ev, 'despawn')}
+						onclick={() => onadd('despawn')}
+						title="despawn · remove a spawned instance"
+					>
+						Despawn
+					</button>
+				{/if}
+			{/if}
+		</section>
+	{/if}
+
+	<section>
+		{@render head('state', 'Variables & time', STATE_NODES.filter((p) => matches(p.label)).length)}
+		{#if isOpen('state')}
+			{#each STATE_NODES.filter((p) => matches(p.label)) as p (p.kind)}
+				<button
+					class="entry state"
+					draggable={true}
+					ondragstart={(ev) => onDragStart(ev, p.kind, stateRef(p))}
+					onclick={() => onadd(p.kind, stateRef(p))}
+					title="{p.kind} · game variables, timers, tick and keys"
+				>
+					{p.label}
+				</button>
+			{/each}
+		{/if}
+	</section>
 
 	<section>
 		{@render head(
@@ -563,6 +678,20 @@
 	}
 	.entry.mode {
 		border-left: 3px solid #f43f5e;
+	}
+	.entry.state {
+		/* Emerald — game state: variables, timers, tick and keys. */
+		border-left: 3px solid #34d399;
+	}
+	.entry.spawn {
+		/* Lime — spawning: instances made and removed while the game runs. */
+		border-left: 3px solid #a3e635;
+	}
+	.entry.spawn.wait {
+		flex: 0 0 auto;
+	}
+	.entry.spawn.missing {
+		border-left-color: #f87171;
 	}
 	.entry.control {
 		border-left: 3px solid #64748b;

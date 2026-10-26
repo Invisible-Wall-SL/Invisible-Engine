@@ -87,7 +87,23 @@ Turn it off to draw every screen at once with those boxes. The eye toggles still
 
 Each screen has a coordinate **space** select: `game` (the main game box),
 `standard` (the HUD box, with optional vertical/horizontal alignment), `canvas`
-(positioned against the window edges), or `background` (cover-fit, full-bleed).
+(positioned against the window edges), or `background` (cover-fit, full-bleed). On a
+`background` screen an image, rig, clip, component or **Rect** fills the window edge to edge
+in the game, whatever its size; a text node or a bare group is placed at window pixels instead.
+A Rect inside a group keeps its placed box — that is how to put a band or panel on a background
+screen.
+
+A `canvas` screen is drawn in window pixels: the canvas here shows it at the
+layout's design box (1920×1080 for desktop), and on a bigger or smaller window the
+game keeps every node, its offset from the window edge and its timeline's moves the
+same number of pixels while the game around it scales. Tick **Scale with the
+window** in its Properties to draw it as it looks here on any window the shape of
+this frame: the whole screen grows or shrinks as much as the frame must to fit the
+window, each node stays pinned to its window edge, and a tap dim still covers the
+window. On a window wider or narrower than the frame the edges stay pinned, so
+something keyed to just meet in the middle (two curtains) needs a little extra to
+close there too. A new Hold and Win game starts with it ticked on **Feature intro**
+and **Feature outro**; a game made before that keeps its screens as they were.
 
 ### Layer order and "Always on top"
 
@@ -131,7 +147,11 @@ To start from something:
 
 - **＋ Load scenes…** (the dropdown above the list) offers **New game from
   kind** (a fresh engine-piece scaffold per game kind — `lines`, `ways`,
-  `cluster`, `scatter`, `bookOf`, `holdAndWin`, plus any author-created custom kinds) and
+  `cluster`, `scatter`, `bookOf`, `holdAndWin`, `match3`, `arcade`, plus any author-created custom
+  kinds; `match3` is the board that never spins, the **Score and moves** HUD and the **Round won** /
+  **Round lost** screens, listed under [Game Maker](game-maker.md)'s **Match-3**; `arcade` is the
+  **Play field** spawn layer, the **Score and lives** HUD and the **Round over** screen, listed
+  under its **Arcade**) and
   **Import composed reference** (open a reference game already laid out). Pick
   one and click **Load**. Loading a layout whose game type differs from the
   project's is flagged as a cross-type preview and will not autosave — you must
@@ -220,6 +240,48 @@ Player). It starts where the game drew the panel before (right of **Bet**, or ab
 is no room); hidden in a layout, the panel falls back to that spot. A project switched to the coin
 board later in Game Config keeps the screens it has: the game still plays, with the board's frame
 and tiles only during the feature, and the panel at its default spot.
+
+#### Author the respin counter text (count, RESPINS RESET, LAST RESPIN, modifiers)
+
+With no Respin Counter on screen, the game draws its built-in counter in white Arial with a black
+outline. It shows:
+
+- "RESPINS 3" over the board;
+- "3 RESPINS" as the feature opens;
+- "RESPINS RESET" when a coin puts the count back;
+- "LAST RESPIN" on the last respin;
+- a small gold modifiers line under it ("PAYER · MULTIPLIER").
+
+To replace all of it with your own look:
+
+1. **Open the Respin counter screen.** If your project has none, use **＋ Add missing screens**. A
+   project from the Hold and Win starter already has a **Respin counter** instance and an **Active
+   modifiers** Text Box on that screen. Otherwise, place a **Respin Counter** from the Components
+   list (under **UI**). While any Respin Counter is on screen, the built-in counter and its
+   modifiers line do not draw.
+2. **Pick what it says** with its **source**:
+   - **`respinCounterText`** shows exactly the built-in counter's words, every beat included. Then
+     empty its **label** so no "RESPINS" caption sits over it. An untouched label field only *looks*
+     empty: the grey text is its default, which still draws. Type a character, then delete it.
+     The **×** button puts the default back.
+   - **`respinsLeft`** (the default) shows the number only. Draw your own reset look and play it on
+     the **Respin counter — reset** signal, and on **Respin counter — award** as the feature opens.
+     Use a "Plays on signal" cue or a State Machine.
+3. **Style it.** Font, size, fill and frame image are the counter's own params. **pulse on a reset
+   or "+N"** makes it pop (1 = still).
+4. **The modifiers line** is never part of a Respin Counter.
+   - On a starter screen it is the **Active modifiers** Text Box (source `activeModifiers`). Style
+     it, or delete it to show no modifiers.
+   - Without one, place a **Jackpot Tile**, set its source to `activeModifiers`, empty its label as
+     above, and set its font size and fill: its default is the large gold jackpot figure.
+   - A Jackpot Tile used this way never pulses, and never hears jackpot signals.
+
+The words are set in [Invisible Win Text](win-text.md), under **Respins** (the special names are
+under **Hold and Win feature**), and translated from there. The `respinCounterNote` source is
+`award`, `reset` or empty, for a look that changes with the beat.
+
+On the Components side, a Respin Counter whose **Counter** part you emptied draws the built-in
+look again. Keep at least one node inside the part.
 
 #### Banner screens
 
@@ -409,6 +471,9 @@ It is grouped into:
   buy-feature cards). A layout may carry as many repeaters as you like. On the Components side,
   **Repeat (count)** draws one component N times instead — a
   [segmented counter](#segmented-counters--repeat-count) of free spins or respins.
+  On a screen (not in the Component Editor), click **Spawn layer** to insert a field that
+  [Invisible Flow](./flow.md) fills with components while the game runs — see
+  [Spawn layer](#spawn-layer--a-field-flow-fills-while-the-game-runs).
 - **Atlases** — composed atlas pages and atlas manifests. Manifest entries
   expand to their individual regions, which you drag in one at a time.
 - **Rigs** — the project's rig bundles (plus shared `_shared/` bundles,
@@ -791,7 +856,7 @@ move, scale, rotate, fade or show the item, fill a sprite / flipbook / rect from
 a flipbook frame, scrub a rig animation, offset a rig bone, or set one of a placed effect's
 **exposed parameters** (**⚡ intensity** in **drives** — see below). On a screen the number is an
 engine value: respins left (÷ the cap), cells held, rows open, collector level, letters lit, the
-jackpots, bet, win and the rest. Drag the binding's **test value** to preview it on the canvas;
+feature's worth (`featureWorth`), the jackpots, bet, win and the rest. Drag the binding's **test value** to preview it on the canvas;
 it is never saved. Selection handles and dragging keep the authored position.
 
 On an **effect**, **drives** lists the effect's number and on/off parameters (the ones made with
@@ -823,7 +888,9 @@ layout; they are never a per-layout override. While you Inspect an old version o
 section is read-only, and ▶ still plays.
 
 **Add one.** With none yet, the section shows a one-line hint and the **+ Add effect…** picker,
-which lists the 49 effects grouped by family (the table below). Picking one adds a row, opens it,
+which lists the 50 effects grouped by family (the table below), then the project's own under
+**Custom (Shader Graph)** (`custom:<id>`, authored in [Invisible Shader Graph](shader-graph.md)).
+A row whose custom effect was deleted or no longer compiles says so. Picking one adds a row, opens it,
 and gives it the trigger that suits it: a loop effect starts as _Always_, an entrance as _When
 shown_, anything else as _On cue_.
 
@@ -869,7 +936,7 @@ An open row has, top to bottom:
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Always (loops while shown)** | Loops for as long as the element is on screen. Built for the _loop_ effects below.                                                              |
 | **When shown**                 | Plays when the element appears, each time it is shown (a screen the Flow shows again, a node made visible again).                               |
-| **On cue**                     | Plays each time its **Cue** fires: a Flow `fireCue`, a game or component signal, or a cue its component's own timeline or state machine raises. |
+| **On cue**                     | Plays each time its **Cue** fires: a Flow `fireCue`, a game or component signal, a cue its component's own timeline or state machine raises, or a `signal:` cue on a timeline of its screen ([below](#report-events-visibility-and-text)). |
 | **Keyed on a timeline**        | Never plays on its own. A timeline poses it, so a state-machine state can too ([below](#keyed-element-fx-on-the-timeline)). Nodes only.        |
 
 An _On cue_ effect fired again restarts. Its cue (and any stop cue) shows in Invisible Flow's
@@ -878,33 +945,42 @@ An _On cue_ effect fired again restarts. Its cue (and any stop cue) shows in Inv
 Several effects on one element play together. A loop effect given a play count (_When shown_ or
 _On cue_) fades in and out. An **exit** effect ends with the element hidden and keeps it hidden
 until its stop cue fires or an entrance effect plays on it; its row says so. **Crash**,
-**Crumble**, **Shatter (glass)**, **Dissolve to particles** and **Assemble from particles** work
-on a still of the
-element taken as they start, so an animating rig holds still while they play (an assemble hands
-back the live element as it ends).
+**Crumble**, **Shatter (glass)**, **Crystallize (ice shards)** and **Dissolve to particles** work
+on a still of the element taken as they start, so an animating rig holds still while they play.
+**Assemble from particles** plays on the live element: its specks are drawn from the element every
+frame and fly in to wherever it is and however big it is now, so a timeline that moves or zooms it
+keeps playing under them. If there is nothing to draw yet when the cue fires (no size, as in a zoom
+from nothing, or hidden), the specks wait, the element hidden, until there is.
+
+> **The reels of the base game:** an effect on the base game's **Screen** block plays on the base
+> game's art in front of and behind the reels, not on the reels. To play one on the reels (say, the
+> reels assembling as an intro zooms them in), put it on the **Reel grid** node.
 
 To fire a one-off effect on any element from a flow, with nothing authored here, use the Flow's
 `elementEffect`: see [Element FX in the Flow guide](flow.md#element-fx-effects-on-one-element).
 
 **Preview on the stage (▶).** The canvas does not play Element FX by itself (an _Always_ loop does
 not run on the stage), so ▶ is how you see one. It plays that one effect, with the game's own code,
-on a still of the element: the canvas shows the element alone for a moment (the stage holds its
+on a copy of the element: the canvas shows the element alone for a moment (the stage holds its
 picture meanwhile, so nothing blinks), copies it (with a margin, so a glow it draws past its box
 comes along), hides the real element and plays the effect on the copy. A screen's ▶ copies the
-whole frame. One preview plays at a time, a second ▶ replaces it, and nothing is saved.
+whole frame, and keeps copying it every frame while the effect plays, so a timeline playing on the
+screen keeps moving under the effect. One preview plays at a time, a second ▶ replaces it, and
+nothing is saved.
 
 - _Always_ loops twice. _When shown_ and _On cue_ play their **Plays** count, three times at most
   (_until stopped_ plays three). _Keyed_ plays once from rest to its end, with no delay. The last
   frame holds for a moment, so an exit effect's hidden end shows.
-- It plays on a **still**, so an animating rig or clip holds still for the preview. In the game the
-  effect plays on the live element.
+- A **node's** copy is taken once. It moves, scales and turns with the node while a timeline plays,
+  but what the node shows holds still: an animating rig or clip freezes for the preview. A **HUD
+  screen's** copy is taken once too. In the game the effect plays on the live element.
 - **Esc**, a press on the stage, the mouse wheel, a pan, a zoom or a switch of device layout stops
   it. Esc only stops the preview: the selection stays.
 - Only what the visible stage shows is copied. When there is nothing to play on (the element's
   screen is hidden, the element or a container above it is hidden, or it is off the visible stage),
   the row says _Nothing on the stage to play it on: show the element and its screen first._
 
-**The 49 effects.** _loop_ = built to repeat, the natural pick for _Always_; _entrance_ = starts
+**The 50 effects.** _loop_ = built to repeat, the natural pick for _Always_; _entrance_ = starts
 hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to rest.
 
 | Family         | Effect                     | What it does                                                                     |
@@ -956,14 +1032,18 @@ hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to 
 | Break          | **Crash** (exit)           | Takes a hit, then smashes into shards that fly apart and fall.                   |
 |                | **Crumble** (exit)         | Falls apart into chunks that drop away, bottom first.                            |
 |                | **Shatter (glass)** (exit) | Breaks like a pane of glass: cracks race out from the **Impact** point over the first part of the play (**Cracking**), then it falls apart in spiderweb **Shards** that tumble and drop, those by the impact first. |
+|                | **Crystallize (ice shards)** (exit) | Crystallizes into ice: crystal facets in the **Ice colour** ice over one by one from the **Ice from** side (the centre by default), each flashing white as it snaps in; it holds as ice with its seams traced and points twinkling, creaks, and at **Crystallizing** of the play bursts into its **Shards**, which fly out, tumble, glint as they turn and fall (**Gravity**). |
 |                | **Dissolve to particles** (exit) | Turns to dust: specks peel away in a ragged front, starting on the side the **Wind** blows to, and blow off on it, swaying (**Turbulence**) and shrinking to nothing. **Particles** sets how many. |
 |                | **Assemble from particles** (entrance) | Dissolve to particles backwards: specks blow in from the **From** side, swaying and growing as they arrive, and settle into the element, the far side first. |
 
 #### Background — how a full-bleed cover is fitted, zoomed and aligned
 
-Select a node that covers the window — anything on a `background` screen, or a
-sprite / rig / clip with **Fill → Cover / full-screen fill** ticked on a `canvas`
-screen — and the Properties panel shows a **Background** section. The node stops being
+Select a node that covers the window — an image, rig, clip, component or Rect on a
+`background` screen, or a sprite / rig / clip with **Fill → Cover / full-screen fill** ticked
+on a `canvas` screen — and the Properties panel shows a **Background** section. A Rect covers
+by its own **width × height**: any size fills the window on `cover`, and its shape only matters
+for `contain` or a per-axis fit. A Rect inside a group is not a cover: it stays draggable at
+its placed box. The node stops being
 draggable (its transform is computed, not authored); these controls are how you shape it:
 
 - **fit** — how the art is matched to the window:
@@ -1107,6 +1187,33 @@ the moment a per-ratio override moves the board.
 Tiles paint behind every symbol, scale with their row under perspective, and dim
 with the win highlight — the paying cells' tiles stay bright while the rest darken,
 in lockstep with the symbols above them.
+
+#### Spawn layer — a field Flow fills while the game runs
+
+A **Spawn layer** holds component instances that a flow creates and removes during play: enemies,
+coins, falling stars. Insert one from **Library → Elements → Spawn layer**; it lands at the centre
+of the active screen. Position it with **Transform** like any node. The editor runs no flow, so the
+canvas draws the field, not the instances: a grid layer draws its cells with a dot on each spawn
+point, a free layer a dashed box. The label reads `⊕ <name> · N spawnable · cap N`.
+
+Its Properties block:
+
+- **spawnable** — the components Flow may spawn here. Pick one in **add component**; reorder with
+  **↑** / **↓**, remove with **×**. A component that is no longer in the project reads
+  **(missing)**. These are the components shipped with the game, even when no screen places one,
+  so list every component the flow spawns: one it spawns but this list leaves out does not ship.
+- **placement** — **free** (a spawn names a point x / y in the layer's space) or **grid** (a spawn
+  names a cell col / row, or a point). Grid shows **cols**, **rows** and **pitch** (px between
+  cells, starting at 6 × 4 at 120). Cell (0, 0) sits at the layer's origin. Until cols and rows are
+  whole and pitch is above 0, the layer places freely.
+- **cap** — the most instances alive at once, 1 to 256; blank means 32. A spawn over the cap is
+  dropped.
+
+In an arcade game the game moves the instances: the play field is the layer's space from its
+origin (0, 0 is the top-left corner), and an instance's position is its centre.
+
+How Flow spawns into the layer: [Spawning](./flow.md#spawning--create-and-remove-components-in-play).
+The engine design is in [game families §3.3](../design/game-families.md).
 
 ### 5. Author across device layouts
 
@@ -1299,11 +1406,15 @@ plays the result in the game. A component has its own Animate mode on the Compon
      between the Show and the play.
    - **The base game** works the same way: Show it, then play its timeline. Keys on the **reel
      grid** move the reels themselves: x/y, scale ×, rotation, alpha and visibility, about the
-     grid's position, as the canvas previews them (tint does not apply to the reels). Only the
-     drawing moves: the win line and anything else the game places from the board stay where the
-     grid is laid out, so end the intro on the grid's Design pose (x/y 0, scale 1). A node hidden
-     by a visibility key stays hidden while the base game is up, because the screen holds the
-     last frame; key it visible again at the end if it should come back.
+     grid's position, as the canvas previews them (tint does not apply to the reels). Where the
+     timeline leaves the grid is where the reels stay: once it ends, the game lays the board out
+     there, so the win line, symbol flights, the bonus board and anything else placed from the
+     board follow the reels, until the base game is hidden or the timeline plays again. That
+     takes an even, positive scale: an end pose scaled differently in x and y, to nothing or
+     flipped stays on the reels' drawing only, and the win line keeps the grid's Design pose. A
+     turn always stays on the drawing: the win line follows the move and scale, not the turn. A
+     node hidden by a visibility key stays hidden while the base game is up, because the screen
+     holds the last frame; key it visible again at the end if it should come back.
    - **A timeline reaches the game only once it keys a node and is saved.** One that never did
      (or was deleted) is skipped: the flow carries on, and the browser console says which.
 
@@ -1357,7 +1468,20 @@ canvas.
 box over an empty part of the field rows (Shift adds to what is selected; a click there clears
 it). A selected key's drag moves all of them by the same amount. **Ctrl+C** copies the selected
 keys and **Ctrl+V** pastes them onto the same fields with the earliest at the playhead (a key
-already at a pasted time is replaced). **Delete** removes them all.
+already at a pasted time is replaced). **Delete** removes them all. ⌘ works as Ctrl on a Mac.
+
+**The same animation on another node.** Select the keys of one node (drag a box over its field rows,
+or Shift-click its diamonds), press **Ctrl+C**, click the other node on the stage, put the
+playhead where the animation should start, and press **Ctrl+V**. The keys land on the other node's
+same fields (y on y, scale on scale), timed from the playhead, and the node gets its rows if it had
+none. A field that node cannot key is skipped (a reel grid has no tint). The keys go into the ratio
+you are editing, like any key. With the copied node itself still selected, or nothing selected,
+Ctrl+V pastes back onto the copied fields as before. Keys copied from two nodes at once always
+paste back onto their own fields.
+
+Another way to move several nodes together: put them in one group and key the group. This does
+not work for the **reel grid**: the game reads the reel grid only as a top-level node of its
+screen, so keep it out of groups and paste its keys onto the other nodes instead.
 
 **Interpolation.** With keys selected, the right of the panel is the **Interpolation** panel: how
 the value travels from each selected key to the next one.
@@ -1365,6 +1489,9 @@ the value travels from each selected key to the next one.
 - **Cubic**: a curve. Drag its two handles, or type the four numbers `x1, y1, x2, y2` (a CSS
   cubic-bezier: x stays between 0 and 1; y may go past to overshoot).
 - **Hold**: the value holds until the next key (stepped).
+- **Elastic**: shoots past the next key by about a third and springs back onto it, like a pop.
+- **Bounce**: lands on the next key and bounces a few times, never going past it, like a gem
+  dropping into place.
 
 **Set as default** makes the selected key's interpolation the one every new key in this timeline
 gets; with nothing selected the panel shows and edits that default. An older timeline's *ease in-out*
@@ -1402,6 +1529,19 @@ Three more kinds of row sit in the timeline's track area, under the keyed node's
   cue fires when the playhead passes it: on a component, a `signal:` cue is a signal its instance
   hears (another of its timelines can play on it); Flow can react to it too. Scrubbing never fires
   cues. All cues share one **⚡ cues** row; drag a marker to move it.
+  - **Cues and Element FX.** On a **screen** timeline, a `signal:NAME` cue plays every
+    [Element FX](#element-fx--effects-that-play-on-an-element) whose trigger is _On cue_ with the
+    cue `NAME`, as a Flow `fireCue` named `NAME` would: the screen's own entries, its nodes', and
+    any others on screen. Write the cue with `signal:` and the Element FX's **Cue** without it
+    (`signal:FX_Intro` ↔ `FX_Intro`). A cue without a prefix, or an `fx:` / `sfx:` / `music:`
+    one, does not reach Element FX. The cue inspector lists the screen's _On cue_ Element FX under
+    **Element FX (On cue)** in its picker, and its note names them; pick one to set the cue.
+  - **▶ in Animate** plays those Element FX when the playhead passes the cue, the way **▶** on an
+    Element FX row does: on the live screen for the screen's own, and on a copy of the node that
+    follows the timeline for a node's. Scrubbing plays nothing, as in the game. The
+    preview plays one effect at a time, so when a cue reaches several (the screen's and a node's)
+    you see the last one; the game plays them all. Element FX inside a placed component's own parts
+    hear the cue in the game but are not previewed here, and a stop cue is not previewed.
 - **Visible.** With a node selected, the left column has **👁 Show** and **Hide**: each keys the
   node shown or hidden from the playhead (stepped, no fade). The keys draw on a **↳ visible** row:
   a filled marker means shown from there, a hollow one hidden. Click one to select it (it outlines
@@ -1518,8 +1658,17 @@ selected, the first Esc clears the selection. Esc does nothing while you are typ
 
 **Nested components.** Inside an open component, double-click a component placed in it to edit
 that one in place. The breadcrumb grows by one crumb. Nesting stops where the game stops drawing:
-the game draws components two levels deep, so a component deeper than that is not opened, and a
-message says so. Open it from the list instead.
+the game draws components three levels deep, so a component deeper than that is not opened, and a
+message says so. Open it from the list instead. The stage draws the open component one level down,
+where the game draws it once placed, so what it shows nested is what the Scene Editor and the game
+show.
+
+**State machines on the stage.** Outside Animate, a rig inside a component with a state machine
+shows the art its machine rests on: the state it settles in from its inputs' defaults (the entry
+state when nothing moves it). The game layers that state's animation over the rig's own resting
+animation, so a frame resting on `Grand` whose machine enters `mini` shows `mini` on the stage, as
+it does in the game. A number input fed by an engine value starts at its default here; set the
+default to preview another state.
 
 **The left tabs** while a component is open are **Library** (elements and art to drag in),
 **Outline** (the component's node tree), **Browse** (the screens and every component, to jump
@@ -1533,6 +1682,53 @@ node's Properties.
 
 **Unsaved work.** A component and its game defaults are saved by hand, not autosaved. Leaving a
 component with unsaved changes (a crumb, Esc, Browse, a screen) asks first.
+
+#### Duplicate a component
+
+**⧉** on a row of the component list (the components home, and the **Browse** tab while a
+component is open) makes a copy of that component as a new component of this project and opens
+it. It works on any component in the list: your own, a shared one, or a built-in such as **Counter
+Segment** — the copy starts from what this project shows for it (your project's copy if you made
+one, else the shared one, else the built-in), at its latest version.
+
+- The copy is named **"‹name› copy"** (**"‹name› copy 2"**, … when that name is taken). Rename it
+  with **✎** ([Rename a component](#rename-a-component)).
+- It gets its own id and fresh node ids, and keeps the whole component: nodes, params, inputs,
+  events, the state machine, category and Space.
+- **Its timelines are copied too.** Each timeline of the component (a built-in's included) becomes
+  a timeline of the copy, and the copy's state machine plays those, so editing the copy's _Lit_
+  never changes the original's. A state that plays a timeline the component only reuses from
+  another component keeps playing that one.
+- **This game's defaults become the copy's own defaults**: the copy looks the same in this game as
+  the original did, and its look lives in one place, the component itself.
+- The copy is saved straight away, like any new component (it never overwrites anything), and it
+  ships with the game the same way.
+- With unsaved changes to the open component, ⧉ asks first, as leaving does.
+
+#### Rename a component
+
+**✎** on a row of the component list (beside ⧉, on the components home and the **Browse** tab)
+renames one of **your project's own components**. On a shared or built-in row it is greyed out:
+its tooltip says _Duplicate it first to rename your copy_. Shared and built-in components are not
+renamed in place, so rename your ⧉ copy instead.
+
+- It asks for the new name, pre-filled with the current one. The name is trimmed, and it cannot
+  be empty or match another component in the list (capital letters don't count as a difference).
+  The dialog says why and lets you try again.
+- **Only the name changes.** The component keeps its id, so every screen placement, component
+  nested in another, repeater first / middle / last variant, timeline and published game keeps
+  finding it. It also keeps its version: a rename is not a new version, so placements pinned to
+  it get no **↑ vN** badge. (Inspecting that version later shows the name it was saved under.)
+- It is saved straight away, on top of the component as it is stored now, so any change saved by
+  someone else is kept. Only a save landing in the instant between its read and its write refuses
+  it (nothing changes; try again). If someone else has the component open, their next save asks
+  them to reload, as after any save of yours; their **Save on top** would put the old name back.
+- **Placed copies keep their labels.** A placement's label is set from the component's name when
+  you place it, and screen and component timelines find their nodes by that label. Renaming the
+  component does not relabel its placements, so those timelines keep working. Relabel a placement
+  in its Properties if you want it to match.
+- If the renamed component is the one open, its breadcrumb and title show the new name. Unsaved
+  edits to it stay as they were, and are still unsaved.
 
 Everything else you do with an open component — create types, params and signals, value
 bindings, skinning coded parts, the canvas Space, saving, versions, promoting to shared and this
@@ -1630,6 +1826,20 @@ it, tick a bool, type a number. Three kinds:
   Each has a default; a number can also follow an engine value (**from**: `winAmount`, `balance`…,
   the same names _Bind to value_ offers). Flow sets them in game from Phase 7 on.
 
+**A Hold and Win feature's value: `featureWorth` or `featureTotal`.** Both count in hundredths of
+the total bet (100 = 1× bet, 1000 = 10×), so a threshold is typed the same way for either.
+
+- `featureWorth` — what the feature is worth so far: banked jackpots plus every held coin, the
+  same value Flow's `featureWorth` reads. It reads 0 before a feature opens, moves after each
+  respin as coins land, holds the final worth once the feature ends, and goes back to 0 when the
+  next spin starts, so a widget still on screen after the outro drops to its lowest tier on that
+  press. Pick it for anything that follows the feature while it plays, such as a
+  TOTAL WIN widget whose tier is set by its state machine. Example: a number input `worth`
+  **from** `featureWorth`, with transitions `worth >= 1000` → Medium (10× bet), `worth >= 2500`
+  → Big, `worth >= 5000` → Huge, and `worth < 1000` → Mini.
+- `featureTotal` / `totalWin` — the HUD win meter. It resets each spin and only climbs during the
+  end-of-feature tally, coin by coin. Pick it for a readout that should count up with the meter.
+
 Rename an input with **✎** — every transition condition that reads it follows. The name is what
 the game and Flow fire it as, so a rename is a delete + add: the dialog says what fires the old
 name (a declared signal, timelines that **Play on** it), and fields a newer build added to that
@@ -1716,7 +1926,13 @@ and its **Counter Segment** (`segmentedCounterSegment`). Place the counter on a 
 counts respins; set its **countSource** param to `freeSpinsTotal` and **valueSource** to
 `freeSpinsLeft` for free spins. Re-skin it without touching the machine: the segment's
 **litImage** / **unlitImage** (art over the fills), **litColor** / **unlitColor**, **labelColor**,
-and the counter's **backgroundImage**. To change more, copy it and edit the copy as below.
+and the counter's **backgroundImage**. To change more, copy it: **⧉** on its row in the component
+list ([Duplicate a component](#duplicate-a-component)) makes a project copy with its own state
+machine and timelines, and you edit the copy as below. End caps work the same way: duplicate
+**Counter Segment** twice, give the copies their extra border art, and pick them as the bar's
+**first** / **last**. A copy keeps the segment's `index` / `value` contract, so the bar feeds it
+directly (wrapping a Counter Segment inside a new component does not: the inner segment never
+gets the bar's `index` / `value`, and it nests one level deeper than the game draws).
 
 **Worked example — a respin / free-spin segmented counter.**
 
@@ -1749,6 +1965,14 @@ and the counter's **backgroundImage**. To change more, copy it and edit the copy
      count. **max** caps it (20 when empty, never more than 50).
    - **Layout**: **direction** **row** / **column** / **grid** (with **columns**) and the **gap**
      between segments. A row or column steps by each segment's own size, so wider end caps fit.
+     A segment's size is measured from the rects and sized sprites it draws. **A segment drawn only
+     from rigs or text has no size the bar can measure, so set its box, or the segments stack on
+     top of each other:** open the segment (and each end cap) and fill **Size** (W × H) in the
+     editor bar, beside **Space** (both sides; one alone is ignored). The box is not drawn on the
+     stage: it runs from the component's origin (0, 0) right and down, so keep the art between
+     (0, 0) and (W, H) — art centred on the origin keeps its spacing but shifts the whole row half
+     a segment left and up. A **grid** steps by the segment's box too. Leave **Size** empty to keep
+     measuring.
    - **Pass to each segment**: one row per number input of the segment. `index` and `count` show
      as _given by the repeater_. For **`value`**, set **from value** to **Respins left**
      (`respinsLeft`) or **Free spins left** (`freeSpinsLeft`) — every copy's `value` follows it in
@@ -1758,11 +1982,14 @@ and the counter's **backgroundImage**. To change more, copy it and edit the copy
    bar's own params) goes in **Custom source…**.
 4. **Place it and publish.** Save the bar, place it on the free-spins or Hold and Win screen like
    any component, and publish as usual — the bar, its segment and the variants travel with the
-   game.
+   game. A player link shows the LAST publish: an end cap made since then is not in it yet, so the
+   game draws the middle segment in its place (and says so in the browser console) until you
+   publish again.
 
 The canvas draws each segment from the segment's saved timelines (and the built-in ones), read
 again when you open another component — so after editing the segment, come back to the bar to see
-the change.
+the change. Looks drawn from rigs show their rig art, in the pose the segment's state machine
+lights.
 
 #### Listeners and events
 
@@ -1800,20 +2027,41 @@ and no `:` (a timeline cue names it as `event:<name>`).
 **Listeners** are per node: select a node of the component and use **Listeners → + Listener**
 (under the node's name in Properties). Each row reads **On [event] → [action]**:
 
-- **On**: `down`, `up`, `hover in`, `hover out`, `click`. `up` counts only when the pointer is
-  released over the node; a click is a down and an up on the same node.
+- **On**: `down`, `up`, `hover in`, `hover out`, `click`, `pointer move`, `drag start`, `drag`,
+  `drag end`, `swipe`. `up` counts only when the pointer is released over the node; a click is a
+  down and an up on the same node. `pointer move` is the pointer moving over the node. A press
+  becomes a drag once it has travelled 4 px (in the component), so a tap's jitter is not one:
+  `drag start` then `drag` on each move, `drag end` on release. A drag keeps tracking after the
+  pointer leaves the node, and still ends when it is released elsewhere.
+- A **swipe** is judged on release, by how far the pointer got from where the press began. Its row
+  gets a direction picker — **any direction**, `left`, `right`, `up`, `down` (the longer axis of
+  the travel decides; a tie reads as left/right) — and a threshold in **px** in the component's
+  space, 40 when left blank.
 - The action: **fire trigger** (one of the trigger inputs), **set input** (a bool to true/false or
-  a number to a value), **toggle bool**, or **raise event** — then fill the event's payload fields:
-  a value, an input's current value, or a text key (it needs at least one letter — it is the text
-  as the game shows it). An `int` or `ms` value is rounded to a whole number.
+  a number to a value), **toggle bool**, **raise event**, or **align target** — then fill the
+  event's payload fields: a value, an input's current value, or a text key (it needs at least one
+  letter — it is the text as the game shows it). An `int` or `ms` value is rounded to a whole
+  number.
+- A number payload field on a listener's raise can also read the pointer: **pointer x** / **pointer
+  y** (where it is, in the component's space) or **pointer dx** / **pointer dy** (how far it is from
+  where the press began; 0 with no press). An `int` or `ms` field gets the reading rounded. A
+  state's On enter / On exit has no pointer, so it can't use them — validation flags one that does.
+- **align target** moves a node of the component onto the pointer, in that node's parent's space.
+  Pick the node (any node but the component's root — an instance is placed by its node). Tick
+  **keep offset** to keep the distance the node had from the pointer when the press began (else
+  the node's position becomes the pointer), and choose **x and y**, **x only** or **y only**. Put
+  it on `drag` for a slider knob or a draggable piece.
 
 **Save** refuses while a listener or an On enter / On exit row would be lost by it — no trigger, input or
 event picked, say — and names the rows to fix.
 
 A node with listeners becomes clickable in game (only such nodes do — nothing else changes). It
 still works as before if it also presses a button or a dialog action: both fire. A listener acts
-on its own placed instance only. Listeners need an input or an event to act on, so **+ Listener**
-is off until the component declares one.
+on its own placed instance only. A new listener starts **On click**, firing the first trigger (or
+raising the first event, or setting the first input); on a component with no inputs or events it
+starts as an **align target** moving its own node (on the root, the first node under it).
+**+ Listener** is off only when the component has none of these — no input, no event and no node
+but the root.
 
 **On enter** and **On exit**: in the **State machine** tab, a state's inspector has **On enter →
 ＋ raise event**: the event is raised every time that state is entered (and when the machine
@@ -1827,7 +2075,9 @@ under the graph logs every raised event with its time, what raised it (`listener
 `cue`) and its payload, between the states and transitions; **Clear** empties it, **↺ Reset**
 starts it over. In the preview a
 **fire trigger** listener moves the state machine; it does not start **Plays on** timelines (the
-game does).
+game does). The preview plays only `down`, `up`, `hover in` / `hover out` and `click`:
+`pointer move`, the drag events, `swipe` and **align target** do not preview there yet — they run
+in the game.
 
 Raised events reach Flow once Phase 7 adds the component's event pins; until then they are
 previewed here and do nothing in game. Everything is read-only while Inspecting an old version.
@@ -1920,13 +2170,16 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   [Game Config](game-config.md) are applied only when the game builds its buy menu; the editor
   draws each card with the component's own defaults. Check per-mode art in the game.
 - **An element vanished after its Element FX and never came back.** It has an exit effect (Pop
-  out, Fade out, Dissolve out, Burn to ashes, Melt, Crash, Crumble, Shatter, Dissolve to
-  particles), which ends hidden and keeps the element hidden
+  out, Fade out, Dissolve out, Burn to ashes, Melt, Crash, Crumble, Shatter, Crystallize, Dissolve
+  to particles), which ends hidden and keeps the element hidden
   until its **Stop cue** fires or an entrance effect plays on it. Give it a stop cue, or an entrance
   on a later cue.
 - **An _On cue_ Element FX did not play.** A cue reaches an element only while it is on screen.
   Nothing is queued, so a cue fired while the element or its screen is hidden is missed. The name
-  must also match exactly on both sides.
+  must also match exactly on both sides. A cue on a screen timeline needs the `signal:` prefix
+  (`signal:FX_Intro` plays the Element FX whose cue is `FX_Intro`); one without it does not reach
+  Element FX. Check the entry's **Trigger** too: _When shown_ plays when the screen appears, not on
+  a cue.
 
 ## Known limitations / TODOs
 
@@ -1954,6 +2207,10 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   blend into it — and the 2D canvas folds in position, scale, rotation, opacity, show / hide and
   tint, not a fill reveal or a clip frame. Rigs and effects inside a segment are not drawn on the
   stage. Check the motion in the running game.
+- **The listener preview plays clicks and hovers only.** The State machine tab's stage runs
+  `down`, `up`, `hover in` / `hover out` and `click` listeners; `pointer move`, `drag start` /
+  `drag` / `drag end`, `swipe`, **align target** and pointer payload readings do not preview yet.
+  Check them in the running game.
 - **Interactive feel is partly unverified.** Several recent editor capabilities
   (undo/redo, copy/paste, multi-select, and the two new menu-screen buttons)
   build clean and type-check, but the auth-gated canvas makes automated
@@ -1962,9 +2219,10 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   WebGL harness and the section, ▶ and the timeline posing were tried in standalone harnesses,
   but nobody has clicked them in `/editor` or watched them in a published game. Owner confirms
   live ([FX status](../status/fx.md)).
-- **The Element FX preview is a still.** ▶ and the timeline's posing play the effect on a copy
-  of the element, so an animating rig or clip holds still, and only what the visible stage shows
-  is copied. Check an effect on a moving element in the game.
+- **A node's Element FX preview is a still.** ▶, a timeline cue and the timeline's posing play a
+  node's effect on a copy of it that follows the node's moves, so an animating rig or clip holds
+  still, and only what the visible stage shows is copied. A screen's ▶ is live (a HUD screen's is a
+  still). Check an effect on an animating rig in the game.
 - **A rotated element plays its Element FX about its axis-aligned box.** The passes that bend or
   light an element assume it is not rotated ([design §9](../design/element-fx.md#9-open--next)).
 - **_Keyed on a timeline_ is for nodes only.** A timeline keys nodes, and in the game nothing

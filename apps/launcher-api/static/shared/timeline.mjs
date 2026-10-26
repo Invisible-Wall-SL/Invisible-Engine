@@ -93,9 +93,11 @@ const cubicOf = (ease) =>
 const SMOOTH_CUBIC = [1 / 3, 0, 2 / 3, 1];
 /** Where the Cubic button starts a key that is not cubic yet: CSS `ease-in-out`. */
 const DEFAULT_CUBIC = [0.42, 0, 0.58, 1];
-/** Linear / Cubic / Hold — how the Interpolation panel names a key's `ease`. */
+/** The named eases the Interpolation panel offers beside Cubic (the evaluator draws them). */
+const NAMED_KINDS = ['linear', 'hold', 'elastic', 'bounce'];
+/** Linear / Cubic / Hold / Elastic / Bounce — how the Interpolation panel names a key's `ease`. */
 const easeKind = (ease) =>
-	ease === 'hold' ? 'hold' : cubicOf(ease) || ease === 'ease' ? 'cubic' : 'linear';
+	cubicOf(ease) || ease === 'ease' ? 'cubic' : NAMED_KINDS.includes(ease) ? ease : 'linear';
 const cubicValues = (ease) => cubicOf(ease) || (ease === 'ease' ? SMOOTH_CUBIC : DEFAULT_CUBIC);
 const n3 = (n) => +(+n).toFixed(3);
 const cubicText = (c) => c.map(n3).join(', ');
@@ -130,6 +132,8 @@ const HOST_DEFAULTS = {
 	cameraView: () => null,
 	selectedActor: () => null,
 	togglePlay: null, // Space; a host without a transport leaves it to the page
+	pasteTarget: () => null,
+	cueSuggestions: () => [],
 };
 
 /**
@@ -157,7 +161,8 @@ export function mount(el, options) {
 	let selStripId = null;
 	let selKey = null; // { trackId, channel, time } — the PRIMARY key (the inspector edits it)
 	let selKeys = []; // every selected property / camera key, the primary included
-	let keyClipboard = null; // [{ trackId, channel, dt, value, ease }] — Ctrl+C, pasted at the playhead
+	// [{ trackId, actorId, kind, channel, dt, value, ease }] — Ctrl+C, pasted at the playhead
+	let keyClipboard = null;
 	const collapsed = new Set(); // actor ids whose summary row is folded
 	let onlySelected = false;
 	const interpolation = !!options.interpolation;
@@ -1778,23 +1783,79 @@ export function mount(el, options) {
 		const refs = selectedKeyRefs();
 		if (!refs.length) return false;
 		const t0 = Math.min(...refs.map((r) => r.key.time));
-		keyClipboard = refs.map((r) => ({
-			trackId: r.trackId,
-			channel: r.channel,
-			dt: r.key.time - t0,
-			value: r.key.value,
-			ease: cloneEase(r.key.ease),
-		}));
+		keyClipboard = refs.map((r) => {
+			const track = doc.tracks.find((t) => t.id === r.trackId);
+			return {
+				trackId: r.trackId,
+				actorId: track && track.actorId,
+				kind: track && track.kind,
+				channel: r.channel,
+				dt: r.key.time - t0,
+				value: r.key.value,
+				ease: cloneEase(r.key.ease),
+			};
+		});
 		return true;
 	}
 
+	/** A copied key `c` into `keys` at `t`, replacing a key already there. */
+	function putPastedKey(keys, t, c) {
+		const i = keys.findIndex((k) => Math.abs(k.time - t) < 1e-6);
+		const key = { time: t, value: c.value, ease: cloneEase(c.ease) };
+		if (key.ease === undefined) delete key.ease;
+		if (i >= 0) keys[i] = key;
+		else keys.push(key);
+		keys.sort((a, b) => a.time - b.time);
+	}
+
 	/**
-	 * Ctrl+V: the copied keys onto the SAME channels, the earliest at the playhead. A key already at
+	 * Where copied keys land when they are all property keys of ONE actor and the host names another
+	 * actor (`host.pasteTarget`, the node selected on the stage): that actor's track in the ratio
+	 * being edited, field to the same field, a field it cannot key skipped. Null ⇒ the copied
+	 * channels (a camera key in the clipboard keeps the whole paste there).
+	 */
+	function pasteRetarget() {
+		const from = keyClipboard[0].actorId;
+		if (!from || keyClipboard.some((c) => c.kind !== 'property' || c.actorId !== from)) return null;
+		const target = host.pasteTarget(from);
+		if (!target) return null;
+		const fields = new Set(target.channels);
+		if (!keyClipboard.some((c) => fields.has(c.channel))) return null;
+		return { fields, track: () => ensurePropertyTrack(target.actor()) };
+	}
+
+	/**
+	 * Ctrl+V: the copied keys onto the SAME channels, the earliest at the playhead — or, copied from
+	 * one node with another selected (`pasteRetarget`), onto that node's same fields. A key already at
 	 * a pasted time is replaced; a channel whose track is gone is skipped. The pasted keys end up
 	 * selected.
 	 */
 	function pasteKeys() {
 		if (!keyClipboard || !keyClipboard.length) return false;
+		const retarget = pasteRetarget();
+		if (!retarget) return pasteOntoCopied();
+		const at = snapT(time);
+		const fits = keyClipboard.filter(
+			(c) => retarget.fields.has(c.channel) && at + c.dt <= doc.duration + 1e-6,
+		);
+		if (!fits.length) return false;
+		const track = retarget.track();
+		const pasted = [];
+		for (const c of fits) {
+			const t = at + c.dt;
+			const keys = (track.channels[c.channel] = track.channels[c.channel] || []);
+			putPastedKey(keys, t, c);
+			pasted.push({ trackId: track.id, channel: c.channel, time: t });
+		}
+		selectKeys(pasted);
+		commit(pasted.length > 1 ? 'paste keys' : 'paste key');
+		render();
+		renderTimeline();
+		return true;
+	}
+
+	/** Today's paste: each copied key onto its own channel (this ratio's track for its actor). */
+	function pasteOntoCopied() {
 		const at = snapT(time);
 		const pasted = [];
 		for (const c of keyClipboard) {
@@ -1807,12 +1868,7 @@ export function mount(el, options) {
 			const keys = (track.channels[c.channel] = track.channels[c.channel] || []);
 			const t = at + c.dt;
 			if (t > doc.duration + 1e-6) continue;
-			const i = keys.findIndex((k) => Math.abs(k.time - t) < 1e-6);
-			const key = { time: t, value: c.value, ease: cloneEase(c.ease) };
-			if (key.ease === undefined) delete key.ease;
-			if (i >= 0) keys[i] = key;
-			else keys.push(key);
-			keys.sort((a, b) => a.time - b.time);
+			putPastedKey(keys, t, c);
 			pasted.push({ trackId: track.id, channel: c.channel, time: t });
 		}
 		if (!pasted.length) return false;
@@ -1939,8 +1995,10 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 		const sel = selCueTime !== null ? keys.find((k) => Math.abs(k.time - selCueTime) < 1e-6) : null;
 		if (!sel) return '';
 		const fxEffects = host.effects();
+		const suggested = host.cueSuggestions();
 		const cur = sel.cue || '';
-		const known = fxEffects.some((e) => 'fx:' + e.id === cur);
+		const known =
+			fxEffects.some((e) => 'fx:' + e.id === cur) || suggested.some((x) => x.cue === cur);
 		const typed = !!cur && !known && !CUE_KINDS.some((k) => k.prefix === cur);
 		const head = known
 			? '— change to —'
@@ -1953,6 +2011,12 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 					`<option value="fx:${esc(e.id)}"${'fx:' + e.id === cur ? ' selected' : ''}>${esc(e.name || e.id)}</option>`,
 			)
 			.join('');
+		const suggestOpts = suggested
+			.map(
+				(x) =>
+					`<option value="${esc(x.cue)}"${x.cue === cur ? ' selected' : ''}>${esc(x.cue)} — ${esc(x.label)}</option>`,
+			)
+			.join('');
 		const kindOpts = CUE_KINDS.filter((k) => k.prefix !== 'fx:')
 			.map((k) => `<option value="${k.prefix}">${k.label} — ${k.hint}</option>`)
 			.join('');
@@ -1961,14 +2025,18 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 <div class="cineStripInsp">
 	<label class="wide">pick<select id="cineCuePick" title="Every FX effect in this project — picking one replaces this cue. The other kinds only seed their prefix, since their names live in the game.">
 		<option value="">${head}</option>
-		${fxOpts ? `<optgroup label="FX effects">${fxOpts}</optgroup>` : ''}
+		${fxOpts ? `<optgroup label="FX effects">${fxOpts}</optgroup>` : ''}${suggestOpts ? `<optgroup label="Element FX (On cue)">${suggestOpts}</optgroup>` : ''}
 		<optgroup label="other kinds">${kindOpts}</optgroup>
 	</select></label>
 	<label class="wide">cue<input type="text" data-cueact="cue" value="${esc(cur)}" placeholder="fx:my_effect"></label>
 	<label>time<input type="number" step="0.05" min="0" data-cueact="time" value="${+sel.time.toFixed(3)}"></label>
 </div>
 <div class="cineRow"><button id="cineDelCue" title="Delete this cue">🗑 Delete cue</button></div>
-<div class="cineNote">${fxEffects.length ? 'Pick an FX effect from the list — it stays complete however the cue is already set — or type an <code>sfx:</code> / <code>music:</code> / <code>signal:</code> name the game knows.' : 'This project has no authored FX effects yet — author them in /fx, or type a sound or signal name.'} An <code>fx:</code> cue draws on the <b>⚡ fx</b> row in the timeline (it appears as soon as one <code>fx:</code> cue exists, and becomes the <b>🎬 set</b> row once a Scene is bound) — move that row with ▲▼ to put the effect in front of a rig.</div>`;
+<div class="cineNote">${fxEffects.length ? 'Pick an FX effect from the list — it stays complete however the cue is already set — or type an <code>sfx:</code> / <code>music:</code> / <code>signal:</code> name the game knows.' : 'This project has no authored FX effects yet — author them in /fx, or type a sound or signal name.'} An <code>fx:</code> cue draws on the <b>⚡ fx</b> row in the timeline (it appears as soon as one <code>fx:</code> cue exists, and becomes the <b>🎬 set</b> row once a Scene is bound) — move that row with ▲▼ to put the effect in front of a rig.</div>${
+			suggested.length
+				? `<div class="cineNote">A <code>signal:</code> cue plays every <b>Element FX</b> on this screen and its nodes whose trigger is <i>On cue</i> with that name (without <code>signal:</code>): ${suggested.map((x) => `<code>${esc(x.cue)}</code>`).join(', ')}.</div>`
+				: ''
+		}`;
 	}
 
 	/** Inspector for a selected property/camera key — time, value and its outgoing interpolation. */
@@ -2001,7 +2069,7 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 	<label>time<input type="number" step="0.05" min="0" data-kact="time" value="${+k.time.toFixed(3)}"></label>
 	<label>value${valueField}</label>
 	<label class="wide">out<select data-kact="ease">
-		${cubicOpt}${opt('linear', 'linear')}${opt('ease', 'ease in-out')}${opt('hold', 'hold (stepped)')}
+		${cubicOpt}${opt('linear', 'linear')}${opt('ease', 'ease in-out')}${opt('hold', 'hold (stepped)')}${opt('elastic', 'elastic')}${opt('bounce', 'bounce')}
 	</select></label>
 </div>
 <div class="cineRow"><button id="cineDelKey" title="Delete this key">🗑 Delete key</button></div>`;
@@ -2009,10 +2077,11 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 
 	// ---- the Interpolation panel (`options.interpolation`) ---------------------
 	//
-	// Linear / Cubic / Hold for the segment LEAVING the selected keys (all of them, when several are
-	// selected), a curve editor with two draggable handles plus the typed `x1, y1, x2, y2`, and *Set
-	// as default* (the ease a new key gets in this doc). The curve is drawn as an SVG cubic, which is
-	// the very curve the evaluator samples.
+	// Linear / Cubic / Hold / Elastic / Bounce for the segment LEAVING the selected keys (all of
+	// them, when several are selected), a curve editor with two draggable handles plus the typed
+	// `x1, y1, x2, y2`, and *Set as default* (the ease a new key gets in this doc). The cubic is drawn
+	// as an SVG cubic and Elastic / Bounce from the evaluator's own `easeShape`, so each is the very
+	// curve the evaluator samples.
 
 	/** Curve-editor geometry: x 0..1 → 20..140, y 0..1 → 160..40 (room to overshoot both ways). */
 	const CURVE = { x0: 20, w: 120, y0: 160, h: 120, vw: 160, vh: 200 };
@@ -2032,14 +2101,20 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 </svg>`;
 	}
 
-	/** Linear's straight line or Hold's step, drawn in the curve editor's frame (no handles). */
+	/** A named ease's shape (Linear, Hold, Elastic, Bounce), drawn in the curve editor's frame. */
 	function shapeMarkup(kind) {
 		const p = (x, y) => `${cx(x).toFixed(1)},${cy(y).toFixed(1)}`;
-		const d =
-			kind === 'hold'
-				? `M${p(0, 0)} H${cx(1).toFixed(1)} V${cy(1).toFixed(1)}`
-				: `M${p(0, 0)} L${p(1, 1)}`;
-		return `<svg class="cineCurve" viewBox="0 0 ${CURVE.vw} ${CURVE.vh}" width="${CURVE.vw}" height="${CURVE.vh}" role="img" aria-label="${kind === 'hold' ? 'Hold' : 'Linear'}">
+		let d = `M${p(0, 0)} L${p(1, 1)}`;
+		if (kind === 'hold') d = `M${p(0, 0)} H${cx(1).toFixed(1)} V${cy(1).toFixed(1)}`;
+		else if ((kind === 'elastic' || kind === 'bounce') && EV && EV.easeShape) {
+			const shape = EV.easeShape(kind);
+			const steps = 96;
+			d = `M${p(0, 0)}`;
+			for (let i = 1; i <= steps; i++) d += ` L${p(i / steps, shape(i / steps))}`;
+		}
+		const label = kind.charAt(0).toUpperCase() + kind.slice(1);
+		// Elastic's peak (1.37) rises past the frame's headroom; let it show rather than clip it.
+		return `<svg class="cineCurve" viewBox="0 0 ${CURVE.vw} ${CURVE.vh}" width="${CURVE.vw}" height="${CURVE.vh}"${kind === 'elastic' ? ' overflow="visible"' : ''} role="img" aria-label="${label}">
 	<rect x="${CURVE.x0}" y="${cy(1)}" width="${CURVE.w}" height="${CURVE.h}" class="cineCurveBox"/>
 	<path class="cineCurvePath" d="${d}"/>
 </svg>`;
@@ -2069,7 +2144,7 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 			`<button data-ekind${scope}="${v}" class="${kind === v ? 'on' : ''}" title="${title}">${label}</button>`;
 		return `
 <div class="cineRow cineEaseKinds">
-	${btn('linear', 'Linear', 'A straight line to the next key')}${btn('cubic', 'Cubic', 'A curve with two handles')}${btn('hold', 'Hold', 'Hold this value until the next key (stepped)')}
+	${btn('linear', 'Linear', 'A straight line to the next key')}${btn('cubic', 'Cubic', 'A curve with two handles')}${btn('hold', 'Hold', 'Hold this value until the next key (stepped)')}${btn('elastic', 'Elastic', 'Overshoot the next key and spring back onto it')}${btn('bounce', 'Bounce', 'Land on the next key and bounce')}
 </div>
 ${
 	kind === 'cubic'

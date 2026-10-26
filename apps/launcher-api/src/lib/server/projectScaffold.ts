@@ -4,14 +4,28 @@
  * (`If-None-Match: *`), so calling `scaffoldProject` repeatedly safely backfills new seed files
  * without trampling existing data.
  */
-import { freshDrivenSeedDoc, type FlowDoc, type Graph } from 'engine-flow-v2';
-import type {
-	HoldAndWinPresetId,
-	HoldAndWinTemplateBase,
-	HoldAndWinTemplateJackpots,
+import {
+	freshDrivenSeedDoc,
+	MATCH3_RGS_DRIVEN_SEED_DOC,
+	type FlowDoc,
+	type Graph,
+} from 'engine-flow-v2';
+import {
+	resolveFamily,
+	resolveOutcome,
+	type GameConfigDoc,
+	type GameOutcome,
+	type HoldAndWinPresetId,
+	type HoldAndWinTemplateBase,
+	type HoldAndWinTemplateJackpots,
 } from 'game-config';
 import type { LayoutDoc } from 'engine-layout';
-import { engineOwnedOnly, getFullSceneSet, POTS_SCREEN } from 'engine-layout';
+import {
+	ARCADE_SAMPLE_COMPONENTS,
+	engineOwnedOnly,
+	getFullSceneSet,
+	POTS_SCREEN,
+} from 'engine-layout';
 import { sceneSetOptionsFor } from '$lib/addOns';
 import {
 	gameConfigSeedFor,
@@ -178,13 +192,31 @@ function buildSeeds(
 const LINES_PRESET_SCENE_SET: Record<LinesPresetId, string> = { bookOfThermopylae: 'bookOf' };
 
 /**
+ * Who decides a `match3` project's rounds (`docs/design/game-families.md` §6.1): the outcome asked
+ * for (Game Maker's "Who decides the result?"), else the stored match-3 config's (a re-scaffold),
+ * else `undefined` — the rules game, what every caller that asks nothing has always got. Every other
+ * kind: `undefined`.
+ */
+function match3Outcome(
+	gameType: string,
+	asked: GameOutcome | undefined,
+	stored: GameConfigDoc | null,
+): GameOutcome | undefined {
+	if (gameType !== 'match3') return undefined;
+	if (asked) return asked;
+	return stored && resolveFamily(stored) === 'match3' ? resolveOutcome(stored) : undefined;
+}
+
+/**
  * Write any missing seed files for `(client, project)` into R2. A `holdAndWin` project's Game Config
  * is seeded from `holdAndWinJackpots`, the plain template (bonus-games §0) with jackpots on or off,
  * or with `holdAndWinBase: 'coinBoard'` the template with no line game (hold-and-win-coin-board);
  * else from `holdAndWinPreset`, one of the three reference games (the samples and the gates); else
  * from the kind's default, the config an un-authored project already plays. `linesPreset` seeds a
  * `lines` project from a lines preset (the Book of Thermopylae) and its scenes from the preset's own
- * reference set — without one a lines project stays un-authored, as before.
+ * reference set — without one a lines project stays un-authored, as before. `outcome: 'rgs'` makes a
+ * `match3` project the RGS-decided game — its config, its scene set (moves readout + slot HUD) and
+ * its starter flow; without it a new match-3 project is the rules game, as before.
  */
 export async function scaffoldProject(
 	client: string,
@@ -194,6 +226,7 @@ export async function scaffoldProject(
 		holdAndWinBase?: HoldAndWinTemplateBase;
 		holdAndWinPreset?: HoldAndWinPresetId;
 		linesPreset?: LinesPresetId;
+		outcome?: GameOutcome;
 	} = {},
 ): Promise<void> {
 	const gameType = await projectGameType(project);
@@ -205,19 +238,22 @@ export async function scaffoldProject(
 	// The STORED Game Config shapes the set (a re-scaffold, or a config written before the layout): a
 	// respin board that expands reserves the grown area, and an add-on merges in its screens.
 	const { doc: stored } = await loadGameConfigDocWithEtag(client, project);
+	const outcome = match3Outcome(gameType, opts.outcome, stored);
 	const plain = gameType === 'holdAndWin' ? opts.holdAndWinJackpots : undefined;
 	const coinBoard = plain !== undefined && opts.holdAndWinBase === 'coinBoard';
 	const config = coinBoard
 		? holdAndWinCoinBoardSeed()
 		: plain
 			? holdAndWinTemplateSeed(plain)
-			: gameConfigSeedFor(gameType, linesPreset ?? opts.holdAndWinPreset);
+			: gameConfigSeedFor(gameType, linesPreset ?? opts.holdAndWinPreset, outcome);
 	// A coin board's screens and Flow are its own template's, so a new one (nothing stored yet) is
 	// shaped by the config about to be seeded.
 	const shapedBy = stored ?? (coinBoard ? config : null);
 	const reference =
-		getFullSceneSet(sceneSet, sceneSetOptionsFor(gameType, shapedBy)) ??
-		(await loadKind(gameType))?.doc;
+		getFullSceneSet(sceneSet, {
+			...sceneSetOptionsFor(gameType, shapedBy),
+			...(outcome === 'rgs' ? { outcome } : {}),
+		}) ?? (await loadKind(gameType))?.doc;
 	// The plain game's screens and Flow are never written without its config.
 	if (plain && !config) {
 		throw new Error(
@@ -227,7 +263,10 @@ export async function scaffoldProject(
 		);
 	}
 	const dropped = plain ? plainHoldAndWinDropped(plain) : [];
-	const flow = freshDrivenSeedDoc(gameType, { coinBoard: Boolean(shapedBy?.coinBoard) });
+	const flow =
+		outcome === 'rgs'
+			? structuredClone(MATCH3_RGS_DRIVEN_SEED_DOC)
+			: freshDrivenSeedDoc(gameType, { coinBoard: Boolean(shapedBy?.coinBoard) });
 	// The HEAD skips the PUT in the common case; `If-None-Match: *` closes the window between the two,
 	// so an author's first save that lands in it (a re-scaffold of a live project) is never replaced.
 	for (const seed of buildSeeds(client, project, gameType, reference, dropped, flow)) {
@@ -247,6 +286,19 @@ export async function scaffoldProject(
 			await saveGameConfigDoc(client, project, config, null);
 		} catch (e) {
 			if (!(e instanceof ConflictError)) throw e;
+		}
+	}
+	// An arcade project's sample spawns placeholder components (game-families P10.8): its own, so an
+	// author re-skins them in the Component Editor. Create-only, like every other seed.
+	// Loaded only for an arcade project, so scaffolding every other kind keeps its import graph.
+	if (gameType === 'arcade') {
+		const { saveComponent } = await import('./componentStorage');
+		for (const def of ARCADE_SAMPLE_COMPONENTS) {
+			try {
+				await saveComponent(structuredClone(def), project, null);
+			} catch (e) {
+				if (!(e instanceof ConflictError)) throw e;
+			}
 		}
 	}
 	// Its symbols, from the STORED config — the preset just seeded, or what an older project authored

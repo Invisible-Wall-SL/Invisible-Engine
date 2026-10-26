@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { GameConfigDoc } from 'game-config';
 import { getDeployToken } from '$lib/server/appSettings';
+import { unplayableFamilyMessage } from '$lib/server/familyGate';
 import { loadGameConfigDoc } from '$lib/server/gameConfigStorage';
 import {
 	paytableDriftDetails,
@@ -29,6 +30,10 @@ import type { RequestHandler } from './$types';
  * override (the bake's `--allow-paytable-drift`). Like the flow gate, the override is as restricted
  * as the deploy token this route requires.
  *
+ * THE FAMILY GATE — the desktop half of the online publish's: a doc the runtime cannot play yet
+ * (`unplayableFamilyMessage`) is refused with a 409 `{ error, reason: 'unplayable-family' }`, with no
+ * override. A playable non-slot doc is served; `build-delivery.mjs` still refuses to deliver one.
+ *
  * See `docs/design/invisible-game-config.md`.
  */
 export const GET: RequestHandler = async ({ url }) => {
@@ -45,6 +50,8 @@ export const GET: RequestHandler = async ({ url }) => {
 	} catch {
 		throw error(502, 'Failed to load the game-config document.');
 	}
+	const unplayable = unplayableFamilyMessage(doc);
+	if (unplayable) return json({ error: unplayable, reason: 'unplayable-family' }, { status: 409 });
 	const details = paytableDriftDetails(doc);
 	if (details.length) {
 		if (url.searchParams.get('allowPaytableDrift') !== '1') {

@@ -5,6 +5,7 @@
 	import Game from '../components/Game.svelte';
 	import { setContext } from '../game/context';
 	import { bootSplashAssetBase } from '../editor-scenes';
+	import { gameMechanic } from '../game/mechanic';
 
 	import { getMessagesMap } from '../i18n/messagesMap';
 
@@ -16,7 +17,7 @@
 </script>
 
 <GlobalStyle>
-	<Authenticate>
+	<Authenticate freePlay={!gameMechanic().rgsSession} mockOnly={gameMechanic().interactiveRound}>
 		<LoadI18n messagesMap={getMessagesMap()}>
 			<Game />
 		</LoadI18n>

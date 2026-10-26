@@ -1,9 +1,13 @@
 import { componentEvents, componentInputs } from './componentInterface';
+import { swipeMatches, type PointerAt, type PointerPoint } from './componentPointer';
 import { getFlowPress } from './registerFlowPress';
 import type { FiredTransition } from './stateMachine';
 import {
 	EVENT_CUE_PREFIX,
 	EVENT_PAYLOAD_TYPES,
+	POINTER_PAYLOAD_FIELDS,
+	SWIPE_DIRECTIONS,
+	type AlignTargetAction,
 	type CinematicDoc,
 	type ComponentDef,
 	type ComponentEvent,
@@ -12,6 +16,7 @@ import {
 	type LayoutNode,
 	type ListenerAction,
 	type NodeListenerEvent,
+	type PointerPayloadField,
 	type RaiseEventAction,
 } from './types';
 
@@ -95,6 +100,16 @@ export function routeComponentCue(cue: string, declaresEvents: boolean): Compone
 	return ns === 'signal' ? { kind: 'signal', name } : { kind: 'broadcast', name };
 }
 
+/**
+ * The signal a SCREEN timeline's cue also fires on the component-signal bus, where every _On cue_
+ * Element FX listens: routed as a component timeline's cue is ({@link routeComponentCue}), so
+ * `signal:NAME` fires `NAME` and any other cue fires none (it keeps its game-bus broadcast).
+ */
+export function screenCueSignal(cue: string): string | undefined {
+	const route = routeComponentCue(cue, false);
+	return route.kind === 'signal' ? route.name : undefined;
+}
+
 /** Every localization key a def's raises carry — its listeners' and its states' `onEnter` and
  *  `onExit` — with
  *  the event that carries it, for the harvest, in tree then layer order, each key once. */
@@ -130,6 +145,18 @@ export function hasNodeListeners(def: Pick<ComponentDef, 'root'> | null | undefi
 	return def?.root ? walk(def.root) : false;
 }
 
+/** The nodes an Align Target listener of the def moves, each once. */
+export function alignTargetIds(def: Pick<ComponentDef, 'root'> | null | undefined): string[] {
+	const out = new Set<string>();
+	const walk = (n: LayoutNode): void => {
+		for (const listener of n.on ?? [])
+			if (listener.action.kind === 'align') out.add(listener.action.target);
+		if (n.kind === 'container') n.children.forEach(walk);
+	};
+	if (def?.root) walk(def.root);
+	return [...out];
+}
+
 /**
  * What a dispatcher acts on: the instance's own bus and state machine. `fireTrigger` fires a trigger
  * input as the signal of that name on the instance's bus (plan §12 #4), so the state machine, a
@@ -143,12 +170,23 @@ export interface ComponentEventHost {
 	setInput?(id: string, value: number | boolean): void;
 	/** Where a raise goes; absent ⇒ {@link raiseComponentEvent}. */
 	raise?(raised: RaisedComponentEvent): void;
+	/** Node `id` of the def as an Align Target moves it; absent (or `undefined`) ⇒ the action does
+	 *  nothing. */
+	alignTarget?(id: string): AlignSpace | undefined;
 	/**
 	 * Run `drain` once the current work is done (the game: `queueMicrotask`). A state's `onEnter` and
 	 * a cue are raised from inside a tick — or the mount, when the machine starts on it — and a Flow
 	 * chain must not show or hide screens from there. Absent ⇒ drained at once.
 	 */
 	schedule?(drain: () => void): void;
+}
+
+/** What an Align Target needs of its target node: the stage→parent mapping, where it is now, and
+ *  how to place it (an axis left out stays where it is). */
+export interface AlignSpace {
+	toLocal(global: PointerPoint): PointerPoint;
+	position(): PointerPoint;
+	place(at: Partial<PointerPoint>): void;
 }
 
 /**
@@ -167,6 +205,14 @@ export class ComponentEventDispatcher {
 	private readonly onExit = new Map<string, RaiseEventAction[]>();
 	private readonly owned = new Set<string>();
 	private queue: RaisedComponentEvent[] = [];
+	/** The pointer of the listener running now, read by a raise's `{ pointer }` values. */
+	private at: PointerAt | undefined;
+	/** Each Align Target's offset from the pointer, and the press it was taken in: it is taken
+	 *  again the first time the action runs in another press. */
+	private readonly alignOffsets = new WeakMap<
+		AlignTargetAction,
+		{ press: number; offset: PointerPoint }
+	>();
 	private scheduled = false;
 	private destroyed = false;
 
@@ -202,17 +248,29 @@ export class ComponentEventDispatcher {
 		return this.owned.has(nodeId);
 	}
 
-	/** A pointer event on one of the def's nodes: every listener of that event runs, in authored
-	 *  order, after anything already queued. */
-	pointer(node: Pick<LayoutNode, 'id' | 'on'>, event: NodeListenerEvent): void {
+	/**
+	 * A pointer event on one of the def's nodes: every listener of that event runs, in authored
+	 * order, after anything already queued. `at` is where the pointer is (`componentPointer.ts`); a
+	 * `swipe` listener runs only when the release answers its filter.
+	 */
+	pointer(node: Pick<LayoutNode, 'id' | 'on'>, event: NodeListenerEvent, at?: PointerAt): void {
 		if (this.destroyed || !this.owns(node.id)) return;
-		for (const listener of node.on ?? []) {
-			if (listener.event === event) this.run(listener.action, 'listener');
+		this.at = at;
+		try {
+			for (const listener of node.on ?? []) {
+				if (listener.event !== event) continue;
+				if (event === 'swipe' && !(at && swipeMatches(listener.swipe, at))) continue;
+				if (listener.action.kind === 'align') this.align(listener.action);
+				else this.run(listener.action, 'listener');
+			}
+		} finally {
+			this.at = undefined;
 		}
 		this.drain();
 	}
 
-	/** Run one action. A raise is queued; call {@link drain} (or let a pointer event) to send it. */
+	/** Run one action. A raise is queued; call {@link drain} (or let a pointer event) to send it. An
+	 *  Align Target runs only from a pointer event. */
 	run(action: ListenerAction, origin: ComponentEventOrigin): void {
 		switch (action.kind) {
 			case 'fire':
@@ -233,7 +291,30 @@ export class ComponentEventDispatcher {
 			case 'raise':
 				this.raise(action, origin);
 				return;
+			case 'align':
+				return;
 		}
+	}
+
+	/** Place an Align Target's node on the pointer; its offset is taken the first time it runs in a
+	 *  press (`PointerAt.press`), so every press keeps its own. */
+	private align(action: AlignTargetAction): void {
+		const at = this.at;
+		const space = at ? this.host.alignTarget?.(action.target) : undefined;
+		if (!at || !space) return;
+		const p = space.toLocal(at.global);
+		let offset = this.alignOffsets.get(action);
+		if (!offset || offset.press !== at.press) {
+			const now = space.position();
+			offset = {
+				press: at.press,
+				offset: action.preserveOffset ? { x: now.x - p.x, y: now.y - p.y } : { x: 0, y: 0 },
+			};
+			this.alignOffsets.set(action, offset);
+		}
+		const x = p.x + offset.offset.x;
+		const y = p.y + offset.offset.y;
+		space.place(action.axis === 'x' ? { x } : action.axis === 'y' ? { y } : { x, y });
 	}
 
 	/** The machine started: every layer's entry state was entered. */
@@ -304,7 +385,10 @@ export class ComponentEventDispatcher {
 		for (const field of event.payload ?? []) {
 			const value = action.payload?.[field.name];
 			if (value === undefined || !fits(field.type?.t, valueType(value, this.kinds))) continue;
-			const resolved = this.payloadValue(value);
+			let resolved = this.payloadValue(value);
+			// A pointer reading is fractional pixels: a whole-number field takes it rounded.
+			if (typeof value === 'object' && 'pointer' in value && typeof resolved === 'number')
+				resolved = field.type?.t === 'float' ? resolved : Math.round(resolved);
 			if (resolved === undefined || !integral(field.type?.t, resolved)) continue;
 			payload[field.name] = resolved;
 		}
@@ -323,11 +407,18 @@ export class ComponentEventDispatcher {
 			const kind = this.kinds.get(value.input);
 			return kind === 'bool' || kind === 'number' ? this.inputValue(value.input) : undefined;
 		}
+		if ('pointer' in value)
+			return isPointerField(value.pointer) ? this.at?.[value.pointer] : undefined;
 		return isLocalizationKey(value.key) ? value.key : undefined;
 	}
 }
 
 const stateKey = (layer: string, state: string): string => `${layer}\u0000${state}`;
+
+const POINTER_FIELDS: ReadonlySet<unknown> = new Set(POINTER_PAYLOAD_FIELDS);
+/** Is `field` a pointer reading (`x`, `y`, `dx`, `dy`)? */
+export const isPointerField = (field: unknown): field is PointerPayloadField =>
+	POINTER_FIELDS.has(field);
 
 /** An `int` / `ms` field takes a whole number only. */
 const integral = (type: string | undefined, value: number | boolean | string): boolean =>
@@ -345,11 +436,14 @@ export type ComponentEventIssueCode =
 	| 'listener-input-unknown'
 	| 'listener-input-kind'
 	| 'listener-value-kind'
+	| 'listener-align-target'
+	| 'listener-swipe'
 	| 'raise-event-unknown'
 	| 'raise-payload-unknown'
 	| 'raise-payload-type'
 	| 'raise-payload-input'
 	| 'raise-payload-key'
+	| 'raise-payload-pointer'
 	| 'raise-payload-missing';
 
 export interface ComponentEventIssue {
@@ -372,6 +466,7 @@ export interface ComponentEventIssue {
 }
 
 const PAYLOAD_TYPES: ReadonlySet<string> = new Set(EVENT_PAYLOAD_TYPES);
+const SWIPE: ReadonlySet<string> = new Set(SWIPE_DIRECTIONS);
 
 const valueType = (
 	value: EventPayloadValue,
@@ -383,6 +478,7 @@ const valueType = (
 		const kind = kinds.get(value.input);
 		return kind === 'number' ? 'number' : kind === 'bool' ? 'bool' : undefined;
 	}
+	if ('pointer' in value) return 'number';
 	return 'string';
 };
 
@@ -516,6 +612,23 @@ export function validateComponentEvents(
 				});
 				continue;
 			}
+			if (typeof value === 'object' && 'pointer' in value) {
+				const reason = !isPointerField(value.pointer)
+					? `${JSON.stringify(value.pointer)}, which is not a pointer reading (x, y, dx, dy)`
+					: !at.node
+						? 'the pointer, but no pointer runs it, so it arrives empty'
+						: undefined;
+				if (reason) {
+					issues.push({
+						...at,
+						code: 'raise-payload-pointer',
+						level: 'error',
+						event: action.event,
+						message: `${where(at)} fills "${name}" with ${reason}.`,
+					});
+					continue;
+				}
+			}
 			if (typeof value === 'object' && 'key' in value && !isLocalizationKey(value.key)) {
 				issues.push({
 					...at,
@@ -557,6 +670,12 @@ export function validateComponentEvents(
 		}
 	};
 
+	const nodes = new Map<string, LayoutNode>();
+	const index = (n: LayoutNode): void => {
+		nodes.set(n.id, n);
+		if (n.kind === 'container') n.children.forEach(index);
+	};
+	if (def.root) index(def.root);
 	const walk = (n: LayoutNode): void => {
 		const ids = new Set<string>();
 		const at = { node: n.label || n.id };
@@ -573,8 +692,36 @@ export function validateComponentEvents(
 			ids.add(listener.id);
 			const action = listener.action;
 			const here = { ...at, listener: listener.id };
+			const swipe = listener.event === 'swipe' ? listener.swipe : undefined;
+			if (
+				swipe &&
+				((swipe.direction !== undefined && !SWIPE.has(swipe.direction)) ||
+					(swipe.threshold !== undefined &&
+						!(Number.isFinite(swipe.threshold) && swipe.threshold >= 0)))
+			) {
+				issues.push({
+					...here,
+					code: 'listener-swipe',
+					level: 'error',
+					message: `Node "${at.node}": a swipe listener's direction must be left, right, up or down and its threshold a distance of 0 or more.`,
+				});
+			}
 			if (action.kind === 'raise') {
 				checkRaise(action, here);
+				continue;
+			}
+			if (action.kind === 'align') {
+				const target = nodes.get(action.target);
+				if (!target || target === def.root) {
+					issues.push({
+						...here,
+						code: 'listener-align-target',
+						level: 'error',
+						message: target
+							? `Node "${at.node}": Align Target cannot move the component's root (an instance is placed by its node).`
+							: `Node "${at.node}": Align Target moves node "${action.target}", which is not in this component.`,
+					});
+				}
 				continue;
 			}
 			const kind = kinds.get(action.input);

@@ -3,6 +3,7 @@
 	import { onMount, untrack } from 'svelte';
 	import {
 		collapseToFunction,
+		docVariables,
 		collapseToGroup,
 		dedupeGroupBodyIds,
 		expandGroup,
@@ -43,7 +44,15 @@
 	} from '$lib/flowInstanceUi';
 	import { composeFlowV2Vocab } from '$lib/flowV2Vocab';
 	import { LIBRARY } from './sample';
-	import { MODE_NODES, modeNodeRef, offeredInSection, typeColor } from './palette';
+	import {
+		MODE_NODES,
+		modeNodeRef,
+		offeredInSection,
+		spawnableComponents,
+		spawnNodeRef,
+		STATE_NODES,
+		typeColor,
+	} from './palette';
 	import {
 		addDataEdgeIn,
 		addExecEdgeIn,
@@ -62,6 +71,7 @@
 	import FlowCanvasV2 from './FlowCanvasV2.svelte';
 	import AddNodePalette from './AddNodePalette.svelte';
 	import ValidationPanelV2 from './ValidationPanelV2.svelte';
+	import VariablesPanelV2 from './VariablesPanelV2.svelte';
 	import PreviewPanelV2 from './PreviewPanelV2.svelte';
 	import NodeInspector from './NodeInspector.svelte';
 	import PinDropMenu, { type PinDropCandidate } from './PinDropMenu.svelte';
@@ -116,7 +126,10 @@
 	// flow could never fire an asset the author placed. Each name becomes a payload-less CueDecl ⇒
 	// exactly `[exec-in, exec-out]`. No author-named cues ⇒ the vocabulary is returned unchanged.
 	//
-	// First of all, the Game Config's ADD-ONS (`data.addOns`) compose their surfaces onto the kind's —
+	// First, the Game Config's OUTCOME (`data.outcome`): an RGS-decided game is not offered the
+	// rules-only board actions (`withOutcome`). A slot is always RGS and has none, so nothing changes.
+	//
+	// Then the Game Config's ADD-ONS (`data.addOns`) compose their surfaces onto the kind's —
 	// a Hold and Win bonus or the pots overlay on a Book-of project — exactly as the publish gate and
 	// the game do. No add-on block ⇒ the kind's vocabulary, object identity included.
 	//
@@ -127,10 +140,12 @@
 	const vocab = $derived(
 		composeFlowV2Vocab(doc.templateId, {
 			addOns: data.addOns,
+			outcome: data.outcome,
 			symbols: data.symbols,
 			sounds: data.soundOptions,
 			sceneCues: data.sceneCues ?? [],
 			fxTargets: data.fxTargets ?? [],
+			customFxKinds: data.customFxKinds ?? [],
 		}),
 	);
 
@@ -194,9 +209,11 @@
 		),
 	);
 	const touchesUnpinned = (issue: FlowIssue): boolean =>
-		issue.at.on === 'node' || issue.at.on === 'pin'
-			? unpinnedNodeIds.has(issue.at.node)
-			: unpinnedNodeIds.has(issue.at.from.node) || unpinnedNodeIds.has(issue.at.to.node);
+		issue.at.on === 'variable'
+			? false
+			: issue.at.on === 'node' || issue.at.on === 'pin'
+				? unpinnedNodeIds.has(issue.at.node)
+				: unpinnedNodeIds.has(issue.at.from.node) || unpinnedNodeIds.has(issue.at.to.node);
 
 	// The project's Scene-Editor screen ids (the keys of `sceneNames`), so Validation can flag a Show /
 	// Hide of a screen the layout no longer has (`container-scene-missing`). An unsaved project has
@@ -206,7 +223,17 @@
 	// `ctx` reads the LIVE `library` state (a getter, not a snapshot), so every consumer —
 	// `derivePins`, `validateFlowDoc`, the palette, the inspector — sees the current library. It also
 	// carries the container-event surface so a `showContainer` node fuses its component events (§6.1).
-	const ctx = $derived<PinContext>({ vocab, library, containerEvents, containerTaps, instances });
+	// It also carries the doc's game variables, which type the variable nodes' pins and `$var` reads.
+	const ctx = $derived<PinContext>({
+		vocab,
+		library,
+		containerEvents,
+		containerTaps,
+		instances,
+		variables: docVariables(doc),
+		outcome: data.outcome,
+		spawnLayers: data.spawnLayers ?? {},
+	});
 
 	// --- The editing TARGET (2c.3) ---------------------------------------------
 	// The canvas + all tools edit an "active graph": either the main `FlowDoc.graph` or a
@@ -424,6 +451,12 @@
 	// A placed node id the Scene Editor's *Show in Flow* sent here that no node names yet.
 	let highlightInstance = $state<string | null>(null);
 
+	// The spawn layers on the flow's screens (game-families §3.3), for the palette, the titles and
+	// the preview. A project placing none sees no spawning surface at all.
+	const spawnLayers = $derived(data.spawnLayers ?? {});
+	const spawnLayerName = (layer: string): string =>
+		spawnLayers[layer]?.name ?? (layer || '(layer)');
+
 	// A human title for a node (its ref, else its kind) shown in the node header.
 	const nodeTitle = (n: V2Node): string => {
 		switch (n.kind) {
@@ -459,9 +492,27 @@
 				return decl && decl.container === n.container ? decl.name : n.instance;
 			}
 			case 'waitForState': {
+				if (n.componentId !== undefined)
+					return `Wait for ${n.componentId || '(component)'} (spawned)`;
 				const decl = instances[n.instance];
 				return `Wait for ${decl && decl.container === n.container ? decl.name : n.instance}`;
 			}
+			case 'spawn':
+				return `Spawn ${n.componentId || '(component)'} → ${spawnLayerName(n.layer)}`;
+			case 'despawn':
+				return 'Despawn';
+			case 'instanceRef':
+				return `${n.componentId || '(component)'} (spawned)`;
+			case 'setVariable':
+			case 'changeVariable':
+			case 'onVariable':
+			case 'onTick':
+			case 'startTimer':
+			case 'stopTimer':
+			case 'pauseTimer':
+			case 'onTimer':
+			case 'onInput':
+				return STATE_NODES.find((m) => m.kind === n.kind)?.label ?? n.kind;
 			default:
 				return n.kind;
 		}
@@ -482,6 +533,8 @@
 						containerTaps,
 						sceneIds,
 						instances,
+						data.outcome,
+						data.spawnLayers ?? {},
 					).filter((issue) => !touchesUnpinned(issue)),
 					...respinTabIssues(doc, data.addOns),
 					...spinsTabIssues(doc, data.addOns, sceneIds),
@@ -545,7 +598,9 @@
 				// A placed instance's wires to pins its component no longer has: drawn as red pins so
 				// the wire stays visible and reads as broken (the validator lists it too).
 				stalePins:
-					n.kind === 'componentInstance' && !instances[n.instance]?.unpinned
+					(n.kind === 'componentInstance' && !instances[n.instance]?.unpinned) ||
+					n.kind === 'instanceRef' ||
+					n.kind === 'spawn'
 						? stalePinsOf(activeGraph, n.id, graphPins.pins.get(n.id) ?? [])
 						: undefined,
 			},
@@ -1279,6 +1334,21 @@
 			specs.push({ kind, section: 'control' });
 		}
 		for (const m of paletteModeNodes) specs.push({ kind: m.kind, ref: m.ref, section: 'mode' });
+		if (view.kind !== 'function') {
+			for (const l of Object.values(spawnLayers)) {
+				for (const s of l.spawnable) {
+					specs.push({
+						kind: 'spawn',
+						ref: spawnNodeRef(l.layer, s.componentId),
+						section: 'spawn',
+					});
+				}
+			}
+			for (const c of spawnableComponents(spawnLayers)) {
+				specs.push({ kind: 'instanceRef', ref: c, section: 'spawn' });
+			}
+			if (Object.keys(spawnLayers).length > 0) specs.push({ kind: 'despawn', section: 'spawn' });
+		}
 		return specs;
 	}
 
@@ -1304,8 +1374,12 @@
 				const label = MODE_NODES.find((m) => m.kind === spec.kind)?.label ?? spec.kind;
 				return spec.ref ? `${label} · ${spec.ref}` : label;
 			}
+			case 'spawn':
+			case 'despawn':
+			case 'instanceRef':
+				return nodeTitle(makeNode(spec.kind, '', { x: 0, y: 0 }, spec.ref));
 			default:
-				return spec.kind;
+				return STATE_NODES.find((m) => m.kind === spec.kind)?.label ?? spec.kind;
 		}
 	}
 
@@ -2100,6 +2174,16 @@
 						Double-click a <strong>function</strong> node to edit its body.
 					</p>
 				{/if}
+				<VariablesPanelV2
+					{doc}
+					modeId={activeModeId}
+					{modeLabel}
+					onchange={(next) => {
+						doc = next;
+						syncCanvas();
+						markDirty('variables');
+					}}
+				/>
 				<AddNodePalette
 					vocab={tabVocab}
 					{library}
@@ -2112,6 +2196,7 @@
 					modeNodes={paletteModeNodes}
 					{instanceGroups}
 					{highlightInstance}
+					{spawnLayers}
 				/>
 			{/if}
 			<ValidationPanelV2
@@ -2122,7 +2207,14 @@
 				{modeLabel}
 			/>
 			{#if view.kind === 'flow'}
-				<PreviewPanelV2 {doc} {library} {vocab} {instances} projectKey={data.projectKey} />
+				<PreviewPanelV2
+					{doc}
+					{library}
+					{vocab}
+					{instances}
+					{spawnLayers}
+					projectKey={data.projectKey}
+				/>
 			{/if}
 		</aside>
 

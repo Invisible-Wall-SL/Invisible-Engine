@@ -30,9 +30,11 @@ import {
 	clusterReferenceLayout,
 	defaultLayout,
 	holdAndWinReferenceLayout,
+	match3ReferenceLayout,
 	scatterReferenceLayout,
 	waysReferenceLayout,
 } from '../../packages/engine-layout/src/lib/referenceLayouts/index.ts';
+import { MATCH3_DRIVEN_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/match3Seed.ts';
 import {
 	addPotsOverlay,
 	betModeCardIds,
@@ -177,17 +179,33 @@ const FIXTURES = {
 	'cg-bookof-pots': booksPots,
 	'cg-hw-pots': () => holdAndWinGame('pots'),
 	'cg-hw-classic': () => holdAndWinGame('classic'),
+	// A rules-decided match-3 game (game-families P10.5): Game Maker's scaffold — the scene set, the
+	// seed config and the starter flow. It sends the RGS nothing; the manifest entry only lets the
+	// test server serve the runtime (its `lines` mock is never asked).
+	'cg-match3': () => ({
+		gameType: 'match3',
+		doc: match3ReferenceLayout(),
+		config: committedDefault('match3.rules'),
+		flowV2: MATCH3_DRIVEN_SEED_DOC,
+		entry: { protocol: 'lines' },
+	}),
 };
 
 const games = [];
 for (const [key, make] of Object.entries(FIXTURES)) {
-	const { gameType, doc, config, entry } = make();
+	const { gameType, doc, config, flowV2, entry } = make();
 	const dir = join(out, 'snapshots', key);
 	mkdirSync(join(dir, 'deploy'), { recursive: true });
 	const componentDefs = await bakeComponentDefs(doc, config);
 	writeFileSync(
 		join(dir, 'runtime.json'),
-		JSON.stringify({ doc, componentDefs, componentDefaults: {}, ...(config ? { config } : {}) }),
+		JSON.stringify({
+			doc,
+			componentDefs,
+			componentDefaults: {},
+			...(config ? { config } : {}),
+			...(flowV2 ? { flowV2 } : {}),
+		}),
 	);
 	// What a live pointer records as the engine the game was published with, as data: the built-ins
 	// this snapshot was baked from, which the harness tells the baked copies by.

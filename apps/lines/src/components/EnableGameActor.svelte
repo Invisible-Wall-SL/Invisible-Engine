@@ -5,6 +5,7 @@
 	import { stateBet } from 'state-shared';
 
 	import { gameActor } from '../game/actor';
+	import { gameMechanic } from '../game/mechanic';
 	import { clearWinPresentation, forgetWinCycleWins } from '../game/winSymbolCycle';
 	import { getContext } from '../game/context';
 
@@ -14,6 +15,10 @@
 
 	const props: Props = $props();
 	const context = getContext();
+	/** Where every bet becomes a round: a mechanic with no bet (free play) starts none, whatever sent
+	 *  the bet — a button, a flow effect, a hotkey — and a round that waits on the player's moves is
+	 *  never auto-played. Always true for a slot. */
+	const { bets, interactiveRound } = gameMechanic();
 
 	onMount(() => {
 		const { unsubscribe } = gameActor.subscribe((snapshot) => {
@@ -36,10 +41,11 @@
 		// No new round over an open one: until `<ResumeBet>` fires (the player is past the loading
 		// screen) the actor sits idle with a round still to resume.
 		bet: () => {
-			if (!stateBet.betToResume?.active) gameActor.send({ type: 'BET' });
+			if (bets && !stateBet.betToResume?.active) gameActor.send({ type: 'BET' });
 		},
 		autoBet: () => {
-			if (!stateBet.betToResume?.active) gameActor.send({ type: 'AUTO_BET' });
+			if (bets && !interactiveRound && !stateBet.betToResume?.active)
+				gameActor.send({ type: 'AUTO_BET' });
 		},
 		resumeBet: () => gameActor.send({ type: 'RESUME_BET' }),
 		// A SLAM press (`stopButtonClick`, fired while a round is rolling/presenting) wipes the

@@ -419,7 +419,7 @@ const at = { x: 0, y: 0 };
 			"class: broken ? 'v2-exec v2-bad' : 'v2-exec',",
 			'stalePinsOf(activeGraph, n.id, graphPins.pins.get(n.id) ?? [])',
 			'{instanceGroups}',
-			'<PreviewPanelV2 {doc} {library} {vocab} {instances} projectKey={data.projectKey} />',
+			'<PreviewPanelV2\n\t\t\t\t\t{doc}\n\t\t\t\t\t{library}\n\t\t\t\t\t{vocab}\n\t\t\t\t\t{instances}\n\t\t\t\t\t{spawnLayers}\n\t\t\t\t\tprojectKey={data.projectKey}\n\t\t\t\t/>',
 		]),
 		[
 			true,

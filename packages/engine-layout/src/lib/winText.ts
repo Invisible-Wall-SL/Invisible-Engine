@@ -302,8 +302,8 @@ export type ResolvedWinText = {
  *   already draws a line (the counter and its modifier line, the jackpot / instant / wheel banners,
  *   Lucky Spin, the modifier toasts, the pots, the special and collector-level names),
  *   exactly that literal, so an unauthored Hold and Win game reads the same once it reads these.
- *   `respins.award`/`reset`/`last`, `feature.total`/`meterFull` are NEW copy with
- *   no draw site yet: adopting one adds a line to the screen. `respins.added`, `feature.upgrade`
+ *   `respins.award`/`reset`/`last` (the counter's beats, also the `respinCounterText` source) and
+ *   `feature.total`/`meterFull` were new copy when added. `respins.added`, `feature.upgrade`
  *   and `jackpots.upgrade` (Phase 11a) belong to specials no existing game configures, so they draw
  *   only in a game that adds one; so do `feature.rowUnlocked` / `feature.rows` (11b), which only an
  *   expanding board draws.

@@ -137,10 +137,13 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
    `winSymbolCycle`, `freeSpinHold`, `unskippablePresentation`, `soundBindings`, the flow holders).
    A raw file count overstates the remainder. Reference scene sets for a type other than
    `lines`/`bookOf` are Phase E (a game type as an authoring KIND), not Phase A — they belong to
-   [status/editor](editor.md) and [status/flow](flow.md). **Phase B still owes** one consolidation:
-   the seam is two separate declaration-merging registries (`GameContext`, `BookEventRegistry`) and
-   a `deps` object per factory, not one named mechanic interface — fine while `lines` is the only
-   mechanic, and the thing to fold together when a second one exists.
+   [status/editor](editor.md) and [status/flow](flow.md). **Phase B's one named mechanic
+   interface** landed with the second mechanic (game-families P10.5): `engine-game`
+   `mechanicFor(config)` → `GameMechanic`, which every family branch reads
+   ([status/game-families](game-families.md)); arcade (P10.8) is its third mechanic,
+   `ARCADE_RULES_MECHANIC`, whose `playField` mounts `<ArcadeStage />` in the reel stack's place and
+   whose loop is `engine-game` `arcadeLoop.ts` over `engine-mechanics` `motion.js`; the registries (`GameContext`, `BookEventRegistry`)
+   and the per-factory `deps` stay the state-and-events half.
 
    **The gate, and what it cost to build.** The fingerprint is exact only for **type-only** slices
    (a real file move reorders rollup's graph and reshuffles minified names), so relocation slices
@@ -275,6 +278,39 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-25 — **A running game's console is quiet again** (branch `claude/charming-cannon-rjv7ba`,
+  in review). Owner report on `commonoverlayproject`: a 3 MB console of warnings from one session.
+  Reproduced by playing the live game headless (boot, continue, one spin) and traced per line.
+  **Engine fixes:** (1) the facade's opt-in `IE_DEBUG` trace (`toBookEventAmount` on every win) is
+  gone; the money path it watched is pinned by `check:rgs`. (2) The version-pin warning fires once
+  per `id@version` (`warnPinNotHonoured`, `registerComponents.ts`) instead of on every instance
+  render; detail in [component editor status](component-editor.md). (3) A held screen timeline's
+  node driver no longer reads a destroyed `<Cinematic>`'s `$derived` (Svelte `derived_inert`); see
+  [cinematic status](cinematic.md). (4) `engine-rig`'s `.atlas` loader unloads each page it fetched
+  through the loader, as Pixi's spritesheet does its image; it destroyed the page's
+  `TextureSource` instead, which Pixi flagged ("destroyed instead of unloaded") whenever the boot
+  splash released its rig. A page handed in through `images` is still disposed. (5) The stock-asset
+  walk keeps no stock sheet for a frame a project SYMBOL sheet registers under the same bare name:
+  the symbol export packs bare names beside the scoped ones, so a project bound to the shared
+  `engine-symbols` sheet loaded the stock `symbolsStatic` too and registered all 17 frames twice
+  (Pixi `[Cache] already has key`, the drawn one left to load order). The export now records each
+  sheet's bare frame `names` in `symbols.index.sheets[]`; only stock FRAME sheets (`type:
+  'sprites'`) are skipped for them, so a stock rig or font sharing a frame's name still loads, and
+  a bundle without `names` keeps the old behaviour. **Left as is, on purpose:** `totalwin.png` is packed by both stock `freeSpins` and
+  `winSmall` (kept together, every game, upstream art); the remaining lines are the project's own
+  data, each already saying what to fix (Flow screens missing from the layout, a dictionary symbol
+  on no strip, undeclared mapping entries, `BLANK` with no art, a state machine naming a timeline
+  with no actors). Verified: `test-component-closure`, `stockAssets.fixture` (four new cases),
+  `check:rgs`, the symbol/component/cinematic/rig gates, svelte-check at baseline, and the new
+  `packages/engine-rig/src/pixi/assets.fixture.ts` (fails on the old unload). Reaching online games needs a `runtime:lines`
+  release; the closure and `names` changes ride the launcher deploy.
+- 2026-10-23 — **Storybook 10.** `storybook` and every `@storybook/*` package move from 9.0.15 to
+  10.6.3 (`config-storybook`, `pixi-svelte-storybook`, `components-storybook`), and
+  `@chromatic-com/storybook` from 3.2.5 to 5.4.0; `@storybook/addon-svelte-csf` 5.1.5 already
+  supports 10. Storybook 10 is ESM-only, so `config-storybook` is `"type": "module"` and its index
+  imports carry `.ts` extensions; `preview.ts` takes its `Preview` type from the framework
+  (`@storybook/sveltekit`) rather than the renderer, which drops the direct `@storybook/svelte`
+  dependency. Story indexes are unchanged (27 in `pixi-svelte-storybook`, 88 in `apps/lines`).
 - 2026-10-20 — **A rig's `anchor` means one thing: the point of its Bounds frame that lands on
   (x, y).** `<RigProvider>` pivoted a rig by the sprite rule, `anchor × requested width/height`: it
   assumed the art's top-left at local (0, 0) and read a DISPLAY size as a LOCAL offset, while a rig's

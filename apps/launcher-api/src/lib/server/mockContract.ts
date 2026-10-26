@@ -33,12 +33,14 @@ import {
 	holdAndWinMockInputs,
 	inPlayScatterSymbol,
 	isScatterSymbol,
+	match3MockInputs,
 	potsOverlayOf,
 	normalizeGameConfigDoc,
 	potsOverlayMockInputs,
 	resolveBetModes,
 	resolveExpandingSymbol,
 	resolveFreeSpins,
+	resolveOutcome,
 	resolveWinModel,
 	symbolsInPlay,
 	type GameConfigDoc,
@@ -554,6 +556,13 @@ function projectGrid(
 		// such a project fall back to the shared lines grid and pay line wins. The mock generates a
 		// full-coverage set from the dimensions for its own reveal shape; the evaluator ignores it.
 		if (!Number.isFinite(reels)) return undefined;
+		// A match-3 board deals from its own inputs in the project's OWN names (`match3MockInputs`):
+		// none of the slot fields apply, and it has no lines. No inputs ⇒ no grid, and the match-3 mock
+		// stands up on its built-in game.
+		if (protocol === 'match3') {
+			const match3 = match3MockInputs(doc);
+			return match3 ? { reels, rows, paylines: [], match3 } : undefined;
+		}
 		if (protocol === 'book') {
 			// Neither an authored table, a narrower pool, an overlay nor a free-spins departure ⇒ no grid
 			// ⇒ the contract is exactly what it was before any existed; the pool is stated only when it
@@ -710,6 +719,9 @@ function deriveMockContract(
 	projectKey: string,
 	gameType: string | undefined,
 ): MockContract {
+	// A rules-decided game has no RGS (§2.3): its entry serves the runtime only, and the test server's
+	// `freePlay` mock refuses every request, whatever the project's kind would deal.
+	if (resolveOutcome(doc) === 'rules') return { protocol: 'freePlay' };
 	const grid = projectGrid(protocol, doc, symbolFacts, projectKey, gameType);
 	const cascade = projectCascade(doc);
 	return {

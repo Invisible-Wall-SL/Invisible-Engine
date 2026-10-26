@@ -13,6 +13,7 @@ export {
 	requestBet,
 	requestEndRound,
 	requestEndEvent,
+	requestMove,
 	requestReplay,
 	getSessionState,
 } from './src/engineFacade';

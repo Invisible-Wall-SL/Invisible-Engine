@@ -178,9 +178,9 @@ through the same player; headless-proven, no editor yet (5b).
     it, and the timeline draws its copy as before): the reel split's layers remount with the
     driver, and the reels follow the `reelGrid` node's keys through `<BoardDrive>` (x/y, scale,
     rotation, alpha, visibility; no tint), about the node's position (only when that node is the
-    one the board is laid out from). Only the board's drawing moves; `boardLayout()` and what is
-    placed from it outside the wrapper (the win line, flights, board-anchored overlays) stay on the
-    authored pose, so a held non-identity end pose would leave them behind.
+    one the board is laid out from). While it plays only the board's drawing moves; once it ends,
+    the end pose becomes the board's layout (2026-10-23, below), so `boardLayout()` and what is
+    placed from it (the win line, flights, board-anchored overlays) follow the reels.
 
 - **Per-ratio keys (2026-10-21, headless-proven, ⏳ not browser-verified).** A screen lays its
   nodes out per ratio, so a node actor's `property` track may carry `layout` (a layout type): the
@@ -381,7 +381,7 @@ through the same player; headless-proven, no editor yet (5b).
 | `apps/launcher-api/scripts/check-shared-timeline-ship.ts` (`check:shared-timeline-ship`, Phase 9d) — the REAL promote / list / get / save / desktop-bake handlers on an in-memory R2: the capability gate, versions and snapshots, a stale `baseEtag`, a link in another project storing only its placement, `get` resolving and retargeting it with the update, the bake writing the resolved timeline (no link field) that the game's own `ComponentTimelinePlayer` plays (alpha + its Report event cue), Update / Detach / a missing version / a starter, a `/rigger`-style save refused, a shared read failing at publish (the last exported copy ships; a partial load prunes nothing), and the promote race (two promoters, a stray snapshot, a corrupt or deleted pointer) | **42/42** |
 | `apps/launcher-api/scripts/check-timeline-rows.ts` (`check:timeline-rows`, Phase 9d) — Report event (`signal:` cue, one undo step, fired once by the game), visibility keys (game + preview), text count-up / switch keys (game sample, editor preview, mode switch, a modeless track, prune), and a doc mounted with `textRows` staying byte-identical | **27/27** |
 | `apps/launcher-api/scripts/check-component-timelines.ts` (`pnpm --filter launcher-api check:component-timelines`) — Phase 4b: the registry, the per-instance player (start, hold, cues, latest-wins), two instances independent under signal scopes, reuse by name only (never an id) + validation, no self-restart from a timeline's own cue, export of a component timeline no Flow node names | **39/39** |
-| `scripts/check-cinematic-ticker.mjs` (`pnpm check:cinematic-ticker`) — the REAL `<Cinematic>` compiled and mounted through Svelte's client runtime on a hand-stepped ticker: a one-shot plays to `oncomplete` with its playhead rising every frame and lands on its last frame; `loop` / `pingPong` docs and the `loop` prop never complete and keep advancing; a new `doc.id` (one-shot and mid ping-pong back leg) or `startTime` re-arms it and a new `speed` or `playing` does not (each changed alone; see open item 10); loops run on frames that do not divide the doc, so a wrap's overshoot is carried; each cue fires once (once a lap, out legs only for a ping-pong); unmount leaves the ticker | **37/37** |
+| `scripts/check-cinematic-ticker.mjs` (`pnpm check:cinematic-ticker`) — the REAL `<Cinematic>` compiled and mounted through Svelte's client runtime on a hand-stepped ticker: a one-shot plays to `oncomplete` with its playhead rising every frame and lands on its last frame; `loop` / `pingPong` docs and the `loop` prop never complete and keep advancing; a new `doc.id` (one-shot and mid ping-pong back leg), `startTime` or `playId` (a replay) re-arms it and a new `speed` or `playing`, or the same doc handed again, does not (each changed alone); loops run on frames that do not divide the doc, so a wrap's overshoot is carried; each cue fires once (once a lap, out legs only for a ping-pong); unmount leaves the ticker | **43/43** |
 | Live browser runs of the editor | undo/redo 22, sequencer 35, property/camera 36, R2 client flow 19, masks 31, New clip + tweak-bar masks 35, Tweak Mode ~55, inline posing / underlay / fx row 59 |
 
 ### What the gates established
@@ -460,14 +460,8 @@ through the same player; headless-proven, no editor yet (5b).
    band. The Pots screen the game mounts itself no longer hits this (2026-10-21); the banner
    screens the game mounts itself (`engineBannerScreens`) still do.
 
-10. **A playing `<Cinematic>` restarts whenever the flow's playing set changes** (found by the
-    ticker gate's review, 2026-10-20; older than Phase 9b). The re-arm `$effect` reads
-    `props.doc.id`, which tracks the `doc` prop's getter, and `FlowV2Cinematics` hands every prop off
-    an entry object it rebuilds when any cinematic starts or ends, or a host screen's `setMounted`
-    flips. So a second cinematic starting (or one completing) sends every other playing one back to
-    its start and fires its cues again. Tracking only the id is not enough: a replay of a
-    still-playing id relies on the same rebuild to restart it, so the fix needs a play generation
-    from the flow runtime (a key, or a prop the effect reads).
+10. ✅ **Fixed 2026-10-23** — a playing `<Cinematic>` no longer restarts when the flow's playing
+    set changes (Recent changes).
 
 11. **A looping `<Cinematic>` skips a cue inside a wrap's overshoot** (same review; older than
     Phase 9b, on the `loop` prop path). `cuesCrossed` sees only the stretch before the wrap, so a
@@ -480,11 +474,90 @@ through the same player; headless-proven, no editor yet (5b).
     the whole session, a meter's fill glide or a full pot's rig animation running at that moment
     restarts. Check on a pots game in the browser; a node that took its driver live would remove it.
 
+13. **A held screen's driver reads `<Cinematic>` state after it unmounts** (seen 2026-10-23). The
+    driver a screen keeps to hold the last frame reads the player's `nodeActors` `$derived`. When
+    `<FlowV2Cinematics>` rebuilt its entries during the play (any cinematic starting or ending, a
+    screen coming up), that derived is stale by the end, so the held grid's `driver()` call after
+    unmount makes Svelte log `derived_inert` once. Harmless (Svelte returns the cached value, which
+    is the right one, since the doc and set did not change); `check:screen-timeline-mounts` prints
+    it in its flow-moves-on case. A driver that captured its actors at mount would remove it.
+
 ## Blocked (owner / external)
 
 - Nothing external.
 
 ## Recent changes
+
+- 2026-10-25 — **A held screen keeps its last frame without reading a destroyed player** (branch
+  `claude/charming-cannon-rjv7ba`, in review). A screen keeps a timeline's node driver after the
+  timeline ends, to hold its last frame — `Game.svelte`'s `basegameHeldReelGrid` samples it to lay
+  the board out where the timeline left it — but the driver read `nodeActors`, a `$derived` of the
+  now-destroyed `<Cinematic>`. Svelte answered with `derived_inert` (nine times in one owner
+  session) and a possibly stale value. The player snapshots the actors and doc tracks at teardown
+  and the driver reads those from then on; while it is mounted it reads the live deriveds, as
+  before.
+- 2026-10-25 — **Elastic and Bounce eases** (game-families P10.9's ease item; branch
+  `claude/commonoverlay-publish-error-njebx9`, in review). A key's `ease` may now be `'elastic'` or
+  `'bounce'`, Penner's ease-out curves, which no cubic can draw: elastic overshoots the next key by
+  about a third (peak 1.37) and rings down onto it, bounce lands on it at 1/2.75 of the segment and
+  rebounds, never passing it. They live in `cinematicEval.js`'s named-ease table, so every channel
+  kind (number, tint, countUp) and both hosts (the package, and `/rigger`'s regenerated
+  `static/shared/cinematicEval.mjs`) play them; a runtime without them reads them as linear, as any
+  unknown name. The Timeline's Interpolation panel offers **Elastic** and **Bounce** beside Linear /
+  Cubic / Hold, drawing each from the injected evaluator's `easeShape` (no copy of the formula in
+  `timeline.js`), and `/rigger`'s key `<select>` lists them too. `check:cinematic-ease` §7 pins both
+  curves (ends, overshoot, ring-down, never-past, Penner's values, tint) and §1's golden is
+  unchanged, so every existing timeline samples byte-identically. The state machine's transition
+  blend stays cubic-only. ⏳ Not clicked in a browser.
+
+- 2026-10-23 — **A timeline on a canvas screen ended differently per window size** (reported on
+  `commonoverlayproject`'s feature intro). Not a timeline bug: a `canvas` screen was drawn in window
+  pixels, so its nodes and the keys moving them did not scale with the window. Fixed by the screen's
+  new **Scale with the window** tick; detail in [editor status](editor.md) 2026-10-23.
+
+- 2026-10-23 — **Fix: a timeline played without "Wait for this to finish" restarted part-way (was
+  open item 10)** (branch `claude/magical-curie-th1axi`). Reported on `commonoverlayproject`:
+  unticking the box on the base-game intro's `playCinematic` made the intro play twice. Unticked,
+  the chain went straight on (showed Pots and the HUD bar, played the HUD's own intro, showed the
+  rest of the HUD), and each of those rebuilt the entries `<FlowV2Cinematics>` hands `<Cinematic>`.
+  Its re-arm `$effect` read `props.doc.id` through the rebuilt entry, so it re-ran and put the
+  still-playing intro back at 0 (and fired its cues again), visibly when the HUD's intro ended
+  halfway through it. Ticked, nothing changed while it played. The re-arm now reads `$derived`
+  values (the doc id, the start and a new `playId`), so only a real change re-arms. A replay of a
+  cinematic still on screen still starts it again, now through the play number the runtime gives
+  every `playCinematic` (`PlayingCinematic.play`), which `<FlowV2Cinematics>` passes as `playId`
+  (no remount, as before). Gates: `check:screen-timeline-mounts` plays the reported flow through
+  the real `<FlowV2Cinematics>`, `<Cinematic>` and `<BoardDrive>` (the HUD's intro starting,
+  screens coming up, the HUD's intro ending: the intro keeps its playhead and ends at 2 s; a
+  replay mid-play starts it again) and pins the runtime's play number; `check:cinematic-ticker`
+  adds a new `playId` (re-arms, cues fire again) and the same doc handed again (no re-arm, no cue
+  twice). Both fail on the old code. Verified in Chromium on a local build (Play4Fun transport)
+  against `commonoverlayproject`'s live runtime bundle with the box unticked, sampling the reel
+  board's scale after tap-to-start: the old code snapped back to 0.1 part-way and reached full
+  size late; the fix zooms in once. Seen, not fixed: open item 13.
+
+- 2026-10-23 — **A base-game intro that ends with the reels moved keeps them there** (branch
+  `claude/blissful-bohr-4r7uny`). Until now only the board's drawing followed the `reelGrid` keys,
+  so an intro ending off the Design pose left `boardLayout()` behind: the win line, flights and
+  board-anchored overlays drew at the authored grid while the reels sat elsewhere. Once the
+  timeline ends (`screenDrives.holding`, handed out as the flow handle's `screenHolding`), Game
+  lays the board out from the grid as the keys left it (`heldReelGridNode` → `setBoardOverride`):
+  moved and resized for the ratio on screen, with the board nudge shifted so the layout lands
+  where the drawing did. `<BoardDrive>` then keeps only the turn, fade and visibility, about the
+  new position (`layoutHeld`). A replay, or the base game going down, restores the authored grid.
+  An end pose left as authored changes nothing (today's intros). A pose the layout cannot carry
+  stays on the drawing: an uneven end scale (the board scales its cells evenly), a scale of 0 or a
+  flip (the layout reads those as 1, so holding one brought the reels back full size), a grid with
+  no usable cell size. The held layout is keyed by the ended play and ratio (`basegameHeldPlay`),
+  so other timelines starting or ending do not lay the board out again. Gate:
+  `check:screen-timeline-mounts` gains an intro ending 30 right, 40 up, at 0.8 on a nudged,
+  gapped grid of non-square cells: the layout's position, cells, gaps and overflow land where the
+  drawing put them, in desktop and portrait, the wrapper stops moving the board, a replay and a
+  hide restore the grid; an uneven scale, a scale of 0 and a flip stay on the drawing; plus the
+  `Game.svelte` wiring. Verified in Chromium
+  on a local build against `commonoverlayproject`'s runtime bundle, its intro edited in flight to
+  end 80 right, 120 up, at 0.8: the reels and the win line's board container share one world
+  transform once it ends, and the reels stay there through a forced Hold and Win and after it.
 
 - 2026-10-23 — **Fix: a base-game timeline put the base game's art over the reels** (branch
   `claude/blissful-bohr-4r7uny`). Reported on `commonoverlayproject` once its intro played: the

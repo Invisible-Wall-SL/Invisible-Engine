@@ -4,7 +4,10 @@
  * One runtime per container composes everything playing on it, the way `cameraEffects` composes the
  * stage: each effect's MOTION is folded into one change of the container's own transform (about the
  * element's centre, or its base, or its top), its FILTERS are stacked after any the container
- * already had, and a BREAK hides it and flies a still of it in pieces. When the last effect ends,
+ * already had, and a BREAK hides it and flies a still of it in pieces (a live break, `assemble`,
+ * redraws them from the element every frame and follows it). A custom effect's break plays over a
+ * window of its play: its still is cut from the element as the effect draws it there (its passes
+ * on it, its motion placing it). When the last effect ends,
  * the container is put back exactly as it was: its resting transform, alpha, filters and
  * `filterArea`.
  *
@@ -20,9 +23,11 @@
 
 import {
 	ELEMENT_FX_LIMITS,
-	elementFxSpec,
+	customElementFx,
+	findElementFxSpec,
+	isElementFxKind,
 	resolveElementFxParams,
-	type ElementFxKind,
+	type ElementFxKindId,
 	type ElementFxKindSpec,
 	type ElementFxParamValue,
 } from 'constants-shared/elementFx';
@@ -36,8 +41,9 @@ import {
 	type Ticker,
 } from 'pixi.js';
 import { dustWind, startBreak, type BreakRun } from './breakApart';
+import { customKindImpl } from './custom';
 import { REST, clamp01, smoothstep, TAU, type FxFrame, type Motion } from './frame';
-import { KINDS, type KindImpl } from './kinds';
+import { KINDS, type BreakStyle, type BreakWindow, type FilterImpl, type KindImpl } from './kinds';
 import { ElementFxFilter } from './shaders';
 
 export interface ElementFxHost {
@@ -59,7 +65,8 @@ export const elementFxHostFor = (
 		: undefined;
 
 export interface ElementFxPlay {
-	kind: ElementFxKind;
+	/** A built-in kind, or a registered custom effect's `custom:<id>`. */
+	kind: ElementFxKindId;
 	durationMs?: number;
 	delayMs?: number;
 	intensity?: number;
@@ -104,9 +111,11 @@ type Comps = {
 const COMPS = ['x', 'y', 'scaleX', 'scaleY', 'rotation', 'skewX', 'skewY', 'alpha'] as const;
 
 interface Effect {
-	kind: ElementFxKind;
+	kind: ElementFxKindId;
 	spec: ElementFxKindSpec;
 	impl: KindImpl;
+	/** Its passes, in order (one for a built-in filter kind; a custom kind's graph and passes). */
+	passes: readonly FilterImpl<Filter>[];
 	durationMs: number;
 	delayMs: number;
 	intensity: number;
@@ -116,7 +125,8 @@ interface Effect {
 	elapsedMs: number;
 	/** Played out; an exit kind keeps posing its last frame. */
 	held: boolean;
-	filter?: Filter;
+	/** Its passes' filters once created, in the order of {@link Effect.passes}. */
+	filters: Filter[];
 	breakRun?: BreakRun;
 	/** The break could not start (no renderer, nothing to cut): it fades out instead. */
 	breakFallback?: boolean;
@@ -306,20 +316,49 @@ const breakProgress = (effect: Effect, frame: FxFrame): number =>
 	effect.impl.reversed ? 1 - frame.t : frame.t;
 
 /** A break that could not cut the element still leaves: it fades away (a crumble sinking, dust
- *  drifting on its wind), or, reversed, drifts back in. */
-const breakFallbackMotion = (effect: Effect, frame: FxFrame): Partial<Motion> => {
-	const t = breakProgress(effect, frame);
+ *  drifting on its wind), or, reversed, drifts back in. `kind` is the break's kind, `t` how far
+ *  through the break it is ({@link breakProgress}), `frame` the break's play. */
+const breakFallbackMotion = (
+	kind: ElementFxKindId,
+	style: BreakStyle | undefined,
+	params: Readonly<Record<string, unknown>>,
+	t: number,
+	frame: FxFrame,
+): Partial<Motion> => {
 	const fade = 1 - smoothstep(0.15, 1, t);
-	if (effect.kind === 'crumble') {
+	if (kind === 'crumble') {
 		return { alpha: fade, y: t * t * 0.3 * frame.height };
 	}
-	if (effect.impl.breaks === 'dust') {
-		const [wx, wy] = dustWind(effect.params);
+	if (style === 'dust') {
+		const [wx, wy] = dustWind(params);
 		const drift = t * t * 0.25 * Math.max(frame.width, frame.height);
 		return { alpha: fade, x: wx * drift, y: wy * drift };
 	}
 	const shake = (1 - clamp01(frame.t / 0.3)) * 0.03 * Math.max(frame.width, frame.height);
 	return { alpha: fade, x: shake * Math.sin(frame.seconds * 90) };
+};
+
+/** How far through its window a custom effect's break is at `frame` (0…1), or undefined outside. */
+const windowProgress = (window: BreakWindow, frame: FxFrame): number | undefined => {
+	if (frame.t < window.from || frame.t > window.to) return undefined;
+	const span = window.to - window.from;
+	return span > 0 ? (frame.t - window.from) / span : window.reversed ? 0 : 1;
+};
+
+/** How far through its pieces' flight a window's break is: reversed, run back from the end. */
+const windowBreakProgress = (window: BreakWindow, u: number): number =>
+	window.reversed ? 1 - u : u;
+
+/** A custom effect's break as its own play: its window's progress and seconds, the break's params. */
+const windowFrame = (effect: Effect, window: BreakWindow, frame: FxFrame, u: number): FxFrame => {
+	const playSeconds = (window.to - window.from) * frame.playSeconds;
+	return {
+		...frame,
+		t: u,
+		seconds: u * playSeconds,
+		playSeconds,
+		params: window.params(effect.params),
+	};
 };
 
 const motionMatrix = (runtime: Runtime, m: Motion, out: Matrix): Matrix => {
@@ -348,20 +387,51 @@ const applyMotion = (runtime: Runtime, frames: Map<Effect, FxFrame>): void => {
 	const total = new Matrix();
 	let alpha = 1;
 	let moving = false;
-	for (const effect of runtime.effects) {
-		const frame = frames.get(effect);
-		if (!frame) continue;
-		let part: Partial<Motion> | undefined;
-		if (effect.impl.breaks) {
-			part = effect.breakFallback ? breakFallbackMotion(effect, frame) : { alpha: 0 };
-		} else if (effect.impl.motion) {
-			part = effect.impl.motion(frame);
-		}
-		if (!part) continue;
+	const fold = (part: Partial<Motion> | undefined): void => {
+		if (!part) return;
 		const m: Motion = { ...REST, ...part };
 		moving = true;
 		alpha *= finite(m.alpha, 1);
 		total.append(motionMatrix(runtime, m, scratch));
+	};
+	for (const effect of runtime.effects) {
+		const frame = frames.get(effect);
+		if (!frame) continue;
+		const window = effect.impl.breakWindow;
+		if (window) {
+			// Outside its window, its motion; inside, hidden by its pieces, or, when it could not cut,
+			// held where the graph met the break and leaving as a break that cannot cut leaves.
+			const u = windowProgress(window, frame);
+			if (u === undefined || effect.breakFallback) fold(effect.impl.motion?.(frame));
+			if (u === undefined) continue;
+			fold(
+				effect.breakFallback
+					? breakFallbackMotion(
+							window.kind,
+							window.style,
+							window.params(effect.params),
+							windowBreakProgress(window, u),
+							windowFrame(effect, window, frame, u),
+						)
+					: { alpha: 0 },
+			);
+			continue;
+		}
+		let part: Partial<Motion> | undefined;
+		if (effect.impl.breaks) {
+			part = effect.breakFallback
+				? breakFallbackMotion(
+						effect.kind,
+						effect.impl.breaks,
+						effect.params,
+						breakProgress(effect, frame),
+						frame,
+					)
+				: { alpha: 0 };
+		} else if (effect.impl.motion) {
+			part = effect.impl.motion(frame);
+		}
+		fold(part);
 	}
 
 	const current = readComps(target);
@@ -412,10 +482,17 @@ const releaseFilters = (runtime: Runtime): void => {
 /** Keep the runtime's filters on the container, after its own, and feed each one its frame. */
 const applyFilters = (runtime: Runtime, frames: Map<Effect, FxFrame>): void => {
 	const { target } = runtime;
-	const ours = runtime.effects.filter((e) => e.filter && frames.has(e));
+	// A custom effect whose still is cut (or that holds its end) needs no passes on the element it
+	// hides.
+	const ours = runtime.effects.filter(
+		(e) =>
+			e.filters.length &&
+			frames.has(e) &&
+			!(e.impl.breakWindow?.live === false && (e.breakRun || e.held)),
+	);
 	const current = target.filters ?? NO_FILTERS;
 	if (runtime.filtersOn && current !== runtime.lastFilters) {
-		const mine = new Set(runtime.effects.map((e) => e.filter).filter(Boolean));
+		const mine = new Set(runtime.effects.flatMap((e) => e.filters));
 		runtime.external = current.filter((f) => !mine.has(f));
 	}
 	// Nothing measured yet means nothing drawn yet: a filter bounded to a 1-px box would hide the
@@ -439,13 +516,15 @@ const applyFilters = (runtime: Runtime, frames: Map<Effect, FxFrame>): void => {
 	};
 	for (const effect of ours) {
 		const frame = frames.get(effect) as FxFrame;
-		const filter = effect.filter as Filter;
-		effect.impl.filter?.update(filter, frame, view);
-		const padding = effect.impl.filter?.padding?.(frame, view);
-		if (padding !== undefined) filter.padding = Math.max(0, Math.ceil(padding));
+		effect.passes.forEach((pass, i) => {
+			const filter = effect.filters[i];
+			pass.update(filter, frame, view);
+			const padding = pass.padding?.(frame, view);
+			if (padding !== undefined) filter.padding = Math.max(0, Math.ceil(padding));
+		});
 	}
 
-	const stack = [...runtime.external, ...ours.map((e) => e.filter as Filter)];
+	const stack = [...runtime.external, ...ours.flatMap((e) => e.filters)];
 	const same =
 		runtime.lastFilters.length === stack.length &&
 		stack.every((f, i) => runtime.lastFilters[i] === f);
@@ -456,16 +535,16 @@ const applyFilters = (runtime: Runtime, frames: Map<Effect, FxFrame>): void => {
 
 	const { area, box } = runtime;
 	const pad = stack.reduce((sum, f) => sum + (f.enabled ? f.padding : 0), 0) | 0;
-	for (const effect of ours) {
-		if (!(effect.filter instanceof ElementFxFilter)) continue;
-		effect.filter.set(
+	for (const filter of ours.flatMap((e) => e.filters)) {
+		if (!(filter instanceof ElementFxFilter)) continue;
+		filter.set(
 			'uElement',
 			(box.x - area.x) / area.width,
 			(box.y - area.y) / area.height,
 			box.width / area.width,
 			box.height / area.height,
 		);
-		effect.filter.set('uPad', pad);
+		filter.set('uPad', pad);
 	}
 };
 
@@ -481,15 +560,16 @@ const removeEffect = (runtime: Runtime, effect: Effect): void => {
 	if (index < 0) return;
 	runtime.effects.splice(index, 1);
 	finish(runtime, effect);
-	if (effect.filter) {
+	if (effect.filters.length) {
 		const { target } = runtime;
+		const leaving = new Set(effect.filters);
 		if (runtime.filtersOn && !target.destroyed) {
-			const left = (target.filters ?? NO_FILTERS).filter((f) => f !== effect.filter);
+			const left = (target.filters ?? NO_FILTERS).filter((f) => !leaving.has(f));
 			target.filters = left.length ? left : null;
 			runtime.lastFilters = target.filters ?? NO_FILTERS;
 		}
-		effect.filter.destroy();
-		effect.filter = undefined;
+		for (const filter of effect.filters) filter.destroy();
+		effect.filters = [];
 	}
 	if (!runtime.effects.length) {
 		if (!runtime.target.destroyed) settle(runtime);
@@ -517,24 +597,174 @@ const timeScaleOf = (host: ElementFxHost): number => {
 	}
 };
 
-/** Snapshot and cut the element for a break, or mark it to fade instead. */
+let cutFailed = false;
+
+/**
+ * `cut()`'s break, or undefined when it throws (a renderer that cannot draw the still): the break
+ * then leaves as one that cannot cut, rather than throwing into the ticker every frame. Said once.
+ */
+const cutOrFade = (cut: () => BreakRun | undefined): BreakRun | undefined => {
+	try {
+		return cut();
+	} catch (error) {
+		if (!cutFailed) {
+			cutFailed = true;
+			console.warn('Element FX: a break could not cut its still, so it fades instead.', error);
+		}
+		return undefined;
+	}
+};
+
+/**
+ * Snapshot and cut the element for a break, or mark it to fade instead. A live break cuts the box
+ * the element has now, and one with nothing to draw yet (no size, as in a zoom from nothing; hidden,
+ * as when a key shows it this frame; not on stage) waits for it, the element hidden: it is drawn from
+ * the element every frame, so it may start late. It is tried again next frame.
+ */
 const startEffectBreak = (runtime: Runtime, effect: Effect): void => {
 	const { target } = runtime;
-	const renderer = runtime.boxPending ? undefined : runtime.host.renderer;
+	const live = !!effect.impl.live;
+	const box = live ? measure(target) : runtime.boxPending ? undefined : runtime.box;
+	const drawable = !!box && box.width >= 1 && box.height >= 1 && target.visible && !!target.parent;
+	if (live && runtime.host.renderer && !drawable) return;
+	const renderer = box ? runtime.host.renderer : undefined;
+	const breaks = effect.impl.breaks;
 	effect.breakRun =
-		renderer && effect.impl.breaks
-			? startBreak({
-					style: effect.impl.breaks,
-					target,
-					renderer,
-					box: runtime.box,
-					rest: restMatrix(target, runtime.rest ?? readComps(target)),
-					intensity: effect.intensity,
-					params: effect.params,
-					playSeconds: effect.durationMs / 1000,
-				})
+		renderer && box && breaks
+			? cutOrFade(() =>
+					startBreak({
+						style: breaks,
+						target,
+						renderer,
+						box,
+						rest: restMatrix(target, runtime.rest ?? readComps(target)),
+						intensity: effect.intensity,
+						params: effect.params,
+						playSeconds: effect.durationMs / 1000,
+						live,
+					}),
+				)
 			: undefined;
 	if (!effect.breakRun) effect.breakFallback = true;
+};
+
+/**
+ * Where `effect` draws the element at `frame`, about the owner's rest, and how faded: a custom
+ * effect's own motion only (held where its graph meets its break while the break plays).
+ */
+const drawnAt = (
+	runtime: Runtime,
+	effect: Effect,
+	frame: FxFrame,
+): { matrix: Matrix; alpha: number } => {
+	const rest = runtime.rest ?? readComps(runtime.target);
+	const matrix = restMatrix(runtime.target, rest);
+	const part = effect.impl.motion?.(frame);
+	if (!part) return { matrix, alpha: rest.alpha };
+	const m: Motion = { ...REST, ...part };
+	return {
+		matrix: matrix.append(motionMatrix(runtime, m, new Matrix())),
+		alpha: rest.alpha * finite(m.alpha, 1),
+	};
+};
+
+/** Lay each live break over the element as it is now: where it rests, how faded, its box. A custom
+ *  effect's lays them where its motion draws the element. */
+const followLiveBreaks = (runtime: Runtime, frames: Map<Effect, FxFrame>): void => {
+	const { target } = runtime;
+	const live = runtime.effects.filter((e) => e.breakRun?.follow && frames.has(e));
+	if (!live.length) return;
+	const rest = runtime.rest ?? readComps(target);
+	const matrix = restMatrix(target, rest);
+	const box = measure(target);
+	for (const effect of live) {
+		if (effect.impl.breakWindow) {
+			const drawn = drawnAt(runtime, effect, frames.get(effect) as FxFrame);
+			effect.breakRun?.follow?.(drawn.matrix, drawn.alpha, box);
+		} else effect.breakRun?.follow?.(matrix, rest.alpha, box);
+	}
+};
+
+/**
+ * Cut a custom effect's break from the element as the effect draws it at `frame`, held where its
+ * graph meets the break: its passes are on the element (so the still keeps the graph's look), its
+ * motion places the pieces and fades them. A live one (assemble) waits for something to draw, as
+ * {@link startEffectBreak}'s does; one that cannot cut leaves as a break that cannot cut leaves.
+ */
+const startCustomBreak = (runtime: Runtime, effect: Effect, frame: FxFrame): void => {
+	const window = effect.impl.breakWindow as BreakWindow;
+	const { target } = runtime;
+	const box = window.live ? measure(target) : runtime.boxPending ? undefined : runtime.box;
+	const drawable = !!box && box.width >= 1 && box.height >= 1 && target.visible && !!target.parent;
+	if (window.live && runtime.host.renderer && !drawable) return;
+	const renderer = box ? runtime.host.renderer : undefined;
+	if (renderer && box) {
+		const drawn = drawnAt(runtime, effect, frame);
+		// The still at full alpha (the pieces take the element's), its passes drawing the element as
+		// smoothly as the still is cut, as a built-in's still is.
+		const alpha = target.alpha;
+		const smoothing = effect.filters.map((filter) => filter.antialias);
+		target.alpha = 1;
+		for (const filter of effect.filters) filter.antialias = 'inherit';
+		try {
+			effect.breakRun = cutOrFade(() =>
+				startBreak({
+					style: window.style,
+					target,
+					renderer,
+					box,
+					rest: drawn.matrix,
+					alpha: drawn.alpha,
+					intensity: effect.intensity,
+					params: window.params(effect.params),
+					playSeconds: ((window.to - window.from) * effect.durationMs) / 1000,
+					live: window.live,
+				}),
+			);
+		} finally {
+			target.alpha = alpha;
+			effect.filters.forEach((filter, i) => (filter.antialias = smoothing[i]));
+		}
+	}
+	if (!effect.breakRun) effect.breakFallback = true;
+};
+
+/**
+ * Keep a custom effect's break in step with its window: outside it, gone (the element shows; the
+ * next window cuts afresh); inside it, its pieces posed, or, not cut yet, it joins `cuts` (none: an
+ * exit holding its end does not cut again). A window with no length (a break starting at the very
+ * end, an assemble over none of the play) cuts nothing: the element is hidden for that instant.
+ */
+const followWindow = (
+	effect: Effect,
+	window: BreakWindow,
+	frame: FxFrame,
+	cuts: Effect[] | undefined,
+): void => {
+	const u = windowProgress(window, frame);
+	if (u === undefined) {
+		effect.breakRun?.destroy();
+		effect.breakRun = undefined;
+		effect.breakFallback = false;
+		return;
+	}
+	if (effect.breakRun || effect.breakFallback)
+		effect.breakRun?.update(windowBreakProgress(window, u));
+	else if (window.to > window.from) cuts?.push(effect);
+};
+
+/** An effect's filters, made on its first frame. */
+const createFilters = (effect: Effect, frame: FxFrame): void => {
+	if (effect.passes.length && !effect.filters.length) {
+		effect.filters = effect.passes.map((pass) => pass.create(frame));
+	}
+};
+
+/** How `kind` plays: a built-in's implementation, or a registered custom effect's. */
+const implFor = (kind: ElementFxKindId): KindImpl | undefined => {
+	if (isElementFxKind(kind)) return KINDS[kind];
+	const custom = customElementFx(kind);
+	return custom ? customKindImpl(custom) : undefined;
 };
 
 const step = (runtime: Runtime, deltaMs: number): void => {
@@ -542,7 +772,7 @@ const step = (runtime: Runtime, deltaMs: number): void => {
 	if (target.destroyed) {
 		for (const effect of [...runtime.effects]) {
 			finish(runtime, effect);
-			effect.filter?.destroy();
+			for (const filter of effect.filters) filter.destroy();
 		}
 		runtime.effects = [];
 		detach(runtime);
@@ -558,6 +788,8 @@ const step = (runtime: Runtime, deltaMs: number): void => {
 	}
 
 	const frames = new Map<Effect, FxFrame>();
+	/** Custom effects whose break starts this frame. */
+	const cuts: Effect[] = [];
 	for (const effect of [...runtime.effects]) {
 		if (effect.pose) {
 			const frame = poseFrame(runtime, effect);
@@ -569,7 +801,11 @@ const step = (runtime: Runtime, deltaMs: number): void => {
 				continue;
 			}
 			frames.set(effect, frame);
-			if (effect.impl.filter && !effect.filter) effect.filter = effect.impl.filter.create(frame);
+			createFilters(effect, frame);
+			if (effect.impl.breakWindow) {
+				followWindow(effect, effect.impl.breakWindow, frame, cuts);
+				continue;
+			}
 			if (effect.impl.breaks && !effect.breakRun && !effect.breakFallback) {
 				startEffectBreak(runtime, effect);
 			}
@@ -592,15 +828,30 @@ const step = (runtime: Runtime, deltaMs: number): void => {
 		const frame = frameOf(runtime, effect) ?? delayFrame(runtime, effect);
 		if (!frame) continue;
 		frames.set(effect, frame);
-		if (effect.impl.filter && !effect.filter) effect.filter = effect.impl.filter.create(frame);
+		createFilters(effect, frame);
+		if (effect.impl.breakWindow) {
+			followWindow(effect, effect.impl.breakWindow, frame, effect.held ? undefined : cuts);
+			continue;
+		}
 		if (effect.impl.breaks && !effect.held && !effect.breakRun && !effect.breakFallback) {
 			startEffectBreak(runtime, effect);
 		}
 		effect.breakRun?.update(breakProgress(effect, frame));
 	}
 	if (!runtime.effects.length) return;
+	if (cuts.length) {
+		// The still is the element with the graph's look: its passes go on first.
+		applyFilters(runtime, frames);
+		for (const effect of cuts) {
+			const window = effect.impl.breakWindow as BreakWindow;
+			const frame = frames.get(effect) as FxFrame;
+			startCustomBreak(runtime, effect, frame);
+			effect.breakRun?.update(windowBreakProgress(window, windowProgress(window, frame) ?? 0));
+		}
+	}
 	applyMotion(runtime, frames);
 	applyFilters(runtime, frames);
+	followLiveBreaks(runtime, frames);
 };
 
 const runtimeFor = (target: Container, host: ElementFxHost): Runtime => {
@@ -631,14 +882,16 @@ const NOOP_HANDLE: ElementFxHandle = { done: Promise.resolve(), stop: () => {}, 
 /**
  * Play `play` on `target`. An `enter` kind first releases any exit the element is holding (a
  * dissolve-out then a dissolve-in brings it back). Plays alongside whatever else is on the element.
+ * An unknown kind, or a custom one not registered, plays nothing.
  */
 export function playElementFx(
 	target: Container | undefined | null,
 	play: ElementFxPlay,
 	host: ElementFxHost | undefined,
 ): ElementFxHandle {
-	if (!target || target.destroyed || !host || !(play.kind in KINDS)) return NOOP_HANDLE;
-	const spec = elementFxSpec(play.kind);
+	const impl = implFor(play.kind);
+	const spec = findElementFxSpec(play.kind);
+	if (!target || target.destroyed || !host || !impl || !spec) return NOOP_HANDLE;
 	const runtime = runtimeFor(target, host);
 	if (spec.phase === 'enter' && !play.pose) {
 		for (const held of runtime.effects.filter((e) => e.held)) removeEffect(runtime, held);
@@ -650,7 +903,8 @@ export function playElementFx(
 	const effect: Effect = {
 		kind: play.kind,
 		spec,
-		impl: KINDS[play.kind],
+		impl,
+		passes: impl.filter ? [impl.filter] : (impl.filters ?? []),
 		durationMs: clampTo(finite(play.durationMs, spec.durationMs), ELEMENT_FX_LIMITS.durationMs),
 		delayMs: clampTo(finite(play.delayMs, 0), ELEMENT_FX_LIMITS.delayMs),
 		intensity: clampTo(finite(play.intensity, 1), ELEMENT_FX_LIMITS.intensity),
@@ -658,6 +912,7 @@ export function playElementFx(
 		params: resolveElementFxParams(play.kind, play.params),
 		elapsedMs: 0,
 		held: false,
+		filters: [],
 		pose: play.pose,
 		resolve: () => {
 			resolve();

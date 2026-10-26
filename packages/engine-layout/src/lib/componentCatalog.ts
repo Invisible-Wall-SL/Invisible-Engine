@@ -202,6 +202,10 @@ export const VALUE_SOURCE_KEYS: string[] = [
  */
 export const TEXT_SOURCE_KEYS: string[] = ENGINE_PARAM_CATALOG.map((p) => p.key);
 
+/** One line for both pickers: the unit is what a tier threshold is typed in. */
+const FEATURE_WORTH_NOTE =
+	'What the feature is worth so far, moving every respin — 100 = 1× total bet (1000 = 10×).';
+
 /**
  * The Hold and Win feeds (design `docs/design/hold-and-win.md` §5): what the kind-gated respin
  * counter, jackpot bar, total win bar and celebration screens bind. Kept OUT of
@@ -218,6 +222,18 @@ export const HOLD_AND_WIN_PARAM_CATALOG: EngineParamEntry[] = [
 		note: 'Respins left on the counter — resets to the start count when a coin lands.',
 	},
 	{
+		key: 'respinCounterText',
+		kind: 'string',
+		label: 'Respin Counter Line',
+		note: 'The line the coded counter shows — "RESPINS 3", and "3 RESPINS" / "RESPINS RESET" / "LAST RESPIN" on those beats (Win Text `respins.*`).',
+	},
+	{
+		key: 'respinCounterNote',
+		kind: 'string',
+		label: 'Respin Counter Note',
+		note: 'The beat the counter is announcing: "award" as the feature opens, "reset" while a reset holds, else empty.',
+	},
+	{
 		key: 'activeModifiers',
 		kind: 'string',
 		label: 'Active Modifiers',
@@ -228,6 +244,12 @@ export const HOLD_AND_WIN_PARAM_CATALOG: EngineParamEntry[] = [
 		kind: 'number',
 		label: 'Feature Total',
 		note: 'What the Total Win bar reads — counts up coin by coin as the feature ends.',
+	},
+	{
+		key: 'featureWorth',
+		kind: 'number',
+		label: 'Feature Worth',
+		note: FEATURE_WORTH_NOTE,
 	},
 	...['mini', 'minor', 'major', 'grand'].map((tier): EngineParamEntry => ({
 		key: `jackpot.${tier}`,
@@ -376,6 +398,7 @@ export const VALUE_BINDING_SOURCE_CATALOG: ValueBindingSourceEntry[] = [
 	{ key: 'collectorLevel', label: 'Collector level', group: 'Hold and Win' },
 	{ key: 'lettersLit', label: 'Letters lit', group: 'Hold and Win' },
 	{ key: 'featureTotal', label: 'Feature total', group: 'Hold and Win' },
+	{ key: 'featureWorth', label: 'Feature worth', group: 'Hold and Win', note: FEATURE_WORTH_NOTE },
 	{
 		key: 'freeSpinsLeft',
 		label: 'Free spins left',
@@ -649,6 +672,11 @@ const HOLD_AND_WIN_SIGNALS: EngineSignalEntry[] = [
 		},
 	]),
 	...featureFamily('holdAndWin', 'Respins', [
+		{
+			key: 'respinAward',
+			label: 'Respin counter — award',
+			note: 'The feature opened and the counter shows the respins awarded.',
+		},
 		{
 			key: 'respinReset',
 			label: 'Respin counter — reset',

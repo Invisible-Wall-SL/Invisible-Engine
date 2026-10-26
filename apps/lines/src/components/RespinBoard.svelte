@@ -21,6 +21,7 @@
 	 * `respinCollectStep` fires once per collected coin, as it takes off for the collector (its
 	 * landing is a `flightArrive` with flight `toCollector`).
 
+	 * `respinCounterAward` fires as the feature opens and the counter shows the respins awarded.
 	 * `respinAddRespins` fires as an add-respins special applies (its "+N" landing in the counter is a
 	 * `flightArrive` with flight `toCounter`), `respinCoinUpgrade` as an upgrade applies (each beam's
 	 * landing is a `flightArrive` with flight `upgradeBeam`).
@@ -52,6 +53,7 @@
 		| { type: 'respinBoardHide' }
 		| { type: 'respinBoardSpin'; cells: HoldAndWinCell[] }
 		| { type: 'respinCoinsLand'; cells: HoldAndWinCell[] }
+		| { type: 'respinCounterAward'; left: number }
 		| { type: 'respinCounterUpdate'; left: number; start: number; reset: boolean }
 		| { type: 'respinCoinPay'; payer: HoldAndWinCell; value: number; cells: HoldAndWinCoinChange[] }
 		| { type: 'respinAddRespins'; cell: HoldAndWinCell; added: number; left: number; total: number }

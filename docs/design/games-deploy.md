@@ -180,6 +180,43 @@ every such region distorted, in every game at once. So never `rollback` or `pin`
 release whose commit includes #1241 (`list` shows each release's commit); to undo a newer release,
 roll back to one at or above it.
 
+**A second floor: the first release with Invisible Shader Graph step 6 (#1333).** Publish compiles a
+project's shader graphs into the game's bundle, and the runtime links the GLSL library functions
+they call from its own copy. Step 6 added library functions for its new nodes, so a graph that
+uses one calls functions a runtime from before it does not have, and that effect draws nothing (a
+shader that fails to compile) where it plays. Graphs saved before step 6 compile as they did. Never `rollback` or `pin`
+below that release. A game published in the minutes between the launcher's deploy and the
+release's promote is in the same state until the promote lands; it needs no re-publish. Runtimes
+from step 6 on refuse such an effect outright (`readCustomElementFx` drops an effect calling a
+library function it lacks), so the next addition fails safe: the effect plays nothing rather than
+drawing a broken shader.
+
+**A soft floor: the first release with Invisible Shader Graph step 8a.** A graph with a motion
+graph ships its motion as a program (`motion.program`) that the runtime runs each frame. A runtime
+from before 8a ignores it: such an effect plays its pixels, passes and curves, but not the graph's
+motion or its growing room (its room is the doc's fixed padding). Rolling back below that release
+silently drops that motion in every game that uses it; nothing breaks, so this floor is soft. Graphs
+without a motion graph compile byte-identically and are unaffected. Runtimes from 8a on drop a
+program they cannot run (one using an op added later) and play the curves, so the next op added
+degrades the same way.
+
+**A soft floor: the first release with Invisible Shader Graph step 8b.** A graph with a Break
+Output ships its break as `break` beside its pass. A runtime from before 8b ignores it: an exit
+effect then plays its graph, passes and motion over the whole play and fades the element out on
+the fade its compiled alpha curve (or its motion program, when that drives alpha) carries for this,
+so it still leaves the screen, unbroken; an assemble simply shows the element and plays its graph.
+Rolling back below that release silently drops the breaks in every game that uses them; nothing
+breaks, so this floor is soft. Graphs without a Break Output compile byte-identically. Runtimes
+from 8b on drop a break they cannot play (a kind or param added later, a phase mismatch) and play
+the effect as an older runtime does.
+
+**A floor for Custom GLSL: the first release with Invisible Shader Graph step 8c.** An effect
+holding a Custom GLSL node ships functions (`efxGlsl_<n>`) that runtimes from step 6 to 8b take for
+library calls they lack, so they drop the effect: it plays nothing on its element (which stays as it
+is). Rolling back below 8c silently removes every such effect; graphs without Custom GLSL are
+unaffected. From 8c on, the runtime also asks the driver whether each Element FX program linked and
+draws the element unchanged when one did not, so a shader a phone rejects never blanks the element.
+
 **Races.** Rollback is deliberately NOT in the release's concurrency group: GitHub cancels a
 *pending* run when a newer one joins the group, so a rollback queued behind a bad release's 15-minute
 served check could be silently replaced by the next merge's release. Instead every pointer write is

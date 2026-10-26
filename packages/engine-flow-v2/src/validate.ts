@@ -5,6 +5,9 @@
  *
  * Each check has a stable `code` string (so the UI + tests can key off it):
  *  - `ref-unresolved`      — a node's `ref` (event/action/cue/container/function) is unknown.
+ *  - `rules-only-in-rgs`   — an action only a rules-decided game may call (`boardResolve`,
+ *                            `boardRefill`, `boardShuffle`), in a game the RGS decides: `withOutcome`
+ *                            dropped it from the vocabulary. Reported INSTEAD of `ref-unresolved`.
  *  - `exec-in-fanin`       — an exec-in has >1 incoming exec edge (§2: at most one predecessor).
  *  - `data-in-fanin`       — a data-in has >1 incoming data edge (§2: at most one source).
  *  - `entry-has-exec-in`   — an `event` node has an incoming exec edge (§3: entry points have none).
@@ -87,6 +90,9 @@
  *                            the runtime runs the first wire only, so the second is dead (an ERROR).
  *                            Every instance check runs only when the caller projects the instances
  *                            in (`PinContext.instances`); absent ⇒ unknown layout ⇒ never guess.
+ *  - `spawn-layer-unknown` / `spawn-not-spawnable` / `spawn-cell-free` / `spawn-handle-unfed` — the spawn checks
+ *                            (`spawnValidate.ts`, game-families §3.3), judged only when the caller
+ *                            projects the spawn layers in (`PinContext.spawnLayers`).
  *  - `guard-type-mismatch` — a branch guard row tests a `bool`/`string`/enum read of KNOWN type
  *                            (an `$engine` value, a `$trigger` field of the chain's event) with
  *                            `eq`/`ne` against a literal of another kind (`guardLiteralMismatch`).
@@ -111,9 +117,12 @@ import {
 	instanceValueOf,
 	isLocalizationKey,
 } from './instanceNodes';
+import { isRulesOnlyInRgs } from './reference/outcome';
 import { flowGraphs } from './runtime';
 import { dataSourceType, type PinContext } from './pins';
 import { deriveGraphPins } from './scope';
+import { INSTANCE_HANDLE_FIELDS, instanceHandleField } from './spawnNodes';
+import { spawnNodeIssues } from './spawnValidate';
 import {
 	guardLiteralMismatch,
 	instanceEventOwner,
@@ -122,6 +131,8 @@ import {
 } from './triggers';
 import { SYMBOL_ENUM, symbolsOf } from './symbols';
 import { assignable } from './types-check';
+import { STATE_ENTRY_KINDS, variableDeclIssues, variableNodeIssues } from './variableValidate';
+import { docVariables } from './variables';
 import type {
 	ContainerEventDecl,
 	DataEdge,
@@ -178,7 +189,20 @@ export type FlowIssueCode =
 	| 'instance-text-key'
 	| 'instance-text-wire'
 	| 'instance-event-duplicate'
-	| 'guard-type-mismatch';
+	| 'guard-type-mismatch'
+	| 'variable-unknown'
+	| 'variable-type'
+	| 'variable-scope'
+	| 'variable-duplicate'
+	| 'variable-shadows-money'
+	| 'rules-only-in-rgs'
+	| 'tick-async'
+	| 'tick-fast'
+	| 'input-unknown'
+	| 'spawn-layer-unknown'
+	| 'spawn-not-spawnable'
+	| 'spawn-cell-free'
+	| 'spawn-handle-unfed';
 
 /** `info` is an authoring HINT: the doc runs, nothing is wrong, but an authored surface is idle. */
 export type FlowIssueSeverity = 'error' | 'warning' | 'info';
@@ -188,7 +212,8 @@ export type FlowIssueAt =
 	| { on: 'node'; node: string }
 	| { on: 'pin'; node: string; pin: string }
 	| { on: 'execEdge'; from: PinPath; to: PinPath }
-	| { on: 'dataEdge'; from: PinPath; to: PinPath };
+	| { on: 'dataEdge'; from: PinPath; to: PinPath }
+	| { on: 'variable'; variable: string };
 
 export interface FlowIssue {
 	code: FlowIssueCode;
@@ -232,6 +257,8 @@ const literalMatches = (type: TypeRef, value: unknown): boolean => {
 			return typeof value === 'object' && value !== null;
 		case 'list':
 			return Array.isArray(value);
+		case 'instance':
+			return false; // a handle comes from a spawn or a live set, never a literal.
 	}
 };
 
@@ -489,8 +516,23 @@ export const validateFlowDoc = (
 	// `componentInstance` / `waitForState` pins and every `instance-*` check. Absent ⇒ the layout is
 	// unknown: base pins only, and those checks report nothing — never guess.
 	instances?: Record<string, FlowInstanceDecl>,
+	// Who decides the outcome (game-families §2.1): absent ⇒ the RGS, as for every slot, so a
+	// variable may never stand for money (`variable-shadows-money`).
+	outcome?: PinContext['outcome'],
+	// §3.3: the spawn layers on the flow's screens (layer node id → decl). Feeds the spawn nodes'
+	// pins and every spawn check. Absent ⇒ the layout is unknown: those checks report nothing.
+	spawnLayers?: PinContext['spawnLayers'],
 ): FlowIssue[] => {
-	const ctx: PinContext = { vocab, library, containerEvents, containerTaps, instances };
+	const ctx: PinContext = {
+		vocab,
+		library,
+		containerEvents,
+		containerTaps,
+		instances,
+		variables: docVariables(doc),
+		outcome,
+		spawnLayers,
+	};
 	const containerIds = new Set(doc.containers.map((c) => c.id));
 	const missingScenes = new Map(
 		containersMissingScene(doc.containers, sceneIds ?? []).map((c) => [c.id, c.sceneId]),
@@ -510,12 +552,13 @@ export const validateFlowDoc = (
 			templateId: doc.templateId,
 		});
 		scoped.push(...modeScopeIssues(graph, modeId));
+		scoped.push(...variableNodeIssues(flat, ctx, modeId, doc));
 		scoped.push(...missingSceneIssues(flat, missingScenes));
 		issues.push(
 			...(modeId === undefined ? scoped : scoped.map((issue) => ({ ...issue, mode: modeId }))),
 		);
 	}
-	return [...duplicateIdIssuesFrom(idCounts), ...issues];
+	return [...duplicateIdIssuesFrom(idCounts), ...variableDeclIssues(doc, outcome), ...issues];
 };
 
 const MODE_ID = /^[A-Za-z][A-Za-z0-9_-]*$/;
@@ -653,7 +696,15 @@ const validateGraph = (
 			node.kind === 'event' &&
 			node.ref.startsWith('complete:') &&
 			containerIds.has(node.ref.slice('complete:'.length));
-		if (!refResolves(node, ctx) && !eventCompleteOk) {
+		const resolves = refResolves(node, ctx);
+		if (!resolves && node.kind === 'action' && isRulesOnlyInRgs(node.ref, ctx.outcome)) {
+			issues.push({
+				code: 'rules-only-in-rgs',
+				severity: 'error',
+				message: `action node '${node.id}' calls '${node.ref}', which only a rules-decided game may call — in an RGS game the server deals, refills and resolves the board`,
+				at: { on: 'node', node: node.id },
+			});
+		} else if (!resolves && !eventCompleteOk) {
 			issues.push({
 				code: 'ref-unresolved',
 				// EVENTS are the OPEN input boundary: the game dispatches whatever name it likes (book
@@ -695,6 +746,7 @@ const validateGraph = (
 	// when the caller projected the instances in — an absent map is an unknown layout.
 	issues.push(...instanceIssues(nodes, pinsById, data, ctx));
 	issues.push(...instanceEventDuplicateIssues(nodes, exec, ctx));
+	issues.push(...spawnNodeIssues(nodes, pinsById, graph, ctx, owners));
 
 	// --- (b + c) edge endpoints + fan-in + fan-out + entry-has-no-exec-in ---
 	const execInCount = new Map<string, number>(); // keyed by `key(pin)`.
@@ -714,7 +766,15 @@ const validateGraph = (
 	const stalePin = (p: PinPath, kind: PinKind, dir: PinDir): string | undefined => {
 		if (endpointOk(p, kind, dir)) return undefined;
 		const node = nodeById.get(p.node);
-		if (node?.kind !== 'componentInstance' || !resolvedInstance(node, ctx)) return undefined;
+		const resolved =
+			node?.kind === 'componentInstance'
+				? !!resolvedInstance(node, ctx)
+				: node?.kind === 'instanceRef' &&
+					!!ctx.spawnLayers &&
+					Object.values(ctx.spawnLayers).some((l) =>
+						l.spawnable.some((s) => s.componentId === node.componentId && !s.missing),
+					);
+		if (!resolved) return undefined;
 		const interfacePin =
 			instanceTriggerOf(p.pin) ??
 			instanceInputOf(p.pin) ??
@@ -746,11 +806,11 @@ const validateGraph = (
 		execOutCount.set(key(edge.from), (execOutCount.get(key(edge.from)) ?? 0) + 1);
 		// (c) an `event` (entry) node must have no incoming exec edge.
 		const target = nodeById.get(edge.to.node);
-		if (target?.kind === 'event') {
+		if (target && (target.kind === 'event' || STATE_ENTRY_KINDS.has(target.kind))) {
 			issues.push({
 				code: 'entry-has-exec-in',
 				severity: 'error',
-				message: `event node '${target.id}' is an entry point and cannot have an incoming exec edge`,
+				message: `${target.kind === 'event' ? 'event' : target.kind} node '${target.id}' is an entry point and cannot have an incoming exec edge`,
 				at: { on: 'execEdge', from: edge.from, to: edge.to },
 			});
 		}
@@ -845,7 +905,7 @@ const validateGraph = (
 			const dot = edge.from.pin.indexOf('.');
 			if (dot === -1) continue;
 			event = owner = edge.from.pin.slice(0, dot);
-		} else if (fromNode?.kind === 'componentInstance') {
+		} else if (fromNode?.kind === 'componentInstance' || fromNode?.kind === 'instanceRef') {
 			// An instance event's payload data-out (`event:<event>:<field>`) reads the same way: only on
 			// the chain its `event:<event>` pin starts.
 			const field = instanceEventFieldOf(edge.from.pin);
@@ -1010,6 +1070,7 @@ const instanceIssues = (
 		instanceEventFieldOf(from.pin) !== undefined;
 	for (const node of nodes) {
 		if (node.kind !== 'componentInstance' && node.kind !== 'waitForState') continue;
+		if (node.kind === 'waitForState' && node.componentId !== undefined) continue; // spawned (§3.3)
 		const label = node.kind === 'componentInstance' ? 'component node' : 'wait-for-state node';
 		const decl = ctx.instances[node.instance];
 		if (!decl || decl.container !== node.container) {
@@ -1324,7 +1385,26 @@ const validateDataSource = (
 			return;
 		}
 	}
-	if (acc.on === 'item' && acc.member !== undefined && scopeItem) {
+	if (acc.on === 'live' && ctx.spawnLayers && !ctx.spawnLayers[acc.layer]) {
+		issues.push({
+			code: 'spawn-layer-unknown',
+			severity: 'error',
+			message: `accessor $live.${acc.layer} on ${node.id}.${pin.id} reads a layer no screen of this flow places`,
+			at: { on: 'pin', node: node.id, pin: pin.id },
+		});
+		return;
+	}
+	if (acc.on === 'item' && acc.member !== undefined && scopeItem?.t === 'instance') {
+		if (!instanceHandleField(acc.member)) {
+			issues.push({
+				code: 'accessor-unresolved',
+				severity: 'error',
+				message: `accessor $item.${acc.member} on ${node.id}.${pin.id} is not a field of an instance (${Object.keys(INSTANCE_HANDLE_FIELDS).join(', ')})`,
+				at: { on: 'pin', node: node.id, pin: pin.id },
+			});
+			return;
+		}
+	} else if (acc.on === 'item' && acc.member !== undefined && scopeItem) {
 		if (scopeItem.t !== 'struct') {
 			issues.push({
 				code: 'accessor-unresolved',
@@ -1374,6 +1454,8 @@ const typeName = (t: TypeRef): string => {
 			return `struct ${t.name}`;
 		case 'list':
 			return `list<${typeName(t.of)}>`;
+		case 'instance':
+			return t.component ? `instance<${t.component}>` : 'instance';
 		default:
 			return t.t;
 	}

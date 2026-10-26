@@ -15,6 +15,10 @@
  *  dependency-free module (plain Node scripts import it), and read by `potsOverlay.ts`. */
 export const POTS_OVERLAY_WIRE = 1;
 
+/** The only match-3 wire this client reads — `config.match3.wire` (`docs/reference/match3-wire.md`).
+ *  Defined here for the same reason; read by `match3.ts`. */
+export const MATCH3_WIRE = 1;
+
 export interface GameMapping {
 	/** Map a Play4Fun symbol name to the target game's symbol name. Unmapped
 	 *  symbols pass through unchanged so unknown additions surface as warnings
@@ -130,6 +134,8 @@ export const MAPPINGS: Record<string, GameMapping> = {
 	lines: linesMapping,
 	book: bookMapping,
 	identity: identityMapping,
+	match3: identityMapping,
+	freePlay: identityMapping,
 };
 
 /** Resolve the active game mapping from env, defaulting to `lines`. Reads
@@ -168,15 +174,19 @@ const LINES_ONLY = ['PIC5', 'PIC6', 'PIC7', 'PIC8', 'PIC9', 'PIC10'];
 /** Detect the right mapping from the server's declared symbol vocabulary (the boot `config`'s
  *  `symbols`). Book-of games declare royal symbols (any of ACE…TEN); Hot-Fruits-style lines games
  *  declare any of PIC5-PIC10; a Hold and Win server sends the project's OWN names (`docs/reference/
- *  hold-and-win-wire.md`), so it maps by identity. A pots-overlay host keeps its HOST's mapping (a book
- *  host still speaks `ACE`/`PIC1`): its Hold and Win bonus and token names are none of those, so they
- *  pass through unmapped. Returns null if undecidable. Shared by the facade
+ *  hold-and-win-wire.md`), so it maps by identity, as does a match-3 server. A pots-overlay host
+ *  keeps its HOST's mapping (a book host still speaks `ACE`/`PIC1`): its Hold and Win bonus and
+ *  token names are none of those, so they pass through unmapped. Returns null if undecidable. Shared
+ *  by the facade
  *  and the launcher's paytable import, so both read a server's names the same way. */
 export const pickMappingForConfig = (cfg: {
 	symbols?: readonly string[];
 	holdAndWin?: unknown;
 	potsOverlay?: unknown;
+	match3?: unknown;
 }): GameMapping | null => {
+	// A match-3 server deals the project's own gem names (`docs/reference/match3-wire.md`).
+	if ((cfg.match3 as { wire?: unknown } | undefined)?.wire === MATCH3_WIRE) return identityMapping;
 	// The facade's own gate: only a block on the wire this client reads is an overlay host. A Hold
 	// and Win GAME that adds an overlay deals its own names on the base board, so it keeps identity:
 	// its boot `symbols` lists its Hold and Win symbols, which a host whose block is the overlay's

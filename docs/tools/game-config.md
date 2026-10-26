@@ -111,6 +111,79 @@ before — an un-authored project still runs the compiled template.
 - **Big win tiers** — the big-win celebrations the game plays, as an ordered list.
   See _Big win tiers_ below. Leave it empty to keep the game's built-in tiers.
 
+## Game family: match-3 and arcade
+
+Every project so far is a **slot**, and a slot project's page is exactly as described above: it
+has no family control at all. Two more families exist
+([game-families.md](../design/game-families.md)), and their configs can be authored here, though
+**none can be published yet** (below).
+
+- **Where the picker shows:** only on a project whose kind is `match3` or `arcade`, or whose
+  config already names a family. [Game Maker](game-maker.md) creates a **Match-3** project with
+  its config already set, by the answer to its **Who decides the result?**: for **Free play**,
+  Match-3 decided by the game's rules, a 7×7 board of six gems, 20 moves, a score goal of 1500 and
+  50 / 120 / 250 points for a run of 3 / 4 / 5; for **Real money**, Match-3 decided by the server,
+  the same board and gems, one base bet mode, 10 moves (read by the test server's mock) and gem
+  pays of 0.1 / 0.25 / 0.5× (low) or 0.2 / 0.5 / 1.5× (high) the whole bet for a run of 3 / 4 /
+  5+. An **Arcade** project starts as Arcade decided by its rules, with no field size (the
+  layout's design size), the sample's four bodies and two collisions (see [Game Maker](game-maker.md)). On any other
+  project the way in is **raw JSON**: add `"family": "arcade"`, apply, and the page re-renders
+  for that family.
+- **Game family** (the panel at the top): the **Family** (Slot / Match-3 / Arcade) and **Who
+  decides the result**:
+  - **The server (RGS) — real money**: the server decides every gem that falls and every win, so
+    the game has a stake, bet modes and a paytable.
+  - **The game's rules — free play, no money**: no stake, no balance and no wins in money.
+  An arcade game is always decided by its rules for now; one decided by the server is a later,
+  optional step. Choosing **Slot** removes the family and every family field, and the page is a
+  slot's again.
+- **Only the family's sections are shown.** The rest are not rendered at all, and nothing they
+  hold is checked, so a hidden section never blocks Save:
+
+  | Section | Slot | Match-3, RGS | Match-3, rules | Arcade |
+  |---|---|---|---|---|
+  | Return to player, Bet modes, Big win tiers | ✓ | ✓ | — | — |
+  | Grid | ✓ | ✓ (the board: columns × rows) | ✓ (the board) | — |
+  | Symbols | ✓ | ✓ (gems, with pays) | ✓ (gems, no pays, no import buttons) | — |
+  | How wins are decided | ✓ | ✓ (a read-only Match-3 line) | — | — |
+  | Sounds | ✓ | ✓ | ✓ | — |
+  | Free spins, Expanding symbol, Coins, Coin board, Coin overlay, Bonus modes, Game modes, Reel behaviour, Paylines | ✓ | — | — | — |
+  | Match-3 | — | ✓ | ✓ | — |
+  | Arcade | — | — | — | ✓ |
+
+- **Match-3** — the board's rules. The board itself is the **Grid**: its reels are the columns,
+  and every column must be the same height (a stepped match-3 board is refused).
+  - **Minimum run** — the fewest gems of one kind in a row or column that match (default 3). A run
+    longer than the board is refused.
+  - **Refill strips** — one per column, as a comma list of gem ids: the order new gems fall in
+    from the top. The gems in them are the game's **in-play** set, exactly as a slot's strips are.
+  - Rules games only: **Moves per round** (empty = no limit, which warns), **Points per run**
+    (`3:50, 4:120, 5:300`) and **Goals** — a score to reach, or a number of one gem to collect. A
+    goal that can never be met (a gem no strip deals, a score with nothing that scores) is refused.
+  - In an RGS game the server sends the moves, and the paytable in **Symbols** prices a run on the
+    whole bet. **How wins are decided** says so; there is no win-model choice to make.
+- **Arcade** — the play field and what collides:
+  - **Field width / height** — the play field in design pixels; empty = the screen.
+  - **Steps per second** — how often motion is simulated (default 60; outside 30–240 warns).
+  - **Bodies** — by component id: a **box** (width × height) or a **circle** (radius), its
+    **tags** (`player`, `enemy`, `pickup`), its **Edges** and whether it is **solid**. **Edges**
+    is what the body does at the field's edge: `clamp` stops it there (the default), `wrap`
+    brings it back on the far side, `pass` lets it leave, which raises Flow's `leaveBounds`.
+  - **Collisions** — a comma list of tag pairs, `player + hazard, player + pickup`. Two bodies
+    carrying a pair's tags raise Flow's `collide` when they start touching. Bodies whose tags no
+    pair names never collide. A pair naming a tag no body carries warns.
+  - **Zones** — **Add zone** adds a 200 × 200 square at the field's corner; set its **Zone** id,
+    **x** / **y** (its top-left corner) and **Width** / **Height**, in design pixels. A body
+    moving in or out raises Flow's `enterZone` / `leaveZone`. A zone wholly off the field warns.
+  See [Flow → Arcade](flow.md#arcade--the-play-field-signals-and-the-starter-flow) for the signals.
+- **Publishing:** a **match-3** config publishes from Game Maker to the test server, free play or
+  decided by the server (against the test server's match-3 mock), and so does a free-play
+  **arcade** config. An arcade config decided by the server is refused by Game Maker's publish and
+  the desktop bake, with no override, while the game runtime cannot play it. Neither family can be
+  built for a partner delivery: free play has no wallet, and live real money for a server-decided
+  match-3 waits on a real provider's match-3 wire. Set the family back to Slot to publish or
+  deliver the project as a slot.
+
 ## Coin board
 
 The **Coin board** section sits after Bet modes, before Coin overlay, on a Hold and Win project

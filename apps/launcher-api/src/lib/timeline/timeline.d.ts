@@ -18,10 +18,13 @@ export interface TimelineEvaluator {
 		t: number,
 	): boolean;
 	putKey(keys: unknown[], time: number, value: number, ease?: TimelineEase): void;
+	/** The shape `u → eased u` of an `ease`: the Interpolation panel draws Elastic / Bounce with it. */
+	easeShape(ease: unknown): (u: number) => number;
 }
 
 /** A key's outgoing interpolation: a named ease, or a cubic `[x1, y1, x2, y2]`. */
-export type TimelineEase = 'linear' | 'ease' | 'hold' | [number, number, number, number];
+export type TimelineEase =
+	'linear' | 'ease' | 'hold' | 'elastic' | 'bounce' | [number, number, number, number];
 
 /** One selected key: its track, channel and time. */
 export interface TimelineKeyRef {
@@ -72,6 +75,13 @@ export interface TimelineHost {
 	selectedActor?(): string | null;
 	/** Space: play / pause. Absent ⇒ the Timeline leaves Space to the page. */
 	togglePlay?(): void;
+	/** Ctrl+V of property keys copied from `fromActorId`: the OTHER actor they should land on (the
+	 *  node selected on the stage), the channels it can key, and `actor()` to make it an actor (called
+	 *  only when something pastes). Null ⇒ onto the copied channels, as with no host. */
+	pasteTarget?(fromActorId: string): { channels: string[]; actor(): string } | null;
+	/** Cue names the cue inspector offers beside the FX effects (the editor: the screen's _On cue_
+	 *  Element FX), each a complete cue string with what it reaches. Default: none. */
+	cueSuggestions?(): Array<{ cue: string; label: string }>;
 }
 
 type Strip = Record<string, unknown> & { id: string };

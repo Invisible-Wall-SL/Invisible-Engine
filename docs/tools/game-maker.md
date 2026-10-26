@@ -52,7 +52,7 @@ overlay add-on.
 2. Pick a **Client** from the dropdown, or leave it **Unassigned**.
 3. Pick a **Game type**. The list is the same union the `/admin` create-project
    action offers — the built-in scene sets (`lines`, `ways`, `cluster`,
-   `scatter`, `holdAndWin`) plus any author-created custom kinds. The game type seeds
+   `scatter`, `holdAndWin`, `match3`, `arcade`) plus any author-created custom kinds. The game type seeds
    the project's starting layout template. **Book of** is no longer a game type of its own (its
    existing projects keep it until they are moved to lines): a Book-of game is a **Lines** game with
    the expanding symbol.
@@ -103,6 +103,55 @@ overlay add-on.
      reads _No coin overlay preset fits this game type._: pots and dropped tokens are not built
      for a coin board. A project switched to the coin board later, in Game Config, keeps the
      screens and Flow it was created with.
+   - **Match-3** shows a **Who decides the result?** dropdown, with one line under it describing
+     the choice. It starts on **Free play (rules)**:
+     - **Free play (rules)** — _The game's own rules, no wallet._ (below).
+     - **Real money (RGS)** — _The server deals every board and win — publishes to the test
+       server's mock. Live real money is not switched on yet._ (below).
+
+     **Free play** makes a free-play match-3 game: no stake, no balance, no wins in money — the
+     game's own rules decide every round. It is saved with its own [Game Config](game-config.md)
+     (Game family → Match-3, decided by the game's rules): a 7×7 board of six gems, 20 moves a
+     round, a score goal of 1500, and 50 / 120 / 250 points for a run of 3 / 4 / 5. Its screens
+     are the match-3 set (see [Scene Editor](invisible-editor.md)): **Loading / logo**,
+     **Background**, **Board** (the gem grid, which never spins), **Score and moves** (SCORE,
+     MOVES and TARGET readouts, each a Text Box fed by the Flow variable `var:score`,
+     `var:movesLeft` or `var:target`), **Round won** and **Round lost** (a dimmed tap-to-continue
+     with one line of text). There is no slot HUD — no spin button, bet or balance. Its starter
+     [Flow](flow.md#match-3--the-board-signals-and-the-starter-flow) keeps the score, spends the
+     moves and ends the round. The player swaps two neighbouring gems by dragging one onto the
+     other, or by tapping one and then its neighbour.
+
+     **Real money** makes a match-3 game the server decides: the Spin button places the bet that
+     opens a round, the server deals the board, resolves every swap and prices every win, and the
+     round ends when the server says so. Its [Game Config](game-config.md) is Match-3 decided by
+     the server: the same 7×7 board and six gems, one **base** bet mode, 10 moves a round (the
+     test server's mock reads it; a real server sends its own), and a paytable that prices a run
+     of 3 / 4 / 5 or more as a multiple of the whole stake — 0.1 / 0.25 / 0.5× for the low gems
+     (L1, L2), 0.2 / 0.5 / 1.5× for the high gems (H1–H4). Its screens are **Loading / logo**,
+     **Background**, **Board**, **Moves** (one MOVES readout, a Text Box fed by `var:movesLeft`),
+     and the standard slot HUD — **HUD — bottom bar** (balance, win and bet; the spin, menu and bet
+     buttons) and **HUD — corners**. There is no score, no target and no round won / lost screen.
+     Its starter Flow sets the moves when a board lands, spends one per accepted swap and locks the
+     board when the round ends. It plays in the authoring preview against the test server's match-3
+     mock; publishing it is refused (see below).
+   - **Arcade** asks nothing more: an arcade game is always free play, decided by its own rules —
+     no stake, no balance, no wins in money. You get a playable sample, _Salmon Run_: a salmon
+     swims along the bottom of the river, steered with the arrow keys or **A** / **D**; bears and
+     hooks fall towards it and cost a life each, fish drift down and score 10, and the round is
+     over at no lives (three to start). Its [Game Config](game-config.md#game-family-match-3-and-arcade)
+     is Arcade: no play field size (the field is the layout's design size), a body for each of the four sample components (the salmon
+     tagged `player`, the bear and the hook `hazard`, the fish `pickup`) and the collisions
+     `player + hazard`, `player + pickup`. Its screens are the arcade set (see
+     [Scene Editor](invisible-editor.md)): **Loading / logo**, **Background**, **Play field** (a
+     [Spawn layer](invisible-editor.md#spawn-layer--a-field-flow-fills-while-the-game-runs) named
+     `field`), **Score and lives** (SCORE and LIVES readouts, Text Boxes fed by `var:score` and
+     `var:lives`) and **Round over** (a dimmed tap-to-continue with one line of text). There is no
+     board and no slot HUD. Its starter [Flow](flow.md#arcade--the-play-field-signals-and-the-starter-flow)
+     spawns the bodies, keeps the score and the lives and ends the round. The four components —
+     **Salmon**, **Bear**, **Hook** and **Fish (placeholder)**, flat coloured shapes — are the
+     project's own; re-skin them in the Component Editor. It plays in the authoring preview;
+     publishing it is refused (see below).
 4. Optionally tick **Add a coin overlay** and pick its preset from the dropdown beside it. The
    new project then gets the same add-on as the card's **＋ Coin overlay…** (see
    [Add a coin overlay](#add-a-coin-overlay-to-a-project) below), run on its fresh scaffold.
@@ -117,7 +166,8 @@ overlay add-on.
    `sheet_config.json`, `localization/strings.json`; a **Hold and Win** project
    also gets the plain Hold and Win (or the coin board one) as its own [Game Config](game-config.md)
    and `symbols/symbols.json` binding its Hold and Win symbols, so its first publish
-   already deals and draws the feature). A confirmation appears and
+   already deals and draws the feature; a **Match-3** project gets the config of the result you
+   picked the same way, and an **Arcade** project its config and its four placeholder components). A confirmation appears and
    the project shows up under **Your projects** below. With the overlay ticked, the confirmation
    reads _"… with the coin overlay"_ and the add-on's report shows under the form.
 
@@ -481,6 +531,15 @@ game) plus a few seconds to copy its files.
   lists the differing rows. Same rule as flow errors — an **admin** gets **Publish anyway**;
   anyone else fixes the rows in `/config` or asks an admin.
 - **A game with its own desktop build.** Final — republish it from the desktop launcher.
+- **A game the runtime cannot play yet.** Final, with no override: today an arcade game decided by
+  the server, refused with _"This game's config is an arcade game, and the game runtime cannot
+  play an arcade game yet, so it is not published. Set it back to a slot in Invisible Game Config
+  to publish it as one."_ The desktop bake's config export refuses it the same way. A match-3
+  game publishes, free play or real money, to the test server, and so does a free-play arcade
+  game: free play takes no request there, and a real-money match-3 plays the test server's
+  match-3 mock. Neither family can be built for a partner delivery: the delivery build refuses a
+  game that is not a slot (free play has no wallet; real-money match-3 waits on a real provider's
+  wire).
 
 Step by step, with what to do after each refusal: the
 [publish and deliver runbook](../guides/publish-and-deliver.md).
@@ -687,6 +746,14 @@ graduate later; its R2 authoring data carries over.
 - **Per-game math is not authored here.** Symbols, paytable, paylines, win model, bet modes, reel
   strips and board size live in [Invisible Game Config](game-config.md); a project that never
   saves a config there runs the engine's compiled `lines` template, whatever its game type.
+- **Match-3 and arcade publish to the test server only.** A match-3 game (either answer to **Who
+  decides the result?**) and a free-play arcade game publish there, but neither can be built for a
+  partner delivery (see _Publish can refuse_ above). Changing a match-3 answer later is Game
+  Config's **Who decides the result**; the screens and Flow stay the ones the project was created
+  with. There is no real-money arcade game.
+- **A custom kind saved as `match3` before Match-3 was built in is hidden.** The built-in kind
+  takes its place in every kind picker; the custom kind is never overwritten (the server log
+  warns that it is hidden).
 - **Publish needs a capability, not just the tool** — see **Access** above. Granting
   **Build & publish games** to `developer` / `pipelineTester` is an explicit act in
   `/admin → Roles`.

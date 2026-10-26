@@ -1,26 +1,29 @@
 # Game families: match-3 first, arcade next, cards after (Phase 10 plan)
 
 > Status: **PLAN APPROVED (owner, 2026-10-20): all nine §9 decisions accepted as recommended.
-> ON HOLD: no build phase (P10.1 onward) starts until the owner says go.**
+> STARTED 2026-10-23: the owner gave the go-ahead for Phase 10. P10.1–P10.8 are built; progress
+> lives in [status/game-families.md](../status/game-families.md).**
 >
 > **Amended 2026-10-22 from the owner's questions:** whole tools are shown or hidden per family
 > (§6.5); `/config` shows only the family's sections (§6.2); arcade grows past one screen in three
 > tiers, with characters, movement, jumps and a scrolling camera (§4.3, §4.4, P10.11–P10.13);
 > Salmons is the arcade reference project (§1); card games are a fourth family with a plan of their
-> own (§10). New decisions §9 #10–#19; the hold above is unchanged.
+> own (§10). New decisions §9 #10–#19.
 >
 > **Owner answers, 2026-10-22:** Salmons is the 100-player real-time multiplayer game (each player a
 > salmon, a bear or a fisherman), so multiplayer is **in scope for arcade** as tier A4 (§4.5,
 > P10.14–P10.16); character data lives in Game Config; the card family is confirmed; card-game PvP
 > stays later. Later the same day: Colyseus is the game server, and Salmons is isometric; its art
-> gets a pass before the rebuild (§1). §9 #13–#17 and #19 decided; #18 open.
+> gets a pass before the rebuild (§1). §9 #13–#17 and #19 decided; #18 decided 2026-10-25 with the
+> A4 design.
 >
 > This is Phase 10 of
 > [rive-style-editor.md](rive-style-editor.md) §10. It is the separate design that §7.2 promised for
-> games that are not slots. The owner approved starting it on 2026-10-20. Progress will live in the
-> status files of the tools each phase touches ([flow](../status/flow.md),
-> [engine](../status/engine.md), [component-editor](../status/component-editor.md),
-> [game-config](../status/game-config.md), [game-maker](../status/game-maker.md)), not here.
+> games that are not slots. The owner approved starting it on 2026-10-20. Progress lives in
+> [status/game-families.md](../status/game-families.md), with each tool's own detail in the status
+> file of the tool a phase touches ([flow](../status/flow.md), [engine](../status/engine.md),
+> [component-editor](../status/component-editor.md), [game-config](../status/game-config.md),
+> [game-maker](../status/game-maker.md)), not here.
 >
 > **Owner decision #6 (2026-10-20, recorded in rive-style-editor.md §12 #6):** the outcome source
 > is **a per-game option, not a property of the family**. A match-3 or arcade game is either:
@@ -121,12 +124,13 @@ and never a second copy of the engine.**
   attacks and the fishermen.
 - **Where it is today:** the portal has the project `salmons` (client `invisible_wall`) with no
   published game. The game itself lives outside this repository (`GuiltyForever/Salmon-`): a
-  Colyseus 0.15 game server (Node.js) and a PixiJS 8 + Svelte 5 client. Its server already has the
-  shape A4 needs: the room owns the state, players send inputs, a 60 Hz simulation runs in pure
-  "systems" with no Colyseus imports, and state patches go out at 20 Hz.
+  Colyseus 0.15 game server (Node.js) and a PixiJS 8 + Svelte 5 client. Its server already has much
+  of the shape A4 needs: the room owns the state, players send inputs, and every rule runs on the
+  server in one 60 Hz `update()`; state patches also go out at 60 Hz. What A4 changes is in
+  [realtime-multiplayer.md](realtime-multiplayer.md) §2.
 - **How it comes onto the engine:** the client is **rebuilt on the shared runtime as data**
   (screens, components, characters, Flow), never ported in as a second engine (the rule in "What a
-  family means"). The server keeps Colyseus, and its own systems are replaced by
+  family means"). The server keeps Colyseus, and its `update()` rules are replaced by
   `engine-mechanics`, so the server and the client's prediction run one simulation (§4.5).
 - **Its art comes first (owner, 2026-10-22).** It was made as a test and is not ready for the
   pipeline: loose images instead of atlas sheets, two JPEGs whose backgrounds are cut out while the
@@ -170,6 +174,9 @@ arcade?: ArcadeBlock;                // only when family === 'arcade' (§4.2)
 winModel?: … | { type: 'match3'; minRun: number };   // a fifth arm of the existing union (RGS match-3 pricing)
 ```
 
+The fifth arm is never stored (§9 #20): `resolveWinModel()` builds it from `match3.minRun` for any
+match-3 doc, so `minRun` has one home. A slot doc never stores `outcome` (§9 #25).
+
 This follows the `winModel` precedent exactly (game-type-templates.md Phase C):
 
 - **Defaults are never stored.** The normalizer drops `family` when it would mean slot, and drops
@@ -205,7 +212,7 @@ This follows the `winModel` precedent exactly (game-type-templates.md Phase C):
   strips only seat the cosmetic first board before `boardInit` lands. Either way the in-play gate,
   `/symbols` and the export keep working unchanged.
 - **`/config` gets a picker** for family and outcome. Like the `winModel` picker, choosing the
-  default deletes the field rather than writing it.
+  default deletes the field rather than writing it. A slot project is never shown it (§9 #22).
 
 ### 2.2 The RGS-decided path (real money)
 
@@ -664,6 +671,12 @@ is that moment, so P10.5 declares it.
   - `overlaps(bodies, pairsByTag)` (box and circle, with a uniform-grid broad phase above ~64 bodies);
   - `inZone`.
 
+  A level's static shapes (solids, one-way solids, zones) are indexed once per level in the same
+  grid, so a body tests only the cells it touches, and the step works on plain objects. Salmons'
+  server, which tested every body against all ~1,700 of its river's shapes each tick, filled a core
+  at about 50 players until it did both
+  ([realtime-multiplayer.md](realtime-multiplayer.md) §2.1, §6).
+
   A **fixed timestep** (60 Hz accumulator) makes a seed replay exactly, at any frame rate.
 - **The loop** is one ticker callback per arcade screen, in `engine-game` (new
   `arcadeLoop.svelte.ts`). It runs: read input → `step` → write each spawned instance's `x`/`y`
@@ -794,11 +807,12 @@ the camera comes first (§8).
 **In short:** up to 100 players in one game, each on their own device. The server owns the game; a
 device only sends what its player presses and draws what the server says, with its own player
 predicted so the controls feel instant. This is new ground for the engine, so A4 gets a design doc
-of its own (`docs/design/realtime-multiplayer.md`, not written yet) before any build. This section
-records its shape.
+of its own, [realtime-multiplayer.md](realtime-multiplayer.md) (approved by the owner
+2026-10-25), before any build. This section records its shape; that doc owns the detail.
 
 - **The server owns the game.** It runs the simulation (`engine-mechanics`: motion, behaviours,
-  abilities) at a fixed 60 Hz and sends state at 20 Hz, the rates Salmons uses. A device sends
+  abilities) at a fixed 60 Hz and sends state at 20 Hz (Salmons sends at 60 Hz today; the A4 doc's §5
+  explains the change). A device sends
   **inputs only** (move, jump, ability), never positions or hits, so a modified client cannot
   teleport or claim a catch. It is §2.2's "the client cannot decide money", applied to the game.
 - **One simulation, two places.** `engine-mechanics` is dependency-free plain JS for exactly this
@@ -807,13 +821,12 @@ records its shape.
   **interpolated** between the last two server states, about 100 ms behind.
 - **The game server** is a new service, `services/game-server` (new), on Railway, speaking
   WebSocket. Colyseus is recommended because Salmons already runs on it (§9 #17): its rooms, state
-  schema and lobby are the pattern; its own movement and collision systems give way to
+  schema and lobby are the pattern; its own movement and collision rules give way to
   `engine-mechanics`.
 - **Rules move to the server.** In a single-player rules game, Flow owns the rules on the device
   (§2.3). Online, the rules that decide the game (who was caught, who scored, when the round ends)
-  must run on the server. Whether the Flow interpreter runs headless there (it already runs headless
-  in `/flow-v2` Preview) or online rules are limited to `engine-mechanics` data is the A4 design's
-  main question (§9 #18). Presentation stays in the device's Flow either way.
+  must run on the server, as `engine-mechanics` data, with a named rules module for what the data
+  cannot say (§9 #18). Presentation stays in the device's Flow.
 - **Config:** `GameConfigDoc.arcade.online`: `maxPlayers` (Salmons: 100), the playable characters
   and how many of each a room allows, the tick rates, and whether bots fill empty places.
 - **The runtime** gets an online branch, as it has a free-play one (§2.3): it joins a room instead
@@ -858,7 +871,7 @@ each one is assigned to the phase that first needs it.
 | **Tags** | Arcade collision filters (`enemy`, `pickup`); a `spawnable` group | **P10.8** | S |
 | **N-slice** | Goal panels, progress bars and HUD frames that resize per board size and device layout | **P10.9** | M |
 | **Rulers and guides** | Laying out a play field and board precisely | **P10.9** | S |
-| **Graph Editor + Elastic / Bounce** | Match-3 "juice": gems that land with a bounce, pops that overshoot | **P10.9** (Elastic/Bounce as `CinematicEase` presets can land earlier, with P10.5) | M |
+| **Graph Editor + Elastic / Bounce** | Match-3 "juice": gems that land with a bounce, pops that overshoot | **P10.9**. Elastic / Bounce as `CinematicEase` presets: ✅ built 2026-10-25 | M |
 | **Blend states (1D)** | An arcade character's idle → run, blended by speed | **P10.11** (characters need it; moved from P10.10 on 2026-10-22) | L |
 | **Text modifiers** | Per-glyph score pops | Stays **Later**; not needed for v1 | — |
 
@@ -911,7 +924,7 @@ sees exactly today's page.
 | Symbols | ✓ | ✓ (gems, with pays) | ✓ (gems, no pays) | — |
 | How wins are decided | ✓ | ✓ (the `match3` arm only) | — | — |
 | Free spins, Expanding symbol, Coins, Paylines, the Hold and Win / bonus / coin board / coin overlay sections | ✓ (as each kind and add-on allows today) | — | — | — |
-| Reel behaviour | ✓ | only the switches the first board's arrival uses (P10.5 decides which) | same as RGS | — |
+| Reel behaviour | ✓ | only the switches the first board's arrival uses (P10.5 decides which; hidden until then) | same as RGS | — |
 | **Match-3** (new: min run; moves, goals, score table for rules) | — | ✓ | ✓ | — |
 | **Arcade** (new: play field, fixed rate, bodies; from A3 the world) | — | — | — | ✓ |
 | Characters | — | — | — | a link to Invisible Characters (§4.3) |
@@ -982,7 +995,9 @@ Option A wins on reuse and drift. Its two costs are risk to slots, which this re
 tooling to measure (§7), and a bigger download, which P10.5 measures. Option B stays available:
 `runtimeFor()` is the seam if a family ever needs bespoke compiled code, or its size becomes a
 problem. Arcade shares the least with slots, so P10.8 re-checks the choice before it starts
-(§9 #3).
+(§9 #3). **Re-checked 2026-10-25 (P10.8): option A stands** — arcade needs the Flow state, spawning,
+free-play boot and determinism already in the shared runtime, and its size is the owner's accepted
+static cost; the reasoning is in [status/game-families](../status/game-families.md) (P10.8).
 
 ### 6.5 Which tools a family uses (owner, 2026-10-22; P10.1b)
 
@@ -1066,7 +1081,7 @@ Under the Director pipeline-change rules, every Phase 10 PR is a pipeline change
 | P10.5 | `check:match3-rules`, `check:flow-publish-gate` (extended with the match-3 starter) | A starter rules game plays headless to a goal; the free-play branch sends no RGS request |
 | P10.6 | `check:match3-outcome-guard`, `check:match3-wire` | RGS mode has no local RNG; `withOutcome('rgs')` strips rules-only nodes; facade translation fixtures (`move` → `swap` + `tumbleBoard`…); `seq` advances by 1 per move; replay at the same seq; the interactive round opens, takes N moves and collects once; every protocol list knows `match3` |
 | P10.7 | `check:flow-spawn`, `check:art-scope` (extended) | Spawn cap; despawn inside `forEach`; spawnable components ship |
-| P10.8 | `check:arcade-motion` | Fixed-timestep determinism; overlap by tag; bounds |
+| P10.8 | `check:arcade-motion` | Fixed-timestep determinism; overlap by tag; bounds; the grid finds the same static shapes as a full scan |
 | P10.11 | `check:arcade-characters`, `check:art-scope` (extended) | Each behaviour preset and brain transition replays under a seed; solid response stops and slides; controllers follow the input map; `animInputs` reach the look; a character's components ship |
 | P10.12 | `check:arcade-camera` | Follow with dead zone and smoothing; clamp to the world; auto-scroll; parallax offsets; despawn outside the view; the same framing on replay |
 | P10.13 | `check:arcade-platformer`, `check:art-scope` (extended) | Jump height and time match their settings; coyote time and jump buffer; one-way platforms; no tunnelling at `maxFall`; tile solidity; tileset regions ship |
@@ -1110,22 +1125,22 @@ and jumps (P10.11–P10.13), then online rooms (P10.14–P10.16). Card games get
 | # | Phase | Delivers | Main code | Size |
 |---|---|---|---|---|
 | P10.0 | **Plan + decisions** (this doc) — ✅ approved 2026-10-20 | Owner review of §9; sign-off recorded in §9 | docs | S |
-| P10.1 | **Family and outcome in Game Config** | `family`, `outcome`, `match3` / `arcade` blocks and the `match3` win-model arm (optional, defaults dropped; the normalizer's whitelist learns them, and its no-symbols rule gets the arcade arm); `resolveFamily` / `resolveOutcome`; family-aware validation (paylines, empty `betModes` for rules games, board bounds); the `/config` picker and its per-family sections (§6.2); `GAME_KINDS` + `kindCapabilities` flags. No runtime behaviour yet | `packages/game-config`, `constants-shared`, `engine-layout/kindCapabilities.ts`, `/config` | M |
-| P10.1b | **Tools per family** | `FAMILY_TOOLS` + `familyOfKind()`; the launcher home and `ToolTopBar` list only the family's tools; the hidden-tool notice; Director's gate refuses a hidden tool's ops (§6.5) | `apps/launcher-api` (`roles.ts`, `(app)/+layout.server.ts`, `director/gate.ts`), `constants-shared` | S |
-| P10.2 | **The board module** | `packages/engine-mechanics/board.js` (+ `.d.ts`) with the full match-3 rule set, fixtures. No caller yet | new package | M |
-| P10.3 | **Flow variables, timers, tick** | §3.1 + §3.2 (tick / timers / keys): format, validator; the variable and timer store in the game-side holder, reached through the env; the preview's virtual-time event queue; the Variables panel; `var:<id>` value sources (numbers), and `source` widened to bool / text | `engine-flow-v2`, `apps/lines` (`flowV2InterpreterHolder.ts`, value sources), `/flow-v2`, `engine-layout` (`ComponentInstance`), `componentStorage.ts` | L |
-| P10.4 | **Pointer move / drag / swipe + Align Target** | Rive Later item; the listener events with the new pointer payload kind (normalizer + keep-unknown); global move / up-outside tracking; the board cell hit-test | `engine-layout` (`LayoutNodeView`, `types.ts`), `EditorListeners.svelte` | M |
-| P10.5 | **Match-3, rules-decided, end to end** | `MATCH3_VOCAB` + seed; the family branch in the shared runtime (`<Board/>` kept, spin never started, `<Match3Input />`); the swap on the flight layer (first slice: flights vs the per-cell respin board, §4.1) and the select / hint states; the free-play runtime branch; the layout template and full scene set, which is what puts `match3` in Game Maker; seed config; publish gates; the declared mechanic interface (game-type-templates Phase B); scripted-input steps in the harness's screen scripts; the bundle-size cost reported; a sample game and its playbook | `engine-flow-v2/reference/match3.ts`, `apps/lines`, `engine-game`, `engine-layout` templates, `scripts/current-games/`, launcher | L |
+| P10.1 | **Family and outcome in Game Config** — ✅ built 2026-10-23 | `family`, `outcome`, `match3` / `arcade` blocks and the `match3` win-model arm (optional, defaults dropped; the normalizer's whitelist learns them, and its no-symbols rule gets the arcade arm); `resolveFamily` / `resolveOutcome`; family-aware validation (paylines, empty `betModes` for rules games, board bounds); the `/config` picker and its per-family sections (§6.2); `GAME_KINDS` + `kindCapabilities` flags. No runtime behaviour yet | `packages/game-config`, `constants-shared`, `engine-layout/kindCapabilities.ts`, `/config` | M |
+| P10.1b | **Tools per family** — ✅ built 2026-10-23 | `FAMILY_TOOLS` + `familyOfKind()`; the launcher home and `ToolTopBar` list only the family's tools; the hidden-tool notice; Director's gate refuses a hidden tool's ops (§6.5) | `apps/launcher-api` (`roles.ts`, `(app)/+layout.server.ts`, `director/gate.ts`), `constants-shared` | S |
+| P10.2 | **The board module** — ✅ built 2026-10-23 | `packages/engine-mechanics/board.js` (+ `.d.ts`) with the full match-3 rule set, fixtures. No caller yet | new package | M |
+| P10.3 | **Flow variables, timers, tick** — ✅ built 2026-10-24 | §3.1 + §3.2 (tick / timers / keys): format, validator; the variable and timer store in the game-side holder, reached through the env; the preview's virtual-time event queue; the Variables panel; `var:<id>` value sources (numbers), and `source` widened to bool / text | `engine-flow-v2`, `apps/lines` (`flowV2InterpreterHolder.ts`, value sources), `/flow-v2`, `engine-layout` (`ComponentInstance`), `componentStorage.ts` | L |
+| P10.4 | **Pointer move / drag / swipe + Align Target** — ✅ built 2026-10-24 | Rive Later item; the listener events with the new pointer payload kind (normalizer + keep-unknown); global move / up-outside tracking; the board cell hit-test (`getCellAt`) | `engine-layout` (`LayoutNodeView`, `ComponentInstance`, `types.ts`, `componentPointer.ts`, `componentEvents.ts`), `engine-game` (`gameState`), `componentEventRows.ts`, `EditorListeners.svelte` | M |
+| P10.5 | **Match-3, rules-decided, end to end** — ✅ built 2026-10-24 (publishing it stays off) | `MATCH3_VOCAB` + seed; the family branch in the shared runtime (`<Board/>` kept, spin never started, `<Match3Input />`); the swap on the flight layer (first slice: flights vs the per-cell respin board, §4.1) and the select / hint states; the free-play runtime branch; the layout template and full scene set, which is what puts `match3` in Game Maker; seed config; publish gates; the declared mechanic interface (game-type-templates Phase B); scripted-input steps in the harness's screen scripts; the bundle-size cost reported; a sample game and its playbook | `engine-flow-v2/reference/match3.ts`, `apps/lines`, `engine-game`, `engine-layout` templates, `scripts/current-games/`, launcher | L |
 | P10.5b | *(optional)* **Match-3 specials** | The `specials` table (§4.1) | `engine-mechanics`, `/config` | M |
-| P10.6 | **Match-3, RGS-decided** | The `move` action and events (ours, labelled); the **interactive round** path in the primary machine (a round open across player-paced requests); the `move` request exported from both transports; `mock-rgs-server-match3.mjs` (deals from the project's config, fixed-at-bet math, resume mid-round), with the Dockerfile copying `board.js` + its `package.json`, and `match3` added to every protocol list; facade translation; `withOutcome('rgs')`; the outcome guards; the RGS sample. **Live real money waits on the partner (§9 #2)** | `rgs-translator-eagaming`, `rgs-requests`, `utils-xstate`, `scripts/`, `services/test-server`, `engine-flow-v2`, launcher | L+ |
-| P10.7 | **Spawning** | `spawnLayer` node, `spawn` / `despawn` / `instanceRef`, `live:<layer>` sets, cap, the ship-chain collection of spawnables | `engine-layout`, `engine-flow-v2`, `apps/lines`, exporters | M–L |
-| P10.8 | **Arcade, rules-decided** | `motion.js`, the fixed-step loop, tags, `ARCADE_VOCAB` + seed, `<ArcadeStage />`, the arcade layout template, a catcher / dodger sample + playbook. Re-checks §6.4 before starting | `engine-mechanics`, `engine-game`, `engine-flow-v2`, `apps/lines`, launcher | L |
-| P10.9 | **Editor polish (Rive Later)** | N-slice; rulers and guides; the Graph Editor; Elastic / Bounce eases | `/editor`, `engine-cinematic` (ease presets), `engine-layout` | M each |
+| P10.6 | **Match-3, RGS-decided** — ✅ built 2026-10-25 (on our mock; live real money waits on the partner) | The `move` action and events (ours, labelled); the **interactive round** path in the primary machine (a round open across player-paced requests); the `move` request exported from both transports; `mock-rgs-server-match3.mjs` (deals from the project's config, fixed-at-bet math, resume mid-round), with the Dockerfile copying `board.js` + its `package.json`, and `match3` added to every protocol list; facade translation; `withOutcome('rgs')`; the outcome guards; the RGS sample. **Live real money waits on the partner (§9 #2)** | `rgs-translator-eagaming`, `rgs-requests`, `utils-xstate`, `scripts/`, `services/test-server`, `engine-flow-v2`, launcher | L+ |
+| P10.7 | **Spawning** — ✅ built 2026-10-25 | `spawnLayer` node, `spawn` / `despawn` / `instanceRef`, `live:<layer>` sets, cap, the ship-chain collection of spawnables | `engine-layout`, `engine-flow-v2`, `apps/lines`, exporters | M–L |
+| P10.8 | **Arcade, rules-decided** — ✅ built 2026-10-25 (publishing it stays off) | `motion.js`, the fixed-step loop, tags, `ARCADE_VOCAB` + seed, `<ArcadeStage />`, the arcade layout template, a catcher / dodger sample + playbook. Re-checks §6.4 before starting | `engine-mechanics`, `engine-game`, `engine-flow-v2`, `apps/lines`, launcher | L |
+| P10.9 | **Editor polish (Rive Later)** | N-slice; rulers and guides; the Graph Editor; Elastic / Bounce eases (✅ built 2026-10-25) | `/editor`, `engine-cinematic` (ease presets), `engine-layout` | M each |
 | P10.10 | *(optional, after a decision)* **Arcade on the RGS** | A server-decided "prize" arcade (the server sends the result, the arcade plays to it). 1D blend states moved to P10.11 | `rgs-translator-eagaming` | L |
 | P10.11 | **Arcade A2: characters** | `behaviours.js` and the brain; `motion.js` acceleration, solid response and paths; the player controllers; `animInputs`; 1D blend states; the `path` node; **Invisible Characters** (`/characters`) with its sandbox, and its docs under rule 9; a sample with an enemy that patrols and chases | `engine-mechanics`, `engine-game`, `engine-layout` (state machine, `path`), `engine-flow-v2`, `packages/game-config`, launcher | L |
 | P10.12 | **Arcade A3a: world and camera** | `world` + `camera` on a play-field screen; follow, dead zone, auto-scroll, shake; parallax; despawn outside the view; culling; the camera Flow nodes and keys | `engine-game` (`<ArcadeStage />`), `engine-layout`, `engine-flow-v2`, `/editor` | M–L |
 | P10.13 | **Arcade A3b: gravity, jumps and levels** | Gravity, grounded, one-way platforms, sub-steps; the `gravity` and `hop` jumps and the `flap` controller; the `tilemap` node, its paint mode and the tileset export | `engine-mechanics`, `engine-layout`, `/editor`, exporters | L |
-| P10.14 | **Arcade A4a: the game server** | Needs the A4 design doc first. `services/game-server` (§9 #17) running `engine-mechanics` at a fixed step; rooms; join, leave and rejoin; inputs-only messages; `GameConfigDoc.arcade.online`; the runtime's online branch | new service, `engine-mechanics`, `apps/lines`, `packages/game-config`, `docs/INFRA.md` | L |
+| P10.14 | **Arcade A4a: the game server** | Per the A4 design ([realtime-multiplayer.md](realtime-multiplayer.md), approved 2026-10-25). `services/game-server` (§9 #17) running `engine-mechanics` at a fixed step; rooms; join, leave and rejoin; inputs-only messages; `GameConfigDoc.arcade.online`; the runtime's online branch | new service, `engine-mechanics`, `apps/lines`, `packages/game-config`, `docs/INFRA.md` | L |
 | P10.15 | **Arcade A4b: netcode** | Own-player prediction and reconciliation; interpolation of everyone else; the online rules, as §9 #18 decides | `engine-game`, `apps/lines`, the game server | L |
 | P10.16 | **Arcade A4c: 100 players and Salmons** | Server-side bots that fill places (A2 brains); the 100-bot load test; nearby-only sending if the test needs it; Salmons rebuilt as data on the engine from S0's art, with `docs/playtest/salmons.md` | the game server, launcher, docs | L |
 
@@ -1154,7 +1169,9 @@ and jumps (P10.11–P10.13), then online rooms (P10.14–P10.16). Card games get
 ## 9. Decisions (owner)
 
 **#1–#9 DECIDED (owner 2026-10-20): every recommendation is accepted as written.** The owner also
-asked that nothing be started yet: P10.1 onward waits for the owner's go.
+asked that nothing be started yet: P10.1 onward waits for the owner's go. **The owner gave the
+go-ahead on 2026-10-23** ("I think we can start on phase 10 as well … it's a long phase, so take it
+easy, there is no hurry"). #20–#27 were raised by the P10.1 build and decided the same day.
 
 **#10–#19 added 2026-10-22** from the owner's questions. #10 and #11 are the owner's own asks, and
 so is #12's scope (its shape is a recommendation); the owner answered #13–#16 the same day;
@@ -1229,13 +1246,51 @@ so is #12's scope (its shape is a recommendation); the owner answered #13–#16 
     - **Colyseus**, in a new `services/game-server`, because Salmons already runs on it and its
       rooms, schema and lobby are proven there. Its movement and collision move to
       `engine-mechanics`, so there is one simulation.
-18. **Where an online game's rules run.** *(open; the A4 design doc's main question)*
-    - Either the Flow interpreter runs headless on the server, so online rules are authored in Flow
-      as single-player ones are, or online rules are limited to `engine-mechanics` data.
-      Presentation stays on the device either way.
+18. **Where an online game's rules run.** *(owner, 2026-10-25: on the server, as `engine-mechanics`
+    data)*
+    - The choice was the Flow interpreter running headless on the server, so online rules are
+      authored in Flow as single-player ones are, or online rules limited to `engine-mechanics`
+      data. Presentation stays on the device either way.
+    - Decided with the A4 design: **`engine-mechanics` data on the server**, with a named rules
+      module for what the data cannot say ([realtime-multiplayer.md](realtime-multiplayer.md) §4,
+      §14 #2).
 19. **Salmons' view.** *(owner, 2026-10-22: "sort of isometric")*
     - **Isometric**, on 2:1 diamond tiles (its map uses 64 × 32). So P10.12 builds the isometric
       projection and depth order, and P10.13 builds the `hop` jump and diamond tiles first (§4.4).
+
+20. **Where `minRun` lives.** *(owner, 2026-10-23)*
+    - **`match3.minRun` is its only stored home.** A match-3 doc never stores `winModel`; the
+      normalizer drops one. `resolveWinModel()` returns `{ type: 'match3', minRun }`, built from the
+      block, for any match-3 doc.
+21. **Arcade's outcome.** *(owner, 2026-10-23)*
+    - "Absent ⇒ `rgs`" stays the one rule. An arcade doc that resolves to `rgs` is a validation
+      error until P10.10, so `/config` offers arcade only **Rules**, and the arcade seed writes
+      `outcome: 'rules'`.
+22. **The family picker on a slot page.** *(owner, 2026-10-23)*
+    - **Never shown to a slot project.** It shows only when the project's kind is `match3` or
+      `arcade`, or its config already names a family, so a slot project's page is exactly today's.
+      The outcome picker sits beside it.
+23. **Sections §6.2's table leaves out.** *(owner, 2026-10-23)*
+    - Coin board, Coin overlay, Bonus modes and Game modes are slot only (the table's "bonus" row).
+      **Sounds** shows for slot and match-3, and is hidden for arcade.
+24. **A stepped match-3 board.** *(owner, 2026-10-23)*
+    - A validation error: the board module is rectangular in v1.
+25. **`outcome` on a slot doc.** *(owner, 2026-10-23)*
+    - Dropped by the normalizer. Slots are RGS-decided only.
+26. **Publishing a non-slot config before its runtime.** *(owner, 2026-10-23)*
+    - The online publish and the desktop bake's config export refuse a match-3 or arcade config,
+      with no override, until the runtime plays that family (P10.5, P10.8). Otherwise the shared
+      runtime would play it as a slot, or draw a blank board.
+    - **Switched on 2026-10-25** *(owner)*: the gate is on playability, not family. A config is
+      refused only while `mechanicFor(config).unplayable` is set, so match-3 (rules or RGS)
+      publishes to our test server now and arcade does once P10.8 makes it playable. A rules game
+      is dealt the `freePlay` protocol, whose mock refuses every request. Delivery stays slot-only:
+      `build-delivery.mjs` refuses every non-slot config (a rules game for any delivery profile, an
+      RGS match-3 until the partner wire, §9 #2).
+27. **`familyOfKind()` lands in P10.1**, not P10.1b. *(owner, 2026-10-23)*
+    - Adding `match3` and `arcade` to `GAME_KINDS` needs it, so that the slot-only consumers (the
+      Scene Editor's template-type picker, the flow-vocabulary generator and game-spec's schema)
+      stay unchanged. P10.1b reuses it.
 
 ---
 
