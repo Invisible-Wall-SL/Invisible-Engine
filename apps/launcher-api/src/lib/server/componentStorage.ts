@@ -21,9 +21,11 @@ import {
 	COMPONENT_PARAM_KINDS,
 	isLocalizationKey,
 	mergeBuiltinCodedParams,
+	normalizeEditorGuides,
 	normalizeRepeaterCountFields,
 	pruneOrphanParamBindings,
 	SM_CONDITION_OPS,
+	withoutEditorGuides,
 } from 'engine-layout';
 import { isCubicEase } from 'engine-cinematic';
 import {
@@ -84,6 +86,20 @@ const PARAM_KINDS = new Set<ComponentParam['kind']>(COMPONENT_PARAM_KINDS);
 const INPUT_KINDS = new Set<ComponentInput['kind']>(COMPONENT_INPUT_KINDS);
 const CONDITION_OPS = new Set<SmCondition['op']>(SM_CONDITION_OPS);
 const ORDERING_OPS = new Set<SmCondition['op']>(['<', '>', '<=', '>=']);
+
+/**
+ * A component as a GAME is handed it: {@link loadComponent} without its editor-only ruler guides.
+ * Every resolver that ships defs to a game (the bake's doc endpoint, the runtime bundle) reads
+ * through this.
+ */
+export async function loadComponentForGame(
+	id: string,
+	projectKey?: string,
+	version?: number,
+): Promise<ComponentDef | undefined> {
+	const def = await loadComponent(id, projectKey, version);
+	return def && withoutEditorGuides(def);
+}
 
 /**
  * Resolve a component def (§8.3 / §14.2 B4.1). Precedence high → low: PROJECT R2
@@ -886,6 +902,9 @@ export function normalizeComponent(raw: ComponentDef): ComponentDef {
 	// dropped above (or deleted in the editor), so a corrupt def can't be saved and an
 	// already-orphaned one self-heals on its next load/save.
 	pruneOrphanParamBindings(def);
+	// Editor-only ruler guides; the bake's closure resolvers strip them before a game sees the def.
+	const guides = normalizeEditorGuides(raw.guides);
+	if (guides) def.guides = guides;
 	return def;
 }
 

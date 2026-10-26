@@ -13,6 +13,7 @@ import type { EffectParamValue } from 'engine-fx';
 import type { BlendMode } from './blendMode';
 import type { CoverFit } from './coverTransform';
 import type { KindCapabilities } from './kindCapabilities';
+import type { EditorGuideSet } from './editorGuides';
 
 /**
  * A layout bucket id. Historically a closed union (`desktop`/`tablet`/`landscape`/
@@ -1533,6 +1534,8 @@ export interface Scene {
 	 * reels, and each part plays the screen's FX on its own.
 	 */
 	elementFx?: ElementFxEntry[];
+	/** EDITOR-ONLY ruler guides per device layout (`editorGuides.ts`); stripped before a game. */
+	guides?: EditorGuideSet;
 }
 
 /** A jurisdiction preset for {@link GameSettings}. `'UK'` forces every speed
@@ -1817,6 +1820,8 @@ export interface ComponentDef {
 	 * is ever raised (parity).
 	 */
 	events?: ComponentEvent[];
+	/** EDITOR-ONLY ruler guides per device layout (`editorGuides.ts`); stripped before a game. */
+	guides?: EditorGuideSet;
 }
 
 /**

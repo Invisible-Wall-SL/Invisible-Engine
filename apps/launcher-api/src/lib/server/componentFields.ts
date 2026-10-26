@@ -155,6 +155,7 @@ const componentDefFields: Record<keyof ComponentDef, true> = {
 	buttonStates: true,
 	settles: true,
 	events: true,
+	guides: true,
 };
 const componentParamFields: Record<keyof ComponentParam, true> = {
 	key: true,
