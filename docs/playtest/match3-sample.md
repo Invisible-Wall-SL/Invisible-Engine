@@ -159,8 +159,11 @@ exits 1 when a verdict fails.
 
 `scripts/current-games/screens/match3.json` plays the harness's scripted-input steps (`tap`,
 `swap` with `legal: true|false`) on any live match-3 game: `loaded`, `board`, `selected`,
-`refused`, `cascaded`. No live game is a match-3 game yet (publishing is off), so CI renders none;
-the local fixture run is
+`refused`, `cascaded`. A published free-play match-3 game is rendered by CI like any other; the
+`cg-match3` fixture carries the same `freePlay` contract a publish derives. A published game whose
+flow never opens the board's input (a kind switch that kept a slot flow) stalls at the first
+`swap` on main too, and its row says so instead of failing
+([current-games.md](current-games.md) § "Reading the report"). The local fixture run is
 `node scripts/current-games/run.mjs --games-file .cache/current-games/fixtures/games.json --only cg-match3 --base-build <dir> --head-build <dir> --no-gates`.
 
 ## Known limits

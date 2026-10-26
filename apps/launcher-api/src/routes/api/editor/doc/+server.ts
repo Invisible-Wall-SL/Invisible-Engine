@@ -7,7 +7,7 @@ import {
 import type { ComponentDef, LayoutDoc } from 'engine-layout';
 import { getDeployToken } from '$lib/server/appSettings';
 import { repairComponentDefsAtlasRefs } from '$lib/server/atlasRefRepair';
-import { loadComponent } from '$lib/server/componentStorage';
+import { loadComponentForGame } from '$lib/server/componentStorage';
 import {
 	componentDefaultsFor,
 	keyComponentDefaultsById,
@@ -98,8 +98,8 @@ async function resolveReferencedDefs(
 ): Promise<{ defs: Record<string, ComponentDef>; versions: ComponentDef[] }> {
 	return resolveComponentClosureWithPins(
 		doc.scenes.flatMap((scene) => scene.nodes),
-		(id) => loadComponent(id, projectKey),
-		(id, version) => loadComponent(id, projectKey, version),
+		(id) => loadComponentForGame(id, projectKey),
+		(id, version) => loadComponentForGame(id, projectKey, version),
 		{ defaultsFor: (id) => componentDefaultsFor(storedDefaults, id) },
 	);
 }
