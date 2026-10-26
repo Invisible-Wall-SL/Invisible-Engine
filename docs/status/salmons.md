@@ -5,7 +5,9 @@
 **One-line state:** the owner approved the art pass (S0) on 2026-10-26. Its groundwork was
 already done in the Salmon repository: the art is in the pipeline's formats, and the look and the
 recipes are written down. What is left is generating the 22 character clips in the launcher's
-tools. None has been generated yet.
+tools. None has been generated yet. The `salmons` portal project is now an arcade project
+playing the P10.8 sample (the placeholder dodger), published 2026-10-26 and kept by the owner as
+the test bed the S0 art is swapped into. It is not Salmons; that is P10.16.
 
 ## Current state
 
@@ -28,11 +30,12 @@ tools. None has been generated yet.
     BiRefNet cutout, then Flipbook 🎬 Video with `wan22_i2v_flipbook`, then download through the
     FTP Browser into `art/imported/` and rebuild;
   - `art/imported/` is empty: no clip has been generated.
-- **The `salmons` portal project** (client `invisible_wall`), read from R2 on 2026-10-26
-  (read-only): one test background from 2026-06-02 (`Background_Test_1`), an empty scene list, no
-  strings, and a Flow doc that is the **Book-of template's** (`templateId: bookOf`). It was made as
-  a slot project, so it has none of the arcade scaffold. Nothing is published. None of the Salmon
-  repository's sheets is in it: that repository builds them locally.
+- **The `salmons` portal project** (client `invisible_wall`) is an **arcade project** since
+  2026-10-26: Game Config family `arcade` ("Salmon Run", free play), the arcade scene set, the four
+  sample components, the arcade starter flow, published to the test server. It plays the P10.8
+  dodger with placeholder shapes. Before that it held only a test background (`Background_Test_1`,
+  still there) and an unused Book-of flow (kept under `editor/flow-v2-backups/`). None of the
+  Salmon repository's sheets is in it: that repository builds them locally.
 - **The two design docs' disagreement is settled:** realtime-multiplayer §2 item 4 is right that
   the art is in the pipeline's formats; game-families §1 now says what is left.
 
@@ -46,8 +49,7 @@ tools. None has been generated yet.
 2. **The arcade sample's four sprites** (§9 #6), for a result in the shared runtime: the salmon,
    bear, hook and fish stills from item 1 and the props sheet, re-skinning `arcadeSalmon` /
    `arcadeBear` / `arcadeHook` / `arcadeFish` and sizing the config bodies to the art
-   ([status/game-families](game-families.md) open item 11). This needs the `salmons` project to
-   become an arcade project (below).
+   ([status/game-families](game-families.md) open item 11), in the `salmons` project.
 3. **Lower priority, from the art pass's list:** the bridge pieces (generated placeholders today)
    and drawn tiles for the riverbed, water surface and sea (drawn in code today; the Salmon client
    needs a small change to use them).
@@ -72,12 +74,20 @@ register. Tiles and characters get their chains in P10.13 and P10.11. S0 adds no
 - **The generation runs in the launcher's tools** (ComfyUI on RunPod, through the Atlas Maker,
   Flipbook and FX). They are pages behind the launcher's sign-in, and a cloud session has no
   launcher account, no R2 write and no ComfyUI. Items 1–3 need a person at those tools.
-- **Turning `salmons` into an arcade project** is a launcher action: `/admin`'s per-project kind
-  picker, then a re-scaffold. Its Book-of Flow and scenes are replaced. Check that the
-  re-scaffold writes the arcade scaffold over them (it writes some docs only when absent) before
-  relying on it.
 
 ## Recent changes
+
+- 2026-10-26 — **`salmons` became an arcade project; the owner keeps it as the art test bed.**
+  The owner switched its kind in `/admin` and re-scaffolded. The re-scaffold writes only missing
+  files, so the old Book-of `editor/flow-v2.json` survived. Its first publish (08:21) was an arcade
+  runtime driven by a slot flow, and the game was broken. The fix:
+  1. delete `editor/flow-v2.json`;
+  2. re-scaffold again;
+  3. publish without editing the flow.
+
+  An edit that deletes the starter's `complete:loading` chain leaves the loading screen up after
+  the tap. The owner expected the real Salmons and got the generic dodger. The original game is
+  untouched in its own repository, and Salmons on the engine is still P10.16.
 
 - 2026-10-26 — **Step 0 done: read the Salmon repository and recorded the owner's three choices.**
   The S0 groundwork was already there (above), so the work list is now the 22 clips plus the
