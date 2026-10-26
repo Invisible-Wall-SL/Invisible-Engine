@@ -49,6 +49,7 @@
 		defaultAutoSpinScene,
 		inGameViewSceneIds,
 		viewableModeIds,
+		hasWorldCamera,
 		type LayoutProfile,
 	} from 'engine-layout';
 	import ColorField from '$lib/ColorField.svelte';
@@ -98,6 +99,8 @@
 	import EditorOutline from './EditorOutline.svelte';
 	import EditorProperties, { SIGNAL_SUGGESTIONS_ID } from './EditorProperties.svelte';
 	import EditorElementFx from './EditorElementFx.svelte';
+	import EditorWorldCamera from './EditorWorldCamera.svelte';
+	import { setSceneWorldOn } from '$lib/editor/worldCameraEdit';
 	import { playElementFxPreview } from './elementFxPreview.client.svelte';
 	import type { ElementFxEntry } from 'constants-shared/elementFx';
 	import EditorTemplatePanel from './EditorTemplatePanel.svelte';
@@ -1468,7 +1471,10 @@
 		if (sc.space !== 'canvas') delete sc.scaleWithWindow;
 		// Only `game`-space screens ride the anticipation camera; leaving `game` space would strand an
 		// unreachable `zoomWithAnticipation: true` (its checkbox is gated to game space), so clear it.
-		if (sc.space) delete sc.zoomWithAnticipation;
+		if (sc.space) {
+			delete sc.zoomWithAnticipation;
+			setSceneWorldOn(sc, false, mainSizesMap[currentLayoutType]); // only a game screen has a world
+		}
 		scenes = [...scenes];
 		markDirty();
 	}
@@ -4000,6 +4006,16 @@
 									</span>
 								</label>
 							{/if}
+							{#if !activeScene.space || activeScene.space === 'game'}
+								<EditorWorldCamera
+									scene={activeScene}
+									main={mainSizesMap[currentLayoutType]}
+									onChange={() => {
+										scenes = [...scenes];
+										markDirty();
+									}}
+								/>
+							{/if}
 							{#if activeScene.space === 'canvas'}
 								<label
 									class="ontop-field"
@@ -4066,6 +4082,12 @@
 						layoutTypeIds={layoutTypes}
 						onDirty={markDirty}
 						sceneSpace={activeScene?.space}
+						parallaxLayer={!!activeScene &&
+							hasWorldCamera(activeScene) &&
+							!!selectedNode &&
+							selectedNode.kind !== 'spawnLayer' &&
+							activeScene.nodes.some((n) => n.id === selectedNode.id)}
+						worldCamera={!!activeScene && hasWorldCamera(activeScene)}
 						{templateMode}
 						{slotMeta}
 						sceneSlots={activeSceneSlots}

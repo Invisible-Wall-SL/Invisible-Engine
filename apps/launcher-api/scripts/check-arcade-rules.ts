@@ -742,9 +742,9 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 	check(
 		'9. Game.svelte mounts <ArcadeStage /> only for a play field',
 		at > 0 &&
-			game.indexOf('<ArcadeStage />') > at &&
-			game.indexOf('<ArcadeStage />') < game.indexOf('{:else}', at) &&
-			game.split('<ArcadeStage />').length === 2,
+			game.indexOf('<ArcadeStage ') > at &&
+			game.indexOf('<ArcadeStage ') < game.indexOf('{:else}', at) &&
+			game.split('<ArcadeStage ').length === 2,
 	);
 	check(
 		'9. …and keeps the reel stack in its {:else}',

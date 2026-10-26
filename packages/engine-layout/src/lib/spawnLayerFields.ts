@@ -8,6 +8,7 @@ import { effectiveSpawnCap } from 'constants-shared/spawn';
 import type { SpawnLayerSpec } from 'engine-flow-v2';
 
 import type { LayoutNode, Scene, SpawnLayerNode, SpawnLayerGrid } from './types';
+import { despawnOutsideViewMargin } from './worldCamera';
 
 /** The ids a layer may spawn: the strings of its `spawnable`, each once, in order. */
 export const spawnableComponentIds = (node: SpawnLayerNode): string[] => [
@@ -52,6 +53,7 @@ export const sceneSpawnLayers = (
  *  places freely (a cell spawn into it is refused). */
 export const spawnLayerSpec = (node: SpawnLayerNode, sceneId?: string): SpawnLayerSpec => {
 	const grid = node.placement === 'grid' ? spawnLayerGrid(node) : undefined;
+	const margin = despawnOutsideViewMargin(node);
 	return {
 		id: node.id,
 		spawnable: spawnableComponentIds(node),
@@ -59,5 +61,6 @@ export const spawnLayerSpec = (node: SpawnLayerNode, sceneId?: string): SpawnLay
 		placement: grid ? 'grid' : 'free',
 		...(grid ? { grid } : {}),
 		...(sceneId !== undefined ? { sceneId } : {}),
+		...(margin !== undefined ? { despawnOutsideView: { margin } } : {}),
 	};
 };

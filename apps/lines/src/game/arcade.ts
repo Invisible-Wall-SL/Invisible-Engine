@@ -1,5 +1,6 @@
 import { createArcadeLoop, type ArcadeLoop } from 'engine-game';
-import { spawnStore } from 'engine-layout/svelte';
+import { sceneCamera, sceneWorld, worldCameraScene, type Scene } from 'engine-layout';
+import { setCulled, setWorldCameraView, spawnStore } from 'engine-layout/svelte';
 import { normalizeGameConfigDoc, resolveArcade } from 'game-config';
 
 import { bakedGameConfig } from '../editor-scenes';
@@ -15,6 +16,11 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
  * mounts — and its Flow: the loop's signals go to the v2 flow, and its actions and values are
  * registered for the flow to call. `<ArcadeStage />` ticks it.
  *
+ * When a screen declares a world or a camera (P10.12, `worldCameraScene`), the loop is given that
+ * camera, the play field becomes the world (unless the config names a `field`), and after every
+ * frame the camera and the culled instances are published for `<LayoutScene>` and `<SpawnLayer>` to
+ * draw by. A game with neither publishes nothing.
+ *
  * A slot game never starts it: only `<ArcadeStage />` calls {@link startArcade}, and `Game.svelte`
  * mounts that only for a mechanic that is a play field.
  */
@@ -23,6 +29,8 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
 const ARCADE_SEED_PARAM = 'arseed';
 
 let loop: ArcadeLoop | undefined;
+let world: { w: number; h: number } | undefined;
+let view = () => ({ w: 0, h: 0 });
 
 const seedOf = (): string => {
 	const pinned =
@@ -37,20 +45,20 @@ const seedOf = (): string => {
  * Start the loop, once per page. The loop outlives the play field's mount: a screen change that
  * remounts it goes on with the bodies it has.
  *
- * `designSize` reads the current layout's design size: the field when the config names none, so a
- * rotated device moves the field's edges with it.
+ * `designSize` reads the current layout's design size: the field when the config names none and
+ * no screen has a world, and the camera's view, so a rotated device moves both with it.
  */
 export const startArcade = (designSize: () => { width: number; height: number }): ArcadeLoop => {
 	if (loop) return loop;
 	const rules = resolveArcade(normalizeGameConfigDoc(bakedGameConfig()));
 	const live = spawnStore();
+	view = () => {
+		const { width, height } = designSize();
+		return { w: width, h: height };
+	};
 	loop = createArcadeLoop({
 		rules,
-		field: () => {
-			if (rules.field) return rules.field;
-			const { width, height } = designSize();
-			return { w: width, h: height };
-		},
+		field: () => rules.field ?? world ?? view(),
 		layers: () => live.layers(),
 		live,
 		seed: seedOf(),
@@ -63,7 +71,25 @@ export const startArcade = (designSize: () => { width: number; height: number })
 	return loop;
 };
 
+/**
+ * Give the loop the camera of the layout's world screen, if it has one. The layout may load after
+ * the play field first mounts, so `<ArcadeStage />` calls this whenever its screens change; the
+ * first world screen seen is kept for the page.
+ */
+export const useWorldCamera = (scenes: readonly Scene[]) => {
+	if (!loop || loop.camera()) return;
+	const scene = worldCameraScene(scenes);
+	if (!scene) return;
+	world = sceneWorld(scene);
+	loop.attachCamera({ spec: sceneCamera(scene), world, view });
+};
+
 /** One frame of the play field. */
 export const tickArcade = (dtMs: number) => {
-	loop?.frame(dtMs);
+	if (!loop) return;
+	loop.frame(dtMs);
+	const camera = loop.camera();
+	if (!camera) return;
+	setWorldCameraView(camera);
+	setCulled(loop.culled());
 };
