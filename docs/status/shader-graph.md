@@ -560,6 +560,32 @@ next.
 - None.
 
 ## Recent changes
+- 2026-10-26 — **Step 8d.3: the material in the game** (see "Current state"). Step 8d.2 merged
+  (#1366).
+  - **Proof.**
+    - **A real game** (`scripts/playtest/particle-material-play.mjs`, by hand): an `apps/lines`
+      build with an effect layer on `custom:pulsetint` draws one mesh, 76 sprites hidden, and logs
+      "on"; without `shaderEffects` it draws 83 plain sprites and logs "plain, not registered";
+      0 errors, 0 stalls.
+    - `particle-material` gains the game's mount on WebGL1 and WebGL2: the cap, a refusal at mount
+      leaving nothing behind and giving its slot back, over 512, peak sizing, a layer drivable past
+      512 or with no bound plain from mount with its slot never taken, a link failure while
+      playing, and a `material.param` drive changing every drawn pixel of its layer by a uniform
+      write (same mesh, shader, children, particles) while another layer of the same kind, judged
+      alone, changes 0. Five quiet runs green.
+    - `check:fx-params` 130 (21 new); fx-spike `roundtrip` 43 (a material survives save →
+      normalize → export; a doc without one normalizes byte for byte to itself); `player` 63 (the
+      mount decision, the cap per app, capacity, every plain-at-mount reason, a throwing
+      construction giving its slot back); `check:element-fx` 232 unchanged; `material-behavior`
+      13; compile fixture 207; `shader-compile` 28 sheets; `check:vendored-bundles`; svelte-check
+      at baseline (pixi-svelte 14, lines 156, launcher 45); `check:all` 548/548.
+    - Mutation-checked: 31 mutations, each failing its gate.
+  - **Review.** Nothing blocking. Fixed: a drive past 512 could turn a layer plain mid-play (§10
+    forbids the pop; now plain from mount); the cap counted per page, so a launcher page's stages
+    shared 8 (now per app); a slot leaked when construction threw; a layer mounting before its
+    frames reported the wrong reason; `material.params` lookups read inherited keys
+    (`toString`…). Two flaky assertions in `particle-material` root-caused and fixed (a layer's
+    particles straying into the next cell; a count read as a particle died).
 - 2026-10-26 — **Step 8d.2: the material renderer** (see "Current state"). Merged (#1366): CI
   green but for Current games, "12 pass · 2 fail · 0 changed screen(s)", merged on the owner's
   approval: its two failures (match3test, testarcade, published after #1352 / #1353) fail on main
