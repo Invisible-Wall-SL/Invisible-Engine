@@ -171,6 +171,10 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-26 — **The `path` node** (P10.11, branch `claude/p10-11-arcade-characters`, in review;
+  [game-families](game-families.md) P10.11). A route a character walks: points, Loop, smoothing.
+  Drawn dashed with point handles (drag, click a segment to insert, Alt+click to delete); draws
+  nothing in the game; `scenePaths(scene)` hands a screen's paths to the arcade loop.
 - 2026-10-26 — **9-slice sprites** (P10.9a, branch `claude/p10-9a-nine-slice`, in review;
   [game-families](game-families.md) §5.2 "N-slice"). A sprite node's **9-slice** (Off / Stretch /
   Tile) draws its region with the corners at art size and the edges and centre stretched or tiled

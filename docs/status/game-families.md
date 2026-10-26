@@ -3,7 +3,7 @@
 > Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `invisible-game-config`, `invisible-game-maker`, then per phase
 
 **One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.7 are merged; P10.8
-(arcade, rules-decided) is built** and in review: an arcade project can be made in Game Maker and
+(arcade, rules-decided) and P10.11 (characters) are built** and in review: an arcade project can be made in Game Maker and
 plays as free play in the shared runtime — a catcher / dodger sample whose spawned bodies move on a
 fixed-step loop, collide by tag and keep score in Flow. A match-3 project can be made in Game Maker as
 free play (P10.5) or real money (P10.6): in the second the bet deals the server's board, every swap
@@ -13,6 +13,124 @@ server's `match3` mock on our own wire. **Publishing is on for every family the 
 server; delivery stays slot-only, and live real money waits on the partner (§9 #2).
 
 ## Current state
+
+**P10.11 — Arcade A2: characters (built 2026-10-26; in review).** §8's P10.11 row (§4.3, §5.1, §5.2,
+§6.3, §6.5), in one PR. No live game uses any of it yet; the sample is a fixture.
+
+- **The brain** (`engine-mechanics` `behaviours.js` + `.d.ts`, plain ESM like `motion.js`): a small
+  state machine whose states are behaviours and whose transitions are world conditions.
+  `createBrain`, `createBrainWorld`, `stepBrain` (`*` transitions first, then the current state's, in
+  authored order; at most one a step), `brainVelocity`, `setBrainState`, `controllerVelocity`. The
+  nine presets `idle`, `wander`, `patrol` (a path, or between the spawn point and `dx` / `dy`),
+  `followPath`, `chase`, `flee`, `keepDistance`, `hover`, `shootAt`; the seven conditions
+  `targetWithin`, `targetBeyond`, `touching`, `hitSolid`, `timer`, `variable`, `random` (rolled on a
+  beat of `every` ms). A behaviour returns a desired velocity and never moves a body. Every draw
+  comes from the brain's own seeded stream, so a replay is exact.
+- **Movement** (`motion.js`, new exports only; P10.8's functions and replay are unchanged):
+  `steer` (accel / decel / maxSpeed / turnRate), `stepSolid` (the solid response: move x and push out,
+  then y; a body moving diagonally into a wall keeps its along-wall speed; returns `hitX` / `hitY`),
+  and paths (`samplePath` with Catmull-Rom smoothing, `pointAt`, `nearestDistance`).
+- **Config** (`game-config` `arcadeCharacters.ts`, §9 #14): `GameConfigDoc.arcade.characters`, each
+  with an id, a look `component`, `movement`, a `controller` (`topDown`, `sideScroll`, `pointer`), a
+  `brain` and `animInputs`. Sparse and optional: a config without characters normalizes byte for
+  byte as before. Validation errors (duplicate ids, a missing look, two characters on one component,
+  a brain starting or a transition pointing at no state) and warnings (a played character with no
+  body, a chase / flee tag no body carries, a `shootAt` with no layer, an anim input following a
+  brain state that does not exist). `characterComponentIds` lists the looks and the `shootAt`
+  projectiles.
+- **Shipping (rule 8):** those ids seed the component walk beside `betModeCardIds` in
+  `runtimeBundle.ts` and `editorArtExport.ts` (and the current-games fixture bake, which mirrors
+  publish), so a look placed nowhere and spawnable nowhere still ships with its art.
+- **The loop** (`engine-game` `arcadeCharacters.ts`, wired into `arcadeLoop.ts` in three guarded
+  places): read input → controllers and brains → `steer` → `stepSolid` for character bodies against
+  the bodies whose config body is `solid` → write positions and the looks' inputs → `overlaps` → Flow
+  events. Built only when the config has characters; every other body steps exactly as in P10.8. New
+  optional loop options: `input`, `paths`, `variable`, `setInstanceInput`, `spawn`.
+- **Controllers** follow the Flow input map's `left` / `right` / `up` / `down` actions (the same key
+  matching as `onInput`, now shared in `apps/lines` `flowKeys.ts`). `pointer` follows a pressed
+  pointer or touch in the play field's space, and a keyboard controller with no key held follows a
+  pressed pointer too, so the sample plays on a phone.
+- **`animInputs`** set the look's state-machine inputs after each frame, only when a value changed:
+  `speed`, `vx`, `vy`, `facing`, `moving` and `state:<id>`.
+- **1D blend states** (`engine-layout` `stateMachine.ts`, `componentTimelines.ts`; §5.2's Rive item):
+  a state can blend two or more timelines by a number input (`SmState.blend`). The two points around
+  the input's value are mixed with `blendNodeSamples`; cues fire from the lower one. The Component
+  Editor's State machine tab makes a state a blend state, edits its points, shows them on the card and
+  previews them with a slider.
+- **The `path` node** (`engine-layout` `pathNodes.ts`, the Scene Editor): points, closed, smoothing.
+  It draws nothing in the game. The editor draws it dashed, with draggable point handles, click to
+  insert, Alt+click to delete, and a Properties panel. `scenePaths(scene)` gives a screen's top-level
+  paths to the loop.
+- **Flow** (`ARCADE_VOCAB`): the actions `setCharacterState` and `setCharacterControl`
+  (`controller` / `brain`, so a playable character can run as a bot), and the signal
+  `characterState {instance, character, from, to}` on each of the brain's own transitions.
+- **Invisible Characters** (`/characters`, new tool, arcade only through `FAMILY_TOOLS`; slot and
+  match-3 projects see exactly the tools they saw before): the character list; per character the look,
+  body, movement, controller, the brain on the Component Editor's state-machine canvas, anim inputs
+  and the validator's issues; a sandbox play field (placeholder shapes, arrow keys / WASD dummy
+  player, draggable walls, a drawn path, a seed) running `engine-mechanics` in the loop's own step
+  order. It saves through Game Config's endpoints and holds Game Config's lease, so the two tools
+  exclude each other (§9 #14). Guide: [tools/invisible-characters](../tools/invisible-characters.md).
+  `/config`'s Arcade section links to it with the character count.
+- **The sample** (a fixture, not the Game Maker default, as P10.12's river is):
+  `engine-mechanics/fixtures/arcade-guard.rules.json`, `referenceLayouts/arcadeGuard.ts`,
+  `reference/arcadeGuardSeed.ts`. A runner (`topDown`, 280 px/s) in a walled yard; a guard that
+  patrols the `guardRoute` path, chases within 220 px, gives up beyond 320 px and stops at walls. A
+  catch costs a life and sends the runner home. The guard's look blends idle → run by `speed` and
+  raises an alert flag from `state:chase`. Placeholder art; no R2 read.
+- **Gates:** root `check:arcade-characters` (50: every preset and condition, a 900-step seeded
+  replay against `fixtures/arcade-characters-replay.json`, steer, stop-and-slide, no tunnelling,
+  paths, controllers); launcher `check:arcade-characters` (70: no-characters parity with P10.8, the
+  stage order, controllers and touch, solids and `hitSolid` in the loop, the Flow actions and signal,
+  `animInputs` only on change, `shootAt` spawning and shipping, the sample played headless on the real
+  interpreter with a seed replay); `check:characters-tool` (97); `check:layout-path` (45);
+  `check:component-state-machine` (220, +36) and `-editor` (91, +12); `check:art-scope` (case 8: a
+  character's look and projectile ship); `check:family-tools` (177: slot / match-3 / no-kind /
+  custom / cloud manifests equal the pre-P10.11 list, arcade has Characters);
+  `check:game-config-family` (145).
+- **Verified by playing:** `scripts/playtest/arcade-characters-play.mjs`
+  ([playtest/arcade-characters.md](../playtest/arcade-characters.md)) on the branch runtime, 12 / 12:
+  the guard walks its route; ArrowRight moves the runner at 280 px/s and release stops it; a wall stops
+  it; walking up to the guard turns it from patrol to chase; a catch costs a life and resets both; a
+  held touch steers; no RGS request; no page error; the same seeds and keys replay. P10.8's
+  `arcade-play.mjs` on the same build: 14 / 14.
+- **Bundle size** (the release build's `index.html`; `main` at 0a547a4 vs this branch): 3,705,095 B /
+  1,268,415 B gz → 3,729,653 B / 1,277,468 B gz: **+24.0 KB raw, +8.8 KB gz (+0.71 %)**, downloaded
+  by every game, run only by an arcade game with characters. Static, as before; the per-family runtime
+  build is the later fix.
+- **Slot parity:** every runtime path is keyed on the config having characters. Edited shared modules:
+  `arcadeLoop.ts` (three guarded hooks), `SpawnLayer.svelte` / `spawnLayers.ts` (a layer registers its
+  space; read only by characters), `flowV2Runtime.svelte.ts` (key matching moved to `flowKeys.ts`,
+  same behaviour), `Game.svelte` (`<ArcadeStage scenes>`), `ArcadeStage.svelte`, `stateMachine.ts` /
+  `componentTimelines.ts` (no `blend` ⇒ the old path), `LayoutNodeView.svelte` (a `path` draws
+  nothing), `editorStorage.ts` / `componentStorage.ts` normalizers (unchanged for every stored doc),
+  `runtimeBundle.ts` / `editorArtExport.ts` (no seed without characters), `roles.ts`.
+  The current-games harness: only `fixtures.mjs`'s bake seeds `characterComponentIds` (a no-op for
+  every current fixture).
+- **Chosen in P10.11, owner may overturn:**
+  - **one PR**; the sample is a fixture, not Game Maker's arcade default;
+  - only CHARACTER bodies get acceleration and the solid response; other bodies step as in P10.8,
+    so `solid` changes nothing in a game without characters;
+  - a component is one character (validated); a spawned instance of it is that character;
+  - a circle is pushed out of a solid as its box; a step faster than body + wall can still pass
+    through (sub-steps are P10.13's);
+  - a controller drives unless Flow switched the character to its brain; `characterState` is raised
+    for the brain's own transitions, not for `setCharacterState`;
+  - keyboard controllers read the fixed actions `left` / `right` / `up` / `down`;
+  - path nodes are read at a screen's top level (scale, rotation and the per-layout override applied;
+    nested ones are skipped); the first path of an id wins across screens;
+  - unknown behaviours and conditions are dropped by the normalizer (a transition with one is
+    dropped whole, so it never fires more widely than authored);
+  - the blend state's cues follow the lower point; exit time reads the first point.
+- **Not done here:** abilities (hit zones, cooldowns, `onHit`) and zone forces (§4.3; not in §8's
+  row); `grounded` and the jump (P10.13); a character's own `edges` beyond its body's; renaming a
+  character does not update Flow references to it; `/flow-v2` Preview running characters; a
+  current-games fixture for the sample (it would edit the harness); the Characters page was checked
+  rendered on the server, not driven in a browser (no Postgres / R2 here).
+- **Known limits:** the sandbox is a stand-in (one dummy player, drawn walls and one path stand for the
+  game's); P10.8's placeholder components draw half their size up and left of their bodies (a `rect`'s
+  default anchor plus a `-w/2` offset; seen while building, not fixed here); a timeline's `alpha`
+  multiplies the node's own, so a node stored at alpha 0 cannot be faded in by a timeline.
 
 **P10.8 — Arcade, rules-decided (built 2026-10-25; in review).** §8's P10.8 row (§4.2, §3.4, §9 #6),
 in one PR.
@@ -918,26 +1036,27 @@ game, bundle or screen changes.
 4. The `swap` flight kind in `/symbols` → Flights, so its look is authorable.
 5. The State machine tab's stage preview and the `/flow-v2` preview do not yet drive drag, move,
    swipe or Align Target (P10.4's "Not done here").
-6. The `/config` **Characters** link for arcade (§6.2) lands with Invisible Characters (P10.11).
-7. **Confirm no custom kind is named `match3` or `arcade`** in R2 (`_shared/editor-kinds/`). Either
+6. **Confirm no custom kind is named `match3` or `arcade`** in R2 (`_shared/editor-kinds/`). Either
    is now hidden behind its built-in (and warned about in the launcher log, never overwritten).
    Needs R2 access, which neither build had.
-8. The runtime still prices and draws the `match3` arm as the lines default (`payoutDivisor`,
+7. The runtime still prices and draws the `match3` arm as the lines default (`payoutDivisor`,
    `winLineShapeFor`). An RGS match-3 game never reads either (its wins are the server's amounts,
    presented by the cascade, with no win lines), so P10.6 left them; honour the arm (divisor 1) if
    anything starts reading it.
-9. **A per-family runtime build** (owner, 2026-10-25, later): `_runtime/match3` built with the
+8. **A per-family runtime build** (owner, 2026-10-25, later): `_runtime/match3` built with the
    match-3 branch, slot runtimes built without it (a build-time define + dead-code elimination), so
    slot bundles stop carrying the match-3 code (P10.5 + P10.6: about +24 KB raw / +8.6 KB gz) and the
    arcade code (P10.8: +19.0 KB raw / +6.6 KB gz).
-10. Add the RGS sample as a current-games fixture (`cg-match3-rgs`) and the harness's `protocolFor`
+9. Add the RGS sample as a current-games fixture (`cg-match3-rgs`) and the harness's `protocolFor`
     copy, in a harness change the owner reviews; likewise an arcade fixture (`cg-arcade`), which
     needs a key-press step in the screen-script format.
-11. **Swap the Salmons art into the arcade sample** (owner): the sample draws placeholder shapes. When
+10. **Swap the Salmons art into the arcade sample** (owner): the sample draws placeholder shapes. When
     the Salmons art pass (S0) lands, re-skin `arcadeSalmon` / `arcadeBear` / `arcadeHook` /
     `arcadeFish` (or a Salmons project's own components) in the Component Editor and size the config
     bodies to the art.
-12. Touch steering for the arcade sample: the `pointer` controller (P10.11).
+11. Touch steering for the P10.8 sample: the controllers exist (P10.11); the sample keeps its Flow
+    steering until it is given a character.
+12. Abilities (hit zones, cooldowns, `onHit`) and zone forces (§4.3), left out of P10.11.
 
 ## Blocked (owner / external)
 
@@ -947,6 +1066,9 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-26 — **P10.11 built: arcade characters.** Brains (`behaviours.js`), controllers, solid
+  response, paths, `animInputs`, 1D blend states, the `path` node, and the new **Invisible
+  Characters** tool (arcade only); a guard sample as a fixture. Detail above.
 - 2026-10-26 — **P10.9a built: 9-slice** (in review, #1365). A sprite's 9-slice (stretch or
   tile) with the insets on the art region, shipped as the frame's `borders`; editor and game draw
   it from one layout and a pixel-parity gate holds them together. Detail in
