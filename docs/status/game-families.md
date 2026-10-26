@@ -947,7 +947,9 @@ game, bundle or screen changes.
 
 ## Recent changes
 
-- 2026-10-26 — **P10.9a built: 9-slice** (in review, #1365). A sprite's 9-slice (stretch or
+- 2026-10-26 — **P10.9b built: rulers and guides** (in review, #1368). Detail in
+  [editor status](editor.md) 2026-10-26.
+- 2026-10-26 — **P10.9a built: 9-slice** (merged, #1365). A sprite's 9-slice (stretch or
   tile) with the insets on the art region, shipped as the frame's `borders`; editor and game draw
   it from one layout and a pixel-parity gate holds them together. Detail in
   [editor status](editor.md) 2026-10-26.

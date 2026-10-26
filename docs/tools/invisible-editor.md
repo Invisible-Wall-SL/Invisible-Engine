@@ -638,6 +638,27 @@ still adds to the selection on the active screen only. When a big item on anothe
 covers the one you want, pick it in the outline or hide that screen with its eye. The toggle is
 off in Animate and on the Components side, and is kept per project.
 
+#### Rulers and guides
+
+**📏 Rulers** (canvas toolbar) shows rulers on the canvas's top and left edges, labelled in
+world (window-frame) pixels at the current zoom and pan. While the rulers are on:
+
+- **Add a guide.** Drag down from the top ruler for a horizontal guide, or right from the left
+  ruler for a vertical one. Each guide shows a marker on its ruler.
+- **Move a guide.** Drag it on the canvas (the cursor changes over it). Shift-click passes
+  through to the object underneath.
+- **Remove a guide.** Drop it back on a ruler. It turns red when releasing will remove it.
+- **⌗ Snap to guides** makes a moved object's edges and centre snap to the guides, on top of the
+  usual snapping to the frame and other objects. Turn it off to keep the guides only as lines.
+
+**📏 Rulers** is off until you turn it on, **⌗ Snap to guides** is on; both are remembered per
+browser. Esc cancels a guide drag. Guides are saved with the screen (on
+the Components side, with the component) and kept per device layout, so each layout tab has its
+own. Adding, moving or removing a guide is an edit: on a screen undo covers it and it autosaves; on
+the Components side it marks the component unsaved, like any other change there. Guides can't
+be edited in Animate, or on a skinnable part's stage inside a component. They are editor-only and
+never reach the game.
+
 Other editing affordances:
 
 - **Undo / redo** — `Ctrl/⌘+Z` / `Shift+Z` (or the ↶ ↷ buttons). Covers every
