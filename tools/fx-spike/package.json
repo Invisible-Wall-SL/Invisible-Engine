@@ -28,7 +28,8 @@
 		"shader-parity": "node shaderParity.mjs",
 		"shader-twins": "node shaderTwins.mjs",
 		"shader-motion": "node shaderMotion.mjs",
-		"particle-material": "node particleMaterial.mjs"
+		"particle-material": "node particleMaterial.mjs",
+		"nine-slice-parity": "node nineSliceParity.mjs"
 	},
 	"devDependencies": {
 		"tsx": "4.23.15",

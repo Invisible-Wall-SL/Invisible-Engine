@@ -1121,6 +1121,29 @@ cover-fits by that box instead of by whatever rectangle the packer produced.
 > the next **art export** — the exporter writes it into the sheet the game loads, so
 > there is no extra publish step and nothing new to register.
 
+#### 9-slice — panels and frames that resize without stretching their corners
+
+A sprite node has a **9-slice** select, under **Keep image ratio**: **Off** (the default),
+**Stretch edges + centre** or **Tile edges + centre**. With it on, the four corners keep
+their art size and the node's **width × height** stretches (or tiles) the edges and the
+centre between them — the usual way to draw a button, a panel or a frame at any size from
+one small image.
+
+- **Set the insets** in the **9-slice insets** section that appears below (once the sprite
+  has a region): drag the four cyan guide lines over the region's thumbnail, or type
+  **left / top / right / bottom** in pixels. **✕ Clear** removes them.
+- **A box smaller than two corners** shrinks all four corners by the same factor rather
+  than overlapping them. The node's **scale** is folded into the size, so corners never
+  grow with the node — resize with width × height or scale, the corners stay crisp.
+- **Keep image ratio** and **Art bounds** don't apply to a sliced sprite — it draws the
+  region's packed art as-is. A sprite drawn as a full-window cover (see **Background**,
+  above) ignores the slice.
+
+> **The insets edit the ART, like Art bounds.** They are stored per
+> `<assetKey>::<region>`, shared by every sliced use of that region, saved immediately
+> (not by the page's Save) and reach the game with the next **art export**. The select is
+> per node: the same region can be sliced on one node and drawn plainly on another.
+
 #### Symbol size on the reel
 
 **Symbol size comes from the art.** There is no symbol-size control: every symbol is fitted

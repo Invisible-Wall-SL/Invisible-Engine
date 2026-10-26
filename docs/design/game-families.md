@@ -869,7 +869,7 @@ each one is assigned to the phase that first needs it.
 | **Pointer move / drag listeners + Align Target** | Swipe-to-swap; drag a paddle; a slider | **P10.4** | M |
 | **View models** | Replaced by Flow variables + `source: var:<id>` (§3.1), later shown in the 9d Data tab. Not built as Rive's | **P10.3** | (in P10.3) |
 | **Tags** | Arcade collision filters (`enemy`, `pickup`); a `spawnable` group | **P10.8** | S |
-| **N-slice** | Goal panels, progress bars and HUD frames that resize per board size and device layout | **P10.9** | M |
+| **N-slice** | Goal panels, progress bars and HUD frames that resize per board size and device layout | **P10.9** (✅ built 2026-10-26: insets on the art region, mode on the sprite; [editor status](../status/editor.md)) | M |
 | **Rulers and guides** | Laying out a play field and board precisely | **P10.9** (✅ built 2026-10-26: guides saved per screen / component and device layout, editor-only; [editor status](../status/editor.md)) | S |
 | **Graph Editor + Elastic / Bounce** | Match-3 "juice": gems that land with a bounce, pops that overshoot | **P10.9**. Elastic / Bounce as `CinematicEase` presets: ✅ built 2026-10-25. Graph Editor: ✅ built 2026-10-26 ([cinematic status](../status/cinematic.md)) | M |
 | **Blend states (1D)** | An arcade character's idle → run, blended by speed | **P10.11** (characters need it; moved from P10.10 on 2026-10-22) | L |
