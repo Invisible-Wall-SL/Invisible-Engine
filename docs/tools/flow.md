@@ -1002,6 +1002,7 @@ spawning work as in any flow.
 | `enterZone` | `instance`, `zone` | A body moved into a zone (`zone` is its id). |
 | `leaveZone` | `instance`, `zone` | A body moved out of a zone it was in. |
 | `leaveBounds` | `instance`, `edge` | A body whose Edges are `pass` was on the field and is now wholly off it, by `edge` (`left`, `right`, `top`, `bottom`). One spawned off the field to come in has not left it. It stays alive until you Despawn it. |
+| `characterState` | `instance`, `character`, `from`, `to` | A character's brain moved to another state on its own (a guard spotted the player: `patrol` → `chase`). `character` is its id in the config. Not raised for **Set Character State**. |
 
 **Actions** — each aims at the instance fed to **instance**, or, with **instance** unwired, at
 every body carrying the tag in **tagged** (`player`):
@@ -1009,6 +1010,15 @@ every body carrying the tag in **tagged** (`player`):
 - `setVelocity` (`vx`, `vy`) — its speed in px per second; an unwired one keeps its value.
 - `moveTo` (`x`, `y`) — puts it at a place on the field; an unwired one keeps its value.
 - `setTag` (`tag`, `on`) — gives it the tag, or takes it away with **on** off.
+- `setCharacterState` (`state`) — puts a character's brain in that state (a state its brain does
+  not have is ignored), overriding what the brain decided.
+- `setCharacterControl` (`control`) — `controller`: the player drives the character; `brain`: it
+  runs on its brain (a bot). A character without that one keeps what it has.
+
+**Characters.** A spawned instance whose component is a character's look (Game Config's
+`arcade.characters`) moves by itself: its controller reads the key map's `left` / `right` / `up` /
+`down` (and a held touch), its brain picks a behaviour, and walls whose body is **solid** stop it.
+Flow keeps the game (score, lives) and steers characters only through the two actions above.
 
 **`$engine` values:** `random` (a seeded number from 0 up to 1, new on every read, so a run
 replays), `randomX` (a seeded x on the field, from 0 up to its width), `fieldWidth` and

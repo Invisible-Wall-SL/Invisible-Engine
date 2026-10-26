@@ -25,7 +25,12 @@
  * 10. Phase 9c's options: a disabled transition and a disabled layer, the blend's cubic `ease`,
  *     `pauseSource: false` (the state left plays on under the blend, in the runner and the player),
  *     `allowExit: false`, a state's `onExit` raises (before the next `onEnter`), validation, what
- *     saves — and that a machine without them, or with them at their defaults, runs identically.
+ *     saves — and that a machine without them, or with them at their defaults, runs identically;
+ * 11. P10.11's 1D blend states: the bracket and weight at, between, below and above the points, each
+ *     timeline at the state's clock, the player's mixed sample, cues from the lower point only, a
+ *     bracket switch that does not restart, a transition out mixing from the frozen mix, the exit
+ *     time on the primary, missing points, the registry binding every point, validation, what
+ *     saves — and that a machine without a blend never reports a mix.
  *
  * What it cannot prove: the Svelte wiring in `ComponentInstance.svelte` (ticker, bus, context) —
  * that is the owner's browser check.
@@ -2297,6 +2302,432 @@ eq(
 		],
 	);
 	eq('what saves: a disabled layer', savedOptions?.disabled, true);
+}
+
+// ---- 11. P10.11: 1D blend states --------------------------------------------------------------
+
+{
+	const r4 = (n: number | undefined): number | undefined =>
+		n === undefined ? undefined : Math.round(n * 10000) / 10000;
+	const xAt = (value: number, cue?: { time: number; cue: string }): CinematicDoc =>
+		timeline(`c_x${value}`, {
+			channels: { x: [{ time: 0, value }] },
+			cues: cue ? [cue] : [],
+		});
+	const walk = timeline('c_walk', {
+		channels: { x: [{ time: 0, value: 0 }] },
+		cues: [{ time: 0.5, cue: 'signal:walkHalf' }],
+	});
+	const run = timeline('c_run', {
+		duration: 0.5,
+		channels: { x: [{ time: 0, value: 100 }] },
+		cues: [{ time: 0.25, cue: 'signal:runStep' }],
+	});
+	const sprint = xAt(300);
+	const hit = timeline('c_hit', { channels: { x: [{ time: 0, value: 1000 }] }, cues: [] });
+	const docs = [walk, run, sprint, hit];
+	const blendDurations = new Map(docs.map((d) => [d.id, d.duration]));
+	const blendInputs: ComponentDef['inputs'] = [
+		{ id: 'speed', kind: 'number', default: 0 },
+		{ id: 'hit', kind: 'trigger' },
+		{ id: 'grounded', kind: 'bool' },
+	];
+	const loco = (over: Partial<SmLayer['states'][number]> = {}): SmLayer['states'][number] => ({
+		id: 'loco',
+		timeline: 'c_walk',
+		loop: true,
+		blend: {
+			input: 'speed',
+			points: [
+				{ timeline: 'c_walk', at: 0 },
+				{ timeline: 'c_run', at: 200 },
+			],
+		},
+		...over,
+	});
+	const body = (
+		state = loco(),
+		transitions: SmTransition[] = [
+			{
+				id: 't_hit',
+				from: 'loco',
+				to: 'hit',
+				conditions: [{ input: 'hit', op: 'fired' }],
+				blend: 1000,
+			},
+		],
+	): ComponentStateMachine => ({
+		layers: [
+			{
+				id: 'body',
+				entry: 'loco',
+				states: [state, { id: 'hit', timeline: 'c_hit' }],
+				transitions,
+			},
+		],
+	});
+	const runner = (m = body()): InstanceType<typeof M.ComponentStateMachineRunner> =>
+		new M.ComponentStateMachineRunner(m, blendInputs, blendDurations);
+	const bracketAt = (speed: number, m = body()): unknown => {
+		const r = runner(m);
+		r.setInput('speed', speed);
+		r.advance(0);
+		const play = r.plays()[0];
+		return {
+			timeline: play.timeline,
+			mix: play.mix && { ...play.mix, weight: r4(play.mix.weight) },
+		};
+	};
+
+	// Weights: at, between, below and above the points.
+	eq('blend: below the first point, the first alone', bracketAt(-50), { timeline: 'c_walk' });
+	eq('blend: at the first point, it alone (no mix)', bracketAt(0), { timeline: 'c_walk' });
+	eq('blend: between two points, the lower plus the upper by weight', bracketAt(50), {
+		timeline: 'c_walk',
+		mix: { timeline: 'c_run', time: 0, weight: 0.25 },
+	});
+	eq('blend: at the last point, it alone', bracketAt(200), { timeline: 'c_run' });
+	eq('blend: above the last point, it alone', bracketAt(900), { timeline: 'c_run' });
+	const three = body(
+		loco({
+			blend: {
+				input: 'speed',
+				points: [
+					{ timeline: 'c_run', at: 100 },
+					{ timeline: 'c_walk', at: 0 },
+					{ timeline: 'c_x300', at: 300 },
+				],
+			},
+		}),
+	);
+	eq(
+		'blend: three points (unsorted) bracket the value between the right two',
+		bracketAt(200, three),
+		{
+			timeline: 'c_run',
+			mix: { timeline: 'c_x300', time: 0, weight: 0.5 },
+		},
+	);
+	eq('blend: at a middle point exactly, it alone', bracketAt(100, three), { timeline: 'c_run' });
+
+	// The state's clock: each timeline at it, wrapped by its own duration on a loop.
+	{
+		const r = runner();
+		r.setInput('speed', 100);
+		r.advance(0.7);
+		const play = r.plays()[0];
+		eq('blend: the lower plays at the state’s clock', r4(play.time), 0.7);
+		eq(
+			'blend: the upper at the same clock, wrapped by its own (shorter) duration',
+			r4(play.mix?.time),
+			0.2,
+		);
+		eq(
+			'blend: an input change needs a tick (the preview re-places)',
+			[r.setInput('speed', 150), r.needsTick()],
+			[true, true],
+		);
+	}
+
+	// The player: the mixed sample, the slot, cues from the lower only, a bracket switch.
+	{
+		const player = new L.ComponentTimelinePlayer(docs, nodes);
+		const r = runner();
+		r.setInput('speed', 50);
+		const cues: string[] = [];
+		const apply = (): void => {
+			for (const [i, play] of r.plays().entries())
+				cues.push(...player.drive(play.layer, i, play).map((c) => c.cue));
+		};
+		r.advance(0);
+		apply();
+		eq('blend: the player mixes lower and upper with blendNodeSamples', player.sample('n_coin'), {
+			x: 25,
+		});
+		eq('blend: the slot reports its mix', player.drivenSlot('body'), {
+			timeline: 'c_walk',
+			time: 0,
+			mix: { timeline: 'c_run', weight: 0.25 },
+		});
+		for (let i = 0; i < 12; i++) {
+			r.advance(0.1);
+			apply();
+		}
+		eq('blend: cues fire from the lower point only (run’s steps never)', cues, ['signal:walkHalf']);
+		r.setInput('speed', 400);
+		r.advance(0.1);
+		apply();
+		eq(
+			'blend: the input crossing a point switches the slot to the new lower without restarting',
+			[player.drivenSlot('body')?.timeline, r4(player.drivenSlot('body')?.time)],
+			['c_run', 0.3],
+		);
+		eq('blend: …and its pose is that point alone', player.sample('n_coin'), { x: 100 });
+		r.advance(0.1);
+		apply();
+		eq('blend: the new lower’s cues fire from then on', cues.slice(1), ['signal:runStep']);
+
+		// A transition out of a blend state mixes in from the mixed pose, frozen.
+		r.setInput('speed', 50);
+		r.advance(0);
+		apply();
+		const before = player.sample('n_coin');
+		r.fire('hit');
+		r.advance(0);
+		apply();
+		eq(
+			'blend: leaving a blend state, the pose starts at the mixed pose',
+			[before, player.sample('n_coin')],
+			[{ x: 25 }, { x: 25 }],
+		);
+		eq('blend: the frozen pose is not playing on', r.plays()[0].from?.playing, undefined);
+		r.setInput('speed', 200);
+		r.advance(0.1);
+		apply();
+		eq(
+			'blend: 10% into the blend, from the frozen mix (a later input change does not move it)',
+			r4((player.sample('n_coin') as { x?: number }).x),
+			r4(25 + (1000 - 25) * 0.1),
+		);
+		eq('blend: the target state reports no mix', r.plays()[0].mix, undefined);
+	}
+
+	// pauseSource: false from a blend state still freezes the mixed pose.
+	{
+		const r = runner(
+			body(loco(), [
+				{
+					id: 't_hit',
+					from: 'loco',
+					to: 'hit',
+					blend: 1000,
+					pauseSource: false,
+					conditions: [{ input: 'hit', op: 'fired' }],
+				},
+			]),
+		);
+		r.setInput('speed', 50);
+		r.fire('hit');
+		r.advance(0.1);
+		eq(
+			'blend: pauseSource:false does not keep a blend state playing',
+			r.plays()[0].from?.playing,
+			undefined,
+		);
+	}
+
+	// Exit time reads the primary (the state's `timeline`), whatever the bracket.
+	{
+		const r = runner(
+			body(loco({ loop: undefined }), [{ id: 't_done', from: 'loco', to: 'hit', exitTime: 1 }]),
+		);
+		r.setInput('speed', 400);
+		r.advance(0.6);
+		eq(
+			'blend: past the upper’s end, the primary’s exit time holds the state',
+			r.stateOf('body'),
+			'loco',
+		);
+		eq(
+			'blend: a non-looping blend state keeps playing until its longest point ends',
+			r.isPlaying(),
+			true,
+		);
+		r.advance(0.4);
+		eq('blend: the primary’s end fires the exit-time transition', r.stateOf('body'), 'hit');
+	}
+
+	// The leaving segment (its cues) is the lower point's.
+	{
+		const r = runner();
+		r.setInput('speed', 300);
+		r.advance(0.1);
+		r.fire('hit');
+		r.advance(0.2);
+		eq(
+			'blend: the left segment is the lower point’s',
+			r.plays()[0].left?.map((l) => [l.timeline, r4(l.prevTime), r4(l.time)]),
+			[['c_run', 0.1, 0.3]],
+		);
+	}
+
+	// A missing point timeline is listed and skipped; a missing primary holds the state.
+	{
+		const missing = body(
+			loco({
+				blend: {
+					input: 'speed',
+					points: [
+						{ timeline: 'c_walk', at: 0 },
+						{ timeline: 'c_gone', at: 100 },
+						{ timeline: 'c_run', at: 200 },
+					],
+				},
+			}),
+		);
+		eq(
+			'blend: a point timeline the host lacks is listed as missing',
+			runner(missing).missingTimelines,
+			['c_gone'],
+		);
+		eq('blend: …and skipped (the known points bracket the value)', bracketAt(100, missing), {
+			timeline: 'c_walk',
+			mix: { timeline: 'c_run', time: 0, weight: 0.5 },
+		});
+		const noPrimary = body(loco({ timeline: 'c_gone' }));
+		const r = runner(noPrimary);
+		r.setInput('speed', 50);
+		r.advance(0.1);
+		eq(
+			'blend: a missing primary holds the state, as any state',
+			[r.plays()[0].timeline, r.plays()[0].mix],
+			[undefined, undefined],
+		);
+	}
+
+	// The registry binds every point's timeline.
+	{
+		L.registerComponentTimelines(docs);
+		const { durations: bound } = L.stateMachineTimelines(body());
+		eq(
+			'blend: stateMachineTimelines binds the blend points’ timelines',
+			[...bound.keys()],
+			['c_walk', 'c_run', 'c_hit'],
+		);
+		L.registerComponentTimelines([]);
+	}
+
+	// Parity: a machine without blend reports no mix, ever.
+	{
+		const r = new M.ComponentStateMachineRunner(machine(layer()), inputs, durations);
+		const plays = [r.plays()];
+		r.fire('win');
+		for (let i = 0; i < 15; i++) {
+			r.advance(0.1);
+			plays.push(r.plays());
+		}
+		eq(
+			'blend parity: a machine without blend never reports a mix',
+			plays.flat().some((p) => 'mix' in p),
+			false,
+		);
+	}
+
+	// Validation.
+	{
+		const issues = (state: SmLayer['states'][number]): string[] =>
+			M.validateStateMachine(
+				{ inputs: blendInputs, stateMachine: body(state) },
+				docs.map((d) => d.id),
+			)
+				.filter((i) => i.code.startsWith('blend-'))
+				.map((i) => `${i.code}: ${i.message}`);
+		eq('blend validation: a valid blend has no issue', issues(loco()), []);
+		eq(
+			'blend validation: a bool input, one point, an unknown timeline, two points at one value',
+			[
+				issues(loco({ blend: { input: 'grounded', points: [{ timeline: 'c_walk', at: 0 }] } })),
+				issues(loco({ blend: { input: 'nope', points: loco().blend!.points } })),
+				issues(
+					loco({
+						blend: {
+							input: 'speed',
+							points: [
+								{ timeline: 'c_walk', at: 0 },
+								{ timeline: 'c_gone', at: 0 },
+							],
+						},
+					}),
+				),
+			],
+			[
+				[
+					'blend-input-invalid: Layer "body": blend state "loco" blends by the bool input "grounded"; a blend needs a number input.',
+					'blend-too-few-points: Layer "body": blend state "loco" has 1 point; a blend needs at least 2.',
+				],
+				[
+					'blend-input-invalid: Layer "body": blend state "loco" blends by input "nope", which is not declared.',
+				],
+				[
+					'blend-timeline-missing: Layer "body": blend state "loco" blends timeline "c_gone", which this component does not have. In game that point is skipped.',
+					'blend-duplicate-at: Layer "body": blend state "loco" has two points at 0; each point needs its own value.',
+				],
+			],
+		);
+	}
+
+	// What saves.
+	{
+		const save = (stateMachine: unknown): ComponentStateMachine | undefined =>
+			normalizeComponent({
+				id: 'hero',
+				name: 'Hero',
+				version: 1,
+				scope: 'project',
+				category: 'ui',
+				root: { id: 'root', kind: 'container', x: 0, y: 0, children: [] },
+				stateMachine,
+			} as unknown as ComponentDef).stateMachine;
+		const kept = body();
+		eq(
+			'blend saves: a blend state round-trips byte-identically',
+			JSON.stringify(save(kept)),
+			JSON.stringify(kept),
+		);
+		const saved = save(
+			body(
+				loco({
+					timeline: 'c_stale',
+					blend: {
+						input: 'speed',
+						points: [
+							{ timeline: 'c_run', at: 200 },
+							{ timeline: '', at: 5 },
+							{ timeline: 'c_x300', at: Number.NaN },
+							{ timeline: 'c_walk', at: 0, extra: 1 } as unknown as {
+								timeline: string;
+								at: number;
+							},
+						],
+					},
+				}),
+			),
+		)?.layers[0].states[0];
+		eq('blend saves: points sorted, malformed ones dropped, timeline = the first point’s', saved, {
+			id: 'loco',
+			timeline: 'c_walk',
+			loop: true,
+			blend: {
+				input: 'speed',
+				points: [
+					{ timeline: 'c_walk', at: 0 },
+					{ timeline: 'c_run', at: 200 },
+				],
+			},
+		});
+		eq(
+			'blend saves: a blend with no usable point, or no input, is dropped (the state stays)',
+			[
+				save(body(loco({ blend: { input: 'speed', points: [] } })))?.layers[0].states[0],
+				save(body(loco({ blend: { points: loco().blend!.points } as never })))?.layers[0].states[0],
+			],
+			[
+				{ id: 'loco', timeline: 'c_walk', loop: true },
+				{ id: 'loco', timeline: 'c_walk', loop: true },
+			],
+		);
+		eq(
+			'blend saves: one point is kept (an edit in progress; validation flags it)',
+			save(body(loco({ blend: { input: 'speed', points: [{ timeline: 'c_run', at: 3 }] } })))
+				?.layers[0].states[0],
+			{
+				id: 'loco',
+				timeline: 'c_run',
+				loop: true,
+				blend: { input: 'speed', points: [{ timeline: 'c_run', at: 3 }] },
+			},
+		);
+	}
 }
 
 console.log(

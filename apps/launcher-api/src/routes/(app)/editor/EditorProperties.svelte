@@ -12,6 +12,7 @@
 	import EditorValueBindings from './EditorValueBindings.svelte';
 	import EditorRepeaterCount from './EditorRepeaterCount.svelte';
 	import EditorSpawnLayer from './EditorSpawnLayer.svelte';
+	import EditorPathNode from './EditorPathNode.svelte';
 	import EditorParallax from './EditorParallax.svelte';
 	import EditorEvents from './EditorEvents.svelte';
 	import EditorListeners from './EditorListeners.svelte';
@@ -3817,6 +3818,12 @@
 			<p class="muted small">
 				A spawn layer is placed by its origin: a spawn's x / y (or cell 0, 0) is measured from it.
 			</p>
+		{:else if node.kind === 'path'}
+			<!-- `scenePaths` places the points from the node's origin; a path has no anchor. -->
+			<p class="muted small">
+				A path is placed by its origin: its points are measured from it. Scale and rotation turn the
+				whole path in the game too.
+			</p>
 		{:else}
 			<div class="row">
 				<label class="field">
@@ -6037,6 +6044,8 @@
 				+ add cue
 			</button>
 		</section>
+	{:else if node.kind === 'path'}
+		<EditorPathNode {node} onChange={markDirty} />
 	{:else if node.kind === 'spawnLayer'}
 		<EditorSpawnLayer {node} {componentDefs} {worldCamera} onChange={markDirty} />
 	{:else if node.kind === 'repeater' && isCountRepeater(node)}

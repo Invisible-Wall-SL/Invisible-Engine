@@ -526,6 +526,33 @@ check(
 	check('7 ⧉ on both lists', workspace.match(/\{@render duplicateButton\(def\)\}/g)?.length, 2);
 }
 
+{
+	// P10.11: a blend state's points follow the copy's timelines too.
+	const blended = structuredClone(source);
+	const [state, other] = blended.stateMachine!.layers[0].states;
+	state.blend = {
+		input: 'value',
+		points: [
+			{ timeline: state.timeline, at: 0 },
+			{ timeline: other.timeline, at: 1 },
+		],
+	};
+	const copy = duplicateComponent(blended, {
+		id: 'c_blend001',
+		name: 'Blend copy',
+		mintNodeId: mint,
+		timelines: builtinOwn,
+		takenTimelineIds: taken,
+	});
+	const own = copy.timelines.map((d) => d.id);
+	const points = copy.def.stateMachine!.layers[0].states[0].blend?.points ?? [];
+	check(
+		"8 a blend state's points play the copy's own timelines",
+		[points.length, points.every((p) => own.includes(p.timeline))],
+		[2, true],
+	);
+}
+
 if (failures) {
 	console.error(`${failures} of ${checks} component-duplicate checks FAILED`);
 	process.exit(1);

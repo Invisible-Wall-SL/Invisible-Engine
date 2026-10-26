@@ -274,6 +274,8 @@
 				return '⧉';
 			case 'spawnLayer':
 				return '⊕';
+			case 'path':
+				return '⤳';
 			case 'flipbook':
 				return '🎞';
 			case 'effect':

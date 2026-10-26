@@ -24,6 +24,10 @@
  *      at runtime) is in the scope and ships, with the components it nests: its default art's
  *      sheet and a nested def's sprite sheet are written under `deploy/editor-art/`. Rule 8: a
  *      spawnable that did not ship would spawn as a blank frame.
+ *   8. The same for an arcade CHARACTER (P10.11): a component placed nowhere and spawnable nowhere,
+ *      named only as a character's `component` in the game config — or only as a `shootAt`
+ *      state's projectile — ships its def's art (`characterComponentIds` seeds the export). The
+ *      same config without characters ships neither: the seed, not the doc, carries them.
  *
  * Run:  pnpm --filter launcher-api check:art-scope
  */
@@ -104,7 +108,7 @@ const { artScopeAllows, borrowsClientArt, candidateAtlases, isProjectArtAllowed,
 	await import('../src/lib/server/projectArtScope.ts');
 const { loadRegionSet } = await import('../src/lib/server/editorRegions.ts');
 const { exportEditorArt } = await import('../src/lib/server/editorArtExport.ts');
-const { editorDocKey, projectComponentKey, projectComponentVersionKey, SUB } =
+const { editorDocKey, gameConfigDocKey, projectComponentKey, projectComponentVersionKey, SUB } =
 	await import('../src/lib/server/projectPaths.ts');
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -485,6 +489,86 @@ check(
 check(
 	'… and neither frame counts as dangling',
 	!spawnIndex.missing.includes('coinFace') && !spawnIndex.missing.includes('sparkFrame'),
+);
+
+console.log('8. a component only a character names ships');
+const CHAR_PROJECT = 'character_art';
+const charSheet = (stem: string, frame: string) => {
+	const manifest = `${SUB.manifests(CLIENT, CHAR_PROJECT)}/atlas_manifest_${stem}.json`;
+	const page = `${SUB.sheets(CLIENT, CHAR_PROJECT)}/${stem}/${stem}.webp`;
+	put(page, 'x');
+	put(manifest, {
+		atlas: { source_image_path: page },
+		regions: [{ name: frame, x: 0, y: 0, w: 8, h: 8 }],
+	});
+	return manifest;
+};
+const HERO_SHEET = charSheet('S_Hero', 'heroFrame');
+const SHOT_SHEET = charSheet('S_Shot', 'shotFrame');
+const spriteDef = (id: string, region: string) => ({
+	...def(id, 1, []),
+	root: {
+		id: 'root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [{ id: 'f', kind: 'sprite', x: 0, y: 0, region }],
+	},
+});
+put(
+	projectComponentKey(CHAR_PROJECT, 'charHero'),
+	spriteDef('charHero', `${HERO_SHEET}::heroFrame`),
+);
+put(
+	projectComponentKey(CHAR_PROJECT, 'charShot'),
+	spriteDef('charShot', `${SHOT_SHEET}::shotFrame`),
+);
+put(editorDocKey(CLIENT, CHAR_PROJECT), { scenes: [{ id: 'field', name: 'Field', nodes: [] }] });
+const ARCADE_CONFIG = { family: 'arcade', outcome: 'rules', gameName: 'Characters' };
+put(gameConfigDocKey(CLIENT, CHAR_PROJECT), {
+	...ARCADE_CONFIG,
+	arcade: {
+		characters: [
+			{ id: 'hero', component: 'charHero', controller: { kind: 'topDown', speed: 200 } },
+			{
+				id: 'turret',
+				component: 'charTurret',
+				brain: {
+					initial: 'fire',
+					states: [
+						{
+							id: 'fire',
+							behaviour: 'shootAt',
+							params: { component: 'charShot', layer: 'shots' },
+						},
+					],
+					transitions: [],
+				},
+			},
+		],
+	},
+});
+const charIndex = await exportEditorArt(CLIENT, CHAR_PROJECT);
+const charDeploy = `${SUB.deploy(CLIENT, CHAR_PROJECT)}/`;
+const shippedHero = charIndex.sheets.find((s) => s.key === HERO_SHEET);
+check('a character’s look ships its sheet', !!shippedHero);
+check(
+	'… its spritesheet written under deploy/editor-art/',
+	!!shippedHero && bucket.has(`${charDeploy}${shippedHero.json}`),
+);
+check(
+	'a shootAt projectile ships its sheet',
+	charIndex.sheets.some((s) => s.key === SHOT_SHEET),
+);
+check(
+	'… and neither frame counts as dangling',
+	!charIndex.missing.includes('heroFrame') && !charIndex.missing.includes('shotFrame'),
+);
+put(gameConfigDocKey(CLIENT, CHAR_PROJECT), ARCADE_CONFIG);
+const bareIndex = await exportEditorArt(CLIENT, CHAR_PROJECT);
+check(
+	'without characters neither ships',
+	!bareIndex.sheets.some((s) => s.key === HERO_SHEET || s.key === SHOT_SHEET),
 );
 
 console.log(failures === 0 ? '\nart scope: OK' : `\nart scope: ${failures} FAILED`);

@@ -29,3 +29,26 @@ export function spawnStore(): SpawnStore {
 	});
 	return store;
 }
+
+/** Each mounted spawn layer's space: from the canvas's global px into the layer's own. */
+const spaces = new Map<string, (x: number, y: number) => { x: number; y: number }>();
+
+/**
+ * A mounted `<SpawnLayer>` registers how a canvas point maps into its space (its node's transform
+ * on its screen), so a game can read the pointer where the layer's instances are placed (an arcade
+ * character following a touch, P10.11). Returns the unregister.
+ */
+export function registerSpawnLayerSpace(
+	layer: string,
+	toLocal: (x: number, y: number) => { x: number; y: number },
+): () => void {
+	spaces.set(layer, toLocal);
+	return () => {
+		if (spaces.get(layer) === toLocal) spaces.delete(layer);
+	};
+}
+
+/** A canvas point (global px) in spawn layer `layer`'s space, or `undefined` while it is not mounted. */
+export function spawnLayerPoint(layer: string, x: number, y: number) {
+	return spaces.get(layer)?.(x, y);
+}

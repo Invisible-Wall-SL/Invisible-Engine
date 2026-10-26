@@ -108,6 +108,7 @@ report: [current-games.md](current-games.md). Its screen scripts are per game TY
 | [hold-and-win-coin-board.md](hold-and-win-coin-board.md) | Hold and Win coin board (no line game): paying lines, the three pay rules, player-picked lines, local boot |
 | [match3-sample.md](match3-sample.md) | the first non-slot game: a rules-decided match-3 (free play, no RGS), played with scripted swipes |
 | [arcade-sample.md](arcade-sample.md) | the first arcade game: a rules-decided catcher / dodger (free play, no RGS), played with key events |
+| [arcade-characters.md](arcade-characters.md) | arcade characters (P10.11): a played runner, a guard on a patrol / chase brain, solid walls, a path, a blended look |
 | [bonus-games-7c.md](bonus-games-7c.md) | report: the samples and every bonus-games layer played in a browser (Phase 7c) |
 
 A playbook whose game and win model are decided by DIFFERENT sides (the mock's `WIN_MODEL` vs the

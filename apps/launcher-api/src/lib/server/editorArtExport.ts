@@ -41,7 +41,7 @@ import {
 	resolveComponentClosureWithPins,
 } from 'engine-layout';
 import { EDITOR_RIG_LOAD_SCALE } from '$lib/rigScale';
-import { betModeCardIds, betModeCardParamRefs } from 'game-config';
+import { betModeCardIds, betModeCardParamRefs, characterComponentIds } from 'game-config';
 import { sheetVersion } from './assetVersion';
 import { repairComponentDefsAtlasRefs } from './atlasRefRepair';
 import { componentDefaultsFor, listComponentDefaults } from './componentDefaultsStorage';
@@ -530,7 +530,11 @@ export async function exportEditorArt(
 	const cardParamSeedIds = cardParamRefs.some((ref) => !ref.card)
 		? [...cardComponentIds, FEATURE_CARD_DEF.id]
 		: cardComponentIds;
-	const defs = await phase('defs', () => resolveReferencedDefs(doc, projectKey, cardParamSeedIds));
+	// An arcade character's look and its `shootAt` shots are spawned at runtime too, so they seed
+	// the walk the same way; a config without characters adds nothing (parity).
+	const characterIds = gameConfig ? characterComponentIds(gameConfig) : [];
+	const seedIds = characterIds.length ? [...cardParamSeedIds, ...characterIds] : cardParamSeedIds;
+	const defs = await phase('defs', () => resolveReferencedDefs(doc, projectKey, seedIds));
 	// `loadDoc` repaired the doc's own atlas refs; do the same for the defs BEFORE collecting, so a
 	// def whose art was authored against a sheet output prefix queues that sheet's real MANIFEST
 	// key — the key the runtime, reading the same repaired defs, will look the frame up under.

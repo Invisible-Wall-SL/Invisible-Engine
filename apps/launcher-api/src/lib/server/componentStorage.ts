@@ -8,6 +8,8 @@ import type {
 	ContainerNode,
 	LayoutNode,
 	SlotKind,
+	SmBlend1D,
+	SmBlendPoint,
 	SmCondition,
 	SmLayer,
 	SmPoint,
@@ -974,6 +976,21 @@ const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFi
 const point = (v: unknown): SmPoint | undefined =>
 	isRecord(v) && finite(v.x) && finite(v.y) ? { x: v.x, y: v.y } : undefined;
 
+/** A 1D blend state's block (P10.11): its points sorted by `at`, each a timeline and a finite
+ *  value. Kept with one point (an edit in progress; validation flags it), dropped with none. */
+function normalizeBlend(input: unknown): SmBlend1D | undefined {
+	if (!isRecord(input) || typeof input.input !== 'string') return undefined;
+	const points: SmBlendPoint[] = [];
+	for (const item of Array.isArray(input.points) ? input.points : []) {
+		if (!isRecord(item) || typeof item.timeline !== 'string' || !item.timeline) continue;
+		if (!finite(item.at)) continue;
+		points.push({ timeline: item.timeline, at: item.at });
+	}
+	if (!points.length) return undefined;
+	points.sort((a, b) => a.at - b.at);
+	return { input: input.input, points };
+}
+
 function normalizeStateMachine(input: unknown): ComponentStateMachine | undefined {
 	if (!isRecord(input) || !Array.isArray(input.layers)) return undefined;
 	const layers: SmLayer[] = [];
@@ -1008,6 +1025,11 @@ function normalizeStateMachine(input: unknown): ComponentStateMachine | undefine
 			if (onEnter.length) state.onEnter = onEnter;
 			const onExit = normalizeEnterActions(item.onExit);
 			if (onExit.length) state.onExit = onExit;
+			const blend = normalizeBlend(item.blend);
+			if (blend) {
+				state.blend = blend;
+				state.timeline = blend.points[0].timeline;
+			}
 			layer.states.push(state);
 		}
 		for (const item of Array.isArray(raw.transitions) ? raw.transitions : []) {

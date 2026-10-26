@@ -12,6 +12,8 @@
  *  - the actions that move bodies — `setVelocity`, `moveTo`, `setTag` — each aimed at one instance,
  *    or with `tagged` at every body carrying a tag;
  *  - `$engine.random` and `randomX` (seeded, so a run replays) and the field's size;
+ *  - characters (P10.11, §4.3): `characterState` on each brain transition, and the actions
+ *    `setCharacterState` (override a brain) and `setCharacterControl` (player or brain).
  *  - the world camera's (P10.12, on a screen with a world or a camera): `enterView` / `leaveView`,
  *    `cameraFollow`, `cameraMoveTo`, `cameraShake`, `cameraSetAutoScroll`, and `cameraX` /
  *    `cameraY` / `viewWidth` / `viewHeight`, so Flow can spawn ahead of the view.
@@ -32,6 +34,9 @@ const BOOL = { t: 'bool' } as const;
 
 /** The field edges a body can leave by — `engine-mechanics` `Edge`. */
 export const ARCADE_EDGES = ['left', 'right', 'top', 'bottom'] as const;
+
+/** Who drives a character — `engine-game` `CHARACTER_CONTROLS`. */
+export const ARCADE_CHARACTER_CONTROLS = ['controller', 'brain'] as const;
 
 const LOOP_EVENTS: EventDecl[] = [
 	{
@@ -96,6 +101,22 @@ const LOOP_EVENTS: EventDecl[] = [
 		description:
 			"A body's box stopped meeting the camera's view. It is still alive: Despawn it here, or let its spawn layer's Despawn outside view do it.",
 	},
+	{
+		name: 'characterState',
+		payload: [
+			{ name: 'instance', type: INSTANCE, description: 'The character.' },
+			{
+				name: 'character',
+				type: STRING,
+				description: "The character's id (Invisible Characters).",
+			},
+			{ name: 'from', type: STRING, description: 'The brain state it left.' },
+			{ name: 'to', type: STRING, description: 'The brain state it entered.' },
+		],
+		category: 'book',
+		description:
+			"A character's brain moved to another state on its own (a guard spotted the player: `patrol` → `chase`). Not raised for Set Character State.",
+	},
 ];
 
 /** The body an action aims at: one instance, else every body tagged `tagged`. */
@@ -115,6 +136,27 @@ const AIM = [
 ];
 
 const LOOP_ACTIONS: ActionDecl[] = [
+	{
+		name: 'setCharacterState',
+		params: [
+			...AIM,
+			{ name: 'state', type: STRING, description: "A state of the character's brain." },
+		],
+		category: 'command',
+	},
+	{
+		name: 'setCharacterControl',
+		params: [
+			...AIM,
+			{
+				name: 'control',
+				type: { t: 'enum', name: 'ArcadeCharacterControl' },
+				description:
+					'`controller`: the player drives it; `brain`: it runs on its brain (a bot). A character without that one keeps what it has.',
+			},
+		],
+		category: 'command',
+	},
 	{
 		name: 'setVelocity',
 		params: [
@@ -266,6 +308,7 @@ export const ARCADE_VOCAB: TemplateVocabulary = {
 	enums: [
 		...standard.enums.filter((e) => KEPT_ENUMS.has(e.name)),
 		{ name: 'ArcadeEdge', values: [...ARCADE_EDGES] },
+		{ name: 'ArcadeCharacterControl', values: [...ARCADE_CHARACTER_CONTROLS] },
 	],
 	events: [...standard.events.filter((e) => KEPT_EVENTS.has(e.name)), ...LOOP_EVENTS],
 	actions: [...standard.actions.filter((a) => KEPT_ACTIONS.has(a.name)), ...LOOP_ACTIONS],

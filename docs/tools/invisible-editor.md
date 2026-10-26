@@ -515,6 +515,8 @@ It is grouped into:
   On a screen (not in the Component Editor), click **Spawn layer** to insert a field that
   [Invisible Flow](./flow.md) fills with components while the game runs — see
   [Spawn layer](#spawn-layer--a-field-flow-fills-while-the-game-runs).
+  **Path** (screens only too) inserts a line an arcade character patrols or follows — see
+  [Path](#path--a-line-a-character-walks).
 - **Atlases** — composed atlas pages and atlas manifests. Manifest entries
   expand to their individual regions, which you drag in one at a time.
 - **Rigs** — the project's rig bundles (plus shared `_shared/` bundles,
@@ -1305,6 +1307,34 @@ origin (0, 0 is the top-left corner), and an instance's position is its centre.
 How Flow spawns into the layer: [Spawning](./flow.md#spawning--create-and-remove-components-in-play).
 The engine design is in [game families §3.3](../design/game-families.md).
 
+#### Path — a line a character walks
+
+A **Path** is a line an arcade character's brain walks: a **patrol** goes back and forth along an
+open path and round a looped one, a **follow path** runs it once (open) or forever (looped). The
+brain names the path by its node id, shown in Properties. The game draws nothing for a path.
+
+Insert one from **Library → Elements → Path** (screens only): a 300 px horizontal line at the
+centre of the active screen. The canvas draws it dashed, the closing segment too when it loops, with
+a square on each point (the start filled) and the label `⤳ <name> · N points · open | loop`. With
+**smoothing** above 0 the dashed line is the smoothed curve the character walks, over the authored
+points in a faint line.
+
+Select the path to edit it on the stage:
+
+- **drag a point** to move it;
+- **click a segment** to add a point there (and drag it straight away);
+- **Alt+click a point** to delete it (a path keeps at least two points).
+
+Move the whole path with **Transform**: its points are measured from its origin. Scale and rotation
+turn the whole path in the game too; a path has no anchor. Only a path placed directly on a screen
+is read, not one inside a container or a component.
+
+Its Properties block: **Loop (closed)**; **smoothing**, 0 (straight lines) to 1 (a smooth curve
+through the points); and the **points** list, x / y from the origin, with **×** to delete one and
+**+ add point** to add one past the end (on a loop, halfway back to the start).
+
+The engine design is in [game families §4.3](../design/game-families.md).
+
 ### 5. Author across device layouts
 
 The **layoutType** pills (`desktop · tablet · landscape · portrait`) switch which
@@ -1996,6 +2026,17 @@ are Inspecting an old version.
    the offset is read, in seconds, from a number param of the placement (wrapped on a looping
    state), and Random start adds a random point each time the state is entered. Use them when
    several instances enter a state together and should not move in step.
+   **Make blend state** (it needs a number input) turns the state into a **1D blend**: instead of
+   one timeline it plays several, mixed by a number input — an idle → run by `speed`. Pick the
+   input under **By input**, then give each point a timeline and the input value where that
+   timeline plays alone (**＋ point** adds one, **×** removes one but never the last; the points
+   sort by value). Between two points the two timelines play mixed by where the value falls; below
+   the first or above the last, that point plays alone. The card shows
+   `⇋ input: timeline value · …`. Every timeline plays on the state's one clock; cues fire from the
+   lower of the two points only, an exit time reads the first point's timeline, and a transition
+   out mixes from the blended pose. **Make plain state** goes back to one timeline (the first
+   point's). In the preview, an input a blend reads gets a slider under its number field spanning
+   the points.
 4. **Layers** are the tab strip in the panel bar: **＋ Layer** adds one; each runs on its own, and
    where two key the same property of a node, the later layer wins. Next to **Rename**: **⧉**
    duplicates the layer (states, arrows and positions, named "<name> copy"), **◀ / ▶** move it

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
+
 	import {
 		ARCADE_BODY_EDGES,
 		ARCADE_FIXED_HZ_RANGE,
@@ -69,6 +71,7 @@
 	const minRun = $derived(doc.match3?.minRun ?? DEFAULT_MATCH3_MIN_RUN);
 	const stripSets = $derived(Object.keys(doc.paddingReels));
 	const bodies = $derived(Object.entries(doc.arcade?.bodies ?? {}));
+	const characterCount = $derived(doc.arcade?.characters?.length ?? 0);
 	let newBody = $state('');
 	let newGoal = $state<'score' | 'collect'>('score');
 </script>
@@ -462,6 +465,13 @@
 			<div class="row tight">
 				<button class="small" onclick={() => addZone(doc)}>Add zone</button>
 			</div>
+			<span class="legend">Characters <em>what moves by itself, played or run by a brain</em></span>
+			<p class="characters">
+				{characterCount === 0
+					? 'No characters yet.'
+					: `${characterCount} character${characterCount === 1 ? '' : 's'}.`}
+				<a href={resolve('/characters')}>Edit in Invisible Characters</a>
+			</p>
 		</fieldset>
 		{@render issueList('arcade')}
 	</section>
@@ -543,6 +553,15 @@
 	}
 	label.pairs {
 		margin-top: 12px;
+	}
+	.characters {
+		margin: 0;
+		font-size: 12px;
+		color: #c8c8d4;
+	}
+	.characters a {
+		margin-left: 8px;
+		color: #7ee0c0;
 	}
 	label.pairs em {
 		font-style: normal;

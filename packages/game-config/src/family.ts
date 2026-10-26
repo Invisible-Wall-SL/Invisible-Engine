@@ -1,3 +1,4 @@
+import { normalizeArcadeCharacters, type ArcadeCharacter } from './arcadeCharacters';
 import { isObject, num } from './normalizeParts';
 import type { GameConfigDoc } from './types';
 
@@ -81,8 +82,8 @@ export const DEFAULT_ARCADE_FIXED_HZ = 60;
 export const ARCADE_FIXED_HZ_RANGE = { min: 30, max: 240 } as const;
 
 /**
- * An arcade game's play field and bodies (§4.2). Characters, the world and online rooms join it in
- * later tiers (P10.11–P10.14). SPARSE, like {@link Match3Block}.
+ * An arcade game's play field and bodies (§4.2). Its characters arrive in P10.11; the world and online
+ * rooms join it in later tiers (P10.12–P10.14). SPARSE, like {@link Match3Block}.
  */
 export type ArcadeBlock = {
 	/** The play field's bounds, in design pixels. Absent ⇒ the screen's design size. */
@@ -96,6 +97,8 @@ export type ArcadeBlock = {
 	pairs?: [string, string][];
 	/** The field's zones (P10.8). */
 	zones?: ArcadeZone[];
+	/** The characters: what moves by itself, played or run by a brain (P10.11, §9 #14). */
+	characters?: ArcadeCharacter[];
 };
 
 type FamilyDoc = Pick<GameConfigDoc, 'family' | 'outcome'> | null | undefined;
@@ -123,12 +126,14 @@ export const resolveArcade = (
 	bodies: Record<string, ArcadeBody>;
 	pairs: [string, string][];
 	zones: ArcadeZone[];
+	characters: ArcadeCharacter[];
 } & Pick<ArcadeBlock, 'field'> => ({
 	...(doc?.arcade?.field ? { field: doc.arcade.field } : {}),
 	fixedHz: doc?.arcade?.fixedHz ?? DEFAULT_ARCADE_FIXED_HZ,
 	bodies: doc?.arcade?.bodies ?? {},
 	pairs: doc?.arcade?.pairs ?? [],
 	zones: doc?.arcade?.zones ?? [],
+	characters: doc?.arcade?.characters ?? [],
 });
 
 /** A stored family, or `undefined` for the default and for anything unreadable. */
@@ -294,5 +299,7 @@ export function normalizeArcade(raw: unknown): ArcadeBlock | undefined {
 	if (pairs) block.pairs = pairs;
 	const zones = normalizeZones(raw.zones);
 	if (zones) block.zones = zones;
+	const characters = normalizeArcadeCharacters(raw.characters);
+	if (characters) block.characters = characters;
 	return Object.keys(block).length ? block : undefined;
 }
