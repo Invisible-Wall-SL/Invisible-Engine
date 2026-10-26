@@ -6,7 +6,7 @@
  * decisions onto `<Container>` / `<RigBoneAttach>` / `<ParticleEmitter>`.
  */
 
-import type { EffectDoc, EmitterLayer, RigParticleConfig } from './types';
+import type { EffectDoc, EmitterLayer, EmitterMaterial, RigParticleConfig } from './types';
 
 /**
  * How a layer decides WHEN it emits (pure classification of `layer.trigger`):
@@ -55,6 +55,8 @@ export interface LayerPlan {
 	emit: boolean;
 	/** How this layer is triggered (ambient vs event-bus-driven) — drives the runtime subscription. */
 	trigger: LayerEmitPlan;
+	/** The material its particles draw through: a sprite layer's only (none on Tier-C rig particles). */
+	material?: EmitterMaterial;
 }
 
 /**
@@ -121,6 +123,7 @@ export function planLayer(layer: EmitterLayer): LayerPlan {
 		offset: { x: offset.x, y: offset.y },
 		emit: trigger.emit,
 		trigger,
+		...(!isRig && layer.material ? { material: layer.material } : {}),
 	};
 }
 

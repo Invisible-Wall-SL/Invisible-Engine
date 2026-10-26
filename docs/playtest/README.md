@@ -71,6 +71,11 @@ its `--mode recon` boots, prints the fps and exits.
   step 4) adds compiled graphs to a current-games stand-in snapshot as Publish embeds them, places
   them as Element FX, plays it and the same snapshot without them, and reports the shader programs
   on the stage, the pixels they changed, errors and stalls. Its header says how to run it.
+- **A published game with a particle material on it:** `particle-material-play.mjs` (Invisible
+  Shader Graph step 8d.3) places an Invisible FX effect whose layer draws through a compiled graph,
+  plays it with the graph, without it (the layer must draw plain) and without the effect, and
+  reports the material mesh, the drawing sprites, the `?fxdebug=1` lines, the pixels, errors and
+  stalls. Step 8d.8 grows it into the phone-calibration play.
 - **A virtual clock instead.** `determinism-proof.mjs` boots with `?ie_determinism=<seed>` and steps frames itself, so captures are pixel-identical run to run. See "Determinism mode" in [status/engine.md](../status/engine.md).
 - **"The game never reaches idle" in a container was the harness** (2026-10-02). The script found
   no `chrome-headless-shell`, or the shell would not start as root. Neither is an engine finding.

@@ -45,6 +45,8 @@
 		paramValues?: () => EffectParamValues | undefined;
 		/** The effect-level time scale, read every tick (see `<EffectPlayer params>`). */
 		timeScale?: () => number;
+		/** The effect's id: names a material layer in the `?fxdebug=1` lines. */
+		effectId?: string;
 	};
 </script>
 
@@ -65,7 +67,7 @@
 	import { onDestroy } from 'svelte';
 	import * as RIG from 'engine-rig/pixi';
 	import type { Texture } from 'pixi.js';
-	import { layerHasParamDrives, planLayer } from 'engine-fx';
+	import { fxMaterialPeakParticles, layerHasParamDrives, planLayer } from 'engine-fx';
 	import { particleWallMs } from '../particleClock';
 	import {
 		eventScope,
@@ -80,6 +82,7 @@
 	import { getContextApp } from '../context.svelte';
 	import { createPixiRigBackingFactory } from '../rigBacking';
 	import type { RigParticleBehaviorConfig } from '../rigParticleBehavior';
+	import type { ParticleMaterialSpec } from '../particleMaterial';
 
 	const props: Props = $props();
 	const context = getContextApp();
@@ -180,6 +183,18 @@
 			? undefined
 			: { framerate: props.layer.art.framerate, loop: props.layer.art.loop },
 	);
+
+	// A sprite layer's material (`planLayer` gives none to a rig layer). Its buffer is sized to the most
+	// particles a drive can raise the layer to; the emitter decides at mount whether it draws through it.
+	const material = $derived.by((): ParticleMaterialSpec | undefined => {
+		const m = plan.material;
+		if (!m) return undefined;
+		return {
+			...m,
+			peakParticles: fxMaterialPeakParticles(props.layer, props.params),
+			label: `${props.effectId ?? '(effect)'}/${props.layer.key}`,
+		};
+	});
 
 	// Live emit flag: ambient layers start emitting; event layers start dormant and the
 	// subscription below flips this on when their `eventType` fires. `forceEmit` (rig-timeline
@@ -283,6 +298,7 @@
 				emitSpeed={props.emitSpeed}
 				{fxParams}
 				timeScale={props.timeScale}
+				{material}
 			/>
 		</RigBoneAttach>
 	{:else}
@@ -301,6 +317,7 @@
 				ownerRotation={props.ownerRotation}
 				{fxParams}
 				timeScale={props.timeScale}
+				{material}
 			/>
 		</Container>
 	{/if}

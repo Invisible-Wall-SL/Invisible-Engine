@@ -83,6 +83,7 @@
 			params={drivenLayers.has(layer.key) ? props.doc.params : undefined}
 			paramValues={drivenLayers.has(layer.key) ? props.params : undefined}
 			{timeScale}
+			effectId={props.doc.id}
 		/>
 	{/each}
 {/snippet}

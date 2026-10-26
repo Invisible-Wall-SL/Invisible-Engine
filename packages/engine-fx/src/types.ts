@@ -111,6 +111,25 @@ export interface EmitterTrigger {
 	scope?: string;
 }
 
+/** How a material's Time input runs on a particle: over its life, or looped at the effect's length. */
+export type EmitterMaterialTime = 'life' | 'loop';
+
+/**
+ * A layer's MATERIAL (Invisible Shader Graph step 8d, `docs/design/shader-graph-particles.md` §8):
+ * its particles drawn through a compiled Shader Graph effect. Sprite layers only. Named by kind, so
+ * it rides the effect and the compiled shader through the chains that already ship them.
+ */
+export interface EmitterMaterial {
+	/** A compiled Shader Graph effect, `custom:<id>`. Unregistered at runtime ⇒ plain sprites. */
+	kind: `custom:${string}`;
+	/** Absent ⇒ `life`. */
+	time?: EmitterMaterialTime;
+	/** The material's strength, 0…4. Absent ⇒ 1. */
+	intensity?: number;
+	/** Param values by the effect's param id. A param left out plays its default. */
+	params?: Record<string, number | string | boolean>;
+}
+
 /** One emitter layer of an effect (sparks, smoke, glow — stacked into one named effect). */
 export interface EmitterLayer {
 	/** Layer id, unique within the effect. */
@@ -127,6 +146,8 @@ export interface EmitterLayer {
 	spineParticle?: RigParticleConfig;
 	/** When this layer emits (optional — Flow may drive it externally). */
 	trigger?: EmitterTrigger;
+	/** Draw the particles through a compiled Shader Graph effect (sprite layers only). */
+	material?: EmitterMaterial;
 }
 
 /** The kind of value an exposed parameter holds. */
@@ -144,7 +165,10 @@ export interface EffectParamDrive {
 	id: string;
 	/** An `EmitterLayer.key`; absent ⇒ an effect-level target (`effect.*`). */
 	layer?: string;
-	/** `emitter.<field>`, `behavior:<type>[#n].<dot.path>`, `placement.offset.x|y` or `effect.<field>`. */
+	/**
+	 * `emitter.<field>`, `behavior:<type>[#n].<dot.path>`, `placement.offset.x|y`,
+	 * `material.intensity`, `material.param.<id>` or `effect.<field>`.
+	 */
 	path: string;
 	/** The target's value at the parameter's min (or at false). */
 	from?: number | string;
