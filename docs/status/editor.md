@@ -171,6 +171,15 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-26 — **Rulers and guides** (P10.9b, branch `claude/p10-9b-rulers-guides`, in review;
+  [game-families](game-families.md) §5.2). **📏 Rulers** on the canvas's top and left edges (world
+  pixels at the zoom and pan); drag off a ruler for a guide, drag it to move, drop it on a ruler to
+  remove; **⌗ Snap to guides** adds them to the move snap's candidates. Both toggles are per browser.
+  Guides are saved with the screen (`Scene.guides`) or the component (`ComponentDef.guides`), per
+  device layout, and undo with the doc (`engine-layout` `editorGuides.ts`). Editor-only: `loadDoc`
+  strips them from every screen and the shipped component closure reads through
+  `loadComponentForGame`, so no game is handed them. Gate: `editorGuides.fixture.ts`. ⏳ Not
+  browser-verified live.
 - 2026-10-25 — **Elastic and Bounce in the Interpolation panel** (in review): two more kinds beside
   Linear / Cubic / Hold, drawn from the evaluator. Detail in [cinematic status](cinematic.md)
   2026-10-25.

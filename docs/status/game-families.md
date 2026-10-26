@@ -947,6 +947,9 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-26 — **P10.9b built: rulers and guides** (in review). Detail in
+  [editor status](editor.md) 2026-10-26.
+
 - 2026-10-25 — **P10.8 built: arcade, rules-decided.** `motion.js`, the fixed-step loop, tags,
   `ARCADE_VOCAB` and its starter (a salmon dodger), `<ArcadeStage />`, the arcade scene set in Game
   Maker, `check:arcade-motion` / `check:arcade-rules`. §6.4 re-checked: the shared runtime stays.
