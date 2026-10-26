@@ -20,6 +20,8 @@ export interface TimelineEvaluator {
 	putKey(keys: unknown[], time: number, value: number, ease?: TimelineEase): void;
 	/** The shape `u → eased u` of an `ease`: the Interpolation panel draws Elastic / Bounce with it. */
 	easeShape(ease: unknown): (u: number) => number;
+	/** A key channel's value at `t`: the Graph Editor plots the channel with it. */
+	sampleChannel(keys: unknown[] | undefined, t: number): number | undefined;
 }
 
 /** A key's outgoing interpolation: a named ease, or a cubic `[x1, y1, x2, y2]`. */
@@ -126,6 +128,9 @@ export interface TimelineOptions {
 	boxSelect?: boolean;
 	/** A node actor's `text` track draws as a row (drag to retime, double-click to delete). */
 	textRows?: boolean;
+	/** A number channel's row gets 📈: its Graph Editor row (the value over time, its keys, and the
+	 *  selected key's cubic handles in time × value). */
+	graph?: boolean;
 	/** The screen ratio whose property keys the rows show and new keys go to (tracks carrying that
 	 *  `layout`), read on every use. Absent, or returning undefined ⇒ the default keys. */
 	propertyLayout?: () => string | undefined;
@@ -216,3 +221,47 @@ export function hasStrips(track: Track): boolean;
 export function esc(s: unknown): string;
 /** `el` may be null: the Timeline then runs headless (history, keys, time) and draws nothing. */
 export function mount(el: HTMLElement | null, options: TimelineOptions): Timeline;
+
+/** The cubic presets the Interpolation panel offers. */
+export const CUBIC_PRESETS: ReadonlyArray<{
+	id: string;
+	label: string;
+	cubic: [number, number, number, number];
+}>;
+/** The Graph Editor row's height, in px. */
+export const GRAPH_H: number;
+export interface GraphKey {
+	time: number;
+	value: number;
+	ease?: TimelineEase;
+}
+/** A channel's value over the timeline laid out for a graph lane (see `timeline.js`). */
+export function graphGeometry(
+	keys: GraphKey[],
+	ev: Pick<TimelineEvaluator, 'sampleChannel'>,
+	duration: number,
+	pps: number,
+	range?: { min: number; max: number },
+): {
+	width: number;
+	points: Array<{ t: number; v: number }>;
+	min: number;
+	max: number;
+	y(v: number): number;
+	valueAt(py: number): number;
+};
+/** A cubic segment's two control points in time × value. */
+export function cubicHandlePoints(
+	a: GraphKey,
+	b: GraphKey,
+	cubic: readonly number[],
+): [{ t: number; v: number }, { t: number; v: number }];
+/** The cubic after dragging handle `which` to (`t`, `v`), or null when there is nothing to shape. */
+export function cubicFromHandle(
+	a: GraphKey,
+	b: GraphKey,
+	cubic: readonly number[],
+	which: 1 | 2,
+	t: number,
+	v: number,
+): [number, number, number, number] | null;

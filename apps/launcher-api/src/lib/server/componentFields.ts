@@ -66,6 +66,7 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	boardFit: true,
 	region: true,
 	keepAspect: true,
+	slice: true,
 	tint: true,
 	defaultAnimation: true,
 	loop: true,

@@ -1100,6 +1100,29 @@ cover-fits by that box instead of by whatever rectangle the packer produced.
 > the next **art export** — the exporter writes it into the sheet the game loads, so
 > there is no extra publish step and nothing new to register.
 
+#### 9-slice — panels and frames that resize without stretching their corners
+
+A sprite node has a **9-slice** select, under **Keep image ratio**: **Off** (the default),
+**Stretch edges + centre** or **Tile edges + centre**. With it on, the four corners keep
+their art size and the node's **width × height** stretches (or tiles) the edges and the
+centre between them — the usual way to draw a button, a panel or a frame at any size from
+one small image.
+
+- **Set the insets** in the **9-slice insets** section that appears below (once the sprite
+  has a region): drag the four cyan guide lines over the region's thumbnail, or type
+  **left / top / right / bottom** in pixels. **✕ Clear** removes them.
+- **A box smaller than two corners** shrinks all four corners by the same factor rather
+  than overlapping them. The node's **scale** is folded into the size, so corners never
+  grow with the node — resize with width × height or scale, the corners stay crisp.
+- **Keep image ratio** and **Art bounds** don't apply to a sliced sprite — it draws the
+  region's packed art as-is. A sprite drawn as a full-window cover (see **Background**,
+  above) ignores the slice.
+
+> **The insets edit the ART, like Art bounds.** They are stored per
+> `<assetKey>::<region>`, shared by every sliced use of that region, saved immediately
+> (not by the page's Save) and reach the game with the next **art export**. The select is
+> per node: the same region can be sliced on one node and drawn plainly on another.
+
 #### Symbol size on the reel
 
 **Symbol size comes from the art.** There is no symbol-size control: every symbol is fitted
@@ -1493,9 +1516,27 @@ the value travels from each selected key to the next one.
 - **Bounce**: lands on the next key and bounces a few times, never going past it, like a gem
   dropping into place.
 
+Under those buttons sit five presets, each a ready-made Cubic: **Ease in**, **Ease out**, **Ease
+in-out**, **Overshoot** and **Anticipate** (hover one for its four numbers).
+
 **Set as default** makes the selected key's interpolation the one every new key in this timeline
 gets; with nothing selected the panel shows and edits that default. An older timeline's *ease in-out*
 keys show as Cubic `0.333, 0, 0.667, 1`, which is the same curve.
+
+**Graph Editor.** A number field's row (x, y, scale ×, rotation, alpha, a camera field; not tint
+or another colour) has a **📈** button by its name. It opens a **graph row** under the field (click
+it again to close it): the field's value over time, on the same time axis and zoom as the
+timeline, with its keys as dots, and the highest and lowest value in the gutter.
+- **Click a dot** to select that key, as you would its diamond; the Interpolation panel shows it.
+  Shift- or Ctrl-click adds or removes it.
+- **Shape a Cubic.** When the selected key's interpolation is **Cubic**, its curve to the next key
+  gets two handles. Drag them: the curve still runs from this key to the next one in the same
+  time, but its value may overshoot. One drag is one undo step. Linear, Hold, Elastic and Bounce
+  draw their curve with no handles, so pick **Cubic** or a preset first. A key with no next key,
+  or with the same value as the next one, has no handles either.
+
+The graph is drawn by the same maths the game plays, so the curve you see is the motion you get.
+It edits the key's ordinary Cubic, so nothing about the saved timeline changes.
 
 **Loop type and fps.** Next to the length in the header: **One-shot** (plays once and holds its last
 frame, the default), **Loop** (back to the start) or **Ping-pong** (to the end and back). ▶ plays it

@@ -7,6 +7,7 @@
 <script lang="ts">
 	import ColorField from '$lib/ColorField.svelte';
 	import ArtBoundsEditor from './ArtBoundsEditor.svelte';
+	import ArtSliceEditor from './ArtSliceEditor.svelte';
 	import EditorElementFx from './EditorElementFx.svelte';
 	import EditorValueBindings from './EditorValueBindings.svelte';
 	import EditorRepeaterCount from './EditorRepeaterCount.svelte';
@@ -74,6 +75,7 @@
 		type RigRestOverride,
 		type TextStyle,
 		forwardedParams,
+		isSliceMode,
 		lightOrderThresholds,
 		potPieces,
 		POT_PIECE_LIGHT_PARAM,
@@ -2026,6 +2028,13 @@
 	function setCoverFitFlag(n: LayoutNode, on: boolean): void {
 		if (on) n.coverFit = true;
 		else delete n.coverFit;
+		markDirty();
+	}
+
+	function setSlice(n: LayoutNode, mode: string): void {
+		if (n.kind !== 'sprite') return;
+		if (isSliceMode(mode)) n.slice = mode;
+		else delete n.slice;
 		markDirty();
 	}
 
@@ -4211,7 +4220,27 @@
 				The image fits inside width × height without stretching, so a frame of another shape (picked
 				per instance through an exposed image) keeps its own proportions.
 			</p>
+			<div class="row">
+				<label class="field wide">
+					<span>9-slice</span>
+					<select value={node.slice ?? ''} onchange={(e) => setSlice(node, e.currentTarget.value)}>
+						<option value="">Off</option>
+						<option value="stretch">Stretch edges + centre</option>
+						<option value="tile">Tile edges + centre</option>
+					</select>
+				</label>
+			</div>
+			{#if node.slice}
+				<p class="muted small">
+					Corners keep their art size; width × height stretches or tiles the rest. The insets are
+					the image's own, set below. Keep image ratio and Art bounds don't apply to a sliced
+					sprite.
+				</p>
+			{/if}
 		</section>
+		{#if node.slice && node.region && node.assetKey}
+			<ArtSliceEditor assetKey={node.assetKey} region={node.region} />
+		{/if}
 		{#if node.region && node.assetKey}
 			<!-- Editing the ART, not this placement — the section says so, and it is stored per
 			     `<assetKey>::<region>` outside the layout doc, which is why it lives in its own
