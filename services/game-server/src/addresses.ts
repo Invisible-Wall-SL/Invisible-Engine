@@ -2,7 +2,8 @@
  * WHO A DEVICE IS, for the per-address limits (`server.ts`, `socketGuard.ts`, `arcadeRoom.ts`):
  * its address's key, and what that address holds — open sockets and seats held for a dropped
  * player to rejoin, counted together under one cap, so dropping and rejoining cannot gather seats
- * beyond it.
+ * beyond it — and which reconnection tokens its held seats wait for, so the one socket that
+ * reclaims a seat may pass a full address's cap and no other.
  */
 
 /**
@@ -29,7 +30,8 @@ export function addressKey(address: string): string {
 /** Open sockets plus held seats, by address key; and the held seats alone. One process holds
  *  one book. */
 const holding = new Map<string, number>();
-const seats = new Map<string, number>();
+/** Held seats' reconnection tokens (the raw token a reconnecting device's URL carries) → address. */
+const tokens = new Map<string, string>();
 
 /** Where each accepted upgrade came from, for the socket it becomes. */
 const requestAddress = new WeakMap<object, string>();
@@ -37,9 +39,6 @@ const socketAddress = new WeakMap<object, string>();
 
 /** What an address holds now. */
 export const heldBy = (address: string): number => holding.get(address) ?? 0;
-
-/** Of what an address holds, the seats held for its dropped players to rejoin. */
-export const seatsHeldBy = (address: string): number => seats.get(address) ?? 0;
 
 const add = (book: Map<string, number>, address: string, by: number) => {
 	const next = (book.get(address) ?? 0) + by;
@@ -53,16 +52,22 @@ export const hold = (address: string): void => add(holding, address, 1);
 /** … and one fewer. */
 export const release = (address: string): void => add(holding, address, -1);
 
-/** Count a seat held for `address`'s dropped player, until it is reclaimed or let go. */
-export const holdSeat = (address: string): void => {
+/** Count a seat held for `address`'s dropped player, waiting for `token`, until it is reclaimed or
+ *  let go. */
+export const holdSeat = (address: string, token: string): void => {
 	add(holding, address, 1);
-	add(seats, address, 1);
+	tokens.set(token, address);
 };
 
-export const releaseSeat = (address: string): void => {
+/** The held seat is reclaimed or let go. */
+export const releaseSeat = (address: string, token: string): void => {
 	add(holding, address, -1);
-	add(seats, address, -1);
+	if (tokens.get(token) === address) tokens.delete(token);
 };
+
+/** Whether `token` reclaims a seat held for `address` (and so may pass its full cap, once). */
+export const reclaims = (address: string, token: string | null): boolean =>
+	token !== null && tokens.get(token) === address;
 
 /** Remember an accepted upgrade's address (`server.ts`) … */
 export const noteRequest = (req: object, address: string): void => {

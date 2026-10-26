@@ -12,7 +12,7 @@ import {
 import { WebSocketTransport } from '@colyseus/ws-transport';
 
 import { arcadeRoomClass } from './arcadeRoom.ts';
-import { addressKey, hold, heldBy, noteRequest, release, seatsHeldBy } from './addresses.ts';
+import { addressKey, hold, heldBy, noteRequest, reclaims, release } from './addresses.ts';
 import { guardSockets } from './socketGuard.ts';
 import type { LoadGame } from './configSource.ts';
 
@@ -148,11 +148,12 @@ function guardedHttpServer(trustProxy: boolean, perWindow: number) {
 				req.method !== 'GET' ||
 				!ROOM_SOCKET.test(url.pathname) ||
 				!url.searchParams.get('sessionId') ||
-				// A reconnect is let past the cap by the seats its address holds: the seat it reclaims is
-				// released only once this socket is in, so a full address could not otherwise rejoin.
+				// The socket that reclaims a seat held for this address may pass its cap by one: the held
+				// seat is released only once that socket is in, so a full address could not otherwise
+				// rejoin its own dropped player. A token no held seat waits for gets nothing.
 				held >=
 					SOCKETS_PER_ADDRESS +
-						(url.searchParams.get('reconnectionToken') ? seatsHeldBy(address) : 0)
+						(reclaims(address, url.searchParams.get('reconnectionToken')) ? 1 : 0)
 			) {
 				socket.destroy();
 				return true;

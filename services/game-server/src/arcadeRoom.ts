@@ -123,9 +123,11 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			// The held seat counts against its address until it is reclaimed or let go, so dropping
 			// and rejoining cannot gather seats past the address's cap (`addresses.ts`).
 			const address = addressOfSocket(client.ref);
-			if (address !== undefined) holdSeat(address);
+			// Read now: a reconnect hands the client the replacement's token.
+			const token = client.reconnectionToken;
+			if (address !== undefined) holdSeat(address, token);
 			const settled = () => {
-				if (address !== undefined) releaseSeat(address);
+				if (address !== undefined) releaseSeat(address, token);
 			};
 			this.allowReconnection(client, seconds).then(settled, settled);
 		}

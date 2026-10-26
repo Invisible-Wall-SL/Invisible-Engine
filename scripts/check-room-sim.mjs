@@ -980,6 +980,17 @@ try {
 		await until('the drop', () => room.sim.players.get(dropper.sessionId)?.connected === false);
 		assert.equal(heldBy('127.0.0.1'), 16, 'the held seat still counts');
 		await assert.rejects(clientOf().joinById(room.roomId, {}), 'a new join is refused at the cap');
+		// A fresh seat claimed with a reconnection token no held seat waits for gets no allowance.
+		const fresh = await fetch(`http://127.0.0.1:${port}/matchmake/joinById/${room.roomId}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: '{}',
+		}).then((r) => r.json());
+		await assert.rejects(
+			clientOf().consumeSeatReservation({ ...fresh, reconnectionToken: 'bogus' }),
+			'a bogus token does not lift the cap',
+		);
+		assert.equal(heldBy('127.0.0.1'), 16);
 		const back = noAutoReconnect(await clientOf().reconnect(token));
 		assert.equal(back.sessionId, dropper.sessionId);
 		await until('the rejoin', () => room.sim.players.get(dropper.sessionId)?.connected === true);

@@ -79,8 +79,9 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   dropped (a graceful close otherwise goes on parsing for 30 s); a WebSocket is served only for a
   room seat (`/<process>/<room>?sessionId=…`; Colyseus' latency utility, which answers every
   frame, is not); one address holds at most 16 WebSockets and seats held for its dropped players
-  to rejoin, counted together (`addresses.ts`) — a reconnect is let past the cap by the seats its
-  address holds, so a full address can still rejoin its own dropped player — and opens at most 60
+  to rejoin, counted together (`addresses.ts`) — the one socket whose reconnection token a seat
+  held for that address waits for may pass the cap by one, so a full address can still rejoin its
+  own dropped player, and any other token gets nothing — and opens at most 60
   a window, refused attempts included; an online room holds at least 2 players;
   an IPv6 /64 counts as one address; the entry point logs an unhandled rejection instead of exiting; Colyseus'
   `create` is **not exposed** (only
@@ -151,7 +152,8 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
     opens, a closed one frees its place; once an address's 60 upgrades in a window are spent every
     attempt is refused; 16 joined-then-dropped seats leave their address no room for a 17th; a
     flood of WebSocket ping frames, and one of pong frames, ends its socket; an address at its 16
-    still reconnects its own dropped player while a new join is refused; 200 PINGs from a joined device end its socket; room size and character max;
+    still reconnects its own dropped player while a new join, and a fresh seat claimed with a bogus
+    reconnection token, are refused; 200 PINGs from a joined device end its socket; room size and character max;
     a drop keeps the place and `reconnect(token)` resumes it; the grace expiring; a flood of inputs
     past the message limit disconnects; `maxRooms`. `family.fixture.ts` §4c covers the config block.
 - **Verified by playing:** `scripts/playtest/online-play.mjs` on the branch runtime, two headless
