@@ -3,16 +3,18 @@ import { ARCADE_FIELD, arcadeReferenceLayout } from './arcade';
 
 /**
  * The CHARACTERS sample's screens (`docs/design/game-families.md` §4.3, P10.11): the P10.8 scene set
- * with its play field turned into a guarded yard. Its spawn layer holds a runner (the player: a
- * top-down controller on the arrow keys, or follow a held touch), a guard and two kinds of wall;
- * a `path` node (`guardRoute`, a smoothed loop round the middle wall) is the guard's patrol. The
- * HUD shows LIVES and SPOTTED. Placeholder shapes only.
+ * with its play field turned into a guarded yard twice the screen wide. The play field's screen has
+ * a `world` and a `camera` that follows the runner (P10.12). Its spawn layer holds a runner (the
+ * player: a top-down controller on the arrow keys, or follow a held touch), a guard and two kinds of
+ * wall; a `path` node (`guardRoute`, a smoothed loop through the yard) is the guard's patrol, and a
+ * row of posts along the bottom shows the scroll. The HUD shows LIVES and SPOTTED. Placeholder
+ * shapes only.
  *
  * The guard's look ({@link ARCADE_GUARD_COMPONENTS}) has a state machine: a 1D blend state from
  * `guard_idle` to `guard_run` on its `speed` number input, and an alert layer on its `chasing` bool;
  * the config's `animInputs` feeds both from the guard's motion and its brain.
  *
- * Played by `check:arcade-characters-loop` and `scripts/playtest/arcade-characters-play.mjs` with
+ * Played by the launcher's `check:arcade-characters` and `scripts/playtest/arcade-characters-play.mjs` with
  * `engine-flow-v2`'s `ARCADE_GUARD_SEED_DOC` and the config
  * `packages/engine-mechanics/fixtures/arcade-guard.rules.json`. Not a Game Maker kind, and not
  * exported from the package entry, so no game bundles it.
@@ -26,13 +28,23 @@ export const ARCADE_GUARD = {
 	wallV: 'arcadeWallV',
 } as const;
 
-/** The guard's patrol: a loop round the middle wall, in the field's px. */
+/** The yard: twice the desktop screen wide, as tall. The camera scrolls across it. */
+export const ARCADE_GUARD_WORLD = { w: 2844, h: 800 } as const;
+
+/** How the camera follows the runner: a dead zone round the middle of the view, eased. */
+export const ARCADE_GUARD_CAMERA = {
+	follow: 'player',
+	deadZone: { w: 300, h: 200 },
+	smoothing: 0.15,
+} as const;
+
+/** The guard's patrol: a long loop round the walls in the yard's middle, in the world's px. */
 export const ARCADE_GUARD_ROUTE = {
 	id: 'guardRoute',
 	points: [
 		{ x: 440, y: 190 },
-		{ x: 980, y: 190 },
-		{ x: 980, y: 610 },
+		{ x: 2400, y: 190 },
+		{ x: 2400, y: 610 },
 		{ x: 440, y: 610 },
 	],
 	smoothing: 0.35,
@@ -49,10 +61,28 @@ export const ARCADE_GUARD_LOOK = {
 	inputs: { speed: 'speed', chasing: 'chasing' },
 } as const;
 
-/** A flat shape centred on its node's origin (a rect's default anchor), as a body's x / y is its
- *  centre. */
-const rect = (id: string, label: string, w: number, h: number, color: number): LayoutNode =>
-	({ id, label, kind: 'rect', x: 0, y: 0, width: w, height: h, color }) as LayoutNode;
+/** A flat shape centred on `at` (a rect's default anchor), as a body's x / y is its centre. */
+const rect = (
+	id: string,
+	label: string,
+	w: number,
+	h: number,
+	color: number,
+	at = { x: 0, y: 0 },
+): LayoutNode =>
+	({ id, label, kind: 'rect', x: at.x, y: at.y, width: w, height: h, color }) as LayoutNode;
+
+/** A post along the bottom every few hundred px, so the scroll reads. */
+const yardMarkers = (): LayoutNode => ({
+	id: 'ag-markers',
+	label: 'Yard markers',
+	kind: 'container',
+	x: 0,
+	y: 0,
+	children: Array.from({ length: Math.floor(ARCADE_GUARD_WORLD.w / 356) + 1 }, (_, i) =>
+		rect(`ag-marker-${i}`, `Marker ${i}`, 12, 24, 0x5c677d, { x: 178 + 356 * i, y: 785 }),
+	),
+});
 
 const shape = (id: string, name: string, w: number, h: number, color: number): ComponentDef => ({
 	id,
@@ -282,7 +312,10 @@ export function arcadeGuardReferenceLayout(): LayoutDoc {
 		if (scene.id === 'basegame')
 			return {
 				...scene,
+				world: { ...ARCADE_GUARD_WORLD },
+				camera: { ...ARCADE_GUARD_CAMERA, deadZone: { ...ARCADE_GUARD_CAMERA.deadZone } },
 				nodes: [
+					yardMarkers(),
 					{
 						id: ARCADE_FIELD.id,
 						label: 'Play field',

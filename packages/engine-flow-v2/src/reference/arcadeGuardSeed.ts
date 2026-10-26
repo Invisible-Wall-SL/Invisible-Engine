@@ -1,7 +1,8 @@
 /**
  * Invisible Flow v2 — the CHARACTERS sample (`docs/design/game-families.md` §4.3, P10.11): a runner
- * crosses a yard a guard walks. The runner is played (its character's `topDown` controller reads
- * this flow's key map; a held touch steers it too); the guard runs on its brain — patrol the
+ * crosses a yard a guard walks, twice the screen wide, the camera following the runner (P10.12).
+ * The runner is played (its character's `topDown` controller reads this flow's key map; a held
+ * touch steers it too); the guard runs on its brain — patrol the
  * `guardRoute` path, chase the runner once it is within 220 px, go back to patrolling beyond
  * 320 px — and the walls stop both of them. All of that is the config's
  * (`packages/engine-mechanics/fixtures/arcade-guard.rules.json`); this flow keeps the GAME:
@@ -35,7 +36,7 @@ export const GUARD_VARIABLES = { lives: 'lives', spotted: 'spotted', playing: 'p
 
 export const GUARD_START_LIVES = 3;
 
-/** Where a round puts each piece, in field px (the config's field: 1422 × 800). */
+/** Where a round puts each piece, in field px (the config's field: the yard, 2844 × 800). */
 export const GUARD_PLACES = {
 	runner: { x: 120, y: 720 },
 	guard: { x: 440, y: 190 },
@@ -43,6 +44,8 @@ export const GUARD_PLACES = {
 		{ componentId: GUARD_SAMPLE.wallV, x: 711, y: 400 },
 		{ componentId: GUARD_SAMPLE.wallH, x: 240, y: 400 },
 		{ componentId: GUARD_SAMPLE.wallH, x: 1182, y: 400 },
+		{ componentId: GUARD_SAMPLE.wallV, x: 2133, y: 400 },
+		{ componentId: GUARD_SAMPLE.wallH, x: 2600, y: 400 },
 	],
 } as const;
 

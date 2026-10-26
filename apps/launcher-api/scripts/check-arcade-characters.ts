@@ -33,6 +33,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { Container } from 'pixi.js';
+
 import {
 	ARCADE_CHARACTER_CONTROLS,
 	ARCADE_FIELD_LAYER,
@@ -57,10 +59,13 @@ import { createArcadeLoop, type ArcadeRules } from 'engine-game/src/game/arcadeL
 import {
 	ComponentStateMachineRunner,
 	arcadeReferenceLayout,
+	sceneCamera,
 	sceneSpawnLayers,
 	scenePaths,
+	sceneWorld,
 	spawnLayerSpec,
 	validateStateMachine,
+	worldCameraScene,
 	type Scene,
 } from 'engine-layout';
 import {
@@ -91,11 +96,16 @@ import {
 
 import { projectSpawnLayers } from '../src/lib/flowV2Projection.ts';
 import {
+	registerSpawnLayerSpace,
+	spawnLayerPoint,
+} from '../../../packages/engine-layout/src/lib/spawnLayers.ts';
+import {
 	ARCADE_GUARD,
 	ARCADE_GUARD_COMPONENTS,
 	ARCADE_GUARD_LOOK,
 	ARCADE_GUARD_ROUTE,
 	ARCADE_GUARD_TIMELINES,
+	ARCADE_GUARD_WORLD,
 	arcadeGuardReferenceLayout,
 } from '../../../packages/engine-layout/src/lib/referenceLayouts/arcadeGuard.ts';
 import {
@@ -121,6 +131,8 @@ const ROOT = resolve(import.meta.dirname, '../../..');
 const read = (path: string) => readFileSync(resolve(ROOT, path), 'utf8');
 const EMPTY_LIBRARY = { version: 2 as const, functions: [] };
 const FRAME = 1000 / 60;
+/** The desktop view a world camera frames. */
+const VIEW = { w: 1422, h: 800 };
 const DT = 1 / 60;
 const near = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) <= eps;
 const json = (v: unknown) => JSON.stringify(v);
@@ -248,9 +260,21 @@ const playFlow = (opts: {
 	const paths: Io['paths'] = {};
 	for (const scene of opts.layout.scenes) Object.assign(paths, scenePaths(scene));
 	const rules = resolveArcade(opts.config);
+	// The play field's screen's world camera, as `apps/lines` attaches it (P10.12); none for a
+	// layout without one.
+	const cameraScene = worldCameraScene(opts.layout.scenes);
 	const loop = createArcadeLoop({
 		rules,
 		field: () => rules.field ?? opts.field,
+		...(cameraScene
+			? {
+					camera: {
+						spec: sceneCamera(cameraScene),
+						world: sceneWorld(cameraScene),
+						view: () => VIEW,
+					},
+				}
+			: {}),
 		layers: () => store.layers(),
 		live: store,
 		seed: opts.seed,
@@ -841,8 +865,8 @@ const offRoute = (b: { x: number; y: number }) => {
 	check(
 		'8. a round: three lives, nothing spotted, the yard built',
 		json(game.vars()) === json({ lives: 3, spotted: 0, playing: true }) &&
-			game.of(GUARD_SAMPLE.wallH).length === 2 &&
-			game.of(GUARD_SAMPLE.wallV).length === 1 &&
+			game.of(GUARD_SAMPLE.wallH).length === 3 &&
+			game.of(GUARD_SAMPLE.wallV).length === 2 &&
 			game.of(GUARD_SAMPLE.runner).length === 1 &&
 			game.of(GUARD_SAMPLE.guard).length === 1,
 		json([game.vars(), game.live().map((i) => i.componentId)]),
@@ -974,7 +998,7 @@ const offRoute = (b: { x: number; y: number }) => {
 	check(
 		'8. the tap clears the yard and starts a new round',
 		json(game.vars()) === json({ lives: 3, spotted: 0, playing: true }) &&
-			game.live().length === 5 &&
+			game.live().length === GUARD_PLACES.walls.length + 2 &&
 			game.runner().x === GUARD_PLACES.runner.x,
 		json([game.vars(), game.live().map((i) => i.componentId)]),
 	);
@@ -1187,6 +1211,241 @@ const offRoute = (b: { x: number; y: number }) => {
 		DEFAULT_ARCADE_TARGET_TAG === BEHAVIOUR_DEFAULTS.chase.tag &&
 			DEFAULT_ARCADE_TARGET_TAG === BEHAVIOUR_DEFAULTS.flee.tag,
 	);
+}
+
+// ── 11. characters + camera ─────────────────────────────────────────────────────────────────
+{
+	/** A loop over a real store with a world camera following `player`, as `apps/lines` attaches
+	 *  it; the layer `f` despawns what leaves the view when `despawn` is set. */
+	const cameraBench = (characters: ArcadeCharacter[], despawn: boolean) => {
+		const store = createSpawnStore();
+		store.declare({
+			id: 'f',
+			spawnable: ['hero', 'walker', 'rock'],
+			placement: 'free',
+			cap: 50,
+			...(despawn ? { despawnOutsideView: { margin: 0 } } : {}),
+		});
+		const io = newIo();
+		const world = { w: 4000, h: 800 };
+		const loop = createArcadeLoop({
+			rules: {
+				fixedHz: 60,
+				bodies: {
+					hero: box(20, 20, ['player']),
+					walker: box(20, 20, ['npc']),
+					rock: box(20, 20, ['rock']),
+				},
+				pairs: [],
+				zones: [],
+				characters,
+			},
+			field: () => world,
+			layers: () => store.layers(),
+			live: store,
+			seed: 'camera',
+			signal: () => {},
+			camera: { spec: { follow: 'player', deadZone: { w: 200, h: 200 } }, world, view: () => VIEW },
+			input: { held: (a) => io.held.has(a), pointer: () => io.pointer },
+			setInstanceInput: (id, input, value) => void io.inputs.push({ id, input, value }),
+		});
+		const spawn = (componentId: string, x: number, y: number) => {
+			const r = store.spawn('f', componentId, { x, y });
+			if (!r.ok) throw new Error(r.reason);
+			return r.instance;
+		};
+		const body = (id: string) => loop.bodies().find((b) => b.id === id);
+		const frames = (n: number) => {
+			for (let i = 0; i < n; i++) loop.frame(FRAME);
+		};
+		return { store, loop, io, spawn, body, frames };
+	};
+	const hero: ArcadeCharacter = {
+		id: 'hero',
+		component: 'hero',
+		controller: { kind: 'topDown', speed: 600 },
+	};
+	const walker: ArcadeCharacter = {
+		id: 'walker',
+		component: 'walker',
+		brain: {
+			initial: 'walk',
+			states: [{ id: 'walk', behaviour: 'patrol', params: { dx: 0, dy: 300, speed: 120 } }],
+			transitions: [],
+		},
+		animInputs: { s: 'speed', m: 'moving' },
+	};
+
+	// Follow the player character across the world.
+	{
+		const b = cameraBench([hero], false);
+		const h = b.spawn('hero', 300, 400);
+		b.frames(1);
+		const c0 = b.loop.camera()!;
+		b.io.held.add('right');
+		b.frames(240);
+		b.io.held.clear();
+		b.frames(60);
+		const c1 = b.loop.camera()!;
+		const at = b.body(h.id)!;
+		check(
+			'11. the camera follows the player character across the world',
+			c0.x === 0 && c1.x > 1500 && at.x > c1.x && at.x < c1.x + VIEW.w && at.x > 2000,
+			json([c0, c1, at]),
+		);
+	}
+
+	// The pointer, through the camera: the spawn layer's own transform includes the world
+	// container `<LayoutScene>` moves by the camera (and its shake), so a canvas point maps to the
+	// field point under it wherever the camera is.
+	{
+		const src = read('packages/engine-layout/src/lib/SpawnLayer.svelte');
+		const scene = read('packages/engine-layout/src/lib/LayoutScene.svelte');
+		check(
+			'11. the spawn layer maps a pointer through its parent’s whole transform, and the world container (camera + shake) is an ancestor (source)',
+			/registerSpawnLayerSpace\(node\.id, \(x, y\) => \{\s*const local = parent\.parent\.toLocal\(\{ x, y \}\);/.test(
+				src,
+			) &&
+				/<Container x=\{view\.shakeX - view\.x\} y=\{view\.shakeY - view\.y\}>\s*\{@render sceneNodes\(\)\}/.test(
+					scene,
+				),
+		);
+		const b = cameraBench([hero], false);
+		const h = b.spawn('hero', 300, 400);
+		b.io.held.add('right');
+		b.frames(200);
+		b.io.held.clear();
+		b.frames(60);
+		b.loop.effects.cameraShake({ strength: 12, duration: 2000 });
+		b.frames(3);
+		const cam = b.loop.camera()!;
+		// The game's tree, built as the layout draws it: the main box scales the design view onto the
+		// canvas; the world container sits at the camera's view plus its shake; the spawn layer at 0, 0.
+		const main = new Container();
+		main.scale.set(0.5);
+		main.position.set(40, 10);
+		const worldContainer = new Container();
+		worldContainer.position.set(cam.shakeX - cam.x, cam.shakeY - cam.y);
+		main.addChild(worldContainer);
+		const layerParent = new Container();
+		worldContainer.addChild(layerParent);
+		const off = registerSpawnLayerSpace('f', (x, y) => {
+			const local = layerParent.toLocal({ x, y });
+			return { x: local.x, y: local.y };
+		});
+		const press = { x: 40 + 0.5 * 700, y: 10 + 0.5 * 400 };
+		const mapped = spawnLayerPoint('f', press.x, press.y)!;
+		check(
+			'11. a canvas point maps to the field point under it through a scrolled, shaking camera',
+			cam.x > 1000 &&
+				(cam.shakeX !== 0 || cam.shakeY !== 0) &&
+				near(mapped.x, cam.x + 700 - cam.shakeX) &&
+				near(mapped.y, cam.y + 400 - cam.shakeY),
+			json([cam, mapped]),
+		);
+		b.loop.effects.cameraShake({ strength: 0, duration: 0 });
+		b.frames(1);
+		const still = b.loop.camera()!;
+		worldContainer.position.set(still.shakeX - still.x, still.shakeY - still.y);
+		const target = spawnLayerPoint('f', press.x, press.y)!;
+		b.io.pointer = target;
+		b.frames(90);
+		const got = b.body(h.id)!;
+		check(
+			'11. …and a held touch there walks the runner to that field point',
+			near(got.x, target.x, 1e-6) && near(got.y, target.y, 1e-6),
+			json([target, got]),
+		);
+		off();
+		check('11. an unmounted spawn layer maps nothing', spawnLayerPoint('f', 1, 1) === undefined);
+	}
+
+	// despawnOutsideView never takes the followed character; a brain character it does take is
+	// forgotten whole (no stale actor: its looks stop).
+	{
+		const b = cameraBench([hero, walker], true);
+		const h = b.spawn('hero', 300, 400);
+		const w = b.spawn('walker', 600, 300);
+		b.frames(10);
+		b.loop.effects.cameraMoveTo({ x: 3000, y: 0, snap: true });
+		b.loop.effects.cameraFollow({});
+		b.frames(10);
+		check(
+			'11. the camera moved away: the followed character stays, the brain character is despawned',
+			!!b.store.get(h.id) && !!b.body(h.id) && !b.store.get(w.id) && !b.body(w.id),
+			json([b.loop.camera(), b.loop.bodies()]),
+		);
+		const before = b.io.inputs.length;
+		b.frames(30);
+		check(
+			'11. …and the despawned character is forgotten: no look input for it after',
+			b.io.inputs.slice(before).every((i) => i.id !== w.id),
+		);
+		const h2 = b.spawn('hero', 3100, 400);
+		b.loop.effects.cameraFollow({ instance: h2, snap: true });
+		b.loop.effects.moveTo({ instance: h2, x: 100, y: 400 });
+		b.frames(1);
+		check(
+			'11. a followed character moved outside the view is not despawned (P10.12’s rule)',
+			!!b.store.get(h2.id),
+		);
+	}
+
+	// Culling only draws: a culled character still steps, runs its brain and gets its looks.
+	{
+		const b = cameraBench([hero, walker], false);
+		b.spawn('hero', 300, 400);
+		const w = b.spawn('walker', 3500, 200);
+		b.frames(2);
+		const y0 = b.body(w.id)!.y;
+		const seen = b.io.inputs.filter((i) => i.id === w.id).length;
+		b.frames(60);
+		check(
+			'11. a character out of view is culled…',
+			b.loop.culled().has(w.id),
+			json([...b.loop.culled()]),
+		);
+		check(
+			'11. …and still steps on its brain, its looks still written',
+			b.body(w.id)!.y > y0 + 50 &&
+				b.body(w.id)!.state === 'walk' &&
+				b.io.inputs.filter((i) => i.id === w.id).length > seen,
+			json([y0, b.body(w.id)]),
+		);
+	}
+
+	// The sample, with its camera: it follows the runner, and replays.
+	{
+		const scene = worldCameraScene(GUARD_LAYOUT.scenes);
+		check(
+			'11. the sample’s play field has a world twice the view and a camera on the player',
+			scene?.id === 'basegame' &&
+				json(sceneWorld(scene)) === json(ARCADE_GUARD_WORLD) &&
+				sceneCamera(scene)?.follow === 'player' &&
+				json(GUARD_CONFIG.arcade?.field) === json(ARCADE_GUARD_WORLD),
+		);
+		const run = async () => {
+			const game = playGuard('camera');
+			await game.start();
+			await game.key('right', 'down');
+			await game.frames(60 * 7);
+			await game.key('right', 'up');
+			await game.frames(60);
+			return { game, trace: json({ bodies: game.loop.bodies(), camera: game.loop.camera() }) };
+		};
+		const a = await run();
+		const cam = a.game.loop.camera()!;
+		const r = a.game.runner();
+		check(
+			'11. in the sample the camera follows the runner across the yard',
+			cam.x > 500 && r.x > cam.x && r.x < cam.x + VIEW.w,
+			json([cam, r]),
+		);
+		check(
+			'11. …and the sample with its camera replays under a seed',
+			a.trace === (await run()).trace,
+		);
+	}
 }
 
 console.log(`\narcade-characters (loop): ${passes} passed, ${fails} failed`);
