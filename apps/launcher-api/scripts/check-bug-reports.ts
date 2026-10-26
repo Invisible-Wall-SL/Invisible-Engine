@@ -321,6 +321,7 @@ const shared = await import(src('lib/bugReports.ts'));
 const roles = await import(src('lib/roles.ts'));
 const server = await import(src('lib/server/bugReports.ts'));
 const view = await import(src('routes/(app)/bugs/view.ts'));
+const { reportBugHref } = await import(src('lib/toolLinks.ts'));
 const { load: pageLoad } = await import(src('routes/(app)/bugs/+page.server.ts'));
 const { load: gamePageLoad } = await import(src('routes/(app)/game-bugs/+page.server.ts'));
 const listRoute = await import(src('routes/api/bugs/+server.ts'));
@@ -607,6 +608,22 @@ check(
 	'page: ?bug= selects; ?new=1 opens the form with the tool and page it names',
 	[loaded.selected, loaded.report, loaded.canTriage],
 	[7, { area: 'rigger', pageUrl: 'https://x.example/' }, false],
+);
+const fromRigger = reportBugHref('/bugs', 'rigger', 'https://app.example/rigger', 'borut');
+check(
+	"a tool's Report bug button: the pipeline form with that tool filled in, and the page without its query",
+	[
+		fromRigger,
+		(
+			(await loadPage([{ id: 'pipelineBugs' }], fromRigger.slice('/bugs'.length))) as {
+				report: unknown;
+			}
+		).report,
+	],
+	[
+		'/bugs?new=1&for=rigger&page=https%3A%2F%2Fapp.example%2Frigger%3Fproject%3Dborut',
+		{ area: 'rigger', pageUrl: 'https://app.example/rigger?project=borut' },
+	],
 );
 check(
 	'page: an unknown ?for= is dropped',

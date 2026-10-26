@@ -64,6 +64,11 @@ server module, routes, page components, triage, screenshots, the pull-request li
   `BUG-<n>` tag when its title or branch names one (the description links too, but has no tag).
 - **A link to the other list** (a game bug on `/bugs`, another project's game bug) is not opened
   there: the page names the list it belongs to, with **Open it there**.
+- **Report bug on every tool.** The shared `ToolTopBar` (and its four HTML twins) shows **Report
+  bug** to whoever has Pipeline Bug Reports, on every tool but the two bug tools: it opens
+  `/bugs?new=1&for=<tool id>&page=<address>`, the form with the tool and the page filled in
+  (`reportBugHref`). The game page's **Game** picker opens another project's list from the one
+  Create card.
 - **Fixture:** `pnpm --filter launcher-api check:bug-reports` (run by `check:all`) — the real
   modules with the database, R2, grants, tool scope and GitHub faked at their seams.
 
@@ -72,15 +77,18 @@ server module, routes, page components, triage, screenshots, the pull-request li
 1. **Browser pass** on the live launcher: report with pasted / dropped screenshots, filters and the
    address round trip, triage, the lightbox, the game page across a project switch in the top bar,
    the Pipeline Changes Bugs tab. Nothing here has been clicked yet.
-2. A **"Report a bug" entry in every tool** (the shared `ToolTopBar` and its four HTML twins)
-   opening `/bugs?new=1&for=<tool id>&page=<address>` — the form already takes those; the entry
-   point is not built.
-3. **Move a game bug to the pipeline list** when the cause turns out to be in the engine or a tool
+2. **Move a game bug to the pipeline list** when the cause turns out to be in the engine or a tool
    (today: report a new pipeline bug and mark the game bug Won't fix).
-4. No delete of a bug report (Won't fix is the way out); no assignee field.
+3. No delete of a bug report (Won't fix is the way out); no assignee field.
 
 ## Recent changes
 
+- 2026-10-26 — **Report bug on every tool** (same PR): the shared `ToolTopBar` and its four HTML
+  twins (Rigger, Rig Viewer, Atlas Maker, Sheet Maker) carry **Report bug**, opening Pipeline Bug
+  Reports' form with the tool filled in and the page without its query (an external tool's can
+  carry a launch token) — `reportBugHref` in `$lib/toolLinks.ts`; `check:toolbar-icons` now also
+  pins each twin's button. The game page has a **Game** picker, so the one Create card opens any
+  game's list.
 - 2026-10-26 — **Owner's layout** (same PR): Game Bug Reports moved to the Create section; triage
   split per card (`pipelineBugTriage`, `gameBugTriage`); both cards and both triage capabilities
   in their own groups in Admin › Roles and settable per user in Admin › Users.

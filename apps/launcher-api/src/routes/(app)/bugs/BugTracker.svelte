@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import { page } from '$app/state';
-	import { replaceState } from '$app/navigation';
+	import { goto, replaceState } from '$app/navigation';
 	import {
 		BUG_STATUSES,
 		BUG_TOOL,
@@ -224,6 +224,14 @@
 		void loadDetail(number, false);
 	}
 
+	/** Another game's list: the page loads it as that project (and makes it the active one). */
+	function openProject(key: string): void {
+		if (!key || key === projectKey) return;
+		// A query on this same route: `resolve()` cannot carry one.
+		// eslint-disable-next-line svelte/no-navigation-without-resolve
+		void goto(`${basePath}?project=${encodeURIComponent(key)}`);
+	}
+
 	function startReport(): void {
 		notice = null;
 		reporting = true;
@@ -345,11 +353,24 @@
 		<div class="heading">
 			<div>
 				{#if game}
-					<h1>Game bugs · {projectLabel(projectKey ?? '')}</h1>
+					<h1>Game bugs</h1>
+					<label class="project-pick">
+						<span>Game</span>
+						<select
+							value={projectKey ?? ''}
+							onchange={(e) => openProject(e.currentTarget.value)}
+							aria-label="Which game's bugs"
+						>
+							{#each projects as p (p.key)}
+								<option value={p.key}>{projectLabel(p.key)}</option>
+							{/each}
+						</select>
+					</label>
 					<p>
-						This project's own bug list: what is wrong in this game, with screenshots. Triage sets
-						its priority and status; the fix brief asks for a fix in this project alone. A bug in
-						the engine or a tool is a pipeline bug — report it in Pipeline Bug Reports.
+						Each game has its own bug list: pick the game, then report what is wrong in it, with
+						screenshots. Triage sets its priority and status; the fix brief asks for a fix in that
+						game alone. A bug in the engine or a tool is a pipeline bug — report it in Pipeline Bug
+						Reports.
 					</p>
 				{:else}
 					<h1>Pipeline bugs</h1>
@@ -593,6 +614,19 @@
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
 		color: #b9b9c4;
+	}
+	.project-pick {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		margin: 2px 0 4px;
+	}
+	.project-pick span {
+		font-size: 11px;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: #9a9aa6;
 	}
 	.heading p {
 		margin: 0;

@@ -4908,6 +4908,7 @@ IW_TOOLBAR = """<header class="iw-toolbar">
   <span>INVISIBLE ATLAS MAKER</span>
  </a>
  <nav class="iw-switcher" id="iw-switcher" aria-label="Switch tool"></nav>
+ <a class="iw-report" id="iw-report" hidden>Report bug</a>
 </header>
 <script>
 (function () {
@@ -4949,6 +4950,16 @@ IW_TOOLBAR = """<header class="iw-toolbar">
   }
   var tools = [];
   try { tools = JSON.parse(qp.get('tools') || '[]'); } catch (e) {}
+  // "Report bug": Pipeline Bug Reports' form with this tool filled in, for whoever has that
+  // tool. Where it happened is this page without its query, which can carry a launch token.
+  // Mirrors reportBugHref in $lib/toolLinks.ts.
+  var bugs = Array.isArray(tools) ? tools.filter(function (t) { return t && t.id === 'pipelineBugs' && t.url; })[0] : null;
+  var report = document.getElementById('iw-report');
+  if (bugs && report) {
+    report.href = bugs.url + '?' + new URLSearchParams({ 'new': '1', 'for': 'atlasTool', page: location.origin + location.pathname }).toString();
+    report.title = 'Report a bug in this tool';
+    report.hidden = false;
+  }
   var nav = document.getElementById('iw-switcher');
   if (nav && Array.isArray(tools)) {
     tools.forEach(function (t) {
@@ -5012,6 +5023,9 @@ IW_TOOLBAR_CSS = """
    border-radius:8px;border:1px solid transparent;color:#b9b9c4;text-decoration:none;
    font-size:12px;font-weight:600;white-space:nowrap}
  .iw-tool:hover{background:#23232a;border-color:#2f2f37;color:#fff}
+ .iw-report{display:inline-flex;align-items:center;flex:none;padding:5px 10px;border-radius:8px;border:1px solid #3a2a33;color:#f778ba;font-size:12px;font-weight:600;text-decoration:none;white-space:nowrap}
+ .iw-report:hover{background:#2a1a22;border-color:#6b3550}
+ .iw-report[hidden]{display:none}
  .iw-tool .ic{display:inline-flex;width:16px;height:16px}
  .iw-tool .ic svg{width:16px;height:16px;display:block}
  /* Collapse to icon-only when the labelled row would overflow the bar's own track

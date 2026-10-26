@@ -17,11 +17,12 @@ Pipeline Bug Reports instead, even if you found it while playing one game.
 - **Where it runs:** the launcher itself, at `/game-bugs`. It opens full-page behind the launcher's
   sign-in, never in an iframe. On the launcher home it sits in the **Create** section, with Game
   Maker, Game Config and Director. In the tool bar it is **Game bugs**.
-- **Scope:** the **active project**. The top bar shows it as `<client> / <project>`, and the page
-  heading reads **Game bugs · `<client> · <project>`**. Switch projects with the project selector on
-  the launcher home. A link with `?project=<key>` opens that project's list and makes it your
-  active project, as long as you can open it. Otherwise the page opens your active project. The
-  list only ever shows that project's game bugs.
+- **Scope:** one card for every game, one list per game. It opens on the **active project**: the
+  top bar shows it as `<client> / <project>`, and the **Game** picker under the heading names it.
+  Pick another game there to open its list (it becomes your active project too); only the projects
+  you can open are offered. A link with `?project=<key>` opens that project's list, as long as you
+  can open it; otherwise the page opens your active project. The list only ever shows the chosen
+  game's bugs.
 - **Access:** the `gameBugs` tool. By default every role has it: `admin`, `developer`, `artist`,
   `animator`, `pipelineTester`, `localizationReviewer` and `audio`. Admins turn it on or off per
   role in **Admin › Roles** (group **Game bug reports**), or per user in **Admin › Users** (block
@@ -42,11 +43,11 @@ Pipeline Bug Reports instead, even if you found it while playing one game.
 
 ## How to use it
 
-1. Sign in to the launcher (`app.invisiblewall.org`) and pick the project on the launcher home.
-2. Open the **Invisible Game Bug Reports** card in the Create section, or go to `/game-bugs`. The
-   page has the filters at the top, the project's bugs on the left and the open bug (or the report
-   form) on the right. The list refreshes itself every minute while the tab is visible. Click
-   **Refresh** in the header to update it now.
+1. Sign in to the launcher (`app.invisiblewall.org`).
+2. Open the **Invisible Game Bug Reports** card in the Create section, or go to `/game-bugs`, and
+   pick the game in the **Game** picker. The page has the filters at the top, that game's bugs on
+   the left and the open bug (or the report form) on the right. The list refreshes itself every
+   minute while the tab is visible. Click **Refresh** in the header to update it now.
 
 ### Report a bug
 
@@ -142,8 +143,8 @@ or a tool, report it as a pipeline bug.
 
 - A game bug cannot be turned into a pipeline bug, or moved to another project. Report it again in
   the right list.
-- No tool opens the report form for you yet. The `?new=1&for=…&page=…` link works, but you open
-  the page yourself.
+- The **Report bug** button on every tool's top bar opens Pipeline Bug Reports (a bug in that
+  tool), not this list. Open this card to report a game bug.
 - Nobody is notified when a bug is reported or changes. Open the list to check.
 - A bug cannot be deleted. Mark a duplicate or a non-bug **Won't fix**. Comments cannot be edited
   or deleted.

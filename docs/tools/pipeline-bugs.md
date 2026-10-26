@@ -53,7 +53,11 @@ bugs took.
 
 ### Report a bug
 
-3. Click **Report a bug**. The form **Report a pipeline bug** opens on the right. You are recorded
+3. Click **Report a bug**. The form **Report a pipeline bug** opens on the right. From inside a
+   tool, click **Report bug** at the right of its top bar instead (every tool has it, the Atlas
+   Maker, Sheet Maker, Rigger and Rig Viewer included, when you have this tool): the form opens
+   with **Tool or area** set to that tool and **Where it happened** set to the page you were on
+   (its address without the query, plus the project shown). You are recorded
    as the reporter, by your account name (or the first part of your email if you have no name).
    - **Title** (required, up to 200 characters), for example "The Rigger freezes when I delete a
      bone".
@@ -207,8 +211,6 @@ and **Status set** names the pull request.
 
 - A shared link to a bug of the other list (a game bug on `/bugs`, or another project's) does not
   open it here: the page says which list it is on, with **Open it there**.
-- No tool opens the report form for you yet. The `?new=1&for=…&page=…` link works, but you open
-  Bug Reports yourself and fill in the area.
 - Nobody is notified when a bug is reported, sent or moved. Open the list to check (it refreshes
   every minute).
 - A bug cannot be deleted. Mark a duplicate or a non-bug **Won't fix**. Comments cannot be edited
