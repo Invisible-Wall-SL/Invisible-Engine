@@ -188,9 +188,10 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
   ([status/rigger](status/rigger.md))
 - **Model licences for shipped art** — decide the switches in the recommendation table; every
   built-in image default is non-commercial as wired today. ([reference/model-licences](reference/model-licences.md))
-- **Salmons' art pass (S0)** — approved 2026-10-26. Three owner choices (models, which project,
-  4 or 8 facings), access to `GuiltyForever/Salmon-` for sessions, and the generation itself, which
-  runs in the launcher's tools. ([status/salmons](status/salmons.md))
+- **Salmons' art pass (S0)** — approved and its choices made 2026-10-26. Left for a person in the
+  launcher: generate the 22 character clips (the recipes are in the Salmon repository's
+  `docs/art-pass.md`), and turn `salmons` into an arcade project in `/admin`.
+  ([status/salmons](status/salmons.md))
 - **Partner replay check** — run [the checks owed on the live
   node](reference/play4fun-protocol.md#checks-owed-on-the-live-node). ([status/engine](status/engine.md))
 - **Delete the old flat `_runtime/lines/**`** once satisfied the versioned pointer is permanent.

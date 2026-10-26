@@ -139,8 +139,10 @@ and never a second copy of the engine.**
   water and sea drawn in code. An **art pass (S0)** fixes this in today's tools (ComfyUI, Atlas
   Maker, Flipbook, FX) before the rebuild: one isometric angle, characters animated per facing,
   transparent props, diamond tilesets, all in the `salmons` project. It needs no Phase 10 step, so
-  it can start whenever the owner says go. **The owner said go on 2026-10-26**; its work list,
-  owner choices and blockers are in [status/salmons.md](../status/salmons.md).
+  it can start whenever the owner says go. **The owner said go on 2026-10-26.** Much of it was
+  already done in the Salmon repository by then (its `docs/art-pass.md`: the art in the
+  pipeline's sheet and clip formats, the look and the generation recipes). What is left is
+  generating the characters' clips; the work list is in [status/salmons.md](../status/salmons.md).
 
 | Tier | What Salmons needs from it |
 |---|---|
@@ -1293,6 +1295,12 @@ so is #12's scope (its shape is a recommendation); the owner answered #13–#16 
     - Adding `match3` and `arcade` to `GAME_KINDS` needs it, so that the slot-only consumers (the
       Scene Editor's template-type picker, the flow-vocabulary generator and game-spec's schema)
       stay unchanged. P10.1b reuses it.
+28. **How many facings a character has.** *(owner, 2026-10-26)*
+    - **A per-game option: 4 or 8.** P10.11's character data names its facings, and the look
+      picks the clip for the nearest one. Four are the isometric diagonals, as Salmons draws them
+      today: south-east and north-east, with the west twins mirrored. Eight add the four straight
+      directions, so a game draws five and mirrors three. Either way a missing west-facing clip is
+      its east twin mirrored.
 
 ---
 
