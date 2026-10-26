@@ -326,13 +326,17 @@ no status (next section):
    it is given as `--base-build`/`--head-build`): the game list, each game's pinned snapshot, the
    render units and, when the two builds' built-in defs differ, the republished units of each
    affected game. A plan that cannot be made (a missing secret, an unreachable list) carries the
-   reason to the report.
+   reason to the report. Before the builds it fills the headless-shell cache for the shards
+   (`scripts/current-games/headless-shell.sh`: the browser and the exact .debs a cold install
+   fetched, keyed on the runner image), so the apt mirror is hit at most once per PR, not by
+   every shard.
 3. **`gates`** runs every game type's `check:*` gates once, beside the build: they test the
    branch's source, not its runtime, so they do not hold up the renders.
 4. **`render`** is 20 shards. Each renders its share of the units (`--phase render`), one at a
    time; the plan balances them by each unit's measured seconds (`scripts/current-games/costs.json`,
-   refreshed from the `costs:` line a run prints). It first lifts the runner's AppArmor limit on
-   unprivileged user namespaces: Playwright's headless shell has no AppArmor profile, so on Ubuntu
+   refreshed from the `costs:` line a run prints). It installs the headless shell from that cache
+   offline (online, as before, when there is no entry for its image), then lifts the runner's
+   AppArmor limit on unprivileged user namespaces: Playwright's headless shell has no AppArmor profile, so on Ubuntu
    24.04 its sandbox cannot start and it exits at launch. A unit that fails still writes its result,
    so the report names it; a unit with no result at all is its game's error.
 5. **`report`** pairs every shard's units (`--phase compare`), compares, uploads the

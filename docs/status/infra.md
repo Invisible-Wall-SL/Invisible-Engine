@@ -140,6 +140,21 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   `components-storybook` keeps a private TS 5.9.3 because Storybook 9's `@storybook/svelte-vite`
   depends on `typescript ^5`; it goes with the Storybook 10 upgrade. typescript-eslint 8.71.2
   accepts TS `<6.1.0`, so a TS 6.1 bump needs a typescript-eslint bump with it.
+- 2026-10-23 — **The headless shell and its apt deps come from a cache.** The Azure mirror crawled
+  again, and the 15-minute install step killed whole current-games render shards before any game
+  rendered (runs 39939661842, 39930759968): 20 shards a run each fetched ~26 MB of fonts and
+  libraries on their own. `scripts/current-games/headless-shell.sh` now owns the install for
+  current-games and the four parity workflows. Cold, it runs the same `playwright install
+  --with-deps chromium-headless-shell` with the same retries, but points apt's archive dir at an
+  `actions/cache` entry (`.cache/headless-shell`), keyed on the runner image version
+  (`$ImageOS-$ImageVersion`) and the Playwright version, which then holds the exact .debs fetched,
+  the unpacked browser and a version manifest. Warm, it installs those .debs offline (apt is given
+  no sources and no lists, so it cannot reach a mirror), copies the browser back and checks the
+  installed versions against the manifest. Any mismatch, or an entry from another image, falls
+  back to the cold install. The current-games `build` job fills the entry before the builds
+  (`continue-on-error`), so the shards restore it. Caches are scoped per PR, so a new PR pays one
+  cold install in `build` and none in its shards. Both paths were exercised on an Ubuntu 24.04
+  container: warm with apt's proxy pointed at a dead port.
 - 2026-10-22 — **The headless-shell install waits for an orphaned `apt-get`.** On a slow Azure
   mirror, attempt 1 of `playwright install --with-deps` outlived its `timeout 240`, which kills
   pnpm but not the `sudo apt-get` it started. That apt-get ran on holding the dpkg lock, so
