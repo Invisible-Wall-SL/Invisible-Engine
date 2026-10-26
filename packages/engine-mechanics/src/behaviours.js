@@ -272,9 +272,10 @@ function walkPath(memory, path, self, speed, dt, mode) {
 	return towards(target.x - self.x, target.y - self.y, speed, dt);
 }
 
+/** Set up a state's memory on its first step. A path it names that the world does not have yet
+ *  leaves it unset, so a later step (once the layout's paths arrive) tries again. */
 function initMemory(brain, state, params, self, world) {
 	const memory = brain.memory;
-	memory.ready = true;
 	switch (state.behaviour) {
 		case 'wander':
 			memory.heading = brain.rng() * 2 * Math.PI;
@@ -289,7 +290,7 @@ function initMemory(brain, state, params, self, world) {
 							points: [brain.at, { x: brain.at.x + params.dx, y: brain.at.y + params.dy }],
 						})
 					: undefined);
-			if (!path) break;
+			if (!path) return;
 			const pingPong = !path.closed && params.pingPong !== false;
 			memory.path =
 				pingPong || path.closed ? path : samplePath({ points: path.points, closed: true });
@@ -300,7 +301,7 @@ function initMemory(brain, state, params, self, world) {
 		}
 		case 'followPath': {
 			const path = typeof params.path === 'string' ? world.paths[params.path] : undefined;
-			if (!path) break;
+			if (!path) return;
 			memory.path = path;
 			memory.mode = path.closed ? 'loop' : 'once';
 			memory.d = 0;
@@ -314,6 +315,7 @@ function initMemory(brain, state, params, self, world) {
 			memory.nextShot = 0;
 			break;
 	}
+	memory.ready = true;
 }
 
 /**

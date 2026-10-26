@@ -12,7 +12,7 @@
 
 	import { getContextApp } from 'pixi-svelte';
 
-	import { startArcade, tickArcade, useArcadePaths, useArcadePointer } from '../game/arcade';
+	import { startArcade, tickArcade, useArcadePaths, useArcadeInput } from '../game/arcade';
 	import { getContext } from '../game/context';
 	import { registerDeterminismArcade } from '../game/determinism';
 
@@ -22,7 +22,7 @@
 	 * spawned instances, drawn by the play field's spawn layer where the loop puts them — and ticks the
 	 * arcade loop once a frame while the play field is on screen, so the field stops when the game
 	 * leaves it. For a config with characters (P10.11) it also hands the loop the layout's paths and
-	 * the pointer on the canvas; without, neither is read.
+	 * the keys and the pointer, while it is mounted; without, neither is read.
 	 */
 
 	const { scenes }: Props = $props();
@@ -34,7 +34,7 @@
 	$effect(() => {
 		const pixi = app.stateApp.pixiApplication;
 		if (!pixi) return;
-		return useArcadePointer(pixi.canvas, (x, y) => {
+		return useArcadeInput(pixi.canvas, (x, y) => {
 			const at = { x: 0, y: 0 };
 			pixi.renderer.events.mapPositionToPoint(at, x, y);
 			return at;

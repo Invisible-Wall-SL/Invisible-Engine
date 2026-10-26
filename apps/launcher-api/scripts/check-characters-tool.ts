@@ -10,9 +10,11 @@
  *  2. ADD / DUPLICATE / RENAME / DELETE, and the brain's renames and deletes reaching everything that
  *     names a state (transitions, the initial state, `state:<id>` anim inputs).
  *  3. THE GRAPH. Entry → initial, Any → the `*` transitions; what a wire between two cards means.
- *  4. THE SANDBOX. Same seed and input ⇒ the same run; a step is exactly `behaviours.js` + `steer` +
+ *  4. THE SANDBOX drives the game's own characters stage (`engine-game` `createCharacterStage`), not
+ *     a copy. Same seed and input ⇒ the same run; a step is exactly `behaviours.js` + `steer` +
  *     `stepSolid` driven by hand; walls stop the character (`hitSolid`); a controller follows the
- *     keys; `shootAt` fires; anim inputs read as the loop writes them.
+ *     keys; a bot is the brain; `shootAt` fires; anim inputs are what the stage writes; `variable`
+ *     conditions read the sandbox's stand-in variables.
  *  5. THE REGISTRY. The tool, its roles (Game Config's), its stage and its guide (rule 9).
  */
 import { existsSync, readFileSync } from 'node:fs';
@@ -31,6 +33,7 @@ import {
 	createRng,
 	steer,
 	stepBrain,
+	stepBody,
 	stepSolid,
 	type Body,
 } from 'engine-mechanics';
@@ -48,6 +51,7 @@ import {
 	PLAYER_TAG,
 	SANDBOX_CHARACTER_BODY,
 	createSandbox,
+	parseVariables,
 	replay,
 	startOf,
 	type SandboxInput,
@@ -464,7 +468,7 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 		player.vy = input.held.includes('up') ? -220 : 0;
 		const r = stepSolid(self, dt, [], field);
 		hit = r.hitX || r.hitY;
-		stepSolid(player, dt, [], field);
+		stepBody(player, dt, field);
 		const s = a[i];
 		drift = Math.max(
 			drift,
@@ -475,6 +479,18 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 		);
 	});
 	same('4. every step is behaviours.js + steer + stepSolid, exactly', drift, 0);
+	const source = readFileSync(
+		fileURLToPath(new URL('../src/lib/characters/sandbox.ts', import.meta.url)),
+		'utf8',
+	);
+	check(
+		"4. the sandbox drives the game's own characters stage (createCharacterStage), not a copy",
+		source.includes("from 'engine-game/src/game/arcadeCharacters'") &&
+			source.includes('createCharacterStage(') &&
+			!/import\s*\{[^}]*\b(brainVelocity|controllerVelocity|stepBrain|steer|stepSolid)\b[^}]*\}\s*from 'engine-mechanics'/.test(
+				source,
+			),
+	);
 	const last = a[a.length - 1];
 	same('4. anim inputs read as the loop writes them', last.animInputs, {
 		run: last.speed > 1,
@@ -563,6 +579,46 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 	const sandbox = createSandbox(setup({ character: shooter }));
 	for (let f = 0; f < 30; f++) sandbox.advance(34, still);
 	same('4. frames run whole fixed steps: 1020 ms is 61 of them', sandbox.snapshot().steps, 61);
+}
+
+{
+	// `variable` conditions read the sandbox's stand-in variables.
+	same(
+		'4. variables parse as condition values',
+		parseVariables('flag = true, score=3\nname = bob, bad'),
+		{
+			flag: true,
+			score: 3,
+			name: 'bob',
+		},
+	);
+	const gated: ArcadeCharacter = {
+		id: 'v',
+		component: 'v',
+		brain: {
+			initial: 'a',
+			states: [
+				{ id: 'a', behaviour: 'idle' },
+				{ id: 'b', behaviour: 'idle' },
+			],
+			transitions: [
+				{
+					id: 't',
+					from: 'a',
+					to: 'b',
+					when: [{ kind: 'variable', id: 'flag', op: '==', value: true }],
+				},
+			],
+		},
+	};
+	same(
+		'4. a variable condition holds only with the variable set',
+		[
+			replay(setup({ character: gated }), run(2))[1].state,
+			replay(setup({ character: gated, variables: { flag: true } }), run(2))[1].state,
+		],
+		['a', 'b'],
+	);
 }
 
 // ── 5. The registry ───────────────────────────────────────────────────────────────────────────

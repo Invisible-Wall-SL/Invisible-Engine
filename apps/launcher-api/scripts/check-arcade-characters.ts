@@ -1120,11 +1120,11 @@ const offRoute = (b: { x: number; y: number }) => {
 		) && /\.\.\.characterIo,/.test(arcade),
 	);
 	check(
-		'10. …and attaches the pointer and reads the paths through it alone',
+		'10. …and attaches the keys and the pointer (detached with the play field) and reads the paths through it alone',
 		/characterIo\?\.setScenes/.test(arcade) &&
-			/canvas && characterIo \? characterIo\.attachPointer/.test(arcade) &&
+			/canvas && characterIo \? characterIo\.attachInput/.test(arcade) &&
 			/useArcadePaths\(/.test(stage) &&
-			/useArcadePointer\(/.test(stage),
+			/useArcadeInput\(/.test(stage),
 	);
 	check(
 		'10. held keys go through the flow’s own key map (one matcher for Flow and characters)',

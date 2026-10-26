@@ -51,8 +51,8 @@ let characterIo: CharacterRuntime | undefined;
 
 interface CharacterRuntime extends ArcadeCharacterIo {
 	setScenes(scenes: readonly Scene[], layoutType: LayoutType): void;
-	/** Follow the pointer on the canvas; returns the detach. */
-	attachPointer(canvas: HTMLElement, toGlobal: (x: number, y: number) => Point): () => void;
+	/** Follow the held keys and the pointer on the canvas; returns the detach of both. */
+	attachInput(canvas: HTMLElement, toGlobal: (x: number, y: number) => Point): () => void;
 }
 
 type Point = { x: number; y: number };
@@ -64,13 +64,6 @@ function createCharacterRuntime(characters: readonly ArcadeCharacter[]): Charact
 	const keyActions = (key: string) => getFlowV2()?.keyActions(key) ?? [];
 	// A letter is kept in one case, so a Shift between its press and its release does not strand it.
 	const keyOf = (key: string) => (key.length === 1 ? key.toLowerCase() : key);
-	if (typeof window !== 'undefined') {
-		window.addEventListener('keydown', (e) => {
-			if (!typingInto(e.target)) heldKeys.add(keyOf(e.key));
-		});
-		window.addEventListener('keyup', (e) => heldKeys.delete(keyOf(e.key)));
-		window.addEventListener('blur', () => heldKeys.clear());
-	}
 	const looks = new Set(characters.map((c) => c.component));
 	/** The layer a pointer is read in: the first declared layer that can hold a character. */
 	const characterLayer = () =>
@@ -103,7 +96,14 @@ function createCharacterRuntime(characters: readonly ArcadeCharacter[]): Charact
 			pathsKey = key;
 			paths = next;
 		},
-		attachPointer(canvas, toGlobal) {
+		attachInput(canvas, toGlobal) {
+			const down = (e: KeyboardEvent) => {
+				if (!typingInto(e.target)) heldKeys.add(keyOf(e.key));
+			};
+			const up = (e: KeyboardEvent) => {
+				heldKeys.delete(keyOf(e.key));
+			};
+			const blur = () => heldKeys.clear();
 			const at = (e: PointerEvent) => {
 				pressed = toGlobal(e.clientX, e.clientY);
 			};
@@ -113,15 +113,26 @@ function createCharacterRuntime(characters: readonly ArcadeCharacter[]): Charact
 			const release = () => {
 				pressed = undefined;
 			};
+			const onWindow = <K extends keyof WindowEventMap>(
+				type: K,
+				listener: (e: WindowEventMap[K]) => void,
+			) => {
+				window.addEventListener(type, listener);
+				return () => window.removeEventListener(type, listener);
+			};
 			canvas.addEventListener('pointerdown', at);
-			window.addEventListener('pointermove', move);
-			window.addEventListener('pointerup', release);
-			window.addEventListener('pointercancel', release);
+			const off = [
+				onWindow('keydown', down),
+				onWindow('keyup', up),
+				onWindow('blur', blur),
+				onWindow('pointermove', move),
+				onWindow('pointerup', release),
+				onWindow('pointercancel', release),
+				() => canvas.removeEventListener('pointerdown', at),
+			];
 			return () => {
-				canvas.removeEventListener('pointerdown', at);
-				window.removeEventListener('pointermove', move);
-				window.removeEventListener('pointerup', release);
-				window.removeEventListener('pointercancel', release);
+				for (const detach of off) detach();
+				heldKeys.clear();
 				pressed = undefined;
 			};
 		},
@@ -166,13 +177,13 @@ export const useArcadePaths = (scenes: readonly Scene[], layoutType: LayoutType)
 	characterIo?.setScenes(scenes, layoutType);
 };
 
-/** Follow a pressed pointer on the canvas for the characters; returns the detach. No characters,
- *  no listener. */
-export const useArcadePointer = (
+/** Follow the held keys and a pressed pointer on the canvas for the characters, while the play
+ *  field is mounted; returns the detach. No characters, no listener. */
+export const useArcadeInput = (
 	canvas: HTMLElement | undefined,
 	toGlobal: (x: number, y: number) => Point,
 ): (() => void) | undefined =>
-	canvas && characterIo ? characterIo.attachPointer(canvas, toGlobal) : undefined;
+	canvas && characterIo ? characterIo.attachInput(canvas, toGlobal) : undefined;
 
 /** One frame of the play field. */
 export const tickArcade = (dtMs: number) => {

@@ -275,6 +275,27 @@ check('solid: an overlap it did not move into settles along the shallower axis',
 	assert.equal(under.vy, 0, 'moving into it is zeroed');
 });
 
+check('solid: a body already in a solid is settled out, never thrown across it', () => {
+	const w = wall('w', 500, 200, 100, 400);
+	const leaving = box('b', 560, 200, 40, 40, { vx: 60 });
+	assert.deepEqual(stepSolid(leaving, DT, [w], FIELD), { hitX: true, hitY: false });
+	assert.deepEqual([leaving.x, leaving.vx], [570, 60], 'out by its near edge, still moving away');
+	const entering = box('e', 440, 200, 40, 40, { vx: 60 });
+	assert.deepEqual(stepSolid(entering, DT, [w], FIELD), { hitX: true, hitY: false });
+	assert.deepEqual([entering.x, entering.vx], [430, 0], 'out by its near edge, stopped');
+});
+
+check('solid: a solid moved into a character pushes it out sideways, not across', () => {
+	const w = wall('w', 500, 200, 100, 400);
+	w.vx = 1800;
+	const c = box('c', 570, 200, 40, 40, { vy: 60 });
+	stepBody(w, DT, FIELD);
+	assert.equal(w.x, 530);
+	const hit = stepSolid(c, DT, [w], FIELD);
+	assert.deepEqual(hit, { hitX: true, hitY: false });
+	assert.deepEqual([c.x, c.y, c.vy], [600, 201, 60], 'shoved ahead of the wall, still falling');
+});
+
 // --- paths ------------------------------------------------------------------------------------
 
 const L_PATH = [
@@ -823,6 +844,33 @@ check('behaviour patrol: joins a path at its nearest point; closed loops; open p
 		steps: 5,
 	});
 	assert.deepEqual([lost.self.x, lost.self.y], [100, 100], 'a missing path stands still');
+});
+
+check('behaviour patrol / followPath: a path that arrives later is picked up', () => {
+	for (const behaviour of ['patrol', 'followPath']) {
+		const self = box('s', 100, 100, 10, 10);
+		const brain = brainOf(
+			{ initial: 'p', states: [S('p', behaviour, { path: 'late', speed: 120 })], transitions: [] },
+			'late',
+			self,
+		);
+		const paths = {};
+		const world = () => createBrainWorld({ self, bodies: [self], paths });
+		for (let i = 0; i < 5; i++) {
+			stepBrain(brain, world(), DT);
+			assert.deepEqual(brainVelocity(brain, self, world(), DT), { vx: 0, vy: 0 }, behaviour);
+		}
+		assert.notEqual(brain.memory.ready, true, `${behaviour} waits for its path`);
+		paths.late = samplePath({
+			points: [
+				{ x: 100, y: 100 },
+				{ x: 400, y: 100 },
+			],
+		});
+		stepBrain(brain, world(), DT);
+		const v = brainVelocity(brain, self, world(), DT);
+		assert.ok(near(v.vx, 120) && v.vy === 0, `${behaviour} walks it once it is there`);
+	}
 });
 
 check('behaviour followPath: from the start, once to the end and stops; closed runs on', () => {

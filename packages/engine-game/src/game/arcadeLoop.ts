@@ -130,6 +130,8 @@ export const ARCADE_VALUES = {
 	fieldHeight: 'fieldHeight',
 } as const;
 
+const isCharacterControl = (v: unknown): v is CharacterControl =>
+	(CHARACTER_CONTROLS as readonly unknown[]).includes(v);
 const num = (v: unknown): number | undefined =>
 	typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 const str = (v: unknown): string | undefined =>
@@ -309,8 +311,8 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 			if (state) characters?.setState(targets(payload), state);
 		},
 		setCharacterControl: (payload) => {
-			const control = payload.control as CharacterControl;
-			if (CHARACTER_CONTROLS.includes(control)) characters?.setControl(targets(payload), control);
+			const { control } = payload;
+			if (isCharacterControl(control)) characters?.setControl(targets(payload), control);
 		},
 		setTag: (payload) => {
 			const tag = str(payload.tag);

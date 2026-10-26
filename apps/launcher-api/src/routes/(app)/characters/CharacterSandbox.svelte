@@ -13,6 +13,7 @@
 		PLAYER_TAG,
 		SANDBOX_PATH,
 		createSandbox,
+		parseVariables,
 		wallAt,
 		type Sandbox,
 		type SandboxSnapshot,
@@ -55,6 +56,8 @@
 	let drive = $state<'controller' | 'brain'>('controller');
 	let walls = $state<SandboxWall[]>(untrack(() => DEFAULT_WALLS(field)));
 	let path = $state<{ x: number; y: number }[]>([]);
+	/** Stand-ins for the Flow variables a `variable` condition reads: `name = value` lines. */
+	let variablesText = $state('');
 	let snap = $state<SandboxSnapshot | null>(null);
 	let canvas = $state<HTMLCanvasElement | null>(null);
 
@@ -64,6 +67,9 @@
 	let dragging: { kind: 'player' | 'character' } | { kind: 'wall'; id: string } | null = null;
 
 	const both = $derived(!!character.controller && !!character.brain);
+	const usesVariables = $derived(
+		(character.brain?.transitions ?? []).some((t) => t.when.some((c) => c.kind === 'variable')),
+	);
 	const W = 640;
 	const scale = $derived(W / field.w);
 	const H = $derived(Math.round(field.h * scale));
@@ -79,6 +85,7 @@
 			path: path.length >= 2 ? $state.snapshot(path) : undefined,
 			hz,
 			drive,
+			variables: parseVariables(variablesText),
 		});
 		snap = sandbox.snapshot();
 		onstate?.(snap.state);
@@ -88,8 +95,9 @@
 	/** What the run is built from; a change restarts it. A state card's place is not. */
 	let built = '';
 	$effect(() => {
-		const key = JSON.stringify([character, body, seed, drive, path.length, field], (k, v) =>
-			k === 'pos' ? undefined : v,
+		const key = JSON.stringify(
+			[character, body, seed, drive, path.length, field, variablesText],
+			(k, v) => (k === 'pos' ? undefined : v),
 		);
 		if (key === built) return;
 		built = key;
@@ -245,13 +253,6 @@
 		};
 		shape(snap.player, '#3d7dd8', PLAYER_TAG);
 		shape(snap.character, '#e08a3c', snap.character.label, snap.state);
-		// Facing: a tick on the side the character last moved to.
-		ctx.strokeStyle = '#ffd7a8';
-		ctx.lineWidth = 2;
-		ctx.beginPath();
-		ctx.moveTo(snap.character.x * k, snap.character.y * k);
-		ctx.lineTo((snap.character.x + snap.facing * 18) * k, snap.character.y * k);
-		ctx.stroke();
 		ctx.fillStyle = '#ff6b6b';
 		for (const s of snap.shots) {
 			ctx.beginPath();
@@ -288,6 +289,16 @@
 			onclick={() => (tool = 'path')}
 			title="Click the field to add path points">Draw path</button
 		>
+		{#if usesVariables}
+			<label class="vars"
+				>Variables <input
+					bind:value={variablesText}
+					placeholder="flag = true, score = 3"
+					spellcheck="false"
+					title="Values the brain's variable conditions read here (Flow sets them in the game)"
+				/></label
+			>
+		{/if}
 		{#if path.length}<button type="button" onclick={() => (path = [])}>Clear path</button>{/if}
 		<button type="button" onclick={addWall}>＋ Wall</button>
 	</div>
@@ -319,8 +330,6 @@
 			<dd>{snap.driver}</dd>
 			<dt>Speed</dt>
 			<dd>{snap.speed.toFixed(1)} px/s</dd>
-			<dt>Facing</dt>
-			<dd>{snap.facing === 1 ? 'right' : 'left'}</dd>
 			<dt>Shots hit the player</dt>
 			<dd>{snap.hits}</dd>
 			<dt>Step</dt>
@@ -352,6 +361,9 @@
 	.bar button.on {
 		border-color: #5db0ff;
 		color: #5db0ff;
+	}
+	.vars input {
+		width: 170px;
 	}
 	.seed input {
 		width: 70px;

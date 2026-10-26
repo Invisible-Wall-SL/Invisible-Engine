@@ -75,9 +75,9 @@
 		clientKey: data.clientKey,
 		projectKey: data.projectKey,
 		docKey: 'gameConfig',
-		enabled: data.projectKey.length > 0 && data.canSave,
+		enabled: data.projectKey.length > 0,
 	});
-	const readOnly = $derived(lease.readOnly || !data.canSave || !arcade);
+	const readOnly = $derived(lease.readOnly || !arcade);
 
 	const saveState = new SaveState({
 		initialEtag: data.etag,
@@ -263,6 +263,21 @@
 			? source === 'moving' || source.startsWith('state:')
 			: !(source === 'moving' || source.startsWith('state:'));
 
+	/**
+	 * After an edit, show what the doc holds: a value an edit refused leaves the doc unchanged, so
+	 * Svelte would not re-render the input and the refused text would stay on screen.
+	 */
+	function settle(el: HTMLInputElement | HTMLSelectElement, stored: unknown): void {
+		const text = stored === undefined ? '' : String(stored);
+		if (el.value !== text) el.value = text;
+	}
+	const liveCharacter = () => edit.findCharacter(doc, cid());
+	const liveBrainState = (sid: string) => liveCharacter()?.brain?.states.find((s) => s.id === sid);
+	function conditionValue(tid: string, ci: number, field: edit.ConditionField): unknown {
+		const c = liveCharacter()?.brain?.transitions.find((t) => t.id === tid)?.when[ci];
+		return c ? (c as Record<string, unknown>)[field] : undefined;
+	}
+
 	const issueText = (list: GameConfigIssue[]) => list.map((i) => i.message).join(' ');
 	const num = (v: number | undefined) => (v === undefined ? '' : String(v));
 </script>
@@ -317,12 +332,6 @@
 			game config, so
 			<a href={resolve('/config')}>Invisible Game Config</a> and this tool share one edit lease.
 		</p>
-		{#if !data.canSave}
-			<p class="warn">
-				Saving goes through Invisible Game Config, which your role does not have: this page is
-				read-only.
-			</p>
-		{/if}
 		{#if !arcade}
 			<p class="warn">
 				This project's config is not an arcade config, so it has no characters. Set its family in
@@ -465,8 +474,11 @@
 											type="number"
 											value={lookBody.w}
 											disabled={readOnly}
-											onchange={(e) =>
-												change((d) => body.setBodySize(d, comp, 'w', e.currentTarget.value))}
+											onchange={(e) => {
+												change((d) => body.setBodySize(d, comp, 'w', e.currentTarget.value));
+												const stored = doc.arcade?.bodies?.[comp];
+												settle(e.currentTarget, stored && 'w' in stored ? stored['w'] : undefined);
+											}}
 										/></label
 									>
 									<label
@@ -474,8 +486,11 @@
 											type="number"
 											value={lookBody.h}
 											disabled={readOnly}
-											onchange={(e) =>
-												change((d) => body.setBodySize(d, comp, 'h', e.currentTarget.value))}
+											onchange={(e) => {
+												change((d) => body.setBodySize(d, comp, 'h', e.currentTarget.value));
+												const stored = doc.arcade?.bodies?.[comp];
+												settle(e.currentTarget, stored && 'h' in stored ? stored['h'] : undefined);
+											}}
 										/></label
 									>
 								{:else}
@@ -484,8 +499,11 @@
 											type="number"
 											value={lookBody.r}
 											disabled={readOnly}
-											onchange={(e) =>
-												change((d) => body.setBodySize(d, comp, 'r', e.currentTarget.value))}
+											onchange={(e) => {
+												change((d) => body.setBodySize(d, comp, 'r', e.currentTarget.value));
+												const stored = doc.arcade?.bodies?.[comp];
+												settle(e.currentTarget, stored && 'r' in stored ? stored['r'] : undefined);
+											}}
 										/></label
 									>
 								{/if}
@@ -557,8 +575,10 @@
 										value={num(character.movement?.[key])}
 										placeholder={key === 'decel' ? 'accel' : '—'}
 										disabled={readOnly}
-										onchange={(e) =>
-											change((d) => edit.setMovement(d, cid(), key, e.currentTarget.value))}
+										onchange={(e) => {
+											change((d) => edit.setMovement(d, cid(), key, e.currentTarget.value));
+											settle(e.currentTarget, liveCharacter()?.movement?.[key]);
+										}}
 									/>
 								</label>
 							{/each}
@@ -593,8 +613,10 @@
 										value={num(character.controller.speed)}
 										placeholder={character.controller.kind === 'pointer' ? 'max speed' : ''}
 										disabled={readOnly}
-										onchange={(e) =>
-											change((d) => edit.setControllerSpeed(d, cid(), e.currentTarget.value))}
+										onchange={(e) => {
+											change((d) => edit.setControllerSpeed(d, cid(), e.currentTarget.value));
+											settle(e.currentTarget, liveCharacter()?.controller?.speed);
+										}}
 									/>
 								</label>
 							{/if}
@@ -754,11 +776,13 @@
 														? (p.hint ?? '')
 														: String(p.fallback)}
 													disabled={readOnly}
-													onchange={(e) =>
+													onchange={(e) => {
 														change(
 															(d) => edit.setParam(d, cid(), sid, p.key, e.currentTarget.value),
 															true,
-														)}
+														);
+														settle(e.currentTarget, liveBrainState(sid)?.params?.[p.key]);
+													}}
 												/>
 											</label>
 										{/if}
@@ -811,8 +835,13 @@
 										: ' — with none, it fires at once'}.
 								</p>
 								{#each selectedTransition.when as c, ci (ci)}
-									{@const set = (field: edit.ConditionField, v: string) =>
-										change((d) => edit.setConditionField(d, cid(), tid, ci, field, v), true)}
+									{@const set = (
+										field: edit.ConditionField,
+										el: HTMLInputElement | HTMLSelectElement,
+									) => {
+										change((d) => edit.setConditionField(d, cid(), tid, ci, field, el.value), true);
+										settle(el, conditionValue(tid, ci, field));
+									}}
 									<div class="cond">
 										<b>{c.kind}</b>
 										{#if 'tag' in c}
@@ -820,7 +849,7 @@
 												>tag <input
 													value={c.tag}
 													disabled={readOnly}
-													onchange={(e) => set('tag', e.currentTarget.value)}
+													onchange={(e) => set('tag', e.currentTarget)}
 												/></label
 											>
 										{/if}
@@ -830,7 +859,7 @@
 													type="number"
 													value={c.px}
 													disabled={readOnly}
-													onchange={(e) => set('px', e.currentTarget.value)}
+													onchange={(e) => set('px', e.currentTarget)}
 												/></label
 											>
 										{/if}
@@ -840,7 +869,7 @@
 													type="number"
 													value={c.ms}
 													disabled={readOnly}
-													onchange={(e) => set('ms', e.currentTarget.value)}
+													onchange={(e) => set('ms', e.currentTarget)}
 												/></label
 											>
 										{:else if c.kind === 'variable'}
@@ -848,13 +877,13 @@
 												>variable <input
 													value={c.id}
 													disabled={readOnly}
-													onchange={(e) => set('id', e.currentTarget.value)}
+													onchange={(e) => set('id', e.currentTarget)}
 												/></label
 											>
 											<select
 												value={c.op}
 												disabled={readOnly}
-												onchange={(e) => set('op', e.currentTarget.value)}
+												onchange={(e) => set('op', e.currentTarget)}
 											>
 												{#each ARCADE_VARIABLE_OPS as op (op)}<option value={op}>{op}</option
 													>{/each}
@@ -863,7 +892,7 @@
 												value={String(c.value)}
 												disabled={readOnly}
 												title="true, false, a number or text"
-												onchange={(e) => set('value', e.currentTarget.value)}
+												onchange={(e) => set('value', e.currentTarget)}
 											/>
 										{:else if c.kind === 'random'}
 											<label
@@ -874,7 +903,7 @@
 													max="1"
 													value={c.chance}
 													disabled={readOnly}
-													onchange={(e) => set('chance', e.currentTarget.value)}
+													onchange={(e) => set('chance', e.currentTarget)}
 												/></label
 											>
 											<label
@@ -883,7 +912,7 @@
 													value={c.every ?? ''}
 													placeholder="1000"
 													disabled={readOnly}
-													onchange={(e) => set('every', e.currentTarget.value)}
+													onchange={(e) => set('every', e.currentTarget)}
 												/></label
 											>
 										{/if}

@@ -358,8 +358,16 @@ const penetrates = (a, b) =>
 	a.y0 + SOLID_EPSILON < b.y1 &&
 	b.y0 + SOLID_EPSILON < a.y1;
 
-/** Push a body that moved along one axis back out of every solid it entered, against its motion. */
-function pushBack(body, blockers, axis, dir) {
+/** The solids a body already penetrates. */
+const inside = (body, blockers) =>
+	new Set(blockers.filter((solid) => penetrates(aabbOf(body), aabbOf(solid))));
+
+/**
+ * Push a body that moved along one axis back out of every solid it entered, against its motion.
+ * `already` are the solids it penetrated before that move: it did not enter those, so they are
+ * left to the shallow-axis settle (pushing it against its motion would throw it across them).
+ */
+function pushBack(body, blockers, axis, dir, already) {
 	const half = axis === 'x' ? halfSize(body).hw : halfSize(body).hh;
 	const lo = axis === 'x' ? 'x0' : 'y0';
 	const hi = axis === 'x' ? 'x1' : 'y1';
@@ -367,6 +375,7 @@ function pushBack(body, blockers, axis, dir) {
 	for (let pass = 0; pass <= blockers.length; pass++) {
 		let pushed = false;
 		for (const solid of blockers) {
+			if (already.has(solid)) continue;
 			const box = aabbOf(solid);
 			if (!penetrates(aabbOf(body), box)) continue;
 			body[axis] = dir > 0 ? box[lo] - half : box[hi] + half;
@@ -382,7 +391,7 @@ function pushBack(body, blockers, axis, dir) {
  * Move one body by its velocity for `dt` seconds, stopping at solids: x first (pushed back out of
  * every solid it entered, `vx` zeroed), then y the same way, so a body driven diagonally into a
  * wall keeps sliding along it. An overlap it did not move into (a moving solid, a spawn inside one)
- * is then settled along the shallower axis. Then the field's edges, as {@link stepBody}. Only bodies
+ * is never pushed against its motion: it is settled afterwards along the shallower axis. Then the field's edges, as {@link stepBody}. Only bodies
  * with `solid: true` block, never the body itself; every shape is resolved by its box (a circle is
  * pushed as its bounding square). A step shorter than the body never passes through a solid.
  */
@@ -392,13 +401,15 @@ export function stepSolid(body, dt, solids, field) {
 	const dy = (body.vy || 0) * dt;
 	let hitX = false;
 	let hitY = false;
+	const beforeX = dx !== 0 ? inside(body, blockers) : undefined;
 	body.x += dx;
-	if (dx !== 0 && pushBack(body, blockers, 'x', dx)) {
+	if (beforeX && pushBack(body, blockers, 'x', dx, beforeX)) {
 		hitX = true;
 		body.vx = 0;
 	}
+	const beforeY = dy !== 0 ? inside(body, blockers) : undefined;
 	body.y += dy;
-	if (dy !== 0 && pushBack(body, blockers, 'y', dy)) {
+	if (beforeY && pushBack(body, blockers, 'y', dy, beforeY)) {
 		hitY = true;
 		body.vy = 0;
 	}
