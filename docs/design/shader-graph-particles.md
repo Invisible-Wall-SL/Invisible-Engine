@@ -431,7 +431,7 @@ svelte-check at baseline, and the current games building with no changed screen.
      - 20,000 frames reallocate nothing after warm-up;
      - the CPU time to sync 512 particles is logged.
    - **Exit:** parity and the per-particle inputs proven headless.
-   - **As built** (#TBD):
+   - **As built** (#1366):
      - **API.** `new ParticleMaterial({ host, effect, maxParticles, textures, time, intensity,
        params, emitSpeed })` (`pixi-svelte/particleMaterial`); `particles` is the emitter's parent,
        `bindConfig` adds `fxMaterial`, `sync(renderer)` after `emitter.update`, `plain` says why a
