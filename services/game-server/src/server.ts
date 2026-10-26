@@ -10,9 +10,9 @@ import {
 	type Server,
 } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
-import { CloseCode, Protocol } from '@colyseus/core';
 
 import { arcadeRoomClass } from './arcadeRoom.ts';
+import { guardSockets } from './socketGuard.ts';
 import type { LoadGame } from './configSource.ts';
 
 /**
@@ -63,46 +63,6 @@ const MAX_CONNECTIONS = 6000;
 
 /** Answer `status` and close. The socket is dropped only once the answer is out, so a refused
  *  device reads why; `connection: close` keeps Node from reading the rest of its body. */
-/** The protocol code of a WebSocket frame: its first byte's low five bits (the rest are flags). */
-const PROTOCOL_CODE = 0b11111;
-
-type RawSocket = {
-	emit(event: string | symbol, ...args: unknown[]): boolean;
-	close(code: number): void;
-};
-
-const firstByte = (data: unknown): number | undefined => {
-	const chunk = Array.isArray(data) ? data[0] : data;
-	if (chunk instanceof Uint8Array) return chunk[0];
-	if (chunk instanceof ArrayBuffer) return new Uint8Array(chunk)[0];
-	return undefined;
-};
-
-/**
- * Close any socket that sends an UNRELIABLE input frame, before Colyseus decodes it. The runtime
- * sends reliable inputs only, and `@colyseus/schema` 5.0.42's decoder for that channel
- * (`InputDecoder.decodeAll`) loops for ever on a negative slot length: three bytes from one device
- * would stop every room in the process. The hook is the WebSocket server's `connection` event,
- * prepended so it wraps the socket before Colyseus attaches its own message listener.
- */
-function refuseUnreliableInputs(transport: WebSocketTransport) {
-	const { wss } = transport as unknown as {
-		wss: { prependListener(event: 'connection', listener: (socket: RawSocket) => void): void };
-	};
-	wss.prependListener('connection', (socket) => {
-		const emit = socket.emit.bind(socket);
-		socket.emit = (event, ...args) => {
-			const byte = event === 'message' ? firstByte(args[0]) : undefined;
-			if (byte !== undefined && (byte & PROTOCOL_CODE) === Protocol.ROOM_INPUT_UNRELIABLE) {
-				socket.close(CloseCode.WITH_ERROR);
-				return true;
-			}
-			return emit(event, ...args);
-		};
-	});
-	return transport;
-}
-
 const refuse = (req: IncomingMessage, res: ServerResponse, status: number): true => {
 	res.on('finish', () => req.destroy());
 	res.writeHead(status, { connection: 'close', 'access-control-allow-origin': '*' }).end();
@@ -243,7 +203,7 @@ export function createGameServer(options: GameServerOptions): GameServer {
 		Response.json({ ok: true, commit: options.commit, rooms: rooms.count }),
 	);
 	const server = defineServer({
-		transport: refuseUnreliableInputs(
+		transport: guardSockets(
 			new WebSocketTransport({
 				server: guardedHttpServer(
 					options.trustProxy ?? false,

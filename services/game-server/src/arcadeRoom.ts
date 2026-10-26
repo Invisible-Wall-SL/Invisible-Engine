@@ -2,6 +2,7 @@ import { CloseCode, Room, type Client } from '@colyseus/core';
 import { sanitizeInput, type OnlineInput } from 'engine-mechanics';
 
 import type { LoadGame } from './configSource.ts';
+import { closedByGuard } from './socketGuard.ts';
 import { createRoomSim, inputsThisStep, RoomRefusal, type RoomSim } from './roomSim.ts';
 import { Input, Player, RoomState, type InputFrame, type RoomStateData } from './schema.ts';
 
@@ -13,8 +14,8 @@ import { Input, Player, RoomState, type InputFrame, type RoomStateData } from '.
  *
  * WHAT A DEVICE CAN DO: send {@link Input} (one per step on the reliable channel the runtime uses,
  * clamped by `sanitizeInput` as it is decoded, a repeated or older `seq` dropped, at most
- * {@link INPUT_BUFFER} held), and join with a `name` and a `character`. Every other message is
- * counted against the flood limit and ignored. A step applies the inputs {@link inputsThisStep}
+ * {@link INPUT_BUFFER} held), and join with a `name` and a `character`. Any other frame closes
+ * its socket before it is decoded (`socketGuard.ts`). A step applies the inputs {@link inputsThisStep}
  * allows, each as a step of its own, so a burst after a stall drains instead of becoming lag, and
  * sending more than one a step never moves a player faster. The
  * step reads plain bodies and writes the schema once per patch, never once per step.
@@ -81,7 +82,6 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			this.state.phase = 'waiting';
 			this.game = game;
 			await this.listPlayers();
-			this.onMessage('*', () => {});
 			this.setPatchRate(1000 / online.patchHz);
 			this.setFixedTimestep(
 				() => {
@@ -115,8 +115,9 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			sim.drop(client.sessionId);
 			const player = this.state.players.get(client.sessionId);
 			if (player) player.connected = false;
-			// The server closed it for an error (a flood): no place is held for it.
-			const seconds = code === CloseCode.WITH_ERROR ? 0 : sim.game.online.rejoinSeconds;
+			// The server closed it for an error (a flood, a frame it refuses): no place is held for it.
+			const refused = code === CloseCode.WITH_ERROR || closedByGuard(client.ref);
+			const seconds = refused ? 0 : sim.game.online.rejoinSeconds;
 			if (seconds > 0) this.allowReconnection(client, seconds).catch(() => {});
 		}
 

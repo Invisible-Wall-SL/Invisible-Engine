@@ -769,17 +769,53 @@ try {
 	);
 
 	await check(
-		'live: a message carrying a position, or any message at all, changes nothing',
+		'live: a message carrying a position, or any frame but the four the runtime sends, closes its socket, holds no seat and moves nothing',
 		async () => {
-			const server = serverRoom(a).sim.players.get(a.sessionId);
+			const room = serverRoom(a);
+			const server = room.sim.players.get(a.sessionId);
 			await wait(100);
 			const before = bodyKey(server.body);
-			a.send('move', { x: 1, y: 1 });
-			a.send('teleport', { x: 700, y: 10 });
-			a.send(7, { score: 1e9 });
-			await wait(200);
+			const sends = [
+				(r) => r.send('move', { x: 1, y: 1 }),
+				(r) => r.send(7, { score: 1e9 }),
+				(r) => void r.request('teleport', { x: 700, y: 10 }).catch(() => {}),
+				(r) => r.connection.transport.ws.send(Uint8Array.of(0x15, 0x01, 0xa1, 0x78)),
+				(r) => r.connection.transport.ws.send(Uint8Array.of(0x11, 0x00)),
+			];
+			for (const send of sends) {
+				const m = noAutoReconnect(await clientOf().joinById(a.roomId, {}));
+				let left = false;
+				m.onLeave(() => (left = true));
+				send(m);
+				await until('the socket closed', () => left, 3000);
+				await until('no seat held', () => !room.sim.players.has(m.sessionId), 1000);
+			}
 			assert.deepEqual(bodyKey(server.body), before);
 			assert.equal(server.connected, true);
+		},
+	);
+
+	await check(
+		'live: a socket that never acknowledges its join is closed, and its seat freed',
+		async () => {
+			const seat = await fetch(`http://127.0.0.1:${port}/matchmake/joinById/${a.roomId}`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: '{}',
+			}).then((r) => r.json());
+			const url = `ws://127.0.0.1:${port}/${seat.processId ?? seat.room?.processId}/${a.roomId}?sessionId=${seat.sessionId}`;
+			const ws = new WebSocket(url);
+			ws.binaryType = 'arraybuffer';
+			const opened = Date.now();
+			const closedAt = await new Promise((resolve) =>
+				ws.addEventListener('close', () => resolve(Date.now())),
+			);
+			// Open (so the URL and seat were good) until the deadline, then closed.
+			assert.ok(
+				closedAt - opened > 4000 && closedAt - opened < 8000,
+				`closed after ${closedAt - opened} ms`,
+			);
+			await until('no seat held', () => !serverRoom(a).sim.players.has(seat.sessionId), 2000);
 		},
 	);
 
@@ -912,7 +948,11 @@ try {
 		const f = noAutoReconnect(await clientOf().joinOrCreate(ROOM_NAME, { game: 'third' }));
 		let left = false;
 		f.onLeave(() => (left = true));
-		for (let i = 0; i < messagesPerSecond(30) + 20; i++) f.send('spam', i);
+		const input = f.input();
+		for (let seq = 1; seq < messagesPerSecond(30) + 20; seq++) {
+			Object.assign(input.data, { seq, moveX: 0, moveY: 0, buttons: 0, aimX: 0, aimY: 0 });
+			input.send();
+		}
 		await until('the flood limit', () => left, 3000);
 		await until('the room to close', () => game.rooms.count === 0);
 	});

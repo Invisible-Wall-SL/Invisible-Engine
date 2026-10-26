@@ -67,10 +67,12 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   `x-forwarded-proto`, an absolute-form target, a bad `Host` — is refused (400, or the upgrade
   dropped) before the router builds it, because the router does it unguarded and the throw would
   end the process; a method the server does not serve (only GET, HEAD, OPTIONS, POST) is
-  refused 405 for the same reason (`TRACE` made `new Request` throw); a WebSocket frame on
-  Colyseus' **unreliable input** channel closes its socket before it is decoded (the runtime sends
-  reliable inputs only, and `@colyseus/schema` 5.0.42's `InputDecoder.decodeAll` loops for ever on
-  a negative slot length — three bytes from one device would stop every room; to report upstream);
+  refused 405 for the same reason (`TRACE` made `new Request` throw); a room's WebSocket may carry
+  only the four frames the runtime sends — JOIN_ROOM, LEAVE_ROOM, PING, reliable inputs — and any
+  other closes it undecoded and holds it no seat (`socketGuard.ts`): `@colyseus/schema` 5.0.42's
+  decoder for UNRELIABLE inputs loops for ever on a negative slot length (three bytes would stop
+  every room; to report upstream), and ROOM_REQUEST answers queue without limit on a socket that
+  never acknowledges its join; a socket that has not acknowledged its join within 5 s is closed;
   one address (an IPv6 /64 counts as one) holds at most 64 WebSockets; the entry point logs an unhandled rejection instead of exiting; Colyseus'
   `create` is **not exposed** (only
   `joinOrCreate`, `join`, `joinById`, `reconnect`), so a device cannot make rooms nobody joins; a
@@ -112,7 +114,7 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   jump), clamped, sent — and draws every room player as a spawned instance of its character's
   component in `online.layer`, at the server's last place (no prediction or smoothing: P10.15). The
   arcade probe reads the room. Free play, as every arcade game (`rgsSession: false`).
-- **Gates:** `check:room-sim` (root, 34 checks, ~14 s; discovered by `check:all`): 10 000 steps
+- **Gates:** `check:room-sim` (root, 35 checks, ~20 s; discovered by `check:all`): 10 000 steps
   of six players at 30 Hz × 2, 60 × 1 and 20 × 4 with hostile, repeated, stale, gapped and missing
   inputs and network stalls that release in bursts — the room's body equals the device's
   `stepPlayer` fold **bit for bit** on every step, and the backlog stays bounded (under one input
@@ -127,12 +129,15 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   make no room and name no reason; `create`, a 10 KB body and a chunked body (411) are refused;
   a bad `x-forwarded-proto`, an absolute-form target, a bad `Host`, `TRACE`, `PROPFIND` and a bad
   upgrade are refused and the server still answers; three unreliable-input frames each close their
-  socket while the rooms step on; 64 WebSockets from one address open, the 65th is dropped, another
+  socket while the rooms step on; ROOM_DATA (a `move` carrying a place, a numeric type), a
+  ROOM_REQUEST, a raw request frame and DATA_BYTES each close their socket, hold no seat and move
+  nothing; a socket that never acknowledges its join is closed after 5 s; a flood of inputs past
+  the message limit disconnects; 64 WebSockets from one address open, the 65th is dropped, another
   address's opens, and a closed one frees its place; IPv6 addresses key by /64; one address's 121st matchmaking request in a window gets 429
   (and so do its dot-segment spellings) and another address's does not; after a 0.7 s stall a burst of
   20 inputs is applied within 550 ms;
   join state; 90 live inputs stepped exactly as the device steps them (and drawn at their float32);
-  `move` / `teleport` / any message changes nothing; an off-scale move clamped; room size and
+   an off-scale move clamped; room size and
   character max; a drop keeps the place and `reconnect(token)` resumes it; the grace expiring; a
   flood disconnects; `maxRooms`. `family.fixture.ts` §4c covers the config block.
 - **Verified by playing:** `scripts/playtest/online-play.mjs` on the branch runtime, two headless
