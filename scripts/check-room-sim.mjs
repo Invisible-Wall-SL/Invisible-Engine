@@ -574,6 +574,10 @@ writeFileSync(
 	JSON.stringify(configOf({ characters: CHARACTERS, rejoinSeconds: 1 })),
 );
 writeFileSync(join(dir, 'third.json'), JSON.stringify(configOf({ characters: CHARACTERS })));
+writeFileSync(
+	join(dir, 'wide.json'),
+	JSON.stringify(configOf({ characters: CHARACTERS, maxPlayers: 40 })),
+);
 writeFileSync(join(dir, 'slot.json'), JSON.stringify({ gameName: 'A slot' }));
 
 // High enough for the gate's own joins in one window; the limit's own check counts to it.
@@ -869,13 +873,13 @@ try {
 	);
 
 	await check(
-		'live: one address holds at most 64 WebSockets, and a closed one frees its place',
+		'live: sockets are served only for a seat; one address holds 16 and opens 60 a window; a flood of frames ends its socket',
 		async () => {
-			const open = (address) =>
+			const upgrade = (path, address) =>
 				new Promise((resolve) => {
 					const socket = connect(port, '127.0.0.1', () =>
 						socket.write(
-							'GET / HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n' +
+							`GET ${path} HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n` +
 								'Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n' +
 								`X-Forwarded-For: ${address}\r\n\r\n`,
 						),
@@ -884,18 +888,54 @@ try {
 					socket.once('close', () => resolve({ socket, status: '' }));
 					socket.on('error', () => {});
 				});
-			const held = await Promise.all(Array.from({ length: 64 }, () => open('198.51.100.9')));
+			const seat = async () => {
+				const r = await fetch(`http://127.0.0.1:${port}/matchmake/joinOrCreate/${ROOM_NAME}`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json', 'x-forwarded-for': '192.0.2.200' },
+					body: JSON.stringify({ game: 'wide' }),
+				}).then((res) => res.json());
+				return `/${r.processId ?? r.room?.processId}/${r.roomId ?? r.room?.roomId}?sessionId=${r.sessionId}`;
+			};
+			// Colyseus' latency utility (any path but a seat's) is not served.
+			assert.equal((await upgrade('/', '198.51.100.20')).status, '', 'the latency utility');
+			assert.equal((await upgrade('/a/b', '198.51.100.20')).status, '', 'a seat with no session');
+			const paths = [];
+			for (let i = 0; i < 19; i++) paths.push(await seat());
+			const held = await Promise.all(paths.slice(0, 16).map((p) => upgrade(p, '198.51.100.9')));
 			assert.ok(
 				held.every((h) => h.status.includes(' 101 ')),
 				JSON.stringify(held.map((h) => h.status)),
 			);
-			assert.equal((await open('198.51.100.9')).status, '', 'the 65th is dropped');
-			assert.ok((await open('198.51.100.10')).status.includes(' 101 '), 'another address is not');
+			assert.equal((await upgrade(paths[16], '198.51.100.9')).status, '', 'the 17th is dropped');
+			const other = await upgrade(paths[17], '198.51.100.10');
+			assert.ok(other.status.includes(' 101 '), 'another address is not');
 			held[0].socket.destroy();
 			await wait(100);
-			const again = await open('198.51.100.9');
+			const again = await upgrade(paths[18], '198.51.100.9');
 			assert.ok(again.status.includes(' 101 '), `a freed place: ${again.status}`);
-			for (const h of [...held, again]) h.socket.destroy();
+			for (const h of [...held, other, again]) h.socket.destroy();
+			// Opening and dropping: past 60 upgrades a window, one address is refused.
+			const into = Date.now() % 10_000;
+			if (into > 7000) await wait(10_050 - into);
+			let refused = 0;
+			for (let i = 0; i < 70; i++) {
+				const h = await upgrade('/', '198.51.100.30');
+				if (h.status === '') refused += 1;
+				h.socket.destroy();
+			}
+			assert.equal(refused, 70);
+			assert.equal(
+				(await upgrade(await seat(), '198.51.100.30')).status,
+				'',
+				'the window is spent',
+			);
+			// A joined device sending frames past the budget (150 a second) is ended at once.
+			const f = noAutoReconnect(await clientOf().joinOrCreate(ROOM_NAME, { game: 'wide' }));
+			let left = false;
+			f.onLeave(() => (left = true));
+			for (let i = 0; i < 200; i++) f.connection.transport.ws.send(Uint8Array.of(18));
+			await until('the budget', () => left, 2000);
+			await until('the wide room to close', () => game.rooms.count === 1, 8000);
 		},
 	);
 

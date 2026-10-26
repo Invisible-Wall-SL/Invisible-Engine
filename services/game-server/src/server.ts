@@ -50,9 +50,14 @@ const BODYLESS = new Set(['GET', 'HEAD', 'OPTIONS']);
  *  for some (`TRACE`) out of the server; every other method is refused first. */
 const SERVED = new Set([...BODYLESS, 'POST']);
 
-/** WebSockets one address may hold open: a household or a school behind one address, not a
- *  process's worth of sockets. */
-const SOCKETS_PER_ADDRESS = 64;
+/** WebSockets one address may hold open — a household or a few players behind one address, not a
+ *  process's worth of sockets or rooms (each socket is at most one seat) — and open per window. */
+const SOCKETS_PER_ADDRESS = 16;
+const UPGRADES_PER_WINDOW = 60;
+
+/** The only WebSocket the server serves: a seat in a room, `/<process>/<room>?sessionId=…`.
+ *  Colyseus' latency utility (any other path) answers every frame and is never used. */
+const ROOM_SOCKET = /^\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/;
 
 /** How long a request (headers and body) may take; the default five minutes lets slow clients pile
  *  up. A WebSocket, once upgraded, is not a request and is not timed by it. */
@@ -116,8 +121,8 @@ export function addressKey(address: string): string {
  * past `perWindow` ({@link MATCHMAKE_PER_WINDOW}) in a window (429; counted by method, so no
  * spelling of the path escapes it); and a method it does not serve (405). `trustProxy`: the address is the last `x-forwarded-for` entry,
  * the one the platform's proxy added (Railway); otherwise the socket's. The WebSocket upgrade is
- * guarded the same way for its URL, and one address holds at most {@link SOCKETS_PER_ADDRESS}
- * WebSockets.
+ * served only for a room seat ({@link ROOM_SOCKET} with a `sessionId`); one address holds at most
+ * {@link SOCKETS_PER_ADDRESS} WebSockets and opens at most {@link UPGRADES_PER_WINDOW} a window.
  */
 function guardedHttpServer(trustProxy: boolean, perWindow: number) {
 	const http = createServer({
@@ -127,7 +132,20 @@ function guardedHttpServer(trustProxy: boolean, perWindow: number) {
 	http.maxConnections = MAX_CONNECTIONS;
 	const emit = http.emit.bind(http);
 	let window = 0;
-	let counts = new Map<string, number>();
+	const posts = new Map<string, number>();
+	const upgrades = new Map<string, number>();
+	/** Count one more for `address` in this window; whether that passes `limit`. */
+	const over = (counts: Map<string, number>, address: string, limit: number) => {
+		const now = Math.floor(Date.now() / MATCHMAKE_WINDOW_MS);
+		if (now !== window) {
+			window = now;
+			posts.clear();
+			upgrades.clear();
+		}
+		const count = (counts.get(address) ?? 0) + 1;
+		counts.set(address, count);
+		return count > limit;
+	};
 	const addressOf = (req: IncomingMessage) => {
 		const forwarded = trustProxy ? req.headers['x-forwarded-for'] : undefined;
 		const last = typeof forwarded === 'string' ? forwarded.split(',').pop()?.trim() : undefined;
@@ -137,9 +155,19 @@ function guardedHttpServer(trustProxy: boolean, perWindow: number) {
 	http.emit = ((event: string, ...args: unknown[]) => {
 		if (event === 'upgrade') {
 			const [req, socket] = args as [IncomingMessage, Duplex];
+			const url = locate(req);
 			const address = addressOf(req);
 			const held = open.get(address) ?? 0;
-			if (!locate(req) || req.method !== 'GET' || held >= SOCKETS_PER_ADDRESS) {
+			// Every attempt counts, refused or not, so opening and dropping cannot loop.
+			const spent = over(upgrades, address, UPGRADES_PER_WINDOW);
+			if (
+				spent ||
+				!url ||
+				req.method !== 'GET' ||
+				!ROOM_SOCKET.test(url.pathname) ||
+				!url.searchParams.get('sessionId') ||
+				held >= SOCKETS_PER_ADDRESS
+			) {
 				socket.destroy();
 				return true;
 			}
@@ -162,15 +190,7 @@ function guardedHttpServer(trustProxy: boolean, perWindow: number) {
 				const length = req.headers['content-length'];
 				if (length === undefined) return refuse(req, res, 411);
 				if (Number(length) > MAX_BODY_BYTES) return refuse(req, res, 413);
-				const now = Math.floor(Date.now() / MATCHMAKE_WINDOW_MS);
-				if (now !== window) {
-					window = now;
-					counts = new Map();
-				}
-				const address = addressOf(req);
-				const count = (counts.get(address) ?? 0) + 1;
-				counts.set(address, count);
-				if (count > perWindow) return refuse(req, res, 429);
+				if (over(posts, addressOf(req), perWindow)) return refuse(req, res, 429);
 			}
 		}
 		return emit(event, ...args);

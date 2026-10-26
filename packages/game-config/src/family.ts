@@ -127,7 +127,7 @@ export const ARCADE_ONLINE_DEFAULTS = Object.freeze({
 
 /** The bounds a room is held to whatever its config says: the server's resource limits (§11). */
 export const ARCADE_ONLINE_LIMITS = Object.freeze({
-	maxPlayers: { min: 1, max: 100 },
+	maxPlayers: { min: 2, max: 100 },
 	tickHz: { min: 10, max: 60 },
 	subSteps: { min: 1, max: 4 },
 	patchHz: { min: 5, max: 60 },

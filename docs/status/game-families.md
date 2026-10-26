@@ -72,8 +72,14 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   other closes it undecoded and holds it no seat (`socketGuard.ts`): `@colyseus/schema` 5.0.42's
   decoder for UNRELIABLE inputs loops for ever on a negative slot length (three bytes would stop
   every room; to report upstream), and ROOM_REQUEST answers queue without limit on a socket that
-  never acknowledges its join; a socket that has not acknowledged its join within 5 s is closed;
-  one address (an IPv6 /64 counts as one) holds at most 64 WebSockets; the entry point logs an unhandled rejection instead of exiting; Colyseus'
+  never acknowledges its join; a socket that has not acknowledged its join within 5 s, sends more
+  than 150 frames a second, or lets more than 256 KB of unsent data pile up (a reader that stops
+  reading) is terminated; every close is followed by a terminate within 1 s and its frames are
+  dropped (a graceful close otherwise goes on parsing for 30 s); a WebSocket is served only for a
+  room seat (`/<process>/<room>?sessionId=…`; Colyseus' latency utility, which answers every
+  frame, is not); one address holds at most 16 WebSockets (so at most 16 seats) and opens at most
+  60 a window, refused attempts included; an online room holds at least 2 players;
+  an IPv6 /64 counts as one address; the entry point logs an unhandled rejection instead of exiting; Colyseus'
   `create` is **not exposed** (only
   `joinOrCreate`, `join`, `joinById`, `reconnect`), so a device cannot make rooms nobody joins; a
   `game` that is not a string is refused (it would never match `filterBy`); before Colyseus' router
@@ -128,7 +134,7 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   localhost with real SDK clients: `/healthz`; bad / missing / non-online / non-string game keys
   make no room and name no reason; `create`, a 10 KB body and a chunked body (411) are refused;
   a bad `x-forwarded-proto`, an absolute-form target, a bad `Host`, `TRACE`, `PROPFIND` and a bad
-  upgrade are refused and the server still answers; three unreliable-input frames each close their
+  upgrade are refused and the server still answers; three unreliable-input frames each end their
   socket while the rooms step on; ROOM_DATA (a `move` carrying a place, a numeric type), a
   ROOM_REQUEST, a raw request frame and DATA_BYTES each close their socket, hold no seat and move
   nothing; a socket that never acknowledges its join is closed after 5 s; a flood of inputs past
@@ -202,7 +208,9 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   - the image installs with npm and no lockfile (as `director-worker`'s): the direct dependencies
     are pinned exactly, the transitive ones (`ws`, better-call) are not;
   - many devices behind one address (a school's NAT) share the 30-per-10 s matchmaking allowance
-    and the 64 sockets;
+    and the 16 sockets;
+  - the slow-reader cut-off (256 KB unsent) is verified by the review's repro, not by the gate (it
+    needs a minute of patches to fill the kernel buffers);
   - a device whose first input carries `seq` 2³²−1 freezes its own later inputs (each is then
     "older"); it harms only itself;
   - `x-forwarded-proto` must be exactly `http` or `https`: an edge that appended to a client's

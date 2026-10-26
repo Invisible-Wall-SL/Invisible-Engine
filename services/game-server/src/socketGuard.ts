@@ -2,18 +2,26 @@ import { CloseCode, Protocol } from '@colyseus/core';
 import type { WebSocketTransport } from '@colyseus/ws-transport';
 
 /**
- * WHAT A ROOM'S WEBSOCKET MAY CARRY (`docs/design/realtime-multiplayer.md` §11), checked on every
+ * WHAT A ROOM'S WEBSOCKET MAY DO (`docs/design/realtime-multiplayer.md` §11), checked on every
  * frame before Colyseus decodes it.
  *
- * The runtime sends four kinds of frame: JOIN_ROOM (the join's acknowledgement), LEAVE_ROOM, PING
- * and reliable inputs. Every other code is closed undecoded, because Colyseus answers or decodes
- * them in ways a hostile device can turn on the process: `@colyseus/schema` 5.0.42's decoder for
- * UNRELIABLE inputs loops for ever on a negative slot length; ROOM_REQUEST is answered even before
- * the join is acknowledged, and those answers queue without limit; ROOM_DATA reaches handlers the
- * rooms do not need. A socket that has not acknowledged its join within {@link JOIN_DEADLINE_MS}
- * is closed too, so it cannot sit in Colyseus' joining state holding a seat and a queue.
+ * - **Four kinds of frame.** The runtime sends JOIN_ROOM (the join's acknowledgement), LEAVE_ROOM,
+ *   PING and reliable inputs. Any other code ends the socket undecoded, because Colyseus answers or
+ *   decodes them in ways a hostile device can turn on the process: `@colyseus/schema` 5.0.42's
+ *   decoder for UNRELIABLE inputs loops for ever on a negative slot length; ROOM_REQUEST answers
+ *   queue without limit before the join is acknowledged; ROOM_DATA reaches handlers no room needs.
+ * - **A join deadline.** A socket that has not acknowledged its join within
+ *   {@link JOIN_DEADLINE_MS} is ended, so it cannot sit in Colyseus' joining state.
+ * - **A frame budget.** More than {@link FRAMES_PER_SECOND} frames a second ends the socket, before
+ *   Colyseus' own (graceful, so still parsing) flood close.
+ * - **Ending is immediate.** The guard terminates; a close started elsewhere (Colyseus' flood
+ *   limit, a leave) is followed by a terminate after {@link CLOSE_GRACE_MS} and its frames are
+ *   dropped meanwhile — a graceful close otherwise goes on parsing whatever the peer streams for
+ *   30 s.
+ * - **A reader that does not read** — whose unsent data passes {@link MAX_BUFFERED_BYTES} — is
+ *   ended, so the server never buffers for it without limit.
  *
- * A socket closed here is remembered ({@link closedByGuard}), so its room holds no seat for it.
+ * A socket the guard ended is remembered ({@link closedByGuard}), so its room holds no seat for it.
  */
 
 /** The protocol code of a frame: its first byte's low five bits (the rest are flags). */
@@ -27,55 +35,85 @@ const ALLOWED = new Set<number>([
 ]);
 
 const JOIN_DEADLINE_MS = 5_000;
+/** Above the fastest room's inputs (60 a second) with room for a reconnect's flush. */
+const FRAMES_PER_SECOND = 150;
+const CLOSE_GRACE_MS = 1_000;
+const MAX_BUFFERED_BYTES = 256 * 1024;
+const SWEEP_MS = 1_000;
 
 type RawSocket = {
 	emit(event: string | symbol, ...args: unknown[]): boolean;
-	close(code: number): void;
+	close(code?: number, reason?: string): void;
+	terminate(): void;
 	once(event: 'close', listener: () => void): void;
+	readonly bufferedAmount: number;
 };
 
-const closed = new WeakSet<object>();
+const ended = new WeakSet<object>();
 
-/** Whether the guard closed this raw socket (a room's `client.ref`). */
+/** Whether the guard ended this raw socket (a room's `client.ref`). */
 export const closedByGuard = (socket: unknown): boolean =>
-	typeof socket === 'object' && socket !== null && closed.has(socket);
-
-/** A frame's first byte. Colyseus leaves ws' `binaryType` at `nodebuffer`, so every frame — text,
- *  binary, reassembled fragments — arrives as one Buffer; the other shapes are read for safety. */
-const firstByte = (data: unknown): number | undefined => {
-	const chunk = Array.isArray(data) ? data[0] : data;
-	if (chunk instanceof Uint8Array) return chunk[0];
-	if (chunk instanceof ArrayBuffer) return new Uint8Array(chunk)[0];
-	return undefined;
-};
+	typeof socket === 'object' && socket !== null && ended.has(socket);
 
 /**
  * Wrap every WebSocket the transport accepts. The hook is the WebSocket server's `connection`
  * event, prepended so it wraps the socket before Colyseus attaches its own message listener (a
- * reconnect is a new socket, so it is wrapped too).
+ * reconnect is a new socket, so it is wrapped too). Colyseus leaves ws' `binaryType` at
+ * `nodebuffer`, so every frame — text, binary, reassembled fragments — arrives as one Buffer.
  */
 export function guardSockets(transport: WebSocketTransport): WebSocketTransport {
 	const { wss } = transport as unknown as {
-		wss: { prependListener(event: 'connection', listener: (socket: RawSocket) => void): void };
-	};
-	wss.prependListener('connection', (socket) => {
-		const shut = () => {
-			closed.add(socket);
-			socket.close(CloseCode.WITH_ERROR);
+		wss: {
+			prependListener(event: 'connection', listener: (socket: RawSocket) => void): void;
+			once(event: 'close', listener: () => void): void;
 		};
+	};
+	const live = new Set<RawSocket>();
+	const end = (socket: RawSocket) => {
+		ended.add(socket);
+		socket.terminate();
+	};
+	const sweep = setInterval(() => {
+		for (const socket of live) if (socket.bufferedAmount > MAX_BUFFERED_BYTES) end(socket);
+	}, SWEEP_MS);
+	sweep.unref();
+	wss.once('close', () => clearInterval(sweep));
+
+	wss.prependListener('connection', (socket) => {
+		live.add(socket);
 		let joined = false;
-		const deadline = setTimeout(() => {
-			if (!joined) shut();
-		}, JOIN_DEADLINE_MS);
-		socket.once('close', () => clearTimeout(deadline));
+		let closing = false;
+		let second = 0;
+		let frames = 0;
+		const timers: ReturnType<typeof setTimeout>[] = [
+			setTimeout(() => {
+				if (!joined) end(socket);
+			}, JOIN_DEADLINE_MS),
+		];
+		socket.once('close', () => {
+			live.delete(socket);
+			for (const timer of timers) clearTimeout(timer);
+		});
+		const close = socket.close.bind(socket);
+		socket.close = (code, reason) => {
+			if (!closing) timers.push(setTimeout(() => socket.terminate(), CLOSE_GRACE_MS));
+			closing = true;
+			close(code ?? CloseCode.NORMAL_CLOSURE, reason);
+		};
 		const emit = socket.emit.bind(socket);
 		socket.emit = (event, ...args) => {
 			if (event !== 'message') return emit(event, ...args);
-			if (closed.has(socket)) return true;
-			const byte = firstByte(args[0]);
-			const code = byte === undefined ? undefined : byte & PROTOCOL_CODE;
-			if (code === undefined || !ALLOWED.has(code)) {
-				shut();
+			if (closing || ended.has(socket)) return true;
+			const now = Math.floor(Date.now() / 1000);
+			if (now !== second) {
+				second = now;
+				frames = 0;
+			}
+			frames += 1;
+			const data = args[0];
+			const code = data instanceof Uint8Array ? data[0] & PROTOCOL_CODE : undefined;
+			if (frames > FRAMES_PER_SECOND || code === undefined || !ALLOWED.has(code)) {
+				end(socket);
 				return true;
 			}
 			if (code === Protocol.JOIN_ROOM) joined = true;

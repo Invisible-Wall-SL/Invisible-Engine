@@ -287,8 +287,9 @@ a body with no `content-length` (chunked) is answered 411 and one declaring over
 Colyseus reads it; a request whose URL Colyseus' router could not build (a bad
 `x-forwarded-proto`, an absolute-form target, a bad `Host`) is refused before it can crash the
 process, and so is a method it does not serve (405; only GET, HEAD, OPTIONS, POST); a request
-must finish within 10 s; at most 6 000 sockets, 64 WebSockets per address (an IPv6 /64 is one
-address); a room's WebSocket may carry only JOIN_ROOM, LEAVE_ROOM, PING and reliable inputs — any
+must finish within 10 s; at most 6 000 sockets; a WebSocket is served only for a room seat, and one
+address (an IPv6 /64 is one address) holds at most 16 and opens at most 60 per 10 s; a socket
+sending more than 150 frames a second, or with more than 256 KB unsent, is terminated; a room's WebSocket may carry only JOIN_ROOM, LEAVE_ROOM, PING and reliable inputs — any
 other frame closes it undecoded (among them the unreliable-input channel, on which a decoder bug in
 `@colyseus/schema` 5.0.42 loops for ever) — and one that has not acknowledged its join within 5 s
 is closed; HTTP connections that never upgrade are capped only per process (6 000), each for at
