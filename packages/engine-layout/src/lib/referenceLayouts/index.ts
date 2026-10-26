@@ -7,7 +7,7 @@ import {
 	HOLD_AND_WIN_BOARD,
 	HOLD_AND_WIN_MODE,
 	holdAndWinReferenceLayout,
-	POT_FULL_BANNER_SCREEN,
+	POT_BANNER_SCREENS,
 	POTS_SCREEN,
 	type HoldAndWinTemplateOptions,
 } from './holdAndWin';
@@ -28,6 +28,7 @@ export {
 	HOLD_AND_WIN_BOARD,
 	HOLD_AND_WIN_HOTFIRE_BOARD,
 	HOLD_AND_WIN_MODE,
+	POT_BANNER_SCREENS,
 	POTS_SCREEN,
 	EXPANDING_BLOCK_SHARE,
 	expandingBoardReserve,
@@ -265,7 +266,7 @@ function addOnScenes(
 				(scene.role === 'mode' && scene.modeId !== undefined && modeIds.has(scene.modeId)) ||
 				(!kindOwn &&
 					(scene.id === POTS_SCREEN ||
-						scene.id === POT_FULL_BANNER_SCREEN ||
+						POT_BANNER_SCREENS.includes(scene.id) ||
 						(options.holdAndWin &&
 							(scene.id === 'jackpotBar' || HOLD_AND_WIN_BASE_BANNERS.has(scene.id))))),
 		)

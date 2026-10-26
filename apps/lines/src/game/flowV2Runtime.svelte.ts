@@ -121,6 +121,7 @@ import { getActiveGameConfig } from './gameConfig';
 import { configuredMeters } from './holdAndWinMeters.svelte';
 import { INTENT_COMMANDS } from './flowIntentCommands';
 import { createInstanceWaits } from './flowInstanceWaits';
+import { flowKeyActions, typingInto } from './flowKeys';
 import { linesEngineReader } from './flowRuntime.svelte';
 import { stateModes } from './stateModes.svelte';
 import type { ModeTransition } from 'engine-game';
@@ -348,6 +349,8 @@ export type LinesFlowV2 = {
 	state?: FlowState;
 	/** Run the entries a due timer / tick / key / flushed variable batch fires. */
 	runStateEntry: (entry: FlowStateEntry) => Promise<void>;
+	/** The key map's actions a key fires (`FlowDoc.inputs`), as the flow's own key listener reads it. */
+	keyActions: (key: string) => string[];
 };
 
 type PlayingCinematic = { play: number; loop: boolean; speed: number; done?: () => void };
@@ -1051,6 +1054,7 @@ export const createLinesFlowV2 = (
 		engineScreenUp: screenDrives.setEngineScreen,
 		state,
 		runStateEntry,
+		keyActions: (key) => flowKeyActions(doc.inputs, key),
 	};
 };
 
@@ -1061,18 +1065,10 @@ const attachFlowKeys = (
 	run: (entry: FlowStateEntry) => Promise<void>,
 ): (() => void) | undefined => {
 	if (typeof window === 'undefined') return undefined;
-	// A letter matches either case, so Shift or Caps Lock (on the press or before the release) does
-	// not lose it; every other key name matches exactly.
-	const same = (mapped: string, key: string): boolean =>
-		mapped.length === 1 ? mapped.toLowerCase() === key.toLowerCase() : mapped === key;
-	const actionsOf = (key: string): string[] =>
-		(doc.inputs ?? []).filter((b) => b.keys.some((k) => same(k, key))).map((b) => b.action);
-	const typing = (e: KeyboardEvent): boolean =>
-		e.target instanceof HTMLElement &&
-		(e.target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName));
 	const onKey = (phase: 'down' | 'up') => (e: KeyboardEvent) => {
-		if (typing(e) || (phase === 'down' && e.repeat)) return;
-		for (const action of actionsOf(e.key)) void run({ kind: 'input', action, phase });
+		if (typingInto(e.target) || (phase === 'down' && e.repeat)) return;
+		for (const action of flowKeyActions(doc.inputs, e.key))
+			void run({ kind: 'input', action, phase });
 	};
 	const down = onKey('down');
 	const up = onKey('up');

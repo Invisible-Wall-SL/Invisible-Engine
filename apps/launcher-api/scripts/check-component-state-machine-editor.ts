@@ -18,7 +18,10 @@
  *     transition, On exit rows (minted ids, usage, rename, the unsavable check), where a Problems
  *     row jumps, the Animations list's timeline duplicate, the curve widget's value helpers, a
  *     disabled layer in the preview, what saves (and a newer build's on-exit row kept), and the
- *     panels' wiring (no timeline <select>; the list's drag onto the graph; the Console's log).
+ *     panels' wiring (no timeline <select>; the list's drag onto the graph; the Console's log);
+ *  7. P10.11's 1D blend states: make / clear, add / move / remove points (re-sorted, the state's
+ *     timeline following the first), the card summary and the preview slider's range, usage and
+ *     rename, the stage preview mixing as the input moves, and what saves.
  *
  * What it cannot prove: the xyflow canvas, the panel's Svelte wiring — the owner's browser check.
  */
@@ -868,6 +871,100 @@ const names = new Map([
 		'the Problems list gathers the machine’s and the events’ issues',
 		/const problems = \$derived<Problem\[\]>\(\[\.\.\.issues, \.\.\.eventIssues\]\)/.test(smPanel),
 		true,
+	);
+}
+
+// ---- 7. P10.11: 1D blend states ---------------------------------------------------------------
+
+{
+	const d = def();
+	d.inputs = [
+		{ id: 'speed', kind: 'number', default: 0 },
+		{ id: 'grounded', kind: 'bool' },
+	];
+	const layer = E.addLayer(d, 'Body');
+	const loco = E.addState(layer, { id: 'c_walk', name: 'Walk' });
+	E.makeBlendState(loco, 'speed', 'c_run');
+	eq(
+		'make blend state: its own timeline at 0, the second at 1, timeline kept',
+		[loco.timeline, loco.blend],
+		[
+			'c_walk',
+			{
+				input: 'speed',
+				points: [
+					{ timeline: 'c_walk', at: 0 },
+					{ timeline: 'c_run', at: 1 },
+				],
+			},
+		],
+	);
+	E.setBlendPoint(loco, 1, { at: 200 });
+	E.addBlendPoint(loco, 'c_sprint');
+	eq('a new point goes one above the last', loco.blend?.points[2], {
+		timeline: 'c_sprint',
+		at: 201,
+	});
+	E.setBlendPoint(loco, 0, { at: 500 });
+	eq(
+		'a point moved past the others re-sorts, and the state’s timeline follows the first point',
+		[loco.timeline, loco.blend?.points.map((p) => `${p.timeline}@${p.at}`)],
+		['c_run', ['c_run@200', 'c_sprint@201', 'c_walk@500']],
+	);
+	E.removeBlendPoint(loco, 0);
+	eq('removing the first point moves the timeline to the new first', loco.timeline, 'c_sprint');
+	E.removeBlendPoint(loco, 0);
+	E.removeBlendPoint(loco, 0);
+	eq('the last point is never removed', loco.blend?.points.length, 1);
+	E.addBlendPoint(loco, 'c_run');
+	eq(
+		'the card says the input and its points',
+		E.blendSummary(loco, new Map([['c_walk', 'Walk']])),
+		'speed: Walk 500 · c_run 501',
+	);
+	eq(
+		'the preview slider spans the points',
+		[...E.blendInputRanges(d)],
+		[['speed', { min: 500, max: 501 }]],
+	);
+	eq('the input’s usage lists the blend state', E.inputUsage(d, 'speed'), ['Body/Walk']);
+	E.renameInput(d, 'speed', 'pace');
+	eq('a rename follows into the blend', loco.blend?.input, 'pace');
+	E.clearBlendState(loco);
+	eq(
+		'make plain state: the first point’s timeline, no blend',
+		[loco.timeline, 'blend' in loco],
+		['c_walk', false],
+	);
+
+	// The stage preview: moving the input moves the mix, through the panel's own seams.
+	const walk = timeline('c_walk', { x: [{ time: 0, value: 0 }] });
+	const run = timeline('c_run', { x: [{ time: 0, value: 100 }] });
+	E.makeBlendState(loco, 'pace', 'c_run');
+	E.setBlendPoint(loco, 1, { at: 200 });
+	const runner = new M.ComponentStateMachineRunner(
+		d.stateMachine!,
+		d.inputs,
+		new Map([
+			['c_walk', 1],
+			['c_run', 1],
+		]),
+	);
+	const player = P.previewPlayer([walk, run], scene(d).nodes);
+	const xs: unknown[] = [];
+	for (const pace of [0, 50, 150, 300]) {
+		runner.setInput('pace', pace);
+		runner.advance(0.016);
+		P.placeLayers(runner, player);
+		xs.push(P.playerDrives(player).get('n_coin')?.sample.x);
+	}
+	eq('the preview plays the blend as the input moves', xs, [0, 25, 75, 100]);
+
+	const saved = normalizeComponent(d);
+	eq(
+		'a blend state saves as the editor left it',
+		saved.stateMachine?.layers[0].states[0].blend,
+		loco.blend,
 	);
 }
 

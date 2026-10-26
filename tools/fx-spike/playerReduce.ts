@@ -15,14 +15,25 @@
  */
 
 import { upgradeConfig, type EmitterConfigV3 } from '@barvynkoa/particle-emitter';
+import { Container, Texture } from 'pixi.js';
 import {
 	EFFECT_DOC_VERSION,
+	FX_MATERIAL_LAYER_CAP,
 	bindArt,
+	createFxMaterialSlots,
+	fxMaterialMount,
+	fxMaterialPeakParticles,
 	planEffect,
 	planLayer,
 	type EffectDoc,
 	type EmitterLayer,
 } from 'engine-fx';
+import { setCustomElementFx } from '../../packages/constants-shared/elementFx';
+import { REFERENCE_GRAPHS, compileShaderEffect } from '../../packages/engine-shadergraph/index';
+import {
+	mountParticleMaterial,
+	particleMaterialSlotsFor,
+} from '../../packages/pixi-svelte/src/lib/particleMaterial/mount';
 
 let failures = 0;
 const assert = (cond: boolean, msg: string): void => {
@@ -234,6 +245,246 @@ assert(
 	Array.isArray((upgraded as EmitterConfigV3).behaviors),
 	'a V1/V2 config still binds its art through upgradeConfig (the existing path, untouched)',
 );
+
+// ---------------------------------------------------------------------------
+// 4. Material or plain (Shader Graph step 8d.3): the plan, the mount decision, the game cap.
+// ---------------------------------------------------------------------------
+console.log('fx player — material or plain');
+const glowMaterial = { kind: 'custom:pulse', time: 'loop', intensity: 2 } as const;
+assert(
+	JSON.stringify(planLayer(layer({ key: 'm', material: glowMaterial })).material) ===
+		JSON.stringify(glowMaterial),
+	'a sprite layer with a material plans it',
+);
+assert(
+	!('material' in planLayer(layer({ key: 'p' }))),
+	'a layer without one plans none (its plan is what it was)',
+);
+assert(
+	planLayer(
+		layer({
+			key: 'r',
+			particleKind: 'spine',
+			spineParticle: { skeletonKey: 'coin', animation: 'spin' },
+			material: glowMaterial,
+		}),
+	).material === undefined,
+	'a Tier-C rig layer plans no material, even when one is stored',
+);
+
+{
+	const slots = createFxMaterialSlots();
+	assert(slots.cap === FX_MATERIAL_LAYER_CAP && FX_MATERIAL_LAYER_CAP === 8, 'the game cap is 8');
+	const decide = (over: Partial<Parameters<typeof fxMaterialMount>[0]> = {}) =>
+		fxMaterialMount({ rigParticles: false, registered: true, slots, ...over });
+	const rig = decide({ rigParticles: true });
+	const missing = decide({ registered: false });
+	assert(
+		!rig.on && rig.plain === 'rig particles' && !missing.on && missing.plain === 'not registered',
+		'rig particles and an unregistered kind draw plain…',
+	);
+	assert(slots.drawing === 0, '…and take no slot');
+	const first = Array.from({ length: 8 }, () => decide());
+	assert(
+		first.every((d) => d.on) && slots.drawing === 8,
+		'eight registered layers draw through their material',
+	);
+	const ninth = decide();
+	assert(
+		!ninth.on && ninth.plain === 'over the game cap',
+		'the ninth draws plain: over the game cap',
+	);
+	slots.release();
+	assert(
+		!ninth.on && slots.drawing === 7,
+		'a slot freed later does not turn the ninth on (decided at mount, kept for its life)',
+	);
+	assert(decide().on && slots.drawing === 8, 'a layer mounting after that takes the free slot');
+	for (let i = 0; i < 20; i++) slots.release();
+	assert(slots.drawing === 0, 'releasing more than was claimed never goes below 0');
+}
+
+{
+	const drivenLayer = layer({ key: 'd', config: { ...baseConfig(), maxParticles: 80 } });
+	const peak = (params: EffectDoc['params']) => fxMaterialPeakParticles(drivenLayer, params);
+	assert(peak(undefined) === 80, 'capacity is Max particles at mount when nothing drives it');
+	assert(
+		peak([
+			{
+				id: 'n',
+				kind: 'number',
+				default: 0.5,
+				min: 0,
+				max: 1,
+				drives: [{ id: 'a', layer: 'd', path: 'emitter.maxParticles', from: 40, to: 300 }],
+			},
+		]) === 300,
+		'a mapped Max-particles drive sizes it to the top of its range',
+	);
+	assert(
+		peak([
+			{
+				id: 'n',
+				kind: 'number',
+				default: 100,
+				min: 10,
+				max: 250,
+				drives: [{ id: 'a', layer: 'd', path: 'emitter.maxParticles' }],
+			},
+			{
+				id: 'b',
+				kind: 'bool',
+				default: false,
+				drives: [{ id: 'a', layer: 'd', path: 'emitter.maxParticles', from: 20, to: 120 }],
+			},
+		]) === 250,
+		'an as-is drive takes its parameter max; a switch its larger end',
+	);
+	assert(
+		peak([
+			{
+				id: 'n',
+				kind: 'number',
+				default: 100,
+				drives: [{ id: 'a', layer: 'd', path: 'emitter.maxParticles' }],
+			},
+			{
+				id: 'o',
+				kind: 'number',
+				default: 1,
+				drives: [{ id: 'a', layer: 'other', path: 'emitter.maxParticles', from: 1, to: 999 }],
+			},
+		]) === Infinity,
+		'an as-is drive on a parameter with no max has no bound: Infinity',
+	);
+	assert(
+		peak([
+			{
+				id: 'o',
+				kind: 'number',
+				default: 1,
+				drives: [{ id: 'a', layer: 'other', path: 'emitter.maxParticles', from: 1, to: 999 }],
+			},
+		]) === 80,
+		'another layer’s drive is not counted',
+	);
+	assert(
+		peak([
+			{
+				id: 'n',
+				kind: 'number',
+				default: 0.5,
+				drives: [{ id: 'a', layer: 'd', path: 'emitter.maxParticles', from: 0, to: 100 }],
+			},
+		]) === 1000 &&
+			peak([
+				{
+					id: 'n',
+					kind: 'number',
+					default: 50,
+					max: 100,
+					drives: [{ id: 'a', layer: 'd', path: 'emitter.maxParticles' }],
+				},
+			]) === 1000,
+		'a drive that can write 0 or less counts as the library’s 1000 (a mapped end, or no min)',
+	);
+}
+
+{
+	// The emitter's mount (`mountParticleMaterial`) for every reason decided before a renderer is built.
+	const compiled = compileShaderEffect({ ...REFERENCE_GRAPHS[0], id: 'pulse' });
+	if (!compiled.ok) throw new Error('the reference graph does not compile');
+	setCustomElementFx([compiled.effect]);
+	const slots = createFxMaterialSlots(1);
+	const host = new Container();
+	const mount = (kind: string, rigParticles = false) =>
+		mountParticleMaterial({
+			spec: { kind },
+			host,
+			textures: [],
+			maxParticles: 10,
+			rigParticles,
+			slots,
+		});
+	const unregistered = mount('custom:deleted');
+	const rigged = mount('custom:pulse', true);
+	assert(
+		unregistered.material === undefined && unregistered.state === 'not registered',
+		'an unregistered kind mounts no renderer: plain',
+	);
+	assert(
+		rigged.material === undefined && rigged.state === 'rig particles',
+		'a rig-particle emitter with a registered material mounts no renderer: plain',
+	);
+	slots.claim();
+	const capped = mount('custom:pulse');
+	assert(
+		capped.material === undefined && capped.state === 'over the game cap' && slots.drawing === 1,
+		'with every slot held, a registered kind mounts plain and takes nothing',
+	);
+	assert(
+		host.children.length === 0,
+		'a plain layer leaves nothing in its host: it is a layer with no material',
+	);
+
+	// Refused by the renderer at mount: the slot is claimed, then given back.
+	const free = createFxMaterialSlots(1);
+	const refusedBy = (peakParticles: number | undefined, textures: Texture[]) =>
+		mountParticleMaterial({
+			spec: { kind: 'custom:pulse', peakParticles },
+			host,
+			textures,
+			maxParticles: 200,
+			rigParticles: false,
+			slots: free,
+		});
+	const overPeak = refusedBy(2000, [Texture.WHITE]);
+	const unbounded = refusedBy(Infinity, [Texture.WHITE]);
+	const noFrames = refusedBy(undefined, []);
+	assert(
+		overPeak.state === 'Max particles can be driven over 512' && overPeak.material === undefined,
+		'Max particles 200 at mount but drivable to 2000: plain from mount, never mid-play',
+	);
+	assert(
+		unbounded.state === 'Max particles driven with no bound' && unbounded.material === undefined,
+		'Max particles driven with no bound: plain from mount',
+	);
+	assert(
+		noFrames.state === 'no frames when it mounted',
+		'no frames when it mounted: plain, with its own reason',
+	);
+	assert(
+		free.drawing === 0 && host.children.length === 0,
+		'each refusal gives its slot back and leaves nothing in the host',
+	);
+
+	// A renderer whose construction throws (here Pixi's program, which needs a canvas Node lacks).
+	let threw = false;
+	try {
+		refusedBy(100, [Texture.WHITE]);
+	} catch {
+		threw = true;
+	}
+	assert(
+		threw && free.drawing === 0 && host.children.length === 0,
+		'a construction that throws gives its slot back and leaves nothing in the host',
+	);
+	setCustomElementFx([]);
+}
+
+{
+	// One count per game: each Pixi app's state keys its own slots.
+	const appA = {};
+	const appB = {};
+	const a = particleMaterialSlotsFor(appA);
+	assert(a === particleMaterialSlotsFor(appA), 'an app gets the same slots each time');
+	const filled = Array.from({ length: 8 }, () => a.claim()).every(Boolean);
+	const b = particleMaterialSlotsFor(appB);
+	assert(
+		filled && !a.claim() && Array.from({ length: 8 }, () => b.claim()).every(Boolean),
+		'two apps on one page each get their own 8',
+	);
+}
 
 console.log('');
 if (failures === 0) {

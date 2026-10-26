@@ -7,6 +7,7 @@
 	import type { ProjectFootprint } from '$lib/projectFootprint';
 	import LayoutProfileEditor from '$lib/LayoutProfileEditor.svelte';
 	import { MIN_PASSWORD_LENGTH } from '$lib/passwordPolicy';
+	import { BUG_KINDS, BUG_TOOL, BUG_TRIAGE, type BugKind } from '$lib/bugReports';
 	import { roleLabel } from '$lib/roles';
 	import {
 		BOOT_SPLASH_DEFAULT_BACKGROUND,
@@ -366,16 +367,36 @@
 	type CapRow = { key: string; name: string; isNew?: true };
 	type CapGroup = { id: string; label: string; rows: CapRow[] };
 
+	// The two bug tools are granted apart, each card beside its own triage capability, in a group of
+	// its own here and in a block of its own in a user's panel.
+	const BUG_GROUP_LABELS: Record<BugKind, string> = {
+		pipeline: 'Pipeline bug reports',
+		game: 'Game bug reports',
+	};
+	const bugKeys = new Set(BUG_KINDS.flatMap((k) => [BUG_TOOL[k], BUG_TRIAGE[k]]));
+	function bugRows(kind: BugKind): CapRow[] {
+		const tool = data.tools.find((t) => t.id === BUG_TOOL[kind]);
+		const cap = data.capabilities.find((c) => c.key === BUG_TRIAGE[kind]);
+		return [tool && { key: tool.id, name: tool.name, isNew: tool.isNew }, cap].filter(
+			(r): r is CapRow => !!r,
+		);
+	}
+
 	const capGroups = $derived.by<CapGroup[]>(() => {
 		const groups: CapGroup[] = [
-			{ id: 'admin', label: 'Admin capabilities', rows: data.capabilities },
+			{
+				id: 'admin',
+				label: 'Admin capabilities',
+				rows: data.capabilities.filter((c) => !bugKeys.has(c.key)),
+			},
 			{
 				id: 'online',
 				label: 'Online tools',
 				rows: data.tools
-					.filter((t) => t.kind === 'online')
+					.filter((t) => t.kind === 'online' && !bugKeys.has(t.id))
 					.map((t) => ({ key: t.id, name: t.name, isNew: t.isNew })),
 			},
+			...BUG_KINDS.map((k) => ({ id: `bugs-${k}`, label: BUG_GROUP_LABELS[k], rows: bugRows(k) })),
 			{
 				id: 'local',
 				label: 'Local tools',
@@ -678,7 +699,7 @@
 
 					<h4>Tool access</h4>
 					<div class="tools">
-						{#each data.tools as tool (tool.id)}
+						{#each data.tools.filter((t) => !bugKeys.has(t.id)) as tool (tool.id)}
 							{@const mode = overrideMode(selected.id, tool.id)}
 							{@const def = roleHasByDefault(selected.role, tool.id)}
 							<form method="POST" action="?/setToolAccess" use:enhance class="tool-row">
@@ -697,6 +718,30 @@
 							</form>
 						{/each}
 					</div>
+
+					{#each BUG_KINDS as kind (kind)}
+						<h4>{BUG_GROUP_LABELS[kind]}</h4>
+						<div class="tools">
+							{#each bugRows(kind) as row (row.key)}
+								{@const mode = overrideMode(selected.id, row.key)}
+								{@const def = cellDefault(selected.role, row.key)}
+								<form method="POST" action="?/setToolAccess" use:enhance class="tool-row">
+									<input type="hidden" name="userId" value={selected.id} />
+									<input type="hidden" name="toolKey" value={row.key} />
+									<span class="tool-name">
+										{row.name}
+										<em class="muted">{def ? 'role: granted' : 'role: none'}</em>
+									</span>
+									<select name="mode" value={mode}>
+										<option value="default">Role default ({def ? 'on' : 'off'})</option>
+										<option value="grant">Force grant</option>
+										<option value="revoke">Force revoke</option>
+									</select>
+									<button type="submit">Apply</button>
+								</form>
+							{/each}
+						</div>
+					{/each}
 
 					<h4>Sessions</h4>
 					<form method="POST" action="?/loadSessions" use:enhance class="inline">

@@ -294,7 +294,7 @@ To replace all of it with your own look:
    modifiers line do not draw.
 2. **Pick what it says** with its **source**:
    - **`respinCounterText`** shows exactly the built-in counter's words, every beat included. Then
-     empty its **label** so no "RESPINS" caption sits over it. An untouched label field only *looks*
+     empty its **label** so no "RESPINS" caption sits over it. An untouched label field only _looks_
      empty: the grey text is its default, which still draws. Type a character, then delete it.
      The **×** button puts the default back.
    - **`respinsLeft`** (the default) shows the number only. Draw your own reset look and play it on
@@ -329,21 +329,29 @@ project's [Win Text](win-text.md) templates, filled in by the game.
 It adds that one screen, and only that popup changes. **Add missing screens** never adds banner
 screens.
 
-| Screen                      | It shows when                                      | Its lines                    |
-| --------------------------- | -------------------------------------------------- | ---------------------------- |
-| **Coin jackpot banner**     | the feature's end counts a jackpot coin            | the tier · the amount        |
-| **Jackpot upgrade banner**  | an upgrade steps a jackpot coin up a tier          | "MINOR UPGRADE"              |
-| **Wheel prize banner**      | the wheel lands on a prize that is not a jackpot   | the prize · what it does     |
-| **Row unlocked banner**     | an expanding board opens a row                     | "ROW UNLOCKED" · the rows    |
-| **Feature total banner**    | the feature's total, once the coins have landed    | "BONUS WIN $20.00"           |
-| **Instant win banner**      | a base-game instant collect                        | "INSTANT WIN" · the amount   |
-| **Random metre banner**     | a random metre fires                               | the metre's name             |
-| **Pot full banner**         | a pot fills (only where the game has pots)         | "PAYER ACTIVATED"            |
-| **Platform jackpot banner** | the casino platform's own jackpot hits             | "GRAND JACKPOT" · the amount |
-| **Jackpot win**             | a banked jackpot: full board, letters or the wheel | "GRAND JACKPOT" · the amount |
-| **Lucky Spin intro**        | a Lucky Spin starts                                | "LUCKY SPIN"                 |
+| Screen                        | It shows when                                                           | Its lines                    |
+| ----------------------------- | ----------------------------------------------------------------------- | ---------------------------- |
+| **Coin jackpot banner**       | the feature's end counts a jackpot coin                                 | the tier · the amount        |
+| **Jackpot upgrade banner**    | an upgrade steps a jackpot coin up a tier                               | "MINOR UPGRADE"              |
+| **Wheel prize banner**        | the wheel lands on a prize that is not a jackpot                        | the prize · what it does     |
+| **Row unlocked banner**       | an expanding board opens a row                                          | "ROW UNLOCKED" · the rows    |
+| **Feature total banner**      | the feature's total, once the coins have landed                         | "BONUS WIN $20.00"           |
+| **Upgrade banner**            | an upgrade special raises coins                                         | "UPGRADE"                    |
+| **Modifiers unlocked banner** | a mystery unlocks modifiers mid-feature                                 | "UNLOCKED: PAYER"            |
+| **Instant win banner**        | a base-game instant collect                                             | "INSTANT WIN" · the amount   |
+| **Random metre banner**       | a random metre fires                                                    | the metre's name             |
+| **Pot full banner**           | a pot fills (only where the game has pots)                              | "PAYER ACTIVATED"            |
+| **Modifiers active banner**   | full pots start the bonus with modifiers (only where the game has pots) | "PAYER ACTIVE"               |
+| **Platform jackpot banner**   | the casino platform's own jackpot hits                                  | "GRAND JACKPOT" · the amount |
+| **Jackpot win**               | a banked jackpot: full board, letters or the wheel                      | "GRAND JACKPOT" · the amount |
+| **Lucky Spin intro**          | a Lucky Spin starts                                                     | "LUCKY SPIN"                 |
 
-The first five are feature screens, the next four base-game screens.
+The first seven are feature screens, the next five base-game screens.
+
+A popup shows on its banner screen only while [Win Text](win-text.md#where-each-feature-line-shows)
+places its line on the **Board banner** (or **Both**). **Upgrade**, **Modifiers unlocked** and
+**Modifiers active** start in the info bar, so their screens draw nothing until you move the line to
+the board there. A line set to **Info bar** or **Off** shows no banner at all.
 
 **Author one:**
 
@@ -507,6 +515,8 @@ It is grouped into:
   On a screen (not in the Component Editor), click **Spawn layer** to insert a field that
   [Invisible Flow](./flow.md) fills with components while the game runs — see
   [Spawn layer](#spawn-layer--a-field-flow-fills-while-the-game-runs).
+  **Path** (screens only too) inserts a line an arcade character patrols or follows — see
+  [Path](#path--a-line-a-character-walks).
 - **Atlases** — composed atlas pages and atlas manifests. Manifest entries
   expand to their individual regions, which you drag in one at a time.
 - **Rigs** — the project's rig bundles (plus shared `_shared/` bundles,
@@ -732,7 +742,7 @@ game draws, so a component you have edited since keeps its old look on that scre
 the placement and use **Update to latest** in Properties.
 
 **Right-click a row** for: Copy, Paste, Delete (on the selection when the row is in it), Lock,
-Hide, Isolate, **◇ Create component** (containers; the same as Properties' *Edit as component*) and
+Hide, Isolate, **◇ Create component** (containers; the same as Properties' _Edit as component_) and
 **↗ Show in Flow** (named component instances). The Components side offers Delete, Lock, Hide
 and Isolate. Animate leaves out the editing items.
 
@@ -742,20 +752,20 @@ Press **Shift+/** (or **?** in the canvas bar) for this sheet over the stage. No
 while you type in a field. **Enter** and **Tab** belong to the stage only when nothing else has
 focus (click the stage first); on a focused button, tile or tab they press it or move focus on.
 
-| Keys | Does |
-|---|---|
-| `Esc` | Select the parent; on a top-level node, deselect |
-| `Enter` | Select the first child |
-| `X` | Reveal the selection in the Outline (opens its containers, scrolls to the row) |
-| `F` | Fit the frame |
-| `Ctrl/⌘+0` | Zoom to 100% |
-| `+` / `-` | Zoom in / out (the canvas bar also has − / % / + and **Fit**; click the % for 100%) |
-| Arrows | Nudge the selected top-level nodes 1 px; `Shift` = 10 px (Design only) |
-| `Tab` | Toggle Design / Animate |
-| `Shift+/` | The shortcut sheet |
-| `Ctrl/⌘+Z`, `Ctrl/⌘+Shift+Z` | Undo, redo (Screens, Design) |
-| `Ctrl/⌘+C / X / V / D` | Copy, cut, paste, duplicate (Screens, Design) |
-| `Delete` | Delete the selection (locked nodes stay) |
+| Keys                         | Does                                                                                |
+| ---------------------------- | ----------------------------------------------------------------------------------- |
+| `Esc`                        | Select the parent; on a top-level node, deselect                                    |
+| `Enter`                      | Select the first child                                                              |
+| `X`                          | Reveal the selection in the Outline (opens its containers, scrolls to the row)      |
+| `F`                          | Fit the frame                                                                       |
+| `Ctrl/⌘+0`                   | Zoom to 100%                                                                        |
+| `+` / `-`                    | Zoom in / out (the canvas bar also has − / % / + and **Fit**; click the % for 100%) |
+| Arrows                       | Nudge the selected top-level nodes 1 px; `Shift` = 10 px (Design only)              |
+| `Tab`                        | Toggle Design / Animate                                                             |
+| `Shift+/`                    | The shortcut sheet                                                                  |
+| `Ctrl/⌘+Z`, `Ctrl/⌘+Shift+Z` | Undo, redo (Screens, Design)                                                        |
+| `Ctrl/⌘+C / X / V / D`       | Copy, cut, paste, duplicate (Screens, Design)                                       |
+| `Delete`                     | Delete the selection (locked nodes stay)                                            |
 
 The stage is tinted blue with a blue edge in **Animate**, so the two modes never look alike.
 
@@ -919,7 +929,7 @@ range is left blank, so it follows the parameter's own min and max (shown greyed
 they change in /fx; type ends to map elsewhere. An on/off one is on while the number passes a
 **threshold**, like **Show / hide**. Dragging the test value moves the live particles on the
 stage, with no restart. A colour parameter cannot be bound yet. A binding naming a parameter the
-effect no longer has says *Does nothing* and is ignored in the game.
+effect no longer has says _Does nothing_ and is ignored in the game.
 
 The same section in the Component Editor can also read the component's own params and the pot
 of the instance it sits in. The full reference is in the Component Editor guide under
@@ -986,12 +996,12 @@ An open row has, top to bottom:
 
 **The four triggers**, and what each does in the game:
 
-| Trigger                        | In the game                                                                                                                                     |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Always (loops while shown)** | Loops for as long as the element is on screen. Built for the _loop_ effects below.                                                              |
-| **When shown**                 | Plays when the element appears, each time it is shown (a screen the Flow shows again, a node made visible again).                               |
+| Trigger                        | In the game                                                                                                                                                                                                                                |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Always (loops while shown)** | Loops for as long as the element is on screen. Built for the _loop_ effects below.                                                                                                                                                         |
+| **When shown**                 | Plays when the element appears, each time it is shown (a screen the Flow shows again, a node made visible again).                                                                                                                          |
 | **On cue**                     | Plays each time its **Cue** fires: a Flow `fireCue`, a game or component signal, a cue its component's own timeline or state machine raises, or a `signal:` cue on a timeline of its screen ([below](#report-events-visibility-and-text)). |
-| **Keyed on a timeline**        | Never plays on its own. A timeline poses it, so a state-machine state can too ([below](#keyed-element-fx-on-the-timeline)). Nodes only.        |
+| **Keyed on a timeline**        | Never plays on its own. A timeline poses it, so a state-machine state can too ([below](#keyed-element-fx-on-the-timeline)). Nodes only.                                                                                                    |
 
 An _On cue_ effect fired again restarts. Its cue (and any stop cue) shows in Invisible Flow's
 **Cues** palette, ready to drag out.
@@ -1037,58 +1047,58 @@ nothing is saved.
 **The 50 effects.** _loop_ = built to repeat, the natural pick for _Always_; _entrance_ = starts
 hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to rest.
 
-| Family         | Effect                     | What it does                                                                     |
-| -------------- | -------------------------- | -------------------------------------------------------------------------------- |
-| Motion         | **Shake**                  | A decaying rattle.                                                               |
-|                | **Wobble**                 | Rocks left and right around its centre, settling.                                |
-|                | **Pulse**                  | Swells and shrinks back once.                                                    |
-|                | **Heartbeat**              | Two quick beats, the second softer.                                              |
-|                | **Jelly**                  | Squashes and stretches on its base like jelly.                                   |
-|                | **Bounce**                 | Hops up and lands with a squash, each bounce lower.                              |
-|                | **Spin**                   | Turns on itself in the screen plane.                                             |
-|                | **Swing**                  | Swings like a sign hanging from its top edge.                                    |
-|                | **Float** (loop)           | Hovers gently up and down.                                                       |
-|                | **Pop in** (entrance)      | Grows from nothing with an overshoot.                                            |
-|                | **Pop out** (exit)         | Swells, then shrinks away to nothing.                                            |
-|                | **Slam in** (entrance)     | Drops in from above and lands hard: squash and a rattle.                         |
-|                | **Fade in** (entrance)     | Fades up from invisible.                                                         |
-|                | **Fade out** (exit)        | Fades away and stays hidden.                                                     |
-| 3D             | **Flip (3D, sideways)**    | Flips on itself around its vertical axis, like a coin.                           |
-|                | **Flip (3D, over)**        | Flips on itself around its horizontal axis, top over bottom.                     |
-|                | **Bounce 3D**              | Jumps out of the screen at you, tilting, and settles back with a bounce.         |
-|                | **Sphericon**              | Folds into a spinning sphericon wrapped in its own art, rolls, and unfolds back. |
-|                | **Tilt 3D** (loop)         | Sways in perspective, as if held up and turned in the light.                     |
-| Distort        | **Wave (X)** (loop)        | Rows slide left and right in a travelling wave.                                  |
-|                | **Wave (Y)** (loop)        | Columns slide up and down in a travelling wave.                                  |
-|                | **Flag** (loop)            | Ripples like a flag pinned at its left edge, with light on the folds.            |
-|                | **Twist**                  | Swirls around its centre and unwinds.                                            |
-|                | **Curl**                   | A corner curls up like a page and lays back down.                                |
-|                | **Ripple**                 | A shock ring spreads out from the centre.                                        |
-|                | **Bulge**                  | Puffs out from the centre like a lens, then flattens (negative pinches in).      |
-|                | **Melt** (exit)            | Melts like wax: the top sinks and the rest runs down in uneven **Drips**, as far as **Drip length** (in element heights), then it fades away. **Heat** makes the running part glow in the **Heat colour**. |
-| Light & colour | **Glow** (loop)            | A coloured glow around the edges that breathes in and out.                       |
-|                | **Outline** (loop)         | A coloured outline that pulses.                                                  |
-|                | **Shine**                  | A bright band sweeps across, only where the element is.                          |
-|                | **Flash**                  | Lights up in a colour and fades back.                                            |
-|                | **Rainbow** (loop)         | Cycles its colours round the rainbow.                                            |
-|                | **Chromatic**              | Splits into red, green and blue that wobble back together.                       |
-|                | **Glitch**                 | Slices jump sideways and the colours tear.                                       |
-|                | **Blur**                   | Blurs out of focus and back.                                                     |
-|                | **Pixelate**               | Breaks into big pixels and resolves back.                                        |
-|                | **Freeze (ice)**           | Freezes into ice: frost creeps over it along the **Crystals** from the **Frost from** side, it turns to ice in the **Ice colour** (the art still reads underneath), holds frozen for **Hold** of the play with a glint sweeping across, then thaws back. To keep it frozen, key it (_Keyed_) and hold its progress at the middle. |
-|                | **Burn to ashes** (exit)   | Catches fire: a ragged front of flame (**Flame colour**, how ragged: **Ragged**) sweeps across from the **Burns from** side, scorching the element brown ahead of it and leaving grey ash (**Ash colour**) with cooling embers that lifts and crumbles away, **Sparks** rising. |
-|                | **Poison** (loop)          | Poisoned: it drains to a sickly green in the **Venom colour**, dark **Veins** creep in from its edges and pulse, **Bubbles** rise through it, and it sways queasily. Loops while _Always_ (or while a symbol is in its state); a counted play seeps in and recovers. |
-|                | **Electrocute**            | Electrocuted: jagged **Arcs** in the **Arc colour** crackle across it (re-striking many times a second), its outline glows, it **Flicker**s to a scorched negative and jitters, then lets go. |
-|                | **Petrify (stone)**        | Turns to stone: grey granite (**Stone colour**, how fine: **Grain**) creeps over it from the **Stone from** side behind a pale dusty front, cracked and carved in relief (the art's outline and its light and dark read as a carving), it locks with a thud, holds as stone for **Hold** of the play, then every crack opens and it flakes off a chip at a time. To keep it stone, key it (_Keyed_) and hold its progress at the middle. |
-|                | **Turn to gold**           | Turns to gold: polished gold in the **Gold colour** spreads from the **Gold from** side (the centre by default, as if touched) behind a molten front, its own detail embossed and mirror-lit, it swells a little as it rings, holds gold for **Hold** of the play with a glint sweeping across and **Sparkles** twinkling, then draws back. To keep it gold, key it (_Keyed_) and hold its progress at the middle. |
-|                | **Dissolve out** (exit)    | Burns away in a noisy dissolve with a glowing edge.                              |
-|                | **Dissolve in** (entrance) | Burns into view in a noisy dissolve with a glowing edge.                         |
-| Break          | **Crash** (exit)           | Takes a hit, then smashes into shards that fly apart and fall.                   |
-|                | **Crumble** (exit)         | Falls apart into chunks that drop away, bottom first.                            |
-|                | **Shatter (glass)** (exit) | Breaks like a pane of glass: cracks race out from the **Impact** point over the first part of the play (**Cracking**), then it falls apart in spiderweb **Shards** that tumble and drop, those by the impact first. |
-|                | **Crystallize (ice shards)** (exit) | Crystallizes into ice: crystal facets in the **Ice colour** ice over one by one from the **Ice from** side (the centre by default), each flashing white as it snaps in; it holds as ice with its seams traced and points twinkling, creaks, and at **Crystallizing** of the play bursts into its **Shards**, which fly out, tumble, glint as they turn and fall (**Gravity**). |
-|                | **Dissolve to particles** (exit) | Turns to dust: specks peel away in a ragged front, starting on the side the **Wind** blows to, and blow off on it, swaying (**Turbulence**) and shrinking to nothing. **Particles** sets how many. |
-|                | **Assemble from particles** (entrance) | Dissolve to particles backwards: specks blow in from the **From** side, swaying and growing as they arrive, and settle into the element, the far side first. |
+| Family         | Effect                                 | What it does                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Motion         | **Shake**                              | A decaying rattle.                                                                                                                                                                                                                                                                                                                                                                                                                       |
+|                | **Wobble**                             | Rocks left and right around its centre, settling.                                                                                                                                                                                                                                                                                                                                                                                        |
+|                | **Pulse**                              | Swells and shrinks back once.                                                                                                                                                                                                                                                                                                                                                                                                            |
+|                | **Heartbeat**                          | Two quick beats, the second softer.                                                                                                                                                                                                                                                                                                                                                                                                      |
+|                | **Jelly**                              | Squashes and stretches on its base like jelly.                                                                                                                                                                                                                                                                                                                                                                                           |
+|                | **Bounce**                             | Hops up and lands with a squash, each bounce lower.                                                                                                                                                                                                                                                                                                                                                                                      |
+|                | **Spin**                               | Turns on itself in the screen plane.                                                                                                                                                                                                                                                                                                                                                                                                     |
+|                | **Swing**                              | Swings like a sign hanging from its top edge.                                                                                                                                                                                                                                                                                                                                                                                            |
+|                | **Float** (loop)                       | Hovers gently up and down.                                                                                                                                                                                                                                                                                                                                                                                                               |
+|                | **Pop in** (entrance)                  | Grows from nothing with an overshoot.                                                                                                                                                                                                                                                                                                                                                                                                    |
+|                | **Pop out** (exit)                     | Swells, then shrinks away to nothing.                                                                                                                                                                                                                                                                                                                                                                                                    |
+|                | **Slam in** (entrance)                 | Drops in from above and lands hard: squash and a rattle.                                                                                                                                                                                                                                                                                                                                                                                 |
+|                | **Fade in** (entrance)                 | Fades up from invisible.                                                                                                                                                                                                                                                                                                                                                                                                                 |
+|                | **Fade out** (exit)                    | Fades away and stays hidden.                                                                                                                                                                                                                                                                                                                                                                                                             |
+| 3D             | **Flip (3D, sideways)**                | Flips on itself around its vertical axis, like a coin.                                                                                                                                                                                                                                                                                                                                                                                   |
+|                | **Flip (3D, over)**                    | Flips on itself around its horizontal axis, top over bottom.                                                                                                                                                                                                                                                                                                                                                                             |
+|                | **Bounce 3D**                          | Jumps out of the screen at you, tilting, and settles back with a bounce.                                                                                                                                                                                                                                                                                                                                                                 |
+|                | **Sphericon**                          | Folds into a spinning sphericon wrapped in its own art, rolls, and unfolds back.                                                                                                                                                                                                                                                                                                                                                         |
+|                | **Tilt 3D** (loop)                     | Sways in perspective, as if held up and turned in the light.                                                                                                                                                                                                                                                                                                                                                                             |
+| Distort        | **Wave (X)** (loop)                    | Rows slide left and right in a travelling wave.                                                                                                                                                                                                                                                                                                                                                                                          |
+|                | **Wave (Y)** (loop)                    | Columns slide up and down in a travelling wave.                                                                                                                                                                                                                                                                                                                                                                                          |
+|                | **Flag** (loop)                        | Ripples like a flag pinned at its left edge, with light on the folds.                                                                                                                                                                                                                                                                                                                                                                    |
+|                | **Twist**                              | Swirls around its centre and unwinds.                                                                                                                                                                                                                                                                                                                                                                                                    |
+|                | **Curl**                               | A corner curls up like a page and lays back down.                                                                                                                                                                                                                                                                                                                                                                                        |
+|                | **Ripple**                             | A shock ring spreads out from the centre.                                                                                                                                                                                                                                                                                                                                                                                                |
+|                | **Bulge**                              | Puffs out from the centre like a lens, then flattens (negative pinches in).                                                                                                                                                                                                                                                                                                                                                              |
+|                | **Melt** (exit)                        | Melts like wax: the top sinks and the rest runs down in uneven **Drips**, as far as **Drip length** (in element heights), then it fades away. **Heat** makes the running part glow in the **Heat colour**.                                                                                                                                                                                                                               |
+| Light & colour | **Glow** (loop)                        | A coloured glow around the edges that breathes in and out.                                                                                                                                                                                                                                                                                                                                                                               |
+|                | **Outline** (loop)                     | A coloured outline that pulses.                                                                                                                                                                                                                                                                                                                                                                                                          |
+|                | **Shine**                              | A bright band sweeps across, only where the element is.                                                                                                                                                                                                                                                                                                                                                                                  |
+|                | **Flash**                              | Lights up in a colour and fades back.                                                                                                                                                                                                                                                                                                                                                                                                    |
+|                | **Rainbow** (loop)                     | Cycles its colours round the rainbow.                                                                                                                                                                                                                                                                                                                                                                                                    |
+|                | **Chromatic**                          | Splits into red, green and blue that wobble back together.                                                                                                                                                                                                                                                                                                                                                                               |
+|                | **Glitch**                             | Slices jump sideways and the colours tear.                                                                                                                                                                                                                                                                                                                                                                                               |
+|                | **Blur**                               | Blurs out of focus and back.                                                                                                                                                                                                                                                                                                                                                                                                             |
+|                | **Pixelate**                           | Breaks into big pixels and resolves back.                                                                                                                                                                                                                                                                                                                                                                                                |
+|                | **Freeze (ice)**                       | Freezes into ice: frost creeps over it along the **Crystals** from the **Frost from** side, it turns to ice in the **Ice colour** (the art still reads underneath), holds frozen for **Hold** of the play with a glint sweeping across, then thaws back. To keep it frozen, key it (_Keyed_) and hold its progress at the middle.                                                                                                        |
+|                | **Burn to ashes** (exit)               | Catches fire: a ragged front of flame (**Flame colour**, how ragged: **Ragged**) sweeps across from the **Burns from** side, scorching the element brown ahead of it and leaving grey ash (**Ash colour**) with cooling embers that lifts and crumbles away, **Sparks** rising.                                                                                                                                                          |
+|                | **Poison** (loop)                      | Poisoned: it drains to a sickly green in the **Venom colour**, dark **Veins** creep in from its edges and pulse, **Bubbles** rise through it, and it sways queasily. Loops while _Always_ (or while a symbol is in its state); a counted play seeps in and recovers.                                                                                                                                                                     |
+|                | **Electrocute**                        | Electrocuted: jagged **Arcs** in the **Arc colour** crackle across it (re-striking many times a second), its outline glows, it **Flicker**s to a scorched negative and jitters, then lets go.                                                                                                                                                                                                                                            |
+|                | **Petrify (stone)**                    | Turns to stone: grey granite (**Stone colour**, how fine: **Grain**) creeps over it from the **Stone from** side behind a pale dusty front, cracked and carved in relief (the art's outline and its light and dark read as a carving), it locks with a thud, holds as stone for **Hold** of the play, then every crack opens and it flakes off a chip at a time. To keep it stone, key it (_Keyed_) and hold its progress at the middle. |
+|                | **Turn to gold**                       | Turns to gold: polished gold in the **Gold colour** spreads from the **Gold from** side (the centre by default, as if touched) behind a molten front, its own detail embossed and mirror-lit, it swells a little as it rings, holds gold for **Hold** of the play with a glint sweeping across and **Sparkles** twinkling, then draws back. To keep it gold, key it (_Keyed_) and hold its progress at the middle.                       |
+|                | **Dissolve out** (exit)                | Burns away in a noisy dissolve with a glowing edge.                                                                                                                                                                                                                                                                                                                                                                                      |
+|                | **Dissolve in** (entrance)             | Burns into view in a noisy dissolve with a glowing edge.                                                                                                                                                                                                                                                                                                                                                                                 |
+| Break          | **Crash** (exit)                       | Takes a hit, then smashes into shards that fly apart and fall.                                                                                                                                                                                                                                                                                                                                                                           |
+|                | **Crumble** (exit)                     | Falls apart into chunks that drop away, bottom first.                                                                                                                                                                                                                                                                                                                                                                                    |
+|                | **Shatter (glass)** (exit)             | Breaks like a pane of glass: cracks race out from the **Impact** point over the first part of the play (**Cracking**), then it falls apart in spiderweb **Shards** that tumble and drop, those by the impact first.                                                                                                                                                                                                                      |
+|                | **Crystallize (ice shards)** (exit)    | Crystallizes into ice: crystal facets in the **Ice colour** ice over one by one from the **Ice from** side (the centre by default), each flashing white as it snaps in; it holds as ice with its seams traced and points twinkling, creaks, and at **Crystallizing** of the play bursts into its **Shards**, which fly out, tumble, glint as they turn and fall (**Gravity**).                                                           |
+|                | **Dissolve to particles** (exit)       | Turns to dust: specks peel away in a ragged front, starting on the side the **Wind** blows to, and blow off on it, swaying (**Turbulence**) and shrinking to nothing. **Particles** sets how many.                                                                                                                                                                                                                                       |
+|                | **Assemble from particles** (entrance) | Dissolve to particles backwards: specks blow in from the **From** side, swaying and growing as they arrive, and settle into the element, the far side first.                                                                                                                                                                                                                                                                             |
 
 #### Background — how a full-bleed cover is fitted, zoomed and aligned
 
@@ -1297,6 +1307,34 @@ origin (0, 0 is the top-left corner), and an instance's position is its centre.
 How Flow spawns into the layer: [Spawning](./flow.md#spawning--create-and-remove-components-in-play).
 The engine design is in [game families §3.3](../design/game-families.md).
 
+#### Path — a line a character walks
+
+A **Path** is a line an arcade character's brain walks: a **patrol** goes back and forth along an
+open path and round a looped one, a **follow path** runs it once (open) or forever (looped). The
+brain names the path by its node id, shown in Properties. The game draws nothing for a path.
+
+Insert one from **Library → Elements → Path** (screens only): a 300 px horizontal line at the
+centre of the active screen. The canvas draws it dashed, the closing segment too when it loops, with
+a square on each point (the start filled) and the label `⤳ <name> · N points · open | loop`. With
+**smoothing** above 0 the dashed line is the smoothed curve the character walks, over the authored
+points in a faint line.
+
+Select the path to edit it on the stage:
+
+- **drag a point** to move it;
+- **click a segment** to add a point there (and drag it straight away);
+- **Alt+click a point** to delete it (a path keeps at least two points).
+
+Move the whole path with **Transform**: its points are measured from its origin. Scale and rotation
+turn the whole path in the game too; a path has no anchor. Only a path placed directly on a screen
+is read, not one inside a container or a component.
+
+Its Properties block: **Loop (closed)**; **smoothing**, 0 (straight lines) to 1 (a smooth curve
+through the points); and the **points** list, x / y from the origin, with **×** to delete one and
+**+ add point** to add one past the end (on a loop, halfway back to the start).
+
+The engine design is in [game families §4.3](../design/game-families.md).
+
 ### 5. Author across device layouts
 
 The **layoutType** pills (`desktop · tablet · landscape · portrait`) switch which
@@ -1464,6 +1502,7 @@ plays the result in the game. A component has its own Animate mode on the Compon
    on the animated pose, and snapping is off. A scale drag is always uniform in Animate (one
    **scale ×** key), even from an edge handle or with Shift. A text box resizes its box in Design
    only, so in Animate its corners and edges do nothing (it still moves and turns). The first key on a node adds it to the timeline.
+
 4. **Preview.** Drag the ruler, or press **▶**. The canvas draws each frame through the game's own
    maths, so what you see is what plays. The number next to the time readout is the timeline's
    length in seconds.
@@ -1524,6 +1563,7 @@ How keys behave:
 [Author across device layouts](#5-author-across-device-layouts)), so a move that fits Desktop can
 overshoot on Portrait. On a ratio other than the base one, the panel header says which keys you
 are editing:
+
 - **Default keys**: this ratio plays the same keys as every ratio without keys of its own, and
   an edit here changes all of them. **Key <ratio> separately** copies those keys to this ratio, so
   from then on an edit here changes this ratio alone. It needs something keyed first.
@@ -1567,6 +1607,7 @@ screen, so keep it out of groups and paste its keys onto the other nodes instead
 
 **Interpolation.** With keys selected, the right of the panel is the **Interpolation** panel: how
 the value travels from each selected key to the next one.
+
 - **Linear**: a straight line.
 - **Cubic**: a curve. Drag its two handles, or type the four numbers `x1, y1, x2, y2` (a CSS
   cubic-bezier: x stays between 0 and 1; y may go past to overshoot).
@@ -1579,7 +1620,7 @@ Under those buttons sit five presets, each a ready-made Cubic: **Ease in**, **Ea
 in-out**, **Overshoot** and **Anticipate** (hover one for its four numbers).
 
 **Set as default** makes the selected key's interpolation the one every new key in this timeline
-gets; with nothing selected the panel shows and edits that default. An older timeline's *ease in-out*
+gets; with nothing selected the panel shows and edits that default. An older timeline's _ease in-out_
 keys show as Cubic `0.333, 0, 0.667, 1`, which is the same curve.
 
 **Graph Editor.** A number field's row (x, y, scale ×, rotation, alpha, a camera field; not tint
@@ -1648,7 +1689,7 @@ Three more kinds of row sit in the timeline's track area, under the keyed node's
   in yellow) and press **Delete** to remove it, as with a key diamond; drag to move, or
   double-click to delete.
 - **Text.** On a text node, pick **Count up** (a number, eased between keys) or **Switch** (one of
-  the node's own strings: its text and its *switch keys*), then key a value at the playhead. The
+  the node's own strings: its text and its _switch keys_), then key a value at the playhead. The
   keys draw on a **↳ text** row with what they show; drag to move, double-click to delete. The
   canvas shows the text the game would. Switching between Count up and Switch removes the other
   kind's keys (it asks first).
@@ -1698,7 +1739,7 @@ one on this screen or component as a **link**: it asks which node each of its pa
   link to it. Until you do, the link keeps playing the version it was placed with.
 - **Detach** copies what the link plays into this project as an ordinary timeline you can edit. It
   no longer follows the shared one.
-- **Promote to shared** (with the *publish to shared* permission, the same one that promotes
+- **Promote to shared** (with the _publish to shared_ permission, the same one that promotes
   components) saves the open timeline to the library under a name. A name already in the library
   adds a new version of it, and every project that placed it is offered the update, so the panel
   asks first. The timeline you promoted stays this project's own.
@@ -1856,7 +1897,7 @@ in, a button that pulses when a signal fires, a coin that spins in when it lands
    **✎** next to it lets you type any other name, for example a Flow **fireCue** name. Choose
    **(nothing — not played)** and nothing in the game starts it.
 
-   **Holds the cue** (shown once a signal is picked): tick it and an *awaited* fire of that signal
+   **Holds the cue** (shown once a signal is picked): tick it and an _awaited_ fire of that signal
    — a Flow **fireCue** with "wait" ticked — continues only when this timeline has ended on every
    instance it started on, the way the engine's coded overlays held their cue until their rig
    finished. Off (the default), the fire returns at once, as it always did; clearing **Plays on**
@@ -1973,7 +2014,7 @@ are Inspecting an old version.
      - **Allow exit during transition** (on by default) — another transition may leave the new
        state before the blend has finished. Untick it and none can until the blend ends; a trigger
        fired meanwhile waits for the end, as one waits for an exit time.
-     The curve cannot overshoot a blend: a handle past 0..1 holds the mix at its end.
+       The curve cannot overshoot a blend: a handle past 0..1 holds the mix at its end.
    - **Disable** — the transition never fires (in the preview or in game). It stays on the graph,
      dashed and greyed, with "off" on its label, so you can switch it back on.
 3. Click a card for its inspector: **Name**, **Timeline**, **Speed**, **Loop**, **On enter** and
@@ -1985,6 +2026,17 @@ are Inspecting an old version.
    the offset is read, in seconds, from a number param of the placement (wrapped on a looping
    state), and Random start adds a random point each time the state is entered. Use them when
    several instances enter a state together and should not move in step.
+   **Make blend state** (it needs a number input) turns the state into a **1D blend**: instead of
+   one timeline it plays several, mixed by a number input — an idle → run by `speed`. Pick the
+   input under **By input**, then give each point a timeline and the input value where that
+   timeline plays alone (**＋ point** adds one, **×** removes one but never the last; the points
+   sort by value). Between two points the two timelines play mixed by where the value falls; below
+   the first or above the last, that point plays alone. The card shows
+   `⇋ input: timeline value · …`. Every timeline plays on the state's one clock; cues fire from the
+   lower of the two points only, an exit time reads the first point's timeline, and a transition
+   out mixes from the blended pose. **Make plain state** goes back to one timeline (the first
+   point's). In the preview, an input a blend reads gets a slider under its number field spanning
+   the points.
 4. **Layers** are the tab strip in the panel bar: **＋ Layer** adds one; each runs on its own, and
    where two key the same property of a node, the later layer wins. Next to **Rename**: **⧉**
    duplicates the layer (states, arrows and positions, named "<name> copy"), **◀ / ▶** move it
@@ -2078,8 +2130,8 @@ gets the bar's `index` / `value`, and it nests one level deeper than the game dr
      (`respinsLeft`) or **Free spins left** (`freeSpinsLeft`) — every copy's `value` follows it in
      game. Drag its **test value** slider: the stage relights the segments at once, each at the
      pose its state machine settles on (test value 1 of 3 ⇒ only the first lit).
-   A name that is not in the lists (a `{param}` template such as `{countSource}`, filled from the
-   bar's own params) goes in **Custom source…**.
+     A name that is not in the lists (a `{param}` template such as `{countSource}`, filled from the
+     bar's own params) goes in **Custom source…**.
 4. **Place it and publish.** Save the bar, place it on the free-spins or Hold and Win screen like
    any component, and publish as usual — the bar, its segment and the variants travel with the
    game. A player link shows the LAST publish: an end cap made since then is not in it yet, so the

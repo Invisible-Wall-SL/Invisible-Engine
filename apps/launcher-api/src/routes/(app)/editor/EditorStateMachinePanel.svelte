@@ -63,15 +63,21 @@
 		ENTRY_EDGE,
 		ENTRY_NODE,
 		EXIT_NODE,
+		addBlendPoint,
 		addCondition,
 		addLayer,
 		addState,
+		blendInputRanges,
+		blendSummary,
+		clearBlendState,
 		connect,
 		duplicateLayer,
 		layerGraph,
+		makeBlendState,
 		moveLayer,
 		newCondition,
 		problemTarget,
+		removeBlendPoint,
 		removeCondition,
 		removeLayer,
 		removeState,
@@ -79,6 +85,7 @@
 		setBlend,
 		setBlendEase,
 		setBlendFlag,
+		setBlendPoint,
 		setLayerDisabled,
 		setNodePos,
 		setTransitionDisabled,
@@ -353,6 +360,23 @@
 				: ['==', '!=', '<', '>', '<=', '>='];
 	/** The number params a number condition can compare against — a per-placement threshold. */
 	const numberParams = $derived((def?.params ?? []).filter((p) => p.kind === 'number'));
+	/** The inputs a blend state can blend by. */
+	const numberInputs = $derived(inputs.filter((i) => i.kind === 'number'));
+	/** Each input a blend state reads → its points' range: the preview's slider. */
+	const blendRanges = $derived.by(() => {
+		void graphVersion;
+		return def ? blendInputRanges(def) : new Map<string, { min: number; max: number }>();
+	});
+	/** A timeline for a new blend point: one the blend does not play yet, else the last point's. */
+	function nextBlendTimeline(state: SmState): string {
+		const used = new Set([state.timeline, ...(state.blend?.points ?? []).map((p) => p.timeline)]);
+		const points = state.blend?.points ?? [];
+		return (
+			timelines.find((t) => !used.has(t.id))?.id ??
+			points[points.length - 1]?.timeline ??
+			state.timeline
+		);
+	}
 
 	// ---- preview state (read by the graph: the active state and the lit transition) --------------
 
@@ -583,6 +607,7 @@
 						: undefined,
 				loop: n.state?.loop,
 				speed: n.state?.speed,
+				blend: n.state ? blendSummary(n.state, timelineNames) : undefined,
 				isEntry: n.kind === 'state' && current.entry === n.id,
 				active:
 					n.kind === 'state'
@@ -658,7 +683,9 @@
 		if (!def) return;
 		// Every timeline of the component — the states' play; all are checked for `event:` cues.
 		const wanted = [
-			...(def.stateMachine?.layers ?? []).flatMap((l) => l.states.map((st) => st.timeline)),
+			...(def.stateMachine?.layers ?? []).flatMap((l) =>
+				l.states.flatMap((st) => [st.timeline, ...(st.blend?.points ?? []).map((p) => p.timeline)]),
+			),
 			...timelines.map((t) => t.id),
 		];
 		await Promise.all(
@@ -1065,6 +1092,20 @@
 								oninput={(e) => setPreviewInput(input.id, Number(e.currentTarget.value) || 0)}
 							/>
 						</label>
+						{#if (blendRanges.get(input.id)?.max ?? 0) > (blendRanges.get(input.id)?.min ?? 0)}
+							{@const range = blendRanges.get(input.id)!}
+							<input
+								class="blend-range"
+								type="range"
+								min={range.min}
+								max={range.max}
+								step={(range.max - range.min) / 100}
+								value={previewValues[input.id] ?? input.default ?? 0}
+								title="Drag to blend the states that blend by {input.id}"
+								aria-label="{input.id} (blend)"
+								oninput={(e) => setPreviewInput(input.id, Number(e.currentTarget.value) || 0)}
+							/>
+						{/if}
 					{:else}
 						<span
 							class="val dim"
@@ -1351,18 +1392,118 @@
 						onchange={(e) => setStateField(s, 'name', e.currentTarget.value.trim() || undefined)}
 					/>
 				</label>
-				<label class="row">
-					<span>Timeline</span>
-					<select
-						value={s.timeline}
-						onchange={(e) => setStateField(s, 'timeline', e.currentTarget.value)}
+				{#if s.blend}
+					{@const b = s.blend}
+					<h5
+						title="A 1D blend state: the two points either side of the input's value play mixed by where it falls between them; below the first or above the last, that point plays alone. Cues fire from the lower point; the exit time reads the first point's timeline."
 					>
-						{#if !timelineNames.has(s.timeline)}<option value={s.timeline}
-								>{s.timeline} (missing)</option
-							>{/if}
-						{#each timelines as tl (tl.id)}<option value={tl.id}>{tl.name || tl.id}</option>{/each}
-					</select>
-				</label>
+						Blend (1D)
+					</h5>
+					<label class="row">
+						<span>By input</span>
+						<select
+							value={b.input}
+							onchange={(e) => {
+								b.input = e.currentTarget.value;
+								changed();
+							}}
+						>
+							{#if !numberInputs.some((i) => i.id === b.input)}<option value={b.input}
+									>{b.input || '— pick —'} (not a number input)</option
+								>{/if}
+							{#each numberInputs as i (i.id)}<option value={i.id}>{i.id}</option>{/each}
+						</select>
+					</label>
+					{#each b.points as p, n (n)}
+						<div class="cond">
+							<select
+								value={p.timeline}
+								aria-label="Point timeline"
+								onchange={(e) => {
+									setBlendPoint(s, n, { timeline: e.currentTarget.value });
+									changed();
+								}}
+							>
+								{#if !timelineNames.has(p.timeline)}<option value={p.timeline}
+										>{p.timeline} (missing)</option
+									>{/if}
+								{#each timelines as tl (tl.id)}<option value={tl.id}>{tl.name || tl.id}</option
+									>{/each}
+							</select>
+							<input
+								class="blend-at"
+								type="number"
+								step="any"
+								value={p.at}
+								aria-label="Point value"
+								title="The input value at which this timeline plays alone"
+								onchange={(e) => {
+									setBlendPoint(s, n, { at: Number(e.currentTarget.value) });
+									changed();
+								}}
+							/>
+							<button
+								type="button"
+								class="x"
+								title="Remove the point"
+								disabled={b.points.length <= 1}
+								onclick={() => {
+									removeBlendPoint(s, n);
+									changed();
+								}}>×</button
+							>
+						</div>
+					{/each}
+					{#each issues.filter((i) => i.layer === layer.id && i.state === s.id && i.code.startsWith('blend-')) as i, n (n)}
+						<p class="issue {i.level}">⚠ {i.message}</p>
+					{/each}
+					<div class="btns">
+						<button
+							type="button"
+							class="ghost"
+							disabled={!timelines.length}
+							onclick={() => {
+								addBlendPoint(s, nextBlendTimeline(s));
+								changed();
+							}}>＋ point</button
+						>
+						<button
+							type="button"
+							class="ghost"
+							title="Back to a plain state playing the first point's timeline"
+							onclick={() => {
+								clearBlendState(s);
+								changed();
+							}}>Make plain state</button
+						>
+					</div>
+				{:else}
+					<label class="row">
+						<span>Timeline</span>
+						<select
+							value={s.timeline}
+							onchange={(e) => setStateField(s, 'timeline', e.currentTarget.value)}
+						>
+							{#if !timelineNames.has(s.timeline)}<option value={s.timeline}
+									>{s.timeline} (missing)</option
+								>{/if}
+							{#each timelines as tl (tl.id)}<option value={tl.id}>{tl.name || tl.id}</option
+								>{/each}
+						</select>
+					</label>
+					<button
+						type="button"
+						class="ghost"
+						disabled={!numberInputs.length}
+						title={numberInputs.length
+							? 'Blend this state’s timeline with others by a number input (an idle → run by speed)'
+							: 'Add a number input first (the Inputs list)'}
+						onclick={() => {
+							makeBlendState(s, numberInputs[0].id, nextBlendTimeline(s));
+							changed();
+						}}>Make blend state</button
+					>
+				{/if}
 				<label class="row">
 					<span>Speed</span>
 					<input
@@ -2044,6 +2185,14 @@
 	.cond input {
 		min-width: 0;
 		flex: 1;
+	}
+	.cond .blend-at {
+		flex: none;
+		width: 56px;
+	}
+	.blend-range {
+		width: 100%;
+		margin: 0 0 2px;
 	}
 	.cond .x,
 	.enter-row .x {

@@ -147,8 +147,9 @@ export const HOLD_AND_WIN_MODE = 'holdAndWin';
 /** The Pots screen: one Pot Meter per pot, on screen in the base game and the feature alike. */
 export const POTS_SCREEN = 'pots';
 
-/** The pot-full banner screen, which comes and goes with the Pots screen. */
-export const POT_FULL_BANNER_SCREEN = 'potFullBanner';
+/** The pot banner screens — a pot filling, and what full pots activate — which come and go with the
+ *  Pots screen. */
+export const POT_BANNER_SCREENS: readonly string[] = ['potFullBanner', 'modifiersActiveBanner'];
 
 /** The meters of the Pots preset (`holdAndWinPresets.ts`) — one pot each. */
 const POT_METERS = ['red', 'blue', 'green'] as const;
@@ -227,6 +228,7 @@ const BASE_BANNERS: BannerScreen[] = [
 	},
 	{ id: 'randomMetreBanner', name: 'Random metre banner', title: 'RANDOM METRE' },
 	{ id: 'potFullBanner', name: 'Pot full banner', title: 'PAYER ACTIVATED' },
+	{ id: 'modifiersActiveBanner', name: 'Modifiers active banner', title: 'PAYER ACTIVE' },
 	{
 		id: 'platformJackpotBanner',
 		name: 'Platform jackpot banner',
@@ -240,6 +242,12 @@ const BASE_BANNERS: BannerScreen[] = [
 const FEATURE_BANNERS: BannerScreen[] = [
 	{ id: 'coinJackpotBanner', name: 'Coin jackpot banner', title: 'MINI', detail: '$15.00' },
 	{ id: 'jackpotUpgradeBanner', name: 'Jackpot upgrade banner', title: 'MINOR UPGRADE' },
+	{ id: 'upgradeBanner', name: 'Upgrade banner', title: 'UPGRADE' },
+	{
+		id: 'modifiersUnlockedBanner',
+		name: 'Modifiers unlocked banner',
+		title: 'UNLOCKED: PAYER',
+	},
 	{
 		id: 'wheelPrizeBanner',
 		name: 'Wheel prize banner',
@@ -382,9 +390,9 @@ export function holdAndWinReferenceLayout(
 			],
 		};
 	};
-	// A pot-full banner only where pots fill.
+	// The pot banners only where pots fill.
 	const baseBanners = BASE_BANNERS.filter(
-		({ id }) => id !== POT_FULL_BANNER_SCREEN || potIds.length,
+		({ id }) => !POT_BANNER_SCREENS.includes(id) || potIds.length,
 	).map(bannerScene);
 	const featureBanners = FEATURE_BANNERS.map((banner) => modeScene(bannerScene(banner)));
 

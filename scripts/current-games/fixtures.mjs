@@ -41,6 +41,7 @@ import { MATCH3_DRIVEN_SEED_DOC } from '../../packages/engine-flow-v2/src/refere
 import {
 	addPotsOverlay,
 	betModeCardIds,
+	characterComponentIds,
 	HOLD_AND_WIN_PRESETS,
 	holdAndWinMockInputs,
 	normalizeGameConfigDoc,
@@ -61,14 +62,14 @@ const builtins = opt.builtins
 	? JSON.parse(readFileSync(resolve(opt.builtins), 'utf8')).defs
 	: Object.fromEntries(BUILTIN_COMPONENTS.map((def) => [def.id, def]));
 
-/** The defs a publish bakes for `doc`: the placed instances' closure plus the config's card ids,
- *  resolved from the project's own `components` (Game Maker's scaffold gives some) over the
- *  built-ins. */
+/** The defs a publish bakes for `doc`: the placed instances' closure plus the config's card and
+ *  character ids, resolved from the project's own `components` (Game Maker's scaffold gives some)
+ *  over the built-ins. */
 const bakeComponentDefs = (doc, config, components = []) =>
 	resolveComponentClosure(
 		doc.scenes.flatMap((scene) => scene.nodes),
 		(id) => components.find((def) => def.id === id) ?? builtins[id],
-		{ extraSeedIds: config ? betModeCardIds(config) : [] },
+		{ extraSeedIds: config ? [...betModeCardIds(config), ...characterComponentIds(config)] : [] },
 	);
 
 const committedDefault = (name) =>

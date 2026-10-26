@@ -17,16 +17,16 @@
  *    time, strength and the seed and indexes `fxMaterial` gave it. Only the live quads are drawn,
  *    and the mesh's bounds are theirs. WebGL2 uploads only the live part of the buffer; WebGL1's
  *    `bufferSubData` takes no length, so Pixi uploads the whole buffer there (its size is the
- *    layer's Max particles, not the cap).
+ *    layer's Max particles, or the most a drive can raise it to, not the cap).
  *
  * FAIL CLOSED, NEVER INVISIBLE: the layer draws as the plain sprites it would without a material
  * (the hidden container shown, no mesh) when the effect is missing, when the particle shell cannot
  * convert its body, when the layer's Max particles is over {@link PARTICLE_MATERIAL_CAPACITY} (one
- * that is not a positive number is the library's 1000, so over it too), when its frames are not
- * all on one texture source, when the renderer is not WebGL, or when the program does not compile
- * and link on this GPU (asked of the driver once, at first use, and logged once). A layer found
- * out while it plays (a drive raising Max particles past its value at mount, a frame on another
- * source) turns plain for the rest of its life.
+ * that is not a positive number is the library's 1000, so over it too) or a drive can raise it
+ * there, when it has no frames, when its frames are not all on one texture source, when the
+ * renderer is not WebGL, or when the program does not compile and link on this GPU (asked of the
+ * driver once, at first use, and logged once). A layer found out while it plays (more live
+ * particles than its buffer holds, a frame on another source) turns plain for the rest of its life.
  */
 
 import {
@@ -40,6 +40,7 @@ import {
 	RendererType,
 	Shader,
 	UniformGroup,
+	type Renderer,
 	type Sprite,
 	type Texture,
 	type TextureSource,
@@ -66,6 +67,9 @@ export type ParticleMaterialPlain =
 	| 'no effect'
 	| 'shell refuses the body'
 	| 'over capacity'
+	| 'Max particles can be driven over 512'
+	| 'Max particles driven with no bound'
+	| 'no frames when it mounted'
 	| 'frames on several textures'
 	| 'not WebGL'
 	| 'program does not link';
@@ -80,6 +84,13 @@ export interface ParticleMaterialOptions {
 	effect: CustomElementFx | undefined;
 	/** The layer's Max particles (the library's 1000 for a config that leaves it unset). */
 	maxParticles: number;
+	/**
+	 * The most particles the layer may hold while it plays, when a drive can raise Max particles past
+	 * its mount value (`fxMaterialPeakParticles`; `Infinity` for a drive with no bound): the buffer
+	 * is sized to it. Over {@link PARTICLE_MATERIAL_CAPACITY} the layer is plain from mount, so a drive
+	 * never turns it plain mid-play. Absent ⇒ `maxParticles`.
+	 */
+	peakParticles?: number;
 	/** The layer's frames, as bound: they must share one texture source. */
 	textures: readonly Texture[];
 	time?: ParticleMaterialTime;
@@ -89,10 +100,12 @@ export interface ParticleMaterialOptions {
 	params?: Readonly<Record<string, unknown>>;
 	/** The emitter's emit speed (emitter seconds per wall millisecond), for the Seconds input. */
 	emitSpeed?: number;
+	/** Told once when the layer turns plain while it plays (it was drawing through the mesh). */
+	onPlain?: (reason: ParticleMaterialPlain) => void;
 }
 
-/** The renderer the frame draws on (what the Element FX link check takes). */
-type MaterialRenderer = Parameters<typeof programLinks>[0];
+/** What the Element FX link check takes: the same renderer, typed for an HTML canvas. */
+type LinkRenderer = Parameters<typeof programLinks>[0];
 
 /** The library's `Particle`: a sprite with its life and scratch bag. */
 type MaterialParticle = Sprite & {
@@ -139,6 +152,10 @@ const VECTOR_SIZES = { vec2: 2, vec3: 3, vec4: 4 } as const;
 /** The library's Max particles for a config without a positive one (`Emitter.init`). */
 const LIBRARY_MAX_PARTICLES = 1000;
 
+/** Wall seconds per emitter-age second at this emit speed (emitter seconds per wall millisecond). */
+const secondsPerAge = (emitSpeed: number | undefined): number =>
+	1 / ((emitSpeed || DEFAULT_EMIT_SPEED) * 1000);
+
 /** Programs already said to have failed: each is logged once. */
 const reported = new WeakSet<GlProgram>();
 
@@ -169,7 +186,8 @@ export class ParticleMaterial {
 	private plainBecause: ParticleMaterialPlain | undefined;
 	private looping: boolean;
 	private intensity: number;
-	private readonly secondsPerAge: number;
+	private secondsPerAge: number;
+	private readonly onPlain: ParticleMaterialOptions['onPlain'];
 	private readonly lengthSeconds: number;
 	private readonly padding: number;
 
@@ -179,19 +197,37 @@ export class ParticleMaterial {
 		this.effect = effect;
 		this.looping = options.time === 'loop';
 		this.intensity = options.intensity ?? 1;
-		this.secondsPerAge = 1 / ((options.emitSpeed || DEFAULT_EMIT_SPEED) * 1000);
+		this.secondsPerAge = secondsPerAge(options.emitSpeed);
+		this.onPlain = options.onPlain;
 		this.lengthSeconds = Math.max(1e-3, (effect?.spec.durationMs ?? 1000) / 1000);
 		this.padding = effect?.padding ?? 0;
 		// As the library reads it: not a positive number is 1000, a fraction lets one more spawn.
 		const max = options.maxParticles > 0 ? Math.ceil(options.maxParticles) : LIBRARY_MAX_PARTICLES;
-		this.capacity = Math.min(PARTICLE_MATERIAL_CAPACITY, max);
+		const peak = options.peakParticles ?? 0;
+		this.capacity = Math.min(PARTICLE_MATERIAL_CAPACITY, Math.max(max, Math.ceil(peak)));
 		host.addChild(this.particles);
+		try {
+			this.decide(options, max, peak);
+		} catch (error) {
+			// Nothing half-built stays in the layer: no container, no mesh, no shader on the atlas.
+			this.destroy();
+			throw error;
+		}
+	}
+
+	/** Refuse the layer (plain from mount) or build its mesh. */
+	private decide(options: ParticleMaterialOptions, max: number, peak: number): void {
+		const { effect } = options;
 		const fragment = effect && particleShellSource(effect);
 		const source = options.textures[0]?.source;
 		if (!effect) this.plainBecause = 'no effect';
 		else if (!fragment) this.plainBecause = 'shell refuses the body';
 		else if (max > PARTICLE_MATERIAL_CAPACITY) this.plainBecause = 'over capacity';
-		else if (!source || options.textures.some((t) => t.source !== source))
+		else if (peak === Infinity) this.plainBecause = 'Max particles driven with no bound';
+		else if (peak > PARTICLE_MATERIAL_CAPACITY)
+			this.plainBecause = 'Max particles can be driven over 512';
+		else if (!source) this.plainBecause = 'no frames when it mounted';
+		else if (options.textures.some((t) => t.source !== source))
 			this.plainBecause = 'frames on several textures';
 		if (this.plainBecause || !effect || !fragment || !source) return;
 		this.source = source;
@@ -273,6 +309,11 @@ export class ParticleMaterial {
 		this.intensity = intensity;
 	}
 
+	/** The emitter's emit speed changed: the Seconds input follows it. */
+	setEmitSpeed(emitSpeed: number | undefined): void {
+		this.secondsPerAge = secondsPerAge(emitSpeed);
+	}
+
 	/** Write the params' uniforms: each given value, or its default. */
 	setParams(values: Readonly<Record<string, unknown>> | undefined): void {
 		const group = this.params;
@@ -296,12 +337,14 @@ export class ParticleMaterial {
 		this.plainBecause = reason;
 		this.particles.visible = true;
 		this.dropMesh();
+		this.onPlain?.(reason);
 	}
 
 	private dropMesh(): void {
-		if (!this.mesh) return;
-		this.host.removeChild(this.mesh);
-		this.mesh.destroy();
+		if (this.mesh) {
+			this.host.removeChild(this.mesh);
+			this.mesh.destroy();
+		}
 		this.geometry?.destroy(true);
 		// The mesh lets go of its shader without destroying it, and the shader's bind group listens
 		// to the atlas source. Its program is Pixi's shared one (`GlProgram.from`): kept.
@@ -313,7 +356,7 @@ export class ParticleMaterial {
 	 * Mirror the hidden particles into the mesh: call after `emitter.update`, before the frame
 	 * renders. `renderer` is asked, at the first live particle, whether the program links.
 	 */
-	sync(renderer: MaterialRenderer): void {
+	sync(renderer: Renderer): void {
 		const { mesh, geometry, buffer, data, source, program } = this;
 		if (!mesh || !geometry || !buffer || !data || !source || !program) return;
 		const children = this.particles.children;
@@ -322,7 +365,7 @@ export class ParticleMaterial {
 		if (count > 0 && !this.checked) {
 			this.checked = true;
 			if (renderer.type !== RendererType.WEBGL) return this.fallBack('not WebGL');
-			if (!programLinks(renderer, program)) {
+			if (!programLinks(renderer as LinkRenderer, program)) {
 				if (!reported.has(program)) {
 					reported.add(program);
 					console.warn(

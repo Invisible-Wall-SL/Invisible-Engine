@@ -4,7 +4,8 @@
 // each hand-maintain a COPY of roles.ts `TOOL_ICONS`, keyed by tool id. When a new
 // online tool is added to roles.ts but not to a twin, that tool renders with a
 // blank icon in those bars. This asserts every online tool in the switcher order
-// has an icon entry in each twin. Run: `node scripts/check-toolbar-icons.mjs`.
+// has an icon entry in each twin, and that each twin carries the bar's "Report bug"
+// button filling in its own tool. Run: `node scripts/check-toolbar-icons.mjs`.
 //
 // The launcher's own $lib/ToolTopBar.svelte is NOT checked here — it imports the
 // icons directly from roles.ts, so it can't drift.
@@ -22,16 +23,21 @@ const required = [...stagesBlock.matchAll(/tools:\s*\[([^\]]*)\]/g)].flatMap((m)
 	[...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]),
 );
 
-const TWINS = [
-	'apps/launcher-api/static/rigger/view.html',
-	'apps/launcher-api/static/rig-viewer/view.html',
-	'services/atlas-tool/ui_server.py',
-	'services/sheet-tool/ui.html',
-];
+// Each twin, with the tool id its "Report bug" button fills in (`reportBugHref` in the launcher).
+const TWINS = {
+	'apps/launcher-api/static/rigger/view.html': 'rigger',
+	'apps/launcher-api/static/rig-viewer/view.html': 'spineViewer',
+	'services/atlas-tool/ui_server.py': 'atlasTool',
+	'services/sheet-tool/ui.html': 'sheetMaker',
+};
 
 let failed = false;
-for (const rel of TWINS) {
+for (const [rel, toolId] of Object.entries(TWINS)) {
 	const src = readLF(join(root, rel));
+	if (!src.includes('id="iw-report"') || !src.includes(`'for': '${toolId}'`)) {
+		failed = true;
+		console.error(`✗ ${rel} has no "Report bug" button filling in '${toolId}'`);
+	}
 	const start = src.indexOf('var ICON = {');
 	const body = src.slice(start, src.indexOf('};', start));
 	const have = new Set([...body.matchAll(/(\w+):\s*'/g)].map((m) => m[1]));
@@ -48,4 +54,7 @@ if (failed) {
 	console.error('\nAdd the missing icon body (copy from roles.ts TOOL_ICONS) to each twin above.');
 	process.exit(1);
 }
-console.log(`\nAll ${TWINS.length} tool-bar twins cover every online tool (${required.length}).`);
+console.log(
+	`\nAll ${Object.keys(TWINS).length} tool-bar twins cover every online tool (${required.length}) ` +
+		'and carry the Report bug button.',
+);

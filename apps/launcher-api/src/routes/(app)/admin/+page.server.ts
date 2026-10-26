@@ -7,6 +7,7 @@ import {
 	ROLES,
 	TOOLS,
 	ROLE_TOOLS,
+	USER_CAPABILITIES,
 	roleHasCapability,
 	type Role,
 } from '$lib/roles';
@@ -46,6 +47,7 @@ import {
 	getToolOverridesFor,
 	setToolOverride,
 } from '$lib/server/userToolAccess';
+import { deleteBugScreenshots } from '$lib/server/bugReports';
 import {
 	DEFAULT_PROJECT_KEY,
 	createProject,
@@ -476,7 +478,10 @@ export const actions: Actions = {
 		// 'grant' | 'revoke' | 'default'
 		const mode = String(data.get('mode') ?? '');
 
-		if (!TOOLS[toolKey]) return fail(400, { action: 'setToolAccess', error: 'Unknown tool.' });
+		// A tool, or one of the few capabilities set per user (the bug-triage ones).
+		if (!TOOLS[toolKey] && !USER_CAPABILITIES.includes(toolKey)) {
+			return fail(400, { action: 'setToolAccess', error: 'Unknown tool.' });
+		}
 
 		if (mode === 'default') await clearToolOverride(userId, toolKey);
 		else if (mode === 'grant') await setToolOverride(userId, toolKey, true);
@@ -819,7 +824,8 @@ export const actions: Actions = {
 			}
 			throw e;
 		}
-		await deleteProject(key);
+		const { gameBugs } = await deleteProject(key);
+		await deleteBugScreenshots(gameBugs);
 		return {
 			action: 'purgeProject',
 			ok: `Purged ${key}: ${purged.deleted} file${purged.deleted === 1 ? '' : 's'} deleted from ${purged.roots.join(' and ')}. This cannot be undone.`,

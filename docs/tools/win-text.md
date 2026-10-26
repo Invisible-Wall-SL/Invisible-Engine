@@ -225,6 +225,27 @@ The defaults are exactly what the game draws when nothing is written, so an unto
 reads as it always has. Every one of these lines, each tier's caption and each pot's name is
 listed in Localization for translation.
 
+#### Where each feature line shows
+
+Each line the game announces in the **Hold and Win feature**
+section (the total, intro, outro, instant collect, Lucky Spin, pot full, modifiers active, modifiers
+unlocked, upgrade and row unlocked) has a picker beside its box (on a pots overlay game, so does
+**Pot full** in the Pots section):
+
+| Choice           | The line shows                                                                                                         |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **Board banner** | over the board, as the built-in banner, or as its [banner screen](invisible-editor.md#banner-screens) once you add one |
+| **Info bar**     | in the base game's **Messages** info bar, with the game's other messages                                               |
+| **Both**         | in both places at once                                                                                                 |
+| **Off**          | nowhere. The preview reads "not shown"                                                                                 |
+
+Each line starts where it always showed: **Modifiers active**, **Modifiers unlocked** and
+**Upgrade** in the info bar, every other line as a board banner. Clearing a box brings back its
+default text, so **Off** is how you hide a line. Whatever you pick, the beat waits as long as it
+always did. The pot label, the collector line and the rows under "ROW UNLOCKED" have no picker:
+they are parts of other things, not announcements. The placement is the whole game's, so it is
+set on the primary respin mode only.
+
 **Where the respin lines show:** the counter, award, reset and last-respin lines are what
 the built-in respin counter says, and what an authored Respin Counter says when its source is
 `respinCounterText` (see [Author the respin counter text](invisible-editor.md#author-the-respin-counter-text-count-respins-reset-last-respin-modifiers)).

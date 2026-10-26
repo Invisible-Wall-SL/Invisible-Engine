@@ -1503,6 +1503,9 @@ importers:
       '@barvynkoa/particle-emitter':
         specifier: 0.0.1
         version: 0.0.1(pixi.js@8.22.0)
+      constants-shared:
+        specifier: workspace:*
+        version: link:../constants-shared
     devDependencies:
       eslint:
         specifier: 9.21.0

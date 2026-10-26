@@ -217,6 +217,17 @@ is). Rolling back below 8c silently removes every such effect; graphs without Cu
 unaffected. From 8c on, the runtime also asks the driver whether each Element FX program linked and
 draws the element unchanged when one did not, so a shader a phone rejects never blanks the element.
 
+**A soft floor for particle materials: the first release with Invisible Shader Graph step 8d.3.**
+An Invisible FX layer may name a material (`EmitterLayer.material`, `custom:<id>`), and its
+particles then draw through that compiled effect. A runtime from before 8d.3 reads named fields
+only, so it ignores `material` and draws those particles as the plain sprites they were; their
+`material.*` parameter drives fail to parse and do nothing. Rolling back below that release
+silently drops every material in every game that uses one; nothing breaks or goes invisible, so
+this floor is soft. Effects with no material are unaffected. From 8d.3 on, a material whose kind
+the runtime has not registered (its graph deleted, not compiled, or calling something this runtime
+lacks), a ninth material layer drawing at once, or a program the phone will not link also draws the
+plain sprites, so the next addition degrades the same way.
+
 **Races.** Rollback is deliberately NOT in the release's concurrency group: GitHub cancels a
 *pending* run when a newer one joins the group, so a rollback queued behind a bad release's 15-minute
 served check could be silently replaced by the next merge's release. Instead every pointer write is

@@ -464,6 +464,18 @@ svelte-check at baseline, and the current games building with no changed screen.
      - `check:element-fx` unchanged.
    - **Exit:** a game build plays an `EffectDoc` material (shown headless in step 8). The soft
      floor starts here.
+   - **As built** (#1378):
+     - **Shown headless now**, not in step 8: `scripts/playtest/particle-material-play.mjs` (by hand)
+       plays a real `apps/lines` build with a material layer (one mesh) and without the graph
+       (plain, "not registered").
+     - **No pop.** Capacity is sized to the highest Max particles a drive can write; a layer that
+       could be driven over 512, or without a bound, is plain from mount rather than going plain
+       mid-play. A layer with no frames when it mounted stays plain for its life.
+     - **The cap is per app** (keyed by `context.stateApp`), so a launcher page with several stages
+       gives each its own 8. A dormant event layer holds its slot from mount.
+     - **Emit speed** follows the emitter (`setEmitSpeed`) rather than being read once.
+     - **The soft floor** went into `games-deploy.md` here, not in step 4.
+     - `validateEffectMaterials` exists but is first called by `/fx` (step 5).
 4. **The ship chain, proven** (launcher).
    - **Contents:**
      - `shaderReadScope` gains `fx` and `rigger`;

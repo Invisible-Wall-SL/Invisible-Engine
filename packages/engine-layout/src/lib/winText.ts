@@ -65,6 +65,9 @@ export type WinTextDoc = {
 	respins?: WinTextRespins;
 	/** Hold and Win: the feature's own lines (total, intro/outro, instant collect, Lucky Spin, pots). */
 	feature?: WinTextFeature;
+	/** Hold and Win: where each feature line is shown ({@link WIN_TEXT_PLACEMENT_DEFAULTS} when
+	 *  unset). Shared by every respin mode. */
+	featurePlacement?: Partial<Record<WinTextPlacedFeatureField, WinTextPlacement>>;
 	/** Hold and Win: the pre-feature wheel's segment labels and prize banners. */
 	wheel?: WinTextWheel;
 	/** The operator's platform jackpot — any game kind. */
@@ -278,8 +281,55 @@ export type ResolvedWinText = {
 	jackpots: Required<WinTextJackpots>;
 	respins: Required<WinTextRespins>;
 	feature: Required<WinTextFeature>;
+	featurePlacement: Record<WinTextPlacedFeatureField, WinTextPlacement>;
 	wheel: Required<WinTextWheel>;
 	platformJackpot: Required<WinTextPlatformJackpot>;
+};
+
+/**
+ * Where a Hold and Win feature line is shown: over the board as its banner (the coded plate, or the
+ * banner screen authored for it), in the info bar with the game's other messages, in both, or
+ * nowhere. The beat keeps its pacing whatever the choice.
+ */
+export const WIN_TEXT_PLACEMENTS = ['banner', 'infoBar', 'both', 'off'] as const;
+export type WinTextPlacement = (typeof WIN_TEXT_PLACEMENTS)[number];
+
+/** The feature lines the game announces, in display order — the ones an author places. The pot
+ *  label, the counter's collector line and the rows under "ROW UNLOCKED" are parts of other
+ *  things, not announcements. */
+export const WIN_TEXT_PLACED_FEATURE_FIELDS = [
+	'total',
+	'intro',
+	'outro',
+	'instantCollect',
+	'luckySpin',
+	'meterFull',
+	'modifiersActive',
+	'modifiersUnlocked',
+	'upgrade',
+	'rowUnlocked',
+] as const satisfies readonly WinTextFeatureField[];
+export type WinTextPlacedFeatureField = (typeof WIN_TEXT_PLACED_FEATURE_FIELDS)[number];
+
+/** Where each line was shown before it could be placed, so an unplaced project draws the same. */
+export const WIN_TEXT_PLACEMENT_DEFAULTS: Record<WinTextPlacedFeatureField, WinTextPlacement> = {
+	total: 'banner',
+	intro: 'banner',
+	outro: 'banner',
+	instantCollect: 'banner',
+	luckySpin: 'banner',
+	meterFull: 'banner',
+	modifiersActive: 'infoBar',
+	modifiersUnlocked: 'infoBar',
+	upgrade: 'infoBar',
+	rowUnlocked: 'banner',
+};
+
+export const WIN_TEXT_PLACEMENT_LABELS: Record<WinTextPlacement, string> = {
+	banner: 'Board banner',
+	infoBar: 'Info bar',
+	both: 'Both',
+	off: 'Off',
 };
 
 /**
@@ -368,6 +418,7 @@ export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 		collectorLevelNames: { '2': 'DOUBLE', '3': 'TRIPLE' },
 		potNames: {},
 	},
+	featurePlacement: WIN_TEXT_PLACEMENT_DEFAULTS,
 	wheel: {
 		coinBoost: 'COIN BOOST ×{count}',
 		extraCollect: '+{count} COLLECT',
@@ -529,6 +580,7 @@ export function resolveWinText(doc: WinTextDoc | undefined): ResolvedWinText {
 			...pick(WIN_TEXT_FEATURE_FIELDS, WIN_TEXT_DEFAULTS.feature, doc?.feature),
 			...pickMaps(WIN_TEXT_FEATURE_MAPS, WIN_TEXT_DEFAULTS.feature, doc?.feature),
 		},
+		featurePlacement: resolvePlacement(doc?.featurePlacement),
 		wheel: pick(WIN_TEXT_WHEEL_FIELDS, WIN_TEXT_DEFAULTS.wheel, doc?.wheel),
 		platformJackpot: {
 			captions: {
@@ -579,6 +631,19 @@ export function resolveWinTextForMode(
 		},
 		winLevels: { ...resolved.winLevels, ...(lines.winLevels ?? {}) },
 	};
+}
+
+/** Each placed line's authored placement, else its default; a value this build does not know
+ *  reads as the default. */
+function resolvePlacement(
+	authored: WinTextDoc['featurePlacement'],
+): Record<WinTextPlacedFeatureField, WinTextPlacement> {
+	const out = { ...WIN_TEXT_PLACEMENT_DEFAULTS };
+	for (const field of WIN_TEXT_PLACED_FEATURE_FIELDS) {
+		const value = authored?.[field];
+		if (value && (WIN_TEXT_PLACEMENTS as readonly string[]).includes(value)) out[field] = value;
+	}
+	return out;
 }
 
 /** Each of `maps`: the default entries with the authored ones over them. */

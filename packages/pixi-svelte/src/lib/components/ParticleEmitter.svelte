@@ -28,6 +28,11 @@
 
 	import type { LoadedSpriteSheet } from '../types';
 	import {
+		mountParticleMaterial,
+		particleMaterialSlotsFor,
+		type ParticleMaterialSpec,
+	} from '../particleMaterial';
+	import {
 		RIG_PARTICLE_BEHAVIOR_TYPE,
 		type RigParticleBehaviorConfig,
 		type LayerHostLike,
@@ -110,6 +115,14 @@
 		fxParams?: ParticleEmitterParams;
 		/** Multiplies the emit speed, read every tick (an effect-level `effect.timeScale` drive). */
 		timeScale?: () => number;
+		/**
+		 * Draw the particles through a compiled Shader Graph effect (Invisible Shader Graph step 8d):
+		 * one mesh, its program the effect's. Decided once, at mount (`mountParticleMaterial`): an
+		 * unregistered kind, Tier-C rig particles, the game's cap of 8 material layers, Max particles
+		 * over 512, frames on several textures or a program that does not link all draw the plain
+		 * sprites instead, never nothing. Absent ⇒ the plain sprites, exactly as before.
+		 */
+		material?: ParticleMaterialSpec;
 	};
 
 	/**
@@ -199,8 +212,33 @@
 					props.flipbook,
 				),
 	);
+	// A material's renderer owns the emitter's particle parent (hidden sprites, one mesh beside them)
+	// and adds `fxMaterial` to every config the emitter is initialised from, so each particle carries
+	// its seed and indexes. A layer plain from mount has no renderer: it is a layer with no material.
 	// svelte-ignore state_referenced_locally
-	const emitter = new Emitter(parentContext.parent, updatedConfig);
+	const mounted = props.material
+		? mountParticleMaterial({
+				spec: props.material,
+				host: parentContext.parent,
+				textures: spriteTextures ?? [],
+				maxParticles: Number((props.config as { maxParticles?: unknown }).maxParticles),
+				rigParticles: isRigParticle,
+				emitSpeed: props.emitSpeed,
+				slots: particleMaterialSlotsFor(context.stateApp),
+			})
+		: undefined;
+	const material = mounted?.material;
+	const emitterConfig = $derived(material ? material.bindConfig(updatedConfig) : updatedConfig);
+	const createEmitter = (): Emitter => {
+		try {
+			return new Emitter(material?.particles ?? parentContext.parent, emitterConfig);
+		} catch (error) {
+			// `onDestroy` never runs for a component that threw while it was created.
+			mounted?.release();
+			throw error;
+		}
+	};
+	const emitter = createEmitter();
 	let applier: EffectParamApplier | undefined;
 	/**
 	 * A fresh applier for the emitter as it stands now, given the current values at once. It also
@@ -215,6 +253,7 @@
 					layer: fx.layer,
 					emitter,
 					setOffset: fx.setOffset ?? ((x, y) => parentContext.parent.position.set(x, y)),
+					material,
 					values: fx.values(),
 				})
 			: undefined;
@@ -235,6 +274,7 @@
 			'ownerRotation',
 			'fxParams',
 			'timeScale',
+			'material',
 		],
 	});
 
@@ -259,7 +299,7 @@
 		// particles still fade out via their lifetime). Ambient layers keep `emit` true, so
 		// they take the same `init` branch as before — byte-identical to the prior behaviour.
 		if (props.emit) {
-			emitter.init(updatedConfig);
+			emitter.init(emitterConfig);
 			ownerTracked = false;
 			// Untracked: the getter reads live position state, which must not re-run this `init`.
 			untrack(syncOwner);
@@ -283,6 +323,13 @@
 		});
 	});
 
+	// The material's Seconds input runs at the emitter's speed.
+	if (material)
+		$effect(() => {
+			const emitSpeed = props.emitSpeed;
+			untrack(() => material.setEmitSpeed(emitSpeed));
+		});
+
 	const tick = () => {
 		if (context.stateApp.pixiApplication) {
 			syncOwner();
@@ -294,6 +341,8 @@
 				props.timeScale?.() ?? 1,
 			);
 			emitter.update(deltaUpdate);
+			// The mirror, in the same step: the mesh draws this frame's particles.
+			material?.sync(context.stateApp.pixiApplication.renderer);
 		}
 	};
 	const ticker = context.stateApp.pixiApplication?.ticker;
@@ -309,5 +358,6 @@
 			if (behavior instanceof RigParticleBehavior) behavior.dispose();
 		}
 		emitter.destroy();
+		mounted?.release();
 	});
 </script>

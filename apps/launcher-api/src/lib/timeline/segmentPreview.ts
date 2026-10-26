@@ -57,6 +57,7 @@ export function settledSegmentPose(
 	runner.plays().forEach((play, layer) => {
 		const end = play.timeline ? durations.get(play.timeline) : undefined;
 		const time = end ?? play.time;
+		const mixEnd = play.mix ? durations.get(play.mix.timeline) : undefined;
 		player.drive(play.layer, layer, {
 			layer: play.layer,
 			state: play.state,
@@ -65,6 +66,7 @@ export function settledSegmentPose(
 			prevTime: time,
 			wrapped: false,
 			entered: true,
+			...(play.mix ? { mix: { ...play.mix, time: mixEnd ?? play.mix.time } } : {}),
 		});
 	});
 	return playerDrives(player);

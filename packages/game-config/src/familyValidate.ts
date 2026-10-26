@@ -1,3 +1,4 @@
+import { DEFAULT_ARCADE_TARGET_TAG, type ArcadeCharacter } from './arcadeCharacters';
 import {
 	ARCADE_FIXED_HZ_RANGE,
 	ARCADE_ONLINE_DEFAULTS,
@@ -95,7 +96,7 @@ function validateArcade(doc: GameConfigDoc): GameConfigIssue[] {
 				'An arcade game decided by the RGS is not built yet, so an arcade game is decided by its own rules.',
 		});
 	}
-	const { fixedHz, bodies, pairs, zones } = resolveArcade(doc);
+	const { fixedHz, bodies, pairs, zones, characters } = resolveArcade(doc);
 	// A pair naming a tag no body carries never collides: almost always a typo.
 	const carried = new Set(Object.values(bodies).flatMap((body) => body.tags ?? []));
 	pairs.forEach((pair, i) => {
@@ -128,85 +129,102 @@ function validateArcade(doc: GameConfigDoc): GameConfigIssue[] {
 			message: `The simulation steps ${fixedHz} times a second; between ${ARCADE_FIXED_HZ_RANGE.min} and ${ARCADE_FIXED_HZ_RANGE.max} keeps motion smooth on every device.`,
 		});
 	}
-	issues.push(...validateArcadeOnline(doc, bodies));
+	issues.push(...validateCharacters(characters, bodies, carried));
 	return issues;
 }
 
-/** An online arcade game (P10.14): what its room on the game server needs. */
-function validateArcadeOnline(
-	doc: GameConfigDoc,
+/** The behaviours that look for the nearest body with a tag, and the tag they look for unset. */
+const TARGETING = new Set(['chase', 'flee']);
+
+function validateCharacters(
+	characters: ArcadeCharacter[],
 	bodies: Record<string, unknown>,
+	carried: Set<string>,
 ): GameConfigIssue[] {
-	const online = doc.arcade?.online;
-	if (!online) return [];
 	const issues: GameConfigIssue[] = [];
-	const field = doc.arcade?.field;
-	if (!field) {
-		issues.push({
-			severity: 'error',
-			path: 'arcade.field',
-			message: 'An online game needs a field size: the game server has no screen to take it from.',
-		});
-	}
-	if (!online.characters.length) {
-		issues.push({
-			severity: 'error',
-			path: 'arcade.online.characters',
-			message: 'An online game needs at least one character for its players to be.',
-		});
-	}
-	online.characters.forEach((character, i) => {
-		if (!(character.body in bodies)) {
-			issues.push({
-				severity: 'error',
-				path: `arcade.online.characters[${i}]`,
-				message: `The character "${character.id}" is the body "${character.body}", which no arcade body names, so the server cannot place it.`,
-			});
+	const error = (path: string, message: string) =>
+		issues.push({ severity: 'error', path, message });
+	const warn = (path: string, message: string) =>
+		issues.push({ severity: 'warning', path, message });
+	const ids = new Set<string>();
+	const looks = new Map<string, string>();
+	characters.forEach((character, i) => {
+		const at = `arcade.characters[${i}]`;
+		if (ids.has(character.id)) {
+			error(`${at}.id`, `Two characters are called "${character.id}"; give each its own id.`);
 		}
-		const { min, max } = ARCADE_ONLINE_LIMITS.speed;
-		if (character.speed < min || character.speed > max) {
-			issues.push({
-				severity: 'warning',
-				path: `arcade.online.characters[${i}].speed`,
-				message: `The character "${character.id}" moves at ${character.speed} px/s; a room holds it to ${min}–${max}.`,
-			});
+		ids.add(character.id);
+		const look = character.component?.trim();
+		if (!look) {
+			error(`${at}.component`, `"${character.id}" has no component, so nothing can show it.`);
+		} else if (looks.has(look)) {
+			error(
+				`${at}.component`,
+				`"${character.id}" and "${looks.get(look)}" both use the component "${look}"; a component is one character.`,
+			);
+		} else {
+			looks.set(look, character.id);
+		}
+		if (character.controller && look && !Object.hasOwn(bodies, look)) {
+			warn(
+				`${at}.controller`,
+				`"${character.id}" is played, but its component "${look}" has no body, so it walks through everything and touches nothing.`,
+			);
+		}
+		const brain = character.brain;
+		const states = new Set((brain?.states ?? []).map((s) => s.id));
+		if (brain && !states.has(brain.initial)) {
+			error(
+				`${at}.brain.initial`,
+				`The brain starts in "${brain.initial}", which is not one of its states.`,
+			);
+		}
+		brain?.transitions.forEach((transition, j) => {
+			const unknown = [
+				transition.from === '*' || states.has(transition.from) ? '' : transition.from,
+				states.has(transition.to) ? '' : transition.to,
+			].filter(Boolean);
+			if (unknown.length) {
+				error(
+					`${at}.brain.transitions[${j}]`,
+					`The transition "${transition.id}" names ${[...new Set(unknown)].map((s) => `"${s}"`).join(' and ')}, which is not a state of this brain.`,
+				);
+			}
+		});
+		brain?.states.forEach((state, k) => {
+			const path = `${at}.brain.states[${k}]`;
+			if (TARGETING.has(state.behaviour)) {
+				const tag = state.params?.tag;
+				const target =
+					typeof tag === 'string' && tag.trim() ? tag.trim() : DEFAULT_ARCADE_TARGET_TAG;
+				if (!carried.has(target)) {
+					warn(
+						path,
+						`The state "${state.id}" ${state.behaviour === 'chase' ? 'chases' : 'flees'} bodies tagged "${target}", but no body has that tag, so it never moves.`,
+					);
+				}
+			}
+			if (state.behaviour === 'shootAt') {
+				const missing = (['component', 'layer'] as const).filter((key) => {
+					const value = state.params?.[key];
+					return typeof value !== 'string' || !value.trim();
+				});
+				if (missing.length) {
+					warn(
+						path,
+						`The state "${state.id}" shoots, but names no ${missing.join(' and no ')}, so it never fires.`,
+					);
+				}
+			}
+		});
+		for (const [input, source] of Object.entries(character.animInputs ?? {})) {
+			if (source.startsWith('state:') && !states.has(source.slice('state:'.length))) {
+				warn(
+					`${at}.animInputs.${input}`,
+					`The input "${input}" follows the brain state "${source.slice('state:'.length)}", which ${brain ? 'the brain does not have' : 'does not exist: the character has no brain'}, so it is always false.`,
+				);
+			}
 		}
 	});
-	if (online.characters.length > ARCADE_ONLINE_LIMITS.characters.max) {
-		issues.push({
-			severity: 'warning',
-			path: 'arcade.online.characters',
-			message: `A room offers at most ${ARCADE_ONLINE_LIMITS.characters.max} characters; the rest are not playable.`,
-		});
-	}
-	const ranged = ['maxPlayers', 'tickHz', 'subSteps', 'patchHz', 'rejoinSeconds'] as const;
-	for (const key of ranged) {
-		const value = online[key] ?? ARCADE_ONLINE_DEFAULTS[key];
-		const { min, max } = ARCADE_ONLINE_LIMITS[key];
-		if (value < min || value > max) {
-			issues.push({
-				severity: 'warning',
-				path: `arcade.online.${key}`,
-				message: `${key} is ${value}; a room holds it to ${min}–${max}.`,
-			});
-		}
-	}
-	const tickHz = online.tickHz ?? ARCADE_ONLINE_DEFAULTS.tickHz;
-	const patchHz = online.patchHz ?? ARCADE_ONLINE_DEFAULTS.patchHz;
-	if (patchHz > tickHz) {
-		issues.push({
-			severity: 'warning',
-			path: 'arcade.online.patchHz',
-			message: `State is sent ${patchHz} times a second but the room steps only ${tickHz} times, so a room sends it ${tickHz} times.`,
-		});
-	}
-	const spawn = online.spawn;
-	if (spawn && field && (spawn.x < 0 || spawn.y < 0 || spawn.x > field.w || spawn.y > field.h)) {
-		issues.push({
-			severity: 'warning',
-			path: 'arcade.online.spawn',
-			message: 'Players start outside the play field; a clamped body is pulled inside at once.',
-		});
-	}
 	return issues;
 }

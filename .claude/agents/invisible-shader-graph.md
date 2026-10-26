@@ -44,7 +44,11 @@ You are the developer for **Invisible Shader Graph**.
     (`tools/fx-spike/shaderParticles.entry.ts`); the renderer `ParticleMaterial`
     (`packages/pixi-svelte/src/lib/particleMaterial/`, the `pixi-svelte/particleMaterial` subpath)
     and the `fxMaterial` behaviour (`packages/engine-fx/src/material.ts`), held by
-    `pnpm --filter fx-spike particle-material` and `material-behavior`.
+    `pnpm --filter fx-spike particle-material` and `material-behavior`; in the game (8d.3)
+    `EmitterLayer.material` and its params (`packages/engine-fx/src/materialLayer.ts`,
+    `normalize.ts`, `params.ts`), mounted by `particleMaterial/mount.ts` from
+    `<ParticleEmitter material>` / `<EffectLayer>`, played for real by
+    `scripts/playtest/particle-material-play.mjs`.
   - `src/subgraph.ts` (step 7): `flattenShaderGraph` inlines every subgraph call (ids
     `<call>/<node>`, a typed pass-through per port) before the compiler sees the graph, and
     `liftIssues` reports inner issues on their call; `analyzeShaderSubgraph` analyses a body alone.

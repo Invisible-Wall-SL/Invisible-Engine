@@ -66,6 +66,14 @@ import {
  *   leave the target state until the blend has finished (a trigger such a transition reads is held
  *   until then, as for an exit time). A `disabled` layer sits in `exit` from the
  *   start (and after {@link ComponentStateMachineRunner.reset}).
+ * - **A 1D blend state** (`SmState.blend`, P10.11) keeps one clock, advanced as any state's; the
+ *   two points bracketing its number input's value play, each timeline at that clock wrapped by its
+ *   own duration (looping) or clamped. `LayerPlay.timeline` is the lower point (its cues fire, and
+ *   only its), `LayerPlay.mix` the upper and its weight; below the first or above the last point, at
+ *   a point exactly, or with one known timeline, that point plays alone. A point whose timeline the
+ *   host does not know is skipped; the state holds when its own `timeline` (the first point's) is
+ *   missing, as any state. The exit time reads `timeline`. A transition out of it mixes from the
+ *   pose on screen, frozen (`pauseSource: false` does not keep a blend playing).
  */
 
 export const SM_MAX_TRANSITIONS_PER_TICK = 8;
@@ -103,6 +111,17 @@ export interface LayerPlay {
 	/** What the layer played on this step before each transition it took, in order — the player
 	 *  fires those cues before restarting on the new state. */
 	left?: LeftSegment[];
+	/** A blend state between two points: the upper point's timeline at `time`, mixed over
+	 *  {@link timeline} by `weight` (0..1, 1 = the upper alone). Absent on any other state. */
+	mix?: { timeline: string; time: number; weight: number };
+}
+
+/** Where one timeline of a state plays after a step. */
+interface PointPlay {
+	timeline: string;
+	time: number;
+	prevTime: number;
+	wrapped: boolean;
 }
 
 export interface FiredTransition {
@@ -129,6 +148,10 @@ interface LayerRun {
 	prevTime: number;
 	wrapped: boolean;
 	entered: boolean;
+	/** Seconds the state has played, unwrapped (from its start time) — a blend state's points with
+	 *  other durations than the state's own timeline are placed from it — and before this tick. */
+	clock: number;
+	prevClock: number;
 	blend?: {
 		timeline?: string;
 		time: number;
@@ -192,6 +215,9 @@ export class ComponentStateMachineRunner {
 			if (layer.disabled === true) continue;
 			for (const state of layer.states ?? []) {
 				if (state.timeline && !durations.has(state.timeline)) missing.add(state.timeline);
+				for (const point of state.blend?.points ?? []) {
+					if (point.timeline && !durations.has(point.timeline)) missing.add(point.timeline);
+				}
 			}
 		}
 		this.missingTimelines = [...missing];
@@ -223,6 +249,8 @@ export class ComponentStateMachineRunner {
 			prevTime: time,
 			wrapped: false,
 			entered: true,
+			clock: time,
+			prevClock: time,
 			fresh: new Set(),
 			held: new Map(),
 			left: [],
@@ -264,8 +292,78 @@ export class ComponentStateMachineRunner {
 	private layerPlaying(layer: LayerRun): boolean {
 		if (layer.blend) return true;
 		if (!layer.stateDef || layer.duration === undefined) return false;
-		if (!(asNumber(layer.stateDef.speed, 1) > 0) || layer.duration <= 0) return false;
+		if (!(asNumber(layer.stateDef.speed, 1) > 0)) return false;
+		const points = this.blendPoints(layer);
+		if (points) {
+			const longest = Math.max(...points.map((p) => p.duration));
+			if (longest <= 0) return false;
+			return !!layer.stateDef.loop || layer.clock < longest;
+		}
+		if (layer.duration <= 0) return false;
 		return !!layer.stateDef.loop || layer.time < layer.duration;
+	}
+
+	/** A blend state's points whose timelines the host knows, sorted by `at`; `undefined` on any
+	 *  other state, or one whose own timeline is missing (it holds). */
+	private blendPoints(
+		layer: LayerRun,
+	): { timeline: string; at: number; duration: number }[] | undefined {
+		const blend = layer.stateDef?.blend;
+		if (!blend || layer.duration === undefined) return undefined;
+		const points: { timeline: string; at: number; duration: number }[] = [];
+		for (const point of blend.points ?? []) {
+			const duration = this.durations.get(point.timeline);
+			if (duration === undefined || typeof point.at !== 'number' || !Number.isFinite(point.at))
+				continue;
+			points.push({ timeline: point.timeline, at: point.at, duration });
+		}
+		points.sort((a, b) => a.at - b.at);
+		return points.length ? points : undefined;
+	}
+
+	/** Where a blend state's point plays: the state's own timeline at the state's playhead, any
+	 *  other at the clock wrapped by its own duration (looping) or clamped to it. */
+	private pointPlay(layer: LayerRun, point: { timeline: string; duration: number }): PointPlay {
+		const { timeline, duration } = point;
+		if (timeline === layer.stateDef?.timeline) {
+			return { timeline, time: layer.time, prevTime: layer.prevTime, wrapped: layer.wrapped };
+		}
+		if (layer.stateDef?.loop && duration > 0) {
+			const at = (c: number): number => ((c % duration) + duration) % duration;
+			return {
+				timeline,
+				time: at(layer.clock),
+				prevTime: at(layer.prevClock),
+				wrapped: Math.floor(layer.clock / duration) !== Math.floor(layer.prevClock / duration),
+			};
+		}
+		const at = (c: number): number => Math.min(Math.max(c, 0), duration);
+		return { timeline, time: at(layer.clock), prevTime: at(layer.prevClock), wrapped: false };
+	}
+
+	/** A blend state's two bracketing points now: the lower, and the upper with its weight when the
+	 *  input falls strictly between two points. `undefined` on any other state. */
+	private bracket(
+		layer: LayerRun,
+	): { lower: PointPlay; mix?: { timeline: string; time: number; weight: number } } | undefined {
+		const points = this.blendPoints(layer);
+		const blend = layer.stateDef?.blend;
+		if (!points || !blend) return undefined;
+		const value = asNumber(this.current.get(blend.input), 0);
+		const last = points[points.length - 1];
+		if (value <= points[0].at) return { lower: this.pointPlay(layer, points[0]) };
+		if (value >= last.at) return { lower: this.pointPlay(layer, last) };
+		for (let i = 0; i < points.length - 1; i++) {
+			const lower = points[i];
+			const upper = points[i + 1];
+			if (!(lower.at <= value && value < upper.at)) continue;
+			const weight = (value - lower.at) / (upper.at - lower.at);
+			const play = { lower: this.pointPlay(layer, lower) };
+			if (!(weight > 0)) return play;
+			const { time } = this.pointPlay(layer, upper);
+			return { ...play, mix: { timeline: upper.timeline, time, weight } };
+		}
+		return { lower: this.pointPlay(layer, last) };
 	}
 
 	/** Is any layer's timeline still moving, or a blend still mixing? */
@@ -362,6 +460,7 @@ export class ComponentStateMachineRunner {
 
 	private advanceLayer(layer: LayerRun, dt: number): void {
 		layer.prevTime = layer.time;
+		layer.prevClock = layer.clock;
 		layer.wrapped = false;
 		layer.entered = false;
 		layer.left = [];
@@ -380,6 +479,7 @@ export class ComponentStateMachineRunner {
 		if (!stateDef || duration === undefined) return;
 		const speed = asNumber(stateDef.speed, 1);
 		if (!(speed > 0)) return;
+		layer.clock += dt * speed;
 		const next = layer.time + dt * speed;
 		if (stateDef.loop && duration > 0) {
 			layer.wrapped = next >= duration || next < 0;
@@ -473,8 +573,11 @@ export class ComponentStateMachineRunner {
 	}
 
 	private enterState(layer: LayerRun, transition: SmTransition): void {
-		const left =
-			layer.stateDef && layer.duration !== undefined
+		// A blend state leaves from its lower point: the one whose cues it fired.
+		const lower = this.bracket(layer)?.lower;
+		const left = lower
+			? { timeline: lower.timeline, time: lower.time }
+			: layer.stateDef && layer.duration !== undefined
 				? { timeline: layer.stateDef.timeline, time: layer.time }
 				: { time: 0 };
 		// What keeps playing under the blend (`pauseSource: false`): the state being left, at its own
@@ -484,6 +587,7 @@ export class ComponentStateMachineRunner {
 			transition.pauseSource === false &&
 			!layer.blend &&
 			layer.stateDef &&
+			!layer.stateDef.blend &&
 			layer.duration !== undefined &&
 			layer.duration > 0 &&
 			leftSpeed > 0
@@ -494,9 +598,9 @@ export class ComponentStateMachineRunner {
 		if (left.timeline) {
 			layer.left.push({
 				timeline: left.timeline,
-				prevTime: layer.prevTime,
-				time: layer.time,
-				wrapped: layer.wrapped,
+				prevTime: lower ? lower.prevTime : layer.prevTime,
+				time: left.time,
+				wrapped: lower ? lower.wrapped : layer.wrapped,
 				entered: layer.entered,
 			});
 		}
@@ -517,6 +621,8 @@ export class ComponentStateMachineRunner {
 		layer.duration = stateDef ? this.durations.get(stateDef.timeline) : undefined;
 		layer.time = this.startTime(stateDef, layer.duration);
 		layer.prevTime = layer.time;
+		layer.clock = layer.time;
+		layer.prevClock = layer.time;
 		layer.wrapped = false;
 		layer.entered = true;
 		const blend = asNumber(transition.blend, 0);
@@ -539,6 +645,14 @@ export class ComponentStateMachineRunner {
 				entered: layer.entered,
 			};
 			if (layer.stateDef && layer.duration !== undefined) play.timeline = layer.stateDef.timeline;
+			const bracket = this.bracket(layer);
+			if (bracket) {
+				play.timeline = bracket.lower.timeline;
+				play.time = bracket.lower.time;
+				play.prevTime = bracket.lower.prevTime;
+				play.wrapped = bracket.lower.wrapped;
+				if (bracket.mix) play.mix = bracket.mix;
+			}
 			if (layer.blend) {
 				const linear = Math.min(layer.blend.elapsed / layer.blend.total, 1);
 				play.from = {
@@ -654,6 +768,10 @@ export type StateMachineIssueCode =
 	| 'state-no-timeline'
 	| 'state-speed-invalid'
 	| 'state-timeline-missing'
+	| 'blend-input-invalid'
+	| 'blend-too-few-points'
+	| 'blend-timeline-missing'
+	| 'blend-duplicate-at'
 	| 'transition-from-unknown'
 	| 'transition-to-unknown'
 	| 'condition-input-unknown'
@@ -687,8 +805,10 @@ const OP_FOR_KIND: Record<ComponentInputKind, readonly SmCondition['op'][]> = {
  * Everything the editor shows and the gate asserts about a def's state machine: a layer with no
  * (or an unknown) entry, a state naming a missing timeline (`timelineIds` is what the project
  * has), a transition to or from an unknown state, a condition on an unknown input or with an op its
- * kind cannot take, and — as warnings — an exit time outside 0..1 and a state (or `exit`, when
- * some transition targets it) that no path from the entry reaches.
+ * kind cannot take, a blend state whose input is not a number input, with fewer than two points,
+ * a point on a missing timeline or two points at one value, and — as warnings — an exit time
+ * outside 0..1 and a state (or `exit`, when some transition targets it) that no path from the entry
+ * reaches.
  */
 export function validateStateMachine(
 	def: Pick<ComponentDef, 'inputs' | 'signals' | 'stateMachine'>,
@@ -780,6 +900,7 @@ export function validateStateMachine(
 					message: `Layer "${name}": state "${state.name || state.id}" plays timeline "${state.timeline}", which this component does not have. In game the state holds.`,
 				});
 			}
+			if (state.blend) issues.push(...blendIssues(state, layer.id, name, kinds, timelines));
 		}
 		if (!layer.entry) {
 			issues.push({
@@ -911,6 +1032,70 @@ export function validateStateMachine(
 				});
 			}
 		}
+	}
+	return issues;
+}
+
+function blendIssues(
+	state: SmState,
+	layer: string,
+	layerName: string,
+	kinds: ReadonlyMap<string, ComponentInputKind>,
+	timelines: ReadonlySet<string>,
+): StateMachineIssue[] {
+	const blend = state.blend;
+	if (!blend) return [];
+	const issues: StateMachineIssue[] = [];
+	const where = `Layer "${layerName}": blend state "${state.name || state.id}"`;
+	const at = { layer, state: state.id };
+	const kind = kinds.get(blend.input);
+	if (kind !== 'number') {
+		issues.push({
+			code: 'blend-input-invalid',
+			level: 'error',
+			...at,
+			input: blend.input,
+			message: !blend.input
+				? `${where} blends by no input; pick a number input.`
+				: kind
+					? `${where} blends by the ${kind} input "${blend.input}"; a blend needs a number input.`
+					: `${where} blends by input "${blend.input}", which is not declared.`,
+		});
+	}
+	const points = blend.points ?? [];
+	if (points.length < 2) {
+		issues.push({
+			code: 'blend-too-few-points',
+			level: 'error',
+			...at,
+			message: `${where} has ${points.length} point${points.length === 1 ? '' : 's'}; a blend needs at least 2.`,
+		});
+	}
+	const seenAt = new Set<number>();
+	const reported = new Set<string>();
+	for (const point of points) {
+		if (point.timeline !== state.timeline && !timelines.has(point.timeline)) {
+			if (!reported.has(point.timeline)) {
+				issues.push({
+					code: 'blend-timeline-missing',
+					level: 'error',
+					...at,
+					message: point.timeline
+						? `${where} blends timeline "${point.timeline}", which this component does not have. In game that point is skipped.`
+						: `${where} has a point that plays no timeline.`,
+				});
+			}
+			reported.add(point.timeline);
+		}
+		if (seenAt.has(point.at)) {
+			issues.push({
+				code: 'blend-duplicate-at',
+				level: 'error',
+				...at,
+				message: `${where} has two points at ${String(point.at)}; each point needs its own value.`,
+			});
+		}
+		seenAt.add(point.at);
 	}
 	return issues;
 }

@@ -33,6 +33,7 @@
 		onNodeDragStop,
 		onNodeClick,
 		onNodeDoubleClick,
+		onEdgeClick,
 		onPaneClick,
 		ondrop,
 	}: {
@@ -61,6 +62,8 @@
 		/** A node double-clicked (xyflow has no event for it: the node's wrapper names it). The
 		 *  canvas does not zoom on it then. */
 		onNodeDoubleClick?: (detail: { node: Node }) => void;
+		/** An edge clicked (a page that inspects a wire selects it here). */
+		onEdgeClick?: (detail: { edge: Edge }) => void;
 		onPaneClick: () => void;
 		/** A palette drag dropped at `pos` (graph coordinates): its raw payload, for the page to read
 		 *  with `readDrag`. */
@@ -147,6 +150,7 @@
 		ondelete={onGraphDelete}
 		onnodedragstop={onNodeDragStop}
 		onnodeclick={onNodeClick}
+		onedgeclick={onEdgeClick ? ({ edge }) => onEdgeClick({ edge }) : undefined}
 		onpaneclick={onPaneClick}
 	>
 		<Background />

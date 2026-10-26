@@ -69,7 +69,7 @@ try {
 	await writePage(REPO, dir, 'particleMaterial.entry.ts', 'material');
 	browser = await launchChrome({ name: 'particle-material' });
 	for (const gl of [1, 2]) {
-		const search = `?gl=${gl}&threshold=${THRESHOLD}&frames=${frames}${dumpDir ? '&dump' : ''}`;
+		const search = `?gl=${gl}&threshold=${THRESHOLD}&frames=${frames}&fxdebug=1${dumpDir ? '&dump' : ''}`;
 		const logged = browser.pageLog.length;
 		const failures = () => browser.pageLog.slice(logged).filter((line) => FAILED.test(line));
 		await browser.send('Page.navigate', {
@@ -145,6 +145,14 @@ for (const gl of [1, 2]) {
 		console.log(`    ${name.padEnd(10)} ${input.particles} ${input.worst}`);
 	console.log('  plain (why, drawn px)');
 	for (const p of run.plain) console.log(`    ${p.label.padEnd(48)} ${p.reason} ${p.drawn}`);
+	console.log(
+		`  the game's mount: a material.param drive changed ${run.game.paramWrite.changed} of ${run.game.paramWrite.drawn} drawn px; ?fxdebug=1 lines:`,
+	);
+	const other = run.game.otherLayer;
+	console.log(
+		`  another layer, alone: ${other.changed} of ${other.drawn} px changed (whole canvas in its cell: ${other.canvasChanged}; layer 0's own px in that cell: ${other.firstLayerPxInItsCell})`,
+	);
+	for (const line of run.game.debug) console.log(`    ${line}`);
 	const s = run.steady;
 	console.log(
 		`  steady: ${s.frames} frames in ${(s.ms / 1000).toFixed(1)} s, ${s.peak} live at most, ${s.bufferData} bufferData, ${s.createBuffer} createBuffer, arrays kept: ${s.same}`,

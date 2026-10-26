@@ -21,6 +21,8 @@ export type Body = BodyShape & {
 	tags: string[];
 	/** Absent ⇒ `clamp`. */
 	edges?: BodyEdges;
+	/** Blocks a body stepped by {@link stepSolid}. */
+	solid?: boolean;
 };
 
 /** The play field: `w` × `h` px from (0, 0). */
@@ -82,3 +84,46 @@ export function createStaticIndex<S extends StaticShape>(
 export function queryStatic<S extends StaticShape>(index: StaticIndex<S>, box: Aabb): S[];
 export function scanStatic<S extends StaticShape>(shapes: readonly S[], box: Aabb): S[];
 export function zonesOf(body: Body, index: StaticIndex): string[];
+
+/** How a body speeds up, slows and turns (a character's `movement`). Every field is optional. */
+export type Movement = {
+	/** px/s² towards the desired velocity; absent ⇒ at once. */
+	accel?: number;
+	/** px/s² when slowing, reversing or turning; absent ⇒ `accel`. */
+	decel?: number;
+	/** Cap on |v|, px/s; absent ⇒ none. */
+	maxSpeed?: number;
+	/** Degrees/s the heading may turn; absent ⇒ at once. */
+	turnRate?: number;
+};
+
+export type Velocity = { vx: number; vy: number };
+
+export type Point = { x: number; y: number };
+
+/** A path as authored: points in field px, open unless `closed`, `smoothing` 0..1. */
+export type PathSpec = { points: readonly Point[]; closed?: boolean; smoothing?: number };
+
+/** A path ready to walk; `cum[i]` is the arc distance at `points[i]`. */
+export type SampledPath = {
+	readonly points: Point[];
+	readonly closed: boolean;
+	readonly length: number;
+	readonly cum: number[];
+};
+
+/** Whether {@link stepSolid} stopped the body at a solid on each axis this step. */
+export type SolidHit = { hitX: boolean; hitY: boolean };
+
+export const PATH_SUBDIVISIONS: 12;
+
+export function steer<B extends Body>(
+	body: B,
+	desired: Velocity,
+	movement: Movement | undefined,
+	dt: number,
+): B;
+export function stepSolid(body: Body, dt: number, solids: readonly Body[], field?: Field): SolidHit;
+export function samplePath(spec: PathSpec): SampledPath;
+export function pointAt(path: SampledPath, distance: number): Point;
+export function nearestDistance(path: SampledPath, x: number, y: number): number;

@@ -20,6 +20,7 @@
 		reel,
 		repeater,
 		spawnLayer,
+		path,
 		segments,
 		components,
 	}: {
@@ -27,6 +28,8 @@
 		reel?: { active: boolean; onAdd: () => void };
 		repeater?: { onAdd: () => void };
 		spawnLayer?: { onAdd: () => void };
+		/** Scene-only like the spawn layer: a brain names a path by its screen node id. */
+		path?: { onAdd: () => void };
 		/** The Components side's "Repeat (count)" row: a segmented counter of `componentId`. */
 		segments?: { componentId: string };
 		components?: { id: string; name: string; version: number }[];
@@ -114,6 +117,17 @@
 		<button type="button" class="li-btn" onclick={spawnLayer.onAdd}>
 			<span class="name">Spawn layer</span>
 			<span class="tag">live</span>
+		</button>
+	</li>
+{/if}
+{#if path}
+	<li
+		class="click"
+		title="Insert a path — a line an arcade character patrols or follows. Drag its points on the stage, click a segment to add one, Alt+click a point to delete it."
+	>
+		<button type="button" class="li-btn" onclick={path.onAdd}>
+			<span class="name">Path</span>
+			<span class="tag">route</span>
 		</button>
 	</li>
 {/if}

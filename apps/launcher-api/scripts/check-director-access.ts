@@ -106,12 +106,17 @@ check(
 
 // ── Placement + docs ───────────────────────────────────────────────────────────
 const stage = (id: string) => TOOL_STAGES.find((s) => s.id === id);
-check('create stage order', stage('create')?.tools, ['gameMaker', 'gameConfig', 'director']);
+check('create stage order', stage('create')?.tools, [
+	'gameMaker',
+	'gameConfig',
+	'director',
+	'gameBugs',
+]);
 check('pipeline stage', stage('pipeline'), {
 	id: 'pipeline',
 	label: 'Pipeline',
 	accent: '#f778ba',
-	tools: ['pipelineChanges'],
+	tools: ['pipelineChanges', 'pipelineBugs'],
 });
 check('director doc path', toolDocPath('director'), 'docs/director');
 check('pipelineChanges doc path', toolDocPath('pipelineChanges'), 'docs/pipeline-changes');

@@ -5,3 +5,9 @@ export {
 	type ParticleMaterialPlain,
 	type ParticleMaterialTime,
 } from './ParticleMaterial';
+export {
+	mountParticleMaterial,
+	particleMaterialSlotsFor,
+	type MountedParticleMaterial,
+	type ParticleMaterialSpec,
+} from './mount';

@@ -103,6 +103,11 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-26 — **1D blend states** (P10.11, branch `claude/p10-11-arcade-characters`, in review;
+  [game-families](game-families.md) P10.11). A state machine state can blend two or more timelines
+  by a number input (`SmState.blend`): the two points around the value mix with `blendNodeSamples`,
+  cues fire from the lower one. The State machine tab makes a state a blend state, edits its points,
+  shows them on the card and previews them with a slider. A state without `blend` runs as before.
 - 2026-10-25 — **A pinned version ships the components only it names; a pin warns once** (branch
   `claude/charming-cannon-rjv7ba`, in review). `commonoverlayproject` places `segmentedCounter`
   pinned at v4, whose first segment is `c_55h9isri`; v7 (latest) switched to `c_8m57uq5p`. The

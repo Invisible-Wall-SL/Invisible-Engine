@@ -1174,6 +1174,7 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		version: 1,
 		toast: { full: 'You win {amount}' },
 		jackpots: { captions: { MINI: 'Mini' } },
+		featurePlacement: { total: 'infoBar' },
 	};
 	values('15. win text', normalizeWinTextDoc, winText, [
 		{
@@ -1181,6 +1182,12 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 			edit: set('version', 2),
 			reads: () => {},
 			warns: ['at "version"'],
+		},
+		{
+			label: 'a placement this build does not know drops that line alone',
+			edit: set('featurePlacement.meterFull', 'ticker'),
+			reads: () => {},
+			warns: ['at "featurePlacement.meterFull"'],
 		},
 	]);
 	throws('15. win text', 'a version that is not a number', () =>

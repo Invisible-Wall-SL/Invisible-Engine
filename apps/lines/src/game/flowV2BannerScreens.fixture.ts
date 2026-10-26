@@ -28,6 +28,7 @@ import {
 	engineOwnedOnly,
 	getFullSceneSet,
 	LAYER_BAND_FLIGHTS,
+	POT_BANNER_SCREENS,
 	sceneLayerZIndex,
 	SELF_MOUNTED_BANNER_SCREENS,
 	type Scene,
@@ -90,9 +91,9 @@ check(
 );
 const COIN_SCENES = scenesOf('holdAndWin', { coinBoard: true });
 check(
-	'the coin-board seed mounts the coin board’s (no pot-full banner: it has no pots)',
+	'the coin-board seed mounts the coin board’s (no pot banners: it has no pots)',
 	ids(freshDrivenSeedDoc('holdAndWin', { coinBoard: true }), COIN_SCENES).sort(),
-	SELF_MOUNTED_BANNER_SCREENS.filter((id) => id !== 'potFullBanner').sort(),
+	SELF_MOUNTED_BANNER_SCREENS.filter((id) => !POT_BANNER_SCREENS.includes(id)).sort(),
 );
 
 console.log('2. a respin mode’s copies mount too');
@@ -103,6 +104,8 @@ const copies = ids(HW_SEED, TWO_MODES).filter((id) => id.endsWith('-superRespins
 check('the second mode’s feature banners', copies, [
 	'coinJackpotBanner-superRespins',
 	'jackpotUpgradeBanner-superRespins',
+	'upgradeBanner-superRespins',
+	'modifiersUnlockedBanner-superRespins',
 	'wheelPrizeBanner-superRespins',
 	'rowUnlockedBanner-superRespins',
 	'featureTotalBanner-superRespins',
@@ -188,9 +191,12 @@ check('its banners, on the Book-of seed', ids(freshDrivenSeedDoc('bookOf'), HOST
 	'instantWinBanner',
 	'randomMetreBanner',
 	'potFullBanner',
+	'modifiersActiveBanner',
 	'platformJackpotBanner',
 	'coinJackpotBanner',
 	'jackpotUpgradeBanner',
+	'upgradeBanner',
+	'modifiersUnlockedBanner',
 	'wheelPrizeBanner',
 	'rowUnlockedBanner',
 	'featureTotalBanner',

@@ -13,6 +13,10 @@
 		WIN_TEXT_JACKPOT_LABELS,
 		WIN_TEXT_MODE_FEATURE_FIELDS,
 		WIN_TEXT_PLATFORM_JACKPOT_FIELDS,
+		WIN_TEXT_PLACED_FEATURE_FIELDS,
+		WIN_TEXT_PLACEMENTS,
+		WIN_TEXT_PLACEMENT_DEFAULTS,
+		WIN_TEXT_PLACEMENT_LABELS,
 		WIN_TEXT_PLATFORM_JACKPOT_LABELS,
 		WIN_TEXT_POT_FIELDS,
 		WIN_TEXT_RESPIN_FIELDS,
@@ -43,6 +47,8 @@
 		WinTextFeatureMap,
 		WinTextModeFeatureField,
 		WinTextModeLines,
+		WinTextPlacedFeatureField,
+		WinTextPlacement,
 		WinTextPlatformJackpotField,
 		WinTextRespinField,
 		WinTextWheelField,
@@ -328,6 +334,17 @@
 		else delete feature[field];
 	}
 
+	const isPlaced = (field: WinTextFeatureField): field is WinTextPlacedFeatureField =>
+		(WIN_TEXT_PLACED_FEATURE_FIELDS as readonly string[]).includes(field);
+
+	/** Store where a line shows; its default stays unset, so the doc keeps only the lines moved. */
+	function setPlacement(field: WinTextPlacedFeatureField, value: WinTextPlacement) {
+		const placement = (doc.featurePlacement ??= {});
+		if (value === WIN_TEXT_PLACEMENT_DEFAULTS[field]) delete placement[field];
+		else placement[field] = value;
+		if (!Object.keys(placement).length) delete doc.featurePlacement;
+	}
+
 	function setFeatureName(map: WinTextFeatureMap, key: string, value: string) {
 		const names = ((doc.feature ??= {})[map] ??= {});
 		if (value.trim()) names[key] = value;
@@ -482,6 +499,19 @@
 			: null,
 	);
 </script>
+
+{#snippet placementPicker(field: WinTextPlacedFeatureField)}
+	<select
+		class="placement"
+		aria-label="Where {WIN_TEXT_FEATURE_LABELS[field]} shows"
+		value={resolved.featurePlacement[field]}
+		onchange={(e) => setPlacement(field, e.currentTarget.value as WinTextPlacement)}
+	>
+		{#each WIN_TEXT_PLACEMENTS as placement (placement)}
+			<option value={placement}>{WIN_TEXT_PLACEMENT_LABELS[placement]}</option>
+		{/each}
+	</select>
+{/snippet}
 
 {#snippet boardPicker()}
 	{#if data.spinsModes.length}
@@ -929,8 +959,12 @@
 						<code>{'{meter}'}</code> the special a full pot activates (a pot that starts free spins
 						or another mode reads as its own pot name, below) and
 						<code>{'{modifiers}'}</code> the specials a feature runs with — each written with the
-						names below; <code>{'{rows}'}</code> is the rows an expanding board has open. The intro and
-						outro draw nothing until you write them.
+						names below; <code>{'{rows}'}</code> is the rows an expanding board has open. The intro
+						and outro draw nothing until you write them. Each announced line shows on the
+						<em>Board banner</em>
+						(the built-in plate, or its banner screen in the Scene Editor), in the <em>Info bar</em>
+						with the game's other messages, in both, or nowhere (<em>Off</em>); the beat keeps its
+						pacing either way.
 					</p>
 					{#each WIN_TEXT_FEATURE_FIELDS as field (field)}
 						<label class="single">
@@ -940,10 +974,17 @@
 								placeholder={resolved.feature[field] || 'not drawn'}
 								oninput={(e) => setFeature(field, e.currentTarget.value)}
 							/>
+							{#if isPlaced(field)}
+								{@render placementPicker(field)}
+							{:else}
+								<i class="placement-gap" aria-hidden="true"></i>
+							{/if}
 							<em class="row-preview"
-								>{(field === 'potLabel'
-									? potPreview
-									: holdAndWinPreview(resolved.feature[field])) || '—'}</em
+								>{(isPlaced(field) && resolved.featurePlacement[field] === 'off'
+									? 'not shown'
+									: field === 'potLabel'
+										? potPreview
+										: holdAndWinPreview(resolved.feature[field])) || '—'}</em
 							>
 						</label>
 					{/each}
@@ -1025,8 +1066,15 @@
 							placeholder={resolved.feature[field] || 'not drawn'}
 							oninput={(e) => setFeature(field, e.currentTarget.value)}
 						/>
+						{#if isPlaced(field)}
+							{@render placementPicker(field)}
+						{/if}
 						<em class="row-preview"
-							>{(field === 'potLabel' ? potPreview : potFullPreview) || '—'}</em
+							>{(isPlaced(field) && resolved.featurePlacement[field] === 'off'
+								? 'not shown'
+								: field === 'potLabel'
+									? potPreview
+									: potFullPreview) || '—'}</em
 						>
 					</label>
 				{/each}
@@ -1244,7 +1292,7 @@
 		align-items: center;
 		gap: 12px;
 		margin-bottom: 8px;
-		max-width: 720px;
+		max-width: 860px;
 	}
 	.single span {
 		flex: none;
@@ -1270,6 +1318,11 @@
 		background: #0e0e13;
 		color: #e8e8ee;
 		font-size: 12px;
+	}
+	.single select.placement,
+	.placement-gap {
+		flex: none;
+		width: 120px;
 	}
 	.orphan button {
 		flex: none;

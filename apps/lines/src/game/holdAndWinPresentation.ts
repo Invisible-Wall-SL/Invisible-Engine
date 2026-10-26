@@ -35,6 +35,7 @@ import { coinLabelCountMs } from './coinLabel';
 import { eventEmitter } from './eventEmitter';
 import { FLIGHT_TARGET_TOTAL, flyTo } from './flights.svelte';
 import { getActiveGameConfig } from './gameConfig';
+import { announceFeatureLine } from './holdAndWinAnnounce';
 import { hideHoldAndWinBanner, showHoldAndWinBanner } from './holdAndWinBanner.svelte';
 import {
 	featureIntroText,
@@ -399,7 +400,7 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 	eventEmitter.broadcast({ type: 'potFull', meter: event.meter, scope });
 	const meter = configuredMeters().find((m) => m.id === event.meter);
 	const title = meter ? meterFullText(meter.id, meter.bonus.activates) : '';
-	const banner = title ? showHoldAndWinBanner({ kind: 'meterFull', title, size: 'small' }) : 0;
+	const banner = announceFeatureLine('meterFull', { kind: 'meterFull', title, size: 'small' });
 	await (banner ? holdBanner(METER_FULL_MS) : waitPresentation(METER_FULL_MS));
 	hideHoldAndWinBanner(banner);
 };
@@ -437,8 +438,13 @@ const presentMeterConsume = async (ids: readonly string[]) => {
 		}),
 	);
 	if (activates.length === 0) return;
-	showMessage(modifiersActiveText(activates), { kind: 'info' });
-	await waitPresentation(TOAST_HOLD_MS);
+	const banner = announceFeatureLine('modifiersActive', {
+		kind: 'modifiersActive',
+		title: modifiersActiveText(activates),
+		size: 'small',
+	});
+	await (banner ? holdBanner(TOAST_HOLD_MS) : waitPresentation(TOAST_HOLD_MS));
+	hideHoldAndWinBanner(banner);
 };
 
 /**
@@ -458,7 +464,11 @@ export const presentEntryDrain = () => presentMeterConsume(claimDrainedMeters())
 export const presentLuckySpin = async () => {
 	armLuckySpinReveal();
 	eventEmitter.broadcast({ type: 'luckySpinIntro' });
-	const banner = showHoldAndWinBanner({ kind: 'luckySpin', title: luckySpinText(), size: 'large' });
+	const banner = announceFeatureLine('luckySpin', {
+		kind: 'luckySpin',
+		title: luckySpinText(),
+		size: 'large',
+	});
 	await waitPresentation(LUCKY_INTRO_MS);
 	hideHoldAndWinBanner(banner);
 };
@@ -483,8 +493,12 @@ export const presentHoldAndWinTrigger = async (event: Beat<'holdAndWinTrigger'>)
 		await waitPresentation(TRIGGER_HOLD_MS);
 		return;
 	}
-	const banner = showHoldAndWinBanner({ kind: 'featureIntro', title: intro, size: 'large' });
-	await holdBanner(FEATURE_LINE_MS);
+	const banner = announceFeatureLine('intro', {
+		kind: 'featureIntro',
+		title: intro,
+		size: 'large',
+	});
+	await (banner ? holdBanner(FEATURE_LINE_MS) : waitPresentation(FEATURE_LINE_MS));
 	hideHoldAndWinBanner(banner);
 };
 
@@ -712,8 +726,11 @@ export const presentCoinUpgrade = async (event: Beat<'coinUpgrade'>) => {
 	const upgrader = event.upgrader;
 	await playHeldBeat([upgrader], 'coinUpgrade', { minMs: HIGHLIGHT_MIN_MS });
 	if (event.cells.length === 0) return;
-	const toast = upgradeText();
-	if (toast) showMessage(toast, { kind: 'info' });
+	const upgradeBanner = announceFeatureLine('upgrade', {
+		kind: 'upgrade',
+		title: upgradeText(),
+		size: 'small',
+	});
 	await Promise.all(
 		event.cells.map((cell, index) =>
 			flyTo(
@@ -724,6 +741,7 @@ export const presentCoinUpgrade = async (event: Beat<'coinUpgrade'>) => {
 			),
 		),
 	);
+	hideHoldAndWinBanner(upgradeBanner);
 	await Promise.all([
 		runCounts(counts),
 		...tierChanges.map(async (change) => {
@@ -853,9 +871,14 @@ export const presentMysteryReveal = async (event: Beat<'mysteryReveal'>) => {
 	event.cells.forEach((cell) => playSymbolLandSound(cell.symbol.name, 1));
 	await playHeldBeat(event.cells, 'coinStick');
 	if (event.activates.length === 0) return;
-	showMessage(modifiersUnlockedText(event.activates), { kind: 'info' });
+	const banner = announceFeatureLine('modifiersUnlocked', {
+		kind: 'modifiersUnlocked',
+		title: modifiersUnlockedText(event.activates),
+		size: 'small',
+	});
 	eventEmitter.broadcast({ type: 'respinModifierUnlock', activates: event.activates });
-	await waitPresentation(TOAST_HOLD_MS);
+	await (banner ? holdBanner(TOAST_HOLD_MS) : waitPresentation(TOAST_HOLD_MS));
+	hideHoldAndWinBanner(banner);
 };
 
 /**
@@ -892,14 +915,12 @@ export const presentRowsUnlocked = async (event: Beat<'rowsUnlocked'>) => {
 		);
 	}
 	const text = rowUnlockedText(event.rows);
-	const banner = text.title
-		? showHoldAndWinBanner({
-				kind: 'rowUnlocked',
-				title: text.title,
-				detail: text.detail,
-				size: 'small',
-			})
-		: 0;
+	const banner = announceFeatureLine('rowUnlocked', {
+		kind: 'rowUnlocked',
+		title: text.title,
+		detail: text.detail,
+		size: 'small',
+	});
 	stateRespinBoard.unlockingTo = Math.max(event.rows, openRespinRows());
 	respinUnlockFade.set(1, { duration: 0 });
 	await Promise.all([
@@ -1032,7 +1053,7 @@ export const presentInstantCollect = async (event: Beat<'coinInstantCollect'>) =
 		);
 	}
 	const factors = [event.multiplier, event.times].filter((factor) => factor > 1);
-	const banner = showHoldAndWinBanner({
+	const banner = announceFeatureLine('instantCollect', {
 		kind: 'instantWin',
 		title: instantCollectText(),
 		detail: [
@@ -1263,14 +1284,20 @@ export const presentHoldAndWinEnd = async (event: Beat<'holdAndWinEnd'>) => {
 	}
 	const amount = bookEventAmountToCurrencyString(event.total);
 	const total = featureTotalText(amount);
-	const totalBanner = total
-		? showHoldAndWinBanner({ kind: 'featureTotal', title: total, size: 'small' })
-		: 0;
+	const totalBanner = announceFeatureLine('total', {
+		kind: 'featureTotal',
+		title: total,
+		size: 'small',
+	});
 	await waitPresentation(TALLY_LAND_MS + TALLY_HOLD_MS);
 	hideHoldAndWinBanner(totalBanner);
 	const outro = featureOutroText(amount);
 	if (outro) {
-		const banner = showHoldAndWinBanner({ kind: 'featureOutro', title: outro, size: 'large' });
+		const banner = announceFeatureLine('outro', {
+			kind: 'featureOutro',
+			title: outro,
+			size: 'large',
+		});
 		await waitPresentation(FEATURE_LINE_MS);
 		hideHoldAndWinBanner(banner);
 	}

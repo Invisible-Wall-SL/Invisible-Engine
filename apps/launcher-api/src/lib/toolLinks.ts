@@ -11,3 +11,22 @@ export function withProject(url: string, projectKey: string | undefined): string
 	const base = path.includes('?') ? path.slice(0, path.indexOf('?')) : path;
 	return `${base}?${params.toString()}${hash === undefined ? '' : `#${hash}`}`;
 }
+
+/**
+ * The "Report bug" link on every tool's bar: Invisible Pipeline Bug Reports' form (`bugsUrl`) with
+ * the tool filled in, and where it happened — the page's address without its query (an external
+ * tool's can carry a launch token), plus the project the bar shows. The HTML twins build the same.
+ */
+export function reportBugHref(
+	bugsUrl: string,
+	toolId: string,
+	pageAddress: string,
+	projectKey: string | undefined,
+): string {
+	const params = new URLSearchParams({
+		new: '1',
+		for: toolId,
+		page: withProject(pageAddress, projectKey),
+	});
+	return `${bugsUrl}?${params.toString()}`;
+}

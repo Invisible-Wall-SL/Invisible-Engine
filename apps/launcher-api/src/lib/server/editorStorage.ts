@@ -5,6 +5,7 @@ import {
 	normalizeLayoutProfile,
 	LAYOUT_NODE_KINDS,
 	isSceneRole,
+	normalizePathNode,
 	withoutEditorGuides,
 	type GameJurisdiction,
 	type GameSettings,
@@ -391,6 +392,8 @@ function normalizeNode(input: unknown): LayoutNode | null {
 	const kind = input.kind;
 	if (typeof kind !== 'string' || !NODE_KINDS.has(kind as LayoutNode['kind'])) return null;
 	if (typeof input.id !== 'string' || !input.id) return null;
+	// A path is walked by a brain, so one it could not walk (under two points) is dropped.
+	if (kind === 'path') return normalizePathNode(input) ?? null;
 	// Preserve forward-compatible fields by trusting the validated kind+id; the
 	// engine layer is the source of truth for per-kind field semantics.
 	return input as unknown as LayoutNode;

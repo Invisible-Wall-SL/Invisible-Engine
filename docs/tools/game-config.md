@@ -175,6 +175,11 @@ has no family control at all. Two more families exist
   - **Zones** — **Add zone** adds a 200 × 200 square at the field's corner; set its **Zone** id,
     **x** / **y** (its top-left corner) and **Width** / **Height**, in design pixels. A body
     moving in or out raises Flow's `enterZone` / `leaveZone`. A zone wholly off the field warns.
+  - **Characters** — how many characters the config has, and **Edit in Invisible Characters**,
+    which opens `/characters`: a character (its look, movement, controls and brain) is edited
+    there, not here. Its problems still show under this section (a repeated id, two characters
+    sharing a component, a brain naming a state it does not have; a played character whose
+    component has no body warns).
   See [Flow → Arcade](flow.md#arcade--the-play-field-signals-and-the-starter-flow) for the signals.
 - **Publishing:** a **match-3** config publishes from Game Maker to the test server, free play or
   decided by the server (against the test server's match-3 mock), and so does a free-play

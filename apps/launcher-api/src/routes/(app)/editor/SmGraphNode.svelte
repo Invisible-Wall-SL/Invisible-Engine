@@ -1,9 +1,10 @@
 <script lang="ts">
 	/**
 	 * One node of the State Machine graph (Rive plan Phase 5b): a state card named after its
-	 * timeline, or one of the Entry / Any / Exit pseudo-nodes. Wires leave a node's right handle
-	 * and land on another's left one; Entry and Any have no left handle (nothing enters them),
-	 * Exit no right one (nothing leaves it). Double-clicking a state opens its timeline.
+	 * timeline (a blend state also shows its input and points), or one of the Entry / Any / Exit
+	 * pseudo-nodes. Wires leave a node's right handle and land on another's left one; Entry and Any
+	 * have no left handle (nothing enters them), Exit no right one (nothing leaves it).
+	 * Double-clicking a state opens its timeline.
 	 */
 	import { Handle, Position, type Node, type NodeProps } from '@xyflow/svelte';
 
@@ -14,6 +15,8 @@
 		sub?: string;
 		loop?: boolean;
 		speed?: number;
+		/** A 1D blend state's input and points (`speed: idle 0 · run 200`). */
+		blend?: string;
 		/** Entry state of its layer (a dot on the card). */
 		isEntry?: boolean;
 		/** The layer is in this state in the preview. */
@@ -21,6 +24,8 @@
 		/** The state's timeline is missing / the card has a validation error. */
 		broken?: boolean;
 		onopen?: () => void;
+		/** The card's tooltip; absent ⇒ the Component Editor's "open its timeline". */
+		hint?: string;
 	};
 	let { data: d, selected }: NodeProps<Node<Data>> = $props();
 </script>
@@ -35,7 +40,7 @@
 		ondblclick={() => d.onopen?.()}
 		title={d.broken
 			? 'This state has a problem — see the ⚠ list'
-			: 'Double-click to open its timeline'}
+			: (d.hint ?? 'Double-click to open its timeline')}
 	>
 		<Handle type="target" position={Position.Left} class="sm-h" />
 		<div class="title">
@@ -43,6 +48,7 @@
 			<span class="name">{d.label}</span>
 		</div>
 		{#if d.sub}<div class="sub">◇ {d.sub}</div>{/if}
+		{#if d.blend}<div class="sub blend" title="1D blend state">⇋ {d.blend}</div>{/if}
 		<div class="badges">
 			{#if d.loop}<span class="badge" title="Loops">⟳</span>{/if}
 			{#if d.speed !== undefined && d.speed !== 1}<span class="badge" title="Speed">×{d.speed}</span
@@ -95,6 +101,13 @@
 		color: #8b93a1;
 		font-size: 11px;
 		margin-top: 2px;
+	}
+	.sub.blend {
+		color: #c9a7ff;
+		max-width: 220px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.badges {
 		display: flex;

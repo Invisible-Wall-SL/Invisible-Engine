@@ -93,8 +93,11 @@ export function duplicateComponent(
 	});
 
 	for (const layer of def.stateMachine?.layers ?? []) {
-		for (const state of layer.states)
+		for (const state of layer.states) {
 			state.timeline = timelineIds.get(state.timeline) ?? state.timeline;
+			for (const point of state.blend?.points ?? [])
+				point.timeline = timelineIds.get(point.timeline) ?? point.timeline;
+		}
 	}
 	return { def, timelines };
 }

@@ -8,6 +8,11 @@
  *  - INPUTS: probe materials write a particle's progress, seed, strength, wave index, spawn order,
  *    seconds and looping as its colour, read back at its centre and held to what the particle carries;
  *  - FALLBACKS: every reason a layer draws plain, each still drawing its sprites;
+ *  - THE GAME'S MOUNT (`mountParticleMaterial`, what `<ParticleEmitter material>` runs): a registered
+ *    kind draws through the mesh, the game cap turns the next layer plain, a layer refused at mount
+ *    leaves nothing in its host and gives its slot back, a buffer sized to a drive's peak stays on, a
+ *    program that fails while playing gives its slot back and says so on `?fxdebug=1`, and a
+ *    `material.param.*` drive is a uniform write: new pixels, the same mesh, shader and particles;
  *  - STEADY STATE: 20,000 frames after a warm-up allocate no buffer, on the GPU or in the mirror;
  *  - the CPU time to mirror 512 particles.
  *
@@ -29,10 +34,17 @@ import {
 	FX_MATERIAL_KEYS,
 	FX_MATERIAL_SEEDS,
 	bindArt,
+	bindEffectParams,
+	createFxMaterialSlots,
+	normalizeEffectDoc,
 	registerFxBehaviors,
 } from '@fxroot/packages/engine-fx/index';
-import type { CustomElementFx } from '@fxroot/packages/constants-shared/elementFx';
 import {
+	setCustomElementFx,
+	type CustomElementFx,
+} from '@fxroot/packages/constants-shared/elementFx';
+import {
+	REFERENCE_GRAPHS,
 	compileShaderEffect,
 	graphBuilder,
 	type ShaderGraphDoc,
@@ -40,7 +52,9 @@ import {
 import {
 	PARTICLE_MATERIAL_CAPACITY,
 	ParticleMaterial,
+	mountParticleMaterial,
 	type ParticleMaterialOptions,
+	type ParticleMaterialSpec,
 } from '@fxroot/packages/pixi-svelte/src/lib/particleMaterial/index';
 
 registerFxBehaviors(Emitter);
@@ -468,7 +482,9 @@ interface Cell {
 		},
 		{
 			label: 'Max particles 10.3 (11 spawn)',
-			config: base([], { maxParticles: 10.3 }),
+			// Lives longer than the run, so the count is the cap's at every moment, never one short
+			// between a death and the next spawn.
+			config: base([], { maxParticles: 10.3, lifetime: { min: 30, max: 30 } }),
 			textures: [frame('static')],
 		},
 		{
@@ -899,6 +915,278 @@ interface Cell {
 	}
 	app.stage.removeChildren();
 
+	// --- the game's mount: `mountParticleMaterial`, as `<ParticleEmitter material>` runs it ---
+	const pulse = compiled({
+		...(REFERENCE_GRAPHS.find((d) => d.id === 'pulseTint') as ShaderGraphDoc),
+		id: 'pulsetint',
+	});
+	setCustomElementFx([pulse, { ...alone, spec: { ...alone.spec, kind: 'custom:alone' } }, broken]);
+	const slots = createFxMaterialSlots(3);
+	const debugLines: string[] = [];
+	const log = console.log;
+	console.log = (...args: unknown[]) => {
+		const line = args.map(String).join(' ');
+		if (line.startsWith('[fxdebug]')) debugLines.push(line);
+		log(...args);
+	};
+	interface GameLayer {
+		host: Container;
+		emitter: Emitter;
+		mounted: ReturnType<typeof mountParticleMaterial>;
+		step: (frames: number) => void;
+	}
+	const mountLayer = (
+		n: number,
+		config: EmitterConfigV3,
+		textures: Texture[],
+		spec: ParticleMaterialSpec,
+	): GameLayer => {
+		const host = new Container();
+		host.position.set((n % COLS) * CELL + CELL / 2, Math.floor(n / COLS) * CELL + CELL / 2);
+		app.stage.addChild(host);
+		const mounted = mountParticleMaterial({
+			spec,
+			host,
+			textures,
+			maxParticles: Number(config.maxParticles),
+			rigParticles: false,
+			emitSpeed: EMIT_SPEED,
+			slots,
+		});
+		const material = mounted.material;
+		const bound = bindArt(config, textures, false);
+		const emitter = new Emitter(
+			material?.particles ?? host,
+			material ? material.bindConfig(bound) : bound,
+		);
+		const step = (frames: number) => {
+			for (let i = 0; i < frames; i++) {
+				emitter.update(FRAME_MS * EMIT_SPEED);
+				material?.sync(renderer);
+			}
+		};
+		return { host, emitter, mounted, step };
+	};
+	const game: Record<string, unknown> = {};
+	const tinted = normalizeEffectDoc({
+		id: 'embers',
+		name: 'Embers',
+		layers: [
+			{
+				key: 'main',
+				config: base([], { maxParticles: 80 }),
+				art: { assetKey: 'atlas', frames: ['static'] },
+				placement: { space: 'free' },
+				particleKind: 'sprite',
+				material: { kind: 'custom:pulsetint', intensity: 4 },
+			},
+		],
+		params: [
+			{
+				id: 'hue',
+				kind: 'color',
+				default: '#ff2020',
+				drives: [{ id: 'h', layer: 'main', path: 'material.param.color' }],
+			},
+		],
+	});
+	const tintedLayer = tinted.layers[0];
+	claim(
+		'the doc carries its material with the default written in',
+		tintedLayer.material?.params?.color === '#ff2020',
+	);
+	const on = mountLayer(0, tintedLayer.config, [frame('static')], {
+		...tintedLayer.material!,
+		label: 'embers/main',
+	});
+	const onMaterial = on.mounted.material;
+	claim('a registered kind mounts its renderer', on.mounted.state === 'on' && !!onMaterial);
+	// The same kind as layer 0, with its own value: a drive on layer 0 must not reach it.
+	const second = mountLayer(1, base([]), [frame('rotated')], {
+		kind: 'custom:pulsetint',
+		intensity: 4,
+		params: { color: '#2040ff' },
+		label: 'b',
+	});
+	const third = mountLayer(2, base([]), [frame('trimmed')], { kind: 'custom:alone', label: 'c' });
+	const capped = mountLayer(3, base([]), [frame('static')], { kind: 'custom:alone', label: 'd' });
+	claim(
+		`the game cap: three layers on, the fourth plain (${capped.mounted.state})`,
+		second.mounted.state === 'on' &&
+			third.mounted.state === 'on' &&
+			capped.mounted.state === 'over the game cap' &&
+			slots.drawing === 3,
+	);
+	const applier = bindEffectParams({
+		params: tinted.params,
+		layer: tintedLayer,
+		emitter: on.emitter,
+		material: onMaterial,
+	});
+	for (const l of [on, second, third, capped]) l.step(50);
+	claim(
+		'a capped layer is a layer with no material: its sprites sit in the host itself',
+		capped.mounted.material === undefined &&
+			capped.host.children.length > 0 &&
+			capped.host.children.every((c) => c instanceof Sprite),
+	);
+	renderer.render(app.stage);
+	const tintRed = readCanvas();
+	const meshBefore = meshOf(on.host);
+	const shaderBefore = meshBefore?.shader;
+	const childrenBefore = [...on.host.children];
+	const particlesBefore = [...(onMaterial?.particles.children ?? [])];
+	claim(
+		'the material layer draws through its mesh, its sprites hidden',
+		!!meshBefore && meshBefore.visible && onMaterial?.particles.visible === false,
+	);
+	claim('the capped layer still draws its sprites', compare(tintRed, tintRed, 3).drawn > 500);
+	// Another material layer's own draw, alone on the canvas: layer 0's particles spawn near its cell's
+	// edge and, scaled and turned, reach into cell 1, so the whole canvas cannot say whose pixels moved.
+	const hosts = [on, second, third, capped].map((l) => l.host);
+	const drawnAlone = (host: Container): Read => {
+		for (const h of hosts) h.visible = h === host;
+		renderer.render(app.stage);
+		const read = readCanvas();
+		for (const h of hosts) h.visible = true;
+		return read;
+	};
+	const secondBefore = drawnAlone(second.host);
+	const firstBefore = drawnAlone(on.host);
+	applier?.apply({ hue: '#20ff20' });
+	onMaterial?.sync(renderer);
+	renderer.render(app.stage);
+	const tintGreen = readCanvas();
+	const changed = compare(tintRed, tintGreen, 0);
+	game.paramWrite = { drawn: changed.drawn, changed: changed.over };
+	claim(
+		`a \`material.param.*\` drive changes the pixels (${changed.over} of ${changed.drawn} drawn)`,
+		changed.over > 200,
+	);
+	claim(
+		'…by a uniform write: the same mesh, shader, children and particles (no rebuild, no re-init)',
+		meshOf(on.host) === meshBefore &&
+			meshBefore?.shader === shaderBefore &&
+			on.host.children.every((c, i) => c === childrenBefore[i]) &&
+			onMaterial?.particles.children.every((p, i) => p === particlesBefore[i]) === true &&
+			particlesBefore.length > 0,
+	);
+	onMaterial?.sync(renderer);
+	const secondAfter = drawnAlone(second.host);
+	const others = compare(secondBefore, secondAfter, 1);
+	const spill = compare(firstBefore, firstBefore, 1).drawn;
+	game.otherLayer = {
+		drawn: others.drawn,
+		changed: others.over,
+		canvasChanged: compare(tintRed, tintGreen, 1).over,
+		firstLayerPxInItsCell: spill,
+	};
+	claim(
+		`another material layer's own draw is untouched by the drive (${others.over} of ${others.drawn} px changed)`,
+		others.over === 0 && others.drawn > 500,
+	);
+
+	for (const l of [second, third]) {
+		l.emitter.destroy();
+		l.mounted.release();
+	}
+	capped.emitter.destroy();
+	capped.mounted.release();
+	claim(`releasing gives the slots back (${slots.drawing} drawing)`, slots.drawing === 1);
+	const twoSources = mountLayer(1, base([]), [frame('static'), other], { kind: 'custom:alone' });
+	claim(
+		`refused at mount: plain (${twoSources.mounted.state}), nothing left in the host, the slot given back`,
+		twoSources.mounted.state === 'frames on several textures' &&
+			twoSources.mounted.material === undefined &&
+			twoSources.host.children.length === 0 &&
+			slots.drawing === 1,
+	);
+	const overCap = mountLayer(
+		2,
+		base([], { maxParticles: PARTICLE_MATERIAL_CAPACITY + 1 }),
+		[frame('static')],
+		{
+			kind: 'custom:alone',
+		},
+	);
+	claim(
+		'Max particles over the cap: plain at mount, the slot given back',
+		overCap.mounted.state === 'over capacity' && slots.drawing === 1,
+	);
+	const sized = mountLayer(3, base([], { maxParticles: 20, frequency: 0.01 }), [frame('static')], {
+		kind: 'custom:alone',
+		peakParticles: 200,
+	});
+	sized.emitter.maxParticles = 200;
+	sized.step(60);
+	const sizedLive = sized.mounted.material?.particles.children.length ?? 0;
+	claim(
+		`a buffer sized to a drive's peak stays on when the drive raises Max particles (${sizedLive} live)`,
+		sized.mounted.material?.plain === undefined && sizedLive > 20,
+	);
+	const drivable = mountLayer(5, base([], { maxParticles: 200 }), [frame('static')], {
+		kind: 'custom:alone',
+		peakParticles: 2000,
+		label: 'drivable',
+	});
+	const unboundedDrive = mountLayer(6, base([], { maxParticles: 200 }), [frame('static')], {
+		kind: 'custom:alone',
+		peakParticles: Infinity,
+	});
+	drivable.emitter.maxParticles = 2000;
+	drivable.step(60);
+	unboundedDrive.step(60);
+	renderer.render(app.stage);
+	const drivableRead = readCanvas();
+	claim(
+		`Max particles drivable past 512: plain from mount (${drivable.mounted.state}), its sprites drawing, its slot never taken`,
+		drivable.mounted.state === 'Max particles can be driven over 512' &&
+			drivable.mounted.material === undefined &&
+			compare(drivableRead, drivableRead, 5).drawn > 500 &&
+			slots.drawing === 2,
+	);
+	claim(
+		`Max particles driven with no bound: plain from mount (${unboundedDrive.mounted.state})`,
+		unboundedDrive.mounted.state === 'Max particles driven with no bound' &&
+			compare(drivableRead, drivableRead, 6).drawn > 500,
+	);
+	const failing = mountLayer(4, base([]), [frame('static')], {
+		kind: 'custom:broken',
+		label: 'x/broken',
+	});
+	const failingWasOn = failing.mounted.state === 'on';
+	const drawingBefore = slots.drawing;
+	console.warn = () => {};
+	console.error = () => {};
+	failing.step(30);
+	console.warn = warn;
+	console.error = report;
+	renderer.render(app.stage);
+	const failRead = readCanvas();
+	claim(
+		'a program that fails while playing turns plain, draws its sprites and gives its slot back',
+		failingWasOn &&
+			failing.mounted.material?.plain === 'program does not link' &&
+			slots.drawing === drawingBefore - 1 &&
+			compare(failRead, failRead, 4).drawn > 500,
+	);
+	console.log = log;
+	game.debug = debugLines;
+	claim(
+		`?fxdebug=1 names each material layer's state and kind (${debugLines.length} lines)`,
+		debugLines.some((l) => l.includes('embers/main: on (custom:pulsetint')) &&
+			debugLines.some((l) => l.includes('d: plain, over the game cap (custom:alone')) &&
+			debugLines.some((l) => l.includes('plain, frames on several textures')) &&
+			debugLines.some((l) => l.includes('x/broken: plain while playing, program does not link')),
+	);
+	for (const l of [on, twoSources, overCap, sized, drivable, unboundedDrive, failing]) {
+		l.emitter.destroy();
+		l.mounted.release();
+	}
+	claim(`every slot is back at the end (${slots.drawing})`, slots.drawing === 0);
+	setCustomElementFx([]);
+	app.stage.removeChildren();
+
 	// --- steady state: 20,000 frames reallocate nothing after warm-up ---
 	const small = RenderTexture.create({ width: 128, height: 128 });
 	const churn = layer(
@@ -992,6 +1280,7 @@ interface Cell {
 		dumps,
 		inputs,
 		plain,
+		game,
 		steady: { frames: FRAMES, ms: steadyMs, peak, ...counts, same },
 		sync: { particles: mirrored, ms: syncMs },
 		errors,
