@@ -225,6 +225,13 @@
       "when": 1791387950007,
       "tag": "0031_director_drop_preset_json",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1793006662255,
+      "tag": "0032_bug_reports",
+      "breakpoints": true
     }
   ]
 }

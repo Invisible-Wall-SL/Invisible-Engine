@@ -204,6 +204,18 @@ export const TOOL_ICONS: Record<string, string> = {
 			'<circle cx="17.25" cy="9" r="2"/><path d="M6.75 7.25v9.5"/>' +
 			'<path d="M17.25 11c0 3.75-5.25 3.75-10.5 5.25"/>',
 	),
+	// a bug (legs, antennae, a split shell)
+	pipelineBugs: I(
+		'<path d="M9 7.5a3 3 0 0 1 6 0"/><rect x="7" y="7.5" width="10" height="12.5" rx="5"/>' +
+			'<path d="M12 11v9"/><path d="M7 12H3.5"/><path d="M17 12h3.5"/><path d="M7.5 16.5 4 18.5"/>' +
+			'<path d="M16.5 16.5l3.5 2"/><path d="M9.5 5 8 3"/><path d="M14.5 5 16 3"/>',
+	),
+	// a bug on a game screen
+	gameBugs: I(
+		'<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>' +
+			'<rect x="10" y="8" width="4" height="6" rx="2"/><path d="M8 10h2"/><path d="M14 10h2"/>' +
+			'<path d="M8 12.5h2"/><path d="M14 12.5h2"/>',
+	),
 };
 
 /** Registry of every tool the platform knows about. */
@@ -433,6 +445,28 @@ export const TOOLS: Record<string, ToolDef> = {
 		icon: TOOL_ICONS.pipelineChanges,
 		isNew: true,
 	},
+	pipelineBugs: {
+		id: 'pipelineBugs',
+		name: 'Invisible Pipeline Bug Reports',
+		barName: 'Pipeline bugs',
+		description:
+			'Report a bug in a tool, the engine or the launcher with screenshots, triage it, and send it to Pipeline Changes to be fixed.',
+		kind: 'online',
+		url: '/bugs',
+		icon: TOOL_ICONS.pipelineBugs,
+		isNew: true,
+	},
+	gameBugs: {
+		id: 'gameBugs',
+		name: 'Invisible Game Bug Reports',
+		barName: 'Game bugs',
+		description:
+			"The project's own bug list: report what is wrong in this game with screenshots, set its priority and status, and copy a fix prompt about the game alone.",
+		kind: 'online',
+		url: '/game-bugs',
+		icon: TOOL_ICONS.gameBugs,
+		isNew: true,
+	},
 };
 
 /**
@@ -517,7 +551,7 @@ export const TOOL_STAGES: ToolStage[] = [
 		id: 'build',
 		label: 'Build',
 		accent: '#6ea8ff',
-		tools: ['editor', 'flow', 'symbols', 'componentEditor', 'winText', 'localization'],
+		tools: ['editor', 'flow', 'symbols', 'componentEditor', 'winText', 'localization', 'gameBugs'],
 	},
 	{
 		id: 'reference',
@@ -525,7 +559,12 @@ export const TOOL_STAGES: ToolStage[] = [
 		accent: '#9aa4b8',
 		tools: ['spineViewer', 'storybook', 'ftpBrowser'],
 	},
-	{ id: 'pipeline', label: 'Pipeline', accent: '#f778ba', tools: ['pipelineChanges'] },
+	{
+		id: 'pipeline',
+		label: 'Pipeline',
+		accent: '#f778ba',
+		tools: ['pipelineChanges', 'pipelineBugs'],
+	},
 ];
 
 /** The stage a tool belongs to, or `undefined` if it isn't placed in one. */
@@ -584,6 +623,8 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'sound',
 		'ftpBrowser',
 		'storybook',
+		'pipelineBugs',
+		'gameBugs',
 	],
 	artist: [
 		'atlasTool',
@@ -602,8 +643,10 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'componentEditor',
 		'fontMaker',
 		'sound',
+		'pipelineBugs',
+		'gameBugs',
 	],
-	animator: ['spineViewer', 'rigger'],
+	animator: ['spineViewer', 'rigger', 'pipelineBugs', 'gameBugs'],
 	pipelineTester: [
 		'gameMaker',
 		'gameConfig',
@@ -625,9 +668,11 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'storybook',
 		'invisibleLauncher',
 		'pipelineChanges',
+		'pipelineBugs',
+		'gameBugs',
 	],
-	localizationReviewer: ['localization', 'winText'],
-	audio: ['sound', 'ftpBrowser', 'storybook', 'invisibleLauncher'],
+	localizationReviewer: ['localization', 'winText', 'pipelineBugs', 'gameBugs'],
+	audio: ['sound', 'ftpBrowser', 'storybook', 'invisibleLauncher', 'pipelineBugs', 'gameBugs'],
 };
 
 /**
@@ -706,6 +751,16 @@ export const SHADER_PUBLISH_CAPABILITY = 'shaderPublish';
  */
 export const SHADER_CUSTOM_GLSL_CAPABILITY = 'shaderCustomGlsl';
 
+/**
+ * Managed capability key for triaging bug reports, pipeline and game alike: changing a bug's
+ * priority or status and sending a pipeline bug to Invisible Pipeline Changes. Like `pipelineMerge`
+ * it is NOT a tool in `TOOLS`; it lives in the same override matrix. Every role reports bugs (the
+ * `pipelineBugs` and `gameBugs` tools); this
+ * capability is default-ON for the roles that fix and test them: `admin`, `developer` and
+ * `pipelineTester`.
+ */
+export const BUG_TRIAGE_CAPABILITY = 'bugTriage';
+
 /** Capabilities managed by the role matrix that are not entries in `TOOLS`. */
 export const CAPABILITIES: { key: string; name: string; isNew?: true }[] = [
 	{ key: ADMIN_PANEL_CAPABILITY, name: 'Admin panel' },
@@ -716,13 +771,14 @@ export const CAPABILITIES: { key: string; name: string; isNew?: true }[] = [
 	{ key: PIPELINE_MERGE_CAPABILITY, name: 'Merge pipeline changes', isNew: true },
 	{ key: SHADER_PUBLISH_CAPABILITY, name: 'Publish shared shader effects', isNew: true },
 	{ key: SHADER_CUSTOM_GLSL_CAPABILITY, name: 'Write custom GLSL in shader effects', isNew: true },
+	{ key: BUG_TRIAGE_CAPABILITY, name: 'Triage bug reports', isNew: true },
 ];
 
 /**
  * `ROLE_TOOLS` baseline for a capability key. Admin-only capabilities
  * (`adminPanel`, `blueprintPublish`, `fontPublish`, `gamePublish`,
  * `componentPublish`, `pipelineMerge`, `shaderPublish`, `shaderCustomGlsl`) default ON for `admin`
- * and OFF elsewhere.
+ * and OFF elsewhere; `bugTriage` also defaults ON for `developer` and `pipelineTester`.
  */
 function capabilityDefault(role: Role, key: string): boolean {
 	if (key === ADMIN_PANEL_CAPABILITY) return role === 'admin';
@@ -733,6 +789,9 @@ function capabilityDefault(role: Role, key: string): boolean {
 	if (key === PIPELINE_MERGE_CAPABILITY) return role === 'admin';
 	if (key === SHADER_PUBLISH_CAPABILITY) return role === 'admin';
 	if (key === SHADER_CUSTOM_GLSL_CAPABILITY) return role === 'admin';
+	if (key === BUG_TRIAGE_CAPABILITY) {
+		return role === 'admin' || role === 'developer' || role === 'pipelineTester';
+	}
 	return false;
 }
 
@@ -838,6 +897,8 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	sound: 'sound',
 	director: 'director',
 	pipelineChanges: 'pipeline-changes',
+	pipelineBugs: 'pipeline-bugs',
+	gameBugs: 'game-bugs',
 };
 
 /**

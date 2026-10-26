@@ -46,6 +46,7 @@ import {
 	getToolOverridesFor,
 	setToolOverride,
 } from '$lib/server/userToolAccess';
+import { deleteBugScreenshots } from '$lib/server/bugReports';
 import {
 	DEFAULT_PROJECT_KEY,
 	createProject,
@@ -819,7 +820,8 @@ export const actions: Actions = {
 			}
 			throw e;
 		}
-		await deleteProject(key);
+		const { gameBugs } = await deleteProject(key);
+		await deleteBugScreenshots(gameBugs);
 		return {
 			action: 'purgeProject',
 			ok: `Purged ${key}: ${purged.deleted} file${purged.deleted === 1 ? '' : 's'} deleted from ${purged.roots.join(' and ')}. This cannot be undone.`,

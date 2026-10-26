@@ -1,15 +1,19 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import { replaceState } from '$app/navigation';
+	import { bugRef, bugRefsIn } from '$lib/bugReports';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import { roleLabel } from '$lib/roles';
+	import type { BugSummary, LinkSync } from '$lib/server/bugReports';
 	import type { CatalogueView } from '$lib/blueprintCatalogue';
 	import type { AgentDetail, AgentList, AgentSummary } from '$lib/server/pipelineAgents';
 	import type { ChangeDetail, ChangeList, ChangeSummary } from '$lib/server/pipelineChanges';
 	import type { MergeHistory } from '$lib/server/pipelineMerge';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import type { PageData } from './$types';
+	import { syncText } from '../bugs/view';
 	import AgentPanel from './AgentPanel.svelte';
+	import BugsPanel from './BugsPanel.svelte';
 	import CataloguePanel from './CataloguePanel.svelte';
 	import ChangeDetailPanel from './ChangeDetailPanel.svelte';
 	import HistoryPanel from './HistoryPanel.svelte';
@@ -35,6 +39,7 @@
 		{ id: 'agents', label: 'Agents' },
 		{ id: 'history', label: 'History' },
 		{ id: 'catalogue', label: 'Catalogue' },
+		{ id: 'bugs', label: 'Bugs' },
 	] as const;
 
 	type TabId = (typeof TABS)[number]['id'];
@@ -81,6 +86,10 @@
 	let catalogueError = $state<string | null>(null);
 	let catalogueLoading = $state(false);
 	let catalogueSeq = 0;
+	let bugList = $state<{ bugs: BugSummary[]; sync: LinkSync } | null>(null);
+	let bugsError = $state<string | null>(null);
+	let bugsLoading = $state(false);
+	let bugsSeq = 0;
 	let refreshing = $state(false);
 	let now = $state(Date.now());
 	let listSeq = 0;
@@ -223,6 +232,25 @@
 		}
 	}
 
+	/** Read each time the Bugs tab is shown, and with every refresh while it is. */
+	async function loadBugs(): Promise<void> {
+		const seq = ++bugsSeq;
+		bugsLoading = true;
+		try {
+			const next = await getJson<{ bugs: BugSummary[]; sync: LinkSync }>('/api/pipeline/bugs');
+			if (seq !== bugsSeq) return;
+			bugList = next;
+			bugsError = null;
+		} catch (err) {
+			if (seq === bugsSeq) bugsError = errorText(err);
+		} finally {
+			if (seq === bugsSeq) {
+				bugsLoading = false;
+				now = Date.now();
+			}
+		}
+	}
+
 	/** The Agents tab reads nothing until it is first shown. */
 	function startAgents(): void {
 		if (agentsStarted) return;
@@ -242,6 +270,7 @@
 			];
 			if (historyShown) jobs.push(loadHistory());
 			if (tab === 'catalogue') jobs.push(loadCatalogue());
+			if (tab === 'bugs') jobs.push(loadBugs());
 			if (tab === 'agents') {
 				jobs.push(
 					loadAgentList(),
@@ -285,12 +314,12 @@
 	const agentUrl = (name: string): string => `/pipeline?agent=${encodeURIComponent(name)}`;
 
 	/**
-	 * The address follows the tab that holds a selection, and the Catalogue tab; leaving the
-	 * Catalogue clears its `?tab=`, and any other tab with no selection leaves the address alone.
+	 * The address follows the tab that holds a selection, and the Catalogue and Bugs tabs; leaving
+	 * either clears its `?tab=`, and any other tab with no selection leaves the address alone.
 	 */
 	function showTab(id: TabId): void {
 		tab = id;
-		if (id !== 'catalogue' && window.location.search.includes('tab=catalogue')) {
+		if (id !== 'catalogue' && id !== 'bugs' && window.location.search.includes('tab=')) {
 			// eslint-disable-next-line svelte/no-navigation-without-resolve
 			replaceState('/pipeline', {});
 		}
@@ -302,6 +331,10 @@
 			// A query on this same route: `resolve()` cannot carry one.
 			// eslint-disable-next-line svelte/no-navigation-without-resolve
 			replaceState('/pipeline?tab=catalogue', {});
+		} else if (id === 'bugs') {
+			void loadBugs();
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			replaceState('/pipeline?tab=bugs', {});
 		} else if (id === 'agents') {
 			startAgents();
 			if (selectedAgent !== null) {
@@ -360,6 +393,9 @@
 		if (t.id === 'catalogue' && catalogue) {
 			return `Catalogue · ${catalogue.rows.filter((r) => r.offered).length}`;
 		}
+		if (t.id === 'bugs' && bugList) {
+			return `Bugs · ${bugList.bugs.filter((b) => b.status === 'open' || b.status === 'working').length}`;
+		}
 		return t.label;
 	}
 
@@ -368,6 +404,7 @@
 		if (selected !== null) void loadDetail(selected, false);
 		if (tab === 'agents') startAgents();
 		if (tab === 'catalogue') void loadCatalogue();
+		if (tab === 'bugs') void loadBugs();
 		const timer = setInterval(() => {
 			if (document.visibilityState === 'visible') void refreshAll();
 		}, REFRESH_MS);
@@ -379,6 +416,7 @@
 
 {#snippet card(c: ChangeSummary)}
 	{@const pill = statusPill(c.status)}
+	{@const bugs = bugRefsIn(`${c.title}\n${c.branch}`)}
 	<button
 		type="button"
 		class="change"
@@ -392,10 +430,11 @@
 		</span>
 		<span class="change-title">{c.title}</span>
 		{#if c.status.kind === 'blocked'}<span class="change-blocked">{c.status.reason}</span>{/if}
-		{#if c.draft || c.agentDefinition}
+		{#if c.draft || c.agentDefinition || bugs.length}
 			<span class="tags">
 				{#if c.draft}<Pill tone="amber" tag>draft</Pill>{/if}
 				{#if c.agentDefinition}<Pill tone="amber" tag>agent definition</Pill>{/if}
+				{#each bugs as n (n)}<Pill tone="muted" tag>{bugRef(n)}</Pill>{/each}
 			</span>
 		{/if}
 		<span class="change-meta">Opened by {c.author || 'unknown'} · {timeAgo(c.openedAt, now)}</span>
@@ -604,6 +643,52 @@
 				/>
 			{:else if catalogueLoading}
 				<p class="loading" aria-busy="true">Loading the catalogue…</p>
+			{/if}
+		</div>
+
+		<div
+			id="panel-bugs"
+			role="tabpanel"
+			aria-labelledby="tab-bugs"
+			hidden={tab !== 'bugs'}
+			tabindex="0"
+			class="catalogue"
+		>
+			<div class="heading">
+				<h1>Bugs</h1>
+				<p>
+					Pipeline bugs triaged in Invisible Pipeline Bug Reports and sent here to be fixed, still
+					to do first. A fix is a pipeline change like any other: name the bug's <span class="mono"
+						>BUG-</span
+					>
+					number in the pull request's title or branch, and the bug shows Working on while it is
+					open and Resolved once it merges. <strong>Copy fix brief</strong> gives the report as text to
+					start from.
+				</p>
+			</div>
+			{#if bugsError}<div class="error" role="alert">{bugsError}</div>{/if}
+			{#if bugList}
+				{@const line = syncText(bugList.sync)}
+				{#if line}<p class="note">{line}</p>{/if}
+				{#if bugList.bugs.length}
+					<BugsPanel
+						bugs={bugList.bugs}
+						openChanges={new Set(list?.changes.map((c) => c.number) ?? [])}
+						canOpenBugs={data.tools.some((t) => t.id === 'pipelineBugs')}
+						{now}
+						onopenchange={openChange}
+					/>
+				{:else}
+					<div class="empty">
+						<strong>No bug has been sent here.</strong>
+						<p>
+							In Invisible Pipeline Bug Reports, someone who triages sends a bug here with
+							<strong>Send to Pipeline Changes</strong>.
+						</p>
+					</div>
+				{/if}
+			{:else if bugsLoading}
+				<p class="loading" aria-busy="true">Loading bugs…</p>
 			{/if}
 		</div>
 

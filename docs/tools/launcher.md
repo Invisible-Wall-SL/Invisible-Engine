@@ -54,11 +54,11 @@ registry lives in `apps/launcher-api/src/lib/roles.ts` (`TOOLS` = every tool;
 |---|---|---|
 | `admin` | Admin | all tools |
 | `developer` | Developer | every online tool except the Sheet Maker, Invisible Director and Invisible Pipeline Changes, plus the desktop Invisible Launcher |
-| `artist` | Artist | the art + authoring set: Atlas Maker, Sheet Maker, ComfyUI, Scene Editor, Flow, FX, Flipbook, Symbols SM, Component Editor, Font Maker, Game Config, Sound, Localization, Win Text, + the desktop Invisible Launcher |
-| `animator` | Animator | Invisible Rig Viewer, Invisible Rigger, an external rig editor |
-| `pipelineTester` | Pipeline Tester | the whole authoring + build chain to test it end to end (Game Maker, Game Config, Scene Editor, Flow, FX, Flipbook, Symbols SM, Component Editor, Atlas Maker, Sheet Maker, Font Maker, Sound, Rig Viewer, Localization, Win Text, FTP Browser, Storybook, desktop Invisible Launcher, Invisible Pipeline Changes) — **without** the publish capabilities or `pipelineMerge`, which stay admin-default |
-| `localizationReviewer` | Localization Reviewer | Invisible Localization, Invisible Win Text |
-| `audio` | Music / SFX | Invisible Sound (upload, audition and approve the game's music and SFX), Invisible FTP Browser, Invisible Storybook, desktop Invisible Launcher |
+| `artist` | Artist | the art + authoring set: Atlas Maker, Sheet Maker, ComfyUI, Scene Editor, Flow, FX, Shader Graph, Flipbook, Symbols SM, Component Editor, Font Maker, Game Config, Sound, Localization, Win Text, + the desktop Invisible Launcher, + both bug lists (Invisible Pipeline Bug Reports, Invisible Game Bug Reports) |
+| `animator` | Animator | Invisible Rig Viewer, Invisible Rigger, an external rig editor, + both bug lists |
+| `pipelineTester` | Pipeline Tester | the whole authoring + build chain to test it end to end (Game Maker, Game Config, Scene Editor, Flow, FX, Shader Graph, Flipbook, Symbols SM, Component Editor, Atlas Maker, Sheet Maker, Font Maker, Sound, Rig Viewer, Localization, Win Text, FTP Browser, Storybook, desktop Invisible Launcher, Invisible Pipeline Changes, both bug lists) — **without** the publish capabilities or `pipelineMerge`, which stay admin-default; **with** Triage bug reports (`bugTriage`), as `admin` and `developer` have it |
+| `localizationReviewer` | Localization Reviewer | Invisible Localization, Invisible Win Text, + both bug lists |
+| `audio` | Music / SFX | Invisible Sound (upload, audition and approve the game's music and SFX), Invisible FTP Browser, Invisible Storybook, desktop Invisible Launcher, + both bug lists |
 
 Tools are typed `online` (opened in the browser) or `local` (installed on your
 machine). Online tool cards are clickable and link straight into the tool;

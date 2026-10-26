@@ -8,11 +8,13 @@ import {
 	jsonb,
 	pgTable,
 	primaryKey,
+	serial,
 	text,
 	timestamp,
 	uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import type { BugKind, BugPriority, BugStatus, LinkState } from '$lib/bugReports';
 import type { Role } from '$lib/roles';
 
 export const users = pgTable('users', {
@@ -833,6 +835,147 @@ export const pipelineMerges = pgTable(
 	],
 );
 
+/**
+ * Bug reports, pipeline and game alike: one row per reported bug, known to people as `BUG-<number>`
+ * (one numbering for both kinds). `kind` says which tool it lives in (`$lib/bugReports.ts`): a
+ * `pipeline` bug in Invisible Pipeline Bug Reports, a `game` bug in its project's Invisible Game Bug
+ * Reports — a game bug always names its project, and is never sent to Pipeline Changes. The reporter
+ * is a snapshot (`reporter`, the name at the time) beside the user id, like an approval: the report
+ * outlives a renamed or deleted account. `priority` is null until someone sets one. `status_auto`
+ * says the status was last set by a linked pull request rather than a person, which is what lets a
+ * closed pull request put an automatic Working on back to Open (`autoStatus`). `revision` counts
+ * edits of the text, so two people editing the description at once cannot overwrite each other;
+ * a status, priority or comment does not bump it. `sent_at` is when it was sent to Invisible
+ * Pipeline Changes; null when it is not there.
+ */
+export const bugReports = pgTable(
+	'bug_reports',
+	{
+		number: serial('number').primaryKey(),
+		kind: text('kind').$type<BugKind>().notNull().default('pipeline'),
+		title: text('title').notNull(),
+		description: text('description').notNull().default(''),
+		/** Per kind (`isBugArea`): a tool id or `engine` / `launcher` / `other`, or a part of a game. */
+		area: text('area').notNull(),
+		projectKey: text('project_key').references(() => projects.key, { onDelete: 'set null' }),
+		/** Where it happened, as the reporter gave it; http(s) only. */
+		pageUrl: text('page_url'),
+		reporterId: text('reporter_id').notNull(),
+		reporter: text('reporter').notNull(),
+		priority: text('priority').$type<BugPriority>(),
+		status: text('status').$type<BugStatus>().notNull().default('open'),
+		/** Who set the status last: a name, or `#<n>` when a linked pull request did. */
+		statusBy: text('status_by'),
+		statusAt: timestamp('status_at', { withTimezone: true }),
+		statusAuto: boolean('status_auto').notNull().default(false),
+		sentAt: timestamp('sent_at', { withTimezone: true }),
+		sentBy: text('sent_by'),
+		revision: integer('revision').notNull().default(1),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		index('bug_reports_kind_project_idx').on(table.kind, table.projectKey),
+		index('bug_reports_sent_at_idx').on(table.sentAt),
+		check('bug_reports_kind_check', sql`${table.kind} in ('pipeline', 'game')`),
+		check(
+			'bug_reports_game_project_check',
+			sql`${table.kind} <> 'game' or ${table.projectKey} is not null`,
+		),
+		check(
+			'bug_reports_status_check',
+			sql`${table.status} in ('open', 'working', 'resolved', 'wontFix')`,
+		),
+		check(
+			'bug_reports_priority_check',
+			sql`${table.priority} is null or ${table.priority} in ('critical', 'high', 'medium', 'low')`,
+		),
+	],
+);
+
+/**
+ * A bug's screenshots. The bytes live in R2 at `_bugs/<number>/<id>.<ext>` (no shipped asset class
+ * reads `_bugs/`); the row is what lists them, so an object the row does not name is never served.
+ */
+export const bugReportScreenshots = pgTable(
+	'bug_report_screenshots',
+	{
+		id: text('id').primaryKey(),
+		bugNumber: integer('bug_number')
+			.notNull()
+			.references(() => bugReports.number, { onDelete: 'cascade' }),
+		/** The object's basename, `<id>.<ext>`. */
+		file: text('file').notNull(),
+		mediaType: text('media_type').notNull(),
+		bytes: integer('bytes').notNull(),
+		uploadedById: text('uploaded_by_id').notNull(),
+		uploadedBy: text('uploaded_by').notNull(),
+		uploadedAt: timestamp('uploaded_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [index('bug_report_screenshots_bug_idx').on(table.bugNumber)],
+);
+
+export type BugEventKind =
+	| 'reported'
+	| 'edited'
+	| 'comment'
+	| 'priority'
+	| 'status'
+	| 'sent'
+	| 'unsent'
+	| 'screenshot_added'
+	| 'screenshot_removed'
+	| 'linked';
+
+/**
+ * A bug's activity, append-only: who did what and when. `actor_id` is null for what the launcher
+ * did by itself (a linked pull request moving the status); `actor` is then `Pipeline Changes`.
+ */
+export const bugReportEvents = pgTable(
+	'bug_report_events',
+	{
+		id: bigserial('id', { mode: 'number' }).primaryKey(),
+		bugNumber: integer('bug_number')
+			.notNull()
+			.references(() => bugReports.number, { onDelete: 'cascade' }),
+		at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+		kind: text('kind').$type<BugEventKind>().notNull(),
+		actorId: text('actor_id'),
+		actor: text('actor').notNull(),
+		data: jsonb('data').$type<Record<string, unknown>>().notNull().default({}),
+	},
+	(table) => [
+		index('bug_report_events_bug_idx').on(table.bugNumber, table.id),
+		check(
+			'bug_report_events_kind_check',
+			sql`${table.kind} in ('reported', 'edited', 'comment', 'priority', 'status', 'sent', 'unsent', 'screenshot_added', 'screenshot_removed', 'linked')`,
+		),
+	],
+);
+
+/**
+ * The pull requests that name a bug (`BUG-<n>` in their title, branch or body), with the state
+ * GitHub last answered. A row changes only when that state does, and that change is what moves the
+ * bug's status (`autoStatus`).
+ */
+export const bugReportLinks = pgTable(
+	'bug_report_links',
+	{
+		bugNumber: integer('bug_number')
+			.notNull()
+			.references(() => bugReports.number, { onDelete: 'cascade' }),
+		prNumber: integer('pr_number').notNull(),
+		title: text('title').notNull(),
+		url: text('url').notNull(),
+		state: text('state').$type<LinkState>().notNull(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.bugNumber, table.prNumber] }),
+		check('bug_report_links_state_check', sql`${table.state} in ('open', 'merged', 'closed')`),
+	],
+);
+
 export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type ToolInstall = typeof toolInstalls.$inferSelect;
@@ -858,3 +1001,7 @@ export type DirectorOp = typeof directorOps.$inferSelect;
 export type DirectorAtlasJob = typeof directorAtlasJobs.$inferSelect;
 export type PipelineApproval = typeof pipelineApprovals.$inferSelect;
 export type PipelineMerge = typeof pipelineMerges.$inferSelect;
+export type BugReport = typeof bugReports.$inferSelect;
+export type BugReportScreenshot = typeof bugReportScreenshots.$inferSelect;
+export type BugReportEvent = typeof bugReportEvents.$inferSelect;
+export type BugReportLink = typeof bugReportLinks.$inferSelect;

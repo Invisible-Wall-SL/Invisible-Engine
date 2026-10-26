@@ -37,8 +37,10 @@ full-page — never in an iframe). Local tools you install on your own machine.
 | **Invisible Win Text**                        | `/win-text`                                                                              | admin · developer · artist · pipeline tester · localization reviewer | [win-text.md](win-text.md)                            |
 | **Invisible Game Config**                     | `/config`                                                                                | admin · developer · artist · pipeline tester                         | [game-config.md](game-config.md)                      |
 | **Invisible Localization**                    | `/localization`                                                                          | admin · developer · artist · pipeline tester · localization reviewer | [localization.md](localization.md)                    |
+| **Invisible Game Bug Reports**                | `/game-bugs` (the active project; `?project=<key>`)                                      | all roles (triage: admin · developer · pipeline tester)              | [game-bugs.md](game-bugs.md)                          |
 | **Invisible FTP Browser**                     | `/files`                                                                                 | admin · developer · pipeline tester · music/SFX                      | [ftp-browser.md](ftp-browser.md)                      |
 | **Invisible Pipeline Changes** (early access) | `/pipeline`                                                                              | admin · pipeline tester (merging, rolling back: admin)               | [pipeline-changes.md](pipeline-changes.md)            |
+| **Invisible Pipeline Bug Reports**            | `/bugs`                                                                                  | all roles (triage: admin · developer · pipeline tester)              | [pipeline-bugs.md](pipeline-bugs.md)                  |
 
 ## Local tools (install on your machine)
 
