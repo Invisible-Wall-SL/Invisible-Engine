@@ -947,8 +947,10 @@ game, bundle or screen changes.
 
 ## Recent changes
 
-- 2026-10-26 — **P10.9b built: rulers and guides** (in review). Detail in
+- 2026-10-26 — **P10.9b built: rulers and guides** (in review, #1368). Detail in
   [editor status](editor.md) 2026-10-26.
+- 2026-10-26 — **P10.9c built: the Graph Editor** (merged, #1371). Detail in
+  [cinematic status](cinematic.md) 2026-10-26.
 
 - 2026-10-25 — **P10.8 built: arcade, rules-decided.** `motion.js`, the fixed-step loop, tags,
   `ARCADE_VOCAB` and its starter (a salmon dodger), `<ArcadeStage />`, the arcade scene set in Game

@@ -431,6 +431,22 @@ svelte-check at baseline, and the current games building with no changed screen.
      - 20,000 frames reallocate nothing after warm-up;
      - the CPU time to sync 512 particles is logged.
    - **Exit:** parity and the per-particle inputs proven headless.
+   - **As built** (#TBD):
+     - **API.** `new ParticleMaterial({ host, effect, maxParticles, textures, time, intensity,
+       params, emitSpeed })` (`pixi-svelte/particleMaterial`); `particles` is the emitter's parent,
+       `bindConfig` adds `fxMaterial`, `sync(renderer)` after `emitter.update`, `plain` says why a
+       layer is plain.
+     - **Capacity** is the layer's Max particles at mount, capped at 512, not always 512. A drive
+       raising it later turns the layer plain (8d.3 to settle).
+     - **Plain for good** once a layer fails while playing (live over capacity, another texture
+       source, a link failure). "Not WebGL" is a fallback beyond §6.
+     - **Tolerance.** Where the two quads match, the twins' rule. Where the material's quad is the
+       padded frame and the sprite's the trimmed box, 0.6 % of pixels (SwiftShader snaps corners
+       to 1/16 px), held honest by a negative control a quarter texel off that must fail.
+     - **Settled from §13:** hidden sprites do not count in a node's bounds; group alpha and tint
+       below 1 match the sprites.
+     - **Upload.** WebGL2 uploads only the live part; WebGL1 the whole buffer (Pixi's 5-argument
+       `bufferSubData`), sized to the layer.
 3. **The material in the game** (engine).
    - **Contents:**
      - `EmitterLayer.material`: schema, normalizer and validation;

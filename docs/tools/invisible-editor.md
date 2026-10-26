@@ -1514,9 +1514,27 @@ the value travels from each selected key to the next one.
 - **Bounce**: lands on the next key and bounces a few times, never going past it, like a gem
   dropping into place.
 
+Under those buttons sit five presets, each a ready-made Cubic: **Ease in**, **Ease out**, **Ease
+in-out**, **Overshoot** and **Anticipate** (hover one for its four numbers).
+
 **Set as default** makes the selected key's interpolation the one every new key in this timeline
 gets; with nothing selected the panel shows and edits that default. An older timeline's *ease in-out*
 keys show as Cubic `0.333, 0, 0.667, 1`, which is the same curve.
+
+**Graph Editor.** A number field's row (x, y, scale ×, rotation, alpha, a camera field; not tint
+or another colour) has a **📈** button by its name. It opens a **graph row** under the field (click
+it again to close it): the field's value over time, on the same time axis and zoom as the
+timeline, with its keys as dots, and the highest and lowest value in the gutter.
+- **Click a dot** to select that key, as you would its diamond; the Interpolation panel shows it.
+  Shift- or Ctrl-click adds or removes it.
+- **Shape a Cubic.** When the selected key's interpolation is **Cubic**, its curve to the next key
+  gets two handles. Drag them: the curve still runs from this key to the next one in the same
+  time, but its value may overshoot. One drag is one undo step. Linear, Hold, Elastic and Bounce
+  draw their curve with no handles, so pick **Cubic** or a preset first. A key with no next key,
+  or with the same value as the next one, has no handles either.
+
+The graph is drawn by the same maths the game plays, so the curve you see is the motion you get.
+It edits the key's ordinary Cubic, so nothing about the saved timeline changes.
 
 **Loop type and fps.** Next to the length in the header: **One-shot** (plays once and holds its last
 frame, the default), **Loop** (back to the start) or **Ping-pong** (to the end and back). ▶ plays it
