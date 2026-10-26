@@ -15,7 +15,8 @@ step 7 (editor v2: subgraphs, node thumbnails, cost chips, publishing to the stu
 merged (#1342), and so are 8b, Break as an output node (#1347), and 8c, the admin-only Custom
 GLSL node (#1349). 8d (particle materials) is decided
 ([design](../design/shader-graph-particles.md)) and being built as 8d.1–8d.8; 8d.1 (the particle
-shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is next.
+shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is built and in
+review; 8d.3 (the material in the game) is next.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -279,8 +280,39 @@ shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is 
 - **Step 8** (the plan's "Later", split into 8a–8e in design §8). 8e not started.
   - **8d, particle materials for Invisible FX.** Decided 2026-10-25
     (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
-    shader). Built as 8d.1–8d.8, one PR each (its §15). Nothing plays a material yet: that starts
-    with 8d.2 (the renderer) and reaches a game in 8d.3.
+    shader). Built as 8d.1–8d.8, one PR each (its §15). Nothing plays a material yet: the renderer
+    exists (8d.2) and reaches a game in 8d.3.
+    - **8d.2, the material renderer.** Built, in review.
+      - **`ParticleMaterial`** (`packages/pixi-svelte/src/lib/particleMaterial/`, plain TS, the
+        `pixi-svelte/particleMaterial` subpath; the package root does not export it, so no game
+        bundle changes). It owns a hidden container (`particles`) the emitter spawns into and one
+        `Mesh` drawn through `particleShellSource(effect)`. `bindConfig(config)` adds `fxMaterial`
+        to the bound config; `sync(renderer)` runs after `emitter.update` and mirrors the hidden
+        children in order into one interleaved buffer (stride 27 floats off `PARTICLE_ATTRIBUTES`,
+        `aPosition` at offset 0): corners from each particle's `updateLocalTransform()`, anchor,
+        orig and trim, grown by the padding; the atlas mapping (rotated and trimmed frames as
+        `Texture.updateUvs` builds them); tint × alpha premultiplied; progress (Life: `agePercent`;
+        Loop: wall seconds ÷ the effect's length, wrapped), wall seconds (age ÷ emit speed),
+        strength, seed and indexes. `setParams` / `setIntensity` / `setTime` write uniforms.
+      - **Draws only the live quads** (`Geometry.indexCount` = live × 6; the mesh is hidden at 0,
+        since an index count of 0 draws the whole buffer); bounds are the live quads'
+        (a `Geometry` subclass), so the hidden sprites never count in `getLocalBounds()`;
+        `eventMode = 'none'`; blend from the particles; no allocation after warm-up. WebGL2 uploads
+        only the live part; WebGL1's `bufferSubData` uploads the whole buffer, sized to the layer.
+      - **Capacity** is the layer's Max particles at mount, capped at 512, read as the library
+        reads it (a fraction rounds up; not a positive number = 1000, so plain).
+      - **Fails closed, never invisible** (the sprites shown, no mesh): not WebGL; no effect or a
+        body the shell refuses; frames on several texture sources; over capacity at mount; and,
+        for good once seen while playing, a live count over capacity, a frame on another source,
+        or a program that does not link (the first-use check reuses `programLinks` from
+        `elementFx/shaders.ts`, logged once per program). `destroy` destroys its `Shader`, whose
+        bind group otherwise stays listening on the shared atlas source.
+      - **`fxMaterial`** (`packages/engine-fx/src/material.ts`): an init behaviour, registered by
+        `registerFxBehaviors` but not in the authored `FX_BEHAVIOR_TYPES`, injected by
+        `bindFxMaterial` so the stored config stays pure. Once per spawn wave it writes each
+        particle's `fxSeed` (a whole number 0…97, so the varying stays exact even at mediump),
+        `fxWave` (place ÷ (size − 1)) and `fxOrder` (spawn number ÷ the live Max particles,
+        wrapping); recycle resets them. `rigger-fx.js` rebuilt.
     - **8d.1, the particle shell and the Particle node.** Merged (#1354, 2026-10-26).
       - **The shell** (`packages/constants-shared/particleShell.ts`, dependency-free):
         `PARTICLE_VERTEX` for a Pixi 8.22 `Mesh` custom shader, `PARTICLE_HEADER` defining all 12
@@ -425,18 +457,18 @@ shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is 
       defaults.
 
 ## Open items / next
-1. **Step 8d.2 (next): the material renderer** (design §15 step 2). Carried from 8d.1:
-   - one interleaved buffer, `aPosition` at offset 0 with an explicit stride; collapse unused
-     capacity or set the bounds, and draw only the live quads with `Geometry.indexCount`;
-   - keep the mesh non-interactive (`containsPoint` assumes packed positions); set `mesh.texture`
-     to the atlas texture so the blend is right;
-   - the attribute data: the mapping for rotated frames, per-axis padding, wall-time seconds and
-     Loop mode in `aEfxTime`, seed and indexes from `fxMaterial`;
-   - **quantise seeds to integers at spawn**: `uSeed` is now an interpolated varying, equal at all
-     four corners, so exact on SwiftShader; a GPU that interpolates with an ulp of error (or falls
-     back to mediump) under a hash would speckle inside one particle. Add it to 8d.8's phone check;
-   - the first-use link check, the Output-alone parity against plain sprites, and a group alpha or
-     tint below 1.
+1. **Step 8d.3 (next): the material in the game** (design §15 step 3). Carried from 8d.2:
+   - wire `ParticleMaterial` into `<ParticleEmitter>` / `<EffectLayer>`: `bindConfig` wraps
+     `bindArt`'s result, `sync(renderer)` runs right after `emitter.update`; any re-init of the
+     emitter must go through `bindConfig`, or `fxMaterial` drops out (new particles get seed 0),
+     and a re-init restarts spawn order at 0;
+   - capacity is fixed at mount: a drive raising Max particles above its mount value turns the layer
+     plain. Size it from the exposed param's range, or accept it;
+   - emit speed is read once (`secondsPerAge`); add a setter if speed can change while playing;
+   - the measured load meter (§10, Σ quad area × cost) is not built; the mirror has the corners
+     (8d.5).
+   - For 8d.8's phone check: integer seeds through a hash; WebGL1's whole-buffer upload per frame;
+     the parity tolerance (below) is SwiftShader's, not a phone's.
 2. **Step 8c follow-ups.**
    - The test-compile runs in the author's browser only (the server has no GPU), so a phone's
      driver may still refuse a body the author's took; the runtime then draws the element as it is
@@ -489,6 +521,34 @@ shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is 
 - None.
 
 ## Recent changes
+- 2026-10-26 — **Step 8d.2: the material renderer** (see "Current state"). Step 8d.1 merged
+  (#1354).
+  - **Proof.** `particle-material` (new, `tools/fx-spike/particleMaterial.mjs`, headless Chromium,
+    WebGL1 and WebGL2, in `check:all`):
+    - An Output-alone material against the plain sprite path over static, rotated, trimmed,
+      flipbook, `fxSprite` pivot and offset, tint, colour overlay, fade, Add, a group at alpha 0.55
+      tinted, a trimmed frame under padding, Max particles 10.3 (11 drawn) and resolution 2. Held to
+      the twins' rule (2 steps, 0.25 % of pixels, no patch) where the two quads are the same (peak
+      0.024 %). Where the material's quad is the whole padded frame and the sprite's the trimmed
+      box, SwiftShader's 1/16 px corner snapping puts one-pixel edge lines on different sides, so
+      the share there is 0.6 % (peaks 0.39–0.48 %, 0 patches; forcing the material's quad to the
+      trimmed box gives 0). A negative control (the trimmed box a quarter texel off) must fail
+      the comparator, and does (2.3–3.4 %, 12–33 patches).
+    - Each input read back at the particle: progress, seed, strength, loop off by 0 steps; wave,
+      order, seconds by 1; padding 0 px.
+    - 9 fallbacks draw plain with their sprites drawing, the failing program logged once; the atlas
+      keeps no listener after the layers are destroyed (17 before the fix).
+    - 20,000 frames at about 430 live: 0 `bufferData`, 0 `createBuffer`. Syncing 512 particles:
+      0.13–0.16 ms on SwiftShader (says nothing about a phone).
+    - Mutation-checked (24 mutations, each failing its claim).
+  - `material-behavior` (new, offline) 13; compile fixture 207; `check:element-fx`;
+    `shader-compile` 28 sheets; `check:vendored-bundles`; svelte-check at baseline (pixi-svelte
+    14); `check:all` CHECKALL.
+  - **Review.** Nothing blocking. Fixed: the mesh's `Shader` was never destroyed (`Mesh.destroy`
+    only drops it), leaving a listener on the shared atlas per mount; a fractional Max particles
+    threw and a NaN one drew nothing with the sprites hidden; the parity gate's edge share (1 %)
+    let a quarter-texel trim error pass in many cells, now 0.6 % with the negative control; added
+    the trimmed + padded, mid-play second texture and resolution 2 cases.
 - 2026-10-25 — **Step 8d.1: the particle shell and the Particle node** (see "Current state").
   Merged (#1354, 2026-10-26): CI green, Current games 12 pass with no changed screen.
   - **Proof.** Compile fixture 207 (14 new: the shell's layout, every helper defined, the node at

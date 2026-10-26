@@ -41,7 +41,10 @@ You are the developer for **Invisible Shader Graph**.
     `PARTICLE_SHELL_NAMES`, `particleShellSource`: a compiled body made a particle fragment); the
     `particle` input node and the `efxParticleColor` / `Wave` / `Order` header helpers (neutral in
     the element `HEADER`); held by the `particles` sheet of `shader-compile`
-    (`tools/fx-spike/shaderParticles.entry.ts`).
+    (`tools/fx-spike/shaderParticles.entry.ts`); the renderer `ParticleMaterial`
+    (`packages/pixi-svelte/src/lib/particleMaterial/`, the `pixi-svelte/particleMaterial` subpath)
+    and the `fxMaterial` behaviour (`packages/engine-fx/src/material.ts`), held by
+    `pnpm --filter fx-spike particle-material` and `material-behavior`.
   - `src/subgraph.ts` (step 7): `flattenShaderGraph` inlines every subgraph call (ids
     `<call>/<node>`, a typed pass-through per port) before the compiler sees the graph, and
     `liftIssues` reports inner issues on their call; `analyzeShaderSubgraph` analyses a body alone.
