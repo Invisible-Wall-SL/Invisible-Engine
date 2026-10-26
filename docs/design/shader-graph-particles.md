@@ -399,7 +399,7 @@ svelte-check at baseline, and the current games building with no changed screen.
      - `shader-compile` gains a `particles` sheet: every reference graph, twin and node body, built
        through the particle shell, compiles and links on WebGL1 and WebGL2.
    - **Exit:** those green; nothing plays differently.
-   - **As built** (#TBD):
+   - **As built** (#1354):
      - **Layout.** 7 vertex attributes (`aPosition` = corner + unit, `aEfxFrame` = size + seed,
        `aEfxMap`, `aEfxMap2` + wave and order, `aEfxTrim`, `aEfxColor`, `aEfxTime`; 27 floats,
        108 B a vertex) and 7 varying rows, inside WebGL1's guaranteed 8 and 8.
