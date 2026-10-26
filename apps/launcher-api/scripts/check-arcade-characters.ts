@@ -1192,22 +1192,22 @@ const offRoute = (b: { x: number; y: number }) => {
 	// `behaviours.js` gains but the config does not know would be dropped by the normalizer.
 	const same = (a: readonly unknown[], b: readonly unknown[]) =>
 		JSON.stringify(a) === JSON.stringify(b);
-	check('11. the config knows every behaviour the brain runs', same(ARCADE_BEHAVIOURS, BEHAVIOURS));
-	check('11. … and every condition', same(ARCADE_CONDITIONS, CONDITIONS));
+	check('12. the config knows every behaviour the brain runs', same(ARCADE_BEHAVIOURS, BEHAVIOURS));
+	check('12. … and every condition', same(ARCADE_CONDITIONS, CONDITIONS));
 	check(
-		'11. the controllers read the config’s input-map actions',
+		'12. the controllers read the config’s input-map actions',
 		same(ARCADE_CONTROLLER_ACTIONS, CONTROLLER_ACTIONS),
 	);
 	check(
-		'11. Flow’s control enum is the loop’s',
+		'12. Flow’s control enum is the loop’s',
 		same(ARCADE_CHARACTER_CONTROLS, CHARACTER_CONTROLS),
 	);
 	check(
-		'11. a random condition’s default beat agrees',
+		'12. a random condition’s default beat agrees',
 		DEFAULT_ARCADE_RANDOM_EVERY === RANDOM_EVERY,
 	);
 	check(
-		'11. the validator’s default chase / flee tag is the brain’s',
+		'12. the validator’s default chase / flee tag is the brain’s',
 		DEFAULT_ARCADE_TARGET_TAG === BEHAVIOUR_DEFAULTS.chase.tag &&
 			DEFAULT_ARCADE_TARGET_TAG === BEHAVIOUR_DEFAULTS.flee.tag,
 	);

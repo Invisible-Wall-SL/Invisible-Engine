@@ -14,10 +14,10 @@ import { ARCADE_FIELD, arcadeReferenceLayout } from './arcade';
  * `guard_idle` to `guard_run` on its `speed` number input, and an alert layer on its `chasing` bool;
  * the config's `animInputs` feeds both from the guard's motion and its brain.
  *
- * Played by the launcher's `check:arcade-characters` and `scripts/playtest/arcade-characters-play.mjs` with
- * `engine-flow-v2`'s `ARCADE_GUARD_SEED_DOC` and the config
- * `packages/engine-mechanics/fixtures/arcade-guard.rules.json`. Not a Game Maker kind, and not
- * exported from the package entry, so no game bundles it.
+ * Played by the launcher's `check:arcade-characters` and
+ * `scripts/playtest/arcade-characters-play.mjs` with `engine-flow-v2`'s `ARCADE_GUARD_SEED_DOC` and
+ * the config `packages/engine-mechanics/fixtures/arcade-guard.rules.json`. Not a Game Maker kind,
+ * and not exported from the package entry, so no game bundles it.
  */
 
 /** The components, by role. */
