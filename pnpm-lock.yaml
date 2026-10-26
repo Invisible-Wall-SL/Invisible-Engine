@@ -134,8 +134,8 @@ importers:
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
       chromatic:
-        specifier: 11.26.1
-        version: 11.26.1
+        specifier: 18.13.3
+        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../../packages/config-lingui
@@ -409,8 +409,8 @@ importers:
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
       chromatic:
-        specifier: 11.26.1
-        version: 11.26.1
+        specifier: 18.13.3
+        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../../packages/config-lingui
@@ -521,8 +521,8 @@ importers:
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
       chromatic:
-        specifier: 11.26.1
-        version: 11.26.1
+        specifier: 18.13.3
+        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../../packages/config-lingui
@@ -633,8 +633,8 @@ importers:
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
       chromatic:
-        specifier: 11.26.1
-        version: 11.26.1
+        specifier: 18.13.3
+        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../../packages/config-lingui
@@ -745,8 +745,8 @@ importers:
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
       chromatic:
-        specifier: 11.26.1
-        version: 11.26.1
+        specifier: 18.13.3
+        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../../packages/config-lingui
@@ -857,8 +857,8 @@ importers:
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
       chromatic:
-        specifier: 11.26.1
-        version: 11.26.1
+        specifier: 18.13.3
+        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../../packages/config-lingui
@@ -912,8 +912,8 @@ importers:
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
       chromatic:
-        specifier: 11.26.1
-        version: 11.26.1
+        specifier: 18.13.3
+        version: 18.13.3
       config-storybook:
         specifier: workspace:*
         version: link:../config-storybook
@@ -973,8 +973,8 @@ importers:
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
       chromatic:
-        specifier: 11.26.1
-        version: 11.26.1
+        specifier: 18.13.3
+        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../config-lingui
@@ -1046,8 +1046,8 @@ importers:
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
       chromatic:
-        specifier: 11.26.1
-        version: 11.26.1
+        specifier: 18.13.3
+        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../config-lingui
@@ -1198,8 +1198,8 @@ importers:
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
       chromatic:
-        specifier: 11.26.1
-        version: 11.26.1
+        specifier: 18.13.3
+        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../config-lingui
@@ -1283,8 +1283,8 @@ importers:
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
       chromatic:
-        specifier: 11.26.1
-        version: 11.26.1
+        specifier: 18.13.3
+        version: 18.13.3
       config-storybook:
         specifier: workspace:*
         version: link:../config-storybook
@@ -1900,8 +1900,8 @@ importers:
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
       chromatic:
-        specifier: 11.26.1
-        version: 11.26.1
+        specifier: 18.13.3
+        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../config-lingui
@@ -2201,8 +2201,8 @@ importers:
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
       chromatic:
-        specifier: 11.26.1
-        version: 11.26.1
+        specifier: 18.13.3
+        version: 18.13.3
       config-svelte:
         specifier: workspace:*
         version: link:../config-svelte
@@ -5121,18 +5121,6 @@ packages:
   chokidar@5.0.0:
     resolution: {integrity: sha512-TQMmc3w+5AxjpL8iIiwebF73dRDF4fBIieAqGn9RGCWaEVwQ6Fb2cGe31Yns0RRIzii5goJ1Y7xbMwo1TxMplw==}
     engines: {node: '>= 20.19.0'}
-
-  chromatic@11.26.1:
-    resolution: {integrity: sha512-kVMTigrKI7TOOV04i1lTTIVJsmQ+fj6ZFXyZ3LcdCioOrxO/zCVB1y74iX0iKS++cpi3bJcG+UszkmvptGDEuA==}
-    hasBin: true
-    peerDependencies:
-      '@chromatic-com/cypress': ^0.*.* || ^1.0.0
-      '@chromatic-com/playwright': ^0.*.* || ^1.0.0
-    peerDependenciesMeta:
-      '@chromatic-com/cypress':
-        optional: true
-      '@chromatic-com/playwright':
-        optional: true
 
   chromatic@18.13.3:
     resolution: {integrity: sha512-86wzIxGIdDMBvyYWCXF+V0RyckI+3kl6ki9lJoZem6a0UfwHtEEg5ruORpryTpu6c9dVtBk2qSTX4xtkz3gwsA==}
@@ -9228,8 +9216,6 @@ snapshots:
   chokidar@5.0.0:
     dependencies:
       readdirp: 5.1.1
-
-  chromatic@11.26.1: {}
 
   chromatic@18.13.3:
     dependencies:

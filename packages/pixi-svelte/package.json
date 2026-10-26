@@ -21,7 +21,7 @@
 	"devDependencies": {
 		"@sveltejs/package": "3.0.1",
 		"@sveltejs/vite-plugin-svelte": "5.0.3",
-		"chromatic": "11.26.1",
+		"chromatic": "18.13.3",
 		"config-lingui": "workspace:*",
 		"config-svelte": "workspace:*",
 		"config-vite": "workspace:*",
