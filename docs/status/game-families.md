@@ -3,16 +3,149 @@
 > Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `invisible-game-config`, `invisible-game-maker`, then per phase
 
 **One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.7 are merged; P10.8
-(arcade, rules-decided) is built** and in review: an arcade project can be made in Game Maker and
-plays as free play in the shared runtime — a catcher / dodger sample whose spawned bodies move on a
-fixed-step loop, collide by tag and keep score in Flow. A match-3 project can be made in Game Maker as
-free play (P10.5) or real money (P10.6): in the second the bet deals the server's board, every swap
-is a `move` request, the server ends the round and it is collected once. It plays against the test
-server's `match3` mock on our own wire. **Publishing is on for every family the runtime plays**
-(owner, 2026-10-25): a match-3 game, and with P10.8 a free-play arcade game, publishes to our test
-server; delivery stays slot-only, and live real money waits on the partner (§9 #2).
+(arcade, rules-decided) is built and P10.14 (A4a, the game server) is built** — both in review. An
+arcade project can be made in Game Maker and plays as free play in the shared runtime — a catcher /
+dodger sample whose spawned bodies move on a fixed-step loop, collide by tag and keep score in Flow.
+An arcade config with `arcade.online` is played in a room on the new `services/game-server`
+(Colyseus 0.18): devices send inputs only and draw where the server puts every player; the service
+is written but **not deployed** (owner steps in [INFRA.md](../INFRA.md) "Invisible Game Server").
+A match-3 project can be made in Game Maker as free play (P10.5) or real money (P10.6): in the second
+the bet deals the server's board, every swap is a `move` request, the server ends the round and it
+is collected once. It plays against the test server's `match3` mock on our own wire. **Publishing
+is on for every family the runtime plays** (owner, 2026-10-25): a match-3 game, and with P10.8 a
+free-play arcade game, publishes to our test server; delivery stays slot-only, and live real money
+waits on the partner (§9 #2).
 
 ## Current state
+
+**P10.14 — Arcade A4a: the game server (built 2026-10-26; in review).** §8's P10.14 row, per the
+approved A4 design ([realtime-multiplayer.md](../design/realtime-multiplayer.md) §4–§14), in **one
+PR**. Netcode (prediction, reconciliation, interpolation), the rules as data and online Flow events
+are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
+
+- **`services/game-server`** (new pnpm workspace member; Node 22, type-stripped TS, no build step):
+  `@colyseus/core` 0.18.23 + `@colyseus/ws-transport` 0.18.4 + `@colyseus/schema` 5.0.42, pinned.
+  One room type, `arcade`, matched by the join option `game` (`filterBy`). `roomSim.ts` is the room
+  without the network — who is in it, each player's character, one fixed step of everyone — and
+  `arcadeRoom.ts` runs it inside Colyseus: `setFixedTimestep(step, tickHz, { subSteps })`,
+  `defineInput(Input, { seqField: 'seq', bufferMaxSize: 60, sanitize })`, one input per player per
+  step (`.next()`), the schema written once per patch (`onBeforePatch`), `setPatchRate(1000 /
+  patchHz)`. `configSource.ts` reads a game's config by key (a directory or a `{game}` URL, cached
+  60 s, good or bad). `server.ts` adds `GET /healthz` (`commit`, `rooms`). Dockerfile at the repo
+  root's context, mirroring `director-worker` (npm install, the two packages linked in, the
+  `ts-loader` hook). [INFRA.md](../INFRA.md) "Invisible Game Server" has the env, local run, limits
+  and the owner's Railway / DNS steps; **nothing was deployed**.
+- **The one-player step, shared** (`engine-mechanics` `online.js`, plain ESM + `.d.ts`):
+  `sanitizeInput` / `clampInput` (moves are whole steps of −127..127 no longer than 127, so the clamp
+  is exact and idempotent; buttons masked to jump / ability 1 / ability 2; aim onto the field; seq a
+  uint32; anything non-finite reads 0), `stepContext` (`subDt` computed as Colyseus computes it),
+  `applyInput` / `stepPlayer` (velocity from the input, then `subSteps` × `motion.js` `stepBody`),
+  `facingOf` (eight ways, integer comparisons only), `cleanName`, `characterBody`. The server steps
+  every player with `stepPlayer`; the runtime clamps its inputs with the same `clampInput`; P10.15's
+  predictor steps its own player with the same `stepPlayer`.
+- **Inputs only** (§11). A device sends `Input { seq, moveX, moveY, buttons, aimX, aimY }` — a flat
+  typed schema, so a field it does not declare cannot arrive — and joins with `name` and
+  `character`. Every other message is counted against the flood limit and ignored. The character is
+  checked against the room's list and its `max`; the name is cleaned and capped at 24.
+- **Join, leave, rejoin.** Join puts a player at `arcade.online.spawn` (else the field's centre);
+  no character ⇒ the first with a place; full, unknown or no place left ⇒ refused. A drop holds the
+  place for `rejoinSeconds` (`allowReconnection`; the body stands still, inputs are not taken); the
+  SDK's reconnect, or `client.reconnect(token)`, resumes as the same session; a consented leave, or
+  the grace running out, removes the player; an empty room disposes.
+- **Resource limits per room** (§11): `maxPlayers` ≤ 100, each character's `max`,
+  `maxMessagesPerSecond = 2 × tickHz + 10` (a flooder is closed with `WITH_ERROR` and gets **no**
+  held seat), WebSocket `maxPayload` 1 KB, 60 inputs buffered per player (overflow drops the
+  oldest), at most 16 characters; per process `GAME_SERVER_MAX_ROOMS` (default 50); a config ≤ 2 MB
+  fetched within 5 s; game keys `^[a-z0-9][a-z0-9_-]{0,63}$`. Every rate is clamped by
+  `resolveArcadeOnline`, whatever the doc says.
+- **State** (`schema.ts`): per player `name`, `character`, `x`, `y` (float32), `facing` (uint8),
+  `moving`, `connected`, `ack` (the seq of the newest input applied); per room `phase` (`waiting` →
+  `running`) and `step`. The level is not in the state.
+- **Config** (`game-config` `family.ts`): `GameConfigDoc.arcade.online` = `{ characters: [{ id,
+  body, speed, max? }], maxPlayers?, tickHz?, subSteps?, patchHz?, rejoinSeconds?, spawn?, layer?
+  }`, sparse (defaults 16 / 30 / 2 / 20 / 60 / field centre / `field` are dropped);
+  `ARCADE_ONLINE_DEFAULTS`, `ARCADE_ONLINE_LIMITS`, `resolveArcadeOnline`. A character's `body` is a
+  key of `arcade.bodies` (its shape, tags and edges; the component it is drawn as). The validator
+  refuses an online game with no `arcade.field` (the server has no screen), no character, or a
+  character whose body no arcade body names, and warns on out-of-range numbers, a state rate above
+  the step rate and a spawn off the field. `onlineGameOf(doc)` (new `arcadeOnline.ts`) is the one
+  derivation the server and the device both make. No `/config` UI for the block yet (open item).
+- **The mechanic:** `ARCADE_ONLINE_MECHANIC` (`ARCADE_RULES_MECHANIC` + a new `GameMechanic.room`,
+  false for every other mechanic). `mechanicFor` returns it for a rules arcade config with
+  `arcade.online`; an RGS arcade config stays `unplayable`.
+- **The runtime's online branch** (`apps/lines` `game/online.ts`): `+layout.ts` joins a room before
+  the game mounts, only when `gameMechanic().room` — `?rooms_url=` the server, `?rooms_game=` (else
+  `?project=`) the game, optional `?rooms_name=` / `?rooms_character=`; a config that cannot be
+  played online, a missing parameter or a refused / unreachable server stops on the existing
+  boot-failure screen (`refuseOnlineBoot`, the `haltBoot` path). `@colyseus/sdk` 0.18.6 is imported
+  dynamically there and nowhere else. `<ArcadeStage />` does not start the local loop for an online
+  game: it ticks `tickOnline` — one input per fixed step from the keyboard (arrows / WASD, Space =
+  jump), clamped, sent — and draws every room player as a spawned instance of its character's
+  component in `online.layer`, at the server's last place (no prediction or smoothing: P10.15). The
+  arcade probe reads the room. Free play, as every arcade game (`rgsSession: false`).
+- **Gates:** `check:room-sim` (root, 23 checks, ~12 s; discovered by `check:all`): 10 000 steps
+  of six players at 30 Hz × 2, 60 × 1 and 20 × 4 with hostile, repeated, stale, gapped and
+  missing inputs — the room's body equals the device's `stepPlayer` fold **bit for bit** on every
+  step; replay; the clamp exact and idempotent over 20 000 inputs; an input claiming a place, score or
+  character changes nothing; seq order, one per step; join limits, names, drop / rejoin; refused
+  configs; the mechanic (only an online config sets `room`); source scans (the SDK reached only from
+  `game/online.ts`, lazily; the layout and stage branch on `room`). Then a **real** Colyseus server on
+  localhost with real SDK clients: `/healthz`; bad / missing / non-online game keys make no room;
+  join state; 90 live inputs stepped exactly as the device steps them (and drawn at their float32);
+  `move` / `teleport` / any message changes nothing; an off-scale move clamped; room size and
+  character max; a drop keeps the place and `reconnect(token)` resumes it; the grace expiring; a
+  flood disconnects; `maxRooms`. `family.fixture.ts` §4c covers the config block.
+- **Verified by playing:** `scripts/playtest/online-play.mjs` on the branch runtime, two headless
+  shells against a local game server ([playtest/online-sample.md](../playtest/online-sample.md)):
+  13 / 13 — both pages joined one room and drew both players (one a salmon, one the bear its
+  `?rooms_character=` asked for); ArrowRight on page A moved one player right on both pages to the
+  same place and letting go stopped it; the pages agreed on every place; no RGS request and no page
+  error on either; closing page B let its player go after the 2 s grace; a launch with no
+  `?rooms_url=` stopped on the boot-failure screen.
+- **Bundle size** (the release build's `index.html`; base 5a44e2b vs this branch): 3,678,290 B /
+  1,260,736 B gz → 3,867,804 B / 1,319,768 B gz: **+189.5 KB raw, +59.0 KB gz (+4.7 %)**, downloaded
+  by every game, run by none but an online one. Almost all of it is `@colyseus/sdk` itself (its
+  `Client` alone bundles to 169 KB / 53 KB gz; importing only `Client` and the serializer saves
+  nothing). The runtime builds with SvelteKit's inline strategy, so the dynamic `import()` keeps the
+  SDK from being *run* by offline games, not from being *downloaded*. **Owner decision (below).**
+- **Slot / match-3 / offline-arcade parity:** every new runtime path is keyed on
+  `mechanic.room`, which only a config with `arcade.online` sets: `+layout.ts` skips the join,
+  `<ArcadeStage />` starts the local loop exactly as before, and nothing else reads the SDK.
+  Edited shared modules: `+layout.ts`, `ArcadeStage.svelte`, `editor-scenes.ts` (a new exported
+  `refuseOnlineBoot` beside `refuseUnplayableBoot`), `mechanic.ts`, `engine-mechanics` `index.ts`,
+  `game-config` `family.ts` / `familyValidate.ts` / `index.ts`. `familyGate` and the real-money
+  gates are not edited; the current-games harness is not edited.
+- **Chosen in P10.14, owner may overturn** (neither plan fixes them):
+  - **one PR**, not split;
+  - the server is a **workspace member** (so CI installs Colyseus and the gate runs a real server);
+    the image installs with npm, as `director-worker`'s does;
+  - **a step with no input moves its player by nothing** (it stands still), so a body is exactly the
+    fold of `stepPlayer` over the inputs the server applied — the device can always replay it;
+  - moves are **integers −127..127** on the wire (int8), aim float32 on the field;
+  - `ack` is **in the room state** (as well as Colyseus' own reconciliation ack), so a device and the
+    gate read which input a place came from;
+  - the room's config comes from **`GAME_SERVER_CONFIG_URL` / `_DIR`**, read once per room, cached
+    60 s per key; until the publish writes a published online config (open item), the interim
+    source is the launcher's token-gated `/api/game-config/doc` (the authored config);
+  - the address and game come in as **`?rooms_url=` / `?rooms_game=`** (else `?project=`), not yet
+    written by the publish (open item);
+  - the defaults: 16 players, 30 Hz × 2, 20 Hz state, 60 s rejoin, the field's centre, layer
+    `field`; keyboard only (arrows / WASD, Space), aim always 0;
+  - a flooder gets **no** held seat; `deploy-drift.mjs` gets its entry **after** the service exists.
+- **Known limits** (none reachable by a slot game):
+  - **no prediction or smoothing** (P10.15): a device draws a player where the last 20 Hz patch put
+    it, so motion is visibly steppy and the own player answers a round trip late;
+  - players do not collide, score or end a round — the rules as data are P10.15; `phase` never
+    leaves `running`;
+  - a dropped device's in-flight inputs are discarded on rejoin (Colyseus freezes the buffer), and a
+    burst beyond 60 waiting inputs drops the oldest, so a device's own replay can then differ until it
+    reconciles (P10.15);
+  - the boot-failure screen's wording ("could not reach the server holding its artwork and
+    settings") is the runtime bundle's; the precise reason is in `__IE_RUNTIME_STALE__` and the console;
+  - the playtest's no-flow layout shows every scene at once (the sample's round-over text over the
+    field): an online game's own flow is the author's, and the arcade starter flow is an offline one.
+- **Owner / infra steps:** stand up the Railway service and the `rooms.invisiblewall.org` record —
+  the exact settings are in [INFRA.md](../INFRA.md) "Invisible Game Server" (steps 1–7).
 
 **P10.8 — Arcade, rules-decided (built 2026-10-25; in review).** §8's P10.8 row (§4.2, §3.4, §9 #6),
 in one PR.
@@ -910,6 +1043,13 @@ game, bundle or screen changes.
 
 ## Open items / next
 
+0. **P10.14 follow-ups:** (a) the **bundle cost** (+59 KB gz for every game; owner): accept it as
+   static until the per-family runtime build (item 9), or ship the SDK as a separate file only an
+   online game fetches; (b) the **publish** writes `rooms_url` into an online game's launch URL and
+   a **published** online config where the game server reads it (§9 "read from the same published
+   snapshot"), and refuses an online game with no server address (§10); (c) a `/config` section for
+   `arcade.online`; (d) the Railway service and DNS (owner, INFRA steps), then the `deploy-drift`
+   entry.
 1. **Live real-money match-3** waits on a real provider's match-3 wire (§9 #2); our wire
    (`docs/reference/match3-wire.md`) and its facade mapping are rewritten when one arrives.
 2. **Delivering a non-slot game** stays off: a rules game never (no wallet), an RGS match-3 game
@@ -941,12 +1081,17 @@ game, bundle or screen changes.
 
 ## Blocked (owner / external)
 
-- Nothing for P10.1. The A4 design, [realtime-multiplayer.md](../design/realtime-multiplayer.md),
-  is approved (2026-10-25), which settles §9 #18. When P10.14 ships, the owner creates the
-  `rooms.invisiblewall.org` DNS record (its §14 #8).
+- The A4 design, [realtime-multiplayer.md](../design/realtime-multiplayer.md), is approved
+  (2026-10-25), which settles §9 #18. **P10.14 is built; the owner stands up the `game-server`
+  Railway service and the `rooms.invisiblewall.org` DNS record** (its §14 #8) — the settings are in
+  [INFRA.md](../INFRA.md) "Invisible Game Server".
 
 ## Recent changes
 
+- 2026-10-26 — **P10.14 built: the game server (A4a).** `services/game-server` on Colyseus 0.18,
+  rooms with join / leave / rejoin, inputs only, `GameConfigDoc.arcade.online`,
+  `ARCADE_ONLINE_MECHANIC` and the runtime's online branch, `check:room-sim`, an online playtest.
+  Not deployed. Detail above.
 - 2026-10-25 — **P10.8 built: arcade, rules-decided.** `motion.js`, the fixed-step loop, tags,
   `ARCADE_VOCAB` and its starter (a salmon dodger), `<ArcadeStage />`, the arcade scene set in Game
   Maker, `check:arcade-motion` / `check:arcade-rules`. §6.4 re-checked: the shared runtime stays.

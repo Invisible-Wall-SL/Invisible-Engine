@@ -265,6 +265,73 @@ Then, on the new service:
      DIRECTOR_SERVICE_TOKEN is unset"`** in the log: the worker is up and idle. Set both
      (`DIRECTOR_SERVICE_TOKEN` must equal the launcher's), then redeploy.
 
+## Invisible Game Server (P10.14 — built, NOT deployed)
+
+Online arcade rooms ([design/realtime-multiplayer.md](design/realtime-multiplayer.md) §9): one
+Node 22 process on **Colyseus 0.18** (`@colyseus/core` 0.18.23, `@colyseus/ws-transport` 0.18.4,
+`@colyseus/schema` 5.0.42), many rooms, one replica. Source `services/game-server/`; a pnpm
+workspace member, so CI installs it and `pnpm check:room-sim` boots it. Its current state is
+[status/game-families.md](status/game-families.md) "P10.14". **No Railway service exists yet** —
+the owner step below creates it; until then nothing deploys and `scripts/deploy-drift.mjs` does not
+list it (an entry whose URL does not answer would only alarm).
+
+**What it serves.** WebSocket rooms of type `arcade`, matched by the join option `game` (the
+project key); `GET /healthz` → `{"ok":true,"commit":"<12 chars>","rooms":N}`. A room reads its
+game's config ONCE, when it is created (a running room keeps the version it started with), and
+refuses a config that is not an online arcade game. A device sends inputs only.
+
+**Limits it enforces** (no env needed): a room holds `arcade.online.maxPlayers` (≤ 100) and each
+character's `max`; a device sending more than `2 × tickHz + 10` messages a second is disconnected
+and gets no seat held; a WebSocket message over 1 KB is refused; at most 60 inputs wait per player;
+a config is ≤ 2 MB and its fetch times out after 5 s; config answers (good or bad) are cached 60 s
+per game key; a game key must match `^[a-z0-9][a-z0-9_-]{0,63}$`.
+
+**Env** (names only; no secret is required to boot):
+
+| Name | Meaning |
+| --- | --- |
+| `PORT` | listen port (Railway sets it; the image defaults to 8080, a bare `pnpm start` to 2567) |
+| `GAME_SERVER_CONFIG_URL` | a URL with `{game}` in it that answers a game's config (a GameConfigDoc or `{ doc }`) |
+| `GAME_SERVER_CONFIG_TOKEN` | optional; sent as `Authorization: Bearer …` to that URL |
+| `GAME_SERVER_CONFIG_DIR` | instead of the URL: a directory of `<game>.json` configs (local runs) |
+| `GAME_SERVER_MAX_ROOMS` | rooms one process holds (default 50) |
+| `RAILWAY_GIT_COMMIT_SHA` | set by Railway; `/healthz` reports its first 12 characters |
+
+**Run it locally.**
+
+```bash
+pnpm install
+mkdir -p /tmp/games && cp my-online-config.json /tmp/games/<project>.json
+GAME_SERVER_CONFIG_DIR=/tmp/games pnpm --filter game-server start      # ws://localhost:2567
+curl localhost:2567/healthz
+```
+
+Then open the runtime with `?rooms_url=ws://localhost:2567&rooms_game=<project>` (or `?project=`),
+optionally `&rooms_name=…&rooms_character=…`. `scripts/playtest/online-play.mjs` does exactly this
+with two headless browsers.
+
+**Owner / infra steps to stand it up** (not done; nothing here was deployed):
+
+1. **Railway → Invisible Pipeline project → New service** from GitHub
+   `Invisible-Wall-SL/Invisible-Engine`, branch `main`, name `game-server`.
+2. **Settings → Build:** Root Directory = repo root; Builder = Dockerfile; Dockerfile Path =
+   `services/game-server/Dockerfile`.
+3. **Watch Paths:** `/services/game-server/**`, `/packages/engine-mechanics/**`,
+   `/packages/game-config/**`, `/scripts/ts-loader.mjs` (exactly what the Dockerfile `COPY`s).
+4. **Deploy → Health Check Path** `/healthz`; **one replica** (rooms live in memory; several
+   processes need Colyseus' Redis presence, which A4 does not use).
+5. **Variables:** `GAME_SERVER_CONFIG_URL`. Until the publish writes a published online config
+   anywhere (an open item in the status file), the one source that exists is the launcher's
+   token-gated export: `https://app.invisiblewall.org/api/game-config/doc?project={game}&k=<deploy
+   token>` — note it serves the AUTHORED config, not the published snapshot, so a room can run
+   rules newer than the devices' until they republish. Optionally `GAME_SERVER_MAX_ROOMS`.
+6. **Settings → Networking:** a public domain, then the custom domain `rooms.invisiblewall.org`,
+   and in **Cloudflare DNS** a CNAME `rooms` → the Railway target, **DNS-only (grey cloud)**, like
+   `games` (§14 D8).
+7. Once `/healthz` answers on the domain: add the service to `SERVICES` in
+   `scripts/deploy-drift.mjs` and to the Watch Paths table above (the fixture holds the two to each
+   other), and to Better Stack Uptime.
+
 ## ComfyUI tunnel (optional — a person's own GPU)
 
 Production generation runs on the RunPod Serverless endpoint (`COMFY_TRANSPORT=serverless`, below).
@@ -481,6 +548,8 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
     caches; they are public game assets). Design: `docs/design/live-assets.md` § Published snapshots.
 
 ## Environment variables (names only)
+
+(Game server: see "Invisible Game Server" above.)
 
 **Launcher** (read through `ENV` in `apps/launcher-api/src/lib/server/env.ts`; "default" = has a
 code default, so the dashboard need not set it):
