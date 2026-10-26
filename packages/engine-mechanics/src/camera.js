@@ -7,7 +7,8 @@
  *   1. scrolls by `autoScroll` (px/s, per axis: a runner or a shooter);
  *   2. on every axis that does not scroll, aims at its goal — the followed body, kept inside a dead
  *      zone centred on the view and led by `lookAhead` seconds of its velocity — or at the point a
- *      `moveTo` named, eased by `smoothing` (a time constant, seconds; 0 snaps);
+ *      `moveTo` named, eased by `smoothing` (a time constant, seconds; 0 snaps). A snap (the first
+ *      sight of a target, or one asked for) centres the target at once;
  *   3. is held inside the world (`clampToWorld`, on by default; a world narrower than the view is
  *      centred);
  *   4. rattles by a decaying `shake`, drawn only: the view the despawn and the view signals test
@@ -87,8 +88,10 @@ export function stepCamera(camera, dt, { view, world, target }) {
 	let aimX;
 	let aimY;
 	if (target) {
-		aimX = aimAxis(camera.x, view.w, target.x + target.vx * spec.lookAhead, spec.deadZone.w);
-		aimY = aimAxis(camera.y, view.h, target.y + target.vy * spec.lookAhead, spec.deadZone.h);
+		// A snap centres the target; after it, the dead zone holds the camera still.
+		const dead = camera.snapNext ? { w: 0, h: 0 } : spec.deadZone;
+		aimX = aimAxis(camera.x, view.w, target.x + target.vx * spec.lookAhead, dead.w);
+		aimY = aimAxis(camera.y, view.h, target.y + target.vy * spec.lookAhead, dead.h);
 	} else if (camera.goal) {
 		aimX = camera.goal.x - view.w / 2;
 		aimY = camera.goal.y - view.h / 2;

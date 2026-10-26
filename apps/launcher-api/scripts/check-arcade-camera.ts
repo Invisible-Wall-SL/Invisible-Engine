@@ -124,6 +124,13 @@ const cam = (spec: Parameters<typeof createCamera>[0] = {}, seed = 1): Camera =>
 
 // ── 1. the camera ────────────────────────────────────────────────────────────────────────────
 {
+	const off = cam({ deadZone: { w: 400, h: 300 } });
+	stepCamera(off, DT, { view: VIEW, target: still(900, 300) });
+	check(
+		'1. a snap centres the target, whatever the dead zone',
+		off.x === 900 - 711 && off.y === 300 - 400,
+		`${off.x},${off.y}`,
+	);
 	const c = cam({ deadZone: { w: 200, h: 100 } });
 	stepCamera(c, DT, { view: VIEW, target: still(711, 400) });
 	check(

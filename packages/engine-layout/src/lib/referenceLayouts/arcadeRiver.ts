@@ -31,7 +31,7 @@ export const ARCADE_RIVER_DESPAWN_MARGIN = 240;
 export const ARCADE_RIVER_PARALLAX = { x: 1, y: 0.5 } as const;
 
 const rect = (id: string, x: number, y: number, width: number, height: number, color: number) =>
-	({ id, kind: 'rect', x, y, width, height, color }) as LayoutNode;
+	({ id, kind: 'rect', x, y, width, height, color, anchor: { x: 0, y: 0 } }) as LayoutNode;
 
 /** Banks down both sides and a ripple every 400 px, over the river's parallax height. */
 const backdrop = (): LayoutNode => {
