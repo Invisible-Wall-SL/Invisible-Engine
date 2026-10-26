@@ -16,6 +16,7 @@
 	import { getSceneIdContext } from './sceneIdContext';
 	import { spawnLayerSpec } from './spawnLayerFields';
 	import { spawnStore } from './spawnLayers';
+	import { inWorldCamera, isCulled } from './worldCameraView.svelte';
 
 	const { node, space }: Props = $props();
 
@@ -54,6 +55,10 @@
 		});
 	});
 
+	// On a world-camera screen (P10.12) an instance the arcade loop finds out of view is not drawn;
+	// it stays mounted, so its state machine runs on. Elsewhere nothing is culled (parity).
+	const culling = inWorldCamera();
+
 	const instanceNode = (instance: SpawnedInstance): ComponentInstanceNode => ({
 		kind: 'componentInstance',
 		id: instance.id,
@@ -64,7 +69,17 @@
 </script>
 
 {#each instances as instance (instance.id)}
-	<Container x={places[instance.id]?.x ?? instance.x} y={places[instance.id]?.y ?? instance.y}>
-		<ComponentInstance node={instanceNode(instance)} {space} />
-	</Container>
+	{#if culling}
+		<Container
+			x={places[instance.id]?.x ?? instance.x}
+			y={places[instance.id]?.y ?? instance.y}
+			visible={!isCulled(instance.id)}
+		>
+			<ComponentInstance node={instanceNode(instance)} {space} />
+		</Container>
+	{:else}
+		<Container x={places[instance.id]?.x ?? instance.x} y={places[instance.id]?.y ?? instance.y}>
+			<ComponentInstance node={instanceNode(instance)} {space} />
+		</Container>
+	{/if}
 {/each}

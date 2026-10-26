@@ -13,6 +13,8 @@ import type { EffectParamValue } from 'engine-fx';
 import type { BlendMode } from './blendMode';
 import type { CoverFit } from './coverTransform';
 import type { KindCapabilities } from './kindCapabilities';
+import type { EditorGuideSet } from './editorGuides';
+import type { SliceMode } from './nineSlice';
 
 /**
  * A layout bucket id. Historically a closed union (`desktop`/`tablet`/`landscape`/
@@ -137,6 +139,13 @@ interface BaseNode {
 	 */
 	blendMode?: BlendMode;
 	zIndex?: number;
+	/**
+	 * PARALLAX (`docs/design/game-families.md` §4.4, P10.12): on a screen with a {@link Scene.world},
+	 * how far this node moves with the camera, per axis — 0 = fixed to the screen, 1 = moves with the
+	 * world (the default), 0.5 = half as fast (a far backdrop). Read only under a world camera; absent
+	 * ⇒ no extra container (parity).
+	 */
+	parallax?: Point2D;
 	overrides?: Partial<Record<LayoutType, NodeOverride>>;
 	visibleFor?: LayoutType[];
 	/**
@@ -354,6 +363,7 @@ export const BASE_NODE_FIELDS = {
 	alpha: true,
 	blendMode: true,
 	zIndex: true,
+	parallax: true,
 	overrides: true,
 	visibleFor: true,
 	slotId: true,
@@ -618,6 +628,13 @@ export interface SpriteNode extends BaseNode {
 	 * ratio draws exactly as before. Absent ⇒ stretch (parity).
 	 */
 	keepAspect?: boolean;
+	/**
+	 * Draw the frame as a 9-slice: its corners keep their art size and its edges and centre
+	 * `stretch` or `tile` to fill `width × height`. The insets are the ART's (the region's slice,
+	 * shipped as the frame's `borders`), not this node's — see `nineSlice.ts`. Absent ⇒ a plain
+	 * sprite (parity); a frame with no insets then stretches whole.
+	 */
+	slice?: SliceMode;
 	tint?: number;
 }
 
@@ -1343,6 +1360,12 @@ export interface SpawnLayerNode extends BaseNode {
 	grid?: SpawnLayerGrid;
 	/** The most live instances at once (1 … `SPAWN_HARD_CAP`; absent ⇒ `SPAWN_DEFAULT_CAP`). */
 	cap?: number;
+	/**
+	 * On a screen with a world camera (P10.12): despawn an instance once it has been within `margin`
+	 * px of the view and is now wholly beyond it. Absent ⇒ never (an instance lives until Flow
+	 * despawns it).
+	 */
+	despawnOutsideView?: { margin: number };
 }
 
 export type LayoutNode =
@@ -1533,6 +1556,37 @@ export interface Scene {
 	 * reels, and each part plays the screen's FX on its own.
 	 */
 	elementFx?: ElementFxEntry[];
+	/**
+	 * THE WORLD (`docs/design/game-families.md` §4.4, P10.12): a play-field screen's world, px, from
+	 * (0, 0) — larger than the design size, so the screen shows the part its {@link Scene.camera}
+	 * frames. Only a `game`-space screen reads it. With a world, an arcade game's play field is the
+	 * world (unless the config names a `field`). Absent ⇒ the screen is its design size, as before.
+	 */
+	world?: { w: number; h: number };
+	/**
+	 * THE CAMERA over the {@link Scene.world}: what it follows, how it eases and scrolls. The arcade
+	 * loop steps it on its fixed step (`engine-mechanics` `camera.js`). Absent with a world ⇒ a camera
+	 * that stays where Flow puts it.
+	 */
+	camera?: SceneCamera;
+	/** EDITOR-ONLY ruler guides per device layout (`editorGuides.ts`); stripped before a game. */
+	guides?: EditorGuideSet;
+}
+
+/** A play-field screen's camera block (`engine-mechanics` `CameraSpec`). Every field optional. */
+export interface SceneCamera {
+	/** The tag of the body to follow (`player`): the first body carrying it, in spawn order. */
+	follow?: string;
+	/** A box centred on the view the followed body moves in without moving the camera, px. */
+	deadZone?: { w: number; h: number };
+	/** Seconds the camera takes to close ~63 % of the way to its aim. 0 / absent ⇒ it snaps. */
+	smoothing?: number;
+	/** Seconds of the followed body's velocity the camera leads it by. */
+	lookAhead?: number;
+	/** Hold the view inside the world. Absent ⇒ true; stored only when false. */
+	clampToWorld?: boolean;
+	/** px/s per axis (a runner, a shooter); an axis that scrolls does not follow. */
+	autoScroll?: { x: number; y: number };
 }
 
 /** A jurisdiction preset for {@link GameSettings}. `'UK'` forces every speed
@@ -1817,6 +1871,8 @@ export interface ComponentDef {
 	 * is ever raised (parity).
 	 */
 	events?: ComponentEvent[];
+	/** EDITOR-ONLY ruler guides per device layout (`editorGuides.ts`); stripped before a game. */
+	guides?: EditorGuideSet;
 }
 
 /**

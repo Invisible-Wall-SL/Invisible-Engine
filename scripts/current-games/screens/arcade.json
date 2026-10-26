@@ -1,0 +1,140 @@
+{
+	"gameType": "arcade",
+	"about": "Rules-decided arcade games (game-families P10.8): free play, no RGS. The loop runs on the determinism clock and `$engine.random` is seeded from it, so both sides spawn alike; the player steers with held keys (`hold`). The round-over screen is the starter flow's (`roundOver`). 6 screens.",
+	"scenarios": [
+		{
+			"id": "base",
+			"canary": true,
+			"about": "Boot, then the field, the HUD and the player at its start. The draw:'every' canary.",
+			"env": {},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "step",
+					"frames": 30
+				},
+				{
+					"op": "capture",
+					"screen": "loaded"
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true
+					}
+				},
+				{
+					"op": "step",
+					"frames": 10
+				},
+				{
+					"op": "capture",
+					"screen": "start"
+				}
+			]
+		},
+		{
+			"id": "steer",
+			"about": "The spawners' first bodies falling, then the player held left for half a second.",
+			"env": {},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true
+					}
+				},
+				{
+					"op": "step",
+					"frames": 150
+				},
+				{
+					"op": "capture",
+					"screen": "falling"
+				},
+				{
+					"op": "hold",
+					"key": "ArrowLeft",
+					"frames": 30
+				},
+				{
+					"op": "step",
+					"frames": 5
+				},
+				{
+					"op": "capture",
+					"screen": "steered"
+				}
+			]
+		},
+		{
+			"id": "round-over",
+			"about": "Standing still until the hazards end the round, then the tap that starts the next one.",
+			"env": {},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true
+					}
+				},
+				{
+					"op": "until",
+					"until": {
+						"screen": "roundOver",
+						"inSet": true
+					},
+					"maxFrames": 5400
+				},
+				{
+					"op": "step",
+					"frames": 10
+				},
+				{
+					"op": "capture",
+					"screen": "round-over"
+				},
+				{
+					"op": "space"
+				},
+				{
+					"op": "step",
+					"frames": 5
+				},
+				{
+					"op": "capture",
+					"screen": "again"
+				}
+			]
+		}
+	]
+}

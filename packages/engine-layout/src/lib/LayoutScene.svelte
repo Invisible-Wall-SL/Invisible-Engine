@@ -26,6 +26,8 @@
 	import type { EffectNode } from './types';
 	import { getComponentVisibility, type BoolSource } from './registerComponentVisibility';
 	import { getSceneCameraTransform } from './registerSceneCameraTransform';
+	import { hasWorldCamera, nodeParallax, parallaxShift } from './worldCamera';
+	import { setInWorldCamera, worldCameraView } from './worldCameraView.svelte';
 	import { setCinematicNodeDriver } from './cinematicNodeContext';
 	import { setSceneIdContext } from './sceneIdContext';
 	import { setSceneVisibleContext } from './sceneVisibilityContext';
@@ -163,6 +165,14 @@
 		scene.zoomWithAnticipation && space === 'game' ? getSceneCameraTransform() : undefined,
 	);
 
+	// THE WORLD CAMERA (`Scene.world` / `Scene.camera`, game-families §4.4, P10.12): a `game` screen
+	// that declares either draws its nodes inside one container moved by the live camera (the arcade
+	// loop publishes it each frame), and a top-level node with a `parallax` factor is shifted back by
+	// its share of the camera. A keyed scene never changes its blocks' presence, so this is decided
+	// once; a screen with neither adds no container (parity).
+	const worldCamera = untrack(() => (scene.space ?? 'game') === 'game' && hasWorldCamera(scene));
+	if (worldCamera) setInWorldCamera();
+
 	// Publish this screen's live gate-visibility to the components rendered inside it,
 	// so a `ComponentInstance` fires its `enter` cue when THIS SCREEN appears (a gated
 	// "Free-spin intro" opening), not just when the instance first mounts. Ungated
@@ -175,18 +185,42 @@
 	const screenFx = readElementFxEntries(untrack(() => scene.elementFx)).filter((e) => !e.disabled);
 </script>
 
-{#snippet nodes()}
+{#snippet nodeView(node: (typeof scene.nodes)[number])}
+	<LayoutNodeView
+		{node}
+		{space}
+		attachedEffects={node.kind === 'spine' ? attachedByRig.get(node.id) : undefined}
+	/>
+{/snippet}
+
+{#snippet sceneNodes()}
 	{#each scene.nodes as node (node.id)}
 		{#if isHosted(node)}
 			<!-- rendered inside its host rig's <RigProvider> (per-rig bone hosting) — skip here -->
 		{:else}
-			<LayoutNodeView
-				{node}
-				{space}
-				attachedEffects={node.kind === 'spine' ? attachedByRig.get(node.id) : undefined}
-			/>
+			{@const factor = worldCamera ? nodeParallax(node) : undefined}
+			{#if factor}
+				{@const shift = parallaxShift(worldCameraView(), factor)}
+				<Container x={shift.x} y={shift.y} zIndex={node.zIndex}>
+					{@render nodeView(node)}
+				</Container>
+			{:else}
+				{@render nodeView(node)}
+			{/if}
 		{/if}
 	{/each}
+{/snippet}
+
+{#snippet nodes()}
+	{#if worldCamera}
+		{@const view = worldCameraView()}
+		<!-- The world container: the camera's view at the design box's origin, plus its shake. -->
+		<Container x={view.shakeX - view.x} y={view.shakeY - view.y}>
+			{@render sceneNodes()}
+		</Container>
+	{:else}
+		{@render sceneNodes()}
+	{/if}
 {/snippet}
 
 {#snippet framed()}

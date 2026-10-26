@@ -453,6 +453,15 @@ export function artBoundsDocKey(client: string, project: string): string {
 }
 
 /**
+ * `<client>/<project>/editor/art-slices.json` — the per-REGION 9-slice insets. Beside the art
+ * bounds for the same reason (a re-pack must not lose them), and shipped the same way: folded into
+ * the TexturePacker JSON as each frame's `borders`. See `$lib/artSlices.ts`.
+ */
+export function artSlicesDocKey(client: string, project: string): string {
+	return `${SUB.editor(client, project)}/art-slices.json`;
+}
+
+/**
  * `<client>/<project>/sounds/sounds.json` — the Invisible Sound library doc: which sounds the
  * project owns, their provenance, and whether they are approved to ship.
  * See `docs/design/invisible-sound.md` §4.

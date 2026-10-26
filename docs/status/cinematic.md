@@ -488,6 +488,22 @@ through the same player; headless-proven, no editor yet (5b).
 
 ## Recent changes
 
+- 2026-10-26 — **The Graph Editor** (game-families P10.9c; branch `claude/p10-9c-graph-editor`, in
+  review). The Timeline's opt-in `graph` surface (`/editor` sets it; `/rigger` does not, so its
+  markup is unchanged): **📈** in a number channel's gutter opens a graph row under it, the channel's
+  value over time drawn from the injected evaluator's `sampleChannel` (the function the game samples
+  a key channel with) at the timeline's own zoom, with the keys on the curve. Click a key to select
+  it; when its outgoing segment is a cubic, two handles sit at the control points in time × value
+  and dragging one writes the cubic (time share clamped to 0..1, value share free to overshoot) —
+  the key's ordinary `ease`, so the format and the evaluator are unchanged and the game plays it as
+  drawn. The Interpolation panel gains cubic presets (Ease in, Ease out, Ease in-out, Overshoot,
+  Anticipate) beside Linear / Cubic / Hold / Elastic / Bounce. Gate: `check:graph-editor` (every
+  plotted point is the game's `sampleNodeActor` sample on cubic / hold / elastic / bounce / linear;
+  handle ↔ cubic round-trip; presets play and overshoot; mounting with `graph` and editing nothing
+  leaves the doc byte-identical); `check:cinematic-ease`'s golden is unchanged. `static/shared/
+  timeline.mjs` regenerated. Smoke-tested in headless Chromium on the real module (open, select,
+  drag a handle, preset, Elastic); ⏳ not clicked in the live editor.
+
 - 2026-10-25 — **A held screen keeps its last frame without reading a destroyed player** (branch
   `claude/charming-cannon-rjv7ba`, in review). A screen keeps a timeline's node driver after the
   timeline ends, to hold its last frame — `Game.svelte`'s `basegameHeldReelGrid` samples it to lay

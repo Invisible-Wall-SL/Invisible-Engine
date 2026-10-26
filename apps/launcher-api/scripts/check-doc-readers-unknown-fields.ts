@@ -44,6 +44,7 @@ import { normalizeEffectDoc } from 'engine-fx';
 import { normalizeGameConfigDoc } from 'game-config';
 import { z } from 'zod';
 import { normalizeArtBoundsDoc } from '../src/lib/artBounds.ts';
+import { normalizeArtSlicesDoc } from '../src/lib/artSlices.ts';
 import { normalizeComponent } from '../src/lib/server/componentStorage.ts';
 import { normalizeDoc as normalizeLayoutDoc } from '../src/lib/server/editorStorage.ts';
 import { isFlowV2Doc } from '../src/lib/server/flowV2Storage.ts';
@@ -752,6 +753,20 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		bounds: { 'symbols::H1': { x: -60, y: -60, w: 120, h: 120, rotation: 90 } },
 	};
 	ignores('12. art bounds', normalizeArtBoundsDoc, base, extras, ['"symbols::H1":{']);
+}
+
+// 12b. art slices — rebuilt field by field, like the bounds.
+{
+	const base = {
+		version: 1,
+		slices: { 'hud::panel': { left: 12, top: 12, right: 12, bottom: 12 } },
+	};
+	const extras = {
+		version: 1,
+		note: 'x',
+		slices: { 'hud::panel': { left: 12, top: 12, right: 12, bottom: 12, mode: 'tile' } },
+	};
+	ignores('12b. art slices', normalizeArtSlicesDoc, base, extras, ['"hud::panel":{']);
 }
 
 // 13. components — `normalizeComponent` (the load path's normalizer) rebuilds the def and root; the

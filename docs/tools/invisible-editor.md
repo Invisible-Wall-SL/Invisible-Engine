@@ -143,6 +143,39 @@ game-space screens (they share the board's coordinate space), and it does nothin
 until reel-anticipation is authored on and firing, so a ticked screen still
 renders unchanged the rest of the time.
 
+### World and camera (arcade play field)
+
+A game-space screen's Properties carries a **World and camera** tick, for an arcade play field
+bigger than the screen. Tick it and the screen gets a world twice the active layout's game box in
+each direction (the note under the tick shows the size before you tick). The fields that appear:
+
+- **world width** / **world height** — the world in px, from the screen's top-left corner.
+- **follow tag** — the tag of the body the camera follows (the first body carrying it, usually
+  `player`). Empty: the camera stays where Flow puts it.
+- **dead zone w** / **dead zone h** — a box centred on the view the followed body moves in without
+  moving the camera, px.
+- **smoothing s** — seconds the camera takes to close most of the way to its aim; 0 snaps.
+- **look-ahead s** — seconds of the followed body's speed the camera leads it by.
+- **auto-scroll x** / **auto-scroll y** — the camera scrolls on its own, px per second (a runner, a
+  shooter). An axis that scrolls does not follow.
+- **Clamp to world** — on by default: the view never shows past the world's edges.
+
+Only what differs from a default is saved, so a screen left at the defaults saves just its world.
+Unticking removes the world and the camera; so does switching the screen to another space.
+
+On the stage, the world is a dashed orange box labelled `world W × H`, and the camera's first frame
+is a dotted blue box labelled `camera (start)`: the game box at the world's top-left, where the camera
+starts. Both are guides only. The editor does not run the game, so the camera does not move here.
+Place the level's art across the whole world.
+
+**Parallax.** On such a screen, each top-level item's Properties (under its transform) shows
+**parallax x** / **parallax y**: how far the item moves with the camera. 1 (the default) moves with
+the world, 0 stays fixed to the screen, 0.5 moves half as fast (a far backdrop). Items inside a
+container follow their container. The stage draws every item where the camera starts, where all
+factors agree, so parallax does not change the stage.
+
+The engine design is in [game families §4.4](../design/game-families.md).
+
 To start from something:
 
 - **＋ Load scenes…** (the dropdown above the list) offers **New game from
@@ -646,6 +679,27 @@ still adds to the selection on the active screen only. When a big item on anothe
 covers the one you want, pick it in the outline or hide that screen with its eye. The toggle is
 off in Animate and on the Components side, and is kept per project.
 
+#### Rulers and guides
+
+**📏 Rulers** (canvas toolbar) shows rulers on the canvas's top and left edges, labelled in
+world (window-frame) pixels at the current zoom and pan. While the rulers are on:
+
+- **Add a guide.** Drag down from the top ruler for a horizontal guide, or right from the left
+  ruler for a vertical one. Each guide shows a marker on its ruler.
+- **Move a guide.** Drag it on the canvas (the cursor changes over it). Shift-click passes
+  through to the object underneath.
+- **Remove a guide.** Drop it back on a ruler. It turns red when releasing will remove it.
+- **⌗ Snap to guides** makes a moved object's edges and centre snap to the guides, on top of the
+  usual snapping to the frame and other objects. Turn it off to keep the guides only as lines.
+
+**📏 Rulers** is off until you turn it on, **⌗ Snap to guides** is on; both are remembered per
+browser. Esc cancels a guide drag. Guides are saved with the screen (on
+the Components side, with the component) and kept per device layout, so each layout tab has its
+own. Adding, moving or removing a guide is an edit: on a screen undo covers it and it autosaves; on
+the Components side it marks the component unsaved, like any other change there. Guides can't
+be edited in Animate, or on a skinnable part's stage inside a component. They are editor-only and
+never reach the game.
+
 Other editing affordances:
 
 - **Undo / redo** — `Ctrl/⌘+Z` / `Shift+Z` (or the ↶ ↷ buttons). Covers every
@@ -1108,6 +1162,29 @@ cover-fits by that box instead of by whatever rectangle the packer produced.
 > the next **art export** — the exporter writes it into the sheet the game loads, so
 > there is no extra publish step and nothing new to register.
 
+#### 9-slice — panels and frames that resize without stretching their corners
+
+A sprite node has a **9-slice** select, under **Keep image ratio**: **Off** (the default),
+**Stretch edges + centre** or **Tile edges + centre**. With it on, the four corners keep
+their art size and the node's **width × height** stretches (or tiles) the edges and the
+centre between them — the usual way to draw a button, a panel or a frame at any size from
+one small image.
+
+- **Set the insets** in the **9-slice insets** section that appears below (once the sprite
+  has a region): drag the four cyan guide lines over the region's thumbnail, or type
+  **left / top / right / bottom** in pixels. **✕ Clear** removes them.
+- **A box smaller than two corners** shrinks all four corners by the same factor rather
+  than overlapping them. The node's **scale** is folded into the size, so corners never
+  grow with the node — resize with width × height or scale, the corners stay crisp.
+- **Keep image ratio** and **Art bounds** don't apply to a sliced sprite — it draws the
+  region's packed art as-is. A sprite drawn as a full-window cover (see **Background**,
+  above) ignores the slice.
+
+> **The insets edit the ART, like Art bounds.** They are stored per
+> `<assetKey>::<region>`, shared by every sliced use of that region, saved immediately
+> (not by the page's Save) and reach the game with the next **art export**. The select is
+> per node: the same region can be sliced on one node and drawn plainly on another.
+
 #### Symbol size on the reel
 
 **Symbol size comes from the art.** There is no symbol-size control: every symbol is fitted
@@ -1216,6 +1293,11 @@ Its Properties block:
   whole and pitch is above 0, the layer places freely.
 - **cap** — the most instances alive at once, 1 to 256; blank means 32. A spawn over the cap is
   dropped.
+- **Despawn outside view** and **margin px** — on a screen with a
+  [world and camera](#world-and-camera-arcade-play-field), remove an instance once it has been in
+  view and is then more than the margin beyond it, so a long level keeps only what is near the
+  camera. Off: an instance lives until Flow despawns it. On a screen without a camera the setting
+  saves but does nothing, and the note under it says so.
 
 In an arcade game the game moves the instances: the play field is the layer's space from its
 origin (0, 0 is the top-left corner), and an instance's position is its centre.
@@ -1504,9 +1586,27 @@ the value travels from each selected key to the next one.
 - **Bounce**: lands on the next key and bounces a few times, never going past it, like a gem
   dropping into place.
 
+Under those buttons sit five presets, each a ready-made Cubic: **Ease in**, **Ease out**, **Ease
+in-out**, **Overshoot** and **Anticipate** (hover one for its four numbers).
+
 **Set as default** makes the selected key's interpolation the one every new key in this timeline
 gets; with nothing selected the panel shows and edits that default. An older timeline's _ease in-out_
 keys show as Cubic `0.333, 0, 0.667, 1`, which is the same curve.
+
+**Graph Editor.** A number field's row (x, y, scale ×, rotation, alpha, a camera field; not tint
+or another colour) has a **📈** button by its name. It opens a **graph row** under the field (click
+it again to close it): the field's value over time, on the same time axis and zoom as the
+timeline, with its keys as dots, and the highest and lowest value in the gutter.
+- **Click a dot** to select that key, as you would its diamond; the Interpolation panel shows it.
+  Shift- or Ctrl-click adds or removes it.
+- **Shape a Cubic.** When the selected key's interpolation is **Cubic**, its curve to the next key
+  gets two handles. Drag them: the curve still runs from this key to the next one in the same
+  time, but its value may overshoot. One drag is one undo step. Linear, Hold, Elastic and Bounce
+  draw their curve with no handles, so pick **Cubic** or a preset first. A key with no next key,
+  or with the same value as the next one, has no handles either.
+
+The graph is drawn by the same maths the game plays, so the curve you see is the motion you get.
+It edits the key's ordinary Cubic, so nothing about the saved timeline changes.
 
 **Loop type and fps.** Next to the length in the header: **One-shot** (plays once and holds its last
 frame, the default), **Loop** (back to the start) or **Ping-pong** (to the end and back). ▶ plays it

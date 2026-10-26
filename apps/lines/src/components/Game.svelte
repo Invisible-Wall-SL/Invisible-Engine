@@ -2681,7 +2681,7 @@
 		     exactly as before. -->
 		{#if mechanic.playField}
 			<MainContainer>
-				<ArcadeStage />
+				<ArcadeStage scenes={editorDoc.scenes} />
 			</MainContainer>
 		{:else}
 			<MainContainer>

@@ -130,6 +130,11 @@ function gameRow(
 	// Scenarios both sides refused for the same reason, the branch with no more errors or stalls
 	// than main.
 	const refusedAlike = new Map();
+	// A free-play game's scenarios both sides stalled in at the same step, in the same state, the
+	// branch with no more errors or stalls: main's runtime cannot play the published game that far
+	// either (a flow that never opens the board's input, a screen it never reaches), so the stall is
+	// the game's, not the branch's. Slots are never free play: a shared stall still fails them.
+	const stalledAlike = new Map();
 	row.timings = {};
 	for (const { id: scenario } of planned.scenarios) {
 		const sides = {};
@@ -155,7 +160,16 @@ function gameRow(
 			head.stalls <= base.stalls
 		)
 			refusedAlike.set(scenario, base.bootStopped);
+		else if (
+			planned.freePlay &&
+			base.error &&
+			head.error === base.error &&
+			head.errors <= base.errors &&
+			head.stalls <= base.stalls
+		)
+			stalledAlike.set(scenario, base.error);
 		for (const side of ['base', 'head']) {
+			if (stalledAlike.has(scenario)) break;
 			const r = sides[side];
 			const failure = failureOf(r, side, scenario);
 			if (!failure) continue;
@@ -270,6 +284,22 @@ function gameRow(
 			`not rendered: main's runtime refuses this published snapshot (${refused.join('; ')}), so ` +
 				'players see the error screen today. Republish the game to fix it.',
 		);
+		return row;
+	}
+	const stalled = [...stalledAlike].map(([scenario, error]) => `${scenario}: ${error}`);
+	if (stalled.length)
+		row.notes.push(
+			`not played to the end: main's runtime stalls at the same step, so players cannot get ` +
+				`that far today either (${stalled.join('; ')}). One cause: a flow that is not the ` +
+				"game's kind (a kind switch's re-scaffold keeps the old flow); republish it from a fresh one.",
+		);
+	if (
+		stalledAlike.size &&
+		!missing.length &&
+		stalledAlike.size === planned.scenarios.length &&
+		!changed.length
+	) {
+		row.looks = { status: 'unplayable', detail: stalled.join('; ') };
 		return row;
 	}
 	row.looks = missing.length

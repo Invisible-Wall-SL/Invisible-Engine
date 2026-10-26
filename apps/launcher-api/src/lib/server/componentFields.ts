@@ -45,6 +45,7 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	alpha: true,
 	blendMode: true,
 	zIndex: true,
+	parallax: true,
 	overrides: true,
 	visibleFor: true,
 	slotId: true,
@@ -66,6 +67,7 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	boardFit: true,
 	region: true,
 	keepAspect: true,
+	slice: true,
 	tint: true,
 	defaultAnimation: true,
 	loop: true,
@@ -130,6 +132,7 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	placement: true,
 	grid: true,
 	cap: true,
+	despawnOutsideView: true,
 };
 const componentDefFields: Record<keyof ComponentDef, true> = {
 	id: true,
@@ -155,6 +158,7 @@ const componentDefFields: Record<keyof ComponentDef, true> = {
 	buttonStates: true,
 	settles: true,
 	events: true,
+	guides: true,
 };
 const componentParamFields: Record<keyof ComponentParam, true> = {
 	key: true,

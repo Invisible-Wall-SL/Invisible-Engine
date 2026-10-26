@@ -7,10 +7,12 @@
 <script lang="ts">
 	import ColorField from '$lib/ColorField.svelte';
 	import ArtBoundsEditor from './ArtBoundsEditor.svelte';
+	import ArtSliceEditor from './ArtSliceEditor.svelte';
 	import EditorElementFx from './EditorElementFx.svelte';
 	import EditorValueBindings from './EditorValueBindings.svelte';
 	import EditorRepeaterCount from './EditorRepeaterCount.svelte';
 	import EditorSpawnLayer from './EditorSpawnLayer.svelte';
+	import EditorParallax from './EditorParallax.svelte';
 	import EditorEvents from './EditorEvents.svelte';
 	import EditorListeners from './EditorListeners.svelte';
 	import {
@@ -74,6 +76,7 @@
 		type RigRestOverride,
 		type TextStyle,
 		forwardedParams,
+		isSliceMode,
 		lightOrderThresholds,
 		potPieces,
 		POT_PIECE_LIGHT_PARAM,
@@ -137,6 +140,10 @@
 		 * `canvas` scenes surface the per-node `screenAnchor` control (it's the window-edge
 		 * anchor the runtime honours for canvas space; ignored elsewhere). */
 		sceneSpace?: Scene['space'];
+		/** The active screen draws through a world camera (`hasWorldCamera`, game-families P10.12). */
+		worldCamera?: boolean;
+		/** The node is a top-level item of such a screen — the only place its `parallax` is read. */
+		parallaxLayer?: boolean;
 		/** Template-authoring mode (§7.5): reveal the per-node slot tagging UI. */
 		templateMode?: boolean;
 		/** Slot metadata not stored on the node (keyed by `slotId`). */
@@ -345,6 +352,8 @@
 		layoutTypeIds = ['desktop', 'tablet', 'landscape', 'portrait'],
 		onDirty,
 		sceneSpace,
+		worldCamera = false,
+		parallaxLayer = false,
 		templateMode = false,
 		slotMeta = {},
 		onSlotRequiredChange,
@@ -2026,6 +2035,13 @@
 	function setCoverFitFlag(n: LayoutNode, on: boolean): void {
 		if (on) n.coverFit = true;
 		else delete n.coverFit;
+		markDirty();
+	}
+
+	function setSlice(n: LayoutNode, mode: string): void {
+		if (n.kind !== 'sprite') return;
+		if (isSliceMode(mode)) n.slice = mode;
+		else delete n.slice;
 		markDirty();
 	}
 
@@ -3968,6 +3984,9 @@
 				</button>
 			</div>
 		{/if}
+		{#if parallaxLayer}
+			<EditorParallax {node} onChange={markDirty} />
+		{/if}
 	</section>
 
 	{#if canCoverFit}
@@ -4211,7 +4230,27 @@
 				The image fits inside width × height without stretching, so a frame of another shape (picked
 				per instance through an exposed image) keeps its own proportions.
 			</p>
+			<div class="row">
+				<label class="field wide">
+					<span>9-slice</span>
+					<select value={node.slice ?? ''} onchange={(e) => setSlice(node, e.currentTarget.value)}>
+						<option value="">Off</option>
+						<option value="stretch">Stretch edges + centre</option>
+						<option value="tile">Tile edges + centre</option>
+					</select>
+				</label>
+			</div>
+			{#if node.slice}
+				<p class="muted small">
+					Corners keep their art size; width × height stretches or tiles the rest. The insets are
+					the image's own, set below. Keep image ratio and Art bounds don't apply to a sliced
+					sprite.
+				</p>
+			{/if}
 		</section>
+		{#if node.slice && node.region && node.assetKey}
+			<ArtSliceEditor assetKey={node.assetKey} region={node.region} />
+		{/if}
 		{#if node.region && node.assetKey}
 			<!-- Editing the ART, not this placement — the section says so, and it is stored per
 			     `<assetKey>::<region>` outside the layout doc, which is why it lives in its own
@@ -5999,7 +6038,7 @@
 			</button>
 		</section>
 	{:else if node.kind === 'spawnLayer'}
-		<EditorSpawnLayer {node} {componentDefs} onChange={markDirty} />
+		<EditorSpawnLayer {node} {componentDefs} {worldCamera} onChange={markDirty} />
 	{:else if node.kind === 'repeater' && isCountRepeater(node)}
 		<EditorRepeaterCount
 			{node}

@@ -278,6 +278,25 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-26 — **The current-games harness plays published arcade games, and stops failing free-play
+  games main cannot play either** (branch `claude/upbeat-hamilton-sgv1dh`). Since #1352/#1353 every
+  PR read `12 pass · 2 fail`: `testarcade` (arcade) was driven with the slot `lines` script, and
+  `match3test` stalled at its first `swap` on both sides. Arcade now has its own script,
+  `screens/arcade.json` (6 screens: boot, falling bodies, a held ← steer, round over, again), picked by
+  `scriptFor('arcade')`, with a new `hold { key, frames }` op (`play.mjs`; `browser.mjs` `key()` takes
+  the arrows); the new `cg-arcade` fixture is Game Maker's arcade scaffold, and `cg-match3` now
+  carries the `freePlay` contract a publish derives. The match-3 swap needed no change: a rules game
+  takes input without a round (`match3TakesInput`), and the fixture plays all 5 screens under
+  `freePlay`. The live stall reproduces exactly (same step, `moves 0`, `roundOpen false`,
+  `movesLeft 0`) when the snapshot's flow is not match-3's, the create-only re-scaffold trap that
+  broke `salmons`, so the published game likely needs a fresh scaffold (owner; this session's R2
+  key could not read either snapshot). New compare rule (`assemble.mjs`, plan's `freePlay` flag): a
+  free-play game's scenario main stalls in identically, the branch no worse, is a note, not a
+  failure; every scenario so ⇒ `not rendered (main's runtime cannot play the game either)`. Slots
+  are unchanged (never free play). Proved locally: fixtures `2 pass · 0 fail`; the two fixtures with
+  each other's flow `2 pass` with the stall notes; `assemble.fixture.mjs` and `play.fixture.mjs` cover
+  the rules. Harness only: no runtime change, no release; the PR's own current-games status fails by
+  design (it edits the harness) and needs the owner's review.
 - 2026-10-25 — **A running game's console is quiet again** (branch `claude/charming-cannon-rjv7ba`,
   in review). Owner report on `commonoverlayproject`: a 3 MB console of warnings from one session.
   Reproduced by playing the live game headless (boot, continue, one spin) and traced per line.

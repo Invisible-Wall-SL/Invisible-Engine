@@ -14,8 +14,11 @@ starter flow (`engine-flow-v2` `arcadeSeed.ts`) and the four placeholder compone
 (`ARCADE_SAMPLE_COMPONENTS`: flat shapes, not the Salmons art). It has no RGS: the runtime runs the
 arcade loop itself and sends no request.
 
-It is not a published project, and no current-games fixture plays it: the playtest builds its own
-snapshot. (A free-play arcade game publishes to the test server since the publishing switch-on.)
+It is not a published project: the playtest builds its own snapshot. A free-play arcade game
+publishes to the test server since the publishing switch-on, and the current-games harness plays it
+with `scripts/current-games/screens/arcade.json` (`loaded`, `start`, `falling`, `steered`,
+`round-over`, `again`); its local stand-in is the `cg-arcade` fixture, built from the same seeds and
+sample components.
 
 ## Launch
 
