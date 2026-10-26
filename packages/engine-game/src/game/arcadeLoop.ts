@@ -49,7 +49,7 @@ import type { ArcadeBody, ArcadeZone } from 'game-config';
  * ({@link ArcadeLoopOptions.camera}): after the zones each step moves the camera
  * (`engine-mechanics` `camera.js`), raises `enterView` / `leaveView` as a body's box starts or stops
  * meeting the view, and despawns a body of a layer with `despawnOutsideView` once it has been within
- * the margin of the view and is wholly beyond it. Flow steers the camera with `cameraFollow`,
+ * the margin of the view and is wholly beyond it (never the body it follows). Flow steers the camera with `cameraFollow`,
  * `cameraMoveTo`, `cameraShake` and `cameraSetAutoScroll`, and reads `cameraX` / `cameraY` (the
  * view's top-left) and `viewWidth` / `viewHeight`. Without one, none of it runs.
  */
@@ -316,7 +316,8 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 
 	const stepView = (cam: Camera, opts: ArcadeCameraOptions, list: LoopBody[]) => {
 		const view = opts.view();
-		stepCamera(cam, clock.dt, { view, world: opts.world, target: followed(cam.follow) });
+		const target = followed(cam.follow);
+		stepCamera(cam, clock.dt, { view, world: opts.world, target });
 		const rect = viewRect(cam, view);
 		const gone: string[] = [];
 		for (const body of list) {
@@ -333,7 +334,8 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 			const margin = live.layer(body.layer)?.despawnOutsideView?.margin;
 			if (margin === undefined) continue;
 			if (meets(box, rect, margin)) seen.add(body.id);
-			else if (seen.has(body.id)) gone.push(body.id);
+			// The body the camera follows is never left behind (moved ahead of the camera).
+			else if (seen.has(body.id) && body !== target) gone.push(body.id);
 		}
 		for (const id of gone) {
 			live.despawn(id);
