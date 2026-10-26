@@ -83,8 +83,8 @@ export interface BugAccess {
 export const personName = (user: { name: string | null; email: string }): string =>
 	user.name?.trim() || user.email.split('@')[0];
 
-/** The launcher itself, when a linked pull request moves a bug. */
-export const AUTO_ACTOR: Actor = { id: null, name: 'Pipeline Changes' };
+/** No person: a linked pull request on GitHub moved the bug (the launcher's sync records it). */
+export const AUTO_ACTOR: Actor = { id: null, name: 'GitHub' };
 
 /**
  * What a viewer may see: the kinds named, and the projects they can open. Bug Reports' own pages

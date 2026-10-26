@@ -41,17 +41,22 @@ server module, routes, page components, triage, screenshots, the pull-request li
 - **Automatic status.** A pull request into `main` from this repository that names `BUG-<n>` in its
   title, branch or body is linked: opened → Working on (an Open bug), merged → Resolved (an Open or
   Working on bug), closed unmerged → back to Open only when a pull request had set Working on and no
-  other linked one is open. Only a *change* of a link moves a status, so a status set by hand stays.
+  other linked one is open. Only a _change_ of a link moves a status, so a status set by hand stays.
   Read on a list request at most once a minute (open pulls, the last 100 closed, and any link still
   open read by number); off with a sentence until the GitHub App is configured; a GitHub failure is
-  a state, never an error. Applies to both kinds.
+  a state, never an error. Recorded in the activity as **GitHub** (no person). Applies to both
+  kinds.
 - **Pipeline Changes.** A new **Bugs** tab (`/pipeline?tab=bugs`) lists the pipeline bugs sent
-  there, still to do first, with their linked pull requests (an open one opens in the Changes tab)
-  and **Copy fix brief**; a change card shows a `BUG-<n>` tag when its title or branch names one.
+  there, still to do first (Resolved / Won't fix folded under **Done**), with their linked pull
+  requests (an open one opens in the Changes tab) and **Copy fix brief**; a change card shows a
+  `BUG-<n>` tag when its title or branch names one (the description links too, but has no tag).
+- **A link to the other list** (a game bug on `/bugs`, another project's game bug) is not opened
+  there: the page names the list it belongs to, with **Open it there**.
 - **Fixture:** `pnpm --filter launcher-api check:bug-reports` (run by `check:all`) — the real
   modules with the database, R2, grants, tool scope and GitHub faked at their seams.
 
 ## Open items / next
+
 1. **Browser pass** on the live launcher: report with pasted / dropped screenshots, filters and the
    address round trip, triage, the lightbox, the game page across a project switch in the top bar,
    the Pipeline Changes Bugs tab. Nothing here has been clicked yet.
@@ -63,6 +68,7 @@ server module, routes, page components, triage, screenshots, the pull-request li
 4. No delete of a bug report (Won't fix is the way out); no assignee field.
 
 ## Recent changes
+
 - 2026-10-26 — **Built: Invisible Pipeline Bug Reports + Invisible Game Bug Reports** on one set of
   modules (`kind` column), the `bugTriage` capability, the Pipeline Changes Bugs tab, automatic
   status from pull requests naming `BUG-<n>`, and `check:bug-reports`. Game bugs were added on the

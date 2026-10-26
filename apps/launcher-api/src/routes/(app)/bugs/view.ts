@@ -66,7 +66,7 @@ const SORTS: SortKey[] = ['newest', 'updated', 'priority'];
 export const PRIORITY_FILTERS: PriorityFilter[] = [...BUG_PRIORITIES, 'none'];
 
 export const priorityFilterLabel = (p: PriorityFilter): string =>
-	p === 'none' ? 'No priority' : BUG_PRIORITY_LABELS[p];
+	p === 'none' ? NO_PRIORITY_LABEL : BUG_PRIORITY_LABELS[p];
 
 export const asSentFilter = (v: string): SentFilter =>
 	(SENT as string[]).includes(v) ? (v as SentFilter) : 'all';
@@ -89,17 +89,23 @@ export function filterBugs(bugs: BugSummary[], f: BugFilters): BugSummary[] {
 		if (f.mine && !b.mine) return false;
 		if (!words.length) return true;
 		const text = [
-			`bug-${b.number}`,
 			b.title,
 			b.description,
 			bugAreaName(b.kind, b.area),
 			b.projectKey ?? '',
 			b.reporter,
-			...b.links.map((l) => `#${l.number} ${l.title}`),
+			...b.links.map((l) => l.title),
 		]
 			.join('\n')
 			.toLowerCase();
-		return words.every((w) => text.includes(w));
+		return words.every((w) => {
+			// `BUG-12` is that bug and `#1234` that pull request — not BUG-120 or #12345.
+			const ref = /^bug-(\d+)$/.exec(w);
+			if (ref) return b.number === Number(ref[1]);
+			const pr = /^#(\d+)$/.exec(w);
+			if (pr) return b.links.some((l) => l.number === Number(pr[1]));
+			return text.includes(w);
+		});
 	});
 }
 

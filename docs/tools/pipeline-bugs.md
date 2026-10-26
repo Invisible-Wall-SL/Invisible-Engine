@@ -65,10 +65,11 @@ bugs took.
      on the bug as a link.
    - **Description** (up to 20,000 characters): what happened, what you expected, and the steps to
      make it happen again. The placeholder text suggests this layout.
-   - **Screenshots** (`N of 10`): drop images on the box, paste one with Ctrl+V anywhere on the
-     page, or click **choose files**. You can add PNG, JPEG or WebP images, up to 10 MB each and
-     10 per bug. A file that does not fit is left out, with the reason: "Some files were left
-     out: only PNG, JPEG or WebP images up to 10 MB; room for N more." Each thumbnail shows its
+   - **Screenshots** (`N of 10`): drop images on the box, paste one with Ctrl+V (in the form, or
+     with nothing else selected), or click **choose files**. You can add PNG, JPEG or WebP
+     images, up to 10 MB each and 10 per bug. A file that does not fit is left out, with the
+     reason: "Some files were left out: only PNG, JPEG or WebP images up to 10 MB; room for N
+     more." Each thumbnail shows its
      size and a **Remove** button.
 4. Click **Report bug**. The button is enabled once the bug has a title and an area. It reads
    "Reporting…" and then "Uploading screenshot 1 of N…". The new bug then opens with "BUG-`<n>` is
@@ -84,15 +85,15 @@ A link can open the form already filled in: `/bugs?new=1&for=<tool id>&page=<add
 
 5. The list opens on the bugs that are still to do (**Open** and **Working on**), newest first, and
    says "Showing N of M bugs." The filters:
-   - **Status chips**: Open, Working on, Resolved and Won't fix. Each chip shows how many of all
-     your visible bugs have that status. Click a chip to turn it on or off. With no chip on, every
-     status shows.
+   - **Status chips**: Open, Working on, Resolved and Won't fix. Each chip shows how many bugs
+     have that status with the other filters applied. Click a chip to turn it on or off. With no
+     chip on, every status shows.
    - **Priority chips**: Critical, High, Medium, Low and **No priority**. With no chip on, every
      priority shows.
    - **Search** ("Search title, description, BUG-12, #1234…"): every word you type must appear in
      the bug's reference, title, description, area, project, reporter, or a linked pull request
-     (`#<number> <title>`). Case does not matter. The match is on part of the text, so `BUG-1`
-     also finds BUG-10 to BUG-19.
+     title. Case does not matter. Words match part of the text, but `BUG-12` finds that one bug
+     (not BUG-120) and `#1234` the bugs that pull request is linked to.
    - **Every tool and area**: lists only the areas that have bugs.
    - **Every project**: lists the projects named on bugs you can see.
    - **Anyone**: filter by reporter.
@@ -105,8 +106,8 @@ A link can open the form already filled in: `/bugs?new=1&for=<tool id>&page=<add
    `&sent=…&mine=1&sort=…`, with `status=all` for every status), and so is the open bug
    (`&bug=<n>`). Copy the address to share a filtered view.
 
-6. Each card shows `BUG-<n>`, its priority (**Not set** when there is none) and status, the title,
-   the area and project, the reporter (with "(you)" on yours), when it was reported, how many
+6. Each card shows `BUG-<n>`, its priority (**No priority** when there is none) and status, the
+   title, the area and project, the reporter (with "(you)" on yours), when it was reported, how many
    screenshots it has, an `in Pipeline Changes` tag once it has been sent, and a `#<number> <state>`
    tag for each linked pull request. With nothing reported the list says "No bugs reported yet."
    When the filters hide everything it says "No bug matches these filters."
@@ -122,10 +123,10 @@ A link can open the form already filled in: `/bugs?new=1&for=<tool id>&page=<add
    - **Edit** (the reporter or a triager) lets you change the title, tool or area, project, where
      it happened and the description. Click **Save** or **Cancel**. If someone else saved the bug
      after you opened it, Save is refused: "Someone else edited this bug since you opened it.
-     Reload to see their text, then edit again." Click **Reload**, then **Cancel**, then **Edit**
-     again to start from their text. The form that is still open keeps your old text and is
-     refused again.
-8. **Triage.** **Priority** (Not set, Critical, High, Medium, Low) and **Status** (Open, Working
+     Reload to see their text, then edit again." **Reload** closes the form and shows their
+     version; click **Edit** again to start from it. Your own text is not kept, so copy it first if
+     you want it.
+8. **Triage.** **Priority** (No priority, Critical, High, Medium, Low) and **Status** (Open, Working
    on, Resolved, Won't fix). Without the capability both are greyed out and the card says
    "Read-only: needs “Triage bug reports”." A status you set by hand shows your name under
    **Status set**. It stays until a linked pull request changes (see "How a pull request moves a
@@ -161,9 +162,9 @@ A link can open the form already filled in: `/bugs?new=1&for=<tool id>&page=<add
 10. **Screenshots · N.** Each thumbnail shows who added it and its size. Click one to see it full
     size, and click again or press Escape to close it. **Remove** appears for the person who added
     it, the reporter and triagers. Anyone who can see the bug can add more, up to 10, by dropping
-    them on the box, choosing files, or pasting. While a bug is open, pasting an image anywhere on
-    the page uploads it to that bug straight away. Adding screenshots is paused while you edit the
-    text.
+    them on the box, choosing files, or pasting. Pasting an image inside the bug (in the comment
+    box, say) or with nothing selected uploads it to that bug straight away; a paste into the
+    search box or a filter is left alone. Adding screenshots is paused while you edit the text.
 11. **Pull requests · N.** Every pull request that names this bug, with its state (`open`,
     `merged`, `closed`) and a link to it on GitHub. A line here also says when linked pull requests
     cannot be read (the App is not configured, or "Linked pull requests could not be read. …").
@@ -171,8 +172,8 @@ A link can open the form already filled in: `/bugs?new=1&for=<tool id>&page=<add
     "reported the bug", "edited the title, description", "set the priority to High" or "cleared
     the priority", "marked it Resolved", "sent it to Pipeline Changes" or "took it back from
     Pipeline Changes", "added a screenshot" or "removed a screenshot", "linked `#<pr>` “`<title>`”",
-    and comments with their text. Moves made by a pull request are shown under the name **Pipeline
-    Changes**, for example "marked it Working on: #1234 opened". Under the list, **Add a comment**
+    and comments with their text. Moves made by a pull request are shown under the name **GitHub**,
+    for example "marked it Working on: #1234 opened". Under the list, **Add a comment**
     (up to 5,000 characters) and **Comment**. Anyone who can see the bug can comment.
 
 ### How a pull request moves a bug
@@ -196,6 +197,8 @@ and **Status set** names the pull request.
 
 ## Known limitations / TODOs
 
+- A shared link to a bug of the other list (a game bug on `/bugs`, or another project's) does not
+  open it here: the page says which list it is on, with **Open it there**.
 - No tool opens the report form for you yet. The `?new=1&for=…&page=…` link works, but you open
   Bug Reports yourself and fill in the area.
 - Nobody is notified when a bug is reported, sent or moved. Open the list to check (it refreshes

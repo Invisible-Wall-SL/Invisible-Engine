@@ -7,6 +7,7 @@
 		MAX_DESCRIPTION,
 		MAX_SCREENSHOTS,
 		MAX_TITLE,
+		NO_PRIORITY_LABEL,
 		bugAreaName,
 		bugBrief,
 		bugPath,
@@ -130,6 +131,13 @@
 		if (ok) editing = false;
 	}
 
+	/** After a conflict: leave the editor and show the bug as it now stands, to edit again from. */
+	function reloadTheirs(): void {
+		editing = false;
+		failure = null;
+		onreload();
+	}
+
 	// ── Comments ──────────────────────────────────────────────────────────────
 	let comment = $state('');
 	async function postComment(): Promise<void> {
@@ -175,6 +183,7 @@
 		}
 	}
 
+	let panelEl = $state<HTMLElement | null>(null);
 	let lightbox = $state<HTMLDialogElement | null>(null);
 	let lightboxSrc = $state('');
 	function openShot(id: string): void {
@@ -200,7 +209,7 @@
 		);
 </script>
 
-<article class="panel" aria-busy={busy !== null}>
+<article class="panel" aria-busy={busy !== null} bind:this={panelEl}>
 	<section class="card">
 		<div class="head">
 			<div class="titles">
@@ -219,7 +228,7 @@
 				<span class="pills">
 					<Pill tone={statusTone(detail.status)} large>{statusLabel(detail.status)}</Pill>
 					<Pill tone={priorityTone(detail.priority)} large>
-						Priority · {priorityLabel(detail.priority)}
+						{detail.priority ? `Priority · ${priorityLabel(detail.priority)}` : NO_PRIORITY_LABEL}
 					</Pill>
 					{#if detail.sentAt}<Pill tone="amber" tag>in Pipeline Changes</Pill>{/if}
 				</span>
@@ -323,7 +332,7 @@
 		{#if failure}
 			<div class="error" role="alert">
 				{failure.text}
-				{#if failure.reload}<button type="button" class="btn small" onclick={onreload}
+				{#if failure.reload}<button type="button" class="btn small" onclick={reloadTheirs}
 						>Reload</button
 					>{/if}
 			</div>
@@ -345,7 +354,7 @@
 					onchange={(e) =>
 						send({ action: 'priority', priority: e.currentTarget.value || null }, 'Saving…')}
 				>
-					<option value="">Not set</option>
+					<option value="">{NO_PRIORITY_LABEL}</option>
 					{#each BUG_PRIORITIES as p (p)}<option value={p}>{BUG_PRIORITY_LABELS[p]}</option>{/each}
 				</select>
 			</label>
@@ -456,6 +465,7 @@
 		{#if detail.screenshotList.length < MAX_SCREENSHOTS}
 			<ShotDrop
 				onfiles={upload}
+				within={panelEl}
 				disabled={busy !== null || editing}
 				room={MAX_SCREENSHOTS - detail.screenshotList.length}
 			/>

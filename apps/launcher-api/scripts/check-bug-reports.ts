@@ -1042,16 +1042,11 @@ check(
 );
 const linkedEvent = db.events.filter((e) => e.bugNumber === 3).slice(-2);
 check(
-	'sync: recorded as Pipeline Changes, a link then a status',
+	'sync: recorded as GitHub (no person), a link then a status',
 	linkedEvent.map((e) => [e.actor, e.actorId, e.kind, e.data]),
 	[
-		[
-			'Pipeline Changes',
-			null,
-			'linked',
-			{ pr: 500, title: 'launcher: sharper logo (BUG-3)', state: 'open' },
-		],
-		['Pipeline Changes', null, 'status', { from: 'open', to: 'working', pr: 500, because: 'open' }],
+		['GitHub', null, 'linked', { pr: 500, title: 'launcher: sharper logo (BUG-3)', state: 'open' }],
+		['GitHub', null, 'status', { from: 'open', to: 'working', pr: 500, because: 'open' }],
 	],
 );
 const asked = requests.length;
@@ -1218,6 +1213,23 @@ check(
 	[[3, 2, 1], [3], [3, 2], [2], [1]],
 );
 check(
+	'search: BUG-<n> and #<pr> are exact (BUG-1 is not BUG-10), words are parts of the text',
+	[
+		view
+			.filterBugs([...all, { ...all[0], number: 10, links: [] }], {
+				...view.DEFAULT_FILTERS,
+				status: [],
+				q: 'BUG-1',
+			})
+			.map((b: { number: number }) => b.number),
+		view
+			.filterBugs(all, { ...view.DEFAULT_FILTERS, status: [], q: '#506' })
+			.map((b: { number: number }) => b.number),
+		view.filterBugs(all, { ...view.DEFAULT_FILTERS, status: [], q: '#50' }).length,
+	],
+	[[1], [3], 0],
+);
+check(
 	'sortBugs: priority (unset last), then newest',
 	view.sortBugs(all, 'priority').map((b: { number: number }) => b.number),
 	[1, 3, 2],
@@ -1228,13 +1240,13 @@ const lines = ((await read(ADMIN, 3)).body.events as Parameters<typeof view.even
 check('activity lines read as sentences', lines, [
 	'Dana reported the bug',
 	'Otto commented',
-	'Pipeline Changes linked #500 “launcher: sharper logo (BUG-3)”',
-	'Pipeline Changes marked it Working on: #500 opened',
-	'Pipeline Changes marked it Open: #500 closed without merging',
-	'Pipeline Changes linked #505 “launcher: logo, take two”',
-	'Pipeline Changes linked #506 “launcher: logo, take three BUG-3”',
-	'Pipeline Changes marked it Working on: #505 opened',
-	'Pipeline Changes marked it Resolved: #506 merged',
+	'GitHub linked #500 “launcher: sharper logo (BUG-3)”',
+	'GitHub marked it Working on: #500 opened',
+	'GitHub marked it Open: #500 closed without merging',
+	'GitHub linked #505 “launcher: logo, take two”',
+	'GitHub linked #506 “launcher: logo, take three BUG-3”',
+	'GitHub marked it Working on: #505 opened',
+	'GitHub marked it Resolved: #506 merged',
 	'Dana marked it Open',
 	'Gualtiero sent it to Pipeline Changes',
 	'Gualtiero marked it Working on',

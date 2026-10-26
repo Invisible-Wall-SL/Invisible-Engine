@@ -7,12 +7,15 @@
 
 	let {
 		bugs,
+		projects,
 		openChanges,
 		canOpenBugs,
 		now,
 		onopenchange,
 	}: {
+		/** Still to do first: the server's order. */
 		bugs: BugSummary[];
+		projects: { key: string; name: string; clientName: string | null }[];
 		/** The numbers the Changes tab lists, so a linked pull request opens there. */
 		openChanges: Set<number>;
 		/** The viewer has Invisible Pipeline Bug Reports, so each bug links to its page. */
@@ -20,6 +23,14 @@
 		now: number;
 		onopenchange: (number: number) => void;
 	} = $props();
+
+	const done = (b: BugSummary) => b.status === 'resolved' || b.status === 'wontFix';
+	const todo = $derived(bugs.filter((b) => !done(b)));
+	const finished = $derived(bugs.filter(done));
+	const projectLabel = (key: string): string => {
+		const p = projects.find((x) => x.key === key);
+		return p ? (p.clientName ? `${p.clientName} · ${p.name}` : p.name) : key;
+	};
 
 	let copied = $state<number | null>(null);
 	let copyFailed = $state(false);
@@ -38,61 +49,90 @@
 {#if copyFailed}
 	<div class="error" role="alert">The browser did not allow copying to the clipboard.</div>
 {/if}
-<ul class="bugs">
-	{#each bugs as b (b.number)}
-		<li class="bug">
-			<div class="bug-top">
-				<span class="mono">{bugRef(b.number)}</span>
-				<span class="tags">
-					<Pill tone={priorityTone(b.priority)}>{priorityLabel(b.priority)}</Pill>
-					<Pill tone={statusTone(b.status)}>{statusLabel(b.status)}</Pill>
-				</span>
-			</div>
-			<span class="bug-title">{b.title}</span>
-			<span class="bug-meta">
-				{bugAreaName(b.kind, b.area)}{b.projectKey ? ` · ${b.projectKey}` : ''} · reported by {b.reporter}
-				{timeAgo(b.createdAt, now)}{b.sentBy ? ` · sent by ${b.sentBy}` : ''}
+{#snippet card(b: BugSummary)}
+	<li class="bug">
+		<div class="bug-top">
+			<span class="mono">{bugRef(b.number)}</span>
+			<span class="tags">
+				<Pill tone={priorityTone(b.priority)}>{priorityLabel(b.priority)}</Pill>
+				<Pill tone={statusTone(b.status)}>{statusLabel(b.status)}</Pill>
 			</span>
-			{#if b.links.length}
-				<ul class="links">
-					{#each b.links as l (l.number)}
-						<li>
-							<Pill tone={linkTone(l.state)}>{l.state}</Pill>
-							{#if openChanges.has(l.number)}
-								<button type="button" class="linkish" onclick={() => onopenchange(l.number)}>
-									#{l.number}
-									{l.title}
-								</button>
-							{:else if l.url}
-								<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-								<a href={l.url} target="_blank" rel="noopener noreferrer">#{l.number} {l.title} ↗</a
-								>
-							{:else}
-								<span>#{l.number} {l.title}</span>
-							{/if}
-						</li>
-					{/each}
-				</ul>
-			{:else}
-				<span class="bug-meta">
-					No pull request names {bugRef(b.number)} yet.
-				</span>
+		</div>
+		<span class="bug-title">{b.title}</span>
+		<span class="bug-meta">
+			{bugAreaName(b.kind, b.area)}{b.projectKey ? ` · ${projectLabel(b.projectKey)}` : ''} · reported
+			by {b.reporter}
+			{timeAgo(b.createdAt, now)}{b.sentBy ? ` · sent by ${b.sentBy}` : ''}
+		</span>
+		{#if b.links.length}
+			<ul class="links">
+				{#each b.links as l (l.number)}
+					<li>
+						<Pill tone={linkTone(l.state)}>{l.state}</Pill>
+						{#if openChanges.has(l.number)}
+							<button type="button" class="linkish" onclick={() => onopenchange(l.number)}>
+								#{l.number}
+								{l.title}
+							</button>
+						{:else if l.url}
+							<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+							<a href={l.url} target="_blank" rel="noopener noreferrer">#{l.number} {l.title} ↗</a>
+						{:else}
+							<span>#{l.number} {l.title}</span>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		{:else}
+			<span class="bug-meta">
+				No pull request names {bugRef(b.number)} yet.
+			</span>
+		{/if}
+		<div class="actions">
+			<button type="button" class="btn" onclick={() => copyBrief(b)}>
+				{copied === b.number ? 'Copied' : 'Copy fix brief'}
+			</button>
+			{#if canOpenBugs}
+				<!-- A query on another route: `resolve()` cannot carry one. -->
+				<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+				<a class="btn" href={bugPath(b)}>Open in Pipeline Bug Reports</a>
 			{/if}
-			<div class="actions">
-				<button type="button" class="btn" onclick={() => copyBrief(b)}>
-					{copied === b.number ? 'Copied' : 'Copy fix brief'}
-				</button>
-				{#if canOpenBugs}
-					<!-- A query on another route: `resolve()` cannot carry one. -->
-					<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-					<a class="btn" href={bugPath(b)}>Open in Pipeline Bug Reports</a>
-				{/if}
-			</div>
-		</li>
-	{/each}
-</ul>
+		</div>
+	</li>
+{/snippet}
+
+{#if todo.length}
+	<ul class="bugs">
+		{#each todo as b (b.number)}{@render card(b)}{/each}
+	</ul>
+{:else}
+	<p class="none">Nothing left to do: every bug sent here is resolved or won't be fixed.</p>
+{/if}
+{#if finished.length}
+	<details class="done">
+		<summary>Done · {finished.length}</summary>
+		<ul class="bugs">
+			{#each finished as b (b.number)}{@render card(b)}{/each}
+		</ul>
+	</details>
+{/if}
 
 <style>
+	.none {
+		margin: 0;
+		color: #9a9aa6;
+	}
+	.done summary {
+		cursor: pointer;
+		padding: 6px 2px;
+		font-size: 12px;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		color: #b9b9c4;
+	}
+	.done .bugs {
+		padding-top: 8px;
+	}
 	.bugs {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));

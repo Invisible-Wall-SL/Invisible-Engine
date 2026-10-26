@@ -5,12 +5,16 @@
 		onfiles,
 		disabled = false,
 		room,
+		within,
 	}: {
 		/** The images picked, dropped or pasted, already checked for type and size. */
 		onfiles: (files: File[]) => void;
 		disabled?: boolean;
 		/** How many more the bug may take; past it the rest are refused here. */
 		room: number;
+		/** Where a paste is taken from: inside this element (the form, the bug), or with nothing
+		 *  focused — never from a field elsewhere on the page, like the search box. */
+		within: HTMLElement | null;
 	} = $props();
 
 	const TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -31,8 +35,10 @@
 		if (kept.length) onfiles(kept);
 	}
 
-	/** A pasted screenshot is taken from anywhere on the page; pasted text is left alone. */
+	/** A pasted screenshot is taken (see `within`); pasted text is left alone. */
 	function onpaste(e: ClipboardEvent): void {
+		const target = e.target instanceof Node ? e.target : null;
+		if (target && target !== document.body && within && !within.contains(target)) return;
 		const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'));
 		if (!files.length || disabled) return;
 		e.preventDefault();

@@ -929,7 +929,7 @@ export type BugEventKind =
 
 /**
  * A bug's activity, append-only: who did what and when. `actor_id` is null for what the launcher
- * did by itself (a linked pull request moving the status); `actor` is then `Pipeline Changes`.
+ * did by itself (a linked pull request on GitHub moving the status); `actor` is then `GitHub`.
  */
 export const bugReportEvents = pgTable(
 	'bug_report_events',

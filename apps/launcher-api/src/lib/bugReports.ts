@@ -42,7 +42,7 @@ export const BUG_PRIORITY_LABELS: Record<BugPriority, string> = {
 	low: 'Low',
 };
 
-export const NO_PRIORITY_LABEL = 'Not set';
+export const NO_PRIORITY_LABEL = 'No priority';
 
 /** A pull request a bug is linked to, as GitHub last answered for it. */
 export const LINK_STATES = ['open', 'merged', 'closed'] as const;
@@ -183,7 +183,7 @@ export function bugBrief(bug: BriefInput, origin: string): string {
 			]
 		: [`Fix ${ref}: ${bug.title}`, ''];
 	lines.push(
-		`Priority: ${bug.priority ? BUG_PRIORITY_LABELS[bug.priority] : NO_PRIORITY_LABEL}`,
+		`Priority: ${bug.priority ? BUG_PRIORITY_LABELS[bug.priority] : 'not set yet'}`,
 		`${game ? 'Part of the game' : 'Area'}: ${bugAreaName(bug.kind, bug.area)}`,
 	);
 	if (bug.projectKey && !game) lines.push(`Project: ${bug.projectKey}`);

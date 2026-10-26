@@ -53,6 +53,7 @@
 	let priority = $state('');
 	let description = $state('');
 	let shots = $state<{ file: File; url: string }[]>([]);
+	let formEl = $state<HTMLFormElement | null>(null);
 	let busy = $state<string | null>(null);
 	let failure = $state<string | null>(null);
 
@@ -113,7 +114,7 @@
 	}
 </script>
 
-<form class="card" onsubmit={submit}>
+<form class="card" onsubmit={submit} bind:this={formEl}>
 	<div class="card-head">
 		<h2>{game ? `Report a bug in ${projectName(project)}` : 'Report a pipeline bug'}</h2>
 		<button type="button" class="btn" disabled={busy !== null} onclick={oncancel}>Cancel</button>
@@ -212,7 +213,12 @@
 				{/each}
 			</ul>
 		{/if}
-		<ShotDrop onfiles={addShots} disabled={busy !== null} room={MAX_SCREENSHOTS - shots.length} />
+		<ShotDrop
+			onfiles={addShots}
+			disabled={busy !== null}
+			room={MAX_SCREENSHOTS - shots.length}
+			within={formEl}
+		/>
 	</div>
 
 	{#if failure}<div class="error" role="alert">{failure}</div>{/if}

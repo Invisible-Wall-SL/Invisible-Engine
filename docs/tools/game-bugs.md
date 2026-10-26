@@ -61,9 +61,10 @@ Pipeline Bug Reports instead, even if you found it while playing one game.
    - **Description** (up to 20,000 characters): what happened in the game, on which screen, bet
      and mode (base game, free spins, bonus), what you expected, and the steps to make it happen
      again.
-   - **Screenshots** (`N of 10`): drop images on the box, paste one with Ctrl+V anywhere on the
-     page, or click **choose files**. You can add PNG, JPEG or WebP images, up to 10 MB each and
-     10 per bug. A file that does not fit is left out, with the reason.
+   - **Screenshots** (`N of 10`): drop images on the box, paste one with Ctrl+V (in the form, or
+     with nothing else selected), or click **choose files**. You can add PNG, JPEG or WebP
+     images, up to 10 MB each and 10 per bug. A file that does not fit is left out, with the
+     reason.
 4. Click **Report bug**. The new bug opens with "BUG-`<n>` is reported. Thank you." If a screenshot
    is refused, the bug is still reported and the notice names the file to add again. **Cancel**
    closes the form.
@@ -98,8 +99,8 @@ A link can open the form already filled in:
    - **Copy link** copies `/game-bugs?project=<key>&bug=<n>`, so the link opens the right project.
    - **Edit** (the reporter or a triager): title, part of the game, where it happened and the
      description. A game bug cannot be moved to another project. If someone else saved first, Save
-     is refused with "Someone else edited this bug since you opened it. …". Click **Reload**, then
-     **Cancel** and **Edit** again.
+     is refused with "Someone else edited this bug since you opened it. …". **Reload** closes the
+     form and shows their version; click **Edit** to start again from it.
 8. **Triage** (needs the capability): **Priority** and **Status** (Open, Working on, Resolved,
    Won't fix). There is no **Send to Pipeline Changes** button. Instead the card reads: "A game bug
    is fixed in this project's own content, not through Pipeline Changes. The fix brief asks for
@@ -128,7 +129,7 @@ A link can open the form already filled in:
 
 10. **Screenshots**, **Activity** and comments work as in Pipeline Bug Reports: click a thumbnail
     to see it full size, and remove one if you added it, reported the bug or triage. Pasting an
-    image anywhere on the page while a bug is open uploads it to that bug straight away. Comments
+    image inside the bug, or with nothing selected, uploads it to that bug straight away. Comments
     can be up to 5,000 characters.
 
 A game bug is not fixed with a pull request, so it has no **Pull requests** card. If a pull

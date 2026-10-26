@@ -661,9 +661,9 @@
 					to do first. A fix is a pipeline change like any other: name the bug's <span class="mono"
 						>BUG-</span
 					>
-					number in the pull request's title or branch, and the bug shows Working on while it is
-					open and Resolved once it merges. <strong>Copy fix brief</strong> gives the report as text to
-					start from.
+					number in the pull request's title or branch, and the bug shows Working on while it is open
+					and Resolved once it merges. <strong>Copy fix brief</strong> gives the report as text to start
+					from.
 				</p>
 			</div>
 			{#if bugsError}<div class="error" role="alert">{bugsError}</div>{/if}
@@ -673,6 +673,7 @@
 				{#if bugList.bugs.length}
 					<BugsPanel
 						bugs={bugList.bugs}
+						projects={data.projects}
 						openChanges={new Set(list?.changes.map((c) => c.number) ?? [])}
 						canOpenBugs={data.tools.some((t) => t.id === 'pipelineBugs')}
 						{now}

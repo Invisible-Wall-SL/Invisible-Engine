@@ -6,6 +6,7 @@
 		BUG_STATUSES,
 		BUG_TOOL,
 		bugAreaName,
+		bugPath,
 		bugRef,
 		type BugKind,
 		type BugStatus,
@@ -96,6 +97,8 @@
 	let reporting = $state(initialReport !== null);
 	let detail = $state<BugDetail | null>(null);
 	let detailError = $state<string | null>(null);
+	/** A shared link named a bug that belongs on the other list, or another project's game list. */
+	let elsewhere = $state<{ ref: string; where: string; path: string } | null>(null);
 	let detailLoading = $state(initialSelected !== null && initialReport === null);
 	let notice = $state<string | null>(null);
 	let listSeq = 0;
@@ -103,7 +106,8 @@
 
 	const who = $derived(user.name?.trim() || user.email.split('@')[0]);
 	const shown = $derived(bugs ? sortBugs(filterBugs(bugs, filters), filters.sort) : []);
-	const counts = $derived(bugs ? statusCounts(bugs) : null);
+	// What each status chip would show, the other filters applied.
+	const counts = $derived(bugs ? statusCounts(filterBugs(bugs, { ...filters, status: [] })) : null);
 	const reporters = $derived(
 		bugs ? [...new Set(bugs.map((b) => b.reporter))].sort((a, b) => a.localeCompare(b)) : [],
 	);
@@ -159,13 +163,27 @@
 		if (!quiet) {
 			detail = null;
 			detailError = null;
+			elsewhere = null;
 			detailLoading = true;
 		}
 		try {
 			const next = await getJson<BugDetail>(`/api/bugs/${number}`);
 			if (seq !== detailSeq) return;
-			detail = next;
 			detailError = null;
+			if (next.kind !== kind || (game && next.projectKey !== projectKey)) {
+				detail = null;
+				elsewhere = {
+					ref: bugRef(next.number),
+					where:
+						next.kind === 'game'
+							? `a game bug of ${projectLabel(next.projectKey ?? '')}`
+							: 'a pipeline bug',
+					path: bugPath(next),
+				};
+				return;
+			}
+			elsewhere = null;
+			detail = next;
 		} catch (err) {
 			if (seq === detailSeq) detailError = errorText(err);
 		} finally {
@@ -499,6 +517,14 @@
 						{/key}
 					{:else if detailLoading}
 						<div class="loading card" aria-busy="true">Loading {bugRef(selected ?? 0)}…</div>
+					{:else if elsewhere}
+						<div class="empty">
+							<strong>{elsewhere.ref} is {elsewhere.where}.</strong>
+							<p>It is not on this list.</p>
+							<!-- Another bug list's address: `resolve()` cannot carry its query. -->
+							<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+							<a class="btn" href={elsewhere.path}>Open it there</a>
+						</div>
 					{:else if !detailError}
 						<div class="empty">
 							<strong>Select a bug</strong>

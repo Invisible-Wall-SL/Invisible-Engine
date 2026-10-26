@@ -377,10 +377,10 @@ read the definition, the validation preview and the open changes, and open those
     address becomes `/pipeline?tab=bugs`, so the link can be shared (Pipeline Bug Reports' **Open
     in Pipeline Changes** opens it). Game bugs never come here, and a bug that names a project you
     cannot open is not listed. The bugs still to do come first (Working on, then Open), each group
-    by priority with unset last, then newest. Resolved and Won't fix bugs stay at the end until
-    someone takes them back. Each card shows:
-    - `BUG-<n>`, its priority and status, the title, and the area, project, reporter, when it was
-      reported and who sent it.
+    by priority with unset last, then newest. Resolved and Won't fix bugs fold under **Done · N**
+    at the end, until someone takes them back. Each card shows:
+    - `BUG-<n>`, its priority and status, the title, and the area, project (client · name),
+      reporter, when it was reported and who sent it.
     - The pull requests that name it, each with its state (`open`, `merged`, `closed`). Click one
       the Changes tab lists to open that change there (`?change=<n>`). Any other links to GitHub
       (`↗`). With none, the card says "No pull request names BUG-`<n>` yet."
