@@ -525,6 +525,11 @@ game) plus a few seconds to copy its files.
   version freezes, so an edit saved while the publish runs cannot slip an error past it. An **admin** gets a **Publish anyway**
   button (a flow error can hang or skip a round for players); anyone else is told to fix it in
   Invisible Flow or ask an admin.
+- **A flow left from a kind change.** Final, with no override: a project whose kind was changed in
+  `/admin` while its flow stayed another family's (a Book-of flow in an arcade project) is refused
+  with _"This project's kind is "arcade" but its flow is a "bookOf" flow (left from a kind
+  change)…"_. Re-scaffold it in `/admin` (the old flow stays in Invisible Flow's **History…**) or
+  change the kind back. The desktop bake refuses it the same way.
 - **Paytable drift.** Only when the project keeps a captured partner paytable as a reference
   ([Game Config](game-config.md#the-partner-reference-and-the-publish-check) → Symbols → import
   from a pasted capture): if the paytable the info page would show disagrees with it, the dialog
@@ -700,6 +705,13 @@ graduate later; its R2 authoring data carries over.
   created before the scaffold seeded them (2026-10-01) have no such doc: ask an admin to
   **Rescaffold** the project in `/admin` (it writes the bindings only if the project has no
   symbols doc yet), or bind each symbol in [Symbols](/docs/symbols-state-machine); then **Publish**.
+- **A game plays like its old kind after an admin changed its kind (an arcade game driven by a
+  Book-of flow).** — Changing a project's kind in `/admin` does not change its flow or scenes. Ask
+  an admin to **Rescaffold** it: it replaces the flow and the scenes when they belong to a kind
+  of another family (a slot flow in an arcade project) with the project's kind's starters, and says
+  so. The old versions are in [Invisible Flow](/docs/flow)'s and the Scene Editor's **History…**.
+  A flow or layout of the project's own kind, or of another slot kind, is never replaced. Then
+  **Publish**.
 
 - **A save is refused as a conflict right after adding a coin overlay or a bonus mode.** — The tab was open
   before the add-on wrote the project's docs. Reload it (your unsaved edits in it are lost), redo

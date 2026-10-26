@@ -2,14 +2,17 @@
  * Writes the canonical per-project R2 skeleton for a `(client, project)` pair.
  * Idempotent: every key is `HEAD`-checked first and only created when missing
  * (`If-None-Match: *`), so calling `scaffoldProject` repeatedly safely backfills new seed files
- * without trampling existing data.
+ * without trampling existing data. The one exception is a flow or layout provably left by ANOTHER
+ * kind (a kind changed in `/admin`), which is backed up and replaced — see `replaceOtherKindDocs`.
  */
 import {
+	flowTemplateMismatch,
 	freshDrivenSeedDoc,
 	MATCH3_RGS_DRIVEN_SEED_DOC,
 	type FlowDoc,
 	type Graph,
 } from 'engine-flow-v2';
+import { familyOfKind } from 'constants-shared/gameKinds';
 import {
 	resolveFamily,
 	resolveOutcome,
@@ -25,6 +28,7 @@ import {
 	engineOwnedOnly,
 	getFullSceneSet,
 	POTS_SCREEN,
+	referenceLoadsAs,
 } from 'engine-layout';
 import { sceneSetOptionsFor } from '$lib/addOns';
 import {
@@ -34,6 +38,8 @@ import {
 	type LinesPresetId,
 } from './gameConfigDefaults';
 import { ConflictError, loadGameConfigDocWithEtag, saveGameConfigDoc } from './gameConfigStorage';
+import { saveDoc } from './editorStorage';
+import { loadFlowV2DocWithEtag, saveFlowV2Doc } from './flowV2Storage';
 import { normalizeDoc } from './localization';
 import { loadKind } from './kindStorage';
 import {
@@ -47,7 +53,7 @@ import {
 	symbolsDocKey,
 } from './projectPaths';
 import { projectGameType } from './projects';
-import { objectExists, putObjectText } from './r2';
+import { getObjectTextWithEtag, objectExists, putObjectText } from './r2';
 import { holdAndWinSymbolsSeed } from './symbolDefaults';
 import { saveSymbolsDoc } from './symbolsStorage';
 
@@ -127,19 +133,12 @@ const plainHoldAndWinDropped = (jackpots: HoldAndWinTemplateJackpots): string[] 
 	...(jackpots === 'off' ? ['jackpotBar'] : []),
 ];
 
-function buildSeeds(
-	client: string,
-	project: string,
-	gameType: string,
-	reference: LayoutDoc | undefined,
-	dropped: readonly string[],
-	flow: FlowDoc,
-): Seed[] {
+type SeedLayout = ReturnType<typeof scaffoldLayoutDoc>;
+
+function buildSeeds(client: string, project: string, scenes: SeedLayout, flow: FlowDoc): Seed[] {
 	const atlasConfig = { version: 1, output_prefix: project };
 	const sheetConfig = { version: 1 };
 	const strings = normalizeDoc({});
-	const scenes = scaffoldLayoutDoc(project, gameType, reference);
-	scenes.scenes = scenes.scenes.filter((scene) => !dropped.includes(scene.id));
 
 	return [
 		{
@@ -178,7 +177,7 @@ function buildSeeds(
 		// without them.
 		{
 			key: flowV2DocKey(client, project),
-			body: JSON.stringify(flowWithoutScreens(flow, dropped), null, 2),
+			body: JSON.stringify(flow, null, 2),
 			contentType: 'application/json',
 		},
 	];
@@ -207,6 +206,103 @@ function match3Outcome(
 	return stored && resolveFamily(stored) === 'match3' ? resolveOutcome(stored) : undefined;
 }
 
+/** A doc {@link scaffoldProject} replaced, and the kind that had left it. */
+export interface ReplacedDoc {
+	doc: 'flow' | 'scenes';
+	from: string;
+}
+
+const REPLACED_IN: Record<ReplacedDoc['doc'], { what: string; tool: string }> = {
+	flow: { what: 'flow', tool: 'Invisible Flow' },
+	scenes: { what: 'scenes', tool: 'Invisible Scene Editor' },
+};
+
+/**
+ * The `/admin` Re-scaffold note: what was replaced, and where the old doc can be restored — the
+ * tool's History…, which lists the backups the replacing save took.
+ */
+export function rescaffoldMessage(
+	project: string,
+	gameType: string,
+	replaced: readonly ReplacedDoc[],
+): string {
+	const done = `Rescaffolded ${project}.`;
+	if (!replaced.length) return done;
+	const docs = replaced.map((r) => `${r.from} ${REPLACED_IN[r.doc].what}`).join(' and ');
+	const tools = replaced.map((r) => `${REPLACED_IN[r.doc].tool}'s`).join(' and ');
+	const one = replaced.length === 1;
+	return (
+		`${done} Replaced its ${docs} with the ${gameType} starter${one ? '' : 's'} ` +
+		`(the old ${one ? 'one is' : 'ones are'} in ${tools} History…).`
+	);
+}
+
+/**
+ * Whether a stored layout was laid out for ANOTHER kind than the project's: both kinds ship a full
+ * scene set, of different families, and the stored one is not a reference for the project's (a
+ * Book-of layout in a lines project — the Book of Thermopylae preset — is the lines project's own).
+ * Two slot kinds share a family, and one's layout in the other's project is a gray area (the screens
+ * overlap), so it is kept, like a Book-of flow in a project scaffolded before its kind had a starter.
+ */
+function layoutKindMismatch(stored: string, gameType: string): boolean {
+	if (!getFullSceneSet(stored) || !getFullSceneSet(gameType)) return false;
+	if (familyOfKind(stored) === familyOfKind(gameType)) return false;
+	return referenceLoadsAs(stored, gameType) !== gameType;
+}
+
+/** The stored layout's `gameType`; `undefined` when it is unparseable, not a layout, or names none. */
+function storedLayoutKind(text: string): string | undefined {
+	let doc: unknown;
+	try {
+		doc = JSON.parse(text);
+	} catch {
+		return undefined;
+	}
+	const layout = doc as Partial<LayoutDoc> | null;
+	if (!layout || typeof layout !== 'object' || !Array.isArray(layout.scenes)) return undefined;
+	return typeof layout.gameType === 'string' && layout.gameType ? layout.gameType : undefined;
+}
+
+/**
+ * Replace the flow and the layout a kind change left behind with the project's kind's seeds. The
+ * create-only seeds keep them, so a project switched from Book of to arcade in `/admin` kept its
+ * Book-of flow through Re-scaffold and published an arcade game driven by a slot flow
+ * (`invisible_wall/salmons`, 2026-10-26). Only a doc PROVABLY of another family's built-in kind is
+ * replaced — a same-kind doc is the author's work, a same-family one may be what the project has
+ * always played (an older Hold and Win project's Book-of flow), and a corrupt one or one naming no
+ * kind proves nothing. The write is backed up `'always'` (restorable from the tool's History…) and
+ * CAS'd on the ETag read here, so an author's save that lands in between wins.
+ */
+async function replaceOtherKindDocs(
+	client: string,
+	project: string,
+	gameType: string,
+	scenes: SeedLayout,
+	flow: FlowDoc,
+): Promise<ReplacedDoc[]> {
+	const replaced: ReplacedDoc[] = [];
+	const stored = await loadFlowV2DocWithEtag(client, project);
+	if (stored.doc && stored.etag && flowTemplateMismatch(stored.doc.templateId, gameType)) {
+		try {
+			await saveFlowV2Doc(client, project, flow, stored.etag, 'always');
+			replaced.push({ doc: 'flow', from: stored.doc.templateId });
+		} catch (e) {
+			if (!(e instanceof ConflictError)) throw e;
+		}
+	}
+	const layout = await getObjectTextWithEtag(editorDocKey(client, project));
+	const from = layout && storedLayoutKind(layout.text);
+	if (layout && from && layoutKindMismatch(from, gameType)) {
+		try {
+			await saveDoc(client, project, scenes as LayoutDoc, layout.etag, 'always');
+			replaced.push({ doc: 'scenes', from });
+		} catch (e) {
+			if (!(e instanceof ConflictError)) throw e;
+		}
+	}
+	return replaced;
+}
+
 /**
  * Write any missing seed files for `(client, project)` into R2. A `holdAndWin` project's Game Config
  * is seeded from `holdAndWinJackpots`, the plain template (bonus-games §0) with jackpots on or off,
@@ -216,7 +312,8 @@ function match3Outcome(
  * `lines` project from a lines preset (the Book of Thermopylae) and its scenes from the preset's own
  * reference set — without one a lines project stays un-authored, as before. `outcome: 'rgs'` makes a
  * `match3` project the RGS-decided game — its config, its scene set (moves readout + slot HUD) and
- * its starter flow; without it a new match-3 project is the rules game, as before.
+ * its starter flow; without it a new match-3 project is the rules game, as before. Returns the docs
+ * another kind left behind that it replaced (see {@link replaceOtherKindDocs}), with the kind.
  */
 export async function scaffoldProject(
 	client: string,
@@ -228,7 +325,7 @@ export async function scaffoldProject(
 		linesPreset?: LinesPresetId;
 		outcome?: GameOutcome;
 	} = {},
-): Promise<void> {
+): Promise<{ gameType: string; replaced: ReplacedDoc[] }> {
 	const gameType = await projectGameType(project);
 	const linesPreset = gameType === 'lines' ? opts.linesPreset : undefined;
 	const sceneSet = (linesPreset && LINES_PRESET_SCENE_SET[linesPreset]) || gameType;
@@ -263,13 +360,17 @@ export async function scaffoldProject(
 		);
 	}
 	const dropped = plain ? plainHoldAndWinDropped(plain) : [];
-	const flow =
+	const flow = flowWithoutScreens(
 		outcome === 'rgs'
 			? structuredClone(MATCH3_RGS_DRIVEN_SEED_DOC)
-			: freshDrivenSeedDoc(gameType, { coinBoard: Boolean(shapedBy?.coinBoard) });
+			: freshDrivenSeedDoc(gameType, { coinBoard: Boolean(shapedBy?.coinBoard) }),
+		dropped,
+	);
+	const scenes = scaffoldLayoutDoc(project, gameType, reference);
+	scenes.scenes = scenes.scenes.filter((scene) => !dropped.includes(scene.id));
 	// The HEAD skips the PUT in the common case; `If-None-Match: *` closes the window between the two,
 	// so an author's first save that lands in it (a re-scaffold of a live project) is never replaced.
-	for (const seed of buildSeeds(client, project, gameType, reference, dropped, flow)) {
+	for (const seed of buildSeeds(client, project, scenes, flow)) {
 		if (await objectExists(seed.key)) continue;
 		try {
 			await putObjectText(seed.key, seed.body, seed.contentType, { ifNoneMatch: '*' });
@@ -277,6 +378,7 @@ export async function scaffoldProject(
 			if (!(e instanceof ConflictError)) throw e;
 		}
 	}
+	const replaced = await replaceOtherKindDocs(client, project, gameType, scenes, flow);
 	// The kind's default Game Config, written through the config store (validated, backed up,
 	// `If-None-Match: *`) so a concurrent first save in `/config` wins rather than being clobbered.
 	// In the split form (`docs/design/bonus-games.md` §1): a lines base game, its coin trigger and one
@@ -314,4 +416,5 @@ export async function scaffoldProject(
 			}
 		}
 	}
+	return { gameType, replaced };
 }

@@ -5,10 +5,10 @@ import { exportEditorFlowV2 } from '$lib/server/flowV2Export';
 import {
 	checkFlowV2ForPublish,
 	describeFlowErrors,
-	invalidFlowMessage,
+	flowGateRefusal,
 } from '$lib/server/flowV2Validation';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
+import { DEFAULT_PROJECT_KEY, projectClientKey, projectGameType } from '$lib/server/projects';
 import { withDeployWrite } from '$lib/server/runtimeBundleCache';
 import type { RequestHandler } from './$types';
 
@@ -25,7 +25,8 @@ import type { RequestHandler } from './$types';
  * with errors is refused with a 409 `{ error, reason: 'invalid-flow', details }` before anything is
  * written. `&allowInvalidFlow=1` is the explicit override (the bake's `--allow-invalid-flow`). This
  * route has no user session, only the deploy token, so the override is as restricted as that token
- * (a publisher credential), not to the owner role like the online Publish.
+ * (a publisher credential), not to the owner role like the online Publish. A flow of another
+ * family than the project's kind (`reason: 'flow-wrong-kind'`) is refused with no override.
  */
 export const POST: RequestHandler = async ({ url }) => {
 	const secret = await getDeployToken();
@@ -37,17 +38,21 @@ export const POST: RequestHandler = async ({ url }) => {
 
 	try {
 		const flowCheck = await checkFlowV2ForPublish(clientKey, projectKey);
+		const refusal = flowGateRefusal(
+			flowCheck,
+			await projectGameType(projectKey),
+			url.searchParams.get('allowInvalidFlow') === '1',
+		);
+		if (refusal) {
+			return json(
+				{ error: refusal.message, reason: refusal.reason, details: refusal.details },
+				{ status: 409 },
+			);
+		}
 		if (flowCheck.status === 'invalid') {
-			const details = describeFlowErrors(flowCheck.errors);
-			if (url.searchParams.get('allowInvalidFlow') !== '1') {
-				return json(
-					{ error: invalidFlowMessage(flowCheck.errors), reason: 'invalid-flow', details },
-					{ status: 409 },
-				);
-			}
 			console.warn(
 				`[export-flow] ${projectKey}: baked with ${flowCheck.errors.length} flow error(s) by ` +
-					`override: ${details.join(' | ')}`,
+					`override: ${describeFlowErrors(flowCheck.errors).join(' | ')}`,
 			);
 		}
 

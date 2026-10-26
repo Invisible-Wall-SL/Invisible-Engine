@@ -14,7 +14,12 @@
  *    symbol never plays, from the STORED config, so /admin Re-scaffold backfills an older project;
  *    no other kind gets one, and an existing symbols doc is never overwritten;
  *  - a `lines` project created with the Book of Thermopylae preset (book-feature Phase 5c) is seeded
- *    with the preset and the Book-of reference scenes, as a LINES layout; another kind ignores it.
+ *    with the preset and the Book-of reference scenes, as a LINES layout; another kind ignores it;
+ *  - a flow or layout another family's kind left (a kind changed in /admin, then Re-scaffold — the
+ *    salmons Book-of → arcade case) is replaced by the kind's seed and backed up first; a same-kind,
+ *    corrupt or kind-less one, and a Book-of one in another slot project (lines, ways, an older
+ *    cluster or Hold and Win), are never touched; a concurrent save between the read and the write
+ *    wins.
  */
 import { mock } from 'node:test';
 import {
@@ -83,7 +88,29 @@ mock.module(src('lib/server/r2.ts'), {
 	},
 });
 
+// Arcade scaffolding saves its sample components through `componentStorage`, which is not under
+// test here (and reaches far beyond R2): record the calls instead.
+const componentSaves: string[] = [];
+mock.module(src('lib/server/componentStorage.ts'), {
+	namedExports: {
+		saveComponent: async (def: { id: string }, project: string) => {
+			componentSaves.push(`${project}/${def.id}`);
+			return { version: 1, etag: '"c"' };
+		},
+	},
+});
+
 const GAME_TYPES: Record<string, string> = {
+	arcadeFromBook: 'arcade',
+	arcadeOwn: 'arcade',
+	arcadeCorrupt: 'arcade',
+	arcadeScenes: 'arcade',
+	arcadeRace: 'arcade',
+	linesBookFlow: 'lines',
+	clusterBookFlow: 'cluster',
+	hwBookFlow: 'holdAndWin',
+	waysBookScenes: 'ways',
+	linesBookScenes: 'lines',
 	hw: 'holdAndWin',
 	hwAuthored: 'holdAndWin',
 	hwRace: 'holdAndWin',
@@ -115,6 +142,10 @@ const { gameConfigDefaultFor, gameConfigSeedFor } =
 	await import('../src/lib/server/gameConfigDefaults.ts');
 const { editorDocKey } = await import('../src/lib/server/projectPaths.ts');
 const { engineOwnedOnly, getFullSceneSet, referenceLoadsAs } = await import('engine-layout');
+const { freshDrivenSeedDoc } = await import('engine-flow-v2');
+const { editorDocBackupTarget, flowV2DocBackupTarget, flowV2DocKey } =
+	await import('../src/lib/server/projectPaths.ts');
+const { rescaffoldMessage } = await import('../src/lib/server/projectScaffold.ts');
 
 const CLIENT = 'invisible_wall';
 let failures = 0;
@@ -307,6 +338,162 @@ await check('the editor loads the Book-of reference into a lines project as line
 	assert(referenceLoadsAs('lines', 'bookOf') === 'lines', 'lines into a Book-of stays cross-type');
 	assert(referenceLoadsAs('bookOf', 'ways') === 'bookOf', 'Book-of into ways stays cross-type');
 	assert(referenceLoadsAs('bookOf', '') === 'bookOf', 'no project kind: the set’s own');
+});
+
+const backups = (target: { prefix: string }) =>
+	sortedKeys(target.prefix).map((k) => R2.get(k)!.body);
+const flowBackups = (project: string) => backups(flowV2DocBackupTarget(CLIENT, project));
+const scenesBackups = (project: string) => backups(editorDocBackupTarget(CLIENT, project));
+const storedFlow = (project: string) =>
+	JSON.parse(R2.get(flowV2DocKey(CLIENT, project))?.body ?? '{}') as { templateId?: string };
+const put = (key: string, body: string) => R2.set(key, { body, etag: `"e${++etagSeq}"` });
+
+await check('Re-scaffold replaces a Book-of flow in an arcade project, backed up', async () => {
+	const key = flowV2DocKey(CLIENT, 'arcadeFromBook');
+	const book = JSON.stringify(freshDrivenSeedDoc('bookOf'), null, 2);
+	put(key, book);
+	const { gameType, replaced } = await scaffoldProject(CLIENT, 'arcadeFromBook');
+	assert(
+		R2.get(key)?.body === JSON.stringify(freshDrivenSeedDoc('arcade'), null, 2),
+		`the flow is ${storedFlow('arcadeFromBook').templateId}, not the arcade starter`,
+	);
+	assert(flowBackups('arcadeFromBook').includes(book), 'the Book-of flow was not backed up');
+	assert(
+		JSON.stringify(replaced) === JSON.stringify([{ doc: 'flow', from: 'bookOf' }]),
+		`reported ${JSON.stringify(replaced)}`,
+	);
+	const note = rescaffoldMessage('arcadeFromBook', gameType, replaced);
+	assert(
+		note ===
+			"Rescaffolded arcadeFromBook. Replaced its bookOf flow with the arcade starter (the old one is in Invisible Flow's History…).",
+		note,
+	);
+	const again = await scaffoldProject(CLIENT, 'arcadeFromBook');
+	assert(!again.replaced.length, 'a second Re-scaffold replaced the arcade flow');
+	assert(flowBackups('arcadeFromBook').length === 1, 'a second Re-scaffold took a backup');
+	assert(
+		componentSaves.some((k) => k.startsWith('arcadeFromBook/')),
+		'no arcade sample components',
+	);
+});
+
+await check('a same-kind authored flow is never replaced', async () => {
+	const key = flowV2DocKey(CLIENT, 'arcadeOwn');
+	const mine = freshDrivenSeedDoc('arcade');
+	mine.containers = [];
+	const authored = JSON.stringify(mine);
+	put(key, authored);
+	const { replaced } = await scaffoldProject(CLIENT, 'arcadeOwn');
+	assert(R2.get(key)?.body === authored, 'the authored arcade flow was replaced');
+	assert(!replaced.length && !flowBackups('arcadeOwn').length, 'a backup or report was written');
+});
+
+await check('a corrupt or kind-less flow is never replaced', async () => {
+	const key = flowV2DocKey(CLIENT, 'arcadeCorrupt');
+	for (const body of [
+		'{ not json',
+		JSON.stringify({ ...freshDrivenSeedDoc('bookOf'), templateId: '' }),
+	]) {
+		put(key, body);
+		const { replaced } = await scaffoldProject(CLIENT, 'arcadeCorrupt');
+		assert(R2.get(key)?.body === body, `replaced ${body.slice(0, 20)}`);
+		assert(!replaced.length && !flowBackups('arcadeCorrupt').length, 'a backup was written');
+	}
+});
+
+await check('a Book-of flow in a lines project is its own', async () => {
+	const key = flowV2DocKey(CLIENT, 'linesBookFlow');
+	const mine = freshDrivenSeedDoc('bookOf');
+	mine.containers = [];
+	const authored = JSON.stringify(mine);
+	put(key, authored);
+	const { replaced } = await scaffoldProject(CLIENT, 'linesBookFlow');
+	assert(R2.get(key)?.body === authored, 'the lines project lost its Book-of flow');
+	assert(!replaced.length && !flowBackups('linesBookFlow').length, 'a backup was written');
+});
+
+await check('a Book-of flow in an older cluster or Hold and Win project is kept', async () => {
+	// Scaffolded before those kinds had starters of their own, they keep the Book-of flow and play it.
+	for (const project of ['clusterBookFlow', 'hwBookFlow']) {
+		const key = flowV2DocKey(CLIENT, project);
+		const book = JSON.stringify(freshDrivenSeedDoc('bookOf'));
+		put(key, book);
+		const { replaced } = await scaffoldProject(CLIENT, project);
+		assert(R2.get(key)?.body === book, `${project} lost its Book-of flow`);
+		assert(
+			!replaced.some((r) => r.doc === 'flow') && !flowBackups(project).length,
+			`${project}: the flow was reported or backed up`,
+		);
+	}
+});
+
+await check('Re-scaffold replaces a Book-of layout in an arcade project, backed up', async () => {
+	const key = editorDocKey(CLIENT, 'arcadeScenes');
+	const book = JSON.stringify({
+		version: 2,
+		projectKey: 'arcadeScenes',
+		gameType: 'bookOf',
+		scenes: engineOwnedOnly(getFullSceneSet('bookOf')!).scenes,
+	});
+	put(key, book);
+	const { gameType, replaced } = await scaffoldProject(CLIENT, 'arcadeScenes');
+	const layout = JSON.parse(R2.get(key)?.body ?? '{}');
+	assert(layout.gameType === 'arcade', `the layout is a ${layout.gameType} layout`);
+	assert(
+		JSON.stringify(layout.scenes.map((s: { id: string }) => s.id)) ===
+			JSON.stringify(engineOwnedOnly(getFullSceneSet('arcade')!).scenes.map((s) => s.id)),
+		'the scenes are not the arcade set',
+	);
+	assert(scenesBackups('arcadeScenes').includes(book), 'the Book-of layout was not backed up');
+	assert(
+		replaced.some((r) => r.doc === 'scenes' && r.from === 'bookOf'),
+		`reported ${JSON.stringify(replaced)}`,
+	);
+	assert(
+		rescaffoldMessage('arcadeScenes', gameType, replaced).includes('bookOf scenes'),
+		'the note does not name the scenes',
+	);
+});
+
+await check('a Book-of layout in a lines project is kept', async () => {
+	const key = editorDocKey(CLIENT, 'linesBookScenes');
+	const book = JSON.stringify({
+		version: 2,
+		projectKey: 'linesBookScenes',
+		gameType: 'bookOf',
+		scenes: [],
+	});
+	put(key, book);
+	const { replaced } = await scaffoldProject(CLIENT, 'linesBookScenes');
+	assert(R2.get(key)?.body === book, 'the Book-of layout was replaced');
+	assert(!replaced.length && !scenesBackups('linesBookScenes').length, 'a backup was written');
+});
+
+await check('a Book-of layout in another slot kind is kept', async () => {
+	const key = editorDocKey(CLIENT, 'waysBookScenes');
+	const book = JSON.stringify({ version: 2, gameType: 'bookOf', scenes: [] });
+	put(key, book);
+	const { replaced } = await scaffoldProject(CLIENT, 'waysBookScenes');
+	assert(R2.get(key)?.body === book, 'the Book-of layout in a ways project was replaced');
+	assert(!replaced.length && !scenesBackups('waysBookScenes').length, 'a backup was written');
+});
+
+await check('a save between the read and the write wins', async () => {
+	const flowKey = flowV2DocKey(CLIENT, 'arcadeRace');
+	const scenesKey = editorDocKey(CLIENT, 'arcadeRace');
+	put(flowKey, JSON.stringify(freshDrivenSeedDoc('bookOf')));
+	put(scenesKey, JSON.stringify({ version: 2, gameType: 'bookOf', scenes: [] }));
+	const theirFlow = JSON.stringify({ ...freshDrivenSeedDoc('bookOf'), theirs: true });
+	const theirScenes = JSON.stringify({ version: 2, gameType: 'bookOf', scenes: [], theirs: true });
+	RACE.set(flowKey, theirFlow);
+	RACE.set(scenesKey, theirScenes);
+	const { replaced } = await scaffoldProject(CLIENT, 'arcadeRace');
+	assert(R2.get(flowKey)?.body === theirFlow, 'the scaffold clobbered a concurrent flow save');
+	assert(
+		R2.get(scenesKey)?.body === theirScenes,
+		'the scaffold clobbered a concurrent layout save',
+	);
+	assert(!replaced.length, `reported ${JSON.stringify(replaced)}`);
 });
 
 if (failures) {

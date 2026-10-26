@@ -69,7 +69,7 @@ import {
 import { PurgeUnsafeError, purgeProjectR2 } from '$lib/server/projectPurge';
 import { ProjectFolderTakenError, UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { offeredGameKinds, RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
-import { scaffoldProject } from '$lib/server/projectScaffold';
+import { rescaffoldMessage, scaffoldProject } from '$lib/server/projectScaffold';
 import { applyBookOfMigrationTo, planBookOfMigration } from '$lib/server/bookOfMigration';
 import {
 	listOwnBundleGames,
@@ -665,8 +665,8 @@ export const actions: Actions = {
 			return fail(400, { action: 'rescaffoldProject', error: 'Unknown project.' });
 		}
 		const clientKey = (await projectClientKey(key)) ?? UNASSIGNED_CLIENT;
-		await scaffoldProject(clientKey, key);
-		return { action: 'rescaffoldProject', ok: `Rescaffolded ${key}.` };
+		const { gameType, replaced } = await scaffoldProject(clientKey, key);
+		return { action: 'rescaffoldProject', ok: rescaffoldMessage(key, gameType, replaced) };
 	},
 
 	renameProject: async ({ request, locals }) => {

@@ -22,7 +22,7 @@ import {
 	syncFlowContainers,
 	unpinnedProjection,
 } from '$lib/flowV2Projection';
-import { withPlacedComponentVersions } from '$lib/server/flowV2Validation';
+import { withPlacedComponentVersions, wrongKindFlowMessage } from '$lib/server/flowV2Validation';
 import { listCinematics, loadCinematic } from '$lib/server/cinematicStorage';
 import { resolveProjectCinematic } from '$lib/server/sharedCinematics';
 import { loadCustomElementFx } from '$lib/server/shaderStorage';
@@ -223,6 +223,8 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		outcome: resolveOutcome(configDoc),
 		/** The project's symbols (`flowSymbolsFrom`), composed in by `withSymbols`. */
 		symbols,
+		/** Why Publish refuses this flow as another family's (`flowGateRefusal`), else `null`. */
+		wrongKind: wrongKindFlowMessage(doc.templateId, gameType),
 	};
 };
 
