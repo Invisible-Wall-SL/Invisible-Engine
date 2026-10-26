@@ -105,7 +105,7 @@ env:
   # The commit the run is about: the PR head, not its merge commit.
   HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-  SHARDS: 20
+  SHARDS: 8
 
 jobs:
   prepare:
@@ -238,7 +238,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Fills the headless shell cache once, before the builds, so the 20 shards restore it instead
+      # Fills the headless shell cache once, before the builds, so the shards restore it instead
       # of each fetching from the apt mirror. A failure here only costs the shards their own online
       # install.
       - name: Key the headless shell cache
@@ -360,7 +360,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@v7
 

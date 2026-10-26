@@ -126,6 +126,10 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-26 — **current-games renders on 8 shards, not 20** (`SHARDS` and the `render` matrix in
+  `current-games.yml`). About half the old live games are gone, so each shard's units now take
+  minutes. The 20 runner jobs per run were what kept PRs queued behind each other. The plan still
+  balances units by measured cost (`costs.json`), so no other change is needed.
 - 2026-10-26 — **October Dependabot round, applied in one branch.** Landed: the npm minor/patch
   group (#1358), `@sveltejs/package` 3.0.1 (#1362), `chromatic` 18.13.3 (#1359) and the pip group
   (#1357). Held back, Dependabot PRs left open:
