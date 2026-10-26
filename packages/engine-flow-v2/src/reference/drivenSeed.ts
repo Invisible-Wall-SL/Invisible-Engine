@@ -54,7 +54,6 @@
  * is mounted (parity), which is what makes Spin work.
  */
 
-import { familyOfKind } from 'constants-shared/gameKinds';
 import { REPEATER_SELECT_EVENT, REPEATER_SELECTED_KEY } from 'constants-shared/repeater';
 
 import { buildConfirmGate } from '../builders/confirmGate';
@@ -981,23 +980,6 @@ export const DRIVEN_SEED_FALLBACKS: Readonly<Record<string, string>> = {
  */
 export const drivenSeedTemplateId = (gameType?: string): string =>
 	resolveTemplateId(gameType, DRIVEN_SEEDS, DRIVEN_SEED_FALLBACKS, UNREGISTERED_TEMPLATE_FALLBACK);
-
-/**
- * Whether a stored flow's `templateId` belongs to another family than `gameType` — what a kind
- * change leaves behind (a Book-of flow in an arcade project). `false` unless both are built-in: an
- * author-created kind or an unregistered template proves nothing. A slot flow in another slot kind
- * is not one: a `cluster`/`scatter`/`holdAndWin` project scaffolded before its kind had a starter
- * still runs the Book-of flow it was given (`docs/status/flow.md`), and it is the author's work.
- */
-export function flowTemplateMismatch(
-	templateId: string | undefined,
-	gameType: string | undefined,
-): boolean {
-	if (!templateId || !gameType || !Object.hasOwn(DRIVEN_SEEDS, templateId)) return false;
-	const builtIn =
-		Object.hasOwn(DRIVEN_SEEDS, gameType) || Object.hasOwn(DRIVEN_SEED_FALLBACKS, gameType);
-	return builtIn && familyOfKind(templateId) !== familyOfKind(gameType);
-}
 
 /**
  * A fresh DEEP CLONE of the starter flow for a game type — the doc a new project is seeded with, so
