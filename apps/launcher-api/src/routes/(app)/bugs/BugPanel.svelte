@@ -12,6 +12,7 @@
 		bugBrief,
 		bugPath,
 		bugRef,
+		bugTriageName,
 	} from '$lib/bugReports';
 	import type { BugDetail, LinkSync } from '$lib/server/bugReports';
 	import Pill from '../pipeline/Pill.svelte';
@@ -349,7 +350,9 @@
 	<section class="card" aria-labelledby="triage-h">
 		<div class="card-head">
 			<h3 id="triage-h">Triage</h3>
-			{#if !canTriage}<span class="muted small">Read-only: needs “Triage bug reports”.</span>{/if}
+			{#if !canTriage}<span class="muted small"
+					>Read-only: needs “{bugTriageName(detail.kind)}”.</span
+				>{/if}
 		</div>
 		<div class="triage">
 			<label class="field">

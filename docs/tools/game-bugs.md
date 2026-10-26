@@ -15,24 +15,26 @@ Invisible Pipeline Changes. **A bug in the engine or a tool is a pipeline bug**,
 Pipeline Bug Reports instead, even if you found it while playing one game.
 
 - **Where it runs:** the launcher itself, at `/game-bugs`. It opens full-page behind the launcher's
-  sign-in, never in an iframe. On the launcher home it sits in the **Build** section with the other
-  project tools. In the tool bar it is **Game bugs**.
+  sign-in, never in an iframe. On the launcher home it sits in the **Create** section, with Game
+  Maker, Game Config and Director. In the tool bar it is **Game bugs**.
 - **Scope:** the **active project**. The top bar shows it as `<client> / <project>`, and the page
   heading reads **Game bugs · `<client> · <project>`**. Switch projects with the project selector on
   the launcher home. A link with `?project=<key>` opens that project's list and makes it your
   active project, as long as you can open it. Otherwise the page opens your active project. The
   list only ever shows that project's game bugs.
 - **Access:** the `gameBugs` tool. By default every role has it: `admin`, `developer`, `artist`,
-  `animator`, `pipelineTester`, `localizationReviewer` and `audio`. Admins can grant or revoke it
-  per role in **Admin › Roles**, or per user.
+  `animator`, `pipelineTester`, `localizationReviewer` and `audio`. Admins turn it on or off per
+  role in **Admin › Roles** (group **Game bug reports**), or per user in **Admin › Users** (block
+  **Game bug reports**), apart from Pipeline Bug Reports.
   - Not signed in: you are sent to the sign-in page.
   - Signed in without access: the page shows a 403 error, "Your role does not have access to
     Invisible Game Bug Reports."
   - You see a project's game bugs only if you can open the project. Admins see every project's.
-- **Triage** (changing a bug's priority or status) needs **Triage bug reports** (`bugTriage`), the
-  same capability as in Pipeline Bug Reports. By default `admin`, `developer` and
-  `pipelineTester` have it, and it is also set in Admin › Roles. The header shows
-  `<your name> · <role> · can triage` or `· can report`.
+- **Triage** (changing a bug's priority or status) needs **Triage game bugs** (`gameBugTriage`),
+  its own capability: triaging pipeline bugs does not give it. By default `admin`, `developer` and
+  `pipelineTester` have it; admins set it per role in Admin › Roles or per user in Admin › Users,
+  beside the card. The header shows `<your name> · <role> · can triage` or `· can report`, and
+  without it the triage card reads "Read-only: needs “Triage game bugs”."
 - **Who can do what on a bug:** anyone with the tool who can open the project can see a bug,
   comment, add screenshots, copy its link and copy its fix brief. The reporter or a triager can
   edit its text. The person who added a screenshot, the reporter or a triager can remove it.
@@ -41,7 +43,7 @@ Pipeline Bug Reports instead, even if you found it while playing one game.
 ## How to use it
 
 1. Sign in to the launcher (`app.invisiblewall.org`) and pick the project on the launcher home.
-2. Open the **Invisible Game Bug Reports** card in the Build section, or go to `/game-bugs`. The
+2. Open the **Invisible Game Bug Reports** card in the Create section, or go to `/game-bugs`. The
    page has the filters at the top, the project's bugs on the left and the open bug (or the report
    form) on the right. The list refreshes itself every minute while the tab is visible. Click
    **Refresh** in the header to update it now.

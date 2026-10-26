@@ -1,7 +1,7 @@
 import { redirect } from '@sveltejs/kit';
+import { BUG_TRIAGE } from '$lib/bugReports';
 import {
 	ADMIN_PANEL_CAPABILITY,
-	BUG_TRIAGE_CAPABILITY,
 	PIPELINE_MERGE_CAPABILITY,
 	familyUsesTool,
 	manifestForRole,
@@ -97,14 +97,12 @@ export const load: LayoutServerLoad = async ({ locals, cookies, url }) => {
 			roleOverrides,
 			overrides,
 		),
-		// Whether the two bug tools show their triage controls (priority, status, send to Pipeline
-		// Changes); the endpoints check the same capability again.
-		canBugTriage: roleHasCapability(
-			locals.user.role,
-			BUG_TRIAGE_CAPABILITY,
-			roleOverrides,
-			overrides,
-		),
+		// Which of the two bug tools show their triage controls (priority, status, send to Pipeline
+		// Changes): each has its own capability. The endpoints check the same capability again.
+		bugTriage: {
+			pipeline: roleHasCapability(locals.user.role, BUG_TRIAGE.pipeline, roleOverrides, overrides),
+			game: roleHasCapability(locals.user.role, BUG_TRIAGE.game, roleOverrides, overrides),
+		},
 		projects,
 		activeProjectKey,
 		engine,

@@ -10,7 +10,8 @@
  * overrides replaced at their boundaries, and a fake GitHub App handed to the link sync.
  *
  * Pinned:
- *  - every role reports both kinds by default; triage (`bugTriage`) is admin, developer and Pipeline
+ *  - every role reports both kinds by default; triage is one capability per kind
+ *    (`pipelineBugTriage`, `gameBugTriage`, each also settable per user), admin, developer and Pipeline
  *    Tester by default, and the override layers win; pipeline bugs sit in the Pipeline stage beside
  *    Pipeline Changes, game bugs in the Build stage, and both guides exist;
  *  - a list is one kind: the pipeline list every pipeline bug, a game list one project's game bugs
@@ -530,29 +531,43 @@ check('each kind is reported in its own tool', shared.BUG_TOOL, {
 	pipeline: 'pipelineBugs',
 	game: 'gameBugs',
 });
+check('each kind has its own triage capability', shared.BUG_TRIAGE, {
+	pipeline: 'pipelineBugTriage',
+	game: 'gameBugTriage',
+});
 check(
-	'triage defaults: admin, developer, Pipeline Tester',
-	roles.ROLES.filter((r: string) => roles.roleHasCapability(r, roles.BUG_TRIAGE_CAPABILITY)),
-	['admin', 'developer', 'pipelineTester'],
-);
-check(
-	'triage follows the role and user overrides',
+	'triage defaults, each kind: admin, developer, Pipeline Tester',
+	[shared.BUG_TRIAGE.pipeline, shared.BUG_TRIAGE.game].map((key: string) =>
+		roles.ROLES.filter((r: string) => roles.roleHasCapability(r, key)),
+	),
 	[
-		roles.roleHasCapability('artist', 'bugTriage', { bugTriage: true }),
-		roles.roleHasCapability('developer', 'bugTriage', {}, { bugTriage: false }),
+		['admin', 'developer', 'pipelineTester'],
+		['admin', 'developer', 'pipelineTester'],
 	],
-	[true, false],
 );
 check(
-	'triage is a managed capability (Admin › Roles lists it)',
-	roles.CAPABILITIES.some((c: { key: string }) => c.key === 'bugTriage'),
-	true,
+	'triage follows the role and user overrides, one kind without touching the other',
+	[
+		roles.roleHasCapability('artist', 'gameBugTriage', { gameBugTriage: true }),
+		roles.roleHasCapability('artist', 'pipelineBugTriage', { gameBugTriage: true }),
+		roles.roleHasCapability('developer', 'pipelineBugTriage', {}, { pipelineBugTriage: false }),
+		roles.roleHasCapability('developer', 'gameBugTriage', {}, { pipelineBugTriage: false }),
+	],
+	[true, false, false, true],
+);
+check(
+	'Admin lists both triage capabilities by name, and only they are also set per user',
+	[[shared.bugTriageName('pipeline'), shared.bugTriageName('game')], [...roles.USER_CAPABILITIES]],
+	[
+		['Triage pipeline bugs', 'Triage game bugs'],
+		['pipelineBugTriage', 'gameBugTriage'],
+	],
 );
 const stageOf = (id: string) => roles.stageOfTool(id)?.id;
 check(
-	'pipeline bugs beside Pipeline Changes; game bugs with the project tools (Build)',
+	'pipeline bugs in the Pipeline section beside Pipeline Changes; game bugs in Create',
 	[roles.TOOL_STAGES.find((s: { id: string }) => s.id === 'pipeline')?.tools, stageOf('gameBugs')],
-	[['pipelineChanges', 'pipelineBugs'], 'build'],
+	[['pipelineChanges', 'pipelineBugs'], 'create'],
 );
 for (const [id, slug] of [
 	['pipelineBugs', 'pipeline-bugs'],
@@ -571,7 +586,7 @@ async function loadPage(tools: { id: string }[], search: string, load = pageLoad
 	try {
 		return await load({
 			locals: { user: ARTIST },
-			parent: async () => ({ tools, canBugTriage: false }),
+			parent: async () => ({ tools, bugTriage: { pipeline: false, game: true } }),
 			url: new URL(`https://app.example/bugs${search}`),
 			cookies: { get: () => 'token' },
 		} as never);
@@ -607,11 +622,11 @@ const gamePage = (await loadPage(
 	[{ id: 'gameBugs' }],
 	'?project=borut&new=1&for=wins',
 	gamePageLoad,
-)) as { projectKey: string; report: unknown; areas: { id: string }[] };
+)) as { projectKey: string; report: unknown; areas: { id: string }[]; canTriage: boolean };
 check(
-	"game page: scoped to the project the link names (when the user can open it); the game's parts",
-	[gamePage.projectKey, gamePage.report, gamePage.areas.length],
-	['borut', { area: 'wins', pageUrl: '' }, 9],
+	"game page: scoped to the project the link names (when the user can open it); the game's parts; its own triage",
+	[gamePage.projectKey, gamePage.report, gamePage.areas.length, gamePage.canTriage],
+	['borut', { area: 'wins', pageUrl: '' }, 9, true],
 );
 check(
 	"game page: a pipeline area is not a part of the game; a project the user can't open falls back",
@@ -792,6 +807,15 @@ check(
 	],
 	[400, 400, 400, 'ui'],
 );
+userOverrides['u-test'] = { pipelineBugTriage: false };
+const gameTriage = await act(TESTER, 4, { action: 'priority', priority: 'high' });
+const pipelineTriage = await act(TESTER, 3, { action: 'priority', priority: 'high' });
+check(
+	'triage per card: a game triager without pipeline triage sets a game bug, not a pipeline bug',
+	[gameTriage.status, pipelineTriage.status, pipelineTriage.body.error],
+	[200, 403, "Changing a bug's priority needs the “Triage pipeline bugs” permission."],
+);
+delete userOverrides['u-test'];
 await upload(ARTIST, 4, PNG);
 await upload(ARTIST, 4, JPG, 'b.jpg');
 const before = objects.size;
@@ -893,7 +917,7 @@ const artistTriage = await Promise.all([
 check(
 	'triage: a reporter without the capability → 403 for each, naming it',
 	[artistTriage.map((r) => r.status), artistTriage[0].body.error],
-	[[403, 403, 403, 403], "Changing a bug's priority needs the “Triage bug reports” permission."],
+	[[403, 403, 403, 403], "Changing a bug's priority needs the “Triage pipeline bugs” permission."],
 );
 const prio = await act(DEV, 1, { action: 'priority', priority: 'critical' });
 const status = await act(TESTER, 1, { action: 'status', status: 'working' });
@@ -982,7 +1006,7 @@ check(
 	(await shot(TESTER, 1, devShot.id, 'DELETE')).status,
 	200,
 );
-userOverrides['u-test'] = { bugTriage: false };
+userOverrides['u-test'] = { pipelineBugTriage: false };
 const anotherDevShot = db.shots.find((s) => s.bugNumber === 1 && s.uploadedById === 'u-dev')!;
 check(
 	"remove: without triage, someone else's screenshot → 403",

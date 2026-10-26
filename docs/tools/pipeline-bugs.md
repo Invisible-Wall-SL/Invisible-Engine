@@ -17,16 +17,17 @@ bugs took.
   sign-in, never in an iframe. On the launcher home it sits in the **Pipeline** section beside
   Invisible Pipeline Changes. In the tool bar it is **Pipeline bugs**.
 - **Access:** the `pipelineBugs` tool. By default every role has it: `admin`, `developer`,
-  `artist`, `animator`, `pipelineTester`, `localizationReviewer` and `audio`. Admins can grant or
-  revoke it per role in **Admin › Roles**, or per user.
+  `artist`, `animator`, `pipelineTester`, `localizationReviewer` and `audio`. Admins turn it on or
+  off per role in **Admin › Roles** (group **Pipeline bug reports**), or per user in **Admin ›
+  Users** (block **Pipeline bug reports**), apart from Game Bug Reports.
   - Not signed in: you are sent to the sign-in page.
   - Signed in without access: the page shows a 403 error, "Your role does not have access to
     Invisible Pipeline Bug Reports."
 - **Triage** (changing a bug's priority or status, and sending it to Pipeline Changes or taking it
-  back) needs a separate capability, **Triage bug reports** (`bugTriage`). By default `admin`,
-  `developer` and `pipelineTester` have it, and it is also set in Admin › Roles. The same
-  capability covers Invisible Game Bug Reports. The page header shows which one you are:
-  `<your name> · <role> · can triage` or `· can report`.
+  back) needs a separate capability, **Triage pipeline bugs** (`pipelineBugTriage`). By default
+  `admin`, `developer` and `pipelineTester` have it; admins set it per role in Admin › Roles or
+  per user in Admin › Users, beside the card. Game bugs have their own, **Triage game bugs**. The
+  page header shows which one you are: `<your name> · <role> · can triage` or `· can report`.
 - **Who can do what on a bug:**
   - See it, comment, add a screenshot, copy its link and its fix brief: anyone with the tool who
     can see the bug.
@@ -129,7 +130,7 @@ A link can open the form already filled in: `/bugs?new=1&for=<tool id>&page=<add
      you want it.
 8. **Triage.** **Priority** (No priority, Critical, High, Medium, Low) and **Status** (Open, Working
    on, Resolved, Won't fix). Without the capability both are greyed out and the card says
-   "Read-only: needs “Triage bug reports”." A status you set by hand shows your name under
+   "Read-only: needs “Triage pipeline bugs”." A status you set by hand shows your name under
    **Status set**. It stays until a linked pull request changes (see "How a pull request moves a
    bug" below).
 9. **Send it to Pipeline Changes.** Under Triage:

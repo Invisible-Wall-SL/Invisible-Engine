@@ -529,7 +529,7 @@ export const TOOL_STAGES: ToolStage[] = [
 		id: 'create',
 		label: 'Create',
 		accent: '#7ee787',
-		tools: ['gameMaker', 'gameConfig', 'director'],
+		tools: ['gameMaker', 'gameConfig', 'director', 'gameBugs'],
 	},
 	{
 		id: 'assets',
@@ -551,7 +551,7 @@ export const TOOL_STAGES: ToolStage[] = [
 		id: 'build',
 		label: 'Build',
 		accent: '#6ea8ff',
-		tools: ['editor', 'flow', 'symbols', 'componentEditor', 'winText', 'localization', 'gameBugs'],
+		tools: ['editor', 'flow', 'symbols', 'componentEditor', 'winText', 'localization'],
 	},
 	{
 		id: 'reference',
@@ -752,14 +752,23 @@ export const SHADER_PUBLISH_CAPABILITY = 'shaderPublish';
 export const SHADER_CUSTOM_GLSL_CAPABILITY = 'shaderCustomGlsl';
 
 /**
- * Managed capability key for triaging bug reports, pipeline and game alike: changing a bug's
- * priority or status and sending a pipeline bug to Invisible Pipeline Changes. Like `pipelineMerge`
- * it is NOT a tool in `TOOLS`; it lives in the same override matrix. Every role reports bugs (the
- * `pipelineBugs` and `gameBugs` tools); this
- * capability is default-ON for the roles that fix and test them: `admin`, `developer` and
- * `pipelineTester`.
+ * Managed capability keys for triaging bug reports, one per bug tool so each card is granted on its
+ * own: changing a bug's priority or status, and for a pipeline bug sending it to Invisible Pipeline
+ * Changes. Like `pipelineMerge` they are NOT tools in `TOOLS`; they live in the same override
+ * matrix. Every role reports bugs (the `pipelineBugs` and `gameBugs` tools); both capabilities are
+ * default-ON for the roles that fix and test them: `admin`, `developer` and `pipelineTester`.
  */
-export const BUG_TRIAGE_CAPABILITY = 'bugTriage';
+export const PIPELINE_BUG_TRIAGE_CAPABILITY = 'pipelineBugTriage';
+export const GAME_BUG_TRIAGE_CAPABILITY = 'gameBugTriage';
+
+/**
+ * The capabilities Admin › Users may also set per user, beside the tools. Only these: the others
+ * are admin-grade (the admin panel, merging, publishing to shared libraries) and stay per role.
+ */
+export const USER_CAPABILITIES: readonly string[] = [
+	PIPELINE_BUG_TRIAGE_CAPABILITY,
+	GAME_BUG_TRIAGE_CAPABILITY,
+];
 
 /** Capabilities managed by the role matrix that are not entries in `TOOLS`. */
 export const CAPABILITIES: { key: string; name: string; isNew?: true }[] = [
@@ -771,14 +780,16 @@ export const CAPABILITIES: { key: string; name: string; isNew?: true }[] = [
 	{ key: PIPELINE_MERGE_CAPABILITY, name: 'Merge pipeline changes', isNew: true },
 	{ key: SHADER_PUBLISH_CAPABILITY, name: 'Publish shared shader effects', isNew: true },
 	{ key: SHADER_CUSTOM_GLSL_CAPABILITY, name: 'Write custom GLSL in shader effects', isNew: true },
-	{ key: BUG_TRIAGE_CAPABILITY, name: 'Triage bug reports', isNew: true },
+	{ key: PIPELINE_BUG_TRIAGE_CAPABILITY, name: 'Triage pipeline bugs', isNew: true },
+	{ key: GAME_BUG_TRIAGE_CAPABILITY, name: 'Triage game bugs', isNew: true },
 ];
 
 /**
  * `ROLE_TOOLS` baseline for a capability key. Admin-only capabilities
  * (`adminPanel`, `blueprintPublish`, `fontPublish`, `gamePublish`,
  * `componentPublish`, `pipelineMerge`, `shaderPublish`, `shaderCustomGlsl`) default ON for `admin`
- * and OFF elsewhere; `bugTriage` also defaults ON for `developer` and `pipelineTester`.
+ * and OFF elsewhere; the two bug-triage capabilities also default ON for `developer` and
+ * `pipelineTester`.
  */
 function capabilityDefault(role: Role, key: string): boolean {
 	if (key === ADMIN_PANEL_CAPABILITY) return role === 'admin';
@@ -789,7 +800,7 @@ function capabilityDefault(role: Role, key: string): boolean {
 	if (key === PIPELINE_MERGE_CAPABILITY) return role === 'admin';
 	if (key === SHADER_PUBLISH_CAPABILITY) return role === 'admin';
 	if (key === SHADER_CUSTOM_GLSL_CAPABILITY) return role === 'admin';
-	if (key === BUG_TRIAGE_CAPABILITY) {
+	if (key === PIPELINE_BUG_TRIAGE_CAPABILITY || key === GAME_BUG_TRIAGE_CAPABILITY) {
 		return role === 'admin' || role === 'developer' || role === 'pipelineTester';
 	}
 	return false;

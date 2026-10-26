@@ -106,7 +106,12 @@ check(
 
 // ── Placement + docs ───────────────────────────────────────────────────────────
 const stage = (id: string) => TOOL_STAGES.find((s) => s.id === id);
-check('create stage order', stage('create')?.tools, ['gameMaker', 'gameConfig', 'director']);
+check('create stage order', stage('create')?.tools, [
+	'gameMaker',
+	'gameConfig',
+	'director',
+	'gameBugs',
+]);
 check('pipeline stage', stage('pipeline'), {
 	id: 'pipeline',
 	label: 'Pipeline',

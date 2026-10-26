@@ -28,8 +28,13 @@ server module, routes, page components, triage, screenshots, the pull-request li
   viewer cannot open is hidden (404, like a bug that does not exist); admins see all, and a
   reporter always sees their own. `project_key` has no foreign key on purpose: a bug naming a
   deleted or purged project keeps the key, so it stays an admin's (and its reporter's). Triage
-  (priority, status, send / take back) is the `bugTriage` capability — **default admin, developer,
-  Pipeline Tester**. Editing the text: reporter or triager, pinned to the revision opened (409 when
+  (priority, status, send / take back) is one capability per card — `pipelineBugTriage` ("Triage
+  pipeline bugs") and `gameBugTriage` ("Triage game bugs"), **default admin, developer, Pipeline
+  Tester** — so each card is granted on its own. Admin › Roles shows each card with its triage
+  capability in a group of its own (**Pipeline bug reports**, **Game bug reports**), and Admin ›
+  Users sets the same four per user: the two triage capabilities are the only capabilities set per
+  user (`USER_CAPABILITIES`; the rest are admin-grade and stay per role). Pipeline Bug Reports sits
+  in the launcher's **Pipeline** section, Game Bug Reports in **Create**. Editing the text: reporter or triager, pinned to the revision opened (409 when
   someone edited meanwhile). Comments: anyone who sees the bug. Screenshots: anyone who sees it
   adds; its uploader, the reporter or a triager removes.
 - **Game bugs.** `/game-bugs` is scoped like every project tool (`resolveToolScope`: the `?project=`
@@ -76,6 +81,9 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Recent changes
 
+- 2026-10-26 — **Owner's layout** (same PR): Game Bug Reports moved to the Create section; triage
+  split per card (`pipelineBugTriage`, `gameBugTriage`); both cards and both triage capabilities
+  in their own groups in Admin › Roles and settable per user in Admin › Users.
 - 2026-10-26 — **Review fixes** (same PR): links from title/branch only; a pull request closed
   before the bug was reported moves nothing; unlinking when a pull request stops naming the bug;
   pipeline bugs only; lists never wait on GitHub; a game bug's project is fixed; per-file upload
@@ -83,6 +91,6 @@ server module, routes, page components, triage, screenshots, the pull-request li
   project's pipeline bugs stay restricted; reporters see their own bugs; `Object.hasOwn` areas;
   wrong-list links, conflict reload, scoped paste, exact `BUG-<n>` / `#PR` search.
 - 2026-10-26 — **Built: Invisible Pipeline Bug Reports + Invisible Game Bug Reports** on one set of
-  modules (`kind` column), the `bugTriage` capability, the Pipeline Changes Bugs tab, automatic
+  modules (`kind` column), a triage capability, the Pipeline Changes Bugs tab, automatic
   status from pull requests naming `BUG-<n>`, and `check:bug-reports`. Game bugs were added on the
   owner's ask mid-build: a separate card per project, its own list, a fix prompt about the game only.

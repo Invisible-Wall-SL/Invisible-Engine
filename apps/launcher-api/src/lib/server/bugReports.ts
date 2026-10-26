@@ -3,6 +3,7 @@ import { error } from '@sveltejs/kit';
 import {
 	BUG_KINDS,
 	BUG_TOOL,
+	BUG_TRIAGE,
 	MAX_COMMENT,
 	MAX_DESCRIPTION,
 	MAX_SCREENSHOTS,
@@ -10,6 +11,7 @@ import {
 	MAX_TITLE,
 	autoStatus,
 	bugRefsIn,
+	bugTriageName,
 	cleanPageUrl,
 	isBugArea,
 	isBugKind,
@@ -20,7 +22,7 @@ import {
 	type BugStatus,
 	type LinkState,
 } from '$lib/bugReports';
-import { BUG_TRIAGE_CAPABILITY, TOOLS, roleHasCapability, roleHasTool } from '$lib/roles';
+import { TOOLS, roleHasCapability, roleHasTool } from '$lib/roles';
 import {
 	deleteScreenshot,
 	existingBugNumbers,
@@ -62,7 +64,8 @@ import { getToolOverrides } from './userToolAccess';
  *    or a project the user can open — a bug never shows a project to someone without it;
  *  - edit the text: the reporter, or a triager;
  *  - add a screenshot: anyone who sees the bug; remove one: its uploader, the reporter or a triager;
- *  - priority, status, send to / take back from Pipeline Changes: `bugTriage`.
+ *  - priority, status, send to / take back from Pipeline Changes: the kind's own triage capability
+ *    (`BUG_TRIAGE` — "Triage pipeline bugs", "Triage game bugs"), set per role or per user.
  */
 
 type User = NonNullable<App.Locals['user']>;
@@ -70,7 +73,8 @@ type User = NonNullable<App.Locals['user']>;
 export interface BugAccess {
 	user: User;
 	actor: Actor;
-	canTriage: boolean;
+	/** The kinds the user triages: each kind has its own capability (`BUG_TRIAGE`). */
+	triage: Set<BugKind>;
 	/** The projects the user may name on a bug. */
 	projects: Set<string>;
 	/** An admin sees every bug, whatever project it names. */
@@ -93,7 +97,7 @@ export const AUTO_ACTOR: Actor = { id: null, name: 'GitHub' };
 export async function bugScopeOf(
 	user: User,
 	kinds: readonly BugKind[],
-): Promise<Omit<BugAccess, 'canTriage'>> {
+): Promise<Omit<BugAccess, 'triage'>> {
 	const projects = new Set((await accessibleProjects(user.id, user.role)).map((p) => p.key));
 	return {
 		user,
@@ -117,7 +121,9 @@ export async function requireBugAccess(locals: App.Locals): Promise<BugAccess> {
 	if (!kinds.length) throw error(403, 'Your role does not have access to bug reports.');
 	return {
 		...(await bugScopeOf(locals.user, kinds)),
-		canTriage: roleHasCapability(role, BUG_TRIAGE_CAPABILITY, roleOverrides, overrides),
+		triage: new Set(
+			BUG_KINDS.filter((k) => roleHasCapability(role, BUG_TRIAGE[k], roleOverrides, overrides)),
+		),
 	};
 }
 
@@ -145,11 +151,10 @@ export const canSee = (
 		scope.projects.has(bug.projectKey) ||
 		bug.reporterId === scope.user.id);
 
-const TRIAGE = 'the “Triage bug reports” permission';
-const TRIAGERS = `someone with ${TRIAGE}`;
+const triagePermission = (kind: BugKind) => `the “${bugTriageName(kind)}” permission`;
 
-function requireTriage(access: BugAccess, what: string): void {
-	if (!access.canTriage) throw error(403, `${what} needs ${TRIAGE}.`);
+function requireTriage(access: BugAccess, kind: BugKind, what: string): void {
+	if (!access.triage.has(kind)) throw error(403, `${what} needs ${triagePermission(kind)}.`);
 }
 
 // ── What the page reads ────────────────────────────────────────────────────────
@@ -272,14 +277,14 @@ function detailOf(access: BugAccess, full: BugFull): BugDetail {
 	return {
 		...summaryOf(access.user.id, bug, full.screenshots.length, full.links),
 		revision: bug.revision,
-		canEdit: mine || access.canTriage,
+		canEdit: mine || access.triage.has(bug.kind),
 		screenshotList: full.screenshots.map((s) => ({
 			id: s.id,
 			mediaType: s.mediaType,
 			bytes: s.bytes,
 			uploadedBy: s.uploadedBy,
 			uploadedAt: s.uploadedAt.toISOString(),
-			canRemove: mine || access.canTriage || s.uploadedById === access.user.id,
+			canRemove: mine || access.triage.has(bug.kind) || s.uploadedById === access.user.id,
 		})),
 		events: full.events.map((e) => ({
 			id: e.id,
@@ -294,7 +299,7 @@ function detailOf(access: BugAccess, full: BugFull): BugDetail {
 
 /** Every bug of one kind the viewer may see, newest first; a game list is one project's. */
 export async function listBugs(
-	scope: Omit<BugAccess, 'canTriage'>,
+	scope: Omit<BugAccess, 'triage'>,
 	where: { kind: BugKind; projectKey?: string },
 ): Promise<BugSummary[]> {
 	const rows = await listBugRows(where);
@@ -317,7 +322,7 @@ const STATUS_RANK: Record<BugStatus, number> = { working: 0, open: 1, resolved: 
  * The pipeline bugs sent to Invisible Pipeline Changes, for its Bugs tab: still to do first
  * (Working on, then Open), each by priority (unset last), then newest.
  */
-export async function listSentBugs(scope: Omit<BugAccess, 'canTriage'>): Promise<BugSummary[]> {
+export async function listSentBugs(scope: Omit<BugAccess, 'triage'>): Promise<BugSummary[]> {
 	const rank = (p: BugPriority | null) => (p ? PRIORITY_RANK[p] : 4);
 	return (await listBugs(scope, { kind: 'pipeline' }))
 		.filter((b) => b.sentAt !== null)
@@ -459,8 +464,11 @@ function decisionFor(
 ): (bug: BugReport) => { set: BugPatch; events: BugEventInput[] } | null {
 	switch (input.action) {
 		case 'edit': {
-			if (!isReporter(access, seen) && !access.canTriage) {
-				throw error(403, `Only the bug's reporter, or ${TRIAGERS}, can edit it.`);
+			if (!isReporter(access, seen) && !access.triage.has(seen.kind)) {
+				throw error(
+					403,
+					`Only the bug's reporter, or someone with ${triagePermission(seen.kind)}, can edit it.`,
+				);
 			}
 			const base = input.revision;
 			const next: BugPatch = {};
@@ -504,7 +512,7 @@ function decisionFor(
 			return () => ({ set: {}, events: [{ kind: 'comment', data: { text } }] });
 		}
 		case 'priority': {
-			requireTriage(access, "Changing a bug's priority");
+			requireTriage(access, seen.kind, "Changing a bug's priority");
 			const to = cleanPriority(input.priority);
 			return (bug) =>
 				bug.priority === to
@@ -515,7 +523,7 @@ function decisionFor(
 						};
 		}
 		case 'status': {
-			requireTriage(access, "Changing a bug's status");
+			requireTriage(access, seen.kind, "Changing a bug's status");
 			if (!isBugStatus(input.status)) throw error(400, 'Unknown status.');
 			const to = input.status;
 			return (bug) =>
@@ -532,7 +540,7 @@ function decisionFor(
 						};
 		}
 		case 'send':
-			requireTriage(access, 'Sending a bug to Pipeline Changes');
+			requireTriage(access, seen.kind, 'Sending a bug to Pipeline Changes');
 			if (seen.kind === 'game') throw error(400, GAME_NOT_SENT);
 			return (bug) =>
 				bug.sentAt
@@ -542,7 +550,7 @@ function decisionFor(
 							events: [{ kind: 'sent' }],
 						};
 		case 'unsend':
-			requireTriage(access, 'Taking a bug back from Pipeline Changes');
+			requireTriage(access, seen.kind, 'Taking a bug back from Pipeline Changes');
 			if (seen.kind === 'game') throw error(400, GAME_NOT_SENT);
 			return (bug) =>
 				bug.sentAt ? { set: { sentAt: null, sentBy: null }, events: [{ kind: 'unsent' }] } : null;
@@ -616,10 +624,14 @@ export async function removeScreenshot(
 	const full = await readVisible(access, number);
 	const shot = full.screenshots.find((s) => s.id === id);
 	if (!SCREENSHOT_ID.test(id) || !shot) throw error(404, 'No such screenshot.');
-	if (!isReporter(access, full.bug) && !access.canTriage && shot.uploadedById !== access.user.id) {
+	if (
+		!isReporter(access, full.bug) &&
+		!access.triage.has(full.bug.kind) &&
+		shot.uploadedById !== access.user.id
+	) {
 		throw error(
 			403,
-			`Only whoever added the screenshot, the bug's reporter, or ${TRIAGERS}, can remove it.`,
+			`Only whoever added the screenshot, the bug's reporter, or someone with ${triagePermission(full.bug.kind)}, can remove it.`,
 		);
 	}
 	const gone = await deleteScreenshot(number, id, access.actor);

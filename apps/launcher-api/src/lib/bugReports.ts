@@ -1,4 +1,9 @@
-import { TOOLS } from '$lib/roles';
+import {
+	CAPABILITIES,
+	GAME_BUG_TRIAGE_CAPABILITY,
+	PIPELINE_BUG_TRIAGE_CAPABILITY,
+	TOOLS,
+} from '$lib/roles';
 
 /**
  * Bug reports, the parts the pages, the server and Invisible Pipeline Changes share. One module
@@ -20,6 +25,16 @@ export const isBugKind = (v: unknown): v is BugKind =>
 
 /** The tool (in `TOOLS`) each kind is reported and read in. */
 export const BUG_TOOL: Record<BugKind, string> = { pipeline: 'pipelineBugs', game: 'gameBugs' };
+
+/** The capability that triages each kind: each card is granted, per role or per user, on its own. */
+export const BUG_TRIAGE: Record<BugKind, string> = {
+	pipeline: PIPELINE_BUG_TRIAGE_CAPABILITY,
+	game: GAME_BUG_TRIAGE_CAPABILITY,
+};
+
+/** How the triage capability of a kind is named, as Admin › Roles names it. */
+export const bugTriageName = (kind: BugKind): string =>
+	CAPABILITIES.find((c) => c.key === BUG_TRIAGE[kind])?.name ?? BUG_TRIAGE[kind];
 
 export const BUG_STATUSES = ['open', 'working', 'resolved', 'wontFix'] as const;
 export type BugStatus = (typeof BUG_STATUSES)[number];

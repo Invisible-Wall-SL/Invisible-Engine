@@ -14,7 +14,7 @@ import type { PageServerLoad } from './$types';
  */
 export const load: PageServerLoad = async ({ locals, parent, url, cookies }) => {
 	if (!locals.user) throw redirect(303, '/login');
-	const { tools, canBugTriage } = await parent();
+	const { tools, bugTriage } = await parent();
 	if (!tools.some((t) => t.id === 'gameBugs')) {
 		throw error(403, 'Your role does not have access to Invisible Game Bug Reports.');
 	}
@@ -26,7 +26,7 @@ export const load: PageServerLoad = async ({ locals, parent, url, cookies }) => 
 	return {
 		clientKey,
 		projectKey,
-		canTriage: canBugTriage,
+		canTriage: bugTriage.game,
 		selected: askedBug(url),
 		areas: bugAreas('game'),
 		report: askedReport(url, (area) => isBugArea('game', area)),
