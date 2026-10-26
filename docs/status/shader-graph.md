@@ -543,7 +543,7 @@ review; 8d.3 (the material in the game) is next.
     - Mutation-checked (24 mutations, each failing its claim).
   - `material-behavior` (new, offline) 13; compile fixture 207; `check:element-fx`;
     `shader-compile` 28 sheets; `check:vendored-bundles`; svelte-check at baseline (pixi-svelte
-    14); `check:all` CHECKALL.
+    14); `check:all` 544/544.
   - **Review.** Nothing blocking. Fixed: the mesh's `Shader` was never destroyed (`Mesh.destroy`
     only drops it), leaving a listener on the shared atlas per mount; a fractional Max particles
     threw and a NaN one drew nothing with the sprites hidden; the parity gate's edge share (1 %)
