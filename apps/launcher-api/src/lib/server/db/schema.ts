@@ -857,7 +857,12 @@ export const bugReports = pgTable(
 		description: text('description').notNull().default(''),
 		/** Per kind (`isBugArea`): a tool id or `engine` / `launcher` / `other`, or a part of a game. */
 		area: text('area').notNull(),
-		projectKey: text('project_key').references(() => projects.key, { onDelete: 'set null' }),
+		/**
+		 * No foreign key, on purpose: the key outlives a purged project, so the bug stays an admin's
+		 * (and its reporter's) to see rather than turning project-less, which everyone sees. A purge
+		 * deletes the project's game bugs (`deleteProject`).
+		 */
+		projectKey: text('project_key'),
 		/** Where it happened, as the reporter gave it; http(s) only. */
 		pageUrl: text('page_url'),
 		reporterId: text('reporter_id').notNull(),
@@ -925,7 +930,8 @@ export type BugEventKind =
 	| 'unsent'
 	| 'screenshot_added'
 	| 'screenshot_removed'
-	| 'linked';
+	| 'linked'
+	| 'unlinked';
 
 /**
  * A bug's activity, append-only: who did what and when. `actor_id` is null for what the launcher
@@ -948,7 +954,7 @@ export const bugReportEvents = pgTable(
 		index('bug_report_events_bug_idx').on(table.bugNumber, table.id),
 		check(
 			'bug_report_events_kind_check',
-			sql`${table.kind} in ('reported', 'edited', 'comment', 'priority', 'status', 'sent', 'unsent', 'screenshot_added', 'screenshot_removed', 'linked')`,
+			sql`${table.kind} in ('reported', 'edited', 'comment', 'priority', 'status', 'sent', 'unsent', 'screenshot_added', 'screenshot_removed', 'linked', 'unlinked')`,
 		),
 	],
 );

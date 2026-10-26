@@ -97,13 +97,18 @@
 				busy = `Uploading screenshot ${i + 1} of ${shots.length}…`;
 				const form = new FormData();
 				form.append('file', s.file);
-				const up = await fetch(`/api/bugs/${bug.number}/screenshots`, {
-					method: 'POST',
-					body: form,
-				});
-				const upBody: unknown = await up.json().catch(() => null);
-				if (up.ok) bug = upBody as BugDetail;
-				else failed.push(`${s.file.name}: ${apiErrorText(up.status, upBody)}`);
+				// The bug exists now: a failed upload is named, never a reason to report it again.
+				try {
+					const up = await fetch(`/api/bugs/${bug.number}/screenshots`, {
+						method: 'POST',
+						body: form,
+					});
+					const upBody: unknown = await up.json().catch(() => null);
+					if (up.ok) bug = upBody as BugDetail;
+					else failed.push(`${s.file.name}: ${apiErrorText(up.status, upBody)}`);
+				} catch (err) {
+					failed.push(`${s.file.name}: ${err instanceof Error ? err.message : String(err)}`);
+				}
 			}
 			oncreated(bug, failed);
 		} catch (err) {

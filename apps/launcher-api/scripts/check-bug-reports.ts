@@ -39,6 +39,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { error as httpError, isHttpError } from '@sveltejs/kit';
+import { GithubAppError } from '../src/lib/server/githubApp.ts';
 import type {
 	BugEventInput,
 	BugFull,
@@ -90,7 +91,12 @@ function fake(rel: string, impl: Record<string, unknown>): void {
 }
 
 // ── The database, in memory ───────────────────────────────────────────────────
-const db = {
+const db: {
+	bugs: BugReport[];
+	shots: BugReportScreenshot[];
+	events: BugReportEvent[];
+	links: BugReportLink[];
+} = {
 	bugs: [] as BugReport[],
 	shots: [] as BugReportScreenshot[],
 	events: [] as BugReportEvent[],
@@ -119,13 +125,20 @@ const fullOf = (bug: BugReport): BugFull => ({
 });
 
 fake('lib/server/bugReportsStore.ts', {
-	listBugRows: async () => {
+	listBugRows: async (where: { kind: string; projectKey?: string }) => {
 		const screenshots = new Map<number, number>();
 		for (const s of db.shots) screenshots.set(s.bugNumber, (screenshots.get(s.bugNumber) ?? 0) + 1);
 		const links = new Map<number, BugReportLink[]>();
 		for (const l of db.links) links.set(l.bugNumber, [...(links.get(l.bugNumber) ?? []), l]);
 		return {
-			bugs: [...db.bugs].sort((a, b) => b.number - a.number).map((b) => ({ ...b })),
+			bugs: db.bugs
+				.filter(
+					(b) =>
+						b.kind === where.kind &&
+						(where.projectKey === undefined || b.projectKey === where.projectKey),
+				)
+				.sort((a, b) => b.number - a.number)
+				.map((b) => ({ ...b })),
 			screenshots,
 			links,
 		};
@@ -136,11 +149,12 @@ fake('lib/server/bugReportsStore.ts', {
 	},
 	getScreenshot: async (number: number, id: string) =>
 		db.shots.find((s) => s.bugNumber === number && s.id === id) ?? null,
-	existingBugNumbers: async (numbers: number[]) =>
-		numbers.filter((n) => db.bugs.some((b) => b.number === n)),
-	listOpenLinkPrs: async () => [
-		...new Set(db.links.filter((l) => l.state === 'open').map((l) => l.prNumber)),
-	],
+	existingBugNumbers: async (numbers: number[], kind: string) =>
+		numbers.filter((n) => db.bugs.some((b) => b.number === n && b.kind === kind)),
+	listOpenLinks: async () =>
+		db.links
+			.filter((l) => l.state === 'open')
+			.map(({ bugNumber, prNumber, updatedAt }) => ({ bugNumber, prNumber, updatedAt })),
 	insertBug: async (values: NewBug, actor: Actor) => {
 		const at = tick();
 		const bug: BugReport = {
@@ -157,7 +171,9 @@ fake('lib/server/bugReportsStore.ts', {
 			...values,
 		};
 		db.bugs.push(bug);
-		pushEvents(bug.number, actor, [{ kind: 'reported' }]);
+		pushEvents(bug.number, actor, [
+			{ kind: 'reported', data: values.priority ? { priority: values.priority } : {} },
+		]);
 		return { ...bug };
 	},
 	mutateBug: async (
@@ -196,8 +212,9 @@ fake('lib/server/bugReportsStore.ts', {
 		const bug = db.bugs.find((b) => b.number === number);
 		if (!bug) return;
 		const existing = db.links.filter((l) => l.bugNumber === number).map((l) => ({ ...l }));
-		const { upserts, set, events } = plan({ ...bug }, existing);
+		const { upserts, removes, set, events } = plan({ ...bug }, existing);
 		const at = tick();
+		db.links = db.links.filter((l) => l.bugNumber !== number || !removes.includes(l.prNumber));
 		for (const u of upserts) {
 			const row = db.links.find((l) => l.bugNumber === number && l.prNumber === u.prNumber);
 			if (row) Object.assign(row, u, { updatedAt: at });
@@ -426,6 +443,16 @@ check(
 		'Game runtime (engine)',
 		'Bonus and free spins',
 	],
+);
+check(
+	"areas: an object's own built-ins are not areas",
+	[
+		shared.isBugArea('game', 'constructor'),
+		shared.isBugArea('pipeline', 'toString'),
+		shared.isBugArea('game', '__proto__'),
+		shared.bugAreaName('game', 'constructor'),
+	],
+	[false, false, false, 'constructor'],
 );
 check(
 	'bugPath: a pipeline bug on /bugs, a game bug under its project',
@@ -687,6 +714,11 @@ const secret = await report(ADMIN, {
 });
 const general = await report(DEV, { title: 'Launcher logo blurry', area: 'launcher' });
 check('report: two more', [secret.body.number, general.body.number], [2, 3]);
+check(
+	"report: the reporter's priority is recorded in the activity",
+	(created.body.events as { data: Json }[])[0].data,
+	{ priority: 'high' },
+);
 
 // ── Game bugs: the same modules, one project's list ──────────────────────────
 check(
@@ -755,9 +787,10 @@ check(
 	[
 		(await act(ARTIST, 4, { action: 'edit', revision: 1, area: 'rigger' })).status,
 		(await act(ARTIST, 4, { action: 'edit', revision: 1, project: null })).status,
+		(await act(ARTIST, 4, { action: 'edit', revision: 1, project: 'cloud' })).status,
 		(await act(ARTIST, 4, { action: 'edit', revision: 1, area: 'ui' })).body.area,
 	],
-	[400, 400, 'ui'],
+	[400, 400, 400, 'ui'],
 );
 await upload(ARTIST, 4, PNG);
 await upload(ARTIST, 4, JPG, 'b.jpg');
@@ -790,6 +823,13 @@ check(
 	],
 	[404, 404, 'There is no BUG-2.'],
 );
+grants['u-artist'] = ['cloud'];
+check(
+	"read: a reporter still sees their own bug on a project they lost; others don't",
+	[(await read(ARTIST, 1)).status, numbers(await list(ARTIST)), (await read(OTHER, 1)).status],
+	[200, [3, 1], 404],
+);
+grants['u-artist'] = ['cloud', 'borut'];
 check(
 	'read: a bad number is a 404',
 	(await call(bugRoute.GET, ARTIST, { number: '1e3' })).status,
@@ -965,6 +1005,7 @@ interface Pull {
 	body: string | null;
 	state: 'open' | 'closed';
 	merged_at: string | null;
+	closed_at: string | null;
 	head: { ref: string; repo: { full_name: string } | null };
 	base: { ref: string };
 	html_url: string;
@@ -977,6 +1018,7 @@ const pull = (number: number, title: string, opts: Partial<Pull> = {}) =>
 		body: null,
 		state: 'open',
 		merged_at: null,
+		closed_at: null,
 		head: { ref: `claude/${number}`, repo: { full_name: REPO } },
 		base: { ref: 'main' },
 		html_url: `https://github.com/${REPO}/pull/${number}`,
@@ -990,7 +1032,11 @@ const app = {
 		requests.push(path);
 		if (githubDown) throw new Error('GitHub 502: Bad gateway');
 		const one = /\/pulls\/(\d+)$/.exec(path);
-		if (one) return pulls.get(Number(one[1])) as T;
+		if (one) {
+			const found = pulls.get(Number(one[1]));
+			if (!found) throw new GithubAppError('GitHub 404: Not Found', 404);
+			return found as T;
+		}
 		const state = /state=(open|closed)/.exec(path)?.[1];
 		return [...pulls.values()].filter((p) => p.state === state) as T;
 	},
@@ -1022,8 +1068,9 @@ check(
 pull(500, 'launcher: sharper logo (BUG-3)');
 pull(501, 'engine: something', { head: { ref: 'fix/bug-1-freeze', repo: { full_name: REPO } } });
 pull(502, 'fork: BUG-3 too', { head: { ref: 'x', repo: { full_name: 'someone/fork' } } });
-pull(503, 'docs: mentions BUG-999 and BUG-2', { body: 'Also BUG-2.' });
+pull(503, 'docs: mentions BUG-999 and BUG-2');
 pull(504, 'release branch BUG-3', { base: { ref: 'release' } });
+pull(512, 'docs: an example', { body: 'For example, BUG-1 and BUG-3 in passing.' });
 const first = await sync();
 check(
 	'sync: an open pull request naming an Open bug → Working on, automatically, by that pull request',
@@ -1036,8 +1083,8 @@ check(
 	['working', false, [[501, 'open']]],
 );
 check(
-	'sync: a fork, another base and an unknown number move nothing; a body links too',
-	[linksOf(2), db.links.some((l) => l.prNumber === 502 || l.prNumber === 504)],
+	'sync: a fork, another base, an unknown number and a mention in a description link nothing',
+	[linksOf(2), db.links.some((l) => [502, 504, 512].includes(l.prNumber))],
 	[[[503, 'open']], false],
 );
 const linkedEvent = db.events.filter((e) => e.bugNumber === 3).slice(-2);
@@ -1061,7 +1108,7 @@ check(
 	['open', [[500, 'closed']]],
 );
 
-pull(505, 'launcher: logo, take two', { body: 'Fixes BUG-3' });
+pull(505, 'launcher: logo, take two (BUG-3)');
 pull(506, 'launcher: logo, take three BUG-3');
 await sync();
 pulls.set(505, { ...pulls.get(505)!, state: 'closed' });
@@ -1092,19 +1139,63 @@ check(
 );
 app.json = realJson;
 
+pull(509, 'chore: bug-2 lookalike from long ago', {
+	state: 'closed',
+	merged_at: '2025-01-01T00:00:00Z',
+	closed_at: '2025-01-01T00:00:00Z',
+});
+await sync();
+check(
+	'sync: a pull request merged before the bug was reported is linked but moves nothing',
+	[bug(2).status, linksOf(2)],
+	[
+		'working',
+		[
+			[503, 'open'],
+			[509, 'merged'],
+		],
+	],
+);
+
 pull(507, 'BUG-2 opened and merged at once', {
 	state: 'closed',
 	merged_at: '2026-10-26T13:00:00Z',
+	closed_at: '2026-10-26T13:00:00Z',
 });
 await sync();
 check('sync: one read with an open and a merged link ends Resolved', bug(2).status, 'resolved');
 
+pull(510, 'engine: BUG-3 again');
+await sync();
+check('sync: a new open pull request → Working on again', bug(3).status, 'working');
+pulls.set(510, { ...pulls.get(510)!, title: 'engine: something else' });
+await sync();
+check(
+	'sync: a pull request that stops naming the bug is unlinked, and its automatic Working on undone',
+	[
+		bug(3).status,
+		linksOf(3).some(([pr]) => pr === 510),
+		db.events.filter((e) => e.bugNumber === 3).at(-2)?.kind,
+	],
+	['open', false, 'unlinked'],
+);
+
+pull(511, 'engine: BUG-2 follow-up');
+await sync();
+pulls.delete(511);
+await sync();
+check(
+	'sync: a linked pull request GitHub no longer has is unlinked',
+	linksOf(2).some(([pr]) => pr === 511),
+	false,
+);
+
 pull(508, 'engine: the free spins counter, BUG-4');
 await sync();
 check(
-	'sync: a pull request naming a game bug moves it too (the same modules)',
-	bug(4).status,
-	'working',
+	'sync: a game bug is never linked (it is fixed in its project)',
+	[bug(4).status, linksOf(4)],
+	['open', []],
 );
 
 githubDown = true;
@@ -1119,12 +1210,13 @@ check(
 check(
 	'planLinks: an existing link whose state did not change moves nothing',
 	server.planLinks(
-		{ status: 'open', statusAuto: false },
+		{ status: 'open', statusAuto: false, createdAt: new Date() },
 		[{ prNumber: 9, title: 't', url: 'u', state: 'merged' }],
-		[{ prNumber: 9, title: 't', url: 'u', state: 'merged' }],
+		[{ prNumber: 9, title: 't', url: 'u', state: 'merged', closedAt: null }],
+		[],
 		new Date(),
 	),
-	{ upserts: [], set: {}, events: [] },
+	{ upserts: [], removes: [], set: {}, events: [] },
 );
 
 // ── Pipeline Changes' Bugs tab ─────────────────────────────────────────────────
@@ -1243,11 +1335,15 @@ check('activity lines read as sentences', lines, [
 	'GitHub linked #500 “launcher: sharper logo (BUG-3)”',
 	'GitHub marked it Working on: #500 opened',
 	'GitHub marked it Open: #500 closed without merging',
-	'GitHub linked #505 “launcher: logo, take two”',
+	'GitHub linked #505 “launcher: logo, take two (BUG-3)”',
 	'GitHub linked #506 “launcher: logo, take three BUG-3”',
 	'GitHub marked it Working on: #505 opened',
 	'GitHub marked it Resolved: #506 merged',
 	'Dana marked it Open',
+	'GitHub linked #510 “engine: BUG-3 again”',
+	'GitHub marked it Working on: #510 opened',
+	'GitHub unlinked #510: it no longer names this bug',
+	'GitHub marked it Open: #510 no longer names it',
 	'Gualtiero sent it to Pipeline Changes',
 	'Gualtiero marked it Working on',
 ]);

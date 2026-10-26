@@ -2,6 +2,9 @@ import { error, redirect } from '@sveltejs/kit';
 import { AGENT_NAME } from '$lib/agentEdit';
 import type { PageServerLoad } from './$types';
 
+/** The tabs a `?tab=` opens. */
+const TAB_QUERIES = ['catalogue', 'bugs'] as const;
+
 /**
  * The tool gate, as every tool page has it, plus what the tabs need: whether this user may approve
  * a changed screen, merge, roll back and edit an agent definition (`pipelineMerge`, resolved by the
@@ -9,8 +12,6 @@ import type { PageServerLoad } from './$types';
  * (`?change=<n>`), the agent it names (`?agent=<name>`, which opens the Agents tab), and
  * `?tab=catalogue` / `?tab=bugs`.
  */
-const TAB_QUERIES = ['catalogue', 'bugs'] as const;
-
 export const load: PageServerLoad = async ({ locals, parent, url }) => {
 	if (!locals.user) throw redirect(303, '/login');
 	const { tools, canPipelineMerge } = await parent();

@@ -12,7 +12,8 @@ import type { RequestHandler } from './$types';
  *   DELETE /api/bugs/<n>/screenshots/<id>   remove it (whoever added it, the reporter, or a
  *                                           triager); answers the bug in full
  *
- * An id is random and never reused, so the browser may keep the image.
+ * An id is random and never reused, so the browser may keep the image — briefly, as someone who
+ * loses access to the bug must not keep seeing it.
  */
 export const GET: RequestHandler = async ({ locals, params }) => {
 	const access = await requireBugAccess(locals);
@@ -25,7 +26,7 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 		headers: {
 			'content-type': mediaType,
 			'content-length': String(bytes.byteLength),
-			'cache-control': 'private, max-age=86400',
+			'cache-control': 'private, max-age=300',
 			'x-content-type-options': 'nosniff',
 		},
 	});

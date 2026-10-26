@@ -132,9 +132,9 @@ A link can open the form already filled in:
     image inside the bug, or with nothing selected, uploads it to that bug straight away. Comments
     can be up to 5,000 characters.
 
-A game bug is not fixed with a pull request, so it has no **Pull requests** card. If a pull
-request into the engine repository does name a game bug's `BUG-<n>`, the card appears and the
-status moves the same way a pipeline bug's does.
+A game bug is not fixed with a pull request, so it has no **Pull requests** card, and a pull
+request that names its `BUG-<n>` does not link it or move its status. If the cause is in the engine
+or a tool, report it as a pipeline bug.
 
 ## Known limitations / TODOs
 

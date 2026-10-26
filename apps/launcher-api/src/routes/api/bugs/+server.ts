@@ -1,10 +1,10 @@
 import { error, json } from '@sveltejs/kit';
 import {
 	createBug,
+	currentLinkSync,
 	listBugs,
 	requireBugAccess,
 	requireKind,
-	syncBugLinks,
 } from '$lib/server/bugReports';
 import { requireProjectScope } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
@@ -14,8 +14,8 @@ import type { RequestHandler } from './$types';
  *
  *   GET  /api/bugs?kind=pipeline             every pipeline bug the viewer may see
  *   GET  /api/bugs?kind=game&project=<key>   one project's game bugs (403 unless the viewer can open it)
- *        — filtering is the page's; linked pull requests are read from GitHub first, at most once a
- *        minute, and the answer says whether they could be
+ *        — filtering is the page's; the answer says whether linked pull requests could be read, as
+ *        the last sync found (a new one runs in the background, at most once a minute)
  *   POST /api/bugs   (JSON) report one: { kind, title, description, area, project?, pageUrl?,
  *                    priority? } — a game bug must name its project; answers the bug in full, with no
  *                    screenshots yet (they upload one by one)
@@ -29,7 +29,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 		kind === 'game'
 			? (await requireProjectScope(access.user, url.searchParams.get('project'))).projectKey
 			: undefined;
-	const sync = await syncBugLinks();
+	const sync = await currentLinkSync();
 	return json({ bugs: await listBugs(access, { kind, projectKey }), sync }, { headers: NO_STORE });
 };
 

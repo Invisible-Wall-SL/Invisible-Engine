@@ -59,7 +59,8 @@ bugs took.
    - **Tool or area** (required): every tool in the launcher by name, then **Game runtime
      (engine)**, **Launcher / portal** and **Something else**.
    - **Project** (optional): **Not about one project**, or one of the projects you can open. If you
-     name a project, people who cannot open it will not see the bug.
+     name a project, people who cannot open it will not see the bug (you always see your own). If
+     the project is later deleted or purged, only admins and you still see it.
    - **Priority** (optional): **Let triage decide**, or Critical, High, Medium or Low.
    - **Where it happened** (optional): the page address, `http://` or `https://` only. It is shown
      on the bug as a link.
@@ -178,21 +179,27 @@ A link can open the form already filled in: `/bugs?new=1&for=<tool id>&page=<add
 
 ### How a pull request moves a bug
 
-A pull request is linked to a bug when its title, branch name or description says `BUG-12` (or
-`bug-12`, as in a branch `fix/bug-12-rigger-freeze`). `debug-12` does not count. Only pull
-requests into `main` of the engine repository, from a branch of that repository, are read; pull
-requests from a fork are not.
+A pull request is linked to a bug when its title or branch name says `BUG-12` (or `bug-12`, as in
+a branch `fix/bug-12-rigger-freeze`). `debug-12` does not count, and neither does a mention in the
+pull request's description. Only pull requests into `main` of the engine repository, from a branch
+of that repository, are read; pull requests from a fork are not. Game bugs are never linked: they
+are fixed in their project.
 
 - A linked pull request is **opened** while the bug is Open: the bug becomes **Working on**.
 - One **merges** while the bug is Open or Working on: the bug becomes **Resolved**. A bug that is
   already Resolved or Won't fix stays as it is.
 - One **closes without merging**: the bug goes back to **Open**, but only if a pull request (not a
   person) set Working on and no other linked pull request is still open.
+- A pull request that stops naming the bug (its title or branch changed, or it no longer goes into
+  `main`) is **unlinked**, which counts as closing without merging.
+- A pull request first seen already merged or closed before the bug was reported is listed but
+  moves nothing: it cannot be the fix.
 - Only a change counts (a new link, or a pull request changing state). A status someone set by
   hand stays until the next time a linked pull request changes.
 
-The launcher reads GitHub when someone loads a bug list (this page, Game Bug Reports or the
-Pipeline Changes Bugs tab), at most once a minute. Each move is recorded in the bug's Activity,
+The launcher reads GitHub when someone loads a bug list (this page or the Pipeline Changes Bugs
+tab), at most once a minute, in the background: the list shows what the last read found, so a
+move can take a refresh to appear. Each move is recorded in the bug's Activity under **GitHub**,
 and **Status set** names the pull request.
 
 ## Known limitations / TODOs

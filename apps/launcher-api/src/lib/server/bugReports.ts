@@ -29,7 +29,7 @@ import {
 	insertBug,
 	insertScreenshot,
 	listBugRows,
-	listOpenLinkPrs,
+	listOpenLinks,
 	mutateBug,
 	reconcileLinks,
 	type Actor,
@@ -43,7 +43,7 @@ import {
 import { createSingleFlight, mapWithConcurrency } from './concurrency';
 import { SERVED_IMAGE_TYPES, sniffServedImage } from './director/mockups';
 import { ENV } from './env';
-import { githubApp, type GithubApp } from './githubApp';
+import { GithubAppError, githubApp, type GithubApp } from './githubApp';
 import { accessibleProjects } from './projects';
 import { deleteObject, deleteObjects, getObjectBytes, listAllKeys, putObjectBytes } from './r2';
 import { getRoleOverrides } from './roleToolAccess';
@@ -130,12 +130,20 @@ export function requireKind(access: Pick<BugAccess, 'kinds'>, v: unknown): BugKi
 	return v;
 }
 
+/**
+ * A viewer sees a bug of a kind whose tool they have that names no project, or a project they can
+ * open — so a bug naming a deleted or purged project (its key stays) is an admin's alone — and
+ * always a bug they reported themselves.
+ */
 export const canSee = (
-	scope: Pick<BugAccess, 'projects' | 'seesAll' | 'kinds'>,
-	bug: { kind: BugKind; projectKey: string | null },
+	scope: Pick<BugAccess, 'projects' | 'seesAll' | 'kinds' | 'user'>,
+	bug: { kind: BugKind; projectKey: string | null; reporterId: string },
 ) =>
 	scope.kinds.has(bug.kind) &&
-	(bug.projectKey === null || scope.seesAll || scope.projects.has(bug.projectKey));
+	(bug.projectKey === null ||
+		scope.seesAll ||
+		scope.projects.has(bug.projectKey) ||
+		bug.reporterId === scope.user.id);
 
 const TRIAGE = 'the “Triage bug reports” permission';
 const TRIAGERS = `someone with ${TRIAGE}`;
@@ -289,14 +297,9 @@ export async function listBugs(
 	scope: Omit<BugAccess, 'canTriage'>,
 	where: { kind: BugKind; projectKey?: string },
 ): Promise<BugSummary[]> {
-	const rows = await listBugRows();
+	const rows = await listBugRows(where);
 	return rows.bugs
-		.filter(
-			(b) =>
-				b.kind === where.kind &&
-				(where.projectKey === undefined || b.projectKey === where.projectKey) &&
-				canSee(scope, b),
-		)
+		.filter((b) => canSee(scope, b))
 		.map((b) =>
 			summaryOf(
 				scope.user.id,
@@ -464,7 +467,15 @@ function decisionFor(
 			if ('title' in input) next.title = cleanTitle(input.title);
 			if ('description' in input) next.description = cleanDescription(input.description);
 			if ('area' in input) next.area = cleanArea(seen.kind, input.area);
-			if ('project' in input) next.projectKey = cleanProject(access, seen.kind, input.project);
+			if ('project' in input) {
+				if (seen.kind === 'game') {
+					throw error(
+						400,
+						"A game bug stays in its project's list: report it again in the other one.",
+					);
+				}
+				next.projectKey = cleanProject(access, seen.kind, input.project);
+			}
 			if ('pageUrl' in input) next.pageUrl = cleanUrl(input.pageUrl);
 			return (bug) => {
 				if (base !== bug.revision) {
@@ -557,7 +568,11 @@ export async function addScreenshot(
 	number: number,
 	bytes: Uint8Array,
 ): Promise<BugDetail> {
-	await readVisible(access, number);
+	const { screenshots } = await readVisible(access, number);
+	// Refused before anything is written; the count is taken again under the bug's lock.
+	if (screenshots.length >= MAX_SCREENSHOTS) {
+		throw error(409, `A bug holds at most ${MAX_SCREENSHOTS} screenshots.`);
+	}
 	if (bytes.length === 0) throw error(400, 'The file is empty.');
 	if (bytes.length > MAX_SCREENSHOT_BYTES) throw error(413, 'A screenshot is at most 10 MB.');
 	const ext = sniffServedImage(bytes);
@@ -648,18 +663,23 @@ export async function deleteBugScreenshots(numbers: number[]): Promise<void> {
 interface GhListedPull {
 	number: number;
 	title: string;
-	body: string | null;
 	html_url: string;
 	state: string;
 	merged_at: string | null;
+	closed_at: string | null;
 	head: { ref: string; repo: { full_name: string } | null };
 	base: { ref: string };
+}
+
+/** A pull request as one bug sees it: its link, and when it closed or merged (null while open). */
+export interface SeenLink extends ObservedLink {
+	closedAt: string | null;
 }
 
 const SYNC_EVERY_MS = 60_000;
 const PAGE = 100;
 const OPEN_PAGES = 3;
-/** Links still open that the lists no longer show are read one by one, at most this many. */
+/** Links still open that the lists no longer show are read one by one, oldest first, at most this many. */
 const STALE_READS = 20;
 
 let lastSync: { at: number; result: LinkSync } | null = null;
@@ -673,18 +693,26 @@ export function forgetBugSync(): void {
 const linkStateOf = (pull: GhListedPull): LinkState =>
 	pull.state === 'open' ? 'open' : pull.merged_at ? 'merged' : 'closed';
 
-/** The bugs each pull request names, as one bug's view of its links. */
-export function observeLinks(pulls: GhListedPull[], repo: string): Map<number, ObservedLink[]> {
-	const out = new Map<number, ObservedLink[]>();
+/** A pull request into main from a branch of this repository; nothing else links a bug. */
+const countsForBugs = (pull: GhListedPull, repo: string): boolean =>
+	pull.base.ref === 'main' && pull.head.repo?.full_name.toLowerCase() === repo.toLowerCase();
+
+/**
+ * The bugs each pull request names in its title or branch — where the fix brief asks for the
+ * reference; a description mentions numbers in passing — as one bug's view of its links.
+ */
+export function observeLinks(pulls: GhListedPull[], repo: string): Map<number, SeenLink[]> {
+	const out = new Map<number, SeenLink[]>();
 	for (const pull of pulls) {
-		if (pull.base.ref !== 'main' || pull.head.repo?.full_name !== repo) continue;
-		const link: ObservedLink = {
+		if (!countsForBugs(pull, repo)) continue;
+		const link: SeenLink = {
 			prNumber: pull.number,
 			title: pull.title,
 			url: pull.html_url,
 			state: linkStateOf(pull),
+			closedAt: pull.merged_at ?? pull.closed_at,
 		};
-		for (const n of bugRefsIn(`${pull.title}\n${pull.head.ref}\n${pull.body ?? ''}`)) {
+		for (const n of bugRefsIn(`${pull.title}\n${pull.head.ref}`)) {
 			out.set(n, [...(out.get(n) ?? []), link]);
 		}
 	}
@@ -694,48 +722,80 @@ export function observeLinks(pulls: GhListedPull[], repo: string): Map<number, O
 const STATE_ORDER: Record<LinkState, number> = { closed: 0, open: 1, merged: 2 };
 
 /**
- * What one bug's links write: the rows that are new or changed, and the status their CHANGES move
- * the bug to (`autoStatus`), each move recorded as a `status` event naming the pull request. A
- * link whose state did not change moves nothing, so a status set by hand stays. Within one read,
- * closes apply before opens and merges last, so a bug a merged pull request fixed ends Resolved.
+ * What one bug's links write: the rows that are new or changed, the open links to drop (`dropped`:
+ * their pull request was read and no longer names this bug, or is gone), and the status their
+ * CHANGES move the bug to (`autoStatus`), each move recorded as a `status` event naming the pull
+ * request. A link whose state did not change moves nothing, so a status set by hand stays; nor does
+ * a link first seen already closed or merged before the bug was reported, which cannot be its fix.
+ * A dropped link counts as one closed unmerged. Within one read, closes apply before opens and
+ * merges last, so a bug a merged pull request fixed ends Resolved.
  */
 export function planLinks(
-	bug: Pick<BugReport, 'status' | 'statusAuto'>,
+	bug: Pick<BugReport, 'status' | 'statusAuto' | 'createdAt'>,
 	existing: Pick<BugReportLink, 'prNumber' | 'title' | 'url' | 'state'>[],
-	observed: ObservedLink[],
+	observed: SeenLink[],
+	dropped: number[],
 	at: Date,
-): { upserts: ObservedLink[]; set: BugPatch; events: BugEventInput[] } {
+): { upserts: ObservedLink[]; removes: number[]; set: BugPatch; events: BugEventInput[] } {
 	const before = new Map(existing.map((l) => [l.prNumber, l]));
+	const removes = dropped.filter(
+		(n) => before.get(n)?.state === 'open' && !observed.some((o) => o.prNumber === n),
+	);
 	const after = new Map<number, { prNumber: number; state: LinkState }>(before);
+	for (const n of removes) after.delete(n);
 	for (const o of observed) after.set(o.prNumber, o);
-	const upserts = observed.filter((o) => {
+	const changed = observed.filter((o) => {
 		const e = before.get(o.prNumber);
 		return !e || e.state !== o.state || e.title !== o.title || e.url !== o.url;
 	});
-	const moved = upserts
-		.filter((o) => before.get(o.prNumber)?.state !== o.state)
-		.sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || a.prNumber - b.prNumber);
-	const events: BugEventInput[] = moved
-		.filter((o) => !before.has(o.prNumber))
-		.map((o) => ({ kind: 'linked', data: { pr: o.prNumber, title: o.title, state: o.state } }));
+	const beforeBug = (o: SeenLink) =>
+		!before.has(o.prNumber) && o.closedAt !== null && Date.parse(o.closedAt) < +bug.createdAt;
+	const moves: { pr: number; state: LinkState; because: string }[] = [
+		...removes.map((pr) => ({ pr, state: 'closed' as const, because: 'unlinked' })),
+		...changed
+			.filter((o) => before.get(o.prNumber)?.state !== o.state && !beforeBug(o))
+			.map((o) => ({ pr: o.prNumber, state: o.state, because: o.state as string })),
+	].sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || a.pr - b.pr);
+	const events: BugEventInput[] = [
+		...changed
+			.filter((o) => !before.has(o.prNumber))
+			.map((o) => ({
+				kind: 'linked' as const,
+				data: { pr: o.prNumber, title: o.title, state: o.state },
+			})),
+		...removes.map((pr) => ({ kind: 'unlinked' as const, data: { pr } })),
+	];
 	let status = bug.status;
 	let auto = bug.statusAuto;
 	const set: BugPatch = {};
-	for (const o of moved) {
-		const otherOpen = [...after.values()].some(
-			(l) => l.prNumber !== o.prNumber && l.state === 'open',
-		);
-		const to = autoStatus(status, o.state, auto, otherOpen);
+	for (const m of moves) {
+		const otherOpen = [...after.values()].some((l) => l.prNumber !== m.pr && l.state === 'open');
+		const to = autoStatus(status, m.state, auto, otherOpen);
 		if (!to || to === status) continue;
-		events.push({ kind: 'status', data: { from: status, to, pr: o.prNumber, because: o.state } });
+		events.push({ kind: 'status', data: { from: status, to, pr: m.pr, because: m.because } });
 		status = to;
 		auto = true;
-		Object.assign(set, { status: to, statusAuto: true, statusBy: `#${o.prNumber}`, statusAt: at });
+		Object.assign(set, { status: to, statusAuto: true, statusBy: `#${m.pr}`, statusAt: at });
 	}
-	return { upserts, set, events };
+	const upserts = changed.map(({ prNumber, title, url, state }) => ({
+		prNumber,
+		title,
+		url,
+		state,
+	}));
+	return { upserts, removes, set, events };
 }
 
-async function readPulls(app: GithubApp, repo: string): Promise<GhListedPull[]> {
+/**
+ * The pull requests whose state is known after this read: every open one into main, the hundred
+ * most recently updated closed ones, and the open links neither list shows, read by number (the
+ * longest-unread first) — `gone` are those GitHub no longer has.
+ */
+async function readPulls(
+	app: GithubApp,
+	repo: string,
+	openLinks: { prNumber: number; updatedAt: Date }[],
+): Promise<{ pulls: GhListedPull[]; gone: number[] }> {
 	const byNumber = new Map<number, GhListedPull>();
 	for (let page = 1; page <= OPEN_PAGES; page++) {
 		const batch = await app.json<GhListedPull[]>(
@@ -749,19 +809,30 @@ async function readPulls(app: GithubApp, repo: string): Promise<GhListedPull[]> 
 		`/repos/${repo}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=${PAGE}`,
 	);
 	for (const p of closed) byNumber.set(p.number, p);
-	// A link still open that neither list shows closed too long ago to be in the recent page.
-	const stale = (await listOpenLinkPrs()).filter((n) => !byNumber.has(n)).slice(0, STALE_READS);
+	const stale = [
+		...new Set(
+			[...openLinks]
+				.sort((a, b) => +a.updatedAt - +b.updatedAt)
+				.map((l) => l.prNumber)
+				.filter((n) => !byNumber.has(n)),
+		),
+	].slice(0, STALE_READS);
+	const gone: number[] = [];
 	const read = await mapWithConcurrency(stale, 4, (n) =>
-		app.json<GhListedPull>(`/repos/${repo}/pulls/${n}`).catch(() => null),
+		app.json<GhListedPull>(`/repos/${repo}/pulls/${n}`).catch((err: unknown) => {
+			if (err instanceof GithubAppError && err.status === 404) gone.push(n);
+			return null;
+		}),
 	);
 	for (const p of read) if (p) byNumber.set(p.number, p);
-	return [...byNumber.values()];
+	return { pulls: [...byNumber.values()], gone };
 }
 
 /**
- * Read the engine repository's pull requests and move the bugs they name: at most once a minute,
- * one read at a time, whatever asks. Off (and says why) until the GitHub App is configured; a
- * GitHub failure is reported as a state and never fails the page that asked.
+ * Read the engine repository's pull requests and move the pipeline bugs they name: at most once a
+ * minute, one read at a time, whatever asks. A game bug is fixed in its project, never by a pull
+ * request, so none is linked. Off (and says why) until the GitHub App is configured; a GitHub
+ * failure is reported as a state, never thrown.
  */
 export function syncBugLinks(app: GithubApp = githubApp): Promise<LinkSync> {
 	const missing = app.missing();
@@ -773,12 +844,25 @@ export function syncBugLinks(app: GithubApp = githubApp): Promise<LinkSync> {
 		let result: LinkSync;
 		try {
 			const repo = ENV.GITHUB_ENGINE_REPO;
-			const observed = observeLinks(await readPulls(app, repo), repo);
-			const known = await existingBugNumbers([...observed.keys()]);
+			const openLinks = await listOpenLinks();
+			const { pulls, gone } = await readPulls(app, repo, openLinks);
+			const observed = observeLinks(pulls, repo);
+			const known = new Set([...pulls.map((p) => p.number), ...gone]);
+			const dropped = new Map<number, number[]>();
+			for (const l of openLinks) {
+				const named = observed.get(l.bugNumber)?.some((o) => o.prNumber === l.prNumber);
+				if (named || !known.has(l.prNumber)) continue;
+				dropped.set(l.bugNumber, [...(dropped.get(l.bugNumber) ?? []), l.prNumber]);
+			}
+			const bugs = await existingBugNumbers(
+				[...new Set([...observed.keys(), ...dropped.keys()])],
+				'pipeline',
+			);
 			const at = new Date();
-			for (const n of known) {
-				const seen = observed.get(n) ?? [];
-				await reconcileLinks(n, AUTO_ACTOR, (bug, existing) => planLinks(bug, existing, seen, at));
+			for (const n of bugs) {
+				await reconcileLinks(n, AUTO_ACTOR, (bug, existing) =>
+					planLinks(bug, existing, observed.get(n) ?? [], dropped.get(n) ?? [], at),
+				);
 			}
 			result = { state: 'ok', message: null, at: at.toISOString() };
 		} catch (err) {
@@ -792,4 +876,13 @@ export function syncBugLinks(app: GithubApp = githubApp): Promise<LinkSync> {
 		lastSync = { at: Date.now(), result };
 		return result;
 	});
+}
+
+/**
+ * For a page: the last sync's state at once, a new sync started in the background when one is due,
+ * so a bug list never waits on GitHub — but the first after a restart, which has nothing to show.
+ */
+export function currentLinkSync(app: GithubApp = githubApp): Promise<LinkSync> {
+	const run = syncBugLinks(app);
+	return lastSync ? Promise.resolve(lastSync.result) : run;
 }

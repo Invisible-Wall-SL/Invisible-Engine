@@ -25,7 +25,9 @@ server module, routes, page components, triage, screenshots, the pull-request li
   through their row. One numbering for both kinds.
 - **Access.** Tools `pipelineBugs` and `gameBugs`, both on every role by default; each kind needs
   its own tool, and a bug of a kind the viewer lacks reads as no bug. A bug naming a project the
-  viewer cannot open is hidden (404, like a bug that does not exist); admins see all. Triage
+  viewer cannot open is hidden (404, like a bug that does not exist); admins see all, and a
+  reporter always sees their own. `project_key` has no foreign key on purpose: a bug naming a
+  deleted or purged project keeps the key, so it stays an admin's (and its reporter's). Triage
   (priority, status, send / take back) is the `bugTriage` capability — **default admin, developer,
   Pipeline Tester**. Editing the text: reporter or triager, pinned to the revision opened (409 when
   someone edited meanwhile). Comments: anyone who sees the bug. Screenshots: anyone who sees it
@@ -37,15 +39,20 @@ server module, routes, page components, triage, screenshots, the pull-request li
   fix in that project's own content alone — never the engine, a tool, a template or another
   project. Purging a project deletes its game bugs in the same transaction as the row
   (`deleteProject`) and then their screenshots (`deleteBugScreenshots`); a pipeline bug that named
-  the project keeps its report with no project.
-- **Automatic status.** A pull request into `main` from this repository that names `BUG-<n>` in its
-  title, branch or body is linked: opened → Working on (an Open bug), merged → Resolved (an Open or
-  Working on bug), closed unmerged → back to Open only when a pull request had set Working on and no
-  other linked one is open. Only a _change_ of a link moves a status, so a status set by hand stays.
-  Read on a list request at most once a minute (open pulls, the last 100 closed, and any link still
-  open read by number); off with a sentence until the GitHub App is configured; a GitHub failure is
-  a state, never an error. Recorded in the activity as **GitHub** (no person). Applies to both
-  kinds.
+  the project keeps its report and the key (admins and its reporter only). A game bug's edit
+  cannot change its project (400).
+- **Automatic status (pipeline bugs only).** A pull request into `main` from this repository that
+  names `BUG-<n>` in its title or branch (not its description: mentions in passing) is linked:
+  opened → Working on (an Open bug), merged → Resolved (an Open or Working on bug), closed unmerged
+  → back to Open only when a pull request had set Working on and no other linked one is open. A
+  pull request that stops naming the bug, or that GitHub no longer has, is unlinked (as if closed
+  unmerged); one first seen already closed before the bug was reported moves nothing. Only a
+  _change_ of a link moves a status, so a status set by hand stays. Run at most once a minute in
+  the background of a list request — the page answers with the last result, never waits on GitHub
+  (but the first read after a restart): open pulls, the last 100 closed, and links still open read
+  by number, longest-unread first. Off with a sentence until the GitHub App is configured; a GitHub
+  failure is a state, never an error. Recorded in the activity as **GitHub** (no person). Game bugs
+  are never linked.
 - **Pipeline Changes.** A new **Bugs** tab (`/pipeline?tab=bugs`) lists the pipeline bugs sent
   there, still to do first (Resolved / Won't fix folded under **Done**), with their linked pull
   requests (an open one opens in the Changes tab) and **Copy fix brief**; a change card shows a
@@ -69,6 +76,12 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Recent changes
 
+- 2026-10-26 — **Review fixes** (same PR): links from title/branch only; a pull request closed
+  before the bug was reported moves nothing; unlinking when a pull request stops naming the bug;
+  pipeline bugs only; lists never wait on GitHub; a game bug's project is fixed; per-file upload
+  errors no longer invite a duplicate report; `project_key` without a foreign key so a purged
+  project's pipeline bugs stay restricted; reporters see their own bugs; `Object.hasOwn` areas;
+  wrong-list links, conflict reload, scoped paste, exact `BUG-<n>` / `#PR` search.
 - 2026-10-26 — **Built: Invisible Pipeline Bug Reports + Invisible Game Bug Reports** on one set of
   modules (`kind` column), the `bugTriage` capability, the Pipeline Changes Bugs tab, automatic
   status from pull requests naming `BUG-<n>`, and `check:bug-reports`. Game bugs were added on the

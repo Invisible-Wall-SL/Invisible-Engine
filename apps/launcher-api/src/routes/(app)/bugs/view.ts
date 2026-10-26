@@ -225,10 +225,11 @@ export const LINK_STATE_LABELS: Record<LinkState, string> = {
 	closed: 'closed',
 };
 
-const BECAUSE: Record<LinkState, string> = {
+const BECAUSE: Record<LinkState | 'unlinked', string> = {
 	open: 'opened',
 	merged: 'merged',
 	closed: 'closed without merging',
+	unlinked: 'no longer names it',
 };
 
 const word = (v: unknown, labels: Record<string, string>, none: string): string =>
@@ -239,7 +240,9 @@ export function eventText(e: BugEventView): string {
 	const d = e.data;
 	switch (e.kind) {
 		case 'reported':
-			return 'reported the bug';
+			return d.priority
+				? `reported the bug, priority ${word(d.priority, BUG_PRIORITY_LABELS, String(d.priority))}`
+				: 'reported the bug';
 		case 'edited': {
 			const fields = Array.isArray(d.fields) ? d.fields.map(String) : [];
 			const names: Record<string, string> = {
@@ -271,6 +274,8 @@ export function eventText(e: BugEventView): string {
 			return 'added a screenshot';
 		case 'screenshot_removed':
 			return 'removed a screenshot';
+		case 'unlinked':
+			return `unlinked #${String(d.pr)}: it no longer names this bug`;
 		case 'linked':
 			return `linked #${String(d.pr)}${typeof d.title === 'string' ? ` “${d.title}”` : ''}`;
 		default:

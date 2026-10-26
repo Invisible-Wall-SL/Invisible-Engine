@@ -87,11 +87,17 @@ export function bugAreas(kind: BugKind): { id: string; name: string }[] {
 	];
 }
 
+// `Object.hasOwn`, never `in`: `constructor` or `__proto__` is not an area.
 export const isBugArea = (kind: BugKind, v: unknown): v is string =>
-	typeof v === 'string' && (kind === 'game' ? v in GAME_AREAS : v in TOOLS || v in PIPELINE_AREAS);
+	typeof v === 'string' &&
+	(kind === 'game'
+		? Object.hasOwn(GAME_AREAS, v)
+		: Object.hasOwn(TOOLS, v) || Object.hasOwn(PIPELINE_AREAS, v));
 
-export const bugAreaName = (kind: BugKind, id: string): string =>
-	kind === 'game' ? (GAME_AREAS[id] ?? id) : (TOOLS[id]?.name ?? PIPELINE_AREAS[id] ?? id);
+export const bugAreaName = (kind: BugKind, id: string): string => {
+	if (!isBugArea(kind, id)) return id;
+	return kind === 'game' ? GAME_AREAS[id] : (TOOLS[id]?.name ?? PIPELINE_AREAS[id]);
+};
 
 export const MAX_TITLE = 200;
 export const MAX_DESCRIPTION = 20_000;

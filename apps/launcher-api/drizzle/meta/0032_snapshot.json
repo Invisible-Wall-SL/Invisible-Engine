@@ -1,5 +1,5 @@
 {
-  "id": "6f1d43d3-f851-430e-9514-0a2ab7eefb1b",
+  "id": "39c7626b-96e3-43ab-8e25-db0614c78e44",
   "prevId": "2f73afb7-0257-4f5c-856b-77c917a0e725",
   "version": "7",
   "dialect": "postgresql",
@@ -149,7 +149,7 @@
       "checkConstraints": {
         "bug_report_events_kind_check": {
           "name": "bug_report_events_kind_check",
-          "value": "\"bug_report_events\".\"kind\" in ('reported', 'edited', 'comment', 'priority', 'status', 'sent', 'unsent', 'screenshot_added', 'screenshot_removed', 'linked')"
+          "value": "\"bug_report_events\".\"kind\" in ('reported', 'edited', 'comment', 'priority', 'status', 'sent', 'unsent', 'screenshot_added', 'screenshot_removed', 'linked', 'unlinked')"
         }
       },
       "isRLSEnabled": false
@@ -487,21 +487,7 @@
           "with": {}
         }
       },
-      "foreignKeys": {
-        "bug_reports_project_key_projects_key_fk": {
-          "name": "bug_reports_project_key_projects_key_fk",
-          "tableFrom": "bug_reports",
-          "tableTo": "projects",
-          "columnsFrom": [
-            "project_key"
-          ],
-          "columnsTo": [
-            "key"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},

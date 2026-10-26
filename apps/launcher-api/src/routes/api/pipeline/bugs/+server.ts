@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { bugScopeOf, listSentBugs, syncBugLinks } from '$lib/server/bugReports';
+import { bugScopeOf, currentLinkSync, listSentBugs } from '$lib/server/bugReports';
 import { requirePipelineAccess } from '$lib/server/pipelineAccess';
 import type { RequestHandler } from './$types';
 
@@ -11,7 +11,7 @@ import type { RequestHandler } from './$types';
  */
 export const GET: RequestHandler = async ({ locals }) => {
 	const user = await requirePipelineAccess(locals);
-	const sync = await syncBugLinks();
+	const sync = await currentLinkSync();
 	return json(
 		{ bugs: await listSentBugs(await bugScopeOf(user, ['pipeline'])), sync },
 		{ headers: { 'cache-control': 'no-store' } },

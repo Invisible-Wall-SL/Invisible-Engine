@@ -391,9 +391,9 @@ read the definition, the validation preview and the open changes, and open those
       screenshots, triage and comments.
 
     The fix is a pipeline change like any other. Name the bug's `BUG-<n>` in the pull request's
-    title, branch or description. The bug then shows Working on while the pull request is open
-    and Resolved once it merges. When the title or branch names it, the change's card in the
-    Changes tab also carries the `BUG-<n>` tag. Triage (priority, status, Take back) happens in
+    title or branch (a mention in the description does not count). The bug then shows Working on
+    while the pull request is open and Resolved once it merges, and the change's card in the
+    Changes tab carries the `BUG-<n>` tag. Triage (priority, status, Take back) happens in
     Pipeline Bug Reports, not here. Like the other tabs, this one reads when you open it, again
     with every Refresh, and every minute while it is open. If the GitHub App is not configured, a
     line says linked pull requests are not read.

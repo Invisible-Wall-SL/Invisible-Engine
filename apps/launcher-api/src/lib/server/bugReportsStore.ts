@@ -1,5 +1,5 @@
 import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
-import type { LinkState } from '$lib/bugReports';
+import type { BugKind, LinkState } from '$lib/bugReports';
 import { getDb } from './db';
 import {
 	bugReportEvents,
@@ -90,11 +90,11 @@ export interface ObservedLink {
 	state: LinkState;
 }
 
-/** What reconciling one bug's links writes: the rows to upsert, and the row and events after. */
+/** What reconciling one bug's links writes: the rows to upsert or drop, and the row and events. */
 export type LinkPlanner = (
 	bug: BugReport,
 	existing: BugReportLink[],
-) => { upserts: ObservedLink[]; set: BugPatch; events: BugEventInput[] };
+) => { upserts: ObservedLink[]; removes: number[]; set: BugPatch; events: BugEventInput[] };
 
 const LIST_LIMIT = 5000;
 
@@ -104,20 +104,33 @@ const groupBy = <T extends { bugNumber: number }>(rows: T[]): Map<number, T[]> =
 	return out;
 };
 
-/** Every bug, newest first, with its screenshot count and its links. */
-export async function listBugRows(): Promise<BugRows> {
+/** One kind's bugs (one project's, when named), newest first, with screenshot counts and links. */
+export async function listBugRows(where: { kind: BugKind; projectKey?: string }): Promise<BugRows> {
 	const db = getDb();
 	const bugs = await db
 		.select()
 		.from(bugReports)
+		.where(
+			and(
+				eq(bugReports.kind, where.kind),
+				where.projectKey === undefined ? undefined : eq(bugReports.projectKey, where.projectKey),
+			),
+		)
 		.orderBy(desc(bugReports.number))
 		.limit(LIST_LIMIT);
+	const numbers = bugs.map((b) => b.number);
+	if (!numbers.length) return { bugs, screenshots: new Map(), links: new Map() };
 	const [shots, links] = await Promise.all([
 		db
 			.select({ bugNumber: bugReportScreenshots.bugNumber, n: count() })
 			.from(bugReportScreenshots)
+			.where(inArray(bugReportScreenshots.bugNumber, numbers))
 			.groupBy(bugReportScreenshots.bugNumber),
-		db.select().from(bugReportLinks).orderBy(asc(bugReportLinks.prNumber)),
+		db
+			.select()
+			.from(bugReportLinks)
+			.where(inArray(bugReportLinks.bugNumber, numbers))
+			.orderBy(asc(bugReportLinks.prNumber)),
 	]);
 	return {
 		bugs,
@@ -163,31 +176,41 @@ export async function getScreenshot(
 	return row ?? null;
 }
 
-/** The bugs among `numbers` that exist. */
-export async function existingBugNumbers(numbers: number[]): Promise<number[]> {
+/** The bugs of one kind among `numbers` that exist. */
+export async function existingBugNumbers(numbers: number[], kind: BugKind): Promise<number[]> {
 	if (!numbers.length) return [];
 	const rows = await getDb()
 		.select({ number: bugReports.number })
 		.from(bugReports)
-		.where(inArray(bugReports.number, numbers));
+		.where(and(inArray(bugReports.number, numbers), eq(bugReports.kind, kind)));
 	return rows.map((r) => r.number);
 }
 
-/** The pull requests some bug's link still holds as open. */
-export async function listOpenLinkPrs(): Promise<number[]> {
-	const rows = await getDb()
-		.selectDistinct({ pr: bugReportLinks.prNumber })
+/** Every link still held as open, with when it was last written. */
+export async function listOpenLinks(): Promise<
+	{ bugNumber: number; prNumber: number; updatedAt: Date }[]
+> {
+	return getDb()
+		.select({
+			bugNumber: bugReportLinks.bugNumber,
+			prNumber: bugReportLinks.prNumber,
+			updatedAt: bugReportLinks.updatedAt,
+		})
 		.from(bugReportLinks)
 		.where(eq(bugReportLinks.state, 'open'));
-	return rows.map((r) => r.pr);
 }
 
 export async function insertBug(values: NewBug, actor: Actor): Promise<BugReport> {
 	return getDb().transaction(async (tx) => {
 		const [bug] = await tx.insert(bugReports).values(values).returning();
-		await tx
-			.insert(bugReportEvents)
-			.values({ bugNumber: bug.number, kind: 'reported', actorId: actor.id, actor: actor.name });
+		await tx.insert(bugReportEvents).values({
+			bugNumber: bug.number,
+			kind: 'reported',
+			actorId: actor.id,
+			actor: actor.name,
+			// The priority the reporter gave, if any: the one priority not set by a triager.
+			data: values.priority ? { priority: values.priority } : {},
+		});
 		return bug;
 	});
 }
@@ -308,8 +331,15 @@ export async function reconcileLinks(
 			.select()
 			.from(bugReportLinks)
 			.where(eq(bugReportLinks.bugNumber, number));
-		const { upserts, set, events } = plan(bug, existing);
+		const { upserts, removes, set, events } = plan(bug, existing);
 		const now = new Date();
+		if (removes.length) {
+			await tx
+				.delete(bugReportLinks)
+				.where(
+					and(eq(bugReportLinks.bugNumber, number), inArray(bugReportLinks.prNumber, removes)),
+				);
+		}
 		for (const link of upserts) {
 			await tx
 				.insert(bugReportLinks)

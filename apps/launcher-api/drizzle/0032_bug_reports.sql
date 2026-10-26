@@ -6,7 +6,7 @@ CREATE TABLE "bug_report_events" (
 	"actor_id" text,
 	"actor" text NOT NULL,
 	"data" jsonb DEFAULT '{}'::jsonb NOT NULL,
-	CONSTRAINT "bug_report_events_kind_check" CHECK ("bug_report_events"."kind" in ('reported', 'edited', 'comment', 'priority', 'status', 'sent', 'unsent', 'screenshot_added', 'screenshot_removed', 'linked'))
+	CONSTRAINT "bug_report_events_kind_check" CHECK ("bug_report_events"."kind" in ('reported', 'edited', 'comment', 'priority', 'status', 'sent', 'unsent', 'screenshot_added', 'screenshot_removed', 'linked', 'unlinked'))
 );
 --> statement-breakpoint
 CREATE TABLE "bug_report_links" (
@@ -60,7 +60,6 @@ CREATE TABLE "bug_reports" (
 ALTER TABLE "bug_report_events" ADD CONSTRAINT "bug_report_events_bug_number_bug_reports_number_fk" FOREIGN KEY ("bug_number") REFERENCES "public"."bug_reports"("number") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "bug_report_links" ADD CONSTRAINT "bug_report_links_bug_number_bug_reports_number_fk" FOREIGN KEY ("bug_number") REFERENCES "public"."bug_reports"("number") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "bug_report_screenshots" ADD CONSTRAINT "bug_report_screenshots_bug_number_bug_reports_number_fk" FOREIGN KEY ("bug_number") REFERENCES "public"."bug_reports"("number") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "bug_reports" ADD CONSTRAINT "bug_reports_project_key_projects_key_fk" FOREIGN KEY ("project_key") REFERENCES "public"."projects"("key") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "bug_report_events_bug_idx" ON "bug_report_events" USING btree ("bug_number","id");--> statement-breakpoint
 CREATE INDEX "bug_report_screenshots_bug_idx" ON "bug_report_screenshots" USING btree ("bug_number");--> statement-breakpoint
 CREATE INDEX "bug_reports_kind_project_idx" ON "bug_reports" USING btree ("kind","project_key");--> statement-breakpoint

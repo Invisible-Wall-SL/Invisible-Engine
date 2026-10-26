@@ -138,6 +138,12 @@
 		onreload();
 	}
 
+	/** A refused change puts the control back on what the bug still says. */
+	async function setPriority(select: HTMLSelectElement): Promise<void> {
+		const ok = await send({ action: 'priority', priority: select.value || null }, 'Saving…');
+		if (!ok) select.value = detail.priority ?? '';
+	}
+
 	// ── Comments ──────────────────────────────────────────────────────────────
 	let comment = $state('');
 	async function postComment(): Promise<void> {
@@ -351,8 +357,7 @@
 				<select
 					value={detail.priority ?? ''}
 					disabled={!canTriage || busy !== null}
-					onchange={(e) =>
-						send({ action: 'priority', priority: e.currentTarget.value || null }, 'Saving…')}
+					onchange={(e) => setPriority(e.currentTarget)}
 				>
 					<option value="">{NO_PRIORITY_LABEL}</option>
 					{#each BUG_PRIORITIES as p (p)}<option value={p}>{BUG_PRIORITY_LABELS[p]}</option>{/each}
@@ -472,7 +477,7 @@
 		{/if}
 	</section>
 
-	{#if !game || detail.links.length}
+	{#if !game}
 		<section class="card" aria-labelledby="links-h">
 			<div class="card-head">
 				<h3 id="links-h">Pull requests · {detail.links.length}</h3>

@@ -454,8 +454,9 @@ export async function restoreProject(key: string): Promise<void> {
  * a user-facing "Delete" button; that is {@link softDeleteProject}.
  *
  * The project's own bug list (its game bugs, which must name a project) goes with it in the same
- * transaction; a pipeline bug that named it keeps its report with no project. Answers the game
- * bugs' numbers, whose screenshots the caller deletes (`deleteBugScreenshots`).
+ * transaction; a pipeline bug that named it keeps its report and the key, so only admins and its
+ * reporter see it. Answers the game bugs' numbers, whose screenshots the caller deletes
+ * (`deleteBugScreenshots`).
  */
 export async function deleteProject(key: string): Promise<{ gameBugs: number[] }> {
 	return getDb().transaction(async (tx) => {
