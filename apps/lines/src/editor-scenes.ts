@@ -2066,6 +2066,11 @@ export function refuseUnplayableBoot(reason: string): Promise<never> {
 	return haltBoot(`this game cannot be played yet: ${reason}`);
 }
 
+/** Stop an online game's boot (`game/online.ts`) that has no room to play in, on the same screen. */
+export function refuseOnlineBoot(reason: string): Promise<never> {
+	return haltBoot(`this online game could not join a room: ${reason}`);
+}
+
 /**
  * End a `?runtime=1` boot that has no data of its own on the "could not load" screen, and never
  * resolve — SvelteKit keeps the page unmounted while `load()` is pending, so neither the engine's

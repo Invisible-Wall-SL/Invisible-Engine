@@ -33,6 +33,9 @@ export interface GameMechanic {
 	boardInput: boolean;
 	/** The game is a play field (§4.2): `<ArcadeStage />` and its loop stand in for the reel stack. */
 	playField: boolean;
+	/** The game is played in a room on the game server (tier A4, `realtime-multiplayer.md` §10):
+	 *  the device joins it at boot, sends inputs and draws the bodies the server places. */
+	room: boolean;
 	/** The book events the mechanic adds to the shared runtime's union. */
 	bookEvents: readonly string[];
 	/** Why the runtime cannot play this mechanic yet, or `undefined` when it can. */
@@ -50,6 +53,7 @@ export const REELS_MECHANIC: GameMechanic = Object.freeze({
 	wallet: true,
 	boardInput: false,
 	playField: false,
+	room: false,
 	bookEvents: [],
 });
 
@@ -64,6 +68,7 @@ export const MATCH3_RULES_MECHANIC: GameMechanic = Object.freeze({
 	wallet: false,
 	boardInput: true,
 	playField: false,
+	room: false,
 	bookEvents: [],
 });
 
@@ -79,6 +84,7 @@ export const MATCH3_RGS_MECHANIC: GameMechanic = Object.freeze({
 	wallet: true,
 	boardInput: true,
 	playField: false,
+	room: false,
 	bookEvents: ['boardInit', 'swap', 'movesLeft', 'match3RoundEnd'],
 });
 
@@ -93,7 +99,15 @@ export const ARCADE_RULES_MECHANIC: GameMechanic = Object.freeze({
 	wallet: false,
 	boardInput: false,
 	playField: true,
+	room: false,
 	bookEvents: [],
+});
+
+/** An ONLINE arcade game (A4, P10.14; `GameConfigDoc.arcade.online`): the play field of a room on
+ *  the game server. Free play, as every arcade game: no RGS session, no wallet. */
+export const ARCADE_ONLINE_MECHANIC: GameMechanic = Object.freeze({
+	...ARCADE_RULES_MECHANIC,
+	room: true,
 });
 
 /**
@@ -107,7 +121,9 @@ export function mechanicFor(doc: GameConfigDoc | null | undefined): GameMechanic
 		return resolveOutcome(doc) === 'rules' ? MATCH3_RULES_MECHANIC : MATCH3_RGS_MECHANIC;
 	if (family === 'arcade')
 		return resolveOutcome(doc) === 'rules'
-			? ARCADE_RULES_MECHANIC
+			? doc?.arcade?.online
+				? ARCADE_ONLINE_MECHANIC
+				: ARCADE_RULES_MECHANIC
 			: {
 					...ARCADE_RULES_MECHANIC,
 					outcome: 'rgs',
