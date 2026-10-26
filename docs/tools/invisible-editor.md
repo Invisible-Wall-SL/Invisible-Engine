@@ -1926,6 +1926,16 @@ are Inspecting an old version.
    the offset is read, in seconds, from a number param of the placement (wrapped on a looping
    state), and Random start adds a random point each time the state is entered. Use them when
    several instances enter a state together and should not move in step.
+   **Make blend state** (it needs a number input) turns the state into a **1D blend**: instead of
+   one timeline it plays several, mixed by a number input — an idle → run by `speed`. Pick the
+   input under **By input**, then give each point a timeline and the input value where that
+   timeline plays alone (**＋ point** adds one, **×** removes one; the points sort by value). Between
+   two points the two timelines play mixed by where the value falls; below the first or above the
+   last, that point plays alone. The card shows `⇋ input: timeline value · …`. Every timeline plays
+   on the state's one clock; cues fire from the lower of the two points only, an exit time reads
+   the first point's timeline, and a transition out mixes from the blended pose. **Make plain
+   state** goes back to one timeline (the first point's). In the preview, an input a blend reads
+   gets a slider under its number field spanning the points.
 4. **Layers** are the tab strip in the panel bar: **＋ Layer** adds one; each runs on its own, and
    where two key the same property of a node, the later layer wins. Next to **Rename**: **⧉**
    duplicates the layer (states, arrows and positions, named "<name> copy"), **◀ / ▶** move it

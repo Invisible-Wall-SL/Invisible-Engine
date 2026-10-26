@@ -75,6 +75,12 @@ export {
 	type ArcadeRules,
 } from './src/game/arcadeLoop';
 export {
+	CHARACTER_CONTROLS,
+	CHARACTER_STATE_SIGNAL,
+	type ArcadeCharacterIo,
+	type CharacterControl,
+} from './src/game/arcadeCharacters';
+export {
 	createMatch3Driver,
 	type Match3Board,
 	type Match3Driver,

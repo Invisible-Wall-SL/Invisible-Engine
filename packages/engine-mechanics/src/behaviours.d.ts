@@ -105,7 +105,7 @@ export type Controller =
 
 export type ControllerInput = {
 	held(action: string): boolean;
-	/** The pointer in field px, or `undefined` while there is none. */
+	/** A pressed pointer (mouse button or touch) in field px, or `undefined` while none is down. */
 	pointer(): Point | undefined;
 };
 

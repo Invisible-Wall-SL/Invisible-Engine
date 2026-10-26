@@ -11,7 +11,9 @@
  *    left the field);
  *  - the actions that move bodies — `setVelocity`, `moveTo`, `setTag` — each aimed at one instance,
  *    or with `tagged` at every body carrying a tag;
- *  - `$engine.random` and `randomX` (seeded, so a run replays) and the field's size.
+ *  - `$engine.random` and `randomX` (seeded, so a run replays) and the field's size;
+ *  - characters (P10.11, §4.3): `characterState` on each brain transition, and the actions
+ *    `setCharacterState` (override a brain) and `setCharacterControl` (player or brain).
  *
  * Time and input (`onTick`, `onTimer`, `onInput`, the timers) and spawning (`spawn`, `despawn`, `$live`)
  * are Flow node kinds every vocabulary has (P10.3, P10.7), so they are not declared here.
@@ -29,6 +31,9 @@ const BOOL = { t: 'bool' } as const;
 
 /** The field edges a body can leave by — `engine-mechanics` `Edge`. */
 export const ARCADE_EDGES = ['left', 'right', 'top', 'bottom'] as const;
+
+/** Who drives a character — `engine-game` `CHARACTER_CONTROLS`. */
+export const ARCADE_CHARACTER_CONTROLS = ['controller', 'brain'] as const;
 
 const LOOP_EVENTS: EventDecl[] = [
 	{
@@ -79,6 +84,22 @@ const LOOP_EVENTS: EventDecl[] = [
 		description:
 			'A body whose Edges are `pass` was on the play field and is now wholly off it (one spawned off the field to come in has not left it). Usually Despawn it here (it is still alive until you do).',
 	},
+	{
+		name: 'characterState',
+		payload: [
+			{ name: 'instance', type: INSTANCE, description: 'The character.' },
+			{
+				name: 'character',
+				type: STRING,
+				description: "The character's id (Invisible Characters).",
+			},
+			{ name: 'from', type: STRING, description: 'The brain state it left.' },
+			{ name: 'to', type: STRING, description: 'The brain state it entered.' },
+		],
+		category: 'book',
+		description:
+			"A character's brain moved to another state on its own (a guard spotted the player: `patrol` → `chase`). Not raised for Set Character State.",
+	},
 ];
 
 /** The body an action aims at: one instance, else every body tagged `tagged`. */
@@ -98,6 +119,27 @@ const AIM = [
 ];
 
 const LOOP_ACTIONS: ActionDecl[] = [
+	{
+		name: 'setCharacterState',
+		params: [
+			...AIM,
+			{ name: 'state', type: STRING, description: "A state of the character's brain." },
+		],
+		category: 'command',
+	},
+	{
+		name: 'setCharacterControl',
+		params: [
+			...AIM,
+			{
+				name: 'control',
+				type: { t: 'enum', name: 'ArcadeCharacterControl' },
+				description:
+					'`controller`: the player drives it; `brain`: it runs on its brain (a bot). A character without that one keeps what it has.',
+			},
+		],
+		category: 'command',
+	},
 	{
 		name: 'setVelocity',
 		params: [
@@ -179,6 +221,7 @@ export const ARCADE_VOCAB: TemplateVocabulary = {
 	enums: [
 		...standard.enums.filter((e) => KEPT_ENUMS.has(e.name)),
 		{ name: 'ArcadeEdge', values: [...ARCADE_EDGES] },
+		{ name: 'ArcadeCharacterControl', values: [...ARCADE_CHARACTER_CONTROLS] },
 	],
 	events: [...standard.events.filter((e) => KEPT_EVENTS.has(e.name)), ...LOOP_EVENTS],
 	actions: [...standard.actions.filter((a) => KEPT_ACTIONS.has(a.name)), ...LOOP_ACTIONS],

@@ -393,24 +393,31 @@ export function brainVelocity(brain, self, world, dt) {
 
 /**
  * A player's desired velocity from a controller. `topDown` reads left/right/up/down (a diagonal at
- * the same speed as a straight line); `sideScroll` left/right only; `pointer` heads for the pointer
- * on its axes at `speed` (absent ⇒ `movement.maxSpeed`) and arrives within the step rather than
- * overshooting — with neither, it snaps to it. No pointer, no movement.
+ * the same speed as a straight line); `sideScroll` left/right only. With none of its keys held, a
+ * keyboard controller follows a pressed pointer instead (touch steering): `topDown` on both axes,
+ * `sideScroll` across, at its speed, arriving rather than overshooting. `pointer` heads for the
+ * pointer on its axes at `speed` (absent ⇒ `movement.maxSpeed`) and arrives within the step rather
+ * than overshooting — with neither, it snaps to it. No pointer, no movement.
  */
 export function controllerVelocity(controller, input, self, movement, dt) {
 	switch (controller.kind) {
-		case 'topDown': {
+		case 'topDown':
+		case 'sideScroll': {
+			const across = controller.kind === 'topDown' ? CONTROLLER_ACTIONS : ['left', 'right'];
+			if (!across.some((action) => input.held(action))) {
+				const pointer = input.pointer();
+				if (!pointer || !(dt > 0)) return STILL();
+				const dy = controller.kind === 'topDown' ? pointer.y - self.y : 0;
+				return towards(pointer.x - self.x, dy, Math.max(0, controller.speed), dt);
+			}
 			let x = (input.held('right') ? 1 : 0) - (input.held('left') ? 1 : 0);
+			if (controller.kind === 'sideScroll') return { vx: x * controller.speed, vy: 0 };
 			let y = (input.held('down') ? 1 : 0) - (input.held('up') ? 1 : 0);
 			if (x !== 0 && y !== 0) {
 				x *= Math.SQRT1_2;
 				y *= Math.SQRT1_2;
 			}
 			return { vx: x * controller.speed, vy: y * controller.speed };
-		}
-		case 'sideScroll': {
-			const x = (input.held('right') ? 1 : 0) - (input.held('left') ? 1 : 0);
-			return { vx: x * controller.speed, vy: 0 };
 		}
 		case 'pointer': {
 			const pointer = input.pointer();

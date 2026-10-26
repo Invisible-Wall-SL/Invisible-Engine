@@ -380,6 +380,34 @@ check('controllers: sideScroll reads left/right only', () => {
 	assert.deepEqual(controllerVelocity(c, keys('down'), self, undefined, DT), { vx: 0, vy: 0 });
 });
 
+check('controllers: with no key held, topDown / sideScroll follow a pressed pointer', () => {
+	const self = box('p', 100, 100, 10, 10);
+	const touch = (held, p) => ({ held: (a) => held.includes(a), pointer: () => p });
+	const top = { kind: 'topDown', speed: 300 };
+	const v = controllerVelocity(top, touch([], { x: 400, y: 500 }), self, undefined, DT);
+	assert.ok(near(speedOf(v), 300, 1e-9) && near(v.vy / v.vx, 400 / 300, 1e-9));
+	assert.deepEqual(
+		controllerVelocity(top, touch([], { x: 102, y: 101 }), self, undefined, DT),
+		{ vx: 2 / DT, vy: 1 / DT },
+		'arrives, no overshoot',
+	);
+	assert.deepEqual(
+		controllerVelocity(top, touch(['up'], { x: 400, y: 500 }), self, undefined, DT),
+		{ vx: 0, vy: -300 },
+		'a held key wins',
+	);
+	const side = { kind: 'sideScroll', speed: 200 };
+	assert.deepEqual(
+		controllerVelocity(side, touch([], { x: 0, y: 900 }), self, undefined, DT),
+		{ vx: -200, vy: 0 },
+	);
+	assert.deepEqual(
+		controllerVelocity(side, touch(['up'], { x: 0, y: 900 }), self, undefined, DT),
+		{ vx: -200, vy: 0 },
+		'up is not a sideScroll key',
+	);
+});
+
 check('controllers: pointer follows on its axes, arrives without overshooting', () => {
 	const target = { x: 400, y: 120 };
 	for (const axes of ['x', 'y', 'xy']) {

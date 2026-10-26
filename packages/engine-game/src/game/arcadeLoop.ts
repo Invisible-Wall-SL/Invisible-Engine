@@ -14,7 +14,16 @@ import {
 	type StaticIndex,
 } from 'engine-mechanics';
 import type { SpawnedInstance } from 'engine-flow-v2';
-import type { ArcadeBody, ArcadeZone } from 'game-config';
+import type { ArcadeBody, ArcadeCharacter, ArcadeZone } from 'game-config';
+
+import {
+	CHARACTER_CONTROLS,
+	CHARACTER_STATE_SIGNAL,
+	createCharacterStage,
+	type ArcadeCharacterIo,
+	type CharacterControl,
+	type CharacterStage,
+} from './arcadeCharacters';
 
 /**
  * THE ARCADE LOOP (`docs/design/game-families.md` §4.2, P10.8): one per arcade game, ticked once a
@@ -34,6 +43,12 @@ import type { ArcadeBody, ArcadeZone } from 'game-config';
  * Flow moves bodies through the actions in {@link ArcadeLoop.effects} (`setVelocity`, `moveTo`,
  * `setTag`), each aimed at one instance or at every body carrying a tag, and reads the seeded
  * `$engine.random` / `randomX` and the field's size through {@link ArcadeLoop.value}.
+ *
+ * CHARACTERS (§4.3, P10.11), only when the config has some (`arcadeCharacters.ts`): before the
+ * step, controllers and brains set each character's velocity; the step then moves the characters
+ * with the solid response and every other body as above; after the frame each character's look gets
+ * its `animInputs`. A brain transition raises `characterState`; Flow overrides a brain with
+ * `setCharacterState` and hands a playable character to its brain with `setCharacterControl`.
  */
 
 /** The live set the loop moves: `engine-flow-v2`'s spawn store, or any store shaped like it. */
@@ -50,9 +65,13 @@ export interface ArcadeRules {
 	bodies: Record<string, ArcadeBody>;
 	pairs: [string, string][];
 	zones: ArcadeZone[];
+	/** Absent or empty ⇒ no characters stage (P10.8). */
+	characters?: ArcadeCharacter[];
 }
 
-export interface ArcadeLoopOptions {
+/** The characters stage's input, paths, variables, look inputs and shots
+ *  ({@link ArcadeCharacterIo}): read only when the config has characters. */
+export interface ArcadeLoopOptions extends ArcadeCharacterIo {
 	rules: ArcadeRules;
 	/** The play field: the config's `field`, else the current layout's design size. Read again
 	 *  each step and each value read, so a layout change (a rotated device) moves the edges. */
@@ -80,7 +99,16 @@ export interface ArcadeLoop {
 	/** Steps run so far. */
 	readonly steps: number;
 	/** Where each body is, for the probe and the gates. */
-	bodies(): { id: string; x: number; y: number; vx: number; vy: number; tags: string[] }[];
+	bodies(): {
+		id: string;
+		x: number;
+		y: number;
+		vx: number;
+		vy: number;
+		tags: string[];
+		/** A character's brain state (characters only). */
+		state?: string;
+	}[];
 	/** Stop watching the live set; a frame after it runs nothing. */
 	dispose(): void;
 }
@@ -91,6 +119,7 @@ export const ARCADE_SIGNALS = {
 	enterZone: 'enterZone',
 	leaveZone: 'leaveZone',
 	leaveBounds: 'leaveBounds',
+	characterState: CHARACTER_STATE_SIGNAL,
 } as const;
 
 /** The `$engine` values an arcade game reads. */
@@ -137,12 +166,14 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 	const moved = new Set<string>();
 	const queue: { name: string; payload: Record<string, unknown> }[] = [];
 	let disposed = false;
+	let characters: CharacterStage | undefined;
 
 	const forget = (id: string) => {
 		bodies.delete(id);
 		outside.delete(id);
 		inZones.delete(id);
 		moved.delete(id);
+		characters?.forget(id);
 		for (const [key, pair] of [...touching]) if (pair.includes(id)) touching.delete(key);
 	};
 	const watched = new Map<string, Set<string>>();
@@ -156,6 +187,7 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 				if (bodies.has(instance.id)) continue;
 				const body = bodyFor(instance, rules);
 				bodies.set(instance.id, body);
+				characters?.attach(body);
 				// One spawned off the field (above it, to fall in) has not left it.
 				const edge = outsideEdge(body, field());
 				if (edge) outside.set(body.id, edge);
@@ -170,8 +202,6 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 			unsubscribe.push(watch(layer));
 		}
 	};
-	watchNewLayers();
-
 	/** A handle at the body's place now: what a signal carries. */
 	const handle = (body: LoopBody): SpawnedInstance => {
 		const stored = live.get(body.id);
@@ -182,11 +212,25 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 		});
 	};
 
+	if (rules.characters?.length)
+		characters = createCharacterStage({
+			characters: rules.characters,
+			bodies: rules.bodies,
+			seed: options.seed,
+			io: options,
+			raise: (name, payload) => queue.push({ name, payload }),
+			handle,
+			bodyOf: (id) => bodies.get(id),
+		});
+	watchNewLayers();
+
 	const runStep = () => {
 		const list = [...bodies.values()];
+		characters?.decide(list, clock.dt);
 		for (const body of list) if (body.vx || body.vy) moved.add(body.id);
 		const area = field();
-		step(list, clock.dt, area);
+		if (characters) for (const id of characters.move(list, clock.dt, area)) moved.add(id);
+		else step(list, clock.dt, area);
 		for (const body of list) {
 			if ((body.edges ?? 'clamp') !== 'pass') continue;
 			const edge = outsideEdge(body, area);
@@ -260,6 +304,14 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 				moved.add(body.id);
 			}
 		},
+		setCharacterState: (payload) => {
+			const state = str(payload.state);
+			if (state) characters?.setState(targets(payload), state);
+		},
+		setCharacterControl: (payload) => {
+			const control = payload.control as CharacterControl;
+			if (CHARACTER_CONTROLS.includes(control)) characters?.setControl(targets(payload), control);
+		},
 		setTag: (payload) => {
 			const tag = str(payload.tag);
 			if (!tag) return;
@@ -286,6 +338,7 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 				);
 				moved.clear();
 			}
+			characters?.writeLooks();
 			const due = queue.splice(0);
 			for (const { name, payload } of due) signal(name, payload);
 			return ran;
@@ -302,19 +355,24 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 			return clock.steps;
 		},
 		bodies: () =>
-			[...bodies.values()].map((b) => ({
-				id: b.id,
-				x: b.x,
-				y: b.y,
-				vx: b.vx,
-				vy: b.vy,
-				tags: [...b.tags],
-			})),
+			[...bodies.values()].map((b) => {
+				const state = characters?.stateOf(b.id);
+				return {
+					id: b.id,
+					x: b.x,
+					y: b.y,
+					vx: b.vx,
+					vy: b.vy,
+					tags: [...b.tags],
+					...(state === undefined ? {} : { state }),
+				};
+			}),
 		dispose() {
 			disposed = true;
 			for (const off of unsubscribe.splice(0)) off();
 			for (const state of [bodies, touching, outside, inZones, moved, watched]) state.clear();
 			queue.length = 0;
+			characters?.clear();
 		},
 	};
 }
