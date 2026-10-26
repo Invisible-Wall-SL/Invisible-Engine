@@ -1,5 +1,7 @@
-import { CloseCode, Protocol } from '@colyseus/core';
+import { Protocol } from '@colyseus/core';
 import type { WebSocketTransport } from '@colyseus/ws-transport';
+
+import { noteSocket } from './addresses.ts';
 
 /**
  * WHAT A ROOM'S WEBSOCKET MAY DO (`docs/design/realtime-multiplayer.md` §11), checked on every
@@ -12,8 +14,10 @@ import type { WebSocketTransport } from '@colyseus/ws-transport';
  *   queue without limit before the join is acknowledged; ROOM_DATA reaches handlers no room needs.
  * - **A join deadline.** A socket that has not acknowledged its join within
  *   {@link JOIN_DEADLINE_MS} is ended, so it cannot sit in Colyseus' joining state.
- * - **A frame budget.** More than {@link FRAMES_PER_SECOND} frames a second ends the socket, before
- *   Colyseus' own (graceful, so still parsing) flood close.
+ * - **A frame budget.** More than {@link FRAMES_PER_SECOND} frames a second — messages and the
+ *   WebSocket's own ping and pong control frames alike — ends the socket, before Colyseus' own
+ *   (graceful, so still parsing) flood close. The transport answers no client ping (`autoPong:
+ *   false`, `server.ts`); Colyseus only reads pongs to its own pings.
  * - **Ending is immediate.** The guard terminates; a close started elsewhere (Colyseus' flood
  *   limit, a leave) is followed by a terminate after {@link CLOSE_GRACE_MS} and its frames are
  *   dropped meanwhile — a graceful close otherwise goes on parsing whatever the peer streams for
@@ -64,7 +68,10 @@ export const closedByGuard = (socket: unknown): boolean =>
 export function guardSockets(transport: WebSocketTransport): WebSocketTransport {
 	const { wss } = transport as unknown as {
 		wss: {
-			prependListener(event: 'connection', listener: (socket: RawSocket) => void): void;
+			prependListener(
+				event: 'connection',
+				listener: (socket: RawSocket, req: object) => void,
+			): void;
 			once(event: 'close', listener: () => void): void;
 		};
 	};
@@ -79,7 +86,8 @@ export function guardSockets(transport: WebSocketTransport): WebSocketTransport 
 	sweep.unref();
 	wss.once('close', () => clearInterval(sweep));
 
-	wss.prependListener('connection', (socket) => {
+	wss.prependListener('connection', (socket, req) => {
+		noteSocket(socket, req);
 		live.add(socket);
 		let joined = false;
 		let closing = false;
@@ -98,21 +106,29 @@ export function guardSockets(transport: WebSocketTransport): WebSocketTransport 
 		socket.close = (code, reason) => {
 			if (!closing) timers.push(setTimeout(() => socket.terminate(), CLOSE_GRACE_MS));
 			closing = true;
-			close(code ?? CloseCode.NORMAL_CLOSURE, reason);
+			close(code, reason);
 		};
-		const emit = socket.emit.bind(socket);
-		socket.emit = (event, ...args) => {
-			if (event !== 'message') return emit(event, ...args);
-			if (closing || ended.has(socket)) return true;
+		/** Count a frame against the budget; whether the socket is still allowed to be heard. */
+		const counted = () => {
+			if (closing || ended.has(socket)) return false;
 			const now = Math.floor(Date.now() / 1000);
 			if (now !== second) {
 				second = now;
 				frames = 0;
 			}
 			frames += 1;
+			if (frames <= FRAMES_PER_SECOND) return true;
+			end(socket);
+			return false;
+		};
+		const emit = socket.emit.bind(socket);
+		socket.emit = (event, ...args) => {
+			if (event === 'ping' || event === 'pong') return counted() ? emit(event, ...args) : true;
+			if (event !== 'message') return emit(event, ...args);
+			if (!counted()) return true;
 			const data = args[0];
 			const code = data instanceof Uint8Array ? data[0] & PROTOCOL_CODE : undefined;
-			if (frames > FRAMES_PER_SECOND || code === undefined || !ALLOWED.has(code)) {
+			if (code === undefined || !ALLOWED.has(code)) {
 				end(socket);
 				return true;
 			}

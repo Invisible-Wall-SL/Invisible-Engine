@@ -73,12 +73,14 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   decoder for UNRELIABLE inputs loops for ever on a negative slot length (three bytes would stop
   every room; to report upstream), and ROOM_REQUEST answers queue without limit on a socket that
   never acknowledges its join; a socket that has not acknowledged its join within 5 s, sends more
-  than 150 frames a second, or lets more than 256 KB of unsent data pile up (a reader that stops
-  reading) is terminated; every close is followed by a terminate within 1 s and its frames are
+  than 150 frames a second (messages and the WebSocket's own ping / pong control frames alike; the
+  transport answers no client ping), or lets more than 256 KB of unsent data pile up (a reader that
+  stops reading) is terminated; every close is followed by a terminate within 1 s and its frames are
   dropped (a graceful close otherwise goes on parsing for 30 s); a WebSocket is served only for a
   room seat (`/<process>/<room>?sessionId=…`; Colyseus' latency utility, which answers every
-  frame, is not); one address holds at most 16 WebSockets (so at most 16 seats) and opens at most
-  60 a window, refused attempts included; an online room holds at least 2 players;
+  frame, is not); one address holds at most 16 WebSockets and seats held for its dropped players
+  to rejoin, counted together (`addresses.ts`), and opens at most 60 a window, refused attempts
+  included; an online room holds at least 2 players;
   an IPv6 /64 counts as one address; the entry point logs an unhandled rejection instead of exiting; Colyseus'
   `create` is **not exposed** (only
   `joinOrCreate`, `join`, `joinById`, `reconnect`), so a device cannot make rooms nobody joins; a
@@ -146,7 +148,8 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
     acknowledges its join is ended after 5 s; the latency utility and a seat path with no session
     are not served; 16 seats' sockets from one address open, the 17th is dropped, another address's
     opens, a closed one frees its place; once an address's 60 upgrades in a window are spent every
-    attempt is refused; 200 PINGs from a joined device end its socket; room size and character max;
+    attempt is refused; 16 joined-then-dropped seats leave their address no room for a 17th; a
+    flood of WebSocket ping frames ends its socket; 200 PINGs from a joined device end its socket; room size and character max;
     a drop keeps the place and `reconnect(token)` resumes it; the grace expiring; a flood of inputs
     past the message limit disconnects; `maxRooms`. `family.fixture.ts` §4c covers the config block.
 - **Verified by playing:** `scripts/playtest/online-play.mjs` on the branch runtime, two headless
@@ -212,8 +215,13 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
     are pinned exactly, the transitive ones (`ws`, better-call) are not;
   - many devices behind one address (a school's NAT) share the 30-per-10 s matchmaking allowance
     and the 16 sockets;
-  - the slow-reader cut-off (256 KB unsent) is verified by the review's repro, not by the gate (it
-    needs a minute of patches to fill the kernel buffers);
+  - the slow-reader cut-off (256 KB unsent) is **not covered by any gate or repro**: on loopback the
+    kernel's buffers absorb a minute of patches before `bufferedAmount` rises; it is verified by
+    reading ws (`bufferedAmount` = the socket's queued bytes + the sender's) only;
+  - per-address limits stop one address, not many: one address holds at most 16 seats, so with
+    2-player rooms about 4 addresses (or IPv6 /64s) can fill a 50-room process. Size
+    `GAME_SERVER_MAX_ROOMS` to the hardware (P10.16's load test) and put a proxy limit in front if
+    abuse shows up;
   - a device whose first input carries `seq` 2³²−1 freezes its own later inputs (each is then
     "older"); it harms only itself;
   - `x-forwarded-proto` must be exactly `http` or `https`: an edge that appended to a client's

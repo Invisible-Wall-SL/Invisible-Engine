@@ -36,7 +36,8 @@ import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/in
 import { createConfigSource } from '../services/game-server/src/configSource.ts';
 import { createRoomSim, inputsThisStep, RoomRefusal } from '../services/game-server/src/roomSim.ts';
 import { messagesPerSecond } from '../services/game-server/src/arcadeRoom.ts';
-import { ROOM_NAME, addressKey, createGameServer } from '../services/game-server/src/server.ts';
+import { addressKey } from '../services/game-server/src/addresses.ts';
+import { ROOM_NAME, createGameServer } from '../services/game-server/src/server.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const gameServerRequire = createRequire(join(ROOT, 'services/game-server/package.json'));
@@ -576,7 +577,7 @@ writeFileSync(
 writeFileSync(join(dir, 'third.json'), JSON.stringify(configOf({ characters: CHARACTERS })));
 writeFileSync(
 	join(dir, 'wide.json'),
-	JSON.stringify(configOf({ characters: CHARACTERS, maxPlayers: 40 })),
+	JSON.stringify(configOf({ characters: CHARACTERS, maxPlayers: 40, rejoinSeconds: 3 })),
 );
 writeFileSync(join(dir, 'slot.json'), JSON.stringify({ gameName: 'A slot' }));
 
@@ -929,6 +930,28 @@ try {
 				'',
 				'the window is spent',
 			);
+			// A seat's socket that acknowledged its join and then dropped holds its seat for the rejoin,
+			// and that seat counts against its address: 16 dropped seats leave it no room for a 17th.
+			const joinAck = Buffer.from([0x82, 0x81, 0, 0, 0, 0, 10]);
+			const joined = async (address) => {
+				const h = await upgrade(await seat(), address);
+				assert.ok(h.status.includes(' 101 '), h.status);
+				await wait(50);
+				h.socket.write(joinAck);
+				await wait(50);
+				return h.socket;
+			};
+			const into2 = Date.now() % 10_000;
+			if (into2 > 4000) await wait(10_050 - into2);
+			for (let i = 0; i < 16; i++) (await joined('198.51.100.40')).destroy();
+			await wait(200);
+			assert.equal((await upgrade(await seat(), '198.51.100.40')).status, '', 'seats held count');
+			// WebSocket ping control frames count against the budget like messages.
+			const pinger = await joined('198.51.100.41');
+			let pingerClosed = false;
+			pinger.once('close', () => (pingerClosed = true));
+			pinger.write(Buffer.concat(Array(400).fill(Buffer.from([0x89, 0x80, 0, 0, 0, 0]))));
+			await until('the ping flood ended its socket', () => pingerClosed, 2000);
 			// A joined device sending frames past the budget (150 a second) is ended at once.
 			const f = noAutoReconnect(await clientOf().joinOrCreate(ROOM_NAME, { game: 'wide' }));
 			let left = false;

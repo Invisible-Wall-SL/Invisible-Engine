@@ -12,6 +12,7 @@ import {
 import { WebSocketTransport } from '@colyseus/ws-transport';
 
 import { arcadeRoomClass } from './arcadeRoom.ts';
+import { addressKey, hold, heldBy, noteRequest, release } from './addresses.ts';
 import { guardSockets } from './socketGuard.ts';
 import type { LoadGame } from './configSource.ts';
 
@@ -50,14 +51,16 @@ const BODYLESS = new Set(['GET', 'HEAD', 'OPTIONS']);
  *  for some (`TRACE`) out of the server; every other method is refused first. */
 const SERVED = new Set([...BODYLESS, 'POST']);
 
-/** WebSockets one address may hold open — a household or a few players behind one address, not a
- *  process's worth of sockets or rooms (each socket is at most one seat) — and open per window. */
+/** What one address may hold — open WebSockets plus seats held for its dropped players to rejoin
+ *  (`addresses.ts`): a household or a few players behind one address, not a process's worth of
+ *  sockets or rooms — and the WebSockets it may open per window. */
 const SOCKETS_PER_ADDRESS = 16;
 const UPGRADES_PER_WINDOW = 60;
 
-/** The only WebSocket the server serves: a seat in a room, `/<process>/<room>?sessionId=…`.
+/** The only WebSocket the server serves: a seat in a room, `…/<process>/<room>?sessionId=…` (the
+ *  path's end, as Colyseus matches it, so a server behind a path prefix still serves).
  *  Colyseus' latency utility (any other path) answers every frame and is never used. */
-const ROOM_SOCKET = /^\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/;
+const ROOM_SOCKET = /\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/;
 
 /** How long a request (headers and body) may take; the default five minutes lets slow clients pile
  *  up. A WebSocket, once upgraded, is not a request and is not timed by it. */
@@ -92,27 +95,6 @@ const locate = (req: IncomingMessage): URL | undefined => {
 };
 
 /**
- * The key a per-address limit counts under: an IPv4 address (an IPv4-mapped IPv6 one unwrapped),
- * or an IPv6 address's /64 — one host is routinely given a whole /64, so a full address would let
- * it count as countless devices.
- */
-export function addressKey(address: string): string {
-	const v4 = /^(?:::ffff:)?(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(address);
-	if (v4) return v4[1];
-	if (!address.includes(':')) return address;
-	const [head, tail = ''] = address.split('%')[0].toLowerCase().split('::');
-	const left = head ? head.split(':') : [];
-	const right = address.includes('::') && tail ? tail.split(':') : [];
-	const groups = address.includes('::')
-		? [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill('0'), ...right]
-		: left;
-	return `${groups
-		.slice(0, 4)
-		.map((g) => g.replace(/^0+(?=.)/, ''))
-		.join(':')}::/64`;
-}
-
-/**
  * An HTTP server that refuses, before any listener (Colyseus' router among them) sees it: a
  * request whose URL the router could not build (400); one that would carry a body with no
  * `content-length` (411 — a chunked body is streamed with no limit; Node itself rejects a request
@@ -122,7 +104,8 @@ export function addressKey(address: string): string {
  * spelling of the path escapes it); and a method it does not serve (405). `trustProxy`: the address is the last `x-forwarded-for` entry,
  * the one the platform's proxy added (Railway); otherwise the socket's. The WebSocket upgrade is
  * served only for a room seat ({@link ROOM_SOCKET} with a `sessionId`); one address holds at most
- * {@link SOCKETS_PER_ADDRESS} WebSockets and opens at most {@link UPGRADES_PER_WINDOW} a window.
+ * {@link SOCKETS_PER_ADDRESS} WebSockets and held seats together and opens at most
+ * {@link UPGRADES_PER_WINDOW} WebSockets a window.
  */
 function guardedHttpServer(trustProxy: boolean, perWindow: number) {
 	const http = createServer({
@@ -151,13 +134,12 @@ function guardedHttpServer(trustProxy: boolean, perWindow: number) {
 		const last = typeof forwarded === 'string' ? forwarded.split(',').pop()?.trim() : undefined;
 		return addressKey(last || req.socket.remoteAddress || '');
 	};
-	const open = new Map<string, number>();
 	http.emit = ((event: string, ...args: unknown[]) => {
 		if (event === 'upgrade') {
 			const [req, socket] = args as [IncomingMessage, Duplex];
 			const url = locate(req);
 			const address = addressOf(req);
-			const held = open.get(address) ?? 0;
+			const held = heldBy(address);
 			// Every attempt counts, refused or not, so opening and dropping cannot loop.
 			const spent = over(upgrades, address, UPGRADES_PER_WINDOW);
 			if (
@@ -171,12 +153,9 @@ function guardedHttpServer(trustProxy: boolean, perWindow: number) {
 				socket.destroy();
 				return true;
 			}
-			open.set(address, held + 1);
-			socket.once('close', () => {
-				const left = (open.get(address) ?? 1) - 1;
-				if (left > 0) open.set(address, left);
-				else open.delete(address);
-			});
+			hold(address);
+			noteRequest(req, address);
+			socket.once('close', () => release(address));
 		}
 		if (event === 'request') {
 			const [req, res] = args as [IncomingMessage, ServerResponse];
@@ -225,6 +204,8 @@ export function createGameServer(options: GameServerOptions): GameServer {
 	const server = defineServer({
 		transport: guardSockets(
 			new WebSocketTransport({
+				// A client's ping is never answered: the guard counts it against the frame budget.
+				autoPong: false,
 				server: guardedHttpServer(
 					options.trustProxy ?? false,
 					options.matchmakePerWindow ?? MATCHMAKE_PER_WINDOW,

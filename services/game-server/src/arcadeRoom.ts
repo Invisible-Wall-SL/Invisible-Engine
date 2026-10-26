@@ -2,6 +2,7 @@ import { CloseCode, Room, type Client } from '@colyseus/core';
 import { sanitizeInput, type OnlineInput } from 'engine-mechanics';
 
 import type { LoadGame } from './configSource.ts';
+import { addressOfSocket, hold, release } from './addresses.ts';
 import { closedByGuard } from './socketGuard.ts';
 import { createRoomSim, inputsThisStep, RoomRefusal, type RoomSim } from './roomSim.ts';
 import { Input, Player, RoomState, type InputFrame, type RoomStateData } from './schema.ts';
@@ -118,7 +119,15 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			// The server closed it for an error (a flood, a frame it refuses): no place is held for it.
 			const refused = code === CloseCode.WITH_ERROR || closedByGuard(client.ref);
 			const seconds = refused ? 0 : sim.game.online.rejoinSeconds;
-			if (seconds > 0) this.allowReconnection(client, seconds).catch(() => {});
+			if (seconds <= 0) return;
+			// The held seat counts against its address until it is reclaimed or let go, so dropping
+			// and rejoining cannot gather seats past the address's cap (`addresses.ts`).
+			const address = addressOfSocket(client.ref);
+			if (address !== undefined) hold(address);
+			const settled = () => {
+				if (address !== undefined) release(address);
+			};
+			this.allowReconnection(client, seconds).then(settled, settled);
 		}
 
 		onReconnect(client: Client) {
