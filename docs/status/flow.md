@@ -55,6 +55,14 @@
 
 ## Recent changes
 
+- 2026-10-25 — **The `arcade` vocabulary and starter flow** (Phase 10 step P10.8). An arcade
+  project's palette is `ARCADE_VOCAB`: the arcade loop's signals (`collide`, `enterZone`,
+  `leaveZone`, `leaveBounds`), its actions (`setVelocity`, `moveTo`, `setTag`, aimed at an instance
+  or every body `tagged`), `$engine.random` / `fieldWidth` / `fieldHeight`, and no reel / spin / bet
+  surface. It opens on a salmon-dodger starter flow (timers spawn, keys steer, collisions keep score
+  and lives). The game's engine read now falls through to a family mechanic's values for a key the
+  lines reader does not answer. Detail: [game-families status](game-families.md), P10.8.
+
 - 2026-10-24 — **The `match3` vocabulary and starter flow** (Phase 10 step P10.5). A match-3
   project's palette is `MATCH3_VOCAB` (the board's signals and actions, the tumble cues, no reel /
   spin / bet surfaces) and it opens on a starter flow that keeps the score and the moves and ends

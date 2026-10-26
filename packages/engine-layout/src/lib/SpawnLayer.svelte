@@ -8,6 +8,7 @@
 </script>
 
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { Container } from 'pixi-svelte';
 	import type { SpawnedInstance } from 'engine-flow-v2';
 
@@ -32,6 +33,26 @@
 			instances = next;
 		}),
 	);
+	// Where a moved instance is now (an arcade game's loop moves them, P10.8): only the place of the
+	// instances that moved changes, so a frame of motion re-draws no instance that did not.
+	const places: Record<string, { x: number; y: number }> = $state({});
+	$effect(() =>
+		live.subscribePlaces(node.id, (moved) => {
+			for (const { id, x, y } of moved) {
+				const place = places[id];
+				if (place) {
+					place.x = x;
+					place.y = y;
+				} else places[id] = { x, y };
+			}
+		}),
+	);
+	$effect(() => {
+		const alive = new Set(instances.map((i) => i.id));
+		untrack(() => {
+			for (const id of Object.keys(places)) if (!alive.has(id)) delete places[id];
+		});
+	});
 
 	const instanceNode = (instance: SpawnedInstance): ComponentInstanceNode => ({
 		kind: 'componentInstance',
@@ -43,7 +64,7 @@
 </script>
 
 {#each instances as instance (instance.id)}
-	<Container x={instance.x} y={instance.y}>
+	<Container x={places[instance.id]?.x ?? instance.x} y={places[instance.id]?.y ?? instance.y}>
 		<ComponentInstance node={instanceNode(instance)} {space} />
 	</Container>
 {/each}

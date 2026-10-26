@@ -385,11 +385,11 @@ const counterDoc = (): FlowDoc =>
 		speed: 1,
 	});
 	eq(
-		'no slot seed flow uses state (only the match-3 starter keeps a score)',
+		'no slot seed flow uses state (only the match-3 and arcade starters keep a score)',
 		Object.entries(F.DRIVEN_SEEDS)
 			.filter(([, seed]) => F.flowUsesState(seed))
 			.map(([id]) => id),
-		['match3'],
+		['match3', 'arcade'],
 	);
 }
 

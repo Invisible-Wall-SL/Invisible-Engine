@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		ARCADE_BODY_EDGES,
 		ARCADE_FIXED_HZ_RANGE,
 		DEFAULT_ARCADE_FIXED_HZ,
 		DEFAULT_MATCH3_MIN_RUN,
@@ -12,9 +13,13 @@
 	import {
 		addBody,
 		addGoal,
+		addZone,
+		pairsText,
 		removeBody,
 		removeGoal,
+		removeZone,
 		scoreTableText,
+		setBodyEdges,
 		setBodyShape,
 		setBodySize,
 		setBodySolid,
@@ -26,8 +31,10 @@
 		setMinRun,
 		setMoves,
 		setOutcome,
+		setPairs,
 		setScoreTable,
 		setStrip,
+		setZoneField,
 		stripText,
 	} from './familyDoc';
 
@@ -122,7 +129,7 @@
 				{#if family === 'arcade'}
 					An arcade game decided by the server is not built yet.
 				{/if}
-				This family has no runtime yet, so it cannot be published until the engine learns to play it.
+				It publishes to our test server; it is never built for a real-money delivery.
 			</p>
 		{/if}
 	</fieldset>
@@ -261,7 +268,12 @@
 			screen. The game steps its motion a fixed number of times a second, so a replay is exact at
 			any frame rate. A <strong>body</strong> gives a component a shape to collide with, and
 			<strong>tags</strong> say what it is (<code>player</code>, <code>enemy</code>,
-			<code>pickup</code>).
+			<code>pickup</code>). <strong>Edges</strong> says what a body does at the field's edge: stop (<code
+				>clamp</code
+			>), come back on the far side (<code>wrap</code>) or leave (<code>pass</code>, which raises
+			<em>Leave bounds</em>). Two tags in <strong>Collisions</strong>
+			raise <em>Collide</em> when bodies carrying them touch; a <strong>zone</strong> raises
+			<em>Enter zone</em> and <em>Leave zone</em>.
 		</p>
 		<fieldset class="panel" disabled={readOnly}>
 			<div class="row">
@@ -304,6 +316,7 @@
 							<th>Shape</th>
 							<th>Size</th>
 							<th>Tags</th>
+							<th>Edges</th>
 							<th>Solid</th>
 							<th></th>
 						</tr>
@@ -359,6 +372,19 @@
 									/></td
 								>
 								<td
+									><select
+										value={body.edges ?? 'clamp'}
+										onchange={(e) => {
+											const edges = ARCADE_BODY_EDGES.find((v) => v === e.currentTarget.value);
+											if (edges) setBodyEdges(doc, id, edges);
+										}}
+									>
+										{#each ARCADE_BODY_EDGES as edges (edges)}
+											<option value={edges}>{edges}</option>
+										{/each}
+									</select></td
+								>
+								<td
 									><input
 										type="checkbox"
 										checked={body.solid === true}
@@ -384,6 +410,57 @@
 						newBody = '';
 					}}>Add body</button
 				>
+			</div>
+			<label class="pairs"
+				>Collisions <em>tag + tag, comma separated</em><input
+					class="wide"
+					value={pairsText(doc)}
+					placeholder="player + hazard, player + pickup"
+					onchange={(e) => setPairs(doc, e.currentTarget.value)}
+				/></label
+			>
+			<span class="legend">Zones <em>top-left corner and size, design px</em></span>
+			{#if doc.arcade?.zones?.length}
+				<table class="tbl">
+					<thead>
+						<tr>
+							<th>Zone</th>
+							<th>x</th>
+							<th>y</th>
+							<th>Width</th>
+							<th>Height</th>
+							<th></th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each doc.arcade.zones as zone, i (i)}
+							<tr>
+								<td
+									><input
+										value={zone.id}
+										onchange={(e) => setZoneField(doc, i, 'id', e.currentTarget.value)}
+									/></td
+								>
+								{#each ['x', 'y', 'w', 'h'] as const as field (field)}
+									<td
+										><input
+											type="number"
+											value={zone[field]}
+											onchange={(e) => setZoneField(doc, i, field, e.currentTarget.value)}
+										/></td
+									>
+								{/each}
+								<td
+									><button class="del" title="Remove" onclick={() => removeZone(doc, i)}>×</button
+									></td
+								>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			{/if}
+			<div class="row tight">
+				<button class="small" onclick={() => addZone(doc)}>Add zone</button>
 			</div>
 		</fieldset>
 		{@render issueList('arcade')}
@@ -463,6 +540,15 @@
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
 		color: #8b8b98;
+	}
+	label.pairs {
+		margin-top: 12px;
+	}
+	label.pairs em {
+		font-style: normal;
+		text-transform: none;
+		letter-spacing: 0;
+		color: #6f6f7d;
 	}
 	label.inline {
 		flex-direction: row;

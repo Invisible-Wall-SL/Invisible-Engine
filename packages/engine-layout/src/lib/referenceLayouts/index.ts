@@ -1,5 +1,6 @@
 import { isSelfMountedBannerScreen } from '../holdAndWinBanners';
 import type { LayoutDoc, LayoutNode, Scene } from '../types';
+import { arcadeReferenceLayout } from './arcade';
 import { bookofReferenceLayout } from './bookof';
 import { clusterReferenceLayout } from './cluster';
 import {
@@ -21,6 +22,7 @@ export { waysReferenceLayout } from './ways';
 export { clusterReferenceLayout } from './cluster';
 export { scatterReferenceLayout } from './scatter';
 export { match3ReferenceLayout, match3RgsReferenceLayout, MATCH3_BOARD } from './match3';
+export { arcadeReferenceLayout, ARCADE_FIELD, ARCADE_SAMPLE_COMPONENTS } from './arcade';
 export {
 	holdAndWinReferenceLayout,
 	HOLD_AND_WIN_BOARD,
@@ -106,6 +108,9 @@ const FULL_SCENE_SOURCES: Record<
 		build: (options) =>
 			options?.outcome === 'rgs' ? match3RgsReferenceLayout() : match3ReferenceLayout(),
 	},
+	// Arcade (game-families P10.8): the play field (a spawn layer the arcade loop moves), its HUD and
+	// the round-over screen. Engine pieces only, so scaffold-only like the skeletons.
+	arcade: { name: 'Arcade', build: () => arcadeReferenceLayout() },
 };
 
 /** A declared respin mode the scene set seeds screens for: its id, the name the tools show it by,

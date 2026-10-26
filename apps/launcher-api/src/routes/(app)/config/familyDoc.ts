@@ -2,6 +2,8 @@ import {
 	DEFAULT_ARCADE_FIXED_HZ,
 	DEFAULT_MATCH3_MIN_RUN,
 	type ArcadeBody,
+	type ArcadeBodyEdges,
+	type ArcadeZone,
 	type ConfigFamily,
 	type GameConfigDoc,
 	type GameOutcome,
@@ -201,12 +203,13 @@ export function removeBody(doc: GameConfigDoc, id: string): void {
 export function setBodyShape(doc: GameConfigDoc, id: string, shape: ArcadeBody['shape']): void {
 	const body = doc.arcade?.bodies?.[id];
 	if (!body || body.shape === shape) return;
-	const { tags, solid } = body;
+	const { tags, solid, edges } = body;
 	const size = body.shape === 'box' ? Math.max(body.w, body.h) : body.r * 2;
 	const next: ArcadeBody =
 		shape === 'circle' ? { shape, r: size / 2 } : { shape, w: size, h: size };
 	if (tags) next.tags = tags;
 	if (solid) next.solid = true;
+	if (edges) next.edges = edges;
 	doc.arcade!.bodies![id] = next;
 }
 
@@ -246,4 +249,74 @@ export function setBodySolid(doc: GameConfigDoc, id: string, solid: boolean): vo
 	if (!body) return;
 	if (solid) body.solid = true;
 	else delete body.solid;
+}
+
+/** How a body meets the field's edges. `clamp` is the default, so it deletes the field. */
+export function setBodyEdges(doc: GameConfigDoc, id: string, edges: ArcadeBodyEdges): void {
+	const body = doc.arcade?.bodies?.[id];
+	if (!body) return;
+	if (edges === 'clamp') delete body.edges;
+	else body.edges = edges;
+}
+
+/** The collision pairs from a comma list of `a + b` (`player + hazard, player + pickup`): blanks,
+ *  halves and repeats (either way round) dropped. None ⇒ the field is deleted. */
+export function setPairs(doc: GameConfigDoc, text: string): void {
+	const pairs: [string, string][] = [];
+	const seen = new Set<string>();
+	for (const item of text.split(',')) {
+		const [a, b, ...rest] = item.split('+').map((t) => t.trim());
+		if (!a || !b || rest.length) continue;
+		const key = [a, b].sort().join('+');
+		if (seen.has(key)) continue;
+		seen.add(key);
+		pairs.push([a, b]);
+	}
+	if (pairs.length) arcadeBlock(doc).pairs = pairs;
+	else delete arcadeBlock(doc).pairs;
+	pruneArcade(doc);
+}
+
+/** The pairs as the comma list {@link setPairs} reads. */
+export const pairsText = (doc: GameConfigDoc): string =>
+	(doc.arcade?.pairs ?? []).map(([a, b]) => `${a} + ${b}`).join(', ');
+
+/** Add a zone with a fresh id, as a 200 × 200 square at the field's corner. */
+export function addZone(doc: GameConfigDoc): void {
+	const zones = (arcadeBlock(doc).zones ??= []);
+	let n = zones.length + 1;
+	while (zones.some((z) => z.id === `zone${n}`)) n += 1;
+	zones.push({ id: `zone${n}`, x: 0, y: 0, w: 200, h: 200 });
+}
+
+export function removeZone(doc: GameConfigDoc, index: number): void {
+	const zones = doc.arcade?.zones;
+	if (!zones) return;
+	zones.splice(index, 1);
+	if (!zones.length) delete arcadeBlock(doc).zones;
+	pruneArcade(doc);
+}
+
+/** One field of a zone. An id must be new and not blank, a size positive, a corner a number;
+ *  anything else leaves the zone as it was. */
+export function setZoneField(
+	doc: GameConfigDoc,
+	index: number,
+	field: keyof ArcadeZone,
+	value: string,
+): void {
+	const zone = doc.arcade?.zones?.[index];
+	if (!zone) return;
+	if (field === 'id') {
+		const id = value.trim();
+		if (id && !doc.arcade!.zones!.some((z, i) => i !== index && z.id === id)) zone.id = id;
+		return;
+	}
+	if (field === 'w' || field === 'h') {
+		const n = positive(value);
+		if (n !== undefined) zone[field] = n;
+		return;
+	}
+	const n = Number(value);
+	if (value.trim() !== '' && Number.isFinite(n)) zone[field] = n;
 }

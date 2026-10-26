@@ -54,6 +54,7 @@ export { createGameContext, getGameContext, type GameContext } from './src/game/
 export type { BookEventRegistry, ImplementsEngineBookEvents } from './src/game/bookEvents';
 export { createPlayBook, type PlayBookDeps } from './src/game/playBook';
 export {
+	ARCADE_RULES_MECHANIC,
 	CONTINUOUS_INTENTS,
 	MATCH3_RGS_MECHANIC,
 	MATCH3_RULES_MECHANIC,
@@ -64,6 +65,15 @@ export {
 	type GameMechanic,
 	type MechanicId,
 } from './src/game/mechanic';
+export {
+	ARCADE_SIGNALS,
+	ARCADE_VALUES,
+	createArcadeLoop,
+	type ArcadeLiveSet,
+	type ArcadeLoop,
+	type ArcadeLoopOptions,
+	type ArcadeRules,
+} from './src/game/arcadeLoop';
 export {
 	createMatch3Driver,
 	type Match3Board,

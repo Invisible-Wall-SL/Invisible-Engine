@@ -59,7 +59,19 @@ export type ArcadeBody = (
 	tags?: string[];
 	/** Stops a mover (from tier A2). Absent ⇒ not solid. */
 	solid?: true;
+	/** How it meets the play field's edges (P10.8): held inside, carried round to the far edge, or let
+	 *  out (it then raises `leaveBounds`). Absent ⇒ `clamp`. */
+	edges?: ArcadeBodyEdges;
 };
+
+/** How an arcade body meets the play field's edges (`engine-mechanics` `motion.js`). */
+export const ARCADE_BODY_EDGES = ['clamp', 'wrap', 'pass'] as const;
+
+export type ArcadeBodyEdges = (typeof ARCADE_BODY_EDGES)[number];
+
+/** A static rectangle of the play field (top-left, design px) that raises `enterZone` /
+ *  `leaveZone` as a body crosses into or out of it. */
+export type ArcadeZone = { id: string; x: number; y: number; w: number; h: number };
 
 /** The fixed simulation rate an arcade config names when it names none. */
 export const DEFAULT_ARCADE_FIXED_HZ = 60;
@@ -79,6 +91,11 @@ export type ArcadeBlock = {
 	fixedHz?: number;
 	/** Bodies by component id. */
 	bodies?: Record<string, ArcadeBody>;
+	/** The tag pairs whose touching raises `collide` (`[['player', 'hazard']]`). Bodies whose tags no
+	 *  pair names never test each other. */
+	pairs?: [string, string][];
+	/** The field's zones (P10.8). */
+	zones?: ArcadeZone[];
 };
 
 type FamilyDoc = Pick<GameConfigDoc, 'family' | 'outcome'> | null | undefined;
@@ -101,10 +118,17 @@ export const resolveMatch3 = (
 /** The arcade settings with their defaults applied. */
 export const resolveArcade = (
 	doc: Pick<GameConfigDoc, 'arcade'> | null | undefined,
-): { fixedHz: number; bodies: Record<string, ArcadeBody> } & Pick<ArcadeBlock, 'field'> => ({
+): {
+	fixedHz: number;
+	bodies: Record<string, ArcadeBody>;
+	pairs: [string, string][];
+	zones: ArcadeZone[];
+} & Pick<ArcadeBlock, 'field'> => ({
 	...(doc?.arcade?.field ? { field: doc.arcade.field } : {}),
 	fixedHz: doc?.arcade?.fixedHz ?? DEFAULT_ARCADE_FIXED_HZ,
 	bodies: doc?.arcade?.bodies ?? {},
+	pairs: doc?.arcade?.pairs ?? [],
+	zones: doc?.arcade?.zones ?? [],
 });
 
 /** A stored family, or `undefined` for the default and for anything unreadable. */
@@ -204,7 +228,46 @@ const normalizeArcadeBody = (raw: unknown): ArcadeBody | undefined => {
 	const tags = normalizeTags(raw.tags);
 	if (tags) body.tags = tags;
 	if (raw.solid === true) body.solid = true;
+	if (raw.edges === 'wrap' || raw.edges === 'pass') body.edges = raw.edges;
 	return body;
+};
+
+const tagOf = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+
+/** Distinct, non-empty tag pairs; `['a', 'b']` and `['b', 'a']` are one pair, kept as first typed. */
+const normalizePairs = (raw: unknown): [string, string][] | undefined => {
+	if (!Array.isArray(raw)) return undefined;
+	const pairs: [string, string][] = [];
+	const seen = new Set<string>();
+	for (const entry of raw) {
+		if (!Array.isArray(entry) || entry.length !== 2) continue;
+		const a = tagOf(entry[0]);
+		const b = tagOf(entry[1]);
+		if (!a || !b) continue;
+		const key = [a, b].sort().join('\u0000');
+		if (seen.has(key)) continue;
+		seen.add(key);
+		pairs.push([a, b]);
+	}
+	return pairs.length ? pairs : undefined;
+};
+
+/** Zones with a unique id, a finite corner and a positive size; the first of a repeated id wins. */
+const normalizeZones = (raw: unknown): ArcadeZone[] | undefined => {
+	if (!Array.isArray(raw)) return undefined;
+	const zones: ArcadeZone[] = [];
+	for (const entry of raw) {
+		if (!isObject(entry)) continue;
+		const id = tagOf(entry.id);
+		const x = num(entry.x);
+		const y = num(entry.y);
+		const w = positive(entry.w);
+		const h = positive(entry.h);
+		if (!id || x === undefined || y === undefined || !w || !h) continue;
+		if (zones.some((z) => z.id === id)) continue;
+		zones.push({ id, x, y, w, h });
+	}
+	return zones.length ? zones : undefined;
 };
 
 /** Normalize an authored `arcade` block, or `undefined` when nothing in it departs from the
@@ -227,5 +290,9 @@ export function normalizeArcade(raw: unknown): ArcadeBlock | undefined {
 		}
 		if (Object.keys(bodies).length) block.bodies = bodies;
 	}
+	const pairs = normalizePairs(raw.pairs);
+	if (pairs) block.pairs = pairs;
+	const zones = normalizeZones(raw.zones);
+	if (zones) block.zones = zones;
 	return Object.keys(block).length ? block : undefined;
 }

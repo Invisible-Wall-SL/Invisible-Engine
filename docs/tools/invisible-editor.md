@@ -147,9 +147,11 @@ To start from something:
 
 - **＋ Load scenes…** (the dropdown above the list) offers **New game from
   kind** (a fresh engine-piece scaffold per game kind — `lines`, `ways`,
-  `cluster`, `scatter`, `bookOf`, `holdAndWin`, `match3`, plus any author-created custom kinds;
-  `match3` is the board that never spins, the **Score and moves** HUD and the **Round won** /
-  **Round lost** screens, listed under [Game Maker](game-maker.md)'s **Match-3**) and
+  `cluster`, `scatter`, `bookOf`, `holdAndWin`, `match3`, `arcade`, plus any author-created custom
+  kinds; `match3` is the board that never spins, the **Score and moves** HUD and the **Round won** /
+  **Round lost** screens, listed under [Game Maker](game-maker.md)'s **Match-3**; `arcade` is the
+  **Play field** spawn layer, the **Score and lives** HUD and the **Round over** screen, listed
+  under its **Arcade**) and
   **Import composed reference** (open a reference game already laid out). Pick
   one and click **Load**. Loading a layout whose game type differs from the
   project's is flagged as a cross-type preview and will not autosave — you must
@@ -1206,6 +1208,9 @@ Its Properties block:
   whole and pitch is above 0, the layer places freely.
 - **cap** — the most instances alive at once, 1 to 256; blank means 32. A spawn over the cap is
   dropped.
+
+In an arcade game the game moves the instances: the play field is the layer's space from its
+origin (0, 0 is the top-left corner), and an instance's position is its centre.
 
 How Flow spawns into the layer: [Spawning](./flow.md#spawning--create-and-remove-components-in-play).
 The engine design is in [game families §3.3](../design/game-families.md).

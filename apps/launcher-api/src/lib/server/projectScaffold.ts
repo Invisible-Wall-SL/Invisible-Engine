@@ -20,7 +20,12 @@ import {
 	type HoldAndWinTemplateJackpots,
 } from 'game-config';
 import type { LayoutDoc } from 'engine-layout';
-import { engineOwnedOnly, getFullSceneSet, POTS_SCREEN } from 'engine-layout';
+import {
+	ARCADE_SAMPLE_COMPONENTS,
+	engineOwnedOnly,
+	getFullSceneSet,
+	POTS_SCREEN,
+} from 'engine-layout';
 import { sceneSetOptionsFor } from '$lib/addOns';
 import {
 	gameConfigSeedFor,
@@ -281,6 +286,19 @@ export async function scaffoldProject(
 			await saveGameConfigDoc(client, project, config, null);
 		} catch (e) {
 			if (!(e instanceof ConflictError)) throw e;
+		}
+	}
+	// An arcade project's sample spawns placeholder components (game-families P10.8): its own, so an
+	// author re-skins them in the Component Editor. Create-only, like every other seed.
+	// Loaded only for an arcade project, so scaffolding every other kind keeps its import graph.
+	if (gameType === 'arcade') {
+		const { saveComponent } = await import('./componentStorage');
+		for (const def of ARCADE_SAMPLE_COMPONENTS) {
+			try {
+				await saveComponent(structuredClone(def), project, null);
+			} catch (e) {
+				if (!(e instanceof ConflictError)) throw e;
+			}
 		}
 	}
 	// Its symbols, from the STORED config — the preset just seeded, or what an older project authored

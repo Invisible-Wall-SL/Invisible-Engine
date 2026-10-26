@@ -140,7 +140,9 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
    [status/editor](editor.md) and [status/flow](flow.md). **Phase B's one named mechanic
    interface** landed with the second mechanic (game-families P10.5): `engine-game`
    `mechanicFor(config)` → `GameMechanic`, which every family branch reads
-   ([status/game-families](game-families.md)); the registries (`GameContext`, `BookEventRegistry`)
+   ([status/game-families](game-families.md)); arcade (P10.8) is its third mechanic,
+   `ARCADE_RULES_MECHANIC`, whose `playField` mounts `<ArcadeStage />` in the reel stack's place and
+   whose loop is `engine-game` `arcadeLoop.ts` over `engine-mechanics` `motion.js`; the registries (`GameContext`, `BookEventRegistry`)
    and the per-factory `deps` stay the state-and-events half.
 
    **The gate, and what it cost to build.** The fingerprint is exact only for **type-only** slices

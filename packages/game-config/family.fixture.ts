@@ -187,7 +187,24 @@ const arcade = normalize({
 			player: { shape: 'circle', r: 40, tags: ['player', 'player', ' '], solid: false },
 			wall: { shape: 'box', w: 100, h: 20, solid: true },
 			ghost: { shape: 'box', w: 0, h: 20 },
+			hook: { shape: 'box', w: 10, h: 30, tags: ['hazard'], edges: 'pass' },
+			fish: { shape: 'circle', r: 8, edges: 'clamp' },
+			loop: { shape: 'circle', r: 8, edges: 'bounce' },
 		},
+		pairs: [
+			['player', 'hazard'],
+			['hazard', 'player'],
+			['player', ' '],
+			['player'],
+			[' player ', 'pickup'],
+		],
+		zones: [
+			{ id: 'bank', x: 0, y: 1700, w: 1080, h: 220 },
+			{ id: 'bank', x: 0, y: 0, w: 10, h: 10 },
+			{ id: 'flat', x: 0, y: 0, w: 10, h: 0 },
+			{ id: '', x: 0, y: 0, w: 10, h: 10 },
+			{ id: 'noCorner', w: 10, h: 10 },
+		],
 	},
 });
 check(
@@ -201,8 +218,21 @@ check('arcade: the block, cleaned', arcade.arcade, {
 	bodies: {
 		player: { shape: 'circle', r: 40, tags: ['player'] },
 		wall: { shape: 'box', w: 100, h: 20, solid: true },
+		hook: { shape: 'box', w: 10, h: 30, tags: ['hazard'], edges: 'pass' },
+		fish: { shape: 'circle', r: 8 },
+		loop: { shape: 'circle', r: 8 },
 	},
+	pairs: [
+		['player', 'hazard'],
+		['player', 'pickup'],
+	],
+	zones: [{ id: 'bank', x: 0, y: 1700, w: 1080, h: 220 }],
 });
+check(
+	'arcade: no pairs or zones resolve to empty lists',
+	[resolveArcade({}).pairs, resolveArcade({}).zones],
+	[[], []],
+);
 for (const [name, doc] of [
 	['slot', slot],
 	['match-3 rgs', normalize(MATCH3)],
@@ -297,7 +327,21 @@ check(
 	),
 	[],
 );
-check('arcade (rules) is clean', paths(arcade), []);
+check('arcade (rules) is clean but the pair whose tag no body has', paths(arcade, 'warning'), [
+	'arcade.pairs[1]',
+]);
+check('…and has no error', paths(arcade, 'error'), []);
+check(
+	'arcade: a zone wholly off the field warns',
+	paths(
+		normalize({
+			...ARCADE,
+			arcade: { field: { w: 100, h: 100 }, zones: [{ id: 'z', x: 100, y: 0, w: 10, h: 10 }] },
+		}),
+		'warning',
+	),
+	['arcade.zones[0]'],
+);
 check('arcade decided by the RGS is refused', paths(normalize({ family: 'arcade' }), 'error'), [
 	'outcome',
 ]);

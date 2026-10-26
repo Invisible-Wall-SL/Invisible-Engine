@@ -29,6 +29,8 @@ export * from './src/reference/holdAndWin';
 export * from './src/reference/match3';
 export * from './src/reference/match3Seed';
 export * from './src/reference/match3RgsSeed';
+export * from './src/reference/arcade';
+export * from './src/reference/arcadeSeed';
 export * from './src/reference/soundEnums.generated';
 export * from './src/reference/bookOfChoreo';
 export * from './src/reference/registry';

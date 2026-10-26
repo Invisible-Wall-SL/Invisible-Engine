@@ -13,7 +13,8 @@
  *    goes (the interpreter copies a `$live` read as well, so an env handing back its own array is
  *    safe too);
  *  - a handle is a frozen snapshot `{ id, layer, componentId, x, y, col?, row? }`; its `id` is unique for
- *    the session and never reused, so a despawned handle stays dead.
+ *    the session and never reused, so a despawned handle stays dead. An arcade game's motion
+ *    (`move`) replaces it with one at the instance's new place, so a read is where it is now.
  */
 
 import { effectiveSpawnCap } from 'constants-shared/spawn';
@@ -63,6 +64,8 @@ export interface SpawnStore {
 	declare(spec: SpawnLayerSpec): void;
 	/** The declared layer, if any. */
 	layer(id: string): SpawnLayerSpec | undefined;
+	/** Every declared layer's id, in declaration order. */
+	layers(): string[];
 	spawn(layer: string, componentId: string, at: SpawnAt): SpawnResult;
 	/** Remove a live instance (by handle or id); returns it, or `undefined` when it was not live. */
 	despawn(instance: SpawnedInstance | string): SpawnedInstance | undefined;
@@ -74,6 +77,15 @@ export interface SpawnStore {
 	subscribe(layer: string, listener: (live: SpawnedInstance[]) => void): () => void;
 	/** Despawn everything (a new session). Declarations stay. */
 	clear(): void;
+	/**
+	 * Move live instances (an arcade game's motion, P10.8): each named handle is replaced by one at
+	 * its new place, so `get` and `live` read where it is now. The layer's set is unchanged, so its
+	 * {@link subscribe} listeners are not told; its {@link subscribePlaces} listeners are, once per
+	 * layer, with the moved handles. An id not live is skipped.
+	 */
+	move(moves: readonly { id: string; x: number; y: number }[]): void;
+	/** Run `listener` with the layer's moved handles after each {@link move} that moves any. */
+	subscribePlaces(layer: string, listener: (moved: SpawnedInstance[]) => void): () => void;
 }
 
 export interface SpawnStoreOptions {
@@ -96,6 +108,7 @@ export function createSpawnStore(options: SpawnStoreOptions = {}): SpawnStore {
 	const sets = new Map<string, SpawnedInstance[]>();
 	const byId = new Map<string, SpawnedInstance>();
 	const listeners = new Map<string, Set<(live: SpawnedInstance[]) => void>>();
+	const placeListeners = new Map<string, Set<(moved: SpawnedInstance[]) => void>>();
 	let serial = 0;
 
 	const notify = (layer: string): void => {
@@ -114,6 +127,7 @@ export function createSpawnStore(options: SpawnStoreOptions = {}): SpawnStore {
 			specs.set(spec.id, { ...spec, cap: effectiveSpawnCap(spec.cap) });
 		},
 		layer: (id) => specs.get(id),
+		layers: () => [...specs.keys()],
 		spawn(layer, componentId, at) {
 			const spec = specs.get(layer);
 			if (!spec) return refuse(layer, componentId, 'unknown-layer');
@@ -183,6 +197,34 @@ export function createSpawnStore(options: SpawnStoreOptions = {}): SpawnStore {
 			sets.clear();
 			byId.clear();
 			for (const layer of layers) notify(layer);
+		},
+		move(moves) {
+			const moved = new Map<string, SpawnedInstance[]>();
+			for (const { id, x, y } of moves) {
+				const found = byId.get(id);
+				if (!found || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+				if (found.x === x && found.y === y) continue;
+				const next: SpawnedInstance = Object.freeze({ ...found, x, y });
+				byId.set(id, next);
+				const set = sets.get(found.layer) ?? [];
+				const at = set.findIndex((i) => i.id === id);
+				if (at >= 0) set[at] = next;
+				const list = moved.get(found.layer);
+				if (list) list.push(next);
+				else moved.set(found.layer, [next]);
+			}
+			for (const [layer, list] of moved) {
+				for (const listener of [...(placeListeners.get(layer) ?? [])]) listener(list);
+			}
+		},
+		subscribePlaces(layer, listener) {
+			let set = placeListeners.get(layer);
+			if (!set) placeListeners.set(layer, (set = new Set()));
+			set.add(listener);
+			return () => {
+				set.delete(listener);
+				if (set.size === 0) placeListeners.delete(layer);
+			};
 		},
 	};
 }

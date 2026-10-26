@@ -225,9 +225,10 @@ async function runPublishGates(
 
 	const config =
 		options.config === undefined ? await loadGameConfigDoc(clientKey, projectKey) : options.config;
-	// 1c. THE FAMILY GATE. A config the runtime cannot play yet (`mechanicFor().unplayable`: arcade
-	// until P10.8). No override: there is nothing a player could be shown. A playable non-slot game
-	// publishes to our test server only; a rules one is dealt the refusing `freePlay` mock.
+	// 1c. THE FAMILY GATE. A config the runtime cannot play yet (`mechanicFor().unplayable`: an
+	// RGS-decided arcade game, until P10.10). No override: there is nothing a player could be
+	// shown. A playable non-slot game publishes to our test server only; a rules one is dealt the
+	// refusing `freePlay` mock.
 	const unplayable = unplayableFamilyMessage(config);
 	if (unplayable) return { refusal: new PublishBlockedError(unplayable, 'unplayable-family') };
 

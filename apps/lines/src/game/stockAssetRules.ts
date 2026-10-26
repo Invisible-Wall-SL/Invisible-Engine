@@ -361,6 +361,11 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 		names: ['progressBar.png', 'progressBarBackground.png', 'progressBarFrame.png'],
 	},
 	{
+		file: 'packages/engine-flow-v2/src/reference/arcade.ts',
+		rule: 'notAsset',
+		names: ['transition'],
+	},
+	{
 		file: 'packages/engine-flow-v2/src/reference/bookOfChoreo.ts',
 		rule: 'notAsset',
 		names: ['transition'],

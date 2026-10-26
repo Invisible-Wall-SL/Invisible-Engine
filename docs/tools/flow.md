@@ -30,7 +30,7 @@ signals that components — and rigs placed on a screen — listen for), waits w
   time** — an incompatible wire simply won't drop.
 - **It validates against a template vocabulary.** The flow is written against the game
   template's declared **events / actions / cues / collections** — `book-of`, `ways`,
-  `cluster`, `scatter`, `holdAndWin` and `match3` are registered. The palette offers exactly those names, and a live
+  `cluster`, `scatter`, `holdAndWin`, `match3` and `arcade` are registered. The palette offers exactly those names, and a live
   **Validation** panel flags anything unresolved or mis-wired.
 - **Deterministic preview.** Pick one of your event nodes and run its handler headlessly
   against a fixed sample; the panel lists the resulting ordered timeline (each effect /
@@ -555,6 +555,11 @@ function body. The engine design is in [game families §3.3](../design/game-fami
 to read every instance alive in it right now. Feed it to a **forEach** to visit each one; `$item`
 is its handle (with `id`, `x`, `y`, `col`, `row`, …). Despawning inside that loop is safe.
 
+**In an arcade game spawned instances move.** Each one is a body the game's arcade loop moves at a
+fixed step: the shape and tags Game Config gives its component, or a point that touches nothing.
+Its `x` / `y` is its centre, and `$live` (and a handle read later) gives where it is now. See
+[Arcade](#arcade--the-play-field-signals-and-the-starter-flow).
+
 ### Free-spin intro and outro — the flow holds the round
 
 The engine no longer draws a free-spin intro or outro of its own, and it no longer waits for the
@@ -977,6 +982,56 @@ and moves** screen's readouts show (`var:score`, `var:movesLeft`, `var:target`):
   `boardRefill` for a fresh board.
 - `noMoves` calls `boardShuffle`.
 
+### Arcade — the play-field signals and the starter flow
+
+An **arcade** project (a Game Maker **Arcade** game) has its own palette. Like match-3 it keeps the
+standard palette's presentation surfaces and the `load` / `tapToStart` / settings events, and drops
+every reel, spin, bet and payline one: there is no board and no wallet. Its play field is the
+spawned instances in a [Spawn layer](#spawning--create-and-remove-components-in-play), moved by the
+game at a fixed step. Their shapes, tags, edges, the collision pairs and the zones are set in
+[Game Config → Arcade](game-config.md#game-family-match-3-and-arcade). Timers, **On input** and
+spawning work as in any flow.
+
+**Play-field signals** (each raised on the step it happens):
+
+| Signal | Payload | When it fires |
+|---|---|---|
+| `collide` | `a`, `b`, `tagA`, `tagB` | Two bodies started touching and a collision pair names their tags. `a` carries the pair's first tag, `b` its second. Once per touch, not while they stay touching. |
+| `enterZone` | `instance`, `zone` | A body moved into a zone (`zone` is its id). |
+| `leaveZone` | `instance`, `zone` | A body moved out of a zone it was in. |
+| `leaveBounds` | `instance`, `edge` | A body whose Edges are `pass` was on the field and is now wholly off it, by `edge` (`left`, `right`, `top`, `bottom`). One spawned off the field to come in has not left it. It stays alive until you Despawn it. |
+
+**Actions** — each aims at the instance fed to **instance**, or, with **instance** unwired, at
+every body carrying the tag in **tagged** (`player`):
+
+- `setVelocity` (`vx`, `vy`) — its speed in px per second; an unwired one keeps its value.
+- `moveTo` (`x`, `y`) — puts it at a place on the field; an unwired one keeps its value.
+- `setTag` (`tag`, `on`) — gives it the tag, or takes it away with **on** off.
+
+**`$engine` values:** `random` (a seeded number from 0 up to 1, new on every read, so a run
+replays), `randomX` (a seeded x on the field, from 0 up to its width), `fieldWidth` and
+`fieldHeight` (the play field in px).
+
+**The starter flow.** A new arcade project opens on a flow that plays the _Salmon Run_ sample, with
+three Global variables of scope **game** — `score`, `lives` and `playing` — and a key map of
+`left` (`ArrowLeft, a`) and `right` (`ArrowRight, d`). The **Score and lives** screen shows
+`var:score` and `var:lives`.
+
+- `load` shows the **Loading / logo** screen; its completion, or `tapToStart` (which also starts
+  the music), hides it, shows the **Play field** and **Score and lives**, and starts a round.
+- A round sets the score to 0 and the lives to 3, spawns the salmon at the middle of the field's
+  bottom (from `fieldWidth` / `fieldHeight`) and starts three repeating timers. Each spawns a
+  bear, a hook or a fish at `$engine.randomX` just above the field and sets it falling. Both
+  `tapToStart` and the loading screen's completion ask for a round through one timer
+  (`startRound`), so a tap starts one.
+- Holding `left` or `right` sets the salmon's speed (`setVelocity` on `tagged` = `player`);
+  letting go stops it.
+- `collide` with `tagB` = `hazard` despawns the hazard and takes a life (never below 0); with
+  `pickup` it despawns the fish and adds 10 to the score.
+- `leaveBounds` despawns whatever fell off the field.
+- When `lives` crosses 0 (an **On variable** node), the timers stop, the **Round over** screen waits for the player's tap, a **forEach**
+  over `$live` despawns everything left on the field, and a new round starts.
+
 ### Pots overlay and Hold and Win on any kind — add-ons
 
 A project of any kind (a Book-of game, say) can carry a **Pots overlay** block and/or a **Hold and
@@ -1281,7 +1336,7 @@ The two cue traps (splice in series; fire after the screen shows) are in
 - **Containers and the template are data-only.** The set of containers (scene id + z) and
   the flow's `templateId` are part of the FlowDoc but are not yet editable in the UI — the
   palette shows/hides whatever containers the document already declares. `book-of`, `ways`,
-  `cluster`, `scatter`, `holdAndWin` and `match3` vocabularies are registered, and each ships its own
+  `cluster`, `scatter`, `holdAndWin`, `match3` and `arcade` vocabularies are registered, and each ships its own
   starter flow (a `lines` project starts on the `book-of` one); an unknown template id falls back
   to `book-of`. A cluster, scatter or Hold and Win project created before 2026-10-01 keeps the
   `book-of` flow it was scaffolded with, because nothing in the editor changes a flow's template.

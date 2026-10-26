@@ -124,6 +124,8 @@
 		"check:flow-spawn": "tsx --tsconfig tsconfig.scripts.json scripts/check-flow-spawn.ts",
 		"precheck:flow-time-events": "node scripts/ensure-svelte-kit.mjs",
 		"check:flow-time-events": "tsx --tsconfig tsconfig.scripts.json scripts/check-flow-time-events.ts",
+		"precheck:arcade-rules": "node scripts/ensure-svelte-kit.mjs",
+		"check:arcade-rules": "tsx --tsconfig tsconfig.scripts.json scripts/check-arcade-rules.ts",
 		"precheck:match3-rules": "node scripts/ensure-svelte-kit.mjs",
 		"check:match3-rules": "tsx --tsconfig tsconfig.scripts.json scripts/check-match3-rules.ts",
 		"precheck:match3-outcome-guard": "node scripts/ensure-svelte-kit.mjs",

@@ -232,7 +232,12 @@ for (const kind of KINDS) {
 			symbolsOf(pickerVocab(kind, { doc: shown, etag: '"saved"' })),
 		);
 		const pins = symbolTyped(vocab);
-		check(`${at} · the vocabulary has symbol-typed pins`, pins.length > 0, true);
+		// An arcade game has symbols on no surface: its family is not offered /symbols.
+		check(
+			`${at} · the vocabulary has symbol-typed pins (none for an arcade game)`,
+			pins.length > 0,
+			familyOfKind(kind) !== 'arcade',
+		);
 		check(
 			`${at} · every symbol-typed pin resolves to the options`,
 			pins.filter(({ type }) => {
