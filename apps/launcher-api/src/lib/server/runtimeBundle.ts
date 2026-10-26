@@ -48,7 +48,7 @@ import {
 	keyComponentDefaultsById,
 	listComponentDefaults,
 } from './componentDefaultsStorage';
-import { loadComponent } from './componentStorage';
+import { loadComponentForGame } from './componentStorage';
 import { exportBootSplashes } from './bootSplashExport';
 import { exportEditorArt, type EditorArtIndex } from './editorArtExport';
 import { repairComponentDefsAtlasRefs } from './atlasRefRepair';
@@ -224,8 +224,8 @@ async function resolveReferencedDefs(
 ): Promise<{ defs: Record<string, ComponentDef>; versions: ComponentDef[] }> {
 	return resolveComponentClosureWithPins(
 		doc.scenes.flatMap((scene) => scene.nodes),
-		(id) => loadComponent(id, projectKey),
-		(id, version) => loadComponent(id, projectKey, version),
+		(id) => loadComponentForGame(id, projectKey),
+		(id, version) => loadComponentForGame(id, projectKey, version),
 		{
 			extraSeedIds: characterIds.length ? [...cardIds, ...characterIds] : cardIds,
 			defaultsFor: (id) => componentDefaultsFor(storedDefaults, id),

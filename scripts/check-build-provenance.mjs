@@ -133,6 +133,14 @@ const GATES = [
 		},
 	},
 	{
+		gate: 'flow-wrong-kind',
+		path: '/api/editor/export-flow',
+		body: {
+			error: 'This project\'s kind is "arcade" but its flow is a "bookOf" flow.',
+			reason: 'flow-wrong-kind',
+		},
+	},
+	{
 		gate: 'paytable-drift',
 		path: '/api/game-config/doc',
 		flag: '--allow-paytable-drift',

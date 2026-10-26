@@ -38,6 +38,7 @@
 		POT_PIECE_LIGHT_PARAM,
 		lightOrderThresholds,
 		mergeBuiltinCodedParams,
+		normalizeEditorGuides,
 		potPieces,
 	} from 'engine-layout';
 	import type {
@@ -49,6 +50,7 @@
 		ComponentInstanceNode,
 		ComponentParam,
 		ContainerNode,
+		EditorGuides,
 		LayoutNode,
 		LayoutType,
 		Scene,
@@ -624,6 +626,17 @@
 		lightPieces.forEach(({ node }, i) => {
 			writeInstanceParam(draft, node, POT_PIECE_LIGHT_PARAM, thresholds[i]);
 		});
+		editNonce += 1;
+	}
+
+	/** The open component's ruler guides for this device layout changed (editor-only). A skinnable
+	 * part's stage is the part's, not the component's, so it offers none. */
+	function setComponentGuides(next: EditorGuides): void {
+		const draft = componentDraft;
+		if (!draft) return;
+		const guides = normalizeEditorGuides({ ...draft.guides, [currentLayoutType]: next });
+		if (guides) draft.guides = guides;
+		else delete draft.guides;
 		editNonce += 1;
 	}
 
@@ -3186,6 +3199,8 @@
 						projectGameName={null}
 						componentParams={resolvedParams}
 						componentNest={componentEditorNest(trail, componentDraft)}
+						guides={insidePart ? undefined : componentDraft.guides?.[currentLayoutType]}
+						onGuidesChange={animating || insidePart ? undefined : setComponentGuides}
 						redrawNonce={editNonce}
 						onRigMeta={(meta) => (rigMeta = meta)}
 						onEditInstance={animating ? undefined : (node) => void enterInstance(node)}

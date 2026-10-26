@@ -14,6 +14,9 @@
  *  - `$engine.random` and `randomX` (seeded, so a run replays) and the field's size;
  *  - characters (P10.11, §4.3): `characterState` on each brain transition, and the actions
  *    `setCharacterState` (override a brain) and `setCharacterControl` (player or brain).
+ *  - the world camera's (P10.12, on a screen with a world or a camera): `enterView` / `leaveView`,
+ *    `cameraFollow`, `cameraMoveTo`, `cameraShake`, `cameraSetAutoScroll`, and `cameraX` /
+ *    `cameraY` / `viewWidth` / `viewHeight`, so Flow can spawn ahead of the view.
  *
  * Time and input (`onTick`, `onTimer`, `onInput`, the timers) and spawning (`spawn`, `despawn`, `$live`)
  * are Flow node kinds every vocabulary has (P10.3, P10.7), so they are not declared here.
@@ -83,6 +86,20 @@ const LOOP_EVENTS: EventDecl[] = [
 		category: 'book',
 		description:
 			'A body whose Edges are `pass` was on the play field and is now wholly off it (one spawned off the field to come in has not left it). Usually Despawn it here (it is still alive until you do).',
+	},
+	{
+		name: 'enterView',
+		payload: [{ name: 'instance', type: INSTANCE, description: 'The body that came into view.' }],
+		category: 'book',
+		description:
+			"A body's box started to meet the camera's view (on a screen with a world or a camera). Fires once per entry; a body spawned in view fires on its first step.",
+	},
+	{
+		name: 'leaveView',
+		payload: [{ name: 'instance', type: INSTANCE, description: 'The body that left the view.' }],
+		category: 'book',
+		description:
+			"A body's box stopped meeting the camera's view. It is still alive: Despawn it here, or let its spawn layer's Despawn outside view do it.",
 	},
 	{
 		name: 'characterState',
@@ -167,6 +184,72 @@ const LOOP_ACTIONS: ActionDecl[] = [
 		],
 		category: 'command',
 	},
+	{
+		name: 'cameraFollow',
+		params: [
+			{
+				name: 'instance',
+				type: INSTANCE,
+				optional: true,
+				description:
+					'The body to follow. Leave it unwired to follow the first body tagged `tagged`.',
+			},
+			{
+				name: 'tagged',
+				type: STRING,
+				optional: true,
+				description:
+					'Without an instance: follow the first body carrying this tag. Neither stops following.',
+			},
+			{
+				name: 'snap',
+				type: BOOL,
+				optional: true,
+				description: 'Land on it at once. Default false (eased).',
+			},
+		],
+		category: 'command',
+	},
+	{
+		name: 'cameraMoveTo',
+		params: [
+			{ name: 'x', type: FLOAT, description: 'The world point to centre the view on, px.' },
+			{ name: 'y', type: FLOAT, description: 'World px.' },
+			{
+				name: 'snap',
+				type: BOOL,
+				optional: true,
+				description: 'Land there at once. Default false (eased).',
+			},
+		],
+		category: 'command',
+	},
+	{
+		name: 'cameraShake',
+		params: [
+			{ name: 'strength', type: FLOAT, description: 'The largest offset, px; it fades to rest.' },
+			{ name: 'duration', type: FLOAT, description: 'How long it lasts, ms.' },
+		],
+		category: 'command',
+	},
+	{
+		name: 'cameraSetAutoScroll',
+		params: [
+			{
+				name: 'x',
+				type: FLOAT,
+				optional: true,
+				description: 'px per second; unwired keeps it. 0 stops it.',
+			},
+			{
+				name: 'y',
+				type: FLOAT,
+				optional: true,
+				description: 'px per second (negative scrolls up).',
+			},
+		],
+		category: 'command',
+	},
 ];
 
 /** Every action the arcade loop backs (`createArcadeLoop`'s effects). */
@@ -211,6 +294,10 @@ export const ARCADE_LOOP_VALUES: readonly string[] = [
 	'randomX',
 	'fieldWidth',
 	'fieldHeight',
+	'cameraX',
+	'cameraY',
+	'viewWidth',
+	'viewHeight',
 ];
 
 const standard = standardVocabulary({ templateId: ARCADE_TEMPLATE_ID });
@@ -241,5 +328,14 @@ export const ARCADE_VOCAB: TemplateVocabulary = {
 		},
 		{ name: 'fieldWidth', type: FLOAT, description: "The play field's width, px." },
 		{ name: 'fieldHeight', type: FLOAT, description: "The play field's height, px." },
+		{
+			name: 'cameraX',
+			type: FLOAT,
+			description:
+				"The camera view's left edge in the world, px (a screen with a world or a camera).",
+		},
+		{ name: 'cameraY', type: FLOAT, description: "The camera view's top edge in the world, px." },
+		{ name: 'viewWidth', type: FLOAT, description: "The camera view's width, px." },
+		{ name: 'viewHeight', type: FLOAT, description: "The camera view's height, px." },
 	],
 };

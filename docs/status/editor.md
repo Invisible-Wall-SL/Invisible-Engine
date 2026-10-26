@@ -176,7 +176,18 @@ Shipped capabilities on `main`:
   Drawn dashed with point handles (drag, click a segment to insert, Alt+click to delete); draws
   nothing in the game; `scenePaths(scene)` hands a screen's paths to the arcade loop. Offered on
   every project's screens, as the spawn layer is (only an arcade game reads one).
-- 2026-10-26 — **9-slice sprites** (P10.9a, branch `claude/p10-9a-nine-slice`, in review;
+- 2026-10-26 — **Rulers and guides** (P10.9b, branch `claude/p10-9b-rulers-guides`, in review;
+  [game-families](game-families.md) §5.2). **📏 Rulers** on the canvas's top and left edges (world
+  pixels at the zoom and pan); drag off a ruler for a guide, drag it to move, drop it on a ruler to
+  remove; **⌗ Snap to guides** adds them to the move snap's candidates. Rulers are off until turned on;
+  both toggles are per browser. A guides-only save doesn't bump a component's version.
+  Guides are saved with the screen (`Scene.guides`) or the component (`ComponentDef.guides`), per
+  device layout (`engine-layout` `editorGuides.ts`): a screen's undo and autosave cover them, and on the
+  Components side they mark the component unsaved. Editor-only: `loadDoc`
+  strips them from every screen and the shipped component closure reads through
+  `loadComponentForGame`, so no game is handed them. Gate: `editorGuides.fixture.ts`. ⏳ Not
+  browser-verified live.
+- 2026-10-26 — **9-slice sprites** (P10.9a, merged #1365;
   [game-families](game-families.md) §5.2 "N-slice"). A sprite node's **9-slice** (Off / Stretch /
   Tile) draws its region with the corners at art size and the edges and centre stretched or tiled
   to `width × height`; scale is folded into the size, so corners never scale with the node, and a

@@ -131,10 +131,11 @@ and `lib/republish.mjs` (the TypeScript half, run under the TS loader).
 ## Screen scripts
 
 `scripts/current-games/screens/<gameType>.json` holds one file per game type: `lines`, `ways`,
-`cluster`, `scatter`, `bookOf`, `holdAndWin` and `match3`. A custom kind uses its mock protocol's
-script, which is `lines`. The screens per file: `lines` 17; `bookOf` 15, 17 with the pots overlay;
-`ways`, `cluster` and `scatter` 14; `match3` 5 (scripted swipes, no forced books: a rules-decided
-game has none; [match3-sample.md](match3-sample.md)); `holdAndWin` 11–14 (the pots and multiplier scenarios run only where
+`cluster`, `scatter`, `bookOf`, `holdAndWin`, `match3` and `arcade`. A custom kind uses its mock
+protocol's script, which is `lines`. The screens per file: `lines` 17; `bookOf` 15, 17 with the pots
+overlay; `ways`, `cluster` and `scatter` 14; `match3` 5 (scripted swipes, no forced books: a
+rules-decided game has none; [match3-sample.md](match3-sample.md)); `arcade` 6 (held arrow keys and
+the starter flow's `roundOver` screen; [arcade-sample.md](arcade-sample.md)); `holdAndWin` 11–14 (the pots and multiplier scenarios run only where
 the game has them). A scenario is data: the mock env it starts with (`SEED`, `FORCE_TRIGGER`,
 `WIN_X`), optional extra page-URL `query` params (added only for a stand-in game, one the fixtures
 write with `standIn: true`, never for a live game; the harness's own params always win), and a
@@ -147,6 +148,7 @@ list of steps. The ops are listed at the top of
 | `until` | The same, checked by the harness, with `winAbove`, `winLevelIn`, `cue` and `anyOf` as well. `cue` waits for a Flow v2 cue the probe records after the op starts and anchors on the frame the cue fired on. |
 | `step` | Runs N frames. With `from: 'cue'`, runs to the last `cue` anchor + N, and fails if that frame has already passed. |
 | `space` | Taps Space for two frames. |
+| `hold` | Holds a key (`ArrowLeft`, `ArrowRight`) down for N frames, then lets go: an arcade game steers while it is down. |
 | `tapToStart` | Taps Space only while a tap-to-start screen covers the board. |
 | `force` | Holds a forced beat for the next round. `{path}` is filled from the game's own contract, for example `pot:{grid.potsOverlay.pots.0.id}`. |
 | `settle` | Steps until idle, tapping past any hold. |
@@ -292,6 +294,15 @@ Rows that are visible but never count as a pass:
   blamed. Anything else fails as before: a branch that boots a snapshot main refuses, a branch
   crash in any scenario (refusing or not), a different refusal, a missing render.
   `assemble.fixture.mjs` (run by `check:all`) holds these rules.
+- `not rendered (main's runtime cannot play the game either)`: a **free-play** game (mock
+  contract `freePlay`, a rules-decided match-3 or arcade game) that main's runtime stalls in at the
+  same step, in the same state, in every scenario, and the branch with no more errors or stalls and
+  no changed screen. When only some scenarios stall that way, the row compares the rest and names
+  the stalled ones in a note. Players cannot get past that step today either. The usual cause is a
+  flow that is not the game's kind: Game Maker's seeds are create-only, so a project re-scaffolded
+  after a kind switch keeps its old `editor/flow-v2.json` (a match-3 board whose input the flow never
+  opens stalls at its first `swap`). Republish it from a fresh scaffold. A slot is never free play:
+  a stall main shares still fails it, as below. `assemble.fixture.mjs` holds this rule too.
 
 A game whose **main** render fails (a scenario main cannot finish, or main's page reports errors or
 stalls) is an `error` row that names main's failure. The branch is not blamed for it, but the

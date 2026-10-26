@@ -66,9 +66,12 @@ export {
 	type MechanicId,
 } from './src/game/mechanic';
 export {
+	ARCADE_CULL_MARGIN,
 	ARCADE_SIGNALS,
 	ARCADE_VALUES,
 	createArcadeLoop,
+	type ArcadeCameraOptions,
+	type ArcadeCameraState,
 	type ArcadeLiveSet,
 	type ArcadeLoop,
 	type ArcadeLoopOptions,

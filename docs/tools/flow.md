@@ -68,7 +68,9 @@ function body they give way to a breadcrumb, **&lt;tab&gt; ↳ &lt;function&gt;*
 groups](#comment-boxes-and-inline-groups)). These three work on the Global tab only. On the
 right are **↶ Undo**, **↷ Redo** and **History…** (see [Undo, redo and version
 history](#undo-redo-and-version-history)), the **save pill**, a live **node / exec / data**
-count, and a validation pill (**✓ valid** or **⚠ N issues**).
+count, and a validation pill (**✓ valid** or **⚠ N issues**). An amber **⚠ Flow is for another
+kind** joins them when the flow was built for another family of game than the project's kind (see
+[Validation](#validation)).
 
 The save pill reports the auto-save state — **Saving…**, **Unsaved changes**, **Saved**, or
 **Save failed — retry** (click to retry). If someone else saved the flow while you were
@@ -1165,6 +1167,16 @@ check uses the project's saved screens and the shared function library the game 
 fix what the panel shows and save. Each Publish freezes the flow into the published version players
 boot, so a later save reaches players only on the next Publish — Game Maker's **Live ↗** plays your
 current saved flow before then (see [Publish and deliver](../guides/publish-and-deliver.md)).
+
+**A flow left from a kind change blocks Publish, with no override.** Changing a project's kind in
+`/admin` does not rewrite its flow. A flow built for another family of game (a Book-of flow in an
+arcade project, an arcade flow in a slot project) still validates clean, because validation reads
+the flow's own vocabulary, but the game cannot play it. The sub-bar shows **⚠ Flow is for another
+kind** (hover for the reason), and Publish and the desktop bake refuse it. Re-scaffold the project
+in `/admin` to replace it with the kind's starter flow (the old one stays in **History…**), or
+change the kind back. A slot flow in another slot kind is fine: a `lines` project runs the Book-of
+flow, and a cluster, scatter or Hold and Win project made before its kind had its own starter keeps
+the Book-of one.
 
 Two of them read your **screens**, not just the graph. A Show Container with **Hold until this
 screen completes (tap)** ticked holds the round until that screen completes, and there is no

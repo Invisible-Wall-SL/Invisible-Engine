@@ -74,3 +74,4 @@ export { getComponentNestState } from './componentInstanceContext';
 // an authored twin while it is mounted.
 export { isComponentMounted, sceneMountKey, trackComponentMount } from './mountedComponents';
 export { registerSpawnLayerSpace, spawnLayerPoint, spawnStore } from './spawnLayers';
+export { isCulled, setCulled, setWorldCameraView, worldCameraView } from './worldCameraView.svelte';

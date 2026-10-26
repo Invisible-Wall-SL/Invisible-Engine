@@ -13,6 +13,7 @@
 	import EditorRepeaterCount from './EditorRepeaterCount.svelte';
 	import EditorSpawnLayer from './EditorSpawnLayer.svelte';
 	import EditorPathNode from './EditorPathNode.svelte';
+	import EditorParallax from './EditorParallax.svelte';
 	import EditorEvents from './EditorEvents.svelte';
 	import EditorListeners from './EditorListeners.svelte';
 	import {
@@ -140,6 +141,10 @@
 		 * `canvas` scenes surface the per-node `screenAnchor` control (it's the window-edge
 		 * anchor the runtime honours for canvas space; ignored elsewhere). */
 		sceneSpace?: Scene['space'];
+		/** The active screen draws through a world camera (`hasWorldCamera`, game-families P10.12). */
+		worldCamera?: boolean;
+		/** The node is a top-level item of such a screen — the only place its `parallax` is read. */
+		parallaxLayer?: boolean;
 		/** Template-authoring mode (§7.5): reveal the per-node slot tagging UI. */
 		templateMode?: boolean;
 		/** Slot metadata not stored on the node (keyed by `slotId`). */
@@ -348,6 +353,8 @@
 		layoutTypeIds = ['desktop', 'tablet', 'landscape', 'portrait'],
 		onDirty,
 		sceneSpace,
+		worldCamera = false,
+		parallaxLayer = false,
 		templateMode = false,
 		slotMeta = {},
 		onSlotRequiredChange,
@@ -3984,6 +3991,9 @@
 				</button>
 			</div>
 		{/if}
+		{#if parallaxLayer}
+			<EditorParallax {node} onChange={markDirty} />
+		{/if}
 	</section>
 
 	{#if canCoverFit}
@@ -6037,7 +6047,7 @@
 	{:else if node.kind === 'path'}
 		<EditorPathNode {node} onChange={markDirty} />
 	{:else if node.kind === 'spawnLayer'}
-		<EditorSpawnLayer {node} {componentDefs} onChange={markDirty} />
+		<EditorSpawnLayer {node} {componentDefs} {worldCamera} onChange={markDirty} />
 	{:else if node.kind === 'repeater' && isCountRepeater(node)}
 		<EditorRepeaterCount
 			{node}

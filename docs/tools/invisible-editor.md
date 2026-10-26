@@ -143,6 +143,39 @@ game-space screens (they share the board's coordinate space), and it does nothin
 until reel-anticipation is authored on and firing, so a ticked screen still
 renders unchanged the rest of the time.
 
+### World and camera (arcade play field)
+
+A game-space screen's Properties carries a **World and camera** tick, for an arcade play field
+bigger than the screen. Tick it and the screen gets a world twice the active layout's game box in
+each direction (the note under the tick shows the size before you tick). The fields that appear:
+
+- **world width** / **world height** — the world in px, from the screen's top-left corner.
+- **follow tag** — the tag of the body the camera follows (the first body carrying it, usually
+  `player`). Empty: the camera stays where Flow puts it.
+- **dead zone w** / **dead zone h** — a box centred on the view the followed body moves in without
+  moving the camera, px.
+- **smoothing s** — seconds the camera takes to close most of the way to its aim; 0 snaps.
+- **look-ahead s** — seconds of the followed body's speed the camera leads it by.
+- **auto-scroll x** / **auto-scroll y** — the camera scrolls on its own, px per second (a runner, a
+  shooter). An axis that scrolls does not follow.
+- **Clamp to world** — on by default: the view never shows past the world's edges.
+
+Only what differs from a default is saved, so a screen left at the defaults saves just its world.
+Unticking removes the world and the camera; so does switching the screen to another space.
+
+On the stage, the world is a dashed orange box labelled `world W × H`, and the camera's first frame
+is a dotted blue box labelled `camera (start)`: the game box at the world's top-left, where the camera
+starts. Both are guides only. The editor does not run the game, so the camera does not move here.
+Place the level's art across the whole world.
+
+**Parallax.** On such a screen, each top-level item's Properties (under its transform) shows
+**parallax x** / **parallax y**: how far the item moves with the camera. 1 (the default) moves with
+the world, 0 stays fixed to the screen, 0.5 moves half as fast (a far backdrop). Items inside a
+container follow their container. The stage draws every item where the camera starts, where all
+factors agree, so parallax does not change the stage.
+
+The engine design is in [game families §4.4](../design/game-families.md).
+
 To start from something:
 
 - **＋ Load scenes…** (the dropdown above the list) offers **New game from
@@ -639,6 +672,27 @@ HUD screens over game screens, and a screen lower in its list over the ones abov
 still adds to the selection on the active screen only. When a big item on another screen
 covers the one you want, pick it in the outline or hide that screen with its eye. The toggle is
 off in Animate and on the Components side, and is kept per project.
+
+#### Rulers and guides
+
+**📏 Rulers** (canvas toolbar) shows rulers on the canvas's top and left edges, labelled in
+world (window-frame) pixels at the current zoom and pan. While the rulers are on:
+
+- **Add a guide.** Drag down from the top ruler for a horizontal guide, or right from the left
+  ruler for a vertical one. Each guide shows a marker on its ruler.
+- **Move a guide.** Drag it on the canvas (the cursor changes over it). Shift-click passes
+  through to the object underneath.
+- **Remove a guide.** Drop it back on a ruler. It turns red when releasing will remove it.
+- **⌗ Snap to guides** makes a moved object's edges and centre snap to the guides, on top of the
+  usual snapping to the frame and other objects. Turn it off to keep the guides only as lines.
+
+**📏 Rulers** is off until you turn it on, **⌗ Snap to guides** is on; both are remembered per
+browser. Esc cancels a guide drag. Guides are saved with the screen (on
+the Components side, with the component) and kept per device layout, so each layout tab has its
+own. Adding, moving or removing a guide is an edit: on a screen undo covers it and it autosaves; on
+the Components side it marks the component unsaved, like any other change there. Guides can't
+be edited in Animate, or on a skinnable part's stage inside a component. They are editor-only and
+never reach the game.
 
 Other editing affordances:
 
@@ -1233,6 +1287,11 @@ Its Properties block:
   whole and pitch is above 0, the layer places freely.
 - **cap** — the most instances alive at once, 1 to 256; blank means 32. A spawn over the cap is
   dropped.
+- **Despawn outside view** and **margin px** — on a screen with a
+  [world and camera](#world-and-camera-arcade-play-field), remove an instance once it has been in
+  view and is then more than the margin beyond it, so a long level keeps only what is near the
+  camera. Off: an instance lives until Flow despawns it. On a screen without a camera the setting
+  saves but does nothing, and the note under it says so.
 
 In an arcade game the game moves the instances: the play field is the layer's space from its
 origin (0, 0 is the top-left corner), and an instance's position is its centre.

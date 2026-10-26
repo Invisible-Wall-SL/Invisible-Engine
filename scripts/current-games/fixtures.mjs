@@ -26,6 +26,8 @@ import { parseArgs } from 'node:util';
 import { BUILTIN_COMPONENTS } from '../../packages/engine-layout/src/lib/builtinComponents.ts';
 import { resolveComponentClosure } from '../../packages/engine-layout/src/lib/collectComponentIds.ts';
 import {
+	ARCADE_SAMPLE_COMPONENTS,
+	arcadeReferenceLayout,
 	bookofReferenceLayout,
 	clusterReferenceLayout,
 	defaultLayout,
@@ -34,6 +36,7 @@ import {
 	scatterReferenceLayout,
 	waysReferenceLayout,
 } from '../../packages/engine-layout/src/lib/referenceLayouts/index.ts';
+import { ARCADE_DRIVEN_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/arcadeSeed.ts';
 import { MATCH3_DRIVEN_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/match3Seed.ts';
 import {
 	addPotsOverlay,
@@ -60,11 +63,12 @@ const builtins = opt.builtins
 	: Object.fromEntries(BUILTIN_COMPONENTS.map((def) => [def.id, def]));
 
 /** The defs a publish bakes for `doc`: the placed instances' closure plus the config's card and
- *  character ids. */
-const bakeComponentDefs = (doc, config) =>
+ *  character ids, resolved from the project's own `components` (Game Maker's scaffold gives some)
+ *  over the built-ins. */
+const bakeComponentDefs = (doc, config, components = []) =>
 	resolveComponentClosure(
 		doc.scenes.flatMap((scene) => scene.nodes),
-		(id) => builtins[id],
+		(id) => components.find((def) => def.id === id) ?? builtins[id],
 		{ extraSeedIds: config ? [...betModeCardIds(config), ...characterComponentIds(config)] : [] },
 	);
 
@@ -181,24 +185,33 @@ const FIXTURES = {
 	'cg-bookof-pots': booksPots,
 	'cg-hw-pots': () => holdAndWinGame('pots'),
 	'cg-hw-classic': () => holdAndWinGame('classic'),
-	// A rules-decided match-3 game (game-families P10.5): Game Maker's scaffold — the scene set, the
-	// seed config and the starter flow. It sends the RGS nothing; the manifest entry only lets the
-	// test server serve the runtime (its `lines` mock is never asked).
+	// The rules-decided families (game-families P10.5, P10.8): Game Maker's scaffold — the scene set,
+	// the seed config, the starter flow (and arcade's placeholder components). They send the RGS
+	// nothing; the manifest entry is the `freePlay` contract a publish derives for them, whose mock
+	// refuses every request.
 	'cg-match3': () => ({
 		gameType: 'match3',
 		doc: match3ReferenceLayout(),
 		config: committedDefault('match3.rules'),
 		flowV2: MATCH3_DRIVEN_SEED_DOC,
-		entry: { protocol: 'lines' },
+		entry: { protocol: 'freePlay' },
+	}),
+	'cg-arcade': () => ({
+		gameType: 'arcade',
+		doc: arcadeReferenceLayout(),
+		config: committedDefault('arcade.rules'),
+		flowV2: ARCADE_DRIVEN_SEED_DOC,
+		components: ARCADE_SAMPLE_COMPONENTS,
+		entry: { protocol: 'freePlay' },
 	}),
 };
 
 const games = [];
 for (const [key, make] of Object.entries(FIXTURES)) {
-	const { gameType, doc, config, flowV2, entry } = make();
+	const { gameType, doc, config, flowV2, components, entry } = make();
 	const dir = join(out, 'snapshots', key);
 	mkdirSync(join(dir, 'deploy'), { recursive: true });
-	const componentDefs = await bakeComponentDefs(doc, config);
+	const componentDefs = await bakeComponentDefs(doc, config, components);
 	writeFileSync(
 		join(dir, 'runtime.json'),
 		JSON.stringify({

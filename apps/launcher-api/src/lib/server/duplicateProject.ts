@@ -94,7 +94,8 @@ export async function duplicateProject(
 		);
 		// Backfill anything the source never had (a project scaffolded before a seed file existed),
 		// so the copy is a complete project rather than a mirror of an old one. Idempotent: it only
-		// writes keys that are missing, so nothing just copied is overwritten.
+		// writes keys that are missing, so nothing just copied is overwritten — except a flow or
+		// layout another kind left in the source, which it replaces as a Re-scaffold would.
 		await scaffoldProject(clientKey ?? UNASSIGNED_CLIENT, key);
 		return { ok: true, key, ...result };
 	} catch (e) {

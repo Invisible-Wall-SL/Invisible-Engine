@@ -2125,6 +2125,9 @@
 		{:else}
 			<span class="valid">✓ valid</span>
 		{/if}
+		{#if data.wrongKind}
+			<span class="warn" role="alert" title={data.wrongKind}>⚠ Flow is for another kind</span>
+		{/if}
 	</div>
 
 	<div class="body">

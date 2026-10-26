@@ -2,7 +2,8 @@
 	import type { Scene } from 'engine-layout';
 
 	export type Props = {
-		/** The layout's screens: their `path` nodes are the paths the characters walk. */
+		/** The layout's screens: the one with a world or a camera gives the play field its camera, and
+		 *  their `path` nodes are the paths the characters walk. */
 		scenes: readonly Scene[];
 	};
 </script>
@@ -12,7 +13,13 @@
 
 	import { getContextApp } from 'pixi-svelte';
 
-	import { startArcade, tickArcade, useArcadePaths, useArcadeInput } from '../game/arcade';
+	import {
+		startArcade,
+		tickArcade,
+		useArcadeInput,
+		useArcadePaths,
+		useWorldCamera,
+	} from '../game/arcade';
 	import { getContext } from '../game/context';
 	import { registerDeterminismArcade } from '../game/determinism';
 
@@ -29,6 +36,7 @@
 	const context = getContext();
 	const app = getContextApp();
 	const loop = startArcade(() => context.stateLayoutDerived.mainLayout());
+	$effect(() => useWorldCamera(scenes));
 	$effect(() => useArcadePaths(scenes, context.stateLayoutDerived.layoutType()));
 
 	$effect(() => {
@@ -52,7 +60,10 @@
 	});
 
 	const unregisterProbe = registerDeterminismArcade({
-		read: () => ({ steps: loop.steps, bodies: loop.bodies() }),
+		read: () => {
+			const camera = loop.camera();
+			return { steps: loop.steps, bodies: loop.bodies(), ...(camera ? { camera } : {}) };
+		},
 	});
 	onDestroy(unregisterProbe);
 </script>

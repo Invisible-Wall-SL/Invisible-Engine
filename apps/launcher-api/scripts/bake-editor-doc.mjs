@@ -807,6 +807,15 @@ async function main() {
 			// explicit override rather than letting a hung or skipped round ship.
 			if (flowRes.status === 409) {
 				const out = await flowRes.json().catch(() => ({}));
+				// A flow of another family than the project's kind (left from a kind change). No override.
+				if (out?.reason === 'flow-wrong-kind') {
+					refuseAtGate({
+						gate: 'flow-wrong-kind',
+						error: out.error ?? "The flow was built for another kind of game than the project's.",
+						details: [],
+						fixIn: '/admin (Re-scaffold the project, or change its kind back)',
+					});
+				}
 				refuseAtGate({
 					gate: 'invalid-flow',
 					error: out?.error ?? 'The flow failed validation.',

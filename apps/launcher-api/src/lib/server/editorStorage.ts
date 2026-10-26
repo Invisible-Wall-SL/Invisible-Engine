@@ -1,16 +1,20 @@
 import {
 	getFullSceneSet,
+	normalizeEditorGuides,
 	normalizeHudScenes,
 	normalizeLayoutProfile,
 	LAYOUT_NODE_KINDS,
 	isSceneRole,
 	normalizePathNode,
+	withoutEditorGuides,
 	type GameJurisdiction,
 	type GameSettings,
 	type LayoutDoc,
 	type LayoutNode,
 	type LayoutType,
 	type Scene,
+	sceneCamera,
+	sceneWorld,
 } from 'engine-layout';
 import { normalizeBootSplashRef } from 'constants-shared/bootSplash';
 import { repairLayoutDocAtlasRefs } from './atlasRefRepair';
@@ -56,6 +60,8 @@ export async function loadDoc(
 	gameType?: string,
 ): Promise<LayoutDoc> {
 	const { doc } = await loadDocWithEtag(clientKey, projectKey, gameType);
+	// Ruler guides are the editor's alone: no reader past this point hands them to a game.
+	doc.scenes = doc.scenes.map(withoutEditorGuides);
 	// Ship path only, which is exactly why the repair belongs HERE and not in `loadDocWithEtag`:
 	// every reader that hands this doc onward (the runtime bundle, the editor-art export, the
 	// bake's `/api/editor/doc`) comes through this function, while the editor's own read keeps the
@@ -350,6 +356,17 @@ function normalizeScene(input: unknown): Scene | null {
 	if (Array.isArray(input.elementFx) && input.elementFx.length) {
 		scene.elementFx = input.elementFx as Scene['elementFx'];
 	}
+	// Preserve a play field's world and camera (`Scene.world` / `Scene.camera`, game-families P10.12),
+	// read through the engine's own sanitizers so the save keeps exactly what the game reads. Only a
+	// `game` screen has them. Same whitelist rule as above. Sparse: stored only when set (an
+	// all-default camera is dropped, so it never turns a screen's world camera on by itself).
+	const world = sceneWorld({ ...scene, world: input.world as Scene['world'] });
+	if (world) scene.world = world;
+	const camera = sceneCamera({ ...scene, camera: input.camera as Scene['camera'] });
+	if (camera && Object.keys(camera).length) scene.camera = camera;
+	// The screen's ruler guides (editor-only; `loadDoc` strips them before any game reads the doc).
+	const guides = normalizeEditorGuides(input.guides);
+	if (guides) scene.guides = guides;
 	return scene;
 }
 

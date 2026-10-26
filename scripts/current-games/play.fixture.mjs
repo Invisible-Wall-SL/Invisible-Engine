@@ -1,12 +1,15 @@
 // The screen-script interpreter's cue anchor (`lib/play.mjs`): an `until { cue }` counts only cues
 // recorded after it starts, anchors on the cue's own frame (not the batch it noticed it in), falls
 // back to a fixed frame when no cue comes, and `step { from: 'cue' }` lands on anchor + N or fails
-// loudly when that frame has passed. Played against a fake page that answers the probe's calls.
+// loudly when that frame has passed. A `hold` keeps its key down for exactly its frames. Each
+// family plays its own script (an arcade game is never driven with the slot one). Played against a
+// fake page that answers the probe's calls.
 //
 //   node scripts/current-games/play.fixture.mjs
 
 import assert from 'node:assert/strict';
 
+import { loadScript, scriptFor } from './lib/plan.mjs';
 import { cuesSince, playScenario } from './lib/play.mjs';
 
 /** A page whose game fires `fires` ({ cue, frame }) as the frames pass, plus the cues in `boot`. */
@@ -33,7 +36,7 @@ const fakePage = ({ fires = [], boot = [] } = {}) => {
 			}
 			return frame;
 		},
-		key: async () => {},
+		key: async (type, name = 'Space') => calls.push(`${type} ${name} @${frame}`),
 	};
 };
 
@@ -155,5 +158,30 @@ await assert.rejects(
 	play([{ op: 'step', frames: 2, from: 'cue' }], fakePage()),
 	/needs a `cue` until before it/,
 );
+
+// A held key goes down, stays down for its frames, and comes up.
+{
+	const page = fakePage();
+	await play(
+		[
+			{ op: 'step', frames: 5 },
+			{ op: 'hold', key: 'ArrowLeft', frames: 30 },
+		],
+		page,
+	);
+	assert.deepEqual(
+		page.calls.filter((c) => / @/.test(c)),
+		['keyDown ArrowLeft @5', 'keyUp ArrowLeft @35'],
+	);
+}
+
+for (const [gameType, script] of [
+	['arcade', 'arcade'],
+	['match3', 'match3'],
+	['lines', 'lines'],
+]) {
+	assert.equal(scriptFor(gameType), script, `${gameType} plays the ${script} script`);
+	assert.equal(loadScript(script).gameType, script);
+}
 
 console.log('current-games play fixture: ok');

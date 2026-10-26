@@ -36,6 +36,9 @@ export interface SpawnLayerSpec {
 	grid?: SpawnGrid;
 	/** The screen it is placed on, when known. */
 	sceneId?: string;
+	/** On a world-camera screen (P10.12): the arcade loop despawns an instance that has been within
+	 *  this many px of the view and is now wholly beyond it. */
+	despawnOutsideView?: { margin: number };
 }
 
 /** Where a spawn goes: a point in the layer's space, or a cell of a grid layer. */

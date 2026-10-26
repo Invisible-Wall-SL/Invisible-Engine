@@ -55,6 +55,29 @@
 
 ## Recent changes
 
+- 2026-10-26 — **Publish refuses a flow left from a kind change** (defense in depth for the
+  `invisible_wall/salmons` case: Book-of → `arcade` in `/admin` kept its Book-of flow, which
+  validated clean against its own `templateId` vocabulary and shipped an arcade runtime driven by a
+  slot flow). `FlowPublishCheck` now carries the verdict's `templateId`, and `flowGateRefusal`
+  (`flowV2Validation.ts`) is the one decision for the online Publish (stored and shipped flow) and
+  the desktop bake's `/api/editor/export-flow`. It refuses `flow-wrong-kind` FIRST and with no
+  override (`allowInvalidFlow` lifts only `invalid-flow`) when `flowTemplateMismatch(templateId,
+  kind)` (`engine-flow-v2` `drivenSeed.ts`) holds AND the template's family differs from the
+  kind's. The family condition is deliberate: a slot→slot mismatch is the pre-2026-10-01 cluster /
+  scatter / Hold and Win project still on `bookOf` (open item 9), which the runtime plays, and
+  refusing it would block republishing live games. `bake-editor-doc.mjs` reports the gate with no
+  override flag; Game Maker shows the message with no **Publish anyway** (the endpoint's
+  `canOverride` never names the new code). `/flow-v2` shows **⚠ Flow is for another kind** in the
+  sub-bar (`wrongKindFlowMessage`). The Book-of migration is unaffected (bookOf → lines keeps a
+  same-family, matching flow). **Verified:** `check:flow-publish-gate` §15 (the salmons verdict
+  refused with and without the override; arcade+arcade, lines+bookOf and legacy
+  cluster/scatter/holdAndWin+bookOf pass; `flowTemplateMismatch` false on a custom kind, an unknown
+  template and none; a mutant letting the override through fails 3 asserts), `check:build-provenance`
+  (new `flow-wrong-kind` bake gate: refuses, no override), `check:book-of-migration`,
+  `check:pipeline-games`, `check:shader-pipeline`, `check:svelte --only apps/launcher-api` at its
+  baseline. Launcher + bake only; `drivenSeed.ts` gained only
+  the pure helper, so no shipped bundle changes.
+
 - 2026-10-25 — **The `arcade` vocabulary and starter flow** (Phase 10 step P10.8). An arcade
   project's palette is `ARCADE_VOCAB`: the arcade loop's signals (`collide`, `enterZone`,
   `leaveZone`, `leaveBounds`), its actions (`setVelocity`, `moveTo`, `setTag`, aimed at an instance

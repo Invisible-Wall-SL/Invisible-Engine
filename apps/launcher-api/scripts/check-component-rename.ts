@@ -246,6 +246,19 @@ const snapshot = (v: number): ComponentDef | null => {
 	});
 	check('2 the next content change still bumps', (again.body as { version: number }).version, 3);
 	check('2 and its snapshot carries the new name', snapshot(3)?.name, 'Jackpot Pot');
+	const beforeGuides = [...bucket.keys()].sort();
+	const guided = await post({
+		...stored(),
+		guides: { desktop: { x: [120], y: [40] } },
+		project: PROJECT,
+		baseEtag: bucket.get(projectComponentKey(PROJECT, ID))!.etag,
+	});
+	check(
+		'2 a guides-only save keeps the version (ruler guides are editor-only)',
+		[(guided.body as { version: number }).version, stored().guides],
+		[3, { desktop: { x: [120], y: [40] } }],
+	);
+	check('2 and writes no new snapshot', [...bucket.keys()].sort(), beforeGuides);
 }
 
 // 3. A CAS on what was read.

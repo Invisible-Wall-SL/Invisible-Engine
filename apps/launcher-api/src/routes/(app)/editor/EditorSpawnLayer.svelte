@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { effectiveSpawnCap, SPAWN_DEFAULT_CAP, SPAWN_HARD_CAP } from 'constants-shared/spawn';
-	import { spawnLayerGrid, spawnableComponentIds, type SpawnLayerNode } from 'engine-layout';
+	import {
+		despawnOutsideViewMargin,
+		spawnLayerGrid,
+		spawnableComponentIds,
+		type SpawnLayerNode,
+	} from 'engine-layout';
+	import { setDespawnMargin, setDespawnOutsideView } from '$lib/editor/worldCameraEdit';
 
 	/**
 	 * Properties of a `spawnLayer` (game-families §3.3): which components Flow may spawn into it
@@ -10,9 +16,11 @@
 	type Props = {
 		node: SpawnLayerNode;
 		componentDefs: { id: string; name: string }[];
+		/** The screen draws through a world camera — the only place `despawnOutsideView` acts. */
+		worldCamera?: boolean;
 		onChange: () => void;
 	};
-	const { node, componentDefs, onChange }: Props = $props();
+	const { node, componentDefs, worldCamera = false, onChange }: Props = $props();
 
 	/** A lattice to start from when a free layer turns grid without one. */
 	const DEFAULT_GRID = { cols: 6, rows: 4, pitch: 120 } as const;
@@ -20,6 +28,7 @@
 	const spawnable = $derived(spawnableComponentIds(node));
 	const addable = $derived(componentDefs.filter((c) => !spawnable.includes(c.id)));
 	const grid = $derived(spawnLayerGrid(node));
+	const despawnMargin = $derived(despawnOutsideViewMargin(node));
 	const nameOf = (id: string): string => componentDefs.find((c) => c.id === id)?.name ?? id;
 
 	function setSpawnable(next: string[]): void {
@@ -190,6 +199,41 @@
 			<p class="muted small">Cell (0, 0) is at this layer's origin; cells are pitch px apart.</p>
 		{/if}
 	{/if}
+
+	<div class="row">
+		<label
+			class="field check"
+			title="Remove an instance once it has been in view and has left it by more than the margin — so a long scrolling level keeps only what is near the camera."
+		>
+			<input
+				type="checkbox"
+				checked={despawnMargin !== undefined}
+				onchange={(e) => {
+					setDespawnOutsideView(node, e.currentTarget.checked);
+					onChange();
+				}}
+			/>
+			<span>Despawn outside view</span>
+		</label>
+		<label class="field">
+			<span>margin px</span>
+			<input
+				type="number"
+				step="10"
+				min="0"
+				disabled={despawnMargin === undefined}
+				value={despawnMargin ?? 0}
+				oninput={(e) => {
+					if (setDespawnMargin(node, e.currentTarget.valueAsNumber)) onChange();
+				}}
+			/>
+		</label>
+	</div>
+	<p class="muted small" class:warn={despawnMargin !== undefined && !worldCamera}>
+		{worldCamera
+			? 'An instance lives until Flow despawns it, or — ticked — until it leaves the view.'
+			: 'Only a screen with a world and camera has a view to leave; here an instance lives until Flow despawns it.'}
+	</p>
 </section>
 
 <style>
@@ -226,6 +270,18 @@
 	}
 	.field.wide {
 		flex: 1 1 100%;
+	}
+	.field.check {
+		flex-direction: row;
+		align-items: center;
+		gap: 6px;
+		padding-bottom: 6px;
+	}
+	.field.check span {
+		text-transform: none;
+		letter-spacing: 0;
+		font-size: 12px;
+		color: #ccc;
 	}
 	.field span {
 		font-size: 10px;
