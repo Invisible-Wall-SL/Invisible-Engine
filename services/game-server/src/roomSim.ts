@@ -16,11 +16,12 @@ import type { ArcadeOnlineCharacter, OnlineGame } from 'game-config';
  * `check:room-sim` gate runs this very code headless for ten thousand steps.
  *
  * The room owns every body. A step takes each connected player's next inputs from the caller's
- * buffer, in `seq` order — one, or more while a backlog is draining ({@link inputsThisStep}) — and
- * moves the player once per input with `engine-mechanics` `stepPlayer`, the function a predicting
- * device runs. A player with no input this step, or one that dropped and has not rejoined, stands
- * still for the step. So a body is always the fold of `stepPlayer` over the inputs applied, and
- * nothing a device sends can place one.
+ * buffer, in `seq` order — one, or more while a backlog is draining and the player has credit
+ * ({@link inputsThisStep}) — and moves the player once per input with `engine-mechanics`
+ * `stepPlayer`, the function a predicting device runs. A player with no input this step, or one
+ * that dropped and has not rejoined, stands still for the step. Bodies have no momentum (a step
+ * with no input sets the velocity to 0), so a body is always the fold of `stepPlayer` over the
+ * inputs applied — and nothing a device sends can place one or move it faster.
  */
 
 /** Inputs a step leaves waiting (a cushion against jitter), and the most it applies at once. */
@@ -29,11 +30,16 @@ const MOST_PER_STEP = 4;
 
 /**
  * How many of a player's `waiting` inputs this step applies: one, or more while more than
- * {@link KEEP_WAITING} wait, at most {@link MOST_PER_STEP}. A device sends one per step, so a
- * stall's burst would otherwise sit in the buffer for good as latency.
+ * {@link KEEP_WAITING} wait — but extra inputs only up to the player's `credit`, the steps it stood
+ * still for want of an input. A device sends one per step, so a stall's burst would otherwise sit in
+ * the buffer for good as latency; and without the credit a device could send two a step and move
+ * twice as fast. With it, a player never applies more inputs than steps have passed.
  */
-export const inputsThisStep = (waiting: number): number =>
-	Math.min(MOST_PER_STEP, Math.max(1, waiting - KEEP_WAITING));
+export const inputsThisStep = (waiting: number, credit: number): number =>
+	Math.min(MOST_PER_STEP, 1 + Math.max(0, credit), Math.max(1, waiting - KEEP_WAITING));
+
+/** The most catch-up a player can bank: one second at the fastest step rate. */
+const CREDIT_MAX = 60;
 
 export type SimPlayer = {
 	id: string;
@@ -46,6 +52,8 @@ export type SimPlayer = {
 	connected: boolean;
 	/** The `seq` of the newest input applied; 0 before the first. */
 	ack: number;
+	/** Steps it stood still for want of an input, not yet made up ({@link inputsThisStep}). */
+	credit: number;
 };
 
 export class RoomRefusal extends Error {}
@@ -62,8 +70,9 @@ export type RoomSim = {
 	drop(id: string): void;
 	rejoin(id: string): void;
 	leave(id: string): void;
-	/** One fixed step. `take(id)` hands over the player's inputs for it, oldest first (none = rest). */
-	step(take: (id: string) => readonly OnlineInput[]): void;
+	/** One fixed step. `take(id, credit)` hands over the player's inputs for it, oldest first (none
+	 *  = rest): at most {@link inputsThisStep} of what waits. */
+	step(take: (id: string, credit: number) => readonly OnlineInput[]): void;
 };
 
 export function createRoomSim(game: OnlineGame): RoomSim {
@@ -108,6 +117,7 @@ export function createRoomSim(game: OnlineGame): RoomSim {
 				moving: false,
 				connected: true,
 				ack: 0,
+				credit: 0,
 			};
 			// A spawn outside the field is pulled inside at once, as every later step would.
 			stepPlayer(player.body, undefined, character.speed, { ...ctx, subSteps: 1, subDt: 0 }, field);
@@ -130,11 +140,16 @@ export function createRoomSim(game: OnlineGame): RoomSim {
 		},
 		step(take) {
 			for (const player of players.values()) {
-				const inputs = player.connected ? take(player.id) : [];
+				if (!player.connected) {
+					stepPlayer(player.body, undefined, player.character.speed, ctx, field);
+					continue;
+				}
+				const inputs = take(player.id, player.credit);
 				if (!inputs.length) {
 					stepPlayer(player.body, undefined, player.character.speed, ctx, field);
 					player.moving = false;
-				}
+					player.credit = Math.min(CREDIT_MAX, player.credit + 1);
+				} else player.credit = Math.max(0, player.credit - (inputs.length - 1));
 				for (const input of inputs) {
 					stepPlayer(player.body, input, player.character.speed, ctx, field);
 					player.ack = input.seq;

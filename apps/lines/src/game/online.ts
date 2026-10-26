@@ -119,7 +119,8 @@ export async function joinOnlineRoom(): Promise<void> {
 	// A room that is gone for good (disposed, a kick, a reconnect that ran out) leaves nothing to
 	// play: say so on the same screen rather than freeze on the last state.
 	room.onLeave((code: number) => {
-		if (code !== CONSENTED) void refuseOnlineBoot(`the room closed (code ${code})`);
+		session = undefined;
+		if (code !== CONSENTED) void refuseOnlineBoot(`the room closed (code ${code})`, true);
 	});
 	session = {
 		room,

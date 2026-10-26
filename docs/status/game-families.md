@@ -29,9 +29,11 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   without the network — who is in it, each player's character, one fixed step of everyone — and
   `arcadeRoom.ts` runs it inside Colyseus: `setFixedTimestep(step, tickHz, { subSteps })`,
   `defineInput(Input, { seqField: 'seq', bufferMaxSize: 60, sanitize })`, each player's next inputs
-  per step (`inputsThisStep`: one, or up to four while more than one waits, each its own
-  `stepPlayer` call, so a stall's burst drains in a few steps instead of staying as lag), the
-  schema written once per patch (`onBeforePatch`), `setPatchRate(1000 /
+  per step (`inputsThisStep`: one, or up to four while more than one waits — but extras only up to
+  the player's **credit**, the steps it stood still for want of an input — each its own
+  `stepPlayer` call: a stall's burst drains in a few steps instead of staying as lag, and a device
+  that sends two a step is not faster, since a player never applies more inputs than steps have
+  passed), the schema written once per patch (`onBeforePatch`), `setPatchRate(1000 /
   patchHz)`. `configSource.ts` reads a game's config by key (a directory or a `{game}` URL, cached
   60 s, good or bad). `server.ts` adds `GET /healthz` (`commit`, `rooms`). Dockerfile at the repo
   root's context, mirroring `director-worker` (npm install, the two packages linked in, the
@@ -57,12 +59,17 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
 - **Resource limits per room** (§11): `maxPlayers` ≤ 100, each character's `max`,
   `maxMessagesPerSecond = 2 × tickHz + 10` (a flooder is closed with `WITH_ERROR` and gets **no**
   held seat), WebSocket `maxPayload` 1 KB, 60 inputs buffered per player (overflow drops the
-  oldest), at most 16 characters. Per process: `GAME_SERVER_MAX_ROOMS` (default 50); Colyseus'
-  `create` is **not exposed** (only `joinOrCreate`, `join`, `joinById`, `reconnect`), so a device
-  cannot make rooms nobody joins; a `game` that is not a string is refused (it would never match
-  `filterBy`); an HTTP body over 4 KB is answered 413 before Colyseus reads it (Colyseus buffers a
-  body whole); a config ≤ 2 MB (bytes) fetched within 5 s, at most 4 reads in flight, answers
-  cached 60 s per key; game keys `^[a-z0-9][a-z0-9_-]{0,63}$`. A refused room tells the device only
+  oldest), at most 16 characters, a seat held 5 s for a device that has not connected yet. Per
+  process: `GAME_SERVER_MAX_ROOMS` (default 50); Colyseus' `create` is **not exposed** (only
+  `joinOrCreate`, `join`, `joinById`, `reconnect`), so a device cannot make rooms nobody joins; a
+  `game` that is not a string is refused (it would never match `filterBy`); before Colyseus' router
+  reads anything, a request that would carry a body with no `content-length` (chunked) is answered
+  411 and one declaring over 4 KB 413 (the router reads a body whole, with no limit of its own); one
+  address may make 30 matchmaking requests per 10 s (429 past it; behind Railway the address is the
+  proxy's `x-forwarded-for` entry, `GAME_SERVER_TRUST_PROXY=1`); a config ≤ 2 MB (bytes) fetched
+  within 5 s, at most 4 reads in flight, answers cached 60 s per key, and a game that has loaded
+  once keeps its last good config through a full reader or a failed read (made-up keys can neither
+  evict nor starve it); game keys `^[a-z0-9][a-z0-9_-]{0,63}$`. A refused room tells the device only
   "this game is not available"; the reason goes to the server log. Every rate is clamped by
   `resolveArcadeOnline`, whatever the doc says.
 - **State** (`schema.ts`): per player `name`, `character`, `x`, `y` (float32), `facing` (uint8),
@@ -90,15 +97,19 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   jump), clamped, sent — and draws every room player as a spawned instance of its character's
   component in `online.layer`, at the server's last place (no prediction or smoothing: P10.15). The
   arcade probe reads the room. Free play, as every arcade game (`rgsSession: false`).
-- **Gates:** `check:room-sim` (root, 26 checks, ~13 s; discovered by `check:all`): 10 000 steps
-  of six players at 30 Hz × 2, 60 × 1 and 20 × 4 with hostile, repeated, stale, gapped, missing
-  and bursting inputs — the room's body equals the device's `stepPlayer` fold **bit for bit** on
-  every step, and no backlog outlives the drain; replay; the clamp exact and idempotent over 20 000 inputs; an input claiming a place, score or
+- **Gates:** `check:room-sim` (root, 30 checks, ~13 s; discovered by `check:all`): 10 000 steps
+  of six players at 30 Hz × 2, 60 × 1 and 20 × 4 with hostile, repeated, stale, gapped and missing
+  inputs and network stalls that release in bursts — the room's body equals the device's
+  `stepPlayer` fold **bit for bit** on every step, and the backlog stays bounded (under one input
+  waiting on average); a stall's burst drains in ≤ 4 steps; a device sending three a step for 600
+  steps applies exactly 600; over 5 000 random steps no player applies more inputs than steps; the
+  config source's last-good fallback; replay; the clamp exact and idempotent over 20 000 inputs; an input claiming a place, score or
   character changes nothing; seq order, one per step; join limits, names, drop / rejoin; refused
   configs; the mechanic (only an online config sets `room`); source scans (the SDK reached only from
   `game/online.ts`, lazily; the layout and stage branch on `room`). Then a **real** Colyseus server on
   localhost with real SDK clients: `/healthz`; bad / missing / non-online / non-string game keys
-  make no room and name no reason; `create` and a 10 KB body are refused; a burst of 30 inputs is
+  make no room and name no reason; `create`, a 10 KB body and a chunked body are refused; one
+  address's 121st matchmaking request in a window gets 429 and another address's does not; a burst of 30 inputs is
   applied within 700 ms;
   join state; 90 live inputs stepped exactly as the device steps them (and drawn at their float32);
   `move` / `teleport` / any message changes nothing; an off-scale move clamped; room size and
@@ -112,7 +123,7 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   error on either; closing page B let its player go after the 2 s grace; a launch with no
   `?rooms_url=` stopped on the boot-failure screen.
 - **Bundle size** (the release build's `index.html`; base 5a44e2b vs this branch): 3,678,290 B /
-  1,260,736 B gz → 3,867,890 B / 1,319,827 B gz: **+189.6 KB raw, +59.1 KB gz (+4.7 %)**, downloaded
+  1,260,736 B gz → 3,867,967 B / 1,319,851 B gz: **+189.7 KB raw, +59.1 KB gz (+4.7 %)**, downloaded
   by every game, run by none but an online one. Almost all of it is `@colyseus/sdk` itself (its
   `Client` alone bundles to 169 KB / 53 KB gz; importing only `Client` and the serializer saves
   nothing). The runtime builds with SvelteKit's inline strategy, so the dynamic `import()` keeps the
@@ -129,7 +140,8 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   - the server is a **workspace member** (so CI installs Colyseus and the gate runs a real server);
     the image installs with npm, as `director-worker`'s does;
   - **a step with no input moves its player by nothing** (it stands still), and a step with a
-    backlog applies up to four inputs, each a step of its own, so a body is exactly the fold of
+    backlog applies up to four inputs, each a step of its own, extras only against the credit of
+    starved steps, so a body is exactly the fold of
     `stepPlayer` over the inputs the server applied — the device can always replay it;
   - positions travel as **float32** (the design's §5), while the simulation is float64: the fold is
     exact on both sides, but a reconciler that rewinds to the *synced* place (P10.15) starts from
@@ -158,7 +170,10 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
     settings") is the runtime bundle's; the precise reason is in `__IE_RUNTIME_STALE__` and the console;
   - aim is clamped to the **field**, not yet to the character's reach (§11): there are no
     abilities until P10.15;
-  - no per-IP limit on matchmaking or connections (a proxy's job, or P10.16 with the load test);
+  - the per-address matchmaking limit is per process and per fixed window; a player can bank up to
+    60 steps of credit by standing still and spend it later (at most four steps a tick), which moves
+    it no further than it could have gone in that time;
+  - many devices behind one address (a school's NAT) share the 30-per-10 s matchmaking allowance;
   - every refused join or room prints Colyseus' own stack trace, so a hostile client can make the
     log noisy;
   - a room that closes for good (disposed, kicked, its reconnect run out) stops the page on the

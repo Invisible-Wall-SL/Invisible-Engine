@@ -15,7 +15,8 @@ import { Input, Player, RoomState, type InputFrame, type RoomStateData } from '.
  * clamped by `sanitizeInput` as it is decoded, a repeated or older `seq` dropped, at most
  * {@link INPUT_BUFFER} held), and join with a `name` and a `character`. Every other message is
  * counted against the flood limit and ignored. A step applies the inputs {@link inputsThisStep}
- * allows, each as a step of its own, so a burst after a stall drains instead of becoming lag. The
+ * allows, each as a step of its own, so a burst after a stall drains instead of becoming lag, and
+ * sending more than one a step never moves a player faster. The
  * step reads plain bodies and writes the schema once per patch, never once per step.
  *
  * LIMITS (§11): a room holds `maxPlayers` (≤ 100) and each character's `max`; a device sending
@@ -35,6 +36,8 @@ export const messagesPerSecond = (tickHz: number) => tickHz * 2 + 10;
 export type ArcadeRoomDeps = {
 	loadGame: LoadGame;
 	maxRooms: number;
+	/** How long a seat is held for a device that has not connected yet. */
+	seatSeconds: number;
 	/** Rooms alive in this process. */
 	rooms: { count: number };
 };
@@ -73,6 +76,7 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			this.sim = sim;
 			const { online } = sim.game;
 			this.maxClients = online.maxPlayers;
+			this.seatReservationTimeout = deps.seatSeconds;
 			this.maxMessagesPerSecond = messagesPerSecond(online.tickHz);
 			this.state.phase = 'waiting';
 			this.game = game;
@@ -81,9 +85,9 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			this.setPatchRate(1000 / online.patchHz);
 			this.setFixedTimestep(
 				() => {
-					sim.step((id) => {
+					sim.step((id, credit) => {
 						const buffer = this.inputs.get(id);
-						return buffer.take(inputsThisStep(buffer.size)) as OnlineInput[];
+						return buffer.take(inputsThisStep(buffer.size, credit)) as OnlineInput[];
 					});
 				},
 				online.tickHz,

@@ -282,13 +282,16 @@ refuses a config that is not an online arcade game. A device sends inputs only.
 
 **Limits it enforces** (no env needed): a room holds `arcade.online.maxPlayers` (≤ 100) and each
 character's `max`; a device sending more than `2 × tickHz + 10` messages a second is disconnected
-and gets no seat held; a WebSocket message over 1 KB is refused, and an HTTP (matchmaking) body
-over 4 KB is answered 413; matchmaking exposes `joinOrCreate`, `join`, `joinById` and `reconnect`
-only (no `create`); at most 60 inputs wait per player; a config is ≤ 2 MB, its fetch times out
-after 5 s, at most 4 run at once, and answers (good or bad) are cached 60 s per game key; a game
-key must match `^[a-z0-9][a-z0-9_-]{0,63}$`. A device whose room is refused is told only "this
-game is not available"; the reason is logged. There is **no per-IP limit** — put one at a proxy if
-abuse shows up.
+and gets no seat held; a WebSocket message over 1 KB is refused; an HTTP request that would carry
+a body with no `content-length` (chunked) is answered 411 and one declaring over 4 KB 413, before
+Colyseus reads it; one address may make 30 matchmaking requests per 10 s (429 past it); matchmaking
+exposes `joinOrCreate`, `join`, `joinById` and `reconnect` only (no `create`); a seat is held 5 s
+for a device that has not connected; at most 60 inputs wait per player, and a player never applies
+more inputs than steps have passed; a config is ≤ 2 MB, its fetch times out after 5 s, at most 4
+run at once, answers (good or bad) are cached 60 s per game key, and a game that has loaded once
+keeps its last good config through a failed read; a game key must match
+`^[a-z0-9][a-z0-9_-]{0,63}$`. A device whose room is refused is told only "this game is not
+available"; the reason is logged.
 
 **Env** (names only; no secret is required to boot):
 
@@ -299,6 +302,7 @@ abuse shows up.
 | `GAME_SERVER_CONFIG_TOKEN` | optional; sent as `Authorization: Bearer …` to that URL |
 | `GAME_SERVER_CONFIG_DIR` | instead of the URL: a directory of `<game>.json` configs (local runs) |
 | `GAME_SERVER_MAX_ROOMS` | rooms one process holds (default 50) |
+| `GAME_SERVER_TRUST_PROXY` | `1` behind Railway: a device's address (for the matchmaking limit) is the last `x-forwarded-for` entry, the one Railway's edge adds; unset, it is the socket's |
 | `RAILWAY_GIT_COMMIT_SHA` | set by Railway; `/healthz` reports its first 12 characters |
 
 **Run it locally.**
@@ -328,7 +332,8 @@ with two headless browsers.
    anywhere (an open item in the status file), the one source that exists is the launcher's
    token-gated export: `https://app.invisiblewall.org/api/game-config/doc?project={game}&k=<deploy
    token>` — note it serves the AUTHORED config, not the published snapshot, so a room can run
-   rules newer than the devices' until they republish. Optionally `GAME_SERVER_MAX_ROOMS`.
+   rules newer than the devices' until they republish. `GAME_SERVER_TRUST_PROXY=1` (Railway's
+   edge is in front, so every socket is the proxy's). Optionally `GAME_SERVER_MAX_ROOMS`.
 6. **Settings → Networking:** a public domain, then the custom domain `rooms.invisiblewall.org`,
    and in **Cloudflare DNS** a CNAME `rooms` → the Railway target, **DNS-only (grey cloud)**, like
    `games` (§14 D8).

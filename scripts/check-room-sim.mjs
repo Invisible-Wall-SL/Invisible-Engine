@@ -9,6 +9,7 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { request as httpRequest } from 'node:http';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -129,8 +130,8 @@ const receiver = (field) => {
 			return true;
 		},
 		/** What the room takes for a step, by the room's own rule. */
-		take() {
-			return queue.splice(0, inputsThisStep(queue.length));
+		take(credit) {
+			return queue.splice(0, inputsThisStep(queue.length, credit));
 		},
 	};
 };
@@ -151,6 +152,8 @@ const runHeadless = (online, steps, seed) => {
 			body: characterBody(id, game.bodies[player.character.body], { ...player.body }),
 			speed: player.character.speed,
 			predicted: [],
+			wire: [],
+			stall: 0,
 		});
 		Object.assign(devices.get(id).body, { x: player.body.x, y: player.body.y });
 	}
@@ -159,31 +162,43 @@ const runHeadless = (online, steps, seed) => {
 	let starved = 0;
 	let bursts = 0;
 	let deepest = 0;
+	let waitingSum = 0;
 	const ctx = stepContext(online.tickHz ?? 30, online.subSteps ?? 2);
 	for (let s = 0; s < steps; s++) {
 		for (const id of ids) {
 			const device = devices.get(id);
 			const roll = rng();
-			if (roll < 0.04) continue; // the device sent nothing this step (a starved step)
-			if (roll < 0.07) device.nextSeq += 1 + Math.floor(rng() * 3); // a gap in seq
-			// A stall's burst: several inputs arrive in one step.
-			const count = roll > 0.98 ? 2 + Math.floor(rng() * 8) : 1;
-			if (count > 1) bursts += 1;
-			for (let n = 0; n < count; n++) {
-				const raw = randomInput(rng, device.nextSeq);
+			// The network stalls now and then, holding what the device sends, then delivers it at
+			// once: the room is starved for those steps and then gets a burst.
+			if (!device.stall && rng() < 0.01) {
+				device.stall = 2 + Math.floor(rng() * 8);
+				bursts += 1;
+			}
+			if (roll >= 0.04) {
+				if (roll < 0.07) {
+					device.nextSeq += 1 + Math.floor(rng() * 3); // a gap in seq
+					gaps += 1;
+				}
+				device.wire.push(randomInput(rng, device.nextSeq));
 				device.nextSeq += 1;
+			} // else the device sent nothing this step (a lost input)
+			if (device.stall) {
+				device.stall -= 1;
+				continue;
+			}
+			for (const raw of device.wire.splice(0)) {
 				if (device.rx.receive(raw)) device.predicted.push(clampInput(raw, game.field));
 				// The network delivers a copy again, or one from the past: both are dropped.
 				if (rng() < 0.05) (assert.equal(device.rx.receive(raw), false), (repeats += 1));
 				if (rng() < 0.02) assert.equal(device.rx.receive({ ...raw, seq: raw.seq - 5 }), false);
 			}
-			if (roll >= 0.04 && roll < 0.07) gaps += 1;
 		}
-		sim.step((id) => devices.get(id).rx.take());
+		sim.step((id, credit) => devices.get(id).rx.take(credit));
 		for (const id of ids) {
 			const device = devices.get(id);
 			const server = sim.players.get(id);
 			deepest = Math.max(deepest, device.rx.queue.length);
+			waitingSum += device.rx.queue.length;
 			// The device replays, in order, every input of its own the room has now applied.
 			const applied = device.predicted.filter((i) => !i.done && i.seq <= server.ack);
 			if (!applied.length) {
@@ -197,7 +212,15 @@ const runHeadless = (online, steps, seed) => {
 			assert.deepEqual(bodyKey(server.body), bodyKey(device.body), `step ${s}, player ${id}`);
 		}
 	}
-	return { sim, repeats, gaps, starved, bursts, deepest };
+	return {
+		sim,
+		repeats,
+		gaps,
+		starved,
+		bursts,
+		deepest,
+		waiting: waitingSum / (steps * ids.length),
+	};
 };
 
 const RATES = [
@@ -208,13 +231,15 @@ const RATES = [
 
 for (const rates of RATES) {
 	await check(`10 000 steps at ${rates.tickHz} Hz × ${rates.subSteps}: room === device`, () => {
-		const { repeats, gaps, starved, bursts, deepest } = runHeadless(
+		const { repeats, gaps, starved, bursts, deepest, waiting } = runHeadless(
 			rates,
 			10_000,
 			`room-sim-${rates.tickHz}`,
 		);
-		assert.ok(bursts > 500, `bursts ${bursts}`);
-		assert.ok(deepest <= 12, `a backlog of ${deepest} never drained`);
+		assert.ok(bursts > 300, `bursts ${bursts}`);
+		// Stalls of up to nine steps, sometimes back to back: the backlog stays bounded and drains.
+		assert.ok(deepest <= 24, `a backlog of ${deepest}`);
+		assert.ok(waiting < 1, `on average ${waiting} inputs waited`);
 		assert.ok(
 			repeats > 1000 && gaps > 1000 && starved > 1000,
 			JSON.stringify({ repeats, gaps, starved }),
@@ -278,6 +303,75 @@ await check('inputs apply in seq order, one per step', () => {
 	assert.equal(sim.players.get('a').moving, false, 'a step with no input stands still');
 });
 
+await check('a stall’s burst drains; sending more never moves a player faster', () => {
+	assert.deepEqual(
+		[
+			[0, 0],
+			[1, 9],
+			[2, 9],
+			[6, 0],
+			[6, 2],
+			[6, 9],
+			[60, 9],
+		].map(([waiting, credit]) => inputsThisStep(waiting, credit)),
+		[1, 1, 1, 1, 3, 4, 4],
+	);
+	const game = gameOf({ characters: CHARACTERS });
+	const step = (sim, rx) => sim.step((_, credit) => rx.take(credit));
+	const full = (seq) => ({ seq, moveX: 127, moveY: 0, buttons: 0, aimX: 0, aimY: 0 });
+
+	// An honest stall: six steps with nothing, then the six inputs at once, then one a step.
+	const honest = createRoomSim(game);
+	honest.join('a', { character: 'fish' });
+	const rx = receiver(FIELD);
+	for (let i = 0; i < 6; i++) step(honest, rx);
+	let seq = 0;
+	for (let i = 0; i < 6; i++) rx.receive(full(++seq));
+	let steps = 0;
+	while (rx.queue.length > 1 && steps < 20) {
+		rx.receive(full(++seq));
+		step(honest, rx);
+		steps += 1;
+	}
+	assert.ok(steps <= 4, `the burst drained in ${steps} steps`);
+
+	// A cheat: three inputs every step for 600 steps, never starved. It applies one a step.
+	const cheat = createRoomSim(game);
+	cheat.join('a', { character: 'fish' });
+	cheat.players.get('a').body.edges = undefined;
+	const crx = receiver(FIELD);
+	let cseq = 0;
+	let applied = 0;
+	for (let i = 0; i < 600; i++) {
+		for (let n = 0; n < 3; n++) crx.receive({ ...full(++cseq), moveX: i % 2 ? 127 : -127 });
+		const before = cheat.players.get('a').ack;
+		step(cheat, crx);
+		applied += cheat.players.get('a').ack > before ? 1 : 0;
+	}
+	assert.equal(cheat.players.get('a').ack, 600, 'one input a step, however many are sent');
+	assert.equal(applied, 600);
+});
+
+await check('over any run of steps a player applies no more inputs than steps passed', () => {
+	const rng = createRng('credit');
+	const sim = createRoomSim(gameOf({ characters: CHARACTERS }));
+	sim.join('a', { character: 'salmon' });
+	const rx = receiver(FIELD);
+	let seq = 0;
+	let applied = 0;
+	for (let s = 1; s <= 5000; s++) {
+		const roll = rng();
+		const count = roll < 0.2 ? 0 : roll < 0.9 ? 1 : 1 + Math.floor(rng() * 10);
+		for (let n = 0; n < count; n++) rx.receive({ seq: ++seq, moveX: 127, moveY: 0 });
+		sim.step((_, credit) => {
+			const taken = rx.take(credit);
+			applied += taken.length;
+			return taken;
+		});
+		assert.ok(applied <= s, `step ${s}: ${applied} inputs applied`);
+	}
+});
+
 await check(
 	'join: the room size, each character’s max, unknown and default characters, names',
 	() => {
@@ -328,6 +422,27 @@ await check('a config the room cannot play is refused, with the reason', () => {
 		/free play|outcome/,
 	);
 });
+
+await check(
+	'the config source: a loaded game keeps its last good config through a failed read',
+	async () => {
+		const own = mkdtempSync(join(tmpdir(), 'room-sim-src-'));
+		let clock = 0;
+		const load = createConfigSource({ dir: own, now: () => clock });
+		const file = join(own, 'pond.json');
+		writeFileSync(file, JSON.stringify(configOf({ characters: CHARACTERS })));
+		const first = await load('pond');
+		rmSync(file);
+		clock += 61_000;
+		assert.equal(await load('pond'), first, 'a failed read serves the last good config');
+		await assert.rejects(load('never'), 'a game never loaded is refused');
+		writeFileSync(file, JSON.stringify({ gameName: 'now a slot' }));
+		clock += 61_000;
+		await assert.rejects(load('pond'), 'a config that is refused is not covered up');
+		await assert.rejects(load('Not A Key'));
+		rmSync(own, { recursive: true, force: true });
+	},
+);
 
 // --- 1b. the runtime: only an online config takes the online branch ------------------------------
 
@@ -420,12 +535,16 @@ writeFileSync(
 writeFileSync(join(dir, 'third.json'), JSON.stringify(configOf({ characters: CHARACTERS })));
 writeFileSync(join(dir, 'slot.json'), JSON.stringify({ gameName: 'A slot' }));
 
+// High enough for the gate's own joins in one window; the limit's own check counts to it.
+const MATCHMAKE_LIMIT = 120;
 const port = await freePort();
 const game = createGameServer({
 	loadGame: createConfigSource({ dir }),
 	maxRooms: 2,
 	commit: 'roomsim00000',
 	gracefullyShutdown: false,
+	trustProxy: true,
+	matchmakePerWindow: MATCHMAKE_LIMIT,
 });
 await game.listen(port);
 const endpoint = `ws://127.0.0.1:${port}`;
@@ -474,8 +593,49 @@ try {
 			body: JSON.stringify({ game: 'river', pad: 'x'.repeat(10_000) }),
 		});
 		assert.equal(big.status, 413);
+		// A chunked body declares no length, so it is refused before a byte is read.
+		const chunked = await new Promise((resolve, reject) => {
+			const req = httpRequest(
+				{
+					port,
+					host: '127.0.0.1',
+					method: 'POST',
+					path: `/matchmake/joinOrCreate/${ROOM_NAME}`,
+					headers: { 'content-type': 'application/json', 'transfer-encoding': 'chunked' },
+				},
+				(res) => resolve(res.statusCode),
+			);
+			req.on('error', (e) =>
+				e.code === 'ECONNRESET' || e.code === 'EPIPE' ? resolve(0) : reject(e),
+			);
+			req.write('{"game":"river","pad":"');
+			req.write('x'.repeat(64_000));
+		});
+		assert.ok(chunked === 411 || chunked === 0, `chunked: ${chunked}`);
 		assert.equal(game.rooms.count, 0);
 	});
+
+	await check(
+		'live: one address’s matchmaking is limited per window; another’s is not',
+		async () => {
+			const ask = (address) =>
+				fetch(`http://127.0.0.1:${port}/matchmake/joinOrCreate/${ROOM_NAME}`, {
+					method: 'POST',
+					headers: {
+						'content-type': 'application/json',
+						'x-forwarded-for': `10.0.0.1, ${address}`,
+					},
+					body: JSON.stringify({ game: 'nope' }),
+				}).then((r) => r.status);
+			// The window is fixed: start early in one, so the count is not cut in two.
+			const into = Date.now() % 10_000;
+			if (into > 7000) await wait(10_050 - into);
+			const statuses = [];
+			for (let i = 0; i < MATCHMAKE_LIMIT + 1; i++) statuses.push(await ask('203.0.113.7'));
+			assert.equal(statuses.filter((s) => s === 429).length, 1, JSON.stringify(statuses.slice(-3)));
+			assert.notEqual(await ask('203.0.113.8'), 429);
+		},
+	);
 
 	const a = noAutoReconnect(
 		await clientOf().joinOrCreate(ROOM_NAME, {

@@ -14,8 +14,10 @@
  * bitfield of {@link BUTTONS}; `aim` is a point on the field.
  *
  * A step with no input moves its player by nothing: the player stands still until the next input
- * arrives. So a player's body is exactly the fold of {@link stepPlayer} over the inputs the server
- * applied, in `seq` order — what `scripts/check-room-sim.mjs` pins.
+ * arrives (a body has no momentum: the step sets its velocity to 0). So a player's body is exactly
+ * the fold of {@link stepPlayer} over the inputs the server applied, in `seq` order — what
+ * `scripts/check-room-sim.mjs` pins. A rule that moves a body with no input (a current, momentum)
+ * must keep that fold true for the device's replay (P10.15).
  */
 
 import { stepBody } from './motion.js';

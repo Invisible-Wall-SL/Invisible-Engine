@@ -15,7 +15,8 @@ import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-conf
  *
  * Answers, good or bad, are kept for {@link CACHE_MS}, and at most {@link MAX_IN_FLIGHT} reads run
  * at once, so a device asking for rooms of games that do not exist cannot make the server fetch for
- * every request.
+ * every request; a game that has loaded once keeps its last good config through a full reader or a
+ * failed read.
  */
 
 /** A game key: what the launcher's project keys look like. Anything else is never looked up. */
@@ -26,6 +27,7 @@ const FETCH_TIMEOUT_MS = 5_000;
 const MAX_CONFIG_BYTES = 2_000_000;
 /** Config reads in flight at once; a read past it is refused at once and not cached. */
 const MAX_IN_FLIGHT = 4;
+const MAX_CACHED = 1000;
 
 export type LoadGame = (game: string) => Promise<OnlineGame>;
 
@@ -52,6 +54,9 @@ const parse = (text: string, game: string): OnlineGame => {
 export function createConfigSource(options: ConfigSourceOptions): LoadGame {
 	const now = options.now ?? Date.now;
 	const cache = new Map<string, { at: number; answer: Promise<OnlineGame> }>();
+	/** The last good config of each game that has one: only real games get here, so keys made up by
+	 *  a device can neither evict them nor, by filling the reads in flight, refuse them. */
+	const known = new Map<string, OnlineGame>();
 	let inFlight = 0;
 
 	const fetchText = async (game: string): Promise<string> => {
@@ -78,18 +83,33 @@ export function createConfigSource(options: ConfigSourceOptions): LoadGame {
 		if (!GAME_KEY.test(game)) return Promise.reject(new Error('not a game key'));
 		const hit = cache.get(game);
 		if (hit && now() - hit.at < CACHE_MS) return hit.answer;
-		if (inFlight >= MAX_IN_FLIGHT)
-			return Promise.reject(new Error('too many config reads at once'));
+		const last = known.get(game);
+		if (inFlight >= MAX_IN_FLIGHT) {
+			return last
+				? Promise.resolve(last)
+				: Promise.reject(new Error('too many config reads at once'));
+		}
 		inFlight += 1;
 		const answer = fetchText(game)
-			.then((text) => parse(text, game))
+			.then(
+				(text) => parse(text, game),
+				// A read that failed (not a config that was refused) keeps the game its last good one.
+				(error: unknown) => {
+					if (last) return last;
+					throw error;
+				},
+			)
+			.then((resolved) => {
+				known.set(game, resolved);
+				return resolved;
+			})
 			.finally(() => {
 				inFlight -= 1;
 			});
 		// A rejection is still cached, but marked handled so an unawaited copy never crashes us.
 		answer.catch(() => {});
 		cache.set(game, { at: now(), answer });
-		if (cache.size > 1000) cache.delete(cache.keys().next().value as string);
+		if (cache.size > MAX_CACHED) cache.delete(cache.keys().next().value as string);
 		return answer;
 	};
 }
