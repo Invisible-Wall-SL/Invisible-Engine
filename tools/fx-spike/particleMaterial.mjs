@@ -9,16 +9,20 @@
  *  - PARITY: an Output-alone material against the plain sprites it hides, one emitter drawn both ways
  *    in the same state, at two moments: static, rotated, trimmed and trimmed-rotated frames, a
  *    flipbook, the `fxSprite` pivot and offset, tint, the colour overlay, fade, Add, a group alpha
- *    and tint below 1, a padded material with `addAtBack`, a scaled and turned parent. Judged as the
- *    twins are (`shaderTwins.mjs`): a pixel DIFFERS when a channel is more than THRESHOLD steps out;
- *    a cell fails when more than SHARE of its drawn pixels differ, or on any PATCH (a differing pixel
- *    with four differing neighbours);
+ *    and tint below 1, a padded material with `addAtBack`, a scaled and turned parent, a trimmed
+ *    frame under a padded material, a fractional Max particles, and a target at resolution 2.
+ *    Judged as the twins are (`shaderTwins.mjs`): a pixel DIFFERS when a channel is more than
+ *    THRESHOLD steps out; a cell fails when more than SHARE (EDGE_SHARE where the quads cannot be the
+ *    sprites') of its drawn pixels differ, or on any PATCH (a differing pixel with four differing
+ *    neighbours). A NEGATIVE CONTROL, the material's trimmed box written a quarter texel off, must
+ *    fail, so the gate proves it can see that;
+ *  - a destroyed material leaves no listener on the atlas;
  *  - INPUTS: progress (over the life, and looped at the effect's length), seconds, strength, looping,
  *    seed and both indexes, written as colour by probe graphs and read back at each particle, within
  *    2 steps of what it carries; seeds whole and spread, the indexes as `fxMaterial` specifies;
  *  - PLAIN: no effect, a body the shell refuses, a program the driver refuses (logged once), Max
- *    particles over the cap or driven past the layer's, frames on two textures: each layer plain, its
- *    sprites shown and drawn, no mesh;
+ *    particles over the cap, not a number, or driven past the layer's, frames on two textures at
+ *    mount or mid-play: each layer plain, its sprites shown and drawn, no mesh;
  *  - STEADY: FRAMES frames after a warm-up allocate no GPU buffer and keep the mirror's arrays;
  *  - the CPU time to mirror 512 particles, logged.
  *
@@ -40,10 +44,11 @@ const SHARE = 0.0025;
  * The share for a case whose quads are not the sprites': a trimmed frame (the sprite's quad is its
  * trimmed box, the material's the whole frame) or a padded material. Their outlines are drawn from
  * different corners, which SwiftShader snaps to 1/16 of a pixel, so along a trimmed edge a pixel
- * centre can fall inside one and outside the other: one-pixel lines, never a patch, about 0.2–0.45%
- * of the drawn pixels with these particles' sizes.
+ * centre can fall inside one and outside the other: one-pixel lines, never a patch, up to about
+ * 0.45% of the drawn pixels with these particles' sizes. The negative control (the trimmed box a
+ * quarter texel off) must fail it.
  */
-const EDGE_SHARE = 0.01;
+const EDGE_SHARE = 0.006;
 const DRAW_MS = 240_000;
 const FAILED = /^\[(error|assert|uncaught)\]/;
 
@@ -110,7 +115,8 @@ for (const gl of [1, 2]) {
 	console.log(`\nWebGL${gl}`);
 	console.log(`  parity (largest difference, share > ${THRESHOLD}, patches; drawn px)`);
 	if (!run.parity.length) failed.push(`WebGL${gl}: no parity case drawn`);
-	for (const { label, moment, edges, cell } of run.parity) {
+	const peaks = {};
+	for (const { label, moment, edges, control, cell } of run.parity) {
 		const share = cell.over / Math.max(1, cell.drawn);
 		const allowed = edges ? EDGE_SHARE : SHARE;
 		console.log(
@@ -118,11 +124,22 @@ for (const gl of [1, 2]) {
 		);
 		if (cell.drawn < 500)
 			failed.push(`WebGL${gl}, ${label} @${moment}: only ${cell.drawn} px drawn`);
+		if (control) {
+			if (share <= allowed && !cell.patch)
+				failed.push(
+					`WebGL${gl}, ${label} @${moment}: the comparator passed it (${pct(share)}, ${cell.patch} patches): it cannot see a quarter-texel trim error`,
+				);
+			continue;
+		}
+		peaks[edges ? 'edges' : 'same'] = Math.max(peaks[edges ? 'edges' : 'same'] ?? 0, share);
 		if (share > allowed || cell.patch)
 			failed.push(
 				`WebGL${gl}, ${label} @${moment}: ${pct(share)} of ${cell.drawn} drawn pixels differ by more than ${THRESHOLD} (${pct(allowed)} allowed), ${cell.patch} in patches (largest ${cell.max})`,
 			);
 	}
+	console.log(
+		`  peak share: ${pct(peaks.same ?? 0)} where the quads are the sprites' (${pct(SHARE)} allowed), ${pct(peaks.edges ?? 0)} where not (${pct(EDGE_SHARE)} allowed)`,
+	);
 	console.log('  inputs (particles, worst step off)');
 	for (const [name, input] of Object.entries(run.inputs))
 		console.log(`    ${name.padEnd(10)} ${input.particles} ${input.worst}`);

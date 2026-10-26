@@ -50,7 +50,7 @@ const THRESHOLD = Number(query.get('threshold') ?? 2);
 const FRAMES = Number(query.get('frames') ?? 20000);
 const CELL = 240;
 const COLS = 5;
-const ROWS = 3;
+const ROWS = 4;
 const BACKGROUND = 0x20232a;
 const EMIT_SPEED = 0.00234;
 const FRAME_MS = 1000 / 60;
@@ -212,47 +212,65 @@ interface Cell {
 	const frame = (name: keyof typeof ATLAS_FRAMES): Texture => sheet.textures[name];
 	const flipbook = [frame('f0'), frame('f1'), frame('f2'), frame('f3')];
 
-	const readCanvas = (): Uint8Array => {
-		const out = new Uint8Array(renderer.width * renderer.height * 4);
-		gl.readPixels(0, 0, renderer.width, renderer.height, gl.RGBA, gl.UNSIGNED_BYTE, out);
-		return out;
+	/** Pixels read back, bottom row first when `flipped` (as `readPixels` gives a canvas). */
+	interface Read {
+		pixels: Uint8Array | Uint8ClampedArray;
+		width: number;
+		height: number;
+		flipped: boolean;
+	}
+	const readCanvas = (): Read => {
+		const pixels = new Uint8Array(renderer.width * renderer.height * 4);
+		gl.readPixels(0, 0, renderer.width, renderer.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+		return { pixels, width: renderer.width, height: renderer.height, flipped: true };
 	};
-	/** Pixel (x, y) from the top of a read canvas. */
-	const at = (pixels: Uint8Array, x: number, y: number): number[] => {
-		const i = ((renderer.height - 1 - y) * renderer.width + x) * 4;
-		return [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]];
+	/** Pixel (x, y) from the top of a read. */
+	const at = (read: Read, x: number, y: number): number[] => {
+		const i = ((read.flipped ? read.height - 1 - y : y) * read.width + x) * 4;
+		return [read.pixels[i], read.pixels[i + 1], read.pixels[i + 2], read.pixels[i + 3]];
 	};
-	const bg = [(BACKGROUND >> 16) & 255, (BACKGROUND >> 8) & 255, BACKGROUND & 255];
-	/** Cell `n` of two reads compared: what differs by more than THRESHOLD, and in patches. */
-	const compare = (a: Uint8Array, b: Uint8Array, n: number): Cell => {
-		const x0 = (n % COLS) * CELL;
-		const y0 = Math.floor(n / COLS) * CELL;
-		const differs = new Uint8Array(CELL * CELL);
+	const canvasBackground = [(BACKGROUND >> 16) & 255, (BACKGROUND >> 8) & 255, BACKGROUND & 255];
+	/**
+	 * The `size`-square at (x0, y0) of two reads compared: what differs by more than THRESHOLD, and
+	 * in patches; drawn = what `b` draws off `background`.
+	 */
+	const compareAt = (
+		a: Read,
+		b: Read,
+		x0: number,
+		y0: number,
+		size: number,
+		background: number[],
+	): Cell => {
+		const differs = new Uint8Array(size * size);
 		const cell: Cell = { drawn: 0, over: 0, patch: 0, max: 0 };
-		for (let y = 0; y < CELL; y++)
-			for (let x = 0; x < CELL; x++) {
+		for (let y = 0; y < size; y++)
+			for (let x = 0; x < size; x++) {
 				const pa = at(a, x0 + x, y0 + y);
 				const pb = at(b, x0 + x, y0 + y);
-				if (pb.slice(0, 3).some((v, k) => Math.abs(v - bg[k]) > THRESHOLD)) cell.drawn++;
+				if (background.some((v, k) => Math.abs(v - pb[k]) > THRESHOLD)) cell.drawn++;
 				const d = Math.max(...pa.map((v, k) => Math.abs(v - pb[k])));
 				cell.max = Math.max(cell.max, d);
 				if (d > THRESHOLD) {
 					cell.over++;
-					differs[y * CELL + x] = 1;
+					differs[y * size + x] = 1;
 				}
 			}
-		for (let y = 1; y < CELL - 1; y++)
-			for (let x = 1; x < CELL - 1; x++)
+		for (let y = 1; y < size - 1; y++)
+			for (let x = 1; x < size - 1; x++)
 				if (
-					differs[y * CELL + x] &&
-					differs[y * CELL + x - 1] &&
-					differs[y * CELL + x + 1] &&
-					differs[(y - 1) * CELL + x] &&
-					differs[(y + 1) * CELL + x]
+					differs[y * size + x] &&
+					differs[y * size + x - 1] &&
+					differs[y * size + x + 1] &&
+					differs[(y - 1) * size + x] &&
+					differs[(y + 1) * size + x]
 				)
 					cell.patch++;
 		return cell;
 	};
+	/** Cell `n` of two canvas reads compared. */
+	const compare = (a: Read, b: Read, n: number): Cell =>
+		compareAt(a, b, (n % COLS) * CELL, Math.floor(n / COLS) * CELL, CELL, canvasBackground);
 
 	interface Layer {
 		host: Container;
@@ -274,7 +292,7 @@ interface Cell {
 		const material = new ParticleMaterial({
 			host,
 			effect: undefined,
-			maxParticles: config.maxParticles ?? 0,
+			maxParticles: config.maxParticles ?? 1000,
 			textures,
 			emitSpeed: EMIT_SPEED,
 			...given,
@@ -333,6 +351,8 @@ interface Cell {
 		animated?: boolean;
 		effect?: CustomElementFx;
 		group?: (host: Container) => void;
+		/** The negative control: the material's trimmed box written a quarter texel off. */
+		control?: boolean;
 	}[] = [
 		{ label: 'static frame', config: base([]), textures: [frame('static')] },
 		{ label: 'rotated frame', config: base([]), textures: [frame('rotated')] },
@@ -440,12 +460,57 @@ interface Cell {
 				app.stage.addChild(wrap);
 			},
 		},
+		{
+			label: 'trimmed frame, padded material',
+			config: base([]),
+			textures: [frame('trimmed')],
+			effect: padded,
+		},
+		{
+			label: 'Max particles 10.3 (11 spawn)',
+			config: base([], { maxParticles: 10.3 }),
+			textures: [frame('static')],
+		},
+		{
+			label: 'CONTROL: trimmed box a quarter texel off',
+			config: base([]),
+			textures: [frame('trimmed')],
+			control: true,
+		},
 	];
 	/** Whether a case's quads are not the sprites' (trimmed frames, padding): see `atlasArt`. */
 	const edges = (c: (typeof cases)[number]): boolean =>
 		c.textures.some((t) => !!t.trim) || (c.effect?.padding ?? 0) > 0;
-	const parity: { label: string; moment: number; edges: boolean; cell: Cell }[] = [];
+	const parity: {
+		label: string;
+		moment: number;
+		edges: boolean;
+		control: boolean;
+		cell: Cell;
+	}[] = [];
+	/**
+	 * What a trim read a quarter texel off would write: the box's left edge and the mapping's origin
+	 * moved by a quarter of the frame's texel, in the mirror's buffer, so only the material draws it.
+	 */
+	const misTrim = (l: Layer): void => {
+		const geometry = meshOf(l.host)?.geometry;
+		if (!geometry) return;
+		const buffer = geometry.getBuffer('aPosition');
+		const data = buffer.data as Float32Array;
+		const stride = geometry.getAttribute('aPosition').stride / 4;
+		const trim = geometry.getAttribute('aEfxTrim').offset / 4;
+		const map = geometry.getAttribute('aEfxMap').offset / 4;
+		const shift = 0.25 / frame('trimmed').orig.width;
+		for (let v = 0; v < l.material.particles.children.length * 4; v++) {
+			const at = v * stride;
+			data[at + trim] += shift;
+			data[at + map] -= shift * data[at + map + 2];
+			data[at + map + 1] -= shift * data[at + map + 3];
+		}
+		buffer.update();
+	};
 	const dumps: string[] = [];
+	const listening = atlas.source.listenerCount('change');
 	const layers = cases.map((c, n) => {
 		const l = layer(n, c.config, c.textures, {
 			effect: c.effect ?? alone,
@@ -456,8 +521,10 @@ interface Cell {
 	});
 	for (const [k, l] of layers.entries())
 		claim(`${cases[k].label}: the material is on`, l.material.plain === undefined);
+	const fraction = cases.findIndex((c) => c.config.maxParticles === 10.3);
 	for (const moment of [20, 45]) {
 		for (const l of layers) l.step(moment === 20 ? 20 : 25);
+		cases.forEach((c, n) => c.control && misTrim(layers[n]));
 		renderer.render(app.stage);
 		const material = readCanvas();
 		if (query.has('dump')) dumps.push(app.canvas.toDataURL());
@@ -475,9 +542,17 @@ interface Cell {
 			if (mesh) mesh.visible = true;
 		}
 		cases.forEach((c, n) =>
-			parity.push({ label: c.label, moment, edges: edges(c), cell: compare(material, plain, n) }),
+			parity.push({
+				label: c.label,
+				moment,
+				edges: edges(c),
+				control: !!c.control,
+				cell: compare(material, plain, n),
+			}),
 		);
 	}
+	const spawned = layers[fraction].material.particles.children.length;
+	claim(`Max particles 10.3: 11 particles drawn (${spawned})`, spawned === 11);
 	// The hidden sprites are not measured: the layer's bounds are the mesh's.
 	const measured = layers[0].host.getLocalBounds();
 	const meshBounds = meshOf(layers[0].host)?.getLocalBounds();
@@ -493,6 +568,40 @@ interface Cell {
 		l.material.destroy();
 	}
 	app.stage.removeChildren();
+	// At resolution 2: a target twice as dense, both ways.
+	const dense = RenderTexture.create({ width: CELL, height: CELL, resolution: 2 });
+	const hi = layer(0, base([]), [frame('trimRotated')], { effect: padded });
+	app.stage.removeChild(hi.host);
+	const drawDense = (): Read => {
+		renderer.render({ container: hi.host, target: dense, clear: true, clearColor: [0, 0, 0, 0] });
+		const { pixels, width, height } = renderer.extract.pixels({ target: dense });
+		return { pixels, width, height, flipped: false };
+	};
+	for (const moment of [20, 45]) {
+		hi.step(moment === 20 ? 20 : 25);
+		const material = drawDense();
+		hi.material.particles.visible = true;
+		const mesh = meshOf(hi.host);
+		if (mesh) mesh.visible = false;
+		const plain = drawDense();
+		hi.material.particles.visible = false;
+		if (mesh) mesh.visible = true;
+		parity.push({
+			label: 'resolution 2, trimmed rotated, padded',
+			moment,
+			edges: true,
+			control: false,
+			cell: compareAt(material, plain, 0, 0, material.width, [0, 0, 0, 0]),
+		});
+	}
+	claim('resolution 2: the material is on', hi.material.plain === undefined);
+	hi.emitter.destroy();
+	hi.material.destroy();
+	const after = atlas.source.listenerCount('change');
+	claim(
+		`a destroyed material lets go of the atlas (${listening} change listeners before, ${after} after)`,
+		after === listening,
+	);
 
 	// --- the per-particle inputs ---
 	const STRENGTH = 0.5;
@@ -726,6 +835,25 @@ interface Cell {
 			want: 'frames on several textures',
 			config: base([]),
 			textures: [frame('static'), other],
+			options: { effect: alone },
+		},
+		{
+			label: 'a frame on another texture mid-play',
+			want: 'frames on several textures',
+			config: base([]),
+			textures: [frame('static')],
+			options: { effect: alone },
+			drive: (l) => {
+				l.step(20);
+				if (l.material.plain) return;
+				(l.material.particles.children[0] as Sprite).texture = other;
+			},
+		},
+		{
+			label: 'Max particles not a number (the library’s 1000)',
+			want: 'over capacity',
+			config: base([], { maxParticles: Number.NaN }),
+			textures: [frame('static')],
 			options: { effect: alone },
 		},
 	];

@@ -3,18 +3,18 @@
  * `docs/design/shader-graph-particles.md` §6–7): what a particle carries for a material that the
  * library keeps nowhere, written at spawn.
  *
- *  - its SEED, a whole number 0…97: the material's Seed input. Whole, because the shell hands it to
- *    the fragment as an interpolated varying, and an integer stays exact at all four corners even at
- *    mediump, where a fraction under a hash could speckle inside one particle;
- *  - its WAVE INDEX: its place in its spawn wave ÷ (wave size − 1), 0 for a wave of one. The library
- *    calls an init behaviour once per wave with the wave's first particle, so the behaviour sees the
- *    wave's size;
+ *  - its SEED, a whole number 0…97: the material's Seed input. Whole, because the shell hands it
+ *    to the fragment as an interpolated varying, and an integer stays exact at all four corners
+ *    even at mediump, where a fraction under a hash could speckle inside one particle;
+ *  - its WAVE INDEX: its place in its spawn wave ÷ (wave size − 1), 0 for a wave of one. The
+ *    library calls an init behaviour once per wave with the wave's first particle, so the
+ *    behaviour sees the wave's size;
  *  - its SPAWN ORDER: its spawn number ÷ the emitter's Max particles (read live, so a drive on it
  *    counts), wrapping.
  *
- * They live in the particle's scratch bag under {@link FX_MATERIAL_KEYS} and go back to 0 when it is
- * recycled. The behaviour is never stored: the material renderer injects it into the bound config
- * ({@link bindFxMaterial}), as `bindArt` injects the art, so an authored config stays pure.
+ * They live in the particle's scratch bag under {@link FX_MATERIAL_KEYS} and go back to 0 when it
+ * is recycled. The behaviour is never stored: the material renderer injects it into the bound
+ * config ({@link bindFxMaterial}), as `bindArt` injects the art, so an authored config stays pure.
  */
 
 import type { EmitterConfigV3 } from '@barvynkoa/particle-emitter';

@@ -1,28 +1,32 @@
 /**
- * The MATERIAL RENDERER (Invisible Shader Graph step 8d, `docs/design/shader-graph-particles.md` §6):
- * an emitter layer's particles drawn through a compiled Shader Graph effect, as ONE Pixi `Mesh`.
+ * The MATERIAL RENDERER (Invisible Shader Graph step 8d, `docs/design/shader-graph-particles.md`
+ * §6): an emitter layer's particles drawn through a compiled Shader Graph effect, as ONE Pixi
+ * `Mesh`.
  *
  *  - THE HIDDEN SPRITES. The emitter's particles go into {@link ParticleMaterial.particles}, a
- *    container the material keeps hidden, so Pixi neither transforms nor draws them. The library still
- *    owns their whole life.
+ *    container the material keeps hidden, so Pixi neither transforms nor draws them. The library
+ *    still owns their whole life.
  *  - THE MESH sits beside it in the layer's container, at its depth: one quad a particle, one draw
  *    call a layer, the layer's blend, the particles' atlas as its texture.
  *  - THE MIRROR ({@link ParticleMaterial.sync}, after each `emitter.update`) walks the hidden
  *    children in order (so `addAtBack` holds) and writes each particle's four vertices into one
- *    interleaved buffer, the layout `particleShell.ts`'s vertex shader declares: its corners from its
- *    own local transform, anchor and texture as Pixi builds a sprite's quad, but over the whole frame
- *    (untrimmed) and grown by the effect's padding; the atlas mapping for its current frame (a frame
- *    the atlas turned mapped as Pixi turns it); its trimmed box; its tint × alpha; its time, strength
- *    and the seed and indexes `fxMaterial` gave it. Only the live quads are uploaded and drawn, and
- *    the mesh's bounds are theirs.
+ *    interleaved buffer, the layout `particleShell.ts`'s vertex shader declares: its corners from
+ *    its own local transform, anchor and texture as Pixi builds a sprite's quad, but over the whole
+ *    frame (untrimmed) and grown by the effect's padding; the atlas mapping for its current frame
+ *    (a frame the atlas turned mapped as Pixi turns it); its trimmed box; its tint × alpha; its
+ *    time, strength and the seed and indexes `fxMaterial` gave it. Only the live quads are drawn,
+ *    and the mesh's bounds are theirs. WebGL2 uploads only the live part of the buffer; WebGL1's
+ *    `bufferSubData` takes no length, so Pixi uploads the whole buffer there (its size is the
+ *    layer's Max particles, not the cap).
  *
- * FAIL CLOSED, NEVER INVISIBLE: the layer draws as the plain sprites it would without a material (the
- * hidden container shown, no mesh) when the effect is missing, when the particle shell cannot convert
- * its body, when the layer's Max particles is over {@link PARTICLE_MATERIAL_CAPACITY}, when its frames
- * are not all on one texture source, when the renderer is not WebGL, or when the program does not
- * compile and link on this GPU (asked of the driver once, at first use, and logged once). A layer
- * found out while it plays (a drive raising Max particles, a frame on another source) turns plain for
- * the rest of its life.
+ * FAIL CLOSED, NEVER INVISIBLE: the layer draws as the plain sprites it would without a material
+ * (the hidden container shown, no mesh) when the effect is missing, when the particle shell cannot
+ * convert its body, when the layer's Max particles is over {@link PARTICLE_MATERIAL_CAPACITY} (one
+ * that is not a positive number is the library's 1000, so over it too), when its frames are not
+ * all on one texture source, when the renderer is not WebGL, or when the program does not compile
+ * and link on this GPU (asked of the driver once, at first use, and logged once). A layer found
+ * out while it plays (a drive raising Max particles past its value at mount, a frame on another
+ * source) turns plain for the rest of its life.
  */
 
 import {
@@ -66,7 +70,7 @@ export type ParticleMaterialPlain =
 	| 'not WebGL'
 	| 'program does not link';
 
-/** How a material's Time input runs on a particle (§7): over its life, or looped at the effect's length. */
+/** How a material's Time input runs on a particle (§7): over its life, or looped at its length. */
 export type ParticleMaterialTime = 'life' | 'loop';
 
 export interface ParticleMaterialOptions {
@@ -123,7 +127,7 @@ const TRIM = offsetOf('aEfxTrim');
 const COLOR = offsetOf('aEfxColor');
 const TIME = offsetOf('aEfxTime');
 
-/** The corners of a quad as Pixi orders a sprite's: top left, top right, bottom right, bottom left. */
+/** A quad's corners as Pixi orders a sprite's: top left, top right, bottom right, bottom left. */
 const ACROSS = [0, 1, 1, 0];
 const DOWN = [0, 0, 1, 1];
 
@@ -131,6 +135,9 @@ const DOWN = [0, 0, 1, 1];
 const QUAD = [0, 1, 2, 0, 2, 3];
 
 const VECTOR_SIZES = { vec2: 2, vec3: 3, vec4: 4 } as const;
+
+/** The library's Max particles for a config without a positive one (`Emitter.init`). */
+const LIBRARY_MAX_PARTICLES = 1000;
 
 /** Programs already said to have failed: each is logged once. */
 const reported = new WeakSet<GlProgram>();
@@ -144,13 +151,14 @@ class ParticleGeometry extends Geometry {
 }
 
 export class ParticleMaterial {
-	/** The emitter's particle parent: hidden while the material draws, shown when the layer is plain. */
+	/** The emitter's particle parent: hidden while the material draws, shown when it is plain. */
 	readonly particles = new Container({ label: 'particle material sprites' });
 	private readonly host: Container;
 	private readonly effect: CustomElementFx | undefined;
 	private readonly specs = new Map<string, ElementFxParamSpec>();
 	private readonly capacity: number;
 	private mesh: Mesh<ParticleGeometry, Shader> | undefined;
+	private shader: Shader | undefined;
 	private program: GlProgram | undefined;
 	private geometry: ParticleGeometry | undefined;
 	private buffer: Buffer | undefined;
@@ -174,13 +182,15 @@ export class ParticleMaterial {
 		this.secondsPerAge = 1 / ((options.emitSpeed || DEFAULT_EMIT_SPEED) * 1000);
 		this.lengthSeconds = Math.max(1e-3, (effect?.spec.durationMs ?? 1000) / 1000);
 		this.padding = effect?.padding ?? 0;
-		this.capacity = Math.min(PARTICLE_MATERIAL_CAPACITY, Math.max(1, options.maxParticles));
+		// As the library reads it: not a positive number is 1000, a fraction lets one more spawn.
+		const max = options.maxParticles > 0 ? Math.ceil(options.maxParticles) : LIBRARY_MAX_PARTICLES;
+		this.capacity = Math.min(PARTICLE_MATERIAL_CAPACITY, max);
 		host.addChild(this.particles);
 		const fragment = effect && particleShellSource(effect);
 		const source = options.textures[0]?.source;
 		if (!effect) this.plainBecause = 'no effect';
 		else if (!fragment) this.plainBecause = 'shell refuses the body';
-		else if (options.maxParticles > PARTICLE_MATERIAL_CAPACITY) this.plainBecause = 'over capacity';
+		else if (max > PARTICLE_MATERIAL_CAPACITY) this.plainBecause = 'over capacity';
 		else if (!source || options.textures.some((t) => t.source !== source))
 			this.plainBecause = 'frames on several textures';
 		if (this.plainBecause || !effect || !fragment || !source) return;
@@ -231,13 +241,13 @@ export class ParticleMaterial {
 			fragment,
 			name: `particle-material-${effect.spec.kind.replace(/\W/g, '-')}`,
 		});
-		const shader = new Shader({
+		const shader = (this.shader = new Shader({
 			glProgram: this.program,
 			resources: {
 				uTexture: texture.source,
 				...(this.params ? { efxParams: this.params } : {}),
 			},
-		});
+		}));
 		this.mesh = new Mesh({ geometry: this.geometry, shader, texture });
 		this.mesh.label = 'particle material';
 		this.mesh.eventMode = 'none';
@@ -293,7 +303,10 @@ export class ParticleMaterial {
 		this.host.removeChild(this.mesh);
 		this.mesh.destroy();
 		this.geometry?.destroy(true);
-		this.mesh = this.geometry = this.buffer = this.data = undefined;
+		// The mesh lets go of its shader without destroying it, and the shader's bind group listens
+		// to the atlas source. Its program is Pixi's shared one (`GlProgram.from`): kept.
+		this.shader?.destroy();
+		this.mesh = this.shader = this.geometry = this.buffer = this.data = undefined;
 	}
 
 	/**
@@ -313,7 +326,8 @@ export class ParticleMaterial {
 				if (!reported.has(program)) {
 					reported.add(program);
 					console.warn(
-						`Particle material: ${this.effect?.spec.kind} did not compile on this GPU, so its particles draw as plain sprites.`,
+						`Particle material: ${this.effect?.spec.kind} did not compile on this GPU, ` +
+							'so its particles draw as plain sprites.',
 					);
 				}
 				return this.fallBack('program does not link');
