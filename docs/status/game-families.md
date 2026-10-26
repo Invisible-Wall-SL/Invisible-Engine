@@ -2,8 +2,9 @@
 
 > Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `invisible-game-config`, `invisible-game-maker`, then per phase
 
-**One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.7 are merged; P10.8
-(arcade, rules-decided) is built** and in review: an arcade project can be made in Game Maker and
+**One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.8 are merged; P10.12
+(the arcade world and camera) is built** and in review: a play-field screen can be a world bigger
+than the screen, framed by a following, scrolling, shaking camera with parallax layers. P10.8: an arcade project can be made in Game Maker and
 plays as free play in the shared runtime — a catcher / dodger sample whose spawned bodies move on a
 fixed-step loop, collide by tag and keep score in Flow. A match-3 project can be made in Game Maker as
 free play (P10.5) or real money (P10.6): in the second the bet deals the server's board, every swap
@@ -13,6 +14,129 @@ server's `match3` mock on our own wire. **Publishing is on for every family the 
 server; delivery stays slot-only, and live real money waits on the partner (§9 #2).
 
 ## Current state
+
+**P10.12 — Arcade A3a: world and camera (built 2026-10-26; in review).** §8's P10.12 row (§4.4,
+§3.4, §5.1), in one PR. Built before P10.11, as §8 orders it for Salmons (its river is bigger than
+the screen). No current game declares a world, so none of it runs in one.
+
+- **The camera** (`engine-mechanics` `camera.js` + `camera.d.ts`, plain ESM beside `motion.js`): a
+  view rectangle in world px (`x` / `y` its top-left, the view the screen's design size).
+  `createCamera`, `stepCamera` (each fixed step: auto-scroll → aim → clamp → shake),
+  `followWith`, `moveCameraTo`, `shakeCamera`, `viewRect`, `parallaxOffset`. Aiming: the followed
+  body (by tag: the first carrying it in spawn order; or one instance) plus `lookAhead` seconds of
+  its velocity, kept inside a `deadZone` centred on the view, eased by `smoothing` (a time
+  constant, `1 − e^(−dt/τ)` a step; 0 snaps); or the point `moveTo` named. A snap (the first sight
+  of a target, or one asked for) centres the target at once. `clampToWorld` (default on) holds the
+  view in the world; a world narrower than the view is centred. `autoScroll {x, y}` px/s moves its
+  axis, which then does not aim. The shake is a seeded, decaying offset that is drawn only: the view
+  the signals and the despawn test never shakes.
+- **The data** (`engine-layout` `types.ts`, read by `worldCamera.ts`): `Scene.world {w, h}` and
+  `Scene.camera {follow, deadZone, smoothing, lookAhead, clampToWorld, autoScroll}` on a `game`
+  screen; `BaseNode.parallax {x, y}`; `SpawnLayerNode.despawnOutsideView {margin}` (carried into the
+  live set's `SpawnLayerSpec`). `sceneWorld` / `sceneCamera` keep only whole fields and drop
+  defaults; `worldCameraScene` is the first screen with either; the save (`editorStorage.ts`) keeps
+  both through those readers.
+- **The loop** (`engine-game` `arcadeLoop.ts`): an optional `camera {spec, world, view()}`, or
+  `attachCamera` later (the layout loads after the play field first mounts). After the zones, each
+  step moves the camera, raises `enterView` / `leaveView` as a body's box starts or stops meeting
+  the view (edges; one spawned in view fires on its first step) and despawns a body of a
+  `despawnOutsideView` layer once it has been within the margin and is wholly beyond it — never the
+  body the camera follows. After the frame it computes the **culled** set: bodies more than
+  `ARCADE_CULL_MARGIN` (256 px) outside the view. Actions `cameraFollow {instance | tagged, snap}`,
+  `cameraMoveTo {x, y, snap}`, `cameraShake {strength, duration}`, `cameraSetAutoScroll {x, y}`;
+  values `cameraX`, `cameraY`, `viewWidth`, `viewHeight`. The shake has its own seeded stream
+  (`<seed>:camera`), so `$engine.random` replays as in P10.8.
+- **Drawing** (`apps/lines` `arcade.ts`, `<ArcadeStage scenes>`; `engine-layout`
+  `worldCameraView.svelte.ts`, `LayoutScene.svelte`, `SpawnLayer.svelte`): with a world screen the
+  play field is the world (unless the config names `arcade.field`); after every frame the runtime
+  publishes the camera and the culled set. `<LayoutScene>` of a world screen draws its nodes in one
+  container at `shake − camera`; a top-level node with `parallax` is shifted by
+  `camera × (1 − factor)`; `<SpawnLayer>` under it hides a culled instance (`visible`, kept
+  mounted, so its state machine runs on). The determinism probe's `state().arcade` gains `camera`.
+- **Flow** (`ARCADE_VOCAB`): the two events, the four actions and the four values above, with
+  their descriptions. `check:arcade-rules` pins the values to the loop's as before.
+- **`/editor`** (`EditorWorldCamera.svelte`, `EditorParallax.svelte`, `EditorSpawnLayer.svelte`,
+  `EditorCanvas.svelte` `drawWorldCamera`, helpers in `$lib/editor/worldCameraEdit.ts`): a game
+  screen's Properties gain **World and camera** (a tick that seeds a world at 2× the layout type's
+  design size; width / height; follow tag, dead zone, smoothing, look-ahead, auto-scroll, clamp to
+  world; sparse writes; leaving `game` space drops them); the stage draws the world (dashed orange)
+  and the camera's first frame (dotted blue) as a guide; a top-level node of a world screen gets
+  **parallax x / y**; a spawn layer gets **Despawn outside view** + margin. Guide:
+  [tools/invisible-editor.md](../tools/invisible-editor.md#world-and-camera-arcade-play-field).
+- **The scrolling sample** (not a Game Maker kind; off every package entry): `engine-layout`
+  `referenceLayouts/arcadeRiver.ts` (the P10.8 scene set with `basegame` a river 1422 × 3200, a
+  camera following `player` with a 360 × 220 dead zone, 0.12 s smoothing, 0.2 s look-ahead, a
+  backdrop of banks and ripples at parallax y ½, and the field despawning outside the view with a
+  240 px margin), `engine-flow-v2` `reference/arcadeRiverSeed.ts` (the salmon swims up from the
+  mouth with four-way keys; bears and fish spawn 120 px above the view from `cameraY` and drift down;
+  a bear takes a life and shakes the camera 14 px / 350 ms; the `spawningGround` zone scores a lap
+  of 100 and moves the salmon back to the mouth with the camera snapped; three lives) and the config
+  `engine-mechanics/fixtures/arcade-river.rules.json`.
+- **Gates:** `check:arcade-camera` (launcher, 74: the camera's dead zone, snap, smoothing,
+  look-ahead, clamp at both ends and a narrow world, clamp off, auto-scroll per axis and at the
+  world's end, `moveTo`, the shake's bound / decay / seed / precedence, parallax offsets equal to the
+  editor's; the loop's view signals as edges, despawn with and without a margin, spawned-ahead kept,
+  the culled set, the camera actions and values, **the same framing at 30 / 60 / 144 fps and on
+  replay**, another seed shaking differently; no camera ⇒ no value, no-op actions, no view signal,
+  the same bodies; the river sample played headless on the real interpreter — start at the mouth,
+  scroll with the salmon on screen, spawns ahead, despawn behind, the bear's shake, the lap and
+  snap, seed replay, a clean validation; the data readers and the save; source scans that the world
+  container, culling and publishing exist only under a world camera and the river stays off the
+  entries). `check:editor-world-camera` (launcher, 32: the editor's helpers). `check:arcade-rules`
+  re-pinned for `<ArcadeStage scenes=…>`.
+- **Verified by playing:** `scripts/playtest/arcade-camera-play.mjs` on the branch runtime (the
+  river baked into a snapshot, 12 / 12): the round started with the salmon at the river's mouth and
+  the camera on it at the bottom of the world; ArrowUp swam it up with the camera scrolling and the
+  salmon on screen at every sample; nothing the camera left behind was still alive; spawns drifted
+  in from above; on a portrait screen the 800-wide view was centred on the salmon and ArrowLeft
+  panned it left; the same seeds and keys on a second page reached the same framing and bodies; no
+  request but the runtime and the snapshot; no page error. The screenshots show the backdrop's banks
+  and ripples moving at half the bodies' speed.
+- **Bundle size** (the release build's `index.html`; `main` at 8f172c6 vs this branch): 3,677,695 B
+  / 1,260,478 B gz → 3,686,596 B / 1,263,515 B gz: **+8.9 KB raw, +3.0 KB gz (+0.24 %)**,
+  downloaded by every game, run by none without a world screen. The river sample is not in it.
+- **Slot / match-3 / P10.8 parity:** every new path needs a `game` screen with a `world` or
+  `camera`, which no shipped layout has: `<LayoutScene>` adds no container, `<SpawnLayer>` renders
+  its old branch, the runtime never attaches a camera or publishes a view, and the loop runs its
+  P10.8 step (the camera stage is skipped; the camera values answer nothing and the camera actions
+  are no-ops). `spawnLayerSpec` adds a field only when the node has a margin. Edited shared modules:
+  `LayoutScene.svelte`, `SpawnLayer.svelte`, `spawnLayerFields.ts`, `types.ts` (`BASE_NODE_FIELDS`
+  gains `parallax`), `spawn.ts` (a type), `arcadeLoop.ts`, `ArcadeStage.svelte`, `arcade.ts`,
+  `Game.svelte` (one prop on `<ArcadeStage>`), `determinism.ts` (a type), `editorStorage.ts`.
+  `familyGate` is unchanged. The current-games harness is not edited.
+- **Chosen in P10.12, owner may overturn** (the plan does not fix them):
+  - **one PR**, not split;
+  - world and camera live on the **screen** (the layout), as §5.1 lists them for `/editor`, not in
+    `GameConfigDoc.arcade`; the play field's screen is the first `game` screen with either;
+  - the camera's `x` / `y` is the view's **top-left**; the view is the layout type's design size, so
+    a wider window shows world beyond it (nothing is masked);
+  - `shake` is an **action only** (no authored standing shake), drawn only, a weaker shake ignored
+    while a stronger one runs;
+  - an axis that auto-scrolls does not follow; a snap centres the target, ignoring the dead zone;
+  - the action and value names are camelCase (`cameraFollow`, not `camera.follow`), as every other
+    vocabulary name; `viewWidth` / `viewHeight` were added beside the plan's two camera keys so Flow
+    can spawn ahead on any side;
+  - `despawnOutsideView` needs the body to have been within the margin first (so a spawn ahead is
+    kept) and spares the followed body; it raises no signal of its own (`leaveView` came first);
+  - culling is the loop's (by body box + 256 px), not Pixi's `cullable`: the culler plugin is not
+    installed and a body box is deterministic; only spawned instances are culled;
+  - parallax is read on a world screen's **top-level** nodes only; the editor stage draws them at
+    the camera's start, where every factor gives the same place;
+  - the scrolling sample is a gate / playtest sample, not a Game Maker choice.
+- **Not done here:** the isometric projection and depth order §9 #19 places in P10.12 (the §8 row
+  and this step's brief leave it out; it is the next arcade piece for Salmons, with P10.13's `hop`
+  and diamond tiles); `playCinematic` holding the camera for a cutscene (§4.4); culling static
+  (non-spawned) world nodes; a mask at the view's edge; interpolating places between fixed steps
+  (P10.8's limit, now also the camera's); `/flow-v2` Preview running the loop; a current-games
+  fixture for the river (it would edit the harness).
+- **Known limits** (none reachable by a game with no world screen):
+  - the camera block and the world are read once, when the loop first sees them; an edited layout
+    needs a reload, as every baked layout does;
+  - a node's per-layout `zIndex` override is not carried to its parallax wrapper (the base `zIndex`
+    is);
+  - the despawn and the view signals use the body's box, so art much larger than its body is judged
+    by the body; the cull margin covers 256 px of overhang;
+  - a followed body that is despawned leaves the camera where it was until Flow follows again.
 
 **P10.8 — Arcade, rules-decided (built 2026-10-25; in review).** §8's P10.8 row (§4.2, §3.4, §9 #6),
 in one PR.
@@ -929,7 +1053,7 @@ game, bundle or screen changes.
 9. **A per-family runtime build** (owner, 2026-10-25, later): `_runtime/match3` built with the
    match-3 branch, slot runtimes built without it (a build-time define + dead-code elimination), so
    slot bundles stop carrying the match-3 code (P10.5 + P10.6: about +24 KB raw / +8.6 KB gz) and the
-   arcade code (P10.8: +19.0 KB raw / +6.6 KB gz).
+   arcade code (P10.8: +19.0 KB raw / +6.6 KB gz; P10.12: +8.9 KB raw / +3.0 KB gz).
 10. Add the RGS sample as a current-games fixture (`cg-match3-rgs`) and the harness's `protocolFor`
     copy, in a harness change the owner reviews; likewise an arcade fixture (`cg-arcade`), which
     needs a key-press step in the screen-script format.
@@ -938,6 +1062,9 @@ game, bundle or screen changes.
     `arcadeFish` (or a Salmons project's own components) in the Component Editor and size the config
     bodies to the art.
 12. Touch steering for the arcade sample: the `pointer` controller (P10.11).
+13. **The isometric projection and ground-depth order** (§9 #19 places it in P10.12; the §8 row
+    and the P10.12 brief did not): the next arcade piece Salmons needs, before or with P10.13.
+14. `playCinematic` holding the arcade camera for a cutscene and handing it back (§4.4).
 
 ## Blocked (owner / external)
 
@@ -947,6 +1074,9 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-26 — **P10.12 built: the arcade world and camera.** `camera.js`, `Scene.world` /
+  `Scene.camera`, parallax, `despawnOutsideView`, culling, the camera Flow nodes and keys, the
+  `/editor` fields, a scrolling river sample, `check:arcade-camera`. Detail above.
 - 2026-10-25 — **P10.8 built: arcade, rules-decided.** `motion.js`, the fixed-step loop, tags,
   `ARCADE_VOCAB` and its starter (a salmon dodger), `<ArcadeStage />`, the arcade scene set in Game
   Maker, `check:arcade-motion` / `check:arcade-rules`. §6.4 re-checked: the shared runtime stays.
