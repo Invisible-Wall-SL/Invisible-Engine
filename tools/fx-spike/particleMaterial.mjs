@@ -148,6 +148,10 @@ for (const gl of [1, 2]) {
 	console.log(
 		`  the game's mount: a material.param drive changed ${run.game.paramWrite.changed} of ${run.game.paramWrite.drawn} drawn px; ?fxdebug=1 lines:`,
 	);
+	const other = run.game.otherLayer;
+	console.log(
+		`  another layer, alone: ${other.changed} of ${other.drawn} px changed (whole canvas in its cell: ${other.canvasChanged}; layer 0's own px in that cell: ${other.firstLayerPxInItsCell})`,
+	);
 	for (const line of run.game.debug) console.log(`    ${line}`);
 	const s = run.steady;
 	console.log(

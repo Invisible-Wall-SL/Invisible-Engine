@@ -482,7 +482,9 @@ interface Cell {
 		},
 		{
 			label: 'Max particles 10.3 (11 spawn)',
-			config: base([], { maxParticles: 10.3 }),
+			// Lives longer than the run, so the count is the cap's at every moment, never one short
+			// between a death and the next spawn.
+			config: base([], { maxParticles: 10.3, lifetime: { min: 30, max: 30 } }),
 			textures: [frame('static')],
 		},
 		{
@@ -999,7 +1001,13 @@ interface Cell {
 	});
 	const onMaterial = on.mounted.material;
 	claim('a registered kind mounts its renderer', on.mounted.state === 'on' && !!onMaterial);
-	const second = mountLayer(1, base([]), [frame('rotated')], { kind: 'custom:alone', label: 'b' });
+	// The same kind as layer 0, with its own value: a drive on layer 0 must not reach it.
+	const second = mountLayer(1, base([]), [frame('rotated')], {
+		kind: 'custom:pulsetint',
+		intensity: 4,
+		params: { color: '#2040ff' },
+		label: 'b',
+	});
 	const third = mountLayer(2, base([]), [frame('trimmed')], { kind: 'custom:alone', label: 'c' });
 	const capped = mountLayer(3, base([]), [frame('static')], { kind: 'custom:alone', label: 'd' });
 	claim(
@@ -1033,6 +1041,18 @@ interface Cell {
 		!!meshBefore && meshBefore.visible && onMaterial?.particles.visible === false,
 	);
 	claim('the capped layer still draws its sprites', compare(tintRed, tintRed, 3).drawn > 500);
+	// Another material layer's own draw, alone on the canvas: layer 0's particles spawn near its cell's
+	// edge and, scaled and turned, reach into cell 1, so the whole canvas cannot say whose pixels moved.
+	const hosts = [on, second, third, capped].map((l) => l.host);
+	const drawnAlone = (host: Container): Read => {
+		for (const h of hosts) h.visible = h === host;
+		renderer.render(app.stage);
+		const read = readCanvas();
+		for (const h of hosts) h.visible = true;
+		return read;
+	};
+	const secondBefore = drawnAlone(second.host);
+	const firstBefore = drawnAlone(on.host);
 	applier?.apply({ hue: '#20ff20' });
 	onMaterial?.sync(renderer);
 	renderer.render(app.stage);
@@ -1051,8 +1071,20 @@ interface Cell {
 			onMaterial?.particles.children.every((p, i) => p === particlesBefore[i]) === true &&
 			particlesBefore.length > 0,
 	);
-	const others = compare(tintRed, tintGreen, 1);
-	claim('another layer is untouched by the drive', others.over === 0);
+	onMaterial?.sync(renderer);
+	const secondAfter = drawnAlone(second.host);
+	const others = compare(secondBefore, secondAfter, 1);
+	const spill = compare(firstBefore, firstBefore, 1).drawn;
+	game.otherLayer = {
+		drawn: others.drawn,
+		changed: others.over,
+		canvasChanged: compare(tintRed, tintGreen, 1).over,
+		firstLayerPxInItsCell: spill,
+	};
+	claim(
+		`another material layer's own draw is untouched by the drive (${others.over} of ${others.drawn} px changed)`,
+		others.over === 0 && others.drawn > 500,
+	);
 
 	for (const l of [second, third]) {
 		l.emitter.destroy();
