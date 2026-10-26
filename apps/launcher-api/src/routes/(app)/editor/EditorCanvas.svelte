@@ -180,6 +180,7 @@
 		ZOOM_STEP,
 		type StageAction,
 	} from '$lib/editor/stageShortcuts';
+	import { worldCameraFrames } from '$lib/editor/worldCameraEdit';
 	import BusyOverlay from '$lib/BusyOverlay.svelte';
 	import { deepHit } from '$lib/timeline/listenerPreview';
 	import EditorItemOverlay from './EditorItemOverlay.svelte';
@@ -2554,6 +2555,43 @@
 			ctx.strokeRect(frameWidth / 2 - mw / 2, frameHeight / 2 - mh / 2, mw, mh);
 			ctx.setLineDash([]);
 		}
+		drawWorldCamera(ctx);
+	}
+
+	/**
+	 * A play field's WORLD bounds and the CAMERA's first frame (game-families §4.4, P10.12) over the
+	 * active screen, in its main-box coords like its nodes: the world from the origin, the camera as
+	 * the design box at the origin, where it starts. A guide only — never picked, never saved.
+	 */
+	function drawWorldCamera(ctx: CanvasRenderingContext2D): void {
+		const frames = worldCameraFrames(scene, mainSizesMap[layoutType]);
+		if (!frames) return;
+		const dpr = window.devicePixelRatio || 1;
+		ctx.save();
+		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+		ctx.translate(panX, panY);
+		ctx.scale(zoom, zoom);
+		const s = mainScale();
+		const label = (text: string, x: number, y: number, color: string): void => {
+			ctx.fillStyle = color;
+			ctx.font = `${12 / zoom}px sans-serif`;
+			ctx.fillText(text, x + 6 / zoom, y + 16 / zoom);
+		};
+		const w = frames.world;
+		const wo = mainToWorld({ x: w.x, y: w.y });
+		ctx.lineWidth = 2 / zoom;
+		ctx.strokeStyle = '#e8a33d';
+		ctx.setLineDash([14 / zoom, 6 / zoom, 2 / zoom, 6 / zoom]);
+		ctx.strokeRect(wo.x, wo.y, w.w * s, w.h * s);
+		label(`world ${w.w} × ${w.h}`, wo.x, wo.y + w.h * s - 22 / zoom, '#e8a33d');
+		const c = frames.camera;
+		const co = mainToWorld({ x: c.x, y: c.y });
+		ctx.strokeStyle = '#5aa9ff';
+		ctx.setLineDash([4 / zoom, 4 / zoom]);
+		ctx.strokeRect(co.x, co.y, c.w * s, c.h * s);
+		ctx.setLineDash([]);
+		label('camera (start)', co.x, co.y, '#5aa9ff');
+		ctx.restore();
 	}
 
 	/** The numeric value bound to `fieldPath`, or `undefined` (so the caller keeps its own). */
