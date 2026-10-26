@@ -100,6 +100,17 @@
  *     The signature is order- and placement-free and moves with any code or port change. Storage
  *     keeps the definition clean. (`pnpm --filter fx-spike shader-compile` compiles the same bodies
  *     and random ones on WebGL1 and WebGL2.)
+ * 15. THE PARTICLE SHELL AND THE PARTICLE NODE (step 8d): the node is an input of three outputs, each
+ *     its header helper (white, 0 and 0 on an element), costed as the Seed; each compiles alone, and
+ *     in a subgraph body as in the graph; the motion graph refuses it. The corpus compiles the same
+ *     with one beside it. The shell's vertex shader takes at most 8 attributes and hands on at most 8
+ *     varying rows (WebGL1's guarantees), and writes every varying the fragment reads; its header
+ *     defines every header helper; every global name it declares is out of a Custom GLSL port's or
+ *     local's reach. `particleShellSource` converts every compiled body the gates know (the time and
+ *     seed made varyings, the params kept, the body's main wrapped, the colour rule by the body's own
+ *     call, the library linked) and refuses each body it cannot convert surely; comments fool
+ *     neither way. A Custom GLSL body calls the three helpers, typed. (`pnpm --filter fx-spike
+ *     shader-compile` builds the same bodies through the shell on WebGL1 and WebGL2.)
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -129,7 +140,19 @@ import {
 	type ElementFxMotionOutput,
 	type ElementFxParamSpec,
 } from 'constants-shared/elementFx';
-import { EFX_GLSL, linkGlsl, unknownEfxCalls } from 'constants-shared/glslLibrary';
+import {
+	EFX_GLSL,
+	EFX_HEADER_FUNCTIONS,
+	linkGlsl,
+	unknownEfxCalls,
+} from 'constants-shared/glslLibrary';
+import {
+	PARTICLE_ATTRIBUTES,
+	PARTICLE_HEADER,
+	PARTICLE_SHELL_NAMES,
+	PARTICLE_VERTEX,
+	particleShellSource,
+} from 'constants-shared/particleShell';
 import {
 	MOTION_INPUTS,
 	MOTION_OPS,
@@ -170,6 +193,7 @@ import {
 	customGlslDef,
 	customGlslFunction,
 	customGlslIssues,
+	customGlslNameIssue,
 	customGlslSignature,
 	customGlslTokens,
 	hasCustomGlsl,
@@ -177,6 +201,7 @@ import {
 import {
 	CUSTOM_GLSL_EXAMPLES,
 	INVALID_GLSL,
+	PARTICLE_GLSL,
 	VALID_GLSL,
 	customGlslChain,
 	generatedGlsl,
@@ -304,6 +329,22 @@ const lint = (body: string): string[] => {
 const codes = (doc: ShaderGraphDoc): GraphIssueCode[] =>
 	validateShaderGraph(doc).map((i) => i.code);
 const body = (result: CompileResult): string => (result.ok ? result.shader.body : '');
+/** `glsl` with a subgraph's port pass-throughs read through and its locals renumbered in order. */
+const canonical = (glsl: string): string => {
+	const alias = new Map<string, string>();
+	const lines: string[] = [];
+	for (const line of glsl.split('\n')) {
+		const m = /^ {4}(?:float|vec[234]) (n\d+_\w+) = (n\d+_\w+);$/.exec(line);
+		if (m) alias.set(m[1], alias.get(m[2]) ?? m[2]);
+		else lines.push(line);
+	}
+	const names = new Map<string, string>();
+	return lines.join('\n').replace(/\bn\d+_\w+\b/g, (name) => {
+		const real = alias.get(name) ?? name;
+		if (!names.has(real)) names.set(real, `v${names.size}`);
+		return names.get(real) as string;
+	});
+};
 
 // -------------------------------------------------------------------------------------------------
 console.log('shader graph — the node library');
@@ -1055,21 +1096,6 @@ console.log('shader graph — subgraphs');
 		...more,
 	});
 	/** GLSL with its `T a = b;` aliases read through and every generated name renumbered in order. */
-	const canonical = (glsl: string): string => {
-		const alias = new Map<string, string>();
-		const lines: string[] = [];
-		for (const line of glsl.split('\n')) {
-			const m = /^ {4}(?:float|vec[234]) (n\d+_\w+) = (n\d+_\w+);$/.exec(line);
-			if (m) alias.set(m[1], alias.get(m[2]) ?? m[2]);
-			else lines.push(line);
-		}
-		const names = new Map<string, string>();
-		return lines.join('\n').replace(/\bn\d+_\w+\b/g, (name) => {
-			const real = alias.get(name) ?? name;
-			if (!names.has(real)) names.set(real, `v${names.size}`);
-			return names.get(real) as string;
-		});
-	};
 	const shaderNodeCost = (type: string): number => shaderNode(type)?.cost ?? NaN;
 	const errorsOn = (doc: ShaderGraphDoc, node: string): GraphIssue[] =>
 		validateShaderGraph(doc).filter((i) => i.level === 'error' && i.node === node);
@@ -3878,6 +3904,434 @@ console.log('shader graph — the Custom GLSL node');
 				null,
 			]),
 		'storage keeps a Custom GLSL node’s code and ports, clean (junk fields and malformed ports out, code that is not text as empty), and no definition on any other node',
+	);
+}
+
+// -------------------------------------------------------------------------------------------------
+console.log('shader graph — the particle shell and the Particle node');
+{
+	const glslDoc = (sample: CustomGlslDefinition, id: string): ShaderGraphDoc =>
+		customGlslChain(id, [sample]);
+	const accepted = (sample: CustomGlslDefinition): boolean =>
+		!customGlslIssues({ id: 'g', type: CUSTOM_GLSL, x: 0, y: 0, glsl: sample }).some(
+			(i) => i.level === 'error',
+		);
+
+	// The node.
+	const particle = shaderNode('particle');
+	const helpers = {
+		color: 'efxParticleColor()',
+		wave: 'efxParticleWave()',
+		order: 'efxParticleOrder()',
+	};
+	assert(
+		!!particle &&
+			particle.category === 'input' &&
+			!particle.inputs.length &&
+			!particle.settings &&
+			JSON.stringify(particle.outputs.map((p) => [p.id, p.type])) ===
+				'[["color","vec4"],["wave","float"],["order","float"]]' &&
+			JSON.stringify(
+				particle.emit({
+					in: {},
+					type: 'float',
+					splat: (x) => x,
+					setting: () => '',
+					local: (_t, x) => x,
+				}),
+			) === JSON.stringify(helpers) &&
+			!particle.motion &&
+			!particle.samples &&
+			particle.cost === shaderNode('seed')?.cost &&
+			particle.cost === shaderNode('size')?.cost &&
+			particle.cost === shaderNode('time')?.cost,
+		'the Particle node: an input with Colour (vec4), Wave index and Spawn order (floats), each its header helper; no CPU form; costed as the inputs that read what the shell hands them (Seed, Element size, Time)',
+	);
+	const showcase = nodeShowcase();
+	const showcased = showcase.filter((doc) => doc.nodes.some((n) => n.type === 'particle'));
+	const seedAlone = compileShaderGraph(
+		showcase.find((doc) => doc.id === 'seed-out') as ShaderGraphDoc,
+	);
+	const outputsCompile = showcased.map((doc) => {
+		const r = compileShaderGraph(doc);
+		const port = doc.id.slice('particle-'.length) as keyof typeof helpers;
+		return (
+			r.ok &&
+			!lint(r.shader.body).length &&
+			JSON.stringify(r.shader.uniforms.map((u) => u.name)) === '["uFx"]' &&
+			seedAlone.ok &&
+			r.shader.cost === seedAlone.shader.cost &&
+			r.shader.samples === 0 &&
+			Object.entries(helpers).every(([id, call]) => r.shader.body.includes(call) === (id === port))
+		);
+	});
+	assert(
+		showcased.map((d) => d.id).join() === 'particle-color,particle-wave,particle-order' &&
+			outputsCompile.every(Boolean),
+		'each of its outputs compiles alone and links, calling its own helper and no other, reading nothing of the element, costing what the Seed alone does',
+	);
+	const elementHeader = (SHADERS.split('const HEADER')[1] ?? '').split('`;')[0];
+	assert(
+		elementHeader.includes('vec4 efxParticleColor() { return vec4(1.0); }') &&
+			elementHeader.includes('float efxParticleWave() { return 0.0; }') &&
+			elementHeader.includes('float efxParticleOrder() { return 0.0; }') &&
+			HEADER_HELPERS.length === EFX_HEADER_FUNCTIONS.length,
+		'on an element it reads white and opaque, 0 and 0: the element header’s helpers (`shader-compile` draws them)',
+	);
+	const moved = analyzeShaderMotion({
+		...REFERENCE_GRAPHS[0],
+		motionGraph: {
+			nodes: [
+				{ id: 'p', type: 'particle', x: 0, y: 0 },
+				{ id: 'out', type: 'motionOutput', x: 0, y: 0 },
+			],
+			wires: [{ from: { node: 'p', port: 'wave' }, to: { node: 'out', port: 'x' } }],
+		},
+	});
+	assert(
+		!isMotionNode('particle') &&
+			moved.issues.some((i) => i.node === 'p' && i.level === 'error' && i.graph === 'motion') &&
+			!compileShaderEffect({
+				...REFERENCE_GRAPHS[0],
+				motionGraph: {
+					nodes: [
+						{ id: 'p', type: 'particle', x: 0, y: 0 },
+						{ id: 'out', type: 'motionOutput', x: 0, y: 0 },
+					],
+					wires: [{ from: { node: 'p', port: 'wave' }, to: { node: 'out', port: 'x' } }],
+				},
+			}).ok,
+		'the motion graph refuses it, so the effect does not compile',
+	);
+	const inline = graphBuilder({
+		id: 'inline',
+		name: 'Inline',
+		phase: 'emphasis',
+		durationMs: 1000,
+	});
+	inline.wire(inline.node('particle'), 'color', inline.node('output'), 'color');
+	const inlined = inline.doc();
+	const called: ShaderGraphDoc = {
+		...inlined,
+		id: 'called',
+		subgraphs: [
+			{
+				id: 'body',
+				name: 'Body',
+				inputs: [],
+				outputs: [{ id: 'color', label: 'Colour', type: 'vec4' }],
+				nodes: [
+					{ id: 'in', type: 'subgraphIn', x: 0, y: 0 },
+					{ id: 'p', type: 'particle', x: 0, y: 0 },
+					{ id: 'out', type: 'subgraphOut', x: 0, y: 0 },
+				],
+				wires: [{ from: { node: 'p', port: 'color' }, to: { node: 'out', port: 'color' } }],
+			},
+		],
+		nodes: [
+			{ id: 'call', type: 'subgraph', x: 0, y: 0, values: { subgraph: 'body' } },
+			...inlined.nodes.filter((n) => n.type === 'output'),
+		],
+		wires: [
+			{
+				from: { node: 'call', port: 'color' },
+				to: { node: inlined.nodes.find((n) => n.type === 'output')?.id ?? '', port: 'color' },
+			},
+		],
+	};
+	const inlineBody = body(compileShaderGraph(inlined));
+	assert(
+		inlineBody.includes('efxParticleColor()') &&
+			canonical(body(compileShaderGraph(called))) === canonical(inlineBody),
+		'in a subgraph body it compiles as it does in the graph',
+	);
+
+	// Nothing else moves: the corpus compiles the same with a Particle node beside it.
+	const samples = [
+		...VALID_GLSL,
+		...Array.from({ length: 200 }, (_, n) => generatedGlsl(5, n)),
+		...Array.from({ length: 700 }, (_, n) => mutatedGlsl(13, n)).filter(accepted),
+		...nearMissGlsl().filter(accepted),
+	];
+	const corpus = [
+		...REFERENCE_GRAPHS,
+		...BUILTIN_TWINS.map((t) => t.doc as ShaderGraphDoc),
+		...showcase.filter((doc) => !showcased.includes(doc)),
+		customGlslChain('examples', [...CUSTOM_GLSL_EXAMPLES]),
+		...samples.map((sample, i) => glslDoc(sample, `sample${i}`)),
+	];
+	const besides = corpus.filter((doc) => {
+		const before = compileShaderGraph(doc);
+		const withNode = {
+			...doc,
+			nodes: [...doc.nodes, { id: 'particleProbe', type: 'particle', x: 0, y: 0 }],
+		};
+		const after = compileShaderGraph(withNode);
+		const a = analyzeShaderGraph(doc);
+		const b = analyzeShaderGraph(withNode);
+		delete b.inputs.particleProbe;
+		delete b.outputs.particleProbe;
+		const shader = (r: CompileResult) =>
+			JSON.stringify(r.ok && [r.shader.body, r.shader.uniforms, r.shader.cost, r.shader.samples]);
+		return (
+			shader(before) !== shader(after) ||
+			JSON.stringify([a.inputs, a.outputs, a.cost, a.samples]) !==
+				JSON.stringify([b.inputs, b.outputs, b.cost, b.samples])
+		);
+	});
+	assert(
+		corpus.length > 800 && !besides.length,
+		`${corpus.length} docs (references, twins, the node showcase, the Custom GLSL samples) compile to the same shader and analyse to the same types and cost with a Particle node beside them${besides.length ? `: not ${besides.map((d) => d.id).join(', ')}` : ''}`,
+	);
+
+	// The shell's text: its attributes and varyings, against WebGL1's guarantees.
+	const declared = (source: string, qualifier: string) =>
+		[...source.matchAll(new RegExp(`^${qualifier}\\s+(\\w+)\\s+(\\w+)\\s*;`, 'gm'))].map((m) => ({
+			type: m[1],
+			name: m[2],
+		}));
+	const attributes = declared(PARTICLE_VERTEX, 'in');
+	const varyings = declared(PARTICLE_VERTEX, 'out');
+	const rows = varyings.reduce(
+		(sum, v) =>
+			sum + (/^mat([234])$/.exec(v.type)?.[1] ? Number(/^mat([234])$/.exec(v.type)?.[1]) : 1),
+		0,
+	);
+	assert(
+		attributes.length <= 8 &&
+			rows <= 8 &&
+			JSON.stringify(PARTICLE_ATTRIBUTES) ===
+				JSON.stringify(attributes.map((a) => ({ name: a.name, size: DIMS[a.type as PortType] }))) &&
+			!/\bgl_FragCoord\b|\bgl_PointCoord\b/.test(PARTICLE_VERTEX + PARTICLE_HEADER),
+		`the vertex shader takes ${attributes.length} attributes and hands on ${rows} varying rows, within WebGL1's guaranteed 8 and 8; PARTICLE_ATTRIBUTES is its attributes`,
+	);
+	const fragmentInputs = declared(PARTICLE_HEADER, 'in');
+	assert(
+		fragmentInputs.every((v) => varyings.some((o) => o.name === v.name && o.type === v.type)) &&
+			['uFx:vec4', 'uSeed:float'].every((v) => varyings.some((o) => `${o.name}:${o.type}` === v)) &&
+			PARTICLE_HEADER.includes('\nout vec4 finalColor;\n'),
+		'every varying the fragment header reads, and the body’s time and seed, are ones the vertex shader writes, of the same type',
+	);
+	const headerDefined = [
+		...PARTICLE_HEADER.matchAll(/^(?:vec[234]|float|bool)\s+(efx\w+)\s*\(/gm),
+	].map((m) => m[1]);
+	assert(
+		[...headerDefined].sort().join() === [...EFX_HEADER_FUNCTIONS].sort().join(),
+		`the particle header defines every pass-header helper (${headerDefined.length})`,
+	);
+	const globals = [
+		...[PARTICLE_VERTEX, PARTICLE_HEADER].flatMap((source) => [
+			...[...source.matchAll(/^(?:in|out|uniform|const)\s+\w+\s+(\w+)/gm)].map((m) => m[1]),
+			...[...source.matchAll(/^(?:void|bool|float|vec[234]|mat[234])\s+(\w+)\s*\(/gm)].map(
+				(m) => m[1],
+			),
+		]),
+		'efxParticleBody',
+	];
+	const open = [...new Set([...globals, ...PARTICLE_SHELL_NAMES])].filter(
+		(name) => name !== 'main' && !customGlslNameIssue(name),
+	);
+	assert(
+		globals.length > 30 && !open.length,
+		`every global name the particle shell declares (${new Set(globals).size}) is out of a Custom GLSL port's or local's reach${open.length ? `: not ${open.join(', ')}` : ''}`,
+	);
+
+	// Every compiled body the gates know converts.
+	const particleCalls = (fragment: string): string[] => {
+		const code = fragment.replace(/\/\/[^\n]*/g, '');
+		const defined = new Set(
+			[...code.matchAll(/^(?:void|bool|float|vec[234]|mat[234])\s+(\w+)\s*\(/gm)].map((m) => m[1]),
+		);
+		return [
+			...new Set(
+				[...code.matchAll(/\b([A-Za-z_]\w*)\s*\(/g)]
+					.map((m) => m[1])
+					.filter(
+						(c) => !defined.has(c) && !ES1_CALLS.has(c) && !KEYWORDS.has(c) && c !== 'texture',
+					),
+			),
+		];
+	};
+	const converted = [
+		...corpus,
+		...showcased,
+		...PARTICLE_GLSL.map((sample, i) => glslDoc(sample, `particle${i}`)),
+	].map((doc) => {
+		const r = compileShaderEffect(doc);
+		if (!r.ok) return { doc, problem: 'does not compile' };
+		const { body: source, uniforms } = r.effect.shader;
+		const fragment = particleShellSource(r.effect);
+		if (!fragment) return { doc, problem: 'not converted' };
+		const owned = /\befxParticleColor\s*\(/.test(source.replace(/\/\/[^\n]*/g, ''));
+		const time = uniforms.some((u) => u.source.kind === 'time');
+		const seed = uniforms.some((u) => u.source.kind === 'seed');
+		const problems = [
+			!fragment.startsWith(PARTICLE_HEADER) && 'no header',
+			/\buniform\s+\w+\s+(?:uFx|uSeed)\b/.test(fragment) && 'a time or seed uniform left',
+			fragment.includes('\nin vec4 uFx;\n') !== time && 'uFx',
+			fragment.includes('\nin float uSeed;\n') !== seed && 'uSeed',
+			!uniforms
+				.filter((u) => u.source.kind === 'param')
+				.every((u) => fragment.includes(`\nuniform ${u.type} ${u.name};\n`)) &&
+				'a param uniform lost',
+			(fragment.match(/^void main\(void\)$/gm) ?? []).length !== 1 && 'not one main',
+			(fragment.match(/^void efxParticleBody\(void\)$/gm) ?? []).length !== 1 && 'not one body',
+			!fragment.endsWith(
+				`void main(void)\n{\n    efxParticleBody();\n    finalColor *= ${owned ? '' : 'efxParticleColor() * '}uColor * uWorldColorAlpha;\n}\n`,
+			) && 'not the colour rule',
+			...particleCalls(fragment).map((c) => `calls ${c}, which nothing defines`),
+		].filter(Boolean);
+		return { doc, problem: problems.join(', '), owned };
+	});
+	const unconverted = converted.filter((c) => c.problem);
+	const owners = converted.filter((c) => c.owned).map((c) => c.doc.id);
+	assert(
+		converted.length > 800 && !unconverted.length,
+		`every compiled body the gates know converts (${converted.length}: references, twins, the node showcase, the Custom GLSL samples): the time and seed made varyings, the params kept, the body's main called by the shell's, the library linked${
+			unconverted.length
+				? `: not ${unconverted
+						.slice(0, 8)
+						.map((c) => `${c.doc.id} (${c.problem})`)
+						.join(', ')}`
+				: ''
+		}`,
+	);
+	assert(
+		owners.join() === 'particle-color,particle0',
+		`the colour rule: only a body reading the particle's colour owns it (${owners.join(', ')}); every other is tinted and faded after`,
+	);
+
+	// What it refuses.
+	const twin = BUILTIN_TWINS.map((t) => compileShaderEffect(t.doc as ShaderGraphDoc)).find(
+		(r) => r.ok && r.effect.shader.uniforms.some((u) => u.source.kind === 'seed'),
+	);
+	const effect = twin?.ok ? twin.effect : undefined;
+	const shader = effect?.shader ?? { body: '', uniforms: [] };
+	const withBody = (edit: (b: string) => string, uniforms = shader.uniforms) => ({
+		shader: { body: edit(shader.body), uniforms },
+	});
+	const renamed = shader.uniforms.map((u) =>
+		u.source.kind === 'time' ? { ...u, name: 'uTime' } : u,
+	);
+	const refusals: [string, ReturnType<typeof withBody>][] = [
+		['a preprocessor line', withBody((b) => `#define X 1.0\n${b}`)],
+		['a backslash', withBody((b) => b.replace('{', '{ \\'))],
+		['an unended comment', withBody((b) => `${b}/* never closed`)],
+		['the time under another name', withBody((b) => b.replace(/\buFx\b/g, 'uTime'), renamed)],
+		[
+			'the time of another type',
+			withBody(
+				(b) => b,
+				shader.uniforms.map((u) =>
+					u.source.kind === 'time' ? { ...u, type: 'vec3' as const } : u,
+				),
+			),
+		],
+		[
+			'the seed reported as a param',
+			withBody(
+				(b) => b,
+				shader.uniforms.map((u) =>
+					u.source.kind === 'seed' ? { ...u, source: { kind: 'param' as const, id: 'x' } } : u,
+				),
+			),
+		],
+		['two uniforms of one name', withBody((b) => b, [...shader.uniforms, shader.uniforms[0]])],
+		[
+			'a source of no known kind',
+			withBody(
+				(b) => b,
+				[
+					...shader.uniforms,
+					{
+						name: 'uOther',
+						type: 'float',
+						source: { kind: 'other' },
+					} as unknown as (typeof shader.uniforms)[number],
+				],
+			),
+		],
+		[
+			'the time declared in another form',
+			withBody((b) => b.replace('uniform vec4 uFx;', 'uniform  vec4 uFx;')),
+		],
+		[
+			'the time declared twice',
+			withBody((b) => b.replace('uniform vec4 uFx;', 'uniform vec4 uFx;\nuniform vec4 uFx;')),
+		],
+		[
+			'a local of the time’s name',
+			withBody((b) =>
+				b.replace('void main(void)\n{', 'void main(void)\n{\n    vec4 uFx = vec4(0.0);'),
+			),
+		],
+		[
+			'the time named with no time source',
+			withBody(
+				(b) => b,
+				shader.uniforms.filter((u) => u.source.kind !== 'time'),
+			),
+		],
+		[
+			'the seed named with no seed source',
+			withBody(
+				(b) => b.replace('uniform float uSeed;', ''),
+				shader.uniforms.filter((u) => u.source.kind !== 'seed'),
+			),
+		],
+		[
+			'a shell varying read',
+			withBody((b) =>
+				b.replace('void main(void)\n{', 'void main(void)\n{\n    vec4 v = vEfxColor;'),
+			),
+		],
+		[
+			'a shell uniform read',
+			withBody((b) => b.replace('void main(void)\n{', 'void main(void)\n{\n    vec4 v = uColor;')),
+		],
+		[
+			'an element pass name read',
+			withBody((b) =>
+				b.replace('void main(void)\n{', 'void main(void)\n{\n    vec2 v = vTextureCoord;'),
+			),
+		],
+		['the shell’s body name taken', withBody((b) => `void efxParticleBody(void) {}\n${b}`)],
+		['no main', withBody((b) => b.replace('void main(void)', 'void mainly(void)'))],
+		['main in another form', withBody((b) => b.replace('void main(void)', 'void main()'))],
+		['two mains', withBody((b) => `${b}\nvoid main(void)\n{\n}\n`)],
+		['no finalColor', withBody((b) => b.replace(/\bfinalColor\b/g, 'gl_FragColor'))],
+	];
+	const taken = refusals
+		.filter(([, e]) => particleShellSource(e) !== undefined)
+		.map(([label]) => label);
+	const comments = particleShellSource(
+		withBody(
+			(b) =>
+				`// uniform vec4 uFx;\n/* void main(void)\nuniform float uSeed; */\n${b}// void main(void)\n`,
+		),
+	);
+	assert(
+		!!effect &&
+			!!particleShellSource(effect) &&
+			!taken.length &&
+			!!comments &&
+			!comments.includes('// uniform vec4 uFx;') &&
+			(comments.match(/^in vec4 uFx;$/gm) ?? []).length === 1 &&
+			(comments.match(/^in float uSeed;$/gm) ?? []).length === 1 &&
+			(comments.match(/^void main\(void\)$/gm) ?? []).length === 1 &&
+			(comments.match(/^void efxParticleBody\(void\)$/gm) ?? []).length === 1,
+		`a body it cannot convert surely is refused (${refusals.length - taken.length} of ${refusals.length}: ${refusals.map(([l]) => l).join('; ')}); comments neither hide nor fake a declaration or a main${taken.length ? `: taken ${taken.join(', ')}` : ''}`,
+	);
+
+	// Custom GLSL calls the helpers, typed.
+	const typed = [
+		'float c = efxParticleColor();\ncolor = color;',
+		'vec4 w = efxParticleWave();\ncolor = color;',
+		'color = efxParticleOrder(color);',
+	].map((code) => accepted({ ...CUSTOM_GLSL_DEFAULT, code }));
+	assert(
+		PARTICLE_GLSL.every(accepted) && typed.every((ok) => !ok),
+		'a Custom GLSL body calls the three helpers, typed by their signatures (a vec4, a float, a float, no arguments)',
 	);
 }
 

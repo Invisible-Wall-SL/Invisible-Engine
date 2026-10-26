@@ -93,6 +93,25 @@ color = sum / 25.0;`,
 	),
 ];
 
+/**
+ * Bodies reading the Particle node's helpers (step 8d): one owning the particle's colour, one reading
+ * its indexes alone. Apart from {@link VALID_GLSL}, whose order lays out the GPU sheets.
+ */
+export const PARTICLE_GLSL: readonly GlslSample[] = [
+	sample(
+		'particle colour',
+		`// The particle's own colour, brighter along its burst: the graph owns it.
+color *= efxParticleColor();
+color.rgb = min(color.rgb * (1.0 + 0.5 * efxParticleWave()), vec3(color.a));`,
+	),
+	sample(
+		'particle indexes',
+		`// A hue for each particle by its spawn order, the later ones in a wave dimmer.
+float dim = 1.0 - 0.5 * efxParticleWave();
+color.rgb = efxHueShift(color.rgb / max(color.a, 0.0001), efxParticleOrder()) * color.a * dim;`,
+	),
+];
+
 /** Bodies the checker takes with no error (a warning only where `warns`). */
 export const VALID_GLSL: readonly (GlslSample & { warns?: boolean })[] = [
 	...CUSTOM_GLSL_EXAMPLES,

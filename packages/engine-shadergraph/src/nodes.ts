@@ -324,6 +324,25 @@ export const SHADER_NODES: readonly NodeDef[] = [
 		() => 'uSeed',
 		{ motion: { emit: (c) => ({ out: c.read('seed') }) } },
 	),
+	{
+		type: 'particle',
+		label: 'Particle',
+		category: 'input',
+		description:
+			'The particle drawing the effect as its material: its colour (its tint × alpha, premultiplied), its place in its spawn wave (0…1 across a burst) and its spawn order (0…1, wrapping at Max particles). Read its colour and the graph owns it: the particle is not tinted or faded after. On an element: white, 0 and 0.',
+		inputs: [],
+		outputs: [
+			port('color', 'Colour', 'vec4'),
+			port('wave', 'Wave index', 'float'),
+			port('order', 'Spawn order', 'float'),
+		],
+		cost: 0,
+		emit: () => ({
+			color: 'efxParticleColor()',
+			wave: 'efxParticleWave()',
+			order: 'efxParticleOrder()',
+		}),
+	},
 
 	// --- math: on numbers or vectors alike ---
 	binary('add', 'Add', 'A + B.', (a, b) => `(${a} + ${b})`),

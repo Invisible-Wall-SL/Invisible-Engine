@@ -50,6 +50,7 @@ import {
 	EFX_HEADER_FUNCTIONS,
 	EFX_HEADER_SIGNATURES,
 } from 'constants-shared/glslLibrary';
+import { PARTICLE_SHELL_NAMES } from 'constants-shared/particleShell';
 import type { NodeDef } from './nodes';
 import { isRecord, portDef, portSideIssues, portsOf, quoted } from './ports';
 import type {
@@ -157,12 +158,16 @@ const TEXTURE_READS = /^(texture|texel|textureCube|texture2D)/;
 
 /**
  * The effect's shader's own global names (the pass header's, its macros, the compiler's uniforms and
- * `main`): no port or local takes one, and no body reads one.
+ * `main`, and every name the particle shell declares in either stage): no port or local takes one,
+ * and no body reads one.
  */
-const SHELL_NAMES = words(`
-	main vTextureCoord finalColor uTexture uInputSize uInputClamp uOutputFrame uElement uPad PI uFx
-	uSeed SHADER_NAME GL_ES GL_FRAGMENT_PRECISION_HIGH aPosition uOutputTexture
-`);
+const SHELL_NAMES = new Set([
+	...words(`
+		main vTextureCoord finalColor uTexture uInputSize uInputClamp uOutputFrame uElement uPad PI uFx
+		uSeed SHADER_NAME GL_ES GL_FRAGMENT_PRECISION_HIGH aPosition uOutputTexture
+	`),
+	...PARTICLE_SHELL_NAMES,
+]);
 const isShellName = (name: string): boolean => SHELL_NAMES.has(name) || /^uP\d+$/.test(name);
 
 /** Why `name` cannot name a port, a local or a loop counter, or undefined when it can. */

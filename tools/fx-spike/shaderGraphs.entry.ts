@@ -4,9 +4,10 @@
  * (`compileShaderEffect`), registered and played through the runtime (`playElementFx`) posed at the
  * eight moments, their passes and motion included; with `?subgraphs=1` each reference graph moved
  * into a subgraph its effect calls, one and two calls deep (`wrapped`), which draws as the graph
- * does; with `?nodes=1` every node's own graph (`nodeShowcase`), one cell each. Everything is drawn through the real `ElementFxFilter` on WebGL1
- * or WebGL2, so a shader that does not compile there fails the shoot (and `shaderCompile.mjs`). Each
- * cell is drawn alone first, so the error the page logs names its graph.
+ * does; with `?nodes=1` every node's own graph (`nodeShowcase`), one cell each, but the Particle
+ * node's (`shaderParticles.entry.ts` draws those). Everything is drawn through the real
+ * `ElementFxFilter` on WebGL1 or WebGL2, so a shader that does not compile there fails the shoot (and
+ * `shaderCompile.mjs`). Each cell is drawn alone first, so the error the page logs names its graph.
  */
 import {
 	Application,
@@ -137,7 +138,9 @@ const wrapped = (doc: ShaderGraphDoc, depth: number): ShaderGraphDoc => {
 			MOMENTS.forEach((t, col) => cells.push({ doc, t, col, row }));
 		});
 	} else {
-		nodeShowcase().forEach((doc, i) => {
+		// The Particle node's graphs are drawn on the particles sheet, so this one's layout predates it.
+		const showcase = nodeShowcase().filter((doc) => !doc.nodes.some((n) => n.type === 'particle'));
+		showcase.forEach((doc, i) => {
 			const row = Math.floor(i / MOMENTS.length);
 			if (!rows[row]) rows[row] = '';
 			rows[row] += `${rows[row] ? ' ' : ''}${doc.id}`;

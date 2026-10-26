@@ -661,8 +661,8 @@ export function slugOf(name: string): string {
 
 /**
  * Nodes whose output is one value over the whole element (a number, a param, the time, the seed,
- * the element's size): a thumbnail would be a flat swatch, so they have none. The Output has none
- * either: what it draws is the preview's.
+ * the element's size, the particle's colour and indexes): a thumbnail would be a flat swatch, so they
+ * have none. The Output has none either: what it draws is the preview's.
  */
 export const FLAT_NODES: ReadonlySet<string> = new Set([
 	'number',
@@ -671,6 +671,7 @@ export const FLAT_NODES: ReadonlySet<string> = new Set([
 	'seed',
 	'time',
 	'size',
+	'particle',
 ]);
 
 /** The ids of `id` and every node it reads from, however far up. */
