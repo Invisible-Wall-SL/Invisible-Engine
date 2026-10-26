@@ -543,6 +543,8 @@ await check('the runtime: the SDK is reached only through the online branch, and
 	const stage = readFileSync(join(src, 'components/ArcadeStage.svelte'), 'utf8');
 	assert.match(stage, /const online = gameMechanic\(\)\.room;/);
 	assert.match(stage, /online \? undefined : startArcade\(/);
+	// The world camera (P10.12) belongs to the local loop: an online game attaches none.
+	assert.match(stage, /online \? undefined : useWorldCamera\(scenes\)/);
 });
 
 // --- 2. live: a real Colyseus 0.18 server, real SDK clients -------------------------------------

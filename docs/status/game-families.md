@@ -201,6 +201,9 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
     `field`; keyboard only (arrows / WASD, Space), aim always 0;
   - a flooder gets **no** held seat; `deploy-drift.mjs` gets its entry **after** the service exists.
 - **Known limits** (none reachable by a slot game):
+  - **an online game has no world camera** (P10.12): the server moves the bodies, so the local loop
+    that owns the camera never starts, and a `world` / `camera` on an online game's play-field screen
+    is inert (the view stays at the origin, nothing is culled) until P10.15 drives it from the room;
   - **no prediction or smoothing** (P10.15): a device draws a player where the last 20 Hz patch put
     it, so motion is visibly steppy and the own player answers a round trip late;
   - players do not collide, score or end a round — the rules as data are P10.15; `phase` never
