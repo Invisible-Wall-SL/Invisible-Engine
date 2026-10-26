@@ -80,6 +80,7 @@ const full: WinTextDoc = {
 		collectorLevelNames: { '2': 'Double' },
 		potNames: { red: 'Ruby' },
 	},
+	featurePlacement: { total: 'infoBar', meterFull: 'off', modifiersActive: 'both' },
 	wheel: {
 		coinBoost: 'BOOST ×{count}',
 		extraCollect: '+{count}',
@@ -107,6 +108,7 @@ for (const [family, doc] of [
 	['feature.specialNames', { feature: { specialNames: { payer: 'X' } } }],
 	['feature.collectorLevelNames', { feature: { collectorLevelNames: { '2': 'X' } } }],
 	['feature.potNames', { feature: { potNames: { red: 'X' } } }],
+	['featurePlacement', { featurePlacement: { meterFull: 'off' } }],
 	['wheel', { wheel: { coinBoost: 'X' } }],
 ] as const) {
 	check(authorsSomething(normalizeWinTextDoc(doc)), `a doc authoring only ${family} is shipped`);
@@ -128,6 +130,14 @@ check(
 check(
 	throws(() => normalizeWinTextDoc({ jackpots: { award: 3 } })),
 	'a non-string template is a 400',
+);
+check(
+	JSON.stringify(normalizeWinTextDoc({ featurePlacement: {} })) === '{"version":1}',
+	'an empty placement map disappears',
+);
+check(
+	throws(() => normalizeWinTextDoc({ featurePlacement: { meterFull: 'ticker' } }, 'reject')),
+	'a placement this build does not know is a 400 on a save',
 );
 check(
 	JSON.stringify(quiet(() => normalizeWinTextDoc({ feature: { bonus: 'x' } }))) ===

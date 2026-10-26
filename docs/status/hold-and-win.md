@@ -1099,6 +1099,22 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-10-26 — **Feature lines announce where Win Text places them; three new banner screens.**
+  Every feature-line beat in `holdAndWinPresentation.ts` (meter full, modifiers active, Lucky Spin,
+  intro, upgrade, modifiers unlocked, row unlocked, instant win, total, outro) now goes through
+  `announceFeatureLine` (`holdAndWinAnnounce.ts`): the board banner, the info bar (`showMessage`,
+  title and detail on one line), both, or neither, per the project's Win Text `featurePlacement`
+  ([win-text.md](win-text.md) Recent changes, 2026-10-26). It returns the banner id or 0, so each beat
+  holds on `holdBanner` when a banner went up and on its old plain wait otherwise: the pacing never
+  changes. The three lines that were toasts only gained banner kinds and authorable screens
+  (`HOLD_AND_WIN_BANNER_SCREENS`, show sources, `SELF_MOUNTED_BANNER_SCREENS`, reference layout):
+  `modifiersActiveBanner` (base game, only where pots fill, with `potFullBanner`: `POT_BANNER_SCREENS`
+  replaces `POT_FULL_BANNER_SCREEN`, also in the add-on set) and the feature screens `upgradeBanner`
+  and `modifiersUnlockedBanner`. The upgrade banner comes down when its beams land, before any jackpot
+  upgrade banner. Defaults keep those three in the info bar, so no game changes until an author moves
+  one. `test-hold-and-win-template.mjs` re-pinned `HW_PINNED` / `BEFORE_WINDOW_SCALE` for the three
+  screens only (its `BEFORE_BANNERS` hash, the set without banner screens, is unchanged);
+  `flowV2BannerScreens.fixture.ts` lists them.
 - 2026-10-23 — **`featureWorth` also a component source; it clears on the next spin** (PR #1303).
   Flow's `$engine.featureWorth` and the new component source read one reader (`featureWorthOf` in
   `engine-game/holdAndWin.ts`). Behaviour change: an ended feature's worth now goes back to 0 when

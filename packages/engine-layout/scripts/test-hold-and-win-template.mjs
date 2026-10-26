@@ -461,6 +461,8 @@ for (const [kind, ids] of Object.entries(mod.HOLD_AND_WIN_BANNER_SCREENS)) {
 const FEATURE_BANNERS = [
 	'coinJackpotBanner',
 	'jackpotUpgradeBanner',
+	'upgradeBanner',
+	'modifiersUnlockedBanner',
 	'wheelPrizeBanner',
 	'rowUnlockedBanner',
 	'featureTotalBanner',
@@ -587,14 +589,14 @@ assert(
 	];
 	const BASE_BANNERS = ['instantWinBanner', 'randomMetreBanner', 'platformJackpotBanner'];
 	const HW_PINNED = {
-		plain: '265358b21d7952a8',
-		maxRows6: '12e3f60e1c1c65c2',
-		hotfire: '3f67ce37ad910575',
+		plain: 'cc06fdad003f56bb',
+		maxRows6: 'e2ed37df4b4a258c',
+		hotfire: '70605b3c2065e229',
 	};
 	const BEFORE_WINDOW_SCALE = {
-		plain: '0e0893e4c367520f',
-		maxRows6: 'f1d1851de3219f2c',
-		hotfire: '1c65e0d44f24b01f',
+		plain: 'a130815c0015cad8',
+		maxRows6: '2204e761c5079882',
+		hotfire: 'a9c2ae9d0900f92b',
 	};
 	const WINDOW_SCALED = ['featureIntro', 'featureOutro'];
 	const withoutWindowScale = (d) => ({
@@ -722,8 +724,8 @@ assert(
 		'pots overlay adds pots (its pot-full banner is offered, not added)',
 	);
 	assert(
-		withPots.scenes.length === bookOf.scenes.length + 2,
-		'the full set has the pots and their banner',
+		withPots.scenes.length === bookOf.scenes.length + 3,
+		'the full set has the pots and their two banners',
 	);
 	const potsAt = ids(withPots).indexOf('pots');
 	assert(ids(withPots)[potsAt - 1] === 'basegame', 'the pots screen sits right after basegame');
@@ -745,7 +747,14 @@ assert(
 
 	const bonus = { potsOverlay: true, holdAndWin: true, potIds: ['gold', 'jade'] };
 	const withBonus = mod.getFullSceneSet('bookOf', bonus);
-	const expected = ['jackpotBar', 'pots', 'potFullBanner', ...BASE_BANNERS, ...MODE_SCREENS];
+	const expected = [
+		'jackpotBar',
+		'pots',
+		'potFullBanner',
+		'modifiersActiveBanner',
+		...BASE_BANNERS,
+		...MODE_SCREENS,
+	];
 	const addedIds = ids(withBonus).filter((id) => !ids(bookOf).includes(id));
 	assert(
 		json([...addedIds].sort()) === json([...expected].sort()),
@@ -762,11 +771,12 @@ assert(
 	keepsOwn(withBonus, 'Hold and Win bonus');
 	const overlaysAt = ids(withBonus).indexOf('basegameOverlays');
 	assert(
-		json(ids(withBonus).slice(overlaysAt + 1, overlaysAt + 6)) ===
+		json(ids(withBonus).slice(overlaysAt + 1, overlaysAt + 7)) ===
 			json([
 				'instantWinBanner',
 				'randomMetreBanner',
 				'potFullBanner',
+				'modifiersActiveBanner',
 				'platformJackpotBanner',
 				'wheel',
 			]),

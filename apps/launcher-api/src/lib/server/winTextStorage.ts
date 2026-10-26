@@ -4,10 +4,13 @@ import {
 	WIN_TEXT_FEATURE_MAPS,
 	WIN_TEXT_JACKPOT_FIELDS,
 	WIN_TEXT_MODE_FEATURE_FIELDS,
+	WIN_TEXT_PLACED_FEATURE_FIELDS,
+	WIN_TEXT_PLACEMENTS,
 	WIN_TEXT_PLATFORM_JACKPOT_FIELDS,
 	WIN_TEXT_RESPIN_FIELDS,
 	WIN_TEXT_WHEEL_FIELDS,
 	type WinTextDoc,
+	type WinTextPlacedFeatureField,
 } from 'engine-layout';
 import { winTextDocKey } from './projectPaths';
 import { ConflictError, getObjectTextWithEtag, precondition, putObjectText } from './r2';
@@ -99,6 +102,17 @@ const featureSchema = familySchema(WIN_TEXT_FEATURE_FIELDS)
 	)
 	.strict();
 
+const placementSchema = z.enum(WIN_TEXT_PLACEMENTS).optional();
+
+/** Where each announced feature line shows — an optional placement per line. */
+const featurePlacementSchema = z
+	.object(
+		Object.fromEntries(
+			WIN_TEXT_PLACED_FEATURE_FIELDS.map((field) => [field, placementSchema]),
+		) as Record<WinTextPlacedFeatureField, typeof placementSchema>,
+	)
+	.strict();
+
 /** A mode's own lines (`WinTextModeLines`): a respin mode's primary families (the feature's frame
  *  only), a spins mode's win-line message and win-tier captions. */
 const modeLinesSchema = z
@@ -123,6 +137,7 @@ export const winTextDocSchema = z
 		jackpots: jackpotsSchema.optional(),
 		respins: respinsSchema.optional(),
 		feature: featureSchema.optional(),
+		featurePlacement: featurePlacementSchema.optional(),
 		wheel: familySchema(WIN_TEXT_WHEEL_FIELDS).strict().optional(),
 		platformJackpot: platformJackpotSchema.optional(),
 		modes: z.record(z.string().min(1), modeLinesSchema).optional(),
@@ -282,6 +297,14 @@ export function normalizeWinTextDoc(
 	if (respins) next.respins = respins;
 	const feature = pruneFeature(doc.feature);
 	if (feature) next.feature = feature;
+	if (doc.featurePlacement) {
+		const placement: NonNullable<WinTextDoc['featurePlacement']> = {};
+		for (const field of WIN_TEXT_PLACED_FEATURE_FIELDS) {
+			const value = doc.featurePlacement[field];
+			if (value) placement[field] = value;
+		}
+		if (Object.keys(placement).length) next.featurePlacement = placement;
+	}
 	const wheel = pruneFamily(WIN_TEXT_WHEEL_FIELDS, doc.wheel);
 	if (wheel) next.wheel = wheel;
 	const platformJackpot = prunePlatformJackpot(doc.platformJackpot);

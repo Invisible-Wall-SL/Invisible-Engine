@@ -296,6 +296,25 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
+- 2026-10-26 — **Each Hold and Win feature line picks where it shows: Board banner, Info bar, Both
+  or Off.** Clearing a feature box only brings its default back (blanks prune to unset), so an author
+  could neither hide a line nor move one: the game hard-wired seven lines to the board banner and three
+  (`modifiersActive`, `modifiersUnlocked`, `upgrade`) to the info bar, and a pot filling then the bonus
+  starting said nearly the same thing twice ("PAYER ACTIVATED" on the board, "PAYER ACTIVE" in the
+  bar). New doc block `featurePlacement` (`WinTextDoc`, `winText.ts`): one optional placement per
+  announced line (`WIN_TEXT_PLACED_FEATURE_FIELDS` — every feature field but `collectorLevel`,
+  `potLabel`, `rows`), resolved over `WIN_TEXT_PLACEMENT_DEFAULTS` (= the old wiring, so an unplaced
+  project draws byte-identically) into `ResolvedWinText.featurePlacement`; a value this build does not
+  know reads as the default; respin modes share the primary's. Storage validates it (`z.enum`, unknown
+  value dropped on a read, refused on a save; empty map pruned). The page puts a picker beside each
+  placed line (and beside **Pot full** in the Pots section); picking the default deletes the key, so
+  the doc carries only the lines moved, and **Off** previews "not shown". The game routes through one
+  helper (`apps/lines/src/game/holdAndWinAnnounce.ts` `announceFeatureLine`); see
+  [hold-and-win.md](hold-and-win.md) Recent changes, 2026-10-26. Gates: `check:win-text-doc` (round
+  trip, prune, save refuses an unknown value), `check:doc-readers-unknown-fields` §15 (a read drops an
+  unknown placement alone), `test-win-text-hold-and-win.mjs` (defaults = old wiring, a line moves
+  alone, unknown → default, modes share). Owed: an owner pass on the page and on a moved line in-game.
+
 - 2026-10-07 — **The grid lists exactly the symbols `/symbols` lists.** The rows were
   `Object.keys` of the published (or committed) symbol defaults, so a symbol `/config` badges unused
   still had a row, and a stale publish listed symbols the config no longer has. `+page.server.ts`

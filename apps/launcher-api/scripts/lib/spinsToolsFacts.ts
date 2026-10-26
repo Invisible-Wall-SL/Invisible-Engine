@@ -165,10 +165,14 @@ export function factsOf(kind: string, doc: GameConfigDoc | null): Record<string,
 		flowVerdict: digest(
 			validateFlowV2Against(seed, scenesFor(kind, doc), null, EMPTY_LIBRARY, [], addOns),
 		),
-		winText: digest([
-			resolveWinText(AUTHORED_WIN_TEXT),
-			...respinModes.map((mode) => resolveWinTextForMode(AUTHORED_WIN_TEXT, mode)),
-		]),
+		// `featurePlacement` (2026-10-26) is the same defaults for every doc, pinned by engine-layout's
+		// `test-win-text-hold-and-win.mjs`; the rest is main's.
+		winText: digest(
+			[
+				resolveWinText(AUTHORED_WIN_TEXT),
+				...respinModes.map((mode) => resolveWinTextForMode(AUTHORED_WIN_TEXT, mode)),
+			].map(({ featurePlacement: _placement, ...resolved }) => resolved),
+		),
 		localization: digest(harvestProjectWinText(AUTHORED_WIN_TEXT, kind, doc)),
 		symbols: digest(symbols),
 		info: doc ? digest(baseInfoData(doc)) : 'none',

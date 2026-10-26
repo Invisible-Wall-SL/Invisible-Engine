@@ -884,18 +884,19 @@ const MAIN_DIGESTS: Record<string, string> = {
 	'borut-pots-sample · info': 'ab6c09744b1dcb07',
 };
 /**
- * The facts the Hold and Win banner screens (2026-10-20) changed, as they are now. Each is also
+ * The facts the Hold and Win banner screens (2026-10-20; the upgrade, modifiers unlocked and
+ * modifiers active screens 2026-10-26) changed, as they are now. Each is also
  * checked with the banner screens left out, against `MAIN_DIGESTS`.
  */
 const BANNER_DIGESTS: Record<string, string> = {
-	'hw-pots-sample · scenes': '0e0893e4c367520f',
-	'hw-classic-sample · scenes': '0e0893e4c367520f',
-	'hw-collector-sample · scenes': '0e0893e4c367520f',
-	'holdAndWin template on · scenes': '0e0893e4c367520f',
-	'holdAndWin template off · scenes': 'ee4a08851dd4a314',
-	'lines + threePots · scenes': '50eea9aa10d1632d',
-	'lines + potsToFreeSpins · scenes': '038bf8b4a7d4b49e',
-	'borut-pots-sample · scenes': '1150b7a0f07cc9dd',
+	'hw-pots-sample · scenes': 'a130815c0015cad8',
+	'hw-classic-sample · scenes': 'a130815c0015cad8',
+	'hw-collector-sample · scenes': 'a130815c0015cad8',
+	'holdAndWin template on · scenes': 'a130815c0015cad8',
+	'holdAndWin template off · scenes': 'd950c24bb412cbff',
+	'lines + threePots · scenes': '3ca99fa4a11d2616',
+	'lines + potsToFreeSpins · scenes': 'ff69a6076e328bcb',
+	'borut-pots-sample · scenes': 'c14438f1623ff939',
 };
 /**
  * The `/symbols` facts the per-row states (2026-10-23) changed, as they are now: each row's `plays`
@@ -921,13 +922,13 @@ const ROW_STATES_DIGESTS: Record<string, string> = {
  * they are now. Each is also checked with the tick taken off, against `BANNER_DIGESTS`.
  */
 const WINDOW_SCALE_DIGESTS: Record<string, string> = {
-	'hw-pots-sample · scenes': '265358b21d7952a8',
-	'hw-classic-sample · scenes': '265358b21d7952a8',
-	'hw-collector-sample · scenes': '265358b21d7952a8',
-	'holdAndWin template on · scenes': '265358b21d7952a8',
-	'holdAndWin template off · scenes': '9738c456d6ece06e',
-	'lines + threePots · scenes': 'f24912b8cbcccfa3',
-	'borut-pots-sample · scenes': '15630f8bf8eb9261',
+	'hw-pots-sample · scenes': 'cc06fdad003f56bb',
+	'hw-classic-sample · scenes': 'cc06fdad003f56bb',
+	'hw-collector-sample · scenes': 'cc06fdad003f56bb',
+	'holdAndWin template on · scenes': 'cc06fdad003f56bb',
+	'holdAndWin template off · scenes': '67846aa0adb759e1',
+	'lines + threePots · scenes': 'ba9284f24b5a1949',
+	'borut-pots-sample · scenes': '6368513097b7d465',
 };
 /** A screen as it was before new Hold and Win games seeded it scaled with the window. */
 const withoutWindowScale = (scene: Scene): Scene => {
