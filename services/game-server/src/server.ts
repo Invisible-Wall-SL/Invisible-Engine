@@ -29,8 +29,9 @@ const MAX_PAYLOAD_BYTES = 1024;
  *  body whole, with no limit of its own, so the server refuses a bigger one before it is read. */
 const MAX_BODY_BYTES = 4096;
 
-/** Matchmaking requests one address may make per {@link MATCHMAKE_WINDOW_MS}: a held seat lasts
- *  {@link SEAT_SECONDS}, so this bounds the seats (and config reads) one address can tie up. */
+/** Requests with a body (every matchmaking call) one address may make per
+ *  {@link MATCHMAKE_WINDOW_MS}: a held seat lasts {@link SEAT_SECONDS}, so this bounds the seats
+ *  (and config reads) one address can tie up. */
 export const MATCHMAKE_PER_WINDOW = 30;
 const MATCHMAKE_WINDOW_MS = 10_000;
 
@@ -43,23 +44,55 @@ const EXPOSED_METHODS = ['joinOrCreate', 'join', 'joinById', 'reconnect'];
 
 const BODYLESS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+/** How long a request (headers and body) may take; the default five minutes lets slow clients pile
+ *  up. A WebSocket, once upgraded, is not a request and is not timed by it. */
+const REQUEST_TIMEOUT_MS = 10_000;
+
+/** Sockets one process holds: every player's WebSocket, with room for matchmaking requests. */
+const MAX_CONNECTIONS = 6000;
+
+/** Answer `status` and close. The socket is dropped only once the answer is out, so a refused
+ *  device reads why; `connection: close` keeps Node from reading the rest of its body. */
 const refuse = (req: IncomingMessage, res: ServerResponse, status: number): true => {
+	res.on('finish', () => req.destroy());
 	res.writeHead(status, { connection: 'close', 'access-control-allow-origin': '*' }).end();
-	req.destroy();
 	return true;
 };
 
 /**
+ * Where the request says it is, built as Colyseus' router (better-call) builds it — from
+ * `x-forwarded-proto`, `host` and the raw target — or `undefined` when that is not a URL. The
+ * router does it with no guard, so a request it cannot parse would throw out of the server and
+ * end the process; this one is refused first.
+ */
+const locate = (req: IncomingMessage): URL | undefined => {
+	if (!req.url?.startsWith('/')) return undefined;
+	const proto = req.headers['x-forwarded-proto'];
+	if (proto !== undefined && proto !== 'http' && proto !== 'https') return undefined;
+	try {
+		return new URL(`${proto ?? 'http'}://${req.headers.host}${req.url}`);
+	} catch {
+		return undefined;
+	}
+};
+
+/**
  * An HTTP server that refuses, before any listener (Colyseus' router among them) sees it: a
- * request that would carry a body with no `content-length` (a chunked body is streamed with no
- * limit; Node itself rejects a request naming both), one declaring more than
- * {@link MAX_BODY_BYTES} (Node reads no more than the declared length), and an address's
- * matchmaking requests past `perWindow` ({@link MATCHMAKE_PER_WINDOW}) in a window. `trustProxy`: the address is
- * the last `x-forwarded-for` entry, the one the platform's proxy added (Railway); otherwise the
- * socket's.
+ * request whose URL the router could not build (400); one that would carry a body with no
+ * `content-length` (411 — a chunked body is streamed with no limit; Node itself rejects a request
+ * naming both) or declares more than {@link MAX_BODY_BYTES} (413 — Node reads no more than the
+ * declared length); and an address's requests that can carry a body (every matchmaking call)
+ * past `perWindow` ({@link MATCHMAKE_PER_WINDOW}) in a window (429; counted by method, so no
+ * spelling of the path escapes it). `trustProxy`: the address is the last `x-forwarded-for` entry,
+ * the one the platform's proxy added (Railway); otherwise the socket's. The WebSocket upgrade is
+ * guarded the same way for its URL.
  */
 function guardedHttpServer(trustProxy: boolean, perWindow: number) {
-	const http = createServer();
+	const http = createServer({
+		requestTimeout: REQUEST_TIMEOUT_MS,
+		headersTimeout: REQUEST_TIMEOUT_MS,
+	});
+	http.maxConnections = MAX_CONNECTIONS;
 	const emit = http.emit.bind(http);
 	let window = 0;
 	let counts = new Map<string, number>();
@@ -69,13 +102,21 @@ function guardedHttpServer(trustProxy: boolean, perWindow: number) {
 		return last || req.socket.remoteAddress || '';
 	};
 	http.emit = ((event: string, ...args: unknown[]) => {
+		if (event === 'upgrade') {
+			const [req, socket] = args as [IncomingMessage, { destroy(): void }];
+			if (!locate(req)) {
+				socket.destroy();
+				return true;
+			}
+		}
 		if (event === 'request') {
 			const [req, res] = args as [IncomingMessage, ServerResponse];
+			if (!locate(req)) return refuse(req, res, 400);
 			const method = req.method ?? 'GET';
-			const length = req.headers['content-length'];
-			if (!BODYLESS.has(method) && length === undefined) return refuse(req, res, 411);
-			if (Number(length) > MAX_BODY_BYTES) return refuse(req, res, 413);
-			if (req.url?.startsWith('/matchmake/')) {
+			if (!BODYLESS.has(method)) {
+				const length = req.headers['content-length'];
+				if (length === undefined) return refuse(req, res, 411);
+				if (Number(length) > MAX_BODY_BYTES) return refuse(req, res, 413);
 				const now = Math.floor(Date.now() / MATCHMAKE_WINDOW_MS);
 				if (now !== window) {
 					window = now;

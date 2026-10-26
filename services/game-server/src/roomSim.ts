@@ -26,7 +26,7 @@ import type { ArcadeOnlineCharacter, OnlineGame } from 'game-config';
 
 /** Inputs a step leaves waiting (a cushion against jitter), and the most it applies at once. */
 const KEEP_WAITING = 1;
-const MOST_PER_STEP = 4;
+const MOST_PER_STEP = 2;
 
 /**
  * How many of a player's `waiting` inputs this step applies: one, or more while more than
@@ -38,8 +38,9 @@ const MOST_PER_STEP = 4;
 export const inputsThisStep = (waiting: number, credit: number): number =>
 	Math.min(MOST_PER_STEP, 1 + Math.max(0, credit), Math.max(1, waiting - KEEP_WAITING));
 
-/** The most catch-up a player can bank: one second at the fastest step rate. */
-const CREDIT_MAX = 60;
+/** The most catch-up a player can bank, in seconds: a stall that long drains; spending it is a dash
+ *  of at most {@link MOST_PER_STEP}× speed for as long. */
+const CREDIT_SECONDS = 0.5;
 
 export type SimPlayer = {
 	id: string;
@@ -78,6 +79,7 @@ export type RoomSim = {
 export function createRoomSim(game: OnlineGame): RoomSim {
 	const { online, field } = game;
 	const ctx = stepContext(online.tickHz, online.subSteps);
+	const creditMax = Math.ceil(online.tickHz * CREDIT_SECONDS);
 	const players = new Map<string, SimPlayer>();
 	let steps = 0;
 
@@ -148,7 +150,7 @@ export function createRoomSim(game: OnlineGame): RoomSim {
 				if (!inputs.length) {
 					stepPlayer(player.body, undefined, player.character.speed, ctx, field);
 					player.moving = false;
-					player.credit = Math.min(CREDIT_MAX, player.credit + 1);
+					player.credit = Math.min(creditMax, player.credit + 1);
 				} else player.credit = Math.max(0, player.credit - (inputs.length - 1));
 				for (const input of inputs) {
 					stepPlayer(player.body, input, player.character.speed, ctx, field);

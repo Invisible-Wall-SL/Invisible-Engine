@@ -9,8 +9,8 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { request as httpRequest } from 'node:http';
-import { createServer } from 'node:net';
+import { createServer as createHttpServer, request as httpRequest } from 'node:http';
+import { connect, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -314,7 +314,7 @@ await check('a stall’s burst drains; sending more never moves a player faster'
 			[6, 9],
 			[60, 9],
 		].map(([waiting, credit]) => inputsThisStep(waiting, credit)),
-		[1, 1, 1, 1, 3, 4, 4],
+		[1, 1, 1, 1, 2, 2, 2],
 	);
 	const game = gameOf({ characters: CHARACTERS });
 	const step = (sim, rx) => sim.step((_, credit) => rx.take(credit));
@@ -333,7 +333,7 @@ await check('a stall’s burst drains; sending more never moves a player faster'
 		step(honest, rx);
 		steps += 1;
 	}
-	assert.ok(steps <= 4, `the burst drained in ${steps} steps`);
+	assert.ok(steps <= 6, `the burst drained in ${steps} steps`);
 
 	// A cheat: three inputs every step for 600 steps, never starved. It applies one a step.
 	const cheat = createRoomSim(game);
@@ -359,6 +359,7 @@ await check('over any run of steps a player applies no more inputs than steps pa
 	const rx = receiver(FIELD);
 	let seq = 0;
 	let applied = 0;
+	const perStep = [];
 	for (let s = 1; s <= 5000; s++) {
 		const roll = rng();
 		const count = roll < 0.2 ? 0 : roll < 0.9 ? 1 : 1 + Math.floor(rng() * 10);
@@ -369,7 +370,14 @@ await check('over any run of steps a player applies no more inputs than steps pa
 			return taken;
 		});
 		assert.ok(applied <= s, `step ${s}: ${applied} inputs applied`);
+		perStep.push(applied);
 	}
+	// Over any 30 steps a player applies at most 30 plus its half-second bank (15 at 30 Hz): a dash
+	// of saved-up steps is short and at most twice the speed.
+	for (let s = 30; s < perStep.length; s++) {
+		assert.ok(perStep[s] - perStep[s - 30] <= 45, `steps ${s - 30}–${s}`);
+	}
+	assert.ok(Math.max(...perStep.map((n, i) => n - (perStep[i - 1] ?? 0))) <= 2);
 });
 
 await check(
@@ -424,23 +432,43 @@ await check('a config the room cannot play is refused, with the reason', () => {
 });
 
 await check(
-	'the config source: a loaded game keeps its last good config through a failed read',
+	'the config source: last good through a failed read; gone or refused forgets it',
 	async () => {
-		const own = mkdtempSync(join(tmpdir(), 'room-sim-src-'));
+		const answers = new Map();
+		const source = createHttpServer((req, res) => {
+			const [status, body] = answers.get(req.url) ?? [404, ''];
+			res.writeHead(status, { 'content-type': 'application/json' }).end(body);
+		});
+		await new Promise((ok) => source.listen(0, '127.0.0.1', ok));
 		let clock = 0;
-		const load = createConfigSource({ dir: own, now: () => clock });
-		const file = join(own, 'pond.json');
-		writeFileSync(file, JSON.stringify(configOf({ characters: CHARACTERS })));
+		const load = createConfigSource({
+			url: `http://127.0.0.1:${source.address().port}/{game}`,
+			now: () => clock,
+		});
+		const good = JSON.stringify({ doc: configOf({ characters: CHARACTERS }) });
+		answers.set('/pond', [200, good]);
 		const first = await load('pond');
-		rmSync(file);
+		answers.set('/pond', [503, '']);
 		clock += 61_000;
-		assert.equal(await load('pond'), first, 'a failed read serves the last good config');
-		await assert.rejects(load('never'), 'a game never loaded is refused');
-		writeFileSync(file, JSON.stringify({ gameName: 'now a slot' }));
+		assert.equal(await load('pond'), first, 'a 5xx serves the last good config');
+		answers.set('/pond', [404, '']);
+		clock += 61_000;
+		await assert.rejects(load('pond'), 'a game the source says is gone is gone');
+		answers.set('/pond', [503, '']);
+		clock += 61_000;
+		await assert.rejects(load('pond'), '…and stays gone through a later failed read');
+		answers.set('/pond', [200, good]);
+		clock += 61_000;
+		await load('pond');
+		answers.set('/pond', [200, JSON.stringify({ gameName: 'now a slot' })]);
 		clock += 61_000;
 		await assert.rejects(load('pond'), 'a config that is refused is not covered up');
+		answers.set('/pond', [503, '']);
+		clock += 61_000;
+		await assert.rejects(load('pond'), '…nor brought back by a failed read');
+		await assert.rejects(load('never'), 'a game never loaded is refused');
 		await assert.rejects(load('Not A Key'));
-		rmSync(own, { recursive: true, force: true });
+		await new Promise((ok) => source.close(ok));
 	},
 );
 
@@ -611,9 +639,34 @@ try {
 			req.write('{"game":"river","pad":"');
 			req.write('x'.repeat(64_000));
 		});
-		assert.ok(chunked === 411 || chunked === 0, `chunked: ${chunked}`);
+		assert.equal(chunked, 411);
 		assert.equal(game.rooms.count, 0);
 	});
+
+	await check(
+		'live: a request the router could not parse is refused, and the server lives',
+		async () => {
+			const raw = (text) =>
+				new Promise((resolve) => {
+					const socket = connect(port, '127.0.0.1', () => socket.end(text));
+					let answer = '';
+					socket.on('data', (c) => (answer += c));
+					socket.on('close', () => resolve(answer.split('\r\n')[0]));
+					socket.on('error', () => resolve(''));
+				});
+			const health = () => fetch(`http://127.0.0.1:${port}/healthz`).then((r) => r.status);
+			for (const request of [
+				'GET /healthz HTTP/1.1\r\nHost: x\r\nX-Forwarded-Proto: https,evil\r\n\r\n',
+				'GET http://h/healthz HTTP/1.1\r\nHost: x\r\n\r\n',
+				'GET /healthz HTTP/1.1\r\nHost: a:b:c\r\n\r\n',
+				'GET /matchmake HTTP/1.1\r\nHost: a b\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n',
+			]) {
+				const status = await raw(request);
+				assert.ok(!status.includes(' 200 '), `${JSON.stringify(request)} → ${status}`);
+				assert.equal(await health(), 200, `the server survived ${JSON.stringify(request)}`);
+			}
+		},
+	);
 
 	await check(
 		'live: one address’s matchmaking is limited per window; another’s is not',
@@ -633,6 +686,15 @@ try {
 			const statuses = [];
 			for (let i = 0; i < MATCHMAKE_LIMIT + 1; i++) statuses.push(await ask('203.0.113.7'));
 			assert.equal(statuses.filter((s) => s === 429).length, 1, JSON.stringify(statuses.slice(-3)));
+			// No spelling of the path escapes the count: it is by method, not by path.
+			for (const path of ['/./matchmake/joinOrCreate/', '/x/../matchmake/joinOrCreate/']) {
+				const status = await fetch(`http://127.0.0.1:${port}${path}${ROOM_NAME}`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.7' },
+					body: '{}',
+				}).then((r) => r.status);
+				assert.equal(status, 429, path);
+			}
 			assert.notEqual(await ask('203.0.113.8'), 429);
 		},
 	);
@@ -721,14 +783,16 @@ try {
 		const server = serverRoom(a).sim.players.get(a.sessionId);
 		const input = a.input();
 		const first = server.ack + 1;
-		for (let seq = first; seq < first + 30; seq++) {
+		// A stall: nothing for 0.7 s (the player banks its half-second of credit), then 20 at once.
+		await wait(700);
+		for (let seq = first; seq < first + 20; seq++) {
 			Object.assign(input.data, { seq, moveX: 0, moveY: 127, buttons: 0, aimX: 0, aimY: 0 });
 			input.send();
 		}
 		const sent = Date.now();
-		await until('the burst applied', () => server.ack === first + 29, 3000);
-		// One a step would take a second at 30 Hz; the drain takes about a third of that.
-		assert.ok(Date.now() - sent < 700, `${Date.now() - sent} ms`);
+		await until('the burst applied', () => server.ack === first + 19, 3000);
+		// One a step would take 0.67 s at 30 Hz; the drain, two a step, about half that.
+		assert.ok(Date.now() - sent < 550, `${Date.now() - sent} ms`);
 	});
 
 	await check('live: the room holds its size and each character’s max', async () => {

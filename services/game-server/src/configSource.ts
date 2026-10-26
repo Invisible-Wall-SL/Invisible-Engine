@@ -16,7 +16,8 @@ import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-conf
  * Answers, good or bad, are kept for {@link CACHE_MS}, and at most {@link MAX_IN_FLIGHT} reads run
  * at once, so a device asking for rooms of games that do not exist cannot make the server fetch for
  * every request; a game that has loaded once keeps its last good config through a full reader or a
- * failed read.
+ * read that failed, until the source says it is gone (a missing file, 404, 410) or refuses its new
+ * config.
  */
 
 /** A game key: what the launcher's project keys look like. Anything else is never looked up. */
@@ -40,6 +41,10 @@ export type ConfigSourceOptions = {
 
 const tooLarge = (game: string) => new Error(`the config of "${game}" is too large`);
 
+/** The source says the game is not there (a missing file, 404, 410): it has been unpublished or
+ *  deleted, so its last good config must not keep it playable. */
+class GoneError extends Error {}
+
 const parse = (text: string, game: string): OnlineGame => {
 	const raw: unknown = JSON.parse(text);
 	const docRaw =
@@ -61,7 +66,10 @@ export function createConfigSource(options: ConfigSourceOptions): LoadGame {
 
 	const fetchText = async (game: string): Promise<string> => {
 		if (options.dir) {
-			const bytes = await readFile(join(options.dir, `${game}.json`));
+			const bytes = await readFile(join(options.dir, `${game}.json`)).catch((error: unknown) => {
+				const code = (error as { code?: unknown } | null)?.code;
+				throw code === 'ENOENT' ? new GoneError(`no config for "${game}"`) : error;
+			});
 			if (bytes.byteLength > MAX_CONFIG_BYTES) throw tooLarge(game);
 			return bytes.toString('utf8');
 		}
@@ -70,6 +78,8 @@ export function createConfigSource(options: ConfigSourceOptions): LoadGame {
 				headers: options.token ? { authorization: `Bearer ${options.token}` } : {},
 				signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
 			});
+			if (res.status === 404 || res.status === 410)
+				throw new GoneError(`the config of "${game}" answered ${res.status}`);
 			if (!res.ok) throw new Error(`the config of "${game}" answered ${res.status}`);
 			if (Number(res.headers.get('content-length')) > MAX_CONFIG_BYTES) throw tooLarge(game);
 			const bytes = await res.arrayBuffer();
@@ -92,10 +102,19 @@ export function createConfigSource(options: ConfigSourceOptions): LoadGame {
 		inFlight += 1;
 		const answer = fetchText(game)
 			.then(
-				(text) => parse(text, game),
-				// A read that failed (not a config that was refused) keeps the game its last good one.
+				(text) => {
+					try {
+						return parse(text, game);
+					} catch (error) {
+						known.delete(game);
+						throw error;
+					}
+				},
+				// A read that failed (a timeout, a 5xx) keeps the game its last good config; a game
+				// the source says is gone does not.
 				(error: unknown) => {
-					if (last) return last;
+					if (error instanceof GoneError) known.delete(game);
+					else if (last) return last;
 					throw error;
 				},
 			)
