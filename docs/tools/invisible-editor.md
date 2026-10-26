@@ -654,7 +654,8 @@ world (window-frame) pixels at the current zoom and pan. While the rulers are on
 **📏 Rulers** is off until you turn it on, **⌗ Snap to guides** is on; both are remembered per
 browser. Esc cancels a guide drag. Guides are saved with the screen (on
 the Components side, with the component) and kept per device layout, so each layout tab has its
-own. Adding, moving or removing a guide is an edit: undo covers it and it autosaves. Guides can't
+own. Adding, moving or removing a guide is an edit: on a screen undo covers it and it autosaves; on
+the Components side it marks the component unsaved, like any other change there. Guides can't
 be edited in Animate, or on a skinnable part's stage inside a component. They are editor-only and
 never reach the game.
 

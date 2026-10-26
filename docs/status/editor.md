@@ -177,7 +177,8 @@ Shipped capabilities on `main`:
   remove; **⌗ Snap to guides** adds them to the move snap's candidates. Rulers are off until turned on;
   both toggles are per browser. A guides-only save doesn't bump a component's version.
   Guides are saved with the screen (`Scene.guides`) or the component (`ComponentDef.guides`), per
-  device layout, and undo with the doc (`engine-layout` `editorGuides.ts`). Editor-only: `loadDoc`
+  device layout (`engine-layout` `editorGuides.ts`): a screen's undo and autosave cover them, and on the
+  Components side they mark the component unsaved. Editor-only: `loadDoc`
   strips them from every screen and the shipped component closure reads through
   `loadComponentForGame`, so no game is handed them. Gate: `editorGuides.fixture.ts`. ⏳ Not
   browser-verified live.
