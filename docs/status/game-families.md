@@ -120,32 +120,35 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   jump), clamped, sent — and draws every room player as a spawned instance of its character's
   component in `online.layer`, at the server's last place (no prediction or smoothing: P10.15). The
   arcade probe reads the room. Free play, as every arcade game (`rgsSession: false`).
-- **Gates:** `check:room-sim` (root, 35 checks, ~20 s; discovered by `check:all`): 10 000 steps
-  of six players at 30 Hz × 2, 60 × 1 and 20 × 4 with hostile, repeated, stale, gapped and missing
-  inputs and network stalls that release in bursts — the room's body equals the device's
-  `stepPlayer` fold **bit for bit** on every step, and the backlog stays bounded (under one input
-  waiting on average); a stall's burst drains in ≤ 6 steps; a device sending three a step for 600
-  steps applies exactly 600; over 5 000 random steps no player applies more inputs than steps, at
-  most two in one step and at most 45 in any 30; the config source's last-good fallback and its
-  forgetting a gone or refused game; replay; the clamp exact and idempotent over 20 000 inputs; an input claiming a place, score or
-  character changes nothing; seq order, one per step; join limits, names, drop / rejoin; refused
-  configs; the mechanic (only an online config sets `room`); source scans (the SDK reached only from
-  `game/online.ts`, lazily; the layout and stage branch on `room`). Then a **real** Colyseus server on
-  localhost with real SDK clients: `/healthz`; bad / missing / non-online / non-string game keys
-  make no room and name no reason; `create`, a 10 KB body and a chunked body (411) are refused;
-  a bad `x-forwarded-proto`, an absolute-form target, a bad `Host`, `TRACE`, `PROPFIND` and a bad
-  upgrade are refused and the server still answers; three unreliable-input frames each end their
-  socket while the rooms step on; ROOM_DATA (a `move` carrying a place, a numeric type), a
-  ROOM_REQUEST, a raw request frame and DATA_BYTES each close their socket, hold no seat and move
-  nothing; a socket that never acknowledges its join is closed after 5 s; a flood of inputs past
-  the message limit disconnects; 64 WebSockets from one address open, the 65th is dropped, another
-  address's opens, and a closed one frees its place; IPv6 addresses key by /64; one address's 121st matchmaking request in a window gets 429
-  (and so do its dot-segment spellings) and another address's does not; after a 0.7 s stall a burst of
-  20 inputs is applied within 550 ms;
-  join state; 90 live inputs stepped exactly as the device steps them (and drawn at their float32);
-   an off-scale move clamped; room size and
-  character max; a drop keeps the place and `reconnect(token)` resumes it; the grace expiring; a
-  flood disconnects; `maxRooms`. `family.fixture.ts` §4c covers the config block.
+- **Gates:** `check:room-sim` (root, 35 checks, ~25 s; discovered by `check:all`).
+  - *Headless, over the room's own code:* 10 000 steps of six players at 30 Hz × 2, 60 × 1 and
+    20 × 4 with hostile, repeated, stale, gapped and missing inputs and network stalls that release
+    in bursts — the room's body equals the device's `stepPlayer` fold **bit for bit** on every step,
+    and the backlog stays bounded (under one input waiting on average); replay; the clamp exact and
+    idempotent over 20 000 inputs; an input claiming a place, score or character changes nothing;
+    seq order; a stall's burst drains in ≤ 6 steps; a device sending three a step for 600 steps
+    applies exactly 600; over 5 000 random steps no player applies more inputs than steps, at most
+    two in one step and at most 45 in any 30; join limits, names (control, zero-width and bidi
+    characters dropped), drop / rejoin; refused configs; the config source's last-good fallback and
+    its forgetting a gone or refused game; IPv6 addresses key by /64; the mechanic (only an online
+    config sets `room`); source scans (the SDK reached only from `game/online.ts`, lazily; the
+    layout and stage branch on `room`).
+  - *Live, a real Colyseus server on localhost with real SDK clients:* `/healthz`; bad / missing /
+    non-online / non-string game keys make no room and name no reason; `create`, a 10 KB body and a
+    chunked body (411) are refused; a bad `x-forwarded-proto`, an absolute-form target, a bad
+    `Host`, `TRACE`, `PROPFIND` and a bad upgrade are refused and the server still answers; one
+    address's 121st matchmaking request in a window gets 429 (dot-segment spellings too) and another
+    address's does not; join state; 90 live inputs stepped exactly as the device steps them (and
+    drawn at their float32); after a 0.7 s stall a burst of 20 inputs is applied within 550 ms; an
+    off-scale move clamped; ROOM_DATA (a `move` carrying a place, a numeric type), ROOM_REQUEST, a
+    raw request frame and DATA_BYTES each end their socket, hold no seat and move nothing; three
+    unreliable-input frames each end their socket while the rooms step on; a socket that never
+    acknowledges its join is ended after 5 s; the latency utility and a seat path with no session
+    are not served; 16 seats' sockets from one address open, the 17th is dropped, another address's
+    opens, a closed one frees its place; once an address's 60 upgrades in a window are spent every
+    attempt is refused; 200 PINGs from a joined device end its socket; room size and character max;
+    a drop keeps the place and `reconnect(token)` resumes it; the grace expiring; a flood of inputs
+    past the message limit disconnects; `maxRooms`. `family.fixture.ts` §4c covers the config block.
 - **Verified by playing:** `scripts/playtest/online-play.mjs` on the branch runtime, two headless
   shells against a local game server ([playtest/online-sample.md](../playtest/online-sample.md)):
   13 / 13 — both pages joined one room and drew both players (one a salmon, one the bear its
