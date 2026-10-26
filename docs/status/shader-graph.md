@@ -16,7 +16,8 @@ merged (#1342), and so are 8b, Break as an output node (#1347), and 8c, the admi
 GLSL node (#1349). 8d (particle materials) is decided
 ([design](../design/shader-graph-particles.md)) and being built as 8d.1–8d.8; 8d.1 (the particle
 shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is merged
-(#1366); 8d.3 (the material in the game) is next.
+(#1366); 8d.3 (the material in the game) is built and in review; 8d.4 (the ship chain, proven) is
+next.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -280,8 +281,42 @@ shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is 
 - **Step 8** (the plan's "Later", split into 8a–8e in design §8). 8e not started.
   - **8d, particle materials for Invisible FX.** Decided 2026-10-25
     (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
-    shader). Built as 8d.1–8d.8, one PR each (its §15). Nothing plays a material yet: the renderer
-    exists (8d.2) and reaches a game in 8d.3.
+    shader). Built as 8d.1–8d.8, one PR each (its §15). A game plays a material from 8d.3; no
+    tool authors one until 8d.5.
+    - **8d.3, the material in the game.** Built, in review.
+      - **`EmitterLayer.material`** (`engine-fx/src/types.ts`): `{ kind: 'custom:<id>', time?,
+        intensity?, params? }`, sprite layers only. `normalizeEmitterMaterial` keeps a well-formed
+        one (the kind checked by `constants-shared`'s `isCustomElementFxKind`, so `engine-fx` now
+        depends on `constants-shared`), clamps the strength to 0…4, drops a bad `time`, keeps
+        number / string / boolean params, drops `__proto__` / `prototype` / `constructor` ids and
+        writes canonical key order; a layer without one is byte-identical.
+        `validateEffectMaterials(doc, isCompiled)` names a kind the project does not compile
+        (`material-not-compiled`); nothing calls it yet (8d.5).
+      - **Params** (`engine-fx/src/params.ts`): layer-scoped `material.intensity` and
+        `material.param.<id>`. The applier writes uniforms through an `FxParamMaterial` sink (no
+        rebuild, no re-init) and is inert without a renderer; `applyEffectParamDefaults` writes
+        defaults into `material.params` (strength 1 is left absent); a param's leaf kind comes
+        from its drive; lookups read own keys only.
+      - **The game path.** `<EffectLayer>` passes `material` (and an `effectId` label) to
+        `<ParticleEmitter material>`, which takes `{ kind, time, intensity, params,
+        peakParticles, label }` (a coded emitter can pass `{ kind }`, §14).
+        `mountParticleMaterial` decides once, at mount, in order: Tier C, an unregistered kind,
+        the game cap, then the renderer's own refusals. A layer plain from mount is exactly a
+        layer with no material (renderer destroyed, emitter parented to the host); one that turns
+        plain while playing keeps its sprites for good. Every `init` goes through `bindConfig`;
+        `sync` runs right after `emitter.update`; `setEmitSpeed` follows the emit speed.
+      - **The cap:** 8 material layers per game (`createFxMaterialSlots(8)`, one count per app,
+        keyed by `context.stateApp`). A layer claims a slot at mount and keeps it for its life
+        (a dormant event layer too); it gives it back on destroy, on a refusal, on a throw during
+        construction, or on turning plain while playing; a freed slot never turns a plain layer on.
+      - **Capacity, no pop:** sized to the highest Max particles a drive can write
+        (`fxMaterialPeakParticles`, ≤ 0 read as the library's 1000). A layer whose Max particles
+        can be driven over 512, or with no bound, is plain from mount; so is one with no frames
+        when it mounted.
+      - **`?fxdebug=1`:** a line per material layer at mount and on turning plain, e.g.
+        `material layer embers/main: on (custom:pulsetint; 1/8 drawing)`. Load waits for 8d.5.
+      - **The soft floor** is written in `docs/design/games-deploy.md` beside 8a's: below the first
+        release with 8d.3, every material draws plain. `rigger-fx.js` rebuilt.
     - **8d.2, the material renderer.** Merged (#1366, 2026-10-26).
       - **`ParticleMaterial`** (`packages/pixi-svelte/src/lib/particleMaterial/`, plain TS, the
         `pixi-svelte/particleMaterial` subpath; the package root does not export it, so no game
@@ -457,18 +492,22 @@ shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is 
       defaults.
 
 ## Open items / next
-1. **Step 8d.3 (next): the material in the game** (design §15 step 3). Carried from 8d.2:
-   - wire `ParticleMaterial` into `<ParticleEmitter>` / `<EffectLayer>`: `bindConfig` wraps
-     `bindArt`'s result, `sync(renderer)` runs right after `emitter.update`; any re-init of the
-     emitter must go through `bindConfig`, or `fxMaterial` drops out (new particles get seed 0),
-     and a re-init restarts spawn order at 0;
-   - capacity is fixed at mount: a drive raising Max particles above its mount value turns the layer
-     plain. Size it from the exposed param's range, or accept it;
-   - emit speed is read once (`secondsPerAge`); add a setter if speed can change while playing;
-   - the measured load meter (§10, Σ quad area × cost) is not built; the mirror has the corners
-     (8d.5).
-   - For 8d.8's phone check: integer seeds through a hash; WebGL1's whole-buffer upload per frame;
-     the parity tolerance (below) is SwiftShader's, not a phone's.
+1. **Step 8d.4 (next): the ship chain, proven** (design §15 step 4): `check:shader-pipeline`
+   proves a material's kind inside `effects` ships through Publish and the bake;
+   `shaderReadScope` gains `fx` and `rigger`. The soft floor is already written (8d.3).
+   - **8d.5:** the `/fx` Material section calls `validateEffectMaterials` with the registered set;
+     ⚡ offers every param from the compiled spec, not only the stored ones; the live preview must
+     remount on a `layer.material` edit (the spec is read at mount); the load meter (§10, Σ quad
+     area × cost) and a load figure on the debug line.
+   - **8d.6:** `EditorEffectLayer` and `fxOverlay` do not draw materials yet; `view.html` must
+     fetch the set.
+   - **8d.8, the phone check:** integer seeds through a hash; WebGL1's whole-buffer upload per
+     frame, now sized to the drive's peak; the parity tolerance is SwiftShader's, not a phone's;
+     whether a dormant event layer should hold a cap slot; spawn order restarting at 0 on every
+     emit re-init.
+   - A layer that mounts before its frames are loaded stays plain for its life ("no frames when it
+     mounted"); a remount fixes it. Deferring the decision would mean re-parenting a live emitter.
+   - `setTime` has no caller yet; `FxMaterialSlots.release` clamps at 0 silently.
 2. **Step 8c follow-ups.**
    - The test-compile runs in the author's browser only (the server has no GPU), so a phone's
      driver may still refuse a body the author's took; the runtime then draws the element as it is
