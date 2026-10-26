@@ -3,7 +3,7 @@
 Author the **characters of an arcade game**: the things on the play field that move by
 themselves — a guard that patrols and chases, a fish that flees, a paddle the player drives. Each
 one is a **look** (a component), a **body**, **movement** settings, a **controller** when the
-player drives it and a **brain** when it acts on its own. A **sandbox** beside the editor runs the
+player drives it and a **brain** when it acts on its own. A **sandbox** below the editor runs the
 character for real, with placeholder shapes, so you can try it before you save.
 
 - **Where it runs:** Cloud (the launcher itself, Railway).
@@ -11,8 +11,8 @@ character for real, with placeholder shapes, so you can try it before you save.
   `artist` and `pipelineTester` by default — the same roles as Invisible Game Config; `admin`
   always).
 - **Scope:** per **active project**, and **arcade projects only**. A slot or match-3 project does
-  not list the tool, and a direct link shows "Invisible Characters is not used by slot games" with
-  a link home.
+  not list the tool, and a direct link shows "Invisible Characters is not used by slot games" (or
+  "match-3 games") with a link back to the launcher.
 
 ## Where the characters are stored
 
@@ -78,7 +78,8 @@ How the velocity follows what the character wants, all optional:
 ### Controller
 
 **Played with:** _none_ (not playable), _top-down_ (8-way), _side-scroll_ (left / right; the jump
-comes later) or _pointer_ (follow the mouse or a finger on the **x**, **y** or **xy** axes).
+comes later) or _pointer_ (follow a pressed mouse button or a finger on the **x**, **y** or **xy**
+axes; a new pointer controller starts on **x**).
 
 - **Speed px/s** — a keyboard controller needs one (200 by default). A pointer controller may leave
   it empty: it then moves at the movement's max speed, or jumps straight to the pointer with none.
@@ -110,7 +111,9 @@ after 500 ms`, or `at once`).
 
 Click a card to edit the **state**: rename it (its transitions, the start and the anim inputs that
 follow it are renamed too), change its **behaviour**, set its parameters (empty fields show the
-default and use it), **Start here**, **＋ From any state**, **Delete state**.
+default and use it), **Start here**, **＋ From any state**, **Delete state**. Deleting a state also
+removes its transitions and the anim inputs that follow it. Delete the start state and the first
+state left becomes the start; delete the last state and the character has no brain.
 
 | Behaviour | What it does | Parameters (default) |
 |---|---|---|
@@ -140,8 +143,8 @@ Click an arrow to edit the **transition**: its conditions (all must hold; none f
 | `variable` | a Flow variable compares (`==`, `!=`, `<`, `<=`, `>`, `>=`) to a value (`true`, `false`, a number or text) |
 | `random` | a seeded roll succeeds (`chance` 0–1, rolled every `every` ms, 1000 by default) |
 
-A value the game could not read (a negative distance, a chance above 1, a blank tag) is simply not
-taken: the field goes back to what it was.
+A value the game could not read (a negative distance, a chance above 1, a blank tag) is not stored:
+the condition keeps the value it had.
 
 ### Anim inputs
 
@@ -160,8 +163,8 @@ Component Editor). An input mapped here that the look no longer has is shown wit
 The validator's findings for the selected character are listed at the top of its panel, and the
 cards and arrows they concern are outlined in orange. Errors (two characters with one id or one
 look, a start or a transition naming no state, …) block **Save**; warnings (a played character
-whose look has no body, a `chase` tag no body carries, a `shootAt` without component or layer, an
-anim input following a state the brain does not have) do not.
+whose look has no body, a `chase` or `flee` tag no body carries, a `shootAt` without component or
+layer, an anim input following a state the brain does not have) do not.
 
 ## The sandbox
 
@@ -177,16 +180,17 @@ when its look has none) labelled with its name and its brain state; the dummy **
 - **Move** mode: drag the player, the character or a wall; press on empty space to give a pointer
   controller its pointer.
 - **＋ Wall** adds a solid wall; two stand in the middle to start with.
-- **Draw path**: click to add points. The drawn path stands in for every path a state names (and
-  for `sandbox`). **Clear path** removes it.
+- **Draw path**: click to add points (it counts from two). The drawn path stands in for every path
+  a state names (and for `sandbox`). **Clear path** removes it.
 - **▶ Play / ❚❚ Pause**, **Step** (one fixed step while paused), **↺ Reset**.
 - **Seed** — the same seed and the same keys give the same run (`wander` and `random` draw from it).
 - The readout shows the **brain state** (also lit on the canvas), who drives it, its **speed**,
   **facing**, how many shots hit the player, the step count and every mapped **anim input**'s
   value as the game would set it.
 
-Any change to the character (or the seed, the path, who drives) restarts the run. Nothing in the
-sandbox is saved — not the walls, the path or the positions.
+Any change to the character (or the seed, the path, who drives, a new wall) restarts the run.
+Moving a card on the brain canvas does not. Nothing in the sandbox is saved — not the walls, the
+path or the positions.
 
 ## Traps
 
@@ -197,3 +201,19 @@ sandbox is saved — not the walls, the path or the positions.
 - A character with no look id cannot be stored, so **＋ Add** always asks for the look first.
 - Keyboard controllers do nothing in the game until the Flow input map has `left` / `right` / `up` /
   `down` actions.
+
+## Known limitations / TODOs
+
+- **No jump yet.** _Side-scroll_ moves left and right only; `grounded`, gravity and the jump come
+  with the next arcade step (P10.13).
+- **No abilities or zone forces.** Hit zones, cooldowns, `onHit` and zones that push a character
+  are planned, not built.
+- **Fast bodies can pass through thin walls.** A step faster than the body and the wall together
+  can carry a character through a solid; sub-steps come later.
+- **The sandbox is a stand-in.** One dummy player, the walls you draw and one path stand for the
+  game's. Flow variables do not exist there, so a `variable` condition compares against nothing:
+  `==` never holds and `!=` always does.
+- **Invisible Flow's Preview does not run characters.** Try a character here, or publish to the test
+  server and play it.
+- **Renaming does not follow through.** A Flow graph that names a character by id keeps the old
+  id (see Traps).
