@@ -110,6 +110,8 @@ With a component open, the layout switches to the familiar three-pane editor:
   - **Browse** — the screens and every component, to jump to another.
 - **Centre** is the canvas: a fixed standard design frame around just this
   component. Drag, transform, and arrange nodes exactly as on a screen.
+  **📏 Rulers** and guides work as on a screen (see the Scene Editor guide's "Rulers and
+  guides"); here the guides are saved with the component.
   Selecting a node here drives the right panel — no tab switch needed. Double-click a component
   placed inside this one to edit it in place.
 - **Right** is **Properties** for the selected node, plus the **Component variables**
