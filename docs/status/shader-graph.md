@@ -15,7 +15,7 @@ step 7 (editor v2: subgraphs, node thumbnails, cost chips, publishing to the stu
 merged (#1342), and so are 8b, Break as an output node (#1347), and 8c, the admin-only Custom
 GLSL node (#1349). 8d (particle materials) is decided
 ([design](../design/shader-graph-particles.md)) and being built as 8d.1–8d.8; 8d.1 (the particle
-shell and the Particle node) is built and in review; 8d.2 (the material renderer) is next.
+shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is next.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -31,7 +31,9 @@ shell and the Particle node) is built and in review; 8d.2 (the material renderer
     (`tools/fx-spike/shaderParity.mjs`) renders every kind at 8 moments, every starting side and
     every signed param at its minimum, on WebGL1 and WebGL2 with fixed seeds, and diffs two renders
     pixel by pixel. `--root` renders
-    another checkout, such as a worktree of the base.
+    another checkout, such as a worktree of the base. **Never `pnpm install` in that worktree:** the
+    bundle resolves packages through this checkout's `node_modules`, and a base with its own loads a
+    second Pixi, so its render breaks (`uniform1iv` errors) and every cell reads as different.
 - **Step 2, the graph package** (`packages/engine-shadergraph`, dependency-free apart from
   `constants-shared`). Merged (#1322, 2026-10-24).
   - **The doc** (`ShaderGraphDoc` v1): phase, duration, padding, exposed params (the catalog's
@@ -279,7 +281,7 @@ shell and the Particle node) is built and in review; 8d.2 (the material renderer
     (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
     shader). Built as 8d.1–8d.8, one PR each (its §15). Nothing plays a material yet: that starts
     with 8d.2 (the renderer) and reaches a game in 8d.3.
-    - **8d.1, the particle shell and the Particle node.** Built, in review.
+    - **8d.1, the particle shell and the Particle node.** Merged (#1354, 2026-10-26).
       - **The shell** (`packages/constants-shared/particleShell.ts`, dependency-free):
         `PARTICLE_VERTEX` for a Pixi 8.22 `Mesh` custom shader, `PARTICLE_HEADER` defining all 12
         header helpers with particle meanings, `PARTICLE_ATTRIBUTES` and `PARTICLE_SHELL_NAMES`
@@ -488,7 +490,7 @@ shell and the Particle node) is built and in review; 8d.2 (the material renderer
 
 ## Recent changes
 - 2026-10-25 — **Step 8d.1: the particle shell and the Particle node** (see "Current state").
-  Step 8c merged (#1349); the 8d design decided (#1351).
+  Merged (#1354, 2026-10-26): CI green, Current games 12 pass with no changed screen.
   - **Proof.** Compile fixture 207 (14 new: the shell's layout, every helper defined, the node at
     every output and its neutral values, every compiled body converted, 21 refusals, comments
     neither hiding nor faking a declaration, the colour rule; byte identity over 2,210 docs against
