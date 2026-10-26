@@ -32,7 +32,7 @@
 	 * tweened bar allocates nothing; tile rebuilds its pieces when the box changes.
 	 */
 	import * as PIXI from 'pixi.js';
-	import { untrack } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import { getContextApp, getContextParent, hasAssetKey, warnMissingAsset } from 'pixi-svelte';
 	import { buildSliceViews, sliceArt } from './slicedSpriteViews';
 
@@ -74,10 +74,12 @@
 		for (const view of built.views) body.addChild(view);
 		views = built.views;
 		return () => {
+			views = [];
 			for (const view of built.views) view.destroy();
 			for (const t of built.textures) t.destroy(false);
 		};
 	});
+	onDestroy(() => body.destroy());
 
 	$effect(() => {
 		const b = box;
