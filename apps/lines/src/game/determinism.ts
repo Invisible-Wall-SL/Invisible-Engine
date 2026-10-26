@@ -75,6 +75,8 @@ export type DeterminismArcadeState = {
 	steps: number;
 	/** Every body, in spawn order: its instance id, place, velocity and tags. */
 	bodies: { id: string; x: number; y: number; vx: number; vy: number; tags: string[] }[];
+	/** The world camera (P10.12): the view's top-left, its shake and size. Absent without one. */
+	camera?: { x: number; y: number; shakeX: number; shakeY: number; view: { w: number; h: number } };
 };
 
 /** A match-3 board, as `registerDeterminismBoard` reads it. */

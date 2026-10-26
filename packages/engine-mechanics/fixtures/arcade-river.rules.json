@@ -1,0 +1,50 @@
+{
+	"version": 1,
+	"family": "arcade",
+	"providerName": "sample_provider",
+	"gameName": "Salmon River",
+	"gameID": "sample_arcade_river",
+	"rtp": 0,
+	"numReels": 0,
+	"numRows": [],
+	"betModes": {},
+	"paylines": {},
+	"symbols": {},
+	"paddingReels": {},
+	"outcome": "rules",
+	"arcade": {
+		"bodies": {
+			"arcadeSalmon": {
+				"shape": "box",
+				"w": 90,
+				"h": 44,
+				"tags": ["player"]
+			},
+			"arcadeBear": {
+				"shape": "circle",
+				"r": 46,
+				"tags": ["hazard"],
+				"edges": "pass"
+			},
+			"arcadeFish": {
+				"shape": "circle",
+				"r": 22,
+				"tags": ["pickup"],
+				"edges": "pass"
+			}
+		},
+		"pairs": [
+			["player", "hazard"],
+			["player", "pickup"]
+		],
+		"zones": [
+			{
+				"id": "spawningGround",
+				"x": 0,
+				"y": 0,
+				"w": 1422,
+				"h": 160
+			}
+		]
+	}
+}

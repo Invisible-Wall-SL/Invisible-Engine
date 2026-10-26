@@ -64,6 +64,37 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
   Verified offline (`check:project-duplicate`), not live.
 
 ## Recent changes
+- 2026-10-26 — **Re-scaffold replaces a flow or layout another kind left behind.** The scaffold's
+  seeds are create-only, so a project whose kind was changed in `/admin` kept the old kind's
+  `editor/flow-v2.json` through **Rescaffold**: `invisible_wall/salmons` went Book of → `arcade`
+  and published an arcade game driven by the Book-of flow (`templateId: bookOf`).
+  - **`scaffoldProject` now replaces two docs when they are provably another FAMILY's kind's**
+    (`replaceOtherKindDocs` in `projectScaffold.ts`): the flow when `flowTemplateMismatch`
+    (`engine-flow-v2`) says its `templateId` is a built-in starter of another family than the
+    project's kind, and `scenes.json` when its `gameType` is a kind with a full scene set, of another
+    family (`familyOfKind`), that does not load as the project's (`referenceLoadsAs`). Each is
+    replaced by the seed a new project of the kind gets.
+  - **Never replaced:** a same-kind or same-family flow or layout. That keeps the Book-of flow of an
+    older cluster, scatter or Hold and Win project scaffolded before its kind had a starter
+    ([status/flow.md](flow.md) open item 9, e.g. `hw-3pots-sample`), which the runtime plays, and a
+    Book-of layout in a lines project (the Book of Thermopylae preset) or another slot kind's. Nor a
+    corrupt doc, one naming no kind, or one in an author-created kind.
+  - **Backed up, and the author wins a race.** Each write goes through `saveFlowV2Doc` / `saveDoc`
+    with `backup: 'always'` (restorable from Invisible Flow's / the Scene Editor's **History…**) and
+    is CAS'd on the ETag read just before, so a save landing in between wins and nothing is
+    reported.
+  - `scaffoldProject` returns `{ gameType, replaced }`. `/admin`'s Rescaffold note names what it
+    replaced and where the old doc is (`rescaffoldMessage`). Duplicate runs the scaffold too, so a
+    copy of such a project is fixed the same way.
+  - **Trade-off:** the editor can SAVE a cross-kind layout on purpose (**Save as <kind>** after a
+    cross-type load; the project's kind is not changed). When that kind is of another family (a
+    slot layout in an arcade or match-3 project), a Rescaffold replaces it too. It is recoverable
+    from History…, which the note points to.
+  - Gate: `check:project-scaffold` (the Book-of flow and layout in an arcade project replaced and
+    backed up; same-kind, corrupt and kind-less flows, a Book-of flow in lines, cluster and Hold and
+    Win projects, and a Book-of layout in lines and ways projects untouched; a concurrent save
+    wins). Not run against live R2. salmons still needs an admin **Rescaffold** and then
+    **Publish**.
 - 2026-10-08 — **Add a bonus mode…, ＋ Coin overlay…, and the Hold and Win template in the split form**
   ([bonus-games.md](../design/bonus-games.md) Phase 6; detail in
   [status/bonus-games](bonus-games.md)).

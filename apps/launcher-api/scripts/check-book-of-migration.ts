@@ -258,8 +258,8 @@ mockAll('lib/server/flowV2Validation.ts', {
 		checkFlowV2ForPublish: async () => ({ status: 'absent' }),
 		checkShippedFlowV2: async () => ({ status: 'absent' }),
 		describeFlowErrors: () => [],
+		flowGateRefusal: () => null,
 		flowScreensMissing: () => [],
-		invalidFlowMessage: () => '',
 	},
 });
 const INVALIDATED: string[] = [];

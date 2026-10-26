@@ -36,5 +36,6 @@ export * from './src/reference/bookOfChoreo';
 export * from './src/reference/registry';
 export * from './src/reference/starterDoc';
 export * from './src/reference/drivenSeed';
+export * from './src/reference/flowKind';
 export * from './src/reference/addOns';
 export * from './src/reference/outcome';

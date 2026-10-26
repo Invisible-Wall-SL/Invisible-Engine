@@ -45,6 +45,7 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	alpha: true,
 	blendMode: true,
 	zIndex: true,
+	parallax: true,
 	overrides: true,
 	visibleFor: true,
 	slotId: true,
@@ -131,6 +132,7 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	placement: true,
 	grid: true,
 	cap: true,
+	despawnOutsideView: true,
 };
 const componentDefFields: Record<keyof ComponentDef, true> = {
 	id: true,

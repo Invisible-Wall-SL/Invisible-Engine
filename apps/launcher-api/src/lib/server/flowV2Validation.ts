@@ -17,6 +17,7 @@
 import type { CustomElementFx } from 'constants-shared/elementFx';
 import {
 	containersMissingScene,
+	flowTemplateMismatch,
 	respinTabIssues,
 	spinsTabIssues,
 	docNamesInstance,
@@ -51,7 +52,9 @@ import { loadSoundsDoc } from './soundsStorage';
 export type FlowPublishCheck =
 	/** No stored v2 flow (or an empty graph): the game runs the coded path, which since the free-spin
 	 *  screens moved into the flow has no free-spin intro or outro. */
-	{ status: 'absent' } | { status: 'valid' } | { status: 'invalid'; errors: FlowIssue[] };
+	| { status: 'absent' }
+	| { status: 'valid'; templateId: string }
+	| { status: 'invalid'; templateId: string; errors: FlowIssue[] };
 
 /**
  * Validate a v2 FlowDoc against a project's scenes, sound library and function library — pure, so
@@ -170,7 +173,10 @@ export async function checkFlowV2ForPublish(
 	const errors = (await validateFlowV2ForProject(clientKey, projectKey, doc, config)).filter(
 		(i) => i.severity === 'error',
 	);
-	return errors.length ? { status: 'invalid', errors } : { status: 'valid' };
+	const { templateId } = doc;
+	return errors.length
+		? { status: 'invalid', templateId, errors }
+		: { status: 'valid', templateId };
 }
 
 /**
@@ -204,7 +210,10 @@ export async function checkShippedFlowV2(
 		(shipped.shaderEffects ?? []).map((e) => e.spec.kind),
 		resolveOutcome(shipped.config),
 	).filter((i) => i.severity === 'error');
-	return errors.length ? { status: 'invalid', errors } : { status: 'valid' };
+	const { templateId } = shipped.flowV2;
+	return errors.length
+		? { status: 'invalid', templateId, errors }
+		: { status: 'valid', templateId };
 }
 
 /**
@@ -234,4 +243,49 @@ export function invalidFlowMessage(errors: FlowIssue[]): string {
 		`The game's flow has ${n} error${n === 1 ? '' : 's'} (see the Validation panel in ` +
 		`Invisible Flow): ${describeFlowErrors(errors, 3).join('; ')}.`
 	);
+}
+
+/**
+ * The refusal for a flow built for another FAMILY of game than the project's kind — what an
+ * `/admin` kind change leaves behind (a Book-of flow in an arcade project), or `null`. It validates
+ * clean, because validation reads the doc's own `templateId` vocabulary, yet the runtime the kind
+ * boots cannot play it. A slot flow in another slot kind is NOT refused: a cluster, scatter or
+ * Hold and Win project scaffolded before it had its own seed legitimately carries `bookOf`, and the
+ * runtime plays it (`docs/status/flow.md` open item 9).
+ */
+export function wrongKindFlowMessage(templateId: string, gameType: string): string | null {
+	if (!flowTemplateMismatch(templateId, gameType)) return null;
+	return (
+		`This project's kind is "${gameType}" but its flow is a "${templateId}" flow (left from a ` +
+		`kind change). Re-scaffold it in /admin to replace it with the ${gameType} starter flow (the ` +
+		`old flow is kept in Invisible Flow's History…), or change the kind back.`
+	);
+}
+
+/** Why the flow gate refuses a verdict, or `null` — the publish and the bake's export alike. */
+export type FlowGateRefusal = {
+	reason: 'flow-wrong-kind' | 'invalid-flow';
+	message: string;
+	details: string[];
+};
+
+/**
+ * The flow gate's decision on a verdict for a project of kind `gameType`. A flow of the wrong
+ * family is refused first and never overridable: there is no game a player could be shown.
+ * `allowInvalidFlow` overrides only validation errors.
+ */
+export function flowGateRefusal(
+	check: FlowPublishCheck,
+	gameType: string,
+	allowInvalidFlow?: boolean,
+): FlowGateRefusal | null {
+	if (check.status === 'absent') return null;
+	const wrongKind = wrongKindFlowMessage(check.templateId, gameType);
+	if (wrongKind) return { reason: 'flow-wrong-kind', message: wrongKind, details: [] };
+	if (check.status === 'valid' || allowInvalidFlow) return null;
+	return {
+		reason: 'invalid-flow',
+		message: invalidFlowMessage(check.errors),
+		details: describeFlowErrors(check.errors),
+	};
 }
