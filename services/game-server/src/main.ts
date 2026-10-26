@@ -28,5 +28,10 @@ const game = createGameServer({
 		: Boolean(env.RAILWAY_ENVIRONMENT),
 	commit: (env.RAILWAY_GIT_COMMIT_SHA ?? 'dev').slice(0, 12),
 });
+// One process holds every room: a promise some library forgot to catch is logged, never allowed to
+// end the process (and every room with it). A thrown error still ends it, as it should.
+process.on('unhandledRejection', (reason) => {
+	console.error('[game-server] unhandled rejection, kept running:', reason);
+});
 await game.listen(port);
 console.log(`[game-server] listening on :${port} (at most ${maxRooms} rooms)`);

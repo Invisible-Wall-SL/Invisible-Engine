@@ -659,6 +659,9 @@ try {
 				'GET /healthz HTTP/1.1\r\nHost: x\r\nX-Forwarded-Proto: https,evil\r\n\r\n',
 				'GET http://h/healthz HTTP/1.1\r\nHost: x\r\n\r\n',
 				'GET /healthz HTTP/1.1\r\nHost: a:b:c\r\n\r\n',
+			'TRACE /healthz HTTP/1.1\r\nHost: a\r\nContent-Length: 0\r\n\r\n',
+			'TRACE /matchmake/joinOrCreate/arcade HTTP/1.1\r\nHost: a\r\nContent-Length: 0\r\n\r\n',
+			'PROPFIND /healthz HTTP/1.1\r\nHost: a\r\nContent-Length: 0\r\n\r\n',
 				'GET /matchmake HTTP/1.1\r\nHost: a b\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n',
 			]) {
 				const status = await raw(request);

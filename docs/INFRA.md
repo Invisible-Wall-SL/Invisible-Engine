@@ -286,7 +286,8 @@ and gets no seat held; a WebSocket message over 1 KB is refused; an HTTP request
 a body with no `content-length` (chunked) is answered 411 and one declaring over 4 KB 413, before
 Colyseus reads it; a request whose URL Colyseus' router could not build (a bad
 `x-forwarded-proto`, an absolute-form target, a bad `Host`) is refused before it can crash the
-process; a request must finish within 10 s; at most 6 000 sockets; one address may make 30
+process, and so is a method it does not serve (405; only GET, HEAD, OPTIONS, POST); a request
+must finish within 10 s; at most 6 000 sockets, 64 WebSockets per address; one address may make 30
 matchmaking requests per 10 s (429 past it); matchmaking
 exposes `joinOrCreate`, `join`, `joinById` and `reconnect` only (no `create`); a seat is held 5 s
 for a device that has not connected; at most 60 inputs wait per player, and a player never applies
@@ -341,7 +342,9 @@ with two headless browsers.
 6. **Settings → Networking:** a public domain, then the custom domain `rooms.invisiblewall.org`,
    and in **Cloudflare DNS** a CNAME `rooms` → the Railway target, **DNS-only (grey cloud)**, like
    `games` (§14 D8).
-7. Once `/healthz` answers on the domain: add the service to `SERVICES` in
+7. Smoke-test that a request through the domain is answered (an edge that appended to
+   `x-forwarded-proto` instead of replacing it would get every request refused 400).
+8. Once `/healthz` answers on the domain: add the service to `SERVICES` in
    `scripts/deploy-drift.mjs` and to the Watch Paths table above (the fixture holds the two to each
    other), and to Better Stack Uptime.
 

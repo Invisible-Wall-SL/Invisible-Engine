@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { Duplex } from 'node:stream';
 
 import {
 	createEndpoint,
@@ -44,6 +45,14 @@ const EXPOSED_METHODS = ['joinOrCreate', 'join', 'joinById', 'reconnect'];
 
 const BODYLESS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+/** The methods the server serves. The router hands any method to `new Request(…)`, which throws
+ *  for some (`TRACE`) out of the server; every other method is refused first. */
+const SERVED = new Set([...BODYLESS, 'POST']);
+
+/** WebSockets one address may hold open: a household or a school behind one address, not a
+ *  process's worth of sockets. */
+const SOCKETS_PER_ADDRESS = 64;
+
 /** How long a request (headers and body) may take; the default five minutes lets slow clients pile
  *  up. A WebSocket, once upgraded, is not a request and is not timed by it. */
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -82,10 +91,11 @@ const locate = (req: IncomingMessage): URL | undefined => {
  * `content-length` (411 — a chunked body is streamed with no limit; Node itself rejects a request
  * naming both) or declares more than {@link MAX_BODY_BYTES} (413 — Node reads no more than the
  * declared length); and an address's requests that can carry a body (every matchmaking call)
- * past `perWindow` ({@link MATCHMAKE_PER_WINDOW}) in a window (429; counted by method, so no
+ * past `perWindow` ({@link MATCHMAKE_PER_WINDOW}) in a window; a method it does not serve (405) (429; counted by method, so no
  * spelling of the path escapes it). `trustProxy`: the address is the last `x-forwarded-for` entry,
  * the one the platform's proxy added (Railway); otherwise the socket's. The WebSocket upgrade is
- * guarded the same way for its URL.
+ * guarded the same way for its URL, and one address holds at most {@link SOCKETS_PER_ADDRESS}
+ * WebSockets.
  */
 function guardedHttpServer(trustProxy: boolean, perWindow: number) {
 	const http = createServer({
@@ -101,18 +111,28 @@ function guardedHttpServer(trustProxy: boolean, perWindow: number) {
 		const last = typeof forwarded === 'string' ? forwarded.split(',').pop()?.trim() : undefined;
 		return last || req.socket.remoteAddress || '';
 	};
+	const open = new Map<string, number>();
 	http.emit = ((event: string, ...args: unknown[]) => {
 		if (event === 'upgrade') {
-			const [req, socket] = args as [IncomingMessage, { destroy(): void }];
-			if (!locate(req)) {
+			const [req, socket] = args as [IncomingMessage, Duplex];
+			const address = addressOf(req);
+			const held = open.get(address) ?? 0;
+			if (!locate(req) || req.method !== 'GET' || held >= SOCKETS_PER_ADDRESS) {
 				socket.destroy();
 				return true;
 			}
+			open.set(address, held + 1);
+			socket.once('close', () => {
+				const left = (open.get(address) ?? 1) - 1;
+				if (left > 0) open.set(address, left);
+				else open.delete(address);
+			});
 		}
 		if (event === 'request') {
 			const [req, res] = args as [IncomingMessage, ServerResponse];
 			if (!locate(req)) return refuse(req, res, 400);
 			const method = req.method ?? 'GET';
+			if (!SERVED.has(method)) return refuse(req, res, 405);
 			if (!BODYLESS.has(method)) {
 				const length = req.headers['content-length'];
 				if (length === undefined) return refuse(req, res, 411);

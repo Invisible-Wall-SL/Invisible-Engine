@@ -66,7 +66,10 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   10 s; a request whose URL Colyseus' router (better-call) could not build — a bad
   `x-forwarded-proto`, an absolute-form target, a bad `Host` — is refused (400, or the upgrade
   dropped) before the router builds it, because the router does it unguarded and the throw would
-  end the process; Colyseus' `create` is **not exposed** (only
+  end the process; a method the server does not serve (only GET, HEAD, OPTIONS, POST) is
+  refused 405 for the same reason (`TRACE` made `new Request` throw); one address holds at most
+  64 WebSockets; the entry point logs an unhandled rejection instead of exiting; Colyseus'
+  `create` is **not exposed** (only
   `joinOrCreate`, `join`, `joinById`, `reconnect`), so a device cannot make rooms nobody joins; a
   `game` that is not a string is refused (it would never match `filterBy`); before Colyseus' router
   reads anything, a request that would carry a body with no `content-length` (chunked) is answered
@@ -119,8 +122,8 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   `game/online.ts`, lazily; the layout and stage branch on `room`). Then a **real** Colyseus server on
   localhost with real SDK clients: `/healthz`; bad / missing / non-online / non-string game keys
   make no room and name no reason; `create`, a 10 KB body and a chunked body (411) are refused;
-  a bad `x-forwarded-proto`, an absolute-form target, a bad `Host` and a bad upgrade are refused
-  and the server still answers; one address's 121st matchmaking request in a window gets 429
+  a bad `x-forwarded-proto`, an absolute-form target, a bad `Host`, `TRACE`, `PROPFIND` and a bad
+  upgrade are refused and the server still answers; one address's 121st matchmaking request in a window gets 429
   (and so do its dot-segment spellings) and another address's does not; after a 0.7 s stall a burst of
   20 inputs is applied within 550 ms;
   join state; 90 live inputs stepped exactly as the device steps them (and drawn at their float32);
@@ -188,7 +191,12 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
     as lag until the device next misses a step (P10.15's reconciler can drop stale inputs);
   - the image installs with npm and no lockfile (as `director-worker`'s): the direct dependencies
     are pinned exactly, the transitive ones (`ws`, better-call) are not;
-  - many devices behind one address (a school's NAT) share the 30-per-10 s matchmaking allowance;
+  - many devices behind one address (a school's NAT) share the 30-per-10 s matchmaking allowance
+    and the 64 sockets;
+  - a device whose first input carries `seq` 2³²−1 freezes its own later inputs (each is then
+    "older"); it harms only itself;
+  - `x-forwarded-proto` must be exactly `http` or `https`: an edge that appended to a client's
+    header (`https, http`) would have every request refused — smoke-test once deployed;
   - every refused join or room prints Colyseus' own stack trace, so a hostile client can make the
     log noisy;
   - a room that closes for good (disposed, kicked, its reconnect run out) stops the page on the
@@ -196,7 +204,7 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   - the playtest's no-flow layout shows every scene at once (the sample's round-over text over the
     field): an online game's own flow is the author's, and the arcade starter flow is an offline one.
 - **Owner / infra steps:** stand up the Railway service and the `rooms.invisiblewall.org` record —
-  the exact settings are in [INFRA.md](../INFRA.md) "Invisible Game Server" (steps 1–7).
+  the exact settings are in [INFRA.md](../INFRA.md) "Invisible Game Server" (steps 1–8).
 
 **P10.8 — Arcade, rules-decided (built 2026-10-25; in review).** §8's P10.8 row (§4.2, §3.4, §9 #6),
 in one PR.
