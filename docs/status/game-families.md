@@ -947,6 +947,12 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-26 — **P10.9a built: 9-slice** (first of P10.9's three PRs; in review). A sprite's
+  9-slice (stretch or tile) with the insets on the art region, shipped as the frame's `borders`;
+  editor and game draw it from one layout and a pixel-parity gate holds them together. Detail in
+  [editor status](editor.md) 2026-10-26. Rulers and guides (P10.9b) and the Graph Editor (P10.9c)
+  follow, one PR each.
+
 - 2026-10-25 — **P10.8 built: arcade, rules-decided.** `motion.js`, the fixed-step loop, tags,
   `ARCADE_VOCAB` and its starter (a salmon dodger), `<ArcadeStage />`, the arcade scene set in Game
   Maker, `check:arcade-motion` / `check:arcade-rules`. §6.4 re-checked: the shared runtime stays.
