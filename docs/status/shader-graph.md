@@ -16,8 +16,7 @@ merged (#1342), and so are 8b, Break as an output node (#1347), and 8c, the admi
 GLSL node (#1349). 8d (particle materials) is decided
 ([design](../design/shader-graph-particles.md)) and being built as 8d.1–8d.8; 8d.1 (the particle
 shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is merged
-(#1366); 8d.3 (the material in the game) is built and in review; 8d.4 (the ship chain, proven) is
-next.
+(#1366); 8d.3 (the material in the game) is merged (#1378); 8d.4 (the ship chain, proven) is next.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -283,7 +282,7 @@ next.
     (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
     shader). Built as 8d.1–8d.8, one PR each (its §15). A game plays a material from 8d.3; no
     tool authors one until 8d.5.
-    - **8d.3, the material in the game.** Built, in review.
+    - **8d.3, the material in the game.** Merged (#1378, 2026-10-26).
       - **`EmitterLayer.material`** (`engine-fx/src/types.ts`): `{ kind: 'custom:<id>', time?,
         intensity?, params? }`, sprite layers only. `normalizeEmitterMaterial` keeps a well-formed
         one (the kind checked by `constants-shared`'s `isCustomElementFxKind`, so `engine-fx` now
@@ -560,8 +559,10 @@ next.
 - None.
 
 ## Recent changes
-- 2026-10-26 — **Step 8d.3: the material in the game** (see "Current state"). Step 8d.2 merged
-  (#1366).
+- 2026-10-26 — **Step 8d.3: the material in the game** (see "Current state"). Merged (#1378): CI
+  green but for Current games, "8 pass · 1 fail · 0 changed screen(s)", merged on the owner's
+  approval: its one failure (cloud, republished today) fails on main too, the `lines` script
+  stalling at the same step on both sides.
   - **Proof.**
     - **A real game** (`scripts/playtest/particle-material-play.mjs`, by hand): an `apps/lines`
       build with an effect layer on `custom:pulsetint` draws one mesh, 76 sprites hidden, and logs
