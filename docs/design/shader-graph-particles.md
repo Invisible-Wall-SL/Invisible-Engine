@@ -464,7 +464,7 @@ svelte-check at baseline, and the current games building with no changed screen.
      - `check:element-fx` unchanged.
    - **Exit:** a game build plays an `EffectDoc` material (shown headless in step 8). The soft
      floor starts here.
-   - **As built** (#TBD):
+   - **As built** (#1378):
      - **Shown headless now**, not in step 8: `scripts/playtest/particle-material-play.mjs` (by hand)
        plays a real `apps/lines` build with a material layer (one mesh) and without the graph
        (plain, "not registered").
