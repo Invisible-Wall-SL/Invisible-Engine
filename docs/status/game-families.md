@@ -79,8 +79,9 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   dropped (a graceful close otherwise goes on parsing for 30 s); a WebSocket is served only for a
   room seat (`/<process>/<room>?sessionId=…`; Colyseus' latency utility, which answers every
   frame, is not); one address holds at most 16 WebSockets and seats held for its dropped players
-  to rejoin, counted together (`addresses.ts`), and opens at most 60 a window, refused attempts
-  included; an online room holds at least 2 players;
+  to rejoin, counted together (`addresses.ts`) — a reconnect is let past the cap by the seats its
+  address holds, so a full address can still rejoin its own dropped player — and opens at most 60
+  a window, refused attempts included; an online room holds at least 2 players;
   an IPv6 /64 counts as one address; the entry point logs an unhandled rejection instead of exiting; Colyseus'
   `create` is **not exposed** (only
   `joinOrCreate`, `join`, `joinById`, `reconnect`), so a device cannot make rooms nobody joins; a
@@ -122,7 +123,7 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   jump), clamped, sent — and draws every room player as a spawned instance of its character's
   component in `online.layer`, at the server's last place (no prediction or smoothing: P10.15). The
   arcade probe reads the room. Free play, as every arcade game (`rgsSession: false`).
-- **Gates:** `check:room-sim` (root, 35 checks, ~25 s; discovered by `check:all`).
+- **Gates:** `check:room-sim` (root, 36 checks, ~30 s; discovered by `check:all`).
   - *Headless, over the room's own code:* 10 000 steps of six players at 30 Hz × 2, 60 × 1 and
     20 × 4 with hostile, repeated, stale, gapped and missing inputs and network stalls that release
     in bursts — the room's body equals the device's `stepPlayer` fold **bit for bit** on every step,
@@ -149,7 +150,8 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
     are not served; 16 seats' sockets from one address open, the 17th is dropped, another address's
     opens, a closed one frees its place; once an address's 60 upgrades in a window are spent every
     attempt is refused; 16 joined-then-dropped seats leave their address no room for a 17th; a
-    flood of WebSocket ping frames ends its socket; 200 PINGs from a joined device end its socket; room size and character max;
+    flood of WebSocket ping frames, and one of pong frames, ends its socket; an address at its 16
+    still reconnects its own dropped player while a new join is refused; 200 PINGs from a joined device end its socket; room size and character max;
     a drop keeps the place and `reconnect(token)` resumes it; the grace expiring; a flood of inputs
     past the message limit disconnects; `maxRooms`. `family.fixture.ts` §4c covers the config block.
 - **Verified by playing:** `scripts/playtest/online-play.mjs` on the branch runtime, two headless

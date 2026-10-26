@@ -12,7 +12,7 @@ import {
 import { WebSocketTransport } from '@colyseus/ws-transport';
 
 import { arcadeRoomClass } from './arcadeRoom.ts';
-import { addressKey, hold, heldBy, noteRequest, release } from './addresses.ts';
+import { addressKey, hold, heldBy, noteRequest, release, seatsHeldBy } from './addresses.ts';
 import { guardSockets } from './socketGuard.ts';
 import type { LoadGame } from './configSource.ts';
 
@@ -148,7 +148,11 @@ function guardedHttpServer(trustProxy: boolean, perWindow: number) {
 				req.method !== 'GET' ||
 				!ROOM_SOCKET.test(url.pathname) ||
 				!url.searchParams.get('sessionId') ||
-				held >= SOCKETS_PER_ADDRESS
+				// A reconnect is let past the cap by the seats its address holds: the seat it reclaims is
+				// released only once this socket is in, so a full address could not otherwise rejoin.
+				held >=
+					SOCKETS_PER_ADDRESS +
+						(url.searchParams.get('reconnectionToken') ? seatsHeldBy(address) : 0)
 			) {
 				socket.destroy();
 				return true;
@@ -204,7 +208,8 @@ export function createGameServer(options: GameServerOptions): GameServer {
 	const server = defineServer({
 		transport: guardSockets(
 			new WebSocketTransport({
-				// A client's ping is never answered: the guard counts it against the frame budget.
+				// ws answers a ping before it emits the 'ping' event the guard budgets, so answering is
+				// off: the server never needs to answer a client's ping (Colyseus pings, clients pong).
 				autoPong: false,
 				server: guardedHttpServer(
 					options.trustProxy ?? false,

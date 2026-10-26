@@ -26,8 +26,10 @@ export function addressKey(address: string): string {
 		.join(':')}::/64`;
 }
 
-/** Open sockets plus held seats, by address key. One process holds one book. */
+/** Open sockets plus held seats, by address key; and the held seats alone. One process holds
+ *  one book. */
 const holding = new Map<string, number>();
+const seats = new Map<string, number>();
 
 /** Where each accepted upgrade came from, for the socket it becomes. */
 const requestAddress = new WeakMap<object, string>();
@@ -36,16 +38,30 @@ const socketAddress = new WeakMap<object, string>();
 /** What an address holds now. */
 export const heldBy = (address: string): number => holding.get(address) ?? 0;
 
-/** Count one more socket or seat for `address`. */
-export const hold = (address: string): void => {
-	holding.set(address, heldBy(address) + 1);
+/** Of what an address holds, the seats held for its dropped players to rejoin. */
+export const seatsHeldBy = (address: string): number => seats.get(address) ?? 0;
+
+const add = (book: Map<string, number>, address: string, by: number) => {
+	const next = (book.get(address) ?? 0) + by;
+	if (next > 0) book.set(address, next);
+	else book.delete(address);
 };
 
-/** Count one fewer. */
-export const release = (address: string): void => {
-	const left = heldBy(address) - 1;
-	if (left > 0) holding.set(address, left);
-	else holding.delete(address);
+/** Count one more open socket for `address` … */
+export const hold = (address: string): void => add(holding, address, 1);
+
+/** … and one fewer. */
+export const release = (address: string): void => add(holding, address, -1);
+
+/** Count a seat held for `address`'s dropped player, until it is reclaimed or let go. */
+export const holdSeat = (address: string): void => {
+	add(holding, address, 1);
+	add(seats, address, 1);
+};
+
+export const releaseSeat = (address: string): void => {
+	add(holding, address, -1);
+	add(seats, address, -1);
 };
 
 /** Remember an accepted upgrade's address (`server.ts`) … */

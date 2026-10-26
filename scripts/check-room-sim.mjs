@@ -36,7 +36,7 @@ import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/in
 import { createConfigSource } from '../services/game-server/src/configSource.ts';
 import { createRoomSim, inputsThisStep, RoomRefusal } from '../services/game-server/src/roomSim.ts';
 import { messagesPerSecond } from '../services/game-server/src/arcadeRoom.ts';
-import { addressKey } from '../services/game-server/src/addresses.ts';
+import { addressKey, heldBy } from '../services/game-server/src/addresses.ts';
 import { ROOM_NAME, createGameServer } from '../services/game-server/src/server.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -952,6 +952,11 @@ try {
 			pinger.once('close', () => (pingerClosed = true));
 			pinger.write(Buffer.concat(Array(400).fill(Buffer.from([0x89, 0x80, 0, 0, 0, 0]))));
 			await until('the ping flood ended its socket', () => pingerClosed, 2000);
+			const ponger = await joined('198.51.100.42');
+			let pongerClosed = false;
+			ponger.once('close', () => (pongerClosed = true));
+			ponger.write(Buffer.concat(Array(400).fill(Buffer.from([0x8a, 0x80, 0, 0, 0, 0]))));
+			await until('the pong flood ended its socket', () => pongerClosed, 2000);
 			// A joined device sending frames past the budget (150 a second) is ended at once.
 			const f = noAutoReconnect(await clientOf().joinOrCreate(ROOM_NAME, { game: 'wide' }));
 			let left = false;
@@ -961,6 +966,27 @@ try {
 			await until('the wide room to close', () => game.rooms.count === 1, 8000);
 		},
 	);
+
+	await check('live: an address at its cap still reconnects its own dropped player', async () => {
+		// The gate's own clients come from 127.0.0.1: fill that address to its 16.
+		const fill = [];
+		while (heldBy('127.0.0.1') < 16) {
+			fill.push(noAutoReconnect(await clientOf().joinOrCreate(ROOM_NAME, { game: 'wide' })));
+		}
+		const dropper = fill[fill.length - 1];
+		const room = serverRoom(dropper);
+		const token = dropper.reconnectionToken;
+		dropper.connection.close(4100, 'a blip');
+		await until('the drop', () => room.sim.players.get(dropper.sessionId)?.connected === false);
+		assert.equal(heldBy('127.0.0.1'), 16, 'the held seat still counts');
+		await assert.rejects(clientOf().joinById(room.roomId, {}), 'a new join is refused at the cap');
+		const back = noAutoReconnect(await clientOf().reconnect(token));
+		assert.equal(back.sessionId, dropper.sessionId);
+		await until('the rejoin', () => room.sim.players.get(dropper.sessionId)?.connected === true);
+		await until('one count for the rejoined player', () => heldBy('127.0.0.1') <= 16);
+		for (const r of [...fill.slice(0, -1), back]) await r.leave();
+		await until('the wide room to close', () => game.rooms.count === 1, 8000);
+	});
 
 	await check('live: the room holds its size and each character’s max', async () => {
 		const b = await clientOf().joinOrCreate(ROOM_NAME, { game: 'river', character: 'bear' });
