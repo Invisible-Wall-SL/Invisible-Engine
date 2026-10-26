@@ -10,7 +10,7 @@ order. ⏳ Many render paths are code-verified only; the auth-gated canvas is ow
 
 ## Current state
 
-- **↗ Show in Flow** (Rive plan Phase 7b, 2026-10-13): a named placed component jumps to its Invisible Flow node (Properties → *Component instance*, or a right-click menu on the stage), project pinned; Flow's *Edit component* comes back in place; a Flow Preview run can drive the State Machine panel's stage (`$lib/flowStageBridge.ts`). Detail in [flow.md](flow.md) Recent changes (7b).
+- **↗ Show in Flow** (Rive plan Phase 7b, 2026-10-13): a named placed component jumps to its Invisible Flow node (Properties → _Component instance_, or a right-click menu on the stage), project pinned; Flow's _Edit component_ comes back in place; a Flow Preview run can drive the State Machine panel's stage (`$lib/flowStageBridge.ts`). Detail in [flow.md](flow.md) Recent changes (7b).
 
 Launcher-native, full-page WebGL/canvas layout editor at `/editor` (auth + `editor`-tool gated; SSR off, `load` runs server-side). Project-centric: loads the active project's `scenes.json`, asset library (atlases/spines/sheets/effects/clips), components (+ the project's component defaults), and its game-type template. Layout is written to R2 at `editor/<client>/<project>/scenes.json` on a debounced, ETag-conditional autosave; the engine fetches it at boot (`GET /api/editor/doc`) and renders it via `<LayoutScene>`, falling back to the checked-in `editor-scenes.ts` fixture.
 
@@ -84,7 +84,7 @@ Shipped capabilities on `main`:
   **Known cost:** the hidden Screens canvas keeps running while the Components side is shown — its
   redraw loop only ticks when a visible screen plays a flipbook, effect or rig, but it is not
   paused.
-- **Game Settings** — per-project boot splash (`bootLoader`), layout profile, and **Authored overlays (pilot)** → *Transition* (Rive plan Phase 8a), *Win* (8b), 2026-10-14, *Free spins* (8c) and *Buttons* (8d), 2026-10-15; all four unlocked (owner browser check passed 2026-10-17), each switched by a holder of the component-publish capability and off by default for every project — the whole story in [engine status](engine.md).
+- **Game Settings** — per-project boot splash (`bootLoader`), layout profile, and **Authored overlays (pilot)** → _Transition_ (Rive plan Phase 8a), _Win_ (8b), 2026-10-14, _Free spins_ (8c) and _Buttons_ (8d), 2026-10-15; all four unlocked (owner browser check passed 2026-10-17), each switched by a holder of the component-publish capability and off by default for every project — the whole story in [engine status](engine.md).
 - **Version history** — each save backs up the `scenes.json` it replaces (throttled, newest 20 kept; reference load, Overwrite-with-mine and restore always back up). **History…** opens the shared `$lib/DocHistoryModal.svelte` over `/api/editor/backups`; a restore is ETag-conditional and itself undoable.
 - **Concurrency** — conditional autosave (stale ETag ⇒ 409 ⇒ **Reload theirs / Overwrite with mine**, autosave paused); custom kinds and templates are create-only / ETag-guarded.
 - **Templates** — template-authoring mode (tag `slotId`s, save `editor/templates/<gameType>.json`) + slot/asset-issue warnings on save.
@@ -106,7 +106,7 @@ Shipped capabilities on `main`:
    (and that none fire while typing); loop type in ▶ playback; summary rows (fold, drag a summary
    key, drag the lane) and Only selected; the onion skin on both sides. Component timelines (Phase 4b) are built, in review; their browser-verify
    list is in [component-editor status](component-editor.md) Blocked.
-0c. **⏳ Browser-verify Phase 9c** (Animations list, state machine options, Console), both sides:
+   0c. **⏳ Browser-verify Phase 9c** (Animations list, state machine options, Console), both sides:
    - **Animations list:** in Animate the left column lists the screen's (or component's)
      timelines; click opens one; ＋, ⧉ Duplicate, ✎ Rename and 🗑 Delete each work; an unsaved
      timeline asks before another row opens; the Timeline header has no picker any more and
@@ -117,7 +117,7 @@ Shipped capabilities on `main`:
    - **Inputs dock:** add a bool and a number (triggers come from Properties); fire, tick and type to drive ▶ Run; ✎ and ×
      ask as in Properties; none of it while Inspecting.
    - **Transition:** with a Blend, Linear / Cubic (drag both handles, type the 4 values); untick
-     *Pause source* and see the left state keep moving under the blend; untick *Allow exit* and a
+     _Pause source_ and see the left state keep moving under the blend; untick _Allow exit_ and a
      transition out (a trigger fired mid-blend included) waits for the blend; **Disable** greys and dashes the arrow and it never fires.
    - **State:** On exit raises (Console shows it before the next On enter).
    - **Layers:** ⧉ duplicate, ◀ ▶ reorder (the later layer wins a shared node), ⏻ Disable (struck
@@ -126,8 +126,8 @@ Shipped capabilities on `main`:
      and a click opens the layer and selects the card / arrow, or outlines the input; the bar's
      ⚠ count opens Problems.
    - **Save, reload:** every option is still there. A placed instance in game behaves the same.
-0d. **⏳ Browser-verify Phase 9d** (shared library, Data, Library search, rows), on a screen and on
-   a component:
+     0d. **⏳ Browser-verify Phase 9d** (shared library, Data, Library search, rows), on a screen and on
+     a component:
    - **Rows.** ⚡ Report event drops a `signal:` cue at the playhead and selects it (type its name
      in the inspector; pick an effect for `fx:`); drag it. 👁 Show / Hide key a node and the
      ↳ visible row draws filled / hollow markers; the stage hides and shows it while scrubbing;
@@ -139,7 +139,7 @@ Shipped capabilities on `main`:
      ("Target" for a starter) and opens a 🔗 link that previews on the stage; dragging a key on a
      link, typing in Properties or a stage drag is refused with the message; Plays on / Also on /
      Rename still save. Promote to shared (an admin): a new name, then the same name again (the
-     "already in the library" confirm, v2); the placed link then shows *Update available (v2)*;
+     "already in the library" confirm, v2); the placed link then shows _Update available (v2)_;
      Update re-opens on v2; Detach turns it into an editable timeline. A non-admin sees no Promote.
      A link opened in `/rigger` and saved there is refused ("detach it first"). Publish a project
      with a placed starter and see it play in the game.
@@ -149,16 +149,16 @@ Shipped capabilities on `main`:
    - **Library.** The search narrows every section (an open atlas also by region name); the type
      picker shows one section; Fonts and Audio are listed and not draggable; Audio without
      Invisible Sound access says so.
-0a. **⏳ Browser-verify Phase 9a** (hierarchy and stage basics): hover Lock / Isolate / Hide on
-   both sides (hidden rigs, text and FX vanish too; other screens hide while isolating); fold;
-   drag a row before / after / into a container and out again; the row menu; `Esc` / `Enter` /
-   `X` / `F` / `⌘0` / `+` / `-` / arrows / `Tab` / `Shift+/`, and none of them while typing in
-   Properties; the Animate tint; reload keeps Lock but drops Hide / Isolate; Tab / Enter on a
-   focused Library tile; Esc with the row menu open on the Components side; drag in Firefox.
-0b. **⏳ Browser-verify the Components side** (Phase 4a): the checklist is in
-   [component-editor status](component-editor.md) Blocked. Editor-side extras: the left-pane ＋
-   places on the active screen; double-click does nothing in Animate; Design/Animate state and the
-   screens' unsaved edits survive a trip to Components and back.
+     0a. **⏳ Browser-verify Phase 9a** (hierarchy and stage basics): hover Lock / Isolate / Hide on
+     both sides (hidden rigs, text and FX vanish too; other screens hide while isolating); fold;
+     drag a row before / after / into a container and out again; the row menu; `Esc` / `Enter` /
+     `X` / `F` / `⌘0` / `+` / `-` / arrows / `Tab` / `Shift+/`, and none of them while typing in
+     Properties; the Animate tint; reload keeps Lock but drops Hide / Isolate; Tab / Enter on a
+     focused Library tile; Esc with the row menu open on the Components side; drag in Firefox.
+     0b. **⏳ Browser-verify the Components side** (Phase 4a): the checklist is in
+     [component-editor status](component-editor.md) Blocked. Editor-side extras: the left-pane ＋
+     places on the active screen; double-click does nothing in Animate; Design/Animate state and the
+     screens' unsaved edits survive a trip to Components and back.
 
 1. **HUD parity gap** — the corner logo/game-name containers still ignore `scale` in-game, so scaling those two corner texts in the editor won't ship.
 2. **Animated / book-event content stays coded** — symbols, win-line draws and count-ups mount via the engine `mount`/`bind` escape hatch; the editor only places their anchor and has no book-event playback.
@@ -171,10 +171,12 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+
 - 2026-10-26 — **Rulers and guides** (P10.9b, branch `claude/p10-9b-rulers-guides`, in review;
   [game-families](game-families.md) §5.2). **📏 Rulers** on the canvas's top and left edges (world
   pixels at the zoom and pan); drag off a ruler for a guide, drag it to move, drop it on a ruler to
-  remove; **⌗ Snap to guides** adds them to the move snap's candidates. Both toggles are per browser.
+  remove; **⌗ Snap to guides** adds them to the move snap's candidates. Rulers are off until turned on;
+  both toggles are per browser. A guides-only save doesn't bump a component's version.
   Guides are saved with the screen (`Scene.guides`) or the component (`ComponentDef.guides`), per
   device layout, and undo with the doc (`engine-layout` `editorGuides.ts`). Editor-only: `loadDoc`
   strips them from every screen and the shipped component closure reads through
@@ -201,7 +203,7 @@ Shipped capabilities on `main`:
   edges stay pinned (a curtain keyed to just meet at 16:9 still leaves a gap on 21:9). Unticked ⇒
   no container, the screen as before, so no current game changes until an author ticks it. The
   canvas preview is unchanged (it already shows the design box). Gates: `pnpm
-  check:canvas-window-scale` mounts the REAL `LayoutScene`, `MainContainer` and
+check:canvas-window-scale` mounts the REAL `LayoutScene`, `MainContainer` and
   `CanvasSizeRectangle` inside the real `createLayout` on a simulated window and replays the
   project's intro end frame (15 failures on the old `LayoutScene`: the 448 px gap and the rocket on
   screen among them). Its `<LayoutNodeView>` is a stand-in, so it proves the tap dim and hit area
@@ -249,7 +251,7 @@ Shipped capabilities on `main`:
     (`keyableChannels`), and the node becomes an actor only once something pastes. The copied node
     still selected, nothing selected, keys from two nodes, or no hook (`/rigger`) paste as before,
     byte-identical. The editor's hook is `pasteTarget` in `EditorTimelinePanel.svelte`; the optional
-    right-click *Copy animation to…* was not built. A group is NOT a workaround for the reel grid:
+    right-click _Copy animation to…_ was not built. A group is NOT a workaround for the reel grid:
     the game reads it only as a top-level node (`findReelGridNode`), and the guide now says so.
   - **Cues → Element FX.** A screen timeline's cue never reached an _On cue_ Element FX, whatever
     its name. `FlowV2Cinematics.routeCue` only broadcast on the game event bus, and `ElementFxPlayer`
@@ -274,7 +276,7 @@ Shipped capabilities on `main`:
   - **Parity audit (R2, 2026-10-23):** the bucket's 34 screen-hosted timelines, across every
     project and its published snapshots, carry no cue at all, so no current game has a `signal:`
     cue the new delivery could change. Note the emit reaches every open-bus listener of that name,
-    as a Flow `fireCue` does (rig *Plays on signal*, a component timeline's `playOn`, an Element FX
+    as a Flow `fireCue` does (rig _Plays on signal_, a component timeline's `playOn`, an Element FX
     stop cue), not only _On cue_ entries.
   - Review follow-up: a paste that lands nothing makes no actor (the target's `actor()` runs only
     once a key fits), and a clipboard holding a camera key pastes as before.
@@ -339,6 +341,7 @@ Shipped capabilities on `main`:
   headlessly with `main`'s runtime: each tile's value sits inside its frame, and the rig origins
   and texts land on the doc's positions. Gate: `check:editor-instance-parity`. The old
   resolution and the old setup pose fail 5 of its 35 checks.
+
 - 2026-10-22 — **Visible markers select and delete like key diamonds; double-click deletes a
   visible or text marker; a drag carries a visible marker the whole way** (branch
   `claude/blissful-bohr-4r7uny`). Reported on `commonoverlayproject`: a stray Hide key on a node's
@@ -364,6 +367,7 @@ Shipped capabilities on `main`:
   select + Delete, deselect on another click, diamond then marker, a 60 px drag, double-click on
   both marker kinds, and the text-key seek. It fails on the old module. Guide: [Report events,
   visibility and text](../tools/invisible-editor.md#report-events-visibility-and-text).
+
 - 2026-10-22 — **A placed component selects at the art it draws, however deep** (branch
   `claude/awesome-albattani-iltv2z`, ⏳ not browser-verified). The owner's pots on the Hold and Win
   "Pots" screen are Pot Meters whose coded `Pot` part holds the author's own component (a rig and
@@ -386,6 +390,7 @@ Shipped capabilities on `main`:
   **Side effect:** a `background`-space instance whose def holds a group or a skinned part covers
   by the corrected box. Its baked `coverBox` re-measures on the next save from the base ratio.
   Gate: `check:component-content-box`. The old walk fails 13 of its 18 checks.
+
 - 2026-10-21 — **Element FX in Properties, the Screen block and Animate** (⏳ not browser-verified):
   state and detail in [FX status](fx.md) 2026-10-21; guide:
   [Element FX](../tools/invisible-editor.md#element-fx--effects-that-play-on-an-element).
@@ -458,7 +463,7 @@ Shipped capabilities on `main`:
     editable. Storage, format and the ship chain: [cinematic status](cinematic.md) Current state.
   - **"Update available" on placed shared components**: an Outline row shows **↑ vN** when a
     shared component instance pins an older version (`componentUpdateAvailable`; Properties'
-    existing *Update to latest* does the update). `EditorOutline` gained a `componentMap` prop.
+    existing _Update to latest_ does the update). `EditorOutline` gained a `componentMap` prop.
   - **Rows** in the Timeline's track area: **⚡ Report event** (a `signal:` cue at the playhead),
     **👁 Show / Hide** keys (the module's `keyVisibility`), and **text** keys on a text node (Count
     up / Switch, `$lib/timeline/timelineRows.ts`), drawn by the module's new opt-in `textRows`.
@@ -528,7 +533,7 @@ Shipped capabilities on `main`:
   - **Panel.** The module mounts with `interpolation` and `summaryRows`; the header gains the loop
     type, fps, **Onion** (±N, 1–10) and **Only selected**; ▶ plays through `playbackTime`, so it
     loops or ping-pongs like the game; Space toggles it. The Timeline's keys are listed in 9a's
-    **Shift+/** sheet (a *Timeline (Animate)* group in `stageShortcuts.ts`) but handled by the
+    **Shift+/** sheet (a _Timeline (Animate)_ group in `stageShortcuts.ts`) but handled by the
     shared module, which `/rigger` mounts too.
   - **Onion skin.** `onionFrames` (±N frames, nearest first, clipped to the timeline) through
     `setOnionPreview` in `valuePreview.client.svelte.ts`; the canvas outlines each driven top-level
@@ -538,7 +543,7 @@ Shipped capabilities on `main`:
 - 2026-10-20 — **Rive plan Phase 9a: hierarchy and stage basics** (in review, ⏳ not yet
   browser-verified). Outline rows have hover **Lock / Isolate / Hide** (Rive's word "Isolate", not
   "solo"), a ▸/▾ fold per container, **drag to reorder and re-parent**, and a right-click menu
-  (Copy / Paste / Delete, Lock / Hide / Isolate, *Create component*, *Show in Flow*, all reusing the
+  (Copy / Paste / Delete, Lock / Hide / Isolate, _Create component_, _Show in Flow_, all reusing the
   page's own actions). Lock is the node's existing `locked`, and now the stage clicks through it
   (it still selects from the Outline); Lock applies to children. Hide and Isolate are editor view
   state: the host turns them into the ids the stage skips (`effectiveHiddenIds` in
@@ -610,7 +615,7 @@ Shipped capabilities on `main`:
   action's guard now covers both rows and runs AFTER the ETag check
   (`authoredOverlayGuard.ts` `authoredOverlaySaveDecision`: stale ⇒ 409 whoever saves, fresh +
   flip ⇒ 403 for a non-publisher, else write; one read for a non-publisher, none for a publisher).
-  Game Maker chips: *Authored Win (pilot)* and the three held-back warnings, from
+  Game Maker chips: _Authored Win (pilot)_ and the three held-back warnings, from
   `authoredWinStatus({ doc, tiers })` with the tiers built server-side (`authoredWinTiers.ts`: the
   config's ladder or the coded one, the placed `win` instance's params, the Win Text captions —
   one more R2 read per project with the flag on). `launcher-api` now depends on `engine-game`
@@ -739,7 +744,7 @@ Shipped capabilities on `main`:
   whichever screen is edited. Selecting a mode screen switches the menu to its mode; a pick holds
   until then and is kept with the UI layout (`viewMode`). Beat screens (intro, outro, wheel,
   jackpot win) still draw only while edited. `engine-layout` `inGameViewSceneIds(scenes, active,
-  mode)` + `viewableModeIds`; `test-resting-scenes.mjs` pins it (the old code fails "editing
+mode)` + `viewableModeIds`; `test-resting-scenes.mjs` pins it (the old code fails "editing
   basegame: respinBoard shows"). ⏳ Type-checked and unit-tested, not browser-verified (no
   launcher login in the session).
 - 2026-10-05 — **Invisible Director can drive this tool.** Invisible Director's `scene.get_layout` /
@@ -782,7 +787,7 @@ Shipped capabilities on `main`:
   latest's. `check:art-scope` part 6 runs the real `exportEditorArt` and `isProjectArtAllowed`
   over an in-memory R2 and proves all of it.
 - 2026-10-02 — **Bind to value** (Hold and Win Phase 12b): the shared Properties panel gains a
-  *Bind to value* section (a number drives a node's transform, visibility, fill, clip frame, rig
+  _Bind to value_ section (a number drives a node's transform, visibility, fill, clip frame, rig
   scrub or bone), and a test-value scrub previews it on the canvas and the text / rig / effect
   overlays. `nodeTransform` / `childLocalTransform` take an optional resolver; only the draw paths
   pass the preview's, so drags, hit-tests and selection keep the authored transform. Detail:

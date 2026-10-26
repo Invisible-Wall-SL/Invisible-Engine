@@ -1,5 +1,5 @@
 /**
- * Offline fixture for RULER GUIDES (P10.9) — run with `npx tsx apps/launcher-api/editorGuides.fixture.ts`.
+ * Offline fixture for RULER GUIDES (P10.9) — from `apps/launcher-api`: `pnpm exec tsx editorGuides.fixture.ts`.
  *
  * Pins: the stored shape canonicalizes (finite, rounded, sorted, de-duplicated, capped, empty ⇒
  * absent, so an untouched screen saves as before); a guide drag adds, moves and removes; the
@@ -7,12 +7,7 @@
  * And the editor-only promise: every path that hands a doc or a def to a game strips them.
  */
 import { readFileSync } from 'node:fs';
-import {
-	MAX_GUIDES_PER_AXIS,
-	nearestGuide,
-	normalizeEditorGuides,
-	withoutEditorGuides,
-} from 'engine-layout';
+import { MAX_GUIDES_PER_AXIS, normalizeEditorGuides, withoutEditorGuides } from 'engine-layout';
 import {
 	applyGuideDrag,
 	hitGuide,
@@ -114,8 +109,6 @@ check('grabbed within 4 screen px', hitGuide(g, { x: 103, y: 999 }, 1), { axis: 
 check('not beyond', hitGuide(g, { x: 105, y: 999 }, 1), null);
 check('zoomed in, the world tolerance shrinks', hitGuide(g, { x: 103, y: 999 }, 2), null);
 check('the nearest of two wins', hitGuide(g, { x: 102, y: 51 }, 1), { axis: 'y', index: 0 });
-check('nearestGuide within tolerance', nearestGuide([10, 20], 18, 3), 20);
-check('nearestGuide none', nearestGuide([10, 20], 15, 3), undefined);
 
 console.log('rulers');
 check('1:1 labels every 100 px', rulerStep(1), 100);

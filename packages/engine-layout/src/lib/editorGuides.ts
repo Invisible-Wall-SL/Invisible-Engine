@@ -61,23 +61,3 @@ export function withoutEditorGuides<T extends { guides?: EditorGuideSet }>(item:
 	delete copy.guides;
 	return copy;
 }
-
-/**
- * The guide nearest `value` within `tolerance`, or `undefined`. Ties keep the first (lowest).
- */
-export function nearestGuide(
-	guides: readonly number[] | undefined,
-	value: number,
-	tolerance: number,
-): number | undefined {
-	let best: number | undefined;
-	let bestDist = tolerance;
-	for (const g of guides ?? []) {
-		const d = Math.abs(g - value);
-		if (d <= bestDist && (best === undefined || d < bestDist)) {
-			best = g;
-			bestDist = d;
-		}
-	}
-	return best;
-}

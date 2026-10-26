@@ -1180,11 +1180,12 @@
 	// Editor view state, kept per browser; the guides themselves are the screen's / component's.
 	const RULERS_KEY = 'ie.editor.rulers';
 	const SNAP_GUIDES_KEY = 'ie.editor.snapGuides';
-	function readFlag(key: string): boolean {
+	function readFlag(key: string, fallback: boolean): boolean {
 		try {
-			return localStorage.getItem(key) !== '0';
+			const stored = localStorage.getItem(key);
+			return stored === null ? fallback : stored === '1';
 		} catch {
-			return true;
+			return fallback;
 		}
 	}
 	function writeFlag(key: string, on: boolean): void {
@@ -1194,8 +1195,9 @@
 			/* private window / blocked storage: the toggle still works for this page */
 		}
 	}
-	let showRulers = $state(readFlag(RULERS_KEY));
-	let snapToGuides = $state(readFlag(SNAP_GUIDES_KEY));
+	// Off until asked for, so the canvas edges stay as they were for everyone else.
+	let showRulers = $state(readFlag(RULERS_KEY, false));
+	let snapToGuides = $state(readFlag(SNAP_GUIDES_KEY, true));
 	let rulerTop: HTMLCanvasElement | null = $state(null);
 	let rulerLeft: HTMLCanvasElement | null = $state(null);
 	/** A guide being dragged: a new one off a ruler (`index` null) or an existing one. */
@@ -1204,6 +1206,8 @@
 		index: number | null;
 		value: number;
 		remove: boolean;
+		/** The guide's value when grabbed: an undo or a layout switch mid-drag leaves it alone. */
+		from?: number;
 	} | null>(null);
 	/** The guides as drawn: the stored ones with an in-flight drag applied. */
 	function drawnGuides(): EditorGuides | undefined {
@@ -2577,7 +2581,12 @@
 	/** Start dragging a NEW guide off a ruler: the top ruler gives a horizontal one (y), the left
 	 * a vertical one (x). */
 	function startRulerGuide(axis: GuideAxis, e: MouseEvent): void {
-		if (e.button !== 0 || !onGuidesChange || animate) return;
+		// Any other button pans, as it does on the canvas.
+		if (e.button !== 0) {
+			onMouseDown(e);
+			return;
+		}
+		if (!onGuidesChange || animate) return;
 		const world = clientToWorld(e.clientX, e.clientY);
 		guideDrag = { axis, index: null, value: Math.round(world[axis]), remove: true };
 		e.preventDefault();
@@ -2597,11 +2606,17 @@
 	}
 
 	function endGuideDrag(): void {
-		if (!guideDrag) return;
-		const next = applyGuideDrag(guides, guideDrag);
+		const drag = guideDrag;
 		guideDrag = null;
-		onGuidesChange?.(next);
+		hoverGuideAxis = null;
 		schedule();
+		if (!drag) return;
+		// The guide moved under the drag (an undo, another layout): leave the guides as they are.
+		if (drag.index !== null && guides?.[drag.axis]?.[drag.index] !== drag.from) return;
+		// A click that moved nothing is no edit (no undo step, no autosave).
+		const next = applyGuideDrag(guides, drag);
+		const unchanged = applyGuideDrag(guides, { ...drag, index: null, remove: true });
+		if (JSON.stringify(next) !== JSON.stringify(unchanged)) onGuidesChange?.(next);
 	}
 
 	/**
@@ -5154,7 +5169,7 @@
 			const hit = hitGuide(guides, world, zoom);
 			if (hit) {
 				const value = guides?.[hit.axis]?.[hit.index] ?? world[hit.axis];
-				guideDrag = { axis: hit.axis, index: hit.index, value, remove: false };
+				guideDrag = { axis: hit.axis, index: hit.index, value, remove: false, from: value };
 				e.preventDefault();
 				schedule();
 				return;
@@ -5293,6 +5308,12 @@
 		if (isTypingTarget(e.target) || dialogQueue.current) return;
 		// Both sides' canvases listen on `window`; only the one on screen answers.
 		if (!wrap || wrap.getClientRects().length === 0) return;
+		if (guideDrag && e.key === 'Escape') {
+			guideDrag = null;
+			schedule();
+			e.preventDefault();
+			return;
+		}
 		if (cheatSheetOpen && (e.key === 'Escape' || e.key === '?')) {
 			cheatSheetOpen = false;
 			e.preventDefault();
@@ -6572,14 +6593,17 @@
 		bind:this={rulerTop}
 		class="ruler ruler-top"
 		class:off={!showRulers}
+		onwheel={onWheel}
 		onmousedown={(e) => startRulerGuide('y', e)}
 	></canvas>
 	<canvas
 		bind:this={rulerLeft}
 		class="ruler ruler-left"
 		class:off={!showRulers}
+		onwheel={onWheel}
 		onmousedown={(e) => startRulerGuide('x', e)}
 	></canvas>
+	<div class="ruler-corner" class:off={!showRulers}></div>
 	<!-- HUD rig overlay: like the HUD text overlay below, the HUD scenes draw on the
 	     top-most `hudCanvas` and are excluded from the per-game-scene `{#each}` above — so a
 	     rig nested in a placed HUD component (a spin button's `R_SpinButton`) would only
@@ -7031,13 +7055,24 @@
 		z-index: 999;
 		pointer-events: none;
 	}
-	.ruler {
+	.ruler,
+	.ruler-corner {
 		position: absolute;
 		z-index: 1500;
-		cursor: crosshair;
 	}
-	.ruler.off {
+	.ruler.off,
+	.ruler-corner.off {
 		display: none;
+	}
+	.ruler-corner {
+		top: 0;
+		left: 0;
+		width: 18px;
+		height: 18px;
+		z-index: 1501;
+		background: #15151c;
+		border-right: 1px solid #3a3a48;
+		border-bottom: 1px solid #3a3a48;
 	}
 	.ruler-top {
 		top: 0;
