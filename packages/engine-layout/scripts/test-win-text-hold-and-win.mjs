@@ -25,7 +25,10 @@ const bundled = await esbuild.build({
 			WIN_TEXT_FEATURE_FIELDS,
 			WIN_TEXT_JACKPOT_FIELDS,
 			WIN_TEXT_RESPIN_FIELDS,
+			WIN_TEXT_PLACED_FEATURE_FIELDS,
+			WIN_TEXT_PLACEMENT_DEFAULTS,
 			resolveWinText,
+			resolveWinTextForMode,
 			formatWinText,
 			jackpotCaption,
 			specialDisplayName,
@@ -394,6 +397,38 @@ assert(
 assert(
 	strayAuthored.includes('SPINS: {count}') && !strayAuthored.includes('RESPINS RESET'),
 	'what an author wrote is harvested whatever the kind; the defaults are not',
+);
+
+// Placement: an unplaced project shows each line where it always did; a placed line moves alone; a
+// value this build does not know reads as the default; a respin mode shares the primary's.
+const placed = (doc) => mod.resolveWinText(doc).featurePlacement;
+assert(
+	JSON.stringify(placed(undefined)) === JSON.stringify(mod.WIN_TEXT_PLACEMENT_DEFAULTS),
+	'an unplaced project reads the placement defaults',
+);
+assert(
+	mod.WIN_TEXT_PLACED_FEATURE_FIELDS.every((field) =>
+		['modifiersActive', 'modifiersUnlocked', 'upgrade'].includes(field)
+			? mod.WIN_TEXT_PLACEMENT_DEFAULTS[field] === 'infoBar'
+			: mod.WIN_TEXT_PLACEMENT_DEFAULTS[field] === 'banner',
+	),
+	'the toasts default to the info bar and every other line to the board banner',
+);
+const moved = placed({ featurePlacement: { meterFull: 'off', modifiersActive: 'both' } });
+assert(
+	moved.meterFull === 'off' && moved.modifiersActive === 'both' && moved.total === 'banner',
+	'a placed line moves alone',
+);
+assert(
+	placed({ featurePlacement: { meterFull: 'ticker' } }).meterFull === 'banner',
+	'an unknown placement reads as the default',
+);
+assert(
+	mod.resolveWinTextForMode(
+		{ featurePlacement: { total: 'infoBar' }, modes: { super: { feature: { total: 'X' } } } },
+		'super',
+	).featurePlacement.total === 'infoBar',
+	'a respin mode shares the primary placement',
 );
 
 if (failures) {
