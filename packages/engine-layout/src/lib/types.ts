@@ -1919,6 +1919,29 @@ export interface SmState {
 	/** Raised each time a transition leaves the state (Phase 9c), before the next state's
 	 *  `onEnter`. Not raised when the instance goes away or the machine is reset. */
 	onExit?: SmEnterAction[];
+	/** A 1D BLEND STATE (P10.11): plays its points' timelines mixed by a number input. `timeline`
+	 *  is kept equal to the first point's (the normalizer keeps them in step). */
+	blend?: SmBlend1D;
+}
+
+/**
+ * A 1D blend (Rive "Blend states (1D)", game-families §5.2): ≥ 2 points sorted by `at`. The two
+ * points bracketing the input's value play mixed by where it falls between them; below the first
+ * or above the last, that point plays alone. Every timeline is sampled at the state's own clock
+ * (wrapped by its own duration on a looping state); cues fire from the lower point only; the exit
+ * time reads the state's `timeline` (the first point's).
+ */
+export interface SmBlend1D {
+	/** A `number` input of the def. */
+	input: string;
+	points: SmBlendPoint[];
+}
+
+export interface SmBlendPoint {
+	/** A component timeline's `CinematicDoc.id`. */
+	timeline: string;
+	/** The input value at which this timeline plays alone. */
+	at: number;
 }
 
 export interface SmPoint {
