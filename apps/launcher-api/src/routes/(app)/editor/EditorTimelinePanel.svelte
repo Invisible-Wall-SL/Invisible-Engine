@@ -34,6 +34,7 @@
 		putKey,
 		resolvePlace,
 		resolveVisible,
+		sampleChannel,
 		trackLayout,
 		type CinematicKey,
 	} from 'engine-cinematic';
@@ -204,6 +205,7 @@
 		resolveVisible: resolveVisible as TimelineEvaluator['resolveVisible'],
 		putKey: putKey as TimelineEvaluator['putKey'],
 		easeShape,
+		sampleChannel: sampleChannel as TimelineEvaluator['sampleChannel'],
 	};
 
 	let rows = $state<Row[]>([]);
@@ -341,6 +343,7 @@
 			summaryRows: true,
 			boxSelect: true,
 			textRows: true,
+			graph: true,
 			propertyLayout: keysRatio,
 			host: {
 				selectedActor: () => actorId(),
@@ -2385,5 +2388,50 @@
 	.tl-panel :global(.cineKey.sel),
 	.tl-panel :global(.cineCue.sel) {
 		outline: 1px solid #fff;
+	}
+	/* The Graph Editor (P10.9): 📈 in a channel's gutter opens its graph row beneath it. */
+	.tl-panel :global(.cineEasePresets button.on),
+	.tl-panel :global(.cineGraphBtn.on) {
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+	.tl-panel :global(.cineGraphBtn) {
+		margin-left: auto;
+		padding: 0 3px;
+		line-height: 14px;
+		font-size: 10px;
+	}
+	.tl-panel :global(.cineEasePresets) {
+		flex-wrap: wrap;
+		gap: 4px;
+	}
+	.tl-panel :global(.cineTrack.cineGraphRow) {
+		height: 140px;
+		background: rgba(0, 0, 0, 0.2);
+	}
+	.tl-panel :global(.cineGraphRange) {
+		display: flex;
+		flex-direction: column;
+		justify-content: space-between;
+		height: 100%;
+		padding: 6px 0;
+		font-size: 9px;
+	}
+	.tl-panel :global(.cineGraph) {
+		display: block;
+		touch-action: none;
+	}
+	.tl-panel :global(.cineGraphPath) {
+		fill: none;
+		stroke-width: 1.5;
+	}
+	.tl-panel :global(.cineGraphKey) {
+		stroke: #0c0f14;
+		stroke-width: 1;
+		cursor: pointer;
+	}
+	.tl-panel :global(.cineGraphKey.sel) {
+		stroke: #fff;
+		stroke-width: 2;
 	}
 </style>
