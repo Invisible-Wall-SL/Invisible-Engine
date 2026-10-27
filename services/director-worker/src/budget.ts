@@ -27,9 +27,25 @@ export function projectCall(
 		? pricing.perMTok[request.model]
 		: undefined;
 	if (!rate) throw new Error(`pricing: no price for model "${request.model}"`);
-	const inputTokens = Math.ceil(JSON.stringify(request).length / CHARS_PER_TOKEN);
+	const inputTokens = inputTokensOf(request);
 	const outputTokens = Math.min(request.max_tokens, maxOutputSoFar || DEFAULT_OUTPUT_TOKENS);
 	return (inputTokens * rate.input + outputTokens * rate.output) / 1_000_000;
+}
+
+/**
+ * The request's text at about 4 characters a token, and each image at `IMAGE_TOKENS` — not by its
+ * base64, which is the file's size and not what the model is charged for.
+ */
+function inputTokensOf(request: BetaMessageStreamParams): number {
+	let images = 0;
+	const text = JSON.stringify(request, (_key, value) => {
+		if (value?.type === 'base64' && typeof value.data === 'string') {
+			images += 1;
+			return { ...value, data: '' };
+		}
+		return value;
+	});
+	return Math.ceil(text.length / CHARS_PER_TOKEN) + images * IMAGE_TOKENS;
 }
 
 /**

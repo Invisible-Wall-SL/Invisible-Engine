@@ -14,11 +14,13 @@
  *  - a fallback-served response is billed per iteration at each iteration's model.
  */
 import { readFileSync } from 'node:fs';
+import { deepStrictEqual } from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { costOfResponse, parsePricing, seedRenderUsd } from 'director-costs';
 import { loadAgents, pricedModels } from './agents.ts';
 import {
 	DEFAULT_OUTPUT_TOKENS,
+	IMAGE_TOKENS,
 	overCap,
 	projectCall,
 	projectQueuedGpu,
@@ -32,6 +34,7 @@ import {
 	toolName,
 	type ToolSpec,
 } from './model.ts';
+import { answerContent, MAX_RESULT_CHARS } from './toolResult.ts';
 import { KNOWN_TOOLS, WORKER_TOOLS } from './tools.ts';
 import { workerToolSpecs } from './workerTools.ts';
 
@@ -205,6 +208,82 @@ try {
 	threw = true;
 }
 check('an unpriced model cannot be projected', threw, true);
+
+// ── Image answers (9G.0) ──
+const PNG = Buffer.from('iVBORw0KGgo=', 'base64').toString('base64');
+check(
+	'an image answer is its other fields as text, then the image block',
+	answerContent({
+		region: 'H1',
+		id: '00002',
+		bytes: 9,
+		image: { mediaType: 'image/png', base64: PNG },
+	}),
+	[
+		{ type: 'text', text: '{"region":"H1","id":"00002","bytes":9}' },
+		{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG } },
+	],
+);
+check(
+	'a non-image answer is its JSON string, as before',
+	answerContent({ region: 'H1', variants: [{ id: '1' }] }),
+	JSON.stringify({ region: 'H1', variants: [{ id: '1' }] }),
+);
+check('an array answer is its JSON string', answerContent([1, { image: 2 }]), '[1,{"image":2}]');
+check(
+	'a text answer over the cap is cut, marked',
+	(answerContent({ t: 'x'.repeat(MAX_RESULT_CHARS) }) as string).endsWith('…[truncated]'),
+	true,
+);
+check(
+	'an unsupported type keeps the text, drops the base64 and says why',
+	answerContent({ id: '1', image: { mediaType: 'image/svg+xml', base64: PNG } }),
+	'{"id":"1","imageNotShown":"the image type image/svg+xml is not one the model can be shown"}',
+);
+check(
+	'a field that is not base64 is dropped with a note',
+	answerContent({ image: { mediaType: 'image/png', base64: 'not base64!' } }),
+	'{"imageNotShown":"the image data is not base64"}',
+);
+check(
+	'an image over 5 MB is dropped, never cut',
+	answerContent({ image: { mediaType: 'image/png', base64: 'A'.repeat(7_200_000) } }),
+	'{"imageNotShown":"the image is over 5 MB"}',
+);
+check(
+	'a non-object image field is not an image answer',
+	answerContent({ image: 'x' }),
+	'{"image":"x"}',
+);
+const withImage = [
+	{
+		type: 'tool_result' as const,
+		tool_use_id: 'toolu_1',
+		content: answerContent({ id: '1', image: { mediaType: 'image/png', base64: PNG } }),
+	},
+];
+deepStrictEqual(JSON.parse(JSON.stringify(withImage)), withImage);
+check(
+	'a stored image result reads back byte-identical (JSON round trip)',
+	JSON.stringify(JSON.parse(JSON.stringify(withImage))),
+	JSON.stringify(withImage),
+);
+const turnWith = (content: unknown) =>
+	buildRequest(coordinator, [ADAPTER], [
+		...history,
+		{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content }] },
+	] as never);
+const plain = projectCall(turnWith('{}'), pricing, undefined);
+const priced = projectCall(
+	turnWith(answerContent({ image: { mediaType: 'image/png', base64: 'A'.repeat(400_000) } })),
+	pricing,
+	undefined,
+);
+check(
+	'the projection counts an image at its token ceiling, not its base64 length',
+	priced > plain && priced - plain < ((IMAGE_TOKENS + 200) * opus.input) / 1_000_000,
+	true,
+);
 check('at the cap is over it', overCap(24, 1, 25), true);
 check('below the cap is not', overCap(23.99, 1, 25), false);
 check(

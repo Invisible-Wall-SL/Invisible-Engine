@@ -75,6 +75,15 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-10-27 — **Invisible Director: adapter image answers reach the model as images** (ADR-0012
+  card 9G.0, pipeline change). `atlas.get_variant_image` now answers
+  `{ region, id, bytes, image: { mediaType, base64 } }` (the old `contentType` / `base64` fields are
+  gone), downscaled to the mockups' 1568 px long edge. The worker turns any 200 answer with that
+  `image` field into a `tool_result` of a text block (the rest as JSON) plus an `image` block; an
+  unsupported type or an image over 5 MB is dropped with an `imageNotShown` note; errors and
+  non-image answers are unchanged. The budget projection counts an image at 3,300 tokens, not its
+  base64 length. Changes what the art director and QA see in create runs: re-run the create-run
+  Agents-tab eval.
 - 2026-10-27 — **Desktop build breakdown: what a ☁ Publish / 📦 Deliver shipped** (desktop launcher
   v1.0.59 + engine). After the 🗜 Optimize image pass, the launcher runs the engine's
   `scripts/build-breakdown.mjs` on the finished `build/` and opens a self-contained page. It shows

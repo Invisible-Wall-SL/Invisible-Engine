@@ -71,9 +71,9 @@ export function clampBox(box: Box, w: number, h: number): Box | null {
 	return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
-export interface ModelImage {
+export interface ModelImage<T extends string = MockupMediaType> {
 	bytes: Uint8Array;
-	mediaType: MockupMediaType;
+	mediaType: T;
 	w: number;
 	h: number;
 	scale: number;
@@ -84,18 +84,23 @@ export interface ModelImage {
  * always in display orientation so the model's boxes land in the frame `cropImage` cuts from. An
  * original that already fits and needs no rotating is passed through untouched (`scale` 1).
  */
-export async function downscaleForModel(
+export async function downscaleForModel<T extends MockupMediaType | 'image/webp'>(
 	bytes: Uint8Array,
-	mediaType: MockupMediaType,
+	mediaType: T,
 	longEdge = MODEL_LONG_EDGE,
-): Promise<ModelImage> {
+): Promise<ModelImage<T>> {
 	const { w, h, rotated } = await orientedMetadata(bytes);
 	const scale = modelScale(w, h, longEdge);
 	if (scale === 1 && !rotated) return { bytes, mediaType, w, h, scale };
 	let pipeline = sharp(bytes)
 		.rotate()
 		.resize({ width: longEdge, height: longEdge, fit: 'inside', withoutEnlargement: true });
-	pipeline = mediaType === 'image/png' ? pipeline.png() : pipeline.jpeg({ quality: 90 });
+	pipeline =
+		mediaType === 'image/png'
+			? pipeline.png()
+			: mediaType === 'image/webp'
+				? pipeline.webp({ quality: 90 })
+				: pipeline.jpeg({ quality: 90 });
 	const { data, info } = await pipeline.toBuffer({ resolveWithObject: true });
 	return {
 		bytes: new Uint8Array(data.buffer, data.byteOffset, data.byteLength),

@@ -153,6 +153,12 @@ const SPECS: AdapterSpec[] = [
 		write: true,
 	},
 	{
+		id: 'atlas.get_variant_image',
+		description: 'One variant image.',
+		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+		write: false,
+	},
+	{
 		id: 'atlas.queue_variants',
 		description: 'Queue variants.',
 		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -238,7 +244,15 @@ const AGENTS = new Map([
 			'claude-opus-5-5',
 		),
 	],
-	['atlas-artist', agent('atlas-artist', ['atlas.queue_variants', 'run.post_activity'])],
+	[
+		'atlas-artist',
+		agent('atlas-artist', [
+			'atlas.queue_variants',
+			'atlas.get_variant_image',
+			'gamemaker.create_from_template',
+			'run.post_activity',
+		]),
+	],
 ]);
 
 const use = (id: string, name: string, input: Record<string, unknown> = {}) => ({
@@ -1492,6 +1506,93 @@ try {
 					['estimated_gpu_time', 1800],
 				],
 			],
+		);
+	}
+
+	// ── 28. Image answers reach the model as images ──────────────────────────
+	console.log('28. an adapter image answer is a text + image tool_result, stored and replayed');
+	{
+		const PNG = Buffer.from('iVBORw0KGgo=', 'base64').toString('base64');
+		const image = { mediaType: 'image/png', base64: PNG };
+		const plainBody = { jobRef: 'job-x', note: 'image is not special here' };
+		const runId = await newRun();
+		await userMessage(runId, 'atlas-artist', 'Look.');
+		const model = fakeModel([
+			{
+				content: [
+					use('i1', 'atlas.get_variant_image', { n: 1 }),
+					use('i2', 'atlas.get_variant_image', { n: 2 }),
+					use('i3', 'atlas.get_variant_image', { n: 3 }),
+					use('i4', 'gamemaker.create_from_template'),
+				],
+			},
+			{ content: [say('Seen.')] },
+			{ content: [say('Seen again.')] },
+		]);
+		const gate = fakeLauncher((id, nth) => {
+			if (id === 'atlas.get_variant_image') {
+				const n = nth - 2;
+				if (n === 0) return { status: 200, body: { region: 'H1', id: '00002', image } };
+				if (n === 1) {
+					return {
+						status: 200,
+						body: { region: 'H1', image: { mediaType: 'image/svg+xml', base64: PNG } },
+					};
+				}
+				return { status: 404, body: { error: 'unknown_variant', image } };
+			}
+			return id === 'gamemaker.create_from_template' ? { status: 200, body: plainBody } : null;
+		});
+		let killed = false;
+		const kill = () => {
+			if (!killed) {
+				killed = true;
+				throw new Error('killed');
+			}
+		};
+		await drive(runId, deps(model.transport, gate.launcher, { afterAdapterCall: kill }));
+		check('the first worker died after an adapter call, before storing results', killed, true);
+		await sql`update director_runs set lease_until = now() - interval '1 second' where id = ${runId} and lease_holder is not null`;
+		await drive(runId, deps(model.transport, gate.launcher));
+		const results = (model.requests[1].messages.at(-1)!.content as { content: unknown }[]).map(
+			(b) => b.content,
+		);
+		check('an image answer is its other fields as text, then an image block', results[0], [
+			{ type: 'text', text: '{"region":"H1","id":"00002"}' },
+			{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG } },
+		]);
+		check(
+			'an unsupported image type falls back to text, base64 dropped, with a note',
+			results[1],
+			'{"region":"H1","imageNotShown":"the image type image/svg+xml is not one the model can be shown"}',
+		);
+		check(
+			'an error answer is its JSON as text even if it carries an image field',
+			results[2],
+			JSON.stringify({ error: 'unknown_variant', image }),
+		);
+		check(
+			'a non-image answer is its JSON, byte-identical to before',
+			results[3],
+			JSON.stringify(plainBody),
+		);
+		const stored = await messages(runId, 'atlas-artist');
+		check(
+			'the stored result message is what the model was sent (byte-identical)',
+			JSON.stringify(stored[2].content),
+			JSON.stringify(model.requests[1].messages.at(-1)!.content),
+		);
+		await userMessage(runId, 'atlas-artist', 'Again.');
+		await drive(runId, deps(model.transport, gate.launcher));
+		check(
+			'after a later wake the stored image block is replayed byte-identically',
+			JSON.stringify(model.requests[2].messages.slice(0, 3)),
+			JSON.stringify(model.requests[1].messages.slice(0, 3)),
+		);
+		check(
+			'…and the write did not run twice',
+			gate.sent.filter((e) => e.startsWith('gamemaker.create_from_template@')).length,
+			1,
 		);
 	}
 

@@ -46,6 +46,7 @@
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { mock } from 'node:test';
+import sharp from 'sharp';
 import { fileURLToPath } from 'node:url';
 import type {
 	DirectorAtlasJob,
@@ -97,6 +98,12 @@ function fake(rel: string, impl: Record<string, unknown>): void {
 // ── In-memory R2 ───────────────────────────────────────────────────────────────
 type Obj = { body: string; etag: string };
 const R2 = new Map<string, Obj>();
+/** A 3000×2000 tile: bigger than the model's long edge, so the op must downscale it. */
+const TILE = await sharp({
+	create: { width: 3000, height: 2000, channels: 3, background: '#c33' },
+})
+	.jpeg()
+	.toBuffer();
 let etagSeq = 0;
 let copies = 0;
 const byteReads: string[] = [];
@@ -1543,7 +1550,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			}
 			if (url.pathname.startsWith('/vthumb/')) {
 				return url.searchParams.get('id') === '00002'
-					? send(200, 'image/jpeg', Buffer.from([0xff, 0xd8, 0xff]))
+					? send(200, 'image/jpeg', TILE)
 					: send(200, 'image/svg+xml', '<svg/>');
 			}
 			if (url.pathname === '/save') {
@@ -1799,10 +1806,12 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			{ atlas: 'symbols', region: 'W', id: '00002' },
 			'qa',
 		);
+		const shown = img.body.image as { mediaType: string; base64: string };
+		const dims = await sharp(Buffer.from(shown.base64, 'base64')).metadata();
 		check(
-			'get_variant_image returns the bytes base64',
-			[img.status, img.body.contentType, img.body.base64],
-			[200, 'image/jpeg', '/9j/'],
+			'get_variant_image returns { image: { mediaType, base64 } }, downscaled to the model long edge',
+			[img.status, img.body.contentType, img.body.base64, shown.mediaType, dims.width, dims.height],
+			[200, undefined, undefined, 'image/jpeg', 1568, 1045],
 		);
 		check(
 			"a variant atlas-tool answers with its placeholder is a 404, not an 'image'",
