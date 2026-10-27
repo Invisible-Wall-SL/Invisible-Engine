@@ -28,13 +28,16 @@ export function entitledByAny(
 	return tools.some((tool) => roleHasTool(role, tool, roleOverrides, userOverrides));
 }
 
+/** Invisible Shader Graph: the one tool that writes shader graphs. */
+export const SHADER_TOOL = 'shaders';
+
 /**
  * The tools that READ a project's shader graphs (docs, list, history) and their compiled effects
  * (`shaderReadScope`): `/shaders`, and the tools whose pickers list custom Element FX (the Scene
  * and Component Editors, Symbols, the Flow). Only `/shaders` writes them.
  */
 export const SHADER_READ_TOOLS = [
-	'shaders',
+	SHADER_TOOL,
 	'editor',
 	'componentEditor',
 	'symbols',

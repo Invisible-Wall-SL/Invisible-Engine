@@ -1278,9 +1278,12 @@ console.log('8. a particle material ships');
 		['custom:ember'],
 	);
 	check(
-		'…named by the layer alone: without effects the bundle names none',
-		namedShaderEffects(set.effects, { ...bundle, effects: undefined }),
-		[],
+		'…named by the layer alone: the bundle names it with its effects, and nothing without them',
+		[
+			namedShaderEffects(set.effects, { ...bundle }).map((e) => e.spec.kind),
+			namedShaderEffects(set.effects, { ...bundle, effects: undefined }),
+		],
+		[['custom:ember'], []],
 	);
 	check(
 		'…and the game registers it',
@@ -1300,6 +1303,8 @@ console.log('8. a particle material ships');
 		'/api/editor/export-effects': effectsExportRoute.POST,
 		'/api/editor/export-shaders': exportRoute.POST,
 	};
+	// Every failure answers a 400 the bake never retries (it retries 429 and 5xx at 5, 15 and 30 s),
+	// and the bake is killed past BAKE_TIMEOUT_MS, so a broken route fails this check fast.
 	const portal = createServer((req, res) => {
 		const url = new URL(req.url ?? '/', 'http://portal.test');
 		const handler = routes[url.pathname];
@@ -1309,16 +1314,28 @@ console.log('8. a particle material ships');
 		};
 		if (!handler) return answer(200, '{}');
 		const request = new Request(url, { method: req.method });
-		(handler as Handler)({ url, request, locals: {}, cookies: {} } as never).then(
-			async (r) => answer(r.status, await r.text()),
-			(e: { status?: number }) => answer(e.status ?? 500, '{}'),
-		);
+		Promise.resolve()
+			.then(() => (handler as Handler)({ url, request, locals: {}, cookies: {} } as never))
+			.then(async (r) => ({ status: r.status, body: await r.text() }))
+			.catch((e: unknown) => {
+				const status = (e as { status?: unknown }).status;
+				return {
+					status: typeof status === 'number' ? status : 500,
+					body: JSON.stringify({ error: e instanceof Error ? e.message : String(e) }),
+				};
+			})
+			.then(({ status, body }) =>
+				status >= 500 || status === 429
+					? answer(400, `fixture portal: ${url.pathname} answered ${status}: ${body}`)
+					: answer(status, body),
+			);
 	});
 	await new Promise<void>((ready) => portal.listen(0, '127.0.0.1', ready));
 	const { port } = portal.address() as AddressInfo;
 	const out = mkdtempSync(join(tmpdir(), 'shader-bake-'));
 	const dest = join(out, 'baked-editor-bundle.json');
-	const baked = await promisify(execFile)(process.execPath, [
+	const BAKE_TIMEOUT_MS = 30_000;
+	const args = [
 		`${here}bake-editor-doc.mjs`,
 		'--project',
 		PROJECT,
@@ -1328,19 +1345,29 @@ console.log('8. a particle material ships');
 		TOKEN,
 		'--dest',
 		dest,
-	]).then(
+	];
+	const baked = await promisify(execFile)(process.execPath, args, {
+		timeout: BAKE_TIMEOUT_MS,
+	}).then(
 		({ stdout, stderr }) => ({ code: 0, log: `${stdout}${stderr}` }),
-		(e: { code?: number; stdout?: string; stderr?: string }) => ({
+		(e: { code?: number; killed?: boolean; stdout?: string; stderr?: string }) => ({
 			code: e.code ?? 1,
-			log: `${e.stdout ?? ''}${e.stderr ?? ''}`,
+			log:
+				`${e.stdout ?? ''}${e.stderr ?? ''}` +
+				(e.killed ? `\nfixture: the bake was killed after ${BAKE_TIMEOUT_MS / 1000} s` : ''),
 		}),
 	);
+	portal.closeAllConnections();
 	portal.close();
-	const bakedBundle = (baked.code === 0 ? JSON.parse(readFileSync(dest, 'utf8')) : {}) as {
+	let bakedBundle: {
 		effects?: { id: string; layers: { material?: { kind: string } }[] }[];
 		shaderEffects?: { spec: { kind: string } }[];
-	};
-	rmSync(out, { recursive: true, force: true });
+	} = {};
+	try {
+		if (baked.code === 0) bakedBundle = JSON.parse(readFileSync(dest, 'utf8'));
+	} finally {
+		rmSync(out, { recursive: true, force: true });
+	}
 	if (baked.code !== 0) console.log(baked.log);
 	check('the bake runs', baked.code, 0);
 	check(

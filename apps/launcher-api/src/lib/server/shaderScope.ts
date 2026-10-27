@@ -1,11 +1,12 @@
 import { error, type Cookies } from '@sveltejs/kit';
-import { SHADER_EFFECTS_READ_TOOLS, SHADER_READ_TOOLS } from '$lib/accessRules';
+import { SHADER_EFFECTS_READ_TOOLS, SHADER_READ_TOOLS, SHADER_TOOL } from '$lib/accessRules';
 import { SHADER_CUSTOM_GLSL_CAPABILITY, SHADER_PUBLISH_CAPABILITY } from '$lib/roles';
 import { userHasCapability } from './launcherAuth';
 import { gate, type ToolScope } from './toolScope';
 
-const [SHADER_TOOL, ...SHADER_READ_ALT_TOOLS] = SHADER_READ_TOOLS;
-const [, ...SHADER_EFFECTS_READ_ALT_TOOLS] = SHADER_EFFECTS_READ_TOOLS;
+/** A read set as a gate's alternatives: every tool in it but `/shaders`, the gate's own. */
+const besidesShaders = (tools: readonly string[]): string[] =>
+	tools.filter((tool) => tool !== SHADER_TOOL);
 
 /**
  * Who reaches Invisible Shader Graph docs: `/shaders` reads and writes them; every other tool in
@@ -14,7 +15,7 @@ const [, ...SHADER_EFFECTS_READ_ALT_TOOLS] = SHADER_EFFECTS_READ_TOOLS;
 export const shaderReadScope = (locals: App.Locals, cookies: Cookies): Promise<ToolScope> =>
 	gate(locals, cookies, {
 		tool: SHADER_TOOL,
-		altTools: SHADER_READ_ALT_TOOLS,
+		altTools: besidesShaders(SHADER_READ_TOOLS),
 		forbiddenMessage: 'Your role does not have access to shader effects.',
 	});
 
@@ -25,7 +26,7 @@ export const shaderReadScope = (locals: App.Locals, cookies: Cookies): Promise<T
 export const shaderEffectsReadScope = (locals: App.Locals, cookies: Cookies): Promise<ToolScope> =>
 	gate(locals, cookies, {
 		tool: SHADER_TOOL,
-		altTools: SHADER_EFFECTS_READ_ALT_TOOLS,
+		altTools: besidesShaders(SHADER_EFFECTS_READ_TOOLS),
 		forbiddenMessage: 'Your role does not have access to shader effects.',
 	});
 

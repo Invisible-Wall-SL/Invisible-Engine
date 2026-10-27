@@ -32,6 +32,7 @@ import {
 	mayTargetClient,
 	SHADER_EFFECTS_READ_TOOLS,
 	SHADER_READ_TOOLS,
+	SHADER_TOOL,
 	settingValueVisible,
 } from '../src/lib/accessRules.ts';
 import {
@@ -245,9 +246,32 @@ const PROJECT_READ_EXEMPT: Record<string, string> = {
 	'flow-v2/instances': 'scoped by the session; ?project= only refuses a tab on a stale project',
 	'fx/effect': 'scoped by the session; ?project= only refuses a tab on a stale project',
 };
-/** Each exported handler's source (the module preamble dropped). */
+/**
+ * Each exported handler's source (the module preamble dropped), declared `export const GET = …` or
+ * `export (async) function GET`. Any other way of exporting one fails below, so no handler slips
+ * past the per-handler scans unread.
+ */
+const HANDLER_HEAD = /^export (?:const|(?:async )?function) (GET|POST|PUT|PATCH|DELETE)\b/;
 const handlerBlocks = (src: string): string[] =>
-	src.split(/^(?=export const (?:GET|POST|PUT|PATCH|DELETE)\b)/m).slice(1);
+	src.split(/^(?=export (?:const|(?:async )?function) (?:GET|POST|PUT|PATCH|DELETE)\b)/m).slice(1);
+const handlerMethod = (block: string): string | undefined => HANDLER_HEAD.exec(block)?.[1];
+/** `src` without its comments, so a scan matches code and never a sentence about it. */
+const codeOf = (src: string): string =>
+	src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
+for (const file of handlers) {
+	const src = codeOf(readFileSync(`${api}${file}`, 'utf8'));
+	const route = file.replaceAll('\\', '/').replace(/\/\+server\.ts$/, '');
+	check(
+		`api/${route} declares its handlers in a form the scans read`,
+		[
+			handlerBlocks(src).length > 0,
+			/\bexport\s*\{[^}]*\b(?:GET|POST|PUT|PATCH|DELETE)\b|\bexport (?:let|var) (?:GET|POST|PUT|PATCH|DELETE)\b/.test(
+				src,
+			),
+		],
+		[true, false],
+	);
+}
 const readsProject = new Set<string>();
 for (const file of handlers) {
 	const route = file.replaceAll('\\', '/').replace(/\/\+server\.ts$/, '');
@@ -256,7 +280,7 @@ for (const file of handlers) {
 		if (!PROJECT_READS.some((re) => re.test(block))) continue;
 		readsProject.add(route);
 		if (route in PROJECT_READ_EXEMPT) continue;
-		const method = /^export const ([A-Z]+)/.exec(block)?.[1];
+		const method = handlerMethod(block);
 		check(
 			`api/${route} ${method} checks access to the project it takes from the request`,
 			PROJECT_CHECKS.some((c) => block.includes(c)),
@@ -355,7 +379,7 @@ for (const file of handlers) {
 	const required = ACTS_ON_BODY_PROJECT_KEY[route];
 	check(`api/${route} reads body.projectKey and is named above`, required !== undefined, true);
 	for (const block of handlerBlocks(src)) {
-		const method = /^export const ([A-Z]+)/.exec(block)?.[1];
+		const method = handlerMethod(block);
 		for (const c of required ?? []) {
 			check(`api/${route} ${method} calls ${c.slice(0, -1)} on it`, block.includes(c), true);
 		}
@@ -563,6 +587,7 @@ check(
 for (const id of SHADER_EFFECTS_READ_TOOLS) {
 	check(`the shader read tool '${id}' is a registered tool`, Object.hasOwn(TOOLS, id), true);
 }
+check('the shader write tool is /shaders', SHADER_TOOL, 'shaders');
 check('the graph read set', SHADER_READ_TOOLS, [
 	'shaders',
 	'editor',
@@ -580,7 +605,7 @@ check(
 	[
 		entitledByAny('animator', SHADER_EFFECTS_READ_TOOLS),
 		entitledByAny('animator', SHADER_READ_TOOLS),
-		entitledByAny('animator', [SHADER_READ_TOOLS[0]]),
+		entitledByAny('animator', [SHADER_TOOL]),
 	],
 	[true, false, false],
 );
@@ -599,17 +624,24 @@ check(
 );
 check(
 	'the tool gate decides through entitledByAny',
-	readFileSync(`${srcRoot}lib/server/toolScope.ts`, 'utf8').includes(
+	codeOf(readFileSync(`${srcRoot}lib/server/toolScope.ts`, 'utf8')).includes(
 		'entitledByAny(locals.user.role, candidates, roleOverrides, overrides)',
 	),
 	true,
 );
 {
-	const scope = readFileSync(`${srcRoot}lib/server/shaderScope.ts`, 'utf8');
+	const scope = codeOf(readFileSync(`${srcRoot}lib/server/shaderScope.ts`, 'utf8'));
 	const gateOf = (name: string): string =>
 		new RegExp(`export const ${name} = [^]*?gate\\(locals, cookies, \\{([^}]*)\\}\\)`).exec(
 			scope,
 		)?.[1] ?? '';
+	check(
+		"…the alternatives being every tool but /shaders, the gate's own",
+		scope.includes(
+			'const besidesShaders = (tools: readonly string[]): string[] =>\n\ttools.filter((tool) => tool !== SHADER_TOOL);',
+		),
+		true,
+	);
 	check(
 		'shaderScope has three gates: graphs, effects and writes',
 		(scope.match(/gate\(locals, cookies, \{/g) ?? []).length,
@@ -617,21 +649,17 @@ check(
 	);
 	check(
 		'the graph read gates on SHADER_READ_TOOLS',
-		[
-			scope.includes('const [SHADER_TOOL, ...SHADER_READ_ALT_TOOLS] = SHADER_READ_TOOLS;'),
-			/^\s*tool: SHADER_TOOL,\s*altTools: SHADER_READ_ALT_TOOLS,/.test(gateOf('shaderReadScope')),
-		],
-		[true, true],
+		/^\s*tool: SHADER_TOOL,\s*altTools: besidesShaders\(SHADER_READ_TOOLS\),/.test(
+			gateOf('shaderReadScope'),
+		),
+		true,
 	);
 	check(
 		'the effects read gates on SHADER_EFFECTS_READ_TOOLS',
-		[
-			scope.includes('const [, ...SHADER_EFFECTS_READ_ALT_TOOLS] = SHADER_EFFECTS_READ_TOOLS;'),
-			/^\s*tool: SHADER_TOOL,\s*altTools: SHADER_EFFECTS_READ_ALT_TOOLS,/.test(
-				gateOf('shaderEffectsReadScope'),
-			),
-		],
-		[true, true],
+		/^\s*tool: SHADER_TOOL,\s*altTools: besidesShaders\(SHADER_EFFECTS_READ_TOOLS\),/.test(
+			gateOf('shaderEffectsReadScope'),
+		),
+		true,
 	);
 	check(
 		'the write gates on /shaders alone',
@@ -654,8 +682,10 @@ check(
 	check('the scan sees the shader routes', shaderHandlers.length >= 8, true);
 	for (const file of shaderHandlers) {
 		const route = file.replace(/\/\+server\.ts$/, '');
-		for (const block of handlerBlocks(readFileSync(`${api}${file}`, 'utf8'))) {
-			const method = /^export const ([A-Z]+)/.exec(block)?.[1];
+		const blocks = handlerBlocks(codeOf(readFileSync(`${api}${file}`, 'utf8')));
+		check(`api/${route} yields its handlers to the scope scan`, blocks.length > 0, true);
+		for (const block of blocks) {
+			const method = handlerMethod(block);
 			const used = [
 				'shaderReadScope',
 				'shaderEffectsReadScope',
