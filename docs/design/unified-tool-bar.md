@@ -47,6 +47,9 @@ every Domain-A consumer is inside launcher-api — same as `$lib/Emblem.svelte`.
   current one**, icon + text. **Icon-only when the row gets tight** (label hidden,
   `title=` tooltip). Local-install tools (an external rig editor, Invisible Launcher) and
   the admin panel never appear.
+- **Ask the AI** → opens `$lib/AskAiPanel.svelte`, a movable chat about the current tool
+  (`/api/ask-ai`, grounded in its `docs/tools/<slug>.md`). Launcher bar only so far.
+- **Report bug** → Pipeline Bug Reports' form with the current tool filled in.
 
 ## Decisions (owner, 2026-06-12)
 
