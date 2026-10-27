@@ -123,11 +123,12 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   played online, a missing parameter or a refused / unreachable server stops on the existing
   boot-failure screen (`refuseOnlineBoot`, the `haltBoot` path). `@colyseus/sdk` 0.18.6 is imported
   dynamically there and nowhere else, through the `engine-rooms` workspace package (a game repo
-  cannot install a third-party package `apps/lines` declares: `check:game-app-deps`). `<ArcadeStage />` does not start the local loop for an online
-  game: it ticks `tickOnline` — one input per fixed step from the keyboard (arrows / WASD, Space =
-  jump), clamped, sent — and draws every room player as a spawned instance of its character's
-  component in `online.layer`, at the server's last place (no prediction or smoothing: P10.15). The
-  arcade probe reads the room. Free play, as every arcade game (`rgsSession: false`).
+  cannot install a third-party package `apps/lines` declares: `check:game-app-deps`).
+  `<ArcadeStage />` does not start the local loop for an online game: it ticks `tickOnline` — one
+  input per fixed step from the keyboard (arrows / WASD, Space = jump), clamped, sent — and draws
+  every room player as a spawned instance of its character's component in `online.layer`, at the
+  server's last place (no prediction or smoothing: P10.15). The arcade probe reads the room. Free
+  play, as every arcade game (`rgsSession: false`).
 - **Gates:** `check:room-sim` (root, 36 checks, ~30 s; discovered by `check:all`).
   - *Headless, over the room's own code:* 10 000 steps of six players at 30 Hz × 2, 60 × 1 and
     20 × 4 with hostile, repeated, stale, gapped and missing inputs and network stalls that release

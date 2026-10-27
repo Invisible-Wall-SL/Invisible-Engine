@@ -531,12 +531,14 @@ await check('the runtime: the SDK is reached only through the online branch, and
 	walk(src);
 	// The SDK is reached only through `engine-rooms` (a game repo cannot install a third-party
 	// package `apps/lines` declares: `scripts/check-game-app-deps.mjs`), and only from online.ts.
-	const importing = (needle) =>
-		files
-			.filter((f) => readFileSync(f, 'utf8').includes(needle))
+	const importing = (spec) => {
+		const re = new RegExp(`(?:\\bfrom|\\bimport\\()\\s*['"\`]${spec}`);
+		return files
+			.filter((f) => re.test(readFileSync(f, 'utf8')))
 			.map((f) => f.slice(src.length + 1));
-	assert.deepEqual(importing("'@colyseus/"), []);
-	assert.deepEqual(importing("'engine-rooms'"), ['game/online.ts']);
+	};
+	assert.deepEqual(importing('@colyseus/'), []);
+	assert.deepEqual(importing(`engine-rooms['"\`]`), ['game/online.ts']);
 	const online = readFileSync(join(src, 'game/online.ts'), 'utf8');
 	assert.match(online, /import type \{ Room \} from 'engine-rooms'/);
 	assert.match(online, /await import\('engine-rooms'\)/);
