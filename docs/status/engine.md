@@ -71,7 +71,9 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   and leaves their textures to Pixi's GC (uploaded up front, not pinned); every other device renders
   exactly as before (`?render=full` forces it). A warm-up that throws never holds the load, and a
   hidden tab (no frames) finishes it on a 50 ms timeout: verified with rAF frozen for 70 s, all 28
-  uploads done by 11.9 s.
+  uploads done by 11.9 s. Making an FX pass draws its seed, so the warm-up makes them with
+  `Math.random` answering a constant: otherwise a seeded run (`?ie_determinism`, current-games) drew
+  every later number shifted (`commonoverlayproject` 14/17 screens changed; fixed: 0 px vs main).
 
 ## Open items / next
 
