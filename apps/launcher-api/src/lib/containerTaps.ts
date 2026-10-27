@@ -1,6 +1,7 @@
 import {
 	BUILTIN_COMPONENTS,
 	COMPLETE_ON_LOADED_PARAM,
+	TAP_ARM_AFTER_SIGNAL_PARAM,
 	TAP_TO_CONTINUE_PARAM,
 	type LayoutNode,
 	type Scene,
@@ -47,17 +48,20 @@ const instanceParamValues = (node: LayoutNode, key: string): unknown[] => {
  * this pure helper does not read, so its `defaultInstanceParams` seed is invisible — the same limit
  * the loader's container-event projection already carries. Its explicit instance params still count.
  */
-const nodeCompletesContainer = (node: LayoutNode): boolean => {
-	if (node.kind !== 'componentInstance') return false;
-	for (const key of [TAP_TO_CONTINUE_PARAM, COMPLETE_ON_LOADED_PARAM]) {
-		const values = instanceParamValues(node, key);
-		if (values.some((v) => v === true)) return true;
-		if (values.some((v) => v === false)) continue; // an explicit clear beats the def seed.
-		const def = BUILTIN_COMPONENTS.find((d) => d.id === node.componentId);
-		if (def?.defaultInstanceParams?.[key] === true) return true;
-	}
-	return false;
+const nodeSwitchesOn = (
+	node: Extract<LayoutNode, { kind: 'componentInstance' }>,
+	key: string,
+): boolean => {
+	const values = instanceParamValues(node, key);
+	if (values.some((v) => v === true)) return true;
+	if (values.some((v) => v === false)) return false; // an explicit clear beats the def seed.
+	const def = BUILTIN_COMPONENTS.find((d) => d.id === node.componentId);
+	return def?.defaultInstanceParams?.[key] === true;
 };
+
+const nodeCompletesContainer = (node: LayoutNode): boolean =>
+	node.kind === 'componentInstance' &&
+	[TAP_TO_CONTINUE_PARAM, COMPLETE_ON_LOADED_PARAM].some((key) => nodeSwitchesOn(node, key));
 
 /** Walks RECURSIVELY — `container` is the only layout node kind with `children`, and an overlay's
  *  tap instance is routinely nested inside one. */
@@ -91,6 +95,47 @@ export function collectContainerTaps(
 		const scene = scenesById.get(container.sceneId);
 		if (!scene) continue;
 		taps[container.id] = sceneCompletesItself(scene.nodes ?? []);
+	}
+	return taps;
+}
+
+/**
+ * A tap surface ARMED ON MOUNT: `tapToContinue` on (read as {@link nodeCompletesContainer} reads it)
+ * and no `tapArmAfterSignal` on the instance or on any per-layoutType patch. Read in the direction
+ * that never flags a working doc — an arm signal in any variant counts as armed-later.
+ */
+const tapArmedOnMount = (node: LayoutNode): boolean =>
+	node.kind === 'componentInstance' &&
+	nodeSwitchesOn(node, TAP_TO_CONTINUE_PARAM) &&
+	!instanceParamValues(node, TAP_ARM_AFTER_SIGNAL_PARAM).some(
+		(v) => typeof v === 'string' && v.trim() !== '',
+	);
+
+const armedTapIds = (nodes: readonly LayoutNode[], into: string[]): string[] => {
+	for (const node of nodes) {
+		if (node.kind === 'container') armedTapIds(node.children ?? [], into);
+		else if (tapArmedOnMount(node)) into.push(node.id);
+	}
+	return into;
+};
+
+/**
+ * ContainerId → the placed ids of its scene's tap surfaces armed on mount — the scene half of the
+ * Flow validator's `startup-tap-surface` check (`startupTapIssues`). A screen a driven flow shows at
+ * start-up and never hides must not carry one, or a dimmed tap surface covers the idle game and the
+ * Space spin hotkey is dead. Keyed like {@link collectContainerTaps}: only containers whose scene
+ * resolves, and only when it has such a tap.
+ */
+export function collectArmedOnMountTaps(
+	containers: readonly { id: string; sceneId: string }[],
+	scenes: readonly Scene[],
+): Record<string, string[]> {
+	const scenesById = new Map(scenes.map((s) => [s.id, s]));
+	const taps: Record<string, string[]> = {};
+	for (const container of containers) {
+		const scene = scenesById.get(container.sceneId);
+		const ids = scene ? armedTapIds(scene.nodes ?? [], []) : [];
+		if (ids.length) taps[container.id] = ids;
 	}
 	return taps;
 }

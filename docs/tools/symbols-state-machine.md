@@ -253,7 +253,9 @@ badges for `behind`, `no dim` and its blend mode); click it to open its editor:
   Normal, Add, Multiply, Screen, Lighten, Overlay.
 - **Size × cell** and **Offset × cell** — the same fit hints a Book-VFX layer carries.
   Absent means "fit the cell". For an **FX** layer, Size is a _scale multiplier_ on the
-  effect's authored size (1 = as authored), not a cell fit.
+  effect's authored size (1 = as authored), not a cell fit. An effect layer with a
+  [material](fx.md#material) shows it as in the game, in the layer's preview and when a rig cell's
+  animation fires the effect; one whose material's graph is gone draws plain sprites.
 - **↑ / ↓ / ✕** — reorder and remove.
 
 **Order in the list IS draw order.** Top of the list is drawn first (furthest back), bottom

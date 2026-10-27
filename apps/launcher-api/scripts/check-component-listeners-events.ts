@@ -614,7 +614,7 @@ for (const event of POINTER) {
 		{ instanceId: 'coin_7', action: 'winShown', payload: undefined, kind: 'event' },
 	]);
 	eq(
-		'cue routing: a def with no events broadcasts `event:` as before (parity); signal, fx, sounds, a bare name',
+		'cue routing: a def with no events broadcasts `event:` as before (parity); signal, fx, sounds (to the sound sink), a bare name',
 		[
 			E.routeComponentCue('event:winShown', false),
 			E.routeComponentCue('signal:x', true),
@@ -628,8 +628,8 @@ for (const event of POINTER) {
 			{ kind: 'broadcast', name: 'winShown' },
 			{ kind: 'signal', name: 'x' },
 			{ kind: 'broadcast', name: 'spark' },
-			{ kind: 'drop' },
-			{ kind: 'drop' },
+			{ kind: 'sound', cue: 'sfx:pop' },
+			{ kind: 'sound', cue: 'music:bed' },
 			{ kind: 'broadcast', name: 'bare' },
 			{ kind: 'drop' },
 		],

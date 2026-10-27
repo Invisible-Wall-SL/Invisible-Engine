@@ -49,6 +49,10 @@
  *                            no `showContainer{awaitComplete}` and no `complete:<id>` entry waits for
  *                            it. INFO, not a warning — the tap still emits its `tapSignal` and the
  *                            once-per-session `tapToStart`, so it is a hint, not a defect.
+ *  - `startup-tap-surface`   — a screen shown at start-up and never hidden whose scene carries a tap
+ *                            surface armed on mount: it covers the idle game and blocks Space (an
+ *                            ERROR; `startupTapIssues` in `startupScreens.ts`, which the editor and
+ *                            the publish gate add).
  *  - `text-message-unreachable` — a `textMessage` with NO state-gate (`visibleWhile` unset/`'none'`)
  *                            AND no incoming `show` exec edge: nothing can ever make it appear.
  *  - `mode-unset`          — a `modeTrigger` / `enterMode` naming no mode, or a mode section whose
@@ -176,6 +180,7 @@ export type FlowIssueCode =
 	| 'cinematic-missing-ref'
 	| 'hold-without-release'
 	| 'tap-without-hold'
+	| 'startup-tap-surface'
 	| 'mode-unset'
 	| 'mode-entry-scope'
 	| 'container-scene-missing'
@@ -344,7 +349,7 @@ const blockedByHold = (graph: FlowDoc['graph'], holdId: string): Set<string> => 
  * function body is invisible to a graph scan, and missing it would turn a working doc RED — so the
  * library is walked too, cycle-guarded by the set of function ids already visited.
  */
-const functionHidesContainer = (
+export const functionHidesContainer = (
 	fnId: string,
 	ref: string,
 	library: FunctionLibraryDoc,

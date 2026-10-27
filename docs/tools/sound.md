@@ -162,9 +162,11 @@ that matters.
 Three answers, in increasing order of certainty:
 
 1. **This page's list.** If a sound has a row here after a reload, it is saved.
-2. **Any sound picker.** Open the moments above, or a cue node in
-   [Invisible Flow](./flow.md) (`/flow-v2`) — your project's sounds are listed
-   **first**, above the engine's built-in names. If it is not in that dropdown, it is
+2. **Any sound picker.** Open the moments above, a cue node in
+   [Invisible Flow](./flow.md) (`/flow-v2`), or an `sfx:` / `music:` cue's **name**
+   dropdown on a Scene Editor timeline — your project's sounds are listed **first**
+   (marked ★ on the timeline, with **▶** to hear them at the cue's settings), above the
+   engine's built-in names. If it is not in that dropdown, it is
    not in the library. (Draft sounds are offered too; approval gates publishing, not
    picking.)
 3. **The files themselves**, if your role has the [FTP Browser](./ftp-browser.md)
@@ -207,11 +209,13 @@ picker turns red and says the sound no longer exists. Repoint it, or rename back
 | **Draft / Approved** | See below.                                                                                                         |
 | **×**                | Remove from the library. The file itself stays in storage.                                                         |
 
-> **One sound, one level — with one exception.** `vol` is the track's mix everywhere it
+> **One sound, one level — with two exceptions.** `vol` is the track's mix everywhere it
 > is ever played, which is where a mix belongs. If you need the *same* bed quieter under
 > one particular screen, a `soundMusic` / `soundOnce` cue node in
-> [Invisible Flow](./flow.md) has an optional **volume** input for that one firing. It
-> multiplies with the row's level rather than replacing it.
+> [Invisible Flow](./flow.md) has an optional **volume** input for that one firing, and
+> an `sfx:` / `music:` cue on a timeline has a **volume** option (see the
+> [Scene Editor guide](./invisible-editor.md#report-events-visibility-and-text)). Both
+> multiply with the row's level rather than replacing it.
 
 **Where it came from** (the fold-out) records provenance: whether it's AI-generated,
 commissioned, or from a library; the model or the musician; the licence and where its
