@@ -46,6 +46,14 @@ const UNAVAILABLE = 'this game is not available';
  *  one that hovers on the edge is not sent away and back every patch. */
 const NEARBY_MARGIN = 0.25;
 
+/** The players an event is about (none: the room's own, a round's start or end). */
+const namedIn = (event: OnlineEvent): string[] => {
+	if ('id' in event) return [event.id];
+	if ('target' in event) return [event.by, event.target];
+	if ('by' in event) return [event.by];
+	return [];
+};
+
 /** A device's allowance: one input per step, with room for a burst after a stall. */
 export const messagesPerSecond = (tickHz: number) => tickHz * 2 + 10;
 
@@ -90,7 +98,11 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			if (full()) throw new RoomRefusal('the server holds no more rooms');
 			deps.rooms.count += 1;
 			this.counted = true;
-			const sim = createRoomSim(loaded);
+			// The bots' seed is logged, so a room's bots can be replayed from the log.
+			const seed = Math.floor(Math.random() * 0x7fffffff);
+			const sim = createRoomSim(loaded, { seed });
+			if (loaded.online.bots.fillTo > 0)
+				console.log(`[game-server] room ${this.roomId} of "${game}": bot seed ${seed}`);
 			this.sim = sim;
 			const { online } = sim.game;
 			this.maxClients = online.maxPlayers;
@@ -273,9 +285,25 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			this.state.winner = sim.rules.winner;
 		}
 
-		/** Tell every device what happened, in one message, after the patch that shows it. */
+		/**
+		 * Tell every device what happened, in one message, after the patch that shows it. In a nearby
+		 * room a device is told only of the players its view holds (and of the room's rounds), so a
+		 * far player's id and fate reach nobody it is not sent to.
+		 */
 		private announce(events: readonly OnlineEvent[]) {
-			if (events.length) this.broadcast(ONLINE_EVENT, events, { afterNextPatch: true });
+			if (!events.length) return;
+			if (!this.sim?.game.online.nearby) {
+				this.broadcast(ONLINE_EVENT, events, { afterNextPatch: true });
+				return;
+			}
+			for (const client of this.clients) {
+				const seen = this.seen.get(client.sessionId);
+				const told = events.filter((event) => {
+					const named = namedIn(event);
+					return !named.length || named.some((id) => id === client.sessionId || seen?.has(id));
+				});
+				if (told.length) client.send(ONLINE_EVENT, told, { afterNextPatch: true });
+			}
 		}
 
 		private requireSim(): RoomSim {

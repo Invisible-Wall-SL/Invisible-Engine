@@ -9,7 +9,7 @@
  * its cooldowns and the rules like anyone, and a device draws it like any other player.
  *
  * Plain, dependency-free ESM beside `online.js`; seeded, so a room's bots replay exactly from the
- * room's seed (`scripts/check-room-sim.mjs`).
+ * room's seed (`scripts/check-room-bots.mjs`).
  */
 
 import { createRng } from './board.js';
@@ -17,8 +17,9 @@ import { brainVelocity, createBrain, createBrainWorld, stepBrain } from './behav
 import { BUTTONS, MOVE_SCALE, sanitizeInput } from './online.js';
 import { STATUS } from './onlineRules.js';
 
-/** The id every bot's player has, `bot-<n>`: a Colyseus session id is never one. */
-export const BOT_PREFIX = 'bot-';
+/** The id every bot's player has, `bot:<n>`: a Colyseus session id (nanoid: letters, digits, `_`
+ *  and `-`) never contains a `:`. */
+export const BOT_PREFIX = 'bot:';
 
 /** Whether a room player id is a bot's. */
 export const isBotId = (id) => typeof id === 'string' && id.startsWith(BOT_PREFIX);

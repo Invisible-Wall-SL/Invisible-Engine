@@ -201,7 +201,7 @@ try {
 		!!seenA.find((p) => p.id === me) && !!seenB.find((p) => p.id === meB),
 		{ seenA, seenB },
 	);
-	const botsIn = (list) => list.filter((p) => p.id.startsWith('bot-'));
+	const botsIn = (list) => list.filter((p) => p.id.startsWith('bot:'));
 	verdict(
 		'the bots fill the room: page B is sent the bots near its bank',
 		botsIn(seenB).length > 0,

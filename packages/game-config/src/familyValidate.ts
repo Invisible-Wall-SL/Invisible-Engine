@@ -332,14 +332,19 @@ function validateArcadeOnline(
 			message: `State is sent ${patchHz} times a second but the room steps only ${tickHz} times, so a room sends it ${tickHz} times.`,
 		});
 	}
-	const spawn = online.spawn;
-	if (spawn && field && (spawn.x < 0 || spawn.y < 0 || spawn.x > field.w || spawn.y > field.h)) {
+	const off = (p: { x: number; y: number }) =>
+		!!field && (p.x < 0 || p.y < 0 || p.x > field.w || p.y > field.h);
+	const spawnsOff = (path: string, points: readonly { x: number; y: number }[] | undefined) => {
+		if (!points?.some(off)) return;
 		issues.push({
 			severity: 'warning',
-			path: 'arcade.online.spawn',
+			path,
 			message: 'Players start outside the play field; a clamped body is pulled inside at once.',
 		});
-	}
+	};
+	spawnsOff('arcade.online.spawn', online.spawn ? [online.spawn] : undefined);
+	online.characters.forEach((c, i) => spawnsOff(`arcade.online.characters[${i}].spawns`, c.spawns));
+	spawnsOff('arcade.online.bots.spawns', online.bots?.spawns);
 	const nearby = online.nearby;
 	const { min, max } = ARCADE_ONLINE_LIMITS.nearby;
 	if (nearby && [nearby.w, nearby.h].some((v) => v < min || v > max)) {

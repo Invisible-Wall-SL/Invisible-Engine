@@ -1,6 +1,6 @@
 /**
  * Types for an online room's bots (`onlineBots.js`, `docs/design/realtime-multiplayer.md` §7).
- * The behaviour is pinned by `scripts/check-room-sim.mjs`.
+ * The behaviour is pinned by `scripts/check-room-bots.mjs`.
  */
 
 import type { Brain, BrainSpec } from './behaviours';
@@ -8,7 +8,7 @@ import type { Point } from './motion';
 import type { OnlineInput } from './online';
 import type { RulesPlayer } from './onlineRules';
 
-export const BOT_PREFIX: 'bot-';
+export const BOT_PREFIX: 'bot:';
 export function isBotId(id: unknown): boolean;
 
 export type BotAbility = {

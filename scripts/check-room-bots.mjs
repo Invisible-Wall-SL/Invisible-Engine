@@ -18,7 +18,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { MOVE_SCALE, clampInput } from '../packages/engine-mechanics/src/online.js';
 import { BOT_PREFIX, isBotId } from '../packages/engine-mechanics/src/onlineBots.js';
-import { STATUS } from '../packages/engine-mechanics/src/onlineRules.js';
+import { ONLINE_EVENT, STATUS } from '../packages/engine-mechanics/src/onlineRules.js';
 import {
 	SALMONS_SEED,
 	salmonsConfig,
@@ -162,6 +162,16 @@ await check('the validator: a bot needs an online character and a character with
 			}),
 		),
 	);
+	const offField = validateFamily(
+		normalizeGameConfigDoc(
+			configOf({
+				characters: [{ ...CHARACTERS[0], spawns: [{ x: -5, y: 10 }] }],
+				bots: { ...BOTS, spawns: [{ x: 10, y: 99_999 }] },
+			}),
+		),
+	);
+	assert.ok(offField.some((i) => i.path === 'arcade.online.characters[0].spawns'));
+	assert.ok(offField.some((i) => i.path === 'arcade.online.bots.spawns'));
 	const at = (path) => issues.find((i) => i.path === path);
 	assert.equal(at('arcade.online.bots.characters[0].character')?.severity, 'error');
 	assert.equal(at('arcade.online.bots.characters[1].brain')?.severity, 'error');
@@ -220,11 +230,10 @@ await check('a person takes a bot’s place; a leave lets a bot back in', () => 
 	sim.join('e', { character: 'fish' });
 	assert.equal(bots(sim).length, 0, 'five people, no bot');
 	assert.throws(() => sim.join('f', { character: 'fish' }), RoomRefusal, 'full of people');
-	assert.throws(() => sim.join('bot-9', {}), RoomRefusal, 'a bot id is never a person');
 	sim.leave('e');
 	assert.equal(sim.players.size, 5);
 	assert.equal(bots(sim).length, 1);
-	sim.leave('bot-1');
+	sim.leave(`${BOT_PREFIX}1`);
 	assert.equal(sim.players.size, 5, 'a bot cannot be sent away by a leave');
 });
 
@@ -241,11 +250,20 @@ await check('asking for a character only bots hold sends one of those bots away'
 	assert.throws(() => sim.join('g', { character: 'bear' }), RoomRefusal, 'three people are bears');
 });
 
-await check('a refused join leaves the room filled as it was', () => {
+await check('a refused join changes nothing; a join takes exactly one bot’s place', () => {
 	const sim = roomOf({ characters: CHARACTERS, bots: BOTS, maxPlayers: 4 });
 	sim.join('a', { character: 'fish' });
-	assert.equal(sim.players.size, 4);
+	const ids = () => [...sim.players.keys()].join(',');
+	const before = ids();
+	sim.events();
 	assert.throws(() => sim.join('b', { character: 'shark' }), RoomRefusal);
+	assert.equal(ids(), before, 'no bot was sent away or remade');
+	assert.deepEqual(sim.events(), [], 'nobody was told of a join or a leave');
+	// Full room (4), bears full of bots (3): a bear join sends exactly one bear bot away.
+	sim.join('c', { character: 'bear' });
+	const events = sim.events();
+	assert.equal(events.filter((e) => e.type === 'left').length, 1);
+	assert.equal(events.filter((e) => e.type === 'joined').length, 1);
 	assert.equal(sim.players.size, 4);
 });
 
@@ -553,9 +571,11 @@ try {
 	);
 
 	await check(
-		'live: nearby — a device is sent only the players near its own, and only its own ack',
+		'live: nearby — a device is sent only the players near its own, their events, and only its own ack',
 		async () => {
 			const west = await clientOf().joinOrCreate(ROOM_NAME, { game: 'near', character: 'west' });
+			const heard = [];
+			west.onMessage(ONLINE_EVENT, (events) => heard.push(...events));
 			const west2 = await clientOf().joinById(west.roomId, { character: 'west' });
 			const east = await clientOf().joinById(west.roomId, { character: 'east' });
 			await until('the west pair', () => west.state.players?.size === 2);
@@ -597,7 +617,14 @@ try {
 			timer = swim(MOVE_SCALE);
 			await until('east to leave', () => !west.state.players.has(east.sessionId), 5000);
 			clearInterval(timer);
-			await Promise.all([west.leave(), west2.leave(), east.leave()]);
+			// Events too: west is told when west2 leaves, not when far-away east does.
+			await east.leave();
+			await west2.leave();
+			await until('west2’s leave', () =>
+				heard.some((e) => e.type === 'left' && e.id === west2.sessionId),
+			);
+			assert.ok(!heard.some((e) => e.id === east.sessionId), 'nothing about far-away east');
+			await west.leave();
 		},
 	);
 } finally {

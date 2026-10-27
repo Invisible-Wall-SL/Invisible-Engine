@@ -11,11 +11,13 @@ import { schema, t, type SchemaType } from '@colyseus/schema';
  * moving, the character, the name, whether it is connected, and `ack` (the `seq` of the newest
  * input the room applied, which a predicting device replays from), and what the rules own (P10.15):
  * the score, the status (`engine-mechanics` `STATUS`: free, stunned, out) and a rules module's
- * `mark`, and whether it is a bot the server plays (P10.16). Per room the phase, the step every state is stamped with, the round, the step its phase
- * ends at (0 = never) and the last round's winner. The level is never in the state.
+ * `mark`, and whether it is a bot the server plays (P10.16). Per room the phase, the step every
+ * state is stamped with, the round, the step its phase ends at (0 = never) and the last round's
+ * winner. The level is never in the state.
  *
  * A room with `online.nearby` sends each device only the players inside that box around its own
- * ({@link NearbyRoomState}); the room's fields still reach everyone.
+ * ({@link NearbyRoomState}) and only the events about them; the room's fields still reach
+ * everyone.
  *
  * Events (a hit, a catch, a round's end, a join) arrive as one message of type `engine-mechanics`
  * `ONLINE_EVENT` per step that had any, an array in the order they happened, after the patch that

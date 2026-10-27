@@ -143,25 +143,34 @@ export function createRoomSim(game: OnlineGame, options: RoomSimOptions = {}): R
 		if (players.delete(id)) rules.left(id);
 	};
 
-	/** A character for a joining player, making room by sending a bot away when that is what fills
-	 *  the character's places. */
-	const pick = (asked: unknown): ArcadeOnlineCharacter => {
+	/**
+	 * The character a joining player gets and the one bot, if any, it takes the place of — decided
+	 * before anything changes, so a refused join changes nothing. A bot of the asked character goes
+	 * when only bots hold that character's places; else, in a full room, the newest bot.
+	 */
+	const plan = (asked: unknown): { character: ArcadeOnlineCharacter; evict?: string } => {
+		let character: ArcadeOnlineCharacter | undefined;
+		let evict: string | undefined;
 		if (asked === undefined || asked === null || asked === '') {
-			const free = online.characters.find(hasPlace);
-			if (free) return free;
-			const held = online.characters.find((c) => newestBot(c.id));
-			if (!held) throw new RoomRefusal('every character is taken');
-			removeBot(newestBot(held.id)!);
-			return held;
+			character = online.characters.find(hasPlace);
+			if (!character) {
+				character = online.characters.find((c) => newestBot(c.id));
+				if (!character) throw new RoomRefusal('every character is taken');
+				evict = newestBot(character.id);
+			}
+		} else {
+			character = online.characters.find((c) => c.id === asked);
+			if (!character) throw new RoomRefusal('unknown character');
+			if (!hasPlace(character)) {
+				evict = newestBot(character.id);
+				if (!evict) throw new RoomRefusal(`no place left for ${character.id}`);
+			}
 		}
-		const character = online.characters.find((c) => c.id === asked);
-		if (!character) throw new RoomRefusal('unknown character');
-		if (!hasPlace(character)) {
-			const bot = newestBot(character.id);
-			if (!bot) throw new RoomRefusal(`no place left for ${character.id}`);
-			removeBot(bot);
+		if (!evict && players.size >= online.maxPlayers) {
+			evict = newestBot();
+			if (!evict) throw new RoomRefusal('the room is full');
 		}
-		return character;
+		return { character, evict };
 	};
 
 	const humans = () => players.size - bots.size;
@@ -244,20 +253,9 @@ export function createRoomSim(game: OnlineGame, options: RoomSimOptions = {}): R
 		},
 		rules,
 		join(id, options) {
-			if (players.has(id) || id.startsWith(BOT_PREFIX))
-				throw new RoomRefusal('already in the room');
-			let character: ArcadeOnlineCharacter;
-			try {
-				if (players.size >= online.maxPlayers) {
-					const bot = newestBot();
-					if (!bot) throw new RoomRefusal('the room is full');
-					removeBot(bot);
-				}
-				character = pick(options.character);
-			} catch (error) {
-				fill();
-				throw error;
-			}
+			if (players.has(id)) throw new RoomRefusal('already in the room');
+			const { character, evict } = plan(options.character);
+			if (evict) removeBot(evict);
 			const homes = character.spawns;
 			const n = joins.get(character.id) ?? 0;
 			joins.set(character.id, n + 1);

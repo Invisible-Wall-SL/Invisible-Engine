@@ -34,22 +34,24 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
 `packages/engine-mechanics/**` and `packages/game-config/**`).
 
 - **Bots** (§7; `engine-mechanics` `onlineBots.js`, plain ESM + `.d.ts`): a bot is a room player
-  (`bot-<n>`, `bot: true` in the state) whose input each step comes from a P10.11 brain
+  (`bot:<n>` — a Colyseus session id never holds a `:` — and `bot: true` in the state) whose input each step comes from a P10.11 brain
   (`behaviours.js`) instead of a device. `botInput` steps the brain over the room's free players,
   turns its velocity into an ordinary clamped input and presses an ability's button while one of its
   targets is within reach; the room then steps and rules it exactly as a device's player, so a bot
   is held to its character's speed, cooldowns and rules. Seeded from the room's seed (random per
-  room; a gate passes its own), so a room replays exactly.
+  room and written to the server's log when the room has bots; a gate passes its own), so a room's
+  bots replay exactly from it.
   - Config `arcade.online.bots = { fillTo?, characters: [{ character, brain }], canWin?, spawns? }`
     (sparse; defaults `fillTo` 20 held to `maxPlayers`, `canWin` false — §14 #5); `brain` names an
     `arcade.characters` entry whose brain the bot plays (the validator refuses an unknown online
     character or a character with no brain, and no longer warns that a character a bot plays is
     inert online). `OnlineGame` gains `brains`.
   - The room (`roomSim.ts`) keeps people + bots at `fillTo` while a person is in it, the bots taking
-    their characters in turn within each character's `max`; a joining person takes a bot's place —
-    one of its character when only bots hold that character's places, else the newest — so the room
-    never goes over its size; a leave lets a bot back in; the last person out sends every bot away.
-    A refused join leaves the room filled as it was. A bot never connects, is never a Colyseus
+    their characters in turn within each character's `max`; a joining person takes exactly one
+    bot's place — one of its character when only bots hold that character's places, else, in a full
+    room, the newest — so the room never goes over its size; a leave lets a bot back in; the last
+    person out sends every bot away. A join is decided before anything changes, so a refused one
+    sends no bot away (no bot can be reset to its spawn by a bogus join). A bot never connects, is never a Colyseus
     client and is not counted in the listing's `players` (people only).
   - The rules (`onlineRules.js`): a bot neither reaches the goal nor tops a round on the clock
     unless `bots.canWin`.
@@ -59,8 +61,10 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
   second state class, `NearbyRoomState` (`players: t.map(NearbyPlayer).view()`), and a Colyseus
   `StateView` per client, updated in `onBeforePatch` by a pass over every pair (10 000 comparisons
   at 100). **`ack` goes only to its own device** (a `.view(own)` tag): nobody else's prediction
-  reads it, and it was a quarter of every patch. A room without `nearby` keeps P10.14's state class
-  and encoding exactly. Room events still go to everyone.
+  reads it, and it was a quarter of every patch. **Events too:** a device is told only of the
+  events about players its view holds (or itself), and of every round's start and end, so a far
+  player's id and fate reach nobody it is not sent to. A room without `nearby` keeps P10.14's state
+  class, encoding and broadcast exactly.
 - **Per-character spawns**: `arcade.online.characters[].spawns` — where that character's people
   start and respawn, taken in turn (absent ⇒ `online.spawn`); bots use `bots.spawns`.
 - **The online world camera** (P10.15 follow-up e): an online game whose play-field screen has a
@@ -96,12 +100,13 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
     spawns config normalized, resolved and validated; fill, give way, evict by character, refused
     join, leave, last person out; a bot moves no faster than its character, its brain closes on a
     target, it catches with its ability; a bot cannot win at the goal or on the clock (and can with
-    `canWin`); a seeded room replays exactly; spawns in turn. Salmons: the river is the seed's, the
+    `canWin`); a refused join changes no bot and a join evicts exactly one; a seeded room replays
+    exactly; spawns in turn; off-field spawns warn. Salmons: the river is the seed's, the
     config validates with no issue, a salmon steering for the water's middle reaches the source and
     wins, the current carries it down and a bank pushes it back, a bear bot catches it. *Live* on a
     real server with SDK clients: bots fill and are marked and give way; nearby — a far player is
     not sent, it is sent once it swims near and dropped once it leaves, a device gets its own `ack`
-    and nobody else's.
+    and nobody else's, and is told of a near player's leave but nothing about a far one.
   - `check:room-sim`: its source scan now expects the online camera branch in `<ArcadeStage />`
     (36 checks pass). `check:online-rules`, `check:netcode`: unchanged, pass.
   - `family.fixture.ts`: the two `resolveArcadeOnline` expectations gain the resolved empty bots.
@@ -140,8 +145,10 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
 - **Known limits:**
   - **the salmon shoal**: every salmon starts at the sea, so at a round's start each salmon is sent
     every other one — a 60-salmon shoal is about 11 KB/s to each of them; it thins as they spread;
-  - nearby does not apply to room events (all go to everyone) nor to the room's own fields;
-  - bots do not jump or use `aim`; a `shootAt` brain's shots are not spawned online;
+  - nearby does not apply to the room's own fields (`winner` names a far player); a device that
+    joins is not told of its neighbours' `joined` (they arrive in the state);
+  - bots do not jump or use `aim`; a `shootAt` brain's shots are not spawned online; a bot's brain
+    sees no layout paths or solids, so a `patrol` / `followPath` on a path stands still;
   - bears and fishermen can walk into the water (no per-character solids online);
   - no culling or shake for the online camera; the camera does not follow a respawn's snap any
     faster than its smoothing;
@@ -156,6 +163,10 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
 | `nearby`, but every player at one spawn and every `ack` to everyone (first try) | 29.8 | 19.9 | 26.7 / 27.2 | 2.6 MB/s | 0.31 / 0.92 / 9.4 ms | 32 % | 162 MB |
 | **as shipped:** `nearby` + own `ack` + spawns on the banks | **29.9** | **19.9** | **8.4 / 11.0** | **0.82 MB/s** | **0.39 / 0.81 / 2.5 ms** | **26 %** | **163 MB** |
 | 5 devices, bots fill the room to 20 | 29.9 | 19.9 | 1.7 / 1.9 | 0.008 MB/s | 0.20 / 0.55 / 2.7 ms | 6 % | 151 MB |
+| worst bots case: 1 device, 99 bots (`fillTo` 100, no maxima) | 30 | 19.9 | 4.8 / 4.8 | 0.005 MB/s | 0.79 / 2.1 / 3.8 ms | 6 % | 159 MB |
+
+The step time covers the room's step and its events, not `onBeforePatch` (the schema writes, the
+nearby views) or the encoding: the CPU column covers everything.
 
 **P10.15 — Arcade A4b: netcode and the online rules (built 2026-10-27; in review).** §8's P10.15
 row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-multiplayer.md) §4–§6,
