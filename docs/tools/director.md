@@ -309,7 +309,8 @@ picture on a reload.
   in, each with the time, who (**You**, **Coordinator**, **Mockup analyst**, **Art director**,
   **Atlas artist**, **Animator**, **Builder**, **QA**, **Worker**), what they did, a tool chip
   when a tool was used (Atlas Maker, ComfyUI · RunPod, Game Maker, Scene Editor, Symbols SM, Win
-  Text, Localization, Font Maker, Rigger, Flipbook, Build) and a cost chip on billing rows
+  Text, Localization, Font Maker, Rigger, Flipbook, Sound, FX, Component Editor, Build) and a
+  cost chip on billing rows
   ("$0.22 · RunPod 4090 · 38 s", "$0.40 · Opus 5.5"). **hide costs** hides the billing rows. The
   pill says **Live** while the stream is open, **Reconnecting** while the browser reopens a dropped
   one, **Polling** when it could not be opened (the page then asks for the run every 5 s). 150 rows
@@ -350,6 +351,17 @@ their request is outstanding, so nothing you typed is lost.
   director's pick unless your note says otherwise. Approving the build before hand-off accepts
   whatever was still to review.
 - **Fonts stay yours to bake** (see "Fonts to bake" above).
+- **Sounds, effects and component art are re-pointed, never made.** The builder can point a
+  moment Invisible Sound already offers (a slot, a symbol's state, the anticipation pair, a win
+  tier) at a sound from the project's library or the engine's built-ins. A library sound must be
+  **approved** in Invisible Sound first: agents never approve one, never turn a slot you silenced
+  back on, and never make or upload audio. A sound the game needs that the library lacks is named
+  in the hand-off note for you to add. The animator can point an existing FX layer at other
+  regions of a project atlas and recolour the colour stops it already has. Emitters, triggers,
+  placement and layers stay as the template has them. The builder can also re-skin the sprites,
+  rigs and flipbooks inside a component the screens place. A shared or built-in component becomes
+  this project's own copy, never a change to the shared one. A component or effect placed on a
+  bet or buy screen, or bound to the math, is left alone.
 - **A run is its owner's.** Someone else with access to the project sees the live stream; the run's
   page, its actions and its images answer only to the person who created it.
 
