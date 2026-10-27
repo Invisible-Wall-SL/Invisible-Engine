@@ -238,7 +238,7 @@
 	}
 
 	/** The options a card's select offers: the screens, a tag typed elsewhere, and style-only. */
-	function tagOptions(tag: string, styleOnly: boolean): string[] {
+	function tagOptions(tag: string, styleOnly: boolean): readonly string[] {
 		return styleOnly || screenTags.includes(tag) ? screenTags : [tag, ...screenTags];
 	}
 
