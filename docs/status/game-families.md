@@ -77,8 +77,12 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
   time, CPU and memory; it exits 1 past its budget (a device ≤ 10 KB/s on average and ≤ 16 KB/s at
   most, egress ≤ 1 MB/s, step p99 < 8 ms, rates held to 95 %). `--everyone` drops `nearby`. It
   only ever starts its own server.
-  **Measured** (4-core cloud container, Node 22; Salmons; 100 devices; 60 ± 20 ms each way; 30 s
-  after a 3 s warm-up): see the table below.
+  **Measured** (4-core cloud container, Node 22; Salmons; 60 ± 20 ms each way; 30 s after a 3 s
+  warm-up; table below): with every player sent to every device a full room cost **29 KB/s per
+  device and 2.9 MB/s out**, three times the budget, so nearby-only sending went in. As shipped,
+  100 devices hold **29.9 of 30 steps and 19.9 of 20 states a second**, receive **8.4 KB/s on
+  average (11 KB/s at most: the salmon shoal)**, the server sends **0.82 MB/s**, a step takes
+  **0.81 ms at p99**, the server uses **26 % of a core** and 163 MB. Within budget.
 - **Salmons as data** (`engine-mechanics` `salmons.js`, not exported from the package entry):
   `salmonsRiver(seed)` generates the river (§14 #4: 15 bands sea → source with banks, a current —
   some rapids — and whirlpools), `salmonsConfig(river)` the online config (detail in
@@ -107,7 +111,11 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
   not sent to the salmon at the sea, nor the salmon to it); the camera frames the salmon and follows
   it up the river within its dead zone; resting, the current carries it down and the page draws it
   within 20 px of the room; no RGS request, no page error.
-- **Bundle size** — see the handoff numbers in the Recent changes entry.
+- **Bundle size** (`apps/lines` build's `index.html`, gzip -6; main dab1f78 vs this branch, the
+  same build command): 3,969,583 B / 1,354,868 B gz → 3,972,906 B / 1,356,008 B gz: **+3.3 KB raw,
+  +1.1 KB gz (+0.08 %)** — the online camera. Bots, nearby and Salmons add nothing to a game
+  bundle (server code, and `salmons.js` / `salmons.ts` are not exported). No new dependency
+  anywhere (`StateView` is `@colyseus/schema`'s, already the server's).
 - **Slot / match-3 / offline-arcade parity:** every runtime change is in `game/online.ts` and the
   `online` branch of `<ArcadeStage />`, reached only when `gameMechanic().room`; the offline branch
   still calls `useWorldCamera` exactly as before. On the server, a config without `bots` resolves to
@@ -144,10 +152,10 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
 
 | Run (Salmons, 100 devices, 60 ± 20 ms) | Steps / s seen (of 30) | States / s (of 20) | KB/s per device: mean / max | Egress | Step p50 / p99 / max | Server CPU | RSS |
 |---|---|---|---|---|---|---|---|
-| everyone (no `nearby`) | {{E_STEPS}} | {{E_STATES}} | {{E_KB}} | {{E_EG}} | {{E_STEP}} | {{E_CPU}} | {{E_RSS}} |
-| nearby, `ack` to everyone (first try) | 30 | 19.9 | 26.7 / 27.2 | 2.6 MB/s | 0.31 / 0.92 / 9.4 ms | 32 % | 162 MB |
-| nearby + own `ack` + spawns on the banks | {{N_STEPS}} | {{N_STATES}} | {{N_KB}} | {{N_EG}} | {{N_STEP}} | {{N_CPU}} | {{N_RSS}} |
-| 5 devices, bots fill to 20 | {{B_STEPS}} | {{B_STATES}} | {{B_KB}} | {{B_EG}} | {{B_STEP}} | {{B_CPU}} | {{B_RSS}} |
+| every player to every device (`--everyone`) | 29.9 | 19.9 | 29.2 / 29.2 | 2.85 MB/s | 0.40 / 0.75 / 3.5 ms | 18 % | 160 MB |
+| `nearby`, but every player at one spawn and every `ack` to everyone (first try) | 29.8 | 19.9 | 26.7 / 27.2 | 2.6 MB/s | 0.31 / 0.92 / 9.4 ms | 32 % | 162 MB |
+| **as shipped:** `nearby` + own `ack` + spawns on the banks | **29.9** | **19.9** | **8.4 / 11.0** | **0.82 MB/s** | **0.39 / 0.81 / 2.5 ms** | **26 %** | **163 MB** |
+| 5 devices, bots fill the room to 20 | 29.9 | 19.9 | 1.7 / 1.9 | 0.008 MB/s | 0.20 / 0.55 / 2.7 ms | 6 % | 151 MB |
 
 **P10.15 — Arcade A4b: netcode and the online rules (built 2026-10-27; in review).** §8's P10.15
 row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-multiplayer.md) §4–§6,
@@ -1978,6 +1986,14 @@ game, bundle or screen changes.
   [INFRA.md](../INFRA.md) "Invisible Game Server".
 
 ## Recent changes
+
+- 2026-10-27 — **P10.16 built: bots, nearby-only state, the load test and Salmons (A4c).** Server
+  bots on the P10.11 brains (`onlineBots.js`, `arcade.online.bots`), `arcade.online.nearby` with the
+  own-only `ack`, per-character spawns, the online world camera, `scripts/room-load.mjs` (100
+  devices: 8.4 KB/s each, 0.82 MB/s out, step p99 0.81 ms, 26 % of a core), Salmons as data
+  (`salmons.js`, `referenceLayouts/salmons.ts`, `scripts/salmons/export.mjs`,
+  [playtest/salmons.md](../playtest/salmons.md) 14 / 14), `check:room-bots`. +1.1 KB gz. Not
+  deployed. Detail above.
 
 - 2026-10-27 — **P10.15 built: netcode and the online rules (A4b).** Own-player prediction and
   reconciliation, interpolation of everyone else (`engine-mechanics` `netcode.js`), the online
