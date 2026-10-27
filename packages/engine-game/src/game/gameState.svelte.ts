@@ -838,19 +838,26 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		padding: () => riders.padding(reelIndex),
 	});
 
+	// A rolling cell asks its reel for the pitch and lead every frame (`createReelForSpinning`'s
+	// `symbolY`), which resolved the whole board geometry once per cell per frame. Memoized here; both
+	// read only reactive state (the board override and the layout bucket), so they recompute exactly
+	// when either changes.
+	const reelPitch = $derived(boardGeometry().rowPitchLocal);
+	const reelLead = $derived(getSymbolLead());
+
 	const buildBoard = () => {
 		const init = deps.initialBoard();
 		return _.range(deps.boardDimensions().x).map((reelIndex) => {
 			const reel = createReelForSpinning({
 				reelIndex,
-				symbolHeight: () => boardGeometry().rowPitchLocal,
+				symbolHeight: () => reelPitch,
 				// The reel places every symbol at `reelY + (symbolIndex + lead) * pitch`, so this reel's
 				// share of the bounding-box slack rides in as part of the LEAD — one term, applied to
 				// the whole column, and it therefore travels with the symbols while they roll instead of
 				// only describing where they come to rest. `rowSeatIndex` folds the identical term into
 				// the resting seat, which is what keeps `ReelSymbol`'s two y sources agreeing. Uniform
 				// grids add a literal 0 term-free (the `stepped` guard), so the lead is the same call.
-				symbolLead: () => getSymbolLead() + rowSeatIndex(reelIndex, 0),
+				symbolLead: () => reelLead + rowSeatIndex(reelIndex, 0),
 				initialSymbols: init[reelIndex],
 				initialSymbolState: INITIAL_SYMBOL_STATE,
 				onReelStopping: () => {

@@ -83,6 +83,13 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 			/** What the game draws riding this cell while it rolls (`reelOptions.riders`). The reel
 			 *  never reads it; `undefined` on every cell of a game that passes no riders. */
 			rider: undefined as unknown,
+			/**
+			 * A cell the pre-spin loop made and hands round again (`loopPaddingOf`): each lap moves it
+			 * from below the window back to the top with a new symbol, so the component drawing it
+			 * survives the lap instead of being destroyed and remade. The board keeps its art mounted
+			 * while the reel rolls (`SymbolWrap`). `false` on every other cell.
+			 */
+			pooled: false,
 		});
 
 		return reelSymbol;
@@ -105,6 +112,32 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	const paddingSymbolsOf = (rawSymbols: TRawSymbol[]) => {
 		const riders = reelOptions.riders;
 		const reelSymbols = createReelSymbols(rawSymbols);
+		return riders ? withRiders(reelSymbols, riders.padding) : reelSymbols;
+	};
+
+	/**
+	 * The pre-spin loop's padding, reusing the cells it made on an earlier lap that have just left the
+	 * strip (`spare`). Only the loop's own cells are reused: nothing outside the strip holds one, where
+	 * a resting board's cells may still be referenced (a cascade adopts them). A reused cell is reset
+	 * to exactly what {@link createReelSymbol} gives a new one, so the strip reads the same either way;
+	 * what changes is that its component is kept, which is what a rolling reel spent most of its
+	 * frame on (mounting and destroying a symbol's whole tree for every cell that passed).
+	 */
+	const loopPaddingOf = (rawSymbols: TRawSymbol[], spare: ReelSymbol[]) => {
+		const reelSymbols = rawSymbols.map((rawSymbol, symbolIndex) => {
+			const reelSymbol = spare.pop() ?? createReelSymbol({ rawSymbol, symbolIndex });
+			reelSymbol.rawSymbol = rawSymbol;
+			reelSymbol.symbolIndex = symbolIndex;
+			reelSymbol.symbolState = reelOptions.initialSymbolState;
+			reelSymbol.oncomplete = () => {};
+			reelSymbol.winLineColor = undefined;
+			reelSymbol.removed = false;
+			reelSymbol.cascade = null;
+			reelSymbol.rider = undefined;
+			reelSymbol.pooled = true;
+			return reelSymbol;
+		});
+		const riders = reelOptions.riders;
 		return riders ? withRiders(reelSymbols, riders.padding) : reelSymbols;
 	};
 
@@ -272,13 +305,17 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		preSpinPaddingRawReel: TRawSymbol[];
 	}) => {
 		const randomStart = Math.floor(Math.random() * preSpinPaddingRawReel.length);
+		// The cells this lap drops: the previous lap's padding, now below the window.
+		const spare = prevSymbols.filter(
+			(reelSymbol) => reelSymbol.pooled && !targetSymbols.includes(reelSymbol),
+		);
 		prevSymbols = targetSymbols;
 		const targetRawSymbols = getPaddingRawSymbols({
 			paddingRawReel: preSpinPaddingRawReel,
 			start: randomStart,
 			length: reelLength,
 		});
-		targetSymbols = paddingSymbolsOf(targetRawSymbols);
+		targetSymbols = loopPaddingOf(targetRawSymbols, spare);
 		const topY = await addPadding(0);
 		await placeY(topY);
 	};
