@@ -103,6 +103,15 @@ jobs:
         if: steps.changes.outputs.code == 'true'
         run: node --experimental-strip-types scripts/gen-flow-vocabulary.mjs --check
 
+      # A standalone game repo installs from its own root `package.json`, copied from `apps/lines`
+      # once at scaffold; the desktop launcher backfills engine workspace packages but never a
+      # third-party one. #1375 added `@colyseus/sdk` to `apps/lines` and every game repo's next
+      # publish failed to resolve it. This keeps `apps/lines` to third-party packages game repos
+      # already carry; a new one goes in a workspace package (`packages/engine-rooms` is the model).
+      - name: game app deps install in a game repo
+        if: steps.changes.outputs.code == 'true'
+        run: pnpm check:game-app-deps
+
       # RGS gate — the client and the server must agree about MONEY, for all four win models.
       #
       # `check:ways` already existed and was never wired here; `cluster` and `scatter` shipped with
