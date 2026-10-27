@@ -93,7 +93,7 @@ What a ways game is, what must not move, and what has broken before. Owner agent
   `scripts/cascade-chain.fixture.mjs`.
 - **Symptom:** on a ways game with a tumble, every losing spin exploded symbols that paid nothing.
   **Cause:** the mock chose the demo cascade by win model, not by who turned the cascade on
-  (`cascadeEnabledFor` in `services/test-server/server.mjs`). **Guard:**
+  (`cascadeEnabledFor` in `services/test-server/makeMock.mjs`). **Guard:**
   `scripts/cascade-chain.fixture.mjs` ("a dead spin never tumbles").
 - **Symptom:** after a tumble the win frames sat on symbols that never paid (`test3`). **Cause:**
   the refills were stacked above the top padding row, shifting the column
