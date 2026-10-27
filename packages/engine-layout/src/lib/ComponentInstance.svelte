@@ -1040,8 +1040,8 @@
 	 * `hiddenUntilSignal`, a tap gate or another timeline can follow it) and restarts every other
 	 * timeline playing on `x` here — never the one that crossed it, which would loop it forever.
 	 * `sfx:x` / `music:x` play `x` through the game's own `soundOnce` / `soundMusic` event (this
-	 * package has no sound player; a game that has none ignores it). `event:x` raises the def's event `x` (Phase 6),
-	 * on a def that declares events. Any other cue (`fx:`) is broadcast by its bare name, the seam a
+	 * package has no sound player; a game that has none ignores it). `event:x` raises the def's
+	 * event `x` (Phase 6), on a def that declares events. Any other cue (`fx:`) is broadcast by its bare name, the seam a
 	 * screen timeline's cues use. The routing is `routeComponentCue`.
 	 */
 	const routeTimelineCue = (cue: string, timeline: string): void => {
