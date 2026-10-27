@@ -58,7 +58,6 @@ export function createSnapshotClock(options: {
 
 export type Interpolator = {
 	push(id: string, step: number, x: number, y: number): void;
-	remove(id: string): void;
 	retain(ids: ReadonlySet<string>): void;
 	at(id: string, step: number): { x: number; y: number } | undefined;
 };

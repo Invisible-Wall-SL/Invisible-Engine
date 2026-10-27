@@ -22,6 +22,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { BUTTONS, clampInput } from '../packages/engine-mechanics/src/online.js';
 import {
 	GRACE_MS,
+	ONLINE_EVENT,
 	ONLINE_RULES_MODULES,
 	REWIND_MS,
 	STATUS,
@@ -624,8 +625,8 @@ try {
 	const salmon = await client().joinOrCreate(ROOM_NAME, { game: 'river', character: 'salmon' });
 	const bear = await client().joinById(salmon.roomId, { character: 'bear' });
 	const heard = { salmon: [], bear: [] };
-	salmon.onMessage('event', (events) => heard.salmon.push(...events));
-	bear.onMessage('event', (events) => heard.bear.push(...events));
+	salmon.onMessage(ONLINE_EVENT, (events) => heard.salmon.push(...events));
+	bear.onMessage(ONLINE_EVENT, (events) => heard.bear.push(...events));
 	await until('both in the state', () => salmon.state.players?.size === 2);
 
 	await check('live: the devices see the round, a catch, the score and the status', async () => {

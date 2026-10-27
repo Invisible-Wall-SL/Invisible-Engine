@@ -14,10 +14,10 @@
  * where the user's device was drawing them (`view`, held to {@link REWIND_MS} behind the room), so
  * a hit that lands on the screen lands in the room. Its effect is `stun` (the target stands still)
  * or `catch` (the target is out, then respawns), and it may score. A player whose status ends, who
- * respawns or who starts a round cannot be hit for {@link GRACE_MS}, so nobody is held for good,
- * and a respawn forgets the player's past places, so nobody is hit where it no longer was. A round ends at the goal or on
- * its clock; the next starts `nextRoundSeconds` later with everyone back at the spawn and every
- * score at 0. Players move in every phase, so a device's prediction holds through the pause.
+ * respawns or who starts a round cannot be hit for {@link GRACE_MS}, and a respawn forgets the
+ * player's past places, so nobody is hit where it no longer was. A round ends at the goal or on its
+ * clock; the next starts `nextRoundSeconds` later with everyone back at the spawn and every score
+ * at 0. Players move in every phase, so a device's prediction holds through the pause.
  *
  * Steps are counted as the room counts them: `stamp` is the room step a state is stamped with
  * (`steps` after the step that made it), and every time is a whole number of steps. Within one
@@ -40,6 +40,14 @@ export const GRACE_MS = 1000;
 /** The message type every room event travels as (`services/game-server` broadcasts each step's
  *  events as one array of it; `apps/lines` `game/online.ts` reads it). */
 export const ONLINE_EVENT = 'event';
+
+/** A running score stays well inside the wire's int32, however long a round lasts. */
+const SCORE_LIMIT = 1e9;
+
+/** Add `points` to a player's score, held to ±{@link SCORE_LIMIT}. */
+const score = (player, points) => {
+	player.score = Math.max(-SCORE_LIMIT, Math.min(SCORE_LIMIT, player.score + points));
+};
 
 const stepsOf = (ms, tickHz) => Math.max(0, Math.round((ms * tickHz) / 1000));
 
@@ -68,7 +76,7 @@ const tag = {
 			}
 		}
 		if (world.stamp % world.tickHz === 0) {
-			for (const p of world.players) if (p.connected && !p.mark) p.score += 1;
+			for (const p of world.players) if (p.connected && !p.mark) score(p, 1);
 		}
 	},
 };
@@ -217,7 +225,7 @@ export function createOnlineRules(game, { spawn }) {
 					if (Math.hypot(at.x - player.body.x, at.y - player.body.y) > ability.reach) continue;
 					target.status = ability.effect === 'catch' ? STATUS.out : STATUS.stunned;
 					target.until = stamp + ability.hold;
-					player.score += ability.score;
+					score(player, ability.score);
 					emit({
 						type: ability.effect === 'catch' ? 'caught' : 'hit',
 						by: player.id,
@@ -245,7 +253,7 @@ export function createOnlineRules(game, { spawn }) {
 								inZone(player.body, goal),
 						);
 						if (!reached) continue;
-						player.score += rules.round.goalScore;
+						score(player, rules.round.goalScore);
 						endRound(stamp, player.id);
 						break;
 					}

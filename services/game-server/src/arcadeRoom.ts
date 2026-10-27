@@ -1,11 +1,11 @@
 import { CloseCode, Room, type Client } from '@colyseus/core';
-import { sanitizeInput, type OnlineEvent, type OnlineInput } from 'engine-mechanics';
+import { ONLINE_EVENT, sanitizeInput, type OnlineEvent, type OnlineInput } from 'engine-mechanics';
 
 import type { LoadGame } from './configSource.ts';
 import { addressOfSocket, holdSeat, releaseSeat } from './addresses.ts';
 import { closedByGuard } from './socketGuard.ts';
 import { createRoomSim, inputsThisStep, RoomRefusal, type RoomSim } from './roomSim.ts';
-import { EVENT, Input, Player, RoomState, type InputFrame, type RoomStateData } from './schema.ts';
+import { Input, Player, RoomState, type InputFrame, type RoomStateData } from './schema.ts';
 
 /**
  * ONE ROOM OF AN ONLINE ARCADE GAME (`docs/design/realtime-multiplayer.md` §5, §8, §9, §11), on
@@ -195,7 +195,7 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 
 		/** Tell every device what happened, in one message, after the patch that shows it. */
 		private announce(events: readonly OnlineEvent[]) {
-			if (events.length) this.broadcast(EVENT, events, { afterNextPatch: true });
+			if (events.length) this.broadcast(ONLINE_EVENT, events, { afterNextPatch: true });
 		}
 
 		private requireSim(): RoomSim {

@@ -33,7 +33,8 @@ export const SMOOTH_MS = 100;
 /** A correction longer than this, px, is drawn at once (a respawn, a catch), not faded. */
 export const SNAP_PX = 128;
 
-/** The snap distance for a character of `speed` px/s in a room sending `patchHz` states a second:
+/** The snap distance for a body moving at up to `speed` px/s (a character's, plus the strongest
+ *  current it can be in) in a room sending `patchHz` states a second:
  *  {@link SNAP_PX}, or three states' travel if that is longer, so a fast character's moves between
  *  states (a catch-up step moves twice as far) are never mistaken for a teleport. */
 export const snapFor = (speed, patchHz) => Math.max(SNAP_PX, (speed / patchHz) * 3);
@@ -242,9 +243,6 @@ export function createInterpolator({ snapPx = SNAP_PX, keep = 32 } = {}) {
 			if (track.length && track[track.length - 1].step >= step) return;
 			track.push({ step, x, y });
 			if (track.length > keep) track.shift();
-		},
-		remove(id) {
-			tracks.delete(id);
 		},
 		/** Forget every player but those in `ids` (the room's players now). */
 		retain(ids) {

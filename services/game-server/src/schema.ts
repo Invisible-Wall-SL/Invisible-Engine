@@ -1,7 +1,5 @@
 import { schema, t, type SchemaType } from '@colyseus/schema';
 
-import { ONLINE_EVENT } from 'engine-mechanics';
-
 /**
  * The wire (`docs/design/realtime-multiplayer.md` §5).
  *
@@ -16,10 +14,10 @@ import { ONLINE_EVENT } from 'engine-mechanics';
  * `mark`. Per room the phase, the step every state is stamped with, the round, the step its phase
  * ends at (0 = never) and the last round's winner. The level is never in the state.
  *
- * Events (a hit, a catch, a round's end, a join) arrive as one message of type {@link EVENT} per
- * step that had any, an array in the order they happened, after the patch that shows them.
+ * Events (a hit, a catch, a round's end, a join) arrive as one message of type `engine-mechanics`
+ * `ONLINE_EVENT` per step that had any, an array in the order they happened, after the patch that
+ * shows them.
  */
-export const EVENT = ONLINE_EVENT;
 
 export const Input = schema({
 	seq: t.uint32(),

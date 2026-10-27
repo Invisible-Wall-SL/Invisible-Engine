@@ -38,8 +38,8 @@ row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-mu
   device keeps its own float64 fold (so it never chases the wire's float32 rounding — P10.14's
   "rewinds to its own fold" option); different, it takes the room's place and replays the inputs in
   flight. The difference fades from the drawn body over 100 ms (`SMOOTH_MS`), or is drawn at once
-  past `snapFor(speed, patchHz)` — 128 px (`SNAP_PX`), or three states' travel for a faster
-  character (a respawn). A state stamped no later than one already taken is ignored. A player the room holds (`status` stunned / out) is predicted
+  past `snapFor(speed, patchHz)` — 128 px (`SNAP_PX`), or three states' travel for a faster body
+  (its speed plus the strongest current) — a respawn. A state stamped no later than one already taken is ignored. A player the room holds (`status` stunned / out) is predicted
   still. The drawn body is interpolated between the last two fixed steps (`FixedStep.alpha`).
 - **Everyone else, interpolated** (`createSnapshotClock`, `createInterpolator`): each state is
   stamped with the room's `step`; the clock turns arrival times into a steady render step 100 ms
@@ -64,9 +64,11 @@ row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-mu
   - `abilities[]`: a character's `ability1` / `ability2` hits every free player of its `targets`
     within `reach` px, off `cooldownMs` (at least 100 ms; each entry its own, so two on one button
     both act), with `effect` `catch` (out for `ms`, then respawned at the spawn) or `stun` (held
-    still for `ms`), `+score` (a whole number, ±1000) to the user per hit. A player whose status
-    ends, who respawns or who starts a round cannot be hit for 1 s (`GRACE_MS`), so nobody is
-    stun-locked or caught at the spawn. **Lag compensation:** the target's place is read where the
+    still for `ms`), `+score` (a whole number, ±1000; a running score is held to ±10⁹) to the user
+    per hit. A player whose status
+    ends, who respawns or who starts a round cannot be hit for 1 s (`GRACE_MS`), so a stun cannot
+    be chained straight into the next (a slow character can still be within reach when its grace
+    ends: see the known limits). **Lag compensation:** the target's place is read where the
     user's device drew it (`Input.view`), held to at most 250 ms (`REWIND_MS`, whole steps rounded
     down: 7 steps at 30 Hz) behind the room — a claim older than that is not believed, a future one
     is the present — and a respawn forgets a player's past places, so nobody is hit where it no
@@ -122,8 +124,8 @@ row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-mu
   P10.14's 13 plus four: page A draws its own player moving within its first frames; at rest, both pages
   draw every player exactly where the room has it (prediction and interpolation converged); the
   mover is page A's own player.
-- **Bundle size** (the release build's `index.html`, gzip -6; base b0a7f9e vs this branch):
-  3,944,754 B / 1,345,974 B gz → 3,955,380 B / 1,349,868 B gz: **+10.6 KB raw, +3.9 KB gz (+0.29 %)**,
+- **Bundle size** (the release build's `index.html`, gzip -6; base 70c84b8 vs this branch):
+  3,958,113 B / 1,350,567 B gz → 3,968,817 B / 1,354,485 B gz: **+10.7 KB raw, +3.9 KB gz (+0.29 %)**,
   on top of P10.14's accepted +59 KB gz. No new dependency: the netcode and rules are our own
   `engine-mechanics` code; the Colyseus SDK's own `predict` module is not used.
 - **Slot / match-3 / offline-arcade parity:** every new runtime path is in `game/online.ts`, reached

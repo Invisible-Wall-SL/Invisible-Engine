@@ -184,7 +184,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		view: createSnapshotClock({ stepMs: 1000 / resolved.online.tickHz }),
 		others: createInterpolator({
 			snapPx: snapFor(
-				Math.max(...resolved.online.characters.map((c) => c.speed)),
+				Math.max(...resolved.online.characters.map((c) => c.speed)) + strongestCurrent(resolved),
 				resolved.online.patchHz,
 			),
 		}),
@@ -201,6 +201,13 @@ export async function joinOnlineRoom(): Promise<void> {
 	});
 }
 
+/** The most a current can add to a body's speed, px/s. */
+const strongestCurrent = (game: OnlineGame) =>
+	Math.max(
+		0,
+		...game.online.rules.zones.map((z) => (z.force ? Math.hypot(z.force.x, z.force.y) : 0)),
+	);
+
 /** The own player's predictor, from its first place in the room. */
 function predictorOf(current: Session, player: PlayerState): Predictor | undefined {
 	const { game } = current;
@@ -213,7 +220,7 @@ function predictorOf(current: Session, player: PlayerState): Predictor | undefin
 		field: game.field,
 		level: onlineLevel(game.zones, game.online.rules.zones, character.id, game.field),
 		ack: player.ack,
-		snapPx: snapFor(character.speed, game.online.patchHz),
+		snapPx: snapFor(character.speed + strongestCurrent(game), game.online.patchHz),
 	});
 }
 
