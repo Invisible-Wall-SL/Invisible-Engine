@@ -18,8 +18,8 @@ GLSL node (#1349). 8d (particle materials) is decided
 shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is merged
 (#1366); 8d.3 (the material in the game) is merged (#1378); 8d.4 (the ship chain, proven) is
 merged (#1384); 8d.5 (`/fx` authoring) is merged (#1392); 8d.6 (the other previews) is
-merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) is built and
-in review; 8d.8 (play-QA and calibration) is next.
+merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) and 8d.8
+(play-QA and calibration) are built and in review; the owner's phone check then sets the caps.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -285,6 +285,30 @@ in review; 8d.8 (play-QA and calibration) is next.
     (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
     shader). Built as 8d.1–8d.8, one PR each (its §15). A game plays a material from 8d.3; no
     tool authors one from 8d.5.
+    - **8d.8, play-QA and calibration.** Built, in review. Playbook:
+      `docs/playtest/particle-material.md` (the headless play and the owner's phone check).
+      - **The play** (`scripts/playtest/particle-material-play.mjs`, by hand, on a release build
+        of the runtime): the `cg-lines` stand-in with Pulse tint made for particles (cost 12, one
+        read), in four runs on WebGL2 and on WebGL1 (forced by refusing `webgl2`): published,
+        without `shaderEffects`, without the effect, and a nine-layer cap run. Each run samples
+        the stage five times a second apart (no pop). It passes when the mesh draws with its
+        sprites hidden, the load equals covered px × cost, the unregistered run draws plain, the
+        pixels differ, the cap run draws 8 and leaves the ninth plain throughout, and nothing
+        errors or stalls. `--calibrate` times 120 frames per run through a one-pixel
+        `readPixels` (Chromium's `gl.finish()` does not wait). Not in `check:all`: it needs the
+        release build.
+      - **`?fxdebug=1` on the page** (`pixi-svelte` `particleMaterial/debugPanel.ts`): a page that
+        mounts a material layer shows a corner box with the GL version, GPU, screen and pixel
+        ratio, frame times over 120 frames, and each layer's latest line, since a phone shows no
+        console. Nothing without the flag.
+      - **The settled peak prints while playing.** The peak line was throttled to every 2 s and
+        a peak that settled inside the wait was never printed: the game read 98.9 kpx for a true
+        8.69 Mpx. A trailing print now fires when the wait ends, cancelled on release.
+      - **Also:** a stray `FxMaterialSlots.release` warns once; `/fx` notes an effect with more
+        material layers than a game draws (8).
+      - **Calibration (SwiftShader, relative only):** the 76 coins (about 340 px each) at cost 12
+        load 104 M, 3× the 32 M layer budget; 20 coins reach it. The nine-layer run's effect load
+        is 252 M. Frame medians: plain 280 ms, material 335 ms, cap 513 ms (WebGL2).
     - **8d.7, `/shaders`: Made for particles and the Particles preview.** Built, in review.
       Guides: `docs/tools/shader-graph.md` (Made for, the Particles preview), `docs/tools/fx.md`
       (picker order).
@@ -593,21 +617,23 @@ in review; 8d.8 (play-QA and calibration) is next.
       defaults.
 
 ## Open items / next
-1. **Step 8d.8 (next): play-QA and calibration** (design §15 step 8).
+1. **The owner's phone check** (`docs/playtest/particle-material.md`). The §10 caps stay at their
+   starting values until then.
+   - **To observe on a phone:** seed variety (integer seeds through a hash); WebGL1's whole-buffer
+     upload per frame at 512 particles; parity against plain sprites (the tolerance is
+     SwiftShader's); whether a dormant event layer should hold a cap slot; spawn order restarting
+     at 0 on each firing (kept: a re-init is a new play; owner to confirm); any pop or "plain while
+     playing".
+   - **Load counts layer pixels; a phone pays device pixels** (scale × DPR²). The stand-in's coins
+     covered about 9× the screen in layer px. The budget looks tight for full-size art.
    - **8d.7's limits:** the Particles preview always uses Time over each particle's life (no Loop)
      and plays params at their defaults; an edit that changes the compiled effect restarts the
      particles; `/fx` reads cost from the route, not `effect.cost`; the `?fxdebug=1` load figure
      exists only for effects made for particles.
-   - **The phone check:** integer seeds through a hash; WebGL1's whole-buffer upload per
-     frame, now sized to the drive's peak; the parity tolerance is SwiftShader's, not a phone's;
-     whether a dormant event layer should hold a cap slot; spawn order restarting at 0 on every
-     emit re-init.
    - A layer that mounts before its frames are loaded stays plain for its life ("no frames when it
      mounted"); a remount fixes it. Deferring the decision would mean re-parenting a live emitter.
-   - `setTime` has no caller (a Time change remounts); `FxMaterialSlots.release` clamps at 0
-     silently; nothing warns before a ninth material layer is placed; the estimate ignores burst
-     counts, `emitterLifetime` and container scale; a peak that grows then plateaus inside the
-     2 s throttle prints only at release.
+   - `setTime` has no caller (a Time change remounts); the estimate ignores burst counts,
+     `emitterLifetime` and container scale.
 2. **Step 8c follow-ups.**
    - The test-compile runs in the author's browser only (the server has no GPU), so a phone's
      driver may still refuse a body the author's took; the runtime then draws the element as it is
@@ -660,6 +686,12 @@ in review; 8d.8 (play-QA and calibration) is next.
 - None.
 
 ## Recent changes
+- 2026-10-27 — **Step 8d.8: play-QA and calibration** (see "Current state").
+  - **Proof.** The play passes on WebGL2 and WebGL1, twice, once with `--calibrate` (same loads
+    both times); `particle-material` (3 new claims); `fx-previews` 78; `fx-page` 31;
+    `shader-page` 42; `check:fx-params` 130; `check:shader-pipeline` 149; `player` 65; `model`
+    119; `check:vendored-bundles` (`rigger-fx.js` rebuilt); `check:agents-knowledge`;
+    svelte-check at baseline; `check:all` 572/572. 9 mutations, each failing its gate.
 - 2026-10-27 — **Step 8d.7: `/shaders` Made for particles and the Particles preview** (see
   "Current state"). Step 8d.6 merged (#1407).
   - **Proof.** `compile.fixture.ts` 213; `check:shader-editor` 263; `fx-previews` 78;
