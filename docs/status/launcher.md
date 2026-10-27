@@ -90,7 +90,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   rotation** batches every automatic secret with one redeploy per service. The portal side is one
   new route: `PUT /api/launcher/deploy-token` (owner-only, pinned in `check:launcher-gates`), so the
   vault can set the deploy token; `MIN_DEPLOY_TOKEN` moved to `appSettings.ts` for both writers.
-  Offline fixture `verify_key_vault.py` (54 checks); the tab was driven in a real window under Xvfb.
+  Offline fixture `verify_key_vault.py` (68 checks, including the review findings: two rotations before a revoke, a dead host mid-batch, an unknown Railway service, an orphaned `.bak`); the tab was driven in a real window under Xvfb.
   **Not yet run against the live providers** — see Open items.
 
 - 2026-10-23 — **Tools per game family (Phase 10 P10.1b).** The home grid and `ToolTopBar` list
