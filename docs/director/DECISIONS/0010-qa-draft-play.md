@@ -1,6 +1,6 @@
 # ADR-0010 — QA's draft play
 
-- **Status:** proposed
+- **Status:** approved (2026-10-27, owner; see "Owner decision" at the end)
 - **Date:** 2026-10-27
 - **Scope:** PLAN card 9D, the prerequisite in ADR-0009 §3: serve `build.request_draft` and
   `build.play_draft` so QA can play the run's game with forced outcomes.
@@ -169,3 +169,16 @@ secret:
 3. **Draft retention:** keep 2 per run, and delete them all 14 days after the run ends. Default: yes.
 4. **Not played is not a pass:** when no player is deployed, QA reports "not played" and the run can
    still hand off with that stated. Default: yes. The stricter option blocks hand-off.
+
+## Owner decision (2026-10-27)
+
+All four defaults approved:
+
+1. **Plays run in a new private Railway service, `draft-player`**, with `DRAFT_PLAYER_SECRET`
+   shared with the launcher.
+2. **A template with no authored `config/config.json`** is recorded as "no config before and
+   after", which counts as proven unchanged: the kind's committed config is the math. A null
+   `templateConfigEtag` still means "the template moved", and QA fails it.
+3. **Drafts:** at most 2 per run, all deleted 14 days after the run ends.
+4. **Not played is not a pass.** With no player deployed, QA reports "not played" and the
+   hand-off says so. It does not block the hand-off.
