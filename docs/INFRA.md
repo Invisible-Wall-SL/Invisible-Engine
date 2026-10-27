@@ -6,7 +6,7 @@
 ## Overview
 
 ```
- Cloudflare DNS (zone invisiblewall.org) — app. and games. are DNS-only CNAMEs to Railway
+ Cloudflare DNS (zone invisiblewall.org) — app., games. and rooms. are DNS-only CNAMEs to Railway
  │
  ├─ app.invisiblewall.org ──► LAUNCHER (SvelteKit, adapter-node) ──► Postgres (Railway)
  │                            auth, roles, every tool page (full-page, never an iframe),
@@ -21,6 +21,10 @@
  │
  ├─ games.invisiblewall.org ─► INVISIBLE TEST SERVER (Node, services/test-server)
  │                            serves published games + the shared online runtime, mock RGS
+ │
+ ├─ rooms.invisiblewall.org ─► INVISIBLE GAME SERVER (Node, services/game-server, Colyseus)
+ │                            online arcade rooms over WebSockets; reads published configs
+ │                            from the launcher (GET /api/game-server/config)
  │
  ├─ (no public domain) ──────► DIRECTOR WORKER (Node, services/director-worker) ──► the launcher's
  │                            Postgres; drives Invisible Director runs (Anthropic API from PLAN 3.4)
@@ -46,6 +50,7 @@ notes call it `Invisible launcher`.
 | **atlas-tool**                  | `atlas-tool-production.up.railway.app`                                     | Python (http.server)             | **repo root**, Dockerfile Path `services/atlas-tool/Dockerfile`    |
 | **sheet-tool**                  | `sheet-tool-production.up.railway.app`                                     | Python (http.server)             | **repo root**, Dockerfile Path `services/sheet-tool/Dockerfile`    |
 | **Invisible-test-Server**       | `games.invisiblewall.org`                                                  | Node (`server.mjs`)              | **repo root**, Dockerfile Path `services/test-server/Dockerfile`   |
+| **game-server**                 | `rooms.invisiblewall.org` (generated: `game-server-production-eda5.up.railway.app`) | Node 22 (Colyseus 0.18)          | **repo root**, Dockerfile Path `services/game-server/Dockerfile`   |
 | **director-worker**             | none (private) — **the owner creates it**, see "Invisible Director worker" | Node 22 (`src/main.ts`)          | **repo root**, Dockerfile Path `services/director-worker/Dockerfile` |
 | **draft-player** | none (private, `draft-player.railway.internal`) — **the owner creates it**, see "Invisible Director draft player" | Node 22 (`src/server.mjs`) + Chromium headless shell | **repo root**, Dockerfile Path `services/draft-player/Dockerfile` |
 | **Postgres**                    | internal (`postgres.railway.internal`)                                     | Postgres                         | —                                                                  |
@@ -85,6 +90,7 @@ GitHub Releases during install. Two consequences for a deploy:
 | **Invisible-test-Server** | `/services/test-server/**`, `/scripts/mock-rgs-server*.mjs` |
 | **director-worker**       | `/services/director-worker/**`, `/packages/director-costs/**` |
 | **draft-player** | `/services/draft-player/**`, `/services/test-server/**`, `/scripts/current-games/lib/**`, `/scripts/current-games/screens/**`, `/scripts/current-games/costs.json`, `/scripts/playtest/headless-shell.mjs`, `/scripts/mock-*.mjs`, `/packages/engine-mechanics/package.json`, `/packages/engine-mechanics/src/board.js` |
+| **game-server**           | `/services/game-server/**`, `/packages/engine-mechanics/**`, `/packages/game-config/**`, `/scripts/ts-loader.mjs` |
 
 Each list is exactly what that service's Dockerfile `COPY`s, so **a new build input needs a new watch path** or the service will quietly keep deploying the old code. The same lists live in `scripts/deploy-drift.mjs` (`deploy-drift.fixture.mjs` fails when the two differ), so change both. The **launcher** deliberately has none: it builds from the whole pnpm workspace (`apps/`, `packages/`, the lockfile, turbo config), and a partial list there would strand a real change.
 
@@ -336,20 +342,32 @@ callback URL. One play at a time; the rest queue in memory.
    it prints `{"ok":true,…}`. `ECONNREFUSED` there means the private network cannot reach the player (check the listen line and the service name). A QA draft play that
    then settles `no_player` means the launcher still lacks `DRAFT_PLAYER_URL` or the secret.
 
-## Invisible Game Server (P10.14 — built, NOT deployed)
+## Invisible Game Server (P10.14 — live 2026-10-27)
 
 Online arcade rooms ([design/realtime-multiplayer.md](design/realtime-multiplayer.md) §9): one
 Node 22 process on **Colyseus 0.18** (`@colyseus/core` 0.18.23, `@colyseus/ws-transport` 0.18.4,
 `@colyseus/schema` 5.0.42), many rooms, one replica. Source `services/game-server/`; a pnpm
 workspace member, so CI installs it and `pnpm check:room-sim` boots it. Its current state is
-[status/game-families.md](status/game-families.md) "P10.14". **No Railway service exists yet** —
-the owner step below creates it; until then nothing deploys and `scripts/deploy-drift.mjs` does not
-list it (an entry whose URL does not answer would only alarm).
+[status/game-families.md](status/game-families.md) "P10.14". **Live since 2026-10-27** as the
+Railway service `game-server` on `rooms.invisiblewall.org`, listed in `scripts/deploy-drift.mjs`.
+It plays no game until its config credential is set (steps 5–7): `GAME_SERVER_CONFIG_URL` is
+deliberately unset until then.
 
 **What it serves.** WebSocket rooms of type `arcade`, matched by the join option `game` (the
 project key); `GET /healthz` → `{"ok":true,"commit":"<12 chars>","rooms":N}`. A room reads its
 game's config ONCE, when it is created (a running room keeps the version it started with), and
 refuses a config that is not an online arcade game. A device sends inputs only.
+
+**Where its config comes from.** In production, the launcher's
+`GET /api/game-server/config?project=<key>` (bearer `GAME_SERVER_CONFIG_SECRET` only; it opens no
+other route). It serves the config of the project's PUBLISHED snapshot — what players run — not
+the authored doc, so an autosave after Publish never reaches a room. A republish reaches a room on
+its next creation, after the launcher's pointer cache (≤ 30 s) and the game server's own cache
+(60 s). 404 = nothing for the game server to play (no live project, never published, snapshot
+without a config): it drops its last good config. A device can still boot an unpublished project
+from the live assemble; its rooms are refused until it is published. 502 = R2 failure, or a
+pointer that does not parse or names an unreadable snapshot: it rides it out on its last good
+config. 400 = bad project key; 401 = missing/wrong bearer, or the secret unset.
 
 **Limits it enforces** (no env needed): a room holds `arcade.online.maxPlayers` (≤ 100) and each
 character's `max`; a device sending more than `2 × tickHz + 10` messages a second is disconnected
@@ -382,8 +400,8 @@ available"; the reason is logged.
 | Name | Meaning |
 | --- | --- |
 | `PORT` | listen port (Railway sets it; the image defaults to 8080, a bare `pnpm start` to 2567) |
-| `GAME_SERVER_CONFIG_URL` | a URL with `{game}` in it that answers a game's config (a GameConfigDoc or `{ doc }`) |
-| `GAME_SERVER_CONFIG_TOKEN` | optional; sent as `Authorization: Bearer …` to that URL |
+| `GAME_SERVER_CONFIG_URL` | a URL with `{game}` in it that answers a game's config (a GameConfigDoc or `{ doc }`). In production: the launcher's `/api/game-server/config?project={game}` (steps 5–6) |
+| `GAME_SERVER_CONFIG_TOKEN` | sent as `Authorization: Bearer …` to that URL. Optional locally; **required in production**, where it equals the launcher's `GAME_SERVER_CONFIG_SECRET` |
 | `GAME_SERVER_CONFIG_DIR` | instead of the URL: a directory of `<game>.json` configs (local runs) |
 | `GAME_SERVER_MAX_ROOMS` | rooms one process holds (default 50) |
 | `GAME_SERVER_TRUST_PROXY` | a device's address (for the matchmaking limit) is the last `x-forwarded-for` entry, the one Railway's edge adds. On by default where `RAILWAY_ENVIRONMENT` is set; `0` / `1` force it |
@@ -402,7 +420,8 @@ Then open the runtime with `?rooms_url=ws://localhost:2567&rooms_game=<project>`
 optionally `&rooms_name=…&rooms_character=…`. `scripts/playtest/online-play.mjs` does exactly this
 with two headless browsers.
 
-**Owner / infra steps to stand it up** (not done; nothing here was deployed):
+**Owner / infra steps to stand it up.** Steps 1–4 and 8–10 are **done (2026-10-27)**; steps 5–7,
+the config credential, are still to do:
 
 1. **Railway → Invisible Pipeline project → New service** from GitHub
    `Invisible-Wall-SL/Invisible-Engine`, branch `main`, name `game-server`.
@@ -412,20 +431,28 @@ with two headless browsers.
    `/packages/game-config/**`, `/scripts/ts-loader.mjs` (exactly what the Dockerfile `COPY`s).
 4. **Deploy → Health Check Path** `/healthz`; **one replica** (rooms live in memory; several
    processes need Colyseus' Redis presence, which A4 does not use).
-5. **Variables:** `GAME_SERVER_CONFIG_URL`. Until the publish writes a published online config
-   anywhere (an open item in the status file), the one source that exists is the launcher's
-   token-gated export: `https://app.invisiblewall.org/api/game-config/doc?project={game}&k=<deploy
-   token>` — note it serves the AUTHORED config, not the published snapshot, so a room can run
-   rules newer than the devices' until they republish. `GAME_SERVER_TRUST_PROXY` needs no
-   setting there (on by default on Railway, whose edge fronts every socket). Optionally `GAME_SERVER_MAX_ROOMS`.
-6. **Settings → Networking:** a public domain, then the custom domain `rooms.invisiblewall.org`,
+5. **Config credential.** Generate ONE random value (`openssl rand -hex 32`). Set it on the
+   **launcher** as `GAME_SERVER_CONFIG_SECRET` and on **game-server** as
+   `GAME_SERVER_CONFIG_TOKEN`. It opens only the launcher's `GET /api/game-server/config` — never
+   use the deploy token or a `k=` here.
+6. **Variables (game-server):**
+   `GAME_SERVER_CONFIG_URL=https://app.invisiblewall.org/api/game-server/config?project={game}`.
+   `GAME_SERVER_TRUST_PROXY` needs no setting (on by default on Railway, whose edge fronts every
+   socket). Optionally `GAME_SERVER_MAX_ROOMS`.
+7. **Apply changes / Deploy** on both the launcher and game-server (a plain redeploy does not
+   apply staged vars). Verify the launcher side:
+   `curl -H "Authorization: Bearer $GAME_SERVER_CONFIG_SECRET" "https://app.invisiblewall.org/api/game-server/config?project=<published online game>"`
+   → 200 `{ projectKey, snapshot, doc }`; the same without the header → 401.
+8. **Settings → Networking:** a public domain, then the custom domain `rooms.invisiblewall.org`,
    and in **Cloudflare DNS** a CNAME `rooms` → the Railway target, **DNS-only (grey cloud)**, like
    `games` (§14 D8).
-7. Smoke-test that a request through the domain is answered (an edge that appended to
-   `x-forwarded-proto` instead of replacing it would get every request refused 400).
-8. Once `/healthz` answers on the domain: add the service to `SERVICES` in
+9. Smoke-test that a request through the domain is answered (an edge that appended to
+   `x-forwarded-proto` instead of replacing it would get every request refused 400). Done:
+   `/healthz` answered `{"ok":true,"commit":"b0a7f9e4638f","rooms":0}`.
+10. Once `/healthz` answers on the domain: add the service to `SERVICES` in
    `scripts/deploy-drift.mjs` and to the Watch Paths table above (the fixture holds the two to each
-   other), and to Better Stack Uptime.
+   other), and to Better Stack Uptime (the "Game server" row under "Uptime"; the owner adds the
+   monitor).
 
 ## ComfyUI tunnel (optional — a person's own GPU)
 
@@ -681,6 +708,10 @@ code default, so the dashboard need not set it):
   regression harness (`docs/director/DECISIONS/0004-current-games-regression-harness.md`) sends to
   the read-only `GET /api/pipeline/games` to list every live game. Held by the launcher and by the
   GitHub Actions secret of the same name. Unset → that endpoint answers 503; nothing else uses it.
+- **Game server config:** `GAME_SERVER_CONFIG_SECRET` (secret, no default) — the bearer the
+  Invisible Game Server reads a game's published config with, from `GET /api/game-server/config`
+  only. Equals game-server's `GAME_SERVER_CONFIG_TOKEN`. Unset → that route answers 401; nothing
+  else uses it. See "Invisible Game Server".
 - **Pipeline Changes (GitHub App):** `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`,
   `GITHUB_APP_PRIVATE_KEY` (all secrets, no default; the launcher only) — see "GitHub App
   (Pipeline Changes)" below.
@@ -1081,7 +1112,7 @@ node scripts/sentry-sourcemaps.mjs runtime apps/lines/build --dry-run
 ### Uptime — Better Stack Uptime (free plan)
 
 Recommended over UptimeRobot, whose free plan is for non-commercial use: Better Stack's free tier
-gives 10 monitors at a 3-minute interval with email alerts and a keyword check, which is all four
+gives 10 monitors at a 3-minute interval with email alerts and a keyword check, which is all five
 endpoints with room to spare. **Owner setup** (betterstack.com → Uptime → Create monitor), one per row:
 
 | Monitor | URL | Alert when | Keyword | Interval / timeout | Confirmation |
@@ -1090,6 +1121,7 @@ endpoints with room to spare. **Owner setup** (betterstack.com → Uptime → Cr
 | Games host | `https://games.invisiblewall.org/healthz` | URL doesn't contain keyword | `"ok":true` | 3 min / 10 s | 2 |
 | Atlas tool | `https://atlas-tool-production.up.railway.app/healthz` | URL doesn't contain keyword | `"ok": true` | 3 min / 15 s | 2 |
 | Sheet tool | `https://sheet-tool-production.up.railway.app/healthz` | same | `"ok": true` | 3 min / 15 s | 2 |
+| Game server | `https://rooms.invisiblewall.org/healthz` | same | `"ok":true` | 3 min / 10 s | 2 |
 
 Regions: pick Europe **plus one outside Spain** — during LaLiga matches Cloudflare ranges are
 null-routed from Spanish ISPs and a Spain-only prober would page for an outage that isn't ours.
@@ -1480,6 +1512,7 @@ apply staged vars.
 | **Deploy token** | Admin → Settings → Deploy token (`app_settings`); `EDITOR_DOC_SECRET` is only its env fallback. Held by the build runners. | Admin → Settings → Rotate. | None for the portal; desktop launchers fetch the new value on their next Sync. |
 | **`TEST_SERVER_SECRET`** | Invisible-test-Server; the **launcher** (sends it as a header on its `/refresh` pokes); the GitHub Actions secret of the same name; the owner's portal-publish script. | New random value in every place at once, while no Runtime release or rollback is running. | Test server + launcher → Apply changes / Deploy. A launcher left on the old value still publishes, but the game goes live only on the test server's next hydrate. |
 | **`PIPELINE_CI_TOKEN`** | The **launcher**; the GitHub Actions secret of the same name (the current-games harness). Grants only the read-only game list `GET /api/pipeline/games`. | New random value (e.g. `openssl rand -hex 32`) in both places. | Launcher → Apply changes / Deploy. Harness runs between the two updates get a 401. |
+| **`GAME_SERVER_CONFIG_SECRET`** (launcher) = **`GAME_SERVER_CONFIG_TOKEN`** (game-server) | The **launcher** and the **game-server** service, one value. Grants only the read-only published-config read `GET /api/game-server/config`. | New random value (e.g. `openssl rand -hex 32`), set in both places at once. | Launcher + game-server → Apply changes / Deploy. Between the two updates config reads get a 401: running rooms keep the config they started with, a game that has loaded once keeps its last good config, and a game with none fails to open. |
 | **`GITHUB_APP_PRIVATE_KEY`** (the Pipeline Changes App; with `GITHUB_APP_ID` / `GITHUB_APP_INSTALLATION_ID`, which are ids, not secrets to rotate) | The **launcher** only. Signs the App JWT that buys the installation tokens `/pipeline` reads GitHub with and posts `current-games` approvals as. | GitHub → the App → Private keys → generate a new key, set it on the launcher, then delete the old one (both are valid meanwhile) — "GitHub App (Pipeline Changes)" above. | Launcher → Apply changes / Deploy. Verify: `/api/pipeline/changes` answers 200. |
 | **`DIRECTOR_SERVICE_TOKEN`** | The **launcher**; the `director-worker` service once it exists (PLAN 3.x). Lets the worker call the Director adapters as a run's owner; no publish, Game Config, roles or merge op exists behind it. | New random value (e.g. `openssl rand -hex 32`) in both places. | Launcher + worker → Apply changes / Deploy. Adapter calls between the two updates get a 401; the worker retries them with the same `opId`. |
 | **`DRAFT_PLAYER_SECRET`** | The **launcher** and the `draft-player` service (the same value on both). Signs the launcher's `/play` · `/progress` · `/cancel` and the player's callback. Holds no data access of its own. | New random value (`openssl rand -hex 32`), set on both, while no QA play is running. | Draft player + launcher → Apply changes / Deploy. A play between the two updates fails its submit or its callback (401/400); the fallback watch then fails the job and QA reports it not played. |

@@ -43,6 +43,7 @@
 		'duplicate-id': '⧉',
 		'hold-without-release': '⏳',
 		'tap-without-hold': 'ℹ',
+		'startup-tap-surface': '⛔',
 		'mode-unset': '✗',
 		'mode-entry-scope': '⤫',
 		'container-scene-missing': '⊘',

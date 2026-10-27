@@ -187,6 +187,12 @@ export async function currentPointer(
 	return pointer;
 }
 
+/** Whether the pointer OBJECT exists, read past the cache: {@link currentPointer} answers null
+ *  both for a never-published project and for a pointer that no longer parses. */
+export async function publishedPointerExists(client: string, project: string): Promise<boolean> {
+	return (await readPointer(client, project)) !== null;
+}
+
 /** A snapshot's frozen bundle, or null when its `runtime.json` is gone. */
 export async function readSnapshotBundle(
 	client: string,

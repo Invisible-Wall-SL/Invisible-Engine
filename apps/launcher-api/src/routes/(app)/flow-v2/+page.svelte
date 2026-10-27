@@ -15,6 +15,7 @@
 		graftAddOnSteps,
 		respinTabIssues,
 		spinsTabIssues,
+		startupTapIssues,
 		validateFlowDoc,
 		vocabForTab,
 		validateFunctionDef,
@@ -538,6 +539,7 @@
 					).filter((issue) => !touchesUnpinned(issue)),
 					...respinTabIssues(doc, data.addOns),
 					...spinsTabIssues(doc, data.addOns, sceneIds),
+					...startupTapIssues(doc, library, data.armedTaps ?? {}),
 				],
 	);
 

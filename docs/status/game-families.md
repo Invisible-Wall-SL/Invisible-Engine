@@ -3,11 +3,15 @@
 > Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `match3-games`, `arcade-games` (`invisible-game-config` for `/config`, `invisible-game-maker` for Game Maker)
 
 **One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.8, P10.11, P10.12 and
-P10.14 are merged; P10.13 (gravity, jumps and levels) is built** and in review. P10.13: an arcade character can fall, jump (a side-view jump set by height and time, with
-hold, coyote time and a buffer), hop over ground obstacles or flap, and stand on a level painted from
-tiles in the Scene Editor. P10.14: an arcade config with
+P10.14 are merged; P10.13 (gravity, jumps and levels) and P10.15 (A4b, netcode and the online
+rules) are built** and in review. P10.15: a device predicts its own player and draws everyone else
+interpolated, and the room runs the game's rules as data (currents, a goal, catch / stun abilities
+with lag compensation, rounds, scores, a `tag` rules module). P10.13: an arcade character can fall,
+jump (a side-view jump set by height and time, with hold, coyote time and a buffer), hop over ground
+obstacles or flap, and stand on a level painted from tiles in the Scene Editor. P10.14: an arcade
+config with
 `arcade.online` is played in a room on the new `services/game-server` (Colyseus 0.18), where devices
-send inputs only and draw where the server puts every player; the service is written but **not
+send inputs only and the server owns every place; the service is written but **not
 deployed** (owner steps in [INFRA.md](../INFRA.md) "Invisible Game Server"). P10.11: arcade
 characters that patrol, chase and are played by keyboard or touch, authored in the new Invisible
 Characters tool. P10.12: a play-field screen can be a world bigger than the screen, framed by a
@@ -22,6 +26,143 @@ server's `match3` mock on our own wire. **Publishing is on for every family the 
 server; delivery stays slot-only, and live real money waits on the partner (§9 #2).
 
 ## Current state
+
+**P10.15 — Arcade A4b: netcode and the online rules (built 2026-10-27; in review).** §8's P10.15
+row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-multiplayer.md) §4–§6,
+§11, §12), in **one PR**, on P10.14. Not deployed (nothing to deploy beyond P10.14's service).
+
+- **Own-player prediction and reconciliation** (`engine-mechanics` `netcode.js` `createPredictor`,
+  plain ESM + `.d.ts`): every input the device sends is stepped at once with `online.js`
+  `stepPlayer` — the function the room steps it with — and kept until the room's `ack` passes it.
+  Each state compares the prediction recorded for `ack` with the room's place: equal to 1/64 px, the
+  device keeps its own float64 fold (so it never chases the wire's float32 rounding — P10.14's
+  "rewinds to its own fold" option); different, it takes the room's place and replays the inputs in
+  flight. The difference fades from the drawn body over 100 ms (`SMOOTH_MS`), or is drawn at once
+  past `snapFor(speed, patchHz)` — 128 px (`SNAP_PX`), or three states' travel for a faster body
+  (its speed plus the strongest current) — a respawn. A state stamped no later than one already taken is ignored. A player the room holds (`status` stunned / out) is predicted
+  still. The drawn body is interpolated between the last two fixed steps (`FixedStep.alpha`).
+- **Everyone else, interpolated** (`createSnapshotClock`, `createInterpolator`): each state is
+  stamped with the room's `step`; the clock turns arrival times into a steady render step 100 ms
+  (`INTERPOLATION_DELAY_MS`) behind, learning lateness as a slow average that takes a late arrival
+  only as far as twice the usual spread; it never runs past the newest state (no extrapolation),
+  speeds up by at most 25 % and slows by at most 10 %, and jumps only after a gap over a second (a
+  hidden tab). A move longer than the snap distance (the fastest character's `snapFor`) between two
+  states is taken whole, not slid across; a player gone from the room is forgotten.
+- **The runtime** (`game/online.ts`): `room.onStateChange` reconciles the own player and records
+  everyone else; `tickOnline` sends each input with `view` (the step it was drawing everyone else
+  at), predicts it, fades the correction and draws; J / K are abilities 1 / 2; pressing both uses
+  both. The arcade probe
+  gains `online` (how each player is drawn, corrections, the round, scores, the room's last 32
+  events). Room events are received (`room.onMessage('event')`) and kept for the probe; **they do
+  not reach Flow yet** (open item).
+- **The online rules, as data on the server** (§9 #18; `engine-mechanics` `onlineRules.js`,
+  `GameConfigDoc.arcade.online.rules`):
+  - `zones[]`: an `arcade.zones` id that is a **current** (`force` px/s, added to a moving player's
+    velocity inside it, per sub-step — in `stepPlayer`, so the device predicts it exactly) and/or the
+    **goal** (the first player in wins the round, `+goalScore`), optionally only for some
+    `characters`;
+  - `abilities[]`: a character's `ability1` / `ability2` hits every free player of its `targets`
+    within `reach` px, off `cooldownMs` (at least 100 ms; each entry its own, so two on one button
+    both act), with `effect` `catch` (out for `ms`, then respawned at the spawn) or `stun` (held
+    still for `ms`), `+score` (a whole number, ±1000; a running score is held to ±10⁹) to the user
+    per hit. A player whose status
+    ends, who respawns or who starts a round cannot be hit for 1 s (`GRACE_MS`), so a stun cannot
+    be chained straight into the next (a slow character can still be within reach when its grace
+    ends: see the known limits). **Lag compensation:** the target's place is read where the
+    user's device drew it (`Input.view`), held to at most 250 ms (`REWIND_MS`, whole steps rounded
+    down: 7 steps at 30 Hz) behind the room — a claim older than that is not believed, a future one
+    is the present — and a respawn forgets a player's past places, so nobody is hit where it no
+    longer is. Within one step, players act in the order they joined;
+  - `round`: ends at the goal or after `seconds` (the top score wins; a tie, nobody), then the next
+    starts `nextRoundSeconds` later (default 15, §14 #6) with every score 0 and everyone at the
+    spawn. Players move in every phase, so prediction holds through the pause;
+  - `module`: a **named rules module** for what the data cannot say (`ONLINE_RULES_MODULES`; one
+    today, `tag`: "it" passes on a touch, not straight back, and everyone else scores a point a
+    second; a held "it" cannot tag). `game-config` `ONLINE_RULES_MODULE_IDS` lists the same ids (the
+    gate holds them equal); an unknown module refuses the config;
+  - **bounded work:** zones are held to the field and indexed in at most 64 × 64 cells; a static
+    index is queried only over the cells that hold a shape (`motion.js` `extent`, the same results
+    as before), so a huge zone or body in a config costs nothing extra;
+  - normalized (incomplete entries dropped), resolved with defaults and limits
+    (`ARCADE_ONLINE_RULE_DEFAULTS`, `ARCADE_ONLINE_LIMITS`), and validated (unknown zone, character
+    or module ⇒ error; out-of-range numbers ⇒ warning). `OnlineGame` gains `zones`. No `/config` UI.
+- **The room** (`roomSim.ts`, `arcadeRoom.ts`, `schema.ts`): the step applies each input with its
+  character's currents, then the rules; a held player's inputs are acknowledged but move it nowhere.
+  State adds per player `score` (int32), `status` (uint8), `mark` (bool) and per room `round`,
+  `endsAt` (the step the phase ends at), `winner`; `phase` is now `waiting` / `running` / `ended`.
+  `Input` adds `view` (uint32, clamped like `seq`). Events — `joined`, `left`, `ability`, `hit`,
+  `caught`, `roundStart`, `roundEnd` — go to every device as **one `event` message per step that
+  had any** (an array, in order; `ONLINE_EVENT`), after the patch that shows them (`afterNextPatch`).
+  `round` is a uint32.
+- **Gates:**
+  - `check:netcode` (root, 15 checks, ~7 s; discovered by `check:all`): the predictor, the
+    interpolator and the render clock alone, then **a room of six devices** over the room's own code
+    on a virtual clock, at 50 / 150 / 250 ms one-way latency, ±50 ms jitter and 2 / 3 / 5 % loss, on
+    two links — *reliable* (the real WebSocket: a lost packet is resent after 200 ms + one round
+    trip and holds up what follows) and *datagram* (lost messages are gone, late ones overtake).
+    Reliable: **0 corrections** and every rest the room's place bit for bit. Datagram: 549–583
+    corrections per run, every one converged — the own player is drawn within 0.01 px of the room
+    200 ms after the state acknowledging its last input — and the own player never moves more than
+    1.5 steps in a frame. Both: everyone else is drawn **at most 0.63 of the most the room moved
+    them in one step, per frame**, never more than 1 step off the room's path, and, on the datagram
+    link, 100 ms + the latency behind (±the jitter). A current (with a per-character one) is
+    predicted with 0 corrections. A reordered state is stale by its step; a fast character is not
+    taken for a teleport. A source scan holds `online.ts` to this netcode.
+  - `check:online-rules` (root, 17 checks, ~8 s): the block's normalizer, resolver and validator;
+    the module lists agree; no rules ⇒ P10.14 behaviour; the goal (only its characters), the pause,
+    round 2 at the spawn with scores reset; the clock, the top score, a tie; catch (inputs acked,
+    no movement, respawn, then the grace), reach, targets, cooldown; stun; two abilities in one
+    input, two on one button; no hit at a place left by a respawn; a config of huge zones and
+    bodies stays cheap (600 steps well under 1.5 s); whole, bounded scores; lag compensation within / beyond the
+    window and from the future; `tag`; 3 000 random steps replay to the same bodies, scores and
+    events. *Live* on a real Colyseus server with SDK clients: the catch, score and status reach
+    both devices, events after their patch; the goal ends the round for everyone and round 2 starts;
+    a leave is told.
+  - `check:room-sim`: unchanged but for `view` in the clamped input's keys (36 checks pass).
+  - `family.fixture.ts`: the two `resolveArcadeOnline` expectations gain the resolved empty rules.
+- **Verified by playing:** `scripts/playtest/online-play.mjs` on the branch runtime: **17 / 17** —
+  P10.14's 13 plus four: page A draws its own player moving within its first frames; at rest, both pages
+  draw every player exactly where the room has it (prediction and interpolation converged); the
+  mover is page A's own player.
+- **Bundle size** (the release build's `index.html`, gzip -6; base 70c84b8 vs this branch):
+  3,958,113 B / 1,350,567 B gz → 3,968,817 B / 1,354,485 B gz: **+10.7 KB raw, +3.9 KB gz (+0.29 %)**,
+  on top of P10.14's accepted +59 KB gz. No new dependency: the netcode and rules are our own
+  `engine-mechanics` code; the Colyseus SDK's own `predict` module is not used.
+- **Slot / match-3 / offline-arcade parity:** every new runtime path is in `game/online.ts`, reached
+  only when `gameMechanic().room` (P10.14's gate). `stepPlayer` without a `level`, or with no input,
+  is P10.14's step exactly. Edited shared modules: `engine-mechanics` `online.js` / `index.ts`,
+  `game-config` `family.ts` / `familyValidate.ts` / `arcadeOnline.ts`, `determinism.ts` (an optional
+  probe field). The current-games harness is not edited.
+- **Chosen in P10.15, owner may overturn** (neither plan fixes them):
+  - **our own netcode in `engine-mechanics`, not Colyseus' `predict` module** (§6 expected Colyseus
+    to do the bookkeeping): the same dependency-free file runs in the gate on a virtual clock through
+    simulated loss and in the runtime, it keeps the device's float64 fold instead of the wire's
+    float32, and it adds under 4 KB gz where the SDK's `predict` is a 3,000-line module;
+  - lag compensation by **`Input.view`** (the device names the step it drew), held to 250 ms — the
+    standard trade: a modified client can claim up to 250 ms of hindsight, no more;
+  - currents push only on a step that applies an input, so a starved or dropped player stands still
+    (P10.14's "a body is the fold of its applied inputs" holds);
+  - a hit is decided on the **centre distance** (reach), not the bodies' shapes; abilities have no
+    aim (`aim*` still clamped to the field);
+  - players still **do not collide** with one another; events are one message type, `event`;
+  - the render clock's 25 % catch-up / 10 % slow-down and the 100 ms smoothing;
+  - the 1 s grace after a status, a respawn or a round's start, and the 100 ms minimum cooldown.
+- **Known limits:**
+  - **on a lossy WebSocket, a lost packet holds up everything behind it** (head-of-line): with 5 %
+    loss at 250 ms the others are drawn ~790 ms behind on average (`check:netcode` reports it); the
+    prediction stays exact. An unreliable channel would fix it, but `socketGuard.ts` refuses
+    unreliable input frames because of the schema 5.0.42 decoder loop (P10.14);
+  - **room events do not reach Flow** (`onPlayerJoined`, `onHit`, `onCaught`, `onRoundEnd`, …), and
+    **scores are not bound to `var:` sources** — the server-owned variables and their validator rule
+    (`variable-server-owned`) — so a HUD cannot show them yet (open item);
+  - **predicted events** (§6: a swipe played the moment it is pressed) are not drawn: the device
+    has no ability presentation yet;
+  - a player that is `out` is still drawn (where it was caught) until it respawns;
+  - the 250 ms rewind covers an honest view only up to about a 120 ms round trip (the view is the
+    100 ms interpolation delay plus the trip plus a step behind): a slower player's hits are tested
+    against a later place than it saw;
+  - everyone respawns at the one `online.spawn`; the grace is the only spawn protection;
+  - P10.14's limits on the world camera, `arcade.characters` and the Flow board effects online stand.
 
 **Card C1 — the rules engine (built 2026-10-27; in review).** [card-games.md](../design/card-games.md)
 §12's C1 row (§2, §3), in one PR. No caller yet: the AI is C2, and the family, runtime and sample
@@ -444,8 +585,9 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   - `ack` is **in the room state** (as well as Colyseus' own reconciliation ack), so a device and the
     gate read which input a place came from;
   - the room's config comes from **`GAME_SERVER_CONFIG_URL` / `_DIR`**, read once per room, cached
-    60 s per key; until the publish writes a published online config (open item), the interim
-    source is the launcher's token-gated `/api/game-config/doc` (the authored config);
+    60 s per key; in production that URL is the launcher's `GET /api/game-server/config`
+    (2026-10-27), which serves the PUBLISHED snapshot's config behind its own read-only bearer
+    (`GAME_SERVER_CONFIG_SECRET`; INFRA "Invisible Game Server");
   - the address and game come in as **`?rooms_url=` / `?rooms_game=`** (else `?project=`), not yet
     written by the publish (open item);
   - the defaults: 16 players, 30 Hz × 2, 20 Hz state, 60 s rejoin, the field's centre, layer
@@ -461,10 +603,10 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
     (`validateArcadeOnline` warns at `arcade.characters`); for the same reason the loop's Flow
     board effects and values are not registered online, so Flow that targets them does nothing;
   - keys typed into a text field are not inputs (P10.11's `typingInto` rule);
-  - **no prediction or smoothing** (P10.15): a device draws a player where the last 20 Hz patch put
-    it, so motion is visibly steppy and the own player answers a round trip late;
-  - players do not collide, score or end a round — the rules as data are P10.15; `phase` never
-    leaves `running`;
+  - *(lifted by P10.15)* no prediction or smoothing: a device drew a player where the last 20 Hz
+    patch put it, so motion was steppy and the own player answered a round trip late;
+  - players do not collide; *(lifted by P10.15)* they did not score or end a round, and `phase`
+    never left `running`;
   - a dropped device's in-flight inputs are discarded on rejoin (Colyseus freezes the buffer), and a
     burst beyond 60 waiting inputs drops the oldest, so a device's own replay can then differ until it
     reconciles (P10.15);
@@ -1657,56 +1799,77 @@ game, bundle or screen changes.
 
 ## Open items / next
 
-0. **P10.14 follow-ups:** (a) the **bundle cost** (+59 KB gz for every game; owner): accept it as
+0. **P10.15 follow-ups:** (a) **online Flow events** (`onPlayerJoined`, `onPlayerLeft`, `onHit`,
+   `onCaught`, `onRoundEnd`) from the room's `event` messages, and **server-owned variables** (the
+   room's scores bound as read-only `var:` sources; the validator's `variable-server-owned`) — the
+   design's P10.15 row names both; (b) predicted ability events (a swipe drawn when pressed) and
+   hiding an `out` player; (c) Salmons' own rules (the climb, the line) as `ONLINE_RULES_MODULES`
+   entries and `check:online-rules` on its recorded traces, with the P10.16 rebuild; (d) a `/config`
+   section for `arcade.online.rules`; (e) the online world camera following the predicted player.
+1. **P10.14 follow-ups:** (a) the **bundle cost** (+59 KB gz for every game; owner): accept it as
    static until the per-family runtime build (item 9), or ship the SDK as a separate file only an
    online game fetches; (b) the **publish** writes `rooms_url` into an online game's launch URL and
-   a **published** online config where the game server reads it (§9 "read from the same published
-   snapshot"), and refuses an online game with no server address (§10); (c) a `/config` section for
-   `arcade.online`; (d) the Railway service and DNS (owner, INFRA steps), then the `deploy-drift`
-   entry; (e) a **read-only config token** for the game server — the interim source puts the
-   launcher's deploy token in its env, which can do more than read configs.
-1. **Live real-money match-3** waits on a real provider's match-3 wire (§9 #2); our wire
+   refuses an online game with no server address (§10) — the game server already reads the
+   published snapshot's config (`/api/game-server/config`, 2026-10-27); (c) a `/config` section for
+   `arcade.online`; (d) the Railway service, DNS and the config credential (owner, INFRA steps),
+   then the `deploy-drift` entry. (The read-only config token, once (e), is done: 2026-10-27.)
+2. **Live real-money match-3** waits on a real provider's match-3 wire (§9 #2); our wire
    (`docs/reference/match3-wire.md`) and its facade mapping are rewritten when one arrives.
-2. **Delivering a non-slot game** stays off: a rules game never (no wallet), an RGS match-3 game
+3. **Delivering a non-slot game** stays off: a rules game never (no wallet), an RGS match-3 game
    once the partner wire exists (§9 #2). Publishing to our test server is on (2026-10-25).
-3. `/flow-v2` Preview running the board module on its virtual clock with a seed (§5.1).
-4. The `swap` flight kind in `/symbols` → Flights, so its look is authorable.
-5. The State machine tab's stage preview and the `/flow-v2` preview do not yet drive drag, move,
+4. `/flow-v2` Preview running the board module on its virtual clock with a seed (§5.1).
+5. The `swap` flight kind in `/symbols` → Flights, so its look is authorable.
+6. The State machine tab's stage preview and the `/flow-v2` preview do not yet drive drag, move,
    swipe or Align Target (P10.4's "Not done here").
-6. **Confirm no custom kind is named `match3` or `arcade`** in R2 (`_shared/editor-kinds/`). Either
+7. **Confirm no custom kind is named `match3` or `arcade`** in R2 (`_shared/editor-kinds/`). Either
    is now hidden behind its built-in (and warned about in the launcher log, never overwritten).
    Needs R2 access, which neither build had.
-7. The runtime still prices and draws the `match3` arm as the lines default (`payoutDivisor`,
+8. The runtime still prices and draws the `match3` arm as the lines default (`payoutDivisor`,
    `winLineShapeFor`). An RGS match-3 game never reads either (its wins are the server's amounts,
    presented by the cascade, with no win lines), so P10.6 left them; honour the arm (divisor 1) if
    anything starts reading it.
-8. **A per-family runtime build** (owner, 2026-10-25, later): `_runtime/match3` built with the
+9. **A per-family runtime build** (owner, 2026-10-25, later): `_runtime/match3` built with the
    match-3 branch, slot runtimes built without it (a build-time define + dead-code elimination), so
    slot bundles stop carrying the match-3 code (P10.5 + P10.6: about +24 KB raw / +8.6 KB gz) and the
    arcade code (P10.8: +19.0 KB raw / +6.6 KB gz; P10.12: +8.9 KB raw / +3.0 KB gz).
-9. Add the RGS sample as a current-games fixture (`cg-match3-rgs`) and the harness's `protocolFor`
+10. Add the RGS sample as a current-games fixture (`cg-match3-rgs`) and the harness's `protocolFor`
     copy, in a harness change the owner reviews; likewise an arcade fixture (`cg-arcade`), which
     needs a key-press step in the screen-script format.
-10. **Swap the Salmons art into the arcade sample** (owner): the sample draws placeholder shapes. When
+11. **Swap the Salmons art into the arcade sample** (owner): the sample draws placeholder shapes. When
     the Salmons art pass (S0) lands, re-skin `arcadeSalmon` / `arcadeBear` / `arcadeHook` /
     `arcadeFish` (or a Salmons project's own components) in the Component Editor and size the config
     bodies to the art.
-11. Touch steering for the P10.8 sample: the controllers exist (P10.11); the sample keeps its Flow
+12. Touch steering for the P10.8 sample: the controllers exist (P10.11); the sample keeps its Flow
     steering until it is given a character.
-12. **The isometric projection and ground-depth order** (§9 #19 places it in P10.12; the §8 row
+13. **The isometric projection and ground-depth order** (§9 #19 places it in P10.12; the §8 row
     and the P10.12 brief did not): the next arcade piece Salmons needs, before or with P10.13.
-13. `playCinematic` holding the arcade camera for a cutscene and handing it back (§4.4).
-14. Abilities (hit zones, cooldowns, `onHit`) and zone forces (§4.3), left out of P10.11.
+14. `playCinematic` holding the arcade camera for a cutscene and handing it back (§4.4).
+15. Abilities (hit zones, cooldowns, `onHit`) and zone forces (§4.3) for the **offline** arcade
+    loop, left out of P10.11 (P10.15 built them for online rooms only, in `onlineRules.js`).
 
 ## Blocked (owner / external)
 
 - The A4 design, [realtime-multiplayer.md](../design/realtime-multiplayer.md), is approved
-  (2026-10-25), which settles §9 #18. **P10.14 is built; the owner stands up the `game-server`
+  (2026-10-25), which settles §9 #18. **P10.14 is merged (P10.15 adds nothing to stand up); the
+  owner stands up the `game-server`
   Railway service and the `rooms.invisiblewall.org` DNS record** (its §14 #8) — the settings are in
   [INFRA.md](../INFRA.md) "Invisible Game Server".
 
 ## Recent changes
 
+- 2026-10-27 — **P10.15 built: netcode and the online rules (A4b).** Own-player prediction and
+  reconciliation, interpolation of everyone else (`engine-mechanics` `netcode.js`), the online
+  rules as data on the server (`onlineRules.js`, `arcade.online.rules`: currents, goal, catch / stun
+  with lag compensation, rounds, scores, the `tag` module), room events, `check:netcode`,
+  `check:online-rules`. +3.9 KB gz. Not deployed. Online Flow events, server-owned variables and
+  predicted events stay open (P10.15 follow-ups). Detail above.
+
+- 2026-10-27 — **The game server reads the published config with its own credential.** The
+  launcher's `GET /api/game-server/config?project=` answers `{ projectKey, snapshot, doc }` from the
+  project's published snapshot (not the authored doc), behind a bearer `GAME_SERVER_CONFIG_SECRET`
+  that opens nothing else; 404 = not playable, 502 = R2 / unreadable snapshot. The game server is
+  unchanged (it already sends `GAME_SERVER_CONFIG_TOKEN` as a bearer and accepts `{ doc }`). Closes
+  P10.14 follow-up (e). Gate `check:game-server-config`. Setup: INFRA "Invisible Game Server".
 - 2026-10-27 — **Card C1 built: the rules engine** (`engine-mechanics` `cards.js`, `rngNext` in
   `board.js`, `check:card-rules`, `check:card-library`). No caller, no game changes. Detail above.
 - 2026-10-27 — **Game repo builds fixed after P10.14.** #1375 declared `@colyseus/sdk` in

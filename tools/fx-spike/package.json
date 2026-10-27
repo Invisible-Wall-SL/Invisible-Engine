@@ -30,7 +30,8 @@
 		"shader-motion": "node shaderMotion.mjs",
 		"particle-material": "node particleMaterial.mjs",
 		"fx-page": "node fxPage.mjs",
-		"nine-slice-parity": "node nineSliceParity.mjs"
+		"nine-slice-parity": "node nineSliceParity.mjs",
+		"fx-previews": "node fxPreviews.mjs"
 	},
 	"devDependencies": {
 		"tsx": "4.23.15",

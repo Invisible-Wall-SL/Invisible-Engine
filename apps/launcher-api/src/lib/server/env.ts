@@ -314,6 +314,12 @@ export const ENV = {
 	get PIPELINE_CI_TOKEN() {
 		return (env.PIPELINE_CI_TOKEN ?? '').trim();
 	},
+	/** Bearer token the Invisible Game Server reads a game's published config with, from
+	 *  `GET /api/game-server/config` and nowhere else (it never opens `/api/deploy` or an export).
+	 *  Secret: no code default; trimmed like {@link PIPELINE_CI_TOKEN}. Unset ⇒ every read is a 401. */
+	get GAME_SERVER_CONFIG_SECRET() {
+		return (env.GAME_SERVER_CONFIG_SECRET ?? '').trim();
+	},
 	/** Bearer token the Director worker calls `/api/director/adapter/*` with
 	 *  (`docs/director/DECISIONS/0002-tool-adapters.md`). Secret: no code default; trimmed like
 	 *  {@link PIPELINE_CI_TOKEN}. Unset ⇒ every adapter call answers 503, never an open gate. */

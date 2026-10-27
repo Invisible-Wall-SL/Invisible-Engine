@@ -1,7 +1,7 @@
 import { soundOptionsFor } from '$lib/soundOptions';
 import { collectSceneCueNames } from '$lib/sceneCues';
 import { collectElementFxTargets } from '$lib/elementFxTargets';
-import { collectContainerTaps } from '$lib/containerTaps';
+import { collectArmedOnMountTaps, collectContainerTaps } from '$lib/containerTaps';
 import { loadSoundsDoc } from '$lib/server/soundsStorage';
 import { error, redirect } from '@sveltejs/kit';
 import { SESSION_COOKIE } from '$lib/server/auth';
@@ -139,6 +139,7 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 	// so the validator flags it — but only where this map actually resolved the container (a scene-less
 	// project keys nothing and the checks stay silent). Same projection shape as the cue harvest above.
 	const containerTaps = collectContainerTaps(doc.containers, layout.scenes ?? []);
+	const armedTaps = collectArmedOnMountTaps(doc.containers, layout.scenes ?? []);
 
 	// §6.1 — the container-event surface (see `projectContainerEvents`).
 	const containerEvents = projectContainerEvents(doc.containers, layout.scenes ?? []);
@@ -214,6 +215,9 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		 *  surface). Fed to `validateFlowDoc` so an unreleasable round-block hold is caught at authoring
 		 *  time; a container absent from the map is unresolved and stays unchecked. */
 		containerTaps,
+		/** ContainerId → its scene's tap surfaces armed on mount, for `startupTapIssues`: such a
+		 *  screen shown at start-up and never hidden covers the idle game. */
+		armedTaps,
 		gameModes,
 		/** The Game Config add-ons (`flowAddOnsOf`) the vocabulary composes in (`withAddOns`), and
 		 *  what "＋ Add overlay steps" grafts. No block ⇒ the kind's vocabulary alone. */
