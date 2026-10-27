@@ -74,10 +74,11 @@
   around its moment, as `withFreeSpinScreenHolds` does, or arm the tap after a signal).
   `validateFlowV2Against` lists it FIRST so the refusal (which quotes three errors) always names
   it; the stored-flow and shipped-bundle checks, the desktop bake and the `/flow-v2` Validation
-  panel all carry it; `allowInvalidFlow` still overrides. No project data was edited:
-  **`unassigned/cloud` now refuses to republish until its flow is fixed** (remove the two start-up
-  shows of `freeSpinIntro` / `freeSpinOutro` and splice the intro/outro holds in, or re-seed the
-  flow), or an admin publishes with the override. **Verified:** `check:startup-tap-surface` (25
+  panel all carry it; `allowInvalidFlow` still overrides. No project data was edited; the owner
+  has since unpublished `cloud` and dropped it from the current-games harness, so the check now
+  guards the next project to mix an old cue-model flow with the new free-spin scenes (fix: remove
+  the start-up shows of `freeSpinIntro` / `freeSpinOutro` and splice the intro/outro holds in, or
+  re-seed the flow). **Verified:** `check:startup-tap-surface` (25
   asserts — every slot starter clean against its own scenes; the cloud shape flagged on the intro
   only; each way out cleared; the scene projection), the 80 `flow` checks and every launcher check
   that runs the publish gate, under `check:all`. ⏳ Not browser-verified in the auth-gated editor.
