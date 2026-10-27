@@ -1033,14 +1033,14 @@
 	);
 	const timelineEvents =
 		timelinePlayer || stateMachineRunner
-			? getContextEventEmitter<{ type: string }>()?.eventEmitter
+			? getContextEventEmitter<{ type: string; name?: string }>()?.eventEmitter
 			: undefined;
 	/**
 	 * A cue a component timeline crosses. `signal:x` fires on this instance's own bus (so a
 	 * `hiddenUntilSignal`, a tap gate or another timeline can follow it) and restarts every other
 	 * timeline playing on `x` here — never the one that crossed it, which would loop it forever.
-	 * `sfx:` / `music:` are dropped: this package has no sound player, and broadcasting a sound's
-	 * bare name could collide with a real game event. `event:x` raises the def's event `x` (Phase 6),
+	 * `sfx:x` / `music:x` play `x` through the game's own `soundOnce` / `soundMusic` event (this
+	 * package has no sound player; a game that has none ignores it). `event:x` raises the def's event `x` (Phase 6),
 	 * on a def that declares events. Any other cue (`fx:`) is broadcast by its bare name, the seam a
 	 * screen timeline's cues use. The routing is `routeComponentCue`.
 	 */
@@ -1051,6 +1051,13 @@
 			return;
 		}
 		if (route.kind === 'drop') return;
+		if (route.kind === 'sound') {
+			timelineEvents?.broadcast({
+				type: route.channel === 'music' ? 'soundMusic' : 'soundOnce',
+				name: route.name,
+			});
+			return;
+		}
 		const name = route.name;
 		if (route.kind === 'broadcast') {
 			timelineEvents?.broadcast({ type: name });

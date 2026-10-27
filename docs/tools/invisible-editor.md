@@ -1718,8 +1718,9 @@ Three more kinds of row sit in the timeline's track area, under the keyed node's
   `signal:…`, and selects it so you can type the rest of the name in the inspector on the right
   (or pick an effect there for an `fx:` cue, or type `sfx:` / `music:` for a sound). In the game a
   cue fires when the playhead passes it: on a component, a `signal:` cue is a signal its instance
-  hears (another of its timelines can play on it); Flow can react to it too. Scrubbing never fires
-  cues. All cues share one **⚡ cues** row; drag a marker to move it.
+  hears (another of its timelines can play on it); Flow can react to it too. An `sfx:` / `music:`
+  cue plays that sound, on a component as on a screen; the editor's preview plays no sound.
+  Scrubbing never fires cues. All cues share one **⚡ cues** row; drag a marker to move it.
   - **Cues and Element FX.** On a **screen** timeline, a `signal:NAME` cue plays every
     [Element FX](#element-fx--effects-that-play-on-an-element) whose trigger is _On cue_ with the
     cue `NAME`, as a Flow `fireCue` named `NAME` would: the screen's own entries, its nodes', and

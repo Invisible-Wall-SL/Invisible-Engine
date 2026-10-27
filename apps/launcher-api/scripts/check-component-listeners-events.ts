@@ -628,8 +628,8 @@ for (const event of POINTER) {
 			{ kind: 'broadcast', name: 'winShown' },
 			{ kind: 'signal', name: 'x' },
 			{ kind: 'broadcast', name: 'spark' },
-			{ kind: 'drop' },
-			{ kind: 'drop' },
+			{ kind: 'sound', channel: 'once', name: 'pop' },
+			{ kind: 'sound', channel: 'music', name: 'bed' },
 			{ kind: 'broadcast', name: 'bare' },
 			{ kind: 'drop' },
 		],
@@ -845,11 +845,12 @@ for (const event of POINTER) {
 			instanceSvelte.includes('schedule: (drain) => queueMicrotask(drain),'),
 			instanceSvelte.includes('onDestroy(() => eventDispatcher?.destroy());'),
 			instanceSvelte.includes('routeComponentCue(cue, !!def?.events?.length)'),
+			instanceSvelte.includes("type: route.channel === 'music' ? 'soundMusic' : 'soundOnce',"),
 			/const fireTrigger = \(id: string\): void => \{\s*const targets = signalToTargets\.get\(id\);\s*if \(targets\) fireCue\(targets\);\s*fireComponentSignal\(id\);/.test(
 				instanceSvelte,
 			) && instanceSvelte.includes('\t\t\t\t\tfireTrigger,\n'),
 		],
-		[true, true, true, true],
+		[true, true, true, true, true],
 	);
 	eq(
 		'the game hands the raise’s kind to the resolver',

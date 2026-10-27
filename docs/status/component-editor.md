@@ -103,6 +103,17 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-27 — **A sound cue on a component's timeline plays** (branch `claude/fervent-ride-ccp7qf`,
+  in review). Reported on `commonoverlayproject`: `FirecrackerBody`'s **Fired** timeline cues
+  `sfx:small_explosions` at 0.867 s and the game played nothing. `routeComponentCue` dropped every
+  `sfx:` / `music:` cue on a component ("this package has no sound player"), while the same cue on a
+  screen timeline or a cinematic plays (`FlowV2Cinematics`), and the editor offers the SFX pick on
+  both. The route is now `{ kind: 'sound', channel, name }`, and `ComponentInstance` broadcasts it on
+  the game bus as the game's own `soundOnce` / `soundMusic` event, which `Sound.svelte` plays (an
+  unknown name is silent, as for every `soundOnce`). The editor preview still plays no sound
+  (`placeLayers`). ⚠️ Every component timeline that already carries an `sfx:` / `music:` cue starts
+  sounding in game on the next runtime release; that is the point, but a project with a stale cue
+  will hear it. Gate: `check:component-listeners-events` (routing and wiring).
 - 2026-10-26 — **1D blend states** (P10.11, branch `claude/p10-11-arcade-characters`, in review;
   [game-families](game-families.md) P10.11). A state machine state can blend two or more timelines
   by a number input (`SmState.blend`): the two points around the value mix with `blendNodeSamples`,

@@ -83,11 +83,14 @@ export function eventCueId(cue: string): string | undefined {
  * Where a cue a COMPONENT timeline crosses goes. `event:` raises one of the def's events — only on
  * a def that declares some; on any other it keeps its old meaning (broadcast by its bare name), so
  * nothing that played before changes. `signal:` fires on the instance's own bus. `sfx:` / `music:`
- * are dropped (this package has no sound player). Anything else is broadcast by its bare name.
+ * are a sound: this package has no player, so the instance hands it to the game as its own
+ * `soundOnce` / `soundMusic` event, as a screen timeline's sound cue plays. Anything else is
+ * broadcast by its bare name.
  */
 export type ComponentCueRoute =
 	| { kind: 'event'; cue: string }
 	| { kind: 'signal'; name: string }
+	| { kind: 'sound'; channel: 'once' | 'music'; name: string }
 	| { kind: 'broadcast'; name: string }
 	| { kind: 'drop' };
 
@@ -96,7 +99,9 @@ export function routeComponentCue(cue: string, declaresEvents: boolean): Compone
 	const ns = sep > 0 ? cue.slice(0, sep) : '';
 	const name = sep > 0 ? cue.slice(sep + 1) : cue;
 	if (ns === 'event' && declaresEvents) return { kind: 'event', cue };
-	if (!name || ns === 'sfx' || ns === 'music') return { kind: 'drop' };
+	if (!name) return { kind: 'drop' };
+	if (ns === 'sfx' || ns === 'music')
+		return { kind: 'sound', channel: ns === 'music' ? 'music' : 'once', name };
 	return ns === 'signal' ? { kind: 'signal', name } : { kind: 'broadcast', name };
 }
 
