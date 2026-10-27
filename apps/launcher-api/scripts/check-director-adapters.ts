@@ -788,6 +788,8 @@ for (const [key, id] of [
 	['test_server/games.json', 'publish'],
 	['test_server/plain/index.html', 'publish'],
 	['services/director-worker/agents/qa.md', 'agent_definitions'],
+	['services/director-worker/families/slot.md', 'agent_definitions'],
+	['services/director-worker/families/', 'agent_definitions'],
 	[prefix('plain'), 'game_config'],
 	[`${prefix('plain')}config/`, 'game_config'],
 	[`${prefix('plain')}config/backups/config-20261004.json`, 'game_config'],

@@ -32,19 +32,14 @@
 		type TemplatesAnswer,
 	} from './director.client';
 	import type { PageData } from './$types';
+	import {
+		MOCKUP_SCREEN_TAGS,
+		PACK_FAMILY_LABELS,
+	} from '../../../../../../services/director-worker/src/familyPack';
 
 	let { data }: { data: PageData } = $props();
 
 	const STYLE = '__style__';
-	const SCREEN_TAGS = [
-		'Base game',
-		'Hold and Win bonus',
-		'Bonus',
-		'Free spins',
-		'Big win',
-		'Paytable',
-		'Intro',
-	];
 
 	// ── What the screen offers ────────────────────────────────────────────────
 	let offer = $state<TemplatesAnswer | null>(null);
@@ -80,6 +75,12 @@
 	const templatesOf = (kind: string) => offer?.templates.filter((t) => t.gameType === kind) ?? [];
 	const templates = $derived(templatesOf(gameType));
 	const template = $derived(templates.find((t) => t.key === templateKey) ?? null);
+	const screenTags = $derived(MOCKUP_SCREEN_TAGS[template?.family ?? 'slot']);
+	const notReady = $derived(
+		template?.familyPack === 'not_ready'
+			? `Director has no ready pack for ${PACK_FAMILY_LABELS[template.family]} games yet, so it cannot re-theme this template.`
+			: '',
+	);
 	const templateRegions = $derived(
 		template ? template.regionGroups.reduce((n, g) => n + g.regions, 0) : 0,
 	);
@@ -179,7 +180,7 @@
 		for (const file of list) {
 			const form = new FormData();
 			form.set('action', 'upload');
-			form.set('tag', SCREEN_TAGS[0]);
+			form.set('tag', screenTags[0]);
 			form.set('file', file);
 			try {
 				await postMockups(form);
@@ -238,7 +239,7 @@
 
 	/** The options a card's select offers: the screens, a tag typed elsewhere, and style-only. */
 	function tagOptions(tag: string, styleOnly: boolean): string[] {
-		return styleOnly || SCREEN_TAGS.includes(tag) ? SCREEN_TAGS : [tag, ...SCREEN_TAGS];
+		return styleOnly || screenTags.includes(tag) ? screenTags : [tag, ...screenTags];
 	}
 
 	// ── The estimate against the cap ──────────────────────────────────────────
@@ -314,6 +315,7 @@
 		if (!PROJECT_KEY_PATTERN.test(k)) return void (createErr = PROJECT_KEY_WORDS);
 		if (!name.trim()) return void (createErr = 'Name is required.');
 		if (!templateKey) return void (createErr = 'Pick a template game to re-theme.');
+		if (notReady) return void (createErr = notReady);
 		if (mockups?.startRefusal) return void (createErr = mockups.startRefusal);
 		if (images.length === 0 && !notes.trim()) {
 			return void (createErr = 'Describe the style in the notes, or upload mockups.');
@@ -493,7 +495,9 @@
 							aria-label="Template"
 						>
 							{#each templates as t (t.key)}
-								<option value={t.key}>{t.name} · {t.key}</option>
+								<option value={t.key}
+									>{t.name} · {t.key}{t.familyPack === 'not_ready' ? ' — not ready' : ''}</option
+								>
 							{/each}
 						</select>
 					{/if}
@@ -706,7 +710,7 @@
 					<button
 						type="button"
 						class="primary"
-						disabled={creating || !offer || !templateKey || unpriced}
+						disabled={creating || !offer || !templateKey || unpriced || !!notReady}
 						onclick={createAndStart}
 					>
 						{createStage || 'Create project & start agents'}

@@ -156,6 +156,8 @@ A seed and the same keys replay the same game.
 
 ## Read more
 
+- `services/director-worker/families/arcade.md`: what Director's runtime agents read about this
+  family (the whole pack). The pack is the one home of that text; edit it there.
 - `docs/status/game-families.md`: P10.8, P10.11–P10.14 sections and open items 0, 9–14.
 - `docs/status/salmons.md`: the S0 art pass and the `salmons` project.
 - `docs/design/game-families.md` §1 (Salmons), §4.2–§4.5, §8; `docs/design/realtime-multiplayer.md`.

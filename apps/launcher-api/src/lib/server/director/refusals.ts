@@ -142,6 +142,13 @@ const FORBIDDEN_TARGETS: { id: RefusalId; test: (key: string) => boolean }[] = [
 		test: (k) =>
 			k === 'services/director-worker/agents' || k.startsWith('services/director-worker/agents/'),
 	},
+	// The family packs reach every agent's prompt, as the definitions do (ADR-0009 §4).
+	{
+		id: 'agent_definitions',
+		test: (k) =>
+			k === 'services/director-worker/families' ||
+			k.startsWith('services/director-worker/families/'),
+	},
 ];
 
 /**

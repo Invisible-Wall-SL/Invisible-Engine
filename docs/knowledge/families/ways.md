@@ -145,6 +145,9 @@ What a ways game is, what must not move, and what has broken before. Owner agent
 
 ## Read more
 
+- `services/director-worker/families/slot.md`: what Director's runtime agents read about this family
+  (its `ways` section under Kinds, plus the family-wide sections). The pack is the one home of that
+  text; edit it there.
 - `docs/status/engine.md` (open item 0, game-type templates) and `docs/status/engine-history.md`
 - `docs/status/game-config.md` ("Stepped grids")
 - `docs/design/game-type-templates.md` (Phases C and D, "What is left")

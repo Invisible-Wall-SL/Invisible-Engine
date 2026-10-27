@@ -154,6 +154,8 @@ pointer listeners and Align Target are `invisible-components`; spawning and `mot
 
 ## Read more
 
+- `services/director-worker/families/match3.md`: what Director's runtime agents read about this
+  family (the whole pack). The pack is the one home of that text; edit it there.
 - `docs/status/game-families.md` (P10.2–P10.6 and "Publishing playable non-slot games")
 - `docs/design/game-families.md` (§2, §3, §4.1, §7, §8)
 - `docs/reference/match3-wire.md`, `docs/reference/play4fun-protocol.md`
