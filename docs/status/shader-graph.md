@@ -18,8 +18,8 @@ GLSL node (#1349). 8d (particle materials) is decided
 shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is merged
 (#1366); 8d.3 (the material in the game) is merged (#1378); 8d.4 (the ship chain, proven) is
 merged (#1384); 8d.5 (`/fx` authoring) is merged (#1392); 8d.6 (the other previews) is
-merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) is built and
-in review; 8d.8 (play-QA and calibration) is next.
+merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) is merged
+(#1423); 8d.8 (play-QA and calibration) is next.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -285,7 +285,8 @@ in review; 8d.8 (play-QA and calibration) is next.
     (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
     shader). Built as 8d.1–8d.8, one PR each (its §15). A game plays a material from 8d.3; no
     tool authors one from 8d.5.
-    - **8d.7, `/shaders`: Made for particles and the Particles preview.** Built, in review.
+    - **8d.7, `/shaders`: Made for particles and the Particles preview.** Merged (#1423,
+      2026-10-27).
       Guides: `docs/tools/shader-graph.md` (Made for, the Particles preview), `docs/tools/fx.md`
       (picker order).
       - **`ShaderGraphDoc.madeFor`** (`'particles'` or absent; `engine-shadergraph` types, doc,
@@ -661,7 +662,8 @@ in review; 8d.8 (play-QA and calibration) is next.
 
 ## Recent changes
 - 2026-10-27 — **Step 8d.7: `/shaders` Made for particles and the Particles preview** (see
-  "Current state"). Step 8d.6 merged (#1407).
+  "Current state"). Merged (#1423): CI green; Current games 8 pass, 0 fail, 0 changed screens
+  (it touched the shared runtime's reader and debug line). Step 8d.6 merged (#1407).
   - **Proof.** `compile.fixture.ts` 213; `check:shader-editor` 263; `fx-previews` 78;
     `shader-page` 42 (new); `fx-page` 31; fx-spike `model` 116; `particle-material`;
     `material-behavior`; `check:element-fx`; `check:shader-pipeline` 149; `check:launcher-gates`
