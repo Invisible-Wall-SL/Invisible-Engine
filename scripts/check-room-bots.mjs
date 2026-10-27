@@ -89,7 +89,6 @@ const roomOf = (online, seed = 7, extra) =>
 	createRoomSim(gameOf(configOf(online, extra)), { seed });
 const bots = (sim) => [...sim.players.values()].filter((p) => p.bot);
 const people = (sim) => [...sim.players.values()].filter((p) => !p.bot);
-const rest = (seq) => clampInput({ seq });
 /** Step a room `n` times; each person sends `inputOf(person, step)` (default: rest). */
 const run = (sim, n, inputOf = () => ({})) => {
 	const events = [];
