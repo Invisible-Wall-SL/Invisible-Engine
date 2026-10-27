@@ -11,6 +11,24 @@ a torn BiRefNet file: [comfyui.md](comfyui.md#every-background-cutout-failed-for
 
 ## Invisible FX, Element FX and particles
 
+### particle-material failed in check:all and passed alone
+- **Symptom:** `tools/fx-spike:particle-material` red on unrelated PRs: "Max particles 10.3: 11
+  particles drawn (N)", N = 8 or 10 between runs.
+- **Cause:** first called a one-off (it passed on re-run and alone); it recurred three times, so the
+  drawn count likely depends on timing under parallel load (`particleMaterial.entry.ts`).
+- **Fix:** none yet; spun off as a separate task.
+- **Guard:** none; known flaky under parallel `check:all`. Re-run it alone before blaming a change.
+- **PR:** not recorded (2026-10-26) · session 01EPBjcvbZZxok6CZcVjTqnh
+
+### An Element FX froze the timeline under it
+- **Symptom:** a timeline cue starting Assemble from particles stopped the zoom; nothing moved on.
+- **Cause:** first told "by design". Really the editor preview copied the stage into one still, and
+  break effects (Assemble, Crash) cut a still at start; a zoom from nothing gave no size.
+- **Fix:** live break follows the element each frame; a cue on a zero-size or hidden element waits;
+  a screen's preview redraws live (a node's still still holds).
+- **Guard:** `check:element-fx` (`tools/fx-spike/elementFx.ts`); a real game run.
+- **PR:** #1331 (2026-10-25) · session 017TVs6Ky38n1yQQjwGcPyeB
+
 ### An effect on a symbol state never showed in game
 - **Symptom:** "I added an FX to Land and can't see it in game"; a melt-only explosion never played.
 - **Cause:** the board returns a symbol to `static` when its land art reports done, and a still
@@ -33,10 +51,10 @@ a torn BiRefNet file: [comfyui.md](comfyui.md#every-background-cutout-failed-for
 - **Symptom:** FX ignored outline order, covered later art, or sat at the origin (editor only).
 - **Cause:** the editor stacks one surface per kind (2D, rig, text, FX), so FX drew over all art;
   rebuilds never re-appended containers; `placement.offset` was not read. The game was right.
-- **Fix:** `depthSegments` (`editorCanvas.helpers.ts`), walked into components and groups;
-  re-append in tree order; free layers sit at `planLayer(layer).offset`.
+- **Fix:** `depthSegments` (`editorCanvas.helpers.ts`): #1222 split top-level nodes only, #1229
+  walks into components and groups; re-append in tree order; free layers at `planLayer().offset`.
 - **Guard:** `check:depth-segments`.
-- **PR:** not recorded (2026-10-15) · source: `docs/status/fx.md`
+- **PR:** #1222, #1229 (2026-10-15) · `docs/status/fx.md` · session 01NaRqqQSk29vx38T2oANXDL
 
 ### A bone-bound FX turned the opposite way in the game
 - **Symptom:** right in `/fx` and the Rigger, wrongly oriented in the exported game.

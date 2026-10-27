@@ -6,6 +6,15 @@ Covers Railway deploys, Cloudflare (DNS, tunnel), R2, CI workflows, GHCR, git wo
 launcher's Drizzle migrations on prod. URLs, env-var names and runbooks: `docs/INFRA.md` and the
 `/deploy` skill. ComfyUI and RunPod traps live in [comfyui.md](comfyui.md).
 
+### CI failed on a gate my filtered local run never ran
+- **Symptom:** the gates I picked by keyword passed, then `check-all (n/3)` went red in CI.
+- **Cause:** gates pin source: `check-respin-modes-runtime.mts` lists respin deps (`onCellLand`);
+  `check:authored-freespins` hashes `drivenSeed.ts`; two gates hash Hold and Win scene sets.
+- **Fix:** re-pin; scene sets in `test-hold-and-win-template.mjs`, `check-spins-modes-tools.ts`.
+- **Guard:** run the full `pnpm check:all` before the first push; new helpers go in new files.
+- **PR:** #1275, #1315, #1355, #1369 · session 0174mEVaXX9QzjP3pJPFZUPH, 016sy31TWY7BzxzvRsmoEkyX,
+  01FG4Tt43ghg3n3U2eTJcPq6, 01JjffiScUmKuVvKqKCgJqg5 (2026-10-20 to 2026-10-26)
+
 ### CI render shards died before rendering anything
 - **Symptom:** current-games and parity jobs failed at set-up; retries could only wait and fail.
 - **Cause:** a slow apt mirror; `timeout` killed pnpm but not the `sudo apt-get` it started, which
@@ -16,13 +25,21 @@ launcher's Drizzle migrations on prod. URLs, env-var names and runbooks: `docs/I
 - **PR:** not recorded (2026-10-22; 2026-10-23; 2026-10-26) · source: `docs/status/infra.md`
 
 ### A merged commit never deployed
-- **Symptom:** during a Railway outage a commit merged and never reached its service.
-- **Cause:** Railway deploys on the push webhook only; a Watch Paths service misses a lost deploy
-  until a later push touches its own files. A skipped service also reports `success`.
-- **Fix:** every service reports `commit` in its health check; `scripts/deploy-drift.mjs` compares
-  them with `main`, and `deploy-drift.yml` runs it after every push and keeps one issue open.
-- **Guard:** `scripts/deploy-drift.fixture.mjs` (also pins Watch Paths against `docs/INFRA.md`).
-- **PR:** not recorded (2026-10-21) · source: `docs/status/infra.md`
+- **Symptom:** a merged commit never reached its service (a Railway outage; the launcher, 10-20).
+- **Cause:** Railway deploys on the push webhook only; a lost deploy waits for a later push to that
+  service's Watch Paths (any push, for the launcher). A skipped service also reports `success`.
+- **Fix:** every service reports `commit` in its health check; `deploy-drift.yml` runs
+  `scripts/deploy-drift.mjs` against `main` after every push. Else redeploy `main` in Railway.
+- **Guard:** `scripts/deploy-drift.fixture.mjs`; check the launcher's `/_app/version.json` moved.
+- **PR:** not recorded (2026-10-20, 10-21) · status/infra.md · session 011svEdfvReDK3TEG33psQHq
+
+### CI never ran on my pull request
+- **Symptom:** Checks, Lint and svelte-check never started on a PR; it sat blocked for hours.
+- **Cause:** a merge conflict stops GitHub running `pull_request` workflows. The usual source: two
+  PRs each adding a top `Recent changes` entry to one `docs/status/*.md` (editor.md, rigger.md).
+- **Fix:** `git merge origin/main`, keep both entries, push; check mergeability before waiting.
+- **Guard:** none. Only push and `pull_request_target` checks running means: look for a conflict.
+- **PR:** #1270 (2026-10-20) · session 01Vy9y2XwRJtbLm115iUxbWX
 
 ### Dependabot PRs can never go green
 - **Symptom:** a Dependabot PR touching the runtime stays red on the required `current-games`.

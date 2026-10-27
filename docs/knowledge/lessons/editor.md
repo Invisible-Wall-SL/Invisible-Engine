@@ -9,10 +9,11 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 ### A canvas screen ended differently on a wider window
 - **Symptom:** a feature intro's curtains met on one PC and left a strip of reels open on another.
 - **Cause:** the game drew a `canvas` screen one window pixel per unit; the editor frames it at the
-  design box, so keys looked right in the editor only at that size (`LayoutScene`).
-- **Fix:** opt-in `Scene.scaleWithWindow` scales the whole screen by the design box's fit.
-- **Guard:** `check:canvas-window-scale`; `check:scene-scale-with-window` (save round trip).
-- **PR:** not recorded (2026-10-23) · source: `docs/status/editor.md`
+  design box (`LayoutScene`): curtains keyed to 1200 px each met only up to a 2400 px window.
+- **Fix:** opt-in `Scene.scaleWithWindow`; new Hold and Win projects get it ticked on intro/outro.
+  Ultrawide can still open a strip: key curtains larger and anchor them to the edges.
+- **Guard:** `check:canvas-window-scale`, `check:scene-scale-with-window`; repro at 2848x1602.
+- **PR:** #1315 (2026-10-25) · source: `docs/status/editor.md` · session 016sy31TWY7BzxzvRsmoEkyX
 
 ### A background Rect showed black past 1920 by 1080 in game
 - **Symptom:** full-bleed in the editor's Desktop frame, black edges on a bigger window in game.
@@ -24,20 +25,21 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 
 ### A rig draws in one place and selects in another
 - **Symptom:** a placed rig's art sits far from its selection box (the `R_Widget` reports, ~950 px).
-- **Cause:** repeatedly, a second copy of the placement maths: the box centred the Bounds size on
-  the origin, the rig layer ignored the screen anchor on `canvas` screens and the standard-box fit.
-- **Fix:** one origin rule (`rigOriginAnchor`) and one mapping (`placedRigTransform`,
-  `standardToWorld` in `editorCanvas.helpers.ts`); the rig layer and the box both call them.
-- **Guard:** `check:rig-origin-box` (rules 1–8). A Rigger rig built off-origin: **⊕ Centre origin**.
-- **PR:** not recorded (2026-06-20, 10-20, 10-21, 2026-10-23) · source: `docs/status/editor.md`
+- **Cause:** first blamed on the rig's origin; measuring 23 stock rigs disproved it (frames up to
+  1428 px off-centre). Really a second copy of the placement maths: the box centred the Bounds
+  size on the origin, the rig layer ignored the anchor on `canvas` screens and the box fit.
+- **Fix:** one origin rule (`rigOriginAnchor`) and one mapping (`placedRigTransform`) for both.
+- **Guard:** `check:rig-origin-box`. ⊕ Centre origin re-fits an unlocked frame first, or it drifts.
+- **PR:** #1270, #1274 (2026-10-20); earlier not recorded · session 01Vy9y2XwRJtbLm115iUxbWX
 
 ### A timeline restarted part-way or stuck on frame 0 in game
-- **Symptom:** an intro played twice; pot timelines never moved and the Flow chain after hung.
+- **Symptom:** an intro played twice or jumped back when a later intro ended (Wait off); pot
+  timelines never moved and the Flow chain after hung.
 - **Cause:** `<Cinematic>`'s re-arm `$effect` read reactive state: `time` (every tick re-ran it),
-  then `props.doc.id` through entries `<FlowV2Cinematics>` rebuilds whenever any screen comes up.
-- **Fix:** the effect reads only `$derived` doc id, start and `playId`.
-- **Guard:** `check:cinematic-ticker` (real player, ticking clock); `check:screen-timeline-mounts`.
-- **PR:** not recorded (2026-10-20, 2026-10-23) · source: `docs/status/cinematic.md`
+  then `props.doc.id` through entries `<FlowV2Cinematics>` rebuilds when any screen starts or ends.
+- **Fix:** the effect reads only `$derived` doc id, start and a per-play `playId`.
+- **Guard:** `check:screen-timeline-mounts` (only it rebuilds entries); `check:cinematic-ticker`.
+- **PR:** #1316 (2026-10-24); earlier not recorded · session 017TVs6Ky38n1yQQjwGcPyeB
 
 ### Base-game art drew over the reels after a timeline
 - **Symptom:** after the intro played, the `Reel.png` frame sat on top of the reels all session.
@@ -58,11 +60,11 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 ### A placed component looks different in the editor than in game
 - **Symptom:** frames looked alike and sat higher in the editor; each tier had its own look in game.
 - **Cause:** editor renderers resolved instances by bare id (latest def) while the game draws the
-  pinned version; a still rig drew its setup pose, the game its resting animation.
-- **Fix:** `instanceDef` + `componentPins.client.ts` (pinned versions); `applyRestingPose` with the
-  game's precedence (`restingRigPose`). Earlier: the project defaults sidecar (2026-09-17).
+  pinned version; a still rig drew its setup pose, the game its state machine's rest state. Check
+  the pin first: a v1 pin under a v5 save looks old in Scene Editor and game alike.
+- **Fix:** `instanceDef` + `componentPins.client.ts`; `applyRestingPose`, `restingStateStrip`.
 - **Guard:** `check:editor-instance-parity`. When editor and game disagree, suspect the editor.
-- **PR:** not recorded (2026-10-22) · source: `docs/status/editor.md`
+- **PR:** #1296 (2026-10-22) · source: `docs/status/editor.md` · session 01PRe8zNYgJiF1wLW4Xm3vfA
 
 ### A placed component selects a small box in the middle
 - **Symptom:** the canvas draws the whole pot, but the selection box is a small rect.
@@ -92,10 +94,11 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 ### The editor canvas turned white
 - **Symptom:** the earliest screens (Background, Base game) vanished under a white sheet.
 - **Cause:** each rig, text and FX overlay opened its own WebGL context; past the browser's 16,
-  Chrome drops the oldest and paints it opaque white.
-- **Fix:** two shared contexts copied into per-overlay 2D canvases (`sharedGl.client.ts`).
+  Chrome drops the oldest and paints it opaque white (found in headless Chromium).
+- **Fix:** two shared contexts copied into per-overlay 2D canvases (`sharedGl.client.ts`); they
+  outlive a layer, so unmount must free its rig instances and textures itself.
 - **Guard:** `check:editor-gl-contexts` fails any other editor file that opens a context.
-- **PR:** not recorded (2026-10-16) · source: `docs/status/editor.md`
+- **PR:** #1254 (2026-10-16) · source: `docs/status/editor.md` · session 018p88xDA43Xw6keRgHkv3HM
 
 ### The editor crashed on every load
 - **Symptom:** `/editor` threw `Cannot access … before initialization` on load.

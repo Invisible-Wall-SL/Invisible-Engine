@@ -17,20 +17,21 @@ runtime bundle). Screen-side traps: [editor.md](editor.md).
 
 ### A duplicated end cap drew nothing in game
 - **Symptom:** after making end caps with ⧉ Duplicate, the game drew only the middle segment.
-- **Cause:** the game was a snapshot published minutes before the copies existed, so its registry
-  had no def; `ComponentInstance` draws nothing for an unknown id. Check the publish time first.
+- **Cause:** first blamed on the copy, the 0x0 measure, the depth cap or rig layer. Really the game
+  was a snapshot published before the copies existed; `ComponentInstance` skips an unknown id.
 - **Fix:** a variant with no def falls back to the middle segment and warns once
   (`missingRepeaterVariants`); `resolveComponentClosure` reports misses via `onMissing`.
-- **Guard:** `check:component-repeat-segments`.
-- **PR:** not recorded (2026-10-23) · source: `docs/status/component-editor.md`
+- **Guard:** `check:component-repeat-segments`. Compare the publish time with the save time first.
+- **PR:** not recorded (2026-10-23) · status/component-editor.md · session 014uefTiRepQPj2icdVTrddt
 
 ### A counter inside a component rendered no segments
 - **Symptom:** a segmented counter nested in another component drew nothing.
 - **Cause:** it nested past `MAX_COMPONENT_DEPTH` (then 2, `registerComponents.ts`), and the
   nested instance never got the repeater's `index` / `count`.
-- **Fix:** depth raised to 3. Widen it only when a game needs it; the cap is cycle-guarded.
-- **Guard:** `check:component-repeat-segments`.
-- **PR:** not recorded (2026-10-23) · source: `docs/status/component-editor.md`
+- **Fix:** depth raised to 3; all three renderers cut at the same depth (the Component Editor
+  counts the open one as a level). Widen it only when a game needs it; the cap is cycle-guarded.
+- **Guard:** `check:component-repeat-segments`. A 1-2-3 in game can be an old pin, not the counter.
+- **PR:** not recorded (2026-10-23) · status/component-editor.md · session 01PRe8zNYgJiF1wLW4Xm3vfA
 
 ### A ticked game default turns off every time
 - **Symptom:** a _This game's defaults_ tick "is not getting saved, it turns off every time".

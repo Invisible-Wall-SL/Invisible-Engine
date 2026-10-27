@@ -33,6 +33,15 @@ Traps of one game type live in its family file, e.g. [lines](../families/lines.m
 - **PR:** #1374 (2026-10-26) · source: `docs/status/engine.md` ·
   [arcade.md](../families/arcade.md#known-failure-modes)
 
+### A glow was missing on one phone and fine on another
+- **Symptom:** a pink additive glow drew on a Samsung, not on a Pixel; translucent art drew dimmer.
+- **Cause:** first blamed colour space, screen mode, GPU. Really the `.ktx2` twins: Pixi took them
+  as straight alpha, so blends applied alpha twice. The Samsung, in Desktop-site mode (no "Android"
+  in the UA), got PNGs (`preferCompressedTextures`, `apps/lines/src/editor-scenes.ts`).
+- **Fix:** twins are encoded premultiplied as `.pm.ktx2` and marked so by `ktx2AlphaMode`.
+- **Guard:** `check:ktx2-premultiplied`. Test phones with `?quality=high` and `?quality=low`.
+- **PR:** #1224 (2026-10-20) · session 011svEdfvReDK3TEG33psQHq
+
 ### A render failed because a game was republished mid-run
 - **Symptom:** "mock contract changed during the run" on both sides of a game.
 - **Cause:** the plan pinned each contract by hash, but every shard re-read the live

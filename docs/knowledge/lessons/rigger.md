@@ -12,11 +12,20 @@ lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 ### The preview played a different pose from the game
 - **Symptom:** a clip previewed at scaleY 0 while the game played 1; ◆ Animate crashed on imports.
 - **Cause:** rig JSON omits key values and `time` at their defaults (scale 1, mixes 1, time 0);
-  `view.html` read them as 0 or as `undefined`.
-- **Fix:** `fillKeyDefaults` + `normalizeKeyTimes` (both via `normalizeKeys`) at open, clip import
-  and library merge. Before a bone channel's first key the preview still differs (open item 16).
-- **Guard:** `tools/rigger-spike/keydefaults.mjs` (in `check:all`).
-- **PR:** not recorded (2026-10-20; 2026-08-18) · source: `docs/status/rigger-history.md`
+  `view.html` read them as 0 or `undefined`. IK, transform, path and physics keys too.
+- **Fix:** `fillKeyDefaults` + `normalizeKeyTimes` at open, import, merge; `keyIk` writes full keys.
+  A first fill made constraints preview their first key before it; they hold setup now.
+- **Guard:** `keydefaults.mjs` (rigger-spike, in `check:all`); fields hand-listed: a lost row fails.
+- **PR:** #1278 (2026-10-20); not recorded (2026-08-18) · session 01D7kh5P1chPWf36BDrscxHF
+
+### A rig anchor moved icons half a box off-centre
+- **Symptom:** info-screen rig icons and symbol rig layers drew off-centre; a background's cover
+  rig drew about half a canvas out.
+- **Cause:** `<RigProvider anchor>` used the sprite rule (anchor x size as a local pivot), but rig
+  space is skeleton space; callers had hidden it with `anchor=0`.
+- **Fix:** anchor is a point of the Bounds frame (`rigFramePivot`); no anchor keeps the origin.
+- **Guard:** `rigBox.fixture.ts`; current-games red on test6 only (shadow moved 28 px; accepted).
+- **PR:** #1274 (2026-10-20) · session 01EDoVn8rLS4JWeAavAZh3gj
 
 ### The graph editor drew a sharp V where the bone eased
 - **Symptom:** a y or scaleY key with flat handles drew as a corner; playback was smooth.
@@ -45,11 +54,12 @@ lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 
 ### Bound FX always drew under the rig in the Rigger only
 - **Symptom:** FX ignored their draw-at-slot order in `/rigger`; the game was fine.
-- **Cause:** front and back overlays were created together and a canvas lookup gave both the
-  wrong z-index, sinking them under `#cv`.
+- **Cause:** front and back overlays were created together; each took "its" canvas as the one new
+  since it started, so the second took the first's and sank under `#cv`. Hidden while adding
+  bindings one at a time; shows on reopen then play. Not a runtime or vendor-bundle fault.
 - **Fix:** each band mounts in its own host carrying its z-index (`.fxBand`, `view.html`).
-- **Guard:** none.
-- **PR:** not recorded (2026-10-15) · source: `docs/status/rigger.md`
+- **Guard:** none; a headless-Chromium pixel sample over the rig reproduces it.
+- **PR:** #1222 (2026-10-15) · `docs/status/rigger.md` · session 01NaRqqQSk29vx38T2oANXDL
 
 ### FX forces played everywhere but the Rigger
 - **Symptom:** an FX feature worked in `/fx` and in games, not in the Rigger's preview.

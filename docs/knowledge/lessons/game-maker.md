@@ -16,12 +16,12 @@ and [design/games-deploy.md](../../design/games-deploy.md).
 
 ### A kind change shipped the old kind's flow
 - **Symptom:** `salmons`, switched Book-of → `arcade` and re-scaffolded, ran the Book-of flow.
-- **Cause:** scaffold seeds are create-only, so Rescaffold kept a doc another kind wrote; the flow
-  validated clean against its own `templateId` (`flowV2Validation.ts`).
-- **Fix:** `replaceOtherKindDocs` (`projectScaffold.ts`) replaces a doc provably of another
-  FAMILY's kind (backed up, CAS'd); Publish refuses `flow-wrong-kind` (`flowTemplateMismatch`).
+- **Cause:** scaffold seeds are create-only, so Rescaffold kept a doc another kind wrote, valid
+  against its own `templateId`. A kind-only test is wrong: older cluster projects keep `bookOf`.
+- **Fix:** `replaceOtherKindDocs` (`projectScaffold.ts`) replaces a doc only when
+  `flowTemplateMismatch` (`flowKind.ts`) finds another FAMILY's kind; Publish refuses it.
 - **Guard:** `check:project-scaffold`, `check:flow-publish-gate` §15, `check:build-provenance`.
-- **PR:** #1369 (2026-10-26) · source: `docs/status/game-maker.md`, `docs/status/flow.md`
+- **PR:** #1369 (2026-10-26) · `docs/status/game-maker.md` · session 01FG4Tt43ghg3n3U2eTJcPq6
 
 ### Desktop publish fails with a bare 409
 - **Symptom:** ☁ Publish stops on "the portal returned HTTP 409" and gives no reason.

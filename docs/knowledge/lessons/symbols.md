@@ -16,12 +16,23 @@ drawing black (#963): [hold-and-win](../families/hold-and-win.md#known-failure-m
 - **Guard:** `check:symbols-kind-gating` §5 (every kind and setup, every seed lists nothing).
 - **PR:** not recorded (2026-10-23) · source: `docs/status/symbols.md`
 
+### My Land animation played only after every reel had landed
+- **Symptom:** an authored Land state played only once all reels or cells had stopped.
+- **Cause:** first read as a base-reel bug (no delay there). Really the Hold and Win respin board:
+  a stopping cell draws `coinLand`; `land` reaches a coin only via `coinStick` in the `coinsLand`
+  beat, after the last cell stops (`apps/lines/src/game/holdAndWinPresentation.ts`).
+- **Fix:** opt-in `respinLandOnStop` ("Play Land as each cell stops").
+- **Guard:** `check:respin-land`. Ask which board first: base reels already land per reel.
+- **PR:** #1275 (2026-10-20) · session 0174mEVaXX9QzjP3pJPFZUPH
+
 ### A flying pots token showed the win frame
 - **Symptom:** the authored Highlight drew around a pots token while it flew to its meter.
-- **Cause:** the head flies as `flyToMeter`, which is in `WIN_HIGHLIGHT_SYMBOL_STATES`.
-- **Fix:** `Symbol.svelte` takes `inFlight` (no win frame, no coin label); `FlightLayer` sets it.
-- **Guard:** none.
-- **PR:** not recorded (2026-10-16) · source: `docs/status/symbols.md`
+- **Cause:** the head flies as `flyToMeter`, which is in `WIN_HIGHLIGHT_SYMBOL_STATES`; seen once
+  #1244 made the token turn. Review also caught its value label turning and mirroring with it.
+- **Fix:** `Symbol.svelte` takes `inFlight` (no win frame, no coin label); `FlightLayer` sets it and
+  draws the value label itself, upright, outside the turned container.
+- **Guard:** none; the `/symbols` preview uses plain art, so it cannot show the label bug.
+- **PR:** #1244, #1248 (2026-10-16) · `docs/status/symbols.md` · session 011L4HecTpdQ2BN9UBUUYtG1
 
 ### The grid listed symbols the game never deals
 - **Symptom:** a never-saved scatter project listed `L4` and missed `M`; pots tokens were listed
