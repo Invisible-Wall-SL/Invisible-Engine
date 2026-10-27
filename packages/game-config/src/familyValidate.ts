@@ -1,6 +1,7 @@
 import { DEFAULT_ARCADE_TARGET_TAG, type ArcadeCharacter } from './arcadeCharacters';
 import {
 	ARCADE_FIXED_HZ_RANGE,
+	ARCADE_ONLINE_BOT_DEFAULTS,
 	ARCADE_ONLINE_DEFAULTS,
 	ARCADE_ONLINE_LIMITS,
 	ONLINE_RULES_MODULE_IDS,
@@ -262,12 +263,13 @@ function validateArcadeOnline(
 	const online = doc.arcade?.online;
 	if (!online) return [];
 	const issues: GameConfigIssue[] = [];
-	if (doc.arcade?.characters?.length) {
+	const botBrains = new Set((online.bots?.characters ?? []).map((b) => b.brain));
+	if (doc.arcade?.characters?.some((c) => !botBrains.has(c.id))) {
 		issues.push({
 			severity: 'warning',
 			path: 'arcade.characters',
 			message:
-				'An online game plays only its online characters: these characters do not run in a room yet.',
+				'An online game plays only its online characters: a character no bot plays does not run in a room.',
 		});
 	}
 	const field = doc.arcade?.field;
@@ -338,7 +340,62 @@ function validateArcadeOnline(
 			message: 'Players start outside the play field; a clamped body is pulled inside at once.',
 		});
 	}
+	const nearby = online.nearby;
+	const { min, max } = ARCADE_ONLINE_LIMITS.nearby;
+	if (nearby && [nearby.w, nearby.h].some((v) => v < min || v > max)) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.nearby',
+			message: `The box a device is sent players in is held to ${min}–${max} px a side.`,
+		});
+	}
 	issues.push(...validateOnlineRules(doc));
+	issues.push(...validateOnlineBots(doc));
+	return issues;
+}
+
+/** An online game's bots (P10.16): each plays an online character with a character's brain. */
+function validateOnlineBots(doc: GameConfigDoc): GameConfigIssue[] {
+	const online = doc.arcade?.online;
+	const bots = online?.bots;
+	if (!online || !bots) return [];
+	const issues: GameConfigIssue[] = [];
+	const characters = new Set(online.characters.map((c) => c.id));
+	const brains = new Map((doc.arcade?.characters ?? []).map((c) => [c.id, c.brain]));
+	bots.characters.forEach((bot, i) => {
+		const path = `arcade.online.bots.characters[${i}]`;
+		if (!characters.has(bot.character)) {
+			issues.push({
+				severity: 'error',
+				path: `${path}.character`,
+				message: `No online character is "${bot.character}".`,
+			});
+		}
+		if (!brains.get(bot.brain)) {
+			issues.push({
+				severity: 'error',
+				path: `${path}.brain`,
+				message: `No character "${bot.brain}" with a brain is in arcade.characters, so the bot cannot decide where to go.`,
+			});
+		}
+	});
+	const L = ARCADE_ONLINE_LIMITS;
+	if (bots.characters.length > L.botCharacters.max) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.bots.characters',
+			message: `Bots play at most ${L.botCharacters.max} characters; the rest are not played.`,
+		});
+	}
+	const maxPlayers = online.maxPlayers ?? ARCADE_ONLINE_DEFAULTS.maxPlayers;
+	const fillTo = bots.fillTo ?? ARCADE_ONLINE_BOT_DEFAULTS.fillTo;
+	if (fillTo > Math.min(maxPlayers, L.fillTo.max)) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.bots.fillTo',
+			message: `Bots fill a room to ${fillTo}, but it holds ${maxPlayers}; a room fills to ${maxPlayers}.`,
+		});
+	}
 	return issues;
 }
 
