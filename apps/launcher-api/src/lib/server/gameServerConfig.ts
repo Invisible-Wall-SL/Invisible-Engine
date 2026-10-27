@@ -8,12 +8,12 @@ import { tokensMatch } from './tokensMatch';
 /** The game server's own game-key rule (`services/game-server/src/configSource.ts`). */
 export const GAME_KEY = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
+let warnedUnset = false;
+
 /**
  * True only when `authorization` is `Bearer <configured>`. An unset secret opens nothing: there is
  * no fallback to the deploy token, which also opens `/api/deploy` and every export.
  */
-let warnedUnset = false;
-
 export function gameServerAuthorized(authorization: string | null, configured: string): boolean {
 	if (!configured) {
 		if (!warnedUnset) {
