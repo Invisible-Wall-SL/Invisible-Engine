@@ -28,6 +28,7 @@ export const CONFIG_SECTIONS = [
 	'winLevels',
 	'match3',
 	'arcade',
+	'card',
 ] as const;
 
 export type ConfigSection = (typeof CONFIG_SECTIONS)[number];
@@ -49,8 +50,11 @@ const MATCH3_RULES: readonly ConfigSection[] = ['grid', 'symbols', 'sounds', 'ma
 
 const ARCADE: readonly ConfigSection[] = ['arcade'];
 
+/** A card game's cards and decks are edited in the Card Library; `/config` shows its rules. */
+const CARD: readonly ConfigSection[] = ['card'];
+
 const SLOT_SECTIONS: ReadonlySet<ConfigSection> = new Set(
-	CONFIG_SECTIONS.filter((s) => s !== 'match3' && s !== 'arcade'),
+	CONFIG_SECTIONS.filter((s) => s !== 'match3' && s !== 'arcade' && s !== 'card'),
 );
 
 /** The sections `/config` shows for a family and outcome. The Raw JSON editor shows for all. */
@@ -60,6 +64,7 @@ export function configSectionsFor(
 ): ReadonlySet<ConfigSection> {
 	if (family === 'match3') return new Set(outcome === 'rules' ? MATCH3_RULES : MATCH3_RGS);
 	if (family === 'arcade') return new Set(ARCADE);
+	if (family === 'card') return new Set(CARD);
 	return SLOT_SECTIONS;
 }
 
@@ -71,4 +76,4 @@ export const configSectionsOf = (
 /** Does the Symbols section show pays? Only where a symbol is worth money: a slot, or a match-3
  *  game the RGS decides. */
 export const configShowsPays = (doc: Pick<GameConfigDoc, 'family' | 'outcome'>): boolean =>
-	resolveOutcome(doc) === 'rgs' && resolveFamily(doc) !== 'arcade';
+	resolveOutcome(doc) === 'rgs' && resolveFamily(doc) !== 'arcade' && resolveFamily(doc) !== 'card';

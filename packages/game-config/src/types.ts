@@ -24,6 +24,7 @@ import type { CoinBoard } from './coinBoard';
 import type { GameSounds } from './sounds';
 import type { GameModeDecl } from './modes';
 import type { BonusImport } from './bonusImports';
+import type { CardBlock } from './cardGame';
 import type { ArcadeBlock, Match3Block } from './family';
 
 export const GAME_CONFIG_DOC_VERSION = 1;
@@ -481,7 +482,7 @@ export type GameConfigDoc = {
 	 * absent ⇒ a slot, which is every config authored before Phase 10. Read it through
 	 * `resolveFamily` rather than directly, so the default lives in one place.
 	 */
-	family?: 'match3' | 'arcade';
+	family?: 'match3' | 'arcade' | 'card';
 	/**
 	 * OPTIONAL: who decides a round. Absent ⇒ the RGS; `rules` is a free-play game whose own rules
 	 * decide, with no wallet (§2.3). Only a non-slot family stores it. Read it through
@@ -493,6 +494,9 @@ export type GameConfigDoc = {
 	/** OPTIONAL arcade play field and bodies (see {@link ArcadeBlock}); kept only beside
 	 *  `family: 'arcade'`. */
 	arcade?: ArcadeBlock;
+	/** OPTIONAL card game rules, cards and decks (see {@link CardBlock}); kept only beside
+	 *  `family: 'card'` (`docs/design/card-games.md` §9.1). */
+	card?: CardBlock;
 	providerName: string;
 	gameName: string;
 	gameID: string;
