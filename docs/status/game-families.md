@@ -50,7 +50,7 @@ game are C3.
   - `first` is `0 | 1 | 'random'`; C3 maps the config's `'player' | 'ai'` onto sides;
   - **an expiring `endOfTurn` health buff never kills**: the unit is left at 1 health at least,
     its damage cut to fit (the genre's rule). §2 did not say; a permanent negative buff still kills.
-- **Gates:** `check:card-rules` (41 checks, among them every verb on every target it allows, and
+- **Gates:** `check:card-rules` (43 checks, among them every verb on every target it allows, and
   the replay trace `fixtures/cards-replay.json`) and `check:card-library` (43 checks); the sample
   library the gates play is `fixtures/cards-sample.library.json`, invented. Both run under
   `check:all`.
