@@ -437,6 +437,15 @@ type (a Flow **fireCue** name, say). **Also on** plays the same timeline on othe
 name their nodes alike. How to author, reuse and check one is in the Scene Editor guide under
 [Animate a component](invisible-editor.md#animate-a-component).
 
+A timeline can also carry **cues**. Select one and its inspector offers names from dropdowns: for a
+`signal:` / `event:` cue, this component's signals, its events (`event:<id>`), its _On cue_ Element
+FX and your flow's cues; for an `sfx:` / `music:` cue, your project's sounds (★ uploads first, with
+**▶** to listen) and the engine's. A sound cue also takes options (volume, rate, pan, fades, loop,
+random alternates, or ⏹ stop) — see
+[Report events](invisible-editor.md#report-events-visibility-and-text). In the game the component's
+sound cues play on each instance through the game's sound player, with its mute and SFX / music
+volumes.
+
 **Place a component inside another.** Library → **Components** lists every other component of the
 project; drag one onto the canvas to place an instance of it (at the component's root, or inside a
 part you are editing). A component that holds the open one, directly or through another, is left

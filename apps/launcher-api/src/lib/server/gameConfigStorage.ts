@@ -90,7 +90,12 @@ export function prepareGameConfigDoc(input: unknown): {
 export async function loadGameConfigDocWithEtag(
 	clientKey: string,
 	projectKey: string,
-): Promise<{ doc: GameConfigDoc | null; etag: string | null; existed: boolean }> {
+): Promise<{
+	doc: GameConfigDoc | null;
+	etag: string | null;
+	existed: boolean;
+	corrupt?: true;
+}> {
 	const obj = await getObjectTextWithEtag(gameConfigDocKey(clientKey, projectKey));
 	if (!obj) return { doc: null, etag: null, existed: false };
 	try {
@@ -100,7 +105,7 @@ export async function loadGameConfigDocWithEtag(
 			existed: true,
 		};
 	} catch {
-		return { doc: null, etag: obj.etag, existed: true };
+		return { doc: null, etag: obj.etag, existed: true, corrupt: true };
 	}
 }
 

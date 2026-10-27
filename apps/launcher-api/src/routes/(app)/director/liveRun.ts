@@ -222,6 +222,12 @@ export function toolLabel(tool: string | null): string | null {
 			return 'Rigger';
 		case 'flipbook':
 			return 'Flipbook';
+		case 'sound':
+			return 'Sound';
+		case 'fx':
+			return 'FX';
+		case 'components':
+			return 'Component Editor';
 		case 'build':
 			return 'Build';
 		case 'run':

@@ -44,6 +44,7 @@ const FLOW_CINEMATICS = repoFile('apps/lines/src/components/FlowV2Cinematics.sve
 const ENGINE_MOUNT = repoFile('apps/lines/src/components/EngineScreenMount.svelte');
 const CINEMATIC = repoFile('packages/engine-layout/src/lib/Cinematic.svelte');
 const CINEMATIC_NODES = repoFile('packages/engine-layout/src/lib/cinematicNodes.ts');
+const CUE_SOUND = repoFile('packages/engine-layout/src/lib/cueSound.ts');
 const SCREEN_DRIVES = repoFile('apps/lines/src/game/screenDrives.svelte.ts');
 const BOARD_DRIVE = repoFile('apps/lines/src/components/BoardDrive.svelte');
 const BOARD_DRIVE_TRANSFORM = repoFile('apps/lines/src/game/boardDrive.ts');
@@ -123,6 +124,7 @@ const STUBS = {
 			'export const MainContainer = (anchor, props) => props.children?.(anchor);',
 		),
 		'engine-layout': moduleUrl(`export { cinematicSetSceneId } from '${CINEMATIC_NODES}';
+export { cueSoundOf, playCueSound } from '${CUE_SOUND}';
 export const emitComponentSignal = () => {};
 export const screenCueSignal = () => undefined;`),
 		'engine-layout/svelte': moduleUrl(`export { default as Cinematic } from '${CINEMATIC}';`),
