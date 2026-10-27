@@ -2251,10 +2251,13 @@
 												<strong>{agentName(entry.agent)}</strong>
 												{entry.text}
 											</span>
-											{#if entry.tool || entry.cost}
+											{#if entry.tool || entry.cost || entry.bug}
 												<span class="row">
 													{#if entry.tool}<span class="chip">{entry.tool}</span>{/if}
 													{#if entry.cost}<span class="chip spend">{entry.cost}</span>{/if}
+													{#if entry.bug}<a class="chip" href="{resolve('/bugs')}?bug={entry.bug}"
+															>BUG-{entry.bug}</a
+														>{/if}
 												</span>
 											{/if}
 										</span>

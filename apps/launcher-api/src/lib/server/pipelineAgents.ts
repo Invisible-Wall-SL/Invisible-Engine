@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { error } from '@sveltejs/kit';
 import pricingFile from '../../../../../services/director-worker/pricing.json';
 import { RUNNABLE_MODELS } from '../../../../../services/director-worker/src/models';
-import { KNOWN_TOOLS } from '../../../../../services/director-worker/src/tools';
+import { KNOWN_TOOLS, WORKER_TOOL_OPS } from '../../../../../services/director-worker/src/tools';
 import {
 	AGENT_NAME,
 	agentPath,
@@ -184,14 +184,19 @@ export function changeBody(name: string, why: string, user: string): string {
 /**
  * The rules an edit of `name` must meet (`$lib/agentEdit.ts`): the models the worker runs, every
  * tool it knows, and the adapter ops its registry serves to this agent and to others. Read from
- * the same sources the worker boots from and `check:director-adapters` pins.
+ * the same sources the worker boots from and `check:director-adapters` pins. An op a worker tool
+ * calls (`WORKER_TOOL_OPS`) is named through that tool, so the rule holds the tool instead.
  */
 export function agentEditRules(name: string): AgentEditRules {
 	const priced = new Set(Object.keys(pricingFile.perMTok));
+	const throughTool = new Map(Object.entries(WORKER_TOOL_OPS).map(([tool, op]) => [op, tool]));
 	const fixed: string[] = [];
 	const other: string[] = [];
 	for (const op of ADAPTER_OPS.values()) {
-		((op.agents as readonly string[]).includes(name) ? fixed : other).push(opId(op));
+		const id = opId(op);
+		((op.agents as readonly string[]).includes(name) ? fixed : other).push(
+			throughTool.get(id) ?? id,
+		);
 	}
 	return {
 		models: RUNNABLE_MODELS.filter((m) => priced.has(m)),
