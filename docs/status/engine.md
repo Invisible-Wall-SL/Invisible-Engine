@@ -67,8 +67,11 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   authored Element FX with its own params, the camera chroma split, the rig dark tint
   (`pixi-svelte` `gpuWarmup.ts`; the game's scan is `apps/lines/src/game/authoredFxUses.ts`).
   Spread across frames behind the loading screen. The render tier (`renderTier.ts`) gives low-end
-  devices (Chromium `deviceMemory` ≤ 2 GB, or `?render=reduced`) resolution ≤ 1.5 and no MSAA;
-  every other device renders exactly as before (`?render=full` forces it).
+  devices (Chromium `deviceMemory` ≤ 2 GB, or `?render=reduced`) resolution ≤ 1.5 and no MSAA,
+  and leaves their textures to Pixi's GC (uploaded up front, not pinned); every other device renders
+  exactly as before (`?render=full` forces it). A warm-up that throws never holds the load, and a
+  hidden tab (no frames) finishes it on a 50 ms timeout: verified with rAF frozen for 70 s, all 28
+  uploads done by 11.9 s.
 
 ## Open items / next
 
