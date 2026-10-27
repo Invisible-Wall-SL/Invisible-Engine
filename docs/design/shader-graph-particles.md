@@ -528,7 +528,7 @@ svelte-check at baseline, and the current games building with no changed screen.
      - a harness drawing a material through `fxOverlay`'s plain-function path;
      - `node --check` on the touched inline scripts.
    - **Exit:** the Scene Editor, Rigger and Symbols show the material.
-   - **As built** (#TBD):
+   - **As built** (#1407):
      - **One mount shared by every launcher stage** (`$lib/fx/layerMaterial.client.ts`), `FxStage`
        included, rather than each preview copying `FxStage`'s keys.
      - **The harness plays the real pieces:** the committed `rigger-fx.js`, `EditorEffectLayer`
