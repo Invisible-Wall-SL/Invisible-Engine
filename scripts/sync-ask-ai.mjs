@@ -9,7 +9,7 @@
  * `$lib/AskAiPanel.svelte`) has hosts that cannot share a file. The Atlas and Sheet Maker inline it
  * from `iw_common`; the Rigger's static `view.html` fetches it over HTTP from the launcher's
  * `static/` tree, which no bundler touches. So, like `sync-timeline.mjs`, the `iw_common` file is
- * the single SOURCE and the static file a generated artifact, with `--check` (run by Lint) making
+ * the single SOURCE and the static file a generated artifact, with `--check` (run by CI's check-all) making
  * any divergence a loud failure.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
