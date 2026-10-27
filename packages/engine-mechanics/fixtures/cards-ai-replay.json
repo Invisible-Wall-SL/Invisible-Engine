@@ -63,12 +63,12 @@
 		"difficulty": "hard",
 		"seed": "ai-replay",
 		"result": {
-			"winner": 0,
+			"winner": 1,
 			"reason": "hero"
 		},
-		"turn": 27,
-		"actions": 123,
-		"events": 376,
-		"digest": "99a26623"
+		"turn": 22,
+		"actions": 109,
+		"events": 318,
+		"digest": "d4340b68"
 	}
 ]

@@ -34,18 +34,19 @@ C2 row (§4), in one PR. No caller yet: the family, runtime and sample game are 
   plays in `main` (width 4, depth 3). The three presets of §4.2, with a deck's weight overrides.
 - **Its own stream,** `${seed}:ai:${side}`, a number in the AI's value: one roll per decision for
   a mistake. The look-ahead runs every trial on one of four fixed sample streams, never the match's,
-  and scores an action that draws (a `randomEnemy`) by the mean over the four.
+  and scores an action that draws (a `randomEnemy`) by the mean over the four. A plan plays only
+  the cards in hand when the decision began, so it never reads the deck's hidden order.
 - **The budget:** `MAX_PLAN_APPLIES` (600) caps every `apply` a decision makes. Real counts, pinned:
-  302 on a full board with the design's ≈40 listed actions; a hand of ten targeted spells (95
-  actions) would take 739 and stops at 600 (≈11 ms on the build machine).
+  200 on a full board with 36 listed actions (the design's case); a hand of ten targeted spells (95
+  actions) would take 704 and stops at 600 (11–14 ms on the build machine).
 - What C2 settled where §4 was silent, and its two readings of §4.1's table, are in the design's
   new §4.4.
-- **Gate:** `check:card-ai` (17 checks; replay trace `fixtures/cards-ai-replay.json`): lethal past a
-  preferred trade and through a guard, none claimed out of reach or on a random hit; a win in
-  `main`; `hard`'s plan beating one step; no illegal action in 90 AI-vs-AI matches; a decision
-  changes neither input and moves only the AI's stream; the same decision on 64 different match
-  streams; the match's draws the same whichever difficulty plays; each difficulty replaying AI vs
-  AI and from a player's record; the budget; `normal` beats `easy` 61–39 on seeds 1…100 with the
+- **Gate:** `check:card-ai` (20 checks; replay trace `fixtures/cards-ai-replay.json`): lethal past a
+  preferred trade, through a guard and past a first attacker whose attack draws, none claimed out
+  of reach or on a random hit; a win in `main`; `hard`'s plan beating one step; no illegal action
+  in 90 AI-vs-AI matches; a decision changes neither input and moves only the AI's stream (one
+  roll, two on a mistake); the same decision on 64 different match streams and on four orders of
+  the deck; each difficulty replaying AI vs AI and from a player's record; the budget; `normal` beats `easy` 61–39 on seeds 1…100 with the
   sample decks (every sample card twice). Runs under `check:all`.
 - **The design points C1 raised are fixed:** §12.1's C1 row now says the reader drops unknown card
   fields, and §2.2 states the `endOfTurn` expiry rule.

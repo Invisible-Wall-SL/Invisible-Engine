@@ -434,24 +434,27 @@ aggressively or defensively.
 
 ### 4.3 Seeds and replay
 
-- The AI draws only from its **own** stream, `createRng(\`${seed}:ai\`)`, never from the match's.
+- The AI draws only from its **own** stream, seeded from `${seed}:ai:${side}`, never from the
+  match's.
   So an AI mistake roll never shifts a shuffle or a random target, and the match's own draws are
   the same whichever difficulty plays.
-- **A replay record** is `{ seed, decks, difficulty, actions }`, where `actions` are the player's
-  only. Replaying runs the AI again and reaches the same match, so the AI's actions need not be
+- **A replay record** is `{ seed, decks, library, rules, first, ai, actions }`: `ai` seats the AI
+  (`{ side, difficulty, weights }`; two seats for an AI-vs-AI test match), and `actions` are the
+  player's only. Replaying runs the AI again and reaches the same match, so the AI's actions need not be
   stored. `check:card-ai` pins this (§12).
 - **The AI's thinking time is presentation.** It decides at once; the table waits a short
   authored delay (a Flow timer, P10.3) before showing each action, so the player can follow it.
   Speed never changes a choice.
 - **Budget.** `hard`'s plan search tries every play from the match, keeps the 4 best sequences and
-  extends each by every play, three plays deep: about A + 4·A + 4·A `apply()` calls, where A is the
-  plays listed at a step, fewer as the resource runs out. `MAX_PLAN_APPLIES` (600) caps every
-  `apply()` one decision makes, the lethal search's and the random-target samples' included; a
-  search that reaches it stops and takes the best found so far. It must finish under 16 ms on a mid
-  phone. `check:card-ai` pins the real call count (a fixed count, not wall time) on two full boards:
-  a hand of plain units and two targeted spells (36 actions listed) takes **302** calls and completes;
-  a hand of ten targeted spells (95 actions listed) would take 739 and **stops at 600**. The second
-  measured about 11 ms on the build machine; a phone's time is C3's to measure.
+  extends each by every play, three plays deep: about A + 4·A + 4·A trials, where A is the plays
+  listed at a step (fewer as the resource runs out). A trial is one `apply()` call, or four when the
+  play draws from the stream (§4.4), and such a play ends its sequence. `MAX_PLAN_APPLIES` (600) caps
+  every `apply()` one decision makes, the lethal search's and the samples' included; a search that
+  reaches it stops and takes the best found so far. It must finish under 16 ms on a mid phone.
+  `check:card-ai` pins the real call count (a fixed count, not wall time) on two full boards: a hand
+  of plain units and two targeted spells (36 actions listed) takes **200** calls and completes; a
+  hand of ten targeted spells (95 actions listed) would take 704 and **stops at 600**. The second
+  measured 11–14 ms on the build machine; a phone's time is C3's to measure.
 
 ### 4.4 What C2 settled
 
@@ -467,19 +470,26 @@ aggressively or defensively.
   one of four fixed sample streams, chosen so their first draws fall in the middle of each quarter
   of [0, 1). An action whose first trial draws nothing is certain and scored once; otherwise it is
   scored by the mean over the four, which weighs a pick from two or four targets exactly and from
-  any other number closely. The lethal search counts a branch that draws as no win.
-- **The lethal search** runs in `combat` for `normal` and `hard`: depth first, at the hero once no
-  `guard` stands in the way, at each `guard` before that, inside `MAX_LETHAL_APPLIES` (100) of the
-  budget, and skipped when the ready units' attack and `onAttack` damage cannot reach the hero.
-- **A certain win in one action is taken at once** by every level, before any other is scored.
+  any other number closely. The lethal search counts a branch that draws as no win, and a plan
+  does not extend a play that drew: what follows it would rest on one sample's outcome.
+- **Nor the deck's hidden order.** A trial of a `draw` puts the real top card in the copy's hand,
+  so a plan only plays cards that were in the hand when the decision began. The evaluation reads
+  the hand's size, never its cards.
+- **The lethal search** runs in `combat` for `normal` and `hard`: depth first, at each `guard` while
+  one stands, then at the hero with the first attacker whose attack draws nothing, inside
+  `MAX_LETHAL_APPLIES` (100) of the budget. It is skipped when the ready units' attack and
+  `onAttack` damage cannot reach the hero (our units' `onDamaged` / `onDeath` damage is not
+  counted, so a lethal that needs it is not sought).
+- **A certain win in one action is taken at once** by every level, before any other is scored,
+  unless that decision's mistake roll fires.
 - **Doing nothing is the match as it is,** scored without an `apply()`, and it wins ties; among the
   rest the first listed wins. Ending `combat` therefore never looks worse for the enemy's coming
   draw.
 - **Two readings of §4.1's table:** a unit counts as it will be once its `endOfTurn` buffs lapse (so
   a temporary buff is worth nothing on its own), and the `guard` / `shield` term is mine minus the
   enemy's (so breaking an enemy shield counts), like every other term.
-- **A replay record** carries the library and rules beside `{ seed, decks, difficulty, actions }`,
-  and `ai` seats one or two AIs (`{ side, difficulty, weights }`); `actions` are the other side's.
+- **A replay record** carries the library, rules and `first` the module needs, and its difficulty
+  lives on each `ai` seat (§4.3), not at the top.
 
 ---
 

@@ -39,16 +39,11 @@ export const MAX_PLAN_APPLIES = 600;
 export const MAX_LETHAL_APPLIES = 100;
 
 /**
- * The streams a trial runs on in place of the match's, one per quarter of [0, 1): their first draws
- * fall in the middle of each quarter, so a random pick from two or four targets is weighed exactly,
- * and from any other number closely.
+ * The streams a trial runs on in place of the match's, one per quarter of [0, 1): each is the
+ * smallest state whose first draw falls in the middle of its quarter (`check:card-ai` pins that),
+ * so a random pick from two or four targets is weighed exactly, and from any other number closely.
  */
-const SAMPLE_STATES = [0, 1, 2, 3].map((quarter) => {
-	for (let state = 0; ; state++) {
-		const value = rngNext(state).value * 4 - quarter;
-		if (value >= 0.375 && value < 0.625) return state;
-	}
-});
+export const SAMPLE_STATES = [51, 18, 1, 30];
 
 /**
  * A difficulty's settings with the weights resolved: the defaults, then the preset's, then the
@@ -161,7 +156,7 @@ function bestAction(match, ai, actions, budget) {
 		if (win) return win;
 	}
 	if (settings.plan && match.phase === 'main') return planMain(match, side, settings, budget);
-	let best = { action: END_PHASE, score: evaluate(match, side, settings.weights) };
+	let best = { action: { type: 'endPhase' }, score: evaluate(match, side, settings.weights) };
 	for (const action of actions) {
 		if (action.type === 'endPhase') continue;
 		const result = trial(match, action, side, settings.weights, budget);
@@ -172,34 +167,35 @@ function bestAction(match, ai, actions, budget) {
 	return best.action;
 }
 
-const END_PHASE = { type: 'endPhase' };
-
 /** A trial that ends the match won without a draw from the stream: a win to take now. */
 const wins = (result, side) => result.certain && result.match.result?.winner === side;
 
 /**
  * Beam search over plays (§4.2 `plan`): from the match, every play is tried; the PLAN_WIDTH best
  * sequences are extended by every play, PLAN_DEPTH plays deep. The first play of the best sequence
- * found at any depth is taken, or `endPhase` when none beats the match as it is.
+ * found at any depth is taken, or `endPhase` when none beats the match as it is. A sequence plays
+ * only cards in the hand now: a card a trial drew is the deck's hidden order. A play whose trial
+ * drew from the stream ends its sequence, scored by its mean: what follows it is a guess.
  */
 function planMain(match, side, settings, budget) {
-	let best = { score: evaluate(match, side, settings.weights), first: END_PHASE };
+	const hand = new Set(match.players[side].hand.map((card) => card.uid));
+	let best = { score: evaluate(match, side, settings.weights), first: { type: 'endPhase' } };
 	let beam = [{ match, first: null }];
 	for (let depth = 0; depth < PLAN_DEPTH && beam.length; depth++) {
 		const children = [];
 		search: for (const node of beam) {
 			for (const action of legalActions(node.match)) {
-				if (action.type !== 'play') continue;
+				if (action.type !== 'play' || !hand.has(action.uid)) continue;
 				const result = trial(node.match, action, side, settings.weights, budget);
 				if (!result) break search;
 				if (depth === 0 && wins(result, side)) return action;
 				const child = { match: result.match, first: node.first ?? action, score: result.score };
-				children.push(child);
 				if (child.score > best.score) best = child;
+				if (result.certain && !result.match.result) children.push(child);
 			}
 		}
 		children.sort((a, b) => b.score - a.score);
-		beam = children.filter((child) => !child.match.result).slice(0, PLAN_WIDTH);
+		beam = children.slice(0, PLAN_WIDTH);
 	}
 	return best.first;
 }
@@ -231,31 +227,36 @@ function trial(match, action, side, weights, budget) {
 
 /**
  * The first attack of a sequence of attacks that wins this turn, or `null`, searched depth first:
- * at the enemy hero once no `guard` stands in the way (one attacker at a time, in board order), at
- * each `guard` before that. A branch that draws from the stream is not counted as a win: its result
- * is a guess. Skipped outright when the ready units and their `onAttack` damage cannot reach the
- * hero's health. Stops at `limit` applies.
+ * at each `guard` while one stands in the way; then at the enemy hero, with the first attacker (in
+ * board order) whose attack draws nothing. A branch that draws from the stream is not counted as a
+ * win: its result is a guess. Skipped outright when the ready units and their `onAttack` damage
+ * cannot reach the hero's health. Stops at `limit` applies.
  */
 function findLethal(match, side, budget, limit) {
 	if (match.phase !== 'combat' || match.active !== side) return null;
 	if (reach(match, side) < match.players[1 - side].health) return null;
 	const attacks = legalActions(match).filter((a) => a.type === 'attack');
-	const atHero = attacks.find((a) => 'hero' in a.target);
-	for (const action of atHero ? [atHero] : attacks) {
+	const atHero = attacks.some((a) => 'hero' in a.target);
+	for (const action of atHero ? attacks.filter((a) => 'hero' in a.target) : attacks) {
 		if (budget.applies >= limit || budget.applies >= MAX_PLAN_APPLIES) return null;
 		budget.applies += 1;
 		const next = apply({ ...match, rngState: SAMPLE_STATES[0] }, action).match;
 		if (next.rngState !== SAMPLE_STATES[0]) continue;
 		if (next.result) {
 			if (next.result.winner === side) return action;
+			if (atHero) return null;
 			continue;
 		}
-		if (findLethal(next, side, budget, limit)) return action;
+		const win = findLethal(next, side, budget, limit);
+		if (win || atHero) return win && action;
 	}
 	return null;
 }
 
-/** The most the ready units could deal the enemy hero this turn: attack plus `onAttack` damage. */
+/**
+ * The most the ready units could deal the enemy hero this turn: attack plus `onAttack` damage. Our
+ * units' `onDamaged` and `onDeath` damage is not counted, so a lethal that needs it is not sought.
+ */
 function reach(match, side) {
 	let total = 0;
 	for (const unit of match.players[side].board) {

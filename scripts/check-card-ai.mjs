@@ -19,6 +19,7 @@ import {
 	MAX_PLAN_APPLIES,
 	PLAN_DEPTH,
 	PLAN_WIDTH,
+	SAMPLE_STATES,
 	aiSettings,
 	chooseAction,
 	createAi,
@@ -42,7 +43,7 @@ const DIFFICULTIES = ['easy', 'normal', 'hard'];
  * targeted spells (95) would take 739 and is stopped at the budget.
  */
 const FULL_BOARD_APPLIES = {
-	designCase: { actions: 36, applies: 302 },
+	designCase: { actions: 36, applies: 200 },
 	worstCase: { actions: 95, applies: 600 },
 };
 /** The pinned score of normal against easy on seeds 1…100; a change to the AI or the rules moves it. */
@@ -76,6 +77,7 @@ const LIBRARY = [
 	unit('big', 3, 3, 3),
 	unit('pup', 1, 2, 2),
 	unit('hound', 2, 2, 2),
+	unit('giant', 9, 9, 9),
 	unit('lobber', 1, 1, 6, {
 		effects: [
 			{
@@ -255,7 +257,7 @@ check('lethal through a guard: the guard first, then the hero', () => {
 	const ai = steady('normal', FACE_LIGHT);
 	const first = chooseAction(ai, match);
 	assert.deepEqual(first.action.target, { unit: match.players[1].board[0].uid });
-	assert.ok(first.applies <= MAX_LETHAL_APPLIES + legalActions(match).length * 4);
+	assert.equal(first.applies, 3, 'the guard, then two attackers at the hero');
 	const { match: after } = playTurn(ai, match);
 	assert.deepEqual(after.result, { winner: 0, reason: 'hero' });
 });
@@ -277,6 +279,18 @@ check('no lethal is claimed when the units cannot reach, or only a random hit wo
 	});
 	const choice = chooseAction(steady('normal', FACE_LIGHT), random);
 	assert.equal(choice.applies, 1 + 4 + 4, 'one lethal try, then two attacks on four samples');
+});
+
+check('lethal is found past a first attacker whose attack draws', () => {
+	// The lobber's onAttack hits a random enemy, so its branch is a guess; the two ogres are lethal.
+	const match = table({
+		phase: 'combat',
+		mine: { board: ['lobber', 'ogre', 'ogre'] },
+		theirs: { health: 6, board: ['pup'], deck: ['ogre', 'ogre'] },
+	});
+	const { match: after, taken } = playTurn(steady('normal'), match);
+	assert.deepEqual(after.result, { winner: 0, reason: 'hero' });
+	assert.ok(taken.every((a) => a.type === 'attack' && 'hero' in a.target));
 });
 
 check('a win in main is taken by every level that looks', () => {
@@ -362,26 +376,40 @@ check('the AI never makes an illegal action (every level, 30 seeds each)', () =>
 });
 
 check("a decision never changes the match or the AI, and moves only the AI's stream", () => {
-	let match = createMatch({ seed: 'frozen', decks: DECKS, library: SAMPLE, first: 0 }).match;
-	let ai = createAi({ seed: 'frozen', side: 0, difficulty: 'hard' });
-	let ais = [ai, createAi({ seed: 'frozen', side: 1, difficulty: 'hard' })];
-	let decisions = 0;
-	while (!match.result && decisions < 200) {
-		const side = match.active;
-		const before = JSON.stringify({ ...match, library: undefined });
-		const aiBefore = JSON.stringify(ais[side]);
-		deepFreeze(match);
-		const choice = chooseAction(ais[side], match);
-		assert.equal(JSON.stringify({ ...match, library: undefined }), before);
-		assert.equal(JSON.stringify(ais[side]), aiBefore);
-		assert.equal(choice.ai.rngState, rngNext(ais[side].rngState).state, 'one roll, no mistake');
-		ais[side] = choice.ai;
-		match = apply(match, choice.action).match;
-		decisions++;
+	for (const difficulty of DIFFICULTIES) {
+		let match = createMatch({ seed: 'frozen', decks: DECKS, library: SAMPLE, first: 0 }).match;
+		const ais = [0, 1].map((side) => createAi({ seed: 'frozen', side, difficulty }));
+		let mistakes = 0;
+		while (!match.result) {
+			const side = match.active;
+			const before = JSON.stringify({ ...match, library: undefined });
+			const aiBefore = JSON.stringify(ais[side]);
+			deepFreeze(match);
+			const choice = chooseAction(ais[side], match);
+			assert.equal(JSON.stringify({ ...match, library: undefined }), before);
+			assert.equal(JSON.stringify(ais[side]), aiBefore);
+			const roll = rngNext(ais[side].rngState);
+			const mistaken = roll.value < ais[side].settings.mistakes;
+			const after = mistaken ? rngNext(roll.state).state : roll.state;
+			assert.equal(choice.ai.rngState, after, 'one roll, and one more for a mistake');
+			mistakes += mistaken ? 1 : 0;
+			ais[side] = choice.ai;
+			match = apply(match, choice.action).match;
+		}
+		assert.equal(mistakes > 0, difficulty !== 'hard', `${difficulty} made ${mistakes} mistakes`);
 	}
-	assert.ok(match.result, 'the hard duel ends');
-	ai = createAi({ seed: 'frozen', side: 0, difficulty: 'easy' });
-	assert.equal(ai.rngState, rngSeed('frozen:ai:0'));
+	assert.equal(createAi({ seed: 'frozen', side: 0 }).rngState, rngSeed('frozen:ai:0'));
+});
+
+check('the sample streams start in the middle of each quarter, each the smallest that does', () => {
+	SAMPLE_STATES.forEach((state, quarter) => {
+		const mid = (s) => {
+			const value = rngNext(s).value * 4 - quarter;
+			return value >= 0.375 && value < 0.625;
+		};
+		assert.ok(mid(state), `sample ${quarter}`);
+		for (let s = 0; s < state; s++) assert.ok(!mid(s), `sample ${quarter}: ${s} is smaller`);
+	});
 });
 
 check("the look-ahead never reads the match's stream", () => {
@@ -402,21 +430,23 @@ check("the look-ahead never reads the match's stream", () => {
 	}
 });
 
-check("the match's draws are the same whichever difficulty plays", () => {
-	// The same actions replayed by hand, with no AI anywhere, reach the same events.
+check("the look-ahead never reads the deck's hidden order", () => {
+	// Archive Owl draws the top card: a plan that went on to play it would read the shuffle.
+	const at = (deck) =>
+		table({ resource: 4, mine: { hand: ['archive-owl', 'moss-mender'], deck }, theirs: {} });
 	for (const difficulty of DIFFICULTIES) {
-		const played = duel(11, difficulty, difficulty);
-		let match = createMatch({ seed: 11, decks: DECKS, library: SAMPLE }).match;
-		const events = [];
-		for (const { action } of played.log) {
-			const step = apply(match, action);
-			match = step.match;
-			events.push(...step.events);
-		}
-		assert.equal(JSON.stringify(match), JSON.stringify(played.match), difficulty);
+		const picks = [['pup'], ['giant'], ['giant', 'pup'], ['pup', 'giant']].map((deck) => {
+			const match = at(deck);
+			const { action } = chooseAction(steady(difficulty), match);
+			return match.players[0].hand.find((c) => c.uid === action.uid)?.cardId ?? action.type;
+		});
+		assert.equal(new Set(picks).size, 1, `${difficulty}: ${picks.join(', ')}`);
 	}
-	const starts = DIFFICULTIES.map((d) => duel(12, d, 'easy').log.length);
-	assert.ok(new Set(starts).size > 1, 'the levels should play differently');
+});
+
+check('the levels play differently', () => {
+	const lengths = DIFFICULTIES.map((d) => duel(12, d, 'easy').log.length);
+	assert.equal(new Set(lengths).size, DIFFICULTIES.length, lengths.join(', '));
 });
 
 check('each difficulty replays under a seed (AI vs AI, and from a player record)', () => {
