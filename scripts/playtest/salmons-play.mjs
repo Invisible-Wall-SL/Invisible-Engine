@@ -176,14 +176,6 @@ const settle = async (game, ms) => {
 };
 const players = async (game) => (await game.state()).arcade?.bodies ?? [];
 const drawnOf = async (game) => (await game.state()).arcade?.online ?? { drawn: [] };
-/** Players drawn more than `px` from where the room has them. */
-const offRoom = async (game, px = 0.01) => {
-	const arcade = (await game.state()).arcade;
-	return (arcade?.online?.drawn ?? []).filter((d) => {
-		const room = arcade.bodies.find((b) => b.id === d.id);
-		return !room || Math.hypot(room.x - d.x, room.y - d.y) > px;
-	});
-};
 
 try {
 	const a = await ready(await boot('a', { rooms_name: 'Ann', rooms_character: 'salmon' }));
