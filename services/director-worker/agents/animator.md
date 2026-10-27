@@ -10,6 +10,8 @@ tools:
   - flipbook.save_clip
   - symbols.get_map
   - symbols.set_state
+  - fx.get_effect
+  - fx.update_art
   - run.post_activity
 inputs: Approved regions, the template's rigs, clips and symbol map.
 outputs: Rigs re-pointed at the new art, updated clips, and symbol × state bindings (Static, Spin, Land, Win, Post-win, Explosion).

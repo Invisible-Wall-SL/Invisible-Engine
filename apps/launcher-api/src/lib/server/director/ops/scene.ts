@@ -38,10 +38,13 @@ const MATH_SCREENS = new Set(['betMenu', 'buyFeature', 'buyConfirm']);
 /** How deep a component placed inside a component is followed; deeper is refused, not trusted. */
 const MAX_COMPONENT_DEPTH = 4;
 
-type DefLoader = (id: string, version: number | undefined) => Promise<ComponentDef | undefined>;
+export type DefLoader = (
+	id: string,
+	version: number | undefined,
+) => Promise<ComponentDef | undefined>;
 
 /** One load per component id and pinned version for the whole call. */
-function defLoader(projectKey: string): DefLoader {
+export function defLoader(projectKey: string): DefLoader {
 	const seen = new Map<string, Promise<ComponentDef | undefined>>();
 	return (id, version) => {
 		const key = `${id}@${version ?? 'latest'}`;
@@ -130,7 +133,7 @@ function sceneMathBinding(scene: Scene): string | null {
  * screen, the node or anything under it bound to the math, a parent bound to the math, or the
  * editor's own lock.
  */
-async function lockOf(
+export async function lockOf(
 	scene: Scene,
 	ancestors: LayoutNode[],
 	node: LayoutNode,

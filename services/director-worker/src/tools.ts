@@ -54,6 +54,10 @@ export const ADAPTER_OPS = [
 	'localization.update_strings',
 	'fonts.list',
 	'fonts.bake_from_ttf',
+	'sound.get_doc',
+	'sound.set_cues',
+	'fx.get_effect',
+	'fx.update_art',
 	'build.request_draft',
 	'build.play_draft',
 ] as const;

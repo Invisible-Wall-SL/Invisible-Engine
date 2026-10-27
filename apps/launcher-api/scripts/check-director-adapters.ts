@@ -3734,6 +3734,772 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		(await saveClip(R2.get(CLIP)!.etag, { frames: [] })).body.error,
 		'invalid_input',
 	);
+	// ── 9H.1 Sound and FX (ADR-0011 §1, §2) ───────────────────────────────────
+	{
+		const { MUSIC_NAMES, SOUND_EFFECT_NAMES } = await import('engine-flow-v2');
+		const { SOUND_SLOTS } = await import('game-config');
+		const { saveEffect } = await import(src('lib/server/fxStorage.ts'));
+		const { FAMILY_TOOLS, TOOLS, familyUsesTool } = await import(src('lib/roles.ts'));
+		const { ADAPTER_TOOL_IDS } = await import(src('lib/server/director/adapter.ts'));
+		const [sfxA, sfxB, sfxC] = SOUND_EFFECT_NAMES as readonly string[];
+		type Item = { path?: string; layer?: string; reason: string };
+		const refusals = (a: Answer) => (a.body.refused ?? []) as Item[];
+		const reasonFor = (a: Answer, key: string) =>
+			refusals(a).find((r) => (r.path ?? r.layer) === key)?.reason ?? '';
+
+		// Every op: token, project scope, agent allow-list, family gate.
+		PROJECTS.set('foreign', project('foreign', { clientKey: 'other' }));
+		PROJECTS.set('arc', project('arc', { gameType: 'arcade' }));
+		RUNS.set('rforeign', run('rforeign', { projectKey: 'foreign', ownerUserId: 'dev' }));
+		RUNS.set('rarc', run('rarc', { projectKey: 'arc' }));
+		const ninth: [string, string, string, string, object][] = [
+			['sound', 'get_doc', 'builder', 'animator', {}],
+			['sound', 'set_cues', 'builder', 'animator', { cues: [], baseEtag: 'new' }],
+			['fx', 'get_effect', 'animator', 'builder', {}],
+			['fx', 'update_art', 'animator', 'builder', { id: 'sparks', layers: [], baseEtag: 'new' }],
+		];
+		const asRun = (
+			runId: string,
+			[t, o, agent, , input]: (typeof ninth)[number],
+			over: { agent?: string; headers?: Record<string, string> } = {},
+		) =>
+			call(
+				t,
+				o,
+				{ runId, agent: over.agent ?? agent, opId: `${runId}:nine:1`, input },
+				over.headers,
+			);
+		for (const spec of ninth) {
+			const id = `${spec[0]}.${spec[1]}`;
+			check(
+				`${id}: a wrong token is a 401`,
+				(await asRun('rt', spec, { headers: { authorization: 'Bearer nope' } })).status,
+				401,
+			);
+			const foreign = await asRun('rforeign', spec);
+			check(
+				`${id}: a project the owner cannot reach is a 403`,
+				[foreign.status, foreign.body.error],
+				[403, 'out_of_scope'],
+			);
+			check(
+				`${id}: another agent is refused`,
+				(await asRun('rt', spec, { agent: spec[3] })).body.error,
+				'agent_not_allowed',
+			);
+			check(
+				`${id}: the agent that holds the other tool is not let in either`,
+				(await asRun('rt', spec, { agent: 'qa' })).status,
+				403,
+			);
+			check(
+				`${id}: acts as a launcher tool a family can hide`,
+				[TOOLS[ADAPTER_TOOL_IDS[spec[0]]]?.id, ADAPTER_TOOL_IDS[spec[0]]],
+				[spec[0], spec[0]],
+			);
+		}
+		// FAMILY_TOOLS hides neither tool from any family today, so the gate has nothing to refuse; it
+		// does the moment a family drops one.
+		check(
+			'no family hides Sound or FX today',
+			(['slot', 'match3', 'arcade'] as const).map((f) => [
+				familyUsesTool(f, 'sound'),
+				familyUsesTool(f, 'fx'),
+			]),
+			[
+				[true, true],
+				[true, true],
+				[true, true],
+			],
+		);
+		(FAMILY_TOOLS.arcade as string[]).push('sound', 'fx');
+		try {
+			for (const spec of ninth) {
+				const hidden = await asRun('rarc', spec);
+				check(
+					`${spec[0]}.${spec[1]}: an arcade project whose family drops the tool is not_for_family`,
+					[hidden.status, hidden.body.error],
+					[403, 'not_for_family'],
+				);
+			}
+		} finally {
+			(FAMILY_TOOLS.arcade as string[]).length -= 2;
+		}
+
+		// ── Sound ──
+		const SOUNDS = paths.soundsDocKey(C, 'tools');
+		const baseMusic = SOUND_SLOTS.find((s: { id: string }) => s.id === 'baseMusic')!;
+		check(
+			'the baseMusic default is a built-in music name',
+			MUSIC_NAMES.includes(baseMusic.defaults[0]),
+			true,
+		);
+		R2.set(paths.gameConfigDocKey(C, 'tools'), {
+			body: JSON.stringify({
+				...CONFIG('tools'),
+				sounds: {
+					tumbleExplosion: { names: [sfxA, sfxB] },
+					reelStop: { volume: 0.5 },
+					wildExplode: { enabled: false },
+				},
+				winLevels: [
+					{ alias: 'big', name: 'Big', threshold: 15, type: 'big', sound: { sfx: sfxB } },
+				],
+			}),
+			etag: etag(),
+		});
+		seedDoc(SYM, {
+			...stored(SYM),
+			symbolSounds: { H1: { land: sfxC } },
+			anticipation: { activationSound: sfxA },
+		});
+		const entry = (name: string, kind: string, status: string) => ({
+			id: `id_${name}`,
+			name,
+			kind,
+			file: `${name}.mp3`,
+			durationMs: 1000,
+			status,
+			origin: 'library',
+		});
+		const library = [
+			entry('chime', 'sfx', 'approved'),
+			entry('drafty', 'sfx', 'draft'),
+			entry('theme', 'music', 'approved'),
+		];
+		seedDoc(SOUNDS, { version: 1, entries: library });
+		const doc0 = await tool('sound.get_doc', 'builder', {});
+		check('sound.get_doc answers', doc0.status, 200);
+		check(
+			'...the library with each name, kind and status',
+			(doc0.body.library as { name: string; kind: string; status: string }[]).map((e) => [
+				e.name,
+				e.kind,
+				e.status,
+			]),
+			[
+				['chime', 'sfx', 'approved'],
+				['drafty', 'sfx', 'draft'],
+				['theme', 'music', 'approved'],
+			],
+		);
+		const offered = (doc0.body.moments as { path: string; kind: string }[]).map((m) => m.path);
+		check(
+			'...the moments Sound offers: slots, symbols x states, anticipation, win tiers, and no more',
+			[
+				offered.includes('slots.baseMusic'),
+				offered.includes('symbols.H1.land'),
+				offered.includes('symbols.H1.clearReel'),
+				offered.includes('anticipation.loop'),
+				offered.includes('winTiers.big.bgm'),
+				offered.includes('symbols.ZZ.land'),
+				offered.filter((p) => p.startsWith('slots.')).length,
+			],
+			[true, true, true, true, true, false, SOUND_SLOTS.length],
+		);
+		check(
+			'...the effective choices, from the legacy homes while the doc has none',
+			[doc0.body.migrated, (doc0.body.bindings as { symbols: unknown }).symbols],
+			[false, { H1: { land: sfxC } }],
+		);
+		check(
+			'...the names a cue may take, the project first',
+			[
+				(doc0.body.builtin as { sfx: string[] }).sfx.slice(0, 3),
+				(doc0.body.builtin as { music: string[] }).music.includes('theme'),
+			],
+			[['chime', 'drafty', sfxA], true],
+		);
+		check(
+			'...and a silenced slot is marked',
+			(doc0.body.moments as { path: string; silenced?: true }[]).filter((m) => m.silenced),
+			[
+				{
+					path: 'slots.wildExplode',
+					kind: 'single',
+					music: false,
+					defaults: SOUND_SLOTS.find((s: { id: string }) => s.id === 'wildExplode')!.defaults,
+					silenced: true,
+				},
+			],
+		);
+		check('sound.get_doc hands out the stored ETag', doc0.body.baseEtag, R2.get(SOUNDS)!.etag);
+
+		const setCues = (baseEtag: string, cues: object[]) =>
+			tool('sound.set_cues', 'builder', { cues, baseEtag }, true);
+		const cue = (path: string, ...names: string[]) => ({ path, names });
+		await staleIsConflict(
+			'sound.set_cues',
+			SOUNDS,
+			(b) => setCues(b, [cue('slots.symbolLand', 'chime')]),
+			String(doc0.body.baseEtag),
+		);
+		const entriesBefore = stored(SOUNDS).entries;
+		const first = await setCues(R2.get(SOUNDS)!.etag, [
+			cue('slots.reelStop', 'chime'),
+			cue('winTiers.big.bgm', 'theme'),
+			cue('symbols.H2.land', 'drafty'),
+			cue('symbols.ZZ.land', 'chime'),
+			cue('slots.baseMusic', 'chime'),
+			cue('slots.freeSpinMusic', 'theme', 'theme'),
+			cue('slots.wildExplode', sfxA),
+			cue('anticipation.loop', 'no_such_sound'),
+			cue('slots.tumbleExplosion'),
+			cue('winTiers.big.sfx', 'theme'),
+			cue('slots.reelStop', sfxA),
+		]);
+		check('sound.set_cues lands', first.status, 200);
+		check(
+			'...applying the approved library sounds, in order',
+			(first.body.applied as { path: string }[]).map((a) => a.path),
+			['slots.reelStop', 'winTiers.big.bgm'],
+		);
+		check(
+			'...refusing and listing each of the others',
+			refusals(first).map((r) => r.path),
+			[
+				'symbols.H2.land',
+				'symbols.ZZ.land',
+				'slots.baseMusic',
+				'slots.freeSpinMusic',
+				'slots.wildExplode',
+				'anticipation.loop',
+				'slots.tumbleExplosion',
+				'winTiers.big.sfx',
+				'slots.reelStop',
+			],
+		);
+		check('...a draft sound', reasonFor(first, 'symbols.H2.land').includes('draft'), true);
+		check(
+			'...a moment Sound does not offer',
+			reasonFor(first, 'symbols.ZZ.land').includes('not a moment'),
+			true,
+		);
+		check(
+			'...a sound effect where music is wanted',
+			reasonFor(first, 'slots.baseMusic').includes('takes music'),
+			true,
+		);
+		check(
+			'...the wrong number of names on a single slot',
+			reasonFor(first, 'slots.freeSpinMusic').includes('exactly 1'),
+			true,
+		);
+		check(
+			'...a slot a person silenced',
+			reasonFor(first, 'slots.wildExplode').includes('silenced'),
+			true,
+		);
+		check(
+			'...a name in neither the library nor the built-ins',
+			reasonFor(first, 'anticipation.loop').includes('neither'),
+			true,
+		);
+		check(
+			'...no names on a ladder',
+			reasonFor(first, 'slots.tumbleExplosion').includes('1 to 16'),
+			true,
+		);
+		check(
+			'...music where a sound effect is wanted',
+			reasonFor(first, 'winTiers.big.sfx').includes('takes a sound effect'),
+			true,
+		);
+		check('...a path listed twice', reasonFor(first, 'slots.reelStop').includes('twice'), true);
+		const s1 = stored(SOUNDS);
+		check(
+			'the first save materialises the legacy choices beside the new ones',
+			[s1.bindings, first.body.migrated],
+			[
+				{
+					slots: {
+						tumbleExplosion: { names: [sfxA, sfxB] },
+						reelStop: { names: ['chime'], volume: 0.5 },
+						wildExplode: { enabled: false },
+					},
+					symbols: { H1: { land: sfxC } },
+					anticipation: { activation: sfxA },
+					winTiers: { big: { sfx: sfxB, bgm: 'theme' } },
+				},
+				true,
+			],
+		);
+		check('...the library is untouched', s1.entries, entriesBefore);
+		check('...and `before` holds the old value at each changed path', first.body.before, [
+			{ path: 'slots.reelStop', names: null },
+			{ path: 'winTiers.big.bgm', names: null },
+		]);
+		const SOUNDS_FILES = keysUnder(`${P}/sounds/`);
+		check('...writing only the sounds doc', SOUNDS_FILES, [SOUNDS]);
+
+		const replayInput = {
+			cues: [cue('slots.symbolLand', 'chime')],
+			baseEtag: String(first.body.baseEtag),
+		};
+		const body = (opId: string) => ({ runId: 'rt', agent: 'builder', opId, input: replayInput });
+		const once = await call('sound', 'set_cues', body('rt:nine:50'));
+		const afterOnce = R2.get(SOUNDS)!;
+		const twice = await call('sound', 'set_cues', body('rt:nine:50'));
+		check(
+			'a replayed opId returns the same result and writes once',
+			[once.status, twice.status, twice.replay, twice.body, R2.get(SOUNDS)],
+			[200, 200, true, once.body, afterOnce],
+		);
+		check(
+			'...the second save kept the first save (migrated now false)',
+			[
+				once.body.migrated,
+				stored(SOUNDS).bindings.slots.reelStop,
+				stored(SOUNDS).bindings.slots.symbolLand,
+			],
+			[false, { names: ['chime'], volume: 0.5 }, { names: ['chime'] }],
+		);
+
+		const unchangedSave = R2.get(SOUNDS)!;
+		const same = await setCues(unchangedSave.etag, [cue('slots.symbolLand', 'chime')]);
+		check(
+			'a cue already set that way is unchanged and writes nothing',
+			[same.status, same.body.unchanged, same.body.applied, R2.get(SOUNDS)],
+			[200, ['slots.symbolLand'], [], unchangedSave],
+		);
+		const toDefault = await setCues(unchangedSave.etag, [
+			cue('slots.baseMusic', 'theme'),
+			cue('slots.reelStop', 'chime', sfxA),
+		]);
+		check('a ladder takes several names', stored(SOUNDS).bindings.slots.reelStop, {
+			names: ['chime', sfxA],
+			volume: 0.5,
+		});
+		const back = await setCues(String(toDefault.body.baseEtag), [
+			cue('slots.baseMusic', baseMusic.defaults[0]),
+		]);
+		check(
+			'names equal to the catalogue defaults are stored as no names',
+			[back.status, stored(SOUNDS).bindings.slots.baseMusic],
+			[200, undefined],
+		);
+
+		const corruptBody = '{"entries": [';
+		R2.set(SOUNDS, { body: corruptBody, etag: etag() });
+		const corruptBefore = R2.get(SOUNDS)!;
+		const corruptGet = await tool('sound.get_doc', 'builder', {});
+		const corruptSet = await setCues(corruptBefore.etag, [cue('slots.symbolLand', 'chime')]);
+		check(
+			'a corrupt sounds doc is unreadable, and nothing is written over it',
+			[corruptGet.body.error, corruptSet.status, corruptSet.body.error, R2.get(SOUNDS)],
+			['unreadable_doc', 409, 'unreadable_doc', corruptBefore],
+		);
+		check(
+			'...while the page loader still reads it as an empty library with its ETag',
+			await (await import(src('lib/server/soundsStorage.ts'))).loadSoundsDocWithEtag(C, 'tools'),
+			{ doc: { version: 1, entries: [] }, etag: corruptBefore.etag, existed: true, corrupt: true },
+		);
+		R2.delete(SOUNDS);
+
+		// ── FX ──
+		const ATLAS = `${P}/manifests/atlas_manifest_fx.json`;
+		const ATLAS2 = `${P}/manifests/atlas_manifest_embers.json`;
+		for (const [key, regions, page] of [
+			[ATLAS, ['spark', 'smoke', 'glow'], 'fx'],
+			[ATLAS2, ['ember', 'ash', 'cinder'], 'embers'],
+		] as const) {
+			seedDoc(key, {
+				atlas: { source_image: `${page}.png`, width: 64, height: 64 },
+				regions: regions.map((name, i) => ({ name, x: i * 8, y: 0, w: 8, h: 8 })),
+			});
+			R2.set(`${P}/atlas/${page}.png`, { body: 'PNG', etag: etag() });
+		}
+		const behavior = (type: string, config: object) => ({ type, config });
+		const stops = (a: string, b: string) => ({
+			color: {
+				list: [
+					{ time: 0, value: a },
+					{ time: 1, value: b },
+				],
+			},
+		});
+		const layer = (key: string, art: object, behaviors: object[], over: object = {}) => ({
+			key,
+			particleKind: 'sprite',
+			art,
+			placement: { space: 'free', offset: { x: 1, y: 2 } },
+			trigger: { on: 'event', eventType: 'win' },
+			config: { lifetime: { min: 0.5, max: 1 }, frequency: 0.1, maxParticles: 50, behaviors },
+			...over,
+		});
+		const effect = {
+			version: 1,
+			id: 'sparks',
+			name: 'Sparks',
+			layers: [
+				layer('main', { assetKey: ATLAS, frames: ['spark', 'smoke'], weights: [70, 30] }, [
+					behavior('alpha', { alpha: { start: 1, end: 0 } }),
+					behavior('color', stops('#ffffff', '#ff0000')),
+					behavior('colorStatic', { color: '#00ff00' }),
+					behavior('color', stops('#111111', '#222222')),
+				]),
+				layer('ring', { assetKey: ATLAS, frames: ['glow'] }, [
+					behavior('color', stops('#ff0000', '#112233')),
+				]),
+				layer('rig', { assetKey: '', frames: [] }, [], {
+					particleKind: 'spine',
+					spineParticle: { skeletonKey: 'hero', animation: 'idle' },
+				}),
+			],
+			params: [
+				{
+					id: 'tint',
+					kind: 'color',
+					default: '#ff0000',
+					drives: [{ id: 'd1', layer: 'ring', path: 'behavior:color.color.list.0.value' }],
+				},
+			],
+		};
+		const camera = { camera: { x: 3, y: 4, scale: 2 }, selectedLayer: 'main' };
+		await saveEffect(C, 'tools', effect, camera, null);
+		const FX = paths.fxDocKey(C, 'tools', 'sparks');
+		const FXMETA = paths.fxMetaKey(C, 'tools', 'sparks');
+		const list = await tool('fx.get_effect', 'animator', {});
+		check(
+			'fx.get_effect lists the effects and the project atlases a layer may draw from',
+			[
+				list.body.effects,
+				(list.body.atlases as { manifestKey: string; label: string; regions: string[] }[]).map(
+					(a) => [a.manifestKey, a.label, a.regions],
+				),
+			],
+			[
+				[{ id: 'sparks', name: 'Sparks' }],
+				[
+					[ATLAS2, 'embers', ['ember', 'ash', 'cinder']],
+					[ATLAS, 'fx', ['spark', 'smoke', 'glow']],
+				],
+			],
+		);
+		const got = await tool('fx.get_effect', 'animator', { id: 'sparks' });
+		const layers = got.body.layers as {
+			key: string;
+			particleKind: string;
+			art: object;
+			colors: { behavior: number; type: string; values: string[]; driven: boolean }[];
+			driven: string[];
+		}[];
+		check(
+			"fx.get_effect reads each layer's art and colour behaviours",
+			layers.map((l) => [
+				l.key,
+				l.particleKind,
+				l.colors.map((c) => [c.behavior, c.type, c.values, c.driven]),
+			]),
+			[
+				[
+					'main',
+					'sprite',
+					[
+						[1, 'color', ['#ffffff', '#ff0000'], false],
+						[2, 'colorStatic', ['#00ff00'], false],
+						[3, 'color', ['#111111', '#222222'], false],
+					],
+				],
+				['ring', 'sprite', [[0, 'color', ['#ff0000', '#112233'], true]]],
+				['rig', 'spine', []],
+			],
+		);
+		check(
+			'...the art with its weights, and the leaves a parameter drives',
+			[layers[0].art, layers[1].driven],
+			[
+				{ assetKey: ATLAS, frames: ['spark', 'smoke'], weights: [70, 30], animated: false },
+				['behavior:color.color.list.0.value'],
+			],
+		);
+		check(
+			'...and whether the effect is locked, with its ETag',
+			[got.body.locked, got.body.baseEtag],
+			[null, R2.get(FX)!.etag],
+		);
+
+		const update = (baseEtag: string, changes: object[], id = 'sparks') =>
+			tool('fx.update_art', 'animator', { id, layers: changes, baseEtag }, true);
+		const art = (layerKey: string, assetKey: string, frames: string[], more: object = {}) => ({
+			layer: layerKey,
+			assetKey,
+			frames,
+			...more,
+		});
+		await staleIsConflict(
+			'fx.update_art',
+			FX,
+			(b) => update(b, [art('main', ATLAS2, ['ember', 'ash'])]),
+			String(got.body.baseEtag),
+		);
+		const docBefore = stored(FX);
+		const metaBefore = R2.get(FXMETA)!;
+		const fxFiles = keysUnder(`${P}/`).filter((k) => k.includes('.fx.'));
+		const ok = await update(R2.get(FX)!.etag, [
+			art('main', ATLAS2, ['ember', 'ash'], {
+				colors: [
+					{ behavior: 1, values: ['#FFD700', '#ff8800'] },
+					{ behavior: 2, values: ['#00AAFF'] },
+				],
+			}),
+			art('rig', ATLAS, ['spark']),
+			art('ghost', ATLAS, ['spark']),
+		]);
+		check('fx.update_art lands', ok.status, 200);
+		check(
+			'...applying the layer and listing the rig layer and the layer that is not there',
+			[
+				ok.body.applied,
+				refusals(ok).map((r) => r.layer),
+				reasonFor(ok, 'rig').includes('Rigger'),
+				reasonFor(ok, 'ghost').includes('no such layer'),
+			],
+			[[{ layer: 'main' }], ['rig', 'ghost'], true, true],
+		);
+		const expected = structuredClone(docBefore);
+		expected.layers[0].art.assetKey = ATLAS2;
+		expected.layers[0].art.frames = ['ember', 'ash'];
+		expected.layers[0].config.behaviors[1].config.color.list[0].value = '#ffd700';
+		expected.layers[0].config.behaviors[1].config.color.list[1].value = '#ff8800';
+		expected.layers[0].config.behaviors[2].config.color = '#00aaff';
+		check(
+			'...and everything else in the effect is deep-equal: emitter, other behaviours, placement, trigger, params, layer order, name, id, weights',
+			stored(FX),
+			expected,
+		);
+		check(
+			"...the editor's sidecar (a person's camera) survives",
+			R2.get(FXMETA)?.body,
+			metaBefore.body,
+		);
+		check('...and `before` holds the old art and colours', ok.body.before, [
+			{
+				layer: 'main',
+				assetKey: ATLAS,
+				frames: ['spark', 'smoke'],
+				weights: [70, 30],
+				colors: [
+					{ behavior: 1, values: ['#ffffff', '#ff0000'] },
+					{ behavior: 2, values: ['#00ff00'] },
+				],
+			},
+		]);
+		check(
+			'...writing the effect and its sidecar and no other file',
+			keysUnder(`${P}/`).filter((k) => k.includes('.fx.')),
+			fxFiles,
+		);
+
+		const replayFx = {
+			runId: 'rt',
+			agent: 'animator',
+			opId: 'rt:nine:60',
+			input: {
+				id: 'sparks',
+				layers: [art('ring', ATLAS, ['glow', 'smoke'])],
+				baseEtag: String(ok.body.baseEtag),
+			},
+		};
+		const fxOnce = await call('fx', 'update_art', replayFx);
+		const fxAfter = R2.get(FX)!;
+		const fxTwice = await call('fx', 'update_art', replayFx);
+		check(
+			'a replayed opId returns the same result and writes once',
+			[fxOnce.status, fxTwice.replay, fxTwice.body, R2.get(FX)],
+			[200, true, fxOnce.body, fxAfter],
+		);
+		check(
+			'...a layer may change its frame count when it has no weights',
+			stored(FX).layers[1].art.frames,
+			['glow', 'smoke'],
+		);
+
+		/** One refused layer: the answer lists it with a reason and the doc is not written. */
+		async function refusesLayer(label: string, change: object, reason: RegExp, id = 'sparks') {
+			const before = R2.get(paths.fxDocKey(C, 'tools', id))!;
+			const baseEtag = before.etag;
+			const answer = await update(baseEtag, [change], id);
+			const listed = refusals(answer)[0];
+			check(
+				`fx.update_art refuses ${label}`,
+				[
+					answer.status,
+					answer.body.applied,
+					reason.test(listed?.reason ?? ''),
+					R2.get(paths.fxDocKey(C, 'tools', id)),
+				],
+				[200, [], true, before],
+			);
+		}
+		const unchangedFx = R2.get(FX)!;
+		const noChange = await update(unchangedFx.etag, [art('ring', ATLAS, ['glow', 'smoke'])]);
+		check(
+			'an effect layer already set that way is unchanged and writes nothing',
+			[noChange.status, noChange.body.unchanged, noChange.body.applied, R2.get(FX)],
+			[200, ['ring'], [], unchangedFx],
+		);
+		await refusesLayer('a rig-particle layer', art('rig', ATLAS, ['spark']), /Rigger/);
+		await refusesLayer(
+			'a colour an effect parameter drives',
+			art('ring', ATLAS, ['glow', 'smoke'], {
+				colors: [{ behavior: 0, values: ['#000000', '#ffffff'] }],
+			}),
+			/driven by an effect parameter/,
+		);
+		await refusesLayer(
+			'a colour behaviour with the wrong number of stops',
+			art('main', ATLAS2, ['ember', 'ash'], { colors: [{ behavior: 1, values: ['#ffffff'] }] }),
+			/exactly that many/,
+		);
+		await refusesLayer(
+			'colours for a behaviour that is not a colour',
+			art('main', ATLAS2, ['ember', 'ash'], { colors: [{ behavior: 0, values: ['#ffffff'] }] }),
+			/not a colour behaviour/,
+		);
+		await refusesLayer(
+			'a frame-count change on a layer with weights, without new weights',
+			art('main', ATLAS2, ['ember', 'ash', 'cinder']),
+			/send one new weight per frame/,
+		);
+		await refusesLayer(
+			'weights of the wrong length',
+			art('main', ATLAS2, ['ember', 'ash', 'cinder'], { weights: [1, 2] }),
+			/one weight per frame/,
+		);
+		await refusesLayer(
+			'a weight that is not above 0',
+			art('main', ATLAS2, ['ember', 'ash', 'cinder'], { weights: [1, 0, 2] }),
+			/above 0/,
+		);
+		await refusesLayer(
+			'an atlas the project does not have',
+			art('main', `${P}/manifests/atlas_manifest_nope.json`, ['spark']),
+			/not one of the project's atlases/,
+		);
+		await refusesLayer(
+			'an atlas of another project',
+			art('main', 'other/foreign/manifests/atlas_manifest_fx.json', ['spark']),
+			/not one of the project's atlases/,
+		);
+		await refusesLayer(
+			'a frame that is not a region of the atlas',
+			art('main', ATLAS2, ['ember', 'spark']),
+			/not regions of embers: spark/,
+		);
+		await refusesLayer('a layer with no frames', art('main', ATLAS2, []), /1 to 64 frames/);
+		check(
+			'fx.update_art takes no emitter field, placement, trigger or layer list',
+			(await update('new', [{ ...art('main', ATLAS, ['spark']), config: {} }])).body.error,
+			'invalid_input',
+		);
+
+		const withWeights = await update(R2.get(FX)!.etag, [
+			art('main', ATLAS2, ['ember', 'ash', 'cinder'], { weights: [1, 2, 3] }),
+		]);
+		const expected2 = structuredClone(stored(FX));
+		check(
+			'a frame-count change with one new weight per frame lands',
+			[withWeights.status, stored(FX).layers[0].art],
+			[200, { assetKey: ATLAS2, frames: ['ember', 'ash', 'cinder'], weights: [1, 2, 3] }],
+		);
+		check(
+			'...changing only the art',
+			[stored(FX).layers.length, stored(FX).params],
+			[3, expected2.params],
+		);
+
+		check(
+			'fx.update_art refuses an id the project would store differently',
+			[(await update('new', [], 'Sparks')).status, (await update('new', [], 'Sparks')).body.error],
+			[400, 'invalid_input'],
+		);
+		check(
+			'...and an effect that does not exist',
+			(await update('new', [], 'nothere')).body.error,
+			'unknown_effect',
+		);
+		check(
+			'fx.get_effect on an effect that does not exist is a 404',
+			(await tool('fx.get_effect', 'animator', { id: 'nothere' })).status,
+			404,
+		);
+
+		for (const [id, body] of [
+			['broken', '{"layers": ['],
+			['bare', '{"id":"bare","name":"Bare","layers":[]}'],
+		]) {
+			const key = paths.fxDocKey(C, 'tools', id);
+			R2.set(key, { body, etag: etag() });
+			const unreadable = R2.get(key)!;
+			const read = await tool('fx.get_effect', 'animator', { id });
+			const written = await update(unreadable.etag, [art('main', ATLAS, ['spark'])], id);
+			check(
+				`a ${id === 'broken' ? 'corrupt' : 'layerless'} effect is unreadable, and nothing is written over it`,
+				[read.body.error, written.status, written.body.error, R2.get(key)],
+				['unreadable_doc', 409, 'unreadable_doc', unreadable],
+			);
+		}
+
+		// Placement: an effect placed by a node the math (or an editor lock) holds.
+		const plain = { id: 'x', kind: 'effect', x: 0, y: 0 };
+		const placed = (id: string, effectId: string, over: object = {}) => ({
+			...plain,
+			id,
+			effectId,
+			...over,
+		});
+		for (const id of ['bet_fx', 'pinned_fx', 'nested_fx']) {
+			await saveEffect(C, 'tools', { ...effect, id, name: id }, camera, null);
+		}
+		seedDoc(SCENE, {
+			version: 2,
+			projectKey: 'tools',
+			mainSizesMap: { desktop: { width: 1920, height: 1080 } },
+			updatedAt: '',
+			scenes: [
+				{ id: 'base', name: 'Base', role: 'basegame', nodes: [placed('fxs', 'sparks')] },
+				{ id: 'betMenu', name: 'Bet', nodes: [placed('fxb', 'bet_fx')] },
+				{
+					id: 'extra',
+					name: 'Extra',
+					nodes: [
+						placed('fxp', 'pinned_fx', { locked: true }),
+						{
+							id: 'box',
+							kind: 'container',
+							x: 0,
+							y: 0,
+							children: [placed('fxn', 'nested_fx', { pressAction: 'increase' })],
+						},
+					],
+				},
+			],
+		});
+		const placedOk = await tool('fx.get_effect', 'animator', { id: 'sparks' });
+		check('an effect placed by an unlocked node is not locked', placedOk.body.locked, null);
+		for (const [id, why] of [
+			['bet_fx', /betMenu.*bound to the math/],
+			['pinned_fx', /locked in the Scene Editor/],
+			['nested_fx', /bound to the math/],
+		] as const) {
+			const key = paths.fxDocKey(C, 'tools', id);
+			const before = R2.get(key)!;
+			const read = await tool('fx.get_effect', 'animator', { id });
+			const write = await update(before.etag, [art('main', ATLAS2, ['ember', 'ash'])], id);
+			check(
+				`fx.update_art refuses ${id}, placed by a node that is locked`,
+				[
+					why.test(String(read.body.locked)),
+					write.status,
+					write.body.error,
+					why.test(String(write.body.message)),
+					R2.get(key),
+				],
+				[true, 403, 'locked', true, before],
+			);
+		}
+	}
 }
 
 // ── Allow-lists agree with the agents' frontmatter `tools:` ───────────────────
