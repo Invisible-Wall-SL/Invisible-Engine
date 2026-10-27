@@ -1,0 +1,26 @@
+{
+	"name": "game-server",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Invisible Game Server — online arcade rooms (Colyseus 0.18) stepping engine-mechanics; devices send inputs only (docs/design/realtime-multiplayer.md).",
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"scripts": {
+		"start": "node --experimental-strip-types --no-warnings=ExperimentalWarning --import ../../scripts/ts-loader.mjs src/main.ts",
+		"typecheck": "tsc --noEmit -p tsconfig.json"
+	},
+	"dependencies": {
+		"@colyseus/core": "0.18.23",
+		"@colyseus/schema": "5.0.42",
+		"@colyseus/ws-transport": "0.18.4",
+		"engine-mechanics": "workspace:*",
+		"game-config": "workspace:*"
+	},
+	"devDependencies": {
+		"@colyseus/sdk": "0.18.6",
+		"@types/node": "22.20.5",
+		"typescript": "6.0.3"
+	}
+}

@@ -18,6 +18,7 @@ export const trailingSlash = 'ignore';
 import { prepareRuntimeBundle, refuseUnplayableBoot } from '../editor-scenes';
 import { exposeBuildInfo } from '../game/buildInfo';
 import { gameMechanic } from '../game/mechanic';
+import { joinOnlineRoom } from '../game/online';
 import { startErrorTracking } from '../game/errorTracking';
 import {
 	publishExpandMinReelsToFacade,
@@ -41,6 +42,9 @@ export const load = async () => {
 	await prepareRuntimeBundle();
 	const unplayable = gameMechanic().unplayable;
 	if (unplayable) await refuseUnplayableBoot(unplayable);
+	// An online game joins its room before it mounts; a game that cannot stops here, on the error
+	// screen. Every other game skips it.
+	if (gameMechanic().room) await joinOnlineRoom();
 	// Before `<Authenticate>` mounts: a round left open is translated inside `requestAuthenticate`,
 	// and the facade stamps its `winLevel`s (and gates a Book-of expansion) from whatever it has been
 	// given by then. The memo is dropped first, since a module may have read the config before the
