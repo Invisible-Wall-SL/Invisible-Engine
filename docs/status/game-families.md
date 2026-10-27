@@ -27,6 +27,128 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
 
 ## Current state
 
+**P10.16 — Arcade A4c: 100 players and Salmons (built 2026-10-27; in review).** §8's P10.16 row,
+per the approved A4 design ([realtime-multiplayer.md](../design/realtime-multiplayer.md) §5, §7,
+§12, §14 #4–#6), in **one PR**, on P10.15. The last step of Phase 10. Not deployed; merging it
+redeploys the game server (its Railway watch paths cover `services/game-server/**`,
+`packages/engine-mechanics/**` and `packages/game-config/**`).
+
+- **Bots** (§7; `engine-mechanics` `onlineBots.js`, plain ESM + `.d.ts`): a bot is a room player
+  (`bot-<n>`, `bot: true` in the state) whose input each step comes from a P10.11 brain
+  (`behaviours.js`) instead of a device. `botInput` steps the brain over the room's free players,
+  turns its velocity into an ordinary clamped input and presses an ability's button while one of its
+  targets is within reach; the room then steps and rules it exactly as a device's player, so a bot
+  is held to its character's speed, cooldowns and rules. Seeded from the room's seed (random per
+  room; a gate passes its own), so a room replays exactly.
+  - Config `arcade.online.bots = { fillTo?, characters: [{ character, brain }], canWin?, spawns? }`
+    (sparse; defaults `fillTo` 20 held to `maxPlayers`, `canWin` false — §14 #5); `brain` names an
+    `arcade.characters` entry whose brain the bot plays (the validator refuses an unknown online
+    character or a character with no brain, and no longer warns that a character a bot plays is
+    inert online). `OnlineGame` gains `brains`.
+  - The room (`roomSim.ts`) keeps people + bots at `fillTo` while a person is in it, the bots taking
+    their characters in turn within each character's `max`; a joining person takes a bot's place —
+    one of its character when only bots hold that character's places, else the newest — so the room
+    never goes over its size; a leave lets a bot back in; the last person out sends every bot away.
+    A refused join leaves the room filled as it was. A bot never connects, is never a Colyseus
+    client and is not counted in the listing's `players` (people only).
+  - The rules (`onlineRules.js`): a bot neither reaches the goal nor tops a round on the clock
+    unless `bots.canWin`.
+- **Nearby-only state** (§5): the load test needed it (below). `arcade.online.nearby = { w, h }`
+  (each 200–20 000 px) sends each device only the players inside that box centred on its own; a
+  player leaves a device's view only 25 % past the box (no flicker on the edge). The room uses a
+  second state class, `NearbyRoomState` (`players: t.map(NearbyPlayer).view()`), and a Colyseus
+  `StateView` per client, updated in `onBeforePatch` by a pass over every pair (10 000 comparisons
+  at 100). **`ack` goes only to its own device** (a `.view(own)` tag): nobody else's prediction
+  reads it, and it was a quarter of every patch. A room without `nearby` keeps P10.14's state class
+  and encoding exactly. Room events still go to everyone.
+- **Per-character spawns**: `arcade.online.characters[].spawns` — where that character's people
+  start and respawn, taken in turn (absent ⇒ `online.spawn`); bots use `bots.spawns`.
+- **The online world camera** (P10.15 follow-up e): an online game whose play-field screen has a
+  `world` / `camera` gets a camera that follows the device's own player as drawn (predicted), with
+  the screen's dead zone and smoothing (`game/online.ts` `useOnlineCamera`, from `<ArcadeStage />`).
+  The probe's `arcade.camera` reports it. No culling and no shake online.
+- **The load test** (`scripts/room-load.mjs`, outside CI, §12): N real `@colyseus/sdk` devices in
+  this process join one room of a local game server run in a process of its own
+  (`room-load-server.mjs`: per-address limits raised, every step timed, CPU and memory each
+  second over IPC), each sending one input per step through a TCP proxy that delays each WebSocket
+  ±jitter each way in order; salmon swim upstream and weave, bears and fishermen roam and press J.
+  It reads the steps a second each device sees the room advance, the states a second each
+  receives, the bytes each WebSocket carries down (frames and their headers), the server's step
+  time, CPU and memory; it exits 1 past its budget (a device ≤ 10 KB/s on average and ≤ 16 KB/s at
+  most, egress ≤ 1 MB/s, step p99 < 8 ms, rates held to 95 %). `--everyone` drops `nearby`. It
+  only ever starts its own server.
+  **Measured** (4-core cloud container, Node 22; Salmons; 100 devices; 60 ± 20 ms each way; 30 s
+  after a 3 s warm-up): see the table below.
+- **Salmons as data** (`engine-mechanics` `salmons.js`, not exported from the package entry):
+  `salmonsRiver(seed)` generates the river (§14 #4: 15 bands sea → source with banks, a current —
+  some rapids — and whirlpools), `salmonsConfig(river)` the online config (detail in
+  [playtest/salmons.md](../playtest/salmons.md)); `engine-layout` `referenceLayouts/salmons.ts`
+  draws it (`salmonsReferenceLayout`, `SALMONS_CHARACTER_COMPONENTS`: three placeholder looks);
+  `scripts/salmons/export.mjs` writes the three documents at their R2 keys into a folder for the
+  owner. Salmons' current rules map to data as §4's table plans, except the climb, sandbanks and
+  the fisherman's line (rules-module work) — [status/salmons.md](salmons.md) has the list.
+- **Gates:**
+  - `check:room-bots` (root, new, 17 checks, ~10 s; discovered by `check:all`): the bots / nearby /
+    spawns config normalized, resolved and validated; fill, give way, evict by character, refused
+    join, leave, last person out; a bot moves no faster than its character, its brain closes on a
+    target, it catches with its ability; a bot cannot win at the goal or on the clock (and can with
+    `canWin`); a seeded room replays exactly; spawns in turn. Salmons: the river is the seed's, the
+    config validates with no issue, a salmon steering for the water's middle reaches the source and
+    wins, the current carries it down and a bank pushes it back, a bear bot catches it. *Live* on a
+    real server with SDK clients: bots fill and are marked and give way; nearby — a far player is
+    not sent, it is sent once it swims near and dropped once it leaves, a device gets its own `ack`
+    and nobody else's.
+  - `check:room-sim`: its source scan now expects the online camera branch in `<ArcadeStage />`
+    (36 checks pass). `check:online-rules`, `check:netcode`: unchanged, pass.
+  - `family.fixture.ts`: the two `resolveArcadeOnline` expectations gain the resolved empty bots.
+- **Verified by playing:** `scripts/playtest/salmons-play.mjs`
+  ([playtest/salmons.md](../playtest/salmons.md)), two headless shells against a local game
+  server: **14 / 14**, three runs in a row — one room; bots fill it; nearby (the bear on its bank is
+  not sent to the salmon at the sea, nor the salmon to it); the camera frames the salmon and follows
+  it up the river within its dead zone; resting, the current carries it down and the page draws it
+  within 20 px of the room; no RGS request, no page error.
+- **Bundle size** — see the handoff numbers in the Recent changes entry.
+- **Slot / match-3 / offline-arcade parity:** every runtime change is in `game/online.ts` and the
+  `online` branch of `<ArcadeStage />`, reached only when `gameMechanic().room`; the offline branch
+  still calls `useWorldCamera` exactly as before. On the server, a config without `bots` resolves to
+  `fillTo` 0 (no bot is ever made) and one without `nearby` keeps the P10.14 state class. Edited
+  shared modules: `game-config` `family.ts` / `familyValidate.ts` / `arcadeOnline.ts`,
+  `engine-mechanics` `index.ts` / `onlineRules.js`. The current-games harness is not edited.
+- **Chosen in P10.16, owner may overturn** (neither plan fixes them):
+  - **the load test's budget** (§12 named none): a device 10 KB/s on average (§5 estimated about 6)
+    and 16 KB/s at most, egress 1 MB/s, step p99 8 ms (§6), rates to 95 %;
+  - nearby as a **box** around the own player, 25 % hysteresis, all pairs compared (no grid) — fine
+    at 100; Salmons' box is 2400 × 1800, wider than any device's view plus the camera's dead zone;
+  - `ack` sent only to its own device (in a nearby room);
+  - a person takes the **newest** bot's place; bots take their characters **in turn**;
+  - a bot presses an ability whenever a target is within its reach (the rules' cooldown paces it);
+    bots see only free, connected players;
+  - Salmons' river is **one seed for every room**, written into the config at authoring time
+    (§14 #4 asked for generation; a new river per room needs the device to draw the room's seed);
+  - Salmons' numbers (speeds, reaches, catch times, currents, bank push, round length, goal score,
+    the bear and fisherman maxima) are first guesses to tune in play;
+  - the load-test devices start where people do (all salmon at the sea): the shoal at a round's
+    start is the costliest moment, and the test keeps it.
+- **Known limits:**
+  - **the salmon shoal**: every salmon starts at the sea, so at a round's start each salmon is sent
+    every other one — a 60-salmon shoal is about 11 KB/s to each of them; it thins as they spread;
+  - nearby does not apply to room events (all go to everyone) nor to the room's own fields;
+  - bots do not jump or use `aim`; a `shootAt` brain's shots are not spawned online;
+  - bears and fishermen can walk into the water (no per-character solids online);
+  - no culling or shake for the online camera; the camera does not follow a respawn's snap any
+    faster than its smoothing;
+  - the load test runs the devices and the proxy in one Node process: at 100 devices it is not the
+    limit on a 4-core machine, but a slower one would show the devices' lateness as the room's;
+  - P10.15's limits stand (online Flow events, server-owned `var:` sources, predicted ability events,
+    the `out` player still drawn).
+
+| Run (Salmons, 100 devices, 60 ± 20 ms) | Steps / s seen (of 30) | States / s (of 20) | KB/s per device: mean / max | Egress | Step p50 / p99 / max | Server CPU | RSS |
+|---|---|---|---|---|---|---|---|
+| everyone (no `nearby`) | {{E_STEPS}} | {{E_STATES}} | {{E_KB}} | {{E_EG}} | {{E_STEP}} | {{E_CPU}} | {{E_RSS}} |
+| nearby, `ack` to everyone (first try) | 30 | 19.9 | 26.7 / 27.2 | 2.6 MB/s | 0.31 / 0.92 / 9.4 ms | 32 % | 162 MB |
+| nearby + own `ack` + spawns on the banks | {{N_STEPS}} | {{N_STATES}} | {{N_KB}} | {{N_EG}} | {{N_STEP}} | {{N_CPU}} | {{N_RSS}} |
+| 5 devices, bots fill to 20 | {{B_STEPS}} | {{B_STATES}} | {{B_KB}} | {{B_EG}} | {{B_STEP}} | {{B_CPU}} | {{B_RSS}} |
+
 **P10.15 — Arcade A4b: netcode and the online rules (built 2026-10-27; in review).** §8's P10.15
 row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-multiplayer.md) §4–§6,
 §11, §12), in **one PR**, on P10.14. Not deployed (nothing to deploy beyond P10.14's service).
