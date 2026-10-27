@@ -111,6 +111,10 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   - Then: run the workflow once, and do restore drill A with your real key.
   - **Railway:** if the workspace is on **Pro**, also enable Postgres → Backups → Daily + Weekly. It is Pro/Enterprise only; if the tab is missing or locked, you are on Hobby and ours is the only DB backup.
 - **Monitoring setup (owner, ~30 min; everything is dormant until done):** (1) create a Sentry org in the **EU** region with projects `game-runtime` (Browser JS), `launcher` (Node), `pipeline-tools` (Python), alert rule "new issue → email" on each; (2) GitHub → Settings → Secrets and variables → Actions: secret `PUBLIC_SENTRY_DSN` (game-runtime DSN), optional variable `PUBLIC_SENTRY_SAMPLE_RATE`; the next runtime release bakes it; (3) Railway launcher: `SENTRY_DSN` + `PUBLIC_SENTRY_DSN` (launcher DSN) → Apply changes; (4) Railway atlas-tool + sheet-tool: `SENTRY_DSN` (pipeline-tools DSN) → Apply changes; (5) Railway launcher → Settings → Deploy → Healthcheck Path `/api/health`, timeout 300; (6) Better Stack monitors per the INFRA table; (7) Watch the repo (Custom → Issues) so "Runtime release failed" issues reach you; (8) readable stack traces: a Sentry auth token as `SENTRY_AUTH_TOKEN` + `SENTRY_ORG` / `SENTRY_PROJECT` in GitHub Actions and on the Railway launcher — the numbered steps are docs/INFRA.md "Readable stack traces — source maps".
+- **cloudflared ≥ 2026.10.2 on the tunnel machine (owner, ~5 min):** upgrade every cloudflared copy
+  on the PC that runs `comfy-gualtiero`, then confirm the connector version in Cloudflare →
+  Networking → Tunnels. Then put the launcher's version check (docs/INFRA.md "ComfyUI tunnel") into
+  `Invisible_Launcher.py`, which is outside the repo, so a fresh machine can't install an old build.
 - **Secret rotation (owner, Railway / Cloudflare / RunPod dashboards):** rotate the secrets listed
   in docs/INFRA.md "Security / secret rotation", following that table and, for every consumer, the
   order and the verification, [guides/rotate-a-secret](../guides/rotate-a-secret.md). Verify the
@@ -126,6 +130,11 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-27 — **cloudflared minimum version documented** after Cloudflare's eMudhra advisory
+  (builds before 2026.10.2 trust compromised intermediates). Only the desktop tunnel connector runs
+  cloudflared — no Railway or RunPod service does — so production is unaffected. INFRA "ComfyUI
+  tunnel" now gives the launcher's resolve → version-check → fetch-latest rule; the owner step is in
+  Blocked.
 - 2026-10-26 — **current-games renders on 8 shards, not 20** (`SHARDS` and the `render` matrix in
   `current-games.yml`). About half the old live games are gone, so each shard's units now take
   minutes. The 20 runner jobs per run were what kept PRs queued behind each other. The plan still
