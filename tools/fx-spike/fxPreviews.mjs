@@ -26,7 +26,9 @@
  *    - a placement's value for a material param changes it; an unknown kind and no material: plain;
  *    - the page's 8 slots never leak: nine overlays unmounted while their art loads, nine whose
  *      emitter config throws after the material mounted, then one draws "1/8"; nine overlays at
- *      once draw 8 and one plain, and eight again after draw all 8.
+ *      once draw 8 and one plain, and eight again after draw all 8;
+ *    - the clock is the game's (`emitterDeltaSeconds`): a one-shot of 1 emitter-second is on screen
+ *      within its game time (~430 ms, failing past 1.5×), not ~1000 ms, and then gone.
  * 3. `node --check` on every inline script of `view.html`.
  * Never invisible: every plain case draws its sprites.
  *
@@ -258,6 +260,17 @@ try {
 					eightOn === 8 &&
 					!said(e.instances.eight, 'over the game cap'),
 				`${nineOn} on + ${nineOver} over the cap, then ${eightOn} on`,
+			);
+			const c = e.clock;
+			const shown = c.lastMs - c.firstMs;
+			check(
+				"the effect clock is the game's: a one-shot is gone in its game wall time, not its emitter seconds",
+				c.firstMs >= 0 &&
+					c.peak > DRAWN &&
+					shown <= c.expectedMs * 1.5 &&
+					shown < c.emitterSeconds * 1000 * 0.75 &&
+					c.end.drawn === 0,
+				`on screen ${Math.round(shown)} ms (game ${Math.round(c.expectedMs)} ms, wall-clock seconds ${c.emitterSeconds * 1000} ms); peak ${c.peak}; at the end ${px(c.end)}`,
 			);
 		}
 	}

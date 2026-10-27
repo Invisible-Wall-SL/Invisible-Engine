@@ -88,7 +88,8 @@ const effect = (
 /**
  * By id: a material that compiles, one whose graph the set lacks, and none; a one-shot burst (about
  * 130 ms of emission, particles gone about 260 ms later); and a config the library refuses when its
- * emitter is built (an unknown spawn shape), after the material has mounted.
+ * emitter is built (an unknown spawn shape), after the material has mounted; and `clock`, a plain
+ * one-shot that is all gone after {@link CLOCK_EMITTER_SECONDS} of emitter time.
  */
 export const EFFECTS: Record<string, unknown> = {
 	solid: effect('solid', { kind: 'custom:solid' }),
@@ -99,6 +100,12 @@ export const EFFECTS: Record<string, unknown> = {
 		{ kind: 'custom:solid' },
 		{ ...config, emitterLifetime: 0.3, lifetime: { min: 0.6, max: 0.6 }, frequency: 0.01 },
 	),
+	clock: effect('clock', undefined, {
+		...config,
+		emitterLifetime: 0.4,
+		lifetime: { min: 0.6, max: 0.6 },
+		frequency: 0.01,
+	}),
 	throws: effect(
 		'throws',
 		{ kind: 'custom:solid' },
@@ -108,6 +115,9 @@ export const EFFECTS: Record<string, unknown> = {
 		},
 	),
 };
+
+/** `clock`'s emitter lifetime plus its particles' lifetime: when its last particle dies. */
+export const CLOCK_EMITTER_SECONDS = 1;
 
 /**
  * How `GET /api/shaders/effects` answers: the set, a 500, a network failure, the set after

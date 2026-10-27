@@ -5,10 +5,10 @@
  * compiled set is registered the way the editor page does (`registerCustomElementFx`).
  */
 import { flushSync, mount, unmount } from 'svelte';
-import type { EffectParamValues } from 'engine-fx';
+import { emitterSecondsToWallMs, type EffectParamValues } from 'engine-fx';
 import { registerCustomElementFx } from '$lib/customElementFx.svelte';
 import EditorEffectLayer from '@fxroot/apps/launcher-api/src/routes/(app)/editor/EditorEffectLayer.svelte';
-import { SHADER_EFFECTS, census, debugLines, served, sleep } from './shared';
+import { CLOCK_EMITTER_SECONDS, SHADER_EFFECTS, census, debugLines, served, sleep } from './shared';
 
 const page = window as unknown as { result?: unknown; ready?: boolean };
 const RUN_MS = 900;
@@ -40,6 +40,7 @@ function overlay(effectId: string, values?: EffectParamValues) {
 		} as never,
 	});
 	return {
+		canvas: () => target.querySelector('canvas'),
 		pixels: () => census(target.querySelector('canvas') as HTMLCanvasElement),
 		close: () => {
 			unmount(component);
@@ -56,6 +57,41 @@ async function run(effectId: string, values?: EffectParamValues) {
 	view.close();
 	await sleep(50);
 	return { pixels, lines: debugLines.slice(since) };
+}
+
+/**
+ * How long a finite plain effect stays on screen: the canvas sampled every few ms from its first
+ * drawn pixel to its last. The editor plays it at the game's speed, so that is the game's wall time
+ * for its emitter time (`emitterSecondsToWallMs`), not that many seconds.
+ */
+async function clock() {
+	const view = overlay('clock');
+	const began = performance.now();
+	let first = -1;
+	let last = -1;
+	let peak = 0;
+	while (performance.now() - began < 2500) {
+		const drawn = view.canvas() ? view.pixels().magenta : 0;
+		const at = performance.now() - began;
+		if (drawn > 0) {
+			if (first < 0) first = at;
+			last = at;
+			peak = Math.max(peak, drawn);
+		}
+		if (first >= 0 && at - last > 600) break;
+		await sleep(15);
+	}
+	const end = view.pixels();
+	view.close();
+	await sleep(50);
+	return {
+		expectedMs: emitterSecondsToWallMs(CLOCK_EMITTER_SECONDS),
+		emitterSeconds: CLOCK_EMITTER_SECONDS,
+		firstMs: first,
+		lastMs: last,
+		peak,
+		end,
+	};
 }
 
 async function main() {
@@ -78,6 +114,7 @@ async function main() {
 	result.param = await run('solid', { hue: '#0000ff' });
 	result.unknownKind = await run('gone');
 	result.noMaterial = await run('plain');
+	result.clock = await clock();
 
 	// The page's 8 slots are shared by every overlay, so none may leak.
 	{
