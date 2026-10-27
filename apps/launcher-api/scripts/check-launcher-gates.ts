@@ -181,6 +181,21 @@ check(
 check('pipeline/games never reads the session', /\blocals\b/.test(source('pipeline/games')), false);
 
 /**
+ * The game server's config read is gated on its own bearer secret ALONE
+ * (`check-game-server-config.ts` holds the behaviour): a session must never stand in for it.
+ */
+check(
+	'game-server/config gates on the game-server secret',
+	source('game-server/config').includes('gameServerAuthorized('),
+	true,
+);
+check(
+	'game-server/config never reads the session',
+	/\blocals\b/.test(source('game-server/config')),
+	false,
+);
+
+/**
  * The Director adapter gate is the service token's alone (`check-director-adapters.ts` holds the
  * behaviour): the worker acts as the run's owner, never as whoever holds a session.
  */
@@ -237,6 +252,8 @@ const PROJECT_CHECKS = [
 	'canAccessProject(',
 	'projectAllowsRead(',
 	'getDeployToken(',
+	// The game server's secret reads every project's PUBLISHED config, like the deploy token.
+	'gameServerAuthorized(',
 ];
 const PROJECT_READ_EXEMPT: Record<string, string> = {
 	'admin/project-footprint': 'gated on adminPanel, which spans every project',
