@@ -308,7 +308,7 @@ in review; 8d.8 (play-QA and calibration) is next.
       - **Picker order:** `/fx` lists effects made for particles first, under "Made for particles"
         and "Other effects".
       - **Gates:** `compile.fixture.ts` 213 (snapshots unchanged); `check:shader-editor` 263;
-        `fx-previews` 76; `shader-page` (new, in `check:all`) plays the real `/shaders` headless on
+        `fx-previews` 78; `shader-page` (new, in `check:all`, 42) plays the real `/shaders` headless on
         WebGL1 and WebGL2 and walks the step's exit; `check:shader-pipeline` 149.
     - **8d.6, the other previews.** Merged (#1407, 2026-10-27). Guides: `docs/tools/invisible-editor.md`,
       `rigger.md`, `symbols-state-machine.md`.
@@ -662,8 +662,8 @@ in review; 8d.8 (play-QA and calibration) is next.
 ## Recent changes
 - 2026-10-27 — **Step 8d.7: `/shaders` Made for particles and the Particles preview** (see
   "Current state"). Step 8d.6 merged (#1407).
-  - **Proof.** `compile.fixture.ts` 213; `check:shader-editor` 263; `fx-previews` 76;
-    `shader-page` 36 (new); `fx-page` 31; fx-spike `model` 116; `particle-material`;
+  - **Proof.** `compile.fixture.ts` 213; `check:shader-editor` 263; `fx-previews` 78;
+    `shader-page` 42 (new); `fx-page` 31; fx-spike `model` 116; `particle-material`;
     `material-behavior`; `check:element-fx`; `check:shader-pipeline` 149; `check:launcher-gates`
     662; `check:vendored-bundles` (`rigger-fx.js` rebuilt); svelte-check at baseline; launcher
     build; `check:all` 568/568. 20 mutations, each failing its gate.

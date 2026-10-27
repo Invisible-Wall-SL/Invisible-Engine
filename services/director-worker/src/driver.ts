@@ -27,7 +27,7 @@ import {
 	projectVisionCall,
 	unreportedSeconds,
 } from './budget.ts';
-import type { AdapterSpec, Launcher } from './launcher.ts';
+import type { AdapterResult, AdapterSpec, Launcher } from './launcher.ts';
 import { deferLease, LEASE_MS, releaseLease, renewLease, type ClaimedRun } from './lease.ts';
 import { log } from './log.ts';
 import {
@@ -102,6 +102,7 @@ import {
 	type RecipeEdit,
 } from './recipes.ts';
 import { WORKER_TOOL_OPS, WORKER_TOOLS } from './tools.ts';
+import { answerContent, capImages, cutResult } from './toolResult.ts';
 import { runWorkerTool, workerToolSpecs, type FiledBug, type WorkerToolId } from './workerTools.ts';
 
 /**
@@ -168,7 +169,6 @@ const RETRY_MAX_MS = 120_000;
 const WORKER_TOOL_IDS: ReadonlySet<string> = new Set(WORKER_TOOLS);
 const COORDINATOR = 'coordinator';
 const MAX_TURNS = 40;
-const MAX_RESULT_CHARS = 60_000;
 
 /**
  * An answer that says nothing about whether an op ran, or a launcher that could not be asked: the
@@ -328,12 +328,19 @@ async function catalog(ctx: Ctx): Promise<ReadonlyMap<string, AdapterSpec>> {
 const resultBlock = (id: string, content: string, isError = false): BetaToolResultBlockParam => ({
 	type: 'tool_result',
 	tool_use_id: id,
-	content:
-		content.length > MAX_RESULT_CHARS
-			? `${content.slice(0, MAX_RESULT_CHARS)}…[truncated]`
-			: content,
+	content: cutResult(content),
 	...(isError ? { is_error: true } : {}),
 });
+
+/** An adapter's answer: a 200 may carry an image the model is shown; an error is always text. */
+const answerBlock = (
+	id: string,
+	answer: AdapterResult,
+	imageOp: boolean,
+): BetaToolResultBlockParam =>
+	answer.status === 200
+		? { type: 'tool_result', tool_use_id: id, content: answerContent(answer.body, imageOp) }
+		: resultBlock(id, JSON.stringify(answer.body), true);
 
 const opIdOf = (runId: string, agent: string, turnSeq: number, index: number) =>
 	`${runId}:${agent}-t${turnSeq}:${index}`;
@@ -527,7 +534,7 @@ async function settle(
 				await withLease(ctx.sql, ctx.run, (tx, live) => markQueued(tx, live.id, steps, jobRef));
 			}
 		}
-		results.set(call.id, resultBlock(call.id, JSON.stringify(answer.body), answer.status !== 200));
+		results.set(call.id, answerBlock(call.id, answer, spec.image === true));
 	}
 
 	await withLease(ctx.sql, ctx.run, async (tx, live) => {
@@ -711,7 +718,7 @@ async function pauseWithError(ctx: Ctx, agent: string, error: Record<string, unk
 // ── One turn ──────────────────────────────────────────────────────────────────
 
 const toParams = (messages: StoredMessage[]): BetaMessageParam[] =>
-	messages.map((m) => ({ role: m.role, content: m.content }));
+	capImages(messages.map((m) => ({ role: m.role, content: m.content })));
 
 const finalText = (content: BetaContentBlockParam[]) =>
 	content
