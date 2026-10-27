@@ -8,6 +8,8 @@ import type { JsonSchema, ToolSpec } from './model.ts';
 
 export interface AdapterSpec extends ToolSpec {
 	write: boolean;
+	/** The op's answer carries `image: { mediaType, base64 }` for the model to see. */
+	image?: true;
 }
 
 export interface AdapterResult {
@@ -38,7 +40,13 @@ export function httpLauncher(baseUrl: string, token: string): Launcher {
 			const res = await fetch(`${baseUrl}/api/director/adapter`, { headers });
 			if (!res.ok) throw new Error(`adapter catalog answered ${res.status}`);
 			const body = (await res.json()) as {
-				ops: { id: string; description: string; inputSchema: JsonSchema; write: boolean }[];
+				ops: {
+					id: string;
+					description: string;
+					inputSchema: JsonSchema;
+					write: boolean;
+					image?: true;
+				}[];
 			};
 			const ops = new Map(body.ops.map((op) => [op.id, op]));
 			cached = { at: Date.now(), ops };

@@ -51,8 +51,8 @@
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { mock } from 'node:test';
-import sharp from 'sharp';
 import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
 import type {
 	DirectorAtlasJob,
 	DirectorOp,
@@ -1582,9 +1582,12 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 				return send(200, 'application/json', '[{"id":"00002","seed":3},{"id":"00001","seed":2}]');
 			}
 			if (url.pathname.startsWith('/vthumb/')) {
-				return url.searchParams.get('id') === '00002'
+				const vid = url.searchParams.get('id');
+				return vid === '00002'
 					? send(200, 'image/jpeg', TILE)
-					: send(200, 'image/svg+xml', '<svg/>');
+					: vid === '00009'
+						? send(200, 'image/jpeg', TILE.subarray(0, 400))
+						: send(200, 'image/svg+xml', '<svg/>');
 			}
 			if (url.pathname === '/save') {
 				// docsave: the page's base must still be what R2 holds, unless only machine writes
@@ -1845,6 +1848,16 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			'get_variant_image returns { image: { mediaType, base64 } }, downscaled to the model long edge',
 			[img.status, img.body.contentType, img.body.base64, shown.mediaType, dims.width, dims.height],
 			[200, undefined, undefined, 'image/jpeg', 1568, 1045],
+		);
+		const broken = await atlas(
+			'get_variant_image',
+			{ atlas: 'symbols', region: 'W', id: '00009' },
+			'qa',
+		);
+		check(
+			'a variant that does not decode is a settled 422, not a 502 the worker retries',
+			[broken.status, broken.body.error],
+			[422, 'unreadable_image'],
 		);
 		check(
 			"a variant atlas-tool answers with its placeholder is a 404, not an 'image'",

@@ -163,6 +163,7 @@ const SPECS: AdapterSpec[] = [
 		description: 'One variant image.',
 		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 		write: false,
+		image: true,
 	},
 	{
 		id: 'atlas.queue_variants',
@@ -258,10 +259,10 @@ const AGENTS = new Map([
 			'claude-opus-5-5',
 		),
 	],
+	['atlas-artist', agent('atlas-artist', ['atlas.queue_variants', 'run.post_activity'])],
 	[
-		'atlas-artist',
-		agent('atlas-artist', [
-			'atlas.queue_variants',
+		'art-director',
+		agent('art-director', [
 			'atlas.get_variant_image',
 			'gamemaker.create_from_template',
 			'run.post_activity',
@@ -1619,11 +1620,11 @@ try {
 	// ── 29. Image answers reach the model as images ──────────────────────────
 	console.log('29. an adapter image answer is a text + image tool_result, stored and replayed');
 	{
-		const PNG = Buffer.from('iVBORw0KGgo=', 'base64').toString('base64');
+		const PNG = 'iVBORw0KGgo=';
 		const image = { mediaType: 'image/png', base64: PNG };
 		const plainBody = { jobRef: 'job-x', note: 'image is not special here' };
 		const runId = await newRun();
-		await userMessage(runId, 'atlas-artist', 'Look.');
+		await userMessage(runId, 'art-director', 'Look.');
 		const model = fakeModel([
 			{
 				content: [
@@ -1636,6 +1637,8 @@ try {
 			{ content: [say('Seen.')] },
 			{ content: [say('Noted.')] },
 			{ content: [say('Seen again.')] },
+			{ content: [say('Wrapped.')] },
+			{ content: [say('A stray call is not absorbed.')] },
 		]);
 		const gate = fakeLauncher((id, nth) => {
 			if (id === 'atlas.get_variant_image') {
@@ -1685,13 +1688,13 @@ try {
 			results[3],
 			JSON.stringify(plainBody),
 		);
-		const stored = await messages(runId, 'atlas-artist');
+		const stored = await messages(runId, 'art-director');
 		check(
 			'the stored result message is what the model was sent (byte-identical)',
 			JSON.stringify(stored[2].content),
 			JSON.stringify(model.requests[1].messages.at(-1)!.content),
 		);
-		await userMessage(runId, 'atlas-artist', 'Again.');
+		await userMessage(runId, 'art-director', 'Again.');
 		await drive(runId, deps(model.transport, gate.launcher));
 		// The coordinator's turn on the artist's report sits between the artist's two.
 		const artist = model.requests.filter((r) => JSON.stringify(r.messages[0]).includes('Look.'));
@@ -1700,10 +1703,90 @@ try {
 			JSON.stringify(artist.at(-1)?.messages.slice(0, 3)),
 			JSON.stringify(model.requests[1].messages.slice(0, 3)),
 		);
+		check('…and the model was asked exactly as often as the script says', model.calls(), 5);
 		check(
 			'…and the write did not run twice',
 			gate.sent.filter((e) => e.startsWith('gamemaker.create_from_template@')).length,
 			1,
+		);
+
+		// The request's images are capped, from the stored rows, the same on every replay.
+		const seedHistory = async (id: string, count: number, base64: string) => {
+			const rows: { role: string; content: unknown[] }[] = [
+				{ role: 'user', content: [{ type: 'text', text: 'Review.' }] },
+			];
+			for (let i = 0; i < count; i++) {
+				const toolUse = `toolu_seed${i}`;
+				rows.push(
+					{
+						role: 'assistant',
+						content: [
+							{
+								type: 'tool_use',
+								id: toolUse,
+								name: toolName('atlas.get_variant_image'),
+								input: {},
+							},
+						],
+					},
+					{
+						role: 'user',
+						content: [
+							{
+								type: 'tool_result',
+								tool_use_id: toolUse,
+								content: [
+									{
+										type: 'text',
+										text: JSON.stringify({ region: 'R', id: String(i).padStart(3, '0') }),
+									},
+									{
+										type: 'image',
+										source: { type: 'base64', media_type: 'image/png', data: base64 },
+									},
+								],
+							},
+						],
+					},
+				);
+			}
+			rows.push({ role: 'assistant', content: [{ type: 'text', text: 'Noted.' }] });
+			rows.push({ role: 'user', content: [{ type: 'text', text: 'Again.' }] });
+			for (const [seq, row] of rows.entries()) {
+				await sql`insert into director_messages (run_id, agent, seq, role, content_json)
+					values (${id}, 'art-director', ${seq}, ${row.role}, ${sql.json(row.content as never)})`;
+			}
+		};
+		const imagesOf = (request: BetaMessageStreamParams) =>
+			JSON.stringify(request.messages).split('"type":"image"').length - 1;
+		const runWith = async (count: number, base64: string) => {
+			const id = await newRun();
+			await seedHistory(id, count, base64);
+			const seeded = fakeModel([{ content: [say('Fine.')] }, { content: [say('Spare.')] }]);
+			await drive(id, deps(seeded.transport, fakeLauncher().launcher));
+			return seeded.requests[0];
+		};
+		const long = await runWith(45, PNG);
+		const longText = JSON.stringify(long.messages);
+		check(
+			'45 stored images: the request carries 20 and the older ones are stubs',
+			[
+				imagesOf(long),
+				longText.includes('[image shown earlier: R/000]'),
+				longText.includes('[image shown earlier: R/024]'),
+				longText.includes('[image shown earlier: R/025]'),
+			],
+			[20, true, true, false],
+		);
+		check(
+			'the same stored rows build the same request (a replay, a second run)',
+			JSON.stringify((await runWith(45, PNG)).messages),
+			longText,
+		);
+		check(
+			'six 3 MB images: the byte cap keeps the newest 4 (12 MB)',
+			imagesOf(await runWith(6, 'A'.repeat(3 * 1024 * 1024))),
+			4,
 		);
 	}
 

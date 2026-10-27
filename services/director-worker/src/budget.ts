@@ -38,8 +38,8 @@ export function projectCall(
  */
 function inputTokensOf(request: BetaMessageStreamParams): number {
 	let images = 0;
-	const text = JSON.stringify(request, (_key, value) => {
-		if (value?.type === 'base64' && typeof value.data === 'string') {
+	const text = JSON.stringify(request, (key, value) => {
+		if (key === 'source' && value?.type === 'base64' && typeof value.data === 'string') {
 			images += 1;
 			return { ...value, data: '' };
 		}

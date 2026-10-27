@@ -11,7 +11,7 @@ import {
 } from '../atlasClient';
 import { JOB_REF, callbackFor, readJobView, runpodUsageOf, startAtlasJobWatch } from '../atlasJobs';
 import { doneOpResults, getAtlasJob, insertAtlasJob, projectOpResults, runRecipes } from '../store';
-import { downscaleForModel } from '../mockupPixels';
+import { validatedModelImage } from '../mockupPixels';
 
 /**
  * Atlas Maker adapters (PLAN 2.4). Reads come straight from the project's manifests in R2, the
@@ -614,6 +614,7 @@ export const getVariantImage = defineOp<
 	},
 	agents: ['art-director', 'qa'],
 	scope: 'project',
+	image: true,
 	write: false,
 	handler: async (ctx, { atlas, region, id, size }) => {
 		const answer = await atlasFetch(ctx, {
@@ -634,13 +635,12 @@ export const getVariantImage = defineOp<
 				`Variant ${id} is too large to return; ask for the thumb.`,
 			);
 		}
-		// The model sees at most what a mockup does (a 2048 px tile is not sent raw).
-		const shown = await downscaleForModel(
-			answer.bytes,
-			contentType as 'image/png' | 'image/jpeg' | 'image/webp',
-		).catch(() => {
+		// The model sees at most what a mockup does (a 2048 px tile is not sent raw), and only an
+		// image that decodes: the API refuses a broken one for good.
+		const shown = await validatedModelImage(answer.bytes).catch((error) => {
+			console.error(`director: variant ${id} of "${region}" did not decode: ${error}`);
 			throw new AdapterError(
-				502,
+				422,
 				'unreadable_image',
 				`Variant ${id} of "${region}" is not a readable image.`,
 			);
