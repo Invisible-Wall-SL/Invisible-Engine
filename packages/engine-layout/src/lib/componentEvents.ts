@@ -90,7 +90,7 @@ export function eventCueId(cue: string): string | undefined {
 export type ComponentCueRoute =
 	| { kind: 'event'; cue: string }
 	| { kind: 'signal'; name: string }
-	| { kind: 'sound'; channel: 'once' | 'music'; name: string }
+	| { kind: 'audio'; channel: 'once' | 'music'; name: string }
 	| { kind: 'broadcast'; name: string }
 	| { kind: 'drop' };
 
@@ -101,7 +101,7 @@ export function routeComponentCue(cue: string, declaresEvents: boolean): Compone
 	if (ns === 'event' && declaresEvents) return { kind: 'event', cue };
 	if (!name) return { kind: 'drop' };
 	if (ns === 'sfx' || ns === 'music')
-		return { kind: 'sound', channel: ns === 'music' ? 'music' : 'once', name };
+		return { kind: 'audio', channel: ns === 'music' ? 'music' : 'once', name };
 	return ns === 'signal' ? { kind: 'signal', name } : { kind: 'broadcast', name };
 }
 

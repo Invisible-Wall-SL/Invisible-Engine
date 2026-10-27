@@ -1051,7 +1051,7 @@
 			return;
 		}
 		if (route.kind === 'drop') return;
-		if (route.kind === 'sound') {
+		if (route.kind === 'audio') {
 			timelineEvents?.broadcast({
 				type: route.channel === 'music' ? 'soundMusic' : 'soundOnce',
 				name: route.name,

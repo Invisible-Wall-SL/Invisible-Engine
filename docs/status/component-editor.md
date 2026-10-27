@@ -108,7 +108,7 @@ Shipped capabilities on `main`:
   `sfx:small_explosions` at 0.867 s and the game played nothing. `routeComponentCue` dropped every
   `sfx:` / `music:` cue on a component ("this package has no sound player"), while the same cue on a
   screen timeline or a cinematic plays (`FlowV2Cinematics`), and the editor offers the SFX pick on
-  both. The route is now `{ kind: 'sound', channel, name }`, and `ComponentInstance` broadcasts it on
+  both. The route is now `{ kind: 'audio', channel, name }`, and `ComponentInstance` broadcasts it on
   the game bus as the game's own `soundOnce` / `soundMusic` event, which `Sound.svelte` plays (an
   unknown name is silent, as for every `soundOnce`). The editor preview still plays no sound
   (`placeLayers`). ⚠️ Every component timeline that already carries an `sfx:` / `music:` cue starts
