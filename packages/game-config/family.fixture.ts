@@ -476,6 +476,22 @@ check(
 );
 check('…and no character at all', paths(online({}), 'error'), ['arcade.online.characters']);
 check(
+	'P10.11 characters on an online game warn: they do not run in a room',
+	paths(
+		normalize({
+			...ARCADE,
+			arcade: {
+				field: { w: 800, h: 600 },
+				bodies: ONLINE_BODIES,
+				characters: [{ id: 'guard', component: 'guardLook' }],
+				online: { characters: swimmers },
+			},
+		}),
+		'warning',
+	),
+	['arcade.characters'],
+);
+check(
 	'out-of-range rates warn',
 	paths(online({ characters: swimmers, maxPlayers: 500, tickHz: 30, patchHz: 40 }), 'warning'),
 	['arcade.online.maxPlayers', 'arcade.online.patchHz'],

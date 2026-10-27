@@ -238,6 +238,14 @@ function validateArcadeOnline(
 	const online = doc.arcade?.online;
 	if (!online) return [];
 	const issues: GameConfigIssue[] = [];
+	if (doc.arcade?.characters?.length) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.characters',
+			message:
+				'An online game plays only its online characters: these characters do not run in a room yet.',
+		});
+	}
 	const field = doc.arcade?.field;
 	if (!field) {
 		issues.push({

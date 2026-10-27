@@ -4,6 +4,7 @@ import { spawnStore } from 'engine-layout/svelte';
 import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-config';
 
 import { bakedGameConfig, refuseOnlineBoot } from '../editor-scenes';
+import { typingInto } from './flowKeys';
 
 /**
  * THE RUNTIME'S ONLINE BRANCH (`docs/design/realtime-multiplayer.md` §10; P10.14) — for an arcade
@@ -61,6 +62,7 @@ const held = new Set<string>();
 
 const onKey = (event: KeyboardEvent) => {
 	if (!(event.code in MOVE_KEYS) && event.code !== 'Space') return;
+	if (event.type === 'keydown' && typingInto(event.target)) return;
 	// The arrows and Space would otherwise scroll a page the game sits in.
 	event.preventDefault();
 	if (event.type === 'keydown') held.add(event.code);

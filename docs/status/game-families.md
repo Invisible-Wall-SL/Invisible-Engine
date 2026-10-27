@@ -208,7 +208,10 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
     is inert (the view stays at the origin, nothing is culled) until P10.15 drives it from the room;
   - **an online game's characters (P10.11) do not run** either: brains, controllers and paths belong
     to the same local loop, so `arcade.characters` on an online game is inert; the room moves only
-    its players' bodies (`arcade.online.characters`) until P10.15 brings the rules online;
+    its players' bodies (`arcade.online.characters`) until P10.15 brings the rules online
+    (`validateArcadeOnline` warns at `arcade.characters`); for the same reason the loop's Flow
+    board effects and values are not registered online, so Flow that targets them does nothing;
+  - keys typed into a text field are not inputs (P10.11's `typingInto` rule);
   - **no prediction or smoothing** (P10.15): a device draws a player where the last 20 Hz patch put
     it, so motion is visibly steppy and the own player answers a round trip late;
   - players do not collide, score or end a round — the rules as data are P10.15; `phase` never
