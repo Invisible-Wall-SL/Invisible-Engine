@@ -32,14 +32,29 @@ const DEFAULT_MAX_STEPS = 100;
  * first, so a project can seed from a readable id.
  */
 export function createRng(seed) {
-	let state = typeof seed === 'string' ? hashString(seed) : seed >>> 0;
+	let state = rngSeed(seed);
 	return () => {
-		state = (state + 0x6d2b79f5) >>> 0;
-		let t = state;
-		t = Math.imul(t ^ (t >>> 15), t | 1);
-		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+		const next = rngNext(state);
+		state = next.state;
+		return next.value;
 	};
+}
+
+/** The 32-bit state a seed starts a stream at: the same seed `createRng` starts from. */
+export function rngSeed(seed) {
+	return typeof seed === 'string' ? hashString(seed) : seed >>> 0;
+}
+
+/**
+ * One mulberry32 step as a pure function, for a caller that keeps its stream in a value it copies
+ * (the card match, `cards.js`) and so cannot share `createRng`'s hidden state.
+ */
+export function rngNext(state) {
+	const next = (state + 0x6d2b79f5) >>> 0;
+	let t = next;
+	t = Math.imul(t ^ (t >>> 15), t | 1);
+	t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+	return { value: ((t ^ (t >>> 14)) >>> 0) / 4294967296, state: next };
 }
 
 function hashString(text) {

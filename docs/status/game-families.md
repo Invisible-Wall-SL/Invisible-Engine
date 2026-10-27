@@ -23,6 +23,51 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
 
 ## Current state
 
+**Card C1 — the rules engine (built 2026-10-27; in review).** [card-games.md](../design/card-games.md)
+§12's C1 row (§2, §3), in one PR. No caller yet: the AI is C2, and the family, runtime and sample
+game are C3.
+
+- **The rules** (`engine-mechanics` `cards.js` + `.d.ts`, plain ESM like `board.js`): `createMatch`,
+  `legalActions`, `apply`, `isOver`; the four zones, the strict phases (start → draw → main → combat
+  → end), the resource, every §2.4 legality rule (`IllegalAction` with a code), the FIFO effect
+  queue with a death check after each effect, the `loop` guard (`MAX_QUEUE_STEPS` 500), fatigue,
+  the hand and board limits and the turn limit. `apply` copies the match and never changes its
+  input. Malformed rules (not a whole number at or above its minimum) throw.
+- **Trigger order:** the `onDamaged` and `onDeath` triggers one effect raises share one order,
+  active player first, then board order (read before the dead leave), and a unit's `onDamaged`
+  stays ahead of its own `onDeath`. A death summon takes the dead unit's place: it goes before the
+  nearest unit to its right that survived.
+- **Effects as data:** the closed lists of §3 (seven verbs, four targets, five triggers, three
+  keywords) exported as constants; `validateLibrary` (the §3.6 errors and warnings, as issues with a
+  code); `cardText` (one generated English sentence per effect); `readLibrary`, the doc-readers
+  reader: it drops unknown fields, an unknown verb / trigger / target / side / include / `until`
+  drops its effect, an unknown keyword the keyword, an unknown card type the card, and it names
+  every drop. Only a string is unknown; a value of the wrong type is kept and the validator refuses
+  it.
+- **The random stream is a number in the match** (`rngState`), stepped with `rngNext`, new in
+  `board.js` beside `createRng` (and `rngSeed`); `createRng` now runs on the same step, and
+  `board-replay.json` is unchanged.
+- **Departures from the design's sketch,** each small, kept so `apply(match, action)` is the whole
+  input or for a rule §2 left open:
+  - the match also carries `rules` (defaults applied) and `library` (by id, shared between copies);
+  - `createMatch` returns `{ match, events, dropped }`: the opening draws reach the presentation,
+    and the reader's drops reach the caller for its one warning (C3's config reader owns that);
+  - `legalActions` lists plays without a `slot` (any slot from 0 to the board's length is legal),
+    so the AI's branching stays small;
+  - `first` is `0 | 1 | 'random'`; C3 maps the config's `'player' | 'ai'` onto sides;
+  - **an expiring `endOfTurn` health buff never kills**: the unit is left at 1 health at least,
+    its damage cut to fit (the genre's rule). §2 did not say; a permanent negative buff still kills.
+- **Gates:** `check:card-rules` (43 checks, among them every verb on every target it allows, and
+  the replay trace `fixtures/cards-replay.json`) and `check:card-library` (43 checks); the sample
+  library the gates play is `fixtures/cards-sample.library.json`, invented. Both run under
+  `check:all`.
+- **Open for the design doc:** §12.1's C1 row says "the normalizer keeps unknown card fields", but
+  §3.6 and doc-readers.md drop them; the gate pins the drop, and the normalizer itself is C3's. The
+  expiry rule above wants a line in §2.
+- **For C3's config validator:** rules that are each valid but clash (`resource.start` above
+  `max` is clamped; an `openingHand` larger than the deck ends the match in fatigue at once), and
+  `cardText` expects a validated card (C4's live preview must validate first).
+
 **P10.13 — Arcade A3b: gravity, jumps and levels (built 2026-10-27; in review).** §8's P10.13 row
 (§4.4, §5.1, §6.3), in one PR, on top of P10.11 and P10.12. No live game uses any of it yet; the
 sample is a fixture.
@@ -1662,6 +1707,8 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-27 — **Card C1 built: the rules engine** (`engine-mechanics` `cards.js`, `rngNext` in
+  `board.js`, `check:card-rules`, `check:card-library`). No caller, no game changes. Detail above.
 - 2026-10-27 — **Game repo builds fixed after P10.14.** #1375 declared `@colyseus/sdk` in
   `apps/lines` only. A standalone game repo installs from its own root `package.json` (copied at
   scaffold), and the desktop launcher backfills engine workspace packages but never a third-party
@@ -1676,7 +1723,7 @@ game, bundle or screen changes.
   decisions as recommended): [card-games.md](../design/card-games.md). The rules engine
   (`cards.js`), effects as data from closed lists, a seeded on-device AI, the card frame, card data
   in Game Config, Invisible Card Library (`/cards`), the ship chain, the `card` family, build steps
-  C1–C5 with gates. Nothing built yet; C1 is next. Docs only.
+  C1–C5 with gates. Docs only.
 - 2026-10-26 — **P10.14 built: the game server (A4a).** `services/game-server` on Colyseus 0.18,
   rooms with join / leave / rejoin, inputs only, `GameConfigDoc.arcade.online`,
   `ARCADE_ONLINE_MECHANIC` and the runtime's online branch, `check:room-sim`, an online playtest.
