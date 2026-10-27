@@ -3,6 +3,7 @@ import {
 	ARCADE_FIXED_HZ_RANGE,
 	ARCADE_ONLINE_DEFAULTS,
 	ARCADE_ONLINE_LIMITS,
+	ONLINE_RULES_MODULE_IDS,
 	resolveArcade,
 	resolveFamily,
 	resolveMatch3,
@@ -335,6 +336,104 @@ function validateArcadeOnline(
 			severity: 'warning',
 			path: 'arcade.online.spawn',
 			message: 'Players start outside the play field; a clamped body is pulled inside at once.',
+		});
+	}
+	issues.push(...validateOnlineRules(doc));
+	return issues;
+}
+
+/** An online game's rules (P10.15): every name they use must exist, or the room cannot run them. */
+function validateOnlineRules(doc: GameConfigDoc): GameConfigIssue[] {
+	const online = doc.arcade?.online;
+	const rules = online?.rules;
+	if (!online || !rules) return [];
+	const issues: GameConfigIssue[] = [];
+	const characters = new Set(online.characters.map((c) => c.id));
+	const zones = new Set((doc.arcade?.zones ?? []).map((z) => z.id));
+	const unknownCharacters = (list: readonly string[], path: string) => {
+		for (const id of list) {
+			if (characters.has(id)) continue;
+			issues.push({
+				severity: 'error',
+				path,
+				message: `No online character is "${id}".`,
+			});
+		}
+	};
+	const L = ARCADE_ONLINE_LIMITS;
+	(rules.zones ?? []).forEach((rule, i) => {
+		const path = `arcade.online.rules.zones[${i}]`;
+		if (!zones.has(rule.zone)) {
+			issues.push({
+				severity: 'error',
+				path,
+				message: `The rule names the zone "${rule.zone}", which arcade.zones does not have.`,
+			});
+		}
+		unknownCharacters(rule.characters ?? [], `${path}.characters`);
+		const force = rule.force;
+		if (force && [force.x, force.y].some((v) => v < L.force.min || v > L.force.max)) {
+			issues.push({
+				severity: 'warning',
+				path: `${path}.force`,
+				message: `A current's force is held to ${L.force.min}–${L.force.max} px/s.`,
+			});
+		}
+	});
+	if ((rules.zones?.length ?? 0) > L.zoneRules.max) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.rules.zones',
+			message: `A room runs at most ${L.zoneRules.max} zone rules; the rest do nothing.`,
+		});
+	}
+	(rules.abilities ?? []).forEach((ability, i) => {
+		const path = `arcade.online.rules.abilities[${i}]`;
+		unknownCharacters([ability.character], `${path}.character`);
+		unknownCharacters(ability.targets, `${path}.targets`);
+		const ranged = [
+			['reach', ability.reach, L.reach],
+			['ms', ability.ms, L.effectMs],
+			['cooldownMs', ability.cooldownMs, L.cooldownMs],
+			['score', ability.score, L.score],
+		] as const;
+		for (const [key, value, range] of ranged) {
+			if (value === undefined || (value >= range.min && value <= range.max)) continue;
+			issues.push({
+				severity: 'warning',
+				path: `${path}.${key}`,
+				message: `${key} is ${value}; a room holds it to ${range.min}–${range.max}.`,
+			});
+		}
+	});
+	if ((rules.abilities?.length ?? 0) > L.abilities.max) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.rules.abilities',
+			message: `A room runs at most ${L.abilities.max} abilities; the rest do nothing.`,
+		});
+	}
+	const seconds = rules.round?.seconds;
+	if (seconds !== undefined && (seconds < L.roundSeconds.min || seconds > L.roundSeconds.max)) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.rules.round.seconds',
+			message: `A round lasts ${L.roundSeconds.min}–${L.roundSeconds.max} seconds.`,
+		});
+	}
+	const next = rules.round?.nextRoundSeconds;
+	if (next !== undefined && next > L.nextRoundSeconds.max) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.rules.round.nextRoundSeconds',
+			message: `The pause between rounds is at most ${L.nextRoundSeconds.max} seconds.`,
+		});
+	}
+	if (rules.module && !ONLINE_RULES_MODULE_IDS.includes(rules.module)) {
+		issues.push({
+			severity: 'error',
+			path: 'arcade.online.rules.module',
+			message: `No rules module is "${rules.module}" (${ONLINE_RULES_MODULE_IDS.join(', ')}).`,
 		});
 	}
 	return issues;

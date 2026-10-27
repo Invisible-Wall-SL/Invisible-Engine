@@ -1,8 +1,8 @@
 # Pots overlay (add-on on any kind) — status + session hub
 
 > Design: [docs/design/pots-overlay.md](../design/pots-overlay.md) · Builds on:
-> [status/hold-and-win](hold-and-win.md) · Guide: [add-pots-overlay](../guides/add-pots-overlay.md) · Agents: per phase — see the
-> design's build plan.
+> [status/hold-and-win](hold-and-win.md) · Guide: [add-pots-overlay](../guides/add-pots-overlay.md) · Agent:
+> `bonus-games`.
 
 **One-line state:** Phases 0–6 merged (2026-10-02/03): #1008, #1013, #1012, #1015 (4a), #1019 (4b),
 #1010, #1009, #1014, #1011 and #1017 (6). A Book-of project can switch the pots overlay on in

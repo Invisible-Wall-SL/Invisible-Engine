@@ -508,6 +508,16 @@ svelte-check at baseline, and the current games building with no changed screen.
      - the page played headless: pick a material, drag a param and see the pixels change, switch
        the time mode, see the cap note, save → reopen identical.
    - **Exit:** an author picks, tunes and saves a material in `/fx`.
+   - **As built** (#1392):
+     - **Cost through the effects route:** a compiled effect carries no cost, so
+       `GET /api/shaders/effects` also answers `costs` per graph. 8d.7 may carry it in the effect.
+     - **Picker by name** until `madeFor` (8d.7). **A choice param has no ⚡**: effect parameters
+       are numbers, colours and switches.
+     - **`?fxdebug=1`** prints covered px (on a growing peak, throttled, and at release), not load:
+       the game has no cost until the effect carries it (8d.7).
+     - **The page gate** mounts the real page headless (`fx-page`); the step's exit is played there.
+     - **`/fx` for every effect:** editing a layer no longer restarts the others, and Pause / Play
+       now stop and re-arm emission (they had no effect before).
 6. **The other previews** (launcher).
    - **Contents:**
      - `EditorEffectLayer` and `fxOverlay`;
@@ -518,6 +528,14 @@ svelte-check at baseline, and the current games building with no changed screen.
      - a harness drawing a material through `fxOverlay`'s plain-function path;
      - `node --check` on the touched inline scripts.
    - **Exit:** the Scene Editor, Rigger and Symbols show the material.
+   - **As built** (#1407):
+     - **One mount shared by every launcher stage** (`$lib/fx/layerMaterial.client.ts`), `FxStage`
+       included, rather than each preview copying `FxStage`'s keys.
+     - **The harness plays the real pieces:** the committed `rigger-fx.js`, `EditorEffectLayer`
+       and `view.html`'s own `ensureFxBundle` (`fx-previews`), beyond the plain-function path.
+     - **The set's fetch times out** (5 s) and every overlay band waits on the one load.
+     - **Finished overlay one-shots end by themselves**, freeing their slots, as the game unmounts
+       a binding's effect.
 7. **`/shaders`: Made for particles and the Particles preview** (launcher and engine).
    - **Contents:**
      - `madeFor`;

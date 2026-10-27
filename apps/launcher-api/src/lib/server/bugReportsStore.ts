@@ -1,5 +1,5 @@
 import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
-import type { BugKind, LinkState } from '$lib/bugReports';
+import type { BugKind, BugStatus, LinkState } from '$lib/bugReports';
 import { getDb } from './db';
 import {
 	bugReportEvents,
@@ -200,7 +200,15 @@ export async function listOpenLinks(): Promise<
 		.where(eq(bugReportLinks.state, 'open'));
 }
 
-export async function insertBug(values: NewBug, actor: Actor): Promise<BugReport> {
+/**
+ * Insert a bug and its `reported` event in one transaction. `data` rides on that event: a Director
+ * run's `opId` and request (`createDirectorBug`), which is what finds the bug again.
+ */
+export async function insertBug(
+	values: NewBug,
+	actor: Actor,
+	data: Record<string, unknown> = {},
+): Promise<BugReport> {
 	return getDb().transaction(async (tx) => {
 		const [bug] = await tx.insert(bugReports).values(values).returning();
 		await tx.insert(bugReportEvents).values({
@@ -209,10 +217,38 @@ export async function insertBug(values: NewBug, actor: Actor): Promise<BugReport
 			actorId: actor.id,
 			actor: actor.name,
 			// The priority the reporter gave, if any: the one priority not set by a triager.
-			data: values.priority ? { priority: values.priority } : {},
+			data: { ...data, ...(values.priority ? { priority: values.priority } : {}) },
 		});
 		return bug;
 	});
+}
+
+export interface ReportedBug {
+	number: number;
+	kind: BugKind;
+	projectKey: string | null;
+	status: BugStatus;
+	/** Its `reported` event's data. */
+	data: Record<string, unknown>;
+}
+
+/** Every bug reported under the name `reporter`, oldest first, with its `reported` event's data. */
+export async function bugsReportedAs(reporter: string): Promise<ReportedBug[]> {
+	return getDb()
+		.select({
+			number: bugReports.number,
+			kind: bugReports.kind,
+			projectKey: bugReports.projectKey,
+			status: bugReports.status,
+			data: bugReportEvents.data,
+		})
+		.from(bugReports)
+		.innerJoin(
+			bugReportEvents,
+			and(eq(bugReportEvents.bugNumber, bugReports.number), eq(bugReportEvents.kind, 'reported')),
+		)
+		.where(eq(bugReports.reporter, reporter))
+		.orderBy(asc(bugReports.number));
 }
 
 /**

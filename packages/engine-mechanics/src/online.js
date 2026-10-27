@@ -1,26 +1,28 @@
 /**
- * Online arcade rooms (`docs/design/realtime-multiplayer.md` §5, §6, §11; P10.14): what a player's
- * input is, how it is clamped, and the one-player step it drives.
+ * Online arcade rooms (`docs/design/realtime-multiplayer.md` §5, §6, §11; P10.14, P10.15): what a
+ * player's input is, how it is clamped, and the one-player step it drives.
  *
  * Plain, dependency-free ESM beside `motion.js`, for the reason that file is: the game server
  * (`services/game-server`) steps every player with {@link stepPlayer}, and a device that predicts
  * its own player (P10.15) steps it with the very same function, so the two can only disagree if
  * they were given different inputs.
  *
- * An input is `{ seq, moveX, moveY, buttons, aimX, aimY }` and nothing else: no position, no hit,
- * no score. `moveX` / `moveY` are whole numbers in -{@link MOVE_SCALE}..{@link MOVE_SCALE} (a stick
- * at full tilt is 127) whose length is at most {@link MOVE_SCALE}, so the clamp is exact and
+ * An input is `{ seq, moveX, moveY, buttons, aimX, aimY, view }` and nothing else: no position, no
+ * hit, no score. `view` is the room step the device was drawing everyone else at (P10.15), so the
+ * server can test an ability against what its player saw; the server holds it to its own window.
+ * `moveX` / `moveY` are whole numbers in -{@link MOVE_SCALE}..{@link MOVE_SCALE} (a stick at full
+ * tilt is 127) whose length is at most {@link MOVE_SCALE}, so the clamp is exact and
  * idempotent: a clamped input clamps to itself, on either side of the wire. `buttons` is a
  * bitfield of {@link BUTTONS}; `aim` is a point on the field.
  *
  * A step with no input moves its player by nothing: the player stands still until the next input
- * arrives (a body has no momentum: the step sets its velocity to 0). So a player's body is exactly
- * the fold of {@link stepPlayer} over the inputs the server applied, in `seq` order — what
- * `scripts/check-room-sim.mjs` pins. A rule that moves a body with no input (a current, momentum)
- * must keep that fold true for the device's replay (P10.15).
+ * arrives (a body has no momentum: the step sets its velocity to 0). A level's currents
+ * ({@link onlineLevel}) push a player only on a step that applies an input, so a player's body is
+ * still exactly the fold of {@link stepPlayer} over the inputs the server applied, in `seq` order —
+ * what `scripts/check-room-sim.mjs` pins and what a predicting device replays (`netcode.js`).
  */
 
-import { stepBody } from './motion.js';
+import { aabbOf, createStaticIndex, inZone, queryStatic, stepBody } from './motion.js';
 
 /** A full-tilt move along one axis. */
 export const MOVE_SCALE = 127;
@@ -39,14 +41,18 @@ const finite = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
 const towardZero = (v) => (v < 0 ? Math.ceil(v) : Math.floor(v));
 
+const uint32 = (v) => {
+	const n = Math.floor(finite(v));
+	return n < 0 ? 0 : n > UINT32_MAX ? UINT32_MAX : n;
+};
+
 /**
- * Clamp an input in place: `seq` to a whole uint32, the move to whole steps no longer than
+ * Clamp an input in place: `seq` and `view` to whole uint32s, the move to whole steps no longer than
  * {@link MOVE_SCALE}, `buttons` to the known bits, `aim` onto the field. Anything that is not a
  * finite number reads as 0. Returns the input.
  */
 export function sanitizeInput(input, field) {
-	const seq = Math.floor(finite(input.seq));
-	input.seq = seq < 0 ? 0 : seq > UINT32_MAX ? UINT32_MAX : seq;
+	input.seq = uint32(input.seq);
 	let mx = Math.round(finite(input.moveX));
 	let my = Math.round(finite(input.moveY));
 	mx = Math.max(-MOVE_SCALE, Math.min(MOVE_SCALE, mx));
@@ -68,6 +74,7 @@ export function sanitizeInput(input, field) {
 	const h = field ? field.h : Infinity;
 	input.aimX = Math.fround(Math.max(0, Math.min(w, Math.fround(finite(input.aimX)))));
 	input.aimY = Math.fround(Math.max(0, Math.min(h, Math.fround(finite(input.aimY)))));
+	input.view = uint32(input.view);
 	return input;
 }
 
@@ -82,6 +89,7 @@ export function clampInput(raw, field) {
 			buttons: src.buttons,
 			aimX: src.aimX,
 			aimY: src.aimY,
+			view: src.view,
 		},
 		field,
 	);
@@ -103,12 +111,67 @@ function applyInput(body, input, speed) {
 
 /**
  * One fixed step of one player: the input sets its velocity, then `subSteps` motion steps of
- * `subDt` move it and hold it to the field. `input` undefined = the step had no input.
+ * `subDt` move it and hold it to the field. `input` undefined = the step had no input, and the
+ * player stands still. With a `level`, each sub-step of an input's step adds the force of every
+ * current the body is in to that velocity.
  */
-export function stepPlayer(body, input, speed, ctx, field) {
+export function stepPlayer(body, input, speed, ctx, field, level) {
 	applyInput(body, input, speed);
-	for (let i = 0; i < ctx.subSteps; i++) stepBody(body, ctx.subDt, field);
+	const currents = input && level?.currents.shapes.length ? level.currents : undefined;
+	if (!currents) {
+		for (let i = 0; i < ctx.subSteps; i++) stepBody(body, ctx.subDt, field);
+		return body;
+	}
+	const vx = body.vx;
+	const vy = body.vy;
+	for (let i = 0; i < ctx.subSteps; i++) {
+		body.vx = vx;
+		body.vy = vy;
+		for (const zone of queryStatic(currents, aabbOf(body))) {
+			if (!inZone(body, zone)) continue;
+			body.vx += zone.fx;
+			body.vy += zone.fy;
+		}
+		stepBody(body, ctx.subDt, field);
+	}
+	body.vx = vx;
+	body.vy = vy;
 	return body;
+}
+
+/** A zone held to the field, or `undefined` when none of it is on the field: the server indexes
+ *  only what a player can reach, however large the config draws it. */
+export function clipToField(zone, field) {
+	const x0 = Math.max(0, zone.x);
+	const y0 = Math.max(0, zone.y);
+	const x1 = Math.min(field.w, zone.x + zone.w);
+	const y1 = Math.min(field.h, zone.y + zone.h);
+	if (!(x1 > x0 && y1 > y0)) return undefined;
+	return { ...zone, x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/** The grid cell a level of this field is indexed in: at most 64 cells a side, however large. */
+export const levelCell = (field) => Math.max(128, Math.ceil(Math.max(field.w, field.h) / 64));
+
+/**
+ * What of a level moves a player of `character`: its currents, the zones of `arcade.zones` that an
+ * `arcade.online.rules.zones` entry gives a force and that apply to the character (every one when
+ * the rule names none), held to the field and indexed once. The server and a predicting device build
+ * it from the same config, so both push the player alike.
+ */
+export function onlineLevel(zones, rules, character, field) {
+	const byId = new Map((zones ?? []).map((zone) => [zone.id, zone]));
+	const currents = [];
+	for (const rule of rules ?? []) {
+		const zone = byId.get(rule.zone);
+		if (!zone || !rule.force) continue;
+		if (rule.characters && !rule.characters.includes(character)) continue;
+		const clipped = clipToField(zone, field);
+		if (!clipped) continue;
+		const { id, x, y, w, h } = clipped;
+		currents.push({ id, x, y, w, h, fx: rule.force.x, fy: rule.force.y });
+	}
+	return { currents: createStaticIndex(currents, levelCell(field)) };
 }
 
 /**
