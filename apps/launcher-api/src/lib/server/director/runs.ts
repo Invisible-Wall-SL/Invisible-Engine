@@ -45,6 +45,7 @@ import {
 } from '../projects';
 import { DIRECTOR_AGENTS } from './adapter';
 import { artPlanApprovalRefusal, pricedCatalogue } from './artPlan';
+import { templateConfigRecord } from './configEtag';
 import {
 	MAX_MOCKUPS,
 	loadMockupsDoc,
@@ -335,7 +336,7 @@ async function copyTemplate(
 		loadGameConfigDocWithEtag(templateClient, template.key),
 		loadGameConfigDocWithEtag(run.clientKey ?? UNASSIGNED_CLIENT, run.projectKey),
 	]);
-	const templateConfigEtag = before.etag === after.etag ? before.etag : null;
+	const templateConfigEtag = templateConfigRecord(before, after);
 	await setRunConfigEtags(run.id, { template: templateConfigEtag, project: copy.etag });
 }
 

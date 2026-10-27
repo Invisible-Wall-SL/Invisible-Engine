@@ -233,6 +233,24 @@ export async function discardSnapshot(client: string, project: string, id: strin
 }
 
 /**
+ * Server-side copy of every object under `deployPrefix` to `destPrefix` (both end in `/`), at
+ * bounded fan-out. Shared by a published snapshot and a Director draft, so the two freeze a
+ * `deploy/` tree the same way. Returns the objects copied.
+ */
+export async function copyDeployTree(deployPrefix: string, destPrefix: string) {
+	const objects = (await listAllObjects(deployPrefix)).filter((o) => !o.key.endsWith('/'));
+	await mapWithConcurrency(objects, COPY_CONCURRENCY, async (o) => {
+		const rel = o.key.slice(deployPrefix.length);
+		// Listed a moment ago, gone now: something rewrote deploy/ outside the lock. Freezing the
+		// hole would ship it to every player until the next publish, so fail loudly instead.
+		if (!(await copyObject(o.key, `${destPrefix}${rel}`))) {
+			throw new Error(`deploy/${rel} vanished while being snapshotted — publish again`);
+		}
+	});
+	return objects;
+}
+
+/**
  * Freeze `bundle` + the current `deploy/` tree as a new, NOT YET LIVE snapshot. The caller must
  * have assembled `bundle` under the same `withDeployWrite` it holds now, so the copy is of exactly
  * the tree that assemble wrote. On failure the partial copy is removed and the error rethrown.
@@ -247,15 +265,7 @@ export async function stageSnapshot(
 	const deployPrefix = `${SUB.deploy(client, project)}/`;
 	const prefix = snapshotPrefix(client, project, id);
 	try {
-		const objects = (await listAllObjects(deployPrefix)).filter((o) => !o.key.endsWith('/'));
-		await mapWithConcurrency(objects, COPY_CONCURRENCY, async (o) => {
-			const rel = o.key.slice(deployPrefix.length);
-			// Listed a moment ago, gone now: something rewrote deploy/ outside the lock. Freezing the
-			// hole would ship it to every player until the next publish, so fail loudly instead.
-			if (!(await copyObject(o.key, `${prefix}deploy/${rel}`))) {
-				throw new Error(`deploy/${rel} vanished while being snapshotted — publish again`);
-			}
-		});
+		const objects = await copyDeployTree(deployPrefix, `${prefix}deploy/`);
 		// Written LAST: a snapshot without its `runtime.json` is never served, so a crash mid-copy
 		// leaves an orphan for the next commit to sweep, never a half-populated live snapshot.
 		await putObjectText(`${prefix}runtime.json`, JSON.stringify(bundle), 'application/json');

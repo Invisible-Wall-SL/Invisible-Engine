@@ -2,6 +2,7 @@ import { TOOLS } from '$lib/roles';
 import { ADAPTER_TOOL_IDS, isDirectorAgent, type AdapterOp } from './adapter';
 import { ATLAS_OPS } from './ops/atlas';
 import { ATLAS_SETUP_OPS } from './ops/atlasSetup';
+import { BUILD_OPS } from './ops/build';
 import { FLIPBOOK_OPS } from './ops/flipbook';
 import { FONTS_OPS } from './ops/fonts';
 import { GAMEMAKER_OPS } from './ops/gamemaker';
@@ -73,4 +74,5 @@ export const ADAPTER_OPS = buildRegistry([
 	...FONTS_OPS,
 	...RIGGER_OPS,
 	...FLIPBOOK_OPS,
+	...BUILD_OPS,
 ]);

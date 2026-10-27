@@ -3,8 +3,7 @@
  *
  * - `ADAPTER_OPS` are served by the launcher at `POST /api/director/adapter/<tool>/<op>`. The ones
  *   already built are in its registry (`apps/launcher-api/src/lib/server/director/registry.ts`);
- *   `check:director-adapters` fails if the registry holds an op this list lacks. The `build.*` ops
- *   are not served yet.
+ *   `check:director-adapters` fails if the registry holds an op this list lacks.
  * - `WORKER_TOOLS` are served by the worker itself, from the run tables: run state, checkpoints,
  *   the owner conversation and the spend ledger. There is no tool that submits a mockup breakdown:
  *   the worker's own code produces it (`mockups/analyze.ts`), so no model output ever sets an

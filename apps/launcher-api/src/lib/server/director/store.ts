@@ -4,6 +4,7 @@ import { r2SlugSql, type Queryer } from '../projectKeyLock';
 import {
 	directorAtlasJobs,
 	directorBlueprintTimings,
+	directorDraftJobs,
 	directorEvents,
 	directorMessages,
 	directorOps,
@@ -13,6 +14,7 @@ import {
 	directorTemplateRecipes,
 	users,
 	type DirectorAtlasJob,
+	type DirectorDraftJob,
 	type DirectorEvent,
 	type DirectorOp,
 	type DirectorRun,
@@ -346,6 +348,113 @@ export async function settleAtlasJob(done: {
 		});
 		return row;
 	});
+}
+
+interface DraftSettle {
+	jobRef: string;
+	runId: string;
+	status: 'finished' | 'failed' | 'cancelled';
+	result: unknown;
+	via: 'callback' | 'poll' | 'inline';
+}
+
+type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
+
+async function settleDraftJobIn(tx: Tx, done: DraftSettle): Promise<DirectorDraftJob | null> {
+	const [row] = await tx
+		.update(directorDraftJobs)
+		.set({ status: done.status, result: done.result, doneVia: done.via, doneAt: new Date() })
+		.where(
+			and(
+				eq(directorDraftJobs.jobRef, done.jobRef),
+				eq(directorDraftJobs.runId, done.runId),
+				eq(directorDraftJobs.status, 'queued'),
+			),
+		)
+		.returning();
+	if (!row) return null;
+	await tx.insert(directorEvents).values({
+		runId: row.runId,
+		agent: row.agent,
+		kind: 'job_done',
+		tool: 'build.play_draft',
+		payloadJson: {
+			jobRef: row.jobRef,
+			draftId: row.draftId,
+			status: row.status,
+			via: done.via,
+			result: done.result,
+		},
+	});
+	return row;
+}
+
+/**
+ * Record a QA play of a draft (ADR-0010). One play per run is queued at a time: when the run
+ * already has one, nothing is inserted and that one is returned with `queued: false`. With
+ * `settleNow` the play is queued and settled in one transaction: one `job_queued`, one `job_done`.
+ */
+export async function insertDraftJob(row: {
+	jobRef: string;
+	runId: string;
+	agent: string;
+	draftId: string;
+	scenarios: string[] | null;
+	/** Settle the play in the same transaction, when nothing could claim it (no player deployed). */
+	settleNow?: { status: 'failed'; result: unknown };
+}): Promise<{ job: DirectorDraftJob; queued: boolean }> {
+	const { settleNow, ...values } = row;
+	return getDb().transaction(async (tx) => {
+		// Serialises two plays of one run, so the second sees the first's row.
+		await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`draft-play:${row.runId}`}))`);
+		const [open] = await tx
+			.select()
+			.from(directorDraftJobs)
+			.where(and(eq(directorDraftJobs.runId, row.runId), eq(directorDraftJobs.status, 'queued')));
+		if (open) return { job: open, queued: false };
+		const [job] = await tx
+			.insert(directorDraftJobs)
+			.values({ ...values, status: 'queued' })
+			.returning();
+		await tx.insert(directorEvents).values({
+			runId: row.runId,
+			agent: row.agent,
+			kind: 'job_queued',
+			tool: 'build.play_draft',
+			payloadJson: { jobRef: row.jobRef, draftId: row.draftId, scenarios: row.scenarios },
+		});
+		if (!settleNow) return { job, queued: true };
+		const settled = await settleDraftJobIn(tx, {
+			jobRef: row.jobRef,
+			runId: row.runId,
+			...settleNow,
+			via: 'inline',
+		});
+		return { job: settled ?? job, queued: true };
+	});
+}
+
+/** Every play still queued, of every run: what the fallback watches at boot. */
+export async function queuedDraftJobs(): Promise<DirectorDraftJob[]> {
+	return getDb().select().from(directorDraftJobs).where(eq(directorDraftJobs.status, 'queued'));
+}
+
+export async function getDraftJob(jobRef: string): Promise<DirectorDraftJob | null> {
+	const [row] = await getDb()
+		.select()
+		.from(directorDraftJobs)
+		.where(eq(directorDraftJobs.jobRef, jobRef));
+	return row ?? null;
+}
+
+/**
+ * The play's `job_done`: move a queued play of `runId` to its terminal status and append the
+ * `job_done` event that wakes the worker, in one transaction. Conditional on it still being
+ * `queued`, so of the player's callback, the fallback watch and the inline `no_player` settle,
+ * exactly one records it. Returns the settled row to that one caller, and `null` to every other.
+ */
+export async function settleDraftJob(done: DraftSettle): Promise<DirectorDraftJob | null> {
+	return getDb().transaction((tx) => settleDraftJobIn(tx, done));
 }
 
 /** The run's events after `afterId`, oldest first — the live stream's catch-up read. */
