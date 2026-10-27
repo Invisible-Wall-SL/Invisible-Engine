@@ -40,7 +40,7 @@ const REFUSALS: Record<RefusalId, string> = {
 	roles: 'Agents never change roles, tool access or capability overrides.',
 	merge: 'Agents never merge or write a pipeline change. Merges are approved by a person.',
 	agent_definitions:
-		'Agent definitions change only as a pipeline change, reviewed and merged by a person.',
+		'Agent definitions and family packs change only as a pipeline change, reviewed and merged by a person.',
 	library:
 		'Agents never write the blueprint library, a blueprint card or the shared taxonomy. A card is reviewed by the owner in Atlas Maker.',
 	layers:

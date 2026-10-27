@@ -8,8 +8,8 @@
  *     [--before-pack <main's families/<family>.md>] --head <sha> --base <sha> --out <dir> [--cap <usd>]
  *
  * The packs are the family pack each side runs with (ADR-0009 §4): a side without one runs its
- * definition alone, as a checkout from before the packs did. The workflow passes neither yet: it
- * evaluates a change to one definition. A pack change is evaluated by hand with these flags.
+ * definition alone, as a checkout from before the packs did. The workflow, which evaluates a change
+ * to one definition, passes main's slot pack to both sides; a pack change is evaluated by hand.
  *
  * Writes `<out>/report.json` (the `EvalReport`, tab-indented) and `<out>/summary.txt` (line 1
  * `pass` or `fail`, line 2 the report's one-line summary), prints that line and exits 0 on a pass,

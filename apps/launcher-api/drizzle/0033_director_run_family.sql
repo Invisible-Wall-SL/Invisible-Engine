@@ -1,7 +1,7 @@
 ALTER TABLE "director_runs" ADD COLUMN "family" text DEFAULT 'slot' NOT NULL;--> statement-breakpoint
 UPDATE "director_runs" SET "family" = CASE coalesce(
-	(SELECT "game_type" FROM "projects" WHERE "projects"."key" = "director_runs"."project_key"),
-	(SELECT "game_type" FROM "projects" WHERE "projects"."key" = "director_runs"."template_project_key")
+	(SELECT nullif("game_type", '') FROM "projects" WHERE "projects"."key" = "director_runs"."project_key"),
+	(SELECT nullif("game_type", '') FROM "projects" WHERE "projects"."key" = "director_runs"."template_project_key")
 )
 	WHEN 'match3' THEN 'match3'
 	WHEN 'arcade' THEN 'arcade'
