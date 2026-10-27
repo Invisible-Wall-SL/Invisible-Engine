@@ -46,6 +46,8 @@
 		"precheck:director-live": "node scripts/ensure-svelte-kit.mjs",
 		"check:director-live": "tsx --tsconfig tsconfig.scripts.json scripts/check-director-live.ts",
 		"precheck:pipeline-games": "node scripts/ensure-svelte-kit.mjs",
+		"precheck:game-server-config": "node scripts/ensure-svelte-kit.mjs",
+		"check:game-server-config": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-game-server-config.ts",
 		"check:pipeline-games": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-pipeline-games.ts",
 		"precheck:bug-reports": "node scripts/ensure-svelte-kit.mjs",
 		"check:bug-reports": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-bug-reports.ts",
