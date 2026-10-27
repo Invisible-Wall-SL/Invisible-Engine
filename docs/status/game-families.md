@@ -72,6 +72,16 @@ sample is a fixture.
   (`engine-layout` `arcadeLifts.svelte.ts`); `<SpawnLayer>` then draws such an instance raised by it
   over an ellipse shadow the width of its body. Only a config with a hopping character turns this on;
   every other spawn layer renders its old markup.
+- **`/editor` paint mode** (`EditorTilemap.svelte`, `tilemapPaint.client.svelte.ts`, helpers in
+  `$lib/editor/tilemapEdit.ts`, `EditorCanvas.svelte`): a **Tilemap** row in the Library (scene-only,
+  16 × 8 tiles of 64 px at main centre); the stage draws each painted tile's region art, a dashed
+  outline, and while selected the grid, solid tiles in red and a blue top line on one-way tiles. Tools
+  **Move** (V), **Brush** (B), **Erase** (E), **Fill** (G), **Pick** (I) on a lone top-level tilemap;
+  with a paint tool on, a press on the grid paints instead of moving the node, a fast drag fills the
+  cells it skips, and one stroke is one undo step. Properties: tile size, columns / rows (clamped,
+  applied on change), the tileset (region picker, thumbnail = make it the brush, collide none / solid /
+  one-way, tiles placed, remove with the indices remapped), Add a tile. Rotation is hidden (the game
+  ignores it). Guide: [tools/invisible-editor](../tools/invisible-editor.md).
 - **Invisible Characters** and `/config`: Movement gains Gravity and Max fall; the Controller section
   offers `flap` (kick, speed) and a Jump sub-form for top-down / side-scroll (its kind follows the
   controller), with the jump's launch speed and pull shown read-only; Body gains Ground and One-way
@@ -113,7 +123,7 @@ sample is a fixture.
   save; the sample played headless on the real interpreter — standing, the first gap jumped, coins,
   the pit, the camera snapped, seed replay). `check:art-scope` case 9 (a painted tile's sheet is in
   scope and ships; the one-way ledge's too; an entry no tile uses does not; nothing dangling).
-  `check:characters-tool` (154), `check:game-config-family` (156).
+  `check:characters-tool` (154), `check:game-config-family` (156), `check:editor-tilemap` (76).
   `check:arcade-motion` (18) and `check:arcade-characters` (53 root, 89 launcher) unchanged.
 - **Verified by playing:** `scripts/playtest/arcade-platformer-play.mjs`
   ([playtest/arcade-platformer.md](../playtest/arcade-platformer.md)) on the branch runtime, 15 / 15:
@@ -163,7 +173,8 @@ sample is a fixture.
 - **Not done here:** **diamond (2:1) tiles and autotiling** (§4.4): the collision runs on the flat
   ground plane already, but the isometric projection P10.12 left out is what draws bodies and diamonds
   in step, so they come with it (Salmons' next arcade piece, §9 #19); slopes, moving platforms and
-  ladders (§4.4, later); a drop-through on one-way platforms; Flow signals for a jump or a landing
+  ladders (§4.4, later); a drop-through on one-way platforms; the paint mode was checked by its gate
+  and the build, not driven in a browser (no Postgres / R2 here); Flow signals for a jump or a landing
   (the look's `grounded` / `airborne` inputs cover the animation); the sandbox drawing a tilemap;
   `/flow-v2` Preview running the loop; a current-games fixture for the sample (it would edit the
   harness).
