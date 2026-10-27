@@ -247,7 +247,21 @@ const RUN: DirectorRun = {
 };
 /** Project keys a Director run names. */
 const RUN_KEYS = new Set<string>([RUN.projectKey]);
+/** Extra runs the draft-retention section seeds: project, client, status, last change. */
+const DRAFT_RUNS: {
+	projectKey: string;
+	clientKey: string | null;
+	status: string;
+	updatedAt: Date;
+}[] = [];
+const ENDED = ['stopped', 'failed', 'handed_off'];
 fake('lib/server/director/store.ts', {
+	ENDED_RUN_STATUSES: ENDED,
+	listRunsForDraftSweep: async () => (poolRead('listRunsForDraftSweep'), [...DRAFT_RUNS]),
+	liveRunInFolder: async (folder: string, db: unknown) => (
+		txRead('liveRunInFolder', db),
+		DRAFT_RUNS.some((r) => slug(r.projectKey) === folder && !ENDED.includes(r.status))
+	),
 	getRun: async (id: string) => (id === RUN.id ? RUN : null),
 	listRunProjectKeys: async () => (poolRead('listRunProjectKeys'), [...RUN_KEYS]),
 	runInFolder: async (folder: string, db: unknown) => (
@@ -1410,6 +1424,101 @@ console.log('cleanup');
 		relisted.doc.images.length,
 		1,
 	);
+}
+
+// ── Draft retention (ADR-0010 §1) ─────────────────────────────────────────────
+{
+	const cleanup = await import(src('lib/server/director/mockupCleanup.ts'));
+	const DAY = 24 * 60 * 60_000;
+	const HOUR = 60 * 60_000;
+	const now = Date.now();
+	const dp = (client: string, project: string) => `${SUB.director(client, project)}/drafts/`;
+	const draft = (client: string, project: string, id: string, ageMs: number, done = true) => {
+		const files = ['draft.json', 'runtime.json', 'deploy/a.png'];
+		for (const f of done ? files : files.filter((x) => x !== 'runtime.json')) {
+			put(`${dp(client, project)}${id}/${f}`, text('x'), 'application/json', undefined);
+			R2.get(`${dp(client, project)}${id}/${f}`)!.mtime = now - ageMs;
+		}
+	};
+	const endedRun = (projectKey: string, ageMs: number, status = 'stopped') =>
+		DRAFT_RUNS.push({ projectKey, clientKey: C, status, updatedAt: new Date(now - ageMs) });
+	const n = (project: string) => keysUnder(dp(C, project)).length;
+
+	endedRun('old-ended', 15 * DAY, 'failed');
+	draft(C, 'old-ended', 'd1', 15 * DAY);
+	draft(C, 'old-ended', 'd2', 15 * DAY);
+	endedRun('fresh-ended', 13 * DAY, 'handed_off');
+	draft(C, 'fresh-ended', 'd1', 20 * DAY);
+	endedRun('shared', 20 * DAY);
+	DRAFT_RUNS.push({
+		projectKey: 'shared',
+		clientKey: C,
+		status: 'waiting',
+		updatedAt: new Date(now),
+	});
+	draft(C, 'shared', 'd1', 20 * DAY);
+	endedRun('orphans', 1 * DAY);
+	DRAFT_RUNS.push({
+		projectKey: 'orphans',
+		clientKey: C,
+		status: 'running',
+		updatedAt: new Date(now),
+	});
+	draft(C, 'orphans', 'young', 30 * 60_000, false);
+	draft(C, 'orphans', 'stale', 2 * HOUR, false);
+	draft(C, 'orphans', 'whole', 2 * HOUR);
+	// Outside drafts/: the project's other director files and a sibling prefix stay.
+	const outside = [
+		`${SUB.director(C, 'old-ended')}/mockups.json`,
+		`${SUB.director(C, 'old-ended')}/draftsX/keep.json`,
+		`${SUB.deploy(C, 'old-ended')}/runtime.json`,
+	];
+	for (const k of outside) put(k, text('x'), 'application/json', undefined);
+	for (const k of outside) R2.get(k)!.mtime = now - 40 * DAY;
+	const before = Object.fromEntries(['fresh-ended', 'shared'].map((p) => [p, n(p)]));
+
+	lockCalls.length = 0;
+	const drafts = await cleanup.sweepEndedRunDrafts(14, now);
+	check(
+		'an ended run’s drafts are all deleted 14 days after it ends',
+		[
+			n('old-ended'),
+			drafts.ended.map((e: { project: string; deleted: number }) => [e.project, e.deleted]),
+		],
+		[0, [['old_ended', 6]]],
+	);
+	check(
+		'a run that ended less than 14 days ago keeps its drafts',
+		n('fresh-ended'),
+		before['fresh-ended'],
+	);
+	check(
+		'drafts stay while another live run uses the project',
+		[n('shared'), drafts.keptLive.map((k: { project: string }) => k.project)],
+		[before.shared, ['shared']],
+	);
+	check(
+		'only director/drafts/ is touched: mockups, a sibling prefix and deploy/ stay',
+		outside.map((k) => R2.has(k)),
+		[true, true, true],
+	);
+	check(
+		'an orphan without runtime.json goes after 1 h; a younger one and a finished draft stay',
+		[
+			keysUnder(`${dp(C, 'orphans')}young/`).length,
+			keysUnder(`${dp(C, 'orphans')}stale/`).length,
+			keysUnder(`${dp(C, 'orphans')}whole/`).length,
+			drafts.orphans.map((o: { draftId: string; deleted: number }) => [o.draftId, o.deleted]),
+		],
+		[2, 0, 3, [['stale', 2]]],
+	);
+	check('the lock is taken only for folders with drafts', [...lockCalls].sort(), [
+		'fresh_ended',
+		'old_ended',
+		'orphans',
+		'shared',
+	]);
+	DRAFT_RUNS.length = 0;
 }
 
 check(

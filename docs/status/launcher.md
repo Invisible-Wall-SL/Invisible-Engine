@@ -90,9 +90,12 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     current-games harness libs unchanged) with presigned URLs. The player answers through a signed
     callback (`/api/director/drafts/callback`) with a `/progress` fallback watch re-armed at boot.
     With no player, it settles inline as `no_player`.
+  - Retention: `request_draft` keeps 2 drafts; Admin › Settings › Invisible Director's mockup
+    sweep also clears the drafts of a project whose runs all ended 14 days ago, and an unfinished
+    draft (no `runtime.json`) over 1 h old (`sweepEndedRunDrafts`, `mockupCleanup.ts`).
   - The worker routes a draft `job_done` to QA ahead of the atlas billing path, and `run.submit_qa`
     also reaches the coordinator. `check:director-adapters`' allowed unserved-tool gap is empty.
-  - Tests: `check:director-adapters` 507, `check:published-runtime` 37, `check:director-runs` 471,
+  - Tests: `check:director-adapters` 507, `check:director-mockups` 159, `check:published-runtime` 37, `check:director-runs` 471,
     worker `check:draft-report` 6, `prove:turns` 124 (section 28), the player's offline fixtures
     and its browser fixture (good, refused boot, console error, stall, service end to end).
 

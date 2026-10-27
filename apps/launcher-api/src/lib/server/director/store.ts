@@ -551,6 +551,38 @@ export async function runInFolder(slug: string, db: Queryer = getDb()): Promise<
 	return Boolean(row);
 }
 
+/** Statuses a run never leaves: it is over and nothing of it is still being written. */
+export const ENDED_RUN_STATUSES = ['stopped', 'failed', 'handed_off'] as const;
+
+/** Every run's project, client, status and last change: what the draft retention sweep groups. */
+export async function listRunsForDraftSweep(): Promise<
+	Pick<DirectorRun, 'projectKey' | 'clientKey' | 'status' | 'updatedAt'>[]
+> {
+	return getDb()
+		.select({
+			projectKey: directorRuns.projectKey,
+			clientKey: directorRuns.clientKey,
+			status: directorRuns.status,
+			updatedAt: directorRuns.updatedAt,
+		})
+		.from(directorRuns);
+}
+
+/** Whether a run that has not ended names a key whose R2 folder is `slug`; on the lock's `tx`. */
+export async function liveRunInFolder(slug: string, db: Queryer = getDb()): Promise<boolean> {
+	const [row] = await db
+		.select({ id: directorRuns.id })
+		.from(directorRuns)
+		.where(
+			and(
+				eq(r2SlugSql(directorRuns.projectKey), slug),
+				sql`${directorRuns.status} not in ('stopped', 'failed', 'handed_off')`,
+			),
+		)
+		.limit(1);
+	return Boolean(row);
+}
+
 /** Refresh a draft's starting point; a run the worker has moved since keeps what it started with. */
 export async function updateDraftStartingPoint(runId: string, startingPointJson: unknown) {
 	await getDb()

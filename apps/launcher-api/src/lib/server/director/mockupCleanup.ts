@@ -11,7 +11,14 @@ import {
 	mockupsDocKey,
 	sealMockupsDoc,
 } from './mockups';
-import { listRunProjectKeys, runInFolder } from './store';
+import { draftsPrefix } from './drafts';
+import {
+	ENDED_RUN_STATUSES,
+	liveRunInFolder,
+	listRunProjectKeys,
+	listRunsForDraftSweep,
+	runInFolder,
+} from './store';
 
 /**
  * Clearing a PENDING key's mockups (ADR-0005 storage): the doc, every original and any crops of a
@@ -230,6 +237,79 @@ export async function sweepPendingMockups(days: number, now = Date.now()): Promi
 			if (outcome.cleared) report.cleared.push({ client, project, deleted: outcome.deleted });
 			else keep(client, project, outcome.reason);
 		}
+	}
+	return report;
+}
+
+/** A run's drafts are kept this long after it ends. */
+export const ENDED_DRAFT_DAYS = 14;
+
+/** A draft folder with no `runtime.json` (always written last) is a stray after this long. */
+export const ORPHAN_DRAFT_MS = 60 * 60_000;
+
+export interface DraftSweepReport {
+	/** Every draft of an ended run's project folder, deleted. */
+	ended: { client: string; project: string; deleted: number }[];
+	/** Draft folders whose `runtime.json` never came, deleted. */
+	orphans: { client: string; project: string; draftId: string; deleted: number }[];
+	/** Project folders whose drafts were kept because another run still uses them. */
+	keptLive: { client: string; project: string }[];
+}
+
+/**
+ * Draft retention (ADR-0010 §1): a project folder's `director/drafts/` goes `days` days after its
+ * last run ended, but only when no run of the folder is still live — drafts belong to the folder, not
+ * to a run. Separately, a draft folder with no `runtime.json` older than {@link ORPHAN_DRAFT_MS}
+ * (by its newest object) is removed; a draft still being written is younger than that, and one with
+ * an object of unknown age is kept. Under the folder's lock, which re-checks for a live run.
+ *
+ * Only `<client>/<project>/director/drafts/**` of a folder a run names is ever listed or deleted.
+ */
+export async function sweepEndedRunDrafts(
+	days = ENDED_DRAFT_DAYS,
+	now = Date.now(),
+): Promise<DraftSweepReport> {
+	const cutoff = now - days * DAY_MS;
+	const ended = new Set<string>(ENDED_RUN_STATUSES);
+	const folders = new Map<
+		string,
+		{ client: string; project: string; live: boolean; lastEnd: number }
+	>();
+	for (const run of await listRunsForDraftSweep()) {
+		const client = r2Slug(run.clientKey ?? UNASSIGNED_CLIENT);
+		const project = r2Slug(run.projectKey);
+		const f = folders.get(`${client}/${project}`) ?? { client, project, live: false, lastEnd: 0 };
+		if (ended.has(run.status)) f.lastEnd = Math.max(f.lastEnd, run.updatedAt.getTime());
+		else f.live = true;
+		folders.set(`${client}/${project}`, f);
+	}
+
+	const report: DraftSweepReport = { ended: [], orphans: [], keptLive: [] };
+	for (const { client, project, live, lastEnd } of folders.values()) {
+		const prefix = draftsPrefix(client, project);
+		if ((await listAllObjects(prefix)).length === 0) continue;
+		await withProjectKeyLock(project, async (tx) => {
+			const liveNow = live || (await liveRunInFolder(project, tx));
+			const objects = await listAllObjects(prefix);
+			if (objects.length === 0) return;
+			if (!liveNow && lastEnd > 0 && lastEnd <= cutoff) {
+				await deleteObjects(objects.map((o) => o.key));
+				report.ended.push({ client, project, deleted: objects.length });
+				return;
+			}
+			if (liveNow && lastEnd <= cutoff) report.keptLive.push({ client, project });
+			const byDraft = new Map<string, ListedObject[]>();
+			for (const o of objects) {
+				const id = o.key.slice(prefix.length).split('/')[0];
+				byDraft.set(id, [...(byDraft.get(id) ?? []), o]);
+			}
+			for (const [draftId, files] of byDraft) {
+				if (files.some((o) => o.key === `${prefix}${draftId}/runtime.json`)) continue;
+				if (!files.every((o) => writtenBy(o, now - ORPHAN_DRAFT_MS))) continue;
+				await deleteObjects(files.map((o) => o.key));
+				report.orphans.push({ client, project, draftId, deleted: files.length });
+			}
+		});
 	}
 	return report;
 }

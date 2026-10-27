@@ -2317,12 +2317,13 @@
 					<button type="submit">Save budget</button>
 				</form>
 
-				<h4 class="director-sub">Abandoned mockups</h4>
+				<h4 class="director-sub">Abandoned mockups and QA drafts</h4>
 				<p class="muted hint">
 					Mockups uploaded under a key that never became a game. Clears every such key with no
 					project, no run and nothing uploaded for the days below (default
 					<strong>{data.director.pendingMockupDaysDefault}</strong>). An existing project's files
-					are never touched.
+					are never touched. The same click clears QA's draft copies of a project whose runs all
+					ended 14 days ago, and any unfinished draft over an hour old.
 				</p>
 				<form method="POST" action="?/sweepDirectorMockups" use:enhance class="runpod-idle">
 					<label class="minutes">
