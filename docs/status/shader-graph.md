@@ -298,6 +298,10 @@ built and in review; 8d.5 (`/fx` authoring) is next.
         compiled set. Graph docs (Custom GLSL source included), the list and history stay on
         `shaderReadScope`, unchanged; writes and publish unchanged. By default only the animator
         role gains anything. The project stays the session's, re-checked on every read.
+        A compiled effect carries its generated GLSL, Custom GLSL nodes' code included (as every
+        game bundle does), and `skipped[].errors` (validator messages quote at most a line number
+        and one token); what the narrower scope withholds is the authored graph doc, its ports,
+        the list and the history.
         `gate()` decides through `entitledByAny` (`accessRules.ts`), the same check as before.
         `check:launcher-gates` 481 (28 new) pins both sets, the animator and per-user cases, and
         each `api/shaders/*` handler's one scope.
