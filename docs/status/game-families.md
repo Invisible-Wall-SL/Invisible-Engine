@@ -43,11 +43,13 @@ sample is a fixture.
   `stepFlap` (a press kicks `vy` to `-kick`). Coyote time and the buffer default to 100 ms.
 - **Config** (`game-config`, sparse, every new field optional): `movement.gravity` / `maxFall`;
   `controller.jump {kind, height, time, minHeight?, coyoteMs?, bufferMs?, airControl?}` on a
-  `sideScroll` (a `gravity` jump) or a `topDown` (a `hop`) controller — a jump with no height or time
+  `sideScroll` (a `gravity` jump) or a `topDown` (a `hop`) controller — a jump with no height or
+  time
   is dropped, defaults are not stored; a new `flap` controller `{kick, speed?}`; body flags `ground`
   (a hop in the air passes over it) and `oneWay` (dropped on a `solid` body); `ARCADE_JUMP_ACTION`;
   anim sources `grounded`, `onWall`, `airborne`, `height`. The validator errors on a hop on a side
-  view or a gravity jump on a top-down character, and warns on a flap with no gravity and a tap height
+  view or a gravity jump on a top-down character, and warns on a flap with no gravity and a tap
+  height
   above the jump.
 - **The loop** (`engine-game` `arcadeCharacters.ts`; `arcadeLoop.ts` gains one guarded hook in the
   overlap pass, the `lifts()` read and the probe's contact fields): a character with
@@ -64,25 +66,32 @@ sample is a fixture.
   into the tileset or -1) and `tileset` (`{region, collide?}`: an atlas region — scoped
   `<assetKey>::<region>` or bare — and `solid` / `oneWay`, absent = none). The game draws one sprite
   per painted tile from the node's x / y (scale applies; rotation and anchor do not). The save
-  normalizes it (`normalizeTilemapNode`: tiles made exactly `cols × rows`, an index the tileset lacks
+  normalizes it (`normalizeTilemapNode`: tiles made exactly `cols × rows`, an index the tileset
+  lacks
   becomes empty, a node with no usable size or more than 262,144 tiles dropped). `sceneTilemaps`
   gives the loop a screen's top-level tilemaps that have a colliding tile; the runtime (`apps/lines`
   `arcade.ts`) reads them from every screen that holds a spawn layer.
 - **The hop's look**: after each frame the runtime publishes every hopping character's height
   (`engine-layout` `arcadeLifts.svelte.ts`); `<SpawnLayer>` then draws such an instance raised by it
-  over an ellipse shadow the width of its body. Only a config with a hopping character turns this on;
+  over an ellipse shadow the width of its body. Only a config with a hopping character turns this
+  on;
   every other spawn layer renders its old markup.
 - **`/editor` paint mode** (`EditorTilemap.svelte`, `tilemapPaint.client.svelte.ts`, helpers in
-  `$lib/editor/tilemapEdit.ts`, `EditorCanvas.svelte`): a **Tilemap** row in the Library (scene-only,
+  `$lib/editor/tilemapEdit.ts`, `EditorCanvas.svelte`): a **Tilemap** row in the Library
+  (scene-only,
   16 × 8 tiles of 64 px at main centre); the stage draws each painted tile's region art, a dashed
-  outline, and while selected the grid, solid tiles in red and a blue top line on one-way tiles. Tools
-  **Move** (V), **Brush** (B), **Erase** (E), **Fill** (G), **Pick** (I) on a lone top-level tilemap;
+  outline, and while selected the grid, solid tiles in red and a blue top line on one-way tiles.
+  Tools
+  **Move** (V), **Brush** (B), **Erase** (E), **Fill** (G), **Pick** (I) on a lone top-level
+  tilemap;
   with a paint tool on, a press on the grid paints instead of moving the node, a fast drag fills the
   cells it skips, and one stroke is one undo step. Properties: tile size, columns / rows (clamped,
-  applied on change), the tileset (region picker, thumbnail = make it the brush, collide none / solid /
+  applied on change), the tileset (region picker, thumbnail = make it the brush, collide none /
+  solid /
   one-way, tiles placed, remove with the indices remapped), Add a tile. Rotation is hidden (the game
   ignores it). Guide: [tools/invisible-editor](../tools/invisible-editor.md).
-- **Invisible Characters** and `/config`: Movement gains Gravity and Max fall; the Controller section
+- **Invisible Characters** and `/config`: Movement gains Gravity and Max fall; the Controller
+  section
   offers `flap` (kick, speed) and a Jump sub-form for top-down / side-scroll (its kind follows the
   controller), with the jump's launch speed and pull shown read-only; Body gains Ground and One-way
   (also as columns in `/config`'s Arcade bodies table). The sandbox already runs the loop's own
@@ -98,7 +107,8 @@ sample is a fixture.
   and is in the editor's art scope. Only regions a painted tile uses ship.
 - **The sample** (a fixture, not the Game Maker default, as P10.11's guard and P10.12's river are):
   `engine-mechanics/fixtures/arcade-ledges.rules.json`, `referenceLayouts/arcadeLedges.ts`,
-  `reference/arcadeLedgesSeed.ts`. A level 2880 × 800 with a camera following the hero, painted as one
+  `reference/arcadeLedgesSeed.ts`. A level 2880 × 800 with a camera following the hero, painted as
+  one
   tilemap of 64 px tiles: ground with two gaps, a two-tile wall and three one-way ledges. The hero
   (`sideScroll` 320 px/s, gravity 2600 falling, a `gravity` jump of 170 px in 0.42 s, a tap 48 px)
   collects coins; a pit zone under the gaps costs a life and puts it back at the start with the
@@ -112,31 +122,42 @@ sample is a fixture.
   8 px tile row, a 4 px one-way body and a 2 px solid, for a 32 px and a 6 px body; the cap; tile
   solidity none / solid / one-way, a wall (onWall), a ceiling; grounded; the field floor; **the
   platform step equal to `stepSolid`** with no gravity; the hop's height and time, its buffer, cut
-  and fresh press; the flap; a body spawned inside a block of solid tiles moved out and kept out; a 600-step scripted run replayed against
+  and fresh press; the flap; a body spawned inside a block of solid tiles moved out and kept out; a
+  600-step scripted run replayed against
   `fixtures/arcade-platformer-replay.json`). Launcher `check:arcade-platformer` (50: a top-down
-  character on no tiles keeps the solid step, no contact or lift appears; the P10.8 / P10.11 / P10.12
+  character on no tiles keeps the solid step, no contact or lift appears; the P10.8 / P10.11 /
+  P10.12
   sample configs normalize stably with no new key; the config round trips and the validator's
   issues; in the loop a jumper lands on tiles, jumps to its height on `jump`, `up` and a pointer
-  above it, lands on a one-way ledge from below, stops at a wall tile, writes `grounded` / `onWall` /
+  above it, lands on a one-way ledge from below, stops at a wall tile, writes `grounded` / `onWall`
+  /
   `airborne` only on change; a falling brain character; a flap; a hop over a `ground` rock without a
-  `collide`, stopped by a tall wall, publishing its lift and `height`; a gravity jumper with no `movement.gravity` handed to nobody still falls; a touch above a top-down hopper steers it and never hops it; a character that never falls reads `grounded` and not `airborne`; the tilemap readers and the
+  `collide`, stopped by a tall wall, publishing its lift and `height`; a gravity jumper with no
+  `movement.gravity` handed to nobody still falls; a touch above a top-down hopper steers it and
+  never hops it; a character that never falls reads `grounded` and not `airborne`; the tilemap
+  readers and the
   save; the sample played headless on the real interpreter — standing, the first gap jumped, coins,
   the pit, the camera snapped, seed replay). `check:art-scope` case 9 (a painted tile's sheet is in
   scope and ships; the one-way ledge's too; an entry no tile uses does not; nothing dangling).
-  `check:characters-tool` (154), `check:game-config-family` (156), `check:editor-tilemap` (76); `check:arcade-camera`'s `<SpawnLayer>` source scan accepts the culling branch as an `{:else if}` behind the lift branch (76).
+  `check:characters-tool` (154), `check:game-config-family` (156), `check:editor-tilemap` (76);
+  `check:arcade-camera`'s `<SpawnLayer>` source scan accepts the culling branch as an `{:else if}`
+  behind the lift branch (76).
   `check:arcade-motion` (18) and `check:arcade-characters` (53 root, 89 launcher) unchanged.
 - **Verified by playing:** `scripts/playtest/arcade-platformer-play.mjs`
-  ([playtest/arcade-platformer.md](../playtest/arcade-platformer.md)) on the branch runtime, 15 / 15:
+  ([playtest/arcade-platformer.md](../playtest/arcade-platformer.md)) on the branch runtime, 15 /
+  15:
   the hero starts standing on the painted ground; a pixel of the ground row is the shipped sheet's
   ground colour (the tiles draw through the editor-art index); ArrowRight runs it and release stops
   it; Space jumps it exactly 170 px and it lands where it left; a tap rises 48–68 px; a jump from
   under a one-way ledge lands on it; the camera follows it past half way; the first gap and the wall
-  are jumped; the second gap's pit costs a life and puts it back with the camera at 0; coins count; a
+  are jumped; the second gap's pit costs a life and puts it back with the camera at 0; coins count;
+  a
   press above it on the screen jumps it; no RGS request; no page error; the same seeds and keys
   replay. On the same build P10.8's `arcade-play.mjs` 14 / 14, P10.12's `arcade-camera-play.mjs`
   12 / 12 and P10.11's `arcade-characters-play.mjs` 14 / 14.
 - **Bundle size** (the release build's `index.html`; `main` at 3dc8b3d vs this branch): 3,754,717 B
-  / 1,284,098 B gz → 3,768,148 B / 1,288,964 B gz: **+13.1 KB raw, +4.8 KB gz (+0.38 %)**, downloaded
+  / 1,284,098 B gz → 3,768,148 B / 1,288,964 B gz: **+13.1 KB raw, +4.8 KB gz (+0.38 %)**,
+  downloaded
   by every game, run only by an arcade game with a falling or hopping character or a tilemap (the
   tilemap renderer by any screen with one). The sample is not in it.
 - **Slot / match-3 / P10.8 / P10.11 / P10.12 parity:** every runtime path is keyed on a character
@@ -146,11 +167,14 @@ sample is a fixture.
   `arcadeLoop.ts` (one guarded `passesOver` in the overlap pass, `lifts()`, probe fields),
   `SpawnLayer.svelte`, `LayoutNodeView.svelte`, `types.ts` (a kind and its fields),
   `behaviours.js` (a `flap` case), `motion.js` / `motion.d.ts` (new exports, `Movement` fields),
-  `arcade.ts` (`apps/lines`), `determinism.ts` (a type), `editorStorage.ts` (the tilemap normalizer),
-  `componentFields.ts`, `editorArtExport.ts` (the tilemap branch), `game-config` normalizers (a stored
+  `arcade.ts` (`apps/lines`), `determinism.ts` (a type), `editorStorage.ts` (the tilemap
+  normalizer),
+  `componentFields.ts`, `editorArtExport.ts` (the tilemap branch), `game-config` normalizers (a
+  stored
   doc without the new fields comes back byte for byte). The current-games harness is not edited.
 - **Also fixed here:** `check:family-tools` (run by CI's `check:all`) was red on `main` (141 / 177):
-  its pre-P10.11 tool baseline did not know the two Bug Reports tools that #1373 merged beside P10.11.
+  its pre-P10.11 tool baseline did not know the two Bug Reports tools that #1373 merged beside
+  P10.11.
   They are family-agnostic, so they join the baseline (177 / 177).
 - **Chosen in P10.13, owner may overturn:**
   - **one PR**; the sample is a fixture, not Game Maker's arcade default;
@@ -176,10 +200,12 @@ sample is a fixture.
   - a character that never falls reads `grounded` true and `airborne` false; the hop's shadow sits
     at the body's feet.
 - **Not done here:** **diamond (2:1) tiles and autotiling** (§4.4): the collision runs on the flat
-  ground plane already, but the isometric projection P10.12 left out is what draws bodies and diamonds
+  ground plane already, but the isometric projection P10.12 left out is what draws bodies and
+  diamonds
   in step, so they come with it (Salmons' next arcade piece, §9 #19); slopes, moving platforms and
   ladders (§4.4, later); a drop-through on one-way platforms; the paint mode was checked by its gate
-  and the build, not driven in a browser (no Postgres / R2 here); Flow signals for a jump or a landing
+  and the build, not driven in a browser (no Postgres / R2 here); Flow signals for a jump or a
+  landing
   (the look's `grounded` / `airborne` inputs cover the animation); the sandbox drawing a tilemap;
   `/flow-v2` Preview running the loop; a current-games fixture for the sample (it would edit the
   harness).

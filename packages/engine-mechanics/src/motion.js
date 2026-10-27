@@ -616,9 +616,11 @@ const SETTLE_PASSES = 16;
  * Move a body that is inside solids it did not move into (a spawn or a `moveTo` into painted
  * ground) out by the shortest way: in each direction it is stepped past every solid it penetrates
  * until it is free (a block of tiles is crossed tile by tile), and the shortest free direction wins;
- * a tie prefers up, then left, right, down. Returns the move `{ x, y }` (both 0 when it was free).
+ * a tie prefers up, then left, right, down. The way is measured from `from`, where the body began
+ * its step, so this step's fall does not tip a tie downwards. Returns the move `{ x, y }` (both 0
+ * when it was free).
  */
-function settleOut(body, solidsNear) {
+function settleOut(body, solidsNear, from) {
 	const inSolid = () => solidsNear(aabbOf(body)).filter((b) => penetrates(aabbOf(body), aabbOf(b)));
 	if (!inSolid().length) return { x: 0, y: 0 };
 	const { x, y } = body;
@@ -634,7 +636,7 @@ function settleOut(body, solidsNear) {
 		for (let pass = 0; pass < SETTLE_PASSES; pass++) {
 			const blocking = inSolid();
 			if (!blocking.length)
-				return { axis, at: body[axis], cost: Math.abs(body[axis] - (axis === 'x' ? x : y)) };
+				return { axis, at: body[axis], cost: Math.abs(body[axis] - from[axis]) };
 			const edges = blocking.map((b) => aabbOf(b));
 			body[axis] =
 				axis === 'x'
@@ -672,6 +674,7 @@ function settleOut(body, solidsNear) {
  */
 export function stepPlatform(body, dt, options = {}) {
 	const { solids = [], tiles = [], field } = options;
+	const start = { x: body.x, y: body.y };
 	const others = solids.filter((s) => s !== body && (s.solid === true || s.oneWay === true));
 	const g = Number.isFinite(options.gravity) && options.gravity > 0 ? options.gravity : 0;
 	const vertical = fall(body.vy || 0, g, options.maxFall, dt);
@@ -748,7 +751,7 @@ export function stepPlatform(body, dt, options = {}) {
 			}
 		}
 	}
-	const out = settleOut(body, (box) => nearby(box).filter((b) => b.solid === true));
+	const out = settleOut(body, (box) => nearby(box).filter((b) => b.solid === true), start);
 	if (out.x !== 0) {
 		if ((body.vx || 0) * out.x < 0) body.vx = 0;
 		hitX = true;

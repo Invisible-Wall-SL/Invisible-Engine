@@ -503,6 +503,9 @@ check(
 		for (let i = 0; i < 120; i++)
 			stepPlatform(body, 1 / 60, { tiles: [block], gravity: 1000, field: { w: 320, h: 320 } });
 		assert.equal(inside(), 0, `still out (${body.x}, ${body.y})`);
+		const centre = box('centre', 80, 80, 20, 20);
+		stepPlatform(centre, 1 / 60, { tiles: [block], gravity: 1000 });
+		near(centre.y, 22, 1e-9, 'a tie leaves upwards, even under gravity');
 		const top = box('top', 80, 40, 20, 20);
 		stepPlatform(top, 1 / 60, { tiles: [block] });
 		near(top.y, 22, 1e-9, 'one just inside the top is lifted onto it');

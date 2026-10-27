@@ -627,10 +627,8 @@ export function animSourcesFor(character: ArcadeCharacter): ArcadeAnimSource[] {
 }
 
 /** The sources that read true / false (a `bool` look input); the rest are numbers. */
-const BOOL_ANIM_SOURCES: readonly string[] = ARCADE_BOOL_ANIM_SOURCES;
-
 export const animSourceIsBool = (source: ArcadeAnimSource): boolean =>
-	BOOL_ANIM_SOURCES.includes(source) || source.startsWith('state:');
+	(ARCADE_BOOL_ANIM_SOURCES as readonly string[]).includes(source) || source.startsWith('state:');
 
 /** Map a look input to a source; `''` unmaps it. */
 export function setAnimInput(

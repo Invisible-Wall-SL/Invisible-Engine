@@ -1,8 +1,8 @@
 /**
  * THE LIVE HOP LIFTS the game draws by (P10.13): how high each hopping character is above the
- * ground plane, its shadow's width and how far below its centre its feet are. The arcade runtime writes them once a frame after its loop
- * steps; `<SpawnLayer>` draws such an instance raised by its height over an ellipse shadow at its
- * feet. Generic: engine-layout knows only that some spawned instances are lifted.
+ * ground plane, its shadow's width and how far below its centre its feet are. The arcade runtime
+ * writes them once a frame after its loop steps; `<SpawnLayer>` draws such an instance raised by
+ * its height over an ellipse shadow at its feet. Generic: engine-layout knows only that some spawned instances are lifted.
  *
  * Nothing turns it on in a game with no hopping character, so every other spawn layer renders as
  * before.
