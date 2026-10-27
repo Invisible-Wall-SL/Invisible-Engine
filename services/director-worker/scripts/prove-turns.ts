@@ -1520,8 +1520,8 @@ try {
 		check('two NOTIFYs, each naming the run', heard, [runId, runId]);
 	}
 
-	// ── 9. A family with no ready pack ────────────────────────────────────────
-	console.log('9. a run of a family with no ready pack pauses before any call');
+	// ── 28. A family with no ready pack ────────────────────────────────────────
+	console.log('28. a run of a family with no ready pack pauses before any call');
 	for (const family of ['match3', 'arcade']) {
 		const runId = await newRun({ family });
 		await userMessage(runId, 'coordinator', 'Go.');
