@@ -354,6 +354,12 @@ eq(
 	S.playCueSound(o.target, 'sfx:coin', { offset: 200, fadeIn: 150 });
 	eq('a re-fire while the copy still sounds is skipped whole (no seek / fade of that copy)', o.calls, []); // prettier-ignore
 
+	const lo = recorder(['amb']);
+	S.playCueSound(lo.target, 'sfx:amb', { loop: true, overlap: true, offset: 500, fadeIn: 1000 });
+	lo.calls.length = 0;
+	S.playCueSound(lo.target, 'sfx:amb', { loop: true, overlap: true, offset: 500, fadeIn: 1000 });
+	eq('a loop never overlaps: its re-fire while it plays is skipped whole too', lo.calls, []);
+
 	const m = recorder(['bgm_a']);
 	S.playCueSound(m.target, 'music:bgm_a', { fadeIn: 700, volume: 0.4, loop: true });
 	S.playCueSound(m.target, 'stop:music:bgm_a');

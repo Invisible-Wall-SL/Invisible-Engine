@@ -89,7 +89,7 @@ export const CUE_SOUND_RANGES = {
 } as const satisfies Record<string, readonly [number, number]>;
 export type CueSoundNumberOption = keyof typeof CUE_SOUND_RANGES;
 
-/** The options each cue honours (a play of each kind, and a stop of either); any other is dropped. */
+/** The options each cue honours (a play of each kind, and a stop of either); others are dropped. */
 export const CUE_SOUND_FIELDS: Record<CueSoundKind | 'stop', readonly (keyof CueSoundOptions)[]> = {
 	sfx: ['volume', 'volumeJitter', 'rate', 'rateJitter', 'pan', 'loop', 'fadeIn', 'offset', 'overlap', 'pick'], // prettier-ignore
 	music: ['volume', 'loop', 'fadeIn'],
@@ -160,7 +160,8 @@ export interface CueSoundChannel {
 	pan(options: { name: string; pan: number }): void;
 	loop(options: { name: string; loop: boolean }): void;
 	seek(options: { name: string; offset: number }): void;
-	/** The level this channel last played `name` at, or `undefined` when it is not playing. */
+	/** The level `name` sounds at now (a running fade included), or `undefined` when it is not
+	 *  playing. */
 	level(name: string): number | undefined;
 }
 
@@ -238,7 +239,8 @@ export function playCueSound(
 	}
 	// Already playing and not asked to overlap: skipped whole, as a plain cue's play always was —
 	// the options below would otherwise seek, re-pitch and re-fade the copy that is sounding.
-	if (!options.overlap && channel.level(name) !== undefined) return;
+	// The loop player keeps one copy per name, so a loop never overlaps.
+	if ((!options.overlap || options.loop) && channel.level(name) !== undefined) return;
 
 	const jitter = (base: number, spread: number | undefined): number =>
 		spread ? base + (random() * 2 - 1) * spread : base;
@@ -268,7 +270,11 @@ function stopCueSound(
 ): void {
 	for (const channel of channelsOf(target, kind)) {
 		const level = channel.level(name);
-		if (level === undefined) continue;
+		if (level === undefined) {
+			// A bed a crossfade paused is still held, and would RESUME mid-track on its next cue.
+			if (kind === 'music') channel.stop({ name });
+			continue;
+		}
 		cancelFadeOut(channel, name);
 		if (!fadeOut) {
 			channel.stop({ name });

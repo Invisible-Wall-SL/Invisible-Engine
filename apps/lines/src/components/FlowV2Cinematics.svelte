@@ -55,10 +55,9 @@
 	 *    bus (`screenCueSignal`), as a Flow `fireCue` does, so an _On cue_ Element FX plays on it.
 	 *  - `sfx:` / `music:` (and their `stop:` forms) — through the game's sound player with the
 	 *    key's `sound` options (`playCueSound`, which a component timeline's cue goes through too).
-	 *    A plain cue is a
-	 *    one-shot or a music bed, guarded by `hasSound`: howler silently declines an unknown sprite
-	 *    key, so without the guard a cue naming a sound this game's audiosprite predates would be an
-	 *    inaudible non-failure rather than a warning.
+	 *    A plain cue is a one-shot or a music bed, guarded by `hasSound`: howler silently declines
+	 *    an unknown sprite key, so without the guard a cue naming a sound this game's audiosprite
+	 *    predates would be an inaudible non-failure rather than a warning.
 	 *
 	 * An unknown namespace is broadcast verbatim rather than dropped — a cue we have not taught the
 	 * game about yet is still a moment something may be listening for.

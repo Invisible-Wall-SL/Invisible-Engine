@@ -84,9 +84,9 @@ export function eventCueId(cue: string): string | undefined {
  * Where a cue a COMPONENT timeline crosses goes. `event:` raises one of the def's events — only on
  * a def that declares some; on any other it keeps its old meaning (broadcast by its bare name), so
  * nothing that played before changes. `signal:` fires on the instance's own bus. `sfx:` / `music:`
- * (and their `stop:` forms) go to the game's sound player through the registered sink (`cueSound.ts`), never the bus, where a
- * sound's bare name could collide with a real game event. Anything else is broadcast by its bare
- * name.
+ * (and their `stop:` forms) go to the game's sound player through the registered sink
+ * (`cueSound.ts`), never the bus, where a sound's bare name could collide with a real game event.
+ * Anything else is broadcast by its bare name.
  */
 export type ComponentCueRoute =
 	| { kind: 'event'; cue: string }

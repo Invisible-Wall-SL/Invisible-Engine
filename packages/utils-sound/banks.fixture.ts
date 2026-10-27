@@ -98,8 +98,11 @@ const createFakeHowl = (sprite: Record<string, unknown>) => {
 		stereo: (pan: number, id?: number) => record('stereo', pan, id),
 		loop: (loop: boolean, id?: number) => record('loop', loop, id),
 		seek: (seconds: number, id?: number) => record('seek', seconds, id),
-		fade: (from: number, to: number, duration: number, id?: number) =>
-			record('fade', from, to, duration, id),
+		// Howler starts a fade AT `from`; the stand-in never advances it.
+		fade: (from: number, to: number, duration: number, id?: number) => {
+			if (id !== undefined) levels.set(id, from);
+			record('fade', from, to, duration, id);
+		},
 		rate: (rate: number, id?: number) => record('rate', rate, id),
 		on: (event: string) => record('on', event),
 		unload: () => record('unload'),
@@ -458,6 +461,25 @@ console.log('\n10. a timeline cue’s options reach howler');
 	check('a loop replayed during its fade-out restarts', rig7.howls[1].of('play').length, 2);
 	check('…and the fade-out’s stop never ends the new copy', rig7.howls[1].of('stop'), [[100]]);
 	check('…which plays at its own level', rig7.loop.level('sfx_uploaded'), 1);
+
+	// A stop during a fade-in fades from where the fade has the sound NOW, not up from its target.
+	const rig9 = createRig([BUILTIN, PROJECT]);
+	const target9 = { ...target, players: { once: rig9.once, loop: rig9.loop, music: rig9.music } };
+	playCueSound(target9, 'sfx:sfx_uploaded', { loop: true, volume: 0.8, fadeIn: 3000 });
+	playCueSound(target9, 'stop:sfx:sfx_uploaded', { fadeOut: 20 });
+	check('a stop mid-fade-in fades out from the live level', rig9.howls[1].of('fade').at(-1), [0, 0, 20, 100]); // prettier-ignore
+
+	// A bed a crossfade paused is held; a stop cue drops it, so its next cue starts it over.
+	const rig10 = createRig([BUILTIN, PROJECT]);
+	const target10 = {
+		...target,
+		players: { once: rig10.once, loop: rig10.loop, music: rig10.music },
+	};
+	playCueSound(target10, 'music:bgm_freespin');
+	playCueSound(target10, 'music:bgm_quiet');
+	playCueSound(target10, 'stop:music:bgm_freespin');
+	playCueSound(target10, 'music:bgm_freespin');
+	check('a stopped paused bed starts over (a fresh play, not a resume)', rig10.howls[1].of('play').at(-1), ['bgm_freespin']); // prettier-ignore
 
 	// An offset past the region's end is not a seek into the next region.
 	const rig8 = createRig([BUILTIN, PROJECT]);

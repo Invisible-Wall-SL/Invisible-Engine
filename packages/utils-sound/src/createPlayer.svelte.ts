@@ -140,10 +140,16 @@ function createPlayer<TSoundName extends string, TPlay extends Function>(playerO
 		}
 	};
 
-	/** The per-play level of `soundName` while it is playing, else `undefined`. */
+	/** The per-play level `soundName` sounds at while it is playing, else `undefined`. */
 	const level = (soundName: TSoundName): number | undefined => {
 		const existingSound = soundMap[soundName];
-		return existingSound?.soundState === 'playing' ? existingSound.soundVolume : undefined;
+		if (existingSound?.soundState !== 'playing') return undefined;
+		// Where a running fade has it NOW, read back off howler; the stored level is the fade's target.
+		const scale = playerVolume * existingSound.soundConfig.volume;
+		const live = playerOptions.howlFor(soundName)?.volume(existingSound.soundId);
+		return scale > 0 && typeof live === 'number'
+			? Math.min(live / scale, 1)
+			: existingSound.soundVolume;
 	};
 
 	const debug = () => {

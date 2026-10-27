@@ -11,36 +11,40 @@ export function createPlayMusic<TSoundName extends string>(options: {
 }) {
 	type Sound = GetSound<TSoundName>;
 
+	/** Per bed, the token of its pending fade-out (not reactive state: a timer's guard). */
+	const fadeOuts: Partial<Record<TSoundName, number>> = {};
+	let fadeSeq = 0;
+
 	/**
 	 * Pause every bed but `keep`. With `fade` (ms) a PLAYING bed fades out first and pauses at the
 	 * end, unless something resumed it meanwhile; its map entry is `paused` at once either way, so a
-	 * replay during the fade takes the resume branch. The fade is the crossfade a timeline's `music:`
-	 * cue asks for; no other caller passes one.
+	 * replay during the fade takes the resume branch. A bed still fading out under an earlier
+	 * crossfade is left to finish it. The fade is the crossfade a timeline's `music:` cue asks for;
+	 * no other caller passes one.
 	 */
-	/** Per bed, the number of its latest fade-out (not reactive state: a timer's guard). */
-	const fadeOuts: Partial<Record<TSoundName, number>> = {};
 	const pauseAllMusic = (keep?: TSoundName, fade?: number) => {
 		(Object.values(options.getSoundMap()) as Sound[]).forEach((existingSound) => {
-			if (existingSound.soundName === keep) return;
-			const howl = options.howlFor(existingSound.soundName);
+			const name = existingSound.soundName;
+			if (name === keep) return;
+			const howl = options.howlFor(name);
 			const { soundId } = existingSound;
 			if (fade && existingSound.soundState === 'playing' && howl) {
 				howl.fade(howl.volume(soundId) as number, 0, fade, soundId);
 				// Only the LATEST fade-out of this bed may pause it: a resume and a second fade-out
 				// before this one ends must not have the first's timer cut the second short.
-				const token = (fadeOuts[existingSound.soundName] ?? 0) + 1;
-				fadeOuts[existingSound.soundName] = token;
+				const token = ++fadeSeq;
+				fadeOuts[name] = token;
 				setTimeout(() => {
-					if (fadeOuts[existingSound.soundName] !== token) return;
-					if (options.getSoundMap()[existingSound.soundName]?.soundState !== 'paused') return;
+					if (fadeOuts[name] !== token) return;
+					delete fadeOuts[name];
+					if (options.getSoundMap()[name]?.soundState !== 'paused') return;
 					howl.pause(soundId);
-					options.initSoundVolume(existingSound.soundName);
+					options.initSoundVolume(name);
 				}, fade);
-			} else howl?.pause(soundId);
-			options.getSoundMap()[existingSound.soundName] = {
-				...existingSound,
-				soundState: 'paused',
-			};
+			} else if (existingSound.soundState !== 'paused' || fadeOuts[name] === undefined) {
+				howl?.pause(soundId);
+			}
+			options.getSoundMap()[name] = { ...existingSound, soundState: 'paused' };
 		});
 	};
 
