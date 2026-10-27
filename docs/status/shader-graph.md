@@ -310,8 +310,8 @@ in review; 8d.8 (play-QA and calibration) is next.
       - **Gates:** `compile.fixture.ts` 213 (snapshots unchanged); `check:shader-editor` 263;
         `fx-previews` 78; `shader-page` (new, in `check:all`, 42) plays the real `/shaders` headless on
         WebGL1 and WebGL2 and walks the step's exit; `check:shader-pipeline` 149.
-    - **8d.6, the other previews.** Merged (#1407, 2026-10-27). Guides: `docs/tools/invisible-editor.md`,
-      `rigger.md`, `symbols-state-machine.md`.
+    - **8d.6, the other previews.** Merged (#1407, 2026-10-27). Guides:
+      `docs/tools/invisible-editor.md`, `rigger.md`, `symbols-state-machine.md`.
       - **One mount for every launcher stage** (`$lib/fx/layerMaterial.client.ts`): the layer's
         material through the game's `mountParticleMaterial`, its remount key, its emitter and its
         uniform retune. `FxStage` now uses it; so do the Scene Editor's `EditorEffectLayer` and the
@@ -667,6 +667,12 @@ in review; 8d.8 (play-QA and calibration) is next.
     `material-behavior`; `check:element-fx`; `check:shader-pipeline` 149; `check:launcher-gates`
     662; `check:vendored-bundles` (`rigger-fx.js` rebuilt); svelte-check at baseline; launcher
     build; `check:all` 568/568. 20 mutations, each failing its gate.
+  - **Review.** Nothing blocking, no slot or ticker leak. Fixed: "Loading art…" stuck after a slow
+    region was overtaken; a failed region's note left on the sample card; a paused edit emptied the
+    stage (a rebuild while paused now plays 500 ms); the element playhead and thumbnails kept moving
+    on Particles; the wrong overlay on Particles; "Infinity M" in the debug load; opening a doc now
+    selects its default element. `fx-page`'s first case now waits for the mount line (it read too
+    early under load).
 - 2026-10-27 — **Step 8d.6: the other previews** (see "Current state"). Merged (#1407): CI
   green, Current games "runtime untouched" (launcher, tools and docs only).
   - **Proof.** `fx-previews` (new, in `check:all`) 52/52, the editor clock case included;
