@@ -537,7 +537,10 @@ It is grouped into:
   rig's bone, and the rig's timeline events (authored in the Rigger) fire the
   effect on the beat. Left as **free**, the effect just plays at its placed
   position. The effect's particle atlas ships automatically (the export bakes it
-  in) — no need to place the atlas separately.
+  in) — no need to place the atlas separately. A layer with a
+  [material](fx.md#material) draws through it here as in the game, its parameters included; as
+  in a game, at most 8 material layers draw at once on the page and a ninth draws plain sprites,
+  as does a layer whose material's graph is gone or does not compile.
   Under the effect picker, **Parameters** lists what the effect exposes (⚡ in
   Invisible FX): a slider and number box for a number, a tick box for an on/off,
   a swatch for a colour. A value you set is this placement's own, and the canvas

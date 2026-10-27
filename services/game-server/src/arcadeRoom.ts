@@ -1,5 +1,5 @@
 import { CloseCode, Room, type Client } from '@colyseus/core';
-import { sanitizeInput, type OnlineInput } from 'engine-mechanics';
+import { ONLINE_EVENT, sanitizeInput, type OnlineEvent, type OnlineInput } from 'engine-mechanics';
 
 import type { LoadGame } from './configSource.ts';
 import { addressOfSocket, holdSeat, releaseSeat } from './addresses.ts';
@@ -86,10 +86,11 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			this.setPatchRate(1000 / online.patchHz);
 			this.setFixedTimestep(
 				() => {
-					sim.step((id, credit) => {
+					const events = sim.step((id, credit) => {
 						const buffer = this.inputs.get(id);
 						return buffer.take(inputsThisStep(buffer.size, credit)) as OnlineInput[];
 					});
+					this.announce(events);
 				},
 				online.tickHz,
 				{ subSteps: online.subSteps },
@@ -105,7 +106,8 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			player.connected = true;
 			this.state.players.set(client.sessionId, player);
 			this.write(client.sessionId);
-			this.state.phase = 'running';
+			this.writeRoom();
+			this.announce(sim.events());
 			void this.listPlayers();
 		}
 
@@ -142,13 +144,14 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			const sim = this.requireSim();
 			sim.leave(client.sessionId);
 			this.state.players.delete(client.sessionId);
+			this.announce(sim.events());
 			void this.listPlayers();
 		}
 
 		onBeforePatch() {
 			const sim = this.sim;
 			if (!sim) return;
-			this.state.step = sim.steps;
+			this.writeRoom();
 			for (const id of sim.players.keys()) this.write(id);
 		}
 
@@ -175,6 +178,24 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			to.facing = from.facing;
 			to.moving = from.moving;
 			to.ack = from.ack;
+			to.score = from.score;
+			to.status = from.status;
+			to.mark = from.mark;
+		}
+
+		private writeRoom() {
+			const sim = this.sim;
+			if (!sim) return;
+			this.state.step = sim.steps;
+			this.state.phase = sim.rules.phase;
+			this.state.round = sim.rules.round;
+			this.state.endsAt = sim.rules.endsAt;
+			this.state.winner = sim.rules.winner;
+		}
+
+		/** Tell every device what happened, in one message, after the patch that shows it. */
+		private announce(events: readonly OnlineEvent[]) {
+			if (events.length) this.broadcast(ONLINE_EVENT, events, { afterNextPatch: true });
 		}
 
 		private requireSim(): RoomSim {

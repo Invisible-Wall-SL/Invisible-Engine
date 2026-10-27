@@ -68,6 +68,7 @@ export interface CatalogEntry {
 	inputSchema: AdapterOp['inputSchema'];
 	write: boolean;
 	agents: readonly string[];
+	image?: true;
 }
 
 /**
@@ -96,6 +97,7 @@ export function catalogAnswer(
 			inputSchema: op.inputSchema,
 			write: op.write,
 			agents: op.agents,
+			...(op.image ? { image: true as const } : {}),
 		}));
 	return { status: 200, body: { ops } };
 }

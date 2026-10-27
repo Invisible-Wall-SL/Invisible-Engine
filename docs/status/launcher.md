@@ -110,6 +110,19 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     `check:director-runs` 471, `check:director-mockups` 153, `check:pipeline-changes` 7843,
     `check:family-tools` 177. The worker's `eval:agent` passes the builder and animator with
     "nothing to compare": neither has a reference set yet.
+- 2026-10-27 — **Invisible Director: adapter image answers reach the model as images** (ADR-0012
+  (proposed, #1414) card 9G.0, pipeline change). Ops flagged `image: true` in the catalog
+  (`atlas.get_variant_image`, `mockups.get_crop`) answer
+  `{ region, …, bytes, image: { mediaType, base64 } }` (the old `contentType` / `base64` fields are
+  gone), decoded, re-encoded in the format the bytes really are and downscaled to the mockups'
+  1568 px long edge; bytes that do not decode are a settled 422 `unreadable_image`. The worker turns
+  a flagged op's 200 answer into a `tool_result` of a text block (the rest as JSON) plus an `image`
+  block; an unsupported type or a base64 string over 5 MB is dropped with an `imageNotShown` note.
+  Errors and every unflagged op's answers are unchanged. A request carries only the newest 20
+  images and 12 MB of base64; older ones are a text stub (`[image shown earlier: region/id]`),
+  decided when the request is built, never in storage. The budget projection counts an image at
+  3,300 tokens. Changes what the art director, QA and atlas artist see in create runs: re-run the
+  create-run Agents-tab eval.
 - 2026-10-27 — **Desktop build breakdown: what a ☁ Publish / 📦 Deliver shipped** (desktop launcher
   v1.0.59 + engine). After the 🗜 Optimize image pass, the launcher runs the engine's
   `scripts/build-breakdown.mjs` on the finished `build/` and opens a self-contained page. It shows

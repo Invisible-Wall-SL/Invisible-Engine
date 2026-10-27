@@ -9,6 +9,7 @@
 	const b = $derived(data.breakdown);
 
 	const CATEGORY_COLORS: Record<string, string> = {
+		engine: '#48bfe3',
 		art: '#6c8cff',
 		symbols: '#c77dff',
 		pages: '#4cc9a7',
@@ -27,7 +28,9 @@
 		return `${(n / (1024 * 1024)).toFixed(2)} MB`;
 	}
 	const signed = (n: number) => `${n >= 0 ? '+' : '−'}${fmt(Math.abs(n))}`;
-	const pct = (n: number) => (b.totals.bytes ? `${((n / b.totals.bytes) * 100).toFixed(1)}%` : '—');
+	/** Every listed file: the game's and the shared engine's. */
+	const listed = $derived(b.totals.bytes + b.totals.engineBytes);
+	const pct = (n: number) => (listed ? `${((n / listed) * 100).toFixed(1)}%` : '—');
 	const when = (iso: string) =>
 		new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
@@ -71,7 +74,7 @@
 		return b.files
 			.filter((f) => category === 'all' || f.category === category)
 			.filter((f) => fileKind === 'all' || f.kind === fileKind)
-			.filter((f) => !onlyUnreferenced || f.refs === 0)
+			.filter((f) => !onlyUnreferenced || (f.refs === 0 && f.category !== 'engine'))
 			.filter((f) => !q || f.rel.toLowerCase().includes(q))
 			.sort((x, y) =>
 				fileSort === 'rel'
@@ -220,8 +223,20 @@
 
 		<section class="tiles">
 			<div class="tile">
-				<span class="k">Shipped</span><span class="v">{fmt(b.totals.bytes)}</span>
+				<span class="k">Total incl. engine</span><span class="v">{fmt(b.totals.totalBytes)}</span>
+				<span class="s">game files + runtime.json + engine</span>
+			</div>
+			<div class="tile">
+				<span class="k">Game files</span><span class="v">{fmt(b.totals.bytes)}</span>
 				<span class="s">{b.totals.files} files</span>
+			</div>
+			<div class="tile">
+				<span class="k">Engine (shared)</span><span class="v">{fmt(b.totals.engineBytes)}</span>
+				<span class="s"
+					>{b.engine
+						? `${b.engine.runtime}${b.engine.version ? `@${b.engine.version}` : ''} · ${b.engine.files} files`
+						: 'release not found'}</span
+				>
 			</div>
 			<div class="tile">
 				<span class="k">runtime.json</span><span class="v">{fmt(b.totals.bundleBytes)}</span>
@@ -258,7 +273,7 @@
 			<div class="bar" role="img" aria-label="Shipped bytes by category">
 				{#each b.categories as c (c.id)}
 					<span
-						style:width={`${b.totals.bytes ? (c.bytes / b.totals.bytes) * 100 : 0}%`}
+						style:width={`${listed ? (c.bytes / listed) * 100 : 0}%`}
 						style:background={colorOf(c.id)}
 						title={`${c.label}: ${fmt(c.bytes)} (${pct(c.bytes)})`}
 					></span>
@@ -273,8 +288,8 @@
 				>
 				<tbody>
 					<tr class:sel={category === 'all'} onclick={() => (category = 'all')}>
-						<td><span class="dot all"></span>All</td><td class="n">{b.totals.files}</td>
-						<td class="n">{fmt(b.totals.bytes)}</td><td class="n">100%</td>
+						<td><span class="dot all"></span>All</td><td class="n">{b.files.length}</td>
+						<td class="n">{fmt(listed)}</td><td class="n">100%</td>
 					</tr>
 					{#each b.categories as c (c.id)}
 						<tr class:sel={category === c.id} onclick={() => (category = c.id)}>
@@ -436,7 +451,7 @@
 					</thead>
 					<tbody>
 						{#each files.slice(0, fileLimit) as f (f.rel)}
-							<tr class:unused={f.refs === 0}>
+							<tr class:unused={f.refs === 0 && f.category !== 'engine'}>
 								<td class="path"
 									><span
 										class="dot"

@@ -17,8 +17,9 @@ import { mapWithConcurrency } from './concurrency';
 import { SUB } from './projectPaths';
 import { currentPointer, readSnapshotBundle, type SnapshotMeta } from './publishedRuntime';
 import { getObjectText, listAllObjects, putObjectText } from './r2';
+import { runtimePointer } from './testServerManifest';
 
-export const BREAKDOWN_VERSION = 1;
+export const BREAKDOWN_VERSION = 2;
 
 /** Largest side a texture should have: most mobile GPUs refuse anything bigger. */
 export const MAX_TEXTURE_SIDE = 4096;
@@ -28,9 +29,10 @@ const MAX_SCANNED_TEXT_BYTES = 8 * 1024 * 1024;
 const READ_CONCURRENCY = 8;
 
 export type CategoryId =
-	'art' | 'symbols' | 'pages' | 'fonts' | 'sounds' | 'boot' | 'data' | 'other';
+	'engine' | 'art' | 'symbols' | 'pages' | 'fonts' | 'sounds' | 'boot' | 'data' | 'other';
 
 export const CATEGORY_LABELS: Record<CategoryId, string> = {
+	engine: 'Engine (shared runtime)',
 	art: 'Scene art',
 	symbols: 'Symbols',
 	pages: 'Atlas pages (shared)',
@@ -51,6 +53,7 @@ export type FileKind =
 	| 'audio'
 	| 'index'
 	| 'data'
+	| 'code'
 	| 'other';
 
 /** Kinds a player downloads as an ASSET — the ones that are dead weight when nothing loads them. */
@@ -139,7 +142,13 @@ export interface BuildBreakdown {
 		unreferencedFiles: number;
 		unreferencedBytes: number;
 		duplicateBytes: number;
+		/** The shared engine runtime's files, listed under the `engine/` category. */
+		engineBytes: number;
+		/** Everything a first-time player could download: game files + runtime.json + engine. */
+		totalBytes: number;
 	};
+	/** Which engine release the sizes are from; null when no release could be found. */
+	engine: BreakdownEngine | null;
 	categories: BreakdownCategory[];
 	assets: BreakdownAsset[];
 	files: BreakdownFile[];
@@ -147,6 +156,24 @@ export interface BuildBreakdown {
 	/** Null when there is no older retained version to compare with. */
 	diff: BreakdownDiff | null;
 	content: { label: string; value: string }[];
+}
+
+export interface BreakdownEngine {
+	runtime: string;
+	version: string | null;
+	shortCommit: string | null;
+	/**
+	 * `recorded`: the release this version was published on. `current`: the version recorded none, so
+	 * the release live now stands in. `legacy`: the flat pre-release bundle.
+	 */
+	source: 'recorded' | 'current' | 'legacy';
+	files: number;
+	bytes: number;
+}
+
+/** The engine runtime release a version runs on, as listed for the breakdown. */
+export interface EngineRelease extends Omit<BreakdownEngine, 'files' | 'bytes'> {
+	files: ListedFile[];
 }
 
 export interface ListedFile {
@@ -163,6 +190,7 @@ export interface BreakdownInput {
 	/** Bodies of the shipped text files (json/atlas/fnt/xml), keyed by `rel`. */
 	texts: Map<string, string>;
 	previous?: { meta: SnapshotMeta; files: ListedFile[] } | null;
+	engine?: EngineRelease | null;
 	now?: Date;
 }
 
@@ -543,9 +571,22 @@ export function analyzeBuild(input: BreakdownInput): BuildBreakdown {
 		return row;
 	});
 
+	// The shared engine runtime: listed with the game's files, so the size table and the file list
+	// show it, but never checked as part of the game (its art is the engine's own, and nothing in
+	// the bundle names its chunks).
+	const engineRows: BreakdownFile[] = (input.engine?.files ?? []).map((f) => ({
+		rel: `engine/${f.rel}`,
+		bytes: f.bytes,
+		category: 'engine',
+		kind: /\.(m?js|css|html?|wasm|map)$/i.test(f.rel) ? 'code' : kindOf(f.rel, roles),
+		refs: 0,
+		referrers: ['shared engine runtime'],
+	}));
+	const allRows = [...rows, ...engineRows];
+
 	const categories = (Object.keys(CATEGORY_LABELS) as CategoryId[])
 		.map((id) => {
-			const inCat = rows.filter((r) => r.category === id);
+			const inCat = allRows.filter((r) => r.category === id);
 			return {
 				id,
 				label: CATEGORY_LABELS[id],
@@ -646,6 +687,34 @@ export function analyzeBuild(input: BreakdownInput): BuildBreakdown {
 		unusedAssets.map((a) => `${a.type} ${a.name} (${formatBytes(a.bytes)})`),
 	);
 
+	const engine = input.engine
+		? {
+				runtime: input.engine.runtime,
+				version: input.engine.version,
+				shortCommit: input.engine.shortCommit,
+				source: input.engine.source,
+				files: engineRows.length,
+				bytes: sum(engineRows),
+			}
+		: null;
+	if (!engine) {
+		issue(
+			'warn',
+			'Engine size unknown',
+			`No release of the shared runtime "${meta.runtime}" was found, so the engine is missing ` +
+				'from the totals.',
+			[meta.engine ? `release ${meta.engine.version}` : 'no release recorded'],
+		);
+	} else if (engine.source !== 'recorded') {
+		issue(
+			'info',
+			'Engine size from the live release',
+			'This version was published before the engine release was recorded, so the engine row is ' +
+				'the release live now.',
+			[engine.version ? `${engine.runtime}@${engine.version}` : `${engine.runtime} (flat bundle)`],
+		);
+	}
+
 	return {
 		version: BREAKDOWN_VERSION,
 		computedAt: (input.now ?? new Date()).toISOString(),
@@ -658,10 +727,13 @@ export function analyzeBuild(input: BreakdownInput): BuildBreakdown {
 			unreferencedFiles: unreferenced.length,
 			unreferencedBytes: sum(unreferenced),
 			duplicateBytes: sum(duplicates),
+			engineBytes: engine?.bytes ?? 0,
+			totalBytes: sum(rows) + input.bundleBytes + (engine?.bytes ?? 0),
 		},
+		engine,
 		categories,
 		assets,
-		files: rows,
+		files: allRows,
 		issues,
 		diff: input.previous ? diffFiles(input.previous.meta, input.previous.files, files) : null,
 		content: contentSummary(bundle),
@@ -747,6 +819,46 @@ async function listSnapshotFiles(
 		.map((o) => ({ rel: o.key.slice(prefix.length), bytes: o.size, etag: o.etag }));
 }
 
+/** Control files beside a runtime's releases — not part of what a player downloads. */
+const RUNTIME_CONTROL_FILES = new Set(['current.json', 'releases.json', 'release.json']);
+
+async function listRuntimeFiles(prefix: string): Promise<ListedFile[]> {
+	return (await listAllObjects(prefix))
+		.filter((o) => !o.key.endsWith('/'))
+		.map((o) => ({ rel: o.key.slice(prefix.length), bytes: o.size, etag: o.etag }))
+		.filter((f) => !RUNTIME_CONTROL_FILES.has(f.rel));
+}
+
+/**
+ * The engine release `meta` runs on: the one recorded at publish; else the one live now (a version
+ * from before the record); else the flat bundle that predates versioned releases. Null when none of
+ * them has files.
+ */
+export async function findEngineRelease(meta: SnapshotMeta): Promise<EngineRelease | null> {
+	const runtime = meta.runtime;
+	if (meta.engine) {
+		const files = await listRuntimeFiles(`test_server/_runtime/${runtime}@${meta.engine.version}/`);
+		if (files.length) return { runtime, ...meta.engine, source: 'recorded', files };
+	}
+	const live = await runtimePointer(runtime);
+	if (live) {
+		const files = await listRuntimeFiles(`test_server/_runtime/${runtime}@${live.version}/`);
+		if (files.length) {
+			return {
+				runtime,
+				version: live.version,
+				shortCommit: live.shortCommit,
+				source: 'current',
+				files,
+			};
+		}
+	}
+	const flat = await listRuntimeFiles(`test_server/_runtime/${runtime}/`);
+	return flat.length
+		? { runtime, version: null, shortCommit: null, source: 'legacy', files: flat }
+		: null;
+}
+
 export class UnknownBreakdownError extends Error {
 	constructor(id: string) {
 		super(`Version ${id} is not one of this game's retained published versions.`);
@@ -778,10 +890,11 @@ export async function loadBuildBreakdown(
 		}
 	}
 
-	const [bundle, bundleText, files] = await Promise.all([
+	const [bundle, bundleText, files, engine] = await Promise.all([
 		readSnapshotBundle(client, project, id),
 		getObjectText(`${snapshotRoot(client, project, id)}runtime.json`),
 		listSnapshotFiles(client, project, id),
+		findEngineRelease(meta),
 	]);
 	if (!bundle) throw new UnknownBreakdownError(id);
 
@@ -814,6 +927,7 @@ export async function loadBuildBreakdown(
 		files,
 		texts,
 		previous: previous && previous.files.length ? previous : null,
+		engine,
 	});
 	await putObjectText(cacheKey, JSON.stringify(breakdown), 'application/json').catch((e) =>
 		console.warn(`[breakdown] ${project}/${id}: cache write failed:`, e),

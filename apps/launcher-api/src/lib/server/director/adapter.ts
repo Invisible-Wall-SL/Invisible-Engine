@@ -208,6 +208,12 @@ interface OpBase<I, O> {
 	inputSchema: ObjectSchema;
 	agents: readonly DirectorAgent[];
 	scope: OpScope;
+	/**
+	 * The op answers `{ image: { mediaType, base64 }, ...rest }` and the worker shows the model the
+	 * image. Only a flagged op's answer is read for an image; every other answer reaches the model
+	 * as its JSON, whatever fields it carries.
+	 */
+	image?: true;
 	handler: (ctx: AdapterContext, input: I) => Promise<O>;
 }
 
@@ -250,7 +256,7 @@ export function defineOp<I, O>(op: AdapterOp<I, O>): AdapterOp {
 /** A refusal a handler raises; the gate answers `{ error: code, message }` with `status`. */
 export class AdapterError extends Error {
 	constructor(
-		readonly status: 400 | 403 | 404 | 409 | 413 | 502 | 503,
+		readonly status: 400 | 403 | 404 | 409 | 413 | 422 | 502 | 503,
 		readonly code: string,
 		message: string,
 	) {
