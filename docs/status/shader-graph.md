@@ -17,7 +17,8 @@ GLSL node (#1349). 8d (particle materials) is decided
 ([design](../design/shader-graph-particles.md)) and being built as 8d.1–8d.8; 8d.1 (the particle
 shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is merged
 (#1366); 8d.3 (the material in the game) is merged (#1378); 8d.4 (the ship chain, proven) is
-merged (#1384); 8d.5 (`/fx` authoring) is next.
+merged (#1384); 8d.5 (`/fx` authoring) is built and in review; 8d.6 (the other previews) is
+next.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -282,7 +283,37 @@ merged (#1384); 8d.5 (`/fx` authoring) is next.
   - **8d, particle materials for Invisible FX.** Decided 2026-10-25
     (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
     shader). Built as 8d.1–8d.8, one PR each (its §15). A game plays a material from 8d.3; no
-    tool authors one until 8d.5.
+    tool authors one from 8d.5.
+    - **8d.5, `/fx` authoring.** Built, in review. Guide: `docs/tools/fx.md` (Material).
+      - **The Material section** (sprite layers; `fxMaterial.client.ts`, pure): the picker (None,
+        then the project's compiled effects by name; "made for particles" first waits for 8d.7's
+        `madeFor`), Time, Strength, the material's params as rows (number, colour, switch with ⚡;
+        a choice is a dropdown with no ⚡, since an effect parameter is a number, colour or
+        switch). ⚡ reaches every param of the compiled spec, stored or not; exposing one writes
+        its default. Every edit goes through `normalizeEmitterMaterial`; a new kind drops the old
+        params; a rig-clip layer drops its material. Notes: passes, motion and break ignored on
+        particles; over budget; over 512 or drivable past it; frames on two pages; no art; the
+        graph gone or not compiling (`validateEffectMaterials`, the layer badged ◆ plain); an
+        exposed parameter driving a param the selected material lacks (kept, flagged). **Open in
+        Shader Graph** is a same-tab link for holders of the tool.
+      - **The page registers the compiled set** from `GET /api/shaders/effects`, which now also
+        answers `costs: [{ id, shared, cost, samples }]` (one guarded `analyzeShaderGraph` per
+        graph; a throw drops only that cost).
+      - **`FxStage` draws through the game's mount** (one cap of 8 per stage). It remounts a
+        material on a change of kind, registration, time, Max particles, its drive peak or frames;
+        Strength and params are uniform writes, no reset; paused ⚡ previews apply. A layer that
+        did not change is no longer re-initialised on another layer's edit, and Pause / Play now
+        stop and re-arm every layer (it had no dependency before), so Pause → Play replays a
+        one-shot. Both change `/fx` for every effect, materials or not.
+      - **Load:** the layer's measured peak (covered px, padding included, × the graph's cost),
+        reset on re-init; before it draws, or while plain, the §10 estimate. A bar against 32 M
+        (amber from 75 %), a badge in the Layers list, the effect's load against 64 M; graph cost
+        against 150 / 4 reads. `FX_MATERIAL_PARTICLE_CAP` (512) now lives in `engine-fx`;
+        `PARTICLE_COST_BUDGET` / `PARTICLE_SAMPLE_BUDGET` in `engine-shadergraph` for 8d.7.
+      - **`?fxdebug=1`** adds a line when a layer's peak grows (at most every 2 s) and one at
+        release, in covered px: load needs the cost inside the compiled effect (8d.7).
+      - **Gate:** `fx-page` (in `check:all`) mounts the real `+page.svelte` headless with stubbed
+        `$app/*` and in-memory endpoints, and plays the step's exit.
     - **8d.4, the ship chain, proven.** Merged (#1384, 2026-10-27).
       - **Proof only for the chain:** Publish (`runtimeBundle.ts` → `namedShaderEffects`, after
         `pruneUnreachableEffects`) and the bake (`bake-editor-doc.mjs`'s `nameKinds`, after its
@@ -336,7 +367,7 @@ merged (#1384); 8d.5 (`/fx` authoring) is next.
         can be driven over 512, or with no bound, is plain from mount; so is one with no frames
         when it mounted.
       - **`?fxdebug=1`:** a line per material layer at mount and on turning plain, e.g.
-        `material layer embers/main: on (custom:pulsetint; 1/8 drawing)`. Load waits for 8d.5.
+        `material layer embers/main: on (custom:pulsetint; 1/8 drawing)`; coverage lines from 8d.5.
       - **The soft floor** is written in `docs/design/games-deploy.md` beside 8a's: below the first
         release with 8d.3, every material draws plain. `rigger-fx.js` rebuilt.
     - **8d.2, the material renderer.** Merged (#1366, 2026-10-26).
@@ -514,19 +545,22 @@ merged (#1384); 8d.5 (`/fx` authoring) is next.
       defaults.
 
 ## Open items / next
-1. **Step 8d.5 (next): `/fx` authoring** (design §15 step 5): the `/fx` Material section calls `validateEffectMaterials` with the registered set;
-     ⚡ offers every param from the compiled spec, not only the stored ones; the live preview must
-     remount on a `layer.material` edit (the spec is read at mount); the load meter (§10, Σ quad
-     area × cost) and a load figure on the debug line.
-   - **8d.6:** `EditorEffectLayer` and `fxOverlay` do not draw materials yet; `view.html` must
-     fetch the set.
+1. **Step 8d.6 (next): the other previews** (design §15 step 6).
+   - `EditorEffectLayer` and `fxOverlay` draw material layers plain; `view.html` must fetch the
+     set; they can reuse `FxStage`'s mount and remount keys.
+   - **8d.7:** the picker's "made for particles" first; `/shaders` switching to
+     `PARTICLE_COST_BUDGET` / `PARTICLE_SAMPLE_BUDGET`; carrying the cost in the compiled effect,
+     so the effects route's `costs` and the `?fxdebug=1` load figure follow from it.
    - **8d.8, the phone check:** integer seeds through a hash; WebGL1's whole-buffer upload per
      frame, now sized to the drive's peak; the parity tolerance is SwiftShader's, not a phone's;
      whether a dormant event layer should hold a cap slot; spawn order restarting at 0 on every
      emit re-init.
    - A layer that mounts before its frames are loaded stays plain for its life ("no frames when it
      mounted"); a remount fixes it. Deferring the decision would mean re-parenting a live emitter.
-   - `setTime` has no caller yet; `FxMaterialSlots.release` clamps at 0 silently.
+   - `setTime` has no caller (a Time change remounts); `FxMaterialSlots.release` clamps at 0
+     silently; nothing warns before a ninth material layer is placed; the estimate ignores burst
+     counts, `emitterLifetime` and container scale; a peak that grows then plateaus inside the
+     2 s throttle prints only at release.
 2. **Step 8c follow-ups.**
    - The test-compile runs in the author's browser only (the server has no GPU), so a phone's
      driver may still refuse a body the author's took; the runtime then draws the element as it is
@@ -579,6 +613,21 @@ merged (#1384); 8d.5 (`/fx` authoring) is next.
 - None.
 
 ## Recent changes
+- 2026-10-27 — **Step 8d.5: `/fx` authoring** (see "Current state"). Step 8d.4 merged (#1384).
+  - **Proof.** `fx-page` (new, in `check:all`) 31/31, three runs: the set read, the picker, "on",
+    the estimate then the measured load and badges, a param drag and Strength changing pixels with
+    no remount, a paused ⚡ preview, Time remounting, the cap note drawing plain, Apply preset,
+    save → reopen identical, a deleted graph named and drawn plain, the same-tab link, and a doc
+    opened at load with a slow set mounting once it registers. fx-spike `model` 115;
+    `particle-material`; `check:fx-params` 130; `roundtrip` 43; `player` 63;
+    `check:shader-pipeline` 148; `check:launcher-gates` 661; `check:vendored-bundles`;
+    svelte-check at baseline; launcher build; `check:all` 557/557. 30 mutations, each failing
+    its gate.
+  - **Review.** Blocking, fixed: a material on an effect opened at page load stayed plain, with no
+    note, until edited (the stage never noticed the set registering). Fixed: drives left on a
+    previous material's params are flagged; the `?fxdebug=1` line only printed at release; one
+    throwing graph could fail the whole effects route; constants and plain-reason types; an
+    unhandled rejection; a 4×/s state write; the estimate's padding.
 - 2026-10-27 — **Step 8d.4: the ship chain, proven** (see "Current state"). Merged (#1384): CI
   green, Current games "runtime untouched: no game can differ".
   - **Proof.** `check:shader-pipeline` 146 (13 new, §8: the real `buildRuntimeBundle` and the real
