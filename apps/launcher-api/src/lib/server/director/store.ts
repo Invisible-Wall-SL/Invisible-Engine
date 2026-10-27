@@ -423,7 +423,7 @@ export interface NewRepairRun {
 	bugNumber: number;
 	/** The project's config ETag, recorded as BOTH of the run's math-lock ETags (ADR-0012 §1): the
 	 *  project is its own reference, so any Game Config save during the run reads as drift. */
-	configEtag: string;
+	configEtag: string | null;
 }
 
 const LIVE_STATUSES = ['draft', 'running', 'waiting', 'paused', 'stopping'] as const;

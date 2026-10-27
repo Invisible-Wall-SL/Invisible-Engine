@@ -403,6 +403,10 @@ fake('lib/server/toolScope.ts', {
 		return { clientKey: 'unassigned', projectKey };
 	},
 });
+const liveRuns = new Set<string>();
+fake('lib/server/director/store.ts', {
+	liveRunOnProject: async (key: string) => (liveRuns.has(key) ? { id: 'r', kind: 'repair' } : null),
+});
 fake('lib/server/roleToolAccess.ts', { getRoleOverrides: async () => ({}) });
 fake('lib/server/userToolAccess.ts', {
 	getToolOverrides: async (userId: string) => userOverrides[userId] ?? {},
@@ -1821,6 +1825,179 @@ check('activity lines read as sentences', lines, [
 			(await store.resolveFixedBugs('borut', 'snap-2')).sort(),
 		],
 		[0, [otherProject]],
+	);
+}
+
+// ── The repair controls on a game bug (ADR-0012 §1, §3) ───────────────────────
+{
+	const facts = (over: Partial<Parameters<typeof view.showEscalate>[0]> = {}) => ({
+		canStart: true,
+		liveRun: false,
+		canEscalate: true,
+		...over,
+	});
+	const bug = (status: string, escalation: unknown = null, kind = 'game') => ({
+		kind,
+		status,
+		escalation,
+	});
+	check(
+		'game page: the repair facts come from the server — Director and triage, a live run on the project, triage and the pipeline tool',
+		await (async () => {
+			const load = async (tools: { id: string }[], search = '?project=borut') =>
+				(await loadPage(tools, search, gamePageLoad)) as {
+					repair: unknown;
+					pipelineAreas: { id: string }[];
+				};
+			liveRuns.clear();
+			const none = await load([{ id: 'gameBugs' }]);
+			const all = await load([{ id: 'gameBugs' }, { id: 'director' }, { id: 'pipelineBugs' }]);
+			liveRuns.add('borut');
+			const busy = await load([{ id: 'gameBugs' }, { id: 'director' }]);
+			liveRuns.clear();
+			return [
+				none.repair,
+				all.repair,
+				busy.repair,
+				all.pipelineAreas.some((a) => a.id === 'engine'),
+			];
+		})(),
+		[
+			{ canStart: false, liveRun: false, canEscalate: false },
+			{ canStart: true, liveRun: false, canEscalate: true },
+			{ canStart: true, liveRun: true, canEscalate: false },
+			true,
+		],
+	);
+	check(
+		'Repair with Director: Director + triage, the bug Open or Working on, no live run',
+		[
+			view.showRepairWithDirector(facts(), bug('open')),
+			view.showRepairWithDirector(facts(), bug('working')),
+			view.showRepairWithDirector(facts(), bug('resolved')),
+			view.showRepairWithDirector(facts(), bug('wontFix')),
+			view.showRepairWithDirector(facts({ canStart: false }), bug('open')),
+			view.showRepairWithDirector(facts({ liveRun: true }), bug('open')),
+			view.showRepairWithDirector(facts(), bug('open', null, 'pipeline')),
+		],
+		[true, true, false, false, false, false, false],
+	);
+	const escalation = { number: 7, ref: 'BUG-7', state: 'waiting', label: 'x' };
+	check(
+		'Escalate to pipeline: a triager with the pipeline tool, on an Open or Working on bug with no escalation',
+		[
+			view.showEscalate(facts(), bug('open')),
+			view.showEscalate(facts(), bug('working')),
+			view.showEscalate(facts(), bug('resolved')),
+			view.showEscalate(facts(), bug('open', escalation)),
+			view.showEscalate(facts({ canEscalate: false }), bug('open')),
+			view.showEscalate(facts(), bug('open', null, 'pipeline')),
+		],
+		[true, true, false, false, false, false],
+	);
+	check(
+		'the pipeline list has no repair controls',
+		[view.NO_REPAIR, view.showRepairWithDirector(view.NO_REPAIR, bug('open'))],
+		[{ canStart: false, liveRun: false, canEscalate: false }, false],
+	);
+	const summary = (over: Record<string, unknown>): Parameters<typeof view.derivedLabels>[0] =>
+		({ escalation: null, repairLabel: null, ...over }) as never;
+	check(
+		"the labels beside the status: waiting on a pipeline bug (linked), its fix merged, won't fix, fixed waiting on publish",
+		[
+			view.derivedLabels(summary({})),
+			...(['waiting', 'fixed', 'wontFix'] as const).map((state) =>
+				view.derivedLabels(
+					summary({
+						escalation: {
+							number: 7,
+							ref: 'BUG-7',
+							state,
+							label: shared.pipelineWaitLabel(7, state),
+						},
+					}),
+				),
+			),
+			view.derivedLabels(summary({ repairLabel: shared.FIXED_WAITING_LABEL })),
+		],
+		[
+			[],
+			[{ tone: 'amber', text: 'Waiting on pipeline · BUG-7', pipelineBug: 7 }],
+			[{ tone: 'green', text: 'Pipeline fix merged: check the game', pipelineBug: 7 }],
+			[{ tone: 'muted', text: "Pipeline: won't fix", pipelineBug: 7 }],
+			[{ tone: 'green', text: 'Fixed, waiting on publish', pipelineBug: null }],
+		],
+	);
+	const ev = (kind: string, actor: string, data: Json, id = 1) => ({
+		id,
+		kind,
+		actor,
+		auto: true,
+		at: `2026-10-27T10:0${id}:00.000Z`,
+		data,
+	});
+	const events = [
+		ev('repair', 'Director run a1', { runId: 'a1', phase: 'started', priorStatus: 'open' }, 1),
+		ev('repair', 'Director run a1', { runId: 'a1', phase: 'ended', outcome: 'needs_person' }, 2),
+		ev('repair', 'Director run b2', { runId: 'b2', phase: 'started', priorStatus: 'open' }, 3),
+		ev(
+			'repair',
+			'Director run b2',
+			{ runId: 'b2', phase: 'fixed', outcome: 'fixed', summary: 'Moved it.' },
+			4,
+		),
+		ev('comment', 'Ana', { text: 'hi' }, 5),
+	];
+	check(
+		'the bug lists its repair runs, newest first, each as its events left it',
+		view.repairRuns(events).map((r: { runId: string; state: string }) => [r.runId, r.state]),
+		[
+			['b2', 'fixed'],
+			['a1', 'needs a person'],
+		],
+	);
+	check(
+		'a run that has started and not ended is running',
+		view.repairRuns(events.slice(0, 1)).map((r: { state: string }) => r.state),
+		['running'],
+	);
+	const line = (e: ReturnType<typeof ev>) => `${e.actor} ${view.eventText(e)}`;
+	check(
+		'the repair and escalated events, and the status they cause, read in plain words',
+		[
+			line(events[0]),
+			line(events[1]),
+			line(events[3]),
+			line(ev('repair', 'Director run a1', { runId: 'a1', phase: 'ended', outcome: 'escalated' })),
+			line(ev('repair', 'Director run a1', { runId: 'a1', phase: 'ended', outcome: 'stopped' })),
+			line(ev('repair', 'Game Maker publish', { phase: 'published', snapshot: 's1' })),
+			line(ev('escalated', 'Dana', { to: 7, runId: null })),
+			line(ev('escalated', 'Dana', { from: 3, runId: 'a1' })),
+			line(ev('status', 'Director run a1', { to: 'working', because: 'repair' })),
+			line(ev('status', 'Game Maker publish', { to: 'resolved', because: 'published' })),
+		],
+		[
+			'Director run a1 started a repair',
+			'Director run a1 ended the repair: needs a person',
+			'Director run b2 fixed it: it ships with the next publish',
+			'Director run a1 ended the repair: handed to the pipeline',
+			'Director run a1 ended the repair: stopped',
+			'Game Maker publish published the fix',
+			'Dana handed it to the pipeline as BUG-7',
+			'Dana filed this from game bug BUG-3',
+			'Director run a1 marked it Working on: a Director repair run started',
+			'Game Maker publish marked it Resolved: the fix was published',
+		],
+	);
+	check(
+		'a repair summary shows under its line, as a comment does; other events have no note',
+		[view.eventNote(events[3]), view.eventNote(events[4]), view.eventNote(events[0])],
+		['Moved it.', 'hi', null],
+	);
+	check(
+		'the escalation text is one function: the page shows exactly what is filed',
+		shared.escalationDescription(41, 'cloud', 'Director run r', 'See BUG-3', ' ok '),
+		'Found while repairing bug #41 in cloud (Director run r).\n\nCause:\nSee bug #3\n\nWhat was found:\nok',
 	);
 }
 

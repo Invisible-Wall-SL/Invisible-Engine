@@ -1,8 +1,11 @@
+import { bugAreaName, escalationDescription, escalationTitle } from '$lib/bugReports';
 import {
+	REPAIR_STEPS,
 	RUN_STEPS,
 	isBreakdown,
 	isRecord,
 	modelLabel,
+	stepNumber,
 	usd,
 	type Breakdown,
 	type RunEvent,
@@ -32,7 +35,7 @@ const num = (value: unknown): number | null =>
 const strings = (value: unknown, max = 200): string[] =>
 	Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string').slice(0, max) : [];
 
-const STEP_IDS: readonly string[] = RUN_STEPS.map((s) => s.id);
+const STEP_IDS: readonly string[] = [...RUN_STEPS, ...REPAIR_STEPS].map((s) => s.id);
 const isStep = (value: unknown): value is RunStep =>
 	typeof value === 'string' && STEP_IDS.includes(value);
 
@@ -51,7 +54,7 @@ export type StepState =
 	'done' | 'running' | 'waiting' | 'paused' | 'failed' | 'stopped' | 'skipped' | 'todo';
 
 export interface StepView {
-	id: RunStep;
+	id: RunStep | 'repair_review';
 	n: number;
 	label: string;
 	state: StepState;
@@ -59,6 +62,94 @@ export interface StepView {
 	detail: string;
 	/** 0–1 for a step with measurable progress (regions approved), else null. */
 	progress: number | null;
+}
+
+// ── A repair run's review (ADR-0012) ──────────────────────────────────────────
+
+export type RepairOutcome = 'fixed' | 'escalate' | 'needs_person' | 'not_reproduced';
+export type RepairVerified = 'played_pass' | 'played_fail' | 'not_played';
+
+/** `run.submit_repair`'s fields, as the worker stores them on the `repair_submitted` row. */
+export interface RepairSubmitted {
+	outcome: RepairOutcome;
+	summary: string;
+	cause: string;
+	changes: string;
+	verified: RepairVerified;
+	pipelineArea: string;
+	pipelineTitle: string;
+}
+
+export const REPAIR_OUTCOMES: Record<RepairOutcome, string> = {
+	fixed: 'Fixed',
+	escalate: 'Hand it to the pipeline',
+	needs_person: 'Needs a person',
+	not_reproduced: 'Could not reproduce it',
+};
+
+const isOutcome = (v: unknown): v is RepairOutcome => typeof v === 'string' && v in REPAIR_OUTCOMES;
+const isVerified = (v: unknown): v is RepairVerified =>
+	v === 'played_pass' || v === 'played_fail' || v === 'not_played';
+
+function readSubmission(p: Record<string, unknown>): RepairSubmitted | null {
+	if (!isOutcome(p.outcome) || !isVerified(p.verified)) return null;
+	return {
+		outcome: p.outcome,
+		summary: str(p.summary, 2000) ?? '',
+		cause: str(p.cause, 2000) ?? '',
+		changes: str(p.changes, 2000) ?? '',
+		verified: p.verified,
+		pipelineArea: str(p.pipeline_area, 40) ?? 'none',
+		pipelineTitle: str(p.pipeline_title, 200) ?? '',
+	};
+}
+
+export interface RepairReview extends RepairSubmitted {
+	outcomeLabel: string;
+	verifiedLabel: string;
+	/** The pipeline bug exactly as approving files it; only for an escalation. */
+	pipeline: { area: string; areaName: string; title: string; text: string } | null;
+}
+
+/**
+ * What the Repair review panel shows: the doctor's submission in words, and for an escalation the
+ * pipeline bug as the launcher will file it (`bugs.escalate_game_bug`: the doctor's title, cause and
+ * summary under the same lead line, never the reporter's words). Null while nothing was submitted.
+ */
+export function repairReview(
+	folded: Folded,
+	run: Pick<RunSummary, 'id' | 'projectKey' | 'bugNumber'>,
+): RepairReview | null {
+	const s = folded.repair.submitted;
+	if (!s) return null;
+	const verifiedLabel =
+		s.verified === 'played_pass'
+			? 'Played again: it passed'
+			: s.verified === 'played_fail'
+				? 'Played again: it still fails'
+				: folded.repair.noPlayer
+					? 'Not played (the draft player is not deployed yet)'
+					: 'Not played';
+	return {
+		...s,
+		outcomeLabel: REPAIR_OUTCOMES[s.outcome],
+		verifiedLabel,
+		pipeline:
+			s.outcome === 'escalate' && run.bugNumber !== null
+				? {
+						area: s.pipelineArea,
+						areaName: bugAreaName('pipeline', s.pipelineArea),
+						title: escalationTitle(s.pipelineTitle),
+						text: escalationDescription(
+							run.bugNumber,
+							run.projectKey,
+							`Director run ${run.id}`,
+							s.cause,
+							s.summary,
+						),
+					}
+				: null,
+	};
 }
 
 // ── Regions and galleries ─────────────────────────────────────────────────────
@@ -191,6 +282,8 @@ export interface Folded {
 	planVersion: number;
 	/** The GPU the run's latest render was billed on, as its spend row names it. */
 	gpu: string | null;
+	/** A repair run's latest submission (`run.submit_repair`), and whether a play found no player. */
+	repair: { submitted: RepairSubmitted | null; noPlayer: boolean };
 }
 
 // ── Labels ────────────────────────────────────────────────────────────────────
@@ -324,6 +417,7 @@ interface Ctx {
 	recipesVersion: number;
 	planVersion: number;
 	gpu: string | null;
+	repair: Folded['repair'];
 }
 
 const OTHER_GROUP = 'Other regions';
@@ -628,6 +722,16 @@ function foldActivity(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 				'plain',
 			);
 		}
+		case 'repair_submitted': {
+			const submitted = readSubmission(p);
+			if (submitted) ctx.repair.submitted = submitted;
+			return push(
+				ctx,
+				event,
+				`concluded the repair: ${submitted ? REPAIR_OUTCOMES[submitted.outcome] : 'see Repair review'}. ${str(p.summary, 400) ?? ''}`,
+				'plain',
+			);
+		}
 		case 'breakdown_image':
 			// One per mockup per pass, each carrying the model's full answer: noise in the feed.
 			return;
@@ -698,6 +802,9 @@ function foldCheckpoint(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 				: 'asks you to review the Art plan before anything renders.';
 		return push(ctx, event, `${ask}${summary ? ` ${summary}` : ''}`, 'checkpoint');
 	}
+	if (checkpoint === 'repair_review') {
+		return push(ctx, event, `asks you to review the repair. ${summary}`, 'checkpoint');
+	}
 	if (checkpoint === 'before_publish') {
 		return push(
 			ctx,
@@ -755,9 +862,11 @@ function foldResolved(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 				? 'the Art plan'
 				: checkpoint === 'region_batch'
 					? 'the region batch'
-					: checkpoint === 'before_publish'
-						? 'the build'
-						: `the ${checkpoint} checkpoint`;
+					: checkpoint === 'repair_review'
+						? 'the repair'
+						: checkpoint === 'before_publish'
+							? 'the build'
+							: `the ${checkpoint} checkpoint`;
 	push(
 		ctx,
 		event,
@@ -868,7 +977,7 @@ function foldStatus(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 		ctx.stepStartedAt[to.step] ??= event.at;
 		ctx.step = to.step;
 	}
-	const stepLabel = RUN_STEPS.find((s) => s.id === to.step)?.label ?? '';
+	const stepLabel = [...RUN_STEPS, ...REPAIR_STEPS].find((s) => s.id === to.step)?.label ?? '';
 	const waitingOn = str(to.waitingOn, 40);
 	const words =
 		status === 'waiting'
@@ -918,7 +1027,11 @@ function foldError(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
  * Fold the run's rows, oldest first, into the screen's views. `prefix` is the run's project
  * prefix in R2 (`<client>/<project>`), the only place an image the events name may live.
  */
-export function foldEvents(events: readonly RunEvent[], prefix: string): Folded {
+export function foldEvents(
+	events: readonly RunEvent[],
+	prefix: string,
+	kind: RunSummary['kind'] = 'create',
+): Folded {
 	const ctx: Ctx = {
 		prefix,
 		regions: new Map(),
@@ -930,7 +1043,7 @@ export function foldEvents(events: readonly RunEvent[], prefix: string): Folded 
 		plan: null,
 		breakdown: null,
 		feed: [],
-		step: 'breakdown',
+		step: kind === 'repair' ? 'reproduce' : 'breakdown',
 		stepStartedAt: {},
 		openBatch: null,
 		refused: refusedIds(events),
@@ -938,11 +1051,15 @@ export function foldEvents(events: readonly RunEvent[], prefix: string): Folded 
 		recipesVersion: 0,
 		planVersion: 0,
 		gpu: null,
+		repair: { submitted: null, noPlayer: false },
 	};
 	for (const event of events) {
 		if (typeof event.id !== 'number' || typeof event.at !== 'string') continue;
 		const p = isRecord(event.payload) ? event.payload : {};
 		collectImageKeys(p, ctx, event);
+		if (['status', 'result', 'settled', 'outcome'].some((k) => p[k] === 'no_player')) {
+			ctx.repair.noPlayer = true;
+		}
 		switch (event.kind) {
 			case 'activity':
 				foldActivity(ctx, event, p);
@@ -1045,6 +1162,7 @@ export function foldEvents(events: readonly RunEvent[], prefix: string): Folded 
 		recipesVersion: ctx.recipesVersion,
 		planVersion: ctx.planVersion,
 		gpu: ctx.gpu,
+		repair: ctx.repair,
 	};
 }
 
@@ -1052,7 +1170,58 @@ export function foldEvents(events: readonly RunEvent[], prefix: string): Folded 
 
 const TERMINAL: readonly RunSummary['status'][] = ['stopped', 'failed', 'handed_off'];
 
+/** A repair run's steps rail: reproduce, fix, verify, the review, the hand-off. */
+function repairStepViews(run: RunSummary): StepView[] {
+	const current = stepNumber(run);
+	const detail: Record<number, string> = {
+		1: 'The Game doctor makes the bug happen',
+		2: 'The Builder or Animator changes the project',
+		3: 'The draft is played again',
+		4: 'You review what was found and changed',
+		5: 'Nothing is published until you do it',
+	};
+	return REPAIR_STEPS.map((step) => {
+		let state: StepState;
+		if (run.status === 'handed_off') state = 'done';
+		else if (step.n < current) state = 'done';
+		else if (step.n > current) {
+			state = TERMINAL.includes(run.status) || run.status === 'stopping' ? 'skipped' : 'todo';
+		} else {
+			state =
+				run.status === 'running'
+					? 'running'
+					: run.status === 'waiting'
+						? 'waiting'
+						: run.status === 'paused'
+							? 'paused'
+							: run.status === 'failed'
+								? 'failed'
+								: run.status === 'stopped' || run.status === 'stopping'
+									? 'stopped'
+									: 'todo';
+		}
+		const word = STATE_WORDS[state];
+		return {
+			id: step.id,
+			n: step.n,
+			label: step.label,
+			state,
+			detail: word ? `${word} · ${detail[step.n]}` : detail[step.n],
+			progress: null,
+		};
+	});
+}
+
+const STATE_WORDS: Partial<Record<StepState, string>> = {
+	waiting: 'Waiting for you',
+	paused: 'Paused',
+	failed: 'Failed',
+	stopped: 'Stopped',
+	skipped: 'Not reached',
+};
+
 export function stepViews(run: RunSummary, folded: Folded, mockupCount: number): StepView[] {
+	if (run.kind === 'repair') return repairStepViews(run);
 	const current = RUN_STEPS.find((s) => s.id === run.step)?.n ?? 1;
 	const planned = [...folded.regions.values()].filter((r) => r.planned);
 	const approved = planned.filter((r) => r.status === 'approved').length;

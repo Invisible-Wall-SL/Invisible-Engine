@@ -732,8 +732,19 @@
 												{run.name ?? run.projectKey}
 											</a>
 											<span class="mono small">{run.projectKey}</span>
+											{#if run.kind === 'repair'}
+												<a
+													class="chip fact"
+													href="{resolve(
+														'/game-bugs',
+													)}?bug={run.bugNumber}&project={encodeURIComponent(run.projectKey)}"
+													>Repair · BUG-{run.bugNumber}</a
+												>
+											{/if}
 										</td>
-										<td class="mono small">{run.templateProjectKey}</td>
+										<td class="mono small"
+											>{run.kind === 'repair' ? '—' : run.templateProjectKey}</td
+										>
 										<td>{statusLabel(run)}</td>
 										<td>
 											{usd(run.spentUsd)}{#if run.budgetCapUsd !== null}

@@ -13,6 +13,9 @@ import {
 	bugAreaName,
 	bugRef,
 	bugRefsIn,
+	escalationDescription,
+	escalationTitle,
+	unlinkBugRefs,
 	FIXED_WAITING_LABEL,
 	pipelineWaitLabel,
 	pipelineWaitOf,
@@ -512,13 +515,6 @@ export type DirectorBugAnswer =
 /** How a Director run is named as a bug's reporter and in its activity. */
 export const directorReporter = (runId: string): string => `Director run ${runId}`;
 
-/**
- * Agent text never names a bug the link sync reads: `BUG-7` becomes `bug #7`, so a pull request
- * whose title echoes this bug's title (as the fix brief leads it to) moves no other bug.
- */
-export const unlinkBugRefs = (text: string): string =>
-	text.replace(/\bbug-(\d{1,7})\b/gi, 'bug #$1');
-
 const requestHash = (what: string): string =>
 	createHash('sha256').update(what.replace(/\s+/g, ' ').trim().toLowerCase()).digest('hex');
 
@@ -591,27 +587,6 @@ export async function createDirectorBug(input: DirectorBugInput): Promise<Direct
 	return { filed: bug };
 }
 
-/** The text of an escalated pipeline bug: where it was found, then the escalator's own words. */
-function escalationText(
-	game: BugReport,
-	by: string,
-	cause: string,
-	summary: string,
-): { title: string; description: string } {
-	return {
-		title: '',
-		description: unlinkBugRefs(
-			[
-				`Found while repairing bug #${game.number} in ${game.projectKey} (${by}).`,
-				'',
-				'Cause:',
-				cause.trim(),
-				...(summary.trim() ? ['', 'What was found:', summary.trim()] : []),
-			].join('\n'),
-		),
-	};
-}
-
 /** File the escalation of a repair run's game bug; see {@link DirectorBugInput.escalatedFrom}. */
 async function escalateFromRun(
 	input: DirectorBugInput,
@@ -622,14 +597,14 @@ async function escalateFromRun(
 	if (!game || game.kind !== 'game' || game.projectKey !== input.runProjectKey) {
 		throw error(404, `There is no game bug BUG-${from.gameBug} in this run's project.`);
 	}
-	const title = unlinkBugRefs(input.what).replace(/\s+/g, ' ').trim();
+	const title = escalationTitle(input.what);
 	const filed = await insertEscalation({
 		gameBug: game.number,
 		values: {
 			kind: 'pipeline',
 			title: cleanTitle(title),
 			description: cleanDescription(
-				escalationText(game, actor.name, input.reason, from.summary).description,
+				escalationDescription(game.number, game.projectKey, actor.name, input.reason, from.summary),
 			),
 			area: cleanArea('pipeline', from.area),
 			projectKey: game.projectKey,
@@ -673,7 +648,13 @@ export async function escalateGameBug(
 			kind: 'pipeline',
 			title: cleanTitle(unlinkBugRefs(String(input.title ?? ''))),
 			description: cleanDescription(
-				escalationText(game, access.actor.name, note || 'See the title.', '').description,
+				escalationDescription(
+					game.number,
+					game.projectKey,
+					access.actor.name,
+					note || 'See the title.',
+					'',
+				),
 			),
 			area: cleanArea('pipeline', input.area),
 			projectKey: game.projectKey,

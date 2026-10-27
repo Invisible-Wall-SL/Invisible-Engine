@@ -989,6 +989,8 @@ export interface RunListEntry {
 	projectKey: string;
 	clientKey: string | null;
 	templateProjectKey: string;
+	kind: DirectorRun['kind'];
+	bugNumber: number | null;
 	status: DirectorRun['status'];
 	step: DirectorRun['step'];
 	waitingOn: DirectorRun['waitingOn'];
@@ -1017,6 +1019,8 @@ export async function listRunSummaries(
 			projectKey: run.projectKey,
 			clientKey: run.clientKey,
 			templateProjectKey: run.templateProjectKey,
+			kind: run.kind,
+			bugNumber: run.bugNumber,
 			status: run.status,
 			step: run.step,
 			waitingOn: run.waitingOn,

@@ -123,6 +123,40 @@ export const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 
 export const bugRef = (number: number): string => `BUG-${number}`;
 
+/**
+ * Agent text never names a bug the link sync reads: `BUG-7` becomes `bug #7`, so a pull request
+ * whose title echoes this bug's title (as the fix brief leads it to) moves no other bug.
+ */
+export const unlinkBugRefs = (text: string): string =>
+	text.replace(/\bbug-(\d{1,7})\b/gi, 'bug #$1');
+
+/** The title of the pipeline bug a game bug is escalated with, as it is filed. */
+export const escalationTitle = (title: string): string =>
+	unlinkBugRefs(title).replace(/\s+/g, ' ').trim();
+
+/**
+ * The text of an escalated pipeline bug, as it is filed (ADR-0012 §3): where it was found, then
+ * the escalator's own words, never the reporter's. `by` is the run ("Director run <id>").
+ */
+export const escalationDescription = (
+	gameBug: number,
+	projectKey: string | null,
+	by: string,
+	cause: string,
+	summary: string,
+): string =>
+	unlinkBugRefs(
+		[
+			`Found while repairing bug #${gameBug} in ${projectKey} (${by}).`,
+			'',
+			'Cause:',
+			cause.trim(),
+			...(summary.trim() ? ['', 'What was found:', summary.trim()] : []),
+		].join('\n'),
+	)
+		.replace(/\r\n/g, '\n')
+		.trim();
+
 /** Shown on a game bug a repair run fixed, until the project's next publish resolves it. */
 export const FIXED_WAITING_LABEL = 'Fixed, waiting on publish';
 

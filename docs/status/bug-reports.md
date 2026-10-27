@@ -103,10 +103,18 @@ server module, routes, page components, triage, screenshots, the pull-request li
 2. **Move a game bug to the pipeline list** — back end done (ADR-0012 §3, Director card 9G):
    `POST /api/bugs/<n>/escalate` (game triage + the Pipeline Bug Reports tool) and a repair run's
    `bugs.escalate_game_bug` file one pipeline bug, relate the two (`bug_report_relations`) and show
-   **Waiting on pipeline · BUG-n** (derived). No button on the bug page yet.
+   **Waiting on pipeline · BUG-n** (derived). The bug page has **Escalate to pipeline** (a small
+   form in the new **Repair** card, triagers with the Pipeline Bug Reports tool).
 3. No delete of a bug report (Won't fix is the way out); no assignee field.
 
 ## Recent changes
+
+- 2026-10-27 — **Repair UI on the game bug (Director card 9G)**: the **Repair** card on
+  `/game-bugs` (**Repair with Director**, **Escalate to pipeline**, the bug's repair runs, the
+  derived labels, also on the list rows); `repair` and `escalated` activity lines in words; the
+  pipeline side shows **Escalated from a game bug**. The game page load supplies the facts
+  (`repair`, `pipelineAreas`). `escalationDescription` moved to `$lib/bugReports` so the Repair
+  review shows the pipeline bug exactly as filed. Browser pass still open.
 
 - 2026-10-27 — **Repair runs move the bug (Director card 9G)**: a repair run sets Open → Working on
   and puts it back unless fixed or touched; a fix reads **Fixed, waiting on publish**
