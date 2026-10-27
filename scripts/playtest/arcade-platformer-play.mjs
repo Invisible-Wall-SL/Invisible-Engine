@@ -436,8 +436,8 @@ try {
 	);
 	verdict(
 		'coins are collected on the way',
-		(await game.variable('coins')) >= 1 && coinsOf(back).length < LEDGES_PLACES.coins.length,
-		{ coins: await game.variable('coins') },
+		(await game.variable('collected')) >= 1 && coinsOf(back).length < LEDGES_PLACES.coins.length,
+		{ coins: await game.variable('collected') },
 	);
 
 	await game.frames(40);

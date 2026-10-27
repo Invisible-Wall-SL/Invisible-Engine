@@ -746,10 +746,12 @@
 								{#if jump || character.controller.kind === 'flap'}
 									A {character.controller.kind === 'flap' ? 'flap' : 'jump'} reads
 									<code>{ARCADE_JUMP_ACTION}</code
-									>{#if character.controller.kind !== 'topDown'}&nbsp;or <code>up</code>{/if}, or a
-									pointer pressed {character.controller.kind === 'flap'
-										? 'anywhere'
-										: 'above the character'}.
+									>{#if character.controller.kind !== 'topDown'}&nbsp;or <code>up</code
+										>{/if}{#if character.controller.kind === 'topDown'}
+										(a hop has no touch gesture: a touch steers).{:else}, or a pointer pressed
+										{character.controller.kind === 'flap'
+											? 'anywhere'
+											: 'above the character'}.{/if}
 								{/if}
 							</p>
 						{/if}

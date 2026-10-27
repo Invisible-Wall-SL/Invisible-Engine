@@ -609,6 +609,52 @@ const smallestSide = (body) => {
 	return Math.min(hw, hh) * 2;
 };
 
+/** How many times {@link settleOut} may step past what blocks it in one direction. */
+const SETTLE_PASSES = 16;
+
+/**
+ * Move a body that is inside solids it did not move into (a spawn or a `moveTo` into painted
+ * ground) out by the shortest way: in each direction it is stepped past every solid it penetrates
+ * until it is free (a block of tiles is crossed tile by tile), and the shortest free direction wins;
+ * a tie prefers up, then left, right, down. Returns the move `{ x, y }` (both 0 when it was free).
+ */
+function settleOut(body, solidsNear) {
+	const inSolid = () => solidsNear(aabbOf(body)).filter((b) => penetrates(aabbOf(body), aabbOf(b)));
+	if (!inSolid().length) return { x: 0, y: 0 };
+	const { x, y } = body;
+	const { hw, hh } = halfSize(body);
+	const tries = [
+		['y', -1],
+		['x', -1],
+		['x', 1],
+		['y', 1],
+	].map(([axis, dir]) => {
+		body.x = x;
+		body.y = y;
+		for (let pass = 0; pass < SETTLE_PASSES; pass++) {
+			const blocking = inSolid();
+			if (!blocking.length)
+				return { axis, at: body[axis], cost: Math.abs(body[axis] - (axis === 'x' ? x : y)) };
+			const edges = blocking.map((b) => aabbOf(b));
+			body[axis] =
+				axis === 'x'
+					? dir < 0
+						? Math.min(...edges.map((e) => e.x0)) - hw
+						: Math.max(...edges.map((e) => e.x1)) + hw
+					: dir < 0
+						? Math.min(...edges.map((e) => e.y0)) - hh
+						: Math.max(...edges.map((e) => e.y1)) + hh;
+		}
+		return { axis, at: body[axis], cost: Infinity };
+	});
+	body.x = x;
+	body.y = y;
+	const best = tries.reduce((a, b) => (b.cost < a.cost ? b : a));
+	if (!Number.isFinite(best.cost)) return { x: 0, y: 0 };
+	body[best.axis] = best.at;
+	return { x: body.x - x, y: body.y - y };
+}
+
 /**
  * Move one body for `dt` seconds under gravity, against solids, one-way platforms and tiles
  * (§4.4, P10.13). `vy` grows by `gravity` (px/s²) up to `maxFall` (px/s), integrated exactly. The
@@ -632,8 +678,16 @@ export function stepPlatform(body, dt, options = {}) {
 	const dx = (body.vx || 0) * dt;
 	const dy = vertical.dy;
 	body.vy = vertical.vy;
+	const reach = aabbOf(body);
+	const along = {
+		x0: Math.min(reach.x0, reach.x0 + dx) - 1,
+		y0: Math.min(reach.y0, reach.y0 + dy) - 1,
+		x1: Math.max(reach.x1, reach.x1 + dx) + 1,
+		y1: Math.max(reach.y1, reach.y1 + dy) + 1,
+	};
 	let thinnest = smallestSide(body) || Infinity;
-	for (const s of others) thinnest = Math.min(thinnest, smallestSide(s));
+	for (const s of others)
+		if (boxesTouch(aabbOf(s), along)) thinnest = Math.min(thinnest, smallestSide(s));
 	for (const grid of tiles) thinnest = Math.min(thinnest, grid.tileW, grid.tileH);
 	const limit = Number.isFinite(thinnest) ? Math.max(thinnest / 2, 0.5) : Infinity;
 	const longest = Math.max(Math.abs(dx), Math.abs(dy));
@@ -694,27 +748,15 @@ export function stepPlatform(body, dt, options = {}) {
 			}
 		}
 	}
-	for (const solid of nearby(aabbOf(body))) {
-		if (solid.solid !== true) continue;
-		const a = aabbOf(body);
-		const b = aabbOf(solid);
-		if (!penetrates(a, b)) continue;
-		const left = a.x1 - b.x0;
-		const right = b.x1 - a.x0;
-		const up = a.y1 - b.y0;
-		const down = b.y1 - a.y0;
-		if (Math.min(left, right) <= Math.min(up, down)) {
-			const dir = left <= right ? -1 : 1;
-			body.x += dir < 0 ? -left : right;
-			if ((body.vx || 0) * dir < 0) body.vx = 0;
-			hitX = true;
-		} else {
-			const dir = up <= down ? -1 : 1;
-			body.y += dir < 0 ? -up : down;
-			if ((body.vy || 0) * dir < 0) body.vy = 0;
-			if (dir < 0 && dy > 0) grounded = true;
-			hitY = true;
-		}
+	const out = settleOut(body, (box) => nearby(box).filter((b) => b.solid === true));
+	if (out.x !== 0) {
+		if ((body.vx || 0) * out.x < 0) body.vx = 0;
+		hitX = true;
+	}
+	if (out.y !== 0) {
+		if ((body.vy || 0) * out.y < 0) body.vy = 0;
+		if (out.y < 0 && dy > 0) grounded = true;
+		hitY = true;
 	}
 	if (field && (body.edges ?? 'clamp') === 'clamp') {
 		const { x, y } = body;

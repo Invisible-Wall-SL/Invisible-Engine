@@ -195,7 +195,7 @@ export function arcadeLedgesReferenceLayout(): LayoutDoc {
 		if (scene.id === 'arcadeHud')
 			return {
 				...scene,
-				nodes: [...readout('lives', 'LIVES', 40), ...readout('coins', 'COINS', 140)],
+				nodes: [...readout('lives', 'LIVES', 40), ...readout('collected', 'COINS', 140)],
 			};
 		if (scene.id === 'roundOver')
 			return {

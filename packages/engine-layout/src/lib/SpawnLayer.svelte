@@ -94,7 +94,7 @@
 			visible={!culling || !isCulled(instance.id)}
 		>
 			{#if lift}
-				<Graphics draw={shadowOf(lift.shadow)} />
+				<Graphics y={lift.foot} draw={shadowOf(lift.shadow)} />
 			{/if}
 			<Container y={-(lift?.z ?? 0)}>
 				<ComponentInstance node={instanceNode(instance)} {space} />

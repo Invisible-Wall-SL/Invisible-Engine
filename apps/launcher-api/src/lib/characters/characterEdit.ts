@@ -1,6 +1,7 @@
 import {
 	ARCADE_ANIM_SOURCES,
 	ARCADE_BEHAVIOURS,
+	ARCADE_BOOL_ANIM_SOURCES,
 	ARCADE_VARIABLE_OPS,
 	DEFAULT_ARCADE_RANDOM_EVERY,
 	type ArcadeAnimSource,
@@ -626,7 +627,7 @@ export function animSourcesFor(character: ArcadeCharacter): ArcadeAnimSource[] {
 }
 
 /** The sources that read true / false (a `bool` look input); the rest are numbers. */
-const BOOL_ANIM_SOURCES: readonly string[] = ['moving', 'grounded', 'onWall', 'airborne'];
+const BOOL_ANIM_SOURCES: readonly string[] = ARCADE_BOOL_ANIM_SOURCES;
 
 export const animSourceIsBool = (source: ArcadeAnimSource): boolean =>
 	BOOL_ANIM_SOURCES.includes(source) || source.startsWith('state:');

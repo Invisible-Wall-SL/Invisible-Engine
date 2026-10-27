@@ -38,6 +38,12 @@
 	};
 
 	const tileset = $derived(node.tileset ?? []);
+	// The brush is shared across tilemaps: one with fewer entries pulls it back to its last, so the
+	// row shown as the brush is the one the canvas paints with.
+	$effect(() => {
+		if (tileset.length && tilemapPaint.brush >= tileset.length)
+			tilemapPaint.brush = tileset.length - 1;
+	});
 	const brush = $derived(Math.min(tilemapPaint.brush, tileset.length - 1));
 	const used = $derived.by(() => {
 		const counts: number[] = tileset.map(() => 0);
@@ -52,7 +58,9 @@
 			const key = parseScopedFrameRef(entry.region).assetKey;
 			if (!key || key in sets) continue;
 			sets[key] = null;
-			void fetchRegions(key).then((set) => (sets[key] = set));
+			void fetchRegions(key)
+				.then((set) => (sets[key] = set))
+				.catch(() => undefined);
 		}
 	});
 

@@ -480,6 +480,35 @@ check('with no gravity and nothing one-way it lands where stepSolid does', () =>
 	}
 });
 
+check(
+	'a body spawned inside a block of solid tiles is moved out the shortest way, and stays out',
+	() => {
+		const block = grid(
+			10,
+			10,
+			32,
+			Object.fromEntries([1, 2, 3].flatMap((c) => [1, 2, 3].map((r) => [`${c},${r}`, TILE_SOLID]))),
+		);
+		const body = box('trapped', 80, 80, 20, 20);
+		const first = stepPlatform(body, 1 / 60, { tiles: [block], gravity: 1000 });
+		const inside = () =>
+			tilesIn(block, {
+				x0: body.x - 9.999,
+				y0: body.y - 9.999,
+				x1: body.x + 9.999,
+				y1: body.y + 9.999,
+			}).length;
+		assert.equal(inside(), 0, `out of the block (${body.x}, ${body.y})`);
+		assert.ok(first.hitX || first.hitY);
+		for (let i = 0; i < 120; i++)
+			stepPlatform(body, 1 / 60, { tiles: [block], gravity: 1000, field: { w: 320, h: 320 } });
+		assert.equal(inside(), 0, `still out (${body.x}, ${body.y})`);
+		const top = box('top', 80, 40, 20, 20);
+		stepPlatform(top, 1 / 60, { tiles: [block] });
+		near(top.y, 22, 1e-9, 'one just inside the top is lifted onto it');
+	},
+);
+
 console.log('6. the hop and the flap');
 check('a hop tops out at its height at its time, and lands back at z 0', () => {
 	const hop = { kind: 'hop', height: 48, time: 0.3 };

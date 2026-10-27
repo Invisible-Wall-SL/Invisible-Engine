@@ -63,7 +63,10 @@ const ARCADE_SEED_PARAM = 'arseed';
 let loop: ArcadeLoop | undefined;
 /** The config has a hopping character, so lifts are published. */
 let hops = false;
-let shadowOf: (componentId: string) => number = () => 0;
+let shadowOf: (componentId: string) => { shadow: number; foot: number } = () => ({
+	shadow: 0,
+	foot: 0,
+});
 let world: { w: number; h: number } | undefined;
 let view = () => ({ w: 0, h: 0 });
 
@@ -201,8 +204,12 @@ export const startArcade = (designSize: () => { width: number; height: number })
 	hops = rules.characters.some(hopsOnThePlane);
 	shadowOf = (componentId) => {
 		const body = rules.bodies[componentId];
-		return body?.shape === 'box' ? body.w : body?.shape === 'circle' ? body.r * 2 : 0;
+		if (body?.shape === 'box') return { shadow: body.w, foot: body.h / 2 };
+		if (body?.shape === 'circle') return { shadow: body.r * 2, foot: body.r };
+		return { shadow: 0, foot: 0 };
 	};
+	// Lifting is on before the first spawn, so no instance remounts when the first lift arrives.
+	if (hops) setLifts(new Map());
 	view = () => {
 		const { width, height } = designSize();
 		return { w: width, h: height };
@@ -256,9 +263,9 @@ export const tickArcade = (dtMs: number) => {
 	loop.frame(dtMs);
 	if (hops) {
 		const live = spawnStore();
-		const lifts = new Map<string, { z: number; shadow: number }>();
+		const lifts = new Map<string, { z: number; shadow: number; foot: number }>();
 		for (const [id, z] of loop.lifts())
-			lifts.set(id, { z, shadow: shadowOf(live.get(id)?.componentId ?? '') });
+			lifts.set(id, { z, ...shadowOf(live.get(id)?.componentId ?? '') });
 		setLifts(lifts);
 	}
 	const camera = loop.camera();

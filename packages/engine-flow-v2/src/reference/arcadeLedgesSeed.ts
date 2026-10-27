@@ -26,7 +26,7 @@ import { ARCADE_FIELD_LAYER, ARCADE_SCREENS, ARCADE_TEMPLATE_ID } from './arcade
 /** The sample's components (`engine-layout` `ARCADE_LEDGES`). */
 export const LEDGES_SAMPLE = { hero: 'ledgesHero', coin: 'ledgesCoin' } as const;
 
-export const LEDGES_VARIABLES = { lives: 'lives', coins: 'coins', playing: 'playing' } as const;
+export const LEDGES_VARIABLES = { lives: 'lives', coins: 'collected', playing: 'playing' } as const;
 
 export const LEDGES_START_LIVES = 3;
 
@@ -123,7 +123,7 @@ const buildGraph = (): FlowDoc['graph'] => {
 	const onStart = add({ id: 'al_on_start', kind: 'onTimer', timer: START_TIMER });
 	chain({ node: onStart, pin: 'exec' }, [
 		setVar('al_round_lives', LEDGES_VARIABLES.lives, int(LEDGES_START_LIVES)),
-		setVar('al_round_coins', LEDGES_VARIABLES.coins, int(0)),
+		setVar('al_round_collected', LEDGES_VARIABLES.coins, int(0)),
 		setVar('al_round_playing', LEDGES_VARIABLES.playing, bool(true)),
 		spawn('al_round_hero', LEDGES_SAMPLE.hero, LEDGES_PLACES.hero),
 		...LEDGES_PLACES.coins.map((at, i) => spawn(`al_round_coin${i}`, LEDGES_SAMPLE.coin, at)),
@@ -177,7 +177,7 @@ const buildGraph = (): FlowDoc['graph'] => {
 	chain({ node: pit, pin: 'else' }, [goal]);
 	chain({ node: goal, pin: 'then' }, [
 		add({
-			id: 'al_goal_coins',
+			id: 'al_goal_bonus',
 			kind: 'changeVariable',
 			variable: LEDGES_VARIABLES.coins,
 			op: 'add',

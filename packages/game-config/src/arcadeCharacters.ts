@@ -157,6 +157,14 @@ export const ARCADE_ANIM_SOURCES = [
 	'height',
 ] as const;
 
+/** The plain sources that are true / false (the rest are numbers); every `state:<id>` is too. */
+export const ARCADE_BOOL_ANIM_SOURCES = [
+	'moving',
+	'grounded',
+	'onWall',
+	'airborne',
+] as const satisfies readonly (typeof ARCADE_ANIM_SOURCES)[number][];
+
 export type ArcadeAnimSource = (typeof ARCADE_ANIM_SOURCES)[number] | `state:${string}`;
 
 export type ArcadeCharacter = {

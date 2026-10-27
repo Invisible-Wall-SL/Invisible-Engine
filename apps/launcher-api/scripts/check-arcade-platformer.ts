@@ -555,6 +555,53 @@ const GROUND_Y = 640 - 24;
 	);
 }
 
+{
+	const jumper = runner({ movement: undefined });
+	const game = bench([jumper], { hero: heroBody }, { tiles: [LEVEL] });
+	const hero = game.spawn('hero', 900, 200);
+	game.loop.effects.setCharacterControl({ instance: hero, control: 'brain' });
+	game.frames(90);
+	check(
+		'3. a gravity jumper with no movement.gravity, driven by nobody, falls by its jump’s pull and stands',
+		near(game.body(hero.id).y, GROUND_Y) && game.body(hero.id).grounded === true,
+		json(game.body(hero.id)),
+	);
+}
+{
+	const hopper: ArcadeCharacter = {
+		id: 'salmon',
+		component: 'salmon',
+		controller: { kind: 'topDown', speed: 200, jump: { kind: 'hop', height: 40, time: 0.25 } },
+	};
+	const walker: ArcadeCharacter = {
+		id: 'walker',
+		component: 'walker',
+		controller: { kind: 'topDown', speed: 200 },
+		animInputs: { ground: 'grounded', air: 'airborne' },
+	};
+	const game = bench([hopper, walker], {
+		salmon: { shape: 'box', w: 30, h: 20, tags: ['player'] },
+		walker: { shape: 'box', w: 30, h: 20, tags: [] },
+	});
+	const s = game.spawn('salmon', 300, 400);
+	game.spawn('walker', 600, 400);
+	game.point({ x: 300, y: 100 });
+	game.frames(20);
+	game.point(undefined);
+	check(
+		'3. a touch above a top-down hopper steers it up and never hops it',
+		(game.loop.lifts().get(s.id) ?? 0) === 0 && game.body(s.id).y < 400,
+		json([game.body(s.id), game.loop.lifts().get(s.id)]),
+	);
+	const ground = game.inputs.filter((i) => i.input === 'ground').map((i) => i.value);
+	const air = game.inputs.filter((i) => i.input === 'air').map((i) => i.value);
+	check(
+		'3. a character that never falls reads grounded and never airborne',
+		json(ground) === json([true]) && json(air) === json([false]),
+		json([ground, air]),
+	);
+}
+
 // ── 4. the tilemap node ─────────────────────────────────────────────────────────────────────
 {
 	check(

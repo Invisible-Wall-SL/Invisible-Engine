@@ -104,7 +104,7 @@ sample is a fixture.
   collects coins; a pit zone under the gaps costs a life and puts it back at the start with the
   camera snapped; the goal is worth ten coins. Its tileset names one sample sheet
   (`ARCADE_LEDGES_SHEET`), which the playtest writes into its snapshot's `deploy/editor-art/`.
-- **Gates:** root `check:arcade-platformer` (42: the jump's height and time to the apex at 30 / 60 /
+- **Gates:** root `check:arcade-platformer` (43: the jump's height and time to the apex at 30 / 60 /
   120 / 144 Hz, landing where it left in twice the time; a tap reaching about `minHeight`, a part
   hold between; the fall pull; coyote time and the buffer each just inside and outside the default
   window and a set one; one press, one jump; one-way tiles and bodies from below and above, walking
@@ -112,18 +112,18 @@ sample is a fixture.
   8 px tile row, a 4 px one-way body and a 2 px solid, for a 32 px and a 6 px body; the cap; tile
   solidity none / solid / one-way, a wall (onWall), a ceiling; grounded; the field floor; **the
   platform step equal to `stepSolid`** with no gravity; the hop's height and time, its buffer, cut
-  and fresh press; the flap; a 600-step scripted run replayed against
-  `fixtures/arcade-platformer-replay.json`). Launcher `check:arcade-platformer` (47: a top-down
+  and fresh press; the flap; a body spawned inside a block of solid tiles moved out and kept out; a 600-step scripted run replayed against
+  `fixtures/arcade-platformer-replay.json`). Launcher `check:arcade-platformer` (50: a top-down
   character on no tiles keeps the solid step, no contact or lift appears; the P10.8 / P10.11 / P10.12
   sample configs normalize stably with no new key; the config round trips and the validator's
   issues; in the loop a jumper lands on tiles, jumps to its height on `jump`, `up` and a pointer
   above it, lands on a one-way ledge from below, stops at a wall tile, writes `grounded` / `onWall` /
   `airborne` only on change; a falling brain character; a flap; a hop over a `ground` rock without a
-  `collide`, stopped by a tall wall, publishing its lift and `height`; the tilemap readers and the
+  `collide`, stopped by a tall wall, publishing its lift and `height`; a gravity jumper with no `movement.gravity` handed to nobody still falls; a touch above a top-down hopper steers it and never hops it; a character that never falls reads `grounded` and not `airborne`; the tilemap readers and the
   save; the sample played headless on the real interpreter — standing, the first gap jumped, coins,
   the pit, the camera snapped, seed replay). `check:art-scope` case 9 (a painted tile's sheet is in
   scope and ships; the one-way ledge's too; an entry no tile uses does not; nothing dangling).
-  `check:characters-tool` (154), `check:game-config-family` (156), `check:editor-tilemap` (76).
+  `check:characters-tool` (154), `check:game-config-family` (156), `check:editor-tilemap` (76); `check:arcade-camera`'s `<SpawnLayer>` source scan accepts the culling branch as an `{:else if}` behind the lift branch (76).
   `check:arcade-motion` (18) and `check:arcade-characters` (53 root, 89 launcher) unchanged.
 - **Verified by playing:** `scripts/playtest/arcade-platformer-play.mjs`
   ([playtest/arcade-platformer.md](../playtest/arcade-platformer.md)) on the branch runtime, 15 / 15:
@@ -136,7 +136,7 @@ sample is a fixture.
   replay. On the same build P10.8's `arcade-play.mjs` 14 / 14, P10.12's `arcade-camera-play.mjs`
   12 / 12 and P10.11's `arcade-characters-play.mjs` 14 / 14.
 - **Bundle size** (the release build's `index.html`; `main` at 3dc8b3d vs this branch): 3,754,717 B
-  / 1,284,098 B gz → 3,767,071 B / 1,288,691 B gz: **+12.1 KB raw, +4.5 KB gz (+0.36 %)**, downloaded
+  / 1,284,098 B gz → 3,768,148 B / 1,288,964 B gz: **+13.1 KB raw, +4.8 KB gz (+0.38 %)**, downloaded
   by every game, run only by an arcade game with a falling or hopping character or a tilemap (the
   tilemap renderer by any screen with one). The sample is not in it.
 - **Slot / match-3 / P10.8 / P10.11 / P10.12 parity:** every runtime path is keyed on a character
@@ -169,7 +169,12 @@ sample is a fixture.
     scale, never rotated; a tilemap with no colliding tile is drawing only;
   - only painted entries' regions ship; an unused tileset entry's art does not;
   - `ground` is one flag for "a hop passes over it": both the stop and `collide` are skipped while
-    airborne.
+    airborne;
+  - a body found inside solids it did not move into (a spawn or `moveTo` into painted ground) is
+    stepped out the shortest way past every solid in its path (a block of tiles crossed whole), ties
+    preferring up, then left, right, down; P10.11's `stepSolid` keeps its own one-solid settle;
+  - a character that never falls reads `grounded` true and `airborne` false; the hop's shadow sits
+    at the body's feet.
 - **Not done here:** **diamond (2:1) tiles and autotiling** (§4.4): the collision runs on the flat
   ground plane already, but the isometric projection P10.12 left out is what draws bodies and diamonds
   in step, so they come with it (Salmons' next arcade piece, §9 #19); slopes, moving platforms and
@@ -184,7 +189,9 @@ sample is a fixture.
   - a tilemap's tiles are read when the screens load; a level changed live needs a reload, as every
     baked layout does;
   - the hop's shadow is the body's width, an ellipse a third as tall, and does not shrink with
-    height.
+    height;
+  - a tilemap is never drawn mirrored (a negative scale draws and collides as its size); the editor
+    stage still draws one with the signed scale.
 
 **P10.11 — Arcade A2: characters (merged 2026-10-26, #1377).** §8's P10.11 row (§4.3, §5.1, §5.2,
 §6.3, §6.5), in one PR. No live game uses any of it yet; the sample is a fixture.

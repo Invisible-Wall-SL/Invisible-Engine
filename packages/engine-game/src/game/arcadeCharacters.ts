@@ -6,6 +6,7 @@ import {
 	createJumpState,
 	createRng,
 	JUMP_ACTION,
+	jumpProfile,
 	samplePath,
 	setBrainState,
 	steer,
@@ -188,15 +189,27 @@ const halfHeight = (body: Body): number =>
 	body.shape === 'box' ? body.h / 2 : body.shape === 'circle' ? body.r : 0;
 
 /** Whether the player is pressing jump for this character: the action, `up` for a side view or a
- *  flap, or a pointer pressed above the body (any press, for a flap). */
+ *  flap, or a pointer pressed above a side view's body (any press, for a flap). A top-down hop has
+ *  no touch gesture: its touch steering heads for the pointer, above the body included. */
 function jumpPressed(character: ArcadeCharacter, input: ControllerInput, body: Body): boolean {
 	const kind = character.controller?.kind;
 	if (input.held(JUMP_ACTION)) return true;
 	if ((kind === 'sideScroll' || kind === 'flap') && input.held('up')) return true;
 	const pointer = input.pointer();
 	if (!pointer) return false;
-	return kind === 'flap' || pointer.y < body.y - halfHeight(body);
+	if (kind === 'flap') return true;
+	return kind === 'sideScroll' && pointer.y < body.y - halfHeight(body);
 }
+
+/** The pull a falling character falls by when no jump is rising: its own, else its `gravity`
+ *  jump's (so a jumper handed to its brain, or to nobody, still comes down). */
+const fallPull = (character: ArcadeCharacter): number => {
+	const own = character.movement?.gravity;
+	if (own !== undefined && own > 0) return own;
+	const { controller } = character;
+	const jump = controller && 'jump' in controller ? controller.jump : undefined;
+	return jump?.kind === 'gravity' ? jumpProfile(jump).gravity : 0;
+};
 
 export function createCharacterStage(options: {
 	characters: readonly ArcadeCharacter[];
@@ -295,8 +308,9 @@ export function createCharacterStage(options: {
 						? 'platform'
 						: 'solid',
 				jump: createJumpState(),
-				gravity: character.movement?.gravity ?? 0,
-				grounded: false,
+				gravity: fallPull(character),
+				// A character that never falls stands on the plane throughout.
+				grounded: !fallsUnderGravity(character) && !hopsOnThePlane(character),
 				onWall: false,
 			});
 		},
@@ -321,7 +335,7 @@ export function createCharacterStage(options: {
 					const pressed = jumpPressed(character, input, body);
 					if (actor.physics === 'platform') {
 						steerAcross(body, want.vx, character.movement, dt, control);
-						actor.gravity = character.movement?.gravity ?? 0;
+						actor.gravity = fallPull(character);
 						if (controller.kind === 'flap') stepFlap(controller, actor.jump, body, pressed);
 						else if (jump?.kind === 'gravity')
 							actor.gravity = stepJump(jump, actor.jump, body, {
@@ -353,10 +367,11 @@ export function createCharacterStage(options: {
 					const want = brainVelocity(actor.brain, body, world, dt);
 					if (actor.physics === 'platform') {
 						steerAcross(body, want.vx, character.movement, dt, 1);
-						actor.gravity = character.movement?.gravity ?? 0;
+						actor.gravity = fallPull(character);
 					} else steer(body, want, character.movement, dt);
 					if (want.spawn) shoot(want.spawn);
-				} else if (actor.physics === 'platform') actor.gravity = character.movement?.gravity ?? 0;
+				} else if (actor.physics === 'platform') actor.gravity = fallPull(character);
+				if (actor.physics === 'platform' && !controller) actor.jump.rising = false;
 				// A hop handed to its brain, or to nobody, comes back down.
 				if (actor.physics === 'hop' && !controller) {
 					const hop =
@@ -388,8 +403,10 @@ export function createCharacterStage(options: {
 						solids.filter((s) => s.solid === true),
 						area,
 					);
+					actor.onWall = hit.hitX;
 				} else {
 					const up = actor.physics === 'hop' && actor.jump.z > 0;
+					const falls = actor.physics === 'platform';
 					const contact = stepPlatform(body, dt, {
 						solids: up ? solids.filter((s) => !isGround(s)) : solids,
 						tiles,
@@ -397,7 +414,7 @@ export function createCharacterStage(options: {
 						gravity: actor.physics === 'platform' ? actor.gravity : 0,
 						maxFall: actor.character.movement?.maxFall,
 					});
-					actor.grounded = actor.physics === 'hop' ? actor.jump.z <= 0 : contact.grounded;
+					actor.grounded = falls ? contact.grounded : actor.physics !== 'hop' || actor.jump.z <= 0;
 					actor.onWall = contact.onWall;
 					hit = contact;
 				}

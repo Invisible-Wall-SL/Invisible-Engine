@@ -96,9 +96,9 @@ flap sends it up for ever — the validator warns).
 - The keyboard controllers read the Flow input map's actions **`left`, `right`, `up`, `down`** —
   map the keys to them in Invisible Flow. With none of them held, a pressed pointer or a touch
   steers instead.
-- A jump or a flap reads the **`jump`** action (a side-scroll jump and a flap read `up` too), or a
-  pointer pressed above the character (a flap: a press anywhere). The hint under the controller
-  says which.
+- A jump or a flap reads the **`jump`** action (a side-scroll jump and a flap read `up` too). On a
+  touch screen a side-scroll character jumps on a press above it and a flap on a press anywhere; a
+  top-down hop has no touch gesture (a touch steers it). The hint under the controller says which.
 
 Switching between controllers keeps the speed (a keyboard controller falls back to 200); between
 top-down and side-scroll it keeps the jump too, switched to the other kind. A pointer takes no jump.
