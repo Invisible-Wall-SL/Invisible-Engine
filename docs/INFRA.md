@@ -6,7 +6,7 @@
 ## Overview
 
 ```
- Cloudflare DNS (zone invisiblewall.org) — app. and games. are DNS-only CNAMEs to Railway
+ Cloudflare DNS (zone invisiblewall.org) — app., games. and rooms. are DNS-only CNAMEs to Railway
  │
  ├─ app.invisiblewall.org ──► LAUNCHER (SvelteKit, adapter-node) ──► Postgres (Railway)
  │                            auth, roles, every tool page (full-page, never an iframe),
@@ -21,6 +21,10 @@
  │
  ├─ games.invisiblewall.org ─► INVISIBLE TEST SERVER (Node, services/test-server)
  │                            serves published games + the shared online runtime, mock RGS
+ │
+ ├─ rooms.invisiblewall.org ─► INVISIBLE GAME SERVER (Node, services/game-server, Colyseus)
+ │                            online arcade rooms over WebSockets; reads published configs
+ │                            from the launcher (GET /api/game-server/config)
  │
  ├─ (no public domain) ──────► DIRECTOR WORKER (Node, services/director-worker) ──► the launcher's
  │                            Postgres; drives Invisible Director runs (Anthropic API from PLAN 3.4)
@@ -43,6 +47,7 @@ notes call it `Invisible launcher`.
 | **atlas-tool**                  | `atlas-tool-production.up.railway.app`                                     | Python (http.server)             | **repo root**, Dockerfile Path `services/atlas-tool/Dockerfile`    |
 | **sheet-tool**                  | `sheet-tool-production.up.railway.app`                                     | Python (http.server)             | **repo root**, Dockerfile Path `services/sheet-tool/Dockerfile`    |
 | **Invisible-test-Server**       | `games.invisiblewall.org`                                                  | Node (`server.mjs`)              | **repo root**, Dockerfile Path `services/test-server/Dockerfile`   |
+| **game-server**                 | `rooms.invisiblewall.org` (generated: `game-server-production-eda5.up.railway.app`) | Node 22 (Colyseus 0.18)          | **repo root**, Dockerfile Path `services/game-server/Dockerfile`   |
 | **director-worker**             | none (private) — **the owner creates it**, see "Invisible Director worker" | Node 22 (`src/main.ts`)          | **repo root**, Dockerfile Path `services/director-worker/Dockerfile` |
 | **Postgres**                    | internal (`postgres.railway.internal`)                                     | Postgres                         | —                                                                  |
 
@@ -80,6 +85,7 @@ GitHub Releases during install. Two consequences for a deploy:
 | **sheet-tool**            | `/services/sheet-tool/**`, `/services/_shared/**`           |
 | **Invisible-test-Server** | `/services/test-server/**`, `/scripts/mock-rgs-server*.mjs` |
 | **director-worker**       | `/services/director-worker/**`, `/packages/director-costs/**` |
+| **game-server**           | `/services/game-server/**`, `/packages/engine-mechanics/**`, `/packages/game-config/**`, `/scripts/ts-loader.mjs` |
 
 Each list is exactly what that service's Dockerfile `COPY`s, so **a new build input needs a new watch path** or the service will quietly keep deploying the old code. The same lists live in `scripts/deploy-drift.mjs` (`deploy-drift.fixture.mjs` fails when the two differ), so change both. The **launcher** deliberately has none: it builds from the whole pnpm workspace (`apps/`, `packages/`, the lockfile, turbo config), and a partial list there would strand a real change.
 
@@ -265,15 +271,16 @@ Then, on the new service:
      DIRECTOR_SERVICE_TOKEN is unset"`** in the log: the worker is up and idle. Set both
      (`DIRECTOR_SERVICE_TOKEN` must equal the launcher's), then redeploy.
 
-## Invisible Game Server (P10.14 — built, NOT deployed)
+## Invisible Game Server (P10.14 — live 2026-10-27)
 
 Online arcade rooms ([design/realtime-multiplayer.md](design/realtime-multiplayer.md) §9): one
 Node 22 process on **Colyseus 0.18** (`@colyseus/core` 0.18.23, `@colyseus/ws-transport` 0.18.4,
 `@colyseus/schema` 5.0.42), many rooms, one replica. Source `services/game-server/`; a pnpm
 workspace member, so CI installs it and `pnpm check:room-sim` boots it. Its current state is
-[status/game-families.md](status/game-families.md) "P10.14". **No Railway service exists yet** —
-the owner step below creates it; until then nothing deploys and `scripts/deploy-drift.mjs` does not
-list it (an entry whose URL does not answer would only alarm).
+[status/game-families.md](status/game-families.md) "P10.14". **Live since 2026-10-27** as the
+Railway service `game-server` on `rooms.invisiblewall.org`, listed in `scripts/deploy-drift.mjs`.
+It plays no game until its config credential is set (steps 5–7): `GAME_SERVER_CONFIG_URL` is
+deliberately unset until then.
 
 **What it serves.** WebSocket rooms of type `arcade`, matched by the join option `game` (the
 project key); `GET /healthz` → `{"ok":true,"commit":"<12 chars>","rooms":N}`. A room reads its
@@ -342,7 +349,8 @@ Then open the runtime with `?rooms_url=ws://localhost:2567&rooms_game=<project>`
 optionally `&rooms_name=…&rooms_character=…`. `scripts/playtest/online-play.mjs` does exactly this
 with two headless browsers.
 
-**Owner / infra steps to stand it up** (not done; nothing here was deployed):
+**Owner / infra steps to stand it up.** Steps 1–4 and 8–10 are **done (2026-10-27)**; steps 5–7,
+the config credential, are still to do:
 
 1. **Railway → Invisible Pipeline project → New service** from GitHub
    `Invisible-Wall-SL/Invisible-Engine`, branch `main`, name `game-server`.
@@ -368,10 +376,12 @@ with two headless browsers.
    and in **Cloudflare DNS** a CNAME `rooms` → the Railway target, **DNS-only (grey cloud)**, like
    `games` (§14 D8).
 9. Smoke-test that a request through the domain is answered (an edge that appended to
-   `x-forwarded-proto` instead of replacing it would get every request refused 400).
+   `x-forwarded-proto` instead of replacing it would get every request refused 400). Done:
+   `/healthz` answered `{"ok":true,"commit":"b0a7f9e4638f","rooms":0}`.
 10. Once `/healthz` answers on the domain: add the service to `SERVICES` in
    `scripts/deploy-drift.mjs` and to the Watch Paths table above (the fixture holds the two to each
-   other), and to Better Stack Uptime.
+   other), and to Better Stack Uptime (the "Game server" row under "Uptime"; the owner adds the
+   monitor).
 
 ## ComfyUI tunnel (optional — a person's own GPU)
 
@@ -1017,7 +1027,7 @@ node scripts/sentry-sourcemaps.mjs runtime apps/lines/build --dry-run
 ### Uptime — Better Stack Uptime (free plan)
 
 Recommended over UptimeRobot, whose free plan is for non-commercial use: Better Stack's free tier
-gives 10 monitors at a 3-minute interval with email alerts and a keyword check, which is all four
+gives 10 monitors at a 3-minute interval with email alerts and a keyword check, which is all five
 endpoints with room to spare. **Owner setup** (betterstack.com → Uptime → Create monitor), one per row:
 
 | Monitor | URL | Alert when | Keyword | Interval / timeout | Confirmation |
@@ -1026,6 +1036,7 @@ endpoints with room to spare. **Owner setup** (betterstack.com → Uptime → Cr
 | Games host | `https://games.invisiblewall.org/healthz` | URL doesn't contain keyword | `"ok":true` | 3 min / 10 s | 2 |
 | Atlas tool | `https://atlas-tool-production.up.railway.app/healthz` | URL doesn't contain keyword | `"ok": true` | 3 min / 15 s | 2 |
 | Sheet tool | `https://sheet-tool-production.up.railway.app/healthz` | same | `"ok": true` | 3 min / 15 s | 2 |
+| Game server | `https://rooms.invisiblewall.org/healthz` | same | `"ok":true` | 3 min / 10 s | 2 |
 
 Regions: pick Europe **plus one outside Spain** — during LaLiga matches Cloudflare ranges are
 null-routed from Spanish ISPs and a Spain-only prober would page for an outage that isn't ours.

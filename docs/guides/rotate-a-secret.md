@@ -372,7 +372,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $PIPELINE_CI_
 
 The bearer token the Invisible Game Server reads a game's published config with, from the
 read-only `GET /api/game-server/config`. It opens nothing else. Unset on the launcher, that route
-answers 401. Setup: [INFRA § Invisible Game Server](../INFRA.md#invisible-game-server-p1014--built-not-deployed).
+answers 401. Setup: [INFRA § Invisible Game Server](../INFRA.md#invisible-game-server-p1014--live-2026-10-27).
 
 **Consumers:**
 

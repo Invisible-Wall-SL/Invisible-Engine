@@ -17,7 +17,8 @@ tunnel** (⚙ _Run generation on_ = My computer). Nothing in production depends 
 being up. See docs/INFRA.md for the diagram and the service/env tables.
 
 - **Railway (one project, env `production`):** launcher (`app.invisiblewall.org`), `atlas-tool`,
-  `sheet-tool`, `Invisible-test-Server` (`games.invisiblewall.org`) and Postgres. All auto-deploy
+  `sheet-tool`, `Invisible-test-Server` (`games.invisiblewall.org`), `game-server`
+  (`rooms.invisiblewall.org`, since 2026-10-27) and Postgres. All auto-deploy
   from GitHub `main`; the repo-root Python services and the test server rebuild only on their
   Watch Paths.
 - **Health:** the launcher's `/api/health` is a readiness check (DB + migrations); atlas-tool and
@@ -120,11 +121,12 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   order and the verification, [guides/rotate-a-secret](../guides/rotate-a-secret.md). Verify the
   runtime after each, not just the dashboard. Since desktop launcher v1.0.56 the R2 key can be
   rotated without touching a publisher's desktop.
-- **Invisible Game Server stand-up (owner, Railway + Cloudflare; P10.14):** create the
-  `game-server` service and its `rooms` domain, and give it its config credential — one random
-  value as the launcher's `GAME_SERVER_CONFIG_SECRET` and game-server's `GAME_SERVER_CONFIG_TOKEN`,
-  plus `GAME_SERVER_CONFIG_URL`. The numbered steps and the verify curl: INFRA "Invisible Game
-  Server".
+- **Invisible Game Server config credential (owner, Railway; P10.14):** the service is live
+  (2026-10-27); what remains is its config credential, once this PR's route is deployed — one
+  random value as the launcher's `GAME_SERVER_CONFIG_SECRET` and game-server's
+  `GAME_SERVER_CONFIG_TOKEN`, plus `GAME_SERVER_CONFIG_URL` (deliberately unset until then). INFRA
+  "Invisible Game Server" steps 5–7, with the verify curl. Also the Better Stack "Game server"
+  monitor (INFRA "Uptime"), which the owner is adding.
 - **ComfyUI-Manager prerequisite** for Blueprints model auto-install — needs ComfyUI-Manager at
   security level "middle" or below on whichever ComfyUI generates (else 403). The baked R&D pod
   image already ships it at `middle`; a person's **local** install is the one still to confirm. The
@@ -135,6 +137,12 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-27 — **The Invisible Game Server is live** (owner): Railway service `game-server`
+  (`game-server-production-eda5.up.railway.app`), custom domain `rooms.invisiblewall.org` (Cloudflare
+  CNAME, DNS-only); `/healthz` answered `{"ok":true,"commit":"b0a7f9e4638f","rooms":0}`. It is now in
+  `scripts/deploy-drift.mjs` `SERVICES` with its Watch Paths (fixture-checked against INFRA), in the
+  INFRA service map, services table and uptime table. It plays no game until its config credential
+  is set (Blocked).
 - 2026-10-27 — **The game server has its own read-only config credential.** The launcher's new
   `GET /api/game-server/config?project=` serves a project's PUBLISHED config (its published
   snapshot, not the authored doc) to the Invisible Game Server, gated on a bearer
