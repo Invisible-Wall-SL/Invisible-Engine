@@ -10,6 +10,8 @@ import { ENV } from './env';
 
 /** Settings key for the shared build/deploy token (overrides `EDITOR_DOC_SECRET`). */
 export const DEPLOY_TOKEN_KEY = 'deployToken';
+/** The shortest deploy token an admin may set (by hand in /admin, or from the desktop Key Vault). */
+export const MIN_DEPLOY_TOKEN = 16;
 
 /** Settings key: whether the ComfyUI R&D pod idle auto-stop watchdog is enabled ('1'/'0'). */
 export const RUNPOD_IDLE_ENABLED_KEY = 'runpodIdleEnabled';

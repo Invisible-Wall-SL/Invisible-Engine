@@ -1,6 +1,11 @@
 import { json } from '@sveltejs/kit';
-import { getDeployToken } from '$lib/server/appSettings';
-import { requireLauncherPublisher } from '$lib/server/launcherAuth';
+import {
+	DEPLOY_TOKEN_KEY,
+	MIN_DEPLOY_TOKEN,
+	getDeployToken,
+	setAppSetting,
+} from '$lib/server/appSettings';
+import { requireLauncherAdmin, requireLauncherPublisher } from '$lib/server/launcherAuth';
 import type { RequestHandler } from './$types';
 
 const NO_STORE = { 'cache-control': 'no-store' };
@@ -27,4 +32,27 @@ export const GET: RequestHandler = async ({ request }) => {
 	}
 
 	return json({ token }, { headers: NO_STORE });
+};
+
+// The desktop launcher's Key Vault (admins) sets the token here when it rotates it, so the portal,
+// the `EDITOR_DOC_SECRET` fallback and the vault change together. Owner-only by nature: it is
+// the machine secret every build and live-asset read checks. Body: `{ token }`.
+export const PUT: RequestHandler = async ({ request }) => {
+	const auth = await requireLauncherAdmin(request);
+	if (!auth.ok) return auth.response;
+
+	const body: unknown = await request.json().catch(() => null);
+	const token =
+		body && typeof body === 'object' && 'token' in body && typeof body.token === 'string'
+			? body.token.trim()
+			: '';
+	if (token.length < MIN_DEPLOY_TOKEN) {
+		return json(
+			{ error: `Token must be at least ${MIN_DEPLOY_TOKEN} characters.` },
+			{ status: 400, headers: NO_STORE },
+		);
+	}
+
+	await setAppSetting(DEPLOY_TOKEN_KEY, token, auth.user.id);
+	return json({ ok: true }, { headers: NO_STORE });
 };

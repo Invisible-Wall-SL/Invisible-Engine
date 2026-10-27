@@ -170,7 +170,9 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
 
 - **Secret rotation** — rotate the secrets listed in [INFRA § Security / secret
   rotation](INFRA.md#security--secret-rotation); since launcher v1.0.56 no publisher's desktop holds
-  the R2 key. ([status/infra](status/infra.md))
+  the R2 key. From desktop launcher v1.0.59 the admin-only **Key Vault** tab rotates them per
+  secret or in one emergency batch; its first live run is owed
+  ([status/launcher](status/launcher.md) Open item 0). ([status/infra](status/infra.md))
 - **Monitoring setup** — Sentry DSNs, the launcher healthcheck path `/api/health`, and the uptime
   monitors ([INFRA § Monitoring](INFRA.md#monitoring--error-tracking-2026-09-29)); dormant until done.
   ([status/infra](status/infra.md))

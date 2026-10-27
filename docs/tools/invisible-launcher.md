@@ -28,6 +28,8 @@ computer* in the Atlas Maker — production generation runs in the cloud and doe
 - **Start tunnel** — brings up the Cloudflare named tunnel so the cloud Atlas Maker can reach this
   machine's GPU at `comfy.invisiblewall.org` (*Run generation on → My computer*).
 - **Sync models** *(admin)* — pulls the shared model mirror from R2 onto this machine's ComfyUI.
+- **🔐 Key Vault** *(admin only)* — every API key and secret the studio uses, encrypted on this
+  machine, with one-click rotation to every place each one lives; see *Key Vault* below.
 - **Check for updates** (header) — compares the running `LAUNCHER_VERSION` against the published
   manifest and, if a newer build exists, downloads it and updates itself in place (see
   *Self-update* below).
@@ -330,12 +332,55 @@ operator.
   card's *Cloud publish* settings, same as a publish — a data-only project has to
   be 🏗 Scaffolded first.
 
+## Key Vault (admins)
+
+A **Key Vault** tab appears after you sign in with an **admin** account; nobody else sees it. It is
+where the studio's secrets live and where you rotate them, for example after a leak.
+
+- **Unlocking.** The first time, press **Create vault** and choose a passphrase of 12+ characters.
+  It is never stored and cannot be recovered, so keep it in your password manager. Each unlock asks
+  the portal again whether you are still an admin, then asks for the passphrase. The vault locks
+  itself after 10 minutes without use, and **🔒 Lock** locks it at once.
+- **Setting it up.** Fill the three **Vault access** rows first (**Set**): a Railway account token,
+  a GitHub fine-grained token with *Secrets* and *Environments* read/write on Invisible-Engine and
+  invisible-launcher, and a Cloudflare token with *API Tokens: Edit*. Put the Railway project id in
+  **⚙ Settings**. Then press **Set** on each key to record the value that is live today. Set only
+  records; it sends nothing.
+- **Each row** shows a masked preview, when the value last changed, and how many of its places hold
+  it. Its buttons:
+  - **Rotate** — the new value is generated (signing secrets, deploy token, test-server and CI
+    tokens), created at Cloudflare with the old token's permissions (R2 and Cloudflare tokens), or
+    pasted by you from the provider (**Open dashboard**; API keys and GitHub tokens). The vault then
+    sets it in every Railway variable, GitHub secret, portal setting and launcher setting that uses
+    it, checks each Railway service really reads the new value, redeploys those services, waits for
+    them and runs a live check. Steps only a person can take (a RunPod endpoint variable, telling a
+    partner) are listed at the end.
+  - **Push** sends the stored value again (after a failed step). **Verify** reruns the live check.
+    **Copy** puts the value on the clipboard for 30 seconds.
+  - **Revoke old** appears after a rotation. For a Cloudflare token it deletes the old token; for
+    anything else it opens the provider so you revoke it there, then forgets the old value. Revoke
+    only after the checks pass.
+- **🚨 Emergency rotation** — for an attack or a leak. Tick the keys the vault can rotate on its own
+  (all of them by default), type `ROTATE`, and it rotates them in one go, redeploying each Railway
+  service once. It lists the provider keys you still have to make by hand; do those with each
+  row's **Rotate**.
+- **＋ Add key** adds a secret the vault does not know yet, with the places it lives. **Audit log**
+  lists what was rotated, pushed and revoked, and when, never the values.
+- **The file** is `C:\Invisible Wall SL\ComfyUI\key_vault.iwvault` (plus a `.bak` of the
+  previous save). It is unreadable without the passphrase, so copying it somewhere safe is a backup.
+
+The full list of secrets, their consumers and their live checks follows
+[rotate-a-secret](../guides/rotate-a-secret.md).
+
 ## Traps
 
 - **A fix you made in a synced project's folder vanished, or never reached the build.** — Every ☁
   Publish hard-resets a synced project's folder to the game repo's `origin` before building, which
   discards uncommitted edits, so only what is committed **and pushed** is built. Commit and push the
   fix to the game repo first. (A project added with *Load from folder* is left as it is.)
+- **A rotation reports that a service "holds its own copy" of a variable.** — That Railway service
+  has its own variable of the same name, which hides the shared one, so it still runs on the old
+  value. Delete the service's own copy in Railway, then press **Push** on the row.
 - **The publish result says the live server "hadn't caught up".** — The build did upload; the test
   server just had not switched to it within the wait. Reopen the game from the portal in a minute
   or so to confirm.
