@@ -489,7 +489,7 @@ on. In one launcher-side PR:
   with `freePlay` for a rules game pinned to its project. The current-games harness is not edited:
   its `cg-match3` fixture keeps its own `lines` entry and drops the live link.
 
-**P10.7 — Spawning (built 2026-10-25; in review).** §8's P10.7 row (§3.3), in one PR. No game uses
+**P10.7 — Spawning (built 2026-10-25; merged, #1345).** §8's P10.7 row (§3.3), in one PR. No game uses
 any of it yet.
 
 - **The layout node** (`engine-layout` `types.ts`): `spawnLayer { spawnable: componentId[],
@@ -1210,6 +1210,11 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-27 — **Card family design written and approved** (owner, the same day: all seven §13
+  decisions as recommended): [card-games.md](../design/card-games.md). The rules engine
+  (`cards.js`), effects as data from closed lists, a seeded on-device AI, the card frame, card data
+  in Game Config, Invisible Card Library (`/cards`), the ship chain, the `card` family, build steps
+  C1–C5 with gates. Nothing built yet; C1 is next. Docs only.
 - 2026-10-26 — **P10.11 built: arcade characters.** Brains (`behaviours.js`), controllers, solid
   response, paths, `animInputs`, 1D blend states, the `path` node, and the new **Invisible
   Characters** tool (arcade only); a guard sample as a fixture. Detail above.

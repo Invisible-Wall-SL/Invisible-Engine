@@ -17,7 +17,7 @@ GLSL node (#1349). 8d (particle materials) is decided
 ([design](../design/shader-graph-particles.md)) and being built as 8d.1–8d.8; 8d.1 (the particle
 shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is merged
 (#1366); 8d.3 (the material in the game) is merged (#1378); 8d.4 (the ship chain, proven) is
-built and in review; 8d.5 (`/fx` authoring) is next.
+merged (#1384); 8d.5 (`/fx` authoring) is next.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -283,7 +283,7 @@ built and in review; 8d.5 (`/fx` authoring) is next.
     (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
     shader). Built as 8d.1–8d.8, one PR each (its §15). A game plays a material from 8d.3; no
     tool authors one until 8d.5.
-    - **8d.4, the ship chain, proven.** Built, in review.
+    - **8d.4, the ship chain, proven.** Merged (#1384, 2026-10-27).
       - **Proof only for the chain:** Publish (`runtimeBundle.ts` → `namedShaderEffects`, after
         `pruneUnreachableEffects`) and the bake (`bake-editor-doc.mjs`'s `nameKinds`, after its
         own prune) already carried a layer's `material.kind`; no code changed there.
@@ -579,6 +579,21 @@ built and in review; 8d.5 (`/fx` authoring) is next.
 - None.
 
 ## Recent changes
+- 2026-10-27 — **Step 8d.4: the ship chain, proven** (see "Current state"). Merged (#1384): CI
+  green, Current games "runtime untouched: no game can differ".
+  - **Proof.** `check:shader-pipeline` 146 (13 new, §8: the real `buildRuntimeBundle` and the real
+    bake script against a local portal; a placed material ships on both paths, broken and deleted
+    graphs are named, an unplaced effect ships and reports nothing); `check:launcher-gates` 661
+    (both read sets, the animator and per-user cases, each shader handler's one scope, a form check
+    on every `api/**/+server.ts`); `check:shader-editor` 253; svelte-check at baseline; `check:all`
+    green. 31 mutations, each failing its check.
+  - **Review.** Nothing blocking; `gate()`'s refactor identical, no new cross-project reach.
+    Fixed: the bake could hang the check about 20 min on a stuck route (now fails in seconds); the
+    handler scan missed `export function` handlers; a check that proved nothing alone; the write
+    tool taken from a list position. The read scope was narrowed before review: `fx` and `rigger`
+    read only the compiled effects.
+  - **Also carried:** `check-family-tools` fixed on main (#1373's `pipelineBugs` / `gameBugs`
+    missing from #1377's `BEFORE_CHARACTERS` list; it had failed 141/177).
 - 2026-10-26 — **Step 8d.3: the material in the game** (see "Current state"). Merged (#1378): CI
   green but for Current games, "8 pass · 1 fail · 0 changed screen(s)", merged on the owner's
   approval: its one failure (cloud, republished today) fails on main too, the `lines` script
