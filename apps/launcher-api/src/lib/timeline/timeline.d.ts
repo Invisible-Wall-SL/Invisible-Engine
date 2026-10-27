@@ -84,6 +84,61 @@ export interface TimelineHost {
 	/** Cue names the cue inspector offers beside the FX effects (the editor: the screen's _On cue_
 	 *  Element FX), each a complete cue string with what it reaches. Default: none. */
 	cueSuggestions?(): Array<{ cue: string; label: string }>;
+	/** The names the cue inspector's NAME picker lists for a sound or signal cue, read on every
+	 *  render. A kind with none listed is typed, as on `/rigger`. Default: none. */
+	cueNames?(): TimelineCueNames;
+	/** ▶ beside a sound cue's name: start (or, when it is the one playing, stop) hearing it, with
+	 *  the cue's options. Called only for a name listed `playable`. Absent ⇒ no ▶. */
+	auditionSound?(kind: CueSoundKind, name: string, sound: CueSoundOptions | undefined): void;
+	/** The `sfx:` / `music:` cue being auditioned now, or null — ▶ shows ■ for it. */
+	auditioning?(): string | null;
+}
+
+/** A sound the NAME picker lists. */
+export interface TimelineCueSound {
+	name: string;
+	/** One of the project's own uploads (listed first, marked ★); else an engine sound. */
+	project?: boolean;
+	/** The host can play it ({@link TimelineHost.auditionSound}). */
+	playable?: boolean;
+}
+
+/** A signal-kind cue the NAME picker lists: a complete cue (`signal:<name>`, or a component's
+ *  `event:<id>`), what it reaches, and the `<optgroup>` it sits in (default `Signals`). */
+export interface TimelineCueSignal {
+	cue: string;
+	label?: string;
+	group?: string;
+}
+
+export interface TimelineCueNames {
+	sfx?: TimelineCueSound[];
+	music?: TimelineCueSound[];
+	signal?: TimelineCueSignal[];
+}
+
+export type CueSoundKind = 'sfx' | 'music';
+
+/** A sound cue's options, stored in its key's `sound` — `engine-layout`'s `CueSoundOptions`. */
+export interface CueSoundOptions {
+	volume?: number;
+	volumeJitter?: number;
+	rate?: number;
+	rateJitter?: number;
+	pan?: number;
+	loop?: boolean;
+	fadeIn?: number;
+	fadeOut?: number;
+	offset?: number;
+	overlap?: boolean;
+	pick?: string[];
+}
+
+/** A key on a `cue` track. */
+export interface TimelineCueKey {
+	time: number;
+	cue: string;
+	sound?: CueSoundOptions;
 }
 
 type Strip = Record<string, unknown> & { id: string };
@@ -217,6 +272,33 @@ export interface TimelineChannel {
 export const PROP_CHANNELS: TimelineChannel[];
 export const CAM_CHANNELS: TimelineChannel[];
 export const CUE_KINDS: Array<{ prefix: string; label: string; color: string; hint: string }>;
+/** The editor's copy of `engine-layout`'s `CUE_SOUND_RANGES` (`check:timeline-cue-sound`). */
+export const CUE_SOUND_RANGES: Record<
+	'volume' | 'volumeJitter' | 'rate' | 'rateJitter' | 'pan' | 'fadeIn' | 'fadeOut' | 'offset',
+	[number, number]
+>;
+/** The options each cue honours: a play of each kind, and a stop (`stop:sfx:` / `stop:music:`). */
+export const CUE_SOUND_FIELDS: Record<CueSoundKind | 'stop', (keyof CueSoundOptions)[]>;
+/** The prefix that makes a sound cue the stop of that sound. */
+export const CUE_SOUND_STOP_PREFIX: 'stop:';
+/** Whether `cue` is the stop of a sound (`stop:sfx:<name>` / `stop:music:<name>`). */
+export function isCueSoundStop(cue: unknown): boolean;
+/** Make a sound cue its sound's stop, or a play of it, keeping only the options it then honours. */
+export function setCueSoundStop(key: TimelineCueKey, stop: boolean): void;
+/** Drop from `key.sound` the options its cue does not honour. */
+export function pruneCueSound(key: TimelineCueKey): void;
+export const CUE_SOUND_MAX_PICK: number;
+/** `sfx` / `music` for a sound cue or its stop, else null. */
+export function cueSoundKind(cue: unknown): CueSoundKind | null;
+/** Write one option on a sound cue key in place; a default or invalid value deletes the field,
+ *  an emptied `sound` is deleted. */
+export function setCueSoundOption(
+	key: TimelineCueKey,
+	field: keyof CueSoundOptions,
+	value: unknown,
+): void;
+/** The short hint a sound cue's marker carries (`🔊 name 60%`); '' for any other cue. */
+export function cueSoundHint(key: TimelineCueKey): string;
 export function hasStrips(track: Track): boolean;
 export function esc(s: unknown): string;
 /** `el` may be null: the Timeline then runs headless (history, keys, time) and draws nothing. */

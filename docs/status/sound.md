@@ -230,6 +230,36 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
 
 ## Recent changes
 
+- 2026-10-27 — **Timeline cues: component timelines play their sounds, and every sound cue takes
+  options** (branch `editor/timeline-sound-cues`, in review). A component timeline's `sfx:` /
+  `music:` cue used to be dropped at runtime (`routeComponentCue`: "no sound player"); it now plays
+  on placed, spawned, symbol, win and nested instances alike. One function,
+  `playCueSound` (`engine-layout`'s `cueSound.ts`), plays every timeline's sound cue — screen
+  timelines and cinematics (`FlowV2Cinematics`) and component timelines (the sink
+  `apps/lines`' `Sound.svelte` registers with `registerCueSound`; `engine-layout` still imports no
+  audio). **Format:** a cue key `{ time, cue }` may carry an optional `sound` object; absent ⇒ the
+  plain cue, which makes exactly the call it always made (`once.play({ name })` /
+  `music.play({ name })`). A STOP is in the cue string, `stop:sfx:<name>` / `stop:music:<name>`, not
+  an option: an older runtime plays every `sfx:` / `music:` cue on a screen timeline, so a stop
+  option would start the sound after a rollback, while `stop:` only makes it broadcast `sfx:<name>`.
+  Read through `readCueSound` (per-kind whitelist, clamped into
+  `CUE_SOUND_RANGES`). **Shipped options:** SFX `volume`, `volumeJitter`, `rate`, `rateJitter`,
+  `pan` (Web Audio only), `loop` (on the loop player, until a stop cue), `fadeIn`, `offset` (into
+  the sound's own region), `overlap` (replay while playing; default skip, as before), `pick`
+  (≤ 8 random alternates); stop cues with `fadeOut`; music `volume`, `loop`
+  override, `fadeIn` as a crossfade, stop with `fadeOut`. **Dropped:** music "layer over the bed"
+  (the music player holds one bed by design; layer with an SFX loop cue instead), "max
+  simultaneous instances" (a player tracks one id per name — `overlap` is the honest switch), a
+  `fadeOut` on a PLAY cue (it would need the sound's end time; fade out with a stop cue), and a
+  signal payload (the component-signal bus carries none). `utils-sound` gained player `pan` /
+  `loop` / `seek` / `level`, a per-play level on the loop player and a music `fade`; every existing
+  caller is unchanged. Turbo/skip: neither path skips sound cues (the screen path never did).
+  Gates: `check:timeline-cue-sound` (options read, editor/runtime parity, plain-cue parity, the
+  save → export → embed → component player → sink chain) and `banks.fixture.ts` claim 10 (the
+  options reach howler). **Behaviour change:** live projects with sound cues on component
+  timelines start making those sounds; none exist in the repo's reference layouts or seeds.
+  ⏳ Not heard in a live game yet.
+
 - 2026-10-27 — **A pots overlay's tokens get their own sounds: land, take off, reach the pot**
   (branch `claude/fervent-ride-ccp7qf`, in review). Asked for a project whose overlay drops coins and
   rockets: neither could be given a landing sound, and a rocket needed one as it fires and as it
