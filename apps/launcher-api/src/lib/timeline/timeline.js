@@ -182,6 +182,8 @@ export function setCueSoundOption(k, field, value) {
 		const keep = typeof value === 'boolean' && (value || (kind === 'music' && field === 'loop'));
 		if (keep) sound[field] = value;
 		else delete sound[field];
+		// An SFX loop never overlaps (the runtime keeps one copy per looping sound).
+		if (kind === 'sfx' && sound.loop) delete sound.overlap;
 	} else {
 		const n = typeof value === 'number' ? value : parseFloat(value);
 		const [lo, hi] = CUE_SOUND_RANGES[field];
@@ -2727,7 +2729,8 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 				fadeIn('fade in ms', 'Fade in from silence over this long.'),
 				num('offset', 'start at ms', 50, 'Start this far into the sound.'),
 				check('loop', 'loop', 'Loop until a ⏹ stop cue names this sound.'),
-				check('overlap', 'overlap', 'Play over itself when it is already playing. Off: a play while it still plays is skipped.'), // prettier-ignore
+				// A loop keeps one copy per sound, so `overlap` is offered only on a one-shot.
+				s.loop ? '' : check('overlap', 'overlap', 'Play over itself when it is already playing. Off: a play while it still plays is skipped.'), // prettier-ignore
 				`<label class="wide" title="Other sounds picked at random with this one, one per play (at most ${CUE_SOUND_MAX_PICK}).">alternates<input type="text" data-cueopt="pick" value="${esc(pick.join(', '))}" placeholder="other sound names, comma-separated">${add}</label>`,
 			].join('');
 			note = unknown.length

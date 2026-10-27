@@ -481,6 +481,20 @@ console.log('\n10. a timeline cue’s options reach howler');
 	playCueSound(target10, 'music:bgm_freespin');
 	check('a stopped paused bed starts over (a fresh play, not a resume)', rig10.howls[1].of('play').at(-1), ['bgm_freespin']); // prettier-ignore
 
+	// A stop on a bed still crossfading out lets the crossfade finish, then ends it.
+	const rig11 = createRig([BUILTIN, PROJECT]);
+	const target11 = {
+		...target,
+		players: { once: rig11.once, loop: rig11.loop, music: rig11.music },
+	};
+	playCueSound(target11, 'music:bgm_freespin');
+	playCueSound(target11, 'music:bgm_quiet', { fadeIn: 20 });
+	playCueSound(target11, 'stop:music:bgm_freespin');
+	check('a stop mid-crossfade does not cut the outgoing bed', rig11.howls[1].of('stop'), []);
+	await new Promise((done) => setTimeout(done, 40));
+	check('…it ends once its fade is over', rig11.howls[1].of('stop'), [[100]]);
+	check('…without being paused first', rig11.howls[1].of('pause'), []);
+
 	// An offset past the region's end is not a seek into the next region.
 	const rig8 = createRig([BUILTIN, PROJECT]);
 	const target8 = { ...target, players: { once: rig8.once, loop: rig8.loop, music: rig8.music } };

@@ -27,7 +27,11 @@ function createPlayer<TSoundName extends string, TPlay extends Function>(playerO
 		newSound: (value: TSoundName) => GetSound<TSoundName>;
 		getSoundMap: () => GetSoundMap<TSoundName>;
 		initSoundVolume: (soundName: TSoundName) => void;
-	}) => { play: TPlay };
+	}) => {
+		play: TPlay;
+		/** Ends `sound` itself, later (true), or leaves it to the player's own stop (false). */
+		release?: (sound: GetSound<TSoundName>) => boolean;
+	};
 }) {
 	type Sound = GetSound<TSoundName>;
 
@@ -57,7 +61,7 @@ function createPlayer<TSoundName extends string, TPlay extends Function>(playerO
 		}
 	};
 
-	const { play } = playerOptions.createPlay({
+	const { play, release } = playerOptions.createPlay({
 		howlFor: playerOptions.howlFor,
 		newSound,
 		getSoundMap: () => soundMap,
@@ -67,7 +71,9 @@ function createPlayer<TSoundName extends string, TPlay extends Function>(playerO
 	const stop = (stopOptions: StopOptions<TSoundName>) => {
 		const existingSound = soundMap[stopOptions.name];
 		if (existingSound) {
-			playerOptions.howlFor(existingSound.soundName)?.stop(existingSound.soundId);
+			if (!release?.(existingSound)) {
+				playerOptions.howlFor(existingSound.soundName)?.stop(existingSound.soundId);
+			}
 			delete soundMap[existingSound.soundName];
 		}
 	};

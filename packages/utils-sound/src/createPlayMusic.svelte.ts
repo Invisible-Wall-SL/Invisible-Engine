@@ -13,6 +13,8 @@ export function createPlayMusic<TSoundName extends string>(options: {
 
 	/** Per bed, the token of its pending fade-out (not reactive state: a timer's guard). */
 	const fadeOuts: Partial<Record<TSoundName, number>> = {};
+	/** Per bed, the copy a stop asked to end once its fade-out is over. */
+	const stopAfterFade: Partial<Record<TSoundName, number>> = {};
 	let fadeSeq = 0;
 
 	/**
@@ -37,6 +39,11 @@ export function createPlayMusic<TSoundName extends string>(options: {
 				setTimeout(() => {
 					if (fadeOuts[name] !== token) return;
 					delete fadeOuts[name];
+					if (stopAfterFade[name] === soundId) {
+						delete stopAfterFade[name];
+						howl.stop(soundId);
+						return;
+					}
 					if (options.getSoundMap()[name]?.soundState !== 'paused') return;
 					howl.pause(soundId);
 					options.initSoundVolume(name);
@@ -137,7 +144,19 @@ export function createPlayMusic<TSoundName extends string>(options: {
 		soundPlayMap[sound.soundState](sound, usablePlayVolume(playOptions.volume) ?? 1, fade);
 	};
 
+	/**
+	 * A stop on a bed still fading out under a crossfade lets the fade finish and ends it then:
+	 * stopping at once would cut the crossfade. Its map entry goes now, so a later cue for it starts
+	 * the track over.
+	 */
+	const release = (sound: Sound): boolean => {
+		if (sound.soundState !== 'paused' || fadeOuts[sound.soundName] === undefined) return false;
+		stopAfterFade[sound.soundName] = sound.soundId;
+		return true;
+	};
+
 	return {
 		play,
+		release,
 	};
 }
