@@ -15,6 +15,7 @@
 	} from 'game-config';
 	import { invalidateAll } from '$app/navigation';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
+	import { resolve } from '$app/paths';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import { slugifyProjectKey } from '$lib/projectKey';
@@ -1403,6 +1404,17 @@
 												{#if live && p.scenesUpdatedAt && p.scenesUpdatedAt > Date.parse(live.createdAt)}
 													<span class="vedited">Scenes edited since — publish to ship them.</span>
 												{/if}
+												{#if live}
+													<a
+														class="vbreakdown"
+														href={resolve('/(app)/game-maker/breakdown/[project]/[snapshot]', {
+															project: p.key,
+															snapshot: live.id,
+														})}
+														title="Every asset this version shipped, by category, size and how often it is referenced"
+														>Build breakdown</a
+													>
+												{/if}
 											</span>
 											{#if p.versions.snapshots.length > 1}
 												<details>
@@ -1419,6 +1431,16 @@
 																	>{/if}
 																{#if v.flow === 'overridden'}<span class="vflag">flow errors</span
 																	>{/if}
+																<a
+																	class="vbreakdown"
+																	href={resolve(
+																		'/(app)/game-maker/breakdown/[project]/[snapshot]',
+																		{
+																			project: p.key,
+																			snapshot: v.id,
+																		},
+																	)}>breakdown</a
+																>
 																{#if v.id === p.versions.current}
 																	<span class="vcur">live</span>
 																{:else if v.flow !== 'overridden' || data.isOwner}
@@ -2473,6 +2495,11 @@
 	.vengine {
 		color: #8a8a96;
 		font-family: ui-monospace, monospace;
+	}
+	.vbreakdown {
+		margin-left: 8px;
+		font-size: 12px;
+		color: #8ea2ff;
 	}
 	.vcur {
 		color: #6c8a7e;
