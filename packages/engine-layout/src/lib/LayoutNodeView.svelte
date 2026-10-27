@@ -48,6 +48,7 @@
 	import CatalogText from './CatalogText.svelte';
 	import TextBox from './TextBox.svelte';
 	import SlicedSprite from './SlicedSprite.svelte';
+	import Tilemap from './Tilemap.svelte';
 	import InlineImageText from './InlineImageText.svelte';
 	import { anchoredPosition, resolveOverrideTextStyle, resolveTransform } from './resolveTransform';
 	import { pixiBlendMode } from './blendMode';
@@ -1417,6 +1418,18 @@
 			</Container>
 		{:else if node.kind === 'path'}
 			<!-- A path (game-families §4.3) is game data the arcade loop reads through `scenePaths`. -->
+		{:else if node.kind === 'tilemap'}
+			<!-- A tilemap (game-families §4.4): drawn from its top-left; the arcade loop reads its
+			     solidity through `sceneTilemaps`. -->
+			<Container
+				x={posX}
+				y={posY}
+				scale={transform.scale}
+				alpha={transform.alpha}
+				zIndex={transform.zIndex}
+			>
+				<Tilemap {node} />
+			</Container>
 		{:else if node.kind === 'sprite'}
 			{#if fillBound && !bg && spriteKey}
 				<!--

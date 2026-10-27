@@ -109,6 +109,7 @@ report: [current-games.md](current-games.md). Its screen scripts are per game TY
 | [match3-sample.md](match3-sample.md) | the first non-slot game: a rules-decided match-3 (free play, no RGS), played with scripted swipes |
 | [arcade-sample.md](arcade-sample.md) | the first arcade game: a rules-decided catcher / dodger (free play, no RGS), played with key events |
 | [arcade-characters.md](arcade-characters.md) | arcade characters (P10.11): a played runner, a guard on a patrol / chase brain, solid walls, a path, a blended look |
+| [arcade-platformer.md](arcade-platformer.md) | gravity, jumps and levels (P10.13): a side-view hero with a held / tapped jump on a painted tilemap (solid ground, a wall, one-way ledges), coins, a pit |
 | [bonus-games-7c.md](bonus-games-7c.md) | report: the samples and every bonus-games layer played in a browser (Phase 7c) |
 
 A playbook whose game and win model are decided by DIFFERENT sides (the mock's `WIN_MODEL` vs the

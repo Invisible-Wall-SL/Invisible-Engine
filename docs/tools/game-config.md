@@ -166,7 +166,10 @@ has no family control at all. Two more families exist
   - **Field width / height** — the play field in design pixels; empty = the screen.
   - **Steps per second** — how often motion is simulated (default 60; outside 30–240 warns).
   - **Bodies** — by component id: a **box** (width × height) or a **circle** (radius), its
-    **tags** (`player`, `enemy`, `pickup`), its **Edges** and whether it is **solid**. **Edges**
+    **tags** (`player`, `enemy`, `pickup`), its **Edges**, whether it is **Solid**, **Ground**
+    (ground level: a character in the air on a top-down hop passes over it) and **One-way** (a
+    platform that stops a falling character from above only; disabled on a solid body, and
+    ticking Solid clears it). **Edges**
     is what the body does at the field's edge: `clamp` stops it there (the default), `wrap`
     brings it back on the far side, `pass` lets it leave, which raises Flow's `leaveBounds`.
   - **Collisions** — a comma list of tag pairs, `player + hazard, player + pickup`. Two bodies

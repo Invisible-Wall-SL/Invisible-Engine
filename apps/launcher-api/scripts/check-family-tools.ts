@@ -161,7 +161,8 @@ const loadFor = async (role: Role, session: string | null, search = '') => {
 	});
 };
 const ids = (tools: ToolDef[]) => tools.map((t) => t.id);
-/** Every tool id before Invisible Characters (P10.11): a slot project's manifest stays inside it. */
+/** Every tool id but Invisible Characters (P10.11): a slot project's manifest stays inside it. The
+ *  Bug Reports tools (#1373) landed beside P10.11 and are offered to every family. */
 const BEFORE_CHARACTERS = new Set([
 	'atlasTool',
 	'spineViewer',
@@ -186,6 +187,8 @@ const BEFORE_CHARACTERS = new Set([
 	'flipbook',
 	'director',
 	'pipelineChanges',
+	'pipelineBugs',
+	'gameBugs',
 ]);
 check(
 	'2. the registry is the pre-P10.11 list plus Invisible Characters',

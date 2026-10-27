@@ -22,20 +22,58 @@ export type ArcadeMovement = {
 	maxSpeed?: number;
 	/** Degrees per second the heading may turn; absent ⇒ instant. */
 	turnRate?: number;
+	/** px/s², down (P10.13). With a `gravity` jump it is the pull while FALLING (the jump's own
+	 *  height and time set the rise); absent ⇒ none, or the jump's pull. */
+	gravity?: number;
+	/** px/s cap on a fall; absent ⇒ none. */
+	maxFall?: number;
+};
+
+/** A jump's kind: `gravity` is the side-view jump, `hop` the top-down one (§4.4). */
+export const ARCADE_JUMP_KINDS = ['gravity', 'hop'] as const;
+
+export type ArcadeJumpKind = (typeof ARCADE_JUMP_KINDS)[number];
+
+/**
+ * A jump, set by its HEIGHT and its TIME to the apex (P10.13; `engine-mechanics` `jumps.js` turns
+ * them into a launch speed and a pull). A `sideScroll` controller takes a `gravity` jump; a
+ * `topDown` one a `hop`, which lifts the body off the ground plane and over `ground` bodies.
+ */
+export type ArcadeJump = {
+	kind: ArcadeJumpKind;
+	/** px above the take-off at the apex. */
+	height: number;
+	/** Seconds from take-off to the apex. */
+	time: number;
+	/** px a tap reaches: hold to jump higher. Absent ⇒ every jump reaches `height`. */
+	minHeight?: number;
+	/** A press this long after leaving a ledge still jumps (ms); absent ⇒ 100. */
+	coyoteMs?: number;
+	/** A press this long before landing jumps on landing (ms); absent ⇒ 100. */
+	bufferMs?: number;
+	/** 0..1, how much the player steers while airborne; absent ⇒ 1. */
+	airControl?: number;
 };
 
 /** The player's controls, when the character is playable. */
 export type ArcadeController =
-	| { kind: 'topDown'; speed: number }
-	| { kind: 'sideScroll'; speed: number }
+	| { kind: 'topDown'; speed: number; jump?: ArcadeJump }
+	| { kind: 'sideScroll'; speed: number; jump?: ArcadeJump }
+	/** Tap for an upward kick of `kick` px/s against the character's `movement.gravity`
+	 *  (P10.13); left / right run at `speed` (absent ⇒ none). */
+	| { kind: 'flap'; kick: number; speed?: number }
 	| { kind: 'pointer'; axes: 'x' | 'y' | 'xy'; speed?: number };
 
-export const ARCADE_CONTROLLER_KINDS = ['topDown', 'sideScroll', 'pointer'] as const;
+export const ARCADE_CONTROLLER_KINDS = ['topDown', 'sideScroll', 'flap', 'pointer'] as const;
 
 export const ARCADE_POINTER_AXES = ['x', 'y', 'xy'] as const;
 
 /** The input-map action names (`FlowDoc.inputs`) the keyboard controllers read. Fixed. */
 export const ARCADE_CONTROLLER_ACTIONS = ['left', 'right', 'up', 'down'] as const;
+
+/** The input-map action a jump and a flap read (P10.13); a `sideScroll` jump and a flap read `up`
+ *  too. Fixed. */
+export const ARCADE_JUMP_ACTION = 'jump';
 
 export const ARCADE_BEHAVIOURS = [
 	'idle',
@@ -107,7 +145,17 @@ export type ArcadeBrain = {
 };
 
 /** The plain sources an `animInputs` entry can read; `state:<id>` is the one templated source. */
-export const ARCADE_ANIM_SOURCES = ['speed', 'vx', 'vy', 'facing', 'moving'] as const;
+export const ARCADE_ANIM_SOURCES = [
+	'speed',
+	'vx',
+	'vy',
+	'facing',
+	'moving',
+	'grounded',
+	'onWall',
+	'airborne',
+	'height',
+] as const;
 
 export type ArcadeAnimSource = (typeof ARCADE_ANIM_SOURCES)[number] | `state:${string}`;
 
@@ -139,18 +187,49 @@ const includes = <T extends string>(list: readonly T[], v: unknown): v is T =>
 const normalizeMovement = (raw: unknown): ArcadeMovement | undefined => {
 	if (!isObject(raw)) return undefined;
 	const movement: ArcadeMovement = {};
-	for (const key of ['accel', 'decel', 'maxSpeed', 'turnRate'] as const) {
+	for (const key of ['accel', 'decel', 'maxSpeed', 'turnRate', 'gravity', 'maxFall'] as const) {
 		const n = nonNegative(raw[key]);
 		if (n !== undefined) movement[key] = n;
 	}
 	return Object.keys(movement).length ? movement : undefined;
 };
 
+const positive = (v: unknown): number | undefined => {
+	const n = num(v);
+	return n !== undefined && n > 0 ? n : undefined;
+};
+
+/** A jump with no usable height or time is dropped: it could not leave the ground. */
+const normalizeJump = (raw: unknown): ArcadeJump | undefined => {
+	if (!isObject(raw) || !includes(ARCADE_JUMP_KINDS, raw.kind)) return undefined;
+	const height = positive(raw.height);
+	const time = positive(raw.time);
+	if (height === undefined || time === undefined) return undefined;
+	const jump: ArcadeJump = { kind: raw.kind, height, time };
+	const minHeight = positive(raw.minHeight);
+	if (minHeight !== undefined) jump.minHeight = minHeight;
+	for (const key of ['coyoteMs', 'bufferMs'] as const) {
+		const n = nonNegative(raw[key]);
+		if (n !== undefined) jump[key] = n;
+	}
+	const air = num(raw.airControl);
+	if (air !== undefined && air >= 0 && air < 1) jump.airControl = air;
+	return jump;
+};
+
 const normalizeController = (raw: unknown): ArcadeController | undefined => {
 	if (!isObject(raw)) return undefined;
 	if (raw.kind === 'topDown' || raw.kind === 'sideScroll') {
 		const speed = nonNegative(raw.speed);
-		return speed === undefined ? undefined : { kind: raw.kind, speed };
+		if (speed === undefined) return undefined;
+		const jump = normalizeJump(raw.jump);
+		return jump ? { kind: raw.kind, speed, jump } : { kind: raw.kind, speed };
+	}
+	if (raw.kind === 'flap') {
+		const kick = positive(raw.kick);
+		if (kick === undefined) return undefined;
+		const speed = nonNegative(raw.speed);
+		return speed === undefined ? { kind: 'flap', kick } : { kind: 'flap', kick, speed };
 	}
 	if (raw.kind === 'pointer' && includes(ARCADE_POINTER_AXES, raw.axes)) {
 		const speed = nonNegative(raw.speed);

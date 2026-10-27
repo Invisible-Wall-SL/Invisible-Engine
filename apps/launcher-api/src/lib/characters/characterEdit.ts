@@ -11,11 +11,19 @@ import {
 	type ArcadeCharacter,
 	type ArcadeCondition,
 	type ArcadeController,
+	type ArcadeJump,
+	type ArcadeJumpKind,
 	type ArcadeMovement,
 	type GameConfigDoc,
 	type GameConfigIssue,
 } from 'game-config';
-import { BEHAVIOUR_DEFAULTS } from 'engine-mechanics';
+import {
+	BEHAVIOUR_DEFAULTS,
+	DEFAULT_BUFFER_MS,
+	DEFAULT_COYOTE_MS,
+	jumpProfile,
+	type JumpProfile,
+} from 'engine-mechanics';
 
 /**
  * How Invisible Characters (`/characters`, `docs/design/game-families.md` §4.3, §5.1) edits
@@ -33,12 +41,39 @@ export const MOVEMENT_KEYS: readonly CharacterMovementKey[] = [
 	'decel',
 	'maxSpeed',
 	'turnRate',
+	'gravity',
+	'maxFall',
 ];
+
+/** What each movement field is called on the page, with its unit. */
+export const MOVEMENT_LABELS: Record<CharacterMovementKey, string> = {
+	accel: 'Accel px/s²',
+	decel: 'Decel px/s²',
+	maxSpeed: 'Max speed px/s',
+	turnRate: 'Turn rate °/s',
+	gravity: 'Gravity px/s²',
+	maxFall: 'Max fall px/s',
+};
 
 export type ControllerChoice = ArcadeController['kind'] | 'none';
 
 /** What a fresh keyboard controller moves at, px/s. */
 export const DEFAULT_CONTROLLER_SPEED = 200;
+
+/** A fresh flap's upward kick, px/s. */
+export const DEFAULT_FLAP_KICK = 360;
+
+/** A fresh jump: px to the apex, and seconds to get there. */
+export const DEFAULT_JUMP_HEIGHT = 120;
+export const DEFAULT_JUMP_TIME = 0.4;
+
+export type JumpField = 'height' | 'time' | 'minHeight' | 'coyoteMs' | 'bufferMs' | 'airControl';
+
+/** The controllers that take a jump, and the kind each takes (the validator refuses the other). */
+export const JUMP_KIND_FOR: Partial<Record<ArcadeController['kind'], ArcadeJumpKind>> = {
+	sideScroll: 'gravity',
+	topDown: 'hop',
+};
 
 export type BehaviourParamKind = 'number' | 'string' | 'bool' | 'axis';
 
@@ -196,7 +231,8 @@ export function setMovement(
 
 // ── controller ─────────────────────────────────────────────────────────────────────────────────
 
-/** Pick the controller; `none` deletes it. A keyboard controller keeps the speed it had. */
+/** Pick the controller; `none` deletes it. The new one keeps the speed it had (a keyboard one
+ *  falls back to the default) and, between top-down and side-scroll, the jump, re-kinded. */
 export function setController(doc: GameConfigDoc, id: string, kind: ControllerChoice): void {
 	const character = findCharacter(doc, id);
 	if (!character) return;
@@ -206,21 +242,96 @@ export function setController(doc: GameConfigDoc, id: string, kind: ControllerCh
 		return;
 	}
 	if (was?.kind === kind) return;
+	if (kind === 'pointer') {
+		character.controller = { kind, axes: 'x' };
+		return;
+	}
+	if (kind === 'flap') {
+		character.controller =
+			was?.speed === undefined
+				? { kind, kick: DEFAULT_FLAP_KICK }
+				: { kind, kick: DEFAULT_FLAP_KICK, speed: was.speed };
+		return;
+	}
+	const jump = was && 'jump' in was ? was.jump : undefined;
 	const speed = was?.speed ?? DEFAULT_CONTROLLER_SPEED;
-	character.controller = kind === 'pointer' ? { kind, axes: 'x' } : { kind, speed };
+	character.controller = jump
+		? { kind, speed, jump: { ...jump, kind: JUMP_KIND_FOR[kind]! } }
+		: { kind, speed };
 }
 
 /** The controller's speed. A keyboard one needs a number ≥ 0 (anything else is ignored); a
- *  pointer one deletes it when blank (it then moves at `movement.maxSpeed`, or snaps). */
+ *  pointer or flap one deletes it when blank (a pointer then moves at `movement.maxSpeed`, or
+ *  snaps; a flap only rises and falls). */
 export function setControllerSpeed(doc: GameConfigDoc, id: string, value: string): void {
 	const controller = findCharacter(doc, id)?.controller;
 	if (!controller) return;
 	const n = nonNegative(value);
-	if (controller.kind === 'pointer') {
+	if (controller.kind === 'pointer' || controller.kind === 'flap') {
 		if (n === undefined) delete controller.speed;
 		else controller.speed = n;
 	} else if (n !== undefined) controller.speed = n;
 }
+
+/** A flap's kick, px/s up. Not a number above 0 is ignored (the flap would be dropped). */
+export function setFlapKick(doc: GameConfigDoc, id: string, value: string): void {
+	const controller = findCharacter(doc, id)?.controller;
+	const n = Number(value);
+	if (controller?.kind === 'flap' && value.trim() !== '' && Number.isFinite(n) && n > 0) {
+		controller.kick = n;
+	}
+}
+
+/** The controller's jump, when it takes one. */
+export function jumpOf(character: ArcadeCharacter | undefined): ArcadeJump | undefined {
+	const controller = character?.controller;
+	return controller && 'jump' in controller ? controller.jump : undefined;
+}
+
+/** Turn the jump on (at the default height and time, of the kind the controller takes) or off. */
+export function setJump(doc: GameConfigDoc, id: string, on: boolean): void {
+	const controller = findCharacter(doc, id)?.controller;
+	if (!controller || (controller.kind !== 'topDown' && controller.kind !== 'sideScroll')) return;
+	if (!on) delete controller.jump;
+	else if (!controller.jump) {
+		controller.jump = {
+			kind: JUMP_KIND_FOR[controller.kind]!,
+			height: DEFAULT_JUMP_HEIGHT,
+			time: DEFAULT_JUMP_TIME,
+		};
+	}
+}
+
+/** The default a blank optional jump field stands for; `undefined` ⇒ the field has none. */
+export const JUMP_FIELD_DEFAULTS: Partial<Record<JumpField, number>> = {
+	coyoteMs: DEFAULT_COYOTE_MS,
+	bufferMs: DEFAULT_BUFFER_MS,
+	airControl: 1,
+};
+
+/** One jump field. Height and time need a number above 0 (anything else is ignored); the tap
+ *  height is deleted when blank or not above 0; coyote and buffer ms when blank or at their
+ *  default (a negative is ignored); air control when blank or 1 and up (a negative is ignored). */
+export function setJumpField(doc: GameConfigDoc, id: string, key: JumpField, value: string): void {
+	const jump = jumpOf(findCharacter(doc, id));
+	if (!jump) return;
+	const text = value.trim();
+	const n = Number(text);
+	const number = text !== '' && Number.isFinite(n) ? n : undefined;
+	if (key === 'height' || key === 'time') {
+		if (number !== undefined && number > 0) jump[key] = number;
+	} else if (key === 'minHeight') {
+		if (number !== undefined && number > 0) jump.minHeight = number;
+		else delete jump.minHeight;
+	} else if (key === 'airControl') {
+		if (number === undefined || number >= 1) delete jump.airControl;
+		else if (number >= 0) jump.airControl = number;
+	} else if (number === undefined || number === JUMP_FIELD_DEFAULTS[key]) delete jump[key];
+	else if (number >= 0) jump[key] = number;
+}
+
+/** What a jump's height and time come to: its launch speed, its pull, a tap's cut speed. */
+export const jumpHint = (jump: ArcadeJump): JumpProfile => jumpProfile(jump);
 
 export function setPointerAxes(doc: GameConfigDoc, id: string, axes: 'x' | 'y' | 'xy'): void {
 	const controller = findCharacter(doc, id)?.controller;
@@ -513,6 +624,12 @@ export function animSourcesFor(character: ArcadeCharacter): ArcadeAnimSource[] {
 		...(character.brain?.states ?? []).map((s) => `state:${s.id}` as const),
 	];
 }
+
+/** The sources that read true / false (a `bool` look input); the rest are numbers. */
+const BOOL_ANIM_SOURCES: readonly string[] = ['moving', 'grounded', 'onWall', 'airborne'];
+
+export const animSourceIsBool = (source: ArcadeAnimSource): boolean =>
+	BOOL_ANIM_SOURCES.includes(source) || source.startsWith('state:');
 
 /** Map a look input to a source; `''` unmaps it. */
 export function setAnimInput(
