@@ -120,8 +120,12 @@ job, with a link to its guide.
   so; if something is broken, use **Report bug**.
 
 It needs the launcher's `ANTHROPIC_API_KEY`; without it the chat answers "Ask the AI is not
-configured on this server." The Atlas Maker, Sheet Maker, Rig Viewer and Rigger (the tools whose bar
-is an HTML copy) do not have it yet.
+configured on this server."
+
+The **Atlas Maker** and **Sheet Maker** have the same button and window on their own bar. They run
+on another site, so the chat goes through the tool's own server, which asks the launcher for you;
+it works only when you opened the tool from the launcher. The Rig Viewer and Rigger do not have it
+yet.
 
 ## Other pages
 

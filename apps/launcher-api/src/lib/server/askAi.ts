@@ -3,9 +3,11 @@ import type { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream';
 import { error } from '@sveltejs/kit';
 import { ASK_AI_MAX_CHARS, type AskAiEvent, type AskAiMessage } from '$lib/askAi';
 import { TOOLS, manifestForRole, roleHasTool, toolDocSlug, type ToolDef } from '$lib/roles';
+import { activeUser, type SessionUser } from './auth';
 import { ENV } from './env';
 import { getRoleOverrides } from './roleToolAccess';
 import { toolAgents, toolGuide } from './toolGuides';
+import { RELAY_HEADER, verifyRelayToken } from './toolRelay';
 import { getToolOverrides } from './userToolAccess';
 
 /**
@@ -32,18 +34,40 @@ function isMessage(v: unknown): v is AskAiMessage {
 	return (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string';
 }
 
+/**
+ * The asker: the session's user, or the user a cloud Python tool vouches for with a relay token
+ * (`toolRelay.ts`) — that tool may only ask about itself. Either way their access is read here.
+ */
+async function asker(
+	locals: App.Locals,
+	headers: Headers,
+): Promise<SessionUser & { only?: string }> {
+	if (locals.user) return locals.user;
+	const relay = headers.get(RELAY_HEADER);
+	if (!relay) throw error(401, 'Not authenticated');
+	const caller = verifyRelayToken(relay);
+	const user = caller && (await activeUser(caller.uid));
+	if (!user) throw error(401, 'Not authenticated');
+	return { ...user, only: caller.tool };
+}
+
 /** Validate the body and the asker's access: they must have the tool they ask about. */
-export async function readAskAiRequest(locals: App.Locals, body: unknown): Promise<AskAiRequest> {
-	if (!locals.user) throw error(401, 'Not authenticated');
+export async function readAskAiRequest(
+	locals: App.Locals,
+	headers: Headers,
+	body: unknown,
+): Promise<AskAiRequest> {
+	const user = await asker(locals, headers);
 	if (!ENV.ANTHROPIC_API_KEY) throw error(503, 'Ask the AI is not configured on this server.');
 	const b = (body ?? {}) as Record<string, unknown>;
 	const tool = typeof b.tool === 'string' ? TOOLS[b.tool] : undefined;
 	if (!tool) throw error(400, 'Say which tool the question is about.');
+	if (user.only && user.only !== tool.id) throw error(403, 'A tool may only ask about itself.');
 
-	const { role } = locals.user;
+	const { role } = user;
 	const [roleOverrides, userOverrides] = await Promise.all([
 		getRoleOverrides(role),
-		getToolOverrides(locals.user.id),
+		getToolOverrides(user.id),
 	]);
 	if (!roleHasTool(role, tool.id, roleOverrides, userOverrides)) {
 		throw error(403, `Your role does not have access to ${tool.name}.`);

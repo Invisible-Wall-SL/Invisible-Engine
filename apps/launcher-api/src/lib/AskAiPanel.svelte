@@ -6,7 +6,7 @@
 	// tab (sessionStorage, per tool); the window's place for the browser (localStorage).
 	import { Marked, type Tokens } from 'marked';
 	import { tick } from 'svelte';
-	import { ASK_AI_MAX_CHARS, type AskAiEvent, type AskAiMessage } from '$lib/askAi';
+	import { ASK_AI_MAX_CHARS, settledChat, type AskAiEvent, type AskAiMessage } from '$lib/askAi';
 
 	let {
 		tool,
@@ -43,7 +43,7 @@
 	}
 
 	let messages = $state<AskAiMessage[]>(
-		read<AskAiMessage[]>(() => sessionStorage, `iw-ask-ai:chat:${tool}`) ?? [],
+		settledChat(read<unknown>(() => sessionStorage, `iw-ask-ai:chat:${tool}`)),
 	);
 	let draft = $state('');
 	let pending = $state('');
