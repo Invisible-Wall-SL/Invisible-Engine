@@ -166,6 +166,8 @@ export interface FeedEntry {
 	/** What the row cost, when it is a spend row. */
 	cost: string | null;
 	tone: FeedTone;
+	/** The pipeline bug a pipeline-change request filed (`BUG-<n>`). */
+	bug?: number;
 }
 
 export interface Folded {
@@ -524,7 +526,14 @@ const costOf = (payload: Record<string, unknown>): string | null => {
 	return `${usd(amount)}${model ? ` · ${modelLabel(model)}` : ''}`;
 };
 
-function push(ctx: Ctx, event: RunEvent, text: string, tone: FeedTone, cost: string | null = null) {
+function push(
+	ctx: Ctx,
+	event: RunEvent,
+	text: string,
+	tone: FeedTone,
+	cost: string | null = null,
+	bug?: number,
+) {
 	ctx.feed.push({
 		id: event.id,
 		at: event.at,
@@ -535,6 +544,7 @@ function push(ctx: Ctx, event: RunEvent, text: string, tone: FeedTone, cost: str
 		tool: toolLabel(event.tool),
 		cost,
 		tone,
+		...(bug ? { bug } : {}),
 	});
 }
 
@@ -595,13 +605,17 @@ function foldActivity(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 				`gave ${str(p.to, 40) ?? 'an agent'} a task: ${clip(str(p.task) ?? '', 240)}`,
 				'plain',
 			);
-		case 'pipeline_change_request':
+		case 'pipeline_change_request': {
+			const bug = typeof p.bug === 'number' && Number.isInteger(p.bug) && p.bug > 0 ? p.bug : 0;
 			return push(
 				ctx,
 				event,
 				`asks for a pipeline change: ${str(p.what) ?? ''}${p.reason ? ` — ${str(p.reason)}` : ''}`,
 				'checkpoint',
+				null,
+				bug,
 			);
+		}
 		case 'review': {
 			const { subjects } = applyFindings(ctx, event, p.findings, 'pick');
 			return push(

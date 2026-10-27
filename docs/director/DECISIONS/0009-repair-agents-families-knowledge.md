@@ -126,6 +126,8 @@ so they can be marked as Director templates.
 
 ### 4. Game-family specialists
 
+> Superseded by "Owner decision" item 2 below: one build agent per game type (built in 9B, #1404).
+
 **Build layer: one agent per family, not one per kind.** Each owns its family's design and status
 docs, its playbooks in `docs/playtest/`, its screen script in `scripts/current-games/screens/`,
 and its knowledge file (§5).

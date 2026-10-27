@@ -459,6 +459,32 @@ const folded = foldEvents(events, PREFIX);
 		],
 	);
 	check('the feed skips the per-image rows only', folded.feed.length, events.length - 1);
+	{
+		const asked = foldEvents(
+			[
+				row('activity', 'coordinator', {
+					type: 'pipeline_change_request',
+					what: 'An FX slot.',
+					reason: 'The mockup has one.',
+					bug: 41,
+				}),
+				row('activity', 'coordinator', {
+					type: 'pipeline_change_request',
+					what: 'A region.',
+					reason: 'Before 9C.',
+				}),
+			],
+			PREFIX,
+		).feed;
+		check(
+			'a pipeline-change request links the bug it filed; an older one without a bug links nothing',
+			asked.map((f) => [f.text, f.bug ?? null]),
+			[
+				['asks for a pipeline change: An FX slot. — The mockup has one.', 41],
+				['asks for a pipeline change: A region. — Before 9C.', null],
+			],
+		);
+	}
 	check(
 		'a note with a message instead of a text still reads',
 		folded.feed.at(-1)?.text,

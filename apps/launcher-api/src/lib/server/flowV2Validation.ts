@@ -20,6 +20,7 @@ import {
 	flowTemplateMismatch,
 	respinTabIssues,
 	spinsTabIssues,
+	startupTapIssues,
 	docNamesInstance,
 	validateFlowDoc,
 	type FlowAddOns,
@@ -29,7 +30,7 @@ import {
 } from 'engine-flow-v2';
 import { collectComponentPins, type ComponentDef, type Scene, type SoundsDoc } from 'engine-layout';
 import { flowAddOnsOf, resolveOutcome, type GameConfigDoc, type GameOutcome } from 'game-config';
-import { collectContainerTaps } from '$lib/containerTaps';
+import { collectArmedOnMountTaps, collectContainerTaps } from '$lib/containerTaps';
 import {
 	instanceDefResolver,
 	projectContainerEvents,
@@ -87,6 +88,8 @@ export function validateFlowV2Against(
 		customFxKinds,
 	});
 	return [
+		// First: the refusal names only the first few errors, and this one bricks the game.
+		...startupTapIssues(doc, library, collectArmedOnMountTaps(doc.containers, scenes)),
 		...validateFlowDoc(
 			doc,
 			vocab,

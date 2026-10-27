@@ -1,6 +1,6 @@
 # Game families (Phase 10) — status
 
-> Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `invisible-game-config`, `invisible-game-maker`, then per phase
+> Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `match3-games`, `arcade-games` (`invisible-game-config` for `/config`, `invisible-game-maker` for Game Maker)
 
 **One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.8, P10.11, P10.12 and
 P10.14 are merged; P10.13 (gravity, jumps and levels) is built** and in review. P10.13: an arcade character can fall, jump (a side-view jump set by height and time, with

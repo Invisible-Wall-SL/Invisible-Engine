@@ -10,7 +10,7 @@
 		"winText": [],
 		"sound": [],
 		"gameConfig": ["invisible-game-config"],
-		"characters": ["invisible-game-config", "engine-pixi-svelte"],
+		"characters": ["arcade-games"],
 		"editor": ["invisible-components"],
 		"ftpBrowser": ["invisible-ftp-browser"],
 		"storybook": ["engine-pixi-svelte"],
@@ -24,28 +24,21 @@
 		"flipbook": ["invisible-flipbook"],
 		"director": ["director-backend", "director-frontend"],
 		"pipelineChanges": ["director-backend", "director-frontend"],
-		"pipelineBugs": ["launcher-studio"],
+		"pipelineBugs": ["pipeline-triage", "launcher-studio"],
 		"gameBugs": ["launcher-studio"]
 	},
 	"kinds": {
-		"lines": ["engine-pixi-svelte", "book-of-game"],
-		"ways": ["engine-pixi-svelte"],
-		"cluster": ["engine-pixi-svelte"],
-		"scatter": ["engine-pixi-svelte"],
-		"bookOf": ["book-of-game"],
-		"holdAndWin": ["engine-pixi-svelte"],
-		"match3": ["invisible-game-config", "engine-pixi-svelte"],
-		"arcade": ["invisible-game-config", "engine-pixi-svelte"]
+		"lines": ["lines-games"],
+		"ways": ["ways-games"],
+		"cluster": ["cluster-games"],
+		"scatter": ["scatter-games"],
+		"bookOf": ["lines-games"],
+		"holdAndWin": ["hold-and-win-games"],
+		"match3": ["match3-games"],
+		"arcade": ["arcade-games"]
 	},
 	"gaps": {
-		"tool:winText": "No agent. ADR-0009 9B.",
-		"tool:sound": "No agent. ADR-0009 9B.",
-		"tool:characters": "No arcade agent yet; arcade-games in ADR-0009 9B.",
-		"kind:ways": "No family agent yet; ADR-0009 9B.",
-		"kind:cluster": "No family agent yet; ADR-0009 9B.",
-		"kind:scatter": "No family agent yet; ADR-0009 9B.",
-		"kind:holdAndWin": "No family agent yet; ADR-0009 9B.",
-		"kind:match3": "No family agent yet; ADR-0009 9B.",
-		"kind:arcade": "No family agent yet; ADR-0009 9B."
+		"tool:winText": "No agent: a tool shared by every slot kind, not a game type, so 9B left it open.",
+		"tool:sound": "No agent: a tool shared by every kind, not a game type, so 9B left it open."
 	}
 }
