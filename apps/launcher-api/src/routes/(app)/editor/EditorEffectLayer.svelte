@@ -7,7 +7,7 @@
 	 * placed effect's authored `EffectDoc` verbatim — mirroring `EditorRigLayer` (the live rig
 	 * overlay) but driving `@barvynkoa/particle-emitter` `Emitter`s (the SAME runtime contract the `/fx`
 	 * tool's `FxStage` and the game's `<EffectPlayer>` reduce to: `bindArt` the layer's art textures →
-	 * `new Emitter(container, config)` → `emitter.update(dtSeconds)`).
+	 * `new Emitter(container, config)` → `emitter.update(emitterDeltaSeconds(deltaMS))`).
 	 *
 	 * Transform parity (the load-bearing seam): a placed effect lands EXACTLY where its 2D placeholder
 	 * chip / selection box sits. Both are driven by the SAME `worldTransformOf` (== EditorCanvas's
@@ -34,6 +34,7 @@
 		bindArt,
 		bindEffectParams,
 		createEffectLevelApplier,
+		emitterDeltaSeconds,
 		planLayer,
 		type EffectDoc,
 		type EffectLevelApplier,
@@ -790,7 +791,7 @@
 			ready = true;
 			frameTicker.add((ticker) => {
 				if (!playing || liveNodes.size === 0) return;
-				const dt = ticker.deltaMS / 1000;
+				const dt = emitterDeltaSeconds(ticker.deltaMS);
 				for (const node of liveNodes.values()) {
 					let nodeDt = dt;
 					if (effectParamValues && node.doc && (node.fx || node.appliers.length)) {
