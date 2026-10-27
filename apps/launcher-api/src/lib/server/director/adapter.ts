@@ -171,6 +171,7 @@ export type OpScope =
  */
 export const ADAPTER_TOOL_IDS: Readonly<Record<string, string>> = {
 	atlas: 'atlasTool',
+	components: 'editor',
 	comfyui: 'comfyui',
 	flipbook: 'flipbook',
 	fonts: 'fontMaker',

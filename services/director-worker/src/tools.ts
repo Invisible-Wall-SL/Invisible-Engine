@@ -58,6 +58,8 @@ export const ADAPTER_OPS = [
 	'sound.set_cues',
 	'fx.get_effect',
 	'fx.update_art',
+	'components.get_def',
+	'components.update_art',
 	'build.request_draft',
 	'build.play_draft',
 ] as const;

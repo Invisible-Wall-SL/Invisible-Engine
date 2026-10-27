@@ -825,6 +825,88 @@ check(
 	).status,
 	403,
 );
+// Component defs sit under `editor/<slug>/components/`, outside the project's own tree: the
+// components tool may write its own project's, and nothing else may.
+{
+	const COMPONENT_WRITE_OP = defineOp<{ key: string }, { ran: true }>({
+		tool: 'components',
+		name: 'write_doc',
+		description: 'A test-only write op that declares a key.',
+		inputSchema: {
+			type: 'object',
+			properties: { key: { type: 'string' } },
+			required: ['key'],
+			additionalProperties: false,
+		},
+		agents: ['builder'],
+		scope: 'project',
+		write: true,
+		writes: (input) => [input.key],
+		handler: async () => {
+			handlerRuns++;
+			return { ran: true };
+		},
+	});
+	const registry = buildRegistry([...GAMEMAKER_OPS, WRITE_OP, COMPONENT_WRITE_OP]);
+	const via = (tool: string, key: string) =>
+		runAdapterCall(
+			{
+				tool,
+				op: 'write_doc',
+				authorization: `Bearer ${TOKEN}`,
+				body: { runId: 'rw', agent: 'builder', opId: `rw:comp:${++seq}`, input: { key } },
+			},
+			registry,
+			TOKEN,
+		);
+	const ran = handlerRuns;
+	const answer = async (tool: string, key: string) => {
+		const res = await via(tool, key);
+		return [
+			res.status,
+			(res.body as { error?: string; refusal?: string }).refusal ??
+				(res.body as { error?: string }).error,
+		];
+	};
+	check(
+		"the components tool may write its project's component prefix and def",
+		[
+			await answer('components', 'editor/plain/components/'),
+			await answer('components', 'editor/plain/components/button.v3.json'),
+		],
+		[
+			[200, undefined],
+			[200, undefined],
+		],
+	);
+	check(
+		"...but not another project's, the shared library or the project's other editor docs",
+		[
+			await answer('components', 'editor/draft/components/button.json'),
+			await answer('components', '_shared/editor-components/button.json'),
+			await answer('components', 'editor/plain/component-defaults/button.json'),
+			await answer('components', 'editor/plain/'),
+		],
+		[
+			[403, 'out_of_scope'],
+			[403, 'library'],
+			[403, 'out_of_scope'],
+			[403, 'game_config'],
+		],
+	);
+	check(
+		'another tool declaring a component key is still out of scope',
+		[
+			await answer('scene', 'editor/plain/components/button.json'),
+			await answer('scene', 'editor/plain/components/'),
+		],
+		[
+			[403, 'out_of_scope'],
+			[403, 'out_of_scope'],
+		],
+	);
+	check('...and only the two allowed writes reached a handler', handlerRuns - ran, 2);
+}
 check(
 	'refusedWriteTarget allows an ordinary doc',
 	refusedWriteTarget(`${prefix('plain')}symbols/symbols.json`),
@@ -4499,6 +4581,698 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 				[true, 403, 'locked', true, before],
 			);
 		}
+	}
+	// ── 9H.2 Component Editor art (ADR-0011 §3) ───────────────────────────────
+	{
+		const { saveComponent } = await import(src('lib/server/componentStorage.ts'));
+		const { FAMILY_TOOLS } = await import(src('lib/roles.ts'));
+		const { ADAPTER_TOOL_IDS } = await import(src('lib/server/director/adapter.ts'));
+		PROJECTS.set('comp', project('comp'));
+		RUNS.set('rc', run('rc', { projectKey: 'comp' }));
+		const CP = 'acme/comp';
+		const LAYOUT = paths.editorDocKey(C, 'comp');
+		let compSeq = 0;
+		const ct = (name: string, agent: string, input: unknown, write = false) => {
+			const [t, o] = name.split('.');
+			return call(t, o, {
+				runId: 'rc',
+				agent,
+				...(write ? { opId: `rc:c9:${++compSeq}` } : {}),
+				input,
+			});
+		};
+		const world = () => JSON.stringify([...R2.entries()]);
+		type Item = { node?: string; reason: string };
+		const refusals = (a: Answer) => (a.body.refused ?? []) as Item[];
+
+		// Both ops: token, scope, agent allow-list, family gate.
+		const specs: [string, string, object][] = [
+			['components', 'get_def', {}],
+			[
+				'components',
+				'update_art',
+				{ id: 'frame', changes: [], baseEtag: 'new', layoutBaseEtag: 'new' },
+			],
+		];
+		for (const [t, o, input] of specs) {
+			const id = `${t}.${o}`;
+			const envelope = (runId: string, agent: string) => ({
+				runId,
+				agent,
+				opId: `${runId}:c9:1`,
+				input,
+			});
+			check(
+				`${id}: a wrong token is a 401`,
+				(await call(t, o, envelope('rc', 'builder'), { authorization: 'Bearer nope' })).status,
+				401,
+			);
+			check(
+				`${id}: a project the owner cannot reach is a 403`,
+				(await call(t, o, envelope('rforeign', 'builder'))).body.error,
+				'out_of_scope',
+			);
+			check(
+				`${id}: another agent is refused`,
+				[
+					(await call(t, o, envelope('rc', 'animator'))).body.error,
+					(await call(t, o, envelope('rc', 'qa'))).status,
+				],
+				['agent_not_allowed', 403],
+			);
+		}
+		check('components acts as the editor tool', ADAPTER_TOOL_IDS.components, 'editor');
+		(FAMILY_TOOLS.arcade as string[]).push('editor');
+		try {
+			for (const [t, o, input] of specs) {
+				const hidden = await call(t, o, {
+					runId: 'rarc',
+					agent: 'builder',
+					opId: 'rarc:c9:1',
+					input,
+				});
+				check(
+					`${t}.${o}: a project whose family drops the editor is not_for_family`,
+					[hidden.status, hidden.body.error],
+					[403, 'not_for_family'],
+				);
+			}
+		} finally {
+			(FAMILY_TOOLS.arcade as string[]).length -= 1;
+		}
+
+		// ── Seed: defs and a layout ──
+		const sprite = (id: string, over: object = {}) => ({
+			id,
+			kind: 'sprite',
+			x: 0,
+			y: 0,
+			assetKey: 'old::a',
+			...over,
+		});
+		const defOf = (id: string, children: object[], over: object = {}) => ({
+			id,
+			name: id,
+			version: 1,
+			scope: 'project',
+			category: 'ui',
+			root: { id: 'root', kind: 'container', x: 0, y: 0, children },
+			...over,
+		});
+		const frameChildren = (text: string, iconRegion: string) => [
+			sprite('icon', { region: iconRegion }),
+			{ id: 'rig', kind: 'spine', x: 0, y: 0, assetKey: 'rigs/old/', skin: 'default' },
+			{ id: 'fb', kind: 'flipbook', x: 0, y: 0, clipId: 'c1' },
+			sprite('bound', { region: 'r_bound', paramBindings: { region: 'frame' } }),
+			{ id: 't', kind: 'text', x: 0, y: 0, text },
+		];
+		const frameParams = [{ key: 'frame', kind: 'string' }];
+		const saveFrame = (text: string, iconRegion: string) =>
+			saveComponent(
+				defOf('frame', frameChildren(text, iconRegion), { params: frameParams }),
+				'comp',
+				undefined,
+			);
+		// v1 first, v2 changes the text, v3 only the icon's art: so v2 is an art-only step behind v3 and v1 is not.
+		check('the seeded frame def is at version 1', (await saveFrame('hello', 'r_old')).version, 1);
+		check('...2 once its text changes', (await saveFrame('hello2', 'r_old')).version, 2);
+		check('...3 once only its art changes', (await saveFrame('hello2', 'r_v3')).version, 3);
+		await saveComponent(defOf('plus_btn', [sprite('face')]), 'comp', undefined);
+		await saveComponent(defOf('bet_panel', [sprite('face')]), 'comp', undefined);
+		await saveComponent(defOf('inner', [sprite('spark')]), 'comp', undefined);
+		await saveComponent(
+			defOf('outer', [{ id: 'in1', kind: 'componentInstance', x: 0, y: 0, componentId: 'inner' }]),
+			'comp',
+			undefined,
+		);
+		const SHARED = paths.editorComponentKey('shared_badge');
+		seedDoc(
+			SHARED,
+			defOf('shared_badge', [sprite('logo', { region: 'l_old' })], { scope: 'shared' }),
+		);
+		const sharedBefore = R2.get(SHARED)!;
+		const inst = (id: string, componentId: string, over: object = {}) => ({
+			id,
+			kind: 'componentInstance',
+			x: 0,
+			y: 0,
+			componentId,
+			...over,
+		});
+		const layoutDoc = (extra: object = {}) => ({
+			version: 2,
+			projectKey: 'comp',
+			mainSizesMap: { desktop: { width: 1920, height: 1080 } },
+			updatedAt: '',
+			scenes: [
+				{
+					id: 'base',
+					name: 'Base',
+					role: 'basegame',
+					nodes: [
+						inst('f_latest', 'frame'),
+						inst('f_pin3', 'frame', { componentVersion: 3 }),
+						inst('f_pin2', 'frame', { componentVersion: 2 }),
+						inst('f_pin1', 'frame', { componentVersion: 1 }),
+						inst('badge', 'shared_badge'),
+						inst('badge1', 'shared_badge', { componentVersion: 1 }),
+						inst('plus', 'plus_btn', { params: { action: 'increase' } }),
+					],
+				},
+				{
+					id: 'betMenu',
+					name: 'Bet',
+					nodes: [inst('panel', 'bet_panel'), inst('wrap', 'outer')],
+				},
+			],
+			...extra,
+		});
+		seedDoc(LAYOUT, layoutDoc());
+
+		// ── get_def ──
+		const list = await ct('components.get_def', 'builder', {});
+		check(
+			'components.get_def lists the defs the screens reach, with scope, version, instances and locks',
+			(
+				list.body.defs as {
+					id: string;
+					scope: string;
+					version: number;
+					instances: unknown[];
+					locked: string | null;
+				}[]
+			).map((d) => [d.id, d.scope, d.version, d.instances.length, d.locked !== null]),
+			[
+				['bet_panel', 'project', 1, 1, true],
+				['frame', 'project', 3, 4, false],
+				['inner', 'project', 1, 0, true],
+				['outer', 'project', 1, 1, true],
+				['plus_btn', 'project', 1, 1, true],
+				['shared_badge', 'shared', 1, 2, false],
+			],
+		);
+		check(
+			'...a def held by a locked instance names it, also through a nested def',
+			[
+				(list.body.defs as { id: string; locked: string }[])
+					.find((d) => d.id === 'inner')!
+					.locked.includes('"wrap" on "betMenu"'),
+				(list.body.defs as { id: string; locked: string }[])
+					.find((d) => d.id === 'plus_btn')!
+					.locked.includes('increase'),
+			],
+			[true, true],
+		);
+		const got = await ct('components.get_def', 'builder', { id: 'frame' });
+		const rows = got.body.nodes as { id: string; kind: string; paramBound: string[] }[];
+		check(
+			'components.get_def reads the re-skinnable nodes and which art a param supplies',
+			rows.map((r) => [r.id, r.kind, r.paramBound]),
+			[
+				['icon', 'sprite', []],
+				['rig', 'spine', []],
+				['fb', 'flipbook', []],
+				['bound', 'sprite', ['region']],
+			],
+		);
+		check(
+			'...each pin and whether a write reaches it',
+			(got.body.pins as { node: string; pin: number | null; reached: boolean }[]).map((p) => [
+				p.node,
+				p.pin,
+				p.reached,
+			]),
+			[
+				['f_latest', null, true],
+				['f_pin3', 3, true],
+				['f_pin2', 2, true],
+				['f_pin1', 1, false],
+			],
+		);
+		const FRAME = paths.projectComponentKey('comp', 'frame');
+		check(
+			'...with the stored tokens of the def and the layout',
+			[
+				got.body.baseEtag,
+				got.body.layoutBaseEtag,
+				got.body.locked,
+				got.body.version,
+				got.body.scope,
+			],
+			[R2.get(FRAME)!.etag, R2.get(LAYOUT)!.etag, null, 3, 'project'],
+		);
+		const sharedGot = await ct('components.get_def', 'builder', { id: 'shared_badge' });
+		check(
+			'a shared def reads as shared, with baseEtag new',
+			[sharedGot.body.scope, sharedGot.body.baseEtag],
+			['shared', 'new'],
+		);
+
+		const update = (changes: object[], over: object = {}, id = 'frame') =>
+			ct(
+				'components.update_art',
+				'builder',
+				{
+					id,
+					changes,
+					baseEtag: R2.get(FRAME)!.etag,
+					layoutBaseEtag: R2.get(LAYOUT)!.etag,
+					...over,
+				},
+				true,
+			);
+
+		// Refusals: nothing is written.
+		const refusedWorld = world();
+		const refusedCall = await update([
+			{ node: 't', assetKey: 'x::y' },
+			{ node: 'bound', region: 'r_new' },
+			{ node: 'ghost', assetKey: 'x::y' },
+			{ node: 'icon', clipId: 'c9' },
+			{ node: 'fb' },
+			{ node: 'fb' },
+		]);
+		check(
+			'components.update_art lists everything it refuses, and with nothing applied writes nothing',
+			[
+				refusedCall.status,
+				refusedCall.body.applied,
+				refusals(refusedCall).map((r) => r.node),
+				world(),
+			],
+			[200, [], ['t', 'bound', 'ghost', 'icon', 'fb', 'fb'], refusedWorld],
+		);
+		check(
+			'...a node of a kind with no art field',
+			refusals(refusedCall)[0].reason,
+			'a text node has no assetKey to re-skin',
+		);
+		check(
+			'...a field a param supplies',
+			refusals(refusedCall)[1].reason.includes('bound to the param "frame"'),
+			true,
+		);
+		check(
+			'...a node that is not there',
+			refusals(refusedCall)[2].reason.includes('cannot be added'),
+			true,
+		);
+		check(
+			'...a field the kind lacks',
+			refusals(refusedCall)[3].reason,
+			'a sprite node has no clipId to re-skin',
+		);
+		check(
+			'...a change that re-skins nothing, and a node listed twice',
+			[refusals(refusedCall)[4].reason, refusals(refusedCall)[5].reason],
+			['the change re-skins nothing', 'it is listed twice'],
+		);
+		for (const extra of [{ x: 5 }, { children: [] }, { visible: false }, { text: 'hi' }]) {
+			const res = await update([{ node: 'icon', assetKey: 'new::a', ...extra }]);
+			check(
+				`a structure field (${Object.keys(extra)[0]}) is not in the schema: a 400`,
+				[res.status, res.body.error, world()],
+				[400, 'invalid_input', refusedWorld],
+			);
+		}
+		check(
+			'a def or a layout token must be sent',
+			(
+				await ct(
+					'components.update_art',
+					'builder',
+					{ id: 'frame', changes: [], baseEtag: 'new' },
+					true,
+				)
+			).body.error,
+			'invalid_input',
+		);
+		check(
+			'an unknown component is a 404',
+			(await update([{ node: 'icon', assetKey: 'new::a' }], {}, 'nothere')).body.error,
+			'unknown_component',
+		);
+
+		// Locks: the whole def.
+		for (const [id, why] of [
+			['plus_btn', /increase/],
+			['bet_panel', /betMenu/],
+			['inner', /"wrap" on "betMenu"/],
+			['outer', /betMenu/],
+		] as const) {
+			const key = paths.projectComponentKey('comp', id);
+			const locked = await ct(
+				'components.update_art',
+				'builder',
+				{
+					id,
+					changes: [
+						{
+							node: id === 'outer' ? 'in1' : id === 'inner' ? 'spark' : 'face',
+							assetKey: 'new::a',
+						},
+					],
+					baseEtag: R2.get(key)!.etag,
+					layoutBaseEtag: R2.get(LAYOUT)!.etag,
+				},
+				true,
+			);
+			check(
+				`components.update_art refuses ${id}, held by a locked instance`,
+				[locked.status, locked.body.error, why.test(String(locked.body.message)), world()],
+				[403, 'locked', true, refusedWorld],
+			);
+		}
+
+		// Stale tokens write nothing.
+		const staleDef = String(R2.get(FRAME)!.etag);
+		const change = [{ node: 'icon', assetKey: 'new::a', region: 'r_new' }];
+		await staleIsConflict(
+			'components.update_art (def)',
+			FRAME,
+			(b) => update(change, { baseEtag: b }),
+			staleDef,
+		);
+		const worldAfterStaleDef = world();
+		const staleLayout = String(R2.get(LAYOUT)!.etag);
+		personSaves(LAYOUT);
+		const layoutStale = world();
+		const staleLayoutAnswer = await update(change, { layoutBaseEtag: staleLayout });
+		check(
+			'a stale layoutBaseEtag is a conflict, and the def is not saved either',
+			[staleLayoutAnswer.status, staleLayoutAnswer.body.error, world()],
+			[409, 'conflict', layoutStale],
+		);
+		void worldAfterStaleDef;
+
+		// The write: the three art fields on three kinds, the rest deep-equal.
+		const before = stored(FRAME);
+		const snapshotsBefore = keysUnder(paths.projectComponentsPrefix('comp')).filter((k) =>
+			k.includes('.v'),
+		);
+		const layoutBefore = stored(LAYOUT);
+		const input = {
+			id: 'frame',
+			changes: [
+				{ node: 'icon', assetKey: 'new::a', region: 'r_new' },
+				{ node: 'rig', assetKey: 'rigs/new/', skin: 'gold' },
+				{ node: 'fb', clipId: 'c2' },
+				{ node: 'bound', assetKey: 'new::a' },
+				{ node: 't', assetKey: 'nope' },
+			],
+			baseEtag: R2.get(FRAME)!.etag,
+			layoutBaseEtag: R2.get(LAYOUT)!.etag,
+		};
+		const envelope = { runId: 'rc', agent: 'builder', opId: 'rc:c9:900', input };
+		const ok = await call('components', 'update_art', envelope);
+		check('components.update_art lands', ok.status, 200);
+		check(
+			'...applying the three nodes and refusing the param-bound field of the fourth and the text node',
+			[ok.body.applied, refusals(ok).map((r) => r.node)],
+			[[{ node: 'icon' }, { node: 'rig' }, { node: 'fb' }, { node: 'bound' }], ['t']],
+		);
+		check(
+			'...the def at the next version, which is a new snapshot beside the kept ones',
+			[
+				ok.body.version,
+				stored(FRAME).version,
+				keysUnder(paths.projectComponentsPrefix('comp')).filter((k) => k.includes('.v')).length -
+					snapshotsBefore.length,
+				R2.has(paths.projectComponentVersionKey('comp', 'frame', 4)),
+			],
+			[4, 4, 1, true],
+		);
+		const expected = structuredClone(before);
+		expected.version = 4;
+		const byId = (id: string) => expected.root.children.find((n: { id: string }) => n.id === id);
+		Object.assign(byId('icon'), { assetKey: 'new::a', region: 'r_new' });
+		Object.assign(byId('rig'), { assetKey: 'rigs/new/', skin: 'gold' });
+		Object.assign(byId('fb'), { clipId: 'c2' });
+		Object.assign(byId('bound'), { assetKey: 'new::a' });
+		check(
+			'...and nothing outside those art fields changed: the def is deep-equal to the stored one but for them and the version',
+			stored(FRAME),
+			expected,
+		);
+		check('...`before` holds the old art of each changed node', ok.body.before, [
+			{ node: 'icon', assetKey: 'old::a', region: 'r_v3' },
+			{ node: 'rig', assetKey: 'rigs/old/', skin: 'default' },
+			{ node: 'fb', clipId: 'c1' },
+			{ node: 'bound', assetKey: 'old::a' },
+		]);
+		check(
+			'...the pinned instances that differ in art only are re-pinned; the one that differs in structure is listed',
+			[ok.body.repinned, ok.body.notReached],
+			[
+				[
+					{ screen: 'base', node: 'f_pin3', from: 3, to: 4 },
+					{ screen: 'base', node: 'f_pin2', from: 2, to: 4 },
+				],
+				[
+					{
+						screen: 'base',
+						node: 'f_pin1',
+						pin: 1,
+						reason: 'version 1 also differs in more than art; a person updates this instance',
+					},
+				],
+			],
+		);
+		const nodes = (doc: { scenes: { nodes: { id: string; componentVersion?: number }[] }[] }) =>
+			doc.scenes.flatMap((sc) => sc.nodes).map((n) => [n.id, n.componentVersion ?? null]);
+		const repinnedLayout = structuredClone(layoutBefore);
+		repinnedLayout.scenes[0].nodes[1].componentVersion = 4;
+		repinnedLayout.scenes[0].nodes[2].componentVersion = 4;
+		check(
+			'...and the layout is otherwise as the person left it',
+			[nodes(stored(LAYOUT)), stored(LAYOUT).scenes.map((sc: { nodes: unknown[] }) => sc.nodes)],
+			[nodes(repinnedLayout), repinnedLayout.scenes.map((sc: { nodes: unknown[] }) => sc.nodes)],
+		);
+		check(
+			'...saved with the Director stamp and a backup of the layout before it',
+			[
+				stored(LAYOUT).saved_by?.tool,
+				stored(LAYOUT).saved_by?.agent,
+				keysUnder(`${CP}/editor/backups/`).length +
+					keysUnder(paths.editorDocBackupTarget(C, 'comp').prefix).length >
+					0,
+			],
+			['director', 'builder', true],
+		);
+		check(
+			'...with fresh tokens handed back',
+			[ok.body.baseEtag, ok.body.layoutBaseEtag],
+			[R2.get(FRAME)!.etag, R2.get(LAYOUT)!.etag],
+		);
+
+		const afterOk = world();
+		const replayed = await call('components', 'update_art', envelope);
+		check(
+			'a replayed opId returns the same result and writes once',
+			[replayed.replay, replayed.body, world()],
+			[true, ok.body, afterOk],
+		);
+
+		// Retry after the layout write was lost: the def is saved, the pins are not.
+		const lostLayout = structuredClone(stored(LAYOUT));
+		lostLayout.scenes[0].nodes[1].componentVersion = 3;
+		lostLayout.scenes[0].nodes[2].componentVersion = 2;
+		seedDoc(LAYOUT, lostLayout);
+		const defBytes = R2.get(FRAME)!;
+		const snapshots = keysUnder(paths.projectComponentsPrefix('comp')).map((k) => [k, R2.get(k)]);
+		const retry = await ct(
+			'components.update_art',
+			'builder',
+			{ ...input, baseEtag: R2.get(FRAME)!.etag, layoutBaseEtag: R2.get(LAYOUT)!.etag },
+			true,
+		);
+		check(
+			'resending the same changes after a lost layout write does not bump the def again',
+			[
+				retry.status,
+				retry.body.applied,
+				retry.body.unchanged,
+				retry.body.version,
+				R2.get(FRAME),
+				keysUnder(paths.projectComponentsPrefix('comp')).map((k) => [k, R2.get(k)]),
+			],
+			[200, [], ['icon', 'rig', 'fb', 'bound'], 4, defBytes, snapshots],
+		);
+		check(
+			'...and runs the re-pin',
+			[retry.body.repinned, nodes(stored(LAYOUT)).slice(1, 3)],
+			[
+				[
+					{ screen: 'base', node: 'f_pin3', from: 3, to: 4 },
+					{ screen: 'base', node: 'f_pin2', from: 2, to: 4 },
+				],
+				[
+					['f_pin3', 4],
+					['f_pin2', 4],
+				],
+			],
+		);
+		const idle = world();
+		const nothing = await ct(
+			'components.update_art',
+			'builder',
+			{ ...input, baseEtag: R2.get(FRAME)!.etag, layoutBaseEtag: R2.get(LAYOUT)!.etag },
+			true,
+		);
+		check(
+			'...and once nothing is left to re-pin, a repeat writes nothing',
+			[nothing.status, nothing.body.repinned, world()],
+			[200, [], idle],
+		);
+
+		// A shared def becomes the project's copy.
+		const SHARED_COPY = paths.projectComponentKey('comp', 'shared_badge');
+		check('the project has no copy of the shared badge yet', R2.has(SHARED_COPY), false);
+		const badge = (over: object = {}) =>
+			ct(
+				'components.update_art',
+				'builder',
+				{
+					id: 'shared_badge',
+					changes: [{ node: 'logo', assetKey: 'badge::new', region: 'l_new' }],
+					baseEtag: 'new',
+					layoutBaseEtag: R2.get(LAYOUT)!.etag,
+					...over,
+				},
+				true,
+			);
+		const copied = await badge();
+		check(
+			'a shared def is saved as the project copy, same id and version',
+			[
+				copied.status,
+				copied.body.scope,
+				copied.body.version,
+				stored(SHARED_COPY).scope,
+				stored(SHARED_COPY).version,
+			],
+			[200, 'project', 1, 'project', 1],
+		);
+		check(
+			'...with the new art, and nothing else of the shared def changed',
+			stored(SHARED_COPY).root.children,
+			[{ id: 'logo', kind: 'sprite', x: 0, y: 0, assetKey: 'badge::new', region: 'l_new' }],
+		);
+		check('...leaving the shared library untouched', R2.get(SHARED), sharedBefore);
+		check(
+			'...and the instance pinned at that version follows the copy without a re-pin',
+			[
+				copied.body.repinned,
+				copied.body.notReached,
+				nodes(stored(LAYOUT)).filter(([id]) => id === 'badge1'),
+			],
+			[[], [], [['badge1', 1]]],
+		);
+		check(
+			'...a second copy with baseEtag new is a conflict now that the project has one',
+			(await badge({ changes: [{ node: 'logo', region: 'l_newer' }] })).body.error,
+			'conflict',
+		);
+		check('...and the shared library is still untouched', R2.get(SHARED), sharedBefore);
+
+		// A foreign rig is the component store's own 400.
+		await saveComponent(
+			defOf('rigged', [
+				{ id: 'hero', kind: 'spine', x: 0, y: 0, assetKey: `${CP}/spines/Hero/`, skin: 'default' },
+			]),
+			'comp',
+			undefined,
+		);
+		seedDoc(LAYOUT, {
+			...stored(LAYOUT),
+			scenes: [
+				...stored(LAYOUT).scenes,
+				{ id: 'extra', name: 'Extra', nodes: [inst('r1', 'rigged')] },
+			],
+		});
+		const RIGGED = paths.projectComponentKey('comp', 'rigged');
+		const foreignWorld = world();
+		const foreign = await ct(
+			'components.update_art',
+			'builder',
+			{
+				id: 'rigged',
+				changes: [{ node: 'hero', assetKey: 'acme/other_game/spines/Cage/' }],
+				baseEtag: R2.get(RIGGED)!.etag,
+				layoutBaseEtag: R2.get(LAYOUT)!.etag,
+			},
+			true,
+		);
+		check(
+			"a rig from another project is the component store's 400, and nothing is written",
+			[foreign.status, foreign.body.error, world()],
+			[400, 'invalid_input', foreignWorld],
+		);
+
+		// An effect placed inside a component def is locked by the instance that holds the def.
+		const { saveEffect } = await import(src('lib/server/fxStorage.ts'));
+		for (const fxId of ['held_fx', 'free_fx']) {
+			await saveEffect(
+				C,
+				'comp',
+				{
+					version: 1,
+					id: fxId,
+					name: fxId,
+					layers: [
+						{
+							key: 'main',
+							particleKind: 'sprite',
+							art: { assetKey: '', frames: [] },
+							placement: { space: 'free' },
+							config: { behaviors: [] },
+						},
+					],
+				},
+				{},
+				null,
+			);
+		}
+		const fxIn = (id: string, effectId: string, node: object = {}) => ({
+			id,
+			kind: 'effect',
+			x: 0,
+			y: 0,
+			effectId,
+			...node,
+		});
+		await saveComponent(defOf('fx_holder', [fxIn('e1', 'held_fx')]), 'comp', undefined);
+		await saveComponent(defOf('fx_outer', [inst('inner_holder', 'fx_holder')]), 'comp', undefined);
+		await saveComponent(defOf('fx_free', [fxIn('e2', 'free_fx')]), 'comp', undefined);
+		const withHolders = stored(LAYOUT);
+		withHolders.scenes[0].nodes.push(inst('free_holder', 'fx_free'));
+		withHolders.scenes[1].nodes.push(inst('bet_holder', 'fx_outer'));
+		seedDoc(LAYOUT, withHolders);
+		const heldFx = await ct('fx.get_effect', 'animator', { id: 'held_fx' });
+		const freeFx = await ct('fx.get_effect', 'animator', { id: 'free_fx' });
+		check(
+			'an effect inside a component that a locked node holds is locked, through a nested def',
+			[
+				/inside the component "fx_holder", held by "bet_holder" on "betMenu"/.test(
+					String(heldFx.body.locked),
+				),
+				freeFx.body.locked,
+			],
+			[true, null],
+		);
+		const heldKey = paths.fxDocKey(C, 'comp', 'held_fx');
+		const heldBefore = R2.get(heldKey);
+		const heldWrite = await ct(
+			'fx.update_art',
+			'animator',
+			{ id: 'held_fx', layers: [], baseEtag: String(heldFx.body.baseEtag) },
+			true,
+		);
+		check(
+			'...and fx.update_art refuses it',
+			[heldWrite.status, heldWrite.body.error, R2.get(heldKey)],
+			[403, 'locked', heldBefore],
+		);
 	}
 }
 

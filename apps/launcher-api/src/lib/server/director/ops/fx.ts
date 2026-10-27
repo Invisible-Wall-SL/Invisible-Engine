@@ -12,7 +12,7 @@ import { fxDocKey, fxMetaKey, r2Slug } from '../../projectPaths';
 import { projectGameType } from '../../projects';
 import { AdapterError, defineOp } from '../adapter';
 import { baseEtagProp, baseOf, preconditionOf, projectOf, validated } from './docs';
-import { defLoader, lockOf } from './scene';
+import { componentClosure, defLoader, lockOf, sceneHolders } from './mathLock';
 
 /**
  * Invisible FX adapters (ADR-0011 §2), through `fxStorage.ts`: the tool's own `listEffects`,
@@ -111,7 +111,9 @@ function* effectNodes(
 
 /**
  * Why a Scene Editor node that places the effect is locked (bound to the game's math, or locked in
- * the editor), or `null` when none is. A layout that cannot be read cannot be checked, so it locks.
+ * the editor), or `null` when none is. The effect is placed by an `effect` node in a scene, or by
+ * one inside a component def a scene node places, directly or through nested defs; in that case
+ * the lock is that scene node's. A layout that cannot be read cannot be checked, so it locks.
  */
 async function placementLock(
 	clientKey: string,
@@ -123,14 +125,26 @@ async function placementLock(
 		projectKey,
 		await projectGameType(projectKey),
 	);
-	if (corrupt)
+	if (corrupt) {
 		return "the project's layout is unreadable, so where this effect is placed cannot be checked";
+	}
 	if (etag === null) return null;
 	const defs = defLoader(projectKey);
 	for (const scene of doc.scenes as Scene[]) {
 		for (const { node, ancestors } of effectNodes(scene.nodes, effectId)) {
 			const why = await lockOf(scene, ancestors, node, defs);
 			if (why) return `it is placed by "${node.id}" on "${scene.id}", which is ${why}`;
+		}
+	}
+	for (const holder of sceneHolders(doc.scenes as Scene[])) {
+		const closure = await componentClosure(holder.node, defs);
+		const inside = closure.defs.find((def) => !effectNodes([def.root], effectId).next().done);
+		if (!inside && !closure.deep) continue;
+		const why = await lockOf(holder.scene, holder.ancestors, holder.node, defs);
+		if (why) {
+			return inside
+				? `it is placed inside the component "${inside.id}", held by "${holder.node.id}" on "${holder.scene.id}", which is ${why}`
+				: `it may be placed in a component "${holder.node.id}" on "${holder.scene.id}" holds too deep to check, and that node is ${why}`;
 		}
 	}
 	return null;

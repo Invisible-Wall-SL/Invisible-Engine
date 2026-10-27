@@ -6,7 +6,7 @@ import { getRoleOverrides } from '../roleToolAccess';
 import { allowedPrefixes, isKeyAllowed, requireProjectScope } from '../toolScope';
 import { tokensMatch } from '../tokensMatch';
 import { getToolOverrides } from '../userToolAccess';
-import { UNASSIGNED_CLIENT, projectPrefix, r2Slug } from '../projectPaths';
+import { UNASSIGNED_CLIENT, projectComponentsPrefix, projectPrefix, r2Slug } from '../projectPaths';
 import { projectFamily, projectKeyTaken, storedProjectGameType } from '../projects';
 import { ConflictError, listObjects } from '../r2';
 import {
@@ -261,6 +261,9 @@ async function refusedWrite(
 		return fail(409, 'project_exists', `The project "${run.projectKey}" already exists.`);
 	}
 	const prefixes = allowedPrefixes(scope!.clientKey, scope!.projectKey);
+	// Component defs live outside the project's tree, under `editor/<slug>/components/`. Only the
+	// components tool may write there, and `_shared/` stays refused by the target guard below.
+	if (op.tool === 'components') prefixes.push(projectComponentsPrefix(scope!.projectKey));
 	for (const key of op.writes(input, scope!)) {
 		const refused = refusedWriteTarget(key);
 		if (refused) return fail(403, 'refused', refused.message, { refusal: refused.id, key });
