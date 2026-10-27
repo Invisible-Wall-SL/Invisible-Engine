@@ -148,6 +148,19 @@ const LIBRARY = [
 	unit('caller', 0, 1, 1, {
 		effects: [{ trigger: 'onDeath', verb: 'summon', card: 'archive-owl' }],
 	}),
+	unit('last-word', 1, 1, 1, {
+		effects: [{ trigger: 'onDeath', verb: 'draw', amount: 1 }],
+	}),
+	unit('spiteful', 1, 1, 5, {
+		effects: [
+			{
+				trigger: 'onDamaged',
+				verb: 'damage',
+				amount: 1,
+				target: { kind: 'allEnemies', include: 'characters' },
+			},
+		],
+	}),
 	spell('ponder', 0, [{ trigger: 'onPlay', verb: 'draw', amount: 3 }]),
 	spell('bloom', 0, [{ trigger: 'onPlay', verb: 'summon', card: 'sproutling', count: 3 }]),
 ];
@@ -157,11 +170,20 @@ const LIBRARY = [
  * card ids, or `{ card, ...fields }` to set an instance's fields (damage, keywords, …). Units on a
  * board arrived on turn 1 and have their attack, unless the spec says otherwise.
  */
-function table({ active = 0, phase = 'main', turn = 3, resource = 10, rules, mine, theirs } = {}) {
+function table({
+	active = 0,
+	phase = 'main',
+	turn = 3,
+	resource = 10,
+	rules,
+	mine,
+	theirs,
+	library = LIBRARY,
+} = {}) {
 	const { match } = createMatch({
 		seed: 'table',
 		decks: [[], []],
-		library: LIBRARY,
+		library,
 		rules: { openingHand: 0, ...rules },
 		first: 0,
 	});
@@ -641,8 +663,8 @@ check('buff: permanent stays, endOfTurn expires, a negative health buff can kill
 	assert.deepEqual(ofType(withered.events, 'died'), [{ type: 'died', uid: them(m).board[0].uid }]);
 });
 
-check('an endOfTurn health buff that held a unit up kills it when it expires', () => {
-	const m = table({ mine: { hand: ['frail-banner'] }, theirs: { hand: [] } });
+check('an expiring health buff leaves a damaged unit at 1 health, never kills it', () => {
+	const m = table({ mine: { hand: ['frail-banner'] } });
 	const played = playCard(m, 'frail-banner').match;
 	const banner = me(played).board[0];
 	const hit = {
@@ -652,7 +674,9 @@ check('an endOfTurn health buff that held a unit up kills it when it expires', (
 		),
 	};
 	const ended = apply(apply(hit, { type: 'endPhase' }).match, { type: 'endPhase' });
-	assert.deepEqual(types(ended.events).slice(1, 3), ['buffsExpired', 'died']);
+	assert.deepEqual(ofType(ended.events, 'died'), []);
+	const after = ended.match.players[0].board[0];
+	assert.deepEqual([after.attack, after.health, after.damage], [1, 1, 0]);
 });
 
 check('destroy: the unit dies through a shield, and its onDeath fires', () => {
@@ -678,6 +702,117 @@ check('giveKeyword: adds it once', () => {
 	assert.deepEqual(me(once.match).board[0].keywords, ['shield']);
 	const twice = playCard(once.match, 'ward', { target: { unit: dummy } });
 	assert.deepEqual(ofType(twice.events, 'keywordGiven'), [], 'already shielded: nothing given');
+});
+
+/** The cards an effect touched, in event order: a uid for a unit, `hero<side>` for a hero. */
+function touched(events) {
+	const keyOf = (target) => ('unit' in target ? target.unit : `hero${target.hero}`);
+	return events.flatMap((e) => {
+		if (e.type === 'damaged' || e.type === 'healed') return [keyOf(e.target)];
+		if (e.type === 'buffed' || e.type === 'keywordGiven' || e.type === 'destroyed') {
+			return [e.uid];
+		}
+		return [];
+	});
+}
+
+const VERB_CASES = {
+	damage: { amount: 1 },
+	heal: { amount: 1 },
+	buff: { attack: 1, health: 1, until: 'permanent' },
+	destroy: {},
+	giveKeyword: { keyword: 'guard' },
+};
+
+check('every verb on every target it allows touches exactly those targets', () => {
+	for (const [verb, fields] of Object.entries(VERB_CASES)) {
+		const includes = verb === 'damage' || verb === 'heal' ? ['units', 'characters'] : ['units'];
+		const cases = [{ kind: 'self' }];
+		for (const include of includes) {
+			cases.push({ kind: 'allEnemies', include }, { kind: 'randomEnemy', include });
+			for (const side of ['enemy', 'friendly', 'any'])
+				cases.push({ kind: 'chosen', side, include });
+		}
+		for (const target of cases) {
+			const label = `${verb} → ${JSON.stringify(target)}`;
+			const effect = { verb, ...fields, target };
+			const probe = unit('probe', 0, 1, 5, {
+				effects: [{ trigger: target.kind === 'self' ? 'turnStart' : 'onPlay', ...effect }],
+			});
+			const hurt = (card) => ({ card, damage: 1 });
+			const m = table({
+				library: [...LIBRARY, probe],
+				active: target.kind === 'self' ? 1 : 0,
+				phase: target.kind === 'self' ? 'combat' : 'main',
+				mine:
+					target.kind === 'self'
+						? { deck: ['dummy'] }
+						: { hand: ['probe'], board: [hurt('dummy')], health: 29 },
+				theirs:
+					target.kind === 'self'
+						? { board: [hurt('probe')], deck: ['dummy'] }
+						: { board: [hurt('dummy'), hurt('brute')], health: 29 },
+			});
+			const friendly = target.kind === 'self' ? m.players[0] : me(m);
+			const enemy = them(m);
+			const enemyUnits = enemy.board.map((c) => c.uid);
+			if (target.kind === 'self') {
+				const { events } = apply(m, { type: 'endPhase' });
+				assert.deepEqual(touched(events), [friendly.board[0].uid], label);
+				continue;
+			}
+			const enemyHero = `hero${1 - m.active}`;
+			const pool = target.include === 'characters' ? [...enemyUnits, enemyHero] : enemyUnits;
+			const probeUid = uidOf(me(m).hand, 'probe');
+			if (target.kind === 'allEnemies') {
+				assert.deepEqual(touched(playCard(m, 'probe').events), pool, label);
+			} else if (target.kind === 'randomEnemy') {
+				const hit = touched(playCard(m, 'probe').events);
+				assert.equal(hit.length, 1, label);
+				assert.ok(pool.includes(hit[0]), label);
+				const alone = {
+					...m,
+					players: m.players.map((p, i) => (i === m.active ? p : { ...p, board: [] })),
+				};
+				const lonely = touched(playCard(alone, 'probe').events);
+				assert.deepEqual(
+					lonely,
+					target.include === 'characters' ? [enemyHero] : [],
+					`${label}, no units`,
+				);
+			} else {
+				const listed = legalActions(m)
+					.filter((a) => a.uid === probeUid)
+					.map((a) => a.target);
+				for (const chosen of listed) {
+					const key = 'unit' in chosen ? chosen.unit : `hero${chosen.hero}`;
+					assert.deepEqual(touched(playCard(m, 'probe', { target: chosen }).events), [key], label);
+				}
+				const sideOf = (t) =>
+					'unit' in t
+						? enemyUnits.includes(t.unit)
+							? 'enemy'
+							: 'friendly'
+						: t.hero === m.active
+							? 'friendly'
+							: 'enemy';
+				assert.ok(listed.length > 0, label);
+				assert.ok(
+					listed.every((t) => target.side === 'any' || sideOf(t) === target.side),
+					label,
+				);
+				assert.ok(
+					listed.every((t) => target.include === 'characters' || 'unit' in t),
+					label,
+				);
+				const characters = target.include === 'characters' ? 1 : 0;
+				const expected =
+					(target.side === 'enemy' ? 0 : 1 + characters) +
+					(target.side === 'friendly' ? 0 : 2 + characters);
+				assert.equal(listed.length, expected, label);
+			}
+		}
+	}
 });
 
 check('shield absorbs one whole hit, then is gone', () => {
@@ -807,6 +942,61 @@ check("a summoned unit's onPlay does not fire", () => {
 	);
 });
 
+check("a death summon takes the dead unit's place when units beside it die too", () => {
+	const m = table({
+		mine: { hand: ['rain-of-ash', 'rain-of-ash'] },
+		theirs: { board: ['sproutling', 'husk', 'dummy'] },
+	});
+	const rained = playCard(m, 'rain-of-ash').match;
+	assert.deepEqual(
+		them(rained).board.map((c) => c.cardId),
+		['sproutling', 'dummy'],
+	);
+	assert.notEqual(them(rained).board[0].uid, them(m).board[0].uid, 'a new sproutling');
+	const pair = table({
+		mine: { hand: ['rain-of-ash'] },
+		theirs: { board: ['husk', 'hollow-seed', 'dummy'] },
+	});
+	const { match, events } = playCard(pair, 'rain-of-ash');
+	assert.deepEqual(
+		them(match).board.map((c) => c.cardId),
+		['sproutling', 'sproutling', 'sproutling', 'dummy'],
+	);
+	assert.deepEqual(
+		ofType(events, 'summoned').map((e) => e.slot),
+		[0, 1, 2],
+		"husk's sproutling first, then hollow seed's two, each in the dead unit's place",
+	);
+});
+
+check('onDamaged and onDeath raised by one effect share one order: the active player first', () => {
+	const m = table({
+		phase: 'combat',
+		mine: { board: ['last-word'], deck: ['dummy'] },
+		theirs: { board: ['spiteful'] },
+	});
+	const { events } = apply(m, {
+		type: 'attack',
+		attacker: me(m).board[0].uid,
+		target: { unit: them(m).board[0].uid },
+	});
+	const drew = events.findIndex((e) => e.type === 'drawn');
+	const pinged = events.findIndex((e) => e.type === 'damaged' && 'hero' in e.target);
+	assert.ok(drew >= 0 && pinged >= 0, 'both triggers resolved');
+	assert.ok(drew < pinged, "my unit's onDeath resolves before their unit's onDamaged");
+});
+
+check("an action's target is stored as the legal target, nothing more", () => {
+	const m = table({ phase: 'combat', mine: { board: ['brute'] }, theirs: { board: ['dummy'] } });
+	const dummy = them(m).board[0].uid;
+	const junk = { unit: dummy, junk: [1] };
+	const { events } = apply(m, { type: 'attack', attacker: me(m).board[0].uid, target: junk });
+	assert.deepEqual(ofType(events, 'attacked')[0].target, { unit: dummy });
+	const play = table({ mine: { hand: ['cinder-bolt'] } });
+	const bolt = playCard(play, 'cinder-bolt', { target: { hero: 1, extra: true } });
+	assert.deepEqual(ofType(bolt.events, 'damaged')[0].target, { hero: 1 });
+});
+
 check(`a loop ends the match as a draw after ${MAX_QUEUE_STEPS} effects`, () => {
 	const m = table({
 		mine: { hand: ['cinder-bolt'], board: ['mirror-golem'] },
@@ -851,6 +1041,22 @@ check('a hero at 0 loses; both at 0 together is a draw', () => {
 	const { match, events } = playCard(mutual, 'backfire', { target: { hero: 0 } });
 	assert.deepEqual(match.result, { winner: 'draw', reason: 'hero' });
 	assert.deepEqual(events.at(-1), { type: 'matchEnded', winner: 'draw', reason: 'hero' });
+});
+
+check('malformed rules throw', () => {
+	const make = (rules) => () =>
+		createMatch({ seed: 'r', decks: [DECK, DECK], library: LIBRARY, rules });
+	for (const rules of [
+		{ turnLimit: 0 },
+		{ handLimit: '10' },
+		{ boardLimit: 2.5 },
+		{ startHealth: 0 },
+		{ openingHand: -1 },
+		{ resource: { perTurn: -1 } },
+	]) {
+		assert.throws(make(rules), /must be a whole number/, JSON.stringify(rules));
+	}
+	assert.doesNotThrow(make({ openingHand: 0, resource: { start: 0 } }));
 });
 
 check('the turn limit ends the match as a draw', () => {

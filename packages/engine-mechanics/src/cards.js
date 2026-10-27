@@ -86,7 +86,7 @@ export function readLibrary(library) {
 			dropped.push(`${at}: not a card`);
 			return;
 		}
-		if (raw.type !== undefined && raw.type !== 'unit' && raw.type !== 'spell') {
+		if (unknownIn(['unit', 'spell'], raw.type)) {
 			dropped.push(`${at}: type "${raw.type}"`);
 			return;
 		}
@@ -97,9 +97,9 @@ export function readLibrary(library) {
 		}
 		if (Array.isArray(raw.keywords)) {
 			card.keywords = raw.keywords.filter((keyword) => {
-				const known = CARD_KEYWORDS.includes(keyword);
-				if (!known) dropped.push(`${at}.keywords: "${keyword}"`);
-				return known;
+				const unknown = unknownIn(CARD_KEYWORDS, keyword);
+				if (unknown) dropped.push(`${at}.keywords: "${keyword}"`);
+				return !unknown;
 			});
 		}
 		if (Array.isArray(raw.effects)) {
@@ -154,6 +154,7 @@ function readEffect(raw, at, dropped) {
 		dropped.push(`${at}: ${unknown}`);
 		return null;
 	}
+	if (!EFFECT_FIELDS[raw.verb]) return { ...raw };
 	const effect = { trigger: raw.trigger, verb: raw.verb };
 	for (const key of Object.keys(raw)) {
 		if (key === 'trigger' || key === 'verb') continue;
@@ -166,35 +167,33 @@ function readEffect(raw, at, dropped) {
 	return effect;
 }
 
-/** The first value outside a closed list that drops the whole effect, described; else null. */
+/**
+ * The first value outside a closed list that drops the whole effect, described; else null. Only a
+ * string can be unknown: a missing value or one of the wrong type is malformed, kept for the
+ * validator to refuse (doc-readers.md, "What counts as unknown").
+ */
 function unknownValue(raw) {
-	if (!CARD_TRIGGERS.includes(raw.trigger)) return `trigger "${raw.trigger}"`;
-	if (!CARD_VERBS.includes(raw.verb)) return `verb "${raw.verb}"`;
-	if (raw.verb === 'giveKeyword' && !CARD_KEYWORDS.includes(raw.keyword)) {
+	if (unknownIn(CARD_TRIGGERS, raw.trigger)) return `trigger "${raw.trigger}"`;
+	if (unknownIn(CARD_VERBS, raw.verb)) return `verb "${raw.verb}"`;
+	if (raw.verb === 'giveKeyword' && unknownIn(CARD_KEYWORDS, raw.keyword)) {
 		return `keyword "${raw.keyword}"`;
 	}
-	if (raw.verb === 'buff' && raw.until !== undefined && !UNTILS.includes(raw.until)) {
-		return `until "${raw.until}"`;
-	}
+	if (raw.verb === 'buff' && unknownIn(UNTILS, raw.until)) return `until "${raw.until}"`;
 	const target = raw.target;
 	if (!isRecord(target)) return null;
-	if (!CARD_TARGET_KINDS.includes(target.kind)) return `target "${target.kind}"`;
-	const fields = TARGET_FIELDS[target.kind];
-	if (fields.includes('side') && target.side !== undefined && !SIDES.includes(target.side)) {
-		return `side "${target.side}"`;
-	}
-	if (
-		fields.includes('include') &&
-		target.include !== undefined &&
-		!INCLUDES.includes(target.include)
-	) {
+	if (unknownIn(CARD_TARGET_KINDS, target.kind)) return `target "${target.kind}"`;
+	const fields = TARGET_FIELDS[target.kind] ?? [];
+	if (fields.includes('side') && unknownIn(SIDES, target.side)) return `side "${target.side}"`;
+	if (fields.includes('include') && unknownIn(INCLUDES, target.include)) {
 		return `include "${target.include}"`;
 	}
 	return null;
 }
 
+const unknownIn = (list, value) => typeof value === 'string' && !list.includes(value);
+
 function readTarget(raw, at, dropped) {
-	if (!isRecord(raw)) return raw;
+	if (!isRecord(raw) || !TARGET_FIELDS[raw.kind]) return raw;
 	const target = { kind: raw.kind };
 	for (const key of Object.keys(raw)) {
 		if (key === 'kind') continue;
@@ -420,7 +419,11 @@ function checkRange(value, range, path, error) {
 	}
 }
 
-/** Cards whose death or damage summons lead, card to card, back to themselves. */
+/**
+ * Cards whose death or damage summons lead, card to card, back to themselves. Only `onDeath` and
+ * `onDamaged` can fire again inside one action; a `turnStart` or `onAttack` summon fires once per
+ * turn or attack, so it cannot loop.
+ */
 function summonCycles(list) {
 	const edges = new Map();
 	for (const card of list) {
@@ -534,7 +537,9 @@ const capitalize = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 /**
  * A new match: both decks shuffled, the opening hands dealt (the second player gets one more) and
  * turn 1 run to `main`. `decks[0]` is side 0's. `first` is 0, 1 or `'random'` (drawn from the
- * match's stream). Throws on a library with errors or a deck naming a card the library lacks.
+ * match's stream). Throws on a library with errors, a deck naming a card the library lacks, or
+ * malformed rules. `dropped` is what reading the library dropped (`readLibrary`), for the caller
+ * to warn with.
  */
 export function createMatch({ seed, decks, library, rules, first = 'random' }) {
 	const read = readLibrary(library);
@@ -575,7 +580,7 @@ export function createMatch({ seed, decks, library, rules, first = 'random' }) {
 	});
 	const m = ctx.match;
 	decks.forEach((deck, side) => {
-		for (const id of deckIds(deck?.cards ?? deck)) {
+		for (const id of deckIds(deck)) {
 			if (!byId[id])
 				throw new Error(`cards: deck ${side} names "${id}", which is not in the library`);
 			m.players[side].deck.push(instance(m, id, side));
@@ -587,24 +592,45 @@ export function createMatch({ seed, decks, library, rules, first = 'random' }) {
 	for (let i = 0; i < resolved.openingHand; i++) drawCard(ctx, m.active);
 	for (let i = 0; i < resolved.openingHand + 1; i++) drawCard(ctx, second);
 	beginTurn(ctx);
-	return { match: m, events: ctx.events };
+	return { match: m, events: ctx.events, dropped: read.dropped };
 }
+
+/** Each rule's smallest allowed value; every rule is a whole number. */
+const RULE_MINIMUMS = {
+	startHealth: 1,
+	openingHand: 0,
+	handLimit: 1,
+	boardLimit: 1,
+	turnLimit: 1,
+	start: 0,
+	perTurn: 0,
+	max: 0,
+};
 
 function resolveRules(rules = {}) {
 	const d = CARD_RULE_DEFAULTS;
 	const r = isRecord(rules) ? rules : {};
 	const resource = isRecord(r.resource) ? r.resource : {};
+	const rule = (source, key, fallback) => {
+		const value = source[key] ?? fallback;
+		if (!Number.isInteger(value) || value < RULE_MINIMUMS[key]) {
+			throw new Error(
+				`cards: the rule ${key} must be a whole number of at least ${RULE_MINIMUMS[key]} (got ${show(value)})`,
+			);
+		}
+		return value;
+	};
 	return {
-		startHealth: r.startHealth ?? d.startHealth,
-		openingHand: r.openingHand ?? d.openingHand,
-		handLimit: r.handLimit ?? d.handLimit,
-		boardLimit: r.boardLimit ?? d.boardLimit,
+		startHealth: rule(r, 'startHealth', d.startHealth),
+		openingHand: rule(r, 'openingHand', d.openingHand),
+		handLimit: rule(r, 'handLimit', d.handLimit),
+		boardLimit: rule(r, 'boardLimit', d.boardLimit),
 		resource: {
-			start: resource.start ?? d.resource.start,
-			perTurn: resource.perTurn ?? d.resource.perTurn,
-			max: resource.max ?? d.resource.max,
+			start: rule(resource, 'start', d.resource.start),
+			perTurn: rule(resource, 'perTurn', d.resource.perTurn),
+			max: rule(resource, 'max', d.resource.max),
 		},
-		turnLimit: r.turnLimit ?? d.turnLimit,
+		turnLimit: rule(r, 'turnLimit', d.turnLimit),
 	};
 }
 
@@ -690,10 +716,11 @@ function play(ctx, action) {
 		throw new IllegalAction('boardFull', 'the board is full');
 	}
 	const targets = chosenTargets(m, card);
+	const target = targets?.find((t) => sameTarget(t, action.target));
 	if (targets === null) {
 		if (action.target !== undefined)
 			throw new IllegalAction('target', `${card.cardId} takes no target`);
-	} else if (!targets.some((t) => sameTarget(t, action.target))) {
+	} else if (!target) {
 		throw new IllegalAction('target', `${card.cardId} needs a legal chosen target`);
 	}
 	let slot = null;
@@ -715,7 +742,7 @@ function play(ctx, action) {
 		me.discard.push(card);
 	}
 	ctx.events.push({ type: 'played', player: m.active, uid: card.uid, slot });
-	queueTrigger(m, card, 'onPlay', targets === null ? {} : { target: { ...action.target } });
+	queueTrigger(m, card, 'onPlay', target ? { target } : {});
 	settle(ctx);
 }
 
@@ -730,13 +757,12 @@ function attack(ctx, action) {
 	if (unit.summonedOnTurn === m.turn && !unit.keywords.includes('swift')) {
 		throw new IllegalAction('arrived', `unit ${unit.uid} arrived this turn and is not swift`);
 	}
-	if (!attackTargets(m).some((t) => sameTarget(t, action.target))) {
-		throw new IllegalAction('target', 'that is not a legal attack target (guard?)');
-	}
+	const target = attackTargets(m).find((t) => sameTarget(t, action.target));
+	if (!target) throw new IllegalAction('target', 'that is not a legal attack target (guard?)');
 	unit.attacksLeft -= 1;
-	ctx.events.push({ type: 'attacked', attacker: unit.uid, target: { ...action.target } });
+	ctx.events.push({ type: 'attacked', attacker: unit.uid, target: { ...target } });
 	queueTrigger(m, unit, 'onAttack');
-	m.queue.push({ combat: true, attacker: unit.uid, target: { ...action.target } });
+	m.queue.push({ combat: true, attacker: unit.uid, target });
 	settle(ctx);
 }
 
@@ -769,16 +795,18 @@ function endTurn(ctx) {
 		for (const unit of m.players[side].board) {
 			const lapsing = unit.buffs.filter((b) => b.until === 'endOfTurn');
 			if (!lapsing.length) continue;
-			for (const buff of lapsing) {
-				unit.attack -= buff.attack;
-				unit.health -= buff.health;
-			}
+			const health = lapsing.reduce((sum, b) => sum + b.health, 0);
+			unit.attack -= lapsing.reduce((sum, b) => sum + b.attack, 0);
+			unit.health -= health;
+			if (health > 0) unit.damage = Math.min(unit.damage, Math.max(0, unit.health - 1));
 			unit.buffs = unit.buffs.filter((b) => b.until !== 'endOfTurn');
 			expired.push(unit.uid);
 		}
 	}
 	if (expired.length) ctx.events.push({ type: 'buffsExpired', uids: expired });
-	deathCheck(ctx, new Set());
+	const raised = [];
+	deathCheck(ctx, new Set(), raised);
+	queueRaised(m, raised);
 	settle(ctx);
 	if (m.result) return;
 	if (m.turn >= m.rules.turnLimit) return finish(ctx, 'draw', 'turnLimit');
@@ -816,8 +844,8 @@ function settle(ctx) {
 		const doomed = new Set();
 		if (item.combat) resolveCombat(ctx, item, raised);
 		else resolveEffect(ctx, item, raised, doomed);
+		deathCheck(ctx, doomed, raised);
 		queueRaised(m, raised);
-		deathCheck(ctx, doomed);
 	}
 	if (m.result) return;
 	const [a, b] = m.players.map((p) => p.health <= 0);
@@ -842,7 +870,11 @@ function effectsFor(m, card, trigger, extra = {}) {
 	return items;
 }
 
-/** Triggers an effect raised go to the back: the active player's first, then in board order. */
+/**
+ * Triggers an effect raised (`onDamaged`, then the death check's `onDeath`) go to the back: the
+ * active player's first, then in board order. Positions are read before the dead leave the board,
+ * and the sort is stable, so one unit's `onDamaged` stays ahead of its `onDeath`.
+ */
 function queueRaised(m, raised) {
 	raised.sort((a, b) => rank(m, a.owner) - rank(m, b.owner) || a.pos - b.pos);
 	for (const entry of raised) m.queue.push(...entry.items);
@@ -993,7 +1025,8 @@ function summon(ctx, item, effect) {
 	const m = ctx.match;
 	const board = m.players[item.owner].board;
 	const source = board.findIndex((u) => u.uid === item.source);
-	let at = source >= 0 ? source + 1 : Math.min(item.at ?? board.length, board.length);
+	const anchor = board.findIndex((u) => u.uid === item.anchor);
+	let at = source >= 0 ? source + 1 : anchor >= 0 ? anchor : board.length;
 	for (let i = 0; i < (effect.count ?? 1); i++) {
 		if (board.length >= m.rules.boardLimit) return;
 		const unit = instance(m, effect.card, item.owner);
@@ -1008,15 +1041,19 @@ function summon(ctx, item, effect) {
 /**
  * Every unit with damage at or past its health, or destroyed by the last effect, dies at once: in
  * board order, the active player's first. Each goes to its owner's discard pile and its `onDeath`
- * effects are queued, carrying the slot it left (a death summon takes its place).
+ * effects are raised, each carrying the nearest unit to its right that survives (`anchor`), so a
+ * death summon takes the dead unit's place however the board shifts before it resolves.
  */
-function deathCheck(ctx, doomed) {
+function deathCheck(ctx, doomed, raised) {
 	const m = ctx.match;
 	const dying = [];
 	for (const side of turnOrder(m)) {
 		const board = m.players[side].board;
+		const dies = (unit) => unit.damage >= unit.health || doomed.has(unit.uid);
 		board.forEach((unit, pos) => {
-			if (unit.damage >= unit.health || doomed.has(unit.uid)) dying.push({ unit, pos, side });
+			if (!dies(unit)) return;
+			const anchor = board.slice(pos + 1).find((u) => !dies(u))?.uid ?? null;
+			dying.push({ unit, pos, side, anchor });
 		});
 	}
 	if (!dying.length) return;
@@ -1024,10 +1061,11 @@ function deathCheck(ctx, doomed) {
 		const player = m.players[side];
 		player.board = player.board.filter((u) => !dying.some((d) => d.unit === u));
 	}
-	for (const { unit, pos, side } of dying) {
+	for (const { unit, pos, side, anchor } of dying) {
 		m.players[side].discard.push(unit);
 		ctx.events.push({ type: 'died', uid: unit.uid });
-		queueTrigger(m, unit, 'onDeath', { at: pos });
+		const items = effectsFor(m, unit, 'onDeath', { anchor });
+		if (items.length) raised.push({ owner: unit.owner, pos, items });
 	}
 }
 

@@ -116,8 +116,9 @@ export type QueuedEffect =
 			index: number;
 			/** The play's chosen target, on an `onPlay` effect of a card that chooses. */
 			target?: TargetRef;
-			/** The board slot a dead unit left, on its `onDeath` effects. */
-			at?: number;
+			/** On a dead unit's `onDeath` effects: the nearest unit to its right that survived, which a
+			 *  death summon is placed before; `null` for the right end. */
+			anchor?: number | null;
 	  }
 	| { combat: true; attacker: number; target: TargetRef };
 
@@ -205,8 +206,9 @@ export const CARD_VERB_TARGETS: Readonly<Record<CardEffect['verb'], 'any' | 'uni
 export const CARD_RULE_DEFAULTS: Readonly<CardRules>;
 export const MAX_QUEUE_STEPS: number;
 
-/** Known fields only; unknown verbs, triggers, targets and card types drop their effect or card,
- *  an unknown keyword drops the keyword. Each drop is named in `dropped`. */
+/** Known fields only; an unknown verb, trigger, target, side, include or `until` drops its effect,
+ *  an unknown card type the card, an unknown keyword the keyword. Only a string is unknown: a value
+ *  of the wrong type is kept for the validator to refuse. Each drop is named in `dropped`. */
 export function readLibrary(library: unknown): { library: CardDef[]; dropped: string[] };
 
 /** The §3.6 checks. `decks` adds the "no deck uses it" and "token in a deck" warnings. */
@@ -218,15 +220,16 @@ export function validateLibrary(
 /** One English sentence per effect, in authored order. */
 export function cardText(card: CardDef, library?: readonly CardDef[]): string[];
 
-/** Shuffles, deals and runs turn 1 to `main`. Throws on a library with errors or an unknown deck
- *  card. */
+/** Shuffles, deals and runs turn 1 to `main`. Throws on a library with errors, an unknown deck
+ *  card, or a rule that is not a whole number at or above its minimum. `dropped` is what reading
+ *  the library dropped, for the caller to warn with. */
 export function createMatch(options: {
 	seed: string | number;
 	decks: readonly [DeckList, DeckList];
 	library: readonly unknown[];
 	rules?: CardRulesInput;
 	first?: Side | 'random';
-}): { match: Match; events: CardEvent[] };
+}): { match: Match; events: CardEvent[]; dropped: string[] };
 
 /** Plays are listed without `slot`; any slot from 0 to the board's length is legal for them. */
 export function legalActions(match: Match): Action[];

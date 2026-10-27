@@ -745,12 +745,29 @@ check('createMatch loads a library carrying unknown fields and an unknown verb',
 		validateLibrary(library).some((i) => i.severity === 'error'),
 		'the validator refuses it',
 	);
-	const { match } = createMatch({ seed: 1, decks: [DECK, DECK], library, first: 0 });
+	const { match, dropped } = createMatch({ seed: 1, decks: [DECK, DECK], library, first: 0 });
+	assert.deepEqual(dropped, readLibrary(library).dropped, 'the drops come back for a warning');
+	assert.ok(dropped.length > 0);
 	assert.equal(match.phase, 'main');
 	assert.deepEqual(match.library.a, unit('a', { effects: [] }));
 	assert.deepEqual(match.library.b.keywords, ['guard']);
 	assert.deepEqual(match.library.b.effects, [hit(T.anyChar)]);
 	assert.equal(match.library.c, undefined);
+});
+
+check('a value of the wrong type is malformed, not unknown: it is kept and refused', () => {
+	const library = [
+		{ ...unit('a'), type: 3 },
+		unit('b', { keywords: ['guard', 7] }),
+		unit('c', { effects: [{ ...hit(T.allUnits), verb: 5 }] }),
+		unit('d', { effects: [hit({ kind: 9, include: 'units' })] }),
+	];
+	const read = readLibrary(library);
+	assert.deepEqual(read.dropped, []);
+	assert.deepEqual(read.library, library);
+	const codes = validateLibrary(read.library).map((i) => `${i.card} ${i.code}`);
+	assert.deepEqual(codes, ['a type', 'b keyword', 'c verb', 'd target']);
+	assert.throws(() => createMatch({ seed: 1, decks: [[], []], library }), /4 error/);
 });
 
 check('createMatch throws on a library with a real error', () => {
