@@ -1,8 +1,7 @@
-import type { SoundBindings, SoundCatalog, SoundCatalogEntry } from 'engine-layout';
-import { effectiveSoundBindings, soundCatalogEntries } from 'engine-layout';
+import type { SoundCatalog, SoundCatalogEntry } from 'engine-layout';
+import { soundCatalogEntries } from 'engine-layout';
 import { capAudioBitrate, isTranscodableAudio } from './audioTranscode';
 import { ENV } from './env';
-import { loadGameConfigDoc } from './gameConfigStorage';
 import { SUB, soundFileKey } from './projectPaths';
 import {
 	copyObject,
@@ -15,8 +14,8 @@ import {
 	putObjectBytes,
 	putObjectText,
 } from './r2';
+import { resolveSoundBindings } from './soundLegacy';
 import { loadSoundsDoc } from './soundsStorage';
-import { loadSymbolsDoc } from './symbolsStorage';
 
 /**
  * Export a project's sound library + the audio files it references into the game-loadable
@@ -87,7 +86,7 @@ export async function exportProjectSounds(
 		return pruneAndReturn(empty);
 	}
 
-	const bindings = await resolveBindings(clientKey, projectKey, doc);
+	const bindings = await resolveSoundBindings(clientKey, projectKey, doc);
 
 	const written = new Set<string>();
 	const exported: SoundCatalogEntry[] = [];
@@ -229,38 +228,4 @@ async function exportOneFile(
 
 	cache.files[file] = { etag: head.etag, size: head.size, kbps, capped: !!capped };
 	return true;
-}
-
-/**
- * The project's effective choices, migrated on the fly from the OLD homes when this project has not
- * saved them here yet.
- *
- * Whole-doc, never per-field: if the sounds doc carries a `bindings` block it is the entire answer,
- * exactly as {@link effectiveSoundBindings} defines it. A per-field merge would make a deliberately
- * cleared cue reappear from the config doc that still holds it, which is the failure mode this
- * migration exists to end rather than reproduce.
- *
- * A failed read of either legacy doc is swallowed: it can only ever have made the fallback richer,
- * and the whole export must not die because a config doc is momentarily unreadable. Returns
- * `undefined` when nothing anywhere binds a sound, so an untouched project ships no block at all.
- */
-async function resolveBindings(
-	clientKey: string,
-	projectKey: string,
-	doc: Awaited<ReturnType<typeof loadSoundsDoc>>,
-): Promise<SoundBindings | undefined> {
-	if (doc?.bindings) return doc.bindings;
-
-	const [config, symbols] = await Promise.all([
-		loadGameConfigDoc(clientKey, projectKey).catch(() => null),
-		loadSymbolsDoc(clientKey, projectKey).catch(() => null),
-	]);
-
-	const migrated = effectiveSoundBindings(doc, {
-		configSounds: config?.sounds,
-		symbolSounds: (symbols as { symbolSounds?: unknown } | null)?.symbolSounds,
-		anticipation: (symbols as { anticipation?: unknown } | null)?.anticipation,
-		winLevels: config?.winLevels,
-	});
-	return Object.keys(migrated).length ? migrated : undefined;
 }

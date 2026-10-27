@@ -3836,6 +3836,7 @@
 							layoutType={currentLayoutType}
 							{baseLayoutType}
 							layoutLabel={activeProfile.buckets.find((b) => b.id === currentLayoutType)?.label}
+							cueLists={data.cueLists}
 						/>
 					</div>
 				{/if}
@@ -4539,6 +4540,7 @@
 					addOns: data.addOns,
 					canPublishShared: data.canPublishShared,
 					flowVariables: data.flowVariables,
+					cueLists: data.cueLists,
 					gameType: projectGameType,
 					mainSizesMap: data.doc.mainSizesMap,
 				}}

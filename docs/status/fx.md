@@ -136,6 +136,16 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-27 — **Invisible Director can re-skin an effect's particle art and colours** (Director
+  card 9H, [ADR-0011](../director/DECISIONS/0011-reskin-adapters-sound-fx-components.md), PR #1413,
+  in review). Two adapter ops for the animator agent, `fx.get_effect` and `fx.update_art`
+  (`apps/launcher-api/src/lib/server/director/ops/fx.ts`), save through `saveEffect` with
+  `baseEtag` (the loaded sidecar is passed back, so a person's camera survives). An existing
+  layer's `art.assetKey` (an atlas from `fxAtlases.ts`, the `/fx` loader's listing moved there
+  verbatim), its frames and weights, and the values of its existing `color` / `colorStatic` stops
+  change. Nothing else in the doc does: no emitter field, behaviour, placement, trigger, material,
+  param or layer. Rig-particle layers, a colour a param drives, and an effect placed by a node
+  bound to the math (also inside a component) are refused. The `/fx` page is unchanged.
 - 2026-10-27 — **The Scene Editor plays effects at game speed** (branch
   `claude/shader-graph-step8d6-clock`). `EditorEffectLayer` (the Scene and Component Editor
   overlay) advanced its emitters by `ticker.deltaMS / 1000`, wall-clock seconds, where the game,

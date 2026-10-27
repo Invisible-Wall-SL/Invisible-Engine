@@ -3,13 +3,16 @@ import { ADAPTER_TOOL_IDS, isDirectorAgent, type AdapterOp } from './adapter';
 import { ATLAS_OPS } from './ops/atlas';
 import { ATLAS_SETUP_OPS } from './ops/atlasSetup';
 import { BUGS_OPS } from './ops/bugs';
+import { COMPONENT_OPS } from './ops/components';
 import { FLIPBOOK_OPS } from './ops/flipbook';
 import { FONTS_OPS } from './ops/fonts';
+import { FX_OPS } from './ops/fx';
 import { GAMEMAKER_OPS } from './ops/gamemaker';
 import { LOCALIZATION_OPS } from './ops/localization';
 import { MOCKUP_OPS } from './ops/mockups';
 import { RIGGER_OPS } from './ops/rigger';
 import { SCENE_OPS } from './ops/scene';
+import { SOUND_OPS } from './ops/sound';
 import { SYMBOLS_OPS } from './ops/symbols';
 import { WINTEXT_OPS } from './ops/wintext';
 import { assertNoRefusedOps } from './refusals';
@@ -78,5 +81,8 @@ export const ADAPTER_OPS = buildRegistry([
 	...FONTS_OPS,
 	...RIGGER_OPS,
 	...FLIPBOOK_OPS,
+	...SOUND_OPS,
+	...FX_OPS,
+	...COMPONENT_OPS,
 	...BUGS_OPS,
 ]);
