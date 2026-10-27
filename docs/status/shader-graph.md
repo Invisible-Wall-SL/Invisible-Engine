@@ -301,7 +301,7 @@ built and in review; 8d.7 (`/shaders`: Made for particles and the Particles prev
         library refuses, and a finished one-shot in the overlay (a built play whose emitters
         stopped with no particles left now ends by itself, as the game unmounts a binding's
         effect; it covers plain bursts too) all give their slot back.
-      - **Gate:** `fx-previews` (in `check:all`, ~105 s, 50 checks) plays the committed
+      - **Gate:** `fx-previews` (in `check:all`, ~105 s, 52 checks) plays the committed
         `rigger-fx.js` and `EditorEffectLayer` headless on WebGL1 and WebGL2, and runs
         `view.html`'s real `ensureFxBundle` (race, hang) and `node --check` on its inline scripts.
       - **The Scene Editor's clock** ran about 2.3× slow for every effect (found in this step's
@@ -635,13 +635,14 @@ built and in review; 8d.7 (`/shaders`: Made for particles and the Particles prev
 
 ## Recent changes
 - 2026-10-27 — **Step 8d.6: the other previews** (see "Current state").
-  - **Proof.** `fx-previews` (new, in `check:all`) 50/50, four runs; `fx-page` 31/31;
-    `particle-material`; `check:vendored-bundles`; `check:symbol-fx` 39; `check:fx-node-params`
-    105; `check:rig-fx-overrides`; `check:element-fx-flow` 20; `check:screen-cue-fx`;
-    `check:shader-pipeline` 148; `check:launcher-gates` 661; the editor parity and GL-context
-    checks; svelte-check at baseline; launcher build. Each new harness case fails under its
-    mutation (both editor unmount guards removed, a throw keeping its slot, the old `view.html`
-    fast path, no timeout, no auto-dispose).
+  - **Proof.** `fx-previews` (new, in `check:all`) 52/52, the editor clock case included;
+    `fx-page` 31/31; `particle-material`; `check:vendored-bundles`; `check:symbol-fx` 39;
+    `check:fx-node-params` 105; `check:rig-fx-overrides`; `check:element-fx-flow` 20;
+    `check:screen-cue-fx`; `check:shader-pipeline` 148; `check:launcher-gates` 661; the editor
+    parity and GL-context checks; svelte-check at baseline; launcher build; `check:all` 567/567.
+    Each new harness case fails under its mutation (both editor unmount guards removed, a throw
+    keeping its slot, the old `view.html` fast path, no timeout, no auto-dispose, the editor's old
+    wall-clock step: on screen ~850 ms against a 640 ms limit).
   - **Review.** Fixed: an editor unmount while art loaded, or an emitter config that threw, held
     a slot for good; two Rigger bands could draw before the set registered; the set's fetch had no
     timeout; finished overlay one-shots held their slots until cleared; the overlay's material sync
