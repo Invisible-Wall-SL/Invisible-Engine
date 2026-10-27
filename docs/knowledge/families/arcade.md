@@ -71,17 +71,17 @@ A seed and the same keys replay the same game.
 
 ## Where the code lives
 
-| Area | Paths |
-|---|---|
-| Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,online}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/` |
-| Loop | `packages/engine-game/src/game/arcadeLoop.ts`, `arcadeCharacters.ts`, `mechanic.ts` |
-| Runtime | `apps/lines/src/components/ArcadeStage.svelte`, `apps/lines/src/game/arcade.ts`, `online.ts`, `flowKeys.ts`, `flowBoardEffects.ts` |
-| Layout | `packages/engine-layout/src/lib/SpawnLayer.svelte`, `worldCamera.ts`, `worldCameraView.svelte.ts`, `tilemapNodes.ts`, `Tilemap.svelte`, `pathNodes.ts`, `arcadeLifts.svelte.ts`, `templates/arcade.ts`, `referenceLayouts/arcade*.ts` |
-| Flow | `packages/engine-flow-v2/src/reference/arcade.ts` (`ARCADE_VOCAB`), `arcadeSeed.ts` (starter) and the sample seeds |
-| Config | `packages/game-config/src/family.ts`, `familyValidate.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`; seed `apps/launcher-api/src/lib/data/gameConfig/arcade.rules.json` |
-| Characters tool | `apps/launcher-api/src/routes/(app)/characters/`, `apps/launcher-api/src/lib/characters/characterEdit.ts` |
-| Editor | `EditorWorldCamera.svelte`, `EditorParallax.svelte`, `EditorSpawnLayer.svelte`, `EditorTilemap.svelte`, `tilemapPaint.client.svelte.ts` in `apps/launcher-api/src/routes/(app)/editor/` |
-| Game server | `services/game-server/src/` (`arcadeRoom.ts`, `roomSim.ts`, `socketGuard.ts`, `addresses.ts`, `configSource.ts`); `packages/engine-rooms` |
+| Area                  | Paths                                                                                                                                                                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,online}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/`                                                                                               |
+| Loop                  | `packages/engine-game/src/game/arcadeLoop.ts`, `arcadeCharacters.ts`, `mechanic.ts`                                                                                                                                                   |
+| Runtime               | `apps/lines/src/components/ArcadeStage.svelte`, `apps/lines/src/game/arcade.ts`, `online.ts`, `flowKeys.ts`, `flowBoardEffects.ts`                                                                                                    |
+| Layout                | `packages/engine-layout/src/lib/SpawnLayer.svelte`, `worldCamera.ts`, `worldCameraView.svelte.ts`, `tilemapNodes.ts`, `Tilemap.svelte`, `pathNodes.ts`, `arcadeLifts.svelte.ts`, `templates/arcade.ts`, `referenceLayouts/arcade*.ts` |
+| Flow                  | `packages/engine-flow-v2/src/reference/arcade.ts` (`ARCADE_VOCAB`), `arcadeSeed.ts` (starter) and the sample seeds                                                                                                                    |
+| Config                | `packages/game-config/src/family.ts`, `familyValidate.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`; seed `apps/launcher-api/src/lib/data/gameConfig/arcade.rules.json`                                                               |
+| Characters tool       | `apps/launcher-api/src/routes/(app)/characters/`, `apps/launcher-api/src/lib/characters/characterEdit.ts`                                                                                                                             |
+| Editor                | `EditorWorldCamera.svelte`, `EditorParallax.svelte`, `EditorSpawnLayer.svelte`, `EditorTilemap.svelte`, `tilemapPaint.client.svelte.ts` in `apps/launcher-api/src/routes/(app)/editor/`                                               |
+| Game server           | `services/game-server/src/` (`arcadeRoom.ts`, `roomSim.ts`, `socketGuard.ts`, `addresses.ts`, `configSource.ts`); `packages/engine-rooms`                                                                                             |
 
 ## Known failure modes
 
@@ -94,7 +94,7 @@ A seed and the same keys replay the same game.
 - **Symptom:** the loading screen stays up after the tap. **Cause:** an edit deleted the starter's
   `complete:loading` chain, which starts the round (`arcadeSeed.ts`). **Guard:** none.
 - **Symptom:** every standalone game repo's Publish failed with `Rollup failed to resolve import
-  "@colyseus/sdk"`, online or not. **Cause:** the SDK was declared in `apps/lines` only; game repos
+"@colyseus/sdk"`, online or not. **Cause:** the SDK was declared in `apps/lines` only; game repos
   install from their own root and the desktop backfill adds only workspace packages. **Guard:**
   `check:game-app-deps`; the SDK lives in `packages/engine-rooms` (PR #1397).
 - **Symptom:** the current-games check failed every PR on the arcade row. **Cause:** the harness

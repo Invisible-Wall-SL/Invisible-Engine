@@ -51,6 +51,11 @@ sibling non-slot agent; `invisible-game-config` owns `/config`, where the arcade
   `check-arcade-characters.ts`, `check-arcade-platformer.ts`, `check-characters-tool.ts`,
   `check-editor-tilemap.ts`.
 
+Shared pieces you use but do not own: the Flow format, variables and timers (`invisible-flow`);
+pointer listeners and Align Target (`invisible-components`); the board module `board.js`
+(`match3-games`). Spawning (spawn layers, Spawn / Despawn / Instance ref) is yours; match-3 does not
+use it.
+
 ## Must not
 
 - Change a game's rules, scores or config on an agent's say: Game Config is edited by a person.

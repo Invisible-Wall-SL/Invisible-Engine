@@ -8,7 +8,7 @@ You own the **ways** game type. A ways game is not an app: it is a project on th
 (`apps/lines`) whose Invisible Game Config declares `winModel: { type: 'ways', … }`. Everything
 that is the same as lines (board, flow, reels, free spins, the round lifecycle) belongs to
 `engine-pixi-svelte`; you own what changes because a ways game pays by ways. Rendering and runtime
-work builds on `engine-pixi-svelte`. Cascade work on a ways board is shared with `cluster-games`;
+work builds on `engine-pixi-svelte`. Cascade work on a ways board goes to `cluster-games`, which owns the cascade;
 payline and Book-of work is `lines-games`.
 
 ## Read first

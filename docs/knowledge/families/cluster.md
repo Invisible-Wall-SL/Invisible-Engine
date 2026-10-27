@@ -60,24 +60,24 @@ broken it before. Owner agent: `cluster-games`.
 
 ## Where the code lives
 
-| What | Path |
-|---|---|
-| Kind list, capabilities | `packages/constants-shared/gameKinds.ts`, `packages/engine-layout/src/lib/kindCapabilities.ts` |
-| Win model, cascade flag | `packages/game-config/src/winModel.ts`, `packages/game-config/src/mechanics.ts` |
-| Divisor, active model | `packages/engine-game/src/game/gameConfig.ts` |
-| Win meter across a chain | `packages/engine-game/src/game/playBook.ts` (`advanceWinMeter`) |
-| Tumble state and layout | `apps/lines/src/game/stateTumble.svelte.ts`, `apps/lines/src/game/tumbleBoardLayout.ts` |
-| Tumble overlay and board | `apps/lines/src/components/TumbleBoard.svelte`, `apps/lines/src/components/Board.svelte`, `apps/lines/src/components/BoardBase.svelte` |
-| Book-event handlers | `apps/lines/src/game/bookEventHandlerMap.ts` (`tumbleBoard`, `updateTumbleWin`, `updateGlobalMult`) |
-| Win replay, win-line shape | `apps/lines/src/game/winSymbolCycle.ts`, `winLineShapeFor` in `apps/lines/src/game/flowEffects.ts` |
-| Beats, explode pattern, sound | `apps/lines/src/game/symbolBeat.ts`, `packages/engine-layout/src/lib/tumblePattern.ts`, `apps/lines/src/game/cascadeSoundStep.ts` |
-| Flow-v2 vocabulary, starter | `packages/engine-flow-v2/src/reference/cluster.ts`, `packages/engine-flow-v2/src/reference/drivenSeed.ts` |
-| Reference layout (editor only) | `packages/engine-layout/src/lib/referenceLayouts/cluster.ts` |
-| Wire translation | `packages/rgs-translator-eagaming/src/engineFacade.ts` (`tumbleStep`) |
-| Mock evaluator and chain | `scripts/mock-rgs-server.mjs` (`evaluateClusters`, `cascadeSteps`) |
-| Test server | `services/test-server/makeMock.mjs`, `services/test-server/server.mjs` |
-| Launcher mock protocol | `apps/launcher-api/src/lib/server/mockProtocol.ts` |
-| Upstream sample (reference) | `apps/cluster` |
+| What                           | Path                                                                                                                                   |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Kind list, capabilities        | `packages/constants-shared/gameKinds.ts`, `packages/engine-layout/src/lib/kindCapabilities.ts`                                         |
+| Win model, cascade flag        | `packages/game-config/src/winModel.ts`, `packages/game-config/src/mechanics.ts`                                                        |
+| Divisor, active model          | `packages/engine-game/src/game/gameConfig.ts`                                                                                          |
+| Win meter across a chain       | `packages/engine-game/src/game/playBook.ts` (`advanceWinMeter`)                                                                        |
+| Tumble state and layout        | `apps/lines/src/game/stateTumble.svelte.ts`, `apps/lines/src/game/tumbleBoardLayout.ts`                                                |
+| Tumble overlay and board       | `apps/lines/src/components/TumbleBoard.svelte`, `apps/lines/src/components/Board.svelte`, `apps/lines/src/components/BoardBase.svelte` |
+| Book-event handlers            | `apps/lines/src/game/bookEventHandlerMap.ts` (`tumbleBoard`, `updateTumbleWin`, `updateGlobalMult`)                                    |
+| Win replay, win-line shape     | `apps/lines/src/game/winSymbolCycle.ts`, `winLineShapeFor` in `apps/lines/src/game/flowEffects.ts`                                     |
+| Beats, explode pattern, sound  | `apps/lines/src/game/symbolBeat.ts`, `packages/engine-layout/src/lib/tumblePattern.ts`, `apps/lines/src/game/cascadeSoundStep.ts`      |
+| Flow-v2 vocabulary, starter    | `packages/engine-flow-v2/src/reference/cluster.ts`, `packages/engine-flow-v2/src/reference/drivenSeed.ts`                              |
+| Reference layout (editor only) | `packages/engine-layout/src/lib/referenceLayouts/cluster.ts`                                                                           |
+| Wire translation               | `packages/rgs-translator-eagaming/src/engineFacade.ts` (`tumbleStep`)                                                                  |
+| Mock evaluator and chain       | `scripts/mock-rgs-server.mjs` (`evaluateClusters`, `cascadeSteps`)                                                                     |
+| Test server                    | `services/test-server/makeMock.mjs`, `services/test-server/server.mjs`                                                                 |
+| Launcher mock protocol         | `apps/launcher-api/src/lib/server/mockProtocol.ts`                                                                                     |
+| Upstream sample (reference)    | `apps/cluster`                                                                                                                         |
 
 Scatter shares the whole cascade (its vocabulary is built on cluster's) and ways can author one;
 coordinate with `scatter-games` and `ways-games` on any cascade change.

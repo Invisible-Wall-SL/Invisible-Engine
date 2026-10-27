@@ -55,15 +55,15 @@ Owner agent: `hold-and-win-games`.
 
 ## Where the code lives
 
-| Layer | Paths |
-|---|---|
-| Config + presets | `packages/game-config/src/holdAndWin.ts`, `holdAndWinPresets.ts`, `holdAndWinGame.ts`, `coinBoard.ts`; seeds in `apps/launcher-api/src/lib/data/gameConfig` |
-| Mock RGS | `scripts/mock-holdandwin-engine.mjs` (shared with the pots overlay), `scripts/mock-rgs-server-holdandwin.mjs`, `services/test-server/makeMock.mjs` |
-| Facade | `packages/rgs-translator-eagaming/src/holdAndWin.ts`, `engineFacade.ts` |
-| Engine logic | `packages/engine-game/src/game/` (`holdAndWin.ts`, `respinBoard.ts`, `respinCount.ts`, `holdAndWinWheel.ts`, `coinLabel.ts`, `flight.ts`, `coinBoardTally.ts`, `modeEvents.ts`) |
-| Runtime | `apps/lines/src/game/` (`stateHoldAndWin.svelte.ts`, `stateRespinBoard.svelte.ts`, `holdAndWinPresentation.ts`, `holdAndWinText.ts`, `coinBoard.svelte.ts`); `apps/lines/src/components/` (`RespinBoard.svelte`, `PotMeter.svelte`, `HoldAndWinPots.svelte`, `CoinBoardLineOverlay.svelte`, …) |
-| Layout + flow | `packages/engine-layout/src/lib/referenceLayouts/holdAndWin.ts`, `templates/holdAndWin.ts`, `holdAndWinBanners.ts`, `kindCapabilities.ts`; `packages/engine-flow-v2/src/reference/holdAndWin.ts`, `drivenSeed.ts` |
-| Launcher | `apps/launcher-api/src/routes/(app)/config/HoldAndWinRules.svelte`, `CoinBoardSection.svelte`; `apps/launcher-api/src/lib/server/projectScaffold.ts`, `symbolDefaults.ts`; `apps/launcher-api/src/lib/data/symbolDefaults/holdAndWin.json` |
+| Layer            | Paths                                                                                                                                                                                                                                                                                          |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Config + presets | `packages/game-config/src/holdAndWin.ts`, `holdAndWinPresets.ts`, `holdAndWinGame.ts`, `coinBoard.ts`; seeds in `apps/launcher-api/src/lib/data/gameConfig`                                                                                                                                    |
+| Mock RGS         | `scripts/mock-holdandwin-engine.mjs` (shared with the pots overlay), `scripts/mock-rgs-server-holdandwin.mjs`, `services/test-server/makeMock.mjs`                                                                                                                                             |
+| Facade           | `packages/rgs-translator-eagaming/src/holdAndWin.ts`, `engineFacade.ts`                                                                                                                                                                                                                        |
+| Engine logic     | `packages/engine-game/src/game/` (`holdAndWin.ts`, `respinBoard.ts`, `respinCount.ts`, `holdAndWinWheel.ts`, `coinLabel.ts`, `flight.ts`, `coinBoardTally.ts`, `modeEvents.ts`)                                                                                                                |
+| Runtime          | `apps/lines/src/game/` (`stateHoldAndWin.svelte.ts`, `stateRespinBoard.svelte.ts`, `holdAndWinPresentation.ts`, `holdAndWinText.ts`, `coinBoard.svelte.ts`); `apps/lines/src/components/` (`RespinBoard.svelte`, `PotMeter.svelte`, `HoldAndWinPots.svelte`, `CoinBoardLineOverlay.svelte`, …) |
+| Layout + flow    | `packages/engine-layout/src/lib/referenceLayouts/holdAndWin.ts`, `templates/holdAndWin.ts`, `holdAndWinBanners.ts`, `kindCapabilities.ts`; `packages/engine-flow-v2/src/reference/holdAndWin.ts`, `drivenSeed.ts`                                                                              |
+| Launcher         | `apps/launcher-api/src/routes/(app)/config/HoldAndWinRules.svelte`, `CoinBoardSection.svelte`; `apps/launcher-api/src/lib/server/projectScaffold.ts`, `symbolDefaults.ts`; `apps/launcher-api/src/lib/data/symbolDefaults/holdAndWin.json`                                                     |
 
 A new kind or role touches many registries: the status file's "Touch list" names each one.
 

@@ -39,8 +39,9 @@ everything an add-on adds to a host, is yours. A host kind's own bug goes to `li
   `packages/rgs-translator-eagaming/src/holdAndWin.ts`.
 - **Runtime:** `apps/lines/src/game/stateOverlay.svelte.ts`, `overlayPresentation.ts`,
   `flowV2PotsScreen.ts`, `activeRespinMode.svelte.ts`, `respinModes.ts`,
-  `apps/lines/src/components/OverlayTokens.svelte`, `PotMeter.svelte`; shared with
-  `hold-and-win-games` for `holdAndWinMeters.svelte.ts` and `holdAndWinPresentation.ts`.
+  `apps/lines/src/components/OverlayTokens.svelte`, `PotMeter.svelte`,
+  `apps/lines/src/game/holdAndWinMeters.svelte.ts`; the overlay paths of `holdAndWinPresentation.ts`
+  (a `hold-and-win-games` file).
 - **Tools:** `apps/launcher-api/src/routes/(app)/config/CoinOverlaySection.svelte`,
   `BonusModesSection.svelte`, `apps/launcher-api/src/lib/server/projectAddOn.ts`,
   `projectBonusImport.ts`, `packages/engine-flow-v2/src/reference/addOns.ts`.

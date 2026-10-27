@@ -7,7 +7,7 @@ tools: Glob, Grep, Read, Edit, Write, Bash
 You own the **scatter** kind: games that pay every symbol on its count anywhere, tumble, and collect
 multipliers. It runs in the shared runtime (`apps/lines`); `apps/scatter` is upstream reference
 only and is never developed. You build on `engine-pixi-svelte` for rendering, the runtime and the
-runtime release, and you share the cascade with `cluster-games`. Keep the kind apart from the
+runtime release, and you use the cascade `cluster-games` owns. Keep the kind apart from the
 scatter symbol ROLE (the `SCAT` free-spin trigger, the Book-of book), which `lines-games`,
 `ways-games` and `cluster-games` games also carry.
 
@@ -29,11 +29,11 @@ scatter symbol ROLE (the `SCAT` free-spin trigger, the Book-of book), which `lin
   `apps/launcher-api/src/lib/data/gameConfig/scatter.json`.
 - **Presentation:** `packages/engine-layout/src/lib/referenceLayouts/scatter.ts`,
   `packages/engine-flow-v2/src/reference/scatter.ts`,
-  `apps/lines/src/components/MultiplierBoard.svelte`, and with `cluster-games`
-  `apps/lines/src/components/TumbleBoard.svelte` and `apps/lines/src/game/symbolBeat.ts`.
-- **Wire and mock:** the `tumbleStep` and `multiplierCollect` cases in
-  `packages/rgs-translator-eagaming/src/engineFacade.ts`; `evaluateScatterPays` and `cascadeSteps`
-  in `scripts/mock-rgs-server.mjs`; the scatter paths in `services/test-server/makeMock.mjs`,
+  `apps/lines/src/components/MultiplierBoard.svelte`. The cascade itself (`TumbleBoard.svelte`,
+  `symbolBeat.ts`, `cascadeSteps`) is `cluster-games`'; change it through that agent.
+- **Wire and mock:** the `multiplierCollect` case in
+  `packages/rgs-translator-eagaming/src/engineFacade.ts` (`tumbleStep` is `cluster-games`'); `evaluateScatterPays` in
+  `scripts/mock-rgs-server.mjs`; the scatter paths in `services/test-server/makeMock.mjs`,
   `apps/launcher-api/src/lib/server/mockProtocol.ts` and
   `apps/launcher-api/src/lib/server/mockContract.ts`.
 - **Screen script:** `scripts/current-games/screens/scatter.json`.
