@@ -10,7 +10,7 @@ import { soundMoments, type SoundMoment } from '../../../soundMoments';
 import { soundOptionsFor } from '../../../soundOptions';
 import { loadGameConfigDoc } from '../../gameConfigStorage';
 import { soundsDocKey } from '../../projectPaths';
-import { resolveSoundBindings } from '../../soundLegacy';
+import { LegacySoundsUnreadableError, resolveSoundBindingsForWrite } from '../../soundLegacy';
 import { loadSoundsDocWithEtag, saveSoundsDoc } from '../../soundsStorage';
 import { AdapterError, defineOp } from '../adapter';
 import { baseEtagProp, baseOf, preconditionOf, projectOf, validated } from './docs';
@@ -24,6 +24,35 @@ import { baseEtagProp, baseOf, preconditionOf, projectOf, validated } from './do
  */
 
 const MAX_LADDER = 16;
+
+/** The effective choices, refusing (409) when a legacy doc they would come from cannot be read. */
+async function effectiveBindings(clientKey: string, projectKey: string, doc: SoundsDoc) {
+	try {
+		return await resolveSoundBindingsForWrite(clientKey, projectKey, doc);
+	} catch (e) {
+		if (e instanceof LegacySoundsUnreadableError) {
+			throw new AdapterError(
+				409,
+				'unreadable_doc',
+				`The project's ${e.doc} doc is unreadable, and the sound choices not yet saved in the sounds doc live there. A person must repair it first.`,
+			);
+		}
+		throw e;
+	}
+}
+
+/** The config the moments come from; a read that fails is as unreadable as a corrupt doc. */
+async function loadMomentsConfig(clientKey: string, projectKey: string) {
+	try {
+		return await loadGameConfigDoc(clientKey, projectKey);
+	} catch {
+		throw new AdapterError(
+			409,
+			'unreadable_doc',
+			"The project's config doc could not be read, so the moments it offers are unknown. Retry.",
+		);
+	}
+}
 
 async function loadSounds(clientKey: string, projectKey: string) {
 	const loaded = await loadSoundsDocWithEtag(clientKey, projectKey);
@@ -45,7 +74,7 @@ interface LibraryRow {
 	loop: boolean;
 }
 
-interface MomentRow extends SoundMoment {
+interface MomentRow extends Omit<SoundMoment, 'at'> {
 	/** A person silenced this slot; the agent does not undo it. */
 	silenced?: true;
 }
@@ -73,8 +102,8 @@ export const getDoc = defineOp<
 		const { clientKey, projectKey } = projectOf(ctx);
 		const { doc, etag } = await loadSounds(clientKey, projectKey);
 		const [config, bindings] = await Promise.all([
-			loadGameConfigDoc(clientKey, projectKey),
-			resolveSoundBindings(clientKey, projectKey, doc),
+			loadMomentsConfig(clientKey, projectKey),
+			effectiveBindings(clientKey, projectKey, doc),
 		]);
 		const options = soundOptionsFor(doc);
 		const effective = bindings ?? {};
@@ -87,9 +116,13 @@ export const getDoc = defineOp<
 				loop: e.loop === true,
 			})),
 			builtin: { music: options.music, sfx: options.sfx },
-			moments: soundMoments(config).map((m): MomentRow => {
-				const id = m.path.startsWith('slots.') ? m.path.slice('slots.'.length) : null;
-				return id && effective.slots?.[id]?.enabled === false ? { ...m, silenced: true } : m;
+			moments: soundMoments(config).map(({ at, ...m }): MomentRow => {
+				const silenced =
+					at.section === 'slots' &&
+					at.key !== undefined &&
+					Object.hasOwn(effective.slots ?? {}, at.key) &&
+					effective.slots![at.key].enabled === false;
+				return silenced ? { ...m, silenced: true } : m;
 			}),
 			bindings: effective,
 			migrated: doc.bindings !== undefined,
@@ -132,47 +165,41 @@ const sameNames = (a: readonly string[], b: readonly string[]) =>
 
 type Before = { path: string; names: string[] | null };
 
+/** `table[key]`, created empty when it is not an own entry. Keys reaching here are never prototype names. */
+function rowOf<T extends object>(table: Record<string, T>, key: string, make: () => T): T {
+	if (!Object.hasOwn(table, key)) table[key] = make();
+	return table[key];
+}
+
 /** Apply one validated cue to `bindings` in place; the old stored value, and whether it changed. */
 function applyCue(
 	bindings: SoundBindings,
 	moment: SoundMoment,
 	names: string[],
 ): { before: string[] | null; changed: boolean } {
-	const [section, ...rest] = moment.path.split('.');
+	const { section, key, field } = moment.at;
 	if (section === 'slots') {
-		const id = rest[0];
 		const slots = (bindings.slots ??= {});
-		const choice: SoundSlotChoice = { ...slots[id] };
+		const choice: SoundSlotChoice = { ...(Object.hasOwn(slots, key!) ? slots[key!] : undefined) };
 		const before = choice.names ? [...choice.names] : null;
 		if (sameNames(choice.names ?? moment.defaults ?? [], names)) return { before, changed: false };
 		if (sameNames(moment.defaults ?? [], names)) delete choice.names;
 		else choice.names = names;
-		if (Object.keys(choice).length) slots[id] = choice;
-		else delete slots[id];
+		if (Object.keys(choice).length) slots[key!] = choice;
+		else delete slots[key!];
 		return { before, changed: true };
 	}
 	const name = names[0];
-	if (section === 'symbols') {
-		const row = ((bindings.symbols ??= {})[rest[0]] ??= {});
-		const before = row[rest[1]] === undefined ? null : [row[rest[1]]];
-		if (row[rest[1]] === name) return { before, changed: false };
-		row[rest[1]] = name;
-		return { before, changed: true };
-	}
-	if (section === 'anticipation') {
-		const anticipation = (bindings.anticipation ??= {});
-		const key = rest[0] as 'activation' | 'loop';
-		const before = anticipation[key] === undefined ? null : [anticipation[key]];
-		if (anticipation[key] === name) return { before, changed: false };
-		anticipation[key] = name;
-		return { before, changed: true };
-	}
-	const tier = ((bindings.winTiers ??= {})[rest[0]] ??= {});
-	const key = rest[1] as 'sfx' | 'bgm';
-	const before = tier[key] === undefined ? null : [tier[key]];
-	if (tier[key] === name) return { before, changed: false };
-	tier[key] = name;
-	return { before, changed: true };
+	const row: Record<string, string | undefined> =
+		section === 'symbols'
+			? rowOf((bindings.symbols ??= {}), key!, () => ({}))
+			: section === 'anticipation'
+				? (bindings.anticipation ??= {})
+				: rowOf((bindings.winTiers ??= {}), key!, () => ({}));
+	const old = Object.hasOwn(row, field!) ? row[field!] : undefined;
+	if (old === name) return { before: old === undefined ? null : [old], changed: false };
+	row[field!] = name;
+	return { before: old === undefined ? null : [old], changed: true };
 }
 
 export const setCues = defineOp<
@@ -222,17 +249,19 @@ export const setCues = defineOp<
 	handler: async (ctx, { cues, baseEtag }) => {
 		const { clientKey, projectKey } = projectOf(ctx);
 		const { doc } = await loadSounds(clientKey, projectKey);
-		const config = await loadGameConfigDoc(clientKey, projectKey);
+		const config = await loadMomentsConfig(clientKey, projectKey);
 		const moments = new Map(soundMoments(config).map((m) => [m.path, m]));
 
 		// Until the doc holds its own block, the legacy homes are the answer; a first save must carry
 		// them over or it would silence every choice they hold.
 		const migrated = doc.bindings === undefined;
 		const bindings: SoundBindings = structuredClone(
-			(await resolveSoundBindings(clientKey, projectKey, doc)) ?? {},
+			(await effectiveBindings(clientKey, projectKey, doc)) ?? {},
 		);
-		const silenced = (path: string) =>
-			path.startsWith('slots.') && bindings.slots?.[path.slice('slots.'.length)]?.enabled === false;
+		const silenced = (moment: SoundMoment) =>
+			moment.at.section === 'slots' &&
+			Object.hasOwn(bindings.slots ?? {}, moment.at.key!) &&
+			bindings.slots![moment.at.key!].enabled === false;
 
 		const applied: CueChange[] = [];
 		const unchanged: string[] = [];
@@ -251,7 +280,7 @@ export const setCues = defineOp<
 				continue;
 			}
 			seen.add(cue.path);
-			if (silenced(cue.path)) {
+			if (silenced(moment)) {
 				refuse('a person silenced this slot in Invisible Sound; an agent does not turn it back on');
 				continue;
 			}

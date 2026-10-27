@@ -216,8 +216,9 @@ carry `saved_by`.
 
 ## Consequences
 
-- Ships as two branches: 9H.1 (sound + FX) and 9H.2 (components, the move of `mathLock.ts`, the
-  gate prefix). Each is a pipeline change, gated by `check:director-adapters` fixtures:
+- Ships as one pipeline change (PR #1413) in two steps: 9H.1 (sound + FX), then 9H.2
+  (components, the move of `mathLock.ts`, the gate prefix). It is gated by
+  `check:director-adapters` fixtures:
   - every refusal above, planted;
   - a 409 on a stale `baseEtag` for each op;
   - the sound legacy materialisation;

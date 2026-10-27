@@ -25,6 +25,8 @@ import { componentClosure, defLoader, lockOf, sceneHolders } from './mathLock';
 const EFFECT_ID = '^[A-Za-z0-9_.-]{1,120}$';
 const MAX_FRAMES = 64;
 const HEX = /^#[0-9a-fA-F]{6}$/;
+/** A stored colour stop the particle library reads: `#rrggbb`, bare or `0x`-prefixed (8 digits carry alpha). */
+const STORED_HEX = /^(?:#|0x)?[0-9a-fA-F]{6}$/;
 
 type Behavior = { type?: unknown; config?: Record<string, unknown> };
 
@@ -46,7 +48,7 @@ function colorStops(behavior: Behavior | undefined): ColorStops | null {
 	const config = behavior?.config;
 	if (!config) return null;
 	if (behavior.type === 'colorStatic') {
-		return typeof config.color === 'string'
+		return typeof config.color === 'string' && STORED_HEX.test(config.color)
 			? { type: 'colorStatic', values: [config.color] }
 			: null;
 	}
@@ -54,7 +56,7 @@ function colorStops(behavior: Behavior | undefined): ColorStops | null {
 	const list = (config.color as { list?: unknown } | undefined)?.list;
 	if (!Array.isArray(list) || list.length === 0) return null;
 	const stops = list as { time?: unknown; value?: unknown }[];
-	if (!stops.every((s) => typeof s?.value === 'string')) return null;
+	if (!stops.every((s) => typeof s?.value === 'string' && STORED_HEX.test(s.value))) return null;
 	return {
 		type: 'color',
 		values: stops.map((s) => s.value as string),
@@ -62,16 +64,15 @@ function colorStops(behavior: Behavior | undefined): ColorStops | null {
 	};
 }
 
-/** `hex` (`#rrggbb`) written the way `stored` is: with or without the `#`, in its letter case. */
+/** `hex` (`#rrggbb`) written the way `stored` is: its prefix (`#`, `0x` or none) and letter case. */
 function writtenLike(stored: string, hex: string): string {
-	const digits =
-		/[A-F]/.test(stored) && !/[a-f]/.test(stored)
-			? hex.slice(1).toUpperCase()
-			: hex.slice(1).toLowerCase();
-	return stored.startsWith('#') ? `#${digits}` : digits;
+	const prefix = /^(#|0x)/.exec(stored)?.[0] ?? '';
+	const digits = stored.slice(prefix.length);
+	const upper = /[A-F]/.test(digits) && !/[a-f]/.test(digits);
+	return prefix + (upper ? hex.slice(1).toUpperCase() : hex.slice(1).toLowerCase());
 }
 
-const hexDigits = (value: string) => value.replace(/^#/, '').toLowerCase();
+const hexDigits = (value: string) => value.replace(/^(#|0x)/, '').toLowerCase();
 
 /** Behaviours `layerKey`'s parameters drive, as `<type>#<n>` (the n-th behaviour of that type). */
 function drivenBehaviors(

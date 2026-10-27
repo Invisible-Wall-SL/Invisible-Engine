@@ -27,6 +27,7 @@ import {
 	componentClosure,
 	defLoader,
 	lockOf,
+	mathBinding,
 	sceneHolders,
 	type ComponentHolder,
 	type DefLoader,
@@ -111,6 +112,7 @@ export function artOnlyDiff(a: ComponentDef, b: ComponentDef): boolean {
 	const strip = (def: ComponentDef): string => {
 		const copy = structuredClone(def) as unknown as Record<string, unknown>;
 		delete copy.version;
+		delete copy.scope;
 		delete copy.name;
 		delete copy.guides;
 		for (const node of defNodes((copy as unknown as ComponentDef).root)) {
@@ -141,12 +143,22 @@ async function holderLocks(doc: LayoutDoc, defs: DefLoader): Promise<HolderLock[
 	return out;
 }
 
-/** Why the def `id` is held by a locked instance, or `null`. */
-function lockedFor(holders: HolderLock[], id: string): string | null {
-	const hit = holders.find((h) => h.lock && (h.ids.has(id) || h.deep));
-	return hit
-		? `"${hit.holder.node.id}" on "${hit.holder.scene.id}" holds it and is ${hit.lock}`
-		: null;
+/**
+ * Why `def` is locked, or `null`: a locked instance holds it, or the def being written is itself
+ * bound to the math (an unplaced def, or a latest one that gained a math node while every pin
+ * still points at an older version).
+ */
+async function lockedFor(
+	holders: HolderLock[],
+	def: ComponentDef,
+	defs: DefLoader,
+): Promise<string | null> {
+	const hit = holders.find((h) => h.lock && (h.ids.has(def.id) || h.deep));
+	if (hit) {
+		return `"${hit.holder.node.id}" on "${hit.holder.scene.id}" holds it and is ${hit.lock}`;
+	}
+	const own = await mathBinding(def.root, defs);
+	return own ? `the def itself is bound to the math: ${own}` : null;
 }
 
 interface Instance {
@@ -262,7 +274,7 @@ export const getDef = defineOp<
 				version: def.version,
 				nodes: nodeRows(def),
 				pins,
-				locked: lockedFor(holders, id),
+				locked: await lockedFor(holders, def, defs),
 				baseEtag,
 				layoutBaseEtag: baseOf(etag),
 			};
@@ -280,7 +292,7 @@ export const getDef = defineOp<
 				scope,
 				version: def.version,
 				instances: instancesOf(doc, def.id).map(({ screen, node, pin }) => ({ screen, node, pin })),
-				locked: lockedFor(holders, def.id),
+				locked: await lockedFor(holders, def, defs),
 			});
 		}
 		listing.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -388,7 +400,9 @@ export const updateArt = defineOp<
 		const { def, scope, baseEtag: defEtag } = await loadDef(projectKey, id);
 		const layout = await loadLayout(clientKey, projectKey);
 		const defs = defLoader(projectKey);
-		const locked = lockedFor(await holderLocks(layout.doc, defs), id);
+		// A person's layout edit between this read and the def save is caught by `layoutBaseEtag` only
+		// when a re-pin follows; otherwise the lock was read a moment before the write.
+		const locked = await lockedFor(await holderLocks(layout.doc, defs), def, defs);
 		if (locked)
 			throw new AdapterError(403, 'locked', `The component "${id}" is locked: ${locked}.`);
 

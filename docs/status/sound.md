@@ -230,6 +230,22 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
 
 ## Recent changes
 
+- 2026-10-27 — **Invisible Director can re-point a project's cues** (Director card 9H,
+  [ADR-0011](../director/DECISIONS/0011-reskin-adapters-sound-fx-components.md), PR #1413, in
+  review). Two adapter ops for the builder agent, `sound.get_doc` and `sound.set_cues`
+  (`apps/launcher-api/src/lib/server/director/ops/sound.ts`), save through `saveSoundsDoc` with
+  `baseEtag`. They bind only the moments this page offers (`$lib/soundMoments.ts`, now shared with
+  the loader, which also moved `symbolCueStates` there) to built-ins or **approved** library
+  sounds. They never approve a sound, re-enable a silenced slot, upload a file or add a moment. A
+  doc with no `bindings` block has the legacy choices carried over on the first save
+  (`soundLegacy.ts` `resolveSoundBindings`, now shared with `soundExport.ts`), and that write
+  refuses if a legacy doc cannot be read. `loadSoundsDocWithEtag` gains an additive `corrupt`
+  flag; the page and endpoint ignore it. Nothing changes for a person using `/sound`.
+  - **Found on the way, not fixed here:** `soundPublishCheck.ts` collects bound names from config,
+    symbols and flow only, never from `SoundsDoc.bindings`, so a draft chosen on this page may not
+    block a publish. The owner is filing it as a pipeline bug. Director refuses drafts outright
+    because of it.
+
 - 2026-10-27 — **A pots overlay's tokens get their own sounds: land, take off, reach the pot**
   (branch `claude/fervent-ride-ccp7qf`, in review). Asked for a project whose overlay drops coins and
   rockets: neither could be given a landing sound, and a rocket needed one as it fires and as it

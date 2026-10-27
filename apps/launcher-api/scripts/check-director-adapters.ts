@@ -105,6 +105,8 @@ const R2 = new Map<string, Obj>();
 let etagSeq = 0;
 let copies = 0;
 const byteReads: string[] = [];
+/** A key whose next reads throw, as a transient R2 error would. */
+let failReadOf: string | null = null;
 const etag = () => `"e${++etagSeq}"`;
 const keysUnder = (prefix: string) => [...R2.keys()].filter((k) => k.startsWith(prefix)).sort();
 
@@ -132,6 +134,7 @@ fake('lib/server/r2.ts', {
 		R2.has(key) ? { etag: R2.get(key)!.etag, size: R2.get(key)!.body.length } : null,
 	getObjectText: async (key: string) => R2.get(key)?.body ?? null,
 	getObjectTextWithEtag: async (key: string) => {
+		if (key === failReadOf) throw new Error('R2 is down');
 		const o = R2.get(key);
 		return o ? { text: o.body, etag: o.etag } : null;
 	},
@@ -3858,6 +3861,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		const { ADAPTER_TOOL_IDS } = await import(src('lib/server/director/adapter.ts'));
 		const [sfxA, sfxB, sfxC] = SOUND_EFFECT_NAMES as readonly string[];
 		type Item = { path?: string; layer?: string; reason: string };
+		const world = () => JSON.stringify([...R2.entries()]);
 		const refusals = (a: Answer) => (a.body.refused ?? []) as Item[];
 		const reasonFor = (a: Answer, key: string) =>
 			refusals(a).find((r) => (r.path ?? r.layer) === key)?.reason ?? '';
@@ -4209,6 +4213,128 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			await (await import(src('lib/server/soundsStorage.ts'))).loadSoundsDocWithEtag(C, 'tools'),
 			{ doc: { version: 1, entries: [] }, etag: corruptBefore.etag, existed: true, corrupt: true },
 		);
+		// The legacy docs are the only copy of the choices until the first write: one that cannot be
+		// read refuses the write rather than saving a block without them.
+		seedDoc(SOUNDS, { version: 1, entries: library });
+		const legacyConfig = R2.get(paths.gameConfigDocKey(C, 'tools'))!;
+		const legacySymbols = R2.get(SYM)!;
+		const legacyCase = async (label: string, break_: () => void, mend: () => void) => {
+			break_();
+			const worldBefore = world();
+			const read = await tool('sound.get_doc', 'builder', {});
+			const write = await tool(
+				'sound.set_cues',
+				'builder',
+				{ cues: [cue('slots.symbolLand', 'chime')], baseEtag: R2.get(SOUNDS)!.etag },
+				true,
+			);
+			check(
+				`${label}: sound.set_cues and sound.get_doc answer 409 unreadable_doc`,
+				[write.status, write.body.error, read.status, read.body.error],
+				[409, 'unreadable_doc', 409, 'unreadable_doc'],
+			);
+			check(`${label}: ...and nothing is written`, world(), worldBefore);
+			mend();
+		};
+		const SYMBOLS_KEY = SYM;
+		const CONFIG_KEY = paths.gameConfigDocKey(C, 'tools');
+		await legacyCase(
+			'a corrupt symbols doc',
+			() => R2.set(SYMBOLS_KEY, { body: '{"symbols": ', etag: etag() }),
+			() => R2.set(SYMBOLS_KEY, legacySymbols),
+		);
+		await legacyCase(
+			'a corrupt config doc',
+			() => R2.set(CONFIG_KEY, { body: '{"paddingReels": ', etag: etag() }),
+			() => R2.set(CONFIG_KEY, legacyConfig),
+		);
+		await legacyCase(
+			'a config read that throws',
+			() => (failReadOf = CONFIG_KEY),
+			() => (failReadOf = null),
+		);
+		await legacyCase(
+			'a symbols read that throws',
+			() => (failReadOf = SYMBOLS_KEY),
+			() => (failReadOf = null),
+		);
+		check(
+			'...and with the legacy docs readable again the same call lands',
+			(
+				await tool(
+					'sound.set_cues',
+					'builder',
+					{ cues: [cue('slots.symbolLand', 'chime')], baseEtag: R2.get(SOUNDS)!.etag },
+					true,
+				)
+			).status,
+			200,
+		);
+		check('...carrying the legacy symbol choice over', stored(SOUNDS).bindings.symbols, {
+			H1: { land: sfxC },
+		});
+
+		// Config keys are data: an alias with a dot lands under that alias, and a prototype name is
+		// never offered.
+		const tier = (alias: string, threshold: number) => ({
+			alias,
+			name: alias,
+			threshold,
+			type: 'big',
+		});
+		R2.set(CONFIG_KEY, {
+			body: JSON.stringify({
+				...CONFIG('tools'),
+				winLevels: [tier('big', 15), tier('big.win', 25), tier('__proto__', 35)],
+			}),
+			etag: etag(),
+		});
+		const moments = await tool('sound.get_doc', 'builder', {});
+		check(
+			'a win tier alias that names a prototype is not offered as a moment',
+			(moments.body.moments as { path: string }[])
+				.map((m) => m.path)
+				.filter((p) => p.startsWith('winTiers.')),
+			['winTiers.big.sfx', 'winTiers.big.bgm', 'winTiers.big.win.sfx', 'winTiers.big.win.bgm'],
+		);
+		const protoBefore = Object.getOwnPropertyNames(Object.prototype).sort();
+		const alias = await tool(
+			'sound.set_cues',
+			'builder',
+			{
+				cues: [
+					cue('winTiers.big.win.sfx', 'chime'),
+					cue('winTiers.__proto__.sfx', 'chime'),
+					cue('winTiers.constructor.sfx', 'chime'),
+				],
+				baseEtag: R2.get(SOUNDS)!.etag,
+			},
+			true,
+		);
+		check(
+			'a cue under an alias with a dot lands under that alias, and the prototype names are refused',
+			[
+				(alias.body.applied as { path: string }[]).map((a) => a.path),
+				refusals(alias).map((r) => r.path),
+				stored(SOUNDS).bindings.winTiers['big.win'],
+				stored(SOUNDS).bindings.winTiers.big,
+				Object.hasOwn(stored(SOUNDS).bindings.winTiers, '__proto__'),
+			],
+			[
+				['winTiers.big.win.sfx'],
+				['winTiers.__proto__.sfx', 'winTiers.constructor.sfx'],
+				{ sfx: 'chime' },
+				{ sfx: sfxB },
+				false,
+			],
+		);
+		check(
+			'...and Object.prototype is untouched',
+			[Object.getOwnPropertyNames(Object.prototype).sort(), ({} as { sfx?: string }).sfx],
+			[protoBefore, undefined],
+		);
+		R2.set(CONFIG_KEY, legacyConfig);
+
 		R2.delete(SOUNDS);
 
 		// ── FX ──
@@ -5241,6 +5367,113 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			[foreign.status, foreign.body.error, world()],
 			[400, 'invalid_input', foreignWorld],
 		);
+
+		// A shared def's first project copy re-pins an instance pinned to an older SHARED version
+		// that differs in art only (the snapshot says scope shared, the copy says project).
+		const PAIR = paths.editorComponentKey('shared_pair');
+		const pairDef = (version: number, region: string) =>
+			defOf('shared_pair', [sprite('logo', { region })], { scope: 'shared', version });
+		seedDoc(PAIR, pairDef(2, 'p_two'));
+		seedDoc(paths.editorComponentVersionKey('shared_pair', 1), pairDef(1, 'p_one'));
+		seedDoc(paths.editorComponentVersionKey('shared_pair', 2), pairDef(2, 'p_two'));
+		const pairLayout = stored(LAYOUT);
+		pairLayout.scenes[0].nodes.push(
+			inst('pair1', 'shared_pair', { componentVersion: 1 }),
+			inst('pair2', 'shared_pair', { componentVersion: 2 }),
+			inst('pairLatest', 'shared_pair'),
+		);
+		seedDoc(LAYOUT, pairLayout);
+		const pairBefore = R2.get(PAIR)!;
+		const pairCopy = await ct(
+			'components.update_art',
+			'builder',
+			{
+				id: 'shared_pair',
+				changes: [{ node: 'logo', region: 'p_three' }],
+				baseEtag: 'new',
+				layoutBaseEtag: R2.get(LAYOUT)!.etag,
+			},
+			true,
+		);
+		check(
+			'the first project copy of a shared def re-pins an instance pinned to an older art-only shared version',
+			[
+				pairCopy.status,
+				pairCopy.body.scope,
+				pairCopy.body.version,
+				pairCopy.body.repinned,
+				pairCopy.body.notReached,
+				nodes(stored(LAYOUT)).filter(([id]) => String(id).startsWith('pair')),
+				R2.get(PAIR),
+			],
+			[
+				200,
+				'project',
+				2,
+				[{ screen: 'base', node: 'pair1', from: 1, to: 2 }],
+				[],
+				[
+					['pair1', 2],
+					['pair2', 2],
+					['pairLatest', null],
+				],
+				pairBefore,
+			],
+		);
+
+		// The def being written is checked itself: an unplaced def, and a latest the pins hide.
+		await saveComponent(
+			defOf('loose_bet', [
+				sprite('face'),
+				inst('inc', 'plus_btn', { params: { action: 'increase' } }),
+			]),
+			'comp',
+			undefined,
+		);
+		await saveComponent(defOf('drift', [sprite('face')]), 'comp', undefined);
+		check(
+			'the drifting def gains a math node in its second version',
+			(
+				await saveComponent(
+					defOf('drift', [
+						sprite('face'),
+						inst('inc', 'plus_btn', { params: { action: 'increase' } }),
+					]),
+					'comp',
+					undefined,
+				)
+			).version,
+			2,
+		);
+		const driftLayout = stored(LAYOUT);
+		driftLayout.scenes[0].nodes.push(inst('drift_pin', 'drift', { componentVersion: 1 }));
+		seedDoc(LAYOUT, driftLayout);
+		for (const id of ['loose_bet', 'drift']) {
+			const key = paths.projectComponentKey('comp', id);
+			const readDef = await ct('components.get_def', 'builder', { id });
+			const worldBefore = world();
+			const write = await ct(
+				'components.update_art',
+				'builder',
+				{
+					id,
+					changes: [{ node: 'face', assetKey: 'new::a' }],
+					baseEtag: R2.get(key)!.etag,
+					layoutBaseEtag: R2.get(LAYOUT)!.etag,
+				},
+				true,
+			);
+			check(
+				`${id}: get_def shows the def itself bound to the math, and update_art refuses it`,
+				[
+					String(readDef.body.locked).startsWith('the def itself is bound to the math'),
+					write.status,
+					write.body.error,
+					world(),
+				],
+				[true, 403, 'locked', worldBefore],
+			);
+		}
 
 		// An effect placed inside a component def is locked by the instance that holds the def.
 		const { saveEffect } = await import(src('lib/server/fxStorage.ts'));

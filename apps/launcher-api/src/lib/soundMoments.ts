@@ -37,7 +37,15 @@ export interface SoundMoment {
 	music: boolean;
 	/** A slot's catalogue defaults; absent elsewhere. */
 	defaults?: string[];
+	/**
+	 * Where it sits in `SoundsDoc.bindings`, as segments. Symbols, tokens and win tiers come from the
+	 * config, so a segment may hold a dot: nothing may split `path` to find the place.
+	 */
+	at: { section: 'slots' | 'symbols' | 'anticipation' | 'winTiers'; key?: string; field?: string };
 }
+
+/** Keys that would write onto a prototype when used to index a bindings object. */
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 /**
  * Every moment `/sound` offers for a project, in the page's order: the catalogue's slots, then each
@@ -48,6 +56,7 @@ export interface SoundMoment {
 export function soundMoments(config: GameConfigDoc | null | undefined): SoundMoment[] {
 	const out: SoundMoment[] = SOUND_SLOTS.map((slot) => ({
 		path: `slots.${slot.id}`,
+		at: { section: 'slots', key: slot.id },
 		kind: slot.kind,
 		music: slot.id === 'baseMusic' || slot.id === 'freeSpinMusic',
 		defaults: [...slot.defaults],
@@ -56,26 +65,63 @@ export function soundMoments(config: GameConfigDoc | null | undefined): SoundMom
 		const states = symbolCueStates(config);
 		for (const symbol of symbolsInPlay(config)) {
 			for (const state of states) {
-				out.push({ path: `symbols.${symbol}.${state}`, kind: 'single', music: false });
+				out.push({
+					path: `symbols.${symbol}.${state}`,
+					at: { section: 'symbols', key: symbol, field: state },
+					kind: 'single',
+					music: false,
+				});
 			}
 		}
 		const uses = symbolUses(config);
 		for (const token of symbolsUsed(config).filter((name) => uses[name] === 'token')) {
 			for (const moment of TOKEN_SOUND_MOMENTS) {
-				out.push({ path: `symbols.${token}.${moment}`, kind: 'single', music: false });
+				out.push({
+					path: `symbols.${token}.${moment}`,
+					at: { section: 'symbols', key: token, field: moment },
+					kind: 'single',
+					music: false,
+				});
 			}
 		}
 	}
 	out.push(
-		{ path: 'anticipation.activation', kind: 'single', music: false },
-		{ path: 'anticipation.loop', kind: 'single', music: false },
+		{
+			path: 'anticipation.activation',
+			at: { section: 'anticipation', field: 'activation' },
+			kind: 'single',
+			music: false,
+		},
+		{
+			path: 'anticipation.loop',
+			at: { section: 'anticipation', field: 'loop' },
+			kind: 'single',
+			music: false,
+		},
 	);
 	for (const tier of config?.winLevels ?? []) {
 		out.push(
-			{ path: `winTiers.${tier.alias}.sfx`, kind: 'single', music: false },
-			{ path: `winTiers.${tier.alias}.bgm`, kind: 'single', music: true },
+			{
+				path: `winTiers.${tier.alias}.sfx`,
+				at: { section: 'winTiers', key: tier.alias, field: 'sfx' },
+				kind: 'single',
+				music: false,
+			},
+			{
+				path: `winTiers.${tier.alias}.bgm`,
+				at: { section: 'winTiers', key: tier.alias, field: 'bgm' },
+				kind: 'single',
+				music: true,
+			},
 		);
 	}
+	// A config key that names a prototype slot is never offered, so no cue can be written under it.
 	const seen = new Set<string>();
-	return out.filter((m) => !seen.has(m.path) && seen.add(m.path));
+	return out.filter(
+		(m) =>
+			!UNSAFE_KEYS.has(m.at.key ?? '') &&
+			!UNSAFE_KEYS.has(m.at.field ?? '') &&
+			!seen.has(m.path) &&
+			seen.add(m.path),
+	);
 }

@@ -15,7 +15,7 @@ import { loadComponent } from '../../componentStorage';
  */
 
 /** Words that tie a binding to the math contract: stakes, bet levels and modes, paylines, features. */
-export const MATH_WORD =
+const MATH_WORD =
 	/(bet|stake|payline|paytable|ways|coin|buy|bonus|feature|trigger|increase|decrease|level|mode|rtp|jackpot)/i;
 
 /**
@@ -24,10 +24,10 @@ export const MATH_WORD =
  * seed the buy screens by id with no role, so either one locks the screen. A mode's screens are
  * locked too (`isModeScene`).
  */
-export const MATH_SCREENS = new Set(['betMenu', 'buyFeature', 'buyConfirm']);
+const MATH_SCREENS = new Set(['betMenu', 'buyFeature', 'buyConfirm']);
 
 /** How deep a component placed inside a component is followed; deeper is refused, not trusted. */
-export const MAX_COMPONENT_DEPTH = 4;
+const MAX_NEST_DEPTH = 4;
 
 export type DefLoader = (
 	id: string,
@@ -86,7 +86,7 @@ export async function ownMathBinding(
 		if (typeof value === 'string' && MATH_WORD.test(value)) return `its ${what} is "${value}"`;
 	}
 	if (node.kind !== 'componentInstance') return null;
-	if (depth >= MAX_COMPONENT_DEPTH) {
+	if (depth >= MAX_NEST_DEPTH) {
 		return `its component "${node.componentId}" nests too deep to check`;
 	}
 	const def = await defs(node.componentId, node.componentVersion);
@@ -184,7 +184,7 @@ export interface ComponentClosure {
 	ids: Set<string>;
 	/** The defs that could be read, the holder's pinned version first. */
 	defs: ComponentDef[];
-	/** The chain nests past {@link MAX_COMPONENT_DEPTH}: what lies beyond is unchecked. */
+	/** The chain nests past {@link MAX_NEST_DEPTH}: what lies beyond is unchecked. */
 	deep: boolean;
 }
 
@@ -201,7 +201,7 @@ export async function componentClosure(
 		for (const id of ids) {
 			if (out.ids.has(id)) continue;
 			out.ids.add(id);
-			if (depth >= MAX_COMPONENT_DEPTH) {
+			if (depth >= MAX_NEST_DEPTH) {
 				out.deep = true;
 				continue;
 			}
