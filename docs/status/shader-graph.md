@@ -284,6 +284,29 @@ next.
     (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
     shader). Built as 8d.1–8d.8, one PR each (its §15). A game plays a material from 8d.3; no
     tool authors one from 8d.5.
+    - **8d.6, the other previews.** Built, in review. Guides: `docs/tools/invisible-editor.md`,
+      `rigger.md`, `symbols-state-machine.md`.
+      - **One mount for every launcher stage** (`$lib/fx/layerMaterial.client.ts`): the layer's
+        material through the game's `mountParticleMaterial`, its remount key, its emitter and its
+        uniform retune. `FxStage` now uses it; so do the Scene Editor's `EditorEffectLayer` and the
+        Rigger / Symbols `fxOverlay`, each against its own cap of 8 (the editor page shares one).
+        A placement's param values reach the material as uniforms; the editor remounts a placement
+        whose material key changed (the set registering).
+      - **The Rigger's `view.html`** registers the project's compiled set
+        (`GET /api/shaders/effects`, through the bundle's new `RiggerFxLoadShaderEffects`) before
+        its first overlay; every band waits on the one load; the fetch gives up after 5 s
+        (`SHADER_EFFECTS_TIMEOUT_MS`). A failed fetch, an older bundle or an unknown kind leaves
+        the layer plain. `rigger-fx.js` rebuilt.
+      - **Slots are never leaked:** an editor unmount while art loads, an emitter config the
+        library refuses, and a finished one-shot in the overlay (a built play whose emitters
+        stopped with no particles left now ends by itself, as the game unmounts a binding's
+        effect; it covers plain bursts too) all give their slot back.
+      - **Gate:** `fx-previews` (in `check:all`, ~105 s, 50 checks) plays the committed
+        `rigger-fx.js` and `EditorEffectLayer` headless on WebGL1 and WebGL2, and runs
+        `view.html`'s real `ensureFxBundle` (race, hang) and `node --check` on its inline scripts.
+      - **Known, not this step:** the Scene Editor's effect clock runs slow for every effect
+        (`EditorEffectLayer` passes `ticker.deltaMS / 1000`, not `emitterDeltaSeconds`; about
+        2.3×). Open item.
     - **8d.5, `/fx` authoring.** Built, in review. Guide: `docs/tools/fx.md` (Material).
       - **The Material section** (sprite layers; `fxMaterial.client.ts`, pure): the picker (None,
         then the project's compiled effects by name; "made for particles" first waits for 8d.7's
@@ -545,9 +568,11 @@ next.
       defaults.
 
 ## Open items / next
-1. **Step 8d.6 (next): the other previews** (design §15 step 6).
-   - `EditorEffectLayer` and `fxOverlay` draw material layers plain; `view.html` must fetch the
-     set; they can reuse `FxStage`'s mount and remount keys.
+1. **Step 8d.7 (next): `/shaders` Made for particles and the Particles preview** (design §15
+   step 7).
+   - **The Scene Editor's effect clock** runs about 2.3× slow for every effect, materials or not:
+     `EditorEffectLayer` updates its emitters with `ticker.deltaMS / 1000` where the game and `/fx`
+     use `emitterDeltaSeconds`. Found in the 8d.6 review; a one-line fix, its own PR (owner's call).
    - **8d.7:** the picker's "made for particles" first; `/shaders` switching to
      `PARTICLE_COST_BUDGET` / `PARTICLE_SAMPLE_BUDGET`; carrying the cost in the compiled effect,
      so the effects route's `costs` and the `?fxdebug=1` load figure follow from it.
@@ -613,6 +638,18 @@ next.
 - None.
 
 ## Recent changes
+- 2026-10-27 — **Step 8d.6: the other previews** (see "Current state").
+  - **Proof.** `fx-previews` (new, in `check:all`) 50/50, four runs; `fx-page` 31/31;
+    `particle-material`; `check:vendored-bundles`; `check:symbol-fx` 39; `check:fx-node-params`
+    105; `check:rig-fx-overrides`; `check:element-fx-flow` 20; `check:screen-cue-fx`;
+    `check:shader-pipeline` 148; `check:launcher-gates` 661; the editor parity and GL-context
+    checks; svelte-check at baseline; launcher build. Each new harness case fails under its
+    mutation (both editor unmount guards removed, a throw keeping its slot, the old `view.html`
+    fast path, no timeout, no auto-dispose).
+  - **Review.** Fixed: an editor unmount while art loaded, or an emitter config that threw, held
+    a slot for good; two Rigger bands could draw before the set registered; the set's fetch had no
+    timeout; finished overlay one-shots held their slots until cleared; the overlay's material sync
+    could throw out of the ticker. Left: the Scene Editor's clock (open item 1).
 - 2026-10-27 — **Step 8d.5: `/fx` authoring** (see "Current state"). Step 8d.4 merged (#1384).
   - **Proof.** `fx-page` (new, in `check:all`) 31/31, three runs: the set read, the picker, "on",
     the estimate then the measured load and badges, a param drag and Strength changing pixels with
