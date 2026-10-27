@@ -232,6 +232,13 @@
       "when": 1793008452122,
       "tag": "0032_bug_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1793117723716,
+      "tag": "0033_director_repair_runs",
+      "breakpoints": true
     }
   ]
 }
