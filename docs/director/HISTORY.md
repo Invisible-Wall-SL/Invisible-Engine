@@ -15,6 +15,36 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-27 · Phase 9 9H · director-backend (Sound, FX and Component Editor art adapters)
+- Did: Six reskin ops, one read + one write per tool, each through the tool's storage with baseEtag
+  (409 → conflict): sound.get_doc / sound.set_cues (builder), fx.get_effect / fx.update_art
+  (animator), components.get_def / components.update_art (builder). Sound binds only built-ins or
+  approved library sounds to the moments /sound offers; a first save carries the legacy bindings
+  over, read strictly (an unreadable or corrupt legacy doc refuses the write); cue paths apply from
+  structured segments. FX re-points a layer's atlas, frames and weights and recolours existing
+  stops. Components re-skin sprite/rig/flipbook refs inside a def; a shared or built-in def becomes
+  the project's copy; art-only pins are re-pinned; a def bound to the math, or held by a locked
+  instance, is refused. ADAPTER_TOOL_IDS maps sound, fx and components → editor; only the
+  components tool may write editor/<slug>/components/. The math lock moved to ops/mathLock.ts and
+  now also covers effects placed inside components.
+- Files: apps/launcher-api/src/lib/server/director/{adapter,gate,registry}.ts,
+  director/ops/{sound,fx,components,mathLock,scene}.ts, soundsStorage.ts and gameConfigStorage.ts
+  (corrupt flags), soundLegacy.ts, soundExport.ts, fxAtlases.ts, $lib/soundMoments.ts, the /sound
+  and /fx loaders, routes/(app)/director/liveRun.ts (chips); services/director-worker/src/tools.ts,
+  agents/{builder,animator}.md (tools: only); scripts/check-director-{adapters,live}.ts; ADR-0011;
+  docs/status/{launcher,sound,fx,component-editor}.md; docs/tools/director.md.
+- Branch / PR: claude/director-9h-sound-fx-components, #1413.
+- Tests: check:director-adapters 644, check:director-live 110, check:director-runs 471,
+  check:director-mockups 156, check:pipeline-changes 7843, check:family-tools 177, worker checks,
+  eval:agent builder + animator ("nothing to compare"). Re-run after merging #1400 (timeline sound
+  cues): component timeline cues live in CinematicDocs, not ComponentDef, so update_art never sees
+  them; #1400's own checks pass on the merged tree.
+- Decisions: ADR-0011 approved (owner, 2026-10-27, by asking the coordinator to merge #1413): no
+  audio generation; approved and built-in sounds only; attribution for sounds, FX and components in
+  director_ops; art-only re-pins; `before` in the sound result. 9H accepted on fixtures.
+- Next: a builder/animator reference eval set; the builder, animator and coordinator bodies learn
+  the new ops in 9F's family-neutral rewrite; the soundPublishCheck gap (filed by the owner).
+
 ## 2026-10-27 · Phase 9 9E · coordinator + docs-keeper (knowledge backfill)
 - Did: docs/knowledge/lessons/: 15 area files (~290 lessons, symptom → cause → fix → guard → PR),
   mined from the status files, the frozen history and Director HISTORY, each checked against

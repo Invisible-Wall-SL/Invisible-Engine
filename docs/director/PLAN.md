@@ -131,7 +131,7 @@ Cards 9A–9H, each on its own branch. 9A merged with the audit and the ADR (#13
 | 9E | Knowledge backfill: last 30 days of fix sessions + docs → `lessons/`, `games/<project>.md` briefs; the 36 `[[…]]` notes rebuilt | coordinator + docs-keeper | done (#1411) | Memory-link baseline at 0; cost estimated first |
 | 9F | Runtime family packs + `no_family_pack` refusal at create; slot pack extracted from today's prompts | director-backend | review (#1412; owner eval owed) | Agents tab eval shows no change for slots |
 | 9G | Repair run kind + `game-doctor` + Repair review checkpoint + game → pipeline escalation | director-backend + director-frontend | doing (9G.0 done, #1416; the rest in #1414) | A game bug repaired on a test project end to end, owner-approved |
-| 9H | Sound and FX adapters, then Component Editor art | director-backend | doing | Each through its storage module with `baseEtag` |
+| 9H | Sound and FX adapters, then Component Editor art | director-backend | done (#1413, ADR-0011) | Each through its storage module with `baseEtag` |
 
 ## Phase 6 — Pilot
 
