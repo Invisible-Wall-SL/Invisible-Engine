@@ -529,6 +529,16 @@ writeFileSync(
 	),
 );
 writeFileSync(
+	join(dir, 'nearbots.json'),
+	JSON.stringify(
+		configOf({
+			characters: CHARACTERS,
+			bots: { ...BOTS, fillTo: 4 },
+			nearby: { w: 4000, h: 4000 },
+		}),
+	),
+);
+writeFileSync(
 	join(dir, 'bots.json'),
 	JSON.stringify(configOf({ characters: CHARACTERS, bots: { ...BOTS, fillTo: 4 } })),
 );
@@ -565,6 +575,21 @@ try {
 				'a bot back',
 				() => [...a.state.players.values()].filter((p) => p.bot).length === 3,
 			);
+			await a.leave();
+		},
+	);
+
+	await check(
+		'live: nearby — a device is told of the bots that give way and come back',
+		async () => {
+			const a = await clientOf().joinOrCreate(ROOM_NAME, { game: 'nearbots', character: 'fish' });
+			const heard = [];
+			a.onMessage(ONLINE_EVENT, (events) => heard.push(...events));
+			await until('the bots', () => a.state.players?.size === 4);
+			const b = await clientOf().joinById(a.roomId, { character: 'fish' });
+			await until('a bot’s leave', () => heard.some((e) => e.type === 'left' && isBotId(e.id)));
+			await b.leave();
+			await until('a bot’s join', () => heard.some((e) => e.type === 'joined' && isBotId(e.id)));
 			await a.leave();
 		},
 	);

@@ -130,6 +130,7 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 
 		onJoin(client: Client, options: JoinOptions = {}) {
 			const sim = this.requireSim();
+			const before = this.seenNow();
 			sim.join(client.sessionId, options ?? {});
 			this.syncPlayers();
 			this.writeRoom();
@@ -138,7 +139,7 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 				this.seen.set(client.sessionId, new Set());
 				this.nearby();
 			}
-			this.announce(sim.events());
+			this.announce(sim.events(), before);
 			void this.listPlayers();
 		}
 
@@ -173,11 +174,13 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 
 		onLeave(client: Client) {
 			const sim = this.requireSim();
+			const before = this.seenNow();
 			sim.leave(client.sessionId);
 			this.seen.delete(client.sessionId);
 			client.view?.dispose();
 			this.syncPlayers();
-			this.announce(sim.events());
+			if (sim.game.online.nearby) this.nearby();
+			this.announce(sim.events(), before);
 			void this.listPlayers();
 		}
 
@@ -244,6 +247,12 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			}
 		}
 
+		/** A copy of every device's view before a join or a leave changes the room: a bot it sends
+		 *  away is told to the devices that held it, though no view holds it after. */
+		private seenNow(): Map<string, Set<string>> {
+			return new Map([...this.seen].map(([id, ids]) => [id, new Set(ids)]));
+		}
+
 		/** The state's players made the room's: bots come and go as people join and leave. */
 		private syncPlayers() {
 			const sim = this.requireSim();
@@ -287,10 +296,14 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 
 		/**
 		 * Tell every device what happened, in one message, after the patch that shows it. In a nearby
-		 * room a device is told only of the players its view holds (and of the room's rounds), so a
-		 * far player's id and fate reach nobody it is not sent to.
+		 * room a device is told only of the players its view holds — or held `before` a join or a
+		 * leave changed the room — and of the room's rounds, so a far player's id and fate reach
+		 * nobody it is not sent to. A step's events are told by the views of the last patch.
 		 */
-		private announce(events: readonly OnlineEvent[]) {
+		private announce(
+			events: readonly OnlineEvent[],
+			before?: ReadonlyMap<string, ReadonlySet<string>>,
+		) {
 			if (!events.length) return;
 			if (!this.sim?.game.online.nearby) {
 				this.broadcast(ONLINE_EVENT, events, { afterNextPatch: true });
@@ -298,9 +311,13 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			}
 			for (const client of this.clients) {
 				const seen = this.seen.get(client.sessionId);
+				const had = before?.get(client.sessionId);
 				const told = events.filter((event) => {
 					const named = namedIn(event);
-					return !named.length || named.some((id) => id === client.sessionId || seen?.has(id));
+					return (
+						!named.length ||
+						named.some((id) => id === client.sessionId || seen?.has(id) || had?.has(id))
+					);
 				});
 				if (told.length) client.send(ONLINE_EVENT, told, { afterNextPatch: true });
 			}

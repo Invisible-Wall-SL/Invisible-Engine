@@ -394,11 +394,12 @@ function validateOnlineBots(doc: GameConfigDoc): GameConfigIssue[] {
 	}
 	const maxPlayers = online.maxPlayers ?? ARCADE_ONLINE_DEFAULTS.maxPlayers;
 	const fillTo = bots.fillTo ?? ARCADE_ONLINE_BOT_DEFAULTS.fillTo;
-	if (fillTo > Math.min(maxPlayers, L.fillTo.max)) {
+	const holds = Math.min(maxPlayers, ARCADE_ONLINE_LIMITS.maxPlayers.max);
+	if (fillTo > holds) {
 		issues.push({
 			severity: 'warning',
 			path: 'arcade.online.bots.fillTo',
-			message: `Bots fill a room to ${fillTo}, but it holds ${maxPlayers}; a room fills to ${maxPlayers}.`,
+			message: `Bots fill a room to ${fillTo}, but it holds ${holds}; a room fills to ${holds}.`,
 		});
 	}
 	return issues;

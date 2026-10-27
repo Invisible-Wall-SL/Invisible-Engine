@@ -1,4 +1,4 @@
-/** Types for Salmons as data (`salmons.js`, P10.16). Pinned by `scripts/check-salmons.mjs`. */
+/** Types for Salmons as data (`salmons.js`, P10.16). Pinned by `scripts/check-room-bots.mjs`. */
 
 export type SalmonsBand = { y: number; h: number; left: number; right: number; current: number };
 export type SalmonsWhirlpool = { x: number; y: number; r: number; spin: -1 | 1 };

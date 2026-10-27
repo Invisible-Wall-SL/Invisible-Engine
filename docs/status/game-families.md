@@ -96,7 +96,7 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
   owner. Salmons' current rules map to data as §4's table plans, except the climb, sandbanks and
   the fisherman's line (rules-module work) — [status/salmons.md](salmons.md) has the list.
 - **Gates:**
-  - `check:room-bots` (root, new, 17 checks, ~10 s; discovered by `check:all`): the bots / nearby /
+  - `check:room-bots` (root, new, 18 checks, ~10 s; discovered by `check:all`): the bots / nearby /
     spawns config normalized, resolved and validated; fill, give way, evict by character, refused
     join, leave, last person out; a bot moves no faster than its character, its brain closes on a
     target, it catches with its ability; a bot cannot win at the goal or on the clock (and can with
@@ -106,7 +106,8 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
     wins, the current carries it down and a bank pushes it back, a bear bot catches it. *Live* on a
     real server with SDK clients: bots fill and are marked and give way; nearby — a far player is
     not sent, it is sent once it swims near and dropped once it leaves, a device gets its own `ack`
-    and nobody else's, and is told of a near player's leave but nothing about a far one.
+    and nobody else's, and is told of a near player's leave but nothing about a far one; a device is
+    told of the bots that give way to a person and come back after a leave (18 checks).
   - `check:room-sim`: its source scan now expects the online camera branch in `<ArcadeStage />`
     (36 checks pass). `check:online-rules`, `check:netcode`: unchanged, pass.
   - `family.fixture.ts`: the two `resolveArcadeOnline` expectations gain the resolved empty bots.
