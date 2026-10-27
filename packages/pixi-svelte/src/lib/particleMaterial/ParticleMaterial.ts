@@ -109,6 +109,8 @@ export interface ParticleMaterialOptions {
 	onPlain?: (reason: ParticleMaterialPlain) => void;
 	/** Told each time {@link ParticleMaterial.peakCoveredArea} grows (a debug readout). */
 	onPeak?: (covered: number) => void;
+	/** Told the renderer at the first sync (a debug readout of the GPU). */
+	onRenderer?: (renderer: Renderer) => void;
 }
 
 /** What the Element FX link check takes: the same renderer, typed for an HTML canvas. */
@@ -196,6 +198,7 @@ export class ParticleMaterial {
 	private secondsPerAge: number;
 	private readonly onPlain: ParticleMaterialOptions['onPlain'];
 	private readonly onPeak: ParticleMaterialOptions['onPeak'];
+	private onRenderer: ParticleMaterialOptions['onRenderer'];
 	private readonly lengthSeconds: number;
 	private readonly padding: number;
 	private covered = 0;
@@ -210,6 +213,7 @@ export class ParticleMaterial {
 		this.secondsPerAge = secondsPerAge(options.emitSpeed);
 		this.onPlain = options.onPlain;
 		this.onPeak = options.onPeak;
+		this.onRenderer = options.onRenderer;
 		this.lengthSeconds = Math.max(1e-3, (effect?.spec.durationMs ?? 1000) / 1000);
 		this.padding = effect?.padding ?? 0;
 		// As the library reads it: not a positive number is 1000, a fraction lets one more spawn.
@@ -382,6 +386,11 @@ export class ParticleMaterial {
 	 * renders. `renderer` is asked, at the first live particle, whether the program links.
 	 */
 	sync(renderer: Renderer): void {
+		if (this.onRenderer) {
+			const told = this.onRenderer;
+			this.onRenderer = undefined;
+			told(renderer);
+		}
 		const { mesh, geometry, buffer, data, source, program } = this;
 		if (!mesh || !geometry || !buffer || !data || !source || !program) return;
 		const children = this.particles.children;

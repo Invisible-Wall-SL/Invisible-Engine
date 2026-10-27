@@ -104,7 +104,10 @@ export interface FxMaterialSlots {
 	readonly drawing: number;
 	/** Take a slot; false when every one is held. */
 	claim(): boolean;
-	/** Give a slot back. One given back with none held leaves the count at 0 and warns (once). */
+	/**
+	 * Give a slot back. One given back with none held leaves the count at 0 and warns, once per slot
+	 * count (one a game, {@link createFxMaterialSlots}).
+	 */
 	release(): void;
 }
 

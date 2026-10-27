@@ -31,7 +31,7 @@ import {
 } from 'engine-fx';
 import type { Container, Texture } from 'pixi.js';
 import { ParticleMaterial, type ParticleMaterialPlain } from './ParticleMaterial';
-import { showFxDebugLine } from './debugPanel';
+import { fxDebugLayerMounted, showFxDebugLine, showFxDebugRenderer } from './debugPanel';
 
 const appSlots = new WeakMap<object, FxMaterialSlots>();
 
@@ -90,7 +90,7 @@ function report(spec: ParticleMaterialSpec, state: string, slots: FxMaterialSlot
 	const label = spec.label ?? '(unnamed)';
 	const counts = `${spec.kind}; ${slots.drawing}/${slots.cap} drawing`;
 	console.log(`[fxdebug] material layer ${label}: ${state} (${counts})`);
-	showFxDebugLine(label, `${state} (${counts})`);
+	showFxDebugLine(slots, label, `${state} (${counts})`);
 }
 
 /** The most often a layer's growing peak is printed. */
@@ -116,7 +116,11 @@ function peakReporter(
 	return {
 		onPeak: (covered) => {
 			const wait = last + PEAK_REPORT_MS - performance.now();
-			if (wait <= 0) return print(covered);
+			if (wait <= 0) {
+				clearTimeout(timer);
+				timer = undefined;
+				return print(covered);
+			}
 			pending = covered;
 			timer ??= setTimeout(() => {
 				timer = undefined;
@@ -145,6 +149,8 @@ export function mountParticleMaterial(options: {
 	slots: FxMaterialSlots;
 }): MountedParticleMaterial {
 	const { spec, slots } = options;
+	// The on-page readout counts the layer from here to its release, plain or not.
+	const unshown = debug() ? fxDebugLayerMounted(slots) : () => {};
 	const effect = customElementFx(spec.kind);
 	const decided = fxMaterialMount({
 		rigParticles: options.rigParticles,
@@ -153,7 +159,7 @@ export function mountParticleMaterial(options: {
 	});
 	if (!decided.on) {
 		report(spec, `plain, ${decided.plain}`, slots);
-		return { material: undefined, state: decided.plain, release: () => {} };
+		return { material: undefined, state: decided.plain, release: unshown };
 	}
 	let held = true;
 	const giveBack = (): void => {
@@ -180,10 +186,12 @@ export function mountParticleMaterial(options: {
 				report(spec, `plain while playing, ${reason}`, slots);
 			},
 			onPeak: peaks?.onPeak,
+			onRenderer: debug() ? (renderer) => showFxDebugRenderer(slots, renderer) : undefined,
 		});
 	} catch (error) {
 		peaks?.stop();
 		giveBack();
+		unshown();
 		throw error;
 	}
 	const refused = material.plain;
@@ -192,7 +200,7 @@ export function mountParticleMaterial(options: {
 		material.destroy();
 		giveBack();
 		report(spec, `plain, ${refused}`, slots);
-		return { material: undefined, state: refused, release: () => {} };
+		return { material: undefined, state: refused, release: unshown };
 	}
 	report(spec, 'on', slots);
 	return {
@@ -204,6 +212,7 @@ export function mountParticleMaterial(options: {
 			material.destroy();
 			giveBack();
 			report(spec, `released, ${peakText(peak, effect?.cost)}`, slots);
+			unshown();
 		},
 	};
 }
