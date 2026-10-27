@@ -306,17 +306,20 @@ function normalizeBindings(raw: SoundsDoc['bindings']): SoundsDoc['bindings'] | 
  * they need OPPOSITE preconditions. Collapsing them would give a corrupt `sounds.json` an
  * `ifNoneMatch: '*'` precondition forever ⇒ 412 forever ⇒ the project's library becomes permanently
  * unsaveable with no way out from the UI.
+ *
+ * `corrupt` marks the unparseable case for a caller that must not write on top of it (the Director
+ * sound adapter answers `unreadable_doc`); the page and endpoint ignore it.
  */
 export async function loadSoundsDocWithEtag(
 	clientKey: string,
 	projectKey: string,
-): Promise<{ doc: SoundsDoc; etag: string | null; existed: boolean }> {
+): Promise<{ doc: SoundsDoc; etag: string | null; existed: boolean; corrupt?: true }> {
 	const obj = await getObjectTextWithEtag(soundsDocKey(clientKey, projectKey));
 	if (!obj) return { doc: emptySoundsDoc(), etag: null, existed: false };
 	try {
 		return { doc: normalizeSoundsDoc(JSON.parse(obj.text)), etag: obj.etag, existed: true };
 	} catch {
-		return { doc: emptySoundsDoc(), etag: obj.etag, existed: true };
+		return { doc: emptySoundsDoc(), etag: obj.etag, existed: true, corrupt: true };
 	}
 }
 
