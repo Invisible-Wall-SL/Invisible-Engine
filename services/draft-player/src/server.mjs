@@ -404,7 +404,7 @@ export function createDraftPlayer({
 	return {
 		server,
 		jobs,
-		listen: (port, host = '0.0.0.0') =>
+		listen: (port, host = '::') =>
 			new Promise((ok) => server.listen(port, host, () => ok(server.address().port))),
 		close: () =>
 			new Promise((ok) => {
