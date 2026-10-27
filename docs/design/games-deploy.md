@@ -123,6 +123,14 @@ them (step 3) is still what fixes a repo at rest, and what a local `pnpm build` 
 `IE_ALLOW_SVELTE_MISMATCH=1` turns the error into a warning, for investigating only: the bundle is
 still broken.
 
+### A new third-party package goes in a workspace package, never in `apps/lines`
+
+The launcher's backfill declares missing engine **workspace** packages; nothing ever adds a
+third-party one to a game repo. So a package `apps/lines` declares directly breaks every game
+repo's next build with `Rollup failed to resolve import "<package>"` (P10.14's `@colyseus/sdk`,
+2026-10-27). Put the dependency in a workspace package under `packages/` and import that
+(`packages/engine-rooms` carries `@colyseus/sdk`). `pnpm check:game-app-deps` (Lint) enforces it.
+
 ## Runtime releases (the online games' engine)
 
 Online games (Game Maker publishes, `runtime: "lines"` in `test_server/games.json`) run no build of
