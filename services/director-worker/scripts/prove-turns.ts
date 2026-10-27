@@ -1527,6 +1527,7 @@ try {
 				],
 			},
 			{ content: [say('Seen.')] },
+			{ content: [say('Noted.')] },
 			{ content: [say('Seen again.')] },
 		]);
 		const gate = fakeLauncher((id, nth) => {
@@ -1557,9 +1558,10 @@ try {
 		const results = (model.requests[1].messages.at(-1)!.content as { content: unknown }[]).map(
 			(b) => b.content,
 		);
+		// The request is built from the stored history, and JSONB orders an object's keys its own way.
 		check('an image answer is its other fields as text, then an image block', results[0], [
-			{ type: 'text', text: '{"region":"H1","id":"00002"}' },
-			{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG } },
+			{ text: '{"region":"H1","id":"00002"}', type: 'text' },
+			{ type: 'image', source: { data: PNG, type: 'base64', media_type: 'image/png' } },
 		]);
 		check(
 			'an unsupported image type falls back to text, base64 dropped, with a note',
@@ -1584,9 +1586,11 @@ try {
 		);
 		await userMessage(runId, 'atlas-artist', 'Again.');
 		await drive(runId, deps(model.transport, gate.launcher));
+		// The coordinator's turn on the artist's report sits between the artist's two.
+		const artist = model.requests.filter((r) => JSON.stringify(r.messages[0]).includes('Look.'));
 		check(
 			'after a later wake the stored image block is replayed byte-identically',
-			JSON.stringify(model.requests[2].messages.slice(0, 3)),
+			JSON.stringify(artist.at(-1)?.messages.slice(0, 3)),
 			JSON.stringify(model.requests[1].messages.slice(0, 3)),
 		);
 		check(
