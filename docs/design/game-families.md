@@ -1308,8 +1308,11 @@ so is #12's scope (its shape is a recommendation); the owner answered #13–#16 
 
 **In short:** a two-player duel with decks, hands, a board and a resource that grows each turn, in
 the style of Magic: The Gathering or Hearthstone. It is the most rules-heavy family, so it gets a
-design of its own (`docs/design/card-games.md`, not written yet) once P10.7 has shipped (§9 #15).
-This section records what is already clear.
+design of its own once P10.7 has shipped (§9 #15). This section records what was clear before it.
+
+> **The card design is written: [card-games.md](card-games.md)** (2026-10-27, plan, not approved).
+> It owns the rules engine, effects, the AI, the Card Library, the ship chain and the build plan
+> (C1–C5); its §13 holds the decisions for the owner, including where card data lives.
 
 - **Outcome:** rules-decided only. A card game is free play with no wallet (§9 #4); an RGS-decided
   card game is not planned.
