@@ -17,8 +17,8 @@ GLSL node (#1349). 8d (particle materials) is decided
 ([design](../design/shader-graph-particles.md)) and being built as 8d.1–8d.8; 8d.1 (the particle
 shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is merged
 (#1366); 8d.3 (the material in the game) is merged (#1378); 8d.4 (the ship chain, proven) is
-merged (#1384); 8d.5 (`/fx` authoring) is built and in review; 8d.6 (the other previews) is
-next.
+merged (#1384); 8d.5 (`/fx` authoring) is merged (#1392); 8d.6 (the other previews) is
+built and in review; 8d.7 (`/shaders`: Made for particles and the Particles preview) is next.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -307,7 +307,7 @@ next.
       - **Known, not this step:** the Scene Editor's effect clock runs slow for every effect
         (`EditorEffectLayer` passes `ticker.deltaMS / 1000`, not `emitterDeltaSeconds`; about
         2.3×). Open item.
-    - **8d.5, `/fx` authoring.** Built, in review. Guide: `docs/tools/fx.md` (Material).
+    - **8d.5, `/fx` authoring.** Merged (#1392, 2026-10-27). Guide: `docs/tools/fx.md` (Material).
       - **The Material section** (sprite layers; `fxMaterial.client.ts`, pure): the picker (None,
         then the project's compiled effects by name; "made for particles" first waits for 8d.7's
         `madeFor`), Time, Strength, the material's params as rows (number, colour, switch with ⚡;
@@ -651,6 +651,8 @@ next.
     timeout; finished overlay one-shots held their slots until cleared; the overlay's material sync
     could throw out of the ticker. Left: the Scene Editor's clock (open item 1).
 - 2026-10-27 — **Step 8d.5: `/fx` authoring** (see "Current state"). Step 8d.4 merged (#1384).
+  - **Merged** (#1392): CI green; Current games 8 pass, 0 changed screens, the one failure `cloud`,
+    which fails on `main`'s runtime too (merged past it with the owner's approval).
   - **Proof.** `fx-page` (new, in `check:all`) 31/31, three runs: the set read, the picker, "on",
     the estimate then the measured load and badges, a param drag and Strength changing pixels with
     no remount, a paused ⚡ preview, Time remounting, the cap note drawing plain, Apply preset,

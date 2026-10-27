@@ -508,7 +508,7 @@ svelte-check at baseline, and the current games building with no changed screen.
      - the page played headless: pick a material, drag a param and see the pixels change, switch
        the time mode, see the cap note, save → reopen identical.
    - **Exit:** an author picks, tunes and saves a material in `/fx`.
-   - **As built** (#TBD):
+   - **As built** (#1392):
      - **Cost through the effects route:** a compiled effect carries no cost, so
        `GET /api/shaders/effects` also answers `costs` per graph. 8d.7 may carry it in the effect.
      - **Picker by name** until `madeFor` (8d.7). **A choice param has no ⚡**: effect parameters
