@@ -135,7 +135,8 @@ gone wrong with them. Owner agent: `lines-games`.
   validator warning; `check:book-paytable` (no NaN).
 - **Symptom:** a big win stepped its tiers but would not dismiss (Book of Borut remake). **Cause:**
   outro authored as the tier's own idle clip, plus no tap surface after the count-up. **Guard:**
-  `tierHasExit` and `ESCALATION_OUTRO_CAP_MS` (`packages/engine-game/src/game/winEscalation.ts`).
+  `tierHasExit` (`packages/engine-game/src/game/winEscalation.ts`) and a capped outro wait;
+  `packages/engine-game/fixtures/winEscalationOutro.fixture.ts`.
 - **Symptom:** a slammed free-spin outro crashed with `effect_update_depth_exceeded`. **Cause:** a
   signal source emitting synchronously on subscribe inside a tracked `$effect`
   (`packages/engine-layout/src/lib/ComponentInstance.svelte`). **Guard:** subscription in
@@ -165,8 +166,8 @@ gone wrong with them. Owner agent: `lines-games`.
   `FORCE_TRIGGER=1` / `BIG_WIN=1`) and `docs/playtest/borut-remake.md` (the live published game).
   Hand either to `game-playtester`. Animation on a hidden tab is human-eyes, never a fail.
 - **Current games:** screen scripts `scripts/current-games/screens/lines.json` and
-  `scripts/current-games/screens/bookOf.json`, run by `.github/workflows/current-games.yml`
-  (`docs/playtest/current-games.md`).
+  `scripts/current-games/screens/bookOf.json`, played by the current-games harness on every
+  published game of the kind (`docs/playtest/current-games.md`).
 - **A reviewer looks at:** a byte-identical deal for configs without the new field, the money in
   the bet response matching the HUD, the book reveal and morph order, and that every other kind
   still boots (it is the same bundle).

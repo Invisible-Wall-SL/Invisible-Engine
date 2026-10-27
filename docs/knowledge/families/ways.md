@@ -7,8 +7,8 @@ What a ways game is, what must not move, and what has broken before. Owner agent
 - A ways slot pays a symbol that lands on adjacent reels from the leftmost one, on any row. Every
   matching cell on every contributing reel is part of the win. A 5×3 board pays 3⁵ = 243 ways.
 - It is NOT its own app or bundle. A ways project boots the one shared runtime (`apps/lines`) and
-  differs from lines only in its Invisible Game Config: `winModel: { type: 'ways', direction,
-  minKind }` (`packages/game-config/src/types.ts`). The kind `ways` picks the starter template,
+  differs from lines only in its Invisible Game Config: a `winModel` of type `ways`, with
+  `direction` and `minKind` (`packages/game-config/src/types.ts`). The kind `ways` picks the starter template,
   flow vocabulary and mock protocol; the CONFIG's `winModel` decides how the game pays.
 - `apps/ways` is the upstream sample, reference only. It is never built or served (the runtime
   release builds `apps/lines`; see `apps/launcher-api/src/lib/server/publishGame.ts`). Its one live
@@ -56,20 +56,20 @@ What a ways game is, what must not move, and what has broken before. Owner agent
 
 ## Where the code lives
 
-| What | Path |
-| --- | --- |
-| Win model type, resolver, normalizer | `packages/game-config/src/types.ts`, `packages/game-config/src/winModel.ts` |
-| Grid (per-reel rows, stepped) | `packages/game-config/src/grid.ts` |
-| Runtime read: divisor, ways count, paylines | `packages/engine-game/src/game/gameConfig.ts` |
-| Win line shape, anticipation | `apps/lines/src/game/flowEffects.ts`, `apps/lines/src/game/anticipation.ts` |
-| Ways reach | `packages/utils-slots/src/anticipationReach.ts` |
-| Kind flags | `packages/engine-layout/src/lib/kindCapabilities.ts` |
-| Template, reference layout, flow vocab | `packages/engine-layout/src/lib/templates/ways.ts`, `packages/engine-layout/src/lib/referenceLayouts/ways.ts`, `packages/engine-flow-v2/src/reference/ways.ts` |
-| Facade (bet encoding, win positions) | `packages/rgs-translator-eagaming/src/engineFacade.ts` |
-| Mock evaluator (`evaluateWays`, `payoutBaseFor`) | `scripts/mock-rgs-server.mjs` |
-| Test server: kind → protocol, grid to mock | `apps/launcher-api/src/lib/server/mockProtocol.ts`, `apps/launcher-api/src/lib/server/mockContract.ts`, `services/test-server/makeMock.mjs` |
-| Ways Game Config default | `apps/ways/src/game/config.ts` → `apps/launcher-api/src/lib/server/gameConfigDefaults.ts` |
-| Math check (RTP of any doc's strips) | `tools/game-config-spike/waysMath.ts`, `tools/game-config-spike/waysCrosscheck.ts` |
+| What                                             | Path                                                                                                                                                           |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Win model type, resolver, normalizer             | `packages/game-config/src/types.ts`, `packages/game-config/src/winModel.ts`                                                                                    |
+| Grid (per-reel rows, stepped)                    | `packages/game-config/src/grid.ts`                                                                                                                             |
+| Runtime read: divisor, ways count, paylines      | `packages/engine-game/src/game/gameConfig.ts`                                                                                                                  |
+| Win line shape, anticipation                     | `apps/lines/src/game/flowEffects.ts`, `apps/lines/src/game/anticipation.ts`                                                                                    |
+| Ways reach                                       | `packages/utils-slots/src/anticipationReach.ts`                                                                                                                |
+| Kind flags                                       | `packages/engine-layout/src/lib/kindCapabilities.ts`                                                                                                           |
+| Template, reference layout, flow vocab           | `packages/engine-layout/src/lib/templates/ways.ts`, `packages/engine-layout/src/lib/referenceLayouts/ways.ts`, `packages/engine-flow-v2/src/reference/ways.ts` |
+| Facade (bet encoding, win positions)             | `packages/rgs-translator-eagaming/src/engineFacade.ts`                                                                                                         |
+| Mock evaluator (`evaluateWays`, `payoutBaseFor`) | `scripts/mock-rgs-server.mjs`                                                                                                                                  |
+| Test server: kind → protocol, grid to mock       | `apps/launcher-api/src/lib/server/mockProtocol.ts`, `apps/launcher-api/src/lib/server/mockContract.ts`, `services/test-server/makeMock.mjs`                    |
+| Ways Game Config default                         | `apps/ways/src/game/config.ts` → `apps/launcher-api/src/lib/server/gameConfigDefaults.ts`                                                                      |
+| Math check (RTP of any doc's strips)             | `tools/game-config-spike/waysMath.ts`, `tools/game-config-spike/waysCrosscheck.ts`                                                                             |
 
 ## Known failure modes
 
