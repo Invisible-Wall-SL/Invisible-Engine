@@ -534,9 +534,11 @@ try {
 		arcade: { online: { characters: [], netcode: 'colyseus' } },
 	})!;
 	check(
-		'3. arcade: the Netcode picker only on an online game',
+		'3. arcade: the Netcode picker only on an online game, showing its netcode',
 		!renderPage(arcade).body.includes('Netcode') &&
-			/Netcode<select[^>]*>[\s\S]*value="colyseus"/.test(renderPage(online).body),
+			/Netcode<select[^>]*>[\s\S]*<option value="colyseus"[^>]*\bselected/.test(
+				renderPage(online).body,
+			),
 	);
 	const slotSections = configSectionsFor('slot', 'rgs');
 	const ALWAYS: ConfigSection[] = [

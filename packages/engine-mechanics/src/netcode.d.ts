@@ -6,6 +6,9 @@
 import type { Body, Field } from './motion';
 import type { OnlineInput, OnlineLevel, StepContext } from './online';
 
+/** A zone rule as `strongestForce` reads it. */
+type ForceRule = { force?: { x: number; y: number } };
+
 export const MATCH_PX: number;
 export const SMOOTH_MS: 100;
 export const SNAP_PX: 128;
@@ -76,3 +79,31 @@ export function reconcilerStep(options: {
 	field?: Field;
 	level?: OnlineLevel;
 }): (sdk: unknown, state: ReconciledState, command: OnlineInput) => void;
+
+export function strongestForce(zoneRules: readonly ForceRule[]): number;
+
+/** An online game as {@link reconcilerOptions} reads it (game-config `OnlineGame`). */
+export type ReconcilerGame = {
+	field: Field;
+	bodies: Record<string, unknown>;
+	zones: unknown[];
+	online: {
+		characters: readonly { id: string; body: string; speed: number }[];
+		tickHz: number;
+		subSteps: number;
+		patchHz: number;
+		rules: { zones: readonly (ForceRule & { zone: string; characters?: string[] })[] };
+	};
+};
+
+export function reconcilerOptions(
+	game: ReconcilerGame,
+	id: string,
+	player: { character: string; x: number; y: number },
+):
+	| {
+			fields: typeof RECONCILED_FIELDS;
+			step: (sdk: unknown, state: ReconciledState, command: OnlineInput) => void;
+			snap: number;
+	  }
+	| undefined;

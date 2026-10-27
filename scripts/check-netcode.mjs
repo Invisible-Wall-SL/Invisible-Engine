@@ -13,10 +13,13 @@
 // — no input or state is safe), which makes the room miss inputs the device predicted.
 //
 // Both `arcade.online.netcode` modes run the room: `engine` (createPredictor) and `colyseus` (the
-// Colyseus SDK's own `Reconciler`, from the SDK `engine-rooms` installs, over `reconcilerStep` and a
-// real `Player` schema instance, so its wire-precision compare reads float32 as on a device). The
+// Colyseus SDK's own `Reconciler`, from the SDK `engine-rooms` installs, over `reconcilerStep` and
+// a real `Player` schema instance, so its wire-precision compare reads float32 as on a device). The
 // SDK's reconciler reads its ack from the input handle; here a stand-in handle takes it from each
-// state, as the real one takes it from the state's TIMED prefix.
+// state (the room's last applied `seq`). On the reliable link that is what the runtime's handle
+// reads (the room's consumed-input count, in each state frame: nothing is lost). The runtime uses
+// only the reliable channel, so the datagram rows under `colyseus` model the SDK's unreliable-mode
+// ack: they compare how the two reconcilers absorb a misprediction, not a setup the runtime is in.
 //
 // Run: pnpm check:netcode
 
@@ -878,8 +881,7 @@ await check(
 			"netcode === 'colyseus'",
 			'Predict.get(room)',
 			'predict.reconciler(',
-			'RECONCILED_FIELDS',
-			'reconcilerStep(',
+			'reconcilerOptions(',
 			'predict.tick(',
 		]) {
 			assert.ok(source.includes(used), `online.ts does not use ${used}`);

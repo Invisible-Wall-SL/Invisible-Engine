@@ -364,7 +364,7 @@ export const resolveArcadeOnline = (
 		spawn: online.spawn ?? { x: field.w / 2, y: field.h / 2 },
 		layer: online.layer ?? d.layer,
 		rules: resolveRules(online.rules),
-		netcode: online.netcode === 'colyseus' ? 'colyseus' : 'engine',
+		netcode: ARCADE_NETCODES.find((n) => n === online.netcode) ?? d.netcode,
 	};
 };
 

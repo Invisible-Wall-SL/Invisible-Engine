@@ -39,6 +39,7 @@ import {
 	pendingCueHolds,
 } from 'engine-layout';
 import { isComponentMounted } from 'engine-layout/svelte';
+import type { ArcadeNetcode } from 'game-config';
 
 const FLAG = 'ie_determinism';
 export const DETERMINISM_FRAME_MS = 1000 / 60;
@@ -97,7 +98,7 @@ export type DeterminismArcadeState = {
 		me: string;
 		drawn: { id: string; x: number; y: number }[];
 		viewStep: number;
-		netcode: 'engine' | 'colyseus';
+		netcode: ArcadeNetcode;
 		corrections?: number;
 		snaps?: number;
 		phase: string;

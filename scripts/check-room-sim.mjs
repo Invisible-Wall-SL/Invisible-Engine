@@ -24,7 +24,7 @@ import {
 	stepContext,
 	stepPlayer,
 } from '../packages/engine-mechanics/src/online.js';
-import { RECONCILED_FIELDS, reconcilerStep } from '../packages/engine-mechanics/src/netcode.js';
+import { reconcilerOptions } from '../packages/engine-mechanics/src/netcode.js';
 import {
 	ARCADE_ONLINE_MECHANIC,
 	ARCADE_RULES_MECHANIC,
@@ -260,6 +260,7 @@ await check('the same inputs replay to the same room', () => {
 	);
 });
 
+// A tripwire: it fails only if the server starts reading `netcode`, which it must not.
 await check('the room plays the same under either netcode: the server never reads it', () => {
 	const engine = runHeadless(RATES[0], 2000, 'netcode').sim;
 	const colyseus = runHeadless({ ...RATES[0], netcode: 'colyseus' }, 2000, 'netcode').sim;
@@ -557,6 +558,13 @@ await check('the runtime: the SDK is reached only through the online branch, and
 	assert.match(online, /import type \{[^}]*\bRoom\b[^}]*\} from 'engine-rooms'/);
 	assert.match(online, /await import\('engine-rooms'\)/);
 	assert.doesNotMatch(online.replace(/import type[^;]+;/g, ''), /^import [^;]*'engine-rooms'/m);
+	// The SDK's prediction is its own lazy entry, loaded only for `netcode: 'colyseus'`.
+	assert.deepEqual(importing(`engine-rooms/predict['"\`]`), ['game/online.ts']);
+	assert.match(online, /netcode === 'colyseus' \? await import\('engine-rooms\/predict'\)/);
+	assert.doesNotMatch(
+		online.replace(/import type[^;]+;/g, ''),
+		/^import [^;]*'engine-rooms\/predict'/m,
+	);
 	const layout = readFileSync(join(src, 'routes/+layout.ts'), 'utf8');
 	assert.match(layout, /if \(gameMechanic\(\)\.room\) await joinOnlineRoom\(\);/);
 	const stage = readFileSync(join(src, 'components/ArcadeStage.svelte'), 'utf8');
@@ -1124,15 +1132,10 @@ try {
 			const predict = Predict.get(room);
 			const input = room.input();
 			let corrected = 0;
+			// The options the runtime builds (`online.ts` `reconcilerOf`), from the room's own game.
 			const me = predict.reconciler(player, {
 				input,
-				fields: RECONCILED_FIELDS,
-				step: reconcilerStep({
-					body: characterBody('me', sim.game.bodies.salmon, player),
-					speed: 240,
-					ctx: sim.ctx,
-					field: sim.game.field,
-				}),
+				...reconcilerOptions(sim.game, room.sessionId, player),
 				warnOnDivergence: Number.POSITIVE_INFINITY,
 				onReconcile() {
 					if (me.lastCorrectionMag > 0) corrected += 1;

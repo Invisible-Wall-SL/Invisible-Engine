@@ -292,7 +292,10 @@ player:
 
 - **The server does not know the mode.** It is authoritative in both: the SDK's reconciler needs
   only what the room already does (`defineInput`, `setFixedTimestep` with its sub-steps, the patch
-  rate). `check:room-sim` holds the room identical under both settings.
+  rate). `check:room-sim` has a tripwire for the server ever reading it, and runs the SDK's
+  reconciler, with the runtime's options (`reconcilerOptions`), against a live room.
+- **The SDK's prediction is imported only for `colyseus`:** `Predict` is its own entry,
+  `engine-rooms/predict`, imported beside the room client only when the config asks for it.
 - **Everyone else stays ours in both modes,** so `Input.view` (lag compensation, §11) names the step
   the device drew, whichever mode it runs. The SDK's `attachAll(…, { mode: 'lerp' })` would draw
   them on its own render clock in server milliseconds, with no step to send.
@@ -300,10 +303,10 @@ player:
   the device has no ability presentation yet, and the room tests abilities against `view`.
 - **What differs, measured** (`check:netcode`, six devices, 50–250 ms, ±50 ms, 2–5 % loss): on the
   real transport (a WebSocket), both make 0 corrections and every rest is the room's place bit for
-  bit. On a lossy datagram link the SDK fades a correction more slowly (one patch interval, 50 ms at
-  20 Hz, where ours takes 25 ms), so 200 ms after the last ack its player is still up to ~0.6 px off
-  (ours: under 0.01 px). The SDK's module adds ~17 KB gz to the runtime, loaded only by online
-  games.
+  bit. On a modelled lossy datagram link (the runtime does not use one) the SDK fades a correction
+  more slowly (one patch interval, 50 ms at 20 Hz, where ours takes 25 ms), so 200 ms after the last
+  ack its player is still up to ~0.6 px off (ours: under 0.01 px). The SDK's module adds ~17 KB gz
+  to the runtime's file; the runtime is one bundle, so every game carries it.
 
 ---
 

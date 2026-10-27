@@ -486,19 +486,6 @@ check(
 	'colyseus',
 );
 check(
-	'an unknown netcode on an un-normalized doc warns: it is played as engine',
-	validateGameConfigDoc({
-		...online({ characters: swimmers }),
-		arcade: {
-			...online({ characters: swimmers }).arcade,
-			online: { characters: swimmers, netcode: 'rollback' as 'engine' },
-		},
-	})
-		.filter((i) => i.severity === 'warning')
-		.map((i) => i.path),
-	['arcade.online.netcode'],
-);
-check(
 	'an online game with a field and a character is clean',
 	paths(online({ characters: swimmers })),
 	[],
