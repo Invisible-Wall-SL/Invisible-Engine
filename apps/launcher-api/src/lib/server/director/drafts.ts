@@ -64,7 +64,7 @@ export interface DraftProgress {
 export interface DraftPlayer {
 	submit(job: DraftPlayJob): Promise<void>;
 	progress?(jobRef: string): Promise<DraftProgress>;
-	/** Best-effort: stop a play that is no longer wanted. */
+	/** Best-effort: stop a play that is no longer wanted. Callers log its errors and never throw them. */
 	cancel?(jobRef: string): Promise<void>;
 }
 

@@ -1440,8 +1440,11 @@ console.log('cleanup');
 			R2.get(`${dp(client, project)}${id}/${f}`)!.mtime = now - ageMs;
 		}
 	};
+	// The run's recorded client is stale (null); the drafts sit under the project's CURRENT client,
+	// which is what the sweep must resolve, as the draft writer does.
+	for (const key of ['old-ended', 'fresh-ended', 'shared', 'orphans']) PROJECTS.set(key, C);
 	const endedRun = (projectKey: string, ageMs: number, status = 'stopped') =>
-		DRAFT_RUNS.push({ projectKey, clientKey: C, status, updatedAt: new Date(now - ageMs) });
+		DRAFT_RUNS.push({ projectKey, clientKey: null, status, updatedAt: new Date(now - ageMs) });
 	const n = (project: string) => keysUnder(dp(C, project)).length;
 
 	endedRun('old-ended', 15 * DAY, 'failed');

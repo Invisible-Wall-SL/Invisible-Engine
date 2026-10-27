@@ -758,8 +758,9 @@ export const directorAtlasJobs = pgTable(
 
 /**
  * A QA play of a run's frozen draft (ADR-0010). Modelled on {@link directorAtlasJobs}: the launcher
- * is the only writer, and `queued` -> terminal is the one transition that writes the run's
- * `job_done` event. `draftId` names a folder under the run's `director/drafts/`.
+ * inserts and settles rows, and `queued` -> terminal there is the one transition that writes the
+ * run's `job_done` event. The one other writer is the worker's stop (`cancelQueuedDrafts`), which
+ * flips a stopping run's queued rows to `cancelled` with no event. `draftId` names a folder under the run's `director/drafts/`.
  */
 export const directorDraftJobs = pgTable(
 	'director_draft_jobs',

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, lt, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import { getDb } from '../db';
 import { r2SlugSql, type Queryer } from '../projectKeyLock';
 import {
@@ -437,6 +437,26 @@ export async function insertDraftJob(row: {
 /** Every play still queued, of every run: what the fallback watches at boot. */
 export async function queuedDraftJobs(): Promise<DirectorDraftJob[]> {
 	return getDb().select().from(directorDraftJobs).where(eq(directorDraftJobs.status, 'queued'));
+}
+
+/**
+ * A run's plays the stop must tell the player about: those still queued, and those the worker's
+ * own stop already flipped to `cancelled` without a `done_via` (`cancelQueuedDrafts`), whichever
+ * of the two reached the rows first.
+ */
+export async function draftJobsToCancel(runId: string): Promise<DirectorDraftJob[]> {
+	return getDb()
+		.select()
+		.from(directorDraftJobs)
+		.where(
+			and(
+				eq(directorDraftJobs.runId, runId),
+				or(
+					eq(directorDraftJobs.status, 'queued'),
+					and(eq(directorDraftJobs.status, 'cancelled'), isNull(directorDraftJobs.doneVia)),
+				),
+			),
+		);
 }
 
 export async function getDraftJob(jobRef: string): Promise<DirectorDraftJob | null> {

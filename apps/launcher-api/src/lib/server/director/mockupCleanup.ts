@@ -1,7 +1,7 @@
 import { listClients } from '../clients';
 import { UNASSIGNED_CLIENT, r2Slug } from '../projectPaths';
 import { withProjectKeyLock } from '../projectKeyLock';
-import { listDeletedProjects, listProjects, projectInFolder } from '../projects';
+import { listDeletedProjects, listProjects, projectClientKey, projectInFolder } from '../projects';
 import { deleteObject, deleteObjects, listAllObjects, listFolder, type ListedObject } from '../r2';
 import {
 	MockupError,
@@ -276,7 +276,9 @@ export async function sweepEndedRunDrafts(
 		{ client: string; project: string; live: boolean; lastEnd: number }
 	>();
 	for (const run of await listRunsForDraftSweep()) {
-		const client = r2Slug(run.clientKey ?? UNASSIGNED_CLIENT);
+		// The draft writer's resolution (`requireProjectScope`): the project's CURRENT client, which
+		// the run's recorded one can lag behind.
+		const client = r2Slug((await projectClientKey(run.projectKey)) ?? UNASSIGNED_CLIENT);
 		const project = r2Slug(run.projectKey);
 		const f = folders.get(`${client}/${project}`) ?? { client, project, live: false, lastEnd: 0 };
 		if (ended.has(run.status)) f.lastEnd = Math.max(f.lastEnd, run.updatedAt.getTime());

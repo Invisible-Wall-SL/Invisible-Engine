@@ -1502,5 +1502,115 @@ console.log('batches, atlases and trimming');
 	check('a refused approval approves nothing', foldEvents(refusedRows, PREFIX).artPlan, 'open');
 }
 
+// ── A QA play of a draft is not an atlas render (ADR-0010) ────────────────────
+{
+	const D = '20261027T101530Z-3fa9';
+	const play = (payload: Record<string, unknown>, kind: 'job_queued' | 'job_done') =>
+		row(kind, 'qa', { jobRef: 'dp_0123456789abcdef', draftId: D, ...payload }, 'build.play_draft');
+	const feedOf = (rows: RunEvent[]) => {
+		const f = foldEvents(rows, PREFIX);
+		return {
+			jobs: f.jobs.length,
+			regions: f.regions.size,
+			feed: f.feed.map((e) => [e.tone, e.text]),
+		};
+	};
+	check(
+		'a queued QA play is a feed line, not a render of regions',
+		feedOf([play({ scenarios: ['base'] }, 'job_queued')]),
+		{
+			jobs: 0,
+			regions: 0,
+			feed: [['job', `queued a QA play of the draft ${D} (base).`]],
+		},
+	);
+	check(
+		'a finished play says how many screens were reached',
+		feedOf([
+			play(
+				{
+					status: 'finished',
+					result: {
+						scenarios: [
+							{ id: 'base', expected: ['boot', 'spin', 'win'], reached: ['boot', 'spin'] },
+							{ id: 'free', expected: ['boot'], reached: ['boot'] },
+						],
+					},
+				},
+				'job_done',
+			),
+		]),
+		{
+			jobs: 0,
+			regions: 0,
+			feed: [['error', `QA play of the draft ${D} finished: 3 of 4 screens reached.`]],
+		},
+	);
+	check(
+		'a play that reached every screen is a job line',
+		feedOf([
+			play(
+				{
+					status: 'finished',
+					result: { scenarios: [{ id: 'base', expected: ['boot'], reached: ['boot'] }] },
+				},
+				'job_done',
+			),
+		]).feed,
+		[['job', `QA play of the draft ${D} finished: 1 of 1 screens reached.`]],
+	);
+	check(
+		'a runtime that refused to boot is named',
+		feedOf([
+			play(
+				{
+					status: 'finished',
+					result: { bootRefused: '[runtime] boot stopped — x', scenarios: [] },
+				},
+				'job_done',
+			),
+		]).feed,
+		[
+			[
+				'error',
+				`QA play of the draft ${D}: the runtime refused to boot: [runtime] boot stopped — x`,
+			],
+		],
+	);
+	check(
+		'no_player reads as not played, never as a failed render',
+		feedOf([
+			play(
+				{
+					status: 'failed',
+					result: {
+						reason: 'no_player',
+						message: 'No draft player is deployed, so the draft was not played.',
+					},
+				},
+				'job_done',
+			),
+		]),
+		{
+			jobs: 0,
+			regions: 0,
+			feed: [
+				[
+					'job',
+					`QA play of the draft ${D} was not played (no_player): No draft player is deployed, so the draft was not played.`,
+				],
+			],
+		},
+	);
+	check(
+		'a play the player failed is an error line; a cancelled one is not',
+		feedOf([
+			play({ status: 'failed', result: { reason: 'timeout', message: 'Too slow.' } }, 'job_done'),
+			play({ status: 'cancelled', result: { reason: 'run_stopped' } }, 'job_done'),
+		]).feed.map(([tone]) => tone),
+		['error', 'job'],
+	);
+}
+
 console.log(`\n${checks} checks, ${failures} failures`);
 process.exit(failures === 0 ? 0 : 1);

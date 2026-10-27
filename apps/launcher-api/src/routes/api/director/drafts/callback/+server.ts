@@ -76,7 +76,8 @@ export const POST: RequestHandler = async ({ request, url }) => {
 		result: playResultOf(msg as { status: string; report?: unknown; error?: unknown }),
 		via: 'callback',
 	});
-	// An unknown job is a 404 so the player keeps it undelivered and redelivers.
+	// An unknown job is a 404. The player treats any 4xx as final and does not resend it: there is no
+	// row here to settle, so nothing is lost by that.
 	if (!done.recorded && done.reason === 'unknown_job') return answer(404, { error: 'unknown_job' });
 	return answer(200, { recorded: done.recorded });
 };

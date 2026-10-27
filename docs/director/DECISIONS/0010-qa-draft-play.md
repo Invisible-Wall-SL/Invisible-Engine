@@ -94,8 +94,9 @@ Per play: one side of the kind's scenarios, 2–11 min. Railway figures are at i
   contract, the scenarios, presigned PUTs for the report and up to 40 screenshots (1 h TTL), and a
   callback URL with a token (`atlasCallback.ts` scheme, its own scope). The player answers 202 and
   runs plays one at a time.
-- **Report (player → launcher):** a signed `POST /api/director/drafts/callback?run=`. The launcher is
-  the only writer. `settleDraftJob` updates the row where `status = 'queued'` and inserts
+- **Report (player → launcher):** a signed `POST /api/director/drafts/callback?run=`. The launcher
+  inserts and settles the rows and is the only writer of `job_done`; the worker's stop flips a
+  stopping run's queued rows to `cancelled`, with no event. `settleDraftJob` updates the row where `status = 'queued'` and inserts
   `job_done` with `tool: 'build.play_draft'` in one transaction. Its NOTIFY wakes the worker.
 - **Fallback watch:** in-process, `/progress?jobRef=` on a 60/120/240 s backoff. Unknown to the player
   (it restarted): submit again once, then fail. Give up 30 min after `queuedAt`. Re-armed at boot

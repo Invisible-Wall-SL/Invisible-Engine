@@ -16,7 +16,14 @@ import {
 	type DraftPlayer,
 	type DraftProgress,
 } from './drafts';
-import { getDraftJob, getRun, getRunOwner, queuedDraftJobs, settleDraftJob } from './store';
+import {
+	draftJobsToCancel,
+	getDraftJob,
+	getRun,
+	getRunOwner,
+	queuedDraftJobs,
+	settleDraftJob,
+} from './store';
 
 /**
  * Settling a QA play (ADR-0010 §3). The draft player's signed callback is the primary signal and
@@ -30,6 +37,9 @@ export const CALLBACK_PATH = '/api/director/drafts/callback';
 export const CALLBACK_TOKEN_TTL_SECONDS = 2 * 3600;
 /** Presigned URLs handed to the player. */
 const PRESIGN_TTL_SECONDS = 3600;
+/** What the player gets of a draft folder: never the reports and shots of earlier plays. */
+const isDraftFile = (path: string) =>
+	path === 'runtime.json' || path === 'draft.json' || path.startsWith('deploy/');
 /** Screenshots the player may upload per play. */
 export const MAX_SHOTS = 40;
 
@@ -79,12 +89,14 @@ export function createHttpDraftPlayer(
 			...(body ? { body } : {}),
 		});
 
-	const presignAll = async (prefix: string) =>
+	const presignAll = async (prefix: string, keep: (path: string) => boolean = () => true) =>
 		Promise.all(
-			(await files(prefix)).map(async (key) => ({
-				path: key.slice(prefix.length),
-				url: await presignGet(key, PRESIGN_TTL_SECONDS),
-			})),
+			(await files(prefix))
+				.filter((key) => keep(key.slice(prefix.length)))
+				.map(async (key) => ({
+					path: key.slice(prefix.length),
+					url: await presignGet(key, PRESIGN_TTL_SECONDS),
+				})),
 		);
 
 	return {
@@ -104,7 +116,7 @@ export function createHttpDraftPlayer(
 				kind: job.gameType,
 				contract: meta.contract,
 				...(job.scenarios ? { scenarios: job.scenarios } : {}),
-				draft: { files: await presignAll(prefix) },
+				draft: { files: await presignAll(prefix, isDraftFile) },
 				runtime: {
 					version: meta.runtime.version,
 					commit: meta.runtime.commit,
@@ -184,6 +196,21 @@ export interface DraftWatchDeps {
 	progress: (jobRef: string) => Promise<DraftProgress>;
 	/** Submit the play again, for a player that restarted and no longer knows it. */
 	resubmit: (jobRef: string) => Promise<void>;
+	/** Stop the play on the player, when the watch gives up on it. Best-effort. */
+	cancel?: (jobRef: string) => Promise<void>;
+}
+
+/** Tell the player a play is no longer wanted. An error is logged, never thrown. */
+async function cancelOnPlayer(
+	cancel: ((jobRef: string) => Promise<void>) | undefined,
+	jobRef: string,
+): Promise<void> {
+	if (!cancel) return;
+	try {
+		await cancel(jobRef);
+	} catch (e) {
+		console.error(`director draft job ${jobRef}: the player's /cancel failed:`, e);
+	}
 }
 
 /**
@@ -198,8 +225,17 @@ export async function watchDraftJob(
 ): Promise<DraftDone | null> {
 	const start = job.queuedAt?.getTime() ?? deps.now();
 	let resubmitted = false;
-	const fail = (reason: string, message: string) =>
-		recordDraftDone({ ...job, status: 'failed', result: { reason, message }, via: 'poll' });
+	// A play the watch gives up on must not keep running on the player.
+	const fail = async (reason: string, message: string) => {
+		const done = await recordDraftDone({
+			...job,
+			status: 'failed',
+			result: { reason, message },
+			via: 'poll',
+		});
+		await cancelOnPlayer(deps.cancel, job.jobRef);
+		return done;
+	};
 	for (let i = 0; ; i++) {
 		const wait = DRAFT_POLL_BACKOFF_SECONDS[Math.min(i, DRAFT_POLL_BACKOFF_SECONDS.length - 1)];
 		await deps.sleep(wait * 1000);
@@ -268,7 +304,35 @@ export function armDraftWatch(
 			if (!play) throw new Error(`draft job ${jobRef}: its run or project is gone`);
 			await player.submit(play);
 		},
+		cancel: player.cancel?.bind(player),
 	}).catch((e) => console.error(`director draft job ${job.jobRef}: fallback watch failed:`, e));
+}
+
+/**
+ * The owner stopped the run: settle its queued plays `cancelled` through the same exactly-once
+ * path and tell the player to drop them, best-effort. The worker's own stop flips the same rows
+ * (`cancelQueuedDrafts`), both conditional on `queued`, so whichever comes first wins and the
+ * other is a no-op; the player is told either way. Returns how many plays it asked the player to
+ * cancel.
+ */
+export async function cancelRunDraftPlays(
+	runId: string,
+	player: DraftPlayer | null = activeDraftPlayer(),
+): Promise<number> {
+	const jobs = await draftJobsToCancel(runId);
+	for (const job of jobs) {
+		if (job.status === 'queued') {
+			await settleDraftJob({
+				jobRef: job.jobRef,
+				runId,
+				status: 'cancelled',
+				result: { reason: 'run_stopped', message: 'The owner stopped the run.' },
+				via: 'inline',
+			}).catch((e) => console.error(`director draft job ${job.jobRef}: not cancelled:`, e));
+		}
+		await cancelOnPlayer(player?.cancel?.bind(player), job.jobRef);
+	}
+	return jobs.length;
 }
 
 /** Between the boot re-arms, so a restart does not read every queued play at once. */

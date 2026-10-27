@@ -752,7 +752,61 @@ function foldResolved(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 	);
 }
 
+/** A QA play of a draft (`build.play_draft`) is not an atlas render: it has no regions or variants. */
+const isDraftPlay = (event: RunEvent) => event.tool === 'build.play_draft';
+
+function foldDraftPlayQueued(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
+	const draftId = str(p.draftId, 40);
+	const scenarios = strings(p.scenarios, 20);
+	push(
+		ctx,
+		event,
+		`queued a QA play of the draft${draftId ? ` ${draftId}` : ''}${scenarios.length ? ` (${list(scenarios)})` : ''}.`,
+		'job',
+	);
+}
+
+function foldDraftPlayDone(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
+	const draftId = str(p.draftId, 40);
+	const draft = draftId ? ` of the draft ${draftId}` : ' of the draft';
+	const result = isRecord(p.result) ? p.result : {};
+	if (p.status === 'finished') {
+		let expected = 0;
+		let reached = 0;
+		const scenarios = Array.isArray(result.scenarios) ? result.scenarios.slice(0, 20) : [];
+		for (const s of scenarios) {
+			if (!isRecord(s)) continue;
+			const want = strings(s.expected, 40);
+			const got = strings(s.reached, 40);
+			expected += want.length;
+			reached += want.length ? want.filter((screen) => got.includes(screen)).length : got.length;
+		}
+		const boot = str(result.bootRefused, 300);
+		push(
+			ctx,
+			event,
+			boot
+				? `QA play${draft}: the runtime refused to boot: ${boot}`
+				: `QA play${draft} finished: ${reached} of ${expected} screens reached.`,
+			expected > 0 && reached === expected && !boot ? 'job' : 'error',
+		);
+		return;
+	}
+	// A play that never ran says why; it is "not played", never a pass.
+	const reason = str(result.reason, 40) ?? (p.status === 'cancelled' ? 'cancelled' : 'failed');
+	const message = str(result.message, 300) ?? str(result.error, 300);
+	push(
+		ctx,
+		event,
+		`QA play${draft} was not played (${reason})${message ? `: ${message}` : '.'}`,
+		reason === 'no_player' || reason === 'run_stopped' || p.status === 'cancelled'
+			? 'job'
+			: 'error',
+	);
+}
+
 function foldJobQueued(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
+	if (isDraftPlay(event)) return foldDraftPlayQueued(ctx, event, p);
 	const jobRef = str(p.jobRef, 40) ?? '';
 	const atlas = str(p.atlas, 64);
 	const regions = strings(p.regions, 64).filter((r) => REGION_NAME.test(r));
@@ -787,6 +841,7 @@ function foldJobQueued(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 }
 
 function foldJobDone(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
+	if (isDraftPlay(event)) return foldDraftPlayDone(ctx, event, p);
 	const jobRef = str(p.jobRef, 40) ?? '';
 	const atlas = str(p.atlas, 64);
 	const regions = strings(p.regions, 64).filter((r) => REGION_NAME.test(r));

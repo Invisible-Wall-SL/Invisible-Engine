@@ -4,9 +4,15 @@ import { checkShippedFlowV2, describeFlowErrors } from '../../flowV2Validation';
 import { loadGameConfigDocWithEtag } from '../../gameConfigStorage';
 import { mockContractOfBundle } from '../../mockContract';
 import { protocolFor } from '../../mockProtocol';
-import { projectGameType } from '../../projects';
+import { projectClientKey, projectGameType } from '../../projects';
 import { hasOwnBuiltBundle } from '../../publishGame';
-import { copyDeployTree, isSnapshotId, newSnapshotId } from '../../publishedRuntime';
+import {
+	copyDeployTree,
+	currentPointer,
+	isSnapshotId,
+	newSnapshotId,
+	readSnapshotBundle,
+} from '../../publishedRuntime';
 import {
 	deleteObjects,
 	getObjectText,
@@ -18,7 +24,7 @@ import {
 import { buildRuntimeBundle } from '../../runtimeBundle';
 import { withDeployWrite } from '../../runtimeBundleCache';
 import { SHARED_RUNTIME_ID, runtimePointer } from '../../testServerManifest';
-import { SUB } from '../../projectPaths';
+import { SUB, UNASSIGNED_CLIENT } from '../../projectPaths';
 import { AdapterError, defineOp, type AdapterContext } from '../adapter';
 import {
 	DRAFT_ID,
@@ -31,7 +37,7 @@ import {
 	type DraftMeta,
 } from '../drafts';
 import { activeDraftPlayer, armDraftWatch } from '../draftJobs';
-import { getDraftJob, insertDraftJob, settleDraftJob } from '../store';
+import { getDraftJob, insertDraftJob, queuedDraftJobs, settleDraftJob } from '../store';
 
 /**
  * Build adapters (ADR-0010): QA freezes the run's game as a draft and plays it with forced
@@ -57,6 +63,38 @@ async function draftFolders(client: string, project: string): Promise<string[]> 
 	return ids.sort().reverse();
 }
 
+/** The contract's hash as `draft.json` records it, and as the template's snapshot is compared. */
+const contractHashOf = (contract: unknown) =>
+	createHash('sha256').update(JSON.stringify(contract)).digest('hex');
+
+/**
+ * ADR-0010 §1, third refusal: when the run's template is published, its snapshot's contract must be
+ * the draft's. The same derivation on both sides (`mockContractOfBundle`); an unpublished template
+ * has nothing to compare and is skipped.
+ */
+async function assertTemplateContract(templateKey: string, draftHash: string): Promise<void> {
+	const client = (await projectClientKey(templateKey)) ?? UNASSIGNED_CLIENT;
+	const pointer = await currentPointer(client, templateKey);
+	if (!pointer) return;
+	const bundle = await readSnapshotBundle(client, templateKey, pointer.current);
+	if (!bundle) {
+		throw new AdapterError(
+			409,
+			'math_unproven',
+			"The template is published but its snapshot cannot be read, so the draft's contract cannot be compared with it. Report this as a fail; nothing is fixed.",
+		);
+	}
+	const gameType = await projectGameType(templateKey);
+	const published = mockContractOfBundle(protocolFor(gameType), bundle, templateKey, gameType);
+	if (contractHashOf(published) !== draftHash) {
+		throw new AdapterError(
+			409,
+			'contract_drifted',
+			"The draft's mock contract (protocol, grid, cascade) differs from the one the template's published game deals. The math is locked: report this as a fail; nothing is fixed.",
+		);
+	}
+}
+
 export interface RequestDraftResult {
 	draftId: string;
 	runtime: { id: string; version: string; commit: string };
@@ -75,7 +113,11 @@ export const requestDraft = defineOp<Record<string, never>, RequestDraftResult>(
 	agents: ['qa'],
 	scope: 'project',
 	write: true,
-	writes: (_input, s) => [draftsPrefix(s.clientKey, s.projectKey)],
+	// `buildRuntimeBundle` rewrites the project's `deploy/` (as Publish does), then it is copied.
+	writes: (_input, s) => [
+		`${SUB.deploy(s.clientKey, s.projectKey)}/`,
+		draftsPrefix(s.clientKey, s.projectKey),
+	],
 	handler: async (ctx) => {
 		const { clientKey, projectKey } = scope(ctx);
 		const { run } = ctx;
@@ -135,6 +177,8 @@ export const requestDraft = defineOp<Record<string, never>, RequestDraftResult>(
 					projectKey,
 					gameType,
 				);
+				const contractHash = contractHashOf(contract);
+				await assertTemplateContract(run.templateProjectKey, contractHash);
 				const objects = await copyDeployTree(
 					`${SUB.deploy(clientKey, projectKey)}/`,
 					`${prefix}deploy/`,
@@ -143,7 +187,7 @@ export const requestDraft = defineOp<Record<string, never>, RequestDraftResult>(
 					draftId,
 					runId: run.id,
 					runtime: { id: SHARED_RUNTIME_ID, version: engine.version, commit: engine.commit },
-					contractHash: createHash('sha256').update(JSON.stringify(contract)).digest('hex'),
+					contractHash,
 					contract,
 					projectConfigEtag: config.etag,
 					flow: shipped.status,
@@ -155,7 +199,10 @@ export const requestDraft = defineOp<Record<string, never>, RequestDraftResult>(
 				await putObjectText(`${prefix}runtime.json`, JSON.stringify(assembled), 'application/json');
 				return { meta, shipped, objects };
 			});
+			// A draft a queued play references is never deleted under it.
+			const playing = new Set((await queuedDraftJobs()).map((j) => j.draftId));
 			for (const old of (await draftFolders(clientKey, projectKey)).slice(RETAINED_DRAFTS)) {
+				if (playing.has(old)) continue;
 				await deleteObjects(await listAllKeys(draftPrefix(clientKey, projectKey, old)));
 			}
 			return {
@@ -236,30 +283,37 @@ export const playDraft = defineOp<{ draftId: string; scenarios?: string[] }, Pla
 			scenarios: scenarios ?? null,
 			...(player ? {} : { settleNow: { status: 'failed' as const, result: NO_PLAYER_RESULT } }),
 		});
-		if (queued && player && job.status === 'queued') {
-			try {
-				await player.submit({
-					jobRef: job.jobRef,
-					runId: ctx.run.id,
-					clientKey,
-					projectKey,
-					gameType: await projectGameType(projectKey),
-					draftId,
-					scenarios: scenarios ?? null,
-				});
-				armDraftWatch(job, player, job);
-			} catch (e) {
-				console.error(`director draft job ${job.jobRef}: the player refused it:`, e);
-				await settleDraftJob({
-					jobRef: job.jobRef,
-					runId: ctx.run.id,
-					status: 'failed',
-					result: { reason: 'submit_failed', message: 'The draft player did not take the play.' },
-					via: 'inline',
-				});
+		// The job row is committed: nothing below may throw. A throw would release the op, and a
+		// retry would insert a second job (a settled `no_player` one leaves no open play to return).
+		let now = job;
+		try {
+			if (queued && player && job.status === 'queued') {
+				try {
+					await player.submit({
+						jobRef: job.jobRef,
+						runId: ctx.run.id,
+						clientKey,
+						projectKey,
+						gameType: await projectGameType(projectKey),
+						draftId,
+						scenarios: scenarios ?? null,
+					});
+					armDraftWatch(job, player, job);
+				} catch (e) {
+					console.error(`director draft job ${job.jobRef}: the player refused it:`, e);
+					await settleDraftJob({
+						jobRef: job.jobRef,
+						runId: ctx.run.id,
+						status: 'failed',
+						result: { reason: 'submit_failed', message: 'The draft player did not take the play.' },
+						via: 'inline',
+					});
+				}
 			}
+			now = (await getDraftJob(job.jobRef)) ?? job;
+		} catch (e) {
+			console.error(`director draft job ${job.jobRef}: read-back after queueing failed:`, e);
 		}
-		const now = (await getDraftJob(job.jobRef)) ?? job;
 		return {
 			jobRef: now.jobRef,
 			status: now.status,

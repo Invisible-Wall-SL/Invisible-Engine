@@ -204,6 +204,8 @@ const RUNS = new Map<string, DirectorRun>();
 const OPS = new Map<string, DirectorOp>();
 const ATLAS_JOBS = new Map<string, DirectorAtlasJob>();
 const DRAFT_JOBS = new Map<string, DirectorDraftJob>();
+/** Make the next N `getDraftJob` reads throw: a failure after the job row committed. */
+let failDraftReads = 0;
 /** The `director_events` rows the draft store functions append: kind and tool. */
 const DRAFT_EVENTS: { runId: string; kind: string; tool: string; payload: unknown }[] = [];
 /** runId → its stored recipes (`director_regions.recipe_json`). */
@@ -415,7 +417,19 @@ fake('lib/server/director/store.ts', {
 		return { job: { ...job }, queued: true };
 	},
 	queuedDraftJobs: async () => [...DRAFT_JOBS.values()].filter((j) => j.status === 'queued'),
+	draftJobsToCancel: async (runId: string) =>
+		[...DRAFT_JOBS.values()]
+			.filter(
+				(j) =>
+					j.runId === runId &&
+					(j.status === 'queued' || (j.status === 'cancelled' && j.doneVia === null)),
+			)
+			.map((j) => ({ ...j })),
 	getDraftJob: async (jobRef: string) => {
+		if (failDraftReads > 0) {
+			failDraftReads--;
+			throw new Error('fixture: the read-back failed');
+		}
 		const job = DRAFT_JOBS.get(jobRef);
 		return job ? { ...job } : null;
 	},
@@ -4235,11 +4249,14 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		403,
 	);
 	check(
-		'request_draft writes only under director/drafts/, never a refused key',
+		'request_draft writes only its own deploy/ and director/drafts/, never a refused key',
 		ADAPTER_OPS.get('build.request_draft')
 			.writes({}, { clientKey: C, projectKey: 'dfx' })
 			.map((k: string) => [k, refusedWriteTarget(k)]),
-		[[`${root}director/drafts/`, null]],
+		[
+			[`${root}deploy/`, null],
+			[`${root}director/drafts/`, null],
+		],
 	);
 
 	// Fail closed, before anything is built or written.
@@ -4483,6 +4500,197 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	);
 }
 
+// ── ADR-0010: template contract, retention, stop and the replay window ───────
+{
+	const drafts = await import(src('lib/server/director/drafts.ts'));
+	const jobs = await import(src('lib/server/director/draftJobs.ts'));
+	const root = `${C}/dfz/`;
+	PROJECTS.set('dfz', project('dfz'));
+	R2.set(`${root}config/config.json`, { body: JSON.stringify(CONFIG('dfz')), etag: '"cfg1"' });
+	R2.set(`${root}deploy/index.json`, { body: '{"a":1}', etag: etag() });
+	const proven = { templateConfigEtag: '"tpl1"', projectConfigEtag: '"cfg1"' };
+	let zseq = 0;
+	// Draft ids carry a to-the-second stamp: a clock the block moves keeps "newest" well defined.
+	mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-27T10:00:00Z') });
+	const zq = (runId: string, op: string, input: unknown = {}) => {
+		if (op === 'request_draft') mock.timers.tick(2000);
+		return call('build', op, { runId, agent: 'qa', opId: `${runId}:z:${++zseq}`, input });
+	};
+
+	// The template's published snapshot: the draft's own bundle shape (no config), or a config that
+	// deals a cascade.
+	const publish = (template: string, config: unknown) => {
+		PROJECTS.set(template, project(template));
+		const id = '20260101T000000Z-aaaa';
+		R2.set(`${C}/${template}/published/pointer.json`, {
+			body: JSON.stringify({ version: 1, current: id, snapshots: [] }),
+			etag: etag(),
+		});
+		R2.set(`${C}/${template}/published/${id}/runtime.json`, {
+			body: JSON.stringify({ config, symbols: { index: {}, map: {} } }),
+			etag: etag(),
+		});
+	};
+	publish('tpl_same', null);
+	publish('tpl_moved', CONFIG('tpl_moved'));
+	PROJECTS.set('tpl_never', project('tpl_never'));
+	for (const [id, template] of [
+		['z-same', 'tpl_same'],
+		['z-moved', 'tpl_moved'],
+		['z-never', 'tpl_never'],
+	]) {
+		RUNS.set(id, run(id, { projectKey: 'dfz', templateProjectKey: template, ...proven }));
+	}
+	const zDrafts = () => keysUnder(`${root}director/drafts/`);
+
+	const moved = await zq('z-moved', 'request_draft');
+	check(
+		'a published template whose snapshot contract differs is refused contract_drifted, nothing written',
+		[moved.status, moved.body.error, zDrafts().length],
+		[409, 'contract_drifted', 0],
+	);
+	const same = await zq('z-same', 'request_draft');
+	check(
+		'a published template with the same contract gets its draft',
+		[same.status, typeof same.body.draftId],
+		[200, 'string'],
+	);
+	const never = await zq('z-never', 'request_draft');
+	check(
+		'an unpublished template skips the contract check',
+		[never.status, typeof never.body.draftId],
+		[200, 'string'],
+	);
+
+	// Retention never deletes a draft a queued play references.
+	const idsOf = () => [...new Set(zDrafts().map((k) => k.split('/')[4]))].sort();
+	const held = idsOf()[0];
+	drafts.setDraftPlayer({ submit: async () => {} });
+	RUNS.set(
+		'z-ret',
+		run('z-ret', { projectKey: 'dfz', templateProjectKey: 'tpl_never', ...proven }),
+	);
+	R2.set(`${root}director/drafts/${held}/draft.json`, {
+		body: JSON.stringify({ draftId: held, runId: 'z-ret' }),
+		etag: etag(),
+	});
+	const play = await zq('z-ret', 'play_draft', { draftId: held });
+	await zq('z-never', 'request_draft');
+	await zq('z-never', 'request_draft');
+	check(
+		'retention skips a draft a queued play references, and still prunes the others',
+		[play.body.status, idsOf().includes(held), idsOf().length],
+		['queued', true, 3],
+	);
+	const heldJob = play.body.jobRef as string;
+
+	// Stop: the run's queued play is settled cancelled once, and the player is told.
+	const told: string[] = [];
+	drafts.setDraftPlayer({
+		submit: async () => {},
+		cancel: async (ref: string) => void told.push(ref),
+	});
+	const stopEvents = DRAFT_EVENTS.length;
+	const cancelled = await jobs.cancelRunDraftPlays('z-ret');
+	check(
+		'a stop cancels the queued play through the settle path (one job_done) and tells the player',
+		[
+			cancelled,
+			DRAFT_JOBS.get(heldJob)?.status,
+			DRAFT_JOBS.get(heldJob)?.doneVia,
+			DRAFT_EVENTS.slice(stopEvents).map((e) => e.kind),
+			told,
+		],
+		[1, 'cancelled', 'inline', ['job_done'], [heldJob]],
+	);
+	check(
+		'...a second stop finds nothing to settle and tells the player nothing more',
+		[await jobs.cancelRunDraftPlays('z-ret'), DRAFT_EVENTS.length - stopEvents, told.length],
+		[0, 1, 1],
+	);
+	// The worker's own stop got there first (status flipped, no done_via, no event): the player is
+	// still told, and nothing is settled twice.
+	const workerFlipped = 'dp_00000000000000c1';
+	DRAFT_JOBS.set(workerFlipped, {
+		jobRef: workerFlipped,
+		runId: 'z-ret',
+		agent: 'qa',
+		draftId: held,
+		scenarios: null,
+		status: 'cancelled',
+		result: null,
+		doneVia: null,
+		queuedAt: new Date(),
+		doneAt: new Date(),
+	});
+	const eventsNow = DRAFT_EVENTS.length;
+	await jobs.cancelRunDraftPlays('z-ret');
+	check(
+		"a play the worker's stop already flipped is still cancelled on the player, with no second job_done",
+		[told.at(-1), DRAFT_EVENTS.length - eventsNow],
+		[workerFlipped, 0],
+	);
+	DRAFT_JOBS.delete(workerFlipped);
+	// A /cancel that fails is logged, never thrown.
+	drafts.setDraftPlayer({
+		submit: async () => {},
+		cancel: async () => {
+			throw new Error('player down');
+		},
+	});
+	DRAFT_JOBS.set(workerFlipped, {
+		...DRAFT_JOBS.get(heldJob)!,
+		jobRef: workerFlipped,
+		doneVia: null,
+	});
+	const quietStop = mock.method(console, 'error', () => {});
+	const survived = await jobs.cancelRunDraftPlays('z-ret').then(
+		(n: number) => n,
+		() => 'threw',
+	);
+	quietStop.mock.restore();
+	check('...and an error from /cancel is swallowed', survived, 1);
+	DRAFT_JOBS.delete(workerFlipped);
+
+	// The replay window: a throw after the job row committed must not let a retry insert a second job.
+	drafts.setDraftPlayer(null);
+	RUNS.set(
+		'z-replay',
+		run('z-replay', { projectKey: 'dfz', templateProjectKey: 'tpl_never', ...proven }),
+	);
+	const replayDraft = (await zq('z-replay', 'request_draft')).body.draftId as string;
+	const jobsBefore = DRAFT_JOBS.size;
+	const opId = 'z-replay:z:900';
+	const quietReplay = mock.method(console, 'error', () => {});
+	failDraftReads = 1;
+	const first = await call('build', 'play_draft', {
+		runId: 'z-replay',
+		agent: 'qa',
+		opId,
+		input: { draftId: replayDraft },
+	});
+	failDraftReads = 0;
+	quietReplay.mock.restore();
+	const again = await call('build', 'play_draft', {
+		runId: 'z-replay',
+		agent: 'qa',
+		opId,
+		input: { draftId: replayDraft },
+	});
+	check(
+		'a throw after the no_player job committed still answers, and a replay of the opId finds one job',
+		[
+			first.status,
+			first.body.status,
+			again.replay,
+			again.body.jobRef,
+			DRAFT_JOBS.size - jobsBefore,
+		],
+		[200, 'failed', true, first.body.jobRef, 1],
+	);
+	mock.timers.reset();
+}
+
 // ── ADR-0010: the template-config record, the callback, the player client, the watch ─────
 {
 	const drafts = await import(src('lib/server/director/drafts.ts'));
@@ -4596,6 +4804,13 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		draftId: draftId2,
 		scenarios: ['base'],
 	};
+	// An earlier play's report and shots sit in the draft folder; the player is not handed them.
+	for (const f of ['report.json', 'base-boot.png']) {
+		R2.set(`${C}/dfx/director/drafts/${draftId2}/plays/dp_00000000000000b0/${f}`, {
+			body: 'old',
+			etag: etag(),
+		});
+	}
 	await http.submit(playJob);
 	const posted = sent[0];
 	const body = JSON.parse(posted.init.body as string);
@@ -4881,9 +5096,10 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		runId: string,
 		jobRef: string,
 		views: ({ status: string; result?: object } | Error)[],
-		opts: { age?: number; callbackFirst?: boolean } = {},
+		opts: { age?: number; callbackFirst?: boolean; cancelThrows?: boolean } = {},
 	) => {
 		const job = await queueFor(runId, jobRef);
+		const cancelled: string[] = [];
 		let clock = job.queuedAt.getTime() + (opts.age ?? 0) * 1000;
 		const slept: number[] = [];
 		const resubmitted: string[] = [];
@@ -4908,8 +5124,12 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 				return v;
 			},
 			resubmit: async (ref: string) => void resubmitted.push(ref),
+			cancel: async (ref: string) => {
+				cancelled.push(ref);
+				if (opts.cancelThrows) throw new Error('the player is gone');
+			},
 		});
-		return { done, slept, resubmitted, row: DRAFT_JOBS.get(jobRef)! };
+		return { done, slept, resubmitted, cancelled, row: DRAFT_JOBS.get(jobRef)! };
 	};
 	const w1 = await watch('qd2', 'dp_00000000000000e1', [
 		{ status: 'running' },
@@ -4943,6 +5163,22 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		'30 minutes after queueing the play is failed timeout, even when the player is unreachable',
 		[w4.row.status, (w4.row.result as { reason: string }).reason],
 		['failed', 'timeout'],
+	);
+	check(
+		'a play the watch fails (player_lost, timeout) is also cancelled on the player; a settled one is not',
+		[w3.cancelled, w4.cancelled, w1.cancelled, w2.cancelled],
+		[['dp_00000000000000e3'], ['dp_00000000000000e4'], [], []],
+	);
+	const quietCancel = mock.method(console, 'error', () => {});
+	const w4b = await watch('qd2', 'dp_00000000000000e7', [new Error('down')], {
+		age: 31 * 60,
+		cancelThrows: true,
+	});
+	quietCancel.mock.restore();
+	check(
+		'...and a /cancel that throws is logged and never breaks the settle',
+		[w4b.cancelled, w4b.row.status, (w4b.row.result as { reason: string }).reason],
+		[['dp_00000000000000e7'], 'failed', 'timeout'],
 	);
 	const w5 = await watch('qd2', 'dp_00000000000000e5', [{ status: 'running' }], {
 		callbackFirst: true,

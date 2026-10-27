@@ -67,6 +67,7 @@ import {
 	type OwnerActionRequest,
 	type Stamp,
 } from './ownerActions';
+import { cancelRunDraftPlays } from './draftJobs';
 import {
 	agentConversations,
 	appendOwnerEvent,
@@ -678,6 +679,12 @@ export async function performOwnerAction(
 			outcome.conflict === 'reused'
 				? `${requestId} was already used for another action.`
 				: `${requestId} is still being written.`,
+		);
+	}
+	if (req.action === 'stop' && !outcome.replayed) {
+		// The worker flips the run's queued plays when it applies the stop; the player is only told here.
+		await cancelRunDraftPlays(run.id).catch((e) =>
+			console.error(`director run ${run.id}: its draft plays were not cancelled:`, e),
 		);
 	}
 	return { action: req.action, eventId: outcome.eventId, replayed: outcome.replayed };
