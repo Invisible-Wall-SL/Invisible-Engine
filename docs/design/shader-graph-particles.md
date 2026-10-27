@@ -488,7 +488,7 @@ svelte-check at baseline, and the current games building with no changed screen.
      - a pruned (unreachable) effect does not bring its material in.
    - **Mutation:** taking `effects` out of the walk fails it.
    - **Exit:** those green.
-   - **As built** (#TBD):
+   - **As built** (#1384):
      - **Proof only for the chain:** both walks already carried `material.kind`.
      - **Narrower than planned:** `fx` and `rigger` read only `GET /api/shaders/effects`, through a
        new `shaderEffectsReadScope`; `shaderReadScope` (graph docs with their Custom GLSL source,
