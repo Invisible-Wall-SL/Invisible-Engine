@@ -17,6 +17,8 @@ export function createPlayMusic<TSoundName extends string>(options: {
 	 * replay during the fade takes the resume branch. The fade is the crossfade a timeline's `music:`
 	 * cue asks for; no other caller passes one.
 	 */
+	/** Per bed, the number of its latest fade-out (not reactive state: a timer's guard). */
+	const fadeOuts: Partial<Record<TSoundName, number>> = {};
 	const pauseAllMusic = (keep?: TSoundName, fade?: number) => {
 		(Object.values(options.getSoundMap()) as Sound[]).forEach((existingSound) => {
 			if (existingSound.soundName === keep) return;
@@ -24,7 +26,12 @@ export function createPlayMusic<TSoundName extends string>(options: {
 			const { soundId } = existingSound;
 			if (fade && existingSound.soundState === 'playing' && howl) {
 				howl.fade(howl.volume(soundId) as number, 0, fade, soundId);
+				// Only the LATEST fade-out of this bed may pause it: a resume and a second fade-out
+				// before this one ends must not have the first's timer cut the second short.
+				const token = (fadeOuts[existingSound.soundName] ?? 0) + 1;
+				fadeOuts[existingSound.soundName] = token;
 				setTimeout(() => {
+					if (fadeOuts[existingSound.soundName] !== token) return;
 					if (options.getSoundMap()[existingSound.soundName]?.soundState !== 'paused') return;
 					howl.pause(soundId);
 					options.initSoundVolume(existingSound.soundName);

@@ -239,11 +239,14 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
   `apps/lines`' `Sound.svelte` registers with `registerCueSound`; `engine-layout` still imports no
   audio). **Format:** a cue key `{ time, cue }` may carry an optional `sound` object; absent ⇒ the
   plain cue, which makes exactly the call it always made (`once.play({ name })` /
-  `music.play({ name })`). Read through `readCueSound` (per-kind whitelist, clamped into
+  `music.play({ name })`). A STOP is in the cue string, `stop:sfx:<name>` / `stop:music:<name>`, not
+  an option: an older runtime plays every `sfx:` / `music:` cue on a screen timeline, so a stop
+  option would start the sound after a rollback, while `stop:` only makes it broadcast `sfx:<name>`.
+  Read through `readCueSound` (per-kind whitelist, clamped into
   `CUE_SOUND_RANGES`). **Shipped options:** SFX `volume`, `volumeJitter`, `rate`, `rateJitter`,
   `pan` (Web Audio only), `loop` (on the loop player, until a stop cue), `fadeIn`, `offset` (into
   the sound's own region), `overlap` (replay while playing; default skip, as before), `pick`
-  (≤ 8 random alternates); stop cues (`action: 'stop'`) with `fadeOut`; music `volume`, `loop`
+  (≤ 8 random alternates); stop cues with `fadeOut`; music `volume`, `loop`
   override, `fadeIn` as a crossfade, stop with `fadeOut`. **Dropped:** music "layer over the bed"
   (the music player holds one bed by design; layer with an SFX loop cue instead), "max
   simultaneous instances" (a player tracks one id per name — `overlap` is the honest switch), a

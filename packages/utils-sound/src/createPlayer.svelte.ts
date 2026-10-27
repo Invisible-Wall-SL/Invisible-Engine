@@ -20,8 +20,8 @@ import type {
 function createPlayer<TSoundName extends string, TPlay extends Function>(playerOptions: {
 	howlFor: (soundName: TSoundName) => Howl | undefined;
 	configFor: (soundName: TSoundName) => SoundConfig;
-	/** Milliseconds into its bank's file where the name's region starts (howler seeks the file). */
-	regionStartFor?: (soundName: TSoundName) => number | undefined;
+	/** The name's region in its bank's file, `[start, duration]` in ms (howler seeks the file). */
+	regionFor?: (soundName: TSoundName) => readonly [number, number] | undefined;
 	createPlay: (options: {
 		howlFor: (soundName: TSoundName) => Howl | undefined;
 		newSound: (value: TSoundName) => GetSound<TSoundName>;
@@ -102,8 +102,10 @@ function createPlayer<TSoundName extends string, TPlay extends Function>(playerO
 		//Adjust the whole player volume
 		// howl.volume(playerVolume);
 
-		//adjust volume per sound
+		// Per sound, PLAYING ones only: howler's volume setter cancels a running fade, and a paused
+		// sound (a music bed fading out under a crossfade) gets its level re-applied on resume.
 		(Object.values(soundMap) as Sound[]).forEach((sound) => {
+			if (sound.soundState === 'paused') return;
 			playerOptions
 				.howlFor(sound.soundName)
 				?.volume(playerVolume * sound.soundVolume * sound.soundConfig.volume, sound.soundId);
@@ -126,14 +128,15 @@ function createPlayer<TSoundName extends string, TPlay extends Function>(playerO
 		}
 	};
 
-	/** Jump the playing sound `offset` ms into its own region (not the bank's file). */
+	/** Jump the playing sound `offset` ms into its own region (not the bank's file). An offset at
+	 *  or past the region's end is ignored: the seek would land in the next region's audio. */
 	const seek = (seekOptions: SeekOptions<TSoundName>) => {
 		const existingSound = soundMap[seekOptions.name];
-		const start = playerOptions.regionStartFor?.(seekOptions.name);
-		if (existingSound && start !== undefined) {
+		const region = playerOptions.regionFor?.(seekOptions.name);
+		if (existingSound && region && seekOptions.offset >= 0 && seekOptions.offset < region[1]) {
 			playerOptions
 				.howlFor(existingSound.soundName)
-				?.seek((start + seekOptions.offset) / 1000, existingSound.soundId);
+				?.seek((region[0] + seekOptions.offset) / 1000, existingSound.soundId);
 		}
 	};
 

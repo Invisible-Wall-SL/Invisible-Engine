@@ -155,7 +155,10 @@ const createRig = (audios: Audio[]) => {
 	const options = {
 		howlFor: ((name: string) => bankFor(name)?.howl) as unknown as (n: string) => Howl | undefined,
 		configFor: (name: string) => bankFor(name)?.audio.config?.[name] ?? { volume: 1 },
-		regionStartFor: (name: string) => bankFor(name)?.audio.sprite[name]?.[0],
+		regionFor: (name: string) => {
+			const region = bankFor(name)?.audio.sprite[name];
+			return region ? ([region[0], region[1]] as const) : undefined;
+		},
 	};
 
 	return {
@@ -400,7 +403,7 @@ console.log('\n10. a timeline cue’s options reach howler');
 
 	playCueSound(target2, 'sfx:sfx_uploaded', { volume: 0.5, loop: true });
 	check('a second loop cue does not start a second copy', howl.of('play').length, 1);
-	playCueSound(target2, 'sfx:sfx_uploaded', { action: 'stop' });
+	playCueSound(target2, 'stop:sfx:sfx_uploaded');
 	check('a stop cue ends it', howl.of('stop'), [[100]]);
 	check('…and it is no longer playing', rig2.loop.level('sfx_uploaded'), undefined);
 
@@ -413,6 +416,54 @@ console.log('\n10. a timeline cue’s options reach howler');
 	check('…pausing the old bed only once the fade is over', rig3.howls[1].of('pause'), []);
 	playCueSound(target3, 'music:bgm_freespin');
 	check('a plain music cue still cuts', rig3.howls[1].of('pause'), [[101]]);
+
+	// The crossfade's END: the faded bed pauses once its fade is over, back at its level.
+	const rig4 = createRig([BUILTIN, PROJECT]);
+	const target4 = { ...target, players: { once: rig4.once, loop: rig4.loop, music: rig4.music } };
+	playCueSound(target4, 'music:bgm_freespin');
+	playCueSound(target4, 'music:bgm_quiet', { fadeIn: 20 });
+	await new Promise((done) => setTimeout(done, 40));
+	check('after the crossfade the old bed is paused', rig4.howls[1].of('pause'), [[100]]);
+	check('…and back at its level for its next resume', rig4.howls[1].of('volume').at(-1), [1, 100]);
+
+	// Resumed during its fade-out, then faded out again: only the second fade's timer pauses it.
+	const rig5 = createRig([BUILTIN, PROJECT]);
+	const target5 = { ...target, players: { once: rig5.once, loop: rig5.loop, music: rig5.music } };
+	playCueSound(target5, 'music:bgm_freespin');
+	playCueSound(target5, 'music:bgm_quiet', { fadeIn: 30 });
+	await new Promise((done) => setTimeout(done, 15));
+	playCueSound(target5, 'music:bgm_freespin');
+	playCueSound(target5, 'music:bgm_quiet', { fadeIn: 30 });
+	await new Promise((done) => setTimeout(done, 20));
+	check('a resumed bed’s stale fade timer pauses nothing', rig5.howls[1].of('pause'), [[101]]);
+	await new Promise((done) => setTimeout(done, 20));
+	check('…its latest fade’s timer does', rig5.howls[1].of('pause'), [[101], [100]]);
+
+	// A stop cue with a fade-out ends the sound when the fade is over…
+	const rig6 = createRig([BUILTIN, PROJECT]);
+	const target6 = { ...target, players: { once: rig6.once, loop: rig6.loop, music: rig6.music } };
+	playCueSound(target6, 'sfx:sfx_uploaded', { loop: true, volume: 0.8 });
+	playCueSound(target6, 'stop:sfx:sfx_uploaded', { fadeOut: 20 });
+	check('a stop fades the loop out from its level', rig6.howls[1].of('fade'), [[0.4, 0, 20, 100]]);
+	await new Promise((done) => setTimeout(done, 40));
+	check('…and stops it once the fade is over', rig6.howls[1].of('stop'), [[100]]);
+
+	// …unless a play cue lands during the fade: that play starts clean and stays.
+	const rig7 = createRig([BUILTIN, PROJECT]);
+	const target7 = { ...target, players: { once: rig7.once, loop: rig7.loop, music: rig7.music } };
+	playCueSound(target7, 'sfx:sfx_uploaded', { loop: true });
+	playCueSound(target7, 'stop:sfx:sfx_uploaded', { fadeOut: 20 });
+	playCueSound(target7, 'sfx:sfx_uploaded', { loop: true });
+	await new Promise((done) => setTimeout(done, 40));
+	check('a loop replayed during its fade-out restarts', rig7.howls[1].of('play').length, 2);
+	check('…and the fade-out’s stop never ends the new copy', rig7.howls[1].of('stop'), [[100]]);
+	check('…which plays at its own level', rig7.loop.level('sfx_uploaded'), 1);
+
+	// An offset past the region's end is not a seek into the next region.
+	const rig8 = createRig([BUILTIN, PROJECT]);
+	const target8 = { ...target, players: { once: rig8.once, loop: rig8.loop, music: rig8.music } };
+	playCueSound(target8, 'sfx:sfx_uploaded', { offset: 60 });
+	check('an offset at the region’s end (60 ms long) seeks nowhere', rig8.howls[1].of('seek'), []);
 }
 
 console.log(failures === 0 ? '\nAll bank claims hold.\n' : `\n${failures} FAILED bank claim(s).\n`);

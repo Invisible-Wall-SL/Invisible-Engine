@@ -124,7 +124,7 @@ const STUBS = {
 			'export const MainContainer = (anchor, props) => props.children?.(anchor);',
 		),
 		'engine-layout': moduleUrl(`export { cinematicSetSceneId } from '${CINEMATIC_NODES}';
-export { playCueSound } from '${CUE_SOUND}';
+export { cueSoundOf, playCueSound } from '${CUE_SOUND}';
 export const emitComponentSignal = () => {};
 export const screenCueSignal = () => undefined;`),
 		'engine-layout/svelte': moduleUrl(`export { default as Cinematic } from '${CINEMATIC}';`),

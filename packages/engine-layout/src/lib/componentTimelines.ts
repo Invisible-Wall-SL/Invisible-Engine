@@ -184,7 +184,6 @@ const loopStart = (doc: CinematicDoc): number | undefined => {
 const pingPongs = (doc: CinematicDoc): boolean =>
 	doc.loop === 'pingPong' && !isZeroLength(doc) && loopStart(doc) === undefined;
 
-/** What one {@link ComponentTimelinePlayer.advance} step crossed. */
 /** A cue a timeline crossed: its key's cue and sound options, and the timeline that crossed it. */
 export interface CrossedCue {
 	cue: string;
@@ -198,6 +197,7 @@ const crossedCue = (key: CueKey, timeline: string): CrossedCue =>
 		? { cue: key.cue, timeline }
 		: { cue: key.cue, timeline, sound: key.sound };
 
+/** What one {@link ComponentTimelinePlayer.advance} step crossed. */
 export interface TimelineStep {
 	/** Cues the playheads crossed, in order, each with the id of the timeline that crossed it. */
 	cues: CrossedCue[];

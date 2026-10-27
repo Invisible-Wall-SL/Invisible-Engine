@@ -20,6 +20,7 @@
 	import { MainContainer } from 'components-layout';
 	import {
 		cinematicSetSceneId,
+		cueSoundOf,
 		emitComponentSignal,
 		playCueSound,
 		screenCueSignal,
@@ -52,8 +53,9 @@
 	 *    events already use, so cinematic cues and rig events are indistinguishable downstream.
 	 *    A SCREEN timeline's `signal:` cue (`onScreen`) also fires its name on the component-signal
 	 *    bus (`screenCueSignal`), as a Flow `fireCue` does, so an _On cue_ Element FX plays on it.
-	 *  - `sfx:` / `music:` — through the game's sound player with the key's `sound` options
-	 *    (`playCueSound`, which a component timeline's cue goes through too). A plain cue is a
+	 *  - `sfx:` / `music:` (and their `stop:` forms) — through the game's sound player with the
+	 *    key's `sound` options (`playCueSound`, which a component timeline's cue goes through too).
+	 *    A plain cue is a
 	 *    one-shot or a music bed, guarded by `hasSound`: howler silently declines an unknown sprite
 	 *    key, so without the guard a cue naming a sound this game's audiosprite predates would be an
 	 *    inaudible non-failure rather than a warning.
@@ -62,14 +64,13 @@
 	 * game about yet is still a moment something may be listening for.
 	 */
 	function routeCue(cue: string, onScreen: boolean, options: unknown): void {
-		const sep = cue.indexOf(':');
-		const ns = sep > 0 ? cue.slice(0, sep) : '';
-		const name = sep > 0 ? cue.slice(sep + 1) : cue;
-		if (!name) return;
-		if (ns === 'sfx' || ns === 'music') {
+		if (cueSoundOf(cue)) {
 			playCueSound(sound, cue, options);
 			return;
 		}
+		const sep = cue.indexOf(':');
+		const name = sep > 0 ? cue.slice(sep + 1) : cue;
+		if (!name) return;
 		eventEmitter?.broadcast({ type: name });
 		const signal = onScreen ? screenCueSignal(cue) : undefined;
 		if (signal) emitComponentSignal(signal);

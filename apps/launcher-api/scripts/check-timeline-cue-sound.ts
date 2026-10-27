@@ -125,13 +125,32 @@ eq(
 	S.readCueSound('music', { volume: 0.5, rate: 2, pan: 1, loop: false, fadeIn: 800, pick: ['x'] }),
 	{ volume: 0.5, loop: false, fadeIn: 800 },
 );
-eq('an unknown action is no action', S.readCueSound('sfx', { action: 'rewind' }), undefined);
+eq('`action` is not an option (a stop is in the cue string)', S.readCueSound('sfx', { action: 'stop' }), undefined); // prettier-ignore
+eq(
+	'a stop cue keeps only its fade-out',
+	S.readCueSound('sfx', { fadeOut: 300, volume: 0.5, loop: true }, true),
+	{ fadeOut: 300 },
+);
+eq('a play cue drops a fade-out', S.readCueSound('sfx', { fadeOut: 300 }), undefined);
+eq('an SFX `loop: false` is no option (only a loop is)', S.readCueSound('sfx', { loop: false }), undefined); // prettier-ignore
+eq('a music `loop: false` is kept (it overrides the track’s own)', S.readCueSound('music', { loop: false }), { loop: false }); // prettier-ignore
+eq('cueSoundOf: a stop', S.cueSoundOf('stop:music:bgm'), {
+	kind: 'music',
+	name: 'bgm',
+	stop: true,
+});
+eq('cueSoundOf: a bare stop is no sound', S.cueSoundOf('stop:sfx:'), undefined);
+eq(
+	'a stop cue routes to the sound sink on a component, and fires no signal on a screen',
+	[E.routeComponentCue('stop:sfx:pop', true), E.screenCueSignal('stop:sfx:pop')],
+	[{ kind: 'sound', cue: 'stop:sfx:pop' }, undefined],
+);
 eq(
 	'a pick list is capped',
 	S.readCueSound('sfx', { pick: Array.from({ length: 20 }, (_, i) => `s${i}`) })?.pick?.length,
 	S.CUE_SOUND_MAX_PICK,
 );
-eq('cueSoundOf: sfx', S.cueSoundOf('sfx:pop'), { kind: 'sfx', name: 'pop' });
+eq('cueSoundOf: sfx', S.cueSoundOf('sfx:pop'), { kind: 'sfx', name: 'pop', stop: false });
 eq('cueSoundOf: a bare kind is no sound', S.cueSoundOf('sfx:'), undefined);
 eq('cueSoundOf: signal is no sound', S.cueSoundOf('signal:pop'), undefined);
 
@@ -269,6 +288,23 @@ eq(
 	[true, true],
 );
 
+// An OLDER runtime reads only `cue` (its `routeCue`, as on main before this change): it must never
+// PLAY a stop cue. It broadcasts the cue's text after the first colon, and plays sfx:/music: only.
+{
+	const oldRouteCue = (cue: string): string => {
+		const sep = cue.indexOf(':');
+		const ns = sep > 0 ? cue.slice(0, sep) : '';
+		const name = sep > 0 ? cue.slice(sep + 1) : cue;
+		if (!name) return 'nothing';
+		return ns === 'sfx' || ns === 'music' ? `play ${name}` : `broadcast ${name}`;
+	};
+	eq(
+		'an older runtime broadcasts a stop cue under a namespaced type, never plays it',
+		[oldRouteCue('stop:sfx:coin'), oldRouteCue('stop:music:bgm_main')],
+		['broadcast sfx:coin', 'broadcast music:bgm_main'],
+	);
+}
+
 // ---- 5. each option as its call ----------------------------------------------------------------
 
 {
@@ -280,19 +316,19 @@ eq(
 	});
 	eq('a pick draws from the cue’s own name and its alternates', picks, ['a', 'b', 'c']);
 
-	r.calls.length = 0;
+	const j = recorder(['b']);
 	const rolls = [1, 0];
-	S.playCueSound(r.target, 'sfx:b', { volume: 0.5, volumeJitter: 0.2, rateJitter: 0.1 }, () =>
+	S.playCueSound(j.target, 'sfx:b', { volume: 0.5, volumeJitter: 0.2, rateJitter: 0.1 }, () =>
 		rolls.length ? rolls.shift()! : 0.5,
 	);
-	eq('the jitters move the level and the rate by up to ± their spread', r.calls, [
+	eq('the jitters move the level and the rate by up to ± their spread', j.calls, [
 		['once.play', { name: 'b', volume: 0.6 }],
 		['once.rate', { name: 'b', rate: 0.9 }],
 	]);
 
 	const l = recorder(['c']);
 	S.playCueSound(l.target, 'sfx:c', { loop: true });
-	S.playCueSound(l.target, 'sfx:c', { action: 'stop', fadeOut: 0 });
+	S.playCueSound(l.target, 'stop:sfx:c');
 	eq('a loop cue starts on the loop player; a stop cue ends it', l.calls, [
 		['loop.play', { name: 'c' }],
 		['loop.loop', { name: 'c', loop: true }],
@@ -301,7 +337,7 @@ eq(
 
 	l.calls.length = 0;
 	S.playCueSound(l.target, 'sfx:c', { loop: true, volume: 0.8 });
-	S.playCueSound(l.target, 'sfx:c', { action: 'stop', fadeOut: 10 });
+	S.playCueSound(l.target, 'stop:sfx:c', { fadeOut: 10 });
 	await new Promise((done) => setTimeout(done, 30));
 	eq('a stop with a fade fades from its level, then stops', l.calls.slice(2), [
 		['loop.fade', { name: 'c', from: 0.8, to: 0, duration: 10 }],
@@ -309,12 +345,18 @@ eq(
 	]);
 
 	l.calls.length = 0;
-	S.playCueSound(l.target, 'sfx:c', { action: 'stop' });
+	S.playCueSound(l.target, 'stop:sfx:c');
 	eq('a stop for a sound that is not playing calls nothing', l.calls, []);
+
+	const o = recorder(['coin']);
+	S.playCueSound(o.target, 'sfx:coin', { offset: 200, fadeIn: 150 });
+	o.calls.length = 0;
+	S.playCueSound(o.target, 'sfx:coin', { offset: 200, fadeIn: 150 });
+	eq('a re-fire while the copy still sounds is skipped whole (no seek / fade of that copy)', o.calls, []); // prettier-ignore
 
 	const m = recorder(['bgm_a']);
 	S.playCueSound(m.target, 'music:bgm_a', { fadeIn: 700, volume: 0.4, loop: true });
-	S.playCueSound(m.target, 'music:bgm_a', { action: 'stop', fadeOut: 0 });
+	S.playCueSound(m.target, 'stop:music:bgm_a');
 	eq('music: a crossfade at a level, looped; a stop', m.calls, [
 		['music.play', { name: 'bgm_a', volume: 0.4, fade: 700 }],
 		['music.loop', { name: 'bgm_a', loop: true }],

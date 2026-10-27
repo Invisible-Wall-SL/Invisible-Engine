@@ -1,4 +1,5 @@
 import { componentEvents, componentInputs } from './componentInterface';
+import { cueSoundOf } from './cueSound';
 import { swipeMatches, type PointerAt, type PointerPoint } from './componentPointer';
 import { getFlowPress } from './registerFlowPress';
 import type { FiredTransition } from './stateMachine';
@@ -83,7 +84,7 @@ export function eventCueId(cue: string): string | undefined {
  * Where a cue a COMPONENT timeline crosses goes. `event:` raises one of the def's events — only on
  * a def that declares some; on any other it keeps its old meaning (broadcast by its bare name), so
  * nothing that played before changes. `signal:` fires on the instance's own bus. `sfx:` / `music:`
- * go to the game's sound player through the registered sink (`cueSound.ts`), never the bus, where a
+ * (and their `stop:` forms) go to the game's sound player through the registered sink (`cueSound.ts`), never the bus, where a
  * sound's bare name could collide with a real game event. Anything else is broadcast by its bare
  * name.
  */
@@ -99,8 +100,8 @@ export function routeComponentCue(cue: string, declaresEvents: boolean): Compone
 	const ns = sep > 0 ? cue.slice(0, sep) : '';
 	const name = sep > 0 ? cue.slice(sep + 1) : cue;
 	if (ns === 'event' && declaresEvents) return { kind: 'event', cue };
+	if (cueSoundOf(cue)) return { kind: 'sound', cue };
 	if (!name) return { kind: 'drop' };
-	if (ns === 'sfx' || ns === 'music') return { kind: 'sound', cue };
 	return ns === 'signal' ? { kind: 'signal', name } : { kind: 'broadcast', name };
 }
 
