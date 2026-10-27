@@ -19,7 +19,9 @@ export interface AuthoredFxUses {
  * the raw docs finds them all, and a doc shape added later is covered without a change here. A kind
  * neither vocabulary knows (a layout node's `sprite`) is not a use. A flow step carries its colour
  * as `color`, an entry its params as `params`. A Flow v2 node names its kind in a literal input
- * (`{ kind: 'literal', value: 'chromaticWobble' }`), which counts as a use with default params.
+ * (`{ kind: 'literal', value: 'chromaticWobble' }`), which counts as a use with default params: a
+ * node that sets a glow's distance or an outline's thickness through its inputs still compiles that
+ * variant on its first play.
  *
  * Distinct by kind and params: the same kind with other params can need another program (a glow's
  * distance is compiled into it).

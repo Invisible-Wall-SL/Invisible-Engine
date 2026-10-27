@@ -61,7 +61,6 @@
 		registerAdvancedBlendModes();
 
 		await preloadFont();
-		// `full` on every device unless it is low-end or told otherwise; see `renderTier.ts`.
 		const render = renderSettings();
 		context.stateApp.pixiApplication = new PIXI.Application<PIXI.Renderer<HTMLCanvasElement>>();
 		await context.stateApp.pixiApplication.init({

@@ -952,8 +952,9 @@ export function elementFxCount(target: Container): number {
 /**
  * Compile the programs `play` will draw with, so its first frame in play does not stall on the
  * driver (see `gpuWarmup.ts`). Its filters are made as its first frame would make them, from its
- * own params: a pass whose program is generated from them (a glow's distance) compiles the variant
- * the game will use. A break draws with Pixi's own programs and needs nothing here.
+ * own params, so a pass whose program is generated from them (a glow's distance) compiles the
+ * variant those params name: give the params the play will use. A break draws with Pixi's own
+ * programs and needs nothing here.
  */
 export function prewarmElementFx(
 	renderer: Renderer,

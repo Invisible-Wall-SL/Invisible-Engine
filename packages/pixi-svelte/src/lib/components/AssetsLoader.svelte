@@ -6,6 +6,7 @@
 	import { getContextApp } from '../context.svelte';
 	import { getProcessed } from '../assetLoad';
 	import { collectTextureSources, compileProgram, warmGpu } from '../gpuWarmup';
+	import { renderTier } from '../renderTier';
 	import type { LoadedAssets, RawAsset } from '../types';
 
 	type Props = { children: Snippet };
@@ -95,9 +96,14 @@
 						};
 				}
 				const renderer = context.stateApp.pixiApplication?.renderer;
+				// Never in the way of the game starting: a warm-up that fails leaves the old lazy path.
 				if (renderer) {
-					if (loadedRigs) compileProgram(renderer, darkTintProgram());
-					await warmGpu(renderer, loadedSources);
+					try {
+						if (loadedRigs) compileProgram(renderer, darkTintProgram());
+						await warmGpu(renderer, loadedSources, { keepResident: renderTier() === 'full' });
+					} catch (error) {
+						console.warn('[gpu-warmup]', error);
+					}
 				}
 				context.stateApp.loaded = true;
 			})();

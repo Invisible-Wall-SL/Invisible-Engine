@@ -2,10 +2,11 @@
  * The RENDER tier: how many pixels a frame draws, decided once when the app starts (antialiasing
  * is a property of the WebGL context and cannot change after it is made).
  *
- * `full` is what every device drew before this existed: the device's pixel ratio up to 2, with
- * antialiasing on both the back buffer and the canvas. `reduced` is for devices that cannot fill
- * that many pixels in a frame: the pixel ratio capped at 1.5 (about 44% fewer pixels than 2) and
- * no antialiasing, which on a phone's tiled GPU also drops the multisampled back buffer's resolve.
+ * `full` is what every device drew before this existed: the device's pixel ratio up to 2, with a
+ * multisampled back buffer (the canvas itself is never antialiased while the back buffer is on).
+ * `reduced` is for devices that cannot fill that many pixels in a frame: the pixel ratio capped at
+ * 1.5 (about 44% fewer pixels than 2) and no MSAA, which on a phone's tiled GPU also drops the back
+ * buffer's resolve. It also leaves texture memory to Pixi's collector (`gpuWarmup.ts`).
  * Sprites and rigs are textured quads and lose nothing visible without MSAA; only the edges of
  * untextured `Graphics` shapes get harder.
  *

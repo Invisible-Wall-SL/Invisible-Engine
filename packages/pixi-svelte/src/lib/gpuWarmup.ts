@@ -9,11 +9,12 @@
  * frame of 0.8–2.8 s, and the bonus uploaded 35 MB of art mid-play, each upload a stall of up to
  * 1.6 s. Players saw them as the reels or an effect skipping frames.
  *
- * The loader therefore ends with {@link warmGpu}: every texture it loaded is uploaded and kept
- * resident, then every registered warm-up ({@link registerGpuWarmup}) compiles its programs. Both
+ * The loader therefore ends with {@link warmGpu}: every texture it loaded is uploaded (and kept
+ * resident, below), then every registered warm-up ({@link registerGpuWarmup}) compiles its programs. Both
  * are spread across frames so the loading screen keeps animating.
  *
- * KEPT RESIDENT. Pixi's GPU garbage collector unloads an image texture that has not been drawn
+ * KEPT RESIDENT, except on the `reduced` render tier (`renderTier.ts`), whose low-memory devices
+ * keep Pixi's collector. Pixi's GPU garbage collector unloads an image texture that has not been drawn
  * for a minute (`ImageSource.autoGarbageCollect`; compressed pages are never collected), and the
  * next draw uploads it again: a big-win sheet or a bonus intro shown once every few minutes stalls
  * every time it comes back. The game's own art is loaded up front and kept in memory regardless
@@ -47,6 +48,7 @@ export function registerGpuWarmup(warmup: GpuWarmup): () => void {
 
 /** Time spent warming per frame, so the loading screen stays smooth. */
 const FRAME_BUDGET_MS = 8;
+const FRAME_TIMEOUT_MS = 50;
 
 const sourceOf = (value: unknown): TextureSource | undefined => {
 	if (value instanceof TextureSource) return value;
@@ -89,10 +91,14 @@ export function collectTextureSources(value: unknown, into: Set<TextureSource>, 
 	}
 }
 
+const isWebGL = (renderer: Renderer): renderer is WebGLRenderer =>
+	renderer.type === RendererType.WEBGL;
+
 /** Compile `program` now on a WebGL renderer, as Pixi's first draw with it would. */
 export function compileProgram(renderer: Renderer, program: GlProgram | undefined): void {
-	if (program && renderer.type === RendererType.WEBGL)
-		programLinks(renderer as WebGLRenderer, program);
+	if (program && isWebGL(renderer)) {
+		programLinks(renderer, program);
+	}
 }
 
 /** Compile a filter's program, and those of the passes it runs inside (a blur's X and Y). */
@@ -103,7 +109,16 @@ export function compileFilter(renderer: Renderer, filter: Filter): void {
 	}
 }
 
-const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+/** The next frame, or a short timeout where frames never come (a hidden tab, an offscreen iframe
+ *  an operator preloads into), so the load still finishes there as it did before the warm-up. */
+const nextFrame = () =>
+	new Promise<void>((resolve) => {
+		const timeout = setTimeout(resolve, FRAME_TIMEOUT_MS);
+		requestAnimationFrame(() => {
+			clearTimeout(timeout);
+			resolve();
+		});
+	});
 
 /** Run `steps` in order, yielding a frame whenever one frame's budget is spent. */
 async function sliced(steps: Iterable<() => void>): Promise<void> {
@@ -121,12 +136,19 @@ async function sliced(steps: Iterable<() => void>): Promise<void> {
 	}
 }
 
-/** Upload `sources` (kept resident), then run every registered warm-up. */
-export async function warmGpu(renderer: Renderer, sources: Iterable<TextureSource>): Promise<void> {
+/**
+ * Upload `sources`, then run every registered warm-up. `keepResident` opts the sources out of
+ * Pixi's GC; a low-memory device leaves it off, trading the re-upload stall for memory.
+ */
+export async function warmGpu(
+	renderer: Renderer,
+	sources: Iterable<TextureSource>,
+	{ keepResident }: { keepResident: boolean },
+): Promise<void> {
 	const uploads = [...sources].filter((source) => !source.destroyed && source.resource);
 	await sliced(
 		uploads.map((source) => () => {
-			source.autoGarbageCollect = false;
+			if (keepResident) source.autoGarbageCollect = false;
 			renderer.texture.initSource(source);
 		}),
 	);
