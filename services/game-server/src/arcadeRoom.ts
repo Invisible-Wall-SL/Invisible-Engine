@@ -298,7 +298,8 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 		 * Tell every device what happened, in one message, after the patch that shows it. In a nearby
 		 * room a device is told only of the players its view holds — or held `before` a join or a
 		 * leave changed the room — and of the room's rounds, so a far player's id and fate reach
-		 * nobody it is not sent to. A step's events are told by the views of the last patch.
+		 * nobody it is not sent to. Step events (no `before`) are filtered by the views as of the last
+		 * patch.
 		 */
 		private announce(
 			events: readonly OnlineEvent[],

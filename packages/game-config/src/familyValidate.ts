@@ -394,7 +394,7 @@ function validateOnlineBots(doc: GameConfigDoc): GameConfigIssue[] {
 	}
 	const maxPlayers = online.maxPlayers ?? ARCADE_ONLINE_DEFAULTS.maxPlayers;
 	const fillTo = bots.fillTo ?? ARCADE_ONLINE_BOT_DEFAULTS.fillTo;
-	const holds = Math.min(maxPlayers, ARCADE_ONLINE_LIMITS.maxPlayers.max);
+	const holds = Math.min(L.maxPlayers.max, Math.max(L.maxPlayers.min, maxPlayers));
 	if (fillTo > holds) {
 		issues.push({
 			severity: 'warning',

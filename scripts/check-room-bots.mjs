@@ -586,8 +586,12 @@ try {
 			const heard = [];
 			a.onMessage(ONLINE_EVENT, (events) => heard.push(...events));
 			await until('the bots', () => a.state.players?.size === 4);
+			// Only what happens after: the first bots' joins may still be on their way.
+			await wait(200);
+			heard.length = 0;
 			const b = await clientOf().joinById(a.roomId, { character: 'fish' });
 			await until('a bot’s leave', () => heard.some((e) => e.type === 'left' && isBotId(e.id)));
+			heard.length = 0;
 			await b.leave();
 			await until('a bot’s join', () => heard.some((e) => e.type === 'joined' && isBotId(e.id)));
 			await a.leave();
