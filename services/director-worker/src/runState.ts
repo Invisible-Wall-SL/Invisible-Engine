@@ -10,6 +10,17 @@
  * style_pack|regions ─plan_ready→ waiting(art_plan, when on) ─approve|revise→ running (same step)
  * ```
  *
+ * A repair run (ADR-0012) is the same machine with its own steps and one checkpoint:
+ *
+ * ```
+ * draft ─start→ running(reproduce) ─step_done→ running(fix) ─step_done→ running(verify)
+ * running(reproduce|fix|verify) ─conclude→ waiting(repair_review, always) ─approve→ handed_off
+ * waiting(repair_review) ─revise→ running(fix)
+ * ```
+ *
+ * `conclude` is the worker's alone, sent when the lead agent submits its repair (`run.submit_repair`);
+ * `verify` has no `step_done`, so the only way out of a repair is through the owner's review.
+ *
  * Checkpoints are opened BY the machine, never requested into it: finishing a gated step (or a region
  * batch) is what opens one, so there is no event an agent could send to step past it. The breakdown
  * and region-batch checkpoints follow the run's settings; `before_publish` is not a setting — the only
@@ -28,12 +39,42 @@ export const RUN_STATUSES = [
 ] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
-export const RUN_STEPS = ['breakdown', 'style_pack', 'regions', 'build', 'handoff'] as const;
+/** A create run makes a project from a template; a repair run fixes one game bug in its own
+ *  project (ADR-0012). `director_runs.kind`, default `create`. */
+export const RUN_KINDS = ['create', 'repair'] as const;
+export type RunKind = (typeof RUN_KINDS)[number];
+
+/** How a repair run ended (`director_runs.repair_outcome`), null until hand-off. */
+export const REPAIR_OUTCOMES = ['fixed', 'escalated', 'needs_person', 'not_reproduced'] as const;
+export type RepairOutcome = (typeof REPAIR_OUTCOMES)[number];
+
+export const CREATE_STEPS = ['breakdown', 'style_pack', 'regions', 'build'] as const;
+export const REPAIR_STEPS = ['reproduce', 'fix', 'verify'] as const;
+/** `handoff` is shared: both kinds end in it. */
+export const RUN_STEPS = [...CREATE_STEPS, ...REPAIR_STEPS, 'handoff'] as const;
 export type RunStep = (typeof RUN_STEPS)[number];
+type CreateStep = (typeof CREATE_STEPS)[number];
+type RepairStep = (typeof REPAIR_STEPS)[number];
+
+const isCreateStep = (step: RunStep): step is CreateStep =>
+	(CREATE_STEPS as readonly string[]).includes(step);
+const isRepairStep = (step: RunStep): step is RepairStep =>
+	(REPAIR_STEPS as readonly string[]).includes(step);
+
+/** The step a draft of this kind starts in. */
+export const startStep = (kind: RunKind): RunStep =>
+	kind === 'repair' ? 'reproduce' : 'breakdown';
 
 /** `breakdown` is the mockup breakdown, or the style board when the run has no mockups.
- *  `art_plan` is the owner's review of the technician's recipes (ADR-0008 §7). */
-export const CHECKPOINTS = ['breakdown', 'art_plan', 'region_batch', 'before_publish'] as const;
+ *  `art_plan` is the owner's review of the technician's recipes (ADR-0008 §7). `repair_review` is
+ *  the owner's review of a repair run's outcome (ADR-0012), always on, the repair run's only one. */
+export const CHECKPOINTS = [
+	'breakdown',
+	'art_plan',
+	'region_batch',
+	'before_publish',
+	'repair_review',
+] as const;
 export type Checkpoint = (typeof CHECKPOINTS)[number];
 
 export const TERMINAL_STATUSES: readonly RunStatus[] = ['stopped', 'failed', 'handed_off'];
@@ -61,6 +102,7 @@ export function checkpointSettings(raw: unknown): CheckpointSettings {
 }
 
 export interface RunState {
+	kind: RunKind;
 	status: RunStatus;
 	step: RunStep;
 	/** The open checkpoint while `waiting`; null in every other status. */
@@ -71,7 +113,8 @@ export interface RunState {
 export type RunEvent =
 	/** The owner's start request on a draft. */
 	| { type: 'start' }
-	/** The current step's work is finished (breakdown, style_pack, regions or build). */
+	/** The current step's work is finished (breakdown, style_pack, regions or build; in a repair run
+	 *  reproduce or fix). */
 	| { type: 'step_done' }
 	/** One batch of regions is drafted and reviewed (only in `regions`). */
 	| { type: 'batch_done' }
@@ -79,6 +122,8 @@ export type RunEvent =
 	 *  ADR-0008 §7). `ownerOnly`: what waits is a step past its retries, which only the owner
 	 *  approves again, so the Art plan opens whatever its setting. */
 	| { type: 'plan_ready'; ownerOnly?: boolean }
+	/** A repair run's lead agent has submitted its outcome (worker code only, `run.submit_repair`). */
+	| { type: 'conclude' }
 	/** The owner resolves the open checkpoint. `revise` sends the step back to work. */
 	| { type: 'resolve'; checkpoint: Checkpoint; decision: 'approve' | 'revise' }
 	/** `refusal`: the model's final answer was a refusal; `error`: the worker cannot go on (a
@@ -96,6 +141,7 @@ export const RUN_EVENT_TYPES: readonly RunEventType[] = [
 	'step_done',
 	'batch_done',
 	'plan_ready',
+	'conclude',
 	'resolve',
 	'pause',
 	'resume',
@@ -129,9 +175,9 @@ const waiting = (
 	waitingOn: checkpoint,
 });
 
-/** Where finishing `step` leads: the next step, or the checkpoint that gates it. */
-function afterStep(state: RunState): RunState {
-	switch (state.step) {
+/** Where finishing `step` of a create run leads: the next step, or the checkpoint that gates it. */
+function afterStep(state: RunState, step: CreateStep): RunState {
+	switch (step) {
 		case 'breakdown':
 			return state.checkpoints.breakdown
 				? waiting(state, 'breakdown')
@@ -141,7 +187,6 @@ function afterStep(state: RunState): RunState {
 		case 'regions':
 			return running(state, 'build');
 		case 'build':
-		case 'handoff':
 			return waiting(state, 'before_publish', 'handoff');
 	}
 }
@@ -156,6 +201,7 @@ function afterApproval(state: RunState, checkpoint: Checkpoint): RunState {
 		case 'region_batch':
 			return running(state, 'regions');
 		case 'before_publish':
+		case 'repair_review':
 			return { ...state, status: 'handed_off', step: 'handoff', waitingOn: null };
 	}
 }
@@ -165,6 +211,7 @@ const reviseStep: Record<Exclude<Checkpoint, 'art_plan'>, RunStep> = {
 	breakdown: 'breakdown',
 	region_batch: 'regions',
 	before_publish: 'build',
+	repair_review: 'fix',
 };
 
 export function transition(state: RunState, event: RunEvent): TransitionResult {
@@ -172,25 +219,47 @@ export function transition(state: RunState, event: RunEvent): TransitionResult {
 
 	switch (event.type) {
 		case 'start':
-			return state.status === 'draft' ? ok(running(state)) : illegal(state, event);
+			return state.status === 'draft'
+				? ok(running(state, startStep(state.kind)))
+				: illegal(state, event);
 
 		case 'step_done':
 			if (state.status !== 'running') return illegal(state, event);
 			if (state.step === 'handoff') return illegal(state, event, 'hand-off has no work');
-			return ok(afterStep(state));
+			if (state.kind === 'repair') {
+				if (state.step === 'reproduce') return ok(running(state, 'fix'));
+				if (state.step === 'fix') return ok(running(state, 'verify'));
+				return illegal(state, event, 'conclude with run.submit_repair');
+			}
+			if (!isCreateStep(state.step)) return illegal(state, event, 'a repair step');
+			return ok(afterStep(state, state.step));
 
 		case 'batch_done':
-			if (state.status !== 'running' || state.step !== 'regions') return illegal(state, event);
+			if (state.kind !== 'create' || state.status !== 'running' || state.step !== 'regions') {
+				return illegal(state, event);
+			}
 			return ok(state.checkpoints.regionBatch ? waiting(state, 'region_batch') : state);
 
 		case 'plan_ready':
-			if (state.status !== 'running' || (state.step !== 'style_pack' && state.step !== 'regions')) {
+			if (
+				state.kind !== 'create' ||
+				state.status !== 'running' ||
+				(state.step !== 'style_pack' && state.step !== 'regions')
+			) {
 				return illegal(state, event);
 			}
 			return ok(state.checkpoints.artPlan || event.ownerOnly ? waiting(state, 'art_plan') : state);
 
+		case 'conclude':
+			return state.kind === 'repair' && state.status === 'running' && isRepairStep(state.step)
+				? ok(waiting(state, 'repair_review', 'handoff'))
+				: illegal(state, event);
+
 		case 'resolve':
 			if (state.status !== 'waiting') return illegal(state, event);
+			if ((event.checkpoint === 'repair_review') !== (state.kind === 'repair')) {
+				return illegal(state, event, `not a checkpoint of a ${state.kind} run`);
+			}
 			if (event.checkpoint !== state.waitingOn) {
 				return illegal(state, event, `the open checkpoint is ${state.waitingOn}`);
 			}

@@ -1,11 +1,14 @@
 import type { BetaContentBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { Sql, TransactionSql } from 'postgres';
 import { WAKING_KINDS, type ClaimedRun } from './lease.ts';
+import type { RepairSubmission } from './repair.ts';
 import type { AnalystOutput } from './mockups/schema.ts';
 import type { BilledResponse } from './mockups/vision.ts';
 import {
 	checkpointSettings,
 	type Checkpoint,
+	type RepairOutcome,
+	type RunKind,
 	type RunState,
 	type RunStatus,
 	type RunStep,
@@ -28,6 +31,8 @@ export interface LiveRun {
 	clientKey: string | null;
 	templateProjectKey: string;
 	startingPointJson: unknown;
+	/** The game bug a repair run fixes; null for a create run. */
+	bugNumber: number | null;
 }
 
 export class LeaseLost extends Error {
@@ -39,6 +44,8 @@ export class LeaseLost extends Error {
 
 interface RunRow {
 	id: string;
+	kind: RunKind;
+	bug_number: number | null;
 	status: RunStatus;
 	step: RunStep;
 	waiting_on: Checkpoint | null;
@@ -61,8 +68,8 @@ export async function withLease<T>(
 ): Promise<T> {
 	const result = await sql.begin(async (tx) => {
 		const [row] = await tx<RunRow[]>`
-			select id, status, step, waiting_on, checkpoints_json, budget_cap_usd, project_key,
-				client_key, template_project_key, starting_point_json
+			select id, kind, bug_number, status, step, waiting_on, checkpoints_json, budget_cap_usd,
+				project_key, client_key, template_project_key, starting_point_json
 			from director_runs
 			where id = ${run.id} and lease_holder = ${run.lease} and lease_until > now()
 			for update`;
@@ -70,6 +77,7 @@ export async function withLease<T>(
 		const live: LiveRun = {
 			id: row.id,
 			state: {
+				kind: row.kind,
 				status: row.status,
 				step: row.step,
 				waitingOn: row.waiting_on,
@@ -80,6 +88,7 @@ export async function withLease<T>(
 			clientKey: row.client_key,
 			templateProjectKey: row.template_project_key,
 			startingPointJson: row.starting_point_json,
+			bugNumber: row.bug_number,
 		};
 		return { lost: false as const, value: await fn(tx, live) };
 	});
@@ -276,6 +285,19 @@ export async function opRecord(
 	return row.status === 'done' ? { status: 'done', result: row.result } : { status: 'pending' };
 }
 
+/** Writes by any of `agents` that the launcher completed in this run (`director_ops` rows). */
+export async function completedWrites(
+	db: Db,
+	runId: string,
+	agents: readonly string[],
+): Promise<number> {
+	const [row] = await db<{ n: number }[]>`
+		select count(*)::int as n from director_ops
+		where run_id = ${runId} and status = 'done'
+			and agent = any(string_to_array(${agents.join(',')}, ','))`;
+	return row.n;
+}
+
 export async function queuedJobs(db: Db, runId: string): Promise<number> {
 	const [row] = await db<{ n: number }[]>`
 		select count(*)::int as n from director_atlas_jobs
@@ -312,6 +334,24 @@ export async function unpricedSinceResume(db: Db, runId: string): Promise<number
 				where run_id = ${runId} and kind = 'owner_request'
 					and payload_json->>'action' = 'resume'), 0)`;
 	return row.n;
+}
+
+/** The repair the lead agent last submitted (`run.submit_repair`); null when none was. */
+export async function submittedRepair(db: Db, runId: string): Promise<RepairSubmission | null> {
+	const [row] = await db<{ payload: RepairSubmission }[]>`
+		select payload_json as payload from director_events
+		where run_id = ${runId} and kind = 'activity' and payload_json->>'type' = 'repair_submitted'
+		order by id desc limit 1`;
+	return row?.payload ?? null;
+}
+
+/** Record how a repair run ended, once the owner has approved it. */
+export async function setRepairOutcome(
+	tx: Db,
+	runId: string,
+	outcome: RepairOutcome,
+): Promise<void> {
+	await tx`update director_runs set repair_outcome = ${outcome} where id = ${runId}`;
 }
 
 export async function setBudgetCap(tx: Db, runId: string, usd: number): Promise<void> {

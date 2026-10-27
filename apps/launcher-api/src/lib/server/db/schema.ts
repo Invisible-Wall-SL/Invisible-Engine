@@ -478,12 +478,34 @@ export const directorRuns = pgTable(
 			.notNull()
 			.default('draft'),
 		step: text('step')
-			.$type<'breakdown' | 'style_pack' | 'regions' | 'build' | 'handoff'>()
+			.$type<
+				| 'breakdown'
+				| 'style_pack'
+				| 'regions'
+				| 'build'
+				| 'reproduce'
+				| 'fix'
+				| 'verify'
+				| 'handoff'
+			>()
 			.notNull()
 			.default('breakdown'),
 		/** The open checkpoint while `waiting`; null otherwise. */
 		waitingOn: text('waiting_on').$type<
-			'breakdown' | 'art_plan' | 'region_batch' | 'before_publish'
+			'breakdown' | 'art_plan' | 'region_batch' | 'before_publish' | 'repair_review'
+		>(),
+		/** `create` makes the project from a template; `repair` fixes one game bug in its own project
+		 *  (ADR-0012). The state machine, the lead agent and the owner actions all read it. */
+		kind: text('kind').$type<'create' | 'repair'>().notNull().default('create'),
+		/** The game bug a repair run fixes; a create run has none (CHECK). Set null when the bug is
+		 *  deleted (a project purge deletes its game bugs), so a repair run is not required to keep
+		 *  one: `createRepairRun` always sets it. */
+		bugNumber: integer('bug_number').references(() => bugReports.number, {
+			onDelete: 'set null',
+		}),
+		/** How a repair run ended; null until hand-off, and always null for a create run. */
+		repairOutcome: text('repair_outcome').$type<
+			'fixed' | 'escalated' | 'needs_person' | 'not_reproduced'
 		>(),
 		/** Null until the run starts, when the worker copies `DIRECTOR_RUN_BUDGET_USD` onto it; a run
 		 *  that somehow has none gets the default. The worker pauses the run before the call or GPU
@@ -504,17 +526,31 @@ export const directorRuns = pgTable(
 	},
 	(table) => [
 		index('director_runs_status_idx').on(table.status),
+		/** One live run per project, of either kind (ADR-0012): two repair runs would each play a
+		 *  draft holding the other's half-done edits. */
+		uniqueIndex('director_runs_live_project_idx')
+			.on(table.projectKey)
+			.where(sql`${table.status} in ('draft', 'running', 'waiting', 'paused', 'stopping')`),
 		check(
 			'director_runs_status_check',
 			sql`${table.status} in ('draft', 'running', 'waiting', 'paused', 'stopping', 'stopped', 'failed', 'handed_off')`,
 		),
 		check(
 			'director_runs_step_check',
-			sql`${table.step} in ('breakdown', 'style_pack', 'regions', 'build', 'handoff')`,
+			sql`${table.step} in ('breakdown', 'style_pack', 'regions', 'build', 'reproduce', 'fix', 'verify', 'handoff')`,
+		),
+		check('director_runs_kind_check', sql`${table.kind} in ('create', 'repair')`),
+		check(
+			'director_runs_bug_number_check',
+			sql`${table.kind} = 'repair' or ${table.bugNumber} is null`,
+		),
+		check(
+			'director_runs_repair_outcome_check',
+			sql`${table.repairOutcome} is null or (${table.kind} = 'repair' and ${table.repairOutcome} in ('fixed', 'escalated', 'needs_person', 'not_reproduced'))`,
 		),
 		check(
 			'director_runs_waiting_on_check',
-			sql`(${table.status} = 'waiting') = (${table.waitingOn} is not null) and (${table.waitingOn} is null or ${table.waitingOn} in ('breakdown', 'art_plan', 'region_batch', 'before_publish'))`,
+			sql`(${table.status} = 'waiting') = (${table.waitingOn} is not null) and (${table.waitingOn} is null or ${table.waitingOn} in ('breakdown', 'art_plan', 'region_batch', 'before_publish', 'repair_review'))`,
 		),
 		check(
 			'director_runs_lease_check',
@@ -931,7 +967,9 @@ export type BugEventKind =
 	| 'screenshot_added'
 	| 'screenshot_removed'
 	| 'linked'
-	| 'unlinked';
+	| 'unlinked'
+	| 'escalated'
+	| 'repair';
 
 /**
  * A bug's activity, append-only: who did what and when. `actor_id` is null for what the launcher
@@ -954,7 +992,7 @@ export const bugReportEvents = pgTable(
 		index('bug_report_events_bug_idx').on(table.bugNumber, table.id),
 		check(
 			'bug_report_events_kind_check',
-			sql`${table.kind} in ('reported', 'edited', 'comment', 'priority', 'status', 'sent', 'unsent', 'screenshot_added', 'screenshot_removed', 'linked', 'unlinked')`,
+			sql`${table.kind} in ('reported', 'edited', 'comment', 'priority', 'status', 'sent', 'unsent', 'screenshot_added', 'screenshot_removed', 'linked', 'unlinked', 'escalated', 'repair')`,
 		),
 	],
 );
@@ -979,6 +1017,34 @@ export const bugReportLinks = pgTable(
 	(table) => [
 		primaryKey({ columns: [table.bugNumber, table.prNumber] }),
 		check('bug_report_links_state_check', sql`${table.state} in ('open', 'merged', 'closed')`),
+	],
+);
+
+/**
+ * A game bug handed to the pipeline (ADR-0012 §3): `from_bug` is the game bug, `to_bug` the
+ * pipeline bug filed for its cause. Queryable state — "which game bugs wait on BUG-12?" — where
+ * the `escalated` events on each bug are the history the activity shows. One escalation per game
+ * bug (the primary key), so a replayed escalation can never relate it twice. `run_id` is the repair
+ * run that proposed it, null for a triager's manual escalation.
+ */
+export const bugReportRelations = pgTable(
+	'bug_report_relations',
+	{
+		fromBug: integer('from_bug')
+			.notNull()
+			.references(() => bugReports.number, { onDelete: 'cascade' }),
+		toBug: integer('to_bug')
+			.notNull()
+			.references(() => bugReports.number, { onDelete: 'cascade' }),
+		kind: text('kind').$type<'escalated_to'>().notNull(),
+		runId: text('run_id'),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		createdBy: text('created_by').notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.fromBug, table.kind] }),
+		index('bug_report_relations_to_idx').on(table.toBug),
+		check('bug_report_relations_kind_check', sql`${table.kind} in ('escalated_to')`),
 	],
 );
 
@@ -1008,6 +1074,7 @@ export type DirectorAtlasJob = typeof directorAtlasJobs.$inferSelect;
 export type PipelineApproval = typeof pipelineApprovals.$inferSelect;
 export type PipelineMerge = typeof pipelineMerges.$inferSelect;
 export type BugReport = typeof bugReports.$inferSelect;
+export type BugReportRelation = typeof bugReportRelations.$inferSelect;
 export type BugReportScreenshot = typeof bugReportScreenshots.$inferSelect;
 export type BugReportEvent = typeof bugReportEvents.$inferSelect;
 export type BugReportLink = typeof bugReportLinks.$inferSelect;

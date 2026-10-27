@@ -9,6 +9,9 @@
  *    the table does not cover fails here rather than defaulting to anything;
  *  - "before publishing" cannot be skipped: no settings turn it off, no event sequence reaches
  *    `handed_off` without approving it, and from `build` the only way on is through it;
+ *  - a repair run (ADR-0012) has its own steps and its one checkpoint, `repair_review`, always on:
+ *    only the worker's `conclude` opens it, only approving it hands off, `verify` has no
+ *    `step_done`, and each kind refuses the other's events and checkpoints;
  *  - optional checkpoints follow the settings, and default ON;
  *  - the launcher schema's check constraints list exactly these statuses, steps and checkpoints.
  */
@@ -16,7 +19,11 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
 	CHECKPOINTS,
+	CREATE_STEPS,
+	REPAIR_OUTCOMES,
+	REPAIR_STEPS,
 	RUN_EVENT_TYPES,
+	RUN_KINDS,
 	RUN_STATUSES,
 	RUN_STEPS,
 	TERMINAL_STATUSES,
@@ -25,6 +32,7 @@ import {
 	type Checkpoint,
 	type CheckpointSettings,
 	type RunEvent,
+	type RunKind,
 	type RunState,
 	type RunStatus,
 	type RunStep,
@@ -49,8 +57,15 @@ const state = (
 	step: RunStep,
 	waitingOn: Checkpoint | null = null,
 	checkpoints: CheckpointSettings = ALL_ON,
-): RunState => ({ status, step, waitingOn, checkpoints });
-const key = (s: RunState) => `${s.status}/${s.step}${s.waitingOn ? `@${s.waitingOn}` : ''}`;
+	kind: RunKind = 'create',
+): RunState => ({ kind, status, step, waitingOn, checkpoints });
+/** A repair run's states are keyed `repair:`; a create run's keys are unchanged. */
+const key = (s: RunState) =>
+	`${s.kind === 'repair' ? 'repair:' : ''}${s.status}/${s.step}${s.waitingOn ? `@${s.waitingOn}` : ''}`;
+const stepsOf = (kind: RunKind): readonly RunStep[] => [
+	...(kind === 'repair' ? REPAIR_STEPS : CREATE_STEPS),
+	'handoff',
+];
 
 /** One sample event per type; `resolve` is expanded per checkpoint and decision below. */
 const EVENTS: RunEvent[] = [
@@ -58,6 +73,7 @@ const EVENTS: RunEvent[] = [
 	{ type: 'step_done' },
 	{ type: 'batch_done' },
 	{ type: 'plan_ready' },
+	{ type: 'conclude' },
 	...CHECKPOINTS.flatMap((checkpoint) =>
 		(['approve', 'revise'] as const).map((decision): RunEvent => ({
 			type: 'resolve',
@@ -81,7 +97,7 @@ const eventKey = (e: RunEvent) =>
  *  machine opens it. */
 const STATES: RunState[] = [];
 for (const status of RUN_STATUSES) {
-	for (const step of RUN_STEPS) {
+	for (const step of stepsOf('create')) {
 		if (status === 'waiting') {
 			if (step === 'breakdown') STATES.push(state(status, step, 'breakdown'));
 			if (step === 'regions') STATES.push(state(status, step, 'region_batch'));
@@ -97,6 +113,19 @@ for (const status of RUN_STATUSES) {
 			STATES.push(state(status, step));
 		}
 	}
+	for (const step of stepsOf('repair')) {
+		const at = (waitingOn: Checkpoint | null = null) =>
+			STATES.push(state(status, step, waitingOn, ALL_ON, 'repair'));
+		if (status === 'waiting') {
+			if (step === 'handoff') at('repair_review');
+		} else if (status === 'handed_off') {
+			if (step === 'handoff') at();
+		} else if (status === 'draft') {
+			if (step === 'reproduce') at();
+		} else {
+			at();
+		}
+	}
 }
 
 /**
@@ -105,6 +134,7 @@ for (const status of RUN_STATUSES) {
  */
 const LEGAL: Record<string, Record<string, string>> = {
 	'draft/breakdown': { start: 'running/breakdown' },
+	'repair:draft/reproduce': { start: 'repair:running/reproduce' },
 
 	'running/breakdown': { step_done: 'waiting/breakdown@breakdown' },
 	'running/style_pack': { step_done: 'running/regions', plan_ready: 'waiting/style_pack@art_plan' },
@@ -115,6 +145,17 @@ const LEGAL: Record<string, Record<string, string>> = {
 	},
 	'running/build': { step_done: 'waiting/handoff@before_publish' },
 	'running/handoff': {},
+
+	'repair:running/reproduce': {
+		step_done: 'repair:running/fix',
+		conclude: 'repair:waiting/handoff@repair_review',
+	},
+	'repair:running/fix': {
+		step_done: 'repair:running/verify',
+		conclude: 'repair:waiting/handoff@repair_review',
+	},
+	'repair:running/verify': { conclude: 'repair:waiting/handoff@repair_review' },
+	'repair:running/handoff': {},
 
 	'waiting/breakdown@breakdown': {
 		'resolve:breakdown:approve': 'running/style_pack',
@@ -136,6 +177,10 @@ const LEGAL: Record<string, Record<string, string>> = {
 		'resolve:before_publish:approve': 'handed_off/handoff',
 		'resolve:before_publish:revise': 'running/build',
 	},
+	'repair:waiting/handoff@repair_review': {
+		'resolve:repair_review:approve': 'repair:handed_off/handoff',
+		'resolve:repair_review:revise': 'repair:running/fix',
+	},
 
 	'stopping/breakdown': {},
 	'stopping/style_pack': {},
@@ -154,21 +199,38 @@ const LEGAL: Record<string, Record<string, string>> = {
 	'failed/build': {},
 	'failed/handoff': {},
 	'handed_off/handoff': {},
+
+	'repair:stopping/reproduce': {},
+	'repair:stopping/fix': {},
+	'repair:stopping/verify': {},
+	'repair:stopping/handoff': {},
+	'repair:stopped/reproduce': {},
+	'repair:stopped/fix': {},
+	'repair:stopped/verify': {},
+	'repair:stopped/handoff': {},
+	'repair:failed/reproduce': {},
+	'repair:failed/fix': {},
+	'repair:failed/verify': {},
+	'repair:failed/handoff': {},
+	'repair:handed_off/handoff': {},
 };
-for (const step of RUN_STEPS) {
-	LEGAL[`running/${step}`]['pause:owner'] = `paused/${step}`;
-	LEGAL[`running/${step}`]['pause:budget_cap'] = `paused/${step}`;
-	LEGAL[`running/${step}`]['pause:refusal'] = `paused/${step}`;
-	LEGAL[`running/${step}`]['pause:error'] = `paused/${step}`;
-	LEGAL[`paused/${step}`] = { resume: `running/${step}` };
-	LEGAL[`stopping/${step}`].stopped = `stopped/${step}`;
+for (const kind of RUN_KINDS) {
+	const p = kind === 'repair' ? 'repair:' : '';
+	for (const step of stepsOf(kind)) {
+		for (const reason of ['owner', 'budget_cap', 'refusal', 'error']) {
+			LEGAL[`${p}running/${step}`][`pause:${reason}`] = `${p}paused/${step}`;
+		}
+		LEGAL[`${p}paused/${step}`] = { resume: `${p}running/${step}` };
+		LEGAL[`${p}stopping/${step}`].stopped = `${p}stopped/${step}`;
+	}
 }
 for (const s of STATES) {
 	const k = key(s);
 	if (TERMINAL_STATUSES.includes(s.status)) continue;
 	LEGAL[k] ??= {};
-	if (s.status !== 'stopping') LEGAL[k].stop = `stopping/${s.step}`;
-	LEGAL[k].fail = `failed/${s.step}`;
+	const p = s.kind === 'repair' ? 'repair:' : '';
+	if (s.status !== 'stopping') LEGAL[k].stop = `${p}stopping/${s.step}`;
+	LEGAL[k].fail = `${p}failed/${s.step}`;
 }
 const pauseKey = (e: RunEvent) => (e.type === 'pause' ? `pause:${e.reason}` : eventKey(e));
 
@@ -307,6 +369,113 @@ console.log('before publishing cannot be skipped');
 	pass(!wrong.ok, 'approving before_publish while another checkpoint is open is refused');
 }
 
+console.log('a repair run (ADR-0012)');
+{
+	const repair = (status: RunStatus, step: RunStep, waitingOn: Checkpoint | null = null) =>
+		state(status, step, waitingOn, ALL_ON, 'repair');
+	const verify = transition(repair('running', 'verify'), { type: 'step_done' });
+	pass(
+		!verify.ok && verify.error.includes('run.submit_repair'),
+		'step_done in verify is refused and says to conclude with run.submit_repair',
+	);
+	pass(
+		(['reproduce', 'fix', 'verify'] as const).every((step) => {
+			const r = transition(repair('running', step), { type: 'conclude' });
+			return r.ok && key(r.state) === 'repair:waiting/handoff@repair_review';
+		}),
+		'conclude opens repair_review from each repair step, on the handoff step',
+	);
+	pass(
+		!transition(state('running', 'build'), { type: 'conclude' }).ok &&
+			!transition(state('running', 'regions'), { type: 'conclude' }).ok,
+		'conclude is refused in a create run',
+	);
+	pass(
+		(['batch_done', 'plan_ready'] as const).every(
+			(type) => !transition(repair('running', 'fix'), { type }).ok,
+		),
+		'batch_done and plan_ready are refused in a repair run',
+	);
+	for (const checkpoint of ['breakdown', 'art_plan', 'region_batch', 'before_publish'] as const) {
+		pass(
+			!transition(repair('waiting', 'handoff', 'repair_review'), {
+				type: 'resolve',
+				checkpoint,
+				decision: 'approve',
+			}).ok,
+			`resolving ${checkpoint} is refused in a repair run`,
+		);
+	}
+	for (const decision of ['approve', 'revise'] as const) {
+		pass(
+			!transition(state('waiting', 'handoff', 'before_publish'), {
+				type: 'resolve',
+				checkpoint: 'repair_review',
+				decision,
+			}).ok,
+			`repair_review (${decision}) is refused in a create run`,
+		);
+	}
+	const draft = transition(repair('draft', 'reproduce'), { type: 'start' });
+	pass(
+		draft.ok && key(draft.state) === 'repair:running/reproduce',
+		'a repair run starts in reproduce',
+	);
+	const stale = transition(repair('draft', 'breakdown'), { type: 'start' });
+	pass(
+		stale.ok && key(stale.state) === 'repair:running/reproduce',
+		'…whatever step its draft row carries',
+	);
+
+	// Every state reachable from a repair draft: the one way into handed_off is approving
+	// repair_review, before_publish never opens, and no create step is ever entered.
+	const seen = new Map<string, RunState>();
+	const queue = [repair('draft', 'reproduce')];
+	const intoHandedOff: string[] = [];
+	while (queue.length > 0) {
+		const from = queue.shift()!;
+		if (seen.has(key(from))) continue;
+		seen.set(key(from), from);
+		for (const event of EVENTS) {
+			const result = transition(from, event);
+			if (!result.ok) continue;
+			if (result.state.status === 'handed_off')
+				intoHandedOff.push(`${key(from)} + ${eventKey(event)}`);
+			queue.push(result.state);
+		}
+	}
+	pass(
+		intoHandedOff.length === 1 &&
+			intoHandedOff[0] === 'repair:waiting/handoff@repair_review + resolve:repair_review:approve',
+		'only approving repair_review hands a repair run off',
+		` — ${intoHandedOff.join('; ')}`,
+	);
+	pass(
+		[...seen.values()].every((s) => s.waitingOn === null || s.waitingOn === 'repair_review') &&
+			[...seen.values()].every(
+				(s) => (REPAIR_STEPS as readonly string[]).includes(s.step) || s.step === 'handoff',
+			),
+		'a repair run opens no checkpoint but repair_review and enters no create step',
+	);
+	const revised = transition(repair('waiting', 'handoff', 'repair_review'), {
+		type: 'resolve',
+		checkpoint: 'repair_review',
+		decision: 'revise',
+	});
+	pass(revised.ok && key(revised.state) === 'repair:running/fix', 'revise goes back to fix');
+	pass(
+		[...seen.keys()].some((k) => k === 'repair:handed_off/handoff'),
+		'a repair run can be handed off',
+	);
+	pass(
+		(['reproduce', 'fix', 'verify'] as const).every(
+			(step) =>
+				transition(state('running', step, null, ALL_OFF, 'repair'), { type: 'conclude' }).ok,
+		),
+		'repair_review does not follow the optional checkpoint settings',
+	);
+}
+
 console.log('the launcher schema agrees');
 {
 	const schema = readFileSync(
@@ -328,6 +497,16 @@ console.log('the launcher schema agrees');
 		'status check constraint',
 	);
 	pass(same(listIn('director_runs_step_check', 'step'), RUN_STEPS), 'step check constraint');
+	pass(same(listIn('director_runs_kind_check', 'kind'), RUN_KINDS), 'kind check constraint');
+	const outcomes =
+		/'director_runs_repair_outcome_check',[\s\S]*?in \(([^)]*)\)\)`/.exec(schema)?.[1] ?? '';
+	pass(
+		same(
+			[...outcomes.matchAll(/'([a-z_]+)'/g)].map((x) => x[1]),
+			REPAIR_OUTCOMES,
+		),
+		'repair_outcome check constraint',
+	);
 	const waiting =
 		/'director_runs_waiting_on_check',[\s\S]*?in \(([^)]*)\)\)`/.exec(schema)?.[1] ?? '';
 	pass(
