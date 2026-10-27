@@ -487,7 +487,7 @@ check(
 		brief.includes('Priority: High'),
 		brief.includes('Area: Invisible Rigger'),
 		brief.includes('https://app.example/bugs?bug=12 (2 screenshots)'),
-		brief.includes("Name BUG-12 in the pull request's title or branch"),
+		brief.includes('Start with the `pipeline-triage` agent, and name the branch `bug-12-…`.'),
 	],
 	['Fix BUG-12: Rigger freezes', true, true, true, true],
 );
@@ -516,8 +516,9 @@ check(
 		gameBrief.includes('Part of the game: Bonus and free spins'),
 		gameBrief.includes('https://app.example/game-bugs?project=borut&bug=13'),
 		gameBrief.includes('pull request'),
+		gameBrief.includes('pipeline-triage') || gameBrief.includes('bug-13'),
 	],
-	['Fix BUG-13 in the game borut: Counter shows 0', true, true, true, true, false],
+	['Fix BUG-13 in the game borut: Counter shows 0', true, true, true, true, false, false],
 );
 
 // ── The registry ───────────────────────────────────────────────────────────────
@@ -1284,7 +1285,6 @@ check(
 	((await call(pipelineRoute.GET, TESTER)).body.bugs as { number: number }[]).map((b) => b.number),
 	[3],
 );
-
 // ── The page's view ────────────────────────────────────────────────────────────
 const filters = {
 	...view.DEFAULT_FILTERS,
@@ -1388,6 +1388,51 @@ check('activity lines read as sentences', lines, [
 	'Gualtiero sent it to Pipeline Changes',
 	'Gualtiero marked it Working on',
 ]);
+
+// ── Director files a pipeline bug (ADR-0009 §2) ───────────────────────────────
+{
+	const filed = await server.createDirectorBug({
+		runId: 'run-9c',
+		ownerId: OTHER.id,
+		projectKey: null,
+		runProjectKey: 'new_game',
+		templateProjectKey: 'tpl_lines',
+		what: 'An FX slot on the big-win screen.',
+		reason: 'The mockup has one.',
+	});
+	const seen = (await read(TESTER, filed.number)).body;
+	check(
+		'a Director run files an Open, unsent pipeline bug, reported by the run, linked to it',
+		[
+			seen.kind,
+			seen.status,
+			seen.sentAt,
+			seen.reporter,
+			seen.area,
+			seen.pageUrl,
+			(seen.description as string).includes('Project: new_game (made from the template tpl_lines)'),
+		],
+		[
+			'pipeline',
+			'open',
+			null,
+			'Director run run-9c',
+			'director',
+			'http://localhost:3010/director/run-9c',
+			true,
+		],
+	);
+	check(
+		"…its owner sees it as theirs; it is not in Pipeline Changes' Bugs tab until a triager sends it",
+		[
+			(await read(OTHER, filed.number)).body.mine,
+			((await call(pipelineRoute.GET, TESTER)).body.bugs as { number: number }[]).map(
+				(b) => b.number,
+			),
+		],
+		[true, [3]],
+	);
+}
 
 if (failures) {
 	console.error(`\n${failures} of ${checks} bug-reports checks failed.`);

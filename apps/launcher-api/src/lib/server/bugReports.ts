@@ -434,6 +434,60 @@ export async function createBug(access: BugAccess, body: unknown): Promise<BugDe
 	return getBug(access, bug.number);
 }
 
+/** What a Director run files when its coordinator asks for a pipeline change. */
+export interface DirectorBugInput {
+	runId: string;
+	/** The run's owner: the bug is theirs to see, as its reporter. */
+	ownerId: string;
+	/** The run's project, when the owner can open it; it is named in the text either way. */
+	projectKey: string | null;
+	runProjectKey: string;
+	templateProjectKey: string;
+	what: string;
+	reason: string;
+}
+
+/** How a Director run is named as a bug's reporter and in its activity. */
+export const directorReporter = (runId: string): string => `Director run ${runId}`;
+
+/**
+ * File the pipeline bug a Director run's `run.request_pipeline_change` asks for (ADR-0009 §2): Open
+ * and not sent, so a triager still decides whether it goes to Pipeline Changes. The reporter is
+ * the run, recorded against its owner's account; the text names the run and its project, and the
+ * page is the run's Live run screen. Through the same validation and `insertBug` as a person's
+ * report.
+ */
+export async function createDirectorBug(input: DirectorBugInput): Promise<BugReport> {
+	const actor: Actor = { id: input.ownerId, name: directorReporter(input.runId) };
+	const what = input.what.replace(/\s+/g, ' ').trim();
+	const title = what.length > MAX_TITLE ? `${what.slice(0, MAX_TITLE - 1)}…` : what;
+	const description = [
+		`Invisible Director run ${input.runId} asked for a pipeline change.`,
+		'',
+		`Project: ${input.runProjectKey} (made from the template ${input.templateProjectKey})`,
+		'',
+		'What is missing:',
+		input.what.trim(),
+		'',
+		'Why the run needs it:',
+		input.reason.trim(),
+	].join('\n');
+	return insertBug(
+		{
+			kind: 'pipeline',
+			title: cleanTitle(title),
+			description: cleanDescription(description),
+			area: cleanArea('pipeline', 'director'),
+			projectKey: input.projectKey,
+			pageUrl: cleanUrl(`${ENV.ORIGIN}/director/${encodeURIComponent(input.runId)}`),
+			priority: null,
+			reporterId: input.ownerId,
+			reporter: actor.name,
+		},
+		actor,
+	);
+}
+
 const EDITABLE = ['title', 'description', 'area', 'project', 'pageUrl'] as const;
 
 const GAME_NOT_SENT =

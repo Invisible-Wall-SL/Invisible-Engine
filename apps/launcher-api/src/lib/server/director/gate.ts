@@ -37,7 +37,8 @@ import { claimOp, completeOp, getRun, getRunOwner, releaseOp } from './store';
  *  6. the op's project scope, checked against the OWNER's grants (403), and the project's family
  *     uses the op's tool (403 `not_for_family`, game-families.md §6.5);
  *  7. for a write: an `opId` (`<runId>:<step>:<seq>`) claimed in `director_ops` — a replay returns
- *     the stored result without running again — then the write-target guard;
+ *     the stored result without running again — then the write-target guard (none for an op that
+ *     writes records only, `bugs.file_pipeline_bug`);
  *  8. the handler. A storage conflict comes back as 409 `{ error: 'conflict' }`.
  */
 
@@ -244,7 +245,7 @@ async function refusedWrite(
 	run: AdapterContext['run'],
 	input: Record<string, unknown>,
 ): Promise<AdapterAnswer | null> {
-	if (!op.write) return null;
+	if (!op.write || 'recordsOnly' in op) return null;
 	if ('createsProject' in op) {
 		// A run that already started creating its project resumes it (the op handles that).
 		if (run.projectCreateStartedAt) return null;

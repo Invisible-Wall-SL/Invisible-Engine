@@ -37,6 +37,11 @@
  *    `/saveadv` gets the whole card; refs are copied create-only; layers only on a scratch atlas
  *    this run made; `set_output` never over a tile the run did not commit; scratch atlases are
  *    never packed or deployed; and the queue gate renders only approved recipe steps.
+ *  - 9C (ADR-0009 §2) `bugs.file_pipeline_bug`, the op behind the coordinator's
+ *    `run.request_pipeline_change`, over Bug Reports' own create path: an Open, unsent pipeline
+ *    bug reported by the run against its owner, naming the run, its project and its template, with
+ *    the Live run screen as its page; the project only when the owner can open it; a replayed opId
+ *    files one bug; only the coordinator may call it.
  *  - OPEN_QUESTIONS 17: every `createProject` caller — Admin › Projects, Game Maker's create, the
  *    desktop launcher's project sync and the duplicate — answers a key whose R2 folder is another
  *    project's (live or deleted, same client) with a refusal naming that project, and leaves no
@@ -263,6 +268,17 @@ fake('lib/server/roleToolAccess.ts', {
 });
 fake('lib/server/userToolAccess.ts', {
 	getToolOverrides: async (userId: string) => USER_OVERRIDES.get(userId) ?? {},
+});
+/** Bug reports as `bugReportsStore.insertBug` writes them: the values, and the 'reported' actor. */
+const BUGS: { values: Record<string, unknown>; actor: { id: string | null; name: string } }[] = [];
+fake('lib/server/bugReportsStore.ts', {
+	insertBug: async (
+		values: Record<string, unknown>,
+		actor: { id: string | null; name: string },
+	) => {
+		BUGS.push({ values, actor });
+		return { status: 'open', sentAt: null, ...values, number: 100 + BUGS.length };
+	},
 });
 let claims = 0;
 fake('lib/server/director/store.ts', {
@@ -3736,6 +3752,87 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	);
 }
 
+// ── 9C: a run's pipeline-change request files a pipeline bug ───────────────────
+{
+	const request = { what: 'An FX slot on the big-win screen.', reason: 'The mockup has one.' };
+	const file = (runId: string, opId: string, agent = 'coordinator', input: unknown = request) =>
+		call('bugs', 'file_pipeline_bug', { runId, agent, opId, input });
+	const first = await file('rexisting', 'rexisting:coordinator-t3:0');
+	check(
+		'a request files a bug and answers its reference',
+		[first.status, first.body],
+		[200, { number: 101, ref: 'BUG-101', path: '/bugs?bug=101' }],
+	);
+	const [{ values, actor }] = BUGS;
+	check(
+		'…a pipeline bug, Open and not sent: no status, priority or sending is set',
+		[values.kind, 'status' in values, 'sentAt' in values, values.priority],
+		['pipeline', false, false, null],
+	);
+	check(
+		'…reported by the run, against its owner, in the Director area',
+		[values.reporter, values.reporterId, actor, values.area],
+		[
+			'Director run rexisting',
+			'owner',
+			{ id: 'owner', name: 'Director run rexisting' },
+			'director',
+		],
+	);
+	check(
+		'…linked to the run and its project: the Live run page, the project, the text',
+		[
+			values.projectKey,
+			values.pageUrl,
+			values.title,
+			(values.description as string).includes('Invisible Director run rexisting'),
+			(values.description as string).includes('Project: plain (made from the template tpl_lines)'),
+			(values.description as string).includes(request.what),
+			(values.description as string).includes(request.reason),
+		],
+		['plain', 'https://app.example/director/rexisting', request.what, true, true, true, true],
+	);
+	const replay = await file('rexisting', 'rexisting:coordinator-t3:0');
+	check(
+		'a replayed opId files one bug and answers the same reference',
+		[replay.status, replay.body, replay.replay, BUGS.length],
+		[200, first.body, true, 1],
+	);
+	await file('r1', 'r1:coordinator-t1:0');
+	check(
+		'a run whose project is not made yet names it in the text only',
+		[BUGS[1].values.projectKey, (BUGS[1].values.description as string).includes('new_r1')],
+		[null, true],
+	);
+	check(
+		'only the coordinator may file one',
+		(await file('r1', 'r1:builder-t1:0', 'builder')).status,
+		403,
+	);
+	check(
+		'an empty request is refused, and files nothing',
+		[
+			(await file('r1', 'r1:coordinator-t1:1', 'coordinator', { what: '', reason: 'x' })).status,
+			BUGS.length,
+		],
+		[400, 2],
+	);
+	check(
+		'a write without an opId files nothing',
+		[
+			(
+				await call('bugs', 'file_pipeline_bug', {
+					runId: 'r1',
+					agent: 'coordinator',
+					input: request,
+				})
+			).status,
+			BUGS.length,
+		],
+		[400, 2],
+	);
+}
+
 // ── Allow-lists agree with the agents' frontmatter `tools:` ───────────────────
 {
 	const dir = fileURLToPath(new URL('../../../services/director-worker/agents/', import.meta.url));
@@ -3773,9 +3870,23 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		named.filter((id) => refusedOp(id.split('.')[0], id.split('.')[1] ?? '')),
 		[],
 	);
+	const workerToolOps: Record<string, string> = (
+		(await import(
+			new URL('../../../services/director-worker/src/tools.ts', import.meta.url).href
+		)) as typeof import('../../../services/director-worker/src/tools.ts')
+	).WORKER_TOOL_OPS;
+	check(
+		'every op a worker tool calls is registered',
+		Object.values(workerToolOps).filter((id) => !ADAPTER_OPS.has(id)),
+		[],
+	);
+	// An agent names an op directly, or through a worker tool that calls it as that agent.
+	const names = (agent: string, id: string) =>
+		tools.get(agent)?.has(id) ||
+		Object.entries(workerToolOps).some(([tool, op]) => op === id && tools.get(agent)?.has(tool));
 	for (const op of ADAPTER_OPS.values()) {
 		const id = opIdOf(op);
-		const listing = models.filter((agent: string) => tools.get(agent)?.has(id));
+		const listing = models.filter((agent: string) => names(agent, id));
 		const allowed = op.agents.filter((agent: string) => agent !== 'worker');
 		check(
 			`${id}: the allow-list matches the agents whose tools: name it`,

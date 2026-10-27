@@ -53,7 +53,11 @@
  *     stands in, so a run cannot submit without limit until its first render is billed;
  * 26. a render that reported GPU time with no GPU to price it by pauses the run before its next
  *     GPU submit, naming the env to set, until the owner resumes;
- * 27. jobs that ended without reporting a time are billed as an estimate, flagged as such.
+ * 27. jobs that ended without reporting a time are billed as an estimate, flagged as such;
+ * 28. the coordinator's `run.request_pipeline_change` files a pipeline bug through the launcher
+ *     (`bugs.file_pipeline_bug`, as the coordinator) before its activity line, which names the
+ *     bug; a worker killed between the two resends the same opId (one bug) and writes one line;
+ *     a launcher that does not serve the op leaves the coordinator unable to start.
  */
 import type {
 	BetaMessage,
@@ -158,6 +162,12 @@ const SPECS: AdapterSpec[] = [
 		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 		write: true,
 	},
+	{
+		id: 'bugs.file_pipeline_bug',
+		description: 'File a pipeline bug.',
+		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+		write: true,
+	},
 ];
 
 /**
@@ -200,7 +210,9 @@ function fakeLauncher(
 			const result =
 				id === 'atlas.queue_variants'
 					? { jobRef: `job-${effects.length}` }
-					: { ok: effects.length };
+					: id === 'bugs.file_pipeline_bug'
+						? { number: 40 + effects.length, ref: `BUG-${40 + effects.length}`, path: '/bugs' }
+						: { ok: effects.length };
 			if (body.opId) {
 				await sql`insert into director_ops (op_id, run_id, agent, op, input_hash, status, result,
 						completed_at)
@@ -1492,6 +1504,71 @@ try {
 					['estimated_gpu_time', 1800],
 				],
 			],
+		);
+	}
+
+	// ── 28. A pipeline-change request files a bug ─────────────────────────────
+	console.log('28. a pipeline-change request files one pipeline bug and names it');
+	{
+		const runId = await newRun();
+		await userMessage(runId, 'coordinator', 'Start.');
+		const request = { what: 'An FX slot on the big-win screen.', reason: 'The mockup has one.' };
+		const model = fakeModel([
+			{ content: [use('t1', 'run.request_pipeline_change', request)] },
+			{ content: [say('Asked.')] },
+		]);
+		const gate = fakeLauncher();
+		const agents = new Map([
+			['coordinator', agent('coordinator', ['run.request_pipeline_change'], 'claude-opus-5-5')],
+		]);
+		let killed = false;
+		const kill = () => {
+			if (!killed) {
+				killed = true;
+				throw new Error('killed');
+			}
+		};
+		await drive(runId, deps(model.transport, gate.launcher, { agents, afterAdapterCall: kill }));
+		check('the first worker died after filing, before the activity line', killed, true);
+		check('…with no activity line yet', (await events(runId, 'activity')).length, 0);
+		await sql`update director_runs set lease_until = now() - interval '1 second' where id = ${runId} and lease_holder is not null`;
+		await drive(runId, deps(model.transport, gate.launcher, { agents }));
+		check('the bug was filed as the coordinator, sent twice with one opId', gate.sent, [
+			`bugs.file_pipeline_bug@${runId}:coordinator-t1:0`,
+			`bugs.file_pipeline_bug@${runId}:coordinator-t1:0`,
+		]);
+		check('…and filed once', gate.effects, ['bugs.file_pipeline_bug']);
+		check(
+			'one activity line, naming the bug, with what and why',
+			(await events(runId, 'activity')).map((e) => e.payload),
+			[{ bug: 41, type: 'pipeline_change_request', ...request }],
+		);
+		const results = (await messages(runId, 'coordinator'))[2]?.content as {
+			type: string;
+			content?: string;
+			is_error?: boolean;
+		}[];
+		check(
+			'the coordinator is told the bug it filed',
+			[results?.[0]?.is_error ?? false, JSON.parse(results?.[0]?.content ?? '{}').bug],
+			[false, 'BUG-41'],
+		);
+
+		const unserved = await newRun();
+		await userMessage(unserved, 'coordinator', 'Start.');
+		const idle = fakeModel([]);
+		const old = fakeLauncher();
+		const catalog = old.launcher.catalog;
+		old.launcher.catalog = async () => {
+			const served = new Map(await catalog());
+			served.delete('bugs.file_pipeline_bug');
+			return served;
+		};
+		await drive(unserved, deps(idle.transport, old.launcher, { agents }));
+		check(
+			'a launcher without the op: the coordinator is not asked, nothing is filed',
+			[idle.calls(), old.effects],
+			[0, []],
 		);
 	}
 

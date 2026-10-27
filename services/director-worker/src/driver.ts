@@ -101,8 +101,8 @@ import {
 	type RecipeDeps,
 	type RecipeEdit,
 } from './recipes.ts';
-import { WORKER_TOOLS } from './tools.ts';
-import { runWorkerTool, workerToolSpecs, type WorkerToolId } from './workerTools.ts';
+import { WORKER_TOOL_OPS, WORKER_TOOLS } from './tools.ts';
+import { runWorkerTool, workerToolSpecs, type FiledBug, type WorkerToolId } from './workerTools.ts';
 
 /**
  * Drives one claimed run (ADR-0001, ADR-0003): the turn loop.
@@ -304,7 +304,12 @@ function toolsFor(ctx: Ctx, agent: AgentDefinition, served: ReadonlyMap<string, 
 	const specs: ToolSpec[] = [];
 	const missing: string[] = [];
 	for (const id of agent.tools) {
-		const spec = WORKER_TOOL_IDS.has(id) ? ctx.workerSpecs[id as WorkerToolId] : served.get(id);
+		const backing = WORKER_TOOL_OPS[id as WorkerToolId];
+		const spec = WORKER_TOOL_IDS.has(id)
+			? backing && !served.has(backing)
+				? undefined
+				: ctx.workerSpecs[id as WorkerToolId]
+			: served.get(id);
 		if (spec) specs.push({ id, description: spec.description, inputSchema: spec.inputSchema });
 		else missing.push(id);
 	}
@@ -352,6 +357,8 @@ async function settle(
 	const hasMockups =
 		status === 'running' && state.step === 'breakdown' ? await runHasMockups(ctx) : false;
 	const results = new Map<string, BetaToolResultBlockParam>();
+	/** The pipeline bug each `run.request_pipeline_change` filed, by call, for its activity line. */
+	const filed = new Map<string, FiledBug>();
 	let budgetStop: BudgetFigures | null = null;
 	const chosen: { atlas: string; region: string; id: string }[] = [];
 	const committed: { atlas: string; region: string; from: string }[] = [];
@@ -373,7 +380,27 @@ async function settle(
 			results.set(call.id, resultBlock(call.id, `${id} is not one of your tools.`, true));
 			continue;
 		}
-		if (WORKER_TOOL_IDS.has(id)) continue;
+		const backing = WORKER_TOOL_OPS[id as WorkerToolId];
+		if (WORKER_TOOL_IDS.has(id) && !backing) continue;
+		if (backing) {
+			// A budget pause reports it not run, so nothing is filed for it.
+			if (budgetStop) continue;
+			if (!served.has(backing))
+				throw new RetryLater(`${backing} is not served by the launcher now`);
+			const opId = opIdOf(ctx.run.id, agent.name, turnSeq, index);
+			const answer = await ctx.launcher.call(
+				backing,
+				{ runId: ctx.run.id, agent: agent.name, opId, input: call.input },
+				ctx.signal,
+			);
+			await ctx.afterAdapterCall?.(opId);
+			if (unsettled(answer.status, answer.body)) {
+				throw new RetryLater(`${backing} answered ${answer.status}`);
+			}
+			if (answer.status === 200) filed.set(call.id, answer.body as FiledBug);
+			else results.set(call.id, resultBlock(call.id, JSON.stringify(answer.body), true));
+			continue;
+		}
 		if (budgetStop) {
 			results.set(
 				call.id,
@@ -521,7 +548,9 @@ async function settle(
 		for (const call of calls) {
 			const id = toolId(call.name);
 			if (results.has(call.id)) continue;
-			if (live.state.status !== 'running') {
+			const bug = filed.get(call.id);
+			// A bug already filed gets its activity line whatever the run's status now.
+			if (live.state.status !== 'running' && !bug) {
 				results.set(
 					call.id,
 					resultBlock(call.id, `Not run: the run is ${live.state.status}.`, true),
@@ -529,7 +558,7 @@ async function settle(
 				continue;
 			}
 			const outcome = await runWorkerTool(
-				toolCtx,
+				bug ? { ...toolCtx, bug } : toolCtx,
 				id as WorkerToolId,
 				call.input as Record<string, unknown>,
 			);
@@ -585,7 +614,18 @@ async function recordedOutcome(
 	opId: string,
 	status: string,
 ): Promise<BetaToolResultBlockParam> {
-	if (WORKER_TOOL_IDS.has(toolId(call.name))) {
+	const id = toolId(call.name);
+	if (WORKER_TOOL_IDS.has(id)) {
+		// Its op may have run before the pause: say so, or the model files the same bug again.
+		const filedBy = WORKER_TOOL_OPS[id as WorkerToolId] ? await opRecord(ctx.sql, opId) : null;
+		if (filedBy?.status === 'pending') throw new RetryLater(`${opId} is still in progress`);
+		if (filedBy) {
+			const bug = filedBy.result as FiledBug;
+			return resultBlock(
+				call.id,
+				JSON.stringify({ requested: true, bug: bug.ref, note: `The run is ${status}.` }),
+			);
+		}
 		return resultBlock(call.id, `Not run: the run is ${status}.`, true);
 	}
 	const record = await opRecord(ctx.sql, opId);

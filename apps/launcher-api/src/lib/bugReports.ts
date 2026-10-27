@@ -180,8 +180,8 @@ export interface BriefInput {
 
 /**
  * The text a fix starts from — pasted into a Claude Code session, or read by a person. A pipeline
- * bug's brief names the reference to put in the pull request, which is what links the change back
- * to the bug. A game bug's brief is about that game alone: the fix belongs in the project's own
+ * bug's brief names the build agent that takes it (`.claude/agents/pipeline-triage.md`) and the
+ * branch to fix it on, which is what links the change back to the bug. A game bug's brief is about that game alone: the fix belongs in the project's own
  * content, never in the engine, a tool or a template (those are pipeline changes, reported as a
  * pipeline bug instead).
  */
@@ -222,7 +222,7 @@ export function bugBrief(bug: BriefInput, origin: string): string {
 	if (!game) {
 		lines.push(
 			'',
-			`Name ${ref} in the pull request's title or branch (for example \`fix/${ref.toLowerCase()}-…\`). ` +
+			`Start with the \`pipeline-triage\` agent, and name the branch \`${ref.toLowerCase()}-…\`. ` +
 				'Invisible Pipeline Bug Reports then marks the bug Working on while the pull request is ' +
 				'open and Resolved when it merges.',
 		);
