@@ -15,6 +15,20 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-27 · Phase 9 9G.0 · director-backend
+- Did: Adapter answers carrying an image reach the model as an image block in the tool_result,
+  not as truncated base64 text; get_variant_image downscales to 1568 px and answers
+  { region, id, bytes, image }; image blocks counted in the call projection.
+- Files: services/director-worker/src/{toolResult,driver,budget,model.fixture}.ts,
+  scripts/prove-turns.ts; apps/launcher-api/src/lib/server/director/{ops/atlas,mockupPixels}.ts,
+  scripts/check-director-adapters.ts; docs/status/launcher.md.
+- Branch / PR: claude/9g0-tool-result-images, #1416.
+- Tests: check:model 101, check:director-adapters 460, prove:turns 136 (local Postgres).
+- Decisions: ADR-0012 owner question 10 (own PR). Error answers stay text byte-for-byte. Merged on
+  the deterministic proofs; the art-director image eval follows in 9G.4 (owner, 2026-10-27, relayed
+  by the coordinator).
+- Next: an art-director image eval case with 9G.4.
+
 ## 2026-10-27 · Phase 9 9C · launcher-studio + director-backend (pipeline repair)
 - **Did:** New build agent `pipeline-triage`: it reproduces a pipeline bug, routes it via
   `owners.json`, sets a `bug-<n>-<slug>` branch, requires `## Lesson` in the fix PR, and treats a
