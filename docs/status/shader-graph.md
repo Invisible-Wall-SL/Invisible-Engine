@@ -300,12 +300,18 @@ merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) 
       - **`?fxdebug=1` on the page** (`pixi-svelte` `particleMaterial/debugPanel.ts`): a page that
         mounts a material layer shows a corner box with the GL version, GPU, screen and pixel
         ratio, frame times over 120 frames, and each layer's latest line, since a phone shows no
-        console. Nothing without the flag.
+        console. Nothing without the flag. It lives only while a material layer is mounted, keeps a
+        section per app with that app's GPU line, re-reads the page size on every redraw, and
+        leaves gaps of 1 s or more out of its frame times.
       - **The settled peak prints while playing.** The peak line was throttled to every 2 s and
         a peak that settled inside the wait was never printed: the game read 98.9 kpx for a true
         8.69 Mpx. A trailing print now fires when the wait ends, cancelled on release.
-      - **Also:** a stray `FxMaterialSlots.release` warns once; `/fx` notes an effect with more
-        material layers than a game draws (8).
+      - **Reproducible phone check:** `engine-shadergraph`'s `CALIBRATION_GRAPHS` (calLight 12 / 1,
+        calBudget 144 / 4, calSeed, calParity; held by the compile fixture) and
+        `scripts/playtest/particle-calibration.mjs`, which writes the seven `cal-*` projects' graph
+        and effect docs from that one source; the play uses the same definitions.
+      - **Also:** a stray `FxMaterialSlots.release` warns once per game; `/fx` notes an effect with
+        more material layers than a game draws (8).
       - **Calibration (SwiftShader, relative only):** the 76 coins (about 340 px each) at cost 12
         load 104 M, 3× the 32 M layer budget; 20 coins reach it. The nine-layer run's effect load
         is 252 M. Frame medians: plain 280 ms, material 335 ms, cap 513 ms (WebGL2).
@@ -624,6 +630,9 @@ merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) 
      SwiftShader's); whether a dormant event layer should hold a cap slot; spawn order restarting
      at 0 on each firing (kept: a re-init is a new play; owner to confirm); any pop or "plain while
      playing".
+   - **Setup by hand:** the `cal-*` projects still need creating, their files uploading and the
+     effect placing (the docs are generated). The shared headless-shell launcher dies on a spawn
+     ENOENT before cleanup runs; the play guards against it, other play scripts do not.
    - **Load counts layer pixels; a phone pays device pixels** (scale × DPR²). The stand-in's coins
      covered about 9× the screen in layer px. The budget looks tight for full-size art.
    - **8d.7's limits:** the Particles preview always uses Time over each particle's life (no Loop)
@@ -692,6 +701,13 @@ merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) 
     `shader-page` 42; `check:fx-params` 130; `check:shader-pipeline` 149; `player` 65; `model`
     119; `check:vendored-bundles` (`rigger-fx.js` rebuilt); `check:agents-knowledge`;
     svelte-check at baseline; `check:all` 572/572. 9 mutations, each failing its gate.
+  - **Review.** Nothing blocking; current games inert without the flag. Fixed: the readout box and
+    its frame loop outlived the last layer; one box shared by several apps mixed their lines and
+    GPU; the screen size went stale after a turn; a hidden tab read as a 10 s stall; an immediate
+    peak print could be followed by an older one; the play could orphan its test server; the
+    `cal-*` setup was not reproducible; the playbook compared vsync-bound frame medians (it now
+    compares fps and long frames on runs pushed below the refresh rate). Play re-run green on
+    both GL versions; compile fixture 214; 5 more mutations, each failing.
 - 2026-10-27 — **Step 8d.7: `/shaders` Made for particles and the Particles preview** (see
   "Current state"). Step 8d.6 merged (#1407).
   - **Proof.** `compile.fixture.ts` 213; `check:shader-editor` 263; `fx-previews` 78;
