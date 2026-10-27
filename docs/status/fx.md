@@ -60,6 +60,11 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   the material a sprite layer's particles draw with, picked in `/fx`. The plan, its eight PRs and
   their state live in [design/shader-graph-particles.md](../design/shader-graph-particles.md) and
   [status/shader-graph](shader-graph.md) (step 8d).
+- **The Scene Editor's overlay ignores layer triggers** (`EditorEffectLayer`): every free layer
+  emits while playing, so an `on: 'event'` layer emits continuously where the game keeps it
+  dormant until its event, and `trigger.duration` / `stopEventType` are not applied (the game's
+  `EffectLayer.svelte` does). Bone layers are skipped (by design, in its header). Its speed matches
+  the game since 2026-10-27.
 - **Owner browser-pass over Element FX** (2026-10-21) — in `/editor` add a few effects to a rig,
   a flipbook, a particle effect node, the reel grid and a screen (Screen panel), ▶ preview each,
   and Save → reopen. Then in a published game: an *Always* float / glow / flag on a node, a *When
