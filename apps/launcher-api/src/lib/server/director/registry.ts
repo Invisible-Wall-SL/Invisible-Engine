@@ -58,8 +58,12 @@ export function buildRegistry(ops: readonly AdapterOp[]): ReadonlyMap<string, Ad
 			throw new Error(`Director adapter ${id}: creating the project is scoped to its template`);
 		}
 		// Pinned like the project creator: no other op may skip the write-target guard this way.
-		if (op.write && 'recordsOnly' in op && id !== 'bugs.file_pipeline_bug') {
-			throw new Error(`Director adapter ${id}: only bugs.file_pipeline_bug writes records only`);
+		if (
+			op.write &&
+			'recordsOnly' in op &&
+			!['bugs.file_pipeline_bug', 'bugs.escalate_game_bug'].includes(id)
+		) {
+			throw new Error(`Director adapter ${id}: only the two bug filers write records only`);
 		}
 		out.set(id, op);
 	}

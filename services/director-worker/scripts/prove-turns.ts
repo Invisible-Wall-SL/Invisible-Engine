@@ -184,6 +184,12 @@ const SPECS: AdapterSpec[] = [
 		write: true,
 	},
 	{
+		id: 'bugs.escalate_game_bug',
+		description: 'Hand the game bug to the pipeline.',
+		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+		write: true,
+	},
+	{
 		id: 'scene.update_nodes',
 		description: 'Move nodes.',
 		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -205,13 +211,14 @@ function fakeLauncher(
 	answer?: (id: string, nth: number) => AdapterResult | null,
 	catalogUp: () => boolean = () => true,
 	loseAnswer: () => boolean = () => false,
+	unserved: string[] = [],
 ) {
 	const effects: string[] = [];
 	const sent: string[] = [];
 	const launcher: Launcher = {
 		async catalog() {
 			if (!catalogUp()) throw new Error('the launcher is unreachable');
-			return new Map(SPECS.map((s) => [s.id, s]));
+			return new Map(SPECS.filter((s) => !unserved.includes(s.id)).map((s) => [s.id, s]));
 		},
 		async call(id, body) {
 			// None of these runs has mockups: the breakdown step reads the listing and leaves the
@@ -237,9 +244,11 @@ function fakeLauncher(
 					? { jobRef: `job-${effects.length}` }
 					: id === 'bugs.get_game_bug'
 						? { title: BUG_TITLE, description: BUG_DESCRIPTION }
-						: id === 'bugs.file_pipeline_bug'
-							? { number: 40 + effects.length, ref: `BUG-${40 + effects.length}`, path: '/bugs' }
-							: { ok: effects.length };
+						: id === 'bugs.escalate_game_bug'
+							? { number: 77, ref: 'BUG-77', path: '/bugs/77', gameBug: 1 }
+							: id === 'bugs.file_pipeline_bug'
+								? { number: 40 + effects.length, ref: `BUG-${40 + effects.length}`, path: '/bugs' }
+								: { ok: effects.length };
 			if (body.opId) {
 				await sql`insert into director_ops (op_id, run_id, agent, op, input_hash, status, result,
 						completed_at)
@@ -1899,10 +1908,16 @@ try {
 				checkpoint: 'repair_review',
 				decision: 'approve',
 			});
-			await drive(id, deps(idle.transport, gate.launcher));
+			await drive(
+				id,
+				deps(
+					idle.transport,
+					fakeLauncher(undefined, undefined, undefined, ['bugs.escalate_game_bug']).launcher,
+				),
+			);
 		}
 		check(
-			'an escalation cannot be approved until the launcher files it; nothing submitted cannot be approved',
+			'an escalation cannot be approved when the launcher does not serve it; nothing submitted cannot be approved',
 			[
 				(await runRow(escalating)).status,
 				(await runRow(bare)).status,
@@ -1910,6 +1925,49 @@ try {
 				(await events(bare, 'error')).map((e) => e.payload.type),
 			],
 			['waiting', 'waiting', ['refused_request'], ['refused_request']],
+		);
+
+		// Served: the first answer is lost after the launcher filed it, so the approval waits for the
+		// next drive, which resends the SAME opId and gets the same bug: filed once, then the run ends.
+		let lose = true;
+		const filer = fakeLauncher(undefined, undefined, () => {
+			const was = lose;
+			lose = false;
+			return was;
+		});
+		await event(escalating, 'owner', 'checkpoint_resolved', {
+			checkpoint: 'repair_review',
+			decision: 'approve',
+		});
+		await drive(escalating, deps(idle.transport, filer.launcher));
+		check(
+			'a lost answer after the filing leaves the approval for the next drive',
+			[(await runRow(escalating)).status, filer.effects],
+			['waiting', ['bugs.escalate_game_bug']],
+		);
+		await sql`update director_runs set lease_until = now() - interval '1 second' where id = ${escalating} and lease_holder is not null`;
+		await sleep(RETRY_BASE_MS * 2 + 30);
+		await drive(escalating, deps(idle.transport, filer.launcher));
+		const ended = await runRow(escalating);
+		const sent = filer.sent.filter((x) => x.startsWith('bugs.escalate_game_bug@'));
+		check(
+			'the replay is the same opId, the launcher took effect once, the run ends escalated',
+			[
+				sent.length,
+				new Set(sent).size,
+				sent[0],
+				filer.effects.length,
+				ended.status,
+				ended.repair_outcome,
+			],
+			[2, 1, `bugs.escalate_game_bug@${escalating}:escalate`, 1, 'handed_off', 'escalated'],
+		);
+		check(
+			'…and the owner is told which bug was filed',
+			(await events(escalating, 'activity')).some((e) =>
+				String(e.payload.text ?? '').includes('BUG-77'),
+			),
+			true,
 		);
 	}
 } finally {

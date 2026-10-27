@@ -57,6 +57,7 @@ export const ADAPTER_OPS = [
 	'bugs.get_game_bug',
 	'bugs.get_screenshot',
 	'bugs.file_pipeline_bug',
+	'bugs.escalate_game_bug',
 	'build.request_draft',
 	'build.play_draft',
 ] as const;

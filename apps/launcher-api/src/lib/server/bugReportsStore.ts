@@ -4,6 +4,7 @@ import { getDb } from './db';
 import {
 	bugReportEvents,
 	bugReportLinks,
+	bugReportRelations,
 	bugReportScreenshots,
 	bugReports,
 	type BugEventKind,
@@ -221,6 +222,115 @@ export async function insertBug(
 		});
 		return bug;
 	});
+}
+
+export interface EscalationInput {
+	/** The game bug handed to the pipeline. */
+	gameBug: number;
+	/** The pipeline bug to file for its cause. */
+	values: NewBug;
+	/** Who escalates: the run (`Director run <id>`) or the triager. */
+	actor: Actor;
+	/** Rides on the pipeline bug's `reported` event: the run's `opId`. */
+	data: Record<string, unknown>;
+	/** The repair run that proposed it; null for a triager's own escalation. */
+	runId: string | null;
+}
+
+/**
+ * Hand a game bug to the pipeline (ADR-0012 §3), in one transaction under the game bug's lock: the
+ * pipeline bug and its `reported` event, the relation row, an `escalated` event on each bug, and
+ * the game bug Open → Working on. A game bug is escalated once (the relation's primary key), so a
+ * replay answers the pipeline bug already filed, with `created: false`. `null` when the game bug is
+ * gone or not a game bug.
+ */
+export async function insertEscalation(
+	e: EscalationInput,
+): Promise<{ bug: BugReport; created: boolean } | null> {
+	return getDb().transaction(async (tx) => {
+		const [game] = await tx
+			.select()
+			.from(bugReports)
+			.where(eq(bugReports.number, e.gameBug))
+			.for('update');
+		if (!game || game.kind !== 'game') return null;
+		const [prior] = await tx
+			.select({ toBug: bugReportRelations.toBug })
+			.from(bugReportRelations)
+			.where(
+				and(eq(bugReportRelations.fromBug, e.gameBug), eq(bugReportRelations.kind, 'escalated_to')),
+			);
+		if (prior) {
+			const [bug] = await tx.select().from(bugReports).where(eq(bugReports.number, prior.toBug));
+			return { bug, created: false };
+		}
+		const [bug] = await tx.insert(bugReports).values(e.values).returning();
+		const who = { actorId: e.actor.id, actor: e.actor.name };
+		await tx.insert(bugReportEvents).values([
+			{ bugNumber: bug.number, kind: 'reported', ...who, data: e.data },
+			{
+				bugNumber: bug.number,
+				kind: 'escalated',
+				...who,
+				data: { from: e.gameBug, runId: e.runId },
+			},
+			{
+				bugNumber: e.gameBug,
+				kind: 'escalated',
+				...who,
+				data: { to: bug.number, runId: e.runId },
+			},
+		]);
+		await tx.insert(bugReportRelations).values({
+			fromBug: e.gameBug,
+			toBug: bug.number,
+			kind: 'escalated_to',
+			runId: e.runId,
+			createdBy: e.actor.name,
+		});
+		const now = new Date();
+		if (game.status === 'open') {
+			await tx
+				.update(bugReports)
+				.set({
+					status: 'working',
+					statusBy: e.actor.name,
+					statusAt: now,
+					statusAuto: false,
+					updatedAt: now,
+				})
+				.where(eq(bugReports.number, e.gameBug));
+			await tx.insert(bugReportEvents).values({
+				bugNumber: e.gameBug,
+				kind: 'status',
+				...who,
+				data: { to: 'working', because: 'escalated' },
+			});
+		}
+		return { bug, created: true };
+	});
+}
+
+/** The pipeline bug each of these game bugs was handed to, with that bug's status now. */
+export async function escalationsFor(
+	numbers: number[],
+): Promise<Map<number, { toBug: number; toStatus: BugStatus }>> {
+	if (!numbers.length) return new Map();
+	const rows = await getDb()
+		.select({
+			fromBug: bugReportRelations.fromBug,
+			toBug: bugReportRelations.toBug,
+			toStatus: bugReports.status,
+		})
+		.from(bugReportRelations)
+		.innerJoin(bugReports, eq(bugReports.number, bugReportRelations.toBug))
+		.where(
+			and(
+				inArray(bugReportRelations.fromBug, numbers),
+				eq(bugReportRelations.kind, 'escalated_to'),
+			),
+		);
+	return new Map(rows.map((r) => [r.fromBug, { toBug: r.toBug, toStatus: r.toStatus }]));
 }
 
 export interface ReportedBug {

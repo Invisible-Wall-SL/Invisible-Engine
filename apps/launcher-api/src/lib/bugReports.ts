@@ -124,6 +124,22 @@ export const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 export const bugRef = (number: number): string => `BUG-${number}`;
 
 /**
+ * Where a game bug stands on the pipeline bug it was escalated to (ADR-0012 §3): derived from that
+ * bug's status, never stored, so a new status never spreads into the lists and filters.
+ */
+export type PipelineWait = 'waiting' | 'fixed' | 'wontFix';
+
+export const pipelineWaitOf = (status: BugStatus): PipelineWait =>
+	status === 'resolved' ? 'fixed' : status === 'wontFix' ? 'wontFix' : 'waiting';
+
+export const pipelineWaitLabel = (number: number, state: PipelineWait): string =>
+	state === 'waiting'
+		? `Waiting on pipeline · ${bugRef(number)}`
+		: state === 'fixed'
+			? 'Pipeline fix merged: check the game'
+			: "Pipeline: won't fix";
+
+/**
  * The bugs a text names: `BUG-12`, `bug-12` (a branch name). The link sync reads a pull request's
  * title and branch with it, never its description. `debug-12` is not one (the word must start at
  * `bug`).

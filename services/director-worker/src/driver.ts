@@ -173,6 +173,7 @@ const RETRY_MAX_MS = 120_000;
 
 const WORKER_TOOL_IDS: ReadonlySet<string> = new Set(WORKER_TOOLS);
 const COORDINATOR = leadOf('create');
+const ESCALATE_OP = 'bugs.escalate_game_bug';
 const MAX_TURNS = 40;
 const MAX_RESULT_CHARS = 60_000;
 /** What an untrusted answer's text is cut to: the wrapper's own lines still fit in the result. */
@@ -1234,11 +1235,70 @@ async function handleEvents(ctx: Ctx, { ownerRequestsOnly = false } = {}): Promi
 		// refused, never retried: a retry would hold every later row of the owner's (a stop
 		// included) behind the launcher.
 		const deps = decidesArtPlan(event) ? await recipeDepsOrNull(ctx) : undefined;
+		const escalated = decidesEscalation(event) ? await escalateBeforeApproval(ctx) : undefined;
 		await withLease(ctx.sql, ctx.run, async (tx, live) => {
-			await applyEvent(ctx, tx, live, event, pricing, deps);
+			await applyEvent(ctx, tx, live, event, pricing, deps, escalated);
 			await markHandled(tx, event.id);
 		});
 	}
+}
+
+const decidesEscalation = (event: WakingEvent): boolean =>
+	event.kind === 'checkpoint_resolved' &&
+	event.payload.checkpoint === 'repair_review' &&
+	event.payload.decision === 'approve';
+
+/** What filing the escalation came to: the pipeline bug, or why none was filed. */
+type Escalated = { ok: true; ref: string } | { ok: false; error: string };
+
+/**
+ * The owner approved a repair that escalates (ADR-0012 §3): the launcher files the pipeline bug
+ * BEFORE the run's transition, as the worker, at the one opId `<runId>:escalate`. A replay (a crash
+ * after the filing, or the transition refused and the approval sent again) answers the same bug.
+ * Nothing is filed unless the run waits at Repair review with an escalating submission; undefined
+ * then. An outcome the launcher cannot settle leaves the approval for the next drive.
+ */
+async function escalateBeforeApproval(ctx: Ctx): Promise<Escalated | undefined> {
+	const { live, submitted } = await withLease(ctx.sql, ctx.run, async (tx, l) => ({
+		live: l,
+		submitted: await submittedRepair(tx, l.id),
+	}));
+	const { state } = live;
+	if (
+		state.kind !== 'repair' ||
+		state.status !== 'waiting' ||
+		state.waitingOn !== 'repair_review' ||
+		submitted?.outcome !== 'escalate'
+	) {
+		return undefined;
+	}
+	if (!(await catalog(ctx)).has(ESCALATE_OP)) return { ok: false, error: ESCALATION_NOT_SERVED };
+	const answer = await ctx.launcher.call(
+		ESCALATE_OP,
+		{
+			runId: ctx.run.id,
+			agent: 'worker',
+			opId: `${ctx.run.id}:escalate`,
+			input: {
+				area: submitted.pipeline_area,
+				title: submitted.pipeline_title,
+				cause: submitted.cause,
+				summary: submitted.summary,
+			},
+		},
+		ctx.signal,
+	);
+	if (unsettled(answer.status, answer.body)) {
+		throw new RetryLater(`${ESCALATE_OP} answered ${answer.status}`);
+	}
+	if (answer.status !== 200) {
+		const message = (answer.body as { message?: unknown } | null)?.message;
+		return {
+			ok: false,
+			error: `the pipeline bug was not filed: ${String(message ?? answer.status)}`,
+		};
+	}
+	return { ok: true, ref: String((answer.body as { ref?: unknown }).ref) };
 }
 
 const decidesArtPlan = (event: WakingEvent): boolean =>
@@ -1310,6 +1370,7 @@ async function applyEvent(
 	event: WakingEvent,
 	pricing: DirectorPricing,
 	deps?: RecipeDeps | null,
+	escalated?: Escalated,
 ): Promise<void> {
 	const p = event.payload;
 	const refuse = (error: string) =>
@@ -1400,10 +1461,10 @@ async function applyEvent(
 					? await submittedRepair(tx, live.id)
 					: undefined;
 			if (submitted === null) return refuse('no repair was submitted to approve');
-			// The escalation is filed here, before the transition, once the launcher serves
-			// bugs.escalate_game_bug (opId `<runId>:escalate`); until then approving it would end the
-			// run with nothing filed.
-			if (submitted?.outcome === 'escalate') return refuse(ESCALATION_NOT_SERVED);
+			if (submitted?.outcome === 'escalate') {
+				if (!escalated) return refuse(ESCALATION_NOT_SERVED);
+				if (!escalated.ok) return refuse(escalated.error);
+			}
 			const error = await move(
 				tx,
 				live,
@@ -1412,6 +1473,12 @@ async function applyEvent(
 			);
 			if (error) return refuse(error);
 			if (submitted) await setRepairOutcome(tx, live.id, repairOutcomeOf(submitted.outcome));
+			if (escalated?.ok) {
+				await insertEvent(tx, live.id, 'worker', 'activity', {
+					type: 'note',
+					text: `Escalated to the pipeline as ${escalated.ref}.`,
+				});
+			}
 			const owner = ownerOf(p);
 			if (approvingPlan && deps) await approveArtPlan(tx, live, owner, deps);
 			if (edits?.length && deps) {

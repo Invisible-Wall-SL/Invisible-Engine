@@ -13,6 +13,9 @@ import {
 	bugAreaName,
 	bugRef,
 	bugRefsIn,
+	pipelineWaitLabel,
+	pipelineWaitOf,
+	type PipelineWait,
 	bugTriageName,
 	cleanPageUrl,
 	isBugArea,
@@ -28,7 +31,9 @@ import { TOOLS, roleHasCapability, roleHasTool } from '$lib/roles';
 import {
 	bugsReportedAs,
 	deleteScreenshot,
+	escalationsFor,
 	existingBugNumbers,
+	insertEscalation,
 	getBugFull,
 	getScreenshot,
 	insertBug,
@@ -190,6 +195,8 @@ export interface BugSummary {
 	updatedAt: string;
 	screenshots: number;
 	links: BugLinkView[];
+	/** The pipeline bug this game bug was handed to, and where it stands (derived, ADR-0012 §3). */
+	escalation: { number: number; ref: string; state: PipelineWait; label: string } | null;
 	/** The viewer reported it. */
 	mine: boolean;
 }
@@ -247,6 +254,7 @@ function summaryOf(
 	bug: BugReport,
 	screenshots: number,
 	links: BugReportLink[],
+	escalated?: { toBug: number; toStatus: BugStatus },
 ): BugSummary {
 	return {
 		number: bug.number,
@@ -268,17 +276,32 @@ function summaryOf(
 		updatedAt: bug.updatedAt.toISOString(),
 		screenshots,
 		links: links.map(linkView),
+		escalation: escalated
+			? (() => {
+					const state = pipelineWaitOf(escalated.toStatus);
+					return {
+						number: escalated.toBug,
+						ref: bugRef(escalated.toBug),
+						state,
+						label: pipelineWaitLabel(escalated.toBug, state),
+					};
+				})()
+			: null,
 		mine: bug.reporterId === viewerId,
 	};
 }
 
 const isReporter = (access: BugAccess, bug: BugReport) => bug.reporterId === access.user.id;
 
-function detailOf(access: BugAccess, full: BugFull): BugDetail {
+function detailOf(
+	access: BugAccess,
+	full: BugFull,
+	escalated?: { toBug: number; toStatus: BugStatus },
+): BugDetail {
 	const { bug } = full;
 	const mine = isReporter(access, bug);
 	return {
-		...summaryOf(access.user.id, bug, full.screenshots.length, full.links),
+		...summaryOf(access.user.id, bug, full.screenshots.length, full.links, escalated),
 		revision: bug.revision,
 		canEdit: mine || access.triage.has(bug.kind),
 		screenshotList: full.screenshots.map((s) => ({
@@ -307,16 +330,18 @@ export async function listBugs(
 	where: { kind: BugKind; projectKey?: string },
 ): Promise<BugSummary[]> {
 	const rows = await listBugRows(where);
-	return rows.bugs
-		.filter((b) => canSee(scope, b))
-		.map((b) =>
-			summaryOf(
-				scope.user.id,
-				b,
-				rows.screenshots.get(b.number) ?? 0,
-				rows.links.get(b.number) ?? [],
-			),
-		);
+	const seen = rows.bugs.filter((b) => canSee(scope, b));
+	const escalated =
+		where.kind === 'game' ? await escalationsFor(seen.map((b) => b.number)) : new Map();
+	return seen.map((b) =>
+		summaryOf(
+			scope.user.id,
+			b,
+			rows.screenshots.get(b.number) ?? 0,
+			rows.links.get(b.number) ?? [],
+			escalated.get(b.number),
+		),
+	);
 }
 
 const PRIORITY_RANK: Record<BugPriority, number> = { critical: 0, high: 1, medium: 2, low: 3 };
@@ -346,7 +371,10 @@ async function readVisible(access: BugAccess, number: number): Promise<BugFull> 
 }
 
 export async function getBug(access: BugAccess, number: number): Promise<BugDetail> {
-	return detailOf(access, await readVisible(access, number));
+	const full = await readVisible(access, number);
+	const escalated =
+		full.bug.kind === 'game' ? (await escalationsFor([number])).get(number) : undefined;
+	return detailOf(access, full, escalated);
 }
 
 export function parseBugNumber(param: string): number {
@@ -454,6 +482,12 @@ export interface DirectorBugInput {
 	templateProjectKey: string;
 	what: string;
 	reason: string;
+	/**
+	 * A repair run handing its game bug to the pipeline (ADR-0012 §3): the pipeline bug then names
+	 * the game bug and takes the doctor's own cause and summary, never the reporter's words, and is
+	 * filed with its relation and events in one transaction. `what` is its title, `reason` its cause.
+	 */
+	escalatedFrom?: { gameBug: number; area: string; summary: string };
 }
 
 /** A run's own requests, at most: a run that keeps asking is a run to look at, not more bugs. */
@@ -497,6 +531,7 @@ export async function createDirectorBug(input: DirectorBugInput): Promise<Direct
 	const again = mine.find((b) => b.data.opId === input.opId);
 	if (again) return { filed: again };
 	if (mine.length >= MAX_DIRECTOR_BUGS) return { refused: 'cap' };
+	if (input.escalatedFrom) return escalateFromRun(input, input.escalatedFrom, actor);
 	const request = requestHash(input.what);
 	const same = mine.find(
 		(b) => b.data.request === request && (b.status === 'open' || b.status === 'working'),
@@ -543,6 +578,105 @@ export async function createDirectorBug(input: DirectorBugInput): Promise<Direct
 		{ opId: input.opId, request },
 	);
 	return { filed: bug };
+}
+
+/** The text of an escalated pipeline bug: where it was found, then the escalator's own words. */
+function escalationText(
+	game: BugReport,
+	by: string,
+	cause: string,
+	summary: string,
+): { title: string; description: string } {
+	return {
+		title: '',
+		description: unlinkBugRefs(
+			[
+				`Found while repairing bug #${game.number} in ${game.projectKey} (${by}).`,
+				'',
+				'Cause:',
+				cause.trim(),
+				...(summary.trim() ? ['', 'What was found:', summary.trim()] : []),
+			].join('\n'),
+		),
+	};
+}
+
+/** File the escalation of a repair run's game bug; see {@link DirectorBugInput.escalatedFrom}. */
+async function escalateFromRun(
+	input: DirectorBugInput,
+	from: NonNullable<DirectorBugInput['escalatedFrom']>,
+	actor: Actor,
+): Promise<DirectorBugAnswer> {
+	const game = (await getBugFull(from.gameBug))?.bug;
+	if (!game || game.kind !== 'game' || game.projectKey !== input.runProjectKey) {
+		throw error(404, `There is no game bug BUG-${from.gameBug} in this run's project.`);
+	}
+	const title = unlinkBugRefs(input.what).replace(/\s+/g, ' ').trim();
+	const filed = await insertEscalation({
+		gameBug: game.number,
+		values: {
+			kind: 'pipeline',
+			title: cleanTitle(title),
+			description: cleanDescription(
+				escalationText(game, actor.name, input.reason, from.summary).description,
+			),
+			area: cleanArea('pipeline', from.area),
+			projectKey: game.projectKey,
+			pageUrl: game.pageUrl,
+			priority: null,
+			reporterId: input.ownerId,
+			reporter: actor.name,
+		},
+		actor,
+		data: { opId: input.opId, escalatedFrom: game.number },
+		runId: input.runId,
+	});
+	if (!filed) throw error(404, `There is no game bug BUG-${from.gameBug}.`);
+	return { filed: filed.bug };
+}
+
+/**
+ * A triager's own "Escalate to pipeline" on a game bug, with no run: the same transaction, the
+ * relation's `run_id` null. Needs the game triage capability and the pipeline bug tool, and the
+ * bug (so its project) must be one the user can open. The words are theirs.
+ */
+export async function escalateGameBug(
+	access: BugAccess,
+	number: number,
+	body: unknown,
+): Promise<BugDetail> {
+	const input = record(body);
+	const game = (await readVisible(access, number)).bug;
+	if (game.kind !== 'game') throw error(400, 'Only a game bug is escalated to the pipeline.');
+	requireTriage(access, 'game', 'Escalating a game bug');
+	if (!access.kinds.has('pipeline')) {
+		throw error(403, `Your role does not have access to ${TOOLS[BUG_TOOL.pipeline].name}.`);
+	}
+	if (game.status === 'resolved' || game.status === 'wontFix') {
+		throw error(409, 'This bug is closed. Reopen it before escalating.');
+	}
+	const note = typeof input.description === 'string' ? input.description : '';
+	const filed = await insertEscalation({
+		gameBug: number,
+		values: {
+			kind: 'pipeline',
+			title: cleanTitle(unlinkBugRefs(String(input.title ?? ''))),
+			description: cleanDescription(
+				escalationText(game, access.actor.name, note || 'See the title.', '').description,
+			),
+			area: cleanArea('pipeline', input.area),
+			projectKey: game.projectKey,
+			pageUrl: game.pageUrl,
+			priority: null,
+			reporterId: access.user.id,
+			reporter: access.actor.name,
+		},
+		actor: access.actor,
+		data: { escalatedFrom: number },
+		runId: null,
+	});
+	if (!filed) throw error(404, `There is no BUG-${number}.`);
+	return getBug(access, number);
 }
 
 const EDITABLE = ['title', 'description', 'area', 'project', 'pageUrl'] as const;

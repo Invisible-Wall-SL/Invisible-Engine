@@ -285,7 +285,25 @@ type FakeBug = {
 	status: string;
 };
 const BUGS: FakeBug[] = [];
+/** game bug number → the pipeline bug it was escalated to (the relation table). */
+const ESCALATED = new Map<number, Record<string, unknown>>();
 fake('lib/server/bugReportsStore.ts', {
+	insertEscalation: async (e: {
+		gameBug: number;
+		values: Record<string, unknown>;
+		actor: { id: string | null; name: string };
+		data: Record<string, unknown>;
+		runId: string | null;
+	}) => {
+		const game = GAME_BUGS.get(e.gameBug);
+		if (!game || game.bug.kind !== 'game') return null;
+		const prior = ESCALATED.get(e.gameBug);
+		if (prior) return { bug: prior, created: false };
+		const bug = { ...e.values, number: 500 + ESCALATED.size, status: 'open' };
+		ESCALATED.set(e.gameBug, bug);
+		game.bug.status = 'working';
+		return { bug, created: true };
+	},
 	getBugFull: async (number: number) => GAME_BUGS.get(number) ?? null,
 	getScreenshot: async (number: number, id: string) =>
 		GAME_BUGS.get(number)?.screenshots.find((x) => x.id === id) ?? null,
@@ -4099,6 +4117,59 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		].map(([t, o, w]) => repairRefusal(t, o, w)?.id ?? null),
 		['repair_art', null, 'repair_art', 'repair_art', 'repair_create', null, null, null],
 	);
+
+	// ADR-0012 §3: the worker files the escalation of the run's bug, once, at opId <runId>:escalate.
+	{
+		const escalate = (runId: string, agent: string, input: object, opId = `${runId}:escalate`) =>
+			call('bugs', 'escalate_game_bug', { runId, agent, opId, input });
+		const words = {
+			area: 'engine',
+			title: 'Reels clip on 4:3',
+			cause: 'The reel mask ignores the aspect ratio.',
+			summary: 'Seen on every spin.',
+		};
+		const filed = await escalate('rfix', 'worker', words);
+		check(
+			'bugs.escalate_game_bug files the pipeline bug for the run’s bug',
+			[filed.status, filed.body.ref, filed.body.gameBug],
+			[200, 'BUG-500', 41],
+		);
+		const filedBug = { values: ESCALATED.get(41)! };
+		check(
+			'...Open, in the run’s project, reported by the run, with the doctor’s words and not the reporter’s',
+			[
+				filedBug.values.kind,
+				filedBug.values.projectKey,
+				filedBug.values.reporter,
+				filedBug.values.area,
+				String(filedBug.values.description).includes(words.cause),
+				String(filedBug.values.description).includes('publish the game'),
+				GAME_BUGS.get(41)!.bug.status,
+			],
+			['pipeline', 'fixme', 'Director run rfix', 'engine', true, false, 'working'],
+		);
+		const replay = await escalate('rfix', 'worker', words);
+		check(
+			'a replay returns the stored answer, and another opId still files nothing new (one relation)',
+			[
+				replay.replay,
+				replay.body.ref,
+				(await escalate('rfix', 'worker', words, 'rfix:e2:2')).body.ref,
+				ESCALATED.size,
+			],
+			[true, 'BUG-500', 'BUG-500', 1],
+		);
+		check(
+			'only the worker calls it (the doctor 403), only a repair run (409), only a pipeline area (400)',
+			[
+				(await escalate('rfix', 'game-doctor', words)).status,
+				(await escalate('rcreate', 'worker', words)).body.error,
+				(await escalate('rfix-away', 'worker', words, 'rfix-away:escalate')).status,
+				(await escalate('rfix', 'worker', { ...words, area: 'wins' }, 'rfix:e3:3')).status,
+			],
+			[403, 'not_repair_run', 404, 400],
+		);
+	}
 
 	check(
 		'the worker’s pipeline areas are the launcher’s (bugAreas)',

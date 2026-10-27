@@ -1,5 +1,12 @@
+import { isHttpError } from '@sveltejs/kit';
 import sharp from 'sharp';
-import { readRunBug, readRunScreenshot, type RunBugView } from '../../bugReports';
+import { bugPath, bugRef, isBugArea } from '$lib/bugReports';
+import {
+	createDirectorBug,
+	readRunBug,
+	readRunScreenshot,
+	type RunBugView,
+} from '../../bugReports';
 import { AdapterError, defineOp, type AdapterContext } from '../adapter';
 import { downscaleForModel, type MockupMediaType } from '../mockupPixels';
 
@@ -88,4 +95,87 @@ const getScreenshot = defineOp<{ id: string }, BugScreenshotAnswer>({
 	},
 });
 
-export const GAME_BUG_OPS = [getGameBug, getScreenshot];
+const MAX_TEXT = 2000;
+
+export interface EscalatedBug {
+	number: number;
+	ref: string;
+	path: string;
+	gameBug: number;
+}
+
+/**
+ * The repair run's escalation (ADR-0012 §3), called by the WORKER when the owner approves the
+ * doctor's `escalate` submission, at opId `<runId>:escalate`, before the run ends. Not an agent's
+ * op: the doctor proposes, the owner confirms, code files. The words are the doctor's own, never
+ * the reporter's; the bug, its relation and events are one transaction, once per game bug.
+ */
+const escalateGameBug = defineOp<
+	{ area: string; title: string; cause: string; summary: string },
+	EscalatedBug
+>({
+	tool: 'bugs',
+	name: 'escalate_game_bug',
+	description:
+		"Hand this run's game bug to the pipeline: file the pipeline bug (Open, not sent), relate the two bugs and move the game bug to Working on.",
+	inputSchema: {
+		type: 'object',
+		properties: {
+			area: { type: 'string', description: 'The pipeline area.', minLength: 1, maxLength: 40 },
+			title: {
+				type: 'string',
+				description: 'The pipeline bug title.',
+				minLength: 1,
+				maxLength: 200,
+			},
+			cause: { type: 'string', description: 'The cause found.', minLength: 1, maxLength: MAX_TEXT },
+			summary: { type: 'string', description: 'What was found.', maxLength: MAX_TEXT },
+		},
+		required: ['area', 'title', 'cause', 'summary'],
+		additionalProperties: false,
+	},
+	agents: ['worker'],
+	scope: 'project',
+	write: true,
+	recordsOnly: true,
+	handler: async (ctx, input) => {
+		const gameBug = bugOf(ctx);
+		if (!isBugArea('pipeline', input.area)) {
+			throw new AdapterError(400, 'invalid_input', `${input.area} is not a pipeline bug area.`);
+		}
+		if (!input.title.trim() || !input.cause.trim()) {
+			throw new AdapterError(400, 'invalid_input', 'Give the pipeline bug a title and a cause.');
+		}
+		const { run, owner } = ctx;
+		let answer;
+		try {
+			answer = await createDirectorBug({
+				runId: run.id,
+				opId: ctx.opId!,
+				ownerId: owner.id,
+				projectKey: run.projectKey,
+				runProjectKey: run.projectKey,
+				templateProjectKey: run.templateProjectKey,
+				what: input.title,
+				reason: input.cause,
+				escalatedFrom: { gameBug, area: input.area, summary: input.summary },
+			});
+		} catch (e) {
+			if (isHttpError(e) && (e.status === 400 || e.status === 404)) {
+				throw new AdapterError(e.status, 'invalid_input', e.body.message);
+			}
+			throw e;
+		}
+		if ('refused' in answer) {
+			throw new AdapterError(
+				409,
+				'too_many_bugs',
+				'This run has filed the most pipeline bugs one run may. Ask the owner instead.',
+			);
+		}
+		const bug = answer.filed;
+		return { number: bug.number, ref: bugRef(bug.number), path: bugPath(bug), gameBug };
+	},
+});
+
+export const GAME_BUG_OPS = [getGameBug, getScreenshot, escalateGameBug];

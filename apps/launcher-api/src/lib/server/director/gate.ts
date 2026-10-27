@@ -104,7 +104,8 @@ export function catalogAnswer(
 	return { status: 200, body: { ops } };
 }
 
-const OP_ID_TAIL = /^[a-z0-9_-]{1,64}:\d{1,9}$/;
+/** `<step>:<seq>`, or the repair run's one `escalate` (ADR-0012 §3): once per run by construction. */
+const OP_ID_TAIL = /^(?:[a-z0-9_-]{1,64}:\d{1,9}|escalate)$/;
 
 interface CallBody {
 	runId: string;
