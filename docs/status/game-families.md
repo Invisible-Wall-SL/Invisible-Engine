@@ -46,8 +46,9 @@ C2 row (§4), in one PR. No caller yet: the family, runtime and sample game are 
   of reach or on a random hit; a win in `main`; `hard`'s plan beating one step; no illegal action
   in 90 AI-vs-AI matches; a decision changes neither input and moves only the AI's stream (one
   roll, two on a mistake); the same decision on 64 different match streams and on four orders of
-  the deck; each difficulty replaying AI vs AI and from a player's record; the budget; `normal` beats `easy` 61–39 on seeds 1…100 with the
-  sample decks (every sample card twice). Runs under `check:all`.
+  the deck; each difficulty replaying AI vs AI and from a player's record; the budget; `normal`
+  beats `easy` 61–39 on seeds 1…100 with the sample decks (every sample card twice). Runs under
+  `check:all`.
 - **The design points C1 raised are fixed:** §12.1's C1 row now says the reader drops unknown card
   fields, and §2.2 states the `endOfTurn` expiry rule.
 

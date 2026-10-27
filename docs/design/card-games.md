@@ -440,8 +440,8 @@ aggressively or defensively.
   the same whichever difficulty plays.
 - **A replay record** is `{ seed, decks, library, rules, first, ai, actions }`: `ai` seats the AI
   (`{ side, difficulty, weights }`; two seats for an AI-vs-AI test match), and `actions` are the
-  player's only. Replaying runs the AI again and reaches the same match, so the AI's actions need not be
-  stored. `check:card-ai` pins this (§12).
+  player's only. Replaying runs the AI again and reaches the same match, so the AI's actions need
+  not be stored. `check:card-ai` pins this (§12).
 - **The AI's thinking time is presentation.** It decides at once; the table waits a short
   authored delay (a Flow timer, P10.3) before showing each action, so the player can follow it.
   Speed never changes a choice.

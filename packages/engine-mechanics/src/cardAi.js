@@ -43,7 +43,7 @@ export const MAX_LETHAL_APPLIES = 100;
  * smallest state whose first draw falls in the middle of its quarter (`check:card-ai` pins that),
  * so a random pick from two or four targets is weighed exactly, and from any other number closely.
  */
-export const SAMPLE_STATES = [51, 18, 1, 30];
+const SAMPLE_STATES = [51, 18, 1, 30];
 
 /**
  * A difficulty's settings with the weights resolved: the defaults, then the preset's, then the
