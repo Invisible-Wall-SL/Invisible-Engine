@@ -56,25 +56,25 @@ before. Owner agent: `scatter-games`.
   provider's shape replaces them; do not bend a real capture to fit them.
 - **The free-spin trigger is not re-scored mid-cascade.** Whether scatters landing in a refill
   retrigger is unanswered game math (`cascadeSteps` in `scripts/mock-rgs-server.mjs`).
-- **The SCAT trigger never explodes in a cascade.** `payingCells` skips `mode === 'scatter' && what
-  === 'SCAT'` by what the win is, not by its context shape.
+- **The SCAT trigger never explodes in a cascade.** `payingCells` skips the SCAT trigger win by
+  what the win is (`mode: 'scatter'`, `what: 'SCAT'`), not by the shape of its context.
 
 ## Where the code lives
 
-| Part | Path |
-|---|---|
-| Kind list | `packages/constants-shared/gameKinds.ts` |
-| Capability flags (cascade, multiplierCollect, winLines) | `packages/engine-layout/src/lib/kindCapabilities.ts` |
-| Win model type, normalizer, cascade default | `packages/game-config/src/types.ts`, `packages/game-config/src/winModel.ts`, `packages/game-config/src/mechanics.ts` |
-| Committed config default | `apps/launcher-api/src/lib/data/gameConfig/scatter.json` |
-| Reference scene layout | `packages/engine-layout/src/lib/referenceLayouts/scatter.ts` |
-| Flow vocabulary (`SCATTER_VOCAB` on `CLUSTER_VOCAB`) | `packages/engine-flow-v2/src/reference/scatter.ts` |
-| Runtime: tumble and collect | `apps/lines/src/components/TumbleBoard.svelte`, `apps/lines/src/components/MultiplierBoard.svelte`, `apps/lines/src/game/bookEventHandlerMap.ts`, `apps/lines/src/game/symbolBeat.ts` |
-| Facade (`tumbleStep`, `multiplierCollect` → `boardMultiplierInfo`) | `packages/rgs-translator-eagaming/src/engineFacade.ts` |
-| Mock evaluator and cascade | `scripts/mock-rgs-server.mjs` (`evaluateScatterPays`, `cascadeSteps`) |
-| Test server wiring | `services/test-server/makeMock.mjs`, `services/test-server/server.mjs` |
-| Launcher: kind → protocol, manifest | `apps/launcher-api/src/lib/server/mockProtocol.ts`, `apps/launcher-api/src/lib/server/mockContract.ts`, `apps/launcher-api/src/lib/server/testServerManifest.ts` |
-| Math verifier | `tools/game-config-spike/scatterMath.ts`, `tools/game-config-spike/scatterCrosscheck.ts` |
+| Part                                                               | Path                                                                                                                                                                                  |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Kind list                                                          | `packages/constants-shared/gameKinds.ts`                                                                                                                                              |
+| Capability flags (cascade, multiplierCollect, winLines)            | `packages/engine-layout/src/lib/kindCapabilities.ts`                                                                                                                                  |
+| Win model type, normalizer, cascade default                        | `packages/game-config/src/types.ts`, `packages/game-config/src/winModel.ts`, `packages/game-config/src/mechanics.ts`                                                                  |
+| Committed config default                                           | `apps/launcher-api/src/lib/data/gameConfig/scatter.json`                                                                                                                              |
+| Reference scene layout                                             | `packages/engine-layout/src/lib/referenceLayouts/scatter.ts`                                                                                                                          |
+| Flow vocabulary (`SCATTER_VOCAB` on `CLUSTER_VOCAB`)               | `packages/engine-flow-v2/src/reference/scatter.ts`                                                                                                                                    |
+| Runtime: tumble and collect                                        | `apps/lines/src/components/TumbleBoard.svelte`, `apps/lines/src/components/MultiplierBoard.svelte`, `apps/lines/src/game/bookEventHandlerMap.ts`, `apps/lines/src/game/symbolBeat.ts` |
+| Facade (`tumbleStep`, `multiplierCollect` → `boardMultiplierInfo`) | `packages/rgs-translator-eagaming/src/engineFacade.ts`                                                                                                                                |
+| Mock evaluator and cascade                                         | `scripts/mock-rgs-server.mjs` (`evaluateScatterPays`, `cascadeSteps`)                                                                                                                 |
+| Test server wiring                                                 | `services/test-server/makeMock.mjs`, `services/test-server/server.mjs`                                                                                                                |
+| Launcher: kind → protocol, manifest                                | `apps/launcher-api/src/lib/server/mockProtocol.ts`, `apps/launcher-api/src/lib/server/mockContract.ts`, `apps/launcher-api/src/lib/server/testServerManifest.ts`                      |
+| Math verifier                                                      | `tools/game-config-spike/scatterMath.ts`, `tools/game-config-spike/scatterCrosscheck.ts`                                                                                              |
 
 ## Known failure modes
 
@@ -138,7 +138,7 @@ before. Owner agent: `scatter-games`.
   capability row), `check:flow-publish-gate`, `check:game-config-defaults` (the committed default).
 - **Math:** `pnpm --filter game-config-spike run scattermath` and `run scattercrosscheck`.
 - **Mock by hand:** `WIN_MODEL=scatter MIN_COUNT=8 CASCADE=1 MULTIPLIER=1 node
-  scripts/mock-rgs-server.mjs`. A purely local boot of `apps/lines` is a scatter server against a
+scripts/mock-rgs-server.mjs`. A purely local boot of `apps/lines` is a scatter server against a
   lines client unless the project config reaches it (see the ways note in `docs/status/engine.md`
   open item 0).
 - **Screens:** `scripts/current-games/screens/scatter.json`, 14 screens (base canary, first win,

@@ -83,21 +83,21 @@ gone wrong with them. Owner agent: `lines-games`.
 
 ## Where the code lives
 
-| What | Path |
-|---|---|
-| Book events, handlers, flow effects | `apps/lines/src/game/typesBookEvent.ts`, `bookEventHandlerMap.ts`, `flowEffects.ts` |
-| Reveal and expand presentation | `apps/lines/src/components/SpecialBook.svelte`, `ExpandingSymbol.svelte`, `FreeSpinIntroSymbolReveal.svelte`, `RevealSymbolRider.svelte`, `BookVfx.svelte` |
-| Free-spin HUD and outro | `apps/lines/src/components/FreeSpinCounter.svelte`, `FreeSpinOutroDriver.svelte`, `WinLine.svelte` |
-| Slam carve-outs, beat caps | `apps/lines/src/game/unskippablePresentation.ts`, `apps/lines/src/game/symbolBeat.ts` |
-| Book anticipation | `apps/lines/src/game/anticipation.ts` |
-| Board state, config resolver | `packages/engine-game/src/game/gameState.svelte.ts`, `packages/engine-game/src/game/gameConfig.ts` |
-| Coded symbol map | `apps/lines/src/game/constants.ts` (`SYMBOL_INFO_MAP`) |
-| Config: free spins, expanding symbol, preset | `packages/game-config/src/freeSpins.ts`, `expandingSymbol.ts`, `bookOfPresets.ts` |
-| Book-of flow choreography | `packages/engine-flow-v2/src/reference/bookOfChoreo.ts` |
-| Wire translation | `packages/rgs-translator-eagaming/src/engineFacade.ts`, `gameMappings.ts` (`linesMapping`, `bookMapping`, `pickMappingForConfig`) |
-| Mocks | `scripts/mock-rgs-server.mjs` (lines), `scripts/mock-rgs-server-book.mjs` (book) |
-| Kind retirement and migration | `apps/launcher-api/src/lib/server/gameKinds.ts`, `bookOfMigration.ts`, `mockProtocol.ts` |
-| Preset JSON | `apps/launcher-api/src/lib/data/gameConfig/lines.bookOfThermopylae.json` |
+| What                                         | Path                                                                                                                                                       |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Book events, handlers, flow effects          | `apps/lines/src/game/typesBookEvent.ts`, `bookEventHandlerMap.ts`, `flowEffects.ts`                                                                        |
+| Reveal and expand presentation               | `apps/lines/src/components/SpecialBook.svelte`, `ExpandingSymbol.svelte`, `FreeSpinIntroSymbolReveal.svelte`, `RevealSymbolRider.svelte`, `BookVfx.svelte` |
+| Free-spin HUD and outro                      | `apps/lines/src/components/FreeSpinCounter.svelte`, `FreeSpinOutroDriver.svelte`, `WinLine.svelte`                                                         |
+| Slam carve-outs, beat caps                   | `apps/lines/src/game/unskippablePresentation.ts`, `apps/lines/src/game/symbolBeat.ts`                                                                      |
+| Book anticipation                            | `apps/lines/src/game/anticipation.ts`                                                                                                                      |
+| Board state, config resolver                 | `packages/engine-game/src/game/gameState.svelte.ts`, `packages/engine-game/src/game/gameConfig.ts`                                                         |
+| Coded symbol map                             | `apps/lines/src/game/constants.ts` (`SYMBOL_INFO_MAP`)                                                                                                     |
+| Config: free spins, expanding symbol, preset | `packages/game-config/src/freeSpins.ts`, `expandingSymbol.ts`, `bookOfPresets.ts`                                                                          |
+| Book-of flow choreography                    | `packages/engine-flow-v2/src/reference/bookOfChoreo.ts`                                                                                                    |
+| Wire translation                             | `packages/rgs-translator-eagaming/src/engineFacade.ts`, `gameMappings.ts` (`linesMapping`, `bookMapping`, `pickMappingForConfig`)                          |
+| Mocks                                        | `scripts/mock-rgs-server.mjs` (lines), `scripts/mock-rgs-server-book.mjs` (book)                                                                           |
+| Kind retirement and migration                | `apps/launcher-api/src/lib/server/gameKinds.ts`, `bookOfMigration.ts`, `mockProtocol.ts`                                                                   |
+| Preset JSON                                  | `apps/launcher-api/src/lib/data/gameConfig/lines.bookOfThermopylae.json`                                                                                   |
 
 ## Known failure modes
 
