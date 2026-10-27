@@ -195,8 +195,9 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   - `ack` is **in the room state** (as well as Colyseus' own reconciliation ack), so a device and the
     gate read which input a place came from;
   - the room's config comes from **`GAME_SERVER_CONFIG_URL` / `_DIR`**, read once per room, cached
-    60 s per key; until the publish writes a published online config (open item), the interim
-    source is the launcher's token-gated `/api/game-config/doc` (the authored config);
+    60 s per key; in production that URL is the launcher's `GET /api/game-server/config`
+    (2026-10-27), which serves the PUBLISHED snapshot's config behind its own read-only bearer
+    (`GAME_SERVER_CONFIG_SECRET`; INFRA "Invisible Game Server");
   - the address and game come in as **`?rooms_url=` / `?rooms_game=`** (else `?project=`), not yet
     written by the publish (open item);
   - the defaults: 16 players, 30 Hz × 2, 20 Hz state, 60 s rejoin, the field's centre, layer
@@ -1411,11 +1412,10 @@ game, bundle or screen changes.
 0. **P10.14 follow-ups:** (a) the **bundle cost** (+59 KB gz for every game; owner): accept it as
    static until the per-family runtime build (item 9), or ship the SDK as a separate file only an
    online game fetches; (b) the **publish** writes `rooms_url` into an online game's launch URL and
-   a **published** online config where the game server reads it (§9 "read from the same published
-   snapshot"), and refuses an online game with no server address (§10); (c) a `/config` section for
-   `arcade.online`; (d) the Railway service and DNS (owner, INFRA steps), then the `deploy-drift`
-   entry; (e) a **read-only config token** for the game server — the interim source puts the
-   launcher's deploy token in its env, which can do more than read configs.
+   refuses an online game with no server address (§10) — the game server already reads the
+   published snapshot's config (`/api/game-server/config`, 2026-10-27); (c) a `/config` section for
+   `arcade.online`; (d) the Railway service, DNS and the config credential (owner, INFRA steps),
+   then the `deploy-drift` entry. (The read-only config token, once (e), is done: 2026-10-27.)
 1. **Live real-money match-3** waits on a real provider's match-3 wire (§9 #2); our wire
    (`docs/reference/match3-wire.md`) and its facade mapping are rewritten when one arrives.
 2. **Delivering a non-slot game** stays off: a rules game never (no wallet), an RGS match-3 game
@@ -1457,6 +1457,13 @@ game, bundle or screen changes.
   [INFRA.md](../INFRA.md) "Invisible Game Server".
 
 ## Recent changes
+
+- 2026-10-27 — **The game server reads the published config with its own credential.** The
+  launcher's `GET /api/game-server/config?project=` answers `{ projectKey, snapshot, doc }` from the
+  project's published snapshot (not the authored doc), behind a bearer `GAME_SERVER_CONFIG_SECRET`
+  that opens nothing else; 404 = not playable, 502 = R2 / unreadable snapshot. The game server is
+  unchanged (it already sends `GAME_SERVER_CONFIG_TOKEN` as a bearer and accepts `{ doc }`). Closes
+  P10.14 follow-up (e). Gate `check:game-server-config`. Setup: INFRA "Invisible Game Server".
 
 - 2026-10-27 — **Card family design written and approved** (owner, the same day: all seven §13
   decisions as recommended): [card-games.md](../design/card-games.md). The rules engine

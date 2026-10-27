@@ -280,6 +280,15 @@ project key); `GET /healthz` → `{"ok":true,"commit":"<12 chars>","rooms":N}`. 
 game's config ONCE, when it is created (a running room keeps the version it started with), and
 refuses a config that is not an online arcade game. A device sends inputs only.
 
+**Where its config comes from.** In production, the launcher's
+`GET /api/game-server/config?project=<key>` (bearer `GAME_SERVER_CONFIG_SECRET` only; it opens no
+other route). It serves the config of the project's PUBLISHED snapshot — what players run — not
+the authored doc, so an autosave after Publish never reaches a room. A republish reaches a room on
+its next creation, after the launcher's pointer cache (≤ 30 s) and the game server's own cache
+(60 s). 404 = not playable (no live project, never published, snapshot without a config): the game
+server drops its last good config. 502 = R2 failure or an unreadable snapshot: it rides it out on
+its last good config. 400 = bad project key; 401 = missing/wrong bearer, or the secret unset.
+
 **Limits it enforces** (no env needed): a room holds `arcade.online.maxPlayers` (≤ 100) and each
 character's `max`; a device sending more than `2 × tickHz + 10` messages a second is disconnected
 and gets no seat held; a WebSocket message over 1 KB is refused; an HTTP request that would carry
@@ -311,8 +320,8 @@ available"; the reason is logged.
 | Name | Meaning |
 | --- | --- |
 | `PORT` | listen port (Railway sets it; the image defaults to 8080, a bare `pnpm start` to 2567) |
-| `GAME_SERVER_CONFIG_URL` | a URL with `{game}` in it that answers a game's config (a GameConfigDoc or `{ doc }`) |
-| `GAME_SERVER_CONFIG_TOKEN` | optional; sent as `Authorization: Bearer …` to that URL |
+| `GAME_SERVER_CONFIG_URL` | a URL with `{game}` in it that answers a game's config (a GameConfigDoc or `{ doc }`). In production: the launcher's `/api/game-server/config?project={game}` (steps 5–6) |
+| `GAME_SERVER_CONFIG_TOKEN` | sent as `Authorization: Bearer …` to that URL. Optional locally; **required in production**, where it equals the launcher's `GAME_SERVER_CONFIG_SECRET` |
 | `GAME_SERVER_CONFIG_DIR` | instead of the URL: a directory of `<game>.json` configs (local runs) |
 | `GAME_SERVER_MAX_ROOMS` | rooms one process holds (default 50) |
 | `GAME_SERVER_TRUST_PROXY` | a device's address (for the matchmaking limit) is the last `x-forwarded-for` entry, the one Railway's edge adds. On by default where `RAILWAY_ENVIRONMENT` is set; `0` / `1` force it |
@@ -341,18 +350,24 @@ with two headless browsers.
    `/packages/game-config/**`, `/scripts/ts-loader.mjs` (exactly what the Dockerfile `COPY`s).
 4. **Deploy → Health Check Path** `/healthz`; **one replica** (rooms live in memory; several
    processes need Colyseus' Redis presence, which A4 does not use).
-5. **Variables:** `GAME_SERVER_CONFIG_URL`. Until the publish writes a published online config
-   anywhere (an open item in the status file), the one source that exists is the launcher's
-   token-gated export: `https://app.invisiblewall.org/api/game-config/doc?project={game}&k=<deploy
-   token>` — note it serves the AUTHORED config, not the published snapshot, so a room can run
-   rules newer than the devices' until they republish. `GAME_SERVER_TRUST_PROXY` needs no
-   setting there (on by default on Railway, whose edge fronts every socket). Optionally `GAME_SERVER_MAX_ROOMS`.
-6. **Settings → Networking:** a public domain, then the custom domain `rooms.invisiblewall.org`,
+5. **Config credential.** Generate ONE random value (`openssl rand -hex 32`). Set it on the
+   **launcher** as `GAME_SERVER_CONFIG_SECRET` and on **game-server** as
+   `GAME_SERVER_CONFIG_TOKEN`. It opens only the launcher's `GET /api/game-server/config` — never
+   use the deploy token or a `k=` here.
+6. **Variables (game-server):**
+   `GAME_SERVER_CONFIG_URL=https://app.invisiblewall.org/api/game-server/config?project={game}`.
+   `GAME_SERVER_TRUST_PROXY` needs no setting (on by default on Railway, whose edge fronts every
+   socket). Optionally `GAME_SERVER_MAX_ROOMS`.
+7. **Apply changes / Deploy** on both the launcher and game-server (a plain redeploy does not
+   apply staged vars). Verify the launcher side:
+   `curl -H "Authorization: Bearer $GAME_SERVER_CONFIG_SECRET" "https://app.invisiblewall.org/api/game-server/config?project=<published online game>"`
+   → 200 `{ projectKey, snapshot, doc }`; the same without the header → 401.
+8. **Settings → Networking:** a public domain, then the custom domain `rooms.invisiblewall.org`,
    and in **Cloudflare DNS** a CNAME `rooms` → the Railway target, **DNS-only (grey cloud)**, like
    `games` (§14 D8).
-7. Smoke-test that a request through the domain is answered (an edge that appended to
+9. Smoke-test that a request through the domain is answered (an edge that appended to
    `x-forwarded-proto` instead of replacing it would get every request refused 400).
-8. Once `/healthz` answers on the domain: add the service to `SERVICES` in
+10. Once `/healthz` answers on the domain: add the service to `SERVICES` in
    `scripts/deploy-drift.mjs` and to the Watch Paths table above (the fixture holds the two to each
    other), and to Better Stack Uptime.
 
@@ -610,6 +625,10 @@ code default, so the dashboard need not set it):
   regression harness (`docs/director/DECISIONS/0004-current-games-regression-harness.md`) sends to
   the read-only `GET /api/pipeline/games` to list every live game. Held by the launcher and by the
   GitHub Actions secret of the same name. Unset → that endpoint answers 503; nothing else uses it.
+- **Game server config:** `GAME_SERVER_CONFIG_SECRET` (secret, no default) — the bearer the
+  Invisible Game Server reads a game's published config with, from `GET /api/game-server/config`
+  only. Equals game-server's `GAME_SERVER_CONFIG_TOKEN`. Unset → that route answers 401; nothing
+  else uses it. See "Invisible Game Server".
 - **Pipeline Changes (GitHub App):** `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`,
   `GITHUB_APP_PRIVATE_KEY` (all secrets, no default; the launcher only) — see "GitHub App
   (Pipeline Changes)" below.
@@ -1395,6 +1414,7 @@ apply staged vars.
 | **Deploy token** | Admin → Settings → Deploy token (`app_settings`); `EDITOR_DOC_SECRET` is only its env fallback. Held by the build runners. | Admin → Settings → Rotate. | None for the portal; desktop launchers fetch the new value on their next Sync. |
 | **`TEST_SERVER_SECRET`** | Invisible-test-Server; the **launcher** (sends it as a header on its `/refresh` pokes); the GitHub Actions secret of the same name; the owner's portal-publish script. | New random value in every place at once, while no Runtime release or rollback is running. | Test server + launcher → Apply changes / Deploy. A launcher left on the old value still publishes, but the game goes live only on the test server's next hydrate. |
 | **`PIPELINE_CI_TOKEN`** | The **launcher**; the GitHub Actions secret of the same name (the current-games harness). Grants only the read-only game list `GET /api/pipeline/games`. | New random value (e.g. `openssl rand -hex 32`) in both places. | Launcher → Apply changes / Deploy. Harness runs between the two updates get a 401. |
+| **`GAME_SERVER_CONFIG_SECRET`** (launcher) = **`GAME_SERVER_CONFIG_TOKEN`** (game-server) | The **launcher** and the **game-server** service, one value. Grants only the read-only published-config read `GET /api/game-server/config`. | New random value (e.g. `openssl rand -hex 32`), set in both places at once. | Launcher + game-server → Apply changes / Deploy. Between the two updates config reads get a 401: running rooms keep the config they started with, a game that has loaded once keeps its last good config, and a game with none fails to open. |
 | **`GITHUB_APP_PRIVATE_KEY`** (the Pipeline Changes App; with `GITHUB_APP_ID` / `GITHUB_APP_INSTALLATION_ID`, which are ids, not secrets to rotate) | The **launcher** only. Signs the App JWT that buys the installation tokens `/pipeline` reads GitHub with and posts `current-games` approvals as. | GitHub → the App → Private keys → generate a new key, set it on the launcher, then delete the old one (both are valid meanwhile) — "GitHub App (Pipeline Changes)" above. | Launcher → Apply changes / Deploy. Verify: `/api/pipeline/changes` answers 200. |
 | **`DIRECTOR_SERVICE_TOKEN`** | The **launcher**; the `director-worker` service once it exists (PLAN 3.x). Lets the worker call the Director adapters as a run's owner; no publish, Game Config, roles or merge op exists behind it. | New random value (e.g. `openssl rand -hex 32`) in both places. | Launcher + worker → Apply changes / Deploy. Adapter calls between the two updates get a 401; the worker retries them with the same `opId`. |
 | **`RUNPOD_API_KEY`** | RunPod → Settings → API Keys. Read by the launcher, atlas-tool and the Serverless endpoint's own env. | Create a new key, switch all three, delete the old. | Launcher + atlas-tool; edit the endpoint's env in RunPod. |

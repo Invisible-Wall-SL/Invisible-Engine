@@ -200,8 +200,8 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
   ([status/engine](status/engine.md))
 - **Re-publish the imported video blueprint with a pod running** — ＋ Blueprint on the same API
   export bakes in the bounds and lists it lacks. ([status/flipbook](status/flipbook.md))
-- **Stand up the game server** — the `game-server` Railway service and the `rooms.invisiblewall.org`
-  CNAME, per [INFRA § Invisible Game Server](INFRA.md#invisible-game-server-p1014--built-not-deployed).
+- **Stand up the game server** — the `game-server` Railway service, its config credential and
+  the `rooms.invisiblewall.org` CNAME, per [INFRA § Invisible Game Server](INFRA.md#invisible-game-server-p1014--built-not-deployed).
   ([status/game-families](status/game-families.md) P10.14)
 
 ## History

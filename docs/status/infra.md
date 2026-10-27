@@ -120,6 +120,11 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   order and the verification, [guides/rotate-a-secret](../guides/rotate-a-secret.md). Verify the
   runtime after each, not just the dashboard. Since desktop launcher v1.0.56 the R2 key can be
   rotated without touching a publisher's desktop.
+- **Invisible Game Server stand-up (owner, Railway + Cloudflare; P10.14):** create the
+  `game-server` service and its `rooms` domain, and give it its config credential — one random
+  value as the launcher's `GAME_SERVER_CONFIG_SECRET` and game-server's `GAME_SERVER_CONFIG_TOKEN`,
+  plus `GAME_SERVER_CONFIG_URL`. The numbered steps and the verify curl: INFRA "Invisible Game
+  Server".
 - **ComfyUI-Manager prerequisite** for Blueprints model auto-install — needs ComfyUI-Manager at
   security level "middle" or below on whichever ComfyUI generates (else 403). The baked R&D pod
   image already ships it at `middle`; a person's **local** install is the one still to confirm. The
@@ -130,6 +135,14 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-27 — **The game server has its own read-only config credential.** The launcher's new
+  `GET /api/game-server/config?project=` serves a project's PUBLISHED config (its published
+  snapshot, not the authored doc) to the Invisible Game Server, gated on a bearer
+  `GAME_SERVER_CONFIG_SECRET` only — never `k=`, the deploy token or a session — and that secret
+  opens nothing else; unset, every read is a 401. Game-server's `GAME_SERVER_CONFIG_TOKEN` carries
+  the same value, so the deploy token no longer has to sit in its env. Gate
+  `check:game-server-config` (Lint). Not set in Railway yet: owner step in Blocked; setup, env
+  rows and rotation in INFRA.
 - 2026-10-27 — **cloudflared minimum version documented** after Cloudflare's eMudhra advisory
   (builds before 2026.10.2 trust compromised intermediates). Only the desktop tunnel connector runs
   cloudflared — no Railway or RunPod service does — so production is unaffected. INFRA "ComfyUI
