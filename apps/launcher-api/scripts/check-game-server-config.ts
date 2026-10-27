@@ -4,8 +4,8 @@
  *   pnpm --filter launcher-api check:game-server-config
  *
  * Runs the REAL route, `gameServerConfig.ts` and `projects.ts`, and the REAL handlers of every route
- * the deploy token opens (found by scanning `src/routes` for `getDeployToken`, plus the path-form
- * `/api/deploy/f/…`). Replaced: Postgres (`db/index.ts`, its `projects` filter read back through
+ * the deploy token opens (found by scanning `src/routes` for `getDeployToken`, `projectReadClient(`
+ * and `projectAllowsRead(`, so the path-form `/api/deploy/f/…` and `/api/published/f/…` too). Replaced: Postgres (`db/index.ts`, its `projects` filter read back through
  * Drizzle's own PG dialect, and its `app_settings` row holding the deploy token) and the
  * published-snapshot reads (`publishedRuntime.ts`). Every `R2_*` variable is removed first, so
  * nothing can reach R2.
@@ -33,6 +33,7 @@ const PROJECTS = new Map<string, Row>([
 	['neverpublished', { clientKey: 'invisible_wall', deleted: false }],
 	['noconfig', { clientKey: 'invisible_wall', deleted: false }],
 	['brokensnapshot', { clientKey: 'invisible_wall', deleted: false }],
+	['corruptpointer', { clientKey: 'invisible_wall', deleted: false }],
 	['r2down', { clientKey: 'invisible_wall', deleted: false }],
 	['tombstoned', { clientKey: 'invisible_wall', deleted: true }],
 ]);
@@ -46,6 +47,7 @@ const SNAPSHOTS = new Map<string, { id: string; bundle: Record<string, unknown> 
 	],
 	['unassigned/sandbox', { id: '20261027T101530Z-0001', bundle: { config: PUBLISHED_DOC } }],
 	['invisible_wall/noconfig', { id: '20261027T101530Z-0002', bundle: {} }],
+	['invisible_wall/corruptpointer', { id: '', bundle: null }],
 	['invisible_wall/brokensnapshot', { id: '20261027T101530Z-0003', bundle: null }],
 	['invisible_wall/tombstoned', { id: '20261027T101530Z-0004', bundle: { config: PUBLISHED_DOC } }],
 ]);
@@ -91,7 +93,15 @@ mock.module(src('lib/server/publishedRuntime.ts'), {
 			reads++;
 			if (project === 'r2down') throw new Error('R2 is down');
 			const snap = SNAPSHOTS.get(`${client}/${project}`);
-			return snap ? { version: 1, current: snap.id, snapshots: [] } : null;
+			// An empty id stands for a pointer object that exists but does not parse.
+			return snap?.id ? { version: 1, current: snap.id, snapshots: [] } : null;
+		},
+		isSnapshotId: (id: string) => /^\d{8}T\d{6}Z-[0-9a-f]{4}$/.test(id),
+		snapshotDeployKey: (client: string, project: string, id: string, rel: string) =>
+			`${client}/${project}/published/${id}/deploy/${rel}`,
+		publishedPointerExists: async (client: string, project: string) => {
+			reads++;
+			return SNAPSHOTS.has(`${client}/${project}`);
 		},
 		readSnapshotBundle: async (client: string, project: string, id: string) => {
 			reads++;
@@ -237,6 +247,11 @@ check(
 	(await get('?project=brokensnapshot', bearer(SECRET))).status,
 	502,
 );
+check(
+	'a pointer that exists but does not parse is a 502, not a 404',
+	(await get('?project=corruptpointer', bearer(SECRET))).status,
+	502,
+);
 check('an R2 failure is a 502', (await get('?project=r2down', bearer(SECRET))).status, 502);
 
 // ── Every deploy-token route refuses the secret ───────────────────────────────────────────────
@@ -249,10 +264,15 @@ const walk = (dir: string): string[] =>
 const allSources = walk(fileURLToPath(new URL('../src', import.meta.url)));
 const deployRoutes = walk(routesDir)
 	.filter((p) => p.endsWith('+server.ts'))
-	.filter((p) => readFileSync(p, 'utf8').includes('getDeployToken'))
+	.filter((p) =>
+		/getDeployToken|projectReadClient\(|projectAllowsRead\(/.test(readFileSync(p, 'utf8')),
+	)
 	.map((p) => relative(routesDir, p));
 const mustCover = [
 	'api/deploy/+server.ts',
+	'api/deploy/f/[token]/[client]/[project]/[...rel]/+server.ts',
+	'api/published/f/[token]/[project]/[snapshot]/[...rel]/+server.ts',
+	'api/game-config/mock/+server.ts',
 	'api/game-config/doc/+server.ts',
 	...[
 		'art',
@@ -269,7 +289,6 @@ const mustCover = [
 ];
 for (const path of mustCover)
 	check(`${path} is among the deploy-token routes`, deployRoutes.includes(path), true);
-deployRoutes.push('api/deploy/f/[token]/[client]/[project]/[...rel]/+server.ts');
 
 type Outcome = number | 'passed-the-gate';
 /** The status a handler refuses with, or `passed-the-gate` when it got past its token check (it
@@ -284,7 +303,13 @@ async function call(
 	);
 	const headers: Record<string, string> = as === 'bearer' ? bearer(token) : {};
 	const request = new Request(url, { headers });
-	const params = { token, client: 'invisible_wall', project: 'arcadeparty', rel: 'a.json' };
+	const params = {
+		token,
+		client: 'invisible_wall',
+		project: 'arcadeparty',
+		snapshot: '20261027T101530Z-3fa9',
+		rel: 'a.json',
+	};
 	const event = {
 		request,
 		url,

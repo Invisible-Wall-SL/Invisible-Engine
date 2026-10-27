@@ -15,10 +15,10 @@ const NO_STORE = { 'cache-control': 'no-store' };
  * `{ projectKey, snapshot, doc }`. Bearer `GAME_SERVER_CONFIG_SECRET` only — never `?k=`, never the
  * deploy token, never a session — and that secret opens nothing else.
  *
- * 404 means the game is not playable (no live project, never published, or a snapshot with no
- * authored config), which the game server takes as "gone" and drops its last good config for. A
- * pointer whose snapshot is unreadable, or an R2 failure, is a 502, which it rides out on that
- * last good config.
+ * 404 means the game server has nothing to play (no live project, never published, or a snapshot
+ * with no authored config), which it takes as "gone" and drops its last good config for. A pointer
+ * that does not parse or names an unreadable snapshot, or an R2 failure, is a 502, which it rides
+ * out on that last good config.
  */
 export const GET: RequestHandler = async ({ request, url }) => {
 	if (!gameServerAuthorized(request.headers.get('authorization'), ENV.GAME_SERVER_CONFIG_SECRET)) {
@@ -42,10 +42,13 @@ export const GET: RequestHandler = async ({ request, url }) => {
 		);
 	}
 	if (!published.found) {
-		if (published.reason === 'snapshot-missing') {
+		if (published.reason === 'snapshot-missing' || published.reason === 'pointer-unreadable') {
 			console.error(
-				`[game-server/config] ${projectKey}: the published pointer names snapshot ` +
-					`${published.snapshot} but its runtime.json is missing. Republish to repair.`,
+				published.reason === 'snapshot-missing'
+					? `[game-server/config] ${projectKey}: the published pointer names snapshot ` +
+							`${published.snapshot} but its runtime.json is missing. Republish to repair.`
+					: `[game-server/config] ${projectKey}: the published pointer does not parse. ` +
+							'Republish to repair.',
 			);
 			return json(
 				{ error: 'The published snapshot is unreadable.' },

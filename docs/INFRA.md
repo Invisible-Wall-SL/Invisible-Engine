@@ -285,9 +285,11 @@ refuses a config that is not an online arcade game. A device sends inputs only.
 other route). It serves the config of the project's PUBLISHED snapshot — what players run — not
 the authored doc, so an autosave after Publish never reaches a room. A republish reaches a room on
 its next creation, after the launcher's pointer cache (≤ 30 s) and the game server's own cache
-(60 s). 404 = not playable (no live project, never published, snapshot without a config): the game
-server drops its last good config. 502 = R2 failure or an unreadable snapshot: it rides it out on
-its last good config. 400 = bad project key; 401 = missing/wrong bearer, or the secret unset.
+(60 s). 404 = nothing for the game server to play (no live project, never published, snapshot
+without a config): it drops its last good config. A device can still boot an unpublished project
+from the live assemble; its rooms are refused until it is published. 502 = R2 failure, or a
+pointer that does not parse or names an unreadable snapshot: it rides it out on its last good
+config. 400 = bad project key; 401 = missing/wrong bearer, or the secret unset.
 
 **Limits it enforces** (no env needed): a room holds `arcade.online.maxPlayers` (≤ 100) and each
 character's `max`; a device sending more than `2 × tickHz + 10` messages a second is disconnected
