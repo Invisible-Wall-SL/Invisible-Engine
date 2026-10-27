@@ -414,6 +414,74 @@ export async function insertDraftRun(row: NewRun, db: Queryer = getDb()): Promis
 	return inserted.length === 1;
 }
 
+export interface NewRepairRun {
+	id: string;
+	/** The bug's own project and its client: no copy is made. */
+	projectKey: string;
+	clientKey: string | null;
+	ownerUserId: string;
+	bugNumber: number;
+	/** The project's config ETag, recorded as BOTH of the run's math-lock ETags (ADR-0012 §1): the
+	 *  project is its own reference, so any Game Config save during the run reads as drift. */
+	configEtag: string;
+}
+
+const LIVE_STATUSES = ['draft', 'running', 'waiting', 'paused', 'stopping'] as const;
+
+/** The live run on a project, of either kind: at most one (the partial unique index). */
+export async function liveRunOnProject(projectKey: string): Promise<DirectorRun | null> {
+	const [row] = await getDb()
+		.select()
+		.from(directorRuns)
+		.where(
+			and(
+				eq(directorRuns.projectKey, projectKey),
+				inArray(directorRuns.status, [...LIVE_STATUSES]),
+			),
+		);
+	return row ?? null;
+}
+
+/**
+ * Insert a repair run's draft. `exists`: the id is taken (a replayed create). `live_run`: the
+ * project already has a live run, said by the partial unique index when two creates race the check.
+ */
+export async function insertRepairRun(
+	row: NewRepairRun,
+): Promise<'inserted' | 'exists' | 'live_run'> {
+	try {
+		const inserted = await getDb()
+			.insert(directorRuns)
+			.values({
+				id: row.id,
+				kind: 'repair',
+				projectKey: row.projectKey,
+				clientKey: row.clientKey,
+				// The project is its own reference (ADR-0012 §1): the draft's math lock compares it with
+				// its own last publish.
+				templateProjectKey: row.projectKey,
+				ownerUserId: row.ownerUserId,
+				bugNumber: row.bugNumber,
+				templateConfigEtag: row.configEtag,
+				projectConfigEtag: row.configEtag,
+				startingPointJson: {},
+				checkpointsJson: {},
+				status: 'draft',
+				step: 'reproduce',
+			})
+			.onConflictDoNothing({ target: directorRuns.id })
+			.returning({ id: directorRuns.id });
+		return inserted.length === 1 ? 'inserted' : 'exists';
+	} catch (e) {
+		const cause = (e as { cause?: { code?: string; constraint_name?: string } }).cause;
+		const code = cause?.code ?? (e as { code?: string }).code;
+		const constraint =
+			cause?.constraint_name ?? (e as { constraint_name?: string }).constraint_name;
+		if (code === '23505' && constraint === 'director_runs_live_project_idx') return 'live_run';
+		throw e;
+	}
+}
+
 /** Drop a draft whose project could not be created; its (empty) event history goes with it. */
 export async function deleteDraftRun(runId: string): Promise<void> {
 	await getDb()

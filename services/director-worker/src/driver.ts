@@ -59,6 +59,7 @@ import {
 	type ModelTransport,
 	type ToolSpec,
 } from './model.ts';
+import { repairEnded, repairStarted } from './bugSync.ts';
 import { ESCALATION_NOT_SERVED, leadOf, repairBrief, repairOutcomeOf } from './repair.ts';
 import { TERMINAL_STATUSES, transition, type Checkpoint, type RunEvent } from './runState.ts';
 import {
@@ -1330,7 +1331,10 @@ async function move(tx: Db, live: LiveRun, event: RunEvent, cause: string): Prom
 /** Finish a stop once no GPU job of the run is still in flight. */
 async function finishStop(tx: Db, live: LiveRun) {
 	if (live.state.status === 'stopping' && (await queuedJobs(tx, live.id)) === 0) {
-		await move(tx, live, { type: 'stopped' }, 'no GPU job in flight');
+		const error = await move(tx, live, { type: 'stopped' }, 'no GPU job in flight');
+		if (!error && live.state.kind === 'repair') {
+			await repairEnded(tx, live.id, live.bugNumber, 'stopped');
+		}
 	}
 }
 
@@ -1386,6 +1390,7 @@ async function applyEvent(
 			if (action === 'start') {
 				const error = await move(tx, live, { type: 'start' }, 'owner start');
 				if (error) return refuse(error);
+				if (live.state.kind === 'repair') await repairStarted(tx, live.id, live.bugNumber);
 				if (live.budgetCapUsd === null) {
 					live.budgetCapUsd =
 						live.state.kind === 'repair'
@@ -1472,7 +1477,11 @@ async function applyEvent(
 				`owner ${decision}`,
 			);
 			if (error) return refuse(error);
-			if (submitted) await setRepairOutcome(tx, live.id, repairOutcomeOf(submitted.outcome));
+			if (submitted) {
+				const outcome = repairOutcomeOf(submitted.outcome);
+				await setRepairOutcome(tx, live.id, outcome);
+				await repairEnded(tx, live.id, live.bugNumber, outcome, submitted.summary);
+			}
 			if (escalated?.ok) {
 				await insertEvent(tx, live.id, 'worker', 'activity', {
 					type: 'note',

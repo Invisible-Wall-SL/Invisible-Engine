@@ -108,6 +108,11 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Recent changes
 
+- 2026-10-27 — **Repair runs move the bug (Director card 9G)**: a repair run sets Open → Working on
+  and puts it back unless fixed or touched; a fix reads **Fixed, waiting on publish**
+  (`repairLabel`, derived from the last `repair` event) until Game Maker's next publish resolves it
+  (`resolveFixedBugs`, by "Game Maker publish", with the snapshot id).
+
 - 2026-10-27 — **Game bug escalation (Director card 9G, back end)**: `bug_report_relations`, the
   `escalated` / `repair` event kinds, `insertEscalation` (one transaction: pipeline bug, relation,
   an `escalated` event on each bug, game bug Open → Working on), the derived pipeline label on

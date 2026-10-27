@@ -1,6 +1,13 @@
 import { createHash } from 'node:crypto';
+import { isHttpError } from '@sveltejs/kit';
 import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
-import { estimateRun, parseEstimateProfiles, type RunEstimate } from 'director-costs';
+import {
+	estimateRepair,
+	estimateRun,
+	parseEstimateProfiles,
+	type RepairEstimate,
+	type RunEstimate,
+} from 'director-costs';
 import {
 	fallbackDefaultChain,
 	floorOf,
@@ -16,13 +23,14 @@ import {
 	type StepInput,
 } from 'director-costs/recipe';
 import { PROJECT_KEY_WORDS } from '$lib/projectKey';
-import { roleHasTool } from '$lib/roles';
+import { GAME_BUG_TRIAGE_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import profilesFile from '../../../../../../services/director-worker/estimate-profiles.json';
 import {
 	CHECKPOINTS,
 	type Checkpoint,
 } from '../../../../../../services/director-worker/src/runState';
-import { getDirectorRunBudget } from '../appSettings';
+import { getDirectorRepairBudget, getDirectorRunBudget } from '../appSettings';
+import { getBugFull } from '../bugReportsStore';
 import { clientExists, mayCreateUnderClient } from '../clients';
 import { getDirectorPricing } from '../costs/pricingConfig';
 import { getRoleOverrides } from '../roleToolAccess';
@@ -40,9 +48,11 @@ import {
 	listDirectorTemplateProjects,
 	projectExists,
 	projectInFolder,
+	projectClientKey,
 	projectKeyTaken,
 	projectName,
 } from '../projects';
+import { requireProjectScope } from '../toolScope';
 import { DIRECTOR_AGENTS } from './adapter';
 import { artPlanApprovalRefusal, pricedCatalogue } from './artPlan';
 import {
@@ -75,7 +85,9 @@ import {
 	getRun,
 	STALE_CLAIM_MS,
 	insertDraftRun,
+	insertRepairRun,
 	lastEventId,
+	liveRunOnProject,
 	latestCheckpointOpen,
 	listRuns,
 	runSpendTotals,
@@ -337,6 +349,139 @@ async function copyTemplate(
 	]);
 	const templateConfigEtag = before.etag === after.etag ? before.etag : null;
 	await setRunConfigEtags(run.id, { template: templateConfigEtag, project: copy.etag });
+}
+
+export interface CreateRepairInput {
+	requestId: unknown;
+	/** The game bug to repair. */
+	bug: unknown;
+}
+
+/** Who may start a repair run, and who may approve its review: Director (the route's gate) and the
+ *  game bug triage capability (ADR-0012 §1), checked again at approval. */
+async function holdsGameBugTriage(user: User): Promise<boolean> {
+	return roleHasCapability(
+		user.role,
+		GAME_BUG_TRIAGE_CAPABILITY,
+		await getRoleOverrides(user.role),
+		await getToolOverrides(user.id),
+	);
+}
+
+/** Whether `user` may open `projectKey` (the same scope every Director project is checked by). */
+async function mayOpenProject(user: User, projectKey: string): Promise<boolean> {
+	try {
+		await requireProjectScope(user, projectKey);
+		return true;
+	} catch (e) {
+		if (isHttpError(e) && (e.status === 403 || e.status === 404)) return false;
+		throw e;
+	}
+}
+
+/**
+ * Create the draft of a game repair run for one game bug (ADR-0012 §1). Nothing is copied: the run
+ * works in the bug's own project, which is its own math-lock reference (both config ETags are the
+ * project's current one), and has no optional checkpoints. The same `requestId` makes the same run
+ * once (`runIdFor`).
+ *
+ * Refused: a bug that is not a game bug or that the caller cannot see (404, the same as a missing
+ * one, so the endpoint is no oracle); a caller without the game triage capability (403
+ * `triage_required`); a Resolved or Won't fix bug (`bug_closed`); a Director template project
+ * (`template_project`: a template is pipeline content); a project with a live run of either kind
+ * (`live_run_on_project`, also when a racing create loses to the partial unique index).
+ */
+export async function createRepairRun(user: User, input: CreateRepairInput): Promise<CreatedRun> {
+	const requestId = parseRequestId(input.requestId);
+	const number = input.bug;
+	if (typeof number !== 'number' || !Number.isSafeInteger(number) || number <= 0) {
+		throw bad('bad_bug', 'bug is the number of a game bug.');
+	}
+	const unknown = () => new RunError(404, 'unknown_bug', `There is no game bug BUG-${number}.`);
+
+	const runId = runIdFor(user.id, requestId);
+	const existing = await getRun(runId);
+	if (existing) {
+		if (existing.kind !== 'repair' || existing.bugNumber !== number) {
+			throw new RunError(409, 'request_id_reused', `${requestId} already created another run.`);
+		}
+		return { run: existing, replayed: true };
+	}
+
+	const bug = (await getBugFull(number))?.bug;
+	const projectKey = bug?.kind === 'game' ? bug.projectKey : null;
+	if (
+		!bug ||
+		projectKey === null ||
+		!roleHasTool(
+			user.role,
+			'gameBugs',
+			await getRoleOverrides(user.role),
+			await getToolOverrides(user.id),
+		) ||
+		!(await mayOpenProject(user, projectKey))
+	) {
+		throw unknown();
+	}
+	if (!(await holdsGameBugTriage(user))) {
+		throw new RunError(
+			403,
+			'triage_required',
+			'Repairing a game bug moves its status, which needs the “Triage game bugs” permission.',
+		);
+	}
+	if (bug.status === 'resolved' || bug.status === 'wontFix') {
+		throw new RunError(409, 'bug_closed', `BUG-${number} is closed. Reopen it to repair it.`);
+	}
+	if ((await listDirectorTemplateProjects()).some((p) => p.key === projectKey)) {
+		throw new RunError(
+			409,
+			'template_project',
+			`"${projectKey}" is a Director template. A template is pipeline content: its bug is fixed as a pipeline change.`,
+		);
+	}
+	// The family's pack check (`no_family_pack`) and its frozen `family` join here once 9F lands.
+	const busy = await liveRunOnProject(projectKey);
+	if (busy) {
+		throw new RunError(
+			409,
+			'live_run_on_project',
+			`"${projectKey}" already has a live Director run. Finish or stop it first.`,
+		);
+	}
+
+	const clientKey = (await projectClientKey(projectKey)) ?? null;
+	const config = await loadGameConfigDocWithEtag(clientKey ?? UNASSIGNED_CLIENT, projectKey);
+	const outcome = await insertRepairRun({
+		id: runId,
+		projectKey,
+		clientKey,
+		ownerUserId: user.id,
+		bugNumber: number,
+		configEtag: config.etag,
+	});
+	if (outcome === 'live_run') {
+		throw new RunError(
+			409,
+			'live_run_on_project',
+			`"${projectKey}" already has a live Director run. Finish or stop it first.`,
+		);
+	}
+	const run = await getRun(runId);
+	if (!run) throw new RunError(502, 'create_failed', 'The run was not stored.');
+	return { run, replayed: outcome === 'exists' };
+}
+
+/** What a repair run would cost (ADR-0012 §5) and the cap it would start with. */
+export async function estimateForRepair(): Promise<{
+	estimate: RepairEstimate;
+	budgetCapUsd: number;
+}> {
+	const pricing = (await getDirectorPricing()).pricing;
+	return {
+		estimate: estimateRepair(ESTIMATE_PROFILES, pricing),
+		budgetCapUsd: await getDirectorRepairBudget(),
+	};
 }
 
 /** Creating a game is Game Maker's to allow: the duplicate path assumes its caller holds it. */
@@ -614,6 +759,17 @@ export async function performOwnerAction(
 	const refusal = actionRefusal(state, req.action, req.checkpoint ?? state.waitingOn);
 	if (refusal) throw new RunError(409, 'not_allowed', `Refused: ${refusal}.`);
 	if (req.action === 'approve' || req.action === 'revise') req.checkpoint ??= state.waitingOn!;
+	if (run.kind === 'repair' && req.action === 'approve' && req.checkpoint === 'repair_review') {
+		// Approving moves the bug (and may file a pipeline bug): a grant revoked since the run
+		// started refuses it. A stop is never refused.
+		if (!(await holdsGameBugTriage(user)) || !(await mayOpenProject(user, run.projectKey))) {
+			throw new RunError(
+				409,
+				'triage_required',
+				'Approving a repair needs the “Triage game bugs” permission and access to the project.',
+			);
+		}
+	}
 	if (req.checkpoint === 'art_plan' && req.action === 'approve') {
 		// The worker refuses the same; asked here first so the owner hears it at the button.
 		const why = await artPlanApprovalRefusal(user, run, req.recipeRevs);
@@ -631,7 +787,10 @@ export async function performOwnerAction(
 		req.budgetCapUsd = raised;
 	}
 
-	if (req.action === 'start') {
+	if (req.action === 'start' && run.kind === 'repair') {
+		// Priced from the profiles alone (no GPU): a model with no price fails closed here.
+		await estimateForRepair();
+	} else if (req.action === 'start') {
 		const sp = run.startingPointJson as Partial<StartingPoint> | null;
 		const { estimate } = await estimateForTemplate(user, {
 			template: run.templateProjectKey,

@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { BugKind, BugStatus, LinkState } from '$lib/bugReports';
 import { getDb } from './db';
 import {
@@ -331,6 +331,89 @@ export async function escalationsFor(
 			),
 		);
 	return new Map(rows.map((r) => [r.fromBug, { toBug: r.toBug, toStatus: r.toStatus }]));
+}
+
+/** The game bugs among `numbers` whose last `repair` event says a run fixed them (ADR-0012 §4). */
+export async function fixedAwaitingPublish(numbers: number[]): Promise<Set<number>> {
+	if (!numbers.length) return new Set();
+	const rows = await getDb()
+		.selectDistinctOn([bugReportEvents.bugNumber], {
+			bugNumber: bugReportEvents.bugNumber,
+			phase: sql<string>`${bugReportEvents.data}->>'phase'`,
+		})
+		.from(bugReportEvents)
+		.where(and(inArray(bugReportEvents.bugNumber, numbers), eq(bugReportEvents.kind, 'repair')))
+		.orderBy(bugReportEvents.bugNumber, desc(bugReportEvents.id));
+	return new Set(rows.filter((r) => r.phase === 'fixed').map((r) => r.bugNumber));
+}
+
+/**
+ * A Game Maker publish ships the project's fixes: every Working on game bug of `projectKey` whose
+ * last `repair` event is `fixed` becomes Resolved, by "Game Maker publish", with the snapshot id.
+ * Idempotent: the `published` event it writes ends the "fixed" state. Returns the bugs it resolved.
+ */
+export async function resolveFixedBugs(projectKey: string, snapshotId: string): Promise<number[]> {
+	return getDb().transaction(async (tx) => {
+		const working = await tx
+			.select({ number: bugReports.number })
+			.from(bugReports)
+			.where(
+				and(
+					eq(bugReports.kind, 'game'),
+					eq(bugReports.projectKey, projectKey),
+					eq(bugReports.status, 'working'),
+				),
+			)
+			.for('update');
+		if (!working.length) return [];
+		const last = await tx
+			.selectDistinctOn([bugReportEvents.bugNumber], {
+				bugNumber: bugReportEvents.bugNumber,
+				phase: sql<string>`${bugReportEvents.data}->>'phase'`,
+			})
+			.from(bugReportEvents)
+			.where(
+				and(
+					inArray(
+						bugReportEvents.bugNumber,
+						working.map((b) => b.number),
+					),
+					eq(bugReportEvents.kind, 'repair'),
+				),
+			)
+			.orderBy(bugReportEvents.bugNumber, desc(bugReportEvents.id));
+		const fixed = last.filter((r) => r.phase === 'fixed').map((r) => r.bugNumber);
+		const now = new Date();
+		for (const number of fixed) {
+			await tx
+				.update(bugReports)
+				.set({
+					status: 'resolved',
+					statusBy: 'Game Maker publish',
+					statusAt: now,
+					statusAuto: false,
+					updatedAt: now,
+				})
+				.where(eq(bugReports.number, number));
+			await tx.insert(bugReportEvents).values([
+				{
+					bugNumber: number,
+					kind: 'status',
+					actorId: null,
+					actor: 'Game Maker publish',
+					data: { to: 'resolved', because: 'published', snapshot: snapshotId },
+				},
+				{
+					bugNumber: number,
+					kind: 'repair',
+					actorId: null,
+					actor: 'Game Maker publish',
+					data: { phase: 'published', snapshot: snapshotId },
+				},
+			]);
+		}
+		return fixed;
+	});
 }
 
 export interface ReportedBug {

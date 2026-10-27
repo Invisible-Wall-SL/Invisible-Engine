@@ -13,6 +13,7 @@ import {
 	bugAreaName,
 	bugRef,
 	bugRefsIn,
+	FIXED_WAITING_LABEL,
 	pipelineWaitLabel,
 	pipelineWaitOf,
 	type PipelineWait,
@@ -33,6 +34,7 @@ import {
 	deleteScreenshot,
 	escalationsFor,
 	existingBugNumbers,
+	fixedAwaitingPublish,
 	insertEscalation,
 	getBugFull,
 	getScreenshot,
@@ -197,6 +199,8 @@ export interface BugSummary {
 	links: BugLinkView[];
 	/** The pipeline bug this game bug was handed to, and where it stands (derived, ADR-0012 §3). */
 	escalation: { number: number; ref: string; state: PipelineWait; label: string } | null;
+	/** "Fixed, waiting on publish" while a repair run's fix has not been published (derived). */
+	repairLabel: string | null;
 	/** The viewer reported it. */
 	mine: boolean;
 }
@@ -255,6 +259,7 @@ function summaryOf(
 	screenshots: number,
 	links: BugReportLink[],
 	escalated?: { toBug: number; toStatus: BugStatus },
+	fixed = false,
 ): BugSummary {
 	return {
 		number: bug.number,
@@ -287,6 +292,7 @@ function summaryOf(
 					};
 				})()
 			: null,
+		repairLabel: fixed && bug.status === 'working' ? FIXED_WAITING_LABEL : null,
 		mine: bug.reporterId === viewerId,
 	};
 }
@@ -297,11 +303,12 @@ function detailOf(
 	access: BugAccess,
 	full: BugFull,
 	escalated?: { toBug: number; toStatus: BugStatus },
+	fixed = false,
 ): BugDetail {
 	const { bug } = full;
 	const mine = isReporter(access, bug);
 	return {
-		...summaryOf(access.user.id, bug, full.screenshots.length, full.links, escalated),
+		...summaryOf(access.user.id, bug, full.screenshots.length, full.links, escalated, fixed),
 		revision: bug.revision,
 		canEdit: mine || access.triage.has(bug.kind),
 		screenshotList: full.screenshots.map((s) => ({
@@ -331,8 +338,10 @@ export async function listBugs(
 ): Promise<BugSummary[]> {
 	const rows = await listBugRows(where);
 	const seen = rows.bugs.filter((b) => canSee(scope, b));
-	const escalated =
-		where.kind === 'game' ? await escalationsFor(seen.map((b) => b.number)) : new Map();
+	const numbers = seen.map((b) => b.number);
+	const game = where.kind === 'game';
+	const escalated = game ? await escalationsFor(numbers) : new Map();
+	const fixed = game ? await fixedAwaitingPublish(numbers) : new Set<number>();
 	return seen.map((b) =>
 		summaryOf(
 			scope.user.id,
@@ -340,6 +349,7 @@ export async function listBugs(
 			rows.screenshots.get(b.number) ?? 0,
 			rows.links.get(b.number) ?? [],
 			escalated.get(b.number),
+			fixed.has(b.number),
 		),
 	);
 }
@@ -374,7 +384,8 @@ export async function getBug(access: BugAccess, number: number): Promise<BugDeta
 	const full = await readVisible(access, number);
 	const escalated =
 		full.bug.kind === 'game' ? (await escalationsFor([number])).get(number) : undefined;
-	return detailOf(access, full, escalated);
+	const fixed = full.bug.kind === 'game' && (await fixedAwaitingPublish([number])).has(number);
+	return detailOf(access, full, escalated, fixed);
 }
 
 export function parseBugNumber(param: string): number {

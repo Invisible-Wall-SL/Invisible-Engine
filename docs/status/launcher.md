@@ -75,6 +75,24 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-10-27 — **Invisible Director: game repair runs, back end (PLAN 9G, ADR-0012, proposed)**.
+  A run `kind` (`create | repair`) in the state machine and `director_runs`; the `game-doctor`
+  agent leads a repair run and hands every write to the builder or animator; Repair review is its
+  one checkpoint. No UI yet.
+  - **Create:** `POST /api/director/runs { requestId, bug }` → `createRepairRun` (Director + game
+    triage + the project; 404 for a bug not visible or not a game bug; 409 `bug_closed`,
+    `template_project`, `live_run_on_project`, also from the partial unique index). Works in the bug's
+    own project; both config ETags are the project's current one. The family check (9F) joins there.
+  - **Money:** `DIRECTOR_REPAIR_BUDGET_USD` (default $10) with its Admin › Director card;
+    `estimateRepair()` and the `repair` profiles in `estimate-profiles.json`
+    (`POST /api/director/estimate { kind: 'repair' }`).
+  - **Owner:** approving Repair review re-checks triage and project access (409 `triage_required`);
+    a stop is never refused.
+  - **Bug status (worker, same transaction as the run):** Open → Working on at start, put back on
+    stop or a no-fix outcome unless a person changed it, left Working on by a fix. Game Maker's
+    Publish resolves the project's fixed bugs (best effort), and warns while a repair run is live
+    (409 `repair-run-live`, confirm with `confirmRepairRun: true`).
+  - **Migration `0033_director_repair_runs` is provisional:** regenerate after 9D and 9F merge.
 - 2026-10-27 — **Desktop build breakdown: what a ☁ Publish / 📦 Deliver shipped** (desktop launcher
   v1.0.59 + engine). After the 🗜 Optimize image pass, the launcher runs the engine's
   `scripts/build-breakdown.mjs` on the finished `build/` and opens a self-contained page. It shows

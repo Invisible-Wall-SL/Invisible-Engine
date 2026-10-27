@@ -65,7 +65,9 @@
  *     with no duplicate op, a premature or art-bound call is refused, `run.submit_repair` opens
  *     Repair review, approving records the outcome and ends the run, a revise returns to the fix
  *     step with the owner's note for the doctor, and an escalation cannot be approved before the
- *     launcher serves it.
+ *     launcher serves it;
+ * 30. a repair run moves its game bug: Open → Working on at start (the status it found stored),
+ *     restored on stop or a no-fix outcome unless a person changed it, left Working on by a fix.
  */
 import type {
 	BetaMessage,
@@ -1968,6 +1970,105 @@ try {
 				String(e.payload.text ?? '').includes('BUG-77'),
 			),
 			true,
+		);
+	}
+	// ── 30. A repair run moves its game bug's status ──────────────────────────
+	console.log(
+		'30. a repair run moves its bug: Working on at start, restored unless fixed or touched',
+	);
+	{
+		const statusOf = async (n: number) =>
+			(
+				await sql<{ status: string; status_by: string | null }[]>`
+					select status, status_by from bug_reports where number = ${n}`
+			)[0];
+		const repairEvents = async (n: number) =>
+			sql<{ data: Record<string, unknown> }[]>`
+				select data from bug_report_events where bug_number = ${n} and kind = 'repair' order by id`;
+		const gate = fakeLauncher();
+		const submitted = {
+			type: 'repair_submitted',
+			step: 'verify',
+			summary: 'Moved it.',
+			cause: 'x',
+			changes: 'y',
+			verified: 'not_played',
+			pipeline_area: 'none',
+			pipeline_title: '',
+		};
+
+		// Start: Open → Working on by the run, the status it found stored; a stop gives it back.
+		const bug = await newBug();
+		const runId = await newRun({ status: 'draft', cap: null, repairBug: bug });
+		await event(runId, 'owner', 'owner_request', { action: 'start' });
+		await drive(runId, deps(fakeModel([{ content: [say('Reading.')] }]).transport, gate.launcher));
+		check(
+			'start moves the bug Open → Working on, by the run, and stores what it found',
+			[
+				(await statusOf(bug)).status,
+				(await statusOf(bug)).status_by,
+				(await repairEvents(bug)).map((e) => e.data.priorStatus),
+			],
+			['working', `Director run ${runId}`, ['open']],
+		);
+		await event(runId, 'owner', 'owner_request', { action: 'stop' });
+		await drive(runId, deps(fakeModel([]).transport, gate.launcher));
+		check(
+			'stopping the run puts the status back, and records it once',
+			[
+				(await runRow(runId)).status,
+				(await statusOf(bug)).status,
+				(await repairEvents(bug)).map((e) => e.data.phase),
+			],
+			['stopped', 'open', ['started', 'ended']],
+		);
+
+		// Review → approve, by outcome.
+		const reviewed = async (outcome: string, tweak?: (n: number, id: string) => Promise<void>) => {
+			const n = await newBug();
+			const id = await newRun({ status: 'draft', cap: null, repairBug: n });
+			await event(id, 'owner', 'owner_request', { action: 'start' });
+			await drive(id, deps(fakeModel([{ content: [say('Reading.')] }]).transport, gate.launcher));
+			await sql`update director_runs set status = 'waiting', step = 'handoff', waiting_on = 'repair_review' where id = ${id}`;
+			await event(id, 'game-doctor', 'activity', { ...submitted, outcome });
+			await tweak?.(n, id);
+			await event(id, 'owner', 'checkpoint_resolved', {
+				checkpoint: 'repair_review',
+				decision: 'approve',
+			});
+			await drive(id, deps(fakeModel([]).transport, gate.launcher));
+			return { n, id };
+		};
+		const fixed = await reviewed('fixed');
+		check(
+			'approving a fix leaves the bug Working on, with a fixed event for the next publish',
+			[
+				(await statusOf(fixed.n)).status,
+				(await repairEvents(fixed.n)).map((e) => e.data.phase),
+				(await runRow(fixed.id)).repair_outcome,
+			],
+			['working', ['started', 'fixed'], 'fixed'],
+		);
+		const nobody = await reviewed('needs_person');
+		check(
+			'needs_person restores the status it found',
+			[(await statusOf(nobody.n)).status, (await runRow(nobody.id)).repair_outcome],
+			['open', 'needs_person'],
+		);
+		const touched = await reviewed('not_reproduced', async (n) => {
+			await sql`update bug_reports set status_by = 'Dana' where number = ${n}`;
+		});
+		check(
+			'…but not one a person has set meanwhile',
+			[(await statusOf(touched.n)).status, (await statusOf(touched.n)).status_by],
+			['working', 'Dana'],
+		);
+		await event(fixed.id, 'owner', 'owner_request', { action: 'stop' });
+		await drive(fixed.id, deps(fakeModel([]).transport, gate.launcher));
+		check(
+			'an ended run is recorded once: nothing more is written to its bug',
+			(await repairEvents(fixed.n)).length,
+			2,
 		);
 	}
 } finally {

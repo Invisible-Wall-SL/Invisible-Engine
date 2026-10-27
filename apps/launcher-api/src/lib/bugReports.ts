@@ -123,6 +123,9 @@ export const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 
 export const bugRef = (number: number): string => `BUG-${number}`;
 
+/** Shown on a game bug a repair run fixed, until the project's next publish resolves it. */
+export const FIXED_WAITING_LABEL = 'Fixed, waiting on publish';
+
 /**
  * Where a game bug stands on the pipeline bug it was escalated to (ADR-0012 §3): derived from that
  * bug's status, never stored, so a new status never spreads into the lists and filters.

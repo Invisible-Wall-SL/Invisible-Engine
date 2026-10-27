@@ -2316,6 +2316,24 @@
 					</label>
 					<button type="submit">Save budget</button>
 				</form>
+				<p class="muted hint">
+					A game repair run renders nothing, so it has its own, smaller cap. Default
+					<strong>${data.director.repairBudgetDefaultUsd}</strong>.
+				</p>
+				<form method="POST" action="?/setDirectorRepairBudget" use:enhance class="runpod-idle">
+					<label class="minutes">
+						Repair run budget (USD)
+						<input
+							name="budgetUsd"
+							type="number"
+							min={data.director.budgetMinUsd}
+							max={data.director.budgetMaxUsd}
+							step="0.01"
+							value={data.director.repairBudgetUsd}
+						/>
+					</label>
+					<button type="submit">Save repair budget</button>
+				</form>
 
 				<h4 class="director-sub">Abandoned mockups</h4>
 				<p class="muted hint">

@@ -127,6 +127,9 @@ const fullOf = (bug: BugReport): BugFull => ({
 	links: db.links.filter((l) => l.bugNumber === bug.number).sort((a, b) => a.prNumber - b.prNumber),
 });
 
+const lastRepairPhase = (number: number): string | undefined =>
+	db.events.filter((e) => e.bugNumber === number && e.kind === 'repair').at(-1)?.data.phase as
+		string | undefined;
 fake('lib/server/bugReportsStore.ts', {
 	listBugRows: async (where: { kind: string; projectKey?: string }) => {
 		const screenshots = new Map<number, number>();
@@ -238,6 +241,24 @@ fake('lib/server/bugReportsStore.ts', {
 			pushEvents(e.gameBug, e.actor, [{ kind: 'status', data: { to: 'working' } }]);
 		}
 		return { bug: { ...bug }, created: true };
+	},
+	// The real queries' rules (`fixedAwaitingPublish`, `resolveFixedBugs`): the LAST repair event.
+	fixedAwaitingPublish: async (numbers: number[]) =>
+		new Set(numbers.filter((n) => lastRepairPhase(n) === 'fixed')),
+	resolveFixedBugs: async (projectKey: string, snapshotId: string) => {
+		const resolved: number[] = [];
+		for (const bug of db.bugs) {
+			if (bug.kind !== 'game' || bug.projectKey !== projectKey || bug.status !== 'working')
+				continue;
+			if (lastRepairPhase(bug.number) !== 'fixed') continue;
+			Object.assign(bug, { status: 'resolved', statusBy: 'Game Maker publish' });
+			pushEvents(bug.number, { id: null, name: 'Game Maker publish' }, [
+				{ kind: 'status', data: { to: 'resolved', because: 'published', snapshot: snapshotId } },
+				{ kind: 'repair', data: { phase: 'published', snapshot: snapshotId } },
+			]);
+			resolved.push(bug.number);
+		}
+		return resolved;
 	},
 	escalationsFor: async (numbers: number[]) =>
 		new Map(
@@ -1726,6 +1747,81 @@ check('activity lines read as sentences', lines, [
 		wrongProject = String((e as { status?: number }).status);
 	}
 	check('…and only a game bug of the run’s own project (404)', wrongProject, '404');
+}
+
+// ── A repair run's fix waits for the publish (ADR-0012 §4) ────────────────────
+{
+	const store = await import(src('lib/server/bugReportsStore.ts'));
+	const run = { id: null, name: 'Director run run-fix' };
+	const working = async (title: string, project: string, phases: string[]) => {
+		const n = (await reportGame(ARTIST, { title, area: 'ui', project })).body.number as number;
+		await act(DEV, n, { action: 'status', status: 'working' });
+		for (const phase of phases) {
+			db.events.push({
+				id: db.events.length + 1,
+				bugNumber: n,
+				at: tick(),
+				kind: 'repair',
+				actorId: null,
+				actor: run.name,
+				data: { runId: 'run-fix', phase },
+			} as BugReportEvent);
+		}
+		return n;
+	};
+	const fixed = await working('Fixed one', 'cloud', ['started', 'fixed']);
+	const sameProject = await working('Fixed two', 'cloud', ['started', 'fixed']);
+	const otherProject = await working('Fixed elsewhere', 'borut', ['started', 'fixed']);
+	const notFixed = await working('Ended without a fix', 'cloud', ['started', 'ended']);
+	const unrepaired = await working('Worked on by a person', 'cloud', []);
+	const label = async (n: number) => (await read(DEV, n)).body.repairLabel;
+	check(
+		'a fix that waits on a publish says so; a run that ended without one, or no run, does not',
+		[await label(fixed), await label(notFixed), await label(unrepaired)],
+		['Fixed, waiting on publish', null, null],
+	);
+	check(
+		'…in the list as well',
+		((await gameList(DEV, 'cloud')).body.bugs as { number: number; repairLabel: string | null }[])
+			.filter((b) => b.repairLabel)
+			.map((b) => b.number)
+			.sort(),
+		[fixed, sameProject].sort(),
+	);
+	const resolved = await store.resolveFixedBugs('cloud', 'snap-1');
+	const statusOf = async (n: number) => (await read(DEV, n)).body.status;
+	check(
+		'the project’s next publish resolves exactly its fixed bugs',
+		[
+			resolved.sort(),
+			await statusOf(fixed),
+			await statusOf(sameProject),
+			await statusOf(otherProject),
+			await statusOf(notFixed),
+			await statusOf(unrepaired),
+		],
+		[[fixed, sameProject].sort(), 'resolved', 'resolved', 'working', 'working', 'working'],
+	);
+	const done = (await read(DEV, fixed)).body;
+	check(
+		'…by Game Maker publish, with the snapshot id, and the label is gone',
+		[
+			done.statusBy,
+			(done.events as { kind: string; data: Json }[]).find(
+				(e) => e.kind === 'status' && e.data.because === 'published',
+			)?.data.snapshot,
+			done.repairLabel,
+		],
+		['Game Maker publish', 'snap-1', null],
+	);
+	check(
+		'a second publish resolves nothing more (idempotent)',
+		[
+			(await store.resolveFixedBugs('cloud', 'snap-2')).length,
+			(await store.resolveFixedBugs('borut', 'snap-2')).sort(),
+		],
+		[0, [otherProject]],
+	);
 }
 
 if (failures) {
