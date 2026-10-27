@@ -1,6 +1,6 @@
 # Invisible FTP Browser — status
 
-> Guide: [docs/tools/ftp-browser.md](../tools/ftp-browser.md) · Agent: none yet (launcher tool — closest owner `.claude/agents/launcher-studio.md`)
+> Guide: [docs/tools/ftp-browser.md](../tools/ftp-browser.md) · Agent: `.claude/agents/invisible-ftp-browser.md`
 
 **One-line state:** shipped — in-launcher R2 file manager. Non-admins get the active project's `<client>/<project>/` tree; admins get the whole bucket plus a read-only Postgres view. The scoped operations and the admin view are still owed a live browser pass.
 

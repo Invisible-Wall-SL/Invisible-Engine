@@ -3783,6 +3783,25 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			listing.sort(),
 		);
 	}
+	// A tool a definition names but nothing serves makes `run.assign_task` refuse that agent on
+	// every run (the worker's catalogue accepts it, so the loader is no help). QA sat unassignable
+	// this way unnoticed (ADR-0009). The known gap is listed so it can only shrink: when an op lands,
+	// drop it here.
+	const catalogue: typeof import('../../../services/director-worker/src/tools.ts') = await import(
+		new URL('../../../services/director-worker/src/tools.ts', import.meta.url).href
+	);
+	const workerOwn: readonly string[] = catalogue.WORKER_TOOLS;
+	check(
+		'the only tools an agent definition names that nothing serves are the known gap',
+		[...tools]
+			.flatMap(([agent, ids]) =>
+				[...ids]
+					.filter((id) => !workerOwn.includes(id) && !ADAPTER_OPS.has(id))
+					.map((id) => `${agent}: ${id}`),
+			)
+			.sort(),
+		['qa: build.play_draft', 'qa: build.request_draft'],
+	);
 }
 
 // ── The catalog the worker offers tools from (GET /api/director/adapter) ──────

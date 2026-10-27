@@ -15,6 +15,8 @@ You keep `docs/director/` honest and current. You only edit markdown under `docs
   says the owner approved it.
 - The ADR index (README) and ADR statuses as the owner decides them.
 - `OPEN_QUESTIONS.md`: move answered questions to its "Answered" section with the answer and date.
+- After a Director merge, fold the PR's `## Lesson` block into `docs/knowledge/lessons/<area>.md`
+  (format and budget: `docs/knowledge/README.md`).
 
 ## You must not
 - Change code, agent definitions, mockups or `KICKOFF_PROMPT.md`.
