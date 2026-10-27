@@ -149,6 +149,7 @@
 			| 'addOns'
 			| 'canPublishShared'
 			| 'flowVariables'
+			| 'cueLists'
 		> & {
 			gameType: string;
 			mainSizesMap: PageData['doc']['mainSizesMap'];
@@ -1158,6 +1159,7 @@
 				id: string;
 				name: string;
 				signals: string[];
+				events: string[];
 				others: { id: string; name: string; nodes: LayoutNode[] }[];
 		  }
 		| undefined
@@ -1177,6 +1179,7 @@
 			id: draftId,
 			name: componentDraft.name,
 			signals: componentTimelineSignals(componentDraft),
+			events: (componentDraft.events ?? []).map((e) => e.id),
 			others: components
 				.filter((c) => c.id !== draftId)
 				.map((c) => ({ id: c.id, name: c.name, nodes: c.root.children })),
@@ -3258,6 +3261,7 @@
 							openRequest={timelineOpenRequest}
 							{rigMeta}
 							componentParams={resolvedParams}
+							cueLists={data.cueLists}
 						/>
 					</div>
 					<div class="animate-pane" class:hidden={animateTab !== 'stateMachine'}>
