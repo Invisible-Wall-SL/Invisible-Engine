@@ -75,6 +75,41 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-10-27 — **Invisible Director: Sound, FX and Component Editor art adapters** (PLAN card 9H,
+  ADR-0011, branch `claude/director-9h-sound-fx-components`, PR #1413, in review). A run can now
+  re-theme a template's audio, its effect art and colours, and the art inside its components.
+  Inert for a person and for every current game: only a Director run reaches any of it.
+  - **Ops** (`director/ops/{sound,fx,components}.ts`, one read and one write each, every write
+    through the tool's own storage with `baseEtag`, a 409 answered `conflict`):
+    - `sound.get_doc` / `sound.set_cues` (builder): binds only the moments `/sound` offers
+      (`$lib/soundMoments.ts`, shared with the page) to built-ins or **approved** library sounds.
+      It refuses a draft, a silenced slot and the wrong music/sfx kind. A first save carries the
+      legacy bindings over (`soundLegacy.ts` `resolveSoundBindings`, now shared with
+      `soundExport.ts`). `loadSoundsDocWithEtag` gains `corrupt`, so an unreadable doc is refused,
+      not wiped. The answer carries `before`, since the doc has no backups.
+    - `fx.get_effect` / `fx.update_art` (animator): only a layer's `art.assetKey` (a project atlas,
+      `fxAtlases.ts`, shared with `/fx`), frames, weights and the values of its existing
+      `color` / `colorStatic` stops change. It refuses rig particles, a param-driven colour, and
+      an effect placed on a math-locked node, including one inside a component.
+    - `components.get_def` / `components.update_art` (builder): sprite, rig and flipbook refs
+      inside a def. A shared or built-in def becomes the project's copy (same id and version).
+      Instances pinned to a version that differs only in art are re-pinned in the layout
+      (`saveDoc`, `layoutBaseEtag`, `saved_by`); the rest are listed `notReached`. A def any
+      math-locked instance holds is refused.
+  - **Gate:** `ADAPTER_TOOL_IDS` maps `sound → sound`, `fx → fx` and `components → editor`, so
+    `not_for_family` applies. Only the `components` tool may also write
+    `editor/<slug>/components/`. The math lock moved verbatim from `ops/scene.ts` to
+    `ops/mathLock.ts`.
+  - **Attribution:** the sounds, FX and component docs carry no `saved_by` (owner decision 3 in
+    ADR-0011). The `director_ops` row and the activity line record the change; the layout re-pin
+    is stamped.
+  - **Agents:** the builder has 13 tools (19 optional, 0 unions) and the animator 9 (17, 0); only
+    their `tools:` frontmatter changed. The live run labels the chips Sound, FX and Component
+    Editor.
+  - **Tests:** `check:director-adapters` 609 (443 before), `check:director-live` 109,
+    `check:director-runs` 471, `check:director-mockups` 153, `check:pipeline-changes` 7843,
+    `check:family-tools` 177. The worker's `eval:agent` passes the builder and animator with
+    "nothing to compare": neither has a reference set yet.
 - 2026-10-27 — **Invisible Director: adapter image answers reach the model as images** (ADR-0012
   (proposed, #1414) card 9G.0, pipeline change). Ops flagged `image: true` in the catalog
   (`atlas.get_variant_image`, `mockups.get_crop`) answer
@@ -105,7 +140,8 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     `director_run_family`, backfilled from the run's own project, then the template, else slot,
     with `familyOfKind`'s map). Create refuses a template whose family has no ready pack (409
     `no_family_pack`) before anything is written; the worker pauses such a run with the same error
-    before any model call; the scene adapter reads the run's family for its math-word list.
+    before any model call; the math lock the scene, FX and component adapters share
+    (`ops/mathLock.ts`) reads the run's family for its math-word list.
   - **Ready:** slot only (`READY_FAMILY_PACKS`). Match-3 and arcade packs are drafts, refused until
     their adapters (the board, Invisible Characters) exist and the owner turns them on. Their
     locked-item and scene-lock lists are not built yet: a non-slot template shows one "Game Config,

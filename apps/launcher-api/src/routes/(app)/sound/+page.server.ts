@@ -1,22 +1,14 @@
 import { error, redirect } from '@sveltejs/kit';
 import { MUSIC_NAMES, SOUND_EFFECT_NAMES } from 'engine-flow-v2';
-import {
-	SOUND_SLOTS,
-	resolveCascade,
-	resolveReelBehaviour,
-	symbolUses,
-	symbolsInPlay,
-	symbolsUsed,
-	type GameConfigDoc,
-} from 'game-config';
+import { SOUND_SLOTS, symbolUses, symbolsInPlay, symbolsUsed } from 'game-config';
 import {
 	SYMBOL_STATE_LABELS,
 	TOKEN_SOUND_LABELS,
 	TOKEN_SOUND_MOMENTS,
 	effectiveSoundBindings,
-	type SymbolStateName,
 } from 'engine-layout';
 import { roleHasTool } from '$lib/roles';
+import { symbolCueStates } from '$lib/soundMoments';
 import { flowSoundBindings } from '$lib/soundUsage';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
@@ -42,23 +34,6 @@ import type { PageServerLoad } from './$types';
  * Granted by default to `audio` — the role this tool exists for, and which until now had no audio
  * tool at all — plus `developer`, `artist` and `pipelineTester`.
  */
-/**
- * The per-symbol cue states this project can actually hear, derived from its config.
- *
- * A function rather than an expression inline in the payload because it answers a question with
- * three inputs and one hard-won correction in it (see the field's doc): the state a beat plays and
- * the switch that turns that beat on are not the same fact, and `clearReel` shipped gated on
- * the wrong one.
- */
-const symbolCueStates = (config: GameConfigDoc | undefined): readonly SymbolStateName[] => {
-	const behaviour = resolveReelBehaviour(config);
-	return [
-		'land' as const,
-		...(behaviour.swapInPlace && behaviour.swapStyle === 'emerge' ? (['intro'] as const) : []),
-		...(resolveCascade(config) || behaviour.clearBoard ? (['clearReel'] as const) : []),
-	];
-};
-
 export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => {
 	if (!locals.user) throw redirect(303, '/login');
 	const { tools } = await parent();

@@ -112,6 +112,8 @@ const TILE = await sharp({
 let etagSeq = 0;
 let copies = 0;
 const byteReads: string[] = [];
+/** A key whose next reads throw, as a transient R2 error would. */
+let failReadOf: string | null = null;
 const etag = () => `"e${++etagSeq}"`;
 const keysUnder = (prefix: string) => [...R2.keys()].filter((k) => k.startsWith(prefix)).sort();
 
@@ -139,6 +141,7 @@ fake('lib/server/r2.ts', {
 		R2.has(key) ? { etag: R2.get(key)!.etag, size: R2.get(key)!.body.length } : null,
 	getObjectText: async (key: string) => R2.get(key)?.body ?? null,
 	getObjectTextWithEtag: async (key: string) => {
+		if (key === failReadOf) throw new Error('R2 is down');
 		const o = R2.get(key);
 		return o ? { text: o.body, etag: o.etag } : null;
 	},
@@ -868,6 +871,88 @@ check(
 	).status,
 	403,
 );
+// Component defs sit under `editor/<slug>/components/`, outside the project's own tree: the
+// components tool may write its own project's, and nothing else may.
+{
+	const COMPONENT_WRITE_OP = defineOp<{ key: string }, { ran: true }>({
+		tool: 'components',
+		name: 'write_doc',
+		description: 'A test-only write op that declares a key.',
+		inputSchema: {
+			type: 'object',
+			properties: { key: { type: 'string' } },
+			required: ['key'],
+			additionalProperties: false,
+		},
+		agents: ['builder'],
+		scope: 'project',
+		write: true,
+		writes: (input) => [input.key],
+		handler: async () => {
+			handlerRuns++;
+			return { ran: true };
+		},
+	});
+	const registry = buildRegistry([...GAMEMAKER_OPS, WRITE_OP, COMPONENT_WRITE_OP]);
+	const via = (tool: string, key: string) =>
+		runAdapterCall(
+			{
+				tool,
+				op: 'write_doc',
+				authorization: `Bearer ${TOKEN}`,
+				body: { runId: 'rw', agent: 'builder', opId: `rw:comp:${++seq}`, input: { key } },
+			},
+			registry,
+			TOKEN,
+		);
+	const ran = handlerRuns;
+	const answer = async (tool: string, key: string) => {
+		const res = await via(tool, key);
+		return [
+			res.status,
+			(res.body as { error?: string; refusal?: string }).refusal ??
+				(res.body as { error?: string }).error,
+		];
+	};
+	check(
+		"the components tool may write its project's component prefix and def",
+		[
+			await answer('components', 'editor/plain/components/'),
+			await answer('components', 'editor/plain/components/button.v3.json'),
+		],
+		[
+			[200, undefined],
+			[200, undefined],
+		],
+	);
+	check(
+		"...but not another project's, the shared library or the project's other editor docs",
+		[
+			await answer('components', 'editor/draft/components/button.json'),
+			await answer('components', '_shared/editor-components/button.json'),
+			await answer('components', 'editor/plain/component-defaults/button.json'),
+			await answer('components', 'editor/plain/'),
+		],
+		[
+			[403, 'out_of_scope'],
+			[403, 'library'],
+			[403, 'out_of_scope'],
+			[403, 'game_config'],
+		],
+	);
+	check(
+		'another tool declaring a component key is still out of scope',
+		[
+			await answer('scene', 'editor/plain/components/button.json'),
+			await answer('scene', 'editor/plain/components/'),
+		],
+		[
+			[403, 'out_of_scope'],
+			[403, 'out_of_scope'],
+		],
+	);
+	check('...and only the two allowed writes reached a handler', handlerRuns - ran, 2);
+}
 check(
 	'refusedWriteTarget allows an ordinary doc',
 	refusedWriteTarget(`${prefix('plain')}symbols/symbols.json`),
@@ -3391,13 +3476,13 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	);
 	R2.set(SCENE, sceneBefore!);
 
-	// 9F: the scene lock reads the RUN's family; a family with no list refuses before reading.
+	// 9F: the math lock reads the RUN's family; a family with no list refuses before reading.
 	{
 		const before = [...R2].map(([k, o]) => `${k}:${o.etag}`);
-		const asMatch3 = (name: string, input: unknown, write = false) =>
+		const asMatch3 = (name: string, input: unknown, write = false, agent = 'builder') =>
 			call(name.split('.')[0], name.split('.')[1], {
 				runId: 'rm3',
-				agent: 'builder',
+				agent,
 				...(write ? { opId: `rm3:t26:${++toolSeq}` } : {}),
 				input,
 			});
@@ -3411,6 +3496,19 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			'scene ops on a match-3 run: no_family_pack, whatever the project is',
 			[read.status, read.body.error, write.status, write.body.error],
 			[409, 'no_family_pack', 409, 'no_family_pack'],
+		);
+		const fxRead = await asMatch3('fx.get_effect', {}, false, 'animator');
+		const fxWrite = await asMatch3(
+			'fx.update_art',
+			{ id: 'sparks', layers: [], baseEtag: 'new' },
+			true,
+			'animator',
+		);
+		const defRead = await asMatch3('components.get_def', {});
+		check(
+			'the FX and component ops share the lock: no_family_pack on a match-3 run',
+			[fxRead.body.error, fxWrite.body.error, defRead.body.error],
+			['no_family_pack', 'no_family_pack', 'no_family_pack'],
 		);
 		check(
 			'...and nothing was written',
@@ -3923,6 +4021,1694 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		(await saveClip(R2.get(CLIP)!.etag, { frames: [] })).body.error,
 		'invalid_input',
 	);
+	// ── 9H.1 Sound and FX (ADR-0011 §1, §2) ───────────────────────────────────
+	{
+		const { MUSIC_NAMES, SOUND_EFFECT_NAMES } = await import('engine-flow-v2');
+		const { SOUND_SLOTS } = await import('game-config');
+		const { saveEffect } = await import(src('lib/server/fxStorage.ts'));
+		const { FAMILY_TOOLS, TOOLS, familyUsesTool } = await import(src('lib/roles.ts'));
+		const { ADAPTER_TOOL_IDS } = await import(src('lib/server/director/adapter.ts'));
+		const [sfxA, sfxB, sfxC] = SOUND_EFFECT_NAMES as readonly string[];
+		type Item = { path?: string; layer?: string; reason: string };
+		const world = () => JSON.stringify([...R2.entries()]);
+		const refusals = (a: Answer) => (a.body.refused ?? []) as Item[];
+		const reasonFor = (a: Answer, key: string) =>
+			refusals(a).find((r) => (r.path ?? r.layer) === key)?.reason ?? '';
+
+		// Every op: token, project scope, agent allow-list, family gate.
+		PROJECTS.set('foreign', project('foreign', { clientKey: 'other' }));
+		PROJECTS.set('arc', project('arc', { gameType: 'arcade' }));
+		RUNS.set('rforeign', run('rforeign', { projectKey: 'foreign', ownerUserId: 'dev' }));
+		RUNS.set('rarc', run('rarc', { projectKey: 'arc' }));
+		const ninth: [string, string, string, string, object][] = [
+			['sound', 'get_doc', 'builder', 'animator', {}],
+			['sound', 'set_cues', 'builder', 'animator', { cues: [], baseEtag: 'new' }],
+			['fx', 'get_effect', 'animator', 'builder', {}],
+			['fx', 'update_art', 'animator', 'builder', { id: 'sparks', layers: [], baseEtag: 'new' }],
+		];
+		const asRun = (
+			runId: string,
+			[t, o, agent, , input]: (typeof ninth)[number],
+			over: { agent?: string; headers?: Record<string, string> } = {},
+		) =>
+			call(
+				t,
+				o,
+				{ runId, agent: over.agent ?? agent, opId: `${runId}:nine:1`, input },
+				over.headers,
+			);
+		for (const spec of ninth) {
+			const id = `${spec[0]}.${spec[1]}`;
+			check(
+				`${id}: a wrong token is a 401`,
+				(await asRun('rt', spec, { headers: { authorization: 'Bearer nope' } })).status,
+				401,
+			);
+			const foreign = await asRun('rforeign', spec);
+			check(
+				`${id}: a project the owner cannot reach is a 403`,
+				[foreign.status, foreign.body.error],
+				[403, 'out_of_scope'],
+			);
+			check(
+				`${id}: another agent is refused`,
+				(await asRun('rt', spec, { agent: spec[3] })).body.error,
+				'agent_not_allowed',
+			);
+			check(
+				`${id}: the agent that holds the other tool is not let in either`,
+				(await asRun('rt', spec, { agent: 'qa' })).status,
+				403,
+			);
+			check(
+				`${id}: acts as a launcher tool a family can hide`,
+				[TOOLS[ADAPTER_TOOL_IDS[spec[0]]]?.id, ADAPTER_TOOL_IDS[spec[0]]],
+				[spec[0], spec[0]],
+			);
+		}
+		// FAMILY_TOOLS hides neither tool from any family today, so the gate has nothing to refuse; it
+		// does the moment a family drops one.
+		check(
+			'no family hides Sound or FX today',
+			(['slot', 'match3', 'arcade'] as const).map((f) => [
+				familyUsesTool(f, 'sound'),
+				familyUsesTool(f, 'fx'),
+			]),
+			[
+				[true, true],
+				[true, true],
+				[true, true],
+			],
+		);
+		(FAMILY_TOOLS.arcade as string[]).push('sound', 'fx');
+		try {
+			for (const spec of ninth) {
+				const hidden = await asRun('rarc', spec);
+				check(
+					`${spec[0]}.${spec[1]}: an arcade project whose family drops the tool is not_for_family`,
+					[hidden.status, hidden.body.error],
+					[403, 'not_for_family'],
+				);
+			}
+		} finally {
+			(FAMILY_TOOLS.arcade as string[]).length -= 2;
+		}
+
+		// ── Sound ──
+		const SOUNDS = paths.soundsDocKey(C, 'tools');
+		const baseMusic = SOUND_SLOTS.find((s: { id: string }) => s.id === 'baseMusic')!;
+		check(
+			'the baseMusic default is a built-in music name',
+			MUSIC_NAMES.includes(baseMusic.defaults[0]),
+			true,
+		);
+		R2.set(paths.gameConfigDocKey(C, 'tools'), {
+			body: JSON.stringify({
+				...CONFIG('tools'),
+				sounds: {
+					tumbleExplosion: { names: [sfxA, sfxB] },
+					reelStop: { volume: 0.5 },
+					wildExplode: { enabled: false },
+				},
+				winLevels: [
+					{ alias: 'big', name: 'Big', threshold: 15, type: 'big', sound: { sfx: sfxB } },
+				],
+			}),
+			etag: etag(),
+		});
+		seedDoc(SYM, {
+			...stored(SYM),
+			symbolSounds: { H1: { land: sfxC } },
+			anticipation: { activationSound: sfxA },
+		});
+		const entry = (name: string, kind: string, status: string) => ({
+			id: `id_${name}`,
+			name,
+			kind,
+			file: `${name}.mp3`,
+			durationMs: 1000,
+			status,
+			origin: 'library',
+		});
+		const library = [
+			entry('chime', 'sfx', 'approved'),
+			entry('drafty', 'sfx', 'draft'),
+			entry('theme', 'music', 'approved'),
+		];
+		seedDoc(SOUNDS, { version: 1, entries: library });
+		const doc0 = await tool('sound.get_doc', 'builder', {});
+		check('sound.get_doc answers', doc0.status, 200);
+		check(
+			'...the library with each name, kind and status',
+			(doc0.body.library as { name: string; kind: string; status: string }[]).map((e) => [
+				e.name,
+				e.kind,
+				e.status,
+			]),
+			[
+				['chime', 'sfx', 'approved'],
+				['drafty', 'sfx', 'draft'],
+				['theme', 'music', 'approved'],
+			],
+		);
+		const offered = (doc0.body.moments as { path: string; kind: string }[]).map((m) => m.path);
+		check(
+			'...the moments Sound offers: slots, symbols x states, anticipation, win tiers, and no more',
+			[
+				offered.includes('slots.baseMusic'),
+				offered.includes('symbols.H1.land'),
+				offered.includes('symbols.H1.clearReel'),
+				offered.includes('anticipation.loop'),
+				offered.includes('winTiers.big.bgm'),
+				offered.includes('symbols.ZZ.land'),
+				offered.filter((p) => p.startsWith('slots.')).length,
+			],
+			[true, true, true, true, true, false, SOUND_SLOTS.length],
+		);
+		check(
+			'...the effective choices, from the legacy homes while the doc has none',
+			[doc0.body.migrated, (doc0.body.bindings as { symbols: unknown }).symbols],
+			[false, { H1: { land: sfxC } }],
+		);
+		check(
+			'...the names a cue may take, the project first',
+			[
+				(doc0.body.builtin as { sfx: string[] }).sfx.slice(0, 3),
+				(doc0.body.builtin as { music: string[] }).music.includes('theme'),
+			],
+			[['chime', 'drafty', sfxA], true],
+		);
+		check(
+			'...and a silenced slot is marked',
+			(doc0.body.moments as { path: string; silenced?: true }[]).filter((m) => m.silenced),
+			[
+				{
+					path: 'slots.wildExplode',
+					kind: 'single',
+					music: false,
+					defaults: SOUND_SLOTS.find((s: { id: string }) => s.id === 'wildExplode')!.defaults,
+					silenced: true,
+				},
+			],
+		);
+		check('sound.get_doc hands out the stored ETag', doc0.body.baseEtag, R2.get(SOUNDS)!.etag);
+
+		const setCues = (baseEtag: string, cues: object[]) =>
+			tool('sound.set_cues', 'builder', { cues, baseEtag }, true);
+		const cue = (path: string, ...names: string[]) => ({ path, names });
+		await staleIsConflict(
+			'sound.set_cues',
+			SOUNDS,
+			(b) => setCues(b, [cue('slots.symbolLand', 'chime')]),
+			String(doc0.body.baseEtag),
+		);
+		const entriesBefore = stored(SOUNDS).entries;
+		const first = await setCues(R2.get(SOUNDS)!.etag, [
+			cue('slots.reelStop', 'chime'),
+			cue('winTiers.big.bgm', 'theme'),
+			cue('symbols.H2.land', 'drafty'),
+			cue('symbols.ZZ.land', 'chime'),
+			cue('slots.baseMusic', 'chime'),
+			cue('slots.freeSpinMusic', 'theme', 'theme'),
+			cue('slots.wildExplode', sfxA),
+			cue('anticipation.loop', 'no_such_sound'),
+			cue('slots.tumbleExplosion'),
+			cue('winTiers.big.sfx', 'theme'),
+			cue('slots.reelStop', sfxA),
+		]);
+		check('sound.set_cues lands', first.status, 200);
+		check(
+			'...applying the approved library sounds, in order',
+			(first.body.applied as { path: string }[]).map((a) => a.path),
+			['slots.reelStop', 'winTiers.big.bgm'],
+		);
+		check(
+			'...refusing and listing each of the others',
+			refusals(first).map((r) => r.path),
+			[
+				'symbols.H2.land',
+				'symbols.ZZ.land',
+				'slots.baseMusic',
+				'slots.freeSpinMusic',
+				'slots.wildExplode',
+				'anticipation.loop',
+				'slots.tumbleExplosion',
+				'winTiers.big.sfx',
+				'slots.reelStop',
+			],
+		);
+		check('...a draft sound', reasonFor(first, 'symbols.H2.land').includes('draft'), true);
+		check(
+			'...a moment Sound does not offer',
+			reasonFor(first, 'symbols.ZZ.land').includes('not a moment'),
+			true,
+		);
+		check(
+			'...a sound effect where music is wanted',
+			reasonFor(first, 'slots.baseMusic').includes('takes music'),
+			true,
+		);
+		check(
+			'...the wrong number of names on a single slot',
+			reasonFor(first, 'slots.freeSpinMusic').includes('exactly 1'),
+			true,
+		);
+		check(
+			'...a slot a person silenced',
+			reasonFor(first, 'slots.wildExplode').includes('silenced'),
+			true,
+		);
+		check(
+			'...a name in neither the library nor the built-ins',
+			reasonFor(first, 'anticipation.loop').includes('neither'),
+			true,
+		);
+		check(
+			'...no names on a ladder',
+			reasonFor(first, 'slots.tumbleExplosion').includes('1 to 16'),
+			true,
+		);
+		check(
+			'...music where a sound effect is wanted',
+			reasonFor(first, 'winTiers.big.sfx').includes('takes a sound effect'),
+			true,
+		);
+		check('...a path listed twice', reasonFor(first, 'slots.reelStop').includes('twice'), true);
+		const s1 = stored(SOUNDS);
+		check(
+			'the first save materialises the legacy choices beside the new ones',
+			[s1.bindings, first.body.migrated],
+			[
+				{
+					slots: {
+						tumbleExplosion: { names: [sfxA, sfxB] },
+						reelStop: { names: ['chime'], volume: 0.5 },
+						wildExplode: { enabled: false },
+					},
+					symbols: { H1: { land: sfxC } },
+					anticipation: { activation: sfxA },
+					winTiers: { big: { sfx: sfxB, bgm: 'theme' } },
+				},
+				true,
+			],
+		);
+		check('...the library is untouched', s1.entries, entriesBefore);
+		check('...and `before` holds the old value at each changed path', first.body.before, [
+			{ path: 'slots.reelStop', names: null },
+			{ path: 'winTiers.big.bgm', names: null },
+		]);
+		const SOUNDS_FILES = keysUnder(`${P}/sounds/`);
+		check('...writing only the sounds doc', SOUNDS_FILES, [SOUNDS]);
+
+		const replayInput = {
+			cues: [cue('slots.symbolLand', 'chime')],
+			baseEtag: String(first.body.baseEtag),
+		};
+		const body = (opId: string) => ({ runId: 'rt', agent: 'builder', opId, input: replayInput });
+		const once = await call('sound', 'set_cues', body('rt:nine:50'));
+		const afterOnce = R2.get(SOUNDS)!;
+		const twice = await call('sound', 'set_cues', body('rt:nine:50'));
+		check(
+			'a replayed opId returns the same result and writes once',
+			[once.status, twice.status, twice.replay, twice.body, R2.get(SOUNDS)],
+			[200, 200, true, once.body, afterOnce],
+		);
+		check(
+			'...the second save kept the first save (migrated now false)',
+			[
+				once.body.migrated,
+				stored(SOUNDS).bindings.slots.reelStop,
+				stored(SOUNDS).bindings.slots.symbolLand,
+			],
+			[false, { names: ['chime'], volume: 0.5 }, { names: ['chime'] }],
+		);
+
+		const unchangedSave = R2.get(SOUNDS)!;
+		const same = await setCues(unchangedSave.etag, [cue('slots.symbolLand', 'chime')]);
+		check(
+			'a cue already set that way is unchanged and writes nothing',
+			[same.status, same.body.unchanged, same.body.applied, R2.get(SOUNDS)],
+			[200, ['slots.symbolLand'], [], unchangedSave],
+		);
+		const toDefault = await setCues(unchangedSave.etag, [
+			cue('slots.baseMusic', 'theme'),
+			cue('slots.reelStop', 'chime', sfxA),
+		]);
+		check('a ladder takes several names', stored(SOUNDS).bindings.slots.reelStop, {
+			names: ['chime', sfxA],
+			volume: 0.5,
+		});
+		const back = await setCues(String(toDefault.body.baseEtag), [
+			cue('slots.baseMusic', baseMusic.defaults[0]),
+		]);
+		check(
+			'names equal to the catalogue defaults are stored as no names',
+			[back.status, stored(SOUNDS).bindings.slots.baseMusic],
+			[200, undefined],
+		);
+
+		const corruptBody = '{"entries": [';
+		R2.set(SOUNDS, { body: corruptBody, etag: etag() });
+		const corruptBefore = R2.get(SOUNDS)!;
+		const corruptGet = await tool('sound.get_doc', 'builder', {});
+		const corruptSet = await setCues(corruptBefore.etag, [cue('slots.symbolLand', 'chime')]);
+		check(
+			'a corrupt sounds doc is unreadable, and nothing is written over it',
+			[corruptGet.body.error, corruptSet.status, corruptSet.body.error, R2.get(SOUNDS)],
+			['unreadable_doc', 409, 'unreadable_doc', corruptBefore],
+		);
+		check(
+			'...while the page loader still reads it as an empty library with its ETag',
+			await (await import(src('lib/server/soundsStorage.ts'))).loadSoundsDocWithEtag(C, 'tools'),
+			{ doc: { version: 1, entries: [] }, etag: corruptBefore.etag, existed: true, corrupt: true },
+		);
+		// The legacy docs are the only copy of the choices until the first write: one that cannot be
+		// read refuses the write rather than saving a block without them.
+		seedDoc(SOUNDS, { version: 1, entries: library });
+		const legacyConfig = R2.get(paths.gameConfigDocKey(C, 'tools'))!;
+		const legacySymbols = R2.get(SYM)!;
+		const legacyCase = async (label: string, break_: () => void, mend: () => void) => {
+			break_();
+			const worldBefore = world();
+			const read = await tool('sound.get_doc', 'builder', {});
+			const write = await tool(
+				'sound.set_cues',
+				'builder',
+				{ cues: [cue('slots.symbolLand', 'chime')], baseEtag: R2.get(SOUNDS)!.etag },
+				true,
+			);
+			check(
+				`${label}: sound.set_cues and sound.get_doc answer 409 unreadable_doc`,
+				[write.status, write.body.error, read.status, read.body.error],
+				[409, 'unreadable_doc', 409, 'unreadable_doc'],
+			);
+			check(`${label}: ...and nothing is written`, world(), worldBefore);
+			mend();
+		};
+		const SYMBOLS_KEY = SYM;
+		const CONFIG_KEY = paths.gameConfigDocKey(C, 'tools');
+		await legacyCase(
+			'a corrupt symbols doc',
+			() => R2.set(SYMBOLS_KEY, { body: '{"symbols": ', etag: etag() }),
+			() => R2.set(SYMBOLS_KEY, legacySymbols),
+		);
+		await legacyCase(
+			'a corrupt config doc',
+			() => R2.set(CONFIG_KEY, { body: '{"paddingReels": ', etag: etag() }),
+			() => R2.set(CONFIG_KEY, legacyConfig),
+		);
+		await legacyCase(
+			'a config read that throws',
+			() => (failReadOf = CONFIG_KEY),
+			() => (failReadOf = null),
+		);
+		await legacyCase(
+			'a symbols read that throws',
+			() => (failReadOf = SYMBOLS_KEY),
+			() => (failReadOf = null),
+		);
+		check(
+			'...and with the legacy docs readable again the same call lands',
+			(
+				await tool(
+					'sound.set_cues',
+					'builder',
+					{ cues: [cue('slots.symbolLand', 'chime')], baseEtag: R2.get(SOUNDS)!.etag },
+					true,
+				)
+			).status,
+			200,
+		);
+		check('...carrying the legacy symbol choice over', stored(SOUNDS).bindings.symbols, {
+			H1: { land: sfxC },
+		});
+
+		// Config keys are data: an alias with a dot lands under that alias, and a prototype name is
+		// never offered.
+		const tier = (alias: string, threshold: number) => ({
+			alias,
+			name: alias,
+			threshold,
+			type: 'big',
+		});
+		R2.set(CONFIG_KEY, {
+			body: JSON.stringify({
+				...CONFIG('tools'),
+				winLevels: [tier('big', 15), tier('big.win', 25), tier('__proto__', 35)],
+			}),
+			etag: etag(),
+		});
+		const moments = await tool('sound.get_doc', 'builder', {});
+		check(
+			'a win tier alias that names a prototype is not offered as a moment',
+			(moments.body.moments as { path: string }[])
+				.map((m) => m.path)
+				.filter((p) => p.startsWith('winTiers.')),
+			['winTiers.big.sfx', 'winTiers.big.bgm', 'winTiers.big.win.sfx', 'winTiers.big.win.bgm'],
+		);
+		const protoBefore = Object.getOwnPropertyNames(Object.prototype).sort();
+		const alias = await tool(
+			'sound.set_cues',
+			'builder',
+			{
+				cues: [
+					cue('winTiers.big.win.sfx', 'chime'),
+					cue('winTiers.__proto__.sfx', 'chime'),
+					cue('winTiers.constructor.sfx', 'chime'),
+				],
+				baseEtag: R2.get(SOUNDS)!.etag,
+			},
+			true,
+		);
+		check(
+			'a cue under an alias with a dot lands under that alias, and the prototype names are refused',
+			[
+				(alias.body.applied as { path: string }[]).map((a) => a.path),
+				refusals(alias).map((r) => r.path),
+				stored(SOUNDS).bindings.winTiers['big.win'],
+				stored(SOUNDS).bindings.winTiers.big,
+				Object.hasOwn(stored(SOUNDS).bindings.winTiers, '__proto__'),
+			],
+			[
+				['winTiers.big.win.sfx'],
+				['winTiers.__proto__.sfx', 'winTiers.constructor.sfx'],
+				{ sfx: 'chime' },
+				{ sfx: sfxB },
+				false,
+			],
+		);
+		check(
+			'...and Object.prototype is untouched',
+			[Object.getOwnPropertyNames(Object.prototype).sort(), ({} as { sfx?: string }).sfx],
+			[protoBefore, undefined],
+		);
+		R2.set(CONFIG_KEY, legacyConfig);
+
+		R2.delete(SOUNDS);
+
+		// ── FX ──
+		const ATLAS = `${P}/manifests/atlas_manifest_fx.json`;
+		const ATLAS2 = `${P}/manifests/atlas_manifest_embers.json`;
+		for (const [key, regions, page] of [
+			[ATLAS, ['spark', 'smoke', 'glow'], 'fx'],
+			[ATLAS2, ['ember', 'ash', 'cinder'], 'embers'],
+		] as const) {
+			seedDoc(key, {
+				atlas: { source_image: `${page}.png`, width: 64, height: 64 },
+				regions: regions.map((name, i) => ({ name, x: i * 8, y: 0, w: 8, h: 8 })),
+			});
+			R2.set(`${P}/atlas/${page}.png`, { body: 'PNG', etag: etag() });
+		}
+		const behavior = (type: string, config: object) => ({ type, config });
+		const stops = (a: string, b: string) => ({
+			color: {
+				list: [
+					{ time: 0, value: a },
+					{ time: 1, value: b },
+				],
+			},
+		});
+		const layer = (key: string, art: object, behaviors: object[], over: object = {}) => ({
+			key,
+			particleKind: 'sprite',
+			art,
+			placement: { space: 'free', offset: { x: 1, y: 2 } },
+			trigger: { on: 'event', eventType: 'win' },
+			config: { lifetime: { min: 0.5, max: 1 }, frequency: 0.1, maxParticles: 50, behaviors },
+			...over,
+		});
+		const effect = {
+			version: 1,
+			id: 'sparks',
+			name: 'Sparks',
+			layers: [
+				layer('main', { assetKey: ATLAS, frames: ['spark', 'smoke'], weights: [70, 30] }, [
+					behavior('alpha', { alpha: { start: 1, end: 0 } }),
+					behavior('color', stops('#ffffff', '#ff0000')),
+					behavior('colorStatic', { color: '#00ff00' }),
+					behavior('color', stops('#111111', '#222222')),
+				]),
+				layer('ring', { assetKey: ATLAS, frames: ['glow'] }, [
+					behavior('color', stops('#ff0000', '#112233')),
+				]),
+				layer('rig', { assetKey: '', frames: [] }, [], {
+					particleKind: 'spine',
+					spineParticle: { skeletonKey: 'hero', animation: 'idle' },
+				}),
+			],
+			params: [
+				{
+					id: 'tint',
+					kind: 'color',
+					default: '#ff0000',
+					drives: [{ id: 'd1', layer: 'ring', path: 'behavior:color.color.list.0.value' }],
+				},
+			],
+		};
+		const camera = { camera: { x: 3, y: 4, scale: 2 }, selectedLayer: 'main' };
+		await saveEffect(C, 'tools', effect, camera, null);
+		const FX = paths.fxDocKey(C, 'tools', 'sparks');
+		const FXMETA = paths.fxMetaKey(C, 'tools', 'sparks');
+		const list = await tool('fx.get_effect', 'animator', {});
+		check(
+			'fx.get_effect lists the effects and the project atlases a layer may draw from',
+			[
+				list.body.effects,
+				(list.body.atlases as { manifestKey: string; label: string; regions: string[] }[]).map(
+					(a) => [a.manifestKey, a.label, a.regions],
+				),
+			],
+			[
+				[{ id: 'sparks', name: 'Sparks' }],
+				[
+					[ATLAS2, 'embers', ['ember', 'ash', 'cinder']],
+					[ATLAS, 'fx', ['spark', 'smoke', 'glow']],
+				],
+			],
+		);
+		const got = await tool('fx.get_effect', 'animator', { id: 'sparks' });
+		const layers = got.body.layers as {
+			key: string;
+			particleKind: string;
+			art: object;
+			colors: { behavior: number; type: string; values: string[]; driven: boolean }[];
+			driven: string[];
+		}[];
+		check(
+			"fx.get_effect reads each layer's art and colour behaviours",
+			layers.map((l) => [
+				l.key,
+				l.particleKind,
+				l.colors.map((c) => [c.behavior, c.type, c.values, c.driven]),
+			]),
+			[
+				[
+					'main',
+					'sprite',
+					[
+						[1, 'color', ['#ffffff', '#ff0000'], false],
+						[2, 'colorStatic', ['#00ff00'], false],
+						[3, 'color', ['#111111', '#222222'], false],
+					],
+				],
+				['ring', 'sprite', [[0, 'color', ['#ff0000', '#112233'], true]]],
+				['rig', 'spine', []],
+			],
+		);
+		check(
+			'...the art with its weights, and the leaves a parameter drives',
+			[layers[0].art, layers[1].driven],
+			[
+				{ assetKey: ATLAS, frames: ['spark', 'smoke'], weights: [70, 30], animated: false },
+				['behavior:color.color.list.0.value'],
+			],
+		);
+		check(
+			'...and whether the effect is locked, with its ETag',
+			[got.body.locked, got.body.baseEtag],
+			[null, R2.get(FX)!.etag],
+		);
+
+		const update = (baseEtag: string, changes: object[], id = 'sparks') =>
+			tool('fx.update_art', 'animator', { id, layers: changes, baseEtag }, true);
+		const art = (layerKey: string, assetKey: string, frames: string[], more: object = {}) => ({
+			layer: layerKey,
+			assetKey,
+			frames,
+			...more,
+		});
+		await staleIsConflict(
+			'fx.update_art',
+			FX,
+			(b) => update(b, [art('main', ATLAS2, ['ember', 'ash'])]),
+			String(got.body.baseEtag),
+		);
+		const docBefore = stored(FX);
+		const metaBefore = R2.get(FXMETA)!;
+		const fxFiles = keysUnder(`${P}/`).filter((k) => k.includes('.fx.'));
+		const ok = await update(R2.get(FX)!.etag, [
+			art('main', ATLAS2, ['ember', 'ash'], {
+				colors: [
+					{ behavior: 1, values: ['#FFD700', '#ff8800'] },
+					{ behavior: 2, values: ['#00AAFF'] },
+				],
+			}),
+			art('rig', ATLAS, ['spark']),
+			art('ghost', ATLAS, ['spark']),
+		]);
+		check('fx.update_art lands', ok.status, 200);
+		check(
+			'...applying the layer and listing the rig layer and the layer that is not there',
+			[
+				ok.body.applied,
+				refusals(ok).map((r) => r.layer),
+				reasonFor(ok, 'rig').includes('Rigger'),
+				reasonFor(ok, 'ghost').includes('no such layer'),
+			],
+			[[{ layer: 'main' }], ['rig', 'ghost'], true, true],
+		);
+		const expected = structuredClone(docBefore);
+		expected.layers[0].art.assetKey = ATLAS2;
+		expected.layers[0].art.frames = ['ember', 'ash'];
+		expected.layers[0].config.behaviors[1].config.color.list[0].value = '#ffd700';
+		expected.layers[0].config.behaviors[1].config.color.list[1].value = '#ff8800';
+		expected.layers[0].config.behaviors[2].config.color = '#00aaff';
+		check(
+			'...and everything else in the effect is deep-equal: emitter, other behaviours, placement, trigger, params, layer order, name, id, weights',
+			stored(FX),
+			expected,
+		);
+		check(
+			"...the editor's sidecar (a person's camera) survives",
+			R2.get(FXMETA)?.body,
+			metaBefore.body,
+		);
+		check('...and `before` holds the old art and colours', ok.body.before, [
+			{
+				layer: 'main',
+				assetKey: ATLAS,
+				frames: ['spark', 'smoke'],
+				weights: [70, 30],
+				colors: [
+					{ behavior: 1, values: ['#ffffff', '#ff0000'] },
+					{ behavior: 2, values: ['#00ff00'] },
+				],
+			},
+		]);
+		check(
+			'...writing the effect and its sidecar and no other file',
+			keysUnder(`${P}/`).filter((k) => k.includes('.fx.')),
+			fxFiles,
+		);
+
+		const replayFx = {
+			runId: 'rt',
+			agent: 'animator',
+			opId: 'rt:nine:60',
+			input: {
+				id: 'sparks',
+				layers: [art('ring', ATLAS, ['glow', 'smoke'])],
+				baseEtag: String(ok.body.baseEtag),
+			},
+		};
+		const fxOnce = await call('fx', 'update_art', replayFx);
+		const fxAfter = R2.get(FX)!;
+		const fxTwice = await call('fx', 'update_art', replayFx);
+		check(
+			'a replayed opId returns the same result and writes once',
+			[fxOnce.status, fxTwice.replay, fxTwice.body, R2.get(FX)],
+			[200, true, fxOnce.body, fxAfter],
+		);
+		check(
+			'...a layer may change its frame count when it has no weights',
+			stored(FX).layers[1].art.frames,
+			['glow', 'smoke'],
+		);
+
+		/** One refused layer: the answer lists it with a reason and the doc is not written. */
+		async function refusesLayer(label: string, change: object, reason: RegExp, id = 'sparks') {
+			const before = R2.get(paths.fxDocKey(C, 'tools', id))!;
+			const baseEtag = before.etag;
+			const answer = await update(baseEtag, [change], id);
+			const listed = refusals(answer)[0];
+			check(
+				`fx.update_art refuses ${label}`,
+				[
+					answer.status,
+					answer.body.applied,
+					reason.test(listed?.reason ?? ''),
+					R2.get(paths.fxDocKey(C, 'tools', id)),
+				],
+				[200, [], true, before],
+			);
+		}
+		const unchangedFx = R2.get(FX)!;
+		const noChange = await update(unchangedFx.etag, [art('ring', ATLAS, ['glow', 'smoke'])]);
+		check(
+			'an effect layer already set that way is unchanged and writes nothing',
+			[noChange.status, noChange.body.unchanged, noChange.body.applied, R2.get(FX)],
+			[200, ['ring'], [], unchangedFx],
+		);
+		await refusesLayer('a rig-particle layer', art('rig', ATLAS, ['spark']), /Rigger/);
+		await refusesLayer(
+			'a colour an effect parameter drives',
+			art('ring', ATLAS, ['glow', 'smoke'], {
+				colors: [{ behavior: 0, values: ['#000000', '#ffffff'] }],
+			}),
+			/driven by an effect parameter/,
+		);
+		await refusesLayer(
+			'a colour behaviour with the wrong number of stops',
+			art('main', ATLAS2, ['ember', 'ash'], { colors: [{ behavior: 1, values: ['#ffffff'] }] }),
+			/exactly that many/,
+		);
+		await refusesLayer(
+			'colours for a behaviour that is not a colour',
+			art('main', ATLAS2, ['ember', 'ash'], { colors: [{ behavior: 0, values: ['#ffffff'] }] }),
+			/not a colour behaviour/,
+		);
+		await refusesLayer(
+			'a frame-count change on a layer with weights, without new weights',
+			art('main', ATLAS2, ['ember', 'ash', 'cinder']),
+			/send one new weight per frame/,
+		);
+		await refusesLayer(
+			'weights of the wrong length',
+			art('main', ATLAS2, ['ember', 'ash', 'cinder'], { weights: [1, 2] }),
+			/one weight per frame/,
+		);
+		await refusesLayer(
+			'a weight that is not above 0',
+			art('main', ATLAS2, ['ember', 'ash', 'cinder'], { weights: [1, 0, 2] }),
+			/above 0/,
+		);
+		await refusesLayer(
+			'an atlas the project does not have',
+			art('main', `${P}/manifests/atlas_manifest_nope.json`, ['spark']),
+			/not one of the project's atlases/,
+		);
+		await refusesLayer(
+			'an atlas of another project',
+			art('main', 'other/foreign/manifests/atlas_manifest_fx.json', ['spark']),
+			/not one of the project's atlases/,
+		);
+		await refusesLayer(
+			'a frame that is not a region of the atlas',
+			art('main', ATLAS2, ['ember', 'spark']),
+			/not regions of embers: spark/,
+		);
+		await refusesLayer('a layer with no frames', art('main', ATLAS2, []), /1 to 64 frames/);
+		check(
+			'fx.update_art takes no emitter field, placement, trigger or layer list',
+			(await update('new', [{ ...art('main', ATLAS, ['spark']), config: {} }])).body.error,
+			'invalid_input',
+		);
+
+		const withWeights = await update(R2.get(FX)!.etag, [
+			art('main', ATLAS2, ['ember', 'ash', 'cinder'], { weights: [1, 2, 3] }),
+		]);
+		const expected2 = structuredClone(stored(FX));
+		check(
+			'a frame-count change with one new weight per frame lands',
+			[withWeights.status, stored(FX).layers[0].art],
+			[200, { assetKey: ATLAS2, frames: ['ember', 'ash', 'cinder'], weights: [1, 2, 3] }],
+		);
+		check(
+			'...changing only the art',
+			[stored(FX).layers.length, stored(FX).params],
+			[3, expected2.params],
+		);
+
+		check(
+			'fx.update_art refuses an id the project would store differently',
+			[(await update('new', [], 'Sparks')).status, (await update('new', [], 'Sparks')).body.error],
+			[400, 'invalid_input'],
+		);
+		check(
+			'...and an effect that does not exist',
+			(await update('new', [], 'nothere')).body.error,
+			'unknown_effect',
+		);
+		check(
+			'fx.get_effect on an effect that does not exist is a 404',
+			(await tool('fx.get_effect', 'animator', { id: 'nothere' })).status,
+			404,
+		);
+
+		for (const [id, body] of [
+			['broken', '{"layers": ['],
+			['bare', '{"id":"bare","name":"Bare","layers":[]}'],
+		]) {
+			const key = paths.fxDocKey(C, 'tools', id);
+			R2.set(key, { body, etag: etag() });
+			const unreadable = R2.get(key)!;
+			const read = await tool('fx.get_effect', 'animator', { id });
+			const written = await update(unreadable.etag, [art('main', ATLAS, ['spark'])], id);
+			check(
+				`a ${id === 'broken' ? 'corrupt' : 'layerless'} effect is unreadable, and nothing is written over it`,
+				[read.body.error, written.status, written.body.error, R2.get(key)],
+				['unreadable_doc', 409, 'unreadable_doc', unreadable],
+			);
+		}
+
+		// Placement: an effect placed by a node the math (or an editor lock) holds.
+		const plain = { id: 'x', kind: 'effect', x: 0, y: 0 };
+		const placed = (id: string, effectId: string, over: object = {}) => ({
+			...plain,
+			id,
+			effectId,
+			...over,
+		});
+		for (const id of ['bet_fx', 'pinned_fx', 'nested_fx']) {
+			await saveEffect(C, 'tools', { ...effect, id, name: id }, camera, null);
+		}
+		seedDoc(SCENE, {
+			version: 2,
+			projectKey: 'tools',
+			mainSizesMap: { desktop: { width: 1920, height: 1080 } },
+			updatedAt: '',
+			scenes: [
+				{ id: 'base', name: 'Base', role: 'basegame', nodes: [placed('fxs', 'sparks')] },
+				{ id: 'betMenu', name: 'Bet', nodes: [placed('fxb', 'bet_fx')] },
+				{
+					id: 'extra',
+					name: 'Extra',
+					nodes: [
+						placed('fxp', 'pinned_fx', { locked: true }),
+						{
+							id: 'box',
+							kind: 'container',
+							x: 0,
+							y: 0,
+							children: [placed('fxn', 'nested_fx', { pressAction: 'increase' })],
+						},
+					],
+				},
+			],
+		});
+		const placedOk = await tool('fx.get_effect', 'animator', { id: 'sparks' });
+		check('an effect placed by an unlocked node is not locked', placedOk.body.locked, null);
+		for (const [id, why] of [
+			['bet_fx', /betMenu.*bound to the math/],
+			['pinned_fx', /locked in the Scene Editor/],
+			['nested_fx', /bound to the math/],
+		] as const) {
+			const key = paths.fxDocKey(C, 'tools', id);
+			const before = R2.get(key)!;
+			const read = await tool('fx.get_effect', 'animator', { id });
+			const write = await update(before.etag, [art('main', ATLAS2, ['ember', 'ash'])], id);
+			check(
+				`fx.update_art refuses ${id}, placed by a node that is locked`,
+				[
+					why.test(String(read.body.locked)),
+					write.status,
+					write.body.error,
+					why.test(String(write.body.message)),
+					R2.get(key),
+				],
+				[true, 403, 'locked', true, before],
+			);
+		}
+	}
+	// ── 9H.2 Component Editor art (ADR-0011 §3) ───────────────────────────────
+	{
+		const { saveComponent } = await import(src('lib/server/componentStorage.ts'));
+		const { FAMILY_TOOLS } = await import(src('lib/roles.ts'));
+		const { ADAPTER_TOOL_IDS } = await import(src('lib/server/director/adapter.ts'));
+		PROJECTS.set('comp', project('comp'));
+		RUNS.set('rc', run('rc', { projectKey: 'comp' }));
+		const CP = 'acme/comp';
+		const LAYOUT = paths.editorDocKey(C, 'comp');
+		let compSeq = 0;
+		const ct = (name: string, agent: string, input: unknown, write = false) => {
+			const [t, o] = name.split('.');
+			return call(t, o, {
+				runId: 'rc',
+				agent,
+				...(write ? { opId: `rc:c9:${++compSeq}` } : {}),
+				input,
+			});
+		};
+		const world = () => JSON.stringify([...R2.entries()]);
+		type Item = { node?: string; reason: string };
+		const refusals = (a: Answer) => (a.body.refused ?? []) as Item[];
+
+		// Both ops: token, scope, agent allow-list, family gate.
+		const specs: [string, string, object][] = [
+			['components', 'get_def', {}],
+			[
+				'components',
+				'update_art',
+				{ id: 'frame', changes: [], baseEtag: 'new', layoutBaseEtag: 'new' },
+			],
+		];
+		for (const [t, o, input] of specs) {
+			const id = `${t}.${o}`;
+			const envelope = (runId: string, agent: string) => ({
+				runId,
+				agent,
+				opId: `${runId}:c9:1`,
+				input,
+			});
+			check(
+				`${id}: a wrong token is a 401`,
+				(await call(t, o, envelope('rc', 'builder'), { authorization: 'Bearer nope' })).status,
+				401,
+			);
+			check(
+				`${id}: a project the owner cannot reach is a 403`,
+				(await call(t, o, envelope('rforeign', 'builder'))).body.error,
+				'out_of_scope',
+			);
+			check(
+				`${id}: another agent is refused`,
+				[
+					(await call(t, o, envelope('rc', 'animator'))).body.error,
+					(await call(t, o, envelope('rc', 'qa'))).status,
+				],
+				['agent_not_allowed', 403],
+			);
+		}
+		check('components acts as the editor tool', ADAPTER_TOOL_IDS.components, 'editor');
+		(FAMILY_TOOLS.arcade as string[]).push('editor');
+		try {
+			for (const [t, o, input] of specs) {
+				const hidden = await call(t, o, {
+					runId: 'rarc',
+					agent: 'builder',
+					opId: 'rarc:c9:1',
+					input,
+				});
+				check(
+					`${t}.${o}: a project whose family drops the editor is not_for_family`,
+					[hidden.status, hidden.body.error],
+					[403, 'not_for_family'],
+				);
+			}
+		} finally {
+			(FAMILY_TOOLS.arcade as string[]).length -= 1;
+		}
+
+		// ── Seed: defs and a layout ──
+		const sprite = (id: string, over: object = {}) => ({
+			id,
+			kind: 'sprite',
+			x: 0,
+			y: 0,
+			assetKey: 'old::a',
+			...over,
+		});
+		const defOf = (id: string, children: object[], over: object = {}) => ({
+			id,
+			name: id,
+			version: 1,
+			scope: 'project',
+			category: 'ui',
+			root: { id: 'root', kind: 'container', x: 0, y: 0, children },
+			...over,
+		});
+		const frameChildren = (text: string, iconRegion: string) => [
+			sprite('icon', { region: iconRegion }),
+			{ id: 'rig', kind: 'spine', x: 0, y: 0, assetKey: 'rigs/old/', skin: 'default' },
+			{ id: 'fb', kind: 'flipbook', x: 0, y: 0, clipId: 'c1' },
+			sprite('bound', { region: 'r_bound', paramBindings: { region: 'frame' } }),
+			{ id: 't', kind: 'text', x: 0, y: 0, text },
+		];
+		const frameParams = [{ key: 'frame', kind: 'string' }];
+		const saveFrame = (text: string, iconRegion: string) =>
+			saveComponent(
+				defOf('frame', frameChildren(text, iconRegion), { params: frameParams }),
+				'comp',
+				undefined,
+			);
+		// v1 first, v2 changes the text, v3 only the icon's art: so v2 is an art-only step behind v3 and v1 is not.
+		check('the seeded frame def is at version 1', (await saveFrame('hello', 'r_old')).version, 1);
+		check('...2 once its text changes', (await saveFrame('hello2', 'r_old')).version, 2);
+		check('...3 once only its art changes', (await saveFrame('hello2', 'r_v3')).version, 3);
+		await saveComponent(defOf('plus_btn', [sprite('face')]), 'comp', undefined);
+		await saveComponent(defOf('bet_panel', [sprite('face')]), 'comp', undefined);
+		await saveComponent(defOf('inner', [sprite('spark')]), 'comp', undefined);
+		await saveComponent(
+			defOf('outer', [{ id: 'in1', kind: 'componentInstance', x: 0, y: 0, componentId: 'inner' }]),
+			'comp',
+			undefined,
+		);
+		const SHARED = paths.editorComponentKey('shared_badge');
+		seedDoc(
+			SHARED,
+			defOf('shared_badge', [sprite('logo', { region: 'l_old' })], { scope: 'shared' }),
+		);
+		const sharedBefore = R2.get(SHARED)!;
+		const inst = (id: string, componentId: string, over: object = {}) => ({
+			id,
+			kind: 'componentInstance',
+			x: 0,
+			y: 0,
+			componentId,
+			...over,
+		});
+		const layoutDoc = (extra: object = {}) => ({
+			version: 2,
+			projectKey: 'comp',
+			mainSizesMap: { desktop: { width: 1920, height: 1080 } },
+			updatedAt: '',
+			scenes: [
+				{
+					id: 'base',
+					name: 'Base',
+					role: 'basegame',
+					nodes: [
+						inst('f_latest', 'frame'),
+						inst('f_pin3', 'frame', { componentVersion: 3 }),
+						inst('f_pin2', 'frame', { componentVersion: 2 }),
+						inst('f_pin1', 'frame', { componentVersion: 1 }),
+						inst('badge', 'shared_badge'),
+						inst('badge1', 'shared_badge', { componentVersion: 1 }),
+						inst('plus', 'plus_btn', { params: { action: 'increase' } }),
+					],
+				},
+				{
+					id: 'betMenu',
+					name: 'Bet',
+					nodes: [inst('panel', 'bet_panel'), inst('wrap', 'outer')],
+				},
+			],
+			...extra,
+		});
+		seedDoc(LAYOUT, layoutDoc());
+
+		// ── get_def ──
+		const list = await ct('components.get_def', 'builder', {});
+		check(
+			'components.get_def lists the defs the screens reach, with scope, version, instances and locks',
+			(
+				list.body.defs as {
+					id: string;
+					scope: string;
+					version: number;
+					instances: unknown[];
+					locked: string | null;
+				}[]
+			).map((d) => [d.id, d.scope, d.version, d.instances.length, d.locked !== null]),
+			[
+				['bet_panel', 'project', 1, 1, true],
+				['frame', 'project', 3, 4, false],
+				['inner', 'project', 1, 0, true],
+				['outer', 'project', 1, 1, true],
+				['plus_btn', 'project', 1, 1, true],
+				['shared_badge', 'shared', 1, 2, false],
+			],
+		);
+		check(
+			'...a def held by a locked instance names it, also through a nested def',
+			[
+				(list.body.defs as { id: string; locked: string }[])
+					.find((d) => d.id === 'inner')!
+					.locked.includes('"wrap" on "betMenu"'),
+				(list.body.defs as { id: string; locked: string }[])
+					.find((d) => d.id === 'plus_btn')!
+					.locked.includes('increase'),
+			],
+			[true, true],
+		);
+		const got = await ct('components.get_def', 'builder', { id: 'frame' });
+		const rows = got.body.nodes as { id: string; kind: string; paramBound: string[] }[];
+		check(
+			'components.get_def reads the re-skinnable nodes and which art a param supplies',
+			rows.map((r) => [r.id, r.kind, r.paramBound]),
+			[
+				['icon', 'sprite', []],
+				['rig', 'spine', []],
+				['fb', 'flipbook', []],
+				['bound', 'sprite', ['region']],
+			],
+		);
+		check(
+			'...each pin and whether a write reaches it',
+			(got.body.pins as { node: string; pin: number | null; reached: boolean }[]).map((p) => [
+				p.node,
+				p.pin,
+				p.reached,
+			]),
+			[
+				['f_latest', null, true],
+				['f_pin3', 3, true],
+				['f_pin2', 2, true],
+				['f_pin1', 1, false],
+			],
+		);
+		const FRAME = paths.projectComponentKey('comp', 'frame');
+		check(
+			'...with the stored tokens of the def and the layout',
+			[
+				got.body.baseEtag,
+				got.body.layoutBaseEtag,
+				got.body.locked,
+				got.body.version,
+				got.body.scope,
+			],
+			[R2.get(FRAME)!.etag, R2.get(LAYOUT)!.etag, null, 3, 'project'],
+		);
+		const sharedGot = await ct('components.get_def', 'builder', { id: 'shared_badge' });
+		check(
+			'a shared def reads as shared, with baseEtag new',
+			[sharedGot.body.scope, sharedGot.body.baseEtag],
+			['shared', 'new'],
+		);
+
+		const update = (changes: object[], over: object = {}, id = 'frame') =>
+			ct(
+				'components.update_art',
+				'builder',
+				{
+					id,
+					changes,
+					baseEtag: R2.get(FRAME)!.etag,
+					layoutBaseEtag: R2.get(LAYOUT)!.etag,
+					...over,
+				},
+				true,
+			);
+
+		// Refusals: nothing is written.
+		const refusedWorld = world();
+		const refusedCall = await update([
+			{ node: 't', assetKey: 'x::y' },
+			{ node: 'bound', region: 'r_new' },
+			{ node: 'ghost', assetKey: 'x::y' },
+			{ node: 'icon', clipId: 'c9' },
+			{ node: 'fb' },
+			{ node: 'fb' },
+		]);
+		check(
+			'components.update_art lists everything it refuses, and with nothing applied writes nothing',
+			[
+				refusedCall.status,
+				refusedCall.body.applied,
+				refusals(refusedCall).map((r) => r.node),
+				world(),
+			],
+			[200, [], ['t', 'bound', 'ghost', 'icon', 'fb', 'fb'], refusedWorld],
+		);
+		check(
+			'...a node of a kind with no art field',
+			refusals(refusedCall)[0].reason,
+			'a text node has no assetKey to re-skin',
+		);
+		check(
+			'...a field a param supplies',
+			refusals(refusedCall)[1].reason.includes('bound to the param "frame"'),
+			true,
+		);
+		check(
+			'...a node that is not there',
+			refusals(refusedCall)[2].reason.includes('cannot be added'),
+			true,
+		);
+		check(
+			'...a field the kind lacks',
+			refusals(refusedCall)[3].reason,
+			'a sprite node has no clipId to re-skin',
+		);
+		check(
+			'...a change that re-skins nothing, and a node listed twice',
+			[refusals(refusedCall)[4].reason, refusals(refusedCall)[5].reason],
+			['the change re-skins nothing', 'it is listed twice'],
+		);
+		for (const extra of [{ x: 5 }, { children: [] }, { visible: false }, { text: 'hi' }]) {
+			const res = await update([{ node: 'icon', assetKey: 'new::a', ...extra }]);
+			check(
+				`a structure field (${Object.keys(extra)[0]}) is not in the schema: a 400`,
+				[res.status, res.body.error, world()],
+				[400, 'invalid_input', refusedWorld],
+			);
+		}
+		check(
+			'a def or a layout token must be sent',
+			(
+				await ct(
+					'components.update_art',
+					'builder',
+					{ id: 'frame', changes: [], baseEtag: 'new' },
+					true,
+				)
+			).body.error,
+			'invalid_input',
+		);
+		check(
+			'an unknown component is a 404',
+			(await update([{ node: 'icon', assetKey: 'new::a' }], {}, 'nothere')).body.error,
+			'unknown_component',
+		);
+
+		// Locks: the whole def.
+		for (const [id, why] of [
+			['plus_btn', /increase/],
+			['bet_panel', /betMenu/],
+			['inner', /"wrap" on "betMenu"/],
+			['outer', /betMenu/],
+		] as const) {
+			const key = paths.projectComponentKey('comp', id);
+			const locked = await ct(
+				'components.update_art',
+				'builder',
+				{
+					id,
+					changes: [
+						{
+							node: id === 'outer' ? 'in1' : id === 'inner' ? 'spark' : 'face',
+							assetKey: 'new::a',
+						},
+					],
+					baseEtag: R2.get(key)!.etag,
+					layoutBaseEtag: R2.get(LAYOUT)!.etag,
+				},
+				true,
+			);
+			check(
+				`components.update_art refuses ${id}, held by a locked instance`,
+				[locked.status, locked.body.error, why.test(String(locked.body.message)), world()],
+				[403, 'locked', true, refusedWorld],
+			);
+		}
+
+		// Stale tokens write nothing.
+		const staleDef = String(R2.get(FRAME)!.etag);
+		const change = [{ node: 'icon', assetKey: 'new::a', region: 'r_new' }];
+		await staleIsConflict(
+			'components.update_art (def)',
+			FRAME,
+			(b) => update(change, { baseEtag: b }),
+			staleDef,
+		);
+		const worldAfterStaleDef = world();
+		const staleLayout = String(R2.get(LAYOUT)!.etag);
+		personSaves(LAYOUT);
+		const layoutStale = world();
+		const staleLayoutAnswer = await update(change, { layoutBaseEtag: staleLayout });
+		check(
+			'a stale layoutBaseEtag is a conflict, and the def is not saved either',
+			[staleLayoutAnswer.status, staleLayoutAnswer.body.error, world()],
+			[409, 'conflict', layoutStale],
+		);
+		void worldAfterStaleDef;
+
+		// The write: the three art fields on three kinds, the rest deep-equal.
+		const before = stored(FRAME);
+		const snapshotsBefore = keysUnder(paths.projectComponentsPrefix('comp')).filter((k) =>
+			k.includes('.v'),
+		);
+		const layoutBefore = stored(LAYOUT);
+		const input = {
+			id: 'frame',
+			changes: [
+				{ node: 'icon', assetKey: 'new::a', region: 'r_new' },
+				{ node: 'rig', assetKey: 'rigs/new/', skin: 'gold' },
+				{ node: 'fb', clipId: 'c2' },
+				{ node: 'bound', assetKey: 'new::a' },
+				{ node: 't', assetKey: 'nope' },
+			],
+			baseEtag: R2.get(FRAME)!.etag,
+			layoutBaseEtag: R2.get(LAYOUT)!.etag,
+		};
+		const envelope = { runId: 'rc', agent: 'builder', opId: 'rc:c9:900', input };
+		const ok = await call('components', 'update_art', envelope);
+		check('components.update_art lands', ok.status, 200);
+		check(
+			'...applying the three nodes and refusing the param-bound field of the fourth and the text node',
+			[ok.body.applied, refusals(ok).map((r) => r.node)],
+			[[{ node: 'icon' }, { node: 'rig' }, { node: 'fb' }, { node: 'bound' }], ['t']],
+		);
+		check(
+			'...the def at the next version, which is a new snapshot beside the kept ones',
+			[
+				ok.body.version,
+				stored(FRAME).version,
+				keysUnder(paths.projectComponentsPrefix('comp')).filter((k) => k.includes('.v')).length -
+					snapshotsBefore.length,
+				R2.has(paths.projectComponentVersionKey('comp', 'frame', 4)),
+			],
+			[4, 4, 1, true],
+		);
+		const expected = structuredClone(before);
+		expected.version = 4;
+		const byId = (id: string) => expected.root.children.find((n: { id: string }) => n.id === id);
+		Object.assign(byId('icon'), { assetKey: 'new::a', region: 'r_new' });
+		Object.assign(byId('rig'), { assetKey: 'rigs/new/', skin: 'gold' });
+		Object.assign(byId('fb'), { clipId: 'c2' });
+		Object.assign(byId('bound'), { assetKey: 'new::a' });
+		check(
+			'...and nothing outside those art fields changed: the def is deep-equal to the stored one but for them and the version',
+			stored(FRAME),
+			expected,
+		);
+		check('...`before` holds the old art of each changed node', ok.body.before, [
+			{ node: 'icon', assetKey: 'old::a', region: 'r_v3' },
+			{ node: 'rig', assetKey: 'rigs/old/', skin: 'default' },
+			{ node: 'fb', clipId: 'c1' },
+			{ node: 'bound', assetKey: 'old::a' },
+		]);
+		check(
+			'...the pinned instances that differ in art only are re-pinned; the one that differs in structure is listed',
+			[ok.body.repinned, ok.body.notReached],
+			[
+				[
+					{ screen: 'base', node: 'f_pin3', from: 3, to: 4 },
+					{ screen: 'base', node: 'f_pin2', from: 2, to: 4 },
+				],
+				[
+					{
+						screen: 'base',
+						node: 'f_pin1',
+						pin: 1,
+						reason: 'version 1 also differs in more than art; a person updates this instance',
+					},
+				],
+			],
+		);
+		const nodes = (doc: { scenes: { nodes: { id: string; componentVersion?: number }[] }[] }) =>
+			doc.scenes.flatMap((sc) => sc.nodes).map((n) => [n.id, n.componentVersion ?? null]);
+		const repinnedLayout = structuredClone(layoutBefore);
+		repinnedLayout.scenes[0].nodes[1].componentVersion = 4;
+		repinnedLayout.scenes[0].nodes[2].componentVersion = 4;
+		check(
+			'...and the layout is otherwise as the person left it',
+			[nodes(stored(LAYOUT)), stored(LAYOUT).scenes.map((sc: { nodes: unknown[] }) => sc.nodes)],
+			[nodes(repinnedLayout), repinnedLayout.scenes.map((sc: { nodes: unknown[] }) => sc.nodes)],
+		);
+		check(
+			'...saved with the Director stamp and a backup of the layout before it',
+			[
+				stored(LAYOUT).saved_by?.tool,
+				stored(LAYOUT).saved_by?.agent,
+				keysUnder(`${CP}/editor/backups/`).length +
+					keysUnder(paths.editorDocBackupTarget(C, 'comp').prefix).length >
+					0,
+			],
+			['director', 'builder', true],
+		);
+		check(
+			'...with fresh tokens handed back',
+			[ok.body.baseEtag, ok.body.layoutBaseEtag],
+			[R2.get(FRAME)!.etag, R2.get(LAYOUT)!.etag],
+		);
+
+		const afterOk = world();
+		const replayed = await call('components', 'update_art', envelope);
+		check(
+			'a replayed opId returns the same result and writes once',
+			[replayed.replay, replayed.body, world()],
+			[true, ok.body, afterOk],
+		);
+
+		// Retry after the layout write was lost: the def is saved, the pins are not.
+		const lostLayout = structuredClone(stored(LAYOUT));
+		lostLayout.scenes[0].nodes[1].componentVersion = 3;
+		lostLayout.scenes[0].nodes[2].componentVersion = 2;
+		seedDoc(LAYOUT, lostLayout);
+		const defBytes = R2.get(FRAME)!;
+		const snapshots = keysUnder(paths.projectComponentsPrefix('comp')).map((k) => [k, R2.get(k)]);
+		const retry = await ct(
+			'components.update_art',
+			'builder',
+			{ ...input, baseEtag: R2.get(FRAME)!.etag, layoutBaseEtag: R2.get(LAYOUT)!.etag },
+			true,
+		);
+		check(
+			'resending the same changes after a lost layout write does not bump the def again',
+			[
+				retry.status,
+				retry.body.applied,
+				retry.body.unchanged,
+				retry.body.version,
+				R2.get(FRAME),
+				keysUnder(paths.projectComponentsPrefix('comp')).map((k) => [k, R2.get(k)]),
+			],
+			[200, [], ['icon', 'rig', 'fb', 'bound'], 4, defBytes, snapshots],
+		);
+		check(
+			'...and runs the re-pin',
+			[retry.body.repinned, nodes(stored(LAYOUT)).slice(1, 3)],
+			[
+				[
+					{ screen: 'base', node: 'f_pin3', from: 3, to: 4 },
+					{ screen: 'base', node: 'f_pin2', from: 2, to: 4 },
+				],
+				[
+					['f_pin3', 4],
+					['f_pin2', 4],
+				],
+			],
+		);
+		const idle = world();
+		const nothing = await ct(
+			'components.update_art',
+			'builder',
+			{ ...input, baseEtag: R2.get(FRAME)!.etag, layoutBaseEtag: R2.get(LAYOUT)!.etag },
+			true,
+		);
+		check(
+			'...and once nothing is left to re-pin, a repeat writes nothing',
+			[nothing.status, nothing.body.repinned, world()],
+			[200, [], idle],
+		);
+
+		// A shared def becomes the project's copy.
+		const SHARED_COPY = paths.projectComponentKey('comp', 'shared_badge');
+		check('the project has no copy of the shared badge yet', R2.has(SHARED_COPY), false);
+		const badge = (over: object = {}) =>
+			ct(
+				'components.update_art',
+				'builder',
+				{
+					id: 'shared_badge',
+					changes: [{ node: 'logo', assetKey: 'badge::new', region: 'l_new' }],
+					baseEtag: 'new',
+					layoutBaseEtag: R2.get(LAYOUT)!.etag,
+					...over,
+				},
+				true,
+			);
+		const copied = await badge();
+		check(
+			'a shared def is saved as the project copy, same id and version',
+			[
+				copied.status,
+				copied.body.scope,
+				copied.body.version,
+				stored(SHARED_COPY).scope,
+				stored(SHARED_COPY).version,
+			],
+			[200, 'project', 1, 'project', 1],
+		);
+		check(
+			'...with the new art, and nothing else of the shared def changed',
+			stored(SHARED_COPY).root.children,
+			[{ id: 'logo', kind: 'sprite', x: 0, y: 0, assetKey: 'badge::new', region: 'l_new' }],
+		);
+		check('...leaving the shared library untouched', R2.get(SHARED), sharedBefore);
+		check(
+			'...and the instance pinned at that version follows the copy without a re-pin',
+			[
+				copied.body.repinned,
+				copied.body.notReached,
+				nodes(stored(LAYOUT)).filter(([id]) => id === 'badge1'),
+			],
+			[[], [], [['badge1', 1]]],
+		);
+		check(
+			'...a second copy with baseEtag new is a conflict now that the project has one',
+			(await badge({ changes: [{ node: 'logo', region: 'l_newer' }] })).body.error,
+			'conflict',
+		);
+		check('...and the shared library is still untouched', R2.get(SHARED), sharedBefore);
+
+		// A foreign rig is the component store's own 400.
+		await saveComponent(
+			defOf('rigged', [
+				{ id: 'hero', kind: 'spine', x: 0, y: 0, assetKey: `${CP}/spines/Hero/`, skin: 'default' },
+			]),
+			'comp',
+			undefined,
+		);
+		seedDoc(LAYOUT, {
+			...stored(LAYOUT),
+			scenes: [
+				...stored(LAYOUT).scenes,
+				{ id: 'extra', name: 'Extra', nodes: [inst('r1', 'rigged')] },
+			],
+		});
+		const RIGGED = paths.projectComponentKey('comp', 'rigged');
+		const foreignWorld = world();
+		const foreign = await ct(
+			'components.update_art',
+			'builder',
+			{
+				id: 'rigged',
+				changes: [{ node: 'hero', assetKey: 'acme/other_game/spines/Cage/' }],
+				baseEtag: R2.get(RIGGED)!.etag,
+				layoutBaseEtag: R2.get(LAYOUT)!.etag,
+			},
+			true,
+		);
+		check(
+			"a rig from another project is the component store's 400, and nothing is written",
+			[foreign.status, foreign.body.error, world()],
+			[400, 'invalid_input', foreignWorld],
+		);
+
+		// A shared def's first project copy re-pins an instance pinned to an older SHARED version
+		// that differs in art only (the snapshot says scope shared, the copy says project).
+		const PAIR = paths.editorComponentKey('shared_pair');
+		const pairDef = (version: number, region: string) =>
+			defOf('shared_pair', [sprite('logo', { region })], { scope: 'shared', version });
+		seedDoc(PAIR, pairDef(2, 'p_two'));
+		seedDoc(paths.editorComponentVersionKey('shared_pair', 1), pairDef(1, 'p_one'));
+		seedDoc(paths.editorComponentVersionKey('shared_pair', 2), pairDef(2, 'p_two'));
+		const pairLayout = stored(LAYOUT);
+		pairLayout.scenes[0].nodes.push(
+			inst('pair1', 'shared_pair', { componentVersion: 1 }),
+			inst('pair2', 'shared_pair', { componentVersion: 2 }),
+			inst('pairLatest', 'shared_pair'),
+		);
+		seedDoc(LAYOUT, pairLayout);
+		const pairBefore = R2.get(PAIR)!;
+		const pairCopy = await ct(
+			'components.update_art',
+			'builder',
+			{
+				id: 'shared_pair',
+				changes: [{ node: 'logo', region: 'p_three' }],
+				baseEtag: 'new',
+				layoutBaseEtag: R2.get(LAYOUT)!.etag,
+			},
+			true,
+		);
+		check(
+			'the first project copy of a shared def re-pins an instance pinned to an older art-only shared version',
+			[
+				pairCopy.status,
+				pairCopy.body.scope,
+				pairCopy.body.version,
+				pairCopy.body.repinned,
+				pairCopy.body.notReached,
+				nodes(stored(LAYOUT)).filter(([id]) => String(id).startsWith('pair')),
+				R2.get(PAIR),
+			],
+			[
+				200,
+				'project',
+				2,
+				[{ screen: 'base', node: 'pair1', from: 1, to: 2 }],
+				[],
+				[
+					['pair1', 2],
+					['pair2', 2],
+					['pairLatest', null],
+				],
+				pairBefore,
+			],
+		);
+
+		// The def being written is checked itself: an unplaced def, and a latest the pins hide.
+		await saveComponent(
+			defOf('loose_bet', [
+				sprite('face'),
+				inst('inc', 'plus_btn', { params: { action: 'increase' } }),
+			]),
+			'comp',
+			undefined,
+		);
+		await saveComponent(defOf('drift', [sprite('face')]), 'comp', undefined);
+		check(
+			'the drifting def gains a math node in its second version',
+			(
+				await saveComponent(
+					defOf('drift', [
+						sprite('face'),
+						inst('inc', 'plus_btn', { params: { action: 'increase' } }),
+					]),
+					'comp',
+					undefined,
+				)
+			).version,
+			2,
+		);
+		const driftLayout = stored(LAYOUT);
+		driftLayout.scenes[0].nodes.push(inst('drift_pin', 'drift', { componentVersion: 1 }));
+		seedDoc(LAYOUT, driftLayout);
+		for (const id of ['loose_bet', 'drift']) {
+			const key = paths.projectComponentKey('comp', id);
+			const readDef = await ct('components.get_def', 'builder', { id });
+			const worldBefore = world();
+			const write = await ct(
+				'components.update_art',
+				'builder',
+				{
+					id,
+					changes: [{ node: 'face', assetKey: 'new::a' }],
+					baseEtag: R2.get(key)!.etag,
+					layoutBaseEtag: R2.get(LAYOUT)!.etag,
+				},
+				true,
+			);
+			check(
+				`${id}: get_def shows the def itself bound to the math, and update_art refuses it`,
+				[
+					String(readDef.body.locked).startsWith('the def itself is bound to the math'),
+					write.status,
+					write.body.error,
+					world(),
+				],
+				[true, 403, 'locked', worldBefore],
+			);
+		}
+
+		// An effect placed inside a component def is locked by the instance that holds the def.
+		const { saveEffect } = await import(src('lib/server/fxStorage.ts'));
+		for (const fxId of ['held_fx', 'free_fx']) {
+			await saveEffect(
+				C,
+				'comp',
+				{
+					version: 1,
+					id: fxId,
+					name: fxId,
+					layers: [
+						{
+							key: 'main',
+							particleKind: 'sprite',
+							art: { assetKey: '', frames: [] },
+							placement: { space: 'free' },
+							config: { behaviors: [] },
+						},
+					],
+				},
+				{},
+				null,
+			);
+		}
+		const fxIn = (id: string, effectId: string, node: object = {}) => ({
+			id,
+			kind: 'effect',
+			x: 0,
+			y: 0,
+			effectId,
+			...node,
+		});
+		await saveComponent(defOf('fx_holder', [fxIn('e1', 'held_fx')]), 'comp', undefined);
+		await saveComponent(defOf('fx_outer', [inst('inner_holder', 'fx_holder')]), 'comp', undefined);
+		await saveComponent(defOf('fx_free', [fxIn('e2', 'free_fx')]), 'comp', undefined);
+		const withHolders = stored(LAYOUT);
+		withHolders.scenes[0].nodes.push(inst('free_holder', 'fx_free'));
+		withHolders.scenes[1].nodes.push(inst('bet_holder', 'fx_outer'));
+		seedDoc(LAYOUT, withHolders);
+		const heldFx = await ct('fx.get_effect', 'animator', { id: 'held_fx' });
+		const freeFx = await ct('fx.get_effect', 'animator', { id: 'free_fx' });
+		check(
+			'an effect inside a component that a locked node holds is locked, through a nested def',
+			[
+				/inside the component "fx_holder", held by "bet_holder" on "betMenu"/.test(
+					String(heldFx.body.locked),
+				),
+				freeFx.body.locked,
+			],
+			[true, null],
+		);
+		const heldKey = paths.fxDocKey(C, 'comp', 'held_fx');
+		const heldBefore = R2.get(heldKey);
+		const heldWrite = await ct(
+			'fx.update_art',
+			'animator',
+			{ id: 'held_fx', layers: [], baseEtag: String(heldFx.body.baseEtag) },
+			true,
+		);
+		check(
+			'...and fx.update_art refuses it',
+			[heldWrite.status, heldWrite.body.error, R2.get(heldKey)],
+			[403, 'locked', heldBefore],
+		);
+	}
 }
 
 // ── 9C: a run's pipeline-change request files a pipeline bug ───────────────────

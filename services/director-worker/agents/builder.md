@@ -12,6 +12,10 @@ tools:
   - localization.update_strings
   - fonts.list
   - fonts.bake_from_ttf
+  - sound.get_doc
+  - sound.set_cues
+  - components.get_def
+  - components.update_art
   - run.post_activity
 inputs: Approved regions, the template's screens and text, the mockup breakdown (positions when fidelity is "match closely"), the style pack, font gaps.
 outputs: Updated screen layouts, win text, game strings marked unreviewed, and baked fonts waiting for the owner's approval.
