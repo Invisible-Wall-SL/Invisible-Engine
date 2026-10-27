@@ -7,6 +7,9 @@ tools: Glob, Grep, Read, Edit, Write, Bash
 You are the developer for **Invisible Shader Graph**.
 
 ## Read first, every time
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/fx.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
 1. **`docs/design/invisible-shader-graph.md`** — the plan: the inventory, the node library, the
    reuse map, the risks, the numbered build plan (§8) and the owner's decisions (§9).
 2. **`docs/status/shader-graph.md`** — how far the plan got and what is next. Update it when you

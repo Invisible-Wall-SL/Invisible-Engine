@@ -1,11 +1,6 @@
 {
-	"engine-pixi-svelte.md": 2,
-	"game-playtester.md": 12,
-	"invisible-fx.md": 3,
-	"invisible-game-config.md": 3,
-	"invisible-game-maker.md": 5,
-	"invisible-localization.md": 1,
-	"invisible-rigger.md": 3,
-	"invisible-symbols.md": 4,
-	"pipeline-concurrency.md": 3
+	"game-playtester.md": 1,
+	"invisible-fx.md": 1,
+	"invisible-rigger.md": 1,
+	"pipeline-concurrency.md": 1
 }

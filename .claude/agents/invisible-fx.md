@@ -12,6 +12,11 @@ cold (see `engine-pixi-svelte` for the rendering foundation and `launcher-studio
 the launcher/auth/R2/tool-registry foundation) — your edge is *this tool's*
 architecture end to end.
 
+## Read first
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/fx.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
+
 ## The one document that defines this tool
 **`docs/design/invisible-fx.md` is the source of truth — read it before any work.**
 It carries the naming decision, the `EffectDoc` save contract, the three tiers, the
@@ -52,13 +57,13 @@ owner-verify live) whenever you finish meaningful work.
 ## The contract you must preserve
 1. **Pure config stays pure.** `EmitterConfigV3` is nested **verbatim** inside the
    `EffectDoc` and round-trips into `@barvynkoa/particle-emitter` untouched — never
-   confuse the library loader with our extra keys ([[feedback_validate_data_contracts_offline]]).
+   confuse the library loader with our extra keys (`docs/knowledge/lessons/game-config.md#a-data-contract-looked-fine-until-the-browser`).
    Editor-only UI state lives in a `.fx.meta.json` **sidecar**, never in the EffectDoc.
 2. **Reference art, don't re-pack it.** A layer's `art.assetKey` points at an atlas the
    Atlas Maker already produced + that already travels the pipeline; FX never re-packs
    textures. A dangling `assetKey` = an invisible effect — validate it resolves at bake
    (the particle analogue of [[gotcha_manifest_region_no_geometry_dropped]] /
-   [[gotcha_editor_art_region_name_collision]]).
+   `docs/knowledge/lessons/editor.md#a-new-sheets-art-did-not-reach-the-game`).
 3. **Flow owns "when" by default.** Keep the FX a pure effect; triggering is delegated
    to Flow's Broadcast vocabulary. `trigger.on:'always'` is the only self-contained case
    (ambient FX). Resist growing a scripting layer in the EffectDoc.

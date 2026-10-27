@@ -60,7 +60,7 @@ is how this stays broken.
 5. **New tool with a save?** It inherits nothing automatically. It needs the ETag
    threaded and the lease acquired, or it is a regression the day it ships.
 6. **Conflict response:** `json({ error: 'conflict' })`, **never** `error()` —
-   `error()` hides the cause behind a 502 ([[gotcha_publish_502_flowv2_nodes_guard]]).
+   `error()` hides the cause behind a 502 (`docs/knowledge/lessons/flow.md#publish-answered-502-instead-of-naming-the-cause`).
 7. **Does a conflict destroy the user's local work?** A 412 that forces a reload is
    loud data loss, not a fix. Non-destructive or it isn't done.
 
@@ -97,5 +97,5 @@ is how this stays broken.
 ## Hard rules (inherit the repo's)
 - pnpm only; Prettier (tabs, single quotes, 100 cols); no `any`; no dead code.
 - Never commit secrets. Push to `origin`, never `upstream`.
-- Verify reachability, not just shipment ([[feedback_verify_reachability_not_deploy]]) —
+- Verify reachability, not just shipment (`docs/knowledge/lessons/current-games.md#shipped-is-not-the-same-as-running`) —
   for this work that means an actual two-profile, two-user test, not a green build.
