@@ -118,6 +118,22 @@ A change that cannot reach a game (docs only, or nothing in the `lines` runtime'
 
 **Phase 8 complete.** All 6 cards merged; ADR-0008 (blueprint-driven art) fully shipped.
 
+## Phase 9 — Repair agents, agent per game type, knowledge base · ADR-0009 (approved 2026-10-27, with changes)
+
+Cards 9A–9H, each on its own branch. 9A rides #1390 with the audit and the ADR; 9C and 9D start
+from that branch until it merges.
+
+| Card | Tasks | Owner | Status | Acceptance |
+|---|---|---|---|---|
+| 9A | `check:agents-knowledge` gate (in Lint, docs-only PRs too); served-tools check in `check:director-adapters`; `docs/knowledge/` README, `targets.md`, `owners.json` | coordinator | review (#1390) | Each gate rule fails on a planted fault; the QA gap is the only allowed unserved tool |
+| 9C | Pipeline repair: `pipeline-triage` build agent; `bugBrief()` names it and the `bug-<n>-…` branch; `run.request_pipeline_change` files a pipeline bug report (not sent) instead of an activity line | launcher-studio + director-backend | doing | A fixture shows a run's request lands as an Open, unsent pipeline bug linked to the run and project; the brief names the agent; `check:agents-knowledge` green |
+| 9D | `build.request_draft` / `build.play_draft` ops: a draft runtime build of the run's project, played with forced books via the harness's determinism hook and the kind's screen script; QA assignable | director-backend + regression-guardian | doing | QA is assignable (the known gap in `check:director-adapters` is empty); a fixture plays a draft and reports screens reached, console errors and stuck states; no GPU or model call while waiting |
+| 9B | One build agent per game type (lines, ways, cluster, scatter, Hold and Win, bonus/pots, match-3, arcade) + `docs/knowledge/families/*.md`; `book-of-game` folded into `lines-games` | coordinator | todo | `owners.json` has no kind gap |
+| 9E | Knowledge backfill: last 30 days of fix sessions + docs → `lessons/`, `games/<project>.md` briefs; the 36 `[[…]]` notes rebuilt | coordinator + docs-keeper | todo | Memory-link baseline at 0; cost estimated first |
+| 9F | Runtime family packs + `no_family_pack` refusal at create; slot pack extracted from today's prompts | director-backend | todo | Agents tab eval shows no change for slots |
+| 9G | Repair run kind + `game-doctor` + Repair review checkpoint + game → pipeline escalation | director-backend + director-frontend | todo | A game bug repaired on a test project end to end, owner-approved |
+| 9H | Sound and FX adapters, then Component Editor art | director-backend | todo | Each through its storage module with `baseEtag` |
+
 ## Phase 6 — Pilot
 
 | # | Task | Owner | Status | Acceptance |

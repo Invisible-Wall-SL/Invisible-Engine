@@ -60,6 +60,12 @@ export type ArcadeBody = (
 	tags?: string[];
 	/** Stops a mover (from tier A2). Absent ⇒ not solid. */
 	solid?: true;
+	/** Ground level (P10.13): a character in the air on a `hop` passes over it and neither touches
+	 *  nor is stopped by it. Absent ⇒ as tall as the play field. */
+	ground?: true;
+	/** A one-way platform (P10.13): it stops a falling character from above only. Ignored on a
+	 *  `solid` body. */
+	oneWay?: true;
 	/** How it meets the play field's edges (P10.8): held inside, carried round to the far edge, or let
 	 *  out (it then raises `leaveBounds`). Absent ⇒ `clamp`. */
 	edges?: ArcadeBodyEdges;
@@ -81,6 +87,62 @@ export const DEFAULT_ARCADE_FIXED_HZ = 60;
  *  above the upper one a slow device cannot keep up. */
 export const ARCADE_FIXED_HZ_RANGE = { min: 30, max: 240 } as const;
 
+/** A character a player of an online room can be (`docs/design/realtime-multiplayer.md` §7, §11). */
+export type ArcadeOnlineCharacter = {
+	id: string;
+	/** The component (a key of `arcade.bodies`) the character's body is and is drawn as. */
+	body: string;
+	/** Full-tilt speed, px/s. */
+	speed: number;
+	/** How many players of a room may be this character. Absent ⇒ any number. */
+	max?: number;
+};
+
+/**
+ * An ONLINE arcade game (tier A4, P10.14): its presence makes the game a room on the game server
+ * (`services/game-server`) that every player's device joins. The server owns every position; a
+ * device sends inputs only. SPARSE: an absent field is its default ({@link ARCADE_ONLINE_DEFAULTS}).
+ */
+export type ArcadeOnline = {
+	/** Players a room holds. */
+	maxPlayers?: number;
+	/** What a player can be; a joining player picks one. */
+	characters: ArcadeOnlineCharacter[];
+	/** Fixed steps a second; one input per player per step. */
+	tickHz?: number;
+	/** Physics sub-steps inside each step. */
+	subSteps?: number;
+	/** State sent to the devices, times a second. */
+	patchHz?: number;
+	/** How long a dropped player's place is held for them to rejoin, seconds. */
+	rejoinSeconds?: number;
+	/** Where a player starts (centre, field px). Absent ⇒ the field's centre. */
+	spawn?: { x: number; y: number };
+	/** The spawn layer the players are drawn in. */
+	layer?: string;
+};
+
+/** What an online arcade block resolves to when it names nothing. */
+export const ARCADE_ONLINE_DEFAULTS = Object.freeze({
+	maxPlayers: 16,
+	tickHz: 30,
+	subSteps: 2,
+	patchHz: 20,
+	rejoinSeconds: 60,
+	layer: 'field',
+});
+
+/** The bounds a room is held to whatever its config says: the server's resource limits (§11). */
+export const ARCADE_ONLINE_LIMITS = Object.freeze({
+	maxPlayers: { min: 2, max: 100 },
+	tickHz: { min: 10, max: 60 },
+	subSteps: { min: 1, max: 4 },
+	patchHz: { min: 5, max: 60 },
+	rejoinSeconds: { min: 0, max: 60 },
+	speed: { min: 1, max: 5000 },
+	characters: { min: 1, max: 16 },
+} as const);
+
 /**
  * An arcade game's play field and bodies (§4.2). Its characters arrive in P10.11; the world and online
  * rooms join it in later tiers (P10.12–P10.14). SPARSE, like {@link Match3Block}.
@@ -97,6 +159,8 @@ export type ArcadeBlock = {
 	pairs?: [string, string][];
 	/** The field's zones (P10.8). */
 	zones?: ArcadeZone[];
+	/** Present ⇒ the game is played online, in rooms on the game server (P10.14). */
+	online?: ArcadeOnline;
 	/** The characters: what moves by itself, played or run by a brain (P10.11, §9 #14). */
 	characters?: ArcadeCharacter[];
 };
@@ -135,6 +199,46 @@ export const resolveArcade = (
 	zones: doc?.arcade?.zones ?? [],
 	characters: doc?.arcade?.characters ?? [],
 });
+
+export type ResolvedArcadeOnline = Required<Omit<ArcadeOnline, 'spawn'>> & {
+	spawn: { x: number; y: number };
+};
+
+const within = (v: number, range: { min: number; max: number }) =>
+	Math.min(range.max, Math.max(range.min, v));
+
+/**
+ * An online arcade game's room settings with the defaults applied and every number held to
+ * {@link ARCADE_ONLINE_LIMITS} (the state rate to no more than the step rate), or `undefined` for a
+ * game that is not online. The server plays exactly this, so a hand-edited doc cannot ask a room
+ * for more than its limits. `field` places the default spawn at its centre.
+ */
+export const resolveArcadeOnline = (
+	doc: Pick<GameConfigDoc, 'arcade'> | null | undefined,
+	field: { w: number; h: number },
+): ResolvedArcadeOnline | undefined => {
+	const online = doc?.arcade?.online;
+	if (!online) return undefined;
+	const d = ARCADE_ONLINE_DEFAULTS;
+	const L = ARCADE_ONLINE_LIMITS;
+	const tickHz = within(online.tickHz ?? d.tickHz, L.tickHz);
+	return {
+		maxPlayers: within(online.maxPlayers ?? d.maxPlayers, L.maxPlayers),
+		characters: online.characters.slice(0, L.characters.max).map((c) => ({
+			...c,
+			speed: within(c.speed, L.speed),
+		})),
+		tickHz,
+		subSteps: within(online.subSteps ?? d.subSteps, L.subSteps),
+		patchHz: within(online.patchHz ?? d.patchHz, {
+			min: L.patchHz.min,
+			max: Math.min(L.patchHz.max, tickHz),
+		}),
+		rejoinSeconds: within(online.rejoinSeconds ?? d.rejoinSeconds, L.rejoinSeconds),
+		spawn: online.spawn ?? { x: field.w / 2, y: field.h / 2 },
+		layer: online.layer ?? d.layer,
+	};
+};
 
 /** A stored family, or `undefined` for the default and for anything unreadable. */
 export const normalizeFamily = (raw: unknown): GameConfigDoc['family'] =>
@@ -233,6 +337,8 @@ const normalizeArcadeBody = (raw: unknown): ArcadeBody | undefined => {
 	const tags = normalizeTags(raw.tags);
 	if (tags) body.tags = tags;
 	if (raw.solid === true) body.solid = true;
+	else if (raw.oneWay === true) body.oneWay = true;
+	if (raw.ground === true) body.ground = true;
 	if (raw.edges === 'wrap' || raw.edges === 'pass') body.edges = raw.edges;
 	return body;
 };
@@ -275,6 +381,54 @@ const normalizeZones = (raw: unknown): ArcadeZone[] | undefined => {
 	return zones.length ? zones : undefined;
 };
 
+const nonNegInt = (v: unknown): number | undefined => {
+	const n = num(v);
+	return n !== undefined && Number.isInteger(n) && n >= 0 ? n : undefined;
+};
+
+/** Characters with a unique id, a body and a positive speed; the first of a repeated id wins. */
+const normalizeCharacters = (raw: unknown): ArcadeOnlineCharacter[] => {
+	if (!Array.isArray(raw)) return [];
+	const characters: ArcadeOnlineCharacter[] = [];
+	for (const entry of raw) {
+		if (!isObject(entry)) continue;
+		const id = tagOf(entry.id);
+		const body = tagOf(entry.body);
+		const speed = positive(entry.speed);
+		if (!id || !body || !speed || characters.some((c) => c.id === id)) continue;
+		const character: ArcadeOnlineCharacter = { id, body, speed };
+		const max = posInt(entry.max);
+		if (max) character.max = max;
+		characters.push(character);
+	}
+	return characters;
+};
+
+/** Normalize an authored `arcade.online` block. Any object is one (an online game with no usable
+ *  character is still online, and the validator says what is missing); its defaults are dropped. */
+export function normalizeArcadeOnline(raw: unknown): ArcadeOnline | undefined {
+	if (!isObject(raw)) return undefined;
+	const d = ARCADE_ONLINE_DEFAULTS;
+	const block: ArcadeOnline = { characters: normalizeCharacters(raw.characters) };
+	const ints = [
+		['maxPlayers', posInt(raw.maxPlayers), d.maxPlayers],
+		['tickHz', posInt(raw.tickHz), d.tickHz],
+		['subSteps', posInt(raw.subSteps), d.subSteps],
+		['patchHz', posInt(raw.patchHz), d.patchHz],
+		['rejoinSeconds', nonNegInt(raw.rejoinSeconds), d.rejoinSeconds],
+	] as const;
+	for (const [key, value, fallback] of ints)
+		if (value !== undefined && value !== fallback) block[key] = value;
+	if (isObject(raw.spawn)) {
+		const x = num(raw.spawn.x);
+		const y = num(raw.spawn.y);
+		if (x !== undefined && y !== undefined) block.spawn = { x, y };
+	}
+	const layer = tagOf(raw.layer);
+	if (layer && layer !== d.layer) block.layer = layer;
+	return block;
+}
+
 /** Normalize an authored `arcade` block, or `undefined` when nothing in it departs from the
  *  defaults. A body with no usable shape is dropped: it cannot be drawn or collided. */
 export function normalizeArcade(raw: unknown): ArcadeBlock | undefined {
@@ -299,6 +453,8 @@ export function normalizeArcade(raw: unknown): ArcadeBlock | undefined {
 	if (pairs) block.pairs = pairs;
 	const zones = normalizeZones(raw.zones);
 	if (zones) block.zones = zones;
+	const online = normalizeArcadeOnline(raw.online);
+	if (online) block.online = online;
 	const characters = normalizeArcadeCharacters(raw.characters);
 	if (characters) block.characters = characters;
 	return Object.keys(block).length ? block : undefined;

@@ -516,7 +516,8 @@ It is grouped into:
   [Invisible Flow](./flow.md) fills with components while the game runs — see
   [Spawn layer](#spawn-layer--a-field-flow-fills-while-the-game-runs).
   **Path** (screens only too) inserts a line an arcade character patrols or follows — see
-  [Path](#path--a-line-a-character-walks).
+  [Path](#path--a-line-a-character-walks). **Tilemap** (screens only too) inserts a grid of tiles
+  you paint, an arcade level — see [Tilemap](#tilemap-arcade-level).
 - **Atlases** — composed atlas pages and atlas manifests. Manifest entries
   expand to their individual regions, which you drag in one at a time.
 - **Rigs** — the project's rig bundles (plus shared `_shared/` bundles,
@@ -769,6 +770,7 @@ focus (click the stage first); on a focused button, tile or tab they press it or
 | `Ctrl/⌘+Z`, `Ctrl/⌘+Shift+Z` | Undo, redo (Screens, Design)                                                        |
 | `Ctrl/⌘+C / X / V / D`       | Copy, cut, paste, duplicate (Screens, Design)                                       |
 | `Delete`                     | Delete the selection (locked nodes stay)                                            |
+| `V` `B` `E` `G` `I`          | With a tilemap selected: Move, Brush, Erase, Fill, Pick ([Tilemap](#tilemap-arcade-level)) |
 
 The stage is tinted blue with a blue edge in **Animate**, so the two modes never look alike.
 
@@ -1337,6 +1339,54 @@ through the points); and the **points** list, x / y from the origin, with **×**
 **+ add point** to add one past the end (on a loop, halfway back to the start).
 
 The engine design is in [game families §4.3](../design/game-families.md).
+
+#### Tilemap (arcade level)
+
+A **Tilemap** is a grid of tiles you paint on the stage: an arcade level's ground, walls and
+platforms. Each tile is one entry of the tilemap's **tileset**: a frame of art and how a character
+meets it. A **solid** tile stops a character from every side and can be stood on. A **one-way** tile
+can only be landed on from above, so a character jumps up through it. A tile set to **none** is
+art only. The game draws one sprite per painted tile, stretched to the tile size.
+
+Insert one from **Library → Elements → Tilemap** (screens only): 16 × 8 tiles of 64 px, empty,
+centred on the active screen. A tilemap is placed by its **top-left corner**, and its **Transform**
+shows no anchor or rotation, because the game uses neither; its scale sizes the tiles in the game
+too. The stage has no rotate handle for it either. Only a tilemap placed directly on a screen is
+read as the level, not one inside a container or a component.
+
+On the stage, a tilemap always has a faint dashed green outline. While it is selected, the stage also
+shows its grid lines, a red fill over every **solid** tile, a blue line along the top of every
+**one-way** tile, and the label `▤ <name> · cols × rows`. A tile whose art has not loaded yet draws
+as a flat grey-blue cell.
+
+Its Properties block, top to bottom:
+
+- **paint** — the tool buttons. The key in brackets works on the stage while the tilemap is
+  selected and you are not typing in a field:
+  - **Move** (`V`): paint off; a drag moves the tilemap as usual. This is the tool when the editor
+    opens.
+  - **Brush** (`B`): click or drag over the grid to paint the brush tile.
+  - **Erase** (`E`): click or drag to clear tiles.
+  - **Fill** (`G`): click a cell to fill it and every touching cell (up, down, left, right) that
+    held the same tile with the brush tile.
+  - **Pick** (`I`): click a painted cell to make its tile the brush and switch to Brush; click an
+    empty cell to switch to Erase.
+
+  With a paint tool on, a press on the grid paints instead of moving or resizing the tilemap, its
+  transform handles are hidden, and the cell under the pointer is outlined (red for Erase). A press
+  off the grid selects and drags as usual. One drag is one undo step.
+- **grid** — **tile w** / **tile h** (px, before scale) and **columns** / **rows**, up to 1024 a
+  side and 262,144 tiles. Resizing keeps the top-left of the painting; the cells cut off are lost.
+  The size in px is shown under it.
+- **tileset** — one row per tile: the thumbnail (click it to make that tile the brush; the brush
+  row has a purple outline), the frame picker, the **collide** select (**none** / **solid** /
+  **one-way**), how many cells use it, and **×** to remove it. Removing a tile clears the cells
+  painted with it; the other cells keep their tile.
+- **add a tile** — pick a frame to add it to the tileset. It becomes the brush, and the Brush tool
+  is turned on.
+
+The tileset's frames ship with the game's art export, as a sprite's do. The engine design is in
+[game families §4.4](../design/game-families.md).
 
 ### 5. Author across device layouts
 

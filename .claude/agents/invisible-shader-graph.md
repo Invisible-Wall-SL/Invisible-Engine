@@ -77,7 +77,7 @@ You are the developer for **Invisible Shader Graph**.
   - `+page.svelte` (the three panes, save / lease / history, undo), `+page.server.ts`;
   - `shaderEditor.ts`: the pure editing model (every gesture doc → doc, the wire rule, the canvas
     view, `slugOf`; step 7: `GraphScope` and the subgraph gestures, `probeDoc` and the thumbnail
-    keys, the cost chips), proven by `scripts/check-shader-editor.ts` (`check:shader-editor`);
+    keys, the cost chips), proven by `apps/launcher-api/scripts/check-shader-editor.ts` (`check:shader-editor`);
   - `ShaderLibrary.svelte`, `ShaderNode.svelte`, `NodeProperties.svelte`, `GraphSettings.svelte`,
     `SubgraphBar.svelte` (the Pixel | Motion switch, breadcrumb, Group / Open / Ungroup),
     `SubgraphProperties.svelte`, `MotionCurve.svelte` (a motion node's value over the play);
@@ -94,11 +94,11 @@ You are the developer for **Invisible Shader Graph**.
     `publishShader` / `unpublishShader`), `shaderScope.ts` (who reads, writes and publishes:
     `shaderPublish`), `routes/api/shaders/*`;
   - `src/lib/server/shaderExport.ts` → `deploy/editor-shaders/`, embedded as `shaderEffects` by
-    `runtimeBundle.ts` (Publish) and `scripts/bake-editor-doc.mjs` (`/api/editor/export-shaders`),
+    `runtimeBundle.ts` (Publish) and `apps/launcher-api/scripts/bake-editor-doc.mjs` (`/api/editor/export-shaders`),
     each trimmed to the effects the bundle names (`namedShaderEffects`);
   - `src/lib/customElementFx.svelte.ts`: a page registers its project's set; `EditorElementFx.svelte`
     lists it; `elementFxTargets.ts` `withCustomElementFxKinds` widens the Flow's kind dropdown;
-  - `scripts/check-shader-pipeline.ts` (`check:shader-pipeline`).
+  - `apps/launcher-api/scripts/check-shader-pipeline.ts` (`check:shader-pipeline`).
 
   The game: `apps/lines` `bakedShaderEffects()` → `setCustomElementFx` in `Game.svelte`.
 - `scripts/playtest/shader-effect-play.mjs`: a published game with graphs on it, played headless.

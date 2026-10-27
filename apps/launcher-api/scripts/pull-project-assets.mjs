@@ -42,6 +42,7 @@ import {
 	pruneDecision,
 	scanSources,
 } from './lib/assetReachability.mjs';
+import { writeBuildReport } from './lib/buildReportDir.mjs';
 
 const args = process.argv.slice(2);
 const getFlag = (name) => {
@@ -389,11 +390,30 @@ if (dryRun) {
 	);
 }
 
+const listedSize = new Map(files.map((f) => [f.rel, f.size ?? 0]));
+const withSize = (rels, sizeOf) => rels.map((rel) => ({ rel, bytes: sizeOf(rel) }));
+const report = {
+	project,
+	pulled: withSize([...mirrored].sort(), (rel) => listedSize.get(rel) ?? 0),
+	notPulled: withSize(
+		skipped.map((f) => f.rel),
+		(rel) => listedSize.get(rel) ?? 0,
+	),
+	removed: withSize([...unloaded.keys()], (rel) => unloaded.get(rel) ?? 0),
+	keptUnloaded: kept,
+	optimize: null,
+};
+
 // OPT-IN standalone-build optimization. Kept OUT of the default path so the
 // online publish always mirrors deploy/ verbatim; only a build that explicitly
 // asks (`--optimize`) trims the mirrored tree. See optimize-build-assets.mjs.
 if (optimize) {
 	const { optimizeBuildAssets } = await import('./optimize-build-assets.mjs');
+	// Sized BEFORE the trim, which deletes them: the breakdown says what each removal saved.
+	const localSize = new Map();
+	for (const rel of await localFiles()) {
+		localSize.set(rel, (await stat(join(dest, ...rel.split('/'))).catch(() => null))?.size ?? 0);
+	}
 	console.info(`\nOptimizing build assets${dryRun ? ' (dry run)' : ''} [audio: ${audioFormats.join(', ')}]`); // prettier-ignore
 	const s = await optimizeBuildAssets({
 		dir: dest,
@@ -413,4 +433,15 @@ if (optimize) {
 		);
 		for (const u of s.unreferenced) console.info(`  ? ${u}`);
 	}
+	const sizeOf = (rel) => localSize.get(rel) ?? 0;
+	report.optimize = {
+		audioFormats,
+		imagesDeleted: withSize(s.imagesDeleted, sizeOf),
+		audioDeleted: withSize(s.audioDeleted, sizeOf),
+		manifestsRewritten: s.manifestsRewritten,
+		unreferenced: s.unreferenced,
+		bytesSaved: s.bytesSaved,
+	};
 }
+
+if (!dryRun) writeBuildReport('pull.json', report);

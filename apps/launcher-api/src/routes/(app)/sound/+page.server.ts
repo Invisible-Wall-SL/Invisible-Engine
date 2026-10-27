@@ -4,10 +4,18 @@ import {
 	SOUND_SLOTS,
 	resolveCascade,
 	resolveReelBehaviour,
+	symbolUses,
 	symbolsInPlay,
+	symbolsUsed,
 	type GameConfigDoc,
 } from 'game-config';
-import { SYMBOL_STATE_LABELS, effectiveSoundBindings, type SymbolStateName } from 'engine-layout';
+import {
+	SYMBOL_STATE_LABELS,
+	TOKEN_SOUND_LABELS,
+	TOKEN_SOUND_MOMENTS,
+	effectiveSoundBindings,
+	type SymbolStateName,
+} from 'engine-layout';
 import { roleHasTool } from '$lib/roles';
 import { flowSoundBindings } from '$lib/soundUsage';
 import { SESSION_COOKIE } from '$lib/server/auth';
@@ -118,6 +126,15 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		})),
 		/** Symbol ids in play, so the per-symbol rows name this game's real symbols. */
 		symbolIds: config ? symbolsInPlay(config) : [],
+		/** A pots overlay's tokens, in pot order — never on a strip, so not among `symbolIds`. The
+		 *  same list as `/symbols`' Coins group. */
+		tokenIds: config
+			? symbolsUsed(config).filter((name) => symbolUses(config)[name] === 'token')
+			: [],
+		tokenMoments: TOKEN_SOUND_MOMENTS.map((moment) => ({
+			moment,
+			label: TOKEN_SOUND_LABELS[moment],
+		})),
 		/**
 		 * ONLY the states the engine actually resolves a per-symbol cue on. Offering the others would
 		 * let an author bind a cue nothing will ever play and be told nothing, which is precisely how

@@ -95,6 +95,10 @@ export type Movement = {
 	maxSpeed?: number;
 	/** Degrees/s the heading may turn; absent ⇒ at once. */
 	turnRate?: number;
+	/** px/s², down (P10.13); absent ⇒ none, or the jump's own pull. */
+	gravity?: number;
+	/** px/s cap on a fall; absent ⇒ none. */
+	maxFall?: number;
 };
 
 export type Velocity = { vx: number; vy: number };
@@ -127,3 +131,45 @@ export function stepSolid(body: Body, dt: number, solids: readonly Body[], field
 export function samplePath(spec: PathSpec): SampledPath;
 export function pointAt(path: SampledPath, distance: number): Point;
 export function nearestDistance(path: SampledPath, x: number, y: number): number;
+
+/** A body a {@link stepPlatform} body lands on only from above, while falling (P10.13). */
+export type OneWay = { oneWay?: boolean };
+
+/** A level's tiles: top-left in field px, a tile's size, one solidity code per tile, row by row. */
+export type TileGrid = {
+	x: number;
+	y: number;
+	tileW: number;
+	tileH: number;
+	cols: number;
+	rows: number;
+	/** {@link TILE_NONE}, {@link TILE_SOLID} or {@link TILE_ONE_WAY} per tile. */
+	cells: ArrayLike<number>;
+};
+
+export type PlatformOptions = {
+	/** Bodies that block: `solid` on every side, `oneWay` from above. */
+	solids?: readonly (Body & OneWay)[];
+	tiles?: readonly TileGrid[];
+	field?: Field;
+	/** px/s², down; absent or ≤ 0 ⇒ none. */
+	gravity?: number;
+	/** px/s cap on the fall; absent ⇒ none. */
+	maxFall?: number;
+};
+
+export type PlatformHit = SolidHit & {
+	/** A fall was stopped from below this step. */
+	grounded: boolean;
+	/** The horizontal move was stopped. */
+	onWall: boolean;
+};
+
+export const TILE_NONE: 0;
+export const TILE_SOLID: 1;
+export const TILE_ONE_WAY: 2;
+export const TILE_SOLIDITY: ['none', 'solid', 'oneWay'];
+export const MAX_SUB_STEPS: 64;
+
+export function tilesIn(grid: TileGrid, box: Aabb): (Body & OneWay)[];
+export function stepPlatform(body: Body, dt: number, options?: PlatformOptions): PlatformHit;
