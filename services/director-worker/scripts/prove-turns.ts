@@ -57,7 +57,9 @@
  * 28. the coordinator's `run.request_pipeline_change` files a pipeline bug through the launcher
  *     (`bugs.file_pipeline_bug`, as the coordinator) before its activity line, which names the
  *     bug; a worker killed between the two resends the same opId (one bug) and writes one line;
- *     a launcher that does not serve the op leaves the coordinator unable to start.
+ *     a launcher that does not serve the op leaves the coordinator unable to start; a turn whose
+ *     bug was filed but whose settle never committed, settled while paused, writes the line then
+ *     and tells the model the bug, sending nothing.
  */
 import type {
 	BetaMessage,
@@ -1569,6 +1571,34 @@ try {
 			'a launcher without the op: the coordinator is not asked, nothing is filed',
 			[idle.calls(), old.effects],
 			[0, []],
+		);
+
+		const paused = await newRun({ status: 'paused' });
+		await userMessage(paused, 'coordinator', 'Start.');
+		await sql`insert into director_messages (run_id, agent, seq, role, content_json)
+			values (${paused}, 'coordinator', 1, 'assistant',
+				${sql.json([use('p1', 'run.request_pipeline_change', request)] as never)})`;
+		const filedOp = `${paused}:coordinator-t1:0`;
+		await sql`insert into director_ops (op_id, run_id, agent, op, input_hash, status, result,
+				completed_at)
+			values (${filedOp}, ${paused}, 'coordinator', 'bugs.file_pipeline_bug', 'proof', 'done',
+				${sql.json({ number: 77, ref: 'BUG-77', path: '/bugs?bug=77' })}, now())`;
+		await event(paused, 'owner', 'owner_message', { text: 'What happened?' });
+		const quiet = fakeLauncher();
+		await drive(paused, deps(fakeModel([]).transport, quiet.launcher, { agents }));
+		const settled = (await messages(paused, 'coordinator'))[2]?.content as {
+			content?: string;
+			is_error?: boolean;
+		}[];
+		check(
+			'filed before a pause, settled while paused: the line is written, the model told the bug, nothing sent',
+			[
+				(await events(paused, 'activity')).map((e) => e.payload.bug),
+				settled?.[0]?.is_error ?? false,
+				JSON.parse(settled?.[0]?.content ?? '{}').bug,
+				quiet.sent,
+			],
+			[[77], false, 'BUG-77', []],
 		);
 	}
 

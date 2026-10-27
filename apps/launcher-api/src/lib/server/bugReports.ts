@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { error } from '@sveltejs/kit';
 import {
 	BUG_KINDS,
@@ -24,6 +24,7 @@ import {
 } from '$lib/bugReports';
 import { TOOLS, roleHasCapability, roleHasTool } from '$lib/roles';
 import {
+	bugsReportedAs,
 	deleteScreenshot,
 	existingBugNumbers,
 	getBugFull,
@@ -292,7 +293,8 @@ function detailOf(access: BugAccess, full: BugFull): BugDetail {
 			actor: e.actor,
 			auto: e.actorId === null,
 			at: e.at.toISOString(),
-			data: e.data,
+			// A report's data also holds a Director run's opId and request hash, which are its own.
+			data: e.kind === 'reported' ? (e.data.priority ? { priority: e.data.priority } : {}) : e.data,
 		})),
 	};
 }
@@ -437,9 +439,14 @@ export async function createBug(access: BugAccess, body: unknown): Promise<BugDe
 /** What a Director run files when its coordinator asks for a pipeline change. */
 export interface DirectorBugInput {
 	runId: string;
+	/** The adapter call's `opId`: a call replayed after a crash finds the bug it filed. */
+	opId: string;
 	/** The run's owner: the bug is theirs to see, as its reporter. */
 	ownerId: string;
-	/** The run's project, when the owner can open it; it is named in the text either way. */
+	/**
+	 * The project the bug names: the run's own, else its template, whichever the owner can open; null
+	 * when neither, and then the text names no project and carries none of the agent's words.
+	 */
 	projectKey: string | null;
 	runProjectKey: string;
 	templateProjectKey: string;
@@ -447,45 +454,93 @@ export interface DirectorBugInput {
 	reason: string;
 }
 
+/** A run's own requests, at most: a run that keeps asking is a run to look at, not more bugs. */
+export const MAX_DIRECTOR_BUGS = 5;
+
+export type DirectorBugAnswer =
+	| { filed: Pick<BugReport, 'number' | 'kind' | 'projectKey'> }
+	| { refused: 'cap' }
+	| { refused: 'duplicate'; number: number };
+
 /** How a Director run is named as a bug's reporter and in its activity. */
 export const directorReporter = (runId: string): string => `Director run ${runId}`;
 
 /**
+ * Agent text never names a bug the link sync reads: `BUG-7` becomes `bug #7`, so a pull request
+ * whose title echoes this bug's title (as the fix brief leads it to) moves no other bug.
+ */
+export const unlinkBugRefs = (text: string): string =>
+	text.replace(/\bbug-(\d{1,7})\b/gi, 'bug #$1');
+
+const requestHash = (what: string): string =>
+	createHash('sha256').update(what.replace(/\s+/g, ' ').trim().toLowerCase()).digest('hex');
+
+/**
  * File the pipeline bug a Director run's `run.request_pipeline_change` asks for (ADR-0009 §2): Open
  * and not sent, so a triager still decides whether it goes to Pipeline Changes. The reporter is
- * the run, recorded against its owner's account; the text names the run and its project, and the
- * page is the run's Live run screen. Through the same validation and `insertBug` as a person's
- * report.
+ * the run, recorded against its owner's account; the page is the run's Live run screen, which
+ * only the run's viewers open. The text names the project and carries the request only when the
+ * bug names a project (`projectKey`), so it is shown to no one who cannot open that project.
+ * Through the same validation and `insertBug` as a person's report.
+ *
+ * Idempotent by `opId`, which rides on the bug's `reported` event: a call replayed after the bug
+ * was written but before the adapter gate recorded it answers that bug. A run files at most
+ * {@link MAX_DIRECTOR_BUGS}, and never a second open bug for the same request.
  */
-export async function createDirectorBug(input: DirectorBugInput): Promise<BugReport> {
+export async function createDirectorBug(input: DirectorBugInput): Promise<DirectorBugAnswer> {
 	const actor: Actor = { id: input.ownerId, name: directorReporter(input.runId) };
-	const what = input.what.replace(/\s+/g, ' ').trim();
-	const title = what.length > MAX_TITLE ? `${what.slice(0, MAX_TITLE - 1)}…` : what;
-	const description = [
-		`Invisible Director run ${input.runId} asked for a pipeline change.`,
-		'',
-		`Project: ${input.runProjectKey} (made from the template ${input.templateProjectKey})`,
-		'',
-		'What is missing:',
-		input.what.trim(),
-		'',
-		'Why the run needs it:',
-		input.reason.trim(),
-	].join('\n');
-	return insertBug(
+	const mine = (await bugsReportedAs(actor.name)).filter(
+		(b) => typeof b.data.opId === 'string' && b.data.opId.startsWith(`${input.runId}:`),
+	);
+	const again = mine.find((b) => b.data.opId === input.opId);
+	if (again) return { filed: again };
+	if (mine.length >= MAX_DIRECTOR_BUGS) return { refused: 'cap' };
+	const request = requestHash(input.what);
+	const same = mine.find(
+		(b) => b.data.request === request && (b.status === 'open' || b.status === 'working'),
+	);
+	if (same) return { refused: 'duplicate', number: same.number };
+
+	const pageUrl = `${ENV.ORIGIN}/director/${encodeURIComponent(input.runId)}`;
+	const opening = `Invisible Director run ${input.runId} asked for a pipeline change.`;
+	let title: string;
+	let description: string;
+	if (input.projectKey === null) {
+		title = 'A Director run asked for a pipeline change';
+		description = `${opening}\n\nWhat it asks for and why are on the run's page: ${pageUrl}`;
+	} else {
+		const what = input.what.replace(/\s+/g, ' ').trim();
+		title = what.length > MAX_TITLE ? `${what.slice(0, MAX_TITLE - 1)}…` : what;
+		description = [
+			opening,
+			'',
+			input.projectKey === input.runProjectKey
+				? `Project: ${input.runProjectKey} (made from the template ${input.templateProjectKey})`
+				: `Template: ${input.templateProjectKey} (the run's own project is not made yet)`,
+			'',
+			'What is missing:',
+			input.what.trim(),
+			'',
+			'Why the run needs it:',
+			input.reason.trim(),
+		].join('\n');
+	}
+	const bug = await insertBug(
 		{
 			kind: 'pipeline',
-			title: cleanTitle(title),
-			description: cleanDescription(description),
+			title: cleanTitle(unlinkBugRefs(title)),
+			description: cleanDescription(unlinkBugRefs(description)),
 			area: cleanArea('pipeline', 'director'),
 			projectKey: input.projectKey,
-			pageUrl: cleanUrl(`${ENV.ORIGIN}/director/${encodeURIComponent(input.runId)}`),
+			pageUrl: cleanUrl(pageUrl),
 			priority: null,
 			reporterId: input.ownerId,
 			reporter: actor.name,
 		},
 		actor,
+		{ opId: input.opId, request },
 	);
+	return { filed: bug };
 }
 
 const EDITABLE = ['title', 'description', 'area', 'project', 'pageUrl'] as const;

@@ -373,7 +373,12 @@ async function settle(
 		const id = toolId(call.name);
 		if (status !== 'running') {
 			const opId = opIdOf(ctx.run.id, agent.name, turnSeq, index);
-			results.set(call.id, await recordedOutcome(ctx, call, opId, status));
+			// Its op may have run before the pause: the bug is then filed, and its activity line is
+			// written now (the worker tool runs whatever the status), so the model files it once.
+			const record = WORKER_TOOL_OPS[id as WorkerToolId] ? await opRecord(ctx.sql, opId) : null;
+			if (record?.status === 'pending') throw new RetryLater(`${opId} is still in progress`);
+			if (record) filed.set(call.id, record.result as FiledBug);
+			else results.set(call.id, await recordedOutcome(ctx, call, opId, status));
 			continue;
 		}
 		if (!agent.tools.includes(id)) {
@@ -614,18 +619,7 @@ async function recordedOutcome(
 	opId: string,
 	status: string,
 ): Promise<BetaToolResultBlockParam> {
-	const id = toolId(call.name);
-	if (WORKER_TOOL_IDS.has(id)) {
-		// Its op may have run before the pause: say so, or the model files the same bug again.
-		const filedBy = WORKER_TOOL_OPS[id as WorkerToolId] ? await opRecord(ctx.sql, opId) : null;
-		if (filedBy?.status === 'pending') throw new RetryLater(`${opId} is still in progress`);
-		if (filedBy) {
-			const bug = filedBy.result as FiledBug;
-			return resultBlock(
-				call.id,
-				JSON.stringify({ requested: true, bug: bug.ref, note: `The run is ${status}.` }),
-			);
-		}
+	if (WORKER_TOOL_IDS.has(toolId(call.name))) {
 		return resultBlock(call.id, `Not run: the run is ${status}.`, true);
 	}
 	const record = await opRecord(ctx.sql, opId);

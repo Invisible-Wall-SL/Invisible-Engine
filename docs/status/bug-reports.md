@@ -68,12 +68,23 @@ server module, routes, page components, triage, screenshots, the pull-request li
   reads) and a `## Lesson` block in the fix pull request. A game bug's brief does not change.
 - **Director.** A Director run's `run.request_pipeline_change` files a pipeline bug: the worker
   calls the launcher op `bugs.file_pipeline_bug` (`src/lib/server/director/ops/bugs.ts`, behind the
-  adapter gate, coordinator only, idempotent by `opId`), which writes it through
-  `createDirectorBug` and `insertBug` like any report. It is Open and not sent, so a triager still
-  decides; the reporter is `Director run <id>` against the run owner's account (they see it as
-  theirs); the area is Invisible Director, the page the run's Live run screen, and the text names
-  the run, its project and its template. The project is set only when the owner can open it (none
-  before the run creates it). The run's activity line names the bug, linked from the Live run feed.
+  adapter gate, coordinator only), which writes it through `createDirectorBug` and `insertBug` like
+  any report. It is Open and not sent, so a triager still decides; the reporter is
+  `Director run <id>` against the run owner's account (they see it as theirs); the area is
+  Invisible Director and the page the run's Live run screen.
+  - **What it shows.** It names the run's project, else its template, whichever the owner can
+    open, and only then carries the request's text; when the owner can open neither it names no
+    project and says only that a run filed it, with the run's page (which only the run's viewers
+    open). So it never shows a project to someone without it. `BUG-<n>` / `bug-<n>` in the agent's
+    text becomes `bug #<n>`, so a pull request echoing the title moves no other bug.
+  - **Once per call, five per run.** The call's `opId` rides on the bug's `reported` event (hidden
+    from the page), so a call replayed after a launcher crash between the insert and the gate's
+    record answers the same bug. A run files at most 5 (`MAX_DIRECTOR_BUGS`), and a request that
+    matches one of its still-open bugs is refused naming it.
+  - The run's activity line names the bug, linked from the Live run feed; a turn settled after a
+    pause writes it then. **Deploy the launcher before the worker:** a worker whose launcher does
+    not serve the op yet starts no coordinator (`toolsFor`), so no run moves until the launcher
+    catches up.
 - **A link to the other list** (a game bug on `/bugs`, another project's game bug) is not opened
   there: the page names the list it belongs to, with **Open it there**.
 - **Report bug on every tool.** The shared `ToolTopBar` (and its four HTML twins) shows **Report

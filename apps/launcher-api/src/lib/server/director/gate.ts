@@ -226,6 +226,7 @@ export async function runAdapterCall(
 		return { status: 200, body: existing.result, replayed: true };
 	}
 
+	ctx.opId = opId;
 	let answer: AdapterAnswer;
 	try {
 		answer = (await refusedWrite(op, scope, run, input)) ?? (await execute(op, ctx, input));

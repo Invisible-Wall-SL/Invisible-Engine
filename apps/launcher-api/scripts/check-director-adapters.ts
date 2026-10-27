@@ -270,15 +270,32 @@ fake('lib/server/userToolAccess.ts', {
 	getToolOverrides: async (userId: string) => USER_OVERRIDES.get(userId) ?? {},
 });
 /** Bug reports as `bugReportsStore.insertBug` writes them: the values, and the 'reported' actor. */
-const BUGS: { values: Record<string, unknown>; actor: { id: string | null; name: string } }[] = [];
+type FakeBug = {
+	values: Record<string, unknown>;
+	actor: { id: string | null; name: string };
+	data: Record<string, unknown>;
+	number: number;
+	status: string;
+};
+const BUGS: FakeBug[] = [];
 fake('lib/server/bugReportsStore.ts', {
 	insertBug: async (
 		values: Record<string, unknown>,
 		actor: { id: string | null; name: string },
+		data: Record<string, unknown> = {},
 	) => {
-		BUGS.push({ values, actor });
-		return { status: 'open', sentAt: null, ...values, number: 100 + BUGS.length };
+		const bug = { values, actor, data, number: 101 + BUGS.length, status: 'open' };
+		BUGS.push(bug);
+		return { status: 'open', sentAt: null, ...values, number: bug.number };
 	},
+	bugsReportedAs: async (reporter: string) =>
+		BUGS.filter((b) => b.values.reporter === reporter).map((b) => ({
+			number: b.number,
+			kind: b.values.kind,
+			projectKey: b.values.projectKey,
+			status: b.status,
+			data: b.data,
+		})),
 });
 let claims = 0;
 fake('lib/server/director/store.ts', {
@@ -3755,28 +3772,34 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 // ── 9C: a run's pipeline-change request files a pipeline bug ───────────────────
 {
 	const request = { what: 'An FX slot on the big-win screen.', reason: 'The mockup has one.' };
-	const file = (runId: string, opId: string, agent = 'coordinator', input: unknown = request) =>
+	const file = (runId: string, opId: string, input: unknown = request, agent = 'coordinator') =>
 		call('bugs', 'file_pipeline_bug', { runId, agent, opId, input });
+	const text = (b: FakeBug) => `${b.values.title}\n${b.values.description}`;
+	const sharedBugs: typeof import('../src/lib/bugReports.ts') = await import(
+		src('lib/bugReports.ts')
+	);
+
 	const first = await file('rexisting', 'rexisting:coordinator-t3:0');
 	check(
 		'a request files a bug and answers its reference',
 		[first.status, first.body],
 		[200, { number: 101, ref: 'BUG-101', path: '/bugs?bug=101' }],
 	);
-	const [{ values, actor }] = BUGS;
+	const [{ values, actor, data }] = BUGS;
 	check(
 		'…a pipeline bug, Open and not sent: no status, priority or sending is set',
 		[values.kind, 'status' in values, 'sentAt' in values, values.priority],
 		['pipeline', false, false, null],
 	);
 	check(
-		'…reported by the run, against its owner, in the Director area',
-		[values.reporter, values.reporterId, actor, values.area],
+		'…reported by the run, against its owner, in the Director area, its opId on the report',
+		[values.reporter, values.reporterId, actor, values.area, data.opId],
 		[
 			'Director run rexisting',
 			'owner',
 			{ id: 'owner', name: 'Director run rexisting' },
 			'director',
+			'rexisting:coordinator-t3:0',
 		],
 	);
 	check(
@@ -3785,10 +3808,10 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			values.projectKey,
 			values.pageUrl,
 			values.title,
-			(values.description as string).includes('Invisible Director run rexisting'),
-			(values.description as string).includes('Project: plain (made from the template tpl_lines)'),
-			(values.description as string).includes(request.what),
-			(values.description as string).includes(request.reason),
+			text(BUGS[0]).includes('Invisible Director run rexisting'),
+			text(BUGS[0]).includes('Project: plain (made from the template tpl_lines)'),
+			text(BUGS[0]).includes(request.what),
+			text(BUGS[0]).includes(request.reason),
 		],
 		['plain', 'https://app.example/director/rexisting', request.what, true, true, true, true],
 	);
@@ -3798,24 +3821,86 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		[replay.status, replay.body, replay.replay, BUGS.length],
 		[200, first.body, true, 1],
 	);
+	// The launcher died after the bug was written and before the gate recorded the call: the claim
+	// is dropped when it goes stale (`STALE_CLAIM_MS`), so the same opId runs the handler again.
+	OPS.delete('rexisting:coordinator-t3:0');
+	const afterCrash = await file('rexisting', 'rexisting:coordinator-t3:0');
+	check(
+		'a call replayed after a crash between the insert and the record files no second bug',
+		[afterCrash.status, afterCrash.body, afterCrash.replay, BUGS.length],
+		[200, first.body, false, 1],
+	);
+
 	await file('r1', 'r1:coordinator-t1:0');
 	check(
-		'a run whose project is not made yet names it in the text only',
-		[BUGS[1].values.projectKey, (BUGS[1].values.description as string).includes('new_r1')],
-		[null, true],
+		"a run whose project is not made yet names its template, never the run's own key",
+		[
+			BUGS[1].values.projectKey,
+			text(BUGS[1]).includes('Template: tpl_lines'),
+			text(BUGS[1]).includes('new_r1'),
+		],
+		['tpl_lines', true, false],
+	);
+	await file('rdev', 'rdev:coordinator-t1:0');
+	check(
+		"an owner who can open neither the project nor the template: no key, none of the agent's words",
+		[
+			BUGS[2].values.projectKey,
+			BUGS[2].values.title,
+			['new_rdev', 'tpl_other', request.what, request.reason].filter((s) =>
+				text(BUGS[2]).includes(s),
+			),
+			text(BUGS[2]).includes('https://app.example/director/rdev'),
+		],
+		[null, 'A Director run asked for a pipeline change', [], true],
+	);
+
+	await file('r1', 'r1:coordinator-t1:1', {
+		what: 'Fix BUG-42 and bug-7: a slot.',
+		reason: 'See BUG-9.',
+	});
+	check(
+		"agent text names no bug the link sync reads: BUG-42 and bug-7 become 'bug #42' and 'bug #7'",
+		[BUGS[3].values.title, text(BUGS[3]).includes('bug #9'), sharedBugs.bugRefsIn(text(BUGS[3]))],
+		['Fix bug #42 and bug #7: a slot.', true, []],
+	);
+	const dup = await file('r1', 'r1:coordinator-t2:0', {
+		what: '  an fx SLOT on the big-win screen. ',
+		reason: 'x',
+	});
+	check(
+		'the same request again while its bug is open is refused, naming the bug, and files nothing',
+		[dup.status, dup.body.error, String(dup.body.message).includes('BUG-102'), BUGS.length],
+		[409, 'duplicate', true, 4],
+	);
+	BUGS[1].status = 'resolved';
+	check(
+		'…once that bug is resolved, it may be asked again',
+		(await file('r1', 'r1:coordinator-t2:1', request)).status,
+		200,
+	);
+	for (const n of [2, 3])
+		await file('r1', `r1:coordinator-t3:${n}`, { what: `Slot ${n}.`, reason: 'x' });
+	const capped = await file('r1', 'r1:coordinator-t4:0', { what: 'One more.', reason: 'x' });
+	check(
+		`a run files at most ${5} bugs: the sixth is refused and files nothing`,
+		[
+			BUGS.filter((b) => b.values.reporter === 'Director run r1').length,
+			capped.status,
+			capped.body.error,
+			BUGS.length,
+		],
+		[5, 409, 'too_many_bugs', 7],
 	);
 	check(
 		'only the coordinator may file one',
-		(await file('r1', 'r1:builder-t1:0', 'builder')).status,
+		(await file('r1', 'r1:builder-t1:0', request, 'builder')).status,
 		403,
 	);
 	check(
 		'an empty request is refused, and files nothing',
-		[
-			(await file('r1', 'r1:coordinator-t1:1', 'coordinator', { what: '', reason: 'x' })).status,
-			BUGS.length,
-		],
-		[400, 2],
+		[(await file('r1', 'r1:coordinator-t5:0', { what: '', reason: 'x' })).status, BUGS.length],
+		[400, 7],
 	);
 	check(
 		'a write without an opId files nothing',
@@ -3829,7 +3914,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			).status,
 			BUGS.length,
 		],
-		[400, 2],
+		[400, 7],
 	);
 }
 

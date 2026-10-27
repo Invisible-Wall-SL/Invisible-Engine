@@ -124,8 +124,9 @@ export const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 export const bugRef = (number: number): string => `BUG-${number}`;
 
 /**
- * The bugs a pull request names: `BUG-12`, `bug-12` (a branch name) — in its title, branch or
- * body. `debug-12` is not one (the word must start at `bug`).
+ * The bugs a text names: `BUG-12`, `bug-12` (a branch name). The link sync reads a pull request's
+ * title and branch with it, never its description. `debug-12` is not one (the word must start at
+ * `bug`).
  */
 export function bugRefsIn(text: string): number[] {
 	const found = new Set<number>();
@@ -181,9 +182,9 @@ export interface BriefInput {
 /**
  * The text a fix starts from — pasted into a Claude Code session, or read by a person. A pipeline
  * bug's brief names the build agent that takes it (`.claude/agents/pipeline-triage.md`) and the
- * branch to fix it on, which is what links the change back to the bug. A game bug's brief is about that game alone: the fix belongs in the project's own
- * content, never in the engine, a tool or a template (those are pipeline changes, reported as a
- * pipeline bug instead).
+ * branch to fix it on, which is what links the change back to the bug. A game bug's brief is about
+ * that game alone: the fix belongs in the project's own content, never in the engine, a tool or a
+ * template (those are pipeline changes, reported as a pipeline bug instead).
  */
 export function bugBrief(bug: BriefInput, origin: string): string {
 	const ref = bugRef(bug.number);

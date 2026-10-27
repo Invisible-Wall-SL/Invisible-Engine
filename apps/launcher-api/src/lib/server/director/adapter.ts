@@ -193,6 +193,9 @@ export interface AdapterContext {
 	 *  `owner`-scoped ops. */
 	scope: { clientKey: string; projectKey: string } | null;
 	savedBy: DirectorSavedBy;
+	/** A write's `opId`, set by the gate once it is claimed; for an op that keeps its own record of
+	 *  what a call did (`recordsOnly`), so a call replayed after a crash finds it. */
+	opId?: string;
 }
 
 interface OpBase<I, O> {
