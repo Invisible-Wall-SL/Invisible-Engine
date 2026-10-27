@@ -558,7 +558,7 @@ await check('the runtime: the SDK is reached only through the online branch, and
 	assert.match(online, /import type \{[^}]*\bRoom\b[^}]*\} from 'engine-rooms'/);
 	assert.match(online, /await import\('engine-rooms'\)/);
 	assert.doesNotMatch(online.replace(/import type[^;]+;/g, ''), /^import [^;]*'engine-rooms'/m);
-	// The SDK's prediction is its own lazy entry, loaded only for `netcode: 'colyseus'`.
+	// The SDK's prediction is its own entry, imported and called only for `netcode: 'colyseus'`.
 	assert.deepEqual(importing(`engine-rooms/predict['"\`]`), ['game/online.ts']);
 	assert.match(online, /netcode === 'colyseus' \? await import\('engine-rooms\/predict'\)/);
 	assert.doesNotMatch(
@@ -1133,9 +1133,11 @@ try {
 			const input = room.input();
 			let corrected = 0;
 			// The options the runtime builds (`online.ts` `reconcilerOf`), from the room's own game.
+			const options = reconcilerOptions(sim.game, room.sessionId, player);
+			assert.equal(typeof options?.step, 'function', 'the reconciler steps the room’s step');
 			const me = predict.reconciler(player, {
 				input,
-				...reconcilerOptions(sim.game, room.sessionId, player),
+				...options,
 				warnOnDivergence: Number.POSITIVE_INFINITY,
 				onReconcile() {
 					if (me.lastCorrectionMag > 0) corrected += 1;

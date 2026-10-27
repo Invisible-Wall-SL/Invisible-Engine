@@ -3,8 +3,8 @@
  * is pinned by `scripts/check-netcode.mjs`.
  */
 
-import type { Body, Field } from './motion';
-import type { OnlineInput, OnlineLevel, StepContext } from './online';
+import type { Body, Field, StaticShape } from './motion';
+import type { OnlineInput, OnlineLevel, StepContext, characterBody } from './online';
 
 /** A zone rule as `strongestForce` reads it. */
 type ForceRule = { force?: { x: number; y: number } };
@@ -83,10 +83,10 @@ export function reconcilerStep(options: {
 export function strongestForce(zoneRules: readonly ForceRule[]): number;
 
 /** An online game as {@link reconcilerOptions} reads it (game-config `OnlineGame`). */
-export type ReconcilerGame = {
+type ReconcilerGame = {
 	field: Field;
-	bodies: Record<string, unknown>;
-	zones: unknown[];
+	bodies: Record<string, Parameters<typeof characterBody>[1]>;
+	zones: readonly StaticShape[];
 	online: {
 		characters: readonly { id: string; body: string; speed: number }[];
 		tickHz: number;

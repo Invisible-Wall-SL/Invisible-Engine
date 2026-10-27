@@ -44,7 +44,7 @@ import { typingInto } from './flowKeys';
  *
  * `arcade.online.netcode` picks who predicts the own player: `engine` (the default) is the
  * predictor above; `colyseus` is the SDK's own `Predict` reconciler (`engine-rooms/predict`,
- * imported only then), running the same step (`reconcilerStep`). Everyone else is interpolated the
+ * awaited and called only then), running the same step (`reconcilerStep`). Everyone else is interpolated the
  * same way in both, so `view` means the same.
  *
  * Launch parameters: `?rooms_url=` the game server (`wss://rooms.invisiblewall.org`), the game
@@ -179,7 +179,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		});
 		predict = sdk?.Predict.get(room);
 	} catch (error) {
-		void room?.leave();
+		room?.leave().catch(() => {});
 		return refuseOnlineBoot(
 			`the game server did not let it in (${error instanceof Error ? error.message : String(error)})`,
 		);
