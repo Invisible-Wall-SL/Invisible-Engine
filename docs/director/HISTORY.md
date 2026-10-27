@@ -15,6 +15,35 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-27 · Phase 9 9D · director-backend + regression-guardian (QA draft play)
+- Did: Served build.request_draft and build.play_draft, so QA can be assigned and the known
+  unserved-tool gap is empty. A draft is a run-scoped freeze of the project the way Publish
+  freezes (director/drafts/<id>/, never published/**). It fails closed on a null
+  templateConfigEtag, a moved project config or a published template whose contract differs.
+  It is played by a new private service, draft-player, which reuses the current-games harness
+  libs, reports screens reached, console errors and stalls per scenario, and answers through a
+  signed callback with a /progress fallback. Owner stops and watch failures cancel the play on
+  the player. The worker routes the draft job_done to QA before the atlas billing path, QA's
+  submit reaches the coordinator, and the Live run shows QA plays as plays. Drafts are swept 14
+  days after a project's runs end.
+- Files: docs/director/DECISIONS/0010-qa-draft-play.md; apps/launcher-api/src/lib/server/director/
+  {ops/build,drafts,draftJobs,draftSigning,draftScripts,configEtag,mockupCleanup,store,runs,
+  adapter,registry,atlasCallback}.ts, routes/api/director/drafts/callback,
+  routes/(app)/director/liveRun.ts, drizzle/0033; services/director-worker/src/{driver,
+  workerTools,store,draftReport}.ts, agents/qa.md; services/draft-player/**; docs/INFRA.md,
+  docs/status/{launcher,infra}.md.
+- Branch / PR: claude/director-9d-qa-draft, #1398.
+- Tests: on the final merge with main (9G.0, 9E, 9H): check:director-adapters 719,
+  check:director-live 116, check:director-runs 473, check:launcher-gates 669, worker
+  check:draft-report 6, prove:turns 144 (QA draft play is §30), draft-player offline fixtures +
+  browser fixture (by hand); CI and current-games green.
+- Decisions: ADR-0010 approved (owner, 2026-10-27): a private draft-player service with
+  DRAFT_PLAYER_SECRET; a template with no config is recorded 'none' and counts as proven, while
+  null still fails QA; at most 2 drafts per run, swept 14 days after the run ends; "not played"
+  doesn't block hand-off.
+- Next: the owner creates the draft-player service (PR "Owner steps"); until then plays settle
+  no_player. 9F takes migration 0034. Follow-up: draft screenshots on the run page.
+
 ## 2026-10-27 · Phase 9 9H · director-backend (Sound, FX and Component Editor art adapters)
 - Did: Six reskin ops, one read + one write per tool, each through the tool's storage with baseEtag
   (409 → conflict): sound.get_doc / sound.set_cues (builder), fx.get_effect / fx.update_art

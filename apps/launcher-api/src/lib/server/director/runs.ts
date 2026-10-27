@@ -45,6 +45,7 @@ import {
 } from '../projects';
 import { DIRECTOR_AGENTS } from './adapter';
 import { artPlanApprovalRefusal, pricedCatalogue } from './artPlan';
+import { templateConfigRecord } from './configEtag';
 import {
 	MAX_MOCKUPS,
 	loadMockupsDoc,
@@ -66,6 +67,7 @@ import {
 	type OwnerActionRequest,
 	type Stamp,
 } from './ownerActions';
+import { cancelRunDraftPlays } from './draftJobs';
 import {
 	agentConversations,
 	appendOwnerEvent,
@@ -335,7 +337,7 @@ async function copyTemplate(
 		loadGameConfigDocWithEtag(templateClient, template.key),
 		loadGameConfigDocWithEtag(run.clientKey ?? UNASSIGNED_CLIENT, run.projectKey),
 	]);
-	const templateConfigEtag = before.etag === after.etag ? before.etag : null;
+	const templateConfigEtag = templateConfigRecord(before, after);
 	await setRunConfigEtags(run.id, { template: templateConfigEtag, project: copy.etag });
 }
 
@@ -677,6 +679,12 @@ export async function performOwnerAction(
 			outcome.conflict === 'reused'
 				? `${requestId} was already used for another action.`
 				: `${requestId} is still being written.`,
+		);
+	}
+	if (req.action === 'stop' && !outcome.replayed) {
+		// The worker flips the run's queued plays when it applies the stop; the player is only told here.
+		await cancelRunDraftPlays(run.id).catch((e) =>
+			console.error(`director run ${run.id}: its draft plays were not cancelled:`, e),
 		);
 	}
 	return { action: req.action, eventId: outcome.eventId, replayed: outcome.replayed };

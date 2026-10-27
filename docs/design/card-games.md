@@ -1,7 +1,7 @@
 # Card games: a duel against the device (the card family)
 
 > Status: **PLAN APPROVED (owner, 2026-10-27): all seven §13 decisions accepted as recommended.**
-> Written the same day. Nothing is built yet; C1 is the next step. This is the design that
+> Written the same day. C1 is merged (#1391) and C2 is built; C3 is the next step. This is the design that
 > [game-families.md](game-families.md) §10 promised for the fourth family, once P10.7 had shipped
 > (§9 #15). P10.3 (variables, timers), P10.4 (drag, Align Target) and P10.7 (spawning, live sets)
 > are on `main`; progress on this plan will live in
@@ -153,6 +153,9 @@ interface CardInstance {
   Hearthstone-like mix of playing and attacking is a config switch for later (§13 #2).
 - The three automatic phases run inside `apply()`. A caller only ever sees the match waiting in
   `main` or `combat`, or ended.
+- **An expiring `endOfTurn` health buff never kills.** When it lapses in `end`, the unit is left at
+  1 health at least, its damage cut to fit (the genre's rule). A `permanent` negative health buff
+  still kills (§3.2).
 
 ### 2.3 The resource
 
@@ -380,8 +383,8 @@ translates each generated sentence once, and every card that says the same thing
 ## 4. The opponent: an on-device AI
 
 **In short:** the AI plays its turn by trying each legal action on a copy of the match, scoring the
-result, and taking the best. It is a module beside the rules (`cardAi.js`, new), pure and seeded, so
-an AI turn replays exactly.
+result, and taking the best. It is a module beside the rules (`cardAi.js`), pure and seeded, so
+an AI turn replays exactly. Built in C2; what C2 settled that this section left open is in §4.4.
 
 ### 4.1 The policy
 
@@ -431,20 +434,62 @@ aggressively or defensively.
 
 ### 4.3 Seeds and replay
 
-- The AI draws only from its **own** stream, `createRng(\`${seed}:ai\`)`, never from the match's.
+- The AI draws only from its **own** stream, seeded from `${seed}:ai:${side}`, never from the
+  match's.
   So an AI mistake roll never shifts a shuffle or a random target, and the match's own draws are
   the same whichever difficulty plays.
-- **A replay record** is `{ seed, decks, difficulty, actions }`, where `actions` are the player's
-  only. Replaying runs the AI again and reaches the same match, so the AI's actions need not be
-  stored. `check:card-ai` pins this (§12).
+- **A replay record** is `{ seed, decks, library, rules, first, ai, actions }`: `ai` seats the AI
+  (`{ side, difficulty, weights }`; two seats for an AI-vs-AI test match), and `actions` are the
+  player's only. Replaying runs the AI again and reaches the same match, so the AI's actions need
+  not be stored. `check:card-ai` pins this (§12).
 - **The AI's thinking time is presentation.** It decides at once; the table waits a short
   authored delay (a Flow timer, P10.3) before showing each action, so the player can follow it.
   Speed never changes a choice.
-- **Budget.** `hard`'s plan search keeps 4 sequences and extends each by every legal action, three
-  plays deep: at most 4 × A × 3 `apply()` calls, where A is the legal actions at a step (a full hand
-  and board give A ≈ 40, so about 500 calls). It must finish under 16 ms on a mid phone.
-  `check:card-ai` pins the call count on a full board (a fixed count, not wall time) and fails
-  above `MAX_PLAN_APPLIES` (600).
+- **Budget.** `hard`'s plan search tries every play from the match, keeps the 4 best sequences and
+  extends each by every play, three plays deep: about A + 4·A + 4·A trials, where A is the plays
+  listed at a step (fewer as the resource runs out). A trial is one `apply()` call, or four when the
+  play draws from the stream (§4.4), and such a play ends its sequence. `MAX_PLAN_APPLIES` (600) caps
+  every `apply()` one decision makes, the lethal search's and the samples' included; a search that
+  reaches it stops and takes the best found so far. It must finish under 16 ms on a mid phone.
+  `check:card-ai` pins the real call count (a fixed count, not wall time) on two full boards: a hand
+  of plain units and two targeted spells (36 actions listed) takes **200** calls and completes; a
+  hand of ten targeted spells (95 actions listed) would take 704 and **stops at 600**. The second
+  measured 11–14 ms on the build machine; a phone's time is C3's to measure.
+
+### 4.4 What C2 settled
+
+- **The API** (`cardAi.js` + `.d.ts`): `aiSettings({ difficulty, weights })` resolves a preset with
+  a deck's weight overrides (only the known weights are read; a non-number throws);
+  `createAi({ seed, side, difficulty, weights })` is the AI as a value;
+  `chooseAction(ai, match) → { action, ai, applies }` never changes either input and never
+  concedes; `evaluate(match, side, weights)`; `replayMatch(record)`.
+- **One stream per AI side,** `${seed}:ai:${side}`, so two AIs in a test match never share one.
+- **Each decision rolls once** on that stream for a mistake, and once more to pick the mistaken
+  action (any listed action but `concede`).
+- **The look-ahead never reads the match's stream.** Every trial runs on a copy whose `rngState` is
+  one of four fixed sample streams, chosen so their first draws fall in the middle of each quarter
+  of [0, 1). An action whose first trial draws nothing is certain and scored once; otherwise it is
+  scored by the mean over the four, which weighs a pick from two or four targets exactly and from
+  any other number closely. The lethal search counts a branch that draws as no win, and a plan
+  does not extend a play that drew: what follows it would rest on one sample's outcome.
+- **Nor the deck's hidden order.** A trial of a `draw` puts the real top card in the copy's hand,
+  so a plan only plays cards that were in the hand when the decision began. The evaluation reads
+  the hand's size, never its cards.
+- **The lethal search** runs in `combat` for `normal` and `hard`: depth first, at each `guard` while
+  one stands, then at the hero with the first attacker whose attack draws nothing, inside
+  `MAX_LETHAL_APPLIES` (100) of the budget. It is skipped when the ready units' attack and
+  `onAttack` damage cannot reach the hero (our units' `onDamaged` / `onDeath` damage is not
+  counted, so a lethal that needs it is not sought).
+- **A certain win in one action is taken at once** by every level, before any other is scored,
+  unless that decision's mistake roll fires.
+- **Doing nothing is the match as it is,** scored without an `apply()`, and it wins ties; among the
+  rest the first listed wins. Ending `combat` therefore never looks worse for the enemy's coming
+  draw.
+- **Two readings of §4.1's table:** a unit counts as it will be once its `endOfTurn` buffs lapse (so
+  a temporary buff is worth nothing on its own), and the `guard` / `shield` term is mine minus the
+  enemy's (so breaking an enemy shield counts), like every other term.
+- **A replay record** carries the library, rules and `first` the module needs, and its difficulty
+  lives on each `ai` seat (§4.3), not at the top.
 
 ---
 
@@ -828,8 +873,8 @@ game (game-families §7.1 applies to each).
 | # | Step | Scope | Packages | Size |
 |---|---|---|---|---|
 | C0 | **Plan + decisions** (this doc) — ✅ approved 2026-10-27 | Owner review of §13 | docs | S |
-| C1 | **The rules engine** | `cards.js` + `cards.d.ts`: the match value, zones, phases, the resource, `legalActions`, `apply`, the effect queue, the death check, the loop and turn limits, fatigue; `validateLibrary`; `cardText`; fixtures. No caller | `engine-mechanics` | M |
-| C2 | **The AI** | `cardAi.js` + `.d.ts`: lethal, one-step evaluation, the three difficulties with `hard`'s plan search, its own seeded stream; replay records; the budget | `engine-mechanics` | M |
+| C1 | **The rules engine** — ✅ merged (#1391) | `cards.js` + `cards.d.ts`: the match value, zones, phases, the resource, `legalActions`, `apply`, the effect queue, the death check, the loop and turn limits, fatigue; `validateLibrary`; `cardText`; fixtures. No caller | `engine-mechanics` | M |
+| C2 | **The AI** — ✅ built 2026-10-27 | `cardAi.js` + `.d.ts`: lethal, one-step evaluation, the three difficulties with `hard`'s plan search, its own seeded stream; replay records; the budget | `engine-mechanics` | M |
 | C3 | **Card family, end to end** | `card` in `GAME_KINDS` / `GAME_FAMILIES` / `CONFIG_FAMILIES` and every copy of the family map (§9.2); `GameConfigDoc.card`, `resolveCard`, the normalizer's board-less set, validation, the `/config` card section and picker; the two collectors on the ship chain; `CARD_RULES_MECHANIC`; `cardSession.ts`, `cardDriver.ts`, `cards.svelte.ts`, `<CardTable />` with drop hit-testing and per-instance spawn params; `CARD_VOCAB` and its starter; the `card` layout template and scene set (which puts `card` in Game Maker); the scaffold's placeholder frame; the "Cards" localization section; the bundle-size cost reported; a sample game and `docs/playtest/card-sample.md` | `constants-shared`, `game-config`, `engine-game`, `engine-layout`, `engine-flow-v2`, `apps/lines`, launcher | L |
 | C4 | **Invisible Card Library** | `/cards`: registry, roles, `FAMILY_TOOLS`, the doc slug; the list, form, live preview, decks, test match and "Run 100"; its docs under rule 9 in the same PR | launcher, `docs/tools/` | L |
 | C5 | *(optional, after a decision)* **Phase switches and more lists** | Interleaved play and combat (§13 #2); any verbs, targets or keywords the owner adds to the closed lists (§13 #3) | `engine-mechanics`, launcher | M |
@@ -844,7 +889,7 @@ Raw JSON in `/config`. C4 then makes it authorable.
 | Step | Check | What it proves |
 |---|---|---|
 | C1 | `check:card-rules` | Each phase's order; the resource's growth and refill; every legality rule of §2.4 (cost, board full, `chosen` required and filtered, `guard`, `swift`, exhausted attackers); each verb on each allowed target; `shield` absorbing one hit; simultaneous deaths in board order, active player first; trigger order; the loop guard ends as `loop`; fatigue; the turn limit; a seed and an action list replay byte for byte; `apply` never mutates its input |
-| C1 | `check:card-library` | `validateLibrary` errors and warnings for every rule in §3.6; `cardText` for every verb × target, pinned as strings; the normalizer keeps unknown card fields |
+| C1 | `check:card-library` | `validateLibrary` errors and warnings for every rule in §3.6; `cardText` for every verb × target, pinned as strings; the reader drops unknown card fields (§3.6) |
 | C2 | `check:card-ai` | Lethal is taken when there; the AI never makes an illegal action; each difficulty replays under a seed; the AI's draws never move the match RNG; `hard` stays inside its `apply()` budget on a full board; `normal` beats `easy` on seeds 1…100 with the sample decks |
 | C3 | `check:card-family` | `card` in every family list (constants, config, kind capabilities, the harness copies, the gates' names); a slot doc and every committed fixture normalize unchanged (with `check:family-defaults-identity`); an RGS card config is refused and `unplayable`; `/config` shows a card project only its section; `FAMILY_TOOLS` hides Symbols, Win Text and Characters from a card project and Card Library from every other family (with `check:family-tools`) |
 | C3 | `check:card-runtime` | The starter game plays headless to a result from a seed; the free-play branch sends no RGS request; every §2.6 event reaches its Flow signal; a drop off a legal target snaps back |
@@ -861,7 +906,7 @@ changed screens, `check:svelte` not rising) hold for C3 and C4.
 ## 13. Decisions (owner)
 
 **#1–#7 DECIDED (owner, 2026-10-27): every recommendation is accepted as written.** No question
-is open. The C0 row is done; C1 is the next step.
+is open. The C0 row is done, C1 is merged and C2 is built; C3 is the next step.
 
 1. **Where card data lives.** *(owner, 2026-10-27: as recommended)*
    - **In Game Config, as `GameConfigDoc.card`** (§7, option A). It reuses the bake, versions,

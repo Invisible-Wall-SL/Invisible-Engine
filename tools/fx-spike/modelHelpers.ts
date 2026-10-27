@@ -465,6 +465,20 @@ assert(
 );
 assert(
 	eq(
+		materialChoices([powerUp, frost, { ...dissolve, madeFor: 'particles' }]).map((c) => [
+			c.label,
+			c.particles,
+		]),
+		[
+			['Noise dissolve', true],
+			['Frost', false],
+			['Power-up', false],
+		],
+	),
+	'…an effect made for particles first (step 8d.7), each group by name',
+);
+assert(
+	eq(
 		largestFrame({ ...plainLayer, art: { assetKey: 'a', frames: ['s', 'b'] } }, [
 			{ name: 's', w: 10, h: 10 },
 			{ name: 'b', w: 20, h: 30 },

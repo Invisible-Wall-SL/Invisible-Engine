@@ -11,6 +11,7 @@
 		"start": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/main.ts",
 		"build": "tsc -p tsconfig.json",
 		"check:agents": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/agents.fixture.ts",
+		"check:draft-report": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/draftReport.fixture.ts",
 		"check:run-state": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/runState.fixture.ts",
 		"prove:lease": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/prove-lease.ts",
 		"check:model": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/model.fixture.ts",

@@ -117,16 +117,31 @@ export function materialParamValue(
 	return value !== undefined && typeof value === typeof spec.default ? value : spec.default;
 }
 
+/** One effect in the Material picker. */
+export interface FxMaterialChoice {
+	kind: string;
+	label: string;
+	/** Made for particles in Shader Graph (`madeFor`): listed first. */
+	particles: boolean;
+}
+
 /**
- * The picker's list: the project's compiled effects by name. "Made for particles" first once
- * `ShaderGraphDoc.madeFor` exists (step 8d.7); until then every effect is listed alike.
+ * The picker's list: the project's compiled effects made for particles first, then the rest, each
+ * group by name. Any effect may be a material; the order only says which were made as one.
  */
-export function materialChoices(
-	effects: readonly CustomElementFx[],
-): { kind: string; label: string }[] {
+export function materialChoices(effects: readonly CustomElementFx[]): FxMaterialChoice[] {
 	return effects
-		.map((e) => ({ kind: e.spec.kind as string, label: e.spec.label || e.spec.kind }))
-		.sort((a, b) => a.label.localeCompare(b.label) || a.kind.localeCompare(b.kind));
+		.map((e) => ({
+			kind: e.spec.kind as string,
+			label: e.spec.label || e.spec.kind,
+			particles: e.madeFor === 'particles',
+		}))
+		.sort(
+			(a, b) =>
+				Number(b.particles) - Number(a.particles) ||
+				a.label.localeCompare(b.label) ||
+				a.kind.localeCompare(b.kind),
+		);
 }
 
 /**

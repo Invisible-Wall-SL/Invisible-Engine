@@ -111,6 +111,13 @@
  *     call, the library linked) and refuses each body it cannot convert surely; comments fool
  *     neither way. A Custom GLSL body calls the three helpers, typed. (`pnpm --filter fx-spike
  *     shader-compile` builds the same bodies through the shell on WebGL1 and WebGL2.)
+ * 16. MADE FOR PARTICLES (step 8d.7): no doc of the corpus carries `madeFor`, and none compiles to an
+ *     effect carrying it or a cost (with the snapshots, the byte-identity gate). Made for particles,
+ *     every one compiles to the same effect plus `madeFor`, its cost and its reads, last; the shader
+ *     is the same. Storage keeps `'particles'` and drops any other value; the validator names one.
+ *     The budget is a particle material's (150 / 4) when made for particles, else an element's
+ *     (400 / 16): a graph between the two is warned of only made for particles. The registry keeps
+ *     the three fields, and drops a malformed one while keeping the effect.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -160,8 +167,11 @@ import {
 	type MotionFrame,
 } from 'constants-shared/motionLibrary';
 import {
+	COST_BUDGET,
 	MOTION_GRAPH_NODE_LIMIT,
 	MOTION_GRAPH_WIRE_LIMIT,
+	PARTICLE_COST_BUDGET,
+	PARTICLE_SAMPLE_BUDGET,
 	SAMPLE_BUDGET,
 	analyzeShaderGraph,
 	analyzeShaderMotion,
@@ -171,6 +181,7 @@ import {
 	compileShaderMotion,
 	glslFloat,
 	motionGraphSeries,
+	shaderGraphBudget,
 	validateShaderGraph,
 	type CompileResult,
 } from './src/compile.ts';
@@ -4332,6 +4343,116 @@ console.log('shader graph — the particle shell and the Particle node');
 	assert(
 		PARTICLE_GLSL.every(accepted) && typed.every((ok) => !ok),
 		'a Custom GLSL body calls the three helpers, typed by their signatures (a vec4, a float, a float, no arguments)',
+	);
+}
+
+// -------------------------------------------------------------------------------------------------
+console.log('shader graph — made for particles');
+{
+	const corpus = [...REFERENCE_GRAPHS, ...BUILTIN_TWINS.map((t) => t.doc), ...nodeShowcase()];
+	const MADE_FOR_KEYS = ['madeFor', 'cost', 'samples'];
+	const plainEffects = corpus.map((doc) => compileShaderEffect(doc));
+	assert(
+		corpus.every((doc) => !('madeFor' in doc)) &&
+			plainEffects.every(
+				(r) => !r.ok || MADE_FOR_KEYS.every((key) => !Object.hasOwn(r.effect, key)),
+			),
+		`no doc of the corpus (${corpus.length}) is made for particles, and none compiles to an effect carrying madeFor, cost or samples`,
+	);
+	const differing = corpus.filter((doc, i) => {
+		const plain = plainEffects[i];
+		const made = compileShaderEffect({ ...doc, madeFor: 'particles' });
+		if (plain.ok !== made.ok) return true;
+		if (!plain.ok || !made.ok) return JSON.stringify(plain) !== JSON.stringify(made);
+		const { cost, samples } = analyzeShaderGraph(doc);
+		const expected = { ...plain.effect, madeFor: 'particles', cost, samples };
+		return (
+			JSON.stringify(made.effect) !== JSON.stringify(expected) ||
+			made.effect.shader.body !== plain.effect.shader.body
+		);
+	});
+	assert(
+		!differing.length,
+		`made for particles, every doc compiles to the same effect plus madeFor, its cost and reads, last, the shader unchanged${differing.length ? `: differs ${differing.map((d) => d.id).join(', ')}` : ''}`,
+	);
+
+	const pulse = REFERENCE_GRAPHS.find((d) => d.id === 'pulseTint')!;
+	const stored = (madeFor: unknown): ShaderGraphDoc =>
+		normalizeShaderGraphDoc(JSON.parse(JSON.stringify({ ...pulse, madeFor })), 'p');
+	const dropped = ['elements', 'Particles', true, 1, null, { particles: true }].filter(
+		(v) => 'madeFor' in stored(v),
+	);
+	assert(
+		stored('particles').madeFor === 'particles' &&
+			!('madeFor' in normalizeShaderGraphDoc(JSON.parse(JSON.stringify(pulse)), 'p')) &&
+			!dropped.length,
+		`storage keeps madeFor "particles" and drops any other value${dropped.length ? `: kept ${JSON.stringify(dropped)}` : ''}`,
+	);
+	const madeForIssues = (madeFor: unknown): GraphIssue[] =>
+		validateShaderGraph({ ...pulse, madeFor } as unknown as ShaderGraphDoc).filter(
+			(i) => i.code === 'doc',
+		);
+	assert(
+		madeForIssues('particles').length === 0 &&
+			madeForIssues(undefined).length === 0 &&
+			madeForIssues('elements').some((i) => i.level === 'error' && /madeFor/.test(i.message)) &&
+			!compileShaderEffect({ ...pulse, madeFor: 'sprites' } as unknown as ShaderGraphDoc).ok,
+		'the validator names a madeFor other than "particles" (an error: it does not compile)',
+	);
+
+	const budgets = [shaderGraphBudget(pulse), shaderGraphBudget({ madeFor: 'particles' })];
+	const costWarnings = (doc: ShaderGraphDoc): string[] =>
+		analyzeShaderGraph(doc)
+			.issues.filter((i) => i.code === 'cost' && i.level === 'warning')
+			.map((i) => i.message);
+	const frost = REFERENCE_GRAPHS.find((d) => d.id === 'frost')!;
+	const gilded = REFERENCE_GRAPHS.find((d) => d.id === 'gildedRelief')!;
+	const frostAnalysis = analyzeShaderGraph(frost);
+	const gildedAnalysis = analyzeShaderGraph(gilded);
+	const frostParticles = costWarnings({ ...frost, madeFor: 'particles' });
+	const gildedParticles = costWarnings({ ...gilded, madeFor: 'particles' });
+	assert(
+		budgets[0].cost === COST_BUDGET &&
+			budgets[0].samples === SAMPLE_BUDGET &&
+			budgets[1].cost === PARTICLE_COST_BUDGET &&
+			budgets[1].samples === PARTICLE_SAMPLE_BUDGET &&
+			PARTICLE_COST_BUDGET === 150 &&
+			PARTICLE_SAMPLE_BUDGET === 4 &&
+			frostAnalysis.cost > PARTICLE_COST_BUDGET &&
+			frostAnalysis.cost <= COST_BUDGET &&
+			gildedAnalysis.samples > PARTICLE_SAMPLE_BUDGET &&
+			gildedAnalysis.cost <= PARTICLE_COST_BUDGET &&
+			costWarnings(frost).length === 0 &&
+			costWarnings(gilded).length === 0 &&
+			frostParticles.length === 2 &&
+			frostParticles.every((m) => m.includes('particle material')) &&
+			frostParticles.some((m) => m.includes(`over the ${PARTICLE_COST_BUDGET} `)) &&
+			gildedParticles.length === 1 &&
+			gildedParticles[0].includes(`over the ${PARTICLE_SAMPLE_BUDGET} `) &&
+			compileShaderEffect({ ...frost, madeFor: 'particles' }).ok,
+		`the budget is 150 / 4 made for particles, 400 / 16 else: frost (cost ${frostAnalysis.cost}, ${frostAnalysis.samples} reads) and gilded relief (${gildedAnalysis.samples} reads) are warned of only made for particles, and still compile`,
+	);
+
+	const made = compileShaderEffect({ ...pulse, madeFor: 'particles' });
+	const effect = made.ok ? made.effect : undefined;
+	const read = effect && readCustomElementFx(JSON.parse(JSON.stringify(effect)));
+	const bad = (change: Record<string, unknown>) =>
+		effect && readCustomElementFx({ ...JSON.parse(JSON.stringify(effect)), ...change });
+	const badMadeFor = bad({ madeFor: 'sprites' });
+	const badCost = bad({ cost: -1, samples: 'x' });
+	assert(
+		!!read &&
+			read.madeFor === 'particles' &&
+			read.cost === analyzeShaderGraph(pulse).cost &&
+			read.samples === analyzeShaderGraph(pulse).samples &&
+			!!badMadeFor &&
+			!('madeFor' in badMadeFor) &&
+			badMadeFor.cost === read.cost &&
+			!!badCost &&
+			!('cost' in badCost) &&
+			!('samples' in badCost) &&
+			badCost.madeFor === 'particles',
+		'the registry keeps madeFor, cost and samples, and drops a malformed one while keeping the effect',
 	);
 }
 
