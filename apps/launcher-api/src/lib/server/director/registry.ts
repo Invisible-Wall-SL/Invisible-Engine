@@ -2,6 +2,7 @@ import { TOOLS } from '$lib/roles';
 import { ADAPTER_TOOL_IDS, isDirectorAgent, type AdapterOp } from './adapter';
 import { ATLAS_OPS } from './ops/atlas';
 import { ATLAS_SETUP_OPS } from './ops/atlasSetup';
+import { BUGS_OPS } from './ops/bugs';
 import { FLIPBOOK_OPS } from './ops/flipbook';
 import { FONTS_OPS } from './ops/fonts';
 import { GAMEMAKER_OPS } from './ops/gamemaker';
@@ -55,6 +56,10 @@ export function buildRegistry(ops: readonly AdapterOp[]): ReadonlyMap<string, Ad
 		if (op.write && 'createsProject' in op && op.scope !== 'template') {
 			throw new Error(`Director adapter ${id}: creating the project is scoped to its template`);
 		}
+		// Pinned like the project creator: no other op may skip the write-target guard this way.
+		if (op.write && 'recordsOnly' in op && id !== 'bugs.file_pipeline_bug') {
+			throw new Error(`Director adapter ${id}: only bugs.file_pipeline_bug writes records only`);
+		}
 		out.set(id, op);
 	}
 	return out;
@@ -73,4 +78,5 @@ export const ADAPTER_OPS = buildRegistry([
 	...FONTS_OPS,
 	...RIGGER_OPS,
 	...FLIPBOOK_OPS,
+	...BUGS_OPS,
 ]);
