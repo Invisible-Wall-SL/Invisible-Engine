@@ -66,9 +66,8 @@ export const CARD_GAME_RULE_DEFAULTS = Object.freeze({
 	turnLimit: 60,
 });
 
-export type ResolvedCardGameRules = Omit<typeof CARD_GAME_RULE_DEFAULTS, 'resource' | 'first'> & {
+export type ResolvedCardGameRules = Required<Omit<CardGameRules, 'resource'>> & {
 	resource: { start: number; perTurn: number; max: number };
-	first: CardGameFirst;
 };
 
 /** The card-frame component a card with no `frame` is drawn in (Game Maker's placeholder, §6). */

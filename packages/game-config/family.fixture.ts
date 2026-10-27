@@ -135,7 +135,7 @@ check(
 	JSON.stringify(slot),
 );
 check('…and no family key at all', Object.hasOwn(slot, 'family'), false);
-check('an unknown family is a slot', normalize({ ...SLOT, family: 'card' }).family, undefined);
+check('an unknown family is a slot', normalize({ ...SLOT, family: 'poker' }).family, undefined);
 check('an rgs outcome is not stored', normalize({ ...MATCH3, outcome: 'rgs' }).outcome, undefined);
 check('min run 3 is not stored', normalizeMatch3({ minRun: 3 }), undefined);
 check('a run of one is not a run', normalizeMatch3({ minRun: 1 }), undefined);
@@ -369,13 +369,14 @@ check(
 );
 
 console.log('\n4b. the sections /config shows (design §6.2)');
-const sections = (family: 'slot' | 'match3' | 'arcade', outcome: 'rgs' | 'rules') =>
+const sections = (family: 'slot' | 'match3' | 'arcade' | 'card', outcome: 'rgs' | 'rules') =>
 	[...configSectionsFor(family, outcome)].sort();
 check(
 	'a slot shows every slot section, as today',
 	sections('slot', 'rgs'),
-	CONFIG_SECTIONS.filter((s) => s !== 'match3' && s !== 'arcade').sort(),
+	CONFIG_SECTIONS.filter((s) => s !== 'match3' && s !== 'arcade' && s !== 'card').sort(),
 );
+check('a card game shows only its own section', sections('card', 'rules'), ['card']);
 check('a slot ignores a rules outcome', sections('slot', 'rules'), sections('slot', 'rgs'));
 check('match-3, RGS', sections('match3', 'rgs'), [
 	'betModes',

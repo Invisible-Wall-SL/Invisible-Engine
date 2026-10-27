@@ -25,6 +25,7 @@ import {
 import type { LayoutDoc } from 'engine-layout';
 import {
 	ARCADE_SAMPLE_COMPONENTS,
+	CARD_FRAME_PLACEHOLDER_DEF,
 	engineOwnedOnly,
 	getFullSceneSet,
 	POTS_SCREEN,
@@ -392,10 +393,17 @@ export async function scaffoldProject(
 	}
 	// An arcade project's sample spawns placeholder components (game-families P10.8): its own, so an
 	// author re-skins them in the Component Editor. Create-only, like every other seed.
-	// Loaded only for an arcade project, so scaffolding every other kind keeps its import graph.
-	if (gameType === 'arcade') {
+	// Loaded only for those projects, so scaffolding every other kind keeps its import graph.
+	// A card project's cards are drawn in the placeholder card frame (card-games §6), the same way.
+	const sampleComponents =
+		gameType === 'arcade'
+			? ARCADE_SAMPLE_COMPONENTS
+			: gameType === 'card'
+				? [CARD_FRAME_PLACEHOLDER_DEF]
+				: [];
+	if (sampleComponents.length) {
 		const { saveComponent } = await import('./componentStorage');
-		for (const def of ARCADE_SAMPLE_COMPONENTS) {
+		for (const def of sampleComponents) {
 			try {
 				await saveComponent(structuredClone(def), project, null);
 			} catch (e) {

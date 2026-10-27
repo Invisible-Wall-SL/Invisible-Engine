@@ -24,6 +24,7 @@ import holdAndWinPots from '$lib/data/gameConfig/holdAndWin.pots.json';
 import linesBookOfThermopylae from '$lib/data/gameConfig/lines.bookOfThermopylae.json';
 import linesConfig from '$lib/data/gameConfig/lines.json';
 import arcadeRulesConfig from '$lib/data/gameConfig/arcade.rules.json';
+import cardRulesConfig from '$lib/data/gameConfig/card.rules.json';
 import match3RgsConfig from '$lib/data/gameConfig/match3.rgs.json';
 import match3RulesConfig from '$lib/data/gameConfig/match3.rules.json';
 import scatterConfig from '$lib/data/gameConfig/scatter.json';
@@ -59,6 +60,10 @@ const MATCH3_RGS_KEY = 'match3.rgs';
 /** The arcade seed (`arcade.rules.json`, hand-written): the catcher / dodger sample's play field,
  *  bodies and collision pairs (game-families P10.8). Free play: an arcade game has no RGS path. */
 const ARCADE_RULES_KEY = 'arcade.rules';
+
+/** The card seed (`card.rules.json`, hand-written): the sample's 24 cards and its two decks
+ *  (card-games §13 #7). Free play: a card game has no RGS path. */
+const CARD_RULES_KEY = 'card.rules';
 
 /** Who decides a new game's rounds — what Game Maker asks for a `match3` game. */
 export const isGameOutcome = (v: unknown): v is GameOutcome =>
@@ -98,6 +103,7 @@ const DEFAULTS_BY_GAME_TYPE: Record<string, GameConfigDoc> = Object.fromEntries(
 		[MATCH3_RULES_KEY]: match3RulesConfig,
 		[MATCH3_RGS_KEY]: match3RgsConfig,
 		[ARCADE_RULES_KEY]: arcadeRulesConfig,
+		[CARD_RULES_KEY]: cardRulesConfig,
 	}).flatMap(([gameType, raw]) => {
 		const doc = normalizeGameConfigDoc(raw);
 		return doc ? [[gameType, doc] as const] : [];
@@ -106,11 +112,12 @@ const DEFAULTS_BY_GAME_TYPE: Record<string, GameConfigDoc> = Object.fromEntries(
 
 /** A kind whose defaults are PRESETS resolves to its default preset's key. `match3` defaults to its
  *  rules-decided game (game-families P10.5); the RGS-decided seed (P10.6) is asked for by outcome.
- *  `arcade` has only its rules-decided game (P10.8). */
+ *  `arcade` (P10.8) and `card` (card-games C3) have only their rules-decided game. */
 const KIND_DEFAULT_KEY: Record<string, string> = {
 	holdAndWin: holdAndWinPresetKey(DEFAULT_HOLD_AND_WIN_PRESET),
 	match3: MATCH3_RULES_KEY,
 	arcade: ARCADE_RULES_KEY,
+	card: CARD_RULES_KEY,
 };
 
 export type GameConfigPreset = { id: string; label: string; doc: GameConfigDoc };

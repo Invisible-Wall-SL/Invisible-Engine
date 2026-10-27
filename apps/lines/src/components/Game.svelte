@@ -346,6 +346,7 @@
 	import RespinBoard from './RespinBoard.svelte';
 	import Match3Input from './Match3Input.svelte';
 	import ArcadeStage from './ArcadeStage.svelte';
+	import CardTable from './CardTable.svelte';
 	import { gameMechanic } from '../game/mechanic';
 	import CoinBoardLinesSelector from './CoinBoardLinesSelector.svelte';
 	import FlightLayer from './FlightLayer.svelte';
@@ -2676,12 +2677,16 @@
 			{/if}
 		{/snippet}
 
-		<!-- An arcade game's play field (`ArcadeStage.svelte`) stands in for the reel stack: it has no
-		     board. Only a mechanic that is a play field mounts it, so a slot game renders the reel stack
-		     exactly as before. -->
+		<!-- An arcade game's play field (`ArcadeStage.svelte`) and a card game's table
+		     (`CardTable.svelte`) stand in for the reel stack: neither has a board. Only a mechanic that
+		     is one mounts it, so a slot game renders the reel stack exactly as before. -->
 		{#if mechanic.playField}
 			<MainContainer>
 				<ArcadeStage scenes={editorDoc.scenes} />
+			</MainContainer>
+		{:else if mechanic.cardTable}
+			<MainContainer>
+				<CardTable scenes={editorDoc.scenes} />
 			</MainContainer>
 		{:else}
 			<MainContainer>

@@ -47,7 +47,7 @@ export interface KindCapabilityConfig {
 	/** `resolveExpandingSymbol(doc) !== undefined` — the Book-of expanding special is on
 	 *  (`docs/design/book-feature.md` §3.3). */
 	expandingSymbol?: boolean;
-	/** `resolveFamily(doc)` — `slot`, `match3` or `arcade`. Absent ⇒ the kind's family. */
+	/** `resolveFamily(doc)` — `slot`, `match3`, `arcade` or `card`. Absent ⇒ the kind's family. */
 	family?: string;
 	/** `resolveOutcome(doc)` — `rgs` or `rules`. Absent ⇒ `rgs`. */
 	outcome?: string;
@@ -101,7 +101,7 @@ export interface KindCapabilities {
 }
 
 const CASCADE_KINDS: ReadonlySet<string> = new Set(['cluster', 'scatter']);
-const FAMILY_KINDS: ReadonlySet<string> = new Set(['match3', 'arcade']);
+const FAMILY_KINDS: ReadonlySet<string> = new Set(['match3', 'arcade', 'card']);
 const NON_LINE_KINDS: ReadonlySet<string> = new Set(['ways', 'cluster', 'scatter']);
 
 export function kindCapabilities(
@@ -110,7 +110,8 @@ export function kindCapabilities(
 ): KindCapabilities {
 	const kind = gameType ?? '';
 	const family = config.family ?? (FAMILY_KINDS.has(kind) ? kind : 'slot');
-	if (family === 'match3' || family === 'arcade') return familyCapabilities(family, config);
+	if (family === 'match3' || family === 'arcade' || family === 'card')
+		return familyCapabilities(family, config);
 	const holdAndWinKind = kind === 'holdAndWin';
 	const holdAndWin = holdAndWinKind || !!config.holdAndWin;
 	const potsOverlay = !!config.potsOverlay;
@@ -136,14 +137,14 @@ export function kindCapabilities(
 	};
 }
 
-/** A match-3 board pops its matches and tumbles like a cascade slot; an arcade game has no board.
- *  Neither has any of a slot's features. */
+/** A match-3 board pops its matches and tumbles like a cascade slot; an arcade or card game has no
+ *  board. None has any of a slot's features, and a card game never has a wallet (card-games §9.2). */
 function familyCapabilities(
-	family: 'match3' | 'arcade',
+	family: 'match3' | 'arcade' | 'card',
 	config: KindCapabilityConfig,
 ): KindCapabilities {
 	const match3 = family === 'match3';
-	const wallet = config.outcome !== 'rules';
+	const wallet = family !== 'card' && config.outcome !== 'rules';
 	return {
 		freeSpins: false,
 		bookReveal: false,
