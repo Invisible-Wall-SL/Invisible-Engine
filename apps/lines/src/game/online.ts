@@ -44,8 +44,8 @@ import { typingInto } from './flowKeys';
  *
  * `arcade.online.netcode` picks who predicts the own player: `engine` (the default) is the
  * predictor above; `colyseus` is the SDK's own `Predict` reconciler (`engine-rooms/predict`,
- * awaited and called only then), running the same step (`reconcilerStep`). Everyone else is interpolated the
- * same way in both, so `view` means the same.
+ * awaited and called only then), running the same step (`reconcilerStep`). Everyone else is
+ * interpolated the same way in both, so `view` means the same.
  *
  * Launch parameters: `?rooms_url=` the game server (`wss://rooms.invisiblewall.org`), the game
  * key `?rooms_game=` (else `?project=`), and optionally `?rooms_name=` / `?rooms_character=`.
