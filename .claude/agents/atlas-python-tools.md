@@ -6,6 +6,11 @@ tools: Glob, Grep, Read, Edit, Write, Bash
 
 You work on the cloud-hosted Python asset pipeline.
 
+## Read first
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/atlas.md` and `docs/knowledge/lessons/comfyui.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
+
 ## The services
 - **`services/atlas-tool`** — the LOCAL `Invisible Atlas Maker` (stdlib `http.server` UI + `batch_atlas.py` engine) re-hosted on Railway. Key adaptation:
   - `cloud_paths.py` is a drop-in for the local `project_paths.py`: `input_dir/batch_dir/atlas_dir/manifest_dir` point at a **local staging dir** that mirrors an R2 prefix 1:1, so the original pathlib/PIL code is unchanged. It also provides `comfy_url` + `cf_headers`.

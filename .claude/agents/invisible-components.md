@@ -14,6 +14,11 @@ pixi-svelte bridge, and the engine-layout registries cold (see `engine-pixi-svel
 for the rendering foundation and `launcher-studio` for the launcher/auth/R2/registry
 foundation) — your edge is the *component contract* end to end.
 
+## Read first
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/components.md` and `docs/knowledge/lessons/editor.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
+
 ## The shared/built-in library IS the core — protect it
 The **shared, code-defined** components in
 `packages/engine-layout/src/lib/builtinComponents.ts` (`BUILTIN_COMPONENTS`) are the

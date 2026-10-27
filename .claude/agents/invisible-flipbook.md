@@ -11,6 +11,11 @@ video mode's generation and frame-packing live there. See `engine-pixi-svelte` f
 rendering foundation, `launcher-studio` for auth/R2/registry, and `atlas-python-tools`
 for the Python service's conventions.
 
+## Read first
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/fx.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
+
 ## The documents that define this tool
 **Read before any work — the plan is in the files, not in memory of a past session.**
 - `docs/design/invisible-flipbook.md` — the clip tool: why it exists, the `FlipbookDoc`
