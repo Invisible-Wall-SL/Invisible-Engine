@@ -1,3 +1,9 @@
+<script module lang="ts">
+	/** The editor page's count of material layers drawing (`particleMaterialSlotsFor`): one for every
+	 * overlay, as the game has one for its app. */
+	const EDITOR_MATERIAL_APP = {};
+</script>
+
 <script lang="ts">
 	/**
 	 * Scene Editor — the LIVE particle overlay. The 2D canvas can't run a WebGL particle emitter, so a
@@ -28,8 +34,13 @@
 	 * the layer's `placement.offset` (resolved by the same `planLayer` the game's `<EffectLayer>`
 	 * mounts from), so an offset layer previews where it plays. A node whose doc/layers resolve NO
 	 * live emitter keeps its 2D chip (reported via `onReadyKeysChange`).
+	 *
+	 * A sprite layer with a MATERIAL draws through the game's renderer, mounted as `/fx`'s `FxStage`
+	 * and the game mount it (`$lib/fx/layerMaterial.client.ts`), against one count of 8 for the whole
+	 * editor page (every overlay draws through one shared renderer, as a game draws one app). A
+	 * placement whose material's mount key changes (the compiled set registering) is rebuilt.
 	 */
-	import { Emitter } from '@barvynkoa/particle-emitter';
+	import type { Emitter } from '@barvynkoa/particle-emitter';
 	import {
 		bindArt,
 		bindEffectParams,
@@ -55,8 +66,19 @@
 		type ResolvedTransform,
 		type Scene,
 	} from 'engine-layout';
-	import { Container, Ticker, type TextureSource } from 'pixi.js';
+	import {
+		particleMaterialSlotsFor,
+		type MountedParticleMaterial,
+	} from 'pixi-svelte/particleMaterial';
+	import { Container, Ticker, type Texture, type TextureSource } from 'pixi.js';
+	import { customElementFxVersion } from '$lib/customElementFx.svelte';
 	import { framesToTextures, type ResolvedArt } from '$lib/fx/effectEmitter.client';
+	import {
+		layerEmitter,
+		layerMaterialKey,
+		layerMaterialPeak,
+		mountLayerMaterial,
+	} from '$lib/fx/layerMaterial.client';
 	import { onMount } from 'svelte';
 	import {
 		childLocalTransform,
@@ -72,7 +94,7 @@
 	} from './editorCanvas.helpers';
 	import { withEditorProject } from './editorProject.client';
 	import { notePlacedEffect } from './placedEffects.client.svelte';
-	import { createPixiSurface, type PixiSurface } from './sharedGl.client';
+	import { createPixiSurface, sharedPixiRenderer, type PixiSurface } from './sharedGl.client';
 	import { previewResolveTransform, previewVersion } from './valuePreview.client.svelte';
 
 	interface Props {
@@ -209,7 +231,7 @@
 		/** The world transform this node's container is currently placed at (change ⇒ reposition). */
 		placed: EffectTarget['world'];
 		container: Container;
-		emitters: Emitter[];
+		layers: LiveLayer[];
 		/** The `effect.*` drives and the wrapper they move, when the doc has any. */
 		fx?: { applier: EffectLevelApplier; wrapper: Container };
 		/** One applier per driven layer, only when live values are supplied. */
@@ -223,6 +245,17 @@
 		 * shrinks), so a burst that fans out then dies still keeps a stable enclosing box. Reset (a
 		 * fresh `LiveNode`) whenever the node's effectId/doc rebuilds. */
 		bounds: SpreadBox | null;
+	}
+
+	/** One free layer's emitter, and its material when it has one, with what that was mounted from
+	 * (the doc is fixed for the node's life, so only the set's registration can change the key). */
+	interface LiveLayer {
+		emitter: Emitter;
+		material?: MountedParticleMaterial;
+		layer: EmitterLayer;
+		textures: Texture[];
+		peak: number;
+		materialKey?: string;
 	}
 
 	/** Live renders keyed by placement (`EffectTarget.key`), so each placed copy of a component plays
@@ -461,20 +494,25 @@
 		container.rotation = w.rotation;
 	}
 
-	/** Dispose a node's live emitters + its container (mirrors FxStage's dispose discipline). A free
-	 * sprite emitter has no Tier-C pool, so a plain `destroy()` suffices. */
+	/** Dispose a node's live emitters, then their materials, then its container (mirrors FxStage's
+	 * dispose discipline). A free sprite emitter has no Tier-C pool, so a plain `destroy()` suffices. */
 	function disposeNode(node: LiveNode): void {
-		for (const emitter of node.emitters) {
+		for (const live of node.layers) {
 			try {
-				emitter.emit = false;
-				emitter.destroy();
+				live.emitter.emit = false;
+				live.emitter.destroy();
 			} catch {
 				/* emitter already torn down */
 			}
+			live.material?.release();
 		}
-		node.emitters = [];
+		node.layers = [];
 		node.container.destroy({ children: true });
 	}
+
+	/** A material in the node would mount differently now (its kind registered or went away). */
+	const materialStale = (node: LiveNode): boolean =>
+		node.layers.some((l) => l.materialKey !== layerMaterialKey(l.layer, l.textures, l.peak));
 
 	/** Generation token so a fast edit / transform change can't interleave two async rebuilds into
 	 * duplicate or torn emitters (mirrors FxStage's `rebuildGen`). */
@@ -510,7 +548,7 @@
 		for (const tg of targets) {
 			seen.add(tg.key);
 			const existing = liveNodes.get(tg.key);
-			if (existing && existing.effectId === tg.effectId) {
+			if (existing && existing.effectId === tg.effectId && !materialStale(existing)) {
 				existing.node = tg.node;
 				existing.params = tg.params;
 				if (!sameTransform(existing.placed, tg.world)) {
@@ -519,7 +557,7 @@
 				}
 				continue;
 			}
-			// New placement, or its effectId changed → tear down the stale render, then build fresh.
+			// New placement, its effectId changed or its material remounts → tear down the stale render, then build fresh.
 			if (existing) {
 				disposeNode(existing);
 				liveNodes.delete(tg.key);
@@ -575,7 +613,7 @@
 			doc,
 			placed: tg.world,
 			container,
-			emitters: [],
+			layers: [],
 			appliers: [],
 			live: false,
 			bounds: null,
@@ -609,7 +647,7 @@
 			if (gen !== rebuildGen) return;
 		}
 
-		node.live = node.emitters.length > 0;
+		node.live = node.layers.length > 0;
 		publishReady();
 	}
 
@@ -639,19 +677,36 @@
 		const layerContainer = new Container();
 		layerContainer.position.set(offset.x, offset.y);
 		(node.fx?.wrapper ?? node.container).addChild(layerContainer);
-		const emitter = new Emitter(layerContainer, config);
+		const peak = layerMaterialPeak(layer, doc.params);
+		const material = mountLayerMaterial({
+			layer,
+			host: layerContainer,
+			textures,
+			peak,
+			slots: particleMaterialSlotsFor(EDITOR_MATERIAL_APP),
+			label: `${node.effectId}/${layer.key}`,
+		});
+		const emitter = layerEmitter(layerContainer, config, material);
 		const applier = effectParamValues
 			? bindEffectParams({
 					params: doc.params,
 					layer,
 					emitter,
 					setOffset: (x, y) => layerContainer.position.set(x, y),
+					material: material?.material,
 					values: effectParamValues(node.node, doc, node.params),
 				})
 			: undefined;
 		if (applier) node.appliers.push(applier);
 		emitter.emit = playing;
-		node.emitters.push(emitter);
+		node.layers.push({
+			emitter,
+			material,
+			layer,
+			textures,
+			peak,
+			materialKey: layerMaterialKey(layer, textures, peak),
+		});
 	}
 
 	/** Write the effect-level state onto its wrapper. */
@@ -697,7 +752,7 @@
 	function accumulateBounds(): boolean {
 		let grew = false;
 		for (const node of liveNodes.values()) {
-			if (node.emitters.length === 0) continue;
+			if (node.layers.length === 0) continue;
 			// getLocalBounds measures the container's children (the live particles) BEFORE the
 			// container's own position/scale/rotation — i.e. offsets from the node origin, which is
 			// exactly the local box space `nodeBox` frames.
@@ -801,9 +856,12 @@
 						for (const applier of node.appliers) applier.apply(values);
 					}
 					if (node.fx) nodeDt *= node.fx.applier.state.timeScale;
-					for (const emitter of node.emitters) {
+					for (const { emitter, material } of node.layers) {
 						try {
 							emitter.update(nodeDt);
+							const drawing = material?.material;
+							const renderer = drawing ? sharedPixiRenderer() : null;
+							if (drawing && renderer) drawing.sync(renderer);
 						} catch (err) {
 							// A degenerate config (e.g. a 0-lifetime particle → Infinity interpolation) can make
 							// the library throw mid-update. Isolate it so one bad emitter doesn't throw out of the
@@ -855,6 +913,8 @@
 		void depthSlice;
 		// A scrubbed value-binding test value moves / hides an effect like any other node.
 		void previewVersion();
+		// The compiled set registering (or changing) remounts a material layer.
+		void customElementFxVersion();
 		if (ready) void requestRebuild();
 	});
 
@@ -871,7 +931,7 @@
 	$effect(() => {
 		const play = playing;
 		for (const node of liveNodes.values()) {
-			for (const emitter of node.emitters) emitter.emit = play;
+			for (const { emitter } of node.layers) emitter.emit = play;
 		}
 	});
 </script>

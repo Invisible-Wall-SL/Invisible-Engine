@@ -24,6 +24,11 @@
  * (it needs a pooled `RigView` host the overlay doesn't provide), matching the v1 preview scope —
  * the SAME scope both hosts share.
  *
+ * A sprite layer with a MATERIAL draws through the game's renderer (`layerMaterial.client.ts`),
+ * against this overlay's own 8, once its host registered the compiled set: the Symbols page from its
+ * load data, the Rigger through {@link loadShaderEffects} (`window.RiggerFxLoadShaderEffects`). With
+ * no set, or a kind it lacks, the layer draws plain, as the game does.
+ *
  * It also plays Invisible Flipbook CLIPS ({@link FxOverlayApi.playFlipbook}), because the Rigger can
  * bind either to an animation event and both must ride the same bone through the same `follow()`.
  * One overlay rather than a second canvas per host: a burst and a clip bound to the same beat have
@@ -31,7 +36,7 @@
  * (~16) — the reason the FX overlay is already lazy per band.
  */
 
-import { Emitter } from '@barvynkoa/particle-emitter';
+import type { Emitter } from '@barvynkoa/particle-emitter';
 import {
 	bindArt,
 	createEffectLevelApplier,
@@ -44,6 +49,10 @@ import {
 	type EmitterLayer,
 } from 'engine-fx';
 import {
+	particleMaterialSlotsFor,
+	type MountedParticleMaterial,
+} from 'pixi-svelte/particleMaterial';
+import {
 	AnimatedSprite,
 	Application,
 	Container,
@@ -53,9 +62,16 @@ import {
 } from 'pixi.js';
 import { framesToTextures, type ResolvedArt } from './effectEmitter.client';
 import { clipToTextures, type OverlayClip } from './flipbookFrames.client';
+import {
+	layerEmitter,
+	layerMaterialPeak,
+	loadShaderEffects,
+	mountLayerMaterial,
+} from './layerMaterial.client';
 
 /** Re-exported so a host types its clip list against the same shape the overlay consumes. */
 export type { OverlayClip };
+export { loadShaderEffects };
 
 /**
  * A bone's on-screen affine transform (all in CSS px in host space): `(x,y)` is the bone origin,
@@ -177,6 +193,8 @@ interface LiveEffect {
 	/** Child of `inner` that the effect's `effect.*` drives move, when it has any — else `inner`. */
 	layers: Container;
 	emitters: Emitter[];
+	/** The materials its sprite layers draw through, mirrored after the emitters each tick. */
+	materials: MountedParticleMaterial[];
 	/** Live flipbook sprites (a clip play builds one; an effect play builds none). Advanced from the
 	 * overlay's own ticker rather than `autoUpdate`, so a clip and a burst are clocked by the SAME
 	 * tick — two clocks is how a preview drifts from what it previews. */
@@ -329,6 +347,7 @@ export function createFxOverlay(): FxOverlayApi {
 					emitter.emit = false;
 				}
 			}
+			if (app) for (const { material } of effect.materials) material?.sync(app.renderer);
 			for (const sprite of effect.sprites) {
 				try {
 					sprite.update(ticker);
@@ -427,13 +446,25 @@ export function createFxOverlay(): FxOverlayApi {
 		const layerContainer = new Container();
 		layerContainer.position.set(plan.offset?.x ?? 0, plan.offset?.y ?? 0);
 		effect.layers.addChild(layerContainer);
-		const emitter = new Emitter(layerContainer, config);
+		const material = app
+			? mountLayerMaterial({
+					layer,
+					host: layerContainer,
+					textures,
+					peak: layerMaterialPeak(layer, doc.params),
+					slots: particleMaterialSlotsFor(app),
+					label: `${doc.id}/${layer.key}`,
+				})
+			: undefined;
+		if (material) effect.materials.push(material);
+		const emitter = layerEmitter(layerContainer, config, material);
 		if (values) {
 			bindEffectParams({
 				params: doc.params,
 				layer,
 				emitter,
 				setOffset: (x, y) => layerContainer.position.set(x, y),
+				material: material?.material,
 				values,
 			});
 		}
@@ -477,6 +508,7 @@ export function createFxOverlay(): FxOverlayApi {
 			inner,
 			layers: inner,
 			emitters: [],
+			materials: [],
 			sprites: [],
 			timers: [],
 			disposed: false,
@@ -558,6 +590,7 @@ export function createFxOverlay(): FxOverlayApi {
 			inner,
 			layers: inner,
 			emitters: [],
+			materials: [],
 			sprites: [],
 			timers: [],
 			disposed: false,
@@ -635,6 +668,8 @@ export function createFxOverlay(): FxOverlayApi {
 			}
 		}
 		effect.emitters = [];
+		for (const material of effect.materials) material.release();
+		effect.materials = [];
 		// Stop before the container destroy takes them: a running `AnimatedSprite` whose textures are
 		// destroyed under it keeps ticking against freed sources.
 		for (const sprite of effect.sprites) {

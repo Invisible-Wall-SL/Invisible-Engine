@@ -1018,12 +1018,19 @@ function ensureFxBundle(){
   if (fxLoadFailed || window.RiggerFxCreate) return Promise.resolve();
   if (fxLoading) return fxLoading;
   fxLoading = new Promise((resolve) => {
+    // The project's compiled shader effects are registered before the first overlay draws, so a
+    // layer's material shows; a failed fetch (or an older bundle) leaves those layers plain.
     const finish = () => {
       if (!window.RiggerFxCreate){
         console.warn("[RiggerFx] bundle loaded but window.RiggerFxCreate missing");
         fxLoadFailed = true;
+        resolve();
+        return;
       }
-      resolve();
+      if (typeof window.RiggerFxLoadShaderEffects !== "function"){ resolve(); return; }
+      window.RiggerFxLoadShaderEffects().then((ok) => {
+        if (!ok) console.warn("[RiggerFx] no compiled shader effects; material layers draw plain");
+      }, () => {}).then(resolve);
     };
     if (window.RiggerFxCreate){ finish(); return; }
     console.log("[RiggerFx] loading /rigger/vendor/rigger-fx.js …");

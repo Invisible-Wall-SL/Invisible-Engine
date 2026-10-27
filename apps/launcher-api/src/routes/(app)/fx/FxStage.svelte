@@ -36,8 +36,6 @@
 		bindEffectParams,
 		createEffectLevelApplier,
 		emitterDeltaSeconds,
-		fxMaterialIntensity,
-		fxMaterialPeakParticles,
 		stepCollapsedValueLists,
 		type EffectLevelApplier,
 		type EffectParam,
@@ -55,12 +53,18 @@
 		type RigParticleBehaviorConfig,
 	} from 'pixi-svelte';
 	import {
-		mountParticleMaterial,
 		particleMaterialSlotsFor,
 		type MountedParticleMaterial,
 	} from 'pixi-svelte/particleMaterial';
 	import { Application, Container, Sprite, Texture, type TextureSource } from 'pixi.js';
 	import { framesToTextures, loadPageSource } from '$lib/fx/effectEmitter.client';
+	import {
+		layerEmitter,
+		layerMaterialKey,
+		layerMaterialPeak,
+		mountLayerMaterial,
+		retuneLayerMaterial,
+	} from '$lib/fx/layerMaterial.client';
 	import { customElementFxVersion } from '$lib/customElementFx.svelte';
 	import { customElementFx } from 'constants-shared/elementFx';
 	import { onMount, untrack } from 'svelte';
@@ -210,7 +214,7 @@
 		built?: string;
 		peak?: number;
 		material?: MountedParticleMaterial;
-		/** What the material was mounted from ({@link materialMountKey}). */
+		/** What the material was mounted from (`layerMaterialKey`). */
 		materialKey?: string;
 		/** The most pixels the material's quads have covered since the emitter was (re)initialised. */
 		peakArea?: number;
@@ -575,7 +579,7 @@
 			}
 
 			const built = builtFrom(layer);
-			const peak = layer.material ? fxMaterialPeakParticles(layer, paramDefs) : 0;
+			const peak = layerMaterialPeak(layer, paramDefs);
 			const known = live.get(layer.key);
 			if (known?.built === built && known.peak === peak) {
 				retune(known, layer);
@@ -605,7 +609,7 @@
 				{ framerate: layer.art.framerate, loop: layer.art.loop },
 			);
 			let entry = live.get(layer.key);
-			const mountKey = materialMountKey(layer, real, peak);
+			const mountKey = layerMaterialKey(layer, real, peak);
 			const remount = !entry || entry.materialKey !== mountKey;
 			if (!entry || remount) {
 				// The material's renderer reads its spec at mount and owns the emitter's particle
@@ -613,10 +617,18 @@
 				const container = entry?.container ?? new Container();
 				if (entry) disposeLayer(entry);
 				else world.addChild(container);
-				const material = mountMaterial(layer, container, real, peak);
-				const bound = material?.material ? material.material.bindConfig(config) : config;
+				const material = app
+					? mountLayerMaterial({
+							layer,
+							host: container,
+							textures: real,
+							peak,
+							slots: particleMaterialSlotsFor(app),
+							label: `fx/${layer.key}`,
+						})
+					: undefined;
 				entry = {
-					emitter: new Emitter(material?.material?.particles ?? container, bound),
+					emitter: layerEmitter(container, config, material),
 					container,
 					hasArt: true,
 					layer,
@@ -671,45 +683,6 @@
 	const isRegistered = (kind: string): boolean => !!customElementFx(kind);
 
 	/**
-	 * What the material's renderer reads at mount: its kind (and whether it is registered), its time,
-	 * the capacity (Max particles and the most a drive can raise it to) and the frames' texture
-	 * source. A change to any remounts it; `materialKey` keeps the last one, `undefined` with no
-	 * material.
-	 */
-	function materialMountKey(
-		layer: EmitterLayer,
-		textures: Texture[],
-		peak: number,
-	): string | undefined {
-		const m = layer.material;
-		if (!m || layer.particleKind !== 'sprite') return undefined;
-		const max = (layer.config as { maxParticles?: unknown }).maxParticles;
-		const source = textures[0]?.source.uid ?? 'none';
-		const registered = isRegistered(m.kind) ? 'r' : 'u';
-		return `${m.kind}|${registered}|${m.time ?? 'life'}|${String(max)}|${peak}|${source}|${textures.length}`;
-	}
-
-	/** Mount a layer's material as the game does (`<ParticleEmitter material>`), or none. */
-	function mountMaterial(
-		layer: EmitterLayer,
-		container: Container,
-		textures: Texture[],
-		peak: number,
-	): MountedParticleMaterial | undefined {
-		const m = layer.material;
-		if (!m || layer.particleKind !== 'sprite' || !app) return undefined;
-		const spec = $state.snapshot(m);
-		return mountParticleMaterial({
-			spec: { ...spec, peakParticles: peak, label: `fx/${layer.key}` },
-			host: container,
-			textures,
-			maxParticles: Number((layer.config as { maxParticles?: unknown }).maxParticles),
-			rigParticles: false,
-			slots: particleMaterialSlotsFor(app),
-		});
-	}
-
-	/**
 	 * The layer changed only in its material's strength or params (or not at all): write them as
 	 * uniforms, with no re-init, and rebind the parameters against the new values.
 	 */
@@ -723,8 +696,7 @@
 		if (!changed) return;
 		entry.applier?.restore();
 		if (material) {
-			material.setIntensity(fxMaterialIntensity(after?.intensity));
-			material.setParams($state.snapshot(after?.params));
+			retuneLayerMaterial(material, $state.snapshot(after));
 			// The strength rides each particle's vertices: re-mirror, so a paused stage shows it too.
 			syncMaterial(entry);
 		}
