@@ -8,6 +8,7 @@
  * (`engine-cinematic` `CinematicTrack`), and the game already plays them on node actors.
  */
 import { textNodeStrings, type CinematicDoc, type LayoutNode } from 'engine-layout';
+import type { TimelineCueKey } from './timeline';
 
 type Track = Record<string, unknown> & { id: string };
 type TextKey = { time: number; value?: number; key?: string };
@@ -81,11 +82,14 @@ export function textKeyAt(
 	return keys.find((k) => Math.abs(k.time - time) <= halfFrame) ?? null;
 }
 
-/** Every cue on the timeline, in time order — the row the Report Event button adds to. */
-export function cueKeys(doc: CinematicDoc): { time: number; cue: string }[] {
+/** Every cue on the timeline, in time order — the row the Report Event button adds to. A sound
+ *  cue's options (`sound`) come with it; a cue without them reads `{ time, cue }`. */
+export function cueKeys(doc: CinematicDoc): TimelineCueKey[] {
 	const track = doc.tracks.find((t) => t.kind === 'cue') as Track | undefined;
-	const keys = (track?.keys ?? []) as { time: number; cue?: string }[];
-	return keys.map((k) => ({ time: k.time, cue: k.cue ?? '' })).sort((a, b) => a.time - b.time);
+	const keys = (track?.keys ?? []) as Partial<TimelineCueKey>[];
+	return keys
+		.map((k) => ({ time: k.time ?? 0, cue: k.cue ?? '', ...(k.sound && { sound: k.sound }) }))
+		.sort((a, b) => a.time - b.time);
 }
 
 const grouped = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });

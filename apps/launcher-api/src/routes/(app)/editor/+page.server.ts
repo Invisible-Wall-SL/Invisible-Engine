@@ -44,6 +44,8 @@ import { resolveGameConfig } from '$lib/server/gameConfigDefaults';
 import { resolveLayoutProfile } from '$lib/server/layoutProfile';
 import { loadPublishedSymbolDefaults, symbolDefaultsFor } from '$lib/server/symbolDefaults';
 import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
+import { loadSoundsDoc } from '$lib/server/soundsStorage';
+import { cueListsFor } from '$lib/server/cueLists';
 import { loadCustomElementFx } from '$lib/server/shaderStorage';
 import { loadTemplate, loadTemplateWithEtag } from '$lib/server/templateStorage';
 import { resolveActionScope, resolveToolScope } from '$lib/server/toolScope';
@@ -145,6 +147,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		toolOverrides,
 		flowDoc,
 		customElementFx,
+		soundsDoc,
 	] = await Promise.all([
 		loadDocWithEtag(clientKey, projectKey, resolvedProjectGameType),
 		listProjectAssets(clientKey, projectKey),
@@ -177,6 +180,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// The project's shader graphs compiled: registered by the page, so the Element FX pickers
 		// list them, an entry naming one reads and its ▶ plays.
 		loadCustomElementFx(clientKey, projectKey),
+		// The project's sound library, for the timeline cue inspector's sound names. One that will
+		// not load lists the engine's sounds only.
+		loadSoundsDoc(clientKey, projectKey).catch(() => null),
 	]);
 	const components = componentEntries.map((e) => e.def);
 	// id → the ETag its next save must match (`null` = built-in / never stored ⇒ create).
@@ -308,6 +314,13 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		componentEtags,
 		canPublishShared,
 		flowVariables: flowDoc ? docVariables(flowDoc).map((v) => ({ id: v.id, type: v.type })) : [],
+		// What the timeline cue inspector lists by name: sounds (▶ for the uploads, when this user
+		// holds Invisible Sound, whose file route plays them) and the flow's own fired cues.
+		cueLists: cueListsFor(
+			soundsDoc,
+			flowDoc,
+			tools.some((t) => t.id === 'sound'),
+		),
 		// Re-keyed onto the real def ids: a sidecar's filename is `r2Slug(id)`, so the raw
 		// listing keys `hudReadout` as `hudreadout` and `componentDefaults[def.id]` would miss.
 		componentDefaults: keyComponentDefaultsById(

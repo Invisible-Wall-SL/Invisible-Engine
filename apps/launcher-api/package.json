@@ -86,6 +86,8 @@
 		"check:timeline-ratio-keys": "tsx --tsconfig tsconfig.scripts.json scripts/check-timeline-ratio-keys.ts",
 		"precheck:timeline-node-paste": "node scripts/ensure-svelte-kit.mjs",
 		"check:timeline-node-paste": "tsx --tsconfig tsconfig.scripts.json scripts/check-timeline-node-paste.ts",
+		"precheck:timeline-cue-sound": "node scripts/ensure-svelte-kit.mjs",
+		"check:timeline-cue-sound": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-timeline-cue-sound.ts",
 		"precheck:screen-cue-fx": "node scripts/ensure-svelte-kit.mjs",
 		"check:screen-cue-fx": "tsx --tsconfig tsconfig.scripts.json scripts/check-screen-cue-fx.ts",
 		"precheck:editor-data-library": "node scripts/ensure-svelte-kit.mjs",

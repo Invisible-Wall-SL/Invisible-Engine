@@ -71,6 +71,126 @@ export const CUE_KINDS = [
 ];
 const cueColor = (cue) =>
 	(CUE_KINDS.find((k) => String(cue || '').startsWith(k.prefix)) || {}).color || '#8b93a1';
+/** A cue's namespace (`sfx`, `signal`, …), or '' for a cue without one. */
+const cueNamespace = (cue) => {
+	const s = String(cue || '');
+	const sep = s.indexOf(':');
+	return sep > 0 ? s.slice(0, sep) : '';
+};
+const cueName = (cue) => {
+	const s = String(cue || '');
+	return s.slice(s.indexOf(':') + 1);
+};
+
+/**
+ * SOUND CUE OPTIONS: an `sfx:` / `music:` key may carry a `sound` object beside `cue` (volume,
+ * stop, fades, loop, …). This is the editor's copy of the contract the game reads them with,
+ * `engine-layout`'s `cueSound.ts` — this file imports nothing — and `check:timeline-cue-sound`
+ * holds the two together.
+ */
+export const CUE_SOUND_RANGES = {
+	volume: [0, 1],
+	volumeJitter: [0, 1],
+	rate: [0.5, 2],
+	rateJitter: [0, 0.5],
+	pan: [-1, 1],
+	fadeIn: [0, 10000],
+	fadeOut: [0, 10000],
+	offset: [0, 60000],
+};
+export const CUE_SOUND_FIELDS = {
+	sfx: ['action', 'volume', 'volumeJitter', 'rate', 'rateJitter', 'pan', 'loop', 'fadeIn', 'fadeOut', 'offset', 'overlap', 'pick'], // prettier-ignore
+	music: ['action', 'volume', 'loop', 'fadeIn', 'fadeOut'],
+};
+export const CUE_SOUND_MAX_PICK = 8;
+/** What an absent number option means. Writing it deletes the field instead. */
+const CUE_SOUND_DEFAULTS = {
+	volume: 1,
+	volumeJitter: 0,
+	rate: 1,
+	rateJitter: 0,
+	pan: 0,
+	fadeIn: 0,
+	fadeOut: 0,
+	offset: 0,
+};
+/** Millisecond options: whole numbers. The rest keep three decimals. */
+const CUE_SOUND_MS = ['fadeIn', 'fadeOut', 'offset'];
+
+/** `sfx` / `music` for a sound cue, else null. */
+export const cueSoundKind = (cue) => {
+	const ns = cueNamespace(cue);
+	return ns === 'sfx' || ns === 'music' ? ns : null;
+};
+
+/**
+ * Write one sound option on cue key `k`, in place. A value equal to the field's default, invalid,
+ * or not one the cue's kind honours DELETES the field, and an emptied `sound` is deleted, so a cue
+ * nobody set an option on stays exactly `{ time, cue }`. A stop cue honours only `fadeOut`, so
+ * switching to stop drops the rest and switching back to play drops `fadeOut`. Music's `loop` is
+ * an override of the track's own flag, so an explicit `false` stays; `undefined` clears it.
+ */
+export function setCueSoundOption(k, field, value) {
+	const kind = cueSoundKind(k.cue);
+	if (!kind || !CUE_SOUND_FIELDS[kind].includes(field)) return;
+	const sound = k.sound && typeof k.sound === 'object' ? { ...k.sound } : {};
+	const stop = sound.action === 'stop';
+	if (field === 'action') {
+		if (value === 'stop') {
+			for (const f of Object.keys(sound)) if (f !== 'fadeOut') delete sound[f];
+			sound.action = 'stop';
+		} else {
+			delete sound.action;
+			delete sound.fadeOut;
+		}
+	} else if (field === 'fadeOut' ? !stop : stop) {
+		return;
+	} else if (field === 'pick') {
+		const names = (Array.isArray(value) ? value : [])
+			.map((n) => String(n).trim())
+			.filter((n, i, all) => n && all.indexOf(n) === i)
+			.slice(0, CUE_SOUND_MAX_PICK);
+		if (names.length) sound.pick = names;
+		else delete sound.pick;
+	} else if (field === 'loop' || field === 'overlap') {
+		const keep = typeof value === 'boolean' && (value || (kind === 'music' && field === 'loop'));
+		if (keep) sound[field] = value;
+		else delete sound[field];
+	} else {
+		const n = typeof value === 'number' ? value : parseFloat(value);
+		const [lo, hi] = CUE_SOUND_RANGES[field];
+		const v = Number.isFinite(n) ? Math.min(Math.max(n, lo), hi) : NaN;
+		const rounded = CUE_SOUND_MS.includes(field) ? Math.round(v) : +v.toFixed(3);
+		if (!Number.isFinite(rounded) || rounded === CUE_SOUND_DEFAULTS[field]) delete sound[field];
+		else sound[field] = rounded;
+	}
+	if (Object.keys(sound).length) k.sound = sound;
+	else delete k.sound;
+}
+
+/** What a cue-option control holds, as the value `setCueSoundOption` takes (empty ⇒ undefined). */
+function cueOptionInput(node, field) {
+	const raw = node.value;
+	if (node.type === 'checkbox') return node.checked;
+	if (field === 'pick') return raw.split(',');
+	if (field === 'action') return raw;
+	if (raw === '') return undefined;
+	return field === 'loop' ? raw === 'true' : parseFloat(raw);
+}
+
+/** The short hint a sound cue's marker carries on the track: `🔊 name 60% 🔁`, `⏹ name`, …. */
+export function cueSoundHint(k) {
+	const kind = cueSoundKind(k.cue);
+	if (!kind) return '';
+	const s = k.sound && typeof k.sound === 'object' ? k.sound : {};
+	const parts = [s.action === 'stop' ? '⏹' : kind === 'music' ? '🎵' : '🔊', cueName(k.cue) || '?'];
+	if (s.action !== 'stop') {
+		if (typeof s.volume === 'number') parts.push(Math.round(s.volume * 100) + '%');
+		if (s.loop === true) parts.push('🔁');
+		if (Array.isArray(s.pick) && s.pick.length) parts.push('+' + s.pick.length);
+	}
+	return parts.join(' ');
+}
 
 /** Only ANIMATION tracks carry `strips`; property / visibility / camera / cue tracks carry keys. */
 export const hasStrips = (track) => Array.isArray(track.strips);
@@ -225,6 +345,9 @@ const HOST_DEFAULTS = {
 	togglePlay: null, // Space; a host without a transport leaves it to the page
 	pasteTarget: () => null,
 	cueSuggestions: () => [],
+	cueNames: () => ({}),
+	auditionSound: null, // ▶ beside a sound cue's name; absent ⇒ no ▶ at all
+	auditioning: () => null,
 };
 
 /**
@@ -954,7 +1077,20 @@ ${dots}${handles}</svg>`;
 					dot.style.left = (k.time * pps).toFixed(1) + 'px';
 					dot.style.color = isSel ? '#ffd24a' : cueColor(k.cue);
 					dot.dataset.cueTime = k.time;
-					dot.title = (k.cue || '(empty)') + ' @ ' + +k.time.toFixed(3) + 's';
+					const hint = cueSoundHint(k);
+					dot.title =
+						(k.cue || '(empty)') + ' @ ' + +k.time.toFixed(3) + 's' + (hint ? ' · ' + hint : '');
+					if (hint) {
+						// Inside the marker, so it follows a drag; inline-styled, so every host draws it alike.
+						const tag = document.createElement('span');
+						tag.className = 'cineCueTag';
+						tag.textContent = hint;
+						tag.style.cssText =
+							'position:absolute;left:4px;top:-13px;max-width:140px;overflow:hidden;' +
+							'text-overflow:ellipsis;white-space:nowrap;font-size:9px;line-height:12px;' +
+							'pointer-events:none;';
+						dot.appendChild(tag);
+					}
 					l.appendChild(dot);
 				}
 				row.appendChild(l);
@@ -1901,8 +2037,35 @@ ${dots}${handles}</svg>`;
 			k.time = Math.max(0, value);
 			track.keys.sort((a, b) => a.time - b.time);
 			selCueTime = k.time;
-		} else k.cue = value;
+		} else {
+			// Another kind honours other options (a signal none), so the old ones go with the kind.
+			if (cueNamespace(value) !== cueNamespace(k.cue)) delete k.sound;
+			k.cue = value;
+		}
 		commit('edit cue', 'cue:' + keyTime + ':' + field);
+		render();
+		renderTimeline();
+	}
+
+	const selectedCue = () => {
+		const track = cueTrack();
+		return (
+			(selCueTime !== null &&
+				track &&
+				track.keys.find((k) => Math.abs(k.time - selCueTime) < 1e-6)) ||
+			null
+		);
+	};
+
+	/** One of the selected sound cue's options (`setCueSoundOption`), as an undo step. */
+	function setCueSound(keyTime, field, value) {
+		const track = cueTrack();
+		const k = track && track.keys.find((x) => Math.abs(x.time - keyTime) < 1e-6);
+		if (!k) return;
+		const before = JSON.stringify(k.sound);
+		setCueSoundOption(k, field, value);
+		if (JSON.stringify(k.sound) !== before)
+			commit('edit cue sound', 'cue:' + keyTime + ':' + field);
 		render();
 		renderTimeline();
 	}
@@ -2297,9 +2460,13 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 	 * TWO controls, deliberately. A lone `<input list=…>` is NOT enough: a datalist filters its
 	 * options against what the field already holds, so the moment a cue reads `fx:f_bottle` the
 	 * dropdown collapses to that one entry and the cue looks unchangeable. So the PICKER — which
-	 * never filters — always offers every effect the project has, and the text field stays, because
-	 * `sfx:` / `music:` / `signal:` resolve inside the GAME, not here: they are not listable, and
-	 * typing them is the only way to author them.
+	 * never filters — always offers every effect the project has, and the text field stays: a name
+	 * the host does not list (a sound only the game has, a signal nothing here declares) is still
+	 * typed there.
+	 *
+	 * A sound or signal cue whose names the host lists (`host.cueNames`) gets a NAME picker of
+	 * that kind's names, under the same never-filtering rule, and a sound cue gets its options
+	 * (`cueSoundMarkup`). With nothing listed (`/rigger`) both kinds are typed, as before.
 	 */
 	function cueInspectorMarkup() {
 		const track = cueTrack();
@@ -2309,8 +2476,11 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 		const fxEffects = host.effects();
 		const suggested = host.cueSuggestions();
 		const cur = sel.cue || '';
+		const named = cueNameMarkup(sel, cur);
 		const known =
-			fxEffects.some((e) => 'fx:' + e.id === cur) || suggested.some((x) => x.cue === cur);
+			fxEffects.some((e) => 'fx:' + e.id === cur) ||
+			suggested.some((x) => x.cue === cur) ||
+			named.listed;
 		const typed = !!cur && !known && !CUE_KINDS.some((k) => k.prefix === cur);
 		const head = known
 			? '— change to —'
@@ -2339,16 +2509,188 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 		<option value="">${head}</option>
 		${fxOpts ? `<optgroup label="FX effects">${fxOpts}</optgroup>` : ''}${suggestOpts ? `<optgroup label="Element FX (On cue)">${suggestOpts}</optgroup>` : ''}
 		<optgroup label="other kinds">${kindOpts}</optgroup>
-	</select></label>
+	</select></label>${named.markup}
 	<label class="wide">cue<input type="text" data-cueact="cue" value="${esc(cur)}" placeholder="fx:my_effect"></label>
 	<label>time<input type="number" step="0.05" min="0" data-cueact="time" value="${+sel.time.toFixed(3)}"></label>
-</div>
+</div>${named.note}
 <div class="cineRow"><button id="cineDelCue" title="Delete this cue">🗑 Delete cue</button></div>
 <div class="cineNote">${fxEffects.length ? 'Pick an FX effect from the list — it stays complete however the cue is already set — or type an <code>sfx:</code> / <code>music:</code> / <code>signal:</code> name the game knows.' : 'This project has no authored FX effects yet — author them in /fx, or type a sound or signal name.'} An <code>fx:</code> cue draws on the <b>⚡ fx</b> row in the timeline (it appears as soon as one <code>fx:</code> cue exists, and becomes the <b>🎬 set</b> row once a Scene is bound) — move that row with ▲▼ to put the effect in front of a rig.</div>${
 			suggested.length
 				? `<div class="cineNote">A <code>signal:</code> cue plays every <b>Element FX</b> on this screen and its nodes whose trigger is <i>On cue</i> with that name (without <code>signal:</code>): ${suggested.map((x) => `<code>${esc(x.cue)}</code>`).join(', ')}.</div>`
 				: ''
-		}`;
+		}${cueSoundMarkup(sel)}`;
+	}
+
+	/**
+	 * The names the host lists for `cue`'s kind, as `<optgroup>`s: a sound kind's project uploads,
+	 * then the engine's; the signal kinds' (`signal:` and a component's `event:`) by the group the
+	 * host gave each, the _On cue_ Element FX among them. Empty when nothing is listed.
+	 */
+	function cueNameGroups(cue) {
+		const names = host.cueNames() || {};
+		const kind = cueSoundKind(cue);
+		if (kind) {
+			const list = Array.isArray(names[kind]) ? names[kind] : [];
+			const opt = (s) => ({
+				value: kind + ':' + s.name,
+				text: (s.project ? '★ ' : '') + s.name,
+				playable: !!s.playable,
+			});
+			return [
+				{ label: 'Project uploads', options: list.filter((s) => s.project).map(opt) },
+				{ label: 'Engine', options: list.filter((s) => !s.project).map(opt) },
+			].filter((g) => g.options.length);
+		}
+		const ns = cueNamespace(cue);
+		if (ns !== 'signal' && ns !== 'event') return [];
+		const signals = (Array.isArray(names.signal) ? names.signal : []).concat(
+			host.cueSuggestions().map((x) => ({ ...x, group: 'Element FX (On cue)' })),
+		);
+		const groups = [];
+		const seen = new Set();
+		for (const s of signals) {
+			if (!s || typeof s.cue !== 'string' || seen.has(s.cue)) continue;
+			seen.add(s.cue);
+			const label = s.group || 'Signals';
+			let g = groups.find((x) => x.label === label);
+			if (!g) groups.push((g = { label, options: [] }));
+			g.options.push({ value: s.cue, text: s.cue + (s.label ? ' — ' + s.label : '') });
+		}
+		return groups;
+	}
+
+	/**
+	 * The selected sound / signal cue's NAME picker (with ▶ for a sound the host can play), and the
+	 * note under the fields: a warning when the name is not one the host lists — a typo there is an
+	 * inaudible non-failure in game, so it is flagged, never refused. `listed`: the cue is in the
+	 * list.
+	 */
+	function cueNameMarkup(sel, cur) {
+		const groups = cueNameGroups(cur);
+		if (!groups.length) return { markup: '', note: '', listed: false };
+		const kind = cueSoundKind(cur);
+		const name = cueName(cur);
+		const hit = groups.flatMap((g) => g.options).find((o) => o.value === cur);
+		const head = hit
+			? '— change to —'
+			: name
+				? '✎ ' + esc(name) + ' (typed — not in the list)'
+				: '— pick a name —';
+		const opts = groups
+			.map(
+				(g) =>
+					`<optgroup label="${esc(g.label)}">${g.options.map((o) => `<option value="${esc(o.value)}"${o.value === cur ? ' selected' : ''}>${esc(o.text)}</option>`).join('')}</optgroup>`,
+			)
+			.join('');
+		const stop = sel.sound && sel.sound.action === 'stop';
+		let play = '';
+		if (kind && host.auditionSound && !stop) {
+			const on = host.auditioning() === cur;
+			play =
+				hit && hit.playable
+					? `<button type="button" id="cineCueAudition" title="${on ? 'Stop listening' : 'Listen — at this cue’s volume, rate and loop'}">${on ? '■' : '▶'}</button>`
+					: `<button type="button" disabled title="${hit ? 'An engine sound: it lives inside the shipped audiosprite, which the launcher cannot play one region of. Hear it in the game.' : 'Not a sound this project has a file for.'}">▶</button>`;
+		}
+		const what = kind === 'music' ? 'music' : kind ? 'sound' : 'signal';
+		const note = !name
+			? `<div class="cineNote">Name it: pick a ${what} above, or type its name in the cue field.</div>`
+			: hit
+				? ''
+				: `<div class="cineNote" style="color:#e0a64a">⚠ <code>${esc(cur)}</code> is not a ${what} listed here — ${kind ? 'it plays only if the game has a sound by that name' : 'it reaches only what listens for that name'}. Keep it if that is deliberate.</div>`;
+		return {
+			markup: `
+	<label class="wide">name<select id="cineCueName" title="The ${what}s this ${kind ? 'project and the engine have' : 'timeline can fire'} — picking one renames this cue and keeps its options.">
+		<option value="">${head}</option>${opts}
+	</select>${play}</label>`,
+			note,
+			listed: !!hit,
+		};
+	}
+
+	/**
+	 * A sound cue's OPTIONS, stored in its key's `sound` (`setCueSoundOption`): play or stop, and
+	 * what each honours. An empty field shows the default as its placeholder and stores nothing.
+	 */
+	function cueSoundMarkup(sel) {
+		const kind = cueSoundKind(sel.cue);
+		if (!kind) return '';
+		const s = sel.sound && typeof sel.sound === 'object' ? sel.sound : {};
+		const stop = s.action === 'stop';
+		const num = (field, label, step, title) => {
+			const [lo, hi] = CUE_SOUND_RANGES[field];
+			const v = typeof s[field] === 'number' ? s[field] : '';
+			return `<label title="${esc(title)}">${label}<input type="number" data-cueopt="${field}" min="${lo}" max="${hi}" step="${step}" value="${v}" placeholder="${CUE_SOUND_DEFAULTS[field]}"></label>`;
+		};
+		const check = (field, label, title) =>
+			`<label title="${esc(title)}"><input type="checkbox" data-cueopt="${field}"${s[field] === true ? ' checked' : ''}>${label}</label>`;
+		const action = `<label title="Play the sound, or stop it where an earlier play cue started it.">do<select data-cueopt="action"><option value="play"${stop ? '' : ' selected'}>▶ play</option><option value="stop"${stop ? ' selected' : ''}>⏹ stop</option></select></label>`;
+		const volume = num(
+			'volume',
+			'volume',
+			0.05,
+			'× the sound’s own level and the player’s volume, 0–1.',
+		);
+		const fadeIn = (label, title) => num('fadeIn', label, 50, title);
+		let fields;
+		let note;
+		if (stop) {
+			fields = num('fadeOut', 'fade out ms', 50, 'Fade it out over this long, then stop it. Empty: stop at once.'); // prettier-ignore
+			note = `Stops <code>${esc(cueName(sel.cue))}</code> if it is playing — a loop a play cue started, or a music bed.`;
+		} else if (kind === 'music') {
+			const loop = s.loop === true ? 'true' : s.loop === false ? 'false' : '';
+			const opt = (v, label) =>
+				`<option value="${v}"${loop === v ? ' selected' : ''}>${label}</option>`;
+			fields =
+				volume +
+				fadeIn('crossfade ms', 'Fade in over this long; the bed it replaces fades out as long.') +
+				`<label title="Override the track’s own loop flag.">loop<select data-cueopt="loop">${opt('', 'track’s own')}${opt('true', 'loop')}${opt('false', 'once')}</select></label>`;
+			note = 'Starts this music bed in place of the one playing.';
+		} else {
+			const pick = Array.isArray(s.pick) ? s.pick : [];
+			const sfxNames = (host.cueNames() || {}).sfx;
+			const list = Array.isArray(sfxNames) ? sfxNames : [];
+			const addOpts = list
+				.filter((x) => 'sfx:' + x.name !== sel.cue && !pick.includes(x.name))
+				.map(
+					(x) => `<option value="${esc(x.name)}">${x.project ? '★ ' : ''}${esc(x.name)}</option>`,
+				)
+				.join('');
+			const add =
+				addOpts && pick.length < CUE_SOUND_MAX_PICK
+					? `<select id="cineCuePickAdd" title="Add an alternate"><option value="">＋ add…</option>${addOpts}</select>`
+					: '';
+			const unknown = list.length ? pick.filter((n) => !list.some((x) => x.name === n)) : [];
+			fields = [
+				volume,
+				num(
+					'volumeJitter',
+					'± vol',
+					0.05,
+					'A random share of the volume, up or down, on each play.',
+				),
+				num('rate', 'rate', 0.05, 'Playback rate — pitch and speed together, 0.5–2.'),
+				num(
+					'rateJitter',
+					'± rate',
+					0.05,
+					'A random amount added to the rate, up or down, on each play.',
+				),
+				num('pan', 'pan', 0.1, 'Stereo position, −1 left … 1 right.'),
+				fadeIn('fade in ms', 'Fade in from silence over this long.'),
+				num('offset', 'start at ms', 50, 'Start this far into the sound.'),
+				check('loop', 'loop', 'Loop until a ⏹ stop cue names this sound.'),
+				check('overlap', 'overlap', 'Play over itself when it is already playing. Off: a play while it still plays is skipped.'), // prettier-ignore
+				`<label class="wide" title="Other sounds picked at random with this one, one per play (at most ${CUE_SOUND_MAX_PICK}).">alternates<input type="text" data-cueopt="pick" value="${esc(pick.join(', '))}" placeholder="other sound names, comma-separated">${add}</label>`,
+			].join('');
+			note = unknown.length
+				? `<span style="color:#e0a64a">⚠ Not listed here: ${unknown.map((n) => `<code>${esc(n)}</code>`).join(', ')}.</span> `
+				: '';
+			note += s.loop ? 'A looping sound plays until a ⏹ stop cue names it.' : '';
+		}
+		const set = Object.keys(s).filter((f) => f !== 'action').length;
+		return `
+<div class="cineHead" style="border-top:1px solid var(--line);"><b>${kind === 'music' ? '🎵 Music' : '🔊 Sound'}</b><small>${stop ? 'stop' : set ? set + ' option' + (set === 1 ? '' : 's') + ' set' : 'as the plain cue'}</small></div>
+<div class="cineStripInsp">${action}${fields}</div>${note ? `<div class="cineNote">${note}</div>` : ''}`;
 	}
 
 	/** Inspector for a selected property/camera key — time, value and its outgoing interpolation. */
@@ -2672,9 +3014,10 @@ ${actions}	<button id="cineDupStrip" title="Copy this strip in right after itsel
 			cuePick.onchange = (e) => {
 				const v = e.target.value;
 				if (!v || selCueTime === null) return;
-				if (v.endsWith(':')) {
+				if (v.endsWith(':') && !cueNameGroups(v).length) {
 					// A KIND, not a value. Committing a bare `sfx:` would only make an unfirable cue, so
-					// seed the prefix into the field and let the author finish the name.
+					// seed the prefix into the field and let the author finish the name. (A kind whose
+					// names the host lists IS committed: its name picker opens, asking for one.)
 					const field = q('[data-cueact="cue"]');
 					e.target.value = '';
 					if (field) {
@@ -2691,6 +3034,35 @@ ${actions}	<button id="cineDupStrip" title="Copy this strip in right after itsel
 				const f = node.dataset.cueact;
 				if (selCueTime === null) return;
 				setCueField(selCueTime, f, f === 'time' ? parseFloat(e.target.value) || 0 : e.target.value);
+			};
+		});
+		const cueNamePick = q('#cineCueName');
+		if (cueNamePick)
+			cueNamePick.onchange = (e) => {
+				if (e.target.value && selCueTime !== null) setCueField(selCueTime, 'cue', e.target.value);
+			};
+		const pickAdd = q('#cineCuePickAdd');
+		if (pickAdd)
+			pickAdd.onchange = (e) => {
+				const k = selectedCue();
+				if (!e.target.value || !k) return;
+				const pick = (k.sound && Array.isArray(k.sound.pick) && k.sound.pick) || [];
+				setCueSound(selCueTime, 'pick', pick.concat(e.target.value));
+			};
+		const audition = q('#cineCueAudition');
+		if (audition)
+			audition.onclick = () => {
+				const k = selectedCue();
+				const kind = k && cueSoundKind(k.cue);
+				if (!kind || !host.auditionSound) return;
+				host.auditionSound(kind, cueName(k.cue), k.sound);
+				render();
+			};
+		root.querySelectorAll('[data-cueopt]').forEach((node) => {
+			node.onchange = () => {
+				if (selCueTime === null) return;
+				const f = node.dataset.cueopt;
+				setCueSound(selCueTime, f, cueOptionInput(node, f));
 			};
 		});
 		const delKey = q('#cineDelKey');
