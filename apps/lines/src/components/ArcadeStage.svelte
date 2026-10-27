@@ -37,13 +37,18 @@
 	const { scenes }: Props = $props();
 	const context = getContext();
 	const app = getContextApp();
-	const loop = startArcade(() => context.stateLayoutDerived.mainLayout());
-	$effect(() => useWorldCamera(scenes));
-	$effect(() => useArcadePaths(scenes, context.stateLayoutDerived.layoutType()));
+	// An online game's bodies are the room's (`game/online.ts`): the server moves them, so the
+	// local loop (its camera and its characters) never starts.
+	const online = gameMechanic().room;
+	const loop = online ? undefined : startArcade(() => context.stateLayoutDerived.mainLayout());
+	$effect(() => (online ? undefined : useWorldCamera(scenes)));
+	$effect(() =>
+		online ? undefined : useArcadePaths(scenes, context.stateLayoutDerived.layoutType()),
+	);
 
 	$effect(() => {
 		const pixi = app.stateApp.pixiApplication;
-		if (!pixi) return;
+		if (online || !pixi) return;
 		return useArcadeInput(pixi.canvas, (x, y) => {
 			const at = { x: 0, y: 0 };
 			pixi.renderer.events.mapPositionToPoint(at, x, y);
