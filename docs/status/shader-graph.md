@@ -16,7 +16,8 @@ merged (#1342), and so are 8b, Break as an output node (#1347), and 8c, the admi
 GLSL node (#1349). 8d (particle materials) is decided
 ([design](../design/shader-graph-particles.md)) and being built as 8d.1–8d.8; 8d.1 (the particle
 shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is merged
-(#1366); 8d.3 (the material in the game) is merged (#1378); 8d.4 (the ship chain, proven) is next.
+(#1366); 8d.3 (the material in the game) is merged (#1378); 8d.4 (the ship chain, proven) is
+merged (#1384); 8d.5 (`/fx` authoring) is next.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -282,6 +283,28 @@ shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is 
     (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
     shader). Built as 8d.1–8d.8, one PR each (its §15). A game plays a material from 8d.3; no
     tool authors one until 8d.5.
+    - **8d.4, the ship chain, proven.** Merged (#1384, 2026-10-27).
+      - **Proof only for the chain:** Publish (`runtimeBundle.ts` → `namedShaderEffects`, after
+        `pruneUnreachableEffects`) and the bake (`bake-editor-doc.mjs`'s `nameKinds`, after its
+        own prune) already carried a layer's `material.kind`; no code changed there.
+      - **`check:shader-pipeline` §8** (146, 13 new) runs the real `buildRuntimeBundle` against an
+        in-memory R2, and the real bake script in a child process against a local portal serving
+        the real route handlers: a placed effect's material keeps its compiled effect in
+        `shaderEffects` on both paths (the same effect); a broken and a deleted graph are named in
+        `shaderEffectsMissing` and the bake's log; an unplaced effect is pruned and its material's
+        graph is shipped nowhere and reported nowhere.
+      - **Read access, narrower than the plan:** a new `shaderEffectsReadScope` (`/shaders`, the
+        four picker tools, plus `fx` and `rigger`) guards only `GET /api/shaders/effects`, the
+        compiled set. Graph docs (Custom GLSL source included), the list and history stay on
+        `shaderReadScope`, unchanged; writes and publish unchanged. By default only the animator
+        role gains anything. The project stays the session's, re-checked on every read.
+        A compiled effect carries its generated GLSL, Custom GLSL nodes' code included (as every
+        game bundle does), and `skipped[].errors` (validator messages quote at most a line number
+        and one token); what the narrower scope withholds is the authored graph doc, its ports,
+        the list and the history.
+        `gate()` decides through `entitledByAny` (`accessRules.ts`), the same check as before.
+        `check:launcher-gates` 481 (28 new) pins both sets, the animator and per-user cases, and
+        each `api/shaders/*` handler's one scope.
     - **8d.3, the material in the game.** Merged (#1378, 2026-10-26).
       - **`EmitterLayer.material`** (`engine-fx/src/types.ts`): `{ kind: 'custom:<id>', time?,
         intensity?, params? }`, sprite layers only. `normalizeEmitterMaterial` keeps a well-formed
@@ -491,10 +514,7 @@ shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is 
       defaults.
 
 ## Open items / next
-1. **Step 8d.4 (next): the ship chain, proven** (design §15 step 4): `check:shader-pipeline`
-   proves a material's kind inside `effects` ships through Publish and the bake;
-   `shaderReadScope` gains `fx` and `rigger`. The soft floor is already written (8d.3).
-   - **8d.5:** the `/fx` Material section calls `validateEffectMaterials` with the registered set;
+1. **Step 8d.5 (next): `/fx` authoring** (design §15 step 5): the `/fx` Material section calls `validateEffectMaterials` with the registered set;
      ⚡ offers every param from the compiled spec, not only the stored ones; the live preview must
      remount on a `layer.material` edit (the spec is read at mount); the load meter (§10, Σ quad
      area × cost) and a load figure on the debug line.
@@ -559,6 +579,21 @@ shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is 
 - None.
 
 ## Recent changes
+- 2026-10-27 — **Step 8d.4: the ship chain, proven** (see "Current state"). Merged (#1384): CI
+  green, Current games "runtime untouched: no game can differ".
+  - **Proof.** `check:shader-pipeline` 146 (13 new, §8: the real `buildRuntimeBundle` and the real
+    bake script against a local portal; a placed material ships on both paths, broken and deleted
+    graphs are named, an unplaced effect ships and reports nothing); `check:launcher-gates` 661
+    (both read sets, the animator and per-user cases, each shader handler's one scope, a form check
+    on every `api/**/+server.ts`); `check:shader-editor` 253; svelte-check at baseline; `check:all`
+    green. 31 mutations, each failing its check.
+  - **Review.** Nothing blocking; `gate()`'s refactor identical, no new cross-project reach.
+    Fixed: the bake could hang the check about 20 min on a stuck route (now fails in seconds); the
+    handler scan missed `export function` handlers; a check that proved nothing alone; the write
+    tool taken from a list position. The read scope was narrowed before review: `fx` and `rigger`
+    read only the compiled effects.
+  - **Also carried:** `check-family-tools` fixed on main (#1373's `pipelineBugs` / `gameBugs`
+    missing from #1377's `BEFORE_CHARACTERS` list; it had failed 141/177).
 - 2026-10-26 — **Step 8d.3: the material in the game** (see "Current state"). Merged (#1378): CI
   green but for Current games, "8 pass · 1 fail · 0 changed screen(s)", merged on the owner's
   approval: its one failure (cloud, republished today) fails on main too, the `lines` script

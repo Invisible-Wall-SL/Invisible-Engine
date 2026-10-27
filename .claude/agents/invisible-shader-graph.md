@@ -49,6 +49,10 @@ You are the developer for **Invisible Shader Graph**.
     `normalize.ts`, `params.ts`), mounted by `particleMaterial/mount.ts` from
     `<ParticleEmitter material>` / `<EffectLayer>`, played for real by
     `scripts/playtest/particle-material-play.mjs`.
+  - Reading shaders from other tools: `shaderReadScope` (graph docs, list, history) and the
+    narrower `shaderEffectsReadScope` (`GET /api/shaders/effects` only, which also admits `fx` and
+    `rigger`) in `apps/launcher-api/src/lib/server/shaderScope.ts`, the tool sets in
+    `src/lib/accessRules.ts`; the material ship chain is proven by `check:shader-pipeline` §8.
   - `src/subgraph.ts` (step 7): `flattenShaderGraph` inlines every subgraph call (ids
     `<call>/<node>`, a typed pass-through per port) before the compiler sees the graph, and
     `liftIssues` reports inner issues on their call; `analyzeShaderSubgraph` analyses a body alone.

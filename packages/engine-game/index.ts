@@ -54,6 +54,7 @@ export { createGameContext, getGameContext, type GameContext } from './src/game/
 export type { BookEventRegistry, ImplementsEngineBookEvents } from './src/game/bookEvents';
 export { createPlayBook, type PlayBookDeps } from './src/game/playBook';
 export {
+	ARCADE_ONLINE_MECHANIC,
 	ARCADE_RULES_MECHANIC,
 	CONTINUOUS_INTENTS,
 	MATCH3_RGS_MECHANIC,

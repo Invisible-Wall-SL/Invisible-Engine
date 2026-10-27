@@ -6,9 +6,10 @@
  *      `_shared/shaders/` it shadows; the id is a slug that always makes a valid `custom:<id>`; a
  *      save keeps a graph that does not compile and drops what is not part of the doc; a create on a
  *      taken id and a stale ETag are refused; the listing skips anything that is not a graph file.
- *   2. THE ROUTES — save and delete gate on the Scene Editor, the reads on the tools whose pickers
- *      list custom effects; a tab on another project is refused; a save without its precondition is
- *      a 400 and a conflict a 409.
+ *   2. THE ROUTES — save and delete gate on `/shaders`, the reads on the tools whose pickers
+ *      list custom effects, and the compiled set alone also on the tools that draw a particle
+ *      material (`/fx`, the Rigger); a tab on another project is refused; a save without its
+ *      precondition is a 400 and a conflict a 409.
  *   3. THE SHIP — the real export compiles the project's set into `deploy/editor-shaders/` (a file
  *      per effect and an index), names a graph that does not compile, prunes what an earlier export
  *      left, and the real export endpoint returns it; every exported effect is one the game's
@@ -20,15 +21,27 @@
  *   6. THE STUDIO LIBRARY — publishing and removing need `shaderPublish`; a publish copies the saved
  *      graph, refuses one that does not compile and an id the library has unless told to replace,
  *      and keeps what it replaced, as a removal does.
+ *   7. CUSTOM GLSL — adding or changing it needs `shaderCustomGlsl`.
+ *   8. A PARTICLE MATERIAL SHIPS (`shader-graph-particles.md` §11) — a layer's `material.kind`,
+ *      named nowhere else, keeps its compiled effect in `shaderEffects` through the real runtime
+ *      bundle (Publish) and the real bake script (driven against a portal answering through the
+ *      real routes); a broken or deleted graph is named by `shaderEffectsMissing` and the bake's
+ *      log; an unreachable effect, pruned, brings no material in.
  *
  * `r2.ts` is an in-memory bucket honouring `If-Match` / `If-None-Match`; the tool gate, the
  * capability overrides, the deploy token, the project lookup and the deploy lock are stubbed. Run:
  *
  *   pnpm --filter launcher-api check:shader-pipeline
  */
-import { readFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import {
 	customElementFxKind,
 	isCustomElementFxKind,
@@ -126,6 +139,17 @@ fake('lib/server/r2.ts', {
 	deleteObject: async (key: string) => void R2.delete(key),
 	deleteObjects: async (keys: string[]) => keys.forEach((key) => R2.delete(key)),
 	listAllKeys: async (prefix: string) => keysUnder(prefix),
+	objectExists: async (key: string) => R2.has(key),
+	listObjects: async (prefix: string) => {
+		const keys: string[] = [];
+		const prefixes = new Set<string>();
+		for (const key of keysUnder(prefix)) {
+			const slash = key.indexOf('/', prefix.length);
+			if (slash < 0) keys.push(key);
+			else prefixes.add(key.slice(0, slash + 1));
+		}
+		return { keys, prefixes: [...prefixes] };
+	},
 	headObject: async (key: string) =>
 		R2.has(key)
 			? { etag: R2.get(key)!.etag, size: R2.get(key)!.body.length, lastModified: 1 }
@@ -166,10 +190,15 @@ fake('lib/server/launcherAuth.ts', {
 		roleHasCapability(user.role, key, roleOverrides),
 });
 let deployToken: string | null = TOKEN;
-fake('lib/server/appSettings.ts', { getDeployToken: async () => deployToken });
+fake('lib/server/appSettings.ts', {
+	getDeployToken: async () => deployToken,
+	getAppSetting: async () => undefined,
+});
 fake('lib/server/projects.ts', {
 	DEFAULT_PROJECT_KEY: 'cloud',
 	projectClientKey: async () => CLIENT,
+	projectName: async () => 'Shader game',
+	projectAllowsRead: async (_project: string, token: string) => token === TOKEN,
 });
 fake('lib/server/runtimeBundleCache.ts', {
 	withDeployWrite: async <T>(_project: string, run: () => Promise<T>) => run(),
@@ -179,8 +208,15 @@ const storage = await import('../src/lib/server/shaderStorage.ts');
 const { exportShaders, namedShaderEffects, shaderDeployPrefix, unshippedCustomKinds } =
 	await import('../src/lib/server/shaderExport.ts');
 const { normalizeShaderGraphDoc } = await import('engine-shadergraph');
-const { SHARED_SHADERS_PREFIX, SUB, shaderDocKey, shaderSlug, sharedShaderDocKey } =
-	await import('../src/lib/server/projectPaths.ts');
+const {
+	SHARED_SHADERS_PREFIX,
+	SUB,
+	editorDocKey,
+	fxDocKey,
+	shaderDocKey,
+	shaderSlug,
+	sharedShaderDocKey,
+} = await import('../src/lib/server/projectPaths.ts');
 const saveRoute = await import('../src/routes/api/shaders/save/+server.ts');
 const deleteRoute = await import('../src/routes/api/shaders/delete/+server.ts');
 const listRoute = await import('../src/routes/api/shaders/list/+server.ts');
@@ -191,6 +227,9 @@ const publishRoute = await import('../src/routes/api/shaders/publish/+server.ts'
 const ftpScope = await import('../src/lib/server/ftpScope.ts');
 const unpublishRoute = await import('../src/routes/api/shaders/unpublish/+server.ts');
 const exportRoute = await import('../src/routes/api/editor/export-shaders/+server.ts');
+const effectsExportRoute = await import('../src/routes/api/editor/export-effects/+server.ts');
+const editorDocRoute = await import('../src/routes/api/editor/doc/+server.ts');
+const { buildRuntimeBundle } = await import('../src/lib/server/runtimeBundle.ts');
 const { composeFlowV2Vocab } = await import('../src/lib/flowV2Vocab.ts');
 const { soundOptionsFor } = await import('../src/lib/soundOptions.ts');
 
@@ -386,6 +425,8 @@ check('…and writes nothing', R2.has(`${projectDir}other.json`), false);
 const listed = await call(listRoute.GET, { query: `?projectKey=${PROJECT}` });
 check('list answers the set', (listed.body.shaders as unknown[]).length, 4);
 const READ_GATE = ['shaders', 'editor', 'componentEditor', 'symbols', 'flow'];
+/** The compiled set alone: the readers above, and the tools that draw a particle material. */
+const EFFECTS_READ_GATE = [...READ_GATE, 'fx', 'rigger'];
 check('the reads gate on the tools that pick Element FX', gates.at(-1), READ_GATE);
 check(
 	'a read from a tab on another project is refused',
@@ -406,7 +447,11 @@ check(
 	[true, null],
 );
 const compiledForEditor = await call(effectsRoute.GET, {});
-check('effects is on the read gate', gates.at(-1), READ_GATE);
+check(
+	'effects is on the effects read gate, which /fx and the Rigger pass',
+	gates.at(-1),
+	EFFECTS_READ_GATE,
+);
 check(
 	'effects answers the set compiled, and what did not compile',
 	[
@@ -1069,8 +1114,8 @@ console.log('7. custom GLSL');
 		'restoring a version whose Custom GLSL differs from the live graph takes the capability',
 		[
 			restoreArtist.status,
-			stored(key).nodes.some(
-				(n: { glsl?: { code: string } }) => n.glsl?.code === 'color.rgb *= 0.5;',
+			(stored(key).nodes as { glsl?: { code: string } }[]).some(
+				(n) => n.glsl?.code === 'color.rgb *= 0.5;',
 			),
 		],
 		[403, true],
@@ -1166,6 +1211,191 @@ console.log('7. custom GLSL');
 			writes(key, { ...scoped, full: true }),
 		],
 		[403, 403, 'ok', 'ok'],
+	);
+}
+
+// ── 8. A particle material ships ───────────────────────────────────────────────────────────────
+console.log('8. a particle material ships');
+{
+	for (const key of keysUnder(projectDir)) R2.delete(key);
+	for (const key of keysUnder(`${SHARED_SHADERS_PREFIX}/`)) R2.delete(key);
+	await storage.saveShader(CLIENT, PROJECT, { ...ref('pulseTint'), id: 'ember' }, null);
+	await storage.saveShader(CLIENT, PROJECT, { ...ref('frost'), id: 'orphan_glow' }, null);
+	await storage.saveShader(CLIENT, PROJECT, { ...broken, id: 'cracked_mat' }, null);
+	await storage.saveShader(CLIENT, PROJECT, { ...ref('frost'), id: 'gone' }, null);
+	await storage.deleteShader(CLIENT, PROJECT, 'gone');
+
+	// A material is named ONLY by its layer: nothing else in the game names these kinds.
+	const spriteLayer = (key: string, kind: string) => ({
+		key,
+		config: { lifetime: { min: 1, max: 1 }, frequency: 0.1, pos: { x: 0, y: 0 }, behaviors: [] },
+		art: { assetKey: 'sparks', frames: ['spark'] },
+		placement: { space: 'free' },
+		particleKind: 'sprite',
+		material: { kind, intensity: 2 },
+	});
+	const putEffect = (id: string, layers: unknown[]) =>
+		put(fxDocKey(CLIENT, PROJECT, id), JSON.stringify({ id, name: id, layers }));
+	putEffect('embers', [
+		spriteLayer('ember', 'custom:ember'),
+		spriteLayer('crackle', 'custom:cracked_mat'),
+		spriteLayer('ash', 'custom:gone'),
+	]);
+	putEffect('scratch', [spriteLayer('glow', 'custom:orphan_glow')]);
+	const placed = { kind: 'effect', id: 'embersNode', x: 0, y: 0, effectId: 'embers' };
+	put(
+		editorDocKey(CLIENT, PROJECT),
+		JSON.stringify({
+			version: 1,
+			scenes: [{ id: 'basegame', name: 'Base game', nodes: [placed] }],
+		}),
+	);
+
+	const set = await storage.compileProjectShaders(CLIENT, PROJECT);
+	check(
+		'the set compiles the material graphs, the broken one left out and the deleted one gone',
+		[set.effects.map((e) => e.spec.kind).sort(), set.skipped.map((g) => g.id)],
+		[['custom:ember', 'custom:orphan_glow'], ['cracked_mat']],
+	);
+
+	// Publish: the runtime bundle Publish freezes.
+	const quiet = console.info;
+	console.info = () => {};
+	const bundle = await buildRuntimeBundle(PROJECT).finally(() => (console.info = quiet));
+	check(
+		'Publish ships the placed effect and prunes the unreachable one',
+		(bundle.effects ?? []).map((e) => e.id),
+		['embers'],
+	);
+	check(
+		"…each layer's material riding it",
+		(bundle.effects?.[0]?.layers ?? []).map((l) => l.material?.kind),
+		['custom:ember', 'custom:cracked_mat', 'custom:gone'],
+	);
+	check(
+		"Publish keeps the material's compiled effect in shaderEffects, and only it",
+		(bundle.shaderEffects ?? []).map((e) => e.spec.kind),
+		['custom:ember'],
+	);
+	check(
+		'…named by the layer alone: the bundle names it with its effects, and nothing without them',
+		[
+			namedShaderEffects(set.effects, { ...bundle }).map((e) => e.spec.kind),
+			namedShaderEffects(set.effects, { ...bundle, effects: undefined }),
+		],
+		[['custom:ember'], []],
+	);
+	check(
+		'…and the game registers it',
+		setCustomElementFx(bundle.shaderEffects ?? []).map((e) => e.spec.kind),
+		['custom:ember'],
+	);
+	setCustomElementFx([]);
+	check(
+		"Publish's shaderEffectsMissing names the broken and the deleted material, never the pruned one",
+		unshippedCustomKinds({ ...bundle }),
+		['custom:cracked_mat', 'custom:gone'],
+	);
+
+	// The bake, the real script against a portal answering through the real routes.
+	const routes: Record<string, unknown> = {
+		'/api/editor/doc': editorDocRoute.GET,
+		'/api/editor/export-effects': effectsExportRoute.POST,
+		'/api/editor/export-shaders': exportRoute.POST,
+	};
+	// Every failure answers a 400 the bake never retries (it retries 429 and 5xx at 5, 15 and 30 s),
+	// and the bake is killed past BAKE_TIMEOUT_MS, so a broken route fails this check fast.
+	const portal = createServer((req, res) => {
+		const url = new URL(req.url ?? '/', 'http://portal.test');
+		const handler = routes[url.pathname];
+		const answer = (status: number, body: string) => {
+			res.writeHead(status, { 'content-type': 'application/json' });
+			res.end(body);
+		};
+		if (!handler) return answer(200, '{}');
+		const request = new Request(url, { method: req.method });
+		Promise.resolve()
+			.then(() => (handler as Handler)({ url, request, locals: {}, cookies: {} } as never))
+			.then(async (r) => ({ status: r.status, body: await r.text() }))
+			.catch((e: unknown) => {
+				const status = (e as { status?: unknown }).status;
+				return {
+					status: typeof status === 'number' ? status : 500,
+					body: JSON.stringify({ error: e instanceof Error ? e.message : String(e) }),
+				};
+			})
+			.then(({ status, body }) =>
+				status >= 500 || status === 429
+					? answer(400, `fixture portal: ${url.pathname} answered ${status}: ${body}`)
+					: answer(status, body),
+			);
+	});
+	await new Promise<void>((ready) => portal.listen(0, '127.0.0.1', ready));
+	const { port } = portal.address() as AddressInfo;
+	const out = mkdtempSync(join(tmpdir(), 'shader-bake-'));
+	const dest = join(out, 'baked-editor-bundle.json');
+	const BAKE_TIMEOUT_MS = 30_000;
+	const args = [
+		`${here}bake-editor-doc.mjs`,
+		'--project',
+		PROJECT,
+		'--base',
+		`http://127.0.0.1:${port}`,
+		'--token',
+		TOKEN,
+		'--dest',
+		dest,
+	];
+	const baked = await promisify(execFile)(process.execPath, args, {
+		timeout: BAKE_TIMEOUT_MS,
+	}).then(
+		({ stdout, stderr }) => ({ code: 0, log: `${stdout}${stderr}` }),
+		(e: { code?: number; killed?: boolean; stdout?: string; stderr?: string }) => ({
+			code: e.code ?? 1,
+			log:
+				`${e.stdout ?? ''}${e.stderr ?? ''}` +
+				(e.killed ? `\nfixture: the bake was killed after ${BAKE_TIMEOUT_MS / 1000} s` : ''),
+		}),
+	);
+	portal.closeAllConnections();
+	portal.close();
+	let bakedBundle: {
+		effects?: { id: string; layers: { material?: { kind: string } }[] }[];
+		shaderEffects?: { spec: { kind: string } }[];
+	} = {};
+	try {
+		if (baked.code === 0) bakedBundle = JSON.parse(readFileSync(dest, 'utf8'));
+	} finally {
+		rmSync(out, { recursive: true, force: true });
+	}
+	if (baked.code !== 0) console.log(baked.log);
+	check('the bake runs', baked.code, 0);
+	check(
+		'the bake ships the placed effect and prunes the unreachable one',
+		[(bakedBundle.effects ?? []).map((e) => e.id), baked.log.includes('effect(s): [scratch]')],
+		[['embers'], true],
+	);
+	check(
+		"…each layer's material riding it",
+		(bakedBundle.effects?.[0]?.layers ?? []).map((l) => l.material?.kind),
+		['custom:ember', 'custom:cracked_mat', 'custom:gone'],
+	);
+	check(
+		"the bake keeps the material's compiled effect in shaderEffects, and only it",
+		(bakedBundle.shaderEffects ?? []).map((e) => e.spec.kind),
+		['custom:ember'],
+	);
+	check('…the very effect Publish ships', bakedBundle.shaderEffects, bundle.shaderEffects);
+	check(
+		"the bake's log names the broken and the deleted material, never the pruned one",
+		[
+			baked.log.includes(
+				'2 shader effect(s) named in the game will play nothing: custom:cracked_mat, custom:gone',
+			),
+			/shader effect "[^"]*" does not compile and will not play/.test(baked.log),
+			baked.log.includes('orphan_glow'),
+		],
+		[true, true, false],
 	);
 }
 

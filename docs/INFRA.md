@@ -265,6 +265,97 @@ Then, on the new service:
      DIRECTOR_SERVICE_TOKEN is unset"`** in the log: the worker is up and idle. Set both
      (`DIRECTOR_SERVICE_TOKEN` must equal the launcher's), then redeploy.
 
+## Invisible Game Server (P10.14 — built, NOT deployed)
+
+Online arcade rooms ([design/realtime-multiplayer.md](design/realtime-multiplayer.md) §9): one
+Node 22 process on **Colyseus 0.18** (`@colyseus/core` 0.18.23, `@colyseus/ws-transport` 0.18.4,
+`@colyseus/schema` 5.0.42), many rooms, one replica. Source `services/game-server/`; a pnpm
+workspace member, so CI installs it and `pnpm check:room-sim` boots it. Its current state is
+[status/game-families.md](status/game-families.md) "P10.14". **No Railway service exists yet** —
+the owner step below creates it; until then nothing deploys and `scripts/deploy-drift.mjs` does not
+list it (an entry whose URL does not answer would only alarm).
+
+**What it serves.** WebSocket rooms of type `arcade`, matched by the join option `game` (the
+project key); `GET /healthz` → `{"ok":true,"commit":"<12 chars>","rooms":N}`. A room reads its
+game's config ONCE, when it is created (a running room keeps the version it started with), and
+refuses a config that is not an online arcade game. A device sends inputs only.
+
+**Limits it enforces** (no env needed): a room holds `arcade.online.maxPlayers` (≤ 100) and each
+character's `max`; a device sending more than `2 × tickHz + 10` messages a second is disconnected
+and gets no seat held; a WebSocket message over 1 KB is refused; an HTTP request that would carry
+a body with no `content-length` (chunked) is answered 411 and one declaring over 4 KB 413, before
+Colyseus reads it; a request whose URL Colyseus' router could not build (a bad
+`x-forwarded-proto`, an absolute-form target, a bad `Host`) is refused before it can crash the
+process, and so is a method it does not serve (405; only GET, HEAD, OPTIONS, POST); a request
+must finish within 10 s; at most 6 000 sockets; a WebSocket is served only for a room seat, and one
+address (an IPv6 /64 is one address) holds at most 16 WebSockets and seats held for rejoin together
+and opens at most 60 per 10 s; a socket sending more than 150 frames a second (ping / pong control
+frames included; the server answers no client ping), or with more than 256 KB unsent, is
+terminated; a room's WebSocket may carry only JOIN_ROOM, LEAVE_ROOM, PING and reliable inputs — any
+other frame closes it undecoded (among them the unreliable-input channel, on which a decoder bug in
+`@colyseus/schema` 5.0.42 loops for ever) — and one that has not acknowledged its join within 5 s
+is closed; HTTP connections that never upgrade are capped only per process (6 000), each for at
+most the 10 s request timeout; one address may make 30
+matchmaking requests per 10 s (429 past it); matchmaking
+exposes `joinOrCreate`, `join`, `joinById` and `reconnect` only (no `create`); a seat is held 5 s
+for a device that has not connected; at most 60 inputs wait per player, and a player never applies
+more inputs than steps have passed (at most two in one step, from half a second of banked idle); a config is ≤ 2 MB, its fetch times out after 5 s, at most 4
+run at once, answers (good or bad) are cached 60 s per game key, and a game that has loaded once
+keeps its last good config through a failed read (not through a 404 / 410 / missing file, or a
+refused config); a game key must match
+`^[a-z0-9][a-z0-9_-]{0,63}$`. A device whose room is refused is told only "this game is not
+available"; the reason is logged.
+
+**Env** (names only; no secret is required to boot):
+
+| Name | Meaning |
+| --- | --- |
+| `PORT` | listen port (Railway sets it; the image defaults to 8080, a bare `pnpm start` to 2567) |
+| `GAME_SERVER_CONFIG_URL` | a URL with `{game}` in it that answers a game's config (a GameConfigDoc or `{ doc }`) |
+| `GAME_SERVER_CONFIG_TOKEN` | optional; sent as `Authorization: Bearer …` to that URL |
+| `GAME_SERVER_CONFIG_DIR` | instead of the URL: a directory of `<game>.json` configs (local runs) |
+| `GAME_SERVER_MAX_ROOMS` | rooms one process holds (default 50) |
+| `GAME_SERVER_TRUST_PROXY` | a device's address (for the matchmaking limit) is the last `x-forwarded-for` entry, the one Railway's edge adds. On by default where `RAILWAY_ENVIRONMENT` is set; `0` / `1` force it |
+| `RAILWAY_GIT_COMMIT_SHA` | set by Railway; `/healthz` reports its first 12 characters |
+
+**Run it locally.**
+
+```bash
+pnpm install
+mkdir -p /tmp/games && cp my-online-config.json /tmp/games/<project>.json
+GAME_SERVER_CONFIG_DIR=/tmp/games pnpm --filter game-server start      # ws://localhost:2567
+curl localhost:2567/healthz
+```
+
+Then open the runtime with `?rooms_url=ws://localhost:2567&rooms_game=<project>` (or `?project=`),
+optionally `&rooms_name=…&rooms_character=…`. `scripts/playtest/online-play.mjs` does exactly this
+with two headless browsers.
+
+**Owner / infra steps to stand it up** (not done; nothing here was deployed):
+
+1. **Railway → Invisible Pipeline project → New service** from GitHub
+   `Invisible-Wall-SL/Invisible-Engine`, branch `main`, name `game-server`.
+2. **Settings → Build:** Root Directory = repo root; Builder = Dockerfile; Dockerfile Path =
+   `services/game-server/Dockerfile`.
+3. **Watch Paths:** `/services/game-server/**`, `/packages/engine-mechanics/**`,
+   `/packages/game-config/**`, `/scripts/ts-loader.mjs` (exactly what the Dockerfile `COPY`s).
+4. **Deploy → Health Check Path** `/healthz`; **one replica** (rooms live in memory; several
+   processes need Colyseus' Redis presence, which A4 does not use).
+5. **Variables:** `GAME_SERVER_CONFIG_URL`. Until the publish writes a published online config
+   anywhere (an open item in the status file), the one source that exists is the launcher's
+   token-gated export: `https://app.invisiblewall.org/api/game-config/doc?project={game}&k=<deploy
+   token>` — note it serves the AUTHORED config, not the published snapshot, so a room can run
+   rules newer than the devices' until they republish. `GAME_SERVER_TRUST_PROXY` needs no
+   setting there (on by default on Railway, whose edge fronts every socket). Optionally `GAME_SERVER_MAX_ROOMS`.
+6. **Settings → Networking:** a public domain, then the custom domain `rooms.invisiblewall.org`,
+   and in **Cloudflare DNS** a CNAME `rooms` → the Railway target, **DNS-only (grey cloud)**, like
+   `games` (§14 D8).
+7. Smoke-test that a request through the domain is answered (an edge that appended to
+   `x-forwarded-proto` instead of replacing it would get every request refused 400).
+8. Once `/healthz` answers on the domain: add the service to `SERVICES` in
+   `scripts/deploy-drift.mjs` and to the Watch Paths table above (the fixture holds the two to each
+   other), and to Better Stack Uptime.
+
 ## ComfyUI tunnel (optional — a person's own GPU)
 
 Production generation runs on the RunPod Serverless endpoint (`COMFY_TRANSPORT=serverless`, below).
@@ -279,6 +370,7 @@ on it being up.
 - **ComfyUI models are mirrored to R2 (B36):** model files live at R2 `comfyui-models/<subfolder>/<file>` (subfolders match ComfyUI's `Shared\Models` layout: `checkpoints/`, `loras/`, `vae/`, `controlnet/`, …). Seed/refresh with `py scripts/seed-comfyui-models.py` (owner, `R2_*` env). The launcher pulls them via `GET /api/launcher/models-manifest` (admin-only; returns each model with a 6-h presigned R2 URL) → **Sync models** button → downloads R2→client directly (not through Railway) → restart ComfyUI.
   - **The mirror has four arcs, and the fourth was missing until 2026-09-07.** `seed-comfyui-models.py` is desktop→R2, `runpod/pull-models.py` is R2→volume, **Sync models** is R2→desktop — all one way, out of the desktop. Nothing went **volume→R2**, so anything BORN on the pod could never reach a desktop or the serverless worker: a LoRA trained there, and every set `fetch-models.py` pulls straight onto the volume (which bypasses R2 on purpose — routing 50 GB of public weights through a home uplink and back "costs two transfers and buys nothing"). `runpod/push-models.py` closes it. **Dry run by default** (`--apply` to write), because it rewrites the manifest the launcher serves to every desktop; it never deletes, MERGES the manifest rather than replacing it, skips files already in R2 at the same size, and caps at 5 GB (`--include-large` to override) since the case it exists for is the small irreplaceable artifact, not a public checkpoint anyone can re-fetch. A file already in R2 but absent from the manifest is re-indexed with no transfer — exactly the state `fetch-models.py` leaves behind. **Not baked into the pod image** (the Dockerfile copies only `services/atlas-comfy-pod/tools/`), so it is pasted onto a pod. **Caveat:** the manifest is read-modify-write, so two runs at once — or one racing `seed-comfyui-models.py` — can drop entries; these are owner-run maintenance scripts, and the seeder has always had the same shape.
 - **Fresh-machine setup is automated (B35):** the desktop Invisible Launcher auto-installs `cloudflared.exe` (official standalone, into `_tools/`, no admin) and provisions `~/.cloudflared/{config.yml,<id>.json,cert.pem}` by fetching the credentials bundle from the portal after owner login (`POST /api/launcher/login` → short-lived token → `GET /api/launcher/tunnel-bundle`, role `admin` only). The bundle lives in R2 at `tools/invisible-launcher/cloudflared-bundle.json` — (re)seed it with `node apps/launcher-api/scripts/seed-tunnel-bundle.mjs` (owner, `R2_*` env). On write the launcher repoints the `credentials-file:` line to the new machine's path.
+  - **cloudflared must be ≥ 2026.10.2.** Older builds trust the eMudhra (emSign) intermediates whose keys were found weak on 2026-10-19 (Cloudflare advisory). The launcher's resolver runs `cloudflared --version` on each copy it finds (system install → PATH → `_tools/`) and uses only one at or above `CLOUDFLARED_MIN_VERSION`; if none qualifies, it downloads `releases/latest/download/cloudflared-windows-amd64.exe` from GitHub into `_tools/`, version-checks the download, and only then swaps it in (a locked exe means the tunnel is running — stop it first). An outdated system/winget copy is skipped, not upgraded: upgrade or remove it yourself. A future `cloudflared service install` runs its own copy, which this check does not cover. ⚠️ Drafted 2026-10-27 and not yet applied to `Invisible_Launcher.py` (outside the repo) — until it is, check `cloudflared --version` by hand. The tunnel's origin is plain `http://localhost:8188`, so the stricter cloudflared has no origin certificate to reject; never "fix" a cert error with `noTLSVerify`.
 - **⚠️ ComfyUI-Manager is REQUIRED for Blueprints model auto-install (B43 phases 1+4):** the local ComfyUI must have **[ComfyUI-Manager](https://github.com/Comfy-Org/ComfyUI-Manager)** installed, at **security level "middle" or below** (`security_level = middle` — or lower — in ComfyUI's `user/default/ComfyUI-Manager/config.ini`; `high`/`strong` returns **403** on the install/reboot calls). The Atlas Maker's blueprint "prepare" step drives Manager's queue API over this same tunnel (`POST /manager/queue/install_model` → `/queue/start` → poll `/queue/status` → `POST /manager/reboot`) to download a blueprint's declared `models[]` before generating. **Two boundaries to know:** (a) Manager only auto-installs models whose _(`save_path`, `base`, `filename`)_ triple is in its curated `model-list.json` catalog — custom Civitai/gated-HF URLs that aren't catalogued fall to a manual-download checklist by design; (b) if Manager is absent (`404` on `/manager/*`), unreachable, or a model stays missing after reboot, the step degrades to a readable checklist and never crashes. Kill-switch: `BLUEPRINT_AUTO_INSTALL_MODELS` env on atlas-tool (default **enabled**; set falsy to emit the checklist only, since reboot interrupts in-flight ComfyUI work). See `docs/design/invisible-blueprints.md` §4.
 - TODO: install cloudflared as a Windows service (`cloudflared service install`) so the tunnel survives reboots.
 
@@ -486,6 +578,8 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
     caches; they are public game assets). Design: `docs/design/live-assets.md` § Published snapshots.
 
 ## Environment variables (names only)
+
+(Game server: see "Invisible Game Server" above.)
 
 **Launcher** (read through `ENV` in `apps/launcher-api/src/lib/server/env.ts`; "default" = has a
 code default, so the dashboard need not set it):
