@@ -217,6 +217,58 @@ mock the game is dealt. Change the kind where it's authored.
   game's build genuinely differs (a non-standard command, cwd or output dir). The
   Advanced boxes then win and nothing rewrites them.
 
+### 📊 Build breakdown — what a build shipped *(from v1.0.59)*
+
+Every ☁ Publish and 📦 Deliver writes a **build breakdown**: one page describing the finished
+`build/` folder, after 🗜 Optimize has compressed it, so it covers exactly the bytes that leave the
+machine. Use it to check that the right packages went out.
+
+**Where to find it**
+
+- **☁ Publish:** the "Build & publish complete" dialog ends with a 📊 line (size shipped, size left
+  out, errors and warnings) and asks *Open the build breakdown?*. Answer **Yes** to open it in your
+  browser.
+- **📦 Deliver:** the result dialog has a **📊 Build breakdown** button beside 📁 Open folder.
+- **Any time later:** **📊** on the project card opens the newest breakdown for that game.
+- **On disk:** `C:\Invisible Wall SL\ComfyUI\build-reports\<cloud key>\v<build>\build-breakdown.html`. The
+  newest 10 builds per game are kept. The page needs no network, so you can attach it to a ticket or
+  send it to someone. It is never written into the build and never ships to players or partners.
+
+**What it shows**
+
+- **Tiles:** total size and file count, code (JS/CSS/HTML), number of assets, an estimate of GPU
+  memory, what the build left out, what 🗜 Optimize saved by re-encoding, and the bytes still
+  shipped that nothing loads.
+- **By category:** a bar and a table of size and file count for Code, Scene art, Symbols, Atlas
+  pages (shared), Coded game art, Fonts, Sounds, Loading screen, Game data and Other. Click a row to
+  filter the lists below to that category.
+- **Checks:**
+  - errors: files the game asks for that are not in the build;
+  - warnings: placed art no sheet packs, rigs that resolved to nothing, missing flipbook frames,
+    files nothing loads, files committed in the game repo that nothing loads, textures over 4096 px,
+    🐞 Debug left on;
+  - info: identical files shipped twice, images no atlas names, and assets the game data never
+    names.
+- **What the build left out**, step by step, with every file and its size:
+  - not pulled from the project (in `deploy/` but loaded by nothing; tidy them in the Invisible FTP
+    Browser);
+  - removed from `static/assets` (leftovers of an earlier build or a renamed asset);
+  - image twins and extra audio formats dropped by 🗜 Optimize;
+  - PNG twins and non-mp3 audio dropped by the launcher;
+  - images re-encoded, with the size before and after.
+- **Assets:** each sheet, image, rig, font, sound and the loading splash, with every file it pulls
+  in, its size, **Uses** (how many times the scenes, components, symbols, flow and effects name it)
+  and **Used in**. Search, filter by type, and sort by size, uses or name.
+- **Files:** every file with its kind, size, **Refs** (how many times the bundle, the code and other
+  files reference it), who references it and its pixel size. Use **Unreferenced only** to list dead
+  files; a `dup` tag marks identical content.
+- **Game content** (scenes, components, languages, flow, config…), and **Assets / Files / Left-out
+  CSV** and **JSON** downloads.
+
+A **Uses** count of 0 doesn't prove an asset is unused: code can load an asset by a name that no
+scene or component spells out. If the engine is older than the breakdown, or the report fails, the
+progress log says so in one line and the build carries on.
+
 ### 🏗 Scaffold — give an online project a standalone build
 
 A project authored in the portal is **data-only** by design: Invisible Game Maker

@@ -24,7 +24,15 @@
 //      log), and `--no-prune` still mirrors everything.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -189,6 +197,8 @@ console.log('4. end to end');
 	put('sprites/OldPull/old.webp');
 	put('_pages/stale.webp');
 
+	const reportDir = mkdtempSync(join(tmpdir(), 'pull-report-'));
+	const pullReport = () => JSON.parse(readFileSync(join(reportDir, 'pull.json'), 'utf8'));
 	const run = (...extra) =>
 		new Promise((resolveRun) => {
 			const child = spawn(
@@ -205,7 +215,10 @@ console.log('4. end to end');
 					TOKEN,
 					...extra,
 				],
-				{ cwd: game, env: { ...process.env, IE_OPTIMIZE_ASSETS: '' } },
+				{
+					cwd: game,
+					env: { ...process.env, IE_OPTIMIZE_ASSETS: '', IE_BUILD_REPORT_DIR: reportDir },
+				},
 			);
 			let out = '';
 			child.stdout.on('data', (d) => (out += d));
@@ -232,6 +245,31 @@ console.log('4. end to end');
 			first.out,
 		);
 
+		const report = pullReport();
+		ok(
+			'the build report lists what was not pulled, with its size',
+			report.notPulled.some(
+				(f) => f.rel === 'sprites/S_Background/S_Background.webp' && f.bytes === 4096,
+			),
+			JSON.stringify(report.notPulled),
+		);
+		ok(
+			'  and what was removed, sized before it was deleted',
+			report.removed.some((f) => f.rel === 'sprites/Committed/c.png' && f.bytes === 2 * 1048576),
+			JSON.stringify(report.removed),
+		);
+		ok('  and no optimize section without 🗜', report.optimize === null);
+
+		put('sprites/symbolsStatic/symbolsStatic.png', 'z'.repeat(777));
+		const trimmed = await run('--optimize');
+		const twins = pullReport().optimize?.imagesDeleted ?? [];
+		ok(
+			'🗜: the dropped image twin is in the report with its size',
+			trimmed.code === 0 &&
+				twins.some((f) => f.rel === 'sprites/symbolsStatic/symbolsStatic.png' && f.bytes === 777),
+			JSON.stringify(twins),
+		);
+
 		const all = await run('--no-prune');
 		ok(
 			'--no-prune mirrors everything',
@@ -240,6 +278,7 @@ console.log('4. end to end');
 	} finally {
 		server.close();
 		rmSync(game, { recursive: true, force: true });
+		rmSync(reportDir, { recursive: true, force: true });
 	}
 }
 
