@@ -240,8 +240,10 @@ Authored events export in the `.irig` (rig JSON) as
 Matching cue names is the advanced path. Normally you just **pick the effect on
 the keyframe** — the event editor's **Play effect** dropdown lists the project's
 Invisible FX effects, and the moment you choose one it plays on the stage so you
-can see it. (Sprite-particle effects only for now.) **— none (cue only) —** goes
-back to a plain broadcast.
+can see it. (Sprite-particle effects only for now.) A layer with a
+[material](fx.md#material) draws through it on the stage, as in the game; if the project's Shader
+Graph effects cannot be read, or the material's graph is gone, that layer draws plain sprites.
+**— none (cue only) —** goes back to a plain broadcast.
 
 With an effect bound, the rest of the panel appears:
 

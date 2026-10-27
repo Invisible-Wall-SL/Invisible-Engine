@@ -528,6 +528,14 @@ svelte-check at baseline, and the current games building with no changed screen.
      - a harness drawing a material through `fxOverlay`'s plain-function path;
      - `node --check` on the touched inline scripts.
    - **Exit:** the Scene Editor, Rigger and Symbols show the material.
+   - **As built** (#TBD):
+     - **One mount shared by every launcher stage** (`$lib/fx/layerMaterial.client.ts`), `FxStage`
+       included, rather than each preview copying `FxStage`'s keys.
+     - **The harness plays the real pieces:** the committed `rigger-fx.js`, `EditorEffectLayer`
+       and `view.html`'s own `ensureFxBundle` (`fx-previews`), beyond the plain-function path.
+     - **The set's fetch times out** (5 s) and every overlay band waits on the one load.
+     - **Finished overlay one-shots end by themselves**, freeing their slots, as the game unmounts
+       a binding's effect.
 7. **`/shaders`: Made for particles and the Particles preview** (launcher and engine).
    - **Contents:**
      - `madeFor`;

@@ -14,7 +14,7 @@
  * lives in the shared core so the Symbols State-Machine stage can reuse the SAME overlay verbatim.
  */
 
-import { createFxOverlay, type FxOverlayApi } from '../lib/fx/fxOverlay.client';
+import { createFxOverlay, loadShaderEffects, type FxOverlayApi } from '../lib/fx/fxOverlay.client';
 
 /** Back-compat alias — `view.html` types the global against this name. */
 export type RiggerFxApi = FxOverlayApi;
@@ -25,6 +25,7 @@ declare global {
 	interface Window {
 		RiggerFx: FxOverlayApi;
 		RiggerFxCreate: typeof createFxOverlay;
+		RiggerFxLoadShaderEffects: () => Promise<boolean>;
 	}
 }
 
@@ -41,6 +42,12 @@ if (typeof window !== 'undefined') {
 	 * which has no module system. `RiggerFx` stays as the first (front) instance for back-compat.
 	 */
 	window.RiggerFxCreate = createFxOverlay;
+	/**
+	 * Registers the project's compiled shader effects in THIS bundle's registry, so a layer's
+	 * material draws (Invisible Shader Graph step 8d). `view.html` awaits it before its first
+	 * overlay; false (no set) leaves every material layer drawing plain.
+	 */
+	window.RiggerFxLoadShaderEffects = () => loadShaderEffects();
 }
 
 export default api;
