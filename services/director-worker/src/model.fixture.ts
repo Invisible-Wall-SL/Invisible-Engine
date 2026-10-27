@@ -17,6 +17,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { costOfResponse, parsePricing, seedRenderUsd } from 'director-costs';
 import { loadAgents, pricedModels } from './agents.ts';
+import { loadFamilyPacks } from './families.ts';
 import {
 	DEFAULT_OUTPUT_TOKENS,
 	overCap,
@@ -53,6 +54,8 @@ const agents = loadAgents(root('agents'), {
 	models: pricedModels(root('pricing.json')),
 	tools: KNOWN_TOOLS,
 });
+const packs = loadFamilyPacks(root('families'));
+const slot = packs.get('slot')!;
 
 const ADAPTER: ToolSpec = {
 	id: 'atlas.get_region',
@@ -120,7 +123,7 @@ check(
 // ── Requests per model ──
 const history = [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Go.' }] }];
 for (const agent of agents.values()) {
-	const request = buildRequest(agent, [ADAPTER], history);
+	const request = buildRequest(agent, slot, [ADAPTER], history);
 	const name = `${agent.name} (${agent.model})`;
 	const profile = modelProfile(agent.model);
 	check(`${name}: tool_choice is auto`, request.tool_choice, { type: 'auto' });
@@ -130,9 +133,12 @@ for (const agent of agents.values()) {
 		true,
 	);
 	check(
-		`${name}: the system block is a cache breakpoint`,
-		(request.system as { cache_control?: unknown }[])[0].cache_control,
-		{ type: 'ephemeral' },
+		`${name}: two system blocks, the definition then the family pack, each a cache breakpoint`,
+		request.system,
+		[
+			{ type: 'text', text: agent.systemPrompt, cache_control: { type: 'ephemeral' } },
+			{ type: 'text', text: slot.text, cache_control: { type: 'ephemeral' } },
+		],
 	);
 	check(`${name}: the conversation is cached`, request.cache_control, { type: 'ephemeral' });
 	if (agent.model === 'claude-haiku-4-5-20251001') {
@@ -160,6 +166,7 @@ const coordinator = agents.get('coordinator')!;
 const prefix = (r: ReturnType<typeof buildRequest>) => JSON.stringify([r.tools, r.system]);
 const later = buildRequest(
 	coordinator,
+	slot,
 	[ADAPTER],
 	[
 		...history,
@@ -168,10 +175,27 @@ const later = buildRequest(
 	],
 );
 check(
-	'the cached prefix is byte-identical across turns',
+	'the cached prefix (tools and both system blocks) is byte-identical across turns',
 	prefix(later),
-	prefix(buildRequest(coordinator, [ADAPTER], history)),
+	prefix(buildRequest(coordinator, slot, [ADAPTER], history)),
 );
+check(
+	'the two system blocks are byte-identical across two turns of one run',
+	JSON.stringify(later.system),
+	JSON.stringify(buildRequest(coordinator, slot, [ADAPTER], history).system),
+);
+{
+	const blocks = (r: ReturnType<typeof buildRequest>) => r.system as { text: string }[];
+	const other = buildRequest(coordinator, packs.get('match3')!, [ADAPTER], history);
+	check(
+		'another family changes only the second block: the definition block is shared',
+		[
+			blocks(other)[0].text === blocks(later)[0].text,
+			blocks(other)[1].text === blocks(later)[1].text,
+		],
+		[true, false],
+	);
+}
 let threw = false;
 try {
 	modelProfile('claude-opus-5');
@@ -185,7 +209,7 @@ check(
 );
 
 // ── Budget projection ──
-const request = buildRequest(coordinator, [ADAPTER], history);
+const request = buildRequest(coordinator, slot, [ADAPTER], history);
 const inputTokens = Math.ceil(JSON.stringify(request).length / 4);
 const opus = pricing.perMTok['claude-opus-5-5'];
 check(

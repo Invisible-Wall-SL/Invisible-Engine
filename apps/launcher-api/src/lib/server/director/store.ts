@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gt, inArray, lt, lte, or, sql } from 'drizzle-orm';
 import { getDb } from '../db';
 import { r2SlugSql, type Queryer } from '../projectKeyLock';
+import type { PackFamily } from '../../../../../../services/director-worker/src/familyPack';
 import {
 	directorAtlasJobs,
 	directorBlueprintTimings,
@@ -394,6 +395,7 @@ export interface NewRun {
 	projectKey: string;
 	clientKey: string | null;
 	templateProjectKey: string;
+	family: PackFamily;
 	ownerUserId: string;
 	startingPointJson: unknown;
 	checkpointsJson: unknown;

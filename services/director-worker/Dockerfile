@@ -2,7 +2,7 @@
 # Dockerfile Path = services/director-worker/Dockerfile), like the other repo-root services.
 #
 # Node 22 runs the TypeScript directly (type stripping), so there is no build step and no dist/: the
-# image holds the service's own folder — source, agent definitions, pricing.json and
+# image holds the service's own folder — source, agent definitions, family packs, pricing.json and
 # estimate-profiles.json (the fallback recipe) — its pinned npm dependencies, and the one workspace
 # package it uses, `director-costs`.
 #
@@ -21,6 +21,7 @@ COPY packages/director-costs/src /packages/director-costs/src
 RUN ln -s /packages/director-costs node_modules/director-costs
 COPY services/director-worker/src ./src
 COPY services/director-worker/agents ./agents
+COPY services/director-worker/families ./families
 COPY services/director-worker/pricing.json ./
 COPY services/director-worker/estimate-profiles.json ./
 

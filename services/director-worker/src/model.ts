@@ -7,19 +7,23 @@ import type {
 	BetaTool,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { AgentDefinition } from './agents.ts';
+import type { FamilyPack } from './familyPack.ts';
 import type { RunnableModel } from './models.ts';
 
 /**
  * How one agent turn is asked of the model (ADR-0001): one streamed Messages call, built only from
- * the agent's definition, the tools it may use and its stored conversation.
+ * the agent's definition, the run's family pack (ADR-0009 §4), the tools it may use and its stored
+ * conversation.
  *
  * - `tool_choice: auto` with `strict` tools: forced tool choice is a 400 on Opus 5.5 and Sonnet 5.5.
  * - Thinking: adaptive with the definition's `effort` on the 5.5 models; a token budget on Haiku 4.5.
  * - Refusals: the server-side fallback (`fallbacks: "default"`) on the 5.5 models. A refusal that
  *   survives it is the turn's final answer, and the run pauses on it.
- * - Caching: the tools and the system prompt are the prefix, byte-stable for an agent — nothing
- *   run-specific or time-dependent is in either — with a breakpoint on the system block; the
- *   top-level breakpoint caches the conversation so far. 5-minute TTL (OPEN_QUESTIONS #1044).
+ * - Caching: the tools and the two system blocks — the family-neutral definition body, then the
+ *   family pack — are the prefix, byte-stable for an agent and a family: nothing run-specific or
+ *   time-dependent is in any of them. Each block carries a breakpoint, so the first is shared by
+ *   every family; the top-level breakpoint caches the conversation so far. 5-minute TTL
+ *   (OPEN_QUESTIONS #1044).
  */
 
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
@@ -116,6 +120,7 @@ export function apiTool(spec: ToolSpec): BetaTool {
 /** The request for one turn. `tools` must be in the definition's order (a stable prefix). */
 export function buildRequest(
 	agent: AgentDefinition,
+	pack: FamilyPack,
 	tools: readonly ToolSpec[],
 	messages: BetaMessageParam[],
 ): BetaMessageStreamParams {
@@ -126,7 +131,10 @@ export function buildRequest(
 		thinking: profile.thinking,
 		tool_choice: { type: 'auto' },
 		tools: tools.map(apiTool),
-		system: [{ type: 'text', text: agent.systemPrompt, cache_control: { type: 'ephemeral' } }],
+		system: [
+			{ type: 'text', text: agent.systemPrompt, cache_control: { type: 'ephemeral' } },
+			{ type: 'text', text: pack.text, cache_control: { type: 'ephemeral' } },
+		],
 		cache_control: { type: 'ephemeral' },
 		messages,
 	};

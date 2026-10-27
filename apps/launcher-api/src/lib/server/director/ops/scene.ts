@@ -8,11 +8,15 @@ import {
 	type Point2D,
 	type Scene,
 } from 'engine-layout';
+import {
+	PACK_FAMILY_LABELS,
+	type PackFamily,
+} from '../../../../../../../services/director-worker/src/familyPack';
 import { loadComponent } from '../../componentStorage';
 import { loadDocWithEtag, saveDoc } from '../../editorStorage';
 import { editorDocBackupTarget, editorDocKey } from '../../projectPaths';
 import { projectGameType } from '../../projects';
-import { AdapterError, defineOp } from '../adapter';
+import { AdapterError, defineOp, type AdapterContext } from '../adapter';
 import { baseEtagProp, baseOf, preconditionOf, projectOf } from './docs';
 
 /**
@@ -24,8 +28,25 @@ import { baseEtagProp, baseOf, preconditionOf, projectOf } from './docs';
  */
 
 /** Words that tie a binding to the math contract: stakes, bet levels and modes, paylines, features. */
-const MATH_WORD =
-	/(bet|stake|payline|paytable|ways|coin|buy|bonus|feature|trigger|increase|decrease|level|mode|rtp|jackpot)/i;
+const MATH_WORDS: Partial<Record<PackFamily, RegExp>> = {
+	slot: /(bet|stake|payline|paytable|ways|coin|buy|bonus|feature|trigger|increase|decrease|level|mode|rtp|jackpot)/i,
+};
+
+/**
+ * The run's family's math words. The family is the run's own, frozen at create (9F), never read
+ * from the project; a family with no list has no pack, so nothing is read or changed.
+ */
+function mathWordsOf(ctx: AdapterContext): RegExp {
+	const words = MATH_WORDS[ctx.run.family];
+	if (!words) {
+		throw new AdapterError(
+			409,
+			'no_family_pack',
+			`Director has no ready pack for ${PACK_FAMILY_LABELS[ctx.run.family]} games yet, so it cannot edit their screens.`,
+		);
+	}
+	return words;
+}
 
 /**
  * Screens that ARE math: the bet menu, the buy-feature menu and its confirm. The runtime finds each
@@ -57,6 +78,7 @@ function defLoader(projectKey: string): DefLoader {
  */
 async function ownMathBinding(
 	node: LayoutNode,
+	math: RegExp,
 	defs: DefLoader,
 	depth = 0,
 ): Promise<string | null> {
@@ -89,7 +111,7 @@ async function ownMathBinding(
 		...Object.values(node.paramBindings ?? {}).map((v): [string, unknown] => ['param binding', v]),
 	];
 	for (const [what, value] of named) {
-		if (typeof value === 'string' && MATH_WORD.test(value)) return `its ${what} is "${value}"`;
+		if (typeof value === 'string' && math.test(value)) return `its ${what} is "${value}"`;
 	}
 	if (node.kind !== 'componentInstance') return null;
 	if (depth >= MAX_COMPONENT_DEPTH) {
@@ -99,21 +121,26 @@ async function ownMathBinding(
 	if (!def) return `its component "${node.componentId}" could not be read to check`;
 	for (const param of def.params ?? []) {
 		const unset = params[param.key] === undefined;
-		if (unset && typeof param.default === 'string' && MATH_WORD.test(param.default)) {
+		if (unset && typeof param.default === 'string' && math.test(param.default)) {
 			return `its component's ${param.key} defaults to "${param.default}"`;
 		}
 	}
-	const inner = await mathBinding(def.root, defs, depth + 1);
+	const inner = await mathBinding(def.root, math, defs, depth + 1);
 	return inner ? `its component "${node.componentId}" holds a node where ${inner}` : null;
 }
 
 /** Why `node` — itself, or anything under it that moves with it — is bound to the math. */
-async function mathBinding(node: LayoutNode, defs: DefLoader, depth = 0): Promise<string | null> {
-	const own = await ownMathBinding(node, defs, depth);
+async function mathBinding(
+	node: LayoutNode,
+	math: RegExp,
+	defs: DefLoader,
+	depth = 0,
+): Promise<string | null> {
+	const own = await ownMathBinding(node, math, defs, depth);
 	if (own) return own;
 	if (node.kind !== 'container') return null;
 	for (const child of node.children) {
-		const why = await mathBinding(child, defs, depth);
+		const why = await mathBinding(child, math, defs, depth);
 		if (why) return `it contains "${child.id}", and ${why}`;
 	}
 	return null;
@@ -134,15 +161,16 @@ async function lockOf(
 	scene: Scene,
 	ancestors: LayoutNode[],
 	node: LayoutNode,
+	math: RegExp,
 	defs: DefLoader,
 ): Promise<string | null> {
 	const onScreen = sceneMathBinding(scene);
 	if (onScreen) return `bound to the math: ${onScreen}`;
 	for (const parent of ancestors) {
-		const why = await ownMathBinding(parent, defs);
+		const why = await ownMathBinding(parent, math, defs);
 		if (why) return `bound to the math: its parent "${parent.id}" is, as ${why}`;
 	}
-	const own = await mathBinding(node, defs);
+	const own = await mathBinding(node, math, defs);
 	if (own) return `bound to the math: ${own}`;
 	return node.locked ? 'it is locked in the Scene Editor' : null;
 }
@@ -183,6 +211,7 @@ async function summarize(
 	scene: Scene,
 	ancestors: LayoutNode[],
 	node: LayoutNode,
+	math: RegExp,
 	defs: DefLoader,
 ): Promise<NodeSummary> {
 	const out: NodeSummary = {
@@ -196,12 +225,12 @@ async function summarize(
 		region: node.kind === 'sprite' ? (node.region ?? null) : null,
 		skin: node.kind === 'spine' ? (node.skin ?? null) : null,
 		clipId: node.kind === 'flipbook' ? node.clipId : null,
-		locked: await lockOf(scene, ancestors, node, defs),
+		locked: await lockOf(scene, ancestors, node, math, defs),
 	};
 	if (node.kind === 'container') {
 		out.children = [];
 		for (const child of node.children) {
-			out.children.push(await summarize(scene, [...ancestors, node], child, defs));
+			out.children.push(await summarize(scene, [...ancestors, node], child, math, defs));
 		}
 	}
 	return out;
@@ -241,6 +270,7 @@ export const getLayout = defineOp<
 	scope: 'project',
 	write: false,
 	handler: async (ctx, { screen }) => {
+		const math = mathWordsOf(ctx);
 		const { clientKey, projectKey } = projectOf(ctx);
 		const { doc, etag } = await loadLayout(clientKey, projectKey);
 		const scenes = screen ? doc.scenes.filter((s) => s.id === screen) : doc.scenes;
@@ -251,7 +281,7 @@ export const getLayout = defineOp<
 		const screens = [];
 		for (const s of scenes) {
 			const nodes = [];
-			for (const n of s.nodes) nodes.push(await summarize(s, [], n, defs));
+			for (const n of s.nodes) nodes.push(await summarize(s, [], n, math, defs));
 			screens.push({ id: s.id, name: s.name, role: s.role ?? null, nodes });
 		}
 		return {
@@ -368,6 +398,7 @@ export const updateNodes = defineOp<
 		editorDocBackupTarget(scope.clientKey, scope.projectKey).prefix,
 	],
 	handler: async (ctx, { changes, baseEtag }) => {
+		const math = mathWordsOf(ctx);
 		const { clientKey, projectKey } = projectOf(ctx);
 		const { doc, etag } = await loadLayout(clientKey, projectKey);
 		if (etag === null) {
@@ -391,7 +422,7 @@ export const updateNodes = defineOp<
 				);
 			}
 			const reason =
-				(await lockOf(scene, found.ancestors, found.node, defs)) ??
+				(await lockOf(scene, found.ancestors, found.node, math, defs)) ??
 				applyChange(found.node, change, layouts);
 			if (reason) refused.push({ screen: change.screen, node: change.node, reason });
 			else applied.push({ screen: change.screen, node: change.node });

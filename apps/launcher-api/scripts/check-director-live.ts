@@ -360,6 +360,7 @@ const summary = (over: Partial<RunSummary>): RunSummary =>
 		projectKey: 'sunken-temple',
 		clientKey: 'invisible_wall',
 		templateProjectKey: 'hw-3pots-sample',
+		family: 'slot',
 		status: 'running',
 		step: 'regions',
 		waitingOn: null,

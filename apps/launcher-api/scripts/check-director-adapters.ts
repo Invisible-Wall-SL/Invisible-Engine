@@ -461,6 +461,7 @@ const run = (id: string, over: Partial<DirectorRun> = {}): DirectorRun => ({
 	projectKey: `new_${id}`,
 	clientKey: C,
 	templateProjectKey: 'tpl_lines',
+	family: 'slot',
 	ownerUserId: 'owner',
 	projectCreateStartedAt: null,
 	templateConfigEtag: null,
@@ -977,6 +978,97 @@ check(
 	check('a non-admin cannot mark a template', refused, true);
 }
 
+// ── 9F: lockedItemsOf(config, 'slot') is the pre-9F output, for every committed slot config ──
+{
+	const { primaryRespinMode } = await import('game-config');
+	type Cfg = {
+		rtp: number;
+		numReels: number;
+		numRows: number[];
+		betModes?: Record<string, { buyBonus?: boolean }>;
+		symbols?: Record<string, { paytable?: unknown[] }>;
+		paylines?: Record<string, unknown>;
+		cascade?: unknown;
+		modes?: { id: string }[];
+		coinOverlay?: { drops?: unknown };
+	};
+	/** The function as it stood before 9F, copied verbatim (the config argument typed loosely). */
+	const lockedItemsBefore = (config: Cfg | null) => {
+		const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+		const betModes = Object.entries(config?.betModes ?? {}).map(([id, mode]) => ({
+			id,
+			buyBonus: Boolean(mode.buyBonus),
+		}));
+		const paying = Object.values(config?.symbols ?? {}).filter(
+			(s) => (s.paytable ?? []).length > 0,
+		);
+		const lines = config?.paylines ? Object.keys(config.paylines).length : 0;
+		const features = [
+			config?.cascade ? 'cascade' : null,
+			primaryRespinMode(config?.modes as never) ? 'Hold and Win' : null,
+			config?.coinOverlay?.drops ? 'pots overlay' : null,
+			...(config?.modes ?? []).map((m) => `mode ${m.id}`),
+		].filter((f): f is string => f !== null);
+		const grid = config ? `${config.numReels} reels × ${config.numRows.join('/')} rows` : 'unknown';
+		return [
+			{
+				id: 'math',
+				label: 'Math contract',
+				detail: config ? `RTP ${config.rtp}, ${grid}` : 'no config found',
+			},
+			{ id: 'paytable', label: 'Paytable', detail: plural(paying.length, 'paying symbol') },
+			{
+				id: 'bet_modes',
+				label: 'Bet modes',
+				detail: betModes.length
+					? betModes.map((m) => (m.buyBonus ? `${m.id} (buy)` : m.id)).join(', ')
+					: 'none',
+				facts: { betModes },
+			},
+			{ id: 'paylines', label: 'Paylines', detail: plural(lines, 'payline') },
+			{
+				id: 'feature_rules',
+				label: 'Feature rules',
+				detail: features.length ? features.join(', ') : 'none',
+			},
+		];
+	};
+	const seedDir = new URL('../src/lib/data/gameConfig/', import.meta.url);
+	const seeds = readdirSync(seedDir)
+		.filter((f) => f.endsWith('.json'))
+		.map((f) => [
+			f,
+			JSON.parse(readFileSync(new URL(f, seedDir), 'utf8')) as Cfg & { family?: string },
+		])
+		.filter(([, doc]) => typeof (doc as { family?: unknown }).family !== 'string');
+	check('the slot seeds are found', seeds.length >= 8, true);
+	for (const [file, doc] of seeds as [string, Cfg][]) {
+		check(
+			`lockedItemsOf(${file}, 'slot') is byte-identical to the pre-9F output`,
+			JSON.stringify(lockedItemsOf(doc as never, 'slot')),
+			JSON.stringify(lockedItemsBefore(doc)),
+		);
+	}
+	check(
+		'...and with no config',
+		JSON.stringify(lockedItemsOf(null, 'slot')),
+		JSON.stringify(lockedItemsBefore(null)),
+	);
+	for (const family of ['match3', 'arcade'] as const) {
+		check(
+			`${family} locks the whole Game Config, inventing no list`,
+			lockedItemsOf(seeds[0][1] as never, family),
+			[
+				{
+					id: 'math',
+					label: 'Game Config',
+					detail: `Locked whole: Director has no ${family === 'match3' ? 'match-3' : family} pack yet`,
+				},
+			],
+		);
+	}
+}
+
 // ── 2.3 list_templates / get_template ─────────────────────────────────────────
 {
 	seedTemplate('tpl_unpub', {}, false);
@@ -997,6 +1089,14 @@ check(
 		['tpl_lines', 'tpl_other'],
 	);
 	const t = templates[0];
+	check(
+		'...each carries its family and whether Director has a pack for it',
+		templates.map((x) => [
+			(x as { family?: string }).family,
+			(x as { familyPack?: string }).familyPack,
+		]),
+		templates.map(() => ['slot', 'ready']),
+	);
 	check('...with GAME chips', t.chips.game.length > 0, true);
 	check(
 		'...and USING chips',
@@ -1018,14 +1118,17 @@ check(
 			],
 		},
 	);
-	const scatterLike = lockedItemsOf({
-		rtp: 0.97,
-		numReels: 5,
-		numRows: [3, 3, 3, 3, 3],
-		symbols: {},
-		paylines: {},
-		betModes: { base: { buyBonus: false }, bonus: { buyBonus: true } },
-	} as never).find((l) => l.id === 'bet_modes')!;
+	const scatterLike = lockedItemsOf(
+		{
+			rtp: 0.97,
+			numReels: 5,
+			numRows: [3, 3, 3, 3, 3],
+			symbols: {},
+			paylines: {},
+			betModes: { base: { buyBonus: false }, bonus: { buyBonus: true } },
+		} as never,
+		'slot',
+	).find((l) => l.id === 'bet_modes')!;
 	check(
 		'...a buy mode is told by its flag, not its name (scatter.json buys through `bonus`)',
 		[scatterLike.detail, scatterLike.facts],
@@ -2868,6 +2971,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	const { saveSymbolsDoc } = await import(src('lib/server/symbolsStorage.ts'));
 	PROJECTS.set('tools', project('tools'));
 	RUNS.set('rt', run('rt', { projectKey: 'tools' }));
+	RUNS.set('rm3', run('rm3', { projectKey: 'tools', family: 'match3' }));
 	const P = 'acme/tools';
 	let toolSeq = 0;
 	const tool = (name: string, agent: string, input: unknown, write = false) => {
@@ -3229,6 +3333,34 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		['no_layout', false],
 	);
 	R2.set(SCENE, sceneBefore!);
+
+	// 9F: the scene lock reads the RUN's family; a family with no list refuses before reading.
+	{
+		const before = [...R2].map(([k, o]) => `${k}:${o.etag}`);
+		const asMatch3 = (name: string, input: unknown, write = false) =>
+			call(name.split('.')[0], name.split('.')[1], {
+				runId: 'rm3',
+				agent: 'builder',
+				...(write ? { opId: `rm3:t26:${++toolSeq}` } : {}),
+				input,
+			});
+		const read = await asMatch3('scene.get_layout', {});
+		const write = await asMatch3(
+			'scene.update_nodes',
+			{ changes: [{ screen: 'base', node: 'logo', x: 1 }], baseEtag: String(layout.body.baseEtag) },
+			true,
+		);
+		check(
+			'scene ops on a match-3 run: no_family_pack, whatever the project is',
+			[read.status, read.body.error, write.status, write.body.error],
+			[409, 'no_family_pack', 409, 'no_family_pack'],
+		);
+		check(
+			'...and nothing was written',
+			[...R2].map(([k, o]) => `${k}:${o.etag}`),
+			before,
+		);
+	}
 
 	// Win Text
 	const WT = paths.winTextDocKey(C, 'tools');

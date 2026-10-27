@@ -9,7 +9,12 @@ import { SUB, UNASSIGNED_CLIENT } from '../projectPaths';
 import { getObjectText, listAllKeys } from '../r2';
 import { loadSymbolsDoc } from '../symbolsStorage';
 import { loadTestServerManifest, type TestServerManifest } from '../testServerManifest';
-import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
+import { DEFAULT_GAME_KIND, familyOfKind } from 'constants-shared/gameKinds';
+import {
+	PACK_FAMILY_LABELS,
+	READY_FAMILY_PACKS,
+	type PackFamily,
+} from '../../../../../../services/director-worker/src/familyPack';
 
 /**
  * What Invisible Director reads about a template or a project: the GAME / USING chips Game Maker
@@ -45,6 +50,9 @@ export interface ProjectSummary {
 	clientKey: string | null;
 	gameType: string;
 	gameTypeName: string;
+	/** The family the kind plays as, and whether Director has a ready pack for it (9F). */
+	family: PackFamily;
+	familyPack: 'ready' | 'not_ready';
 	published: boolean;
 	/** Game Maker's GAME row (`facts`) and USING row (`features`). */
 	chips: { game: ProfileChip[]; using: ProfileChip[] };
@@ -56,8 +64,20 @@ export interface ProjectSummary {
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 
-/** The template items no agent may change, described from the config the game actually runs. */
-export function lockedItemsOf(config: GameConfigDoc | null): LockedItem[] {
+/**
+ * The template items no agent may change, described from the config the game actually runs. Only
+ * the slot lists exist: another family has no pack yet, so its whole Game Config is locked.
+ */
+export function lockedItemsOf(config: GameConfigDoc | null, family: PackFamily): LockedItem[] {
+	if (family !== 'slot') {
+		return [
+			{
+				id: 'math',
+				label: 'Game Config',
+				detail: `Locked whole: Director has no ${PACK_FAMILY_LABELS[family]} pack yet`,
+			},
+		];
+	}
 	const betModes = Object.entries(config?.betModes ?? {}).map(([id, mode]) => ({
 		id,
 		buyBonus: Boolean(mode.buyBonus),
@@ -138,6 +158,7 @@ export async function summarizeProject(
 ): Promise<ProjectSummary> {
 	const clientKey = project.clientKey ?? UNASSIGNED_CLIENT;
 	const gameType = project.gameType || DEFAULT_GAME_KIND;
+	const family = familyOfKind(gameType);
 	const [config, symbols, owned, regionGroups] = await Promise.all([
 		resolveGameConfig(clientKey, project.key, gameType),
 		loadSymbolsDoc(clientKey, project.key),
@@ -160,9 +181,11 @@ export async function summarizeProject(
 		clientKey: project.clientKey,
 		gameType,
 		gameTypeName: ctx.kindNames.get(gameType) ?? gameType,
+		family,
+		familyPack: READY_FAMILY_PACKS.has(family) ? 'ready' : 'not_ready',
 		published: owned.length > 0,
 		chips: { game: profile.facts, using: profile.features },
-		lockedItems: lockedItemsOf(config.doc),
+		lockedItems: lockedItemsOf(config.doc, family),
 		regionGroups,
 		configEtag: config.source === 'authored' ? config.etag : null,
 	};

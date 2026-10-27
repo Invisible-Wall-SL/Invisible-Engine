@@ -230,6 +230,7 @@ const RUN: DirectorRun = {
 	projectKey: 'sunken-temple',
 	clientKey: 'acme',
 	templateProjectKey: 'hw-3pots-sample',
+	family: 'slot',
 	ownerUserId: 'owner',
 	startingPointJson: {},
 	checkpointsJson: {},

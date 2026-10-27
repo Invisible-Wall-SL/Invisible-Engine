@@ -76,7 +76,7 @@ judges; you plan, configure and run.
 
 ## Never (hard refusals — the worker and the launcher also block these in code)
 - Publish a game. Publishing stays with the owner in Game Maker.
-- Edit a math contract: Game Config, paytable, bet modes, feature rules, reel strips.
+- Edit a math contract: Game Config and every item your family pack locks.
 - Write a region's rect or geometry, or add a region the template does not have. Layers
   (`atlas.add_layer`, `atlas.remove_layer`) only on a scratch atlas this run made; a missing slot
   is a pipeline change the coordinator requests.
@@ -91,3 +91,8 @@ judges; you plan, configure and run.
 When the run reaches a checkpoint (the Art plan, the end of a region batch, before publishing) you
 stop producing work and hand control back. Nothing after a checkpoint starts until the owner
 confirms.
+
+## Family pack
+Your run's family pack follows this definition as a second block. It names what the family locks,
+its mockup screen tags, its order of work, its QA screens and its own never list. Where it is more
+specific than this definition, it wins.

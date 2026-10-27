@@ -4,7 +4,12 @@
  *
  *   node --experimental-strip-types --no-warnings=ExperimentalWarning \
  *     services/director-worker/scripts/agent-eval.ts --agent <name> --after <edited .md> \
- *     [--before <main's .md>] --head <sha> --base <sha> --out <dir> [--cap <usd>]
+ *     [--before <main's .md>] [--after-pack <families/<family>.md>] \
+ *     [--before-pack <main's families/<family>.md>] --head <sha> --base <sha> --out <dir> [--cap <usd>]
+ *
+ * The packs are the family pack each side runs with (ADR-0009 §4): a side without one runs its
+ * definition alone, as a checkout from before the packs did. The workflow passes neither yet: it
+ * evaluates a change to one definition. A pack change is evaluated by hand with these flags.
  *
  * Writes `<out>/report.json` (the `EvalReport`, tab-indented) and `<out>/summary.txt` (line 1
  * `pass` or `fail`, line 2 the report's one-line summary), prints that line and exits 0 on a pass,
@@ -16,7 +21,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { parsePricing } from 'director-costs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { AGENT_NAME, pricedModels } from '../src/agents.ts';
@@ -26,6 +31,7 @@ import { anthropicTransport } from '../src/mockups/vision.ts';
 import { KNOWN_TOOLS } from '../src/tools.ts';
 
 const USAGE = `usage: agent-eval.ts --agent <name> --after <edited .md> [--before <main's .md>]
+                     [--after-pack <pack .md>] [--before-pack <main's pack .md>]
                      --head <sha> --base <sha> --out <dir> [--cap <usd, at most ${EVAL_CAP_USD}>]`;
 
 function usageError(message: string): never {
@@ -38,6 +44,8 @@ const { values } = parseArgs({
 		agent: { type: 'string' },
 		after: { type: 'string' },
 		before: { type: 'string' },
+		'after-pack': { type: 'string' },
+		'before-pack': { type: 'string' },
 		head: { type: 'string' },
 		base: { type: 'string' },
 		out: { type: 'string' },
@@ -63,6 +71,9 @@ const read = (path: string): string => {
 	}
 };
 
+const packFile = (path: string | undefined) =>
+	path === undefined ? null : { file: basename(path), text: read(path) };
+
 const pricingFile = fileURLToPath(new URL('../pricing.json', import.meta.url));
 const pricing = parsePricing(JSON.parse(readFileSync(pricingFile, 'utf8')));
 
@@ -70,6 +81,8 @@ const report = await runAgentEval({
 	agent,
 	beforeText: values.before === undefined ? null : read(values.before),
 	afterText: read(after),
+	beforePack: packFile(values['before-pack']),
+	afterPack: packFile(values['after-pack']),
 	headSha: head,
 	baseSha: base,
 	capUsd,
