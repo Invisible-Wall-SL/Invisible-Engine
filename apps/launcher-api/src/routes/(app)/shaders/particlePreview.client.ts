@@ -25,6 +25,10 @@ import {
 } from './particlePreview';
 import type { RegionArt } from './shaderPreview.client';
 
+/** How far a paused stage plays a rebuilt emitter (wall ms), a frame at a time. */
+const PAUSED_PREWARM_MS = 500;
+const FRAME_MS = 1000 / 60;
+
 // The material binds `fxMaterial` into the emitter's config: the library must know it (idempotent).
 registerFxBehaviors(Emitter);
 
@@ -212,6 +216,10 @@ export class ParticlePreviewStage {
 		});
 		this.config = bindArt(config, [texture], false);
 		this.emitter = layerEmitter(this.world, this.config, this.mounted);
+		// Paused, nothing would advance a new emitter: play it a moment, so an edit shows particles.
+		if (!this.playing)
+			for (let ms = 0; ms < PAUSED_PREWARM_MS; ms += FRAME_MS)
+				this.emitter.update(emitterDeltaSeconds(FRAME_MS));
 		this.mounted.material?.sync(this.app.renderer);
 	}
 

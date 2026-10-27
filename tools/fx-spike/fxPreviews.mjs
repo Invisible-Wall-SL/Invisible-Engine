@@ -35,7 +35,8 @@
  *    - the Burst: the mesh draws a ring (every 15° at its radius, nothing at the centre), its
  *      `?fxdebug=1` line on at 1/8; all gone before 2 s, and replayed after;
  *    - paused, nothing moves; Restart empties it and the ring starts again;
- *    - Strength is a uniform write (no remount), seen while paused;
+ *    - Strength is a uniform write (no remount), seen while paused; an edit while paused still
+ *      shows particles;
  *    - the Fountain: a jet through the mesh, rising above the centre;
  *    - an atlas region as the art: the mesh draws it, not the sprite;
  *    - a kind no longer registered: plain, its sprites drawn;
@@ -337,6 +338,11 @@ try {
 					mesh(s.strength.back) &&
 					s.strength.lines.filter((l) => l.includes(': on (')).length === 1,
 				`1: ${px(s.strength.full)}; 0.25: ${px(s.strength.low)}; 1: ${px(s.strength.back)}`,
+			);
+			check(
+				'paused, an edit rebuilds the emitter and still shows its particles',
+				mesh(s.pausedEdit),
+				px(s.pausedEdit),
 			);
 			check(
 				'the Fountain draws a jet through the mesh, rising above the centre',

@@ -29,10 +29,12 @@
 		atlases: { manifestKey: string; label: string; regions: string[] }[];
 		/** The element shown when the graph opens or its Made for changes (`defaultPreviewElement`). */
 		defaultElement?: PreviewElement;
+		/** The open graph's id: opening another shows its default element. */
+		graph?: string;
 	}
 
 	// Not `effect`: a local of that name turns the `$effect` rune into a store read.
-	let { effect: compiled, atlases, defaultElement = 'sample' }: Props = $props();
+	let { effect: compiled, atlases, defaultElement = 'sample', graph = '' }: Props = $props();
 
 	const INTENSITY = ELEMENT_FX_LIMITS.intensity;
 
@@ -56,8 +58,11 @@
 	let particleState = $state<ParticlePreviewState>('none');
 	let atlasKey = $state('');
 	let regionName = $state('');
-	let loadingArt = $state(false);
-	let artNote = $state('');
+	/** The element's art and the particles' art load apart; what shows is the shown element's. */
+	let elementLoading = $state(false);
+	let elementNote = $state('');
+	let particleLoading = $state(false);
+	let particleNote = $state('');
 
 	// Keyed by content: an edit that compiles to the same effect (a node dragged) does not restart it.
 	const effectKey = $derived(compiled ? JSON.stringify(compiled) : '');
@@ -101,7 +106,8 @@
 			if (now !== particleState) particleState = now;
 		};
 		const advance = (ticker: Ticker): void => {
-			if (!playing || !durationMs) return;
+			// On particles the playhead stands still: each particle runs its own life.
+			if (!playing || !durationMs || onParticles) return;
 			const next = advancePlayhead(t, ticker.deltaMS, durationMs, loop);
 			t = next.t;
 			if (next.ended) playing = false;
@@ -178,6 +184,7 @@
 	// A graph opened, or its Made for changed: its default element (Particles for a material).
 	$effect(() => {
 		const element = defaultElement;
+		void graph;
 		untrack(() => pickSource(element));
 	});
 
@@ -210,19 +217,20 @@
 		const region = particleRegion;
 		if (!drawn) return;
 		untrack(() => {
+			particleNote = '';
 			if (!region) {
+				particleLoading = false;
 				drawn.useDot();
 				return;
 			}
-			artNote = '';
-			loadingArt = true;
+			particleLoading = true;
 			drawn.useRegion(region.manifestKey, region.name).then(
 				(current) => {
-					if (current) loadingArt = false;
+					if (current) particleLoading = false;
 				},
 				(err: unknown) => {
-					loadingArt = false;
-					artNote = `Couldn't load ${region.name} (${message(err)}): the particles show the soft dot.`;
+					particleLoading = false;
+					particleNote = `Couldn't load ${region.name} (${message(err)}): the particles show the soft dot.`;
 				},
 			);
 		});
@@ -233,20 +241,20 @@
 		const region = pickedRegion;
 		if (!shown) return;
 		untrack(() => {
-			artNote = '';
+			elementNote = '';
 			if (!region) {
-				loadingArt = false;
+				elementLoading = false;
 				shown.useSampleCard();
 				return;
 			}
-			loadingArt = true;
+			elementLoading = true;
 			shown.useRegion(region.manifestKey, region.name).then(
 				(current) => {
-					if (current) loadingArt = false;
+					if (current) elementLoading = false;
 				},
 				(err: unknown) => {
-					loadingArt = false;
-					artNote = `Couldn't load ${region.name} (${message(err)}): showing the sample card.`;
+					elementLoading = false;
+					elementNote = `Couldn't load ${region.name} (${message(err)}): showing the sample card.`;
 				},
 			);
 		});
@@ -278,6 +286,8 @@
 		'not WebGL': 'the preview is not on WebGL',
 		'not registered': 'the effect did not register',
 	};
+	const loadingArt = $derived(onParticles ? particleLoading : elementLoading);
+	const artNote = $derived(onParticles ? particleNote : elementNote);
 	const particlePlain = $derived(
 		onParticles && compiled && particleState !== 'on' && particleState !== 'none'
 			? (PLAIN_TEXT[particleState] ?? particleState)
@@ -296,10 +306,10 @@
 			<p class="overlay warn">{failure}</p>
 		{:else if !compiled}
 			<p class="overlay">Doesn't compile — fix the errors to preview.</p>
-		{:else if refused}
-			<p class="overlay warn">The runtime didn't take this effect, so it can't preview.</p>
-		{:else if particlePlain}
+		{:else if onParticles && particlePlain}
 			<p class="overlay warn">The particles draw plain: {particlePlain}.</p>
+		{:else if refused && !onParticles}
+			<p class="overlay warn">The runtime didn't take this effect, so it can't preview.</p>
 		{/if}
 		{#if loadingArt}
 			<span class="loading">Loading art…</span>

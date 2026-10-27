@@ -183,10 +183,13 @@ try {
 	await ev(`fxDrive.button('❚❚ Pause')`);
 	await ev(`fxDrive.select('Material', 'custom:noiseDissolve')`);
 	await waitFor(`!!fxDrive.section('Material')?.querySelector('.loadrow')`, 'the load meter');
-	await sleep(400);
+	// The mount's line reaches the page log when the stage has built: under load, later.
+	const mountedOn = () =>
+		mounts().some((l) => l.includes('fx/layer-1: on (custom:noiseDissolve; 1/8 drawing)'));
+	for (const until = Date.now() + 10_000; !mountedOn() && Date.now() < until;) await sleep(100);
 	check(
 		'the stage mounts the material through the game renderer (?fxdebug=1: on)',
-		mounts().some((l) => l.includes('fx/layer-1: on (custom:noiseDissolve; 1/8 drawing)')),
+		mountedOn(),
 		mounts().at(-1),
 	);
 	const params = await ev(

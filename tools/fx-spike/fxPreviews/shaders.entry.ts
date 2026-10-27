@@ -166,6 +166,10 @@ async function main() {
 	stage.setIntensity(1);
 	app.ticker.update((now += FRAME_MS));
 	result.strength = { full, low, back: census(canvas), lines: debugLines.slice(since) };
+	// Still paused, an edit (another effect) rebuilds the emitter: it is played a moment, so shows.
+	stage.show(customElementFx('custom:solid'));
+	app.ticker.update((now += FRAME_MS));
+	result.pausedEdit = census(canvas);
 	stage.playing = true;
 
 	// The Fountain: a jet from below the centre rising above it.

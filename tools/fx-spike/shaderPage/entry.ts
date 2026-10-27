@@ -4,7 +4,8 @@
  * makes answered here, in memory:
  *  - `POST /api/shaders/save`, `GET /api/shaders/doc` / `list`: the graph normalized as
  *    `saveShader` stores it (`normalizeShaderGraphDoc`) and read back through JSON, as R2 holds it;
- *  - `GET /api/editor/regions` / `asset`: one atlas page, a white square;
+ *  - `GET /api/editor/regions` / `asset`: one atlas page, a white square, and a region past its
+ *    edge that cannot load; the page arrives after `shaderPage.served.assetDelayMs`;
  *  - `/api/lease` (held).
  *
  * The page opens on "Pulse", the reference pulse tint with a glow pass and a scale curve, beside
@@ -37,7 +38,13 @@ HTMLCanvasElement.prototype.getContext = function (
 localStorage.setItem('shaders.thumbnails', 'off');
 
 const ATLAS = 'client/project/manifests/atlas_manifest_sparks.json';
-const REGIONS = [{ name: 'square', x: 0, y: 0, w: 40, h: 40 }];
+/** `broken` lies past the page's edge, so it cannot load. */
+const REGIONS = [
+	{ name: 'square', x: 0, y: 0, w: 40, h: 40 },
+	{ name: 'broken', x: 40, y: 40, w: 40, h: 40 },
+];
+/** How long the atlas page takes to arrive (the driver slows it). */
+const served = { assetDelayMs: 0 };
 
 const reference = (id: string): ShaderGraphDoc =>
 	JSON.parse(JSON.stringify(REFERENCE_GRAPHS.find((d) => d.id === id))) as ShaderGraphDoc;
@@ -123,12 +130,13 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 		case '/api/editor/regions':
 			return json({ pageKey: 'page.png', pageWidth: 64, pageHeight: 64, regions: REGIONS });
 		case '/api/editor/asset':
+			await new Promise((wake) => setTimeout(wake, served.assetDelayMs));
 			return new Response(await pageImage(), { headers: { 'content-type': 'image/png' } });
 	}
 	return json({ message: `shaderPage: nothing answers ${method} ${url.pathname}` }, 404);
 };
 
-Object.assign(window, { shaderPage: { requests, saved } });
+Object.assign(window, { shaderPage: { requests, saved, served } });
 
 mount(DialogHost, { target: document.body });
 mount(Page, {

@@ -75,9 +75,12 @@ const amount = (n: number, unit = ''): string =>
 			: `${Math.round(n)}${unit ? ` ${unit}` : ''}`;
 
 /** A layer's peak for a debug line: covered pixels, and its load when the cost is known. */
-const peakText = (covered: number, cost: number | undefined): string =>
-	`its peak ${amount(covered, 'px')} covered` +
-	(cost === undefined ? '' : `, load ${amount(covered * cost)}`);
+function peakText(covered: number, cost: number | undefined): string {
+	const text = `its peak ${amount(covered, 'px')} covered`;
+	if (cost === undefined) return text;
+	const load = covered * cost;
+	return `${text}, load ${Number.isFinite(load) ? amount(load) : 'past any number'}`;
+}
 
 function report(spec: ParticleMaterialSpec, state: string, slots: FxMaterialSlots): void {
 	if (!debug()) return;

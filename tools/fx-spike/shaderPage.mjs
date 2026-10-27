@@ -16,10 +16,13 @@
  *  3. paused, nothing moves; played, it does; Restart empties the stage; the Emitter switches to
  *     the Fountain;
  *  4. paused, Strength changes the pixels with no remount (a uniform write); a param's default
- *     changed recompiles the effect and remounts it, and the pixels change;
+ *     changed recompiles the effect and remounts it, the particles still shown, the pixels changed;
+ *     the particles' art: a region overtaken by the soft dot leaves no "Loading art…", and a region
+ *     that failed leaves no note on the sample card;
  *  5. it autosaves with `madeFor`; opening Frost (made for elements) brings the sample card back;
  *     reopening Pulse reads it back made for particles, on particles;
- *  6. Made for → Elements: the next save has no `madeFor`, and the meter reads 400 / 16 again.
+ *  6. Made for → Elements: the next save has no `madeFor`, and the meter reads 400 / 16 again;
+ *     opening another effect shows its default element whatever the last one showed.
  *
  *   pnpm --filter fx-spike shader-page [--keep <dir>]
  */
@@ -58,6 +61,13 @@ const DRIVE = `(() => {
 			el.value = value; fire(el, 'change');
 		},
 		element: () => previewSelect('Element')?.value,
+		selectRow(label, value) {
+			const el = previewSelect(label);
+			if (!el) throw new Error('no select ' + label);
+			el.value = value; fire(el, 'change');
+		},
+		loading: () => !!preview().querySelector('.loading'),
+		hints: () => [...preview().querySelectorAll('.hint.warn')].map((n) => n.textContent.trim()),
 		previewButton(label) {
 			const b = preview().querySelector('button[aria-label="' + label + '"]');
 			if (!b) throw new Error('no preview button ' + label);
@@ -264,12 +274,43 @@ try {
 		await sleep(600);
 		const tinted = await pixels();
 		check(
-			"a param's default changed recompiles the effect: remounted, the pixels change",
-			mounts().length === mountsAtStrength + 1 && differs(strong, tinted) > 0,
-			`${differs(strong, tinted)} samples differ`,
+			"paused, a param's default changed recompiles the effect: remounted, the particles still shown, the pixels changed",
+			mounts().length === mountsAtStrength + 1 && differs(strong, tinted) > 0 && tinted.drawn > 200,
+			`${differs(strong, tinted)} samples differ; ${tinted.drawn} px`,
 		);
 		await ev(`drive.previewButton('Play')`);
 		await ev(`drive.intensity(1)`);
+
+		console.log("4b. the particles' art");
+		await ev(`shaderPage.served.assetDelayMs = 800`);
+		await ev(`drive.selectRow('Art', 'region')`);
+		await sleep(100);
+		const loadingRegion = await ev(`drive.loading()`);
+		await ev(`drive.selectRow('Art', 'dot')`);
+		await sleep(1200);
+		check(
+			'a region still loading when the art goes back to the soft dot leaves no "Loading art…" behind',
+			loadingRegion && !(await ev(`drive.loading()`)),
+		);
+		await ev(`shaderPage.served.assetDelayMs = 0`);
+		await ev(`drive.selectRow('Art', 'region')`);
+		await waitFor(`!drive.loading()`, 'the region');
+		await ev(`drive.selectRow('Region', 'broken')`);
+		await waitFor(
+			`drive.hints().some((h) => h.includes("Couldn't load broken"))`,
+			'the failed region note',
+		);
+		await ev(`drive.selectRow('Element', 'sample')`);
+		await sleep(200);
+		const hintsOnCard = await ev(`drive.hints()`);
+		check(
+			"the particles' failed-region note goes with them: none on the sample card",
+			hintsOnCard.length === 0,
+			hintsOnCard.join(' | '),
+		);
+		await ev(`drive.selectRow('Element', 'particles')`);
+		await ev(`drive.selectRow('Art', 'dot')`);
+		await sleep(300);
 
 		console.log('5. save, reopen');
 		const savedWith = `shaderPage.saved.filter((d) => d.id === 'pulse').at(-1)`;
@@ -332,6 +373,16 @@ try {
 		await sleep(300);
 		const released = debugLines().some((l) => l.includes('shaders/preview: released'));
 		check('the particles were released with the element preview', released);
+		await ev(`drive.selectRow('Element', 'region')`);
+		await sleep(200);
+		await ev(`drive.open('Frost')`);
+		await waitFor(`document.querySelector('.status strong')?.textContent === 'Frost'`, 'Frost');
+		await sleep(300);
+		check(
+			"opening another effect shows its default element, whatever the last one's was",
+			(await ev(`drive.element()`)) === 'sample',
+			await ev(`drive.element()`),
+		);
 		const errors = browser.pageLog.slice(logged).filter((l) => /^\[(error|uncaught)\]/.test(l));
 		check('no errors on the page', errors.length === 0, errors.slice(0, 3).join(' | '));
 	}

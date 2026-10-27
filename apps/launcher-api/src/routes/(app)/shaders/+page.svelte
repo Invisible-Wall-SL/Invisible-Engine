@@ -1111,6 +1111,7 @@
 						effect={compiledEffect}
 						atlases={data.atlases}
 						defaultElement={defaultPreviewElement(doc)}
+						graph={doc.id}
 					/>
 					{#if selected && view && selected.type === BREAK_OUTPUT && !scope}
 						<BreakProperties

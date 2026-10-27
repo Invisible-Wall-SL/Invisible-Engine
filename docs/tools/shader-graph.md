@@ -506,7 +506,8 @@ FX code. Nothing you set here is saved.
 - **Element** is what the effect plays on: the **Sample card** (a drawn card with a star and a
   "SAMPLE" strip), **Atlas region**, which adds **Atlas** and **Region** dropdowns over the
   project's atlases (symbol art is in the atlases; with no atlases, the option is greyed out), or
-  **Particles**. An effect made for particles opens on **Particles**; any other on the sample card.
+  **Particles**. Opening an effect, or changing its **Made for**, shows its default element:
+  **Particles** for one made for particles, the sample card for any other.
 - **Particles** draws the effect as a material on stock particles, through the same renderer a game
   and Invisible FX use:
   - **Emitter**: **Burst** (a ring of 24 flying out, replayed every 2 seconds) or **Fountain** (a
@@ -514,7 +515,8 @@ FX code. Nothing you set here is saved.
   - **Art**: **Soft dot**, or **Atlas region** with the **Atlas** and **Region** dropdowns.
   - Each particle runs its own life, so the `t` scrubber and **Loop** give way to **▶ / ❚❚** (play,
     pause) and **↻** (restart: every particle gone, the emitter from its first frame). The Time
-    input reads over each particle's life, as Invisible FX's default **Time** does.
+    input reads over each particle's life, as Invisible FX's default **Time** does. An edit while
+    paused starts the particles again and plays them half a second, so they still show.
   - **Intensity** is the material's strength, applied at once, paused too.
   - Particles ignore the effect's passes, motion and break, as in a game. A graph the particle shell
     cannot take, or a program this GPU refuses, draws the particles plain, and the stage says why.

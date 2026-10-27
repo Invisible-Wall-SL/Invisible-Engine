@@ -137,7 +137,7 @@ const PARTICLE_BUDGET: ShaderGraphBudget = {
 
 /** The budget `doc` is held to: a particle material's when it is made for particles. */
 export const shaderGraphBudget = (doc: Pick<ShaderGraphDoc, 'madeFor'>): ShaderGraphBudget =>
-	doc?.madeFor === SHADER_MADE_FOR_PARTICLES ? PARTICLE_BUDGET : ELEMENT_BUDGET;
+	doc.madeFor === SHADER_MADE_FOR_PARTICLES ? PARTICLE_BUDGET : ELEMENT_BUDGET;
 
 export interface CompiledShader {
 	/** Uniforms and `main`: the pass body `ElementFxFilter` takes. */
