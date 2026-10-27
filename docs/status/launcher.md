@@ -68,6 +68,31 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-10-27 — **Desktop build breakdown: what a ☁ Publish / 📦 Deliver shipped** (desktop launcher
+  v1.0.59 + engine). After the 🗜 Optimize image pass, the launcher runs the engine's
+  `scripts/build-breakdown.mjs` on the finished `build/` and opens a self-contained page. It shows
+  files by category and size, per-file references (bundle, code, other files), assets with their
+  uses, what the build left out at each step, checks, and CSV/JSON. Guide:
+  [tools/invisible-launcher.md § Build breakdown](../tools/invisible-launcher.md).
+  - **How the steps report:** the launcher sets `IE_BUILD_REPORT_DIR` (outside the repo, under
+    `C:\Invisible Wall SL\ComfyUI\build-reports\<cloud key>\v<build>\`).
+    `pull-project-assets.mjs` writes `pull.json` there (pulled / not pulled / pruned /
+    committed-but-unloaded / 🗜 trims, with sizes measured before deletion), `bake-editor-doc.mjs`
+    writes `bake.json` (where the bundle is), and the launcher's image pass writes `images.json`
+    (conversions, lossless re-packs, dropped twins and audio). Helper:
+    `apps/launcher-api/scripts/lib/buildReportDir.mjs`; unset ⇒ nothing is written (dev and CI
+    builds).
+  - **Never fails a build:** an engine without the script, or a failed run, is one progress line.
+    The page is never written into `build/`, so it is neither uploaded nor handed to a partner.
+  - **Code:** `scripts/lib/build-breakdown.mjs` (pure analysis + the page), `scripts/build-breakdown.mjs`
+    (IO). The online twin for a Game Maker published snapshot is
+    `apps/launcher-api/src/lib/server/buildBreakdown.ts` ([status/game-maker.md](game-maker.md)).
+    They answer the same questions over different inputs, and do not share code.
+  - **Gates:** `scripts/check-build-breakdown-desktop.mjs` (the real script over a laid-out build,
+    28 checks) and the launcher repo's `verify_build_breakdown.py` (the image-pass ledger, report
+    folders, running the script; 20 checks with `IW_ENGINE_DIR`).
+  - **Owed:** a release of launcher v1.0.59 (Actions → Release in `invisible-launcher`), then one
+    real ☁ Publish to read the page against a real game. Not yet run on Windows or a real build.
 
 - 2026-10-23 — **Tools per game family (Phase 10 P10.1b).** The home grid and `ToolTopBar` list
   only the tools the active project's family uses (`FAMILY_TOOLS` in `roles.ts`; arcade hides
