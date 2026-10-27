@@ -2,21 +2,464 @@
 
 > Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `invisible-game-config`, `invisible-game-maker`, then per phase
 
-**One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.8 and P10.12 are merged;
-P10.11 (characters) is built** and in review: arcade characters that patrol, chase and are
-played by keyboard or touch, authored in the new Invisible Characters tool. P10.12: a play-field screen can be a world bigger
-than the screen, framed by a following, scrolling, shaking camera with parallax layers. P10.8: an arcade project can be made in Game Maker and
-plays as free play in the shared runtime — a catcher / dodger sample whose spawned bodies move on a
-fixed-step loop, collide by tag and keep score in Flow. A match-3 project can be made in Game Maker as
-free play (P10.5) or real money (P10.6): in the second the bet deals the server's board, every swap
-is a `move` request, the server ends the round and it is collected once. It plays against the test
+**One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.8, P10.11, P10.12 and
+P10.14 are merged; P10.13 (gravity, jumps and levels) is built** and in review. P10.13: an arcade character can fall, jump (a side-view jump set by height and time, with
+hold, coyote time and a buffer), hop over ground obstacles or flap, and stand on a level painted from
+tiles in the Scene Editor. P10.14: an arcade config with
+`arcade.online` is played in a room on the new `services/game-server` (Colyseus 0.18), where devices
+send inputs only and draw where the server puts every player; the service is written but **not
+deployed** (owner steps in [INFRA.md](../INFRA.md) "Invisible Game Server"). P10.11: arcade
+characters that patrol, chase and are played by keyboard or touch, authored in the new Invisible
+Characters tool. P10.12: a play-field screen can be a world bigger than the screen, framed by a
+following, scrolling, shaking camera with parallax layers. P10.8: an arcade project can be made in
+Game Maker and plays as free play in the shared runtime — a catcher / dodger sample whose spawned
+bodies move on a fixed-step loop, collide by tag and keep score in Flow. A match-3 project can be
+made in Game Maker as free play (P10.5) or real money (P10.6): in the second the bet deals the
+server's board, every swap is a `move` request, the server ends the round and it is collected once.
+It plays against the test
 server's `match3` mock on our own wire. **Publishing is on for every family the runtime plays**
 (owner, 2026-10-25): a match-3 game, and with P10.8 a free-play arcade game, publishes to our test
 server; delivery stays slot-only, and live real money waits on the partner (§9 #2).
 
 ## Current state
 
-**P10.11 — Arcade A2: characters (built 2026-10-26; in review).** §8's P10.11 row (§4.3, §5.1, §5.2,
+**P10.13 — Arcade A3b: gravity, jumps and levels (built 2026-10-27; in review).** §8's P10.13 row
+(§4.4, §5.1, §6.3), in one PR, on top of P10.11 and P10.12. No live game uses any of it yet; the
+sample is a fixture.
+
+- **Gravity and levels** (`engine-mechanics` `motion.js`, new exports only; P10.8's and P10.11's
+  functions and replays are unchanged): `stepPlatform(body, dt, {solids, tiles, field, gravity,
+  maxFall})` integrates the pull exactly (so a jump's apex lands where its settings put it), caps
+  the fall at `maxFall`, and cuts the move into sub-steps no longer than half the thinnest thing it
+  can meet (the body, a tile, a solid or platform; at most `MAX_SUB_STEPS` 64), each resolved x then
+  y as `stepSolid` does. **One-way** bodies and tiles stop a body only from above, while it falls,
+  and only when its bottom was at or above the top before that sub-step. Under `clamp` the field's
+  floor and ceiling stop it like a solid. Returns `grounded` (a fall stopped from below this step)
+  and `onWall`. Tile grids are `{x, y, tileW, tileH, cols, rows, cells}` with one code per tile
+  (`TILE_NONE` / `TILE_SOLID` / `TILE_ONE_WAY`); `tilesIn` gives the tiles a box touches as box
+  bodies.
+- **Jumps** (`engine-mechanics` `jumps.js` + `.d.ts`, new): a jump is its **height** and its
+  **time to the apex**; `jumpProfile` turns them into a launch speed `2h/t` and a pull `2h/t²`.
+  `stepJump` (the `gravity` jump: launches on a buffered press while grounded or within coyote
+  time, cuts the climb on an early release when `minHeight` is set, and returns the pull: the
+  jump's own while rising, `movement.gravity` while falling, so a fall can be snappier than the
+  rise); `stepHop` (the `hop`: a height `z` above the ground plane with the same buffer and cut);
+  `stepFlap` (a press kicks `vy` to `-kick`). Coyote time and the buffer default to 100 ms.
+- **Config** (`game-config`, sparse, every new field optional): `movement.gravity` / `maxFall`;
+  `controller.jump {kind, height, time, minHeight?, coyoteMs?, bufferMs?, airControl?}` on a
+  `sideScroll` (a `gravity` jump) or a `topDown` (a `hop`) controller — a jump with no height or
+  time
+  is dropped, defaults are not stored; a new `flap` controller `{kick, speed?}`; body flags `ground`
+  (a hop in the air passes over it) and `oneWay` (dropped on a `solid` body); `ARCADE_JUMP_ACTION`;
+  anim sources `grounded`, `onWall`, `airborne`, `height`. The validator errors on a hop on a side
+  view or a gravity jump on a top-down character, and warns on a flap with no gravity and a tap
+  height
+  above the jump.
+- **The loop** (`engine-game` `arcadeCharacters.ts`; `arcadeLoop.ts` gains one guarded hook in the
+  overlap pass, the `lifts()` read and the probe's contact fields): a character with
+  `movement.gravity`, a `gravity` jump or a flap **falls**: only its `vx` is steered (`air control`
+  scales it while airborne), its `vy` belongs to the pull, the jump or the flap. A `topDown` hop
+  steers on both axes and lifts off the plane; while it is up it is not stopped by, and does not
+  `collide` with, a `ground` body (a wall without the flag still stops it). Falling and hopping
+  characters, and every character once the level has tiles, move with `stepPlatform`; the rest keep
+  P10.11's `stepSolid`, so a level with neither steps exactly as before. A jump reads the `jump`
+  action, `up` for a side view and a flap, or a pointer pressed above the body (a flap: any press).
+  New optional loop option `tiles()`.
+- **The `tilemap` node** (`engine-layout` `types.ts`, `tilemapNodes.ts`, `Tilemap.svelte`, a
+  `LayoutNodeView` branch): `tileWidth`, `tileHeight`, `cols`, `rows`, `tiles` (row by row, an index
+  into the tileset or -1) and `tileset` (`{region, collide?}`: an atlas region — scoped
+  `<assetKey>::<region>` or bare — and `solid` / `oneWay`, absent = none). The game draws one sprite
+  per painted tile from the node's x / y (scale applies; rotation and anchor do not). The save
+  normalizes it (`normalizeTilemapNode`: tiles made exactly `cols × rows`, an index the tileset
+  lacks
+  becomes empty, a node with no usable size or more than 262,144 tiles dropped). `sceneTilemaps`
+  gives the loop a screen's top-level tilemaps that have a colliding tile; the runtime (`apps/lines`
+  `arcade.ts`) reads them from every screen that holds a spawn layer.
+- **The hop's look**: after each frame the runtime publishes every hopping character's height
+  (`engine-layout` `arcadeLifts.svelte.ts`); `<SpawnLayer>` then draws such an instance raised by it
+  over an ellipse shadow the width of its body. Only a config with a hopping character turns this
+  on;
+  every other spawn layer renders its old markup.
+- **`/editor` paint mode** (`EditorTilemap.svelte`, `tilemapPaint.client.svelte.ts`, helpers in
+  `$lib/editor/tilemapEdit.ts`, `EditorCanvas.svelte`): a **Tilemap** row in the Library
+  (scene-only,
+  16 × 8 tiles of 64 px at main centre); the stage draws each painted tile's region art, a dashed
+  outline, and while selected the grid, solid tiles in red and a blue top line on one-way tiles.
+  Tools
+  **Move** (V), **Brush** (B), **Erase** (E), **Fill** (G), **Pick** (I) on a lone top-level
+  tilemap;
+  with a paint tool on, a press on the grid paints instead of moving the node, a fast drag fills the
+  cells it skips, and one stroke is one undo step. Properties: tile size, columns / rows (clamped,
+  applied on change), the tileset (region picker, thumbnail = make it the brush, collide none /
+  solid /
+  one-way, tiles placed, remove with the indices remapped), Add a tile. Rotation is hidden (the game
+  ignores it). Guide: [tools/invisible-editor](../tools/invisible-editor.md).
+- **Invisible Characters** and `/config`: Movement gains Gravity and Max fall; the Controller
+  section
+  offers `flap` (kick, speed) and a Jump sub-form for top-down / side-scroll (its kind follows the
+  controller), with the jump's launch speed and pull shown read-only; Body gains Ground and One-way
+  (also as columns in `/config`'s Arcade bodies table). The sandbox already runs the loop's own
+  stage, so falls, jumps, flaps and hops behave as in the game; Space jumps, a hop is drawn lifted
+  over a shadow, and the starting walls follow the character (a one-way platform and a ledge for a
+  faller, a low ground wall for a hopper). Guides:
+  [tools/invisible-characters](../tools/invisible-characters.md),
+  [tools/game-config](../tools/game-config.md).
+- **Shipping (rule 8):** the tilemap is part of the layout doc, so it ships with it; its tileset
+  regions are collected by the art export's node walk (`editorArtExport.ts`, `tilemapRegions` →
+  `addImageRef`, the reel grid tile's rule), so each painted region's sheet travels export →
+  `deploy/editor-art/` → the bundle's `editorArt` index → pull → the game's editor-art registration,
+  and is in the editor's art scope. Only regions a painted tile uses ship.
+- **The sample** (a fixture, not the Game Maker default, as P10.11's guard and P10.12's river are):
+  `engine-mechanics/fixtures/arcade-ledges.rules.json`, `referenceLayouts/arcadeLedges.ts`,
+  `reference/arcadeLedgesSeed.ts`. A level 2880 × 800 with a camera following the hero, painted as
+  one
+  tilemap of 64 px tiles: ground with two gaps, a two-tile wall and three one-way ledges. The hero
+  (`sideScroll` 320 px/s, gravity 2600 falling, a `gravity` jump of 170 px in 0.42 s, a tap 48 px)
+  collects coins; a pit zone under the gaps costs a life and puts it back at the start with the
+  camera snapped; the goal is worth ten coins. Its tileset names one sample sheet
+  (`ARCADE_LEDGES_SHEET`), which the playtest writes into its snapshot's `deploy/editor-art/`.
+- **Gates:** root `check:arcade-platformer` (43: the jump's height and time to the apex at 30 / 60 /
+  120 / 144 Hz, landing where it left in twice the time; a tap reaching about `minHeight`, a part
+  hold between; the fall pull; coyote time and the buffer each just inside and outside the default
+  window and a set one; one press, one jump; one-way tiles and bodies from below and above, walking
+  through them, no snap from inside; **no tunnelling at maxFall 6000 px/s** through a 64 px tile, an
+  8 px tile row, a 4 px one-way body and a 2 px solid, for a 32 px and a 6 px body; the cap; tile
+  solidity none / solid / one-way, a wall (onWall), a ceiling; grounded; the field floor; **the
+  platform step equal to `stepSolid`** with no gravity; the hop's height and time, its buffer, cut
+  and fresh press; the flap; a body spawned inside a block of solid tiles moved out and kept out; a
+  600-step scripted run replayed against
+  `fixtures/arcade-platformer-replay.json`). Launcher `check:arcade-platformer` (50: a top-down
+  character on no tiles keeps the solid step, no contact or lift appears; the P10.8 / P10.11 /
+  P10.12
+  sample configs normalize stably with no new key; the config round trips and the validator's
+  issues; in the loop a jumper lands on tiles, jumps to its height on `jump`, `up` and a pointer
+  above it, lands on a one-way ledge from below, stops at a wall tile, writes `grounded` / `onWall`
+  /
+  `airborne` only on change; a falling brain character; a flap; a hop over a `ground` rock without a
+  `collide`, stopped by a tall wall, publishing its lift and `height`; a gravity jumper with no
+  `movement.gravity` handed to nobody still falls; a touch above a top-down hopper steers it and
+  never hops it; a character that never falls reads `grounded` and not `airborne`; the tilemap
+  readers and the
+  save; the sample played headless on the real interpreter — standing, the first gap jumped, coins,
+  the pit, the camera snapped, seed replay). `check:art-scope` case 9 (a painted tile's sheet is in
+  scope and ships; the one-way ledge's too; an entry no tile uses does not; nothing dangling).
+  `check:characters-tool` (154), `check:game-config-family` (156), `check:editor-tilemap` (76);
+  `check:arcade-camera`'s `<SpawnLayer>` source scan accepts the culling branch as an `{:else if}`
+  behind the lift branch (76).
+  `check:arcade-motion` (18) and `check:arcade-characters` (53 root, 89 launcher) unchanged.
+- **Verified by playing:** `scripts/playtest/arcade-platformer-play.mjs`
+  ([playtest/arcade-platformer.md](../playtest/arcade-platformer.md)) on the branch runtime, 15 /
+  15:
+  the hero starts standing on the painted ground; a pixel of the ground row is the shipped sheet's
+  ground colour (the tiles draw through the editor-art index); ArrowRight runs it and release stops
+  it; Space jumps it exactly 170 px and it lands where it left; a tap rises 48–68 px; a jump from
+  under a one-way ledge lands on it; the camera follows it past half way; the first gap and the wall
+  are jumped; the second gap's pit costs a life and puts it back with the camera at 0; coins count;
+  a
+  press above it on the screen jumps it; no RGS request; no page error; the same seeds and keys
+  replay. On the same build P10.8's `arcade-play.mjs` 14 / 14, P10.12's `arcade-camera-play.mjs`
+  12 / 12 and P10.11's `arcade-characters-play.mjs` 14 / 14.
+- **Bundle size** (the release build's `index.html`; `main` at 3dc8b3d vs this branch): 3,754,717 B
+  / 1,284,098 B gz → 3,768,148 B / 1,288,964 B gz: **+13.1 KB raw, +4.8 KB gz (+0.38 %)**,
+  downloaded
+  by every game, run only by an arcade game with a falling or hopping character or a tilemap (the
+  tilemap renderer by any screen with one). The sample is not in it.
+- **Slot / match-3 / P10.8 / P10.11 / P10.12 parity:** every runtime path is keyed on a character
+  that falls or hops, or a tilemap: `stepSolid` still moves every other character on a level without
+  tiles; no lift is published, so `<SpawnLayer>` renders its old branches; `LayoutNodeView` gains a
+  branch for a node kind no shipped layout has. Edited shared modules: `arcadeCharacters.ts`,
+  `arcadeLoop.ts` (one guarded `passesOver` in the overlap pass, `lifts()`, probe fields),
+  `SpawnLayer.svelte`, `LayoutNodeView.svelte`, `types.ts` (a kind and its fields),
+  `behaviours.js` (a `flap` case), `motion.js` / `motion.d.ts` (new exports, `Movement` fields),
+  `arcade.ts` (`apps/lines`), `determinism.ts` (a type), `editorStorage.ts` (the tilemap
+  normalizer),
+  `componentFields.ts`, `editorArtExport.ts` (the tilemap branch), `game-config` normalizers (a
+  stored
+  doc without the new fields comes back byte for byte). The current-games harness is not edited.
+- **Also fixed here:** `check:family-tools` (run by CI's `check:all`) was red on `main` (141 / 177):
+  its pre-P10.11 tool baseline did not know the two Bug Reports tools that #1373 merged beside
+  P10.11.
+  They are family-agnostic, so they join the baseline (177 / 177).
+- **Chosen in P10.13, owner may overturn:**
+  - **one PR**; the sample is a fixture, not Game Maker's arcade default;
+  - gravity is a character's (`movement`), not a plain body's: falling crates and rolling logs wait
+    for a body-level pull; only characters collide with tiles;
+  - a `gravity` jump's own pull governs the rise; `movement.gravity`, when set, the fall (a jump
+    with neither falls by its own pull);
+  - hold to jump higher is a cut on release to the speed that rises `minHeight` more; no
+    `minHeight`, no cut;
+  - the buffer counts from the press to the move that lands (one step of slack, as the landing is
+    seen a step later); coyote time from the last grounded move;
+  - the jump reads a new `jump` action, and `up` too for a side view and a flap; touch is a press
+    above the body (a flap: any press); a hop has no touch gesture;
+  - per-tile solidity lives on the tileset entry (each tile of one entry collides alike);
+  - tiles are read from top-level tilemaps of the screens with a spawn layer, placed by x / y and
+    scale, never rotated; a tilemap with no colliding tile is drawing only;
+  - only painted entries' regions ship; an unused tileset entry's art does not;
+  - `ground` is one flag for "a hop passes over it": both the stop and `collide` are skipped while
+    airborne;
+  - a body found inside solids it did not move into (a spawn or `moveTo` into painted ground) is
+    stepped out the shortest way past every solid in its path (a block of tiles crossed whole), ties
+    preferring up, then left, right, down; P10.11's `stepSolid` keeps its own one-solid settle;
+  - a character that never falls reads `grounded` true and `airborne` false; the hop's shadow sits
+    at the body's feet.
+- **Not done here:** **diamond (2:1) tiles and autotiling** (§4.4): the collision runs on the flat
+  ground plane already, but the isometric projection P10.12 left out is what draws bodies and
+  diamonds
+  in step, so they come with it (Salmons' next arcade piece, §9 #19); slopes, moving platforms and
+  ladders (§4.4, later); a drop-through on one-way platforms; the paint mode was checked by its gate
+  and the build, not driven in a browser (no Postgres / R2 here); Flow signals for a jump or a
+  landing
+  (the look's `grounded` / `airborne` inputs cover the animation); the sandbox drawing a tilemap;
+  `/flow-v2` Preview running the loop; a current-games fixture for the sample (it would edit the
+  harness).
+- **Known limits:**
+  - `MAX_SUB_STEPS` bounds the work a step does: a body thinner than 2 px moving faster than
+    64 × its own half-thickness a step could still tunnel (`maxFall` 6000 px/s at 60 Hz is gated);
+  - a tilemap's tiles are read when the screens load; a level changed live needs a reload, as every
+    baked layout does;
+  - the hop's shadow is the body's width, an ellipse a third as tall, and does not shrink with
+    height;
+  - a tilemap is never drawn mirrored (a negative scale draws and collides as its size); the editor
+    stage still draws one with the signed scale.
+
+**P10.14 — Arcade A4a: the game server (merged 2026-10-27, #1375).** §8's P10.14 row, per the
+approved A4 design ([realtime-multiplayer.md](../design/realtime-multiplayer.md) §4–§14), in **one
+PR**. Netcode (prediction, reconciliation, interpolation), the rules as data and online Flow events
+are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
+
+- **`services/game-server`** (new pnpm workspace member; Node 22, type-stripped TS, no build step):
+  `@colyseus/core` 0.18.23 + `@colyseus/ws-transport` 0.18.4 + `@colyseus/schema` 5.0.42, pinned.
+  One room type, `arcade`, matched by the join option `game` (`filterBy`). `roomSim.ts` is the room
+  without the network — who is in it, each player's character, one fixed step of everyone — and
+  `arcadeRoom.ts` runs it inside Colyseus: `setFixedTimestep(step, tickHz, { subSteps })`,
+  `defineInput(Input, { seqField: 'seq', bufferMaxSize: 60, sanitize })`, each player's next inputs
+  per step (`inputsThisStep`: one, or two while more than one waits — but the extra only against
+  the player's **credit**, the steps it stood still for want of an input, banked for at most half a
+  second at the room's rate — each its own
+  `stepPlayer` call: a stall's burst drains in a few steps instead of staying as lag, and a device
+  that sends two a step is not faster, since a player never applies more inputs than steps have
+  passed, and a saved-up dash is at most twice the speed for half a second), the schema written
+  once per patch (`onBeforePatch`), `setPatchRate(1000 /
+  patchHz)`. `configSource.ts` reads a game's config by key (a directory or a `{game}` URL, cached
+  60 s, good or bad). `server.ts` adds `GET /healthz` (`commit`, `rooms`). Dockerfile at the repo
+  root's context, mirroring `director-worker` (npm install, the two packages linked in, the
+  `ts-loader` hook). [INFRA.md](../INFRA.md) "Invisible Game Server" has the env, local run, limits
+  and the owner's Railway / DNS steps; **nothing was deployed**.
+- **The one-player step, shared** (`engine-mechanics` `online.js`, plain ESM + `.d.ts`):
+  `sanitizeInput` / `clampInput` (moves are whole steps of −127..127 no longer than 127, so the clamp
+  is exact and idempotent; buttons masked to jump / ability 1 / ability 2; aim onto the field; seq a
+  uint32; anything non-finite reads 0), `stepContext` (`subDt` computed as Colyseus computes it),
+  `applyInput` / `stepPlayer` (velocity from the input, then `subSteps` × `motion.js` `stepBody`),
+  `facingOf` (eight ways, integer comparisons only), `cleanName`, `characterBody`. The server steps
+  every player with `stepPlayer`; the runtime clamps its inputs with the same `clampInput`; P10.15's
+  predictor steps its own player with the same `stepPlayer`.
+- **Inputs only** (§11). A device sends `Input { seq, moveX, moveY, buttons, aimX, aimY }` — a flat
+  typed schema, so a field it does not declare cannot arrive — and joins with `name` and
+  `character`. Every other message is counted against the flood limit and ignored. The character is
+  checked against the room's list and its `max`; the name is cleaned and capped at 24.
+- **Join, leave, rejoin.** Join puts a player at `arcade.online.spawn` (else the field's centre);
+  no character ⇒ the first with a place; full, unknown or no place left ⇒ refused. A drop holds the
+  place for `rejoinSeconds` (`allowReconnection`; the body stands still, inputs are not taken); the
+  SDK's reconnect, or `client.reconnect(token)`, resumes as the same session; a consented leave, or
+  the grace running out, removes the player; an empty room disposes.
+- **Resource limits per room** (§11): `maxPlayers` ≤ 100, each character's `max`,
+  `maxMessagesPerSecond = 2 × tickHz + 10` (a flooder is closed with `WITH_ERROR` and gets **no**
+  held seat), WebSocket `maxPayload` 1 KB, 60 inputs buffered per player (overflow drops the
+  oldest), at most 16 characters, a seat held 5 s for a device that has not connected yet. Per
+  process: `GAME_SERVER_MAX_ROOMS` (default 50); 6 000 sockets; a request's headers and body within
+  10 s; a request whose URL Colyseus' router (better-call) could not build — a bad
+  `x-forwarded-proto`, an absolute-form target, a bad `Host` — is refused (400, or the upgrade
+  dropped) before the router builds it, because the router does it unguarded and the throw would
+  end the process; a method the server does not serve (only GET, HEAD, OPTIONS, POST) is
+  refused 405 for the same reason (`TRACE` made `new Request` throw); a room's WebSocket may carry
+  only the four frames the runtime sends — JOIN_ROOM, LEAVE_ROOM, PING, reliable inputs — and any
+  other closes it undecoded and holds it no seat (`socketGuard.ts`): `@colyseus/schema` 5.0.42's
+  decoder for UNRELIABLE inputs loops for ever on a negative slot length (three bytes would stop
+  every room; to report upstream), and ROOM_REQUEST answers queue without limit on a socket that
+  never acknowledges its join; a socket that has not acknowledged its join within 5 s, sends more
+  than 150 frames a second (messages and the WebSocket's own ping / pong control frames alike; the
+  transport answers no client ping), or lets more than 256 KB of unsent data pile up (a reader that
+  stops reading) is terminated; every close is followed by a terminate within 1 s and its frames are
+  dropped (a graceful close otherwise goes on parsing for 30 s); a WebSocket is served only for a
+  room seat (`/<process>/<room>?sessionId=…`; Colyseus' latency utility, which answers every
+  frame, is not); one address holds at most 16 WebSockets and seats held for its dropped players
+  to rejoin, counted together (`addresses.ts`) — the one socket that reclaims a seat held for that
+  address (its token, its address and its session) may pass the cap by one, so a full address can still rejoin its
+  own dropped player, and any other token gets nothing — and opens at most 60
+  a window, refused attempts included; an online room holds at least 2 players;
+  an IPv6 /64 counts as one address; the entry point logs an unhandled rejection instead of exiting; Colyseus'
+  `create` is **not exposed** (only
+  `joinOrCreate`, `join`, `joinById`, `reconnect`), so a device cannot make rooms nobody joins; a
+  `game` that is not a string is refused (it would never match `filterBy`); before Colyseus' router
+  reads anything, a request that would carry a body with no `content-length` (chunked) is answered
+  411 and one declaring over 4 KB 413 (the router reads a body whole, with no limit of its own); one
+  address may make 30 requests that can carry a body (every matchmaking call) per 10 s — counted by
+  method, so no spelling of the path escapes it — 429 past it (behind Railway the address is the
+  proxy's `x-forwarded-for` entry: on by default when `RAILWAY_ENVIRONMENT` is set); a refusal is
+  answered before the socket closes; a config ≤ 2 MB (bytes) fetched within 5 s, at most 4 reads
+  in flight, answers cached 60 s per key, and a game that has loaded once keeps its last good config
+  through a full reader or a failed read (a timeout, a 5xx), but not once the source says it is gone
+  (a missing file, 404, 410) or refuses its new config (made-up keys can neither evict nor starve a
+  real game); game keys `^[a-z0-9][a-z0-9_-]{0,63}$`. A refused room tells the device only
+  "this game is not available"; the reason goes to the server log. Every rate is clamped by
+  `resolveArcadeOnline`, whatever the doc says.
+- **State** (`schema.ts`): per player `name`, `character`, `x`, `y` (float32), `facing` (uint8),
+  `moving`, `connected`, `ack` (the seq of the newest input applied); per room `phase` (`waiting` →
+  `running`) and `step`. The level is not in the state.
+- **Config** (`game-config` `family.ts`): `GameConfigDoc.arcade.online` = `{ characters: [{ id,
+  body, speed, max? }], maxPlayers?, tickHz?, subSteps?, patchHz?, rejoinSeconds?, spawn?, layer?
+  }`, sparse (defaults 16 / 30 / 2 / 20 / 60 / field centre / `field` are dropped);
+  `ARCADE_ONLINE_DEFAULTS`, `ARCADE_ONLINE_LIMITS`, `resolveArcadeOnline`. A character's `body` is a
+  key of `arcade.bodies` (its shape, tags and edges; the component it is drawn as). The validator
+  refuses an online game with no `arcade.field` (the server has no screen), no character, or a
+  character whose body no arcade body names, and warns on out-of-range numbers, a state rate above
+  the step rate and a spawn off the field. `onlineGameOf(doc)` (new `arcadeOnline.ts`) is the one
+  derivation the server and the device both make. No `/config` UI for the block yet (open item).
+- **The mechanic:** `ARCADE_ONLINE_MECHANIC` (`ARCADE_RULES_MECHANIC` + a new `GameMechanic.room`,
+  false for every other mechanic). `mechanicFor` returns it for a rules arcade config with
+  `arcade.online`; an RGS arcade config stays `unplayable`.
+- **The runtime's online branch** (`apps/lines` `game/online.ts`): `+layout.ts` joins a room before
+  the game mounts, only when `gameMechanic().room` — `?rooms_url=` the server, `?rooms_game=` (else
+  `?project=`) the game, optional `?rooms_name=` / `?rooms_character=`; a config that cannot be
+  played online, a missing parameter or a refused / unreachable server stops on the existing
+  boot-failure screen (`refuseOnlineBoot`, the `haltBoot` path). `@colyseus/sdk` 0.18.6 is imported
+  dynamically there and nowhere else, through the `engine-rooms` workspace package (a game repo
+  cannot install a third-party package `apps/lines` declares: `check:game-app-deps`).
+  `<ArcadeStage />` does not start the local loop for an online game: it ticks `tickOnline` — one
+  input per fixed step from the keyboard (arrows / WASD, Space = jump), clamped, sent — and draws
+  every room player as a spawned instance of its character's component in `online.layer`, at the
+  server's last place (no prediction or smoothing: P10.15). The arcade probe reads the room. Free
+  play, as every arcade game (`rgsSession: false`).
+- **Gates:** `check:room-sim` (root, 36 checks, ~30 s; discovered by `check:all`).
+  - *Headless, over the room's own code:* 10 000 steps of six players at 30 Hz × 2, 60 × 1 and
+    20 × 4 with hostile, repeated, stale, gapped and missing inputs and network stalls that release
+    in bursts — the room's body equals the device's `stepPlayer` fold **bit for bit** on every step,
+    and the backlog stays bounded (under one input waiting on average); replay; the clamp exact and
+    idempotent over 20 000 inputs; an input claiming a place, score or character changes nothing;
+    seq order; a stall's burst drains in ≤ 6 steps; a device sending three a step for 600 steps
+    applies exactly 600; over 5 000 random steps no player applies more inputs than steps, at most
+    two in one step and at most 45 in any 30; join limits, names (control, zero-width and bidi
+    characters dropped), drop / rejoin; refused configs; the config source's last-good fallback and
+    its forgetting a gone or refused game; IPv6 addresses key by /64; the mechanic (only an online
+    config sets `room`); source scans (the SDK reached only from `game/online.ts`, lazily; the
+    layout and stage branch on `room`).
+  - *Live, a real Colyseus server on localhost with real SDK clients:* `/healthz`; bad / missing /
+    non-online / non-string game keys make no room and name no reason; `create`, a 10 KB body and a
+    chunked body (411) are refused; a bad `x-forwarded-proto`, an absolute-form target, a bad
+    `Host`, `TRACE`, `PROPFIND` and a bad upgrade are refused and the server still answers; one
+    address's 121st matchmaking request in a window gets 429 (dot-segment spellings too) and another
+    address's does not; join state; 90 live inputs stepped exactly as the device steps them (and
+    drawn at their float32); after a 0.7 s stall a burst of 20 inputs is applied within 550 ms; an
+    off-scale move clamped; ROOM_DATA (a `move` carrying a place, a numeric type), ROOM_REQUEST, a
+    raw request frame and DATA_BYTES each end their socket, hold no seat and move nothing; three
+    unreliable-input frames each end their socket while the rooms step on; a socket that never
+    acknowledges its join is ended after 5 s; the latency utility and a seat path with no session
+    are not served; 16 seats' sockets from one address open, the 17th is dropped, another address's
+    opens, a closed one frees its place; once an address's 60 upgrades in a window are spent every
+    attempt is refused; 16 joined-then-dropped seats leave their address no room for a 17th; a
+    flood of WebSocket ping frames, and one of pong frames, ends its socket; an address at its 16
+    still reconnects its own dropped player while a new join, and a fresh seat claimed with a bogus
+    reconnection token or with the held seat's own token, are refused; 200 PINGs from a joined device end its socket; room size and character max;
+    a drop keeps the place and `reconnect(token)` resumes it; the grace expiring; a flood of inputs
+    past the message limit disconnects; `maxRooms`. `family.fixture.ts` §4c covers the config block.
+- **Verified by playing:** `scripts/playtest/online-play.mjs` on the branch runtime, two headless
+  shells against a local game server ([playtest/online-sample.md](../playtest/online-sample.md)):
+  13 / 13 — both pages joined one room and drew both players (one a salmon, one the bear its
+  `?rooms_character=` asked for); ArrowRight on page A moved one player right on both pages to the
+  same place and letting go stopped it; the pages agreed on every place; no RGS request and no page
+  error on either; closing page B let its player go after the 2 s grace; a launch with no
+  `?rooms_url=` stopped on the boot-failure screen.
+- **Bundle size** (the release build's `index.html`; base 5a44e2b vs this branch): 3,678,290 B /
+  1,260,736 B gz → 3,867,967 B / 1,319,851 B gz: **+189.7 KB raw, +59.1 KB gz (+4.7 %)**, downloaded
+  by every game, run by none but an online one. Almost all of it is `@colyseus/sdk` itself (its
+  `Client` alone bundles to 169 KB / 53 KB gz; importing only `Client` and the serializer saves
+  nothing). The runtime builds with SvelteKit's inline strategy, so the dynamic `import()` keeps the
+  SDK from being *run* by offline games, not from being *downloaded*. **Owner decision (below).**
+- **Slot / match-3 / offline-arcade parity:** every new runtime path is keyed on
+  `mechanic.room`, which only a config with `arcade.online` sets: `+layout.ts` skips the join,
+  `<ArcadeStage />` starts the local loop exactly as before, and nothing else reads the SDK.
+  Edited shared modules: `+layout.ts`, `ArcadeStage.svelte`, `editor-scenes.ts` (a new exported
+  `refuseOnlineBoot` beside `refuseUnplayableBoot`), `mechanic.ts`, `engine-mechanics` `index.ts`,
+  `game-config` `family.ts` / `familyValidate.ts` / `index.ts`. `familyGate` and the real-money
+  gates are not edited; the current-games harness is not edited.
+- **Chosen in P10.14, owner may overturn** (neither plan fixes them):
+  - **one PR**, not split;
+  - the server is a **workspace member** (so CI installs Colyseus and the gate runs a real server);
+    the image installs with npm, as `director-worker`'s does;
+  - **a step with no input moves its player by nothing** (it stands still), and a step with a
+    backlog applies up to four inputs, each a step of its own, extras only against the credit of
+    starved steps, so a body is exactly the fold of
+    `stepPlayer` over the inputs the server applied — the device can always replay it;
+  - positions travel as **float32** (the design's §5), while the simulation is float64: the fold is
+    exact on both sides, but a reconciler that rewinds to the *synced* place (P10.15) starts from
+    `Math.fround(x)` and will make sub-pixel corrections — P10.15 rewinds to its own fold, or moves
+    `x` / `y` to float64 if that costs too much;
+  - moves are **integers −127..127** on the wire (int8), aim float32 on the field;
+  - `ack` is **in the room state** (as well as Colyseus' own reconciliation ack), so a device and the
+    gate read which input a place came from;
+  - the room's config comes from **`GAME_SERVER_CONFIG_URL` / `_DIR`**, read once per room, cached
+    60 s per key; until the publish writes a published online config (open item), the interim
+    source is the launcher's token-gated `/api/game-config/doc` (the authored config);
+  - the address and game come in as **`?rooms_url=` / `?rooms_game=`** (else `?project=`), not yet
+    written by the publish (open item);
+  - the defaults: 16 players, 30 Hz × 2, 20 Hz state, 60 s rejoin, the field's centre, layer
+    `field`; keyboard only (arrows / WASD, Space), aim always 0;
+  - a flooder gets **no** held seat; `deploy-drift.mjs` gets its entry **after** the service exists.
+- **Known limits** (none reachable by a slot game):
+  - **an online game has no world camera** (P10.12): the server moves the bodies, so the local loop
+    that owns the camera never starts, and a `world` / `camera` on an online game's play-field screen
+    is inert (the view stays at the origin, nothing is culled) until P10.15 drives it from the room;
+  - **an online game's characters (P10.11) do not run** either: brains, controllers and paths belong
+    to the same local loop, so `arcade.characters` on an online game is inert; the room moves only
+    its players' bodies (`arcade.online.characters`) until P10.15 brings the rules online
+    (`validateArcadeOnline` warns at `arcade.characters`); for the same reason the loop's Flow
+    board effects and values are not registered online, so Flow that targets them does nothing;
+  - keys typed into a text field are not inputs (P10.11's `typingInto` rule);
+  - **no prediction or smoothing** (P10.15): a device draws a player where the last 20 Hz patch put
+    it, so motion is visibly steppy and the own player answers a round trip late;
+  - players do not collide, score or end a round — the rules as data are P10.15; `phase` never
+    leaves `running`;
+  - a dropped device's in-flight inputs are discarded on rejoin (Colyseus freezes the buffer), and a
+    burst beyond 60 waiting inputs drops the oldest, so a device's own replay can then differ until it
+    reconciles (P10.15);
+  - the boot-failure screen's wording ("could not reach the server holding its artwork and
+    settings") is the runtime bundle's; the precise reason is in `__IE_RUNTIME_STALE__` and the console;
+  - aim is clamped to the **field**, not yet to the character's reach (§11): there are no
+    abilities until P10.15;
+  - the per-address matchmaking limit is per process and per fixed window; a player can bank half a
+    second of credit by standing still and spend it later at two steps a tick, which moves it no
+    further than it could have gone in that time; a stall longer than half a second leaves the rest
+    as lag until the device next misses a step (P10.15's reconciler can drop stale inputs);
+  - the image installs with npm and no lockfile (as `director-worker`'s): the direct dependencies
+    are pinned exactly, the transitive ones (`ws`, better-call) are not;
+  - many devices behind one address (a school's NAT) share the 30-per-10 s matchmaking allowance
+    and the 16 sockets;
+  - the slow-reader cut-off (256 KB unsent) is **not covered by any gate or repro**: on loopback the
+    kernel's buffers absorb a minute of patches before `bufferedAmount` rises; it is verified by
+    reading ws (`bufferedAmount` = the socket's queued bytes + the sender's) only;
+  - a reconnect that reaches the server before it has seen the old socket close (a network switch)
+    finds no held seat yet, so an address at its cap is refused until the drop is noticed; the
+    SDK's retry backoff then gets in;
+  - per-address limits stop one address, not many: one address holds at most 16 seats, so with
+    2-player rooms about 4 addresses (or IPv6 /64s) can fill a 50-room process. Size
+    `GAME_SERVER_MAX_ROOMS` to the hardware (P10.16's load test) and put a proxy limit in front if
+    abuse shows up;
+  - a device whose first input carries `seq` 2³²−1 freezes its own later inputs (each is then
+    "older"); it harms only itself;
+  - `x-forwarded-proto` must be exactly `http` or `https`: an edge that appended to a client's
+    header (`https, http`) would have every request refused — smoke-test once deployed;
+  - every refused join or room prints Colyseus' own stack trace, so a hostile client can make the
+    log noisy;
+  - a room that closes for good (disposed, kicked, its reconnect run out) stops the page on the
+    boot-failure screen; the session is page-wide and is not left on unmount;
+  - the playtest's no-flow layout shows every scene at once (the sample's round-over text over the
+    field): an online game's own flow is the author's, and the arcade starter flow is an offline one.
+- **Owner / infra steps:** stand up the Railway service and the `rooms.invisiblewall.org` record —
+  the exact settings are in [INFRA.md](../INFRA.md) "Invisible Game Server" (steps 1–8).
+
+
+**P10.11 — Arcade A2: characters (merged 2026-10-26, #1377).** §8's P10.11 row (§4.3, §5.1, §5.2,
 §6.3, §6.5), in one PR. No live game uses any of it yet; the sample is a fixture.
 
 - **The brain** (`engine-mechanics` `behaviours.js` + `.d.ts`, plain ESM like `motion.js`): a small
@@ -145,7 +588,7 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
   game's); P10.8's placeholder components draw half their size up and left of their bodies (a `rect`'s
   default anchor plus a `-w/2` offset; seen while building, not fixed here); a timeline's `alpha`
   multiplies the node's own, so a node stored at alpha 0 cannot be faded in by a timeline.
-**P10.12 — Arcade A3a: world and camera (built 2026-10-26; in review).** §8's P10.12 row (§4.4,
+**P10.12 — Arcade A3a: world and camera (merged 2026-10-26, #1372).** §8's P10.12 row (§4.4,
 §3.4, §5.1), in one PR. Built before P10.11, as §8 orders it for Salmons (its river is bigger than
 the screen). No current game declares a world, so none of it runs in one.
 
@@ -489,7 +932,7 @@ on. In one launcher-side PR:
   with `freePlay` for a rules game pinned to its project. The current-games harness is not edited:
   its `cg-match3` fixture keeps its own `lines` entry and drops the live link.
 
-**P10.7 — Spawning (built 2026-10-25; in review).** §8's P10.7 row (§3.3), in one PR. No game uses
+**P10.7 — Spawning (built 2026-10-25; merged, #1345).** §8's P10.7 row (§3.3), in one PR. No game uses
 any of it yet.
 
 - **The layout node** (`engine-layout` `types.ts`): `spawnLayer { spawnable: componentId[],
@@ -1169,6 +1612,14 @@ game, bundle or screen changes.
 
 ## Open items / next
 
+0. **P10.14 follow-ups:** (a) the **bundle cost** (+59 KB gz for every game; owner): accept it as
+   static until the per-family runtime build (item 9), or ship the SDK as a separate file only an
+   online game fetches; (b) the **publish** writes `rooms_url` into an online game's launch URL and
+   a **published** online config where the game server reads it (§9 "read from the same published
+   snapshot"), and refuses an online game with no server address (§10); (c) a `/config` section for
+   `arcade.online`; (d) the Railway service and DNS (owner, INFRA steps), then the `deploy-drift`
+   entry; (e) a **read-only config token** for the game server — the interim source puts the
+   launcher's deploy token in its env, which can do more than read configs.
 1. **Live real-money match-3** waits on a real provider's match-3 wire (§9 #2); our wire
    (`docs/reference/match3-wire.md`) and its facade mapping are rewritten when one arrives.
 2. **Delivering a non-slot game** stays off: a rules game never (no wallet), an RGS match-3 game
@@ -1204,12 +1655,32 @@ game, bundle or screen changes.
 
 ## Blocked (owner / external)
 
-- Nothing for P10.1. The A4 design, [realtime-multiplayer.md](../design/realtime-multiplayer.md),
-  is approved (2026-10-25), which settles §9 #18. When P10.14 ships, the owner creates the
-  `rooms.invisiblewall.org` DNS record (its §14 #8).
+- The A4 design, [realtime-multiplayer.md](../design/realtime-multiplayer.md), is approved
+  (2026-10-25), which settles §9 #18. **P10.14 is built; the owner stands up the `game-server`
+  Railway service and the `rooms.invisiblewall.org` DNS record** (its §14 #8) — the settings are in
+  [INFRA.md](../INFRA.md) "Invisible Game Server".
 
 ## Recent changes
 
+- 2026-10-27 — **Game repo builds fixed after P10.14.** #1375 declared `@colyseus/sdk` in
+  `apps/lines` only. A standalone game repo installs from its own root `package.json` (copied at
+  scaffold), and the desktop launcher backfills engine workspace packages but never a third-party
+  one, so every game repo's ☁ Publish failed with `Rollup failed to resolve import
+  "@colyseus/sdk"`, online game or not. The SDK now lives in the new `packages/engine-rooms`
+  workspace package (`online.ts` imports it, still dynamically), which the backfill declares and
+  the workspace installs. New Lint gate `check:game-app-deps`: `apps/lines` may declare only the
+  third-party packages game repos already carry. Proved on a scaffold from the pre-#1375 engine:
+  on `main` the build fails with the reported error; on the fix, after the launcher's backfill,
+  `vite build` exits 0. `check:room-sim` now pins the import through `engine-rooms`.
+- 2026-10-27 — **Card family design written and approved** (owner, the same day: all seven §13
+  decisions as recommended): [card-games.md](../design/card-games.md). The rules engine
+  (`cards.js`), effects as data from closed lists, a seeded on-device AI, the card frame, card data
+  in Game Config, Invisible Card Library (`/cards`), the ship chain, the `card` family, build steps
+  C1–C5 with gates. Nothing built yet; C1 is next. Docs only.
+- 2026-10-26 — **P10.14 built: the game server (A4a).** `services/game-server` on Colyseus 0.18,
+  rooms with join / leave / rejoin, inputs only, `GameConfigDoc.arcade.online`,
+  `ARCADE_ONLINE_MECHANIC` and the runtime's online branch, `check:room-sim`, an online playtest.
+  Not deployed. Detail above.
 - 2026-10-26 — **P10.11 built: arcade characters.** Brains (`behaviours.js`), controllers, solid
   response, paths, `animInputs`, 1D blend states, the `path` node, and the new **Invisible
   Characters** tool (arcade only); a guard sample as a fixture. Detail above.
@@ -1224,7 +1695,6 @@ game, bundle or screen changes.
   [editor status](editor.md) 2026-10-26.
 - 2026-10-26 — **P10.9c built: the Graph Editor** (merged, #1371). Detail in
   [cinematic status](cinematic.md) 2026-10-26.
-
 - 2026-10-25 — **P10.8 built: arcade, rules-decided.** `motion.js`, the fixed-step loop, tags,
   `ARCADE_VOCAB` and its starter (a salmon dodger), `<ArcadeStage />`, the arcade scene set in Game
   Maker, `check:arcade-motion` / `check:arcade-rules`. §6.4 re-checked: the shared runtime stays.

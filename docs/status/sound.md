@@ -230,6 +230,22 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
 
 ## Recent changes
 
+- 2026-10-27 — **A pots overlay's tokens get their own sounds: land, take off, reach the pot**
+  (branch `claude/fervent-ride-ccp7qf`, in review). Asked for a project whose overlay drops coins and
+  rockets: neither could be given a landing sound, and a rocket needed one as it fires and as it
+  explodes at the pot. The landing cue already played per token (`overlayPresentation.ts` →
+  `playSymbolLandSound`), but `/sound`'s per-symbol rows offer only `symbolsInPlay` (the strips), and
+  a token is never on a strip. `/sound` now has an **Overlay tokens** grid (tokens from
+  `symbolsUsed` / `symbolUses === 'token'`, the `/symbols` Coins group's list) with three moments,
+  `TOKEN_SOUND_MOMENTS` in `engine-layout`'s `soundLibrary.ts`: `land`, `flyToMeter` and `potArrive`
+  (not a symbol state; stored in the same `bindings.symbols` row, so the doc, the export and the bake
+  carry it unchanged). The runtime plays them in `presentMeterUpdate` (`holdAndWinPresentation.ts`):
+  take-off in the flight's `onStart` beside `liftToken`, arrival when `flyTo` resolves (the head
+  landing), both through `soundBindings.ts`'s `playTokenTakeOffSound` / `playTokenPotArriveSound`.
+  Layer 1 only: unbound ⇒ silent, so no current game changes. A base-board special flying into a Hold
+  and Win meter (not a token) is not covered. Gate: `check:sounds-doc` round-trips every token moment.
+  ⏳ Not heard in a live game yet: bind the rocket's cues on `/sound`, export, and play a fill.
+
 - 2026-10-01 — **A newer `kind`, `status` or `origin` no longer wipes the whole sound library.**
   Each was a Zod enum, so one value a newer launcher wrote failed the parse.
   `loadSoundsDocWithEtag` then fell back to the empty library and the export pruned

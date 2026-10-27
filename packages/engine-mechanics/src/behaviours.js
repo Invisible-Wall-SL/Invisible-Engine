@@ -43,6 +43,9 @@ export const CONDITIONS = [
 /** The input-map actions the keyboard controllers read. */
 export const CONTROLLER_ACTIONS = ['left', 'right', 'up', 'down'];
 
+/** The input-map action a jump or a flap reads (P10.13); a `sideScroll` or `flap` reads `up` too. */
+export const JUMP_ACTION = 'jump';
+
 /** How often a `random` condition rolls when it names no `every`, ms. */
 export const RANDOM_EVERY = 1000;
 
@@ -399,7 +402,9 @@ export function brainVelocity(brain, self, world, dt) {
  * keyboard controller follows a pressed pointer instead (touch steering): `topDown` on both axes,
  * `sideScroll` across, at its speed, arriving rather than overshooting. `pointer` heads for the
  * pointer on its axes at `speed` (absent ⇒ `movement.maxSpeed`) and arrives within the step rather
- * than overshooting — with neither, it snaps to it. No pointer, no movement.
+ * than overshooting — with neither, it snaps to it. No pointer, no movement. `flap` runs left/right
+ * at its `speed` (absent ⇒ it only rises and falls). Under gravity only the returned `vx` is
+ * steered; the jump and the flap own `vy` (`jumps.js`).
  */
 export function controllerVelocity(controller, input, self, movement, dt) {
 	switch (controller.kind) {
@@ -420,6 +425,10 @@ export function controllerVelocity(controller, input, self, movement, dt) {
 				y *= Math.SQRT1_2;
 			}
 			return { vx: x * controller.speed, vy: y * controller.speed };
+		}
+		case 'flap': {
+			const x = (input.held('right') ? 1 : 0) - (input.held('left') ? 1 : 0);
+			return { vx: x * Math.max(0, controller.speed ?? 0), vy: 0 };
 		}
 		case 'pointer': {
 			const pointer = input.pointer();

@@ -135,6 +135,11 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	points: true,
 	closed: true,
 	smoothing: true,
+	tileWidth: true,
+	tileHeight: true,
+	cols: true,
+	tiles: true,
+	tileset: true,
 	despawnOutsideView: true,
 };
 const componentDefFields: Record<keyof ComponentDef, true> = {

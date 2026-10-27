@@ -48,6 +48,7 @@
 	import CatalogText from './CatalogText.svelte';
 	import TextBox from './TextBox.svelte';
 	import SlicedSprite from './SlicedSprite.svelte';
+	import Tilemap from './Tilemap.svelte';
 	import InlineImageText from './InlineImageText.svelte';
 	import { anchoredPosition, resolveOverrideTextStyle, resolveTransform } from './resolveTransform';
 	import { pixiBlendMode } from './blendMode';
@@ -374,6 +375,11 @@
 		const at = alignedAt?.();
 		return at ? { x: at.x ?? anchored.x, y: at.y ?? anchored.y } : anchored;
 	});
+	const tilemapScale = $derived(
+		node.kind === 'tilemap'
+			? { x: Math.abs(transform.scale?.x ?? 1), y: Math.abs(transform.scale?.y ?? 1) }
+			: undefined,
+	);
 	const posX = $derived(pos.x);
 	const posY = $derived(pos.y);
 
@@ -1417,6 +1423,18 @@
 			</Container>
 		{:else if node.kind === 'path'}
 			<!-- A path (game-families §4.3) is game data the arcade loop reads through `scenePaths`. -->
+		{:else if node.kind === 'tilemap'}
+			<!-- A tilemap (game-families §4.4): drawn from its top-left, never mirrored (it collides as
+			     `sceneTilemaps` reads it: unrotated, by the scale's size). -->
+			<Container
+				x={posX}
+				y={posY}
+				scale={tilemapScale}
+				alpha={transform.alpha}
+				zIndex={transform.zIndex}
+			>
+				<Tilemap {node} />
+			</Container>
 		{:else if node.kind === 'sprite'}
 			{#if fillBound && !bg && spriteKey}
 				<!--

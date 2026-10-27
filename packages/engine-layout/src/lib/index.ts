@@ -113,6 +113,7 @@ export * from './registerFlowPress';
 export * from './flowInstances';
 export * from './spawnLayerFields';
 export * from './pathNodes';
+export * from './tilemapNodes';
 export * from './worldCamera';
 export * from './flowInstanceHandle';
 export * from './registerComponentSignals';

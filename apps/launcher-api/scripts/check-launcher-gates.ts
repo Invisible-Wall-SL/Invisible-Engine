@@ -160,6 +160,13 @@ for (const route of ['game-maker/publish', 'game-maker/publish-all']) {
 	check(`${route} no longer gates on adminPanel`, s.includes('ADMIN_PANEL_CAPABILITY'), false);
 }
 
+/** Setting the deploy token (the desktop Key Vault) is the owner's alone. */
+check(
+	'launcher/deploy-token PUT is owner-only',
+	/export const PUT[\s\S]*requireLauncherAdmin\(/.test(source('launcher/deploy-token')),
+	true,
+);
+
 /** Owner-only by nature: machine secrets and the owner's own GPU box. */
 for (const route of [
 	'launcher/tunnel-bundle',
