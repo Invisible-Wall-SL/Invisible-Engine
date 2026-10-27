@@ -64,6 +64,18 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
   Verified offline (`check:project-duplicate`), not live.
 
 ## Recent changes
+- 2026-10-27 — **Build breakdown counts the shared engine.** Online games run one shared engine
+  runtime, so a version's files never included the engine code. The breakdown now lists that
+  runtime's release files under an **Engine (shared runtime)** category (`engine/…` in Files), with
+  **Engine (shared)** and **Total incl. engine** tiles (game files + `runtime.json` + engine).
+  - **Which release:** `findEngineRelease` in `buildBreakdown.ts` lists
+    `test_server/_runtime/<runtime>@<version>/` for the release the snapshot recorded
+    (`SnapshotMeta.engine`). A version from before that record uses the live release
+    (`current.json`), and a report check says so. Before versioned releases, the flat
+    `_runtime/<runtime>/` is used, without its control files.
+  - **Not judged as game files:** engine files are never dead, duplicate or oversized game files.
+    `BREAKDOWN_VERSION` 2 recomputes every cached report.
+  - Gate: `check:build-breakdown` 40 (recorded and live-release engine, totals, categories).
 - 2026-10-27 — **Build breakdown: what a published version shipped.** A full page per retained
   version (`/game-maker/breakdown/<project>/<id>`, linked as **Build breakdown** on the live line
   and **breakdown** on each Published versions row) lists the snapshot's `deploy/` copy by category
