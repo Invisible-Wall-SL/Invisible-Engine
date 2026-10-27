@@ -6,7 +6,7 @@
 // Rigger, served by the launcher, posts to `/api/ask-ai` directly (its copy is
 // static/shared/ask-ai.js, from scripts/sync-ask-ai.mjs). Chat per tool in sessionStorage; the
 // window's place in localStorage (per site, so the launcher and each tool remember it apart).
-var iwAskAi = (function () {
+window.iwAskAi = (function () {
   var CSS =
     '.iw-ask{display:inline-flex;align-items:center;gap:6px;flex:none;padding:5px 10px;border-radius:8px;border:1px solid #2a3150;background:none;color:#9ab8ff;font:inherit;font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer}' +
     '.iw-ask:hover,.iw-ask.on{background:#1a2038;border-color:#3b5290}' +
@@ -48,10 +48,10 @@ var iwAskAi = (function () {
   var PLACE_KEY = 'iw-ask-ai:place';
 
   function read(store, key) {
-    try { var raw = window[store].getItem(key); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
+    try { var raw = window[store].getItem(key); return raw ? JSON.parse(raw) : null; } catch { return null; }
   }
   function write(store, key, value) {
-    try { window[store].setItem(key, JSON.stringify(value)); } catch (e) { /* not remembered */ }
+    try { window[store].setItem(key, JSON.stringify(value)); } catch { /* not remembered */ }
   }
   // The longest alternating question/answer run that ends on an answer: a chat closed mid-answer
   // must not keep its unanswered question, or the next one is refused (turns must alternate).
@@ -75,7 +75,7 @@ var iwAskAi = (function () {
   // italics, links). Everything is escaped first, so the model's text is never markup.
   function inline(text, launcher) {
     var codes = [];
-    var s = esc(text).replace(/`([^`]+)`/g, function (_, c) { codes.push(c); return '\u0000' + (codes.length - 1) + '\u0000'; });
+    var s = esc(text).replace(/`([^`]+)`/g, function (_, c) { codes.push(c); return '\uE000' + (codes.length - 1) + '\uE000'; });
     s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (all, label, href) {
       href = href.replace(/&amp;/g, '&');
       if (/^\/(?!\/)/.test(href)) href = launcher + href;
@@ -83,7 +83,7 @@ var iwAskAi = (function () {
       return '<a href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">' + label + '</a>';
     });
     s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>');
-    return s.replace(/\u0000(\d+)\u0000/g, function (_, i) { return '<code>' + codes[+i] + '</code>'; });
+    return s.replace(/\uE000(\d+)\uE000/g, function (_, i) { return '<code>' + codes[+i] + '</code>'; });
   }
   function render(md, launcher) {
     var out = [];
