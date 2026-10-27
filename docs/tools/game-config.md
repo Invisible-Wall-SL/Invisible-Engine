@@ -183,6 +183,11 @@ has no family control at all. Two more families exist
     there, not here. Its problems still show under this section (a repeated id, two characters
     sharing a component, a brain naming a state it does not have; a played character whose
     component has no body warns).
+  - **Online** — shown only for an online game (one whose config has an `arcade.online` block,
+    authored in raw JSON). **Netcode** picks who predicts your own player between the server's
+    states: **Engine** (the default) is our own prediction and reconciliation; **Colyseus** is the
+    Colyseus SDK's own `Predict` reconciler for your own player. The server is authoritative
+    either way, and other players are drawn the same in both.
   See [Flow → Arcade](flow.md#arcade--the-play-field-signals-and-the-starter-flow) for the signals.
 - **Publishing:** a **match-3** config publishes from Game Maker to the test server, free play or
   decided by the server (against the test server's match-3 mock), and so does a free-play

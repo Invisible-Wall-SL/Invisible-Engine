@@ -4,10 +4,13 @@
 	import {
 		ARCADE_BODY_EDGES,
 		ARCADE_FIXED_HZ_RANGE,
+		ARCADE_NETCODES,
+		ARCADE_ONLINE_DEFAULTS,
 		DEFAULT_ARCADE_FIXED_HZ,
 		DEFAULT_MATCH3_MIN_RUN,
 		resolveFamily,
 		resolveOutcome,
+		type ArcadeNetcode,
 		type ConfigFamily,
 		type GameConfigDoc,
 		type GameConfigIssue,
@@ -34,6 +37,7 @@
 		setGoalField,
 		setMinRun,
 		setMoves,
+		setNetcode,
 		setOutcome,
 		setPairs,
 		setScoreTable,
@@ -66,6 +70,11 @@
 		slot: 'Slot — reels that spin',
 		match3: 'Match-3 — swap gems to match runs',
 		arcade: 'Arcade — a play field with moving objects',
+	};
+
+	const NETCODE_LABELS: Record<ArcadeNetcode, string> = {
+		engine: 'Engine — our own prediction (default)',
+		colyseus: "Colyseus — the SDK's own prediction",
 	};
 
 	const family = $derived(resolveFamily(doc));
@@ -492,6 +501,21 @@
 					: `${characterCount} character${characterCount === 1 ? '' : 's'}.`}
 				<a href={resolve('/characters')}>Edit in Invisible Characters</a>
 			</p>
+			{#if doc.arcade?.online}
+				<span class="legend">Online</span>
+				<div class="row">
+					<label
+						>Netcode<select
+							value={doc.arcade.online.netcode ?? ARCADE_ONLINE_DEFAULTS.netcode}
+							onchange={(e) => setNetcode(doc, e.currentTarget.value)}
+						>
+							{#each ARCADE_NETCODES as netcode (netcode)}
+								<option value={netcode}>{NETCODE_LABELS[netcode]}</option>
+							{/each}
+						</select></label
+					>
+				</div>
+			{/if}
 		</fieldset>
 		{@render issueList('arcade')}
 	</section>

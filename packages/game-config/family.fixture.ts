@@ -431,6 +431,7 @@ check(
 		spawn: { x: 400, y: 300 },
 		layer: 'field',
 		rules: NO_RULES,
+		netcode: 'engine',
 	},
 );
 check(
@@ -456,9 +457,47 @@ check(
 		spawn: { x: 400, y: 300 },
 		layer: 'field',
 		rules: NO_RULES,
+		netcode: 'engine',
 	},
 );
 check('resolve: not online', resolveArcadeOnline(normalize(ARCADE), { w: 1, h: 1 }), undefined);
+check(
+	'netcode: the default engine is not stored',
+	Object.hasOwn(
+		online({ characters: swimmers, netcode: 'engine' }).arcade?.online ?? {},
+		'netcode',
+	),
+	false,
+);
+check(
+	'…colyseus is kept',
+	online({ characters: swimmers, netcode: 'colyseus' }).arcade?.online?.netcode,
+	'colyseus',
+);
+check(
+	'…an unknown netcode is dropped, not a failed doc',
+	online({ characters: swimmers, netcode: 'rollback' }).arcade?.online,
+	{ characters: swimmers },
+);
+check(
+	'resolve: colyseus when the doc says so',
+	resolveArcadeOnline(online({ characters: swimmers, netcode: 'colyseus' }), { w: 800, h: 600 })
+		?.netcode,
+	'colyseus',
+);
+check(
+	'an unknown netcode on an un-normalized doc warns: it is played as engine',
+	validateGameConfigDoc({
+		...online({ characters: swimmers }),
+		arcade: {
+			...online({ characters: swimmers }).arcade,
+			online: { characters: swimmers, netcode: 'rollback' as 'engine' },
+		},
+	})
+		.filter((i) => i.severity === 'warning')
+		.map((i) => i.path),
+	['arcade.online.netcode'],
+);
 check(
 	'an online game with a field and a character is clean',
 	paths(online({ characters: swimmers })),

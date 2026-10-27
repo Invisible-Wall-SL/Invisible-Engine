@@ -1,8 +1,9 @@
-import type { Room } from 'engine-rooms';
+import type { Predict, Reconciler, Room } from 'engine-rooms';
 import {
 	BUTTONS,
 	MOVE_SCALE,
 	ONLINE_EVENT,
+	RECONCILED_FIELDS,
 	STATUS,
 	characterBody,
 	clampInput,
@@ -11,6 +12,7 @@ import {
 	createPredictor,
 	createSnapshotClock,
 	onlineLevel,
+	reconcilerStep,
 	snapFor,
 	stepContext,
 	type FixedStep,
@@ -38,6 +40,10 @@ import { typingInto } from './flowKeys';
  * sends), and everyone else is INTERPOLATED about 100 ms behind the room (`createSnapshotClock`,
  * `createInterpolator`). Each input names the room step the device was drawing everyone else at
  * (`view`), so an ability is tested against what the player saw.
+ *
+ * `arcade.online.netcode` picks who predicts the own player: `engine` (the default) is the
+ * predictor above; `colyseus` is the SDK's own `Predict` reconciler, running the same step
+ * (`reconcilerStep`). Everyone else is interpolated the same way in both, so `view` means the same.
  *
  * Launch parameters: `?rooms_url=` the game server (`wss://rooms.invisiblewall.org`), the game
  * key `?rooms_game=` (else `?project=`), and optionally `?rooms_name=` / `?rooms_character=`.
@@ -76,8 +82,10 @@ type Session = {
 	game: OnlineGame;
 	clock: FixedStep;
 	seq: number;
-	/** The own player, once the room has placed it. */
+	/** The own player, once the room has placed it (`netcode: 'engine'`). */
 	me: Predictor | undefined;
+	/** The SDK's prediction and its reconciler for the own player (`netcode: 'colyseus'`). */
+	sdk: { predict: Predict; me: Reconciler<PlayerState> | undefined } | undefined;
 	/** The render clock and tracks for everyone else. */
 	view: SnapshotClock;
 	others: Interpolator;
@@ -157,13 +165,15 @@ export async function joinOnlineRoom(): Promise<void> {
 	if (!url) return refuseOnlineBoot('the launch names no game server (?rooms_url=)');
 	if (!game) return refuseOnlineBoot('the launch names no game (?rooms_game=)');
 	let room: Room;
+	let predict: Predict | undefined;
 	try {
-		const { Client } = await import('engine-rooms');
-		room = await new Client(url).joinOrCreate(ROOM_NAME, {
+		const rooms = await import('engine-rooms');
+		room = await new rooms.Client(url).joinOrCreate(ROOM_NAME, {
 			game,
 			name: params.get('rooms_name') ?? undefined,
 			character: params.get('rooms_character') ?? undefined,
 		});
+		if (resolved.online.netcode === 'colyseus') predict = rooms.Predict.get(room);
 	} catch (error) {
 		return refuseOnlineBoot(
 			`the game server did not let it in (${error instanceof Error ? error.message : String(error)})`,
@@ -173,6 +183,7 @@ export async function joinOnlineRoom(): Promise<void> {
 	// play: say so on the same screen rather than freeze on the last state.
 	room.onLeave((code: number) => {
 		session = undefined;
+		predict?.dispose();
 		if (code !== CONSENTED) void refuseOnlineBoot(`the room closed (code ${code})`, true);
 	});
 	const current: Session = {
@@ -181,6 +192,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		clock: createFixedStep({ hz: resolved.online.tickHz }),
 		seq: 0,
 		me: undefined,
+		sdk: predict && { predict, me: undefined },
 		view: createSnapshotClock({ stepMs: 1000 / resolved.online.tickHz }),
 		others: createInterpolator({
 			snapPx: snapFor(
@@ -224,6 +236,29 @@ function predictorOf(current: Session, player: PlayerState): Predictor | undefin
 	});
 }
 
+/** The own player's reconciler under `netcode: 'colyseus'`: the SDK's, over the room's step. */
+function reconcilerOf(
+	current: Session,
+	predict: Predict,
+	player: PlayerState,
+): Reconciler<PlayerState> | undefined {
+	const { game } = current;
+	const character = game.online.characters.find((c) => c.id === player.character);
+	if (!character) return undefined;
+	return predict.reconciler(player, {
+		input: current.room.input(),
+		fields: RECONCILED_FIELDS,
+		step: reconcilerStep({
+			body: characterBody(current.room.sessionId, game.bodies[character.body], player),
+			speed: character.speed,
+			ctx: stepContext(game.online.tickHz, game.online.subSteps),
+			field: game.field,
+			level: onlineLevel(game.zones, game.online.rules.zones, character.id, game.field),
+		}),
+		snap: snapFor(character.speed + strongestCurrent(game), game.online.patchHz),
+	});
+}
+
 /** A state from the room: the own player reconciled, everyone else's place recorded at its step. */
 function received(current: Session, nowMs: number) {
 	const state = stateOf(current.room);
@@ -234,6 +269,11 @@ function received(current: Session, nowMs: number) {
 	players.forEach((player, id) => {
 		if (id !== current.room.sessionId) {
 			current.others.push(id, state.step!, player.x, player.y);
+			return;
+		}
+		// The SDK reconciles on its own, from the input acknowledgement each state carries.
+		if (current.sdk) {
+			current.sdk.me ??= reconcilerOf(current, current.sdk.predict, player);
 			return;
 		}
 		current.me ??= predictorOf(current, player);
@@ -265,6 +305,8 @@ const stateOf = (room: Room): Partial<RoomState> => room.state as Partial<RoomSt
 
 /** Where a player is drawn: the own one predicted, everyone else between the room's states. */
 function placeOf(current: Session, id: string, player: PlayerState) {
+	const own = current.sdk?.me;
+	if (id === current.room.sessionId && own) return { x: own.value('x'), y: own.value('y') };
 	if (id === current.room.sessionId && current.me) return current.me.drawn(current.clock.alpha);
 	return current.others.at(id, current.viewStep) ?? { x: player.x, y: player.y };
 }
@@ -307,7 +349,10 @@ function draw(current: Session) {
 export function tickOnline(dtMs: number) {
 	const current = session;
 	if (!current) return;
-	current.viewStep = current.view.advance(performance.now()) ?? current.viewStep;
+	const now = performance.now();
+	current.viewStep = current.view.advance(now) ?? current.viewStep;
+	// The SDK's order: reconcile and decay first, then send (its reconciler steps each send), then read.
+	current.sdk?.predict.tick(now);
 	current.clock.advance(dtMs, () => {
 		current.seq += 1;
 		const raw = keyInput(current.seq, Math.max(0, Math.floor(current.viewStep)));
@@ -341,8 +386,10 @@ export function onlineProbe() {
 						me: current.room.sessionId,
 						drawn,
 						viewStep: current.viewStep,
-						corrections: current.me?.corrections ?? 0,
-						snaps: current.me?.snaps ?? 0,
+						netcode: current.game.online.netcode,
+						...(current.sdk
+							? {}
+							: { corrections: current.me?.corrections ?? 0, snaps: current.me?.snaps ?? 0 }),
 						phase: state.phase ?? '',
 						round: state.round ?? 0,
 						winner: state.winner ?? '',

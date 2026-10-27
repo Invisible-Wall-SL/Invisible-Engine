@@ -181,7 +181,16 @@ export type ArcadeOnline = {
 	layer?: string;
 	/** What decides the game (P10.15). Absent ⇒ players only move. */
 	rules?: ArcadeOnlineRules;
+	/** Who predicts the own player between server states: `engine` (our own prediction and
+	 *  reconciliation, the default) or `colyseus` (the Colyseus SDK's own `Predict`). The server is
+	 *  authoritative either way. */
+	netcode?: ArcadeNetcode;
 };
+
+/** The netcodes an online arcade game can be played with. */
+export const ARCADE_NETCODES = Object.freeze(['engine', 'colyseus'] as const);
+
+export type ArcadeNetcode = (typeof ARCADE_NETCODES)[number];
 
 /** What an online arcade block resolves to when it names nothing. */
 export const ARCADE_ONLINE_DEFAULTS = Object.freeze({
@@ -191,6 +200,7 @@ export const ARCADE_ONLINE_DEFAULTS = Object.freeze({
 	patchHz: 20,
 	rejoinSeconds: 60,
 	layer: 'field',
+	netcode: 'engine' as ArcadeNetcode,
 });
 
 /** The bounds a room is held to whatever its config says: the server's resource limits (§11). */
@@ -354,6 +364,7 @@ export const resolveArcadeOnline = (
 		spawn: online.spawn ?? { x: field.w / 2, y: field.h / 2 },
 		layer: online.layer ?? d.layer,
 		rules: resolveRules(online.rules),
+		netcode: online.netcode === 'colyseus' ? 'colyseus' : 'engine',
 	};
 };
 
@@ -545,6 +556,8 @@ export function normalizeArcadeOnline(raw: unknown): ArcadeOnline | undefined {
 	if (layer && layer !== d.layer) block.layer = layer;
 	const rules = normalizeOnlineRules(raw.rules);
 	if (rules) block.rules = rules;
+	const netcode = ARCADE_NETCODES.find((n) => n === raw.netcode);
+	if (netcode && netcode !== d.netcode) block.netcode = netcode;
 	return block;
 }
 

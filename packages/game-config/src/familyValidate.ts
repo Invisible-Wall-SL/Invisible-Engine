@@ -1,6 +1,7 @@
 import { DEFAULT_ARCADE_TARGET_TAG, type ArcadeCharacter } from './arcadeCharacters';
 import {
 	ARCADE_FIXED_HZ_RANGE,
+	ARCADE_NETCODES,
 	ARCADE_ONLINE_DEFAULTS,
 	ARCADE_ONLINE_LIMITS,
 	ONLINE_RULES_MODULE_IDS,
@@ -336,6 +337,13 @@ function validateArcadeOnline(
 			severity: 'warning',
 			path: 'arcade.online.spawn',
 			message: 'Players start outside the play field; a clamped body is pulled inside at once.',
+		});
+	}
+	if (online.netcode !== undefined && !ARCADE_NETCODES.includes(online.netcode)) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.netcode',
+			message: `The netcode "${online.netcode}" is unknown; the game is played as engine.`,
 		});
 	}
 	issues.push(...validateOnlineRules(doc));

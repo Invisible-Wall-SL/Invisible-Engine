@@ -20,9 +20,14 @@
  * behind the room, and each player is drawn between the two states around it. The clock never runs
  * past the newest state (no guessing ahead) and changes its speed by at most a quarter, so a late,
  * lost or bunched-up state slows or hurries everyone a little rather than making them jump.
+ *
+ * `arcade.online.netcode: 'colyseus'` swaps the own player's predictor for the Colyseus SDK's own
+ * `Reconciler`; {@link reconcilerStep} is the step it runs. Everyone else is interpolated here in
+ * both modes.
  */
 
 import { stepPlayer } from './online.js';
+import { STATUS } from './onlineRules.js';
 
 /** A prediction this close to the room's place, px, is the same place. */
 export const MATCH_PX = 1 / 64;
@@ -268,5 +273,26 @@ export function createInterpolator({ snapPx = SNAP_PX, keep = 32 } = {}) {
 			const last = track[track.length - 1];
 			return { x: last.x, y: last.y };
 		},
+	};
+}
+
+/** The own player's fields the Colyseus SDK's `Reconciler` mirrors from the room: its place, and the
+ *  status that holds it still (a changed status is a mismatch, so the SDK adopts it and replays). */
+export const RECONCILED_FIELDS = Object.freeze(['x', 'y', 'status']);
+
+/**
+ * The own player's step for the Colyseus SDK's `Reconciler` (`arcade.online.netcode: 'colyseus'`),
+ * in its `(ctx, state, command)` shape over {@link RECONCILED_FIELDS}: the room's own `stepPlayer`
+ * on `body` (the player's shape and edges), with the room's `ctx` (`stepContext`) rather than the
+ * SDK's, so a step is the server's bit for bit. A player the room holds still is stepped with no
+ * input, as the room steps it.
+ */
+export function reconcilerStep({ body, speed, ctx, field, level }) {
+	return (_sdk, state, command) => {
+		body.x = state.x;
+		body.y = state.y;
+		stepPlayer(body, state.status === STATUS.free ? command : undefined, speed, ctx, field, level);
+		state.x = body.x;
+		state.y = body.y;
 	};
 }

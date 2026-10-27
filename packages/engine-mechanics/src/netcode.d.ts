@@ -63,3 +63,16 @@ export type Interpolator = {
 };
 
 export function createInterpolator(options?: { snapPx?: number; keep?: number }): Interpolator;
+
+export const RECONCILED_FIELDS: readonly ['x', 'y', 'status'];
+
+/** The state the Colyseus SDK's `Reconciler` hands {@link reconcilerStep}: {@link RECONCILED_FIELDS}. */
+export type ReconciledState = { x: number; y: number; status: number };
+
+export function reconcilerStep(options: {
+	body: Body;
+	speed: number;
+	ctx: StepContext;
+	field?: Field;
+	level?: OnlineLevel;
+}): (sdk: unknown, state: ReconciledState, command: OnlineInput) => void;
