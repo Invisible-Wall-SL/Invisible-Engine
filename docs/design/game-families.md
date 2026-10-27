@@ -1310,10 +1310,10 @@ so is #12's scope (its shape is a recommendation); the owner answered #13–#16 
 the style of Magic: The Gathering or Hearthstone. It is the most rules-heavy family, so it has a
 design of its own, written once P10.7 had shipped (§9 #15).
 
-> **The card design is [card-games.md](card-games.md)** (2026-10-27, plan, not approved). It owns
+> **The card design is [card-games.md](card-games.md)** (2026-10-27, approved the same day). It owns
 > everything about the family: the v1 scope, the rules engine, effects, the AI, the card frame, where
 > card data lives, Invisible Card Library, the ship chain, the build plan (C0–C5) and the decisions
-> for the owner (its §13). This section keeps only what this plan decided for it.
+> (its §13, all decided as recommended). This section keeps only what this plan decided for it.
 
 - **Outcome:** rules-decided only. A card game is free play with no wallet (§9 #4); an RGS-decided
   card game is not planned.

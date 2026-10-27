@@ -1,6 +1,7 @@
 # Card games: a duel against the device (the card family)
 
-> Status: **PLAN, not approved.** Written 2026-10-27. This is the design that
+> Status: **PLAN APPROVED (owner, 2026-10-27): all seven §13 decisions accepted as recommended.**
+> Written the same day. Nothing is built yet; C1 is the next step. This is the design that
 > [game-families.md](game-families.md) §10 promised for the fourth family, once P10.7 had shipped
 > (§9 #15). P10.3 (variables, timers), P10.4 (drag, Align Target) and P10.7 (spawning, live sets)
 > are on `main`; progress on this plan will live in
@@ -9,7 +10,7 @@
 > What is settled already is owned by game-families.md, and this doc links to it rather than
 > restating it: the outcome (rules-decided only, §10 and §9 #4; §10 now points here), card PvP staying later (§9 #16),
 > the tool table (§6.5), the family model ("What a family means", §1) and the shared runtime (§6.4,
-> §9 #3). The decisions this doc needs from the owner are in §13.
+> §9 #3). The owner's decisions on this doc are in §13.
 >
 > Grounded against `main` e8f7a92 (2026-10-27). "Exists" means it is in that tree; "new" means it is
 > proposed here.
@@ -574,10 +575,10 @@ before any art exists.
 
 ## 7. Where card data lives (§9 #14 for cards)
 
-**In short — recommended: in Game Config, as a `card` block**, as arcade characters are (§9 #14).
+**In short — decided (§13 #1): in Game Config, as a `card` block**, as arcade characters are (§9 #14).
 A doc of its own stays possible later, behind the same helpers.
 
-| | **A. `GameConfigDoc.card` (recommended)** | B. A card doc of its own |
+| | **A. `GameConfigDoc.card` (decided)** | B. A card doc of its own |
 |---|---|---|
 | Ship chain | The config's bake already carries it; two collectors, mirroring `betModeCardIds` and `betModeCardParamRefs`, ship the frames and art | A new asset class: export → `deploy/` → bake → pull → register, end to end (rule 8), its own `check:art-scope` arm |
 | Versions, backups, conflict check | The config's (`saveGameConfigDoc`: etag, `putDocWithBackup`, History) | New: its storage helper, etag and backups (`pipeline-concurrency` work) |
@@ -741,7 +742,7 @@ type CardBlock = {
 
 ### 9.3 The ship chain (rule 8)
 
-**No new R2 asset class** under §7's recommendation. Everything a card game needs is already on the
+**No new R2 asset class** under §7's decision. Everything a card game needs is already on the
 chain, and the cards ride the config:
 
 | Step | What carries the card game |
@@ -754,7 +755,7 @@ chain, and the cards ride the config:
 
 - `check:art-scope` gains a card arm: a card whose frame or art is named only in the config ships.
 - The current-games fixture bake mirrors publish, so it seeds the same ids.
-- **If the owner picks B (§13 #1)** this table is a new asset class instead: `cardsExport.ts` →
+- **If the data ever moves to B (§7's "When to move")** this table becomes a new asset class: `cardsExport.ts` →
   `deploy/cards.json` → an index in the bundle → pulled → `registerCards()`, mirroring `fontExport.ts`.
 
 ### 9.4 Localization
@@ -813,7 +814,7 @@ rule 6; the ownership check of ADR-0005). For cards:
 - **Interleaving play and combat** (§13 #2), secrets / hidden traps, auras ("while this is on the
   board"), weapons, hero powers, discover / choose-one, card generation into the hand.
 - **A server-side record** of matches or a ladder; a high score, if any, is on the device (§9 #8).
-- **A card doc of its own** (§7, unless the owner picks B).
+- **A card doc of its own** (§7, §13 #1).
 
 ---
 
@@ -826,7 +827,7 @@ game (game-families §7.1 applies to each).
 
 | # | Step | Scope | Packages | Size |
 |---|---|---|---|---|
-| C0 | **Plan + decisions** (this doc) | Owner review of §13 | docs | S |
+| C0 | **Plan + decisions** (this doc) — ✅ approved 2026-10-27 | Owner review of §13 | docs | S |
 | C1 | **The rules engine** | `cards.js` + `cards.d.ts`: the match value, zones, phases, the resource, `legalActions`, `apply`, the effect queue, the death check, the loop and turn limits, fatigue; `validateLibrary`; `cardText`; fixtures. No caller | `engine-mechanics` | M |
 | C2 | **The AI** | `cardAi.js` + `.d.ts`: lethal, one-step evaluation, the three difficulties with `hard`'s plan search, its own seeded stream; replay records; the budget | `engine-mechanics` | M |
 | C3 | **Card family, end to end** | `card` in `GAME_KINDS` / `GAME_FAMILIES` / `CONFIG_FAMILIES` and every copy of the family map (§9.2); `GameConfigDoc.card`, `resolveCard`, the normalizer's board-less set, validation, the `/config` card section and picker; the two collectors on the ship chain; `CARD_RULES_MECHANIC`; `cardSession.ts`, `cardDriver.ts`, `cards.svelte.ts`, `<CardTable />` with drop hit-testing and per-instance spawn params; `CARD_VOCAB` and its starter; the `card` layout template and scene set (which puts `card` in Game Maker); the scaffold's placeholder frame; the "Cards" localization section; the bundle-size cost reported; a sample game and `docs/playtest/card-sample.md` | `constants-shared`, `game-config`, `engine-game`, `engine-layout`, `engine-flow-v2`, `apps/lines`, launcher | L |
@@ -859,34 +860,34 @@ changed screens, `check:svelte` not rising) hold for C3 and C4.
 
 ## 13. Decisions (owner)
 
-Each is a recommendation; the owner accepts it or chooses otherwise.
+**#1–#7 DECIDED (owner, 2026-10-27): every recommendation is accepted as written.** No question
+is open. The C0 row is done; C1 is the next step.
 
-1. **Where card data lives.**
-   - *Recommend:* **in Game Config, as `GameConfigDoc.card`** (§7, option A). It reuses the bake,
-     versions, backups and lease, and needs no new asset class. The cost is the shared lease, which
-     matters little when the config holds almost nothing else. Move to a doc of its own only if a
-     library outgrows the config or two people must edit at once.
-2. **Strict phases, or play and attack in any order?**
-   - *Recommend:* **strict phases in v1** (start → draw → main → combat → end, §2.2), the order
-     the family's first outline gave. It keeps the rules and the AI's search simple and the turn readable.
-     Mixed order (the Hearthstone feel) is an optional C5 switch, if playtests ask for it.
-3. **The size of the closed lists.**
-   - *Recommend:* **exactly §3's lists for v1**: seven verbs, four targets, five triggers, three
-     keywords. Additions are cheap later (one entry in the list, the validator, `cardText` and the
-     AI's scoring), and each should come from a card a designer cannot make. The first likely ones
-     are `allFriendly` and a resource verb.
-4. **Who goes first, and the second player's compensation.**
-   - *Recommend:* **random, with one extra card for the second player** (§2.5), both in the config.
-     A spendable "coin" card is a later choice once the sample is played.
-5. **AI difficulty levels.**
-   - *Recommend:* **three presets, `easy` / `normal` / `hard`** (§4.2), set per AI deck, with weight
-     overrides for a deck's style. `hard` is the only one that plans a whole turn, within a
-     fixed budget.
-6. **Card imports into the Card Library.**
-   - *Recommend:* **no bulk import in v1.** Cards are authored in the form. If an import is added
-     later, it requires the same ownership confirmation Director asks for mockups (§10), so a
-     copied card list cannot enter a project unconfirmed.
-7. **The first sample game.**
-   - *Recommend:* **a small invented set of about 24 cards and two decks** (one per side, ~15 cards
-     each in the sample, `deckSize` lowered to match), with placeholder frames, made by C3. It is
-     enough to exercise every verb, target, trigger and keyword once, and it is ours.
+1. **Where card data lives.** *(owner, 2026-10-27: as recommended)*
+   - **In Game Config, as `GameConfigDoc.card`** (§7, option A). It reuses the bake, versions,
+     backups and lease, and needs no new asset class. The cost is the shared lease, which matters
+     little when the config holds almost nothing else. A doc of its own only if a library outgrows
+     the config or two people must edit at once.
+2. **Strict phases, or play and attack in any order?** *(owner, 2026-10-27: as recommended)*
+   - **Strict phases in v1** (start → draw → main → combat → end, §2.2), the order the family's
+     first outline gave. It keeps the rules and the AI's search simple and the turn readable. Mixed
+     order (the Hearthstone feel) is an optional C5 switch, if playtests ask for it.
+3. **The size of the closed lists.** *(owner, 2026-10-27: as recommended)*
+   - **Exactly §3's lists for v1**: seven verbs, four targets, five triggers, three keywords.
+     Additions come later, each from a card a designer cannot make (one entry in the list, the
+     validator, `cardText` and the AI's scoring). The first likely ones are `allFriendly` and a
+     resource verb.
+4. **Who goes first, and the second player's compensation.** *(owner, 2026-10-27: as recommended)*
+   - **Random, with one extra card for the second player** (§2.5), both in the config. A spendable
+     "coin" card is a later choice once the sample is played.
+5. **AI difficulty levels.** *(owner, 2026-10-27: as recommended)*
+   - **Three presets, `easy` / `normal` / `hard`** (§4.2), set per AI deck, with weight overrides
+     for a deck's style. `hard` is the only one that plans a whole turn, within a fixed budget.
+6. **Card imports into the Card Library.** *(owner, 2026-10-27: as recommended)*
+   - **No bulk import in v1.** Cards are authored in the form. If an import is added later, it
+     requires the same ownership confirmation Director asks for mockups (§10), so a copied card list
+     cannot enter a project unconfirmed.
+7. **The first sample game.** *(owner, 2026-10-27: as recommended)*
+   - **A small invented set of about 24 cards and two decks** (one per side, ~15 cards each in the
+     sample, `deckSize` lowered to match), with placeholder frames, made by C3. It is enough to
+     exercise every verb, target, trigger and keyword once, and it is ours.
