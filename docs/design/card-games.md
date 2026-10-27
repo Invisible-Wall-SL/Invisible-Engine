@@ -7,7 +7,7 @@
 > [status/game-families.md](../status/game-families.md), as Phase 10's does.
 >
 > What is settled already is owned by game-families.md, and this doc links to it rather than
-> restating it: the outcome (rules-decided only, §10 and §9 #4), card PvP staying later (§9 #16),
+> restating it: the outcome (rules-decided only, §10 and §9 #4; §10 now points here), card PvP staying later (§9 #16),
 > the tool table (§6.5), the family model ("What a family means", §1) and the shared runtime (§6.4,
 > §9 #3). The decisions this doc needs from the owner are in §13.
 >
@@ -70,24 +70,31 @@ small rules module, a Flow vocabulary, data in Game Config, and the shared runti
 
 **In short:** a new module, `packages/engine-mechanics/src/cards.js` (+ `cards.d.ts`), holds the
 whole rule set as plain functions over a match value. It is the same shape as the match-3 board
-(`board.js`): no drawing, no imports, nothing mutates its input, and every random draw comes from
-the match's own seeded stream.
+(`board.js`): no drawing, no imports outside the package, nothing mutates its input, and every
+random draw comes from the match's own seeded stream, held in the value.
 
 **Why `engine-mechanics`.** It is the package for "the rules of a non-slot family, as plain logic
 with no drawing" (`packages/engine-mechanics/index.ts`), already reached by the client through the
-workspace and written as dependency-free ESM so a second caller could share it (game-families §4.0).
-For cards the second caller is the **AI** (§4), which simulates moves with the same `apply()` the
-game plays. A future PvP server would be the third.
+workspace and written as dependency-free ESM so a non-package caller can share the same file, as
+the match-3 mock RGS shares `board.js` (game-families §4.0). For cards that caller is a future PvP
+server (§11); in v1 the shared runtime and the Card Library's test match (§8.3) are the callers, and
+the AI (§4) simulates moves with the same `apply()` the game plays.
 
-The RNG is the existing `createRng(seed)` from `board.js` (mulberry32, a string seed hashed with
-FNV-1a). `cards.js` does not copy it.
+**The RNG lives in the value.** `board.js`'s `createRng(seed)` (mulberry32, a string seed hashed
+with FNV-1a) returns a closure with hidden, mutable state: "the one piece of state is the board's
+`rng`, which each draw advances" (`board.js`). A match copied for the AI's look-ahead would share
+that closure, so a `randomEnemy` resolved in a trial would advance the real match's stream. So a
+match holds its stream as a number, `rngState`, and draws with a pure step, `rngNext(state) →
+{ value, state }` (new, exported from `board.js` beside `createRng` and built on the same mulberry32
+step, so both modules use one generator). `cards.js` imports it from `./board.js`, as
+`behaviours.js` imports `./motion.js`.
 
 ### 2.1 The match value and the zones
 
 ```ts
 interface Match {
 	seed: string | number;
-	rng: () => number;        // advanced by every draw; same as the board's
+	rngState: number;         // the stream's state; each draw returns a new match with the next
 	turn: number;             // 1, 2, 3 …; both players' turns count
 	active: 0 | 1;            // whose turn it is
 	phase: Phase;
@@ -141,7 +148,7 @@ interface CardInstance {
 | `end` | `endOfTurn` buffs expire; the turn passes | By itself |
 
 - **The phases are strict in v1.** No card is played once combat has started. This is the order
-  game-families §10 records. It keeps the legal-action list short and the AI's search small. A
+  game-families' first outline of the family gave. It keeps the legal-action list short and the AI's search small. A
   Hearthstone-like mix of playing and attacking is a config switch for later (§13 #2).
 - The three automatic phases run inside `apply()`. A caller only ever sees the match waiting in
   `main` or `combat`, or ended.
@@ -350,10 +357,15 @@ refuse a save; warnings show.
   or does not exist; a duplicate id; more than three effects.
 - Warnings: a `summon` cycle that can loop (§2.4); a card no deck uses; a token in a deck.
 
-The normalizer keeps unknown fields on a card (the keep-unknown rule every doc follows), so a
-library authored by a later runtime survives a save in this one. The rules engine ignores an effect
-whose verb it does not know and the validator reports it, so an old runtime never plays a half-read
-card silently.
+**Unknown fields and values follow [doc-readers.md](../conventions/doc-readers.md).** A reader
+drops what it does not know and never fails the doc over it: an unknown field on a card is dropped,
+and an unknown verb, trigger, target kind or keyword drops the smallest element around it (the
+effect, or the keyword), with one server warning, as `stripUnknownKeys` does. So the "unknown verb …"
+errors above are the **validator's**, raised on what an author submits in this launcher; a stored
+library from a newer launcher still loads. The cost is the one doc-readers.md accepts: an older
+launcher that saves such a library drops the newer effects. A card that lost an effect is then
+playable but different, so the Card Library shows the read's warning on the card before a save.
+Keeping unknown blocks on save, as Symbols and Win Text do, is not proposed for the config.
 
 **Rules text is generated, never typed.** `cardText(card, library)` turns the effects into one
 sentence each, from a fixed template per verb and target, in English ("Deal 2 damage to a chosen
@@ -395,7 +407,7 @@ Each time the AI must act, it chooses one action, then is asked again, until it 
 | My hero at 0 | −1000 |
 
 This plays its best affordable card, and takes trades that win board value: the two things
-game-families §10 asks of it. It reads every card the same way because every card is the closed
+the family's first outline asked of it. It reads every card the same way because every card is the closed
 lists of §3.
 
 **A random target is not looked ahead.** An action with a `randomEnemy` effect is scored by its
@@ -427,9 +439,11 @@ aggressively or defensively.
 - **The AI's thinking time is presentation.** It decides at once; the table waits a short
   authored delay (a Flow timer, P10.3) before showing each action, so the player can follow it.
   Speed never changes a choice.
-- **Budget.** `hard`'s plan search is at most 4 × 3 sequences of `apply()` on a value of a few
-  dozen cards; it must finish under 16 ms on a mid phone. `check:card-ai` times it on a full board
-  and fails above that, in CI's terms (a fixed count of `apply()` calls, not wall time).
+- **Budget.** `hard`'s plan search keeps 4 sequences and extends each by every legal action, three
+  plays deep: at most 4 × A × 3 `apply()` calls, where A is the legal actions at a step (a full hand
+  and board give A ≈ 40, so about 500 calls). It must finish under 16 ms on a mid phone.
+  `check:card-ai` pins the call count on a full board (a fixed count, not wall time) and fails
+  above `MAX_PLAN_APPLIES` (600).
 
 ---
 
@@ -441,14 +455,17 @@ boards are spawn layers. Dragging a card is the P10.4 drag; deciding where it wa
 
 ### 5.1 The runtime branch
 
-It follows the match-3 pattern exactly (game-families §6.4, option A):
+It follows the match-3 layering (game-families §6.4, option A), and mounts like arcade: today
+`Game.svelte` mounts `<ArcadeStage />` instead of the reel stack when `mechanic.playField` is set,
+and the reel stack otherwise. That `if / else` becomes three-way, with `<CardTable />` under the new
+`cardTable` flag.
 
 | Layer | Match-3 (exists) | Card (new) |
 |---|---|---|
 | Rules | `engine-mechanics` `board.js` | `engine-mechanics` `cards.js`, `cardAi.js` |
 | Session and driver | `engine-game` `match3Session.ts`, `match3Driver.ts` | `engine-game` `cardSession.ts`, `cardDriver.ts` |
 | Runtime module | `apps/lines/src/game/match3.svelte.ts` | `apps/lines/src/game/cards.svelte.ts` |
-| Mounted view | `<Match3Input />` beside `<Board />` | `<CardTable />` instead of the reel stack |
+| Mounted view | `<Match3Input />` beside `<Board />` (arcade: `<ArcadeStage />` instead of the reel stack) | `<CardTable />` instead of the reel stack |
 | Mechanic | `MATCH3_RULES_MECHANIC` (`engine-game` `mechanic.ts`) | `CARD_RULES_MECHANIC`: no spins, bets, RGS session or wallet; a new flag `cardTable: true` |
 
 - `mechanicFor()` returns `CARD_RULES_MECHANIC` for a `card` rules config, and an `unplayable`
@@ -472,7 +489,10 @@ It follows the match-3 pattern exactly (game-families §6.4, option A):
   zone's count and its node's size, and written as each instance's x / y, as the arcade loop writes
   positions. Reordering animates with the existing tweens.
 - **Drag** is P10.4's: the card frame's listeners raise `dragStart` / `drag` / `dragEnd` with the
-  pointer payload, and Align Target keeps the card under the finger.
+  pointer payload, in the instance's space. Align Target moves a node *inside* the frame, so the
+  art follows the finger while the instance itself stays in its zone; the table converts the
+  pointer reading to the table's space for the drop, and lifts the dragged instance's z-order while
+  the drag lasts.
 - **Dropping is new.** Nothing today asks "which instance or zone is under this point". The table
   hit-tests the drop point against the board zone's rectangle (play a unit at the nearest slot) and
   the live instances' bounds and the hero portraits (a target). The candidates are only those
@@ -521,10 +541,12 @@ changes only its inputs and its art.
 | `damaged`, `buffed`, `debuffed` | bool | the driver: draw a number red or green |
 | `guard`, `shield`, `swift` | bool | the driver |
 | `faceDown` | bool | the driver (the enemy hand, the deck) |
+| `inHand`, `onBoard` | bool | the driver: which zone it is in. Bools, not one `zone` value: a `text` input is a localization key, and the state machine never conditions on one |
+| `playable`, `ready`, `targetable`, `attacking`, `dying` | bool | the driver, from `legalActions` and the events |
 | `hit`, `healed`, `summoned` | trigger | the driver, on the events |
 
 **State machine states** (the component's own, `engine-layout` `stateMachine.ts`), switched by the
-inputs `zone`, `playable`, `targetable`, `attacking`, `dying` and the pointer listeners:
+bool inputs above and the pointer listeners:
 
 | State | When | Typically |
 |---|---|---|
@@ -538,7 +560,8 @@ inputs `zone`, `playable`, `targetable`, `attacking`, `dying` and the pointer li
 | `attacking` | Its attack is playing | A timeline that lunges at the target (§5.2 places it) |
 | `dying` | It died | A death timeline; the driver despawns it when the state ends |
 
-**A frame is a component, not data:** the rule from game-families §9 #7 holds. The card's numbers
+**A frame is a component, not data:** components are shared and presentation only
+(rive-style-editor.md §2), the principle game-families §9 #7 applied to arcade bodies. The card's numbers
 and effects are game rules and live in the config (§7); the frame only shows them. A game may have
 more than one frame (a unit frame, a spell frame, a legendary frame), named per card with `frame`,
 and every frame must take the inputs above (the Card Library's validator checks the interface).
@@ -586,9 +609,10 @@ match plays the decks against each other. It is a new tool, so rule 9 applies.
 - **`ROLE_TOOLS`:** the roles that hold `gameConfig` today (`developer`, `artist`,
   `pipelineTester`; `admin` has every tool).
 - **`FAMILY_TOOLS`:** `cards` is added to the exclusions of `slot`, `match3` and `arcade`, and
-  `card: ['symbols', 'winText', 'characters']` is added. `FAMILY_TOOLS` is a
-  `Record<GameFamily, …>`, so adding `card` to `GAME_FAMILIES` without it does not type-check
-  (game-families §6.5's table already has the Card column).
+  `card: ['symbols', 'winText', 'characters']` is added (game-families §6.5's table already has the
+  Card column). `FAMILY_TOOLS` is typed `Record<GameFamily, …>`, but the launcher build does not
+  type-check (`apps/launcher-api/CLAUDE.md`), so a missing key is caught by `check:family-tools`
+  and `check:card-family` (§12.1), not by the compiler.
 - **`TOOL_DOC_SLUG.cards = 'invisible-card-library'`.**
 - **Two grants, as Invisible Characters:** the page holds the whole config, so it needs the Game
   Config grant too, and refuses (403) without it (`(app)/characters/+page.server.ts` is the
@@ -699,13 +723,16 @@ type CardBlock = {
   (`FAMILY_KINDS`, a hand copy kept so the current-games harness's built-in defs load with no
   install, and `familyCapabilities`, with `board: false`, `wallet: false`, `betControls: false`),
   `familyGate.ts`'s `FAMILY_NAMES`, `roles.ts`'s `FAMILY_LABELS` (`card: 'card'`) and the delivery
-  gate's message (`scripts/delivery-family-gate.mjs`). The two `Record`s over the family fail to
-  compile without it; `check:game-config-family` pins `FAMILY_KINDS`. The harness's
+  gate's message (`scripts/delivery-family-gate.mjs`). Three of these are typed `Record`s over the
+  family (`FAMILY_TOOLS`, `FAMILY_LABELS`, `FAMILY_NAMES`), but a type error still builds green in
+  the launcher, so the guard is a runtime gate: `check:card-family` (§12.1) checks every list, and
+  `check:game-config-family` already pins `FAMILY_KINDS`. The harness's
   `SCRIPT_FOR_KIND` (`scripts/current-games/lib/plan.mjs`) gains `card` when a card game first goes
   live, with its screen script.
-- **Game Maker** offers `card` only once `engine-layout` has its full scene set
-  (`selectableGameKinds()`, `listFullSceneSets()`): a `card` layout template (`templates/card.ts`)
-  with the table screen (the zones as spawn layers, the hero portraits, the resource and deck
+- **Game Maker** offers `card` only once `engine-layout` has its full scene set: the launcher's
+  `selectableGameKinds()` (`gameKinds.ts`) offers a kind registered in `FULL_SCENE_SOURCES`
+  (`engine-layout` `referenceLayouts/index.ts`). So C3 adds a `card` reference layout there and a
+  `card` layout template (`templates/card.ts`), with the table screen (the zones as spawn layers, the hero portraits, the resource and deck
   readouts, an end-turn button), a deck-pick screen and the result screen. It seeds the config
   (`family: 'card'`, `outcome: 'rules'`, a small sample library and two decks), the starter Flow
   and the placeholder frame. No outcome question: a card game has one.
@@ -741,12 +768,13 @@ bake applies as for every section.
 ### 9.5 Publish and `familyGate`
 
 - **No change to the gate.** `unplayableFamilyMessage` (`familyGate.ts`) refuses on
-  `mechanicFor(config).unplayable`, never on the family (§9 #26). Until C3 the card mechanic is
-  declared `unplayable` ("the game runtime cannot play a card game yet"), so a card config is
-  refused by the online publish and the desktop bake's config export. When C3 declares it playable,
-  it publishes with no gate change. `FAMILY_NAMES` gains `card: 'card'`.
-- **Protocol:** a rules game is dealt `freePlay` (`protocolFor`), whose mock refuses every request,
-  as for a free-play match-3 or arcade game. No new protocol and no mock RGS.
+  `mechanicFor(config).unplayable`, never on the family (§9 #26). The family, its config and its
+  playable mechanic land in the same step (C3), so a rules card config publishes from the day it
+  can be made; only an RGS card config is `unplayable` and refused (§5.1). `FAMILY_NAMES` gains
+  `card: 'card'`.
+- **Protocol:** a rules game is dealt `freePlay` by its outcome (`deriveMockContract` in
+  `mockContract.ts`; `protocolFor` maps only the kind), whose mock refuses every request, as for a
+  free-play match-3 or arcade game. No new protocol and no mock RGS.
 - **Partner sessions and delivery** stay refused: `partnerRgsRefusal` already refuses every
   non-slot game, and `scripts/delivery-family-gate.mjs` already refuses "any other family … any
   added later". Both need only their names learned.
@@ -840,7 +868,7 @@ Each is a recommendation; the owner accepts it or chooses otherwise.
      library outgrows the config or two people must edit at once.
 2. **Strict phases, or play and attack in any order?**
    - *Recommend:* **strict phases in v1** (start → draw → main → combat → end, §2.2), the order
-     game-families §10 records. It keeps the rules and the AI's search simple and the turn readable.
+     the family's first outline gave. It keeps the rules and the AI's search simple and the turn readable.
      Mixed order (the Hearthstone feel) is an optional C5 switch, if playtests ask for it.
 3. **The size of the closed lists.**
    - *Recommend:* **exactly §3's lists for v1**: seven verbs, four targets, five triggers, three

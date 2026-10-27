@@ -489,7 +489,7 @@ on. In one launcher-side PR:
   with `freePlay` for a rules game pinned to its project. The current-games harness is not edited:
   its `cg-match3` fixture keeps its own `lines` entry and drops the live link.
 
-**P10.7 — Spawning (built 2026-10-25; in review).** §8's P10.7 row (§3.3), in one PR. No game uses
+**P10.7 — Spawning (built 2026-10-25; merged, #1345).** §8's P10.7 row (§3.3), in one PR. No game uses
 any of it yet.
 
 - **The layout node** (`engine-layout` `types.ts`): `spawnLayer { spawnable: componentId[],
