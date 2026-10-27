@@ -101,7 +101,7 @@ For each scenario in the playbook:
 1. Run it; collect signals (console, network, book-vs-render, state, stage graph).
 2. Record every finding as **repro steps + evidence** (the exact console line / request / book
    mismatch), ranked by severity. A finding without evidence is a hunch — mark it as such.
-3. **Fix** confirmed bugs: branch off `origin/main` ([[gotcha_branch_off_feature_branch_ridealong]]),
+3. **Fix** confirmed bugs: branch off `origin/main` (`docs/knowledge/lessons/infra.md#a-pr-carried-commits-from-another-branch`),
    edit source, keep changes small and verifiable. **Deactivate via config, never gut engine
    plumbing** (`docs/knowledge/lessons/components.md#fix-generically-through-the-engines-extension-points`, `docs/knowledge/lessons/components.md#never-hard-code-a-games-id-size-or-tier-list`).
 4. **Re-verify live**: reload the preview and re-run the failing scenario until the signal is

@@ -62,7 +62,7 @@ owner-verify live) whenever you finish meaningful work.
 2. **Reference art, don't re-pack it.** A layer's `art.assetKey` points at an atlas the
    Atlas Maker already produced + that already travels the pipeline; FX never re-packs
    textures. A dangling `assetKey` = an invisible effect — validate it resolves at bake
-   (the particle analogue of [[gotcha_manifest_region_no_geometry_dropped]] /
+   (the particle analogue of `docs/knowledge/lessons/atlas.md#a-manifest-region-with-no-rect-vanished-downstream` /
    `docs/knowledge/lessons/editor.md#a-new-sheets-art-did-not-reach-the-game`).
 3. **Flow owns "when" by default.** Keep the FX a pure effect; triggering is delegated
    to Flow's Broadcast vocabulary. `trigger.on:'always'` is the only self-contained case

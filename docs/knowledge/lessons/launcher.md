@@ -130,11 +130,5 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **Guard:** none.
 - **PR:** not recorded (2026-07-08) · source: `docs/history.md`
 
-### Every authed route 500s after a schema change
-- **Symptom:** after a deploy, every signed-in request 500'd (`relation "sessions" already exists`).
-- **Cause:** code shipped before its schema, and a `db:push`-provisioned DB had an empty
-  `__drizzle_migrations`, so the boot migrator replayed from `0000`.
-- **Fix:** `db:generate` + commit the migration; the boot migrator applies it
-  (`baselineIfPushProvisioned` in `migrate.ts`). Never `db:push` on prod.
-- **Guard:** `/api/health` (`schema: current`, 503 otherwise).
-- **PR:** not recorded (2026-05-30, 2026-06-13) · source: `docs/INFRA.md`
+A schema change that 500s every signed-in route (`db:push` on prod) lives in
+[infra.md](infra.md#prod-500s-after-a-migration-because-of-db-push).

@@ -47,7 +47,7 @@ launcher/auth/R2/tool-registry foundation).
    `reorientRotatedRegionsForRig`); rigs need a "Re-sync atlas" after an atlas re-pack
    (`docs/knowledge/lessons/rigger.md#rotated-sprites-drew-upside-down-in-a-rig`).
 3. **Geometry-less manifest regions** get dropped — backfill x/y/w/h from
-   `atlas.texturepacker_json` ([[gotcha_manifest_region_no_geometry_dropped]]).
+   `atlas.texturepacker_json` (`docs/knowledge/lessons/atlas.md#a-manifest-region-with-no-rect-vanished-downstream`).
 4. **Verify headlessly, then in the browser** — test attachment types with `instanceof`, never
    `constructor.name` (a bundler may prefix or mangle class names), and remember browser bugs
    can slip past a headless spike. Land changes as build GREEN + a `tools/rigger-spike/`

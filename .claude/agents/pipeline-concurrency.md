@@ -11,6 +11,9 @@ re-adds the bug we just fixed. A plan in a design doc does not stop that; a revi
 gate does. You are the gate.
 
 Read first, always — the plan is in the files, not in your memory of a session:
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/launcher.md` and `docs/knowledge/lessons/infra.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
 - **[docs/design/multi-user-concurrency.md](../../docs/design/multi-user-concurrency.md)** — the plan,
   the phases, the open questions. Single source of truth for the *why*.
 - `docs/status/launcher.md` + the touched tool's `docs/status/<tool>.md` — how far it got.
@@ -90,7 +93,7 @@ is how this stays broken.
    the three bugs each finding is, and whether a lease would even catch it.
 4. If implementing: `pnpm --filter launcher-api build` (GREEN = also the type-check;
    there is no separate `check` script). DB work = `db:generate` + `db:migrate` —
-   **`db:push` is banned on prod** ([[gotcha_drizzle_automigrate_baseline]]).
+   **`db:push` is banned on prod** (`docs/knowledge/lessons/infra.md#prod-500s-after-a-migration-because-of-db-push`).
 5. Update the touched `docs/status/<tool>.md`; keep the *plan* in the design doc.
    One fact, one home.
 
