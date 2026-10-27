@@ -6,6 +6,7 @@
  */
 
 import type { Rng } from './board.js';
+import type { JumpSpec } from './jumps.js';
 import type { Body, Movement, Point, SampledPath, Velocity } from './motion.js';
 
 export type BehaviourKind =
@@ -99,8 +100,9 @@ export type BrainSpawn = {
 export type BrainVelocity = Velocity & { spawn?: BrainSpawn };
 
 export type Controller =
-	| { kind: 'topDown'; speed: number }
-	| { kind: 'sideScroll'; speed: number }
+	| { kind: 'topDown'; speed: number; jump?: JumpSpec }
+	| { kind: 'sideScroll'; speed: number; jump?: JumpSpec }
+	| { kind: 'flap'; kick: number; speed?: number }
 	| { kind: 'pointer'; axes: 'x' | 'y' | 'xy'; speed?: number };
 
 export type ControllerInput = {
@@ -123,6 +125,7 @@ export const BEHAVIOUR_DEFAULTS: {
 export const BEHAVIOURS: BehaviourKind[];
 export const CONDITIONS: ConditionKind[];
 export const CONTROLLER_ACTIONS: ('left' | 'right' | 'up' | 'down')[];
+export const JUMP_ACTION: 'jump';
 export const RANDOM_EVERY: 1000;
 export const PATH_LEAD: 12;
 

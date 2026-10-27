@@ -815,7 +815,7 @@ function scene4(): Scene {
 	check(
 		'6. <SpawnLayer> culls only under a world camera',
 		/const culling = inWorldCamera\(\);/.test(spawnLayer) &&
-			/\{#if culling\}[\s\S]*visible=\{!isCulled\(instance\.id\)\}[\s\S]*\{:else\}\s*<Container x=\{places\[instance\.id\]\?\.x \?\? instance\.x\} y=\{places\[instance\.id\]\?\.y \?\? instance\.y\}>/.test(
+			/\{(?:#|:else )if culling\}[\s\S]*visible=\{!isCulled\(instance\.id\)\}[\s\S]*\{:else\}\s*<Container x=\{places\[instance\.id\]\?\.x \?\? instance\.x\} y=\{places\[instance\.id\]\?\.y \?\? instance\.y\}>/.test(
 				spawnLayer,
 			),
 	);

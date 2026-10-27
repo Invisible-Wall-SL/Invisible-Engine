@@ -1,6 +1,8 @@
 import { DEFAULT_ARCADE_TARGET_TAG, type ArcadeCharacter } from './arcadeCharacters';
 import {
 	ARCADE_FIXED_HZ_RANGE,
+	ARCADE_ONLINE_DEFAULTS,
+	ARCADE_ONLINE_LIMITS,
 	resolveArcade,
 	resolveFamily,
 	resolveMatch3,
@@ -128,6 +130,7 @@ function validateArcade(doc: GameConfigDoc): GameConfigIssue[] {
 		});
 	}
 	issues.push(...validateCharacters(characters, bodies, carried));
+	issues.push(...validateArcadeOnline(doc, bodies));
 	return issues;
 }
 
@@ -167,6 +170,29 @@ function validateCharacters(
 			warn(
 				`${at}.controller`,
 				`"${character.id}" is played, but its component "${look}" has no body, so it walks through everything and touches nothing.`,
+			);
+		}
+		const controller = character.controller;
+		const jump = controller && 'jump' in controller ? controller.jump : undefined;
+		if (controller && jump) {
+			const wants = controller.kind === 'sideScroll' ? 'gravity' : 'hop';
+			if (jump.kind !== wants) {
+				error(
+					`${at}.controller.jump.kind`,
+					`"${character.id}" is a ${controller.kind} character, so its jump is a "${wants}" jump, not "${jump.kind}".`,
+				);
+			}
+			if (jump.minHeight !== undefined && jump.minHeight > jump.height) {
+				warn(
+					`${at}.controller.jump.minHeight`,
+					`"${character.id}"'s tap height (${jump.minHeight} px) is above its jump height (${jump.height} px), so a tap jumps as high as a held press.`,
+				);
+			}
+		}
+		if (controller?.kind === 'flap' && !(character.movement?.gravity ?? 0)) {
+			warn(
+				`${at}.movement.gravity`,
+				`"${character.id}" flaps, but has no gravity, so one flap sends it up for ever.`,
 			);
 		}
 		const brain = character.brain;
@@ -224,5 +250,92 @@ function validateCharacters(
 			}
 		}
 	});
+	return issues;
+}
+
+/** An online arcade game (P10.14): what its room on the game server needs. */
+function validateArcadeOnline(
+	doc: GameConfigDoc,
+	bodies: Record<string, unknown>,
+): GameConfigIssue[] {
+	const online = doc.arcade?.online;
+	if (!online) return [];
+	const issues: GameConfigIssue[] = [];
+	if (doc.arcade?.characters?.length) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.characters',
+			message:
+				'An online game plays only its online characters: these characters do not run in a room yet.',
+		});
+	}
+	const field = doc.arcade?.field;
+	if (!field) {
+		issues.push({
+			severity: 'error',
+			path: 'arcade.field',
+			message: 'An online game needs a field size: the game server has no screen to take it from.',
+		});
+	}
+	if (!online.characters.length) {
+		issues.push({
+			severity: 'error',
+			path: 'arcade.online.characters',
+			message: 'An online game needs at least one character for its players to be.',
+		});
+	}
+	online.characters.forEach((character, i) => {
+		if (!(character.body in bodies)) {
+			issues.push({
+				severity: 'error',
+				path: `arcade.online.characters[${i}]`,
+				message: `The character "${character.id}" is the body "${character.body}", which no arcade body names, so the server cannot place it.`,
+			});
+		}
+		const { min, max } = ARCADE_ONLINE_LIMITS.speed;
+		if (character.speed < min || character.speed > max) {
+			issues.push({
+				severity: 'warning',
+				path: `arcade.online.characters[${i}].speed`,
+				message: `The character "${character.id}" moves at ${character.speed} px/s; a room holds it to ${min}–${max}.`,
+			});
+		}
+	});
+	if (online.characters.length > ARCADE_ONLINE_LIMITS.characters.max) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.characters',
+			message: `A room offers at most ${ARCADE_ONLINE_LIMITS.characters.max} characters; the rest are not playable.`,
+		});
+	}
+	const ranged = ['maxPlayers', 'tickHz', 'subSteps', 'patchHz', 'rejoinSeconds'] as const;
+	for (const key of ranged) {
+		const value = online[key] ?? ARCADE_ONLINE_DEFAULTS[key];
+		const { min, max } = ARCADE_ONLINE_LIMITS[key];
+		if (value < min || value > max) {
+			issues.push({
+				severity: 'warning',
+				path: `arcade.online.${key}`,
+				message: `${key} is ${value}; a room holds it to ${min}–${max}.`,
+			});
+		}
+	}
+	const tickHz = online.tickHz ?? ARCADE_ONLINE_DEFAULTS.tickHz;
+	const patchHz = online.patchHz ?? ARCADE_ONLINE_DEFAULTS.patchHz;
+	if (patchHz > tickHz) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.patchHz',
+			message: `State is sent ${patchHz} times a second but the room steps only ${tickHz} times, so a room sends it ${tickHz} times.`,
+		});
+	}
+	const spawn = online.spawn;
+	if (spawn && field && (spawn.x < 0 || spawn.y < 0 || spawn.x > field.w || spawn.y > field.h)) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.spawn',
+			message: 'Players start outside the play field; a clamped body is pulled inside at once.',
+		});
+	}
 	return issues;
 }

@@ -1,6 +1,6 @@
 # Bug Reports (Pipeline + Game) — status
 
-> Guides: [docs/tools/pipeline-bugs.md](../tools/pipeline-bugs.md) · [docs/tools/game-bugs.md](../tools/game-bugs.md) · Agent: none yet (launcher tools — closest owner `.claude/agents/launcher-studio.md`)
+> Guides: [docs/tools/pipeline-bugs.md](../tools/pipeline-bugs.md) · [docs/tools/game-bugs.md](../tools/game-bugs.md) · Agent: `.claude/agents/launcher-studio.md`
 
 **One-line state:** built 2026-10-26, not yet browser-verified — two launcher cards on one set of
 modules: **Invisible Pipeline Bug Reports** (`/bugs`) for bugs in a tool, the engine or the

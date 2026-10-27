@@ -28,6 +28,9 @@
  *      named only as a character's `component` in the game config — or only as a `shootAt`
  *      state's projectile — ships its def's art (`characterComponentIds` seeds the export). The
  *      same config without characters ships neither: the seed, not the doc, carries them.
+ *   9. A `tilemap` (P10.13): every tileset region a painted tile draws is in the scope and ships
+ *      under `deploy/editor-art/`; an entry no tile uses does not. The tilemap is part of the layout
+ *      doc, so it ships with it; its art would otherwise stay at its source R2 prefix (rule 8).
  *
  * Run:  pnpm --filter launcher-api check:art-scope
  */
@@ -569,6 +572,70 @@ const bareIndex = await exportEditorArt(CLIENT, CHAR_PROJECT);
 check(
 	'without characters neither ships',
 	!bareIndex.sheets.some((s) => s.key === HERO_SHEET || s.key === SHOT_SHEET),
+);
+
+console.log('9. a tilemap’s tileset regions ship');
+const TILE_PROJECT = 'tilemap_art';
+const tileSheet = (stem: string, frame: string) => {
+	const manifest = `${SUB.manifests(CLIENT, TILE_PROJECT)}/atlas_manifest_${stem}.json`;
+	const page = `${SUB.sheets(CLIENT, TILE_PROJECT)}/${stem}/${stem}.webp`;
+	put(page, 'x');
+	put(manifest, {
+		atlas: { source_image_path: page },
+		regions: [{ name: frame, x: 0, y: 0, w: 8, h: 8 }],
+	});
+	return manifest;
+};
+const GROUND_SHEET = tileSheet('S_Ground', 'groundTile');
+const LEDGE_SHEET = tileSheet('S_Ledge', 'ledgeTile');
+const SPARE_SHEET = tileSheet('S_Spare', 'spareTile');
+put(editorDocKey(CLIENT, TILE_PROJECT), {
+	scenes: [
+		{
+			id: 'field',
+			name: 'Field',
+			nodes: [
+				{
+					id: 'level',
+					kind: 'tilemap',
+					x: 0,
+					y: 0,
+					tileWidth: 64,
+					tileHeight: 64,
+					cols: 3,
+					rows: 1,
+					tiles: [0, 1, 0],
+					tileset: [
+						{ region: `${GROUND_SHEET}::groundTile`, collide: 'solid' },
+						{ region: `${LEDGE_SHEET}::ledgeTile`, collide: 'oneWay' },
+						{ region: `${SPARE_SHEET}::spareTile` },
+					],
+				},
+			],
+		},
+	],
+});
+const tileScope = (key: string) => isProjectArtAllowed(key, [], CLIENT, TILE_PROJECT);
+check('a painted tile’s sheet is in the art scope', await tileScope(GROUND_SHEET));
+const tileIndex = await exportEditorArt(CLIENT, TILE_PROJECT);
+const tileDeploy = `${SUB.deploy(CLIENT, TILE_PROJECT)}/`;
+const shippedGround = tileIndex.sheets.find((s) => s.key === GROUND_SHEET);
+check('a painted tile’s sheet ships', !!shippedGround);
+check(
+	'… its spritesheet written under deploy/editor-art/',
+	!!shippedGround && bucket.has(`${tileDeploy}${shippedGround.json}`),
+);
+check(
+	'every painted entry ships (the one-way ledge too)',
+	tileIndex.sheets.some((s) => s.key === LEDGE_SHEET),
+);
+check(
+	'a tileset entry no tile uses does not',
+	!tileIndex.sheets.some((s) => s.key === SPARE_SHEET),
+);
+check(
+	'… and no painted frame counts as dangling',
+	!tileIndex.missing.includes('groundTile') && !tileIndex.missing.includes('ledgeTile'),
 );
 
 console.log(failures === 0 ? '\nart scope: OK' : `\nart scope: ${failures} FAILED`);

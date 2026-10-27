@@ -152,9 +152,11 @@
 	/** The per-symbol section lists symbols that HAVE a cue, plus any you add — a grid of every
 	 *  symbol × every state would be mostly empty and unreadable. */
 	let extraSymbols = $state<string[]>([]);
-	const symbolRows = $derived([
-		...new Set([...Object.keys(choices.symbols ?? {}), ...extraSymbols]),
-	]);
+	const symbolRows = $derived(
+		[...new Set([...Object.keys(choices.symbols ?? {}), ...extraSymbols])].filter(
+			(symbol) => !data.tokenIds.includes(symbol),
+		),
+	);
 	let addSymbol = $state('');
 
 	function dropSymbol(symbol: string) {
@@ -807,6 +809,37 @@
 				</p>
 			{/if}
 		</section>
+
+		{#if data.tokenIds.length}
+			<section class="authoring">
+				<h2>Overlay tokens</h2>
+				<p class="hint">
+					The pots overlay's tokens: the noise each makes as it <strong>lands</strong> on its cell,
+					<strong>takes off</strong> for its pot, and <strong>reaches the pot</strong>. Unset, a
+					token lands on the game-wide landing cue and flies in silence.
+				</p>
+				<div class="grid" style="--cols:{data.tokenMoments.length}">
+					<div class="grow head">
+						<span>Token</span>
+						{#each data.tokenMoments as m (m.moment)}<span>{m.label}</span>{/each}
+						<span></span>
+					</div>
+					{#each data.tokenIds as token (token)}
+						<div class="grow">
+							<code>{token}</code>
+							{#each data.tokenMoments as m (m.moment)}
+								{@const bound = choices.symbols?.[token]?.[m.moment] ?? ''}
+								<span class="cell">
+									{@render pick(bound, (v) => setSymbolCue(token, m.moment, v), true)}
+									{@render audition(bound)}
+								</span>
+							{/each}
+							<span></span>
+						</div>
+					{/each}
+				</div>
+			</section>
+		{/if}
 
 		<section class="authoring">
 			<h2>Reel anticipation</h2>

@@ -19,6 +19,13 @@ the running game and *judging* its behaviour from text-based signals.
   `docs/playtest/README.md` — do not invent scenarios silently.**
 - `docs/status/playtester.md` — this tool's current state. Update it when you finish meaningful work.
 - Root `CLAUDE.md` + `docs/status/engine.md` before touching engine/game source.
+- **Not every game is a slot.** The rest of this file is written for slots (spins, free spins,
+  book events). For the other kinds the playbook and the family's status are the authority:
+  Hold and Win (`hw-*-sample.md`, `hold-and-win-coin-board.md`, `docs/status/hold-and-win.md`),
+  pots and bonus games (`borut-pots-sample.md`, `bonus-games-7c.md`), match-3
+  (`match3-sample.md`) and arcade (`arcade-sample.md`, `arcade-characters.md`) —
+  `docs/status/game-families.md`. Their screen scripts for the current-games harness are
+  `scripts/current-games/screens/<kind>.json`.
 
 ## What you can reliably detect (text-based — trust these)
 - **Crashes / uncaught exceptions** — `read_console_messages` (`onlyErrors: true`), `preview_logs`.
@@ -41,7 +48,7 @@ the running game and *judging* its behaviour from text-based signals.
 
 ## How to drive the game
 1. **Start the dev server** the playbook names via `preview_start` (`{ name: 'lines' }`,
-   … from [.claude/launch.json](.claude/launch.json)). For a game outside this repo the
+   … from `.claude/launch.json` — a local, gitignored file; create it if missing). For a game outside this repo the
    playbook gives the `cwd`/port — add a launch config if missing. Never run a dev server
    through Bash.
 2. **Reach the Pixi app**: it is exposed for inspection — walk `window.__PIXI_APP__` / the stage

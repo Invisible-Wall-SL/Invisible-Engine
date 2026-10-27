@@ -42,6 +42,10 @@
 		repeaterComponentIds,
 		resolveTransform,
 		STANDARD_MAIN_SIZES_MAP,
+		TILE_EMPTY,
+		tilemapTiles,
+		tilemapTileset,
+		type TilemapNode,
 		type BlendMode,
 		type ComponentDef,
 		type ComponentInstanceNode,
@@ -134,6 +138,14 @@
 	} from './editorArtSlices.client.svelte';
 	import { drawNineSlice } from './nineSliceDraw';
 	import { drawPathNode } from './pathNodeDraw';
+	import { tilemapPaint } from './tilemapPaint.client.svelte';
+	import {
+		applyTilemapTool,
+		tilemapCellAtWorld,
+		tilemapCellsBetween,
+		tilemapPickTool,
+		tilemapToolForKey,
+	} from '$lib/editor/tilemapEdit';
 	import {
 		insertPathPoint,
 		nearestPathPoint,
@@ -3369,6 +3381,8 @@
 			drawSpawnLayer(ctx, node);
 		} else if (node.kind === 'path') {
 			drawPathNode(ctx, node, selectedIds.includes(node.id));
+		} else if (node.kind === 'tilemap') {
+			drawTilemap(ctx, node, selectedIds.includes(node.id));
 		}
 
 		ctx.restore();
@@ -3955,6 +3969,98 @@
 		for (const child of def.root.children) {
 			drawNode(ctx, child, sceneCtx, componentDepth + 1, stack, params, true, rigBundle);
 		}
+	}
+
+	/**
+	 * A `tilemap` (game-families §4.4) in its own space, top-left at 0, 0: each painted tile's region
+	 * stretched to the tile, as the game's `Tilemap` draws it (a flat cell until its art resolves).
+	 * Selected, it also shows its grid, each colliding tile (solid filled red, one-way a blue top
+	 * edge) and, while painting, the cell under the pointer.
+	 */
+	function drawTilemap(ctx: CanvasRenderingContext2D, node: TilemapNode, selected: boolean): void {
+		const { cols, rows, tileWidth: tw, tileHeight: th } = node;
+		const tiles = tilemapTiles(node);
+		const tileset = tilemapTileset(node);
+		const cell: ResolvedTransform = {
+			x: 0,
+			y: 0,
+			anchor: { x: 0, y: 0 },
+			width: tw,
+			height: th,
+			visible: true,
+		};
+		const art = tileset.map((entry) => {
+			const ref = parseScopedFrameRef(entry.region);
+			const found = ref.region ? findRegion(ref.assetKey ?? '', ref.region) : null;
+			const img = found?.set.pageKey ? ensureImage(found.set.pageKey) : null;
+			const ready = !!img && img.complete && img.naturalWidth > 0;
+			return ready ? { assetKey: ref.assetKey ?? '', region: ref.region } : null;
+		});
+		tiles.forEach((tile, i) => {
+			if (tile === TILE_EMPTY) return;
+			const x = (i % cols) * tw;
+			const y = Math.floor(i / cols) * th;
+			const a = art[tile];
+			if (!a) {
+				ctx.fillStyle = 'rgba(120, 140, 170, 0.35)';
+				ctx.fillRect(x, y, tw, th);
+				return;
+			}
+			ctx.save();
+			ctx.translate(x, y);
+			drawArtRegionSprite(ctx, a.assetKey, a.region, cell);
+			ctx.restore();
+		});
+
+		const m = ctx.getTransform();
+		const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+		const u = dpr / (Math.hypot(m.a, m.b) || 1);
+		const w = cols * tw;
+		const h = rows * th;
+		ctx.lineWidth = u;
+		ctx.strokeStyle = 'rgba(140, 220, 160, 0.55)';
+		ctx.setLineDash([6 * u, 4 * u]);
+		ctx.strokeRect(0, 0, w, h);
+		ctx.setLineDash([]);
+		if (!selected) return;
+
+		ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+		ctx.beginPath();
+		for (let c = 1; c < cols; c++) {
+			ctx.moveTo(c * tw, 0);
+			ctx.lineTo(c * tw, h);
+		}
+		for (let r = 1; r < rows; r++) {
+			ctx.moveTo(0, r * th);
+			ctx.lineTo(w, r * th);
+		}
+		ctx.stroke();
+		tiles.forEach((tile, i) => {
+			const collide = tile === TILE_EMPTY ? undefined : tileset[tile].collide;
+			if (!collide) return;
+			const x = (i % cols) * tw;
+			const y = Math.floor(i / cols) * th;
+			if (collide === 'solid') {
+				ctx.fillStyle = 'rgba(255, 90, 90, 0.22)';
+				ctx.fillRect(x, y, tw, th);
+				ctx.strokeStyle = 'rgba(255, 90, 90, 0.7)';
+				ctx.lineWidth = u;
+				ctx.strokeRect(x, y, tw, th);
+			} else {
+				ctx.fillStyle = 'rgba(93, 176, 255, 0.9)';
+				ctx.fillRect(x, y, tw, Math.min(th, 3 * u));
+			}
+		});
+		const hover =
+			tilemapPaint.tool !== 'move' && tilemapHover?.nodeId === node.id ? tilemapHover : null;
+		if (hover) {
+			ctx.lineWidth = 2 * u;
+			ctx.strokeStyle = tilemapPaint.tool === 'erase' ? '#ff8a8a' : '#ffe08a';
+			ctx.strokeRect(hover.col * tw, hover.row * th, tw, th);
+		}
+		ctx.fillStyle = '#e8e8ee';
+		ctx.font = `${12 * u}px sans-serif`;
+		ctx.fillText(`▤ ${node.label ?? 'Tilemap'} · ${cols} × ${rows}`, 0, -6 * u);
 	}
 
 	function drawRegionSprite(
@@ -4562,7 +4668,7 @@
 		const single = selectedIds.length === 1;
 		for (const id of selectedIds) {
 			const node = findNodeById(id);
-			if (node) drawNodeSelection(ctx, node, single);
+			if (node) drawNodeSelection(ctx, node, single && paintingTilemap()?.id !== node.id);
 		}
 	}
 
@@ -4660,10 +4766,13 @@
 			x: top.x + Math.sin(rot) * ROTATE_OFFSET_PX,
 			y: top.y - Math.cos(rot) * ROTATE_OFFSET_PX,
 		};
-		ctx.beginPath();
-		ctx.moveTo(top.x, top.y);
-		ctx.lineTo(stem.x, stem.y);
-		ctx.stroke();
+		const rotates = node.kind !== 'tilemap';
+		if (rotates) {
+			ctx.beginPath();
+			ctx.moveTo(top.x, top.y);
+			ctx.lineTo(stem.x, stem.y);
+			ctx.stroke();
+		}
 
 		// Edge-midpoint squares FIRST (drawn under the corners so a corner always wins the overlap).
 		// They resize ONE axis, which is what a text box usually needs (its width) and makes the box
@@ -4701,6 +4810,7 @@
 			ctx.fillRect(c.x - HANDLE_PX / 2, c.y - HANDLE_PX / 2, HANDLE_PX, HANDLE_PX);
 			ctx.strokeRect(c.x - HANDLE_PX / 2, c.y - HANDLE_PX / 2, HANDLE_PX, HANDLE_PX);
 		}
+		if (!rotates) return;
 		// Rotation circle.
 		ctx.beginPath();
 		ctx.arc(stem.x, stem.y, ROTATE_PX, 0, Math.PI * 2);
@@ -4729,6 +4839,7 @@
 		if (selectedIds.length !== 1 || !selectedId) return null;
 		const node = findNodeById(selectedId);
 		if (!node || node.locked || isBackgroundCover(node)) return null;
+		if (paintingTilemap()?.id === node.id) return null;
 		const t = handleTransform(node);
 		if (!t.visible) return null;
 		const box = boxOf(node, t);
@@ -4740,7 +4851,9 @@
 			y: top.y - Math.cos(rot) * ROTATE_OFFSET_PX,
 		};
 		const rGrab = ROTATE_PX + 4;
-		if (Math.hypot(screen.x - stem.x, screen.y - stem.y) <= rGrab) return { kind: 'rotate' };
+		// A tilemap is axis-aligned in the game (its rotation is not applied), so it has no rotate.
+		if (node.kind !== 'tilemap' && Math.hypot(screen.x - stem.x, screen.y - stem.y) <= rGrab)
+			return { kind: 'rotate' };
 		const grab = HANDLE_PX / 2 + 4;
 		for (let i = 0; i < 4; i++) {
 			const c = corners[i];
@@ -4931,6 +5044,68 @@
 	let pathPointDrag: { nodeId: string; index: number; moved: boolean } | null = null;
 	/** Screen px a path point or segment can be grabbed from. */
 	const PATH_GRAB_PX = 8;
+
+	/** A brush / erase stroke on a tilemap: the last cell painted (none while off the grid) and
+	 *  whether any tile changed, so the stroke commits once, as one undo step, on release. */
+	let tilemapStroke: {
+		nodeId: string;
+		last: { col: number; row: number } | null;
+		changed: boolean;
+	} | null = null;
+	/** The cell a paint tool would hit, drawn on the selected tilemap. */
+	let tilemapHover = $state<{ nodeId: string; col: number; row: number } | null>(null);
+
+	/** The lone selected, unlocked, top-level tilemap (top-level is where the game reads one). */
+	function selectedTilemap(): TilemapNode | null {
+		if (animate || selectedIds.length !== 1 || !selectedId) return null;
+		const node = scene.nodes.find((n) => n.id === selectedId);
+		return node?.kind === 'tilemap' && !node.locked ? node : null;
+	}
+
+	/** {@link selectedTilemap} while a paint tool (not Move) is on. */
+	function paintingTilemap(): TilemapNode | null {
+		return tilemapPaint.tool === 'move' ? null : selectedTilemap();
+	}
+
+	/** Paint `node` from its last stroke cell to `cell` (every cell between, so no gaps). */
+	function strokeTilemap(node: TilemapNode, cell: { col: number; row: number }): void {
+		if (!tilemapStroke) return;
+		const from = tilemapStroke.last;
+		const cells = from ? tilemapCellsBetween(from, cell).slice(1) : [cell];
+		for (const c of cells)
+			if (applyTilemapTool(node, tilemapPaint.tool, tilemapPaint.brush, c.col, c.row))
+				tilemapStroke.changed = true;
+		tilemapStroke.last = cell;
+	}
+
+	/**
+	 * A press on the grid of the lone selected tilemap while a paint tool is on: brush / erase start
+	 * a stroke, fill floods the cell's region, pick takes its tile as the brush. True when the press
+	 * was the tilemap's (a press off the grid selects and moves as usual).
+	 */
+	function tilemapPaintGesture(world: Vec2): boolean {
+		const node = paintingTilemap();
+		if (!node) return false;
+		const cell = tilemapCellAtWorld(node, nodeTransform(node), world);
+		if (!cell) return false;
+		const { tool, brush } = tilemapPaint;
+		if (tool === 'pick') {
+			const picked = tilemapPickTool(node, cell.col, cell.row);
+			tilemapPaint.tool = picked.tool;
+			if (picked.brush !== undefined) tilemapPaint.brush = picked.brush;
+		} else if (tool === 'fill') {
+			if (applyTilemapTool(node, tool, brush, cell.col, cell.row)) {
+				bumpFrame();
+				onDirty?.();
+			}
+		} else {
+			tilemapStroke = { nodeId: node.id, last: null, changed: false };
+			strokeTilemap(node, cell);
+			bumpFrame();
+		}
+		schedule();
+		return true;
+	}
 
 	/**
 	 * A press on the lone selected `path`: a point drags (Alt+click deletes it, down to two); a press
@@ -5337,6 +5512,10 @@
 			e.preventDefault();
 			return;
 		}
+		if (!e.shiftKey && tilemapPaintGesture(world)) {
+			e.preventDefault();
+			return;
+		}
 		// 1) handle hit (transform the lone selected node). Skipped while Shift is held —
 		// Shift+click is reserved for multi-select / pan, not scale/rotate.
 		if (!e.shiftKey && (!animate || animateKeys)) {
@@ -5403,6 +5582,24 @@
 	}
 
 	function onWindowMouseMove(e: MouseEvent): void {
+		if (tilemapStroke) {
+			const node = findNodeById(tilemapStroke.nodeId);
+			if (node?.kind === 'tilemap') {
+				const world = clientToWorld(e.clientX, e.clientY);
+				const cell = tilemapCellAtWorld(node, nodeTransform(node), world);
+				if (!cell) tilemapStroke.last = null;
+				else if (
+					!tilemapStroke.last ||
+					cell.col !== tilemapStroke.last.col ||
+					cell.row !== tilemapStroke.last.row
+				)
+					strokeTilemap(node, cell);
+				tilemapHover = cell ? { nodeId: node.id, ...cell } : null;
+				bumpFrame();
+				schedule();
+			}
+			return;
+		}
 		if (pathPointDrag) {
 			const node = findNodeById(pathPointDrag.nodeId);
 			if (node?.kind === 'path') {
@@ -5454,6 +5651,12 @@
 		stageInside = true;
 		if (animate && onStagePointer)
 			onStagePointer('move', deepHitId(clientToWorld(e.clientX, e.clientY)));
+		if (updateTilemapHover(clientToWorld(e.clientX, e.clientY))) {
+			hoverHandle = null;
+			hoverNodeId = null;
+			setHoverPick(null);
+			return;
+		}
 		hoverHandle = hitTestHandle(screen);
 		hoverGuideAxis =
 			!hoverHandle && !animate && showRulers && onGuidesChange
@@ -5473,6 +5676,22 @@
 		}
 		hoverNodeId = hoverId;
 		setHoverPick(pick);
+	}
+
+	/** Track the cell a paint tool would hit; true while the pointer is over the painted grid. */
+	function updateTilemapHover(world: Vec2): boolean {
+		const node = paintingTilemap();
+		const cell = node ? tilemapCellAtWorld(node, nodeTransform(node), world) : undefined;
+		const next = node && cell ? { nodeId: node.id, ...cell } : null;
+		if (
+			next?.nodeId !== tilemapHover?.nodeId ||
+			next?.col !== tilemapHover?.col ||
+			next?.row !== tilemapHover?.row
+		) {
+			tilemapHover = next;
+			schedule();
+		}
+		return !!next;
 	}
 
 	function onWindowMouseUp(e: MouseEvent): void {
@@ -5496,6 +5715,10 @@
 		if (pathPointDrag) {
 			if (pathPointDrag.moved) onDirty?.();
 			pathPointDrag = null;
+		}
+		if (tilemapStroke) {
+			if (tilemapStroke.changed) onDirty?.();
+			tilemapStroke = null;
 		}
 		if (dragMode) {
 			const keying = !!animDrag;
@@ -5537,6 +5760,14 @@
 			e.preventDefault();
 			if (ids.length === 1 || !onDeleteMany) ids.forEach((id) => onDelete?.(id));
 			else onDeleteMany(ids);
+			return;
+		}
+		// V / B / E / G / I pick the paint tool while a tilemap is selected.
+		const tool = selectedTilemap() ? tilemapToolForKey(e) : null;
+		if (tool) {
+			tilemapPaint.tool = tool;
+			e.preventDefault();
+			schedule();
 			return;
 		}
 		const action = stageShortcut(e);
@@ -5794,6 +6025,9 @@
 		// effects call `draw()` synchronously).
 		void artBoundsVersion();
 		void artSlicesVersion();
+		// The tilemap paint tool and brush (Properties picks them) change the selected tilemap's overlay.
+		void tilemapPaint.tool;
+		void tilemapPaint.brush;
 		schedule();
 	});
 
@@ -5972,6 +6206,7 @@
 
 	const cursorClass = $derived.by(() => {
 		if (panning) return 'cursor-grabbing';
+		if (tilemapHover && tilemapPaint.tool !== 'move') return 'cursor-cross';
 		if (guideDrag) return guideDrag.axis === 'x' ? 'cursor-ew' : 'cursor-ns';
 		if (dragMode?.kind === 'rotate') return 'cursor-grabbing';
 		if (dragMode?.kind === 'translate') return 'cursor-grabbing';

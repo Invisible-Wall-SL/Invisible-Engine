@@ -145,13 +145,29 @@ export interface SoundSlotChoice {
 export interface SoundBindings {
 	/** Slot id → its choice. Ids come from the engine's catalogue (`game-config/sounds`). */
 	slots?: Record<string, SoundSlotChoice>;
-	/** Symbol id → state → cue name. The per-symbol exception to the game-wide slot. */
+	/** Symbol id → state → cue name. The per-symbol exception to the game-wide slot. A pots
+	 *  overlay's token also takes the {@link TOKEN_SOUND_MOMENTS} keys, one of which is not a state. */
 	symbols?: Record<string, Record<string, string>>;
 	/** The reel-anticipation pair: the one-shot as the tease starts, and the loop under it. */
 	anticipation?: { activation?: string; loop?: string };
 	/** Win-tier alias (`big`, `mega`, …) → its one-shot and the music bed under the presentation. */
 	winTiers?: Record<string, { sfx?: string; bgm?: string }>;
 }
+
+/**
+ * The moments a pots overlay's token makes a noise, stored as keys of its {@link SoundBindings.symbols}
+ * row: it lands on its cell, takes off for its pot (its `flyToMeter` state), and reaches the pot.
+ * `potArrive` is not a symbol state — nothing is drawn differently there — but it is this symbol's
+ * own moment, so it sits beside the states rather than in a section of its own.
+ */
+export const TOKEN_SOUND_MOMENTS = ['land', 'flyToMeter', 'potArrive'] as const;
+export type TokenSoundMoment = (typeof TOKEN_SOUND_MOMENTS)[number];
+
+export const TOKEN_SOUND_LABELS: Record<TokenSoundMoment, string> = {
+	land: 'Land',
+	flyToMeter: 'Take off',
+	potArrive: 'Reach the pot',
+};
 
 /**
  * A playable name. Deliberately narrow: the name travels into a sprite key, a JSON object key, a

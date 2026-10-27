@@ -1,15 +1,29 @@
-import { createArcadeLoop, type ArcadeCharacterIo, type ArcadeLoop } from 'engine-game';
+import {
+	createArcadeLoop,
+	hopsOnThePlane,
+	type ArcadeCharacterIo,
+	type ArcadeLoop,
+} from 'engine-game';
 import {
 	sceneCamera,
 	scenePaths,
+	sceneTilemaps,
 	sceneWorld,
 	stashFlowInstanceInput,
 	worldCameraScene,
 	type LayoutType,
+	type LayoutNode,
 	type Scene,
 	type ScenePath,
+	type SceneTileGrid,
 } from 'engine-layout';
-import { setCulled, setWorldCameraView, spawnLayerPoint, spawnStore } from 'engine-layout/svelte';
+import {
+	setCulled,
+	setLifts,
+	setWorldCameraView,
+	spawnLayerPoint,
+	spawnStore,
+} from 'engine-layout/svelte';
 import { normalizeGameConfigDoc, resolveArcade, type ArcadeCharacter } from 'game-config';
 
 import { bakedGameConfig } from '../editor-scenes';
@@ -35,6 +49,9 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
  * the flow key map's actions while their keys are held, and a pressed pointer in the play field's
  * space — the layout's paths, the flow's variables, the looks' inputs (`animInputs`, set on the
  * spawned instances) and the spawn store for shots. A config without characters attaches none of it.
+ * From P10.13 they also get the level's tiles — the top-level `tilemap` nodes of every screen that
+ * holds a spawn layer — and a hopping character's height is published after each frame for
+ * `<SpawnLayer>` to draw as a lift and a shadow.
  *
  * A slot game never starts it: only `<ArcadeStage />` calls {@link startArcade}, and `Game.svelte`
  * mounts that only for a mechanic that is a play field.
@@ -44,6 +61,12 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
 const ARCADE_SEED_PARAM = 'arseed';
 
 let loop: ArcadeLoop | undefined;
+/** The config has a hopping character, so lifts are published. */
+let hops = false;
+let shadowOf: (componentId: string) => { shadow: number; foot: number } = () => ({
+	shadow: 0,
+	foot: 0,
+});
 let world: { w: number; h: number } | undefined;
 let view = () => ({ w: 0, h: 0 });
 
@@ -67,6 +90,12 @@ interface CharacterRuntime extends ArcadeCharacterIo {
 
 type Point = { x: number; y: number };
 
+const holdsSpawnLayer = (nodes: readonly LayoutNode[]): boolean =>
+	nodes.some(
+		(node) =>
+			node.kind === 'spawnLayer' || (node.kind === 'container' && holdsSpawnLayer(node.children)),
+	);
+
 /** The held keys, the pressed pointer, the paths: what the characters stage reads each step. */
 function createCharacterRuntime(characters: readonly ArcadeCharacter[]): CharacterRuntime {
 	const live = spawnStore();
@@ -81,6 +110,8 @@ function createCharacterRuntime(characters: readonly ArcadeCharacter[]): Charact
 	let pressed: Point | undefined;
 	let paths: Record<string, ScenePath> = {};
 	let pathsKey = '';
+	let tiles: SceneTileGrid[] = [];
+	let tilesKey = '';
 	return {
 		input: {
 			held: (action) => [...heldKeys].some((key) => keyActions(key).includes(action)),
@@ -90,6 +121,7 @@ function createCharacterRuntime(characters: readonly ArcadeCharacter[]): Charact
 			},
 		},
 		paths: () => paths,
+		tiles: () => tiles,
 		variable: (id) => getFlowV2()?.state?.read(id),
 		setInstanceInput: (id, input, value) => void stashFlowInstanceInput(id, input, value),
 		spawn: (layer, componentId, x, y) => {
@@ -102,9 +134,17 @@ function createCharacterRuntime(characters: readonly ArcadeCharacter[]): Charact
 				for (const [id, path] of Object.entries(scenePaths(scene, layoutType)))
 					if (!(id in next)) next[id] = path;
 			const key = JSON.stringify(next);
-			if (key === pathsKey) return;
-			pathsKey = key;
-			paths = next;
+			if (key !== pathsKey) {
+				pathsKey = key;
+				paths = next;
+			}
+			const grids = scenes
+				.filter((scene) => holdsSpawnLayer(scene.nodes ?? []))
+				.flatMap((scene) => sceneTilemaps(scene, layoutType));
+			const gridsKey = JSON.stringify(grids.map((g) => ({ ...g, cells: [...g.cells] })));
+			if (gridsKey === tilesKey) return;
+			tilesKey = gridsKey;
+			tiles = grids;
 		},
 		attachInput(canvas, toGlobal) {
 			const down = (e: KeyboardEvent) => {
@@ -161,6 +201,15 @@ export const startArcade = (designSize: () => { width: number; height: number })
 	const rules = resolveArcade(normalizeGameConfigDoc(bakedGameConfig()));
 	const live = spawnStore();
 	if (rules.characters.length) characterIo = createCharacterRuntime(rules.characters);
+	hops = rules.characters.some(hopsOnThePlane);
+	shadowOf = (componentId) => {
+		const body = rules.bodies[componentId];
+		if (body?.shape === 'box') return { shadow: body.w, foot: body.h / 2 };
+		if (body?.shape === 'circle') return { shadow: body.r * 2, foot: body.r };
+		return { shadow: 0, foot: 0 };
+	};
+	// Lifting is on before the first spawn, so no instance remounts when the first lift arrives.
+	if (hops) setLifts(new Map());
 	view = () => {
 		const { width, height } = designSize();
 		return { w: width, h: height };
@@ -181,8 +230,8 @@ export const startArcade = (designSize: () => { width: number; height: number })
 	return loop;
 };
 
-/** Give the characters the layout's paths (every screen's top-level `path` nodes). No characters,
- *  nothing read. */
+/** Give the characters the layout's paths (every screen's top-level `path` nodes) and its tiles
+ *  (the top-level `tilemap` nodes of the screens with a spawn layer). No characters, nothing read. */
 export const useArcadePaths = (scenes: readonly Scene[], layoutType: LayoutType) => {
 	characterIo?.setScenes(scenes, layoutType);
 };
@@ -212,6 +261,13 @@ export const useWorldCamera = (scenes: readonly Scene[]) => {
 export const tickArcade = (dtMs: number) => {
 	if (!loop) return;
 	loop.frame(dtMs);
+	if (hops) {
+		const live = spawnStore();
+		const lifts = new Map<string, { z: number; shadow: number; foot: number }>();
+		for (const [id, z] of loop.lifts())
+			lifts.set(id, { z, ...shadowOf(live.get(id)?.componentId ?? '') });
+		setLifts(lifts);
+	}
 	const camera = loop.camera();
 	if (!camera) return;
 	setWorldCameraView(camera);

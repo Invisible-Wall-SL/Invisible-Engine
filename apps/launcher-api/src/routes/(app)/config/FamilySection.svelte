@@ -22,6 +22,8 @@
 		removeZone,
 		scoreTableText,
 		setBodyEdges,
+		setBodyGround,
+		setBodyOneWay,
 		setBodyShape,
 		setBodySize,
 		setBodySolid,
@@ -321,6 +323,8 @@
 							<th>Tags</th>
 							<th>Edges</th>
 							<th>Solid</th>
+							<th title="A hopping character in the air passes over it">Ground</th>
+							<th title="Stops a falling character from above only">One-way</th>
 							<th></th>
 						</tr>
 					</thead>
@@ -392,6 +396,22 @@
 										type="checkbox"
 										checked={body.solid === true}
 										onchange={(e) => setBodySolid(doc, id, e.currentTarget.checked)}
+									/></td
+								>
+								<td
+									><input
+										type="checkbox"
+										checked={body.ground === true}
+										onchange={(e) => setBodyGround(doc, id, e.currentTarget.checked)}
+									/></td
+								>
+								<td
+									><input
+										type="checkbox"
+										checked={body.oneWay === true}
+										disabled={body.solid === true}
+										title={body.solid ? 'A solid body blocks from every side' : undefined}
+										onchange={(e) => setBodyOneWay(doc, id, e.currentTarget.checked)}
 									/></td
 								>
 								<td
