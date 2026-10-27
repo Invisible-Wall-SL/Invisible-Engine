@@ -15,8 +15,8 @@
  *
  * `?fxdebug=1` on the page logs each material layer's state as it mounts and when it turns plain,
  * and, while a layer draws, its peak covered pixels as they grow (at most once per 2 s a layer) and
- * again when it is released: the most pixels its quads covered at once (× the graph's cost, its
- * peak load; design §10).
+ * again when it is released: the most pixels its quads covered at once, and, when the effect carries
+ * its graph's cost (one made for particles), that × the cost: its peak load (design §10).
  */
 
 import { customElementFx } from 'constants-shared/elementFx';
@@ -66,13 +66,21 @@ const debug = (): boolean =>
 	(debugging ??=
 		typeof location !== 'undefined' && new URLSearchParams(location.search).has('fxdebug'));
 
-/** Covered pixels for a debug line: `1.24 Mpx`, `86.0 kpx`, `512 px`. */
-const coveredText = (px: number): string =>
-	px >= 1e6
-		? `${(px / 1e6).toFixed(2)} Mpx`
-		: px >= 1e3
-			? `${(px / 1e3).toFixed(1)} kpx`
-			: `${Math.round(px)} px`;
+/** A count for a debug line, as `1.24 M`, `86.0 k`, `512`, with its unit after (`1.24 Mpx`). */
+const amount = (n: number, unit = ''): string =>
+	n >= 1e6
+		? `${(n / 1e6).toFixed(2)} M${unit}`
+		: n >= 1e3
+			? `${(n / 1e3).toFixed(1)} k${unit}`
+			: `${Math.round(n)}${unit ? ` ${unit}` : ''}`;
+
+/** A layer's peak for a debug line: covered pixels, and its load when the cost is known. */
+function peakText(covered: number, cost: number | undefined): string {
+	const text = `its peak ${amount(covered, 'px')} covered`;
+	if (cost === undefined) return text;
+	const load = covered * cost;
+	return `${text}, load ${Number.isFinite(load) ? amount(load) : 'past any number'}`;
+}
 
 function report(spec: ParticleMaterialSpec, state: string, slots: FxMaterialSlots): void {
 	if (!debug()) return;
@@ -88,13 +96,14 @@ const PEAK_REPORT_MS = 2000;
 function peakReporter(
 	spec: ParticleMaterialSpec,
 	slots: FxMaterialSlots,
+	cost: number | undefined,
 ): (covered: number) => void {
 	let last = -Infinity;
 	return (covered) => {
 		const now = performance.now();
 		if (now - last < PEAK_REPORT_MS) return;
 		last = now;
-		report(spec, `on, its peak ${coveredText(covered)} covered`, slots);
+		report(spec, `on, ${peakText(covered, cost)}`, slots);
 	};
 }
 
@@ -145,7 +154,7 @@ export function mountParticleMaterial(options: {
 				giveBack();
 				report(spec, `plain while playing, ${reason}`, slots);
 			},
-			onPeak: debug() ? peakReporter(spec, slots) : undefined,
+			onPeak: debug() ? peakReporter(spec, slots, effect?.cost) : undefined,
 		});
 	} catch (error) {
 		giveBack();
@@ -166,7 +175,7 @@ export function mountParticleMaterial(options: {
 			const peak = material.peakCoveredArea;
 			material.destroy();
 			giveBack();
-			report(spec, `released, its peak ${coveredText(peak)} covered`, slots);
+			report(spec, `released, ${peakText(peak, effect?.cost)}`, slots);
 		},
 	};
 }

@@ -16,10 +16,8 @@
 	import { CUSTOM_ELEMENT_FX_MOTION_OP_LIMIT, elementFxSpec } from 'constants-shared/elementFx';
 	import {
 		BREAK_OUTPUT,
-		COST_BUDGET,
 		CUSTOM_GLSL,
 		MOTION_OUTPUT,
-		SAMPLE_BUDGET,
 		analyzeShaderGraph,
 		analyzeShaderMotion,
 		builtinTwin,
@@ -60,7 +58,9 @@
 		canvasGraph,
 		checkerIssues,
 		connect,
+		costMeter,
 		customGlslRefusal,
+		defaultPreviewElement,
 		deleteMotionGraph,
 		deleteSubgraph,
 		docFromTwin,
@@ -131,6 +131,8 @@
 	const compiled = $derived(doc ? compileShaderEffect(doc) : undefined);
 	const compiledEffect = $derived(compiled?.ok ? compiled.effect : undefined);
 	const motionErrors = $derived(motionCheck?.issues.filter((i) => i.level === 'error').length ?? 0);
+	/** The work and reads against the doc's budget: a particle material's when made for one. */
+	const meter = $derived(doc && analysis ? costMeter(doc, analysis) : undefined);
 
 	// ── Custom GLSL (step 8c): a holder of `shaderCustomGlsl` adds it and changes its code or ports ──
 	const canCustomGlsl = untrack(() => data.canCustomGlsl ?? false);
@@ -1014,14 +1016,15 @@
 								{/each}
 							</span>
 						{/if}
-						{#if analysis}
+						{#if meter}
 							<span
-								class:over={analysis.cost > COST_BUDGET || analysis.samples > SAMPLE_BUDGET}
+								class:over={meter.over}
 								class="meter"
-								title="Work per pixel against what a phone affords. The bars: the work (top) and the reads of the element (bottom), as shares of the budget; each node's chip is its part."
+								title="Work per pixel against what {meter.budget
+									.affords}. The bars: the work (top) and the reads of the element (bottom), as shares of the budget; each node's chip is its part."
 							>
 								<span class="bars" aria-hidden="true">
-									{#each [analysis.cost / COST_BUDGET, analysis.samples / SAMPLE_BUDGET] as share, i (i)}
+									{#each meter.shares as share, i (i)}
 										<span
 											class:warm={share >= 0.75}
 											class:full={share > 1}
@@ -1029,7 +1032,7 @@
 										></span>
 									{/each}
 								</span>
-								cost {analysis.cost}/{COST_BUDGET} · reads {analysis.samples}/{SAMPLE_BUDGET}
+								{meter.text}
 							</span>
 						{/if}
 						{#if motionShown && motionCheck}
@@ -1104,7 +1107,12 @@
 
 			<aside class="props">
 				{#if doc}
-					<ShaderPreview effect={compiledEffect} atlases={data.atlases} />
+					<ShaderPreview
+						effect={compiledEffect}
+						atlases={data.atlases}
+						defaultElement={defaultPreviewElement(doc)}
+						graph={doc.id}
+					/>
 					{#if selected && view && selected.type === BREAK_OUTPUT && !scope}
 						<BreakProperties
 							{doc}

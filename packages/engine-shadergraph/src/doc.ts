@@ -3,12 +3,14 @@
  * this keeps whatever the author wrote that has the doc's shape, broken wiring and bad values
  * included (the validator reports those), and drops anything that is not part of the doc. The
  * motion graph is kept as the pixel graph is; an empty one is dropped. A Custom GLSL node keeps its
- * definition (`glsl`): its code as text, its ports as a subgraph's are kept.
+ * definition (`glsl`): its code as text, its ports as a subgraph's are kept. `madeFor` is kept only
+ * as `'particles'`.
  */
 
 import { CUSTOM_GLSL } from './customGlsl';
 import {
 	SHADER_GRAPH_VERSION,
+	SHADER_MADE_FOR_PARTICLES,
 	type GraphNode,
 	type GraphWire,
 	type ShaderGraphDoc,
@@ -133,5 +135,6 @@ export function normalizeShaderGraphDoc(raw: unknown, id: string): ShaderGraphDo
 		};
 		if (motionGraph.nodes.length || motionGraph.wires.length) doc.motionGraph = motionGraph;
 	}
+	if (src.madeFor === SHADER_MADE_FOR_PARTICLES) doc.madeFor = SHADER_MADE_FOR_PARTICLES;
 	return doc;
 }

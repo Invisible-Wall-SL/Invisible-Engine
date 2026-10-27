@@ -280,6 +280,13 @@ export async function opRecord(
 	return row.status === 'done' ? { status: 'done', result: row.result } : { status: 'pending' };
 }
 
+/** Cancel the run's queued draft plays when it stops (ADR-0010 §3): no event, nothing waits on them. */
+export async function cancelQueuedDrafts(db: Db, runId: string): Promise<void> {
+	await db`
+		update director_draft_jobs set status = 'cancelled', done_at = now()
+		where run_id = ${runId} and status = 'queued'`;
+}
+
 export async function queuedJobs(db: Db, runId: string): Promise<number> {
 	const [row] = await db<{ n: number }[]>`
 		select count(*)::int as n from director_atlas_jobs

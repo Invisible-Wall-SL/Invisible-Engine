@@ -309,7 +309,10 @@ section is hidden for a **rig clip** layer (those cannot take a material), and t
 into rig clips drops its material.
 
 - **Material** — **None (plain sprites)**, then every effect the project's Shader Graph set
-  compiles, by name (the project's own graphs and the studio library's it does not override).
+  compiles (the project's own graphs and the studio library's it does not override): the ones
+  marked **Made for: Particles** in Shader Graph first, under **Made for particles**, then the rest
+  under **Other effects**, each group by name (one group shows no heading). Any effect can be a
+  material; the mark only says which were made as one.
   Picking another effect starts it at its own param defaults; its Time and Strength stay. A
   material whose graph has been deleted or no longer compiles stays selected, marked **(not
   compiled)**, and its particles draw plain.
@@ -465,7 +468,8 @@ mere save.
   over 512, a parameter on Max particles with no max, no frames yet, or a graph that was deleted
   or no longer compiles. A game says the same on its `?fxdebug=1` line, which also prints, while a
   material layer draws, the most pixels its particles have covered (at most every 2 s, as it
-  grows; × the graph's cost is the layer's load).
+  grows), and its load (× the graph's cost) when the effect was made for particles: only those
+  carry their cost into the game.
 - **A parameter on a material param does nothing after you change the material.** Exposed
   parameters are kept when you pick another material, but one that drives a param the new
   material does not have drives nothing; the Material section names it. Remove that drive in
@@ -494,11 +498,9 @@ mere save.
   wired and headless-tested, but firing a baked effect on an event in a real game (in
   particular the rig bone-attach coordinate frame) has not yet been owner-verified on
   live WebGL pixels.
-- **Materials:** the Scene Editor, Rigger and Symbols previews still draw a material layer as
-  plain sprites (a game draws the material). The picker lists effects by name; "made for
-  particles" effects will come first once Shader Graph can mark them. A material's load budgets
-  (150 / 4, 32 M, 64 M) are first estimates, to be revised after a phone check. Nothing pre-checks
-  a material against the game's cap of 8 drawing at once.
+- **Materials:** a material's load budgets (150 / 4, 32 M, 64 M) are first estimates, to be
+  revised after a phone check. Nothing pre-checks a material against the game's cap of 8 drawing
+  at once.
 - **One atlas per layer.** A layer's frames come from a single atlas; mixing regions
   from different atlases in one layer is not supported — add another layer instead.
 - **Forces don't vary per particle**, apart from each particle's own gust and turbulence

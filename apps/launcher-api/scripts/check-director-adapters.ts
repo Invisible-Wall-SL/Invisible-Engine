@@ -37,6 +37,11 @@
  *    `/saveadv` gets the whole card; refs are copied create-only; layers only on a scratch atlas
  *    this run made; `set_output` never over a tile the run did not commit; scratch atlases are
  *    never packed or deployed; and the queue gate renders only approved recipe steps.
+ *  - ADR-0010 QA's draft play: `build.request_draft` refuses a null template ETag, a moved project
+ *    config and a desktop build before it builds, then writes only under `director/drafts/` (the
+ *    newest 2 kept); `build.play_draft` with no player settles `no_player` in the same
+ *    transaction as it queues, a replay returns the same jobRef, a second play returns the queued
+ *    one, and `settleDraftJob` settles exactly once.
  *  - 9C (ADR-0009 §2) `bugs.file_pipeline_bug`, the op behind the coordinator's
  *    `run.request_pipeline_change`, over Bug Reports' own create path: an Open, unsent pipeline
  *    bug reported by the run against its owner, naming the run, its project and its template, with
@@ -55,6 +60,7 @@ import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import type {
 	DirectorAtlasJob,
+	DirectorDraftJob,
 	DirectorOp,
 	DirectorRun,
 	Game,
@@ -167,6 +173,34 @@ fake('lib/server/r2.ts', {
 	listAllObjects: async (prefix: string) =>
 		keysUnder(prefix).map((key) => ({ key, size: R2.get(key)!.body.length, lastModified: 1 })),
 	listObjects: async (prefix: string) => ({ keys: keysUnder(prefix), prefixes: [] }),
+	presignGet: async (key: string) => `https://r2.example/get/${key}?sig=g`,
+	presignPut: async (key: string, type: string) => `https://r2.example/put/${key}?sig=p&t=${type}`,
+	listFolder: async (prefix: string) => ({
+		files: [],
+		folders: [
+			...new Set(
+				keysUnder(prefix)
+					.map((k) => k.slice(prefix.length).split('/'))
+					.filter((parts) => parts.length > 1)
+					.map((parts) => `${prefix}${parts[0]}/`),
+			),
+		],
+	}),
+});
+// The assemble is 20 s of exporters in production; the draft ops only need what it returns.
+let assembles = 0;
+let bundleFlow: unknown;
+fake('lib/server/runtimeBundle.ts', {
+	buildRuntimeBundle: async () => {
+		assembles++;
+		return {
+			doc: { scenes: [] },
+			componentDefs: {},
+			config: null,
+			symbols: { index: {}, map: {} },
+			flowV2: bundleFlow,
+		};
+	},
 });
 
 // ── In-memory Postgres tables ─────────────────────────────────────────────────
@@ -184,6 +218,11 @@ const USER_OVERRIDES = new Map<string, Record<string, boolean>>();
 const RUNS = new Map<string, DirectorRun>();
 const OPS = new Map<string, DirectorOp>();
 const ATLAS_JOBS = new Map<string, DirectorAtlasJob>();
+const DRAFT_JOBS = new Map<string, DirectorDraftJob>();
+/** Make the next N `getDraftJob` reads throw: a failure after the job row committed. */
+let failDraftReads = 0;
+/** The `director_events` rows the draft store functions append: kind and tool. */
+const DRAFT_EVENTS: { runId: string; kind: string; tool: string; payload: unknown }[] = [];
 /** runId → its stored recipes (`director_regions.recipe_json`). */
 const RECIPES = new Map<string, unknown[]>();
 
@@ -380,6 +419,85 @@ fake('lib/server/director/store.ts', {
 				doneAt: null,
 			});
 		}
+	},
+	insertDraftJob: async (row: {
+		jobRef: string;
+		runId: string;
+		agent: string;
+		draftId: string;
+		scenarios: string[] | null;
+		settleNow?: { status: 'failed'; result: unknown };
+	}) => {
+		const open = [...DRAFT_JOBS.values()].find(
+			(j) => j.runId === row.runId && j.status === 'queued',
+		);
+		if (open) return { job: open, queued: false };
+		const { settleNow, ...values } = row;
+		const job: DirectorDraftJob = {
+			...values,
+			status: 'queued',
+			result: null,
+			doneVia: null,
+			queuedAt: new Date(),
+			doneAt: null,
+		};
+		DRAFT_JOBS.set(job.jobRef, job);
+		DRAFT_EVENTS.push({
+			runId: row.runId,
+			kind: 'job_queued',
+			tool: 'build.play_draft',
+			payload: {},
+		});
+		if (settleNow) {
+			Object.assign(job, { ...settleNow, doneVia: 'inline', doneAt: new Date() });
+			DRAFT_EVENTS.push({
+				runId: row.runId,
+				kind: 'job_done',
+				tool: 'build.play_draft',
+				payload: { jobRef: job.jobRef, status: job.status, result: job.result },
+			});
+		}
+		return { job: { ...job }, queued: true };
+	},
+	queuedDraftJobs: async () => [...DRAFT_JOBS.values()].filter((j) => j.status === 'queued'),
+	draftJobsToCancel: async (runId: string) =>
+		[...DRAFT_JOBS.values()]
+			.filter(
+				(j) =>
+					j.runId === runId &&
+					(j.status === 'queued' || (j.status === 'cancelled' && j.doneVia === null)),
+			)
+			.map((j) => ({ ...j })),
+	getDraftJob: async (jobRef: string) => {
+		if (failDraftReads > 0) {
+			failDraftReads--;
+			throw new Error('fixture: the read-back failed');
+		}
+		const job = DRAFT_JOBS.get(jobRef);
+		return job ? { ...job } : null;
+	},
+	settleDraftJob: async (done: {
+		jobRef: string;
+		runId: string;
+		status: DirectorDraftJob['status'];
+		result: unknown;
+		via: 'callback' | 'poll' | 'inline';
+	}) => {
+		const row = DRAFT_JOBS.get(done.jobRef);
+		if (!row || row.runId !== done.runId || row.status !== 'queued') return null;
+		Object.assign(row, {
+			status: done.status,
+			result: done.result,
+			doneVia: done.via,
+			doneAt: new Date(),
+		});
+		DRAFT_EVENTS.push({
+			runId: row.runId,
+			kind: 'job_done',
+			tool: 'build.play_draft',
+			payload: { jobRef: row.jobRef, status: row.status, result: row.result },
+		});
+		return { ...row };
 	},
 	getAtlasJob: async (jobRef: string) => ATLAS_JOBS.get(jobRef) ?? null,
 	queuedAtlasJobs: async () => [...ATLAS_JOBS.values()].filter((j) => j.status === 'queued'),
@@ -5923,14 +6041,13 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	}
 	// A tool a definition names but nothing serves makes `run.assign_task` refuse that agent on
 	// every run (the worker's catalogue accepts it, so the loader is no help). QA sat unassignable
-	// this way unnoticed (ADR-0009). The known gap is listed so it can only shrink: when an op lands,
-	// drop it here.
+	// this way unnoticed (ADR-0009). No gap is allowed now that the build ops are served.
 	const catalogue: typeof import('../../../services/director-worker/src/tools.ts') = await import(
 		new URL('../../../services/director-worker/src/tools.ts', import.meta.url).href
 	);
 	const workerOwn: readonly string[] = catalogue.WORKER_TOOLS;
 	check(
-		'the only tools an agent definition names that nothing serves are the known gap',
+		'every tool an agent definition names is served',
 		[...tools]
 			.flatMap(([agent, ids]) =>
 				[...ids]
@@ -5938,7 +6055,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 					.map((id) => `${agent}: ${id}`),
 			)
 			.sort(),
-		['qa: build.play_draft', 'qa: build.request_draft'],
+		[],
 	);
 }
 
@@ -6205,6 +6322,1066 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		[200, null],
 	);
 	PROJECTS.delete('folder_game');
+}
+
+// ── ADR-0010: QA's draft play ─────────────────────────────────────────────────
+{
+	const { freshDrivenSeedDoc } = await import('engine-flow-v2');
+	const drafts = await import(src('lib/server/director/drafts.ts'));
+	const store = await import(src('lib/server/director/store.ts'));
+	const root = `${C}/dfx/`;
+	const configBody = JSON.stringify(CONFIG('dfx'));
+	PROJECTS.set('dfx', project('dfx'));
+	R2.set(`${root}config/config.json`, { body: configBody, etag: '"cfg1"' });
+	R2.set(`${root}deploy/index.json`, { body: '{"a":1}', etag: etag() });
+	R2.set(`${root}deploy/_pages/p1.png`, { body: 'PNGDATA', etag: etag() });
+	R2.set('test_server/_runtime/lines/current.json', {
+		body: JSON.stringify({
+			runtimeId: 'lines',
+			version: '1.4.0',
+			commit: 'abc1234567',
+			shortCommit: 'abc1234',
+		}),
+		etag: etag(),
+	});
+	const proven = { templateConfigEtag: '"tpl1"', projectConfigEtag: '"cfg1"' };
+	for (const r of [
+		run('qd1', { projectKey: 'dfx', ...proven }),
+		run('qd2', { projectKey: 'dfx', ...proven }),
+		run('qd-null', { projectKey: 'dfx', templateConfigEtag: null, projectConfigEtag: '"cfg1"' }),
+		run('qd-drift', {
+			projectKey: 'dfx',
+			templateConfigEtag: '"tpl1"',
+			projectConfigEtag: '"old"',
+		}),
+	]) {
+		RUNS.set(r.id, r);
+	}
+	let seq = 0;
+	const qa = (runId: string, op: string, input: unknown = {}, agent = 'qa') =>
+		call('build', op, { runId, agent, opId: `${runId}:q:${++seq}`, input });
+	const draftKeys = () => keysUnder(`${root}director/drafts/`);
+	const before = new Map(
+		[...R2].filter(([k]) => !k.startsWith(`${root}director/`)).map(([k, v]) => [k, v.body]),
+	);
+	const untouched = () =>
+		[...before].every(([k, body]) => R2.get(k)?.body === body) &&
+		[...R2.keys()].every(
+			(k) => !k.startsWith(`${root}director/`) || k.startsWith(`${root}director/drafts/`),
+		);
+
+	check(
+		'request_draft and play_draft are QA-only writes',
+		['request_draft', 'play_draft'].map((n) => {
+			const op = ADAPTER_OPS.get(`build.${n}`);
+			return [op.agents, op.write, op.scope];
+		}),
+		[
+			[['qa'], true, 'project'],
+			[['qa'], true, 'project'],
+		],
+	);
+	check(
+		'another agent may not request a draft',
+		(await qa('qd1', 'request_draft', {}, 'builder')).status,
+		403,
+	);
+	check(
+		'request_draft writes only its own deploy/ and director/drafts/, never a refused key',
+		ADAPTER_OPS.get('build.request_draft')
+			.writes({}, { clientKey: C, projectKey: 'dfx' })
+			.map((k: string) => [k, refusedWriteTarget(k)]),
+		[
+			[`${root}deploy/`, null],
+			[`${root}director/drafts/`, null],
+		],
+	);
+
+	// Fail closed, before anything is built or written.
+	const nullRun = await qa('qd-null', 'request_draft');
+	check(
+		'a run whose template config ETag is null is refused math_unproven, nothing built',
+		[nullRun.status, nullRun.body.error, assembles, draftKeys().length],
+		[409, 'math_unproven', 0, 0],
+	);
+	const driftRun = await qa('qd-drift', 'request_draft');
+	check(
+		'a project config that moved since the run recorded it is refused config_drifted',
+		[driftRun.status, driftRun.body.error, assembles],
+		[409, 'config_drifted', 0],
+	);
+	R2.set('test_server/dfx/index.html', { body: 'own', etag: etag() });
+	const own = await qa('qd1', 'request_draft');
+	R2.delete('test_server/dfx/index.html');
+	check(
+		'a project with its own desktop build is refused own_bundle',
+		[own.status, own.body.error, assembles],
+		[409, 'own_bundle', 0],
+	);
+	check('a refused call releases its opId so a retry runs again', OPS.size > 0 && claims > 0, true);
+
+	// Success.
+	bundleFlow = undefined;
+	const first = await qa('qd1', 'request_draft');
+	const id1 = first.body.draftId as string;
+	check(
+		'request_draft assembles once and freezes deploy/ under the run drafts folder',
+		[first.status, assembles, drafts.RETAINED_DRAFTS, new RegExp(drafts.DRAFT_ID).test(id1)],
+		[200, 1, 2, true],
+	);
+	const dprefix = `${root}director/drafts/${id1}/`;
+	check(
+		'...the copy, draft.json and runtime.json, with runtime.json last',
+		[keysUnder(dprefix), first.body.files, first.body.runtime, first.body.flow],
+		[
+			[
+				`${dprefix}deploy/_pages/p1.png`,
+				`${dprefix}deploy/index.json`,
+				`${dprefix}draft.json`,
+				`${dprefix}runtime.json`,
+			],
+			2,
+			{ id: 'lines', version: '1.4.0', commit: 'abc1234567' },
+			{ status: 'absent', errors: [] },
+		],
+	);
+	const meta = JSON.parse(R2.get(`${dprefix}draft.json`)!.body);
+	check(
+		'...draft.json names the run, the pinned runtime, the config ETag and the contract hash',
+		[
+			meta.runId,
+			meta.runtime.version,
+			meta.projectConfigEtag,
+			meta.contractHash === first.body.contractHash,
+		],
+		['qd1', '1.4.0', '"cfg1"', true],
+	);
+	check('...and nothing else in the project moved', untouched(), true);
+	check(
+		'a replayed opId returns the stored draft and does not assemble again',
+		await (async () => {
+			const again = await call('build', 'request_draft', {
+				runId: 'qd1',
+				agent: 'qa',
+				opId: `qd1:q:${seq}`,
+				input: {},
+			});
+			return [again.replay, again.body.draftId, assembles];
+		})(),
+		[true, id1, 1],
+	);
+
+	// Retention: the 2 newest drafts of the run stay.
+	await new Promise((r) => setTimeout(r, 1100));
+	const second = await qa('qd1', 'request_draft');
+	await new Promise((r) => setTimeout(r, 1100));
+	const third = await qa('qd1', 'request_draft');
+	const folders = [...new Set(draftKeys().map((k) => k.split('/')[4]))].sort();
+	check(
+		'a run keeps its 2 newest drafts: the oldest is deleted',
+		folders,
+		[second.body.draftId, third.body.draftId].sort(),
+	);
+	const live3 = third.body.draftId as string;
+
+	// An invalid flow is a finding, not a refusal.
+	bundleFlow = freshDrivenSeedDoc('lines');
+	const flowRun = await qa('qd2', 'request_draft');
+	bundleFlow = undefined;
+	check(
+		'an invalid flow still yields a draft; the flow verdict is in the result',
+		[flowRun.status, (flowRun.body.flow as { status: string }).status],
+		[200, 'invalid'],
+	);
+
+	// play_draft.
+	check(
+		'play_draft needs a draftId of the snapshot format',
+		(await qa('qd1', 'play_draft', { draftId: '../x' })).status,
+		400,
+	);
+	const unknown = await qa('qd1', 'play_draft', { draftId: '20200101T000000Z-0000' });
+	check('an unknown draft is a 404', [unknown.status, unknown.body.error], [404, 'unknown_draft']);
+	const foreign = await qa('qd2', 'play_draft', { draftId: live3 });
+	check(
+		"another run's draft is the same 404",
+		[foreign.status, foreign.body.error],
+		[404, 'unknown_draft'],
+	);
+	R2.delete(`${root}director/drafts/${live3}/runtime.json`);
+	const half = await qa('qd1', 'play_draft', { draftId: live3 });
+	R2.set(`${root}director/drafts/${live3}/runtime.json`, { body: '{}', etag: etag() });
+	check('a draft without runtime.json is never played', half.status, 404);
+
+	check('with no player the seam is empty', drafts.getDraftPlayer(), null);
+	const eventsBefore = DRAFT_EVENTS.length;
+	const noPlayer = await qa('qd1', 'play_draft', { draftId: live3 });
+	check(
+		'play_draft with no player settles failed no_player at once',
+		[
+			noPlayer.status,
+			noPlayer.body.status,
+			noPlayer.body.result,
+			/^dp_[0-9a-f]{16}$/.test(String(noPlayer.body.jobRef)),
+		],
+		[200, 'failed', drafts.NO_PLAYER_RESULT, true],
+	);
+	check(
+		'...with exactly one job_queued and one job_done (tool build.play_draft)',
+		DRAFT_EVENTS.slice(eventsBefore).map((e) => [e.kind, e.tool]),
+		[
+			['job_queued', 'build.play_draft'],
+			['job_done', 'build.play_draft'],
+		],
+	);
+	const settled = DRAFT_JOBS.get(noPlayer.body.jobRef as string)!;
+	check(
+		'...the row is terminal, done inline',
+		[settled.status, settled.doneVia],
+		['failed', 'inline'],
+	);
+	const replayed = await call('build', 'play_draft', {
+		runId: 'qd1',
+		agent: 'qa',
+		opId: `qd1:q:${seq}`,
+		input: { draftId: live3 },
+	});
+	check(
+		'a replayed play_draft returns the same jobRef and records nothing more',
+		[replayed.replay, replayed.body.jobRef, DRAFT_EVENTS.length - eventsBefore],
+		[true, noPlayer.body.jobRef, 2],
+	);
+
+	// A player in the seam.
+	const submitted: unknown[] = [];
+	drafts.setDraftPlayer({
+		submit: async (job: unknown) => void submitted.push(job),
+	});
+	const queued = await qa('qd1', 'play_draft', { draftId: live3, scenarios: ['base'] });
+	check(
+		'with a player, play_draft queues, submits once and answers queued at once',
+		[queued.body.status, queued.body.queued, submitted.length],
+		['queued', true, 1],
+	);
+	check('...the player is handed the job, not the run', submitted[0], {
+		jobRef: queued.body.jobRef,
+		runId: 'qd1',
+		clientKey: C,
+		projectKey: 'dfx',
+		gameType: 'lines',
+		draftId: live3,
+		scenarios: ['base'],
+	});
+	const again = await qa('qd1', 'play_draft', { draftId: live3 });
+	check(
+		'a second play while one is queued returns the queued jobRef and submits nothing',
+		[again.body.jobRef, again.body.queued, submitted.length],
+		[queued.body.jobRef, false, 1],
+	);
+	const done = {
+		jobRef: queued.body.jobRef as string,
+		runId: 'qd1',
+		status: 'finished',
+		result: { ok: 1 },
+		via: 'callback',
+	};
+	const eventsMid = DRAFT_EVENTS.length;
+	const won = await store.settleDraftJob(done);
+	const lost = await store.settleDraftJob({ ...done, via: 'poll' });
+	check(
+		'settleDraftJob settles exactly once: one job_done, the loser gets null',
+		[won?.status, lost, DRAFT_EVENTS.length - eventsMid, DRAFT_JOBS.get(done.jobRef)?.doneVia],
+		['finished', null, 1, 'callback'],
+	);
+	const wrongRun = await store.insertDraftJob({
+		jobRef: 'dp_00000000000000aa',
+		runId: 'qd2',
+		agent: 'qa',
+		draftId: live3,
+		scenarios: null,
+	});
+	check(
+		'...and only for the run that owns the job',
+		[
+			wrongRun.queued,
+			await store.settleDraftJob({ ...done, jobRef: 'dp_00000000000000aa', status: 'cancelled' }),
+			DRAFT_JOBS.get('dp_00000000000000aa')?.status,
+		],
+		[true, null, 'queued'],
+	);
+
+	// A player that refuses the play fails the job, not the call.
+	drafts.setDraftPlayer({
+		submit: async () => {
+			throw new Error('down');
+		},
+	});
+	const quiet = mock.method(console, 'error', () => {});
+	const refused = await qa('qd1', 'play_draft', { draftId: live3 });
+	quiet.mock.restore();
+	check(
+		'a player that refuses the play fails the job as submit_failed',
+		[refused.body.status, (refused.body.result as { reason: string }).reason],
+		['failed', 'submit_failed'],
+	);
+	drafts.setDraftPlayer(null);
+
+	check('no draft op wrote a published, config or test_server key', untouched(), true);
+	check(
+		'build.* names are not hard refusals, and the refusals still hold',
+		[
+			refusedOp('build', 'request_draft'),
+			refusedOp('build', 'play_draft'),
+			refusedOp('build', 'publish_draft')?.id,
+		],
+		[null, null, 'publish'],
+	);
+}
+
+// ── ADR-0010: template contract, retention, stop and the replay window ───────
+{
+	const drafts = await import(src('lib/server/director/drafts.ts'));
+	const jobs = await import(src('lib/server/director/draftJobs.ts'));
+	const root = `${C}/dfz/`;
+	PROJECTS.set('dfz', project('dfz'));
+	R2.set(`${root}config/config.json`, { body: JSON.stringify(CONFIG('dfz')), etag: '"cfg1"' });
+	R2.set(`${root}deploy/index.json`, { body: '{"a":1}', etag: etag() });
+	const proven = { templateConfigEtag: '"tpl1"', projectConfigEtag: '"cfg1"' };
+	let zseq = 0;
+	// Draft ids carry a to-the-second stamp: a clock the block moves keeps "newest" well defined.
+	mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-27T10:00:00Z') });
+	const zq = (runId: string, op: string, input: unknown = {}) => {
+		if (op === 'request_draft') mock.timers.tick(2000);
+		return call('build', op, { runId, agent: 'qa', opId: `${runId}:z:${++zseq}`, input });
+	};
+
+	// The template's published snapshot: the draft's own bundle shape (no config), or a config that
+	// deals a cascade.
+	const publish = (template: string, config: unknown) => {
+		PROJECTS.set(template, project(template));
+		const id = '20260101T000000Z-aaaa';
+		R2.set(`${C}/${template}/published/pointer.json`, {
+			body: JSON.stringify({ version: 1, current: id, snapshots: [] }),
+			etag: etag(),
+		});
+		R2.set(`${C}/${template}/published/${id}/runtime.json`, {
+			body: JSON.stringify({ config, symbols: { index: {}, map: {} } }),
+			etag: etag(),
+		});
+	};
+	publish('tpl_same', null);
+	publish('tpl_moved', CONFIG('tpl_moved'));
+	PROJECTS.set('tpl_never', project('tpl_never'));
+	for (const [id, template] of [
+		['z-same', 'tpl_same'],
+		['z-moved', 'tpl_moved'],
+		['z-never', 'tpl_never'],
+	]) {
+		RUNS.set(id, run(id, { projectKey: 'dfz', templateProjectKey: template, ...proven }));
+	}
+	const zDrafts = () => keysUnder(`${root}director/drafts/`);
+
+	const moved = await zq('z-moved', 'request_draft');
+	check(
+		'a published template whose snapshot contract differs is refused contract_drifted, nothing written',
+		[moved.status, moved.body.error, zDrafts().length],
+		[409, 'contract_drifted', 0],
+	);
+	const same = await zq('z-same', 'request_draft');
+	check(
+		'a published template with the same contract gets its draft',
+		[same.status, typeof same.body.draftId],
+		[200, 'string'],
+	);
+	const never = await zq('z-never', 'request_draft');
+	check(
+		'an unpublished template skips the contract check',
+		[never.status, typeof never.body.draftId],
+		[200, 'string'],
+	);
+
+	// Retention never deletes a draft a queued play references.
+	const idsOf = () => [...new Set(zDrafts().map((k) => k.split('/')[4]))].sort();
+	const held = idsOf()[0];
+	drafts.setDraftPlayer({ submit: async () => {} });
+	RUNS.set(
+		'z-ret',
+		run('z-ret', { projectKey: 'dfz', templateProjectKey: 'tpl_never', ...proven }),
+	);
+	R2.set(`${root}director/drafts/${held}/draft.json`, {
+		body: JSON.stringify({ draftId: held, runId: 'z-ret' }),
+		etag: etag(),
+	});
+	const play = await zq('z-ret', 'play_draft', { draftId: held });
+	await zq('z-never', 'request_draft');
+	await zq('z-never', 'request_draft');
+	check(
+		'retention skips a draft a queued play references, and still prunes the others',
+		[play.body.status, idsOf().includes(held), idsOf().length],
+		['queued', true, 3],
+	);
+	const heldJob = play.body.jobRef as string;
+
+	// Stop: the run's queued play is settled cancelled once, and the player is told.
+	const told: string[] = [];
+	drafts.setDraftPlayer({
+		submit: async () => {},
+		cancel: async (ref: string) => void told.push(ref),
+	});
+	const stopEvents = DRAFT_EVENTS.length;
+	const cancelled = await jobs.cancelRunDraftPlays('z-ret');
+	check(
+		'a stop cancels the queued play through the settle path (one job_done) and tells the player',
+		[
+			cancelled,
+			DRAFT_JOBS.get(heldJob)?.status,
+			DRAFT_JOBS.get(heldJob)?.doneVia,
+			DRAFT_EVENTS.slice(stopEvents).map((e) => e.kind),
+			told,
+		],
+		[1, 'cancelled', 'inline', ['job_done'], [heldJob]],
+	);
+	check(
+		'...a second stop finds nothing to settle and tells the player nothing more',
+		[await jobs.cancelRunDraftPlays('z-ret'), DRAFT_EVENTS.length - stopEvents, told.length],
+		[0, 1, 1],
+	);
+	// The worker's own stop got there first (status flipped, no done_via, no event): the player is
+	// still told, and nothing is settled twice.
+	const workerFlipped = 'dp_00000000000000c1';
+	DRAFT_JOBS.set(workerFlipped, {
+		jobRef: workerFlipped,
+		runId: 'z-ret',
+		agent: 'qa',
+		draftId: held,
+		scenarios: null,
+		status: 'cancelled',
+		result: null,
+		doneVia: null,
+		queuedAt: new Date(),
+		doneAt: new Date(),
+	});
+	const eventsNow = DRAFT_EVENTS.length;
+	await jobs.cancelRunDraftPlays('z-ret');
+	check(
+		"a play the worker's stop already flipped is still cancelled on the player, with no second job_done",
+		[told.at(-1), DRAFT_EVENTS.length - eventsNow],
+		[workerFlipped, 0],
+	);
+	DRAFT_JOBS.delete(workerFlipped);
+	// A /cancel that fails is logged, never thrown.
+	drafts.setDraftPlayer({
+		submit: async () => {},
+		cancel: async () => {
+			throw new Error('player down');
+		},
+	});
+	DRAFT_JOBS.set(workerFlipped, {
+		...DRAFT_JOBS.get(heldJob)!,
+		jobRef: workerFlipped,
+		doneVia: null,
+	});
+	const quietStop = mock.method(console, 'error', () => {});
+	const survived = await jobs.cancelRunDraftPlays('z-ret').then(
+		(n: number) => n,
+		() => 'threw',
+	);
+	quietStop.mock.restore();
+	check('...and an error from /cancel is swallowed', survived, 1);
+	DRAFT_JOBS.delete(workerFlipped);
+
+	// The replay window: a throw after the job row committed must not let a retry insert a second job.
+	drafts.setDraftPlayer(null);
+	RUNS.set(
+		'z-replay',
+		run('z-replay', { projectKey: 'dfz', templateProjectKey: 'tpl_never', ...proven }),
+	);
+	const replayDraft = (await zq('z-replay', 'request_draft')).body.draftId as string;
+	const jobsBefore = DRAFT_JOBS.size;
+	const opId = 'z-replay:z:900';
+	const quietReplay = mock.method(console, 'error', () => {});
+	failDraftReads = 1;
+	const first = await call('build', 'play_draft', {
+		runId: 'z-replay',
+		agent: 'qa',
+		opId,
+		input: { draftId: replayDraft },
+	});
+	failDraftReads = 0;
+	quietReplay.mock.restore();
+	const again = await call('build', 'play_draft', {
+		runId: 'z-replay',
+		agent: 'qa',
+		opId,
+		input: { draftId: replayDraft },
+	});
+	check(
+		'a throw after the no_player job committed still answers, and a replay of the opId finds one job',
+		[
+			first.status,
+			first.body.status,
+			again.replay,
+			again.body.jobRef,
+			DRAFT_JOBS.size - jobsBefore,
+		],
+		[200, 'failed', true, first.body.jobRef, 1],
+	);
+	mock.timers.reset();
+}
+
+// ── ADR-0010: the template-config record, the callback, the player client, the watch ─────
+{
+	const drafts = await import(src('lib/server/director/drafts.ts'));
+	const jobs = await import(src('lib/server/director/draftJobs.ts'));
+	const signing = await import(src('lib/server/director/draftSigning.ts'));
+	const scripts = await import(src('lib/server/director/draftScripts.ts'));
+	// The player's own signer and kind map: a drift between the two sides fails here.
+	const playerSigning = await import('../../../services/draft-player/src/signing.mjs');
+	const plan = await import('../../../scripts/current-games/lib/plan.mjs');
+	const cb = await import(src('lib/server/director/atlasCallback.ts'));
+	const { templateConfigRecord, NO_CONFIG } = await import(
+		src('lib/server/director/configEtag.ts')
+	);
+	const { POST: DRAFT_CALLBACK } = await import(
+		src('routes/api/director/drafts/callback/+server.ts')
+	);
+	const store = await import(src('lib/server/director/store.ts'));
+	const read = (etag: string | null, existed = etag !== null) => ({ etag, existed });
+
+	// Decision 2: no config before and after is proven; a moved config is null.
+	check(
+		'a template with no config before and after is recorded as NO_CONFIG',
+		[templateConfigRecord(read(null), read(null)), NO_CONFIG],
+		['none', 'none'],
+	);
+	check(
+		'...an unchanged config records its ETag; a moved one, or one that appeared, records null',
+		[
+			templateConfigRecord(read('"a"'), read('"a"')),
+			templateConfigRecord(read('"a"'), read('"b"')),
+			templateConfigRecord(read(null), read('"a"')),
+			templateConfigRecord(read('"a"'), read(null)),
+			templateConfigRecord(read(null, true), read(null, true)),
+		],
+		['"a"', null, null, null, null],
+	);
+	PROJECTS.set('dnc', project('dnc'));
+	R2.set('acme/dnc/deploy/index.json', { body: '{}', etag: etag() });
+	RUNS.set(
+		'qnc',
+		run('qnc', { projectKey: 'dnc', templateConfigEtag: NO_CONFIG, projectConfigEtag: null }),
+	);
+	const noConfig = await call('build', 'request_draft', {
+		runId: 'qnc',
+		agent: 'qa',
+		opId: 'qnc:q:1',
+		input: {},
+	});
+	check(
+		'request_draft treats NO_CONFIG as proven when the project still has none',
+		[noConfig.status, typeof noConfig.body.draftId],
+		[200, 'string'],
+	);
+	R2.set('acme/dnc/config/config.json', { body: '{}', etag: '"late"' });
+	RUNS.set(
+		'qnc2',
+		run('qnc2', { projectKey: 'dnc', templateConfigEtag: NO_CONFIG, projectConfigEtag: null }),
+	);
+	const gained = await call('build', 'request_draft', {
+		runId: 'qnc2',
+		agent: 'qa',
+		opId: 'qnc2:q:1',
+		input: {},
+	});
+	check(
+		'...and a config that appeared in the project since is config_drifted',
+		[gained.status, gained.body.error],
+		[409, 'config_drifted'],
+	);
+
+	await store.settleDraftJob({
+		jobRef: 'dp_00000000000000aa',
+		runId: 'qd2',
+		status: 'cancelled',
+		result: null,
+		via: 'inline',
+	});
+
+	// The environment and the player client.
+	const SECRET = 'draft-secret-0123456789abcdef';
+	process.env.ORIGIN = 'https://app.example';
+	delete process.env.DRAFT_PLAYER_URL;
+	delete process.env.DRAFT_PLAYER_SECRET;
+	check('with no DRAFT_PLAYER_URL there is no active player', jobs.activeDraftPlayer(), null);
+	process.env.DRAFT_PLAYER_URL = 'http://player.internal:8080/';
+	check('...a URL without the secret is still none', jobs.activeDraftPlayer(), null);
+	process.env.DRAFT_PLAYER_SECRET = SECRET;
+	check('...both set, a player', jobs.activeDraftPlayer() !== null, true);
+
+	const qdraft = [...R2.entries()].find(
+		([k, v]) => k.endsWith('/draft.json') && JSON.parse(v.body).runId === 'qd2',
+	)!;
+	const draftId2 = JSON.parse(qdraft[1].body).draftId as string;
+	R2.set('test_server/_runtime/lines@1.4.0/index.html', { body: '<html>', etag: etag() });
+	const sent: { url: string; init: RequestInit }[] = [];
+	const http = jobs.createHttpDraftPlayer({
+		url: 'http://player.internal:8080',
+		secret: SECRET,
+		fetch: async (url: string, init: RequestInit) => {
+			sent.push({ url, init });
+			if (url.endsWith('/play')) return new Response('{}', { status: 202 });
+			return new Response(JSON.stringify({ jobRef: 'dp_x', status: 'unknown' }), { status: 200 });
+		},
+	});
+	const playJob = {
+		jobRef: 'dp_00000000000000c1',
+		runId: 'qd2',
+		clientKey: C,
+		projectKey: 'dfx',
+		gameType: 'lines',
+		draftId: draftId2,
+		scenarios: ['base'],
+	};
+	// An earlier play's report and shots sit in the draft folder; the player is not handed them.
+	for (const f of ['report.json', 'base-boot.png']) {
+		R2.set(`${C}/dfx/director/drafts/${draftId2}/plays/dp_00000000000000b0/${f}`, {
+			body: 'old',
+			etag: etag(),
+		});
+	}
+	await http.submit(playJob);
+	const posted = sent[0];
+	const body = JSON.parse(posted.init.body as string);
+	const cbUrl = 'https://app.example/api/director/drafts/callback?run=qd2';
+	const headerOf = (init: RequestInit) =>
+		(init.headers as Record<string, string>)['x-draft-signature'];
+	check(
+		'submit POSTs <url>/play, signed the way the player verifies it',
+		[
+			posted.url,
+			playerSigning.verifyRequest(SECRET, 'POST', '/play', posted.init.body, headerOf(posted.init)),
+			playerSigning.verifyRequest(
+				SECRET,
+				'POST',
+				'/cancel',
+				posted.init.body,
+				headerOf(posted.init),
+			),
+		],
+		['http://player.internal:8080/play', true, false],
+	);
+	check(
+		'...the body is the player contract: kind, contract, scenarios, draft and runtime files',
+		[
+			body.jobRef,
+			body.kind,
+			body.scenarios,
+			typeof body.contract,
+			body.draft.files.map((f: { path: string }) => f.path).sort(),
+			body.runtime.version,
+			body.runtime.commit,
+			body.runtime.files.map((f: { path: string }) => f.path),
+			[...body.draft.files, ...body.runtime.files].every((f: { url: string }) =>
+				f.url.startsWith('https://r2.example/get/'),
+			),
+		],
+		[
+			playJob.jobRef,
+			'lines',
+			['base'],
+			'object',
+			['deploy/_pages/p1.png', 'deploy/index.json', 'draft.json', 'runtime.json'],
+			'1.4.0',
+			'abc1234567',
+			['index.html'],
+			true,
+		],
+	);
+	const baseShots = scripts
+		.screenshotSlots('lines', ['base'])
+		.map((x: { scenario: string; screen: string }) => `${x.scenario}/${x.screen}`);
+	check(
+		'...presigned PUTs for the report and one shot per captured screen, keys under plays/<jobRef>/',
+		[
+			body.put.report.includes(`plays/${playJob.jobRef}/report.json`),
+			body.put.shots.map((x: { scenario: string; screen: string }) => `${x.scenario}/${x.screen}`),
+			body.put.shots.every(
+				(x: { key: string; url: string }) =>
+					x.key.includes(`/plays/${playJob.jobRef}/`) && x.url.includes(x.key),
+			),
+			baseShots.length > 0 && baseShots.length <= 40,
+		],
+		[true, baseShots, true, true],
+	);
+	check(
+		'...and a callback bound to this run, under the draft scope only',
+		[
+			body.callback.url,
+			cb.verifyCallbackToken(SECRET, cbUrl, body.callback.token, Date.now(), cb.DRAFT_TOKEN_SCOPE),
+			cb.verifyCallbackToken(SECRET, cbUrl, body.callback.token),
+			cb.verifyCallbackToken(
+				SECRET,
+				cbUrl.replace('qd2', 'qd1'),
+				body.callback.token,
+				Date.now(),
+				cb.DRAFT_TOKEN_SCOPE,
+			),
+		],
+		[cbUrl, true, false, false],
+	);
+	{
+		const target = '/progress?jobRef=dp_x';
+		const now = Date.now();
+		const mine = signing.signDraftRequest(SECRET, 'GET', target, '', now);
+		check(
+			'the launcher signer and the player signer agree, both ways, and refuse the wrong request or a stale clock',
+			[
+				mine === playerSigning.signRequest(SECRET, 'GET', target, '', now),
+				playerSigning.verifyRequest(SECRET, 'GET', target, '', mine, now),
+				signing.verifyDraftRequest(
+					SECRET,
+					'POST',
+					'/cb?run=r',
+					'{"a":1}',
+					playerSigning.signRequest(SECRET, 'POST', '/cb?run=r', '{"a":1}', now),
+					now,
+				),
+				signing.verifyDraftRequest(SECRET, 'POST', '/cb?run=r', '{"a":2}', mine, now),
+				signing.verifyDraftRequest(SECRET, 'GET', '/progress?jobRef=dp_y', '', mine, now),
+				signing.verifyDraftRequest(SECRET, 'GET', target, '', mine, now + 301_000),
+				signing.verifyDraftRequest('other', 'GET', target, '', mine, now),
+				signing.verifyDraftRequest(SECRET, 'GET', target, '', undefined, now),
+				signing.SIGNATURE_TOLERANCE_SECONDS === playerSigning.SIGNATURE_TOLERANCE_SECONDS,
+				signing.SIGNATURE_HEADER === playerSigning.SIGNATURE_HEADER,
+			],
+			[true, true, true, false, false, false, false, false, true, true],
+		);
+	}
+	check(
+		'the screenshot script map follows the harness: every kind picks the same script',
+		[
+			'lines',
+			'bookOf',
+			'holdAndWin',
+			'ways',
+			'cluster',
+			'scatter',
+			'match3',
+			'arcade',
+			'custom',
+		].filter((k) => scripts.scriptNameFor(k) !== plan.scriptFor(k)),
+		[],
+	);
+	check('...and never carries the secret', (posted.init.body as string).includes(SECRET), false);
+	sent.length = 0;
+	check(
+		'/progress is a signed GET (empty body) and a job the player does not know is "unknown"',
+		[
+			await http.progress!('dp_x'),
+			sent[0].url,
+			sent[0].init.method,
+			playerSigning.verifyRequest(
+				SECRET,
+				'GET',
+				'/progress?jobRef=dp_x',
+				'',
+				headerOf(sent[0].init),
+			),
+		],
+		[
+			{ jobRef: 'dp_x', status: 'unknown' },
+			'http://player.internal:8080/progress?jobRef=dp_x',
+			'GET',
+			true,
+		],
+	);
+	await http.cancel!('dp_x');
+	check(
+		'cancel is a signed POST /cancel',
+		[
+			sent[1].url.endsWith('/cancel'),
+			playerSigning.verifyRequest(
+				SECRET,
+				'POST',
+				'/cancel',
+				sent[1].init.body,
+				headerOf(sent[1].init),
+			),
+		],
+		[true, true],
+	);
+	const refusing = jobs.createHttpDraftPlayer({
+		url: 'http://player.internal:8080',
+		secret: SECRET,
+		fetch: async () => new Response('{}', { status: 500 }),
+	});
+	let refusedPlay = '';
+	await refusing.submit(playJob).catch((e: Error) => (refusedPlay = e.message));
+	check(
+		'a player that does not answer 202 fails the submit',
+		refusedPlay,
+		'the draft player answered 500 to /play',
+	);
+	delete process.env.DRAFT_PLAYER_URL;
+
+	// The callback route.
+	const queueFor = async (runId: string, jobRef: string) => {
+		const q = await store.insertDraftJob({
+			jobRef,
+			runId,
+			agent: 'qa',
+			draftId: draftId2,
+			scenarios: null,
+		});
+		return q.job;
+	};
+	const callback = async (
+		runId: string,
+		payload: unknown,
+		over: { token?: string; sign?: boolean; secret?: string } = {},
+	) => {
+		const raw = JSON.stringify(payload);
+		const token =
+			over.token ??
+			cb.mintCallbackToken(
+				SECRET,
+				cbUrl.replace('qd2', runId),
+				600,
+				Date.now(),
+				cb.DRAFT_TOKEN_SCOPE,
+			);
+		const request = new Request(`https://app.example/api/director/drafts/callback?run=${runId}`, {
+			method: 'POST',
+			headers: {
+				authorization: `Bearer ${token}`,
+				'x-draft-signature':
+					over.sign === false
+						? 't=1,v1=00'
+						: playerSigning.signRequest(
+								SECRET,
+								'POST',
+								`/api/director/drafts/callback?run=${runId}`,
+								raw,
+							),
+			},
+			body: raw,
+		});
+		const res: Response = await DRAFT_CALLBACK({
+			request,
+			url: new URL(request.url),
+		} as never);
+		return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+	};
+	await queueFor('qd2', 'dp_00000000000000d1');
+	const report = {
+		jobRef: 'dp_00000000000000d1',
+		status: 'finished',
+		report: { scenarios: [], seconds: 3 },
+	};
+	const evBefore = DRAFT_EVENTS.length;
+	check(
+		'the callback with a bad signature, or an atlas-scope token, is a 400 and settles nothing',
+		[
+			(await callback('qd2', report, { sign: false })).status,
+			(
+				await callback('qd2', report, {
+					token: cb.mintCallbackToken(SECRET, cbUrl, 600),
+				})
+			).status,
+			DRAFT_JOBS.get('dp_00000000000000d1')?.status,
+		],
+		[400, 400, 'queued'],
+	);
+	check(
+		'a callback for another run (token bound to its own URL) is a 400',
+		(
+			await callback('qd1', report, {
+				token: cb.mintCallbackToken(SECRET, cbUrl, 600, Date.now(), cb.DRAFT_TOKEN_SCOPE),
+			})
+		).status,
+		400,
+	);
+	const okCb = await callback('qd2', report);
+	const dup = await callback('qd2', report);
+	check(
+		'a signed callback settles once (one job_done) and a redelivery answers 200 recorded:false',
+		[
+			okCb.status,
+			okCb.body.recorded,
+			dup.status,
+			dup.body.recorded,
+			DRAFT_EVENTS.length - evBefore,
+			DRAFT_JOBS.get('dp_00000000000000d1')?.doneVia,
+		],
+		[200, true, 200, false, 1, 'callback'],
+	);
+	check(
+		'an unknown job is a 404 so the player keeps it',
+		(await callback('qd2', { jobRef: 'dp_00000000000000ff', status: 'finished' })).status,
+		404,
+	);
+	check(
+		'a non-final status is a 400',
+		(await callback('qd2', { jobRef: 'dp_00000000000000d1', status: 'cancelled' })).status,
+		400,
+	);
+	delete process.env.DRAFT_PLAYER_SECRET;
+	check('with no secret the route is a 503', (await callback('qd2', report)).status, 503);
+	process.env.DRAFT_PLAYER_SECRET = SECRET;
+
+	// The fallback watch.
+	const watch = async (
+		runId: string,
+		jobRef: string,
+		views: ({ status: string; result?: object } | Error)[],
+		opts: { age?: number; callbackFirst?: boolean; cancelThrows?: boolean } = {},
+	) => {
+		const job = await queueFor(runId, jobRef);
+		const cancelled: string[] = [];
+		let clock = job.queuedAt.getTime() + (opts.age ?? 0) * 1000;
+		const slept: number[] = [];
+		const resubmitted: string[] = [];
+		const done = await jobs.watchDraftJob(job, {
+			sleep: async (ms: number) => {
+				slept.push(ms / 1000);
+				clock += ms;
+				if (opts.callbackFirst)
+					await store.settleDraftJob({
+						jobRef,
+						runId,
+						status: 'finished',
+						result: {},
+						via: 'callback',
+					});
+			},
+			now: () => clock,
+			progress: async () => {
+				const v = views.shift();
+				if (!v) throw new Error('no more views');
+				if (v instanceof Error) throw v;
+				return v;
+			},
+			resubmit: async (ref: string) => void resubmitted.push(ref),
+			cancel: async (ref: string) => {
+				cancelled.push(ref);
+				if (opts.cancelThrows) throw new Error('the player is gone');
+			},
+		});
+		return { done, slept, resubmitted, cancelled, row: DRAFT_JOBS.get(jobRef)! };
+	};
+	const w1 = await watch('qd2', 'dp_00000000000000e1', [
+		{ status: 'running' },
+		{ status: 'finished', report: { scenarios: [1] } },
+	]);
+	check(
+		'the watch reads on a 60/120 s backoff and settles a finished play via poll',
+		[w1.slept, w1.row.status, w1.row.doneVia, w1.row.result],
+		[[60, 120], 'finished', 'poll', { scenarios: [1] }],
+	);
+	const w2 = await watch('qd2', 'dp_00000000000000e2', [
+		{ status: 'unknown' },
+		{ status: 'finished', report: {} },
+	]);
+	check(
+		'a player that does not know the job gets it once more, then settles it',
+		[w2.resubmitted, w2.row.status],
+		[['dp_00000000000000e2'], 'finished'],
+	);
+	const w3 = await watch('qd2', 'dp_00000000000000e3', [
+		{ status: 'unknown' },
+		{ status: 'unknown' },
+	]);
+	check(
+		'unknown again after the resubmit is failed player_lost',
+		[w3.resubmitted.length, w3.row.status, (w3.row.result as { reason: string }).reason],
+		[1, 'failed', 'player_lost'],
+	);
+	const w4 = await watch('qd2', 'dp_00000000000000e4', [new Error('down')], { age: 31 * 60 });
+	check(
+		'30 minutes after queueing the play is failed timeout, even when the player is unreachable',
+		[w4.row.status, (w4.row.result as { reason: string }).reason],
+		['failed', 'timeout'],
+	);
+	check(
+		'a play the watch fails (player_lost, timeout) is also cancelled on the player; a settled one is not',
+		[w3.cancelled, w4.cancelled, w1.cancelled, w2.cancelled],
+		[['dp_00000000000000e3'], ['dp_00000000000000e4'], [], []],
+	);
+	const quietCancel = mock.method(console, 'error', () => {});
+	const w4b = await watch('qd2', 'dp_00000000000000e7', [new Error('down')], {
+		age: 31 * 60,
+		cancelThrows: true,
+	});
+	quietCancel.mock.restore();
+	check(
+		'...and a /cancel that throws is logged and never breaks the settle',
+		[w4b.cancelled, w4b.row.status, (w4b.row.result as { reason: string }).reason],
+		[['dp_00000000000000e7'], 'failed', 'timeout'],
+	);
+	const w5 = await watch('qd2', 'dp_00000000000000e5', [{ status: 'running' }], {
+		callbackFirst: true,
+	});
+	check(
+		'the watch stops once the callback has settled the play',
+		[w5.done, w5.row.doneVia],
+		[null, 'callback'],
+	);
+	const w6 = await watch('qd2', 'dp_00000000000000e6', [
+		new Error('blip'),
+		{ status: 'failed', error: 'x' },
+	]);
+	check(
+		'a read that fails is retried, not settled',
+		[w6.slept.length, w6.row.status],
+		[2, 'failed'],
+	);
+
+	// Boot re-arm.
+	for (const [ref, runId] of [
+		['dp_00000000000000f1', 'qd2'],
+		['dp_00000000000000f2', 'qd1'],
+	]) {
+		DRAFT_JOBS.set(ref, {
+			jobRef: ref,
+			runId,
+			agent: 'qa',
+			draftId: draftId2,
+			scenarios: null,
+			status: 'queued',
+			result: null,
+			doneVia: null,
+			queuedAt: new Date(),
+			doneAt: null,
+		});
+	}
+	const armed: string[] = [];
+	drafts.setDraftPlayer({
+		submit: async () => {},
+		progress: async () => ({ status: 'running' as const }),
+	});
+	const count = await jobs.resumeDraftJobWatches(
+		(job: { jobRef: string }) => void armed.push(job.jobRef),
+		async () => {},
+	);
+	check(
+		'boot arms a watch for every queued play',
+		[count, armed.filter((r) => r.startsWith('dp_00000000000000f')).sort()],
+		[armed.length, ['dp_00000000000000f1', 'dp_00000000000000f2']],
+	);
+	drafts.setDraftPlayer(null);
+	delete process.env.DRAFT_PLAYER_SECRET;
+	await jobs.resumeDraftJobWatches(
+		() => {},
+		async () => {},
+	);
+	check(
+		'...with no player deployed a queued play is settled no_player instead',
+		[
+			DRAFT_JOBS.get('dp_00000000000000f1')?.status,
+			(DRAFT_JOBS.get('dp_00000000000000f1')?.result as { reason: string }).reason,
+		],
+		['failed', 'no_player'],
+	);
 }
 
 console.log(`director-adapters: ${checks - failures}/${checks} checks passed`);

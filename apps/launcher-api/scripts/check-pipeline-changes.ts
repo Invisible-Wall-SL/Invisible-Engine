@@ -2524,9 +2524,9 @@ check(
 	);
 	const qaNames = frontOf(AGENT_TEXTS.get('qa') as string).tools;
 	check(
-		'rules: qa is served the ops it names, bar the build.* and run.* ones',
+		'rules: qa is served the ops it names, bar the run.* ones',
 		agents.agentEditRules('qa').fixedAdapterTools,
-		qaNames.filter((t) => !/^(build|run)\./.test(t)).sort(),
+		qaNames.filter((t) => !/^run\./.test(t)).sort(),
 	);
 	check(
 		'rules: the real definitions meet their own, both ways',
@@ -4217,7 +4217,10 @@ check('a Pipeline Tester sees the agents', listed.status, 200);
 	check(
 		'qa: its rules say which adapter ops its definition must keep',
 		[d.rules.fixedAdapterTools, d.openChanges],
-		[['atlas.get_variant_image', 'atlas.sheet_stats'], []],
+		[
+			['atlas.get_variant_image', 'atlas.sheet_stats', 'build.play_draft', 'build.request_draft'],
+			[],
+		],
 	);
 }
 

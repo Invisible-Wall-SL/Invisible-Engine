@@ -344,6 +344,18 @@ fake('lib/server/director/atlasClient.ts', {
 	},
 });
 
+// The owner's stop also cancels the run's queued QA plays (ADR-0010 §3); the cancel itself is
+// `check:director-adapters`' business, here only that the stop asks for it, once, and survives a failure.
+const CANCELLED_PLAYS: string[] = [];
+let cancelPlaysFails = false;
+fake('lib/server/director/draftJobs.ts', {
+	cancelRunDraftPlays: async (runId: string) => {
+		CANCELLED_PLAYS.push(runId);
+		if (cancelPlaysFails) throw new Error('fixture: cancel failed');
+		return 0;
+	},
+});
+
 // The duplicate path: a new project row and a marker object, or a failure on demand.
 let failNextDuplicate = false;
 let duplicates = 0;
@@ -2696,6 +2708,28 @@ console.log('pending project');
 		(await create(ART, createBody({ key: 'lagoon', requestId: 'lagoon-0002' }))).status,
 		201,
 	);
+}
+
+console.log('stop cancels draft plays');
+{
+	seedMockups('stopper', [], null);
+	const made = await create(OWNER, createBody({ key: 'stopper', requestId: 'stopper-0001' }));
+	const id = runsMod.runIdFor('owner', 'stopper-0001');
+	const mine = () => CANCELLED_PLAYS.filter((r) => r === id).length;
+	const rid = requestId();
+	const stop = await act(OWNER, id, { action: 'stop', requestId: rid });
+	const resend = await act(OWNER, id, { action: 'stop', requestId: rid });
+	check(
+		'a stop cancels the run’s draft plays once; a replayed stop does not',
+		[made.status, stop.status, resend.body.replayed, mine()],
+		[201, 200, true, 1],
+	);
+	cancelPlaysFails = true;
+	const quiet = mock.method(console, 'error', () => {});
+	const failing = await act(OWNER, id, { action: 'stop', requestId: requestId() });
+	quiet.mock.restore();
+	cancelPlaysFails = false;
+	check('…and a failing cancel never fails the stop', [failing.status, mine()], [200, 2]);
 }
 
 console.log('key lock');

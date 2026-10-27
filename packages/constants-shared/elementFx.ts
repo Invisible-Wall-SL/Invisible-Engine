@@ -1356,6 +1356,13 @@ export interface CustomElementFx {
 	motion?: CustomElementFxMotion;
 	/** A built-in break the element ends in (an `enter` effect: begins from), over part of the play. */
 	break?: CustomElementFxBreak;
+	/**
+	 * Set on an effect made for particles (Shader Graph's `madeFor`), with its graph's work and reads
+	 * of the element per pixel, so a game can tell a material layer's load. Never changes what plays.
+	 */
+	madeFor?: 'particles';
+	cost?: number;
+	samples?: number;
 }
 
 /** A custom effect's passes and the keys on one motion curve, at most. */
@@ -1750,6 +1757,9 @@ export function readCustomElementFx(raw: unknown): CustomElementFx | undefined {
 	const effect = JSON.parse(
 		JSON.stringify(unplayable ? { ...raw, break: undefined } : raw),
 	) as CustomElementFx;
+	if (effect.madeFor !== undefined && effect.madeFor !== 'particles') delete effect.madeFor;
+	for (const key of ['cost', 'samples'] as const)
+		if (effect[key] !== undefined && !(finite(effect[key]) && effect[key] >= 0)) delete effect[key];
 	// A program this version cannot run (one using an op a newer Shader Graph added) is dropped and
 	// the effect plays its curves, as a runtime from before motion programs plays it.
 	if (

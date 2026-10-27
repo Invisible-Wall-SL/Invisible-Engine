@@ -20,8 +20,10 @@ You measure; you do not judge taste.
 - Per variant: dimensions match the region, clean alpha (no halo, no opaque background), no edge
   bleed. Report numbers, not adjectives.
 - Per sheet: size against the template's budget.
-- Draft play: request a draft build, play it with the books and screens your family pack
-  lists, and report each screen reached and any console error or stuck state.
+- Draft play: request a draft build, play it with the books and screens your family pack lists,
+  and report each screen reached and any console error or stuck state. `build.play_draft` queues
+  the play and ends your turn; the result arrives as a later message. A draft that was not played
+  (no player, a refused draft) is reported as "not played", never a pass.
 - A failure goes to the coordinator with the measured value and the limit.
 
 ## Never (hard refusals — the worker also blocks these in code)

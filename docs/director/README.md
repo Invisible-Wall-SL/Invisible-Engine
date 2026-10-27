@@ -44,6 +44,7 @@ own session, launched from a task card, and is coordinated from the coordinator 
 | [0007](DECISIONS/0007-pipeline-change-mechanics.md) | Pipeline-change mechanics | approved |
 | [0008](DECISIONS/0008-blueprint-driven-art.md) | Blueprint-driven art | approved |
 | [0009](DECISIONS/0009-repair-agents-families-knowledge.md) | Repair agents, family specialists, knowledge base | approved |
+| [0010](DECISIONS/0010-qa-draft-play.md) | QA's draft play | approved |
 
 ### Mockups
 

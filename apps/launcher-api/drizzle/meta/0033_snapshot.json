@@ -1,5 +1,5 @@
 {
-  "id": "2fdcdbbd-defe-4a31-8787-a0238a95e6c3",
+  "id": "8c60fc92-9c59-4196-a67d-336be18a9a3e",
   "prevId": "39c7626b-96e3-43ab-8e25-db0614c78e44",
   "version": "7",
   "dialect": "postgresql",
@@ -828,6 +828,119 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.director_draft_jobs": {
+      "name": "director_draft_jobs",
+      "schema": "",
+      "columns": {
+        "job_ref": {
+          "name": "job_ref",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent": {
+          "name": "agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "draft_id": {
+          "name": "draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scenarios": {
+          "name": "scenarios",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "result": {
+          "name": "result",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "done_via": {
+          "name": "done_via",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "queued_at": {
+          "name": "queued_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "done_at": {
+          "name": "done_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "director_draft_jobs_run_idx": {
+          "name": "director_draft_jobs_run_idx",
+          "columns": [
+            {
+              "expression": "run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "director_draft_jobs_run_id_director_runs_id_fk": {
+          "name": "director_draft_jobs_run_id_director_runs_id_fk",
+          "tableFrom": "director_draft_jobs",
+          "tableTo": "director_runs",
+          "columnsFrom": [
+            "run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "director_draft_jobs_status_check": {
+          "name": "director_draft_jobs_status_check",
+          "value": "\"director_draft_jobs\".\"status\" in ('queued', 'finished', 'failed', 'cancelled')"
+        },
+        "director_draft_jobs_done_check": {
+          "name": "director_draft_jobs_done_check",
+          "value": "(\"director_draft_jobs\".\"status\" = 'queued') = (\"director_draft_jobs\".\"done_at\" is null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.director_events": {
       "name": "director_events",
       "schema": "",
@@ -1286,12 +1399,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "family": {
-          "name": "family",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
         "owner_user_id": {
           "name": "owner_user_id",
           "type": "text",
@@ -1422,10 +1529,6 @@
         "director_runs_status_check": {
           "name": "director_runs_status_check",
           "value": "\"director_runs\".\"status\" in ('draft', 'running', 'waiting', 'paused', 'stopping', 'stopped', 'failed', 'handed_off')"
-        },
-        "director_runs_family_check": {
-          "name": "director_runs_family_check",
-          "value": "\"director_runs\".\"family\" in ('slot', 'match3', 'arcade')"
         },
         "director_runs_step_check": {
           "name": "director_runs_step_check",

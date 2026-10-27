@@ -6,6 +6,7 @@ import { startCostRecorder } from '$lib/server/costs/recorder';
 import { runMigrations } from '$lib/server/db/migrate';
 import { DEPLOY_CORS_HEADERS } from '$lib/server/deployServe';
 import { resumeAtlasJobWatches } from '$lib/server/director/atlasJobs';
+import { resumeDraftJobWatches } from '$lib/server/director/draftJobs';
 import { captureServerError, initServerErrorTracking } from '$lib/server/errorTracking';
 import { startRunpodIdleWatchdog } from '$lib/server/runpodWatchdog';
 import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit';
@@ -21,6 +22,7 @@ export const init: ServerInit = async () => {
 	await initServerErrorTracking();
 	await runMigrations();
 	resumeAtlasJobWatches().catch((e) => console.error('director atlas jobs: not re-armed:', e));
+	resumeDraftJobWatches().catch((e) => console.error('director draft jobs: not re-armed:', e));
 	startRunpodIdleWatchdog();
 	startCostRecorder();
 };

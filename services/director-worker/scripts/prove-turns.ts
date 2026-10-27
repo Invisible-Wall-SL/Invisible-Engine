@@ -264,6 +264,7 @@ const AGENTS = new Map([
 		),
 	],
 	['atlas-artist', agent('atlas-artist', ['atlas.queue_variants', 'run.post_activity'])],
+	['qa', agent('qa', ['run.submit_qa'])],
 	[
 		'art-director',
 		agent('art-director', [
@@ -1798,6 +1799,73 @@ try {
 			'six 3 MB images: the byte cap keeps the newest 4 (12 MB)',
 			imagesOf(await runWith(6, 'A'.repeat(3 * 1024 * 1024))),
 			4,
+		);
+	}
+
+	// ── 30. A QA draft play ───────────────────────────────────────────────────
+	console.log(
+		'30. a draft play job_done is told to QA, never billed; submit_qa reaches the coordinator',
+	);
+	{
+		const runId = await newRun({ step: 'regions' });
+		await userMessage(runId, 'qa', 'Play the draft.');
+		await event(
+			runId,
+			'qa',
+			'job_done',
+			{
+				jobRef: 'dp_0000000000000001',
+				draftId: '20261027T101530Z-3fa9',
+				status: 'failed',
+				via: 'inline',
+				result: {
+					reason: 'no_player',
+					message: 'No draft player is deployed, so the draft was not played.',
+				},
+			},
+			'build.play_draft',
+		);
+		const model = fakeModel([
+			{
+				content: [use('s1', 'run.submit_qa', { summary: 'Draft not played.', findings: [] })],
+			},
+			{ content: [say('Reported.')] },
+			{ content: [say('Noted.')] },
+			{ content: [say('Noted again.')] },
+		]);
+		await drive(runId, deps(model.transport, fakeLauncher().launcher));
+		check(
+			'the play was told to QA as not played',
+			JSON.stringify((await messages(runId, 'qa'))[1]?.content).includes('NOT played'),
+			true,
+		);
+		check(
+			'it was not billed: no spend row and no unbilled_job error',
+			[
+				(await spendRows(runId)).filter((r) => r.kind === 'runpod').length,
+				(await events(runId, 'error')).length,
+			],
+			[0, 0],
+		);
+		check(
+			"QA's submit_qa reached the coordinator",
+			(await messages(runId, 'coordinator')).some((m) =>
+				JSON.stringify(m.content).includes('QA results from qa'),
+			),
+			true,
+		);
+
+		const stopping = await newRun({ step: 'regions' });
+		await sql`insert into director_draft_jobs (job_ref, run_id, agent, draft_id, status)
+			values ('dp_0000000000000002', ${stopping}, 'qa', '20261027T101530Z-3fa9', 'queued')`;
+		await event(stopping, 'owner', 'owner_request', { action: 'stop' });
+		await drive(stopping, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		const [job] = await sql<{ status: string }[]>`
+			select status from director_draft_jobs where run_id = ${stopping}`;
+		check(
+			'a stop cancels a queued play and is not held open by it',
+			[job.status, (await runRow(stopping)).status],
+			['cancelled', 'stopped'],
 		);
 	}
 
