@@ -55,12 +55,17 @@ import {
 	PARTICLE_VERTEX,
 	particleShellSource,
 } from 'constants-shared/particleShell';
-import { DEFAULT_EMIT_SPEED, FX_MATERIAL_KEYS, bindFxMaterial } from 'engine-fx';
+import {
+	DEFAULT_EMIT_SPEED,
+	FX_MATERIAL_KEYS,
+	FX_MATERIAL_PARTICLE_CAP,
+	bindFxMaterial,
+} from 'engine-fx';
 import type { EmitterConfigV3 } from '@barvynkoa/particle-emitter';
 import { programLinks } from '../elementFx/shaders';
 
 /** The most particles a material layer draws (design §10): a layer allowing more draws plain. */
-export const PARTICLE_MATERIAL_CAPACITY = 512;
+export const PARTICLE_MATERIAL_CAPACITY = FX_MATERIAL_PARTICLE_CAP;
 
 /** Why a material layer draws as plain sprites. */
 export type ParticleMaterialPlain =
@@ -190,6 +195,8 @@ export class ParticleMaterial {
 	private readonly onPlain: ParticleMaterialOptions['onPlain'];
 	private readonly lengthSeconds: number;
 	private readonly padding: number;
+	private covered = 0;
+	private peakCovered = 0;
 
 	constructor(options: ParticleMaterialOptions) {
 		const { host, effect } = options;
@@ -291,6 +298,20 @@ export class ParticleMaterial {
 		this.host.addChildAt(this.mesh, this.host.getChildIndex(this.particles) + 1);
 	}
 
+	/**
+	 * The pixels the last mirrored frame's quads cover, padding and overdraw included, in the layer's
+	 * own pixels (the host's space, so a zoom above it does not move it): × the graph's cost, the
+	 * layer's load (design §10).
+	 */
+	get coveredArea(): number {
+		return this.covered;
+	}
+
+	/** The most {@link coveredArea} has been since the material mounted. */
+	get peakCoveredArea(): number {
+		return this.peakCovered;
+	}
+
 	/** Undefined while the material draws; otherwise why the layer is plain. */
 	get plain(): ParticleMaterialPlain | undefined {
 		return this.plainBecause;
@@ -382,6 +403,7 @@ export class ParticleMaterial {
 		let maxY = -Infinity;
 		const looping = this.looping ? 1 : 0;
 		let live = 0;
+		let covered = 0;
 		for (let i = 0; i < count; i++) {
 			const p = children[i] as MaterialParticle;
 			if (!p.visible) continue;
@@ -422,6 +444,7 @@ export class ParticleMaterial {
 			const order = (config[FX_MATERIAL_KEYS.order] as number | undefined) ?? 0;
 			const frameW = w * Math.sqrt(a * a + b * b);
 			const frameH = h * Math.sqrt(c * c + d * d);
+			covered += Math.abs(a * d - b * c) * (w + 2 * room) * (h + 2 * room);
 			for (let k = 0; k < 4; k++) {
 				const v = (live * 4 + k) * STRIDE;
 				const u = ACROSS[k] ? 1 + padU : -padU;
@@ -465,6 +488,8 @@ export class ParticleMaterial {
 			live++;
 		}
 		mesh.visible = live > 0;
+		this.covered = covered;
+		if (covered > this.peakCovered) this.peakCovered = covered;
 		if (!live) return geometry.live.set(0, 0, 0, 0);
 		geometry.live.set(minX, minY, maxX, maxY);
 		geometry.indexCount = live * 6;

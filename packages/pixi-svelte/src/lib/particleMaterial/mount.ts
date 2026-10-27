@@ -13,7 +13,9 @@
  * sprites shown for good and gives its slot back. A renderer whose construction throws gives its
  * slot back before the error goes on.
  *
- * `?fxdebug=1` on the page logs each material layer's state as it mounts and when it turns plain.
+ * `?fxdebug=1` on the page logs each material layer's state as it mounts and when it turns plain,
+ * and, when a drawing layer is released, the most pixels its quads covered at once (× the graph's
+ * cost, its peak load; design §10).
  */
 
 import { customElementFx } from 'constants-shared/elementFx';
@@ -62,6 +64,14 @@ let debugging: boolean | undefined;
 const debug = (): boolean =>
 	(debugging ??=
 		typeof location !== 'undefined' && new URLSearchParams(location.search).has('fxdebug'));
+
+/** Covered pixels for a debug line: `1.24 Mpx`, `86.0 kpx`, `512 px`. */
+const coveredText = (px: number): string =>
+	px >= 1e6
+		? `${(px / 1e6).toFixed(2)} Mpx`
+		: px >= 1e3
+			? `${(px / 1e3).toFixed(1)} kpx`
+			: `${Math.round(px)} px`;
 
 function report(spec: ParticleMaterialSpec, state: string, slots: FxMaterialSlots): void {
 	if (!debug()) return;
@@ -134,8 +144,10 @@ export function mountParticleMaterial(options: {
 		material,
 		state: 'on',
 		release: () => {
+			const peak = material.peakCoveredArea;
 			material.destroy();
 			giveBack();
+			report(spec, `released, its peak ${coveredText(peak)} covered`, slots);
 		},
 	};
 }

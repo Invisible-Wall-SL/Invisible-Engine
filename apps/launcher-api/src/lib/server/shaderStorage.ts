@@ -1,5 +1,6 @@
-import type { CustomElementFx } from 'constants-shared/elementFx';
+import { customElementFxKind, type CustomElementFx } from 'constants-shared/elementFx';
 import {
+	analyzeShaderGraph,
 	compileShaderEffect,
 	customGlslSignature,
 	hasCustomGlsl,
@@ -173,6 +174,36 @@ export async function compileProjectShaders(
 	projectKey: string,
 ): Promise<CompiledShaderSet> {
 	return compileShaderSet((await loadShaderSet(clientKey, projectKey)).map((s) => s.doc));
+}
+
+/** What a tool drawing a compiled effect reads beside it, which the effect itself does not carry. */
+export interface ShaderGraphCost {
+	id: string;
+	/** From the studio-shared library: `/shaders` opens it with `&shared=1`. */
+	shared: boolean;
+	/** Work and reads of the element per pixel (`analyzeShaderGraph`). */
+	cost: number;
+	samples: number;
+}
+
+/**
+ * The project's set compiled (`compileProjectShaders`), plus each compiled graph's cost and where
+ * it lives: what `GET /api/shaders/effects` answers. `/fx` weighs a material's load with the cost.
+ */
+export async function compileProjectShadersWithCosts(
+	clientKey: string,
+	projectKey: string,
+): Promise<CompiledShaderSet & { costs: ShaderGraphCost[] }> {
+	const set = await loadShaderSet(clientKey, projectKey);
+	const compiled = compileShaderSet(set.map((s) => s.doc));
+	const kinds = new Set<string>(compiled.effects.map((e) => e.spec.kind));
+	const costs = set
+		.filter(({ doc }) => kinds.has(customElementFxKind(doc.id)))
+		.map(({ doc, shared }) => {
+			const { cost, samples } = analyzeShaderGraph(doc);
+			return { id: doc.id, shared, cost, samples };
+		});
+	return { ...compiled, costs };
 }
 
 /**

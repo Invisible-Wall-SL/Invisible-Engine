@@ -48,6 +48,7 @@ import {
 	setCustomElementFx,
 } from 'constants-shared/elementFx';
 import {
+	analyzeShaderGraph,
 	CUSTOM_GLSL,
 	CUSTOM_GLSL_DEFAULT,
 	REFERENCE_GRAPHS,
@@ -459,6 +460,24 @@ check(
 		(compiledForEditor.body.skipped as { id: string }[]).map((s) => s.id),
 	],
 	[3, ['broken']],
+);
+check(
+	"…with each compiled graph's cost and whether it is the studio library's, for /fx's load meter",
+	(compiledForEditor.body.costs as { id: string; shared: boolean; cost: number }[]).map((c) => [
+		c.id,
+		c.shared,
+		c.cost ===
+			analyzeShaderGraph(
+				normalizeShaderGraphDoc(
+					stored(c.shared ? `${SHARED_SHADERS_PREFIX}/${c.id}.json` : `${projectDir}${c.id}.json`),
+					c.id,
+				),
+			).cost && c.cost > 0,
+	]),
+	(compiledForEditor.body.effects as { spec: { kind: string } }[]).map((e) => {
+		const id = e.spec.kind.slice('custom:'.length);
+		return [id, id === 'power_up', true];
+	}),
 );
 const deleted = await call(deleteRoute.POST, { body: { id: 'Pulse Tint', projectKey: PROJECT } });
 check(

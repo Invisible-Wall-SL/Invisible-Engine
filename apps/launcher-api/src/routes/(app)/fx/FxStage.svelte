@@ -19,8 +19,14 @@
 	 * a render loop + pan/zoom (drag + wheel) + play/pause, with the chosen atlas page drawn
 	 * as a faint placement reference behind the particles.
 	 *
-	 * Source of truth = the doc. On any `layers` change the stage rebuilds every emitter
-	 * (`emitter.init` re-inits cleanly), so the preview always reflects the doc verbatim.
+	 * Source of truth = the doc. On any `layers` change the stage rebuilds every emitter whose layer
+	 * changed (`emitter.init` re-inits cleanly), so the preview always reflects the doc verbatim.
+	 *
+	 * A sprite layer with a MATERIAL draws through the game's renderer (`pixi-svelte/particleMaterial`,
+	 * Invisible Shader Graph step 8d): mounted as `<ParticleEmitter material>` mounts it, against this
+	 * stage's own 8 material layers, and mirrored right after each `emitter.update`. The renderer reads
+	 * its kind, time, capacity and frames at mount, so a change to any of those remounts it; a change
+	 * to the material's strength or params is a uniform write, with no re-init and no reset.
 	 */
 	import { Emitter } from '@barvynkoa/particle-emitter';
 	import type * as RIG from 'engine-rig/pixi';
@@ -30,6 +36,8 @@
 		bindEffectParams,
 		createEffectLevelApplier,
 		emitterDeltaSeconds,
+		fxMaterialIntensity,
+		fxMaterialPeakParticles,
 		stepCollapsedValueLists,
 		type EffectLevelApplier,
 		type EffectParam,
@@ -46,6 +54,11 @@
 		type LayerHostLike,
 		type RigParticleBehaviorConfig,
 	} from 'pixi-svelte';
+	import {
+		mountParticleMaterial,
+		particleMaterialSlotsFor,
+		type MountedParticleMaterial,
+	} from 'pixi-svelte/particleMaterial';
 	import { Application, Container, Sprite, Texture, type TextureSource } from 'pixi.js';
 	import { framesToTextures, loadPageSource } from '$lib/fx/effectEmitter.client';
 	import { onMount, untrack } from 'svelte';
@@ -121,6 +134,18 @@
 		 * rebuilds only the behaviour it drives, so the preview moves with no reset.
 		 */
 		paramValues?: () => EffectParamValues | undefined;
+		/**
+		 * Told, a few times a second while playing and after each rebuild, how each material layer
+		 * draws: `on` or why it is plain, and the pixels its quads cover now and at most since its
+		 * material mounted (layer pixels, padding and overdraw included).
+		 */
+		onMaterialStats?: (stats: Record<string, FxStageMaterialStat>) => void;
+	}
+
+	export interface FxStageMaterialStat {
+		state: string;
+		coveredArea: number;
+		peakArea: number;
 	}
 
 	export interface ResolvedArt {
@@ -145,6 +170,7 @@
 		showReference = true,
 		params,
 		paramValues,
+		onMaterialStats,
 	}: Props = $props();
 
 	const emitOn = $derived(playing && emitting);
@@ -168,7 +194,9 @@
 	const bonePoint = { x: 0, y: 0 };
 	/** One live layer: its emitter, the container it draws into, whether it has bound art (a sprite
 	 * layer with textures OR a rig-particle layer with a bound pool — either spawns visibly), the
-	 * layer it was built from, its parameter applier, and the offset a drive moved it to. */
+	 * layer it was built from, its parameter applier, and the offset a drive moved it to. A sprite
+	 * layer also keeps what it was built from (`built`, the layer with its material's values left
+	 * out), the most particles a drive can raise it to, and its material, when it has one. */
 	interface LiveLayer {
 		emitter: Emitter;
 		container: Container;
@@ -176,6 +204,13 @@
 		layer: EmitterLayer;
 		applier?: EffectParamApplier;
 		offset?: { x: number; y: number };
+		built?: string;
+		peak?: number;
+		material?: MountedParticleMaterial;
+		/** What the material was mounted from ({@link materialMountKey}). */
+		materialKey?: string;
+		/** The most pixels the material's quads have covered since the emitter was (re)initialised. */
+		peakArea?: number;
 	}
 	const live = new Map<string, LiveLayer>();
 	/** A plain copy of `params` (read every frame, so not through the page's proxy). */
@@ -207,6 +242,41 @@
 		emitter.destroy();
 	}
 
+	/** Tear a live layer's emitter down, then its material (the renderer goes after the emitter). */
+	function disposeLayer(entry: LiveLayer): void {
+		disposeEmitter(entry.emitter);
+		entry.material?.release();
+		entry.material = undefined;
+	}
+
+	/** Mirror a material layer's particles into its mesh, and keep its peak. */
+	function syncMaterial(entry: LiveLayer): void {
+		const material = entry.material?.material;
+		if (!material || !app) return;
+		material.sync(app.renderer);
+		entry.peakArea = Math.max(entry.peakArea ?? 0, material.coveredArea);
+	}
+
+	const STATS_EVERY_MS = 250;
+	let statsAt = 0;
+
+	/** Tell the page how each material layer draws (`onMaterialStats`). */
+	function reportMaterials(): void {
+		if (!onMaterialStats) return;
+		const stats: Record<string, FxStageMaterialStat> = {};
+		for (const [key, entry] of live) {
+			const mounted = entry.material;
+			if (!mounted) continue;
+			const material = mounted.material;
+			stats[key] = {
+				state: material ? (material.plain ?? 'on') : mounted.state,
+				coveredArea: material?.coveredArea ?? 0,
+				peakArea: entry.peakArea ?? 0,
+			};
+		}
+		onMaterialStats(stats);
+	}
+
 	onMount(() => {
 		let disposed = false;
 		const created = new Application();
@@ -223,8 +293,17 @@
 			centerWorld();
 			ready = true;
 			app.ticker.add((ticker) => {
-				if (!playing) return;
 				const values = paramValues?.();
+				if (!playing) {
+					// Paused, a preview slider still moves what it drives that needs no time to show:
+					// a material's params and strength (mirrored again, as strength rides the vertices).
+					for (const entry of live.values()) {
+						if (!entry.applier || !entry.material?.material) continue;
+						entry.applier.apply(values);
+						syncMaterial(entry);
+					}
+					return;
+				}
 				effectFx?.apply(values);
 				// The backdrop SKELETON advances in real seconds (a rig clip is wall-clock) …
 				const dtSeconds = ticker.deltaMS / 1000;
@@ -238,10 +317,12 @@
 				// Ride bone-placed emitters on the live bone transform, THEN advance them — so a
 				// flame stays welded to the moving torch tip rather than lagging a frame.
 				followBones();
-				for (const { emitter, applier } of live.values()) {
+				for (const entry of live.values()) {
+					const { emitter, applier } = entry;
 					try {
 						applier?.apply(values);
 						emitter.update(dtEmitter);
+						syncMaterial(entry);
 					} catch (err) {
 						// A degenerate config (e.g. a 0-lifetime particle → Infinity interpolation) can
 						// make the library throw mid-update. Isolate it so one bad emitter doesn't throw
@@ -250,13 +331,17 @@
 						emitter.emit = false;
 					}
 				}
+				if (ticker.lastTime - statsAt >= STATS_EVERY_MS) {
+					statsAt = ticker.lastTime;
+					reportMaterials();
+				}
 			});
 			await requestRebuild();
 		})();
 
 		return () => {
 			disposed = true;
-			for (const { emitter } of live.values()) disposeEmitter(emitter);
+			for (const entry of live.values()) disposeLayer(entry);
 			live.clear();
 			loadedRig?.view.destroy();
 			loadedRig = null;
@@ -459,7 +544,7 @@
 		const keys = new Set(layers.map((l) => l.key));
 		for (const [key, entry] of live) {
 			if (!keys.has(key)) {
-				disposeEmitter(entry.emitter);
+				disposeLayer(entry);
 				entry.container.destroy();
 				live.delete(key);
 			}
@@ -477,6 +562,14 @@
 			if (layer.particleKind === 'spine') {
 				await buildRigLayer(layer, gen);
 				if (gen !== rebuildGen) return;
+				continue;
+			}
+
+			const built = builtFrom(layer);
+			const peak = layer.material ? fxMaterialPeakParticles(layer, paramDefs) : 0;
+			const known = live.get(layer.key);
+			if (known?.built === built && known.peak === peak) {
+				retune(known, layer);
 				continue;
 			}
 
@@ -503,19 +596,39 @@
 				{ framerate: layer.art.framerate, loop: layer.art.loop },
 			);
 			let entry = live.get(layer.key);
-			if (!entry) {
-				const container = new Container();
-				world.addChild(container);
-				entry = { emitter: new Emitter(container, config), container, hasArt: true, layer };
+			const mountKey = materialMountKey(layer, real, peak);
+			const remount = !entry || entry.materialKey !== mountKey;
+			if (!entry || remount) {
+				// The material's renderer reads its spec at mount and owns the emitter's particle
+				// parent, so a new one takes a new emitter.
+				const container = entry?.container ?? new Container();
+				if (entry) disposeLayer(entry);
+				else world.addChild(container);
+				const material = mountMaterial(layer, container, real, peak);
+				const bound = material?.material ? material.material.bindConfig(config) : config;
+				entry = {
+					emitter: new Emitter(material?.material?.particles ?? container, bound),
+					container,
+					hasArt: true,
+					layer,
+					material,
+					materialKey: mountKey,
+				};
 				live.set(layer.key, entry);
 			} else {
 				// A sprite layer that USED to be a rig layer carries a pool — dispose it before
 				// re-init so its skeletons don't leak. `disposeEmitter` no-ops for a sprite emitter.
 				disposeEmitterPool(entry.emitter);
-				entry.emitter.init(config);
+				const material = entry.material?.material;
+				entry.emitter.init(material ? material.bindConfig(config) : config);
 				entry.hasArt = true;
 				entry.layer = layer;
 			}
+			entry.built = built;
+			entry.peak = peak;
+			entry.peakArea = 0;
+			// The mesh mirrors the emptied emitter now, not on the next played frame.
+			syncMaterial(entry);
 			bindParams(entry);
 			entry.emitter.emit = emitOn;
 		}
@@ -530,6 +643,74 @@
 			const entry = live.get(layer.key);
 			if (entry && entry.container.parent === world) world.addChild(entry.container);
 		}
+		reportMaterials();
+	}
+
+	/** A sprite layer as its emitter and material are built from: its material's values left out
+	 * (a strength or param edit is a uniform write, {@link retune}). */
+	function builtFrom(layer: EmitterLayer): string {
+		const plain = $state.snapshot(layer) as EmitterLayer;
+		const m = plain.material;
+		return JSON.stringify(m ? { ...plain, material: { kind: m.kind, time: m.time } } : plain);
+	}
+
+	/**
+	 * What the material's renderer reads at mount: its kind and time, the capacity (Max particles
+	 * and the most a drive can raise it to) and the frames' texture source. A change to any remounts
+	 * it; `materialKey` keeps the last one, `undefined` with no material.
+	 */
+	function materialMountKey(
+		layer: EmitterLayer,
+		textures: Texture[],
+		peak: number,
+	): string | undefined {
+		const m = layer.material;
+		if (!m || layer.particleKind !== 'sprite') return undefined;
+		const max = (layer.config as { maxParticles?: unknown }).maxParticles;
+		const source = textures[0]?.source.uid ?? 'none';
+		return `${m.kind}|${m.time ?? 'life'}|${String(max)}|${peak}|${source}|${textures.length}`;
+	}
+
+	/** Mount a layer's material as the game does (`<ParticleEmitter material>`), or none. */
+	function mountMaterial(
+		layer: EmitterLayer,
+		container: Container,
+		textures: Texture[],
+		peak: number,
+	): MountedParticleMaterial | undefined {
+		const m = layer.material;
+		if (!m || layer.particleKind !== 'sprite' || !app) return undefined;
+		const spec = $state.snapshot(m);
+		return mountParticleMaterial({
+			spec: { ...spec, peakParticles: peak, label: `fx/${layer.key}` },
+			host: container,
+			textures,
+			maxParticles: Number((layer.config as { maxParticles?: unknown }).maxParticles),
+			rigParticles: false,
+			slots: particleMaterialSlotsFor(app),
+		});
+	}
+
+	/**
+	 * The layer changed only in its material's strength or params (or not at all): write them as
+	 * uniforms, with no re-init, and rebind the parameters against the new values.
+	 */
+	function retune(entry: LiveLayer, layer: EmitterLayer): void {
+		const before = entry.layer.material;
+		const after = layer.material;
+		const material = entry.material?.material;
+		const changed =
+			JSON.stringify($state.snapshot(before)) !== JSON.stringify($state.snapshot(after));
+		entry.layer = layer;
+		if (!changed) return;
+		entry.applier?.restore();
+		if (material) {
+			material.setIntensity(fxMaterialIntensity(after?.intensity));
+			material.setParams($state.snapshot(after?.params));
+			// The strength rides each particle's vertices: re-mirror, so a paused stage shows it too.
+			syncMaterial(entry);
+		}
+		bindParams(entry);
 	}
 
 	/**
@@ -552,7 +733,7 @@
 		let container = live.get(layer.key)?.container ?? null;
 		const prior = live.get(layer.key);
 		if (prior) {
-			disposeEmitter(prior.emitter);
+			disposeLayer(prior);
 			live.delete(layer.key);
 		}
 		if (!container) {
@@ -610,6 +791,7 @@
 					setOffset: (x, y) => {
 						entry.offset = { x, y };
 					},
+					material: entry.material?.material,
 					values: paramValues(),
 				})
 			: undefined;
@@ -695,7 +877,11 @@
 	// layers, which must not re-run this.
 	$effect(() => {
 		void JSON.stringify(params);
-		untrack(refreshParams);
+		untrack(() => {
+			refreshParams();
+			// A drive on Max particles changes a material layer's capacity, which it reads at mount.
+			if (app) void requestRebuild();
+		});
 	});
 
 	// Rebuild whenever the doc's layers change — the doc is the source of truth.
@@ -706,10 +892,13 @@
 	});
 
 	// Honour play/pause without a full rebuild. Only art-bound emitters emit (an unbound
-	// layer would otherwise spawn invisible particles).
+	// layer would otherwise spawn invisible particles). `emitOn` is read before the loop: the first
+	// run sees no emitters yet, and a read inside the loop alone would leave the effect with no
+	// dependency, so a layer rebuilt while paused never emitted again after Play.
 	$effect(() => {
+		const on = emitOn;
 		for (const { emitter, hasArt } of live.values()) {
-			emitter.emit = emitOn && hasArt;
+			emitter.emit = on && hasArt;
 		}
 	});
 
