@@ -15,6 +15,23 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-27 · Phase 9 9E · coordinator + docs-keeper (knowledge backfill)
+- Did: docs/knowledge/lessons/: 15 area files (~290 lessons, symptom → cause → fix → guard → PR),
+  mined from the status files, the frozen history and Director HISTORY, each checked against
+  today's code. docs/knowledge/games/: 8 briefs for the 9 live games (waysofwavesbuild is test6's
+  build). All 36 [[…]] personal-memory links rebuilt as lesson entries; baseline at 0. Tool,
+  Director and infra agents' "Read first" now start at targets.md + their lessons file.
+- Files: docs/knowledge/{lessons,games}/*.md, .claude/agents/*.md (Read first),
+  scripts/agents-knowledge-baseline.json.
+- Branch / PR: claude/9e-knowledge-backfill, #1411.
+- Tests: check:agents-knowledge (0 memory links), on the merge with main too; a scripted check
+  over every entry (≤ 8 lines, all fields, names exist).
+- Decisions: owner approved option (b), a transcript pass over fix sessions longer than 3 h
+  (~$30 cap): 17 sessions stripped, scrubbed and mined, 7 new + 15 amended lessons with session
+  ids; ≈ $20–23 spent.
+- Next: the PR's open questions (engine.md, the playtester's setBoardOverride sentence, inferred
+  kinds, family-file pointers, six skipped sessions).
+
 ## 2026-10-27 · Phase 9 9G.0 · director-backend
 - Did: Adapter answers carrying an image reach the model as an image block in the tool_result,
   not as truncated base64 text; get_variant_image downscales to 1568 px and answers
