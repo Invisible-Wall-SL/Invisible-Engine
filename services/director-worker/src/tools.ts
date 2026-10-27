@@ -54,6 +54,7 @@ export const ADAPTER_OPS = [
 	'localization.update_strings',
 	'fonts.list',
 	'fonts.bake_from_ttf',
+	'bugs.file_pipeline_bug',
 	'build.request_draft',
 	'build.play_draft',
 ] as const;
@@ -71,5 +72,15 @@ export const WORKER_TOOLS = [
 	'run.set_recipe',
 	'costs.get_run_spend',
 ] as const;
+
+/**
+ * The adapter op a worker tool calls, as the agent that called the tool, before the tool itself
+ * runs: `run.request_pipeline_change` files its pipeline bug (ADR-0009 §2), so the activity line can
+ * name the bug. An agent naming the worker tool cannot start unless the launcher serves its op, and
+ * the op's allow-list is the agents whose `tools:` name the worker tool.
+ */
+export const WORKER_TOOL_OPS: Readonly<Partial<Record<(typeof WORKER_TOOLS)[number], string>>> = {
+	'run.request_pipeline_change': 'bugs.file_pipeline_bug',
+};
 
 export const KNOWN_TOOLS: ReadonlySet<string> = new Set([...ADAPTER_OPS, ...WORKER_TOOLS]);

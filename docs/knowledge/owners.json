@@ -24,7 +24,7 @@
 		"flipbook": ["invisible-flipbook"],
 		"director": ["director-backend", "director-frontend"],
 		"pipelineChanges": ["director-backend", "director-frontend"],
-		"pipelineBugs": ["launcher-studio"],
+		"pipelineBugs": ["pipeline-triage", "launcher-studio"],
 		"gameBugs": ["launcher-studio"]
 	},
 	"kinds": {
