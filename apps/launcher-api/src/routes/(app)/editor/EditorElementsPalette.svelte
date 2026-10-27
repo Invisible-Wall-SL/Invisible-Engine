@@ -21,6 +21,7 @@
 		repeater,
 		spawnLayer,
 		path,
+		tilemap,
 		segments,
 		components,
 	}: {
@@ -30,6 +31,8 @@
 		spawnLayer?: { onAdd: () => void };
 		/** Scene-only like the spawn layer: a brain names a path by its screen node id. */
 		path?: { onAdd: () => void };
+		/** Scene-only like the path: the arcade loop reads a screen's top-level tilemaps. */
+		tilemap?: { onAdd: () => void };
 		/** The Components side's "Repeat (count)" row: a segmented counter of `componentId`. */
 		segments?: { componentId: string };
 		components?: { id: string; name: string; version: number }[];
@@ -128,6 +131,17 @@
 		<button type="button" class="li-btn" onclick={path.onAdd}>
 			<span class="name">Path</span>
 			<span class="tag">route</span>
+		</button>
+	</li>
+{/if}
+{#if tilemap}
+	<li
+		class="click"
+		title="Insert a tilemap — a grid of tiles you paint on the stage: an arcade level's ground, walls and one-way platforms. Add tiles to its tileset in Properties, then pick Brush."
+	>
+		<button type="button" class="li-btn" onclick={tilemap.onAdd}>
+			<span class="name">Tilemap</span>
+			<span class="tag">level</span>
 		</button>
 	</li>
 {/if}

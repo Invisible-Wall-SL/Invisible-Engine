@@ -199,16 +199,18 @@ export function removeBody(doc: GameConfigDoc, id: string): void {
 	pruneArcade(doc);
 }
 
-/** Switch a body between a box and a circle, keeping its size, tags and solidity. */
+/** Switch a body between a box and a circle, keeping its size, tags, solidity and edges. */
 export function setBodyShape(doc: GameConfigDoc, id: string, shape: ArcadeBody['shape']): void {
 	const body = doc.arcade?.bodies?.[id];
 	if (!body || body.shape === shape) return;
-	const { tags, solid, edges } = body;
+	const { tags, solid, ground, oneWay, edges } = body;
 	const size = body.shape === 'box' ? Math.max(body.w, body.h) : body.r * 2;
 	const next: ArcadeBody =
 		shape === 'circle' ? { shape, r: size / 2 } : { shape, w: size, h: size };
 	if (tags) next.tags = tags;
 	if (solid) next.solid = true;
+	else if (oneWay) next.oneWay = true;
+	if (ground) next.ground = true;
 	if (edges) next.edges = edges;
 	doc.arcade!.bodies![id] = next;
 }
@@ -243,12 +245,31 @@ export function setBodyTags(doc: GameConfigDoc, id: string, text: string): void 
 	else delete body.tags;
 }
 
-/** Solid or not. Not solid is the default, so it deletes the field. */
+/** Solid or not. Not solid is the default, so it deletes the field; a solid body is no one-way
+ *  platform (the normalizer drops `oneWay` beside `solid`). */
 export function setBodySolid(doc: GameConfigDoc, id: string, solid: boolean): void {
 	const body = doc.arcade?.bodies?.[id];
 	if (!body) return;
-	if (solid) body.solid = true;
-	else delete body.solid;
+	if (solid) {
+		body.solid = true;
+		delete body.oneWay;
+	} else delete body.solid;
+}
+
+/** Ground level (P10.13: a hop in the air passes over it) or not; not is the default. */
+export function setBodyGround(doc: GameConfigDoc, id: string, ground: boolean): void {
+	const body = doc.arcade?.bodies?.[id];
+	if (!body) return;
+	if (ground) body.ground = true;
+	else delete body.ground;
+}
+
+/** A one-way platform (P10.13) or not; not is the default. Refused on a solid body. */
+export function setBodyOneWay(doc: GameConfigDoc, id: string, oneWay: boolean): void {
+	const body = doc.arcade?.bodies?.[id];
+	if (!body || (oneWay && body.solid)) return;
+	if (oneWay) body.oneWay = true;
+	else delete body.oneWay;
 }
 
 /** How a body meets the field's edges. `clamp` is the default, so it deletes the field. */

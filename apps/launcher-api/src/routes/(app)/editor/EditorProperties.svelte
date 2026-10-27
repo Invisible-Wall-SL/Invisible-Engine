@@ -13,6 +13,7 @@
 	import EditorRepeaterCount from './EditorRepeaterCount.svelte';
 	import EditorSpawnLayer from './EditorSpawnLayer.svelte';
 	import EditorPathNode from './EditorPathNode.svelte';
+	import EditorTilemap from './EditorTilemap.svelte';
 	import EditorParallax from './EditorParallax.svelte';
 	import EditorEvents from './EditorEvents.svelte';
 	import EditorListeners from './EditorListeners.svelte';
@@ -3791,21 +3792,23 @@
 			</label>
 		</div>
 
-		<div class="row">
-			<label class="field wide">
-				<span>rotation (°)</span>
-				<input
-					type="number"
-					step="1"
-					value={rad2deg(t.rotation)}
-					oninput={(e) => setNumber(node, 'rotation', deg2rad(e.currentTarget.valueAsNumber))}
-				/>
-				{#if isOverrideMode && hasOverrideKey(node, 'rotation')}
-					<span class="ovdot" title="Overridden"></span>
-					<button class="reset" onclick={() => clearOverrideKey(node, 'rotation')}>×</button>
-				{/if}
-			</label>
-		</div>
+		{#if node.kind !== 'tilemap'}
+			<div class="row">
+				<label class="field wide">
+					<span>rotation (°)</span>
+					<input
+						type="number"
+						step="1"
+						value={rad2deg(t.rotation)}
+						oninput={(e) => setNumber(node, 'rotation', deg2rad(e.currentTarget.valueAsNumber))}
+					/>
+					{#if isOverrideMode && hasOverrideKey(node, 'rotation')}
+						<span class="ovdot" title="Overridden"></span>
+						<button class="reset" onclick={() => clearOverrideKey(node, 'rotation')}>×</button>
+					{/if}
+				</label>
+			</div>
+		{/if}
 
 		{#if node.kind === 'spine'}
 			<!-- The game places a rig by its skeleton origin and never reads its anchor. -->
@@ -3823,6 +3826,12 @@
 			<p class="muted small">
 				A path is placed by its origin: its points are measured from it. Scale and rotation turn the
 				whole path in the game too.
+			</p>
+		{:else if node.kind === 'tilemap'}
+			<!-- `Tilemap` draws every tile from the node's top-left; it has no anchor or rotation. -->
+			<p class="muted small">
+				A tilemap is placed by its top-left corner. Scale sizes its tiles in the game too; it does
+				not rotate.
 			</p>
 		{:else}
 			<div class="row">
@@ -6046,6 +6055,8 @@
 		</section>
 	{:else if node.kind === 'path'}
 		<EditorPathNode {node} onChange={markDirty} />
+	{:else if node.kind === 'tilemap'}
+		<EditorTilemap {node} sheets={pickSheets} onChange={markDirty} />
 	{:else if node.kind === 'spawnLayer'}
 		<EditorSpawnLayer {node} {componentDefs} {worldCamera} onChange={markDirty} />
 	{:else if node.kind === 'repeater' && isCountRepeater(node)}

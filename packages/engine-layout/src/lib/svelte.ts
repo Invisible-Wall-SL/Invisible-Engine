@@ -75,3 +75,4 @@ export { getComponentNestState } from './componentInstanceContext';
 export { isComponentMounted, sceneMountKey, trackComponentMount } from './mountedComponents';
 export { registerSpawnLayerSpace, spawnLayerPoint, spawnStore } from './spawnLayers';
 export { isCulled, setCulled, setWorldCameraView, worldCameraView } from './worldCameraView.svelte';
+export { liftOf, liftsOn, setLifts } from './arcadeLifts.svelte';

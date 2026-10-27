@@ -59,6 +59,8 @@ import {
  * with the solid response and every other body as above; after the frame each character's look gets
  * its `animInputs`. A brain transition raises `characterState`; Flow overrides a brain with
  * `setCharacterState` and hands a playable character to its brain with `setCharacterControl`.
+ * From P10.13 a character can fall, jump, flap or hop, and stands on the level's tiles
+ * ({@link ArcadeLoopOptions.tiles}); a hop in the air does not `collide` with a `ground` body.
  *
  * THE CAMERA (§4.4, P10.12), only when the play field's screen declares a world or a camera
  * ({@link ArcadeLoopOptions.camera}): after the zones each step moves the camera
@@ -119,6 +121,8 @@ export interface ArcadeLoopOptions extends ArcadeCharacterIo {
 	camera?: ArcadeCameraOptions;
 }
 
+const NO_LIFTS: ReadonlyMap<string, number> = new Map();
+
 /** Past the view, px, where an instance is still drawn: the art may be larger than its body. */
 export const ARCADE_CULL_MARGIN = 256;
 
@@ -160,7 +164,14 @@ export interface ArcadeLoop {
 		tags: string[];
 		/** A character's brain state (characters only). */
 		state?: string;
+		/** A falling or hopping character's contact (P10.13): on the ground, against a wall, its hop
+		 *  height. */
+		grounded?: boolean;
+		onWall?: boolean;
+		z?: number;
 	}[];
+	/** The hop height of every hopping character, by id (none without one). */
+	lifts(): ReadonlyMap<string, number>;
 	/** Stop watching the live set; a frame after it runs nothing. */
 	dispose(): void;
 }
@@ -317,6 +328,7 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 		}
 		const now = new Map<string, readonly [string, string]>();
 		for (const hit of overlaps(list, rules.pairs)) {
+			if (characters?.passesOver(hit.a, hit.b)) continue;
 			const key = JSON.stringify([hit.a.id, hit.b.id, hit.tagA, hit.tagB]);
 			now.set(key, [hit.a.id, hit.b.id]);
 			if (touching.has(key)) continue;
@@ -528,6 +540,7 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 		bodies: () =>
 			[...bodies.values()].map((b) => {
 				const state = characters?.stateOf(b.id);
+				const contact = characters?.contactOf(b.id);
 				return {
 					id: b.id,
 					x: b.x,
@@ -536,8 +549,10 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 					vy: b.vy,
 					tags: [...b.tags],
 					...(state === undefined ? {} : { state }),
+					...(contact ?? {}),
 				};
 			}),
+		lifts: () => characters?.lifts() ?? NO_LIFTS,
 		dispose() {
 			disposed = true;
 			for (const off of unsubscribe.splice(0)) off();

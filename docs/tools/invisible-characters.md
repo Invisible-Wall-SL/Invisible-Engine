@@ -60,8 +60,10 @@ controller or a brain; a red dot marks a character with errors.
 
 The body of the look component — **the same entry** as Game Config's _Arcade bodies_ table, so an
 edit here shows there and the other way round: shape (box or circle), size, tags, how it meets the
-field's edges (`clamp`, `wrap`, `pass`) and **Solid** (stops the characters that move into it). A
-look with no body says _No body: it touches nothing_ with an **Add a body** button (a 100 × 100
+field's edges (`clamp`, `wrap`, `pass`), **Solid** (stops the characters that move into it),
+**Ground** (ground level: a character in the air on a top-down hop passes over it) and **One-way**
+(a platform that stops a falling character from above only; greyed out on a solid body, which
+blocks from every side — ticking Solid clears it). A look with no body says _No body: it touches nothing_ with an **Add a body** button (a 100 × 100
 box).
 
 ### Movement
@@ -74,18 +76,54 @@ How the velocity follows what the character wants, all optional:
 | Decel px/s² | slowing, stopping, reversing | same as accel |
 | Max speed px/s | a cap on its speed | no cap |
 | Turn rate °/s | how fast the heading may turn | instant |
+| Gravity px/s² | a downward pull: the character falls, and only its left / right is steered | no pull |
+| Max fall px/s | a cap on how fast it falls | no cap |
+
+With a side-scroll **jump**, Gravity is the pull while it falls (the jump's own height and time set
+the rise); left empty, it falls under the jump's own pull. A **flap** needs Gravity (without it, one
+flap sends it up for ever — the validator warns).
 
 ### Controller
 
-**Played with:** _none_ (not playable), _top-down_ (8-way), _side-scroll_ (left / right; the jump
-comes later) or _pointer_ (follow a pressed mouse button or a finger on the **x**, **y** or **xy**
-axes; a new pointer controller starts on **x**).
+**Played with:** _none_ (not playable), _top-down_ (8-way), _side-scroll_ (left / right), _flap_
+(tap to kick up, Flappy-style) or _pointer_ (follow a pressed mouse button or a finger on the **x**,
+**y** or **xy** axes; a new pointer controller starts on **x**).
 
 - **Speed px/s** — a keyboard controller needs one (200 by default). A pointer controller may leave
   it empty: it then moves at the movement's max speed, or jumps straight to the pointer with none.
+  A flap's speed is how fast left / right run it; empty, it only rises and falls.
+- **Kick px/s** (flap) — the upward speed each press gives it (360 by default; must be above 0).
 - The keyboard controllers read the Flow input map's actions **`left`, `right`, `up`, `down`** —
   map the keys to them in Invisible Flow. With none of them held, a pressed pointer or a touch
   steers instead.
+- A jump or a flap reads the **`jump`** action (a side-scroll jump and a flap read `up` too). On a
+  touch screen a side-scroll character jumps on a press above it and a flap on a press anywhere; a
+  top-down hop has no touch gesture (a touch steers it). The hint under the controller says which.
+
+Switching between controllers keeps the speed (a keyboard controller falls back to 200); between
+top-down and side-scroll it keeps the jump too, switched to the other kind. A pointer takes no jump.
+
+#### Jump (top-down and side-scroll)
+
+Tick **Jump** to give the controller one. Its kind is fixed by the controller: a side-scroll gets a
+**side-view jump** (it leaves the ground and falls back under gravity), a top-down one a **hop** (it
+rises off the ground plane on a height arc, drawn lifted with a shadow, and while it is up it passes
+over **Ground** bodies). A fresh jump is 120 px high and 0.4 s to the apex.
+
+| Field | Meaning | Empty |
+|---|---|---|
+| Height px | how high the apex is above the take-off | — (required) |
+| Time s | seconds from take-off to the apex | — (required) |
+| Tap height px | how high a quick tap goes: hold to jump higher | every jump is full height |
+| Coyote ms | a press this long after walking off a ledge still jumps | 100 |
+| Buffer ms | a press this long before landing jumps on landing | 100 |
+| Air control 0–1 | how much you steer in the air | 1 (full) |
+
+A field at its default (Coyote 100, Buffer 100, Air control 1 or more) is not stored. Below the
+fields, a read-only line shows what the height and time come to: the **launch speed** (2 × height
+÷ time), the **pull** while rising (2 × height ÷ time²) and, with a tap height, the speed an early
+release cuts the climb to. A tap height above the height warns (a tap then jumps as high as a held
+press). Untick **Jump** to remove it.
 
 A character with a controller **and** a brain is a **bot** when the game hands it to its brain
 (Flow's _set character control_).
@@ -152,9 +190,14 @@ speed, size and parameter fields.)
 What drives the **look's state machine inputs**, so its animations follow the character with no
 Flow wiring. Each number or bool input of the look's state machine is listed with a source:
 
-- numbers: `speed` (px/s), `vx`, `vy`, `facing` (1 right, -1 left — the last way it moved);
-- true / false: `moving` (faster than 1 px/s), and `state:<id>` for each brain state (true while in
-  it).
+- numbers: `speed` (px/s), `vx`, `vy`, `facing` (1 right, -1 left — the last way it moved),
+  `height` (a hop's height above the ground plane, px);
+- true / false: `moving` (faster than 1 px/s), `grounded` (standing on something), `onWall` (its
+  last sideways move was stopped), `airborne` (off the ground — for a hop, while it is up), and
+  `state:<id>` for each brain state (true while in it).
+
+`grounded`, `onWall`, `airborne` and `height` only change for a character that falls (gravity, a
+side-view jump or a flap) or hops.
 
 A look with no such inputs says so — add them in the component's state machine (Invisible
 Component Editor). An input mapped here that the look no longer has is shown with **Remove**.
@@ -178,11 +221,18 @@ when its look has none) labelled with its name and its brain state; the dummy **
 walls; walls are grey; shots are small red circles. Project art is never loaded.
 
 - **Click the field**, then the **arrow keys or WASD** move the dummy player — or the character
-  itself when it has a controller. With both a controller and a brain, **Driven by** picks the
-  controller (you) or the brain (a bot).
+  itself when it has a controller. **Space** is the `jump` action: it jumps, hops or flaps a played
+  character; **W / ↑** (the `up` action) jump a side-scroll character and flap a flapper too. With
+  both a controller and a brain, **Driven by** picks the controller (you) or the brain (a bot).
+- A character that falls or hops plays as in the game: it falls onto the walls and the field's
+  floor, jumps by its height and time, and a hop is drawn lifted above a shadow.
 - **Move** mode: drag the player, the character or a wall; press on empty space to give a pointer
   controller its pointer.
-- **＋ Wall** adds a solid wall; two stand in the middle to start with.
+- **＋ Wall** adds a solid wall (grey). A run starts with walls that suit the character: two in
+  the middle for a plain mover; for a falling one, a one-way platform (light top edge) a short jump
+  off the floor and a solid ledge above it; for a hopper, the two middle walls and a green **low
+  wall** (ground level) to hop over. **＋ Platform** (falling characters) adds a one-way platform,
+  **＋ Low wall** (hoppers) a ground-level wall, and **↺ Walls** puts back the starting walls.
 - **Draw path**: click to add points (it counts from two). The drawn path stands in for every path
   a state names (and for `sandbox`). **Clear path** removes it.
 - **▶ Play / ❚❚ Pause**, **Step** (one fixed step while paused), **↺ Reset**.
@@ -190,8 +240,9 @@ walls; walls are grey; shots are small red circles. Project art is never loaded.
 - **Variables** (shown when a transition has a `variable` condition) — stand-ins for the Flow
   variables the game would read: `flag = true, score = 3` (one per comma or line; `true`, `false`,
   a number, else text).
-- The readout shows the **brain state** (also lit on the canvas), who drives it, its **speed**, how
-  many shots hit the player, the step count and every mapped **anim input**'s value as the game
+- The readout shows the **brain state** (also lit on the canvas), who drives it, its **speed**,
+  for a falling or hopping character whether it is **Grounded** (and on a wall) and a hop's
+  **height**, how many shots hit the player, the step count and every mapped **anim input**'s value as the game
   sets it (map `facing` to an input to see it).
 
 Any change to the character (or the seed, the path, who drives, the variables, a new wall) restarts
@@ -211,12 +262,14 @@ path or the positions.
 
 ## Known limitations / TODOs
 
-- **No jump yet.** _Side-scroll_ moves left and right only; `grounded`, gravity and the jump come
-  with the next arcade step (P10.13).
+- **The sandbox's walls are boxes.** A level's tiles (tilemap nodes) are not drawn or used here;
+  walls you add are solid, one-way or ground-level only by the button you used — drag them, but
+  their kind cannot be changed (delete is not offered either: **↺ Walls** starts over).
 - **No abilities or zone forces.** Hit zones, cooldowns, `onHit` and zones that push a character
   are planned, not built.
-- **Fast bodies can pass through thin walls.** A step faster than the body and the wall together
-  can carry a character through a solid; sub-steps come later.
+- **Fast bodies can pass through thin walls** — for a plain (non-falling, non-hopping) character:
+  a step faster than the body and the wall together can carry it through a solid. A falling or
+  hopping character moves in sub-steps and does not.
 - **The sandbox is a stand-in.** One dummy player, the walls you draw, one path and the variables
   you type stand for the game's. A variable left out of the **Variables** field compares against
   nothing: `==` never holds and `!=` always does.

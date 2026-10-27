@@ -9,13 +9,15 @@
 
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { Container, getContextParent } from 'pixi-svelte';
+	import { Container, Graphics, getContextParent } from 'pixi-svelte';
 	import type { SpawnedInstance } from 'engine-flow-v2';
+	import type { Graphics as PixiGraphics } from 'pixi.js';
 
 	import ComponentInstance from './ComponentInstance.svelte';
 	import { getSceneIdContext } from './sceneIdContext';
 	import { spawnLayerSpec } from './spawnLayerFields';
 	import { registerSpawnLayerSpace, spawnStore } from './spawnLayers';
+	import { liftOf, liftsOn } from './arcadeLifts.svelte';
 	import { inWorldCamera, isCulled } from './worldCameraView.svelte';
 
 	const { node, space }: Props = $props();
@@ -68,6 +70,12 @@
 	// it stays mounted, so its state machine runs on. Elsewhere nothing is culled (parity).
 	const culling = inWorldCamera();
 
+	// A hopping character (P10.13) is drawn raised by its height over a shadow on the ground. Only a
+	// game whose loop publishes lifts takes this branch; elsewhere the markup is as before.
+	const shadowOf = (width: number) => (g: PixiGraphics) => {
+		if (width > 0) g.ellipse(0, 0, width / 2, width / 6).fill({ color: 0x000000, alpha: 0.28 });
+	};
+
 	const instanceNode = (instance: SpawnedInstance): ComponentInstanceNode => ({
 		kind: 'componentInstance',
 		id: instance.id,
@@ -78,7 +86,21 @@
 </script>
 
 {#each instances as instance (instance.id)}
-	{#if culling}
+	{#if liftsOn()}
+		{@const lift = liftOf(instance.id)}
+		<Container
+			x={places[instance.id]?.x ?? instance.x}
+			y={places[instance.id]?.y ?? instance.y}
+			visible={!culling || !isCulled(instance.id)}
+		>
+			{#if lift}
+				<Graphics y={lift.foot} draw={shadowOf(lift.shadow)} />
+			{/if}
+			<Container y={-(lift?.z ?? 0)}>
+				<ComponentInstance node={instanceNode(instance)} {space} />
+			</Container>
+		</Container>
+	{:else if culling}
 		<Container
 			x={places[instance.id]?.x ?? instance.x}
 			y={places[instance.id]?.y ?? instance.y}

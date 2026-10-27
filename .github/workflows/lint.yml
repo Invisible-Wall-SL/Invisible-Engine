@@ -116,6 +116,12 @@ jobs:
         if: steps.changes.outputs.code == 'true'
         run: node --experimental-strip-types scripts/gen-flow-vocabulary.mjs --check
 
+      # Everything `apps/lines` needs must install in a standalone game repo (#1375 broke every one):
+      # the rule is in docs/design/games-deploy.md, the checks in the script's header.
+      - name: game app deps install in a game repo
+        if: steps.changes.outputs.code == 'true'
+        run: pnpm check:game-app-deps
+
       # RGS gate — the client and the server must agree about MONEY, for all four win models.
       #
       # `check:ways` already existed and was never wired here; `cluster` and `scatter` shipped with

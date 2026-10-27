@@ -58,6 +58,7 @@
 	import { BASE_GAME_MODE, builtinGameModes, holdAndWinModeDecl } from 'game-config';
 	import { SPAWN_DEFAULT_CAP } from 'constants-shared/spawn';
 	import { newPathNode } from '$lib/editor/pathNodeEdit';
+	import { newTilemapAt } from '$lib/editor/tilemapEdit';
 	import {
 		BOOT_SPLASH_DEFAULT_BACKGROUND,
 		BOOT_SPLASH_DEFAULT_SIZE,
@@ -1139,6 +1140,21 @@
 			'n_' + Math.random().toString(36).slice(2, 10),
 			Math.round(main.width / 2),
 			Math.round(main.height / 2),
+		);
+		onSpawn(node);
+		selectOnly(node.id);
+	}
+
+	/**
+	 * Insert a `tilemap` node (game-families §4.4) into the active scene, centred on main: a grid
+	 * of tiles painted on the stage, which the arcade loop also reads as the level's solid ground.
+	 */
+	function insertTilemap(): void {
+		const main = mainSizesMap[currentLayoutType];
+		const node = newTilemapAt(
+			'n_' + Math.random().toString(36).slice(2, 10),
+			main.width / 2,
+			main.height / 2,
 		);
 		onSpawn(node);
 		selectOnly(node.id);
@@ -3869,6 +3885,7 @@
 								repeater={{ onAdd: insertRepeater }}
 								spawnLayer={{ onAdd: insertSpawnLayer }}
 								path={{ onAdd: insertPath }}
+								tilemap={{ onAdd: insertTilemap }}
 							/>
 						</ul>
 					</PanelSection>

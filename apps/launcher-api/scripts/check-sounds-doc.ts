@@ -27,6 +27,7 @@ import {
 	soundNames,
 	effectiveSoundBindings,
 	legacySoundBindings,
+	TOKEN_SOUND_MOMENTS,
 	type SoundEntry,
 	type SoundsDoc,
 } from 'engine-layout';
@@ -522,6 +523,11 @@ console.log('\n19. WHAT PLAYS WHEN survives the round trip, and only what depart
 
 	check('a per-symbol cue survives', round({ symbols: { H1: { land: 'my_land' } } }), { symbols: { H1: { land: 'my_land' } } }); // prettier-ignore
 	check('an empty symbol is dropped', round({ symbols: { H1: {} } }), undefined);
+	// A pots overlay token's moments, `potArrive` included though it is not a symbol state.
+	const token = Object.fromEntries(TOKEN_SOUND_MOMENTS.map((m) => [m, `rocket_${m}`]));
+	check('every token moment survives', round({ symbols: { RKT: token } }), {
+		symbols: { RKT: token },
+	});
 	check('anticipation cues survive', round({ anticipation: { activation: 'sting' } }), { anticipation: { activation: 'sting' } }); // prettier-ignore
 	check('an empty anticipation block is dropped', round({ anticipation: {} }), undefined);
 	check('a tier cue survives', round({ winTiers: { big: { bgm: 'bed' } } }), { winTiers: { big: { bgm: 'bed' } } }); // prettier-ignore

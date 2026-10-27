@@ -2067,6 +2067,16 @@ export function refuseUnplayableBoot(reason: string): Promise<never> {
 }
 
 /**
+ * Stop an online game (`game/online.ts`) that has no room to play in, on the same screen. `lost`:
+ * the room went away after the game started, so an earlier, softer stale note (the bundled-fallback
+ * banner) must not keep the screen from showing.
+ */
+export function refuseOnlineBoot(reason: string, lost = false): Promise<never> {
+	if (lost && typeof window !== 'undefined') window.__IE_RUNTIME_STALE__ = undefined;
+	return haltBoot(`this online game could not join a room: ${reason}`);
+}
+
+/**
  * End a `?runtime=1` boot that has no data of its own on the "could not load" screen, and never
  * resolve — SvelteKit keeps the page unmounted while `load()` is pending, so neither the engine's
  * sample layout nor its compiled config (and its mock spins) ever start behind the overlay.

@@ -308,11 +308,40 @@ step(
 	(d) => familyDoc.setBodyTags(d, 'player', 'player, hero, player, '),
 	(d) => d.arcade?.bodies?.player?.tags?.length === 2,
 );
-step('solid', (d) => familyDoc.setBodySolid(d, 'player', true));
+step(
+	'ground',
+	(d) => familyDoc.setBodyGround(d, 'player', true),
+	(d) => d.arcade?.bodies?.player?.ground === true,
+);
+step(
+	'one-way',
+	(d) => familyDoc.setBodyOneWay(d, 'player', true),
+	(d) => d.arcade?.bodies?.player?.oneWay === true,
+);
+step(
+	'a box keeps ground and one-way',
+	(d) => familyDoc.setBodyShape(d, 'player', 'box'),
+	(d) => d.arcade?.bodies?.player?.ground === true && d.arcade.bodies.player.oneWay === true,
+);
+step(
+	'solid drops one-way',
+	(d) => familyDoc.setBodySolid(d, 'player', true),
+	(d) => d.arcade?.bodies?.player?.solid === true && d.arcade.bodies.player.oneWay === undefined,
+);
+step(
+	'one-way on a solid is refused',
+	(d) => familyDoc.setBodyOneWay(d, 'player', true),
+	(d) => d.arcade?.bodies?.player?.oneWay === undefined,
+);
 step(
 	'not solid',
 	(d) => familyDoc.setBodySolid(d, 'player', false),
 	(d) => d.arcade?.bodies?.player?.solid === undefined,
+);
+step(
+	'not ground',
+	(d) => familyDoc.setBodyGround(d, 'player', false),
+	(d) => d.arcade?.bodies?.player?.ground === undefined,
 );
 step(
 	'remove the body',
