@@ -1,22 +1,25 @@
 import { error, type Cookies } from '@sveltejs/kit';
+import { SHADER_READ_TOOLS } from '$lib/accessRules';
 import { SHADER_CUSTOM_GLSL_CAPABILITY, SHADER_PUBLISH_CAPABILITY } from '$lib/roles';
 import { userHasCapability } from './launcherAuth';
 import { gate, type ToolScope } from './toolScope';
 
+const [SHADER_TOOL, ...SHADER_READ_ALT_TOOLS] = SHADER_READ_TOOLS;
+
 /**
- * Who reaches Invisible Shader Graph docs. `/shaders` reads and writes them; the tools whose
- * pickers list custom Element FX (the Scene and Component Editors, Symbols, the Flow) read them.
+ * Who reaches Invisible Shader Graph docs: `/shaders` reads and writes them; every other tool in
+ * {@link SHADER_READ_TOOLS} reads them. A read stays on the session's project.
  */
 export const shaderReadScope = (locals: App.Locals, cookies: Cookies): Promise<ToolScope> =>
 	gate(locals, cookies, {
-		tool: 'shaders',
-		altTools: ['editor', 'componentEditor', 'symbols', 'flow'],
+		tool: SHADER_TOOL,
+		altTools: SHADER_READ_ALT_TOOLS,
 		forbiddenMessage: 'Your role does not have access to shader effects.',
 	});
 
 export const shaderWriteScope = (locals: App.Locals, cookies: Cookies): Promise<ToolScope> =>
 	gate(locals, cookies, {
-		tool: 'shaders',
+		tool: SHADER_TOOL,
 		forbiddenMessage: 'Your role does not have access to Invisible Shader Graph.',
 	});
 

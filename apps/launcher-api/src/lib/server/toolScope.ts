@@ -1,4 +1,5 @@
 import { error, type Cookies } from '@sveltejs/kit';
+import { entitledByAny } from '$lib/accessRules';
 import { roleHasTool } from '$lib/roles';
 import {
 	SESSION_COOKIE,
@@ -138,10 +139,7 @@ export async function gate(
 	const roleOverrides = await getRoleOverrides(locals.user.role);
 	const overrides = await getToolOverrides(locals.user.id);
 	const candidates: ToolId[] = [opts.tool, ...(opts.altTools ?? [])];
-	const entitled = candidates.some((t) =>
-		roleHasTool(locals.user!.role, t, roleOverrides, overrides),
-	);
-	if (!entitled) {
+	if (!entitledByAny(locals.user.role, candidates, roleOverrides, overrides)) {
 		throw error(403, opts.forbiddenMessage);
 	}
 	const { clientKey, projectKey } = await sessionProjectScope(
