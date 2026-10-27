@@ -19,7 +19,7 @@ import {
 	type AdapterContext,
 	type AdapterOp,
 } from './adapter';
-import { refusedOp, refusedWriteTarget } from './refusals';
+import { refusedOp, refusedWriteTarget, repairRefusal } from './refusals';
 import { claimOp, completeOp, getRun, getRunOwner, releaseOp } from './store';
 
 /**
@@ -31,7 +31,8 @@ import { claimOp, completeOp, getRun, getRunOwner, releaseOp } from './store';
  *  3. the op exists (404), the body names a `runId` and an `agent`, and the agent is on the op's
  *     allow-list (403). The token holder declares the agent, so this holds only while the worker
  *     sets `agent` itself from the definition it runs, never from model output;
- *  4. the run exists and its owner is still an active account holding Invisible Director: the
+ *  4. the run exists, a repair run's extra refusals (`repairRefusal`: no art, no new project), and
+ *     its owner is still an active account holding Invisible Director: the
  *     owner is who every call acts as (Q5);
  *  5. the input matches the op's schema (400);
  *  6. the op's project scope, checked against the OWNER's grants (403), and the project's family
@@ -67,6 +68,8 @@ export interface CatalogEntry {
 	inputSchema: AdapterOp['inputSchema'];
 	write: boolean;
 	agents: readonly string[];
+	/** Present only on an op whose answer holds people's words: the worker wraps it as data. */
+	untrusted?: true;
 }
 
 /**
@@ -95,6 +98,7 @@ export function catalogAnswer(
 			inputSchema: op.inputSchema,
 			write: op.write,
 			agents: op.agents,
+			...(op.untrusted ? { untrusted: true as const } : {}),
 		}));
 	return { status: 200, body: { ops } };
 }
@@ -153,6 +157,8 @@ export async function runAdapterCall(
 
 	const run = await getRun(body.runId);
 	if (!run) return fail(404, 'unknown_run', `No Director run ${body.runId}.`);
+	const onRepair = run.kind === 'repair' ? repairRefusal(call.tool, call.op, op.write) : null;
+	if (onRepair) return fail(403, 'refused', onRepair.message, { refusal: onRepair.id });
 	const owner = await getRunOwner(run.ownerUserId);
 	const ownerHasDirector =
 		owner !== null &&

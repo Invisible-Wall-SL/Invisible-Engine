@@ -237,7 +237,7 @@ export const getLayout = defineOp<
 		properties: { screen: { type: 'string', description: 'Only this screen id.', maxLength: 120 } },
 		additionalProperties: false,
 	},
-	agents: ['builder'],
+	agents: ['builder', 'game-doctor'],
 	scope: 'project',
 	write: false,
 	handler: async (ctx, { screen }) => {

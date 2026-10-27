@@ -191,7 +191,7 @@ export const getProject = defineOp<Record<string, never>, ProjectSummary & { tem
 		description:
 			"The run's project as Game Maker shows it: GAME / USING chips, locked items, region counts per atlas, and the config ETag.",
 		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-		agents: ['coordinator', 'worker'],
+		agents: ['coordinator', 'game-doctor', 'worker'],
 		scope: 'project',
 		write: false,
 		handler: async (ctx) => {

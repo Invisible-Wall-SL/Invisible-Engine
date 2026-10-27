@@ -421,6 +421,9 @@ fake('lib/server/director/store.ts', {
 			{
 				...(row as object),
 				budgetCapUsd: null,
+				kind: 'create',
+				bugNumber: null,
+				repairOutcome: null,
 				status: 'draft',
 				step: 'breakdown',
 				waitingOn: null,
@@ -656,6 +659,7 @@ const act = (user: User | null, id: string, body: unknown) =>
 console.log('owner actions vs transition()');
 {
 	const state = (over: Partial<RunState>): RunState => ({
+		kind: 'create',
 		status: 'draft',
 		step: 'breakdown',
 		waitingOn: null,
@@ -680,6 +684,19 @@ console.log('owner actions vs transition()');
 		['stopped', state({ status: 'stopped' }), []],
 		['failed', state({ status: 'failed' }), []],
 		['handed off', state({ status: 'handed_off', step: 'handoff' }), []],
+		// A repair run (ADR-0012): the same machine, its own steps and its one checkpoint.
+		['repair draft', state({ kind: 'repair', step: 'reproduce' }), ['start', 'stop']],
+		[
+			'repair running',
+			state({ kind: 'repair', status: 'running', step: 'fix' }),
+			['pause', 'stop', 'message'],
+		],
+		[
+			'repair review',
+			state({ kind: 'repair', status: 'waiting', step: 'handoff', waitingOn: 'repair_review' }),
+			['stop', 'approve', 'revise', 'message'],
+		],
+		['repair handed off', state({ kind: 'repair', status: 'handed_off', step: 'handoff' }), []],
 	];
 	for (const [label, s, expected] of table) {
 		check(`allowed while ${label}`, owner.allowedOwnerActions(s), expected);
@@ -1653,6 +1670,32 @@ console.log('summary');
 		],
 	);
 	check('the allowed actions', s.allowedActions, ['stop', 'approve', 'revise', 'message']);
+	check('a create run says so and names no bug', [s.kind, s.bugNumber], ['create', null]);
+	{
+		// A repair run (ADR-0012) at Repair review: its own agents, and the owner's actions asked of
+		// the same machine.
+		const before = { kind: run.kind, step: run.step, waitingOn: run.waitingOn };
+		Object.assign(run, {
+			kind: 'repair',
+			bugNumber: 7,
+			step: 'handoff',
+			waitingOn: 'repair_review',
+		});
+		const repair = (await summary(OWNER, RUN_ID)).body.run as typeof s;
+		check('a repair run names its kind and bug', [repair.kind, repair.bugNumber], ['repair', 7]);
+		check(
+			'…lists the doctor, the builder and the animator, and no create-run agent',
+			(repair.agents as { agent: string }[]).map((a) => a.agent),
+			['game-doctor', 'builder', 'animator'],
+		);
+		check('…and at Repair review the owner may approve or revise', repair.allowedActions, [
+			'stop',
+			'approve',
+			'revise',
+			'message',
+		]);
+		Object.assign(run, { ...before, bugNumber: null });
+	}
 	check('the last event id is where the stream picks up', s.lastEventId, eventSeq);
 	check('the project name and template', [s.name, s.templateProjectKey], [`Project ${NEW}`, 'hw']);
 	Object.assign(run, { status: 'running', waitingOn: null });

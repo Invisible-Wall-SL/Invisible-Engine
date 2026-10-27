@@ -692,6 +692,9 @@ export interface RunSummary {
 	projectKey: string;
 	clientKey: string | null;
 	templateProjectKey: string;
+	/** `repair`: fixes the game bug `bugNumber` in its own project (ADR-0012). */
+	kind: DirectorRun['kind'];
+	bugNumber: number | null;
 	status: DirectorRun['status'];
 	step: DirectorRun['step'];
 	waitingOn: DirectorRun['waitingOn'];
@@ -726,7 +729,9 @@ export interface RunSummary {
 	updatedAt: string;
 }
 
-const AGENTS = DIRECTOR_AGENTS.filter((a) => a !== 'worker');
+const AGENTS = DIRECTOR_AGENTS.filter((a) => a !== 'worker' && a !== 'game-doctor');
+/** The agents of a repair run (ADR-0012): its lead and the two that write a project's content. */
+const REPAIR_AGENTS: readonly string[] = ['game-doctor', 'builder', 'animator'];
 
 /**
  * The agents a run is priced for, each at the model its definition names (the fixture pins the
@@ -766,7 +771,7 @@ export async function summarizeRun(run: DirectorRun): Promise<RunSummary> {
 			(run.status === 'paused' && opened === 'budget'));
 
 	const byAgent = new Map(conversations.map((c) => [c.agent, c]));
-	const agents = AGENTS.map((agent) => {
+	const agents = (run.kind === 'repair' ? REPAIR_AGENTS : AGENTS).map((agent) => {
 		const c = byAgent.get(agent);
 		const status: AgentStatus = !c
 			? 'not_started'
@@ -784,6 +789,8 @@ export async function summarizeRun(run: DirectorRun): Promise<RunSummary> {
 		projectKey: run.projectKey,
 		clientKey: run.clientKey,
 		templateProjectKey: run.templateProjectKey,
+		kind: run.kind,
+		bugNumber: run.bugNumber,
 		status: run.status,
 		step: run.step,
 		waitingOn: run.waitingOn,

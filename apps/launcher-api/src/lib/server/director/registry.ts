@@ -5,6 +5,7 @@ import { ATLAS_SETUP_OPS } from './ops/atlasSetup';
 import { FLIPBOOK_OPS } from './ops/flipbook';
 import { FONTS_OPS } from './ops/fonts';
 import { GAMEMAKER_OPS } from './ops/gamemaker';
+import { GAME_BUG_OPS } from './ops/gameBugs';
 import { LOCALIZATION_OPS } from './ops/localization';
 import { MOCKUP_OPS } from './ops/mockups';
 import { RIGGER_OPS } from './ops/rigger';
@@ -73,4 +74,5 @@ export const ADAPTER_OPS = buildRegistry([
 	...FONTS_OPS,
 	...RIGGER_OPS,
 	...FLIPBOOK_OPS,
+	...GAME_BUG_OPS,
 ]);

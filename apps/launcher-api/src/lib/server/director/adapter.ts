@@ -25,6 +25,7 @@ export const DIRECTOR_AGENTS = [
 	'animator',
 	'builder',
 	'qa',
+	'game-doctor',
 	'worker',
 ] as const;
 export type DirectorAgent = (typeof DIRECTOR_AGENTS)[number];
@@ -171,6 +172,7 @@ export type OpScope =
  */
 export const ADAPTER_TOOL_IDS: Readonly<Record<string, string>> = {
 	atlas: 'atlasTool',
+	bugs: 'pipelineBugs',
 	comfyui: 'comfyui',
 	flipbook: 'flipbook',
 	fonts: 'fontMaker',
@@ -200,6 +202,11 @@ interface OpBase<I, O> {
 	description: string;
 	inputSchema: ObjectSchema;
 	agents: readonly DirectorAgent[];
+	/**
+	 * The answer carries text people wrote (a bug report). The worker puts it between
+	 * `<untrusted_bug_report>` tags after a fixed line, so the model reads it as data (ADR-0012 §2).
+	 */
+	untrusted?: true;
 	scope: OpScope;
 	handler: (ctx: AdapterContext, input: I) => Promise<O>;
 }

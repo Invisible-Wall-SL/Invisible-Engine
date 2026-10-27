@@ -10,6 +10,8 @@ import {
 	MAX_SCREENSHOT_BYTES,
 	MAX_TITLE,
 	autoStatus,
+	bugAreaName,
+	bugRef,
 	bugRefsIn,
 	bugTriageName,
 	cleanPageUrl,
@@ -641,6 +643,20 @@ export async function removeScreenshot(
 	return getBug(access, number);
 }
 
+/** A bug's screenshot bytes, only through the row that lists it; null when no row or object. */
+async function screenshotBytes(
+	number: number,
+	id: string,
+): Promise<{ bytes: Uint8Array<ArrayBuffer>; mediaType: string } | null> {
+	if (!SCREENSHOT_ID.test(id)) return null;
+	const shot = await getScreenshot(number, id);
+	const got =
+		shot && SCREENSHOT_FILE.test(shot.file)
+			? await getObjectBytes(screenshotKey(number, shot.file))
+			: null;
+	return shot && got ? { bytes: got.body, mediaType: shot.mediaType } : null;
+}
+
 /** A screenshot's bytes, only through the row that lists it, on a bug the viewer can see. */
 export async function readScreenshot(
 	access: BugAccess,
@@ -649,13 +665,70 @@ export async function readScreenshot(
 ): Promise<{ bytes: Uint8Array<ArrayBuffer>; mediaType: string }> {
 	if (!SCREENSHOT_ID.test(id)) throw error(404, 'No such screenshot.');
 	await readVisible(access, number);
-	const shot = await getScreenshot(number, id);
-	const got =
-		shot && SCREENSHOT_FILE.test(shot.file)
-			? await getObjectBytes(screenshotKey(number, shot.file))
-			: null;
-	if (!shot || !got) throw error(404, 'No such screenshot.');
-	return { bytes: got.body, mediaType: shot.mediaType };
+	const shot = await screenshotBytes(number, id);
+	if (!shot) throw error(404, 'No such screenshot.');
+	return shot;
+}
+
+// ── A repair run reads its bug ─────────────────────────────────────────────────
+
+/**
+ * The game bug a Director repair run fixes, as its doctor reads it (ADR-0012 §2): the report and its
+ * comments, nobody's email or id, and none of the Director data on `reported` events. Plain text
+ * people wrote, which the worker hands the model as data.
+ */
+export interface RunBugView {
+	number: number;
+	ref: string;
+	title: string;
+	description: string;
+	area: string;
+	areaName: string;
+	priority: BugPriority | null;
+	status: BugStatus;
+	pageUrl: string | null;
+	comments: { by: string; at: string; text: string }[];
+	screenshots: { id: string; mediaType: string; bytes: number }[];
+}
+
+/** The run's bug, only while it is still a game bug of the run's own project: else null. */
+async function runBugOf(number: number, projectKey: string): Promise<BugFull | null> {
+	const full = await getBugFull(number);
+	return full && full.bug.kind === 'game' && full.bug.projectKey === projectKey ? full : null;
+}
+
+export async function readRunBug(number: number, projectKey: string): Promise<RunBugView | null> {
+	const full = await runBugOf(number, projectKey);
+	if (!full) return null;
+	const { bug } = full;
+	return {
+		number,
+		ref: bugRef(number),
+		title: bug.title,
+		description: bug.description,
+		area: bug.area,
+		areaName: bugAreaName('game', bug.area),
+		priority: bug.priority,
+		status: bug.status,
+		pageUrl: bug.pageUrl,
+		comments: full.events
+			.filter((e) => e.kind === 'comment')
+			.map((e) => ({ by: e.actor, at: e.at.toISOString(), text: String(e.data.text ?? '') })),
+		screenshots: full.screenshots.map((s) => ({
+			id: s.id,
+			mediaType: s.mediaType,
+			bytes: s.bytes,
+		})),
+	};
+}
+
+/** One of the run's bug's screenshots, through its row; another bug's id is null, as a missing one. */
+export async function readRunScreenshot(
+	number: number,
+	projectKey: string,
+	id: string,
+): Promise<{ bytes: Uint8Array<ArrayBuffer>; mediaType: string } | null> {
+	return (await runBugOf(number, projectKey)) ? screenshotBytes(number, id) : null;
 }
 
 /**
