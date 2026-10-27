@@ -15,6 +15,7 @@ import {
 	REPAIR_ASSIGNABLE,
 	checkSubmission,
 	leadOf,
+	playVerdict,
 	repairBrief,
 	repairOutcomeOf,
 	type RepairFacts,
@@ -152,6 +153,50 @@ console.log('an untrusted image answer (9G.0 composed with ADR-0012 layer 2)');
 		JSON.stringify(capImages(stored)[0]).includes(UNTRUSTED_LINE),
 		'...the fixed line stays on a stubbed one',
 	);
+}
+
+console.log('how a draft play counts (9D)');
+{
+	const scenario = (over: object = {}) => ({
+		id: 'base',
+		missing: [],
+		stall: null,
+		error: null,
+		...over,
+	});
+	const report = (scenarios: object[], bootRefused: unknown = null) => ({ bootRefused, scenarios });
+	check(
+		playVerdict('finished', report([scenario()])) === 'passed',
+		'every screen reached, no stall or error: passed',
+	);
+	check(
+		playVerdict('finished', report([scenario(), scenario({ missing: ['big_win'] })])) === 'failed',
+		'a missing screen in any scenario: failed',
+	);
+	check(
+		playVerdict('finished', report([scenario({ stall: { op: 'wait' } })])) === 'failed',
+		'a stall: failed',
+	);
+	check(
+		playVerdict('finished', report([scenario({ error: 'no WebGL' })])) === 'failed',
+		'an error: failed',
+	);
+	check(
+		playVerdict('finished', report([scenario()], 'boot stopped')) === 'failed',
+		'a refused boot: failed',
+	);
+	check(
+		playVerdict('finished', report([scenario({ consoleErrors: ['x'] })])) === 'passed',
+		'console lines alone do not fail a play',
+	);
+	check(
+		playVerdict('failed', { reason: 'no_player' }) === 'unplayed' &&
+			playVerdict('failed', { reason: 'timeout' }) === 'unplayed' &&
+			playVerdict('finished', {}) === 'unplayed' &&
+			playVerdict('finished', report([])) === 'unplayed',
+		'a play that never ran, or reported nothing, is unplayed: not a pass and not a fail',
+	);
+	check(playVerdict('cancelled', null) === null, 'a cancelled play counts for nothing');
 }
 
 console.log('who leads, who is assigned');

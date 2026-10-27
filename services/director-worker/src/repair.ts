@@ -73,13 +73,36 @@ export interface RepairSubmission {
 	pipeline_title: string;
 }
 
+/** How a draft play settled, for the doctor's `verified` (ADR-0012 §2, ADR-0010 owner decision 4). */
+export type PlayVerdict = 'passed' | 'failed' | 'unplayed';
+
 /**
- * What the run's own records say, for `checkSubmission`.
- *
- * `plays` is null while there is no draft player (9D): the worker then holds no record of a play
- * and can only refuse what the submission contradicts. With 9D it is what this step's plays
- * settled as, counted from the play settles of the run (`no_player` is `unplayed`), and the
- * checks below start binding `verified` to it.
+ * A settled play's verdict, from its `director_draft_jobs` row; null for a cancelled one (it never
+ * ran and counts for nothing). A play that never ran (`no_player`, a refused submit, a timeout, a
+ * player that could not play it) is `unplayed`: not a pass and not a fail. One that ran passed when
+ * the runtime booted and every scenario reached every screen it expected with no stall and no error;
+ * console lines alone do not fail it.
+ */
+export function playVerdict(status: string, result: unknown): PlayVerdict | null {
+	if (status === 'cancelled') return null;
+	if (status !== 'finished') return 'unplayed';
+	const report = (typeof result === 'object' && result !== null ? result : {}) as {
+		bootRefused?: unknown;
+		scenarios?: unknown;
+	};
+	if (!Array.isArray(report.scenarios) || report.scenarios.length === 0) return 'unplayed';
+	if (report.bootRefused) return 'failed';
+	const clean = report.scenarios.every(
+		(sc: { missing?: unknown; stall?: unknown; error?: unknown }) =>
+			Array.isArray(sc?.missing) ? sc.missing.length === 0 && !sc.stall && !sc.error : false,
+	);
+	return clean ? 'passed' : 'failed';
+}
+
+/**
+ * What the run's own records say, for `checkSubmission`. `plays` is what this step's plays settled
+ * as (`playVerdict`), counted from the run's draft jobs queued since the step began; the checks
+ * bind `fixed` and `verified` to it.
  */
 export interface RepairFacts {
 	/** The step the run is in. */

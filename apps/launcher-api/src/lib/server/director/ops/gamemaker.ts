@@ -9,6 +9,7 @@ import {
 	listProjects,
 	projectExists,
 } from '../../projects';
+import { templateConfigRecord } from '../configEtag';
 import { markProjectCreateStarted, setRunConfigEtags } from '../store';
 import { AdapterError, defineOp, type AdapterContext } from '../adapter';
 import { loadSummaryContext, summarizeProject, type ProjectSummary } from '../templates';
@@ -166,9 +167,7 @@ export const createFromTemplate = defineOp<{ name: string }, CreateFromTemplateR
 		// that copied recorded, never overwriting that with unknown.
 		const templateConfigEtag = resumed
 			? run.templateConfigEtag
-			: before.etag === after.etag
-				? before.etag
-				: null;
+			: templateConfigRecord(before, after);
 		await setRunConfigEtags(run.id, { template: templateConfigEtag, project: copy.etag });
 		return {
 			projectKey: outcome.key,

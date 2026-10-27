@@ -1,5 +1,5 @@
 {
-  "id": "c0ced2dd-6c76-4b61-a388-fa9913ae6556",
+  "id": "8c60fc92-9c59-4196-a67d-336be18a9a3e",
   "prevId": "39c7626b-96e3-43ab-8e25-db0614c78e44",
   "version": "7",
   "dialect": "postgresql",
@@ -149,7 +149,7 @@
       "checkConstraints": {
         "bug_report_events_kind_check": {
           "name": "bug_report_events_kind_check",
-          "value": "\"bug_report_events\".\"kind\" in ('reported', 'edited', 'comment', 'priority', 'status', 'sent', 'unsent', 'screenshot_added', 'screenshot_removed', 'linked', 'unlinked', 'escalated', 'repair')"
+          "value": "\"bug_report_events\".\"kind\" in ('reported', 'edited', 'comment', 'priority', 'status', 'sent', 'unsent', 'screenshot_added', 'screenshot_removed', 'linked', 'unlinked')"
         }
       },
       "isRLSEnabled": false
@@ -227,112 +227,6 @@
         "bug_report_links_state_check": {
           "name": "bug_report_links_state_check",
           "value": "\"bug_report_links\".\"state\" in ('open', 'merged', 'closed')"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.bug_report_relations": {
-      "name": "bug_report_relations",
-      "schema": "",
-      "columns": {
-        "from_bug": {
-          "name": "from_bug",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "to_bug": {
-          "name": "to_bug",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "run_id": {
-          "name": "run_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "bug_report_relations_to_idx": {
-          "name": "bug_report_relations_to_idx",
-          "columns": [
-            {
-              "expression": "to_bug",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "bug_report_relations_from_bug_bug_reports_number_fk": {
-          "name": "bug_report_relations_from_bug_bug_reports_number_fk",
-          "tableFrom": "bug_report_relations",
-          "tableTo": "bug_reports",
-          "columnsFrom": [
-            "from_bug"
-          ],
-          "columnsTo": [
-            "number"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "bug_report_relations_to_bug_bug_reports_number_fk": {
-          "name": "bug_report_relations_to_bug_bug_reports_number_fk",
-          "tableFrom": "bug_report_relations",
-          "tableTo": "bug_reports",
-          "columnsFrom": [
-            "to_bug"
-          ],
-          "columnsTo": [
-            "number"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "bug_report_relations_from_bug_kind_pk": {
-          "name": "bug_report_relations_from_bug_kind_pk",
-          "columns": [
-            "from_bug",
-            "kind"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "bug_report_relations_kind_check": {
-          "name": "bug_report_relations_kind_check",
-          "value": "\"bug_report_relations\".\"kind\" in ('escalated_to')"
         }
       },
       "isRLSEnabled": false
@@ -934,6 +828,119 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.director_draft_jobs": {
+      "name": "director_draft_jobs",
+      "schema": "",
+      "columns": {
+        "job_ref": {
+          "name": "job_ref",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent": {
+          "name": "agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "draft_id": {
+          "name": "draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scenarios": {
+          "name": "scenarios",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "result": {
+          "name": "result",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "done_via": {
+          "name": "done_via",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "queued_at": {
+          "name": "queued_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "done_at": {
+          "name": "done_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "director_draft_jobs_run_idx": {
+          "name": "director_draft_jobs_run_idx",
+          "columns": [
+            {
+              "expression": "run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "director_draft_jobs_run_id_director_runs_id_fk": {
+          "name": "director_draft_jobs_run_id_director_runs_id_fk",
+          "tableFrom": "director_draft_jobs",
+          "tableTo": "director_runs",
+          "columnsFrom": [
+            "run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "director_draft_jobs_status_check": {
+          "name": "director_draft_jobs_status_check",
+          "value": "\"director_draft_jobs\".\"status\" in ('queued', 'finished', 'failed', 'cancelled')"
+        },
+        "director_draft_jobs_done_check": {
+          "name": "director_draft_jobs_done_check",
+          "value": "(\"director_draft_jobs\".\"status\" = 'queued') = (\"director_draft_jobs\".\"done_at\" is null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.director_events": {
       "name": "director_events",
       "schema": "",
@@ -1432,25 +1439,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'create'"
-        },
-        "bug_number": {
-          "name": "bug_number",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "repair_outcome": {
-          "name": "repair_outcome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "budget_cap_usd": {
           "name": "budget_cap_usd",
           "type": "double precision",
@@ -1517,22 +1505,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "director_runs_live_project_idx": {
-          "name": "director_runs_live_project_idx",
-          "columns": [
-            {
-              "expression": "project_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"director_runs\".\"status\" in ('draft', 'running', 'waiting', 'paused', 'stopping')",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -1548,19 +1520,6 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
-        },
-        "director_runs_bug_number_bug_reports_number_fk": {
-          "name": "director_runs_bug_number_bug_reports_number_fk",
-          "tableFrom": "director_runs",
-          "tableTo": "bug_reports",
-          "columnsFrom": [
-            "bug_number"
-          ],
-          "columnsTo": [
-            "number"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1573,23 +1532,11 @@
         },
         "director_runs_step_check": {
           "name": "director_runs_step_check",
-          "value": "\"director_runs\".\"step\" in ('breakdown', 'style_pack', 'regions', 'build', 'reproduce', 'fix', 'verify', 'handoff')"
-        },
-        "director_runs_kind_check": {
-          "name": "director_runs_kind_check",
-          "value": "\"director_runs\".\"kind\" in ('create', 'repair')"
-        },
-        "director_runs_bug_number_check": {
-          "name": "director_runs_bug_number_check",
-          "value": "\"director_runs\".\"kind\" = 'repair' or \"director_runs\".\"bug_number\" is null"
-        },
-        "director_runs_repair_outcome_check": {
-          "name": "director_runs_repair_outcome_check",
-          "value": "\"director_runs\".\"repair_outcome\" is null or (\"director_runs\".\"kind\" = 'repair' and \"director_runs\".\"repair_outcome\" in ('fixed', 'escalated', 'needs_person', 'not_reproduced'))"
+          "value": "\"director_runs\".\"step\" in ('breakdown', 'style_pack', 'regions', 'build', 'handoff')"
         },
         "director_runs_waiting_on_check": {
           "name": "director_runs_waiting_on_check",
-          "value": "(\"director_runs\".\"status\" = 'waiting') = (\"director_runs\".\"waiting_on\" is not null) and (\"director_runs\".\"waiting_on\" is null or \"director_runs\".\"waiting_on\" in ('breakdown', 'art_plan', 'region_batch', 'before_publish', 'repair_review'))"
+          "value": "(\"director_runs\".\"status\" = 'waiting') = (\"director_runs\".\"waiting_on\" is not null) and (\"director_runs\".\"waiting_on\" is null or \"director_runs\".\"waiting_on\" in ('breakdown', 'art_plan', 'region_batch', 'before_publish'))"
         },
         "director_runs_lease_check": {
           "name": "director_runs_lease_check",

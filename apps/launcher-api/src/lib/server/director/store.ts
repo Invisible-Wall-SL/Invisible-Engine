@@ -1,9 +1,10 @@
-import { and, asc, desc, eq, gt, inArray, lt, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import { getDb } from '../db';
 import { r2SlugSql, type Queryer } from '../projectKeyLock';
 import {
 	directorAtlasJobs,
 	directorBlueprintTimings,
+	directorDraftJobs,
 	directorEvents,
 	directorMessages,
 	directorOps,
@@ -13,6 +14,7 @@ import {
 	directorTemplateRecipes,
 	users,
 	type DirectorAtlasJob,
+	type DirectorDraftJob,
 	type DirectorEvent,
 	type DirectorOp,
 	type DirectorRun,
@@ -348,6 +350,133 @@ export async function settleAtlasJob(done: {
 	});
 }
 
+interface DraftSettle {
+	jobRef: string;
+	runId: string;
+	status: 'finished' | 'failed' | 'cancelled';
+	result: unknown;
+	via: 'callback' | 'poll' | 'inline';
+}
+
+type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
+
+async function settleDraftJobIn(tx: Tx, done: DraftSettle): Promise<DirectorDraftJob | null> {
+	const [row] = await tx
+		.update(directorDraftJobs)
+		.set({ status: done.status, result: done.result, doneVia: done.via, doneAt: new Date() })
+		.where(
+			and(
+				eq(directorDraftJobs.jobRef, done.jobRef),
+				eq(directorDraftJobs.runId, done.runId),
+				eq(directorDraftJobs.status, 'queued'),
+			),
+		)
+		.returning();
+	if (!row) return null;
+	await tx.insert(directorEvents).values({
+		runId: row.runId,
+		agent: row.agent,
+		kind: 'job_done',
+		tool: 'build.play_draft',
+		payloadJson: {
+			jobRef: row.jobRef,
+			draftId: row.draftId,
+			status: row.status,
+			via: done.via,
+			result: done.result,
+		},
+	});
+	return row;
+}
+
+/**
+ * Record a QA play of a draft (ADR-0010). One play per run is queued at a time: when the run
+ * already has one, nothing is inserted and that one is returned with `queued: false`. With
+ * `settleNow` the play is queued and settled in one transaction: one `job_queued`, one `job_done`.
+ */
+export async function insertDraftJob(row: {
+	jobRef: string;
+	runId: string;
+	agent: string;
+	draftId: string;
+	scenarios: string[] | null;
+	/** Settle the play in the same transaction, when nothing could claim it (no player deployed). */
+	settleNow?: { status: 'failed'; result: unknown };
+}): Promise<{ job: DirectorDraftJob; queued: boolean }> {
+	const { settleNow, ...values } = row;
+	return getDb().transaction(async (tx) => {
+		// Serialises two plays of one run, so the second sees the first's row.
+		await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`draft-play:${row.runId}`}))`);
+		const [open] = await tx
+			.select()
+			.from(directorDraftJobs)
+			.where(and(eq(directorDraftJobs.runId, row.runId), eq(directorDraftJobs.status, 'queued')));
+		if (open) return { job: open, queued: false };
+		const [job] = await tx
+			.insert(directorDraftJobs)
+			.values({ ...values, status: 'queued' })
+			.returning();
+		await tx.insert(directorEvents).values({
+			runId: row.runId,
+			agent: row.agent,
+			kind: 'job_queued',
+			tool: 'build.play_draft',
+			payloadJson: { jobRef: row.jobRef, draftId: row.draftId, scenarios: row.scenarios },
+		});
+		if (!settleNow) return { job, queued: true };
+		const settled = await settleDraftJobIn(tx, {
+			jobRef: row.jobRef,
+			runId: row.runId,
+			...settleNow,
+			via: 'inline',
+		});
+		return { job: settled ?? job, queued: true };
+	});
+}
+
+/** Every play still queued, of every run: what the fallback watches at boot. */
+export async function queuedDraftJobs(): Promise<DirectorDraftJob[]> {
+	return getDb().select().from(directorDraftJobs).where(eq(directorDraftJobs.status, 'queued'));
+}
+
+/**
+ * A run's plays the stop must tell the player about: those still queued, and those the worker's
+ * own stop already flipped to `cancelled` without a `done_via` (`cancelQueuedDrafts`), whichever
+ * of the two reached the rows first.
+ */
+export async function draftJobsToCancel(runId: string): Promise<DirectorDraftJob[]> {
+	return getDb()
+		.select()
+		.from(directorDraftJobs)
+		.where(
+			and(
+				eq(directorDraftJobs.runId, runId),
+				or(
+					eq(directorDraftJobs.status, 'queued'),
+					and(eq(directorDraftJobs.status, 'cancelled'), isNull(directorDraftJobs.doneVia)),
+				),
+			),
+		);
+}
+
+export async function getDraftJob(jobRef: string): Promise<DirectorDraftJob | null> {
+	const [row] = await getDb()
+		.select()
+		.from(directorDraftJobs)
+		.where(eq(directorDraftJobs.jobRef, jobRef));
+	return row ?? null;
+}
+
+/**
+ * The play's `job_done`: move a queued play of `runId` to its terminal status and append the
+ * `job_done` event that wakes the worker, in one transaction. Conditional on it still being
+ * `queued`, so of the player's callback, the fallback watch and the inline `no_player` settle,
+ * exactly one records it. Returns the settled row to that one caller, and `null` to every other.
+ */
+export async function settleDraftJob(done: DraftSettle): Promise<DirectorDraftJob | null> {
+	return getDb().transaction((tx) => settleDraftJobIn(tx, done));
+}
+
 /** The run's events after `afterId`, oldest first — the live stream's catch-up read. */
 export async function listEventsAfter(
 	runId: string,
@@ -506,6 +635,38 @@ export async function runInFolder(slug: string, db: Queryer = getDb()): Promise<
 		.select({ id: directorRuns.id })
 		.from(directorRuns)
 		.where(eq(r2SlugSql(directorRuns.projectKey), slug))
+		.limit(1);
+	return Boolean(row);
+}
+
+/** Statuses a run never leaves: it is over and nothing of it is still being written. */
+export const ENDED_RUN_STATUSES = ['stopped', 'failed', 'handed_off'] as const;
+
+/** Every run's project, client, status and last change: what the draft retention sweep groups. */
+export async function listRunsForDraftSweep(): Promise<
+	Pick<DirectorRun, 'projectKey' | 'clientKey' | 'status' | 'updatedAt'>[]
+> {
+	return getDb()
+		.select({
+			projectKey: directorRuns.projectKey,
+			clientKey: directorRuns.clientKey,
+			status: directorRuns.status,
+			updatedAt: directorRuns.updatedAt,
+		})
+		.from(directorRuns);
+}
+
+/** Whether a run that has not ended names a key whose R2 folder is `slug`; on the lock's `tx`. */
+export async function liveRunInFolder(slug: string, db: Queryer = getDb()): Promise<boolean> {
+	const [row] = await db
+		.select({ id: directorRuns.id })
+		.from(directorRuns)
+		.where(
+			and(
+				eq(r2SlugSql(directorRuns.projectKey), slug),
+				sql`${directorRuns.status} not in ('stopped', 'failed', 'handed_off')`,
+			),
+		)
 		.limit(1);
 	return Boolean(row);
 }

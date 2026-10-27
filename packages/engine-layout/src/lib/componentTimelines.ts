@@ -7,6 +7,7 @@ import {
 	type CinematicTrack,
 } from 'engine-cinematic';
 
+import type { CueKey } from './cueSound';
 import { keyedNodeChannels, resolveNodeActors, type NodeActorChannel } from './cinematicNodes';
 import { BUILTIN_TIMELINES } from './builtinTimelines';
 import { fxParamOfChannel, fxParamRest, placedFxParamValues } from './fxNodeParams';
@@ -129,7 +130,7 @@ interface Bound {
 	actors: Map<string, CinematicTrack[]>;
 	/** Node id → the channels this timeline keys on it. */
 	channels: Map<string, Set<NodeActorChannel>>;
-	cueKeys: { time: number; cue: string }[];
+	cueKeys: CueKey[];
 }
 
 interface Running {
@@ -183,10 +184,23 @@ const loopStart = (doc: CinematicDoc): number | undefined => {
 const pingPongs = (doc: CinematicDoc): boolean =>
 	doc.loop === 'pingPong' && !isZeroLength(doc) && loopStart(doc) === undefined;
 
+/** A cue a timeline crossed: its key's cue and sound options, and the timeline that crossed it. */
+export interface CrossedCue {
+	cue: string;
+	timeline: string;
+	/** The key's raw `sound` options (`cueSound.ts` reads them); absent on a plain cue. */
+	sound?: unknown;
+}
+
+const crossedCue = (key: CueKey, timeline: string): CrossedCue =>
+	key.sound === undefined
+		? { cue: key.cue, timeline }
+		: { cue: key.cue, timeline, sound: key.sound };
+
 /** What one {@link ComponentTimelinePlayer.advance} step crossed. */
 export interface TimelineStep {
 	/** Cues the playheads crossed, in order, each with the id of the timeline that crossed it. */
-	cues: { cue: string; timeline: string }[];
+	cues: CrossedCue[];
 	/** Ids of the timelines that reached their end on this step. */
 	completed: string[];
 }
@@ -252,8 +266,7 @@ export class ComponentTimelinePlayer {
 						return fxParamRest(declared, c, placedFxParamValues(node, params?.() ?? {}, declared));
 					});
 			}
-			const cue = doc.tracks.find((t) => t.kind === 'cue') as
-				{ keys?: { time: number; cue: string }[] } | undefined;
+			const cue = doc.tracks.find((t) => t.kind === 'cue') as { keys?: CueKey[] } | undefined;
 			return { doc, actors, channels, cueKeys: cue?.keys ?? [] };
 		});
 		for (const b of this.bound) this.boundById.set(b.doc.id, b);
@@ -350,7 +363,7 @@ export class ComponentTimelinePlayer {
 				// Cues fire on the way out only, a step over the turnaround included.
 				const from = r.lap ?? r.time;
 				for (const k of pingPongCuesCrossed(r.bound.cueKeys, from, from + dt, duration)) {
-					step.cues.push({ cue: k.cue, timeline: r.bound.doc.id });
+					step.cues.push(crossedCue(k, r.bound.doc.id));
 				}
 				r.lap = (from + dt) % (2 * duration);
 				r.time = playbackTime('pingPong', r.lap, duration);
@@ -359,7 +372,7 @@ export class ComponentTimelinePlayer {
 			const prev = r.time;
 			const next = Math.min(prev + dt, duration);
 			for (const k of cuesCrossed(r.bound.cueKeys, prev, next)) {
-				step.cues.push({ cue: k.cue, timeline: r.bound.doc.id });
+				step.cues.push(crossedCue(k, r.bound.doc.id));
 			}
 			r.time = next;
 			if (next >= duration) {
@@ -380,8 +393,7 @@ export class ComponentTimelinePlayer {
 	): number {
 		const id = r.bound.doc.id;
 		const crossed = (prev: number, next: number): void => {
-			for (const k of cuesCrossed(r.bound.cueKeys, prev, next))
-				step.cues.push({ cue: k.cue, timeline: id });
+			for (const k of cuesCrossed(r.bound.cueKeys, prev, next)) step.cues.push(crossedCue(k, id));
 		};
 		const next = r.time + dt;
 		if (next < duration) {
@@ -400,12 +412,12 @@ export class ComponentTimelinePlayer {
 	 * that wrapped crosses the end of the timeline and then the start. A timeline this player did
 	 * not bind empties the slot (the state holds, as the interpreter said it would).
 	 */
-	drive(slot: string, layer: number, play: LayerPlay): { cue: string; timeline: string }[] {
-		const cues: { cue: string; timeline: string }[] = [];
+	drive(slot: string, layer: number, play: LayerPlay): CrossedCue[] {
+		const cues: CrossedCue[] = [];
 		// A slot never seeks, so every step is a real stretch of playback: no step-size guard.
 		const crossed = (on: Bound, prev: number, next: number): void => {
 			for (const k of cuesCrossed(on.cueKeys, prev, next, Infinity)) {
-				cues.push({ cue: k.cue, timeline: on.doc.id });
+				cues.push(crossedCue(k, on.doc.id));
 			}
 		};
 		const segment = (on: Bound, seg: LeftSegment | LayerPlay): void => {

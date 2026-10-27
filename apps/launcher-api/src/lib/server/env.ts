@@ -333,6 +333,16 @@ export const ENV = {
 	get ATLAS_CALLBACK_SECRET() {
 		return (env.ATLAS_CALLBACK_SECRET ?? '').trim();
 	},
+	/** The private `draft-player` service QA's plays run on (ADR-0010). No code default: unset ⇒ no
+	 *  player is deployed, and `build.play_draft` settles `no_player` at once. */
+	get DRAFT_PLAYER_URL() {
+		return (env.DRAFT_PLAYER_URL ?? '').trim().replace(/\/+$/, '');
+	},
+	/** Shared with `draft-player`: signs the launcher's submit and verifies the player's callback.
+	 *  Secret: no code default; trimmed; never logged. Needs {@link DRAFT_PLAYER_URL} too. */
+	get DRAFT_PLAYER_SECRET() {
+		return (env.DRAFT_PLAYER_SECRET ?? '').trim();
+	},
 	// GitHub read-only token the desktop launcher uses to clone PRIVATE game repos
 	// (and their submodules) on any machine with no per-user GitHub login. Served by
 	// GET /api/launcher/git-credentials to launchers signed in with `gamePublish`. Use a fine-grained

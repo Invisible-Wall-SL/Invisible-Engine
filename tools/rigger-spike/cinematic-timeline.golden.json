@@ -1003,9 +1003,9 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "172961d1fec6e144",
+			"tl": "676c4857883436b3",
 			"panel": "d80ab2c728a27fee",
-			"props": "930f3ab6636c65ac"
+			"props": "497ff99a35d33352"
 		},
 		{
 			"name": "cue time 4.5",
@@ -1022,9 +1022,9 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "711a8c0e812baf3a",
+			"tl": "cdbcd47052021ed1",
 			"panel": "d80ab2c728a27fee",
-			"props": "a60cef48d438a05b"
+			"props": "abad1ec622ab16fd"
 		},
 		{
 			"name": "＋ a second cue at the playhead",
@@ -1041,7 +1041,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "47fe6a09237ce8cd",
+			"tl": "fd9854518aff7cb3",
 			"panel": "083f9192c26be459",
 			"props": "675fd15d1e126309"
 		},
@@ -1060,7 +1060,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "ae48ae63586eb1db",
+			"tl": "6e96d34545872b3b",
 			"panel": "b02b10ba59c745d1",
 			"props": "71a073801da23365"
 		},
@@ -1079,7 +1079,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "7c8f26cad9e2c011",
+			"tl": "515c10021198ee72",
 			"panel": "439ed27fd7138da7",
 			"props": "7619deb3e85cbbfd"
 		},
@@ -1098,7 +1098,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "e0fd9301561f9567",
+			"tl": "6a5e74d3e7d34c60",
 			"panel": "439ed27fd7138da7",
 			"props": "7619deb3e85cbbfd"
 		},
@@ -1117,7 +1117,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "7c8f26cad9e2c011",
+			"tl": "515c10021198ee72",
 			"panel": "439ed27fd7138da7",
 			"props": "7619deb3e85cbbfd"
 		},
@@ -1136,7 +1136,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "f3ee28363deec35e",
+			"tl": "0b38d01da42af9c6",
 			"panel": "b191ed3c20377f4c",
 			"props": "777853558861d344"
 		},
@@ -1155,7 +1155,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "db88c846d6a49b79",
+			"tl": "16538fc368e37c8d",
 			"panel": "0f36954009b68718",
 			"props": "7619deb3e85cbbfd"
 		},
@@ -1174,7 +1174,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "db88c846d6a49b79",
+			"tl": "16538fc368e37c8d",
 			"panel": "19d1c2ee6e0ce5ab",
 			"props": "7619deb3e85cbbfd"
 		},
@@ -1193,7 +1193,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "db88c846d6a49b79",
+			"tl": "16538fc368e37c8d",
 			"panel": "e5b97e9e891276f1",
 			"props": "7619deb3e85cbbfd"
 		},
@@ -1212,7 +1212,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "0ba8d5ddc9a8c009",
+			"tl": "38ee82c2ec3d23bc",
 			"panel": "00a51673b04ef585",
 			"props": "7619deb3e85cbbfd"
 		},
@@ -1231,7 +1231,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "0ba8d5ddc9a8c009",
+			"tl": "38ee82c2ec3d23bc",
 			"panel": "00a51673b04ef585",
 			"props": "7619deb3e85cbbfd"
 		},
@@ -1250,7 +1250,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "0ba8d5ddc9a8c009",
+			"tl": "38ee82c2ec3d23bc",
 			"panel": "00a51673b04ef585",
 			"props": "7619deb3e85cbbfd"
 		},
@@ -1269,7 +1269,7 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "c2befb00b2f30536",
+			"tl": "bfe866a796a5d3a1",
 			"panel": "a2a6b81145ec461c",
 			"props": "2f2b330e5ea576ed"
 		},
@@ -1288,7 +1288,7 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "a66e8b9a390ddc01",
+			"tl": "1b52f4662af0c7b4",
 			"panel": "a2a6b81145ec461c",
 			"props": "2f2b330e5ea576ed"
 		},
@@ -1307,7 +1307,7 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "d448874070323c80",
+			"tl": "c0f82a59c178ea56",
 			"panel": "a2a6b81145ec461c",
 			"props": "2f2b330e5ea576ed"
 		},
@@ -1326,7 +1326,7 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "181a2e9f6f7055a4",
+			"tl": "b7021e099939eacd",
 			"panel": "a2a6b81145ec461c",
 			"props": "2f2b330e5ea576ed"
 		},
@@ -1345,7 +1345,7 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "d448874070323c80",
+			"tl": "c0f82a59c178ea56",
 			"panel": "a2a6b81145ec461c",
 			"props": "2f2b330e5ea576ed"
 		},
@@ -1364,7 +1364,7 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "a66e8b9a390ddc01",
+			"tl": "1b52f4662af0c7b4",
 			"panel": "a2a6b81145ec461c",
 			"props": "2f2b330e5ea576ed"
 		},
@@ -1383,7 +1383,7 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "a66e8b9a390ddc01",
+			"tl": "1b52f4662af0c7b4",
 			"panel": "a2a6b81145ec461c",
 			"props": "2f2b330e5ea576ed"
 		},
@@ -1402,7 +1402,7 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "a66e8b9a390ddc01",
+			"tl": "1b52f4662af0c7b4",
 			"panel": "a2a6b81145ec461c",
 			"props": "2f2b330e5ea576ed"
 		},
@@ -1421,7 +1421,7 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "a66e8b9a390ddc01",
+			"tl": "1b52f4662af0c7b4",
 			"panel": "a2a6b81145ec461c",
 			"props": "2f2b330e5ea576ed"
 		},
@@ -1440,7 +1440,7 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "a66e8b9a390ddc01",
+			"tl": "1b52f4662af0c7b4",
 			"panel": "47c8bb14a0b60f71",
 			"props": "2f2b330e5ea576ed"
 		},
@@ -1459,7 +1459,7 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "a66e8b9a390ddc01",
+			"tl": "1b52f4662af0c7b4",
 			"panel": "ef153f3483f4cf66",
 			"props": "2f2b330e5ea576ed"
 		},
@@ -1478,7 +1478,7 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "a66e8b9a390ddc01",
+			"tl": "1b52f4662af0c7b4",
 			"panel": "47c8bb14a0b60f71",
 			"props": "2f2b330e5ea576ed"
 		},
@@ -1497,7 +1497,7 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "a66e8b9a390ddc01",
+			"tl": "1b52f4662af0c7b4",
 			"panel": "cd694fe196651b05",
 			"props": "2f2b330e5ea576ed"
 		},
@@ -1516,7 +1516,7 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "a66e8b9a390ddc01",
+			"tl": "1b52f4662af0c7b4",
 			"panel": "cd694fe196651b05",
 			"props": "2f2b330e5ea576ed"
 		},
@@ -1535,7 +1535,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "9bc9e745e8a3fe04",
+			"tl": "e85faba8c6488cb9",
 			"panel": "70d0561c421c91df",
 			"props": "7619deb3e85cbbfd"
 		},
@@ -1554,7 +1554,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "9bc9e745e8a3fe04",
+			"tl": "e85faba8c6488cb9",
 			"panel": "70d0561c421c91df",
 			"props": "7619deb3e85cbbfd"
 		},
@@ -1573,7 +1573,7 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "a66e8b9a390ddc01",
+			"tl": "1b52f4662af0c7b4",
 			"panel": "cd694fe196651b05",
 			"props": "2f2b330e5ea576ed"
 		},
@@ -1592,7 +1592,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "656a5fc68ec04edf",
+			"tl": "4fce97c04ca22596",
 			"panel": "cd694fe196651b05",
 			"props": "da9824f66da0ed0b"
 		},
@@ -1630,7 +1630,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "656a5fc68ec04edf",
+			"tl": "4fce97c04ca22596",
 			"panel": "cd694fe196651b05",
 			"props": "da9824f66da0ed0b"
 		},
@@ -1649,7 +1649,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "656a5fc68ec04edf",
+			"tl": "4fce97c04ca22596",
 			"panel": "cd694fe196651b05",
 			"props": "da9824f66da0ed0b"
 		},
@@ -1706,7 +1706,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "656a5fc68ec04edf",
+			"tl": "4fce97c04ca22596",
 			"panel": "cd694fe196651b05",
 			"props": "da9824f66da0ed0b"
 		},
@@ -1725,7 +1725,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "656a5fc68ec04edf",
+			"tl": "4fce97c04ca22596",
 			"panel": "cd694fe196651b05",
 			"props": "da9824f66da0ed0b"
 		},
@@ -1763,7 +1763,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "9617b42b7e6a01de",
+			"tl": "efe9e366a88c2307",
 			"panel": "fe5d14c2025e75b9",
 			"props": "b568e3fea2c3a549"
 		},
@@ -1782,7 +1782,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "9617b42b7e6a01de",
+			"tl": "efe9e366a88c2307",
 			"panel": "b2725538b07b81c8",
 			"props": "b568e3fea2c3a549"
 		},
@@ -1801,7 +1801,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "546e1f2f57241766",
+			"tl": "1afa85ac20985dae",
 			"panel": "52710deabd4fb9ec",
 			"props": "a1e1ea91be132664"
 		},
@@ -1820,7 +1820,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "546e1f2f57241766",
+			"tl": "1afa85ac20985dae",
 			"panel": "a33f210de7be154a",
 			"props": "5aedce49681c1878"
 		},
@@ -1839,7 +1839,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "546e1f2f57241766",
+			"tl": "1afa85ac20985dae",
 			"panel": "6a9045531db0ee3c",
 			"props": "5aedce49681c1878"
 		},
@@ -1858,7 +1858,7 @@
 				"dirty": false,
 				"propSub": "cinematic"
 			},
-			"tl": "546e1f2f57241766",
+			"tl": "1afa85ac20985dae",
 			"panel": "4d9a52eda72bb461",
 			"props": "5aedce49681c1878"
 		},
@@ -1877,7 +1877,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "546e1f2f57241766",
+			"tl": "1afa85ac20985dae",
 			"panel": "23f99421540c7c6f",
 			"props": "5aedce49681c1878"
 		},
@@ -1896,7 +1896,7 @@
 				"dirty": false,
 				"propSub": "cinematic"
 			},
-			"tl": "546e1f2f57241766",
+			"tl": "1afa85ac20985dae",
 			"panel": "a18db8d964ffd8b1",
 			"props": "5aedce49681c1878"
 		},
@@ -1953,7 +1953,7 @@
 				"dirty": false,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "c801d2ad19a67d5e",
+			"tl": "e7e35f10c1af0ba5",
 			"panel": "b58f255fa6909aa1",
 			"props": "2f2b330e5ea576ed"
 		},
@@ -1972,7 +1972,7 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "17801e09bc646bf0",
+			"tl": "fc385ef2a63e202f",
 			"panel": "b2ae78a3f92ddc21",
 			"props": "2f2b330e5ea576ed"
 		},

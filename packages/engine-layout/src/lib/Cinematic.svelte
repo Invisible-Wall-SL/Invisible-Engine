@@ -29,6 +29,7 @@
 		trackLayout,
 		type CinematicTrack,
 	} from 'engine-cinematic';
+	import type { CueKey } from './cueSound';
 	import type { CinematicDoc, Scene } from './types';
 	import { keyedNodeChannels, resolveNodeActors } from './cinematicNodes';
 	import { setCinematicNodeDriver, type CinematicNodeDriver } from './cinematicNodeContext';
@@ -60,8 +61,9 @@
 		speed?: number;
 		/** Fired once when a non-looping cinematic reaches its end — the Flow `complete` seam. */
 		oncomplete?: () => void;
-		/** Fired for each cue key the playhead crosses, with its `ns:name` string. */
-		oncue?: (cue: string) => void;
+		/** Fired for each cue key the playhead crosses, with its `ns:name` string and the key's raw
+		 *  `sound` options (`cueSound.ts`; absent on a plain cue). */
+		oncue?: (cue: string, sound?: unknown) => void;
 		/** Reads the screen ratio (layout type) on screen, which plays its own keys when the
 		 *  timeline has them (`keysLayout`). Absent ⇒ the default keys. */
 		layoutType?: () => string | undefined;
@@ -126,7 +128,7 @@
 	const cueKeys = $derived(
 		(
 			(props.doc.tracks as CinematicTrack[]).find((t) => t.kind === 'cue') as
-				{ keys?: { time: number; cue: string }[] } | undefined
+				{ keys?: CueKey[] } | undefined
 		)?.keys ?? [],
 	);
 
@@ -176,7 +178,8 @@
 		// cues on the way out only. Absent ⇒ the one-shot path below, as before.
 		if (props.doc.loop === 'pingPong') {
 			if (props.oncue && cueKeys.length) {
-				for (const k of pingPongCuesCrossed(cueKeys, lap, lap + dt, duration)) props.oncue(k.cue);
+				for (const k of pingPongCuesCrossed(cueKeys, lap, lap + dt, duration))
+					props.oncue(k.cue, k.sound);
 			}
 			lap = (lap + dt) % (2 * duration);
 			time = playbackTime('pingPong', lap, duration);
@@ -186,7 +189,7 @@
 		// `cuesCrossed` owns the "did we cross it" rule (and refuses on a backwards or over-large
 		// step, i.e. a seek), so the game and the editor preview share ONE definition of "fired".
 		if (props.oncue && cueKeys.length) {
-			for (const k of cuesCrossed(cueKeys, prev, time)) props.oncue(k.cue);
+			for (const k of cuesCrossed(cueKeys, prev, time)) props.oncue(k.cue, k.sound);
 		}
 		if (time < duration) return;
 		if (props.loop || props.doc.loop === 'loop') {

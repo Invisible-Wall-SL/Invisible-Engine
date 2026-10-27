@@ -27,6 +27,7 @@ import {
 	applyTransition,
 	completedWrites,
 	insertEvent,
+	playsOfStep,
 	rendersInFlight,
 	runSpend,
 	type LiveRun,
@@ -431,13 +432,24 @@ export async function runWorkerTool(
 				note: 'Filed as a pipeline bug, Open and not sent: a triager decides whether it is fixed.',
 			});
 		case 'run.submit_review':
-		case 'run.submit_qa':
+		case 'run.submit_qa': {
 			await activity(ctx, id, {
 				type: id.slice('run.submit_'.length),
 				summary: input.summary,
 				findings: input.findings,
 			});
+			// QA's failures go to the coordinator (qa.md), who is otherwise told only by QA's last
+			// words. Not the coordinator's own submit: it would be told its own report.
+			if (id === 'run.submit_qa' && ctx.agent !== 'coordinator') {
+				await appendMessage(ctx.tx, ctx.live.id, 'coordinator', 'user', [
+					{
+						type: 'text',
+						text: `QA results from ${ctx.agent}:\n\n${str(input, 'summary')}\n\nFindings: ${JSON.stringify(input.findings)}`,
+					},
+				]);
+			}
 			return ok({ submitted: true });
+		}
 		case 'run.request_checkpoint': {
 			const kind = input.kind === 'batch_done' ? 'batch_done' : 'step_done';
 			const from = ctx.live.state;
@@ -486,7 +498,7 @@ export async function runWorkerTool(
 			const why = checkSubmission(submission, {
 				step: from.step,
 				fixWrites: await completedWrites(ctx.tx, ctx.live.id, REPAIR_ASSIGNABLE),
-				plays: null,
+				plays: await playsOfStep(ctx.tx, ctx.live.id, from.step),
 			});
 			if (why) return refused(`Refused: ${why}`);
 			const error = await move(ctx, { type: 'conclude' }, `${ctx.agent}: ${submission.outcome}`);

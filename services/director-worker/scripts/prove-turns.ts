@@ -60,13 +60,16 @@
  *     a launcher that does not serve the op leaves the coordinator unable to start; a turn whose
  *     bug was filed but whose settle never committed, settled while paused, writes the line then
  *     and tells the model the bug, sending nothing.
- * 30. a game repair run (ADR-0012): the game-doctor leads it, its brief names the bug and carries no
+ * 31. a game repair run (ADR-0012): the game-doctor leads it, its brief names the bug and carries no
  *     word of it, the bug it reads comes back wrapped as data, the builder's write survives a kill
  *     with no duplicate op, a premature or art-bound call is refused, `run.submit_repair` opens
  *     Repair review, approving records the outcome and ends the run, a revise returns to the fix
  *     step with the owner's note for the doctor, and an escalation cannot be approved before the
  *     launcher serves it;
- * 31. a repair run moves its game bug: Open → Working on at start (the status it found stored),
+ * 33. a repair's verdict is bound to the draft plays of its verify step (ADR-0012 §2): a passing
+ *     play backs played_pass, a no_player settle only not_played, a play from an earlier step counts
+ *     for nothing;
+ * 32. a repair run moves its game bug: Open → Working on at start (the status it found stored),
  *     restored on stop or a no-fix outcome unless a person changed it, left Working on by a fix.
  */
 import type {
@@ -315,6 +318,7 @@ const AGENTS = new Map([
 		),
 	],
 	['atlas-artist', agent('atlas-artist', ['atlas.queue_variants', 'run.post_activity'])],
+	['qa', agent('qa', ['run.submit_qa'])],
 	[
 		'game-doctor',
 		agent(
@@ -1884,6 +1888,73 @@ try {
 		);
 	}
 
+	// ── 30. A QA draft play ───────────────────────────────────────────────────
+	console.log(
+		'30. a draft play job_done is told to QA, never billed; submit_qa reaches the coordinator',
+	);
+	{
+		const runId = await newRun({ step: 'regions' });
+		await userMessage(runId, 'qa', 'Play the draft.');
+		await event(
+			runId,
+			'qa',
+			'job_done',
+			{
+				jobRef: 'dp_0000000000000001',
+				draftId: '20261027T101530Z-3fa9',
+				status: 'failed',
+				via: 'inline',
+				result: {
+					reason: 'no_player',
+					message: 'No draft player is deployed, so the draft was not played.',
+				},
+			},
+			'build.play_draft',
+		);
+		const model = fakeModel([
+			{
+				content: [use('s1', 'run.submit_qa', { summary: 'Draft not played.', findings: [] })],
+			},
+			{ content: [say('Reported.')] },
+			{ content: [say('Noted.')] },
+			{ content: [say('Noted again.')] },
+		]);
+		await drive(runId, deps(model.transport, fakeLauncher().launcher));
+		check(
+			'the play was told to QA as not played',
+			JSON.stringify((await messages(runId, 'qa'))[1]?.content).includes('NOT played'),
+			true,
+		);
+		check(
+			'it was not billed: no spend row and no unbilled_job error',
+			[
+				(await spendRows(runId)).filter((r) => r.kind === 'runpod').length,
+				(await events(runId, 'error')).length,
+			],
+			[0, 0],
+		);
+		check(
+			"QA's submit_qa reached the coordinator",
+			(await messages(runId, 'coordinator')).some((m) =>
+				JSON.stringify(m.content).includes('QA results from qa'),
+			),
+			true,
+		);
+
+		const stopping = await newRun({ step: 'regions' });
+		await sql`insert into director_draft_jobs (job_ref, run_id, agent, draft_id, status)
+			values ('dp_0000000000000002', ${stopping}, 'qa', '20261027T101530Z-3fa9', 'queued')`;
+		await event(stopping, 'owner', 'owner_request', { action: 'stop' });
+		await drive(stopping, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		const [job] = await sql<{ status: string }[]>`
+			select status from director_draft_jobs where run_id = ${stopping}`;
+		check(
+			'a stop cancels a queued play and is not held open by it',
+			[job.status, (await runRow(stopping)).status],
+			['cancelled', 'stopped'],
+		);
+	}
+
 	// ── 8. The wake trigger ───────────────────────────────────────────────────
 	console.log('8. the trigger NOTIFYs director_wake for waking rows only');
 	{
@@ -1897,8 +1968,8 @@ try {
 		await listener.unlisten();
 		check('two NOTIFYs, each naming the run', heard, [runId, runId]);
 	}
-	// ── 30. A game repair run ─────────────────────────────────────────────────
-	console.log('30. a game repair run: the doctor leads, the builder writes, the owner reviews');
+	// ── 31. A game repair run ─────────────────────────────────────────────────
+	console.log('31. a game repair run: the doctor leads, the builder writes, the owner reviews');
 	{
 		const bug = await newBug();
 		const runId = await newRun({ status: 'draft', cap: null, repairBug: bug });
@@ -1936,7 +2007,21 @@ try {
 			{ content: [say('Moved the spin button.')] },
 			// 6 doctor: the fix step done. 7 doctor: concludes from verify.
 			{ content: [use('d7', 'run.request_checkpoint', { kind: 'step_done', summary: 'Fixed.' })] },
-			{ content: [use('d8', 'run.submit_repair', submit)] },
+			{
+				// The draft played in the verify step passed (a stubbed player's settle).
+				during: async () => {
+					await sql`insert into director_draft_jobs (job_ref, run_id, agent, draft_id, status, result, done_at)
+						values (${`dp_${runId
+							.slice(-16)
+							.replace(/[^0-9a-f]/g, '0')
+							.padEnd(16, '0')}`}, ${runId}, 'game-doctor',
+							'20261027T101530Z-3fa9', 'finished', ${sql.json({
+								bootRefused: null,
+								scenarios: [{ id: 'base', missing: [], stall: null, error: null }],
+							})}, now())`;
+				},
+				content: [use('d8', 'run.submit_repair', { ...submit, verified: 'played_pass' })],
+			},
 		]);
 		const gate = fakeLauncher();
 		let killed = false;
@@ -2195,9 +2280,9 @@ try {
 			true,
 		);
 	}
-	// ── 31. A repair run moves its game bug's status ──────────────────────────
+	// ── 32. A repair run moves its game bug's status ──────────────────────────
 	console.log(
-		'31. a repair run moves its bug: Working on at start, restored unless fixed or touched',
+		'32. a repair run moves its bug: Working on at start, restored unless fixed or touched',
 	);
 	{
 		const statusOf = async (n: number) =>
@@ -2292,6 +2377,127 @@ try {
 			'an ended run is recorded once: nothing more is written to its bug',
 			(await repairEvents(fixed.n)).length,
 			2,
+		);
+	}
+	// ── 33. A repair's verdict follows its plays ──────────────────────────────
+	console.log('33. submit_repair is checked against the draft plays of the verify step');
+	{
+		const passing = {
+			bootRefused: null,
+			scenarios: [
+				{
+					id: 'base',
+					expected: ['base_game'],
+					reached: ['base_game'],
+					missing: [],
+					stall: null,
+					error: null,
+				},
+			],
+		};
+		const failing = {
+			bootRefused: null,
+			scenarios: [
+				{
+					id: 'base',
+					expected: ['base_game'],
+					reached: [],
+					missing: ['base_game'],
+					stall: null,
+					error: null,
+				},
+			],
+		};
+		const noPlayer = { reason: 'no_player', message: 'No draft player is deployed.' };
+		const submit = (verified: string) => ({
+			outcome: 'fixed',
+			summary: 'Moved it.',
+			cause: 'x',
+			changes: 'The builder moved it.',
+			verified,
+			pipeline_area: 'none',
+			pipeline_title: '',
+		});
+		/** A repair run in its verify step, with one builder write done, and these plays since. */
+		const verifying = async (
+			plays: { status: string; result: unknown; before?: boolean }[],
+			verified: string,
+		) => {
+			const n = await newBug();
+			const id = await newRun({ status: 'running', step: 'verify', repairBug: n });
+			await sql`insert into director_ops (op_id, run_id, agent, op, input_hash, status, result, completed_at)
+				values (${`${id}:builder-t1:0`}, ${id}, 'builder', 'scene.update_nodes', 'p', 'done', '{}', now())`;
+			await sql`insert into director_events (run_id, agent, kind, at, payload_json)
+				values (${id}, 'worker', 'run_status', now() - interval '1 minute',
+					${sql.json({ to: { status: 'running', step: 'verify', waitingOn: null } })})`;
+			for (const [at, play] of plays.entries()) {
+				await sql`insert into director_draft_jobs (job_ref, run_id, agent, draft_id, status, result, queued_at, done_at)
+					values (${`dp_${String(at).padStart(4, '0')}${id
+						.slice(-12)
+						.replace(/[^0-9a-f]/g, '0')
+						.padEnd(12, '0')}`}, ${id}, 'game-doctor',
+						'20261027T101530Z-3fa9', ${play.status}, ${sql.json(play.result as never)},
+						now() - ${play.before ? '10 minutes' : '10 seconds'}::interval,
+						${play.status === 'queued' ? null : sql`now()`})`;
+			}
+			await userMessage(id, 'game-doctor', 'Verify.');
+			const model = fakeModel([
+				{ content: [use('v1', 'run.submit_repair', submit(verified))] },
+				{ content: [say('Understood.')] },
+			]);
+			await drive(id, deps(model.transport, fakeLauncher().launcher));
+			const result = JSON.stringify((await messages(id, 'game-doctor')).at(2)?.content ?? '');
+			return {
+				status: (await runRow(id)).status,
+				refused: result.includes('Refused') ? result : '',
+			};
+		};
+		const back = async (
+			plays: { status: string; result: unknown; before?: boolean }[],
+			v: string,
+		) => (await verifying(plays, v)).status;
+
+		check(
+			'a passing play of the step backs played_pass: Repair review opens',
+			await back([{ status: 'finished', result: passing }], 'played_pass'),
+			'waiting',
+		);
+		check(
+			'a play that settled as no_player backs not_played, a fix the owner is told was not played',
+			await back([{ status: 'failed', result: noPlayer }], 'not_played'),
+			'waiting',
+		);
+		const claimed = await verifying([{ status: 'failed', result: noPlayer }], 'played_pass');
+		check(
+			'…but never played_pass: nothing passed, the run keeps going',
+			[claimed.status, claimed.refused.includes('no play of this step passed')],
+			['running', true],
+		);
+		const failed = await verifying([{ status: 'finished', result: failing }], 'played_pass');
+		check(
+			'a play that missed its screens is a fail, not a pass',
+			[failed.status, failed.refused.includes('no play of this step passed')],
+			['running', true],
+		);
+		const none = await verifying([], 'not_played');
+		check(
+			'a fix with no play at all in the step is refused: play the draft again',
+			[none.status, none.refused.includes('Play the draft again')],
+			['running', true],
+		);
+		const stale = await verifying(
+			[{ status: 'finished', result: passing, before: true }],
+			'played_pass',
+		);
+		check(
+			'a play from before the step began counts for nothing',
+			[stale.status, stale.refused.includes('Play the draft again')],
+			['running', true],
+		);
+		check(
+			'a cancelled play is not a play',
+			(await verifying([{ status: 'cancelled', result: null }], 'not_played')).status,
+			'running',
 		);
 	}
 } finally {

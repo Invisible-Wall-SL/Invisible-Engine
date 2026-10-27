@@ -21,6 +21,7 @@ import {
 	type DirectorPricing,
 } from 'director-costs';
 import { adapterClient } from './adapters.ts';
+import { draftPlayMessage } from './draftReport.ts';
 import type { AgentDefinition } from './agents.ts';
 import {
 	overCap,
@@ -64,6 +65,7 @@ import { ESCALATION_NOT_SERVED, leadOf, repairBrief, repairOutcomeOf } from './r
 import { TERMINAL_STATUSES, transition, type Checkpoint, type RunEvent } from './runState.ts';
 import {
 	appendMessage,
+	cancelQueuedDrafts,
 	appSetting,
 	applyTransition,
 	breakdownAnswers,
@@ -1430,6 +1432,8 @@ async function applyEvent(
 			if (action === 'stop') {
 				const error = await move(tx, live, { type: 'stop' }, 'owner stop');
 				if (error) return refuse(error);
+				// A play queued on the draft player is not waited on; a late callback is a duplicate.
+				await cancelQueuedDrafts(tx, live.id);
 				return finishStop(tx, live);
 			}
 			return refuse(`unknown owner request "${action}"`);
@@ -1541,6 +1545,14 @@ async function applyEvent(
 			return;
 		}
 		case 'job_done': {
+			// A QA play is not a GPU render: it has no usage to bill (`billJob` would flag it as an
+			// `unbilled_job` and block GPU submits) and no recipe step to settle. It is only told.
+			if (event.tool === 'build.play_draft') {
+				if (TERMINAL_STATUSES.includes(live.state.status)) return;
+				const to = ctx.agents.has(event.agent) ? event.agent : COORDINATOR;
+				await appendMessage(tx, live.id, to, 'user', userText(draftPlayMessage(p)));
+				return finishStop(tx, live);
+			}
 			const billed = await billJob(tx, live, event, pricing);
 			const result = isRecord(p.result) ? p.result : {};
 			const variants = (Array.isArray(result.variants) ? result.variants : [])

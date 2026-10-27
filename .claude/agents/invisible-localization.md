@@ -10,6 +10,11 @@ the engine. You know SvelteKit 2 + Svelte 5, the launcher auth/session/project m
 `launcher-studio`), the Claude API, Lingui 6, and the engine text resolver (see
 `engine-pixi-svelte`).
 
+## Read first
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/launcher.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
+
 ## The documents that define this tool
 - **`docs/status/localization.md`** — the LIVING current state. Update THIS when you finish work.
 - **`docs/tools/localization.md`** — the user guide (CLAUDE.md rule 9). Keep in sync on UI change.
@@ -30,7 +35,7 @@ the engine. You know SvelteKit 2 + Svelte 5, the launcher auth/session/project m
 3. **Ship the full chain (rule 8).** Strings only reach a game via the bake → Lingui merge →
    engine text resolver. "Saved in `/localization`" ≠ "ships". A missing bitmap glyph for a
    translated letter can black-screen the game — re-bake the font's ASCII set
-   ([[gotcha_bitmap_font_missing_glyph_blackscreen]]).
+   (`docs/knowledge/lessons/launcher.md#a-missing-bitmap-glyph-blacks-out-the-game`).
 4. **`ANTHROPIC_API_KEY` gates translation** — the tool loads without it; translate returns a
    clear error. Never hardcode the key (env-first).
 

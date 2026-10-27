@@ -3,8 +3,7 @@
  *
  * - `ADAPTER_OPS` are served by the launcher at `POST /api/director/adapter/<tool>/<op>`. The ones
  *   already built are in its registry (`apps/launcher-api/src/lib/server/director/registry.ts`);
- *   `check:director-adapters` fails if the registry holds an op this list lacks. The `build.*` ops
- *   are not served yet.
+ *   `check:director-adapters` fails if the registry holds an op this list lacks.
  * - `WORKER_TOOLS` are served by the worker itself, from the run tables: run state, checkpoints,
  *   the owner conversation and the spend ledger. There is no tool that submits a mockup breakdown:
  *   the worker's own code produces it (`mockups/analyze.ts`), so no model output ever sets an
@@ -56,10 +55,17 @@ export const ADAPTER_OPS = [
 	'fonts.bake_from_ttf',
 	'bugs.get_game_bug',
 	'bugs.get_screenshot',
+	'sound.get_doc',
+	'sound.set_cues',
+	'fx.get_effect',
+	'fx.update_art',
+	'components.get_def',
+	'components.update_art',
 	'bugs.file_pipeline_bug',
 	'bugs.escalate_game_bug',
 	'build.request_draft',
 	'build.play_draft',
+	'build.get_play_shot',
 ] as const;
 
 export const WORKER_TOOLS = [

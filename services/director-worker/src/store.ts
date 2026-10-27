@@ -1,7 +1,7 @@
 import type { BetaContentBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { Sql, TransactionSql } from 'postgres';
 import { WAKING_KINDS, type ClaimedRun } from './lease.ts';
-import type { RepairSubmission } from './repair.ts';
+import { playVerdict, type RepairSubmission } from './repair.ts';
 import type { AnalystOutput } from './mockups/schema.ts';
 import type { BilledResponse } from './mockups/vision.ts';
 import {
@@ -298,6 +298,13 @@ export async function completedWrites(
 	return row.n;
 }
 
+/** Cancel the run's queued draft plays when it stops (ADR-0010 §3): no event, nothing waits on them. */
+export async function cancelQueuedDrafts(db: Db, runId: string): Promise<void> {
+	await db`
+		update director_draft_jobs set status = 'cancelled', done_at = now()
+		where run_id = ${runId} and status = 'queued'`;
+}
+
 export async function queuedJobs(db: Db, runId: string): Promise<number> {
 	const [row] = await db<{ n: number }[]>`
 		select count(*)::int as n from director_atlas_jobs
@@ -343,6 +350,32 @@ export async function submittedRepair(db: Db, runId: string): Promise<RepairSubm
 		where run_id = ${runId} and kind = 'activity' and payload_json->>'type' = 'repair_submitted'
 		order by id desc limit 1`;
 	return row?.payload ?? null;
+}
+
+/**
+ * The run's draft plays (ADR-0010) queued since it entered `step`, counted by what they settled as.
+ * The step began at the run's latest `run_status` into it; a play queued before, in an earlier
+ * step, proves nothing about this one.
+ */
+export async function playsOfStep(
+	db: Db,
+	runId: string,
+	step: string,
+): Promise<{ requested: number; passed: number; failed: number; unplayed: number }> {
+	const [since] = await db<{ at: Date | null }[]>`
+		select max(at) as at from director_events
+		where run_id = ${runId} and kind = 'run_status' and payload_json->'to'->>'step' = ${step}`;
+	const rows = await db<{ status: string; result: unknown }[]>`
+		select status, result from director_draft_jobs
+		where run_id = ${runId} and queued_at >= ${since?.at ?? new Date(0)}`;
+	const counts = { requested: 0, passed: 0, failed: 0, unplayed: 0 };
+	for (const row of rows) {
+		const verdict = playVerdict(row.status, row.result);
+		if (verdict === null) continue;
+		counts.requested++;
+		counts[verdict]++;
+	}
+	return counts;
 }
 
 /** Record how a repair run ended, once the owner has approved it. */

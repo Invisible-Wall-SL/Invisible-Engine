@@ -27,6 +27,35 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
 
 ## Current state
 
+**Card C2 — the AI (built 2026-10-27; in review).** [card-games.md](../design/card-games.md) §12's
+C2 row (§4), in one PR. No caller yet: the family, runtime and sample game are C3.
+
+- **The AI** (`engine-mechanics` `cardAi.js` + `.d.ts`, plain ESM beside `cards.js`):
+  `createAi` / `chooseAction` / `evaluate` / `aiSettings` / `replayMatch`. It takes a certain
+  one-action win at once; `normal` and `hard` search `combat` for a win through any `guard` first;
+  otherwise it tries each legal action on a copy with the rules' own `apply` and keeps the best by
+  §4.1's weighted sum, doing nothing included (it wins ties). `hard` beam-searches sequences of
+  plays in `main` (width 4, depth 3). The three presets of §4.2, with a deck's weight overrides.
+- **Its own stream,** `${seed}:ai:${side}`, a number in the AI's value: one roll per decision for
+  a mistake. The look-ahead runs every trial on one of four fixed sample streams, never the match's,
+  and scores an action that draws (a `randomEnemy`) by the mean over the four. A plan plays only
+  the cards in hand when the decision began, so it never reads the deck's hidden order.
+- **The budget:** `MAX_PLAN_APPLIES` (600) caps every `apply` a decision makes. Real counts, pinned:
+  200 on a full board with 36 listed actions (the design's case); a hand of ten targeted spells (95
+  actions) would take 704 and stops at 600 (11–14 ms on the build machine).
+- What C2 settled where §4 was silent, and its two readings of §4.1's table, are in the design's
+  new §4.4.
+- **Gate:** `check:card-ai` (20 checks; replay trace `fixtures/cards-ai-replay.json`): lethal past a
+  preferred trade, through a guard and past a first attacker whose attack draws, none claimed out
+  of reach or on a random hit; a win in `main`; `hard`'s plan beating one step; no illegal action
+  in 90 AI-vs-AI matches; a decision changes neither input and moves only the AI's stream (one
+  roll, two on a mistake); the same decision on 64 different match streams and on four orders of
+  the deck; each difficulty replaying AI vs AI and from a player's record; the budget; `normal`
+  beats `easy` 61–39 on seeds 1…100 with the sample decks (every sample card twice). Runs under
+  `check:all`.
+- **The design points C1 raised are fixed:** §12.1's C1 row now says the reader drops unknown card
+  fields, and §2.2 states the `endOfTurn` expiry rule.
+
 **P10.15 — Arcade A4b: netcode and the online rules (built 2026-10-27; in review).** §8's P10.15
 row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-multiplayer.md) §4–§6,
 §11, §12), in **one PR**, on P10.14. Not deployed (nothing to deploy beyond P10.14's service).
@@ -164,7 +193,7 @@ row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-mu
   - everyone respawns at the one `online.spawn`; the grace is the only spawn protection;
   - P10.14's limits on the world camera, `arcade.characters` and the Flow board effects online stand.
 
-**Card C1 — the rules engine (built 2026-10-27; in review).** [card-games.md](../design/card-games.md)
+**Card C1 — the rules engine (merged 2026-10-27, #1391).** [card-games.md](../design/card-games.md)
 §12's C1 row (§2, §3), in one PR. No caller yet: the AI is C2, and the family, runtime and sample
 game are C3.
 
@@ -202,9 +231,6 @@ game are C3.
   the replay trace `fixtures/cards-replay.json`) and `check:card-library` (43 checks); the sample
   library the gates play is `fixtures/cards-sample.library.json`, invented. Both run under
   `check:all`.
-- **Open for the design doc:** §12.1's C1 row says "the normalizer keeps unknown card fields", but
-  §3.6 and doc-readers.md drop them; the gate pins the drop, and the normalizer itself is C3's. The
-  expiry rule above wants a line in §2.
 - **For C3's config validator:** rules that are each valid but clash (`resource.start` above
   `max` is clamped; an `openingHand` larger than the deck ends the match in fatigue at once), and
   `cardText` expects a validated card (C4's live preview must validate first).
@@ -1857,6 +1883,8 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-27 — **Card C2 built: the AI** (`engine-mechanics` `cardAi.js`, `check:card-ai`), and the
+  two design points C1 raised fixed in card-games.md. No caller, no game changes. Detail above.
 - 2026-10-27 — **P10.15 built: netcode and the online rules (A4b).** Own-player prediction and
   reconciliation, interpolation of everyone else (`engine-mechanics` `netcode.js`), the online
   rules as data on the server (`onlineRules.js`, `arcade.online.rules`: currents, goal, catch / stun
