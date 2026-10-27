@@ -617,6 +617,40 @@ unreachable, the link's token is wrong), the game stops on a **"This game could
 not load"** screen with a **Reload** button — it never falls back to showing the
 engine's sample game in its place.
 
+### Build breakdown (what a version shipped)
+
+**Build breakdown** on the "Players get the version…" line, and **breakdown** on each row of
+**Published versions**, open a full page for that version
+(`/game-maker/breakdown/<project>/<version>`) that lists what it shipped. Use it after a publish to
+check that the right packages went out. A **Version** picker switches between retained versions.
+
+- **Tiles:** total shipped size and file count, the size of `runtime.json` (loaded before any
+  asset), the number of assets, an estimate of GPU memory (every PNG/WebP page whose pixel size is
+  known, × 4 bytes), the bytes nothing loads, and the change in size since the previous version.
+- **By category:** a bar and a table of size and file count per category (Scene art, Symbols,
+  Atlas pages (shared), Fonts, Sounds, Loading screen, Game data, Other). Clicking a row filters
+  the two tables below to that category.
+- **Checks:** files the bundle or another file points at that were not shipped (errors);
+  placed art no sheet packs, rigs that resolved to nothing, missing flipbook frames, files nothing
+  loads, and textures over 4096 px (warnings); identical files shipped twice, region names packed by
+  more than one sheet, and assets no scene, component, symbol or flow names (info).
+- **Assets:** each sheet, image, rig, font, sound and the loading splash, with every file it pulls
+  in (expand the name), its size (`*` when part of it is atlas pages it shares with other assets),
+  **Uses** (how many times the game data names it) and **Used in** (which scenes, components,
+  symbols, flow, effects…). Search, filter by type, sort by size, uses or name.
+- **Files:** every shipped file with its kind, size, **Refs** (how many references the bundle and
+  the other shipped files hold to it), who references it, and its pixel size when a spritesheet or
+  rig atlas states it. A `dup` tag marks identical content. **Unreferenced only** narrows to dead
+  files.
+- **Changes since the previous version:** files added, removed and changed, and the size delta.
+- **Game content:** game type, scenes, components, symbols, fonts, sounds, languages, text strings,
+  clips, effects, shaders, cinematics, and whether the flow, game config and win text are authored.
+- **Assets CSV**, **Files CSV** and **JSON** download the lists.
+
+The first open of a version takes a few seconds (it reads the version's files); the result is then
+stored with the version and opens instantly. It is read-only: any Game Maker user with access to
+the project can open it.
+
 ### Engine update available (the staleness badge)
 
 Online games all run **one shared engine runtime bundle**, not a per-game build,
