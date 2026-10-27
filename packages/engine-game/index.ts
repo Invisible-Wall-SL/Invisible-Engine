@@ -81,6 +81,8 @@ export {
 export {
 	CHARACTER_CONTROLS,
 	CHARACTER_STATE_SIGNAL,
+	fallsUnderGravity,
+	hopsOnThePlane,
 	type ArcadeCharacterIo,
 	type CharacterControl,
 } from './src/game/arcadeCharacters';

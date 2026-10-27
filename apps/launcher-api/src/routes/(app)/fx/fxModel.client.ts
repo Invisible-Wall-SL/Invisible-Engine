@@ -686,12 +686,15 @@ export function triggerMode(layer: EmitterLayer): 'always' | 'event' {
  * back and forth preserves the skeleton/clip/loop), and switching to `sprite` LEAVES the
  * `spineParticle` block in place too (the runtime + `normalizeEffectDoc` both ignore it for a
  * `sprite` layer, so it's a dormant draft the author can return to — mirrors how
- * `setPlacementSpace('bone')` keeps a prior bone). Only `particleKind` flips. The author's atlas
- * `art` is untouched either way, so the sprite path is byte-identical when toggled back.
+ * `setPlacementSpace('bone')` keeps a prior bone). The author's atlas `art` is untouched either
+ * way. The one loss: a sprite layer's `material` goes when it becomes a rig-clip layer, because the
+ * normalizer drops a material there (Save would store the layer without it).
  */
 export function setParticleKind(layer: EmitterLayer, kind: 'sprite' | 'spine'): EmitterLayer {
 	if (layer.particleKind === kind) return layer;
-	return { ...layer, particleKind: kind };
+	const next: EmitterLayer = { ...layer, particleKind: kind };
+	if (kind === 'spine') delete next.material;
+	return next;
 }
 
 /**

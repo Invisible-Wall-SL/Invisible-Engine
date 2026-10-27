@@ -41,6 +41,7 @@ import { basename, dirname, isAbsolute, resolve, sep } from 'node:path';
 // is a node-builtins-only leaf for exactly this reason.
 import { appSrcDir, isStandaloneGame } from '../../../packages/config-svelte/appSrc.js';
 import { bakeCoinLabel } from './lib/bakeCoinLabel.mjs';
+import { writeBuildReport } from './lib/buildReportDir.mjs';
 import { bakedFlightEffectIds, bakeFlights } from './lib/bakeFlights.mjs';
 import { bakeSymbolFx } from './lib/bakeSymbolFx.mjs';
 
@@ -1460,6 +1461,7 @@ async function main() {
 
 	await mkdir(dirname(dest), { recursive: true });
 	await writeFile(dest, json);
+	writeBuildReport('bake.json', { project, bundle: dest });
 	console.info(
 		`\nBaked ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 			` (${sceneCount} scenes, ${defCount} component defs${pinnedNote}, ${defaultCount} default sets,` +

@@ -16,8 +16,39 @@
  */
 
 import { upgradeConfig, type EmitterConfigV3 } from '@barvynkoa/particle-emitter';
-import { EFFECT_DOC_VERSION } from 'engine-fx';
 import {
+	EFFECT_DOC_VERSION,
+	FX_MATERIAL_LAYER_LOAD_BUDGET,
+	fxMaterialLoadEstimate,
+	fxMaterialLoadLevel,
+	normalizeEffectDoc,
+	normalizeEmitterMaterial,
+	type EffectParamValue,
+	type EmitterLayer,
+} from 'engine-fx';
+import type { CustomElementFx } from '../../packages/constants-shared/elementFx';
+import { REFERENCE_GRAPHS, compileShaderEffect } from '../../packages/engine-shadergraph/index';
+import {
+	largestFrame,
+	strayMaterialDrives,
+	materialChoices,
+	materialLayerLoad,
+	materialNotes,
+	materialParamValue,
+	setLayerMaterial,
+	setMaterialIntensity,
+	setMaterialParam,
+	setMaterialTime,
+} from '../../apps/launcher-api/src/routes/(app)/fx/fxMaterial.client';
+import {
+	exposeAsNewParam,
+	layerLeavesWithMaterial,
+	rowExposure,
+} from '../../apps/launcher-api/src/routes/(app)/fx/fxParams.client';
+import {
+	FX_PRESETS,
+	applyPreset,
+	setParticleKind,
 	bindArt,
 	defaultEmitterConfig,
 	emptyEffectDoc,
@@ -317,6 +348,409 @@ assert(eq(doc.layers[0].art, { assetKey: '', frames: [] }), 'default layer has n
 const k = nextLayerKey(doc);
 assert(k === 'layer-2' && !doc.layers.some((l) => l.key === k), 'nextLayerKey is unique');
 assert(newLayer('x').key === 'x', 'newLayer takes its key');
+
+// ---------------------------------------------------------------------------
+// 4. A layer's MATERIAL (Invisible Shader Graph step 8d.5): set and clear it and its params, the
+//    load estimate, the notes, Apply preset keeping it, ⚡ reaching every param of the spec.
+// ---------------------------------------------------------------------------
+console.log('fx model — a layer material');
+const compiled = (id: string): CustomElementFx => {
+	const r = compileShaderEffect(REFERENCE_GRAPHS.find((g) => g.id === id)!);
+	if (!r.ok) throw new Error(`fixture graph ${id} does not compile`);
+	return r.effect;
+};
+const dissolve = compiled('noiseDissolve');
+const frost = compiled('frost');
+const powerUp = compiled('powerUp');
+const plainLayer = newLayer('main');
+const plainBytes = JSON.stringify(plainLayer);
+
+const picked = setLayerMaterial(plainLayer, dissolve.spec.kind);
+assert(JSON.stringify(plainLayer) === plainBytes, 'setLayerMaterial does not mutate the layer');
+assert(
+	eq(picked.material, { kind: 'custom:noiseDissolve' }),
+	'picking a material stores its kind only',
+);
+const tuned = setMaterialParam(
+	setMaterialIntensity(setMaterialTime(picked, 'loop'), 2.5),
+	'grain',
+	14,
+);
+assert(
+	eq(tuned.material, {
+		kind: 'custom:noiseDissolve',
+		time: 'loop',
+		intensity: 2.5,
+		params: { grain: 14 },
+	}),
+	'time, strength and a param land in the normalizer’s key order',
+);
+assert(
+	eq(normalizeEmitterMaterial(tuned.material), tuned.material),
+	'what the page holds is what the normalizer keeps',
+);
+assert(setMaterialTime(tuned, 'life').material?.time === undefined, 'Life is stored absent');
+assert(
+	setMaterialIntensity(tuned, 1).material?.intensity === undefined,
+	'strength 1 is stored absent',
+);
+assert(setMaterialIntensity(tuned, 9).material?.intensity === 4, 'strength is clamped to 4');
+assert(materialParamValue(tuned, dissolve.spec.params[1]) === 14, 'a held param reads its value');
+assert(
+	materialParamValue(picked, dissolve.spec.params[0]) === '#ffb347',
+	'a param the material holds no value for reads the effect’s default',
+);
+assert(
+	materialParamValue(setMaterialParam(picked, 'grain', 'x'), dissolve.spec.params[1]) === 8,
+	'a held value of the wrong type reads the default',
+);
+const swapped = setLayerMaterial(tuned, frost.spec.kind);
+assert(
+	eq(swapped.material, { kind: 'custom:frost', time: 'loop', intensity: 2.5 }),
+	'another kind drops the old params and keeps time and strength',
+);
+assert(
+	setLayerMaterial(tuned, tuned.material!.kind) === tuned,
+	'picking the same kind changes nothing',
+);
+const cleared = setLayerMaterial(tuned, '');
+assert(!('material' in cleared), 'None removes the key');
+assert(
+	JSON.stringify(cleared) === plainBytes,
+	'…leaving the layer byte-identical to one that never had one',
+);
+assert(
+	!('material' in setLayerMaterial(setParticleKind(plainLayer, 'spine'), dissolve.spec.kind)),
+	'a rig-clip layer takes no material',
+);
+assert(
+	!('material' in setParticleKind(tuned, 'spine')),
+	'turning a layer into rig clips drops its material',
+);
+assert(
+	eq(setParticleKind(tuned, 'sprite').material, tuned.material),
+	'…and a no-op switch keeps it',
+);
+
+const preset = applyPreset(tuned, FX_PRESETS[0].key);
+assert(eq(preset.material, tuned.material), 'Apply preset keeps the material');
+assert(!eq(preset.config, tuned.config), '…while it replaces the emitter');
+
+const docWith = {
+	...emptyEffectDoc('m', 'With material'),
+	layers: [tuned, { ...newLayer('second'), art: { assetKey: 'a.json', frames: ['f'] } }],
+};
+const reopened = normalizeEffectDoc(JSON.parse(JSON.stringify(docWith)));
+assert(
+	JSON.stringify(reopened.layers[0].material) === JSON.stringify(tuned.material),
+	'save → normalize → reopen gives the material back byte for byte',
+);
+assert(
+	JSON.stringify(
+		normalizeEffectDoc(JSON.parse(JSON.stringify({ ...docWith, layers: [cleared] }))).layers[0],
+	) ===
+		JSON.stringify(
+			normalizeEffectDoc(JSON.parse(JSON.stringify({ ...docWith, layers: [plainLayer] })))
+				.layers[0],
+		),
+	'a cleared material saves exactly as a layer that never had one',
+);
+
+assert(
+	eq(
+		materialChoices([powerUp, frost, dissolve]).map((c) => c.label),
+		['Frost', 'Noise dissolve', 'Power-up'],
+	),
+	'the picker lists the compiled effects by name',
+);
+assert(
+	eq(
+		largestFrame({ ...plainLayer, art: { assetKey: 'a', frames: ['s', 'b'] } }, [
+			{ name: 's', w: 10, h: 10 },
+			{ name: 'b', w: 20, h: 30 },
+			{ name: 'x', w: 90, h: 90 },
+		]),
+		{ w: 20, h: 30 },
+	),
+	'the largest frame is read among the layer’s own frames',
+);
+
+// The §10 estimate: min(Max particles, per wave × max life ÷ frequency) × the frame padded as the
+// renderer pads it, (w + 2p·max(w, h)) × (h + 2p·max(w, h)), × scale² × cost.
+const estConfig = {
+	...setCoreParam(setCoreParam(defaultEmitterConfig(), 'maxParticles', 200), 'frequency', 0.01),
+	lifetime: { min: 0.5, max: 0.8 },
+	particlesPerWave: 2,
+	behaviors: [
+		{
+			type: 'scale',
+			config: {
+				scale: {
+					list: [
+						{ time: 0, value: 0.5 },
+						{ time: 1, value: 1.5 },
+					],
+				},
+			},
+		},
+	],
+} as EmitterConfigV3;
+const frame = { w: 32, h: 16 };
+const est = fxMaterialLoadEstimate({ config: estConfig, frame, padding: 0.25, cost: 50 });
+assert(est.live === 160, `live ≈ min(200, 2 × 0.8 ÷ 0.01) = 160 (got ${est.live})`);
+assert(
+	Math.abs(est.load - 160 * 48 * 32 * 1.5 * 1.5 * 50) < 1e-6,
+	`load = 160 × (32 + 16) × (16 + 16) × 1.5² × 50 = ${160 * 48 * 32 * 2.25 * 50} (got ${Math.round(est.load)}): padding is the frame's larger side's, on each side`,
+);
+assert(
+	fxMaterialLoadEstimate({
+		config: { ...estConfig, maxParticles: 100 },
+		frame,
+		padding: 0.25,
+		cost: 50,
+	}).live === 100,
+	'Max particles caps the live count',
+);
+assert(
+	fxMaterialLoadEstimate({
+		config: { ...estConfig, behaviors: [{ type: 'scaleStatic', config: { min: 2, max: 3 } }] },
+		frame: { w: 10, h: 10 },
+		padding: 0,
+		cost: 1,
+	}).covered ===
+		160 * 100 * 9,
+	'a static scale’s larger end is the largest scale',
+);
+assert(
+	fxMaterialLoadEstimate({
+		config: { ...estConfig, behaviors: [] },
+		frame: { w: 10, h: 10 },
+		padding: 0,
+		cost: 1,
+	}).covered === 16000,
+	'no scale behaviour is scale 1',
+);
+assert(fxMaterialLoadLevel(23_999_999, 32e6) === 'ok', 'under 75 % of the budget is ok');
+assert(fxMaterialLoadLevel(24e6, 32e6) === 'amber', 'from 75 % it is amber');
+assert(fxMaterialLoadLevel(32_000_001, 32e6) === 'red', 'over the budget it is red');
+const estLayer = { ...tuned, config: estConfig };
+const estimated = materialLayerLoad({
+	layer: estLayer,
+	effect: dissolve,
+	cost: 50,
+	frame,
+	measuredArea: undefined,
+});
+assert(
+	!!estimated && !estimated.measured && estimated.budget === FX_MATERIAL_LAYER_LOAD_BUDGET,
+	'before the preview has drawn, a layer’s load is the estimate, against 32 M',
+);
+const measured = materialLayerLoad({
+	layer: estLayer,
+	effect: dissolve,
+	cost: 50,
+	frame,
+	measuredArea: 700_000,
+});
+assert(
+	measured?.measured === true && measured.load === 35e6 && measured.level === 'red',
+	'once drawn, the measured peak × cost (35 M: red)',
+);
+assert(
+	materialLayerLoad({
+		layer: plainLayer,
+		effect: dissolve,
+		cost: 50,
+		frame: { w: 1, h: 1 },
+		measuredArea: 1,
+	}) === undefined,
+	'a layer with no material has no load',
+);
+
+const notesFor = (layer: EmitterLayer, extra: Partial<Parameters<typeof materialNotes>[0]> = {}) =>
+	materialNotes({
+		layer,
+		params: undefined,
+		effect: dissolve,
+		notCompiled: false,
+		skipped: [],
+		cost: { id: 'noiseDissolve', shared: false, cost: 33, samples: 1 },
+		load: undefined,
+		stagePlain: undefined,
+		...extra,
+	});
+const artLayer = { ...tuned, art: { assetKey: 'a.json', frames: ['f'] } };
+assert(notesFor(artLayer).length === 0, 'a well-formed material under budget has no notes');
+assert(notesFor(plainLayer).length === 0, 'a layer with no material has no notes');
+const missing = notesFor(artLayer, { effect: undefined, notCompiled: true });
+assert(
+	missing.length === 1 && missing[0].level === 'off' && missing[0].text.includes('deleted'),
+	'a material whose graph was deleted: one note, the particles draw plain',
+);
+const broken = notesFor(artLayer, {
+	effect: undefined,
+	notCompiled: true,
+	skipped: [{ id: 'noiseDissolve', name: 'Noise dissolve', errors: ['out: no Output'] }],
+});
+assert(
+	broken.length === 1 &&
+		broken[0].text.includes('does not compile') &&
+		broken[0].text.includes('no Output'),
+	'a material whose graph does not compile: says so, with its first error',
+);
+assert(
+	notesFor(artLayer, { effect: powerUp }).some(
+		(n) => n.level === 'info' && n.text.includes('its passes and its motion'),
+	),
+	'an effect with passes and motion: they do not play on particles',
+);
+assert(
+	notesFor(artLayer, {
+		effect: frost,
+		cost: { id: 'frost', shared: false, cost: 169, samples: 6 },
+	}).some((n) => n.level === 'warn' && n.text.includes('169') && n.text.includes('150 / 4')),
+	'a graph over 150 / 4 is over the particle budget',
+);
+assert(
+	notesFor(artLayer, { load: measured }).some(
+		(n) => n.level === 'warn' && n.text.includes('load budget'),
+	),
+	'a load over its budget is a warning',
+);
+const over = { ...artLayer, config: setCoreParam(artLayer.config, 'maxParticles', 600) };
+assert(
+	notesFor(over).some((n) => n.level === 'off' && n.text.includes('600') && n.text.includes('512')),
+	'Max particles over 512: the material is off',
+);
+const maxDrive = (max: number | undefined) =>
+	notesFor(artLayer, {
+		params: [
+			{
+				id: 'count',
+				kind: 'number',
+				default: 100,
+				min: 1,
+				...(max === undefined ? {} : { max }),
+				drives: [{ id: 'd1', layer: 'main', path: 'emitter.maxParticles' }],
+			},
+		],
+	});
+assert(
+	maxDrive(800).some((n) => n.level === 'off' && n.text.includes('800')),
+	'drivable past 512: off',
+);
+assert(
+	maxDrive(undefined).some((n) => n.level === 'off' && n.text.includes('no upper bound')),
+	'driven with no bound: off',
+);
+assert(!maxDrive(400).some((n) => n.level === 'off'), 'drivable to 400: still on');
+assert(
+	notesFor(tuned).some((n) => n.level === 'off' && n.text.includes('No art')),
+	'no frames yet: the material waits',
+);
+assert(
+	notesFor(artLayer, { stagePlain: 'frames on several textures' }).some((n) =>
+		n.text.includes('two atlas pages'),
+	),
+	'frames on two atlas pages: plain',
+);
+
+const strayDoc = [
+	{
+		id: 'tint',
+		kind: 'color' as const,
+		default: '#ffffff',
+		drives: [{ id: 'd1', layer: 'main', path: 'material.param.tint' }],
+	},
+	{
+		id: 'grain',
+		kind: 'number' as const,
+		default: 8,
+		min: 1,
+		max: 32,
+		drives: [{ id: 'd1', layer: 'main', path: 'material.param.grain' }],
+	},
+];
+assert(
+	eq(strayMaterialDrives(artLayer, strayDoc, dissolve), [{ param: 'tint', id: 'tint' }]),
+	'a drive on a param the material lacks is found; one it has is not',
+);
+assert(
+	notesFor(artLayer, { params: strayDoc }).some(
+		(n) => n.level === 'warn' && n.text.includes('"tint"') && n.text.includes("doesn't have"),
+	),
+	'…and named in a note (the parameter is kept)',
+);
+assert(
+	notesFor(artLayer, { stagePlain: 'shell refuses the body' }).some(
+		(n) => n.level === 'off' && n.text.includes('particle shell'),
+	),
+	'a body the particle shell refuses: plain, and said',
+);
+assert(
+	notesFor(over, { stagePlain: 'over capacity' }).filter((n) => n.level === 'off').length === 1,
+	'a plain reason a note already gives is not said twice',
+);
+
+// ⚡ reaches every param of the compiled spec, held or not.
+const leaves = layerLeavesWithMaterial(picked, dissolve.spec.params).map((l) => [l.path, l.value]);
+assert(
+	eq(leaves.slice(-3), [
+		['material.intensity', 1],
+		['material.param.edge', '#ffb347'],
+		['material.param.grain', 8],
+	]),
+	'All parameters lists every param of the spec, at its default when not held',
+);
+assert(
+	layerLeavesWithMaterial(tuned, dissolve.spec.params).filter(
+		(l) => l.path === 'material.param.grain',
+	).length === 1,
+	'…and a held one once, at its value',
+);
+const run = (v: EffectParamValue) => setMaterialParam(picked, 'grain', Number(v));
+const exposure = rowExposure({
+	label: 'Grain',
+	kind: 'number',
+	current: picked,
+	value: 8,
+	low: 1,
+	high: 32,
+	run,
+});
+assert(
+	!exposure.missing && exposure.leaves.length === 1 && exposure.leaves[0].identity,
+	'⚡ on a param the material holds no value for is offered (as is), not "move it first"',
+);
+const docExposed = exposeAsNewParam(
+	{ ...emptyEffectDoc('e', 'E'), layers: [picked] },
+	'main',
+	exposure,
+	'grain',
+);
+assert(
+	docExposed.doc.layers[0].material?.params?.grain === 8 &&
+		eq(docExposed.doc.params?.[0].drives, [
+			{ id: 'd1', layer: 'main', path: 'material.param.grain' },
+		]),
+	'…and exposing it writes its default into the material, driven as is',
+);
+const strength = rowExposure({
+	label: 'Strength',
+	kind: 'number',
+	current: picked,
+	value: 1,
+	low: 0,
+	high: 4,
+	run: (v) => setMaterialIntensity(picked, Number(v)),
+});
+assert(
+	eq(
+		strength.leaves.map((l) => [l.path, l.identity]),
+		[['material.intensity', true]],
+	) && !strength.missing,
+	'⚡ on Strength drives material.intensity as is',
+);
 
 console.log('');
 if (failures > 0) {

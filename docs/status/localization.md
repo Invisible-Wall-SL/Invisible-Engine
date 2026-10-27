@@ -1,6 +1,6 @@
 # Invisible Localization — status
 
-> Guide: [docs/tools/localization.md](../tools/localization.md) · Agent: none yet (launcher tool — closest owner `.claude/agents/launcher-studio.md`)
+> Guide: [docs/tools/localization.md](../tools/localization.md) · Agent: `.claude/agents/invisible-localization.md`
 
 **One-line state:** shipped — a project-scoped string table in the launcher: auto-harvested game text, batch machine translation (Anthropic or any OpenAI-compatible endpoint) landing unreviewed, per-cell or bulk human review, save to R2. Only reviewed strings reach players.
 

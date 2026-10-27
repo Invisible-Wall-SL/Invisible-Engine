@@ -13,7 +13,10 @@
  * sprites shown for good and gives its slot back. A renderer whose construction throws gives its
  * slot back before the error goes on.
  *
- * `?fxdebug=1` on the page logs each material layer's state as it mounts and when it turns plain.
+ * `?fxdebug=1` on the page logs each material layer's state as it mounts and when it turns plain,
+ * and, while a layer draws, its peak covered pixels as they grow (at most once per 2 s a layer) and
+ * again when it is released: the most pixels its quads covered at once (× the graph's cost, its
+ * peak load; design §10).
  */
 
 import { customElementFx } from 'constants-shared/elementFx';
@@ -63,11 +66,36 @@ const debug = (): boolean =>
 	(debugging ??=
 		typeof location !== 'undefined' && new URLSearchParams(location.search).has('fxdebug'));
 
+/** Covered pixels for a debug line: `1.24 Mpx`, `86.0 kpx`, `512 px`. */
+const coveredText = (px: number): string =>
+	px >= 1e6
+		? `${(px / 1e6).toFixed(2)} Mpx`
+		: px >= 1e3
+			? `${(px / 1e3).toFixed(1)} kpx`
+			: `${Math.round(px)} px`;
+
 function report(spec: ParticleMaterialSpec, state: string, slots: FxMaterialSlots): void {
 	if (!debug()) return;
 	console.log(
 		`[fxdebug] material layer ${spec.label ?? '(unnamed)'}: ${state} (${spec.kind}; ${slots.drawing}/${slots.cap} drawing)`,
 	);
+}
+
+/** The most often a layer's growing peak is printed. */
+const PEAK_REPORT_MS = 2000;
+
+/** Print a layer's peak covered pixels as it grows, at most once per {@link PEAK_REPORT_MS}. */
+function peakReporter(
+	spec: ParticleMaterialSpec,
+	slots: FxMaterialSlots,
+): (covered: number) => void {
+	let last = -Infinity;
+	return (covered) => {
+		const now = performance.now();
+		if (now - last < PEAK_REPORT_MS) return;
+		last = now;
+		report(spec, `on, its peak ${coveredText(covered)} covered`, slots);
+	};
 }
 
 export function mountParticleMaterial(options: {
@@ -117,6 +145,7 @@ export function mountParticleMaterial(options: {
 				giveBack();
 				report(spec, `plain while playing, ${reason}`, slots);
 			},
+			onPeak: debug() ? peakReporter(spec, slots) : undefined,
 		});
 	} catch (error) {
 		giveBack();
@@ -134,8 +163,10 @@ export function mountParticleMaterial(options: {
 		material,
 		state: 'on',
 		release: () => {
+			const peak = material.peakCoveredArea;
 			material.destroy();
 			giveBack();
+			report(spec, `released, its peak ${coveredText(peak)} covered`, slots);
 		},
 	};
 }

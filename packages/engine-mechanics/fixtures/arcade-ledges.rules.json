@@ -1,0 +1,63 @@
+{
+	"version": 1,
+	"family": "arcade",
+	"providerName": "sample_provider",
+	"gameName": "Ledges",
+	"gameID": "sample_arcade_ledges",
+	"rtp": 0,
+	"numReels": 0,
+	"numRows": [],
+	"betModes": {},
+	"paylines": {},
+	"symbols": {},
+	"paddingReels": {},
+	"outcome": "rules",
+	"arcade": {
+		"field": {
+			"w": 2880,
+			"h": 800
+		},
+		"bodies": {
+			"ledgesHero": {
+				"shape": "box",
+				"w": 40,
+				"h": 56,
+				"tags": ["player"]
+			},
+			"ledgesCoin": {
+				"shape": "circle",
+				"r": 14,
+				"tags": ["coin"]
+			}
+		},
+		"pairs": [["player", "coin"]],
+		"zones": [
+			{ "id": "pit", "x": 0, "y": 776, "w": 2880, "h": 24 },
+			{ "id": "goal", "x": 2752, "y": 560, "w": 128, "h": 144 }
+		],
+		"characters": [
+			{
+				"id": "hero",
+				"name": "Hero",
+				"component": "ledgesHero",
+				"movement": {
+					"accel": 2400,
+					"decel": 3200,
+					"maxSpeed": 340,
+					"gravity": 2600,
+					"maxFall": 1300
+				},
+				"controller": {
+					"kind": "sideScroll",
+					"speed": 320,
+					"jump": {
+						"kind": "gravity",
+						"height": 170,
+						"time": 0.42,
+						"minHeight": 48
+					}
+				}
+			}
+		]
+	}
+}

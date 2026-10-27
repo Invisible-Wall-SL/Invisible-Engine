@@ -108,6 +108,12 @@ import {
 /** Above these a graph is flagged as heavy for a phone; it still compiles. */
 export const COST_BUDGET = 400;
 export const SAMPLE_BUDGET = 16;
+/**
+ * The same budget for a graph drawn as a particle material (`docs/design/shader-graph-particles.md`
+ * §10): a layer of particles covers far more pixels than one element, overdraw included.
+ */
+export const PARTICLE_COST_BUDGET = 150;
+export const PARTICLE_SAMPLE_BUDGET = 4;
 
 export interface CompiledShader {
 	/** Uniforms and `main`: the pass body `ElementFxFilter` takes. */

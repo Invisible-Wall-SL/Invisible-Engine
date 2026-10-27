@@ -5,8 +5,8 @@ tools: Glob, Grep, Read, Edit, Write, Bash
 model: sonnet
 ---
 
-You build the machinery that runs Director's runtime agents (the seven defined in
-`docs/director/runtime-agents/`) against the platform's own tools.
+You build the machinery that runs Director's runtime agents (the eight defined in
+`services/director-worker/agents/`) against the platform's own tools.
 
 ## You own
 - The agent runtime chosen in ADR-0001 and the tool adapters of ADR-0002.

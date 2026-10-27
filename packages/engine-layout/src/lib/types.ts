@@ -1384,6 +1384,41 @@ export interface PathNode extends BaseNode {
 	smoothing?: number;
 }
 
+/** How a tile meets a falling or walking character (P10.13): not at all, from every side, or from
+ *  above only (a one-way platform). */
+export type TileCollide = 'none' | 'solid' | 'oneWay';
+
+/** The {@link TileCollide} values, as a runtime list. */
+export const TILE_COLLIDES = ['none', 'solid', 'oneWay'] as const satisfies readonly TileCollide[];
+
+/** One tile of a tilemap's tileset: its art and how it collides. */
+export interface TilesetEntry {
+	/** An atlas region: atlas-scoped (`<assetKey>::<region>`, what the region picker stores) or a
+	 *  bare name, as a sprite's. Empty ⇒ the tile draws nothing but still collides. */
+	region: string;
+	/** Absent ⇒ `none`. */
+	collide?: Exclude<TileCollide, 'none'>;
+}
+
+/**
+ * A TILEMAP (`docs/design/game-families.md` §4.4, P10.13): a level painted from tiles — a grid of
+ * `cols` × `rows` tiles of `tileWidth` × `tileHeight` px, each an index into `tileset`, drawn from
+ * the node's x / y (its top-left; scale applies, rotation and anchor do not). It is part of the
+ * layout doc, so it ships with it; its tileset regions ship through the art export. On a play
+ * field's screen the arcade loop reads its top-level tilemaps (`sceneTilemaps`) and characters
+ * stand on, and are stopped by, the tiles their entry marks `solid` or `oneWay`.
+ */
+export interface TilemapNode extends BaseNode {
+	kind: 'tilemap';
+	tileWidth: number;
+	tileHeight: number;
+	cols: number;
+	rows: number;
+	/** `cols × rows` entries, row by row: an index into `tileset`, or -1 for no tile. */
+	tiles: number[];
+	tileset: TilesetEntry[];
+}
+
 export type LayoutNode =
 	| ContainerNode
 	| SpriteNode
@@ -1396,7 +1431,8 @@ export type LayoutNode =
 	| FlipbookNode
 	| RepeaterNode
 	| SpawnLayerNode
-	| PathNode;
+	| PathNode
+	| TilemapNode;
 
 /**
  * Every {@link LayoutNode} kind as a RUNTIME value — the one list a validator may enumerate.
@@ -1423,6 +1459,7 @@ export const LAYOUT_NODE_KINDS = [
 	'repeater',
 	'spawnLayer',
 	'path',
+	'tilemap',
 ] as const satisfies readonly LayoutNode['kind'][];
 
 export interface Scene {

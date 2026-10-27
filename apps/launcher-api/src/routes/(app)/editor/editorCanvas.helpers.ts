@@ -36,6 +36,7 @@ import {
 } from 'engine-layout';
 import type { Skeleton } from 'engine-rig';
 import { pathBox } from '../../../lib/editor/pathNodeEdit';
+import { tilemapBox } from '../../../lib/editor/tilemapEdit';
 
 export interface Vec2 {
 	x: number;
@@ -899,6 +900,7 @@ function ownBox(
 	}
 	if (node.kind === 'spawnLayer') return spawnLayerPlaceholder(node).box;
 	if (node.kind === 'path') return pathBox(node);
+	if (node.kind === 'tilemap') return tilemapBox(node);
 	// A rect frames at its own width/height (the fill box) — like a sprite, but the
 	// size is intrinsic to the node (no art), so the transform handles resize it.
 	if (node.kind === 'rect') {

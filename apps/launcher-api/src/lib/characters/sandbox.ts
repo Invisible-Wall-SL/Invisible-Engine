@@ -4,9 +4,14 @@ import {
 	type Body,
 	type Field,
 	type FixedStep,
+	type OneWay,
 	type Point,
 } from 'engine-mechanics';
-import { createCharacterStage } from 'engine-game/src/game/arcadeCharacters';
+import {
+	createCharacterStage,
+	fallsUnderGravity,
+	hopsOnThePlane,
+} from 'engine-game/src/game/arcadeCharacters';
 import type { ArcadeBody, ArcadeCharacter } from 'game-config';
 import { parseVariableValue } from './characterEdit';
 
@@ -15,7 +20,8 @@ import { parseVariableValue } from './characterEdit';
  * placeholder play field with a keyboard-driven dummy player, a few walls and an optional drawn
  * path. It runs the arcade loop's OWN characters stage (`engine-game` `createCharacterStage`) at a
  * fixed step through a small io shim — the same driver rule, decide → steer → `stepSolid` order and
- * anim-input values as the game, so the sandbox and the game cannot drift. The same seed and the
+ * anim-input values as the game, so the sandbox and the game cannot drift. That includes P10.13:
+ * gravity, jumps, flaps and hops, against the walls (solid, `ground` or one-way). The same seed and the
  * same input give the same run. Nothing here is saved; the page draws `snapshot()`.
  */
 
@@ -37,8 +43,22 @@ export const SANDBOX_CHARACTER_BODY = 'character';
 /** Component ids of the sandbox's own bodies; never a project component's (they start `__`). */
 const PLAYER_LOOK = '__player';
 const WALL_LOOK = '__wall';
+/** A `ground` wall's look: the stage reads `ground` off the config body of a component. */
+const GROUND_WALL_LOOK = '__groundWall';
 
-export type SandboxWall = { id: string; x: number; y: number; w: number; h: number };
+/** How a wall stops the character: from every side, the same but a hop in the air passes over it
+ *  (a config body's `ground`), or from above only while falling (`oneWay`). */
+export type SandboxWallKind = 'solid' | 'ground' | 'oneWay';
+
+export type SandboxWall = {
+	id: string;
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+	/** Absent ⇒ `solid`. */
+	kind?: SandboxWallKind;
+};
 
 export type SandboxSetup = {
 	character: ArcadeCharacter;
@@ -56,10 +76,10 @@ export type SandboxSetup = {
 	variables?: Readonly<Record<string, unknown>>;
 };
 
-/** The keys held this step (`left/right/up/down`) and a pressed pointer. */
+/** The keys held this step (`left/right/up/down/jump`) and a pressed pointer. */
 export type SandboxInput = { held: readonly string[]; pointer?: Point };
 
-type SimBody = Body & { componentId: string; label: string };
+type SimBody = Body & OneWay & { componentId: string; label: string };
 
 export type SandboxShot = { id: string; x: number; y: number; r: number };
 
@@ -77,6 +97,8 @@ export type SandboxSnapshot = {
 	hits: number;
 	/** Who moves the character (the stage's rule: a controller unless handed to the brain). */
 	driver: 'controller' | 'brain' | 'none';
+	/** Under gravity or on a hop: on the ground or a wall, and the hop's height (px). */
+	contact?: { grounded: boolean; onWall: boolean; z: number };
 };
 
 export type Sandbox = {
@@ -96,6 +118,27 @@ export const DEFAULT_WALLS = (field: Field): SandboxWall[] => [
 	{ id: 'wall2', x: field.w * 0.5, y: field.h * 0.78, w: 24, h: field.h * 0.3 },
 ];
 
+/** A falling character's walls: a one-way step up off the floor and a solid ledge above it, in
+ *  reach of a fresh jump (`characterEdit` `DEFAULT_JUMP_HEIGHT`). */
+export const PLATFORM_WALLS = (field: Field): SandboxWall[] => [
+	{ id: 'wall1', x: field.w * 0.62, y: field.h - 80, w: 200, h: 16, kind: 'oneWay' },
+	{ id: 'wall2', x: field.w * 0.4, y: field.h - 160, w: 240, h: 24 },
+];
+
+/** A hopping character's walls: the default two and a low (`ground`) wall it can hop over. */
+export const HOP_WALLS = (field: Field): SandboxWall[] => [
+	...DEFAULT_WALLS(field),
+	{ id: 'wall3', x: field.w * 0.62, y: field.h / 2, w: 24, h: 160, kind: 'ground' },
+];
+
+/** The walls a run starts with, for how the character moves. */
+export const wallsFor = (field: Field, character: ArcadeCharacter): SandboxWall[] =>
+	hopsOnThePlane(character)
+		? HOP_WALLS(field)
+		: fallsUnderGravity(character)
+			? PLATFORM_WALLS(field)
+			: DEFAULT_WALLS(field);
+
 /** Where the bodies start: the player left, the character right, both mid-height. */
 export const startOf = (field: Field) => ({
 	player: { x: field.w * 0.2, y: field.h / 2 },
@@ -108,9 +151,10 @@ const shapeOf = (
 	body.shape === 'box' ? { shape: 'box', w: body.w, h: body.h } : { shape: 'circle', r: body.r };
 
 function wallBody(wall: SandboxWall): SimBody {
+	const kind = wall.kind ?? 'solid';
 	return {
 		id: wall.id,
-		componentId: WALL_LOOK,
+		componentId: kind === 'ground' ? GROUND_WALL_LOOK : WALL_LOOK,
 		label: wall.id,
 		shape: 'box',
 		w: wall.w,
@@ -121,7 +165,7 @@ function wallBody(wall: SandboxWall): SimBody {
 		vy: 0,
 		tags: ['wall'],
 		edges: 'pass',
-		solid: true,
+		...(kind === 'oneWay' ? { oneWay: true } : { solid: true }),
 	};
 }
 
@@ -176,7 +220,10 @@ export function createSandbox(setup: SandboxSetup): Sandbox {
 	const all = (): SimBody[] => [player, self, ...walls, ...shots];
 	const stage = createCharacterStage({
 		characters: [character],
-		bodies: { [character.component]: look },
+		bodies: {
+			[GROUND_WALL_LOOK]: { shape: 'box', w: 1, h: 1, ground: true },
+			[character.component]: look,
+		},
 		seed: setup.seed,
 		io: {
 			input: {
@@ -268,6 +315,7 @@ export function createSandbox(setup: SandboxSetup): Sandbox {
 				if (name in looks) animInputs[name] = looks[name];
 			}
 			const state = stage.stateOf(self.id);
+			const contact = stage.contactOf(self.id);
 			return {
 				steps: fixed.steps,
 				player: { ...player },
@@ -278,6 +326,7 @@ export function createSandbox(setup: SandboxSetup): Sandbox {
 				animInputs,
 				hits,
 				driver: driver(),
+				...(contact ? { contact } : {}),
 			};
 		},
 		place(which, at) {

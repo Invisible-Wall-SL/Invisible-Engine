@@ -7,6 +7,13 @@ it without asking the person who set it up.
 Names and locations only. **Never paste a secret value into a doc, an issue, a PR, a commit or a
 chat.** The repo is public, and so are its Actions logs.
 
+**The fast way:** the desktop launcher's admin-only **Key Vault** tab
+([guide](../tools/invisible-launcher.md#key-vault-admins)) does the steps below for every secret
+on this page: it makes or accepts the new value, updates every consumer, redeploys, verifies and
+revokes. Its catalog (`key_vault.py` in the `invisible-launcher` repo) mirrors the entries below,
+so **when you add a consumer here, add it there too.** This page stays the reference for what each
+step means and for doing it by hand.
+
 Related:
 
 - [INFRA.md](../INFRA.md): the service map, the env var names, and the setup-time rotation table

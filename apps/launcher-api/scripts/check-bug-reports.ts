@@ -156,7 +156,7 @@ fake('lib/server/bugReportsStore.ts', {
 		db.links
 			.filter((l) => l.state === 'open')
 			.map(({ bugNumber, prNumber, updatedAt }) => ({ bugNumber, prNumber, updatedAt })),
-	insertBug: async (values: NewBug, actor: Actor) => {
+	insertBug: async (values: NewBug, actor: Actor, data: Record<string, unknown> = {}) => {
 		const at = tick();
 		const bug: BugReport = {
 			number: db.bugs.length + 1,
@@ -173,10 +173,23 @@ fake('lib/server/bugReportsStore.ts', {
 		};
 		db.bugs.push(bug);
 		pushEvents(bug.number, actor, [
-			{ kind: 'reported', data: values.priority ? { priority: values.priority } : {} },
+			{
+				kind: 'reported',
+				data: { ...data, ...(values.priority ? { priority: values.priority } : {}) },
+			},
 		]);
 		return { ...bug };
 	},
+	bugsReportedAs: async (reporter: string) =>
+		db.bugs
+			.filter((b) => b.reporter === reporter)
+			.map((b) => ({
+				number: b.number,
+				kind: b.kind,
+				projectKey: b.projectKey,
+				status: b.status,
+				data: db.events.find((e) => e.bugNumber === b.number && e.kind === 'reported')!.data,
+			})),
 	mutateBug: async (
 		number: number,
 		actor: Actor,
@@ -487,7 +500,7 @@ check(
 		brief.includes('Priority: High'),
 		brief.includes('Area: Invisible Rigger'),
 		brief.includes('https://app.example/bugs?bug=12 (2 screenshots)'),
-		brief.includes("Name BUG-12 in the pull request's title or branch"),
+		brief.includes('Start with the `pipeline-triage` agent, and name the branch `bug-12-…`.'),
 	],
 	['Fix BUG-12: Rigger freezes', true, true, true, true],
 );
@@ -516,8 +529,9 @@ check(
 		gameBrief.includes('Part of the game: Bonus and free spins'),
 		gameBrief.includes('https://app.example/game-bugs?project=borut&bug=13'),
 		gameBrief.includes('pull request'),
+		gameBrief.includes('pipeline-triage') || gameBrief.includes('bug-13'),
 	],
-	['Fix BUG-13 in the game borut: Counter shows 0', true, true, true, true, false],
+	['Fix BUG-13 in the game borut: Counter shows 0', true, true, true, true, false, false],
 );
 
 // ── The registry ───────────────────────────────────────────────────────────────
@@ -1388,6 +1402,78 @@ check('activity lines read as sentences', lines, [
 	'Gualtiero sent it to Pipeline Changes',
 	'Gualtiero marked it Working on',
 ]);
+
+// ── Director files a pipeline bug (ADR-0009 §2) ───────────────────────────────
+{
+	const request = {
+		runProjectKey: 'new_game',
+		templateProjectKey: 'secret',
+		what: 'An FX slot on the big-win screen.',
+		reason: 'The mockup has one.',
+	};
+	const answer = await server.createDirectorBug({
+		...request,
+		runId: 'run-9c',
+		opId: 'run-9c:coordinator-t1:0',
+		ownerId: OTHER.id,
+		projectKey: null,
+	});
+	const filed = answer.filed;
+	const seen = (await read(TESTER, filed.number)).body;
+	const shown = `${seen.title}\n${seen.description}`;
+	check(
+		'a Director run files an Open, unsent pipeline bug, reported by the run, linked to its page',
+		[seen.kind, seen.status, seen.sentAt, seen.reporter, seen.area, seen.pageUrl],
+		[
+			'pipeline',
+			'open',
+			null,
+			'Director run run-9c',
+			'director',
+			'http://localhost:3010/director/run-9c',
+		],
+	);
+	check(
+		"…naming no project it may not show: neither key nor the agent's words, and no opId in its activity",
+		[
+			seen.projectKey,
+			['new_game', 'secret', request.what, request.reason].filter((t) => shown.includes(t)),
+			(seen.events as { kind: string; data: object }[]).map((e) => [e.kind, e.data]),
+		],
+		[null, [], [['reported', {}]]],
+	);
+	check(
+		"…its owner sees it as theirs; it is not in Pipeline Changes' Bugs tab until a triager sends it",
+		[
+			(await read(OTHER, filed.number)).body.mine,
+			((await call(pipelineRoute.GET, TESTER)).body.bugs as { number: number }[]).map(
+				(b) => b.number,
+			),
+		],
+		[true, [3]],
+	);
+	const keyed = (
+		await server.createDirectorBug({
+			...request,
+			runId: 'run-9d',
+			opId: 'run-9d:coordinator-t1:0',
+			ownerId: ADMIN.id,
+			projectKey: 'secret',
+			what: 'A region named BUG-3.',
+		})
+	).filed;
+	check(
+		'a bug that names the template: a viewer without it cannot open it, its owner reads it in full',
+		[
+			(await read(TESTER, keyed.number)).status,
+			(await read(ADMIN, keyed.number)).body.description.includes(
+				"Template: secret (the run's own project is not made yet)",
+			),
+			(await read(ADMIN, keyed.number)).body.title,
+		],
+		[404, true, 'A region named bug #3.'],
+	);
+}
 
 if (failures) {
 	console.error(`\n${failures} of ${checks} bug-reports checks failed.`);

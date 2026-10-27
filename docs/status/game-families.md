@@ -1,9 +1,11 @@
 # Game families (Phase 10) — status
 
-> Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `invisible-game-config`, `invisible-game-maker`, then per phase
+> Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `match3-games`, `arcade-games` (`invisible-game-config` for `/config`, `invisible-game-maker` for Game Maker)
 
-**One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.8, P10.11 and P10.12 are
-merged; P10.14 (A4a, the game server) is built** and in review: an arcade config with
+**One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.8, P10.11, P10.12 and
+P10.14 are merged; P10.13 (gravity, jumps and levels) is built** and in review. P10.13: an arcade character can fall, jump (a side-view jump set by height and time, with
+hold, coyote time and a buffer), hop over ground obstacles or flap, and stand on a level painted from
+tiles in the Scene Editor. P10.14: an arcade config with
 `arcade.online` is played in a room on the new `services/game-server` (Colyseus 0.18), where devices
 send inputs only and draw where the server puts every player; the service is written but **not
 deployed** (owner steps in [INFRA.md](../INFRA.md) "Invisible Game Server"). P10.11: arcade
@@ -21,7 +23,252 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
 
 ## Current state
 
-**P10.14 — Arcade A4a: the game server (built 2026-10-26; in review).** §8's P10.14 row, per the
+**Card C1 — the rules engine (built 2026-10-27; in review).** [card-games.md](../design/card-games.md)
+§12's C1 row (§2, §3), in one PR. No caller yet: the AI is C2, and the family, runtime and sample
+game are C3.
+
+- **The rules** (`engine-mechanics` `cards.js` + `.d.ts`, plain ESM like `board.js`): `createMatch`,
+  `legalActions`, `apply`, `isOver`; the four zones, the strict phases (start → draw → main → combat
+  → end), the resource, every §2.4 legality rule (`IllegalAction` with a code), the FIFO effect
+  queue with a death check after each effect, the `loop` guard (`MAX_QUEUE_STEPS` 500), fatigue,
+  the hand and board limits and the turn limit. `apply` copies the match and never changes its
+  input. Malformed rules (not a whole number at or above its minimum) throw.
+- **Trigger order:** the `onDamaged` and `onDeath` triggers one effect raises share one order,
+  active player first, then board order (read before the dead leave), and a unit's `onDamaged`
+  stays ahead of its own `onDeath`. A death summon takes the dead unit's place: it goes before the
+  nearest unit to its right that survived.
+- **Effects as data:** the closed lists of §3 (seven verbs, four targets, five triggers, three
+  keywords) exported as constants; `validateLibrary` (the §3.6 errors and warnings, as issues with a
+  code); `cardText` (one generated English sentence per effect); `readLibrary`, the doc-readers
+  reader: it drops unknown fields, an unknown verb / trigger / target / side / include / `until`
+  drops its effect, an unknown keyword the keyword, an unknown card type the card, and it names
+  every drop. Only a string is unknown; a value of the wrong type is kept and the validator refuses
+  it.
+- **The random stream is a number in the match** (`rngState`), stepped with `rngNext`, new in
+  `board.js` beside `createRng` (and `rngSeed`); `createRng` now runs on the same step, and
+  `board-replay.json` is unchanged.
+- **Departures from the design's sketch,** each small, kept so `apply(match, action)` is the whole
+  input or for a rule §2 left open:
+  - the match also carries `rules` (defaults applied) and `library` (by id, shared between copies);
+  - `createMatch` returns `{ match, events, dropped }`: the opening draws reach the presentation,
+    and the reader's drops reach the caller for its one warning (C3's config reader owns that);
+  - `legalActions` lists plays without a `slot` (any slot from 0 to the board's length is legal),
+    so the AI's branching stays small;
+  - `first` is `0 | 1 | 'random'`; C3 maps the config's `'player' | 'ai'` onto sides;
+  - **an expiring `endOfTurn` health buff never kills**: the unit is left at 1 health at least,
+    its damage cut to fit (the genre's rule). §2 did not say; a permanent negative buff still kills.
+- **Gates:** `check:card-rules` (43 checks, among them every verb on every target it allows, and
+  the replay trace `fixtures/cards-replay.json`) and `check:card-library` (43 checks); the sample
+  library the gates play is `fixtures/cards-sample.library.json`, invented. Both run under
+  `check:all`.
+- **Open for the design doc:** §12.1's C1 row says "the normalizer keeps unknown card fields", but
+  §3.6 and doc-readers.md drop them; the gate pins the drop, and the normalizer itself is C3's. The
+  expiry rule above wants a line in §2.
+- **For C3's config validator:** rules that are each valid but clash (`resource.start` above
+  `max` is clamped; an `openingHand` larger than the deck ends the match in fatigue at once), and
+  `cardText` expects a validated card (C4's live preview must validate first).
+
+**P10.13 — Arcade A3b: gravity, jumps and levels (built 2026-10-27; in review).** §8's P10.13 row
+(§4.4, §5.1, §6.3), in one PR, on top of P10.11 and P10.12. No live game uses any of it yet; the
+sample is a fixture.
+
+- **Gravity and levels** (`engine-mechanics` `motion.js`, new exports only; P10.8's and P10.11's
+  functions and replays are unchanged): `stepPlatform(body, dt, {solids, tiles, field, gravity,
+  maxFall})` integrates the pull exactly (so a jump's apex lands where its settings put it), caps
+  the fall at `maxFall`, and cuts the move into sub-steps no longer than half the thinnest thing it
+  can meet (the body, a tile, a solid or platform; at most `MAX_SUB_STEPS` 64), each resolved x then
+  y as `stepSolid` does. **One-way** bodies and tiles stop a body only from above, while it falls,
+  and only when its bottom was at or above the top before that sub-step. Under `clamp` the field's
+  floor and ceiling stop it like a solid. Returns `grounded` (a fall stopped from below this step)
+  and `onWall`. Tile grids are `{x, y, tileW, tileH, cols, rows, cells}` with one code per tile
+  (`TILE_NONE` / `TILE_SOLID` / `TILE_ONE_WAY`); `tilesIn` gives the tiles a box touches as box
+  bodies.
+- **Jumps** (`engine-mechanics` `jumps.js` + `.d.ts`, new): a jump is its **height** and its
+  **time to the apex**; `jumpProfile` turns them into a launch speed `2h/t` and a pull `2h/t²`.
+  `stepJump` (the `gravity` jump: launches on a buffered press while grounded or within coyote
+  time, cuts the climb on an early release when `minHeight` is set, and returns the pull: the
+  jump's own while rising, `movement.gravity` while falling, so a fall can be snappier than the
+  rise); `stepHop` (the `hop`: a height `z` above the ground plane with the same buffer and cut);
+  `stepFlap` (a press kicks `vy` to `-kick`). Coyote time and the buffer default to 100 ms.
+- **Config** (`game-config`, sparse, every new field optional): `movement.gravity` / `maxFall`;
+  `controller.jump {kind, height, time, minHeight?, coyoteMs?, bufferMs?, airControl?}` on a
+  `sideScroll` (a `gravity` jump) or a `topDown` (a `hop`) controller — a jump with no height or
+  time
+  is dropped, defaults are not stored; a new `flap` controller `{kick, speed?}`; body flags `ground`
+  (a hop in the air passes over it) and `oneWay` (dropped on a `solid` body); `ARCADE_JUMP_ACTION`;
+  anim sources `grounded`, `onWall`, `airborne`, `height`. The validator errors on a hop on a side
+  view or a gravity jump on a top-down character, and warns on a flap with no gravity and a tap
+  height
+  above the jump.
+- **The loop** (`engine-game` `arcadeCharacters.ts`; `arcadeLoop.ts` gains one guarded hook in the
+  overlap pass, the `lifts()` read and the probe's contact fields): a character with
+  `movement.gravity`, a `gravity` jump or a flap **falls**: only its `vx` is steered (`air control`
+  scales it while airborne), its `vy` belongs to the pull, the jump or the flap. A `topDown` hop
+  steers on both axes and lifts off the plane; while it is up it is not stopped by, and does not
+  `collide` with, a `ground` body (a wall without the flag still stops it). Falling and hopping
+  characters, and every character once the level has tiles, move with `stepPlatform`; the rest keep
+  P10.11's `stepSolid`, so a level with neither steps exactly as before. A jump reads the `jump`
+  action, `up` for a side view and a flap, or a pointer pressed above the body (a flap: any press).
+  New optional loop option `tiles()`.
+- **The `tilemap` node** (`engine-layout` `types.ts`, `tilemapNodes.ts`, `Tilemap.svelte`, a
+  `LayoutNodeView` branch): `tileWidth`, `tileHeight`, `cols`, `rows`, `tiles` (row by row, an index
+  into the tileset or -1) and `tileset` (`{region, collide?}`: an atlas region — scoped
+  `<assetKey>::<region>` or bare — and `solid` / `oneWay`, absent = none). The game draws one sprite
+  per painted tile from the node's x / y (scale applies; rotation and anchor do not). The save
+  normalizes it (`normalizeTilemapNode`: tiles made exactly `cols × rows`, an index the tileset
+  lacks
+  becomes empty, a node with no usable size or more than 262,144 tiles dropped). `sceneTilemaps`
+  gives the loop a screen's top-level tilemaps that have a colliding tile; the runtime (`apps/lines`
+  `arcade.ts`) reads them from every screen that holds a spawn layer.
+- **The hop's look**: after each frame the runtime publishes every hopping character's height
+  (`engine-layout` `arcadeLifts.svelte.ts`); `<SpawnLayer>` then draws such an instance raised by it
+  over an ellipse shadow the width of its body. Only a config with a hopping character turns this
+  on;
+  every other spawn layer renders its old markup.
+- **`/editor` paint mode** (`EditorTilemap.svelte`, `tilemapPaint.client.svelte.ts`, helpers in
+  `$lib/editor/tilemapEdit.ts`, `EditorCanvas.svelte`): a **Tilemap** row in the Library
+  (scene-only,
+  16 × 8 tiles of 64 px at main centre); the stage draws each painted tile's region art, a dashed
+  outline, and while selected the grid, solid tiles in red and a blue top line on one-way tiles.
+  Tools
+  **Move** (V), **Brush** (B), **Erase** (E), **Fill** (G), **Pick** (I) on a lone top-level
+  tilemap;
+  with a paint tool on, a press on the grid paints instead of moving the node, a fast drag fills the
+  cells it skips, and one stroke is one undo step. Properties: tile size, columns / rows (clamped,
+  applied on change), the tileset (region picker, thumbnail = make it the brush, collide none /
+  solid /
+  one-way, tiles placed, remove with the indices remapped), Add a tile. Rotation is hidden (the game
+  ignores it). Guide: [tools/invisible-editor](../tools/invisible-editor.md).
+- **Invisible Characters** and `/config`: Movement gains Gravity and Max fall; the Controller
+  section
+  offers `flap` (kick, speed) and a Jump sub-form for top-down / side-scroll (its kind follows the
+  controller), with the jump's launch speed and pull shown read-only; Body gains Ground and One-way
+  (also as columns in `/config`'s Arcade bodies table). The sandbox already runs the loop's own
+  stage, so falls, jumps, flaps and hops behave as in the game; Space jumps, a hop is drawn lifted
+  over a shadow, and the starting walls follow the character (a one-way platform and a ledge for a
+  faller, a low ground wall for a hopper). Guides:
+  [tools/invisible-characters](../tools/invisible-characters.md),
+  [tools/game-config](../tools/game-config.md).
+- **Shipping (rule 8):** the tilemap is part of the layout doc, so it ships with it; its tileset
+  regions are collected by the art export's node walk (`editorArtExport.ts`, `tilemapRegions` →
+  `addImageRef`, the reel grid tile's rule), so each painted region's sheet travels export →
+  `deploy/editor-art/` → the bundle's `editorArt` index → pull → the game's editor-art registration,
+  and is in the editor's art scope. Only regions a painted tile uses ship.
+- **The sample** (a fixture, not the Game Maker default, as P10.11's guard and P10.12's river are):
+  `engine-mechanics/fixtures/arcade-ledges.rules.json`, `referenceLayouts/arcadeLedges.ts`,
+  `reference/arcadeLedgesSeed.ts`. A level 2880 × 800 with a camera following the hero, painted as
+  one
+  tilemap of 64 px tiles: ground with two gaps, a two-tile wall and three one-way ledges. The hero
+  (`sideScroll` 320 px/s, gravity 2600 falling, a `gravity` jump of 170 px in 0.42 s, a tap 48 px)
+  collects coins; a pit zone under the gaps costs a life and puts it back at the start with the
+  camera snapped; the goal is worth ten coins. Its tileset names one sample sheet
+  (`ARCADE_LEDGES_SHEET`), which the playtest writes into its snapshot's `deploy/editor-art/`.
+- **Gates:** root `check:arcade-platformer` (43: the jump's height and time to the apex at 30 / 60 /
+  120 / 144 Hz, landing where it left in twice the time; a tap reaching about `minHeight`, a part
+  hold between; the fall pull; coyote time and the buffer each just inside and outside the default
+  window and a set one; one press, one jump; one-way tiles and bodies from below and above, walking
+  through them, no snap from inside; **no tunnelling at maxFall 6000 px/s** through a 64 px tile, an
+  8 px tile row, a 4 px one-way body and a 2 px solid, for a 32 px and a 6 px body; the cap; tile
+  solidity none / solid / one-way, a wall (onWall), a ceiling; grounded; the field floor; **the
+  platform step equal to `stepSolid`** with no gravity; the hop's height and time, its buffer, cut
+  and fresh press; the flap; a body spawned inside a block of solid tiles moved out and kept out; a
+  600-step scripted run replayed against
+  `fixtures/arcade-platformer-replay.json`). Launcher `check:arcade-platformer` (50: a top-down
+  character on no tiles keeps the solid step, no contact or lift appears; the P10.8 / P10.11 /
+  P10.12
+  sample configs normalize stably with no new key; the config round trips and the validator's
+  issues; in the loop a jumper lands on tiles, jumps to its height on `jump`, `up` and a pointer
+  above it, lands on a one-way ledge from below, stops at a wall tile, writes `grounded` / `onWall`
+  /
+  `airborne` only on change; a falling brain character; a flap; a hop over a `ground` rock without a
+  `collide`, stopped by a tall wall, publishing its lift and `height`; a gravity jumper with no
+  `movement.gravity` handed to nobody still falls; a touch above a top-down hopper steers it and
+  never hops it; a character that never falls reads `grounded` and not `airborne`; the tilemap
+  readers and the
+  save; the sample played headless on the real interpreter — standing, the first gap jumped, coins,
+  the pit, the camera snapped, seed replay). `check:art-scope` case 9 (a painted tile's sheet is in
+  scope and ships; the one-way ledge's too; an entry no tile uses does not; nothing dangling).
+  `check:characters-tool` (154), `check:game-config-family` (156), `check:editor-tilemap` (76);
+  `check:arcade-camera`'s `<SpawnLayer>` source scan accepts the culling branch as an `{:else if}`
+  behind the lift branch (76).
+  `check:arcade-motion` (18) and `check:arcade-characters` (53 root, 89 launcher) unchanged.
+- **Verified by playing:** `scripts/playtest/arcade-platformer-play.mjs`
+  ([playtest/arcade-platformer.md](../playtest/arcade-platformer.md)) on the branch runtime, 15 /
+  15:
+  the hero starts standing on the painted ground; a pixel of the ground row is the shipped sheet's
+  ground colour (the tiles draw through the editor-art index); ArrowRight runs it and release stops
+  it; Space jumps it exactly 170 px and it lands where it left; a tap rises 48–68 px; a jump from
+  under a one-way ledge lands on it; the camera follows it past half way; the first gap and the wall
+  are jumped; the second gap's pit costs a life and puts it back with the camera at 0; coins count;
+  a
+  press above it on the screen jumps it; no RGS request; no page error; the same seeds and keys
+  replay. On the same build P10.8's `arcade-play.mjs` 14 / 14, P10.12's `arcade-camera-play.mjs`
+  12 / 12 and P10.11's `arcade-characters-play.mjs` 14 / 14.
+- **Bundle size** (the release build's `index.html`; `main` at 3dc8b3d vs this branch): 3,754,717 B
+  / 1,284,098 B gz → 3,768,148 B / 1,288,964 B gz: **+13.1 KB raw, +4.8 KB gz (+0.38 %)**,
+  downloaded
+  by every game, run only by an arcade game with a falling or hopping character or a tilemap (the
+  tilemap renderer by any screen with one). The sample is not in it.
+- **Slot / match-3 / P10.8 / P10.11 / P10.12 parity:** every runtime path is keyed on a character
+  that falls or hops, or a tilemap: `stepSolid` still moves every other character on a level without
+  tiles; no lift is published, so `<SpawnLayer>` renders its old branches; `LayoutNodeView` gains a
+  branch for a node kind no shipped layout has. Edited shared modules: `arcadeCharacters.ts`,
+  `arcadeLoop.ts` (one guarded `passesOver` in the overlap pass, `lifts()`, probe fields),
+  `SpawnLayer.svelte`, `LayoutNodeView.svelte`, `types.ts` (a kind and its fields),
+  `behaviours.js` (a `flap` case), `motion.js` / `motion.d.ts` (new exports, `Movement` fields),
+  `arcade.ts` (`apps/lines`), `determinism.ts` (a type), `editorStorage.ts` (the tilemap
+  normalizer),
+  `componentFields.ts`, `editorArtExport.ts` (the tilemap branch), `game-config` normalizers (a
+  stored
+  doc without the new fields comes back byte for byte). The current-games harness is not edited.
+- **Also fixed here:** `check:family-tools` (run by CI's `check:all`) was red on `main` (141 / 177):
+  its pre-P10.11 tool baseline did not know the two Bug Reports tools that #1373 merged beside
+  P10.11.
+  They are family-agnostic, so they join the baseline (177 / 177).
+- **Chosen in P10.13, owner may overturn:**
+  - **one PR**; the sample is a fixture, not Game Maker's arcade default;
+  - gravity is a character's (`movement`), not a plain body's: falling crates and rolling logs wait
+    for a body-level pull; only characters collide with tiles;
+  - a `gravity` jump's own pull governs the rise; `movement.gravity`, when set, the fall (a jump
+    with neither falls by its own pull);
+  - hold to jump higher is a cut on release to the speed that rises `minHeight` more; no
+    `minHeight`, no cut;
+  - the buffer counts from the press to the move that lands (one step of slack, as the landing is
+    seen a step later); coyote time from the last grounded move;
+  - the jump reads a new `jump` action, and `up` too for a side view and a flap; touch is a press
+    above the body (a flap: any press); a hop has no touch gesture;
+  - per-tile solidity lives on the tileset entry (each tile of one entry collides alike);
+  - tiles are read from top-level tilemaps of the screens with a spawn layer, placed by x / y and
+    scale, never rotated; a tilemap with no colliding tile is drawing only;
+  - only painted entries' regions ship; an unused tileset entry's art does not;
+  - `ground` is one flag for "a hop passes over it": both the stop and `collide` are skipped while
+    airborne;
+  - a body found inside solids it did not move into (a spawn or `moveTo` into painted ground) is
+    stepped out the shortest way past every solid in its path (a block of tiles crossed whole), ties
+    preferring up, then left, right, down; P10.11's `stepSolid` keeps its own one-solid settle;
+  - a character that never falls reads `grounded` true and `airborne` false; the hop's shadow sits
+    at the body's feet.
+- **Not done here:** **diamond (2:1) tiles and autotiling** (§4.4): the collision runs on the flat
+  ground plane already, but the isometric projection P10.12 left out is what draws bodies and
+  diamonds
+  in step, so they come with it (Salmons' next arcade piece, §9 #19); slopes, moving platforms and
+  ladders (§4.4, later); a drop-through on one-way platforms; the paint mode was checked by its gate
+  and the build, not driven in a browser (no Postgres / R2 here); Flow signals for a jump or a
+  landing
+  (the look's `grounded` / `airborne` inputs cover the animation); the sandbox drawing a tilemap;
+  `/flow-v2` Preview running the loop; a current-games fixture for the sample (it would edit the
+  harness).
+- **Known limits:**
+  - `MAX_SUB_STEPS` bounds the work a step does: a body thinner than 2 px moving faster than
+    64 × its own half-thickness a step could still tunnel (`maxFall` 6000 px/s at 60 Hz is gated);
+  - a tilemap's tiles are read when the screens load; a level changed live needs a reload, as every
+    baked layout does;
+  - the hop's shadow is the body's width, an ellipse a third as tall, and does not shrink with
+    height;
+  - a tilemap is never drawn mirrored (a negative scale draws and collides as its size); the editor
+    stage still draws one with the signed scale.
+
+**P10.14 — Arcade A4a: the game server (merged 2026-10-27, #1375).** §8's P10.14 row, per the
 approved A4 design ([realtime-multiplayer.md](../design/realtime-multiplayer.md) §4–§14), in **one
 PR**. Netcode (prediction, reconciliation, interpolation), the rules as data and online Flow events
 are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
@@ -258,7 +505,7 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   the exact settings are in [INFRA.md](../INFRA.md) "Invisible Game Server" (steps 1–8).
 
 
-**P10.11 — Arcade A2: characters (built 2026-10-26; in review).** §8's P10.11 row (§4.3, §5.1, §5.2,
+**P10.11 — Arcade A2: characters (merged 2026-10-26, #1377).** §8's P10.11 row (§4.3, §5.1, §5.2,
 §6.3, §6.5), in one PR. No live game uses any of it yet; the sample is a fixture.
 
 - **The brain** (`engine-mechanics` `behaviours.js` + `.d.ts`, plain ESM like `motion.js`): a small
@@ -387,7 +634,7 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   game's); P10.8's placeholder components draw half their size up and left of their bodies (a `rect`'s
   default anchor plus a `-w/2` offset; seen while building, not fixed here); a timeline's `alpha`
   multiplies the node's own, so a node stored at alpha 0 cannot be faded in by a timeline.
-**P10.12 — Arcade A3a: world and camera (built 2026-10-26; in review).** §8's P10.12 row (§4.4,
+**P10.12 — Arcade A3a: world and camera (merged 2026-10-26, #1372).** §8's P10.12 row (§4.4,
 §3.4, §5.1), in one PR. Built before P10.11, as §8 orders it for Salmons (its river is bigger than
 the screen). No current game declares a world, so none of it runs in one.
 
@@ -1466,6 +1713,8 @@ game, bundle or screen changes.
   that opens nothing else; 404 = not playable, 502 = R2 / unreadable snapshot. The game server is
   unchanged (it already sends `GAME_SERVER_CONFIG_TOKEN` as a bearer and accepts `{ doc }`). Closes
   P10.14 follow-up (e). Gate `check:game-server-config`. Setup: INFRA "Invisible Game Server".
+- 2026-10-27 — **Card C1 built: the rules engine** (`engine-mechanics` `cards.js`, `rngNext` in
+  `board.js`, `check:card-rules`, `check:card-library`). No caller, no game changes. Detail above.
 - 2026-10-27 — **Game repo builds fixed after P10.14.** #1375 declared `@colyseus/sdk` in
   `apps/lines` only. A standalone game repo installs from its own root `package.json` (copied at
   scaffold), and the desktop launcher backfills engine workspace packages but never a third-party
@@ -1480,7 +1729,7 @@ game, bundle or screen changes.
   decisions as recommended): [card-games.md](../design/card-games.md). The rules engine
   (`cards.js`), effects as data from closed lists, a seeded on-device AI, the card frame, card data
   in Game Config, Invisible Card Library (`/cards`), the ship chain, the `card` family, build steps
-  C1–C5 with gates. Nothing built yet; C1 is next. Docs only.
+  C1–C5 with gates. Docs only.
 - 2026-10-26 — **P10.14 built: the game server (A4a).** `services/game-server` on Colyseus 0.18,
   rooms with join / leave / rejoin, inputs only, `GameConfigDoc.arcade.online`,
   `ARCADE_ONLINE_MECHANIC` and the runtime's online branch, `check:room-sim`, an online playtest.
