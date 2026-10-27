@@ -1,0 +1,74 @@
+[
+	{
+		"difficulty": "easy",
+		"seed": 3,
+		"result": {
+			"winner": 0,
+			"reason": "hero"
+		},
+		"turn": 14,
+		"actions": 74,
+		"events": 211,
+		"digest": "0695ae36"
+	},
+	{
+		"difficulty": "easy",
+		"seed": "ai-replay",
+		"result": {
+			"winner": 0,
+			"reason": "hero"
+		},
+		"turn": 27,
+		"actions": 123,
+		"events": 375,
+		"digest": "f6a3fd36"
+	},
+	{
+		"difficulty": "normal",
+		"seed": 3,
+		"result": {
+			"winner": 0,
+			"reason": "hero"
+		},
+		"turn": 18,
+		"actions": 95,
+		"events": 274,
+		"digest": "dbae0030"
+	},
+	{
+		"difficulty": "normal",
+		"seed": "ai-replay",
+		"result": {
+			"winner": 0,
+			"reason": "hero"
+		},
+		"turn": 33,
+		"actions": 148,
+		"events": 454,
+		"digest": "17acd38d"
+	},
+	{
+		"difficulty": "hard",
+		"seed": 3,
+		"result": {
+			"winner": 0,
+			"reason": "hero"
+		},
+		"turn": 16,
+		"actions": 86,
+		"events": 243,
+		"digest": "8665d630"
+	},
+	{
+		"difficulty": "hard",
+		"seed": "ai-replay",
+		"result": {
+			"winner": 0,
+			"reason": "hero"
+		},
+		"turn": 27,
+		"actions": 123,
+		"events": 376,
+		"digest": "99a26623"
+	}
+]
