@@ -22,6 +22,10 @@ shader and plays as the Element FX kind **`custom:<id>`**, next to the 50 built-
 - **An effect is more than its graph.** It also has a phase and a length, **params** (the knobs an
   author sets where the effect is placed), up to four built-in **passes** drawn after the graph (a
   glow, an outline, a blur…), and **motion** curves that move the element itself.
+- **It can draw particles.** Any effect can be the **material** of an Invisible FX sprite layer,
+  which draws each particle through the graph. Mark one **Made for: Particles** and the page shows
+  it on particles and holds it to the tighter particle budget (see
+  "[Make a particle material](#make-a-particle-material)").
 
 - **Where it runs:** the launcher itself, at `/shaders`. It is a full-page tool inside the signed-in
   area, **never an iframe**. The top-bar switcher lists it as **Shaders**, in the Assets group after
@@ -42,7 +46,8 @@ shader and plays as the Element FX kind **`custom:<id>`**, next to the 50 built-
   then the nodes grouped by family, with a search box.
 - **Middle: the canvas.** A status bar on top, then the subgraph bar, then the graph. The status
   bar shows the effect's name, its kind (`custom:<id>`), then either **Compiles** or **N errors —
-  not playable until fixed**, the cost meter **cost X/400 · reads Y/16** with its two bars, and the
+  not playable until fixed**, the cost meter **cost X/400 · reads Y/16** (**X/150 · Y/4** for an
+  effect made for particles) with its two bars, and the
   **Thumbnails** switch. The subgraph bar holds
   the **Pixel | Motion** switch, where the canvas is (**Effect › Subgraph…**) and the **Group** /
   **Open** / **Ungroup** buttons.
@@ -134,9 +139,8 @@ built-ins do.
 **Particle** (Input) is for a graph drawing a particle: its **Colour** (its tint × alpha,
 premultiplied), its **Wave index** (its place in its spawn wave, 0…1 across a burst) and its **Spawn
 order** (0…1, wrapping at Max particles). Read its Colour and the graph owns the particle's colour
-and alpha: it is not tinted or faded after. On an element, which is all an effect plays on today,
-it reads white, 0 and 0. Using a graph as a particle's material on an Invisible FX layer arrives in
-a later release.
+and alpha: it is not tinted or faded after. On an element it reads white, 0 and 0. The preview's
+**Particles** element shows what it reads on particles.
 
 **Pick** (Math) turns a choice param into numbers: a choice reads as its option's place in the list
 (0, 1, 2 …), and Pick gives the value you set for each. **Away from side N** takes a side as such a
@@ -405,6 +409,10 @@ a newer build."
   75%, red over). Over either budget the meter turns amber. That is a warning, not an error: the
   effect still compiles and ships, but it may run slowly on a phone. Each node's **chip** is its
   part, so the chips show where the cost is.
+- **Made for: Particles** holds the effect to a particle material's budget instead: **150** work and
+  **4** reads. A layer of particles covers far more of the screen than one element, overlaps
+  included. The meter, its bars, every node chip (colour and tooltip) and the warnings in the
+  effect's settings all switch.
 - **The heavy nodes.** Sphericon costs 200, Arcs 160, Cells 120, Fractal noise 90, Perspective
   plane, Page curl, Bounce and Sparkles 40 each, Noise 18, Relief normal 16. Outline reads the
   element 5 times, Relief normal and Relief slope 4, Page curl 3, Sample element and Relief height
@@ -429,6 +437,13 @@ node.
 
   When you add the effect in the Scene Editor, it picks a trigger to suit (a loop starts as
   *Always*, an entrance as *When shown*, anything else as *On cue*).
+- **Made for** — **Elements** (the default) or **Particles (a material in Invisible FX)**. It never
+  changes what plays: an effect made for elements still works as a material, and one made for
+  particles still plays on an element. **Particles** makes the preview show **Particles**, switches
+  the cost budget to 150 / 4, lists the effect first in Invisible FX's **Material** picker, and
+  shows a note (in amber) wherever the effect has something particles ignore: under **Passes**, under
+  **Motion** (its curves, the motion graph, a padding the motion graph works out), and under
+  **Made for** for a Break Output.
 - **Length (ms)** — one play, 50 to 20,000 ms. An entry whose Duration is blank plays this length.
 - **Padding** — room the graph may draw outside the element, as a share of its larger side (0 to
   2; blank is 0). Raise it for a glow or a ring that goes past the element's edge, or it is cut off
@@ -489,13 +504,25 @@ FX code. Nothing you set here is saved.
 - **Intensity** (0 to 4, **↺** back to 1) is the entry's intensity: the Time node's Strength, the
   passes' strength and the motion all follow it.
 - **Element** is what the effect plays on: the **Sample card** (a drawn card with a star and a
-  "SAMPLE" strip), or **Atlas region**, which adds **Atlas** and **Region** dropdowns over the
-  project's atlases. Symbol art is in the atlases. With no atlases, the option is greyed out.
+  "SAMPLE" strip), **Atlas region**, which adds **Atlas** and **Region** dropdowns over the
+  project's atlases (symbol art is in the atlases; with no atlases, the option is greyed out), or
+  **Particles**. An effect made for particles opens on **Particles**; any other on the sample card.
+- **Particles** draws the effect as a material on stock particles, through the same renderer a game
+  and Invisible FX use:
+  - **Emitter**: **Burst** (a ring of 24 flying out, replayed every 2 seconds) or **Fountain** (a
+    steady jet rising and falling back).
+  - **Art**: **Soft dot**, or **Atlas region** with the **Atlas** and **Region** dropdowns.
+  - Each particle runs its own life, so the `t` scrubber and **Loop** give way to **▶ / ❚❚** (play,
+    pause) and **↻** (restart: every particle gone, the emitter from its first frame). The Time
+    input reads over each particle's life, as Invisible FX's default **Time** does.
+  - **Intensity** is the material's strength, applied at once, paused too.
+  - Particles ignore the effect's passes, motion and break, as in a game. A graph the particle shell
+    cannot take, or a program this GPU refuses, draws the particles plain, and the stage says why.
 - **Backdrop**: **Dark**, **Light** or **Checker** behind the element.
 
 Moving a node, or any change that compiles to the same effect, does not restart the preview. While
 the graph has errors the stage shows the element at rest and says "Doesn't compile — fix the errors
-to preview."
+to preview." The node thumbnails always show the element, never particles.
 
 ### A first effect: a pulsing tint
 
@@ -611,6 +638,18 @@ Click **✕** next to an effect and confirm. If it was open, the canvas empties.
 - **The pickers read your effects when their page loads.** After saving a new effect, or renaming
   one, reload a Scene Editor, Symbols or Flow tab that is already open.
 
+### Make a particle material
+
+1. In the effect's settings, set **Made for** to **Particles**. The preview turns to **Particles**
+   and the meter reads against 150 / 4.
+2. Build the graph on the particles. **UV** runs across each particle's frame, **Time → Progress**
+   over its life, **Seed** differs per particle, and the **Particle** node gives its colour, its
+   place in its wave and its spawn order. Try **Burst**, **Fountain** and your own art.
+3. Keep the meter under 150 / 4 where you can, and mind the notes: passes, motion and a break do
+   not play on particles.
+4. In [Invisible FX](fx.md), pick the effect in a sprite layer's **Material** section. Effects made
+   for particles are listed first. Publish ships it with the effect that uses it.
+
 ## Traps
 
 - **The whole effect stops on one error.** A single error anywhere (a node, a param, a pass, a blank
@@ -635,6 +674,9 @@ Click **✕** next to an effect and confirm. If it was open, the canvas empties.
 
 - **The preview plays the params' defaults.** There is no per-preview value yet: to see another
   value, change the default (and remember that the default is what a placed entry starts with).
+  The same goes for the **Particles** element, whose Time is always over each particle's life; try
+  **Loop at the effect's length** in Invisible FX. Each edit that changes the compiled effect starts
+  the particles again.
 - **The preview has no rig still yet** (the plan's fourth source, beside the sample card and the
   atlases).
 - **The preview uses WebGL2 where the browser has it** (CI checks every shader on WebGL1 too). It
@@ -643,8 +685,6 @@ Click **✕** next to an effect and confirm. If it was open, the canvas empties.
 - **Twins need a current game runtime for their movement.** A twin's motion graph is new: a game on
   a runtime older than this release plays the twin's pixels without that movement, and with the
   fixed room the twin had before (enough for its defaults) instead of the growing one.
-- **Not yet:** a Break output and an admin-only Custom GLSL node. They are later steps of the
-  plan.
 - **Subgraphs belong to one effect.** There is no way yet to share a subgraph between effects.
 - **Thumbnails take a moment on a large graph.** Each new picture compiles a small shader the first
   time; opening a 100-node graph draws its pictures over a few seconds. Turn **Thumbnails** off if
@@ -660,11 +700,16 @@ Click **✕** next to an effect and confirm. If it was open, the canvas empties.
   [`../status/shader-graph.md`](../status/shader-graph.md).
 - **The tool page:** `apps/launcher-api/src/routes/(app)/shaders/`. `shaderEditor.ts` is the pure
   editing model (every gesture is doc → doc; the canvas asks the compiler's own `canFeed` before it
-  takes a wire). `ShaderPreview.svelte` + `shaderPreview.client.ts` pose the compiled effect through
-  `pixi-svelte/elementFx`. The canvas is the shared `$lib/graph/GraphCanvas.svelte`.
+  takes a wire; `setMadeFor`, `costMeter`, `particleIgnoredNotes`, `defaultPreviewElement`).
+  `ShaderPreview.svelte` + `shaderPreview.client.ts` pose the compiled effect through
+  `pixi-svelte/elementFx`; the Particles element is `particlePreview.ts` (the stock emitters) and
+  `particlePreview.client.ts`, mounting the material with `pixi-svelte/particleMaterial`'s
+  `mountParticleMaterial`. The canvas is the shared `$lib/graph/GraphCanvas.svelte`.
 - **The package:** `packages/engine-shadergraph` — the doc (`types.ts`, `doc.ts`), the node library
   (`nodes.ts`, with each node's cost and reads), the validator and compiler (`compile.ts`:
-  `analyzeShaderGraph`, `compileShaderEffect`, `COST_BUDGET`, `SAMPLE_BUDGET`), and subgraphs
+  `analyzeShaderGraph`, `compileShaderEffect`, `COST_BUDGET`, `SAMPLE_BUDGET`, and for a doc whose
+  `madeFor` is `'particles'` `PARTICLE_COST_BUDGET` / `PARTICLE_SAMPLE_BUDGET` through
+  `shaderGraphBudget`; such a doc's effect carries `madeFor`, `cost` and `samples`), and subgraphs
   (`subgraph.ts`: `flattenShaderGraph` inlines every call before the compiler sees the graph, so
   nothing past the compiler knows they exist).
 - **Storage and ship:** `src/lib/server/shaderStorage.ts` (`<client>/<project>/shaders/<id>.json`,
@@ -679,4 +724,7 @@ Click **✕** next to an effect and confirm. If it was open, the canvas empties.
   `glslLibrary.ts`). `pnpm --filter fx-spike shader-motion` holds each motion node's JS to its GLSL.
 - **The twins:** `packages/engine-shadergraph/src/twins.ts` (`BUILTIN_TWINS`) and `src/twins/`;
   `pnpm --filter fx-spike shader-twins` holds each to its built-in (in `check:all`).
-- **Gates:** `pnpm --filter launcher-api check:shader-editor` and `check:shader-pipeline`.
+- **Gates:** `pnpm --filter launcher-api check:shader-editor` and `check:shader-pipeline`;
+  `pnpm --filter fx-spike shader-page` plays the page headless (Made for: Particles, the Particles
+  element, save → reopen) and `fx-previews` the Particles element's stage, both on WebGL1 and
+  WebGL2.
