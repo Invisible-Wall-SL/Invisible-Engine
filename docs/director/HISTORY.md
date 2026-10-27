@@ -15,6 +15,25 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-27 · Phase 9 · coordinator (audit, ADR-0009, card 9A)
+- **Did:** Audited Director, its runtime agents and the build agents against the platform. Fixed
+  the stale build agents and status headers. Wrote ADR-0009 (repair agents, an agent per game
+  type, the knowledge base); the owner approved it with changes. Built 9A: the
+  `check:agents-knowledge` gate in Lint (docs-only PRs too), the served-tools check in
+  `check:director-adapters`, and `docs/knowledge/` (README, targets, owners).
+- **Files:** `scripts/check-agents-knowledge.mjs`, `scripts/agents-knowledge-baseline.json`,
+  `.github/workflows/lint.yml`, `package.json`, `apps/launcher-api/scripts/check-director-adapters.ts`,
+  `docs/knowledge/*`, `docs/director/{README.md,PLAN.md,DECISIONS/0009-…}`, `CLAUDE.md`,
+  ten `.claude/agents/*.md`, four `docs/status/*.md` headers.
+- **Branch / PR:** `claude/tender-archimedes-iz0djq`, #1390 (squash 177398a).
+- **Tests:** `check:agents-knowledge` ok, with a planted fault per rule; `check:director-adapters`
+  443/443; lint clean. current-games: 8 pass, 0 changed screens of 124; the one fail (`cloud`)
+  failed on main's runtime too, and the owner unpublished it. Merged on the owner's word.
+- **Decisions:** ADR-0009 approved with changes (owner 2026-10-27): game repair in Director on the
+  API; one build agent per game type; the backfill also writes game briefs and targets; the
+  personal memory notes are rebuilt by Claude.
+- **Next:** 9C in progress; 9D (#1398, ADR-0010 approved) in review; then 9B.
+
 ## 2026-10-23 · Phase 10 P10.1b · claude (tools per family)
 - **Did:** The adapter gate refuses an op on a tool the project's game family does not use
   (403 `not_for_family`, `docs/design/game-families.md` §6.5), so an agent cannot author symbols or
