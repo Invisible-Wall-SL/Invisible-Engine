@@ -18,8 +18,9 @@ GLSL node (#1349). 8d (particle materials) is decided
 shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is merged
 (#1366); 8d.3 (the material in the game) is merged (#1378); 8d.4 (the ship chain, proven) is
 merged (#1384); 8d.5 (`/fx` authoring) is merged (#1392); 8d.6 (the other previews) is
-merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) and 8d.8
-(play-QA and calibration) are built and in review; the owner's phone check then sets the caps.
+merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) is merged
+(#1423); 8d.8 (play-QA and calibration) is built and in review; the owner's phone check then
+sets the caps.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -315,7 +316,8 @@ merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) 
       - **Calibration (SwiftShader, relative only):** the 76 coins (about 340 px each) at cost 12
         load 104 M, 3× the 32 M layer budget; 20 coins reach it. The nine-layer run's effect load
         is 252 M. Frame medians: plain 280 ms, material 335 ms, cap 513 ms (WebGL2).
-    - **8d.7, `/shaders`: Made for particles and the Particles preview.** Built, in review.
+    - **8d.7, `/shaders`: Made for particles and the Particles preview.** Merged (#1423,
+      2026-10-27).
       Guides: `docs/tools/shader-graph.md` (Made for, the Particles preview), `docs/tools/fx.md`
       (picker order).
       - **`ShaderGraphDoc.madeFor`** (`'particles'` or absent; `engine-shadergraph` types, doc,
@@ -709,7 +711,8 @@ merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) 
     compares fps and long frames on runs pushed below the refresh rate). Play re-run green on
     both GL versions; compile fixture 214; 5 more mutations, each failing.
 - 2026-10-27 — **Step 8d.7: `/shaders` Made for particles and the Particles preview** (see
-  "Current state"). Step 8d.6 merged (#1407).
+  "Current state"). Merged (#1423): CI green; Current games 8 pass, 0 fail, 0 changed screens
+  (it touched the shared runtime's reader and debug line). Step 8d.6 merged (#1407).
   - **Proof.** `compile.fixture.ts` 213; `check:shader-editor` 263; `fx-previews` 78;
     `shader-page` 42 (new); `fx-page` 31; fx-spike `model` 116; `particle-material`;
     `material-behavior`; `check:element-fx`; `check:shader-pipeline` 149; `check:launcher-gates`

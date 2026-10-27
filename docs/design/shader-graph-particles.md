@@ -550,7 +550,7 @@ svelte-check at baseline, and the current games building with no changed screen.
      - the preview harness on WebGL1 and WebGL2;
      - the page played headless.
    - **Exit:** an artist builds a material in `/shaders` and sees it on particles.
-   - **As built** (#TBD):
+   - **As built** (#1423):
      - **The cost rides in the effect only when made for particles** (`madeFor`, `cost`,
        `samples`), so element docs stay byte-identical; the effects route's `costs` stays `/fx`'s
        source, and the game's `?fxdebug=1` prints load when the effect carries one.
