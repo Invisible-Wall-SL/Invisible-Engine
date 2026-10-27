@@ -1,6 +1,6 @@
 # Bug Reports (Pipeline + Game) — status
 
-> Guides: [docs/tools/pipeline-bugs.md](../tools/pipeline-bugs.md) · [docs/tools/game-bugs.md](../tools/game-bugs.md) · Agent: `.claude/agents/launcher-studio.md`
+> Guides: [docs/tools/pipeline-bugs.md](../tools/pipeline-bugs.md) · [docs/tools/game-bugs.md](../tools/game-bugs.md) · Agents: `.claude/agents/launcher-studio.md` (the tools), `.claude/agents/pipeline-triage.md` (fixing a pipeline bug)
 
 **One-line state:** built 2026-10-26, not yet browser-verified — two launcher cards on one set of
 modules: **Invisible Pipeline Bug Reports** (`/bugs`) for bugs in a tool, the engine or the
@@ -62,6 +62,29 @@ server module, routes, page components, triage, screenshots, the pull-request li
   there, still to do first (Resolved / Won't fix folded under **Done**), with their linked pull
   requests (an open one opens in the Changes tab) and **Copy fix brief**; a change card shows a
   `BUG-<n>` tag when its title or branch names one (the description links too, but has no tag).
+- **Fixing a pipeline bug.** A pipeline bug's fix brief names the build agent to start with,
+  `pipeline-triage` (ADR-0009 §2): it reproduces the bug, routes it to the owning tool agent through
+  `docs/knowledge/owners.json`, and asks for a `bug-<n>-<slug>` branch (which the link sync below
+  reads) and a `## Lesson` block in the fix pull request. A game bug's brief does not change.
+- **Director.** A Director run's `run.request_pipeline_change` files a pipeline bug: the worker
+  calls the launcher op `bugs.file_pipeline_bug` (`src/lib/server/director/ops/bugs.ts`, behind the
+  adapter gate, coordinator only), which writes it through `createDirectorBug` and `insertBug` like
+  any report. It is Open and not sent, so a triager still decides; the reporter is
+  `Director run <id>` against the run owner's account (they see it as theirs); the area is
+  Invisible Director and the page the run's Live run screen.
+  - **What it shows.** It names the run's project, else its template, whichever the owner can
+    open, and only then carries the request's text; when the owner can open neither it names no
+    project and says only that a run filed it, with the run's page (which only the run's viewers
+    open). So it never shows a project to someone without it. `BUG-<n>` / `bug-<n>` in the agent's
+    text becomes `bug #<n>`, so a pull request echoing the title moves no other bug.
+  - **Once per call, five per run.** The call's `opId` rides on the bug's `reported` event (hidden
+    from the page), so a call replayed after a launcher crash between the insert and the gate's
+    record answers the same bug. A run files at most 5 (`MAX_DIRECTOR_BUGS`), and a request that
+    matches one of its still-open bugs is refused naming it.
+  - The run's activity line names the bug, linked from the Live run feed; a turn settled after a
+    pause writes it then. **Deploy the launcher before the worker:** a worker whose launcher does
+    not serve the op yet starts no coordinator (`toolsFor`), so no run moves until the launcher
+    catches up.
 - **A link to the other list** (a game bug on `/bugs`, another project's game bug) is not opened
   there: the page names the list it belongs to, with **Open it there**.
 - **Report bug on every tool.** The shared `ToolTopBar` (and its four HTML twins) shows **Report
@@ -82,6 +105,12 @@ server module, routes, page components, triage, screenshots, the pull-request li
 3. No delete of a bug report (Won't fix is the way out); no assignee field.
 
 ## Recent changes
+
+- 2026-10-27 — **Pipeline repair (Director PLAN 9C)**: new build agent `pipeline-triage`; the
+  pipeline fix brief names it and the `bug-<n>-…` branch (was `fix/bug-<n>-…`); a Director run's
+  pipeline-change request files an Open, unsent pipeline bug (`bugs.file_pipeline_bug`,
+  `createDirectorBug`) and its activity line links `BUG-<n>`. Fixtures: `check:bug-reports`,
+  `check:director-adapters`, `check:director-live`, the worker's `prove:turns` (28).
 
 - 2026-10-26 — **Report bug on every tool** (same PR): the shared `ToolTopBar` and its four HTML
   twins (Rigger, Rig Viewer, Atlas Maker, Sheet Maker) carry **Report bug**, opening Pipeline Bug

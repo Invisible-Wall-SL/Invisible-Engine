@@ -54,7 +54,13 @@
  * 26. a render that reported GPU time with no GPU to price it by pauses the run before its next
  *     GPU submit, naming the env to set, until the owner resumes;
  * 27. jobs that ended without reporting a time are billed as an estimate, flagged as such;
- * 28. a running run whose family has no ready pack (match3, arcade) pauses with a `no_family_pack`
+ * 28. the coordinator's `run.request_pipeline_change` files a pipeline bug through the launcher
+ *     (`bugs.file_pipeline_bug`, as the coordinator) before its activity line, which names the
+ *     bug; a worker killed between the two resends the same opId (one bug) and writes one line;
+ *     a launcher that does not serve the op leaves the coordinator unable to start; a turn whose
+ *     bug was filed but whose settle never committed, settled while paused, writes the line then
+ *     and tells the model the bug, sending nothing.
+ * 29. a running run whose family has no ready pack (match3, arcade) pauses with a `no_family_pack`
  *     error event before any model or vision call.
  */
 import type {
@@ -161,6 +167,12 @@ const SPECS: AdapterSpec[] = [
 		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 		write: true,
 	},
+	{
+		id: 'bugs.file_pipeline_bug',
+		description: 'File a pipeline bug.',
+		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+		write: true,
+	},
 ];
 
 /**
@@ -203,7 +215,9 @@ function fakeLauncher(
 			const result =
 				id === 'atlas.queue_variants'
 					? { jobRef: `job-${effects.length}` }
-					: { ok: effects.length };
+					: id === 'bugs.file_pipeline_bug'
+						? { number: 40 + effects.length, ref: `BUG-${40 + effects.length}`, path: '/bugs' }
+						: { ok: effects.length };
 			if (body.opId) {
 				await sql`insert into director_ops (op_id, run_id, agent, op, input_hash, status, result,
 						completed_at)
@@ -1506,6 +1520,99 @@ try {
 		);
 	}
 
+	// ── 28. A pipeline-change request files a bug ─────────────────────────────
+	console.log('28. a pipeline-change request files one pipeline bug and names it');
+	{
+		const runId = await newRun();
+		await userMessage(runId, 'coordinator', 'Start.');
+		const request = { what: 'An FX slot on the big-win screen.', reason: 'The mockup has one.' };
+		const model = fakeModel([
+			{ content: [use('t1', 'run.request_pipeline_change', request)] },
+			{ content: [say('Asked.')] },
+		]);
+		const gate = fakeLauncher();
+		const agents = new Map([
+			['coordinator', agent('coordinator', ['run.request_pipeline_change'], 'claude-opus-5-5')],
+		]);
+		let killed = false;
+		const kill = () => {
+			if (!killed) {
+				killed = true;
+				throw new Error('killed');
+			}
+		};
+		await drive(runId, deps(model.transport, gate.launcher, { agents, afterAdapterCall: kill }));
+		check('the first worker died after filing, before the activity line', killed, true);
+		check('…with no activity line yet', (await events(runId, 'activity')).length, 0);
+		await sql`update director_runs set lease_until = now() - interval '1 second' where id = ${runId} and lease_holder is not null`;
+		await drive(runId, deps(model.transport, gate.launcher, { agents }));
+		check('the bug was filed as the coordinator, sent twice with one opId', gate.sent, [
+			`bugs.file_pipeline_bug@${runId}:coordinator-t1:0`,
+			`bugs.file_pipeline_bug@${runId}:coordinator-t1:0`,
+		]);
+		check('…and filed once', gate.effects, ['bugs.file_pipeline_bug']);
+		check(
+			'one activity line, naming the bug, with what and why',
+			(await events(runId, 'activity')).map((e) => e.payload),
+			[{ bug: 41, type: 'pipeline_change_request', ...request }],
+		);
+		const results = (await messages(runId, 'coordinator'))[2]?.content as {
+			type: string;
+			content?: string;
+			is_error?: boolean;
+		}[];
+		check(
+			'the coordinator is told the bug it filed',
+			[results?.[0]?.is_error ?? false, JSON.parse(results?.[0]?.content ?? '{}').bug],
+			[false, 'BUG-41'],
+		);
+
+		const unserved = await newRun();
+		await userMessage(unserved, 'coordinator', 'Start.');
+		const idle = fakeModel([]);
+		const old = fakeLauncher();
+		const catalog = old.launcher.catalog;
+		old.launcher.catalog = async () => {
+			const served = new Map(await catalog());
+			served.delete('bugs.file_pipeline_bug');
+			return served;
+		};
+		await drive(unserved, deps(idle.transport, old.launcher, { agents }));
+		check(
+			'a launcher without the op: the coordinator is not asked, nothing is filed',
+			[idle.calls(), old.effects],
+			[0, []],
+		);
+
+		const paused = await newRun({ status: 'paused' });
+		await userMessage(paused, 'coordinator', 'Start.');
+		await sql`insert into director_messages (run_id, agent, seq, role, content_json)
+			values (${paused}, 'coordinator', 1, 'assistant',
+				${sql.json([use('p1', 'run.request_pipeline_change', request)] as never)})`;
+		const filedOp = `${paused}:coordinator-t1:0`;
+		await sql`insert into director_ops (op_id, run_id, agent, op, input_hash, status, result,
+				completed_at)
+			values (${filedOp}, ${paused}, 'coordinator', 'bugs.file_pipeline_bug', 'proof', 'done',
+				${sql.json({ number: 77, ref: 'BUG-77', path: '/bugs?bug=77' })}, now())`;
+		await event(paused, 'owner', 'owner_message', { text: 'What happened?' });
+		const quiet = fakeLauncher();
+		await drive(paused, deps(fakeModel([]).transport, quiet.launcher, { agents }));
+		const settled = (await messages(paused, 'coordinator'))[2]?.content as {
+			content?: string;
+			is_error?: boolean;
+		}[];
+		check(
+			'filed before a pause, settled while paused: the line is written, the model told the bug, nothing sent',
+			[
+				(await events(paused, 'activity')).map((e) => e.payload.bug),
+				settled?.[0]?.is_error ?? false,
+				JSON.parse(settled?.[0]?.content ?? '{}').bug,
+				quiet.sent,
+			],
+			[[77], false, 'BUG-77', []],
+		);
+	}
+
 	// ── 8. The wake trigger ───────────────────────────────────────────────────
 	console.log('8. the trigger NOTIFYs director_wake for waking rows only');
 	{
@@ -1520,8 +1627,8 @@ try {
 		check('two NOTIFYs, each naming the run', heard, [runId, runId]);
 	}
 
-	// ── 28. A family with no ready pack ────────────────────────────────────────
-	console.log('28. a run of a family with no ready pack pauses before any call');
+	// ── 29. A family with no ready pack ────────────────────────────────────────
+	console.log('29. a run of a family with no ready pack pauses before any call');
 	for (const family of ['match3', 'arcade']) {
 		const runId = await newRun({ family });
 		await userMessage(runId, 'coordinator', 'Go.');

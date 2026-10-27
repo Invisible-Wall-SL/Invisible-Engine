@@ -361,6 +361,11 @@ their request is outstanding, so nothing you typed is lost.
   director's pick unless your note says otherwise. Approving the build before hand-off accepts
   whatever was still to review.
 - **Fonts stay yours to bake** (see "Fonts to bake" above).
+- **A missing pipeline piece becomes a pipeline bug.** When the coordinator asks for a pipeline
+  change (Activity: "asks for a pipeline change: …"), the run files a pipeline bug on
+  [Invisible Pipeline Bug Reports](pipeline-bugs.md), and the Activity line carries a `BUG-<n>`
+  chip that opens it. The bug is Open and not sent; a triager decides whether it goes to Pipeline
+  Changes.
 - **A run is its owner's.** Someone else with access to the project sees the live stream; the run's
   page, its actions and its images answer only to the person who created it.
 

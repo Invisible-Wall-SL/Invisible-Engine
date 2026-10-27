@@ -81,7 +81,7 @@ import {
 	parseEvalReport,
 	type EvalReport,
 } from '../../../services/director-worker/src/eval/report.ts';
-import { KNOWN_TOOLS } from '../../../services/director-worker/src/tools.ts';
+import { KNOWN_TOOLS, WORKER_TOOL_OPS } from '../../../services/director-worker/src/tools.ts';
 
 const src = (rel: string) => new URL(`../src/${rel}`, import.meta.url).href;
 
@@ -2507,13 +2507,15 @@ check(
 	const registered = [...ADAPTER_OPS.values()].map((op: { tool: string; name: string }) =>
 		opId(op),
 	);
+	// An op a worker tool calls is held through that tool (`WORKER_TOOL_OPS`).
+	const throughTool = new Map(Object.entries(WORKER_TOOL_OPS).map(([tool, op]) => [op, tool]));
 	check(
-		'rules: every registered op is served to it or to another agent, never both',
+		'rules: every registered op (or the worker tool that calls it) is served to it or to another agent, never both',
 		[
 			[...ma.fixedAdapterTools, ...ma.otherAdapterTools].sort(),
 			ma.fixedAdapterTools.some((id: string) => ma.otherAdapterTools.includes(id)),
 		],
-		[[...registered].sort(), false],
+		[registered.map((id: string) => throughTool.get(id) ?? id).sort(), false],
 	);
 	check(
 		'rules: the tools an agent may name are the worker catalogue, every registered op among them',
