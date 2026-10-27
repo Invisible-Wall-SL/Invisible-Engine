@@ -7,6 +7,7 @@ export * from './src/scope';
 export * from './src/triggers';
 export * from './src/containerEvents';
 export * from './src/containerScenes';
+export * from './src/startupScreens';
 export * from './src/instanceNodes';
 export * from './src/spawn';
 export * from './src/spawnNodes';
