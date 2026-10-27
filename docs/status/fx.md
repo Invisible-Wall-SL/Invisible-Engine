@@ -57,7 +57,9 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 
 ## Open items / next
 - **Shader Graph materials** (decided 2026-10-25, being built) — a compiled Shader Graph effect as
-  the material a sprite layer's particles draw with, picked in `/fx`. The plan, its eight PRs and
+  the material a sprite layer's particles draw with, picked in `/fx` (the Material section, from
+  8d.5; guide: [tools/fx](../tools/fx.md)). Since 8d.5, editing a layer no longer restarts the
+  others, and Pause / Play stop and re-arm every layer. The plan, its eight PRs and
   their state live in [design/shader-graph-particles.md](../design/shader-graph-particles.md) and
   [status/shader-graph](shader-graph.md) (step 8d).
 - **Owner browser-pass over Element FX** (2026-10-21) — in `/editor` add a few effects to a rig,
