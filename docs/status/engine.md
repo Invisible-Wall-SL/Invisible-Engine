@@ -278,20 +278,21 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
-- 2026-10-27 — **A rolling reel costs less a frame: the pre-spin loop reuses its cells, and the
-  per-cell geometry and prop sync are cached** (branch `claude/reel-smoothness`). Owner report on
-  `commonoverlayproject`: reels not smooth on phones. Profiled an unminified runtime spinning at 4×
-  CPU slowdown: ~40% of spin CPU was Svelte creating and destroying effects as cells mounted
-  (`SymbolWrap`'s in-frame `{#if}`, and `preSpinPadding` making a fresh strip of cells every lap),
-  ~8% was `symbolY` resolving the whole board geometry per cell per frame (through the layout
-  bucket), ~5% `propsSyncEffect`'s `Object.keys` over the props proxy. Fixes: the layout bucket
-  (`createLayout`) and the reel pitch / lead (`gameState` `buildBoard`) are `$derived`; the prop sync
-  walks `Reflect.ownKeys`; the pre-spin loop reuses the padding cells it made on earlier laps
-  (`loopPaddingOf`, reset to exactly what `createReelSymbol` gives, marked `pooled`), and a pooled
-  cell on a rolling reel keeps its art mounted, hidden, outside the window, so its component tree
-  survives the lap. A resting board's cells are never reused. Measured (6 spins, 4× CPU, A/B on the
-  same data): see the PR. Not changed, on purpose: rigs still pose twice a frame and tick while hidden
-  (pausing a hidden rig would starve a `land` beat of its completion).
+- 2026-10-27 — **A rolling reel costs ~18% less CPU: the reel geometry and the prop sync are
+  cached** (branch `claude/reel-smoothness`). Owner report on `commonoverlayproject`: reels not
+  smooth on phones. Profiled an unminified runtime spinning at 4× CPU slowdown: ~40% of spin CPU was
+  Svelte creating and destroying effects as cells mounted (`SymbolWrap`'s in-frame `{#if}`, and
+  `preSpinPadding` making a fresh strip of cells every lap), ~8% was `symbolY` resolving the whole
+  board geometry per cell per frame (through the layout bucket), ~5% `propsSyncEffect`'s
+  `Object.keys` over the props proxy (a descriptor read per prop). Fixed: the layout bucket
+  (`createLayout`) and the reel pitch / lead (`gameState` `buildBoard`) are `$derived` (every input
+  reactive); the prop sync walks `Reflect.ownKeys` (same keys on every Svelte props proxy). Measured
+  on the same data, 6 spins at 4× CPU, alternating builds: main-thread CPU 28.7 s → 23.5 s mean
+  (3–4 runs each), long-task time 28.9 s → 23.0 s. **Tried and dropped:** pooling the pre-spin
+  loop's cells (reuse the cells it made, keep their art mounted hidden while rolling) measured no
+  better than without it (24.8 s mean): the hidden rigs it keeps ticking cost what the saved mounts
+  did, so the churn is still open (see Open items). Rigs still pose twice a frame and tick while
+  hidden on purpose (pausing a hidden rig would starve a `land` beat of its completion).
 - 2026-10-26 — **The current-games harness plays published arcade games, and stops failing free-play
   games main cannot play either** (branch `claude/upbeat-hamilton-sgv1dh`). Since #1352/#1353 every
   PR read `12 pass · 2 fail`: `testarcade` (arcade) was driven with the slot `lines` script, and

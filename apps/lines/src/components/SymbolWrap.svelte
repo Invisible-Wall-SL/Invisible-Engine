@@ -24,10 +24,6 @@
 		 *  Absent ⇒ the container keeps Pixi's default `0` and the parent is never flagged
 		 *  sort-dirty, which is the pre-existing mount-order behaviour exactly. */
 		zIndex?: number;
-		/** Keep the art mounted, hidden, while it is outside the window: a pooled cell on a rolling
-		 *  reel (`ReelSymbol`), which comes round again with a new symbol. Absent ⇒ mounted only in
-		 *  the window, as before. */
-		keepMounted?: boolean;
 		children: Snippet;
 	};
 
@@ -72,19 +68,13 @@
 	const scale = $derived(props.scale === 1 ? undefined : props.scale);
 </script>
 
-{#if props.debug || (show && (inFrame || props.keepMounted))}
+{#if props.debug || (show && inFrame)}
 	<!-- NO tint here. The win-celebration dim used to be one `tint` on this container, cascading to
 	     everything inside; it now rides each drawn piece inside `Symbol.svelte` instead, because
 	     Pixi's cascade only ever multiplies and a layer that opts out of the dim therefore has to be
 	     outside every tinted node. Same factor, applied one level lower — the leaf colours are
 	     identical either way. -->
-	<Container
-		x={props.x}
-		y={props.y}
-		{scale}
-		zIndex={props.zIndex}
-		visible={props.keepMounted ? props.debug || inFrame : undefined}
-	>
+	<Container x={props.x} y={props.y} {scale} zIndex={props.zIndex}>
 		{@render props.children()}
 	</Container>
 {/if}

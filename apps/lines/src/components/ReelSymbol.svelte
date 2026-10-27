@@ -160,8 +160,11 @@
 	// A pots overlay's token riding this cell while the strip rolls (`withReel` timing). Drawn only
 	// while the reel moves: at rest the overlay layer draws the tokens that landed. `undefined` on
 	// every cell of a game whose overlay does not roll its tokens ⇒ byte-parity.
-	const rolling = $derived(!!stateGame.board[props.reelIndex]?.reelState.rolling);
-	const rider = $derived(rolling ? riderToken(props.reelSymbol.rider) : undefined);
+	const rider = $derived(
+		stateGame.board[props.reelIndex]?.reelState.rolling
+			? riderToken(props.reelSymbol.rider)
+			: undefined,
+	);
 </script>
 
 {#if !covered && !removed}
@@ -171,7 +174,6 @@
 		{zIndex}
 		reelIndex={props.reelIndex}
 		scale={seat.scale}
-		keepMounted={rolling && props.reelSymbol.pooled}
 		animating={symbolInfo.type === 'spine' &&
 			ANIMATING_SYMBOL_STATES.includes(props.reelSymbol.symbolState)}
 	>
