@@ -974,8 +974,24 @@ export function prewarmElementFx(
 		height: 1,
 	};
 	for (const pass of passes) {
-		const filter = pass.create(frame);
+		const filter = withoutRandomDraws(() => pass.create(frame));
 		compileFilter(renderer, filter);
 		filter.destroy();
 	}
 }
+
+/**
+ * Run `make` with `Math.random` answering a constant. Making a pass draws its seed, and a warm-up
+ * must leave the sequence where it found it: a seeded run (`?ie_determinism`, the current-games
+ * harness) would otherwise draw every later number shifted, and every particle and spark move. The
+ * seed is a uniform, not part of the program, so the program compiled is the same.
+ */
+const withoutRandomDraws = <T>(make: () => T): T => {
+	const random = Math.random;
+	Math.random = () => 0;
+	try {
+		return make();
+	} finally {
+		Math.random = random;
+	}
+};
