@@ -45,6 +45,7 @@ import { customKindImpl } from './custom';
 import { REST, clamp01, smoothstep, TAU, type FxFrame, type Motion } from './frame';
 import { KINDS, type BreakStyle, type BreakWindow, type FilterImpl, type KindImpl } from './kinds';
 import { ElementFxFilter } from './shaders';
+import { compileFilter } from '../gpuWarmup';
 
 export interface ElementFxHost {
 	/** Steps every effect. The game's app ticker, or a tool's own. */
@@ -946,4 +947,34 @@ export function stopElementFx(target: Container | undefined | null): void {
 /** How many effects are on `target` (playing or holding an exit). */
 export function elementFxCount(target: Container): number {
 	return runtimes.get(target)?.effects.length ?? 0;
+}
+
+/**
+ * Compile the programs `play` will draw with, so its first frame in play does not stall on the
+ * driver (see `gpuWarmup.ts`). Its filters are made as its first frame would make them, from its
+ * own params: a pass whose program is generated from them (a glow's distance) compiles the variant
+ * the game will use. A break draws with Pixi's own programs and needs nothing here.
+ */
+export function prewarmElementFx(
+	renderer: Renderer,
+	play: Pick<ElementFxPlay, 'kind' | 'params'>,
+): void {
+	const impl = implFor(play.kind);
+	if (!impl) return;
+	const passes = impl.filter ? [impl.filter] : (impl.filters ?? []);
+	const frame: FxFrame = {
+		t: 0,
+		seconds: 0,
+		playSeconds: 1,
+		intensity: 1,
+		params: resolveElementFxParams(play.kind, play.params),
+		looping: false,
+		width: 1,
+		height: 1,
+	};
+	for (const pass of passes) {
+		const filter = pass.create(frame);
+		compileFilter(renderer, filter);
+		filter.destroy();
+	}
 }

@@ -61,8 +61,26 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   - **Time zone and locale** are the browser's. The HUD clock formats the virtual `Date` with them, so a harness pins both (the proof sets UTC and en-US over CDP).
   - **Proof.** `scripts/playtest/determinism-proof.mjs` serves the built runtime, starts a fresh seeded mock for each run (the book mock, or the Hold and Win mock behind a local `/api/editor/runtime` stub), and drives the game over CDP. It then compares runs pixel by pixel. Two runs gave 20 of 20 byte-identical 1280×720 captures across base spin, line win, big win (`max`, mid count-up, coin fountain) and Hold and Win Classic (`trigger`). `--flag off` checks that the hook is absent and the game boots and spins on the real clock.
   - **Chrome's own virtual time is not enough.** CDP `Emulation.setVirtualTimePolicy` with a seeded `Math.random` still differed by 0.5–24.6 % of pixels between two runs of the same `main` build. That is why the hook sits inside the page.
+- **GPU warm-up + render tier** (2026-10-27) — the asset loader ends by uploading every texture it
+  loaded (kept resident: Pixi's GC would otherwise drop an image page a minute after it was last
+  drawn and stall on the re-upload) and compiling every program the game can draw with: each
+  authored Element FX with its own params, the camera chroma split, the rig dark tint
+  (`pixi-svelte` `gpuWarmup.ts`; the game's scan is `apps/lines/src/game/authoredFxUses.ts`).
+  Spread across frames behind the loading screen. The render tier (`renderTier.ts`) gives low-end
+  devices (Chromium `deviceMemory` ≤ 2 GB, or `?render=reduced`) resolution ≤ 1.5 and no MSAA;
+  every other device renders exactly as before (`?render=full` forces it).
 
 ## Open items / next
+
+- **Mobile frame budget after the warm-up — next steps** (from the 2026-10-27 profile of
+  `commonoverlayproject`, below). With the CPU slowed 4× a spin still costs ~46 ms of JS a frame:
+  symbols are mounted and destroyed as they scroll (`SymbolWrap.svelte` `inFrame`), the reel `Tween`
+  fans out to every cell through Svelte's reactivity (~23% of spin CPU), rigs pose twice a frame
+  and keep ticking when hidden, and idle particle layers update every frame. Fix order: a pooled
+  strip per reel moved from `app.ticker`; pause hidden rigs/particles; then confirm on a real phone
+  (Chrome remote-debugging trace) before tuning the GPU side further. The ~118 MB of resident
+  textures there is mostly uncompressed stock WebP/PNG sheets (`symbols2/3`, `SD2_Coin`,
+  `reels_frame`, `fs_screen`); moving them to KTX2 like the atlas pages would cut it several-fold.
 
 - **`win parity` `held` drifts on the CI runner — cause open** (#1233, re-checked 2026-10-16 on
   #1240 after the equal-frame press merged in #1239). Identical on every CI run: t+60 / 120 / 240
@@ -278,6 +296,28 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-27 — **FX no longer stall the frame they first play on; the game's art stays on the GPU;
+  low-end devices draw fewer pixels** (branch `claude/nice-albattani-a03tcm`). Owner report on
+  `commonoverlayproject`: reels not smooth and FX skipping frames, mainly on phones. Profiled in the
+  headless shell (Pixel-sized page, CPU 1× and 4×, the authoring mock's forced drop, pot fill and
+  Hold and Win): every program compiled after loading lined up with a 0.8–2.8 s frame
+  (`element-fx-color-mix` and `-electrocute` on the first spin, the camera `rgb-split-filter` on the
+  pot fill, `invisible-rig-dark-tint` in the bonus), and 19–35 MB of uncompressed stock sheets were
+  first uploaded mid-play, each up to 1.6 s. Pixi 8.22's GC also unloads any `ImageSource` not drawn
+  for 60 s, so a rarely shown sheet stalled again every time it came back. Fix: `AssetsLoader` now
+  ends with `warmGpu` — uploads every loaded texture source (sliced 8 ms a frame,
+  `autoGarbageCollect = false`), then runs registered warm-ups; the game registers `gameFxWarmup`,
+  which walks the boot bundle for every Element FX / camera kind (layout entries, symbol states,
+  Flow v1 steps, Flow v2 literal inputs) and compiles each through `prewarmElementFx` /
+  `prewarmCameraEffects`; the loader compiles the rig dark tint when a rig loaded. A/B on the same
+  data and forced rounds, live runtime vs this branch: programs compiled after loading 6 → 0, image
+  uploads mid-play 19 MB → 0.8 MB (small text canvases only), stalls > 300 ms 17 (worst 15.4 s) → 6
+  (worst 640 ms); same rounds played, same console. Owner asked that the fill-rate cuts be for
+  low-end devices only: `renderTier.ts` — `reduced` (`deviceMemory` ≤ 2 GB or `?render=reduced`)
+  caps resolution at 1.5 and turns MSAA off; verified 618×1373 vs 824×1830 backing store, no MSAA,
+  the full play intact. Note: with `useBackBuffer` Pixi already makes the canvas context without
+  antialiasing, so MSAA only ever lived on the back buffer. Fixture:
+  `apps/lines/src/game/authoredFxUses.fixture.ts`. Not verified on a physical phone.
 - 2026-10-26 — **The current-games harness plays published arcade games, and stops failing free-play
   games main cannot play either** (branch `claude/upbeat-hamilton-sgv1dh`). Since #1352/#1353 every
   PR read `12 pass · 2 fail`: `testarcade` (arcade) was driven with the slot `lines` script, and
