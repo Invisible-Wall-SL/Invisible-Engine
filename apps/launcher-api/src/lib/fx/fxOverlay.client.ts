@@ -25,9 +25,9 @@
  * the SAME scope both hosts share.
  *
  * A sprite layer with a MATERIAL draws through the game's renderer (`layerMaterial.client.ts`),
- * against this overlay's own 8, once its host registered the compiled set: the Symbols page from its
- * load data, the Rigger through {@link loadShaderEffects} (`window.RiggerFxLoadShaderEffects`). With
- * no set, or a kind it lacks, the layer draws plain, as the game does.
+ * against this overlay's own 8, once its host registered the compiled set: the Symbols page from
+ * its load data, the Rigger through {@link loadShaderEffects} (`RiggerFxLoadShaderEffects`).
+ * With no set, or a kind it lacks, the layer draws plain, as the game does.
  *
  * It also plays Invisible Flipbook CLIPS ({@link FxOverlayApi.playFlipbook}), because the Rigger can
  * bind either to an animation event and both must ride the same bone through the same `follow()`.
@@ -207,6 +207,8 @@ interface LiveEffect {
 	/** True once torn down — a late texture resolve then skips wiring an emitter into a dead effect
 	 * (the ready-guard, mirroring `EditorEffectLayer`'s generation check). */
 	disposed: boolean;
+	/** True once an effect play has built every layer it will build, so it can end by itself. */
+	built: boolean;
 }
 
 /** Preview burst cap (ms). A finite `emitterLifetime` self-stops earlier; this only bounds an
@@ -337,7 +339,7 @@ export function createFxOverlay(): FxOverlayApi {
 	 * `animationSpeed` (`fps / 60`) is expressed against. */
 	function tick(ticker: Ticker): void {
 		const emitterSeconds = emitterDeltaSeconds(ticker.deltaMS);
-		for (const effect of effects.values()) {
+		for (const [handle, effect] of effects) {
 			const scaled = emitterSeconds * effect.speed;
 			for (const emitter of effect.emitters) {
 				try {
@@ -347,7 +349,23 @@ export function createFxOverlay(): FxOverlayApi {
 					emitter.emit = false;
 				}
 			}
-			if (app) for (const { material } of effect.materials) material?.sync(app.renderer);
+			if (app) {
+				for (const { material } of effect.materials) {
+					try {
+						material?.sync(app.renderer);
+					} catch (err) {
+						// As for a throwing update: stop the effect emitting rather than the whole ticker.
+						console.warn('FxOverlay: a material sync threw; stopping that effect', err);
+						for (const emitter of effect.emitters) emitter.emit = false;
+					}
+				}
+			}
+			if (effect.built && effect.emitters.every((e) => !e.emit && e.particleCount === 0)) {
+				// A finished burst ends itself, as the game unmounts a binding's effect: nothing is left
+				// to draw, and its materials' slots go back for the next one.
+				stop(handle);
+				continue;
+			}
 			for (const sprite of effect.sprites) {
 				try {
 					sprite.update(ticker);
@@ -456,8 +474,17 @@ export function createFxOverlay(): FxOverlayApi {
 					label: `${doc.id}/${layer.key}`,
 				})
 			: undefined;
+		let emitter: Emitter;
+		try {
+			emitter = layerEmitter(layerContainer, config, material);
+		} catch (err) {
+			// A config the library refuses: the layer is skipped and its slot given back.
+			material?.release();
+			console.warn('FxOverlay: the emitter could not be built; skipping that layer', err);
+			return;
+		}
 		if (material) effect.materials.push(material);
-		const emitter = layerEmitter(layerContainer, config, material);
+		effect.emitters.push(emitter);
 		if (values) {
 			bindEffectParams({
 				params: doc.params,
@@ -487,7 +514,6 @@ export function createFxOverlay(): FxOverlayApi {
 				}, holdMs),
 			);
 		}
-		effect.emitters.push(emitter);
 	}
 
 	/** Play an effect. Returns a numeric handle synchronously; textures resolve asynchronously and the
@@ -512,6 +538,7 @@ export function createFxOverlay(): FxOverlayApi {
 			sprites: [],
 			timers: [],
 			disposed: false,
+			built: false,
 			speed: opts?.speed ?? 1,
 		};
 		effects.set(handle, effect);
@@ -546,6 +573,7 @@ export function createFxOverlay(): FxOverlayApi {
 					await buildLayer(effect, doc, layer, plan, holdMs, opts?.params);
 					if (effect.disposed) return;
 				}
+				effect.built = true;
 			};
 			// `delay` holds the BUILD, not just the emit flag, so the burst starts at t=0 of the effect
 			// when it does appear — matching `<RiggedEffect>`, which defers its mount for the same reason.
@@ -594,6 +622,7 @@ export function createFxOverlay(): FxOverlayApi {
 			sprites: [],
 			timers: [],
 			disposed: false,
+			built: false,
 			speed: 1,
 		};
 		effects.set(handle, effect);

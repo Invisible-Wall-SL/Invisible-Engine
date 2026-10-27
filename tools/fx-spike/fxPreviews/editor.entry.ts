@@ -8,7 +8,7 @@ import { flushSync, mount, unmount } from 'svelte';
 import type { EffectParamValues } from 'engine-fx';
 import { registerCustomElementFx } from '$lib/customElementFx.svelte';
 import EditorEffectLayer from '@fxroot/apps/launcher-api/src/routes/(app)/editor/EditorEffectLayer.svelte';
-import { SHADER_EFFECTS, census, debugLines, sleep } from './shared';
+import { SHADER_EFFECTS, census, debugLines, served, sleep } from './shared';
 
 const page = window as unknown as { result?: unknown; ready?: boolean };
 const RUN_MS = 900;
@@ -78,6 +78,42 @@ async function main() {
 	result.param = await run('solid', { hue: '#0000ff' });
 	result.unknownKind = await run('gone');
 	result.noMaterial = await run('plain');
+
+	// The page's 8 slots are shared by every overlay, so none may leak.
+	{
+		// Unmounted while its art is still loading, nine times.
+		served.assetDelayMs = 300;
+		const since = debugLines.length;
+		for (let i = 0; i < 9; i++) {
+			const view = overlay('solid');
+			await sleep(100);
+			view.close();
+			await sleep(350);
+		}
+		served.assetDelayMs = 0;
+		result.midLoad = { lines: debugLines.slice(since), after: await run('solid') };
+	}
+	{
+		// A config the library refuses once the material has mounted, nine times.
+		const since = debugLines.length;
+		for (let i = 0; i < 9; i++) await run('throws');
+		result.throws = { lines: debugLines.slice(since), after: await run('solid') };
+	}
+	{
+		// Nine overlays at once, then eight again.
+		const mountAll = async (n: number) => {
+			const since = debugLines.length;
+			const views = Array.from({ length: n }, () => overlay('solid'));
+			// Nine stages building at once on a software GPU: wait for every mount's line.
+			const mounted = () =>
+				debugLines.slice(since).filter((l) => /solid\/main: (on \(|plain)/.test(l)).length;
+			for (let waited = 0; mounted() < n && waited < 10_000; waited += 100) await sleep(100);
+			for (const v of views) v.close();
+			await sleep(50);
+			return debugLines.slice(since);
+		};
+		result.instances = { nine: await mountAll(9), eight: await mountAll(8) };
+	}
 	page.result = result;
 	page.ready = true;
 }

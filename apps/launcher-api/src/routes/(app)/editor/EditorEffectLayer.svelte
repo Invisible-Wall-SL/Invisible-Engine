@@ -494,8 +494,9 @@
 		container.rotation = w.rotation;
 	}
 
-	/** Dispose a node's live emitters, then their materials, then its container (mirrors FxStage's
-	 * dispose discipline). A free sprite emitter has no Tier-C pool, so a plain `destroy()` suffices. */
+	/** Dispose a node's live emitters, then their materials, then its container (mirrors
+	 * FxStage's dispose discipline). A free sprite emitter has no Tier-C pool, so a plain
+	 * `destroy()` suffices. */
 	function disposeNode(node: LiveNode): void {
 		for (const live of node.layers) {
 			try {
@@ -557,7 +558,8 @@
 				}
 				continue;
 			}
-			// New placement, its effectId changed or its material remounts → tear down the stale render, then build fresh.
+			// New placement, its effectId changed or its material remounts → tear down the stale
+			// render, then build fresh.
 			if (existing) {
 				disposeNode(existing);
 				liveNodes.delete(tg.key);
@@ -662,7 +664,9 @@
 		doc: EffectDoc,
 	): Promise<void> {
 		const textures = await framesToTextures(layer, resolveArt, sourceCache);
-		if (gen !== rebuildGen) return;
+		// Superseded, or the overlay unmounted while the art loaded: a material mounted now would hold
+		// one of the page's 8 slots for good.
+		if (gen !== rebuildGen || !world) return;
 		if (textures.length === 0) return; // no art → skip (no placeholder dots in the scene)
 		// Weighted mix only when the resolved textures line up 1:1 with `frames` (a skipped region
 		// would misalign the weights → fall back to uniform), matching FxStage.
@@ -686,7 +690,25 @@
 			slots: particleMaterialSlotsFor(EDITOR_MATERIAL_APP),
 			label: `${node.effectId}/${layer.key}`,
 		});
-		const emitter = layerEmitter(layerContainer, config, material);
+		let emitter: Emitter;
+		try {
+			emitter = layerEmitter(layerContainer, config, material);
+		} catch (err) {
+			// A config the library refuses: the layer is skipped and its slot given back.
+			material?.release();
+			console.warn('EditorEffectLayer: the emitter could not be built; skipping that layer', err);
+			return;
+		}
+		// Kept before the parameters bind, so a throw there still leaves the material to `disposeNode`.
+		node.layers.push({
+			emitter,
+			material,
+			layer,
+			textures,
+			peak,
+			materialKey: layerMaterialKey(layer, textures, peak),
+		});
+		emitter.emit = playing;
 		const applier = effectParamValues
 			? bindEffectParams({
 					params: doc.params,
@@ -698,15 +720,6 @@
 				})
 			: undefined;
 		if (applier) node.appliers.push(applier);
-		emitter.emit = playing;
-		node.layers.push({
-			emitter,
-			material,
-			layer,
-			textures,
-			peak,
-			materialKey: layerMaterialKey(layer, textures, peak),
-		});
 	}
 
 	/** Write the effect-level state onto its wrapper. */
@@ -886,6 +899,8 @@
 
 		return () => {
 			disposed = true;
+			// An in-flight build is stale from here: it must not mount into a disposed node.
+			rebuildGen++;
 			frameTicker.destroy();
 			for (const node of liveNodes.values()) disposeNode(node);
 			liveNodes.clear();
@@ -913,7 +928,7 @@
 		void depthSlice;
 		// A scrubbed value-binding test value moves / hides an effect like any other node.
 		void previewVersion();
-		// The compiled set registering (or changing) remounts a material layer.
+		// A material layer's kind turning registered (or unregistered) remounts it.
 		void customElementFxVersion();
 		if (ready) void requestRebuild();
 	});

@@ -58,13 +58,17 @@ const config = {
 	],
 };
 
-const effect = (id: string, material?: Record<string, unknown>) => ({
+const effect = (
+	id: string,
+	material?: Record<string, unknown>,
+	layerConfig: Record<string, unknown> = config,
+) => ({
 	id,
 	name: id,
 	layers: [
 		{
 			key: 'main',
-			config,
+			config: layerConfig,
 			art: { assetKey: 'atlas', frames: ['sq'] },
 			placement: { space: 'free' },
 			particleKind: 'sprite',
@@ -81,17 +85,46 @@ const effect = (id: string, material?: Record<string, unknown>) => ({
 	],
 });
 
-/** By id: a material that compiles, one whose graph the set lacks, and none. */
+/**
+ * By id: a material that compiles, one whose graph the set lacks, and none; a one-shot burst (about
+ * 130 ms of emission, particles gone about 260 ms later); and a config the library refuses when its
+ * emitter is built (an unknown spawn shape), after the material has mounted.
+ */
 export const EFFECTS: Record<string, unknown> = {
 	solid: effect('solid', { kind: 'custom:solid' }),
 	gone: effect('gone', { kind: 'custom:nosuch' }),
 	plain: effect('plain'),
+	burst: effect(
+		'burst',
+		{ kind: 'custom:solid' },
+		{ ...config, emitterLifetime: 0.3, lifetime: { min: 0.6, max: 0.6 }, frequency: 0.01 },
+	),
+	throws: effect(
+		'throws',
+		{ kind: 'custom:solid' },
+		{
+			...config,
+			behaviors: [{ type: 'spawnShape', config: { type: 'nosuchshape', data: {} } }],
+		},
+	),
 };
 
-/** How `GET /api/shaders/effects` answers: the set, a 500, or a network failure. */
-export type ShaderAnswer = 'ok' | 'error' | 'throw';
+/**
+ * How `GET /api/shaders/effects` answers: the set, a 500, a network failure, the set after
+ * {@link SLOW_MS}, or never (until the request is aborted).
+ */
+export type ShaderAnswer = 'ok' | 'error' | 'throw' | 'slow' | 'hang';
 
-export const served = { shaders: 'ok' as ShaderAnswer, requests: [] as string[] };
+export const SLOW_MS = 400;
+
+export const served = {
+	shaders: 'ok' as ShaderAnswer,
+	requests: [] as string[],
+	/** When the last `slow` answer was sent (`performance.now()`). */
+	answeredAt: 0,
+	/** How long the atlas page takes to arrive. */
+	assetDelayMs: 0,
+};
 
 async function atlasPage(): Promise<Blob> {
 	const canvas = new OffscreenCanvas(64, 64);
@@ -109,6 +142,14 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 	served.requests.push(`${init?.credentials ?? '-'} ${url.pathname}${url.search}`);
 	if (url.pathname === '/api/shaders/effects') {
 		if (served.shaders === 'throw') throw new TypeError('Failed to fetch');
+		if (served.shaders === 'hang')
+			return new Promise((_, reject) =>
+				init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)),
+			);
+		if (served.shaders === 'slow') {
+			await sleep(SLOW_MS);
+			served.answeredAt = performance.now();
+		}
 		// An error answer whose body still parses as a set: only `ok` may register it.
 		if (served.shaders === 'error') return json({ effects: SHADER_EFFECTS, error: 'nope' }, 500);
 		return json({ effects: SHADER_EFFECTS, skipped: [], costs: [] });
@@ -124,7 +165,10 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 			pageHeight: 64,
 			regions: [{ name: 'sq', x: 0, y: 0, w: 32, h: 32 }],
 		});
-	if (url.pathname === '/api/editor/asset') return new Response(await atlasPage());
+	if (url.pathname === '/api/editor/asset') {
+		if (served.assetDelayMs) await sleep(served.assetDelayMs);
+		return new Response(await atlasPage());
+	}
 	return json({ error: `unserved ${url.pathname}` }, 404);
 };
 

@@ -14,16 +14,26 @@
  *    - a material param set on the play changes it (a uniform);
  *    - the set's fetch failing (an HTTP error, a network error): the layer draws plain;
  *    - a kind the set lacks (a doc from a newer launcher): plain; a layer with no material: plain;
- *    - a ninth material layer on one overlay: plain, "over the game cap".
+ *    - a ninth material layer on one overlay: plain, "over the game cap";
+ *    - a one-shot burst nobody stops ends by itself and gives its slot back: nine in a row all draw
+ *      the material.
+ *    And `view.html`'s own `ensureFxBundle` (read out of the file, run against the bundle): two
+ *    callers both wait for the set's answer (one request), and a set that never answers is given up
+ *    on after about 5 s, the layer then plain.
  * 2. The Scene Editor's `EditorEffectLayer`, mounted alone through the editor's shared renderer
  *    (`fxPreviews/editor.entry.ts`, built like `fx-page`):
  *    - before the set registers it draws plain; registering it remounts the layer through the mesh;
- *    - a placement's value for a material param changes it; an unknown kind and no material: plain.
+ *    - a placement's value for a material param changes it; an unknown kind and no material: plain;
+ *    - the page's 8 slots never leak: nine overlays unmounted while their art loads, nine whose
+ *      emitter config throws after the material mounted, then one draws "1/8"; nine overlays at
+ *      once draw 8 and one plain, and eight again after draw all 8.
+ * 3. `node --check` on every inline script of `view.html`.
  * Never invisible: every plain case draws its sprites.
  *
  *   pnpm --filter fx-spike fx-previews
  */
 
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -33,6 +43,7 @@ import { buildLauncherPage } from './launcherPage.mjs';
 import { REPO, writePage } from './shaderPages.mjs';
 
 const BUNDLE = join(REPO, 'apps/launcher-api/static/rigger/vendor/rigger-fx.js');
+const VIEW = join(REPO, 'apps/launcher-api/static/rigger/view.html');
 const RUN_MS = 120_000;
 /** Pixels a drawing layer covers at the least (60 particles of 32 × 32, overlapping). */
 const DRAWN = 500;
@@ -50,14 +61,29 @@ const mesh = (p, colour = 'green') => p[colour] > DRAWN && p.magenta === 0;
 const plain = (p) => p.magenta > DRAWN && p.green === 0 && p.blue === 0;
 const said = (lines, text) => lines.some((l) => l.includes(text));
 
+const view = readFileSync(VIEW, 'utf8');
+console.log("view.html's inline scripts");
+const inline = [...view.matchAll(/<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script>/g)];
+inline.forEach(([, attrs, body], i) => {
+	const file = join(dir, `view${i}.${attrs.includes('module') ? 'mjs' : 'js'}`);
+	writeFileSync(file, body);
+	const checked = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
+	check(`inline script ${i} parses (node --check)`, checked.status === 0, checked.stderr.trim());
+});
+check('view.html has inline scripts to check', inline.length > 0);
+const ensureFxBundle = /\nfunction ensureFxBundle\(\)\{[\s\S]*?\n\}\n/.exec(view)?.[0];
+check("view.html's ensureFxBundle found", !!ensureFxBundle);
+
 let browser;
 try {
 	await writePage(REPO, dir, 'fxPreviews/overlay.entry.ts', 'overlay');
+	const source = JSON.stringify(ensureFxBundle ?? '').replaceAll('<', '\\u003c');
 	writeFileSync(
 		join(dir, 'overlay.html'),
 		readFileSync(join(dir, 'overlay.html'), 'utf8').replace(
 			'</body>',
-			`<script src="${pathToFileURL(BUNDLE).href}"></script></body>`,
+			`<script>window.ensureFxBundleSource = ${source};</script>` +
+				`<script src="${pathToFileURL(BUNDLE).href}"></script></body>`,
 		),
 	);
 	const editorHtml = await buildLauncherPage({
@@ -93,9 +119,14 @@ try {
 			check('the bundle exposes RiggerFxLoadShaderEffects', o.bundleHasLoader === true);
 			check(
 				'the set is fetched from GET /api/shaders/effects with the session cookies',
-				o.requests.length === 3 &&
+				o.requests.length === 5 &&
 					o.requests.every((r) => r === 'same-origin /api/shaders/effects'),
 				o.requests.join(', '),
+			);
+			check(
+				'view.html: a set that never answers is given up on in about 5 s; the layer draws plain',
+				o.hang.ms >= 4500 && o.hang.ms < 8000 && plain(o.hang.pixels),
+				`${Math.round(o.hang.ms)} ms; ${px(o.hang.pixels)}`,
 			);
 			check(
 				'a set answering 500 registers nothing and the layer draws plain',
@@ -108,6 +139,15 @@ try {
 				'a set fetch that fails on the network: plain',
 				o.fetchThrow.loaded === false && plain(o.fetchThrow.pixels),
 				px(o.fetchThrow.pixels),
+			);
+			check(
+				"view.html: two callers of ensureFxBundle both wait for the set's answer (one request), then the mesh draws",
+				o.race.beforeAnswer === 0 &&
+					o.race.resolvedAfter.length === 2 &&
+					o.race.requests === 1 &&
+					o.race.answeredAfter >= o.race.slowMs &&
+					mesh(o.race.pixels),
+				`answered after ${Math.round(o.race.answeredAfter)} ms, resolved after ${o.race.resolvedAfter.map(Math.round).join(' / ')} ms; ${px(o.race.pixels)}`,
 			);
 			check(
 				'the set registered: the mesh draws, none of the sprites',
@@ -139,6 +179,19 @@ try {
 				'nine material layers on one overlay: 8 draw the mesh, the ninth plain',
 				on === 8 && over === 1 && o.cap.pixels.magenta > 0 && o.cap.pixels.green > DRAWN,
 				`${on} on, ${over} over the cap; ${px(o.cap.pixels)}`,
+			);
+			const shots = o.oneShots.lines;
+			const shotsOn = shots.filter((l) =>
+				/burst\/main: on \(custom:solid; 1\/8 drawing\)/.test(l),
+			).length;
+			const shotsReleased = shots.filter((l) => l.includes('burst/main: released')).length;
+			check(
+				'nine one-shot bursts never stopped: each ends by itself, and all nine draw the material',
+				shotsOn === 9 &&
+					shotsReleased === 9 &&
+					!said(shots, 'over the game cap') &&
+					mesh(o.oneShots.last),
+				`${shotsOn} on at 1/8, ${shotsReleased} released; the ninth: ${px(o.oneShots.last)}`,
 			);
 		}
 
@@ -178,6 +231,33 @@ try {
 				'a layer with no material draws plain, with no material line',
 				plain(e.noMaterial.pixels) && e.noMaterial.lines.length === 0,
 				px(e.noMaterial.pixels),
+			);
+			check(
+				'nine overlays unmounted while their art loads hold no slot: the next draws 1/8',
+				!said(e.midLoad.lines, ': on (') &&
+					said(e.midLoad.after.lines, 'solid/main: on (custom:solid; 1/8 drawing)') &&
+					mesh(e.midLoad.after.pixels),
+				`${e.midLoad.lines.length} lines while unmounting; then ${e.midLoad.after.lines[0] ?? 'nothing'}`,
+			);
+			const thrown = e.throws.lines;
+			check(
+				'nine layers whose emitter config throws after mounting give their slots back: the next draws 1/8',
+				thrown.filter((l) => l.includes('throws/main: on (')).length === 9 &&
+					thrown.filter((l) => l.includes('throws/main: released')).length === 9 &&
+					said(e.throws.after.lines, 'solid/main: on (custom:solid; 1/8 drawing)'),
+				`then ${e.throws.after.lines[0] ?? 'nothing'}`,
+			);
+			const count = (lines, re) => lines.filter((l) => re.test(l)).length;
+			const nineOn = count(e.instances.nine, /solid\/main: on \(/);
+			const nineOver = count(e.instances.nine, /over the game cap/);
+			const eightOn = count(e.instances.eight, /solid\/main: on \(/);
+			check(
+				'nine overlays at once: 8 draw the material, the ninth plain; eight again after: all 8',
+				nineOn === 8 &&
+					nineOver === 1 &&
+					eightOn === 8 &&
+					!said(e.instances.eight, 'over the game cap'),
+				`${nineOn} on + ${nineOver} over the cap, then ${eightOn} on`,
 			);
 		}
 	}

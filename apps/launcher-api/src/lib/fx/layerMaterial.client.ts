@@ -39,8 +39,8 @@ export const layerMaterialPeak = (
 
 /**
  * What the material's renderer reads at mount: its kind (and whether it is registered), its time,
- * the capacity (Max particles and `peak`, {@link layerMaterialPeak}) and the frames' texture source.
- * A change to any remounts it; `undefined` with no material.
+ * the capacity (Max particles and `peak`, {@link layerMaterialPeak}) and the frames' texture
+ * source. A change to any remounts it; `undefined` with no material.
  */
 export function layerMaterialKey(
 	layer: EmitterLayer,
@@ -55,7 +55,7 @@ export function layerMaterialKey(
 	return `${m.kind}|${registered}|${m.time ?? 'life'}|${String(max)}|${peak}|${source}|${textures.length}`;
 }
 
-/** Mount a layer's material into `host` as the game does, or none when the layer has no material. */
+/** Mount a layer's material into `host` as the game does; none when the layer has no material. */
 export function mountLayerMaterial(options: {
 	layer: EmitterLayer;
 	host: Container;
@@ -102,15 +102,24 @@ export function retuneLayerMaterial(
 	material.setParams(m?.params);
 }
 
+/** How long a host waits for the compiled set before it draws every material layer plain. */
+export const SHADER_EFFECTS_TIMEOUT_MS = 5000;
+
 /**
  * Register the project's compiled shader effects (`GET /api/shaders/effects`, the session's
  * project) for a host with no page data to take them from: the Rigger's `view.html`, through the
- * vendored overlay bundle, whose registry is its own. True once registered; on any failure nothing
- * is registered and every material layer draws plain.
+ * vendored overlay bundle, whose registry is its own. True once registered; on any failure, or no
+ * answer within `timeoutMs`, nothing is registered and every material layer draws plain.
  */
-export async function loadShaderEffects(fetcher: typeof fetch = fetch): Promise<boolean> {
+export async function loadShaderEffects(
+	fetcher: typeof fetch = fetch,
+	timeoutMs = SHADER_EFFECTS_TIMEOUT_MS,
+): Promise<boolean> {
 	try {
-		const res = await fetcher('/api/shaders/effects', { credentials: 'same-origin' });
+		const res = await fetcher('/api/shaders/effects', {
+			credentials: 'same-origin',
+			signal: AbortSignal.timeout(timeoutMs),
+		});
 		if (!res.ok) return false;
 		const body = (await res.json()) as { effects?: unknown };
 		if (!Array.isArray(body.effects)) return false;

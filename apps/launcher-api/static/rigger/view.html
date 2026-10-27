@@ -1013,9 +1013,10 @@ function setFxOverlayDepth(inFront){
 const fxBandKey = (inFront) => (inFront ? "front" : "back");
 /** Every overlay that currently exists — for the calls that apply to all of them (resize, clear). */
 const fxEachBand = (fn) => { for (const k of ["front", "back"]) if (fxBands[k].api) fn(fxBands[k], k); };
-/** Load the vendored bundle once. Resolves whether or not it worked; `fxLoadFailed` is the verdict. */
+/** Load the vendored bundle and register the compiled shader set, once. Resolves whether or not
+ * it worked (`fxLoadFailed` is the verdict), and only after the set's request settled, for every
+ * caller: a second band asking meanwhile waits on the same promise. */
 function ensureFxBundle(){
-  if (fxLoadFailed || window.RiggerFxCreate) return Promise.resolve();
   if (fxLoading) return fxLoading;
   fxLoading = new Promise((resolve) => {
     // The project's compiled shader effects are registered before the first overlay draws, so a
