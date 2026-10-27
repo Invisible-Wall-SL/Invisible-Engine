@@ -26,6 +26,12 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - **UI** — full-bleed home: online tools grouped into **game-making stage sections** (Create / Assets / Build / Files & Reference / Pipeline) plus Games and Local tools, Invisible Wall emblem branding. Stages are the single source `TOOL_STAGES` in `roles.ts`; the top-bar switcher tints each tool icon by its stage accent.
 
 ## Open items / next
+0. **Key Vault: first live run (owner).** Release launcher v1.0.59 (Actions → Release in
+   `invisible-launcher`), create the vault, fill the three *Vault access* rows and ⚙ Settings, **Set**
+   each key's current value, then rotate one low-risk secret (*Pipeline CI token*) and one Cloudflare
+   one (*R2 read token (current-games harness)*), and check them end to end. The Railway mutations
+   (`variableUpsert`, `serviceInstanceRedeploy`, `deployments`) and the Cloudflare token clone are
+   written against the public APIs but have only met fakes so far.
 1. **Grant `gamePublish`** to the non-admin publishers (owner) — `developer` and `pipelineTester` are the roles that can open Game Maker at all. Every publish endpoint reads the capability (2026-09-18); the grant itself is owed in /admin → Roles. It also opens the desktop Sync's zero-login clone (`git-credentials`).
 2. **Hand-rolled `.modal-backdrop` divs still to migrate** (`docs/ui-inventory.md` §17) — 3 in `game-maker`, 1 in `config`, 1 (`.lp-modal-backdrop`) in `editor`. These are rich panels rather than questions, so they want `<ConfirmDialog>`'s `body` snippet, not the promise helpers.
 3. **Orphaned R2 prefixes with no project row** — `invisible_wall/test7/` (179 objects, 204 MB) and `invisible_wall/waysonwavesbuild/` (1,169 objects, 165 MB, a byte-identical clone of the Hot Fruits atlas seed). Purge needs a project row to purge FROM — an admin-side "orphan prefix" sweep is the missing piece.
@@ -66,7 +72,8 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Blocked (owner / external)
 - **Secret rotation (owner):** rotate the secrets in `docs/INFRA.md` "Security / secret rotation";
-  since desktop launcher v1.0.56 the R2 key no longer lives on any publisher's desktop.
+  since desktop launcher v1.0.56 the R2 key no longer lives on any publisher's desktop. From v1.0.59
+  the desktop **Key Vault** (admins) does it per secret or in one emergency batch.
 - Env vars the portal degrades gracefully without until set: `ANTHROPIC_API_KEY` *or* `LOCALIZATION_LLM_BASE_URL` + `LOCALIZATION_LLM_API_KEY` (Localization Translate — either provider), `GITHUB_ENGINE_READ_TOKEN` (engine "release pending" pill — absent ⇒ the pill never shows pending).
 
 ## Key lessons / gotchas
@@ -76,6 +83,48 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-10-27 — **Desktop build breakdown: what a ☁ Publish / 📦 Deliver shipped** (desktop launcher
+  v1.0.59 + engine). After the 🗜 Optimize image pass, the launcher runs the engine's
+  `scripts/build-breakdown.mjs` on the finished `build/` and opens a self-contained page. It shows
+  files by category and size, per-file references (bundle, code, other files), assets with their
+  uses, what the build left out at each step, checks, and CSV/JSON. Guide:
+  [tools/invisible-launcher.md § Build breakdown](../tools/invisible-launcher.md).
+  - **How the steps report:** the launcher sets `IE_BUILD_REPORT_DIR` (outside the repo, under
+    `C:\Invisible Wall SL\ComfyUI\build-reports\<cloud key>\v<build>\`).
+    `pull-project-assets.mjs` writes `pull.json` there (pulled / not pulled / pruned /
+    committed-but-unloaded / 🗜 trims, with sizes measured before deletion), `bake-editor-doc.mjs`
+    writes `bake.json` (where the bundle is), and the launcher's image pass writes `images.json`
+    (conversions, lossless re-packs, dropped twins and audio). Helper:
+    `apps/launcher-api/scripts/lib/buildReportDir.mjs`; unset ⇒ nothing is written (dev and CI
+    builds).
+  - **Never fails a build:** an engine without the script, or a failed run, is one progress line.
+    The page is never written into `build/`, so it is neither uploaded nor handed to a partner.
+  - **Code:** `scripts/lib/build-breakdown.mjs` (pure analysis + the page), `scripts/build-breakdown.mjs`
+    (IO). The online twin for a Game Maker published snapshot is
+    `apps/launcher-api/src/lib/server/buildBreakdown.ts` ([status/game-maker.md](game-maker.md)).
+    They answer the same questions over different inputs, and do not share code.
+  - **Gates:** `scripts/check-build-breakdown-desktop.mjs` (the real script over a laid-out build,
+    28 checks) and the launcher repo's `verify_build_breakdown.py` (the image-pass ledger, report
+    folders, running the script; 20 checks with `IW_ENGINE_DIR`).
+  - **Owed:** a release of launcher v1.0.59 (Actions → Release in `invisible-launcher`), then one
+    real ☁ Publish to read the page against a real game. Not yet run on Windows or a real build.
+
+- 2026-10-27 — **Invisible Key Vault: the desktop launcher's admin-only secrets tab (launcher
+  v1.0.59).** After last week's attack the owner asked for one place that holds every key, rotates
+  it and puts the new value everywhere it lives. The desktop launcher gets a **Key Vault** tab,
+  listed only for an admin session. Unlocking re-asks the portal for the role, then takes a
+  passphrase; the file is sealed with Argon2id + libsodium SecretBox and locks after 10 minutes
+  idle. Its catalog mirrors [rotate-a-secret](../guides/rotate-a-secret.md): 31 secrets with their
+  Railway variables, GitHub repo and environment secrets, portal and launcher settings. **Rotate**
+  generates, mints at Cloudflare (a copy of the old token's permissions; R2's S3 key is the token
+  id + sha256 of its value) or takes a pasted value; it stores it first, pushes, reads every
+  Railway consumer back (a service shadowing a shared variable fails the rotation), redeploys and
+  waits, then runs a live check. **Revoke old** deletes the old Cloudflare token. **🚨 Emergency
+  rotation** batches every automatic secret with one redeploy per service. The portal side is one
+  new route: `PUT /api/launcher/deploy-token` (owner-only, pinned in `check:launcher-gates`), so the
+  vault can set the deploy token; `MIN_DEPLOY_TOKEN` moved to `appSettings.ts` for both writers.
+  Offline fixture `verify_key_vault.py` (68 checks, including the review findings: two rotations before a revoke, a dead host mid-batch, an unknown Railway service, an orphaned `.bak`); the tab was driven in a real window under Xvfb.
+  **Not yet run against the live providers** — see Open items.
 
 - 2026-10-27 — **Invisible Director: QA can play a draft** (ADR-0010, PLAN 9D, #1398).
   - `build.request_draft` (`director/ops/build.ts`): freezes the run's project the way Publish

@@ -7,7 +7,7 @@ One page for whoever ships a game build from the desktop **Invisible Launcher**.
 
 | You need | Check |
 | --- | --- |
-| Invisible Launcher **v1.0.56 or newer** | header → *Check for updates* |
+| Invisible Launcher **v1.0.56 or newer** (**v1.0.59** for the build breakdown) | header → *Check for updates* |
 | A portal account with **Build & publish games** (`gamePublish`) | an admin grants it in `/admin` → Roles or the user panel |
 | The project synced to this machine | Projects → **↻ Sync from cloud**; its card shows ☁ Publish |
 | Node 22 + pnpm | the launcher offers to set them up the first time a build needs them |
@@ -25,6 +25,11 @@ You do **not** need R2 credentials. Builds upload through the portal as you.
    *this* build.
 4. The final dialog shows the **build number**, the **engine / game / lockfile** fingerprints, and
    the game URL. **✓ LIVE & VERIFIED** means the test server is already serving it.
+5. **Answer Yes to *Open the build breakdown?*** and read its **Checks** first: red means the game
+   asks for a file the build does not have. **What the build left out** lists what was dropped or
+   compressed, and **Assets** and **Files** list what shipped, with sizes and how often each is
+   used. **📊** on the card reopens it later. See
+   [the launcher guide](../tools/invisible-launcher.md) (§ Build breakdown).
 
 To check which build a running game is: open the browser console and type `__IE_BUILD__`, or open
 `https://games.invisiblewall.org/<cloud key>/build-info.json`.
@@ -34,7 +39,7 @@ To check which build a running game is: open the browser console and type `__IE_
 1. **Untick 🐞 Debug** unless the partner asked for it: Debug ships our tooling to their site.
 2. Press **📦 Deliver**. Pick the **profile** (`operator-embed` for a real handover). Check the
    **alias** against the partner's CDN folder name: a wrong alias means their script tag 404s.
-3. When it finishes, **▶ Play it**. Paste a session token from their platform and their RGS origin,
+3. When it finishes, open **📊 Build breakdown** to confirm what is in the package, then **▶ Play it**. Paste a session token from their platform and their RGS origin,
    and it plays exactly as it will on their page. This is the only way to open a delivery.
 4. Send the partner the **`<alias>.zip`**. The folder inside goes on their CDN. `embed.html` at the
    zip root goes on their application server, not the CDN. `EMBED.md` explains both, and its §5

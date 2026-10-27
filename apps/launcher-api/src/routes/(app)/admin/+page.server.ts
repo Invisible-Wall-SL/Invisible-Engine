@@ -116,6 +116,7 @@ import {
 	DIRECTOR_RUN_BUDGET_KEY,
 	DIRECTOR_RUN_BUDGET_MAX_USD,
 	DIRECTOR_RUN_BUDGET_MIN_USD,
+	MIN_DEPLOY_TOKEN,
 	RUNPOD_IDLE_ENABLED_KEY,
 	RUNPOD_IDLE_MINUTES_DEFAULT,
 	RUNPOD_IDLE_MINUTES_KEY,
@@ -197,8 +198,6 @@ function maskToken(token: string): string {
 function generateDeployToken(): string {
 	return randomBytes(32).toString('base64url');
 }
-
-const MIN_DEPLOY_TOKEN = 16;
 
 export const load: PageServerLoad = async ({ locals }) => {
 	await requireAdmin(locals);
