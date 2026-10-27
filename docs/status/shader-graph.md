@@ -279,7 +279,9 @@ merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) 
     absent when it names none. The bake walks the bundle's values the same way (never a key).
     `deploy/editor-shaders/` still holds the set, and the Publish snapshot copies it, so a game's
     asset base carries the library's compiled effects too; nothing reads them at runtime.
-- **Step 8** (the plan's "Later", split into 8a–8e in design §8). 8e not started.
+- **Step 8** (the plan's "Later", split into 8a–8e in design §8). 8e (screen transitions and post
+  FX) has a draft design, not approved: [shader-graph-screens.md](../design/shader-graph-screens.md)
+  (2026-10-27). The owner decides its §16. No code yet.
   - **8d, particle materials for Invisible FX.** Decided 2026-10-25
     (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
     shader). Built as 8d.1–8d.8, one PR each (its §15). A game plays a material from 8d.3; no
