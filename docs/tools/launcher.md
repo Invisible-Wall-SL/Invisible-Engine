@@ -124,8 +124,8 @@ configured on this server."
 
 The **Atlas Maker** and **Sheet Maker** have the same button and window on their own bar. They run
 on another site, so the chat goes through the tool's own server, which asks the launcher for you;
-it works only when you opened the tool from the launcher. The Rig Viewer and Rigger do not have it
-yet.
+it works only when you opened the tool from the launcher. The **Rigger** has it too. The Rig Viewer
+does not have it yet.
 
 ## Other pages
 

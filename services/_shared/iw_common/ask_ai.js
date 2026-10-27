@@ -1,9 +1,11 @@
-// "Ask the AI" for the Python tools' bar — the twin of the launcher's $lib/AskAiPanel.svelte
+// "Ask the AI" for the HTML tool-bar twins — the twin of the launcher's $lib/AskAiPanel.svelte
 // (keep the two looking and behaving alike). `iwAskAi.mount(cfg)` adds the button before
 // "Report bug" and opens a floating chat window: dragged by its title bar, put away only by its
-// own Minimize / Close buttons. Questions go to the tool's own `POST /ask-ai`, which relays them
-// to the launcher (iw_common/ask_ai.py). Chat per tool in sessionStorage; the window's place in
-// localStorage (per site, so the launcher and each tool remember it apart).
+// own Minimize / Close buttons. `cfg.endpoint` is where questions go: the Atlas and Sheet Maker
+// post to their own `/ask-ai`, which relays them to the launcher (iw_common/ask_ai.py); the
+// Rigger, served by the launcher, posts to `/api/ask-ai` directly (its copy is
+// static/shared/ask-ai.js, from scripts/sync-ask-ai.mjs). Chat per tool in sessionStorage; the
+// window's place in localStorage (per site, so the launcher and each tool remember it apart).
 var iwAskAi = (function () {
   var CSS =
     '.iw-ask{display:inline-flex;align-items:center;gap:6px;flex:none;padding:5px 10px;border-radius:8px;border:1px solid #2a3150;background:none;color:#9ab8ff;font:inherit;font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer}' +

@@ -29,6 +29,8 @@ runtime (`invisible-rig.js`, built from `packages/engine-rig`). The Rigger's add
 - **Access:** the `admin`, `developer` and `animator` roles get it by default
   (`ROLE_TOOLS` in `src/lib/roles.ts`). Like any tool it is overridable per
   role/user in the admin panel. Every server endpoint it calls is `rigger`-gated.
+- **Ask the AI:** the top bar's **Ask the AI** (left of Report bug) opens a movable chat that answers
+  how to do things here from this guide ([launcher guide § Ask the AI](launcher.md#ask-the-ai)).
 
 > **Status (as of 2026-08-18):** Phases 0–6, the from-scratch authoring workflow,
 > localized text as rig art, and **Cinematic mode** have all landed. Shipping a rig
