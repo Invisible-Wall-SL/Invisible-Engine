@@ -1307,37 +1307,18 @@ so is #12's scope (its shape is a recommendation); the owner answered #13–#16 
 ## 10. The card family (outline)
 
 **In short:** a two-player duel with decks, hands, a board and a resource that grows each turn, in
-the style of Magic: The Gathering or Hearthstone. It is the most rules-heavy family, so it gets a
-design of its own (`docs/design/card-games.md`, not written yet) once P10.7 has shipped (§9 #15).
-This section records what is already clear.
+the style of Magic: The Gathering or Hearthstone. It is the most rules-heavy family, so it has a
+design of its own, written once P10.7 had shipped (§9 #15).
+
+> **The card design is [card-games.md](card-games.md)** (2026-10-27, approved the same day). It owns
+> everything about the family: the v1 scope, the rules engine, effects, the AI, the card frame, where
+> card data lives, Invisible Card Library, the ship chain, the build plan (C0–C5) and the decisions
+> (its §13, all decided as recommended). This section keeps only what this plan decided for it.
 
 - **Outcome:** rules-decided only. A card game is free play with no wallet (§9 #4); an RGS-decided
   card game is not planned.
-- **What it reuses:**
-  - Flow variables and timers (P10.3): health, mana, the turn number, a turn timer.
-  - Drag and Align Target (P10.4): drag a card from the hand onto the board or onto a target.
-  - Spawning and live sets (P10.7): cards in the hand and on the board are spawned instances, and
-    `forEach` walks "my minions".
-  - Components with state machines: the card frame (`inHand`, `hover`, `playable`, `attacking`,
-    `dying`), its text and number inputs bound per card (P10.3 widens `source` to text).
-  - Timelines for attacks and effects; Localization for card text (no family has more text); the
-    seeded RNG for shuffles, so a match replays.
-- **What is new:**
-  - **A rules engine,** `packages/engine-mechanics/src/cards.js`: zones (deck, hand, board,
-    discard), turn phases (start → draw → main → combat → end), the resource, legal plays, and an
-    ordered queue that resolves one effect at a time.
-  - **Effects as data, not scripts:** a closed list of verbs (deal damage, heal, draw, summon, buff,
-    destroy, give a keyword), targets (self, a chosen target, all enemies, a random enemy) and
-    triggers (on play, on death, at turn start, on attack, on damage), plus a small keyword set
-    (must be attacked first, attacks at once, a one-hit shield).
-  - **The opponent:** an on-device AI in v1 that plays its best affordable card and takes good
-    trades, with difficulty settings, seeded so a match replays.
-  - **Invisible Card Library** (`/cards`, a new tool, so rule 9 applies): every card shown in the
-    real card-frame component; stats, keywords and effects edited as a form; rules text generated
-    from the effects and sent to Localization; the starter and AI decks.
-  - **A `card` family** in Game Config and `GAME_KINDS`, added by that plan. Where card data lives
-    (the config or a doc of its own: §9 #14's question again) is decided there.
-- **Not in its v1:** online play (§9 #16), packs, collections or an economy, deck-building for
-  players, scripted custom effects, money.
-- **Ours, not theirs:** the mechanics are common to the genre; card names, rules text, frames and
-  art must be our own or the client's (the Director's ownership rule).
+- **It reuses** Flow variables and timers (P10.3), drag and Align Target (P10.4) and spawning with
+  live sets (P10.7); how is in card-games.md §5.
+- **Its tools** are §6.5's Card column: Invisible Card Library is its own, and Symbols, Win Text and
+  Invisible Characters are hidden.
+- **Online play stays later** (§9 #16).
