@@ -6,7 +6,8 @@
  * `fxPage/entry.ts` mounts the real `/fx` `+page.svelte` outside SvelteKit (its requests answered in
  * memory, see there); this script builds it with Vite and the launcher's Svelte plugin and drives it
  * in headless Chromium through the DOM, as an author would:
- *  1. bind the atlas and a frame, pick a material: the page registered the compiled set, the stage
+ *  1. the Material picker lists the effects made for particles first, under their own heading;
+ *     bind the atlas and a frame, pick a material: the page registered the compiled set, the stage
  *     mounts the material through the game's renderer (`?fxdebug=1`: on) and the layer's load turns
  *     from the §10 estimate into the measured peak;
  *  2. paused, drag a material param: the stage's pixels change, the particles are still there and the
@@ -155,16 +156,25 @@ try {
 			`fxPage.requests.some((r) => r.startsWith('GET /api/shaders/effects?projectKey=project'))`,
 		),
 	);
-	const options = await ev(
-		`[...[...document.querySelectorAll('.inspector .row')].find((r) => r.textContent.includes('Material'))
-			.querySelectorAll('option')].map((o) => o.textContent.trim())`,
+	const picker = await ev(
+		`(() => {
+			const select = [...document.querySelectorAll('.inspector .row')].find((r) => r.textContent.includes('Material')).querySelector('select');
+			return {
+				options: [...select.querySelectorAll('option')].map((o) => o.textContent.trim()),
+				groups: [...select.querySelectorAll('optgroup')].map((g) => [g.label, [...g.querySelectorAll('option')].map((o) => o.textContent.trim())]),
+			};
+		})()`,
 	);
+	const rest = picker.groups[1]?.[1] ?? [];
 	check(
-		'Material lists None first, then the compiled effects by name',
-		options[0] === 'None (plain sprites)' &&
-			options.slice(1).join('|') ===
-				[...options.slice(1)].sort((a, b) => a.localeCompare(b)).join('|'),
-		options.join(', '),
+		'Material lists None first, then the effects made for particles (Ripple), then the rest, each by name',
+		picker.options[0] === 'None (plain sprites)' &&
+			picker.options[1] === 'Ripple' &&
+			JSON.stringify(picker.groups[0]) === JSON.stringify(['Made for particles', ['Ripple']]) &&
+			picker.groups[1]?.[0] === 'Other effects' &&
+			rest.length === picker.options.length - 2 &&
+			rest.join('|') === [...rest].sort((a, b) => a.localeCompare(b)).join('|'),
+		picker.options.join(', '),
 	);
 	await ev(`fxDrive.select('Atlas', 'client/project/manifests/atlas_manifest_sparks.json')`);
 	await waitFor(`document.querySelectorAll('.frames label').length === 2`, 'the regions');

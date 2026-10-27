@@ -62,6 +62,13 @@
  *      thumbnail key follows its code; storage keeps it.
  *  13. The Particle node (step 8d): the palette lists it with the inputs, never in the motion graph;
  *      wired to the Output it compiles, with no thumbnail and its cost chip.
+ *  14. Made for particles (step 8d.7): the toggle sets `madeFor` and clears it to a doc byte-identical
+ *      to before, never changing the doc it was given, and storage keeps it; it makes Particles the
+ *      preview's default element; the meter, the status bar's text and every node chip switch to
+ *      the particle budget (150 / 4); the notes name the passes, the motion, a driven padding and a
+ *      break, only made for particles; the compiled effect carries it and its cost; the stock Burst
+ *      is a ring of 24 replayed every 2 s, each gone before the next, and the Fountain stays under
+ *      the 512 a material layer draws, their particles sized alike whatever the art.
  *
  *   pnpm --filter launcher-api check:shader-editor
  */
@@ -81,6 +88,8 @@ import {
 	CUSTOM_GLSL_DEFAULT,
 	MOTION_NODE_TYPES,
 	MOTION_OUTPUT,
+	PARTICLE_COST_BUDGET,
+	PARTICLE_SAMPLE_BUDGET,
 	REFERENCE_GRAPHS,
 	SAMPLE_BUDGET,
 	SHADER_NODES,
@@ -147,8 +156,11 @@ import {
 	canPlace,
 	canvasGraph,
 	connect,
+	costMeter,
+	costText,
 	costWeight,
 	curvePoint,
+	defaultPreviewElement,
 	deleteMotionGraph,
 	deleteSubgraph,
 	docFromTwin,
@@ -169,6 +181,7 @@ import {
 	moveNode,
 	newShaderDoc,
 	nodeCosts,
+	particleIgnoredNotes,
 	probeDoc,
 	probeKeys,
 	remove,
@@ -182,6 +195,7 @@ import {
 	setBreakAt,
 	setBreakKind,
 	setBreakValue,
+	setMadeFor,
 	setParam,
 	setPass,
 	setPhase,
@@ -198,6 +212,15 @@ import {
 	viewOf,
 	wireId,
 } from '../src/routes/(app)/shaders/shaderEditor.ts';
+import {
+	BURST_COUNT,
+	BURST_PERIOD_S,
+	EMITTER_SECONDS_PER_SECOND,
+	PARTICLE_PREVIEW_SHAPES,
+	PARTICLE_SIZE,
+	particlePreviewConfig,
+	particleScale,
+} from '../src/routes/(app)/shaders/particlePreview.ts';
 
 let failures = 0;
 let checks = 0;
@@ -3336,6 +3359,169 @@ console.log('13. the Particle node');
 			[...nodeCosts(doc, a).values()].reduce((sum, c) => sum + c.cost, 0) === a.cost,
 		],
 		[true, false, undefined, 0, true],
+	);
+}
+
+// ── 14 ──
+console.log('14. made for particles');
+{
+	const frost = REFERENCE_GRAPHS.find((g) => g.id === 'frost') as ShaderGraphDoc;
+	const before = json(frost);
+	const made = setMadeFor(frost, true);
+	const back = setMadeFor(made, false);
+	check(
+		'the toggle sets madeFor, a second time changes nothing, and off gives the doc back byte for byte, never touching the doc it was given',
+		[
+			made.madeFor,
+			setMadeFor(made, true) === made,
+			setMadeFor(frost, false) === frost,
+			json(back) === before,
+			'madeFor' in back,
+			json(frost) === before,
+		],
+		['particles', true, true, true, false, true],
+	);
+	check(
+		'storage keeps it through save and reopen; a doc without it stays without',
+		[
+			normalizeShaderGraphDoc(JSON.parse(json(made)), made.id).madeFor,
+			'madeFor' in normalizeShaderGraphDoc(JSON.parse(json(frost)), frost.id),
+		],
+		['particles', false],
+	);
+	check(
+		'Particles is the preview element of a doc made for particles; the sample card of any other',
+		[
+			defaultPreviewElement(newShaderDoc('n', 'N')),
+			defaultPreviewElement(made),
+			defaultPreviewElement(back),
+			defaultPreviewElement(null),
+		],
+		['sample', 'particles', 'sample', 'sample'],
+	);
+
+	const a = analyzeShaderGraph(frost);
+	const madeAnalysis = analyzeShaderGraph(made);
+	const elementMeter = costMeter(frost, a);
+	const particleMeter = costMeter(made, madeAnalysis);
+	check(
+		'the meter reads against 400 / 16 for elements and 150 / 4 made for particles (frost is over only the second)',
+		[
+			[elementMeter.budget.cost, elementMeter.budget.samples, elementMeter.over],
+			elementMeter.text,
+			[particleMeter.budget.cost, particleMeter.budget.samples, particleMeter.over],
+			particleMeter.text,
+			particleMeter.shares.map((x) => Math.round(x * 1000) / 1000),
+		],
+		[
+			[COST_BUDGET, SAMPLE_BUDGET, false],
+			`cost ${a.cost}/${COST_BUDGET} · reads ${a.samples}/${SAMPLE_BUDGET}`,
+			[PARTICLE_COST_BUDGET, PARTICLE_SAMPLE_BUDGET, true],
+			`cost ${a.cost}/${PARTICLE_COST_BUDGET} · reads ${a.samples}/${PARTICLE_SAMPLE_BUDGET}`,
+			[
+				Math.round((a.cost / PARTICLE_COST_BUDGET) * 1000) / 1000,
+				Math.round((a.samples / PARTICLE_SAMPLE_BUDGET) * 1000) / 1000,
+			],
+		],
+	);
+	const chips = (doc: ShaderGraphDoc) =>
+		canvasGraph(doc, analyzeShaderGraph(doc), new Set())
+			.nodes.map((n) => n.data.cost)
+			.filter((c) => c !== undefined);
+	const elementChips = chips(frost);
+	const particleChips = chips(made);
+	const heaviest = particleChips.reduce((m, c) => (c.share > m.share ? c : m));
+	check(
+		'every node chip reads against the particle budget made for particles: its share and weight, its tooltip naming 150',
+		[
+			elementChips.length === particleChips.length && elementChips.length > 0,
+			particleChips.every((c, i) => {
+				const e = elementChips[i];
+				const share = Math.max(c.cost / PARTICLE_COST_BUDGET, c.samples / PARTICLE_SAMPLE_BUDGET);
+				return (
+					c.cost === e.cost &&
+					c.budget.cost === PARTICLE_COST_BUDGET &&
+					e.budget.cost === COST_BUDGET &&
+					c.share === share &&
+					c.weight === costWeight(share)
+				);
+			}),
+			particleChips.some((c, i) => c.weight !== elementChips[i].weight),
+			costText(heaviest).includes(`of the ${PARTICLE_COST_BUDGET} a particle material affords`),
+			costText(elementChips[0]).includes(`of the ${COST_BUDGET} a phone affords`),
+		],
+		[true, true, true, true, true],
+	);
+
+	const busy: ShaderGraphDoc = {
+		...frost,
+		passes: [{ kind: 'glow' }, { kind: 'outline' }],
+		motion: { channels: { alpha: restCurve('alpha') } },
+		motionGraph: {
+			nodes: [
+				{ id: 'mo', type: MOTION_OUTPUT, x: 0, y: 0 },
+				{ id: 'n', type: 'number', x: -200, y: 0, values: { value: 0.3 } },
+			],
+			wires: [{ from: { node: 'n', port: 'out' }, to: { node: 'mo', port: 'padding' } }],
+		},
+		nodes: [...frost.nodes, { id: 'brk', type: BREAK_OUTPUT, x: 400, y: 200 }],
+	};
+	const notes = particleIgnoredNotes(setMadeFor(busy, true));
+	check(
+		'the notes name what particles ignore, only made for particles: the passes by name, the motion (curves and graph), a driven padding, a break',
+		[
+			particleIgnoredNotes(busy),
+			notes.map((n) => n.part),
+			notes[0]?.text.includes(`${elementFxSpec('glow').label}, ${elementFxSpec('outline').label}`),
+			notes[1]?.text.includes('its curves and the motion graph'),
+			particleIgnoredNotes(made),
+			particleIgnoredNotes(setMadeFor({ ...frost, motion: { channels: {} } }, true)),
+		],
+		[[], ['passes', 'motion', 'padding', 'break'], true, true, [], []],
+	);
+
+	const compiled = compileShaderEffect(made);
+	const plain = compileShaderEffect(frost);
+	check(
+		'the compiled effect carries madeFor and the cost made for particles, and nothing of it otherwise',
+		[
+			compiled.ok && [compiled.effect.madeFor, compiled.effect.cost, compiled.effect.samples],
+			plain.ok && ['madeFor', 'cost', 'samples'].some((k) => k in plain.effect),
+		],
+		[['particles', a.cost, a.samples], false],
+	);
+
+	const burst = particlePreviewConfig('burst', 1);
+	const fountain = particlePreviewConfig('fountain', 1);
+	const spacing = burst.behaviors.find((b) => b.type === 'spawnBurst')?.config.spacing;
+	check(
+		'the Burst is a ring of 24, one wave every 2 s at the game speed, each gone before the next',
+		[
+			burst.particlesPerWave,
+			Number(spacing) * BURST_COUNT,
+			Math.round((burst.frequency / EMITTER_SECONDS_PER_SECOND) * 1000) / 1000,
+			burst.lifetime.max < burst.frequency,
+			burst.maxParticles,
+		],
+		[24, 360, BURST_PERIOD_S, true, BURST_COUNT],
+	);
+	check(
+		'the Fountain keeps every particle it lives to hold, under the 512 a material layer draws',
+		[
+			fountain.maxParticles >= Math.ceil(fountain.lifetime.max / fountain.frequency),
+			fountain.maxParticles <= 512,
+			fountain.behaviors.some((b) => b.type === 'moveAcceleration'),
+		],
+		[true, true, true],
+	);
+	check(
+		'both emitters draw their particles at one size whatever the art',
+		PARTICLE_PREVIEW_SHAPES.map(({ id }) => [
+			Math.round(particleScale(id, 32, 16) * 32 * 1000) / 1000,
+			Math.round(particleScale(id, 50, 200) * 200 * 1000) / 1000,
+			particleScale(id, 0, 0),
+		]),
+		PARTICLE_PREVIEW_SHAPES.map(({ id }) => [PARTICLE_SIZE[id], PARTICLE_SIZE[id], 1]),
 	);
 }
 

@@ -10,11 +10,16 @@
 		type PreviewBackground,
 	} from './shaderPreview.client';
 	import { useShaderThumbs } from './shaderThumbs.svelte';
+	import { ParticlePreviewStage, type ParticlePreviewState } from './particlePreview.client';
+	import { PARTICLE_PREVIEW_SHAPES, type ParticlePreviewShape } from './particlePreview';
+	import type { PreviewElement } from './shaderEditor';
 
 	/**
 	 * The live preview pane of Invisible Shader Graph: the edited graph posed on a sample card or an
 	 * atlas region through the game's Element FX runtime, with a `t` scrubber, play / loop, the
-	 * strength and a backdrop. Nothing here is saved.
+	 * strength and a backdrop; or, as the Particles element (step 8d.7), drawn as a particle material
+	 * on a stock Burst or Fountain through the game's renderer, played / paused / restarted. Nothing
+	 * here is saved.
 	 */
 	interface Props {
 		/** The graph being edited, compiled (`compileShaderEffect(doc)`'s `effect`); undefined while
@@ -22,15 +27,18 @@
 		effect: CustomElementFx | undefined;
 		/** The project's atlases, as the page's loader lists them. */
 		atlases: { manifestKey: string; label: string; regions: string[] }[];
+		/** The element shown when the graph opens or its Made for changes (`defaultPreviewElement`). */
+		defaultElement?: PreviewElement;
 	}
 
 	// Not `effect`: a local of that name turns the `$effect` rune into a store read.
-	let { effect: compiled, atlases }: Props = $props();
+	let { effect: compiled, atlases, defaultElement = 'sample' }: Props = $props();
 
 	const INTENSITY = ELEMENT_FX_LIMITS.intensity;
 
 	let host: HTMLDivElement | undefined = $state();
 	let stage: ShaderPreviewStage | undefined = $state.raw();
+	let particles: ParticlePreviewStage | undefined = $state.raw();
 	let failure = $state('');
 	let refused = $state(false);
 
@@ -40,7 +48,12 @@
 	let intensity = $state(1);
 	let background = $state<PreviewBackground>('dark');
 
-	let source = $state<'sample' | 'region'>('sample');
+	let source = $state<PreviewElement>('sample');
+	/** The Particles element: its emitter, its art (the soft dot or the picked region), its state. */
+	let shape = $state<ParticlePreviewShape>('burst');
+	let particleArt = $state<'dot' | 'region'>('dot');
+	let particlesPlaying = $state(true);
+	let particleState = $state<ParticlePreviewState>('none');
 	let atlasKey = $state('');
 	let regionName = $state('');
 	let loadingArt = $state(false);
@@ -50,10 +63,18 @@
 	const effectKey = $derived(compiled ? JSON.stringify(compiled) : '');
 	const durationMs = $derived(compiled ? previewDurationMs(compiled) : 0);
 	const atlas = $derived(atlases.find((a) => a.manifestKey === atlasKey));
-	const pickedRegion = $derived(
-		source === 'region' && atlas?.regions.includes(regionName)
+	const atlasRegion = $derived(
+		atlas?.regions.includes(regionName)
 			? { manifestKey: atlas.manifestKey, name: regionName }
 			: undefined,
+	);
+	const pickedRegion = $derived(source === 'region' ? atlasRegion : undefined);
+	const particleRegion = $derived(
+		source === 'particles' && particleArt === 'region' ? atlasRegion : undefined,
+	);
+	const onParticles = $derived(source === 'particles');
+	const regionShown = $derived(
+		source === 'region' || (source === 'particles' && particleArt === 'region'),
 	);
 
 	const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -71,8 +92,14 @@
 		let disposed = false;
 		let app: Application | undefined;
 		let created: ShaderPreviewStage | undefined;
+		let made: ParticlePreviewStage | undefined;
 		let observer: ResizeObserver | undefined;
 		// Ahead of the runtime's own step, so each frame poses the playhead it just moved to.
+		// A material can turn plain while it plays (a program the driver refuses): read it each frame.
+		const readParticleState = (): void => {
+			const now = made?.state ?? 'none';
+			if (now !== particleState) particleState = now;
+		};
 		const advance = (ticker: Ticker): void => {
 			if (!playing || !durationMs) return;
 			const next = advancePlayhead(t, ticker.deltaMS, durationMs, loop);
@@ -108,17 +135,28 @@
 			app = next;
 			el.appendChild(next.canvas);
 			created = new ShaderPreviewStage(next, () => ({ progress: t, intensity }));
+			made = new ParticlePreviewStage(next, created.art);
 			next.ticker.add(advance, undefined, UPDATE_PRIORITY.HIGH);
+			next.ticker.add(readParticleState);
 			const shown = created;
-			observer = new ResizeObserver(() => shown.resize(el.clientWidth, el.clientHeight));
+			const drawn = made;
+			observer = new ResizeObserver(() => {
+				shown.resize(el.clientWidth, el.clientHeight);
+				drawn.resize();
+			});
 			observer.observe(el);
 			stage = created;
+			particles = made;
 		})();
 
 		return () => {
 			disposed = true;
 			observer?.disconnect();
 			app?.ticker.remove(advance);
+			app?.ticker.remove(readParticleState);
+			// Before the element's stage: the particles may hold a region on its atlas pages.
+			made?.destroy();
+			particles = undefined;
 			created?.destroy();
 			app?.destroy({ removeView: true }, { children: true });
 			stage = undefined;
@@ -133,6 +171,61 @@
 		if (!shown) return;
 		const fx = fxKey ? (JSON.parse(fxKey) as CustomElementFx) : undefined;
 		refused = untrack(() => !shown.show(fx));
+		// The particles draw what the element stage registered (both stages are made together).
+		untrack(() => particles?.show(shown.current));
+	});
+
+	// A graph opened, or its Made for changed: its default element (Particles for a material).
+	$effect(() => {
+		const element = defaultElement;
+		untrack(() => pickSource(element));
+	});
+
+	$effect(() => {
+		const shown = stage;
+		const on = onParticles;
+		if (!shown) return;
+		shown.setElementVisible(!on);
+		particles?.setVisible(on);
+	});
+
+	$effect(() => {
+		particles?.setShape(shape);
+	});
+
+	$effect(() => {
+		const drawn = particles;
+		const level = intensity;
+		if (!drawn) return;
+		untrack(() => drawn.setIntensity(level));
+	});
+
+	$effect(() => {
+		const drawn = particles;
+		if (drawn) drawn.playing = particlesPlaying;
+	});
+
+	$effect(() => {
+		const drawn = particles;
+		const region = particleRegion;
+		if (!drawn) return;
+		untrack(() => {
+			if (!region) {
+				drawn.useDot();
+				return;
+			}
+			artNote = '';
+			loadingArt = true;
+			drawn.useRegion(region.manifestKey, region.name).then(
+				(current) => {
+					if (current) loadingArt = false;
+				},
+				(err: unknown) => {
+					loadingArt = false;
+					artNote = `Couldn't load ${region.name} (${message(err)}): the particles show the soft dot.`;
+				},
+			);
+		});
 	});
 
 	$effect(() => {
@@ -169,9 +262,27 @@
 	}
 
 	function pickSource(next: string): void {
-		source = next === 'region' ? 'region' : 'sample';
+		source = next === 'region' || next === 'particles' ? next : 'sample';
 		if (source === 'region' && !atlas) pickAtlas(atlases[0]?.manifestKey ?? '');
 	}
+
+	function pickParticleArt(next: string): void {
+		particleArt = next === 'region' ? 'region' : 'dot';
+		if (particleArt === 'region' && !atlas) pickAtlas(atlases[0]?.manifestKey ?? '');
+	}
+
+	/** Why the particles draw as plain sprites, in words (the game's own fallbacks). */
+	const PLAIN_TEXT: Partial<Record<ParticlePreviewState, string>> = {
+		'program does not link': "this GPU did not compile the material's program",
+		'shell refuses the body': 'the particle shell cannot take this graph',
+		'not WebGL': 'the preview is not on WebGL',
+		'not registered': 'the effect did not register',
+	};
+	const particlePlain = $derived(
+		onParticles && compiled && particleState !== 'on' && particleState !== 'none'
+			? (PLAIN_TEXT[particleState] ?? particleState)
+			: '',
+	);
 
 	function pickAtlas(key: string): void {
 		atlasKey = key;
@@ -187,43 +298,67 @@
 			<p class="overlay">Doesn't compile — fix the errors to preview.</p>
 		{:else if refused}
 			<p class="overlay warn">The runtime didn't take this effect, so it can't preview.</p>
+		{:else if particlePlain}
+			<p class="overlay warn">The particles draw plain: {particlePlain}.</p>
 		{/if}
 		{#if loadingArt}
 			<span class="loading">Loading art…</span>
 		{/if}
 	</div>
 
-	<div class="row transport">
-		<button
-			class="play"
-			onclick={togglePlay}
-			disabled={!compiled}
-			title={playing ? 'Pause' : 'Play'}
-			aria-label={playing ? 'Pause' : 'Play'}
-		>
-			{playing ? '❚❚' : '▶'}
-		</button>
-		<input
-			type="range"
-			min="0"
-			max="1"
-			step="0.001"
-			bind:value={t}
-			oninput={() => (playing = false)}
-			disabled={!compiled}
-			aria-label="Progress t"
-		/>
-		<label class="toggle" title="Start again at the end">
-			<input type="checkbox" bind:checked={loop} />
-			Loop
-		</label>
-	</div>
-	<p class="readout">
-		t <b>{t.toFixed(3)}</b>
-		{#if durationMs}
-			· <b>{Math.round(t * durationMs)}</b> / {durationMs} ms
-		{/if}
-	</p>
+	{#if onParticles}
+		<div class="row transport">
+			<button
+				class="play"
+				onclick={() => (particlesPlaying = !particlesPlaying)}
+				disabled={!compiled}
+				title={particlesPlaying ? 'Pause' : 'Play'}
+				aria-label={particlesPlaying ? 'Pause' : 'Play'}
+			>
+				{particlesPlaying ? '❚❚' : '▶'}
+			</button>
+			<button
+				class="play"
+				onclick={() => particles?.restart()}
+				disabled={!compiled}
+				title="Restart: every particle gone, the emitter from its first frame"
+				aria-label="Restart">↻</button
+			>
+			<span class="hint inline">Each particle plays its own life.</span>
+		</div>
+	{:else}
+		<div class="row transport">
+			<button
+				class="play"
+				onclick={togglePlay}
+				disabled={!compiled}
+				title={playing ? 'Pause' : 'Play'}
+				aria-label={playing ? 'Pause' : 'Play'}
+			>
+				{playing ? '❚❚' : '▶'}
+			</button>
+			<input
+				type="range"
+				min="0"
+				max="1"
+				step="0.001"
+				bind:value={t}
+				oninput={() => (playing = false)}
+				disabled={!compiled}
+				aria-label="Progress t"
+			/>
+			<label class="toggle" title="Start again at the end">
+				<input type="checkbox" bind:checked={loop} />
+				Loop
+			</label>
+		</div>
+		<p class="readout">
+			t <b>{t.toFixed(3)}</b>
+			{#if durationMs}
+				· <b>{Math.round(t * durationMs)}</b> / {durationMs} ms
+			{/if}
+		</p>
+	{/if}
 
 	<div class="row">
 		<span class="label">Intensity</span>
@@ -252,9 +387,33 @@
 			<option value="region" disabled={!atlases.length}>
 				{atlases.length ? 'Atlas region' : 'Atlas region (no atlases)'}
 			</option>
+			<option value="particles">Particles</option>
 		</select>
 	</label>
-	{#if source === 'region'}
+	{#if onParticles}
+		<div class="row">
+			<span class="label">Emitter</span>
+			<div class="seg" role="group" aria-label="Emitter">
+				{#each PARTICLE_PREVIEW_SHAPES as option (option.id)}
+					<button
+						class:on={shape === option.id}
+						aria-pressed={shape === option.id}
+						onclick={() => (shape = option.id)}>{option.label}</button
+					>
+				{/each}
+			</div>
+		</div>
+		<label class="row">
+			<span class="label">Art</span>
+			<select value={particleArt} onchange={(e) => pickParticleArt(e.currentTarget.value)}>
+				<option value="dot">Soft dot</option>
+				<option value="region" disabled={!atlases.length}>
+					{atlases.length ? 'Atlas region' : 'Atlas region (no atlases)'}
+				</option>
+			</select>
+		</label>
+	{/if}
+	{#if regionShown}
 		<label class="row">
 			<span class="label">Atlas</span>
 			<select value={atlasKey} onchange={(e) => pickAtlas(e.currentTarget.value)}>
@@ -271,7 +430,9 @@
 				{/each}
 			</select>
 		</label>
-		<p class="hint">Symbol art is in the atlases.</p>
+		{#if !onParticles}
+			<p class="hint">Symbol art is in the atlases.</p>
+		{/if}
 	{/if}
 	{#if artNote}
 		<p class="hint warn">{artNote}</p>
@@ -483,5 +644,8 @@
 	}
 	.hint.warn {
 		color: #d98a3a;
+	}
+	.hint.inline {
+		margin: 0;
 	}
 </style>
