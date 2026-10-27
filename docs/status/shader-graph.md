@@ -308,8 +308,8 @@ in review; 8d.8 (play-QA and calibration) is next.
       - **Picker order:** `/fx` lists effects made for particles first, under "Made for particles"
         and "Other effects".
       - **Gates:** `compile.fixture.ts` 213 (snapshots unchanged); `check:shader-editor` 263;
-        `fx-previews` 78; `shader-page` (new, in `check:all`, 42) plays the real `/shaders` headless on
-        WebGL1 and WebGL2 and walks the step's exit; `check:shader-pipeline` 149.
+        `fx-previews` 78; `shader-page` (new, in `check:all`, 42) plays the real `/shaders`
+        headless on WebGL1 and WebGL2 and walks the step's exit; `check:shader-pipeline` 149.
     - **8d.6, the other previews.** Merged (#1407, 2026-10-27). Guides:
       `docs/tools/invisible-editor.md`, `rigger.md`, `symbols-state-machine.md`.
       - **One mount for every launcher stage** (`$lib/fx/layerMaterial.client.ts`): the layer's
