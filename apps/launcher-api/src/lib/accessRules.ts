@@ -1,4 +1,4 @@
-import { TOOLS, type Role } from './roles';
+import { TOOLS, roleHasTool, type Role, type ToolOverrides } from './roles';
 
 /**
  * Pure access decisions shared by the routes that apply them and `check-launcher-gates.ts`, which
@@ -14,6 +14,42 @@ export function leaseEntitlingTool(toolId: string): string | null {
 	if (toolId === 'componentEditor') return 'editor';
 	return Object.hasOwn(TOOLS, toolId) ? toolId : null;
 }
+
+/**
+ * Whether any of `tools` entitles `role` under its grants: a tool gate (`toolScope.ts` `gate`)
+ * admits a caller holding its tool or any of its alternatives.
+ */
+export function entitledByAny(
+	role: Role,
+	tools: readonly string[],
+	roleOverrides: ToolOverrides = {},
+	userOverrides: ToolOverrides = {},
+): boolean {
+	return tools.some((tool) => roleHasTool(role, tool, roleOverrides, userOverrides));
+}
+
+/** Invisible Shader Graph: the one tool that writes shader graphs. */
+export const SHADER_TOOL = 'shaders';
+
+/**
+ * The tools that READ a project's shader graphs (docs, list, history) and their compiled effects
+ * (`shaderReadScope`): `/shaders`, and the tools whose pickers list custom Element FX (the Scene
+ * and Component Editors, Symbols, the Flow). Only `/shaders` writes them.
+ */
+export const SHADER_READ_TOOLS = [
+	SHADER_TOOL,
+	'editor',
+	'componentEditor',
+	'symbols',
+	'flow',
+] as const;
+
+/**
+ * The tools that read ONLY the compiled effects (`shaderEffectsReadScope`, `GET
+ * /api/shaders/effects`): the readers above, and the tools that draw a particle material (`/fx`,
+ * the Rigger). They never see a graph's doc, its Custom GLSL source, the list or its history.
+ */
+export const SHADER_EFFECTS_READ_TOOLS = [...SHADER_READ_TOOLS, 'fx', 'rigger'] as const;
 
 /**
  * Whether a user may create a project under `clientKey` (null = unassigned). Admins may use any
