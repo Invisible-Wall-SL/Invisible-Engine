@@ -1,6 +1,7 @@
 # ADR-0011 — Reskin adapters: Sound, FX and Component Editor art
 
-- **Status:** proposed
+- **Status:** proposed; the owner's agreement to every default was relayed by the coordinator on
+  2026-10-27 (see "Owner decision" at the end) and is confirmed on the PR
 - **Date:** 2026-10-27
 - **Scope:** PLAN card 9H. The smallest set of adapter ops that lets a run re-point what a template
   already has at new sounds, new particle art and new art inside components. Nothing here adds a
@@ -241,3 +242,17 @@ carry `saved_by`.
 
 **For the coordinator (not an owner decision):** file the publish-gate gap above as a Sound
 pipeline bug. Default: confirm it with a fixture first, then file it with `pipeline-triage`.
+
+## Owner decision (2026-10-27, relayed by the coordinator)
+
+The coordinator session relayed the owner's agreement to all five defaults above. The owner
+confirms it on the 9H PR; until then the status stays proposed.
+
+1. No audio generation in 9H.
+2. Agents bind only approved library sounds and built-ins.
+3. Attribution for sounds, FX and components lives in `director_ops` and the activity line, not
+   `saved_by` (a departure from ADR-0002).
+4. `components.update_art` may re-pin instances whose pin differs from the new def in art alone.
+5. The sound op's result keeps `before`.
+
+The publish-gate gap (§Context) is filed by the owner as a Sound pipeline bug, outside 9H.
