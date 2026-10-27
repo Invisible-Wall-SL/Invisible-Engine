@@ -304,9 +304,8 @@ built and in review; 8d.7 (`/shaders`: Made for particles and the Particles prev
       - **Gate:** `fx-previews` (in `check:all`, ~105 s, 50 checks) plays the committed
         `rigger-fx.js` and `EditorEffectLayer` headless on WebGL1 and WebGL2, and runs
         `view.html`'s real `ensureFxBundle` (race, hang) and `node --check` on its inline scripts.
-      - **Known, not this step:** the Scene Editor's effect clock runs slow for every effect
-        (`EditorEffectLayer` passes `ticker.deltaMS / 1000`, not `emitterDeltaSeconds`; about
-        2.3×). Open item.
+      - **The Scene Editor's clock** ran about 2.3× slow for every effect (found in this step's
+        review); fixed separately in #1401, and `fx-previews` now pins it to the game's.
     - **8d.5, `/fx` authoring.** Merged (#1392, 2026-10-27). Guide: `docs/tools/fx.md` (Material).
       - **The Material section** (sprite layers; `fxMaterial.client.ts`, pure): the picker (None,
         then the project's compiled effects by name; "made for particles" first waits for 8d.7's
@@ -570,9 +569,6 @@ built and in review; 8d.7 (`/shaders`: Made for particles and the Particles prev
 ## Open items / next
 1. **Step 8d.7 (next): `/shaders` Made for particles and the Particles preview** (design §15
    step 7).
-   - **The Scene Editor's effect clock** runs about 2.3× slow for every effect, materials or not:
-     `EditorEffectLayer` updates its emitters with `ticker.deltaMS / 1000` where the game and `/fx`
-     use `emitterDeltaSeconds`. Found in the 8d.6 review; a one-line fix, its own PR (owner's call).
    - **8d.7:** the picker's "made for particles" first; `/shaders` switching to
      `PARTICLE_COST_BUDGET` / `PARTICLE_SAMPLE_BUDGET`; carrying the cost in the compiled effect,
      so the effects route's `costs` and the `?fxdebug=1` load figure follow from it.
@@ -649,7 +645,8 @@ built and in review; 8d.7 (`/shaders`: Made for particles and the Particles prev
   - **Review.** Fixed: an editor unmount while art loaded, or an emitter config that threw, held
     a slot for good; two Rigger bands could draw before the set registered; the set's fetch had no
     timeout; finished overlay one-shots held their slots until cleared; the overlay's material sync
-    could throw out of the ticker. Left: the Scene Editor's clock (open item 1).
+    could throw out of the ticker. The Scene Editor's clock, 2.3× slow for every effect, was fixed
+    in its own PR (#1401).
 - 2026-10-27 — **Step 8d.5: `/fx` authoring** (see "Current state"). Step 8d.4 merged (#1384).
   - **Merged** (#1392): CI green; Current games 8 pass, 0 changed screens, the one failure `cloud`,
     which fails on `main`'s runtime too (merged past it with the owner's approval).
