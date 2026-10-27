@@ -7,7 +7,7 @@ the R&D pod fleet (`/comfyui`, `services/atlas-comfy-pod`), the `nodes.json` nod
 person's own ComfyUI over the tunnel. Runbooks and env vars: `docs/INFRA.md` "ComfyUI".
 
 ### Every background cutout failed for hours
-- **Symptom:** every cutout on the serverless worker failed until someone noticed.
+- **Symptom:** every serverless cutout failed for ~14 h (video renders too), any BiRefNet model.
 - **Cause:** the worker linked the volume's shared `models/RMBG/`, a folder the node itself
   rewrites; it tore once (2026-09-04) and broke every job.
 - **Fix:** the worker skips `RMBG`, and `fetch-models.py --verify --stage` copies checksummed

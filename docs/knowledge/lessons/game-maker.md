@@ -11,17 +11,17 @@ and [design/games-deploy.md](../../design/games-deploy.md).
 - **Cause:** a third-party dependency was declared in `apps/lines`; the launcher backfills only
   engine workspace packages into a game repo, never third-party ones.
 - **Fix:** the dependency lives in a workspace package (`packages/engine-rooms`), imported from it.
-- **Guard:** `pnpm check:game-app-deps` (Lint).
-- **PR:** not recorded (2026-10-27) · source: `docs/design/games-deploy.md`
+- **Guard:** `check:game-app-deps` (Lint). Also [arcade](../families/arcade.md#known-failure-modes).
+- **PR:** #1397 (2026-10-27) · source: `docs/design/games-deploy.md`
 
-### Re-scaffold kept the old kind's flow after a kind change
-- **Symptom:** a project switched to `arcade` in `/admin` published an arcade game driven by the
-  Book-of flow.
-- **Cause:** scaffold seeds are create-only, so Rescaffold never replaced a doc another kind wrote.
-- **Fix:** `replaceOtherKindDocs` (`projectScaffold.ts`) replaces a flow or layout provably of
-  another FAMILY's kind, backed up and CAS'd; same-family docs are never touched.
-- **Guard:** `check:project-scaffold`.
-- **PR:** not recorded (2026-10-26) · source: `docs/status/game-maker.md`
+### A kind change shipped the old kind's flow
+- **Symptom:** `salmons`, switched Book-of → `arcade` and re-scaffolded, ran the Book-of flow.
+- **Cause:** scaffold seeds are create-only, so Rescaffold kept a doc another kind wrote; the flow
+  validated clean against its own `templateId` (`flowV2Validation.ts`).
+- **Fix:** `replaceOtherKindDocs` (`projectScaffold.ts`) replaces a doc provably of another
+  FAMILY's kind (backed up, CAS'd); Publish refuses `flow-wrong-kind` (`flowTemplateMismatch`).
+- **Guard:** `check:project-scaffold`, `check:flow-publish-gate` §15, `check:build-provenance`.
+- **PR:** #1369 (2026-10-26) · source: `docs/status/game-maker.md`, `docs/status/flow.md`
 
 ### Desktop publish fails with a bare 409
 - **Symptom:** ☁ Publish stops on "the portal returned HTTP 409" and gives no reason.
@@ -47,7 +47,7 @@ and [design/games-deploy.md](../../design/games-deploy.md).
   engine needs newer ones, so pnpm installs two Svelte copies.
 - **Fix:** `packages/config-vite/svelteVersions.js` refuses and names the pins; the desktop
   launcher aligns them per build (`align_svelte_pins`). Fix a repo at rest per the design doc.
-- **Guard:** `check:svelte-pins`.
+- **Guard:** `check:svelte-pins`. Also [lines.md](../families/lines.md#known-failure-modes).
 - **PR:** #1175 (2026-10-13) · source: `docs/status/engine.md`
 
 ### Desktop publish refused at the portal's per-file limit
@@ -60,13 +60,13 @@ and [design/games-deploy.md](../../design/games-deploy.md).
 - **PR:** not recorded (2026-10-13) · source: `docs/status/launcher.md`
 
 ### A new key shares another project's files
-- **Symptom:** a hyphenated key (`book-of-borut`) and the Python tools' path (`book_of_borut`)
-  diverge, or `my_game` beside `my-game` reads and writes one tree.
+- **Symptom:** `my_game` beside `my-game` read and wrote one R2 tree; tools' paths diverged.
 - **Cause:** keys accept `-`, but R2 folders are `r2Slug` (`[^a-z0-9]` → `_`, `projectPaths.ts`;
   `r2_slug` in `services/_shared/iw_common/context.py`). Key R2 work on the slug, not the raw key.
-- **Fix:** one slug rule for both halves; `createProject` throws `ProjectFolderTakenError`.
+- **Fix:** one slug rule for both halves; `createProject` / `assignProjectToClient` check under
+  `withProjectKeyLock` and throw `ProjectFolderTakenError`; Director refuses `key_folder_taken`.
 - **Guard:** `check:project-create`; `list:project-folder-aliases` lists old aliases.
-- **PR:** #1085 follow-up (2026-10-07; noted 2026-06-01) · source: `docs/status/launcher.md`
+- **PR:** #1090 (2026-10-07; noted 2026-06-01) · source: `docs/status/launcher.md`
 
 ### Duplicate plays the source game's art or snapshot
 - **Symptom:** a duplicate draws the source's assets or serves the source's published version.

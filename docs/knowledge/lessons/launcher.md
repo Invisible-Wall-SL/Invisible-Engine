@@ -46,7 +46,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
   `force`, so the write skipped its ETag check.
 - **Fix:** `onclick={() => save()}`.
 - **Guard:** `check:event-bound-flags` (a boolean first parameter bound to an `on…` handler).
-- **PR:** not recorded (2026-09-28) · source: `docs/status/localization.md`
+- **PR:** #821 (2026-09-28) · source: `docs/status/localization.md`
 
 ### A publisher could reach another client's project
 - **Symptom:** a crafted publish body for an unshared project worked and pinned the session to it.
@@ -98,6 +98,15 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **Guard:** the sanitiser in `<BitmapText>`; no tool warning yet (win-text open item 2).
 - **PR:** not recorded · source: `docs/status/font-maker.md`, `docs/status/win-text.md`
 
+### A type error ships green
+- **Symptom:** author component params were silently stripped, twice, with a green build.
+- **Cause:** `pnpm --filter launcher-api build` is a bare `vite build` (strips types, checks
+  nothing); a hand-copied allowlist drifted from its type.
+- **Fix:** derive runtime lists from one exported value (`COMPONENT_PARAM_KINDS`); prove contracts
+  in a Node fixture over the real modules.
+- **Guard:** `check:undefined-names`, `pnpm lint`, the `check:svelte` ratchet: part of it, not all.
+- **PR:** not recorded (2026-07-17) · source: `apps/launcher-api/CLAUDE.md`
+
 ### A real 404 or 401 reads as a CORS error
 - **Symptom:** the browser reports "No Access-Control-Allow-Origin" for a game asset.
 - **Cause:** `/api/deploy` set CORS only on its 200, so an `error()` (404, 401) had none and hid
@@ -105,15 +114,6 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **Fix:** `hooks.server.ts` sets `DEPLOY_CORS_HEADERS` on every `/api/deploy` response.
 - **Guard:** none.
 - **PR:** not recorded (2026-07-09) · source: `docs/history.md`
-
-### A type error ships green
-- **Symptom:** author component params were silently stripped, twice, with a green build.
-- **Cause:** `pnpm --filter launcher-api build` is a bare `vite build` (strips types, checks
-  nothing); a hand-copied allowlist drifted from its type.
-- **Fix:** derive runtime lists from one exported value (`COMPONENT_PARAM_KINDS`); prove contracts
-  in a Node fixture over the real modules.
-- **Guard:** `pnpm check:undefined-names` and `pnpm lint` from the repo root.
-- **PR:** not recorded (2026-07-17) · source: `apps/launcher-api/CLAUDE.md`
 
 ### Rigger or Rig Viewer runs old code after a change
 - **Symptom:** an FX change shipped everywhere except the Rigger.

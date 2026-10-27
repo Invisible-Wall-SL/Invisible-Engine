@@ -2,7 +2,10 @@
 
 What has bitten symbols work before, newest first. Format and rules: [README](../README.md).
 Current state lives in [status/symbols.md](../../status/symbols.md); this file only keeps the
-traps. Older detail: [symbols-history.md](../../status/symbols-history.md).
+traps. Older detail: [symbols-history.md](../../status/symbols-history.md). Manual Save
+overwriting a newer save (#821):
+[launcher.md](launcher.md#a-manual-save-overwrote-a-colleagues-newer-save). Held coin labels
+drawing black (#963): [hold-and-win](../families/hold-and-win.md#known-failure-modes).
 
 ### Art set on a symbol state that never plays
 - **Symptom:** a Hold and Win project showed 17 state columns per row; art set on most of them
@@ -37,22 +40,6 @@ traps. Older detail: [symbols-history.md](../../status/symbols-history.md).
 - **Guard:** `check:doc-readers-unknown-fields`, `check:save-keeps-unknown-blocks`; rule in
   `docs/conventions/doc-readers.md`.
 - **PR:** #961 and follow-ups (2026-10-01) · source: `docs/status/symbols.md`
-
-### Held coin labels drew black
-- **Symptom:** coin values on the respin board rendered black instead of the authored tint.
-- **Cause:** pixi `BitmapText` defaults `fill` to white only in its constructor; `CoinLabel`
-  re-assigned a fill-less style every render.
-- **Fix:** the style always passes `fill: 0xffffff` (the tint multiplies it).
-- **Guard:** none specific (`check:coin-label` covers the label's shape).
-- **PR:** #963 (2026-10-01) · source: `docs/status/symbols.md`
-
-### Manual Save overwrote a newer save
-- **Symptom:** Save never warned that a colleague had saved in between.
-- **Cause:** `onclick={save}` with `save(force = false)` passed the click event as `force`, so
-  `writeGuard` skipped the ETag check. Same bug in `/fx` and `/localization`.
-- **Fix:** `onclick={() => save()}`.
-- **Guard:** `check:event-bound-flags` (any boolean-first handler bound straight to an event).
-- **PR:** #821 (2026-09-28) · source: `docs/status/symbols.md`
 
 ### A renamed rig shipped as nothing
 - **Symptom:** a cell, highlight or board glow bound to a renamed or deleted rig showed nothing.

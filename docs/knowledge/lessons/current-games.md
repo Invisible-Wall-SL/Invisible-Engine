@@ -28,10 +28,10 @@ Traps of one game type live in its family file, e.g. [lines](../families/lines.m
 - **Symptom:** every PR read `12 pass · 2 fail`: `testarcade` and `match3test` failed both sides.
 - **Cause:** `scriptFor()` (`scripts/current-games/lib/plan.mjs`) falls back to `lines` for a kind
   with no screen script; the match-3 snapshot carried a non-match-3 flow, so main stalls too.
-- **Fix:** `screens/arcade.json` + a `hold` op; a free-play scenario main stalls in identically is
-  a note (`assemble.mjs`), every scenario so ⇒ "not rendered".
+- **Fix:** `screens/arcade.json` + a `hold` op; a stall main shares is a note (`assemble.mjs`).
 - **Guard:** `assemble.fixture.mjs`, `play.fixture.mjs`. A new kind needs its own screen script.
-- **PR:** not recorded (2026-10-26) · source: `docs/status/engine.md`
+- **PR:** #1374 (2026-10-26) · source: `docs/status/engine.md` ·
+  [arcade.md](../families/arcade.md#known-failure-modes)
 
 ### A render failed because a game was republished mid-run
 - **Symptom:** "mock contract changed during the run" on both sides of a game.

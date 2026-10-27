@@ -75,6 +75,7 @@ launcher's Drizzle migrations on prod. URLs, env-var names and runbooks: `docs/I
 - **Fix:** keep the `onlyBuiltDependencies` entry; `SOUND_TRANSCODE=0` disables the step.
 - **Guard:** none; after a deploy, re-export a known over-encoded sound and check it shrank.
 - **PR:** not recorded (2026-09-23) · source: `docs/INFRA.md`
+
 ### My runtime release wiped the game
 - **Symptom:** an online game booted with no project art or config right after a push.
 - **Cause:** the launcher rebuilds on every push and has no Railway healthcheck, so for ~100 s
@@ -134,14 +135,6 @@ launcher's Drizzle migrations on prod. URLs, env-var names and runbooks: `docs/I
 - **Guard:** none; verify what the runtime sees, not the dashboard (`/deploy` skill).
 - **PR:** not recorded · source: `docs/INFRA.md`, `.claude/skills/deploy/SKILL.md`
 
-### A migration went to the wrong Railway environment
-- **Symptom:** every authed request 500'd after an admin feature shipped, despite a migration.
-- **Cause:** the code read columns the prod DB did not have yet, and the first migration attempt
-  went to a stray second Railway environment, which carries its own Postgres.
-- **Fix:** the stray environment was deleted; migrations now self-apply at boot (entry above).
-- **Guard:** only `production` exists; confirm the env before any manual DB step.
-- **PR:** not recorded (2026-05-30) · source: `docs/history.md`
-
 ### The launcher build fell back to npm
 - **Symptom:** the launcher's Railway build choked on `workspace:*`.
 - **Cause:** with Root Directory `apps/launcher-api`, Railpack cannot see `pnpm-lock.yaml` or
@@ -149,6 +142,14 @@ launcher's Drizzle migrations on prod. URLs, env-var names and runbooks: `docs/I
 - **Fix:** Root Directory = repo root for launcher, atlas-tool and sheet-tool (Dockerfile Path set).
 - **Guard:** none; INFRA "Services (Railway)".
 - **PR:** not recorded (2026-05-31) · source: `docs/INFRA.md`
+
+### A migration went to the wrong Railway environment
+- **Symptom:** every authed request 500'd after an admin feature shipped, despite a migration.
+- **Cause:** the code read columns the prod DB did not have yet, and the first migration attempt
+  went to a stray second Railway environment, which carries its own Postgres.
+- **Fix:** the stray environment was deleted; migrations now self-apply at boot (entry above).
+- **Guard:** only `production` exists; confirm the env before any manual DB step.
+- **PR:** not recorded (2026-05-30) · source: `docs/history.md`
 
 ### Railway TLS broke after proxying a record
 - **Symptom:** a custom domain stopped serving valid TLS after turning on Cloudflare's proxy.

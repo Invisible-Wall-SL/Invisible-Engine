@@ -11,10 +11,10 @@ builds. Slot-type traps live in the family files, e.g. [lines](../families/lines
 - **Symptom:** the client sat at free spin 7/20 with no way out.
 - **Cause:** every publish or runtime release `POST /refresh`es the test server, which rebuilt each
   mock with `round: null`; and a refusal mid-feature still presented a book with no `gameEnd`.
-- **Fix:** `services/test-server/openRounds.mjs` keeps open rounds; a refusal inside a feature
-  abandons the session with "Reload to continue" (`eagamingFetcher.ts` `abandon`).
+- **Fix:** `openRounds.mjs` holds open rounds; a refusal mid-feature `abandon`s ("Reload").
 - **Guard:** `openRounds.fixture.mjs`; `check:connection` §10 and §10b.
-- **PR:** not recorded (2026-10-02) · source: `docs/status/engine.md`
+- **PR:** not recorded (2026-10-02) · source: `docs/status/engine.md` ·
+  [lines.md](../families/lines.md#known-failure-modes)
 
 ### The operator's turbo, autoplay and opening bet were ignored
 - **Symptom:** a licence's "no turbo" did nothing, and every game opened on $1.
@@ -130,6 +130,7 @@ builds. Slot-type traps live in the family files, e.g. [lines](../families/lines
 - **Fix:** the bet declares the server's line count; `payoutBaseFor` beside the divisor.
 - **Guard:** `pnpm check:stake` (real facade vs real mock: `finalWin ÷ 100 === payoutMultiplier`).
 - **PR:** not recorded (2026-08-21) · source: `docs/status/engine-history.md`
+  Also [scatter.md](../families/scatter.md#known-failure-modes).
 
 ### Translator code shipped without ever running
 - **Symptom:** cascade translation was "prettier- and eslint-clean but never executed".

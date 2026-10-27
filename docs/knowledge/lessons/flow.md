@@ -2,15 +2,8 @@
 
 What has bitten Flow work before, newest first. Format and rules: [README](../README.md).
 Current state lives in [status/flow.md](../../status/flow.md); this file only keeps the traps.
-
-### A kind change shipped an arcade game driven by a slot flow
-- **Symptom:** `salmons`, switched Book-of → `arcade` in `/admin`, published with its old flow.
-- **Cause:** the flow validated clean against its own `templateId` vocabulary; no check compared it
-  with the project's kind (`apps/launcher-api/src/lib/server/flowV2Validation.ts`).
-- **Fix:** `flowGateRefusal` refuses `flow-wrong-kind` first, with no override, when
-  `flowTemplateMismatch` holds across families; slot→slot legacy `bookOf` flows still pass.
-- **Guard:** `check:flow-publish-gate` §15, `check:build-provenance`.
-- **PR:** not recorded (2026-10-26) · source: `docs/status/flow.md`
+A kind change that shipped the old kind's flow (`flow-wrong-kind`):
+[game-maker.md](game-maker.md#a-kind-change-shipped-the-old-kinds-flow).
 
 ### Publish answered 502 instead of naming the cause
 - **Symptom:** Publish failed with an opaque 502; nothing said the flow was the problem.
@@ -72,6 +65,14 @@ Current state lives in [status/flow.md](../../status/flow.md); this file only ke
 - **Guard:** CI. Never accept a red baseline; fix or delete the check.
 - **PR:** not recorded (2026-09-30) · source: `docs/status/flow.md`
 
+### Validating at Publish did not protect players
+- **Symptom:** a flow saved invalid after publishing still reached players.
+- **Cause:** games booted the live `/api/editor/runtime`, which assembled the currently stored doc.
+- **Fix:** players boot the published snapshot; Publish validates the flow that snapshot ships
+  (`checkShippedFlowV2`). An invalid autosave reaches only `ie_authoring=1` boots.
+- **Guard:** `check:flow-publish-gate`. Details: [game-maker status](../../status/game-maker.md).
+- **PR:** not recorded (2026-09-29) · source: `docs/status/flow.md`
+
 ### Two wires from one exec-out ran only one
 - **Symptom:** an exec-out wired to two nodes silently drove one of them.
 - **Cause:** the runtime follows one wire per exec-out (`nextExec` → `graph.exec.find`).
@@ -87,14 +88,6 @@ Current state lives in [status/flow.md](../../status/flow.md); this file only ke
 - **Fix:** `projectScaffold.ts` writes `freshDrivenSeedDoc(gameType)`; scaffold keeps repeaters.
 - **Guard:** `check:flow-publish-gate` (every built-in kind's scaffold passes its own gate).
 - **PR:** #833 (2026-09-28) · source: `docs/status/flow.md`
-
-### Validating at Publish did not protect players
-- **Symptom:** a flow saved invalid after publishing still reached players.
-- **Cause:** games booted the live `/api/editor/runtime`, which assembled the currently stored doc.
-- **Fix:** players boot the published snapshot; Publish validates the flow that snapshot ships
-  (`checkShippedFlowV2`). An invalid autosave reaches only `ie_authoring=1` boots.
-- **Guard:** `check:flow-publish-gate`. Details: [game-maker status](../../status/game-maker.md).
-- **PR:** not recorded (2026-09-29) · source: `docs/status/flow.md`
 
 ### One tap skipped the count and dismissed the screen
 - **Symptom:** the outro's tap-to-skip landed the total and closed the screen in the same press.
@@ -190,7 +183,7 @@ Current state lives in [status/flow.md](../../status/flow.md); this file only ke
 - **Symptom:** the counter read NaN on spin one, then counted from spin two.
 - **Cause:** one `gameSignals` node shows every event's data pins; a pin wired into another event's
   chain reads the firing event's payload, which lacks the field.
-- **Fix:** `signal-cross-event` error (an `eventOwners` walk); container-event pins are own roots.
+- **Fix:** `signal-cross-event` error (a `triggerOwners` walk); container-event pins are own roots.
 - **Guard:** flow-spike `v2signalscope`.
 - **PR:** not recorded (2026-07-17) · source: `docs/status/flow-history.md`
 

@@ -4,7 +4,8 @@ What has bitten Director work before, newest first. Format and rules: [README](.
 Current state lives in [director/PLAN.md](../../director/PLAN.md) and
 [director/HISTORY.md](../../director/HISTORY.md); this file only keeps the traps. It covers
 Invisible Director, Pipeline Changes and `services/director-worker`. The current-games harness has
-its own file: [current-games](current-games.md).
+its own file: [current-games](current-games.md). A key aliasing another project's R2 folder
+(#1090): [game-maker.md](game-maker.md#a-new-key-shares-another-projects-files).
 
 ### A migration renumbered after another was skipped
 - **Symptom:** risk: drizzle silently skips a migration whose `when` is earlier than the last one
@@ -31,14 +32,6 @@ its own file: [current-games](current-games.md).
 - **Guard:** `prove:art-plan` (scenario 6: a resend never re-queues a rendered step),
   `check:recipes`.
 - **PR:** #1091, #1093 (2026-10-07) · source: `docs/director/HISTORY.md`
-
-### A new key could alias another project's R2 folder
-- **Symptom:** `sunken_temple` beside `sunken-temple` would share one R2 folder.
-- **Cause:** R2 paths use `r2Slug(client)/r2Slug(key)`; creates checked the key, not the folder.
-- **Fix:** `createProject` / `assignProjectToClient` check under `withProjectKeyLock` and throw
-  `ProjectFolderTakenError`; Director's run create refuses `key_folder_taken`.
-- **Guard:** `check:project-create` (race + lock-off control); `list:project-folder-aliases`.
-- **PR:** #1090 (2026-10-07) · source: `docs/director/HISTORY.md`
 
 ### A PR could post its own green current-games status
 - **Symptom:** risk: a PR's harness run held `statuses: write`; a PR into another branch sharing

@@ -5,7 +5,9 @@ Current state lives in [status/fx.md](../../status/fx.md); this file only keeps 
 It also holds the traps of [Shader Graph](../../status/shader-graph.md),
 [Flipbook](../../status/flipbook.md) and [Sound](../../status/sound.md), under their own headings.
 The tools-vs-game renderer split is in [symbols lessons](symbols.md); Flow-side FX timing is in
-[flow lessons](flow.md).
+[flow lessons](flow.md). Manual Save overwriting a newer save (#821):
+[launcher.md](launcher.md#a-manual-save-overwrote-a-colleagues-newer-save). Video renders failing on
+a torn BiRefNet file: [comfyui.md](comfyui.md#every-background-cutout-failed-for-hours).
 
 ## Invisible FX, Element FX and particles
 
@@ -53,14 +55,6 @@ The tools-vs-game renderer split is in [symbols lessons](symbols.md); Flow-side 
   scenes and every shipped def, shared by the game and `effectReachability.ts`.
 - **Guard:** `packages/engine-layout/scripts/test-placed-effects.mjs`.
 - **PR:** not recorded (2026-10-03; found by #1006) · source: `docs/status/fx.md`, `docs/history.md`
-
-### Manual Save overwrote a colleague's newer save
-- **Symptom:** Save never asked before overwriting; same on `/symbols` and `/localization`.
-- **Cause:** `onclick={saveEffect}` with `saveEffect(force = false)`: the click event arrived as a
-  truthy `force`, so the ETag check was skipped.
-- **Fix:** `onclick={() => saveEffect()}`.
-- **Guard:** `pnpm --filter launcher-api check:event-bound-flags` (Lint workflow).
-- **PR:** #821 (2026-09-28) · source: `docs/status/fx.md`
 
 ### FX bound on a rig never appeared in game
 - **Symptom:** ten `event.fx` keyframes on the big-win rig `R_Wins` drew nothing; the bake was ok.
@@ -154,6 +148,12 @@ The tools-vs-game renderer split is in [symbols lessons](symbols.md); Flow-side 
 - **Fix:** one rule, `collectPlayedClipIds` (`clipReachability.ts`), shared by both exports.
 - **Guard:** the bake's fatal dangling-frame check. **PR:** #645 (2026-09-09)
 
+### A new node kind missed gates listed in five places
+- **Symptom:** a placed clip did not cover-fit a background screen.
+- **Cause:** the cover gate listed `sprite | spine` in five places; `flipbook` reached none of them.
+- **Fix:** one exported `isCoverFitKind` / `isCoverArtKind` pair. Grep kind lists for a new kind.
+- **Guard:** `packages/engine-layout/scripts/test-cover-fit.mjs`. **PR:** not recorded (2026-08-26)
+
 ### A placed clip rendered a still frame
 - **Symptom:** a flipbook on a screen (and every flipbook symbol cell) showed frame 0, no error.
 - **Cause:** Pixi's `AnimatedSprite.textures` setter calls `gotoAndStop(0)`; `propsSyncEffect`
@@ -163,12 +163,6 @@ The tools-vs-game renderer split is in [symbols lessons](symbols.md); Flow-side 
 - **Guard:** `packages/pixi-svelte/fixtures/animatedSpriteFrames.fixture.ts`.
 - **PR:** not recorded (2026-08-25)
 
-### A new node kind missed gates listed in five places
-- **Symptom:** a placed clip did not cover-fit a background screen.
-- **Cause:** the cover gate listed `sprite | spine` in five places; `flipbook` reached none of them.
-- **Fix:** one exported `isCoverFitKind` / `isCoverArtKind` pair. Grep kind lists for a new kind.
-- **Guard:** `packages/engine-layout/scripts/test-cover-fit.mjs`. **PR:** not recorded (2026-08-26)
-
 ### One symbol played another symbol's animation
 - **Symptom:** the "Detected animation" offer on the Lotus sheet authored an H4 clip.
 - **Cause:** `detectSequencesAcross` grouped by region-name stem across sheets; Sheet Maker
@@ -176,14 +170,6 @@ The tools-vs-game renderer split is in [symbols lessons](symbols.md); Flow-side 
 - **Fix:** within-sheet and cross-sheet detection told apart; frame refs are atlas-scoped
   (`createAtlasRefResolver`) so a bare `frame_0000` never reaches the flat cache.
 - **Guard:** none named. **PR:** not recorded (2026-07-24)
-
-### Fourteen hours of video renders failed on one torn file
-- **Symptom:** every BiRefNet cutout failed, whichever model was picked.
-- **Cause:** all variants share `models/RMBG/BiRefNet/`; the node rewrites `birefnet.py` on every
-  load, and parallel workers tore it on the shared volume.
-- **Fix:** weights pre-fetched and checksummed (`fetch-models.py --set rmbg --set birefnet`);
-  failed renders name the node and exception.
-- **Guard:** none named. **PR:** not recorded (2026-09-04, 2026-09-30)
 
 ## Sound
 

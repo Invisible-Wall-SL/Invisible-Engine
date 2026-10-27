@@ -8,7 +8,8 @@ Math that belongs to one game type stays in its family file, not here: the buy c
 ([lines](../families/lines.md#known-failure-modes), [scatter](../families/scatter.md),
 [ways](../families/ways.md)), a ways grid that never reached the mock and the desktop build read
 under its game key ([ways](../families/ways.md)), Hold and Win role symbols
-([hold-and-win](../families/hold-and-win.md)).
+([hold-and-win](../families/hold-and-win.md)). A type error that ships green (the launcher build is
+not a type-check): [launcher.md](launcher.md#a-type-error-ships-green).
 
 ### Free spins never ended
 - **Symptom:** a Book-of feature with an authored trigger count could retrigger forever.
@@ -105,10 +106,3 @@ under its game key ([ways](../families/ways.md)), Hold and Win role symbols
 - **Fix:** make one check fail on purpose before trusting a run; scope mutations to the function.
 - **Guard:** none; `scripts/verify-test-server-project-pin.mjs` shows the pattern.
 - **PR:** not recorded (2026-09-10) · source: `docs/status/game-config.md`
-
-### The launcher build passed with a type error
-- **Symptom:** a missing key in a typed list shipped green.
-- **Cause:** `pnpm --filter launcher-api build` is a bare `vite build`; it strips types unchecked.
-- **Fix:** derive lists from ONE exported value; run `pnpm check:svelte` and the Node fixtures.
-- **Guard:** `check:undefined-names` and the `check:svelte` ratchet catch part of it, not all.
-- **PR:** not recorded (2026-07-17) · source: `apps/launcher-api/CLAUDE.md`

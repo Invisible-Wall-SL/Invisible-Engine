@@ -125,14 +125,13 @@ region-name collisions) in [editor.md](editor.md#art-picked-in-the-editor-is-bla
 - **Guard:** `test_config_defaults.py`.
 - **PR:** #574, #576 (2026-09-03) · source: `docs/status/atlas-maker.md`
 
-### The picked blueprint was ignored and SDXL ran instead
-- **Symptom:** global settings (above all the pipeline selector) never applied in the cloud.
-- **Cause:** `batch_atlas.load_config` read `atlas_config.json` next to the script, which the
-  cloud image does not ship; `ui_server` writes it under the R2-backed staging root.
-- **Fix:** the subprocess prefers the staging copy; a `Pipeline: …` log line and a loud
-  no-silent-SDXL guard were added.
-- **Guard:** #305 guard and #306 log line.
-- **PR:** #305, #306 (2026-08-11) · source: `docs/status/atlas-maker.md`
+### New sheet overwrote the sheet that was open
+- **Symptom:** "New / clear canvas" then Save replaced the previous sheet's files in R2.
+- **Cause:** the button emptied the canvas but kept the loaded sheet's name; `api_export` writes
+  whatever name it gets.
+- **Fix:** `New sheet…` asks for a fresh name; the old clear came back only behind a gate.
+- **Guard:** none.
+- **PR:** not recorded (2026-09-02) · source: `docs/status/sheet-maker.md`
 
 ### Atlas regions loaded flipped or upside down
 - **Symptom:** rotated frames drew 180° out in thumbnails or after a `.plist` import.
@@ -143,13 +142,14 @@ region-name collisions) in [editor.md](editor.md#art-picked-in-the-editor-is-bla
 - **Guard:** `services/sheet-tool/rot_convention_check.py`, `test_plist_import.py`.
 - **PR:** not recorded (2026-08-20; 2026-08-24) · source: `docs/status/sheet-maker.md`
 
-### New sheet overwrote the sheet that was open
-- **Symptom:** "New / clear canvas" then Save replaced the previous sheet's files in R2.
-- **Cause:** the button emptied the canvas but kept the loaded sheet's name; `api_export` writes
-  whatever name it gets.
-- **Fix:** `New sheet…` asks for a fresh name; the old clear came back only behind a gate.
-- **Guard:** none.
-- **PR:** not recorded (2026-09-02) · source: `docs/status/sheet-maker.md`
+### The picked blueprint was ignored and SDXL ran instead
+- **Symptom:** global settings (above all the pipeline selector) never applied in the cloud.
+- **Cause:** `batch_atlas.load_config` read `atlas_config.json` next to the script, which the
+  cloud image does not ship; `ui_server` writes it under the R2-backed staging root.
+- **Fix:** the subprocess prefers the staging copy; a `Pipeline: …` log line and a loud
+  no-silent-SDXL guard were added.
+- **Guard:** #305 guard and #306 log line.
+- **PR:** #305, #306 (2026-08-11) · source: `docs/status/atlas-maker.md`
 
 ### A manifest region with no rect vanished downstream
 - **Symptom:** a region listed in the manifest was missing in the editor, Rigger or FX art.
