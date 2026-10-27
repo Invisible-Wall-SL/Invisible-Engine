@@ -39,6 +39,8 @@ export type StaticIndex<S extends StaticShape = StaticShape> = {
 	readonly shapes: readonly S[];
 	readonly cellSize: number;
 	readonly cells: ReadonlyMap<string, readonly number[]>;
+	/** The cells that hold a shape, inclusive (`Infinity`s when none). */
+	readonly extent: { x0: number; y0: number; x1: number; y1: number };
 };
 
 export type Overlap<B extends Body = Body> = { a: B; b: B; tagA: string; tagB: string };

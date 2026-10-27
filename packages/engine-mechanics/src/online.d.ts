@@ -52,7 +52,12 @@ export function onlineLevel(
 		| readonly { zone: string; force?: { x: number; y: number }; characters?: string[] }[]
 		| undefined,
 	character: string,
+	field: Field,
 ): OnlineLevel;
+/** A zone held to the field; `undefined` when none of it is on it. */
+export function clipToField<Z extends StaticShape>(zone: Z, field: Field): Z | undefined;
+/** The grid cell a level of this field is indexed in. */
+export function levelCell(field: Field): number;
 export function facingOf(input: OnlineInput | undefined, previous?: number): number;
 export function cleanName(raw: unknown): string;
 export function characterBody(

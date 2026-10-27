@@ -21,6 +21,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { BUTTONS, clampInput } from '../packages/engine-mechanics/src/online.js';
 import {
+	GRACE_MS,
 	ONLINE_RULES_MODULES,
 	REWIND_MS,
 	STATUS,
@@ -110,6 +111,10 @@ const roomOf = (rules, extra) => {
 			for (let i = 0; i < n; i++) {
 				events.push(...sim.step((id) => (queued.get(id) ?? []).splice(0, 1)));
 			}
+		},
+		/** Step past the grace every player starts with, so it can be hit. */
+		ready() {
+			this.hold({}, Math.round((GRACE_MS * TICK) / 1000));
 		},
 		/** Step with every player pressing `inputs[id]` (or resting) each step. */
 		hold(inputs, n) {
@@ -257,7 +262,7 @@ await check('a round on the clock ends at its time; the top score wins, a tie wi
 				effect: 'stun',
 				score: 1,
 				ms: 100,
-				cooldownMs: 0,
+				cooldownMs: 100,
 			},
 		],
 		round: { seconds: 5, nextRoundSeconds: 1 },
@@ -266,6 +271,7 @@ await check('a round on the clock ends at its time; the top score wins, a tie wi
 	room.join('a', 'salmon');
 	const b = room.join('b', 'bear');
 	room.join('c', 'bear');
+	room.ready();
 	room.hold({ b: SWIPE }, 1);
 	assert.equal(b.score, 1);
 	room.hold({}, 5 * TICK);
@@ -299,6 +305,7 @@ await check(
 		a.body.x = 400;
 		b.body.x = 445;
 		c.body.x = 430;
+		room.ready();
 		room.hold({ b: SWIPE }, 1);
 		assert.equal(a.status, STATUS.out);
 		assert.equal(c.status, STATUS.free, 'a bear does not catch a bear');
@@ -315,17 +322,24 @@ await check(
 		room.hold({}, TICK);
 		assert.equal(a.status, STATUS.free);
 		assert.deepEqual([a.body.x, a.body.y], [100, 300]);
+		// Freed, it cannot be caught again at once.
+		a.body.x = 300;
+		b.body.x = 330;
+		room.hold({}, 1);
+		room.hold({ b: SWIPE }, 1);
+		assert.equal(a.status, STATUS.free, 'a freed player has its grace');
+		room.ready();
 		// Out of reach: the swipe is used (the devices see it) but catches nobody.
 		a.body.x = 300;
 		b.body.x = 361 + 0.5;
 		room.hold({ b: SWIPE }, 1);
 		assert.equal(a.status, STATUS.free);
-		assert.equal(room.of('ability').length, 2);
+		assert.equal(room.of('ability').length, 3);
 		// Within reach but on cooldown: nothing.
 		b.body.x = 330;
 		room.hold({ b: SWIPE }, 1);
 		assert.equal(a.status, STATUS.free);
-		assert.equal(room.of('ability').length, 2);
+		assert.equal(room.of('ability').length, 3);
 		room.hold({}, 15);
 		room.hold({ b: SWIPE }, 1);
 		assert.equal(a.status, STATUS.out);
@@ -338,6 +352,7 @@ await check('a stun holds the target where it is, then frees it there', () => {
 	const b = room.join('b', 'bear');
 	a.body.x = 400;
 	b.body.x = 420;
+	room.ready();
 	room.hold({ b: SWIPE }, 1);
 	assert.equal(a.status, STATUS.stunned);
 	assert.deepEqual(room.of('hit'), [{ type: 'hit', by: 'b', target: 'a', effect: 'stun' }]);
@@ -349,7 +364,7 @@ await check('a stun holds the target where it is, then frees it there', () => {
 });
 
 await check('a hit is tested where its user saw the target, at most the rewind window back', () => {
-	const rewindSteps = Math.round((REWIND_MS * TICK) / 1000);
+	const rewindSteps = Math.floor((REWIND_MS * TICK) / 1000);
 	/** The salmon swims away from the bear at 10 px a step for `swim` steps; then the bear swipes,
 	 *  its device having drawn the salmon at step `view`. */
 	const trial = (swim, view) => {
@@ -358,6 +373,7 @@ await check('a hit is tested where its user saw the target, at most the rewind w
 		const b = room.join('b', 'bear');
 		a.body.x = 400;
 		b.body.x = 400;
+		room.ready();
 		room.hold({ a: RIGHT }, swim);
 		assert.ok(a.body.x - b.body.x > CATCH.reach);
 		room.press('a', RIGHT);
@@ -390,6 +406,110 @@ await check('a hit is tested where its user saw the target, at most the rewind w
 		trial(8, (now) => now + 50),
 		STATUS.free,
 	);
+});
+
+await check('two abilities pressed in one input both act; two on one button each fire', () => {
+	const STUN_BEARS = { ...CATCH, button: 'ability1', targets: ['bear'], effect: 'stun' };
+	const CATCH_SALMON = { ...CATCH, button: 'ability2' };
+	const room = roomOf({ abilities: [STUN_BEARS, CATCH_SALMON] });
+	const a = room.join('a', 'salmon');
+	const b = room.join('b', 'bear');
+	const c = room.join('c', 'bear');
+	for (const p of [a, b, c]) p.body.x = 400;
+	room.ready();
+	room.hold({ b: { buttons: BUTTONS.ability1 | BUTTONS.ability2 } }, 1);
+	assert.deepEqual([a.status, c.status], [STATUS.out, STATUS.stunned]);
+	// One button, two entries: each keeps its own cooldown, so both act.
+	const room2 = roomOf({ abilities: [STUN_BEARS, { ...CATCH_SALMON, button: 'ability1' }] });
+	const a2 = room2.join('a', 'salmon');
+	const b2 = room2.join('b', 'bear');
+	const c2 = room2.join('c', 'bear');
+	for (const p of [a2, b2, c2]) p.body.x = 400;
+	room2.ready();
+	room2.hold({ b: SWIPE }, 1);
+	assert.deepEqual([a2.status, c2.status], [STATUS.out, STATUS.stunned]);
+});
+
+await check('a respawned player is never hit where it was before the respawn', () => {
+	const room = roomOf({ abilities: [CATCH] });
+	const a = room.join('a', 'salmon');
+	const b = room.join('b', 'bear');
+	a.body.x = 700;
+	b.body.x = 700;
+	room.ready();
+	room.hold({ b: SWIPE }, 1);
+	assert.equal(a.status, STATUS.out);
+	// It respawns at x 100; the bear stays at the catch and keeps swiping, its device having drawn
+	// the salmon there a moment ago.
+	while (a.status !== STATUS.free) room.hold({}, 1);
+	const back = room.sim.steps;
+	assert.deepEqual([a.body.x, b.body.x], [100, 700]);
+	room.ready();
+	for (let i = 0; i < 20; i++) {
+		room.press('a');
+		room.press('b', { ...SWIPE, view: back - 1 });
+		room.step();
+	}
+	assert.equal(a.status, STATUS.free, 'caught at the place it left');
+	assert.equal(room.of('caught').length, 1);
+	// Without the grace: a view from just before the respawn still finds no old place.
+	const room2 = roomOf({ abilities: [CATCH] });
+	const a2 = room2.join('a', 'salmon');
+	const b2 = room2.join('b', 'bear');
+	a2.body.x = 700;
+	b2.body.x = 700;
+	room2.ready();
+	room2.hold({ b: SWIPE }, 1);
+	while (a2.status !== STATUS.free) room2.hold({}, 1);
+	const at = room2.sim.steps;
+	a2.safeUntil = 0;
+	b2.cooldowns = {};
+	room2.press('a');
+	room2.press('b', { ...SWIPE, view: at - 1 });
+	room2.step();
+	assert.equal(a2.status, STATUS.free, 'the rewind found the place it held before its respawn');
+});
+
+await check(
+	'a rules config cannot ask for unbounded work: huge zones and bodies stay cheap',
+	() => {
+		const doc = configOf(
+			{
+				zones: [
+					{ zone: 'river', force: { x: -40, y: 0 } },
+					{ zone: 'source', goal: true },
+				],
+				abilities: [{ ...CATCH, cooldownMs: 0 }],
+			},
+			{ characters: [{ id: 'salmon', body: 'salmon', speed: 300 }, CHARACTERS[1]] },
+		);
+		doc.arcade.zones = [
+			{ id: 'river', x: -1e6, y: -1e6, w: 2e6, h: 2e6 },
+			{ id: 'source', x: -1e6, y: 500, w: 2e6, h: 1e6 },
+		];
+		doc.arcade.bodies.salmon = { shape: 'circle', r: 20_000 };
+		const game = onlineGameOf(normalizeGameConfigDoc(doc));
+		assert.equal(game.online.rules.abilities[0].cooldownMs, 100, 'a cooldown is at least 100 ms');
+		const started = performance.now();
+		const sim = createRoomSim(game);
+		for (let i = 0; i < 4; i++) sim.join(`p${i}`, { character: i % 2 ? 'bear' : 'salmon' });
+		let seq = 0;
+		for (let s = 0; s < 600; s++) {
+			seq += 1;
+			sim.step(() => [clampInput({ seq, moveX: 127, buttons: BUTTONS.ability1 }, game.field)]);
+		}
+		const ms = performance.now() - started;
+		assert.ok(ms < 1500, `600 steps took ${ms} ms`);
+	},
+);
+
+await check('scores are whole numbers within the limits', () => {
+	const game = gameOf({
+		abilities: [{ ...CATCH, score: 2.6 }],
+		round: { goalScore: 1e9 },
+	});
+	assert.equal(game.online.rules.abilities[0].score, 3);
+	assert.equal(game.online.rules.round.goalScore, 1000);
 });
 
 await check(
@@ -504,13 +624,14 @@ try {
 	const salmon = await client().joinOrCreate(ROOM_NAME, { game: 'river', character: 'salmon' });
 	const bear = await client().joinById(salmon.roomId, { character: 'bear' });
 	const heard = { salmon: [], bear: [] };
-	salmon.onMessage('event', (e) => heard.salmon.push(e));
-	bear.onMessage('event', (e) => heard.bear.push(e));
+	salmon.onMessage('event', (events) => heard.salmon.push(...events));
+	bear.onMessage('event', (events) => heard.bear.push(...events));
 	await until('both in the state', () => salmon.state.players?.size === 2);
 
 	await check('live: the devices see the round, a catch, the score and the status', async () => {
 		assert.equal(salmon.state.phase, 'running');
 		assert.equal(salmon.state.round, 1);
+		await wait(GRACE_MS + 100);
 		const input = bear.input();
 		let seq = 0;
 		Object.assign(input.data, { seq: ++seq, buttons: BUTTONS.ability1, view: salmon.state.step });

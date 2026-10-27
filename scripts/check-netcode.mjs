@@ -33,9 +33,11 @@ import {
 import {
 	INTERPOLATION_DELAY_MS,
 	MATCH_PX,
+	SNAP_PX,
 	createInterpolator,
 	createPredictor,
 	createSnapshotClock,
+	snapFor,
 } from '../packages/engine-mechanics/src/netcode.js';
 import { STATUS } from '../packages/engine-mechanics/src/onlineRules.js';
 import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/index.ts';
@@ -237,7 +239,7 @@ const simulate = ({ net, seconds, seed, players = 6, zones, rules, drifts = fals
 				speed: character.speed,
 				ctx,
 				field,
-				level: onlineLevel(game.zones, online.rules.zones, character.id),
+				level: onlineLevel(game.zones, online.rules.zones, character.id, field),
 			}),
 			view: createSnapshotClock({ stepMs }),
 			others: createInterpolator(),
@@ -306,7 +308,13 @@ const simulate = ({ net, seconds, seed, players = 6, zones, rules, drifts = fals
 				device.others.push(p.id, state.step, p.x, p.y);
 				continue;
 			}
-			device.predictor.reconcile({ x: p.x, y: p.y, ack: p.ack, still: p.status !== STATUS.free });
+			device.predictor.reconcile({
+				x: p.x,
+				y: p.y,
+				ack: p.ack,
+				still: p.status !== STATUS.free,
+				step: state.step,
+			});
 			if (device.pilot.resting && device.lastMoving && p.ack >= device.lastMoving) {
 				if (device.settleFrom === undefined) {
 					device.settleFrom = clock.now;
@@ -482,6 +490,15 @@ await check('an old or repeated state changes nothing; a respawn is drawn at onc
 	assert.equal(me.snaps, 1);
 });
 
+await check('a state older than one taken, by its step, changes nothing', () => {
+	const me = predictorFor();
+	for (let seq = 1; seq <= 3; seq++) me.input(moveInput(seq));
+	assert.equal(me.reconcile({ x: 900, y: 900, ack: 3, step: 10 }), 'corrected');
+	// The same ack, stamped earlier (a reordered datagram): not taken.
+	assert.equal(me.reconcile({ x: 400, y: 400, ack: 3, step: 9 }), 'stale');
+	assert.equal(me.body.x, 900);
+});
+
 await check('a player the room holds still is predicted still, and freed again', () => {
 	const me = predictorFor();
 	for (let seq = 1; seq <= 3; seq++) me.input(moveInput(seq));
@@ -508,6 +525,16 @@ await check(
 		assert.deepEqual(it.at('a', 14), { x: 500, y: 0 });
 		assert.deepEqual(it.at('a', 99), { x: 500, y: 0 }, 'nothing is guessed past the newest state');
 		assert.equal(it.at('b', 1), undefined);
+		it.retain(new Set(['b']));
+		assert.equal(it.at('a', 12), undefined, 'a player gone from the room is forgotten');
+		// A fast character's move between two states is not a teleport.
+		assert.equal(snapFor(240, 20), SNAP_PX);
+		const fast = snapFor(5000, 20);
+		assert.ok(fast >= 2 * (5000 / 20), String(fast));
+		const quick = createInterpolator({ snapPx: fast });
+		quick.push('f', 0, 0, 0);
+		quick.push('f', 2, 500, 0);
+		assert.deepEqual(quick.at('f', 1), { x: 250, y: 0 });
 	},
 );
 

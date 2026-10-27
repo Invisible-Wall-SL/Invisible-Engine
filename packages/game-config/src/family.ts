@@ -118,9 +118,9 @@ export type ArcadeOnlineAbility = {
 	effect: ArcadeOnlineHitEffect;
 	/** How long the effect holds the target, ms: a stun, or a catch's time out before it respawns. */
 	ms?: number;
-	/** Added to the user's score per player hit. */
+	/** Added to the user's score per player hit (a whole number). */
 	score?: number;
-	/** ms before it can be used again. */
+	/** ms before it can be used again (at least 100). */
 	cooldownMs?: number;
 };
 
@@ -198,7 +198,8 @@ export const ARCADE_ONLINE_LIMITS = Object.freeze({
 	characters: { min: 1, max: 16 },
 	reach: { min: 1, max: 2000 },
 	effectMs: { min: 0, max: 60_000 },
-	cooldownMs: { min: 0, max: 60_000 },
+	cooldownMs: { min: 100, max: 60_000 },
+	score: { min: -1000, max: 1000 },
 	force: { min: -5000, max: 5000 },
 	roundSeconds: { min: 5, max: 3600 },
 	nextRoundSeconds: { min: 0, max: 300 },
@@ -298,7 +299,7 @@ const resolveRules = (rules: ArcadeOnlineRules | undefined): ResolvedArcadeOnlin
 			...a,
 			reach: within(a.reach, L.reach),
 			ms: within(a.ms ?? d.effectMs, L.effectMs),
-			score: a.score ?? 0,
+			score: Math.round(within(a.score ?? 0, L.score)),
 			cooldownMs: within(a.cooldownMs ?? d.cooldownMs, L.cooldownMs),
 		})),
 		round: {
@@ -307,7 +308,7 @@ const resolveRules = (rules: ArcadeOnlineRules | undefined): ResolvedArcadeOnlin
 				rules?.round?.nextRoundSeconds ?? d.nextRoundSeconds,
 				L.nextRoundSeconds,
 			),
-			goalScore: rules?.round?.goalScore ?? d.goalScore,
+			goalScore: Math.round(within(rules?.round?.goalScore ?? d.goalScore, L.score)),
 		},
 		...(rules?.module ? { module: rules.module } : {}),
 	};

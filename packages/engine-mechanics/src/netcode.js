@@ -33,6 +33,11 @@ export const SMOOTH_MS = 100;
 /** A correction longer than this, px, is drawn at once (a respawn, a catch), not faded. */
 export const SNAP_PX = 128;
 
+/** The snap distance for a character of `speed` px/s in a room sending `patchHz` states a second:
+ *  {@link SNAP_PX}, or three states' travel if that is longer, so a fast character's moves between
+ *  states (a catch-up step moves twice as far) are never mistaken for a teleport. */
+export const snapFor = (speed, patchHz) => Math.max(SNAP_PX, (speed / patchHz) * 3);
+
 /** How far behind the room everyone else is drawn, ms. */
 export const INTERPOLATION_DELAY_MS = 100;
 
@@ -73,6 +78,7 @@ export function createPredictor({
 	const prev = { x: body.x, y: body.y };
 	const offset = { x: 0, y: 0 };
 	let acked = -1;
+	let lastStep = -1;
 	let still = false;
 	let corrections = 0;
 	let snaps = 0;
@@ -108,12 +114,14 @@ export function createPredictor({
 			remember(input.seq);
 		},
 		/**
-		 * The room's word on this player: its place, the newest input it applied, and whether it holds
-		 * the player still (a stun, a catch). Returns `stale`, `match` or `corrected`.
+		 * The room's word on this player: its place, the newest input it applied, whether it holds the
+		 * player still (a stun, a catch) and the room step it is stamped with, when known. An older
+		 * state than one already taken returns `stale`; else `match` or `corrected`.
 		 */
 		reconcile(truth) {
-			if (truth.ack < acked) return 'stale';
+			if (truth.ack < acked || (truth.step !== undefined && truth.step <= lastStep)) return 'stale';
 			acked = truth.ack;
+			if (truth.step !== undefined) lastStep = truth.step;
 			while (pending.length && pending[0].seq <= truth.ack) pending.shift();
 			const changed = Boolean(truth.still) !== still;
 			still = Boolean(truth.still);
@@ -238,8 +246,9 @@ export function createInterpolator({ snapPx = SNAP_PX, keep = 32 } = {}) {
 		remove(id) {
 			tracks.delete(id);
 		},
-		has(id) {
-			return tracks.has(id);
+		/** Forget every player but those in `ids` (the room's players now). */
+		retain(ids) {
+			for (const id of tracks.keys()) if (!ids.has(id)) tracks.delete(id);
 		},
 		/** Where a player is at render step `at`: between the states around it, else the nearest. */
 		at(id, at) {

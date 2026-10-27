@@ -372,6 +372,7 @@ function validateOnlineRules(doc: GameConfigDoc): GameConfigIssue[] {
 			['reach', ability.reach, L.reach],
 			['ms', ability.ms, L.effectMs],
 			['cooldownMs', ability.cooldownMs, L.cooldownMs],
+			['score', ability.score, L.score],
 		] as const;
 		for (const [key, value, range] of ranged) {
 			if (value === undefined || (value >= range.min && value <= range.max)) continue;

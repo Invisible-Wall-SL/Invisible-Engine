@@ -9,8 +9,9 @@
  *
  * An input is `{ seq, moveX, moveY, buttons, aimX, aimY, view }` and nothing else: no position, no
  * hit, no score. `view` is the room step the device was drawing everyone else at (P10.15), so the
- * server can test an ability against what its player saw; the server holds it to its own window. `moveX` / `moveY` are whole numbers in -{@link MOVE_SCALE}..{@link MOVE_SCALE} (a stick
- * at full tilt is 127) whose length is at most {@link MOVE_SCALE}, so the clamp is exact and
+ * server can test an ability against what its player saw; the server holds it to its own window.
+ * `moveX` / `moveY` are whole numbers in -{@link MOVE_SCALE}..{@link MOVE_SCALE} (a stick at full
+ * tilt is 127) whose length is at most {@link MOVE_SCALE}, so the clamp is exact and
  * idempotent: a clamped input clamps to itself, on either side of the wire. `buttons` is a
  * bitfield of {@link BUTTONS}; `aim` is a point on the field.
  *
@@ -138,23 +139,39 @@ export function stepPlayer(body, input, speed, ctx, field, level) {
 	return body;
 }
 
+/** A zone held to the field, or `undefined` when none of it is on the field: the server indexes
+ *  only what a player can reach, however large the config draws it. */
+export function clipToField(zone, field) {
+	const x0 = Math.max(0, zone.x);
+	const y0 = Math.max(0, zone.y);
+	const x1 = Math.min(field.w, zone.x + zone.w);
+	const y1 = Math.min(field.h, zone.y + zone.h);
+	if (!(x1 > x0 && y1 > y0)) return undefined;
+	return { ...zone, x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/** The grid cell a level of this field is indexed in: at most 64 cells a side, however large. */
+export const levelCell = (field) => Math.max(128, Math.ceil(Math.max(field.w, field.h) / 64));
+
 /**
  * What of a level moves a player of `character`: its currents, the zones of `arcade.zones` that an
  * `arcade.online.rules.zones` entry gives a force and that apply to the character (every one when
- * the rule names none), indexed once. The server and a predicting device build it from the same
- * config, so both push the player alike.
+ * the rule names none), held to the field and indexed once. The server and a predicting device build
+ * it from the same config, so both push the player alike.
  */
-export function onlineLevel(zones, rules, character) {
+export function onlineLevel(zones, rules, character, field) {
 	const byId = new Map((zones ?? []).map((zone) => [zone.id, zone]));
 	const currents = [];
 	for (const rule of rules ?? []) {
 		const zone = byId.get(rule.zone);
 		if (!zone || !rule.force) continue;
 		if (rule.characters && !rule.characters.includes(character)) continue;
-		const { id, x, y, w, h } = zone;
+		const clipped = clipToField(zone, field);
+		if (!clipped) continue;
+		const { id, x, y, w, h } = clipped;
 		currents.push({ id, x, y, w, h, fx: rule.force.x, fy: rule.force.y });
 	}
-	return { currents: createStaticIndex(currents) };
+	return { currents: createStaticIndex(currents, levelCell(field)) };
 }
 
 /**

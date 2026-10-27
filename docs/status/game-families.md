@@ -35,17 +35,20 @@ row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-mu
   device keeps its own float64 fold (so it never chases the wire's float32 rounding — P10.14's
   "rewinds to its own fold" option); different, it takes the room's place and replays the inputs in
   flight. The difference fades from the drawn body over 100 ms (`SMOOTH_MS`), or is drawn at once
-  past 128 px (`SNAP_PX`: a respawn). A player the room holds (`status` stunned / out) is predicted
+  past `snapFor(speed, patchHz)` — 128 px (`SNAP_PX`), or three states' travel for a faster
+  character (a respawn). A state stamped no later than one already taken is ignored. A player the room holds (`status` stunned / out) is predicted
   still. The drawn body is interpolated between the last two fixed steps (`FixedStep.alpha`).
 - **Everyone else, interpolated** (`createSnapshotClock`, `createInterpolator`): each state is
   stamped with the room's `step`; the clock turns arrival times into a steady render step 100 ms
   (`INTERPOLATION_DELAY_MS`) behind, learning lateness as a slow average that takes a late arrival
   only as far as twice the usual spread; it never runs past the newest state (no extrapolation),
   speeds up by at most 25 % and slows by at most 10 %, and jumps only after a gap over a second (a
-  hidden tab). A move longer than 128 px between two states is taken whole, not slid across.
+  hidden tab). A move longer than the snap distance (the fastest character's `snapFor`) between two
+  states is taken whole, not slid across; a player gone from the room is forgotten.
 - **The runtime** (`game/online.ts`): `room.onStateChange` reconciles the own player and records
   everyone else; `tickOnline` sends each input with `view` (the step it was drawing everyone else
-  at), predicts it, fades the correction and draws; J / K are abilities 1 / 2. The arcade probe
+  at), predicts it, fades the correction and draws; J / K are abilities 1 / 2; pressing both uses
+  both. The arcade probe
   gains `online` (how each player is drawn, corrections, the round, scores, the room's last 32
   events). Room events are received (`room.onMessage('event')`) and kept for the probe; **they do
   not reach Flow yet** (open item).
@@ -56,18 +59,25 @@ row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-mu
     **goal** (the first player in wins the round, `+goalScore`), optionally only for some
     `characters`;
   - `abilities[]`: a character's `ability1` / `ability2` hits every free player of its `targets`
-    within `reach` px, off `cooldownMs`, with `effect` `catch` (out for `ms`, then respawned at the
-    spawn) or `stun` (held still for `ms`), `+score` to the user per hit. **Lag compensation:** the
-    target's place is read where the user's device drew it (`Input.view`), held to 250 ms
-    (`REWIND_MS`) behind the room — a claim older than that is not believed, a future one is the
-    present;
+    within `reach` px, off `cooldownMs` (at least 100 ms; each entry its own, so two on one button
+    both act), with `effect` `catch` (out for `ms`, then respawned at the spawn) or `stun` (held
+    still for `ms`), `+score` (a whole number, ±1000) to the user per hit. A player whose status
+    ends, who respawns or who starts a round cannot be hit for 1 s (`GRACE_MS`), so nobody is
+    stun-locked or caught at the spawn. **Lag compensation:** the target's place is read where the
+    user's device drew it (`Input.view`), held to at most 250 ms (`REWIND_MS`, whole steps rounded
+    down: 7 steps at 30 Hz) behind the room — a claim older than that is not believed, a future one
+    is the present — and a respawn forgets a player's past places, so nobody is hit where it no
+    longer is. Within one step, players act in the order they joined;
   - `round`: ends at the goal or after `seconds` (the top score wins; a tie, nobody), then the next
     starts `nextRoundSeconds` later (default 15, §14 #6) with every score 0 and everyone at the
     spawn. Players move in every phase, so prediction holds through the pause;
   - `module`: a **named rules module** for what the data cannot say (`ONLINE_RULES_MODULES`; one
     today, `tag`: "it" passes on a touch, not straight back, and everyone else scores a point a
-    second). `game-config` `ONLINE_RULES_MODULE_IDS` lists the same ids (the gate holds them equal);
-    an unknown module refuses the config;
+    second; a held "it" cannot tag). `game-config` `ONLINE_RULES_MODULE_IDS` lists the same ids (the
+    gate holds them equal); an unknown module refuses the config;
+  - **bounded work:** zones are held to the field and indexed in at most 64 × 64 cells; a static
+    index is queried only over the cells that hold a shape (`motion.js` `extent`, the same results
+    as before), so a huge zone or body in a config costs nothing extra;
   - normalized (incomplete entries dropped), resolved with defaults and limits
     (`ARCADE_ONLINE_RULE_DEFAULTS`, `ARCADE_ONLINE_LIMITS`), and validated (unknown zone, character
     or module ⇒ error; out-of-range numbers ⇒ warning). `OnlineGame` gains `zones`. No `/config` UI.
@@ -76,10 +86,11 @@ row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-mu
   State adds per player `score` (int32), `status` (uint8), `mark` (bool) and per room `round`,
   `endsAt` (the step the phase ends at), `winner`; `phase` is now `waiting` / `running` / `ended`.
   `Input` adds `view` (uint32, clamped like `seq`). Events — `joined`, `left`, `ability`, `hit`,
-  `caught`, `roundStart`, `roundEnd` — go to every device as one message type, `event`, after the
-  patch that shows them (`afterNextPatch`).
+  `caught`, `roundStart`, `roundEnd` — go to every device as **one `event` message per step that
+  had any** (an array, in order; `ONLINE_EVENT`), after the patch that shows them (`afterNextPatch`).
+  `round` is a uint32.
 - **Gates:**
-  - `check:netcode` (root, 14 checks, ~7 s; discovered by `check:all`): the predictor, the
+  - `check:netcode` (root, 15 checks, ~7 s; discovered by `check:all`): the predictor, the
     interpolator and the render clock alone, then **a room of six devices** over the room's own code
     on a virtual clock, at 50 / 150 / 250 ms one-way latency, ±50 ms jitter and 2 / 3 / 5 % loss, on
     two links — *reliable* (the real WebSocket: a lost packet is resent after 200 ms + one round
@@ -90,23 +101,26 @@ row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-mu
     1.5 steps in a frame. Both: everyone else is drawn **at most 0.63 of the most the room moved
     them in one step, per frame**, never more than 1 step off the room's path, and, on the datagram
     link, 100 ms + the latency behind (±the jitter). A current (with a per-character one) is
-    predicted with 0 corrections. A source scan holds `online.ts` to this netcode.
-  - `check:online-rules` (root, 13 checks, ~6 s): the block's normalizer, resolver and validator;
+    predicted with 0 corrections. A reordered state is stale by its step; a fast character is not
+    taken for a teleport. A source scan holds `online.ts` to this netcode.
+  - `check:online-rules` (root, 17 checks, ~8 s): the block's normalizer, resolver and validator;
     the module lists agree; no rules ⇒ P10.14 behaviour; the goal (only its characters), the pause,
     round 2 at the spawn with scores reset; the clock, the top score, a tie; catch (inputs acked,
-    no movement, respawn), reach, targets, cooldown; stun; lag compensation within / beyond the
+    no movement, respawn, then the grace), reach, targets, cooldown; stun; two abilities in one
+    input, two on one button; no hit at a place left by a respawn; a config of huge zones and
+    bodies stays cheap (600 steps well under 1.5 s); whole, bounded scores; lag compensation within / beyond the
     window and from the future; `tag`; 3 000 random steps replay to the same bodies, scores and
     events. *Live* on a real Colyseus server with SDK clients: the catch, score and status reach
     both devices, events after their patch; the goal ends the round for everyone and round 2 starts;
     a leave is told.
   - `check:room-sim`: unchanged but for `view` in the clamped input's keys (36 checks pass).
   - `family.fixture.ts`: the two `resolveArcadeOnline` expectations gain the resolved empty rules.
-- **Verified by playing:** `scripts/playtest/online-play.mjs` on the branch runtime: **18 / 18** —
-  P10.14's 15 plus: page A draws its own player moving within its first frames; at rest, both pages
+- **Verified by playing:** `scripts/playtest/online-play.mjs` on the branch runtime: **17 / 17** —
+  P10.14's 13 plus four: page A draws its own player moving within its first frames; at rest, both pages
   draw every player exactly where the room has it (prediction and interpolation converged); the
   mover is page A's own player.
 - **Bundle size** (the release build's `index.html`, gzip -6; base b0a7f9e vs this branch):
-  3,944,754 B / 1,345,974 B gz → 3,954,503 B / 1,349,467 B gz: **+9.7 KB raw, +3.5 KB gz (+0.26 %)**,
+  3,944,754 B / 1,345,974 B gz → 3,955,380 B / 1,349,868 B gz: **+10.6 KB raw, +3.9 KB gz (+0.29 %)**,
   on top of P10.14's accepted +59 KB gz. No new dependency: the netcode and rules are our own
   `engine-mechanics` code; the Colyseus SDK's own `predict` module is not used.
 - **Slot / match-3 / offline-arcade parity:** every new runtime path is in `game/online.ts`, reached
@@ -118,7 +132,7 @@ row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-mu
   - **our own netcode in `engine-mechanics`, not Colyseus' `predict` module** (§6 expected Colyseus
     to do the bookkeeping): the same dependency-free file runs in the gate on a virtual clock through
     simulated loss and in the runtime, it keeps the device's float64 fold instead of the wire's
-    float32, and it adds 3.5 KB gz where the SDK's `predict` is a 3,000-line module;
+    float32, and it adds under 4 KB gz where the SDK's `predict` is a 3,000-line module;
   - lag compensation by **`Input.view`** (the device names the step it drew), held to 250 ms — the
     standard trade: a modified client can claim up to 250 ms of hindsight, no more;
   - currents push only on a step that applies an input, so a starved or dropped player stands still
@@ -126,7 +140,8 @@ row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-mu
   - a hit is decided on the **centre distance** (reach), not the bodies' shapes; abilities have no
     aim (`aim*` still clamped to the field);
   - players still **do not collide** with one another; events are one message type, `event`;
-  - the render clock's 25 % catch-up / 10 % slow-down and the 100 ms smoothing.
+  - the render clock's 25 % catch-up / 10 % slow-down and the 100 ms smoothing;
+  - the 1 s grace after a status, a respawn or a round's start, and the 100 ms minimum cooldown.
 - **Known limits:**
   - **on a lossy WebSocket, a lost packet holds up everything behind it** (head-of-line): with 5 %
     loss at 250 ms the others are drawn ~790 ms behind on average (`check:netcode` reports it); the
@@ -138,6 +153,10 @@ row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-mu
   - **predicted events** (§6: a swipe played the moment it is pressed) are not drawn: the device
     has no ability presentation yet;
   - a player that is `out` is still drawn (where it was caught) until it respawns;
+  - the 250 ms rewind covers an honest view only up to about a 120 ms round trip (the view is the
+    100 ms interpolation delay plus the trip plus a step behind): a slower player's hits are tested
+    against a later place than it saw;
+  - everyone respawns at the one `online.spawn`; the grace is the only spawn protection;
   - P10.14's limits on the world camera, `arcade.characters` and the Flow board effects online stand.
 
 **P10.14 — Arcade A4a: the game server (built 2026-10-26; merged #1375).** §8's P10.14 row, per the
@@ -1590,7 +1609,8 @@ game, bundle or screen changes.
   reconciliation, interpolation of everyone else (`engine-mechanics` `netcode.js`), the online
   rules as data on the server (`onlineRules.js`, `arcade.online.rules`: currents, goal, catch / stun
   with lag compensation, rounds, scores, the `tag` module), room events, `check:netcode`,
-  `check:online-rules`. +3.5 KB gz. Not deployed. Detail above.
+  `check:online-rules`. +3.9 KB gz. Not deployed. Online Flow events, server-owned variables and
+  predicted events stay open (P10.15 follow-ups). Detail above.
 
 - 2026-10-27 — **Card family design written and approved** (owner, the same day: all seven §13
   decisions as recommended): [card-games.md](../design/card-games.md). The rules engine

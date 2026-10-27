@@ -7,8 +7,9 @@
 // join one room and draw both players; ArrowRight held on page A moves A's player right on BOTH
 // pages, and letting go stops it; page A draws its own player moving within its first frames
 // (prediction, P10.15); at rest each page draws every player exactly where the room has it (the
-// prediction and the interpolation converge); the two pages then agree on every place; page B's character came from `?rooms_character=`; nothing reached an RGS; closing
-// page B lets its player go when the rejoin grace runs out; a launch with no `?rooms_url=` stops on
+// prediction and the interpolation converge); the two pages then agree on every place; page B's
+// character came from `?rooms_character=`; nothing reached an RGS; closing page B lets its player
+// go when the rejoin grace runs out; a launch with no `?rooms_url=` stops on
 // the boot-failure screen; no page error. It builds its own snapshot and config, so the
 // current-games harness is not touched.
 //
@@ -259,7 +260,7 @@ try {
 	await settle(a, 300);
 	const still = (await players(a)).find((p) => p.id === mover?.id);
 	verdict('…and letting go stops it', still?.x === mover?.x, { still, mover });
-	verdict('…its own page has it there too: the prediction converged', mover?.id === me);
+	verdict("…and it is page A's own player", mover?.id === me);
 	await settle(b, 400);
 	for (const [name, game] of [
 		['A', a],

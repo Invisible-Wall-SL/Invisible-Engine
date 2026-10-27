@@ -9,12 +9,13 @@ import type { OnlineInput, OnlineLevel, StepContext } from './online';
 export const MATCH_PX: number;
 export const SMOOTH_MS: 100;
 export const SNAP_PX: 128;
+export function snapFor(speed: number, patchHz: number): number;
 export const INTERPOLATION_DELAY_MS: 100;
 export const MAX_RATE: 0.25;
 export const MAX_SLOW: 0.1;
 
 /** The room's word on the predicted player. */
-export type PredictorTruth = { x: number; y: number; ack: number; still?: boolean };
+export type PredictorTruth = { x: number; y: number; ack: number; still?: boolean; step?: number };
 
 export type Predictor = {
 	readonly body: Body;
@@ -58,7 +59,7 @@ export function createSnapshotClock(options: {
 export type Interpolator = {
 	push(id: string, step: number, x: number, y: number): void;
 	remove(id: string): void;
-	has(id: string): boolean;
+	retain(ids: ReadonlySet<string>): void;
 	at(id: string, step: number): { x: number; y: number } | undefined;
 };
 

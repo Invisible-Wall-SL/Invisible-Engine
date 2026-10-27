@@ -2,6 +2,7 @@ import type { Room } from '@colyseus/sdk';
 import {
 	BUTTONS,
 	MOVE_SCALE,
+	ONLINE_EVENT,
 	STATUS,
 	characterBody,
 	clampInput,
@@ -10,6 +11,7 @@ import {
 	createPredictor,
 	createSnapshotClock,
 	onlineLevel,
+	snapFor,
 	stepContext,
 	type FixedStep,
 	type Interpolator,
@@ -179,7 +181,12 @@ export async function joinOnlineRoom(): Promise<void> {
 		seq: 0,
 		me: undefined,
 		view: createSnapshotClock({ stepMs: 1000 / resolved.online.tickHz }),
-		others: createInterpolator(),
+		others: createInterpolator({
+			snapPx: snapFor(
+				Math.max(...resolved.online.characters.map((c) => c.speed)),
+				resolved.online.patchHz,
+			),
+		}),
 		viewStep: 0,
 		drawn: new Map(),
 		refused: new Set(),
@@ -187,9 +194,9 @@ export async function joinOnlineRoom(): Promise<void> {
 	};
 	session = current;
 	room.onStateChange(() => received(current, performance.now()));
-	room.onMessage('event', (event: OnlineEvent) => {
-		current.events.push(event);
-		if (current.events.length > EVENTS_KEPT) current.events.shift();
+	room.onMessage(ONLINE_EVENT, (events: OnlineEvent[]) => {
+		current.events.push(...events);
+		current.events.splice(0, current.events.length - EVENTS_KEPT);
 	});
 }
 
@@ -203,8 +210,9 @@ function predictorOf(current: Session, player: PlayerState): Predictor | undefin
 		speed: character.speed,
 		ctx: stepContext(game.online.tickHz, game.online.subSteps),
 		field: game.field,
-		level: onlineLevel(game.zones, game.online.rules.zones, character.id),
+		level: onlineLevel(game.zones, game.online.rules.zones, character.id, game.field),
 		ack: player.ack,
+		snapPx: snapFor(character.speed, game.online.patchHz),
 	});
 }
 
@@ -214,6 +222,7 @@ function received(current: Session, nowMs: number) {
 	const players = state.players;
 	if (!players || state.step === undefined) return;
 	current.view.observe(state.step, nowMs);
+	current.others.retain(new Set(players.keys()));
 	players.forEach((player, id) => {
 		if (id !== current.room.sessionId) {
 			current.others.push(id, state.step!, player.x, player.y);
@@ -225,6 +234,7 @@ function received(current: Session, nowMs: number) {
 			y: player.y,
 			ack: player.ack,
 			still: player.status !== STATUS.free,
+			step: state.step,
 		});
 	});
 }
@@ -261,7 +271,6 @@ function draw(current: Session) {
 		if (!players.has(id)) {
 			live.despawn(instance);
 			current.drawn.delete(id);
-			current.others.remove(id);
 		}
 	}
 	const moves: { id: string; x: number; y: number }[] = [];

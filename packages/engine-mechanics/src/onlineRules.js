@@ -13,25 +13,33 @@
  * character that, off cooldown, hits every player of its target characters within `reach`, tested
  * where the user's device was drawing them (`view`, held to {@link REWIND_MS} behind the room), so
  * a hit that lands on the screen lands in the room. Its effect is `stun` (the target stands still)
- * or `catch` (the target is out, then respawns), and it may score. A round ends at the goal or on
+ * or `catch` (the target is out, then respawns), and it may score. A player whose status ends, who
+ * respawns or who starts a round cannot be hit for {@link GRACE_MS}, so nobody is held for good,
+ * and a respawn forgets the player's past places, so nobody is hit where it no longer was. A round ends at the goal or on
  * its clock; the next starts `nextRoundSeconds` later with everyone back at the spawn and every
  * score at 0. Players move in every phase, so a device's prediction holds through the pause.
  *
  * Steps are counted as the room counts them: `stamp` is the room step a state is stamped with
- * (`steps` after the step that made it), and every time is a whole number of steps.
+ * (`steps` after the step that made it), and every time is a whole number of steps. Within one
+ * step, players act in the order they joined.
  */
 
-import { BUTTONS } from './online.js';
+import { BUTTONS, clipToField, levelCell } from './online.js';
 import { aabbOf, createStaticIndex, inZone, queryStatic, touching } from './motion.js';
 
 /** A player's status: free, held still by a stun, or out until it respawns. */
 export const STATUS = Object.freeze({ free: 0, stunned: 1, out: 2 });
 
-/** How far back an ability is tested against what its user saw, ms (§6: lag compensation). */
+/** How far back an ability is tested against what its user saw, at most, ms (§6: lag
+ *  compensation). Whole steps, rounded down. */
 export const REWIND_MS = 250;
 
-/** The phases of a room: before anyone joins, a round, the pause after one. */
-export const PHASES = Object.freeze(['waiting', 'running', 'ended']);
+/** How long a player cannot be hit after a status ends, a respawn or a round's start, ms. */
+export const GRACE_MS = 1000;
+
+/** The message type every room event travels as (`services/game-server` broadcasts each step's
+ *  events as one array of it; `apps/lines` `game/online.ts` reads it). */
+export const ONLINE_EVENT = 'event';
 
 const stepsOf = (ms, tickHz) => Math.max(0, Math.round((ms * tickHz) / 1000));
 
@@ -50,7 +58,7 @@ const tag = {
 			it.mark = true;
 			it.memo.tagFrom = world.stamp + world.tickHz;
 		}
-		if (world.stamp >= (it.memo.tagFrom ?? 0)) {
+		if (it.status === STATUS.free && world.stamp >= (it.memo.tagFrom ?? 0)) {
 			const caught = live.find((p) => p !== it && touching(it.body, p.body));
 			if (caught) {
 				it.mark = false;
@@ -77,20 +85,24 @@ export const ONLINE_RULES_MODULES = Object.freeze({ tag });
 export function createOnlineRules(game, { spawn }) {
 	const { online } = game;
 	const { rules, tickHz } = online;
-	const rewind = Math.max(1, stepsOf(REWIND_MS, tickHz));
+	const rewind = Math.max(1, Math.floor((REWIND_MS * tickHz) / 1000));
+	const grace = stepsOf(GRACE_MS, tickHz);
 	const goals = createStaticIndex(
 		rules.zones
 			.filter((rule) => rule.goal)
 			.map((rule) => {
 				const zone = game.zones.find((z) => z.id === rule.zone);
-				return zone && { ...zone, characters: rule.characters };
+				const clipped = zone && clipToField(zone, game.field);
+				return clipped && { ...clipped, characters: rule.characters };
 			})
 			.filter(Boolean),
+		levelCell(game.field),
 	);
-	const abilities = rules.abilities.map((a) => ({
+	const abilities = rules.abilities.map((a, i) => ({
 		...a,
+		key: String(i),
 		bit: BUTTONS[a.button],
-		cooldown: stepsOf(a.cooldownMs, tickHz),
+		cooldown: Math.max(1, stepsOf(a.cooldownMs, tickHz)),
 		hold: stepsOf(a.ms, tickHz),
 	}));
 	const module = rules.module ? ONLINE_RULES_MODULES[rules.module] : undefined;
@@ -111,9 +123,16 @@ export function createOnlineRules(game, { spawn }) {
 		return { x: player.body.x, y: player.body.y };
 	};
 
-	const free = (player) => {
+	const free = (player, stamp) => {
 		player.status = STATUS.free;
 		player.until = 0;
+		player.safeUntil = stamp + grace;
+	};
+
+	/** Back to the start: its past places are not where it is any more. */
+	const respawn = (player) => {
+		spawn(player);
+		history.delete(player.id);
 	};
 
 	const startRound = (players, stamp) => {
@@ -126,8 +145,8 @@ export function createOnlineRules(game, { spawn }) {
 			player.mark = false;
 			player.memo = {};
 			player.cooldowns = {};
-			free(player);
-			spawn(player);
+			free(player, stamp);
+			respawn(player);
 		}
 		emit({ type: 'roundStart', round });
 	};
@@ -170,7 +189,7 @@ export function createOnlineRules(game, { spawn }) {
 			player.mark = false;
 			player.memo = {};
 			player.cooldowns = {};
-			free(player);
+			free(player, stamp);
 			if (phase === 'waiting') startRound([...every], stamp);
 			emit({ type: 'joined', id: player.id });
 		},
@@ -181,18 +200,19 @@ export function createOnlineRules(game, { spawn }) {
 		/** Whether the room holds a player still (its inputs are taken but do not move it). */
 		holds: (player) => player.status !== STATUS.free,
 		/** After the room applied `input` for `player` during the step that will be `stamp`. */
-		applied(player, input, players, stamp) {
+		applied(player, input, every, stamp) {
 			if (phase !== 'running' || player.status !== STATUS.free) return;
+			let players;
 			for (const ability of abilities) {
 				if (ability.character !== player.character.id || !(input.buttons & ability.bit)) continue;
-				const key = ability.button;
-				if (stamp < (player.cooldowns[key] ?? 0)) continue;
-				player.cooldowns[key] = stamp + ability.cooldown;
-				emit({ type: 'ability', by: player.id, button: key });
+				if (stamp < (player.cooldowns[ability.key] ?? 0)) continue;
+				player.cooldowns[ability.key] = stamp + ability.cooldown;
+				emit({ type: 'ability', by: player.id, button: ability.button });
+				players ??= [...every];
 				const seen = Math.max(stamp - 1 - rewind, Math.min(stamp - 1, input.view));
 				for (const target of players) {
 					if (target === player || !target.connected || target.status !== STATUS.free) continue;
-					if (!ability.targets.includes(target.character.id)) continue;
+					if (stamp < target.safeUntil || !ability.targets.includes(target.character.id)) continue;
 					const at = placeAt(target, seen);
 					if (Math.hypot(at.x - player.body.x, at.y - player.body.y) > ability.reach) continue;
 					target.status = ability.effect === 'catch' ? STATUS.out : STATUS.stunned;
@@ -212,8 +232,8 @@ export function createOnlineRules(game, { spawn }) {
 			const players = [...every];
 			for (const player of players) {
 				if (player.status === STATUS.free || stamp < player.until) continue;
-				if (player.status === STATUS.out) spawn(player);
-				free(player);
+				if (player.status === STATUS.out) respawn(player);
+				free(player, stamp);
 			}
 			if (phase === 'running') {
 				if (goals.shapes.length) {

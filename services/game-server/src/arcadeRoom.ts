@@ -193,9 +193,9 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			this.state.winner = sim.rules.winner;
 		}
 
-		/** Tell every device what happened, after the patch that shows it. */
+		/** Tell every device what happened, in one message, after the patch that shows it. */
 		private announce(events: readonly OnlineEvent[]) {
-			for (const event of events) this.broadcast(EVENT, event, { afterNextPatch: true });
+			if (events.length) this.broadcast(EVENT, events, { afterNextPatch: true });
 		}
 
 		private requireSim(): RoomSim {

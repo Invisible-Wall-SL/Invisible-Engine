@@ -3,8 +3,8 @@ import type { ArcadeBody, ArcadeZone, ResolvedArcadeOnline } from './family';
 import { validateFamily } from './familyValidate';
 import type { GameConfigDoc } from './types';
 
-/** An online arcade game as its room plays it (P10.14, P10.15): one answer the game server and a device
- *  both derive from the same config, so the two step the same field at the same rates. */
+/** An online arcade game as its room plays it (P10.14, P10.15): one answer the game server and a
+ *  device both derive from the same config, so the two step the same field at the same rates. */
 export type OnlineGame = {
 	field: { w: number; h: number };
 	online: ResolvedArcadeOnline;

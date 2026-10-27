@@ -94,7 +94,7 @@ export function createRoomSim(game: OnlineGame): RoomSim {
 	const players = new Map<string, SimPlayer>();
 	let steps = 0;
 	const levels = new Map<string, OnlineLevel>(
-		online.characters.map((c) => [c.id, onlineLevel(game.zones, online.rules.zones, c.id)]),
+		online.characters.map((c) => [c.id, onlineLevel(game.zones, online.rules.zones, c.id, field)]),
 	);
 	const atRest = { ...ctx, subSteps: 1, subDt: 0 };
 	const spawn = (player: RulesPlayer) => {
@@ -146,6 +146,7 @@ export function createRoomSim(game: OnlineGame): RoomSim {
 				score: 0,
 				status: 0,
 				until: 0,
+				safeUntil: 0,
 				mark: false,
 				memo: {},
 				cooldowns: {},

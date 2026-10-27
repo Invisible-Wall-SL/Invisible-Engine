@@ -8,9 +8,10 @@ import type { OnlineInput } from './online';
 
 export const STATUS: Readonly<{ free: 0; stunned: 1; out: 2 }>;
 export const REWIND_MS: 250;
-export const PHASES: readonly ['waiting', 'running', 'ended'];
+export const GRACE_MS: 1000;
+export const ONLINE_EVENT: 'event';
 
-export type OnlinePhase = (typeof PHASES)[number];
+export type OnlinePhase = 'waiting' | 'running' | 'ended';
 
 /** A player as the rules see it: the room's own record, mutated in place. */
 export type RulesPlayer = {
@@ -22,6 +23,8 @@ export type RulesPlayer = {
 	status: number;
 	/** The stamp its status ends at. */
 	until: number;
+	/** The stamp before which it cannot be hit. */
+	safeUntil: number;
 	/** A rules module's flag (`tag`: "it"). */
 	mark: boolean;
 	/** A rules module's own notes on the player. */
@@ -67,6 +70,7 @@ export type OnlineRules = {
 
 export function createOnlineRules(
 	game: {
+		field: { w: number; h: number };
 		zones: readonly { id: string; x: number; y: number; w: number; h: number }[];
 		online: {
 			tickHz: number;
