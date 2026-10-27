@@ -116,7 +116,7 @@ export type QueuedEffect =
 			index: number;
 			/** The play's chosen target, on an `onPlay` effect of a card that chooses. */
 			target?: TargetRef;
-			/** On a dead unit's `onDeath` effects: the nearest unit to its right that survived, which a
+			/** On a dead unit's waiting effects: the nearest unit to its right that survived, which a
 			 *  death summon is placed before; `null` for the right end. */
 			anchor?: number | null;
 	  }
@@ -217,7 +217,7 @@ export function validateLibrary(
 	options?: { decks?: readonly (DeckList | { id?: string; cards: DeckList })[] },
 ): LibraryIssue[];
 
-/** One English sentence per effect, in authored order. */
+/** One English sentence per effect, in authored order. Expects a card `validateLibrary` passes. */
 export function cardText(card: CardDef, library?: readonly CardDef[]): string[];
 
 /** Shuffles, deals and runs turn 1 to `main`. Throws on a library with errors, an unknown deck

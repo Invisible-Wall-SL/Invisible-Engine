@@ -761,13 +761,14 @@ check('a value of the wrong type is malformed, not unknown: it is kept and refus
 		unit('b', { keywords: ['guard', 7] }),
 		unit('c', { effects: [{ ...hit(T.allUnits), verb: 5 }] }),
 		unit('d', { effects: [hit({ kind: 9, include: 'units' })] }),
+		unit('e', { effects: [hit({ kind: ['chosen'], side: 'nope', include: 'units' })] }),
 	];
 	const read = readLibrary(library);
 	assert.deepEqual(read.dropped, []);
 	assert.deepEqual(read.library, library);
 	const codes = validateLibrary(read.library).map((i) => `${i.card} ${i.code}`);
-	assert.deepEqual(codes, ['a type', 'b keyword', 'c verb', 'd target']);
-	assert.throws(() => createMatch({ seed: 1, decks: [[], []], library }), /4 error/);
+	assert.deepEqual(codes, ['a type', 'b keyword', 'c verb', 'd target', 'e target']);
+	assert.throws(() => createMatch({ seed: 1, decks: [[], []], library }), /5 error/);
 });
 
 check('createMatch throws on a library with a real error', () => {

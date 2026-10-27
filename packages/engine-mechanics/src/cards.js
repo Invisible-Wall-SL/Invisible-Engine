@@ -154,7 +154,7 @@ function readEffect(raw, at, dropped) {
 		dropped.push(`${at}: ${unknown}`);
 		return null;
 	}
-	if (!EFFECT_FIELDS[raw.verb]) return { ...raw };
+	if (!fieldsOf(EFFECT_FIELDS, raw.verb)) return { ...raw };
 	const effect = { trigger: raw.trigger, verb: raw.verb };
 	for (const key of Object.keys(raw)) {
 		if (key === 'trigger' || key === 'verb') continue;
@@ -182,7 +182,7 @@ function unknownValue(raw) {
 	const target = raw.target;
 	if (!isRecord(target)) return null;
 	if (unknownIn(CARD_TARGET_KINDS, target.kind)) return `target "${target.kind}"`;
-	const fields = TARGET_FIELDS[target.kind] ?? [];
+	const fields = fieldsOf(TARGET_FIELDS, target.kind) ?? [];
 	if (fields.includes('side') && unknownIn(SIDES, target.side)) return `side "${target.side}"`;
 	if (fields.includes('include') && unknownIn(INCLUDES, target.include)) {
 		return `include "${target.include}"`;
@@ -191,9 +191,11 @@ function unknownValue(raw) {
 }
 
 const unknownIn = (list, value) => typeof value === 'string' && !list.includes(value);
+const fieldsOf = (table, key) =>
+	typeof key === 'string' && Object.hasOwn(table, key) ? table[key] : undefined;
 
 function readTarget(raw, at, dropped) {
-	if (!isRecord(raw) || !TARGET_FIELDS[raw.kind]) return raw;
+	if (!isRecord(raw) || !fieldsOf(TARGET_FIELDS, raw.kind)) return raw;
 	const target = { kind: raw.kind };
 	for (const key of Object.keys(raw)) {
 		if (key === 'kind') continue;
@@ -580,6 +582,7 @@ export function createMatch({ seed, decks, library, rules, first = 'random' }) {
 	});
 	const m = ctx.match;
 	decks.forEach((deck, side) => {
+		if (!Array.isArray(deck)) throw new Error(`cards: deck ${side} is not a list of cards`);
 		for (const id of deckIds(deck)) {
 			if (!byId[id])
 				throw new Error(`cards: deck ${side} names "${id}", which is not in the library`);
@@ -609,8 +612,13 @@ const RULE_MINIMUMS = {
 
 function resolveRules(rules = {}) {
 	const d = CARD_RULE_DEFAULTS;
-	const r = isRecord(rules) ? rules : {};
-	const resource = isRecord(r.resource) ? r.resource : {};
+	if (rules !== undefined && !isRecord(rules))
+		throw new Error('cards: the rules must be an object');
+	const r = rules ?? {};
+	if (r.resource !== undefined && !isRecord(r.resource)) {
+		throw new Error('cards: the rule resource must be an object');
+	}
+	const resource = r.resource ?? {};
 	const rule = (source, key, fallback) => {
 		const value = source[key] ?? fallback;
 		if (!Number.isInteger(value) || value < RULE_MINIMUMS[key]) {
@@ -798,7 +806,10 @@ function endTurn(ctx) {
 			const health = lapsing.reduce((sum, b) => sum + b.health, 0);
 			unit.attack -= lapsing.reduce((sum, b) => sum + b.attack, 0);
 			unit.health -= health;
-			if (health > 0) unit.damage = Math.min(unit.damage, Math.max(0, unit.health - 1));
+			if (health > 0) {
+				unit.health = Math.max(1, unit.health);
+				unit.damage = Math.min(unit.damage, unit.health - 1);
+			}
 			unit.buffs = unit.buffs.filter((b) => b.until !== 'endOfTurn');
 			expired.push(unit.uid);
 		}
@@ -1042,7 +1053,8 @@ function summon(ctx, item, effect) {
  * Every unit with damage at or past its health, or destroyed by the last effect, dies at once: in
  * board order, the active player's first. Each goes to its owner's discard pile and its `onDeath`
  * effects are raised, each carrying the nearest unit to its right that survives (`anchor`), so a
- * death summon takes the dead unit's place however the board shifts before it resolves.
+ * death summon takes the dead unit's place. Waiting effects of the dead get the same anchor, and
+ * an anchor that dies hands its own on, so the place holds however the board shifts first.
  */
 function deathCheck(ctx, doomed, raised) {
 	const m = ctx.match;
@@ -1061,6 +1073,16 @@ function deathCheck(ctx, doomed, raised) {
 		const player = m.players[side];
 		player.board = player.board.filter((u) => !dying.some((d) => d.unit === u));
 	}
+	const anchors = new Map(dying.map((d) => [d.unit.uid, d.anchor]));
+	const follow = (item) => {
+		if (item.combat) return;
+		if (anchors.has(item.anchor)) item.anchor = anchors.get(item.anchor);
+		else if (anchors.has(item.source) && item.anchor === undefined) {
+			item.anchor = anchors.get(item.source);
+		}
+	};
+	m.queue.forEach(follow);
+	for (const entry of raised) entry.items.forEach(follow);
 	for (const { unit, pos, side, anchor } of dying) {
 		m.players[side].discard.push(unit);
 		ctx.events.push({ type: 'died', uid: unit.uid });
@@ -1203,4 +1225,9 @@ const unitOnBoard = (m, uid) =>
 const unitOf = (m, target) => unitOnBoard(m, target.unit);
 const boardIndex = (m, unit) => m.players[unit.owner].board.indexOf(unit);
 const isRecord = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
-const show = (value) => (typeof value === 'string' ? `"${value}"` : String(value));
+const show = (value) =>
+	typeof value === 'string'
+		? `"${value}"`
+		: typeof value === 'object' && value !== null
+			? JSON.stringify(value)
+			: String(value);

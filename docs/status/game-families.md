@@ -48,8 +48,8 @@ game are C3.
   - `legalActions` lists plays without a `slot` (any slot from 0 to the board's length is legal),
     so the AI's branching stays small;
   - `first` is `0 | 1 | 'random'`; C3 maps the config's `'player' | 'ai'` onto sides;
-  - **an expiring `endOfTurn` health buff never kills**: the unit's damage is cut to leave it at 1
-    health (the genre's rule). §2 did not say; a permanent negative buff still kills.
+  - **an expiring `endOfTurn` health buff never kills**: the unit is left at 1 health at least,
+    its damage cut to fit (the genre's rule). §2 did not say; a permanent negative buff still kills.
 - **Gates:** `check:card-rules` (41 checks, among them every verb on every target it allows, and
   the replay trace `fixtures/cards-replay.json`) and `check:card-library` (43 checks); the sample
   library the gates play is `fixtures/cards-sample.library.json`, invented. Both run under
@@ -57,6 +57,9 @@ game are C3.
 - **Open for the design doc:** §12.1's C1 row says "the normalizer keeps unknown card fields", but
   §3.6 and doc-readers.md drop them; the gate pins the drop, and the normalizer itself is C3's. The
   expiry rule above wants a line in §2.
+- **For C3's config validator:** rules that are each valid but clash (`resource.start` above
+  `max` is clamped; an `openingHand` larger than the deck ends the match in fatigue at once), and
+  `cardText` expects a validated card (C4's live preview must validate first).
 
 **P10.11 — Arcade A2: characters (built 2026-10-26; in review).** §8's P10.11 row (§4.3, §5.1, §5.2,
 §6.3, §6.5), in one PR. No live game uses any of it yet; the sample is a fixture.
@@ -1258,7 +1261,7 @@ game, bundle or screen changes.
   decisions as recommended): [card-games.md](../design/card-games.md). The rules engine
   (`cards.js`), effects as data from closed lists, a seeded on-device AI, the card frame, card data
   in Game Config, Invisible Card Library (`/cards`), the ship chain, the `card` family, build steps
-  C1–C5 with gates. Nothing built yet; C1 is next. Docs only.
+  C1–C5 with gates. Docs only.
 - 2026-10-26 — **P10.11 built: arcade characters.** Brains (`behaviours.js`), controllers, solid
   response, paths, `animInputs`, 1D blend states, the `path` node, and the new **Invisible
   Characters** tool (arcade only); a guard sample as a fixture. Detail above.

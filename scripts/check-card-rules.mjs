@@ -47,7 +47,6 @@ const unit = (id, cost, attack, health, extra = {}) => ({
 });
 const spell = (id, cost, effects) => ({ id, name: id, type: 'spell', cost, effects });
 const enemyUnit = { kind: 'chosen', side: 'enemy', include: 'units' };
-const anyCharacter = { kind: 'chosen', side: 'any', include: 'characters' };
 
 /** The sample, plus cards made to isolate one rule each. */
 const LIBRARY = [
@@ -161,6 +160,24 @@ const LIBRARY = [
 			},
 		],
 	}),
+	unit('sapper', 1, 1, 1, {
+		effects: [{ trigger: 'onDamaged', verb: 'summon', card: 'sproutling' }],
+	}),
+	unit('pillar', 1, 0, 2),
+	spell('double-ash', 0, [
+		{
+			trigger: 'onPlay',
+			verb: 'damage',
+			amount: 1,
+			target: { kind: 'allEnemies', include: 'units' },
+		},
+		{
+			trigger: 'onPlay',
+			verb: 'damage',
+			amount: 1,
+			target: { kind: 'allEnemies', include: 'units' },
+		},
+	]),
 	spell('ponder', 0, [{ trigger: 'onPlay', verb: 'draw', amount: 3 }]),
 	spell('bloom', 0, [{ trigger: 'onPlay', verb: 'summon', card: 'sproutling', count: 3 }]),
 ];
@@ -679,6 +696,34 @@ check('an expiring health buff leaves a damaged unit at 1 health, never kills it
 	assert.deepEqual([after.attack, after.health, after.damage], [1, 1, 0]);
 });
 
+check('an expiring buff never kills, even when a later debuff leaves less than it gave', () => {
+	const m = table({ mine: { hand: ['focus'], board: ['ember-imp'] } });
+	const imp = me(m).board[0].uid;
+	const focused = playCard(m, 'focus', { target: { unit: imp } }).match;
+	const withered = {
+		...focused,
+		players: focused.players.map((p, i) =>
+			i === 0
+				? {
+						...p,
+						board: p.board.map((u) => ({
+							...u,
+							health: u.health - 4,
+							buffs: [...u.buffs, { attack: 0, health: -4, until: 'permanent' }],
+						})),
+					}
+				: p,
+		),
+	};
+	const unitNow = withered.players[0].board[0];
+	assert.deepEqual([unitNow.health, unitNow.damage], [1, 0], 'a 2-health imp, +3 then -4');
+	const { match, events } = apply(apply(withered, { type: 'endPhase' }).match, {
+		type: 'endPhase',
+	});
+	assert.deepEqual(ofType(events, 'died'), []);
+	assert.deepEqual([match.players[0].board[0].health, match.players[0].board[0].damage], [1, 0]);
+});
+
 check('destroy: the unit dies through a shield, and its onDeath fires', () => {
 	const m = table({
 		mine: { hand: ['quiet-end', 'quiet-end'] },
@@ -969,6 +1014,25 @@ check("a death summon takes the dead unit's place when units beside it die too",
 	);
 });
 
+check("a summon keeps the dead unit's place when the unit it was placed by dies first", () => {
+	const m = table({
+		mine: { hand: ['double-ash', 'rain-of-ash'] },
+		theirs: { board: ['husk', 'pillar', 'dummy'] },
+	});
+	const twice = playCard(m, 'double-ash').match;
+	assert.deepEqual(
+		them(twice).board.map((c) => c.cardId),
+		['sproutling', 'dummy'],
+	);
+	const sap = table({ mine: { hand: ['rain-of-ash'] }, theirs: { board: ['sapper', 'dummy'] } });
+	const sapped = playCard(sap, 'rain-of-ash').match;
+	assert.deepEqual(
+		them(sapped).board.map((c) => c.cardId),
+		['sproutling', 'dummy'],
+		'an onDamaged summon of a unit that died of the same hit takes its place',
+	);
+});
+
 check('onDamaged and onDeath raised by one effect share one order: the active player first', () => {
 	const m = table({
 		phase: 'combat',
@@ -1056,7 +1120,13 @@ check('malformed rules throw', () => {
 	]) {
 		assert.throws(make(rules), /must be a whole number/, JSON.stringify(rules));
 	}
+	assert.throws(make('fast'), /rules must be an object/);
+	assert.throws(make({ resource: 5 }), /resource must be an object/);
 	assert.doesNotThrow(make({ openingHand: 0, resource: { start: 0 } }));
+	assert.throws(
+		() => createMatch({ seed: 'r', decks: [{ cards: DECK }, DECK], library: LIBRARY }),
+		/deck 0 is not a list/,
+	);
 });
 
 check('the turn limit ends the match as a draw', () => {
