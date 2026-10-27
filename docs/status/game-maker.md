@@ -64,6 +64,31 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
   Verified offline (`check:project-duplicate`), not live.
 
 ## Recent changes
+- 2026-10-27 — **Build breakdown: what a published version shipped.** A full page per retained
+  version (`/game-maker/breakdown/<project>/<id>`, linked as **Build breakdown** on the live line
+  and **breakdown** on each Published versions row) lists the snapshot's `deploy/` copy by category
+  and size, the logical assets (sheets, images, rigs, fonts, sounds, loading splash) with the files
+  each pulls in and how many times the game data names it, per-file reference counts and
+  referrers, checks (not-shipped references, dead files, duplicates, >4096 px pages, the
+  exporters' missing/collision lists, an overridden flow), the diff against the previous retained
+  version, a content summary, and CSV/JSON downloads. Guide:
+  [tools/game-maker.md § Build breakdown](../tools/game-maker.md).
+  - `src/lib/server/buildBreakdown.ts`: pure `analyzeBuild` over the snapshot's listing, its
+    `runtime.json` and the bodies of its text files (json/atlas/fnt/xml; rig skeletons and files
+    over 8 MB are not read), plus `loadBuildBreakdown`, which caches the result as
+    `published/<id>/breakdown.json` (a snapshot is immutable; `BREAKDOWN_VERSION` invalidates it)
+    and is swept with the snapshot. Computed on first open, not at publish, so a bulk republish
+    does no extra work.
+  - **What "uses" counts:** exact occurrences of the asset's key (and a rig's bare bundle name, a
+    font's family name) anywhere in the bundle EXCEPT the indices that list assets. A coded path
+    that loads an asset by a name the data never states reads as 0 uses, so that check is info,
+    not a warning.
+  - **"Shipped but never loaded"** counts only asset kinds; subtree `index.json` files and the
+    mirrored data files (flow, effects, clips, cinematics, shaders) are copies the desktop pull
+    reads and are not flagged. The status doc's "dead bytes" note (Python atlas tool output in
+    `deploy/<atlas>/`) is what this check shows.
+  - Gate: `check:build-breakdown` (in `lint.yml`), the real modules over an in-memory R2 with two
+    snapshots. Not browser-verified, and not run against a real project's snapshot.
 - 2026-10-26 — **Re-scaffold replaces a flow or layout another kind left behind.** The scaffold's
   seeds are create-only, so a project whose kind was changed in `/admin` kept the old kind's
   `editor/flow-v2.json` through **Rescaffold**: `invisible_wall/salmons` went Book of → `arcade`

@@ -186,6 +186,8 @@ const BEFORE_CHARACTERS = new Set([
 	'flipbook',
 	'director',
 	'pipelineChanges',
+	'pipelineBugs',
+	'gameBugs',
 ]);
 check(
 	'2. the registry is the pre-P10.11 list plus Invisible Characters',
