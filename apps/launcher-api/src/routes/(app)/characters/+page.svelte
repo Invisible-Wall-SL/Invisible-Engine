@@ -6,6 +6,7 @@
 		ARCADE_BODY_EDGES,
 		ARCADE_CONDITIONS,
 		ARCADE_CONTROLLER_ACTIONS,
+		ARCADE_JUMP_ACTION,
 		ARCADE_POINTER_AXES,
 		ARCADE_VARIABLE_OPS,
 		resolveArcade,
@@ -259,9 +260,22 @@
 	const strayInputs = $derived(mappedInputs.filter((id) => !lookInputs.some((i) => i.id === id)));
 	const sources = $derived(character ? edit.animSourcesFor(character) : []);
 	const sourceFits = (kind: 'bool' | 'number', source: ArcadeAnimSource): boolean =>
-		kind === 'bool'
-			? source === 'moving' || source.startsWith('state:')
-			: !(source === 'moving' || source.startsWith('state:'));
+		edit.animSourceIsBool(source) === (kind === 'bool');
+
+	// ── jump ──
+	const jump = $derived(edit.jumpOf(character));
+	const jumpKind = $derived(
+		character?.controller ? edit.JUMP_KIND_FOR[character.controller.kind] : undefined,
+	);
+	const profile = $derived(jump ? edit.jumpHint(jump) : undefined);
+	const JUMP_FIELDS: { key: edit.JumpField; label: string; hint: string }[] = [
+		{ key: 'height', label: 'Height px', hint: 'to the apex' },
+		{ key: 'time', label: 'Time s', hint: 'from take-off to the apex' },
+		{ key: 'minHeight', label: 'Tap height px', hint: 'empty ⇒ every jump is full height' },
+		{ key: 'coyoteMs', label: 'Coyote ms', hint: 'a press this late after a ledge still jumps' },
+		{ key: 'bufferMs', label: 'Buffer ms', hint: 'a press this early before landing jumps' },
+		{ key: 'airControl', label: 'Air control 0–1', hint: 'how much you steer in the air' },
+	];
 
 	/**
 	 * After an edit, show what the doc holds: a value an edit refused leaves the doc unchanged, so
@@ -540,6 +554,24 @@
 											change((d) => body.setBodySolid(d, comp, e.currentTarget.checked))}
 									/> Solid</label
 								>
+								<label class="check" title="A hopping character in the air passes over it"
+									><input
+										type="checkbox"
+										checked={lookBody.ground === true}
+										disabled={readOnly}
+										onchange={(e) =>
+											change((d) => body.setBodyGround(d, comp, e.currentTarget.checked))}
+									/> Ground</label
+								>
+								<label class="check" title="Stops a falling character from above only"
+									><input
+										type="checkbox"
+										checked={lookBody.oneWay === true}
+										disabled={readOnly || lookBody.solid === true}
+										onchange={(e) =>
+											change((d) => body.setBodyOneWay(d, comp, e.currentTarget.checked))}
+									/> One-way</label
+								>
 							</div>
 						{:else}
 							<p class="hint">
@@ -558,17 +590,16 @@
 
 					<section>
 						<h2>Movement</h2>
-						<p class="hint">Empty is instant (accel, decel, turn rate) or uncapped (max speed).</p>
+						<p class="hint">
+							Empty is instant (accel, decel, turn rate), uncapped (max speed, max fall) or no pull
+							(gravity). With gravity the character falls, and only its left / right is steered.
+							With a side-scroll jump, gravity is the pull while falling (the jump's height and time
+							set the rise; empty ⇒ the jump's own); a flap needs it.
+						</p>
 						<div class="grid">
 							{#each edit.MOVEMENT_KEYS as key (key)}
 								<label
-									>{key === 'accel'
-										? 'Accel px/s²'
-										: key === 'decel'
-											? 'Decel px/s²'
-											: key === 'maxSpeed'
-												? 'Max speed px/s'
-												: 'Turn rate °/s'}
+									>{edit.MOVEMENT_LABELS[key]}
 									<input
 										type="number"
 										min="0"
@@ -601,6 +632,7 @@
 									<option value="none">none (not playable)</option>
 									<option value="topDown">top-down (8-way)</option>
 									<option value="sideScroll">side-scroll (left / right)</option>
+									<option value="flap">flap (tap to kick up)</option>
 									<option value="pointer">pointer (follow it)</option>
 								</select>
 							</label>
@@ -611,11 +643,31 @@
 										type="number"
 										min="0"
 										value={num(character.controller.speed)}
-										placeholder={character.controller.kind === 'pointer' ? 'max speed' : ''}
+										placeholder={character.controller.kind === 'pointer'
+											? 'max speed'
+											: character.controller.kind === 'flap'
+												? 'none'
+												: ''}
 										disabled={readOnly}
 										onchange={(e) => {
 											change((d) => edit.setControllerSpeed(d, cid(), e.currentTarget.value));
 											settle(e.currentTarget, liveCharacter()?.controller?.speed);
+										}}
+									/>
+								</label>
+							{/if}
+							{#if character.controller?.kind === 'flap'}
+								<label
+									>Kick px/s
+									<input
+										type="number"
+										min="1"
+										value={num(character.controller.kick)}
+										disabled={readOnly}
+										onchange={(e) => {
+											change((d) => edit.setFlapKick(d, cid(), e.currentTarget.value));
+											const stored = liveCharacter()?.controller;
+											settle(e.currentTarget, stored?.kind === 'flap' ? stored.kick : undefined);
 										}}
 									/>
 								</label>
@@ -637,11 +689,70 @@
 								</label>
 							{/if}
 						</div>
+						{#if jumpKind}
+							<div class="grid">
+								<label class="check"
+									><input
+										type="checkbox"
+										checked={!!jump}
+										disabled={readOnly}
+										onchange={(e) => change((d) => edit.setJump(d, cid(), e.currentTarget.checked))}
+									/>
+									Jump ({jumpKind === 'gravity' ? 'a side-view jump' : 'a top-down hop'})</label
+								>
+							</div>
+							{#if jump}
+								<div class="grid">
+									{#each JUMP_FIELDS as f (f.key)}
+										<label title={f.hint}
+											>{f.label}
+											<input
+												type="number"
+												min="0"
+												step={f.key === 'time' || f.key === 'airControl' ? '0.05' : '1'}
+												value={num(jump[f.key])}
+												placeholder={edit.JUMP_FIELD_DEFAULTS[f.key] !== undefined
+													? String(edit.JUMP_FIELD_DEFAULTS[f.key])
+													: f.key === 'minHeight'
+														? 'height'
+														: ''}
+												disabled={readOnly}
+												onchange={(e) => {
+													const key = f.key;
+													change((d) => edit.setJumpField(d, cid(), key, e.currentTarget.value));
+													settle(e.currentTarget, edit.jumpOf(liveCharacter())?.[key]);
+												}}
+											/>
+										</label>
+									{/each}
+								</div>
+								{#if profile}
+									<p class="hint">
+										Launches at <b>{profile.launch.toFixed(0)} px/s</b> and rises under a pull of
+										<b>{profile.gravity.toFixed(0)} px/s²</b>{#if profile.cut}; letting go early
+											cuts the climb to {profile.cut.toFixed(0)} px/s{/if}.
+										{#if jump.kind === 'hop'}
+											In the air it passes over <i>ground</i> bodies.
+										{/if}
+									</p>
+								{/if}
+							{/if}
+						{/if}
 						{#if character.controller && character.controller.kind !== 'pointer'}
 							<p class="hint">
 								The keyboard controllers read the Flow input map's actions
 								{#each ARCADE_CONTROLLER_ACTIONS as a, i (a)}{i ? ', ' : ''}<code>{a}</code>{/each}
 								(map the keys in Invisible Flow); with none held, a pressed pointer or touch steers.
+								{#if jump || character.controller.kind === 'flap'}
+									A {character.controller.kind === 'flap' ? 'flap' : 'jump'} reads
+									<code>{ARCADE_JUMP_ACTION}</code
+									>{#if character.controller.kind !== 'topDown'}&nbsp;or <code>up</code
+										>{/if}{#if character.controller.kind === 'topDown'}
+										(a hop has no touch gesture: a touch steers).{:else}, or a pointer pressed
+										{character.controller.kind === 'flap'
+											? 'anywhere'
+											: 'above the character'}.{/if}
+								{/if}
 							</p>
 						{/if}
 					</section>

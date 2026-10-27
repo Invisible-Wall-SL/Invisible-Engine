@@ -12,6 +12,7 @@
 		"check:scatter": "node scripts/check-scatter-evaluator.mjs",
 		"check:arcade-motion": "node scripts/check-arcade-motion.mjs",
 		"check:arcade-characters": "node scripts/check-arcade-characters.mjs",
+		"check:arcade-platformer": "node scripts/check-arcade-platformer.mjs",
 		"check:room-sim": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-room-sim.mjs",
 		"check:board-mechanic": "node scripts/check-board-mechanic.mjs",
 		"check:freespins": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-freespin-protocol.mjs && node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-book-freespin-protocol.mjs && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/game-config/freeSpins.fixture.ts",

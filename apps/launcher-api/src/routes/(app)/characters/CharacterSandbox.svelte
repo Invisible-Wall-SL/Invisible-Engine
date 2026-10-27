@@ -8,16 +8,18 @@
 	import { onMount, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import type { ArcadeBody, ArcadeCharacter } from 'game-config';
+	import { fallsUnderGravity, hopsOnThePlane } from 'engine-game/src/game/arcadeCharacters';
 	import {
-		DEFAULT_WALLS,
 		PLAYER_TAG,
 		SANDBOX_PATH,
 		createSandbox,
 		parseVariables,
 		wallAt,
+		wallsFor,
 		type Sandbox,
 		type SandboxSnapshot,
 		type SandboxWall,
+		type SandboxWallKind,
 	} from '$lib/characters/sandbox';
 
 	let {
@@ -48,13 +50,14 @@
 		D: 'right',
 		W: 'up',
 		S: 'down',
+		' ': 'jump',
 	};
 
 	let seed = $state('1');
 	let playing = $state(true);
 	let tool = $state<'move' | 'path'>('move');
 	let drive = $state<'controller' | 'brain'>('controller');
-	let walls = $state<SandboxWall[]>(untrack(() => DEFAULT_WALLS(field)));
+	let walls = $state<SandboxWall[]>(untrack(() => wallsFor(field, character)));
 	let path = $state<{ x: number; y: number }[]>([]);
 	/** Stand-ins for the Flow variables a `variable` condition reads: `name = value` lines. */
 	let variablesText = $state('');
@@ -67,6 +70,13 @@
 	let dragging: { kind: 'player' | 'character' } | { kind: 'wall'; id: string } | null = null;
 
 	const both = $derived(!!character.controller && !!character.brain);
+	const falls = $derived(fallsUnderGravity(character));
+	const hops = $derived(hopsOnThePlane(character));
+	const jumps = $derived(
+		character.controller?.kind === 'flap' ||
+			(character.controller?.kind === 'sideScroll' && !!character.controller.jump) ||
+			hops,
+	);
 	const usesVariables = $derived(
 		(character.brain?.transitions ?? []).some((t) => t.when.some((c) => c.kind === 'variable')),
 	);
@@ -183,11 +193,34 @@
 		else held.delete(action);
 	}
 
-	function addWall(): void {
+	function addWall(kind: SandboxWallKind = 'solid'): void {
 		const n = walls.length + 1;
-		walls = [...walls, { id: `wall${n}`, x: field.w / 2, y: field.h / 2, w: 120, h: 24 }];
+		const wall: SandboxWall =
+			kind === 'ground'
+				? { id: `wall${n}`, x: field.w / 2, y: field.h / 2, w: 24, h: 160, kind }
+				: {
+						id: `wall${n}`,
+						x: field.w / 2,
+						y: field.h / 2,
+						w: 120,
+						h: kind === 'oneWay' ? 16 : 24,
+					};
+		if (kind === 'oneWay') wall.kind = kind;
+		walls = [...walls, wall];
 		reset();
 	}
+
+	/** The walls this kind of mover starts with (a platformer's ledges, a hop's low wall). */
+	function resetWalls(): void {
+		walls = wallsFor(field, $state.snapshot(character) as ArcadeCharacter);
+		reset();
+	}
+
+	const WALL_FILL: Record<SandboxWallKind, string> = {
+		solid: '#3a4150',
+		ground: '#4a5a3a',
+		oneWay: '#6a7790',
+	};
 
 	function draw(): void {
 		const ctx = canvas?.getContext('2d');
@@ -210,8 +243,14 @@
 			ctx.lineTo(field.w * k, y * k);
 			ctx.stroke();
 		}
-		ctx.fillStyle = '#3a4150';
-		for (const w of walls) ctx.fillRect((w.x - w.w / 2) * k, (w.y - w.h / 2) * k, w.w * k, w.h * k);
+		for (const w of walls) {
+			ctx.fillStyle = WALL_FILL[w.kind ?? 'solid'];
+			ctx.fillRect((w.x - w.w / 2) * k, (w.y - w.h / 2) * k, w.w * k, w.h * k);
+			if (w.kind === 'oneWay') {
+				ctx.fillStyle = '#c7d2e6';
+				ctx.fillRect((w.x - w.w / 2) * k, (w.y - w.h / 2) * k, w.w * k, 2);
+			}
+		}
 		if (path.length) {
 			ctx.strokeStyle = '#c9a7ff';
 			ctx.setLineDash([6, 5]);
@@ -231,28 +270,46 @@
 			fill: string,
 			label: string,
 			sub?: string,
+			lift = 0,
 		): void => {
+			const top = b.shape === 'circle' ? b.r : b.shape === 'box' ? b.h / 2 : 0;
+			if (lift > 0) {
+				// A hop: a shadow where it stands on the plane, the body drawn lifted above it.
+				const half = b.shape === 'circle' ? b.r : b.shape === 'box' ? b.w / 2 : 0;
+				ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+				ctx.beginPath();
+				ctx.ellipse(
+					b.x * k,
+					(b.y + top) * k,
+					half * k,
+					Math.max(2, half * k * 0.3),
+					0,
+					0,
+					Math.PI * 2,
+				);
+				ctx.fill();
+			}
+			const y = b.y - lift;
 			ctx.fillStyle = fill;
 			ctx.strokeStyle = '#0b0e13';
 			if (b.shape === 'circle') {
 				ctx.beginPath();
-				ctx.arc(b.x * k, b.y * k, b.r * k, 0, Math.PI * 2);
+				ctx.arc(b.x * k, y * k, b.r * k, 0, Math.PI * 2);
 				ctx.fill();
 			} else if (b.shape === 'box') {
-				ctx.fillRect((b.x - b.w / 2) * k, (b.y - b.h / 2) * k, b.w * k, b.h * k);
+				ctx.fillRect((b.x - b.w / 2) * k, (y - b.h / 2) * k, b.w * k, b.h * k);
 			}
 			ctx.fillStyle = '#e6e9ef';
 			ctx.font = '11px system-ui, sans-serif';
 			ctx.textAlign = 'center';
-			const top = b.shape === 'circle' ? b.r : b.shape === 'box' ? b.h / 2 : 0;
-			ctx.fillText(label, b.x * k, (b.y - top) * k - 4);
+			ctx.fillText(label, b.x * k, (y - top) * k - 4);
 			if (sub) {
 				ctx.fillStyle = '#7ee0c0';
-				ctx.fillText(sub, b.x * k, (b.y - top) * k - 16);
+				ctx.fillText(sub, b.x * k, (y - top) * k - 16);
 			}
 		};
 		shape(snap.player, '#3d7dd8', PLAYER_TAG);
-		shape(snap.character, '#e08a3c', snap.character.label, snap.state);
+		shape(snap.character, '#e08a3c', snap.character.label, snap.state, snap.contact?.z ?? 0);
 		ctx.fillStyle = '#ff6b6b';
 		for (const s of snap.shots) {
 			ctx.beginPath();
@@ -300,14 +357,35 @@
 			>
 		{/if}
 		{#if path.length}<button type="button" onclick={() => (path = [])}>Clear path</button>{/if}
-		<button type="button" onclick={addWall}>＋ Wall</button>
+		<button type="button" onclick={() => addWall()}>＋ Wall</button>
+		{#if hops}
+			<button
+				type="button"
+				onclick={() => addWall('ground')}
+				title="A ground-level wall: it stops the character on the ground; a hop passes over it"
+				>＋ Low wall</button
+			>
+		{/if}
+		{#if falls}
+			<button
+				type="button"
+				onclick={() => addWall('oneWay')}
+				title="A one-way platform: it stops a fall from above; jump up through it"
+				>＋ Platform</button
+			>
+		{/if}
+		<button
+			type="button"
+			onclick={resetWalls}
+			title="Back to the walls this kind of mover starts with">↺ Walls</button
+		>
 	</div>
 	<canvas
 		bind:this={canvas}
 		width={W}
 		height={H}
 		tabindex="0"
-		aria-label="Sandbox play field: arrow keys or WASD move the player"
+		aria-label="Sandbox play field: arrow keys or WASD move, Space jumps"
 		onpointerdown={onPointerDown}
 		onpointermove={onPointerMove}
 		onpointerup={onPointerUp}
@@ -318,8 +396,10 @@
 	<p class="help">
 		Click the field, then arrow keys / WASD move {snap?.driver === 'controller'
 			? 'the character (its controller)'
-			: 'the dummy player'}. Drag the player, the character or a wall. Press on empty space to give
-		a pointer controller its pointer. A drawn path stands in for every path a state names (and for
+			: 'the dummy player'}{jumps && snap?.driver === 'controller'
+			? `; Space ${character.controller?.kind === 'flap' ? 'flaps' : 'jumps'}${hops ? '' : ' (so do W / ↑)'}`
+			: ''}. Drag the player, the character or a wall. Press on empty space to give a pointer
+		controller its pointer. A drawn path stands in for every path a state names (and for
 		<code>{SANDBOX_PATH}</code>).
 	</p>
 	{#if snap}
@@ -330,6 +410,14 @@
 			<dd>{snap.driver}</dd>
 			<dt>Speed</dt>
 			<dd>{snap.speed.toFixed(1)} px/s</dd>
+			{#if snap.contact}
+				<dt>Grounded</dt>
+				<dd>{snap.contact.grounded ? 'yes' : 'no'}{snap.contact.onWall ? ' · on a wall' : ''}</dd>
+				{#if hops}
+					<dt>Hop height</dt>
+					<dd>{snap.contact.z.toFixed(1)} px</dd>
+				{/if}
+			{/if}
 			<dt>Shots hit the player</dt>
 			<dd>{snap.hits}</dd>
 			<dt>Step</dt>

@@ -171,6 +171,19 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-27 — **The `tilemap` node and its paint mode** (P10.13, branch
+  `feat/p10-13-gravity-jumps-levels`, in review; [game-families](game-families.md) P10.13). Library →
+  Elements → **Tilemap** inserts a 16 × 8 grid of 64 px tiles centred on the screen. The stage
+  draws each painted tile's region stretched to the tile, as the game does. While the tilemap is
+  selected it also shows the grid and the collide overlay (solid red, one-way a blue top edge). Paint
+  tools **Move / Brush / Erase / Fill / Pick** (`V B E G I`, also in the Shift+/ sheet) live in
+  Properties (`EditorTilemap.svelte`, state in `tilemapPaint.client.svelte.ts`). A brush/erase drag
+  fills the gaps between cells and commits once on release, so it is one undo step. Properties also
+  edits the grid (resize clamped to the caps) and the tileset (the region picker, a `RegionThumb`,
+  collide none / solid / oneWay stored sparse, remove remaps the tiles). A tilemap has no rotate
+  handle and no anchor/rotation fields, because the game applies neither. Pure helpers are in
+  `$lib/editor/tilemapEdit.ts`; `check:editor-tilemap` (76) covers them, `normalizeTilemapNode` and
+  the save. ⏳ Not browser-verified.
 - 2026-10-26 — **The `path` node** (P10.11, branch `claude/p10-11-arcade-characters`, in review;
   [game-families](game-families.md) P10.11). A route a character walks: points, Loop, smoothing.
   Drawn dashed with point handles (drag, click a segment to insert, Alt+click to delete); draws
