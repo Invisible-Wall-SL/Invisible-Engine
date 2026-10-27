@@ -44,6 +44,9 @@ function createSound<TSoundName extends string>() {
 	const configFor = (soundName: TSoundName): SoundConfig =>
 		bankFor(soundName)?.audio.config?.[soundName] ?? { volume: 1 };
 
+	const regionStartFor = (soundName: TSoundName): number | undefined =>
+		bankFor(soundName)?.audio.sprite[soundName]?.[0];
+
 	/**
 	 * Load the game's audio. Takes a single `LoadedAudio` (every caller today) or an ordered list of
 	 * banks, last-wins on name — the seam a project's own exported sounds arrive on.
@@ -67,9 +70,9 @@ function createSound<TSoundName extends string>() {
 
 		// players
 		players = {
-			music: createPlayer<TSoundName, PlayMusic>({ howlFor, configFor, createPlay: createPlayMusic<TSoundName> }), // prettier-ignore
-			loop: createPlayer<TSoundName, PlayLoop>({ howlFor, configFor, createPlay: createPlayLoop<TSoundName> }), // prettier-ignore
-			once: createPlayer<TSoundName, PlayOnce>({ howlFor, configFor, createPlay: createPlayOnce<TSoundName> }), //  prettier-ignore
+			music: createPlayer<TSoundName, PlayMusic>({ howlFor, configFor, regionStartFor, createPlay: createPlayMusic<TSoundName> }), // prettier-ignore
+			loop: createPlayer<TSoundName, PlayLoop>({ howlFor, configFor, regionStartFor, createPlay: createPlayLoop<TSoundName> }), // prettier-ignore
+			once: createPlayer<TSoundName, PlayOnce>({ howlFor, configFor, regionStartFor, createPlay: createPlayOnce<TSoundName> }), //  prettier-ignore
 		};
 
 		// audioContextState and visibilityState

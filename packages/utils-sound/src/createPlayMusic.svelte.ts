@@ -11,14 +11,38 @@ export function createPlayMusic<TSoundName extends string>(options: {
 }) {
 	type Sound = GetSound<TSoundName>;
 
-	const pauseAllMusic = () => {
+	/**
+	 * Pause every bed but `keep`. With `fade` (ms) a PLAYING bed fades out first and pauses at the
+	 * end, unless something resumed it meanwhile; its map entry is `paused` at once either way, so a
+	 * replay during the fade takes the resume branch. The fade is the crossfade a timeline's `music:`
+	 * cue asks for; no other caller passes one.
+	 */
+	const pauseAllMusic = (keep?: TSoundName, fade?: number) => {
 		(Object.values(options.getSoundMap()) as Sound[]).forEach((existingSound) => {
-			options.howlFor(existingSound.soundName)?.pause(existingSound.soundId);
+			if (existingSound.soundName === keep) return;
+			const howl = options.howlFor(existingSound.soundName);
+			const { soundId } = existingSound;
+			if (fade && existingSound.soundState === 'playing' && howl) {
+				howl.fade(howl.volume(soundId) as number, 0, fade, soundId);
+				setTimeout(() => {
+					if (options.getSoundMap()[existingSound.soundName]?.soundState !== 'paused') return;
+					howl.pause(soundId);
+					options.initSoundVolume(existingSound.soundName);
+				}, fade);
+			} else howl?.pause(soundId);
 			options.getSoundMap()[existingSound.soundName] = {
 				...existingSound,
 				soundState: 'paused',
 			};
 		});
+	};
+
+	/** Fade the bed now starting up from silence to its level over `fade` ms. */
+	const fadeIn = (soundName: TSoundName, soundId: number, fade?: number) => {
+		const howl = options.howlFor(soundName);
+		if (!fade || !howl) return;
+		const to = howl.volume(soundId) as number;
+		howl.fade(0, to, fade, soundId);
 	};
 
 	// The howl is resolved BEFORE `pauseAllMusic`, so a track no bank declares leaves the current
@@ -46,11 +70,11 @@ export function createPlayMusic<TSoundName extends string>(options: {
 	 * request to play it, and the row is the answer to "how loud"; a fade is a transient effect. No
 	 * music today is faded (the only `soundFade` in the engine targets the anticipation LOOP).
 	 */
-	const newMusic = (sound: Sound, level: number) => {
+	const newMusic = (sound: Sound, level: number, fade?: number) => {
 		const howl = options.howlFor(sound.soundName);
 		if (!howl) return;
 
-		pauseAllMusic();
+		pauseAllMusic(sound.soundName, fade);
 		const soundId = howl.play(sound.soundName);
 		options.getSoundMap()[sound.soundName] = {
 			...sound,
@@ -59,16 +83,17 @@ export function createPlayMusic<TSoundName extends string>(options: {
 			soundVolume: level,
 		};
 		options.initSoundVolume(sound.soundName);
+		fadeIn(sound.soundName, soundId, fade);
 	};
 
 	// A resume re-applies the level too. Without this, firing the base music back after a big win
 	// would keep whatever level it was paused at — and music PAUSES rather than stops, so the resume
 	// branch is the one every restore actually takes.
-	const resumeMusic = (sound: Sound, level: number) => {
+	const resumeMusic = (sound: Sound, level: number, fade?: number) => {
 		const howl = options.howlFor(sound.soundName);
 		if (!howl) return;
 
-		pauseAllMusic();
+		pauseAllMusic(sound.soundName, fade);
 		howl.play(sound.soundId);
 		options.getSoundMap()[sound.soundName] = {
 			...sound,
@@ -76,11 +101,12 @@ export function createPlayMusic<TSoundName extends string>(options: {
 			soundVolume: level,
 		};
 		options.initSoundVolume(sound.soundName);
+		fadeIn(sound.soundName, sound.soundId, fade);
 	};
 
 	const soundPlayMap = {
-		new: (sound: Sound, level: number) => newMusic(sound, level),
-		paused: (sound: Sound, level: number) => resumeMusic(sound, level),
+		new: (sound: Sound, level: number, fade?: number) => newMusic(sound, level, fade),
+		paused: (sound: Sound, level: number, fade?: number) => resumeMusic(sound, level, fade),
 		playing: (sound: Sound, level: number) => {
 			// Already playing: the track is NOT restarted (that is the whole point of the music
 			// player), but a different level still lands — otherwise the only way to re-mix a bed
@@ -91,10 +117,13 @@ export function createPlayMusic<TSoundName extends string>(options: {
 		},
 	};
 
-	const play = (playOptions: PlayOptions<TSoundName> & { volume?: number }) => {
+	/** `fade` (ms): crossfade from the current bed instead of cutting to this one. */
+	const play = (playOptions: PlayOptions<TSoundName> & { volume?: number; fade?: number }) => {
 		const existingSound = options.getSoundMap()[playOptions.name];
 		const sound = existingSound ?? options.newSound(playOptions.name);
-		soundPlayMap[sound.soundState](sound, usablePlayVolume(playOptions.volume) ?? 1);
+		const fade =
+			typeof playOptions.fade === 'number' && playOptions.fade > 0 ? playOptions.fade : undefined;
+		soundPlayMap[sound.soundState](sound, usablePlayVolume(playOptions.volume) ?? 1, fade);
 	};
 
 	return {

@@ -32,16 +32,23 @@
  *     can be paused and resumed, so a level carried forward would mean one quiet cue re-mixing every
  *     later restore of that track — inaudibly, for the rest of the session.
  *
+ * 10. A TIMELINE CUE'S OPTIONS REACH HOWLER (added 2026-10-27). `playCueSound` (engine-layout) over
+ *     these real players: pan, loop, a start offset into the sound's OWN region (howler seeks the
+ *     bank's file), a rate, a per-play level on the loop player, a music crossfade, and a plain cue
+ *     making exactly the one call it always made.
+ *
  * NOT covered here: `createSound.load()`'s per-bank `Howl` construction and `destroy()`'s per-bank
  * `unload()`. That module is `$state`/`$effect`-bearing and imports howler directly, so it is not
  * tsx-runnable; those two lines are build- and review-checked only.
  */
 
 import type { Howl } from 'howler';
+import { playCueSound } from '../engine-layout/src/lib/cueSound';
 import type { LoadedAudio } from 'pixi-svelte';
 
 import { buildSoundBankIndex, toSoundBankList } from './src/banks';
 import { createPlayer } from './src/createPlayer.svelte';
+import { createPlayLoop } from './src/createPlayLoop.svelte';
 import { createPlayMusic } from './src/createPlayMusic.svelte';
 import { createPlayOnce } from './src/createPlayOnce.svelte';
 
@@ -66,6 +73,7 @@ type Call = { fn: string; args: unknown[] };
  */
 const createFakeHowl = (sprite: Record<string, unknown>) => {
 	const calls: Call[] = [];
+	const levels = new Map<number, number>();
 	let nextId = 100;
 	const record = (fn: string, ...args: unknown[]) => {
 		calls.push({ fn, args });
@@ -81,7 +89,15 @@ const createFakeHowl = (sprite: Record<string, unknown>) => {
 		},
 		stop: (id?: number) => record('stop', id),
 		pause: (id?: number) => record('pause', id),
-		volume: (v?: number, id?: number) => record('volume', v, id),
+		// One argument is howler's GETTER for that id's volume (unrecorded); two set it.
+		volume: (v?: number, id?: number) => {
+			if (id === undefined) return levels.get(v as number) ?? 1;
+			levels.set(id, v as number);
+			record('volume', v, id);
+		},
+		stereo: (pan: number, id?: number) => record('stereo', pan, id),
+		loop: (loop: boolean, id?: number) => record('loop', loop, id),
+		seek: (seconds: number, id?: number) => record('seek', seconds, id),
 		fade: (from: number, to: number, duration: number, id?: number) =>
 			record('fade', from, to, duration, id),
 		rate: (rate: number, id?: number) => record('rate', rate, id),
@@ -139,6 +155,7 @@ const createRig = (audios: Audio[]) => {
 	const options = {
 		howlFor: ((name: string) => bankFor(name)?.howl) as unknown as (n: string) => Howl | undefined,
 		configFor: (name: string) => bankFor(name)?.audio.config?.[name] ?? { volume: 1 },
+		regionStartFor: (name: string) => bankFor(name)?.audio.sprite[name]?.[0],
 	};
 
 	return {
@@ -147,6 +164,7 @@ const createRig = (audios: Audio[]) => {
 		hidden,
 		once: createPlayer({ ...options, createPlay: createPlayOnce<string> }),
 		music: createPlayer({ ...options, createPlay: createPlayMusic<string> }),
+		loop: createPlayer({ ...options, createPlay: createPlayLoop<string> }),
 	};
 };
 
@@ -357,6 +375,44 @@ console.log('\n9. a music bed takes a PER-FIRING volume that does not outlive th
 	const rig10 = createRig([BUILTIN, PROJECT]);
 	rig10.once.play({ name: 'sfx_uploaded', volume: -1 });
 	check('…on the one-shot player too', rig10.howls[1].of('volume'), [[0.5, 100]]);
+}
+
+console.log('\n10. a timeline cue’s options reach howler');
+{
+	const rig = createRig([BUILTIN, PROJECT]);
+	const target = {
+		hasSound: (name: string) => rig.index[name] !== undefined,
+		players: { once: rig.once, loop: rig.loop, music: rig.music },
+	};
+	playCueSound(target, 'sfx:sfx_uploaded');
+	check('a plain cue is one play at the row’s level', rig.howls[1].calls.map((c) => c.fn), ['play', 'volume', 'on']); // prettier-ignore
+
+	const rig2 = createRig([BUILTIN, PROJECT]);
+	const target2 = { ...target, hasSound: target.hasSound, players: { once: rig2.once, loop: rig2.loop, music: rig2.music } }; // prettier-ignore
+	playCueSound(target2, 'sfx:sfx_uploaded', { volume: 0.5, rate: 1.5, pan: -1, offset: 30, loop: true }); // prettier-ignore
+	const howl = rig2.howls[1];
+	check('…with options: the LOOP player, at the asked level × the row', howl.of('volume'), [[0.25, 100]]); // prettier-ignore
+	check('…looped whatever the region says', howl.of('loop'), [[true, 100]]);
+	check('…30 ms into ITS region (it starts 120 ms into the file)', howl.of('seek'), [[0.15, 100]]);
+	check('…at the asked rate', howl.of('rate'), [[1.5, 100]]);
+	check('…panned', howl.of('stereo'), [[-1, 100]]);
+	check('…and the player knows its level', rig2.loop.level('sfx_uploaded'), 0.5);
+
+	playCueSound(target2, 'sfx:sfx_uploaded', { volume: 0.5, loop: true });
+	check('a second loop cue does not start a second copy', howl.of('play').length, 1);
+	playCueSound(target2, 'sfx:sfx_uploaded', { action: 'stop' });
+	check('a stop cue ends it', howl.of('stop'), [[100]]);
+	check('…and it is no longer playing', rig2.loop.level('sfx_uploaded'), undefined);
+
+	const rig3 = createRig([BUILTIN, PROJECT]);
+	const target3 = { ...target, players: { once: rig3.once, loop: rig3.loop, music: rig3.music } };
+	playCueSound(target3, 'music:bgm_freespin');
+	playCueSound(target3, 'music:bgm_quiet', { fadeIn: 500 });
+	check('a crossfade fades the old bed out…', rig3.howls[1].of('fade')[0], [1, 0, 500, 100]);
+	check('…and the new one in from silence to its level', rig3.howls[1].of('fade')[1], [0, 0.5, 500, 101]); // prettier-ignore
+	check('…pausing the old bed only once the fade is over', rig3.howls[1].of('pause'), []);
+	playCueSound(target3, 'music:bgm_freespin');
+	check('a plain music cue still cuts', rig3.howls[1].of('pause'), [[101]]);
 }
 
 console.log(failures === 0 ? '\nAll bank claims hold.\n' : `\n${failures} FAILED bank claim(s).\n`);

@@ -18,12 +18,17 @@
 	 * the flow, whose mount of the screen remounts with it. Off stage, it draws its own copy.
 	 */
 	import { MainContainer } from 'components-layout';
-	import { cinematicSetSceneId, emitComponentSignal, screenCueSignal } from 'engine-layout';
+	import {
+		cinematicSetSceneId,
+		emitComponentSignal,
+		playCueSound,
+		screenCueSignal,
+	} from 'engine-layout';
 	import { Cinematic } from 'engine-layout/svelte';
 	import { getContextEventEmitter } from 'utils-event-emitter';
 
 	import { bakedCinematic } from '../editor-scenes';
-	import { sound, type SoundName } from '../game/sound';
+	import { sound } from '../game/sound';
 	import { stateLayoutDerived } from '../game/stateLayout';
 	import type { LinesFlowV2 } from '../game/flowV2Runtime.svelte';
 
@@ -47,26 +52,22 @@
 	 *    events already use, so cinematic cues and rig events are indistinguishable downstream.
 	 *    A SCREEN timeline's `signal:` cue (`onScreen`) also fires its name on the component-signal
 	 *    bus (`screenCueSignal`), as a Flow `fireCue` does, so an _On cue_ Element FX plays on it.
-	 *  - `sfx:` / `music:` — a one-shot through the game's sound player, guarded by `hasSound`:
-	 *    howler silently declines an unknown sprite key, so without the guard a cue naming a sound
-	 *    this game's audiosprite predates would be an inaudible non-failure rather than a warning.
+	 *  - `sfx:` / `music:` — through the game's sound player with the key's `sound` options
+	 *    (`playCueSound`, which a component timeline's cue goes through too). A plain cue is a
+	 *    one-shot or a music bed, guarded by `hasSound`: howler silently declines an unknown sprite
+	 *    key, so without the guard a cue naming a sound this game's audiosprite predates would be an
+	 *    inaudible non-failure rather than a warning.
 	 *
 	 * An unknown namespace is broadcast verbatim rather than dropped — a cue we have not taught the
 	 * game about yet is still a moment something may be listening for.
 	 */
-	function routeCue(cue: string, onScreen: boolean): void {
+	function routeCue(cue: string, onScreen: boolean, options: unknown): void {
 		const sep = cue.indexOf(':');
 		const ns = sep > 0 ? cue.slice(0, sep) : '';
 		const name = sep > 0 ? cue.slice(sep + 1) : cue;
 		if (!name) return;
 		if (ns === 'sfx' || ns === 'music') {
-			if (sound.hasSound(name as SoundName)) {
-				(ns === 'music' ? sound.players.music : sound.players.once).play({
-					name: name as SoundName,
-				});
-			} else {
-				console.warn(`[Cinematic] cue "${cue}" names a sound this game has no region for.`);
-			}
+			playCueSound(sound, cue, options);
 			return;
 		}
 		eventEmitter?.broadcast({ type: name });
@@ -115,7 +116,7 @@
 				loop={entry.opts.loop}
 				speed={entry.opts.speed}
 				oncomplete={() => flow?.cinematicComplete(entry.id)}
-				oncue={(cue) => routeCue(cue, entry.doc?.host?.kind === 'screen')}
+				oncue={(cue, options) => routeCue(cue, entry.doc?.host?.kind === 'screen', options)}
 				layoutType={stateLayoutDerived.layoutType}
 			/>
 		{/each}

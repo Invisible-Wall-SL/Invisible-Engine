@@ -5,7 +5,10 @@ import type {
 	FadeOptions,
 	GetSound,
 	GetSoundMap,
+	LoopOptions,
+	PanOptions,
 	RateOptions,
+	SeekOptions,
 	SoundConfig,
 } from './types';
 
@@ -17,6 +20,8 @@ import type {
 function createPlayer<TSoundName extends string, TPlay extends Function>(playerOptions: {
 	howlFor: (soundName: TSoundName) => Howl | undefined;
 	configFor: (soundName: TSoundName) => SoundConfig;
+	/** Milliseconds into its bank's file where the name's region starts (howler seeks the file). */
+	regionStartFor?: (soundName: TSoundName) => number | undefined;
 	createPlay: (options: {
 		howlFor: (soundName: TSoundName) => Howl | undefined;
 		newSound: (value: TSoundName) => GetSound<TSoundName>;
@@ -105,6 +110,39 @@ function createPlayer<TSoundName extends string, TPlay extends Function>(playerO
 		});
 	};
 
+	/** Stereo pan, −1 … 1. Howler applies it on Web Audio only. */
+	const pan = (panOptions: PanOptions<TSoundName>) => {
+		const existingSound = soundMap[panOptions.name];
+		if (existingSound) {
+			playerOptions.howlFor(existingSound.soundName)?.stereo(panOptions.pan, existingSound.soundId);
+		}
+	};
+
+	/** Loop the playing sound (or stop looping it), whatever its region's own loop flag says. */
+	const loop = (loopOptions: LoopOptions<TSoundName>) => {
+		const existingSound = soundMap[loopOptions.name];
+		if (existingSound) {
+			playerOptions.howlFor(existingSound.soundName)?.loop(loopOptions.loop, existingSound.soundId);
+		}
+	};
+
+	/** Jump the playing sound `offset` ms into its own region (not the bank's file). */
+	const seek = (seekOptions: SeekOptions<TSoundName>) => {
+		const existingSound = soundMap[seekOptions.name];
+		const start = playerOptions.regionStartFor?.(seekOptions.name);
+		if (existingSound && start !== undefined) {
+			playerOptions
+				.howlFor(existingSound.soundName)
+				?.seek((start + seekOptions.offset) / 1000, existingSound.soundId);
+		}
+	};
+
+	/** The per-play level of `soundName` while it is playing, else `undefined`. */
+	const level = (soundName: TSoundName): number | undefined => {
+		const existingSound = soundMap[soundName];
+		return existingSound?.soundState === 'playing' ? existingSound.soundVolume : undefined;
+	};
+
 	const debug = () => {
 		console.log($state.snapshot(soundMap));
 	};
@@ -115,6 +153,10 @@ function createPlayer<TSoundName extends string, TPlay extends Function>(playerO
 		fade,
 		volume,
 		rate,
+		pan,
+		loop,
+		seek,
+		level,
 		debug,
 	};
 }
