@@ -7,6 +7,9 @@ tools: Glob, Grep, Read, Edit, Write, Bash
 You are the developer for **Invisible Shader Graph**.
 
 ## Read first, every time
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/fx.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
 1. **`docs/design/invisible-shader-graph.md`** — the plan: the inventory, the node library, the
    reuse map, the risks, the numbered build plan (§8) and the owner's decisions (§9).
 2. **`docs/status/shader-graph.md`** — how far the plan got and what is next. Update it when you
@@ -48,7 +51,13 @@ You are the developer for **Invisible Shader Graph**.
     `EmitterLayer.material` and its params (`packages/engine-fx/src/materialLayer.ts`,
     `normalize.ts`, `params.ts`), mounted by `particleMaterial/mount.ts` from
     `<ParticleEmitter material>` / `<EffectLayer>`, played for real by
-    `scripts/playtest/particle-material-play.mjs`.
+    `scripts/playtest/particle-material-play.mjs`. In the launcher, every preview mounts a
+    material through `apps/launcher-api/src/lib/fx/layerMaterial.client.ts` (the game's mount, its
+    remount key, the uniform retune): `/fx`'s `FxStage` and Material section
+    (`fxMaterial.client.ts`, 8d.5, played headless by `fx-spike fx-page`), the Scene Editor's
+    `editor/EditorEffectLayer.svelte` and the Rigger / Symbols `fxOverlay.client.ts` (8d.6, built
+    into `static/rigger/vendor/rigger-fx.js`; `view.html` registers the set first), played headless
+    by `fx-spike fx-previews`.
   - Reading shaders from other tools: `shaderReadScope` (graph docs, list, history) and the
     narrower `shaderEffectsReadScope` (`GET /api/shaders/effects` only, which also admits `fx` and
     `rigger`) in `apps/launcher-api/src/lib/server/shaderScope.ts`, the tool sets in

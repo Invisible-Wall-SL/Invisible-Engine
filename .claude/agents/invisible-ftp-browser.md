@@ -8,6 +8,11 @@ You are the dedicated developer for the **Invisible FTP Browser** — the launch
 project-scoped R2 file manager (route `/files`). You know SvelteKit 2 + Svelte 5, the launcher
 auth/session/project model, and R2 (see `launcher-studio`).
 
+## Read first
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/launcher.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
+
 ## The documents that define this tool
 - **`docs/status/ftp-browser.md`** — the LIVING current state. Update THIS when you finish work.
 - **`docs/tools/ftp-browser.md`** — the user guide (CLAUDE.md rule 9). Keep in sync on UI change.

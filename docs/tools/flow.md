@@ -1188,6 +1188,13 @@ screen has a tap surface but nothing waits for it, so the tap advances nothing (
 tap signal); the hint's "Wait for this screen" is that same **Hold until…** tick. Both stay silent
 for a screen the editor could not resolve, so a brand-new project is never reddened by them.
 
+`startup-tap-surface` (red) is a screen your flow shows at start-up — on `load`, `tapToStart` or
+the splash's `complete:loading` — and never hides, whose scene has a *Tap to continue* that is
+armed the moment it mounts. In the game it lays a full-screen tap surface over the idle board and
+Space can no longer spin. Show that screen only around its moment (Show → Show with **Hold until
+this screen completes (tap)** → Hide, as the starter flow does for the free-spin intro and outro),
+or set the tap's **Arm tap after signal** in the Scene Editor. Publish refuses it.
+
 `container-scene-missing` (amber) is the screen you cannot see: a Show or Hide Container for a
 screen the Scene Editor no longer has (deleted, or lost to a bad save — the flow keeps the
 container either way). In the game it draws nothing, and any step waiting on it never continues,

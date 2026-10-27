@@ -5,6 +5,7 @@ import {
 	cropImage,
 	dominantColors,
 	downscaleForModel,
+	validatedModelImage,
 	modelScale,
 	unscaleBox,
 	type Box,
@@ -146,11 +147,12 @@ export const getMockupImage = defineOp<{ id: string }, MockupImageResult>({
 
 export const getCrop = defineOp<
 	{ region: string },
-	{ region: string; mediaType: 'image/png'; base64: string }
+	{ region: string; bytes: number; image: { mediaType: string; base64: string } }
 >({
 	tool: 'mockups',
 	name: 'get_crop',
-	description: 'The mockup crop the analyst saved for a region in this run, if any.',
+	description:
+		'The mockup crop the analyst saved for a region in this run, if any, shown to you as an image.',
 	inputSchema: {
 		type: 'object',
 		properties: { region: { type: 'string', description: 'The region name.', pattern: REGION } },
@@ -159,12 +161,21 @@ export const getCrop = defineOp<
 	},
 	agents: ['art-director', 'atlas-artist', 'worker'],
 	scope: 'project',
+	image: true,
 	write: false,
 	handler: async (ctx, { region }) => {
 		const { clientKey, projectKey } = scope(ctx);
 		const got = await getObjectBytes(cropKey(clientKey, projectKey, ctx.run.id, region));
 		if (!got) throw new AdapterError(404, 'no_crop', `No crop for "${region}" in this run.`);
-		return { region, mediaType: 'image/png', base64: toBase64(got.body) };
+		const shown = await validatedModelImage(got.body).catch((error) => {
+			console.error(`director: the crop of "${region}" did not decode: ${error}`);
+			throw new AdapterError(422, 'unreadable_image', `The crop of "${region}" is not readable.`);
+		});
+		return {
+			region,
+			bytes: shown.bytes.length,
+			image: { mediaType: shown.mediaType, base64: toBase64(shown.bytes) },
+		};
 	},
 });
 

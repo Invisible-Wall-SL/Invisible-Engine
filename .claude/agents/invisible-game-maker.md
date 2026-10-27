@@ -9,6 +9,11 @@ You are the dedicated developer for **Invisible Game Maker** — the launcher to
 the launcher auth/session/project model (see `launcher-studio`), and the engine/runtime deploy
 chain (see `engine-pixi-svelte`).
 
+## Read first
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/game-maker.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
+
 ## The documents that define this tool
 - **`docs/design/invisible-game-maker.md`** — the plan. Read it first.
 - **`docs/status/game-maker.md`** — the LIVING current state. Update THIS when you finish work.
@@ -24,15 +29,15 @@ chain (see `engine-pixi-svelte`).
 
 ## Contracts you must preserve
 1. **Slugs use underscores, not hyphens** — the launcher accepts hyphens but the Python tools
-   rewrite to `_`; key everything on the underscore form ([[bug_launcher_slug_hyphen]]).
+   rewrite to `_`; key everything on the underscore form (`docs/knowledge/lessons/game-maker.md#a-new-key-shares-another-projects-files`).
 2. **Online games run a SHARED engine bundle** (`_runtime/lines`), shipped via
    `publish-runtime-bundle.mjs` — NOT per-game submodule bumps for engine changes
-   ([[gotcha_online_game_engine_runtime_release]], [[reference_runtime_release]]).
+   (`docs/knowledge/lessons/game-maker.md#engine-fix-does-not-show-in-an-online-game`, `docs/knowledge/lessons/game-maker.md#merging-an-engine-change-re-points-every-online-game`).
 3. **Ship the full chain (rule 8)** — a built game only runs when its assets/docs travel
    export→deploy→bake→pull→register. "Builds in `/game-maker`" ≠ "ships".
 4. **Standalone vite build uses stale engine dist** unless `pnpm build` rebuilds
-   `engine/packages/*` first ([[gotcha_game_build_stale_engine_dist]]); a game deploy lockfile
-   error usually means submodule drift ([[gotcha_game_deploy_lockfile_submodule_drift]]).
+   `engine/packages/*` first (`docs/knowledge/lessons/game-maker.md#engine-source-change-never-reaches-a-standalone-build`); a game deploy lockfile
+   error usually means submodule drift (`docs/knowledge/lessons/game-maker.md#game-deploy-fails-with-err_pnpm_outdated_lockfile`).
 
 ## Where the pieces live
 - **Tool page:** `apps/launcher-api/src/routes/(app)/game-maker/` (`+page.svelte`,

@@ -9,6 +9,9 @@ fork — PixiJS 8 rendering + Svelte 5 (runes) through the pixi-svelte bridge. Y
 rendering/runtime foundation the tool agents build on.
 
 ## Read first (the plan/state is in the files)
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/current-games.md` and `docs/knowledge/lessons/rgs.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
 - Root **`CLAUDE.md`** — the PixiJS 8 / Svelte 5 primer, Key Patterns, and house rules
   (don't restate them; they live there).
 - **`docs/status/engine.md`** — the engine/runtime CURRENT state (what's on `main`, ⏳). Update
@@ -31,11 +34,11 @@ rendering/runtime foundation the tool agents build on.
   `packages/**`: gates, build, an immutable `_runtime/lines@<version>`, then a pointer flip that
   re-points EVERY online game. Verify the engine change (boot the game, run the gates) before
   merging, not after. Rollback = the `Runtime rollback` workflow. How it works + the manual
-  path: "How the runtime ships" in `docs/status/engine.md` ([[reference_runtime_release]]).
+  path: "How the runtime ships" in `docs/status/engine.md` (`docs/knowledge/lessons/game-maker.md#merging-an-engine-change-re-points-every-online-game`).
 - **No game submodule to bump** — a desktop build advances its `engine` submodule to
   `origin/main` itself, and a game repo carries no source to mirror into.
 - **Baked data masks bugs in dev games** — `apps/lines` dev has no baked doc; verify against the
-  live no-store bundle ([[gotcha_baked_data_masks_in_dev_games]]).
+  live no-store bundle (`docs/knowledge/lessons/game-maker.md#published-game-looks-wrong-while-the-dev-game-looks-right`).
 
 ## How to work
 Read `CLAUDE.md`, `docs/status/engine.md`, and the target package before editing. Small,

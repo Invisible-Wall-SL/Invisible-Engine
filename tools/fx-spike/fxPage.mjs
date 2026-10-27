@@ -26,21 +26,12 @@
  *   pnpm --filter fx-spike fx-page [--keep <dir>]
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { launchChrome } from '../rigger-spike/chrome.mjs';
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO = resolve(HERE, '../..');
-const LAUNCHER = join(REPO, 'apps/launcher-api');
-/** Import `name` (an ES module package) as the launcher resolves it: its `exports` import entry. */
-const load = (name) => {
-	const root = join(LAUNCHER, 'node_modules', name);
-	const entry = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).exports['.'].import;
-	return import(pathToFileURL(join(root, typeof entry === 'string' ? entry : entry.default)).href);
-};
+import { buildLauncherPage } from './launcherPage.mjs';
 
 const keepAt = process.argv.includes('--keep')
 	? resolve(process.argv[process.argv.indexOf('--keep') + 1])
@@ -54,46 +45,13 @@ const check = (name, ok, detail = '') => {
 	console.log(`  ${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
 };
 
-async function build() {
-	const { build: viteBuild } = await load('vite');
-	const { svelte, vitePreprocess } = await load('@sveltejs/vite-plugin-svelte');
-	await viteBuild({
-		configFile: false,
-		// Bare imports the entry makes (`svelte`, its runtime) resolve as the launcher's do.
-		root: LAUNCHER,
-		logLevel: 'error',
-		base: './',
-		plugins: [svelte({ configFile: false, preprocess: vitePreprocess() })],
-		resolve: {
-			alias: [
-				{ find: /^\$lib\//, replacement: `${join(LAUNCHER, 'src/lib')}/` },
-				{ find: '$app/navigation', replacement: join(HERE, 'fxPage/appNavigation.ts') },
-				{ find: '$app/environment', replacement: join(HERE, 'fxPage/appEnvironment.ts') },
-				{ find: '$app/state', replacement: join(HERE, 'fxPage/appState.ts') },
-				{ find: '$app/paths', replacement: join(HERE, 'fxPage/appPaths.ts') },
-				{ find: /^@fxroot\//, replacement: `${REPO}/` },
-			],
-			conditions: ['svelte', 'browser', 'import', 'default'],
-			dedupe: ['svelte'],
-		},
-		build: {
-			outDir: join(dir, 'out'),
-			emptyOutDir: true,
-			minify: false,
-			// One classic script: the page opens from a file:// URL.
-			rollupOptions: {
-				input: join(HERE, 'fxPage/entry.ts'),
-				output: { format: 'iife', entryFileNames: 'fx-page.js', inlineDynamicImports: true },
-			},
-		},
+const build = () =>
+	buildLauncherPage({
+		entry: 'fxPage/entry.ts',
+		name: 'fx-page',
+		outDir: join(dir, 'out'),
+		title: 'fx page',
 	});
-	writeFileSync(
-		join(dir, 'out/fx.html'),
-		'<!doctype html><html><head><meta charset="utf-8"><title>fx page</title></head>' +
-			'<body style="margin:0;background:#0b0e13"><script src="fx-page.js"></script></body></html>',
-	);
-	return join(dir, 'out/fx.html');
-}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

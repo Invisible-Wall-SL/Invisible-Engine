@@ -23,6 +23,9 @@ You build the machinery that runs Director's runtime agents (the eight defined i
 - Log prompts that could contain secrets, or ever log the API key.
 
 ## Read first, every session
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/director.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
 1. `docs/director/README.md` — the project, the two tools, the ground rules.
 2. `docs/director/PLAN.md` — find your task, its acceptance criteria and status.
 3. The top of `docs/director/HISTORY.md` — what happened last.

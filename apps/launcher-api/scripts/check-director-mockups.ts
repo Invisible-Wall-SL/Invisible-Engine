@@ -676,14 +676,41 @@ console.log('adapters');
 		[400, 110],
 	);
 	const back = (await ops.getCrop.handler(ctx, { region: 'Logo' })) as {
-		mediaType: string;
-		base64: string;
+		image: { mediaType: string; base64: string };
 	};
 	check(
 		'get_crop returns it',
-		[back.mediaType, Buffer.from(back.base64, 'base64').length > 0],
+		[back.image.mediaType, Buffer.from(back.image.base64, 'base64').length > 0],
 		['image/png', true],
 	);
+	check('get_crop is an image op', ops.getCrop.image, true);
+	{
+		const { validatedModelImage } = await import('../src/lib/server/director/mockupPixels');
+		const png = await sharp({
+			create: { width: 40, height: 30, channels: 3, background: '#369' },
+		})
+			.png()
+			.toBuffer();
+		const jpeg = await sharp(png).jpeg().toBuffer();
+		const gif = await sharp(png).gif().toBuffer();
+		check(
+			'validatedModelImage labels the bytes by what they are',
+			[(await validatedModelImage(png)).mediaType, (await validatedModelImage(jpeg)).mediaType],
+			['image/png', 'image/jpeg'],
+		);
+		check(
+			'...and refuses a truncated file, a gif and a non-image',
+			await Promise.all(
+				[png.subarray(0, 60), jpeg.subarray(0, 200), gif, Buffer.from('not an image')].map((b) =>
+					validatedModelImage(b).then(
+						() => 'accepted',
+						() => 'refused',
+					),
+				),
+			),
+			['refused', 'refused', 'refused', 'refused'],
+		);
+	}
 	check(
 		'get_crop: no crop is 404',
 		await refused(() => ops.getCrop.handler(ctx, { region: 'Frame' })).then(

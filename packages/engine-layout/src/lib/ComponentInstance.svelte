@@ -130,6 +130,7 @@
 		hasNodeListeners,
 		routeComponentCue,
 	} from './componentEvents';
+	import { getCueSound } from './cueSound';
 	import {
 		getComponentAlign,
 		setComponentAlign,
@@ -1039,15 +1040,20 @@
 	 * A cue a component timeline crosses. `signal:x` fires on this instance's own bus (so a
 	 * `hiddenUntilSignal`, a tap gate or another timeline can follow it) and restarts every other
 	 * timeline playing on `x` here — never the one that crossed it, which would loop it forever.
-	 * `sfx:` / `music:` are dropped: this package has no sound player, and broadcasting a sound's
-	 * bare name could collide with a real game event. `event:x` raises the def's event `x` (Phase 6),
-	 * on a def that declares events. Any other cue (`fx:`) is broadcast by its bare name, the seam a
-	 * screen timeline's cues use. The routing is `routeComponentCue`.
+	 * `sfx:` / `music:` play through the game's sound player with the key's `sound` options, via the
+	 * sink the game registered (`registerCueSound`); none registered (an editor preview) ⇒ dropped.
+	 * `event:x` raises the def's event `x` (Phase 6), on a def that declares events. Any other cue
+	 * (`fx:`) is broadcast by its bare name, the seam a screen timeline's cues use. The routing is
+	 * `routeComponentCue`.
 	 */
-	const routeTimelineCue = (cue: string, timeline: string): void => {
+	const routeTimelineCue = (cue: string, timeline: string, sound?: unknown): void => {
 		const route = routeComponentCue(cue, !!def?.events?.length);
 		if (route.kind === 'event') {
 			eventDispatcher?.cue(route.cue);
+			return;
+		}
+		if (route.kind === 'sound') {
+			getCueSound()?.(route.cue, sound);
 			return;
 		}
 		if (route.kind === 'drop') return;
@@ -1067,8 +1073,8 @@
 		stateMachineRunner.plays().forEach((play, index) => {
 			// An exited layer drives nothing (the player empties its slot), after the cues of the
 			// stretch it left.
-			for (const { cue, timeline } of timelinePlayer?.drive(play.layer, index, play) ?? []) {
-				routeTimelineCue(cue, timeline);
+			for (const { cue, timeline, sound } of timelinePlayer?.drive(play.layer, index, play) ?? []) {
+				routeTimelineCue(cue, timeline, sound);
 			}
 		});
 		timelineClock += 1;
@@ -1119,7 +1125,7 @@
 			if (def) timelinePlayer.playRate = componentPlayRate(def.id);
 			const step = timelinePlayer.advance(dt);
 			timelineClock += 1;
-			for (const { cue, timeline } of step.cues) routeTimelineCue(cue, timeline);
+			for (const { cue, timeline, sound } of step.cues) routeTimelineCue(cue, timeline, sound);
 			cueHoldsOf?.release(step.completed);
 		}
 		if (!stateMachineRunner) return;

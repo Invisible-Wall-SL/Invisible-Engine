@@ -11,6 +11,7 @@ import {
 } from '../atlasClient';
 import { JOB_REF, callbackFor, readJobView, runpodUsageOf, startAtlasJobWatch } from '../atlasJobs';
 import { doneOpResults, getAtlasJob, insertAtlasJob, projectOpResults, runRecipes } from '../store';
+import { validatedModelImage } from '../mockupPixels';
 
 /**
  * Atlas Maker adapters (PLAN 2.4). Reads come straight from the project's manifests in R2, the
@@ -590,11 +591,12 @@ export const listVariants = defineOp<
 
 export const getVariantImage = defineOp<
 	{ atlas: string; region: string; id: string; size?: 'thumb' | 'full' },
-	{ region: string; id: string; contentType: string; bytes: number; base64: string }
+	{ region: string; id: string; bytes: number; image: { mediaType: string; base64: string } }
 >({
 	tool: 'atlas',
 	name: 'get_variant_image',
-	description: "One rendered variant's image (a JPEG thumb by default, or the full PNG), base64.",
+	description:
+		"One rendered variant's image (a JPEG thumb by default, or the full PNG), shown to you as an image, at most 1568 px on its long edge.",
 	inputSchema: {
 		type: 'object',
 		properties: {
@@ -612,6 +614,7 @@ export const getVariantImage = defineOp<
 	},
 	agents: ['art-director', 'qa'],
 	scope: 'project',
+	image: true,
 	write: false,
 	handler: async (ctx, { atlas, region, id, size }) => {
 		const answer = await atlasFetch(ctx, {
@@ -632,12 +635,21 @@ export const getVariantImage = defineOp<
 				`Variant ${id} is too large to return; ask for the thumb.`,
 			);
 		}
+		// The model sees at most what a mockup does (a 2048 px tile is not sent raw), and only an
+		// image that decodes: the API refuses a broken one for good.
+		const shown = await validatedModelImage(answer.bytes).catch((error) => {
+			console.error(`director: variant ${id} of "${region}" did not decode: ${error}`);
+			throw new AdapterError(
+				422,
+				'unreadable_image',
+				`Variant ${id} of "${region}" is not a readable image.`,
+			);
+		});
 		return {
 			region,
 			id,
-			contentType,
-			bytes: answer.bytes.length,
-			base64: Buffer.from(answer.bytes).toString('base64'),
+			bytes: shown.bytes.length,
+			image: { mediaType: shown.mediaType, base64: Buffer.from(shown.bytes).toString('base64') },
 		};
 	},
 });
