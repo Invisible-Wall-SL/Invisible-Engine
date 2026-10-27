@@ -621,7 +621,7 @@ next.
     opened at load with a slow set mounting once it registers. fx-spike `model` 115;
     `particle-material`; `check:fx-params` 130; `roundtrip` 43; `player` 63;
     `check:shader-pipeline` 148; `check:launcher-gates` 661; `check:vendored-bundles`;
-    svelte-check at baseline; launcher build; `check:all` CHECKALL. 30 mutations, each failing
+    svelte-check at baseline; launcher build; `check:all` 557/557. 30 mutations, each failing
     its gate.
   - **Review.** Blocking, fixed: a material on an effect opened at page load stayed plain, with no
     note, until edited (the stage never noticed the set registering). Fixed: drives left on a
