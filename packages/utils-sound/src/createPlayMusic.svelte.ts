@@ -40,6 +40,7 @@ export function createPlayMusic<TSoundName extends string>(options: {
 					// A released copy is ended by ITS fade's timer, whatever fade the bed is on now.
 					if (stopAfterFade[name] === soundId) {
 						delete stopAfterFade[name];
+						if (fadeOuts[name] === token) delete fadeOuts[name];
 						howl.stop(soundId);
 						return;
 					}
