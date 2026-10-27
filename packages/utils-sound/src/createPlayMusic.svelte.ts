@@ -37,13 +37,14 @@ export function createPlayMusic<TSoundName extends string>(options: {
 				const token = ++fadeSeq;
 				fadeOuts[name] = token;
 				setTimeout(() => {
-					if (fadeOuts[name] !== token) return;
-					delete fadeOuts[name];
+					// A released copy is ended by ITS fade's timer, whatever fade the bed is on now.
 					if (stopAfterFade[name] === soundId) {
 						delete stopAfterFade[name];
 						howl.stop(soundId);
 						return;
 					}
+					if (fadeOuts[name] !== token) return;
+					delete fadeOuts[name];
 					if (options.getSoundMap()[name]?.soundState !== 'paused') return;
 					howl.pause(soundId);
 					options.initSoundVolume(name);

@@ -495,6 +495,20 @@ console.log('\n10. a timeline cue’s options reach howler');
 	check('…it ends once its fade is over', rig11.howls[1].of('stop'), [[100]]);
 	check('…without being paused first', rig11.howls[1].of('pause'), []);
 
+	// Released, replayed and crossfaded out again inside one fade: the released copy still ends.
+	const rig12 = createRig([BUILTIN, PROJECT]);
+	const target12 = {
+		...target,
+		players: { once: rig12.once, loop: rig12.loop, music: rig12.music },
+	};
+	playCueSound(target12, 'music:bgm_freespin');
+	playCueSound(target12, 'music:bgm_quiet', { fadeIn: 20 });
+	playCueSound(target12, 'stop:music:bgm_freespin');
+	playCueSound(target12, 'music:bgm_freespin', { fadeIn: 20 });
+	playCueSound(target12, 'music:bgm_quiet', { fadeIn: 20 });
+	await new Promise((done) => setTimeout(done, 40));
+	check('a released copy is stopped even after its bed faded out again', rig12.howls[1].of('stop').some(([id]) => id === 100), true); // prettier-ignore
+
 	// An offset past the region's end is not a seek into the next region.
 	const rig8 = createRig([BUILTIN, PROJECT]);
 	const target8 = { ...target, players: { once: rig8.once, loop: rig8.loop, music: rig8.music } };

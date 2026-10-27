@@ -145,6 +145,8 @@ export function pruneCueSound(k) {
 	const fields = cueSoundFields(k.cue);
 	const sound = k.sound && typeof k.sound === 'object' ? { ...k.sound } : {};
 	for (const f of Object.keys(sound)) if (!fields.includes(f)) delete sound[f];
+	// An SFX loop never overlaps (the runtime keeps one copy per looping sound).
+	if (sound.loop && cueSoundKind(k.cue) === 'sfx') delete sound.overlap;
 	if (Object.keys(sound).length) k.sound = sound;
 	else delete k.sound;
 }
