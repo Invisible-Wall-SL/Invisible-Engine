@@ -122,7 +122,8 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   `?project=`) the game, optional `?rooms_name=` / `?rooms_character=`; a config that cannot be
   played online, a missing parameter or a refused / unreachable server stops on the existing
   boot-failure screen (`refuseOnlineBoot`, the `haltBoot` path). `@colyseus/sdk` 0.18.6 is imported
-  dynamically there and nowhere else. `<ArcadeStage />` does not start the local loop for an online
+  dynamically there and nowhere else, through the `engine-rooms` workspace package (a game repo
+  cannot install a third-party package `apps/lines` declares: `check:game-app-deps`). `<ArcadeStage />` does not start the local loop for an online
   game: it ticks `tickOnline` — one input per fixed step from the keyboard (arrows / WASD, Space =
   jump), clamped, sent — and draws every room player as a spawned instance of its character's
   component in `online.layer`, at the server's last place (no prediction or smoothing: P10.15). The
@@ -1458,6 +1459,16 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-27 — **Game repo builds fixed after P10.14.** #1375 declared `@colyseus/sdk` in
+  `apps/lines` only. A standalone game repo installs from its own root `package.json` (copied at
+  scaffold), and the desktop launcher backfills engine workspace packages but never a third-party
+  one, so every game repo's ☁ Publish failed with `Rollup failed to resolve import
+  "@colyseus/sdk"`, online game or not. The SDK now lives in the new `packages/engine-rooms`
+  workspace package (`online.ts` imports it, still dynamically), which the backfill declares and
+  the workspace installs. New Lint gate `check:game-app-deps`: `apps/lines` may declare only the
+  third-party packages game repos already carry. Proved on a scaffold from the pre-#1375 engine:
+  on `main` the build fails with the reported error; on the fix, after the launcher's backfill,
+  `vite build` exits 0. `check:room-sim` now pins the import through `engine-rooms`.
 - 2026-10-27 — **Card family design written and approved** (owner, the same day: all seven §13
   decisions as recommended): [card-games.md](../design/card-games.md). The rules engine
   (`cards.js`), effects as data from closed lists, a seeded on-device AI, the card frame, card data

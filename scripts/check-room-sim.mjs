@@ -529,15 +529,18 @@ await check('the runtime: the SDK is reached only through the online branch, and
 		}
 	};
 	walk(src);
-	const importers = files.filter((f) => readFileSync(f, 'utf8').includes('@colyseus/'));
-	assert.deepEqual(
-		importers.map((f) => f.slice(src.length + 1)),
-		['game/online.ts'],
-	);
+	// The SDK is reached only through `engine-rooms` (a game repo cannot install a third-party
+	// package `apps/lines` declares: `scripts/check-game-app-deps.mjs`), and only from online.ts.
+	const importing = (needle) =>
+		files
+			.filter((f) => readFileSync(f, 'utf8').includes(needle))
+			.map((f) => f.slice(src.length + 1));
+	assert.deepEqual(importing("'@colyseus/"), []);
+	assert.deepEqual(importing("'engine-rooms'"), ['game/online.ts']);
 	const online = readFileSync(join(src, 'game/online.ts'), 'utf8');
-	assert.match(online, /import type \{ Room \} from '@colyseus\/sdk'/);
-	assert.match(online, /await import\('@colyseus\/sdk'\)/);
-	assert.doesNotMatch(online.replace(/import type[^;]+;/g, ''), /^import [^;]*'@colyseus\/sdk'/m);
+	assert.match(online, /import type \{ Room \} from 'engine-rooms'/);
+	assert.match(online, /await import\('engine-rooms'\)/);
+	assert.doesNotMatch(online.replace(/import type[^;]+;/g, ''), /^import [^;]*'engine-rooms'/m);
 	const layout = readFileSync(join(src, 'routes/+layout.ts'), 'utf8');
 	assert.match(layout, /if \(gameMechanic\(\)\.room\) await joinOnlineRoom\(\);/);
 	const stage = readFileSync(join(src, 'components/ArcadeStage.svelte'), 'utf8');
