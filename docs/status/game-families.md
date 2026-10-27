@@ -116,9 +116,9 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
   not sent to the salmon at the sea, nor the salmon to it); the camera frames the salmon and follows
   it up the river within its dead zone; resting, the current carries it down and the page draws it
   within 20 px of the room; no RGS request, no page error.
-- **Bundle size** (`apps/lines` build's `index.html`, gzip -6; main dab1f78 vs this branch, the
-  same build command): 3,969,583 B / 1,354,868 B gz → 3,972,906 B / 1,356,008 B gz: **+3.3 KB raw,
-  +1.1 KB gz (+0.08 %)** — the online camera. Bots, nearby and Salmons add nothing to a game
+- **Bundle size** (`apps/lines` build's `index.html`, gzip -6; main 9cff0ed vs this branch merged
+  with it, the same build command): 3,974,018 B / 1,356,234 B gz → 3,977,545 B / 1,357,418 B gz:
+  **+3.5 KB raw, +1.2 KB gz (+0.09 %)** — the online camera. Bots, nearby and Salmons add nothing to a game
   bundle (server code, and `salmons.js` / `salmons.ts` are not exported). No new dependency
   anywhere (`StateView` is `@colyseus/schema`'s, already the server's).
 - **Slot / match-3 / offline-arcade parity:** every runtime change is in `game/online.ts` and the
@@ -2003,7 +2003,7 @@ game, bundle or screen changes.
   own-only `ack`, per-character spawns, the online world camera, `scripts/room-load.mjs` (100
   devices: 8.4 KB/s each, 0.82 MB/s out, step p99 0.81 ms, 26 % of a core), Salmons as data
   (`salmons.js`, `referenceLayouts/salmons.ts`, `scripts/salmons/export.mjs`,
-  [playtest/salmons.md](../playtest/salmons.md) 14 / 14), `check:room-bots`. +1.1 KB gz. Not
+  [playtest/salmons.md](../playtest/salmons.md) 14 / 14), `check:room-bots`. +1.2 KB gz. Not
   deployed. Detail above.
 
 - 2026-10-27 — **P10.15 built: netcode and the online rules (A4b).** Own-player prediction and
