@@ -67,6 +67,7 @@
 		"check:build-provenance": "node scripts/check-build-provenance.mjs",
 		"check:svelte-pins": "node packages/config-vite/svelteVersions.fixture.mjs",
 		"check:toolbar-icons": "node scripts/check-toolbar-icons.mjs",
+		"check:agents-knowledge": "node --experimental-strip-types --no-warnings scripts/check-agents-knowledge.mjs",
 		"check:transition-parity": "node scripts/transition-parity/run.mjs",
 		"check:win-parity": "node scripts/win-parity/run.mjs",
 		"check:freespin-parity": "node scripts/freespin-parity/run.mjs",

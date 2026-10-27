@@ -1,6 +1,7 @@
 # ADR-0009 — Repair agents, game-family specialists and a shared knowledge base
 
-- **Status:** proposed (2026-10-27). Nothing in it is built. Needs owner approval (see the end).
+- **Status:** approved with changes (2026-10-27, owner; see "Owner decision" at the end). 9A built
+  the same day.
 - **Date:** 2026-10-27
 - **Scope:** (1) agents that fix the pipeline, (2) agents that fix a game, (3) agents specific to a
   game family, (4) one committed knowledge base that build agents and runtime agents both read, so
@@ -247,3 +248,36 @@ Phase 6 (the pilot) does not wait for this. 9D does make the pilot's hand-off in
 5. **Start fix session button** on the Bugs tab: later, after the copy-brief path has been used.
    Default: later.
 6. **Order:** 9A → 9D and 9C in parallel → 9B → 9E → 9F → 9G → 9H. Default: as listed.
+
+## Owner decision (2026-10-27)
+
+1. **Game repair runs inside Director**, on the Anthropic API (the run's budget and spend ledger), as
+   proposed in §3.
+2. **More family agents than proposed:** one per game type now that there are more of them. §4's
+   build-layer table is replaced by:
+
+   | Agent | Covers |
+   |---|---|
+   | `lines-games` | lines, the Book of Thermopylae preset (absorbs `book-of-game`), free spins |
+   | `ways-games` | ways |
+   | `cluster-games` | cluster and its cascade |
+   | `scatter-games` | scatter |
+   | `hold-and-win-games` | Hold and Win (Classic, Collector, 3 Pots) and the coin board |
+   | `bonus-games` | the add-ons on any slot: the pots overlay and bonus games |
+   | `match3-games` | match-3, rules-decided and RGS-decided |
+   | `arcade-games` | arcade, Characters, world and camera, Salmons, later multiplayer |
+   | `card-games` | when the family is designed |
+
+   `docs/knowledge/owners.json` names each as the owner of its kind once 9B lands. The runtime
+   family packs stay per family (slot, match-3, arcade), with the slot pack carrying a section per
+   kind.
+3. **Backfill: the last 30 days of fix sessions, plus background.** Besides lessons, the backfill
+   writes what the pipeline is for (`docs/knowledge/targets.md`, started in 9A) and **one brief
+   per live game** (`docs/knowledge/games/<project>.md`: client, what the game must be, kind and
+   add-ons, playbook). Its cost is estimated before it runs.
+4. **The personal memory notes are rebuilt by Claude, not exported.** They are not in the repo or a
+   cloud container. 9E rebuilds each `[[…]]` note from its name, the sentence that cites it and
+   the session transcripts. The links leave the agents as their entries land, and
+   `check:agents-knowledge` keeps the count from growing.
+5. **Order:** not chosen; it stays as listed in "Needs owner approval" item 6, with 9A first.
+

@@ -71,6 +71,19 @@ jobs:
       - if: steps.changes.outputs.code == 'true'
         run: pnpm install --frozen-lockfile
 
+      # Agents + knowledge gate (ADR-0009 §5): every path a build agent names exists, no agent gains
+      # a personal-memory `[[…]]` link, every tool and game kind has an owner in
+      # docs/knowledge/owners.json, and every docs/knowledge/ file keeps its line budget. Agents and
+      # knowledge are exactly the files a docs-only change touches, so unlike the gates below it
+      # ALWAYS runs. It needs only Node (no install), set up here when the steps above were skipped.
+      - if: steps.changes.outputs.code != 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: agents and knowledge base match the repo
+        run: node --experimental-strip-types --no-warnings scripts/check-agents-knowledge.mjs
+
       - name: eslint
         if: steps.changes.outputs.code == 'true'
         run: pnpm lint
