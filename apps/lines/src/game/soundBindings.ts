@@ -182,6 +182,21 @@ export const playSymbolLandSound = (symbolName: string, scatterIndex: number): v
 };
 
 /**
+ * A pots overlay token's own voice as it TAKES OFF for its pot, and again as it REACHES it — the
+ * `flyToMeter` and `potArrive` moments Invisible Sound binds per token. Layer 1 only: no game-wide
+ * slot covers a flight, so an unbound token flies silently, as before. Per token rather than per
+ * fill, and forced: a volley of three is heard three times, on each one's own stagger, where the
+ * once-player would otherwise decline the second while the first still plays.
+ */
+export const playTokenTakeOffSound = (token: string): void => {
+	broadcastCue(symbolStateCue(token, 'flyToMeter'), true);
+};
+
+export const playTokenPotArriveSound = (token: string): void => {
+	broadcastCue(symbolStateCue(token, 'potArrive'), true);
+};
+
+/**
  * The WILD's explosion, fired by a `wildExplode` EVENT on the symbol's rig timeline rather than by
  * a state change — so it lands on the animation's own beat. Routed through the slot so the cue is
  * authorable; it used to be the literal `sfx_wild_explode` in three separate components.
