@@ -92,6 +92,19 @@ The wild's explosion sound is not a state cue: it fires from an event named `wil
 the wild's **Win** animation, so a custom wild rig must carry that event
 ([Symbols traps](./symbols-state-machine.md#traps)).
 
+### Overlay tokens
+
+Shown only on a project with a **pots overlay** (`/config` → Add-ons). One row per token, in pot
+order — the same list as the **Coins** group in [Invisible Symbols](./symbols-state-machine.md).
+Tokens never sit on a reel strip, so they are not offered under **Per-symbol cues**.
+
+- **Land** — the token lands on its cell. Unset, it plays the game-wide landing cue.
+- **Take off** — the token leaves its cell for its pot (its **Fly to meter** state).
+- **Reach the pot** — the token arrives at its pot.
+
+Take off and Reach the pot have no game-wide cue, so an unset one is silent. Each token in a
+volley plays its own, on its own stagger.
+
 ### Reel anticipation
 
 The tease while a big win is still reachable on the reels yet to stop: a **sting** when
