@@ -18,7 +18,9 @@ cloud storage.
 > in-game when a matching event (e.g. a Flow Broadcast) crosses the runtime event bus. Since
 > 2026-10-15 any value of an effect can also be made a named **exposed parameter** (⚡), with a
 > live preview slider, and a placed effect's parameters can be driven from the Scene and Component
-> Editors (a binding, a timeline key, a state). See the design doc for the roadmap and
+> Editors (a binding, a timeline key, a state). Since 2026-10-27 a sprite layer can draw its
+> particles through a **material**, a compiled [Invisible Shader Graph](shader-graph.md) effect,
+> with a load meter against the phone budget. See the design doc for the roadmap and
 > `docs/status/fx.md` for what is still owner-verified.
 
 ## What it is
@@ -85,7 +87,10 @@ following controls:
 - **Reset view** — re-centres and re-fits the preview camera.
 
 The right of the sub-bar shows a transient save status (a green confirmation or a red
-error) and a live **layer count**.
+error) and a live **layer count**. When any layer has a [material](#material), a **◆ load**
+figure sits right after the effect name: its material layers' loads added up, against the
+effect's budget of 64 M (green, amber from 75 %, red over; **≈** while it is still an
+estimate).
 
 **+ New** and **Open effect…** ask before they throw away unsaved changes. So does leaving the
 page with unsaved changes: switching tools from the tool bar or pressing Back asks in the app's own
@@ -96,7 +101,9 @@ page?" prompt.
 
 The left **Layers** panel lists the effect's emitter layers. Use **+ Add** to add a
 layer, click a row to select it (the right-hand Inspector then edits that layer). Each
-row shows the layer's key, how many art frames it has, and four buttons:
+row shows the layer's key, how many art frames it has, a **◆** badge when it has a
+[material](#material) (its load as a share of its budget, coloured like the meter; **≈** while
+estimated; **◆ plain** when its material's graph is gone or does not compile), and four buttons:
 
 - **▲ / ▼** — move the layer in the stack. **List order is draw order**: the layer at the
   bottom of the list renders in front. The preview restacks immediately.
@@ -117,6 +124,11 @@ where your particles sit relative to the art. **Drag** to pan, **scroll** to zoo
 use **▶ Play / ❚❚ Pause** (sub-bar) to start/stop the simulation. **Reset view**
 re-fits. The preview plays at normal speed; in a game, effects play twice as fast while **turbo**
 is on — the same particles, in half the time.
+
+**Editing a layer restarts only that layer**; the others keep playing as they were, so you can
+tune one layer against the rest. To see the whole effect from the start, **❚❚ Pause** then
+**▶ Play**: Pause stops every layer emitting and Play starts them all again, a one-shot burst
+included. That is how to judge a one-shot's timing against the other layers.
 
 **Placeholder dots (a layer with no art).** Particles in this tool are sprites cut from
 your atlas — there is no abstract default shape. So a layer that has **no region bound
@@ -167,6 +179,8 @@ With a layer selected, the right **Inspector** edits it. Most rows end in a **�
   particle's life so the sequence plays through exactly once, however long the particle
   lives), or untick it for an explicit **Speed (fps)** plus a **Loop while the particle
   lives** toggle (off = the animation holds on its last frame once it has played).
+- **Material** (sprite layers only) — draw the particles through a Shader Graph effect. See
+  [Material](#material) below.
 - **Sprite** (sprite layers only) — how the art sits on each particle. **Rotation (°)**
   (−180..180) turns the art by a fixed amount without changing where the particle flies; it
   adds to any spin or **Locked angle**, so e.g. art drawn pointing up can be turned 90° to
@@ -286,6 +300,59 @@ With a layer selected, the right **Inspector** edits it. Most rows end in a **�
 - **Blend mode** — Normal / **Add (glow)** / Screen / Multiply. Add and screen give the
   additive glow fire, sparks and magic want.
 
+### Material
+
+A sprite layer's **Material** section, under **Art**, draws its particles through a compiled
+[Invisible Shader Graph](shader-graph.md) effect instead of as plain sprites: each particle is
+drawn by the graph, which reads that particle's own age, seed, colour and place in its wave. The
+section is hidden for a **rig clip** layer (those cannot take a material), and turning a layer
+into rig clips drops its material.
+
+- **Material** — **None (plain sprites)**, then every effect the project's Shader Graph set
+  compiles, by name (the project's own graphs and the studio library's it does not override).
+  Picking another effect starts it at its own param defaults; its Time and Strength stay. A
+  material whose graph has been deleted or no longer compiles stays selected, marked **(not
+  compiled)**, and its particles draw plain.
+- **Time** — what the graph's Time input reads on each particle: **Over the particle's life**
+  (progress 0 → 1 from birth to death, the default) or **Loop at the effect's length** (the
+  effect's own length, shown in brackets, repeating over the particle's age).
+- **Strength** — 0 to 4 (1 by default), the graph's Strength input.
+- **The effect's params** — one row each: a slider for a number, a colour field for a colour, a
+  switch for an on/off, a dropdown for a choice. A param you have not touched plays the effect's
+  default. Every row but a choice has **⚡** like any inspector row (Strength too), and ⚡ offers
+  every param of the effect, also one still at its default; **All parameters** lists them too.
+  A choice cannot be made a parameter.
+- **Graph** — the graph's work and reads of the particle's own art per pixel, against the
+  particle budget of **150 / 4** (amber when over). It comes from the graph as Shader Graph
+  analyses it.
+- **Load** — a bar for this layer against its budget of **32 M** (graph cost × the pixels its
+  particles cover, overlaps and the graph's padding included, in the layer's own pixels, so
+  zooming the stage does not move it): green, amber from 75 %, red over. Until the preview has
+  drawn the layer it shows an **≈ estimate** (the most particles alive at once × the largest
+  frame at the largest scale, padded, × the cost); once it plays, the **measured peak** since
+  the layer last changed. It is a warning: an over-budget layer still draws.
+- **Notes**, when they apply:
+  - an exposed parameter drives a param this material does not have (it was made on another
+    one): it does nothing here;
+  - the effect's **passes**, **motion** or break do not play on particles (a particle's own
+    behaviours move it);
+  - the graph or the load is **over budget**;
+  - **Max particles over 512**, or a parameter that can drive it past 512 or has no upper
+    bound: the **material is off** and the layer draws plain sprites (lower Max particles, or
+    give the parameter a max of 512 or less);
+  - **no art yet**: the material starts once the layer has frames;
+  - the frames sit on **two atlas pages**, or this GPU did not compile the material: plain;
+  - the effect was **deleted or does not compile** (with its first error): plain.
+- **Open in Shader Graph ↗** — opens the effect's graph in
+  [Invisible Shader Graph](shader-graph.md), full page in the same tab (a studio-library graph
+  opens as the library's). It shows only if you have Shader Graph. Unsaved changes here ask
+  first.
+
+**The preview draws the material as the game does**, through the same renderer. Dragging a
+param or Strength (or a ⚡ parameter's **Preview** slider) changes the particles live, with no
+reset; changing the **Material**, the **Time**, **Max particles** or the frames restarts the
+layer. As in a game, at most **8** layers draw a material at once; a ninth draws plain.
+
 ### Exposed parameters
 
 An **exposed parameter** is a named value (`intensity`, `heat`) the game sets on a placed effect,
@@ -390,6 +457,20 @@ mere save.
   there. A placed effect plays only where it is mounted: one inside a component plays on each
   placed copy that is on screen when its event fires.
 
+- **A stale tab can drop a layer's material.** `/fx` keeps no version history. If an effect is
+  open in two tabs, or one tab was left open while someone added a material elsewhere, saving the
+  older tab writes its layers back without the material (after the conflict prompt, if the
+  other save came first). Re-pick it under **Material**: it is one choice and its params.
+- **A material layer draws plain sprites.** Check the Material section's notes: Max particles
+  over 512, a parameter on Max particles with no max, no frames yet, or a graph that was deleted
+  or no longer compiles. A game says the same on its `?fxdebug=1` line, which also prints, while a
+  material layer draws, the most pixels its particles have covered (at most every 2 s, as it
+  grows; × the graph's cost is the layer's load).
+- **A parameter on a material param does nothing after you change the material.** Exposed
+  parameters are kept when you pick another material, but one that drives a param the new
+  material does not have drives nothing; the Material section names it. Remove that drive in
+  **Exposed parameters**, or pick the material it was made for.
+
 ## What it does not do yet
 
 - **It authors the effect and its trigger binding, not the broader flow.** Invisible FX
@@ -413,6 +494,11 @@ mere save.
   wired and headless-tested, but firing a baked effect on an event in a real game (in
   particular the rig bone-attach coordinate frame) has not yet been owner-verified on
   live WebGL pixels.
+- **Materials:** the Scene Editor, Rigger and Symbols previews still draw a material layer as
+  plain sprites (a game draws the material). The picker lists effects by name; "made for
+  particles" effects will come first once Shader Graph can mark them. A material's load budgets
+  (150 / 4, 32 M, 64 M) are first estimates, to be revised after a phone check. Nothing pre-checks
+  a material against the game's cap of 8 drawing at once.
 - **One atlas per layer.** A layer's frames come from a single atlas; mixing regions
   from different atlases in one layer is not supported — add another layer instead.
 - **Forces don't vary per particle**, apart from each particle's own gust and turbulence
@@ -436,8 +522,9 @@ mere save.
   the LayoutDoc `gameType` via `resolveEmitterVocabulary`, the same source `/flow` uses, so
   the Trigger picker offers exactly the events a Flow Broadcast can emit). `+page.svelte`
   is the authoring shell (sub-bar, Layers panel with the stack ops, Inspector with Layer /
-  Particle / Art / Sprite / Placement / Trigger / Emitter / Spawn / Direction &amp; rotation / Alpha /
-  Scale / Movement / Forces / Colour / Blend sections, and the Backdrop bar above the canvas).
+  Particle / Art / Material / Sprite / Placement / Trigger / Emitter / Spawn / Direction &amp;
+  rotation / Alpha / Scale / Movement / Forces / Colour / Blend sections, and the Backdrop bar
+  above the canvas).
   `FxStage.svelte` is the WebGL stage (own `PIXI.Application` + pan/zoom/
   play-pause + a live `Emitter` per layer, the centre-spawned placeholder dots for an
   unbound layer, and the Tier-B rig backdrop — loaded imperatively and ridden per-frame,
@@ -501,6 +588,16 @@ mere save.
   effect, `DrivenEffectPlayer.svelte`), and in the editor `placedEffects.client.svelte.ts` +
   `previewEffectParamValues`. Gate:
   `pnpm --filter launcher-api check:fx-node-params`.
+- **Materials (Shader Graph step 8d.5):** the page reads the compiled set from
+  `GET /api/shaders/effects` (with each graph's `costs`) and registers it with
+  `$lib/customElementFx.svelte.ts`; `fxMaterial.client.ts` holds the section's edits (each through
+  `normalizeEmitterMaterial`), the picker list, the load and the notes; `engine-fx`
+  `materialLayer.ts` holds the budgets and `fxMaterialLoadEstimate`. `FxStage.svelte` mounts each
+  material with `pixi-svelte/particleMaterial`'s `mountParticleMaterial` (its own 8 slots), syncs
+  it after every `emitter.update`, remounts on kind / time / capacity / frames and writes strength
+  and params as uniforms; the measured load is the renderer's `coveredArea` peak × the cost.
+  Gates: `pnpm --filter fx-spike model` and, headless in Chromium through the real page,
+  `pnpm --filter fx-spike fx-page`.
 - **Sprite transform:** `packages/engine-fx/src/sprite.ts` — the `fxSprite` behavior
   (`{ rotation, anchorX, anchorY }`, read through the `readFxSprite` clamp). The pivot is the
   particle's `anchor`; the rotation offset is carried on `skew = (−θ, θ)`, which PIXI composes

@@ -1,7 +1,8 @@
 /**
  * Invisible Engine — game mechanics: the rules of a non-slot family, as plain logic with no
  * drawing (`docs/design/game-families.md` §4): the match-3 board, arcade motion, its camera,
- * characters and jumps, and the online room step.
+ * characters and jumps, the online room step, and the card duel's rules
+ * (`docs/design/card-games.md` §2).
  *
  * Plain, dependency-free ESM JavaScript with hand-written `.d.ts` beside it, for the reason
  * `engine-cinematic` is: two very different callers share the very same file. The client reaches
@@ -14,3 +15,4 @@ export * from './src/camera.js';
 export * from './src/behaviours.js';
 export * from './src/jumps.js';
 export * from './src/online.js';
+export * from './src/cards.js';

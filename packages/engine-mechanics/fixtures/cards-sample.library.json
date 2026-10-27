@@ -1,0 +1,196 @@
+[
+	{ "id": "ember-imp", "name": "Ember Imp", "type": "unit", "cost": 1, "attack": 1, "health": 2 },
+	{
+		"id": "brook-scout",
+		"name": "Brook Scout",
+		"type": "unit",
+		"cost": 1,
+		"attack": 2,
+		"health": 1,
+		"keywords": ["swift"]
+	},
+	{
+		"id": "lantern-warden",
+		"name": "Lantern Warden",
+		"type": "unit",
+		"cost": 2,
+		"attack": 1,
+		"health": 4,
+		"keywords": ["guard"]
+	},
+	{
+		"id": "glass-knight",
+		"name": "Glass Knight",
+		"type": "unit",
+		"cost": 2,
+		"attack": 2,
+		"health": 2,
+		"keywords": ["shield"]
+	},
+	{
+		"id": "spark-tinker",
+		"name": "Spark Tinker",
+		"type": "unit",
+		"cost": 2,
+		"attack": 2,
+		"health": 2,
+		"effects": [
+			{
+				"trigger": "onPlay",
+				"verb": "damage",
+				"amount": 1,
+				"target": { "kind": "chosen", "side": "enemy", "include": "characters" }
+			}
+		]
+	},
+	{
+		"id": "moss-mender",
+		"name": "Moss Mender",
+		"type": "unit",
+		"cost": 3,
+		"attack": 2,
+		"health": 3,
+		"effects": [
+			{ "trigger": "turnStart", "verb": "heal", "amount": 2, "target": { "kind": "self" } }
+		]
+	},
+	{
+		"id": "hollow-seed",
+		"name": "Hollow Seed",
+		"type": "unit",
+		"cost": 2,
+		"attack": 1,
+		"health": 1,
+		"effects": [{ "trigger": "onDeath", "verb": "summon", "card": "sproutling", "count": 2 }]
+	},
+	{
+		"id": "sproutling",
+		"name": "Sproutling",
+		"type": "unit",
+		"cost": 1,
+		"attack": 1,
+		"health": 1,
+		"token": true
+	},
+	{
+		"id": "thorn-beast",
+		"name": "Thorn Beast",
+		"type": "unit",
+		"cost": 4,
+		"attack": 3,
+		"health": 5,
+		"effects": [
+			{
+				"trigger": "onDamaged",
+				"verb": "damage",
+				"amount": 1,
+				"target": { "kind": "randomEnemy", "include": "characters" }
+			}
+		]
+	},
+	{
+		"id": "drum-captain",
+		"name": "Drum Captain",
+		"type": "unit",
+		"cost": 3,
+		"attack": 3,
+		"health": 3,
+		"effects": [
+			{
+				"trigger": "onAttack",
+				"verb": "buff",
+				"attack": 2,
+				"health": 0,
+				"until": "endOfTurn",
+				"target": { "kind": "self" }
+			}
+		]
+	},
+	{
+		"id": "archive-owl",
+		"name": "Archive Owl",
+		"type": "unit",
+		"cost": 3,
+		"attack": 2,
+		"health": 2,
+		"effects": [{ "trigger": "onPlay", "verb": "draw", "amount": 1 }]
+	},
+	{
+		"id": "cinder-bolt",
+		"name": "Cinder Bolt",
+		"type": "spell",
+		"cost": 1,
+		"effects": [
+			{
+				"trigger": "onPlay",
+				"verb": "damage",
+				"amount": 3,
+				"target": { "kind": "chosen", "side": "any", "include": "characters" }
+			}
+		]
+	},
+	{
+		"id": "rain-of-ash",
+		"name": "Rain of Ash",
+		"type": "spell",
+		"cost": 4,
+		"effects": [
+			{
+				"trigger": "onPlay",
+				"verb": "damage",
+				"amount": 2,
+				"target": { "kind": "allEnemies", "include": "units" }
+			}
+		]
+	},
+	{
+		"id": "quiet-end",
+		"name": "Quiet End",
+		"type": "spell",
+		"cost": 5,
+		"effects": [
+			{
+				"trigger": "onPlay",
+				"verb": "destroy",
+				"target": { "kind": "chosen", "side": "enemy", "include": "units" }
+			}
+		]
+	},
+	{
+		"id": "rally-cry",
+		"name": "Rally Cry",
+		"type": "spell",
+		"cost": 2,
+		"effects": [
+			{
+				"trigger": "onPlay",
+				"verb": "buff",
+				"attack": 2,
+				"health": 2,
+				"until": "permanent",
+				"target": { "kind": "chosen", "side": "friendly", "include": "units" }
+			},
+			{
+				"trigger": "onPlay",
+				"verb": "giveKeyword",
+				"keyword": "guard",
+				"target": { "kind": "chosen", "side": "friendly", "include": "units" }
+			}
+		]
+	},
+	{
+		"id": "second-wind",
+		"name": "Second Wind",
+		"type": "spell",
+		"cost": 2,
+		"effects": [
+			{
+				"trigger": "onPlay",
+				"verb": "heal",
+				"amount": 5,
+				"target": { "kind": "chosen", "side": "friendly", "include": "characters" }
+			},
+			{ "trigger": "onPlay", "verb": "draw", "amount": 1 }
+		]
+	}
+]

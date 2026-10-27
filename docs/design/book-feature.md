@@ -422,7 +422,8 @@ then runs over both hosts, and the book host's digests must not move.
 
 **Docs and agents** (Phase 7, through `docs-keeper`):
 
-- agents: `.claude/agents/book-of-game.md` (rewritten around "lines plus the Thermopylae preset"),
+- agents: `book-of-game` (rewritten around "lines plus the Thermopylae preset"; since folded into
+  `.claude/agents/lines-games.md` by ADR-0009 card 9B),
   `invisible-game-config`, `invisible-game-maker`;
 - tools: `docs/tools/{game-config,game-maker,invisible-editor}.md`;
 - guides and playbooks: `guides/build-your-first-game.md`, `playtest/{borut-remake,borut-pots-sample,current-games}.md`;

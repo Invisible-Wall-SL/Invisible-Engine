@@ -29,6 +29,7 @@
 		"shader-twins": "node shaderTwins.mjs",
 		"shader-motion": "node shaderMotion.mjs",
 		"particle-material": "node particleMaterial.mjs",
+		"fx-page": "node fxPage.mjs",
 		"nine-slice-parity": "node nineSliceParity.mjs"
 	},
 	"devDependencies": {
