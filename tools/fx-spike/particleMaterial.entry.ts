@@ -50,6 +50,7 @@ import {
 	type ShaderGraphDoc,
 } from '@fxroot/packages/engine-shadergraph/index';
 import {
+	FX_DEBUG_PANEL_ID,
 	PARTICLE_MATERIAL_CAPACITY,
 	ParticleMaterial,
 	mountParticleMaterial,
@@ -1179,11 +1180,65 @@ interface Cell {
 			debugLines.some((l) => l.includes('plain, frames on several textures')) &&
 			debugLines.some((l) => l.includes('x/broken: plain while playing, program does not link')),
 	);
+	const panel = document.getElementById(FX_DEBUG_PANEL_ID)?.textContent ?? '';
+	claim(
+		"?fxdebug=1 writes each layer's latest line on the page too, for a phone",
+		panel.startsWith('fxdebug · particle materials') &&
+			panel.includes('\nd: plain, over the game cap (custom:alone') &&
+			panel.includes('\nx/broken: plain while playing, program does not link'),
+	);
 	for (const l of [on, twoSources, overCap, sized, drivable, unboundedDrive, failing]) {
 		l.emitter.destroy();
 		l.mounted.release();
 	}
 	claim(`every slot is back at the end (${slots.drawing})`, slots.drawing === 0);
+
+	// A peak that grows inside the 2 s wait between prints is printed when the wait ends, so a layer
+	// that settles there is read while it plays; a release drops a print still waiting.
+	const peakLines: string[] = [];
+	console.log = (...args: unknown[]) => {
+		const line = args.map(String).join(' ');
+		if (line.includes('its peak')) peakLines.push(line);
+		log(...args);
+	};
+	const settles = mountLayer(4, base([]), [frame('static')], {
+		kind: 'custom:pulsetint',
+		label: 'peak/settles',
+	});
+	const released = mountLayer(5, base([]), [frame('static')], {
+		kind: 'custom:pulsetint',
+		label: 'peak/released',
+	});
+	settles.step(40);
+	released.step(40);
+	released.emitter.destroy();
+	released.mounted.release();
+	const printedAtOnce = peakLines.filter((l) => l.includes('peak/settles')).length;
+	await new Promise((resolve) => setTimeout(resolve, 2200));
+	console.log = log;
+	const settled = peakLines.filter((l) => l.includes('peak/settles'));
+	const settledPeak = settles.mounted.material?.peakCoveredArea ?? 0;
+	const pixels = (n: number): string =>
+		n >= 1e6
+			? `${(n / 1e6).toFixed(2)} Mpx`
+			: n >= 1e3
+				? `${(n / 1e3).toFixed(1)} kpx`
+				: `${Math.round(n)} px`;
+	claim(
+		`?fxdebug=1 prints a peak that settles inside the wait as the wait ends (${settled.length} lines, ${pixels(settledPeak)})`,
+		printedAtOnce === 1 &&
+			settled.length === 2 &&
+			settled[1].includes(`its peak ${pixels(settledPeak)} covered`),
+	);
+	claim(
+		'…and a released layer prints nothing after its release line',
+		peakLines
+			.filter((l) => l.includes('peak/released'))
+			.at(-1)
+			?.includes('released, its peak') === true,
+	);
+	settles.emitter.destroy();
+	settles.mounted.release();
 	setCustomElementFx([]);
 	app.stage.removeChildren();
 

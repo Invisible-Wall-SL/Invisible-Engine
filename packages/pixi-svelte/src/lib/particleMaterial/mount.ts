@@ -14,9 +14,11 @@
  * slot back before the error goes on.
  *
  * `?fxdebug=1` on the page logs each material layer's state as it mounts and when it turns plain,
- * and, while a layer draws, its peak covered pixels as they grow (at most once per 2 s a layer) and
- * again when it is released: the most pixels its quads covered at once, and, when the effect carries
- * its graph's cost (one made for particles), that × the cost: its peak load (design §10).
+ * and, while a layer draws, its peak covered pixels as they grow (at most once per 2 s a layer, a
+ * growth inside the wait printed as it ends) and again when it is released: the most pixels its
+ * quads covered at once, and, when the effect carries its graph's cost (one made for particles),
+ * that × the cost: its peak load (design §10). Each layer's latest line is also written on the page
+ * (`debugPanel.ts`), for a phone, which shows no console.
  */
 
 import { customElementFx } from 'constants-shared/elementFx';
@@ -29,6 +31,7 @@ import {
 } from 'engine-fx';
 import type { Container, Texture } from 'pixi.js';
 import { ParticleMaterial, type ParticleMaterialPlain } from './ParticleMaterial';
+import { showFxDebugLine } from './debugPanel';
 
 const appSlots = new WeakMap<object, FxMaterialSlots>();
 
@@ -84,26 +87,46 @@ function peakText(covered: number, cost: number | undefined): string {
 
 function report(spec: ParticleMaterialSpec, state: string, slots: FxMaterialSlots): void {
 	if (!debug()) return;
-	console.log(
-		`[fxdebug] material layer ${spec.label ?? '(unnamed)'}: ${state} (${spec.kind}; ${slots.drawing}/${slots.cap} drawing)`,
-	);
+	const label = spec.label ?? '(unnamed)';
+	const counts = `${spec.kind}; ${slots.drawing}/${slots.cap} drawing`;
+	console.log(`[fxdebug] material layer ${label}: ${state} (${counts})`);
+	showFxDebugLine(label, `${state} (${counts})`);
 }
 
 /** The most often a layer's growing peak is printed. */
 const PEAK_REPORT_MS = 2000;
 
-/** Print a layer's peak covered pixels as it grows, at most once per {@link PEAK_REPORT_MS}. */
+/**
+ * Print a layer's peak covered pixels as it grows, at most once per {@link PEAK_REPORT_MS}: a growth
+ * inside that wait is printed when it ends, so a peak that settles there is still read while the
+ * layer plays, not only at its release. `stop` drops a print still waiting.
+ */
 function peakReporter(
 	spec: ParticleMaterialSpec,
 	slots: FxMaterialSlots,
 	cost: number | undefined,
-): (covered: number) => void {
+): { onPeak: (covered: number) => void; stop: () => void } {
 	let last = -Infinity;
-	return (covered) => {
-		const now = performance.now();
-		if (now - last < PEAK_REPORT_MS) return;
-		last = now;
+	let pending = 0;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const print = (covered: number): void => {
+		last = performance.now();
 		report(spec, `on, ${peakText(covered, cost)}`, slots);
+	};
+	return {
+		onPeak: (covered) => {
+			const wait = last + PEAK_REPORT_MS - performance.now();
+			if (wait <= 0) return print(covered);
+			pending = covered;
+			timer ??= setTimeout(() => {
+				timer = undefined;
+				print(pending);
+			}, wait);
+		},
+		stop: () => {
+			clearTimeout(timer);
+			timer = undefined;
+		},
 	};
 }
 
@@ -138,6 +161,7 @@ export function mountParticleMaterial(options: {
 		held = false;
 		slots.release();
 	};
+	const peaks = debug() ? peakReporter(spec, slots, effect?.cost) : undefined;
 	let material: ParticleMaterial;
 	try {
 		material = new ParticleMaterial({
@@ -151,17 +175,20 @@ export function mountParticleMaterial(options: {
 			params: spec.params,
 			emitSpeed: options.emitSpeed,
 			onPlain: (reason) => {
+				peaks?.stop();
 				giveBack();
 				report(spec, `plain while playing, ${reason}`, slots);
 			},
-			onPeak: debug() ? peakReporter(spec, slots, effect?.cost) : undefined,
+			onPeak: peaks?.onPeak,
 		});
 	} catch (error) {
+		peaks?.stop();
 		giveBack();
 		throw error;
 	}
 	const refused = material.plain;
 	if (refused) {
+		peaks?.stop();
 		material.destroy();
 		giveBack();
 		report(spec, `plain, ${refused}`, slots);
@@ -173,6 +200,7 @@ export function mountParticleMaterial(options: {
 		state: 'on',
 		release: () => {
 			const peak = material.peakCoveredArea;
+			peaks?.stop();
 			material.destroy();
 			giveBack();
 			report(spec, `released, ${peakText(peak, effect?.cost)}`, slots);

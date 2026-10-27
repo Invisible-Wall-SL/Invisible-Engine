@@ -104,12 +104,13 @@ export interface FxMaterialSlots {
 	readonly drawing: number;
 	/** Take a slot; false when every one is held. */
 	claim(): boolean;
-	/** Give a slot back. */
+	/** Give a slot back. One given back with none held leaves the count at 0 and warns (once). */
 	release(): void;
 }
 
 export function createFxMaterialSlots(cap = FX_MATERIAL_LAYER_CAP): FxMaterialSlots {
 	let drawing = 0;
+	let warned = false;
 	return {
 		cap,
 		get drawing() {
@@ -121,7 +122,15 @@ export function createFxMaterialSlots(cap = FX_MATERIAL_LAYER_CAP): FxMaterialSl
 			return true;
 		},
 		release() {
-			drawing = Math.max(0, drawing - 1);
+			if (drawing > 0) {
+				drawing--;
+				return;
+			}
+			if (warned) return;
+			warned = true;
+			console.warn(
+				'Particle material: a material layer gave back a game slot it did not hold; the count stays at 0.',
+			);
 		},
 	};
 }
