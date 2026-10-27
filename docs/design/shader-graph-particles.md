@@ -245,8 +245,9 @@ interface EmitterMaterial {
 
 **`/fx`** (sprite layers). A **Material** section below **Art**:
 - **Material**: *None (plain sprites)*, then the project's compiled effects, "Made for particles"
-  first. The list comes from `GET /api/shaders/effects`. `shaderReadScope` gains `fx` (and
-  `rigger`, for the overlay below). The page registers the set with the existing
+  first. The list comes from `GET /api/shaders/effects`, which `fx` (and `rigger`, for the
+  overlay below) may read through `shaderEffectsReadScope` (as built in 8d.4: the compiled set
+  only, not the graph docs). The page registers the set with the existing
   `$lib/customElementFx.svelte.ts`.
 - **Time**: *Over the particle's life* or *Loop at the effect's length*.
 - **Strength**, and the material's params as rows (number, colour, switch, choice), each with **⚡**
@@ -487,6 +488,14 @@ svelte-check at baseline, and the current games building with no changed screen.
      - a pruned (unreachable) effect does not bring its material in.
    - **Mutation:** taking `effects` out of the walk fails it.
    - **Exit:** those green.
+   - **As built** (#TBD):
+     - **Proof only for the chain:** both walks already carried `material.kind`.
+     - **Narrower than planned:** `fx` and `rigger` read only `GET /api/shaders/effects`, through a
+       new `shaderEffectsReadScope`; `shaderReadScope` (graph docs with their Custom GLSL source,
+       the list, history) is unchanged. The tools only need the compiled set.
+     - **Real code, not scans:** the proof runs the real `buildRuntimeBundle` and the real bake
+       script against a local portal.
+     - The soft floor was already written in step 3.
 5. **`/fx` authoring** (launcher).
    - **Contents:**
      - the Material section (§9), the load meter and badges;
