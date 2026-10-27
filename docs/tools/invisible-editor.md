@@ -1716,10 +1716,43 @@ Three more kinds of row sit in the timeline's track area, under the keyed node's
 
 - **⚡ Report event.** The button above the tracks drops a **cue** at the playhead, named
   `signal:…`, and selects it so you can type the rest of the name in the inspector on the right
-  (or pick an effect there for an `fx:` cue, or type `sfx:` / `music:` for a sound). In the game a
+  (or pick an effect there for an `fx:` cue, or pick `sfx:` / `music:` for a sound). In the game a
   cue fires when the playhead passes it: on a component, a `signal:` cue is a signal its instance
-  hears (another of its timelines can play on it); Flow can react to it too. Scrubbing never fires
-  cues. All cues share one **⚡ cues** row; drag a marker to move it.
+  hears (another of its timelines can play on it), and an `event:<id>` cue raises one of its
+  events; Flow can react to it too. Scrubbing never fires cues. All cues share one **⚡ cues** row;
+  drag a marker to move it.
+  - **Naming a cue.** Once a cue is a sound or a signal, the inspector adds a **name** dropdown:
+    `sfx:` lists your project's uploads first (marked ★), then the engine's sounds; `music:` lists
+    music beds only; `signal:` / `event:` list the component's signals, its events (as
+    `event:<id>`), the _On cue_ Element FX names and the cues your project's flow fires. Picking a
+    name renames the cue and keeps its options. You can still type any name in the **cue** field;
+    one the list doesn't have shows an amber ⚠ warning (it plays only if the game has a sound by
+    that name, or reaches only what listens for it) but saves. Lists show only sounds **saved** in
+    [Invisible Sound](./sound.md).
+  - **▶ audition.** Beside a project upload's name, **▶** plays it at the cue's volume, rate, loop
+    and start offset (**■** stops it); pan, the ± jitters, fades and alternates are heard only in
+    the game. It needs access to Invisible Sound. An engine sound's ▶ is greyed out (it lives in
+    the shipped audio sprite, which the launcher can't play a piece of; hear it in the game), and
+    a stop cue has none.
+  - **Sound options.** A sound cue gets a **🔊 Sound** (or **🎵 Music**) section under the fields.
+    **do** picks **▶ play** or **⏹ stop**. An empty field shows its default and stores nothing, so
+    a cue with no options plays exactly as a plain cue always did.
+    - **SFX play:** **volume** (0–1, × the sound's own level), **± vol**, **rate** (0.5–2, pitch
+      and speed together), **± rate** (a random amount per play), **pan** (−1 left … 1 right),
+      **fade in ms**, **start at ms**, **loop** (runs until a ⏹ stop cue names the sound),
+      **overlap** (off: a play while the sound is still playing is skipped) and **alternates**
+      (up to 8 other sounds, one picked at random per play; type them comma-separated or use
+      **＋ add…**).
+    - **Music play:** **volume**, **crossfade ms** (the bed it replaces fades out as long) and
+      **loop** (the track's own, loop, or once).
+    - **Stop:** **fade out ms** (empty stops at once). It stops a loop a play cue started, or a
+      music bed.
+    - Signal cues have no options: a signal carries no payload.
+
+    The cue's marker on the track shows a hint of what it does, for example `🔊 coin 60% 🔁 +2`
+    (volume, looping, two alternates), `⏹ coin` or `🎵 bgm_main`. The options play the same on a
+    screen timeline, a component timeline and a Rigger cinematic. The editor's ▶ in Animate does
+    not play sound cues; hear them with the cue's ▶ or in the game.
   - **Cues and Element FX.** On a **screen** timeline, a `signal:NAME` cue plays every
     [Element FX](#element-fx--effects-that-play-on-an-element) whose trigger is _On cue_ with the
     cue `NAME`, as a Flow `fireCue` named `NAME` would: the screen's own entries, its nodes', and
@@ -1972,6 +2005,13 @@ in, a button that pulses when a signal fires, a coin that spins in when it lands
 5. **Save** (or Ctrl+S). Publish as usual: the timeline ships with the game. You don't add a Flow
    node; component timelines are not in `/flow-v2`'s playCinematic picker, because the instances
    play them.
+
+**Sound on a component timeline.** An `sfx:` / `music:` cue on a component timeline plays in the
+game through the game's own sound player, with its
+[sound options](#report-events-visibility-and-text), on each instance that runs the timeline: the
+player's mute and its separate SFX and music volumes apply, and a looping sound runs until a ⏹ stop
+cue names it. The cue inspector's name list here also offers the component's signals and its
+events (`event:<id>`).
 
 **Also on** lists your other components. Tick one and its instances play this timeline too, on
 the same **Plays on** signal. It moves the nodes in that component that have the same names, so

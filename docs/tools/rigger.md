@@ -1067,7 +1067,17 @@ The name is free text with a datalist of prefixes rather than a dropdown, becaus
 the ids live in three different systems — any dropdown would be wrong in at least
 one of them. In the editor an `fx:` cue drives the stage FX overlay; the other
 namespaces name things that only exist inside a game, so they report in the status
-line instead of silently doing nothing.
+line instead of silently doing nothing. (The Scene Editor's timeline does offer name
+dropdowns and a ▶ audition for sounds; here you type the name.)
+
+**Sound options.** Select an `sfx:` / `music:` cue and the inspector adds a **🔊 Sound**
+(or **🎵 Music**) section: **do** ▶ play or ⏹ stop; for SFX, volume, ± volume, rate,
+± rate, pan, fade in, start offset, loop, overlap and alternates picked at random; for
+music, volume, crossfade and a loop override; a stop cue takes a fade out. Empty fields
+store nothing, so a plain cue plays as before. The marker shows a hint such as
+`🔊 coin 60% 🔁`. The game applies them exactly as on Scene Editor timelines — see
+[Report events](/docs/invisible-editor#report-events-visibility-and-text) for what each
+option does.
 
 **Nothing fires on a seek.** A backward step or a jump bigger than a frame is
 silent, which is what makes scrubbing usable rather than a machine-gun of effects.
