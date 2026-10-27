@@ -1,0 +1,65 @@
+/**
+ * Types for online netcode (`netcode.js`, `docs/design/realtime-multiplayer.md` §6). The behaviour
+ * is pinned by `scripts/check-netcode.mjs`.
+ */
+
+import type { Body, Field } from './motion';
+import type { OnlineInput, OnlineLevel, StepContext } from './online';
+
+export const MATCH_PX: number;
+export const SMOOTH_MS: 100;
+export const SNAP_PX: 128;
+export const INTERPOLATION_DELAY_MS: 100;
+export const MAX_RATE: 0.25;
+export const MAX_SLOW: 0.1;
+
+/** The room's word on the predicted player. */
+export type PredictorTruth = { x: number; y: number; ack: number; still?: boolean };
+
+export type Predictor = {
+	readonly body: Body;
+	/** Inputs sent and not yet acknowledged. */
+	readonly pending: number;
+	/** States that disagreed with the prediction. */
+	readonly corrections: number;
+	/** Corrections too long to fade, drawn at once. */
+	readonly snaps: number;
+	input(input: OnlineInput): void;
+	reconcile(truth: PredictorTruth): 'stale' | 'match' | 'corrected';
+	frame(dtMs: number): void;
+	drawn(alpha?: number): { x: number; y: number };
+};
+
+export function createPredictor(options: {
+	body: Body;
+	speed: number;
+	ctx: StepContext;
+	field?: Field;
+	level?: OnlineLevel;
+	/** The input the body's place follows. Default 0, before any. */
+	ack?: number;
+	smoothMs?: number;
+	snapPx?: number;
+}): Predictor;
+
+export type SnapshotClock = {
+	readonly newest: number;
+	observe(step: number, nowMs: number): void;
+	advance(nowMs: number): number | undefined;
+};
+
+export function createSnapshotClock(options: {
+	stepMs: number;
+	delayMs?: number;
+	maxRate?: number;
+	maxSlow?: number;
+}): SnapshotClock;
+
+export type Interpolator = {
+	push(id: string, step: number, x: number, y: number): void;
+	remove(id: string): void;
+	has(id: string): boolean;
+	at(id: string, step: number): { x: number; y: number } | undefined;
+};
+
+export function createInterpolator(options?: { snapPx?: number; keep?: number }): Interpolator;

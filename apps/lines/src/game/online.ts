@@ -1,5 +1,22 @@
 import type { Room } from '@colyseus/sdk';
-import { BUTTONS, MOVE_SCALE, clampInput, createFixedStep, type FixedStep } from 'engine-mechanics';
+import {
+	BUTTONS,
+	MOVE_SCALE,
+	STATUS,
+	characterBody,
+	clampInput,
+	createFixedStep,
+	createInterpolator,
+	createPredictor,
+	createSnapshotClock,
+	onlineLevel,
+	stepContext,
+	type FixedStep,
+	type Interpolator,
+	type OnlineEvent,
+	type Predictor,
+	type SnapshotClock,
+} from 'engine-mechanics';
 import { spawnStore } from 'engine-layout/svelte';
 import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-config';
 
@@ -7,15 +24,18 @@ import { bakedGameConfig, refuseOnlineBoot } from '../editor-scenes';
 import { typingInto } from './flowKeys';
 
 /**
- * THE RUNTIME'S ONLINE BRANCH (`docs/design/realtime-multiplayer.md` §10; P10.14) — for an arcade
- * game whose config has `arcade.online` (`ARCADE_ONLINE_MECHANIC`).
+ * THE RUNTIME'S ONLINE BRANCH (`docs/design/realtime-multiplayer.md` §6, §10; P10.14, P10.15) —
+ * for an arcade game whose config has `arcade.online` (`ARCADE_ONLINE_MECHANIC`).
  *
  * The boot joins a room on the game server ({@link joinOnlineRoom}, from `+layout.ts`) before the
  * game mounts; `<ArcadeStage />` then ticks {@link tickOnline}: one input a fixed step, read from
- * the keyboard and clamped exactly as the server clamps it, and every player of the room drawn
- * where the server last put it, as a spawned instance of its character's component in the play
- * field's spawn layer. Nothing is predicted or smoothed yet (P10.15), and the device never decides
- * a place: it sends inputs only.
+ * the keyboard and clamped exactly as the server clamps it, and every player of the room drawn as a
+ * spawned instance of its character's component in the play field's spawn layer. The device never
+ * decides a place: it sends inputs only. Its own player is PREDICTED (`engine-mechanics`
+ * `createPredictor`: stepped at once with the room's own step, reconciled with each state the room
+ * sends), and everyone else is INTERPOLATED about 100 ms behind the room (`createSnapshotClock`,
+ * `createInterpolator`). Each input names the room step the device was drawing everyone else at
+ * (`view`), so an ability is tested against what the player saw.
  *
  * Launch parameters: `?rooms_url=` the game server (`wss://rooms.invisiblewall.org`), the game
  * key `?rooms_game=` (else `?project=`), and optionally `?rooms_name=` / `?rooms_character=`.
@@ -33,17 +53,37 @@ type PlayerState = {
 	x: number;
 	y: number;
 	connected: boolean;
+	ack: number;
+	status: number;
+	score: number;
 };
-type RoomState = { step: number; players: Map<string, PlayerState> };
+type RoomState = {
+	step: number;
+	phase: string;
+	round: number;
+	winner: string;
+	players: Map<string, PlayerState>;
+};
+
+/** How many of the room's events the probe keeps. */
+const EVENTS_KEPT = 32;
 
 type Session = {
 	room: Room;
 	game: OnlineGame;
 	clock: FixedStep;
 	seq: number;
+	/** The own player, once the room has placed it. */
+	me: Predictor | undefined;
+	/** The render clock and tracks for everyone else. */
+	view: SnapshotClock;
+	others: Interpolator;
+	/** The step everyone else was last drawn at. */
+	viewStep: number;
 	/** Room player id → the instance it is drawn as. */
 	drawn: Map<string, string>;
 	refused: Set<string>;
+	events: OnlineEvent[];
 };
 
 let session: Session | undefined;
@@ -58,10 +98,15 @@ const MOVE_KEYS: Record<string, [number, number]> = {
 	ArrowDown: [0, 1],
 	KeyS: [0, 1],
 };
+const BUTTON_KEYS: Record<string, number> = {
+	Space: BUTTONS.jump,
+	KeyJ: BUTTONS.ability1,
+	KeyK: BUTTONS.ability2,
+};
 const held = new Set<string>();
 
 const onKey = (event: KeyboardEvent) => {
-	if (!(event.code in MOVE_KEYS) && event.code !== 'Space') return;
+	if (!(event.code in MOVE_KEYS) && !(event.code in BUTTON_KEYS)) return;
 	if (event.type === 'keydown' && typingInto(event.target)) return;
 	// The arrows and Space would otherwise scroll a page the game sits in.
 	event.preventDefault();
@@ -71,23 +116,26 @@ const onKey = (event: KeyboardEvent) => {
 const releaseAll = () => held.clear();
 
 /** The input the held keys make, before the clamp. */
-const keyInput = (seq: number) => {
+const keyInput = (seq: number, view: number) => {
 	let x = 0;
 	let y = 0;
+	let buttons = 0;
 	for (const code of held) {
 		const move = MOVE_KEYS[code];
 		if (move) {
 			x += move[0];
 			y += move[1];
 		}
+		buttons |= BUTTON_KEYS[code] ?? 0;
 	}
 	return {
 		seq,
 		moveX: Math.sign(x) * MOVE_SCALE,
 		moveY: Math.sign(y) * MOVE_SCALE,
-		buttons: held.has('Space') ? BUTTONS.jump : 0,
+		buttons,
 		aimX: 0,
 		aimY: 0,
+		view,
 	};
 };
 
@@ -124,14 +172,61 @@ export async function joinOnlineRoom(): Promise<void> {
 		session = undefined;
 		if (code !== CONSENTED) void refuseOnlineBoot(`the room closed (code ${code})`, true);
 	});
-	session = {
+	const current: Session = {
 		room,
 		game: resolved,
 		clock: createFixedStep({ hz: resolved.online.tickHz }),
 		seq: 0,
+		me: undefined,
+		view: createSnapshotClock({ stepMs: 1000 / resolved.online.tickHz }),
+		others: createInterpolator(),
+		viewStep: 0,
 		drawn: new Map(),
 		refused: new Set(),
+		events: [],
 	};
+	session = current;
+	room.onStateChange(() => received(current, performance.now()));
+	room.onMessage('event', (event: OnlineEvent) => {
+		current.events.push(event);
+		if (current.events.length > EVENTS_KEPT) current.events.shift();
+	});
+}
+
+/** The own player's predictor, from its first place in the room. */
+function predictorOf(current: Session, player: PlayerState): Predictor | undefined {
+	const { game } = current;
+	const character = game.online.characters.find((c) => c.id === player.character);
+	if (!character) return undefined;
+	return createPredictor({
+		body: characterBody(current.room.sessionId, game.bodies[character.body], player),
+		speed: character.speed,
+		ctx: stepContext(game.online.tickHz, game.online.subSteps),
+		field: game.field,
+		level: onlineLevel(game.zones, game.online.rules.zones, character.id),
+		ack: player.ack,
+	});
+}
+
+/** A state from the room: the own player reconciled, everyone else's place recorded at its step. */
+function received(current: Session, nowMs: number) {
+	const state = stateOf(current.room);
+	const players = state.players;
+	if (!players || state.step === undefined) return;
+	current.view.observe(state.step, nowMs);
+	players.forEach((player, id) => {
+		if (id !== current.room.sessionId) {
+			current.others.push(id, state.step!, player.x, player.y);
+			return;
+		}
+		current.me ??= predictorOf(current, player);
+		current.me?.reconcile({
+			x: player.x,
+			y: player.y,
+			ack: player.ack,
+			still: player.status !== STATUS.free,
+		});
+	});
 }
 
 /** Start reading the keyboard; returns the stop. */
@@ -150,7 +245,13 @@ export function listenOnline(): () => void {
 /** The room's synced state, in the shape `services/game-server/src/schema.ts` declares. */
 const stateOf = (room: Room): Partial<RoomState> => room.state as Partial<RoomState>;
 
-/** Put every player of the room where the server last placed it. */
+/** Where a player is drawn: the own one predicted, everyone else between the room's states. */
+function placeOf(current: Session, id: string, player: PlayerState) {
+	if (id === current.room.sessionId && current.me) return current.me.drawn(current.clock.alpha);
+	return current.others.at(id, current.viewStep) ?? { x: player.x, y: player.y };
+}
+
+/** Put every player of the room where it is drawn. */
 function draw(current: Session) {
 	const live = spawnStore();
 	const { layer } = current.game.online;
@@ -160,18 +261,20 @@ function draw(current: Session) {
 		if (!players.has(id)) {
 			live.despawn(instance);
 			current.drawn.delete(id);
+			current.others.remove(id);
 		}
 	}
 	const moves: { id: string; x: number; y: number }[] = [];
 	players.forEach((player, id) => {
+		const at = placeOf(current, id, player);
 		const instance = current.drawn.get(id);
 		if (instance) {
-			moves.push({ id: instance, x: player.x, y: player.y });
+			moves.push({ id: instance, x: at.x, y: at.y });
 			return;
 		}
 		const character = current.game.online.characters.find((c) => c.id === player.character);
 		if (!character) return;
-		const spawned = live.spawn(layer, character.body, { x: player.x, y: player.y });
+		const spawned = live.spawn(layer, character.body, at);
 		if (spawned.ok) current.drawn.set(id, spawned.instance.id);
 		else if (!current.refused.has(character.body)) {
 			current.refused.add(character.body);
@@ -183,23 +286,58 @@ function draw(current: Session) {
 	live.move(moves);
 }
 
-/** One frame: the inputs its fixed steps hold, then the room as the server last sent it. */
+/** One frame: the inputs its fixed steps hold, each predicted as it is sent, then the room drawn. */
 export function tickOnline(dtMs: number) {
 	const current = session;
 	if (!current) return;
+	current.viewStep = current.view.advance(performance.now()) ?? current.viewStep;
 	current.clock.advance(dtMs, () => {
 		current.seq += 1;
+		const raw = keyInput(current.seq, Math.max(0, Math.floor(current.viewStep)));
+		const input = clampInput(raw, current.game.field);
 		const handle = current.room.input();
-		Object.assign(handle.data, clampInput(keyInput(current.seq), current.game.field));
+		Object.assign(handle.data, input);
 		handle.send();
+		current.me?.input(input);
 	});
+	current.me?.frame(dtMs);
 	draw(current);
 }
 
-/** The room as the determinism probe reads it: the server's step and the bodies drawn. */
+/** The room as the determinism probe reads it: the server's step and places, and how each player is
+ *  drawn. */
 export function onlineProbe() {
-	const players = session ? stateOf(session.room).players : undefined;
+	const current = session;
+	const state = current ? stateOf(current.room) : undefined;
 	const bodies: { id: string; x: number; y: number; vx: number; vy: number; tags: string[] }[] = [];
-	players?.forEach((p, id) => bodies.push({ id, x: p.x, y: p.y, vx: 0, vy: 0, tags: [] }));
-	return { steps: (session && stateOf(session.room).step) || 0, bodies };
+	const drawn: { id: string; x: number; y: number }[] = [];
+	state?.players?.forEach((p, id) => {
+		bodies.push({ id, x: p.x, y: p.y, vx: 0, vy: 0, tags: [] });
+		if (current) drawn.push({ id, ...placeOf(current, id, p) });
+	});
+	return {
+		steps: state?.step || 0,
+		bodies,
+		...(current && state
+			? {
+					online: {
+						me: current.room.sessionId,
+						drawn,
+						viewStep: current.viewStep,
+						corrections: current.me?.corrections ?? 0,
+						snaps: current.me?.snaps ?? 0,
+						phase: state.phase ?? '',
+						round: state.round ?? 0,
+						winner: state.winner ?? '',
+						scores: Object.fromEntries(
+							[...(state.players ?? new Map<string, PlayerState>())].map(([id, p]) => [
+								id,
+								p.score,
+							]),
+						),
+						events: [...current.events],
+					},
+				}
+			: {}),
+	};
 }

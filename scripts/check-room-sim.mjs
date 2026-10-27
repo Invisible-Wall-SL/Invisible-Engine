@@ -274,6 +274,7 @@ await check('the clamp is exact and idempotent: a clamped input clamps to itself
 		'moveX',
 		'moveY',
 		'seq',
+		'view',
 	]);
 });
 

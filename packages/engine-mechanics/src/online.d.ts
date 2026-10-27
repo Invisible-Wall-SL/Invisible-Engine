@@ -3,7 +3,7 @@
  * behaviour is pinned by `scripts/check-room-sim.mjs`.
  */
 
-import type { Body, BodyEdges, Field } from './motion';
+import type { Body, BodyEdges, Field, StaticIndex, StaticShape } from './motion';
 
 /** What a device sends, once per fixed step. Nothing else ever reaches the server. */
 export type OnlineInput = {
@@ -17,6 +17,8 @@ export type OnlineInput = {
 	/** A point on the field. */
 	aimX: number;
 	aimY: number;
+	/** The room step the device was drawing everyone else at. */
+	view: number;
 };
 
 export type StepContext = { dt: number; subSteps: number; subDt: number };
@@ -30,13 +32,27 @@ export function sanitizeInput<I extends Partial<OnlineInput>>(
 ): I & OnlineInput;
 export function clampInput(raw: unknown, field?: Field): OnlineInput;
 export function stepContext(tickHz: number, subSteps?: number): StepContext;
+/** A current: a zone that pushes a moving player by `fx` / `fy` px/s. */
+export type OnlineCurrent = StaticShape & { fx: number; fy: number };
+
+/** What of a level moves one character's players. */
+export type OnlineLevel = { currents: StaticIndex<OnlineCurrent> };
+
 export function stepPlayer<B extends Body>(
 	body: B,
 	input: OnlineInput | undefined,
 	speed: number,
 	ctx: StepContext,
 	field?: Field,
+	level?: OnlineLevel,
 ): B;
+export function onlineLevel(
+	zones: readonly StaticShape[] | undefined,
+	rules:
+		| readonly { zone: string; force?: { x: number; y: number }; characters?: string[] }[]
+		| undefined,
+	character: string,
+): OnlineLevel;
 export function facingOf(input: OnlineInput | undefined, previous?: number): number;
 export function cleanName(raw: unknown): string;
 export function characterBody(

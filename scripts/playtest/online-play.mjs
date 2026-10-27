@@ -3,9 +3,11 @@
 // sample's scene set and components with an `arcade.online` config of two characters, no flow.
 //
 // It reads each page's arcade probe (`state().arcade`: the room's step and every player as the
-// server last placed it) and checks: both pages join one room and draw both players; ArrowRight held
-// on page A moves A's player right on BOTH pages, and letting go stops it; the two pages then agree
-// on every place; page B's character came from `?rooms_character=`; nothing reached an RGS; closing
+// server last placed it, and `online.drawn`, where the page draws each one) and checks: both pages
+// join one room and draw both players; ArrowRight held on page A moves A's player right on BOTH
+// pages, and letting go stops it; page A draws its own player moving within its first frames
+// (prediction, P10.15); at rest each page draws every player exactly where the room has it (the
+// prediction and the interpolation converge); the two pages then agree on every place; page B's character came from `?rooms_character=`; nothing reached an RGS; closing
 // page B lets its player go when the rejoin grace runs out; a launch with no `?rooms_url=` stops on
 // the boot-failure screen; no page error. It builds its own snapshot and config, so the
 // current-games harness is not touched.
@@ -186,6 +188,15 @@ const settle = async (game, ms) => {
 	}
 };
 const players = async (game) => (await game.state()).arcade?.bodies ?? [];
+const drawnOf = async (game) => (await game.state()).arcade?.online ?? { drawn: [] };
+/** Players drawn more than `px` from where the room has them. */
+const offRoom = async (game, px = 0.01) => {
+	const arcade = (await game.state()).arcade;
+	return (arcade?.online?.drawn ?? []).filter((d) => {
+		const room = arcade.bodies.find((b) => b.id === d.id);
+		return !room || Math.hypot(room.x - d.x, room.y - d.y) > px;
+	});
+};
 
 try {
 	const a = await ready(await boot('a', { rooms_name: 'Ann' }));
@@ -211,7 +222,20 @@ try {
 
 	// A's own id is the player that moves when A presses.
 	const before = await players(a);
+	const { me } = await drawnOf(a);
 	await a.key('ArrowRight', 'down');
+	await a.play([{ op: 'step', frames: 4 }]);
+	const early = await drawnOf(a);
+	const ownDrawn = early.drawn.find((d) => d.id === me);
+	const ownRoom = (await players(a)).find((p) => p.id === me);
+	const ownBefore = before.find((p) => p.id === me);
+	// On loopback the room answers within the same frames, so being ahead of it is not measurable
+	// here (check:netcode measures it over simulated latency): the page's own drawing moves at once.
+	verdict(
+		'page A draws its own player moving within its first frames (prediction)',
+		!!ownDrawn && !!ownBefore && ownDrawn.x > ownBefore.x,
+		{ ownBefore, ownDrawn, ownRoom },
+	);
 	await settle(a, 700);
 	await a.key('ArrowRight', 'up');
 	await settle(a, 400);
@@ -235,6 +259,18 @@ try {
 	await settle(a, 300);
 	const still = (await players(a)).find((p) => p.id === mover?.id);
 	verdict('…and letting go stops it', still?.x === mover?.x, { still, mover });
+	verdict('…its own page has it there too: the prediction converged', mover?.id === me);
+	await settle(b, 400);
+	for (const [name, game] of [
+		['A', a],
+		['B', b],
+	]) {
+		const off = await offRoom(game);
+		verdict(`at rest, page ${name} draws every player where the room has it`, off.length === 0, {
+			off,
+			room: await players(game),
+		});
+	}
 	verdict(
 		'the two pages agree on every place',
 		JSON.stringify([...afterA].sort((p, q) => (p.id < q.id ? -1 : 1))) ===

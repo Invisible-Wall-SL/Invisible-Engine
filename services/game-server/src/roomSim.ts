@@ -1,11 +1,16 @@
 import {
 	characterBody,
 	cleanName,
+	createOnlineRules,
 	facingOf,
+	onlineLevel,
 	stepContext,
 	stepPlayer,
-	type Body,
+	type OnlineEvent,
 	type OnlineInput,
+	type OnlineLevel,
+	type OnlineRules,
+	type RulesPlayer,
 	type StepContext,
 } from 'engine-mechanics';
 import type { ArcadeOnlineCharacter, OnlineGame } from 'game-config';
@@ -22,6 +27,12 @@ import type { ArcadeOnlineCharacter, OnlineGame } from 'game-config';
  * that dropped and has not rejoined, stands still for the step. Bodies have no momentum (a step
  * with no input sets the velocity to 0), so a body is always the fold of `stepPlayer` over the
  * inputs applied — and nothing a device sends can place one or move it faster.
+ *
+ * THE RULES (P10.15) are the game's data, run by `engine-mechanics` `createOnlineRules`: a level's
+ * currents push a player inside `stepPlayer` (so a device predicts them), and after each applied
+ * input and each step the rules decide hits, statuses, the goal and the round. A player the rules
+ * hold (stunned, out) still has its inputs taken and acknowledged, but stands still for them, as a
+ * device told it is held predicts. A respawn moves a body with no input: the device reconciles it.
  */
 
 /** Inputs a step leaves waiting (a cushion against jitter), and the most it applies at once. */
@@ -42,12 +53,9 @@ export const inputsThisStep = (waiting: number, credit: number): number =>
  *  of at most {@link MOST_PER_STEP}× speed for as long. */
 const CREDIT_SECONDS = 0.5;
 
-export type SimPlayer = {
-	id: string;
+export type SimPlayer = RulesPlayer & {
 	name: string;
 	character: ArcadeOnlineCharacter;
-	/** Plain numbers, never the synced schema: the step reads and writes only this. */
-	body: Body;
 	facing: number;
 	moving: boolean;
 	connected: boolean;
@@ -64,6 +72,7 @@ export type RoomSim = {
 	readonly ctx: StepContext;
 	readonly players: ReadonlyMap<string, SimPlayer>;
 	readonly steps: number;
+	readonly rules: OnlineRules;
 	/** Add a player, or throw {@link RoomRefusal}: the room is full, or the character asked for is
 	 *  unknown or has no place left. No character ⇒ the first with a place. */
 	join(id: string, options: { name?: unknown; character?: unknown }): SimPlayer;
@@ -72,8 +81,10 @@ export type RoomSim = {
 	rejoin(id: string): void;
 	leave(id: string): void;
 	/** One fixed step. `take(id, credit)` hands over the player's inputs for it, oldest first (none
-	 *  = rest): at most {@link inputsThisStep} of what waits. */
-	step(take: (id: string, credit: number) => readonly OnlineInput[]): void;
+	 *  = rest): at most {@link inputsThisStep} of what waits. Returns what happened in it. */
+	step(take: (id: string, credit: number) => readonly OnlineInput[]): OnlineEvent[];
+	/** What happened since the last step (joins and leaves). */
+	events(): OnlineEvent[];
 };
 
 export function createRoomSim(game: OnlineGame): RoomSim {
@@ -82,6 +93,17 @@ export function createRoomSim(game: OnlineGame): RoomSim {
 	const creditMax = Math.ceil(online.tickHz * CREDIT_SECONDS);
 	const players = new Map<string, SimPlayer>();
 	let steps = 0;
+	const levels = new Map<string, OnlineLevel>(
+		online.characters.map((c) => [c.id, onlineLevel(game.zones, online.rules.zones, c.id)]),
+	);
+	const atRest = { ...ctx, subSteps: 1, subDt: 0 };
+	const spawn = (player: RulesPlayer) => {
+		player.body.x = online.spawn.x;
+		player.body.y = online.spawn.y;
+		// A spawn outside the field is pulled inside at once, as every later step would.
+		stepPlayer(player.body, undefined, 0, atRest, field);
+	};
+	const rules = createOnlineRules(game, { spawn });
 
 	const countOf = (characterId: string) =>
 		[...players.values()].filter((p) => p.character.id === characterId).length;
@@ -106,6 +128,7 @@ export function createRoomSim(game: OnlineGame): RoomSim {
 		get steps() {
 			return steps;
 		},
+		rules,
 		join(id, options) {
 			if (players.has(id)) throw new RoomRefusal('already in the room');
 			if (players.size >= online.maxPlayers) throw new RoomRefusal('the room is full');
@@ -120,10 +143,16 @@ export function createRoomSim(game: OnlineGame): RoomSim {
 				connected: true,
 				ack: 0,
 				credit: 0,
+				score: 0,
+				status: 0,
+				until: 0,
+				mark: false,
+				memo: {},
+				cooldowns: {},
 			};
-			// A spawn outside the field is pulled inside at once, as every later step would.
-			stepPlayer(player.body, undefined, character.speed, { ...ctx, subSteps: 1, subDt: 0 }, field);
+			spawn(player);
 			players.set(id, player);
+			rules.joined(player, players.values(), steps);
 			return player;
 		},
 		drop(id) {
@@ -138,9 +167,11 @@ export function createRoomSim(game: OnlineGame): RoomSim {
 			if (player) player.connected = true;
 		},
 		leave(id) {
-			players.delete(id);
+			if (players.delete(id)) rules.left(id);
 		},
+		events: () => rules.take(),
 		step(take) {
+			const stamp = steps + 1;
 			for (const player of players.values()) {
 				if (!player.connected) {
 					stepPlayer(player.body, undefined, player.character.speed, ctx, field);
@@ -153,13 +184,21 @@ export function createRoomSim(game: OnlineGame): RoomSim {
 					player.credit = Math.min(creditMax, player.credit + 1);
 				} else player.credit = Math.max(0, player.credit - (inputs.length - 1));
 				for (const input of inputs) {
-					stepPlayer(player.body, input, player.character.speed, ctx, field);
 					player.ack = input.seq;
+					if (rules.holds(player)) {
+						stepPlayer(player.body, undefined, player.character.speed, ctx, field);
+						player.moving = false;
+						continue;
+					}
+					const level = levels.get(player.character.id);
+					stepPlayer(player.body, input, player.character.speed, ctx, field, level);
 					player.facing = facingOf(input, player.facing);
 					player.moving = input.moveX !== 0 || input.moveY !== 0;
+					rules.applied(player, input, players.values(), stamp);
 				}
 			}
-			steps += 1;
+			steps = stamp;
+			return rules.afterStep(players.values(), stamp);
 		},
 	};
 }

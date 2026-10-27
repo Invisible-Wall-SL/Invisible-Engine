@@ -9,9 +9,16 @@ import { schema, t, type SchemaType } from '@colyseus/schema';
  *
  * {@link RoomState} is what devices draw: per player the place, the way it faces, whether it is
  * moving, the character, the name, whether it is connected, and `ack` (the `seq` of the newest
- * input the room applied, which a predicting device replays from). Per room the phase and the step.
- * The level is never in the state.
+ * input the room applied, which a predicting device replays from), and what the rules own (P10.15):
+ * the score, the status (`engine-mechanics` `STATUS`: free, stunned, out) and a rules module's
+ * `mark`. Per room the phase, the step every state is stamped with, the round, the step its phase
+ * ends at (0 = never) and the last round's winner. The level is never in the state.
+ *
+ * Events (a hit, a catch, a round's end, a join) arrive as one message type, {@link EVENT}, after
+ * the patch that shows them.
  */
+export const EVENT = 'event';
+
 export const Input = schema({
 	seq: t.uint32(),
 	moveX: t.int8(),
@@ -19,6 +26,8 @@ export const Input = schema({
 	buttons: t.uint8(),
 	aimX: t.float32(),
 	aimY: t.float32(),
+	/** The room step the device was drawing everyone else at (lag compensation, P10.15). */
+	view: t.uint32(),
 });
 export type InputFrame = SchemaType<typeof Input>;
 
@@ -31,12 +40,18 @@ export const Player = schema({
 	moving: t.boolean(),
 	connected: t.boolean(),
 	ack: t.uint32(),
+	score: t.int32(),
+	status: t.uint8(),
+	mark: t.boolean(),
 });
 
 export const RoomState = schema({
-	/** `waiting` until the first player joins, `running` from then on. Rounds that end are P10.15. */
+	/** `waiting` until the first player joins; then `running` a round and `ended` between rounds. */
 	phase: t.string(),
 	step: t.uint32(),
+	round: t.uint16(),
+	endsAt: t.uint32(),
+	winner: t.string(),
 	players: t.map(Player),
 });
 export type RoomStateData = SchemaType<typeof RoomState>;
