@@ -472,8 +472,10 @@ mere save.
   which also prints, while a material layer draws, the most pixels its particles have covered (at
   most every 2 s, as it grows), and its load (× the graph's cost) when the effect was made for
   particles: only those carry their cost into the game. With `?fxdebug=1` the game also writes
-  these lines in its top-left corner, with the GPU and the frame times, so they can be read on a
-  phone ([the phone check](../playtest/particle-material.md)).
+  these lines in its top-left corner while a material layer is mounted, with the page's size, its
+  frame times and each stage's GPU, so they can be read on a phone
+  ([the phone check](../playtest/particle-material.md)). `/fx` opened with `?fxdebug=1` shows the
+  same box for its stage; it goes when the last material layer does.
 - **A parameter on a material param does nothing after you change the material.** Exposed
   parameters are kept when you pick another material, but one that drives a param the new
   material does not have drives nothing; the Material section names it. Remove that drive in
