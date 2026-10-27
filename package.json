@@ -15,6 +15,8 @@
 		"check:arcade-platformer": "node scripts/check-arcade-platformer.mjs",
 		"check:room-sim": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-room-sim.mjs",
 		"check:board-mechanic": "node scripts/check-board-mechanic.mjs",
+		"check:card-rules": "node scripts/check-card-rules.mjs",
+		"check:card-library": "node scripts/check-card-library.mjs",
 		"check:freespins": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-freespin-protocol.mjs && node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-book-freespin-protocol.mjs && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/game-config/freeSpins.fixture.ts",
 		"check:holdandwin": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-holdandwin-protocol.mjs && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/rgs-translator-eagaming/holdAndWin.fixture.ts && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/rgs-translator-eagaming/bonusModes.fixture.ts",
 		"check:feature-worth": "node --no-warnings --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-feature-worth-source.mts",

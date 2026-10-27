@@ -76,6 +76,12 @@ export const DEFAULT_MIN_RUN: 3;
 /** mulberry32; a string seed is hashed (FNV-1a) first. */
 export function createRng(seed: number | string): Rng;
 
+/** The 32-bit state `createRng(seed)` starts from. */
+export function rngSeed(seed: number | string): number;
+
+/** One step of `createRng`'s generator as a pure function: the draw in [0, 1) and the next state. */
+export function rngNext(state: number): { value: number; state: number };
+
 /** From `cells`, or dealt from `pool` at seeded stops with no match and at least one move. Throws
  *  on a malformed board or pool, and when the strips cannot deal a playable board. */
 export function createBoard(options: CreateBoardOptions): Board;
