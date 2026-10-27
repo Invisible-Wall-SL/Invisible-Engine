@@ -12,6 +12,7 @@
 		"build": "tsc -p tsconfig.json",
 		"check:agents": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/agents.fixture.ts",
 		"check:run-state": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/runState.fixture.ts",
+		"check:repair": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/repair.fixture.ts",
 		"prove:lease": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/prove-lease.ts",
 		"check:model": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/model.fixture.ts",
 		"check:health": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/health.fixture.ts",

@@ -12,6 +12,8 @@ import {
 	clampDirectorBudget,
 	costOfResponse,
 	costOfRunpodJob,
+	DIRECTOR_REPAIR_BUDGET_DEFAULT_USD,
+	DIRECTOR_REPAIR_BUDGET_KEY,
 	DIRECTOR_RUN_BUDGET_DEFAULT_USD,
 	DIRECTOR_RUN_BUDGET_KEY,
 	pricingRate,
@@ -57,6 +59,7 @@ import {
 	type ModelTransport,
 	type ToolSpec,
 } from './model.ts';
+import { ESCALATION_NOT_SERVED, leadOf, repairBrief, repairOutcomeOf } from './repair.ts';
 import { TERMINAL_STATUSES, transition, type Checkpoint, type RunEvent } from './runState.ts';
 import {
 	appendMessage,
@@ -76,6 +79,8 @@ import {
 	recordSpend,
 	runSpend,
 	setBudgetCap,
+	setRepairOutcome,
+	submittedRepair,
 	unhandledEvents,
 	unpricedSinceResume,
 	withLease,
@@ -86,6 +91,7 @@ import {
 	type WakingEvent,
 } from './store.ts';
 import { floorOf, RETRIES_PER_APPROVAL } from 'director-costs/recipe';
+import { wrapUntrusted } from './untrusted.ts';
 import {
 	MAX_RECIPE_EDITS,
 	applyRecipeEdits,
@@ -166,9 +172,11 @@ const RETRY_BASE_MS = 15_000;
 const RETRY_MAX_MS = 120_000;
 
 const WORKER_TOOL_IDS: ReadonlySet<string> = new Set(WORKER_TOOLS);
-const COORDINATOR = 'coordinator';
+const COORDINATOR = leadOf('create');
 const MAX_TURNS = 40;
 const MAX_RESULT_CHARS = 60_000;
+/** What an untrusted answer's text is cut to: the wrapper's own lines still fit in the result. */
+const UNTRUSTED_MAX_CHARS = MAX_RESULT_CHARS - 500;
 
 /**
  * An answer that says nothing about whether an op ran, or a launcher that could not be asked: the
@@ -224,7 +232,7 @@ export async function driveRun(deps: DriverDeps, claimed: ClaimedRun): Promise<v
 		...deps,
 		run: claimed,
 		signal: controller.signal,
-		workerSpecs: workerToolSpecs([...deps.agents.keys()]),
+		workerSpecs: workerToolSpecs([...deps.agents.keys()], claimed.state.kind),
 	};
 	let deferMs: number | null = null;
 	try {
@@ -295,7 +303,11 @@ async function failed(ctx: Ctx, error: unknown): Promise<number> {
 }
 
 /** The run's cap. Null only for a run that never started through the worker: the default applies. */
-const capOf = (live: LiveRun) => live.budgetCapUsd ?? DIRECTOR_RUN_BUDGET_DEFAULT_USD;
+const capOf = (live: LiveRun) =>
+	live.budgetCapUsd ??
+	(live.state.kind === 'repair'
+		? DIRECTOR_REPAIR_BUDGET_DEFAULT_USD
+		: DIRECTOR_RUN_BUDGET_DEFAULT_USD);
 
 // ── Tools ─────────────────────────────────────────────────────────────────────
 
@@ -495,7 +507,15 @@ async function settle(
 				await withLease(ctx.sql, ctx.run, (tx, live) => markQueued(tx, live.id, steps, jobRef));
 			}
 		}
-		results.set(call.id, resultBlock(call.id, JSON.stringify(answer.body), answer.status !== 200));
+		// People's words in an answer are wrapped as data, whole or not at all: cut first, so a long
+		// report never loses the closing tag.
+		const text = JSON.stringify(answer.body);
+		results.set(
+			call.id,
+			answer.status === 200 && spec.untrusted
+				? resultBlock(call.id, wrapUntrusted(text, UNTRUSTED_MAX_CHARS))
+				: resultBlock(call.id, text, answer.status !== 200),
+		);
 	}
 
 	await withLease(ctx.sql, ctx.run, async (tx, live) => {
@@ -794,9 +814,9 @@ async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
 				...calls.map((c) => resultBlock(c.id, 'Not run: the reply was cut off.', true)),
 				{ type: 'text', text: note },
 			]);
-		} else if (calls.length === 0 && name !== COORDINATOR) {
+		} else if (calls.length === 0 && name !== leadOf(live.state.kind)) {
 			const report = finalText(content) || '(no report)';
-			await appendMessage(tx, live.id, COORDINATOR, 'user', [
+			await appendMessage(tx, live.id, leadOf(live.state.kind), 'user', [
 				{ type: 'text', text: `Report from ${name}:\n\n${report}` },
 			]);
 		}
@@ -1221,6 +1241,15 @@ async function finishStop(tx: Db, live: LiveRun) {
 }
 
 function brief(live: LiveRun): string {
+	if (live.state.kind === 'repair') {
+		return repairBrief({
+			runId: live.id,
+			project: live.projectKey,
+			client: live.clientKey,
+			bugNumber: live.bugNumber,
+			budgetCapUsd: live.budgetCapUsd,
+		});
+	}
 	return [
 		'A new Invisible Director run. Plan it and start it.',
 		'',
@@ -1263,10 +1292,16 @@ async function applyEvent(
 				const error = await move(tx, live, { type: 'start' }, 'owner start');
 				if (error) return refuse(error);
 				if (live.budgetCapUsd === null) {
-					live.budgetCapUsd = budgetFromSetting(await appSetting(tx, DIRECTOR_RUN_BUDGET_KEY));
+					live.budgetCapUsd =
+						live.state.kind === 'repair'
+							? budgetFromSetting(
+									await appSetting(tx, DIRECTOR_REPAIR_BUDGET_KEY),
+									DIRECTOR_REPAIR_BUDGET_DEFAULT_USD,
+								)
+							: budgetFromSetting(await appSetting(tx, DIRECTOR_RUN_BUDGET_KEY));
 					await setBudgetCap(tx, live.id, live.budgetCapUsd);
 				}
-				await appendMessage(tx, live.id, COORDINATOR, 'user', userText(brief(live)));
+				await appendMessage(tx, live.id, leadOf(live.state.kind), 'user', userText(brief(live)));
 				return;
 			}
 			if (action === 'pause') {
@@ -1299,7 +1334,7 @@ async function applyEvent(
 			await appendMessage(
 				tx,
 				live.id,
-				COORDINATOR,
+				leadOf(live.state.kind),
 				'user',
 				userText(`Owner: ${String(p.text ?? '')}`),
 			);
@@ -1326,6 +1361,15 @@ async function applyEvent(
 				checkpoint === 'art_plan' && decision === 'revise' ? recipeEditsOf(p.recipeEdits) : null;
 			if (edits === undefined) return refuse('the recipe edits are not a list of region chains');
 			if (edits?.length && !deps) return refuse(unreadable);
+			const submitted =
+				checkpoint === 'repair_review' && decision === 'approve' && live.state.kind === 'repair'
+					? await submittedRepair(tx, live.id)
+					: undefined;
+			if (submitted === null) return refuse('no repair was submitted to approve');
+			// The escalation is filed here, before the transition, once the launcher serves
+			// bugs.escalate_game_bug (opId `<runId>:escalate`); until then approving it would end the
+			// run with nothing filed.
+			if (submitted?.outcome === 'escalate') return refuse(ESCALATION_NOT_SERVED);
 			const error = await move(
 				tx,
 				live,
@@ -1333,6 +1377,7 @@ async function applyEvent(
 				`owner ${decision}`,
 			);
 			if (error) return refuse(error);
+			if (submitted) await setRepairOutcome(tx, live.id, repairOutcomeOf(submitted.outcome));
 			const owner = ownerOf(p);
 			if (approvingPlan && deps) await approveArtPlan(tx, live, owner, deps);
 			if (edits?.length && deps) {
@@ -1373,7 +1418,7 @@ async function applyEvent(
 			await appendMessage(
 				tx,
 				live.id,
-				COORDINATOR,
+				leadOf(live.state.kind),
 				'user',
 				userText(
 					`The owner ${what} the ${checkpoint} checkpoint. The run is now in the ${live.state.step} step.${reopened}${note}`,
@@ -1408,7 +1453,7 @@ async function applyEvent(
 					text: `${spent} failed again after ${RETRIES_PER_APPROVAL} retries: its recipe renders nothing more until the plan is approved again.`,
 				});
 			}
-			const to = ctx.agents.has(event.agent) ? event.agent : COORDINATOR;
+			const to = ctx.agents.has(event.agent) ? event.agent : leadOf(live.state.kind);
 			const body = JSON.stringify({ jobRef: p.jobRef, status: p.status, result: p.result });
 			const held = withdrawn.length
 				? ` ${spent} has used its ${RETRIES_PER_APPROVAL} retries: the owner approves it again before it renders.`

@@ -286,6 +286,10 @@ export function costOfResponse(
 export const DIRECTOR_RUN_BUDGET_KEY = 'DIRECTOR_RUN_BUDGET_USD';
 /** Budget cap when the admin hasn't set one. */
 export const DIRECTOR_RUN_BUDGET_DEFAULT_USD = 25;
+/** Settings key: the cap of a game repair run in USD (ADR-0012), bounded like the run cap. */
+export const DIRECTOR_REPAIR_BUDGET_KEY = 'DIRECTOR_REPAIR_BUDGET_USD';
+/** Repair cap when the admin hasn't set one: a repair renders nothing, so it is kept near its estimate. */
+export const DIRECTOR_REPAIR_BUDGET_DEFAULT_USD = 10;
 /** Lowest cap a run can be given — below this a run would pause on its first call. */
 export const DIRECTOR_RUN_BUDGET_MIN_USD = 1;
 /** Highest cap Settings accepts, so a typo (2500 for 25.00) can't remove the guard. */
@@ -310,12 +314,15 @@ export function clampDirectorBudget(value: number): number | null {
 }
 
 /**
- * The cap a stored `DIRECTOR_RUN_BUDGET_USD` value means: the default when unset or unparseable,
- * clamped otherwise.
+ * The cap a stored `DIRECTOR_RUN_BUDGET_USD` (or `DIRECTOR_REPAIR_BUDGET_USD`, with its default as
+ * `fallback`) value means: the default when unset or unparseable, clamped otherwise.
  */
-export function budgetFromSetting(raw: string | undefined | null): number {
-	if (raw == null || raw.trim() === '') return DIRECTOR_RUN_BUDGET_DEFAULT_USD;
-	return clampDirectorBudget(Number(raw)) ?? DIRECTOR_RUN_BUDGET_DEFAULT_USD;
+export function budgetFromSetting(
+	raw: string | undefined | null,
+	fallback = DIRECTOR_RUN_BUDGET_DEFAULT_USD,
+): number {
+	if (raw == null || raw.trim() === '') return fallback;
+	return clampDirectorBudget(Number(raw)) ?? fallback;
 }
 
 // ── The New-game estimate ─────────────────────────────────────────────────────
