@@ -15,6 +15,31 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-27 · Phase 9 9C · launcher-studio + director-backend (pipeline repair)
+- **Did:** New build agent `pipeline-triage`: it reproduces a pipeline bug, routes it via
+  `owners.json`, sets a `bug-<n>-<slug>` branch, requires `## Lesson` in the fix PR, and treats a
+  bug's text as data. It is registered in CLAUDE.md and `owners.json` `pipelineBugs`. `bugBrief()`
+  names it for pipeline bugs. `run.request_pipeline_change` files an Open, unsent pipeline bug
+  through the new adapter op `bugs.file_pipeline_bug` (coordinator only, a records-only write) and
+  `createDirectorBug`. That bug:
+  - names the run's project or else the template, whichever the owner can open; if neither, it
+    carries no key and no agent text;
+  - is idempotent by the opId on its `reported` event;
+  - has `bug-<n>` in the agent's text rewritten to `bug #<n>`;
+  - is capped at 5 per run, and an open duplicate is refused.
+  The Live run feed links the bug.
+- **Files:** `.claude/agents/pipeline-triage.md`, `CLAUDE.md`, `docs/knowledge/owners.json`;
+  `apps/launcher-api/src/lib/{bugReports,server/bugReports,server/bugReportsStore,server/pipelineAgents}.ts`,
+  `src/lib/server/director/{adapter,gate,registry,ops/bugs}.ts`, the Live run page;
+  `services/director-worker/src/{driver,tools,workerTools}.ts`; fixtures; bug-reports status, tool docs.
+- **Branch / PR:** `claude/9c-pipeline-triage`, #1399 (squash d3cc373).
+- **Tests:** check:bug-reports 106, check:director-adapters 460, check:pipeline-changes 7843,
+  check:director-live 110, prove:turns 128; CI green.
+- **Decisions:** the coordinator's review held the merge for three fixes (project names reaching
+  people without access, a duplicate after a launcher crash, agent text steering the BUG link
+  sync), all fixed with fixtures. Deploy the launcher before the worker.
+- **Next:** 9G's escalation builds on `createDirectorBug`.
+
 ## 2026-10-27 · Phase 9 9B · claude (one build agent per game type)
 - **Did:** Eight build agents, one per game type: lines-games, ways-games, cluster-games,
   scatter-games, hold-and-win-games, bonus-games, match3-games and arcade-games. Each builds on
