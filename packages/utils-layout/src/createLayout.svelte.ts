@@ -127,7 +127,8 @@ export const createLayout = (layoutOptions: {
 	// / `canvasSizeType` above are retained for consumers but no longer drive selection.
 	// Memoized: a moving reel reads the bucket for every cell every frame (through the board
 	// geometry), and selecting it walks the profile's rules. Every input is reactive (the window
-	// size and the authored profile, both `$state`), so the cache can only be as fresh as a call.
+	// size through `svelte/reactivity/window`, the authored profile as `$state`), so the cache is
+	// only ever as stale as a call would be.
 	const bucket = $derived(selectBucket(getActiveLayoutProfile(), canvasSizes()));
 	const selectedBucket = () => bucket;
 	const layoutType = () => selectedBucket().id;

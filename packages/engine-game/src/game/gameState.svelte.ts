@@ -822,12 +822,6 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		return undefined;
 	};
 
-	/**
-	 * Build one spinning reel per column, sized + seeded from the ACTIVE game config (Invisible Game
-	 * Config). A FACTORY, not a module-scope const, so it can be re-run after the live runtime bundle
-	 * lands — see {@link rebuildBoard}: the online config resolves asynchronously AFTER this module
-	 * evaluates, so a board built once at import would freeze to the compiled template's grid.
-	 */
 	/** One reel's riders: the strip counts from the padding row above the window, the game from the
 	 *  first visible row. */
 	const reelRidersFor = (
@@ -845,6 +839,12 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	const reelPitch = $derived(boardGeometry().rowPitchLocal);
 	const reelLead = $derived(getSymbolLead());
 
+	/**
+	 * Build one spinning reel per column, sized + seeded from the ACTIVE game config (Invisible Game
+	 * Config). A FACTORY, not a module-scope const, so it can be re-run after the live runtime bundle
+	 * lands — see {@link rebuildBoard}: the online config resolves asynchronously AFTER this module
+	 * evaluates, so a board built once at import would freeze to the compiled template's grid.
+	 */
 	const buildBoard = () => {
 		const init = deps.initialBoard();
 		return _.range(deps.boardDimensions().x).map((reelIndex) => {
