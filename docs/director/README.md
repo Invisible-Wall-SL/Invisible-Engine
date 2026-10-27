@@ -12,7 +12,7 @@ Two new online tools for the Studio launcher (app.invisiblewall.org):
   It merges only when the pipeline tests pass, every current game still builds and looks the
   same, and someone with `pipelineMerge` approves.
 
-**Status:** Phase 0 is done and approved (2026-10-04). Phase 1 is in progress. Each task runs in its
+**Status:** Phases 0–5 and 8 are done; Phase 6 (the pilot) has not started — see [`PLAN.md`](PLAN.md). Each task runs in its
 own session, launched from a task card, and is coordinated from the coordinator session. See
 "Task sessions" below.
 
@@ -28,7 +28,7 @@ own session, launched from a task card, and is coordinated from the coordinator 
 | [`OPEN_QUESTIONS.md`](OPEN_QUESTIONS.md) | Questions for the owner, each with a suggested default. |
 | [`DECISIONS/`](DECISIONS/) | One ADR per decision (index below). |
 | [`mockups/`](mockups/) | The target screens: PNG to look at, HTML to inspect. |
-| [`../../services/director-worker/agents/`](../../services/director-worker/agents/) | Drafts of the seven runtime agents. These are the definitions the Agents tab shows and edits. |
+| [`../../services/director-worker/agents/`](../../services/director-worker/agents/) | The eight runtime agents. These are the definitions the Agents tab shows and edits. |
 
 ### ADR index
 

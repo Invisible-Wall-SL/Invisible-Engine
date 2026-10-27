@@ -21,6 +21,11 @@ manifest. User guide: `docs/tools/launcher.md`.
   APIs (`gate`, `requireProjectScope`, `allowedPrefixes`).
 - `src/lib/server/{auth,env,r2,db}` — sessions, typed env (`ENV`, with code defaults for non-secret
   config), R2 client, Drizzle.
+- **Bug Reports** (`/bugs` + `/game-bugs`, one set of modules, and the Pipeline Changes Bugs tab):
+  `src/lib/bugReports.ts` (vocabularies, `BUG-<n>`, the fix brief), `src/lib/server/bugReports.ts`
+  + `bugReportsStore.ts`, `src/routes/(app)/bugs/`. State: `docs/status/bug-reports.md`.
+- **Localization** and the **FTP Browser** have their own agents (`invisible-localization`,
+  `invisible-ftp-browser`); defer to them.
 - `src/lib/Emblem.svelte` — inline Invisible Wall emblem (use for branding; an external `<img>` SVG
   renders currentColor black).
 

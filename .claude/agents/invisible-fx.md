@@ -75,13 +75,13 @@ owner-verify live) whenever you finish meaningful work.
   emitter inspector + atlas region picker + layer list + bone picker.
 - **Trigger vocabulary:** `packages/engine-flow/src/emitterVocabulary.ts`
   (`EmitterVocabulary`) + per-game `apps/*/src/game/typesEmitterEvent.ts`.
-- **Engine register (new):** an `EffectPlayer` + `bakedEffects()` mirroring
+- **Engine register:** an `EffectPlayer` + `bakedEffects()` mirroring
   `bakedEditorArtAssets()` — mounts `<ParticleEmitter>` per layer, wraps in `<RigBone>`
   when placed on a bone, swaps the `RigParticle` runtime for `particleKind:'spine'`,
   and subscribes a layer to its `trigger.eventType` on the event bus.
-- **Tool page (new):** `/fx` in `apps/launcher-api` — when you register it in
-  `src/lib/roles.ts` (`TOOLS` / `ROLE_TOOLS` / `TOOL_BAR_ORDER` / `TOOL_DOC_SLUG`), ship
-  `docs/tools/fx.md` + the `docs/tools/README.md` row in the SAME change (rule 9) — use
+- **Tool page:** `/fx` in `apps/launcher-api`, registered in `src/lib/roles.ts`. When its
+  registry entry or UI changes, update `docs/tools/fx.md` + the `docs/tools/README.md` row in the
+  SAME change (rule 9) — use
   `docs-keeper`. Gate writes via `POST /api/fx/save` mirroring `/api/rigger/save`; the
   EffectDoc is an R2 sibling under `<client>/<project>/` (+ `deploy/effects/` at bake).
 

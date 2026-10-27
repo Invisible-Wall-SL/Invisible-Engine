@@ -59,9 +59,9 @@ launcher/auth/R2/tool-registry foundation).
 - **Headless harness:** `tools/rigger-spike/`.
 
 ## Rules specific to Rigger work
-- **Ship-from-Rigger is NOT built yet (rule 8).** An `.irig` currently only saves to R2 —
-  there is no export→deploy→bake→pull→register wiring, so a rig doesn't reach a game. That is
-  the recommended next build (see `docs/status/rigger.md`). "Saves in `/rigger`" ≠ "ships".
+- **The ship chain is built (rule 8)** — export → `deploy/` → bake → pull → register, plus the
+  `rigFx` / `rigFlipbooks` manifests (`docs/status/rigger.md` § Ship chain). A new rig-borne asset
+  class must ride that same chain; "saves in `/rigger`" ≠ "ships".
 - **The Rigger runs committed bundles, not source.** `static/rigger/vendor/rigger-fx.js` and
   `rigger-text.js` must be rebuilt (`pnpm --filter launcher-api build:rigger-fx` /
   `build:rigger-text`) and committed in the same change as any source they bundle;
