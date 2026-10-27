@@ -16,6 +16,36 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
 
 ## Current state
 
+**Card C1 — the rules engine (built 2026-10-27; in review).** [card-games.md](../design/card-games.md)
+§12's C1 row (§2, §3), in one PR. No caller yet: the AI is C2, and the family, runtime and sample
+game are C3.
+
+- **The rules** (`engine-mechanics` `cards.js` + `.d.ts`, plain ESM like `board.js`): `createMatch`,
+  `legalActions`, `apply`, `isOver`; the four zones, the strict phases (start → draw → main → combat
+  → end), the resource, every §2.4 legality rule (`IllegalAction` with a code), the FIFO effect
+  queue with a death check after each effect, trigger order (active player first, then board
+  order), the `loop` guard (`MAX_QUEUE_STEPS` 500), fatigue, the hand and board limits and the
+  turn limit. `apply` copies the match and never changes its input.
+- **Effects as data:** the closed lists of §3 (seven verbs, four targets, five triggers, three
+  keywords) exported as constants; `validateLibrary` (the §3.6 errors and warnings, as issues with a
+  code); `cardText` (one generated English sentence per effect); `readLibrary`, the
+  doc-readers reader: it drops unknown fields, an unknown verb / trigger / target / side / include /
+  `until` drops its effect, an unknown keyword the keyword, an unknown card type the card, and it
+  names every drop.
+- **The random stream is a number in the match** (`rngState`), stepped with `rngNext`, new in
+  `board.js` beside `createRng` (and `rngSeed`); `createRng` now runs on the same step, and
+  `board-replay.json` is unchanged.
+- **Three small departures from the design's sketch,** each to keep `apply(match, action)` the
+  whole input: the match also carries `rules` (defaults applied) and `library` (by id, shared
+  between copies); `createMatch` returns `{ match, events }`, so the opening draws reach the
+  presentation; `legalActions` lists plays without a `slot` (any slot from 0 to the board's length
+  is legal), so the AI's branching stays small.
+- **Gates:** `check:card-rules` (36 checks, and the replay trace
+  `fixtures/cards-replay.json`) and `check:card-library` (42 checks); the sample library the gates
+  play is `fixtures/cards-sample.library.json`, invented. Both run under `check:all`.
+- **Open for the design doc:** §12.1's C1 row says "the normalizer keeps unknown card fields", but
+  §3.6 and doc-readers.md drop them; the gate pins the drop, and the normalizer itself is C3's.
+
 **P10.11 — Arcade A2: characters (built 2026-10-26; in review).** §8's P10.11 row (§4.3, §5.1, §5.2,
 §6.3, §6.5), in one PR. No live game uses any of it yet; the sample is a fixture.
 
@@ -1210,6 +1240,8 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-27 — **Card C1 built: the rules engine** (`engine-mechanics` `cards.js`, `rngNext` in
+  `board.js`, `check:card-rules`, `check:card-library`). No caller, no game changes. Detail above.
 - 2026-10-26 — **P10.11 built: arcade characters.** Brains (`behaviours.js`), controllers, solid
   response, paths, `animInputs`, 1D blend states, the `path` node, and the new **Invisible
   Characters** tool (arcade only); a guard sample as a fixture. Detail above.
