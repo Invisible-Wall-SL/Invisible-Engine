@@ -14,8 +14,9 @@
  * slot back before the error goes on.
  *
  * `?fxdebug=1` on the page logs each material layer's state as it mounts and when it turns plain,
- * and, when a drawing layer is released, the most pixels its quads covered at once (× the graph's
- * cost, its peak load; design §10).
+ * and, while a layer draws, its peak covered pixels as they grow (at most once per 2 s a layer) and
+ * again when it is released: the most pixels its quads covered at once (× the graph's cost, its
+ * peak load; design §10).
  */
 
 import { customElementFx } from 'constants-shared/elementFx';
@@ -80,6 +81,23 @@ function report(spec: ParticleMaterialSpec, state: string, slots: FxMaterialSlot
 	);
 }
 
+/** The most often a layer's growing peak is printed. */
+const PEAK_REPORT_MS = 2000;
+
+/** Print a layer's peak covered pixels as it grows, at most once per {@link PEAK_REPORT_MS}. */
+function peakReporter(
+	spec: ParticleMaterialSpec,
+	slots: FxMaterialSlots,
+): (covered: number) => void {
+	let last = -Infinity;
+	return (covered) => {
+		const now = performance.now();
+		if (now - last < PEAK_REPORT_MS) return;
+		last = now;
+		report(spec, `on, its peak ${coveredText(covered)} covered`, slots);
+	};
+}
+
 export function mountParticleMaterial(options: {
 	spec: ParticleMaterialSpec;
 	/** The emitter's parent: the hidden sprites and the mesh go into it. */
@@ -127,6 +145,7 @@ export function mountParticleMaterial(options: {
 				giveBack();
 				report(spec, `plain while playing, ${reason}`, slots);
 			},
+			onPeak: debug() ? peakReporter(spec, slots) : undefined,
 		});
 	} catch (error) {
 		giveBack();

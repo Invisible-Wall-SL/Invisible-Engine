@@ -125,6 +125,11 @@ use **▶ Play / ❚❚ Pause** (sub-bar) to start/stop the simulation. **Reset 
 re-fits. The preview plays at normal speed; in a game, effects play twice as fast while **turbo**
 is on — the same particles, in half the time.
 
+**Editing a layer restarts only that layer**; the others keep playing as they were, so you can
+tune one layer against the rest. To see the whole effect from the start, **❚❚ Pause** then
+**▶ Play**: Pause stops every layer emitting and Play starts them all again, a one-shot burst
+included. That is how to judge a one-shot's timing against the other layers.
+
 **Placeholder dots (a layer with no art).** Particles in this tool are sprites cut from
 your atlas — there is no abstract default shape. So a layer that has **no region bound
 yet** would render nothing. To let you shape the emitter (rate, spread, motion, fades)
@@ -327,6 +332,8 @@ into rig clips drops its material.
   frame at the largest scale, padded, × the cost); once it plays, the **measured peak** since
   the layer last changed. It is a warning: an over-budget layer still draws.
 - **Notes**, when they apply:
+  - an exposed parameter drives a param this material does not have (it was made on another
+    one): it does nothing here;
   - the effect's **passes**, **motion** or break do not play on particles (a particle's own
     behaviours move it);
   - the graph or the load is **over budget**;
@@ -456,7 +463,13 @@ mere save.
   other save came first). Re-pick it under **Material**: it is one choice and its params.
 - **A material layer draws plain sprites.** Check the Material section's notes: Max particles
   over 512, a parameter on Max particles with no max, no frames yet, or a graph that was deleted
-  or no longer compiles. A game says the same on its `?fxdebug=1` line.
+  or no longer compiles. A game says the same on its `?fxdebug=1` line, which also prints, while a
+  material layer draws, the most pixels its particles have covered (at most every 2 s, as it
+  grows; × the graph's cost is the layer's load).
+- **A parameter on a material param does nothing after you change the material.** Exposed
+  parameters are kept when you pick another material, but one that drives a param the new
+  material does not have drives nothing; the Material section names it. Remove that drive in
+  **Exposed parameters**, or pick the material it was made for.
 
 ## What it does not do yet
 

@@ -146,12 +146,12 @@ export function fxMaterialMount(options: {
 }
 
 /** The library's Max particles for a value that is not a positive whole number (`Emitter.init`). */
-const LIBRARY_MAX_PARTICLES = 1000;
+export const FX_LIBRARY_MAX_PARTICLES = 1000;
 
 /** What the emitter holds when Max particles is set to `v`: rounded, and 1000 at 0 or below. */
 const heldMaxParticles = (v: number): number => {
 	const n = Math.round(v);
-	return n > 0 ? n : LIBRARY_MAX_PARTICLES;
+	return n > 0 ? n : FX_LIBRARY_MAX_PARTICLES;
 };
 
 /**
@@ -226,18 +226,19 @@ function largestScale(config: EmitterConfigV3): number {
 /**
  * What a material layer will cost before it has played (design §10's estimate): the particles alive
  * at once, `min(Max particles, per wave × the longest life ÷ frequency)`, each its largest frame at
- * its largest scale, grown by the padding on every side, × the graph's cost. In layer pixels, as the
- * measured load is. `frameArea` is the largest frame's untrimmed area in pixels.
+ * its largest scale, grown by the padding on every side as the renderer grows a quad (the padding ×
+ * the frame's larger side, on each side), × the graph's cost. In layer pixels, as the measured load
+ * is. `frame` is the largest frame's untrimmed size in pixels (the size the renderer pads).
  */
 export function fxMaterialLoadEstimate(options: {
 	config: EmitterConfigV3;
-	frameArea: number;
+	frame: { w: number; h: number };
 	padding: number;
 	cost: number;
 }): { live: number; covered: number; load: number } {
 	const { config } = options;
 	const max = finiteNumber(config.maxParticles);
-	const held = max !== undefined && max > 0 ? Math.ceil(max) : LIBRARY_MAX_PARTICLES;
+	const held = max !== undefined && max > 0 ? Math.ceil(max) : FX_LIBRARY_MAX_PARTICLES;
 	const perWave = Math.max(1, finiteNumber(config.particlesPerWave) ?? 1);
 	const life = Math.max(0, finiteNumber(config.lifetime?.max) ?? 0);
 	const frequency = finiteNumber(config.frequency) ?? 0;
@@ -246,7 +247,9 @@ export function fxMaterialLoadEstimate(options: {
 			? Math.min(held, Math.ceil((perWave * life) / frequency))
 			: Math.min(held, perWave);
 	const scale = largestScale(config);
-	const grown = (1 + 2 * Math.max(0, options.padding)) ** 2;
-	const covered = live * Math.max(0, options.frameArea) * scale * scale * grown;
+	const w = Math.max(0, options.frame.w);
+	const h = Math.max(0, options.frame.h);
+	const room = 2 * Math.max(0, options.padding) * Math.max(w, h);
+	const covered = live * (w + room) * (h + room) * scale * scale;
 	return { live, covered, load: covered * Math.max(0, options.cost) };
 }

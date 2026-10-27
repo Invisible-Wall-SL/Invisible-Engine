@@ -199,9 +199,15 @@ export async function compileProjectShadersWithCosts(
 	const kinds = new Set<string>(compiled.effects.map((e) => e.spec.kind));
 	const costs = set
 		.filter(({ doc }) => kinds.has(customElementFxKind(doc.id)))
-		.map(({ doc, shared }) => {
-			const { cost, samples } = analyzeShaderGraph(doc);
-			return { id: doc.id, shared, cost, samples };
+		.flatMap(({ doc, shared }) => {
+			// As `compileStored`: an analysis that throws costs that graph its entry, never the set.
+			try {
+				const { cost, samples } = analyzeShaderGraph(doc);
+				return [{ id: doc.id, shared, cost, samples }];
+			} catch (e) {
+				console.error(`[shaders] analysing "${doc.id}" threw`, e);
+				return [];
+			}
 		});
 	return { ...compiled, costs };
 }

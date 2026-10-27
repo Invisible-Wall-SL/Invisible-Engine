@@ -13,9 +13,13 @@ import {
 	type CustomElementFx,
 	type ElementFxParamSpec,
 } from 'constants-shared/elementFx';
+import type { ParticleMaterialPlain } from 'pixi-svelte/particleMaterial';
 import {
+	FX_LIBRARY_MAX_PARTICLES,
+	FX_MATERIAL_LAYER_CAP,
 	FX_MATERIAL_LAYER_LOAD_BUDGET,
 	FX_MATERIAL_PARTICLE_CAP,
+	canonicalEffectParamPath,
 	fxMaterialLoadEstimate,
 	fxMaterialLoadLevel,
 	fxMaterialPeakParticles,
@@ -25,6 +29,7 @@ import {
 	type EmitterMaterial,
 	type EmitterMaterialTime,
 	type FxMaterialLoadLevel,
+	type FxMaterialMountPlain,
 } from 'engine-fx';
 import { PARTICLE_COST_BUDGET, PARTICLE_SAMPLE_BUDGET } from 'engine-shadergraph';
 
@@ -124,15 +129,18 @@ export function materialChoices(
 		.sort((a, b) => a.label.localeCompare(b.label) || a.kind.localeCompare(b.kind));
 }
 
-/** The largest frame's area in pixels, from the resolved atlas regions the layer names. */
-export function largestFrameArea(
+/**
+ * The layer's largest frame (by area) among the resolved atlas regions it names: the size the
+ * preview cuts it at, which is the untrimmed size the renderer pads.
+ */
+export function largestFrame(
 	layer: EmitterLayer,
 	regions: readonly { name: string; w: number; h: number }[] | undefined,
-): number {
-	let largest = 0;
+): { w: number; h: number } {
+	let largest = { w: 0, h: 0 };
 	for (const name of layer.art.frames) {
 		const r = regions?.find((x) => x.name === name);
-		if (r) largest = Math.max(largest, r.w * r.h);
+		if (r && r.w * r.h > largest.w * largest.h) largest = { w: r.w, h: r.h };
 	}
 	return largest;
 }
@@ -149,7 +157,7 @@ export function materialLayerLoad(options: {
 	layer: EmitterLayer;
 	effect: CustomElementFx | undefined;
 	cost: number | undefined;
-	frameArea: number;
+	frame: { w: number; h: number };
 	/** The peak covered pixels the stage measured, or undefined before it has drawn. */
 	measuredArea: number | undefined;
 }): FxMaterialLoad | undefined {
@@ -160,7 +168,7 @@ export function materialLayerLoad(options: {
 		? options.measuredArea! * cost
 		: fxMaterialLoadEstimate({
 				config: layer.config,
-				frameArea: options.frameArea,
+				frame: options.frame,
 				padding: effect.padding,
 				cost,
 			}).load;
@@ -175,27 +183,33 @@ export function shortCount(n: number): string {
 	return String(Math.round(n));
 }
 
-/** Why the stage draws a material layer plain, as a note (`ParticleMaterialPlain` and the mount's). */
-const STAGE_PLAIN_TEXT: Record<string, string> = {
+/** Why the stage draws a material layer plain: the renderer's reasons and the mount's. */
+export type FxStagePlain = ParticleMaterialPlain | FxMaterialMountPlain;
+
+/**
+ * Each plain reason as a note, or `null` where another note already says it (the cap, no frames,
+ * a kind not compiled) or the section is not shown (rig clips). Every reason is listed, so a new or
+ * renamed one fails the type-check here.
+ */
+const STAGE_PLAIN_TEXT: Record<FxStagePlain, string | null> = {
+	'no effect': null,
+	'not registered': null,
+	'rig particles': null,
+	'over capacity': null,
+	'Max particles can be driven over 512': null,
+	'Max particles driven with no bound': null,
+	'no frames when it mounted': null,
 	'frames on several textures':
 		"The layer's frames sit on two atlas pages: a material draws one page, so the particles draw plain.",
 	'program does not link':
 		"This GPU did not compile the material's program, so the particles draw plain.",
 	'shell refuses the body':
 		"This effect's graph cannot be drawn on particles (the particle shell refuses it), so they draw plain.",
-	'over the game cap':
-		'More than 8 material layers draw at once here: this one draws plain, as a ninth would in a game.',
+	'over the game cap': `More than ${FX_MATERIAL_LAYER_CAP} material layers draw at once here: this one draws plain, as one more would in a game.`,
 	'not WebGL': 'The preview is not on WebGL, so the particles draw plain.',
 };
 
-/** Plain reasons the notes above already say (the cap, no frames, a kind not compiled). */
-const PLAIN_SAID_ABOVE = new Set([
-	'over capacity',
-	'Max particles can be driven over 512',
-	'Max particles driven with no bound',
-	'no frames when it mounted',
-	'not registered',
-]);
+const MATERIAL_PARAM_PATH = 'material.param.';
 
 export type FxMaterialNoteLevel = 'info' | 'warn' | 'off';
 
@@ -203,6 +217,29 @@ export interface FxMaterialNote {
 	/** `off`: the particles draw plain; `warn`: over a budget; `info`: worth knowing. */
 	level: FxMaterialNoteLevel;
 	text: string;
+}
+
+/**
+ * The exposed parameters driving a `material.param.<id>` of this layer that `effect` has no param
+ * for (they were made on another material): kept, as the author's, but they drive nothing. The
+ * renderer only writes the uniforms its effect declares, so such a value never reaches the GPU.
+ */
+export function strayMaterialDrives(
+	layer: EmitterLayer,
+	params: readonly EffectParam[] | undefined,
+	effect: CustomElementFx,
+): { param: string; id: string }[] {
+	const known = new Set(effect.spec.params.map((p) => p.id));
+	const out: { param: string; id: string }[] = [];
+	for (const param of params ?? [])
+		for (const drive of param.drives) {
+			if (drive.layer !== layer.key) continue;
+			const path = canonicalEffectParamPath(drive.path);
+			if (!path?.startsWith(MATERIAL_PARAM_PATH)) continue;
+			const id = path.slice(MATERIAL_PARAM_PATH.length);
+			if (!known.has(id)) out.push({ param: param.id, id });
+		}
+	return out;
 }
 
 /**
@@ -221,7 +258,7 @@ export function materialNotes(options: {
 	skipped: readonly FxMaterialSkip[];
 	cost: FxMaterialCost | undefined;
 	load: FxMaterialLoad | undefined;
-	stagePlain: string | undefined;
+	stagePlain: FxStagePlain | undefined;
 }): FxMaterialNote[] {
 	const { layer, effect } = options;
 	const kind = layer.material?.kind;
@@ -260,7 +297,7 @@ export function materialNotes(options: {
 			text: `Over its load budget (${shortCount(options.load.load)} of ${shortCount(options.load.budget)}): fewer, smaller or shorter-lived particles, or a lighter graph.`,
 		});
 	const max = (layer.config as { maxParticles?: unknown }).maxParticles;
-	const held = typeof max === 'number' && max > 0 ? Math.ceil(max) : 1000;
+	const held = typeof max === 'number' && max > 0 ? Math.ceil(max) : FX_LIBRARY_MAX_PARTICLES;
 	const peak = fxMaterialPeakParticles(layer, options.params);
 	if (held > FX_MATERIAL_PARTICLE_CAP)
 		notes.push({
@@ -282,11 +319,12 @@ export function materialNotes(options: {
 			level: 'off',
 			text: 'No art yet: the material draws once the layer has frames (a game draws a layer with none as plain).',
 		});
-	const plain = options.stagePlain;
-	if (plain && !PLAIN_SAID_ABOVE.has(plain))
+	const plainText = options.stagePlain && STAGE_PLAIN_TEXT[options.stagePlain];
+	if (plainText) notes.push({ level: 'off', text: plainText });
+	for (const { param, id } of strayMaterialDrives(layer, options.params, effect))
 		notes.push({
-			level: 'off',
-			text: STAGE_PLAIN_TEXT[plain] ?? `The preview draws it plain: ${plain}.`,
+			level: 'warn',
+			text: `Parameter "${param}" drives "${id}", which this material doesn't have, so it does nothing here: remove that drive, or pick the material it was made for.`,
 		});
 	return notes;
 }

@@ -78,34 +78,44 @@ const requests: string[] = [];
 const saved: { sent: EffectDoc; stored: EffectDoc }[] = [];
 let etags = 0;
 
-/** A stored effect whose material names a graph the project no longer has. */
-const ghost = normalizeEffectDoc(
-	{
-		version: 1,
-		id: 'ghost',
-		name: 'Ghost',
-		layers: [
-			{
-				key: 'main',
-				particleKind: 'sprite',
-				art: { assetKey: ATLAS, frames: ['dot'] },
-				placement: { space: 'free' },
-				config: {
-					lifetime: { min: 0.5, max: 0.8 },
-					frequency: 0.02,
-					emitterLifetime: -1,
-					maxParticles: 100,
-					pos: { x: 0, y: 0 },
-					addAtBack: false,
-					behaviors: [],
+/** An effect of one layer on the dot with `material` (a stored doc, as the loader reads it). */
+const effectWith = (id: string, name: string, material: Record<string, unknown>): EffectDoc =>
+	normalizeEffectDoc(
+		{
+			version: 1,
+			id,
+			name,
+			layers: [
+				{
+					key: 'main',
+					particleKind: 'sprite',
+					art: { assetKey: ATLAS, frames: ['dot'] },
+					placement: { space: 'free' },
+					config: {
+						lifetime: { min: 0.5, max: 0.8 },
+						frequency: 0.02,
+						emitterLifetime: -1,
+						maxParticles: 100,
+						pos: { x: 0, y: 0 },
+						addAtBack: false,
+						behaviors: [],
+					},
+					material,
 				},
-				material: { kind: 'custom:gone' },
-			},
-		],
-	},
-	'ghost',
-);
+			],
+		},
+		id,
+	);
+/** A stored effect whose material names a graph the project no longer has. */
+const ghost = effectWith('ghost', 'Ghost', { kind: 'custom:gone' });
 store.set('ghost', { text: JSON.stringify(ghost), meta: {}, etag: '"g"' });
+
+/**
+ * `?opened=1`: the page opens on an effect with a material (the loader's `openedDoc`, as a reload of
+ * `/fx?effect=…` does) and the compiled set answers late, after the stage's first build.
+ */
+const opening = new URLSearchParams(location.search).has('opened');
+const opened = effectWith('lit', 'Lit', { kind: 'custom:noiseDissolve' });
 
 const json = (body: unknown, status = 200): Response =>
 	new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -123,6 +133,7 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 	requests.push(`${method} ${url.pathname}${url.search}`);
 	switch (url.pathname) {
 		case '/api/shaders/effects':
+			if (opening) await new Promise((r) => setTimeout(r, 1500));
 			return json({ ok: true, effects, skipped: [], costs });
 		case '/api/editor/regions':
 			return json({ pageKey: 'page.png', pageWidth: 128, pageHeight: 64, regions: REGIONS });
@@ -164,7 +175,7 @@ mount(Page, {
 			tools: [TOOLS.fx, TOOLS.shaders],
 			atlases: [{ manifestKey: ATLAS, label: 'sparks', regions: REGIONS.map((r) => r.name) }],
 			effects: [{ id: 'ghost', name: 'Ghost' }],
-			openedDoc: null,
+			openedDoc: opening ? opened : null,
 			openedMeta: null,
 			openedEtag: null,
 			eventTypes: [],

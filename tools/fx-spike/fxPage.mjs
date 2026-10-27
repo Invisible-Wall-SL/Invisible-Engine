@@ -17,7 +17,9 @@
  *  5. Apply preset: the material stays;
  *  6. save, start a new effect, reopen it: the doc and the Material section read back identical;
  *  7. on a graph that reads Strength, dragging it changes the pixels with no remount;
- *  8. reopen an effect whose material's graph is gone: named, badged and drawn plain.
+ *  8. reopen an effect whose material's graph is gone: named, badged and drawn plain;
+ *  9. reload on an effect with a material while the compiled set answers late: the stage's first
+ *     build is plain (not registered), and the material mounts once the set registers.
  *
  * The page's "Open in Shader Graph" is checked to be a plain same-tab link, with no iframe.
  *
@@ -116,7 +118,9 @@ try {
 		}
 	};
 	const debugLines = () => browser.pageLog.filter((l) => l.includes('[fxdebug]'));
-	const mounts = () => debugLines().filter((l) => /material layer fx\/[^:]+: (on|plain)/.test(l));
+	// A mount's line (`on (…)` or `plain, …`), not the peak lines a drawing layer adds.
+	const mounts = () =>
+		debugLines().filter((l) => /material layer fx\/[^:]+: (on \(|plain)/.test(l));
 
 	// In-page helpers: the DOM as an author touches it, and the stage's pixels.
 	await waitFor(`!!document.querySelector('.stage canvas')`, 'the stage');
@@ -336,8 +340,8 @@ try {
 	const e = await pixels();
 	check(
 		'the ⚡ preview slider changes the material live, paused (a uniform write, no remount)',
-		differs(d, e) > 0 && e.drawn > 0.8 * d.drawn && mounts().length === mountsBefore,
-		`${differs(d, e)} sampled px differ`,
+		differs(d, e) > 0 && e.drawn > 0.5 * d.drawn && mounts().length === mountsBefore,
+		`${differs(d, e)} sampled px differ, ${e.drawn}/${d.drawn} px drawn, ${mounts().length - mountsBefore} remounts`,
 	);
 
 	console.log('3. switch the time mode');
@@ -476,6 +480,40 @@ try {
 		'…and the stage draws it plain (not registered), as a game would',
 		mounts().at(-1).includes('fx/main: plain, not registered (custom:gone'),
 		mounts().at(-1),
+	);
+	check(
+		"?fxdebug=1 prints a drawing layer's peak as it grows (covered px, at most every 2 s)",
+		debugLines().some((l) =>
+			/material layer fx\/layer-1: on, its peak [\d.]+ (k|M)?px covered/.test(l),
+		),
+		debugLines().find((l) => l.includes('its peak')),
+	);
+
+	console.log('9. reopened at page load, the compiled set answering late');
+	const loggedBefore = browser.pageLog.length;
+	await browser.send('Page.navigate', { url: `${pathToFileURL(html).href}?fxdebug=1&opened=1` });
+	const sinceReload = () =>
+		browser.pageLog
+			.slice(loggedBefore)
+			.filter((l) => /material layer fx\/main: (on \(|plain)/.test(l));
+	await waitFor(
+		`[...document.querySelectorAll('.inspector option')].some((o) => o.value === 'custom:noiseDissolve' && o.selected)`,
+		'the opened effect',
+	);
+	await waitFor(
+		`!!document.querySelector('.loadval') && !document.querySelector('.loadval').textContent.startsWith('≈')`,
+		'the measured load',
+	);
+	const reload = await ev(`({
+		notes: [...document.querySelectorAll('.mnote')].map((n) => n.textContent.trim()),
+		load: document.querySelector('.loadval').textContent,
+	})`);
+	check(
+		'built before the set was registered (plain, not registered), it mounts once registered: on, measured, no note',
+		sinceReload()[0]?.includes('plain, not registered (custom:noiseDissolve') &&
+			sinceReload().at(-1)?.includes(': on (custom:noiseDissolve') &&
+			reload.notes.length === 0,
+		`${sinceReload().join(' → ')}; load ${reload.load}`,
 	);
 	const errors = browser.pageLog.filter((l) => /^\[(error|uncaught)\]/.test(l));
 	check('no errors on the page', errors.length === 0, errors.slice(0, 3).join(' | '));

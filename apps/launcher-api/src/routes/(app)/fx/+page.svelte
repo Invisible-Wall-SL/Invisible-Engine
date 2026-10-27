@@ -18,6 +18,7 @@
 		FX_FORCE_KINDS,
 		FX_FORCE_LIMITS,
 		FX_MATERIAL_EFFECT_LOAD_BUDGET,
+		FX_MATERIAL_INTENSITY_MAX,
 		applyEffectParamDefaults,
 		fxMaterialLoadLevel,
 		listEffectLayerLeaves,
@@ -35,7 +36,7 @@
 	import { replaceState } from '$app/navigation';
 	import FxStage, { type FxStageMaterialStat, type ResolvedArt } from './FxStage.svelte';
 	import {
-		largestFrameArea,
+		largestFrame,
 		materialChoices,
 		materialGraphId,
 		materialLayerLoad,
@@ -49,6 +50,7 @@
 		type FxMaterialCost,
 		type FxMaterialLoad,
 		type FxMaterialSkip,
+		type FxStagePlain,
 	} from './fxMaterial.client';
 	import {
 		addForce,
@@ -600,9 +602,14 @@
 		for (const layer of doc.layers) {
 			const key = layer.art.assetKey;
 			if (!layer.material || !key || key in artRegions) continue;
-			void resolveArt(key).then((art) => {
-				if (art) artRegions = { ...artRegions, [key]: art.regions };
-			});
+			resolveArt(key)
+				.then((art) => {
+					if (art) artRegions = { ...artRegions, [key]: art.regions };
+				})
+				.catch(() => {
+					// The estimate waits (frame 0); the next read asks again.
+					artCache.delete(key);
+				});
 		}
 	});
 
@@ -619,7 +626,7 @@
 				layer,
 				effect: registeredEffect(kind),
 				cost: materialCost(kind)?.cost,
-				frameArea: largestFrameArea(layer, artRegions[layer.art.assetKey]),
+				frame: largestFrame(layer, artRegions[layer.art.assetKey]),
 				measuredArea: stat?.state === 'on' ? stat.peakArea : undefined,
 			});
 			if (load) out[layer.key] = load;
@@ -646,6 +653,9 @@
 		return new Set(issues.map((i) => i.layer));
 	});
 
+	const stagePlainOf = (stat: FxStageMaterialStat | undefined): FxStagePlain | undefined =>
+		stat && stat.state !== 'on' ? stat.state : undefined;
+
 	const selectedEffect = $derived(registeredEffect(selected?.material?.kind));
 	const selectedCost = $derived(materialCost(selected?.material?.kind));
 	const selectedLoad = $derived(selected ? layerLoads[selected.key] : undefined);
@@ -659,10 +669,7 @@
 					skipped: shaderSet.skipped,
 					cost: selectedCost,
 					load: selectedLoad,
-					stagePlain:
-						materialStats[selected.key]?.state !== 'on'
-							? materialStats[selected.key]?.state
-							: undefined,
+					stagePlain: stagePlainOf(materialStats[selected.key]),
 				})
 			: [],
 	);
@@ -2182,7 +2189,7 @@
 								'Strength',
 								material.intensity ?? 1,
 								0,
-								4,
+								FX_MATERIAL_INTENSITY_MAX,
 								0.05,
 								(v) => updateSelected((l) => setMaterialIntensity(l, v)),
 								'material',

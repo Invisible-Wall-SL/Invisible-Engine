@@ -29,7 +29,8 @@ import {
 import type { CustomElementFx } from '../../packages/constants-shared/elementFx';
 import { REFERENCE_GRAPHS, compileShaderEffect } from '../../packages/engine-shadergraph/index';
 import {
-	largestFrameArea,
+	largestFrame,
+	strayMaterialDrives,
 	materialChoices,
 	materialLayerLoad,
 	materialNotes,
@@ -463,15 +464,19 @@ assert(
 	'the picker lists the compiled effects by name',
 );
 assert(
-	largestFrameArea({ ...plainLayer, art: { assetKey: 'a', frames: ['s', 'b'] } }, [
-		{ name: 's', w: 10, h: 10 },
-		{ name: 'b', w: 20, h: 30 },
-		{ name: 'x', w: 90, h: 90 },
-	]) === 600,
+	eq(
+		largestFrame({ ...plainLayer, art: { assetKey: 'a', frames: ['s', 'b'] } }, [
+			{ name: 's', w: 10, h: 10 },
+			{ name: 'b', w: 20, h: 30 },
+			{ name: 'x', w: 90, h: 90 },
+		]),
+		{ w: 20, h: 30 },
+	),
 	'the largest frame is read among the layer’s own frames',
 );
 
-// The §10 estimate: min(Max particles, per wave × max life ÷ frequency) × frame × scale² × (1 + 2p)² × cost.
+// The §10 estimate: min(Max particles, per wave × max life ÷ frequency) × the frame padded as the
+// renderer pads it, (w + 2p·max(w, h)) × (h + 2p·max(w, h)), × scale² × cost.
 const estConfig = {
 	...setCoreParam(setCoreParam(defaultEmitterConfig(), 'maxParticles', 200), 'frequency', 0.01),
 	lifetime: { min: 0.5, max: 0.8 },
@@ -490,16 +495,17 @@ const estConfig = {
 		},
 	],
 } as EmitterConfigV3;
-const est = fxMaterialLoadEstimate({ config: estConfig, frameArea: 1024, padding: 0.25, cost: 50 });
+const frame = { w: 32, h: 16 };
+const est = fxMaterialLoadEstimate({ config: estConfig, frame, padding: 0.25, cost: 50 });
 assert(est.live === 160, `live ≈ min(200, 2 × 0.8 ÷ 0.01) = 160 (got ${est.live})`);
 assert(
-	Math.abs(est.load - 160 * 1024 * 1.5 * 1.5 * 2.25 * 50) < 1e-6,
-	`load = 160 × 1024 × 1.5² × 1.5² × 50 = ${Math.round(160 * 1024 * 2.25 * 2.25 * 50)} (got ${Math.round(est.load)})`,
+	Math.abs(est.load - 160 * 48 * 32 * 1.5 * 1.5 * 50) < 1e-6,
+	`load = 160 × (32 + 16) × (16 + 16) × 1.5² × 50 = ${160 * 48 * 32 * 2.25 * 50} (got ${Math.round(est.load)}): padding is the frame's larger side's, on each side`,
 );
 assert(
 	fxMaterialLoadEstimate({
 		config: { ...estConfig, maxParticles: 100 },
-		frameArea: 1024,
+		frame,
 		padding: 0.25,
 		cost: 50,
 	}).live === 100,
@@ -508,7 +514,7 @@ assert(
 assert(
 	fxMaterialLoadEstimate({
 		config: { ...estConfig, behaviors: [{ type: 'scaleStatic', config: { min: 2, max: 3 } }] },
-		frameArea: 100,
+		frame: { w: 10, h: 10 },
 		padding: 0,
 		cost: 1,
 	}).covered ===
@@ -518,7 +524,7 @@ assert(
 assert(
 	fxMaterialLoadEstimate({
 		config: { ...estConfig, behaviors: [] },
-		frameArea: 100,
+		frame: { w: 10, h: 10 },
 		padding: 0,
 		cost: 1,
 	}).covered === 16000,
@@ -532,7 +538,7 @@ const estimated = materialLayerLoad({
 	layer: estLayer,
 	effect: dissolve,
 	cost: 50,
-	frameArea: 1024,
+	frame,
 	measuredArea: undefined,
 });
 assert(
@@ -543,7 +549,7 @@ const measured = materialLayerLoad({
 	layer: estLayer,
 	effect: dissolve,
 	cost: 50,
-	frameArea: 1024,
+	frame,
 	measuredArea: 700_000,
 });
 assert(
@@ -555,7 +561,7 @@ assert(
 		layer: plainLayer,
 		effect: dissolve,
 		cost: 50,
-		frameArea: 1,
+		frame: { w: 1, h: 1 },
 		measuredArea: 1,
 	}) === undefined,
 	'a layer with no material has no load',
@@ -649,6 +655,32 @@ assert(
 	'frames on two atlas pages: plain',
 );
 
+const strayDoc = [
+	{
+		id: 'tint',
+		kind: 'color' as const,
+		default: '#ffffff',
+		drives: [{ id: 'd1', layer: 'main', path: 'material.param.tint' }],
+	},
+	{
+		id: 'grain',
+		kind: 'number' as const,
+		default: 8,
+		min: 1,
+		max: 32,
+		drives: [{ id: 'd1', layer: 'main', path: 'material.param.grain' }],
+	},
+];
+assert(
+	eq(strayMaterialDrives(artLayer, strayDoc, dissolve), [{ param: 'tint', id: 'tint' }]),
+	'a drive on a param the material lacks is found; one it has is not',
+);
+assert(
+	notesFor(artLayer, { params: strayDoc }).some(
+		(n) => n.level === 'warn' && n.text.includes('"tint"') && n.text.includes("doesn't have"),
+	),
+	'…and named in a note (the parameter is kept)',
+);
 assert(
 	notesFor(artLayer, { stagePlain: 'shell refuses the body' }).some(
 		(n) => n.level === 'off' && n.text.includes('particle shell'),

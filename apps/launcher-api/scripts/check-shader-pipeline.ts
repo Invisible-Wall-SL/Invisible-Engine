@@ -205,6 +205,20 @@ fake('lib/server/runtimeBundleCache.ts', {
 	withDeployWrite: async <T>(_project: string, run: () => Promise<T>) => run(),
 });
 
+// The graph package as is, but its analysis can be made to throw on one graph (a compiler bug a
+// stored doc finds), to prove the effects route answers the set without that graph's cost.
+const shaderGraph = await import('engine-shadergraph');
+let analysisThrowsFor = '';
+mock.module('engine-shadergraph', {
+	namedExports: {
+		...shaderGraph,
+		analyzeShaderGraph: (doc: ShaderGraphDoc) => {
+			if (doc.id === analysisThrowsFor) throw new Error('fixture: an analysis bug');
+			return shaderGraph.analyzeShaderGraph(doc);
+		},
+	},
+});
+
 const storage = await import('../src/lib/server/shaderStorage.ts');
 const { exportShaders, namedShaderEffects, shaderDeployPrefix, unshippedCustomKinds } =
 	await import('../src/lib/server/shaderExport.ts');
@@ -479,6 +493,24 @@ check(
 		return [id, id === 'power_up', true];
 	}),
 );
+{
+	const costs = compiledForEditor.body.costs as { id: string }[];
+	analysisThrowsFor = costs[0].id;
+	const quiet = console.error;
+	console.error = () => {};
+	const answer = await call(effectsRoute.GET, {});
+	console.error = quiet;
+	analysisThrowsFor = '';
+	check(
+		'a graph whose analysis throws costs only its own entry: the set still answers',
+		[
+			answer.status,
+			(answer.body.effects as unknown[]).length,
+			(answer.body.costs as { id: string }[]).map((c) => c.id),
+		],
+		[200, 3, costs.slice(1).map((c) => c.id)],
+	);
+}
 const deleted = await call(deleteRoute.POST, { body: { id: 'Pulse Tint', projectKey: PROJECT } });
 check(
 	'delete removes the project graph',

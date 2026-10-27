@@ -107,6 +107,8 @@ export interface ParticleMaterialOptions {
 	emitSpeed?: number;
 	/** Told once when the layer turns plain while it plays (it was drawing through the mesh). */
 	onPlain?: (reason: ParticleMaterialPlain) => void;
+	/** Told each time {@link ParticleMaterial.peakCoveredArea} grows (a debug readout). */
+	onPeak?: (covered: number) => void;
 }
 
 /** What the Element FX link check takes: the same renderer, typed for an HTML canvas. */
@@ -193,6 +195,7 @@ export class ParticleMaterial {
 	private intensity: number;
 	private secondsPerAge: number;
 	private readonly onPlain: ParticleMaterialOptions['onPlain'];
+	private readonly onPeak: ParticleMaterialOptions['onPeak'];
 	private readonly lengthSeconds: number;
 	private readonly padding: number;
 	private covered = 0;
@@ -206,6 +209,7 @@ export class ParticleMaterial {
 		this.intensity = options.intensity ?? 1;
 		this.secondsPerAge = secondsPerAge(options.emitSpeed);
 		this.onPlain = options.onPlain;
+		this.onPeak = options.onPeak;
 		this.lengthSeconds = Math.max(1e-3, (effect?.spec.durationMs ?? 1000) / 1000);
 		this.padding = effect?.padding ?? 0;
 		// As the library reads it: not a positive number is 1000, a fraction lets one more spawn.
@@ -489,7 +493,10 @@ export class ParticleMaterial {
 		}
 		mesh.visible = live > 0;
 		this.covered = covered;
-		if (covered > this.peakCovered) this.peakCovered = covered;
+		if (covered > this.peakCovered) {
+			this.peakCovered = covered;
+			this.onPeak?.(covered);
+		}
 		if (!live) return geometry.live.set(0, 0, 0, 0);
 		geometry.live.set(minX, minY, maxX, maxY);
 		geometry.indexCount = live * 6;

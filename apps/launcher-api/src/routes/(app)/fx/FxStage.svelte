@@ -61,7 +61,10 @@
 	} from 'pixi-svelte/particleMaterial';
 	import { Application, Container, Sprite, Texture, type TextureSource } from 'pixi.js';
 	import { framesToTextures, loadPageSource } from '$lib/fx/effectEmitter.client';
+	import { customElementFxVersion } from '$lib/customElementFx.svelte';
+	import { customElementFx } from 'constants-shared/elementFx';
 	import { onMount, untrack } from 'svelte';
+	import type { FxStagePlain } from './fxMaterial.client';
 	import {
 		emitterOwnerLocal,
 		layerFollowsBone,
@@ -143,7 +146,7 @@
 	}
 
 	export interface FxStageMaterialStat {
-		state: string;
+		state: 'on' | FxStagePlain;
 		coveredArea: number;
 		peakArea: number;
 	}
@@ -259,10 +262,16 @@
 
 	const STATS_EVERY_MS = 250;
 	let statsAt = 0;
+	/** The last report named a material layer: one empty report follows its removal, then none. */
+	let reportedAny = false;
 
 	/** Tell the page how each material layer draws (`onMaterialStats`). */
 	function reportMaterials(): void {
 		if (!onMaterialStats) return;
+		let any = false;
+		for (const entry of live.values()) any ||= !!entry.material;
+		if (!any && !reportedAny) return;
+		reportedAny = any;
 		const stats: Record<string, FxStageMaterialStat> = {};
 		for (const [key, entry] of live) {
 			const mounted = entry.material;
@@ -647,17 +656,25 @@
 	}
 
 	/** A sprite layer as its emitter and material are built from: its material's values left out
-	 * (a strength or param edit is a uniform write, {@link retune}). */
+	 * (a strength or param edit is a uniform write, {@link retune}), and whether its kind is
+	 * registered yet (the compiled set arrives after the first build). */
 	function builtFrom(layer: EmitterLayer): string {
 		const plain = $state.snapshot(layer) as EmitterLayer;
 		const m = plain.material;
-		return JSON.stringify(m ? { ...plain, material: { kind: m.kind, time: m.time } } : plain);
+		return JSON.stringify(
+			m
+				? { ...plain, material: { kind: m.kind, time: m.time, registered: isRegistered(m.kind) } }
+				: plain,
+		);
 	}
 
+	const isRegistered = (kind: string): boolean => !!customElementFx(kind);
+
 	/**
-	 * What the material's renderer reads at mount: its kind and time, the capacity (Max particles
-	 * and the most a drive can raise it to) and the frames' texture source. A change to any remounts
-	 * it; `materialKey` keeps the last one, `undefined` with no material.
+	 * What the material's renderer reads at mount: its kind (and whether it is registered), its time,
+	 * the capacity (Max particles and the most a drive can raise it to) and the frames' texture
+	 * source. A change to any remounts it; `materialKey` keeps the last one, `undefined` with no
+	 * material.
 	 */
 	function materialMountKey(
 		layer: EmitterLayer,
@@ -668,7 +685,8 @@
 		if (!m || layer.particleKind !== 'sprite') return undefined;
 		const max = (layer.config as { maxParticles?: unknown }).maxParticles;
 		const source = textures[0]?.source.uid ?? 'none';
-		return `${m.kind}|${m.time ?? 'life'}|${String(max)}|${peak}|${source}|${textures.length}`;
+		const registered = isRegistered(m.kind) ? 'r' : 'u';
+		return `${m.kind}|${registered}|${m.time ?? 'life'}|${String(max)}|${peak}|${source}|${textures.length}`;
 	}
 
 	/** Mount a layer's material as the game does (`<ParticleEmitter material>`), or none. */
@@ -886,8 +904,10 @@
 
 	// Rebuild whenever the doc's layers change — the doc is the source of truth.
 	$effect(() => {
-		// Touch the layers (deep) so this re-runs on any inspector edit.
+		// Touch the layers (deep) so this re-runs on any inspector edit, and the custom effects'
+		// registration, so a material the page registers after the first build mounts then.
 		void JSON.stringify(layers);
+		void customElementFxVersion();
 		if (app) void requestRebuild();
 	});
 
