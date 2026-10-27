@@ -1,10 +1,11 @@
 import { error, type Cookies } from '@sveltejs/kit';
-import { SHADER_READ_TOOLS } from '$lib/accessRules';
+import { SHADER_EFFECTS_READ_TOOLS, SHADER_READ_TOOLS } from '$lib/accessRules';
 import { SHADER_CUSTOM_GLSL_CAPABILITY, SHADER_PUBLISH_CAPABILITY } from '$lib/roles';
 import { userHasCapability } from './launcherAuth';
 import { gate, type ToolScope } from './toolScope';
 
 const [SHADER_TOOL, ...SHADER_READ_ALT_TOOLS] = SHADER_READ_TOOLS;
+const [, ...SHADER_EFFECTS_READ_ALT_TOOLS] = SHADER_EFFECTS_READ_TOOLS;
 
 /**
  * Who reaches Invisible Shader Graph docs: `/shaders` reads and writes them; every other tool in
@@ -14,6 +15,17 @@ export const shaderReadScope = (locals: App.Locals, cookies: Cookies): Promise<T
 	gate(locals, cookies, {
 		tool: SHADER_TOOL,
 		altTools: SHADER_READ_ALT_TOOLS,
+		forbiddenMessage: 'Your role does not have access to shader effects.',
+	});
+
+/**
+ * Who reads a project's compiled shader effects, and nothing else of its graphs:
+ * {@link SHADER_EFFECTS_READ_TOOLS}. Only `GET /api/shaders/effects` takes it.
+ */
+export const shaderEffectsReadScope = (locals: App.Locals, cookies: Cookies): Promise<ToolScope> =>
+	gate(locals, cookies, {
+		tool: SHADER_TOOL,
+		altTools: SHADER_EFFECTS_READ_ALT_TOOLS,
 		forbiddenMessage: 'Your role does not have access to shader effects.',
 	});
 

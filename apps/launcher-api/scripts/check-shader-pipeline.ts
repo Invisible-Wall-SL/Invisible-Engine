@@ -7,8 +7,9 @@
  *      save keeps a graph that does not compile and drops what is not part of the doc; a create on a
  *      taken id and a stale ETag are refused; the listing skips anything that is not a graph file.
  *   2. THE ROUTES — save and delete gate on `/shaders`, the reads on the tools whose pickers
- *      list custom effects or that draw a particle material (`/fx`, the Rigger); a tab on another
- *      project is refused; a save without its precondition is a 400 and a conflict a 409.
+ *      list custom effects, and the compiled set alone also on the tools that draw a particle
+ *      material (`/fx`, the Rigger); a tab on another project is refused; a save without its
+ *      precondition is a 400 and a conflict a 409.
  *   3. THE SHIP — the real export compiles the project's set into `deploy/editor-shaders/` (a file
  *      per effect and an index), names a graph that does not compile, prunes what an earlier export
  *      left, and the real export endpoint returns it; every exported effect is one the game's
@@ -423,12 +424,10 @@ check(
 check('…and writes nothing', R2.has(`${projectDir}other.json`), false);
 const listed = await call(listRoute.GET, { query: `?projectKey=${PROJECT}` });
 check('list answers the set', (listed.body.shaders as unknown[]).length, 4);
-const READ_GATE = ['shaders', 'editor', 'componentEditor', 'symbols', 'flow', 'fx', 'rigger'];
-check(
-	'the reads gate on the tools that pick Element FX or draw a particle material',
-	gates.at(-1),
-	READ_GATE,
-);
+const READ_GATE = ['shaders', 'editor', 'componentEditor', 'symbols', 'flow'];
+/** The compiled set alone: the readers above, and the tools that draw a particle material. */
+const EFFECTS_READ_GATE = [...READ_GATE, 'fx', 'rigger'];
+check('the reads gate on the tools that pick Element FX', gates.at(-1), READ_GATE);
 check(
 	'a read from a tab on another project is refused',
 	(await call(listRoute.GET, { query: '?projectKey=another-game' })).status,
@@ -448,7 +447,11 @@ check(
 	[true, null],
 );
 const compiledForEditor = await call(effectsRoute.GET, {});
-check('effects is on the read gate', gates.at(-1), READ_GATE);
+check(
+	'effects is on the effects read gate, which /fx and the Rigger pass',
+	gates.at(-1),
+	EFFECTS_READ_GATE,
+);
 check(
 	'effects answers the set compiled, and what did not compile',
 	[
@@ -1111,8 +1114,8 @@ console.log('7. custom GLSL');
 		'restoring a version whose Custom GLSL differs from the live graph takes the capability',
 		[
 			restoreArtist.status,
-			stored(key).nodes.some(
-				(n: { glsl?: { code: string } }) => n.glsl?.code === 'color.rgb *= 0.5;',
+			(stored(key).nodes as { glsl?: { code: string } }[]).some(
+				(n) => n.glsl?.code === 'color.rgb *= 0.5;',
 			),
 		],
 		[403, true],

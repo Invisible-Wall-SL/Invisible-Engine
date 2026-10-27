@@ -30,6 +30,7 @@ import {
 	entitledByAny,
 	leaseEntitlingTool,
 	mayTargetClient,
+	SHADER_EFFECTS_READ_TOOLS,
 	SHADER_READ_TOOLS,
 	settingValueVisible,
 } from '../src/lib/accessRules.ts';
@@ -552,37 +553,49 @@ check(
 	true,
 );
 
-// ── Shader graph reads: the tools that draw a custom kind read it, only /shaders writes ──────
+// ── Shader graph reads: /fx and the Rigger read the compiled effects alone; /shaders writes ─────
 /**
- * `shaderReadScope` admits {@link SHADER_READ_TOOLS}: `/fx` and the Rigger draw a particle material
- * (`custom:<id>`), so they read the project's compiled shader effects. The widening is the
- * entitlement only: the read stays on the session's project, and every write keeps `/shaders`.
+ * `shaderReadScope` (docs, list, history, Custom GLSL source) admits {@link SHADER_READ_TOOLS};
+ * `shaderEffectsReadScope` (`GET /api/shaders/effects`, the compiled set) admits
+ * {@link SHADER_EFFECTS_READ_TOOLS}, which adds `/fx` and the Rigger: they draw a particle material
+ * (`custom:<id>`) and need nothing else. Both stay on the session's project; writes keep `/shaders`.
  */
-for (const id of SHADER_READ_TOOLS) {
+for (const id of SHADER_EFFECTS_READ_TOOLS) {
 	check(`the shader read tool '${id}' is a registered tool`, Object.hasOwn(TOOLS, id), true);
 }
+check('the graph read set', SHADER_READ_TOOLS, [
+	'shaders',
+	'editor',
+	'componentEditor',
+	'symbols',
+	'flow',
+]);
+check('the effects read set is the graph read set, /fx and the Rigger', SHADER_EFFECTS_READ_TOOLS, [
+	...SHADER_READ_TOOLS,
+	'fx',
+	'rigger',
+]);
 check(
-	'/fx and the Rigger read shader effects, beside /shaders and the Element FX pickers',
-	['shaders', 'editor', 'componentEditor', 'symbols', 'flow', 'fx', 'rigger'].every((id) =>
-		(SHADER_READ_TOOLS as readonly string[]).includes(id),
-	),
-	true,
+	'an animator (the Rigger alone) reads the effects, never the graphs, and writes nothing',
+	[
+		entitledByAny('animator', SHADER_EFFECTS_READ_TOOLS),
+		entitledByAny('animator', SHADER_READ_TOOLS),
+		entitledByAny('animator', [SHADER_READ_TOOLS[0]]),
+	],
+	[true, false, false],
 );
 check(
-	'an animator (the Rigger alone) reads shader effects',
-	[ROLE_TOOLS.animator.includes('shaders'), entitledByAny('animator', SHADER_READ_TOOLS)],
-	[false, true],
-);
-check('…and does not write them', entitledByAny('animator', [SHADER_READ_TOOLS[0]]), false);
-check(
-	'a revoked Rigger takes the read with it',
-	entitledByAny('animator', SHADER_READ_TOOLS, { rigger: false }),
+	'a revoked Rigger takes the effects read with it',
+	entitledByAny('animator', SHADER_EFFECTS_READ_TOOLS, { rigger: false }),
 	false,
 );
 check(
-	'a per-user /fx grant alone opens the read',
-	entitledByAny('animator', SHADER_READ_TOOLS, { rigger: false }, { fx: true }),
-	true,
+	'a per-user /fx grant alone opens the effects, not the graphs',
+	[
+		entitledByAny('animator', SHADER_EFFECTS_READ_TOOLS, { rigger: false }, { fx: true }),
+		entitledByAny('animator', SHADER_READ_TOOLS, { rigger: false }, { fx: true }),
+	],
+	[true, false],
 );
 check(
 	'the tool gate decides through entitledByAny',
@@ -593,16 +606,40 @@ check(
 );
 {
 	const scope = readFileSync(`${srcRoot}lib/server/shaderScope.ts`, 'utf8');
-	const gates = [...scope.matchAll(/gate\(locals, cookies, \{([^}]*)\}\)/g)].map((m) => m[1]);
+	const gateOf = (name: string): string =>
+		new RegExp(`export const ${name} = [^]*?gate\\(locals, cookies, \\{([^}]*)\\}\\)`).exec(
+			scope,
+		)?.[1] ?? '';
 	check(
-		'shaderScope has two gates: the read on SHADER_READ_TOOLS, the write on /shaders alone',
+		'shaderScope has three gates: graphs, effects and writes',
+		(scope.match(/gate\(locals, cookies, \{/g) ?? []).length,
+		3,
+	);
+	check(
+		'the graph read gates on SHADER_READ_TOOLS',
 		[
-			gates.length,
 			scope.includes('const [SHADER_TOOL, ...SHADER_READ_ALT_TOOLS] = SHADER_READ_TOOLS;'),
-			/tool: SHADER_TOOL,\s*altTools: SHADER_READ_ALT_TOOLS,/.test(gates[0] ?? ''),
-			/altTools/.test(gates[1] ?? 'altTools'),
+			/^\s*tool: SHADER_TOOL,\s*altTools: SHADER_READ_ALT_TOOLS,/.test(gateOf('shaderReadScope')),
 		],
-		[2, true, true, false],
+		[true, true],
+	);
+	check(
+		'the effects read gates on SHADER_EFFECTS_READ_TOOLS',
+		[
+			scope.includes('const [, ...SHADER_EFFECTS_READ_ALT_TOOLS] = SHADER_EFFECTS_READ_TOOLS;'),
+			/^\s*tool: SHADER_TOOL,\s*altTools: SHADER_EFFECTS_READ_ALT_TOOLS,/.test(
+				gateOf('shaderEffectsReadScope'),
+			),
+		],
+		[true, true],
+	);
+	check(
+		'the write gates on /shaders alone',
+		[
+			/tool: SHADER_TOOL,/.test(gateOf('shaderWriteScope')),
+			/altTools/.test(gateOf('shaderWriteScope')),
+		],
+		[true, false],
 	);
 	check(
 		'…and the publish scope builds on the write scope',
@@ -619,12 +656,22 @@ check(
 		const route = file.replace(/\/\+server\.ts$/, '');
 		for (const block of handlerBlocks(readFileSync(`${api}${file}`, 'utf8'))) {
 			const method = /^export const ([A-Z]+)/.exec(block)?.[1];
-			const reads = block.includes('shaderReadScope(');
-			const writes = /\bshader(?:Write|Publish)Scope\(/.test(block);
+			const used = [
+				'shaderReadScope',
+				'shaderEffectsReadScope',
+				'shaderWriteScope',
+				'shaderPublishScope',
+			].filter((name) => block.includes(`${name}(`));
+			const expected =
+				method !== 'GET'
+					? used.filter((name) => name === 'shaderWriteScope' || name === 'shaderPublishScope')
+					: route === 'shaders/effects'
+						? ['shaderEffectsReadScope']
+						: ['shaderReadScope'];
 			check(
-				`api/${route} ${method} ${method === 'GET' ? 'reads on the read scope' : 'writes on the write scope'}`,
-				[reads, writes],
-				method === 'GET' ? [true, false] : [false, true],
+				`api/${route} ${method} takes ${method === 'GET' ? expected[0] : 'a write scope'}`,
+				[used, used.length === 1],
+				[expected, true],
 			);
 		}
 	}

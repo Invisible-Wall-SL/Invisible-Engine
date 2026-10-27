@@ -29,10 +29,9 @@ export function entitledByAny(
 }
 
 /**
- * The tools that READ a project's shader graphs and their compiled effects (`shaderReadScope`):
- * `/shaders`, the tools whose pickers list custom Element FX (the Scene and Component Editors,
- * Symbols, the Flow), and the tools that draw a particle material (`/fx`, the Rigger). Only
- * `/shaders` writes them.
+ * The tools that READ a project's shader graphs (docs, list, history) and their compiled effects
+ * (`shaderReadScope`): `/shaders`, and the tools whose pickers list custom Element FX (the Scene
+ * and Component Editors, Symbols, the Flow). Only `/shaders` writes them.
  */
 export const SHADER_READ_TOOLS = [
 	'shaders',
@@ -40,9 +39,14 @@ export const SHADER_READ_TOOLS = [
 	'componentEditor',
 	'symbols',
 	'flow',
-	'fx',
-	'rigger',
 ] as const;
+
+/**
+ * The tools that read ONLY the compiled effects (`shaderEffectsReadScope`, `GET
+ * /api/shaders/effects`): the readers above, and the tools that draw a particle material (`/fx`,
+ * the Rigger). They never see a graph's doc, its Custom GLSL source, the list or its history.
+ */
+export const SHADER_EFFECTS_READ_TOOLS = [...SHADER_READ_TOOLS, 'fx', 'rigger'] as const;
 
 /**
  * Whether a user may create a project under `clientKey` (null = unassigned). Admins may use any
