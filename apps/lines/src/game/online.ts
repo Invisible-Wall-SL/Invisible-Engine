@@ -1,4 +1,4 @@
-import type { Room } from '@colyseus/sdk';
+import type { Room } from 'engine-rooms';
 import {
 	BUTTONS,
 	MOVE_SCALE,
@@ -41,7 +41,8 @@ import { typingInto } from './flowKeys';
  *
  * Launch parameters: `?rooms_url=` the game server (`wss://rooms.invisiblewall.org`), the game
  * key `?rooms_game=` (else `?project=`), and optionally `?rooms_name=` / `?rooms_character=`.
- * `@colyseus/sdk` is imported only here, on this path, so an offline game never loads it.
+ * `engine-rooms` (`@colyseus/sdk`) is imported only here, on this path, so an offline game never
+ * loads it.
  */
 
 /** The game server's room type (`services/game-server/src/server.ts` `ROOM_NAME`). */
@@ -157,7 +158,7 @@ export async function joinOnlineRoom(): Promise<void> {
 	if (!game) return refuseOnlineBoot('the launch names no game (?rooms_game=)');
 	let room: Room;
 	try {
-		const { Client } = await import('@colyseus/sdk');
+		const { Client } = await import('engine-rooms');
 		room = await new Client(url).joinOrCreate(ROOM_NAME, {
 			game,
 			name: params.get('rooms_name') ?? undefined,

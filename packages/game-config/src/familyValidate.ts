@@ -173,6 +173,29 @@ function validateCharacters(
 				`"${character.id}" is played, but its component "${look}" has no body, so it walks through everything and touches nothing.`,
 			);
 		}
+		const controller = character.controller;
+		const jump = controller && 'jump' in controller ? controller.jump : undefined;
+		if (controller && jump) {
+			const wants = controller.kind === 'sideScroll' ? 'gravity' : 'hop';
+			if (jump.kind !== wants) {
+				error(
+					`${at}.controller.jump.kind`,
+					`"${character.id}" is a ${controller.kind} character, so its jump is a "${wants}" jump, not "${jump.kind}".`,
+				);
+			}
+			if (jump.minHeight !== undefined && jump.minHeight > jump.height) {
+				warn(
+					`${at}.controller.jump.minHeight`,
+					`"${character.id}"'s tap height (${jump.minHeight} px) is above its jump height (${jump.height} px), so a tap jumps as high as a held press.`,
+				);
+			}
+		}
+		if (controller?.kind === 'flap' && !(character.movement?.gravity ?? 0)) {
+			warn(
+				`${at}.movement.gravity`,
+				`"${character.id}" flaps, but has no gravity, so one flap sends it up for ever.`,
+			);
+		}
 		const brain = character.brain;
 		const states = new Set((brain?.states ?? []).map((s) => s.id));
 		if (brain && !states.has(brain.initial)) {

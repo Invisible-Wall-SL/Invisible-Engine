@@ -60,6 +60,12 @@ export type ArcadeBody = (
 	tags?: string[];
 	/** Stops a mover (from tier A2). Absent ⇒ not solid. */
 	solid?: true;
+	/** Ground level (P10.13): a character in the air on a `hop` passes over it and neither touches
+	 *  nor is stopped by it. Absent ⇒ as tall as the play field. */
+	ground?: true;
+	/** A one-way platform (P10.13): it stops a falling character from above only. Ignored on a
+	 *  `solid` body. */
+	oneWay?: true;
 	/** How it meets the play field's edges (P10.8): held inside, carried round to the far edge, or let
 	 *  out (it then raises `leaveBounds`). Absent ⇒ `clamp`. */
 	edges?: ArcadeBodyEdges;
@@ -448,6 +454,8 @@ const normalizeArcadeBody = (raw: unknown): ArcadeBody | undefined => {
 	const tags = normalizeTags(raw.tags);
 	if (tags) body.tags = tags;
 	if (raw.solid === true) body.solid = true;
+	else if (raw.oneWay === true) body.oneWay = true;
+	if (raw.ground === true) body.ground = true;
 	if (raw.edges === 'wrap' || raw.edges === 'pass') body.edges = raw.edges;
 	return body;
 };
