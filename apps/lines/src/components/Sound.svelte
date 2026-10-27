@@ -17,6 +17,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 
+	import { playCueSound, registerCueSound } from 'engine-layout';
 	import { waitForTimeout } from 'utils-shared/wait';
 	import { SECOND } from 'constants-shared/time';
 	import { stateBet } from 'state-shared';
@@ -72,6 +73,10 @@
 		soundStop: ({ name }) => sound.stop({ name }),
 		soundFade: async ({ name, duration, from, to }) => await sound.fade({ name, duration, from, to }), // prettier-ignore
 	});
+
+	// A component timeline's `sfx:` / `music:` cue plays here, on the same player and with the same
+	// options as a screen timeline's (`FlowV2Cinematics`): `engine-layout` owns no audio.
+	onMount(() => registerCueSound((cue, options) => playCueSound(sound, cue, options)));
 
 	onMount(() => {
 		if (stateBet.activeBetModeKey === 'SUPERSPIN') {

@@ -1,6 +1,7 @@
 import type { Howl } from 'howler';
 
 import type { PlayOptions, GetSound, GetSoundMap } from './types';
+import { usablePlayVolume } from './volume';
 
 export function createPlayLoop<TSoundName extends string>(options: {
 	howlFor: (soundName: TSoundName) => Howl | undefined;
@@ -10,7 +11,9 @@ export function createPlayLoop<TSoundName extends string>(options: {
 }) {
 	type Sound = GetSound<TSoundName>;
 
-	const playLoop = (sound: Sound) => {
+	// `volume` is the per-play level, as `createPlayOnce` takes one; absent ⇒ the sound's existing
+	// `soundVolume` (1 for a fresh play), so every existing caller is unchanged.
+	const playLoop = (sound: Sound, volume?: number) => {
 		const howl = options.howlFor(sound.soundName);
 		if (!howl) return;
 
@@ -19,23 +22,24 @@ export function createPlayLoop<TSoundName extends string>(options: {
 			...sound,
 			soundId,
 			soundState: 'playing',
+			soundVolume: volume ?? sound.soundVolume,
 		};
 
 		options.initSoundVolume(sound.soundName);
 	};
 
 	const soundPlayMap = {
-		new: (sound: Sound) => playLoop(sound),
-		paused: (sound: Sound) => playLoop(sound),
-		playing: (_: Sound) => {
+		new: (sound: Sound, volume?: number) => playLoop(sound, volume),
+		paused: (sound: Sound, volume?: number) => playLoop(sound, volume),
+		playing: () => {
 			// Do nothing
 		},
 	};
 
-	const play = (playOptions: PlayOptions<TSoundName>) => {
+	const play = (playOptions: PlayOptions<TSoundName> & { volume?: number }) => {
 		const existingSound = options.getSoundMap()[playOptions.name];
 		const sound = existingSound ?? options.newSound(playOptions.name);
-		soundPlayMap[sound.soundState](sound);
+		soundPlayMap[sound.soundState](sound, usablePlayVolume(playOptions.volume));
 	};
 
 	return {
