@@ -1,6 +1,6 @@
 # Invisible Game Maker — status
 
-> Design: [docs/design/invisible-game-maker.md](../design/invisible-game-maker.md) · Guide: [docs/tools/game-maker.md](../tools/game-maker.md) · Agent: none yet (launcher tool — closest owner `.claude/agents/launcher-studio.md` + `.claude/agents/engine-pixi-svelte.md`)
+> Design: [docs/design/invisible-game-maker.md](../design/invisible-game-maker.md) · Guide: [docs/tools/game-maker.md](../tools/game-maker.md) · Agent: `.claude/agents/invisible-game-maker.md`
 
 **One-line state:** shipped — create a project, then one-click **Publish** freezes an immutable published snapshot players boot (Make live = rollback, Republish all = bulk) on one shared engine runtime; no repo, no build. Math/config comes from [Game Config](game-config.md); behavior tracks (Phase 4) are unbuilt.
 

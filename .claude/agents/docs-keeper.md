@@ -54,6 +54,12 @@ and `TOOL_DOC_SLUG`. A tool is only fully documented when ALL of these hold:
    picture changed (planned → built, a roadmap item closed, a blocker cleared).
    Never append to `docs/history.md`; it is a frozen archive.
 
+## The knowledge base (`docs/knowledge/`, ADR-0009)
+After a merge, fold the PR's `## Lesson` block into `docs/knowledge/lessons/<area>.md`: update the
+entry with the same symptom instead of adding one, and stay inside the file's line budget
+(`docs/knowledge/README.md`). Keep `docs/knowledge/owners.json` in step when a tool, game kind or
+agent is added, renamed or removed. `pnpm check:agents-knowledge` gates both.
+
 ## Hard rules (inherit the repo's)
 - Our tools are "Invisible …"; third-party keep real names.
 - pnpm only; Prettier (tabs, single quotes, 100 cols); no `any`; no dead text.

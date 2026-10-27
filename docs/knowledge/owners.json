@@ -1,0 +1,44 @@
+{
+	"tools": {
+		"atlasTool": ["atlas-python-tools"],
+		"spineViewer": ["launcher-studio"],
+		"rigger": ["invisible-rigger"],
+		"invisibleLauncher": ["launcher-studio"],
+		"comfyui": ["atlas-python-tools"],
+		"sheetMaker": ["atlas-python-tools"],
+		"localization": ["invisible-localization"],
+		"winText": [],
+		"sound": [],
+		"gameConfig": ["invisible-game-config"],
+		"characters": ["arcade-games"],
+		"editor": ["invisible-components"],
+		"ftpBrowser": ["invisible-ftp-browser"],
+		"storybook": ["engine-pixi-svelte"],
+		"componentEditor": ["invisible-components"],
+		"fontMaker": ["launcher-studio", "atlas-python-tools"],
+		"symbols": ["invisible-symbols"],
+		"gameMaker": ["invisible-game-maker"],
+		"flow": ["invisible-flow"],
+		"fx": ["invisible-fx"],
+		"shaders": ["invisible-shader-graph"],
+		"flipbook": ["invisible-flipbook"],
+		"director": ["director-backend", "director-frontend"],
+		"pipelineChanges": ["director-backend", "director-frontend"],
+		"pipelineBugs": ["pipeline-triage", "launcher-studio"],
+		"gameBugs": ["launcher-studio"]
+	},
+	"kinds": {
+		"lines": ["lines-games"],
+		"ways": ["ways-games"],
+		"cluster": ["cluster-games"],
+		"scatter": ["scatter-games"],
+		"bookOf": ["lines-games"],
+		"holdAndWin": ["hold-and-win-games"],
+		"match3": ["match3-games"],
+		"arcade": ["arcade-games"]
+	},
+	"gaps": {
+		"tool:winText": "No agent: a tool shared by every slot kind, not a game type, so 9B left it open.",
+		"tool:sound": "No agent: a tool shared by every kind, not a game type, so 9B left it open."
+	}
+}

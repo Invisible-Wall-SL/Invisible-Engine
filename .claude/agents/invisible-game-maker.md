@@ -39,7 +39,7 @@ chain (see `engine-pixi-svelte`).
   `+page.server.ts`, `publish/`).
 - **Publish endpoint:** `apps/launcher-api/src/routes/api/game-maker/`.
 - **Scaffold reference:** `scripts/new-game.mjs`.
-- **Runtime publish:** `scripts/publish-runtime-bundle.mjs` (+ `POST games.invisiblewall.org/refresh`).
+- **Runtime publish:** `apps/launcher-api/scripts/publish-runtime-bundle.mjs` (+ `POST games.invisiblewall.org/refresh`).
 
 ## House style
 `pnpm` only (10.5.0), Node ≥ 22.19.0, `workspace:*`. TypeScript, no `any`. Prettier: tabs,
