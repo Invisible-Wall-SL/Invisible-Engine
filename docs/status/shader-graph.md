@@ -18,7 +18,7 @@ GLSL node (#1349). 8d (particle materials) is decided
 shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is merged
 (#1366); 8d.3 (the material in the game) is merged (#1378); 8d.4 (the ship chain, proven) is
 merged (#1384); 8d.5 (`/fx` authoring) is merged (#1392); 8d.6 (the other previews) is
-built and in review; 8d.7 (`/shaders`: Made for particles and the Particles preview) is next.
+merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) is next.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -284,7 +284,7 @@ built and in review; 8d.7 (`/shaders`: Made for particles and the Particles prev
     (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
     shader). Built as 8d.1–8d.8, one PR each (its §15). A game plays a material from 8d.3; no
     tool authors one from 8d.5.
-    - **8d.6, the other previews.** Built, in review. Guides: `docs/tools/invisible-editor.md`,
+    - **8d.6, the other previews.** Merged (#1407, 2026-10-27). Guides: `docs/tools/invisible-editor.md`,
       `rigger.md`, `symbols-state-machine.md`.
       - **One mount for every launcher stage** (`$lib/fx/layerMaterial.client.ts`): the layer's
         material through the game's `mountParticleMaterial`, its remount key, its emitter and its
@@ -634,7 +634,8 @@ built and in review; 8d.7 (`/shaders`: Made for particles and the Particles prev
 - None.
 
 ## Recent changes
-- 2026-10-27 — **Step 8d.6: the other previews** (see "Current state").
+- 2026-10-27 — **Step 8d.6: the other previews** (see "Current state"). Merged (#1407): CI
+  green, Current games "runtime untouched" (launcher, tools and docs only).
   - **Proof.** `fx-previews` (new, in `check:all`) 52/52, the editor clock case included;
     `fx-page` 31/31; `particle-material`; `check:vendored-bundles`; `check:symbol-fx` 39;
     `check:fx-node-params` 105; `check:rig-fx-overrides`; `check:element-fx-flow` 20;
