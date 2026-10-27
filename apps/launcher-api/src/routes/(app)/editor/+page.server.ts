@@ -182,7 +182,10 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		loadCustomElementFx(clientKey, projectKey),
 		// The project's sound library, for the timeline cue inspector's sound names. One that will
 		// not load lists the engine's sounds only.
-		loadSoundsDoc(clientKey, projectKey).catch(() => null),
+		loadSoundsDoc(clientKey, projectKey).catch((err: unknown) => {
+			console.warn(`[editor] sound library for ${clientKey}/${projectKey} did not load:`, err);
+			return null;
+		}),
 	]);
 	const components = componentEntries.map((e) => e.def);
 	// id → the ETag its next save must match (`null` = built-in / never stored ⇒ create).

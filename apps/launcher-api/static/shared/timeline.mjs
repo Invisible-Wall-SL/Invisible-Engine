@@ -69,24 +69,36 @@ export const CUE_KINDS = [
 	{ prefix: 'music:', label: 'Music', color: '#e0a64a', hint: 'a music cue name in the game' },
 	{ prefix: 'signal:', label: 'Signal', color: '#7ee0c0', hint: 'broadcast on the game event bus' },
 ];
-const cueColor = (cue) =>
-	(CUE_KINDS.find((k) => String(cue || '').startsWith(k.prefix)) || {}).color || '#8b93a1';
-/** A cue's namespace (`sfx`, `signal`, …), or '' for a cue without one. */
-const cueNamespace = (cue) => {
+/** The prefix that turns an `sfx:` / `music:` cue into the stop of that sound (`cueSound.ts`). */
+export const CUE_SOUND_STOP_PREFIX = 'stop:';
+/** `cue` without a sound stop's `stop:` prefix (any other cue unchanged). */
+const unstopped = (cue) => {
 	const s = String(cue || '');
+	if (!s.startsWith(CUE_SOUND_STOP_PREFIX)) return s;
+	const rest = s.slice(CUE_SOUND_STOP_PREFIX.length);
+	return /^(sfx|music):/.test(rest) ? rest : s;
+};
+/** Whether `cue` is the stop of a sound: `stop:sfx:<name>` / `stop:music:<name>`. */
+export const isCueSoundStop = (cue) => unstopped(cue) !== String(cue || '');
+const cueColor = (cue) =>
+	(CUE_KINDS.find((k) => unstopped(cue).startsWith(k.prefix)) || {}).color || '#8b93a1';
+/** A cue's namespace (`sfx`, `signal`, …; a stop's is its sound's), or '' for a cue without one. */
+const cueNamespace = (cue) => {
+	const s = unstopped(cue);
 	const sep = s.indexOf(':');
 	return sep > 0 ? s.slice(0, sep) : '';
 };
 const cueName = (cue) => {
-	const s = String(cue || '');
+	const s = unstopped(cue);
 	return s.slice(s.indexOf(':') + 1);
 };
 
 /**
  * SOUND CUE OPTIONS: an `sfx:` / `music:` key may carry a `sound` object beside `cue` (volume,
- * stop, fades, loop, …). This is the editor's copy of the contract the game reads them with,
- * `engine-layout`'s `cueSound.ts` — this file imports nothing — and `check:timeline-cue-sound`
- * holds the two together.
+ * fades, loop, …); a STOP is in the cue string (`stop:sfx:<name>`), so an older runtime that plays
+ * every sound cue never starts what the cue meant to end. This is the editor's copy of the contract
+ * the game reads them with, `engine-layout`'s `cueSound.ts` — this file imports nothing — and
+ * `check:timeline-cue-sound` holds the two together.
  */
 export const CUE_SOUND_RANGES = {
 	volume: [0, 1],
@@ -99,8 +111,9 @@ export const CUE_SOUND_RANGES = {
 	offset: [0, 60000],
 };
 export const CUE_SOUND_FIELDS = {
-	sfx: ['action', 'volume', 'volumeJitter', 'rate', 'rateJitter', 'pan', 'loop', 'fadeIn', 'fadeOut', 'offset', 'overlap', 'pick'], // prettier-ignore
-	music: ['action', 'volume', 'loop', 'fadeIn', 'fadeOut'],
+	sfx: ['volume', 'volumeJitter', 'rate', 'rateJitter', 'pan', 'loop', 'fadeIn', 'offset', 'overlap', 'pick'], // prettier-ignore
+	music: ['volume', 'loop', 'fadeIn'],
+	stop: ['fadeOut'],
 };
 export const CUE_SOUND_MAX_PICK = 8;
 /** What an absent number option means. Writing it deletes the field instead. */
@@ -117,35 +130,50 @@ const CUE_SOUND_DEFAULTS = {
 /** Millisecond options: whole numbers. The rest keep three decimals. */
 const CUE_SOUND_MS = ['fadeIn', 'fadeOut', 'offset'];
 
-/** `sfx` / `music` for a sound cue, else null. */
+/** `sfx` / `music` for a sound cue or its stop, else null. */
 export const cueSoundKind = (cue) => {
 	const ns = cueNamespace(cue);
 	return ns === 'sfx' || ns === 'music' ? ns : null;
 };
 
+/** The options cue `cue` honours: a stop's, or its kind's play; none for any other cue. */
+const cueSoundFields = (cue) => {
+	const kind = cueSoundKind(cue);
+	return kind ? CUE_SOUND_FIELDS[isCueSoundStop(cue) ? 'stop' : kind] : [];
+};
+
+/** Drop from `k.sound` what its cue does not honour (and `sound` itself when nothing is left). */
+export function pruneCueSound(k) {
+	const fields = cueSoundFields(k.cue);
+	const sound = k.sound && typeof k.sound === 'object' ? { ...k.sound } : {};
+	for (const f of Object.keys(sound)) if (!fields.includes(f)) delete sound[f];
+	if (Object.keys(sound).length) k.sound = sound;
+	else delete k.sound;
+}
+
+/**
+ * Make sound cue `k` a stop of its sound (`stop:` prefixed) or a play of it, in place, keeping its
+ * kind and name and only the options the new cue honours.
+ */
+export function setCueSoundStop(k, stop) {
+	if (!cueSoundKind(k.cue) || isCueSoundStop(k.cue) === !!stop) return;
+	const plain = unstopped(k.cue);
+	k.cue = stop ? CUE_SOUND_STOP_PREFIX + plain : plain;
+	pruneCueSound(k);
+}
+
 /**
  * Write one sound option on cue key `k`, in place. A value equal to the field's default, invalid,
- * or not one the cue's kind honours DELETES the field, and an emptied `sound` is deleted, so a cue
- * nobody set an option on stays exactly `{ time, cue }`. A stop cue honours only `fadeOut`, so
- * switching to stop drops the rest and switching back to play drops `fadeOut`. Music's `loop` is
- * an override of the track's own flag, so an explicit `false` stays; `undefined` clears it.
+ * or not one the cue honours (`CUE_SOUND_FIELDS`, a stop's when it is one) DELETES the field, and
+ * an emptied `sound` is deleted, so a cue nobody set an option on stays exactly `{ time, cue }`.
+ * An SFX `loop` is only ever `true`; music's overrides the track's own flag, so an explicit `false`
+ * stays and `undefined` clears it.
  */
 export function setCueSoundOption(k, field, value) {
 	const kind = cueSoundKind(k.cue);
-	if (!kind || !CUE_SOUND_FIELDS[kind].includes(field)) return;
+	if (!kind || !cueSoundFields(k.cue).includes(field)) return;
 	const sound = k.sound && typeof k.sound === 'object' ? { ...k.sound } : {};
-	const stop = sound.action === 'stop';
-	if (field === 'action') {
-		if (value === 'stop') {
-			for (const f of Object.keys(sound)) if (f !== 'fadeOut') delete sound[f];
-			sound.action = 'stop';
-		} else {
-			delete sound.action;
-			delete sound.fadeOut;
-		}
-	} else if (field === 'fadeOut' ? !stop : stop) {
-		return;
-	} else if (field === 'pick') {
+	if (field === 'pick') {
 		const names = (Array.isArray(value) ? value : [])
 			.map((n) => String(n).trim())
 			.filter((n, i, all) => n && all.indexOf(n) === i)
@@ -164,8 +192,8 @@ export function setCueSoundOption(k, field, value) {
 		if (!Number.isFinite(rounded) || rounded === CUE_SOUND_DEFAULTS[field]) delete sound[field];
 		else sound[field] = rounded;
 	}
-	if (Object.keys(sound).length) k.sound = sound;
-	else delete k.sound;
+	k.sound = sound;
+	pruneCueSound(k);
 }
 
 /** What a cue-option control holds, as the value `setCueSoundOption` takes (empty ⇒ undefined). */
@@ -173,7 +201,6 @@ function cueOptionInput(node, field) {
 	const raw = node.value;
 	if (node.type === 'checkbox') return node.checked;
 	if (field === 'pick') return raw.split(',');
-	if (field === 'action') return raw;
 	if (raw === '') return undefined;
 	return field === 'loop' ? raw === 'true' : parseFloat(raw);
 }
@@ -182,13 +209,13 @@ function cueOptionInput(node, field) {
 export function cueSoundHint(k) {
 	const kind = cueSoundKind(k.cue);
 	if (!kind) return '';
+	const name = cueName(k.cue) || '?';
+	if (isCueSoundStop(k.cue)) return '⏹ ' + name;
 	const s = k.sound && typeof k.sound === 'object' ? k.sound : {};
-	const parts = [s.action === 'stop' ? '⏹' : kind === 'music' ? '🎵' : '🔊', cueName(k.cue) || '?'];
-	if (s.action !== 'stop') {
-		if (typeof s.volume === 'number') parts.push(Math.round(s.volume * 100) + '%');
-		if (s.loop === true) parts.push('🔁');
-		if (Array.isArray(s.pick) && s.pick.length) parts.push('+' + s.pick.length);
-	}
+	const parts = [kind === 'music' ? '🎵' : '🔊', name];
+	if (typeof s.volume === 'number') parts.push(Math.round(s.volume * 100) + '%');
+	if (s.loop === true) parts.push('🔁');
+	if (Array.isArray(s.pick) && s.pick.length) parts.push('+' + s.pick.length);
 	return parts.join(' ');
 }
 
@@ -2041,8 +2068,28 @@ ${dots}${handles}</svg>`;
 			// Another kind honours other options (a signal none), so the old ones go with the kind.
 			if (cueNamespace(value) !== cueNamespace(k.cue)) delete k.sound;
 			k.cue = value;
+			if (k.sound) pruneCueSound(k);
 		}
 		commit('edit cue', 'cue:' + keyTime + ':' + field);
+		render();
+		renderTimeline();
+	}
+
+	/** A sound cue `value` the selected cue becomes from a picker: still a stop when it was one. */
+	const keepStop = (value) => {
+		const k = selectedCue();
+		return k && isCueSoundStop(k.cue) && cueSoundKind(value) && !isCueSoundStop(value)
+			? CUE_SOUND_STOP_PREFIX + value
+			: value;
+	};
+
+	/** Play ⇄ stop on the selected sound cue (`setCueSoundStop`), as one undo step. */
+	function setCueStop(keyTime, stop) {
+		const track = cueTrack();
+		const k = track && track.keys.find((x) => Math.abs(x.time - keyTime) < 1e-6);
+		if (!k || isCueSoundStop(k.cue) === stop) return;
+		setCueSoundStop(k, stop);
+		commit('edit cue', 'cue:' + keyTime + ':stop');
 		render();
 		renderTimeline();
 	}
@@ -2481,7 +2528,7 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 			fxEffects.some((e) => 'fx:' + e.id === cur) ||
 			suggested.some((x) => x.cue === cur) ||
 			named.listed;
-		const typed = !!cur && !known && !CUE_KINDS.some((k) => k.prefix === cur);
+		const typed = !!cur && !known && !CUE_KINDS.some((k) => k.prefix === unstopped(cur));
 		const head = known
 			? '— change to —'
 			: typed
@@ -2570,7 +2617,10 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 		if (!groups.length) return { markup: '', note: '', listed: false };
 		const kind = cueSoundKind(cur);
 		const name = cueName(cur);
-		const hit = groups.flatMap((g) => g.options).find((o) => o.value === cur);
+		// A stop lists its sound's names: the picker renames it and the stop stays.
+		const plain = unstopped(cur);
+		const stop = isCueSoundStop(cur);
+		const hit = groups.flatMap((g) => g.options).find((o) => o.value === plain);
 		const head = hit
 			? '— change to —'
 			: name
@@ -2579,13 +2629,12 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 		const opts = groups
 			.map(
 				(g) =>
-					`<optgroup label="${esc(g.label)}">${g.options.map((o) => `<option value="${esc(o.value)}"${o.value === cur ? ' selected' : ''}>${esc(o.text)}</option>`).join('')}</optgroup>`,
+					`<optgroup label="${esc(g.label)}">${g.options.map((o) => `<option value="${esc(o.value)}"${o.value === plain ? ' selected' : ''}>${esc(o.text)}</option>`).join('')}</optgroup>`,
 			)
 			.join('');
-		const stop = sel.sound && sel.sound.action === 'stop';
 		let play = '';
 		if (kind && host.auditionSound && !stop) {
-			const on = host.auditioning() === cur;
+			const on = host.auditioning() === plain;
 			play =
 				hit && hit.playable
 					? `<button type="button" id="cineCueAudition" title="${on ? 'Stop listening' : 'Listen — at this cue’s volume, rate and loop'}">${on ? '■' : '▶'}</button>`
@@ -2608,14 +2657,15 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 	}
 
 	/**
-	 * A sound cue's OPTIONS, stored in its key's `sound` (`setCueSoundOption`): play or stop, and
-	 * what each honours. An empty field shows the default as its placeholder and stores nothing.
+	 * A sound cue's OPTIONS, stored in its key's `sound` (`setCueSoundOption`), under its play /
+	 * stop switch (the `stop:` prefix, `setCueSoundStop`). An empty field shows the default as its
+	 * placeholder and stores nothing.
 	 */
 	function cueSoundMarkup(sel) {
 		const kind = cueSoundKind(sel.cue);
 		if (!kind) return '';
 		const s = sel.sound && typeof sel.sound === 'object' ? sel.sound : {};
-		const stop = s.action === 'stop';
+		const stop = isCueSoundStop(sel.cue);
 		const num = (field, label, step, title) => {
 			const [lo, hi] = CUE_SOUND_RANGES[field];
 			const v = typeof s[field] === 'number' ? s[field] : '';
@@ -2623,7 +2673,7 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 		};
 		const check = (field, label, title) =>
 			`<label title="${esc(title)}"><input type="checkbox" data-cueopt="${field}"${s[field] === true ? ' checked' : ''}>${label}</label>`;
-		const action = `<label title="Play the sound, or stop it where an earlier play cue started it.">do<select data-cueopt="action"><option value="play"${stop ? '' : ' selected'}>▶ play</option><option value="stop"${stop ? ' selected' : ''}>⏹ stop</option></select></label>`;
+		const action = `<label title="Play the sound, or stop it where an earlier play cue started it.">do<select data-cuestop><option value="play"${stop ? '' : ' selected'}>▶ play</option><option value="stop"${stop ? ' selected' : ''}>⏹ stop</option></select></label>`;
 		const volume = num(
 			'volume',
 			'volume',
@@ -2687,7 +2737,7 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 				: '';
 			note += s.loop ? 'A looping sound plays until a ⏹ stop cue names it.' : '';
 		}
-		const set = Object.keys(s).filter((f) => f !== 'action').length;
+		const set = Object.keys(s).length;
 		return `
 <div class="cineHead" style="border-top:1px solid var(--line);"><b>${kind === 'music' ? '🎵 Music' : '🔊 Sound'}</b><small>${stop ? 'stop' : set ? set + ' option' + (set === 1 ? '' : 's') + ' set' : 'as the plain cue'}</small></div>
 <div class="cineStripInsp">${action}${fields}</div>${note ? `<div class="cineNote">${note}</div>` : ''}`;
@@ -3012,7 +3062,7 @@ ${actions}	<button id="cineDupStrip" title="Copy this strip in right after itsel
 		const cuePick = q('#cineCuePick');
 		if (cuePick)
 			cuePick.onchange = (e) => {
-				const v = e.target.value;
+				const v = keepStop(e.target.value);
 				if (!v || selCueTime === null) return;
 				if (v.endsWith(':') && !cueNameGroups(v).length) {
 					// A KIND, not a value. Committing a bare `sfx:` would only make an unfirable cue, so
@@ -3039,7 +3089,13 @@ ${actions}	<button id="cineDupStrip" title="Copy this strip in right after itsel
 		const cueNamePick = q('#cineCueName');
 		if (cueNamePick)
 			cueNamePick.onchange = (e) => {
-				if (e.target.value && selCueTime !== null) setCueField(selCueTime, 'cue', e.target.value);
+				if (e.target.value && selCueTime !== null)
+					setCueField(selCueTime, 'cue', keepStop(e.target.value));
+			};
+		const stopPick = q('[data-cuestop]');
+		if (stopPick)
+			stopPick.onchange = (e) => {
+				if (selCueTime !== null) setCueStop(selCueTime, e.target.value === 'stop');
 			};
 		const pickAdd = q('#cineCuePickAdd');
 		if (pickAdd)

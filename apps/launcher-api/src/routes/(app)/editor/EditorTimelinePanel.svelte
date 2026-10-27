@@ -422,6 +422,8 @@
 	let auditionPlayer: HTMLAudioElement | null = null;
 	/** The `sfx:` / `music:` cue playing now, or null. */
 	let auditionCue: string | null = null;
+	/** Bumped by every ▶, so a superseded play's late `ended` / rejection is ignored. */
+	let auditionRun = 0;
 
 	function stopAudition(): void {
 		auditionPlayer?.pause();
@@ -445,7 +447,11 @@
 		stopAudition();
 		if (again || !entry) return;
 		const player = (auditionPlayer ??= new Audio());
+		// Only this play's own end or refusal settles: a newer ▶ must not be cleared by the
+		// rejection of the play it interrupted.
+		const run = ++auditionRun;
 		const settle = () => {
+			if (run !== auditionRun) return;
 			auditionCue = null;
 			tl?.renderInspector();
 		};

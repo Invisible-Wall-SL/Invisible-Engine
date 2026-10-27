@@ -121,7 +121,6 @@ export type CueSoundKind = 'sfx' | 'music';
 
 /** A sound cue's options, stored in its key's `sound` — `engine-layout`'s `CueSoundOptions`. */
 export interface CueSoundOptions {
-	action?: 'stop';
 	volume?: number;
 	volumeJitter?: number;
 	rate?: number;
@@ -278,9 +277,18 @@ export const CUE_SOUND_RANGES: Record<
 	'volume' | 'volumeJitter' | 'rate' | 'rateJitter' | 'pan' | 'fadeIn' | 'fadeOut' | 'offset',
 	[number, number]
 >;
-export const CUE_SOUND_FIELDS: Record<CueSoundKind, (keyof CueSoundOptions)[]>;
+/** The options each cue honours: a play of each kind, and a stop (`stop:sfx:` / `stop:music:`). */
+export const CUE_SOUND_FIELDS: Record<CueSoundKind | 'stop', (keyof CueSoundOptions)[]>;
+/** The prefix that makes a sound cue the stop of that sound. */
+export const CUE_SOUND_STOP_PREFIX: 'stop:';
+/** Whether `cue` is the stop of a sound (`stop:sfx:<name>` / `stop:music:<name>`). */
+export function isCueSoundStop(cue: unknown): boolean;
+/** Make a sound cue its sound's stop, or a play of it, keeping only the options it then honours. */
+export function setCueSoundStop(key: TimelineCueKey, stop: boolean): void;
+/** Drop from `key.sound` the options its cue does not honour. */
+export function pruneCueSound(key: TimelineCueKey): void;
 export const CUE_SOUND_MAX_PICK: number;
-/** `sfx` / `music` for a sound cue, else null. */
+/** `sfx` / `music` for a sound cue or its stop, else null. */
 export function cueSoundKind(cue: unknown): CueSoundKind | null;
 /** Write one option on a sound cue key in place; a default or invalid value deletes the field,
  *  an emptied `sound` is deleted. */
