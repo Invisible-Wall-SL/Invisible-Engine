@@ -62,6 +62,11 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   others, and Pause / Play stop and re-arm every layer. The plan, its eight PRs and
   their state live in [design/shader-graph-particles.md](../design/shader-graph-particles.md) and
   [status/shader-graph](shader-graph.md) (step 8d).
+- **The Scene Editor's overlay ignores layer triggers** (`EditorEffectLayer`): every free layer
+  emits while playing, so an `on: 'event'` layer emits continuously where the game keeps it
+  dormant until its event, and `trigger.duration` / `stopEventType` are not applied (the game's
+  `EffectLayer.svelte` does). Bone layers are skipped (by design, in its header). Its speed matches
+  the game since 2026-10-27.
 - **Owner browser-pass over Element FX** (2026-10-21) — in `/editor` add a few effects to a rig,
   a flipbook, a particle effect node, the reel grid and a screen (Screen panel), ▶ preview each,
   and Save → reopen. Then in a published game: an *Always* float / glow / flag on a node, a *When
@@ -131,6 +136,13 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-27 — **The Scene Editor plays effects at game speed** (branch
+  `claude/shader-graph-step8d6-clock`). `EditorEffectLayer` (the Scene and Component Editor
+  overlay) advanced its emitters by `ticker.deltaMS / 1000`, wall-clock seconds, where the game,
+  `/fx` and the Rigger / Symbols overlay use `engine-fx`'s `emitterDeltaSeconds`
+  (`deltaMS × DEFAULT_EMIT_SPEED`, 0.00234). Every effect there ran about 2.3× slower than in the
+  game. It now uses the same helper; the effect-level `timeScale` still applies on top. Found in
+  the Shader Graph 8d.6 review.
 - 2026-10-24 — **Assemble from particles plays on the live element; the editor's Element FX preview
   plays on the live screen** (branch `claude/magical-curie-th1axi`). Owner report on
   `commonoverlayproject`: an Element FX cued on the base-game intro (Assemble, then Wobble and
