@@ -6,6 +6,7 @@
  *
  * Keys with Ctrl/⌘ belong to the page (undo, clipboard, save), so only ⌘0 / Ctrl+0 is taken here.
  */
+import { TILEMAP_TOOLS } from './tilemapEdit';
 
 export type StageAction =
 	| { kind: 'selectParent' }
@@ -133,6 +134,11 @@ export const SHORTCUT_SHEET: { group: string; rows: ShortcutRow[] }[] = [
 			{ keys: ['Tab'], does: 'Toggle Design / Animate' },
 			{ keys: ['Shift', '/'], does: 'This sheet' },
 		],
+	},
+	{
+		// The canvas reads these through `tilemapToolForKey`, only while a tilemap is selected.
+		group: 'Tilemap paint (a tilemap selected)',
+		rows: TILEMAP_TOOLS.map((t) => ({ keys: [t.key], does: `${t.label}: ${t.does}` })),
 	},
 	{
 		group: 'Edit (Screens, Design)',

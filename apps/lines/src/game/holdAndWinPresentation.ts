@@ -82,7 +82,11 @@ import {
 import { hideWheel, showWheel, spinWheelTo, wheelSegments } from './holdAndWinWheel.svelte';
 import { armLuckySpinReveal } from './luckySpin';
 import { respinCellStopAuthored, respinHeldState } from './respinLanding';
-import { playSymbolLandSound } from './soundBindings';
+import {
+	playSymbolLandSound,
+	playTokenPotArriveSound,
+	playTokenTakeOffSound,
+} from './soundBindings';
 import { getSymbolSeat, stateGame } from './stateGame.svelte';
 import { meterLevelBefore, stateHoldAndWin, stateHoldAndWinShown } from './stateHoldAndWin.svelte';
 import { leavingToken, liftToken, overlayTokenSymbol } from './stateOverlay.svelte';
@@ -376,10 +380,14 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 							index,
 							symbol: overlayTokenSymbol(token),
 							symbolScale: getSymbolSeat(token.reel, token.row).scale,
-							onStart: () => liftToken(token),
+							onStart: () => {
+								liftToken(token);
+								playTokenTakeOffSound(token.token);
+							},
 						}
 					: { index },
 			);
+			if (token) playTokenPotArriveSound(token.token);
 			unlight();
 			const from = reached;
 			reached = Math.min(event.level, reached + 1);

@@ -546,3 +546,233 @@ export function nearestDistance(path, x, y) {
 	}
 	return path.closed && best >= length ? 0 : best;
 }
+
+/** A tile's solidity code in a {@link TileGrid}'s `cells`: empty, solid on every side, or solid
+ *  only from above while falling. */
+export const TILE_NONE = 0;
+export const TILE_SOLID = 1;
+export const TILE_ONE_WAY = 2;
+
+/** The solidity names, by code. */
+export const TILE_SOLIDITY = ['none', 'solid', 'oneWay'];
+
+/** The most sub-steps one {@link stepPlatform} call divides a step into. */
+export const MAX_SUB_STEPS = 64;
+
+/**
+ * The tiles of a grid a box touches, as box bodies: solid tiles carry `solid: true`, one-way tiles
+ * `oneWay: true`, in row-major order. A grid is `{ x, y, tileW, tileH, cols, rows, cells }`: its
+ * top-left in field px, a tile's size, and one solidity code per tile, row by row.
+ */
+export function tilesIn(grid, box) {
+	const { tileW, tileH, cols, rows, cells } = grid;
+	if (!(tileW > 0 && tileH > 0)) return [];
+	const c0 = Math.max(0, Math.floor((box.x0 - grid.x) / tileW));
+	const c1 = Math.min(cols - 1, Math.floor((box.x1 - grid.x) / tileW));
+	const r0 = Math.max(0, Math.floor((box.y0 - grid.y) / tileH));
+	const r1 = Math.min(rows - 1, Math.floor((box.y1 - grid.y) / tileH));
+	const out = [];
+	for (let r = r0; r <= r1; r++) {
+		for (let c = c0; c <= c1; c++) {
+			const code = cells[r * cols + c];
+			if (code !== TILE_SOLID && code !== TILE_ONE_WAY) continue;
+			out.push({
+				id: `tile:${c},${r}`,
+				shape: 'box',
+				x: grid.x + (c + 0.5) * tileW,
+				y: grid.y + (r + 0.5) * tileH,
+				w: tileW,
+				h: tileH,
+				vx: 0,
+				vy: 0,
+				tags: [],
+				...(code === TILE_SOLID ? { solid: true } : { oneWay: true }),
+			});
+		}
+	}
+	return out;
+}
+
+/** The vertical move and the velocity after `dt` under gravity `g`, capped at `maxFall`: exact for
+ *  a constant pull, so a jump's apex and height land where its settings put them. */
+function fall(vy, g, maxFall, dt) {
+	const cap = maxFall > 0 ? maxFall : Infinity;
+	if (!(g > 0)) return { dy: vy * dt, vy };
+	if (vy >= cap) return { dy: cap * dt, vy: cap };
+	const until = (cap - vy) / g;
+	if (until >= dt) return { dy: vy * dt + 0.5 * g * dt * dt, vy: vy + g * dt };
+	return { dy: vy * until + 0.5 * g * until * until + cap * (dt - until), vy: cap };
+}
+
+const smallestSide = (body) => {
+	const { hw, hh } = halfSize(body);
+	return Math.min(hw, hh) * 2;
+};
+
+/** How many times {@link settleOut} may step past what blocks it in one direction. */
+const SETTLE_PASSES = 16;
+
+/**
+ * Move a body that is inside solids it did not move into (a spawn or a `moveTo` into painted
+ * ground) out by the shortest way: in each direction it is stepped past every solid it penetrates
+ * until it is free (a block of tiles is crossed tile by tile), and the shortest free direction wins;
+ * a tie prefers up, then left, right, down. The way is measured from `from`, where the body began
+ * its step, so this step's fall does not tip a tie downwards. Returns the move `{ x, y }` (both 0
+ * when it was free).
+ */
+function settleOut(body, solidsNear, from) {
+	const inSolid = () => solidsNear(aabbOf(body)).filter((b) => penetrates(aabbOf(body), aabbOf(b)));
+	if (!inSolid().length) return { x: 0, y: 0 };
+	const { x, y } = body;
+	const { hw, hh } = halfSize(body);
+	const tries = [
+		['y', -1],
+		['x', -1],
+		['x', 1],
+		['y', 1],
+	].map(([axis, dir]) => {
+		body.x = x;
+		body.y = y;
+		for (let pass = 0; pass < SETTLE_PASSES; pass++) {
+			const blocking = inSolid();
+			if (!blocking.length)
+				return { axis, at: body[axis], cost: Math.abs(body[axis] - from[axis]) };
+			const edges = blocking.map((b) => aabbOf(b));
+			body[axis] =
+				axis === 'x'
+					? dir < 0
+						? Math.min(...edges.map((e) => e.x0)) - hw
+						: Math.max(...edges.map((e) => e.x1)) + hw
+					: dir < 0
+						? Math.min(...edges.map((e) => e.y0)) - hh
+						: Math.max(...edges.map((e) => e.y1)) + hh;
+		}
+		return { axis, at: body[axis], cost: Infinity };
+	});
+	body.x = x;
+	body.y = y;
+	const best = tries.reduce((a, b) => (b.cost < a.cost ? b : a));
+	if (!Number.isFinite(best.cost)) return { x: 0, y: 0 };
+	body[best.axis] = best.at;
+	return { x: body.x - x, y: body.y - y };
+}
+
+/**
+ * Move one body for `dt` seconds under gravity, against solids, one-way platforms and tiles
+ * (§4.4, P10.13). `vy` grows by `gravity` (px/s²) up to `maxFall` (px/s), integrated exactly. The
+ * move is cut into sub-steps no longer than half the thinnest thing it can meet (the body, a tile,
+ * a solid or platform), at most {@link MAX_SUB_STEPS}, so a fall at `maxFall` never passes through a
+ * thin tile. Each sub-step resolves x then y, as {@link stepSolid} does: a solid stops it from every
+ * side; a `oneWay` body or tile only from above, while it falls, and only when its bottom was at or
+ * above the platform's top before that sub-step. Then the field's edges; under `clamp` the field's
+ * floor and ceiling stop it like a solid.
+ *
+ * Returns `{ hitX, hitY, grounded, onWall }`: `grounded` when a fall was stopped from below this
+ * step (a body resting on the ground is pulled into it and stopped every step), `onWall` when its
+ * horizontal move was stopped. With `gravity` 0 and nothing one-way it moves as {@link stepSolid},
+ * in sub-steps.
+ */
+export function stepPlatform(body, dt, options = {}) {
+	const { solids = [], tiles = [], field } = options;
+	const start = { x: body.x, y: body.y };
+	const others = solids.filter((s) => s !== body && (s.solid === true || s.oneWay === true));
+	const g = Number.isFinite(options.gravity) && options.gravity > 0 ? options.gravity : 0;
+	const vertical = fall(body.vy || 0, g, options.maxFall, dt);
+	const dx = (body.vx || 0) * dt;
+	const dy = vertical.dy;
+	body.vy = vertical.vy;
+	const reach = aabbOf(body);
+	const along = {
+		x0: Math.min(reach.x0, reach.x0 + dx) - 1,
+		y0: Math.min(reach.y0, reach.y0 + dy) - 1,
+		x1: Math.max(reach.x1, reach.x1 + dx) + 1,
+		y1: Math.max(reach.y1, reach.y1 + dy) + 1,
+	};
+	let thinnest = smallestSide(body) || Infinity;
+	for (const s of others)
+		if (boxesTouch(aabbOf(s), along)) thinnest = Math.min(thinnest, smallestSide(s));
+	for (const grid of tiles) thinnest = Math.min(thinnest, grid.tileW, grid.tileH);
+	const limit = Number.isFinite(thinnest) ? Math.max(thinnest / 2, 0.5) : Infinity;
+	const longest = Math.max(Math.abs(dx), Math.abs(dy));
+	const n = Number.isFinite(limit)
+		? Math.min(Math.max(Math.ceil(longest / limit), 1), MAX_SUB_STEPS)
+		: 1;
+	let hitX = false;
+	let hitY = false;
+	let grounded = false;
+	const nearby = (box) => {
+		const found = [...others];
+		for (const grid of tiles) found.push(...tilesIn(grid, box));
+		return found;
+	};
+	const swept = (sx, sy) => {
+		const box = aabbOf(body);
+		return {
+			x0: Math.min(box.x0, box.x0 + sx) - 1,
+			y0: Math.min(box.y0, box.y0 + sy) - 1,
+			x1: Math.max(box.x1, box.x1 + sx) + 1,
+			y1: Math.max(box.y1, box.y1 + sy) + 1,
+		};
+	};
+	const sx = dx / n;
+	const sy = dy / n;
+	for (let i = 0; i < n; i++) {
+		const near = nearby(swept(sx, sy));
+		const walls = near.filter((s) => s.solid === true);
+		if (sx !== 0) {
+			const before = inside(body, walls);
+			body.x += sx;
+			if (pushBack(body, walls, 'x', sx, before)) {
+				hitX = true;
+				body.vx = 0;
+			}
+		}
+		if (sy !== 0) {
+			const bottom = aabbOf(body).y1;
+			const before = inside(body, walls);
+			body.y += sy;
+			if (pushBack(body, walls, 'y', sy, before)) {
+				hitY = true;
+				if (sy > 0) grounded = true;
+				body.vy = 0;
+			}
+			if (sy > 0) {
+				const { hh } = halfSize(body);
+				for (const platform of near) {
+					if (platform.oneWay !== true || platform.solid === true) continue;
+					const top = aabbOf(platform).y0;
+					if (bottom > top + SOLID_EPSILON) continue;
+					if (!penetrates(aabbOf(body), aabbOf(platform))) continue;
+					body.y = top - hh;
+					hitY = true;
+					grounded = true;
+					body.vy = 0;
+				}
+			}
+		}
+	}
+	const out = settleOut(body, (box) => nearby(box).filter((b) => b.solid === true), start);
+	if (out.x !== 0) {
+		if ((body.vx || 0) * out.x < 0) body.vx = 0;
+		hitX = true;
+	}
+	if (out.y !== 0) {
+		if ((body.vy || 0) * out.y < 0) body.vy = 0;
+		if (out.y < 0 && dy > 0) grounded = true;
+		hitY = true;
+	}
+	if (field && (body.edges ?? 'clamp') === 'clamp') {
+		const { x, y } = body;
+		holdToField(body, field);
+		if (body.x !== x) {
+			hitX = true;
+			body.vx = 0;
+		}
+		if (body.y !== y) {
+			hitY = true;
+			if (body.y < y && dy > 0) grounded = true;
+			body.vy = 0;
+		}
+	} else holdToField(body, field);
+	return { hitX, hitY, grounded, onWall: hitX };
+}

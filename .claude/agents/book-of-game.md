@@ -28,8 +28,10 @@ the one genuinely Book-of-specific behaviour.
   runs.
 - **Live game:** the **Book of Borut remake** — online project `invisible_wall/bookofborutremake`,
   a `runtime:lines` game authored in the tools. Playbook: `docs/playtest/borut-remake.md`.
-- **New titles:** create the project online on the `bookOf` template and re-activate the Book-of
-  pieces via config (do NOT hand-copy the engine). A desktop build or partner delivery gets a thin
+- **New titles:** the `bookOf` kind is retired. Create a **Lines** project in Game Maker with the
+  **Book of Thermopylae** preset (`LINES_PRESET_IDS` in
+  `apps/launcher-api/src/lib/server/gameConfigDefaults.ts`); the Book-of pieces come from its
+  config (`docs/design/book-feature.md`). Do NOT hand-copy the engine. A desktop build or partner delivery gets a thin
   repo from the desktop launcher's 🏗 Scaffold (or `node scripts/new-game.mjs --name "…"`).
 
 ## The reference build is a COPY of Book of Thermopylae

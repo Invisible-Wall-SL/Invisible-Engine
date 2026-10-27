@@ -71,6 +71,7 @@ for (const kind of [
 	'repeater',
 	'spawnLayer',
 	'path',
+	'tilemap',
 ]) {
 	assert(kinds.has(kind), `LAYOUT_NODE_KINDS carries "${kind}"`);
 }

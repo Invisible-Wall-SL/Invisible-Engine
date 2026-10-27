@@ -23,8 +23,10 @@
 import { GAME_FAMILIES, familyOfKind } from '../constants-shared/gameKinds.ts';
 import {
 	CONFIG_FAMILIES,
+	ARCADE_ONLINE_DEFAULTS,
 	DEFAULT_ARCADE_FIXED_HZ,
 	normalizeArcade,
+	resolveArcadeOnline,
 	normalizeMatch3,
 	resolveArcade,
 	resolveFamily,
@@ -390,6 +392,115 @@ check('arcade', sections('arcade', 'rules'), ['arcade']);
 check('pays show for a slot', configShowsPays({}), true);
 check('…and a match-3 RGS game', configShowsPays({ family: 'match3' }), true);
 check('…but not a rules game', configShowsPays({ family: 'match3', outcome: 'rules' }), false);
+
+console.log('\n4c. an online arcade game (P10.14)');
+const ONLINE_BODIES = { salmon: { shape: 'circle', r: 20, tags: ['player'] } };
+const online = (block: Record<string, unknown>, field: unknown = { w: 800, h: 600 }) =>
+	normalize({ ...ARCADE, arcade: { field, bodies: ONLINE_BODIES, online: block } });
+const swimmers = [{ id: 'salmon', body: 'salmon', speed: 200 }];
+check(
+	'defaults are dropped and the block round-trips',
+	online({ characters: swimmers, ...ARCADE_ONLINE_DEFAULTS }).arcade?.online,
+	{ characters: swimmers },
+);
+check(
+	'a bad character is dropped; a repeated id keeps the first',
+	online({
+		characters: [
+			{ id: 'salmon', body: 'salmon', speed: 200, max: 3 },
+			{ id: 'salmon', body: 'salmon', speed: 90 },
+			{ id: 'bear', body: 'bear' },
+			{ id: '', body: 'x', speed: 1 },
+		],
+	}).arcade?.online?.characters,
+	[{ id: 'salmon', body: 'salmon', speed: 200, max: 3 }],
+);
+check('an empty object is still online', online({}).arcade?.online, { characters: [] });
+check(
+	'resolve: defaults, the spawn at the field centre',
+	resolveArcadeOnline(online({ characters: swimmers }), { w: 800, h: 600 }),
+	{
+		maxPlayers: 16,
+		characters: swimmers,
+		tickHz: 30,
+		subSteps: 2,
+		patchHz: 20,
+		rejoinSeconds: 60,
+		spawn: { x: 400, y: 300 },
+		layer: 'field',
+	},
+);
+check(
+	'resolve: every number held to the limits, the state rate to the step rate',
+	resolveArcadeOnline(
+		online({
+			characters: [{ id: 'salmon', body: 'salmon', speed: 99999 }],
+			maxPlayers: 5000,
+			tickHz: 240,
+			subSteps: 50,
+			patchHz: 200,
+			rejoinSeconds: 3600,
+		}),
+		{ w: 800, h: 600 },
+	),
+	{
+		maxPlayers: 100,
+		characters: [{ id: 'salmon', body: 'salmon', speed: 5000 }],
+		tickHz: 60,
+		subSteps: 4,
+		patchHz: 60,
+		rejoinSeconds: 60,
+		spawn: { x: 400, y: 300 },
+		layer: 'field',
+	},
+);
+check('resolve: not online', resolveArcadeOnline(normalize(ARCADE), { w: 1, h: 1 }), undefined);
+check(
+	'an online game with a field and a character is clean',
+	paths(online({ characters: swimmers })),
+	[],
+);
+check(
+	'online needs a field, a character, and a body for each',
+	paths(
+		normalize({
+			...ARCADE,
+			arcade: {
+				bodies: ONLINE_BODIES,
+				online: { characters: [{ id: 'bear', body: 'bear', speed: 100 }] },
+			},
+		}),
+		'error',
+	),
+	['arcade.field', 'arcade.online.characters[0]'],
+);
+check('…and no character at all', paths(online({}), 'error'), ['arcade.online.characters']);
+check(
+	'P10.11 characters on an online game warn: they do not run in a room',
+	paths(
+		normalize({
+			...ARCADE,
+			arcade: {
+				field: { w: 800, h: 600 },
+				bodies: ONLINE_BODIES,
+				characters: [{ id: 'guard', component: 'guardLook' }],
+				online: { characters: swimmers },
+			},
+		}),
+		'warning',
+	),
+	['arcade.characters'],
+);
+check(
+	'out-of-range rates warn',
+	paths(online({ characters: swimmers, maxPlayers: 500, tickHz: 30, patchHz: 40 }), 'warning'),
+	['arcade.online.maxPlayers', 'arcade.online.patchHz'],
+);
+check(
+	'a slot keeps no online block',
+	normalize({ ...SLOT, arcade: { online: { characters: swimmers } } }).arcade,
+	undefined,
+);
 
 console.log('\n5. one family list');
 check('the config families are the kind families', [...CONFIG_FAMILIES], [...GAME_FAMILIES]);

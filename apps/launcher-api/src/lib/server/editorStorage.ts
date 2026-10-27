@@ -6,6 +6,7 @@ import {
 	LAYOUT_NODE_KINDS,
 	isSceneRole,
 	normalizePathNode,
+	normalizeTilemapNode,
 	withoutEditorGuides,
 	type GameJurisdiction,
 	type GameSettings,
@@ -394,6 +395,8 @@ function normalizeNode(input: unknown): LayoutNode | null {
 	if (typeof input.id !== 'string' || !input.id) return null;
 	// A path is walked by a brain, so one it could not walk (under two points) is dropped.
 	if (kind === 'path') return normalizePathNode(input) ?? null;
+	// A tilemap's tiles must index its tileset and fill its grid, or the loop would read past it.
+	if (kind === 'tilemap') return normalizeTilemapNode(input) ?? null;
 	// Preserve forward-compatible fields by trusting the validated kind+id; the
 	// engine layer is the source of truth for per-kind field semantics.
 	return input as unknown as LayoutNode;

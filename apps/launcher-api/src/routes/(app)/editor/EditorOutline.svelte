@@ -276,6 +276,8 @@
 				return '⊕';
 			case 'path':
 				return '⤳';
+			case 'tilemap':
+				return '▤';
 			case 'flipbook':
 				return '🎞';
 			case 'effect':

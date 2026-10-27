@@ -3,20 +3,30 @@ import {
 	controllerVelocity,
 	createBrain,
 	createBrainWorld,
+	createJumpState,
 	createRng,
+	JUMP_ACTION,
+	jumpProfile,
 	samplePath,
 	setBrainState,
 	steer,
 	step,
 	stepBrain,
+	stepFlap,
+	stepHop,
+	stepJump,
+	stepPlatform,
 	stepSolid,
 	type Body,
 	type Brain,
 	type BrainSpawn,
 	type ControllerInput,
 	type Field,
+	type JumpState,
+	type Movement,
 	type PathSpec,
 	type SampledPath,
+	type TileGrid,
 } from 'engine-mechanics';
 import type { SpawnedInstance } from 'engine-flow-v2';
 import type { ArcadeBody, ArcadeCharacter } from 'game-config';
@@ -36,6 +46,15 @@ import type { ArcadeBody, ArcadeCharacter } from 'game-config';
  * Who drives: a character with a controller is played, unless Flow handed it to its brain
  * (`setCharacterControl`, a bot); one with only a brain runs it; one with neither moves only as
  * Flow's `setVelocity` says. Every brain draws from its own seeded stream, so a seed replays.
+ *
+ * GRAVITY, JUMPS AND LEVELS (§4.4, P10.13). A character with `movement.gravity`, a `gravity` jump
+ * or a `flap` controller falls: only its `vx` is steered, its `vy` belongs to the pull, the jump
+ * (`jumps.js` `stepJump`: height and time, hold, coyote time, buffer) or the flap. A `topDown`
+ * character with a `hop` leaves the ground plane on a height arc; while it is up it passes over
+ * `ground` bodies. Such characters, and every character once the level has tiles, move with
+ * `stepPlatform` (one-way platforms, tiles, sub-steps); the rest keep P10.11's `stepSolid`, so a
+ * level with neither replays as before. A jump reads the `jump` action (a `sideScroll` and a flap
+ * also `up`), or a pointer pressed above the body (a flap: any press).
  */
 
 /** What the game gives the stage. Every member is optional: a gate gives what it tests. */
@@ -50,6 +69,8 @@ export interface ArcadeCharacterIo {
 	setInstanceInput?(instanceId: string, input: string, value: unknown): void;
 	/** Spawn `componentId` into `layer` at (x, y) for a `shootAt`; the new instance's id, if spawned. */
 	spawn?(layer: string, componentId: string, x: number, y: number): string | undefined;
+	/** The level's tiles in field px (the play field's `tilemap` nodes, P10.13). */
+	tiles?(): readonly TileGrid[];
 }
 
 /** Who drives a character: its controller (the player) or its brain. */
@@ -76,6 +97,15 @@ interface Actor {
 	facing: 1 | -1;
 	/** What its look was last given, by input. */
 	written: Map<string, unknown>;
+	/** How it moves: P10.11's solid step, the platform step, or a hop on the plane. */
+	physics: 'solid' | 'platform' | 'hop';
+	/** The jump, flap or hop clocks (P10.13). */
+	jump: JumpState;
+	/** The pull the next move falls by, px/s². */
+	gravity: number;
+	/** What the last move said. */
+	grounded: boolean;
+	onWall: boolean;
 }
 
 export interface CharacterStage {
@@ -94,10 +124,92 @@ export interface CharacterStage {
 	setControl(targets: readonly StageBody[], control: CharacterControl): void;
 	/** The brain state a character is in, for the probe and the gates. */
 	stateOf(id: string): string | undefined;
+	/** Where a character stands: grounded and its hop height, for the probe and the gates. */
+	contactOf(id: string): { grounded: boolean; onWall: boolean; z: number } | undefined;
+	/** Whether one of a touching pair passes over the other: a hop in the air over a `ground` body. */
+	passesOver(a: StageBody, b: StageBody): boolean;
+	/** The hop height of every hopping character, by id (drawn as a lift and a shadow). */
+	lifts(): ReadonlyMap<string, number>;
 	clear(): void;
 }
 
+/** A character falls when it has a pull of its own, a `gravity` jump or a flap. */
+export const fallsUnderGravity = (character: ArcadeCharacter): boolean => {
+	const { controller, movement } = character;
+	if ((movement?.gravity ?? 0) > 0 || controller?.kind === 'flap') return true;
+	return controller?.kind === 'sideScroll' && controller.jump?.kind === 'gravity';
+};
+
+/** A character hops when its controller is `topDown` with a `hop`. */
+export const hopsOnThePlane = (character: ArcadeCharacter): boolean =>
+	character.controller?.kind === 'topDown' && character.controller.jump?.kind === 'hop';
+
+const across = (movement: Movement | undefined, control: number): Movement => ({
+	...(movement?.maxSpeed !== undefined ? { maxSpeed: movement.maxSpeed } : {}),
+	...(movement?.accel !== undefined ? { accel: movement.accel * control } : {}),
+	...(movement?.decel !== undefined ? { decel: movement.decel * control } : {}),
+});
+
+/** Steer `vx` only (a falling character's `vy` is the pull's). `control` below 1 in the air: the
+ *  rates scale by it, or with no rates the gap closes by that share a step. */
+function steerAcross(
+	body: Body,
+	vx: number,
+	movement: Movement | undefined,
+	dt: number,
+	control: number,
+) {
+	const vy = body.vy;
+	if (control < 1 && movement?.accel === undefined) body.vx += (vx - body.vx) * control;
+	else {
+		body.vy = 0;
+		steer(body, { vx, vy: 0 }, across(movement, control), dt);
+	}
+	body.vy = vy;
+}
+
+/** Steer both axes, the rates scaled by `control` in the air (a hop). */
+function steerAir(
+	body: Body,
+	want: { vx: number; vy: number },
+	movement: Movement | undefined,
+	dt: number,
+	control: number,
+) {
+	if (control >= 1) steer(body, want, movement, dt);
+	else if (movement?.accel === undefined) {
+		body.vx += (want.vx - body.vx) * control;
+		body.vy += (want.vy - body.vy) * control;
+	} else steer(body, want, { ...across(movement, control), turnRate: movement.turnRate }, dt);
+}
+
 const NO_INPUT: ControllerInput = { held: () => false, pointer: () => undefined };
+
+const halfHeight = (body: Body): number =>
+	body.shape === 'box' ? body.h / 2 : body.shape === 'circle' ? body.r : 0;
+
+/** Whether the player is pressing jump for this character: the action, `up` for a side view or a
+ *  flap, or a pointer pressed above a side view's body (any press, for a flap). A top-down hop has
+ *  no touch gesture: its touch steering heads for the pointer, above the body included. */
+function jumpPressed(character: ArcadeCharacter, input: ControllerInput, body: Body): boolean {
+	const kind = character.controller?.kind;
+	if (input.held(JUMP_ACTION)) return true;
+	if ((kind === 'sideScroll' || kind === 'flap') && input.held('up')) return true;
+	const pointer = input.pointer();
+	if (!pointer) return false;
+	if (kind === 'flap') return true;
+	return kind === 'sideScroll' && pointer.y < body.y - halfHeight(body);
+}
+
+/** The pull a falling character falls by when no jump is rising: its own, else its `gravity`
+ *  jump's (so a jumper handed to its brain, or to nobody, still comes down). */
+const fallPull = (character: ArcadeCharacter): number => {
+	const own = character.movement?.gravity;
+	if (own !== undefined && own > 0) return own;
+	const { controller } = character;
+	const jump = controller && 'jump' in controller ? controller.jump : undefined;
+	return jump?.kind === 'gravity' ? jumpProfile(jump).gravity : 0;
+};
 
 export function createCharacterStage(options: {
 	characters: readonly ArcadeCharacter[];
@@ -116,6 +228,7 @@ export function createCharacterStage(options: {
 	for (const character of options.characters)
 		if (!byLook.has(character.component)) byLook.set(character.component, character);
 	const actors = new Map<string, Actor>();
+	const isGround = (body: Body) => options.bodies[(body as StageBody).componentId]?.ground === true;
 	/** A shot's velocity, for a spawn whose body the loop has not made yet. */
 	const shotVelocity = new Map<string, { vx: number; vy: number }>();
 
@@ -155,12 +268,19 @@ export function createCharacterStage(options: {
 			if (source === 'vy') return [input, body.vy];
 			if (source === 'facing') return [input, actor.facing];
 			if (source === 'moving') return [input, speed > MOVING_ABOVE];
+			if (source === 'grounded') return [input, actor.grounded];
+			if (source === 'onWall') return [input, actor.onWall];
+			if (source === 'airborne')
+				return [input, actor.physics === 'hop' ? actor.jump.z > 0 : !actor.grounded];
+			if (source === 'height') return [input, actor.jump.z];
 			return [input, actor.brain?.state === source.slice('state:'.length)];
 		});
 
 	return {
 		attach(body) {
-			if (options.bodies[body.componentId]?.solid) body.solid = true;
+			const spec = options.bodies[body.componentId];
+			if (spec?.solid) body.solid = true;
+			else if (spec?.oneWay) (body as StageBody & { oneWay?: boolean }).oneWay = true;
 			const shot = shotVelocity.get(body.id);
 			if (shot) {
 				body.vx = shot.vx;
@@ -182,6 +302,16 @@ export function createCharacterStage(options: {
 				hit: false,
 				facing: 1,
 				written: new Map(),
+				physics: hopsOnThePlane(character)
+					? 'hop'
+					: fallsUnderGravity(character)
+						? 'platform'
+						: 'solid',
+				jump: createJumpState(),
+				gravity: fallPull(character),
+				// A character that never falls stands on the plane throughout.
+				grounded: !fallsUnderGravity(character) && !hopsOnThePlane(character),
+				onWall: false,
 			});
 		},
 		forget(id) {
@@ -195,15 +325,29 @@ export function createCharacterStage(options: {
 				if (!actor) continue;
 				const { character } = actor;
 				const drive = driver(actor);
-				if (drive === 'controller' && character.controller) {
-					const want = controllerVelocity(
-						character.controller,
-						io.input ?? NO_INPUT,
-						body,
-						character.movement,
-						dt,
-					);
-					steer(body, want, character.movement, dt);
+				const controller = drive === 'controller' ? character.controller : undefined;
+				const jump = controller && 'jump' in controller ? controller.jump : undefined;
+				const airborne = actor.physics === 'hop' ? actor.jump.z > 0 : !actor.grounded;
+				const control = airborne ? (jump?.airControl ?? 1) : 1;
+				if (controller) {
+					const input = io.input ?? NO_INPUT;
+					const want = controllerVelocity(controller, input, body, character.movement, dt);
+					const pressed = jumpPressed(character, input, body);
+					if (actor.physics === 'platform') {
+						steerAcross(body, want.vx, character.movement, dt, control);
+						actor.gravity = fallPull(character);
+						if (controller.kind === 'flap') stepFlap(controller, actor.jump, body, pressed);
+						else if (jump?.kind === 'gravity')
+							actor.gravity = stepJump(jump, actor.jump, body, {
+								pressed,
+								grounded: actor.grounded,
+								dt,
+								fallGravity: character.movement?.gravity,
+							}).gravity;
+					} else if (actor.physics === 'hop' && jump) {
+						steerAir(body, want, character.movement, dt, control);
+						stepHop(jump, actor.jump, { pressed, dt });
+					} else steer(body, want, character.movement, dt);
 				} else if (drive === 'brain' && actor.brain) {
 					const world = createBrainWorld({
 						self: body,
@@ -221,8 +365,18 @@ export function createCharacterStage(options: {
 							to: change.to,
 						});
 					const want = brainVelocity(actor.brain, body, world, dt);
-					steer(body, want, character.movement, dt);
+					if (actor.physics === 'platform') {
+						steerAcross(body, want.vx, character.movement, dt, 1);
+						actor.gravity = fallPull(character);
+					} else steer(body, want, character.movement, dt);
 					if (want.spawn) shoot(want.spawn);
+				} else if (actor.physics === 'platform') actor.gravity = fallPull(character);
+				if (actor.physics === 'platform' && !controller) actor.jump.rising = false;
+				// A hop handed to its brain, or to nobody, comes back down.
+				if (actor.physics === 'hop' && !controller) {
+					const hop =
+						character.controller?.kind === 'topDown' ? character.controller.jump : undefined;
+					if (hop) stepHop(hop, actor.jump, { pressed: false, dt });
 				}
 			}
 		},
@@ -232,13 +386,38 @@ export function createCharacterStage(options: {
 				dt,
 				area,
 			);
-			const solids = list.filter((body) => body.solid === true);
+			const solids = list.filter(
+				(body) => body.solid === true || (body as { oneWay?: boolean }).oneWay === true,
+			);
+			const tiles = io.tiles?.() ?? [];
 			const moved: string[] = [];
 			for (const body of list) {
 				const actor = actors.get(body.id);
 				if (!actor) continue;
 				const { x, y } = body;
-				const hit = stepSolid(body, dt, solids, area);
+				let hit: { hitX: boolean; hitY: boolean };
+				if (actor.physics === 'solid' && !tiles.length) {
+					hit = stepSolid(
+						body,
+						dt,
+						solids.filter((s) => s.solid === true),
+						area,
+					);
+					actor.onWall = hit.hitX;
+				} else {
+					const up = actor.physics === 'hop' && actor.jump.z > 0;
+					const falls = actor.physics === 'platform';
+					const contact = stepPlatform(body, dt, {
+						solids: up ? solids.filter((s) => !isGround(s)) : solids,
+						tiles,
+						field: area,
+						gravity: actor.physics === 'platform' ? actor.gravity : 0,
+						maxFall: actor.character.movement?.maxFall,
+					});
+					actor.grounded = falls ? contact.grounded : actor.physics !== 'hop' || actor.jump.z <= 0;
+					actor.onWall = contact.onWall;
+					hit = contact;
+				}
 				actor.hit = hit.hitX || hit.hitY;
 				if (body.vx > 0) actor.facing = 1;
 				else if (body.vx < 0) actor.facing = -1;
@@ -273,6 +452,23 @@ export function createCharacterStage(options: {
 			}
 		},
 		stateOf: (id) => actors.get(id)?.brain?.state,
+		contactOf(id) {
+			const actor = actors.get(id);
+			if (!actor || actor.physics === 'solid') return undefined;
+			return { grounded: actor.grounded, onWall: actor.onWall, z: actor.jump.z };
+		},
+		passesOver(a, b) {
+			const up = (body: StageBody) => {
+				const actor = actors.get(body.id);
+				return actor?.physics === 'hop' && actor.jump.z > 0;
+			};
+			return (up(a) && isGround(b)) || (up(b) && isGround(a));
+		},
+		lifts() {
+			const out = new Map<string, number>();
+			for (const [id, actor] of actors) if (actor.physics === 'hop') out.set(id, actor.jump.z);
+			return out;
+		},
 		clear() {
 			actors.clear();
 			shotVelocity.clear();

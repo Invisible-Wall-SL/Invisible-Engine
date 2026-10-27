@@ -39,6 +39,7 @@ import {
 	isBuiltinRegion,
 	parseScopedFrameRef,
 	resolveComponentClosureWithPins,
+	tilemapRegions,
 } from 'engine-layout';
 import { EDITOR_RIG_LOAD_SCALE } from '$lib/rigScale';
 import { betModeCardIds, betModeCardParamRefs, characterComponentIds } from 'game-config';
@@ -277,6 +278,13 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 		// project's atlases.
 		if (node.kind === 'reelGrid' && typeof node.tileRegion === 'string' && node.tileRegion) {
 			addImageRef(refs, node.tileRegion);
+		}
+		// A `tilemap`'s TILESET regions (game-families §4.4, P10.13): every region a painted tile
+		// draws, by the same rule as a reel grid's tile (a scoped ref pins its atlas, a bare name is
+		// resolved by name). Without this branch a level would paint perfectly in the editor and ship
+		// as empty cells.
+		if (node.kind === 'tilemap') {
+			for (const region of tilemapRegions(node)) addImageRef(refs, region);
 		}
 		if (node.kind === 'componentInstance') {
 			// A pinned instance renders its pinned def (`resolveReferencedDefs` keys it `id@version`
