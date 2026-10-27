@@ -11,6 +11,7 @@
  * and the defaults-in-config writer are `engine-fx`'s.
  */
 
+import type { ElementFxParamSpec } from 'constants-shared/elementFx';
 import {
 	applyEffectParamDefaults,
 	canonicalEffectParamPath,
@@ -59,6 +60,13 @@ export interface RowExposure {
 	 * spin only), so the row must be moved off its default before it can be exposed. */
 	missing: boolean;
 }
+
+/**
+ * A material param is a leaf even before the material holds a value for it (it plays the compiled
+ * effect's default): a drive's first write puts the value in (`engine-fx` `driveLeafKind`), so a
+ * row on one is never "missing".
+ */
+const MATERIAL_PARAM_PATH = 'material.param.';
 
 const leafMap = (layer: EmitterLayer | undefined): Map<string, EffectParamLeaf> =>
 	new Map(layer ? listEffectLayerLeaves(layer).map((l) => [l.path, l]) : []);
@@ -109,7 +117,7 @@ export function rowExposure(options: {
 		leaves,
 		ownLeaf: extra.ownLeaf ?? leaves.find((l) => l.identity)?.path,
 		...(extra.range ? { range: extra.range } : {}),
-		missing: leaves.some((l) => !base.has(l.path)),
+		missing: leaves.some((l) => !base.has(l.path) && !l.path.startsWith(MATERIAL_PARAM_PATH)),
 	});
 	const diff = (a: Map<string, EffectParamLeaf>, b: Map<string, EffectParamLeaf>) =>
 		[...a.values()].filter((l) => {
@@ -191,6 +199,27 @@ export function rowExposure(options: {
 			value: now?.kind === 'number' ? Number(now.value) : Number(value),
 		},
 	});
+}
+
+/**
+ * The layer's leaves (`listEffectLayerLeaves`) and, on a layer with a material, every number, colour
+ * and switch param of its compiled effect it holds no value for yet, at the effect's default: what
+ * the "All parameters" tree lists, so ⚡ reaches every param of the spec, not only the stored ones.
+ * A choice param is not a leaf a parameter can drive.
+ */
+export function layerLeavesWithMaterial(
+	layer: EmitterLayer,
+	specParams: readonly ElementFxParamSpec[] | undefined,
+): EffectParamLeaf[] {
+	const leaves = listEffectLayerLeaves(layer);
+	if (!layer.material || !specParams) return leaves;
+	const held = new Set(leaves.map((l) => l.path));
+	for (const spec of specParams) {
+		const path = `${MATERIAL_PARAM_PATH}${spec.id}`;
+		if (spec.kind === 'choice' || held.has(path)) continue;
+		leaves.push({ path, kind: spec.kind, value: spec.default });
+	}
+	return leaves;
 }
 
 /** A raw leaf from the "All parameters" tree, exposed as itself. */

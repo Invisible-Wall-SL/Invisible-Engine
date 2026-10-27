@@ -42,6 +42,11 @@
  *    newest 2 kept); `build.play_draft` with no player settles `no_player` in the same
  *    transaction as it queues, a replay returns the same jobRef, a second play returns the queued
  *    one, and `settleDraftJob` settles exactly once.
+ *  - 9C (ADR-0009 §2) `bugs.file_pipeline_bug`, the op behind the coordinator's
+ *    `run.request_pipeline_change`, over Bug Reports' own create path: an Open, unsent pipeline
+ *    bug reported by the run against its owner, naming the run, its project and its template, with
+ *    the Live run screen as its page; the project only when the owner can open it; a replayed opId
+ *    files one bug; only the coordinator may call it.
  *  - OPEN_QUESTIONS 17: every `createProject` caller — Admin › Projects, Game Maker's create, the
  *    desktop launcher's project sync and the duplicate — answers a key whose R2 folder is another
  *    project's (live or deleted, same client) with a refusal naming that project, and leaves no
@@ -302,6 +307,34 @@ fake('lib/server/roleToolAccess.ts', {
 });
 fake('lib/server/userToolAccess.ts', {
 	getToolOverrides: async (userId: string) => USER_OVERRIDES.get(userId) ?? {},
+});
+/** Bug reports as `bugReportsStore.insertBug` writes them: the values, and the 'reported' actor. */
+type FakeBug = {
+	values: Record<string, unknown>;
+	actor: { id: string | null; name: string };
+	data: Record<string, unknown>;
+	number: number;
+	status: string;
+};
+const BUGS: FakeBug[] = [];
+fake('lib/server/bugReportsStore.ts', {
+	insertBug: async (
+		values: Record<string, unknown>,
+		actor: { id: string | null; name: string },
+		data: Record<string, unknown> = {},
+	) => {
+		const bug = { values, actor, data, number: 101 + BUGS.length, status: 'open' };
+		BUGS.push(bug);
+		return { status: 'open', sentAt: null, ...values, number: bug.number };
+	},
+	bugsReportedAs: async (reporter: string) =>
+		BUGS.filter((b) => b.values.reporter === reporter).map((b) => ({
+			number: b.number,
+			kind: b.values.kind,
+			projectKey: b.values.projectKey,
+			status: b.status,
+			data: b.data,
+		})),
 });
 let claims = 0;
 fake('lib/server/director/store.ts', {
@@ -3854,6 +3887,155 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	);
 }
 
+// ── 9C: a run's pipeline-change request files a pipeline bug ───────────────────
+{
+	const request = { what: 'An FX slot on the big-win screen.', reason: 'The mockup has one.' };
+	const file = (runId: string, opId: string, input: unknown = request, agent = 'coordinator') =>
+		call('bugs', 'file_pipeline_bug', { runId, agent, opId, input });
+	const text = (b: FakeBug) => `${b.values.title}\n${b.values.description}`;
+	const sharedBugs: typeof import('../src/lib/bugReports.ts') = await import(
+		src('lib/bugReports.ts')
+	);
+
+	const first = await file('rexisting', 'rexisting:coordinator-t3:0');
+	check(
+		'a request files a bug and answers its reference',
+		[first.status, first.body],
+		[200, { number: 101, ref: 'BUG-101', path: '/bugs?bug=101' }],
+	);
+	const [{ values, actor, data }] = BUGS;
+	check(
+		'…a pipeline bug, Open and not sent: no status, priority or sending is set',
+		[values.kind, 'status' in values, 'sentAt' in values, values.priority],
+		['pipeline', false, false, null],
+	);
+	check(
+		'…reported by the run, against its owner, in the Director area, its opId on the report',
+		[values.reporter, values.reporterId, actor, values.area, data.opId],
+		[
+			'Director run rexisting',
+			'owner',
+			{ id: 'owner', name: 'Director run rexisting' },
+			'director',
+			'rexisting:coordinator-t3:0',
+		],
+	);
+	check(
+		'…linked to the run and its project: the Live run page, the project, the text',
+		[
+			values.projectKey,
+			values.pageUrl,
+			values.title,
+			text(BUGS[0]).includes('Invisible Director run rexisting'),
+			text(BUGS[0]).includes('Project: plain (made from the template tpl_lines)'),
+			text(BUGS[0]).includes(request.what),
+			text(BUGS[0]).includes(request.reason),
+		],
+		['plain', 'https://app.example/director/rexisting', request.what, true, true, true, true],
+	);
+	const replay = await file('rexisting', 'rexisting:coordinator-t3:0');
+	check(
+		'a replayed opId files one bug and answers the same reference',
+		[replay.status, replay.body, replay.replay, BUGS.length],
+		[200, first.body, true, 1],
+	);
+	// The launcher died after the bug was written and before the gate recorded the call: the claim
+	// is dropped when it goes stale (`STALE_CLAIM_MS`), so the same opId runs the handler again.
+	OPS.delete('rexisting:coordinator-t3:0');
+	const afterCrash = await file('rexisting', 'rexisting:coordinator-t3:0');
+	check(
+		'a call replayed after a crash between the insert and the record files no second bug',
+		[afterCrash.status, afterCrash.body, afterCrash.replay, BUGS.length],
+		[200, first.body, false, 1],
+	);
+
+	await file('r1', 'r1:coordinator-t1:0');
+	check(
+		"a run whose project is not made yet names its template, never the run's own key",
+		[
+			BUGS[1].values.projectKey,
+			text(BUGS[1]).includes('Template: tpl_lines'),
+			text(BUGS[1]).includes('new_r1'),
+		],
+		['tpl_lines', true, false],
+	);
+	await file('rdev', 'rdev:coordinator-t1:0');
+	check(
+		"an owner who can open neither the project nor the template: no key, none of the agent's words",
+		[
+			BUGS[2].values.projectKey,
+			BUGS[2].values.title,
+			['new_rdev', 'tpl_other', request.what, request.reason].filter((s) =>
+				text(BUGS[2]).includes(s),
+			),
+			text(BUGS[2]).includes('https://app.example/director/rdev'),
+		],
+		[null, 'A Director run asked for a pipeline change', [], true],
+	);
+
+	await file('r1', 'r1:coordinator-t1:1', {
+		what: 'Fix BUG-42 and bug-7: a slot.',
+		reason: 'See BUG-9.',
+	});
+	check(
+		"agent text names no bug the link sync reads: BUG-42 and bug-7 become 'bug #42' and 'bug #7'",
+		[BUGS[3].values.title, text(BUGS[3]).includes('bug #9'), sharedBugs.bugRefsIn(text(BUGS[3]))],
+		['Fix bug #42 and bug #7: a slot.', true, []],
+	);
+	const dup = await file('r1', 'r1:coordinator-t2:0', {
+		what: '  an fx SLOT on the big-win screen. ',
+		reason: 'x',
+	});
+	check(
+		'the same request again while its bug is open is refused, naming the bug, and files nothing',
+		[dup.status, dup.body.error, String(dup.body.message).includes('BUG-102'), BUGS.length],
+		[409, 'duplicate', true, 4],
+	);
+	BUGS[1].status = 'resolved';
+	check(
+		'…once that bug is resolved, it may be asked again',
+		(await file('r1', 'r1:coordinator-t2:1', request)).status,
+		200,
+	);
+	for (const n of [2, 3])
+		await file('r1', `r1:coordinator-t3:${n}`, { what: `Slot ${n}.`, reason: 'x' });
+	const capped = await file('r1', 'r1:coordinator-t4:0', { what: 'One more.', reason: 'x' });
+	check(
+		`a run files at most ${5} bugs: the sixth is refused and files nothing`,
+		[
+			BUGS.filter((b) => b.values.reporter === 'Director run r1').length,
+			capped.status,
+			capped.body.error,
+			BUGS.length,
+		],
+		[5, 409, 'too_many_bugs', 7],
+	);
+	check(
+		'only the coordinator may file one',
+		(await file('r1', 'r1:builder-t1:0', request, 'builder')).status,
+		403,
+	);
+	check(
+		'an empty request is refused, and files nothing',
+		[(await file('r1', 'r1:coordinator-t5:0', { what: '', reason: 'x' })).status, BUGS.length],
+		[400, 7],
+	);
+	check(
+		'a write without an opId files nothing',
+		[
+			(
+				await call('bugs', 'file_pipeline_bug', {
+					runId: 'r1',
+					agent: 'coordinator',
+					input: request,
+				})
+			).status,
+			BUGS.length,
+		],
+		[400, 7],
+	);
+}
+
 // ── Allow-lists agree with the agents' frontmatter `tools:` ───────────────────
 {
 	const dir = fileURLToPath(new URL('../../../services/director-worker/agents/', import.meta.url));
@@ -3891,9 +4073,23 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		named.filter((id) => refusedOp(id.split('.')[0], id.split('.')[1] ?? '')),
 		[],
 	);
+	const workerToolOps: Record<string, string> = (
+		(await import(
+			new URL('../../../services/director-worker/src/tools.ts', import.meta.url).href
+		)) as typeof import('../../../services/director-worker/src/tools.ts')
+	).WORKER_TOOL_OPS;
+	check(
+		'every op a worker tool calls is registered',
+		Object.values(workerToolOps).filter((id) => !ADAPTER_OPS.has(id)),
+		[],
+	);
+	// An agent names an op directly, or through a worker tool that calls it as that agent.
+	const names = (agent: string, id: string) =>
+		tools.get(agent)?.has(id) ||
+		Object.entries(workerToolOps).some(([tool, op]) => op === id && tools.get(agent)?.has(tool));
 	for (const op of ADAPTER_OPS.values()) {
 		const id = opIdOf(op);
-		const listing = models.filter((agent: string) => tools.get(agent)?.has(id));
+		const listing = models.filter((agent: string) => names(agent, id));
 		const allowed = op.agents.filter((agent: string) => agent !== 'worker');
 		check(
 			`${id}: the allow-list matches the agents whose tools: name it`,

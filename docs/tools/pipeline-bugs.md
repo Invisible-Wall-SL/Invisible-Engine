@@ -162,8 +162,11 @@ A link can open the form already filled in: `/bugs?new=1&for=<tool id>&page=<add
 
      Screenshots and discussion: <launcher>/bugs?bug=12 (2 screenshots)
 
-     Name BUG-12 in the pull request's title or branch (for example `fix/bug-12-…`). …
+     Start with the `pipeline-triage` agent, and name the branch `bug-12-…`. …
      ```
+
+     The `pipeline-triage` agent reproduces the bug and hands it to the agent that owns the tool.
+     The branch name is what links the fix's pull request back to the bug (see below).
 
 10. **Screenshots · N.** Each thumbnail shows who added it and its size. Click one to see it full
     size, and click again or press Escape to close it. **Remove** appears for the person who added
@@ -182,10 +185,23 @@ A link can open the form already filled in: `/bugs?new=1&for=<tool id>&page=<add
     for example "marked it Working on: #1234 opened". Under the list, **Add a comment**
     (up to 5,000 characters) and **Comment**. Anyone who can see the bug can comment.
 
+### Bugs filed by Invisible Director runs
+
+When an [Invisible Director](director.md) run finds something missing from the pipeline, it
+files a pipeline bug here itself. You recognise one by its reporter, **Director run `<id>`**, and
+its area, **Invisible Director**. **Where it happened** is the run's Live run screen, and the
+description names the run, its project and template, what is missing and why the run needs it.
+It is recorded against the account of the person who started the run, so they see it as their
+own report. It names the run's project only when they can open it (before the project exists, the
+project is named in the text only).
+
+It arrives **Open**, with no priority, and is **not sent** to Pipeline Changes: a triager decides,
+as for any other report, whether to send it.
+
 ### How a pull request moves a bug
 
 A pull request is linked to a bug when its title or branch name says `BUG-12` (or `bug-12`, as in
-a branch `fix/bug-12-rigger-freeze`). `debug-12` does not count, and neither does a mention in the
+a branch `bug-12-rigger-freeze`). `debug-12` does not count, and neither does a mention in the
 pull request's description. Only pull requests into `main` of the engine repository, from a branch
 of that repository, are read; pull requests from a fork are not. Game bugs are never linked: they
 are fixed in their project.

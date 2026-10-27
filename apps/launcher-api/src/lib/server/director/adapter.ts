@@ -172,6 +172,7 @@ export type OpScope =
 export const ADAPTER_TOOL_IDS: Readonly<Record<string, string>> = {
 	atlas: 'atlasTool',
 	build: 'gameMaker',
+	bugs: 'pipelineBugs',
 	comfyui: 'comfyui',
 	flipbook: 'flipbook',
 	fonts: 'fontMaker',
@@ -193,6 +194,9 @@ export interface AdapterContext {
 	 *  `owner`-scoped ops. */
 	scope: { clientKey: string; projectKey: string } | null;
 	savedBy: DirectorSavedBy;
+	/** A write's `opId`, set by the gate once it is claimed; for an op that keeps its own record of
+	 *  what a call did (`recordsOnly`), so a call replayed after a crash finds it. */
+	opId?: string;
 }
 
 interface OpBase<I, O> {
@@ -225,6 +229,14 @@ export type AdapterOp<I = unknown, O = unknown> =
 			 * run itself started creating it.
 			 */
 			createsProject: true;
+	  })
+	| (OpBase<I, O> & {
+			write: true;
+			/**
+			 * The op writes no storage key, only launcher records through the owning module's own
+			 * create path (a bug report). Its `opId` is still claimed, so a replay files nothing new.
+			 */
+			recordsOnly: true;
 	  });
 
 /** Type an op by its input and output while the registry stores it erased. The gate validates the

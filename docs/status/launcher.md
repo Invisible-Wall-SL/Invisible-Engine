@@ -26,7 +26,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - **UI** — full-bleed home: online tools grouped into **game-making stage sections** (Create / Assets / Build / Files & Reference / Pipeline) plus Games and Local tools, Invisible Wall emblem branding. Stages are the single source `TOOL_STAGES` in `roles.ts`; the top-bar switcher tints each tool icon by its stage accent.
 
 ## Open items / next
-0. **Key Vault: first live run (owner).** Release launcher v1.0.59 (Actions → Release in
+0. **Key Vault: first live run (owner).** Release launcher v1.0.61 (Actions → Release in
    `invisible-launcher`), create the vault, fill the three *Vault access* rows and ⚙ Settings, **Set**
    each key's current value, then rotate one low-risk secret (*Pipeline CI token*) and one Cloudflare
    one (*R2 read token (current-games harness)*), and check them end to end. The Railway mutations
@@ -72,7 +72,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Blocked (owner / external)
 - **Secret rotation (owner):** rotate the secrets in `docs/INFRA.md` "Security / secret rotation";
-  since desktop launcher v1.0.56 the R2 key no longer lives on any publisher's desktop. From v1.0.59
+  since desktop launcher v1.0.56 the R2 key no longer lives on any publisher's desktop. From v1.0.61
   the desktop **Key Vault** (admins) does it per secret or in one emergency batch.
 - Env vars the portal degrades gracefully without until set: `ANTHROPIC_API_KEY` *or* `LOCALIZATION_LLM_BASE_URL` + `LOCALIZATION_LLM_API_KEY` (Localization Translate — either provider), `GITHUB_ENGINE_READ_TOKEN` (engine "release pending" pill — absent ⇒ the pill never shows pending).
 
@@ -110,7 +110,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     real ☁ Publish to read the page against a real game. Not yet run on Windows or a real build.
 
 - 2026-10-27 — **Invisible Key Vault: the desktop launcher's admin-only secrets tab (launcher
-  v1.0.59).** After last week's attack the owner asked for one place that holds every key, rotates
+  v1.0.61).** After last week's attack the owner asked for one place that holds every key, rotates
   it and puts the new value everywhere it lives. The desktop launcher gets a **Key Vault** tab,
   listed only for an admin session. Unlocking re-asks the portal for the role, then takes a
   passphrase; the file is sealed with Argon2id + libsodium SecretBox and locks after 10 minutes
