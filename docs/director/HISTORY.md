@@ -15,6 +15,29 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-27 · Phase 9 9B · claude (one build agent per game type)
+- **Did:** Eight build agents, one per game type: lines-games, ways-games, cluster-games,
+  scatter-games, hold-and-win-games, bonus-games, match3-games and arcade-games. Each builds on
+  engine-pixi-svelte and owns its playbooks, its screen script and
+  `docs/knowledge/families/<name>.md` (invariants, code map, 12–15 failure modes, how to test;
+  144–181 lines). `book-of-game` folded into `lines-games` and deleted after its claims were
+  checked against the code (5 corrected). `owners.json`: every kind owned, kind gaps removed,
+  `tool:characters` → arcade-games. CLAUDE.md, the STATUS.md Agent column, status-file headers,
+  game-playtester (loads the family file first) and the knowledge README updated.
+- **Files:** `.claude/agents/*-games.md`, `.claude/agents/bonus-games.md`,
+  `docs/knowledge/families/*.md`, `docs/knowledge/{owners.json,README.md}`, `CLAUDE.md`,
+  `docs/STATUS.md`, `.claude/agents/game-playtester.md`, five status headers,
+  `docs/design/book-feature.md`.
+- **Branch / PR:** `claude/9b-agent-per-game-type`, #1404 (squash 7554e93).
+- **Tests:** `check:agents-knowledge` green (8 kinds owned, 2 named tool gaps: winText, sound);
+  lint green; docs-keeper audit; CI green.
+- **Decisions:** winText and sound stay named tool gaps (shared tools, not game types). The shared
+  cascade is owned by cluster-games.
+- **Next:** the agents found real defects. Ways `direction: 'both'` is authorable but the mock pays
+  only left to right, and the cluster check's header claims a pay-floor test it doesn't run; both
+  were handed to the owner as pipeline bug reports. Missing playbooks (cluster, scatter, pots on
+  lines, spins bonus mode, arcade samples) and about 10 stale docs go to their owning agents.
+
 ## 2026-10-27 · Phase 9 · coordinator (audit, ADR-0009, card 9A)
 - **Did:** Audited Director, its runtime agents and the build agents against the platform. Fixed
   the stale build agents and status headers. Wrote ADR-0009 (repair agents, an agent per game
