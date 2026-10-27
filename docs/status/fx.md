@@ -129,6 +129,13 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-27 — **The Scene Editor plays effects at game speed** (branch
+  `claude/shader-graph-step8d6-clock`). `EditorEffectLayer` (the Scene and Component Editor
+  overlay) advanced its emitters by `ticker.deltaMS / 1000`, wall-clock seconds, where the game,
+  `/fx` and the Rigger / Symbols overlay use `engine-fx`'s `emitterDeltaSeconds`
+  (`deltaMS × DEFAULT_EMIT_SPEED`, 0.00234). Every effect there ran about 2.3× slower than in the
+  game. It now uses the same helper; the effect-level `timeScale` still applies on top. Found in
+  the Shader Graph 8d.6 review.
 - 2026-10-24 — **Assemble from particles plays on the live element; the editor's Element FX preview
   plays on the live screen** (branch `claude/magical-curie-th1axi`). Owner report on
   `commonoverlayproject`: an Element FX cued on the base-game intro (Assemble, then Wobble and

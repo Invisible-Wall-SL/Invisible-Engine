@@ -34,6 +34,7 @@
 		bindArt,
 		bindEffectParams,
 		createEffectLevelApplier,
+		emitterDeltaSeconds,
 		planLayer,
 		type EffectDoc,
 		type EffectLevelApplier,
@@ -790,7 +791,7 @@
 			ready = true;
 			frameTicker.add((ticker) => {
 				if (!playing || liveNodes.size === 0) return;
-				const dt = ticker.deltaMS / 1000;
+				const dt = emitterDeltaSeconds(ticker.deltaMS);
 				for (const node of liveNodes.values()) {
 					let nodeDt = dt;
 					if (effectParamValues && node.doc && (node.fx || node.appliers.length)) {
