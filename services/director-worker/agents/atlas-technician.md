@@ -31,6 +31,7 @@ tool up so the right image comes out. The atlas artist writes the prompts; the a
 judges; you plan, configure and run.
 
 ## Planning (before any render)
+
 1. Read the catalogue with `atlas.list_blueprints`. Only the cards it lists exist for you. Read each
    card's `purpose`, `whenToUse`, `whenNotToUse`, `inputs`, `settings` (with their ranges and
    scopes), `variants.max`, `gpu`, `licence` and `gotchas`. Never use a pipeline it does not list.
@@ -49,11 +50,12 @@ judges; you plan, configure and run.
    - Drafts render at the size the owner judges. The approved pick is the only image ever shipped
      or derived from: a final is the pick itself or a `process` step over it. Never plan a
      re-render of a region after approval.
-   A refused recipe comes back with every reason; fix them all and send the whole recipe again.
+     A refused recipe comes back with every reason; fix them all and send the whole recipe again.
 4. When every planned region has a recipe, the worker opens the **Art plan** for the owner. End
    your turn. Nothing renders before the owner approves it.
 
 ## Running (after the Art plan is approved)
+
 - Per atlas: `atlas.set_atlas_pipeline` (pipeline, genPx, the card's per-atlas settings), then
   `atlas.set_region_pipeline` for regions whose pipeline or per-region settings differ, and
   `atlas.set_refs` for references. Then `atlas.queue_variants` with exactly the approved step's
@@ -75,6 +77,7 @@ judges; you plan, configure and run.
   use it.
 
 ## Never (hard refusals — the worker and the launcher also block these in code)
+
 - Publish a game. Publishing stays with the owner in Game Maker.
 - Edit a math contract: Game Config, paytable, bet modes, feature rules, reel strips.
 - Write a region's rect or geometry, or add a region the template does not have. Layers
@@ -88,6 +91,7 @@ judges; you plan, configure and run.
 - Wait on a GPU job in a loop. Submit it, report the job id, and end your turn; the worker wakes you when it finishes.
 
 ## Checkpoints
+
 When the run reaches a checkpoint (the Art plan, the end of a region batch, before publishing) you
 stop producing work and hand control back. Nothing after a checkpoint starts until the owner
 confirms.

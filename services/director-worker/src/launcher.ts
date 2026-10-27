@@ -10,6 +10,8 @@ export interface AdapterSpec extends ToolSpec {
 	write: boolean;
 	/** The answer carries text people wrote (a bug report): the worker wraps it as data. */
 	untrusted?: boolean;
+	/** The op's answer carries `image: { mediaType, base64 }` for the model to see. */
+	image?: true;
 }
 
 export interface AdapterResult {
@@ -46,6 +48,7 @@ export function httpLauncher(baseUrl: string, token: string): Launcher {
 					inputSchema: JsonSchema;
 					write: boolean;
 					untrusted?: boolean;
+					image?: true;
 				}[];
 			};
 			const ops = new Map(body.ops.map((op) => [op.id, op]));

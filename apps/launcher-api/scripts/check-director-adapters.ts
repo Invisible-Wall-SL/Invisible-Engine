@@ -52,6 +52,7 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
 import type { BugFull } from '../src/lib/server/bugReportsStore.ts';
 import type {
 	DirectorAtlasJob,
@@ -103,6 +104,12 @@ function fake(rel: string, impl: Record<string, unknown>): void {
 // ── In-memory R2 ───────────────────────────────────────────────────────────────
 type Obj = { body: string; etag: string };
 const R2 = new Map<string, Obj>();
+/** A 3000×2000 tile: bigger than the model's long edge, so the op must downscale it. */
+const TILE = await sharp({
+	create: { width: 3000, height: 2000, channels: 3, background: '#c33' },
+})
+	.jpeg()
+	.toBuffer();
 let etagSeq = 0;
 let copies = 0;
 const byteReads: string[] = [];
@@ -1606,9 +1613,12 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 				return send(200, 'application/json', '[{"id":"00002","seed":3},{"id":"00001","seed":2}]');
 			}
 			if (url.pathname.startsWith('/vthumb/')) {
-				return url.searchParams.get('id') === '00002'
-					? send(200, 'image/jpeg', Buffer.from([0xff, 0xd8, 0xff]))
-					: send(200, 'image/svg+xml', '<svg/>');
+				const vid = url.searchParams.get('id');
+				return vid === '00002'
+					? send(200, 'image/jpeg', TILE)
+					: vid === '00009'
+						? send(200, 'image/jpeg', TILE.subarray(0, 400))
+						: send(200, 'image/svg+xml', '<svg/>');
 			}
 			if (url.pathname === '/save') {
 				// docsave: the page's base must still be what R2 holds, unless only machine writes
@@ -1863,10 +1873,22 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			{ atlas: 'symbols', region: 'W', id: '00002' },
 			'qa',
 		);
+		const shown = img.body.image as { mediaType: string; base64: string };
+		const dims = await sharp(Buffer.from(shown.base64, 'base64')).metadata();
 		check(
-			'get_variant_image returns the bytes base64',
-			[img.status, img.body.contentType, img.body.base64],
-			[200, 'image/jpeg', '/9j/'],
+			'get_variant_image returns { image: { mediaType, base64 } }, downscaled to the model long edge',
+			[img.status, img.body.contentType, img.body.base64, shown.mediaType, dims.width, dims.height],
+			[200, undefined, undefined, 'image/jpeg', 1568, 1045],
+		);
+		const broken = await atlas(
+			'get_variant_image',
+			{ atlas: 'symbols', region: 'W', id: '00009' },
+			'qa',
+		);
+		check(
+			'a variant that does not decode is a settled 422, not a 502 the worker retries',
+			[broken.status, broken.body.error],
+			[422, 'unreadable_image'],
 		);
 		check(
 			"a variant atlas-tool answers with its placeholder is a 404, not an 'image'",
@@ -3802,7 +3824,6 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 
 // ── 9G (ADR-0012) A repair run: its bug, its screenshots, its extra refusals ───
 {
-	const sharp = (await import('sharp')).default;
 	const { repairRefusal } = await import(src('lib/server/director/refusals.ts'));
 	const { bugAreas } = await import(src('lib/bugReports.ts'));
 	const workerRepair: typeof import('../../../services/director-worker/src/repair.ts') =
@@ -4009,9 +4030,18 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	);
 	const webpShot = await doctor('rfix', 'get_screenshot', { id: SHOT_W });
 	check(
-		'...a WebP is re-encoded as a JPEG for the model',
+		'...a WebP stays a WebP, in the format its bytes really are',
 		[webpShot.status, (webpShot.body.image as { mediaType: string }).mediaType],
-		[200, 'image/jpeg'],
+		[200, 'image/webp'],
+	);
+	const SHOT_BAD = 'e5e5e5e5e5e5e5e5';
+	BINARY.set(`_bugs/41/${SHOT_BAD}.png`, new Uint8Array([1, 2, 3, 4]));
+	GAME_BUGS.get(41)!.screenshots.push(shotRow(41, SHOT_BAD, 'image/png', 4) as never);
+	const unreadable = await doctor('rfix', 'get_screenshot', { id: SHOT_BAD });
+	check(
+		'...bytes that do not decode are a settled 422, as for a variant',
+		[unreadable.status, unreadable.body.error],
+		[422, 'unreadable_image'],
 	);
 	const other = await doctor('rfix', 'get_screenshot', { id: SHOT_B });
 	check(
@@ -4045,8 +4075,17 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 				headers: { authorization: `Bearer ${TOKEN}` },
 			}),
 		} as never);
-		return ((await res.json()) as { ops: { id: string; untrusted?: boolean }[] }).ops;
+		return ((await res.json()) as { ops: { id: string; untrusted?: boolean; image?: boolean }[] })
+			.ops;
 	};
+	check(
+		'the catalog flags the screenshot an image op as well as untrusted',
+		(await catalogAnswer())
+			.filter((o) => o.image)
+			.map((o) => o.id)
+			.includes('bugs.get_screenshot'),
+		true,
+	);
 	check(
 		'the catalog marks exactly the two bug reads untrusted',
 		(await catalogAnswer()).filter((o) => o.untrusted).map((o) => o.id),

@@ -1,5 +1,4 @@
 import { isHttpError } from '@sveltejs/kit';
-import sharp from 'sharp';
 import { bugPath, bugRef, isBugArea } from '$lib/bugReports';
 import {
 	createDirectorBug,
@@ -8,7 +7,7 @@ import {
 	type RunBugView,
 } from '../../bugReports';
 import { AdapterError, defineOp, type AdapterContext } from '../adapter';
-import { downscaleForModel, type MockupMediaType } from '../mockupPixels';
+import { validatedModelImage } from '../mockupPixels';
 
 /**
  * The game bug a repair run fixes, read by its doctor (ADR-0012 §2). Both ops take no bug number:
@@ -44,16 +43,6 @@ const getGameBug = defineOp<Record<string, never>, RunBugView>({
 	},
 });
 
-/** The copy the model sees: at most `MODEL_LONG_EDGE` on the long edge. A WebP is re-encoded first,
- *  as the mockup path takes PNG and JPEG only. */
-async function modelCopy(bytes: Uint8Array, mediaType: string) {
-	if (mediaType === 'image/png' || mediaType === 'image/jpeg') {
-		return downscaleForModel(bytes, mediaType as MockupMediaType);
-	}
-	const jpeg = await sharp(bytes).rotate().jpeg({ quality: 90 }).toBuffer();
-	return downscaleForModel(new Uint8Array(jpeg), 'image/jpeg');
-}
-
 export interface BugScreenshotAnswer {
 	id: string;
 	width: number;
@@ -79,13 +68,19 @@ const getScreenshot = defineOp<{ id: string }, BugScreenshotAnswer>({
 		additionalProperties: false,
 	},
 	agents: ['game-doctor'],
+	image: true,
 	untrusted: true,
 	scope: 'project',
 	write: false,
 	handler: async (ctx, { id }) => {
 		const shot = await readRunScreenshot(bugOf(ctx), ctx.run.projectKey, id);
 		if (!shot) throw new AdapterError(404, 'unknown_screenshot', 'No such screenshot on this bug.');
-		const copy = await modelCopy(shot.bytes, shot.mediaType);
+		// The model sees at most what a mockup does, and only a screenshot that decodes: the API
+		// refuses a broken or mislabelled one for good.
+		const copy = await validatedModelImage(shot.bytes).catch((error) => {
+			console.error(`director: bug screenshot ${id} did not decode: ${error}`);
+			throw new AdapterError(422, 'unreadable_image', 'That screenshot is not a readable image.');
+		});
 		return {
 			id,
 			width: copy.w,

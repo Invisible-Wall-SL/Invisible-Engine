@@ -29,7 +29,7 @@ import {
 	projectVisionCall,
 	unreportedSeconds,
 } from './budget.ts';
-import type { AdapterSpec, Launcher } from './launcher.ts';
+import type { AdapterResult, AdapterSpec, Launcher } from './launcher.ts';
 import { deferLease, LEASE_MS, releaseLease, renewLease, type ClaimedRun } from './lease.ts';
 import { log } from './log.ts';
 import {
@@ -92,7 +92,6 @@ import {
 	type WakingEvent,
 } from './store.ts';
 import { floorOf, RETRIES_PER_APPROVAL } from 'director-costs/recipe';
-import { wrapUntrusted } from './untrusted.ts';
 import {
 	MAX_RECIPE_EDITS,
 	applyRecipeEdits,
@@ -109,6 +108,7 @@ import {
 	type RecipeEdit,
 } from './recipes.ts';
 import { WORKER_TOOL_OPS, WORKER_TOOLS } from './tools.ts';
+import { answerContent, capImages, cutResult } from './toolResult.ts';
 import { runWorkerTool, workerToolSpecs, type FiledBug, type WorkerToolId } from './workerTools.ts';
 
 /**
@@ -176,9 +176,6 @@ const WORKER_TOOL_IDS: ReadonlySet<string> = new Set(WORKER_TOOLS);
 const COORDINATOR = leadOf('create');
 const ESCALATE_OP = 'bugs.escalate_game_bug';
 const MAX_TURNS = 40;
-const MAX_RESULT_CHARS = 60_000;
-/** What an untrusted answer's text is cut to: the wrapper's own lines still fit in the result. */
-const UNTRUSTED_MAX_CHARS = MAX_RESULT_CHARS - 500;
 
 /**
  * An answer that says nothing about whether an op ran, or a launcher that could not be asked: the
@@ -342,12 +339,24 @@ async function catalog(ctx: Ctx): Promise<ReadonlyMap<string, AdapterSpec>> {
 const resultBlock = (id: string, content: string, isError = false): BetaToolResultBlockParam => ({
 	type: 'tool_result',
 	tool_use_id: id,
-	content:
-		content.length > MAX_RESULT_CHARS
-			? `${content.slice(0, MAX_RESULT_CHARS)}…[truncated]`
-			: content,
+	content: cutResult(content),
 	...(isError ? { is_error: true } : {}),
 });
+
+/** An adapter's answer: a 200 may carry an image the model is shown; an error is always text. */
+const answerBlock = (
+	id: string,
+	answer: AdapterResult,
+	imageOp: boolean,
+	untrusted: boolean,
+): BetaToolResultBlockParam =>
+	answer.status === 200
+		? {
+				type: 'tool_result',
+				tool_use_id: id,
+				content: answerContent(answer.body, imageOp, untrusted),
+			}
+		: resultBlock(id, JSON.stringify(answer.body), true);
 
 const opIdOf = (runId: string, agent: string, turnSeq: number, index: number) =>
 	`${runId}:${agent}-t${turnSeq}:${index}`;
@@ -541,14 +550,9 @@ async function settle(
 				await withLease(ctx.sql, ctx.run, (tx, live) => markQueued(tx, live.id, steps, jobRef));
 			}
 		}
-		// People's words in an answer are wrapped as data, whole or not at all: cut first, so a long
-		// report never loses the closing tag.
-		const text = JSON.stringify(answer.body);
 		results.set(
 			call.id,
-			answer.status === 200 && spec.untrusted
-				? resultBlock(call.id, wrapUntrusted(text, UNTRUSTED_MAX_CHARS))
-				: resultBlock(call.id, text, answer.status !== 200),
+			answerBlock(call.id, answer, spec.image === true, spec.untrusted === true),
 		);
 	}
 
@@ -733,7 +737,7 @@ async function pauseWithError(ctx: Ctx, agent: string, error: Record<string, unk
 // ── One turn ──────────────────────────────────────────────────────────────────
 
 const toParams = (messages: StoredMessage[]): BetaMessageParam[] =>
-	messages.map((m) => ({ role: m.role, content: m.content }));
+	capImages(messages.map((m) => ({ role: m.role, content: m.content })));
 
 const finalText = (content: BetaContentBlockParam[]) =>
 	content

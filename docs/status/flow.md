@@ -55,6 +55,33 @@
 
 ## Recent changes
 
+- 2026-10-27 — **Publish refuses a driven flow that leaves an armed tap screen up from start-up**
+  (`startup-tap-surface`, an ERROR). The live case is `unassigned/cloud` (published 2026-10-26):
+  its flow was seeded under the old "mount once, toggle by cue" model and shows `freeSpinIntro` /
+  `freeSpinOutro` on `complete:loading` / `tapToStart` and never hides them, while its scenes come
+  from the newer self-sufficient seed (`engine-layout` `freeSpinScenes.ts`), whose `fs-intro-tap` is
+  armed on mount. At idle a 0.5 dim tap surface covers the game, `PressToContinue` registers a
+  continue press and `hasContinuePress()` kills the Space spin hotkey (`Game.svelte`
+  `spinHotkeyDisabled`), so the game cannot spin. The current-games harness reported
+  `fail · cloud · looks error 0/2` on every PR. `startupTapIssues` (`engine-flow-v2`
+  `startupScreens.ts`) walks the global graph's start-up chains (`gameSignals.load` / `tapToStart`
+  pins or `event` nodes, then `complete:<id>` for any screen those show, to a fixpoint; only the
+  `exec` out of a Show Container or instance node, so a HUD button's chain is not start-up), and
+  flags each screen shown there that nothing ever hides (`hideContainerIds`, plus a hide inside a
+  shared function) whose scene carries a `tapToContinue` with no `tapArmAfterSignal` on the
+  instance or any per-layoutType patch (`collectArmedOnMountTaps`, launcher `containerTaps.ts`).
+  The message names the screen, the start-up Show node and the tap, and gives the fix (show it only
+  around its moment, as `withFreeSpinScreenHolds` does, or arm the tap after a signal).
+  `validateFlowV2Against` lists it FIRST so the refusal (which quotes three errors) always names
+  it; the stored-flow and shipped-bundle checks, the desktop bake and the `/flow-v2` Validation
+  panel all carry it; `allowInvalidFlow` still overrides. No project data was edited; the owner
+  has since unpublished `cloud` and dropped it from the current-games harness, so the check now
+  guards the next project to mix an old cue-model flow with the new free-spin scenes (fix: remove
+  the start-up shows of `freeSpinIntro` / `freeSpinOutro` and splice the intro/outro holds in, or
+  re-seed the flow). **Verified:** `check:startup-tap-surface` (25
+  asserts — every slot starter clean against its own scenes; the cloud shape flagged on the intro
+  only; each way out cleared; the scene projection), the 80 `flow` checks and every launcher check
+  that runs the publish gate, under `check:all`. ⏳ Not browser-verified in the auth-gated editor.
 - 2026-10-26 — **Publish refuses a flow left from a kind change** (defense in depth for the
   `invisible_wall/salmons` case: Book-of → `arcade` in `/admin` kept its Book-of flow, which
   validated clean against its own `templateId` vocabulary and shipped an arcade runtime driven by a

@@ -630,12 +630,25 @@ engine's sample game in its place.
 (`/game-maker/breakdown/<project>/<version>`) that lists what it shipped. Use it after a publish to
 check that the right packages went out. A **Version** picker switches between retained versions.
 
-- **Tiles:** total shipped size and file count, the size of `runtime.json` (loaded before any
-  asset), the number of assets, an estimate of GPU memory (every PNG/WebP page whose pixel size is
-  known, × 4 bytes), the bytes nothing loads, and the change in size since the previous version.
-- **By category:** a bar and a table of size and file count per category (Scene art, Symbols,
-  Atlas pages (shared), Fonts, Sounds, Loading screen, Game data, Other). Clicking a row filters
-  the two tables below to that category.
+- **Tiles:**
+  - **Total incl. engine:** everything a first-time player could download (the game's files,
+    `runtime.json` and the engine).
+  - **Game files:** the version's own files.
+  - **Engine (shared):** the engine release the version runs on (runtime, release, file count).
+  - The size of `runtime.json` (loaded before any asset).
+  - The number of assets.
+  - An estimate of GPU memory: every PNG/WebP page whose pixel size is known, × 4 bytes.
+  - The bytes nothing loads.
+  - The change in size since the previous version.
+- **By category:** a bar and a table of size and file count per category (Engine (shared runtime),
+  Scene art, Symbols, Atlas pages (shared), Fonts, Sounds, Loading screen, Game data, Other).
+  Clicking a row filters the two tables below to that category. Shares are of the game's files plus
+  the engine.
+- **The engine is shared.** Every online game runs the same engine runtime, so a player who already
+  played another of our games has it cached. Its files are listed under `engine/…` in **Files**, but
+  never counted as dead or duplicate game files. The engine size is from the release the version was
+  published on. A version published before that was recorded uses the release live now, and
+  **Checks** says so.
 - **Checks:** files the bundle or another file points at that were not shipped (errors);
   placed art no sheet packs, rigs that resolved to nothing, missing flipbook frames, files nothing
   loads, and textures over 4096 px (warnings); identical files shipped twice, region names packed by

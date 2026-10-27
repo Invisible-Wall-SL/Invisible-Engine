@@ -21,6 +21,7 @@ import {
 	type RepairSubmission,
 } from './repair.ts';
 import { UNTRUSTED_LINE, UNTRUSTED_TAG, escapeUntrusted, wrapUntrusted } from './untrusted.ts';
+import { answerContent, capImages } from './toolResult.ts';
 import { workerToolSpecs } from './workerTools.ts';
 
 let failures = 0;
@@ -90,6 +91,66 @@ console.log('the untrusted wrapper');
 		long.endsWith(`…[truncated]\n${CLOSE}`) && tags(long, /<\s*\/\s*untrusted_bug_report/gi) === 1,
 		'a long text is cut inside the tags, after escaping, and keeps its closing tag',
 		` — ${long.slice(-80)}`,
+	);
+}
+
+console.log('an untrusted image answer (9G.0 composed with ADR-0012 layer 2)');
+{
+	const PNG = 'iVBORw0KGgo=';
+	const body = { id: 'a1', width: 2, height: 2, image: { mediaType: 'image/png', base64: PNG } };
+	const content = answerContent(body, true, true) as { type: string; text?: string }[];
+	check(
+		Array.isArray(content) && content.map((b) => b.type).join() === 'text,image',
+		'a screenshot is a text block, then the image block',
+	);
+	check(
+		content[0].text === `${UNTRUSTED_LINE}\n${OPEN}\n{"id":"a1","width":2,"height":2}\n${CLOSE}`,
+		'...the text block is the fixed line, then the rest of the answer between the tags',
+		` — ${content[0].text}`,
+	);
+	const bad = answerContent(
+		{ ...body, image: { mediaType: 'image/svg+xml', base64: PNG } },
+		true,
+		true,
+	);
+	check(
+		typeof bad === 'string' && bad.startsWith(UNTRUSTED_LINE) && bad.includes('imageNotShown'),
+		'...an image that cannot be shown is the wrapped text with its note',
+	);
+	check(
+		answerContent({ title: 'x' }, false, true) ===
+			`${UNTRUSTED_LINE}\n${OPEN}\n{"title":"x"}\n${CLOSE}`,
+		'...a text answer is wrapped alone',
+	);
+	check(
+		answerContent({ title: 'x' }, false, false) === '{"title":"x"}',
+		'...unflagged answers are as before',
+	);
+
+	// capImages sees the stored rows only: wrapping at answer time and capping at request time give
+	// the same request on every replay, through the JSON the rows are stored as.
+	const row = (n: number) => ({
+		role: 'user',
+		content: [
+			{ type: 'tool_result', tool_use_id: `t${n}`, content: answerContent(body, true, true) },
+		],
+	});
+	const history = Array.from({ length: 25 }, (_, n) => row(n));
+	const stored = JSON.parse(JSON.stringify(history)) as typeof history;
+	const once = JSON.stringify(capImages(stored));
+	check(
+		once === JSON.stringify(capImages(JSON.parse(JSON.stringify(history)))) &&
+			once === JSON.stringify(capImages(stored)),
+		'a capped request is the same on every replay',
+	);
+	check(
+		once.split('"type":"image"').length - 1 === 20 &&
+			once.split('[image shown earlier]').length - 1 === 5,
+		'...the newest 20 images stay and the older are a stub, whose wrapped text is kept in front',
+	);
+	check(
+		JSON.stringify(capImages(stored)[0]).includes(UNTRUSTED_LINE),
+		'...the fixed line stays on a stubbed one',
 	);
 }
 

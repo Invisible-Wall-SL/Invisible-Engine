@@ -71,6 +71,7 @@ export interface CatalogEntry {
 	agents: readonly string[];
 	/** Present only on an op whose answer holds people's words: the worker wraps it as data. */
 	untrusted?: true;
+	image?: true;
 }
 
 /**
@@ -100,6 +101,7 @@ export function catalogAnswer(
 			write: op.write,
 			agents: op.agents,
 			...(op.untrusted ? { untrusted: true as const } : {}),
+			...(op.image ? { image: true as const } : {}),
 		}));
 	return { status: 200, body: { ops } };
 }
