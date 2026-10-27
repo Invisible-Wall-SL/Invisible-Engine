@@ -32,7 +32,7 @@
  *
  *   pnpm --filter launcher-api check:shader-pipeline
  */
-import { spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -40,6 +40,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import {
 	customElementFxKind,
 	isCustomElementFxKind,
@@ -1314,27 +1315,23 @@ console.log('8. a particle material ships');
 	const { port } = portal.address() as AddressInfo;
 	const out = mkdtempSync(join(tmpdir(), 'shader-bake-'));
 	const dest = join(out, 'baked-editor-bundle.json');
-	const baked = await new Promise<{ code: number | null; log: string }>((done) => {
-		const child = spawn(
-			process.execPath,
-			[
-				`${here}bake-editor-doc.mjs`,
-				'--project',
-				PROJECT,
-				'--base',
-				`http://127.0.0.1:${port}`,
-				'--token',
-				TOKEN,
-				'--dest',
-				dest,
-			],
-			{ stdio: 'pipe' },
-		);
-		let log = '';
-		child.stdout.on('data', (d) => (log += d));
-		child.stderr.on('data', (d) => (log += d));
-		child.on('close', (code) => done({ code, log }));
-	});
+	const baked = await promisify(execFile)(process.execPath, [
+		`${here}bake-editor-doc.mjs`,
+		'--project',
+		PROJECT,
+		'--base',
+		`http://127.0.0.1:${port}`,
+		'--token',
+		TOKEN,
+		'--dest',
+		dest,
+	]).then(
+		({ stdout, stderr }) => ({ code: 0, log: `${stdout}${stderr}` }),
+		(e: { code?: number; stdout?: string; stderr?: string }) => ({
+			code: e.code ?? 1,
+			log: `${e.stdout ?? ''}${e.stderr ?? ''}`,
+		}),
+	);
 	portal.close();
 	const bakedBundle = (baked.code === 0 ? JSON.parse(readFileSync(dest, 'utf8')) : {}) as {
 		effects?: { id: string; layers: { material?: { kind: string } }[] }[];
