@@ -130,7 +130,7 @@ Cards 9A–9H, each on its own branch. 9A merged with the audit and the ADR (#13
 | 9B | One build agent per game type (lines, ways, cluster, scatter, Hold and Win, bonus/pots, match-3, arcade) + `docs/knowledge/families/*.md`; `book-of-game` folded into `lines-games` | coordinator | done (#1404) | `owners.json` has no kind gap |
 | 9E | Knowledge backfill: last 30 days of fix sessions + docs → `lessons/`, `games/<project>.md` briefs; the 36 `[[…]]` notes rebuilt | coordinator + docs-keeper | doing | Memory-link baseline at 0; cost estimated first |
 | 9F | Runtime family packs + `no_family_pack` refusal at create; slot pack extracted from today's prompts | director-backend | doing | Agents tab eval shows no change for slots |
-| 9G | Repair run kind + `game-doctor` + Repair review checkpoint + game → pipeline escalation | director-backend + director-frontend | todo | A game bug repaired on a test project end to end, owner-approved |
+| 9G | Repair run kind + `game-doctor` + Repair review checkpoint + game → pipeline escalation | director-backend + director-frontend | doing | A game bug repaired on a test project end to end, owner-approved |
 | 9H | Sound and FX adapters, then Component Editor art | director-backend | doing | Each through its storage module with `baseEtag` |
 
 ## Phase 6 — Pilot
