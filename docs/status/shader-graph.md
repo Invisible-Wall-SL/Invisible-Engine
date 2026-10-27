@@ -18,7 +18,8 @@ GLSL node (#1349). 8d (particle materials) is decided
 shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is merged
 (#1366); 8d.3 (the material in the game) is merged (#1378); 8d.4 (the ship chain, proven) is
 merged (#1384); 8d.5 (`/fx` authoring) is merged (#1392); 8d.6 (the other previews) is
-merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) is next.
+merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) is built and
+in review; 8d.8 (play-QA and calibration) is next.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -284,8 +285,33 @@ merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) 
     (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
     shader). Built as 8d.1–8d.8, one PR each (its §15). A game plays a material from 8d.3; no
     tool authors one from 8d.5.
-    - **8d.6, the other previews.** Merged (#1407, 2026-10-27). Guides: `docs/tools/invisible-editor.md`,
-      `rigger.md`, `symbols-state-machine.md`.
+    - **8d.7, `/shaders`: Made for particles and the Particles preview.** Built, in review.
+      Guides: `docs/tools/shader-graph.md` (Made for, the Particles preview), `docs/tools/fx.md`
+      (picker order).
+      - **`ShaderGraphDoc.madeFor`** (`'particles'` or absent; `engine-shadergraph` types, doc,
+        compile): normalized and validated; `shaderGraphBudget(doc)` gives 400 / 16 for elements
+        and 150 / 4 for particles, and the meter, bars, node chips and warnings all use it. The
+        compiled effect gains `madeFor`, `cost` and `samples` (last) only when made for particles,
+        so every other doc compiles byte-identically (a 243-doc corpus dump matched the base).
+      - **Cost in the effect:** `constants-shared`'s reader keeps the three fields and drops a
+        malformed one, keeping the effect. The game's `?fxdebug=1` adds "load N" to a material's
+        peak and release lines when its effect carries a cost. The effects route's `costs` stays
+        `/fx`'s source for every effect (it also needs `shared`).
+      - **`/shaders`:** Made for sits in the Effect settings. Particles switches the budget, makes
+        Particles the default preview, and notes what particles ignore (passes, motion, the motion
+        graph's padding, break). The preview's **Particles** element is a stock Burst (24 every
+        2 s) or Fountain, on a soft dot or an atlas region, mounted through the game's
+        `mountParticleMaterial` (`particlePreview.client.ts`); play / pause / restart replace the
+        scrubber, Strength is a uniform write, thumbnails stay element-based. The page now
+        registers the `fxMaterial` behaviour, which no other import gave it (found by the page
+        gate).
+      - **Picker order:** `/fx` lists effects made for particles first, under "Made for particles"
+        and "Other effects".
+      - **Gates:** `compile.fixture.ts` 213 (snapshots unchanged); `check:shader-editor` 263;
+        `fx-previews` 78; `shader-page` (new, in `check:all`, 42) plays the real `/shaders`
+        headless on WebGL1 and WebGL2 and walks the step's exit; `check:shader-pipeline` 149.
+    - **8d.6, the other previews.** Merged (#1407, 2026-10-27). Guides:
+      `docs/tools/invisible-editor.md`, `rigger.md`, `symbols-state-machine.md`.
       - **One mount for every launcher stage** (`$lib/fx/layerMaterial.client.ts`): the layer's
         material through the game's `mountParticleMaterial`, its remount key, its emitter and its
         uniform retune. `FxStage` now uses it; so do the Scene Editor's `EditorEffectLayer` and the
@@ -567,12 +593,12 @@ merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) 
       defaults.
 
 ## Open items / next
-1. **Step 8d.7 (next): `/shaders` Made for particles and the Particles preview** (design §15
-   step 7).
-   - **8d.7:** the picker's "made for particles" first; `/shaders` switching to
-     `PARTICLE_COST_BUDGET` / `PARTICLE_SAMPLE_BUDGET`; carrying the cost in the compiled effect,
-     so the effects route's `costs` and the `?fxdebug=1` load figure follow from it.
-   - **8d.8, the phone check:** integer seeds through a hash; WebGL1's whole-buffer upload per
+1. **Step 8d.8 (next): play-QA and calibration** (design §15 step 8).
+   - **8d.7's limits:** the Particles preview always uses Time over each particle's life (no Loop)
+     and plays params at their defaults; an edit that changes the compiled effect restarts the
+     particles; `/fx` reads cost from the route, not `effect.cost`; the `?fxdebug=1` load figure
+     exists only for effects made for particles.
+   - **The phone check:** integer seeds through a hash; WebGL1's whole-buffer upload per
      frame, now sized to the drive's peak; the parity tolerance is SwiftShader's, not a phone's;
      whether a dormant event layer should hold a cap slot; spawn order restarting at 0 on every
      emit re-init.
@@ -634,6 +660,19 @@ merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) 
 - None.
 
 ## Recent changes
+- 2026-10-27 — **Step 8d.7: `/shaders` Made for particles and the Particles preview** (see
+  "Current state"). Step 8d.6 merged (#1407).
+  - **Proof.** `compile.fixture.ts` 213; `check:shader-editor` 263; `fx-previews` 78;
+    `shader-page` 42 (new); `fx-page` 31; fx-spike `model` 116; `particle-material`;
+    `material-behavior`; `check:element-fx`; `check:shader-pipeline` 149; `check:launcher-gates`
+    662; `check:vendored-bundles` (`rigger-fx.js` rebuilt); svelte-check at baseline; launcher
+    build; `check:all` 568/568. 20 mutations, each failing its gate.
+  - **Review.** Nothing blocking, no slot or ticker leak. Fixed: "Loading art…" stuck after a slow
+    region was overtaken; a failed region's note left on the sample card; a paused edit emptied the
+    stage (a rebuild while paused now plays 500 ms); the element playhead and thumbnails kept moving
+    on Particles; the wrong overlay on Particles; "Infinity M" in the debug load; opening a doc now
+    selects its default element. `fx-page`'s first case now waits for the mount line (it read too
+    early under load).
 - 2026-10-27 — **Step 8d.6: the other previews** (see "Current state"). Merged (#1407): CI
   green, Current games "runtime untouched" (launcher, tools and docs only).
   - **Proof.** `fx-previews` (new, in `check:all`) 52/52, the editor clock case included;

@@ -2,8 +2,8 @@
  * The `/fx` page as `fxPage.mjs` plays it: the real `+page.svelte` (and its `FxStage`, inspector and
  * dialogs) mounted outside SvelteKit, with `$app/*` stubbed (`fxPage/app*.ts`) and every request the
  * page makes answered here, in memory:
- *  - `GET /api/shaders/effects`: the reference graphs compiled (`compileShaderEffect`), as the route
- *    answers them, with their costs (`analyzeShaderGraph`);
+ *  - `GET /api/shaders/effects`: the reference graphs compiled (`compileShaderEffect`), Ripple made
+ *    for particles, as the route answers them, with their costs (`analyzeShaderGraph`);
  *  - `GET /api/editor/regions` / `asset`: one atlas page drawn on a canvas (a soft dot, a square);
  *  - `POST /api/fx/save` and `GET /api/fx/effect`: the effect normalized as `saveEffect` stores it
  *    (`normalizeEffectDoc`, the slugged id) and read back through JSON, as R2 holds it;
@@ -53,7 +53,11 @@ async function pageImage(): Promise<Blob> {
 	return canvas.convertToBlob({ type: 'image/png' });
 }
 
-const compiled = REFERENCE_GRAPHS.map((doc) => ({ doc, result: compileShaderEffect(doc) }));
+/** Ripple is made for particles: the Material picker lists it first. */
+const compiled = REFERENCE_GRAPHS.map((doc) => ({
+	doc,
+	result: compileShaderEffect(doc.id === 'ripple' ? { ...doc, madeFor: 'particles' } : doc),
+}));
 const effects = compiled.flatMap(({ result }) => (result.ok ? [result.effect] : []));
 const costs = compiled
 	.filter(({ result }) => result.ok)

@@ -550,6 +550,12 @@ svelte-check at baseline, and the current games building with no changed screen.
      - the preview harness on WebGL1 and WebGL2;
      - the page played headless.
    - **Exit:** an artist builds a material in `/shaders` and sees it on particles.
+   - **As built** (#TBD):
+     - **The cost rides in the effect only when made for particles** (`madeFor`, `cost`,
+       `samples`), so element docs stay byte-identical; the effects route's `costs` stays `/fx`'s
+       source, and the game's `?fxdebug=1` prints load when the effect carries one.
+     - **The page gate** (`shader-page`) mounts the real `/shaders` headless, as `fx-page` does for
+       `/fx`; it found that the page never registered the `fxMaterial` behaviour.
 8. **Play-QA and calibration.**
    - **Contents:** `scripts/playtest/particle-material-play.mjs`, on a current-games stand-in with
      one material layer.

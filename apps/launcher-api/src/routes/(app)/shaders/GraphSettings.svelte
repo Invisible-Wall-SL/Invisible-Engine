@@ -24,10 +24,13 @@
 		addParam,
 		addPass,
 		breakPhaseMismatch,
+		madeForParticles,
+		particleIgnoredNotes,
 		phaseName,
 		removeParam,
 		removePass,
 		restCurve,
+		setMadeFor,
 		setMotionChannel,
 		setParam,
 		setPass,
@@ -79,6 +82,10 @@
 	const PARAM_KINDS = Object.keys(PARAM_KIND_LABELS) as ElementFxParamSpec['kind'][];
 
 	const mismatch = $derived(breakPhaseMismatch(doc));
+	/** What of the effect does not play on particles, by part, when it is made for them. */
+	const ignored = $derived(particleIgnoredNotes(doc));
+	const ignoredOf = (...parts: string[]): string[] =>
+		ignored.filter((n) => parts.includes(n.part)).map((n) => n.text);
 
 	const set = <K extends keyof ShaderGraphDoc>(key: K, value: ShaderGraphDoc[K]): void =>
 		onChange({ ...doc, [key]: value });
@@ -186,6 +193,24 @@
 			{/each}
 		</select>
 	</label>
+	<label
+		class="field"
+		title="What the effect is made to draw. It never changes what plays: any effect can go on elements or particles. Particles sets the preview, the cost budget and the notes, and lists the effect first in Invisible FX's Material picker."
+	>
+		<span>Made for</span>
+		<select
+			value={madeForParticles(doc) ? 'particles' : 'elements'}
+			{disabled}
+			aria-label="Made for"
+			onchange={(e) => onChange(setMadeFor(doc, e.currentTarget.value === 'particles'))}
+		>
+			<option value="elements">Elements</option>
+			<option value="particles">Particles (a material in Invisible FX)</option>
+		</select>
+	</label>
+	{#each ignoredOf('break') as text (text)}
+		<p class="ignored">{text}</p>
+	{/each}
 	{#if mismatch}
 		<p class="hint warn fix">
 			{mismatch.message}
@@ -349,6 +374,9 @@
 	</div>
 
 	<h4>Passes <span class="muted">— built-in effects drawn after the graph</span></h4>
+	{#each ignoredOf('passes') as text (text)}
+		<p class="ignored">{text}</p>
+	{/each}
 	{#each doc.passes ?? [] as pass, index (index)}
 		<div class="card">
 			<div class="row">
@@ -451,6 +479,9 @@
 	{/if}
 
 	<h4>Motion <span class="muted">— the element's own movement over a play</span></h4>
+	{#each ignoredOf('motion', 'padding') as text (text)}
+		<p class="ignored">{text}</p>
+	{/each}
 	{#each ELEMENT_FX_MOTION_CHANNELS as channel (channel)}
 		{@const curve = doc.motion?.channels[channel]}
 		{@const graphDriven = driven.includes(channel)}
@@ -612,6 +643,11 @@
 		margin: 0;
 		font-size: 11px;
 		color: #38bdf8;
+	}
+	.ignored {
+		margin: 0;
+		font-size: 11px;
+		color: #fbbf24;
 	}
 	.row {
 		display: flex;
