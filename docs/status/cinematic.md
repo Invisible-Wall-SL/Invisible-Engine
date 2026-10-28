@@ -272,7 +272,7 @@ through the same player; headless-proven, no editor yet (5b).
     with the component). Timelines are project-scoped: a shared component's timeline authored in
     project A does not ship for project B (shared timeline library = Phase 9).
   - **Not in Phase 4b:** `sfx:` / `music:` cues are not played from a component timeline (they
-    are dropped); the panel keys no text tracks, visibility or cues (as on
+    are dropped — they play since 2026-10-27, see [sound](sound.md)); the panel keys no text tracks, visibility or cues (as on
     screens).
 
 - **`/rigger` cinematic mode (Phase 1).** A fourth mode beside Preview / Setup / Animate. Cast a
@@ -327,6 +327,8 @@ through the same player; headless-proven, no editor yet (5b).
   `<select>` (a datalist filters itself to the current value) or typed. Firing is `cuesCrossed`: a
   half-open `(prev, now]` window, and **a seek fires nothing**. Game-side, sounds go through the
   player (guarded by `hasSound`), everything else is broadcast on the event bus under its bare name.
+  A sound cue may carry per-cue options (`sound` on the key — volume, rate, pan, loop/stop, fades,
+  alternates; `engine-layout`'s `cueSound.ts`), played the same way on every timeline kind.
 - **Set + depth** — a cinematic can bind a Scene (`stage.sceneId`, mounted through `LayoutScene`).
   The set / `fx:` layer sits on the cast's z line at `stage.setZ` (absent ⇒ behind everything,
   parity), shown as a **⚡ fx** row (**🎬 set** once a Scene is bound) moved with ▲▼. The preview can

@@ -1,8 +1,8 @@
 # Hold and Win (game kind) — status + session hub
 
 > Design: [docs/design/hold-and-win.md](../design/hold-and-win.md) · Guide: _none yet (per-tool
-> guides get a Hold and Win section as each phase ships)_ · Agents: per phase — see the design's
-> build plan.
+> guides get a Hold and Win section as each phase ships)_ · Agent: `hold-and-win-games`
+> (overlay and bonus-mode routing: `bonus-games`).
 
 **One-line state:** Phase 4 (engine runtime) build COMPLETE, all merged and live (2026-10-01,
 `lines@e4bca6077db0`) — the shared runtime plays a whole Hold and Win feature with coded default

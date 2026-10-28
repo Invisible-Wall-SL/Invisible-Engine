@@ -57,9 +57,16 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 
 ## Open items / next
 - **Shader Graph materials** (decided 2026-10-25, being built) — a compiled Shader Graph effect as
-  the material a sprite layer's particles draw with, picked in `/fx`. The plan, its eight PRs and
+  the material a sprite layer's particles draw with, picked in `/fx` (the Material section, from
+  8d.5; guide: [tools/fx](../tools/fx.md)). Since 8d.5, editing a layer no longer restarts the
+  others, and Pause / Play stop and re-arm every layer. The plan, its eight PRs and
   their state live in [design/shader-graph-particles.md](../design/shader-graph-particles.md) and
   [status/shader-graph](shader-graph.md) (step 8d).
+- **The Scene Editor's overlay ignores layer triggers** (`EditorEffectLayer`): every free layer
+  emits while playing, so an `on: 'event'` layer emits continuously where the game keeps it
+  dormant until its event, and `trigger.duration` / `stopEventType` are not applied (the game's
+  `EffectLayer.svelte` does). Bone layers are skipped (by design, in its header). Its speed matches
+  the game since 2026-10-27.
 - **Owner browser-pass over Element FX** (2026-10-21) — in `/editor` add a few effects to a rig,
   a flipbook, a particle effect node, the reel grid and a screen (Screen panel), ▶ preview each,
   and Save → reopen. Then in a published game: an *Always* float / glow / flag on a node, a *When
@@ -129,6 +136,23 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-27 — **Invisible Director can re-skin an effect's particle art and colours** (Director
+  card 9H, [ADR-0011](../director/DECISIONS/0011-reskin-adapters-sound-fx-components.md), PR #1413,
+  in review). Two adapter ops for the animator agent, `fx.get_effect` and `fx.update_art`
+  (`apps/launcher-api/src/lib/server/director/ops/fx.ts`), save through `saveEffect` with
+  `baseEtag` (the loaded sidecar is passed back, so a person's camera survives). An existing
+  layer's `art.assetKey` (an atlas from `fxAtlases.ts`, the `/fx` loader's listing moved there
+  verbatim), its frames and weights, and the values of its existing `color` / `colorStatic` stops
+  change. Nothing else in the doc does: no emitter field, behaviour, placement, trigger, material,
+  param or layer. Rig-particle layers, a colour a param drives, and an effect placed by a node
+  bound to the math (also inside a component) are refused. The `/fx` page is unchanged.
+- 2026-10-27 — **The Scene Editor plays effects at game speed** (branch
+  `claude/shader-graph-step8d6-clock`). `EditorEffectLayer` (the Scene and Component Editor
+  overlay) advanced its emitters by `ticker.deltaMS / 1000`, wall-clock seconds, where the game,
+  `/fx` and the Rigger / Symbols overlay use `engine-fx`'s `emitterDeltaSeconds`
+  (`deltaMS × DEFAULT_EMIT_SPEED`, 0.00234). Every effect there ran about 2.3× slower than in the
+  game. It now uses the same helper; the effect-level `timeScale` still applies on top. Found in
+  the Shader Graph 8d.6 review.
 - 2026-10-24 — **Assemble from particles plays on the live element; the editor's Element FX preview
   plays on the live screen** (branch `claude/magical-curie-th1axi`). Owner report on
   `commonoverlayproject`: an Element FX cued on the base-game intro (Assemble, then Wobble and

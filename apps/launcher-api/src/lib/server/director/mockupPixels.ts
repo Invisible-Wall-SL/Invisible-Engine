@@ -3,6 +3,10 @@ import sharp from 'sharp';
 /** The long edge the model sees (ADR-0005); the original is kept. */
 export const MODEL_LONG_EDGE = 1568;
 
+/** The most pixels sharp decodes from one input (its own default, stated). */
+export const MAX_INPUT_PIXELS = 268_402_689;
+const OPEN = { limitInputPixels: MAX_INPUT_PIXELS } as const;
+
 export type MockupMediaType = 'image/png' | 'image/jpeg';
 
 /**
@@ -28,7 +32,7 @@ export interface DominantColor {
 async function orientedMetadata(
 	bytes: Uint8Array,
 ): Promise<{ w: number; h: number; rotated: boolean }> {
-	const meta = await sharp(bytes).metadata();
+	const meta = await sharp(bytes, OPEN).metadata();
 	if (!meta.width || !meta.height) throw new Error('The image has no dimensions.');
 	const orientation = meta.orientation ?? 1;
 	// EXIF orientation 5–8 swaps the axes when the image is displayed.
@@ -71,9 +75,9 @@ export function clampBox(box: Box, w: number, h: number): Box | null {
 	return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
-export interface ModelImage {
+export interface ModelImage<T extends string = MockupMediaType> {
 	bytes: Uint8Array;
-	mediaType: MockupMediaType;
+	mediaType: T;
 	w: number;
 	h: number;
 	scale: number;
@@ -84,18 +88,23 @@ export interface ModelImage {
  * always in display orientation so the model's boxes land in the frame `cropImage` cuts from. An
  * original that already fits and needs no rotating is passed through untouched (`scale` 1).
  */
-export async function downscaleForModel(
+export async function downscaleForModel<T extends MockupMediaType | 'image/webp'>(
 	bytes: Uint8Array,
-	mediaType: MockupMediaType,
+	mediaType: T,
 	longEdge = MODEL_LONG_EDGE,
-): Promise<ModelImage> {
+): Promise<ModelImage<T>> {
 	const { w, h, rotated } = await orientedMetadata(bytes);
 	const scale = modelScale(w, h, longEdge);
 	if (scale === 1 && !rotated) return { bytes, mediaType, w, h, scale };
-	let pipeline = sharp(bytes)
+	let pipeline = sharp(bytes, OPEN)
 		.rotate()
 		.resize({ width: longEdge, height: longEdge, fit: 'inside', withoutEnlargement: true });
-	pipeline = mediaType === 'image/png' ? pipeline.png() : pipeline.jpeg({ quality: 90 });
+	pipeline =
+		mediaType === 'image/png'
+			? pipeline.png()
+			: mediaType === 'image/webp'
+				? pipeline.webp({ quality: 90 })
+				: pipeline.jpeg({ quality: 90 });
 	const { data, info } = await pipeline.toBuffer({ resolveWithObject: true });
 	return {
 		bytes: new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
@@ -111,7 +120,7 @@ export async function cropImage(bytes: Uint8Array, box: Box): Promise<Uint8Array
 	const { w, h } = await imageDimensions(bytes);
 	const inside = clampBox(box, w, h);
 	if (!inside) return null;
-	const data = await sharp(bytes)
+	const data = await sharp(bytes, OPEN)
 		.rotate()
 		.extract({ left: inside.x, top: inside.y, width: inside.w, height: inside.h })
 		.png()
@@ -211,4 +220,45 @@ export async function dominantColors(bytes: Uint8Array, k = DOMINANT_K): Promise
 		hex: rgbToHex(c.center),
 		share: Math.round(c.share * 1000) / 1000,
 	}));
+}
+
+const FORMAT_TYPES = {
+	jpeg: 'image/jpeg',
+	png: 'image/png',
+	webp: 'image/webp',
+} as const;
+
+/**
+ * The copy the model sees of an image a person or a tool made, checked on the way: decoded in full
+ * and always re-encoded, in the format the bytes really are (not the one declared), so a truncated
+ * file or a mislabelled one never reaches the API, which would refuse it for good. Throws when the
+ * bytes do not decode or are not a jpeg, png or webp.
+ */
+export async function validatedModelImage(
+	bytes: Uint8Array,
+	longEdge = MODEL_LONG_EDGE,
+): Promise<ModelImage<(typeof FORMAT_TYPES)[keyof typeof FORMAT_TYPES]>> {
+	const { format } = await sharp(bytes, OPEN).metadata();
+	const mediaType = Object.hasOwn(FORMAT_TYPES, format ?? '')
+		? FORMAT_TYPES[format as keyof typeof FORMAT_TYPES]
+		: null;
+	if (!mediaType) throw new Error(`Not a jpeg, png or webp image (${format ?? 'unknown'}).`);
+	const { w, h } = await orientedMetadata(bytes);
+	const pipeline = sharp(bytes, { ...OPEN, failOn: 'error' })
+		.rotate()
+		.resize({ width: longEdge, height: longEdge, fit: 'inside', withoutEnlargement: true });
+	const encoded =
+		mediaType === 'image/png'
+			? pipeline.png()
+			: mediaType === 'image/webp'
+				? pipeline.webp({ quality: 90 })
+				: pipeline.jpeg({ quality: 90 });
+	const { data, info } = await encoded.toBuffer({ resolveWithObject: true });
+	return {
+		bytes: new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+		mediaType,
+		w: info.width,
+		h: info.height,
+		scale: modelScale(w, h, longEdge),
+	};
 }

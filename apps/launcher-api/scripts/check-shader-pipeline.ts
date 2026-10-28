@@ -26,7 +26,8 @@
  *      named nowhere else, keeps its compiled effect in `shaderEffects` through the real runtime
  *      bundle (Publish) and the real bake script (driven against a portal answering through the
  *      real routes); a broken or deleted graph is named by `shaderEffectsMissing` and the bake's
- *      log; an unreachable effect, pruned, brings no material in.
+ *      log; an unreachable effect, pruned, brings no material in. A graph made for particles ships
+ *      its `madeFor` and its cost, which the game registers (8d.7: `?fxdebug=1` reads its load).
  *
  * `r2.ts` is an in-memory bucket honouring `If-Match` / `If-None-Match`; the tool gate, the
  * capability overrides, the deploy token, the project lookup and the deploy lock are stubbed. Run:
@@ -48,6 +49,7 @@ import {
 	setCustomElementFx,
 } from 'constants-shared/elementFx';
 import {
+	analyzeShaderGraph,
 	CUSTOM_GLSL,
 	CUSTOM_GLSL_DEFAULT,
 	REFERENCE_GRAPHS,
@@ -202,6 +204,20 @@ fake('lib/server/projects.ts', {
 });
 fake('lib/server/runtimeBundleCache.ts', {
 	withDeployWrite: async <T>(_project: string, run: () => Promise<T>) => run(),
+});
+
+// The graph package as is, but its analysis can be made to throw on one graph (a compiler bug a
+// stored doc finds), to prove the effects route answers the set without that graph's cost.
+const shaderGraph = await import('engine-shadergraph');
+let analysisThrowsFor = '';
+mock.module('engine-shadergraph', {
+	namedExports: {
+		...shaderGraph,
+		analyzeShaderGraph: (doc: ShaderGraphDoc) => {
+			if (doc.id === analysisThrowsFor) throw new Error('fixture: an analysis bug');
+			return shaderGraph.analyzeShaderGraph(doc);
+		},
+	},
 });
 
 const storage = await import('../src/lib/server/shaderStorage.ts');
@@ -460,6 +476,42 @@ check(
 	],
 	[3, ['broken']],
 );
+check(
+	"…with each compiled graph's cost and whether it is the studio library's, for /fx's load meter",
+	(compiledForEditor.body.costs as { id: string; shared: boolean; cost: number }[]).map((c) => [
+		c.id,
+		c.shared,
+		c.cost ===
+			analyzeShaderGraph(
+				normalizeShaderGraphDoc(
+					stored(c.shared ? `${SHARED_SHADERS_PREFIX}/${c.id}.json` : `${projectDir}${c.id}.json`),
+					c.id,
+				),
+			).cost && c.cost > 0,
+	]),
+	(compiledForEditor.body.effects as { spec: { kind: string } }[]).map((e) => {
+		const id = e.spec.kind.slice('custom:'.length);
+		return [id, id === 'power_up', true];
+	}),
+);
+{
+	const costs = compiledForEditor.body.costs as { id: string }[];
+	analysisThrowsFor = costs[0].id;
+	const quiet = console.error;
+	console.error = () => {};
+	const answer = await call(effectsRoute.GET, {});
+	console.error = quiet;
+	analysisThrowsFor = '';
+	check(
+		'a graph whose analysis throws costs only its own entry: the set still answers',
+		[
+			answer.status,
+			(answer.body.effects as unknown[]).length,
+			(answer.body.costs as { id: string }[]).map((c) => c.id),
+		],
+		[200, 3, costs.slice(1).map((c) => c.id)],
+	);
+}
 const deleted = await call(deleteRoute.POST, { body: { id: 'Pulse Tint', projectKey: PROJECT } });
 check(
 	'delete removes the project graph',
@@ -1219,7 +1271,12 @@ console.log('8. a particle material ships');
 {
 	for (const key of keysUnder(projectDir)) R2.delete(key);
 	for (const key of keysUnder(`${SHARED_SHADERS_PREFIX}/`)) R2.delete(key);
-	await storage.saveShader(CLIENT, PROJECT, { ...ref('pulseTint'), id: 'ember' }, null);
+	await storage.saveShader(
+		CLIENT,
+		PROJECT,
+		{ ...ref('pulseTint'), id: 'ember', madeFor: 'particles' },
+		null,
+	);
 	await storage.saveShader(CLIENT, PROJECT, { ...ref('frost'), id: 'orphan_glow' }, null);
 	await storage.saveShader(CLIENT, PROJECT, { ...broken, id: 'cracked_mat' }, null);
 	await storage.saveShader(CLIENT, PROJECT, { ...ref('frost'), id: 'gone' }, null);
@@ -1289,6 +1346,25 @@ console.log('8. a particle material ships');
 		'…and the game registers it',
 		setCustomElementFx(bundle.shaderEffects ?? []).map((e) => e.spec.kind),
 		['custom:ember'],
+	);
+	const pulseCost = analyzeShaderGraph(ref('pulseTint'));
+	const madeFor = (e: { madeFor?: string; cost?: number; samples?: number } | undefined) => [
+		e?.madeFor,
+		e?.cost,
+		e?.samples,
+	];
+	check(
+		'made for particles, it ships its madeFor and its cost, and the game keeps them (?fxdebug=1 reads its load)',
+		[
+			madeFor(bundle.shaderEffects?.[0]),
+			madeFor(setCustomElementFx(bundle.shaderEffects ?? [])[0]),
+			madeFor(set.effects.find((e) => e.spec.kind === 'custom:orphan_glow')),
+		],
+		[
+			['particles', pulseCost.cost, pulseCost.samples],
+			['particles', pulseCost.cost, pulseCost.samples],
+			[undefined, undefined, undefined],
+		],
 	);
 	setCustomElementFx([]);
 	check(

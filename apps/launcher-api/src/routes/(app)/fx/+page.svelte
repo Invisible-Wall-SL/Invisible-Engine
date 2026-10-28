@@ -6,11 +6,23 @@
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import { askConfirm, askText } from '$lib/dialogs.svelte';
 	import { guardUnsavedWork } from '$lib/unsavedGuard';
+	import { customElementFxVersion, registerCustomElementFx } from '$lib/customElementFx.svelte';
+	import { resolve } from '$app/paths';
+	import {
+		customElementFx,
+		customElementFxList,
+		type CustomElementFx,
+	} from 'constants-shared/elementFx';
+	import { PARTICLE_COST_BUDGET, PARTICLE_SAMPLE_BUDGET } from 'engine-shadergraph';
 	import {
 		FX_FORCE_KINDS,
 		FX_FORCE_LIMITS,
+		FX_MATERIAL_EFFECT_LOAD_BUDGET,
+		FX_MATERIAL_INTENSITY_MAX,
 		applyEffectParamDefaults,
+		fxMaterialLoadLevel,
 		listEffectLayerLeaves,
+		validateEffectMaterials,
 		type EffectDoc,
 		type EffectParam,
 		type EffectParamKind,
@@ -22,7 +34,25 @@
 	} from 'engine-fx';
 	import { onMount } from 'svelte';
 	import { replaceState } from '$app/navigation';
-	import FxStage, { type ResolvedArt } from './FxStage.svelte';
+	import FxStage, { type FxStageMaterialStat, type ResolvedArt } from './FxStage.svelte';
+	import {
+		largestFrame,
+		materialChoices,
+		materialGraphId,
+		materialLayerLoad,
+		materialLayerCount,
+		materialNotes,
+		materialParamValue,
+		setLayerMaterial,
+		setMaterialIntensity,
+		setMaterialParam,
+		setMaterialTime,
+		shortCount,
+		type FxMaterialCost,
+		type FxMaterialLoad,
+		type FxMaterialSkip,
+		type FxStagePlain,
+	} from './fxMaterial.client';
 	import {
 		addForce,
 		applyPreset,
@@ -104,6 +134,7 @@
 		driveWithParam,
 		exposeAsNewParam,
 		layerDrives,
+		layerLeavesWithMaterial,
 		leafExposure,
 		paramIdFromLabel,
 		removeDrive,
@@ -524,6 +555,142 @@
 	const config = $derived(selected?.config);
 
 	let stage = $state<FxStage | null>(null);
+
+	// --- materials (Invisible Shader Graph step 8d.5) ------------------------------
+	// The project's compiled Shader Graph effects, read from `GET /api/shaders/effects` (the
+	// compiled set only, through `shaderEffectsReadScope`) and registered as the Scene Editor
+	// registers them, so `FxStage` draws a layer's material through the game's renderer.
+	let shaderSet = $state<{
+		state: 'loading' | 'loaded' | 'failed';
+		skipped: FxMaterialSkip[];
+		costs: FxMaterialCost[];
+	}>({ state: 'loading', skipped: [], costs: [] });
+
+	onMount(async () => {
+		try {
+			const qs = new URLSearchParams({ projectKey: data.projectKey });
+			const res = await fetch(`/api/shaders/effects?${qs}`);
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const out = (await res.json()) as {
+				effects?: unknown[];
+				skipped?: FxMaterialSkip[];
+				costs?: FxMaterialCost[];
+			};
+			registerCustomElementFx(out.effects ?? []);
+			shaderSet = { state: 'loaded', skipped: out.skipped ?? [], costs: out.costs ?? [] };
+		} catch {
+			shaderSet = { state: 'failed', skipped: [], costs: [] };
+		}
+	});
+
+	/** The registered effect a kind names (re-read when the set is registered). */
+	function registeredEffect(kind: string | undefined): CustomElementFx | undefined {
+		void customElementFxVersion();
+		return kind ? customElementFx(kind) : undefined;
+	}
+
+	const materialOptions = $derived.by(() => {
+		void customElementFxVersion();
+		return materialChoices(customElementFxList());
+	});
+	/** The picker's groups: made for particles, then the rest (one group needs no heading). */
+	const materialGroups = $derived(
+		[
+			{ label: 'Made for particles', options: materialOptions.filter((o) => o.particles) },
+			{ label: 'Other effects', options: materialOptions.filter((o) => !o.particles) },
+		].filter((g) => g.options.length),
+	);
+
+	/** How the stage draws each material layer, as it last said. */
+	let materialStats = $state<Record<string, FxStageMaterialStat>>({});
+
+	/** Each atlas's regions once resolved: a layer's largest frame sizes its load estimate. */
+	let artRegions = $state<Record<string, ResolvedArt['regions']>>({});
+	$effect(() => {
+		for (const layer of doc.layers) {
+			const key = layer.art.assetKey;
+			if (!layer.material || !key || key in artRegions) continue;
+			resolveArt(key)
+				.then((art) => {
+					if (art) artRegions = { ...artRegions, [key]: art.regions };
+				})
+				.catch(() => {
+					// The estimate waits (frame 0); the next read asks again.
+					artCache.delete(key);
+				});
+		}
+	});
+
+	const materialCost = (kind: string | undefined): FxMaterialCost | undefined =>
+		kind ? shaderSet.costs.find((c) => c.id === materialGraphId(kind)) : undefined;
+
+	/** Each material layer's load: measured once it has drawn, else the §10 estimate. */
+	const layerLoads = $derived.by((): Record<string, FxMaterialLoad> => {
+		const out: Record<string, FxMaterialLoad> = {};
+		for (const layer of doc.layers) {
+			const kind = layer.material?.kind;
+			const stat = materialStats[layer.key];
+			const load = materialLayerLoad({
+				layer,
+				effect: registeredEffect(kind),
+				cost: materialCost(kind)?.cost,
+				frame: largestFrame(layer, artRegions[layer.art.assetKey]),
+				measuredArea: stat?.state === 'on' ? stat.peakArea : undefined,
+			});
+			if (load) out[layer.key] = load;
+		}
+		return out;
+	});
+
+	const effectLoad = $derived.by(() => {
+		const loads = Object.values(layerLoads);
+		if (!loads.length) return undefined;
+		const load = loads.reduce((sum, l) => sum + l.load, 0);
+		return {
+			load,
+			level: fxMaterialLoadLevel(load, FX_MATERIAL_EFFECT_LOAD_BUDGET),
+			measured: loads.every((l) => l.measured),
+		};
+	});
+
+	/** Layers whose material the project does not compile (`validateEffectMaterials`). */
+	const materialIssues = $derived.by(() => {
+		void customElementFxVersion();
+		if (shaderSet.state !== 'loaded') return new Set<string>();
+		const issues = validateEffectMaterials(doc, (kind) => !!customElementFx(kind));
+		return new Set(issues.map((i) => i.layer));
+	});
+
+	const stagePlainOf = (stat: FxStageMaterialStat | undefined): FxStagePlain | undefined =>
+		stat && stat.state !== 'on' ? stat.state : undefined;
+
+	const selectedEffect = $derived(registeredEffect(selected?.material?.kind));
+	const selectedCost = $derived(materialCost(selected?.material?.kind));
+	const selectedLoad = $derived(selected ? layerLoads[selected.key] : undefined);
+	const selectedNotes = $derived(
+		selected
+			? materialNotes({
+					layer: selected,
+					params: doc.params,
+					materialLayers: materialLayerCount(doc.layers),
+					effect: selectedEffect,
+					notCompiled: materialIssues.has(selected.key),
+					skipped: shaderSet.skipped,
+					cost: selectedCost,
+					load: selectedLoad,
+					stagePlain: stagePlainOf(materialStats[selected.key]),
+				})
+			: [],
+	);
+	/** `/shaders` is a separate tool: the link shows only to an author who may open it. */
+	const canOpenShaders = data.tools.some((t) => t.id === 'shaders');
+	/** `/shaders` opens a graph by `?graph=`, a studio-library one with `&shared=1`. */
+	const shaderGraphQuery = (kind: string): string =>
+		`graph=${encodeURIComponent(materialGraphId(kind))}` +
+		(materialCost(kind)?.shared ? '&shared=1' : '') +
+		(data.projectKey ? `&project=${encodeURIComponent(data.projectKey)}` : '');
+	const loadPercent = (l: { load: number; budget: number }): number =>
+		Math.round((100 * l.load) / l.budget);
 
 	// --- art resolution (reuse the editor's region + asset endpoints) -----------
 	// The editor's region/asset endpoints accept the `fx` tool as well (their `altTools`),
@@ -1044,7 +1211,7 @@
 	const leafGroups = $derived.by((): { name: string; leaves: LeafRow[] }[] => {
 		if (!leavesOpen || !selectedPlain) return [];
 		const groups: { name: string; leaves: LeafRow[] }[] = [];
-		for (const leaf of listEffectLayerLeaves(selectedPlain)) {
+		for (const leaf of layerLeavesWithMaterial(selectedPlain, selectedEffect?.spec.params)) {
 			const name = leaf.path.slice(0, leaf.path.indexOf('.'));
 			let group = groups.find((g) => g.name === name);
 			if (!group) groups.push((group = { name, leaves: [] }));
@@ -1163,9 +1330,17 @@
 {/snippet}
 
 <!-- A colour row (the shared picker) with ⚡. -->
-{#snippet colorRow(label: string, value: string, apply: (hex: string) => void)}
+{#snippet colorRow(label: string, value: string, apply: (hex: string) => void, id: string = '')}
 	{@const run = (v: EffectParamValue) => apply(String(v))}
-	{@const driven = rowDrive(`c:${label}`, label, 'color', value, '#000000', '#ffffff', run)}
+	{@const driven = rowDrive(
+		id ? `${id}:c:${label}` : `c:${label}`,
+		label,
+		'color',
+		value,
+		'#000000',
+		'#ffffff',
+		run,
+	)}
 	<div class="row" class:driven={!!driven}>
 		<span>{label}</span>
 		<span class="ctl">
@@ -1339,6 +1514,19 @@
 			value={doc.name}
 			onchange={(e) => setDoc({ ...doc, name: (e.currentTarget as HTMLInputElement).value })}
 		/>
+		{#if effectLoad}
+			<span
+				class="eload {effectLoad.level}"
+				title="The effect's material load: its material layers' loads summed (graph cost × the pixels their particles cover), against the {shortCount(
+					FX_MATERIAL_EFFECT_LOAD_BUDGET,
+				)} a phone affords. {effectLoad.measured
+					? 'Measured on the preview.'
+					: 'Estimated until every material layer has drawn.'}"
+				>◆ {effectLoad.measured ? '' : '≈ '}{shortCount(effectLoad.load)} / {shortCount(
+					FX_MATERIAL_EFFECT_LOAD_BUDGET,
+				)}</span
+			>
+		{/if}
 		<button class="primary" onclick={() => saveEffect()} disabled={busy || lease.readOnly}>
 			{saveState.busy ? 'Saving…' : '⤓ Save'}
 		</button>
@@ -1402,6 +1590,20 @@
 							<span class="meta"
 								>{layer.art.frames.length} frame{layer.art.frames.length === 1 ? '' : 's'}</span
 							>
+							{#if materialIssues.has(layer.key)}
+								<span
+									class="mbadge off"
+									title="Its material is not a compiled effect: it draws plain">◆ plain</span
+								>
+							{:else if layerLoads[layer.key]}
+								{@const l = layerLoads[layer.key]}
+								<span
+									class="mbadge {l.level}"
+									title="Material load {l.measured ? '(measured)' : '(estimate)'}: {shortCount(
+										l.load,
+									)} of {shortCount(l.budget)}">◆ {l.measured ? '' : '≈'}{loadPercent(l)}%</span
+								>
+							{/if}
 						</button>
 						<!-- List order IS draw order: the last layer renders in front. -->
 						<button
@@ -1687,6 +1889,7 @@
 					{onRigMeta}
 					params={doc.params}
 					paramValues={previewValues}
+					onMaterialStats={(stats) => (materialStats = stats)}
 				/>
 			</div>
 		</div>
@@ -1931,6 +2134,174 @@
 										</p>
 									</div>
 								{/if}
+							{/if}
+						{/if}
+					</section>
+
+					<section>
+						<h3>Material</h3>
+						<label class="row">
+							<span>Material</span>
+							<select
+								title="Draw this layer's particles through a Shader Graph effect"
+								value={selected.material?.kind ?? ''}
+								onchange={(e) =>
+									updateSelected((l) =>
+										setLayerMaterial(l, (e.currentTarget as HTMLSelectElement).value),
+									)}
+							>
+								<option value="">None (plain sprites)</option>
+								{#if materialGroups.length > 1}
+									{#each materialGroups as group (group.label)}
+										<optgroup label={group.label}>
+											{#each group.options as option (option.kind)}
+												<option value={option.kind}>{option.label}</option>
+											{/each}
+										</optgroup>
+									{/each}
+								{:else}
+									{#each materialOptions as option (option.kind)}
+										<option value={option.kind}>{option.label}</option>
+									{/each}
+								{/if}
+								{#if selected.material && !materialOptions.some((o) => o.kind === selected.material?.kind)}
+									<option value={selected.material.kind}
+										>{selected.material.kind} (not compiled)</option
+									>
+								{/if}
+							</select>
+						</label>
+						{#if shaderSet.state === 'loading'}
+							<p class="hint">Reading the project's Shader Graph effects…</p>
+						{:else if shaderSet.state === 'failed'}
+							<p class="warn">Could not read the project's Shader Graph effects.</p>
+						{:else if materialOptions.length === 0 && !selected.material}
+							<p class="hint">
+								This project has no compiled Shader Graph effects yet — make one in Shader Graph to
+								use it as a material.
+							</p>
+						{/if}
+						{#if selected.material}
+							{@const material = selected.material}
+							<label class="row">
+								<span>Time</span>
+								<select
+									title="What the graph's Time input reads on each particle"
+									value={material.time ?? 'life'}
+									onchange={(e) =>
+										updateSelected((l) =>
+											setMaterialTime(
+												l,
+												(e.currentTarget as HTMLSelectElement).value as 'life' | 'loop',
+											),
+										)}
+								>
+									<option value="life">Over the particle's life</option>
+									<option value="loop"
+										>Loop at the effect's length{selectedEffect
+											? ` (${selectedEffect.spec.durationMs / 1000} s)`
+											: ''}</option
+									>
+								</select>
+							</label>
+							{@render slider(
+								'Strength',
+								material.intensity ?? 1,
+								0,
+								FX_MATERIAL_INTENSITY_MAX,
+								0.05,
+								(v) => updateSelected((l) => setMaterialIntensity(l, v)),
+								'material',
+							)}
+							{#if selectedEffect}
+								{#each selectedEffect.spec.params as spec (spec.id)}
+									{@const value = materialParamValue(selected, spec)}
+									{#if spec.kind === 'number'}
+										{@render slider(
+											spec.label,
+											Number(value),
+											spec.min,
+											spec.max,
+											spec.step ?? (spec.max - spec.min) / 100,
+											(v) => updateSelected((l) => setMaterialParam(l, spec.id, v)),
+											`mp:${spec.id}`,
+										)}
+									{:else if spec.kind === 'color'}
+										{@render colorRow(
+											spec.label,
+											String(value),
+											(hex) => updateSelected((l) => setMaterialParam(l, spec.id, hex)),
+											`mp:${spec.id}`,
+										)}
+									{:else if spec.kind === 'bool'}
+										{@render toggle(
+											spec.label,
+											spec.label,
+											value === true,
+											(on) => updateSelected((l) => setMaterialParam(l, spec.id, on)),
+											true,
+											`mp:${spec.id}`,
+										)}
+									{:else}
+										<label class="row" title="A choice cannot be driven by a parameter">
+											<span>{spec.label}</span>
+											<select
+												value={String(value)}
+												onchange={(e) =>
+													updateSelected((l) =>
+														setMaterialParam(
+															l,
+															spec.id,
+															(e.currentTarget as HTMLSelectElement).value,
+														),
+													)}
+											>
+												{#each spec.options as option (option)}
+													<option value={option}>{option}</option>
+												{/each}
+											</select>
+										</label>
+									{/if}
+								{/each}
+							{/if}
+							{#if selectedCost}
+								<p
+									class="hint"
+									class:costover={selectedCost.cost > PARTICLE_COST_BUDGET ||
+										selectedCost.samples > PARTICLE_SAMPLE_BUDGET}
+								>
+									Graph: cost {selectedCost.cost} / {PARTICLE_COST_BUDGET} · reads {selectedCost.samples}
+									/ {PARTICLE_SAMPLE_BUDGET} a pixel (a particle material's phone budget).
+								</p>
+							{/if}
+							{#if selectedLoad}
+								<div
+									class="row loadrow"
+									title="Graph cost × the pixels the particles cover, overdraw and padding included, in the layer's own pixels (the stage zoom does not move it)."
+								>
+									<span>Load</span>
+									<span class="loadbar {selectedLoad.level}"
+										><span style:width="{Math.min(100, loadPercent(selectedLoad))}%"></span></span
+									>
+									<span class="loadval"
+										>{selectedLoad.measured ? '' : '≈ '}{shortCount(selectedLoad.load)} / {shortCount(
+											selectedLoad.budget,
+										)}</span
+									>
+								</div>
+								<p class="hint">
+									{selectedLoad.measured
+										? 'The peak the preview has measured since this layer last changed.'
+										: "An estimate until the preview draws it: the most particles alive × the largest frame at the largest scale, padded, × the graph's cost."}
+								</p>
+							{/if}
+							{#each selectedNotes as note, i (i)}
+								<p class="mnote m-{note.level}">{note.level === 'info' ? 'ⓘ' : '⚠'} {note.text}</p>
+							{/each}
+							{#if canOpenShaders}
+								<a class="link" href="{resolve('/shaders')}?{shaderGraphQuery(material.kind)}"
+									>Open in Shader Graph ↗</a
+								>
 							{/if}
 						{/if}
 					</section>
@@ -3370,6 +3741,58 @@
 	.warn {
 		margin: 3px 0 0;
 		font-size: 10px;
+		color: #fca5a5;
+	}
+	.mbadge,
+	.eload {
+		font-size: 10px;
+		color: #86efac;
+	}
+	.mbadge.amber,
+	.eload.amber {
+		color: #fbbf24;
+	}
+	.mbadge.red,
+	.eload.red,
+	.mbadge.off {
+		color: #f87171;
+	}
+	.loadrow .loadbar {
+		flex: 1;
+		height: 6px;
+		border-radius: 3px;
+		background: #1f2937;
+		overflow: hidden;
+	}
+	.loadbar > span {
+		display: block;
+		height: 100%;
+		background: #22c55e;
+	}
+	.loadbar.amber > span {
+		background: #f59e0b;
+	}
+	.loadbar.red > span {
+		background: #ef4444;
+	}
+	.loadval {
+		flex: none;
+		color: #94a3b8;
+		font-size: 11px;
+	}
+	.costover {
+		color: #fbbf24;
+	}
+	.mnote {
+		margin: 4px 0 0;
+		font-size: 11px;
+		line-height: 1.35;
+		color: #94a3b8;
+	}
+	.mnote.m-warn {
+		color: #fbbf24;
+	}
+	.mnote.m-off {
 		color: #fca5a5;
 	}
 	.preview {

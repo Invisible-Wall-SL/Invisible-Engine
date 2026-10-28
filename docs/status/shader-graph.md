@@ -17,7 +17,10 @@ GLSL node (#1349). 8d (particle materials) is decided
 ([design](../design/shader-graph-particles.md)) and being built as 8d.1–8d.8; 8d.1 (the particle
 shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is merged
 (#1366); 8d.3 (the material in the game) is merged (#1378); 8d.4 (the ship chain, proven) is
-merged (#1384); 8d.5 (`/fx` authoring) is next.
+merged (#1384); 8d.5 (`/fx` authoring) is merged (#1392); 8d.6 (the other previews) is
+merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) is merged
+(#1423); 8d.8 (play-QA and calibration) is merged (#1425). 8d is complete; the owner's phone
+check sets its caps.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -282,7 +285,115 @@ merged (#1384); 8d.5 (`/fx` authoring) is next.
   - **8d, particle materials for Invisible FX.** Decided 2026-10-25
     (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
     shader). Built as 8d.1–8d.8, one PR each (its §15). A game plays a material from 8d.3; no
-    tool authors one until 8d.5.
+    tool authors one from 8d.5.
+    - **8d.8, play-QA and calibration.** Merged (#1425, 2026-10-28). Playbook:
+      `docs/playtest/particle-material.md` (the headless play and the owner's phone check).
+      - **The play** (`scripts/playtest/particle-material-play.mjs`, by hand, on a release build
+        of the runtime): the `cg-lines` stand-in with Pulse tint made for particles (cost 12, one
+        read), in four runs on WebGL2 and on WebGL1 (forced by refusing `webgl2`): published,
+        without `shaderEffects`, without the effect, and a nine-layer cap run. Each run samples
+        the stage five times a second apart (no pop). It passes when the mesh draws with its
+        sprites hidden, the load equals covered px × cost, the unregistered run draws plain, the
+        pixels differ, the cap run draws 8 and leaves the ninth plain throughout, and nothing
+        errors or stalls. `--calibrate` times 120 frames per run through a one-pixel
+        `readPixels` (Chromium's `gl.finish()` does not wait). Not in `check:all`: it needs the
+        release build.
+      - **`?fxdebug=1` on the page** (`pixi-svelte` `particleMaterial/debugPanel.ts`): a page that
+        mounts a material layer shows a corner box with the GL version, GPU, screen and pixel
+        ratio, frame times over 120 frames, and each layer's latest line, since a phone shows no
+        console. Nothing without the flag. It lives only while a material layer is mounted, keeps a
+        section per app with that app's GPU line, re-reads the page size on every redraw, and
+        leaves gaps of 1 s or more out of its frame times.
+      - **The settled peak prints while playing.** The peak line was throttled to every 2 s and
+        a peak that settled inside the wait was never printed: the game read 98.9 kpx for a true
+        8.69 Mpx. A trailing print now fires when the wait ends, cancelled on release.
+      - **Reproducible phone check:** `engine-shadergraph`'s `CALIBRATION_GRAPHS` (calLight 12 / 1,
+        calBudget 144 / 4, calSeed, calParity; held by the compile fixture) and
+        `scripts/playtest/particle-calibration.mjs`, which writes the seven `cal-*` projects' graph
+        and effect docs from that one source; the play uses the same definitions.
+      - **Also:** a stray `FxMaterialSlots.release` warns once per game; `/fx` notes an effect with
+        more material layers than a game draws (8).
+      - **Calibration (SwiftShader, relative only):** the 76 coins (about 340 px each) at cost 12
+        load 104 M, 3× the 32 M layer budget; 20 coins reach it. The nine-layer run's effect load
+        is 252 M. Frame medians: plain 280 ms, material 335 ms, cap 513 ms (WebGL2).
+    - **8d.7, `/shaders`: Made for particles and the Particles preview.** Merged (#1423,
+      2026-10-27).
+      Guides: `docs/tools/shader-graph.md` (Made for, the Particles preview), `docs/tools/fx.md`
+      (picker order).
+      - **`ShaderGraphDoc.madeFor`** (`'particles'` or absent; `engine-shadergraph` types, doc,
+        compile): normalized and validated; `shaderGraphBudget(doc)` gives 400 / 16 for elements
+        and 150 / 4 for particles, and the meter, bars, node chips and warnings all use it. The
+        compiled effect gains `madeFor`, `cost` and `samples` (last) only when made for particles,
+        so every other doc compiles byte-identically (a 243-doc corpus dump matched the base).
+      - **Cost in the effect:** `constants-shared`'s reader keeps the three fields and drops a
+        malformed one, keeping the effect. The game's `?fxdebug=1` adds "load N" to a material's
+        peak and release lines when its effect carries a cost. The effects route's `costs` stays
+        `/fx`'s source for every effect (it also needs `shared`).
+      - **`/shaders`:** Made for sits in the Effect settings. Particles switches the budget, makes
+        Particles the default preview, and notes what particles ignore (passes, motion, the motion
+        graph's padding, break). The preview's **Particles** element is a stock Burst (24 every
+        2 s) or Fountain, on a soft dot or an atlas region, mounted through the game's
+        `mountParticleMaterial` (`particlePreview.client.ts`); play / pause / restart replace the
+        scrubber, Strength is a uniform write, thumbnails stay element-based. The page now
+        registers the `fxMaterial` behaviour, which no other import gave it (found by the page
+        gate).
+      - **Picker order:** `/fx` lists effects made for particles first, under "Made for particles"
+        and "Other effects".
+      - **Gates:** `compile.fixture.ts` 213 (snapshots unchanged); `check:shader-editor` 263;
+        `fx-previews` 78; `shader-page` (new, in `check:all`, 42) plays the real `/shaders`
+        headless on WebGL1 and WebGL2 and walks the step's exit; `check:shader-pipeline` 149.
+    - **8d.6, the other previews.** Merged (#1407, 2026-10-27). Guides:
+      `docs/tools/invisible-editor.md`, `rigger.md`, `symbols-state-machine.md`.
+      - **One mount for every launcher stage** (`$lib/fx/layerMaterial.client.ts`): the layer's
+        material through the game's `mountParticleMaterial`, its remount key, its emitter and its
+        uniform retune. `FxStage` now uses it; so do the Scene Editor's `EditorEffectLayer` and the
+        Rigger / Symbols `fxOverlay`, each against its own cap of 8 (the editor page shares one).
+        A placement's param values reach the material as uniforms; the editor remounts a placement
+        whose material key changed (the set registering).
+      - **The Rigger's `view.html`** registers the project's compiled set
+        (`GET /api/shaders/effects`, through the bundle's new `RiggerFxLoadShaderEffects`) before
+        its first overlay; every band waits on the one load; the fetch gives up after 5 s
+        (`SHADER_EFFECTS_TIMEOUT_MS`). A failed fetch, an older bundle or an unknown kind leaves
+        the layer plain. `rigger-fx.js` rebuilt.
+      - **Slots are never leaked:** an editor unmount while art loads, an emitter config the
+        library refuses, and a finished one-shot in the overlay (a built play whose emitters
+        stopped with no particles left now ends by itself, as the game unmounts a binding's
+        effect; it covers plain bursts too) all give their slot back.
+      - **Gate:** `fx-previews` (in `check:all`, ~105 s, 52 checks) plays the committed
+        `rigger-fx.js` and `EditorEffectLayer` headless on WebGL1 and WebGL2, and runs
+        `view.html`'s real `ensureFxBundle` (race, hang) and `node --check` on its inline scripts.
+      - **The Scene Editor's clock** ran about 2.3× slow for every effect (found in this step's
+        review); fixed separately in #1401, and `fx-previews` now pins it to the game's.
+    - **8d.5, `/fx` authoring.** Merged (#1392, 2026-10-27). Guide: `docs/tools/fx.md` (Material).
+      - **The Material section** (sprite layers; `fxMaterial.client.ts`, pure): the picker (None,
+        then the project's compiled effects by name; "made for particles" first waits for 8d.7's
+        `madeFor`), Time, Strength, the material's params as rows (number, colour, switch with ⚡;
+        a choice is a dropdown with no ⚡, since an effect parameter is a number, colour or
+        switch). ⚡ reaches every param of the compiled spec, stored or not; exposing one writes
+        its default. Every edit goes through `normalizeEmitterMaterial`; a new kind drops the old
+        params; a rig-clip layer drops its material. Notes: passes, motion and break ignored on
+        particles; over budget; over 512 or drivable past it; frames on two pages; no art; the
+        graph gone or not compiling (`validateEffectMaterials`, the layer badged ◆ plain); an
+        exposed parameter driving a param the selected material lacks (kept, flagged). **Open in
+        Shader Graph** is a same-tab link for holders of the tool.
+      - **The page registers the compiled set** from `GET /api/shaders/effects`, which now also
+        answers `costs: [{ id, shared, cost, samples }]` (one guarded `analyzeShaderGraph` per
+        graph; a throw drops only that cost).
+      - **`FxStage` draws through the game's mount** (one cap of 8 per stage). It remounts a
+        material on a change of kind, registration, time, Max particles, its drive peak or frames;
+        Strength and params are uniform writes, no reset; paused ⚡ previews apply. A layer that
+        did not change is no longer re-initialised on another layer's edit, and Pause / Play now
+        stop and re-arm every layer (it had no dependency before), so Pause → Play replays a
+        one-shot. Both change `/fx` for every effect, materials or not.
+      - **Load:** the layer's measured peak (covered px, padding included, × the graph's cost),
+        reset on re-init; before it draws, or while plain, the §10 estimate. A bar against 32 M
+        (amber from 75 %), a badge in the Layers list, the effect's load against 64 M; graph cost
+        against 150 / 4 reads. `FX_MATERIAL_PARTICLE_CAP` (512) now lives in `engine-fx`;
+        `PARTICLE_COST_BUDGET` / `PARTICLE_SAMPLE_BUDGET` in `engine-shadergraph` for 8d.7.
+      - **`?fxdebug=1`** adds a line when a layer's peak grows (at most every 2 s) and one at
+        release, in covered px: load needs the cost inside the compiled effect (8d.7).
+      - **Gate:** `fx-page` (in `check:all`) mounts the real `+page.svelte` headless with stubbed
+        `$app/*` and in-memory endpoints, and plays the step's exit.
     - **8d.4, the ship chain, proven.** Merged (#1384, 2026-10-27).
       - **Proof only for the chain:** Publish (`runtimeBundle.ts` → `namedShaderEffects`, after
         `pruneUnreachableEffects`) and the bake (`bake-editor-doc.mjs`'s `nameKinds`, after its
@@ -336,7 +447,7 @@ merged (#1384); 8d.5 (`/fx` authoring) is next.
         can be driven over 512, or with no bound, is plain from mount; so is one with no frames
         when it mounted.
       - **`?fxdebug=1`:** a line per material layer at mount and on turning plain, e.g.
-        `material layer embers/main: on (custom:pulsetint; 1/8 drawing)`. Load waits for 8d.5.
+        `material layer embers/main: on (custom:pulsetint; 1/8 drawing)`; coverage lines from 8d.5.
       - **The soft floor** is written in `docs/design/games-deploy.md` beside 8a's: below the first
         release with 8d.3, every material draws plain. `rigger-fx.js` rebuilt.
     - **8d.2, the material renderer.** Merged (#1366, 2026-10-26).
@@ -514,19 +625,26 @@ merged (#1384); 8d.5 (`/fx` authoring) is next.
       defaults.
 
 ## Open items / next
-1. **Step 8d.5 (next): `/fx` authoring** (design §15 step 5): the `/fx` Material section calls `validateEffectMaterials` with the registered set;
-     ⚡ offers every param from the compiled spec, not only the stored ones; the live preview must
-     remount on a `layer.material` edit (the spec is read at mount); the load meter (§10, Σ quad
-     area × cost) and a load figure on the debug line.
-   - **8d.6:** `EditorEffectLayer` and `fxOverlay` do not draw materials yet; `view.html` must
-     fetch the set.
-   - **8d.8, the phone check:** integer seeds through a hash; WebGL1's whole-buffer upload per
-     frame, now sized to the drive's peak; the parity tolerance is SwiftShader's, not a phone's;
-     whether a dormant event layer should hold a cap slot; spawn order restarting at 0 on every
-     emit re-init.
+1. **The owner's phone check** (`docs/playtest/particle-material.md`). The §10 caps stay at their
+   starting values until then.
+   - **To observe on a phone:** seed variety (integer seeds through a hash); WebGL1's whole-buffer
+     upload per frame at 512 particles; parity against plain sprites (the tolerance is
+     SwiftShader's); whether a dormant event layer should hold a cap slot; spawn order restarting
+     at 0 on each firing (kept: a re-init is a new play; owner to confirm); any pop or "plain while
+     playing".
+   - **Setup by hand:** the `cal-*` projects still need creating, their files uploading and the
+     effect placing (the docs are generated). The shared headless-shell launcher dies on a spawn
+     ENOENT before cleanup runs; the play guards against it, other play scripts do not.
+   - **Load counts layer pixels; a phone pays device pixels** (scale × DPR²). The stand-in's coins
+     covered about 9× the screen in layer px. The budget looks tight for full-size art.
+   - **8d.7's limits:** the Particles preview always uses Time over each particle's life (no Loop)
+     and plays params at their defaults; an edit that changes the compiled effect restarts the
+     particles; `/fx` reads cost from the route, not `effect.cost`; the `?fxdebug=1` load figure
+     exists only for effects made for particles.
    - A layer that mounts before its frames are loaded stays plain for its life ("no frames when it
      mounted"); a remount fixes it. Deferring the decision would mean re-parenting a live emitter.
-   - `setTime` has no caller yet; `FxMaterialSlots.release` clamps at 0 silently.
+   - `setTime` has no caller (a Time change remounts); the estimate ignores burst counts,
+     `emitterLifetime` and container scale.
 2. **Step 8c follow-ups.**
    - The test-compile runs in the author's browser only (the server has no GPU), so a phone's
      driver may still refuse a body the author's took; the runtime then draws the element as it is
@@ -576,9 +694,70 @@ merged (#1384); 8d.5 (`/fx` authoring) is next.
    no node) and the pixel input. Add them when an artist needs one.
 
 ## Blocked (owner / external)
-- None.
+- **The particle-materials phone check** (`docs/playtest/particle-material.md`): its readouts set
+  the §10 caps (Open items #1).
 
 ## Recent changes
+- 2026-10-27 — **Step 8d.8: play-QA and calibration** (see "Current state"). Merged (#1425,
+  2026-10-28): CI green; Current games 8 pass, 0 fail, 0 changed screens. Step 8d is complete.
+  - **Proof.** The play passes on WebGL2 and WebGL1, twice, once with `--calibrate` (same loads
+    both times); `particle-material` (3 new claims); `fx-previews` 78; `fx-page` 31;
+    `shader-page` 42; `check:fx-params` 130; `check:shader-pipeline` 149; `player` 65; `model`
+    119; `check:vendored-bundles` (`rigger-fx.js` rebuilt); `check:agents-knowledge`;
+    svelte-check at baseline; `check:all` 572/572. 9 mutations, each failing its gate.
+  - **Review.** Nothing blocking; current games inert without the flag. Fixed: the readout box and
+    its frame loop outlived the last layer; one box shared by several apps mixed their lines and
+    GPU; the screen size went stale after a turn; a hidden tab read as a 10 s stall; an immediate
+    peak print could be followed by an older one; the play could orphan its test server; the
+    `cal-*` setup was not reproducible; the playbook compared vsync-bound frame medians (it now
+    compares fps and long frames on runs pushed below the refresh rate). Play re-run green on
+    both GL versions; compile fixture 214; 5 more mutations, each failing.
+- 2026-10-27 — **Step 8d.7: `/shaders` Made for particles and the Particles preview** (see
+  "Current state"). Merged (#1423): CI green; Current games 8 pass, 0 fail, 0 changed screens
+  (it touched the shared runtime's reader and debug line). Step 8d.6 merged (#1407).
+  - **Proof.** `compile.fixture.ts` 213; `check:shader-editor` 263; `fx-previews` 78;
+    `shader-page` 42 (new); `fx-page` 31; fx-spike `model` 116; `particle-material`;
+    `material-behavior`; `check:element-fx`; `check:shader-pipeline` 149; `check:launcher-gates`
+    662; `check:vendored-bundles` (`rigger-fx.js` rebuilt); svelte-check at baseline; launcher
+    build; `check:all` 568/568. 20 mutations, each failing its gate.
+  - **Review.** Nothing blocking, no slot or ticker leak. Fixed: "Loading art…" stuck after a slow
+    region was overtaken; a failed region's note left on the sample card; a paused edit emptied the
+    stage (a rebuild while paused now plays 500 ms); the element playhead and thumbnails kept moving
+    on Particles; the wrong overlay on Particles; "Infinity M" in the debug load; opening a doc now
+    selects its default element. `fx-page`'s first case now waits for the mount line (it read too
+    early under load).
+- 2026-10-27 — **Step 8d.6: the other previews** (see "Current state"). Merged (#1407): CI
+  green, Current games "runtime untouched" (launcher, tools and docs only).
+  - **Proof.** `fx-previews` (new, in `check:all`) 52/52, the editor clock case included;
+    `fx-page` 31/31; `particle-material`; `check:vendored-bundles`; `check:symbol-fx` 39;
+    `check:fx-node-params` 105; `check:rig-fx-overrides`; `check:element-fx-flow` 20;
+    `check:screen-cue-fx`; `check:shader-pipeline` 148; `check:launcher-gates` 661; the editor
+    parity and GL-context checks; svelte-check at baseline; launcher build; `check:all` 567/567.
+    Each new harness case fails under its mutation (both editor unmount guards removed, a throw
+    keeping its slot, the old `view.html` fast path, no timeout, no auto-dispose, the editor's old
+    wall-clock step: on screen ~850 ms against a 640 ms limit).
+  - **Review.** Fixed: an editor unmount while art loaded, or an emitter config that threw, held
+    a slot for good; two Rigger bands could draw before the set registered; the set's fetch had no
+    timeout; finished overlay one-shots held their slots until cleared; the overlay's material sync
+    could throw out of the ticker. The Scene Editor's clock, 2.3× slow for every effect, was fixed
+    in its own PR (#1401).
+- 2026-10-27 — **Step 8d.5: `/fx` authoring** (see "Current state"). Step 8d.4 merged (#1384).
+  - **Merged** (#1392): CI green; Current games 8 pass, 0 changed screens, the one failure `cloud`,
+    which fails on `main`'s runtime too (merged past it with the owner's approval).
+  - **Proof.** `fx-page` (new, in `check:all`) 31/31, three runs: the set read, the picker, "on",
+    the estimate then the measured load and badges, a param drag and Strength changing pixels with
+    no remount, a paused ⚡ preview, Time remounting, the cap note drawing plain, Apply preset,
+    save → reopen identical, a deleted graph named and drawn plain, the same-tab link, and a doc
+    opened at load with a slow set mounting once it registers. fx-spike `model` 115;
+    `particle-material`; `check:fx-params` 130; `roundtrip` 43; `player` 63;
+    `check:shader-pipeline` 148; `check:launcher-gates` 661; `check:vendored-bundles`;
+    svelte-check at baseline; launcher build; `check:all` 557/557. 30 mutations, each failing
+    its gate.
+  - **Review.** Blocking, fixed: a material on an effect opened at page load stayed plain, with no
+    note, until edited (the stage never noticed the set registering). Fixed: drives left on a
+    previous material's params are flagged; the `?fxdebug=1` line only printed at release; one
+    throwing graph could fail the whole effects route; constants and plain-reason types; an
+    unhandled rejection; a 4×/s state write; the estimate's padding.
 - 2026-10-27 — **Step 8d.4: the ship chain, proven** (see "Current state"). Merged (#1384): CI
   green, Current games "runtime untouched: no game can differ".
   - **Proof.** `check:shader-pipeline` 146 (13 new, §8: the real `buildRuntimeBundle` and the real

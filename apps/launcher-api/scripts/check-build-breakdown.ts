@@ -22,6 +22,7 @@ mock.module(src('lib/server/r2.ts'), {
 		ConflictError: class extends Error {},
 		precondition: () => undefined,
 		getObjectText: async (key: string) => R2.get(key)?.body ?? null,
+		headObject: async () => null,
 		getObjectTextWithEtag: async (key: string) => {
 			const o = R2.get(key);
 			return o ? { text: o.body, etag: o.etag } : null;
@@ -62,19 +63,36 @@ const PROJECT = 'demo';
 const PUB = `${CLIENT}/${PROJECT}/published/`;
 const OLD = '20261001T100000Z-aaaa';
 const NEW = '20261027T100000Z-bbbb';
-const meta = (id: string) => ({
+const meta = (id: string, engine?: { version: string; shortCommit: string }) => ({
 	id,
 	createdAt: '2026-10-27T10:00:00.000Z',
 	by: 'a@b.c',
 	flow: 'valid',
 	runtime: 'lines',
+	...(engine ? { engine } : {}),
 	files: 0,
 	bytes: 0,
 });
 put(
 	`${PUB}pointer.json`,
-	JSON.stringify({ version: 1, current: NEW, snapshots: [meta(NEW), meta(OLD)] }),
+	JSON.stringify({
+		version: 1,
+		current: NEW,
+		snapshots: [meta(NEW, { version: 'v7', shortCommit: 'abc1234' }), meta(OLD)],
+	}),
 );
+
+// The shared engine: release v7 (the one NEW recorded) and v8 (live now), plus their control files.
+const RUNTIME = 'test_server/_runtime/';
+put(`${RUNTIME}lines@v7/index.html`, 'h'.repeat(100));
+put(`${RUNTIME}lines@v7/_app/immutable/bundle.abc.js`, 'j'.repeat(900));
+put(`${RUNTIME}lines@v7/assets/sample.png`, 'p'.repeat(500));
+put(`${RUNTIME}lines@v8/index.html`, 'h'.repeat(120));
+put(
+	`${RUNTIME}lines/current.json`,
+	JSON.stringify({ runtimeId: 'lines', version: 'v8', shortCommit: 'def5678' }),
+);
+put(`${RUNTIME}lines/releases.json`, '[]');
 
 const bundle = {
 	doc: {
@@ -176,7 +194,30 @@ const asset = (id: string) => b.assets.find((a: { id: string }) => a.id === id);
 const issue = (title: string) =>
 	b.issues.find((i: { title: string }) => i.title === title)?.items ?? [];
 
-check('files: every shipped file is listed', b.files.length, 9);
+check('files: every shipped file is listed, the engine after them', b.files.length, 12);
+check('totals: game files only', b.totals.files, 9);
+check(
+	'engine: the release this version recorded',
+	[b.engine?.source, b.engine?.version],
+	['recorded', 'v7'],
+);
+check('engine: its size', b.totals.engineBytes, 1500);
+check(
+	'engine: a category of its own',
+	b.categories.find((c: { id: string }) => c.id === 'engine')?.bytes,
+	1500,
+);
+check('engine: its code is code', file('engine/_app/immutable/bundle.abc.js')?.kind, 'code');
+check(
+	'engine: total = game files + runtime.json + engine',
+	b.totals.totalBytes,
+	b.totals.bytes + b.totals.bundleBytes + 1500,
+);
+check(
+	'engine: its art is never a dead game file',
+	issue('Shipped but never loaded').some((i: string) => i.startsWith('engine/')),
+	false,
+);
 check('category: shared pages', file('_pages/p1.webp')?.category, 'pages');
 check('category: unknown subtree', file('stray/leftover.png')?.category, 'other');
 check(
@@ -245,7 +286,22 @@ R2.delete(`${PUB}${NEW}/runtime.json`);
 check(
 	'cache: a second load reads it',
 	(await loadBuildBreakdown(CLIENT, PROJECT, NEW)).files.length,
-	9,
+	12,
+);
+
+const older = await loadBuildBreakdown(CLIENT, PROJECT, OLD);
+check('engine: an older version with no record uses the live release', older.engine, {
+	runtime: 'lines',
+	version: 'v8',
+	shortCommit: 'def5678',
+	source: 'current',
+	files: 1,
+	bytes: 120,
+});
+check(
+	'engine: and says so',
+	older.issues.some((i: { title: string }) => i.title === 'Engine size from the live release'),
+	true,
 );
 
 let unknown = '';

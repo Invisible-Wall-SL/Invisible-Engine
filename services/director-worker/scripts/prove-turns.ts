@@ -53,7 +53,13 @@
  *     stands in, so a run cannot submit without limit until its first render is billed;
  * 26. a render that reported GPU time with no GPU to price it by pauses the run before its next
  *     GPU submit, naming the env to set, until the owner resumes;
- * 27. jobs that ended without reporting a time are billed as an estimate, flagged as such.
+ * 27. jobs that ended without reporting a time are billed as an estimate, flagged as such;
+ * 28. the coordinator's `run.request_pipeline_change` files a pipeline bug through the launcher
+ *     (`bugs.file_pipeline_bug`, as the coordinator) before its activity line, which names the
+ *     bug; a worker killed between the two resends the same opId (one bug) and writes one line;
+ *     a launcher that does not serve the op leaves the coordinator unable to start; a turn whose
+ *     bug was filed but whose settle never committed, settled while paused, writes the line then
+ *     and tells the model the bug, sending nothing.
  */
 import type {
 	BetaMessage,
@@ -153,8 +159,21 @@ const SPECS: AdapterSpec[] = [
 		write: true,
 	},
 	{
+		id: 'atlas.get_variant_image',
+		description: 'One variant image.',
+		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+		write: false,
+		image: true,
+	},
+	{
 		id: 'atlas.queue_variants',
 		description: 'Queue variants.',
+		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+		write: true,
+	},
+	{
+		id: 'bugs.file_pipeline_bug',
+		description: 'File a pipeline bug.',
 		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 		write: true,
 	},
@@ -200,7 +219,9 @@ function fakeLauncher(
 			const result =
 				id === 'atlas.queue_variants'
 					? { jobRef: `job-${effects.length}` }
-					: { ok: effects.length };
+					: id === 'bugs.file_pipeline_bug'
+						? { number: 40 + effects.length, ref: `BUG-${40 + effects.length}`, path: '/bugs' }
+						: { ok: effects.length };
 			if (body.opId) {
 				await sql`insert into director_ops (op_id, run_id, agent, op, input_hash, status, result,
 						completed_at)
@@ -239,6 +260,15 @@ const AGENTS = new Map([
 		),
 	],
 	['atlas-artist', agent('atlas-artist', ['atlas.queue_variants', 'run.post_activity'])],
+	['qa', agent('qa', ['run.submit_qa'])],
+	[
+		'art-director',
+		agent('art-director', [
+			'atlas.get_variant_image',
+			'gamemaker.create_from_template',
+			'run.post_activity',
+		]),
+	],
 ]);
 
 const use = (id: string, name: string, input: Record<string, unknown> = {}) => ({
@@ -1492,6 +1522,339 @@ try {
 					['estimated_gpu_time', 1800],
 				],
 			],
+		);
+	}
+
+	// ── 28. A pipeline-change request files a bug ─────────────────────────────
+	console.log('28. a pipeline-change request files one pipeline bug and names it');
+	{
+		const runId = await newRun();
+		await userMessage(runId, 'coordinator', 'Start.');
+		const request = { what: 'An FX slot on the big-win screen.', reason: 'The mockup has one.' };
+		const model = fakeModel([
+			{ content: [use('t1', 'run.request_pipeline_change', request)] },
+			{ content: [say('Asked.')] },
+		]);
+		const gate = fakeLauncher();
+		const agents = new Map([
+			['coordinator', agent('coordinator', ['run.request_pipeline_change'], 'claude-opus-5-5')],
+		]);
+		let killed = false;
+		const kill = () => {
+			if (!killed) {
+				killed = true;
+				throw new Error('killed');
+			}
+		};
+		await drive(runId, deps(model.transport, gate.launcher, { agents, afterAdapterCall: kill }));
+		check('the first worker died after filing, before the activity line', killed, true);
+		check('…with no activity line yet', (await events(runId, 'activity')).length, 0);
+		await sql`update director_runs set lease_until = now() - interval '1 second' where id = ${runId} and lease_holder is not null`;
+		await drive(runId, deps(model.transport, gate.launcher, { agents }));
+		check('the bug was filed as the coordinator, sent twice with one opId', gate.sent, [
+			`bugs.file_pipeline_bug@${runId}:coordinator-t1:0`,
+			`bugs.file_pipeline_bug@${runId}:coordinator-t1:0`,
+		]);
+		check('…and filed once', gate.effects, ['bugs.file_pipeline_bug']);
+		check(
+			'one activity line, naming the bug, with what and why',
+			(await events(runId, 'activity')).map((e) => e.payload),
+			[{ bug: 41, type: 'pipeline_change_request', ...request }],
+		);
+		const results = (await messages(runId, 'coordinator'))[2]?.content as {
+			type: string;
+			content?: string;
+			is_error?: boolean;
+		}[];
+		check(
+			'the coordinator is told the bug it filed',
+			[results?.[0]?.is_error ?? false, JSON.parse(results?.[0]?.content ?? '{}').bug],
+			[false, 'BUG-41'],
+		);
+
+		const unserved = await newRun();
+		await userMessage(unserved, 'coordinator', 'Start.');
+		const idle = fakeModel([]);
+		const old = fakeLauncher();
+		const catalog = old.launcher.catalog;
+		old.launcher.catalog = async () => {
+			const served = new Map(await catalog());
+			served.delete('bugs.file_pipeline_bug');
+			return served;
+		};
+		await drive(unserved, deps(idle.transport, old.launcher, { agents }));
+		check(
+			'a launcher without the op: the coordinator is not asked, nothing is filed',
+			[idle.calls(), old.effects],
+			[0, []],
+		);
+
+		const paused = await newRun({ status: 'paused' });
+		await userMessage(paused, 'coordinator', 'Start.');
+		await sql`insert into director_messages (run_id, agent, seq, role, content_json)
+			values (${paused}, 'coordinator', 1, 'assistant',
+				${sql.json([use('p1', 'run.request_pipeline_change', request)] as never)})`;
+		const filedOp = `${paused}:coordinator-t1:0`;
+		await sql`insert into director_ops (op_id, run_id, agent, op, input_hash, status, result,
+				completed_at)
+			values (${filedOp}, ${paused}, 'coordinator', 'bugs.file_pipeline_bug', 'proof', 'done',
+				${sql.json({ number: 77, ref: 'BUG-77', path: '/bugs?bug=77' })}, now())`;
+		await event(paused, 'owner', 'owner_message', { text: 'What happened?' });
+		const quiet = fakeLauncher();
+		await drive(paused, deps(fakeModel([]).transport, quiet.launcher, { agents }));
+		const settled = (await messages(paused, 'coordinator'))[2]?.content as {
+			content?: string;
+			is_error?: boolean;
+		}[];
+		check(
+			'filed before a pause, settled while paused: the line is written, the model told the bug, nothing sent',
+			[
+				(await events(paused, 'activity')).map((e) => e.payload.bug),
+				settled?.[0]?.is_error ?? false,
+				JSON.parse(settled?.[0]?.content ?? '{}').bug,
+				quiet.sent,
+			],
+			[[77], false, 'BUG-77', []],
+		);
+	}
+
+	// ── 29. Image answers reach the model as images ──────────────────────────
+	console.log('29. an adapter image answer is a text + image tool_result, stored and replayed');
+	{
+		const PNG = 'iVBORw0KGgo=';
+		const image = { mediaType: 'image/png', base64: PNG };
+		const plainBody = { jobRef: 'job-x', note: 'image is not special here' };
+		const runId = await newRun();
+		await userMessage(runId, 'art-director', 'Look.');
+		const model = fakeModel([
+			{
+				content: [
+					use('i1', 'atlas.get_variant_image', { n: 1 }),
+					use('i2', 'atlas.get_variant_image', { n: 2 }),
+					use('i3', 'atlas.get_variant_image', { n: 3 }),
+					use('i4', 'gamemaker.create_from_template'),
+				],
+			},
+			{ content: [say('Seen.')] },
+			{ content: [say('Noted.')] },
+			{ content: [say('Seen again.')] },
+			{ content: [say('Wrapped.')] },
+			{ content: [say('A stray call is not absorbed.')] },
+		]);
+		const gate = fakeLauncher((id, nth) => {
+			if (id === 'atlas.get_variant_image') {
+				const n = nth - 2;
+				if (n === 0) return { status: 200, body: { region: 'H1', id: '00002', image } };
+				if (n === 1) {
+					return {
+						status: 200,
+						body: { region: 'H1', image: { mediaType: 'image/svg+xml', base64: PNG } },
+					};
+				}
+				return { status: 404, body: { error: 'unknown_variant', image } };
+			}
+			return id === 'gamemaker.create_from_template' ? { status: 200, body: plainBody } : null;
+		});
+		let killed = false;
+		const kill = () => {
+			if (!killed) {
+				killed = true;
+				throw new Error('killed');
+			}
+		};
+		await drive(runId, deps(model.transport, gate.launcher, { afterAdapterCall: kill }));
+		check('the first worker died after an adapter call, before storing results', killed, true);
+		await sql`update director_runs set lease_until = now() - interval '1 second' where id = ${runId} and lease_holder is not null`;
+		await drive(runId, deps(model.transport, gate.launcher));
+		const results = (model.requests[1].messages.at(-1)!.content as { content: unknown }[]).map(
+			(b) => b.content,
+		);
+		// The request is built from the stored history, and JSONB orders an object's keys its own way.
+		check('an image answer is its other fields as text, then an image block', results[0], [
+			{ text: '{"region":"H1","id":"00002"}', type: 'text' },
+			{ type: 'image', source: { data: PNG, type: 'base64', media_type: 'image/png' } },
+		]);
+		check(
+			'an unsupported image type falls back to text, base64 dropped, with a note',
+			results[1],
+			'{"region":"H1","imageNotShown":"the image type image/svg+xml is not one the model can be shown"}',
+		);
+		check(
+			'an error answer is its JSON as text even if it carries an image field',
+			results[2],
+			JSON.stringify({ error: 'unknown_variant', image }),
+		);
+		check(
+			'a non-image answer is its JSON, byte-identical to before',
+			results[3],
+			JSON.stringify(plainBody),
+		);
+		const stored = await messages(runId, 'art-director');
+		check(
+			'the stored result message is what the model was sent (byte-identical)',
+			JSON.stringify(stored[2].content),
+			JSON.stringify(model.requests[1].messages.at(-1)!.content),
+		);
+		await userMessage(runId, 'art-director', 'Again.');
+		await drive(runId, deps(model.transport, gate.launcher));
+		// The coordinator's turn on the artist's report sits between the artist's two.
+		const artist = model.requests.filter((r) => JSON.stringify(r.messages[0]).includes('Look.'));
+		check(
+			'after a later wake the stored image block is replayed byte-identically',
+			JSON.stringify(artist.at(-1)?.messages.slice(0, 3)),
+			JSON.stringify(model.requests[1].messages.slice(0, 3)),
+		);
+		check('…and the model was asked exactly as often as the script says', model.calls(), 5);
+		check(
+			'…and the write did not run twice',
+			gate.sent.filter((e) => e.startsWith('gamemaker.create_from_template@')).length,
+			1,
+		);
+
+		// The request's images are capped, from the stored rows, the same on every replay.
+		const seedHistory = async (id: string, count: number, base64: string) => {
+			const rows: { role: string; content: unknown[] }[] = [
+				{ role: 'user', content: [{ type: 'text', text: 'Review.' }] },
+			];
+			for (let i = 0; i < count; i++) {
+				const toolUse = `toolu_seed${i}`;
+				rows.push(
+					{
+						role: 'assistant',
+						content: [
+							{
+								type: 'tool_use',
+								id: toolUse,
+								name: toolName('atlas.get_variant_image'),
+								input: {},
+							},
+						],
+					},
+					{
+						role: 'user',
+						content: [
+							{
+								type: 'tool_result',
+								tool_use_id: toolUse,
+								content: [
+									{
+										type: 'text',
+										text: JSON.stringify({ region: 'R', id: String(i).padStart(3, '0') }),
+									},
+									{
+										type: 'image',
+										source: { type: 'base64', media_type: 'image/png', data: base64 },
+									},
+								],
+							},
+						],
+					},
+				);
+			}
+			rows.push({ role: 'assistant', content: [{ type: 'text', text: 'Noted.' }] });
+			rows.push({ role: 'user', content: [{ type: 'text', text: 'Again.' }] });
+			for (const [seq, row] of rows.entries()) {
+				await sql`insert into director_messages (run_id, agent, seq, role, content_json)
+					values (${id}, 'art-director', ${seq}, ${row.role}, ${sql.json(row.content as never)})`;
+			}
+		};
+		const imagesOf = (request: BetaMessageStreamParams) =>
+			JSON.stringify(request.messages).split('"type":"image"').length - 1;
+		const runWith = async (count: number, base64: string) => {
+			const id = await newRun();
+			await seedHistory(id, count, base64);
+			const seeded = fakeModel([{ content: [say('Fine.')] }, { content: [say('Spare.')] }]);
+			await drive(id, deps(seeded.transport, fakeLauncher().launcher));
+			return seeded.requests[0];
+		};
+		const long = await runWith(45, PNG);
+		const longText = JSON.stringify(long.messages);
+		check(
+			'45 stored images: the request carries 20 and the older ones are stubs',
+			[
+				imagesOf(long),
+				longText.includes('[image shown earlier: R/000]'),
+				longText.includes('[image shown earlier: R/024]'),
+				longText.includes('[image shown earlier: R/025]'),
+			],
+			[20, true, true, false],
+		);
+		check(
+			'the same stored rows build the same request (a replay, a second run)',
+			JSON.stringify((await runWith(45, PNG)).messages),
+			longText,
+		);
+		check(
+			'six 3 MB images: the byte cap keeps the newest 4 (12 MB)',
+			imagesOf(await runWith(6, 'A'.repeat(3 * 1024 * 1024))),
+			4,
+		);
+	}
+
+	// ── 30. A QA draft play ───────────────────────────────────────────────────
+	console.log(
+		'30. a draft play job_done is told to QA, never billed; submit_qa reaches the coordinator',
+	);
+	{
+		const runId = await newRun({ step: 'regions' });
+		await userMessage(runId, 'qa', 'Play the draft.');
+		await event(
+			runId,
+			'qa',
+			'job_done',
+			{
+				jobRef: 'dp_0000000000000001',
+				draftId: '20261027T101530Z-3fa9',
+				status: 'failed',
+				via: 'inline',
+				result: {
+					reason: 'no_player',
+					message: 'No draft player is deployed, so the draft was not played.',
+				},
+			},
+			'build.play_draft',
+		);
+		const model = fakeModel([
+			{
+				content: [use('s1', 'run.submit_qa', { summary: 'Draft not played.', findings: [] })],
+			},
+			{ content: [say('Reported.')] },
+			{ content: [say('Noted.')] },
+			{ content: [say('Noted again.')] },
+		]);
+		await drive(runId, deps(model.transport, fakeLauncher().launcher));
+		check(
+			'the play was told to QA as not played',
+			JSON.stringify((await messages(runId, 'qa'))[1]?.content).includes('NOT played'),
+			true,
+		);
+		check(
+			'it was not billed: no spend row and no unbilled_job error',
+			[
+				(await spendRows(runId)).filter((r) => r.kind === 'runpod').length,
+				(await events(runId, 'error')).length,
+			],
+			[0, 0],
+		);
+		check(
+			"QA's submit_qa reached the coordinator",
+			(await messages(runId, 'coordinator')).some((m) =>
+				JSON.stringify(m.content).includes('QA results from qa'),
+			),
+			true,
+		);
+
+		const stopping = await newRun({ step: 'regions' });
+		await sql`insert into director_draft_jobs (job_ref, run_id, agent, draft_id, status)
+			values ('dp_0000000000000002', ${stopping}, 'qa', '20261027T101530Z-3fa9', 'queued')`;
+		await event(stopping, 'owner', 'owner_request', { action: 'stop' });
+		await drive(stopping, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		const [job] = await sql<{ status: string }[]>`
+			select status from director_draft_jobs where run_id = ${stopping}`;
+		check(
+			'a stop cancels a queued play and is not held open by it',
+			[job.status, (await runRow(stopping)).status],
+			['cancelled', 'stopped'],
 		);
 	}
 

@@ -46,9 +46,34 @@ export const SERVICES = [
 		watch: ['services/test-server/**', 'scripts/mock-rgs-server*.mjs'],
 	},
 	{
+		name: 'game-server',
+		health: 'https://rooms.invisiblewall.org/healthz',
+		watch: [
+			'services/game-server/**',
+			'packages/engine-mechanics/**',
+			'packages/game-config/**',
+			'scripts/ts-loader.mjs',
+		],
+	},
+	{
 		name: 'director-worker',
 		health: null,
 		watch: ['services/director-worker/**', 'packages/director-costs/**'],
+	},
+	{
+		name: 'draft-player',
+		health: null,
+		watch: [
+			'services/draft-player/**',
+			'services/test-server/**',
+			'scripts/current-games/lib/**',
+			'scripts/current-games/screens/**',
+			'scripts/current-games/costs.json',
+			'scripts/playtest/headless-shell.mjs',
+			'scripts/mock-*.mjs',
+			'packages/engine-mechanics/package.json',
+			'packages/engine-mechanics/src/board.js',
+		],
 	},
 ];
 

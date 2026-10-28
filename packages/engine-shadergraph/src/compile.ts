@@ -98,6 +98,7 @@ import {
 } from './subgraph';
 import {
 	SHADER_GRAPH_VERSION,
+	SHADER_MADE_FOR_PARTICLES,
 	type GraphIssue,
 	type GraphNode,
 	type GraphWire,
@@ -108,6 +109,35 @@ import {
 /** Above these a graph is flagged as heavy for a phone; it still compiles. */
 export const COST_BUDGET = 400;
 export const SAMPLE_BUDGET = 16;
+/**
+ * The same budget for a graph drawn as a particle material (`docs/design/shader-graph-particles.md`
+ * §10): a layer of particles covers far more pixels than one element, overdraw included.
+ */
+export const PARTICLE_COST_BUDGET = 150;
+export const PARTICLE_SAMPLE_BUDGET = 4;
+
+/** The budget a doc's cost is held to, and what it is for, in words. */
+export interface ShaderGraphBudget {
+	cost: number;
+	samples: number;
+	/** Ends "over the 400 …": who affords it. */
+	affords: string;
+}
+
+const ELEMENT_BUDGET: ShaderGraphBudget = {
+	cost: COST_BUDGET,
+	samples: SAMPLE_BUDGET,
+	affords: 'a phone affords',
+};
+const PARTICLE_BUDGET: ShaderGraphBudget = {
+	cost: PARTICLE_COST_BUDGET,
+	samples: PARTICLE_SAMPLE_BUDGET,
+	affords: 'a particle material affords on a phone',
+};
+
+/** The budget `doc` is held to: a particle material's when it is made for particles. */
+export const shaderGraphBudget = (doc: Pick<ShaderGraphDoc, 'madeFor'>): ShaderGraphBudget =>
+	doc.madeFor === SHADER_MADE_FOR_PARTICLES ? PARTICLE_BUDGET : ELEMENT_BUDGET;
 
 export interface CompiledShader {
 	/** Uniforms and `main`: the pass body `ElementFxFilter` takes. */
@@ -217,7 +247,7 @@ export interface ShaderGraphAnalysis {
 	 *  resolved none, and an editor falls back to the ports' declared types. */
 	inputs: Record<string, Record<string, PortType>>;
 	outputs: Record<string, Record<string, PortType>>;
-	/** Work and reads of the element per pixel, against `COST_BUDGET` and `SAMPLE_BUDGET`. */
+	/** Work and reads of the element per pixel, against the doc's budget (`shaderGraphBudget`). */
 	cost: number;
 	samples: number;
 }
@@ -400,6 +430,8 @@ function analyze(doc: ShaderGraphDoc, flat?: FlatShaderGraph): Analysis {
 		)
 	)
 		error('doc', `padding must be 0…${CUSTOM_ELEMENT_FX_PADDING_MAX}`);
+	if (doc.madeFor !== undefined && doc.madeFor !== SHADER_MADE_FOR_PARTICLES)
+		error('doc', `madeFor must be "${SHADER_MADE_FOR_PARTICLES}" or left out`);
 	issues.push(...paramIssues(doc.params));
 	if (!Array.isArray(doc.nodes) || !Array.isArray(doc.wires)) {
 		error('doc', 'nodes and wires must be lists');
@@ -460,17 +492,18 @@ function analyze(doc: ShaderGraphDoc, flat?: FlatShaderGraph): Analysis {
 				`the Custom GLSL nodes read the element ${reads} times a pixel together, more than the ${CUSTOM_GLSL_EFFECT_SAMPLES_MAX} an effect may`,
 			);
 	}
-	if (result.cost > COST_BUDGET)
+	const budget = shaderGraphBudget(doc);
+	if (result.cost > budget.cost)
 		issues.push({
 			level: 'warning',
 			code: 'cost',
-			message: `about ${result.cost} units of work a pixel, over the ${COST_BUDGET} a phone affords`,
+			message: `about ${result.cost} units of work a pixel, over the ${budget.cost} ${budget.affords}`,
 		});
-	if (result.samples > SAMPLE_BUDGET)
+	if (result.samples > budget.samples)
 		issues.push({
 			level: 'warning',
 			code: 'cost',
-			message: `${result.samples} reads of the element a pixel, over the ${SAMPLE_BUDGET} a phone affords`,
+			message: `${result.samples} reads of the element a pixel, over the ${budget.samples} ${budget.affords}`,
 		});
 	return result;
 }
@@ -935,6 +968,10 @@ export function compileShaderEffect(doc: ShaderGraphDoc): ShaderEffectResult {
 			passes: plain(doc.passes ?? []),
 			...(motion ? { motion } : {}),
 			...(broken ? { break: broken } : {}),
+			// Only a particle material carries its cost: the game's `?fxdebug=1` reads its load.
+			...(doc.madeFor === SHADER_MADE_FOR_PARTICLES
+				? { madeFor: doc.madeFor, cost: shader.cost, samples: shader.samples }
+				: {}),
 		},
 		warnings: moving.warnings.length ? [...shader.warnings, ...moving.warnings] : shader.warnings,
 	};

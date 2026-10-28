@@ -246,10 +246,21 @@ export function inZone(body, zone) {
 export function createStaticIndex(shapes, cellSize = 128) {
 	if (!(cellSize > 0)) throw new Error(`motion: a grid cell must be > 0 (${cellSize})`);
 	const cells = new Map();
+	const extent = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
 	shapes.forEach((shape, order) => {
 		const rect = rectOf(shape);
-		for (let cx = Math.floor(rect.x0 / cellSize); cx <= Math.floor(rect.x1 / cellSize); cx++) {
-			for (let cy = Math.floor(rect.y0 / cellSize); cy <= Math.floor(rect.y1 / cellSize); cy++) {
+		const cx0 = Math.floor(rect.x0 / cellSize);
+		const cy0 = Math.floor(rect.y0 / cellSize);
+		const cx1 = Math.floor(rect.x1 / cellSize);
+		const cy1 = Math.floor(rect.y1 / cellSize);
+		Object.assign(extent, {
+			x0: Math.min(extent.x0, cx0),
+			y0: Math.min(extent.y0, cy0),
+			x1: Math.max(extent.x1, cx1),
+			y1: Math.max(extent.y1, cy1),
+		});
+		for (let cx = cx0; cx <= cx1; cx++) {
+			for (let cy = cy0; cy <= cy1; cy++) {
 				const key = `${cx},${cy}`;
 				const members = cells.get(key);
 				if (members) members.push(order);
@@ -257,15 +268,18 @@ export function createStaticIndex(shapes, cellSize = 128) {
 			}
 		}
 	});
-	return { shapes: [...shapes], cellSize, cells };
+	return { shapes: [...shapes], cellSize, cells, extent };
 }
 
 /** The indexed shapes a box `{ x0, y0, x1, y1 }` touches, in their index order. */
 export function queryStatic(index, box) {
 	const found = new Set();
-	const { cellSize } = index;
-	for (let cx = Math.floor(box.x0 / cellSize); cx <= Math.floor(box.x1 / cellSize); cx++) {
-		for (let cy = Math.floor(box.y0 / cellSize); cy <= Math.floor(box.y1 / cellSize); cy++) {
+	const { cellSize, extent } = index;
+	// Only the cells that hold a shape: a body far larger than the level walks no empty ones.
+	const cx1 = Math.min(extent.x1, Math.floor(box.x1 / cellSize));
+	const cy1 = Math.min(extent.y1, Math.floor(box.y1 / cellSize));
+	for (let cx = Math.max(extent.x0, Math.floor(box.x0 / cellSize)); cx <= cx1; cx++) {
+		for (let cy = Math.max(extent.y0, Math.floor(box.y0 / cellSize)); cy <= cy1; cy++) {
 			for (const order of index.cells.get(`${cx},${cy}`) ?? []) found.add(order);
 		}
 	}

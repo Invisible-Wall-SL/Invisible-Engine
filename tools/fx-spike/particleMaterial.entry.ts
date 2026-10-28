@@ -50,6 +50,7 @@ import {
 	type ShaderGraphDoc,
 } from '@fxroot/packages/engine-shadergraph/index';
 import {
+	FX_DEBUG_PANEL_ID,
 	PARTICLE_MATERIAL_CAPACITY,
 	ParticleMaterial,
 	mountParticleMaterial,
@@ -1179,11 +1180,132 @@ interface Cell {
 			debugLines.some((l) => l.includes('plain, frames on several textures')) &&
 			debugLines.some((l) => l.includes('x/broken: plain while playing, program does not link')),
 	);
+	const panel = document.getElementById(FX_DEBUG_PANEL_ID)?.textContent ?? '';
+	claim(
+		"?fxdebug=1 writes each layer's latest line on the page too, for a phone",
+		panel.startsWith('fxdebug · particle materials') &&
+			/\napp \d+ · WebGL[12] · /.test(panel) &&
+			panel.includes('\n  d: plain, over the game cap (custom:alone') &&
+			panel.includes('\n  x/broken: plain while playing, program does not link'),
+	);
 	for (const l of [on, twoSources, overCap, sized, drivable, unboundedDrive, failing]) {
 		l.emitter.destroy();
 		l.mounted.release();
 	}
 	claim(`every slot is back at the end (${slots.drawing})`, slots.drawing === 0);
+
+	// A peak that grows inside the 2 s wait between prints is printed when the wait ends, so a layer
+	// that settles there is read while it plays; a release drops a print still waiting.
+	const peakLines: string[] = [];
+	console.log = (...args: unknown[]) => {
+		const line = args.map(String).join(' ');
+		if (line.includes('its peak')) peakLines.push(line);
+		log(...args);
+	};
+	const settles = mountLayer(4, base([]), [frame('static')], {
+		kind: 'custom:pulsetint',
+		label: 'peak/settles',
+	});
+	const released = mountLayer(5, base([]), [frame('static')], {
+		kind: 'custom:pulsetint',
+		label: 'peak/released',
+	});
+	settles.step(40);
+	released.step(40);
+	released.emitter.destroy();
+	released.mounted.release();
+	const printedAtOnce = peakLines.filter((l) => l.includes('peak/settles')).length;
+	await new Promise((resolve) => setTimeout(resolve, 2200));
+	console.log = log;
+	const settled = peakLines.filter((l) => l.includes('peak/settles'));
+	const settledPeak = settles.mounted.material?.peakCoveredArea ?? 0;
+	const pixels = (n: number): string =>
+		n >= 1e6
+			? `${(n / 1e6).toFixed(2)} Mpx`
+			: n >= 1e3
+				? `${(n / 1e3).toFixed(1)} kpx`
+				: `${Math.round(n)} px`;
+	claim(
+		`?fxdebug=1 prints a peak that settles inside the wait as the wait ends (${settled.length} lines, ${pixels(settledPeak)})`,
+		printedAtOnce === 1 &&
+			settled.length === 2 &&
+			settled[1].includes(`its peak ${pixels(settledPeak)} covered`),
+	);
+	claim(
+		'…and a released layer prints nothing after its release line',
+		peakLines
+			.filter((l) => l.includes('peak/released'))
+			.at(-1)
+			?.includes('released, its peak') === true,
+	);
+
+	// A growth printed at once, after the wait, drops a print still waiting with an older peak.
+	const race = mountLayer(6, base([]), [frame('static')], {
+		kind: 'custom:pulsetint',
+		label: 'peak/race',
+	});
+	peakLines.length = 0;
+	console.log = (...args: unknown[]) => {
+		const line = args.map(String).join(' ');
+		if (line.includes('its peak')) peakLines.push(line);
+		log(...args);
+	};
+	race.step(20);
+	const firstPrinted = race.mounted.material?.peakCoveredArea ?? 0;
+	for (let i = 0; i < 60 && (race.mounted.material?.peakCoveredArea ?? 0) <= firstPrinted; i++)
+		race.step(1);
+	const busyUntil = performance.now() + 2100;
+	while (performance.now() < busyUntil);
+	const beforeWait = race.mounted.material?.peakCoveredArea ?? 0;
+	for (let i = 0; i < 60 && (race.mounted.material?.peakCoveredArea ?? 0) <= beforeWait; i++)
+		race.step(1);
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	console.log = log;
+	const raced = peakLines.filter((l) => l.includes('peak/race'));
+	const racePeak = race.mounted.material?.peakCoveredArea ?? 0;
+	claim(
+		`a peak printed at once is the last printed, with no older one after it (${raced.length} lines, ${pixels(racePeak)}: ${raced.map((l) => /its peak (.*?) covered/.exec(l)?.[1]).join(', ')})`,
+		raced.length === 2 && raced[1].includes(`its peak ${pixels(racePeak)} covered`),
+	);
+
+	// Two apps on one page keep a line each for one label, and each its own GPU line.
+	const twin = mountParticleMaterial({
+		spec: { kind: 'custom:pulsetint', label: 'peak/settles' },
+		host: new Container(),
+		textures: [frame('static')],
+		maxParticles: 10,
+		rigParticles: false,
+		slots: createFxMaterialSlots(1),
+	});
+	const twoApps = document.getElementById(FX_DEBUG_PANEL_ID)?.textContent ?? '';
+	claim(
+		'the on-page readout keeps a line per app for one label, each app with its GPU line',
+		twoApps.split('\n  peak/settles: ').length === 3 &&
+			/\napp \d+ · WebGL[12] · /.test(twoApps) &&
+			/\napp \d+ · GPU not seen yet/.test(twoApps),
+	);
+
+	// The last layer released takes the readout and its frame clock away.
+	const raf = window.requestAnimationFrame;
+	let panelFrames = 0;
+	window.requestAnimationFrame = (callback: FrameRequestCallback) => {
+		if (callback.toString().includes('gaps over 1 s')) panelFrames++;
+		return raf.call(window, callback);
+	};
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	const framesWhileShown = panelFrames;
+	for (const l of [settles, race]) {
+		l.emitter.destroy();
+		l.mounted.release();
+	}
+	twin.release();
+	panelFrames = 0;
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	window.requestAnimationFrame = raf;
+	claim(
+		`the last layer released removes the readout and stops its frame clock (${framesWhileShown} frames before, ${panelFrames} after)`,
+		framesWhileShown > 0 && panelFrames === 0 && !document.getElementById(FX_DEBUG_PANEL_ID),
+	);
 	setCustomElementFx([]);
 	app.stage.removeChildren();
 

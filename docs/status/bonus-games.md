@@ -2,7 +2,7 @@
 
 > Design: [docs/design/bonus-games.md](../design/bonus-games.md) · Builds on:
 > [status/hold-and-win](hold-and-win.md), [status/pots-overlay](pots-overlay.md) · Guide: _per phase_
-> · Agents: per phase — see the design's build plan.
+> · Agent: `bonus-games` (the respin game itself: `hold-and-win-games`).
 
 **One-line state:** (2026-10-09) Phases 0–6, 6b, 7a, 7b, 8a, 8b and 8c merged; 7c (the browser playtest, one engine fix) in review. Model: design §0.
 

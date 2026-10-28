@@ -6,7 +6,7 @@ import { getRoleOverrides } from '../roleToolAccess';
 import { allowedPrefixes, isKeyAllowed, requireProjectScope } from '../toolScope';
 import { tokensMatch } from '../tokensMatch';
 import { getToolOverrides } from '../userToolAccess';
-import { UNASSIGNED_CLIENT, projectPrefix, r2Slug } from '../projectPaths';
+import { UNASSIGNED_CLIENT, projectComponentsPrefix, projectPrefix, r2Slug } from '../projectPaths';
 import { projectFamily, projectKeyTaken, storedProjectGameType } from '../projects';
 import { ConflictError, listObjects } from '../r2';
 import {
@@ -37,7 +37,8 @@ import { claimOp, completeOp, getRun, getRunOwner, releaseOp } from './store';
  *  6. the op's project scope, checked against the OWNER's grants (403), and the project's family
  *     uses the op's tool (403 `not_for_family`, game-families.md §6.5);
  *  7. for a write: an `opId` (`<runId>:<step>:<seq>`) claimed in `director_ops` — a replay returns
- *     the stored result without running again — then the write-target guard;
+ *     the stored result without running again — then the write-target guard (none for an op that
+ *     writes records only, `bugs.file_pipeline_bug`);
  *  8. the handler. A storage conflict comes back as 409 `{ error: 'conflict' }`.
  */
 
@@ -67,6 +68,7 @@ export interface CatalogEntry {
 	inputSchema: AdapterOp['inputSchema'];
 	write: boolean;
 	agents: readonly string[];
+	image?: true;
 }
 
 /**
@@ -95,6 +97,7 @@ export function catalogAnswer(
 			inputSchema: op.inputSchema,
 			write: op.write,
 			agents: op.agents,
+			...(op.image ? { image: true as const } : {}),
 		}));
 	return { status: 200, body: { ops } };
 }
@@ -225,6 +228,7 @@ export async function runAdapterCall(
 		return { status: 200, body: existing.result, replayed: true };
 	}
 
+	ctx.opId = opId;
 	let answer: AdapterAnswer;
 	try {
 		answer = (await refusedWrite(op, scope, run, input)) ?? (await execute(op, ctx, input));
@@ -244,7 +248,7 @@ async function refusedWrite(
 	run: AdapterContext['run'],
 	input: Record<string, unknown>,
 ): Promise<AdapterAnswer | null> {
-	if (!op.write) return null;
+	if (!op.write || 'recordsOnly' in op) return null;
 	if ('createsProject' in op) {
 		// A run that already started creating its project resumes it (the op handles that).
 		if (run.projectCreateStartedAt) return null;
@@ -261,6 +265,9 @@ async function refusedWrite(
 		return fail(409, 'project_exists', `The project "${run.projectKey}" already exists.`);
 	}
 	const prefixes = allowedPrefixes(scope!.clientKey, scope!.projectKey);
+	// Component defs live outside the project's tree, under `editor/<slug>/components/`. Only the
+	// components tool may write there, and `_shared/` stays refused by the target guard below.
+	if (op.tool === 'components') prefixes.push(projectComponentsPrefix(scope!.projectKey));
 	for (const key of op.writes(input, scope!)) {
 		const refused = refusedWriteTarget(key);
 		if (refused) return fail(403, 'refused', refused.message, { refusal: refused.id, key });

@@ -224,6 +224,9 @@ clears it, then asks the test server to re-read its list.
   uploaded for **Older than (days)** — default **14**, 1–365; the value is kept for next time. The
   banner says how many keys and files were cleared and how many were kept because they changed or
   are in use. An existing project's files are never touched.
+  The same click clears **QA drafts** (Director's draft copies under `director/drafts/`) of a
+  project whose runs have all ended for 14 days, and any unfinished draft over an hour old; drafts
+  of a project with a run still going are kept. The banner adds a "Drafts:" count line.
 
 ### Admin → Settings → Engine boot mark
 

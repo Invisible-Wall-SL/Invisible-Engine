@@ -459,6 +459,32 @@ const folded = foldEvents(events, PREFIX);
 		],
 	);
 	check('the feed skips the per-image rows only', folded.feed.length, events.length - 1);
+	{
+		const asked = foldEvents(
+			[
+				row('activity', 'coordinator', {
+					type: 'pipeline_change_request',
+					what: 'An FX slot.',
+					reason: 'The mockup has one.',
+					bug: 41,
+				}),
+				row('activity', 'coordinator', {
+					type: 'pipeline_change_request',
+					what: 'A region.',
+					reason: 'Before 9C.',
+				}),
+			],
+			PREFIX,
+		).feed;
+		check(
+			'a pipeline-change request links the bug it filed; an older one without a bug links nothing',
+			asked.map((f) => [f.text, f.bug ?? null]),
+			[
+				['asks for a pipeline change: An FX slot. — The mockup has one.', 41],
+				['asks for a pipeline change: A region. — Before 9C.', null],
+			],
+		);
+	}
 	check(
 		'a note with a message instead of a text still reads',
 		folded.feed.at(-1)?.text,
@@ -891,10 +917,23 @@ console.log('helpers');
 			'atlas.queue_variants',
 			'run.post_activity',
 			'wintext.update_doc',
+			'sound.set_cues',
+			'fx.update_art',
+			'components.update_art',
 			null,
 			'weird',
 		].map(toolLabel),
-		['Atlas Maker', 'ComfyUI · RunPod', null, 'Win Text', null, 'weird'],
+		[
+			'Atlas Maker',
+			'ComfyUI · RunPod',
+			null,
+			'Win Text',
+			'Sound',
+			'FX',
+			'Component Editor',
+			null,
+			'weird',
+		],
 	);
 	const malformed: RunEvent[] = [
 		{ id: 1, at: 'x', agent: 'a', kind: 'job_done', tool: null, payload: { result: 'nope' } },
@@ -1500,6 +1539,116 @@ console.log('batches, atlases and trimming');
 		},
 	];
 	check('a refused approval approves nothing', foldEvents(refusedRows, PREFIX).artPlan, 'open');
+}
+
+// ── A QA play of a draft is not an atlas render (ADR-0010) ────────────────────
+{
+	const D = '20261027T101530Z-3fa9';
+	const play = (payload: Record<string, unknown>, kind: 'job_queued' | 'job_done') =>
+		row(kind, 'qa', { jobRef: 'dp_0123456789abcdef', draftId: D, ...payload }, 'build.play_draft');
+	const feedOf = (rows: RunEvent[]) => {
+		const f = foldEvents(rows, PREFIX);
+		return {
+			jobs: f.jobs.length,
+			regions: f.regions.size,
+			feed: f.feed.map((e) => [e.tone, e.text]),
+		};
+	};
+	check(
+		'a queued QA play is a feed line, not a render of regions',
+		feedOf([play({ scenarios: ['base'] }, 'job_queued')]),
+		{
+			jobs: 0,
+			regions: 0,
+			feed: [['job', `queued a QA play of the draft ${D} (base).`]],
+		},
+	);
+	check(
+		'a finished play says how many screens were reached',
+		feedOf([
+			play(
+				{
+					status: 'finished',
+					result: {
+						scenarios: [
+							{ id: 'base', expected: ['boot', 'spin', 'win'], reached: ['boot', 'spin'] },
+							{ id: 'free', expected: ['boot'], reached: ['boot'] },
+						],
+					},
+				},
+				'job_done',
+			),
+		]),
+		{
+			jobs: 0,
+			regions: 0,
+			feed: [['error', `QA play of the draft ${D} finished: 3 of 4 screens reached.`]],
+		},
+	);
+	check(
+		'a play that reached every screen is a job line',
+		feedOf([
+			play(
+				{
+					status: 'finished',
+					result: { scenarios: [{ id: 'base', expected: ['boot'], reached: ['boot'] }] },
+				},
+				'job_done',
+			),
+		]).feed,
+		[['job', `QA play of the draft ${D} finished: 1 of 1 screens reached.`]],
+	);
+	check(
+		'a runtime that refused to boot is named',
+		feedOf([
+			play(
+				{
+					status: 'finished',
+					result: { bootRefused: '[runtime] boot stopped — x', scenarios: [] },
+				},
+				'job_done',
+			),
+		]).feed,
+		[
+			[
+				'error',
+				`QA play of the draft ${D}: the runtime refused to boot: [runtime] boot stopped — x`,
+			],
+		],
+	);
+	check(
+		'no_player reads as not played, never as a failed render',
+		feedOf([
+			play(
+				{
+					status: 'failed',
+					result: {
+						reason: 'no_player',
+						message: 'No draft player is deployed, so the draft was not played.',
+					},
+				},
+				'job_done',
+			),
+		]),
+		{
+			jobs: 0,
+			regions: 0,
+			feed: [
+				[
+					'job',
+					`QA play of the draft ${D} was not played (no_player): No draft player is deployed, so the draft was not played.`,
+				],
+			],
+		},
+	);
+	check(
+		'a play the player failed is an error line; a cancelled one is not',
+		feedOf([
+			play({ status: 'failed', result: { reason: 'timeout', message: 'Too slow.' } }, 'job_done'),
+			play({ status: 'cancelled', result: { reason: 'run_stopped' } }, 'job_done'),
+		]).feed.map(([tone]) => tone),
+		['error', 'job'],
+	);
 }
 
 console.log(`\n${checks} checks, ${failures} failures`);

@@ -3,10 +3,8 @@ import { resolveEmitterVocabulary } from '$lib/emitterVocabularies';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { loadDoc } from '$lib/server/editorStorage';
 import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
-import { loadRegionSet } from '$lib/server/editorRegions';
+import { listFxAtlases } from '$lib/server/fxAtlases';
 import { listEffects, loadEffect, type FxEffectRow, type FxMeta } from '$lib/server/fxStorage';
-import { SUB } from '$lib/server/projectPaths';
-import { listObjects } from '$lib/server/r2';
 import { resolveToolScope } from '$lib/server/toolScope';
 import type { EffectDoc } from 'engine-fx';
 import type { PageServerLoad } from './$types';
@@ -21,13 +19,6 @@ import type { PageServerLoad } from './$types';
  * `?effect=<id>` is present — the opened EffectDoc + its editor-only sidecar.
  */
 export const ssr = false;
-
-interface FxAtlas {
-	/** Manifest R2 key — the value a layer keeps as `art.assetKey`. */
-	manifestKey: string;
-	label: string;
-	regions: string[];
-}
 
 /**
  * Loader: auth + `fx`-scope gate (Invisible FX is now a registered tool — `roles.ts`), then
@@ -50,28 +41,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		user: locals.user,
 	});
 
-	const basename = (k: string): string => {
-		const i = k.lastIndexOf('/');
-		return i === -1 ? k : k.slice(i + 1);
-	};
-
-	const manifestsPrefix = `${SUB.manifests(clientKey, projectKey)}/`;
-	const listed = await listObjects(manifestsPrefix, 500);
-	const manifestKeys = listed.keys.filter((k) => k.toLowerCase().endsWith('.json'));
-
-	const atlases: FxAtlas[] = [];
-	for (const manifestKey of manifestKeys) {
-		const rs = await loadRegionSet(manifestKey);
-		if (!rs.regions.length || !rs.pageKey) continue; // unusable (no regions or no page)
-		atlases.push({
-			manifestKey,
-			label: basename(manifestKey)
-				.replace(/^atlas_manifest_/, '')
-				.replace(/\.json$/i, ''),
-			regions: rs.regions.map((r) => r.name),
-		});
-	}
-	atlases.sort((a, b) => a.label.localeCompare(b.label));
+	const atlases = await listFxAtlases(clientKey, projectKey);
 
 	// Saved-effect index (for the picker) + the optionally-opened effect.
 	const effects: FxEffectRow[] = await listEffects(clientKey, projectKey);

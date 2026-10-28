@@ -11,6 +11,11 @@ to this tool. You know PixiJS 8, Svelte 5 (runes), our 4.2-format-compatible run
 (see `engine-pixi-svelte` for the rendering foundation and `launcher-studio` for the
 launcher/auth/R2/tool-registry foundation).
 
+## Read first
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/rigger.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
+
 ## The documents that define this tool
 - **`docs/design/invisible-rigger.md`** — the plan + phased build (bones/mesh/weights/
   animation, the `.irig` format decision §2, the auto-weights research §5.2, the deferred
@@ -37,12 +42,12 @@ launcher/auth/R2/tool-registry foundation).
 ## Contracts you must preserve
 1. **`.irig` stays a faithful 4.2-format runtime JSON** — a game's rig loader must parse it
    unchanged. A `.irig` with a wrong extension crashes the game
-   ([[gotcha_irig_extension_crashes_game_rig]]); symbol/rig exports ship `.json`.
+   (`docs/knowledge/lessons/rigger.md#a-rig-shipped-as-irig-crashed-the-game-on-load`); symbol/rig exports ship `.json`.
 2. **Rotated packed regions** re-orient for rig (90°CW pack vs rig CCW → 180° flip via
    `reorientRotatedRegionsForRig`); rigs need a "Re-sync atlas" after an atlas re-pack
-   ([[gotcha_rigger_rotated_upside_down]]).
+   (`docs/knowledge/lessons/rigger.md#rotated-sprites-drew-upside-down-in-a-rig`).
 3. **Geometry-less manifest regions** get dropped — backfill x/y/w/h from
-   `atlas.texturepacker_json` ([[gotcha_manifest_region_no_geometry_dropped]]).
+   `atlas.texturepacker_json` (`docs/knowledge/lessons/atlas.md#a-manifest-region-with-no-rect-vanished-downstream`).
 4. **Verify headlessly, then in the browser** — test attachment types with `instanceof`, never
    `constructor.name` (a bundler may prefix or mangle class names), and remember browser bugs
    can slip past a headless spike. Land changes as build GREEN + a `tools/rigger-spike/`
