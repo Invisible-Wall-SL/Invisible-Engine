@@ -77,6 +77,11 @@
 			"types": "./src/lib/particleMaterial/index.ts",
 			"svelte": "./src/lib/particleMaterial/index.ts",
 			"default": "./src/lib/particleMaterial/index.ts"
+		},
+		"./screenFx": {
+			"types": "./src/lib/screenFx/index.ts",
+			"svelte": "./src/lib/screenFx/index.ts",
+			"default": "./src/lib/screenFx/index.ts"
 		}
 	}
 }
