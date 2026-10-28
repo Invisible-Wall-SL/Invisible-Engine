@@ -115,6 +115,16 @@ export const SAMPLE_BUDGET = 16;
  */
 export const PARTICLE_COST_BUDGET = 150;
 export const PARTICLE_SAMPLE_BUDGET = 4;
+/**
+ * The same budget for a graph drawn over the whole screen (`docs/design/shader-graph-screens.md`
+ * §10): a screen transition, which plays for a second or two when little else does, and a post FX,
+ * which runs every frame of the session on top of everything. A graph's cost is its own: the screen
+ * shell's read of the old screen to draw the graph over it is a fixed overhead, not counted here.
+ */
+export const TRANSITION_COST_BUDGET = 200;
+export const TRANSITION_SAMPLE_BUDGET = 8;
+export const POST_COST_BUDGET = 60;
+export const POST_SAMPLE_BUDGET = 4;
 
 /** The budget a doc's cost is held to, and what it is for, in words. */
 export interface ShaderGraphBudget {
