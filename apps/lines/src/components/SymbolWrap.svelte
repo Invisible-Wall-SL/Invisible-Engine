@@ -1,3 +1,22 @@
+<script lang="ts" module>
+	import { stateGame, stateGameDerived } from '../game/stateGame.svelte';
+
+	/**
+	 * How far past the window a cell's CENTRE may be while its reel rolls and still be drawn: half
+	 * a row (times the seat's scale). A cell's y is its centre, so culling the centre at the window
+	 * edge drew a rolling cell only while at least half of it was inside: the next symbol popped in
+	 * half-visible at the top after a gap, and the last one vanished at the bottom with half of it
+	 * still showing — once per pitch, on every reel. While a reel rolls its mask is tight to the
+	 * window (`boardOverflow`), so the extra half row is clipped exactly at the edge. At rest it is
+	 * `0`: a resting padding row sits a half row outside, where an authored overflow mask would
+	 * show it. `ReelPaddingPool` hands its views their cells on this same bound.
+	 */
+	export const rollingCullMargin = (reelIndex: number, scale = 1): number =>
+		stateGame.board[reelIndex]?.reelState.rolling
+			? (stateGameDerived.boardGeometry().rowPitchLocal * scale) / 2
+			: 0;
+</script>
+
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 
@@ -6,6 +25,7 @@
 
 	import { getContext } from '../game/context';
 	import { activeGrid } from '../game/gameConfig';
+	import { cellDrawn } from '../game/reelCull';
 
 	type Props = {
 		debug?: boolean;
@@ -64,7 +84,13 @@
 			? steppedWindow.top + steppedWindow.height
 			: context.stateGameDerived.boardWindowHeight(),
 	);
-	const inFrame = $derived(props.y >= top && props.y <= bottom);
+	// Only the masked layer: the unmasked animate layer has no edge to clip the extra half row at.
+	const margin = $derived(
+		!boardContext.animate && props.reelIndex !== undefined
+			? rollingCullMargin(props.reelIndex, props.scale)
+			: 0,
+	);
+	const inFrame = $derived(cellDrawn(props.y, top, bottom, margin));
 	// A flat seat passes `undefined`, NOT 1, because `1` is not a no-op in Pixi v8: assigning
 	// `container.scale` swaps the shared `defaultScale` singleton for an owned `ObservablePoint` and
 	// dirties the transform. `pixi-svelte`'s `propsSyncEffect` skips undefined props, so an unscaled

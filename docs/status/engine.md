@@ -83,7 +83,9 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   pre-spin lap; ~40% of spin CPU), rigs pose twice a frame and keep ticking when hidden, and idle
   particle layers update every frame. The per-cell geometry and prop-sync share is fixed (~18% less
   spin CPU, `claude/reel-smoothness`) and the roll's filler now goes through a fixed per-reel view
-  pool (`claude/reel-view-pool`, ~11% less again). Next: confirm on a real phone
+  pool (`claude/reel-view-pool`, ~11% less again). Still open from the frame-by-frame look: the
+  opening slide (`backIn` at `reelPreSpinSpeed`) ends about 4× faster than the steady roll
+  (`reelSpinSpeed`), so every spin lurches as it settles into the roll. Next: confirm on a real phone
   (Chrome remote-debugging trace) before tuning the GPU side further. The ~118 MB of resident
   textures there is mostly uncompressed stock WebP/PNG sheets (`symbols2/3`, `SD2_Coin`,
   `reels_frame`, `fs_screen`); moving them to KTX2 like the atlas pages would cut it several-fold.
@@ -302,6 +304,19 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-28 — **Rolling symbols no longer pop in and out at the reel window's edges** (branch
+  `claude/reel-edge-pop`). Owner report on `commonoverlayproject`: symbols "popping out of the
+  frame" while the reels spin. Stepped frame by frame, every reel jumped once per pitch (~7 frames at
+  60 fps): a cell's y is its CENTRE, and `SymbolWrap` drew a cell only while that centre was inside
+  the window, so a gap up to half a row opened at the top before the next symbol popped in half
+  visible, and the bottom symbol vanished with half of it still in the window. Older than the view
+  pool; every reel game did it. Now, on the masked layer and while the reel rolls (the mask is tight
+  to the window then, `boardOverflow`), a cell is drawn while its centre is within half a row of the
+  window (`rollingCullMargin` in `SymbolWrap.svelte`, the rule in `game/reelCull.ts`), and
+  `ReelPaddingPool` hands its views their cells on the same bound. At rest the bound is the window
+  as before. Verified with seeded renders on a replayed RGS answer: idle identical to `main`; mid-spin
+  only the window's top and bottom edges differ (the half symbols now drawn), and each reel matches
+  again once it lands; the per-pitch jump is gone. Fixture: `apps/lines/src/game/reelCull.fixture.ts`.
 - 2026-10-28 — **Expanding and growing wilds on lines games** (branch
   `lines/expanding-growing-wilds`, plan `docs/design/expanding-and-growing-wilds.md`, reference game
   Slotmotion's *Fairy's Charm*). Runtime release: it touches `apps/lines` and

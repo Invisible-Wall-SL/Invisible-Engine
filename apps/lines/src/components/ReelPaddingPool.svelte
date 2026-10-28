@@ -14,9 +14,11 @@
 
 <script lang="ts">
 	import ReelSymbol from './ReelSymbol.svelte';
+	import { rollingCullMargin } from './SymbolWrap.svelte';
 	import { getContext } from '../game/context';
 	import { getSymbolSeat, stateGame, type ReelSymbol as Cell } from '../game/stateGame.svelte';
 	import { activeGrid } from '../game/gameConfig';
+	import { cellDrawn } from '../game/reelCull';
 
 	type Props = {
 		reelIndex: number;
@@ -38,13 +40,14 @@
 	 * `slots` views are handed one filler cell after another.
 	 *
 	 * WHICH VIEW DRAWS WHICH CELL. Strip neighbours are one pitch apart, so a cell's place in the
-	 * strip modulo `slots` picks its view. There are `rows + 2` views, so cells of one view are `rows + 2`
-	 * pitches apart and no two of them are ever in the window together. A view takes its next cell on the frame that
-	 * cell enters the window — the frame its own `ReelSymbol` would have drawn it — and everything
-	 * inside the view is keyed on the cell (`instanceKey`), so the art starts there as a new mount's
-	 * would: a rig on frame 0, a state's Element FX and its beat gate fresh. What is kept is the view
-	 * itself: its `ReelSymbol`, its `SymbolWrap` (mounted, hidden outside the window) and the
-	 * `Symbol`'s band containers.
+	 * strip modulo `slots` picks its view. There are `rows + 2` views, so cells of one view are
+	 * `rows + 2` pitches apart and no two of them are ever drawn together (a rolling cell is drawn
+	 * while its centre is within half a row of the window). A view takes its next cell on the frame
+	 * that cell starts being drawn — the frame its own `ReelSymbol` would have drawn it — and
+	 * everything inside the view is keyed on the cell (`instanceKey`), so the art starts there as a
+	 * new mount's would: a rig on frame 0, a state's Element FX and its beat gate fresh. What is kept
+	 * is the view itself: its `ReelSymbol`, its `SymbolWrap` (mounted, hidden outside the window)
+	 * and the `Symbol`'s band containers.
 	 *
 	 * The reel engine renumbers the strip each lap (the cells stay where they are on screen), so the
 	 * place is carried across renumbering by an ordinal fixed when a cell is first seen.
@@ -73,7 +76,7 @@
 	});
 	const rowOf = $derived(new Map(placed.map(({ cell, row }) => [cell, row])));
 
-	/** The window a cell is drawn in: the SAME bound `SymbolWrap` culls at. */
+	/** The window a cell is drawn in: the SAME bounds `SymbolWrap` culls at. */
 	const top = $derived(
 		activeGrid().stepped ? context.stateGameDerived.boardWindowForReel(props.reelIndex).top : 0,
 	);
@@ -85,17 +88,21 @@
 			: cell.symbolY();
 
 	/**
-	 * Each view's cell now: of the cells it serves that have entered the window (y at or below its
-	 * top edge — the strip moves down), the most recent one. A board cell in that place means the
-	 * view has nothing to draw: that cell is drawn as board cells are. Recomputed every frame the reel
-	 * moves, so it holds the cells themselves: a view's item changes only when its cell does.
+	 * Each view's cell now: of the cells it serves that are past the window's top bound (the strip
+	 * moves down), the most recent one. A board cell in that place means the view has nothing to
+	 * draw: that cell is drawn as board cells are. Recomputed every frame the reel moves, so it holds
+	 * the cells themselves: a view's item changes only when its cell does.
 	 */
 	const shown = $derived.by(() => {
 		const best: (Cell | undefined)[] = Array(slots);
 		const bestY: number[] = Array(slots);
 		for (const { cell, row, slot } of placed) {
 			const y = yOf(cell, row);
-			if (y < top) continue;
+			const margin = rollingCullMargin(
+				props.reelIndex,
+				getSymbolSeat(props.reelIndex, row - 1).scale,
+			);
+			if (!cellDrawn(y, top, Infinity, margin)) continue;
 			if (!best[slot] || y < bestY[slot]) {
 				best[slot] = cell;
 				bestY[slot] = y;
