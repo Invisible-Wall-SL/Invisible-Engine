@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { CARD_RANGES, readLibrary, type CardDef, type Keyword } from 'engine-mechanics';
+	import {
+		CARD_RANGES,
+		readLibrary,
+		type CardDef,
+		type CardEffect,
+		type Keyword,
+	} from 'engine-mechanics';
 	import {
 		DEFAULT_CARD_FRAME_ID,
 		resolveCard,
@@ -48,6 +54,7 @@
 
 	const components = new Map((data.frames as ComponentDef[]).map((d) => [d.id, d]));
 	const frames = $derived(edit.frameChoices(data.frames as ComponentDef[], snapshot));
+	const otherFrames = $derived(frames.filter((f) => f.id !== DEFAULT_CARD_FRAME_ID));
 	const frameOf = (card: CardDef): ComponentDef | undefined =>
 		components.get(card.frame?.trim() || DEFAULT_CARD_FRAME_ID);
 
@@ -235,6 +242,11 @@
 		damaged: 'Damaged',
 		buffed: 'Buffed',
 	};
+	/** The effect's target, read the same for every verb (one without a target has none). */
+	const targetOf = (
+		effect: CardEffect,
+	): Partial<{ kind: string; side: string; include: string }> | undefined =>
+		'target' in effect ? effect.target : undefined;
 	const numberKeys = (c: CardDef): readonly edit.CardNumber[] =>
 		c.type === 'unit' ? ['cost', 'attack', 'health'] : ['cost'];
 	const issueText = (list: GameConfigIssue[]) => list.map((i) => i.message).join(' ');
@@ -507,7 +519,7 @@
 										rules allow after the choices to its left.
 									</p>
 									{#each c.effects ?? [] as effect, e (e)}
-										{@const fx = effect as Record & { target?: Record }}
+										{@const target = targetOf(effect)}
 										{@const kinds = edit.targetChoices(c, effect.trigger, effect.verb)}
 										<div class="effect">
 											<select
@@ -614,10 +626,10 @@
 														>{/each}
 												</select>
 											{/if}
-											{#if kinds.length && fx.target}
+											{#if kinds.length && target}
 												<span class="to">→</span>
 												<select
-													value={fx.target.kind}
+													value={target.kind}
 													disabled={readOnly}
 													onchange={(ev) =>
 														change((d) =>
@@ -632,9 +644,9 @@
 												>
 													{#each kinds as k (k)}<option value={k}>{TARGET_LABEL[k]}</option>{/each}
 												</select>
-												{#if fx.target.kind === 'chosen'}
+												{#if target.kind === 'chosen'}
 													<select
-														value={fx.target.side}
+														value={target.side}
 														disabled={readOnly}
 														onchange={(ev) =>
 															change((d) =>
@@ -650,9 +662,9 @@
 														{#each edit.sideChoices() as s (s)}<option value={s}>{s}</option>{/each}
 													</select>
 												{/if}
-												{#if fx.target.kind !== 'self'}
+												{#if target.kind !== 'self'}
 													<select
-														value={fx.target.include}
+														value={target.include}
 														disabled={readOnly}
 														onchange={(ev) =>
 															change((d) =>
@@ -699,8 +711,7 @@
 													change((d) => edit.setFrame(d, cid(), e.currentTarget.value))}
 											>
 												<option value="">The game's default ({DEFAULT_CARD_FRAME_ID})</option>
-												{#each frames.filter((f) => f.id !== DEFAULT_CARD_FRAME_ID) as f (f.id)}<option
-														value={f.id}>{f.name || f.id}</option
+												{#each otherFrames as f (f.id)}<option value={f.id}>{f.name || f.id}</option
 													>{/each}
 												{#if c.frame && !components.has(c.frame)}<option value={c.frame}
 														>{c.frame} (not found)</option

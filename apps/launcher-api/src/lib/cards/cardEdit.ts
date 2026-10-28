@@ -623,13 +623,27 @@ const isFrame = (def: ComponentDef, named: ReadonlySet<string>): boolean => {
 	return inputs.has('name') && inputs.has('rulesText');
 };
 
+const namedFrames = (doc: GameConfigDoc | null): Set<string> => {
+	const named = new Set<string>([DEFAULT_CARD_FRAME_ID]);
+	for (const card of cardLibraryOf(doc)) if (card.frame) named.add(card.frame);
+	return named;
+};
+
+/** The frames a card may pick, of the components the page holds. */
+export const frameChoices = (
+	defs: readonly ComponentDef[],
+	doc: GameConfigDoc | null,
+): ComponentDef[] => {
+	const named = namedFrames(doc);
+	return defs.filter((def) => isFrame(def, named));
+};
+
 /** The components a card can be drawn in, then every component they nest (for the drawing). */
 export function frameCandidates(
 	all: readonly ComponentDef[],
 	doc: GameConfigDoc | null,
 ): ComponentDef[] {
-	const named = new Set<string>([DEFAULT_CARD_FRAME_ID]);
-	for (const card of cardLibraryOf(doc)) if (card.frame) named.add(card.frame);
+	const named = namedFrames(doc);
 	const byId = new Map(all.map((d) => [d.id, d]));
 	const out = new Map<string, ComponentDef>();
 	const nest = (node: LayoutNode, depth: number): void => {

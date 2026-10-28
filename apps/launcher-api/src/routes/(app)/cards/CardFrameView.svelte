@@ -43,6 +43,7 @@
 
 	const params = $derived(frame ? resolveComponentParams(frame, values) : values);
 	const scale = $derived(size / width);
+	type Params = Record<string, unknown>;
 	const DRAWN = new Set(['container', 'rect', 'text', 'sprite', 'componentInstance']);
 	const MAX_DEPTH = 6;
 
@@ -81,7 +82,7 @@
 	const left = $derived(skipped(frame?.root));
 </script>
 
-{#snippet node(n: LayoutNode, p: Record, depth: number)}
+{#snippet node(n: LayoutNode, p: Params, depth: number)}
 	{@const t = transformOf(n, p)}
 	{#if t.visible && depth < MAX_DEPTH}
 		{@const sx = t.scale?.x ?? 1}
