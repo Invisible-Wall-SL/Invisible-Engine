@@ -37,9 +37,9 @@
  * body's estimate (operators and calls counted, loops by their rounds: they are fixed code); a
  * pass-header helper 2; each statement times the rounds of the loops around it, each loop 2 a round
  * for its test and step. Reads of the element are each `efxSample` call (inside the library's
- * functions too), and each read of a screen (`efxScreenFrom`, `efxScreenTo`), times its loops' rounds. Never 0. It counts both sides of every branch and every
- * round a loop may run, so it reads 2–6× the hand-set cost of a library node doing the same work:
- * on the safe side. By it the hand-written built-in passes, as bodies, do up to 1,053 units
+ * functions too), and each read of a screen (`efxScreenFrom`, `efxScreenTo`), times its loops'
+ * rounds. Never 0. It counts both sides of every branch and every round a loop may run, so it reads
+ * 2–6× the hand-set cost of a library node doing the same work: on the safe side. By it the hand-written built-in passes, as bodies, do up to 1,053 units
  * (Electrocute; Petrify 870, Sphericon 575). A node past {@link CUSTOM_GLSL_COST_MAX} units or
  * {@link CUSTOM_GLSL_SAMPLES_MAX} reads is refused, and so is an effect whose Custom GLSL nodes pass
  * {@link CUSTOM_GLSL_EFFECT_COST_MAX} / {@link CUSTOM_GLSL_EFFECT_SAMPLES_MAX} together.
