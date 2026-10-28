@@ -50,8 +50,12 @@ You are the developer for **Invisible Shader Graph**.
     `pnpm --filter fx-spike particle-material` and `material-behavior`; in the game (8d.3)
     `EmitterLayer.material` and its params (`packages/engine-fx/src/materialLayer.ts`,
     `normalize.ts`, `params.ts`), mounted by `particleMaterial/mount.ts` from
-    `<ParticleEmitter material>` / `<EffectLayer>`, played for real by
-    `scripts/playtest/particle-material-play.mjs`. In the launcher, every preview mounts a
+    `<ParticleEmitter material>` / `<EffectLayer>`, its `?fxdebug=1` lines also written on the
+    page by `particleMaterial/debugPanel.ts` (8d.8, for a phone); played for real, with the cap
+    and `--calibrate` frame times, by `scripts/playtest/particle-material-play.mjs`, whose
+    playbook `docs/playtest/particle-material.md` is also the owner's phone check that sets the
+    §10 budgets; both play the `cal-*` projects of `scripts/playtest/particle-calibration.mjs`
+    (graphs: `CALIBRATION_GRAPHS`, `engine-shadergraph/src/calibration.ts`). In the launcher, every preview mounts a
     material through `apps/launcher-api/src/lib/fx/layerMaterial.client.ts` (the game's mount, its
     remount key, the uniform retune): `/fx`'s `FxStage` and Material section
     (`fxMaterial.client.ts`, 8d.5, played headless by `fx-spike fx-page`), the Scene Editor's

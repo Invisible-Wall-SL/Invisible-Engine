@@ -19,6 +19,9 @@
  * clock; the next starts `nextRoundSeconds` later with everyone back at the spawn and every score
  * at 0. Players move in every phase, so a device's prediction holds through the pause.
  *
+ * A bot (`player.bot`, P10.16) plays by the same rules, but it neither reaches the goal nor tops a
+ * round's scores unless the game's `bots.canWin` says it may.
+ *
  * Steps are counted as the room counts them: `stamp` is the room step a state is stamped with
  * (`steps` after the step that made it), and every time is a whole number of steps. Within one
  * step, players act in the order they joined.
@@ -114,6 +117,8 @@ export function createOnlineRules(game, { spawn }) {
 		hold: stepsOf(a.ms, tickHz),
 	}));
 	const module = rules.module ? ONLINE_RULES_MODULES[rules.module] : undefined;
+	/** Whether a player can win a round: a bot only when the game lets bots win (P10.16). */
+	const canWin = (player) => !player.bot || online.bots?.canWin === true;
 	/** id → past places, a ring by stamp. */
 	const history = new Map();
 	const events = [];
@@ -170,6 +175,7 @@ export function createOnlineRules(game, { spawn }) {
 		let best;
 		let tied = false;
 		for (const p of players) {
+			if (!canWin(p)) continue;
 			if (!best || p.score > best.score) {
 				best = p;
 				tied = false;
@@ -246,7 +252,7 @@ export function createOnlineRules(game, { spawn }) {
 			if (phase === 'running') {
 				if (goals.shapes.length) {
 					for (const player of players) {
-						if (!player.connected || player.status !== STATUS.free) continue;
+						if (!player.connected || player.status !== STATUS.free || !canWin(player)) continue;
 						const reached = queryStatic(goals, aabbOf(player.body)).some(
 							(goal) =>
 								(!goal.characters || goal.characters.includes(player.character.id)) &&

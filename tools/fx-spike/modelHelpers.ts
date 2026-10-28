@@ -18,6 +18,7 @@
 import { upgradeConfig, type EmitterConfigV3 } from '@barvynkoa/particle-emitter';
 import {
 	EFFECT_DOC_VERSION,
+	FX_MATERIAL_LAYER_CAP,
 	FX_MATERIAL_LAYER_LOAD_BUDGET,
 	fxMaterialLoadEstimate,
 	fxMaterialLoadLevel,
@@ -32,6 +33,7 @@ import {
 	largestFrame,
 	strayMaterialDrives,
 	materialChoices,
+	materialLayerCount,
 	materialLayerLoad,
 	materialNotes,
 	materialParamValue,
@@ -585,6 +587,7 @@ const notesFor = (layer: EmitterLayer, extra: Partial<Parameters<typeof material
 	materialNotes({
 		layer,
 		params: undefined,
+		materialLayers: 1,
 		effect: dissolve,
 		notCompiled: false,
 		skipped: [],
@@ -596,6 +599,26 @@ const notesFor = (layer: EmitterLayer, extra: Partial<Parameters<typeof material
 const artLayer = { ...tuned, art: { assetKey: 'a.json', frames: ['f'] } };
 assert(notesFor(artLayer).length === 0, 'a well-formed material under budget has no notes');
 assert(notesFor(plainLayer).length === 0, 'a layer with no material has no notes');
+{
+	const layers = Array.from({ length: FX_MATERIAL_LAYER_CAP + 1 }, () => artLayer);
+	assert(
+		materialLayerCount([...layers, plainLayer]) === FX_MATERIAL_LAYER_CAP + 1,
+		"the effect's material layers are counted, a layer with none left out",
+	);
+	const at = (n: number) => notesFor(artLayer, { materialLayers: n });
+	assert(
+		at(FX_MATERIAL_LAYER_CAP).length === 0,
+		`${FX_MATERIAL_LAYER_CAP} material layers: no note`,
+	);
+	const ninth = at(FX_MATERIAL_LAYER_CAP + 1);
+	assert(
+		ninth.length === 1 &&
+			ninth[0].level === 'warn' &&
+			ninth[0].text.includes(`a game draws ${FX_MATERIAL_LAYER_CAP} at once`) &&
+			ninth[0].text.includes('at least 1 of them'),
+		'a ninth material layer in the effect is warned about before a game draws it plain',
+	);
+}
 const missing = notesFor(artLayer, { effect: undefined, notCompiled: true });
 assert(
 	missing.length === 1 && missing[0].level === 'off' && missing[0].text.includes('deleted'),

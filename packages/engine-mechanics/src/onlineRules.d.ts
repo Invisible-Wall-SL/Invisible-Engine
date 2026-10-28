@@ -31,6 +31,8 @@ export type RulesPlayer = {
 	memo: Record<string, number>;
 	/** Button → the stamp it can be used again at. */
 	cooldowns: Record<string, number>;
+	/** A bot the server plays (P10.16). */
+	bot?: boolean;
 };
 
 export type OnlineEvent =
@@ -74,6 +76,7 @@ export function createOnlineRules(
 		zones: readonly { id: string; x: number; y: number; w: number; h: number }[];
 		online: {
 			tickHz: number;
+			bots?: { canWin: boolean };
 			rules: {
 				zones: readonly { zone: string; goal?: boolean; characters?: string[] }[];
 				abilities: readonly {

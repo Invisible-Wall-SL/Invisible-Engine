@@ -153,6 +153,9 @@ scripts/mock-rgs-server.mjs`. A purely local boot of `apps/lines` is a scatter s
 
 ## Read more
 
+- `services/director-worker/families/slot.md`: what Director's runtime agents read about this family
+  (its `scatter` section under Kinds, plus the family-wide sections). The pack is the one home of
+  that text; edit it there.
 - `docs/design/game-type-templates.md` (Phases C, D and F)
 - `docs/status/engine.md` (open item 0) and `docs/status/engine-history.md` (2026-08-20 to 08-31)
 - `docs/status/game-config.md` (win model, cascade, `scattermath`)

@@ -1,5 +1,6 @@
 import { opIdFor, type AdapterClient } from '../adapters.ts';
 import type { AgentDefinition } from '../agents.ts';
+import type { FamilyPack } from '../familyPack.ts';
 import {
 	applyCodeRules,
 	catalogueFontNamed,
@@ -131,6 +132,11 @@ export interface AnalyzeDeps {
 	model: VisionTransport;
 	/** The `mockup-analyst` definition: its model, effort and system prompt. */
 	agent: AgentDefinition;
+	/**
+	 * The run's family pack, between the definition and the template's catalogue (ADR-0009 §4).
+	 * Null only in the agent eval, for a side whose checkout has no packs.
+	 */
+	pack: Pick<FamilyPack, 'text'> | null;
 	run: { id: string; templateProjectKey: string };
 	/**
 	 * A number unique to this pass over the run's mockups (a retry after a crash is a new pass): the
@@ -209,7 +215,9 @@ export async function analyzeMockups(deps: AnalyzeDeps): Promise<Breakdown> {
 	]);
 	const regionNames = regions.atlases.flatMap((a) => a.regions.map((r) => r.name));
 	const index = regionIndex(regionNames);
-	const system = `${agent.systemPrompt}\n\n${catalogueText(template, regions)}`;
+	const system = [agent.systemPrompt, deps.pack?.text, catalogueText(template, regions)]
+		.filter(Boolean)
+		.join('\n\n');
 
 	const images: BreakdownImage[] = [];
 	const proposed: AnalystSwatch[] = [];

@@ -15,6 +15,7 @@
 		"check:arcade-platformer": "node scripts/check-arcade-platformer.mjs",
 		"check:netcode": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-netcode.mjs",
 		"check:online-rules": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-online-rules.mjs",
+		"check:room-bots": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-room-bots.mjs",
 		"check:room-sim": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-room-sim.mjs",
 		"check:board-mechanic": "node scripts/check-board-mechanic.mjs",
 		"check:card-rules": "node scripts/check-card-rules.mjs",

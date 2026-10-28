@@ -395,6 +395,17 @@ refused config); a game key must match
 `^[a-z0-9][a-z0-9_-]{0,63}$`. A device whose room is refused is told only "this game is not
 available"; the reason is logged.
 
+**What a full room costs** (P10.16, measured locally with `scripts/room-load.mjs`; the numbers are
+in [status/game-families.md](status/game-families.md) "P10.16"): a 100-player Salmons room with
+`arcade.online.nearby` takes about a third of one core and under 1 MB/s out, with steps far under
+their 8 ms budget, so CPU is not what sizes `GAME_SERVER_MAX_ROOMS`: outbound bandwidth (which
+Railway bills) is. A room's bots (`arcade.online.bots`) are stepped by the server like players: the worst case, one
+person and 99 bots, measured 2.1 ms a step at p99 and 6 % of a core. A room with bots logs its bots'
+seed when it is made. The
+load test raises the per-address limits for its own server only (`perAddress`): every device it
+runs shares one address. **Never point it at `rooms.invisiblewall.org` without the owner's go**; it
+only ever starts its own server today.
+
 **Env** (names only; no secret is required to boot):
 
 | Name | Meaning |

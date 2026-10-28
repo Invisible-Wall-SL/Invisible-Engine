@@ -38,6 +38,7 @@ import {
 } from '@fxroot/packages/constants-shared/particleShell';
 import {
 	BUILTIN_TWINS,
+	CALIBRATION_GRAPHS,
 	CUSTOM_GLSL,
 	CUSTOM_GLSL_EFFECT_COST_MAX,
 	CUSTOM_GLSL_EFFECT_SAMPLES_MAX,
@@ -291,6 +292,7 @@ const page = window as unknown as {
 	];
 	const cells: { name: string; doc: ShaderGraphDoc; samples?: GlslSample[] }[] = [
 		...REFERENCE_GRAPHS.map((doc) => ({ name: doc.id, doc })),
+		...CALIBRATION_GRAPHS.map((doc) => ({ name: doc.id, doc })),
 		...BUILTIN_TWINS.map((twin) => ({
 			name: `twin ${twin.kind}`,
 			doc: twin.doc as ShaderGraphDoc,
