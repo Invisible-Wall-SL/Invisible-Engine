@@ -3,8 +3,11 @@
  * is pinned by `scripts/check-netcode.mjs`.
  */
 
-import type { Body, Field } from './motion';
-import type { OnlineInput, OnlineLevel, StepContext } from './online';
+import type { Body, Field, StaticShape } from './motion';
+import type { OnlineInput, OnlineLevel, StepContext, characterBody } from './online';
+
+/** A zone rule as `strongestForce` reads it. */
+type ForceRule = { force?: { x: number; y: number } };
 
 export const MATCH_PX: number;
 export const SMOOTH_MS: 100;
@@ -63,3 +66,44 @@ export type Interpolator = {
 };
 
 export function createInterpolator(options?: { snapPx?: number; keep?: number }): Interpolator;
+
+export const RECONCILED_FIELDS: readonly ['x', 'y', 'status'];
+
+/** The state the Colyseus SDK's `Reconciler` hands {@link reconcilerStep}: {@link RECONCILED_FIELDS}. */
+export type ReconciledState = { x: number; y: number; status: number };
+
+export function reconcilerStep(options: {
+	body: Body;
+	speed: number;
+	ctx: StepContext;
+	field?: Field;
+	level?: OnlineLevel;
+}): (sdk: unknown, state: ReconciledState, command: OnlineInput) => void;
+
+export function strongestForce(zoneRules: readonly ForceRule[]): number;
+
+/** An online game as {@link reconcilerOptions} reads it (game-config `OnlineGame`). */
+type ReconcilerGame = {
+	field: Field;
+	bodies: Record<string, Parameters<typeof characterBody>[1]>;
+	zones: readonly StaticShape[];
+	online: {
+		characters: readonly { id: string; body: string; speed: number }[];
+		tickHz: number;
+		subSteps: number;
+		patchHz: number;
+		rules: { zones: readonly (ForceRule & { zone: string; characters?: string[] })[] };
+	};
+};
+
+export function reconcilerOptions(
+	game: ReconcilerGame,
+	id: string,
+	player: { character: string; x: number; y: number },
+):
+	| {
+			fields: typeof RECONCILED_FIELDS;
+			step: (sdk: unknown, state: ReconciledState, command: OnlineInput) => void;
+			snap: number;
+	  }
+	| undefined;

@@ -28,6 +28,7 @@
 
 	import { getContextApp } from '../context.svelte';
 	import { disposeCameraEffects } from '../cameraEffects';
+	import { renderSettings } from '../renderTier';
 	import { preloadFont } from '../utils.svelte';
 
 	type Props = { children: Snippet };
@@ -60,13 +61,14 @@
 		registerAdvancedBlendModes();
 
 		await preloadFont();
+		const render = renderSettings();
 		context.stateApp.pixiApplication = new PIXI.Application<PIXI.Renderer<HTMLCanvasElement>>();
 		await context.stateApp.pixiApplication.init({
 			autoDensity: true,
 			backgroundAlpha: 0,
 			hello: true,
 			multiView: false,
-			antialias: true,
+			antialias: render.antialias,
 			clearBeforeRender: true,
 			// Force WebGL, do NOT let Pixi pick WebGPU. Mobile WebGPU (Safari iOS 18+,
 			// Chrome on Pixel/Adreno) initialises "successfully" but paints nothing — the
@@ -96,8 +98,8 @@
 			// the WebContent process ("A problem repeatedly occurred"); 2 is visually identical.
 			// Lower floor: a DPR below 1 (a zoomed-out / fractional-scaled display) would render
 			// the whole scene SUB-native, so thin antialiased text ghosts into a faint echo that
-			// reads as "double text". Never render below 1:1.
-			resolution: Math.min(Math.max(devicePixelRatio.current ?? 1, 1), 2),
+			// reads as "double text". Never render below 1:1. A `reduced` render tier lowers the cap.
+			resolution: Math.min(Math.max(devicePixelRatio.current ?? 1, 1), render.maxResolution),
 			resizeTo: window,
 		});
 

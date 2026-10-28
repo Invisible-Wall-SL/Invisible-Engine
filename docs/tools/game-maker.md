@@ -530,6 +530,12 @@ game) plus a few seconds to copy its files.
 
 **Publish can refuse, before anything is written:**
 
+- **A Director repair run is live on the project.** Invisible Director is changing the game to fix a
+  bug, and a publish now would ship its edits as they stand. The dialog **Publish while a repair run
+  is live?** asks "A Director repair run for BUG-`<n>` is live on this project. Publish anyway?".
+  Anyone who may publish can choose **Publish anyway**; it only warns. A publish that goes through
+  also resolves the project's game bugs that a repair run has fixed ("Fixed, waiting on publish"
+  in [Game Bug Reports](game-bugs.md)).
 - **Sounds still marked draft** in Invisible Sound. The dialog names them; **Publish anyway**
   ships them.
 - **Flow errors.** The saved [flow](/docs/flow) is validated the way its Validation panel does,

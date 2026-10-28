@@ -1,6 +1,7 @@
 import type { FontRequestEntry } from '$lib/server/director/fontRequests';
 import type { MockupsDoc } from '$lib/server/director/mockups';
 import type {
+	estimateForRepair,
 	EstimateAnswer,
 	RunCheckpoints,
 	RunListEntry,
@@ -16,6 +17,9 @@ import type { ProjectSummary } from '$lib/server/director/templates';
  * write carries. A request id is made ONCE per intent and kept across retries, so a resend after
  * a lost connection — and a double click — is replayed by the server to the same answer.
  */
+
+/** `POST /api/director/estimate { kind: 'repair' }`: a game repair run's estimate and cap. */
+export type RepairEstimateAnswer = Awaited<ReturnType<typeof estimateForRepair>>;
 
 export type { EstimateAnswer, FontRequestEntry, MockupsDoc, RunListEntry, RunSummary };
 
@@ -265,6 +269,10 @@ export const AGENT_BLURBS: Record<string, { name: string; does: string }> = {
 	animator: { name: 'Animator', does: 'Rigger · Flipbook · Symbols SM' },
 	builder: { name: 'Builder', does: 'Scene Editor · Win Text · Localization' },
 	qa: { name: 'QA', does: 'Sizes, alpha, sheet budget, plays the build' },
+	'game-doctor': {
+		name: 'Game doctor',
+		does: 'Reads the bug, reproduces it, hands the fix to the Builder, plays it again',
+	},
 };
 
 /** `claude-opus-5-5` → `Opus 5.5`, `claude-haiku-4-5-20251001` → `Haiku 4.5`. */
@@ -292,12 +300,38 @@ export const RUN_STEPS: { id: RunSummary['step']; n: number; label: string }[] =
 	{ id: 'handoff', n: 5, label: 'Hand-off' },
 ];
 
-export const stepNumber = (step: RunSummary['step']): number =>
-	RUN_STEPS.find((s) => s.id === step)?.n ?? 1;
+/** A repair run's steps (ADR-0012): the review is the run waiting at `repair_review`. */
+export const REPAIR_STEPS: {
+	id: RunSummary['step'] | 'repair_review';
+	n: number;
+	label: string;
+}[] = [
+	{ id: 'reproduce', n: 1, label: 'Reproduce' },
+	{ id: 'fix', n: 2, label: 'Fix' },
+	{ id: 'verify', n: 3, label: 'Verify' },
+	{ id: 'repair_review', n: 4, label: 'Repair review' },
+	{ id: 'handoff', n: 5, label: 'Hand-off' },
+];
+
+type RunPosition = Pick<RunSummary, 'step' | 'status'> & { kind?: RunSummary['kind'] };
+
+/** The steps a run is shown in: the create steps, or the repair steps. */
+export const stepsOf = (run: Pick<RunPosition, 'kind'>) =>
+	run.kind === 'repair' ? REPAIR_STEPS : RUN_STEPS;
+
+/** The 1-based place of the run's current step in `stepsOf(run)`. */
+export function stepNumber(run: RunPosition): number {
+	if (run.kind === 'repair' && run.step === 'handoff') {
+		return run.status === 'handed_off' ? 5 : 4;
+	}
+	return stepsOf(run).find((s) => s.id === run.step)?.n ?? 1;
+}
 
 /** The status pill's words. */
-export function statusLabel(run: Pick<RunSummary, 'status' | 'step' | 'waitingOn'>): string {
-	const at = `step ${stepNumber(run.step)} of ${RUN_STEPS.length}`;
+export function statusLabel(
+	run: Pick<RunSummary, 'status' | 'step' | 'waitingOn'> & { kind?: RunSummary['kind'] },
+): string {
+	const at = `step ${stepNumber(run)} of ${stepsOf(run).length}`;
 	switch (run.status) {
 		case 'draft':
 			return 'Not started';

@@ -39,6 +39,7 @@ import {
 	pendingCueHolds,
 } from 'engine-layout';
 import { isComponentMounted } from 'engine-layout/svelte';
+import type { ArcadeNetcode } from 'game-config';
 
 const FLAG = 'ie_determinism';
 export const DETERMINISM_FRAME_MS = 1000 / 60;
@@ -106,14 +107,16 @@ export type DeterminismArcadeState = {
 	/** The world camera (P10.12): the view's top-left, its shake and size. Absent without one. */
 	camera?: { x: number; y: number; shakeX: number; shakeY: number; view: { w: number; h: number } };
 	/** An online game (P10.15): the bodies above are the room's places, and these how they are
-	 *  drawn — the own player (`me`) predicted, everyone else at `viewStep` — with the prediction's
-	 *  corrections, the round and the room's recent events. */
+	 *  drawn — the own player (`me`) predicted by `netcode`, everyone else at `viewStep` — with the
+	 *  prediction's corrections (the engine's predictor only: the SDK's does not count them), the
+	 *  round and the room's recent events. */
 	online?: {
 		me: string;
 		drawn: { id: string; x: number; y: number }[];
 		viewStep: number;
-		corrections: number;
-		snaps: number;
+		netcode: ArcadeNetcode;
+		corrections?: number;
+		snaps?: number;
 		phase: string;
 		round: number;
 		winner: string;

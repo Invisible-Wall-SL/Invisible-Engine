@@ -23,6 +23,9 @@ node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
   scripts/playtest/online-play.mjs --runtime apps/lines/build --out .cache/online-play
 ```
 
+Add `--netcode colyseus` to play the config with the Colyseus SDK's own prediction
+(`arcade.online.netcode`, default `engine`); each page must report the mode it ran. Run both.
+
 Each page boots `?runtime=1&ie_determinism=7&rooms_url=ws://127.0.0.1:<port>&project=online-sample`
 (page B adds `rooms_character=bear`). The page's frames are stepped by the determinism probe while
 real time passes, so the room's patches arrive between steps.

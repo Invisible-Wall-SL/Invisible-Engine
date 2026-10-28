@@ -15,10 +15,10 @@ export const ssr = false;
 // https://kit.svelte.dev/docs/page-options#trailingslash
 export const trailingSlash = 'ignore';
 
-import { prepareRuntimeBundle, refuseUnplayableBoot } from '../editor-scenes';
+import { prepareRuntimeBundle, refuseFamilyBoot, refuseUnplayableBoot } from '../editor-scenes';
 import { exposeBuildInfo } from '../game/buildInfo';
-import { gameMechanic } from '../game/mechanic';
-import { joinOnlineRoom } from '../game/online';
+import { gameFamilyRefusal, gameMechanic } from '../game/mechanic';
+import { joinOnlineRoom } from '../families/arcade';
 import { startErrorTracking } from '../game/errorTracking';
 import {
 	publishExpandMinReelsToFacade,
@@ -40,6 +40,8 @@ export const load = async () => {
 	exposeBuildInfo();
 	startErrorTracking();
 	await prepareRuntimeBundle();
+	const refused = gameFamilyRefusal();
+	if (refused) await refuseFamilyBoot(refused);
 	const unplayable = gameMechanic().unplayable;
 	if (unplayable) await refuseUnplayableBoot(unplayable);
 	// An online game joins its room before it mounts; a game that cannot stops here, on the error

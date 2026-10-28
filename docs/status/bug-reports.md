@@ -100,11 +100,32 @@ server module, routes, page components, triage, screenshots, the pull-request li
 1. **Browser pass** on the live launcher: report with pasted / dropped screenshots, filters and the
    address round trip, triage, the lightbox, the game page across a project switch in the top bar,
    the Pipeline Changes Bugs tab. Nothing here has been clicked yet.
-2. **Move a game bug to the pipeline list** when the cause turns out to be in the engine or a tool
-   (today: report a new pipeline bug and mark the game bug Won't fix).
+2. **Move a game bug to the pipeline list** — back end done (ADR-0012 §3, Director card 9G):
+   `POST /api/bugs/<n>/escalate` (game triage + the Pipeline Bug Reports tool) and a repair run's
+   `bugs.escalate_game_bug` file one pipeline bug, relate the two (`bug_report_relations`) and show
+   **Waiting on pipeline · BUG-n** (derived). The bug page has **Escalate to pipeline** (a small
+   form in the new **Repair** card, triagers with the Pipeline Bug Reports tool).
 3. No delete of a bug report (Won't fix is the way out); no assignee field.
 
 ## Recent changes
+
+- 2026-10-27 — **Repair UI on the game bug (Director card 9G)**: the **Repair** card on
+  `/game-bugs` (**Repair with Director**, **Escalate to pipeline**, the bug's repair runs, the
+  derived labels, also on the list rows); `repair` and `escalated` activity lines in words; the
+  pipeline side shows **Escalated from a game bug**. The game page load supplies the facts
+  (`repair`, `pipelineAreas`). `escalationDescription` moved to `$lib/bugReports` so the Repair
+  review shows the pipeline bug exactly as filed. Browser pass still open.
+
+- 2026-10-27 — **Repair runs move the bug (Director card 9G)**: a repair run sets Open → Working on
+  and puts it back unless fixed or touched; a fix reads **Fixed, waiting on publish**
+  (`repairLabel`, derived from the last `repair` event) until Game Maker's next publish resolves it
+  (`resolveFixedBugs`, by "Game Maker publish", with the snapshot id).
+
+- 2026-10-27 — **Game bug escalation (Director card 9G, back end)**: `bug_report_relations`, the
+  `escalated` / `repair` event kinds, `insertEscalation` (one transaction: pipeline bug, relation,
+  an `escalated` event on each bug, game bug Open → Working on), the derived pipeline label on
+  summaries and details, and a repair run's `bugs.get_game_bug` / `bugs.get_screenshot` /
+  `bugs.escalate_game_bug`. Fixtures: `check:bug-reports`, `check:director-adapters`, `prove:turns` (29).
 
 - 2026-10-27 — **Pipeline repair (Director PLAN 9C)**: new build agent `pipeline-triage`; the
   pipeline fix brief names it and the `bug-<n>-…` branch (was `fix/bug-<n>-…`); a Director run's

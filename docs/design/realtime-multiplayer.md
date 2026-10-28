@@ -278,6 +278,36 @@ answer arrives. Colyseus 0.18 does the bookkeeping; the engine supplies the step
   later. The presentation hides the wait: a swipe plays at once (a predicted event), and whether it
   caught someone comes after.
 
+### 6.1 Two netcodes, one per game (owner, 2026-10-27)
+
+P10.15 built its own netcode in `engine-mechanics` rather than wiring the SDK's `predict` module
+(status, P10.15). The owner kept it and made the choice per game: *"own netcode is fine, but maybe
+we can make it optional"*. A config's `arcade.online.netcode` picks who predicts the device's own
+player:
+
+| `netcode` | Own player | Everyone else |
+|---|---|---|
+| `engine` (default; absent) | `engine-mechanics` `createPredictor`: steps each input at once, compares the prediction at `ack` with the room's place to 1/64 px, and on a miss takes the room's place, replays the inputs in flight and fades the difference over 100 ms | `createSnapshotClock` + `createInterpolator`, ~100 ms behind |
+| `colyseus` | The Colyseus SDK's own `Predict` (0.18.6): `predict.reconciler(me, { input, fields: ['x', 'y', 'status'], step, snap })`. The SDK steps each input as it is sent, takes its ack from the input handle (the server's consumed-input count, carried on each state frame), skips a reconcile when the prediction at the ack is indistinguishable at the wire's float32 precision, and otherwise adopts the room's fields, replays the unacknowledged inputs and fades the difference over one patch interval. `step` is `engine-mechanics` `reconcilerStep`: the room's own `stepPlayer`, with the room's `stepContext` | The same as `engine` |
+
+- **The server does not know the mode.** It is authoritative in both: the SDK's reconciler needs
+  only what the room already does (`defineInput`, `setFixedTimestep` with its sub-steps, the patch
+  rate). `check:room-sim` has a tripwire for the server ever reading it, and runs the SDK's
+  reconciler, with the runtime's options (`reconcilerOptions`), against a live room.
+- **The SDK's prediction is imported only for `colyseus`:** `Predict` is its own entry,
+  `engine-rooms/predict`, imported beside the room client only when the config asks for it.
+- **Everyone else stays ours in both modes,** so `Input.view` (lag compensation, §11) names the step
+  the device drew, whichever mode it runs. The SDK's `attachAll(…, { mode: 'lerp' })` would draw
+  them on its own render clock in server milliseconds, with no step to send.
+- **Not used from the SDK:** predicted events (`defineEvent`) and its own lag-compensation stamps:
+  the device has no ability presentation yet, and the room tests abilities against `view`.
+- **What differs, measured** (`check:netcode`, six devices, 50–250 ms, ±50 ms, 2–5 % loss): on the
+  real transport (a WebSocket), both make 0 corrections and every rest is the room's place bit for
+  bit. On a modelled lossy datagram link (the runtime does not use one) the SDK fades a correction
+  more slowly (one patch interval, 50 ms at 20 Hz, where ours takes 25 ms), so 200 ms after the last
+  ack its player is still up to ~0.6 px off (ours: under 0.01 px). The SDK's module adds ~17 KB gz
+  to the runtime's file; the runtime is one bundle, so every game carries it.
+
 ---
 
 ## 7. Bots
@@ -370,7 +400,7 @@ run on the server.
 | Gate | Phase | Proves |
 |---|---|---|
 | `check:room-sim` | P10.14 | The room's step and the device's prediction produce identical bodies for the same inputs over 10 000 steps; inputs apply in `seq` order; dropped and repeated inputs; a message carrying a position changes nothing |
-| `check:netcode` | P10.15 | With 50–250 ms latency, ±50 ms jitter and 2–5 % loss simulated: the player's own body converges within 200 ms of the last input, and nobody else jumps by more than one step |
+| `check:netcode` | P10.15 | With 50–250 ms latency, ±50 ms jitter and 2–5 % loss simulated: the player's own body converges within 200 ms of the last input, and nobody else jumps by more than one step; under both `netcode` modes (§6.1) |
 | `check:online-rules` | P10.15 | Salmons' rules as data reproduce today's outcomes on recorded input traces: current, whirlpool, rocks, waterfall, climb, sandbank, swipe, hook and land, the win |
 | `room-load` script (outside CI) | P10.16 | 100 headless clients (`@colyseus/sdk` in Node) sending an input per step over real latency: server step time (p99 under 8 ms), bytes per device per second, server egress, memory. Salmons' `scripts/room-load.mjs` is today's baseline (§2.1) |
 | `docs/playtest/salmons.md` | P10.16 | Two browsers and a room of bots, played by the `game-playtester` agent |
@@ -393,7 +423,7 @@ P10.13 (the hop and diamond tiles) before it can be rebuilt.
 
 ## 14. Decisions (owner)
 
-All eight approved by the owner on 2026-10-25, as recommended.
+The first eight approved by the owner on 2026-10-25, as recommended; the ninth decided on 2026-10-27.
 
 1. **Colyseus version for the new server.**
    - *Approved:* **0.18**, the current line (0.18.0 in May 2026, 0.18.10 on 2026-10-22; 0.17 is
@@ -422,3 +452,6 @@ All eight approved by the owner on 2026-10-25, as recommended.
      drift checks live in one place. The other option is Salmons' own Railway project.
 8. **Its address.**
    - *Approved:* **`rooms.invisiblewall.org`**. The owner creates the DNS record.
+9. **Our netcode or Colyseus'** (2026-10-27, after P10.15).
+   - *Decided:* "own netcode is fine, but maybe we can make it optional": **per game**,
+     `arcade.online.netcode`, `engine` by default (§6.1).

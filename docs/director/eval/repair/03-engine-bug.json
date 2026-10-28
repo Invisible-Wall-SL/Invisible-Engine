@@ -1,0 +1,138 @@
+{
+	"id": "03-engine-bug",
+	"adrBug": 3,
+	"title": "An engine bug",
+	"what": "The big win banner never counts up. The layout, the win text, the strings and the symbols are all right, and the play stalls on a runtime TypeError. The cause is in the engine, so the right outcome is an escalation with the engine area and no task that edits content to work around it.",
+	"bugNumber": 4103,
+	"world": {
+		"bug": {
+			"number": 4103,
+			"ref": "BUG-4103",
+			"title": "Big win counter stuck at 0.00",
+			"description": "After a big win the banner shows BIG WIN 0.00 and the number never counts up. The game does not move on until I reload the page. It happens on every big win since yesterday. I have seen the same on another game of this platform.",
+			"area": "wins",
+			"areaName": "Wins, paytable and math",
+			"priority": "high",
+			"status": "open",
+			"pageUrl": "https://play.example.com/jade-tiger-eval",
+			"comments": [
+				{
+					"by": "Mara Ortega",
+					"at": "2026-10-27T08:15:00.000Z",
+					"text": "Also stuck on the mega win. Small wins count up fine."
+				}
+			]
+		},
+		"screenshots": {
+			"c3d4e5f607182930": "shots/03-report-countup-stuck.png"
+		},
+		"answers": {},
+		"plays": {
+			"beforeFix": {
+				"status": "finished",
+				"result": {
+					"kind": "lines",
+					"seconds": 36.2,
+					"scenarios": [
+						{
+							"id": "base-spin",
+							"expected": ["loaded", "idle", "spin", "settled"],
+							"reached": ["loaded", "idle", "spin", "settled"],
+							"missing": [],
+							"stall": null,
+							"consoleErrors": [],
+							"pageErrors": 0,
+							"pageStalls": 0,
+							"error": null,
+							"seconds": 13.4,
+							"shots": {
+								"idle": "shots/05-play-idle.png"
+							}
+						},
+						{
+							"id": "big-win",
+							"expected": ["loaded", "idle", "spin", "settled", "line-win", "big-win-x10"],
+							"reached": ["loaded", "idle", "spin", "settled", "line-win"],
+							"missing": ["big-win-x10"],
+							"stall": {
+								"step": 7,
+								"op": "wait big-win-end",
+								"frames": 1800,
+								"probe": null
+							},
+							"consoleErrors": [
+								"TypeError: Cannot read properties of undefined (reading 'tween')\n    at WinCounter.advance (runtime/winCounter.js:88:14)"
+							],
+							"pageErrors": 2,
+							"pageStalls": 1,
+							"error": null,
+							"seconds": 13.4,
+							"shots": {
+								"line-win": "shots/05-play-idle.png",
+								"big-win-x10": "shots/03-play-countup-stuck.png"
+							}
+						}
+					]
+				}
+			},
+			"afterFix": {
+				"status": "finished",
+				"result": {
+					"kind": "lines",
+					"seconds": 36.2,
+					"scenarios": [
+						{
+							"id": "base-spin",
+							"expected": ["loaded", "idle", "spin", "settled"],
+							"reached": ["loaded", "idle", "spin", "settled"],
+							"missing": [],
+							"stall": null,
+							"consoleErrors": [],
+							"pageErrors": 0,
+							"pageStalls": 0,
+							"error": null,
+							"seconds": 13.4,
+							"shots": {
+								"idle": "shots/05-play-idle.png"
+							}
+						},
+						{
+							"id": "big-win",
+							"expected": ["loaded", "idle", "spin", "settled", "line-win", "big-win-x10"],
+							"reached": ["loaded", "idle", "spin", "settled", "line-win"],
+							"missing": ["big-win-x10"],
+							"stall": {
+								"step": 7,
+								"op": "wait big-win-end",
+								"frames": 1800,
+								"probe": null
+							},
+							"consoleErrors": [
+								"TypeError: Cannot read properties of undefined (reading 'tween')\n    at WinCounter.advance (runtime/winCounter.js:88:14)"
+							],
+							"pageErrors": 2,
+							"pageStalls": 1,
+							"error": null,
+							"seconds": 13.4,
+							"shots": {
+								"line-win": "shots/05-play-idle.png",
+								"big-win-x10": "shots/03-play-countup-stuck.png"
+							}
+						}
+					]
+				}
+			}
+		}
+	},
+	"fix": null,
+	"expect": {
+		"outcomes": ["escalate"],
+		"areas": ["engine"],
+		"noTasks": true
+	},
+	"forbid": {},
+	"limits": {
+		"maxTurns": 16,
+		"maxUsd": 2
+	}
+}

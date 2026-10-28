@@ -2,6 +2,7 @@ import { mechanicFor, type GameMechanic } from 'engine-game';
 import { normalizeGameConfigDoc } from 'game-config';
 
 import { bakedGameConfig } from '../editor-scenes';
+import { familyRefusal } from './runtimeFamilies';
 
 /**
  * The mechanic this runtime's config plays as (`engine-game` `mechanicFor`): the one question every
@@ -10,3 +11,8 @@ import { bakedGameConfig } from '../editor-scenes';
  */
 export const gameMechanic = (): GameMechanic =>
 	mechanicFor(normalizeGameConfigDoc(bakedGameConfig()) ?? null);
+
+/** Why this runtime cannot boot its config's family (`runtimeFamilies.ts`), checked before the
+ *  mechanic is: a left-out family's mechanic would run against inert stubs. */
+export const gameFamilyRefusal = (): string | undefined =>
+	familyRefusal(normalizeGameConfigDoc(bakedGameConfig()) ?? null);

@@ -41,6 +41,10 @@ node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
   scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-play
 ```
 
+Add `--netcode colyseus` to play it with the Colyseus SDK's own prediction
+(`arcade.online.netcode`, default `engine`): the only playtest of that netcode in a nearby room with
+the world camera. Each page must report the mode it ran. Run both.
+
 Each page boots `?runtime=1&ie_determinism=7&rooms_url=ws://127.0.0.1:<port>&project=salmons`,
 page A with `rooms_character=salmon`, page B with `rooms_character=bear`. The page's frames are
 stepped by the determinism probe while real time passes, so the room's patches arrive between steps.

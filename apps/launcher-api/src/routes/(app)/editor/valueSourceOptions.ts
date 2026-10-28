@@ -40,3 +40,10 @@ export function engineSourceGroups(
 	});
 	return groups;
 }
+
+/** The engine number sources a state machine's number input can follow by name (its "from" list). */
+export function engineNumberSources(): SourceOption[] {
+	return [...VALUE_SOURCE_CATALOG, ...HOLD_AND_WIN_PARAM_CATALOG, ...PLATFORM_JACKPOT_PARAM_CATALOG]
+		.filter((p) => p.kind === 'number')
+		.map((p) => ({ value: p.key, label: p.label, note: p.note }));
+}

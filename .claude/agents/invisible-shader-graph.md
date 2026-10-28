@@ -39,6 +39,13 @@ You are the developer for **Invisible Shader Graph**.
     `shaders.ts`; the editor's `GlslCodeEditor.svelte`, `CustomGlslProperties.svelte`,
     `PortListEditor.svelte`, `glslCheck.client.ts`; the server gate (`shaderCustomGlsl`) in
     `shaderStorage.ts` / `shaderScope.ts`.
+  - Screen transitions and post FX (step 8e, `docs/design/shader-graph-screens.md`):
+    `packages/constants-shared/shellBody.ts` (the body conversion every shell calls),
+    `packages/constants-shared/screenShell.ts` (`SCREEN_HEADER`, `screenShellSource`,
+    `SCREEN_SHELL_NAMES`); the `screens` input node and the `efxScreenFrom` / `To` / `Reverse`
+    header helpers (neutral in the element and particle headers); `TRANSITION_*` / `POST_*` budgets
+    in `compile.ts`; held by the `screens` sheet of `shader-compile`
+    (`tools/fx-spike/shaderScreens.entry.ts`).
   - Particle materials (step 8d, `docs/design/shader-graph-particles.md`):
     `packages/constants-shared/particleShell.ts` (the particle vertex shader, `PARTICLE_HEADER`,
     `PARTICLE_SHELL_NAMES`, `particleShellSource`: a compiled body made a particle fragment); the

@@ -30,11 +30,16 @@ void main() {
 
 let program: GlProgram | null = null;
 
+/** The program every dark-tinted slot draws with, for compiling ahead of the first one. */
+export function darkTintProgram(): GlProgram {
+	program ??= GlProgram.from({ vertex, fragment, name: 'invisible-rig-dark-tint' });
+	return program;
+}
+
 /** A mesh shader for one slot with a dark color. `uDark` is updated per frame. */
 export function createDarkTintShader(texture: Texture): Shader {
-	program ??= GlProgram.from({ vertex, fragment, name: 'invisible-rig-dark-tint' });
 	return new Shader({
-		glProgram: program,
+		glProgram: darkTintProgram(),
 		resources: {
 			uTexture: texture.source,
 			uSampler: texture.source.style,

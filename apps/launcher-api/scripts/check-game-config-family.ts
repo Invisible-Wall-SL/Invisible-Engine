@@ -349,6 +349,29 @@ step(
 	(d) => d.arcade?.bodies === undefined,
 );
 step(
+	'netcode on a game that is not online is ignored',
+	(d) => familyDoc.setNetcode(d, 'colyseus'),
+	(d) => d.arcade?.online === undefined,
+);
+step('an online block', (d) => {
+	(d.arcade ??= {}).online = { characters: [] };
+});
+step(
+	'netcode colyseus',
+	(d) => familyDoc.setNetcode(d, 'colyseus'),
+	(d) => d.arcade?.online?.netcode === 'colyseus',
+);
+step(
+	'netcode engine (the default)',
+	(d) => familyDoc.setNetcode(d, 'engine'),
+	(d) => d.arcade?.online !== undefined && !('netcode' in d.arcade.online),
+);
+step(
+	'an unknown netcode',
+	(d) => familyDoc.setNetcode(d, 'rollback'),
+	(d) => d.arcade?.online !== undefined && !('netcode' in d.arcade.online),
+);
+step(
 	'arcade → slot',
 	(d) => familyDoc.setFamily(d, 'slot'),
 	(d) => !('family' in d) && !('outcome' in d) && !('arcade' in d),
@@ -512,6 +535,17 @@ try {
 		'3. arcade: the Characters line counts the characters',
 		renderPage(arcade).body.includes('No characters yet.') &&
 			renderPage(withCharacters).body.includes('2 characters.'),
+	);
+	const online = normalizeGameConfigDoc({
+		...arcade,
+		arcade: { online: { characters: [], netcode: 'colyseus' } },
+	})!;
+	check(
+		'3. arcade: the Netcode picker only on an online game, showing its netcode',
+		!renderPage(arcade).body.includes('Netcode') &&
+			/Netcode<select[^>]*>[\s\S]*<option value="colyseus"[^>]*\bselected/.test(
+				renderPage(online).body,
+			),
 	);
 	const slotSections = configSectionsFor('slot', 'rgs');
 	const ALWAYS: ConfigSection[] = [

@@ -20,11 +20,13 @@
 	import ReportForm from './ReportForm.svelte';
 	import {
 		DEFAULT_FILTERS,
+		NO_REPAIR,
 		PRIORITY_FILTERS,
 		SORT_LABELS,
 		addressQuery,
 		asSentFilter,
 		asSortKey,
+		derivedLabels,
 		filterBugs,
 		filtersFromQuery,
 		isDefaultFilters,
@@ -39,6 +41,7 @@
 		syncText,
 		type BugFilters,
 		type PriorityFilter,
+		type RepairFacts,
 	} from './view';
 
 	type ProjectOption = { key: string; name: string; clientName: string | null };
@@ -53,6 +56,8 @@
 		user,
 		projects,
 		canTriage,
+		repair = NO_REPAIR,
+		pipelineAreas = [],
 		selected: asked,
 		report,
 		areas,
@@ -63,6 +68,9 @@
 		user: { name: string | null; email: string; role: Role };
 		projects: ProjectOption[];
 		canTriage: boolean;
+		/** What the game list's repair controls need (Repair with Director, Escalate to pipeline). */
+		repair?: RepairFacts;
+		pipelineAreas?: { id: string; name: string }[];
 		/** The bug a shared link opens. */
 		selected: number | null;
 		/** The report form a link opens, with what it already knows. */
@@ -120,6 +128,8 @@
 		areas.filter((a) => bugs?.some((b) => b.area === a.id) || a.id === filters.area),
 	);
 	const canOpenPipeline = $derived(tools.some((t) => t.id === 'pipelineChanges'));
+	const canOpenPipelineBugs = $derived(tools.some((t) => t.id === 'pipelineBugs'));
+	const canOpenGameBugs = $derived(tools.some((t) => t.id === 'gameBugs'));
 	const syncLine = $derived(syncText(sync));
 
 	const projectLabel = (key: string): string => {
@@ -307,6 +317,9 @@
 			<span class="tags">
 				<Pill tone={priorityTone(b.priority)}>{priorityLabel(b.priority)}</Pill>
 				<Pill tone={statusTone(b.status)}>{statusLabel(b.status)}</Pill>
+				{#each derivedLabels(b) as label (label.text)}
+					<Pill tone={label.tone} tag>{label.text}</Pill>
+				{/each}
 			</span>
 		</span>
 		<span class="bug-title">{b.title}</span>
@@ -528,6 +541,10 @@
 								{detail}
 								{canTriage}
 								{canOpenPipeline}
+								{canOpenPipelineBugs}
+								{canOpenGameBugs}
+								{repair}
+								{pipelineAreas}
 								{areas}
 								{projects}
 								{sync}

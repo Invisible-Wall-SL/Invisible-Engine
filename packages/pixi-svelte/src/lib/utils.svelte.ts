@@ -194,14 +194,18 @@ export function propsSyncEffect<TProps extends object, TTarget>({
 		// and because of ”props[key]“，it will react with every single props updated.
 		let targetInstance = target instanceof Function ? target() : target;
 		if (targetInstance) {
-			(Object.keys(props) as (keyof TProps)[])
-				.filter((key) => (ignore ? !ignore.includes(key) : true))
-				.forEach((key) => {
-					if (props[key] !== undefined) {
-						// @ts-ignore
-						targetInstance[key] = props[key];
-					}
-				});
+			// `Reflect.ownKeys`, not `Object.keys`: the latter also asks the props proxy for every
+			// key's descriptor, which reads each prop a second time, and this runs for every moving
+			// container every frame. Props are string-keyed, so the symbol filter changes nothing.
+			for (const name of Reflect.ownKeys(props)) {
+				if (typeof name !== 'string') continue;
+				const key = name as keyof TProps;
+				if (ignore?.includes(key)) continue;
+				if (props[key] !== undefined) {
+					// @ts-ignore
+					targetInstance[key] = props[key];
+				}
+			}
 		}
 	});
 }

@@ -125,7 +125,12 @@ export const createLayout = (layoutOptions: {
 	// The live-window bucket, chosen by the ACTIVE profile's rules (author-defined; the
 	// default profile reproduces the legacy ratio/size decision tree). `canvasRatioType`
 	// / `canvasSizeType` above are retained for consumers but no longer drive selection.
-	const selectedBucket = () => selectBucket(getActiveLayoutProfile(), canvasSizes());
+	// Memoized: a moving reel reads the bucket for every cell every frame (through the board
+	// geometry), and selecting it walks the profile's rules. Every input is reactive (the window
+	// size through `svelte/reactivity/window`, the authored profile as `$state`), so the cache is
+	// only ever as stale as a call would be.
+	const bucket = $derived(selectBucket(getActiveLayoutProfile(), canvasSizes()));
+	const selectedBucket = () => bucket;
 	const layoutType = () => selectedBucket().id;
 	const isStacked = () => selectedBucket().stacked === true;
 

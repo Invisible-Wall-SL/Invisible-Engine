@@ -88,6 +88,8 @@ function layoutRow({ text, fontSize, box }) {
 			: Infinity;
 	// Resolver knows every token here, so each image segment stays an image.
 	const segments = parseInlineImageSegments(text);
+	let scale = 1;
+	for (const segment of segments) if (segment.kind === 'image') scale = segment.scale;
 	// The row's height is the TEXT's — the symbol is drawn at that height, so it never adds to it.
 	const textHeight =
 		segments.reduce(
@@ -95,7 +97,7 @@ function layoutRow({ text, fontSize, box }) {
 				s.kind === 'image' ? tallest : Math.max(tallest, measureRun(s.value, fontSize).height),
 			0,
 		) || fontSize;
-	const imageHeight = Math.min(textHeight, contentHeight);
+	const imageHeight = Math.min(textHeight * scale, contentHeight);
 	const imageMargin = fontSize * 0.22;
 	const imageSlot = imageHeight + imageMargin * 2;
 	const widths = segments.map((s) =>
@@ -179,7 +181,7 @@ check(
 {
 	const box = { ...CENTRED, boxWidth: 520, boxHeight: 60, padding: 8 };
 	const boxed = layoutRow({ text: RICH, fontSize: FONT, box });
-	const free = layoutRow({ text: RICH, fontSize: FONT });
+	const free = layoutRow({ text: RICH, fontSize: FONT, box: undefined });
 	check('boxed row centre x == box-less row centre x', boxed.originX + boxed.totalWidth / 2, 0);
 	check('boxed row centre y == box-less row centre y', boxed.originY, free.originY);
 	check('box-less origin unchanged (parity)', free.originX, -free.totalWidth / 2);
@@ -262,7 +264,44 @@ check(
 	);
 }
 
-// 7. A message with NO sentinel is untouched by any of this (every existing bar).
+// 7. The author's size option (Win Text `toast.symbolImageSize`) rides the sentinel as a scale on
+//    the text height: an unsized sentinel parses at 1 and keeps its old bytes, a sized one scales
+//    the picture without touching the words, and the plaque still bounds it.
+{
+	check('an unsized sentinel parses at scale 1', parseInlineImageSegments(RICH)[1].scale, 1);
+	check(
+		'scale 1 adds nothing to the sentinel',
+		wrapInlineImage('H4', 'Cowboys', 1),
+		wrapInlineImage('H4', 'Cowboys'),
+	);
+	const BIG = `You win $4.00 with 4 ${wrapInlineImage('H4', 'Cowboys', 1.5)}`;
+	const seg = parseInlineImageSegments(BIG)[1];
+	check('a sized sentinel keeps its token', seg.token, 'H4');
+	check('…and its fallback', seg.fallback, 'Cowboys');
+	check('…and carries its scale', seg.scale, 1.5);
+	check('the plain-text fallback ignores the size', stripInlineImage(BIG), stripInlineImage(RICH));
+	const plain = layoutRow({ text: RICH, fontSize: FONT, box: undefined });
+	const big = layoutRow({ text: BIG, fontSize: FONT, box: undefined });
+	check('the symbol is 1.5× the text height', big.imageHeight, plain.textHeight * 1.5);
+	check('the words keep their height', big.textHeight, plain.textHeight);
+	const box = { ...CENTRED, boxWidth: 520, boxHeight: 20, padding: 4 };
+	const boxed = layoutRow({
+		text: `x ${wrapInlineImage('H4', 'Cowboys', 3)}`,
+		fontSize: FONT,
+		box,
+	});
+	assert(
+		'a big symbol still stays inside the plaque',
+		boxed.imageHeight <= textBoxContentHeight(box.boxHeight, box.padding) + 0.5,
+	);
+	check(
+		'a malformed scale falls back to 1',
+		parseInlineImageSegments(BIG.replace('1.5', 'x'))[1].scale,
+		1,
+	);
+}
+
+// 8. A message with NO sentinel is untouched by any of this (every existing bar).
 {
 	const plain = 'You win $4.00 with 4 Cowboys';
 	assert('no sentinel ⇒ the inline branch never runs', !hasInlineImage(plain));

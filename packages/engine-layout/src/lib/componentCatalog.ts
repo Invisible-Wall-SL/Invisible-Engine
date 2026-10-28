@@ -269,6 +269,12 @@ export const HOLD_AND_WIN_PARAM_CATALOG: EngineParamEntry[] = [
 		label: 'Feature Banner Detail',
 		note: 'The line under it — the jackpot amount.',
 	},
+	{
+		key: 'holdAndWinBannerTier',
+		kind: 'number',
+		label: 'Feature Banner Tier',
+		note: 'The jackpot tier the banner names: 1 MINI · 2 MINOR · 3 MAJOR · 4 GRAND, 0 for none. Feed it to a number input and branch the state machine on it.',
+	},
 ];
 
 export const HOLD_AND_WIN_VALUE_SOURCE_KEYS: string[] = HOLD_AND_WIN_PARAM_CATALOG.map(

@@ -34,7 +34,11 @@ import {
 } from 'pixi.js';
 import { linkGlsl } from 'constants-shared/glslLibrary';
 
-const VERTEX = `in vec2 aPosition;
+/**
+ * Every pass's vertex stage: the filter's frame over the output. The screen shell's filter (Shader
+ * Graph step 8e, `constants-shared/screenShell.ts`) draws with it too.
+ */
+export const VERTEX = `in vec2 aPosition;
 out vec2 vTextureCoord;
 
 uniform vec4 uInputSize;
@@ -91,6 +95,10 @@ bool efxInside(vec2 px)
 vec4 efxParticleColor() { return vec4(1.0); }
 float efxParticleWave() { return 0.0; }
 float efxParticleOrder() { return 0.0; }
+
+vec4 efxScreenFrom(vec2 px) { return efxSample(px); }
+vec4 efxScreenTo(vec2 px) { return efxSample(px); }
+float efxScreenReverse() { return 0.0; }
 `;
 
 type UniformValue = number | Float32Array;

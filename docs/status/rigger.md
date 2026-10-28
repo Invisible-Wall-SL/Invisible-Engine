@@ -89,6 +89,9 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-10-27 — **Ask the AI on the bar.** `view.html` loads the shared window `/shared/ask-ai.js`
+  (with the deploy's `?v=`) and mounts it before Report bug; it asks `/api/ask-ai` on the session.
+  See [launcher status](launcher.md) (Ask the AI).
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
 

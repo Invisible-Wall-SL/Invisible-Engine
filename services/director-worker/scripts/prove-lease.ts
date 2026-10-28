@@ -55,6 +55,7 @@ const runIds = Array.from({ length: RUNS }, (_, i) => `${tag}-run-${i}`);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const stats = { claims: 0, emptyClaims: 0, writes: 0, refusedWrites: 0, stalls: 0, releases: 0 };
 const running: RunState = {
+	kind: 'create',
 	status: 'running',
 	step: 'regions',
 	waitingOn: null,

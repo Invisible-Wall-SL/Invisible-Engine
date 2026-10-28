@@ -456,6 +456,19 @@
   }
 })();
 </script>
+<!-- "Ask the AI": the shared window (static/shared/ask-ai.js, generated from iw_common/ask_ai.js by
+     scripts/sync-ask-ai.mjs). Same-origin, so it asks /api/ask-ai directly on the session. -->
+<script>
+(function () {
+  var s = document.createElement('script');
+  var _v = new URLSearchParams(location.search).get('v');
+  s.src = '/shared/ask-ai.js' + (_v ? '?v=' + encodeURIComponent(_v) : '');
+  s.onload = function () {
+    iwAskAi.mount({ tool: 'rigger', toolName: 'Invisible Rigger', endpoint: '/api/ask-ai', launcher: '' });
+  };
+  document.head.appendChild(s);
+})();
+</script>
 <div id="app">
   <aside id="side">
     <div id="brand">

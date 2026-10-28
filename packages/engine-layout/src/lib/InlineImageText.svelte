@@ -109,7 +109,7 @@
 	});
 	const fontSize = $derived(hasBox ? fitFontSize : baseFontSize);
 
-	type Resolved = { kind: 'text'; value: string } | { kind: 'image'; id: string };
+	type Resolved = { kind: 'text'; value: string } | { kind: 'image'; id: string; scale: number };
 
 	// Resolve each image token to a render id up front. A token the resolver rejects (or any token
 	// when no game renderer is registered) becomes a TEXT segment (its fallback name), so the layout
@@ -118,7 +118,7 @@
 		parseInlineImageSegments(props.text).map((seg) => {
 			if (seg.kind === 'text') return seg;
 			const id = MessageSymbol ? resolveInlineImage(seg.token) : undefined;
-			return id ? { kind: 'image', id } : { kind: 'text', value: seg.fallback };
+			return id ? { kind: 'image', id, scale: seg.scale } : { kind: 'text', value: seg.fallback };
 		}),
 	);
 
@@ -167,15 +167,19 @@
 	// did, a boxed message shrank its own font until the symbol fitted the plaque — so the same
 	// sentence rendered visibly smaller with a symbol than without one, with nothing in the layout
 	// to explain it. The box still bounds the picture, so it can't spill out of the frame.
-	const imageHeight = $derived(Math.min(textHeight, contentHeight ?? Infinity));
+	// The author's size option (`scale`, Win Text `toast.symbolImageSize`) multiplies that height,
+	// still inside the box and still kept out of the fit for the same reason.
+	const imageHeight = (scale: number): number =>
+		Math.min(textHeight * scale, contentHeight ?? Infinity);
 	// Side breathing room around a symbol. The template's space around the token is trimmed off the
 	// adjacent text runs' measured width (pixi drops boundary whitespace), so without this the symbol
 	// butts straight against the neighbouring word ("2🐄"). ~a space's width on each side.
 	const imageMargin = $derived(fontSize * 0.22);
-	const imageSlot = $derived(imageHeight + imageMargin * 2);
 
 	const widths = $derived(
-		segments.map((seg, i) => (seg.kind === 'image' ? imageSlot : runWidth(i, seg.value))),
+		segments.map((seg, i) =>
+			seg.kind === 'image' ? imageHeight(seg.scale) + imageMargin * 2 : runWidth(i, seg.value),
+		),
 	);
 	const totalWidth = $derived(widths.reduce((sum, w) => sum + w, 0));
 	// True once every text run has reported a size AT the current font — the only point at which
@@ -266,7 +270,7 @@
 			{#if MessageSymbol}
 				<MessageSymbol
 					symbol={seg.id}
-					size={imageHeight}
+					size={imageHeight(seg.scale)}
 					x={lefts[i] + widths[i] / 2}
 					y={originY}
 				/>

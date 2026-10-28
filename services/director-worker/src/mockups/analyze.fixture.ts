@@ -773,6 +773,7 @@ console.log('owner notes');
 console.log('checkpoint');
 {
 	const on: RunState = {
+		kind: 'create',
 		status: 'waiting',
 		step: 'breakdown',
 		waitingOn: 'breakdown',
@@ -819,6 +820,7 @@ console.log('checkpoint');
 		'the activity row summarises it',
 	);
 	const off: RunState = {
+		kind: 'create',
 		status: 'running',
 		step: 'style_pack',
 		waitingOn: null,

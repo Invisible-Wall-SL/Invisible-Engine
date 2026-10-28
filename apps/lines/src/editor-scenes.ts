@@ -582,6 +582,12 @@ function hasBakedDoc(): boolean {
 	return !!(doc && Array.isArray(doc.scenes) && doc.scenes.length > 0);
 }
 
+/** The whole doc set the game boots from (runtime or baked), or undefined when it has none: read
+ * as raw data by a pass that looks for every authored use of something (`game/gpuWarmup.ts`). */
+export function bakedBundleData(): unknown {
+	return hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : undefined;
+}
+
 /**
  * Register the baked component defs + per-project param defaults (no-op when not
  * baked). Call at boot BEFORE the doc renders, AFTER the game's built-in
@@ -2064,6 +2070,15 @@ export async function prepareRuntimeBundle(): Promise<boolean> {
  */
 export function refuseUnplayableBoot(reason: string): Promise<never> {
 	return haltBoot(`this game cannot be played yet: ${reason}`);
+}
+
+/**
+ * Stop a boot whose config's family this runtime was built without (`game/runtimeFamilies.ts`,
+ * `docs/design/phase-11.md` §2.2) on the same error screen: the family's seam is an inert stub, so
+ * the game would otherwise draw as a slot or a blank board.
+ */
+export function refuseFamilyBoot(reason: string): Promise<never> {
+	return haltBoot(reason);
 }
 
 /**

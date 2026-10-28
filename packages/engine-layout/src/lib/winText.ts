@@ -269,7 +269,17 @@ export type WinTextToast = {
 	 * no sprite art). See `inlineImage.ts` + `InlineImageText.svelte`.
 	 */
 	symbolAsImage?: boolean;
+	/**
+	 * How tall that inline symbol is, as a PERCENT of the line of text's height (100 = as tall as
+	 * the words, the default). Info-bar toast only, and only read while `symbolAsImage` is on. The
+	 * text box still bounds it, and it never shrinks the text to make room.
+	 */
+	symbolImageSize?: number;
 };
+
+/** The range `toast.symbolImageSize` (a percent of the text height) may take. */
+export const SYMBOL_IMAGE_SIZE_MIN = 25;
+export const SYMBOL_IMAGE_SIZE_MAX = 300;
 
 /** Fully-resolved win text — every field present, defaults applied. */
 export type ResolvedWinText = {
@@ -374,6 +384,7 @@ export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 		amountOnly: 'You win {amount}',
 		countOnly: '{count} {symbolName}',
 		symbolAsImage: false,
+		symbolImageSize: 100,
 	},
 	freeSpins: {
 		retrigger: 'You won +{count} Extra Free Spins',
@@ -567,6 +578,7 @@ export function resolveWinText(doc: WinTextDoc | undefined): ResolvedWinText {
 			amountOnly: doc?.toast?.amountOnly ?? WIN_TEXT_DEFAULTS.toast.amountOnly,
 			countOnly: doc?.toast?.countOnly ?? WIN_TEXT_DEFAULTS.toast.countOnly,
 			symbolAsImage: doc?.toast?.symbolAsImage ?? WIN_TEXT_DEFAULTS.toast.symbolAsImage,
+			symbolImageSize: doc?.toast?.symbolImageSize ?? WIN_TEXT_DEFAULTS.toast.symbolImageSize,
 		},
 		freeSpins: {
 			retrigger: doc?.freeSpins?.retrigger ?? WIN_TEXT_DEFAULTS.freeSpins.retrigger,

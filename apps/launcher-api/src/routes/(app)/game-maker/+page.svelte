@@ -653,10 +653,11 @@
 		allowUnapproved?: boolean;
 		allowInvalidFlow?: boolean;
 		allowPaytableDrift?: boolean;
+		confirmRepairRun?: boolean;
 	};
 
 	async function publish(projectKey: string, overrides: PublishOverrides = {}) {
-		const { allowUnapproved, allowInvalidFlow, allowPaytableDrift } = overrides;
+		const { allowUnapproved, allowInvalidFlow, allowPaytableDrift, confirmRepairRun } = overrides;
 		publishing = { ...publishing, [projectKey]: true };
 		publishErr = { ...publishErr, [projectKey]: '' };
 		publishNote = { ...publishNote, [projectKey]: '' };
@@ -667,6 +668,22 @@
 				body: JSON.stringify({ project: projectKey, ...overrides }),
 			});
 			const out = await res.json().catch(() => ({}));
+			// A Director REPAIR RUN is changing this project: publishing ships its edits as they stand
+			// (ADR-0012 §4). Any publisher may confirm; it only warns.
+			if (res.status === 409 && out?.reason === 'repair-run-live' && !confirmRepairRun) {
+				const ok = await askConfirm({
+					title: 'Publish while a repair run is live?',
+					message: `A Director repair run for BUG-${out.details?.bugNumber} is live on this project. Publish anyway?`,
+					confirmLabel: 'Publish anyway',
+					danger: true,
+				});
+				if (!ok) {
+					publishErr = { ...publishErr, [projectKey]: out.error };
+					return;
+				}
+				await publish(projectKey, { ...overrides, confirmRepairRun: true });
+				return;
+			}
 			// An UNAPPROVED-SOUNDS refusal is one an author may legitimately push past — it protects a
 			// review step, not a real game's files. So it asks, once, naming the sounds. A game with its
 			// own desktop build stays final: overriding it would overwrite something that cannot be

@@ -99,17 +99,8 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
    This is harmless while Sentry is dormant (owner setup, Blocked) but must be fixed before it goes
    live. The likely fix is a Vite `generateBundle` hook in `config-vite` that writes the bundle's
    map aside before kit deletes it.
-8. **Confirm `draft-player` is reachable over the private network** once the owner creates it: it
-   listens on `::` (dual-stack), and the private `/health` read in INFRA "Invisible Director draft
-   player" step 5 proves it.
-
 ## Blocked (owner / external)
 
-- **Create the `draft-player` service (owner, ~10 min; ADR-0010 approved 2026-10-27).** Until then
-  every QA draft play settles `no_player` and QA reports "not played". The numbered steps are
-  docs/INFRA.md "Invisible Director draft player" → "Owner set-up (once)": repo-root Dockerfile
-  service, no public domain, `PORT=8080`, `DRAFT_PLAYER_SECRET` on both it and the launcher,
-  `DRAFT_PLAYER_URL=http://draft-player.railway.internal:8080` on the launcher.
 - **Dependabot security updates (owner, ~2 min, GitHub → Settings → Advanced Security):** switch on
   Dependabot alerts, Dependabot security updates and Grouped security updates. Both are off today
   (read via `gh api`); the weekly version updates run without them, security PRs do not. Details
@@ -148,6 +139,19 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-28 — **Game server boots again.** Since C3 (#1426) `game-config/src/cardGame.ts` imports
+  `engine-mechanics`, and Node resolves that from the package's real path (`/app/packages/…`), where
+  the image had no `node_modules`; the server crashed with `ERR_MODULE_NOT_FOUND` and every deploy
+  failed its `/healthz` check. `services/game-server/Dockerfile` now also links both workspace
+  packages under `/app/node_modules`. Verified on a copy of the image's file layout: boots,
+  `/healthz` 200.
+- 2026-10-28 — **`draft-player` is live** (owner): Railway service `draft-player`, private only
+  (`draft-player.railway.internal:8080`), built from `services/draft-player/Dockerfile` on its first
+  try. Its log printed `[draft-player] listening on :8080` with the headless shell found, and a
+  `/health` read from inside the launcher container (`railway ssh`; the launcher image has no
+  `curl`/`wget` and `node` is at `/mise/installs/node/<v>/bin/node`, off PATH) answered
+  `{"ok":true,"busy":false,"queued":0}`. `DRAFT_PLAYER_SECRET` is set on both, `DRAFT_PLAYER_URL` on
+  the launcher. Not yet seen: a real play (a Director run needs Anthropic credits).
 - 2026-10-27 — **The Invisible Game Server is live** (owner): Railway service `game-server`
   (`game-server-production-eda5.up.railway.app`), custom domain `rooms.invisiblewall.org` (Cloudflare
   CNAME, DNS-only); `/healthz` answered `{"ok":true,"commit":"b0a7f9e4638f","rooms":0}`. It is now in

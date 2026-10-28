@@ -2,7 +2,8 @@
 
 Invisible Game Bug Reports is one project's own bug list: report what is wrong in this game, with
 screenshots. Triage sets each bug's priority and status. Its fix brief asks for a fix in this
-project alone, never in the engine or a tool.
+project alone, never in the engine or a tool. A triager can have Invisible Director repair a bug, or
+hand it to the pipeline when the cause is in the engine or a tool.
 
 ## What it is
 
@@ -11,8 +12,9 @@ mistranslated line. The page, the rules and the numbering are the same as
 [Invisible Pipeline Bug Reports](pipeline-bugs.md). The difference is the scope: a game bug always
 belongs to one project, and it is fixed in that project's own content (its game config, scenes,
 flow, symbols, win text, sound, text or art), the way Game Maker makes a game. It is never sent to
-Invisible Pipeline Changes. **A bug in the engine or a tool is a pipeline bug**, so report it in
-Pipeline Bug Reports instead, even if you found it while playing one game.
+Invisible Pipeline Changes. **A bug in the engine or a tool is a pipeline bug**: a triager hands it
+to the pipeline with **Escalate to pipeline** (see "Repair a bug" below), or you report it in
+Pipeline Bug Reports, even if you found it while playing one game.
 
 - **Where it runs:** the launcher itself, at `/game-bugs`. It opens full-page behind the launcher's
   sign-in, never in an iframe. On the launcher home it sits in the **Create** section, with Game
@@ -107,8 +109,8 @@ A link can open the form already filled in:
 8. **Triage** (needs the capability): **Priority** and **Status** (Open, Working on, Resolved,
    Won't fix). There is no **Send to Pipeline Changes** button. Instead the card reads: "A game bug
    is fixed in this project's own content, not through Pipeline Changes. The fix brief asks for
-   exactly that; if the cause turns out to be in the engine or a tool, report it as a pipeline
-   bug."
+   exactly that; if the cause turns out to be in the engine or a tool, escalate it to the
+   pipeline."
 9. **Copy fix brief** copies the bug as text to paste into a Claude Code session or an issue. It
    reads:
 
@@ -135,14 +137,50 @@ A link can open the form already filled in:
     image inside the bug, or with nothing selected, uploads it to that bug straight away. Comments
     can be up to 5,000 characters.
 
+### Repair a bug
+
+11. A game bug has a **Repair** card under Triage. It shows what the repair tools did with the bug,
+    and the two ways to move it on. Both are for triagers (**Triage game bugs**), and only on a
+    bug that is **Open** or **Working on**.
+    - **Repair with Director** needs the Director tool too (see [Invisible Director](director.md)),
+      and no Director run live on this project. It creates a draft repair run for this bug and
+      opens its page. You see the estimate and the cap there, and press **Start** yourself. While a
+      run is live on the project the button is not shown. If the server refuses, the card shows its
+      words: the bug is closed (Resolved or Won't fix), the project is a Director template, a
+      run is already live on the project, or you lack triage.
+    - **Escalate to pipeline** needs the Pipeline Bug Reports tool too, and a bug that has not been
+      escalated. It opens a small form: **Tool or area**, **Title** and **What is wrong in the
+      pipeline**. **File it from BUG-`<n>`** files one pipeline bug in this project, Open and not
+      sent to Pipeline Changes, links the two bugs and moves this one to **Working on**. Write the
+      text in your own words: the filed bug names this bug and its project, not the reporter's
+      text. A bug is escalated once.
+12. The card lists the bug's **repair runs** ("Director repair run · running / fixed / needs a
+    person / handed to the pipeline / stopped"), each a link to the run. A run answers only to the
+    person who started it, so someone else sees "No such run." Beside the status, in the card and
+    in the list, a bug can carry one of these labels:
+    - **Waiting on pipeline · BUG-`<m>`** while its pipeline bug is Open or Working on. **Open it
+      there** opens that bug.
+    - **Pipeline fix merged: check the game** when the pipeline bug is Resolved. The game bug is not
+      resolved by itself: play the game, then resolve it or repair it again.
+    - **Pipeline: won't fix** when the pipeline bug is Won't fix. A triager decides what is next.
+    - **Fixed, waiting on publish** after you approved a repair run's fix. The bug stays **Working
+      on** until the project's next publish in Game Maker, which resolves it ("Game Maker publish").
+13. **Activity** reads the run's work in plain words: "Director run `<id>` started a repair", "…
+    fixed it: it ships with the next publish" (with the doctor's summary under it), "… ended the
+    repair: needs a person", "… handed it to the pipeline as BUG-`<m>`", and "Game Maker publish
+    published the fix". A bug escalated from a game bug shows "Escalated from a game bug" on the
+    pipeline side, with **Open it there** for people who have Game Bug Reports.
+
 A game bug is not fixed with a pull request, so it has no **Pull requests** card, and a pull
 request that names its `BUG-<n>` does not link it or move its status. If the cause is in the engine
-or a tool, report it as a pipeline bug.
+or a tool, escalate it to the pipeline.
 
 ## Known limitations / TODOs
 
-- A game bug cannot be turned into a pipeline bug, or moved to another project. Report it again in
-  the right list.
+- A game bug cannot be moved to another project. Report it again in the right list.
+- A game bug is escalated once. A second escalation answers the first.
+- A repair run's fix is not published by Director. The bug waits as "Fixed, waiting on publish"; if
+  a publish misses it, resolve it by hand.
 - The **Report bug** button on every tool's top bar opens Pipeline Bug Reports (a bug in that
   tool), not this list. Open this card to report a game bug.
 - Nobody is notified when a bug is reported or changes. Open the list to check.

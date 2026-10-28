@@ -66,6 +66,7 @@ from iw_common import errors  # noqa: E402  (Sentry reporting; no-op without SEN
 from iw_common import launch  # noqa: E402  (launcher-signed identity + scope)
 from iw_common import docsave  # noqa: E402  (saved_by stamp + the page precondition)
 from iw_common import presence  # noqa: E402  (the person-level "X is editing" soft lease)
+from iw_common import ask_ai  # noqa: E402  (the bar's "Ask the AI" chat, relayed to the launcher)
 from diag_catalog import CATALOG  # noqa: E402
 
 
@@ -5008,6 +5009,8 @@ IW_TOOLBAR = """<header class="iw-toolbar">
   }
 })();
 </script>
+<script>
+""" + ask_ai.script("atlasTool", "Invisible Atlas Maker") + """</script>
 """
 
 # The `.iw-toolbar` chrome's CSS. Like IW_TOOLBAR above this is a SEPARATE
@@ -8551,6 +8554,11 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def _send_gate_cookies(self) -> None:
+        # The gate's Set-Cookie headers (a dict can't hold two).
+        for c in getattr(self, "_extra_cookies", None) or ():
+            self.send_header("Set-Cookie", c)
+
     def _send(self, code, ctype, body: bytes, extra_headers: dict | None = None):
         self._responded = True
         self.send_response(code)
@@ -8571,9 +8579,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
         for k, v in merged.items():
             self.send_header(k, v)
-        # The gate's Set-Cookie headers (a dict can't hold two).
-        for c in getattr(self, "_extra_cookies", None) or ():
-            self.send_header("Set-Cookie", c)
+        self._send_gate_cookies()
         self.end_headers()
         self.wfile.write(body)
 
@@ -9059,6 +9065,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _post(self):
         if not self._authenticate():
+            return
+        if urllib.parse.urlparse(self.path).path == "/ask-ai":
+            # The bar's chat: forwarded to the launcher for this user, nothing local.
+            self._responded = True
+            ask_ai.relay(self, iss="atlas", secret_env="ATLAS_TOOL_SIGNING_SECRET",
+                         identity=self._identity, before_end=self._send_gate_cookies)
             return
         self._resolve_context()
         self._resolve_publish()

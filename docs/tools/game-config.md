@@ -187,6 +187,11 @@ has no family control at all. Three more families exist
     sharing a component, a brain naming a state it does not have; a played character whose
     component has no body warns).
     See [Flow → Arcade](flow.md#arcade--the-play-field-signals-and-the-starter-flow) for the signals.
+  - **Online** — shown only for an online game (one whose config has an `arcade.online` block,
+    authored in raw JSON). **Netcode** picks who predicts your own player between the server's
+    states: **Engine** (the default) is our own prediction and reconciliation; **Colyseus** is the
+    Colyseus SDK's own `Predict` reconciler for your own player. The server is authoritative
+    either way, and other players are drawn the same in both.
 - **Card game** — the duel's rules
   ([card-games.md](../design/card-games.md)). Each number is stored only when it departs from its
   default:
