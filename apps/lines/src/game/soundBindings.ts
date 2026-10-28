@@ -1,3 +1,4 @@
+import { COIN_COLLECT_SOUND_MOMENT } from 'engine-layout';
 import { landSlotForSymbol, type MusicSlotId, type SoundCue, type SoundSlotId } from 'game-config';
 
 import { bakedSymbolSounds } from '../editor-scenes';
@@ -194,6 +195,15 @@ export const playTokenTakeOffSound = (token: string): void => {
 
 export const playTokenPotArriveSound = (token: string): void => {
 	broadcastCue(symbolStateCue(token, 'potArrive'), true);
+};
+
+/**
+ * A Hold and Win coin's own voice as it lands in the Total Win bar in the feature's end tally — the
+ * `collectToTotal` moment Invisible Sound binds per coin symbol. Layer 1 only, so an unbound coin
+ * lands silently, as before; forced, so every coin of the volley is heard.
+ */
+export const playCoinCollectSound = (symbolName: string): void => {
+	broadcastCue(symbolStateCue(symbolName, COIN_COLLECT_SOUND_MOMENT), true);
 };
 
 /**

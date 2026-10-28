@@ -28,6 +28,7 @@ import {
 	effectiveSoundBindings,
 	legacySoundBindings,
 	TOKEN_SOUND_MOMENTS,
+	COIN_COLLECT_SOUND_MOMENT,
 	type SoundEntry,
 	type SoundsDoc,
 } from 'engine-layout';
@@ -528,6 +529,7 @@ console.log('\n19. WHAT PLAYS WHEN survives the round trip, and only what depart
 	check('every token moment survives', round({ symbols: { RKT: token } }), {
 		symbols: { RKT: token },
 	});
+	check('a coin’s end-tally cue survives', round({ symbols: { C: { [COIN_COLLECT_SOUND_MOMENT]: 'ching' } } }), { symbols: { C: { [COIN_COLLECT_SOUND_MOMENT]: 'ching' } } }); // prettier-ignore
 	check('anticipation cues survive', round({ anticipation: { activation: 'sting' } }), { anticipation: { activation: 'sting' } }); // prettier-ignore
 	check('an empty anticipation block is dropped', round({ anticipation: {} }), undefined);
 	check('a tier cue survives', round({ winTiers: { big: { bgm: 'bed' } } }), { winTiers: { big: { bgm: 'bed' } } }); // prettier-ignore
