@@ -32,8 +32,7 @@ The owner tags each mockup with the screen it shows:
 - **Deck pick**: the screen where the player picks a deck before a match.
 - **Match won**: the result screen when the player wins.
 - **Match lost**: the result screen when the player loses.
-- **Match drawn**: the result screen when the match ends in a draw (both heroes fall, or the turn
-  limit is reached).
+- **Match drawn**: the result screen when the match ends in a draw.
 - **Intro**: the splash or intro screen before play.
 
 ## Region batch order
