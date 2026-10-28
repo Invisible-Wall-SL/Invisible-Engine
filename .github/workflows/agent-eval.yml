@@ -185,6 +185,11 @@ jobs:
           if [ -f "services/director-worker/agents/$AGENT.md" ]; then
             args+=(--before "services/director-worker/agents/$AGENT.md")
           fi
+          # Production appends the run's family pack to every definition (ADR-0009 §4). The
+          # reference set is a slot template, and the single-file rule means the PR cannot edit a
+          # pack, so both sides run with main's slot pack.
+          pack=services/director-worker/families/slot.md
+          if [ -f "$pack" ]; then args+=(--before-pack "$pack" --after-pack "$pack"); fi
           # Nothing the CLI prints can be read as a workflow command (::set-output, ::add-mask…):
           # its output is fenced off with a one-off token.
           token="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"

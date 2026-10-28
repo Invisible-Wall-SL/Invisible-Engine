@@ -188,8 +188,8 @@ try {
 	await admin`insert into users (id, email, name)
 		values (${userId}, ${`${tag}@example.invalid`}, 'lease proof')`;
 	for (const id of runIds) {
-		await admin`insert into director_runs (id, project_key, template_project_key, owner_user_id, status, step)
-			values (${id}, ${`${id}-p`}, 'template', ${userId}, 'running', 'regions')`;
+		await admin`insert into director_runs (id, project_key, template_project_key, owner_user_id, status, step, family)
+			values (${id}, ${`${id}-p`}, 'template', ${userId}, 'running', 'regions', 'slot')`;
 		// A pending conversation: work the run is claimed for, which these drivers never consume.
 		await admin`insert into director_messages (run_id, agent, seq, role, content_json)
 			values (${id}, 'coordinator', 0, 'user', ${admin.json([{ type: 'text', text: 'work' }])})`;

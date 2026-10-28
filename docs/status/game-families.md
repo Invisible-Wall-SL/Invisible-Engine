@@ -27,6 +27,111 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
 
 ## Current state
 
+**Card C3 — playable end to end (built 2026-10-28; in review).** [card-games.md](../design/card-games.md)
+§12's C3 row, in one PR; what it settled where §5–§9 were silent is in the design's new §5.4.
+
+- **The family:** `card` in `GAME_KINDS` / `GAME_FAMILIES` / `familyOfKind`, `CONFIG_FAMILIES`,
+  `kindCapabilities` (`FAMILY_KINDS`, no board / wallet / bet controls), `FAMILY_NAMES`,
+  `FAMILY_LABELS`, `FAMILY_TOOLS` (`card` hides Symbols, Win Text, Characters; the `cards` tool is
+  C4) and the delivery gate's message.
+- **Game Config:** `GameConfigDoc.card` (`game-config` `cardGame.ts`: `CardBlock`, `resolveCard`,
+  `normalizeCard` through `cards.js`'s own `readLibrary`, `cardLibraryOf`, the collectors
+  `cardGameComponentIds` / `cardGameParamRefs`, `validateCardGame`). `game-config` now depends on
+  `engine-mechanics` (workspace, dependency-free) so the config validator runs the very
+  `validateLibrary` the game does. The normalizer's board-less set is `arcade`, `card`. An RGS card
+  config is an error and `unplayable`. `/config` shows a card project its `card` section only (the
+  rules, the card and deck counts; cards and decks in Raw JSON until C4), and the family picker offers
+  Card with Rules only.
+- **Runtime:** `CARD_RULES_MECHANIC` (`cardTable: true`); `engine-game` `cardSession.ts` (the match
+  and the device's AI, player side 0) and `cardDriver.ts` (actions, the device's turn paced by a
+  presentation delay, the §5.3 signals, input); `apps/lines` `cards.ts` (zones as spawn layers, the
+  frame's values, the drop) and `<CardTable />`, mounted in `Game.svelte`'s now three-way branch. The
+  card sources, End Turn action and Flow effects register at `Game.svelte` init, for a card table
+  only.
+- **Flow:** `CARD_VOCAB` and the starter (`CARD_DRIVEN_SEED_DOC`: the table up from boot, the deck
+  pick's tap deals, the won / lost screen's tap deals again).
+- **Game Maker:** the `card` reference layout (`referenceLayouts/card.ts`: loading, background, the
+  table `basegame` with the four zones, two heroes, readouts and End Turn, the deck pick, won, lost),
+  the `card` template, the seed `card.rules.json` (24 invented cards, two 15-card decks, `deckSize` 15) and the placeholder frame `cardFrame`, created by the scaffold.
+- **Ship chain:** no new asset class: the export and the bake seed `cardGameComponentIds` and classify
+  `cardGameParamRefs`; `check:art-scope` section 10. Localization: the "Cards" harvest section.
+- **Gates:** `check:card-family` (113), `check:card-runtime` (32: the starter flow on the real
+  interpreter, the idle relight, a flow action queued from inside a chain, copies counted per deck), `check:art-scope` and `check:flow-publish-gate` extended; the gates card
+  touched re-pinned (`check:authored-freespins`' `drivenSeed.ts` hash, `check:flow-time-events`,
+  `expandingSymbol.fixture`, `check:match3-wire`'s unknown family, `check:stock-asset-coverage`,
+  `flow-spike v2holdandwin`, `owners.json` `kind:card` gap). Played in a real browser by
+  `scripts/playtest/card-play.mjs` ([playtest](../playtest/card-sample.md)).
+- **Bundle:** the shared runtime grows **+52.4 KB raw / +17.7 KB gz** for every game (`index.html`,
+  main 724b41e vs this branch), mostly `cards.js` and `cardAi.js`, then the card reference layout.
+  Owner call (open item 0a).
+
+**Arcade netcode selectable per game (built 2026-10-27; in review).** The owner, on P10.15's "our
+own netcode, not Colyseus' `predict`" choice: *"own netcode is fine, but maybe we can make it
+optional"*. One small PR, on P10.15, merged with P10.16. Design:
+[realtime-multiplayer.md](../design/realtime-multiplayer.md) §6.1 and §14 #9. Not deployed.
+
+- **The setting** (`game-config`): `arcade.online.netcode: 'engine' | 'colyseus'`
+  (`ARCADE_NETCODES`, `ArcadeNetcode`), default `engine` in `ARCADE_ONLINE_DEFAULTS`. The normalizer
+  keeps it only when it is known and not the default, so a game with no setting normalizes
+  byte-identically and an unknown value (a newer build's) is dropped. `resolveArcadeOnline` gives
+  `colyseus` only when the doc says so. `/config` shows a **Netcode** select under Arcade → Online,
+  only for an online game (`setNetcode`).
+- **`engine`** is P10.15 unchanged.
+- **`colyseus`** is the Colyseus SDK's (0.18.6) own prediction for the device's own player:
+  `Predict.get(room)` and `predict.reconciler(player, { input, ...reconcilerOptions(game, id,
+  player) })`, driven by `predict.tick(now)` each frame before the frame's inputs are sent.
+  `Predict` comes from `engine-rooms/predict`, a separate entry imported only for this mode (the
+  runtime's one bundle still carries it: see the bundle line). `reconcilerOptions`
+  (`engine-mechanics` `netcode.js`) gives the fields (`RECONCILED_FIELDS`: `x`, `y`, `status`), the
+  step (`reconcilerStep`: the room's `stepPlayer` in the SDK's `(ctx, state, command)` shape, using
+  the room's `stepContext`, stepping a held player with no input) and the snap distance. The SDK's
+  ack is its input handle's `lastProcessed` (the server's consumed-input count, in each state
+  frame's TIMED prefix), not the schema's `ack`. It is a real rollback reconciler, not plain state:
+  it predicts at once, replays the inputs in flight on a miss, skips a reconcile that matches at
+  float32, and fades a correction over one patch interval.
+  - **Shared with `engine`:** everyone else is drawn by our `createSnapshotClock` /
+    `createInterpolator` in both modes, so `Input.view` keeps naming the step the device drew (the
+    room's lag compensation is unchanged). Input pacing is our `createFixedStep` in both; the SDK's
+    reconciler observes each `send()`.
+  - **Not used from the SDK:** `attachAll` lerp for the others, `defineEvent` predicted events, its
+    lag-compensation stamps.
+- **The server** does not read the mode: it already calls `defineInput` and `setFixedTimestep` (with
+  `subSteps`), which is all the SDK's reconciler needs.
+- **P10.16's online world camera** follows the own player as drawn by either netcode
+  (`ownPlace`).
+- **The probe** (`state().arcade.online`) gains `netcode`; `corrections` / `snaps` are reported in
+  `engine` mode only (the SDK's reconciler counts them only with its diagnostics on).
+- **Gates:**
+  - `check:netcode` (23): the six-device room over simulated networks now also runs under `colyseus`
+    — the SDK's real `Reconciler` over `reconcilerStep`, a real `Player` schema instance (so its
+    float32 compare is the device's) and a stand-in input handle fed each state's ack. Reliable link
+    (the runtime's): 0 corrections and every rest exact, as `engine`. Datagram link (modelled — the
+    runtime does not use one; the stand-in feeds the SDK an unreliable-mode ack): 720–755
+    corrections, all converged, but up to 0.55 px off 200 ms after the last ack (bounded at 1 px;
+    `engine` ≤ 0.01 px) — the SDK fades over 50 ms where ours takes 25 ms. A current is predicted
+    with 0 corrections in both; a held player stays still under the SDK. The source scan covers both
+    branches of `online.ts`.
+  - `check:room-sim` (38): a tripwire that the room plays the same under either setting (the server
+    must never read it); **live**, on a real Colyseus server, the SDK's own `Predict` reconciler
+    with the runtime's `reconcilerOptions` lands exactly on the server's place after 90 random
+    inputs with 0 corrections; `engine-rooms/predict` is imported only by `online.ts`, lazily,
+    behind `netcode === 'colyseus'`.
+  - `scripts/playtest/online-play.mjs --netcode engine|colyseus`: 19 / 19 in each mode (the 17 plus
+    "page A / B plays the … netcode").
+  - `scripts/playtest/salmons-play.mjs --netcode engine|colyseus` (added after the merge with
+    P10.16, whose online camera first followed only the engine's predictor): 16 / 16 in each mode,
+    a nearby room and the world camera under `colyseus` (P10.16's 14 plus "page A / B plays the …
+    netcode").
+  - `family.fixture.ts` and the launcher's `check:game-config-family` cover the setting and the
+    select.
+- **Bundle** (`apps/lines` release `index.html`, gzip -6, base 2c8a873): 3,969,567 B / 1,354,873 B
+  gz → 4,025,062 B / 1,372,213 B gz: **+55.5 KB raw, +17.3 KB gz (+1.28 %)** — the SDK's `predict`
+  module, tree-shaken out until now. The runtime builds to one bundle with its dynamic imports
+  inlined, so **every game's file carries it, whatever its netcode**; the `engine-rooms/predict`
+  entry only keeps an `engine` game from ever calling it. No new dependency.
+- **Known limits:** in `colyseus` mode a correction stays visible a little longer on a lossy link
+  (above); a reconnect in `colyseus` mode is not exercised by any gate.
+
 **P10.16 — Arcade A4c: 100 players and Salmons (built 2026-10-27; in review).** §8's P10.16 row,
 per the approved A4 design ([realtime-multiplayer.md](../design/realtime-multiplayer.md) §5, §7,
 §12, §14 #4–#6), in **one PR**, on P10.15. The last step of Phase 10. Not deployed; merging it
@@ -169,7 +274,7 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
 The step time covers the room's step and its events, not `onBeforePatch` (the schema writes, the
 nearby views) or the encoding: the CPU column covers everything.
 
-**Card C2 — the AI (built 2026-10-27; in review).** [card-games.md](../design/card-games.md) §12's
+**Card C2 — the AI (merged 2026-10-27, #1408).** [card-games.md](../design/card-games.md) §12's
 C2 row (§4), in one PR. No caller yet: the family, runtime and sample game are C3.
 
 - **The AI** (`engine-mechanics` `cardAi.js` + `.d.ts`, plain ESM beside `cards.js`):
@@ -308,7 +413,8 @@ row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-mu
   - **our own netcode in `engine-mechanics`, not Colyseus' `predict` module** (§6 expected Colyseus
     to do the bookkeeping): the same dependency-free file runs in the gate on a virtual clock through
     simulated loss and in the runtime, it keeps the device's float64 fold instead of the wire's
-    float32, and it adds under 4 KB gz where the SDK's `predict` is a 3,000-line module;
+    float32, and it adds under 4 KB gz where the SDK's `predict` is a 3,000-line module. **Owner,
+    2026-10-27: kept as the default, and made optional per game** (`arcade.online.netcode`, above);
   - lag compensation by **`Input.view`** (the device names the step it drew), held to 250 ms — the
     standard trade: a modified client can claim up to 250 ms of hindsight, no more;
   - currents push only on a step that applies an input, so a starved or dropped player stands still
@@ -1967,6 +2073,18 @@ game, bundle or screen changes.
 
 ## Open items / next
 
+0a. **Card C3 follow-ups:** (a) the **bundle cost** (+17.7 KB gz for every game; owner): accept
+   until the per-family runtime build (item 9), as P10.14's; (b) the placeholder frame has looks but
+   no state machine: an authored frame's states (§6) need timelines; (c) a real deck picker (the
+   starter's deck pick is a tap); (d) hero portraits do not light `targetable`; a dragged card is not
+   lifted above its neighbours; (e) the current-games `SCRIPT_FOR_KIND` gains `card` when a card
+   game is first published, with its screen script; (f) `hard`'s 16 ms budget on a mid phone is not
+   measured; (g) the Card Library (`/cards`) is C4; (h) from the C3 review: the validator does not
+   yet warn when `handLimit` / `boardLimit` exceed the table's zone cap (12) or a card names a frame
+   the zones cannot spawn (the card would be missing from the table); the drop hit-test
+   (`actionAt`, `release`) is covered by the browser playtest only, not a Node gate; the frame's
+   trigger inputs (`hit`, `healed`, `summoned`) are declared but not yet fired; Concede works on the
+   player's turn only.
 0. **P10.15 follow-ups:** (a) **online Flow events** (`onPlayerJoined`, `onPlayerLeft`, `onHit`,
    `onCaught`, `onRoundEnd`) from the room's `event` messages, and **server-owned variables** (the
    room's scores bound as read-only `var:` sources; the validator's `variable-server-owned`) — the
@@ -2025,6 +2143,10 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-28 — **Card C3 built: playable end to end** (the `card` family, `GameConfigDoc.card`, the
+  card table runtime, `CARD_VOCAB` and its starter, the Game Maker scene set and sample, the
+  placeholder frame, `check:card-family`, `check:card-runtime`). Slot, match-3 and arcade unchanged
+  by design; bundle +17.7 KB gz. Detail above.
 - 2026-10-27 — **P10.16 built: bots, nearby-only state, the load test and Salmons (A4c).** Server
   bots on the P10.11 brains (`onlineBots.js`, `arcade.online.bots`), `arcade.online.nearby` with the
   own-only `ack`, per-character spawns, the online world camera, `scripts/room-load.mjs` (100

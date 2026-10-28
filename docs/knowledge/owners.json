@@ -35,9 +35,11 @@
 		"bookOf": ["lines-games"],
 		"holdAndWin": ["hold-and-win-games"],
 		"match3": ["match3-games"],
-		"arcade": ["arcade-games"]
+		"arcade": ["arcade-games"],
+		"card": []
 	},
 	"gaps": {
+		"kind:card": "No build agent yet: the card family (card-games.md) is built step by step on engine-pixi-svelte; a card-games agent is due with C4.",
 		"tool:winText": "No agent: a tool shared by every slot kind, not a game type, so 9B left it open.",
 		"tool:sound": "No agent: a tool shared by every kind, not a game type, so 9B left it open."
 	}

@@ -262,6 +262,11 @@ export interface ChangeDetail extends ChangeSummary {
 	harness: HarnessCheck;
 	/** The agent evaluation; null unless the change carries the `agent-definition` label. */
 	agentEval: AgentEvalCheck | null;
+	/**
+	 * The runtime family packs it edits (ADR-0009 §4). A pack reaches every agent's prompt, but the
+	 * `agent-eval` workflow evaluates one definition only, so the page says its eval is owed by hand.
+	 */
+	familyPacks: string[];
 }
 
 export interface ApproveResult {
@@ -294,6 +299,17 @@ export function harnessFilesOf(files: { path: string; previousPath: string | nul
 	return files
 		.flatMap((f) => [f.path, ...(f.previousPath ? [f.previousPath] : [])])
 		.filter((p) => HARNESS_SOURCES.some((re) => re.test(p)));
+}
+
+const FAMILY_PACK = /^services\/director-worker\/families\/[^/]+\.md$/;
+
+/** The family packs a change edits — where they are, or were (a rename). */
+export function familyPackFilesOf(
+	files: { path: string; previousPath: string | null }[],
+): string[] {
+	return files
+		.flatMap((f) => [f.path, ...(f.previousPath ? [f.previousPath] : [])])
+		.filter((p) => FAMILY_PACK.test(p));
 }
 
 /** Every file of a PR, paged; `truncated` when GitHub's own limit cut the list. */
@@ -711,6 +727,7 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 		mergeCommitSha: pull.merge_commit_sha,
 		files: changeFiles,
 		filesTruncated: truncated,
+		familyPacks: familyPackFilesOf(changeFiles),
 		checks: groupCheckRuns(head.checkRuns, head.workflowRuns),
 		harness: {
 			status,

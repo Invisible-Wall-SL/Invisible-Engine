@@ -51,6 +51,8 @@ import ts from 'typescript';
 import {
 	ARCADE_LOOP_ACTIONS,
 	ARCADE_LOOP_VALUES,
+	CARD_MATCH_ACTIONS,
+	CARD_MATCH_VALUES,
 	BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS,
 	CUE_SCOPE_PIN,
 	BOOK_OF_DRIVEN_SEED_LIBRARY,
@@ -270,9 +272,14 @@ const effects = new Set([
 	...Object.keys(INTENT_COMMANDS),
 	...MATCH3_BOARD_ACTIONS,
 	...ARCADE_LOOP_ACTIONS,
+	...CARD_MATCH_ACTIONS,
 ]);
 const emitter = new Map(LINES_EMITTER_VOCABULARY.events.map((e) => [e.type, e.fields ?? []]));
-const engineKeys = new Set<string>([...LINES_ENGINE_KEYS, ...ARCADE_LOOP_VALUES]);
+const engineKeys = new Set<string>([
+	...LINES_ENGINE_KEYS,
+	...ARCADE_LOOP_VALUES,
+	...CARD_MATCH_VALUES,
+]);
 const unbacked = (v: TemplateVocabulary): string[] => [
 	...v.actions.filter((a) => !effects.has(a.name)).map((a) => `action ${a.name}`),
 	...v.cues.filter((c) => !emitter.has(c.name)).map((c) => `cue ${c.name}`),

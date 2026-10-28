@@ -1,9 +1,12 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import * as PIXI from 'pixi.js';
+	import { darkTintProgram } from 'engine-rig/pixi';
 
 	import { getContextApp } from '../context.svelte';
 	import { getProcessed } from '../assetLoad';
+	import { collectTextureSources, compileProgram, warmGpu } from '../gpuWarmup';
+	import { renderTier } from '../renderTier';
 	import type { LoadedAssets, RawAsset } from '../types';
 
 	type Props = { children: Snippet };
@@ -30,6 +33,9 @@
 	);
 
 	let counter = 0;
+	/** Every texture loaded, uploaded and kept resident before the game is told it is loaded. */
+	const loadedSources = new Set<PIXI.TextureSource>();
+	let loadedRigs = false;
 
 	const onProgress = (value: number) => {
 		if (preLoaded && value === 1) {
@@ -47,6 +53,8 @@
 					const loadSrc =
 						type === 'spine' ? Object.values(src).filter((item) => typeof item === 'string') : src;
 					const rawAsset = await PIXI.Assets.load<RawAsset>(loadSrc, onProgress);
+					collectTextureSources(rawAsset, loadedSources);
+					if (type === 'spine') loadedRigs = true;
 					const processed = getProcessed({ key, rawAsset, type, src, namespace, family });
 					return processed;
 				} catch (error) {
@@ -86,6 +94,16 @@
 							...context.stateApp.loadedAssets,
 							...postLoadedAssets,
 						};
+				}
+				const renderer = context.stateApp.pixiApplication?.renderer;
+				// Never in the way of the game starting: a warm-up that fails leaves the old lazy path.
+				if (renderer) {
+					try {
+						if (loadedRigs) compileProgram(renderer, darkTintProgram());
+						await warmGpu(renderer, loadedSources, { keepResident: renderTier() === 'full' });
+					} catch (error) {
+						console.warn('[gpu-warmup]', error);
+					}
 				}
 				context.stateApp.loaded = true;
 			})();

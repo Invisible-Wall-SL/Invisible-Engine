@@ -45,6 +45,7 @@ import { customKindImpl } from './custom';
 import { REST, clamp01, smoothstep, TAU, type FxFrame, type Motion } from './frame';
 import { KINDS, type BreakStyle, type BreakWindow, type FilterImpl, type KindImpl } from './kinds';
 import { ElementFxFilter } from './shaders';
+import { compileFilter } from '../gpuWarmup';
 
 export interface ElementFxHost {
 	/** Steps every effect. The game's app ticker, or a tool's own. */
@@ -947,3 +948,50 @@ export function stopElementFx(target: Container | undefined | null): void {
 export function elementFxCount(target: Container): number {
 	return runtimes.get(target)?.effects.length ?? 0;
 }
+
+/**
+ * Compile the programs `play` will draw with, so its first frame in play does not stall on the
+ * driver (see `gpuWarmup.ts`). Its filters are made as its first frame would make them, from its
+ * own params, so a pass whose program is generated from them (a glow's distance) compiles the
+ * variant those params name: give the params the play will use. A break draws with Pixi's own
+ * programs and needs nothing here.
+ */
+export function prewarmElementFx(
+	renderer: Renderer,
+	play: Pick<ElementFxPlay, 'kind' | 'params'>,
+): void {
+	const impl = implFor(play.kind);
+	if (!impl) return;
+	const passes = impl.filter ? [impl.filter] : (impl.filters ?? []);
+	const frame: FxFrame = {
+		t: 0,
+		seconds: 0,
+		playSeconds: 1,
+		intensity: 1,
+		params: resolveElementFxParams(play.kind, play.params),
+		looping: false,
+		width: 1,
+		height: 1,
+	};
+	for (const pass of passes) {
+		const filter = withoutRandomDraws(() => pass.create(frame));
+		compileFilter(renderer, filter);
+		filter.destroy();
+	}
+}
+
+/**
+ * Run `make` with `Math.random` answering a constant. Making a pass draws its seed, and a warm-up
+ * must leave the sequence where it found it: a seeded run (`?ie_determinism`, the current-games
+ * harness) would otherwise draw every later number shifted, and every particle and spark move. The
+ * seed is a uniform, not part of the program, so the program compiled is the same.
+ */
+const withoutRandomDraws = <T>(make: () => T): T => {
+	const random = Math.random;
+	Math.random = () => 0;
+	try {
+		return make();
+	} finally {
+		Math.random = random;
+	}
+};

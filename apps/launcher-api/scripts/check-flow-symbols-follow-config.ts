@@ -232,11 +232,11 @@ for (const kind of KINDS) {
 			symbolsOf(pickerVocab(kind, { doc: shown, etag: '"saved"' })),
 		);
 		const pins = symbolTyped(vocab);
-		// An arcade game has symbols on no surface: its family is not offered /symbols.
+		// An arcade or card game has symbols on no surface: its family is not offered /symbols.
 		check(
-			`${at} · the vocabulary has symbol-typed pins (none for an arcade game)`,
+			`${at} · the vocabulary has symbol-typed pins (none for an arcade or card game)`,
 			pins.length > 0,
-			familyOfKind(kind) !== 'arcade',
+			familyOfKind(kind) !== 'arcade' && familyOfKind(kind) !== 'card',
 		);
 		check(
 			`${at} · every symbol-typed pin resolves to the options`,

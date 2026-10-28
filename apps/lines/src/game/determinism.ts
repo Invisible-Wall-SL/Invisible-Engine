@@ -39,6 +39,7 @@ import {
 	pendingCueHolds,
 } from 'engine-layout';
 import { isComponentMounted } from 'engine-layout/svelte';
+import type { ArcadeNetcode } from 'game-config';
 
 const FLAG = 'ie_determinism';
 export const DETERMINISM_FRAME_MS = 1000 / 60;
@@ -67,6 +68,22 @@ export type DeterminismProbeState = {
 	board?: DeterminismBoardState;
 	/** An arcade play field, while it is mounted; absent for every slot. */
 	arcade?: DeterminismArcadeState;
+	/** A card table, while it is mounted; absent for every slot. */
+	cards?: DeterminismCardsState;
+};
+
+/** A card table, as `registerDeterminismCards` reads it: the driver's numbers and every seated card
+ *  with its zone, instance id and place in the zone's space. */
+export type DeterminismCardsState = {
+	seed: string;
+	mine: boolean;
+	phase: string;
+	turn: number;
+	myHealth: number;
+	enemyHealth: number;
+	over: boolean;
+	won: boolean;
+	cards: { uid: number; cardId: string; zone: string; id: string; x: number; y: number }[];
 };
 
 /** An arcade play field, as `registerDeterminismArcade` reads it. */
@@ -90,14 +107,16 @@ export type DeterminismArcadeState = {
 	/** The world camera (P10.12): the view's top-left, its shake and size. Absent without one. */
 	camera?: { x: number; y: number; shakeX: number; shakeY: number; view: { w: number; h: number } };
 	/** An online game (P10.15): the bodies above are the room's places, and these how they are
-	 *  drawn — the own player (`me`) predicted, everyone else at `viewStep` — with the prediction's
-	 *  corrections, the round and the room's recent events. */
+	 *  drawn — the own player (`me`) predicted by `netcode`, everyone else at `viewStep` — with the
+	 *  prediction's corrections (the engine's predictor only: the SDK's does not count them), the
+	 *  round and the room's recent events. */
 	online?: {
 		me: string;
 		drawn: { id: string; x: number; y: number }[];
 		viewStep: number;
-		corrections: number;
-		snaps: number;
+		netcode: ArcadeNetcode;
+		corrections?: number;
+		snaps?: number;
 		phase: string;
 		round: number;
 		winner: string;
@@ -311,6 +330,16 @@ export function registerDeterminismBoard(board: NonNullable<typeof boardProbe>):
 }
 
 let arcadeProbe: { read(): DeterminismArcadeState } | undefined;
+let cardsProbe: { read(): DeterminismCardsState } | undefined;
+
+/** `<CardTable />` hands over its table while it is mounted. A no-op when the mode is off. */
+export function registerDeterminismCards(cards: NonNullable<typeof cardsProbe>): () => void {
+	if (!globalThis.__IE_DETERMINISM__) return () => {};
+	cardsProbe = cards;
+	return () => {
+		if (cardsProbe === cards) cardsProbe = undefined;
+	};
+}
 
 /**
  * `<ArcadeStage />` hands over its loop while the play field is mounted. A no-op when the mode is
@@ -739,6 +768,7 @@ export function installDeterminism(): void {
 		const families = {
 			...(boardProbe ? { board: boardProbe.read() } : {}),
 			...(arcadeProbe ? { arcade: arcadeProbe.read() } : {}),
+			...(cardsProbe ? { cards: cardsProbe.read() } : {}),
 		};
 		// The screen set is a Svelte state proxy; hand out a plain copy.
 		return read

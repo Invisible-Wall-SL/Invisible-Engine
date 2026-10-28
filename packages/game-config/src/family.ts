@@ -16,7 +16,7 @@ import type { GameConfigDoc } from './types';
  */
 
 /** The families a config can name. `slot` is the default and is never stored. */
-export const CONFIG_FAMILIES = ['slot', 'match3', 'arcade'] as const;
+export const CONFIG_FAMILIES = ['slot', 'match3', 'arcade', 'card'] as const;
 
 export type ConfigFamily = (typeof CONFIG_FAMILIES)[number];
 
@@ -208,12 +208,21 @@ export type ArcadeOnline = {
 	layer?: string;
 	/** What decides the game (P10.15). Absent ⇒ players only move. */
 	rules?: ArcadeOnlineRules;
+	/** Who predicts the own player between server states: `engine` (our own prediction and
+	 *  reconciliation, the default) or `colyseus` (the Colyseus SDK's own `Predict`). The server is
+	 *  authoritative either way. */
+	netcode?: ArcadeNetcode;
 	/** Bots that fill empty places (P10.16). Absent ⇒ none. */
 	bots?: ArcadeOnlineBots;
 	/** Send each device only the players inside this box (field px) centred on its own player
 	 *  (P10.16): what a big room needs to stay within its bandwidth. Absent ⇒ every player. */
 	nearby?: { w: number; h: number };
 };
+
+/** The netcodes an online arcade game can be played with. */
+export const ARCADE_NETCODES = Object.freeze(['engine', 'colyseus'] as const);
+
+export type ArcadeNetcode = (typeof ARCADE_NETCODES)[number];
 
 /** What an online arcade block resolves to when it names nothing. */
 export const ARCADE_ONLINE_DEFAULTS = Object.freeze({
@@ -223,6 +232,7 @@ export const ARCADE_ONLINE_DEFAULTS = Object.freeze({
 	patchHz: 20,
 	rejoinSeconds: 60,
 	layer: 'field',
+	netcode: 'engine' as ArcadeNetcode,
 });
 
 /** What a bots block names when it names nothing (§14 #5). */
@@ -422,6 +432,7 @@ export const resolveArcadeOnline = (
 		spawn: online.spawn ?? { x: field.w / 2, y: field.h / 2 },
 		layer: online.layer ?? d.layer,
 		rules: resolveRules(online.rules),
+		netcode: ARCADE_NETCODES.find((n) => n === online.netcode) ?? d.netcode,
 		bots: resolveBots(online.bots, maxPlayers),
 		...(online.nearby
 			? {
@@ -436,7 +447,7 @@ export const resolveArcadeOnline = (
 
 /** A stored family, or `undefined` for the default and for anything unreadable. */
 export const normalizeFamily = (raw: unknown): GameConfigDoc['family'] =>
-	raw === 'match3' || raw === 'arcade' ? raw : undefined;
+	raw === 'match3' || raw === 'arcade' || raw === 'card' ? raw : undefined;
 
 /** A stored outcome: only `rules`, and only beside a family that can be one (a slot cannot). */
 export const normalizeOutcome = (
@@ -636,6 +647,8 @@ export function normalizeArcadeOnline(raw: unknown): ArcadeOnline | undefined {
 	if (layer && layer !== d.layer) block.layer = layer;
 	const rules = normalizeOnlineRules(raw.rules);
 	if (rules) block.rules = rules;
+	const netcode = ARCADE_NETCODES.find((n) => n === raw.netcode);
+	if (netcode && netcode !== d.netcode) block.netcode = netcode;
 	const bots = normalizeOnlineBots(raw.bots);
 	if (bots) block.bots = bots;
 	if (isObject(raw.nearby)) {

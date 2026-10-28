@@ -4,6 +4,7 @@ import { resolveFamily, type ConfigFamily, type GameConfigDoc } from 'game-confi
 const FAMILY_NAMES: Record<Exclude<ConfigFamily, 'slot'>, string> = {
 	match3: 'match-3',
 	arcade: 'arcade',
+	card: 'card',
 };
 
 /**

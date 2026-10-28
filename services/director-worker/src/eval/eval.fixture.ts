@@ -618,6 +618,8 @@ async function go(over: Partial<EvalInput> & Pick<EvalInput, 'model'>): Promise<
 	reports.push(report);
 	return report;
 }
+/** A pack's text as it appears in a system prompt: trimmed, as the parser keeps it. */
+const collapsePack = (text: string) => text.replace(/^---\n[\s\S]*?\n---\n/, '').trim();
 const allViewed = (r: EvalReport, side: Side) =>
 	r.items.length === 13 && r.items.every((i) => i[side]?.found && i[side].statusMatch);
 
@@ -963,6 +965,100 @@ console.log('runner: an edit the loader refuses');
 		noModelCalls.state.calls === 0,
 		'the model factory was never called',
 		String(noModelCalls.state.calls),
+	);
+}
+
+console.log('runner: family packs');
+{
+	const packText = readFileSync(root('families/slot.md'), 'utf8');
+	const slotPack = { file: 'slot.md', text: packText };
+	const PACK_TITLE = '# Slot family pack';
+	const carries = (r: VisionRequest) => r.system.includes(PACK_TITLE);
+
+	const none = noModel();
+	const bad = await go({
+		model: none.factory,
+		afterPack: { file: 'slot.md', text: 'not a pack\n' },
+	});
+	check(
+		bad.result === 'invalid' &&
+			bad.errors.length > 0 &&
+			bad.errors.every((e) => e.startsWith('slot.md: ')) &&
+			bad.before === null &&
+			bad.after === null &&
+			bad.costUsd === 0 &&
+			bad.items.length === 0,
+		'an invalid after-pack: invalid, the loader’s errors naming the file, nothing ran or was spent',
+		json({ result: bad.result, errors: bad.errors }),
+	);
+	const misnamed = await go({
+		model: none.factory,
+		afterPack: { file: 'chess.md', text: packText },
+	});
+	check(
+		misnamed.result === 'invalid' && misnamed.errors.some((e) => e.includes('chess.md')),
+		'…a pack whose file is no family’s is invalid too',
+		json(misnamed.errors),
+	);
+	check(none.state.calls === 0, '…the model factory was never called', String(none.state.calls));
+	check(
+		!evalPasses(bad.result) &&
+			bad.line.startsWith('mockup-analyst: the edited definition fails the loader'),
+		'…it fails, and the line says the edit does not load',
+		bad.line,
+	);
+
+	const fake = fakeModel();
+	const withPack = await go({ model: () => fake.transport, afterPack: slotPack });
+	check(
+		withPack.result === 'scored' && fake.requests.length === 4,
+		'an after-pack alone: scored, 4 calls',
+		json({ result: withPack.result, calls: fake.requests.length }),
+	);
+	check(
+		json(fake.requests.map(carries)) === json([false, false, true, true]),
+		'…the before side without --before-pack runs the definition alone; the after side’s system carries the pack',
+		json(fake.requests.map(carries)),
+	);
+	const afterSystem = fake.requests[2].system;
+	check(
+		afterSystem.indexOf(analyst.systemPrompt) === 0 &&
+			afterSystem.includes(collapsePack(packText)) &&
+			afterSystem.indexOf(PACK_TITLE) > analyst.systemPrompt.length - 1,
+		'…the pack follows the definition body in the after side’s system',
+	);
+
+	const both = fakeModel();
+	await go({ model: () => both.transport, beforePack: slotPack, afterPack: slotPack });
+	check(
+		json(both.requests.map(carries)) === json([true, true, true, true]),
+		'a pack on both sides: every call carries it',
+		json(both.requests.map(carries)),
+	);
+
+	const noBefore = fakeModel();
+	const badBefore = await go({
+		model: () => noBefore.transport,
+		beforePack: { file: 'slot.md', text: 'not a pack\n' },
+		afterPack: slotPack,
+	});
+	check(
+		badBefore.result === 'scored' &&
+			badBefore.before === null &&
+			badBefore.after?.calls === 2 &&
+			noBefore.requests.length === 2 &&
+			noBefore.requests.every(carries),
+		'an invalid before-pack: no "before" run, the "after" still scored with its 2 calls',
+		json({ result: badBefore.result, calls: noBefore.requests.length }),
+	);
+	check(
+		badBefore.errors.length === 1 &&
+			badBefore.errors[0].startsWith(
+				'main\'s family pack fails the loader, so there is no "before" run: slot.md: ',
+			) &&
+			evalPasses(badBefore.result),
+		'…one note says why, and it is not a failure',
+		json(badBefore.errors),
 	);
 }
 

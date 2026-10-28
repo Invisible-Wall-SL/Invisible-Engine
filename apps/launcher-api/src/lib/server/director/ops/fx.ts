@@ -12,7 +12,7 @@ import { fxDocKey, fxMetaKey, r2Slug } from '../../projectPaths';
 import { projectGameType } from '../../projects';
 import { AdapterError, defineOp } from '../adapter';
 import { baseEtagProp, baseOf, preconditionOf, projectOf, validated } from './docs';
-import { componentClosure, defLoader, lockOf, sceneHolders } from './mathLock';
+import { componentClosure, defLoader, lockOf, sceneHolders, type DefLoader } from './mathLock';
 
 /**
  * Invisible FX adapters (ADR-0011 §2), through `fxStorage.ts`: the tool's own `listEffects`,
@@ -120,6 +120,7 @@ async function placementLock(
 	clientKey: string,
 	projectKey: string,
 	effectId: string,
+	defs: DefLoader,
 ): Promise<string | null> {
 	const { doc, etag, corrupt } = await loadDocWithEtag(
 		clientKey,
@@ -130,7 +131,6 @@ async function placementLock(
 		return "the project's layout is unreadable, so where this effect is placed cannot be checked";
 	}
 	if (etag === null) return null;
-	const defs = defLoader(projectKey);
 	for (const scene of doc.scenes as Scene[]) {
 		for (const { node, ancestors } of effectNodes(scene.nodes, effectId)) {
 			const why = await lockOf(scene, ancestors, node, defs);
@@ -238,6 +238,7 @@ export const getEffect = defineOp<
 	write: false,
 	handler: async (ctx, { id }) => {
 		const { clientKey, projectKey } = projectOf(ctx);
+		const defs = defLoader(projectKey, ctx.run);
 		if (!id) {
 			return {
 				effects: await listEffects(clientKey, projectKey),
@@ -249,7 +250,7 @@ export const getEffect = defineOp<
 			id: doc.id,
 			name: doc.name,
 			layers: doc.layers.map((layer) => summarize(doc, layer)),
-			locked: await placementLock(clientKey, projectKey, doc.id),
+			locked: await placementLock(clientKey, projectKey, doc.id, defs),
 			baseEtag: baseOf(docEtag),
 		};
 	},
@@ -458,6 +459,7 @@ export const updateArt = defineOp<
 	],
 	handler: async (ctx, { id, layers, baseEtag }) => {
 		const { clientKey, projectKey } = projectOf(ctx);
+		const defs = defLoader(projectKey, ctx.run);
 		if (r2Slug(id) !== id) {
 			throw new AdapterError(
 				400,
@@ -466,7 +468,7 @@ export const updateArt = defineOp<
 			);
 		}
 		const { doc, meta } = await loadExisting(clientKey, projectKey, id);
-		const locked = await placementLock(clientKey, projectKey, id);
+		const locked = await placementLock(clientKey, projectKey, id, defs);
 		if (locked) throw new AdapterError(403, 'locked', `The effect "${id}" is locked: ${locked}.`);
 
 		const atlases = await listFxAtlases(clientKey, projectKey);

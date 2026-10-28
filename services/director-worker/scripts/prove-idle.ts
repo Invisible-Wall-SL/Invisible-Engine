@@ -46,9 +46,9 @@ await sql`insert into users (id, email, name) values (${userId}, ${`${tag}@examp
 try {
 	const add = (suffix: string, status: string, step = 'regions', waitingOn: string | null = null) =>
 		sql`insert into director_runs (id, project_key, template_project_key, owner_user_id, status, step,
-				waiting_on)
+				waiting_on, family)
 			values (${`${tag}-${suffix}`}, ${`${tag}-${suffix}`}, 'tpl', ${userId}, ${status}, ${step},
-				${waitingOn})`;
+				${waitingOn}, 'slot')`;
 	await add('draft', 'draft', 'breakdown');
 	await add('running', 'running');
 	await add('waiting', 'waiting', 'style_pack', 'art_plan');
@@ -106,6 +106,7 @@ try {
 					call: async () => ({ status: 404, body: {} }),
 				},
 				agents: new Map(),
+				packs: new Map(),
 				pricing: async () => pricing,
 				retries: new Map(),
 				leaseMs: 2_000,

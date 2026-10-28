@@ -257,8 +257,8 @@ export const getDef = defineOp<
 	write: false,
 	handler: async (ctx, { id }) => {
 		const { clientKey, projectKey } = projectOf(ctx);
+		const defs = defLoader(projectKey, ctx.run);
 		const { doc, etag } = await loadLayout(clientKey, projectKey);
-		const defs = defLoader(projectKey);
 		const holders = await holderLocks(doc, defs);
 		if (id) {
 			const { def, scope, baseEtag } = await loadDef(projectKey, id);
@@ -397,9 +397,9 @@ export const updateArt = defineOp<
 	],
 	handler: async (ctx, { id, changes, baseEtag, layoutBaseEtag }) => {
 		const { clientKey, projectKey } = projectOf(ctx);
+		const defs = defLoader(projectKey, ctx.run);
 		const { def, scope, baseEtag: defEtag } = await loadDef(projectKey, id);
 		const layout = await loadLayout(clientKey, projectKey);
-		const defs = defLoader(projectKey);
 		// A person's layout edit between this read and the def save is caught by `layoutBaseEtag` only
 		// when a re-pin follows; otherwise the lock was read a moment before the write.
 		const locked = await lockedFor(await holderLocks(layout.doc, defs), def, defs);

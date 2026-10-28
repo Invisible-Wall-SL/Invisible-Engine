@@ -15,6 +15,173 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-28 · Phase 9 9F follow-up · director-backend (card family in the pack lists)
+- Did: C3 (#1426) added `card` to `GAME_FAMILIES`; the 9F pack lists still named only slot,
+  match-3 and arcade, so launcher svelte-check rose 45 → 51 on main. `card` joins
+  `FAMILY_PACK_FAMILIES`, `PACK_FAMILY_LABELS` and `MOCKUP_SCREEN_TAGS` (Table, Hand, Deck pick,
+  Match won, Match lost, Match drawn, Intro, after card-games.md §5's table, hand, deck-pick and
+  result screens; a draw is a real result) and the `director_runs.family` column type. A DRAFT
+  `families/card.md` carries every pack section. `card` stays out of `READY_FAMILY_PACKS`: a card
+  run is refused at create (`no_family_pack`) like match-3 and arcade. Slot runs are unchanged.
+- Files: services/director-worker/{families/card.md,src/familyPack.ts,src/familyPack.fixture.ts,
+  fixtures/families/{valid,all-problems,missing-family-file}/card.md};
+  apps/launcher-api/{src/lib/server/db/schema.ts,scripts/check-director-runs.ts}.
+- Branch / PR: director-card-family-packs (#1430).
+- Tests: check:svelte --only apps/launcher-api 45 (baseline 45); check:family-packs 97/97;
+  check:director-runs (card refused like match-3 and arcade); lint; launcher build;
+  check:game-app-deps.
+- Decisions: no migration. The column is text and its CHECK constraint still lists slot, match3 and
+  arcade, which is right while no card run can be created; widen it in the migration that makes
+  `card` ready.
+- Next: a card pack goes ready with its adapters and a current-games card screen script.
+
+## 2026-10-27 · Phase 9 9F · director-backend (runtime family packs)
+- Did: Runtime family packs (ADR-0009 §4): services/director-worker/families/{slot,match3,arcade}.md
+  carry locked items, mockup tags, region batch order, QA books/screens and the never list; the slot
+  pack has a section per kind. The eight definitions are family-neutral. Every turn's system is two
+  cached blocks (definition, pack); the analyst gets body + pack + catalogue. director_runs.family is
+  frozen at create (migration 0034, backfilled); create refuses a family without a ready pack (409
+  no_family_pack), the worker pauses such a run before any call, the shared math lock (scene, FX,
+  component adapters) reads the run's family. lockedItemsOf/MATH_WORDS are keyed by family (slot
+  byte-identical). New game shows the family's tags and the refusal. Pipeline Changes flags pack
+  edits; packs are refused as agent write targets. agent-eval.ts takes --before-pack/--after-pack;
+  agent-eval.yml runs both sides with main's slot pack.
+- Files: services/director-worker/{families/*,src/{familyPack,families,model,driver,store,main}.ts,
+  src/mockups/analyze.ts,src/eval/run.ts,scripts/agent-eval.ts,agents/*.md,Dockerfile};
+  apps/launcher-api/{drizzle/0034_director_run_family.sql,src/lib/server/{db/schema,director/{runs,
+  templates,store,refusals,ops/{mathLock,scene,fx,components}},pipelineChanges}.ts,
+  routes/(app)/{director,pipeline}/…}; .github/workflows/agent-eval.yml;
+  docs/{status/launcher,tools/director,knowledge/README,knowledge/families/*,director/README}.md.
+- Branch / PR: claude/9f-runtime-family-packs, #1412 (merged 2026-10-28 as 3346f26).
+- Tests: check:family-packs 95, check:model 111, check:mockups 105, check:agent-eval 171,
+  prove:turns 154, prove:breakdown 80, prove:art-plan 103, prove:idle 8, prove:lease,
+  check:director-runs 484, check:director-adapters 739, check:pipeline-changes 7845, lint.
+  The by-hand Agents-tab eval (mockup analyst, before vs after + slot pack) was NOT run before the
+  merge: the owner merged on the deterministic fixtures (no-loss, byte-stable blocks). The command
+  stays in the PR body to run after the fact. The coordinator reviewed the mathLock.ts rewiring.
+- Decisions: match-3 and arcade packs ship refused (READY_FAMILY_PACKS = {slot}); their locked-item
+  and math-word lists wait for the card that makes them ready. Pack edits flagged in Pipeline
+  Changes until eval-gated; the pack is the single source of runtime family text (owner, 2026-10-27).
+  Owner merged #1412 directly in the 9F session on 2026-10-28 without the by-hand eval.
+- Next: deploy the launcher before director-worker (the boot migration adds the column); 9G
+  regenerates its migration on top of 0034; follow-up card: agent-eval.yml evaluates a pack edit;
+  ADR-0009 §5 superseding note; optionally the after-the-fact analyst eval.
+
+## 2026-10-27 · Phase 9 9D · director-backend + regression-guardian (QA draft play)
+- Did: Served build.request_draft and build.play_draft, so QA can be assigned and the known
+  unserved-tool gap is empty. A draft is a run-scoped freeze of the project the way Publish
+  freezes (director/drafts/<id>/, never published/**). It fails closed on a null
+  templateConfigEtag, a moved project config or a published template whose contract differs.
+  It is played by a new private service, draft-player, which reuses the current-games harness
+  libs, reports screens reached, console errors and stalls per scenario, and answers through a
+  signed callback with a /progress fallback. Owner stops and watch failures cancel the play on
+  the player. The worker routes the draft job_done to QA before the atlas billing path, QA's
+  submit reaches the coordinator, and the Live run shows QA plays as plays. Drafts are swept 14
+  days after a project's runs end.
+- Files: docs/director/DECISIONS/0010-qa-draft-play.md; apps/launcher-api/src/lib/server/director/
+  {ops/build,drafts,draftJobs,draftSigning,draftScripts,configEtag,mockupCleanup,store,runs,
+  adapter,registry,atlasCallback}.ts, routes/api/director/drafts/callback,
+  routes/(app)/director/liveRun.ts, drizzle/0033; services/director-worker/src/{driver,
+  workerTools,store,draftReport}.ts, agents/qa.md; services/draft-player/**; docs/INFRA.md,
+  docs/status/{launcher,infra}.md.
+- Branch / PR: claude/director-9d-qa-draft, #1398.
+- Tests: on the final merge with main (9G.0, 9E, 9H): check:director-adapters 719,
+  check:director-live 116, check:director-runs 473, check:launcher-gates 669, worker
+  check:draft-report 6, prove:turns 144 (QA draft play is §30), draft-player offline fixtures +
+  browser fixture (by hand); CI and current-games green.
+- Decisions: ADR-0010 approved (owner, 2026-10-27): a private draft-player service with
+  DRAFT_PLAYER_SECRET; a template with no config is recorded 'none' and counts as proven, while
+  null still fails QA; at most 2 drafts per run, swept 14 days after the run ends; "not played"
+  doesn't block hand-off.
+- Next: the owner creates the draft-player service (PR "Owner steps"); until then plays settle
+  no_player. 9F takes migration 0034. Follow-up: draft screenshots on the run page.
+
+## 2026-10-27 · Phase 9 9H · director-backend (Sound, FX and Component Editor art adapters)
+- Did: Six reskin ops, one read + one write per tool, each through the tool's storage with baseEtag
+  (409 → conflict): sound.get_doc / sound.set_cues (builder), fx.get_effect / fx.update_art
+  (animator), components.get_def / components.update_art (builder). Sound binds only built-ins or
+  approved library sounds to the moments /sound offers; a first save carries the legacy bindings
+  over, read strictly (an unreadable or corrupt legacy doc refuses the write); cue paths apply from
+  structured segments. FX re-points a layer's atlas, frames and weights and recolours existing
+  stops. Components re-skin sprite/rig/flipbook refs inside a def; a shared or built-in def becomes
+  the project's copy; art-only pins are re-pinned; a def bound to the math, or held by a locked
+  instance, is refused. ADAPTER_TOOL_IDS maps sound, fx and components → editor; only the
+  components tool may write editor/<slug>/components/. The math lock moved to ops/mathLock.ts and
+  now also covers effects placed inside components.
+- Files: apps/launcher-api/src/lib/server/director/{adapter,gate,registry}.ts,
+  director/ops/{sound,fx,components,mathLock,scene}.ts, soundsStorage.ts and gameConfigStorage.ts
+  (corrupt flags), soundLegacy.ts, soundExport.ts, fxAtlases.ts, $lib/soundMoments.ts, the /sound
+  and /fx loaders, routes/(app)/director/liveRun.ts (chips); services/director-worker/src/tools.ts,
+  agents/{builder,animator}.md (tools: only); scripts/check-director-{adapters,live}.ts; ADR-0011;
+  docs/status/{launcher,sound,fx,component-editor}.md; docs/tools/director.md.
+- Branch / PR: claude/director-9h-sound-fx-components, #1413.
+- Tests: check:director-adapters 644, check:director-live 110, check:director-runs 471,
+  check:director-mockups 156, check:pipeline-changes 7843, check:family-tools 177, worker checks,
+  eval:agent builder + animator ("nothing to compare"). Re-run after merging #1400 (timeline sound
+  cues): component timeline cues live in CinematicDocs, not ComponentDef, so update_art never sees
+  them; #1400's own checks pass on the merged tree.
+- Decisions: ADR-0011 approved (owner, 2026-10-27, by asking the coordinator to merge #1413): no
+  audio generation; approved and built-in sounds only; attribution for sounds, FX and components in
+  director_ops; art-only re-pins; `before` in the sound result. 9H accepted on fixtures.
+- Next: a builder/animator reference eval set; the builder, animator and coordinator bodies learn
+  the new ops in 9F's family-neutral rewrite; the soundPublishCheck gap (filed by the owner).
+
+## 2026-10-27 · Phase 9 9E · coordinator + docs-keeper (knowledge backfill)
+- Did: docs/knowledge/lessons/: 15 area files (~290 lessons, symptom → cause → fix → guard → PR),
+  mined from the status files, the frozen history and Director HISTORY, each checked against
+  today's code. docs/knowledge/games/: 8 briefs for the 9 live games (waysofwavesbuild is test6's
+  build). All 36 [[…]] personal-memory links rebuilt as lesson entries; baseline at 0. Tool,
+  Director and infra agents' "Read first" now start at targets.md + their lessons file.
+- Files: docs/knowledge/{lessons,games}/*.md, .claude/agents/*.md (Read first),
+  scripts/agents-knowledge-baseline.json.
+- Branch / PR: claude/9e-knowledge-backfill, #1411.
+- Tests: check:agents-knowledge (0 memory links), on the merge with main too; a scripted check
+  over every entry (≤ 8 lines, all fields, names exist).
+- Decisions: owner approved option (b), a transcript pass over fix sessions longer than 3 h
+  (~$30 cap): 17 sessions stripped, scrubbed and mined, 7 new + 15 amended lessons with session
+  ids; ≈ $20–23 spent.
+- Next: the PR's open questions (engine.md, the playtester's setBoardOverride sentence, inferred
+  kinds, family-file pointers, six skipped sessions).
+
+## 2026-10-27 · Phase 9 9G.0 · director-backend
+- Did: Adapter answers carrying an image reach the model as an image block in the tool_result,
+  not as truncated base64 text; get_variant_image downscales to 1568 px and answers
+  { region, id, bytes, image }; image blocks counted in the call projection.
+- Files: services/director-worker/src/{toolResult,driver,budget,model.fixture}.ts,
+  scripts/prove-turns.ts; apps/launcher-api/src/lib/server/director/{ops/atlas,mockupPixels}.ts,
+  scripts/check-director-adapters.ts; docs/status/launcher.md.
+- Branch / PR: claude/9g0-tool-result-images, #1416.
+- Tests: check:model 101, check:director-adapters 460, prove:turns 136 (local Postgres).
+- Decisions: ADR-0012 owner question 10 (own PR). Error answers stay text byte-for-byte. Merged on
+  the deterministic proofs; the art-director image eval follows in 9G.4 (owner, 2026-10-27, relayed
+  by the coordinator).
+- Next: an art-director image eval case with 9G.4.
+
+## 2026-10-27 · Phase 9 9C · launcher-studio + director-backend (pipeline repair)
+- **Did:** New build agent `pipeline-triage`: it reproduces a pipeline bug, routes it via
+  `owners.json`, sets a `bug-<n>-<slug>` branch, requires `## Lesson` in the fix PR, and treats a
+  bug's text as data. It is registered in CLAUDE.md and `owners.json` `pipelineBugs`. `bugBrief()`
+  names it for pipeline bugs. `run.request_pipeline_change` files an Open, unsent pipeline bug
+  through the new adapter op `bugs.file_pipeline_bug` (coordinator only, a records-only write) and
+  `createDirectorBug`. That bug:
+  - names the run's project or else the template, whichever the owner can open; if neither, it
+    carries no key and no agent text;
+  - is idempotent by the opId on its `reported` event;
+  - has `bug-<n>` in the agent's text rewritten to `bug #<n>`;
+  - is capped at 5 per run, and an open duplicate is refused.
+  The Live run feed links the bug.
+- **Files:** `.claude/agents/pipeline-triage.md`, `CLAUDE.md`, `docs/knowledge/owners.json`;
+  `apps/launcher-api/src/lib/{bugReports,server/bugReports,server/bugReportsStore,server/pipelineAgents}.ts`,
+  `src/lib/server/director/{adapter,gate,registry,ops/bugs}.ts`, the Live run page;
+  `services/director-worker/src/{driver,tools,workerTools}.ts`; fixtures; bug-reports status, tool docs.
+- **Branch / PR:** `claude/9c-pipeline-triage`, #1399 (squash d3cc373).
+- **Tests:** check:bug-reports 106, check:director-adapters 460, check:pipeline-changes 7843,
+  check:director-live 110, prove:turns 128; CI green.
+- **Decisions:** the coordinator's review held the merge for three fixes (project names reaching
+  people without access, a duplicate after a launcher crash, agent text steering the BUG link
+  sync), all fixed with fixtures. Deploy the launcher before the worker.
+- **Next:** 9G's escalation builds on `createDirectorBug`.
+
 ## 2026-10-27 · Phase 9 9B · claude (one build agent per game type)
 - **Did:** Eight build agents, one per game type: lines-games, ways-games, cluster-games,
   scatter-games, hold-and-win-games, bonus-games, match3-games and arcade-games. Each builds on

@@ -1099,6 +1099,14 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-10-28 — **`holdAndWinBannerTier`: one banner component can look different per jackpot tier.**
+  A banner now carries the tier it names (`HoldAndWinBannerView.tier`: the jackpot celebration, the
+  coin jackpot, a jackpot upgrade, the platform jackpot), and the runtime registers the number
+  source `holdAndWinBannerTier` (MINI 1 · MINOR 2 · MAJOR 3 · GRAND 4, else 0; `bannerTierIndex`).
+  Feed it to a component's number input and its state machine branches on it, so one banner
+  component plays its Mini / Minor / Major / Grand clip on every banner screen. In the catalog
+  (`HOLD_AND_WIN_PARAM_CATALOG`), and the state machine's number-input "from" list now offers the
+  engine number sources beside the Flow variables. A tier outside the standard four reads 0.
 - 2026-10-26 — **Feature lines announce where Win Text places them; three new banner screens.**
   Every feature-line beat in `holdAndWinPresentation.ts` (meter full, modifiers active, Lucky Spin,
   intro, upgrade, modifiers unlocked, row unlocked, instant win, total, outro) now goes through

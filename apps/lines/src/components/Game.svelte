@@ -4,7 +4,7 @@
 	import { EnablePixiExtension, DebugStage } from 'components-pixi';
 	import { EnableHotkey, EnableSpaceHold, OnHotkey } from 'components-shared';
 	import { MainContainer } from 'components-layout';
-	import { Anchor, App, Container, Text } from 'pixi-svelte';
+	import { Anchor, App, Container, Text, registerGpuWarmup } from 'pixi-svelte';
 	import {
 		ELEMENT_FX_REELS_TARGET,
 		readElementFxEntries,
@@ -184,6 +184,7 @@
 	} from '../game/stateModes.svelte';
 	import { syncBetModeMeta } from '../game/betModeMeta';
 	import { infoManifest } from '../game/infoManifest';
+	import { gameFxWarmup } from '../game/gpuWarmup';
 	import { getActiveSymbolInfoMap, resetSymbolMapCache } from '../game/symbolMap';
 	import { createLinesFlow, linesValueResolver, type LinesFlow } from '../game/flowRuntime.svelte';
 	import {
@@ -346,6 +347,8 @@
 	import RespinBoard from './RespinBoard.svelte';
 	import Match3Input from './Match3Input.svelte';
 	import ArcadeStage from './ArcadeStage.svelte';
+	import CardTable from './CardTable.svelte';
+	import { startCards } from '../game/cards';
 	import { gameMechanic } from '../game/mechanic';
 	import CoinBoardLinesSelector from './CoinBoardLinesSelector.svelte';
 	import FlightLayer from './FlightLayer.svelte';
@@ -362,7 +365,7 @@
 	import RespinCellTiles from './RespinCellTiles.svelte';
 	import LineOverlayPart from './LineOverlayPart.svelte';
 	import RespinLockedRows from './RespinLockedRows.svelte';
-	import { stateHoldAndWinBanner } from '../game/holdAndWinBanner.svelte';
+	import { bannerTierIndex, stateHoldAndWinBanner } from '../game/holdAndWinBanner.svelte';
 	import { bannerShows } from '../game/holdAndWinBannerScreen.svelte';
 	import FreeSpinIntroSymbolReveal from './FreeSpinIntroSymbolReveal.svelte';
 	import ExpandingSymbol from './ExpandingSymbol.svelte';
@@ -850,6 +853,9 @@
 	// it. The set is replaced, not added to, so a re-mounted game never keeps another boot's. Before
 	// the first render, so nothing an entry starts misses it; an effect that cannot play is left out.
 	setCustomElementFx(bakedShaderEffects());
+	// Compile every Element FX and camera effect the docs can play while the loading screen is up,
+	// not on the frame each first plays (measured: 0.8–2.8 s stalls on a slowed phone-sized page).
+	registerGpuWarmup(gameFxWarmup);
 	// Turbo speeds up the particles too: every `<ParticleEmitter>` steps by this clock and the FX
 	// emission timers divide by it when they start (`pixi-svelte` `particleClock`). Read live, so a
 	// turbo toggle lands on the next frame. The tools never set it and preview at normal speed.
@@ -870,6 +876,8 @@
 	);
 	/** The feature is recorded but its board has not shown it yet — a held intro before the board. */
 	const respinsBeforeBoard = () => stateHoldAndWin.active && !stateRespinBoard.counter.show;
+	// A card table's sources and actions, registered before the layout mounts (`cards.ts`).
+	if (mechanic.cardTable) onDestroy(startCards());
 	registerComponentValues({
 		balance: valueSource(() => stateBet.balanceAmount, numberToCurrencyString),
 		win: valueSource(() => stateBet.winBookEventAmount, bookEventAmountToCurrencyString),
@@ -986,6 +994,9 @@
 		// banner screens show — one beat sets them for both paths.
 		holdAndWinBanner: textSource(() => stateHoldAndWinBanner.current?.title ?? ''),
 		holdAndWinBannerDetail: textSource(() => stateHoldAndWinBanner.current?.detail ?? ''),
+		// …and the jackpot tier it names as a number (MINI 1 … GRAND 4, else 0): one banner component's
+		// state machine picks its per-tier look from it.
+		holdAndWinBannerTier: valueSource(bannerTierIndex),
 		// The RETRIGGER delta — extra free spins won mid-feature. Set universally at dispatch
 		// (`engine-game`'s `playBook.ts`) so it's populated whether the flow or the coded path
 		// presents the retrigger.
@@ -2676,12 +2687,16 @@
 			{/if}
 		{/snippet}
 
-		<!-- An arcade game's play field (`ArcadeStage.svelte`) stands in for the reel stack: it has no
-		     board. Only a mechanic that is a play field mounts it, so a slot game renders the reel stack
-		     exactly as before. -->
+		<!-- An arcade game's play field (`ArcadeStage.svelte`) and a card game's table
+		     (`CardTable.svelte`) stand in for the reel stack: neither has a board. Only a mechanic that
+		     is one mounts it, so a slot game renders the reel stack exactly as before. -->
 		{#if mechanic.playField}
 			<MainContainer>
 				<ArcadeStage scenes={editorDoc.scenes} />
+			</MainContainer>
+		{:else if mechanic.cardTable}
+			<MainContainer>
+				<CardTable scenes={editorDoc.scenes} />
 			</MainContainer>
 		{:else}
 			<MainContainer>

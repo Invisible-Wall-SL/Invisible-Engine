@@ -1,7 +1,6 @@
 # ADR-0011 — Reskin adapters: Sound, FX and Component Editor art
 
-- **Status:** proposed; the owner's agreement to every default was relayed by the coordinator on
-  2026-10-27 (see "Owner decision" at the end) and is confirmed on the PR
+- **Status:** approved (owner, 2026-10-27; see "Owner decision" at the end)
 - **Date:** 2026-10-27
 - **Scope:** PLAN card 9H. The smallest set of adapter ops that lets a run re-point what a template
   already has at new sounds, new particle art and new art inside components. Nothing here adds a
@@ -246,8 +245,9 @@ pipeline bug. Default: confirm it with a fixture first, then file it with `pipel
 
 ## Owner decision (2026-10-27, relayed by the coordinator)
 
-The coordinator session relayed the owner's agreement to all five defaults above. The owner
-confirms it on the 9H PR; until then the status stays proposed.
+The coordinator session relayed the owner's agreement to all five defaults above.
+
+- **2026-10-27:** owner approved by asking the coordinator to merge #1413.
 
 1. No audio generation in 9H.
 2. Agents bind only approved library sounds and built-ins.

@@ -6,7 +6,13 @@ import {
 	type LayoutNode,
 	type Scene,
 } from 'engine-layout';
+import {
+	PACK_FAMILY_LABELS,
+	type PackFamily,
+} from '../../../../../../../services/director-worker/src/familyPack';
 import { loadComponent } from '../../componentStorage';
+import type { DirectorRun } from '../../db/schema';
+import { AdapterError } from '../adapter';
 
 /**
  * What ties a Scene Editor node to the game's math, shared by every adapter that edits something
@@ -14,9 +20,13 @@ import { loadComponent } from '../../componentStorage';
  * ops (a def held by a bound instance). Moved verbatim from `scene.ts`; one rule for all of them.
  */
 
-/** Words that tie a binding to the math contract: stakes, bet levels and modes, paylines, features. */
-const MATH_WORD =
-	/(bet|stake|payline|paytable|ways|coin|buy|bonus|feature|trigger|increase|decrease|level|mode|rtp|jackpot)/i;
+/**
+ * Words that tie a binding to the math contract, per game family (ADR-0009 §4): for a slot, stakes,
+ * bet levels and modes, paylines, features. A family without a list has no ready pack.
+ */
+const MATH_WORDS: Partial<Record<PackFamily, RegExp>> = {
+	slot: /(bet|stake|payline|paytable|ways|coin|buy|bonus|feature|trigger|increase|decrease|level|mode|rtp|jackpot)/i,
+};
 
 /**
  * Screens that ARE math: the bet menu, the buy-feature menu and its confirm. The runtime finds each
@@ -29,19 +39,33 @@ const MATH_SCREENS = new Set(['betMenu', 'buyFeature', 'buyConfirm']);
 /** How deep a component placed inside a component is followed; deeper is refused, not trusted. */
 const MAX_NEST_DEPTH = 4;
 
-export type DefLoader = (
+/** Loads component defs for one call, and carries the math words of the run's family. */
+export type DefLoader = ((
 	id: string,
 	version: number | undefined,
-) => Promise<ComponentDef | undefined>;
+) => Promise<ComponentDef | undefined>) & { readonly words: RegExp };
 
-/** One load per component id and pinned version for the whole call. */
-export function defLoader(projectKey: string): DefLoader {
+/**
+ * One load per component id and pinned version for the whole call. The words are the run's family's
+ * — frozen on the run at create, never read from the project; a family with no list is refused
+ * before anything is read.
+ */
+export function defLoader(projectKey: string, run: Pick<DirectorRun, 'family'>): DefLoader {
+	const words = MATH_WORDS[run.family];
+	if (!words) {
+		throw new AdapterError(
+			409,
+			'no_family_pack',
+			`Director has no ready pack for ${PACK_FAMILY_LABELS[run.family]} games yet, so it cannot edit their screens.`,
+		);
+	}
 	const seen = new Map<string, Promise<ComponentDef | undefined>>();
-	return (id, version) => {
+	const load = (id: string, version: number | undefined) => {
 		const key = `${id}@${version ?? 'latest'}`;
 		if (!seen.has(key)) seen.set(key, loadComponent(id, projectKey, version));
 		return seen.get(key)!;
 	};
+	return Object.assign(load, { words });
 }
 
 /**
@@ -83,7 +107,7 @@ export async function ownMathBinding(
 		...Object.values(node.paramBindings ?? {}).map((v): [string, unknown] => ['param binding', v]),
 	];
 	for (const [what, value] of named) {
-		if (typeof value === 'string' && MATH_WORD.test(value)) return `its ${what} is "${value}"`;
+		if (typeof value === 'string' && defs.words.test(value)) return `its ${what} is "${value}"`;
 	}
 	if (node.kind !== 'componentInstance') return null;
 	if (depth >= MAX_NEST_DEPTH) {
@@ -93,7 +117,7 @@ export async function ownMathBinding(
 	if (!def) return `its component "${node.componentId}" could not be read to check`;
 	for (const param of def.params ?? []) {
 		const unset = params[param.key] === undefined;
-		if (unset && typeof param.default === 'string' && MATH_WORD.test(param.default)) {
+		if (unset && typeof param.default === 'string' && defs.words.test(param.default)) {
 			return `its component's ${param.key} defaults to "${param.default}"`;
 		}
 	}

@@ -151,7 +151,7 @@ check(MAPPINGS.freePlay === MAPPINGS.identity, 'PUBLIC_RGS_GAME=freePlay maps by
 	);
 	check(/arcade/.test(refusal({ family: 'arcade' })), 'an arcade game is refused for delivery');
 	check(
-		/non-slot/.test(refusal({ family: 'card' })),
+		/non-slot/.test(refusal({ family: 'poker' })),
 		'a family the gate does not know is refused (it fails closed)',
 	);
 	check(deliveryFamilyRefusal({ family: 'slot' }) === null, "an explicit 'slot' is deliverable");
