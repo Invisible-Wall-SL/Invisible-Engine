@@ -46,6 +46,7 @@ export const CARD_RULE_DEFAULTS = {
 export const MAX_QUEUE_STEPS = 500;
 
 const MAX_EFFECTS = 3;
+export const CARD_MAX_EFFECTS = MAX_EFFECTS;
 const RANGES = {
 	cost: [0, 10],
 	attack: [0, 20],
@@ -56,9 +57,13 @@ const RANGES = {
 	count: [1, 3],
 	buff: [-10, 10],
 };
+export const CARD_RANGES = RANGES;
 const SIDES = ['enemy', 'friendly', 'any'];
 const INCLUDES = ['units', 'characters'];
 const UNTILS = ['endOfTurn', 'permanent'];
+export const CARD_SIDES = SIDES;
+export const CARD_INCLUDES = INCLUDES;
+export const CARD_UNTILS = UNTILS;
 
 export class IllegalAction extends Error {
 	constructor(code, message) {

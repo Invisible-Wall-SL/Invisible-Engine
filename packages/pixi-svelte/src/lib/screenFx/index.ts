@@ -3,7 +3,7 @@ export {
 	SCREEN_TRANSITION_LIMITS,
 	disposeScreenTransitions,
 	playScreenTransition,
-	screenTransitionRoute,
+	screenTransitionKindRoute,
 	waitForScreenTransition,
 	type ScreenTransitionHandle,
 	type ScreenTransitionPlay,
@@ -15,6 +15,5 @@ export {
 	stageFilters,
 	stagePostFxSlot,
 	type StageFilterSlot,
-	type StagePostFx,
 	type StagePostFxSlot,
 } from './stageFilters';

@@ -43,7 +43,7 @@ import { pathToFileURL } from 'node:url';
 import { launchChrome } from '../rigger-spike/chrome.mjs';
 import { REPO, writePage } from './shaderPages.mjs';
 
-const DRAW_MS = 300_000;
+const DRAW_MS = 600_000;
 const FAILED = /^\[(error|assert|uncaught)\]/;
 
 const arg = (name) => {

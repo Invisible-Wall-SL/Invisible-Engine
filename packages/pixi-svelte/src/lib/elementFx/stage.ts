@@ -22,16 +22,10 @@ import {
 	type ElementFxKindId,
 } from 'constants-shared/elementFx';
 import { Rectangle, type Application, type Container, type Filter } from 'pixi.js';
-import { setStageFilters } from '../screenFx/stageFilters';
+import { stagePostFxSlot, type StagePostFxSlot } from '../screenFx/stageFilters';
 import { kindImpl, passesOf } from './custom';
 
-/**
- * Where the stage's post FX go: the stage filter owner's post FX slot. Called with every playing
- * post FX's filters (in the order the effects started, each one's passes in order) each time the
- * list changes, and with `null` when the last ends, before those filters are destroyed. The owner
- * bounds them to the viewport, as the passes are fed it.
- */
-export type StagePostFxSlot = (filters: readonly Filter[] | null) => void;
+export type { StagePostFxSlot };
 
 const slots = new WeakMap<Container, StagePostFxSlot>();
 const playing = new WeakMap<Container, readonly Filter[]>();
@@ -55,7 +49,7 @@ export function bindStagePostFxSlot(stage: Container, slot: StagePostFxSlot): ()
  * game torn down before its post FX stop leaves no filter on the stage.
  */
 export function bindStagePostFx(app: Application): () => void {
-	const slot: StagePostFxSlot = (filters) => setStageFilters(app, 'post', filters ?? []);
+	const slot = stagePostFxSlot(app);
 	const unbind = bindStagePostFxSlot(app.stage, slot);
 	return () => {
 		unbind();

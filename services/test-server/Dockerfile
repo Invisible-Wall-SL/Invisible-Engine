@@ -7,7 +7,7 @@ WORKDIR /app
 
 # App code + the shared mock modules (imported as ../../scripts/...).
 COPY services/test-server/ ./services/test-server/
-COPY scripts/mock-rgs-server.mjs scripts/mock-rgs-server-book.mjs scripts/mock-rgs-server-holdandwin.mjs scripts/mock-holdandwin-engine.mjs scripts/mock-pots-overlay.mjs scripts/mock-platform-jackpot.mjs scripts/mock-rgs-server-match3.mjs ./scripts/
+COPY scripts/mock-rgs-server.mjs scripts/mock-rgs-server-book.mjs scripts/mock-rgs-server-holdandwin.mjs scripts/mock-holdandwin-engine.mjs scripts/mock-pots-overlay.mjs scripts/mock-platform-jackpot.mjs scripts/mock-wild-rewrite.mjs scripts/mock-rgs-server-match3.mjs ./scripts/
 # The match-3 mock's board rules (imported as ../packages/engine-mechanics/src/board.js), with the
 # package.json that makes Node read board.js as an ES module.
 COPY packages/engine-mechanics/package.json ./packages/engine-mechanics/

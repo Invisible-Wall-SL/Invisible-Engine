@@ -14,6 +14,8 @@ export * from './src/familySections';
 export * from './src/mechanics';
 export * from './src/freeSpins';
 export * from './src/expandingSymbol';
+export * from './src/expandingWilds';
+export * from './src/growingWild';
 export * from './src/bookOfPresets';
 export * from './src/holdAndWin';
 export * from './src/holdAndWinPresets';

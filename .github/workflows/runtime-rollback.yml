@@ -34,10 +34,14 @@ on:
         description: 'Game key (pin/unpin only)'
         type: string
         required: false
+      # One runtime per family, each with its own pointer: roll back the id the broken game is on
+      # (lines = every slot kind). Must list exactly `RUNTIME_IDS`
+      # (packages/constants-shared/runtimes.ts); the launcher's check:runtime-choice fails otherwise.
       runtime:
-        description: 'Runtime id'
-        type: string
-        default: 'lines'
+        description: 'Runtime id (the family the game plays: lines = every slot kind)'
+        type: choice
+        options: [lines, match3, arcade, card]
+        default: lines
         required: true
 
 concurrency:

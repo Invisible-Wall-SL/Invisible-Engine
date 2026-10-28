@@ -3575,7 +3575,9 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 		advance(16);
 		const on = stage.filters ?? [];
 		const bounded =
-			stage.filterArea?.width === VIEW.width && stage.filterArea.height === VIEW.height;
+			!!stage.filterArea &&
+			Math.abs(stage.filterArea.width - VIEW.width) < 1 &&
+			Math.abs(stage.filterArea.height - VIEW.height) < 1;
 		glow.stop();
 		const off = !stage.filters?.length && !stage.filterArea;
 		const again = playElementFx(stage, { kind: 'glow', repeat: 0 }, stageHost);

@@ -12,6 +12,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { analyzeDesktopBuild } from './lib/build-breakdown.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 let checks = 0;
@@ -202,6 +203,33 @@ try {
 	check('page: no raw closing tag inside the data', (html.match(/<\/script>/g) ?? []).length, 2);
 } finally {
 	rmSync(tmp, { recursive: true, force: true });
+}
+
+// A bundle with an inlined data URI: matching the reference pattern across a long base64 run
+// backtracked quadratically, and a few MB of it held a desktop publish on "Writing the build
+// breakdown…" for an hour. The run is skipped as a whole; the real reference beside it still counts.
+{
+	const blob = Buffer.alloc(2 * 1024 * 1024, 7).toString('base64');
+	const code = `const bg="data:image/png;base64,${blob}";load("assets/ui/frame.png");`;
+	const started = Date.now();
+	const b = analyzeDesktopBuild({
+		files: [
+			{ rel: '_app/app.js', bytes: code.length },
+			{ rel: 'assets/ui/frame.png', bytes: 10 },
+		],
+		texts: new Map([['_app/app.js', code]]),
+		bundle: null,
+		assetsPrefix: 'assets/',
+		pull: null,
+		images: null,
+		buildInfo: null,
+	});
+	check('data URI: the scan finishes in under 2 s', Date.now() - started < 2000, true);
+	check(
+		'data URI: the real reference beside it still counts',
+		b.files.find((f) => f.rel === 'assets/ui/frame.png')?.refs,
+		1,
+	);
 }
 
 console.log(`${checks - failures}/${checks} checks passed`);

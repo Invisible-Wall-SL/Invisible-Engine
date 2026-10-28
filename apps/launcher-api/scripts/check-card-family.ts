@@ -243,13 +243,13 @@ check('4. card → match-3 drops the cards', doc.family === 'match3' && !doc.car
 // ── 5. the tools ────────────────────────────────────────────────────────────────────────────────
 for (const tool of ['symbols', 'winText', 'characters'])
 	check(`5. a card project is not offered ${tool}`, !familyUsesTool('card', tool));
-for (const tool of ['gameConfig', 'editor', 'flowV2', 'localization'])
+for (const tool of ['gameConfig', 'editor', 'flowV2', 'localization', 'cards'])
 	check(`5. a card project keeps ${tool}`, familyUsesTool('card', tool));
 check(
 	'5. every other family keeps its row',
-	json(FAMILY_TOOLS.slot) === json(['characters']) &&
-		json(FAMILY_TOOLS.match3) === json(['characters']) &&
-		json(FAMILY_TOOLS.arcade) === json(['symbols', 'winText']),
+	json(FAMILY_TOOLS.slot) === json(['characters', 'cards']) &&
+		json(FAMILY_TOOLS.match3) === json(['characters', 'cards']) &&
+		json(FAMILY_TOOLS.arcade) === json(['symbols', 'winText', 'cards']),
 );
 
 // ── 6. the sample ───────────────────────────────────────────────────────────────────────────────

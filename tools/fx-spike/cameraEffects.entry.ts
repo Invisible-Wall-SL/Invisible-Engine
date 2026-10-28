@@ -4,8 +4,9 @@
  * (`pixi-svelte` `cameraEffects.ts`) and one through the module as it drew before step 8e.2
  * (`cameraEffects.reference.ts`), at resolution 1 and 2. At fixed frames each canvas is read back
  * and hashed: the two must be the same pixels, and the hashes are what `--shoot` writes and
- * `--expect` compares. After each case both stages must be at rest: no filter, no filter area. Only
- * the frames read are drawn: the effects tick every frame, but drawing the rest only costs time.
+ * `--expect` compares. After each case the live stage must be at rest: no filter, no filter area,
+ * no ticker callback left. Only the frames read are drawn: the effects tick every frame, but drawing
+ * the rest only costs time.
  */
 import {
 	Application,
@@ -148,7 +149,10 @@ const hashOf = (app: Application): { hash: string; pixels: Uint8Array } => {
 	};
 };
 
-const atRest = (app: Application): boolean =>
+/** Back at rest: no filter or area, the transform back, and no ticker callback beyond `listeners`
+ *  (the app's own), so a leaked camera or stage filter owner callback shows. */
+const atRest = (app: Application, listeners: number): boolean =>
+	app.ticker.count === listeners &&
 	!app.stage.filters?.length &&
 	!app.stage.filterArea &&
 	app.stage.position.x === 0 &&
@@ -164,6 +168,7 @@ const atRest = (app: Application): boolean =>
 	const unrested: string[] = [];
 	for (const resolution of [1, 2]) {
 		const apps = [await makeApp(gl, resolution), await makeApp(gl, resolution)];
+		const listeners = apps[0].ticker.count;
 		const runs: Run[] = [live.runCameraEffect, reference.runCameraEffect];
 		let clock = 1000;
 		for (const app of apps) app.ticker.lastTime = clock;
@@ -195,7 +200,7 @@ const atRest = (app: Application): boolean =>
 			}
 			live.disposeCameraEffects(apps[0]);
 			reference.disposeCameraEffects(apps[1]);
-			if (!atRest(apps[0])) unrested.push(`res ${resolution} / ${name}`);
+			if (!atRest(apps[0], listeners)) unrested.push(`res ${resolution} / ${name}`);
 		}
 		for (const app of apps) {
 			app.canvas.remove();

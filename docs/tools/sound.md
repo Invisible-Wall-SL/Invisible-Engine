@@ -105,6 +105,14 @@ Tokens never sit on a reel strip, so they are not offered under **Per-symbol cue
 Take off and Reach the pot have no game-wide cue, so an unset one is silent. Each token in a
 volley plays its own, on its own stagger.
 
+### Hold and Win coins
+
+Shown only when the config has Hold and Win symbols. One row per symbol with a Hold and Win role
+(the coins, jackpots, collectors and other specials; not the blank or a pot's token), and one
+moment: **Collected into the total**, the coin landing in the Total Win bar when the respins end.
+Each coin plays its own sound, so a board of eight coins plays it eight times. Unset, the coins
+land silently.
+
 ### Reel anticipation
 
 The tease while a big win is still reachable on the reels yet to stop: a **sting** when

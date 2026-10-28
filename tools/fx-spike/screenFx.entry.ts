@@ -13,8 +13,8 @@ import {
 	AlphaFilter,
 	Application,
 	Container,
+	GlProgram,
 	Graphics,
-	Rectangle,
 	RenderTexture,
 	TexturePool,
 	type WebGLRenderer,
@@ -34,7 +34,7 @@ import {
 	SCREEN_STILL_MAX_PX,
 	disposeScreenTransitions,
 	playScreenTransition,
-	screenTransitionRoute,
+	screenTransitionKindRoute,
 	setStageFxAntialias,
 	stageFilters,
 	stagePostFxSlot,
@@ -362,7 +362,7 @@ const routes = (): void => {
 	for (const [label, kind, route] of cases)
 		claim(
 			`routing: ${label} takes ${route ?? 'the fallback'}`,
-			screenTransitionRoute(kind) === route,
+			screenTransitionKindRoute(kind) === route,
 		);
 };
 
@@ -627,6 +627,106 @@ const fallbacks = async (gl: number): Promise<void> => {
 	dropRig(rig);
 };
 
+/** A frame that throws, or undefined. */
+const frameThrows = (rig: Rig): string | undefined => {
+	try {
+		frame(rig);
+		return undefined;
+	} catch (error) {
+		return (error as Error).message;
+	}
+};
+
+/** Params whose every read throws: `playElementFx` then throws as it starts the Out route. */
+const throwingParams = new Proxy(
+	{},
+	{
+		get: () => {
+			throw new Error('a param read throws');
+		},
+		ownKeys: () => {
+			throw new Error('a param read throws');
+		},
+		has: () => {
+			throw new Error('a param read throws');
+		},
+	},
+);
+
+/** What a throw while a transition starts, and a context lost while it plays, leave. */
+const breakdowns = async (gl: number): Promise<void> => {
+	const warn = console.warn;
+	const warned: string[] = [];
+	console.warn = (...args: unknown[]) => warned.push(args.map(String).join(' '));
+	const results: [string, boolean][] = [];
+	try {
+		const rig = await makeRig(gl);
+		const ref = references(rig);
+		const listeners = rig.app.ticker.count;
+		const programFrom = GlProgram.from;
+		for (const [label, options, patch] of [
+			[
+				'the In route (building its program throws)',
+				{ kind: kindOf(crossfade) },
+				() => {
+					GlProgram.from = () => {
+						throw new Error('no program');
+					};
+				},
+			],
+			[
+				'the Out route (playing the exit throws)',
+				{ kind: 'burn', params: throwingParams },
+				() => {},
+			],
+		] as const) {
+			show(rig, 'old');
+			const handle = play(rig, options);
+			patch();
+			const thrown = frameThrows(rig);
+			GlProgram.from = programFrom;
+			const settledBoth = (await settled(handle.captured)) && (await settled(handle.done));
+			show(rig, 'new');
+			const later = frameThrows(rig);
+			results.push([
+				`a throw as ${label} starts is a cut: the frame does not throw (${thrown ?? 'none'}), the next draws the new screen, both promises settle, no still, no child, no callback left (${handle.route}; ${warned.at(-1)})`,
+				thrown === undefined &&
+					later === undefined &&
+					same(shot(rig), ref.new) &&
+					settledBoth &&
+					handle.route === 'cut' &&
+					handle.still === undefined &&
+					atRest(rig) &&
+					rig.app.ticker.count === listeners,
+			]);
+		}
+		// A context lost while it plays ends it: nothing held, both settled; restored, the new screen.
+		const handle = await begin(rig, { kind: kindOf(crossfade), durationMs: 2000 });
+		frame(rig, 5);
+		const lose = (rig.app.renderer as WebGLRenderer).gl.getExtension('WEBGL_lose_context');
+		lose?.loseContext();
+		const lostThrown = frameThrows(rig);
+		const ended =
+			!handle.active &&
+			(await settled(handle.done)) &&
+			handle.still === undefined &&
+			atRest(rig) &&
+			rig.app.ticker.count === listeners;
+		lose?.restoreContext();
+		await new Promise((wake) => setTimeout(wake, 200));
+		frame(rig, 3);
+		const back = compare(shot(rig), ref.new);
+		results.push([
+			`a context lost mid-play ends the transition: no still, no filter or child, both settled, the frame does not throw (${lostThrown ?? 'none'}); restored, the new screen (${said(back)})`,
+			!!lose && lostThrown === undefined && ended && back.over === 0,
+		]);
+		dropRig(rig);
+	} finally {
+		console.warn = warn;
+	}
+	for (const [label, ok] of results) claim(label, ok);
+};
+
 const lifecycle = async (gl: number): Promise<void> => {
 	const rig = await makeRig(gl);
 	const ref = references(rig);
@@ -653,11 +753,16 @@ const lifecycle = async (gl: number): Promise<void> => {
 		const none = await settled(waitForScreenTransition(rig.app));
 		claim('waiting with none playing settles at once', none);
 	}
-	// A resize ends it.
+	// A resize to the same size keeps it; a resize ends it.
 	{
 		const handle = await begin(rig, { kind: kindOf(crossfade), durationMs: 2000 });
 		frame(rig, 5);
+		rig.app.renderer.resize(rig.app.screen.width, rig.app.screen.height);
+		frame(rig);
+		claim('a resize to the same size keeps the transition playing', handle.active);
 		rig.app.renderer.resize(rig.app.screen.width + 10, rig.app.screen.height);
+		// Ended before the next frame is drawn (Pixi's resize plugin draws at once).
+		frame(rig);
 		const ended = !handle.active && (await settled(handle.done)) && atRest(rig);
 		rig.app.renderer.resize(rig.app.screen.width - 10, rig.app.screen.height);
 		frame(rig);
@@ -764,7 +869,7 @@ const lifecycle = async (gl: number): Promise<void> => {
 	{
 		const post = new AlphaFilter({ alpha: 0.5 });
 		const slot = stagePostFxSlot(rig.app);
-		slot({ filters: [post], area: rig.app.screen.clone() });
+		slot([post]);
 		show(rig, 'old');
 		frame(rig);
 		const graded = shot(rig);
@@ -781,6 +886,78 @@ const lifecycle = async (gl: number): Promise<void> => {
 			compare(graded, ref.old).over > 1000 && c.over === 0 && atRest(rig),
 		);
 	}
+	// A filter someone else put on the stage stays, in front of the transition, so the still keeps
+	// it: Screens → From draws what the canvas showed before, from the capture frame on.
+	{
+		const foreign = new AlphaFilter({ alpha: 0.5 });
+		rig.app.stage.filters = [foreign];
+		show(rig, 'old');
+		frame(rig);
+		const before = shot(rig);
+		const handle = play(rig, { kind: kindOf(from), pose: () => ({ progress: 0.5 }) });
+		frame(rig);
+		const atCapture = compare(shot(rig), before);
+		await handle.captured;
+		show(rig, 'new');
+		frame(rig, 2);
+		const after = compare(shot(rig), before);
+		handle.end();
+		await handle.done;
+		const kept = rig.app.stage.filters?.length === 1 && rig.app.stage.filters[0] === foreign;
+		rig.app.stage.filters = null;
+		foreign.destroy();
+		frame(rig);
+		claim(
+			`a foreign stage filter is kept in the still: Screens → From draws what the canvas showed, from the capture frame on (${said(atCapture)}; after ${said(after)})`,
+			compare(before, ref.old).over > 1000 && atCapture.over === 0 && after.over === 0 && kept,
+		);
+	}
+	// A crossfade under a post FX: one frame bounds the list, the viewport, so the still is unsquashed;
+	// a post FX that pads widens that frame all round, and the still is read inside it, unshifted.
+	for (const padding of [0, 8]) {
+		const post = new AlphaFilter({ alpha: 1 });
+		post.padding = padding;
+		const slot = stagePostFxSlot(rig.app);
+		slot([post]);
+		const handle = await begin(rig, { kind: kindOf(crossfade), pose: () => ({ progress: 0 }) });
+		frame(rig, 2);
+		const c = compare(shot(rig), ref.old);
+		handle.end();
+		await handle.done;
+		slot(null);
+		post.destroy();
+		frame(rig);
+		claim(
+			`a crossfade at its start under a post FX padding ${padding} px draws the old screen unsquashed and unshifted, pixel for pixel (${said(c)})`,
+			c.over === 0 && atRest(rig),
+		);
+	}
+	// Under a camera zoom and shake: the In frame stays the viewport, the Out still stays on screen.
+	for (const [label, kind, pose] of [
+		['In route (Screens → From)', kindOf(from), 0.5],
+		['Out route (at t = 0)', 'dissolveOut', 0],
+	] as const) {
+		void runCameraEffect(rig.app, { kind: 'zoomPunch', intensity: 3, durationMs: 1500 });
+		void runCameraEffect(rig.app, { kind: 'shake', intensity: 2, durationMs: 1500 });
+		frame(rig, 3);
+		const handle = await begin(rig, { kind, pose: () => ({ progress: pose }) });
+		let worst: Difference = { over: 0, max: 0 };
+		let moved = 0;
+		for (let i = 0; i < 12; i++) {
+			frame(rig);
+			const stage = rig.app.stage;
+			if (stage.position.x !== 0 || stage.scale.x !== 1) moved++;
+			const c = compare(shot(rig), ref.old, 2);
+			if (c.over > worst.over) worst = c;
+		}
+		handle.end();
+		await handle.done;
+		frame(rig, 100);
+		claim(
+			`${label} under a camera zoom and shake draws the old screen where it is (${moved} of 12 frames moved; ${said(worst)} by more than 2)`,
+			moved >= 10 && worst.over === 0 && atRest(rig),
+		);
+	}
 	// The post FX slot in the shape the post FX fill it, and the project's anti-aliasing.
 	{
 		const handle = await begin(rig, { kind: kindOf(crossfade), durationMs: 2000 });
@@ -788,19 +965,19 @@ const lifecycle = async (gl: number): Promise<void> => {
 		const shell = stageFilters(rig.app, 'transition')[0];
 		const post = new AlphaFilter({ alpha: 1 });
 		const slot = stagePostFxSlot(rig.app);
-		const view = new Rectangle(10, 20, rig.app.screen.width - 30, rig.app.screen.height - 40);
-		slot({ filters: [post], area: view });
+		slot([post]);
 		void runCameraEffect(rig.app, { kind: 'chromaticWobble', durationMs: 500 });
 		frame(rig);
 		const list = rig.app.stage.filters ?? [];
 		const camera = list[2];
 		const area = rig.app.stage.filterArea;
 		const ordered = list.length === 3 && list[0] === shell && list[1] === post;
+		const view = rig.app.screen;
 		const bounded =
-			area?.x === view.x &&
-			area.y === view.y &&
-			area.width === view.width &&
-			area.height === view.height;
+			!!area &&
+			[area.x, area.y, area.width - view.width, area.height - view.height].every(
+				(d) => Math.abs(d) < 0.01,
+			);
 		const off = list.every((f) => f.antialias === 'off');
 		setStageFxAntialias(rig.app, true);
 		const on = list.every((f) => f.antialias === 'inherit');
@@ -812,7 +989,7 @@ const lifecycle = async (gl: number): Promise<void> => {
 		await handle.done;
 		frame(rig, 40);
 		claim(
-			'the post FX slot: its filters after the transition and before the camera, bounded to its viewport; null takes them off; every stage filter draws without MSAA unless the project asks (then inherit); the transition and the camera pad nothing',
+			'the post FX slot: its filters after the transition and before the camera, the whole list bounded to the viewport; null takes them off; every stage filter draws without MSAA unless the project asks (then inherit); the transition and the camera pad nothing',
 			ordered &&
 				bounded &&
 				off &&
@@ -859,10 +1036,11 @@ const postFxIdentity = async (gl: number, antialias: boolean): Promise<void> => 
 		handle.active &&
 		list.length === 1 &&
 		stageFilters(rig.app, 'post')[0] === list[0] &&
-		area?.x === 0 &&
-		area.y === 0 &&
-		area.width === rig.app.screen.width &&
-		area.height === rig.app.screen.height;
+		!!area &&
+		Math.abs(area.x) < 1 &&
+		Math.abs(area.y) < 1 &&
+		Math.abs(area.width - rig.app.screen.width) < 1 &&
+		Math.abs(area.height - rig.app.screen.height) < 1;
 	const off = compare(shot(rig), none);
 	setStageFxAntialias(rig.app, true);
 	frame(rig);
@@ -874,6 +1052,21 @@ const postFxIdentity = async (gl: number, antialias: boolean): Promise<void> => 
 	notes.push(
 		`MSAA on ${canvas}: an Output-alone post FX against none, anti-aliasing under stage effects off: ${said(off)} (${share(off)} of channel values); on: ${said(on)} (${share(on)})`,
 	);
+	if (!antialias) {
+		// The runtime pads its stack a pixel past the viewport; the transition's still is read inside
+		// that padded frame, unshifted.
+		const crossing = await begin(rig, { kind: kindOf(crossfade), pose: () => ({ progress: 0 }) });
+		frame(rig, 2);
+		const c = compare(shot(rig), none);
+		crossing.end();
+		await crossing.done;
+		show(rig, 'old');
+		frame(rig);
+		claim(
+			`a crossfade at its start under the runtime's Output-alone post FX (padded ${list[0]?.padding} px) draws the old screen pixel for pixel (${said(c)})`,
+			c.over === 0 && (list[0]?.padding ?? 0) >= 1,
+		);
+	}
 	handle.stop();
 	frame(rig);
 	unbind();
@@ -1014,11 +1207,20 @@ const glLedger = (gl: WebGLRenderingContext | WebGL2RenderingContext) => {
 const steady = async (gl: number, count: number): Promise<void> => {
 	const rig = await makeRig(gl, { width: 160, height: 100 });
 	const ledger = glLedger((rig.app.renderer as WebGLRenderer).gl);
-	const kinds = [kindOf(crossfade), 'dissolveOut', 'fadeOut', 'custom:gone', kindOf(exitPlain)];
+	const kinds = [
+		kindOf(crossfade),
+		'dissolveOut',
+		'fadeOut',
+		'custom:gone',
+		kindOf(exitPlain),
+		'shatter',
+	];
 	const warn = console.warn;
 	console.warn = () => {};
 	const run = async (n: number): Promise<void> => {
 		for (let i = 0; i < n; i++) {
+			// A game's loop yields every frame; Pixi's resource collection runs on the system ticker then.
+			if (i % 50 === 49) await new Promise((wake) => requestAnimationFrame(wake));
 			const handle = await begin(rig, { kind: kinds[i % kinds.length], durationMs: 50 });
 			await playOut(rig, handle);
 		}
@@ -1037,8 +1239,23 @@ const steady = async (gl: number, count: number): Promise<void> => {
 			`${count} transitions after the warm-up: made ${JSON.stringify(Object.fromEntries(Object.keys(made).map((k) => [k, ledger.made[k] - made[k]])))}, alive before ${JSON.stringify(live)} and after ${JSON.stringify(now)}, ${((performance.now() - began) / 1000).toFixed(1)} s`,
 		);
 		claim(
-			`${count} transitions after a warm-up leave nothing allocated: live GL objects unchanged (${grew.join(', ') || 'none grew'}), no program made, one still each made and freed`,
-			grew.length === 0 && programs === 0 && stills === count && atRest(rig),
+			`${count} transitions after a warm-up (shatter among them) leave nothing allocated: live GL objects unchanged (${grew.join(', ') || 'none grew'}), no program made, every still made freed`,
+			grew.length === 0 && programs === 0 && stills >= count && atRest(rig),
+		);
+		// A shatter disposed mid-play, its pieces cut: its stills go with it.
+		const beforeDispose = ledger.live();
+		for (let i = 0; i < 5; i++) {
+			const handle = await begin(rig, { kind: 'shatter', durationMs: 1000 });
+			frame(rig, 10 + i);
+			disposeScreenTransitions(rig.app);
+			await handle.done;
+		}
+		frame(rig);
+		const afterDispose = ledger.live();
+		const kept = Object.keys(beforeDispose).filter((k) => afterDispose[k] !== beforeDispose[k]);
+		claim(
+			`a shatter disposed mid-play, five times, leaves no GL object behind (${kept.join(', ') || 'none grew'})`,
+			kept.length === 0 && atRest(rig),
 		);
 	} finally {
 		console.warn = warn;
@@ -1063,6 +1280,7 @@ const steady = async (gl: number, count: number): Promise<void> => {
 		await postFxSlots(gl);
 		await capped(gl);
 		await steady(gl, count);
+		await breakdowns(gl);
 		const version = (await makeRig(gl)).app.renderer as WebGLRenderer;
 		claim(`the page runs on WebGL${gl}`, version.context.webGLVersion === gl);
 	} catch (error) {

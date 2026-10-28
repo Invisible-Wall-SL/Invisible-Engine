@@ -350,6 +350,7 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 		rule: 'symbols',
 		names: ['H1', 'H2', 'H3', 'H4', 'L1', 'L2', 'L3', 'L4', 'W'],
 	},
+	{ file: 'apps/lines/src/game/wildRewrite.svelte.ts', rule: 'symbols', names: ['explosion'] },
 	{
 		file: 'packages/components-shared/src/components/LoaderImage.svelte',
 		rule: 'notAsset',
