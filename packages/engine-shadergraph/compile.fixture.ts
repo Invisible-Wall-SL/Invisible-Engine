@@ -232,6 +232,7 @@ import {
 	shaderNode,
 	type NodeDef,
 } from './src/nodes.ts';
+import { CALIBRATION_GRAPHS } from './src/calibration.ts';
 import { REFERENCE_GRAPHS, graphBuilder, nodeShowcase } from './src/reference.ts';
 import {
 	SUBGRAPH_COUNT_MAX,
@@ -4453,6 +4454,36 @@ console.log('shader graph — made for particles');
 			!('samples' in badCost) &&
 			badCost.madeFor === 'particles',
 		'the registry keeps madeFor, cost and samples, and drops a malformed one while keeping the effect',
+	);
+}
+
+{
+	// The calibration graphs (step 8d.8): made for particles, each at its cost and reads.
+	const costs = Object.fromEntries(
+		CALIBRATION_GRAPHS.map((doc) => {
+			const compiled = compileShaderEffect({ ...doc, id: doc.id.toLowerCase() });
+			return [
+				doc.id,
+				compiled.ok && compiled.effect.madeFor === 'particles'
+					? [compiled.effect.cost ?? NaN, compiled.effect.samples ?? NaN]
+					: undefined,
+			];
+		}),
+	);
+	const [budgetCost, budgetReads] = costs.calBudget ?? [NaN, NaN];
+	assert(
+		JSON.stringify(costs) ===
+			JSON.stringify({
+				calLight: [12, 1],
+				calBudget: costs.calBudget,
+				calSeed: costs.calSeed,
+				calParity: [1, 1],
+			}) &&
+			budgetCost >= 0.9 * PARTICLE_COST_BUDGET &&
+			budgetCost <= PARTICLE_COST_BUDGET &&
+			budgetReads === PARTICLE_SAMPLE_BUDGET &&
+			costs.calSeed?.[1] === 1,
+		`the calibration graphs compile made for particles: light 12 / 1, the budget graph within 90 % of ${PARTICLE_COST_BUDGET} / ${PARTICLE_SAMPLE_BUDGET} (${JSON.stringify(costs)})`,
 	);
 }
 

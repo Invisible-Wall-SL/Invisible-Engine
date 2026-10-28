@@ -29,6 +29,7 @@ own session, launched from a task card, and is coordinated from the coordinator 
 | [`DECISIONS/`](DECISIONS/) | One ADR per decision (index below). |
 | [`mockups/`](mockups/) | The target screens: PNG to look at, HTML to inspect. |
 | [`../../services/director-worker/agents/`](../../services/director-worker/agents/) | The eight runtime agents. These are the definitions the Agents tab shows and edits. |
+| [`../../services/director-worker/families/`](../../services/director-worker/families/) | The runtime family packs (slot, match-3, arcade; ADR-0009 §4): what a game family adds to every agent's prompt. Only slot is ready. |
 
 ### ADR index
 

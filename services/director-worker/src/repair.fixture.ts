@@ -244,11 +244,12 @@ console.log('who leads, who is assigned');
 		project: 'p',
 		client: 'c',
 		bugNumber: 12,
+		family: 'slot',
 		budgetCapUsd: 10,
 	});
 	check(
 		Object.keys(JSON.parse(brief.slice(brief.indexOf('{')))).join() ===
-			'runId,project,client,bugNumber,budgetCapUsd',
+			'runId,project,client,bugNumber,family,budgetCapUsd',
 		'the brief carries the run, project, client, bug number and budget, and nothing of the bug',
 	);
 }

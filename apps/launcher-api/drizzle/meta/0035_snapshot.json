@@ -1,6 +1,6 @@
 {
-  "id": "f3a95632-db60-4a33-b361-f1f7c233eaf0",
-  "prevId": "8c60fc92-9c59-4196-a67d-336be18a9a3e",
+  "id": "f328df5d-a44c-418d-95eb-ffce887c61dc",
+  "prevId": "13c1d4be-b2fc-494f-9724-caa90e8f28f0",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1505,6 +1505,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "family": {
+          "name": "family",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "owner_user_id": {
           "name": "owner_user_id",
           "type": "text",
@@ -1683,6 +1689,10 @@
         "director_runs_status_check": {
           "name": "director_runs_status_check",
           "value": "\"director_runs\".\"status\" in ('draft', 'running', 'waiting', 'paused', 'stopping', 'stopped', 'failed', 'handed_off')"
+        },
+        "director_runs_family_check": {
+          "name": "director_runs_family_check",
+          "value": "\"director_runs\".\"family\" in ('slot', 'match3', 'arcade')"
         },
         "director_runs_step_check": {
           "name": "director_runs_step_check",

@@ -168,6 +168,7 @@ export function repairBrief(brief: {
 	project: string;
 	client: string | null;
 	bugNumber: number | null;
+	family: string;
 	budgetCapUsd: number | null;
 }): string {
 	return [

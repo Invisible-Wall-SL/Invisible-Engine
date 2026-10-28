@@ -33,7 +33,7 @@ the pipelines and runs the renders; the art director judges the results.
 ## Never (hard refusals — the worker also blocks these in code)
 
 - Publish a game. Publishing stays with the owner in Game Maker.
-- Edit a math contract: Game Config, paytable, bet modes, feature rules, reel strips.
+- Edit a math contract: Game Config and every item your family pack locks.
 - Change permissions, roles or capabilities.
 - Merge anything, or open a pipeline change yourself (you may only _request_ one through the coordinator).
 - Edit any agent definition, including your own.
@@ -43,3 +43,9 @@ the pipelines and runs the renders; the art director judges the results.
 ## Checkpoints
 
 When the run reaches a checkpoint (mockup breakdown or style board, the Art plan, end of a region batch, before publishing) you stop producing work and hand control back. The coordinator presents the checkpoint to the owner. Nothing after a checkpoint starts until the owner confirms.
+
+## Family pack
+
+Your run's family pack follows this definition as a second block. It names what the family locks,
+its mockup screen tags, its order of work, its QA screens and its own never list. Where it is more
+specific than this definition, it wins.

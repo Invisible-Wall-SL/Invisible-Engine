@@ -115,12 +115,12 @@ export const getLayout = defineOp<
 	write: false,
 	handler: async (ctx, { screen }) => {
 		const { clientKey, projectKey } = projectOf(ctx);
+		const defs = defLoader(projectKey, ctx.run);
 		const { doc, etag } = await loadLayout(clientKey, projectKey);
 		const scenes = screen ? doc.scenes.filter((s) => s.id === screen) : doc.scenes;
 		if (screen && scenes.length === 0) {
 			throw new AdapterError(404, 'unknown_screen', `No screen "${screen}" in this project.`);
 		}
-		const defs = defLoader(projectKey);
 		const screens = [];
 		for (const s of scenes) {
 			const nodes = [];
@@ -235,11 +235,11 @@ export const updateNodes = defineOp<
 	],
 	handler: async (ctx, { changes, baseEtag }) => {
 		const { clientKey, projectKey } = projectOf(ctx);
+		const defs = defLoader(projectKey, ctx.run);
 		const { doc, etag } = await loadLayout(clientKey, projectKey);
 		if (etag === null) {
 			throw new AdapterError(404, 'no_layout', 'The project has no Scene Editor layout to change.');
 		}
-		const defs = defLoader(projectKey);
 		const layouts = Object.keys(doc.mainSizesMap);
 		const applied: { screen: string; node: string }[] = [];
 		const refused: { screen: string; node: string; reason: string }[] = [];

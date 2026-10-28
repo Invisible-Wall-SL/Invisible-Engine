@@ -44,6 +44,8 @@ import { fileURLToPath } from 'node:url';
 import { isHttpError } from '@sveltejs/kit';
 import type { DirectorEvent, DirectorRun, Project } from '../src/lib/server/db/schema.ts';
 import type { ProjectSummary } from '../src/lib/server/director/templates.ts';
+import { familyOfKind } from '../../../packages/constants-shared/gameKinds.ts';
+import { READY_FAMILY_PACKS } from '../../../services/director-worker/src/familyPack.ts';
 import {
 	RUN_STATUSES,
 	transition,
@@ -198,6 +200,7 @@ const PROJECTS = new Map<string, Proj>([
 	['broken', { client: 'acme', gameType: 'lines', template: false }],
 	['tpl-bug', { client: 'acme', gameType: 'lines', template: true }],
 	['away', { client: 'other', gameType: 'lines', template: false }],
+	['gems', { client: 'acme', gameType: 'match3', template: false }],
 ]);
 const PUBLISHED = new Set(['hw', 'lines-sample', 'other-game']);
 const CLIENTS = new Set(['acme', 'other']);
@@ -233,6 +236,7 @@ fake('lib/server/projects.ts', {
 	isValidProjectKey: (v: string) => /^[a-z0-9][a-z0-9_-]{0,63}$/.test(v),
 	canAccessProject: canAccess,
 	projectClientKey: async (key: string) => live(key)?.client ?? null,
+	projectGameType: async (key: string) => live(key)?.gameType ?? 'lines',
 	projectExists: async (key: string) => live(key) !== undefined,
 	projectKeyTaken: async (key: string) => PROJECTS.has(key),
 	projectInFolder: async (
@@ -322,6 +326,8 @@ fake('lib/server/director/templates.ts', {
 		clientKey: project.clientKey,
 		gameType: project.gameType,
 		gameTypeName: project.gameType,
+		family: familyOfKind(project.gameType),
+		familyPack: READY_FAMILY_PACKS.has(familyOfKind(project.gameType)) ? 'ready' : 'not_ready',
 		published: PUBLISHED.has(project.key),
 		chips: { game: [], using: [] },
 		lockedItems: [],
@@ -870,6 +876,53 @@ console.log('create');
 	]);
 	check('nothing was created by refused creates', [RUNS.size, duplicates], [0, 0]);
 
+	// 9F: a family with no ready pack is refused before anything is written.
+	for (const [kind, label] of [
+		['match3', 'match-3'],
+		['arcade', 'arcade'],
+	] as const) {
+		const template = `${kind}-sample`;
+		PROJECTS.set(template, { client: 'acme', gameType: kind, template: true });
+		PUBLISHED.add(template);
+		const writes = [RUNS.size, EVENTS.length, duplicates, puts, R2.size, PROJECTS.size];
+		const answer = await create(OWNER, createBody({ gameType: '', template }));
+		check(
+			`a ${kind} template is refused, naming the family and the template`,
+			[answer.status, answer.body.error, answer.body.message],
+			[
+				409,
+				'no_family_pack',
+				`Director has no ready pack for ${label} games yet, so it cannot re-theme Project ${template}.`,
+			],
+		);
+		check(
+			`…no run row, no project, no mockup or R2 write (${kind})`,
+			[RUNS.size, EVENTS.length, duplicates, puts, R2.size, PROJECTS.size],
+			writes,
+		);
+		check(`…and no project under the new key (${kind})`, live(NEW), undefined);
+		const listed = await call(templatesRoute.GET, { user: OWNER, url: '/api/director/templates' });
+		check(
+			`the New game list marks the ${kind} template not ready`,
+			(listed.body.templates as { key: string; family: string; familyPack: string }[])
+				.filter((t) => t.key === template)
+				.map((t) => [t.family, t.familyPack]),
+			[[kind, 'not_ready']],
+		);
+		check(
+			'…and the slot templates ready',
+			(listed.body.templates as { key: string; family: string; familyPack: string }[])
+				.filter((t) => !t.key.endsWith('-sample') || t.key === 'lines-sample')
+				.map((t) => [t.key, t.family, t.familyPack]),
+			[
+				['hw', 'slot', 'ready'],
+				['lines-sample', 'slot', 'ready'],
+			],
+		);
+		PROJECTS.delete(template);
+		PUBLISHED.delete(template);
+	}
+
 	// Mockups uploaded under the pending project, ownership not yet confirmed.
 	seedMockups(NEW, [image('a1b2c3d4e5f60718'), image('a1b2c3d4e5f60719', 'style', true)], null);
 	const unowned = await create(OWNER, createBody());
@@ -884,6 +937,11 @@ console.log('create');
 	const body = createBody();
 	const made = await create(OWNER, body);
 	check('a confirmed create is 201', made.status, 201);
+	check(
+		'the run stores the template’s family, slot',
+		RUNS.get(runsMod.runIdFor('owner', body.requestId))?.family,
+		'slot',
+	);
 	const run = made.body.run as Record<string, unknown>;
 	check('the run id comes from the request id', run.id, runsMod.runIdFor('owner', body.requestId));
 	check(
@@ -2769,6 +2827,7 @@ console.log('game repair runs');
 	game(74, { projectKey: 'away' });
 	game(75, { kind: 'pipeline', projectKey: null });
 	game(76, { status: 'working' });
+	game(77, { projectKey: 'gems' });
 	const repair = (user: User, bug: unknown, requestId = 'rep-0001') =>
 		create(user, { requestId, bug });
 	const gone = await repair(TRIAGER, 999);
@@ -2817,6 +2876,12 @@ console.log('game repair runs');
 		false,
 	);
 
+	const gems = await repair(TRIAGER, 77);
+	check(
+		'a family with no ready pack: no_family_pack, and nothing written',
+		[gems.status, gems.body.error, [...RUNS.values()].some((r) => r.kind === 'repair')],
+		[409, 'no_family_pack', false],
+	);
 	const made = await repair(TRIAGER, 70);
 	const run = made.body.run as Record<string, unknown>;
 	const row = RUNS.get(run.id as string)!;
@@ -2833,8 +2898,9 @@ console.log('game repair runs');
 			row.projectConfigEtag === row.templateConfigEtag,
 			row.checkpointsJson,
 			row.ownerUserId,
+			(row as unknown as { family: string }).family,
 		],
-		['broken', true, true, {}, 'triager'],
+		['broken', true, true, {}, 'triager', 'slot'],
 	);
 	const again = await repair(TRIAGER, 70);
 	check(

@@ -457,6 +457,9 @@ export const directorRuns = pgTable(
 		/** The client the project is created under; null = unassigned. */
 		clientKey: text('client_key'),
 		templateProjectKey: text('template_project_key').notNull(),
+		/** The game family whose pack the run's agents read (9F): frozen at create from the template's
+		 *  kind, so a template whose kind is edited later cannot change a run's pack mid-way. */
+		family: text('family').$type<'slot' | 'match3' | 'arcade'>().notNull(),
 		ownerUserId: text('owner_user_id')
 			.notNull()
 			.references(() => users.id, { onDelete: 'cascade' }),
@@ -535,6 +538,7 @@ export const directorRuns = pgTable(
 			'director_runs_status_check',
 			sql`${table.status} in ('draft', 'running', 'waiting', 'paused', 'stopping', 'stopped', 'failed', 'handed_off')`,
 		),
+		check('director_runs_family_check', sql`${table.family} in ('slot', 'match3', 'arcade')`),
 		check(
 			'director_runs_step_check',
 			sql`${table.step} in ('breakdown', 'style_pack', 'regions', 'build', 'reproduce', 'fix', 'verify', 'handoff')`,

@@ -45,6 +45,8 @@ one. Only merged fixes become lessons.
 
 - **Build agents:** `targets.md` and their own family or area file come first in "Read first", before
   the status file.
-- **Runtime agents:** `targets.md` and the run's family pack, as a cached system block (ADR-0009
-  §4). Text that reaches a runtime prompt is a pipeline change and goes through the Agents tab
-  evaluation.
+- **Runtime agents:** the run's family pack (`services/director-worker/families/<family>.md`), as
+  a second cached system block after the agent's definition (ADR-0009 §4). The pack is the one
+  home of what runtime agents read about a family; the `families/` files here link to it rather
+  than repeat it. `targets.md` does not reach a runtime prompt yet. Text that reaches a runtime
+  prompt is a pipeline change and goes through the Agents tab evaluation.

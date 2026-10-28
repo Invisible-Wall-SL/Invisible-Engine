@@ -137,6 +137,9 @@ A new kind or role touches many registries: the status file's "Touch list" names
 
 ## Read more
 
+- `services/director-worker/families/slot.md`: what Director's runtime agents read about this family
+  (its `holdAndWin` section under Kinds, plus the family-wide sections). The pack is the one home of
+  that text; edit it there.
 - `docs/status/hold-and-win.md` — Phase board, Decisions, Open items, Owner checklist, Touch list.
 - `docs/design/hold-and-win.md` (§4 engine shape, §6 build plan, §7–8 Phases 11–12).
 - `docs/design/hold-and-win-coin-board.md`.

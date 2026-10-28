@@ -23,6 +23,7 @@ import {
 import { adapterClient } from './adapters.ts';
 import { draftPlayMessage } from './draftReport.ts';
 import type { AgentDefinition } from './agents.ts';
+import { readyPack, type FamilyPack, type PackFamily } from './families.ts';
 import {
 	overCap,
 	projectCall,
@@ -152,6 +153,8 @@ export interface DriverDeps {
 	vision: VisionTransport;
 	launcher: Launcher;
 	agents: ReadonlyMap<string, AgentDefinition>;
+	/** The family packs (`families/<family>.md`); a run takes the one its frozen family names. */
+	packs: ReadonlyMap<PackFamily, FamilyPack>;
 	pricing: () => Promise<DirectorPricing>;
 	/** Failed drives in a row, per run, in this process. A successful drive clears its entry. */
 	retries: Map<string, number>;
@@ -243,12 +246,21 @@ export async function driveRun(deps: DriverDeps, claimed: ClaimedRun): Promise<v
 			if (controller.signal.aborted) throw controller.signal.reason;
 			const live = await withLease(ctx.sql, ctx.run, async (_tx, l) => l);
 			if (live.state.status !== 'running') break;
-			if (await breakdownStep(ctx, live)) {
+			const pack = readyPack(ctx.packs, live.family);
+			if (!pack) {
+				await pauseWithError(ctx, 'worker', {
+					type: 'no_family_pack',
+					family: live.family,
+					message: `Director has no ready pack for the ${live.family} family, so no agent can work on this run. Stop the run.`,
+				});
+				break;
+			}
+			if (await breakdownStep(ctx, live, pack)) {
 				await handleEvents(ctx);
 				continue;
 			}
 			const [agent] = await pendingAgents(ctx.sql, ctx.run.id);
-			if (!agent || !(await takeTurn(ctx, agent))) break;
+			if (!agent || !(await takeTurn(ctx, agent, pack))) break;
 			await handleEvents(ctx);
 		}
 		deps.retries.delete(claimed.id);
@@ -756,7 +768,7 @@ const storable = (content: BetaContentBlockParam[]): BetaContentBlockParam[] =>
 	content.length ? content : [{ type: 'text', text: '(no reply)' }];
 
 /** One turn for `name`. False when the loop should stop (paused, or nothing could be done). */
-async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
+async function takeTurn(ctx: Ctx, name: string, pack: FamilyPack): Promise<boolean> {
 	const agent = ctx.agents.get(name);
 	if (!agent) {
 		await pauseWithError(ctx, 'worker', { type: 'unknown_agent', agent: name });
@@ -781,7 +793,7 @@ async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
 	}
 
 	const pricing = await ctx.pricing();
-	const request = buildRequest(agent, specs, toParams(history));
+	const request = buildRequest(agent, pack, specs, toParams(history));
 	const spend = await runSpend(ctx.sql, ctx.run.id);
 	// The call, plus the renders in flight: a run at its cap must not keep talking while their
 	// cost is still to land.
@@ -978,7 +990,7 @@ class StepStopped extends Error {
  * True when the step was the worker's here (the run moved, paused, or kept its state for a retry);
  * false when it is not — the loop then gives an agent its turn.
  */
-async function breakdownStep(ctx: Ctx, live: LiveRun): Promise<boolean> {
+async function breakdownStep(ctx: Ctx, live: LiveRun, pack: FamilyPack): Promise<boolean> {
 	if (live.state.step !== 'breakdown') return false;
 	const listing = await mockupListing(ctx);
 	if (listing.images.length === 0) return false;
@@ -1020,6 +1032,7 @@ async function breakdownStep(ctx: Ctx, live: LiveRun): Promise<boolean> {
 			adapters: { analyst: client(ANALYST_AGENT), worker: client('worker') },
 			model: visionFor(ctx, analyst, attempt, answers),
 			agent: analyst,
+			pack,
 			run: { id: ctx.run.id, templateProjectKey: live.templateProjectKey },
 			pass,
 			notes,
@@ -1351,6 +1364,7 @@ function brief(live: LiveRun): string {
 			project: live.projectKey,
 			client: live.clientKey,
 			bugNumber: live.bugNumber,
+			family: live.family,
 			budgetCapUsd: live.budgetCapUsd,
 		});
 	}

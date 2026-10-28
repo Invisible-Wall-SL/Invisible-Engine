@@ -52,6 +52,7 @@ import { parsePricing } from 'director-costs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { loadAgents, pricedModels, type AgentDefinition } from '../src/agents.ts';
+import { loadFamilyPacks } from '../src/families.ts';
 import { driveRun, type DriverDeps } from '../src/driver.ts';
 import type { AdapterResult, AdapterSpec, Launcher } from '../src/launcher.ts';
 import { claimRun } from '../src/lease.ts';
@@ -337,6 +338,7 @@ const coordinator: AgentDefinition = {
 	outputs: '',
 	systemPrompt: 'You are the coordinator.',
 };
+const PACKS = loadFamilyPacks(root('families'));
 const AGENTS = new Map<string, AgentDefinition>([
 	['coordinator', coordinator],
 	['mockup-analyst', real.get('mockup-analyst')!],
@@ -360,9 +362,9 @@ let runSeq = 0;
 async function newRun(over: { status?: string; step?: string; cap?: number } = {}) {
 	const id = `${tag}-run-${++runSeq}`;
 	await sql`insert into director_runs (id, project_key, template_project_key, owner_user_id, status,
-			step, budget_cap_usd)
+			step, budget_cap_usd, family)
 		values (${id}, ${`${id}-p`}, ${reference.template.key}, ${userId}, ${over.status ?? 'draft'},
-			${over.step ?? 'breakdown'}, ${over.cap ?? 25})`;
+			${over.step ?? 'breakdown'}, ${over.cap ?? 25}, 'slot')`;
 	return id;
 }
 const event = (runId: string, agent: string, kind: string, payload: Record<string, unknown>) =>
@@ -387,6 +389,7 @@ const deps = (
 	vision,
 	launcher,
 	agents: AGENTS,
+	packs: PACKS,
 	pricing: async () => pricing,
 	retries,
 	leaseMs: 2_000,

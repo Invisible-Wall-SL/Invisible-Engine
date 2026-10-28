@@ -15,8 +15,9 @@ keeps the score and lives. On top of that (Phase 10, `docs/design/game-families.
   Characters** (`/characters`).
 - **A3, P10.12–P10.13:** a world bigger than the screen with a camera and parallax; gravity, jumps,
   one-way platforms and the `tilemap` node.
-- **A4, P10.14–P10.16:** online rooms on `services/game-server` (Colyseus 0.18). P10.14 is built
-  and not deployed. Netcode (P10.15) and bots, load test and Salmons (P10.16) are not built.
+- **A4, P10.14–P10.16:** online rooms on `services/game-server` (Colyseus 0.18): the server
+  (P10.14, live), netcode and the online rules (P10.15), then bots, nearby-only state, the
+  100-device load test and Salmons as data (P10.16).
 
 Arcade is **rules-decided (free play) only**. An RGS-decided arcade config is `unplayable`: it does
 not boot and does not publish (P10.10 is optional and undecided). It never reaches a wallet, a
@@ -24,8 +25,10 @@ partner RGS or a delivery build.
 
 **Salmons** (`docs/status/salmons.md`) is the target: a 100-player online game. The live Salmons is
 in the separate `GuiltyForever/Salmon-` repo (Colyseus 0.15). Here it is rebuilt **as data** on the
-shared runtime in P10.16, never ported in as a second engine. The `salmons` portal project plays
-the P10.8 dodger today, as the S0 art test bed.
+shared runtime in P10.16, never ported in as a second engine: `engine-mechanics` `salmons.js`
+(the river and the config) and `engine-layout` `referenceLayouts/salmons.ts`. Putting it in the
+`salmons` portal project (which plays the P10.8 dodger today, as the S0 art test bed) is an owner
+step.
 
 Must never change: slot and match-3 games render and step exactly as before. Every arcade path is
 keyed on an arcade-only switch. A stored config without the new fields comes back byte for byte.
@@ -55,6 +58,11 @@ A seed and the same keys replay the same game.
 - **Online is inputs only.** A device sends `{seq, moveX, moveY, buttons, aimX, aimY}`. The server
   owns every place. The room's body equals the device's `stepPlayer` fold bit for bit
   (`services/game-server/src/roomSim.ts`; `check:room-sim`).
+- **A bot is a player whose input comes from a brain.** `botInput` turns a P10.11 brain's velocity
+  into a clamped input; the room steps and rules it exactly as a device's
+  (`packages/engine-mechanics/src/onlineBots.js`, `services/game-server/src/roomSim.ts`). A config
+  with no `bots` makes none; with no `nearby` the room keeps the P10.14 state class
+  (`check:room-bots`).
 - **The Colyseus SDK is reached only through `packages/engine-rooms`**, imported dynamically from
   `apps/lines/src/game/online.ts`. `apps/lines` declares no new third-party package
   (`check:game-app-deps`).
@@ -73,7 +81,7 @@ A seed and the same keys replay the same game.
 
 | Area                  | Paths                                                                                                                                                                                                                                 |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,online}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/`                                                                                               |
+| Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,online,netcode,onlineRules,onlineBots,salmons}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/`                                                      |
 | Loop                  | `packages/engine-game/src/game/arcadeLoop.ts`, `arcadeCharacters.ts`, `mechanic.ts`                                                                                                                                                   |
 | Runtime               | `apps/lines/src/components/ArcadeStage.svelte`, `apps/lines/src/game/arcade.ts`, `online.ts`, `flowKeys.ts`, `flowBoardEffects.ts`                                                                                                    |
 | Layout                | `packages/engine-layout/src/lib/SpawnLayer.svelte`, `worldCamera.ts`, `worldCameraView.svelte.ts`, `tilemapNodes.ts`, `Tilemap.svelte`, `pathNodes.ts`, `arcadeLifts.svelte.ts`, `templates/arcade.ts`, `referenceLayouts/arcade*.ts` |
@@ -81,7 +89,7 @@ A seed and the same keys replay the same game.
 | Config                | `packages/game-config/src/family.ts`, `familyValidate.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`; seed `apps/launcher-api/src/lib/data/gameConfig/arcade.rules.json`                                                               |
 | Characters tool       | `apps/launcher-api/src/routes/(app)/characters/`, `apps/launcher-api/src/lib/characters/characterEdit.ts`                                                                                                                             |
 | Editor                | `EditorWorldCamera.svelte`, `EditorParallax.svelte`, `EditorSpawnLayer.svelte`, `EditorTilemap.svelte`, `tilemapPaint.client.svelte.ts` in `apps/launcher-api/src/routes/(app)/editor/`                                               |
-| Game server           | `services/game-server/src/` (`arcadeRoom.ts`, `roomSim.ts`, `socketGuard.ts`, `addresses.ts`, `configSource.ts`); `packages/engine-rooms`                                                                                             |
+| Game server           | `services/game-server/src/` (`arcadeRoom.ts`, `roomSim.ts`, `socketGuard.ts`, `addresses.ts`, `configSource.ts`); `packages/engine-rooms`; load test `scripts/room-load.mjs`                                                          |
 
 ## Known failure modes
 
@@ -110,9 +118,14 @@ A seed and the same keys replay the same game.
 - **Symptom:** a fast body passes through a thin wall. **Cause:** `stepSolid` moves in one step.
   **Guard:** falling and hopping characters use `stepPlatform` sub-steps (`MAX_SUB_STEPS` 64);
   `check:arcade-platformer` gates no tunnelling at 6000 px/s. A plain character can still tunnel.
-- **Symptom:** an online game's camera stays at the origin; its characters, brains and Flow board
-  effects do nothing. **Cause:** a `room` game never starts the local loop that owns them.
-  **Guard:** `validateArcadeOnline` warns at `arcade.characters`; fixed only by P10.15.
+- **Symptom:** an online game's characters (other than bots' brains) and Flow board effects do
+  nothing. **Cause:** a `room` game never starts the local loop that owns them. **Guard:**
+  `validateArcadeOnline` warns at a character no bot plays. (Its world camera follows the own
+  player since P10.16: `useOnlineCamera`.)
+- **Symptom:** a 100-player room sent every device 27 KB/s. **Cause:** every player went to every
+  device, and every player's `ack` (it changes every step) went with it. **Guard:**
+  `arcade.online.nearby` with the own-only `ack` tag (`services/game-server/src/schema.ts`
+  `NearbyPlayer`); `check:room-bots` live; `scripts/room-load.mjs` measures it.
 - **Symptom:** a keyboard character does not move in the game. **Cause:** controllers read the Flow
   input map's `left` / `right` / `up` / `down` actions (`apps/lines/src/game/flowKeys.ts`).
   **Guard:** none (guide trap).
@@ -156,6 +169,8 @@ A seed and the same keys replay the same game.
 
 ## Read more
 
+- `services/director-worker/families/arcade.md`: what Director's runtime agents read about this
+  family (the whole pack). The pack is the one home of that text; edit it there.
 - `docs/status/game-families.md`: P10.8, P10.11–P10.14 sections and open items 0, 9–14.
 - `docs/status/salmons.md`: the S0 art pass and the `salmons` project.
 - `docs/design/game-families.md` §1 (Salmons), §4.2–§4.5, §8; `docs/design/realtime-multiplayer.md`.

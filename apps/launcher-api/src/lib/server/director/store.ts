@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import { getDb } from '../db';
 import { r2SlugSql, type Queryer } from '../projectKeyLock';
+import type { PackFamily } from '../../../../../../services/director-worker/src/familyPack';
 import {
 	directorAtlasJobs,
 	directorBlueprintTimings,
@@ -523,6 +524,7 @@ export interface NewRun {
 	projectKey: string;
 	clientKey: string | null;
 	templateProjectKey: string;
+	family: PackFamily;
 	ownerUserId: string;
 	startingPointJson: unknown;
 	checkpointsJson: unknown;
@@ -550,6 +552,8 @@ export interface NewRepairRun {
 	clientKey: string | null;
 	ownerUserId: string;
 	bugNumber: number;
+	/** The game family whose pack the run's agents read, frozen from the project's kind. */
+	family: NewRun['family'];
 	/** The project's config ETag, recorded as BOTH of the run's math-lock ETags (ADR-0012 §1): the
 	 *  project is its own reference, so any Game Config save during the run reads as drift. */
 	configEtag: string | null;
@@ -591,6 +595,7 @@ export async function insertRepairRun(
 				templateProjectKey: row.projectKey,
 				ownerUserId: row.ownerUserId,
 				bugNumber: row.bugNumber,
+				family: row.family,
 				templateConfigEtag: row.configEtag,
 				projectConfigEtag: row.configEtag,
 				startingPointJson: {},

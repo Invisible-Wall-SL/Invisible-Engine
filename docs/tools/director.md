@@ -50,8 +50,13 @@ The same project setup as Game Maker's "Create a game", plus what the agents nee
    pick, the template's **GAME** and **USING** chips (the same as its Game Maker card) and its
    **LOCKED** items: math contract, paytable, bet modes, paylines, feature rules. The agents never
    change these; a mockup that clashes with one is reported, not worked around.
+   - **Only slot templates can run today.** A match-3 or arcade template is listed, but its card
+     says **Not ready for Director** with the reason (Director has no ready pack for that game
+     family yet), and **Create project & start agents** stays disabled. The server refuses such a
+     run too (`no_family_pack`), before anything is created.
 3. **Starting point.** Upload design mockups (PNG or JPG, 20 MB each, 12 at most) and tag each with
-   the screen it shows: Base game, Hold and Win bonus, Big win, Paytable, … or **Style reference
+   the screen it shows. The tags are the template's game family's: for a slot, Base game, Hold and
+   Win bonus, Bonus, Free spins, Big win, Paytable and Intro; for every family, **Style reference
    only** (palette and mood, never a region). Each card shows the stored file and a tag picker; ×
    removes it. Mockups are stored under the key and client of the game you are about to create,
    so once one is uploaded the key and client lock until you remove them all. Removing the last
@@ -386,6 +391,12 @@ run is live asks you to confirm (see [Game Maker](game-maker.md)).
   game" plus the template; the project is copied from the template and the run starts in `draft`.
   The project's math contract is recorded at that moment, so the agents can never move it
   unnoticed.
+- **A run works to its game family's pack.** The agents' instructions are the same for every game;
+  what a family adds — what is locked, the mockup screen tags, the order the region batches run in,
+  what QA plays and the family's own "never" list — comes from the pack for the template's family
+  (`services/director-worker/families/<family>.md`). The family is fixed when the run is created,
+  so it cannot change under a run. Changing a pack changes what every agent reads: it is a pipeline
+  change, like editing an agent.
 - **The budget cap is fixed when the run starts**, from Settings' `DIRECTOR_RUN_BUDGET_USD`.
   Changing the setting later never moves a run that has started; raising it on a resume does.
 - **Your actions each leave one entry** that the agents' worker reads: start, pause, resume
@@ -427,6 +438,10 @@ run is live asks you to confirm (see [Game Maker](game-maker.md)).
   page, its actions and its images answer only to the person who created it.
 
 ## Known limitations / TODOs
+
+- Director re-themes slot games only. The match-3 and arcade packs are drafts: their templates are
+  listed as not ready, until the board and Invisible Characters adapters exist and the owner turns
+  them on.
 
 - There is no Preset and no "Save as preset" (ADR-0008 card 8C removed them): the atlas technician
   plans each region from the reviewed blueprint cards, starting from the template's approved default

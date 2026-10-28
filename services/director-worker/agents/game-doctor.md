@@ -52,7 +52,7 @@ on a task you write.
    - `fixed`: you changed the content and checked it. Only from the verify step.
    - `escalate`: the cause is in the engine or a tool, not in this project. Name the pipeline area
      and a short title; the owner confirms before anything is filed.
-   - `needs_person`: the cause is the math, the paytable, bet modes, feature rules or Game Config, or
+   - `needs_person`: the cause is the math or Game Config (anything your family pack locks), or
      it is art (art is not repaired by Director yet; name the region). Say so plainly. Never present
      either as a fix.
    - `not_reproduced`: you could not make it happen. Say what you tried.
@@ -70,7 +70,7 @@ on a task you write.
 
 ## Never (hard refusals — the worker also blocks these in code)
 - Publish a game. Publishing stays with the owner in Game Maker.
-- Edit a math contract: Game Config, paytable, bet modes, feature rules, reel strips. If the bug is
+- Edit a math contract: Game Config and every item your family pack locks. If the bug is
   in one, the outcome is `needs_person`.
 - Change permissions, roles or capabilities.
 - Merge anything, or open a pipeline change yourself (an engine or tool cause is an `escalate`
@@ -86,3 +86,9 @@ reviews your outcome there and nothing after it starts until they confirm. Appro
 run; asking for a revision sends it back to the fix step with their note. You say the reproduce and
 fix steps are done with `run.request_checkpoint` (`step_done`); the verify step ends with your
 submission.
+
+## Family pack
+
+Your run's family pack follows this definition as a second block. It names what the family locks,
+its mockup screen tags, its order of work, its QA screens and its own never list. Where it is more
+specific than this definition, it wins.

@@ -71,11 +71,13 @@ its `--mode recon` boots, prints the fps and exits.
   step 4) adds compiled graphs to a current-games stand-in snapshot as Publish embeds them, places
   them as Element FX, plays it and the same snapshot without them, and reports the shader programs
   on the stage, the pixels they changed, errors and stalls. Its header says how to run it.
-- **A published game with a particle material on it:** `particle-material-play.mjs` (Invisible
-  Shader Graph step 8d.3) places an Invisible FX effect whose layer draws through a compiled graph,
-  plays it with the graph, without it (the layer must draw plain) and without the effect, and
-  reports the material mesh, the drawing sprites, the `?fxdebug=1` lines, the pixels, errors and
-  stalls. Step 8d.8 grows it into the phone-calibration play.
+- **A published game with particle materials on it:** `particle-material-play.mjs` (Invisible
+  Shader Graph step 8d.8) places Invisible FX effects whose layers draw through a compiled graph
+  made for particles, plays them with the graph, without it (the layer must draw plain), without
+  the effect and with nine material layers (the cap of 8), on WebGL2 and WebGL1, and reports the
+  material meshes, the drawing sprites, the `?fxdebug=1` lines (state, peak, load), the pixels,
+  errors and stalls; `--calibrate` adds frame times. It needs a release build of the runtime.
+  [particle-material.md](particle-material.md) is its playbook and the owner's phone check.
 - **A virtual clock instead.** `determinism-proof.mjs` boots with `?ie_determinism=<seed>` and steps frames itself, so captures are pixel-identical run to run. See "Determinism mode" in [status/engine.md](../status/engine.md).
 - **"The game never reaches idle" in a container was the harness** (2026-10-02). The script found
   no `chrome-headless-shell`, or the shell would not start as root. Neither is an engine finding.
@@ -112,6 +114,7 @@ report: [current-games.md](current-games.md). Its screen scripts are per game TY
 | [arcade-platformer.md](arcade-platformer.md) | gravity, jumps and levels (P10.13): a side-view hero with a held / tapped jump on a painted tilemap (solid ground, a wall, one-way ledges), coins, a pit |
 | [online-sample.md](online-sample.md) | the first online arcade room: two browsers in one room on a local game server, inputs only (P10.14) |
 | [bonus-games-7c.md](bonus-games-7c.md) | report: the samples and every bonus-games layer played in a browser (Phase 7c) |
+| [particle-material.md](particle-material.md) | particle materials in a published game, headless, and the owner's phone check that sets their budgets (Shader Graph 8d.8) |
 
 A playbook whose game and win model are decided by DIFFERENT sides (the mock's `WIN_MODEL` vs the
 project's Invisible Game Config) must say so at the top and say which surfaces the cheap local boot

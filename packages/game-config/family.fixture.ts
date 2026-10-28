@@ -418,6 +418,8 @@ check(
 check('an empty object is still online', online({}).arcade?.online, { characters: [] });
 /** What an online game with no `rules` resolves them to (P10.15): players only move. */
 const NO_RULES = { zones: [], abilities: [], round: { nextRoundSeconds: 15, goalScore: 1 } };
+/** …and its bots when it names none (P10.16): no room is filled. */
+const NO_BOTS = { fillTo: 0, characters: [], canWin: false, spawns: [] };
 check(
 	'resolve: defaults, the spawn at the field centre',
 	resolveArcadeOnline(online({ characters: swimmers }), { w: 800, h: 600 }),
@@ -431,6 +433,7 @@ check(
 		spawn: { x: 400, y: 300 },
 		layer: 'field',
 		rules: NO_RULES,
+		bots: NO_BOTS,
 	},
 );
 check(
@@ -456,6 +459,7 @@ check(
 		spawn: { x: 400, y: 300 },
 		layer: 'field',
 		rules: NO_RULES,
+		bots: NO_BOTS,
 	},
 );
 check('resolve: not online', resolveArcadeOnline(normalize(ARCADE), { w: 1, h: 1 }), undefined);

@@ -144,6 +144,9 @@ Owner agent: `bonus-games`.
 
 ## Read more
 
+- `services/director-worker/families/slot.md`: what Director's runtime agents read about this family
+  (its `add-ons` section under Kinds, plus the family-wide sections). The pack is the one home of
+  that text; edit it there.
 - `docs/status/pots-overlay.md` (Phase board, Open items, Owner checklist, Recent changes)
 - `docs/status/bonus-games.md` (Phase board, Decisions & findings)
 - `docs/design/pots-overlay.md`, `docs/design/bonus-games.md` (§0 supersedes §1 and §6.4)

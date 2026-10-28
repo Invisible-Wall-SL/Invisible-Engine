@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { isHttpError } from '@sveltejs/kit';
-import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
+import { DEFAULT_GAME_KIND, familyOfKind } from 'constants-shared/gameKinds';
 import {
 	estimateRepair,
 	estimateRun,
@@ -26,6 +26,10 @@ import { PROJECT_KEY_WORDS } from '$lib/projectKey';
 import { GAME_BUG_TRIAGE_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import profilesFile from '../../../../../../services/director-worker/estimate-profiles.json';
 import {
+	PACK_FAMILY_LABELS,
+	READY_FAMILY_PACKS,
+} from '../../../../../../services/director-worker/src/familyPack';
+import {
 	CHECKPOINTS,
 	type Checkpoint,
 } from '../../../../../../services/director-worker/src/runState';
@@ -49,6 +53,7 @@ import {
 	projectExists,
 	projectInFolder,
 	projectClientKey,
+	projectGameType,
 	projectKeyTaken,
 	projectName,
 } from '../projects';
@@ -442,7 +447,16 @@ export async function createRepairRun(user: User, input: CreateRepairInput): Pro
 			`"${projectKey}" is a Director template. A template is pipeline content: its bug is fixed as a pipeline change.`,
 		);
 	}
-	// The family's pack check (`no_family_pack`) and its frozen `family` join here once 9F lands.
+	// The family is frozen from the project's own kind, as a create freezes its template's; a family
+	// with no ready pack is refused before anything is written.
+	const family = familyOfKind(await projectGameType(projectKey));
+	if (!READY_FAMILY_PACKS.has(family)) {
+		throw new RunError(
+			409,
+			'no_family_pack',
+			`Director has no ready pack for ${PACK_FAMILY_LABELS[family]} games yet, so it cannot repair a ${PACK_FAMILY_LABELS[family]} game.`,
+		);
+	}
 	const busy = await liveRunOnProject(projectKey);
 	if (busy) {
 		throw new RunError(
@@ -460,6 +474,7 @@ export async function createRepairRun(user: User, input: CreateRepairInput): Pro
 		clientKey,
 		ownerUserId: user.id,
 		bugNumber: number,
+		family,
 		configEtag: config.etag,
 	});
 	if (outcome === 'live_run') {
@@ -518,6 +533,7 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 	}
 	const template = await requireTemplate(user, templateKey);
 	const templateType = template.gameType || DEFAULT_GAME_KIND;
+	const family = familyOfKind(templateType);
 	if (gameType !== '' && templateType !== gameType) {
 		throw bad('template_kind', `"${template.key}" is a ${templateType} game, not ${gameType}.`);
 	}
@@ -555,6 +571,14 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 	// After the replay: a tab open across the 8C deploy that resends a create the old build made
 	// gets its run back, while a new create from it is refused.
 	refuseRetiredPreset(input.preset);
+	// Before the key checks and the folder claim, so a refused family writes nothing.
+	if (!READY_FAMILY_PACKS.has(family)) {
+		throw new RunError(
+			409,
+			'no_family_pack',
+			`Director has no ready pack for ${PACK_FAMILY_LABELS[family]} games yet, so it cannot re-theme ${template.name}.`,
+		);
+	}
 
 	if (await projectExists(key)) throw bad('key_exists', 'A project with that key exists.');
 	if (await projectKeyTaken(key)) {
@@ -584,6 +608,7 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 			projectKey: key,
 			clientKey,
 			templateProjectKey: template.key,
+			family,
 			ownerUserId: user.id,
 			startingPointJson: await startingPointFor(clientKey, key, notes, user),
 			checkpointsJson: checkpoints,
