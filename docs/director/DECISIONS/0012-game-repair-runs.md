@@ -1,6 +1,6 @@
 # ADR-0012 — Game repair runs
 
-- **Status:** proposed
+- **Status:** approved (2026-10-28, owner, relayed; see "Owner decision" at the end)
 - **Date:** 2026-10-27
 - **Scope:** PLAN card 9G. A Director run that fixes one game bug in its own project: the run kind,
   the `game-doctor` runtime agent, the Repair review checkpoint, the game bug → pipeline bug
@@ -70,7 +70,7 @@
   (`no_family_pack`); only `slot` is ready. The slot pack's first line says "This run re-themes a
   slot game".
 
-## Decision (proposed)
+## Decision
 
 ### 1. The run kind
 
@@ -491,3 +491,10 @@ played", and Repair review says so (ADR-0010 owner decision 4).
 10. **The art director cannot see variant images today** (`driver.ts:498` sends them as truncated
     base64 text). Fix it as slice 9G.0, its own PR with a create-run eval. Default: yes. The
     alternative is a separate pipeline bug outside 9G.
+
+## Owner decision (2026-10-28)
+
+Approved: items 1–10 of "Needs owner approval", each at its default, as written. The owner gave
+the approval in the coordinator session. The coordinator posted it on #1414 at the owner's request
+([comment](https://github.com/Invisible-Wall-SL/Invisible-Engine/pull/1414#issuecomment-6464347929)).
+Item 10 shipped as 9G.0 (#1416). The owner's merge of #1414 is the final confirmation.
