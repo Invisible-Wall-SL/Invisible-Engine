@@ -98,6 +98,9 @@ before — an un-authored project still runs the compiled template.
   (which symbol, how many) and how many spins they award. Shown for every kind but
   Hold and Win (no free spins); a Book-of game always triggers on its book. See
   _Free spins_ below.
+- **Expanding wilds** and **Growing wild** — wilds that change the board when they land,
+  before any win is counted. Shown on a lines game that does not tumble. See _Expanding wilds
+  and the growing wild_ below.
 - **Reel behaviour** — how a round **arrives** on the board: whether the reels roll
   at all, and if not, how the new symbols get there. See _Reel behaviour_ below.
 - **Game modes** — every mode's board and presentation (base game, free spins, respin
@@ -634,6 +637,41 @@ Lucky Spin or the random metre to it in Coin overlay_), then:
 
 A field left on the base game's is not stored: the mode follows the base game for it, so a later
 change to the base game reaches the spins mode too.
+
+## Expanding wilds and the growing wild
+
+Two optional sections, each with an **on/off** select: on adds the block to the config, off
+removes it. They show on a **lines** game that does **not tumble**, and not on a Book-of or Hold
+and Win project. Anywhere else, a block the config already has shows only a **Remove** link, so
+its error never blocks Save for good. Their problems are listed under each section.
+
+Which reels a wild lands on is always set by the **reel strips** — these sections only say what
+it does once it has landed. The Invisible Test Server deals both from the config; a partner
+server deals them by its own math.
+
+### Expanding wilds
+
+A wild that fills its whole reel when it lands.
+
+- **The table** lists every wild in the dictionary (a symbol with the _wild_ property that is
+  not a scatter or a Hold and Win symbol). Tick **Expands** for each wild that expands. **Dealt
+  on reels (base game)** is read-only: the reels the base game's strips deal it on, or _none_.
+- **Expand only on a win** — off by default: a wild expands every time it lands, as in the
+  reference game. On, it expands only when it sits on a winning line.
+
+### Growing wild
+
+A wild that copies itself onto the cells around it when it lands, after any expanding wild has
+expanded. It never covers a scatter or a Hold and Win symbol, and a copy does not grow again.
+
+- **Wild** — the one wild that grows. A wild either expands or grows, not both. A line under the
+  select shows the reels the base game's strips deal it on.
+- **Pattern** — which cells it copies onto: _Plus_ (up, down, left, right — the default),
+  _Vertical_, _Horizontal_ or _All 8 around_. Cells off the board are skipped.
+- **Base game reels it grows from** — tick the reels (1 to N). None ticked means the centre
+  reel, which the row says.
+- **Free spins reels it grows from** — on a game with free spins. None ticked means the same
+  reels as the base game.
 
 ## Reel behaviour
 

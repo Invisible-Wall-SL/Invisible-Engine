@@ -793,6 +793,25 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-28 — **Expanding wilds and the growing wild: two optional lines blocks**
+  (`expandingWilds`, `growingWild`; plan `docs/design/expanding-and-growing-wilds.md`, branch
+  `lines/expanding-growing-wilds`). Absent ⇒ every config normalizes, deals and renders as before.
+  - `src/expandingWilds.ts` / `src/growingWild.ts`: normalize (presence is the feature; only
+    departures stored), one resolver each (`resolveExpandingWilds` adds the reels the base strips
+    deal each wild on; `resolveGrowingWild` defaults to the centre reel, free spins = base,
+    `plus`), validate (a dealt, non-scatter, non-Hold-and-Win wild; lines win model; no tumble; no
+    base-game Hold and Win; reels on the grid; a wild expands or grows, not both; a warning when
+    the strips never deal the growing wild on its reels). `growCells` is the pattern, mirrored by
+    the mock and held equal by `check:wild-rewrite`.
+  - `/config`: an "Expanding wilds" and a "Growing wild" section (`WildsSections.svelte`,
+    setters in `wildsDoc.ts`), on lines games that do not tumble and are not Book-of or Hold and
+    Win; a stored block where it cannot play shows as a removal stub. Gate:
+    `check:game-config-family`.
+  - The mock contract carries both blocks in server names (`W` → `WILD`, any other wild by its own
+    name, which the facade passes through): `projectWildRewrite` in `mockContract.ts`, validated
+    by the test server's `validGrid`. Gate: `check:mock-contract`.
+  - Fixture: `packages/game-config/expandingWilds.fixture.ts` (in `check:wild-rewrite`).
+
 - 2026-10-23 — **Game families in the config: `family`, `outcome` and the `match3` / `arcade`
   blocks** (P10.1 of [game-families.md](../design/game-families.md)). All optional, defaults never
   stored. A slot config normalizes, validates and renders on `/config` exactly as before. That is

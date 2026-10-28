@@ -517,6 +517,37 @@ export const validGrid = (grid) => {
 					})),
 				}
 			: null;
+	// Expanding and growing wilds (game-config's resolvers, in server names). Each wild must name a
+	// symbol and reels on the board; malformed ⇒ dropped, never half-dealt.
+	const reelsOnBoard = (list) =>
+		Array.isArray(list) && list.every((r) => Number.isInteger(r) && r >= 0 && r < reels);
+	const named = (s) => typeof s === 'string' && s.length > 0 && s.length <= 64;
+	const ew = grid.expandingWilds;
+	const expandingWilds =
+		ew &&
+		Array.isArray(ew.symbols) &&
+		ew.symbols.length > 0 &&
+		ew.symbols.length <= reels &&
+		ew.symbols.every((w) => w && named(w.symbol) && reelsOnBoard(w.reels))
+			? {
+					symbols: ew.symbols.map(({ symbol, reels: on }) => ({ symbol, reels: on })),
+					...(ew.onlyOnWin === true ? { onlyOnWin: true } : {}),
+				}
+			: null;
+	const gw = grid.growingWild;
+	const growingWild =
+		gw &&
+		named(gw.symbol) &&
+		reelsOnBoard(gw.reels) &&
+		reelsOnBoard(gw.freeSpinReels) &&
+		['plus', 'vertical', 'horizontal', 'all8'].includes(gw.pattern)
+			? {
+					symbol: gw.symbol,
+					reels: gw.reels,
+					freeSpinReels: gw.freeSpinReels,
+					pattern: gw.pattern,
+				}
+			: null;
 	// The in-play scatter is also wild (the Book-of book): it substitutes on lines. Only `true`.
 	const scatterWild = grid.scatterWild === true;
 	// A Hold and Win game's inputs: its block, line symbols and symbol roles/pays. Shape-checked only
@@ -677,6 +708,8 @@ export const validGrid = (grid) => {
 		...(freeSpinsAwards ? { freeSpinsAwards } : {}),
 		...(expandingSymbol ? { expandingSymbol } : {}),
 		...(scatterWild ? { scatterWild: true } : {}),
+		...(expandingWilds ? { expandingWilds } : {}),
+		...(growingWild ? { growingWild } : {}),
 		...(match3 ? { match3 } : {}),
 	};
 };

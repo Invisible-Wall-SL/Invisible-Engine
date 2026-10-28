@@ -112,3 +112,18 @@ available.
   on the INTERIM balance (stake debited, win not shown) and ends `idle` on exactly the mock's
   `/state?sid=…` balance. The next spin is a fresh $1 round at `seq=0` with no `gid` — not a re-buy.
 - **Offline gate:** `pnpm check:resume`.
+
+### S8 — An expanding wild fills its reel; a growing wild grows (lines mock)
+- **Force:** the LINES mock, with the dev game's `W` as both wilds in turn (the dev config has one
+  wild) and every spin landing it:
+  - expand: `EXPANDING_WILDS=WILD FORCE_WILDS=1 ROWS=4 PORT=7788 node scripts/mock-rgs-server.mjs`
+  - grow: `GROWING_WILD=WILD FORCE_WILDS=1 ROWS=4 PORT=7788 node scripts/mock-rgs-server.mjs`
+- **Do:** boot as in Launch; spin a few times on each.
+- **Expect (expand):** a `W` lands on reel 2, 3 or 4; the rest of that reel becomes `W` (the
+  stacked picture grows over the reel when `W` has stacked art, else cell by cell) BEFORE any win
+  line shows; the win lines then light cells that are all their symbol or `W`, and the win equals
+  the mock's `gameEnd`. A scatter on that reel stays.
+- **Expect (grow):** a `W` lands on the centre reel, bursts, and its plus-shaped neighbours become
+  `W` outwards, then the wins show. Slam mid-way: the board still ends in the final state.
+- **Offline gate:** `pnpm check:wild-rewrite`.
+

@@ -62,6 +62,7 @@ import {
 	responseClosedRound,
 } from './translator';
 import { isPlay4FunError } from './types';
+import { translateWildRewrites, wildRewritesBySpin } from './wildRewrite';
 import type {
 	Play4FunActionEnvelope,
 	Play4FunBookEvent,
@@ -183,6 +184,8 @@ const warnedUncapturedModes = new Set<string>();
 /** Track unknown symbols we've already warned about, keyed by `sid:symbol`, so
  *  a malformed reveal doesn't spam the console. */
 const warnedUnknownSymbols = new Set<string>();
+/** Sessions already warned that a wild rewrite disagrees with their board (`./wildRewrite`). */
+const warnedWildDrift = new Set<string>();
 
 /** Locate the `config` event in a raw Play4Fun response. */
 const findConfigEvent = (events: Play4FunBookEvent[] | undefined): Play4FunConfigContext | null => {
@@ -926,6 +929,26 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 		if (drop !== undefined)
 			push(overlayDropEvent(events[drop].context, (n) => mapSymbol(activeMapping, n)));
 	};
+	// Each spin's expanding and growing wilds, presented with its board (`./wildRewrite`).
+	const wildRewritesAt = wildRewritesBySpin(events);
+	const pushWildRewritesOf = (spin: number, landed: string[][]) => {
+		const rewrites = wildRewritesAt.get(spin);
+		if (!rewrites) return;
+		const out = translateWildRewrites(
+			rewrites,
+			landed,
+			(name) => mapSymbol(activeMapping, name),
+			BOARD_PADDING_ROWS,
+		);
+		out.bookEvents.forEach(push);
+		if (out.drift && !warnedWildDrift.has(sid)) {
+			warnedWildDrift.add(sid);
+			console.warn(
+				`[engine-facade] ${out.drift} wild cell(s) changed from a symbol the board does not hold — the server and the client read different boards`,
+			);
+		}
+		if (!inFreeSpins()) triggerBoard = out.board;
+	};
 	const pushFillsOf = (spin: number) => {
 		for (const at of ahead.get(spin)?.meters ?? [])
 			push(meterUpdateEvent((events[at].context ?? {}) as Record<string, unknown>));
@@ -1156,6 +1179,8 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				});
 				// The tokens dropped on this board appear with it, before anything it pays (§3.2).
 				pushDropOf(i);
+				// Its wilds expand and grow next, before the wins, which are the final board's.
+				pushWildRewritesOf(i, reels);
 				// AFTER the natural board lands, if this is a free spin and 3+ of the
 				// special symbol are on the board, tell the client which reels to
 				// morph (every non-special cell in those reels becomes the special,
@@ -1399,6 +1424,10 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				push({ type: 'setTotalWin', amount });
 				break;
 			}
+			case 'expandedWild':
+			case 'growingWild':
+			case 'symbolSetInMatrix':
+				break;
 			case 'gameRoundOver':
 				push({
 					type: 'finalWin',

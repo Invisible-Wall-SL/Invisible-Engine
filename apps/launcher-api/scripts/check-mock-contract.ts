@@ -811,6 +811,48 @@ await check('the Paylines preview and paytable import ask the AUTHORING mock', a
 	eq(new URL(asked[0]).pathname, '/api/remake/authoring/rgs/engine', 'path');
 });
 
+console.info('expanding and growing wilds (docs/design/expanding-and-growing-wilds.md §2)');
+
+/** The lines template dealing `W` on reels 2–4 and a second wild, `CLOVER`, on the centre reel. */
+const withWilds = (blocks: Record<string, unknown>, base = template('lines')): GameConfigDoc => {
+	const paddingReels = structuredClone(base.paddingReels);
+	for (const reel of [1, 2, 3]) paddingReels.basegame[reel].push({ name: 'W' });
+	paddingReels.basegame[2].push({ name: 'CLOVER' });
+	return normalizeGameConfigDoc({
+		...base,
+		symbols: { ...base.symbols, CLOVER: { special_properties: ['wild'] } },
+		paddingReels,
+		...blocks,
+	})!;
+};
+
+await check('both blocks ride in server names: W is WILD, any other wild its own name', () => {
+	const grid = linesGrid(
+		withWilds({
+			expandingWilds: { symbols: ['W'], onlyOnWin: true },
+			growingWild: { symbol: 'CLOVER' },
+		}),
+	);
+	eq(
+		grid.expandingWilds?.symbols.map((w) => w.symbol),
+		['WILD'],
+		'expanding',
+	);
+	eq(grid.expandingWilds?.onlyOnWin, true, 'onlyOnWin');
+	eq(grid.growingWild, { symbol: 'CLOVER', reels: [2], freeSpinReels: [2], pattern: 'plus' }, 'growing'); // prettier-ignore
+	const { expandingWilds: _e, growingWild: _g, ...rest } = grid;
+	eq(rest, linesGrid(withWilds({})), 'nothing else moves');
+	eq('expandingWilds' in linesGrid(withWilds({})), false, 'no block: nothing sent');
+});
+
+await check('they travel only where the lines mock can rewrite the board', () => {
+	const blocks = { expandingWilds: { symbols: ['W'] }, growingWild: { symbol: 'CLOVER' } };
+	const ways = mockContractOfBundle('ways', { config: withWilds(blocks, template('ways')), symbols: NO_SYMBOLS }, 'w').grid ?? {}; // prettier-ignore
+	eq('expandingWilds' in ways || 'growingWild' in ways, false, 'a ways game');
+	const tumbling = linesGrid(withWilds({ ...blocks, cascade: true }));
+	eq('expandingWilds' in tumbling || 'growingWild' in tumbling, false, 'a lines game that tumbles');
+});
+
 console.info('free play (game-families §2.3, §6.3)');
 
 await check(
