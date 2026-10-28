@@ -830,8 +830,8 @@
 				</label>
 				<p class="hint">
 					How tall the symbol is drawn in the <strong>info bar</strong> only — 100% stands as tall as
-					the words. Above 100% it can stand taller than the bar's text box. The text keeps its size,
-					unless a much wider symbol makes the line too long for the bar.
+					the words, whatever the size of the bar's text box. The text keeps its size, unless a much wider
+					symbol makes the line too long for the bar.
 				</p>
 			{/if}
 		</section>
