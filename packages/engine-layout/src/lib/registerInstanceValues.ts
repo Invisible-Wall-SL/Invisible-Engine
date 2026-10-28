@@ -41,6 +41,11 @@ export function registerInstanceValues(sources: Record<string, InstanceValueSour
 	}
 }
 
+/** Forget one node's source (a spawned instance that has gone; its id is never reused). */
+export function unregisterInstanceValues(nodeId: string): void {
+	registry.delete(nodeId);
+}
+
 export function getInstanceValueSource(nodeId: string): InstanceValueSource | undefined {
 	return registry.get(nodeId);
 }

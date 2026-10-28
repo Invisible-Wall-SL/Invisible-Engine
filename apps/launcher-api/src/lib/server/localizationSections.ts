@@ -12,6 +12,7 @@ import { resolveGameConfig } from './gameConfigDefaults';
 import { withPlacedComponentVersions } from './flowV2Validation';
 import {
 	harvestBetModeText,
+	harvestCardText,
 	harvestFlowInstanceText,
 	harvestFlowMessages,
 	harvestSceneText,
@@ -89,6 +90,7 @@ export async function harvestProjectSections(
 		...harvestFlowMessages(flowV2Doc ?? undefined),
 		...harvestFlowInstanceText(flowV2Doc ?? undefined, instances, spawnLayers),
 		...harvestBetModeText(gameConfig.doc),
+		...harvestCardText(gameConfig.doc),
 		// The engine's own coded chrome (HUD captions, menus, modals, info-page rules) — the same
 		// registry the runtime renders from, so the shipped UI is translatable per project instead of
 		// being stuck on the two languages the code catalogs happen to ship.

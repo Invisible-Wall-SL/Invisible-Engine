@@ -9,7 +9,7 @@
 // template in `packages/game-config`, and the compiled `src/game/config.ts` of each game app. For
 // each one:
 //
-//   1. the normalized doc holds no family key (`family`, `outcome`, `match3`, `arcade`);
+//   1. the normalized doc holds no family key (`family`, `outcome`, `match3`, `arcade`, `card`);
 //   2. naming the defaults (`family: 'slot'`, `outcome: 'rgs'`), or giving a slot a rules outcome
 //      or a family block it cannot use, normalizes to the same BYTES;
 //   3. it is a fixed point of the normalizer;
@@ -89,8 +89,10 @@ for (const app of readdirSync(APPS)) {
 	corpus.push([`app ${app}`, mod.default]);
 }
 
-const FAMILY_KEYS = ['family', 'outcome', 'match3', 'arcade'];
-const SLOT_SECTIONS = CONFIG_SECTIONS.filter((s) => s !== 'match3' && s !== 'arcade');
+const FAMILY_KEYS = ['family', 'outcome', 'match3', 'arcade', 'card'];
+const SLOT_SECTIONS = CONFIG_SECTIONS.filter(
+	(s) => s !== 'match3' && s !== 'arcade' && s !== 'card',
+);
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
 let normalized = 0;
@@ -111,8 +113,11 @@ for (const [name, raw] of corpus) {
 	const variants: [string, Record<string, unknown>][] = [
 		['the defaults named', { family: 'slot', outcome: 'rgs' }],
 		['a rules outcome', { outcome: 'rules' }],
-		['family blocks', { match3: { moves: 10 }, arcade: { fixedHz: 30 } }],
-		['an unknown family', { family: 'card' }],
+		[
+			'family blocks',
+			{ match3: { moves: 10 }, arcade: { fixedHz: 30 }, card: { rules: { deckSize: 15 } } },
+		],
+		['an unknown family', { family: 'poker' }],
 	];
 	for (const [label, extra] of variants) {
 		const withExtra = normalizeGameConfigDoc({ ...clone(raw as object), ...extra });
@@ -167,7 +172,7 @@ for (const [name, raw] of familySeeds) {
 	);
 	check(
 		`${name}: /config shows its family's section and no slot-only one`,
-		configSectionsOf(doc).has(resolveFamily(doc) as 'match3' | 'arcade') &&
+		configSectionsOf(doc).has(resolveFamily(doc) as 'match3' | 'arcade' | 'card') &&
 			!configSectionsOf(doc).has('paylines'),
 	);
 }

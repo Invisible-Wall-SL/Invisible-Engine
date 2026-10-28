@@ -2,6 +2,7 @@ import type { GameTemplate } from '../types';
 
 import { arcadeTemplate } from './arcade';
 import { bookofTemplate } from './bookof';
+import { cardTemplate } from './card';
 import { holdAndWinTemplate } from './holdAndWin';
 import { linesTemplate } from './lines';
 import { match3Template } from './match3';
@@ -20,6 +21,7 @@ const TEMPLATES: Record<string, GameTemplate> = {
 	holdAndWin: holdAndWinTemplate,
 	match3: match3Template,
 	arcade: arcadeTemplate,
+	card: cardTemplate,
 };
 
 /** The built-in template for a game type, or `undefined` if none is registered. */
@@ -39,5 +41,6 @@ export {
 	holdAndWinTemplate,
 	match3Template,
 	arcadeTemplate,
+	cardTemplate,
 };
 export { standardTemplate } from './standard';

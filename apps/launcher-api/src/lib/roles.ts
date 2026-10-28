@@ -496,6 +496,7 @@ export const FAMILY_TOOLS: Record<GameFamily, readonly string[]> = {
 	slot: ['characters'],
 	match3: ['characters'],
 	arcade: ['symbols', 'winText'],
+	card: ['symbols', 'winText', 'characters'],
 };
 
 /** How a family is named in the hidden-tool notice ("not used by arcade games"). */
@@ -503,6 +504,7 @@ export const FAMILY_LABELS: Record<GameFamily, string> = {
 	slot: 'slot',
 	match3: 'match-3',
 	arcade: 'arcade',
+	card: 'card',
 };
 
 export function familyUsesTool(family: GameFamily, id: string): boolean {
