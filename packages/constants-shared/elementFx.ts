@@ -1915,6 +1915,7 @@ export function elementFxChannels(entries: readonly ElementFxEntry[]): string[] 
 
 /** The target name the flow uses for the reels. */
 export const ELEMENT_FX_REELS_TARGET = 'reels';
+export const ELEMENT_FX_STAGE_TARGET = 'stage';
 /** The target name the flow uses for a whole screen. */
 export const elementFxScreenTarget = (sceneId: string): string => `screen:${sceneId}`;
 

@@ -7,6 +7,7 @@
 	import { Anchor, App, Container, Text, registerGpuWarmup } from 'pixi-svelte';
 	import {
 		ELEMENT_FX_REELS_TARGET,
+		isPlayableElementFxKind,
 		readElementFxEntries,
 		setCustomElementFx,
 	} from 'constants-shared/elementFx';
@@ -103,6 +104,9 @@
 		TRANSITION_DEF,
 		TRANSITION_WIPE_DEF,
 		resolveAuthoredOverlays,
+		readTransitionCue,
+		transitionCueStatus,
+		type TransitionCueStatus,
 		authoredButtonsStatus,
 		withAuthoredButtonsDoc,
 		isBuiltinButtonShape,
@@ -273,6 +277,7 @@
 		specialBookSceneOf,
 		winVisualSceneOf,
 	} from '../game/sceneSelection';
+	import { bootTransitionCueStatus, subscribeTransitionCue } from '../game/screenTransitions';
 	import { skipUnusedStockAssets } from '../game/stockAssetBoot';
 	import {
 		PLATFORM_JACKPOT_TIERS,
@@ -482,12 +487,17 @@
 	// Likewise the authored Win's and free-spin path's registrations (Rive plan Phase 8b / 8c).
 	let stopAuthoredWin: (() => void) | undefined;
 	let stopAuthoredFreeSpins: (() => void) | undefined;
+	// …and the `transition` cue's screen transition (Invisible Shader Graph 8e), with the status this
+	// boot plays it with.
+	let stopTransitionCue: (() => void) | undefined;
+	let transitionCue = $state<TransitionCueStatus>('off');
 	let destroyed = false;
 	onDestroy(() => {
 		destroyed = true;
 		disposeFlowV2?.();
 		stopAuthoredWin?.();
 		stopAuthoredFreeSpins?.();
+		stopTransitionCue?.();
 	});
 
 	// And say out loud when the RGS is dealing a DIFFERENT board than the one the project authored.
@@ -1205,7 +1215,7 @@
 	// The overlays scene, with the coded `bind:Win` composer degraded to its gate half when the doc
 	// places its own win visual (see `basegameOverlaysSceneOf`).
 	const basegameOverlaysScene = $derived(
-		basegameOverlaysSceneOf(editorDoc, fallbackEditorScenes, authoredWinRuntime.on),
+		basegameOverlaysSceneOf(editorDoc, fallbackEditorScenes, authoredWinRuntime.on, transitionCue),
 	);
 	// Whether the (unconditionally-mounted) `basegameOverlays` scene STILL carries a coded WIN gate
 	// bind — the reference layout's `WIN_INSTANCE` shapes: `bind:Win` (the OFF composer, gate +
@@ -2361,17 +2371,33 @@
 			// stay coded). `doc` below — the scenes rendered, both flow interpreters' `resolveScene`, the
 			// board override — is the swapped doc, so no mount path renders a coded node the retires
 			// below have made inert. Off, or held back ⇒ the same doc object (parity).
+			// Invisible Shader Graph 8e: the `transition` cue's screen transition, by the one rule the
+			// publish chip shares (`transitionCueStatus`). On `screen` the coded Transition is retired and
+			// the authored swap is not made, so the screen transition alone holds the cue. Unset, its kind
+			// not registered, or no transition runtime bound ⇒ `off` / `unplayable`: the wipe (parity).
+			const cueStatus = bootTransitionCueStatus(() =>
+				transitionCueStatus(rawDoc, isPlayableElementFxKind),
+			);
 			const overlays = resolveAuthoredOverlays(rawDoc, {
 				status: resolveAuthoredWinStatus,
 				presentation: authoredWinPresentation,
+				transitionCue: cueStatus,
 			});
 			const { doc } = overlays;
 			const authored = overlays.transition === 'ready';
+			const screenCue = cueStatus === 'screen';
 			const authoredWin = overlays.win === 'ready';
 			const authoredFreeSpins = overlays.freeSpins === 'ready';
 			// Retire the coded Transition part BEFORE the doc's instances mount, so a project that also
-			// placed the hybrid `transition` twin plays one wipe (the authored one).
-			retireCodedOverlay('transition', authored);
+			// placed the hybrid `transition` twin plays one wipe (the authored one), or none under a
+			// screen transition.
+			retireCodedOverlay('transition', authored || screenCue);
+			transitionCue = cueStatus;
+			const stopCue = subscribeTransitionCue(cueStatus, readTransitionCue(rawDoc), (handler) =>
+				context.eventEmitter.subscribe({ transition: handler }),
+			);
+			if (destroyed) stopCue();
+			else stopTransitionCue = stopCue;
 			// Likewise the coded `WinVisual` (the drawn half only — `WinGate` stays and conducts): the
 			// `win` twin's bound child and the composer's visual both go dark, one presentation plays.
 			retireCodedOverlay('win', authoredWin);

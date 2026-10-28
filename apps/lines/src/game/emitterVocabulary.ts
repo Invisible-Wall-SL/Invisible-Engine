@@ -1181,6 +1181,14 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Effect',
 		},
 		{
+			name: 'screenTransition',
+			group: 'Effect',
+		},
+		{
+			name: 'waitForScreenTransition',
+			group: 'Effect',
+		},
+		{
 			name: 'elementEffect',
 			group: 'Effect',
 		},
