@@ -31,7 +31,7 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
 §2.5. Shared code reaches match-3, arcade and card code only through
 `apps/lines/src/families/{match3,arcade,card}.ts`; `families/off/*` are inert stubs with the same
 names and types. `config-vite` (`families.js`, in `baseConfig()`, so game repos get it) reads
-`PUBLIC_IE_FAMILIES` (comma list of `match3` / `arcade` / `card`, or `all`; unset = `all`; empty or
+`PUBLIC_IE_FAMILIES` (comma list of `match3` / `arcade` / `card`, or `all`; unset or empty = `all`;
 `slot` = slot only), swaps each left-out seam for its stub by resolved path (works for
 `engine/apps/lines/src` too), and defines `__IE_FAMILIES__`. The boot (`routes/+layout.ts`,
 `game/runtimeFamilies.ts`) refuses a config whose family the bundle lacks: "this runtime does not
@@ -40,9 +40,24 @@ play <family> games". Nothing sets the env var yet, so every build is still `all
 game, `engine-flow-v2` exports the family vocabularies and action lists to the shared flow code,
 and `game-config`'s card normalizer reads `engine-mechanics` `cards.js`.
 
-**P11.1b engine half — four runtimes, the baked-config default, `check:family-runtimes` (built
-2026-10-28; in review).** [phase-11.md](../design/phase-11.md) §2.4, §3.1. The release workflow,
-`runtimeFor(config)` and the harness are the pipeline half, on their own branch.
+**P11.1b — four runtimes, the baked-config default, `check:family-runtimes` (built 2026-10-28; in
+review).** [phase-11.md](../design/phase-11.md) §2.4, §3.1.
+
+- **Four runtimes.** `lines` (every slot kind; still built `all` until P11.1c), `match3`, `arcade`
+  and `card`, listed once in `packages/constants-shared/runtimes.ts` (`RUNTIMES`, `RUNTIME_IDS`,
+  `runtimeIdOfFamily`, `releaseFamiliesOf`). `runtime-release.yml` runs the gates once, then a
+  matrix per id: build `apps/lines` with the id's `PUBLIC_IE_FAMILIES` (always explicit), then
+  `check-family-runtime.mjs`, upload, promote and verify. Concurrency is per id, a failed id blocks
+  no other, and its alert names the id. Rollback's `runtime` is a choice of the four, and
+  `check:runtime-choice` keeps both workflows' lists equal to `RUNTIME_IDS`.
+- **Publish** (`apps/launcher-api` `runtimeChoice.ts`): a game goes on its config family's id. A
+  kind / family disagreement is refused (`kind-family`, no override). While an id has no release
+  yet, publish falls back to `lines` and the snapshot records the id it used.
+- **The current-games harness** builds one `apps/lines` per id on each side (`<side>/<id>/`,
+  `runtimes.json`; cache key v3) and renders each game on its own id. A ref that predates the seams
+  builds `lines` once for every id.
+- **`check:game-app-deps`** keeps `engine-rooms` behind `families/arcade.ts` (`game/online.ts`,
+  `ArcadeStage.svelte`).
 
 - **The baked-config default.** With `PUBLIC_IE_FAMILIES` unset or blank, a build (never a dev
   server) reads the baked bundle the build compiles (`families.js` `bakedBundlePath()`:
@@ -2205,12 +2220,16 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 ## Recent changes
 
-- 2026-10-28 — **P11.1b engine half: four runtimes.** Builds now default to the baked config's
+- 2026-10-28 — **P11.1b engine half: the family default and the gate.** Builds now default to the baked config's
   family. The runtime drops each left-out family's Flow vocabulary and seeds (`familyFlow.ts`,
   `vocabularyIn`, `@__PURE__` registries and builders). Adds `check:family-runtimes`
   (`scripts/check-family-runtime.mjs`, `scripts/family-runtime-budget.json`) and
   `check-family-seams.mjs`. Gzip sizes: slot 1,295,481 B, match3 1,303,854 B, arcade 1,392,424 B,
   card 1,308,154 B; `all` 1,411,903 B, −0.27 % against P11.1a. Detail above.
+- 2026-10-28 — **P11.1b pipeline half: four runtime releases.** `packages/constants-shared/runtimes.ts`;
+  the per-id release matrix and the rollback choice (`check:runtime-choice`); publish by family with
+  the `kind-family` refusal and the `lines` fallback (`runtimeChoice.ts`); the harness renders each
+  game on its own id; `check:game-app-deps`' `engine-rooms` rule. Detail above.
 - 2026-10-28 — **P11.1a family seams** (seams `families/match3` — `Match3Input`, `awaitMatch3Round`,
   `endMatch3Round`, `presentMatch3Board`, `presentMatch3MovesLeft`; `families/arcade` —
   `ArcadeStage`, `joinOnlineRoom`; `families/card` — `CardTable`, `startCards`). Release-env
