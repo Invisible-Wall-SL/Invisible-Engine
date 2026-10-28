@@ -8,6 +8,7 @@ import { defineConfig } from 'vite';
 // The profile SHAPE check lives in its own dependency-free module so a fixture can drive it —
 // see the note there. Importing this file instead would run sveltekit()/lingui() first.
 import { deliveryProfileProblems } from './deliveryProfile.js';
+import { OPTIONAL_FAMILIES, buildFamilies, familySeams } from './families.js';
 import { buildProvenance } from './provenance.js';
 import { assertSvelteVersions } from './svelteVersions.js';
 
@@ -169,16 +170,36 @@ export const buildStamp = (debug) => ({
 const sourcemap = () => (dev ? true : process.env.IE_SOURCEMAPS === 'hidden' ? 'hidden' : false);
 
 /**
+ * The family set (`families.js`, `docs/design/phase-11.md` §2.2, §2.4): `PUBLIC_IE_FAMILIES`, else
+ * the baked config's family, picks which of match-3, arcade and card this build carries, and
+ * `__IE_FAMILIES__` tells the boot, which refuses a config of a family the bundle lacks. Here, not
+ * in `apps/lines`, so a game repo gets the same.
+ */
+const families = () => {
+	const { list, warning } = buildFamilies({ dev });
+	if (warning) console.warn(`[config-vite] ${warning}`);
+	if (list.length <= OPTIONAL_FAMILIES.length)
+		console.info(`[config-vite] compiling families: ${list.join(', ')}`);
+	return { plugin: familySeams(list), define: { __IE_FAMILIES__: JSON.stringify(list) } };
+};
+
+/**
  * Every game build passes through this factory — the engine's apps and every standalone game repo's
  * `vite.config.js` alike — so it is where a game repo whose Svelte pins drifted from the engine's is
  * stopped, before anything compiles (`svelteVersions.js`).
  */
 export default () => {
 	assertSvelteVersions();
+	const familySet = families();
 	return defineConfig({
-		plugins: [sveltekit(), lingui()],
+		plugins: [familySet.plugin, sveltekit(), lingui()],
 		logLevel: 'info',
-		define: { ...gameBuildDefine(), ...deliveryProfileDefine(), ...deliveryProfilesDefine() },
+		define: {
+			...gameBuildDefine(),
+			...deliveryProfileDefine(),
+			...deliveryProfilesDefine(),
+			...familySet.define,
+		},
 		// Dev SSR externalizes workspace packages without a svelte dependency and hands them to Node,
 		// whose ESM loader cannot resolve their extensionless TS re-exports (`./src/scrub`).
 		ssr: { noExternal: ['error-tracking'] },

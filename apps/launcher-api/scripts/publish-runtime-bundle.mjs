@@ -27,6 +27,8 @@
 //   --no-promote        upload + record the release but leave the pointer alone (a canary: pin one
 //                       game to it with `runtime-pointer.mjs pin`, then `promote` it)
 
+import { spawnSync } from 'node:child_process';
+import { appendFileSync } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, extname, relative, sep } from 'node:path';
 import {
@@ -115,16 +117,7 @@ if (statusFlag === 'failed') {
 	const next =
 		stamp?.status === 'building' && stamp.commit === commit
 			? pointer
-				? {
-						runtimeId,
-						commit: pointer.commit,
-						shortCommit: pointer.shortCommit,
-						builtAt: pointer.builtAt,
-						status: 'released',
-						version: pointer.version,
-						promotedAt: pointer.promotedAt,
-						via: pointer.via,
-					}
+				? releasedStamp(pointer)
 				: { runtimeId, commit, shortCommit, builtAt, status: 'failed' }
 			: stamp;
 	await writeJson(r2, keys.status(runtimeId), { ...next, lastFailure });
@@ -256,6 +249,23 @@ if (!promoteAfterUpload) {
 	process.exit(0);
 }
 
+// Never promote over a NEWER commit's release. A run's per-id job can reach here after a later
+// push's (the groups queue jobs, not runs), and the swap above only guards against a pointer that
+// MOVED. Ancestry needs the history (the release job checks out with `fetch-depth: 0`); when git
+// cannot tell, the release promotes as before.
+const live = swap.pointer?.commit;
+if (live && live !== commit && commit !== 'unknown' && isAncestor(commit, live)) {
+	const stamp = (await readJson(r2, keys.status(runtimeId)))?.value ?? null;
+	if (stamp?.status === 'building' && stamp.commit === commit)
+		await writeJson(r2, keys.status(runtimeId), releasedStamp(swap.pointer));
+	if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, 'superseded=true\n');
+	console.info(
+		`\nRecorded ${runtimeId}@${version} WITHOUT promoting it: the pointer already names a newer ` +
+			`commit (${swap.pointer.shortCommit ?? live.slice(0, 7)}), which ${shortCommit} is an ancestor of.`,
+	);
+	process.exit(0);
+}
+
 const pointer = await promote(r2, runtimeId, release, 'release', swap);
 console.info(
 	`Pointer ${keys.pointer(runtimeId)} → ${version} (previous: ${pointer.previous ?? 'none'})`,
@@ -270,3 +280,29 @@ try {
 }
 
 console.info(`\nNext: POST /refresh the test server so it picks up ${runtimeId}@${version}.`);
+
+/** Whether commit `a` is an ancestor of commit `b` (so `b` is the newer); false when git can't tell. */
+function isAncestor(a, b) {
+	const r = spawnSync('git', ['merge-base', '--is-ancestor', a, b], { stdio: 'ignore' });
+	if (r.status === 0) return true;
+	if (r.status !== 1)
+		console.info(
+			`::warning title=Release order unknown::git cannot order ${a.slice(0, 7)} and ` +
+				`${b.slice(0, 7)}; promoting as before.`,
+		);
+	return false;
+}
+
+/** The launcher's stamp for the release `pointer` names (it is what is live). */
+function releasedStamp(pointer) {
+	return {
+		runtimeId,
+		commit: pointer.commit,
+		shortCommit: pointer.shortCommit,
+		builtAt: pointer.builtAt,
+		status: 'released',
+		version: pointer.version,
+		promotedAt: pointer.promotedAt,
+		via: pointer.via,
+	};
+}

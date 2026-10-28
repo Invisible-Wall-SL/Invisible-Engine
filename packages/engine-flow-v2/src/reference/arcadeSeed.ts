@@ -357,7 +357,8 @@ const buildGraph = (): FlowDoc['graph'] => {
 export const ARCADE_DRIVEN_SEED_DOC: FlowDoc = {
 	version: 2,
 	templateId: ARCADE_TEMPLATE_ID,
-	graph: buildGraph(),
+	// `@__PURE__`: a runtime built without this family drops the seed.
+	graph: /* @__PURE__ */ buildGraph(),
 	containers: CONTAINERS,
 	variables: [
 		{ id: ARCADE_VARIABLES.score, type: 'int', initial: 0, scope: 'game' },

@@ -261,12 +261,16 @@ const main = () => {
 			...only(BOOK_OF_VOCAB.cues, WAYS_VOCAB.cues),
 		].sort();
 		assert(
-			'the whole difference is the six book-mechanic surfaces',
+			'the whole difference is the six book-mechanic surfaces and the four lines-wild ones',
 			JSON.stringify(bookOnly) ===
 				JSON.stringify(
 					[
 						'expandBookColumns',
 						'expandBookColumns',
+						'expandWild',
+						'expandWild',
+						'growWild',
+						'growWild',
 						'setExpandingSymbol',
 						'setSpecialSymbol',
 						'specialBookHide',

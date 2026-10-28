@@ -170,6 +170,14 @@ export const TOKEN_SOUND_LABELS: Record<TokenSoundMoment, string> = {
 };
 
 /**
+ * A Hold and Win coin's moment at the feature's end, stored like the token moments as a key of its
+ * {@link SoundBindings.symbols} row: the coin reaches the Total Win bar in the end tally. Not a
+ * symbol state either: the coin is a flight's head by then.
+ */
+export const COIN_COLLECT_SOUND_MOMENT = 'collectToTotal';
+export const COIN_COLLECT_SOUND_LABEL = 'Collected into the total';
+
+/**
  * A playable name. Deliberately narrow: the name travels into a sprite key, a JSON object key, a
  * dropdown and (at S9) the authored replacement for the generated `SoundName` enum, so the set of
  * characters it may contain is the intersection of all of those, not the union.

@@ -43,6 +43,7 @@ import {
 	syncHoldAndWin,
 } from './holdAndWinPresentation';
 import { presentOverlayDrop } from './overlayPresentation';
+import { presentExpandWild, presentGrowWild } from './wildRewrite.svelte';
 import { presentPlatformJackpotWin } from './platformJackpot.svelte';
 import {
 	presentReveal,
@@ -60,7 +61,7 @@ import {
 } from './flowEffects';
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
 import { activeWinLevelData, boardDimensions } from './gameConfig';
-import { endMatch3Round, presentMatch3Board, presentMatch3MovesLeft } from './match3.svelte';
+import { endMatch3Round, presentMatch3Board, presentMatch3MovesLeft } from '../families/match3';
 import { bakedWinLineConfig } from '../editor-scenes';
 
 export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContext> = {
@@ -204,6 +205,14 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 				await roundSkip.wait(0.12 * SECOND);
 			}
 		}
+	},
+	// Expanding / growing wilds: ordinary line wins follow on the rewritten board, so neither touches
+	// `stateGame.expandedSymbol` (the Book-of special's reel-count win text). See `wildRewrite`.
+	expandWild: async (bookEvent: BookEventOfType<'expandWild'>) => {
+		await presentExpandWild(bookEvent);
+	},
+	growWild: async (bookEvent: BookEventOfType<'growWild'>) => {
+		await presentGrowWild(bookEvent);
 	},
 	freeSpinTrigger: async (bookEvent: BookEventOfType<'freeSpinTrigger'>) => {
 		// A full pot started them (pots overlay): it drains before this handler's own beats, as for any
