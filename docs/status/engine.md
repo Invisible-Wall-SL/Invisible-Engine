@@ -303,6 +303,18 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-28 — **Rolling symbols slide under the board edge instead of popping in and out**
+  (branch `claude/trusting-bardeen-1rd4b9`). Owner report: a reel symbol only appeared once its cell
+  was well into the window and snapped out the same way, leaving a visible gap at the top and bottom
+  of every spinning reel. Cause: `SymbolWrap`'s in-frame cull tested the symbol's CENTRE against the
+  window, so a cell was not drawn until half of it was already inside, and `BoardMask` never got
+  to clip anything. Fix: on the masked layer, while the mask is the tight window (no authored
+  overflow showing, i.e. always while a reel rolls), a symbol is drawn as soon as any part of its row
+  touches the window and the mask clips the rest. The unmasked animating layer, and a settled board
+  whose mask has grown by its authored overflow, keep the centre test, so a resting padding row is
+  never uncovered. Each cell still mounts once per pass, so the 2026-10-27 spin-CPU work is unchanged.
+  `check:svelte --only apps/lines` at baseline; not seen in a browser (the sandbox could not load the
+  game's art), so the owner should watch a spin.
 - 2026-10-27 — **A rolling reel costs ~18% less CPU: the reel geometry and the prop sync are
   cached** (branch `claude/reel-smoothness`). Owner report on `commonoverlayproject`: reels not
   smooth on phones. Profiled an unminified runtime spinning at 4× CPU slowdown: ~40% of spin CPU was

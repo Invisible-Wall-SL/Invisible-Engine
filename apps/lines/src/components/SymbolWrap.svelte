@@ -60,7 +60,27 @@
 			? steppedWindow.top + steppedWindow.height
 			: context.stateGameDerived.boardWindowHeight(),
 	);
-	const inFrame = $derived(props.y >= top && props.y <= bottom);
+	// How far past the window edge a symbol's SEAT may sit and still be drawn. On the masked layer
+	// that is half a row: the symbol mounts the moment its cell first touches the window and the
+	// mask clips the part still outside, so a rolling strip slides under the edge instead of popping
+	// in once its centre crosses it (the gap the reels used to show at the top and bottom while
+	// spinning). A resting padding row sits exactly a half-row outside, so the strict test below
+	// still leaves it undrawn.
+	//
+	// Zero — the centre test — on the UNMASKED animating layer, where nothing would clip the outside
+	// part; and whenever the mask has grown by the board's authored overflow, which would uncover a
+	// padding row a half-row margin had drawn. `boardOverflow()` is `{ 0, 0 }` for every board that
+	// authored none and for every frame a reel rolls, so the margin applies wherever it matters.
+	const margin = $derived(
+		boardContext.animate || context.stateGameDerived.boardOverflow().y !== 0
+			? 0
+			: (context.stateGameDerived.boardGeometry().rowPitchLocal * (props.scale ?? 1)) / 2,
+	);
+	const inFrame = $derived(
+		margin === 0
+			? props.y >= top && props.y <= bottom
+			: props.y + margin > top && props.y - margin < bottom,
+	);
 	// A flat seat passes `undefined`, NOT 1, because `1` is not a no-op in Pixi v8: assigning
 	// `container.scale` swaps the shared `defaultScale` singleton for an owned `ObservablePoint` and
 	// dirties the transform. `pixi-svelte`'s `propsSyncEffect` skips undefined props, so an unscaled
