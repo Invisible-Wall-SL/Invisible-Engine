@@ -19,8 +19,8 @@ shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is 
 (#1366); 8d.3 (the material in the game) is merged (#1378); 8d.4 (the ship chain, proven) is
 merged (#1384); 8d.5 (`/fx` authoring) is merged (#1392); 8d.6 (the other previews) is
 merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) is merged
-(#1423); 8d.8 (play-QA and calibration) is built and in review; the owner's phone check then
-sets the caps.
+(#1423); 8d.8 (play-QA and calibration) is merged (#1425). 8d is complete; the owner's phone
+check sets its caps.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -286,7 +286,7 @@ sets the caps.
     (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
     shader). Built as 8d.1–8d.8, one PR each (its §15). A game plays a material from 8d.3; no
     tool authors one from 8d.5.
-    - **8d.8, play-QA and calibration.** Built, in review. Playbook:
+    - **8d.8, play-QA and calibration.** Merged (#1425, 2026-10-28). Playbook:
       `docs/playtest/particle-material.md` (the headless play and the owner's phone check).
       - **The play** (`scripts/playtest/particle-material-play.mjs`, by hand, on a release build
         of the runtime): the `cg-lines` stand-in with Pulse tint made for particles (cost 12, one
@@ -694,10 +694,12 @@ sets the caps.
    no node) and the pixel input. Add them when an artist needs one.
 
 ## Blocked (owner / external)
-- None.
+- **The particle-materials phone check** (`docs/playtest/particle-material.md`): its readouts set
+  the §10 caps (Open items #1).
 
 ## Recent changes
-- 2026-10-27 — **Step 8d.8: play-QA and calibration** (see "Current state").
+- 2026-10-27 — **Step 8d.8: play-QA and calibration** (see "Current state"). Merged (#1425,
+  2026-10-28): CI green; Current games 8 pass, 0 fail, 0 changed screens. Step 8d is complete.
   - **Proof.** The play passes on WebGL2 and WebGL1, twice, once with `--calibrate` (same loads
     both times); `particle-material` (3 new claims); `fx-previews` 78; `fx-page` 31;
     `shader-page` 42; `check:fx-params` 130; `check:shader-pipeline` 149; `player` 65; `model`

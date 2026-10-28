@@ -566,7 +566,7 @@ svelte-check at baseline, and the current games building with no changed screen.
      - there are no errors or stalls.
    - **Owner pass:** a phone check reading `?fxdebug=1`, then the caps in §10 updated from it.
    - **Exit:** the play passes; the status and guides are current.
-   - **As built** (#TBD):
+   - **As built** (#1425):
      - **By hand, not in CI:** the play needs a release build of the runtime; its behaviours are
        held in `check:all` by `particle-material`, `player` and `model`.
      - **WebGL1 and a cap run:** each run plays on both GL versions, and a nine-layer effect
