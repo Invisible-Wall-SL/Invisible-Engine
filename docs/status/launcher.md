@@ -83,6 +83,18 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-10-28 — **Game-doctor repair eval (PLAN 9G.4, ADR-0012 §6)**. `agent-eval.ts --agent
+  game-doctor` runs the real definition over five scripted worlds in `docs/director/eval/repair/`
+  (button off-screen, typo, engine bug, wrong payout, injection): the worker's own `buildRequest`,
+  tool specs, untrusted wrapping and image answers, the real run state machine and
+  `submit_repair` checks with `verified` derived from the plays, answers shaped like the launcher's
+  ops (`tool-specs.json` is held equal to the live catalog by `check:director-adapters`). Scored per
+  case (outcome, area, forbidden task text, copied injection, tools, play before fixed, turn and
+  spend limits); `EvalReport` gained an optional `cases` field. $20 total cap from real usage,
+  `--cap` lowers it, `--cases` filters, `--estimate` prices a good run (no key), `--pack-compare`
+  runs one definition with main's pack against the branch's. **Not run live: no key in the build
+  session.** Proof is a scripted fake model in `check:agent-eval`. Owner steps and costs:
+  `docs/director/eval/repair/README.md`.
 - 2026-10-28 — **Repair runs: review fixes (PLAN 9G, ADR-0012)**. `run.submit_repair` no longer
   trusts the doctor's `verified`: it is derived from the step's settled plays (any pass: played_pass;
   else any fail: played_fail; else not_played) and stored; a fix is refused while a play is queued
