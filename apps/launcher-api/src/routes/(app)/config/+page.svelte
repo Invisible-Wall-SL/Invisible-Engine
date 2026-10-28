@@ -2438,7 +2438,7 @@
 						<label
 							><span>How many</span><input
 								type="number"
-								min="3"
+								min="1"
 								step="1"
 								value={freeSpins.triggerCount}
 								oninput={(e) => setTriggerCount(e.currentTarget.value)}

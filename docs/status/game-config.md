@@ -793,6 +793,20 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-28 — **The free-spin trigger floor is measured on the freegame strips** (branch
+  `lines/fairys-charm-preset`). A trigger count of 3 or more validates exactly as before. Below 3,
+  `retriggerSpinsPerSpin` computes, exactly, the spins a retrigger adds per free spin played: per reel
+  over every stop of the circular `freegame` strip and that reel's visible rows
+  (`triggerCountDistribution`), convolved across reels, times the retrigger row's award (the top of a
+  random range). It is an error at `MAX_RETRIGGER_SPINS_PER_SPIN` (0.5: a round then averages twice its
+  award) or with no `freegame` strip for every reel (the old floor). The 2026-10-07 note below chose
+  not to measure strips because the lines mock does not deal from them; that still holds, so the mock's
+  `MAX_ROUND_FREE_SPINS` cap remains what ends a round on the test server — the strips are the deal the
+  config states, which a partner server (Fairy's Charm: two scatters ≈ +0.2 spins per spin) follows.
+  `/config`'s How many now allows 1. **Verified:** `check:freespins` — `freeSpins.fixture.ts` (exact
+  distribution, the 0.5 line at +49/+50, unmeasured strips keep the floor, 3+ is never measured) and
+  `check-freespin-protocol.mjs` §16 (a 2-SCAT trigger opens exactly at 2+, every retrigger lands 2+ and
+  adds 10, rounds close under the cap).
 - 2026-10-23 — **Game families in the config: `family`, `outcome` and the `match3` / `arcade`
   blocks** (P10.1 of [game-families.md](../design/game-families.md)). All optional, defaults never
   stored. A slot config normalizes, validates and renders on `/config` exactly as before. That is
@@ -1021,7 +1035,7 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   a retrigger that would take the round past it awards nothing, and award rows are held to it. An
   imported reels mode keeps its stricter 50 (`MAX_STRIPS_ROUND_SPINS`). 200 because a default Book-of
   round reaches 60 in the parity transcripts — a cap of 50 changed four of them. **Validator:** a
-  trigger count below `MIN_FREE_SPINS_TRIGGER_COUNT` (3) is an error, for any trigger symbol (any
+  trigger count below `MIN_FREE_SPINS_TRIGGER_COUNT` (3) is an error (since 2026-10-28 only without freegame strips that show it ends — see above), for any trigger symbol (any
   symbol lands at least as often as a scatter); `/config`'s How many has `min="3"`. A strip-based
   estimate of retrigger growth was not used: the mocks do not deal from the strips, so it would
   measure a different game than the one dealt. **Bounds:** an award row (or its To) above

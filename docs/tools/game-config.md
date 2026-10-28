@@ -845,9 +845,11 @@ whether the game has the free-spins feature at all, and what lands it.
   that is not on the strips is listed with _(not on the strips)_ and is an error:
   it is never dealt, so free spins could never trigger.
 - **How many** (only while on) — the fewest trigger symbols, **anywhere on the
-  board**, that award the feature. Default **3**, and **3 is the least** allowed:
-  free spins retrigger on the same rule, and at one or two a retrigger would come so
-  often that the feature never ended. More than the board has cells is an error too.
+  board**, that award the feature. Default **3**. Free spins retrigger on the same
+  rule, so **1 or 2** is allowed only when the game has **freegame** reel strips and,
+  measured exactly on them, a retrigger adds under **0.5** spins per free spin played
+  (the error names the measured figure); with no freegame strips 3 is the least. More
+  than the board has cells is an error too.
 - **Random amount** (only while on) — _off — each row awards a fixed number_ (the
   default) or _on — a random number between two values_. It applies to both tables
   below.

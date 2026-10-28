@@ -600,7 +600,8 @@ console.log("\n§13 — a retrigger table: a retrigger adds its row's award");
 
 console.log('\n§14 — every round ends: a round never passes the free-spin cap');
 {
-	// `/config` refuses a count below 3; the mock must still end a round that asks for one. At one
+	// `/config` refuses a count below 3 unless the freegame strips show it ends; this mock does not deal
+	// from the strips, so it must still end a round that asks for one. At one
 	// scatter (on about half the free spins) and +5 each, a retrigger adds ~2.3 spins per spin played.
 	const { post, close } = await boot({
 		forceTrigger: true,
@@ -622,6 +623,54 @@ console.log('\n§14 — every round ends: a round never passes the free-spin cap
 	check(open === 0, 'every round at a one-scatter trigger closes', ` (${open}/12 open)`);
 	check(over === 0, `none plays more than ${MAX_ROUND_FREE_SPINS} free spins`, ` (${over})`);
 	check(atCap > 0, '…and they do reach the cap (the case is real)', ` (${atCap}/12)`);
+	await close();
+}
+
+console.log('\n§16 — a two-scatter trigger (Fairy Clover): 2+ open it, 2+ retrigger it, +10 each');
+{
+	const rule = {
+		awards: [{ count: 2, spins: 10 }],
+		retrigger: [{ count: 2, spins: 10 }],
+		random: false,
+	};
+	const { post, close } = await boot({
+		freeSpinsTrigger: { symbol: 'SCAT', count: 2 },
+		freeSpinsAwards: rule,
+		startBalance: 100_000_000,
+		quiet: true,
+	});
+	const sid = (await post('/wallet/authenticate', { sessionID: 'demo' }))?.sid ?? 'demo';
+	let disagree = 0;
+	let opened = 0;
+	let missed = 0;
+	let badRetrigger = 0;
+	let over = 0;
+	const audited = [];
+	for (let i = 0; i < 60; i++) {
+		const round = await playRound(post, sid);
+		const triggered = round.spins.some((s, n) => n === 0 && ev(s, 'spinTrigger'));
+		if (triggered !== countOn(baseBoard(round), 'SCAT') >= 2) disagree++;
+		if (!triggered) continue;
+		opened++;
+		const f = auditRound(round, rule);
+		audited.push(f);
+		if (f.counters.length > MAX_ROUND_FREE_SPINS) over++;
+		let total = f.awarded;
+		for (const s of round.spins.slice(1)) {
+			const landed = countOn(ev(s, 'playedSpin')?.context ?? [], 'SCAT');
+			const retrigger = ev(s, 'retrigger')?.context;
+			if (retrigger) {
+				total += retrigger.spins;
+				if (landed < 2 || retrigger.occurs < 2 || retrigger.spins !== 10) badRetrigger++;
+			} else if (landed >= 2 && total + 10 <= MAX_ROUND_FREE_SPINS) missed++;
+		}
+	}
+	check(disagree === 0, 'a round opens exactly when 2+ SCAT land', ` (${disagree})`);
+	check(opened > 0, 'the feature opens naturally', ` (${opened}/60)`);
+	check(broken(audited).length === 0, 'every feature deals 10, its counter runs down to 0, it closes', ` (${broken(audited).join(', ') || `${audited.length} features`})`); // prettier-ignore
+	check(badRetrigger === 0, 'every retrigger lands 2+ SCAT and adds 10', ` (${badRetrigger})`);
+	check(missed === 0, 'every free spin with 2+ SCAT retriggers, unless the cap stops it', ` (${missed})`); // prettier-ignore
+	check(over === 0, `none plays more than ${MAX_ROUND_FREE_SPINS} free spins`, ` (${over})`);
 	await close();
 }
 

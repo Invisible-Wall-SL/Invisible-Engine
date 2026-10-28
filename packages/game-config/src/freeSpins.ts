@@ -2,7 +2,7 @@ import { normalizeExpandingSymbol } from './expandingSymbol';
 import { resolveGrid } from './grid';
 import { symbolsInPlay, symbolsInPlayFromStrips } from './inPlay';
 import { SCATTER_TRIGGER_COUNT, inPlayScatterSymbol } from './serverPaytable';
-import type { FreeSpinsAward, FreeSpinsConfig, GameConfigDoc } from './types';
+import type { FreeSpinsAward, FreeSpinsConfig, GameConfigDoc, ReelStrip } from './types';
 import type { GameConfigIssue } from './validate';
 import { primaryRespinMode } from './bonusGames';
 import { overlayDropsTokens } from './coinOverlay';
@@ -36,14 +36,25 @@ export const DEFAULT_RETRIGGER_AWARD = 5;
 export const MAX_FREE_SPINS_PER_ROUND = 200;
 
 /**
- * Fewest trigger symbols a game may ask for. Free spins RETRIGGER on the same rule they trigger on,
- * and a free spin uses one spin up: a retrigger that adds, on average, a spin or more per spin played
- * never lets the round end. With books landing about once in twenty cells, two of them on a 5×3
- * board land on about one free spin in six, so +10 per retrigger adds ~1.7 spins per spin; three land
- * on about one in thirty. Any symbol lands at least as often as a scatter, so the floor holds for a
- * symbol trigger too. The mocks' round cap ends such a round anyway; this stops it being authored.
+ * Fewest trigger symbols a game may ask for WITHOUT free-game strips to measure. Free spins
+ * RETRIGGER on the same rule they trigger on, and a free spin uses one spin up: a retrigger that
+ * adds, on average, a spin or more per spin played never lets the round end. With books landing
+ * about once in twenty cells, two of them on a 5×3 board land on about one free spin in six, so +10
+ * per retrigger adds ~1.7 spins per spin; three land on about one in thirty. Any symbol lands at
+ * least as often as a scatter, so the floor holds for a symbol trigger too. A count below it is
+ * allowed only when the `freegame` strips show it ends ({@link MAX_RETRIGGER_SPINS_PER_SPIN}). The
+ * mocks' round cap ends such a round anyway; this stops it being authored.
  */
 export const MIN_FREE_SPINS_TRIGGER_COUNT = 3;
+
+/**
+ * The most spins a retrigger may add, on average, per free spin played, for a trigger count below
+ * {@link MIN_FREE_SPINS_TRIGGER_COUNT}. A feature entered with `A` spins plays `A / (1 − r)` on
+ * average when each spin adds `r`, so at 0.5 a round averages twice its award and its spread stays
+ * small (the variance grows with `1 / (1 − r)³`); nearer 1 rounds run long and the round cap starts
+ * deciding them. Fairy's Charm, two scatters on 55–69-cell strips, adds about 0.2.
+ */
+export const MAX_RETRIGGER_SPINS_PER_SPIN = 0.5;
 
 /** What an un-authored award table awards: on entering, and added by a retrigger. */
 export type FreeSpinsDefaults = { award: number; retrigger: number };
@@ -298,6 +309,61 @@ export function normalizeFreeSpins(raw: unknown): FreeSpinsConfig | undefined {
 	return Object.keys(block).length ? block : undefined;
 }
 
+/**
+ * The exact chance distribution of how many `symbol` a spin shows, from `strips` with `rows[reel]`
+ * visible rows per reel: index `n` is the chance of exactly `n`. Per reel, every stop position of
+ * the circular strip is equally likely; the reels are independent, so their counts convolve. A reel
+ * with no strip (or an empty one) shows none.
+ */
+export function triggerCountDistribution(
+	strips: readonly ReelStrip[],
+	rows: readonly number[],
+	symbol: string,
+): number[] {
+	let dist = [1];
+	rows.forEach((visible, reel) => {
+		const strip = strips[reel] ?? [];
+		const perReel = Array.from({ length: visible + 1 }, () => 0);
+		if (!strip.length) perReel[0] = 1;
+		for (let stop = 0; stop < strip.length; stop++) {
+			let n = 0;
+			for (let row = 0; row < visible; row++) {
+				if (strip[(stop + row) % strip.length].name === symbol) n++;
+			}
+			perReel[n] += 1 / strip.length;
+		}
+		const next = Array.from({ length: dist.length + visible }, () => 0);
+		dist.forEach((a, i) => perReel.forEach((b, j) => (next[i + j] += a * b)));
+		dist = next;
+	});
+	return dist;
+}
+
+/**
+ * How many spins a retrigger adds, on average, per free spin played — computed exactly from the
+ * `freegame` strips: for each count of trigger symbols a free spin can show, its chance times the
+ * retrigger row's award for it (the top of a random range, the worst case). `undefined` when it
+ * cannot be measured: free spins off, no trigger symbol, or no `freegame` strip for every reel.
+ *
+ * The strips are the deal the config states. A partner server deals its own, and the Invisible Test
+ * Server's lines mock draws its own cells, so the mocks' round cap (`MAX_ROUND_FREE_SPINS`) still
+ * ends whatever this lets through.
+ */
+export function retriggerSpinsPerSpin(doc: GameConfigDoc): number | undefined {
+	const freeSpins = resolveFreeSpins(doc);
+	const strips = doc.paddingReels.freegame;
+	const grid = resolveGrid(doc);
+	if (!freeSpins.enabled || !freeSpins.triggerSymbol) return undefined;
+	if (!strips || strips.length < grid.reels || strips.some((strip) => !strip.length)) {
+		return undefined;
+	}
+	const dist = triggerCountDistribution(strips, grid.rows, freeSpins.triggerSymbol);
+	return dist.reduce((sum, chance, landed) => {
+		const added = freeSpinsAwardFor(freeSpins.retriggerAwards, landed, freeSpins.randomAwards);
+		return landed >= freeSpins.triggerCount && added ? sum + chance * added.max : sum;
+	}, 0);
+}
+
 const quotedList = (names: string[]): string => {
 	const quoted = names.map((name) => `"${name}"`);
 	return quoted.length > 1
@@ -364,11 +430,21 @@ export const validateFreeSpins = (doc: GameConfigDoc): GameConfigIssue[] => {
 
 	const cells = resolveGrid(doc).rows.reduce((sum, rows) => sum + rows, 0);
 	if (freeSpins.triggerCount < MIN_FREE_SPINS_TRIGGER_COUNT) {
-		issues.push({
-			severity: 'error',
-			path: 'freeSpins.triggerCount',
-			message: `Free spins trigger on ${freeSpins.triggerCount} ${freeSpins.triggerSymbol ?? 'symbol'}${freeSpins.triggerCount === 1 ? '' : 's'}, which land so often during free spins that they would keep retriggering and the feature would never end. Set How many to ${MIN_FREE_SPINS_TRIGGER_COUNT} or more.`,
-		});
+		const growth = retriggerSpinsPerSpin(doc);
+		const landed = `${freeSpins.triggerCount} ${freeSpins.triggerSymbol ?? 'symbol'}${freeSpins.triggerCount === 1 ? '' : 's'}`;
+		if (growth === undefined) {
+			issues.push({
+				severity: 'error',
+				path: 'freeSpins.triggerCount',
+				message: `Free spins trigger on ${landed}. With no free-game reel strips to measure, that would land so often during free spins that the feature would keep retriggering and never end. Set How many to ${MIN_FREE_SPINS_TRIGGER_COUNT} or more, or author the freegame strips.`,
+			});
+		} else if (growth >= MAX_RETRIGGER_SPINS_PER_SPIN) {
+			issues.push({
+				severity: 'error',
+				path: 'freeSpins.triggerCount',
+				message: `Free spins trigger on ${landed}. On the freegame strips a retrigger adds ${growth.toFixed(2)} spins per free spin played (at most ${MAX_RETRIGGER_SPINS_PER_SPIN} is allowed), so the feature would run on and on. Raise How many, lower the retrigger award, or put fewer ${freeSpins.triggerSymbol ?? 'trigger symbols'} on the freegame strips.`,
+			});
+		}
 	}
 	if (freeSpins.triggerCount > cells) {
 		issues.push({
