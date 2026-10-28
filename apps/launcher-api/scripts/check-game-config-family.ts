@@ -33,6 +33,7 @@ import { projectAddOns } from '../src/lib/addOns.ts';
 import { mechanicFor } from 'engine-game/src/game/mechanic';
 import { partnerRgsRefusal, unplayableFamilyMessage } from '../src/lib/server/familyGate.ts';
 import * as familyDoc from '../src/routes/(app)/config/familyDoc.ts';
+import * as wildsDoc from '../src/routes/(app)/config/wildsDoc.ts';
 
 let fails = 0;
 let passes = 0;
@@ -398,6 +399,8 @@ const HEADINGS: Record<string, ConfigSection> = {
 	'How wins are decided': 'winModel',
 	'Free spins': 'freeSpins',
 	'Expanding symbol': 'expandingSymbol',
+	'Expanding wilds': 'expandingWilds',
+	'Growing wild': 'growingWild',
 	'Reel behaviour': 'reelBehaviour',
 	'Game modes': 'gameModes',
 	Sounds: 'sounds',
@@ -579,6 +582,102 @@ try {
 		'3. a match-3 project on a slot config is offered the picker',
 		renderPage(lines, 'match3').picker,
 	);
+
+	// The wild sections: offered on a lines game that does not tumble; elsewhere only a stored
+	// block shows, so it can be removed.
+	const wilds = ['expandingWilds', 'growingWild'] as const;
+	const has = (shown: { sections: Set<ConfigSection> }) => wilds.map((w) => shown.sections.has(w));
+	same('3. a lines game: both wild sections', has(renderPage(lines, 'lines')), [true, true]);
+	same('3. a Book-of kind: no wild sections', has(renderPage(lines, 'bookOf')), [false, false]);
+	same('3. Hold and Win: no wild sections', has(renderPage(lines, 'holdAndWin')), [false, false]);
+	const tumbling = normalizeGameConfigDoc({ ...lines, cascade: true })!;
+	same('3. a tumbling game: no wild sections', has(renderPage(tumbling)), [false, false]);
+	const dealtW = structuredClone(lines.paddingReels);
+	dealtW.basegame[1][0] = { name: 'W' };
+	dealtW.basegame[3][0] = { name: 'W' };
+	const withWilds = normalizeGameConfigDoc({
+		...lines,
+		paddingReels: dealtW,
+		expandingWilds: { symbols: ['W'], show: 'always' },
+		growingWild: { symbol: 'W', reels: [1, 3], pattern: 'all8' },
+	})!;
+	same(
+		'3. a stored block on a tumbling game shows, to be removed',
+		has(renderPage({ ...withWilds, cascade: true })),
+		[true, true],
+	);
+	const wildBody = renderPage(withWilds).body;
+	check(
+		'3. the wild sections show the stored blocks and their issues',
+		/aria-label="W expands"[^>]*\bchecked/.test(wildBody) &&
+			/<option value="all8"[^>]*\bselected/.test(wildBody) &&
+			wildBody.includes('is also the growing wild') &&
+			/<td[^>]*>2, 4<\/td>/.test(wildBody),
+	);
+	doc = structuredClone(normalizeGameConfigDoc(lines)!);
+	step(
+		'expanding wilds on',
+		(d) => wildsDoc.setExpandingWildsOn(d, true, 'W'),
+		(d) => d.expandingWilds?.symbols[0] === 'W',
+	);
+	step(
+		'show every expansion',
+		(d) => wildsDoc.setExpandShowAlways(d, true),
+		(d) => d.expandingWilds?.show === 'always',
+	);
+	step(
+		'show it only when a win uses the reel (the default)',
+		(d) => wildsDoc.setExpandShowAlways(d, false),
+		(d) => d.expandingWilds !== undefined && !('show' in d.expandingWilds),
+	);
+	step(
+		'untick the last wild keeps the block',
+		(d) => wildsDoc.setExpandingWild(d, 'W', false),
+		(d) => d.expandingWilds?.symbols.length === 0,
+	);
+	step(
+		'expanding wilds off',
+		(d) => wildsDoc.setExpandingWildsOn(d, false),
+		(d) => d.expandingWilds === undefined,
+	);
+	step(
+		'growing wild on, none picked',
+		(d) => wildsDoc.setGrowingWildOn(d, true),
+		(d) => d.growingWild?.symbol === '',
+	);
+	step('pick the growing wild', (d) => wildsDoc.setGrowingSymbol(d, 'W'));
+	step(
+		'tick reels out of order',
+		(d) => {
+			wildsDoc.setGrowingReel(d, 'reels', 3, true);
+			wildsDoc.setGrowingReel(d, 'reels', 1, true);
+		},
+		(d) => JSON.stringify(d.growingWild?.reels) === '[1,3]',
+	);
+	step(
+		'untick every free-spin reel: the default',
+		(d) => {
+			wildsDoc.setGrowingReel(d, 'freeSpinReels', 2, true);
+			wildsDoc.setGrowingReel(d, 'freeSpinReels', 2, false);
+		},
+		(d) => d.growingWild !== undefined && !('freeSpinReels' in d.growingWild),
+	);
+	step(
+		'a pattern',
+		(d) => wildsDoc.setGrowingPattern(d, 'vertical'),
+		(d) => d.growingWild?.pattern === 'vertical',
+	);
+	step(
+		'the plus pattern (the default)',
+		(d) => wildsDoc.setGrowingPattern(d, 'plus'),
+		(d) => d.growingWild !== undefined && !('pattern' in d.growingWild),
+	);
+	step(
+		'growing wild off',
+		(d) => wildsDoc.setGrowingWildOn(d, false),
+		(d) => d.growingWild === undefined,
+	);
+	same('3. the wild choices are the dictionary wilds', wildsDoc.wildChoices(lines), ['W']);
 	check(
 		'3. the section table names every section once',
 		new Set(Object.values(HEADINGS)).size === CONFIG_SECTIONS.length,

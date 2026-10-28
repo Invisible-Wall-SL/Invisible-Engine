@@ -1,0 +1,496 @@
+// EXPANDING and GROWING WILDS on the lines mock and the facade
+// (`docs/design/expanding-and-growing-wilds.md` §2–§3, §6): the mock lands, expands, grows and
+// counts in that order and pays only the final board; the facade turns the wire into `expandWild` /
+// `growWild` after the board and before its wins, and the money and the win lines agree.
+//
+//   pnpm check:wild-rewrite            (part of check:rgs)
+//
+// A config without the blocks is held byte-identical by `check:lines-parity`.
+
+import { createServer } from 'node:http';
+
+import { createMockRgs, evaluatePaylines } from './mock-rgs-server.mjs';
+import { createWildRewrite, growCells as mockGrowCells } from './mock-wild-rewrite.mjs';
+
+const facade = await import('../packages/rgs-translator-eagaming/engine-facade.ts');
+const { growCells } = await import('../packages/game-config/src/growingWild.ts');
+const { GROWING_WILD_PATTERNS } = await import('../packages/game-config/src/types.ts');
+const { translateWildRewrites, wildRewritesBySpin } =
+	await import('../packages/rgs-translator-eagaming/src/wildRewrite.ts');
+
+let failed = 0;
+const check = (ok, msg, extra = '') => {
+	console.log(`${ok ? '  ✓' : '  ✗'} ${msg}${extra}`);
+	if (!ok) failed++;
+};
+const silently = async (run) => {
+	const [log, warn] = [console.log, console.warn];
+	console.log = console.warn = () => {};
+	try {
+		return await run();
+	} finally {
+		[console.log, console.warn] = [log, warn];
+	}
+};
+
+/** One in-process request: the mock's own `handle` with a minimal request and response. */
+const call = (mock, body, url) =>
+	new Promise((done) => {
+		const req = {
+			method: 'POST',
+			headers: {},
+			on(event, cb) {
+				if (event === 'data') cb(Buffer.from(JSON.stringify(body)));
+				if (event === 'end') cb();
+				return this;
+			},
+		};
+		const res = { writeHead() {}, end: (text) => done(JSON.parse(text)) };
+		mock.handle(req, res, new URL(url, 'http://mock'));
+	});
+
+/** Every response's events of one round, base play first, then each free spin. */
+const playRound = async (mock, sid) => {
+	const first = await call(
+		mock,
+		[
+			{ action: 'bet', context: [10, 1] },
+			{ action: 'play', context: null },
+		],
+		`/rgs/engine?sid=${sid}&seq=0`,
+	);
+	const plays = [first.events];
+	const gid = first.platform?.gameRound?.id;
+	let last = first;
+	for (let seq = 2; gid && !last.events.some((e) => e.event === 'gameEnd'); seq++) {
+		last = await call(mock, [{ action: 'play' }], `/rgs/engine?sid=${sid}&seq=${seq}&gid=${gid}`);
+		plays.push(last.events);
+	}
+	if (gid && !last.events.some((e) => e.event === 'gameRoundOver'))
+		await call(mock, [{ action: 'collect' }], `/rgs/engine?sid=${sid}&seq=99&gid=${gid}`);
+	return plays;
+};
+
+const FAIRY = { symbol: 'WILD', reels: [1, 2, 3] };
+const CLOVER = { symbol: 'CLOVER', reels: [2], freeSpinReels: [1, 2, 3] };
+const ROWS = 4;
+const mockOf = (opts = {}) =>
+	createMockRgs({
+		label: 'wilds',
+		quiet: true,
+		startBalance: 1e12,
+		seed: 'wilds',
+		rows: ROWS,
+		expandingWilds: { symbols: [FAIRY] },
+		growingWild: CLOVER,
+		...opts,
+	});
+
+/** Each spin of `plays`: its landed board, its rewrite events and its wins, in wire order. */
+const spinsOf = (plays) =>
+	plays.flatMap((events) => {
+		const spins = [];
+		let spin = null;
+		for (const e of events) {
+			if (e.event === 'spinStart')
+				spins.push((spin = { order: [], sets: [], wins: [], parents: [] }));
+			if (!spin) continue;
+			spin.order.push(e.event);
+			if (e.event === 'playedSpin') spin.landed = e.context;
+			if (e.event === 'spinWin') spin.wins.push(e.context);
+			if (e.event === 'expandedWild' || e.event === 'growingWild')
+				spin.parents.push({ ...e, sets: [] });
+			if (e.event === 'symbolSetInMatrix') spin.parents.at(-1)?.sets.push(e.context);
+		}
+		return spins;
+	});
+const finalBoard = (spin) => {
+	const board = spin.landed.map((reel) => [...reel]);
+	for (const p of spin.parents) for (const s of p.sets) board[s.reel][s.row] = s.symbol;
+	return board;
+};
+
+// ---------------------------------------------------------------------------------------------
+console.log('\n1. the grow pattern: the mock and game-config agree, at every cell');
+{
+	const boards = [
+		[5, 5, 5, 5, 5],
+		[4, 4, 4, 4, 4],
+		[3, 4, 5, 4, 3],
+	];
+	let cells = 0;
+	const differ = [];
+	for (const rows of boards)
+		for (const pattern of GROWING_WILD_PATTERNS)
+			rows.forEach((height, reel) => {
+				for (let row = 0; row < height; row++) {
+					const a = JSON.stringify(growCells({ reel, row }, pattern, rows));
+					const b = JSON.stringify(mockGrowCells({ reel, row }, pattern, rows));
+					cells++;
+					if (a !== b) differ.push(`${pattern} ${reel}:${row}`);
+				}
+			});
+	check(differ.length === 0, `equal on ${cells} origins`, differ.length ? ` (${differ[0]})` : '');
+}
+
+// ---------------------------------------------------------------------------------------------
+console.log('\n2. the mock: land → expand → grow → count');
+{
+	const mock = mockOf({ forceWilds: true });
+	const spins = [];
+	for (let r = 0; r < 150; r++) spins.push(...spinsOf(await playRound(mock, 's')));
+	const has = (spin, name) => spin.order.includes(name);
+	const missing = spins.filter((s) => !has(s, 'expandedWild') || !has(s, 'growingWild'));
+	check(missing.length === 0, 'forced: every spin expands and grows', ` (${spins.length} spins)`);
+	const ordered = spins.every((s) => {
+		const at = (name) => s.order.indexOf(name);
+		const lastRewrite = Math.max(
+			...['expandedWild', 'growingWild', 'symbolSetInMatrix'].map((n) => s.order.lastIndexOf(n)),
+		);
+		const firstWin = at('spinWin');
+		return (
+			at('expandedWild') < at('growingWild') &&
+			s.order.lastIndexOf('expandedWild') < at('growingWild') &&
+			(firstWin < 0 || lastRewrite < firstWin)
+		);
+	});
+	check(ordered, 'expansions first, then the grow, all before any win');
+	const fullReels = spins.every((s) =>
+		s.parents
+			.filter((p) => p.event === 'expandedWild')
+			.every((p) => {
+				const reel = s.landed[p.context.reel];
+				const rows = p.sets.map((c) => c.row).join();
+				const expected = reel
+					.flatMap((cell, row) => (cell === 'SCAT' || cell === 'CLOVER' ? [] : [row]))
+					.join();
+				return (
+					FAIRY.reels.includes(p.context.reel) &&
+					rows === expected &&
+					p.sets.every((c) => c.reel === p.context.reel && c.symbol === 'WILD') &&
+					p.sets.find((c) => c.row === p.context.row)?.oldSymbol === 'WILD'
+				);
+			}),
+	);
+	check(
+		fullReels,
+		'each expansion sets every cell of its reel but a scatter or a clover, the origin included',
+	);
+	const grows = spins.every((s) => {
+		const board = s.landed.map((reel) => [...reel]);
+		for (const p of s.parents) {
+			if (p.event === 'growingWild') {
+				const { reel, row } = p.context;
+				const allowed = growCells(
+					{ reel, row },
+					'plus',
+					s.landed.map((c) => c.length),
+				).map((c) => `${c.reel}:${c.row}`);
+				const ok = p.sets.every(
+					(c) =>
+						allowed.includes(`${c.reel}:${c.row}`) &&
+						c.oldSymbol === board[c.reel][c.row] &&
+						c.oldSymbol !== 'SCAT' &&
+						c.oldSymbol !== 'CLOVER',
+				);
+				if (!ok || !CLOVER.reels.concat(CLOVER.freeSpinReels).includes(reel)) return false;
+			}
+			for (const c of p.sets) board[c.reel][c.row] = c.symbol;
+		}
+		return true;
+	});
+	check(grows, 'each grow sets only plus cells on the board, never a scatter or a clover');
+	const overwritesFairy = spins.some((s) =>
+		s.parents.some((p) => p.event === 'growingWild' && p.sets.some((c) => c.oldSymbol === 'WILD')),
+	);
+	check(overwritesFairy, 'a grow overwrites an expanded fairy');
+	const scatters = spins.every(
+		(s) =>
+			finalBoard(s)
+				.flat()
+				.filter((c) => c === 'SCAT').length === s.landed.flat().filter((c) => c === 'SCAT').length,
+	);
+	check(scatters, 'no scatter is ever overwritten');
+	const paylines = (await call(mock, [], '/rgs/engine?sid=p&seq=0')).events.find(
+		(e) => e.event === 'config',
+	).context.paylines;
+	const priced = spins.every((s) => {
+		const expected = evaluatePaylines(finalBoard(s), 1, paylines, null, {
+			landingWilds: ['WILD', 'CLOVER'],
+		}).map((w) => `${w.context.paylineId}:${w.what}:${w.occurs}`);
+		const paid = s.wins
+			.filter((w) => w.mode === 'line')
+			.map((w) => `${w.context.paylineId}:${w.what}:${w.occurs}`);
+		return JSON.stringify(expected) === JSON.stringify(paid);
+	});
+	check(priced, 'the line wins are exactly those of the final board');
+	const landed = spins.every((s) =>
+		s.landed.every((reel, i) => reel.every((c) => c !== 'WILD' || FAIRY.reels.includes(i))),
+	);
+	check(landed, 'the fairy lands only on its reels');
+}
+
+// ---------------------------------------------------------------------------------------------
+console.log('\n3. the mock: rates, free spins, and expansion on every landing');
+{
+	const mock = mockOf();
+	let spins = 0;
+	let expansions = 0;
+	let grows = 0;
+	for (let r = 0; r < 1500; r++) {
+		for (const s of spinsOf(await playRound(mock, 'rate'))) {
+			spins++;
+			expansions += s.parents.some((p) => p.event === 'expandedWild') ? 1 : 0;
+			grows += s.parents.some((p) => p.event === 'growingWild') ? 1 : 0;
+		}
+	}
+	const pct = (n) => (100 * n) / spins;
+	console.log(`      ${spins} spins: fairy on ${pct(expansions).toFixed(1)}%, clover on ${pct(grows).toFixed(1)}%`); // prettier-ignore
+	check(pct(expansions) > 5 && pct(expansions) < 14, 'the fairy expands on about 9% of spins');
+	check(pct(grows) > 8 && pct(grows) < 16, 'the clover grows on about 12% of spins');
+
+	const fs = mockOf({ forceWilds: true, forceTrigger: true });
+	const fsSpins = spinsOf((await playRound(fs, 'fs')).slice(1));
+	const fsReels = new Set(
+		fsSpins.flatMap((s) =>
+			s.parents.filter((p) => p.event === 'growingWild').map((p) => p.context.reel),
+		),
+	);
+	check(
+		fsSpins.length > 0 &&
+			[...fsReels].every((r) => CLOVER.freeSpinReels.includes(r)) &&
+			fsReels.size > 1,
+		'in free spins the clover lands on its free-spin reels',
+		` (${[...fsReels].sort()})`,
+	);
+
+	// The server expands every landed fairy, paying or not (the reference game: 97 of 320 paid
+	// nothing); whether the client DRAWS one that pays nothing is presentation.
+	const every = mockOf({ forceWilds: true, seed: 'every' });
+	let landedFairies = 0;
+	let expanded = 0;
+	let unpaid = 0;
+	for (let r = 0; r < 200; r++) {
+		for (const s of spinsOf(await playRound(every, 'every'))) {
+			const reels = s.landed.flatMap((reel, i) => (reel.includes('WILD') ? [i] : []));
+			const exp = s.parents.filter((p) => p.event === 'expandedWild').map((p) => p.context.reel);
+			landedFairies += reels.length;
+			expanded += exp.filter((reel) => reels.includes(reel)).length;
+			const paidReels = new Set(
+				s.wins
+					.filter((w) => w.mode === 'line')
+					.flatMap((w) => w.context.payline.slice(0, w.occurs).map((_row, reel) => reel)),
+			);
+			unpaid += exp.filter((reel) => !paidReels.has(reel)).length;
+		}
+	}
+	check(landedFairies > 0 && expanded === landedFairies, 'every landed fairy expands, win or not', ` (${expanded}/${landedFairies})`); // prettier-ignore
+	check(unpaid > 0, 'some expansions pay nothing', ` (${unpaid})`);
+}
+
+// ---------------------------------------------------------------------------------------------
+console.log('\n4. the rewrite is null without the blocks: no extra draw');
+{
+	let draws = 0;
+	const rewrite = createWildRewrite({
+		rowHeights: [3, 3, 3],
+		rand: () => (draws++, 0.5),
+		pick: () => 'X',
+		protect: () => false,
+	});
+	check(rewrite === null && draws === 0, 'no block ⇒ null');
+	check(
+		createWildRewrite({
+			expandingWilds: { symbols: [{ symbol: 'W', reels: [9] }] },
+			rowHeights: [3, 3, 3],
+			rand: () => 0,
+			pick: () => 'X',
+			protect: () => false,
+		}) === null,
+		'a wild with no reel on the board ⇒ null',
+	);
+}
+
+// ---------------------------------------------------------------------------------------------
+console.log('\n5. the facade: expandWild / growWild between the board and its wins');
+const presented = async (make, label, rounds) => {
+	const mock = make();
+	const server = createServer((req, res) => mock.handle(req, res, new URL(req.url, 'http://x')));
+	await new Promise((r) => server.listen(0, '127.0.0.1', r));
+	const rgsUrl = `http://127.0.0.1:${server.address().port}`;
+	const out = [];
+	await silently(async () => {
+		await facade.requestAuthenticate({ rgsUrl, sessionID: label, language: 'en' });
+		for (let r = 0; r < rounds; r++) {
+			const bet = await facade.requestBet({
+				rgsUrl,
+				sessionID: label,
+				currency: 'USD',
+				mode: 'BASE',
+				amount: 1,
+			});
+			out.push({ state: bet.round?.state ?? [], raw: bet._raw?.events ?? [] });
+			await facade.requestEndRound({ rgsUrl, sessionID: label });
+		}
+	});
+	server.close();
+	return out;
+};
+{
+	const rounds = [
+		...(await presented(() => mockOf({ forceWilds: true, seed: 'facade' }), 'f-wilds', 60)),
+		...(await presented(
+			() => mockOf({ forceWilds: true, forceTrigger: true, seed: 'facade-fs' }),
+			'f-wilds-fs',
+			6,
+		)),
+	];
+	const bad = [];
+	let expands = 0;
+	let growsSeen = 0;
+	let wins = 0;
+	let paidSeen = 0;
+	let unpaidSeen = 0;
+	let freeSpinsSeen = 0;
+	/** The engine's board in server terms: the wilds and the scatter, every other cell `x`. */
+	const shape = (board, names) =>
+		board
+			.map((reel) => reel.map((c) => names[c] ?? 'x'))
+			.map((reel) => reel.join())
+			.join('|');
+	for (const { state, raw } of rounds) {
+		const served = spinsOf([raw]);
+		// One engine spin per `reveal`, matched to the server's spins in order.
+		const spins = [];
+		for (const e of state) {
+			if (e.type === 'reveal') spins.push([]);
+			spins.at(-1)?.push(e);
+		}
+		if (spins.length !== served.length)
+			bad.push(`${spins.length} reveals for ${served.length} spins`);
+		spins.forEach((events, k) => {
+			const server = served[k];
+			if (!server) return;
+			if (k > 0) freeSpinsSeen++;
+			// Engine order per spin: reveal, its expandWilds, at most one growWild, then its wins.
+			const types = events.map((e) => e.type).join(' ');
+			if (!/^reveal( expandWild)*( growWild)?( winInfo)*/.test(types)) bad.push(types);
+			const board = events[0].board.map((reel) => reel.map((c) => c.name));
+			const crossed = new Set(
+				server.wins
+					.filter((w) => w.mode === 'line')
+					.flatMap((w) => w.context.payline.slice(0, w.occurs).map((_row, reel) => reel)),
+			);
+			for (const e of events) {
+				if (e.type === 'expandWild') {
+					expands++;
+					if (e.paid !== crossed.has(e.reel)) bad.push(`paid ${e.paid} on reel ${e.reel}`);
+					if (e.paid) paidSeen++;
+					else unpaidSeen++;
+					if (e.symbol !== 'W' || board[e.reel][e.row] !== 'W')
+						bad.push(`expand origin ${JSON.stringify(e)}`);
+					for (const c of e.cells) board[c.reel][c.row] = e.symbol;
+				}
+				if (e.type === 'growWild') {
+					growsSeen++;
+					if (e.symbol !== 'CLOVER' || board[e.origin.reel][e.origin.row] !== 'CLOVER')
+						bad.push(`grow origin ${JSON.stringify(e)}`);
+					for (const c of e.cells) board[c.reel][c.row] = e.symbol;
+				}
+				if (e.type === 'winInfo') {
+					for (const w of e.wins.filter((x) => x.symbol !== 'S')) {
+						wins++;
+						const cells = w.positions.slice(0, w.kind).map((p) => board[p.reel][p.row]);
+						if (!cells.every((c) => c === w.symbol || c === 'W' || c === 'CLOVER'))
+							bad.push(`win ${w.symbol}×${w.kind} on ${cells}`);
+					}
+				}
+			}
+			// The engine's final board is the server's.
+			const mine = shape(
+				board.map((reel) => reel.slice(1, -1)),
+				{ W: 'WILD', CLOVER: 'CLOVER', S: 'SCAT' },
+			);
+			const theirs = shape(finalBoard(server), { WILD: 'WILD', CLOVER: 'CLOVER', SCAT: 'SCAT' });
+			if (mine !== theirs) bad.push(`final board differs on spin ${k}`);
+		});
+		// The money: the round's win in book amount is the server's.
+		const bet = raw.find((e) => e.event === 'bet').context;
+		const end = raw.find((e) => e.event === 'gameEnd').context.win;
+		const final = state.findLast((e) => e.type === 'setTotalWin' || e.type === 'finalWin');
+		const expected = Math.round((end / (bet.betPerLine * bet.paylines.length)) * 100);
+		if (final && final.amount !== expected) bad.push(`money ${final.amount} vs ${expected}`);
+	}
+	check(freeSpinsSeen > 0, 'free spins included', ` (${freeSpinsSeen})`);
+	check(bad.length === 0, 'order, origins, final board, win cells and money all agree', bad.length ? `\n      ${bad.slice(0, 3).join('\n      ')}` : ''); // prettier-ignore
+	check(paidSeen > 0 && unpaidSeen > 0, 'expandWild says whether a paying line crosses its reel', ` (${paidSeen} paid, ${unpaidSeen} not)`); // prettier-ignore
+	check(expands > 0 && growsSeen > 0 && wins > 0, 'with expansions, grows and wins to check', ` (${expands} / ${growsSeen} / ${wins})`); // prettier-ignore
+
+	const set = (row) => ({ event: 'symbolSetInMatrix', context: { reel: 0, row, symbol: 'X' } });
+	const { consumed } = wildRewritesBySpin([
+		{ event: 'spinStart', context: {} },
+		set(0),
+		{ event: 'growingWild', context: { wild: 'C', reel: 0, row: 1 } },
+		set(2),
+		{ event: 'playedSpin', context: [] },
+	]);
+	check(
+		JSON.stringify([...consumed]) === '[2,3]',
+		'a symbolSetInMatrix with no wild before it is left to the facade (a Hold and Win server may send one)',
+	);
+
+	const expandSpin = (win, board = [['A'], ['WILD'], ['B']]) => [
+		{ event: 'spinStart', context: {} },
+		{ event: 'expandedWild', context: { wild: 'WILD', reel: 1, row: 0 } },
+		{ event: 'symbolSetInMatrix', context: { reel: 1, row: 0, symbol: 'WILD', oldSymbol: 'WILD' } },
+		...(win ? [{ event: 'spinWin', context: win }] : []),
+		{ event: 'playedSpin', context: board },
+	];
+	const paidOf = (events, board) => {
+		const { bySpin } = wildRewritesBySpin(events);
+		return translateWildRewrites([...bySpin.values()][0], board, (n) => n, 1).bookEvents[0].paid;
+	};
+	const board = [['A'], ['WILD'], ['B']];
+	check(
+		paidOf(expandSpin({ what: 'A', occurs: 1, mode: 'line', context: { payline: [0, 0, 0] } }), board) === false &&
+			paidOf(expandSpin({ what: 'A', occurs: 2, mode: 'line', context: { payline: [0, 0, 0] } }), board) === true &&
+			paidOf(expandSpin({ what: 'S', mode: 'scatter', context: [{ reel: 1, row: 0 }] }), board) === false,
+		'paid: a line win crosses the reel; a scatter pay never does',
+	); // prettier-ignore
+	check(
+		paidOf(expandSpin({ what: 'A', mode: 'line', context: { lineId: 3 } }), board) === true,
+		'a line win whose reels cannot be read marks the expansion paid (fail open)',
+	);
+	const mult = translateWildRewrites(
+		{
+			rewrites: [{ kind: 'expand', wild: 'WILD', origin: { reel: 0, row: 0 }, cells: [{ reel: 0, row: 1, symbol: 'WILD', oldSymbol: 'MULT' }] }],
+			paidReels: new Set([0]),
+			paidAll: false,
+		},
+		[['WILD', 'MULT:5']],
+		(n) => n,
+		1,
+	); // prettier-ignore
+	check(mult.drift === 0, 'a valued cell (MULT:5) is not drift against its base name');
+	const twoBoards = wildRewritesBySpin([
+		...expandSpin(null),
+		{ event: 'playedSpin', context: board },
+	]);
+	check(
+		twoBoards.ambiguous && !wildRewritesBySpin(expandSpin(null)).ambiguous,
+		'two boards in one spin span are flagged',
+	);
+
+	const plain = await presented(
+		() => createMockRgs({ label: 'plain', quiet: true, seed: 'wilds', startBalance: 1e12 }),
+		'f-plain',
+		30,
+	);
+	check(
+		plain.every((r) => !r.state.some((e) => e.type === 'expandWild' || e.type === 'growWild')),
+		'a game without the blocks gets neither event',
+	);
+}
+
+console.log(failed === 0 ? '\nALL CHECKS PASSED' : `\n${failed} CHECK(S) FAILED`);
+process.exit(failed === 0 ? 0 : 1);

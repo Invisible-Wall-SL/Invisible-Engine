@@ -29,6 +29,8 @@
 		"shader-twins": "node shaderTwins.mjs",
 		"shader-motion": "node shaderMotion.mjs",
 		"particle-material": "node particleMaterial.mjs",
+		"camera-effects": "node cameraEffects.mjs",
+		"screen-fx": "node screenFx.mjs",
 		"fx-page": "node fxPage.mjs",
 		"nine-slice-parity": "node nineSliceParity.mjs",
 		"fx-previews": "node fxPreviews.mjs",
