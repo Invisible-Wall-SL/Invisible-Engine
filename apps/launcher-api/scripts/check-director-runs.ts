@@ -884,6 +884,7 @@ console.log('create');
 	for (const [kind, label] of [
 		['match3', 'match-3'],
 		['arcade', 'arcade'],
+		['card', 'card'],
 	] as const) {
 		const template = `${kind}-sample`;
 		PROJECTS.set(template, { client: 'acme', gameType: kind, template: true });

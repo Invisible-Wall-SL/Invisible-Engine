@@ -13,7 +13,7 @@
  * The game families, as `GAME_FAMILIES` in `packages/constants-shared/gameKinds.ts` lists them. The
  * worker image does not carry that package; `check:family-packs` pins the two lists equal.
  */
-export const FAMILY_PACK_FAMILIES = ['slot', 'match3', 'arcade'] as const;
+export const FAMILY_PACK_FAMILIES = ['slot', 'match3', 'arcade', 'card'] as const;
 
 export type PackFamily = (typeof FAMILY_PACK_FAMILIES)[number];
 
@@ -21,7 +21,8 @@ export type PackFamily = (typeof FAMILY_PACK_FAMILIES)[number];
  * The families a run may be created for. A pack outside this set is a draft: it loads and is
  * validated, but a run of its family is refused at create (`no_family_pack`) and paused by the
  * worker before any call. Readiness is a code decision because the launcher cannot read the pack
- * files: match-3 and arcade wait on their adapters (the board, Invisible Characters).
+ * files: match-3, arcade and card wait on their adapters (the board, Invisible Characters, the
+ * card table).
  */
 export const READY_FAMILY_PACKS: ReadonlySet<PackFamily> = new Set<PackFamily>(['slot']);
 
@@ -30,6 +31,7 @@ export const PACK_FAMILY_LABELS: Record<PackFamily, string> = {
 	slot: 'slot',
 	match3: 'match-3',
 	arcade: 'arcade',
+	card: 'card',
 };
 
 /**
@@ -40,6 +42,7 @@ export const MOCKUP_SCREEN_TAGS: Record<PackFamily, readonly string[]> = {
 	slot: ['Base game', 'Hold and Win bonus', 'Bonus', 'Free spins', 'Big win', 'Paytable', 'Intro'],
 	match3: ['Board', 'Goal', 'Round won', 'Round over', 'Intro'],
 	arcade: ['Play field', 'HUD', 'Round over', 'Intro'],
+	card: ['Table', 'Hand', 'Deck pick', 'Match won', 'Match lost', 'Match drawn', 'Intro'],
 };
 
 /** The sections every pack has, in this order. */
