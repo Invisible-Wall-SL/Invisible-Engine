@@ -64,8 +64,9 @@ review).** [phase-11.md](../design/phase-11.md) §2.4, §3.1.
   match-3, arcade or card project whose config names no `family` is now refused at publish (it used
   to publish as a slot); the fix is to re-save its config in `/config`.
 - **The current-games harness** builds one `apps/lines` per id on each side (`<side>/<id>/`,
-  `runtimes.json`; cache key v3) and renders each game on its own id. A ref that predates the seams
-  builds `lines` once for every id.
+  `runtimes.json`; cache key v4) and renders each game on its own id. Each side builds by its own
+  `runtimes.ts`, never the harness's, so a SHA's builds do not depend on who compares; a ref with
+  no runtime list (main before this) builds `lines` once, every family, for every id.
 - **`check:game-app-deps`** keeps `engine-rooms` behind `families/arcade.ts` (`game/online.ts`,
   `ArcadeStage.svelte`).
 
