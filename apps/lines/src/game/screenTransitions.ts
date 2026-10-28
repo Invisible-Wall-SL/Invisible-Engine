@@ -36,9 +36,13 @@ export interface ScreenTransitionsApi {
 
 let api: ScreenTransitionsApi | null = null;
 
-/** Bind the runtime (or unbind it with `null`). */
-export function bindScreenTransitions(next: ScreenTransitionsApi | null): void {
+/** Bind the runtime (or unbind it with `null`). Returns the unbind, which leaves a later binding
+ *  in place. */
+export function bindScreenTransitions(next: ScreenTransitionsApi | null): () => void {
 	api = next;
+	return () => {
+		if (api === next) api = null;
+	};
 }
 
 const fxdebug = (): boolean =>

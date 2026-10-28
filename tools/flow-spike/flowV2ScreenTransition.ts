@@ -18,7 +18,8 @@
  *      still) and the chain holds at `waitForScreenTransition` until the stub reports the end.
  *   3. Blocking: the Hide waits for the END, not the capture.
  *   4. The payload the runtime gets: kind, length, strength, `color` as a param, `reverse`; the
- *      length and strength clamped; a kind that is no transition plays nothing and goes on at once.
+ *      length and strength clamped; a kind that is no transition plays nothing and goes on at once;
+ *      the transition runtime clamps by the same limits (one home, `constants-shared`).
  *   5. No runtime bound (today's game): the transition is a cut — the chain runs straight through
  *      in one turn, with no play — and `waitForScreenTransition` resolves at once; the walk is the
  *      same as the doc with both actions removed; `?fxdebug=1` warns of the cut once.
@@ -40,7 +41,12 @@ import {
 	type RunContext,
 	type TypeRef,
 } from 'engine-flow-v2';
-import { SCREEN_TRANSITION_KINDS } from 'constants-shared/screenTransition';
+import { readFileSync } from 'node:fs';
+
+import {
+	SCREEN_TRANSITION_KINDS,
+	SCREEN_TRANSITION_LIMITS,
+} from 'constants-shared/screenTransition';
 
 import {
 	bindScreenTransitions,
@@ -326,6 +332,21 @@ const main = async () => {
 		await settle();
 		assert('a kind that is no transition plays nothing and goes on at once', wrong.isFinished());
 		same('…two plays in all', api.plays.length, 2);
+		const runtime = readFileSync(
+			new URL('../../packages/pixi-svelte/src/lib/screenFx/screenTransition.ts', import.meta.url),
+			'utf8',
+		);
+		same(
+			'one home for the limits: the transition runtime clamps by the same constant, declaring none',
+			[
+				runtime.includes(
+					"import { SCREEN_TRANSITION_LIMITS } from 'constants-shared/screenTransition';",
+				),
+				/SCREEN_TRANSITION_LIMITS\s*=/.test(runtime),
+				SCREEN_TRANSITION_LIMITS.durationMs,
+			],
+			[true, false, { min: 50, max: 5000 }],
+		);
 	}
 
 	console.log('\n5. no runtime bound (today): a cut, and the wait returns at once:');

@@ -277,7 +277,12 @@
 		specialBookSceneOf,
 		winVisualSceneOf,
 	} from '../game/sceneSelection';
-	import { bootTransitionCueStatus, subscribeTransitionCue } from '../game/screenTransitions';
+	import {
+		bindScreenTransitions,
+		bootTransitionCueStatus,
+		subscribeTransitionCue,
+	} from '../game/screenTransitions';
+	import { screenTransitionsOn } from '../game/screenTransitionsBinding';
 	import { skipUnusedStockAssets } from '../game/stockAssetBoot';
 	import {
 		PLATFORM_JACKPOT_TIERS,
@@ -862,6 +867,9 @@
 	// it. The set is replaced, not added to, so a re-mounted game never keeps another boot's. Before
 	// the first render, so nothing an entry starts misses it; an effect that cannot play is left out.
 	setCustomElementFx(bakedShaderEffects());
+	// The screen transition runtime (Invisible Shader Graph 8e), bound before the scenes load: the
+	// `transition` cue's status is read once there, and with nothing bound it plays the wipe.
+	onDestroy(bindScreenTransitions(screenTransitionsOn(() => stateApp.pixiApplication)));
 	// Compile every Element FX and camera effect the docs can play while the loading screen is up,
 	// not on the frame each first plays (measured: 0.8–2.8 s stalls on a slowed phone-sized page).
 	registerGpuWarmup(gameFxWarmup);

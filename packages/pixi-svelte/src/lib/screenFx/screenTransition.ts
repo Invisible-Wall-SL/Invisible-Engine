@@ -42,6 +42,7 @@ import {
 	screenTransitionRoute,
 	screenShellSource,
 } from 'constants-shared/screenShell';
+import { SCREEN_TRANSITION_LIMITS } from 'constants-shared/screenTransition';
 import {
 	Container,
 	Filter,
@@ -61,9 +62,7 @@ import { playElementFx, stopElementFx, type ElementFxHost, type ElementFxPose } 
 import { VERTEX, programLinks } from '../elementFx/shaders';
 import { BEFORE_RENDER, setStageFilters, stageFilters } from './stageFilters';
 
-export const SCREEN_TRANSITION_LIMITS = {
-	durationMs: { min: 50, max: 5000 },
-} as const;
+export { SCREEN_TRANSITION_LIMITS };
 
 /** The still's longest side, in pixels (design §10): a desktop at 2560 × 1440 × 2 is scaled to
  *  0.8. */
