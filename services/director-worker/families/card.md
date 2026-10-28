@@ -14,7 +14,8 @@ your definition, it wins.
 The whole Game Config is locked, and with it:
 - the card library: every card's id, type, cost, attack, health and effects;
 - the decks, their sizes, the hand size, the draw and the extra card for the second player;
-- the resource, its start and growth, the hero health and the turn rules;
+- the resource, its start and growth, the hero health, the board limit, the copies per card, who
+  goes first, the turn limit and the other rules numbers;
 - the device's play and its pace;
 - the match result the game's flow reads.
 
@@ -31,6 +32,8 @@ The owner tags each mockup with the screen it shows:
 - **Deck pick**: the screen where the player picks a deck before a match.
 - **Match won**: the result screen when the player wins.
 - **Match lost**: the result screen when the player loses.
+- **Match drawn**: the result screen when the match ends in a draw (both heroes fall, or the turn
+  limit is reached).
 - **Intro**: the splash or intro screen before play.
 
 ## Region batch order
@@ -52,6 +55,6 @@ an attack on a unit and on the hero, and the result screen.
 
 - Edit a math contract: Game Config, the card library, decks, costs, stats, effects, the resource
   or the turn rules.
-- Touch anything the rules read (a card's library values, the resource and deck readouts, a
-  hero's health, the end-turn action), even if it appears in a layout.
+- Rebind or remove anything bound to the rules (a card's library values, the `$engine` readouts,
+  a hero's health, the End Turn action), even if it appears in a layout.
 - Use Symbols or Win Text: the card family has neither.

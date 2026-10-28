@@ -42,7 +42,7 @@ export const MOCKUP_SCREEN_TAGS: Record<PackFamily, readonly string[]> = {
 	slot: ['Base game', 'Hold and Win bonus', 'Bonus', 'Free spins', 'Big win', 'Paytable', 'Intro'],
 	match3: ['Board', 'Goal', 'Round won', 'Round over', 'Intro'],
 	arcade: ['Play field', 'HUD', 'Round over', 'Intro'],
-	card: ['Table', 'Hand', 'Deck pick', 'Match won', 'Match lost', 'Intro'],
+	card: ['Table', 'Hand', 'Deck pick', 'Match won', 'Match lost', 'Match drawn', 'Intro'],
 };
 
 /** The sections every pack has, in this order. */

@@ -14,6 +14,7 @@ A fixture section.
 - **Deck pick**: a fixture screen.
 - **Match won**: a fixture screen.
 - **Match lost**: a fixture screen.
+- **Match drawn**: a fixture screen.
 - **Intro**: a fixture screen.
 
 ## Region batch order
