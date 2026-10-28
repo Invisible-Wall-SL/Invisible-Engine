@@ -6,6 +6,7 @@ import {
 	CARD_SIDES,
 	CARD_TARGET_KINDS,
 	CARD_TRIGGERS,
+	CARD_UNTILS,
 	CARD_VERBS,
 	CARD_VERB_TARGETS,
 	cardText,
@@ -196,7 +197,9 @@ export function fitEffect(
 				verb,
 				attack: num('attack', CARD_RANGES.buff, 1),
 				health: num('health', CARD_RANGES.buff, 1),
-				until: raw.until === 'endOfTurn' ? 'endOfTurn' : 'permanent',
+				until: CARD_UNTILS.includes(raw.until as 'permanent')
+					? (raw.until as 'endOfTurn' | 'permanent')
+					: 'permanent',
 				target: target as Target,
 			};
 		case 'destroy':
@@ -280,9 +283,12 @@ export function renameCard(doc: GameConfigDoc, from: string, to: string): string
 
 /** Switch a card between unit and spell: a spell loses its stats and keywords, and its effects are
  *  refitted (all `onPlay`, no `self`); a unit gains 1 / 1. */
-export function setCardType(doc: GameConfigDoc, id: string, type: CardDef['type']): void {
+export function setCardType(doc: GameConfigDoc, id: string, type: CardDef['type']): string | null {
 	const card = findCard(doc, id);
-	if (!card || card.type === type) return;
+	if (!card || card.type === type) return null;
+	const by = type === 'spell' ? summonedBy(doc, id) : [];
+	if (by.length)
+		return `"${id}" is summoned by ${by.map((c) => `"${c}"`).join(', ')}, so it stays a unit.`;
 	card.type = type;
 	if (type === 'spell') {
 		delete card.attack;
@@ -295,6 +301,7 @@ export function setCardType(doc: GameConfigDoc, id: string, type: CardDef['type'
 	}
 	if (card.effects)
 		card.effects = card.effects.map((e) => fitEffect(card, e, doc.card?.library ?? []));
+	return null;
 }
 
 export function setCardNumber(

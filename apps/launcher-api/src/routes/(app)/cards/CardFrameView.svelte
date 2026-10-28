@@ -101,10 +101,10 @@
 				class="n"
 				style="{place}margin-left:{-ax * w}px;margin-top:{-ay *
 					h}px;width:{w}px;height:{h}px;background:{hex(
-					n.color,
+					asNumber(bound(n, 'color', p)) ?? n.color,
 					'#888',
 				)};border-radius:{n.borderRadius ?? 0}px;{n.borderWidth
-					? `outline:${n.borderWidth}px solid ${hex(n.borderColor, '#fff')};outline-offset:-${n.borderWidth}px;`
+					? `outline:${n.borderWidth}px solid ${hex(asNumber(bound(n, 'borderColor', p)) ?? n.borderColor, '#fff')};outline-offset:-${n.borderWidth}px;`
 					: ''}transform-origin:{ax * 100}% {ay * 100}%"
 			></div>
 		{:else if n.kind === 'text'}
@@ -116,7 +116,8 @@
 			{@const h = t.height ?? n.height}
 			<div
 				class="n text"
-				style="{place}transform:translate({-ax * 100}%, {-ay * 100}%) scale({sx},{sy});{w
+				style="{place}transform-origin:{ax * 100}% {ay * 100}%;transform:translate({-ax *
+					100}%, {-ay * 100}%) rotate({t.rotation ?? 0}rad) scale({sx},{sy});{w
 					? `width:${w}px;`
 					: 'white-space:nowrap;'}{h ? `height:${h}px;` : ''}font-size:{s.fontSize ??
 					16}px;color:{hex(
@@ -131,11 +132,12 @@
 			{@const art = bound(n, 'region', p) ?? n.region}
 			{@const w = t.width ?? n.width ?? 64}
 			{@const h = t.height ?? n.height ?? 64}
-			{@const ax = t.anchor?.x ?? 0.5}
-			{@const ay = t.anchor?.y ?? 0.5}
+			{@const ax = t.anchor?.x ?? 0}
+			{@const ay = t.anchor?.y ?? 0}
 			<div
 				class="n sprite"
-				style="{place}margin-left:{-ax * w}px;margin-top:{-ay * h}px;width:{w}px;height:{h}px"
+				style="{place}margin-left:{-ax * w}px;margin-top:{-ay *
+					h}px;width:{w}px;height:{h}px;transform-origin:{ax * 100}% {ay * 100}%"
 			>
 				{#if typeof art === 'string' && art}<CardArt value={art} size={Math.min(w, h)} />{/if}
 			</div>

@@ -300,6 +300,32 @@ for (const [name, run] of edits) {
 		'2. a delete leaves the decks',
 		edit.removeCard(removed, lone) === null && !canon(removed.card?.decks).includes(`"${lone}"`),
 	);
+	const merged = fresh();
+	const spellId = library.find((c) => c.type === 'spell')!.id;
+	merged.card!.decks![0].cards = [
+		{ card: unitId, count: 1 },
+		{ card: spellId, count: 2 },
+		{ card: unitId, count: 1 },
+	];
+	edit.setDeckCount(merged, merged.card!.decks![0].id, unitId, 1);
+	same('2. a count merges duplicate entries into the first', merged.card!.decks![0].cards, [
+		{ card: unitId, count: 1 },
+		{ card: spellId, count: 2 },
+	]);
+	edit.setDeckCount(merged, merged.card!.decks![0].id, 'not-a-card', 0);
+	edit.setDeckCount(merged, merged.card!.decks![0].id, spellId, 0);
+	same('2. a count of 0 removes the entry', merged.card!.decks![0].cards, [
+		{ card: unitId, count: 1 },
+	]);
+	const summonedUnit = library.find((c) => edit.summonedBy(sample, c.id).length);
+	if (summonedUnit) {
+		const typed = fresh();
+		check(
+			'2. a summoned unit cannot become a spell',
+			!!edit.setCardType(typed, summonedUnit.id, 'spell') && canon(typed) === canon(sample),
+		);
+	}
+	check('2. the sample has a summoned unit to refuse', !!summonedUnit);
 	const full = fresh();
 	for (let i = 0; i < 5; i++) edit.addEffect(full, unitId);
 	check(

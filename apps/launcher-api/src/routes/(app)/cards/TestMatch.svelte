@@ -179,7 +179,6 @@
 	let running = $state(0);
 	let runToken = 0;
 	function runHundred(): void {
-		stop();
 		problem = '';
 		let chosen: [SeatSetup, SeatSetup];
 		try {

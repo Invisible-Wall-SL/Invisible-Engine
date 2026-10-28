@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import {
+		CARD_MAX_EFFECTS,
 		CARD_RANGES,
 		readLibrary,
 		type CardDef,
@@ -50,7 +51,7 @@
 	const library = $derived(game.library);
 	/** What reading the stored library dropped (a newer launcher's verbs, §3.6), shown before a save
 	 *  writes the library back without them. */
-	const dropped = readLibrary(data.doc?.card?.library ?? []).dropped;
+	let dropped = $state(readLibrary(data.doc?.card?.library ?? []).dropped);
 
 	const components = new Map((data.frames as ComponentDef[]).map((d) => [d.id, d]));
 	const frames = $derived(edit.frameChoices(data.frames as ComponentDef[], snapshot));
@@ -136,6 +137,7 @@
 			doc = adoptSaved(saved.doc);
 			baseline = JSON.stringify($state.snapshot(doc));
 			savedAt = new Date().toLocaleTimeString();
+			dropped = [];
 			return { ok: true, etag: saved.etag };
 		},
 	});
@@ -162,8 +164,9 @@
 			: null,
 	);
 
+	const cardId = $derived(card?.id);
 	$effect(() => {
-		renameText = card?.id ?? '';
+		renameText = cardId ?? '';
 		renameError = '';
 		removeError = '';
 	});
@@ -204,6 +207,15 @@
 		change((d) => (refused = edit.renameCard(d, from, renameText)));
 		if (refused) renameError = refused;
 		else selectedId = renameText.trim();
+	}
+
+	function changeType(el: HTMLSelectElement, type: CardDef['type']): void {
+		let refused: string | null = null;
+		change((d) => (refused = edit.setCardType(d, cid(), type)));
+		if (refused) {
+			removeError = refused;
+			el.value = card?.type ?? type;
+		}
 	}
 
 	/** Put an input back on the stored value after a clamped or refused edit. */
@@ -444,9 +456,7 @@
 												value={c.type}
 												disabled={readOnly}
 												onchange={(e) =>
-													change((d) =>
-														edit.setCardType(d, cid(), e.currentTarget.value as CardDef['type']),
-													)}
+													changeType(e.currentTarget, e.currentTarget.value as CardDef['type'])}
 											>
 												<option value="unit">Unit</option>
 												<option value="spell">Spell</option>
@@ -695,7 +705,8 @@
 									<button
 										type="button"
 										onclick={() => change((d) => edit.addEffect(d, cid()))}
-										disabled={readOnly || (c.effects?.length ?? 0) >= 3}>＋ Effect</button
+										disabled={readOnly || (c.effects?.length ?? 0) >= CARD_MAX_EFFECTS}
+										>＋ Effect</button
 									>
 								</section>
 

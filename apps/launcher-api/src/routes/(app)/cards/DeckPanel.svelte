@@ -40,11 +40,16 @@
 	const curve = $derived(deck ? edit.costCurve(deck, game.library) : []);
 	const peak = $derived(Math.max(1, ...curve));
 	const playable = $derived(game.library.filter((c) => !c.token));
+	/** Entries the pool cannot show: a token, or a card not in the library. Listed to be removed. */
+	const strays = $derived(
+		(deck?.cards ?? []).filter((e) => !playable.some((c) => c.id === e.card)),
+	);
 
 	let renameText = $state('');
 	let renameError = $state('');
+	const deckId = $derived(deck?.id);
 	$effect(() => {
-		renameText = deck?.id ?? '';
+		renameText = deckId ?? '';
 		renameError = '';
 	});
 	const did = () => deck?.id ?? '';
@@ -214,6 +219,23 @@
 				</section>
 			{/if}
 
+			{#if strays.length}
+				<section>
+					<h2>Entries no deck should hold</h2>
+					{#each strays as e (e.card)}
+						<div class="stray">
+							{e.count} × <code>{e.card}</code>
+							{game.library.some((c) => c.id === e.card) ? '(a token)' : '(not in the library)'}
+							<button
+								type="button"
+								disabled={readOnly}
+								onclick={() => change((d) => edit.setDeckCount(d, did(), e.card, 0))}>Remove</button
+							>
+						</div>
+					{/each}
+				</section>
+			{/if}
+
 			<section>
 				<h2>Cards</h2>
 				<div class="pool">
@@ -366,6 +388,13 @@
 	.entry.in {
 		opacity: 1;
 		border-color: #2a8a69;
+	}
+	.stray {
+		display: flex;
+		gap: 8px;
+		align-items: center;
+		font-size: 12px;
+		margin-bottom: 6px;
 	}
 	.stepper {
 		display: flex;
