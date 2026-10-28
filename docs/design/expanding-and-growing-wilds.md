@@ -35,11 +35,14 @@ the rest pay from 3. Base spins draw one of 5 weighted reel sets; free spins use
 - **When it lands, it expands over its whole reel before any win is counted.** The server sends
   `expandedWild {wild, reel, row}`, then one `symbolSetInMatrix {reel, row, symbol, oldSymbol}`
   per cell of that reel. The wins (`spinWin`) are those of the expanded board.
-- It expanded **every time** it landed: 109 of 109 times in the first sample, and 97 of 320
-  expansions paid nothing. The server does **not** require a win to expand.
-- On screen, the landed cell shows the fairy's head. The rest of the reel clears and the full-height
-  fairy picture grows into it. This is our stacked-picture art (`docs/design/stacked-picture-mode.md`)
-  drawn at full height.
+- The server expands it **every time** it lands: 109 of 109 times in the first sample, and 97 of
+  320 expansions paid nothing.
+- **The client draws the expansion only when a win uses it.** When a win crosses the reel, the
+  landed cell shows the fairy's head, the rest of the reel clears and the full-height fairy picture
+  grows into it. This is our stacked-picture art (`docs/design/stacked-picture-mode.md`) drawn at
+  full height. On a spin that pays nothing, the fairy stays as its one-cell head slice and the reel
+  keeps its symbols (screenshotted twice). This is what the owner saw: it "only stacks if there is
+  at least 1 match".
 - Two or three fairies can land on one spin (20 base spins); each expands.
 
 **2. The clover: a growing wild** (`CLOVER`, wild)
@@ -65,11 +68,6 @@ spins, using their own reel set (`spinTrigger`, `enterBonus`, `playedBonusSpin` 
 There is no buy button. `CLOVER_SCAT` (wild and scatter) is in the symbol list but did not appear in
 90 free spins.
 
-**What does not match the owner's description.** The owner saw the stack expand "only if there is at
-least 1 match". The server expands the fairy on every landing. The likely reading is that a fairy
-almost always makes a win once it covers its reel. A no-win expansion is being screenshotted to
-check what is drawn (see Open).
-
 ## 1. Config
 
 Two new optional blocks on `GameConfigDoc`, **lines win model only** (validator error
@@ -79,8 +77,8 @@ elsewhere). A block's presence turns its feature on.
 /** Wilds that fill their reel when they land (the fairy). */
 expandingWilds?: {
 	symbols: string[];          // each must be a wild
-	onlyOnWin?: boolean;        // default false (the reference game); true = expand only if the
-	                            // landed cell is on a winning line (the owner's first reading)
+	show?: 'onWin' | 'always';  // presentation only; default 'onWin' (the reference game): draw
+	                            // the expansion only when a paying line crosses the expanded reel
 };
 
 /** A wild that copies itself onto its neighbours when it lands (the clover). */
@@ -106,8 +104,8 @@ Which reels a symbol lands on stays a fact of the **reel strips**, which a perso
 ## 2. The spin, in order (server side; the client presents it)
 
 1. **Land** the board (`playedSpin` is the landed board).
-2. **Expand** each expanding wild over its reel (with `onlyOnWin`, only those on a winning line of
-   the landed board).
+2. **Expand** each expanding wild over its reel. This always happens; `show` only decides what is
+   drawn (§4).
 3. **Grow** each growing wild into its pattern. It overwrites anything except a scatter and a Hold
    and Win symbol, and a copy does not grow again.
 4. **Count** the line and scatter wins on the final board. This is the only count that pays.
@@ -131,7 +129,8 @@ The lines mock (`scripts/mock-rgs-server.mjs`) deals both features from the conf
 
 ## 4. Presentation
 
-- **Expand:** the landed cell keeps its stacked slice. The other cells of the reel clear, and the
+- **Expand** (with `show: 'onWin'`, only when a paying line crosses the reel; otherwise the landed
+  board stays on screen, and no win line needs those cells): the landed cell keeps its stacked slice. The other cells of the reel clear, and the
   symbol's stacked picture grows to full height (`StackedPicture` from N to M cells). Without
   stacked art, the column morphs cell by cell like the Book-of column morph (capped at
   `TRANSIT_BEAT_CAP_MS`).
@@ -150,7 +149,7 @@ The lines mock (`scripts/mock-rgs-server.mjs`) deals both features from the conf
 - Fixtures for normalize, resolve and validate of the two blocks.
 - A mock fixture with these cases:
   - without the blocks, the deal is byte-identical;
-  - expansion order and `onlyOnWin`;
+  - the expansion order;
   - the plus pattern at the board edge;
   - the grow runs after the expansion.
 - `check:rgs`:
@@ -165,8 +164,6 @@ step between landing and counting, and the cell morph. Off by default.
 
 ## Open
 
-- **A no-win expansion on screen.** Is it drawn as fully as a winning one? This decides whether
-  `onlyOnWin` is ever needed.
 - `CLOVER_SCAT` and how free spins retrigger: not seen yet.
 - Whether to keep the captured wire log (it includes the reference game's reel strips and
   paytable) in the repo as a fixture or out of it. Math is a person's call: we copy mechanics, not
