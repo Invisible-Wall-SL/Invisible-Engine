@@ -285,6 +285,8 @@ export async function publishGame(
 			shaderEffects: assembled.shaderEffects,
 		});
 		refuseFlow(shipped);
+		// Again on the config that ships: the assembly re-reads it, so an edit since the gates ran
+		// could have changed its family.
 		const kindFamily = kindFamilyRefusal(gameType, assembled.config);
 		if (kindFamily) throw new PublishBlockedError(kindFamily, 'kind-family');
 		const chosen = await chooseRuntime(assembled.config, runtimePointer);

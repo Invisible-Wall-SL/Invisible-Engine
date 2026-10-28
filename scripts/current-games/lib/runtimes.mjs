@@ -52,12 +52,13 @@ const RUNTIMES_FILE = 'runtimes.json';
 export const runtimeIdFor = (gameType) => runtimeIdOfFamily(familyOfKind(gameType));
 
 /**
- * Which folder of `checkout`'s build serves each of `ids`: its own, or `lines` for all of them on a
- * checkout from before the family seams.
+ * Which folder of `checkout`'s build serves each of `ids`: its own, or, on a checkout from before
+ * the family seams, `lines` for every id (all of them, so a later run asking for more ids reuses it).
  */
 export const runtimeFolders = (checkout, ids) => {
-	const seams = existsSync(join(checkout, 'packages/config-vite/families.js'));
-	return Object.fromEntries(ids.map((id) => [id, seams ? id : FALLBACK_RUNTIME_ID]));
+	if (existsSync(join(checkout, 'packages/config-vite/families.js')))
+		return Object.fromEntries(ids.map((id) => [id, id]));
+	return Object.fromEntries(RUNTIME_IDS.map((id) => [id, FALLBACK_RUNTIME_ID]));
 };
 
 /**

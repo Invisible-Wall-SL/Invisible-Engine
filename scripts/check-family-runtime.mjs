@@ -3,8 +3,10 @@
 //   node scripts/check-family-runtime.mjs --id <lines|match3|arcade|card> --families <value> <buildDir>
 //       checks ONE built bundle (`<buildDir>/index.html`), as the release workflow does per id:
 //       its `__IE_FAMILIES__` is the set `<value>` (a `PUBLIC_IE_FAMILIES` value) compiles, every
-//       left-out family's markers are absent and every included family's present, and its gzip -6
-//       size is within `scripts/family-runtime-budget.json`.
+//       left-out family's markers are absent and every included family's present. Its gzip -6 size
+//       over `scripts/family-runtime-budget.json` is a warning here, never a failure: no PR check
+//       runs this, so a hard size gate would first fail after merge and keep every game on the old
+//       engine. The local run below is where the budget is enforced.
 //   pnpm check:family-runtimes
 //       builds `apps/lines` once per runtime with the release env and checks each (minutes; not in
 //       `check:all`, which skips this file).
@@ -100,11 +102,11 @@ function checkBundle({ id, families, buildDir, budgets }) {
 	}
 	const budget = budgets[keyOf(list)];
 	if (typeof budget !== 'number') problems.push(`no budget for ${keyOf(list)} in ${BUDGET_FILE}`);
-	else if (size > budget)
-		problems.push(
-			`${size} B gzip is over the ${keyOf(list)} budget of ${budget} B (+${size - budget})`,
-		);
-	return { problems, list, raw, size, budget };
+	const over =
+		typeof budget === 'number' && size > budget
+			? `${size} B gzip is over the ${keyOf(list)} budget of ${budget} B (+${size - budget})`
+			: undefined;
+	return { problems, over, list, raw, size, budget };
 }
 
 const run = (args, env = {}) => {
@@ -121,8 +123,9 @@ const readBudgets = () => JSON.parse(readFileSync(BUDGET_FILE, 'utf8'));
 
 const report = (label, result) => {
 	const sizes = result.size === undefined ? '' : ` ${result.raw} B raw, ${result.size} B gzip`;
-	console.log(`${result.problems.length ? 'FAIL' : 'ok  '} ${label}${sizes}`);
-	for (const p of result.problems) console.log(`       ${p}`);
+	console.log(`${result.problems.length || result.over ? 'FAIL' : 'ok  '} ${label}${sizes}`);
+	for (const p of [...result.problems, ...(result.over ? [result.over] : [])])
+		console.log(`       ${p}`);
 };
 
 function buildAll(measure) {
@@ -143,7 +146,7 @@ function buildAll(measure) {
 			const problems = measure
 				? result.problems.filter((p) => !p.startsWith('no budget'))
 				: result.problems;
-			if (problems.length) failed++;
+			if (problems.length || result.over) failed++;
 			report(`${id} (PUBLIC_IE_FAMILIES=${families})`, { ...result, problems });
 		}
 		if (measure) {
@@ -184,6 +187,8 @@ function main(argv) {
 	}
 	const result = checkBundle({ id, families, buildDir: resolve(buildDir), budgets: readBudgets() });
 	report(`${id} (PUBLIC_IE_FAMILIES=${families}) ${buildDir}`, result);
+	if (result.over)
+		console.log(`::warning title=${id} runtime over its size budget::${result.over}`);
 	if (result.problems.length) {
 		console.error(`\ncheck:family-runtimes: the ${id} runtime is not what it should be`);
 		process.exit(1);

@@ -60,13 +60,23 @@ export const bakedBundlePath = (cwd = process.cwd()) => {
  * what its game plays. A bundle with no `config` key (the checked-in placeholder, or no bundle) is
  * every family, and says so in `warning`. A dev server never infers: it serves every family.
  */
+const readBundle = (bundlePath) => {
+	try {
+		return JSON.parse(readFileSync(bundlePath, 'utf8'));
+	} catch (e) {
+		throw new Error(
+			`${bundlePath} is not valid JSON (${e.message}); re-run the bake (\`pnpm bake:doc\`).`,
+		);
+	}
+};
+
 export const buildFamilies = ({
 	value = process.env.PUBLIC_IE_FAMILIES,
 	bundlePath = bakedBundlePath(),
 	dev = false,
 } = {}) => {
 	if (value?.trim() || dev) return { list: compiledFamilies(value), warning: null };
-	const bundle = existsSync(bundlePath) ? JSON.parse(readFileSync(bundlePath, 'utf8')) : null;
+	const bundle = existsSync(bundlePath) ? readBundle(bundlePath) : null;
 	if (bundle && typeof bundle === 'object' && Object.hasOwn(bundle, 'config')) {
 		const family = familyOfConfig(bundle.config);
 		return { list: family === 'slot' ? ['slot'] : ['slot', family], warning: null };

@@ -35,7 +35,7 @@ names and types. `config-vite` (`families.js`, in `baseConfig()`, so game repos 
 `slot` = slot only), swaps each left-out seam for its stub by resolved path (works for
 `engine/apps/lines/src` too), and defines `__IE_FAMILIES__`. The boot (`routes/+layout.ts`,
 `game/runtimeFamilies.ts`) refuses a config whose family the bundle lacks: "this runtime does not
-play <family> games". Nothing sets the env var yet, so every build is still `all`. Left for P11.1b:
+play <family> games". Left for P11.1b:
 `engine-layout`'s `LayoutNodeView` still imports `SpawnLayer` / `Tilemap` / `arcadeLifts` for every
 game, `engine-flow-v2` exports the family vocabularies and action lists to the shared flow code,
 and `game-config`'s card normalizer reads `engine-mechanics` `cards.js`.
@@ -49,7 +49,11 @@ review).** [phase-11.md](../design/phase-11.md) §2.4, §3.1.
   matrix per id: build `apps/lines` with the id's `PUBLIC_IE_FAMILIES` (always explicit), then
   `check-family-runtime.mjs`, upload, promote and verify. Concurrency is per id, a failed id blocks
   no other, and its alert names the id. Rollback's `runtime` is a choice of the four, and
-  `check:runtime-choice` keeps both workflows' lists equal to `RUNTIME_IDS`.
+  `check:runtime-choice` keeps both workflows' lists equal to `RUNTIME_IDS`. Every release run
+  shares one concurrency group (`runtime-release`), so runs promote in the order they were queued.
+  A bundle over its size budget is a release **warning**, not a failure: no PR check runs the
+  budget, so a hard gate would first fail after merge and keep every game on the old engine; run
+  `pnpm check:family-runtimes` before merging an engine change that grows the bundle.
 - **Publish** (`apps/launcher-api` `runtimeChoice.ts`): a game goes on its config family's id. A
   kind / family disagreement is refused (`kind-family`, no override). While an id has no release
   yet, publish falls back to `lines` and the snapshot records the id it used.

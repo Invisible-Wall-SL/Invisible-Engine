@@ -64,6 +64,14 @@ on:
         type: boolean
         default: true
 
+concurrency:
+  # ONE group for every release, push or dispatch, whichever ids it carries: runs then promote in
+  # the order they were queued, so an older commit can never be promoted over a newer one (a
+  # pointer write is a compare-and-swap, not an order check). Inside a run the ids still release
+  # in parallel and fail independently. "Runtime rollback" is deliberately NOT in this group.
+  group: runtime-release
+  cancel-in-progress: false
+
 jobs:
   gates:
     runs-on: ubuntu-latest
@@ -148,9 +156,6 @@ jobs:
     # Per id, so a push- and a dispatch-triggered release of the same runtime serialize, and
     # releases of different ids run side by side.
     # "Runtime rollback" is deliberately NOT in this group; the pointer write is a compare-and-swap.
-    concurrency:
-      group: runtime-release-${{ matrix.runtime }}
-      cancel-in-progress: false
     # `issues: write` is for the failure alert below and nothing else.
     permissions:
       contents: read
@@ -230,12 +235,13 @@ jobs:
           IE_SOURCEMAPS: hidden
         run: pnpm --filter lines build
 
-      # The bundle carries exactly the families its id names: its `__IE_FAMILIES__`, no left-out
-      # family's code, within its size budget.
+      # The bundle carries exactly the families its id names: its `__IE_FAMILIES__` and no left-out
+      # family's code. Over its size budget is a warning only (no PR check runs the budget).
       - name: 'Gate: the ${{ matrix.runtime }} bundle carries its families only'
+        env:
+          FAMILIES: ${{ steps.families.outputs.families }}
         run: |
-          node scripts/check-family-runtime.mjs --id "$RUNTIME" \
-            --families "${{ steps.families.outputs.families }}" apps/lines/build
+          node scripts/check-family-runtime.mjs --id "$RUNTIME" --families "$FAMILIES" apps/lines/build
 
       # The repo and every served bundle are PUBLIC, so the map goes to Sentry and nowhere else. The
       # script re-bases it onto index.html (the game is one inlined file, so frames are numbered by
