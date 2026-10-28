@@ -2058,8 +2058,8 @@ game, bundle or screen changes.
    trigger inputs (`hit`, `healed`, `summoned`) are declared but not yet fired; Concede works on the
    player's turn only.
 0b. **Card C4 follow-ups:** (a) the Card Library draws frames with its own DOM renderer, not the
-   Scene Editor canvas (§8.2 named the canvas): a rig, effect or flipbook in an authored frame is
-   named, not drawn; (b) the test match's table is a list of legal-action buttons, not drag; (c) a
+   Scene Editor canvas (§8.2 named the canvas) — **accepted by the owner 2026-10-28; the canvas is a
+   follow-up**: a rig, effect or flipbook in an authored frame is named, not drawn, until then; (b) the test match's table is a list of legal-action buttons, not drag; (c) a
    two-user check (`/cards` and `/config` open on one card project) is still to be done by hand; (d)
    the deck's AI weights take any number (the AI's own reader decides what it accepts).
 0. **P10.15 follow-ups:** (a) **online Flow events** (`onPlayerJoined`, `onPlayerLeft`, `onHit`,

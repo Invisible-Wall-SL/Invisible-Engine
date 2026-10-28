@@ -724,6 +724,8 @@ check. Any match can be copied as its replay record, to file a bug against.
   contexts. It draws the frame's own tree with the game's fold (`resolveTransform`, each `param`
   value binding evaluated on the card's values, `foldBoundTransform`), so the 0 / 1 looks show as in
   game. Containers, rects, text, sprites and nested instances are drawn; another node kind is named.
+  **Accepted by the owner (2026-10-28)**; drawing cards through the Scene Editor's canvas stays a
+  follow-up (status open item 0b).
 - **The form's lists are the validator's:** `cards.js` exports its ranges and lists (`CARD_RANGES`,
   `CARD_MAX_EFFECTS`, `CARD_SIDES`, `CARD_INCLUDES`, `CARD_UNTILS`), and `check:cards-tool` proves the
   form offers exactly what `validateLibrary` accepts.
