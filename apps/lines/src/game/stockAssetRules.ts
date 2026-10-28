@@ -580,6 +580,16 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 	{ file: 'packages/game-config/src/potsOverlay.ts', rule: 'notAsset', names: ['gold', 'purple'] },
 	{ file: 'packages/game-config/src/potsOverlayPresets.ts', rule: 'notAsset', names: ['gold'] },
 	{
+		file: 'packages/pixi-svelte/src/lib/screenFx/screenTransition.ts',
+		rule: 'notAsset',
+		names: ['transition'],
+	},
+	{
+		file: 'packages/pixi-svelte/src/lib/screenFx/stageFilters.ts',
+		rule: 'notAsset',
+		names: ['transition'],
+	},
+	{
 		file: 'packages/rgs-translator-eagaming/src/gameMappings.ts',
 		rule: 'symbols',
 		names: ['H1', 'H2', 'H3', 'H4', 'H5', 'L1', 'L2', 'L3', 'L4', 'M', 'S', 'W'],

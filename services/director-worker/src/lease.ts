@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { log } from './log.ts';
-import type { Checkpoint, RunState, RunStatus, RunStep } from './runState.ts';
+import type { Checkpoint, RunKind, RunState, RunStatus, RunStep } from './runState.ts';
 import { checkpointSettings } from './runState.ts';
 
 /**
@@ -44,6 +44,7 @@ export interface ClaimedRun {
 
 interface RunRow {
 	id: string;
+	kind: RunKind;
 	status: RunStatus;
 	step: RunStep;
 	waiting_on: Checkpoint | null;
@@ -55,6 +56,7 @@ const toClaimed = (row: RunRow): ClaimedRun => ({
 	id: row.id,
 	lease: row.lease_holder,
 	state: {
+		kind: row.kind,
 		status: row.status,
 		step: row.step,
 		waitingOn: row.waiting_on,
@@ -121,7 +123,7 @@ export async function claimRun(
 			limit 1
 			for update skip locked
 		)
-		returning r.id, r.status, r.step, r.waiting_on, r.checkpoints_json, r.lease_holder`;
+		returning r.id, r.kind, r.status, r.step, r.waiting_on, r.checkpoints_json, r.lease_holder`;
 	return rows[0] ? toClaimed(rows[0]) : null;
 }
 
@@ -133,7 +135,8 @@ export async function claimRun(
 export async function probeRunTables(sql: Sql): Promise<boolean> {
 	try {
 		await sql`
-			select id, status, step, waiting_on, checkpoints_json, updated_at, lease_holder, lease_until
+			select id, kind, status, step, waiting_on, checkpoints_json, updated_at, lease_holder,
+				lease_until
 			from director_runs where false`;
 		return true;
 	} catch (error) {

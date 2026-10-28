@@ -1,8 +1,14 @@
 import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import { getDb } from '../db';
 import { r2SlugSql, type Queryer } from '../projectKeyLock';
+import {
+	WORKER_BEAT_MAX_AGE_MS,
+	WORKER_KINDS,
+	WORKER_KINDS_KEY,
+} from '../../../../../../services/director-worker/src/repair';
 import type { PackFamily } from '../../../../../../services/director-worker/src/familyPack';
 import {
+	appSettings,
 	directorAtlasJobs,
 	directorBlueprintTimings,
 	directorDraftJobs,
@@ -543,6 +549,95 @@ export async function insertDraftRun(row: NewRun, db: Queryer = getDb()): Promis
 		.onConflictDoNothing({ target: directorRuns.id })
 		.returning({ id: directorRuns.id });
 	return inserted.length === 1;
+}
+
+export interface NewRepairRun {
+	id: string;
+	/** The bug's own project and its client: no copy is made. */
+	projectKey: string;
+	clientKey: string | null;
+	ownerUserId: string;
+	bugNumber: number;
+	/** The game family whose pack the run's agents read, frozen from the project's kind. */
+	family: NewRun['family'];
+	/** The run's math lock (ADR-0012 §1): the project is its own reference, so the template ETag is
+	 *  its config's ETag now, or `NO_CONFIG` when it has none (`templateConfigRecord`), and the
+	 *  project ETag is the live one, null with no config: any save during the run reads as drift. */
+	templateConfigEtag: string | null;
+	projectConfigEtag: string | null;
+}
+
+const LIVE_STATUSES = ['draft', 'running', 'waiting', 'paused', 'stopping'] as const;
+
+/**
+ * Whether a worker that knows repair runs has swept lately (`WORKER_KINDS_KEY`): a repair run is
+ * started only then, because a worker from before them would drive it as a create run.
+ */
+export async function workerKnowsRepair(): Promise<boolean> {
+	const [row] = await getDb()
+		.select({ value: appSettings.value, updatedAt: appSettings.updatedAt })
+		.from(appSettings)
+		.where(eq(appSettings.key, WORKER_KINDS_KEY));
+	return (
+		row !== undefined &&
+		row.value === WORKER_KINDS &&
+		Date.now() - row.updatedAt.getTime() < WORKER_BEAT_MAX_AGE_MS
+	);
+}
+
+/** The live run on a project, of either kind: at most one (the partial unique index). */
+export async function liveRunOnProject(projectKey: string): Promise<DirectorRun | null> {
+	const [row] = await getDb()
+		.select()
+		.from(directorRuns)
+		.where(
+			and(
+				eq(directorRuns.projectKey, projectKey),
+				inArray(directorRuns.status, [...LIVE_STATUSES]),
+			),
+		);
+	return row ?? null;
+}
+
+/**
+ * Insert a repair run's draft. `exists`: the id is taken (a replayed create). `live_run`: the
+ * project already has a live run, said by the partial unique index when two creates race the check.
+ */
+export async function insertRepairRun(
+	row: NewRepairRun,
+): Promise<'inserted' | 'exists' | 'live_run'> {
+	try {
+		const inserted = await getDb()
+			.insert(directorRuns)
+			.values({
+				id: row.id,
+				kind: 'repair',
+				projectKey: row.projectKey,
+				clientKey: row.clientKey,
+				// The project is its own reference (ADR-0012 §1): the draft's math lock compares it with
+				// its own last publish.
+				templateProjectKey: row.projectKey,
+				ownerUserId: row.ownerUserId,
+				bugNumber: row.bugNumber,
+				family: row.family,
+				templateConfigEtag: row.templateConfigEtag,
+				projectConfigEtag: row.projectConfigEtag,
+				startingPointJson: {},
+				checkpointsJson: {},
+				status: 'draft',
+				step: 'reproduce',
+			})
+			.onConflictDoNothing({ target: directorRuns.id })
+			.returning({ id: directorRuns.id });
+		return inserted.length === 1 ? 'inserted' : 'exists';
+	} catch (e) {
+		const cause = (e as { cause?: { code?: string; constraint_name?: string } }).cause;
+		const code = cause?.code ?? (e as { code?: string }).code;
+		const constraint =
+			cause?.constraint_name ?? (e as { constraint_name?: string }).constraint_name;
+		if (code === '23505' && constraint === 'director_runs_live_project_idx') return 'live_run';
+		throw e;
+	}
 }
 
 /** Drop a draft whose project could not be created; its (empty) event history goes with it. */

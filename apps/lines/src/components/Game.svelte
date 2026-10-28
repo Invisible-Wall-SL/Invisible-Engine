@@ -348,10 +348,9 @@
 	import MultiplierBoard from './MultiplierBoard.svelte';
 	import OverlayTokens from './OverlayTokens.svelte';
 	import RespinBoard from './RespinBoard.svelte';
-	import Match3Input from './Match3Input.svelte';
-	import ArcadeStage from './ArcadeStage.svelte';
-	import CardTable from './CardTable.svelte';
-	import { startCards } from '../game/cards';
+	import { Match3Input } from '../families/match3';
+	import { ArcadeStage } from '../families/arcade';
+	import { CardTable, startCards } from '../families/card';
 	import { gameMechanic } from '../game/mechanic';
 	import CoinBoardLinesSelector from './CoinBoardLinesSelector.svelte';
 	import FlightLayer from './FlightLayer.svelte';

@@ -27,6 +27,19 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
 
 ## Current state
 
+**P11.1a — family seams (built 2026-10-28; in review).** [phase-11.md](../design/phase-11.md) §2.2,
+§2.5. Shared code reaches match-3, arcade and card code only through
+`apps/lines/src/families/{match3,arcade,card}.ts`; `families/off/*` are inert stubs with the same
+names and types. `config-vite` (`families.js`, in `baseConfig()`, so game repos get it) reads
+`PUBLIC_IE_FAMILIES` (comma list of `match3` / `arcade` / `card`, or `all`; unset = `all`; empty or
+`slot` = slot only), swaps each left-out seam for its stub by resolved path (works for
+`engine/apps/lines/src` too), and defines `__IE_FAMILIES__`. The boot (`routes/+layout.ts`,
+`game/runtimeFamilies.ts`) refuses a config whose family the bundle lacks: "this runtime does not
+play <family> games". Nothing sets the env var yet, so every build is still `all`. Left for P11.1b:
+`engine-layout`'s `LayoutNodeView` still imports `SpawnLayer` / `Tilemap` / `arcadeLifts` for every
+game, `engine-flow-v2` exports the family vocabularies and action lists to the shared flow code,
+and `game-config`'s card normalizer reads `engine-mechanics` `cards.js`.
+
 **Card C3 — playable end to end (built 2026-10-28; in review).** [card-games.md](../design/card-games.md)
 §12's C3 row, in one PR; what it settled where §5–§9 were silent is in the design's new §5.4.
 
@@ -2073,6 +2086,11 @@ game, bundle or screen changes.
 
 ## Open items / next
 
+**Phase 11** ([design/phase-11](../design/phase-11.md), approved 2026-10-28; P11.1a started) schedules
+items 0, 0a (a), 1 (a)–(c), 9, 13 and 15 below as P11.1–P11.5; each item stays here until its step
+lands. (P11.1 replaces item 9's define + dead-code elimination with seam modules and a
+build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
+
 0a. **Card C3 follow-ups:** (a) the **bundle cost** (+17.7 KB gz for every game; owner): accept
    until the per-family runtime build (item 9), as P10.14's; (b) the placeholder frame has looks but
    no state machine: an authored frame's states (§6) need timelines; (c) a real deck picker (the
@@ -2143,6 +2161,14 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-28 — **P11.1a family seams** (seams `families/match3` — `Match3Input`, `awaitMatch3Round`,
+  `endMatch3Round`, `presentMatch3Board`, `presentMatch3MovesLeft`; `families/arcade` —
+  `ArcadeStage`, `joinOnlineRoom`; `families/card` — `CardTable`, `startCards`). Release-env
+  `apps/lines/build/index.html`: main `all` 4,141,309 B raw / 1,412,590 B gzip-6; branch `all`
+  4,141,617 / 1,412,885 (+0.007 % / +0.02 %); branch slot-only (`PUBLIC_IE_FAMILIES=slot`, not shipped; an empty value counts as unset)
+  3,804,801 / 1,301,143 (−8.1 % / −7.9 %), with `@colyseus/schema`, the match-3, card, arcade and
+  `engine-mechanics` board/motion/cards/cardAi markers all absent. Fixtures:
+  `packages/config-vite/families.fixture.mjs`, `apps/lines/src/game/runtimeFamilies.fixture.ts`.
 - 2026-10-28 — **Card C3 built: playable end to end** (the `card` family, `GameConfigDoc.card`, the
   card table runtime, `CARD_VOCAB` and its starter, the Game Maker scene set and sample, the
   placeholder frame, `check:card-family`, `check:card-runtime`). Slot, match-3 and arcade unchanged

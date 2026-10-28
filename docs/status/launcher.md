@@ -86,6 +86,49 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-10-28 — **Game-doctor repair eval (PLAN 9G.4, ADR-0012 §6)**. `agent-eval.ts --agent
+  game-doctor` runs the real definition over five scripted worlds in `docs/director/eval/repair/`
+  (button off-screen, typo, engine bug, wrong payout, injection): the worker's own `buildRequest`,
+  tool specs, untrusted wrapping and image answers, the real run state machine and
+  `submit_repair` checks with `verified` derived from the plays, answers shaped like the launcher's
+  ops (`tool-specs.json` is held equal to the live catalog by `check:director-adapters`). Scored per
+  case (outcome, area, forbidden task text, copied injection, tools, play before fixed, turn and
+  spend limits); `EvalReport` gained an optional `cases` field. $20 total cap from real usage,
+  `--cap` lowers it, `--cases` filters, `--estimate` prices a good run (no key), `--pack-compare`
+  runs one definition with main's pack against the branch's. **Not run live: no key in the build
+  session.** Proof is a scripted fake model in `check:agent-eval`. Owner steps and costs:
+  `docs/director/eval/repair/README.md`.
+- 2026-10-28 — **Repair runs: review fixes (PLAN 9G, ADR-0012)**. `run.submit_repair` no longer
+  trusts the doctor's `verified`: it is derived from the step's settled plays (any pass: played_pass;
+  else any fail: played_fail; else not_played) and stored; a fix is refused while a play is queued
+  or running, with no settled play, or when the step's plays failed and none passed (a
+  `no_player`-only step still allows a fix as "not played"). Plays are counted from the step's
+  entry, so a pause and resume inside it forgets nothing. A project with no stored Game Config can be
+  repaired (`NO_CONFIG` on the template side, null on the project side, as a copy records). The
+  bug reads are wrapped as untrusted by the worker whatever the catalogue flag says. A start with no
+  price is 409 `estimate_unpriced`. **Deploy order: launcher (migration 0035), then worker.** The
+  launcher refuses to start a repair run (409 `worker_outdated`) until a worker that knows repair
+  runs has swept in the last 5 minutes (`app_settings.DIRECTOR_WORKER_KINDS`, written by every new
+  sweep), so an old worker never drives one as a create run. publish-all and the Book of
+  Migration publish without the repair warning.
+- 2026-10-28 — **Invisible Director: repair runs on the family packs (PLAN 9G, ADR-0012)**.
+  `createRepairRun` freezes `director_runs.family` from the project's kind and refuses a family with
+  no ready pack (409 `no_family_pack`) before anything is written; a repair run reads its pack as
+  every run does (second cached block), and the scene, FX and component math lock reads the run's
+  family. The repair brief names the family. `game-doctor.md` is family-neutral (Never line and
+  Family pack section as the other definitions). The slot pack's opening sentence now reads "This
+  run works on a slot game" (was "re-themes"): a runtime-knowledge change, so re-run the create-run
+  Agents-tab eval. Migration regenerated on top of 9F's: `0035_director_repair_runs` (`when` later
+  than `0034_director_run_family`'s, which the boot migrator needs).
+- 2026-10-27 — **Invisible Director: repair runs on 9D's draft plays (PLAN 9G, ADR-0012)**. The
+  game-doctor now has all 18 tools: `build.request_draft` and `build.play_draft` (it joins QA on
+  both) and the new `build.get_play_shot { jobRef, screen }`, an image op that returns one
+  screenshot of a screen a finished play of the run reached (read through the play report, from
+  `<draft>/plays/<jobRef>/<scenario>-<screen>.png`; another run's play is a 404). `run.submit_repair`
+  is bound to the plays of the current step (`playsOfStep`): `fixed` needs a play in the step,
+  `played_pass` a passing one, a `no_player` settle counts as not played. The Live run page reads
+  `no_player` from the real `job_done` of `build.play_draft`. Migration renumbered to
+  `0035_director_repair_runs` (9F holds 0034).
 - 2026-10-27 — **Ask the AI on every tool's bar.** A movable chat window (minimize / close only by
   its buttons) where a new user asks how to do something in the open tool; Claude answers as the
   tool's agent from the tool's guide. `$lib/AskAiPanel.svelte`, `/api/ask-ai`, `$lib/server/askAi.ts`;
@@ -168,6 +211,24 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     not-ready template says why and **Create** stays disabled.
   - **Eval:** `agent-eval.ts` takes `--before-pack` / `--after-pack` for a by-hand run; the
     `agent-eval` workflow still evaluates single-definition changes only.
+- 2026-10-27 — **Invisible Director: game repair runs, back end (PLAN 9G, ADR-0012, proposed)**.
+  A run `kind` (`create | repair`) in the state machine and `director_runs`; the `game-doctor`
+  agent leads a repair run and hands every write to the builder or animator; Repair review is its
+  one checkpoint. No UI yet.
+  - **Create:** `POST /api/director/runs { requestId, bug }` → `createRepairRun` (Director + game
+    triage + the project; 404 for a bug not visible or not a game bug; 409 `bug_closed`,
+    `template_project`, `live_run_on_project`, also from the partial unique index). Works in the bug's
+    own project; both config ETags are the project's current one. The family check (9F) joins there.
+  - **Money:** `DIRECTOR_REPAIR_BUDGET_USD` (default $10) with its Admin › Director card;
+    `estimateRepair()` and the `repair` profiles in `estimate-profiles.json`
+    (`POST /api/director/estimate { kind: 'repair' }`).
+  - **Owner:** approving Repair review re-checks triage and project access (409 `triage_required`);
+    a stop is never refused.
+  - **Bug status (worker, same transaction as the run):** Open → Working on at start, put back on
+    stop or a no-fix outcome unless a person changed it, left Working on by a fix. Game Maker's
+    Publish resolves the project's fixed bugs (best effort), and warns while a repair run is live
+    (409 `repair-run-live`, confirm with `confirmRepairRun: true`).
+  - **Migration `0033_director_repair_runs` is provisional:** regenerate after 9D and 9F merge.
 - 2026-10-27 — **Desktop build breakdown: what a ☁ Publish / 📦 Deliver shipped** (desktop launcher
   v1.0.59 + engine). After the 🗜 Optimize image pass, the launcher runs the engine's
   `scripts/build-breakdown.mjs` on the finished `build/` and opens a self-contained page. It shows

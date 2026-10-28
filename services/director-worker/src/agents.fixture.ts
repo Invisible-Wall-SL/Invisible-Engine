@@ -34,18 +34,29 @@ const catalog: AgentCatalog = { models: pricedModels(here('pricing.json')), tool
 console.log('shipped definitions');
 {
 	const agents = loadAgents(here('agents'), catalog);
-	const CORE = 'animator,art-director,atlas-artist,builder,coordinator,mockup-analyst,qa'.split(
-		',',
-	);
+	const CORE =
+		'animator,art-director,atlas-artist,builder,coordinator,game-doctor,mockup-analyst,qa'.split(
+			',',
+		);
 	check(
 		CORE.every((name) => agents.has(name)) &&
 			[...agents.keys()].every((name) => CORE.includes(name) || name === TECHNICIAN),
-		'the seven runtime agents load, and the atlas technician when its definition has landed',
+		'the eight runtime agents load, and the atlas technician when its definition has landed',
 		` — got ${[...agents.keys()].join()}`,
 	);
 	const qa = agents.get('qa');
 	check(qa?.effort === null, 'qa (Haiku) has no effort');
 	check(agents.get('coordinator')?.effort === 'high', 'coordinator effort is high');
+	const doctor = agents.get('game-doctor');
+	check(
+		doctor?.model === 'claude-opus-5-5' && doctor.effort === 'high',
+		'game-doctor runs on Opus 5.5 at high effort (ADR-0012 §2)',
+	);
+	check(
+		!doctor?.tools.some((t) => t.startsWith('atlas.set') || /update|save|rebind|bake/.test(t)),
+		"game-doctor holds no write op: every fix is the builder's or the animator's",
+		` — ${doctor?.tools.join()}`,
+	);
 	// Its definition ships in its own PR after the code (ADR-0008 card 8D; one file per agent-eval).
 	const technician = agents.get(TECHNICIAN);
 	if (technician) {

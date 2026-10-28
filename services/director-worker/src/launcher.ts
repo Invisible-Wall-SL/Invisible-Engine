@@ -8,6 +8,8 @@ import type { JsonSchema, ToolSpec } from './model.ts';
 
 export interface AdapterSpec extends ToolSpec {
 	write: boolean;
+	/** The answer carries text people wrote (a bug report): the worker wraps it as data. */
+	untrusted?: boolean;
 	/** The op's answer carries `image: { mediaType, base64 }` for the model to see. */
 	image?: true;
 }
@@ -45,6 +47,7 @@ export function httpLauncher(baseUrl: string, token: string): Launcher {
 					description: string;
 					inputSchema: JsonSchema;
 					write: boolean;
+					untrusted?: boolean;
 					image?: true;
 				}[];
 			};

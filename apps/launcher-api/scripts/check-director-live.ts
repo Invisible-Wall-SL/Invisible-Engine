@@ -24,7 +24,11 @@
  *    priced again with the measured timings; an unpriced GPU, a recipe stored unpriced or a
  *    broken edit leaves the plan unapprovable; a region past its retries is named on its row with
  *    how often it failed; the licence list and "How this was made"; and the fold's `art_plan`
- *    open / approve / refused rows and the Style pack step's "Art plan ✓".
+ *    open / approve / refused rows and the Style pack step's "Art plan ✓";
+ *  - a repair run (card 9G, ADR-0012): its five steps (Reproduce, Fix, Verify, Repair review,
+ *    Hand-off) and where each state puts the run, the status words, the review the doctor's
+ *    submission folds into (outcome, cause, summary, changes, verified incl. "not played" with and
+ *    without a missing player) and, for an escalation, the pipeline bug exactly as it is filed.
  */
 import { readFileSync } from 'node:fs';
 import {
@@ -44,7 +48,13 @@ import {
 	spentLine,
 	type ArtPlanAnswer,
 } from '../src/routes/(app)/director/artPlan.ts';
-import type { RunEvent, RunSummary } from '../src/routes/(app)/director/director.client.ts';
+import {
+	statusLabel,
+	stepNumber,
+	stepsOf,
+	type RunEvent,
+	type RunSummary,
+} from '../src/routes/(app)/director/director.client.ts';
 import {
 	foldEvents,
 	insertEvent,
@@ -53,6 +63,7 @@ import {
 	isProjectImageKey,
 	refusedIds,
 	regionTitle,
+	repairReview,
 	stepViews,
 	toolLabel,
 	trimEvents,
@@ -1540,6 +1551,282 @@ console.log('batches, atlases and trimming');
 		},
 	];
 	check('a refused approval approves nothing', foldEvents(refusedRows, PREFIX).artPlan, 'open');
+}
+
+// ── A game repair run (card 9G, ADR-0012) ─────────────────────────────────────
+{
+	const repairRun = (status: string, step: string, waitingOn: string | null = null): RunSummary =>
+		({
+			id: 'r-9g',
+			kind: 'repair',
+			bugNumber: 41,
+			projectKey: 'sunken_temple',
+			status,
+			step,
+			waitingOn,
+		}) as RunSummary;
+	const rail = (run: RunSummary) =>
+		stepViews(run, foldEvents([], PREFIX, 'repair'), 0).map((st) => `${st.n}:${st.state}`);
+	check(
+		'repair steps: Reproduce, Fix, Verify, Repair review, Hand-off',
+		stepsOf({ kind: 'repair' }).map((st) => st.label),
+		['Reproduce', 'Fix', 'Verify', 'Repair review', 'Hand-off'],
+	);
+	check(
+		'a create run keeps its five steps',
+		stepsOf({ kind: 'create' }).map((st) => st.label),
+		['Mockup breakdown', 'Style pack', 'Regions', 'Build', 'Hand-off'],
+	);
+	check('a repair draft: Reproduce is next', rail(repairRun('draft', 'reproduce')), [
+		'1:todo',
+		'2:todo',
+		'3:todo',
+		'4:todo',
+		'5:todo',
+	]);
+	check('fixing: Reproduce is done, Fix runs', rail(repairRun('running', 'fix')), [
+		'1:done',
+		'2:running',
+		'3:todo',
+		'4:todo',
+		'5:todo',
+	]);
+	check(
+		'waiting at repair_review: the review step waits for the owner, the hand-off is not reached',
+		rail(repairRun('waiting', 'handoff', 'repair_review')),
+		['1:done', '2:done', '3:done', '4:waiting', '5:todo'],
+	);
+	check('handed off: every step is done', rail(repairRun('handed_off', 'handoff')), [
+		'1:done',
+		'2:done',
+		'3:done',
+		'4:done',
+		'5:done',
+	]);
+	check(
+		'stopped in verify: the later steps were not reached',
+		rail(repairRun('stopped', 'verify')),
+		['1:done', '2:done', '3:stopped', '4:skipped', '5:skipped'],
+	);
+	check(
+		'the step number: the review is 4 of 5, the hand-off 5',
+		[
+			stepNumber(repairRun('waiting', 'handoff', 'repair_review')),
+			stepNumber(repairRun('handed_off', 'handoff')),
+			stepNumber({ status: 'running', step: 'regions' }),
+		],
+		[4, 5, 3],
+	);
+	check(
+		'the status words count the repair steps',
+		[
+			statusLabel(repairRun('running', 'verify')),
+			statusLabel(repairRun('waiting', 'handoff', 'repair_review')),
+			statusLabel({ status: 'running', step: 'regions', waitingOn: null }),
+		],
+		[
+			'Agents working · step 3 of 5',
+			'Waiting for you · step 4 of 5',
+			'Agents working · step 3 of 5',
+		],
+	);
+
+	const submitted = (over: Record<string, unknown> = {}) =>
+		row('activity', 'game-doctor', {
+			type: 'repair_submitted',
+			step: 'verify',
+			outcome: 'fixed',
+			summary: 'The spin button sat off-screen.',
+			cause: 'Its anchor was set to the wrong corner.',
+			changes: 'Moved the button back 120 px.',
+			verified: 'played_pass',
+			pipeline_area: 'none',
+			pipeline_title: '',
+			...over,
+		});
+	const run = repairRun('waiting', 'handoff', 'repair_review');
+	const fixed = repairReview(foldEvents([submitted()], PREFIX, 'repair'), run);
+	check(
+		'the review of a fix: outcome, cause, summary, changes and the play, no pipeline bug',
+		fixed && [
+			fixed.outcomeLabel,
+			fixed.cause,
+			fixed.summary,
+			fixed.changes,
+			fixed.verifiedLabel,
+			fixed.pipeline,
+		],
+		[
+			'Fixed',
+			'Its anchor was set to the wrong corner.',
+			'The spin button sat off-screen.',
+			'Moved the button back 120 px.',
+			'Played again: it passed',
+			null,
+		],
+	);
+	check(
+		'not played reads plainly without a reason',
+		repairReview(foldEvents([submitted({ verified: 'not_played' })], PREFIX, 'repair'), run)
+			?.verifiedLabel,
+		'Not played',
+	);
+	check(
+		'not played names the missing draft player when a play settled as no_player',
+		repairReview(
+			foldEvents(
+				[
+					row(
+						'job_done',
+						'game-doctor',
+						{
+							jobRef: 'dp_00000000000000a1',
+							draftId: '20261027T101530Z-3fa9',
+							status: 'failed',
+							via: 'inline',
+							result: {
+								reason: 'no_player',
+								message: 'No draft player is deployed, so the draft was not played.',
+							},
+						},
+						'build.play_draft',
+					),
+					submitted({ verified: 'not_played' }),
+				],
+				PREFIX,
+				'repair',
+			),
+			run,
+		)?.verifiedLabel,
+		'Not played (the draft player is not deployed yet)',
+	);
+	check(
+		'a play that failed for another reason does not say the player is missing',
+		repairReview(
+			foldEvents(
+				[
+					row(
+						'job_done',
+						'game-doctor',
+						{
+							jobRef: 'dp_00000000000000a2',
+							draftId: '20261027T101530Z-3fa9',
+							status: 'failed',
+							via: 'poll',
+							result: { reason: 'timeout' },
+						},
+						'build.play_draft',
+					),
+					submitted({ verified: 'not_played' }),
+				],
+				PREFIX,
+				'repair',
+			),
+			run,
+		)?.verifiedLabel,
+		'Not played',
+	);
+	check(
+		'a play that failed is said so',
+		repairReview(foldEvents([submitted({ verified: 'played_fail' })], PREFIX, 'repair'), run)
+			?.verifiedLabel,
+		'Played again: it still fails',
+	);
+	const escalated = repairReview(
+		foldEvents(
+			[
+				submitted({
+					outcome: 'escalate',
+					cause: 'The engine drops BUG-3 style anchors.',
+					pipeline_area: 'engine',
+					pipeline_title: 'Anchors lost, see BUG-3',
+					verified: 'not_played',
+				}),
+			],
+			PREFIX,
+			'repair',
+		),
+		run,
+	);
+	check(
+		'an escalation shows the pipeline bug as it is filed: the area, the title and text with no bug link',
+		escalated?.pipeline,
+		{
+			area: 'engine',
+			areaName: 'Game runtime (engine)',
+			title: 'Anchors lost, see bug #3',
+			text: [
+				'Found while repairing bug #41 in sunken_temple (Director run r-9g).',
+				'',
+				'Cause:',
+				'The engine drops bug #3 style anchors.',
+				'',
+				'What was found:',
+				'The spin button sat off-screen.',
+			].join('\n'),
+		},
+	);
+	check(
+		'only the latest submission is the review (a revise brings a new one)',
+		repairReview(
+			foldEvents(
+				[submitted({ outcome: 'needs_person' }), submitted({ summary: 'Second try.' })],
+				PREFIX,
+				'repair',
+			),
+			run,
+		)?.summary,
+		'Second try.',
+	);
+	check('no submission, no review', repairReview(foldEvents([], PREFIX, 'repair'), run), null);
+	check(
+		'a submission of another shape is no review, and still reaches the feed',
+		(() => {
+			const f = foldEvents([submitted({ outcome: 'bogus' })], PREFIX, 'repair');
+			return [repairReview(f, run), f.feed.length];
+		})(),
+		[null, 1],
+	);
+	const early = foldEvents(
+		[row('activity', 'game-doctor', { type: 'note', text: 'Looking.' })],
+		PREFIX,
+		'repair',
+	);
+	check(
+		'a repair feed starts at Reproduce, a create feed at the breakdown',
+		[
+			early.feed[0].step,
+			foldEvents([row('activity', 'coordinator', { type: 'note', text: 'x' })], PREFIX).feed[0]
+				.step,
+		],
+		['reproduce', 'breakdown'],
+	);
+	const opened = foldEvents(
+		[
+			status(['running', 'verify', null], ['waiting', 'handoff', 'repair_review'], 'conclude'),
+			row('checkpoint_open', 'game-doctor', {
+				checkpoint: 'repair_review',
+				step: 'verify',
+				summary: 'Fixed.',
+			}),
+			row('checkpoint_resolved', 'owner', {
+				checkpoint: 'repair_review',
+				decision: 'revise',
+				note: 'Check the bonus too.',
+			}),
+		],
+		PREFIX,
+		'repair',
+	);
+	check(
+		'the review checkpoint reads in words: opened, then sent back with the note',
+		opened.feed.map((f) => f.text),
+		[
+			'the run waits for you at the repair review checkpoint (conclude).',
+			'asks you to review the repair. Fixed.',
+			'sent back the repair: “Check the bonus too.”',
+		],
+	);
 }
 
 // ── A QA play of a draft is not an atlas render (ADR-0010) ────────────────────

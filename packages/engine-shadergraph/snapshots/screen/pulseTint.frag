@@ -22,11 +22,12 @@ vec2 efxFromUnit(vec2 u) { return u * efxSize(); }
 vec4 efxSample(vec2 px)
 {
     vec2 uv = px * uInputSize.zw;
-    if (uv.x < uInputClamp.x || uv.y < uInputClamp.y || uv.x > uInputClamp.z || uv.y > uInputClamp.w)
+    vec2 edge = uOutputFrame.zw * uInputSize.zw;
+    if (uv.x < 0.0 || uv.y < 0.0 || uv.x > edge.x || uv.y > edge.y)
     {
         return vec4(0.0);
     }
-    return texture(uTexture, uv);
+    return texture(uTexture, clamp(uv, uInputClamp.xy, uInputClamp.zw));
 }
 
 bool efxInside(vec2 px)

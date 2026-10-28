@@ -200,8 +200,11 @@ export class PartialResponse extends Error {
 }
 
 /** The real transport: a streamed call (long turns never hit an HTTP timeout), final message. */
-export function anthropicTransport(apiKey: string): ModelTransport {
-	const client = new Anthropic({ apiKey });
+export function anthropicTransport(
+	apiKey: string,
+	options: { maxRetries?: number; timeout?: number } = {},
+): ModelTransport {
+	const client = new Anthropic({ apiKey, ...options });
 	return {
 		async send(request, signal) {
 			const stream = client.beta.messages.stream(request, { signal });

@@ -15,6 +15,7 @@ import {
 } from '../../publishedRuntime';
 import {
 	deleteObjects,
+	getObjectBytes,
 	getObjectText,
 	listAllKeys,
 	listFolder,
@@ -26,8 +27,10 @@ import { withDeployWrite } from '../../runtimeBundleCache';
 import { SHARED_RUNTIME_ID, runtimePointer } from '../../testServerManifest';
 import { SUB, UNASSIGNED_CLIENT } from '../../projectPaths';
 import { AdapterError, defineOp, type AdapterContext } from '../adapter';
+import { validatedModelImage } from '../mockupPixels';
 import {
 	DRAFT_ID,
+	DRAFT_JOB_REF,
 	RETAINED_DRAFTS,
 	SCENARIO,
 	NO_PLAYER_RESULT,
@@ -110,7 +113,7 @@ export const requestDraft = defineOp<Record<string, never>, RequestDraftResult>(
 	description:
 		"Freeze the run's game as a draft QA can play: assemble the runtime bundle as Publish does and copy it under the run's own drafts folder. Refuses, with the reason, when the template's math cannot be proven unchanged, the project's config moved since the run recorded it, the project has a desktop build or its family cannot be played. An invalid flow is returned as a finding, not refused. Nothing is published.",
 	inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-	agents: ['qa'],
+	agents: ['qa', 'game-doctor'],
 	scope: 'project',
 	write: true,
 	// `buildRuntimeBundle` rewrites the project's `deploy/` (as Publish does), then it is copied.
@@ -255,7 +258,7 @@ export const playDraft = defineOp<{ draftId: string; scenarios?: string[] }, Pla
 		required: ['draftId'],
 		additionalProperties: false,
 	},
-	agents: ['qa'],
+	agents: ['qa', 'game-doctor'],
 	scope: 'project',
 	write: true,
 	writes: () => [],
@@ -323,4 +326,93 @@ export const playDraft = defineOp<{ draftId: string; scenarios?: string[] }, Pla
 	},
 });
 
-export const BUILD_OPS = [requestDraft, playDraft];
+export interface PlayShotResult {
+	jobRef: string;
+	scenario: string;
+	screen: string;
+	width: number;
+	height: number;
+	image: { mediaType: string; base64: string };
+}
+
+/**
+ * One screenshot of one of this run's finished plays (ADR-0012 §2). The player uploaded each to
+ * `<draft>/plays/<jobRef>/<scenario>-<screen>.png` (ADR-0010 §3) and the report lists which screens
+ * each scenario reached; a screen is found through that report, never by guessing a key. The same
+ * answer for a play that is not this run's as for one that does not exist.
+ */
+export const getPlayShot = defineOp<{ jobRef: string; screen: string }, PlayShotResult>({
+	tool: 'build',
+	name: 'get_play_shot',
+	description:
+		"One screenshot of a screen a finished play of this run reached, sized for you to look at (the long edge is at most 1568 px). jobRef is the play's jobRef; screen is a screen name from the play report. Takes the first scenario that reached the screen and says which.",
+	inputSchema: {
+		type: 'object',
+		properties: {
+			jobRef: { type: 'string', description: "A play's jobRef.", pattern: DRAFT_JOB_REF },
+			screen: {
+				type: 'string',
+				description: 'A screen the report says was reached.',
+				pattern: SCENARIO,
+			},
+		},
+		required: ['jobRef', 'screen'],
+		additionalProperties: false,
+	},
+	agents: ['game-doctor'],
+	image: true,
+	scope: 'project',
+	write: false,
+	handler: async (ctx, { jobRef, screen }) => {
+		const { clientKey, projectKey } = scope(ctx);
+		const job = await getDraftJob(jobRef);
+		if (!job || job.runId !== ctx.run.id) {
+			throw new AdapterError(404, 'unknown_play', `This run has no play ${jobRef}.`);
+		}
+		if (job.status !== 'finished') {
+			throw new AdapterError(
+				404,
+				'no_report',
+				`Play ${jobRef} did not finish, so it has no screenshots.`,
+			);
+		}
+		const scenarios = (job.result as { scenarios?: unknown } | null)?.scenarios;
+		const reached = (Array.isArray(scenarios) ? scenarios : []).find(
+			(sc): sc is { id: string; shots: Record<string, unknown> } =>
+				typeof sc?.id === 'string' &&
+				typeof sc.shots === 'object' &&
+				sc.shots !== null &&
+				Object.hasOwn(sc.shots, screen),
+		);
+		if (!reached) {
+			throw new AdapterError(
+				404,
+				'unknown_screen',
+				`Play ${jobRef} reached no screen "${screen}".`,
+			);
+		}
+		const key = `${draftPrefix(clientKey, projectKey, job.draftId)}plays/${job.jobRef}/${reached.id}-${screen}.png`;
+		const got = await getObjectBytes(key);
+		if (!got) {
+			throw new AdapterError(
+				404,
+				'no_screenshot',
+				`Play ${jobRef} kept no screenshot of "${screen}".`,
+			);
+		}
+		const shown = await validatedModelImage(got.body).catch((error) => {
+			console.error(`director: play shot ${key} did not decode: ${error}`);
+			throw new AdapterError(422, 'unreadable_image', 'That screenshot is not a readable image.');
+		});
+		return {
+			jobRef,
+			scenario: reached.id,
+			screen,
+			width: shown.w,
+			height: shown.h,
+			image: { mediaType: shown.mediaType, base64: Buffer.from(shown.bytes).toString('base64') },
+		};
+	},
+});
+
+export const BUILD_OPS = [requestDraft, playDraft, getPlayShot];

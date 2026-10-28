@@ -197,6 +197,11 @@ const PROJECTS = new Map<string, Proj>([
 	['lines-sample', { client: 'acme', gameType: 'lines', template: true }],
 	['other-game', { client: 'other', gameType: 'lines', template: false }],
 	['gone', { client: 'acme', gameType: 'lines', template: false, deleted: true }],
+	['broken', { client: 'acme', gameType: 'lines', template: false }],
+	['tpl-bug', { client: 'acme', gameType: 'lines', template: true }],
+	['away', { client: 'other', gameType: 'lines', template: false }],
+	['gems', { client: 'acme', gameType: 'match3', template: false }],
+	['noconf', { client: 'acme', gameType: 'lines', template: false }],
 ]);
 const PUBLISHED = new Set(['hw', 'lines-sample', 'other-game']);
 const CLIENTS = new Set(['acme', 'other']);
@@ -204,6 +209,8 @@ const CLIENTS = new Set(['acme', 'other']);
 const GRANTS = new Map<string, Set<string>>([
 	['art', new Set(['acme'])],
 	['owner', new Set(['acme'])],
+	['triager', new Set(['acme'])],
+	['triager-revoked', new Set(['acme'])],
 ]);
 const live = (key: string) => {
 	const p = PROJECTS.get(key);
@@ -230,6 +237,7 @@ fake('lib/server/projects.ts', {
 	isValidProjectKey: (v: string) => /^[a-z0-9][a-z0-9_-]{0,63}$/.test(v),
 	canAccessProject: canAccess,
 	projectClientKey: async (key: string) => live(key)?.client ?? null,
+	projectGameType: async (key: string) => live(key)?.gameType ?? 'lines',
 	projectExists: async (key: string) => live(key) !== undefined,
 	projectKeyTaken: async (key: string) => PROJECTS.has(key),
 	projectInFolder: async (
@@ -274,12 +282,29 @@ fake('lib/server/roleToolAccess.ts', {
 		role === 'artist' ? { director: true, gameMaker: true } : {},
 });
 fake('lib/server/userToolAccess.ts', {
-	getToolOverrides: async (userId: string) => (userId === 'nogm' ? { gameMaker: false } : {}),
+	getToolOverrides: async (userId: string) =>
+		userId === 'nogm' ? { gameMaker: false } : userId === 'triager' ? { gameBugTriage: true } : {},
 });
-fake('lib/server/auth.ts', { SESSION_COOKIE: 'iw_session' });
+fake('lib/server/auth.ts', { SESSION_COOKIE: 'iw_session', setActiveProjectKey: async () => {} });
+fake('lib/server/launcherAuth.ts', { userHasCapability: async () => true });
+let publishes = 0;
+class PublishBlockedError extends Error {}
+fake('lib/server/publishGame.ts', {
+	PublishBlockedError,
+	publishGame: async (key: string) => {
+		publishes++;
+		return { key, url: 'u', playUrl: 'u' };
+	},
+});
 fake('lib/server/appSettings.ts', {
 	getAppSetting: async () => undefined,
 	getDirectorRunBudget: async () => 25,
+	getDirectorRepairBudget: async () => 10,
+});
+/** number → the game bug a repair run is made for, as `getBugFull` reads it. */
+const GAME_BUGS = new Map<number, { bug: Record<string, unknown> }>();
+fake('lib/server/bugReportsStore.ts', {
+	getBugFull: async (number: number) => GAME_BUGS.get(number) ?? null,
 });
 fake('lib/server/gameConfigStorage.ts', {
 	loadGameConfigDocWithEtag: async (client: string, project: string) => ({
@@ -411,7 +436,43 @@ let clock = 0;
 let raceOnNextInsert = false;
 /** The template's approved default chains, the measured timings and the plan (card 8E). */
 const DEFAULTS: { group: string; version: number; chain: unknown; atlases: string[] }[] = [];
+/** Lets the next repair insert lose the race to the partial unique index. */
+let raceLiveRun = false;
+const LIVE = ['draft', 'running', 'waiting', 'paused', 'stopping'];
+const liveOn = (projectKey: string) =>
+	[...RUNS.values()].find((r) => r.projectKey === projectKey && LIVE.includes(r.status)) ?? null;
+/** Whether a worker that knows repair runs has swept lately (`workerKnowsRepair`). */
+let workerFresh = true;
 fake('lib/server/director/store.ts', {
+	workerKnowsRepair: async () => workerFresh,
+	liveRunOnProject: async (projectKey: string) => liveOn(projectKey),
+	insertRepairRun: async (row: Record<string, unknown>) => {
+		if (RUNS.has(row.id as string)) return 'exists';
+		if (raceLiveRun || liveOn(row.projectKey as string)) return 'live_run';
+		RUNS.set(
+			row.id as string,
+			{
+				...(row as object),
+				kind: 'repair',
+				templateProjectKey: row.projectKey,
+				templateConfigEtag: row.templateConfigEtag,
+				projectConfigEtag: row.projectConfigEtag,
+				startingPointJson: {},
+				checkpointsJson: {},
+				budgetCapUsd: null,
+				repairOutcome: null,
+				status: 'draft',
+				step: 'reproduce',
+				waitingOn: null,
+				leaseHolder: null,
+				leaseUntil: null,
+				projectCreateStartedAt: null,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			} as unknown as DirectorRun,
+		);
+		return 'inserted';
+	},
 	templateDefaultChains: async () => DEFAULTS,
 	blueprintTimings: async () => [],
 	STALE_CLAIM_MS: STALE_MS,
@@ -437,6 +498,9 @@ fake('lib/server/director/store.ts', {
 			{
 				...(row as object),
 				budgetCapUsd: null,
+				kind: 'create',
+				bugNumber: null,
+				repairOutcome: null,
 				status: 'draft',
 				step: 'breakdown',
 				waitingOn: null,
@@ -556,6 +620,7 @@ const costs = await import('director-costs');
 const runsRoute = await import(src('routes/api/director/runs/+server.ts'));
 const runRoute = await import(src('routes/api/director/runs/[runId]/+server.ts'));
 const actionsRoute = await import(src('routes/api/director/runs/[runId]/actions/+server.ts'));
+const publishRoute = await import(src('routes/api/game-maker/publish/+server.ts'));
 const estimateRoute = await import(src('routes/api/director/estimate/+server.ts'));
 const templatesRoute = await import(src('routes/api/director/templates/+server.ts'));
 const fontsRoute = await import(src('routes/api/director/fonts/+server.ts'));
@@ -577,6 +642,7 @@ const OWNER: User = { id: 'owner', email: 'o@x', name: 'Owner', role: 'artist' }
 const ART: User = { id: 'art', email: 'r@x', name: 'Art', role: 'artist' };
 const DEV: User = { id: 'dev', email: 'd@x', name: 'Dev', role: 'developer' };
 const NOBODY: User = { id: 'nobody', email: 'n@x', name: 'Nobody', role: 'artist' };
+const TRIAGER: User = { id: 'triager', email: 't@x', name: 'Triager', role: 'artist' };
 const NOGM: User = { id: 'nogm', email: 'g@x', name: 'No Game Maker', role: 'artist' };
 
 type Answer = { status: number; body: Record<string, unknown> };
@@ -672,6 +738,7 @@ const act = (user: User | null, id: string, body: unknown) =>
 console.log('owner actions vs transition()');
 {
 	const state = (over: Partial<RunState>): RunState => ({
+		kind: 'create',
 		status: 'draft',
 		step: 'breakdown',
 		waitingOn: null,
@@ -696,6 +763,19 @@ console.log('owner actions vs transition()');
 		['stopped', state({ status: 'stopped' }), []],
 		['failed', state({ status: 'failed' }), []],
 		['handed off', state({ status: 'handed_off', step: 'handoff' }), []],
+		// A repair run (ADR-0012): the same machine, its own steps and its one checkpoint.
+		['repair draft', state({ kind: 'repair', step: 'reproduce' }), ['start', 'stop']],
+		[
+			'repair running',
+			state({ kind: 'repair', status: 'running', step: 'fix' }),
+			['pause', 'stop', 'message'],
+		],
+		[
+			'repair review',
+			state({ kind: 'repair', status: 'waiting', step: 'handoff', waitingOn: 'repair_review' }),
+			['stop', 'approve', 'revise', 'message'],
+		],
+		['repair handed off', state({ kind: 'repair', status: 'handed_off', step: 'handoff' }), []],
 	];
 	for (const [label, s, expected] of table) {
 		check(`allowed while ${label}`, owner.allowedOwnerActions(s), expected);
@@ -1722,6 +1802,32 @@ console.log('summary');
 		],
 	);
 	check('the allowed actions', s.allowedActions, ['stop', 'approve', 'revise', 'message']);
+	check('a create run says so and names no bug', [s.kind, s.bugNumber], ['create', null]);
+	{
+		// A repair run (ADR-0012) at Repair review: its own agents, and the owner's actions asked of
+		// the same machine.
+		const before = { kind: run.kind, step: run.step, waitingOn: run.waitingOn };
+		Object.assign(run, {
+			kind: 'repair',
+			bugNumber: 7,
+			step: 'handoff',
+			waitingOn: 'repair_review',
+		});
+		const repair = (await summary(OWNER, RUN_ID)).body.run as typeof s;
+		check('a repair run names its kind and bug', [repair.kind, repair.bugNumber], ['repair', 7]);
+		check(
+			'…lists the doctor, the builder and the animator, and no create-run agent',
+			(repair.agents as { agent: string }[]).map((a) => a.agent),
+			['game-doctor', 'builder', 'animator'],
+		);
+		check('…and at Repair review the owner may approve or revise', repair.allowedActions, [
+			'stop',
+			'approve',
+			'revise',
+			'message',
+		]);
+		Object.assign(run, { ...before, bugNumber: null });
+	}
 	check('the last event id is where the stream picks up', s.lastEventId, eventSeq);
 	check('the project name and template', [s.name, s.templateProjectKey], [`Project ${NEW}`, 'hw']);
 	Object.assign(run, { status: 'running', waitingOn: null });
@@ -2709,6 +2815,223 @@ console.log('pending project');
 		(await create(ART, createBody({ key: 'lagoon', requestId: 'lagoon-0002' }))).status,
 		201,
 	);
+}
+
+// ── A game repair run (ADR-0012) ──────────────────────────────────────────────
+console.log('game repair runs');
+{
+	put('acme/broken/config/config.json', '{"rtp":0.95}', undefined);
+	const game = (number: number, over: Record<string, unknown> = {}) =>
+		GAME_BUGS.set(number, {
+			bug: { number, kind: 'game', projectKey: 'broken', status: 'open', ...over },
+		});
+	game(70);
+	game(71, { status: 'resolved' });
+	game(72, { status: 'wontFix' });
+	game(73, { projectKey: 'tpl-bug' });
+	game(74, { projectKey: 'away' });
+	game(75, { kind: 'pipeline', projectKey: null });
+	game(76, { status: 'working' });
+	game(77, { projectKey: 'gems' });
+	game(78, { projectKey: 'noconf' });
+	const repair = (user: User, bug: unknown, requestId = 'rep-0001') =>
+		create(user, { requestId, bug });
+	const gone = await repair(TRIAGER, 999);
+	check(
+		'a bug that is not there, one that is not a game bug, and one in a project the caller cannot open are the same 404',
+		[
+			[gone.status, gone.body.error],
+			[(await repair(TRIAGER, 75)).status, (await repair(TRIAGER, 75)).body.error],
+			[(await repair(TRIAGER, 74)).status, (await repair(TRIAGER, 74)).body.error],
+		],
+		[
+			[404, 'unknown_bug'],
+			[404, 'unknown_bug'],
+			[404, 'unknown_bug'],
+		],
+	);
+	check(
+		'a number that is not a bug number is a 400',
+		[(await repair(TRIAGER, 'x')).status, (await repair(TRIAGER, 1.5)).status],
+		[400, 400],
+	);
+	const untriaged = await repair(OWNER, 70);
+	check(
+		'without the game triage capability: 403 triage_required (Director alone is not enough)',
+		[untriaged.status, untriaged.body.error],
+		[403, 'triage_required'],
+	);
+	const closed = [await repair(TRIAGER, 71), await repair(TRIAGER, 72)];
+	check(
+		'a closed bug is bug_closed: Resolved and Won’t fix both',
+		closed.map((a) => [a.status, a.body.error]),
+		[
+			[409, 'bug_closed'],
+			[409, 'bug_closed'],
+		],
+	);
+	const tpl = await repair(TRIAGER, 73);
+	check(
+		'a Director template project: template_project',
+		[tpl.status, tpl.body.error],
+		[409, 'template_project'],
+	);
+	check(
+		'…and nothing was created by any refusal',
+		[...RUNS.values()].some((r) => r.kind === 'repair'),
+		false,
+	);
+
+	const gems = await repair(TRIAGER, 77);
+	check(
+		'a family with no ready pack: no_family_pack, and nothing written',
+		[gems.status, gems.body.error, [...RUNS.values()].some((r) => r.kind === 'repair')],
+		[409, 'no_family_pack', false],
+	);
+	const made = await repair(TRIAGER, 70);
+	const run = made.body.run as Record<string, unknown>;
+	const row = RUNS.get(run.id as string)!;
+	check(
+		'a triager starts a repair run: a draft in the bug’s own project, owned by them',
+		[made.status, run.kind, run.bugNumber, run.status, run.step, run.projectKey, run.clientKey],
+		[201, 'repair', 70, 'draft', 'reproduce', 'broken', 'acme'],
+	);
+	check(
+		'…the project is its own template, both config ETags are the project’s current one, no checkpoints',
+		[
+			row.templateProjectKey,
+			row.templateConfigEtag === R2.get('acme/broken/config/config.json')!.etag,
+			row.projectConfigEtag === row.templateConfigEtag,
+			row.checkpointsJson,
+			row.ownerUserId,
+			(row as unknown as { family: string }).family,
+		],
+		['broken', true, true, {}, 'triager', 'slot'],
+	);
+	// A project with no stored Game Config can still be repaired (ADR-0010 owner decision 2): the
+	// template side records NO_CONFIG, the project side stays null, and both guards of request_draft
+	// (a recorded template ETag; the live read equal to the project's) hold.
+	const bare = await repair(TRIAGER, 78, 'rep-bare1');
+	const bareRow = RUNS.get((bare.body.run as { id: string }).id)!;
+	check(
+		'a project with no Game Config: the run records NO_CONFIG and a null project ETag',
+		[bare.status, bareRow.templateConfigEtag, bareRow.projectConfigEtag],
+		[201, 'none', null],
+	);
+	check(
+		'...so request_draft neither calls the math unproven nor drifted',
+		[bareRow.templateConfigEtag === null, bareRow.projectConfigEtag !== null],
+		[false, false],
+	);
+	bareRow.status = 'stopped';
+	const again = await repair(TRIAGER, 70);
+	check(
+		'the same request id answers the same run (200, replayed)',
+		[again.status, (again.body.run as { id: string }).id === run.id, again.body.replayed],
+		[200, true, true],
+	);
+	check(
+		'…and the same id for another bug is request_id_reused',
+		(await repair(TRIAGER, 76)).body.error,
+		'request_id_reused',
+	);
+	const busy = await repair(TRIAGER, 76, 'rep-0002');
+	check(
+		'a live run on the project, of either kind: live_run_on_project',
+		[busy.status, busy.body.error],
+		[409, 'live_run_on_project'],
+	);
+	row.status = 'stopped';
+	raceLiveRun = true;
+	const raced = await repair(TRIAGER, 76, 'rep-0003');
+	raceLiveRun = false;
+	check(
+		'…also when a racing create loses to the partial unique index',
+		[raced.status, raced.body.error],
+		[409, 'live_run_on_project'],
+	);
+	const second = await repair(TRIAGER, 76, 'rep-0004');
+	check('…once the first run has ended a new one is allowed', second.status, 201);
+
+	// Start: a repair run is priced from its own profiles, and the cap it gets is the repair cap.
+	const live = RUNS.get((second.body.run as { id: string }).id)!;
+	workerFresh = false;
+	const stale = await act(TRIAGER, live.id, { action: 'start', requestId: 'start-rep-0' });
+	check(
+		'a repair run is not started while no worker that knows the kind has swept lately',
+		[stale.status, stale.body.error],
+		[409, 'worker_outdated'],
+	);
+	workerFresh = true;
+	const profiles = runsMod.ESTIMATE_PROFILES;
+	const pricedModel = profiles.repair.perPass[0].model;
+	profiles.repair.perPass[0].model = 'claude-unpriced-model';
+	const unpriced = await act(TRIAGER, live.id, { action: 'start', requestId: 'start-rep-00' });
+	profiles.repair.perPass[0].model = pricedModel;
+	check(
+		'...and a model with no price is a 409 estimate_unpriced, not a 500',
+		[unpriced.status, unpriced.body.error],
+		[409, 'estimate_unpriced'],
+	);
+	const started = await act(TRIAGER, live.id, { action: 'start', requestId: 'start-rep-1' });
+	check('a repair run starts with no template estimate or project copy', started.status, 200);
+
+	// The estimate: a pass and a revise from the repair profiles, the repair cap.
+	const priced = await call(estimateRoute.POST, {
+		user: TRIAGER,
+		url: '/api/director/estimate',
+		body: { kind: 'repair' },
+	});
+	const est = priced.body.estimate as { pass: { usd: object }; withRevise: { usd: object } };
+	check(
+		'the repair estimate: a pass, a pass with a revise, and the repair cap ($10)',
+		[priced.status, 'low' in est.pass.usd, 'high' in est.withRevise.usd, priced.body.budgetCapUsd],
+		[200, true, true, 10],
+	);
+
+	// Publishing while a repair run is live warns, and publishes once confirmed (ADR-0012 §4, Q9).
+	const publish = (body: object) =>
+		call(publishRoute.POST, { user: TRIAGER, url: '/api/game-maker/publish', body });
+	RUNS.set(live.id, { ...live, status: 'running', ownerUserId: 'triager' });
+	const warned = await publish({ project: 'broken' });
+	check(
+		'Publish while a repair run is live: 409 repair-run-live with the run and bug, nothing published',
+		[warned.status, warned.body.reason, warned.body.details, warned.body.canOverride, publishes],
+		[409, 'repair-run-live', { runId: live.id, bugNumber: 76 }, true, 0],
+	);
+	const confirmed = await publish({ project: 'broken', confirmRepairRun: true });
+	check('…and confirmed, it publishes', [confirmed.status, publishes], [200, 1]);
+	RUNS.set(live.id, { ...live, status: 'stopped', ownerUserId: 'triager' });
+	check(
+		'…a project with no live repair run publishes as before',
+		[(await publish({ project: 'broken' })).status, publishes],
+		[200, 2],
+	);
+
+	// Approving the review re-checks triage and the project; a stop is never refused.
+	Object.assign(live, { status: 'waiting', step: 'handoff', waitingOn: 'repair_review' });
+	live.ownerUserId = 'triager';
+	const revoked = { ...TRIAGER, id: 'triager-revoked' };
+	RUNS.set(live.id, { ...live, ownerUserId: revoked.id });
+	const refused = await act(revoked, live.id, {
+		action: 'approve',
+		requestId: 'appr-rep-1',
+	});
+	check(
+		'approving Repair review without triage: 409 triage_required',
+		[refused.status, refused.body.error],
+		[409, 'triage_required'],
+	);
+	const revise = await act(revoked, live.id, { action: 'revise', requestId: 'rev-rep-1' });
+	const stop = await act(revoked, live.id, { action: 'stop', requestId: 'stop-rep-1' });
+	check(
+		'…a revise is allowed, and a stop is never refused',
+		[revise.status, stop.status],
+		[200, 200],
+	);
+	RUNS.set(live.id, { ...live, ownerUserId: 'triager' });
+	const approved = await act(TRIAGER, live.id, { action: 'approve', requestId: 'appr-rep-2' });
+	check('…with triage the approval is written', approved.status, 200);
 }
 
 console.log('stop cancels draft plays');

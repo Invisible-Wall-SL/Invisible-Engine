@@ -22,7 +22,8 @@ merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) 
 (#1423); 8d.8 (play-QA and calibration) is merged (#1425). 8d is complete; the owner's phone
 check sets its caps. 8e (screen transitions and post FX) is decided
 ([design](../design/shader-graph-screens.md)) and being built as 8e.1–8e.8; 8e.1 (the screen
-shell and the Screens node) is in review.
+shell and the Screens node) is merged (#1440); 8e.2 (the stage filter owner and the transition
+runtime) and 8e.3 (post FX on the stage) are in progress.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -287,8 +288,8 @@ shell and the Screens node) is in review.
   - **8e, screen transitions and post FX.** Decided 2026-10-28
     ([shader-graph-screens.md](../design/shader-graph-screens.md) §16: every recommendation, except
     that anti-aliasing under a stage effect is a project setting, off by default). Built as
-    8e.1–8e.8, one PR each (its §15). 8e.1, the screen shell and the Screens node, is in review.
-    - **8e.1, the screen shell and the Screens node.** In review on `claude/shader-graph-step8e1`.
+    8e.1–8e.8, one PR each (its §15). 8e.1 is merged; 8e.2 and 8e.3 are in progress.
+    - **8e.1, the screen shell and the Screens node.** Merged (#1440, 2026-10-28).
       - **One body conversion.** `constants-shared/shellBody.ts` (`shellBody`) is the conversion
         8d.1 wrote for the particle shell, moved, not copied; both shells call it. The particle
         shell's output is byte-identical bar its header's growth (a dump of 5,038 docs and 2,271
@@ -725,8 +726,8 @@ shell and the Screens node) is in review.
   the §10 caps (Open items #1).
 
 ## Recent changes
-- 2026-10-28 — **Step 8e.1: the screen shell and the Screens node** (see "Current state"). Step 8e
-  decided (#1434).
+- 2026-10-28 — **Step 8e.1: the screen shell and the Screens node** (see "Current state"). Merged
+  (#1440): CI green; Current games 8 pass, 0 fail, 0 changed screens. Step 8e decided (#1434).
   - **Proof.** Compile fixture 230 (the node at every output and its neutral meanings, the
     corpus beside a Screens node unchanged, 884 bodies through the screen shell, 19 refusals, the
     shell's names out of Custom GLSL's reach); `check:element-fx` (the list held to all three

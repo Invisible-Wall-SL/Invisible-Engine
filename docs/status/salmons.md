@@ -80,6 +80,10 @@ the placeholders when they are.
 
 ## Open items / next (S0)
 
+Salmons' own rules (the climb, sandbanks, solids, the line, the golden salmon), its HUD and
+round-over screen, the published `rooms_url`, a river per room and the isometric view are
+scheduled in [Phase 11](../design/phase-11.md) (P11.2–P11.4); S0 runs beside them.
+
 1. **Generate the 22 character clips** in the project `salmons`, following the Salmon repository's
    `docs/art-pass.md` recipes: `salmon_pink` and `salmon_golden` (`swim`, `hop`, `caught`), `bear`
    (`idle`, `walk`, `swipe`), `fisherman` (`idle`, `walk`, `cast`, `reel`), each `_se` and `_ne`.
