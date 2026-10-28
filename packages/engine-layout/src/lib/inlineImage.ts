@@ -7,7 +7,9 @@
  * ({@link InlineImageText}). The sentinel carries two things:
  *  - a `token` the game-registered resolver maps to a loaded texture key ({@link registerInlineImageResolver});
  *  - a `fallback` string rendered as plain text when the token can't resolve (no resolver, unknown
- *    symbol, missing art) — so a message never degrades to a blank or a raw id.
+ *    symbol, missing art) — so a message never degrades to a blank or a raw id;
+ *  - optionally, a `scale` on the image's height relative to the line of text (1 = text height),
+ *    appended to the token after its own separator so a sentinel without one parses as before.
  *
  * The sentinel uses Unicode PRIVATE-USE-AREA code points (U+E000..U+E002), which never occur in
  * real copy, so {@link hasInlineImage} is a safe, cheap gate: a string with no sentinel is
@@ -21,16 +23,31 @@
 const OPEN = String.fromCharCode(0xe000);
 const CLOSE = String.fromCharCode(0xe001);
 const SEP = String.fromCharCode(0xe002);
+const SCALE = String.fromCharCode(0xe003);
 
 /** Build the sentinel for one inline image: `token` resolves to a texture, `fallback` is the text
- *  shown if it can't. */
-export function wrapInlineImage(token: string, fallback = ''): string {
-	return `${OPEN}${token}${SEP}${fallback}${CLOSE}`;
+ *  shown if it can't, `scale` sizes the image against the text height (1, the default, matches it). */
+export function wrapInlineImage(token: string, fallback = '', scale = 1): string {
+	const sized =
+		Number.isFinite(scale) && scale > 0 && scale !== 1 ? `${token}${SCALE}${scale}` : token;
+	return `${OPEN}${sized}${SEP}${fallback}${CLOSE}`;
 }
 
 export type InlineSegment =
 	| { kind: 'text'; value: string }
-	| { kind: 'image'; token: string; fallback: string };
+	| { kind: 'image'; token: string; fallback: string; scale: number };
+
+function imageSegment(raw: string, fallback: string): InlineSegment {
+	const at = raw.indexOf(SCALE);
+	if (at < 0) return { kind: 'image', token: raw, fallback, scale: 1 };
+	const scale = Number(raw.slice(at + 1));
+	return {
+		kind: 'image',
+		token: raw.slice(0, at),
+		fallback,
+		scale: Number.isFinite(scale) && scale > 0 ? scale : 1,
+	};
+}
 
 /** Cheap gate: does this string carry any inline-image sentinel? False for all authored copy
  *  (parity), so the plain text path is untouched unless the game deliberately emitted one. */
@@ -52,7 +69,7 @@ export function parseInlineImageSegments(text: string): InlineSegment[] {
 	let match: RegExpExecArray | null;
 	while ((match = PATTERN.exec(text)) !== null) {
 		if (match.index > last) out.push({ kind: 'text', value: text.slice(last, match.index) });
-		out.push({ kind: 'image', token: match[1], fallback: match[2] });
+		out.push(imageSegment(match[1], match[2]));
 		last = match.index + match[0].length;
 	}
 	if (last < text.length) out.push({ kind: 'text', value: text.slice(last) });

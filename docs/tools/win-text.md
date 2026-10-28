@@ -133,6 +133,11 @@ message is drawn as the symbol's own art, sized to the text, instead of its name
 animated symbol (flipbook or rig) is held on its first frame so the sentence stays
 readable, and a symbol with no art falls back to its name.
 
+**Symbol size.** Once the image is ticked, a **Symbol size** slider (25–300%) sets how
+tall the symbol is drawn, as a percent of the text height — 100% stands as tall as the
+words. It changes the info bar only. The bar's text box still bounds the symbol, and the
+words never shrink to make room for a bigger one.
+
 #### Why expanded wins get their own line
 
 When a **Book-of special symbol expands**, it fills whole reels before the wins pay.
