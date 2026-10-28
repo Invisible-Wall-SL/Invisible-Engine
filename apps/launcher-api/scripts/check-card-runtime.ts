@@ -14,6 +14,9 @@
  *     closed (`cardsSetInput`).
  *  5. THE MECHANIC: a rules card config is the card table (no spins, bets, RGS session or wallet);
  *     an RGS card config is `unplayable`; a slot config is `reels`, as before.
+ *  8. THE TABLE RELIGHTS WHEN IDLE (`present.idle` after the queued work, the player's turn
+ *     lit); A FLOW ACTION raised inside a signal chain is queued and taken; a deck's copies are
+ *     counted over all its entries.
  *  7. THE STARTER FLOW (`CARD_DRIVEN_SEED_DOC`) on the real interpreter drives it: the deck pick's
  *     tap starts a match, `matchReady` shows the table, the result shows the won or lost screen, and
  *     its tap deals the next match. Every action the vocabulary declares has a runtime effect.
@@ -47,7 +50,7 @@ import {
 import { PLAYER } from 'engine-game/src/game/cardSession';
 import { CARD_RULES_MECHANIC, REELS_MECHANIC, mechanicFor } from 'engine-game/src/game/mechanic';
 import type { Action, CardEvent, Match } from 'engine-mechanics';
-import { normalizeGameConfigDoc, type GameConfigDoc } from 'game-config';
+import { normalizeGameConfigDoc, validateGameConfigDoc, type GameConfigDoc } from 'game-config';
 
 let fails = 0;
 let passes = 0;
@@ -326,8 +329,8 @@ const first = await playMatch('c3-gate');
 	const state = initialCardDriverState();
 	let driver: ReturnType<typeof createCardDriver>;
 	const effects: Record<string, (p: Record<string, unknown>) => void> = {
-		cardsEndPhase: () => void driver.endPhase(),
-		cardsConcede: () => void driver.concede(),
+		cardsEndPhase: () => void driver.flowAct({ type: 'endPhase' }),
+		cardsConcede: () => void driver.flowAct({ type: 'concede' }),
 		cardsNewMatch: (p) => void driver.newMatch(typeof p.deck === 'string' ? p.deck : ''),
 		cardsSetInput: (p) => driver.setInput(p.enabled === true),
 		cardsHint: () => driver.hint(),
@@ -405,6 +408,89 @@ const first = await playMatch('c3-gate');
 	check(
 		"7. the result's tap deals the next match",
 		!mount.isShown(result) && driver.session !== firstMatch && !state.over,
+	);
+}
+
+// ── 8. idle, queued flow actions, copies ──────────────────────────────────────────────────────
+{
+	const state = initialCardDriverState();
+	let idles = 0;
+	let litAtIdle = -1;
+	let endedInChain = false;
+	let passing = false;
+	let driver: ReturnType<typeof createCardDriver>;
+	driver = createCardDriver({
+		doc: SEED_CONFIG,
+		seed: 'c3-idle',
+		state,
+		signal: async (name, payload) => {
+			// From the player's second turn, a chain that ends their main phase at once, as an
+			// auto-pass would.
+			if (
+				name === 'phaseChanged' &&
+				payload.phase === 'main' &&
+				state.mine &&
+				passing &&
+				!endedInChain
+			) {
+				endedInChain = true;
+				void driver.flowAct({ type: 'endPhase' });
+			}
+		},
+		present: {
+			sync: () => {},
+			wait: async () => {},
+			idle: () => {
+				idles++;
+				// What the table lights at idle: the cards the driver now offers actions for.
+				const session = driver.session;
+				if (session?.playersTurn() && litAtIdle < 0)
+					litAtIdle = [
+						...session.match.players[PLAYER].hand,
+						...session.match.players[PLAYER].board,
+					].filter((c) => driver.actionsFor(c.uid).length > 0).length;
+			},
+		},
+	});
+	await driver.newMatch();
+	await driver.idle();
+	await new Promise((r) => setTimeout(r, 0));
+	check(
+		'8. present.idle fires once the queued work settles',
+		idles > 0 && !state.busy,
+		String(idles),
+	);
+	check(
+		"8. at idle on the player's turn the driver offers the plays and attacks (the table lights them)",
+		litAtIdle > 0,
+		String(litAtIdle),
+	);
+	// The player passes their turn; the device plays; the chain passes the next main phase.
+	passing = true;
+	await driver.endPhase();
+	await driver.endPhase();
+	await driver.idle();
+	check(
+		'8. a flow action raised inside a chain is queued and taken, not dropped',
+		endedInChain && (state.phase === 'combat' || !state.mine || state.over),
+		`${state.phase} mine=${state.mine}`,
+	);
+	const split = normalizeGameConfigDoc({
+		...SEED_CONFIG,
+		card: {
+			...SEED_CONFIG.card,
+			decks: SEED_CONFIG.card!.decks!.map((deck, i) =>
+				i === 0
+					? { ...deck, cards: [...deck.cards, { card: deck.cards[0].card, count: 2 }] }
+					: deck,
+			),
+		},
+	}) as GameConfigDoc;
+	check(
+		'8. two entries of one card cannot hold more copies than a deck may',
+		validateGameConfigDoc(split).some(
+			(i) => i.severity === 'error' && /a deck may hold/.test(i.message),
+		),
 	);
 }
 

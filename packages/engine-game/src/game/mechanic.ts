@@ -134,9 +134,9 @@ export const CARD_RULES_MECHANIC: GameMechanic = Object.freeze({
 });
 
 /**
- * The mechanic a config plays as. An arcade or card game is decided by its rules (an RGS-decided one is the
- * optional P10.10, and the config validator refuses it), so an arcade config that says otherwise is
- * `unplayable` and the boot refuses it.
+ * The mechanic a config plays as. An arcade game is decided by its rules (an RGS-decided one is the
+ * optional P10.10), and a card game always is (card-games.md §9.1): the config validator refuses
+ * either one decided by the RGS, and it is `unplayable`, which the boot refuses.
  */
 export function mechanicFor(doc: GameConfigDoc | null | undefined): GameMechanic {
 	const family = resolveFamily(doc);

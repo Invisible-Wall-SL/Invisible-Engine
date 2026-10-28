@@ -126,9 +126,6 @@ export const resolveCard = (
 export const cardLibraryOf = (doc: Pick<GameConfigDoc, 'card'> | null | undefined): CardDef[] =>
 	doc?.card?.library ?? [];
 
-/** A deck as `cards.js` takes it. */
-export const cardDeckList = (deck: CardGameDeck): { card: string; count: number }[] => deck.cards;
-
 const normalizeRules = (raw: unknown): CardGameRules | undefined => {
 	if (!isObject(raw)) return undefined;
 	const d = CARD_GAME_RULE_DEFAULTS;
@@ -145,8 +142,7 @@ const normalizeRules = (raw: unknown): CardGameRules | undefined => {
 		}
 		if (Object.keys(resource).length) rules.resource = resource;
 	}
-	if ((raw.first === 'player' || raw.first === 'ai') && raw.first !== d.first)
-		rules.first = raw.first;
+	if (raw.first === 'player' || raw.first === 'ai') rules.first = raw.first;
 	return Object.keys(rules).length ? rules : undefined;
 };
 
@@ -260,18 +256,22 @@ export function validateCardGame(doc: GameConfigDoc): Issue[] {
 				path: `${at}.cards`,
 				message: `The deck "${deck.id}" holds ${size} cards; every deck must hold ${rules.deckSize}.`,
 			});
+		const copies = new Map<string, number>();
 		deck.cards.forEach((entry, c) => {
+			const held = (copies.get(entry.card) ?? 0) + entry.count;
+			copies.set(entry.card, held);
 			if (!byId.has(entry.card))
 				issues.push({
 					severity: 'error',
 					path: `${at}.cards[${c}]`,
 					message: `The deck "${deck.id}" names "${entry.card}", which is not in the library.`,
 				});
-			if (entry.count > rules.maxCopies)
+			// Counted over the deck, so two entries of one card cannot hold more than one may.
+			if (held > rules.maxCopies && held - entry.count <= rules.maxCopies)
 				issues.push({
 					severity: 'error',
 					path: `${at}.cards[${c}].count`,
-					message: `The deck "${deck.id}" holds ${entry.count} of "${entry.card}"; a deck may hold ${rules.maxCopies}.`,
+					message: `The deck "${deck.id}" holds ${held} of "${entry.card}"; a deck may hold ${rules.maxCopies}.`,
 				});
 		});
 	});

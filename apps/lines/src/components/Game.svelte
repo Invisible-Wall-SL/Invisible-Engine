@@ -873,7 +873,7 @@
 	/** The feature is recorded but its board has not shown it yet — a held intro before the board. */
 	const respinsBeforeBoard = () => stateHoldAndWin.active && !stateRespinBoard.counter.show;
 	// A card table's sources and actions, registered before the layout mounts (`cards.ts`).
-	if (mechanic.cardTable) startCards();
+	if (mechanic.cardTable) onDestroy(startCards());
 	registerComponentValues({
 		balance: valueSource(() => stateBet.balanceAmount, numberToCurrencyString),
 		win: valueSource(() => stateBet.winBookEventAmount, bookEventAmountToCurrencyString),

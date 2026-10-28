@@ -6,7 +6,7 @@ import { DEVICE, PLAYER, createCardSession, type CardSession } from './cardSessi
 /**
  * A card game's MATCH DRIVER (`docs/design/card-games.md` §5): what the player's drops and the
  * flow's actions do to the session, when the device plays its turn, and which Flow signals the
- * rules' events raise. Plain logic: the runtime (`apps/lines` `cards.svelte.ts`) supplies the
+ * rules' events raise. Plain logic: the runtime (`apps/lines` `cards.ts`) supplies the
  * presentation, and the headless `check:card-runtime` gate supplies none, so both run this code.
  *
  * Flow decides nothing here (§5.3): it hears the signals and calls the actions; every rule is
@@ -24,6 +24,8 @@ export type CardPresenter = {
 	event?(event: CardEvent, before: Match): Promise<void>;
 	/** Wait `ms` before a device action, so the player can follow it. */
 	wait(ms: number): Promise<void>;
+	/** All queued work has settled: what the player may do now can be lit. */
+	idle?(): void;
 };
 
 /** What the driver keeps; the runtime passes a reactive object to draw from. */
@@ -194,7 +196,8 @@ export function createCardDriver({
 	let matches = 0;
 	let queue: Promise<void> = Promise.resolve();
 	let pending = 0;
-	/** Match work runs one piece at a time; a flow action raised inside a chain waits its turn. */
+	/** Match work runs one piece at a time: a flow action raised inside a chain waits its turn
+	 *  ({@link queued}), while the player's input is refused until the table is idle. */
 	const exclusive = (run: () => Promise<void>): Promise<void> => {
 		pending++;
 		state.busy = true;
@@ -205,6 +208,7 @@ export function createCardDriver({
 				onError(error);
 			} finally {
 				state.busy = --pending > 0;
+				if (!state.busy) present.idle?.();
 			}
 		});
 		queue = next;
@@ -260,6 +264,19 @@ export function createCardDriver({
 		}).then(() => true);
 	};
 
+	/** A flow's action: queued behind the work in flight, and taken if the rules allow it then. */
+	const queued = (action: Action): Promise<boolean> => {
+		let taken = false;
+		return exclusive(async () => {
+			const legal = session?.playersTurn() ? session.legalMatch(action) : undefined;
+			if (!legal) return;
+			taken = true;
+			const before = session!.match;
+			await show(session!.act(legal), before);
+			await deviceTurn();
+		}).then(() => taken);
+	};
+
 	return {
 		get session() {
 			return session;
@@ -284,7 +301,8 @@ export function createCardDriver({
 		/** Play a card, attack or end a phase for the player; resolves `false` for one not allowed now. */
 		act: playerAct,
 		endPhase: () => playerAct({ type: 'endPhase' }),
-		concede: () => playerAct({ type: 'concede' }),
+		/** The flow's `cardsEndPhase` / `cardsConcede`: queued, so a chain can raise them. */
+		flowAct: queued,
 		setInput: (enabled: boolean) => {
 			state.inputEnabled = enabled;
 		},

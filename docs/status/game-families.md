@@ -55,8 +55,8 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
   the `card` template, the seed `card.rules.json` (24 invented cards, two 15-card decks, `deckSize` 15) and the placeholder frame `cardFrame`, created by the scaffold.
 - **Ship chain:** no new asset class: the export and the bake seed `cardGameComponentIds` and classify
   `cardGameParamRefs`; `check:art-scope` section 10. Localization: the "Cards" harvest section.
-- **Gates:** `check:card-family` (113), `check:card-runtime` (28, the starter flow on the real
-  interpreter included), `check:art-scope` and `check:flow-publish-gate` extended; the gates card
+- **Gates:** `check:card-family` (113), `check:card-runtime` (32: the starter flow on the real
+  interpreter, the idle relight, a flow action queued from inside a chain, copies counted per deck), `check:art-scope` and `check:flow-publish-gate` extended; the gates card
   touched re-pinned (`check:authored-freespins`' `drivenSeed.ts` hash, `check:flow-time-events`,
   `expandingSymbol.fixture`, `check:match3-wire`'s unknown family, `check:stock-asset-coverage`,
   `flow-spike v2holdandwin`, `owners.json` `kind:card` gap). Played in a real browser by
@@ -65,7 +65,7 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
   main 724b41e vs this branch), mostly `cards.js` and `cardAi.js`, then the card reference layout.
   Owner call (open item 0a).
 
-**Card C2 — the AI (built 2026-10-27; in review).** [card-games.md](../design/card-games.md) §12's
+**Card C2 — the AI (merged 2026-10-27, #1408).** [card-games.md](../design/card-games.md) §12's
 C2 row (§4), in one PR. No caller yet: the family, runtime and sample game are C3.
 
 - **The AI** (`engine-mechanics` `cardAi.js` + `.d.ts`, plain ESM beside `cards.js`):
@@ -1864,12 +1864,18 @@ game, bundle or screen changes.
 ## Open items / next
 
 0a. **Card C3 follow-ups:** (a) the **bundle cost** (+17.4 KB gz for every game; owner): accept
-until the per-family runtime build (item 9), as P10.14's; (b) the placeholder frame has looks but
-no state machine: an authored frame's states (§6) need timelines; (c) a real deck picker (the
-starter's deck pick is a tap); (d) hero portraits do not light `targetable`; a dragged card is not
-lifted above its neighbours; (e) the current-games `SCRIPT_FOR_KIND` gains `card` when a card
-game is first published, with its screen script; (f) `hard`'s 16 ms budget on a mid phone is not
-measured; (g) the Card Library (`/cards`) is C4. 0. **P10.15 follow-ups:** (a) **online Flow events** (`onPlayerJoined`, `onPlayerLeft`, `onHit`,
+   until the per-family runtime build (item 9), as P10.14's; (b) the placeholder frame has looks but
+   no state machine: an authored frame's states (§6) need timelines; (c) a real deck picker (the
+   starter's deck pick is a tap); (d) hero portraits do not light `targetable`; a dragged card is not
+   lifted above its neighbours; (e) the current-games `SCRIPT_FOR_KIND` gains `card` when a card
+   game is first published, with its screen script; (f) `hard`'s 16 ms budget on a mid phone is not
+   measured; (g) the Card Library (`/cards`) is C4; (h) from the C3 review: the validator does not
+   yet warn when `handLimit` / `boardLimit` exceed the table's zone cap (12) or a card names a frame
+   the zones cannot spawn (the card would be missing from the table); the drop hit-test
+   (`actionAt`, `release`) is covered by the browser playtest only, not a Node gate; the frame's
+   trigger inputs (`hit`, `healed`, `summoned`) are declared but not yet fired; Concede works on the
+   player's turn only.
+0. **P10.15 follow-ups:** (a) **online Flow events** (`onPlayerJoined`, `onPlayerLeft`, `onHit`,
    `onCaught`, `onRoundEnd`) from the room's `event` messages, and **server-owned variables** (the
    room's scores bound as read-only `var:` sources; the validator's `variable-server-owned`) — the
    design's P10.15 row names both; (b) predicted ability events (a swipe drawn when pressed) and

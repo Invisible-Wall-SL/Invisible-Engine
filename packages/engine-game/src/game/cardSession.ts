@@ -8,7 +8,6 @@ import {
 	type CardAi,
 	type CardDef,
 	type CardEvent,
-	type CardInstance,
 	type Match,
 	type Side,
 	type TargetRef,
@@ -29,19 +28,12 @@ export const DEVICE: Side = 1;
 
 export type CardSession = ReturnType<typeof createCardSession>;
 
-/** The decks a config offers the player, in authored order. */
-export const playerDecks = (doc: GameConfigDoc): CardGameDeck[] =>
-	resolveCard(doc).decks.filter((deck) => deck.side === 'player');
-
 /** The deck `id` names, or the first player deck for none or an unknown id. */
 const pickDeck = (decks: CardGameDeck[], id: string | undefined): CardGameDeck | undefined =>
 	decks.find((deck) => deck.id === id) ?? decks[0];
 
 const sameTarget = (a: TargetRef | undefined, b: TargetRef | undefined): boolean =>
 	JSON.stringify(a) === JSON.stringify(b);
-
-/** Where a card is: one of a side's zones, or gone (discarded). */
-export type CardZone = 'deck' | 'hand' | 'board' | 'discard';
 
 export function createCardSession(
 	doc: GameConfigDoc,
@@ -78,18 +70,6 @@ export function createCardSession(
 		weights: aiDeck.ai?.weights,
 	});
 	const cards: Readonly<Record<string, CardDef>> = match.library;
-	/** The player's actions, for a replay record (§4.3). */
-	const actions: Action[] = [];
-
-	const find = (uid: number): { card: CardInstance; side: Side; zone: CardZone } | undefined => {
-		for (const side of [PLAYER, DEVICE] as const)
-			for (const zone of ['hand', 'board', 'deck', 'discard'] as const) {
-				const card = match.players[side][zone].find((c) => c.uid === uid);
-				if (card) return { card, side, zone };
-			}
-		return undefined;
-	};
-
 	return {
 		get match() {
 			return match;
@@ -99,13 +79,9 @@ export function createCardSession(
 		aiDeck,
 		/** The events `createMatch` raised: the opening hands and turn 1 up to `main`. */
 		openingEvents: created.events,
-		get actions(): readonly Action[] {
-			return actions;
-		},
 		/** The player may act now. */
 		playersTurn: () => !match.result && match.active === PLAYER,
 		devicesTurn: () => !match.result && match.active === DEVICE,
-		find,
 		/** The player's legal actions now (none when it is not their turn). */
 		legal: (): Action[] => (match.active === PLAYER ? legalActions(match) : []),
 		/** A legal action of the player that matches `wanted` (a play's `slot` is free). */
@@ -130,7 +106,6 @@ export function createCardSession(
 		act(action: Action): CardEvent[] {
 			const result = apply(match, action);
 			match = result.match;
-			actions.push(action);
 			return result.events;
 		},
 		/** The device's next action, applied. */
@@ -141,28 +116,5 @@ export function createCardSession(
 			match = result.match;
 			return { action: chosen.action, events: result.events };
 		},
-		/** The replay record of this match so far (§4.3). */
-		record: () => ({
-			seed,
-			decks: [playerDeck.cards, aiDeck.cards] as const,
-			library,
-			rules: {
-				startHealth: rules.startHealth,
-				openingHand: rules.openingHand,
-				handLimit: rules.handLimit,
-				boardLimit: rules.boardLimit,
-				resource: rules.resource,
-				turnLimit: rules.turnLimit,
-			},
-			first,
-			ai: [
-				{
-					side: DEVICE,
-					difficulty: aiDeck.ai?.difficulty ?? 'normal',
-					weights: aiDeck.ai?.weights,
-				},
-			],
-			actions: [...actions],
-		}),
 	};
 }

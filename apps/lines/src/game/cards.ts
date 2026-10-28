@@ -18,6 +18,8 @@ import {
 	registerComponentActions,
 	registerComponentValues,
 	registerInstanceValues,
+	resolveLocalizedText,
+	unregisterInstanceValues,
 	resolveTransform,
 	type InstanceValueSource,
 	type LayoutNode,
@@ -48,8 +50,8 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
  * or by tapping it and then a target. The drop is hit-tested against the board zone and the legal
  * targets only; an illegal drop snaps back.
  *
- * A slot game never starts it: only `<CardTable />` calls {@link startCards}, and `Game.svelte`
- * mounts that only for a mechanic that is a card table.
+ * A slot game never starts it: `Game.svelte` calls {@link startCards} and mounts `<CardTable />`
+ * only for a mechanic that is a card table.
  */
 
 /** The URL parameter that pins the match seed (the playtester and the screen scripts use it). */
@@ -120,19 +122,27 @@ function valuesOf(match: Match, card: CardInstance, layer: Layer): Record<string
 	const legal = driver?.actionsFor(card.uid) ?? [];
 	const targetable = stateCards.picked ? legalTargetsOf(stateCards.picked).has(card.uid) : false;
 	return {
+		// The frame's own params first (its art, under whatever keys the frame names): the live
+		// values below win over a param of the same name.
+		...def.params,
 		name: def.name,
-		rulesText: cardText(def, Object.values(match.library)).join(' '),
+		...(def.flavor ? { flavor: def.flavor } : {}),
+		// Each sentence is its own localization key (the "Cards" harvest), so each is translated
+		// before they are joined.
+		rulesText: cardText(def, Object.values(match.library)).map(resolveLocalizedText).join(' '),
 		cost: def.cost,
 		attack: card.attack,
 		health: Math.max(0, card.health - card.damage),
-		...(typeof def.params?.art === 'string' ? { art: def.params.art } : {}),
 		isUnit: flag(unit),
+		inHand: flag(layer === CARD_LAYERS.hand),
+		onBoard: flag(layer === CARD_LAYERS.board || layer === CARD_LAYERS.enemyBoard),
 		faceDown: flag(layer === CARD_LAYERS.enemyHand),
 		playable: flag(layer === CARD_LAYERS.hand && legal.some((a) => a.type === 'play')),
 		ready: flag(layer === CARD_LAYERS.board && legal.some((a) => a.type === 'attack')),
 		targetable: flag(targetable),
 		damaged: flag(card.damage > 0),
 		buffed: flag(unit && (card.attack > (def.attack ?? 0) || card.health > (def.health ?? 0))),
+		debuffed: flag(unit && (card.attack < (def.attack ?? 0) || card.health < (def.health ?? 0))),
 		guard: flag(card.keywords.includes('guard')),
 		shield: flag(card.keywords.includes('shield')),
 		swift: flag(card.keywords.includes('swift')),
@@ -160,6 +170,7 @@ function unseat(uid: number) {
 	const card = seated.get(uid);
 	if (!card) return;
 	live.despawn(card.id);
+	unregisterInstanceValues(card.id);
 	uidOf.delete(card.id);
 	seated.delete(uid);
 }
@@ -287,9 +298,7 @@ export function actionAt(uid: number, at: Point): Action | undefined {
 	if (!plain || !local) return undefined;
 	if (Math.abs(local.x) > BOARD_DROP.w || Math.abs(local.y) > BOARD_DROP.h) return undefined;
 	const board = live.live(CARD_LAYERS.board);
-	return plain.type === 'play'
-		? { ...plain, slot: board.filter((i) => i.x < local.x).length }
-		: undefined;
+	return { type: 'play', uid, slot: board.filter((i) => i.x < local.x).length };
 }
 
 /** Release the picked card at `at`: play the action it asks for, or snap the card back. */
@@ -306,6 +315,9 @@ async function release(uid: number, at: Point | undefined) {
 
 /** A drag is under way: the canvas release that ends it is not a tap. */
 let dragging = false;
+/** A card dragged that may not move now: its frame's body still follows the pointer, so its
+ *  release puts it back, and plays nothing. */
+let stray = 0;
 /** When the last drag ended: the click a release may also raise is not a tap. */
 let draggedAt = 0;
 
@@ -313,10 +325,18 @@ function onCardEvent(instanceId: string, event: string) {
 	const uid = uidOf.get(instanceId);
 	if (uid === undefined || !driver) return;
 	if (event === 'cardDragStart') {
-		if (!driver.actionsFor(uid).length) return;
+		if (!driver.actionsFor(uid).length) {
+			stray = uid;
+			return;
+		}
 		dragging = true;
 		stateCards.picked = uid;
 		relight();
+	} else if (event === 'cardDragEnd' && stray === uid) {
+		stray = 0;
+		draggedAt = Date.now();
+		const match = driver.session?.match;
+		if (match) seat(match, uid);
 	} else if (event === 'cardDragEnd' && dragging) {
 		dragging = false;
 		draggedAt = Date.now();
@@ -336,7 +356,8 @@ function onCardEvent(instanceId: string, event: string) {
 export function tapTable(at: Point) {
 	pointer = at;
 	const picked = stateCards.picked;
-	if (!picked || dragging || unitAt(at) !== undefined) return;
+	if (!picked || dragging || stray || Date.now() - draggedAt < 250 || unitAt(at) !== undefined)
+		return;
 	void release(picked, at);
 }
 
@@ -390,6 +411,7 @@ const present = {
 		}
 	},
 	wait,
+	idle: relight,
 };
 
 /** With no flow to ask for one, the table deals the first match itself once it is up. */
@@ -420,8 +442,8 @@ export function startCards(): () => void {
 	}
 	const d = driver;
 	registerBoardEffects({
-		cardsEndPhase: () => void d.endPhase(),
-		cardsConcede: () => void d.concede(),
+		cardsEndPhase: () => void d.flowAct({ type: 'endPhase' }),
+		cardsConcede: () => void d.flowAct({ type: 'concede' }),
 		cardsNewMatch: (payload) =>
 			void d.newMatch(typeof payload.deck === 'string' ? payload.deck : ''),
 		cardsSetInput: (payload) => d.setInput(payload.enabled === true),

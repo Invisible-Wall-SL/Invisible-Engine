@@ -265,18 +265,28 @@ export const CARD_FRAME_PLACEHOLDER_DEF: ComponentDef = {
 					{ target: 'scale', param: 'dragging', inMin: 0, inMax: 1, outMin: 1, outMax: 1.08 },
 				],
 				children: [
-					rect('cardFrame-glow', -W / 2 - 6, -H / 2 - 6, W + 12, H + 12, 0x5ce07a, {
-						borderRadius: 14,
-						valueBindings: [shown('playable')],
-					}),
-					rect('cardFrame-ready', -W / 2 - 6, -H / 2 - 6, W + 12, H + 12, 0xf2c94c, {
-						borderRadius: 14,
-						valueBindings: [shown('ready')],
-					}),
-					rect('cardFrame-target', -W / 2 - 8, -H / 2 - 8, W + 16, H + 16, 0xe2504c, {
-						borderRadius: 16,
-						valueBindings: [shown('targetable')],
-					}),
+					// The looks behind the card, in a container of their own: a node a value binding
+					// shows is drawn over its unbound siblings, so the glows stay under the face.
+					{
+						id: 'cardFrame-looks',
+						kind: 'container',
+						x: 0,
+						y: 0,
+						children: [
+							rect('cardFrame-glow', -W / 2 - 6, -H / 2 - 6, W + 12, H + 12, 0x5ce07a, {
+								borderRadius: 14,
+								valueBindings: [shown('playable')],
+							}),
+							rect('cardFrame-ready', -W / 2 - 6, -H / 2 - 6, W + 12, H + 12, 0xf2c94c, {
+								borderRadius: 14,
+								valueBindings: [shown('ready')],
+							}),
+							rect('cardFrame-target', -W / 2 - 8, -H / 2 - 8, W + 16, H + 16, 0xe2504c, {
+								borderRadius: 16,
+								valueBindings: [shown('targetable')],
+							}),
+						],
+					},
 					rect('cardFrame-face', -W / 2, -H / 2, W, H, 0x2c3e50, {
 						borderWidth: 3,
 						borderColor: 0x9fb3c8,

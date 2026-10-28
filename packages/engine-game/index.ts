@@ -101,9 +101,7 @@ export {
 	createCardSession,
 	DEVICE,
 	PLAYER,
-	playerDecks,
 	type CardSession,
-	type CardZone,
 } from './src/game/cardSession';
 export {
 	createMatch3Driver,
