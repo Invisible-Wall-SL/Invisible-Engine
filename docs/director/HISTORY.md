@@ -15,6 +15,38 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-28 · Phase 9 9G · director-backend + director-frontend + regression-guardian
+- Did: Game repair runs (ADR-0012, approved 2026-10-28): repair run kind with reproduce/fix/verify
+  and an always-on Repair review; game-doctor (leads, plays the draft, no writes; builder/animator
+  fix); bug read ops and build.get_play_shot with an untrusted wrapper (worker-side too);
+  repair_art/repair_create refusals; createRepairRun (Director + game triage + scope; family
+  frozen, no_family_pack; NO_CONFIG for a project without one; one live run per project);
+  escalation to one linked pipeline bug (run or triager); submit_repair's verdict derived from the
+  step's settled plays; bug status sync with "Fixed, waiting on publish" resolved by the next
+  publish; $10 repair budget; repair estimate; repair start gated on a worker that knows the kind;
+  Repair card, Repair review panel, publish confirm; slot pack's opening sentence made neutral;
+  9G.4 offline repair eval (five scripted cases, $20 cap, --pack-compare).
+- Files: services/director-worker/{src/{runState,repair,untrusted,bugSync,driver,workerTools,tools,
+  store,lease,toolResult,wake,model}.ts,src/eval/{repair*,cap,report,run}.ts,agents/game-doctor.md,
+  families/slot.md,estimate-profiles.json,scripts/{prove-turns,agent-eval}.ts};
+  apps/launcher-api/src/lib/server/{director/{runs,store,refusals,gate,registry,ops/{gameBugs,build}}.ts,
+  bugReports*.ts,appSettings.ts,publishGame.ts}, drizzle/0035_director_repair_runs, routes for
+  bugs/game-bugs/director/game-maker/admin; packages/director-costs; docs/director/eval/repair/;
+  docs/tools/*, docs/INFRA.md.
+- Branch / PR: claude/9g-game-repair-runs, #1414 (merged 2026-10-28 as cf10980; the owner merged
+  without the live evals (a)/(b), which can still run after the fact).
+- Tests: check:agent-eval 452, check:run-state 2715, check:repair 87, check:family-packs 100,
+  check:director-adapters 785, check:director-runs 547, check:director-live 136,
+  check:bug-reports 140, prove:turns 198. No live eval run in the session (no API key).
+- Decisions: ADR-0012 approved, all defaults. Migration order: the second of 9F/9G to merge
+  regenerates (drizzle's migrator goes by `when`, not idx). Deploy order: launcher, then worker.
+  Repair eval questions 5–9 approved at their defaults (owner, 2026-10-28): offline scripted
+  worlds; report-only; per-case limits tuned after the first live run.
+- Next: the migration-order gate shipped separately as #1436 (check:migration-order in Lint);
+  the owner runs the game-doctor eval and the slot-pack re-run; follow-ups: the
+  agent-eval.yml timeout/header change and the Pipeline Changes repair-report labels; an
+  end-to-end repair once the draft player is deployed.
+
 ## 2026-10-28 · Phase 9 9F follow-up · director-backend (card family in the pack lists)
 - Did: C3 (#1426) added `card` to `GAME_FAMILIES`; the 9F pack lists still named only slot,
   match-3 and arcade, so launcher svelte-check rose 45 → 51 on main. `card` joins

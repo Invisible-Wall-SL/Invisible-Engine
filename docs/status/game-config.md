@@ -794,6 +794,53 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-28 — **Fairy Clover, a second lines preset** (branch `lines/fairys-charm-preset`).
+  `fairyCloverPreset()` (`packages/game-config/src/fairyCloverPreset.ts`) → generated
+  `lines.fairyClover.json`, from Slotmotion's _Fairy's Charm_ (`docs/reference/fairys-charm-capture.json`):
+  5×4, its 50 lines, its paytable in our ids (H1–H5, L1–L5), `W` (fairy) and `CL` (clover) wilds with
+  no paytable, `S` paying `{2: 1}` × total bet, free spins on 2 `S` → 10, +10 on 2 more (≈ +0.20 spins
+  per spin on its freegame strips), one base mode (cost 1, no buy), the lines win levels. Strips:
+  the boot-config base set as `basegame` (the reference draws one of five weighted sets) and its
+  free-spin set as `freegame`, so **RTP 0.96 and max win 5000 are placeholders** until the maths is
+  tuned. Registered as lines preset `fairyClover` ("Fairy Clover"): `/config`'s Reset to preset and
+  Game Maker's Preset picker, scaffolded from the **lines** scene set (its board sizes from the
+  config; the Book-of set carries a 5×3 reel-grid node). **Gates:** `check:fairy-clover-preset`
+  (in `check:rgs`: preset vs capture through `symbolMap`, committed JSON vs preset),
+  `check:lines-presets`, `check:project-scaffold`, `check:family-defaults-identity`,
+  `check:game-config-defaults`. **Test server:** a trigger below 3 now sends its places on the strips
+  (`freeSpinsTriggerStrips`, game-config → mock contract → `validGrid` → the lines mock's
+  `spinTriggerStrips`): each reel stops at a random cell of its `basegame` / `freegame` strip, the
+  trigger lands where that window holds it, every other cell is the usual draw with the trigger
+  redrawn. Only a count below 3 sends it, so every existing game's deal is byte-identical
+  (`check:deal-parity`, `check:lines-parity`). Before it the mock dealt SCAT on 4% of cells: the
+  feature opened on one 5×4 spin in five and most features ran to `MAX_ROUND_FREE_SPINS`; now it
+  opens on ~3.7% of base spins and retriggers on ~2% of free spins (`check:freespins` §16, 1500
+  rounds, longest feature 50; §17 keeps the flat-rate path and the cap). **Known gaps:** `CL` has no
+  stock art: a scaffolded project draws nothing in a `CL` cell (one console warning, "rendering
+  nothing for it") until art is bound in `/symbols`; the lines reference frame is a fixed 3-row
+  height (`FRAME_HEIGHT` in `referenceLayouts/lines.ts`), so the 5×4 board overhangs it top and
+  bottom until the frame is resized in the Scene Editor (seen in the playtest); scatter anticipation never arms
+  (`anticipation.ts` waits for `SCATTER_TRIGGER_COUNT`, 3). **Wilds** (after #1444 merged): the
+  preset carries `expandingWilds { symbols: ['W'] }` (the fairy, reels 2–4 from its strips, drawn
+  `onWin`) and `growingWild { symbol: 'CL', reels: [2], freeSpinReels: [1, 2, 3] }` (a plus). The
+  test server lands them through `mock-wild-rewrite.mjs` at the reference game's observed rates
+  (`EXPAND_RATE` 3% per reel, `GROW_RATE` 12% per spin): a fairy on ~8.5% of spins, a clover on
+  ~12%, unforced (`check:freespins` §16 holds the reels: fairy 2–4, clover 3 / 2–4 in free spins).
+  The boot-config strips alone would land a fairy on 39% and a clover on 34% of base spins: that set
+  is the richest of the reference's five, so the mock keeps the reference's rates.
+- 2026-10-28 — **The free-spin trigger floor is measured on the freegame strips** (branch
+  `lines/fairys-charm-preset`). A trigger count of 3 or more validates exactly as before. Below 3,
+  `retriggerSpinsPerSpin` computes, exactly, the spins a retrigger adds per free spin played: per reel
+  over every stop of the circular `freegame` strip and that reel's visible rows
+  (`triggerCountDistribution`), convolved across reels, times the retrigger row's award (the top of a
+  random range). It is an error at `MAX_RETRIGGER_SPINS_PER_SPIN` (0.5: a round then averages twice its
+  award) or with no `freegame` strip for every reel (the old floor). The 2026-10-07 note below chose
+  not to measure strips because the lines mock did not deal from them; for a count below 3 it now
+  deals the trigger from them (see the Fairy Clover entry above), and the cap still ends any round.
+  `/config`'s How many now allows 1. **Verified:** `check:freespins` — `freeSpins.fixture.ts` (exact
+  distribution, the 0.5 line at +40/+60, unmeasured strips keep the floor, 3+ is never measured) and
+  `check-freespin-protocol.mjs` §16 (a 2-SCAT trigger opens exactly at 2+, every retrigger lands 2+ and
+  adds 10, rounds close under the cap).
 - 2026-10-28 — **Expanding wilds and the growing wild: two optional lines blocks**
   (`expandingWilds`, `growingWild`; plan `docs/design/expanding-and-growing-wilds.md`, branch
   `lines/expanding-growing-wilds`). Absent ⇒ every config normalizes, deals and renders as before.
@@ -1043,7 +1090,8 @@ check:expanding-symbol` (new, in `check:rgs`) — the pickRandomly shape, the ex
   imported reels mode keeps its stricter 50 (`MAX_STRIPS_ROUND_SPINS`). 200 because a default Book-of
   round reaches 60 in the parity transcripts — a cap of 50 changed four of them. **Validator:** a
   trigger count below `MIN_FREE_SPINS_TRIGGER_COUNT` (3) is an error, for any trigger symbol (any
-  symbol lands at least as often as a scatter); `/config`'s How many has `min="3"`. A strip-based
+  symbol lands at least as often as a scatter); `/config`'s How many has `min="3"` (superseded
+  2026-10-28, see above). A strip-based
   estimate of retrigger growth was not used: the mocks do not deal from the strips, so it would
   measure a different game than the one dealt. **Bounds:** an award row (or its To) above
   `MAX_FREE_SPINS_PER_ROUND` (200, held equal to the mocks' by `check:freespins`) and a table with

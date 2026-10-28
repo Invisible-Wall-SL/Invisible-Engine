@@ -109,12 +109,19 @@ check(
 );
 check('no blocks ⇒ none stored', 'expandingWilds' in doc() || 'growingWild' in doc(), false);
 
-console.log('\n2. every committed config normalizes without the blocks');
+console.log(
+	'\n2. every committed config normalizes without the blocks, but the one that authors them',
+);
+/** Fairy Clover, the reference game's preset, authors both (`check:fairy-clover-preset`). */
+const AUTHORS_BLOCKS = 'lines.fairyClover.json';
 for (const dir of ['apps/launcher-api/src/lib/data/gameConfig']) {
 	for (const file of readdirSync(dir).filter((f) => f.endsWith('.json'))) {
 		const raw = JSON.parse(readFileSync(`${dir}/${file}`, 'utf8'));
 		const out = normalizeGameConfigDoc(raw);
-		check(`${file}: no block appears`, Boolean(out?.expandingWilds || out?.growingWild), false);
+		const blocks = Boolean(out?.expandingWilds && out?.growingWild);
+		const any = Boolean(out?.expandingWilds || out?.growingWild);
+		if (file === AUTHORS_BLOCKS) check(`${file}: both blocks kept`, blocks, true);
+		else check(`${file}: no block appears`, any, false);
 	}
 }
 

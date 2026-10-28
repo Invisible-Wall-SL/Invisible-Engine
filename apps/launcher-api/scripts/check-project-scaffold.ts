@@ -121,6 +121,7 @@ const GAME_TYPES: Record<string, string> = {
 	hwSymbolsRace: 'holdAndWin',
 	linesPreset: 'lines',
 	linesBook: 'lines',
+	linesFairy: 'lines',
 	waysBook: 'ways',
 	linesWithCoins: 'lines',
 	lines: 'lines',
@@ -328,6 +329,23 @@ await check(
 			JSON.stringify(ways.scenes) ===
 				JSON.stringify(engineOwnedOnly(getFullSceneSet('ways')!).scenes),
 			'a ways project lost its own scenes',
+		);
+	},
+);
+
+await check(
+	'Fairy Clover: a lines project seeded with the preset and the lines scenes',
+	async () => {
+		await scaffoldProject(CLIENT, 'linesFairy', { linesPreset: 'fairyClover' });
+		const { updatedAt: _stamp, ...doc } = storedConfig('linesFairy') ?? {};
+		const { updatedAt: _none, ...preset } = gameConfigSeedFor('lines', 'fairyClover') ?? {};
+		assert(JSON.stringify(doc) === JSON.stringify(preset), 'the seeded config is not the preset');
+		const layout = JSON.parse(R2.get(editorDocKey(CLIENT, 'linesFairy'))?.body ?? '{}');
+		assert(layout.gameType === 'lines', `the layout is a ${layout.gameType} layout`);
+		assert(
+			JSON.stringify(layout.scenes) ===
+				JSON.stringify(engineOwnedOnly(getFullSceneSet('lines')!).scenes),
+			'the scenes are not the lines reference set',
 		);
 	},
 );

@@ -27,6 +27,7 @@ import {
 	HOLD_AND_WIN_TEMPLATES,
 	HOLD_AND_WIN_TEST_FIXTURES,
 	bookOfThermopylaePreset,
+	fairyCloverPreset,
 	configSectionsOf,
 	normalizeGameConfigDoc,
 	resolveCascade,
@@ -77,6 +78,7 @@ const corpus: [string, unknown][] = [
 		raw,
 	]),
 	['preset bookOfThermopylae', bookOfThermopylaePreset()],
+	['preset fairyClover', fairyCloverPreset()],
 ];
 for (const app of readdirSync(APPS)) {
 	const path = resolve(APPS, app, 'src/game/config.ts');

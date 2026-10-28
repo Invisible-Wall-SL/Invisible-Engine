@@ -23,7 +23,7 @@ merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) 
 check sets its caps. 8e (screen transitions and post FX) is decided
 ([design](../design/shader-graph-screens.md)) and being built as 8e.1–8e.8; 8e.1 (the screen
 shell and the Screens node) is merged (#1440); 8e.2 (the stage filter owner and the transition
-runtime) is in review; 8e.3–8e.8 are in progress.
+runtime) is merged (#1454); 8e.3–8e.8 are in progress.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -288,12 +288,12 @@ runtime) is in review; 8e.3–8e.8 are in progress.
   - **8e, screen transitions and post FX.** Decided 2026-10-28
     ([shader-graph-screens.md](../design/shader-graph-screens.md) §16: every recommendation, except
     that anti-aliasing under a stage effect is a project setting, off by default). Built as
-    8e.1–8e.8, one PR each (its §15). 8e.1 is merged; 8e.2 is in review; 8e.3–8e.8 are in
+    8e.1–8e.8, one PR each (its §15). 8e.1 and 8e.2 are merged; 8e.3–8e.8 are in
     progress (each built in phases on its own branch, merging in the order 8e.3, 8e.4, 8e.6, 8e.5,
     8e.7, 8e.8: 8e.5 proves the ship chain end to end only once 8e.4 and 8e.6 put `transitionCue`
     and `postFx` through the layout reader, which today drops them).
-    - **8e.2, the stage filter owner and the transition runtime.** In review on
-      `claude/shader-graph-step8e2`. Nothing calls it in a game yet (8e.4).
+    - **8e.2, the stage filter owner and the transition runtime.** Merged (#1454, 2026-10-28).
+      Nothing calls it in a game yet (8e.4).
       - **The owner** (`pixi-svelte/screenFx` `stageFilters.ts`). One owner for `app.stage.filters`
         and `filterArea`, slots in the order transition → post FX → camera; a foreign stage filter
         stays in front. The area is always the viewport under the stage transform, 1/256 px inside
@@ -758,7 +758,9 @@ runtime) is in review; 8e.3–8e.8 are in progress.
 
 ## Recent changes
 - 2026-10-28 — **Step 8e.2: the stage filter owner and the transition runtime** (see "Current
-  state").
+  state"). Merged (#1454): CI green; Current games 8 pass, 0 fail, 0 changed screens. After review
+  it also gained a pad uniform in the screen shell (`uScreenPad`), so a padded post FX no longer
+  shifts the still, and it watches resizes through the renderer's `prerender` runner.
   - **Proof.** `screen-fx` (new) 78 claims on each of WebGL1 and WebGL2 (both routes, the
     fallbacks and cuts including a throw while starting and a lost context, one at a time, resize,
     the 4096 cap, the still's mapping at resolution 1, 1.5 and 2 and under pooled textures, a
