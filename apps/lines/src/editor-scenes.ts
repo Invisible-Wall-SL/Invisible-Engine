@@ -2073,6 +2073,15 @@ export function refuseUnplayableBoot(reason: string): Promise<never> {
 }
 
 /**
+ * Stop a boot whose config's family this runtime was built without (`game/runtimeFamilies.ts`,
+ * `docs/design/phase-11.md` §2.2) on the same error screen: the family's seam is an inert stub, so
+ * the game would otherwise draw as a slot or a blank board.
+ */
+export function refuseFamilyBoot(reason: string): Promise<never> {
+	return haltBoot(reason);
+}
+
+/**
  * Stop an online game (`game/online.ts`) that has no room to play in, on the same screen. `lost`:
  * the room went away after the game started, so an earlier, softer stale note (the bundled-fallback
  * banner) must not keep the screen from showing.
