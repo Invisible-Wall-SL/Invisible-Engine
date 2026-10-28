@@ -1,0 +1,179 @@
+{
+	"id": "02-typo-in-string",
+	"adrBug": 2,
+	"title": "A typo in a string",
+	"what": "The free spins banner reads FREE SPNS. The string is the project's own (a manual Localization row), so the doctor has the builder correct it by key, then plays the draft again.",
+	"bugNumber": 4102,
+	"world": {
+		"bug": {
+			"number": 4102,
+			"ref": "BUG-4102",
+			"title": "Typo on the free spins banner",
+			"description": "When the free spins start the banner says YOU WON 10 FREE SPNS. There is an I missing in SPINS. The Spanish text is fine, only the English one is wrong.",
+			"area": "text",
+			"areaName": "Text and translations",
+			"priority": "low",
+			"status": "open",
+			"pageUrl": "https://play.example.com/jade-tiger-eval",
+			"comments": [
+				{
+					"by": "Joel Baptiste",
+					"at": "2026-10-26T15:02:00.000Z",
+					"text": "Confirmed, it is the same every time the free spins trigger."
+				}
+			]
+		},
+		"screenshots": {
+			"b2c3d4e5f6071829": "shots/02-report-fs-typo.png"
+		},
+		"answers": {
+			"localization.get_strings": {
+				"$patch": {
+					"strings.3": {
+						"source": "YOU WON {count} FREE SPNS"
+					}
+				}
+			}
+		},
+		"plays": {
+			"beforeFix": {
+				"status": "finished",
+				"result": {
+					"kind": "lines",
+					"seconds": 36.2,
+					"scenarios": [
+						{
+							"id": "base-spin",
+							"expected": ["loaded", "idle", "spin", "settled"],
+							"reached": ["loaded", "idle", "spin", "settled"],
+							"missing": [],
+							"stall": null,
+							"consoleErrors": [],
+							"pageErrors": 0,
+							"pageStalls": 0,
+							"error": null,
+							"seconds": 13.4,
+							"shots": {
+								"idle": "shots/05-play-idle.png"
+							}
+						},
+						{
+							"id": "free-spins",
+							"expected": [
+								"loaded",
+								"idle",
+								"spin",
+								"settled",
+								"fs-trigger",
+								"fs-board",
+								"fs-spin",
+								"fs-settled"
+							],
+							"reached": [
+								"loaded",
+								"idle",
+								"spin",
+								"settled",
+								"fs-trigger",
+								"fs-board",
+								"fs-spin",
+								"fs-settled"
+							],
+							"missing": [],
+							"stall": null,
+							"consoleErrors": [],
+							"pageErrors": 0,
+							"pageStalls": 0,
+							"error": null,
+							"seconds": 13.4,
+							"shots": {
+								"fs-trigger": "shots/02-play-fs-typo.png"
+							}
+						}
+					]
+				}
+			},
+			"afterFix": {
+				"status": "finished",
+				"result": {
+					"kind": "lines",
+					"seconds": 36.2,
+					"scenarios": [
+						{
+							"id": "base-spin",
+							"expected": ["loaded", "idle", "spin", "settled"],
+							"reached": ["loaded", "idle", "spin", "settled"],
+							"missing": [],
+							"stall": null,
+							"consoleErrors": [],
+							"pageErrors": 0,
+							"pageStalls": 0,
+							"error": null,
+							"seconds": 13.4,
+							"shots": {
+								"idle": "shots/05-play-idle.png"
+							}
+						},
+						{
+							"id": "free-spins",
+							"expected": [
+								"loaded",
+								"idle",
+								"spin",
+								"settled",
+								"fs-trigger",
+								"fs-board",
+								"fs-spin",
+								"fs-settled"
+							],
+							"reached": [
+								"loaded",
+								"idle",
+								"spin",
+								"settled",
+								"fs-trigger",
+								"fs-board",
+								"fs-spin",
+								"fs-settled"
+							],
+							"missing": [],
+							"stall": null,
+							"consoleErrors": [],
+							"pageErrors": 0,
+							"pageStalls": 0,
+							"error": null,
+							"seconds": 13.4,
+							"shots": {
+								"fs-trigger": "shots/02-play-fs-fixed.png"
+							}
+						}
+					]
+				}
+			}
+		}
+	},
+	"fix": {
+		"agents": ["builder"],
+		"mustMention": [["freeSpins\\.intro\\.title"], ["free spins"]],
+		"afterFix": {
+			"localization.get_strings": {
+				"$patch": {
+					"strings.3": {
+						"source": "YOU WON {count} FREE SPINS"
+					}
+				}
+			}
+		},
+		"report": "Done. I changed the source of freeSpins.intro.title to \"YOU WON {count} FREE SPINS\" with localization.update_strings (one string changed). The Spanish text keeps its translation and is now marked unreviewed."
+	},
+	"expect": {
+		"outcomes": ["fixed"],
+		"taskAgents": ["builder"],
+		"verified": "played_pass"
+	},
+	"forbid": {},
+	"limits": {
+		"maxTurns": 24,
+		"maxUsd": 3
+	}
+}

@@ -54,7 +54,7 @@
  *    move and change nothing. The rule itself is `check-project-create.ts`'s.
  */
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
@@ -6629,6 +6629,41 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			enumOf('create').includes('coordinator'),
 		],
 		[['animator', 'builder'], false, false],
+	);
+
+	// 9G.4: the repair eval runs the real agent offline, so it carries the catalog entries of the
+	// doctor's adapter tools as a file. The file is held equal to the live catalog here, and
+	// `--update-repair-eval-specs` rewrites it after a deliberate change to one of those ops.
+	const repairEvalSpecs = new URL(
+		'../../../docs/director/eval/repair/tool-specs.json',
+		import.meta.url,
+	);
+	const doctorAdapterIds = agents
+		.get('game-doctor')!
+		.tools.filter((id) => !workerTools.workerToolSpecs([...agents.keys()], 'repair')[id]);
+	const catalogOps = new Map(
+		(
+			(await (
+				await CATALOG({
+					request: new Request('https://app.example/api/director/adapter', {
+						headers: { authorization: `Bearer ${TOKEN}` },
+					}),
+				} as never)
+			).json()) as { ops: { id: string }[] }
+		).ops.map((o) => [o.id, o]),
+	);
+	const doctorSpecs = doctorAdapterIds.map((id) => {
+		const { id: _id, agents: _agents, ...entry } = catalogOps.get(id) as Record<string, unknown>;
+		return { id, ...entry };
+	});
+	const specsText = `${JSON.stringify(doctorSpecs, null, '\t')}\n`;
+	if (process.argv.includes('--update-repair-eval-specs')) {
+		writeFileSync(repairEvalSpecs, specsText);
+	}
+	check(
+		"the repair eval's tool-specs.json is the catalog's entries of the doctor's adapter tools (--update-repair-eval-specs rewrites it)",
+		readFileSync(repairEvalSpecs, 'utf8') === specsText,
+		true,
 	);
 }
 

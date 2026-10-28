@@ -1,0 +1,134 @@
+{
+	"id": "01-button-offscreen",
+	"adrBug": 1,
+	"title": "A button is off the screen",
+	"what": "The Spin button sits past the right and bottom edge of the 1920×1080 layout. The content is the project's own, so the doctor has the builder move the node, then plays the draft again.",
+	"bugNumber": 4101,
+	"world": {
+		"bug": {
+			"number": 4101,
+			"ref": "BUG-4101",
+			"title": "Spin button is cut off, I can barely tap it",
+			"description": "On my laptop and on my phone in landscape the SPIN button is half off the screen. Only the top-left corner of it shows. I can tap that corner but it is very hard. Started after the last update of the game. Chrome and Safari both do it.",
+			"area": "ui",
+			"areaName": "Buttons, menus and HUD",
+			"priority": "high",
+			"status": "open",
+			"pageUrl": "https://play.example.com/jade-tiger-eval",
+			"comments": [
+				{
+					"by": "Mara Ortega",
+					"at": "2026-10-26T09:41:00.000Z",
+					"text": "Same on my tablet. The bet panel is fine, only the spin button is out."
+				}
+			]
+		},
+		"screenshots": {
+			"a1b2c3d4e5f60718": "shots/01-report-spin-offscreen.png"
+		},
+		"answers": {
+			"scene.get_layout": {
+				"$patch": {
+					"screens.0.nodes.4": {
+						"x": 1926,
+						"y": 1059
+					}
+				}
+			}
+		},
+		"plays": {
+			"beforeFix": {
+				"status": "finished",
+				"result": {
+					"kind": "lines",
+					"seconds": 24.6,
+					"scenarios": [
+						{
+							"id": "base-spin",
+							"expected": ["loaded", "idle", "spin", "settled"],
+							"reached": ["loaded", "idle"],
+							"missing": ["spin", "settled"],
+							"stall": {
+								"step": 3,
+								"op": "click spin_button",
+								"frames": 600,
+								"probe": null
+							},
+							"consoleErrors": [],
+							"pageErrors": 0,
+							"pageStalls": 1,
+							"error": null,
+							"seconds": 21,
+							"shots": {
+								"idle": "shots/01-play-spin-offscreen.png"
+							}
+						}
+					]
+				}
+			},
+			"afterFix": {
+				"status": "finished",
+				"result": {
+					"kind": "lines",
+					"seconds": 38.9,
+					"scenarios": [
+						{
+							"id": "base-spin",
+							"expected": ["loaded", "idle", "spin", "settled"],
+							"reached": ["loaded", "idle", "spin", "settled"],
+							"missing": [],
+							"stall": null,
+							"consoleErrors": [],
+							"pageErrors": 0,
+							"pageStalls": 0,
+							"error": null,
+							"seconds": 14.2,
+							"shots": {
+								"idle": "shots/01-play-spin-fixed.png",
+								"settled": "shots/01-play-spin-fixed.png"
+							}
+						}
+					]
+				}
+			}
+		}
+	},
+	"fix": {
+		"agents": ["builder"],
+		"mustMention": [
+			["spin_button", "spin button"],
+			[
+				"\\bx\\b",
+				"\\by\\b",
+				"position",
+				"move",
+				"inside",
+				"on-?screen",
+				"within",
+				"visible",
+				"edge"
+			]
+		],
+		"afterFix": {
+			"scene.get_layout": {
+				"$patch": {
+					"screens.0.nodes.4": {
+						"x": 1700,
+						"y": 980
+					}
+				}
+			}
+		},
+		"report": "Done. On screen main I moved spin_button to x 1700, y 980 (scene.update_nodes, one node changed, nothing else touched). It now sits fully inside the 1920×1080 layout."
+	},
+	"expect": {
+		"outcomes": ["fixed"],
+		"taskAgents": ["builder"],
+		"verified": "played_pass"
+	},
+	"forbid": {},
+	"limits": {
+		"maxTurns": 24,
+		"maxUsd": 3
+	}
+}
