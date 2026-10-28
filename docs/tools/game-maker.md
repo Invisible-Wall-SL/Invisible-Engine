@@ -63,11 +63,14 @@ overlay add-on.
      the project's screens are scaffolded from the Book-of reference layout (Borut's look), saved as
      a lines layout. Change it later in Game Config (Free spins → Expanding symbol).
      Or **Fairy Clover** — a lines game whose maths starts from Slotmotion's _Fairy's Charm_: 5×4,
-     fifty lines, its paytable with `H5`, the fairy `W` and the clover `CL` as wilds (no art for `CL`
-     until you bind it in [Symbols](/docs/symbols-state-machine)), the scatter `S` paying 1× for two, 10 free
-     spins on two `S` and +10 on two more, one base mode with no buy. Its strips are the
-     reference's boot-config base set and its free-spin set, so its RTP is not the reference's
-     until the maths is tuned. Scaffolded from the lines reference layout.
+     fifty lines, its paytable (H1–H5, L1–L5), the fairy `W` and the clover `CL` as wilds (`CL`
+     has no art until you bind it in [Symbols](/docs/symbols-state-machine)), the scatter `S`
+     paying 1× for two, 10 free spins on two `S` and +10 on two more, one base mode with no buy.
+     Its strips are the reference's boot-config base set and its free-spin set, so its RTP is not
+     the reference's until the maths is tuned. Scaffolded from the lines reference layout. On the
+     Invisible Test Server the feature runs far longer than the real game: the mock deals its own
+     scatters (about 4% of cells, not the strips), so two land on about one spin in five and most
+     features run to the 200-spin cap.
    - **Hold and Win** shows a **Base game** dropdown: **Lines game** (the default) or **Coin board
      only**. With **Lines game** it also shows a **Jackpots** dropdown:
      **On (MINI · MINOR · MAJOR · GRAND)** (the default) or **Off**. Either way you get the plain
@@ -109,7 +112,6 @@ overlay add-on.
      reads _No coin overlay preset fits this game type._: pots and dropped tokens are not built
      for a coin board. A project switched to the coin board later, in Game Config, keeps the
      screens and Flow it was created with.
-
    - **Match-3** shows a **Who decides the result?** dropdown, with one line under it describing
      the choice. It starts on **Free play (rules)**:
      - **Free play (rules)** — _The game's own rules, no wallet._ (below).
@@ -142,7 +144,6 @@ overlay add-on.
      Its starter Flow sets the moves when a board lands, spends one per accepted swap and locks the
      board when the round ends. It plays in the authoring preview against the test server's match-3
      mock; publishing it is refused (see below).
-
    - **Arcade** asks nothing more: an arcade game is always free play, decided by its own rules —
      no stake, no balance, no wins in money. You get a playable sample, _Salmon Run_: a salmon
      swims along the bottom of the river, steered with the arrow keys or **A** / **D**; bears and
@@ -219,7 +220,7 @@ nothing that can go stale:
   Scene Editor's Game Settings → Authored overlays (an amber chip instead when a
   switch is on but held back: the Transition when no scene binds the coded
   Transition it replaces, or one sits outside canvas space; the Win when nothing
-  binds a coded Win overlay or places a win instance — _nothing to replace_ — when
+  binds a coded Win overlay or places a win instance — *nothing to replace* — when
   a big-win tier's Win Text caption uses `{amount}`, or when the tiers resolve to
   more than one rig or count slot; the game then keeps the coded path).
 
@@ -774,7 +775,7 @@ graduate later; its R2 authoring data carries over.
   scaffold seeded it (2026-10-01) can be in this state; Publish warns **⚠ dealt plain lines**. Open [Game Config](/docs/game-config), press
   **Save** (or **Reset to preset**), then **Publish**.
 - **Hold and Win coins show only their value, no art (`[game-config] … no entry in the symbol
-map`).** — The project's Symbols doc does not bind its coin and special symbols. Projects
+  map`).** — The project's Symbols doc does not bind its coin and special symbols. Projects
   created before the scaffold seeded them (2026-10-01) have no such doc: ask an admin to
   **Rescaffold** the project in `/admin` (it writes the bindings only if the project has no
   symbols doc yet), or bind each symbol in [Symbols](/docs/symbols-state-machine); then **Publish**.

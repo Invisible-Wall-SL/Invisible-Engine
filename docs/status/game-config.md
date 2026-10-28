@@ -808,8 +808,11 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   `check:lines-presets`, `check:project-scaffold`, `check:family-defaults-identity`,
   `check:game-config-defaults`. **Known gaps:** `CL` has no stock art (draws nothing until bound in
   `/symbols`); the lines mock deals neither `W` nor `CL` (a wild without a paytable is not sent in the
-  mock contract) and does not deal from the strips, so its retriggers hit `MAX_ROUND_FREE_SPINS`
-  often; the `expandingWilds` / `growingWild` blocks wait on the `lines/expanding-growing-wilds` work.
+  mock contract) and does not deal from the strips: it deals SCAT on 4% of cells, so on 5×4 two land
+  on about one spin in five — the feature opens about every fifth base spin and a free spin adds
+  ≈ 1.9 spins, so most features (≈ 80% in a simulation of the mock's rule) run to about 190–200
+  spins under `MAX_ROUND_FREE_SPINS`; scatter anticipation never arms (`anticipation.ts` waits for
+  `SCATTER_TRIGGER_COUNT`, 3); the `expandingWilds` / `growingWild` blocks wait on the `lines/expanding-growing-wilds` work.
 - 2026-10-28 — **The free-spin trigger floor is measured on the freegame strips** (branch
   `lines/fairys-charm-preset`). A trigger count of 3 or more validates exactly as before. Below 3,
   `retriggerSpinsPerSpin` computes, exactly, the spins a retrigger adds per free spin played: per reel
@@ -1052,8 +1055,9 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   a retrigger that would take the round past it awards nothing, and award rows are held to it. An
   imported reels mode keeps its stricter 50 (`MAX_STRIPS_ROUND_SPINS`). 200 because a default Book-of
   round reaches 60 in the parity transcripts — a cap of 50 changed four of them. **Validator:** a
-  trigger count below `MIN_FREE_SPINS_TRIGGER_COUNT` (3) is an error (since 2026-10-28 only without freegame strips that show it ends — see above), for any trigger symbol (any
-  symbol lands at least as often as a scatter); `/config`'s How many has `min="3"`. A strip-based
+  trigger count below `MIN_FREE_SPINS_TRIGGER_COUNT` (3) is an error, for any trigger symbol (any
+  symbol lands at least as often as a scatter); `/config`'s How many has `min="3"` (superseded
+  2026-10-28, see above). A strip-based
   estimate of retrigger growth was not used: the mocks do not deal from the strips, so it would
   measure a different game than the one dealt. **Bounds:** an award row (or its To) above
   `MAX_FREE_SPINS_PER_ROUND` (200, held equal to the mocks' by `check:freespins`) and a table with

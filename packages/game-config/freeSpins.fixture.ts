@@ -634,11 +634,43 @@ check(
 	['error'],
 );
 check(
-	`…the line is ${MAX_RETRIGGER_SPINS_PER_SPIN} spins per spin: sparse strips at +50 (0.5) ⇒ an error`,
-	issuesAt(twoScatters(sparse, 50), 'freeSpins.triggerCount'),
+	`…the line is ${MAX_RETRIGGER_SPINS_PER_SPIN} spins per spin: +60 (0.6) ⇒ an error`,
+	issuesAt(twoScatters(sparse, 60), 'freeSpins.triggerCount'),
 	['error'],
 );
-check('…and +49 (0.49) ⇒ none', issuesAt(twoScatters(sparse, 49), 'freeSpins.triggerCount'), []);
+check('…and +40 (0.4) ⇒ none', issuesAt(twoScatters(sparse, 40), 'freeSpins.triggerCount'), []);
+check(
+	'a strip shorter than its window wraps, as the deal does: one S in 2 cells over 3 rows ⇒ 1 or 2',
+	triggerCountDistribution([strip('S', 'L1')], [3], 'S').map((p) => p.toFixed(6)),
+	[0, 0.5, 0.5, 0].map((p) => p.toFixed(6)),
+);
+check(
+	'a stepped grid reads each reel’s own rows: S on 1 of 4 cells, 1 row (¼) then 4 rows (always)',
+	triggerCountDistribution([strip('S', 'L1', 'L1', 'L1'), strip('S', 'L1', 'L1', 'L1')], [1, 4], 'S').map((p) => p.toFixed(6)), // prettier-ignore
+	[0, 0.75, 0.25, 0, 0, 0].map((p) => p.toFixed(6)),
+);
+check(
+	'each landed count is priced by its own row: 2 ⇒ +5, 3+ ⇒ +20',
+	retriggerSpinsPerSpin(
+		doc({
+			numReels: 3,
+			numRows: [1, 1, 1],
+			paylines: { '0': [0, 0, 0] },
+			paddingReels: {
+				basegame: reels('H1', 'L1', 'S').slice(0, 3),
+				freegame: Array.from({ length: 3 }, () => strip('S', 'L1')),
+			},
+			freeSpins: {
+				triggerCount: 2,
+				retriggerAwards: [
+					{ count: 2, spins: 5 },
+					{ count: 3, spins: 20 },
+				],
+			},
+		}),
+	)?.toFixed(6),
+	(3 * 0.125 * 5 + 0.125 * 20).toFixed(6),
+);
 check(
 	'a random retrigger range is measured at its top',
 	retriggerSpinsPerSpin(

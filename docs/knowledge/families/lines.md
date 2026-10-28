@@ -1,6 +1,7 @@
 # Lines — family knowledge
 
-What is always true about payline slots, the Book of Thermopylae and Fairy Clover presets and free spins, and what has
+What is always true about payline slots, the Book of Thermopylae and Fairy Clover presets and
+free spins, and what has
 gone wrong with them. Owner agent: `lines-games`.
 
 ## What it is and must stay
@@ -84,8 +85,8 @@ gone wrong with them. Owner agent: `lines-games`.
 - **A free-spin trigger below 3 needs freegame strips that end it.** `retriggerSpinsPerSpin`
   (`packages/game-config/src/freeSpins.ts`) measures the spins a retrigger adds per free spin exactly
   on the `freegame` strips; 0.5 or more, or no strips, is an error. The lines mock does not deal from
-  the strips, so on the test server a 2-scatter game retriggers far more often than its strips say
-  and `MAX_ROUND_FREE_SPINS` ends the round.
+  the strips (SCAT on 4% of cells), so on the test server a 2-scatter 5×4 game opens the feature
+  about every fifth spin and most features run to `MAX_ROUND_FREE_SPINS` (200).
 - **Only in-play symbols are drawn** (`getSymbolsInPlay`), including the book shuffle.
 - **Determinism:** `?ie_determinism=<seed>` (`apps/lines/src/game/determinism.ts`) makes two renders
   of one forced book pixel-identical; the current-games harness depends on it.

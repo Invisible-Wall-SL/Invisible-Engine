@@ -345,7 +345,8 @@ export function triggerCountDistribution(
  * retrigger row's award for it (the top of a random range, the worst case). `undefined` when it
  * cannot be measured: free spins off, no trigger symbol, or no `freegame` strip for every reel.
  *
- * The strips are the deal the config states. A partner server deals its own, and the Invisible Test
+ * An un-authored retrigger table is measured at the lines default (+5); every Book-of config
+ * carries its +10 explicitly. The strips are the deal the config states. A partner server deals its own, and the Invisible Test
  * Server's lines mock draws its own cells, so the mocks' round cap (`MAX_ROUND_FREE_SPINS`) still
  * ends whatever this lets through.
  */
@@ -436,7 +437,7 @@ export const validateFreeSpins = (doc: GameConfigDoc): GameConfigIssue[] => {
 			issues.push({
 				severity: 'error',
 				path: 'freeSpins.triggerCount',
-				message: `Free spins trigger on ${landed}. With no free-game reel strips to measure, that would land so often during free spins that the feature would keep retriggering and never end. Set How many to ${MIN_FREE_SPINS_TRIGGER_COUNT} or more, or author the freegame strips.`,
+				message: `Free spins trigger on ${landed}. Below ${MIN_FREE_SPINS_TRIGGER_COUNT}, the freegame reel strips must show the feature ends, and there are none to measure (or no trigger symbol), so it could keep retriggering and never end. Set How many to ${MIN_FREE_SPINS_TRIGGER_COUNT} or more, or author a freegame strip for every reel.`,
 			});
 		} else if (growth >= MAX_RETRIGGER_SPINS_PER_SPIN) {
 			issues.push({
