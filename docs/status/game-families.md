@@ -57,6 +57,11 @@ review).** [phase-11.md](../design/phase-11.md) §2.4, §3.1.
 - **Publish** (`apps/launcher-api` `runtimeChoice.ts`): a game goes on its config family's id. A
   kind / family disagreement is refused (`kind-family`, no override). While an id has no release
   yet, publish falls back to `lines` and the snapshot records the id it used.
+- **Owner decisions (2026-10-28, on #1442):** the harness edits below are approved
+  (`scripts/current-games/lib/runtimes.mjs`, `run.mjs`, `runtimes.fixture.mjs`, the
+  `current-games.yml` cache key); and the `kind-family` refusal is accepted with no R2 scan. A
+  match-3, arcade or card project whose config names no `family` is now refused at publish (it used
+  to publish as a slot); the fix is to re-save its config in `/config`.
 - **The current-games harness** builds one `apps/lines` per id on each side (`<side>/<id>/`,
   `runtimes.json`; cache key v3) and renders each game on its own id. A ref that predates the seams
   builds `lines` once for every id.
