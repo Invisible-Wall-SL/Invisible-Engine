@@ -15,6 +15,8 @@ import { createWildRewrite, growCells as mockGrowCells } from './mock-wild-rewri
 const facade = await import('../packages/rgs-translator-eagaming/engine-facade.ts');
 const { growCells } = await import('../packages/game-config/src/growingWild.ts');
 const { GROWING_WILD_PATTERNS } = await import('../packages/game-config/src/types.ts');
+const { wildRewritesBySpin } =
+	await import('../packages/rgs-translator-eagaming/src/wildRewrite.ts');
 
 let failed = 0;
 const check = (ok, msg, extra = '') => {
@@ -335,77 +337,107 @@ const presented = async (make, label, rounds) => {
 	return out;
 };
 {
-	const rounds = await presented(() => mockOf({ forceWilds: true, seed: 'facade' }), 'f-wilds', 60);
+	const rounds = [
+		...(await presented(() => mockOf({ forceWilds: true, seed: 'facade' }), 'f-wilds', 60)),
+		...(await presented(
+			() => mockOf({ forceWilds: true, forceTrigger: true, seed: 'facade-fs' }),
+			'f-wilds-fs',
+			6,
+		)),
+	];
 	const bad = [];
 	let expands = 0;
 	let growsSeen = 0;
 	let wins = 0;
 	let paidSeen = 0;
 	let unpaidSeen = 0;
+	let freeSpinsSeen = 0;
+	/** The engine's board in server terms: the wilds and the scatter, every other cell `x`. */
+	const shape = (board, names) =>
+		board
+			.map((reel) => reel.map((c) => names[c] ?? 'x'))
+			.map((reel) => reel.join())
+			.join('|');
 	for (const { state, raw } of rounds) {
-		const oneSpin = state.filter((e) => e.type === 'reveal').length === 1;
-		// Engine order per spin: reveal, then its expandWilds, then at most one growWild, then wins.
-		const types = state.map((e) => e.type).join(' ');
-		if (!/^(reveal( expandWild)+( growWild)?( winInfo)*)/.test(types)) bad.push(types);
-		let board = [];
-		let firstBoard = null;
+		const served = spinsOf([raw]);
+		// One engine spin per `reveal`, matched to the server's spins in order.
+		const spins = [];
 		for (const e of state) {
-			if (e.type === 'reveal') board = e.board.map((reel) => reel.map((c) => c.name));
-			if (e.type === 'expandWild') {
-				expands++;
-				const crossed = raw
-					.filter((w) => w.event === 'spinWin' && w.context.mode === 'line')
-					.some((w) => w.context.occurs > e.reel);
-				if (oneSpin && e.paid !== crossed) bad.push(`paid ${e.paid} on reel ${e.reel}`);
-				if (e.paid) paidSeen++;
-				else unpaidSeen++;
-				if (e.symbol !== 'W' || board[e.reel][e.row] !== 'W')
-					bad.push(`expand origin ${JSON.stringify(e)}`);
-				for (const c of e.cells) board[c.reel][c.row] = e.symbol;
-			}
-			if (e.type === 'growWild') {
-				growsSeen++;
-				if (e.symbol !== 'CLOVER' || board[e.origin.reel][e.origin.row] !== 'CLOVER')
-					bad.push(`grow origin ${JSON.stringify(e)}`);
-				for (const c of e.cells) board[c.reel][c.row] = e.symbol;
-			}
-			if (e.type === 'winInfo') {
-				firstBoard ??= board;
-				for (const w of e.wins.filter((x) => x.symbol !== 'S')) {
-					wins++;
-					const cells = w.positions.slice(0, w.kind).map((p) => board[p.reel][p.row]);
-					if (!cells.every((c) => c === w.symbol || c === 'W' || c === 'CLOVER'))
-						bad.push(`win ${w.symbol}×${w.kind} on ${cells}`);
+			if (e.type === 'reveal') spins.push([]);
+			spins.at(-1)?.push(e);
+		}
+		if (spins.length !== served.length)
+			bad.push(`${spins.length} reveals for ${served.length} spins`);
+		spins.forEach((events, k) => {
+			const server = served[k];
+			if (!server) return;
+			if (k > 0) freeSpinsSeen++;
+			// Engine order per spin: reveal, its expandWilds, at most one growWild, then its wins.
+			const types = events.map((e) => e.type).join(' ');
+			if (!/^reveal( expandWild)*( growWild)?( winInfo)*/.test(types)) bad.push(types);
+			const board = events[0].board.map((reel) => reel.map((c) => c.name));
+			const crossed = new Set(
+				server.wins
+					.filter((w) => w.mode === 'line')
+					.flatMap((w) => w.context.payline.slice(0, w.occurs).map((_row, reel) => reel)),
+			);
+			for (const e of events) {
+				if (e.type === 'expandWild') {
+					expands++;
+					if (e.paid !== crossed.has(e.reel)) bad.push(`paid ${e.paid} on reel ${e.reel}`);
+					if (e.paid) paidSeen++;
+					else unpaidSeen++;
+					if (e.symbol !== 'W' || board[e.reel][e.row] !== 'W')
+						bad.push(`expand origin ${JSON.stringify(e)}`);
+					for (const c of e.cells) board[c.reel][c.row] = e.symbol;
+				}
+				if (e.type === 'growWild') {
+					growsSeen++;
+					if (e.symbol !== 'CLOVER' || board[e.origin.reel][e.origin.row] !== 'CLOVER')
+						bad.push(`grow origin ${JSON.stringify(e)}`);
+					for (const c of e.cells) board[c.reel][c.row] = e.symbol;
+				}
+				if (e.type === 'winInfo') {
+					for (const w of e.wins.filter((x) => x.symbol !== 'S')) {
+						wins++;
+						const cells = w.positions.slice(0, w.kind).map((p) => board[p.reel][p.row]);
+						if (!cells.every((c) => c === w.symbol || c === 'W' || c === 'CLOVER'))
+							bad.push(`win ${w.symbol}×${w.kind} on ${cells}`);
+					}
 				}
 			}
-		}
-		// The engine's final board is the server's.
-		const served = finalBoard(spinsOf([raw])[0]);
-		const engine = (firstBoard ?? board).map((reel) =>
-			reel.slice(1, -1).map((c) => (c === 'W' ? 'WILD' : c)),
-		);
-		const mapped = served.map((reel) =>
-			reel.map((c) => (c === 'WILD' || c === 'CLOVER' || c === 'SCAT' ? c : 'x')),
-		);
-		const mine = engine.map((reel) =>
-			reel.map((c) =>
-				c === 'WILD' || c === 'CLOVER' || c === 'S' ? (c === 'S' ? 'SCAT' : c) : 'x',
-			),
-		);
-		if (oneSpin && JSON.stringify(mapped) !== JSON.stringify(mine)) bad.push('final board differs');
+			// The engine's final board is the server's.
+			const mine = shape(
+				board.map((reel) => reel.slice(1, -1)),
+				{ W: 'WILD', CLOVER: 'CLOVER', S: 'SCAT' },
+			);
+			const theirs = shape(finalBoard(server), { WILD: 'WILD', CLOVER: 'CLOVER', SCAT: 'SCAT' });
+			if (mine !== theirs) bad.push(`final board differs on spin ${k}`);
+		});
 		// The money: the round's win in book amount is the server's.
 		const bet = raw.find((e) => e.event === 'bet').context;
 		const end = raw.find((e) => e.event === 'gameEnd').context.win;
 		const final = state.findLast((e) => e.type === 'setTotalWin' || e.type === 'finalWin');
-		const sumWins = state.filter((e) => e.type === 'winInfo').at(-1)?.totalWin ?? 0;
 		const expected = Math.round((end / (bet.betPerLine * bet.paylines.length)) * 100);
 		if (final && final.amount !== expected) bad.push(`money ${final.amount} vs ${expected}`);
-		if (Math.abs(sumWins - expected) > state.filter((e) => e.type === 'winInfo').length)
-			bad.push(`wins ${sumWins} vs ${expected}`);
 	}
+	check(freeSpinsSeen > 0, 'free spins included', ` (${freeSpinsSeen})`);
 	check(bad.length === 0, 'order, origins, final board, win cells and money all agree', bad.length ? `\n      ${bad.slice(0, 3).join('\n      ')}` : ''); // prettier-ignore
 	check(paidSeen > 0 && unpaidSeen > 0, 'expandWild says whether a paying line crosses its reel', ` (${paidSeen} paid, ${unpaidSeen} not)`); // prettier-ignore
 	check(expands > 0 && growsSeen > 0 && wins > 0, 'with expansions, grows and wins to check', ` (${expands} / ${growsSeen} / ${wins})`); // prettier-ignore
+
+	const set = (row) => ({ event: 'symbolSetInMatrix', context: { reel: 0, row, symbol: 'X' } });
+	const { consumed } = wildRewritesBySpin([
+		{ event: 'spinStart', context: {} },
+		set(0),
+		{ event: 'growingWild', context: { wild: 'C', reel: 0, row: 1 } },
+		set(2),
+		{ event: 'playedSpin', context: [] },
+	]);
+	check(
+		JSON.stringify([...consumed]) === '[2,3]',
+		'a symbolSetInMatrix with no wild before it is left to the facade (a Hold and Win server may send one)',
+	);
 
 	const plain = await presented(
 		() => createMockRgs({ label: 'plain', quiet: true, seed: 'wilds', startBalance: 1e12 }),

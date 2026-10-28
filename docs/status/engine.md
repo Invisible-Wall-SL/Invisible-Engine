@@ -303,6 +303,33 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-28 — **Expanding and growing wilds on lines games** (branch
+  `lines/expanding-growing-wilds`, plan `docs/design/expanding-and-growing-wilds.md`, reference game
+  Slotmotion's *Fairy's Charm*). Runtime release: it touches `apps/lines` and
+  `packages/engine-flow-v2`, but a game whose RGS never sends the new events is drawn as before.
+  - Wire → book: the lines mock (`scripts/mock-wild-rewrite.mjs`) emits the reference game's
+    `expandedWild` / `growingWild` + `symbolSetInMatrix`. The facade
+    (`packages/rgs-translator-eagaming/src/wildRewrite.ts`) turns them into `expandWild { reel, row,
+    symbol, cells, paid }` and `growWild { origin, symbol, cells }`, after the `reveal` and before
+    its `winInfo`. `playedSpin` stays the landed board; the wins are the final board's. A
+    `symbolSetInMatrix` with no wild before it still reaches the facade's other paths.
+  - Presentation: one module, `apps/lines/src/game/wildRewrite.svelte.ts`, serves the coded
+    handlers and the Flow effects (both events are in the v1 and v2 lines vocabularies).
+    - Expand, with stacked art covering the whole reel: the stacked picture grows from the landed
+      slice to the full reel (`StackedPicture.svelte` follows the grow state).
+    - Expand, otherwise: a cell-by-cell morph outwards from the origin, each beat capped at
+      `TRANSIT_BEAT_CAP_MS`.
+    - With `expandingWilds.show` `onWin` (the default, as the reference game draws it), an
+      expansion no paying line crosses (`paid` false) is not drawn.
+    - Grow: the origin bursts, then the cells morph into the wild.
+    - On a slam the final board still lands at once.
+  - Gates: `pnpm check:wild-rewrite` (in `check:rgs`, base spins and free spins),
+    `check:lines-parity` unchanged, `check:mock-contract`, `check:game-config-family`,
+    `check:flow-bonus-modes` (the new vocabulary entries are checked on their own, outside the
+    pinned hashes).
+  - **Not seen in a browser yet.** In the build container the dev game draws no board (software
+    WebGL at about 4 fps), with or without the blocks. Playtest S8 in `docs/playtest/lines.md` is
+    still owed by eye.
 - 2026-10-27 — **A rolling reel costs ~18% less CPU: the reel geometry and the prop sync are
   cached** (branch `claude/reel-smoothness`). Owner report on `commonoverlayproject`: reels not
   smooth on phones. Profiled an unminified runtime spinning at 4× CPU slowdown: ~40% of spin CPU was

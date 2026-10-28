@@ -930,9 +930,9 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 			push(overlayDropEvent(events[drop].context, (n) => mapSymbol(activeMapping, n)));
 	};
 	// Each spin's expanding and growing wilds, presented with its board (`./wildRewrite`).
-	const wildRewritesAt = wildRewritesBySpin(events);
+	const wildRewrites = wildRewritesBySpin(events);
 	const pushWildRewritesOf = (spin: number, landed: string[][]) => {
-		const rewrites = wildRewritesAt.get(spin);
+		const rewrites = wildRewrites.bySpin.get(spin);
 		if (!rewrites) return;
 		const out = translateWildRewrites(
 			rewrites,
@@ -947,7 +947,6 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				`[engine-facade] ${out.drift} wild cell(s) changed from a symbol the board does not hold — the server and the client read different boards`,
 			);
 		}
-		if (!inFreeSpins()) triggerBoard = out.board;
 	};
 	const pushFillsOf = (spin: number) => {
 		for (const at of ahead.get(spin)?.meters ?? [])
@@ -1076,6 +1075,8 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 	};
 
 	for (const [i, e] of events.entries()) {
+		// Read with its spin's board (`pushWildRewritesOf`).
+		if (wildRewrites.consumed.has(i)) continue;
 		if (overlay) closeFreeSpinsBefore(e);
 		const ruleless = !inRuleless ? opensRuleless(i, e) : undefined;
 		if (ruleless !== undefined) {
@@ -1424,10 +1425,6 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				push({ type: 'setTotalWin', amount });
 				break;
 			}
-			case 'expandedWild':
-			case 'growingWild':
-			case 'symbolSetInMatrix':
-				break;
 			case 'gameRoundOver':
 				push({
 					type: 'finalWin',
