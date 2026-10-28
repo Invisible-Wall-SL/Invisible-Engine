@@ -255,14 +255,16 @@ jobs:
         continue-on-error: true
         run: scripts/current-games/headless-shell.sh install .cache/headless-shell current-games
 
-      # Main's runtime never changes for a SHA, so it is built once per base commit. The key's
-      # version changes when a build gains a file (v2: `builtins.json`), so an older entry rebuilds.
+      # Main's runtimes never change for a SHA, so they are built once per base commit. The key's
+      # version changes when a build gains a file (v2: `builtins.json`; v3: one build per runtime id
+      # and `runtimes.json`), so an older entry rebuilds. The plan comes after the builds, so both
+      # sides build every id (a base from before the family seams builds `lines` once, for all).
       - name: Restore the base runtime
         id: base-cache
         uses: actions/cache@v6
         with:
           path: .cache/current-games/runtimes/${{ needs.prepare.outputs.base }}
-          key: current-games-runtime-v2-${{ needs.prepare.outputs.base }}
+          key: current-games-runtime-v3-${{ needs.prepare.outputs.base }}
 
       - name: Build the base runtime
         run: |
