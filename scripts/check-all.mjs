@@ -45,6 +45,9 @@ const SKIP = {
 	// Need the network, R2 or a deployed service.
 	'apps/launcher-api/scripts/check-deployed-page.mjs': 'probes a deployed page over HTTP',
 	'apps/launcher-api/scripts/verify-runtime-live.mjs': 'reads R2 and the live launcher',
+	// Builds the whole runtime five times (minutes) — `pnpm check:family-runtimes` and, per id, the
+	// release workflow run it.
+	'scripts/check-family-runtime.mjs': 'five full runtime builds; run by check:family-runtimes',
 	// Print a rig's structure for a human; they assert nothing.
 	'tools/rigger-spike/inspect.mjs': 'a rig dump for reading, not a check',
 	'tools/rigger-spike/inspect-demo.mjs': 'a rig dump for reading, not a check',

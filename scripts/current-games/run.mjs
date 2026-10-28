@@ -66,7 +66,13 @@ import {
 import { redactText } from './lib/redact.mjs';
 import { renderUnit } from './lib/render.mjs';
 import { writeSummaryFiles } from './lib/report.mjs';
-import { buildWorkingTree, gitSha, runtimeForRef } from './lib/runtimes.mjs';
+import {
+	buildWorkingTree,
+	gitSha,
+	runtimeDirFor,
+	runtimeForRef,
+	runtimeIdFor,
+} from './lib/runtimes.mjs';
 import { describeTypekit, mirrorInterceptor, planTypekit } from './lib/typekit.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
@@ -392,11 +398,19 @@ async function render(thePlan, units, runtimes, contracts) {
 					continue;
 				}
 			}
+			// The runtime the game's publish would pick, on both sides.
+			let runtimeDir;
+			try {
+				runtimeDir = runtimeDirFor(runtimes[unit.side], runtimeIdFor(planned.game.gameType));
+			} catch (e) {
+				writeFailedUnit(unit, e.message);
+				continue;
+			}
 			const r = await renderUnit({
 				unit,
 				planned,
 				contract,
-				runtimeDir: runtimes[unit.side],
+				runtimeDir,
 				snapshotDir: snapshot.dir,
 				bundleFile,
 				chrome,
@@ -484,11 +498,13 @@ if (opt.phase === 'plan') {
 	);
 } else {
 	const { thePlan, contracts } = await plan();
+	// Only the runtimes the planned games are published to.
+	const ids = [...new Set(thePlan.games.map((p) => runtimeIdFor(p.game.gameType)))];
 	let base;
 	try {
 		base = opt['base-build']
 			? { sha: 'local', dir: resolve(opt['base-build']) }
-			: runtimeForRef(ROOT, cache, opt['base-ref']);
+			: runtimeForRef(ROOT, cache, opt['base-ref'], ids);
 		log(`base runtime ${base.sha}: ${base.dir}`);
 	} catch (e) {
 		abort(`base runtime build failed: ${e.message}`);
@@ -496,7 +512,7 @@ if (opt.phase === 'plan') {
 	thePlan.base = { sha: base.sha, ref: opt['base-build'] ? null : opt['base-ref'] };
 	let headDir;
 	try {
-		headDir = opt['head-build'] ? resolve(opt['head-build']) : buildWorkingTree(ROOT, cache);
+		headDir = opt['head-build'] ? resolve(opt['head-build']) : buildWorkingTree(ROOT, cache, ids);
 		log(`head runtime ${headSha}: ${headDir}`);
 	} catch (e) {
 		thePlan.buildStatus = { status: 'fail', detail: e.message };

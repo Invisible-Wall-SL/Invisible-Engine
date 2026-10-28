@@ -58,6 +58,7 @@
 		"gen:flow-v2-sounds": "node scripts/gen-flow-v2-sound-enums.mjs",
 		"gen:flow-v2-sounds:check": "node scripts/gen-flow-v2-sound-enums.mjs --check",
 		"check:undefined-names": "node scripts/check-undefined-names.mjs",
+		"check:family-runtimes": "node scripts/check-family-runtime.mjs --all",
 		"check:svelte-init-order": "node scripts/check-svelte-init-order.mjs",
 		"check:ktx2-alignment": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-ktx2-alignment.mjs",
 		"check:ktx2-premultiplied": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-ktx2-premultiplied.mjs",

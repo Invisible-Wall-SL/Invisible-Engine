@@ -18,17 +18,42 @@ import { MATCH3_VOCAB } from './match3';
 import { SCATTER_VOCAB } from './scatter';
 import { WAYS_VOCAB } from './ways';
 
+/**
+ * `list` keyed by `templateId`, in order. A call the bundler may drop when its result is unused
+ * (`@__PURE__` at the call sites): an object literal of `.templateId` reads is kept for their
+ * possible side effects, and with it every module it names, so a game runtime that never read
+ * these registries still bundled every family's vocabulary and seed (`docs/design/phase-11.md`).
+ */
+export const byTemplateId = <T extends { templateId: string }>(
+	list: readonly T[],
+): Record<string, T> => Object.fromEntries(list.map((entry) => [entry.templateId, entry]));
+
+/**
+ * The slot templates' vocabularies alone. The game runtime starts from these and adds the families
+ * its build carries (`apps/lines/src/families/*`, `docs/design/phase-11.md` §2.2), so a runtime
+ * without a family never bundles that family's words.
+ */
+export const SLOT_TEMPLATE_VOCABULARIES: Readonly<Record<string, TemplateVocabulary>> =
+	/* @__PURE__ */ byTemplateId([
+		BOOK_OF_VOCAB,
+		WAYS_VOCAB,
+		CLUSTER_VOCAB,
+		SCATTER_VOCAB,
+		HOLD_AND_WIN_VOCAB,
+	]);
+
 /** Every registered template vocabulary, keyed by `templateId`. */
-export const TEMPLATE_VOCABULARIES: Record<string, TemplateVocabulary> = {
-	[BOOK_OF_VOCAB.templateId]: BOOK_OF_VOCAB,
-	[WAYS_VOCAB.templateId]: WAYS_VOCAB,
-	[CLUSTER_VOCAB.templateId]: CLUSTER_VOCAB,
-	[SCATTER_VOCAB.templateId]: SCATTER_VOCAB,
-	[HOLD_AND_WIN_VOCAB.templateId]: HOLD_AND_WIN_VOCAB,
-	[MATCH3_VOCAB.templateId]: MATCH3_VOCAB,
-	[ARCADE_VOCAB.templateId]: ARCADE_VOCAB,
-	[CARD_VOCAB.templateId]: CARD_VOCAB,
-};
+export const TEMPLATE_VOCABULARIES: Record<string, TemplateVocabulary> =
+	/* @__PURE__ */ byTemplateId([
+		BOOK_OF_VOCAB,
+		WAYS_VOCAB,
+		CLUSTER_VOCAB,
+		SCATTER_VOCAB,
+		HOLD_AND_WIN_VOCAB,
+		MATCH3_VOCAB,
+		ARCADE_VOCAB,
+		CARD_VOCAB,
+	]);
 
 /**
  * What an id that is not a registered template (an author-created custom kind, an absent
@@ -69,17 +94,23 @@ export function resolveTemplateId(
 }
 
 /**
+ * The vocabulary for a `templateId` in a given registry, by the rule of {@link templateVocabulary}.
+ * The registry must hold {@link UNREGISTERED_TEMPLATE_FALLBACK}; every one built on
+ * {@link SLOT_TEMPLATE_VOCABULARIES} does.
+ */
+export const vocabularyIn = (
+	registered: Readonly<Record<string, TemplateVocabulary>>,
+	templateId: string | undefined,
+): TemplateVocabulary =>
+	registered[
+		resolveTemplateId(templateId, registered, VOCABULARY_FALLBACKS, UNREGISTERED_TEMPLATE_FALLBACK)
+	];
+
+/**
  * Resolve the vocabulary for a `templateId` (the editor passes `doc.templateId`; the game passes the
  * loaded v2 doc's `templateId`) — its own when registered, else through {@link VOCABULARY_FALLBACKS},
  * else {@link UNREGISTERED_TEMPLATE_FALLBACK}. Never undefined: the editor + game always have a
  * usable contract.
  */
 export const templateVocabulary = (templateId: string | undefined): TemplateVocabulary =>
-	TEMPLATE_VOCABULARIES[
-		resolveTemplateId(
-			templateId,
-			TEMPLATE_VOCABULARIES,
-			VOCABULARY_FALLBACKS,
-			UNREGISTERED_TEMPLATE_FALLBACK,
-		)
-	];
+	vocabularyIn(TEMPLATE_VOCABULARIES, templateId);

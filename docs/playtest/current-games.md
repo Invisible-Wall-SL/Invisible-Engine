@@ -61,8 +61,15 @@ and `lib/republish.mjs` (the TypeScript half, run under the TS loader).
 
 - **Each runtime build carries its built-ins.** `runtimes.mjs` writes `builtins.json` beside every
   build (`BUILTIN_COMPONENTS` of that checkout, keyed by id), so main's built-ins come from main's
-  cached build and the branch's from its own. The CI cache key is `current-games-runtime-v2-<sha>`:
-  a build from before this file is rebuilt.
+  cached build and the branch's from its own. The CI cache key is `current-games-runtime-v3-<sha>`:
+  a build from before this file, or from before the per-id builds, is rebuilt.
+- **Each game renders on its own runtime id** (P11.1b, `docs/design/phase-11.md` §2.4). A side's
+  folder holds one `apps/lines` build per runtime id (`<id>/`, each with its `PUBLIC_IE_FAMILIES`)
+  and `runtimes.json`, which maps each id to its folder; a game renders on the id its publish would
+  pick (its kind's family, `runtimeIdFor`). A ref from before the family seams builds `lines` once
+  and maps every id to it. CI builds every id (its plan comes after the builds); a local run builds
+  only the ids its games need. A `--base-build`/`--head-build` folder with no `runtimes.json` is one
+  plain build that serves every game.
 - **Which baked defs are copies.** A snapshot carries no provenance, so a baked def equal by content
   to the built-in of the same id **as it was when the game was published** is a copy of the
   built-in; every other def is the author's and is loaded as the bake loads it (next bullet). The
