@@ -28,7 +28,13 @@ import {
 	type FlowIssue,
 	type FunctionLibraryDoc,
 } from 'engine-flow-v2';
-import { collectComponentPins, type ComponentDef, type Scene, type SoundsDoc } from 'engine-layout';
+import {
+	collectComponentPins,
+	type ComponentDef,
+	type GameSettings,
+	type Scene,
+	type SoundsDoc,
+} from 'engine-layout';
 import { flowAddOnsOf, resolveOutcome, type GameConfigDoc, type GameOutcome } from 'game-config';
 import { collectArmedOnMountTaps, collectContainerTaps } from '$lib/containerTaps';
 import {
@@ -76,6 +82,8 @@ export function validateFlowV2Against(
 	customFxKinds: readonly string[] = [],
 	/** Who decides the game's rounds (`resolveOutcome` of its config); absent ⇒ the RGS. */
 	outcome?: GameOutcome,
+	/** The layout doc's settings: its post FX cues are fireable too. */
+	settings?: Pick<GameSettings, 'postFx'>,
 ): FlowIssue[] {
 	const doc = JSON.parse(JSON.stringify(stored)) as FlowDoc;
 	syncFlowContainers(doc, scenes);
@@ -83,7 +91,7 @@ export function validateFlowV2Against(
 		addOns,
 		outcome,
 		sounds: soundOptionsFor(sounds),
-		sceneCues: collectSceneCueNames(scenes, components, doc.templateId, addOns),
+		sceneCues: collectSceneCueNames(scenes, components, doc.templateId, addOns, settings),
 		fxTargets: collectElementFxTargets(scenes, components),
 		customFxKinds,
 	});
@@ -161,6 +169,7 @@ export async function validateFlowV2ForProject(
 		flowAddOnsOf(stored),
 		[],
 		resolveOutcome(stored),
+		layout.settings,
 	);
 }
 
@@ -196,6 +205,8 @@ export async function checkShippedFlowV2(
 		flowV2?: FlowDoc;
 		flowV2Library?: FunctionLibraryDoc;
 		scenes: readonly Scene[];
+		/** The shipped layout doc's settings (its post FX cues). */
+		settings?: Pick<GameSettings, 'postFx'>;
 		components?: readonly ComponentDef[];
 		config?: GameConfigDoc;
 		/** The custom Element FX the bundle ships. */
@@ -212,6 +223,7 @@ export async function checkShippedFlowV2(
 		flowAddOnsOf(shipped.config),
 		(shipped.shaderEffects ?? []).map((e) => e.spec.kind),
 		resolveOutcome(shipped.config),
+		shipped.settings,
 	).filter((i) => i.severity === 'error');
 	const { templateId } = shipped.flowV2;
 	return errors.length

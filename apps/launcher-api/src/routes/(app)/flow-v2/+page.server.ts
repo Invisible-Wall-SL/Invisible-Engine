@@ -122,6 +122,7 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		components,
 		layout.gameType ?? doc.templateId,
 		addOns,
+		layout.settings,
 	);
 	// What an `elementEffect` can aim at: the reels, every screen, and every anchored node.
 	const fxTargets = collectElementFxTargets(layout.scenes ?? [], components);

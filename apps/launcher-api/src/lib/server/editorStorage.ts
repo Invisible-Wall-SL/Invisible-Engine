@@ -271,6 +271,14 @@ function normalizeGameSettings(input: unknown): GameSettings | undefined {
 		if (input.authoredOverlays.buttons === true) overlays.buttons = true;
 		if (Object.keys(overlays).length > 0) out.authoredOverlays = overlays;
 	}
+	// Screen FX (Shader Graph 8e): the post FX list verbatim, as a screen's Element FX are (the game
+	// and the editor read it through `readPostFx` / `readElementFxEntries`, so an entry a newer build
+	// wrote survives a save), and the stage anti-aliasing switch. Sparse: a list only when it has an
+	// entry, the switch only when on.
+	if (Array.isArray(input.postFx) && input.postFx.length) {
+		out.postFx = input.postFx as GameSettings['postFx'];
+	}
+	if (input.stageFxAntialias === true) out.stageFxAntialias = true;
 	return Object.keys(out).length > 0 ? out : undefined;
 }
 

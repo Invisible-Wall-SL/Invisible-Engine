@@ -525,6 +525,54 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		'4. layout: a non-boolean buttons row is dropped',
 		!JSON.stringify(normalizeLayoutDoc(buttonsOff, 'demo')).includes('authoredOverlays'),
 	);
+	// Screen FX (Shader Graph 8e): `postFx` round-trips verbatim, as a screen's Element FX do (an
+	// entry's own unknown field KEPT, by design: the readers drop what they cannot play), and
+	// `stageFxAntialias` only when it is `true`. An empty or non-list `postFx` and an OFF or
+	// non-boolean switch are never written.
+	const postFxEntry = { id: 'efx1', kind: 'shine', trigger: 'always', cue: 'x', glowBy: 2 };
+	const screenFx = clone(base) as typeof base & { settings: Record<string, unknown> };
+	Object.assign(screenFx.settings, {
+		postFx: [postFxEntry, { id: 'efx2', kind: 'custom:grade', trigger: 'cue', cue: 'grade' }],
+		stageFxAntialias: true,
+	});
+	const screenFxExtras = clone(screenFx);
+	Object.assign(screenFxExtras.settings, { transitionCueLater: { kind: 'burn' } });
+	ignores('4. layout (screen fx)', (d) => normalizeLayoutDoc(d, 'demo'), screenFx, screenFxExtras, [
+		`"postFx":[${JSON.stringify(postFxEntry)},{"id":"efx2","kind":"custom:grade","trigger":"cue","cue":"grade"}]`,
+		'"stageFxAntialias":true',
+	]);
+	for (const [label, settings] of [
+		['an empty post FX list', { postFx: [] }],
+		['a post FX that is not a list', { postFx: { id: 'efx1', kind: 'shine', trigger: 'always' } }],
+		['an OFF switch', { stageFxAntialias: false }],
+		['a non-boolean switch', { stageFxAntialias: 'yes' }],
+	] as const) {
+		const off = clone(base) as typeof base & { settings: Record<string, unknown> };
+		Object.assign(off.settings, settings);
+		const out = JSON.stringify(normalizeLayoutDoc(off, 'demo'));
+		check(
+			`4. layout: ${label} is not written`,
+			!out.includes('postFx') && !out.includes('stageFxAntialias'),
+			out,
+		);
+	}
+	const screenFxOnly = {
+		...clone(base),
+		settings: { postFx: [postFxEntry] },
+	};
+	check(
+		'4. layout: post FX alone keep the settings block',
+		JSON.stringify(normalizeLayoutDoc(screenFxOnly, 'demo')).includes(
+			`"settings":{"postFx":[${JSON.stringify(postFxEntry)}]}`,
+		),
+	);
+	const antialiasOnly = { ...clone(base), settings: { stageFxAntialias: true } };
+	check(
+		'4. layout: the switch alone keeps the settings block',
+		JSON.stringify(normalizeLayoutDoc(antialiasOnly, 'demo')).includes(
+			'"settings":{"stageFxAntialias":true}',
+		),
+	);
 
 	const withNodeField = clone(base);
 	Object.assign(withNodeField.scenes[0].nodes[0], { glow: 0.2 });

@@ -20,6 +20,7 @@
 		type ElementFxParamValue,
 		type ElementFxTrigger,
 	} from 'constants-shared/elementFx';
+	import type { Snippet } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { customElementFxVersion } from '$lib/customElementFx.svelte';
 
@@ -30,15 +31,27 @@
 	 * `constants-shared/elementFx`; this section writes the doc's `elementFx` list, sparsely: a value
 	 * equal to its default is never stored, nor an empty name, and an empty list drops the field. An
 	 * entry this build cannot read (a kind from a newer build) is kept as saved. ▶ plays one entry on
-	 * the stage (`elementFxPreview.client.svelte.ts`).
+	 * the stage (`elementFxPreview.client.svelte.ts`), where the caller gives a `preview`.
 	 */
 	interface Props {
 		/** The stored list, as saved: an entry in it may be one this build cannot read. */
 		entries: ElementFxEntry[] | undefined;
 		/** The next list; `undefined` ⇒ delete the field. */
 		onChange: (next: ElementFxEntry[] | undefined) => void;
-		/** Play one entry on the stage; false when nothing on the stage shows the element. */
-		preview: (entry: ElementFxEntry) => boolean | void;
+		/** Play one entry on the stage; false when nothing on the stage shows the element. Unset ⇒ no ▶. */
+		preview?: (entry: ElementFxEntry) => boolean | void;
+		/** The section's heading. */
+		title?: string;
+		/**
+		 * Why `kind` cannot be picked here for the entry at `index` (`undefined`: a new entry), or
+		 * `undefined` when it can. A refused kind is greyed in the pickers with its reason. Unset ⇒
+		 * every kind.
+		 */
+		kindRefusal?: (kind: ElementFxKindId, index: number | undefined) => string | undefined;
+		/** At most this many entries: Add is off once the list has them. Unset ⇒ no cap. */
+		maxEntries?: number;
+		/** Shown under each readable entry's head, open or not: what the caller knows of it. */
+		rowNote?: Snippet<[entry: ElementFxEntry, index: number]>;
 		/** Read-only (Inspect): every control but ▶ is off. */
 		disabled?: boolean;
 		/** The `<datalist>` the cue fields suggest from. */
@@ -64,6 +77,10 @@
 		entries,
 		onChange,
 		preview,
+		title = 'Element FX',
+		kindRefusal,
+		maxEntries,
+		rowNote,
 		disabled = false,
 		cueListId,
 		keyable = true,
@@ -75,6 +92,7 @@
 		missedText = 'Nothing on the stage to play it on: show the element and its screen first.',
 	}: Props = $props();
 	const triggers = $derived(offered ?? ELEMENT_FX_TRIGGERS.filter((t) => keyable || t !== 'keyed'));
+	const full = $derived(maxEntries !== undefined && (entries?.length ?? 0) >= maxEntries);
 
 	const TRIGGER_TEXT: Record<ElementFxTrigger, { label: string; summary: string }> = {
 		always: { label: 'Always (loops while shown)', summary: 'always, looping' },
@@ -113,10 +131,12 @@
 	/** The entry whose ▶ found nothing on the stage to play on. */
 	let missed = $state<string | null>(null);
 
-	/** A new entry's trigger: a loop runs always, an entrance on show, anything else on a cue. */
+	/** A new entry's trigger: a loop runs always, an entrance on show, anything else on a cue; the
+	 *  first one offered here when that one is not. */
 	function defaultTrigger(kind: ElementFxKindId): ElementFxTrigger {
 		const phase = findElementFxSpec(kind)?.phase;
-		return phase === 'loop' ? 'always' : phase === 'enter' ? 'enter' : 'cue';
+		const trigger = phase === 'loop' ? 'always' : phase === 'enter' ? 'enter' : 'cue';
+		return triggers.includes(trigger) ? trigger : (triggers[0] ?? trigger);
 	}
 
 	/** A number param's slider step: its own, or whole units over a wide range. */
@@ -157,6 +177,7 @@
 	}
 
 	function add(kind: ElementFxKindId): void {
+		if (full || kindRefusal?.(kind, undefined)) return;
 		const taken = new Set((entries ?? []).map((e) => e.id));
 		let n = 1;
 		while (taken.has(`efx${n}`)) n++;
@@ -187,7 +208,7 @@
 	/** A new kind keeps the params it also declares (read against its own ranges); the rest go. */
 	function setKind(index: number, kind: ElementFxKindId): void {
 		const spec = findElementFxSpec(kind);
-		if (!spec) return;
+		if (!spec || kindRefusal?.(kind, index)) return;
 		edit(index, (e) => {
 			const params: Record<string, ElementFxParamValue> = {};
 			for (const p of spec.params) {
@@ -264,7 +285,7 @@
 	}
 
 	function play(entry: ElementFxEntry): void {
-		missed = preview(entry) === false ? entry.id : null;
+		missed = preview?.(entry) === false ? entry.id : null;
 	}
 
 	function toggle(id: string): void {
@@ -273,11 +294,17 @@
 	}
 </script>
 
-{#snippet kindOptions()}
+{#snippet kindOptions(index: number | undefined)}
 	{#each kindGroups as group (group.id)}
 		<optgroup label={group.label}>
 			{#each group.kinds as spec (spec.kind)}
-				<option value={spec.kind}>{spec.label}</option>
+				{@const refusal =
+					kindRefusal && isPlayableElementFxKind(spec.kind)
+						? kindRefusal(spec.kind, index)
+						: undefined}
+				<option value={spec.kind} disabled={!!refusal} title={refusal}
+					>{spec.label}{refusal ? ` — ${refusal}` : ''}</option
+				>
 			{/each}
 		</optgroup>
 	{/each}
@@ -303,7 +330,7 @@
 {/snippet}
 
 <section class="element-fx">
-	<h3>Element FX</h3>
+	<h3>{title}</h3>
 	{#if !rows.length}
 		<p class="muted small">{intro}</p>
 	{/if}
@@ -355,16 +382,19 @@
 						<span class="fx-when">{@render when(entry)}</span>
 					</button>
 					<span class="fx-actions">
-						<button
-							type="button"
-							class="icon play"
-							title="Preview on the stage (Esc stops it)"
-							aria-label="Preview"
-							onclick={() => play(entry)}>▶</button
-						>
+						{#if preview}
+							<button
+								type="button"
+								class="icon play"
+								title="Preview on the stage (Esc stops it)"
+								aria-label="Preview"
+								onclick={() => play(entry)}>▶</button
+							>
+						{/if}
 						{@render reorder(index)}
 					</span>
 				</div>
+				{@render rowNote?.(entry, index)}
 				{#if missed === entry.id}
 					<p class="hint warn">{missedText}</p>
 				{/if}
@@ -381,7 +411,7 @@
 										if (isPlayableElementFxKind(kind)) setKind(index, kind);
 									}}
 								>
-									{@render kindOptions()}
+									{@render kindOptions(index)}
 								</select>
 							</label>
 						</div>
@@ -633,7 +663,7 @@
 			<span>Add an effect</span>
 			<select
 				value=""
-				{disabled}
+				disabled={disabled || full}
 				onchange={(e) => {
 					const kind = e.currentTarget.value;
 					e.currentTarget.value = '';
@@ -641,11 +671,14 @@
 				}}
 			>
 				<option value="">+ Add effect…</option>
-				{@render kindOptions()}
+				{@render kindOptions(undefined)}
 			</select>
 		</label>
 	</div>
-	{#if rows.length}
+	{#if full}
+		<p class="hint">At most {maxEntries} here: remove one to add another.</p>
+	{/if}
+	{#if rows.length && preview}
 		<p class="hint">
 			Preview plays on a still of the element; in the game it plays on the live one.
 		</p>
@@ -735,6 +768,8 @@
 		max-width: 100%;
 	}
 	.fx-title strong {
+		flex: 0 0 auto;
+		max-width: 70%;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -744,6 +779,9 @@
 		font-size: 10px;
 	}
 	.fx-cat {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
 		font-size: 10px;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;

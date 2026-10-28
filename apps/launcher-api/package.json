@@ -275,6 +275,8 @@
 		"check:flipbook-frames": "tsx --tsconfig tsconfig.scripts.json scripts/check-flipbook-frames.ts",
 		"precheck:scene-cues": "node scripts/ensure-svelte-kit.mjs",
 		"check:scene-cues": "tsx --tsconfig tsconfig.scripts.json scripts/check-scene-cues.ts",
+		"precheck:screen-fx-editor": "node scripts/ensure-svelte-kit.mjs",
+		"check:screen-fx-editor": "tsx --tsconfig tsconfig.scripts.json scripts/check-screen-fx-editor.ts",
 		"precheck:element-fx-flow": "node scripts/ensure-svelte-kit.mjs",
 		"check:element-fx-flow": "tsx --tsconfig tsconfig.scripts.json scripts/check-element-fx-flow.ts",
 		"precheck:respin-counter-text": "node scripts/ensure-svelte-kit.mjs",

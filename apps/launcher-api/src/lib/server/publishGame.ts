@@ -300,6 +300,7 @@ export async function publishGame(
 			flowV2: assembled.flowV2,
 			flowV2Library: assembled.flowV2Library,
 			scenes: assembled.doc.scenes,
+			settings: assembled.doc.settings,
 			components: [
 				...Object.values(assembled.componentDefs),
 				...(assembled.componentVersions ?? []),

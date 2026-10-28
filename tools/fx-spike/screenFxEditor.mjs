@@ -1,0 +1,347 @@
+#!/usr/bin/env node
+/**
+ * SCREEN FX EDITOR — the Scene Editor's Game Settings → Screen FX played headless (Invisible Shader
+ * Graph step 8e.6 phase A, `docs/design/shader-graph-screens.md` §9.2).
+ *
+ * `screenFxEditor/entry.ts` mounts the real `/editor` `+page.svelte` outside SvelteKit (its requests
+ * answered in memory, see there); this script builds it with Vite and the launcher's Svelte plugin
+ * and drives it in headless Chromium through the DOM, as an author would:
+ *  1. the post FX pickers grey the kinds the stage refuses, each with the runtime's reason (an exit,
+ *     an enter, a motion-only and a break kind), and offer the rest;
+ *  2. add Glow and a graph compiled with a cost: each row has its load line (no compiled cost /
+ *     cost × the reference phone's pixels against the post FX budget); the trigger offers Always and
+ *     On cue only; put the graph on a cue with a stop cue; Add is off at two entries;
+ *  3. flip "Anti-aliasing under stage effects", with its memory note;
+ *  4. save: the doc sent carries both, sparsely;
+ *  5. reopen on that doc as the server stores it (the real `normalizeDoc`): the block reads back
+ *     identical (rows, triggers, cues, load lines, the greyed kinds, the switch), and saving it again
+ *     sends the same settings.
+ * Screenshots of the block before the save and after the reopen are kept with `--keep <dir>`.
+ *
+ *   pnpm --filter fx-spike screen-fx-editor [--keep <dir>]
+ */
+
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { launchChrome } from '../rigger-spike/chrome.mjs';
+import { buildLauncherPage } from './launcherPage.mjs';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const REPO = resolve(HERE, '../..');
+const keepAt = process.argv.includes('--keep')
+	? resolve(process.argv[process.argv.indexOf('--keep') + 1])
+	: undefined;
+const dir = keepAt ?? mkdtempSync(join(tmpdir(), 'screen-fx-editor-'));
+mkdirSync(dir, { recursive: true });
+const began = Date.now();
+const results = [];
+const check = (name, ok, detail = '') => {
+	results.push({ name, ok });
+	console.log(`  ${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
+};
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** `doc` as the editor's save stores it and its load reads it: the real server reader. */
+function normalizeLikeTheServer(doc) {
+	const tsx = join(HERE, 'node_modules/.bin/tsx');
+	const out = spawnSync(
+		tsx,
+		[
+			'--tsconfig',
+			join(REPO, 'apps/launcher-api/tsconfig.scripts.json'),
+			join(HERE, 'screenFxEditor/normalize.ts'),
+		],
+		{ input: JSON.stringify(doc), encoding: 'utf8', cwd: join(REPO, 'apps/launcher-api') },
+	);
+	if (out.status !== 0) throw new Error(`normalizeDoc failed: ${out.stderr}`);
+	return JSON.parse(out.stdout);
+}
+
+/** In-page helpers, installed on every load: what an author sees in the block, and their gestures. */
+const HELPERS = `(() => {
+	const block = () => document.querySelector('.screen-fx');
+	const postFx = () => block()?.querySelector('[data-row="post-fx"]');
+	const addSelect = () => [...postFx().querySelectorAll('select')].at(-1);
+	const rows = () => [...postFx().querySelectorAll('.fx-row')];
+	const pick = (select, value) => {
+		select.value = value;
+		select.dispatchEvent(new Event('change', { bubbles: true }));
+	};
+	const field = (row, label) =>
+		[...row.querySelectorAll('label.field')].find((l) => l.querySelector('span')?.textContent.trim() === label)
+			?.querySelector('input, select');
+	const option = (select, kind) => [...select.options].find((o) => o.value === kind);
+	const state = () => ({
+		rows: rows().map((row) => ({
+			on: row.querySelector('.fx-head input[type=checkbox]')?.checked,
+			title: row.querySelector('.fx-title strong')?.textContent.trim(),
+			when: row.querySelector('.fx-when')?.textContent.replace(/\\s+/g, ' ').trim(),
+			line: row.querySelector('.sfx-line')?.textContent.replace(/\\s+/g, ' ').trim(),
+			lineWarn: row.querySelector('.sfx-line')?.classList.contains('warn'),
+			play: !!row.querySelector('.icon.play'),
+		})),
+		addDisabled: addSelect().disabled,
+		full: [...postFx().querySelectorAll('.hint')].some((h) => h.textContent.includes('At most 2 here')),
+		greyed: [...addSelect().options].filter((o) => o.disabled).map((o) => \`\${o.value}: \${o.title}\`),
+		aa: block().querySelector('[data-row="antialias"] input[type=checkbox]').checked,
+	});
+	window.sfx = { block, postFx, addSelect, rows, pick, field, option, state };
+	return true;
+})()`;
+
+let browser;
+let failed = false;
+try {
+	const html = await buildLauncherPage({
+		entry: 'screenFxEditor/entry.ts',
+		name: 'screen-fx-editor',
+		outDir: join(dir, 'out'),
+		title: 'screen fx editor',
+	});
+	console.log(`editor page built (${((Date.now() - began) / 1000).toFixed(1)} s)`);
+	browser = await launchChrome({ name: 'screen-fx-editor', args: ['--window-size=1600,1000'] });
+	const ev = (expr) => browser.evaluate(expr);
+	const open = async (doc) => {
+		await browser.send('Page.navigate', { url: pathToFileURL(html).href });
+		await browser.waitFor('document.readyState === "complete"');
+		await ev(
+			doc
+				? `localStorage.setItem('screenFxEditor.doc', ${JSON.stringify(JSON.stringify(doc))}), true`
+				: `localStorage.removeItem('screenFxEditor.doc'), true`,
+		);
+		await browser.send('Page.reload', {});
+		await browser.waitFor('!!document.querySelector(".screen-fx")', 60_000);
+		await ev(HELPERS);
+		// Open Game Settings, as the author clicks its heading.
+		await ev(`(() => {
+			const d = [...document.querySelectorAll('details')].find((x) => x.querySelector('summary')?.textContent.includes('Game Settings'));
+			d.open = true;
+			d.scrollIntoView();
+			return true;
+		})()`);
+		await sleep(200);
+	};
+	const shot = async (name) => {
+		// The sidebar from the block's top down, as the author sees it scrolled to it.
+		const rect = await ev(`(() => {
+			const b = sfx.block();
+			b.scrollIntoView({ block: 'start' });
+			const r = b.closest('aside').getBoundingClientRect();
+			return { x: r.x, y: 0, width: r.width, height: innerHeight };
+		})()`);
+		const { data } = await browser.send('Page.captureScreenshot', {
+			format: 'png',
+			clip: { ...rect, scale: 1 },
+		});
+		const path = join(dir, `${name}.png`);
+		writeFileSync(path, Buffer.from(data, 'base64'));
+		return path;
+	};
+
+	console.log('1. the pickers grey what the stage refuses, with the reason');
+	await open(null);
+	const opened = await ev('editorPage.opened.settings ?? null');
+	check('the project opens with no Screen FX', opened === null || !('postFx' in opened));
+	const options = await ev(`(() => {
+		const s = sfx.addSelect();
+		const o = (k) => { const x = sfx.option(s, k); return x && { disabled: x.disabled, text: x.textContent.trim(), title: x.title }; };
+		return { fadeOut: o('fadeOut'), fadeIn: o('fadeIn'), shake: o('shake'), shatter: o('shatter'), glow: o('glow'), ripple: o('custom:ripple') };
+	})()`);
+	for (const [kind, reason] of [
+		['fadeOut', 'an exit kind ends hidden, so it would hide the whole game'],
+		['fadeIn', 'an enter kind starts hidden, so it would hide the whole game'],
+		['shake', 'a motion-only kind moves its element'],
+		['shatter', 'a break cuts its element up'],
+	]) {
+		const o = options[kind];
+		check(
+			`${kind} is greyed with its reason`,
+			!!o && o.disabled && o.text.includes(reason) && o.title.includes(reason),
+			JSON.stringify(o),
+		);
+	}
+	check(
+		'Glow and a compiled graph are offered',
+		options.glow?.disabled === false &&
+			options.glow.text === 'Glow' &&
+			options.ripple?.disabled === false,
+		JSON.stringify([options.glow, options.ripple]),
+	);
+	check(
+		'no post FX yet: the intro',
+		await ev(`sfx.postFx().textContent.includes('HUD included, always or on a cue')`),
+	);
+
+	console.log('2. two post FX, their load lines, a cue, the cap');
+	await ev(`sfx.pick(sfx.addSelect(), 'glow'), true`);
+	await ev(`sfx.pick(sfx.addSelect(), 'custom:ripple'), true`);
+	await sleep(100);
+	let state = await ev('sfx.state()');
+	check(
+		'two rows, Glow and the graph',
+		state.rows.length === 2 && state.rows[0].title === 'Glow' && state.rows[1].title === 'Ripple',
+		JSON.stringify(state.rows.map((r) => [r.title, r.when])),
+	);
+	check(
+		'Glow says it has no compiled cost, guessing nothing',
+		state.rows[0].line?.startsWith('No compiled cost for this kind') && !state.rows[0].lineWarn,
+		state.rows[0].line,
+	);
+	check(
+		'the graph: its cost × the reference phone’s pixels against the post FX budget',
+		/^Load 1\.32 M px × cost \d+ = [\d.]+ M of 79\.00 M \(the post FX budget, cost 60; \d+ reads a pixel of 4\)\.$/.test(
+			state.rows[1].line ?? '',
+		),
+		state.rows[1].line,
+	);
+	check(
+		'Add is off at two entries, and says why',
+		state.addDisabled && state.full,
+		JSON.stringify([state.addDisabled, state.full]),
+	);
+	check(
+		'no ▶ yet (phase B)',
+		state.rows.every((r) => !r.play),
+	);
+	const triggerOptions = await ev(
+		`[...sfx.field(sfx.rows()[1], 'Trigger').options].map((o) => o.textContent.trim())`,
+	);
+	check(
+		'the trigger offers Always and On cue only',
+		JSON.stringify(triggerOptions) === JSON.stringify(['Always (loops while shown)', 'On cue']),
+		JSON.stringify(triggerOptions),
+	);
+	const kindInRow = await ev(`(() => {
+		const s = sfx.field(sfx.rows()[0], 'Kind');
+		return { fadeOut: sfx.option(s, 'fadeOut').disabled, glow: sfx.option(s, 'glow').disabled, shine: sfx.option(s, 'shine').disabled };
+	})()`);
+	check(
+		'a row’s own Kind picker greys the same kinds, and its own kind is not counted against the caps',
+		kindInRow.fadeOut && !kindInRow.glow && !kindInRow.shine,
+		JSON.stringify(kindInRow),
+	);
+	await ev(`sfx.pick(sfx.field(sfx.rows()[1], 'Trigger'), 'cue'), true`);
+	await sleep(50);
+	await ev(`(() => {
+		const row = sfx.rows()[1];
+		for (const [label, value] of [['Cue', 'gradeOn'], ['Stop cue', 'gradeOff']]) {
+			const input = sfx.field(row, label);
+			input.value = value;
+			input.dispatchEvent(new Event('change', { bubbles: true }));
+		}
+		return true;
+	})()`);
+	await sleep(100);
+	state = await ev('sfx.state()');
+	check('the graph plays on its cue', state.rows[1].when === 'on cue gradeOn', state.rows[1].when);
+
+	console.log('3. the anti-aliasing switch');
+	const note = await ev(
+		`sfx.block().querySelector('[data-row="antialias"]').textContent.replace(/\\s+/g, ' ')`,
+	);
+	check(
+		'off by default, with its memory note',
+		!state.aa &&
+			note.includes('Anti-aliasing under stage effects') &&
+			note.includes('about four times a stage pass') &&
+			note.includes('WebGL2 only'),
+		note,
+	);
+	await ev(`sfx.block().querySelector('[data-row="antialias"] input').click(), true`);
+	await sleep(50);
+	state = await ev('sfx.state()');
+	check('flipped on', state.aa);
+	const before = await shot('screen-fx-set');
+
+	console.log('4. save');
+	await ev(
+		`[...document.querySelectorAll('button.save-btn')].find((b) => !b.disabled).click(), true`,
+	);
+	await browser
+		.waitFor(
+			`editorPage.saved.some((d) => d.settings?.stageFxAntialias === true && d.settings?.postFx?.[1]?.stopCue === 'gradeOff')`,
+			20_000,
+		)
+		.catch(() => {});
+	const sent = (await ev('editorPage.saved.at(-1)')) ?? {};
+	check(
+		'the doc sent carries the post FX and the switch, sparsely',
+		JSON.stringify(sent.settings) ===
+			JSON.stringify({
+				postFx: [
+					{ id: 'efx1', kind: 'glow', trigger: 'always' },
+					{
+						id: 'efx2',
+						kind: 'custom:ripple',
+						trigger: 'cue',
+						cue: 'gradeOn',
+						stopCue: 'gradeOff',
+					},
+				],
+				stageFxAntialias: true,
+			}),
+		JSON.stringify(sent.settings),
+	);
+	const stored = normalizeLikeTheServer(sent);
+	check(
+		'the server stores them as sent',
+		JSON.stringify(stored.settings) === JSON.stringify(sent.settings),
+		JSON.stringify(stored.settings),
+	);
+
+	console.log('5. reopen');
+	await open(stored);
+	const reopened = await ev('sfx.state()');
+	check(
+		'the block reads back identical: rows, triggers, cues, load lines, greyed kinds, the switch',
+		JSON.stringify(reopened) === JSON.stringify(state),
+		`\n      before ${JSON.stringify(state)}\n      after  ${JSON.stringify(reopened)}`,
+	);
+	check(
+		'full, each greyed kind still names its own reason: the stage’s refusal, else the cap',
+		reopened.greyed.includes(
+			'fadeOut: an exit kind ends hidden, so it would hide the whole game',
+		) && reopened.greyed.includes('glow: the stage plays at most 2 post FX at once'),
+		reopened.greyed.slice(0, 3).join(' | '),
+	);
+	const after = await shot('screen-fx-reopened');
+	// Off and on again: an edit, so Save sends the doc; the settings must come back unchanged.
+	await ev(`sfx.block().querySelector('[data-row="antialias"] input').click(), true`);
+	await ev(`sfx.block().querySelector('[data-row="antialias"] input').click(), true`);
+	await sleep(50);
+	await ev(
+		`[...document.querySelectorAll('button.save-btn')].find((b) => !b.disabled).click(), true`,
+	);
+	await browser.waitFor('editorPage.saved.length > 0', 20_000).catch(() => {});
+	const resent = (await ev('editorPage.saved.at(-1)')) ?? {};
+	check(
+		'saved again, it sends the same settings',
+		JSON.stringify(resent.settings) === JSON.stringify(sent.settings),
+		JSON.stringify(resent.settings),
+	);
+	if (keepAt) console.log(`  screenshots: ${before}, ${after}`);
+	const errors = browser.pageLog.filter(
+		(l) => l.startsWith('[uncaught]') || l.startsWith('[error]'),
+	);
+	check(
+		'no uncaught error on the page',
+		!errors.some((l) => l.startsWith('[uncaught]')),
+		errors.join(' | '),
+	);
+} catch (e) {
+	failed = true;
+	console.error(e);
+	if (browser) console.error(browser.pageLog.slice(-30).join('\n'));
+} finally {
+	await browser?.close();
+	if (!keepAt) rmSync(dir, { recursive: true, force: true });
+}
+
+const bad = results.filter((r) => !r.ok);
+console.log(
+	`\nscreen fx editor: ${results.length - bad.length}/${results.length} passed in ${((Date.now() - began) / 1000).toFixed(1)} s`,
+);
+if (failed || bad.length || !results.length) process.exit(1);

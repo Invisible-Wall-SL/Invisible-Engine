@@ -11,6 +11,7 @@ export {
 } from './runtime';
 export {
 	bindStagePostFxSlot,
+	stageFxCapRefusal,
 	stageFxFilterCount,
 	stageFxRefusal,
 	stagePostFx,
