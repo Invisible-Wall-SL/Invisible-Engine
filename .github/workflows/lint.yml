@@ -122,6 +122,14 @@ jobs:
         if: steps.changes.outputs.code == 'true'
         run: pnpm check:game-app-deps
 
+      # A launcher migration this change adds must be newer than every migration on the base: the
+      # boot migrator skips one whose `when` is older than the newest already applied, so a PR that
+      # merges after another PR's newer migration would silently never apply (the 9F/9G near miss).
+      # On a PR the checkout is the merge commit, so HEAD^1 is the base tip (fetch-depth 2 above).
+      - name: launcher migrations apply in order
+        if: steps.changes.outputs.code == 'true'
+        run: pnpm check:migration-order
+
       # RGS gate — the client and the server must agree about MONEY, for all four win models.
       #
       # `check:ways` already existed and was never wired here; `cluster` and `scatter` shipped with
