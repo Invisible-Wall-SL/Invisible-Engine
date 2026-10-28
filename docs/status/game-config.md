@@ -817,7 +817,9 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   opens on ~3.7% of base spins and retriggers on ~2% of free spins (`check:freespins` §16, 1500
   rounds, longest feature 50; §17 keeps the flat-rate path and the cap). **Known gaps:** `CL` has no
   stock art: a scaffolded project draws nothing in a `CL` cell (one console warning, "rendering
-  nothing for it") until art is bound in `/symbols`; scatter anticipation never arms
+  nothing for it") until art is bound in `/symbols`; the lines reference frame is a fixed 3-row
+  height (`FRAME_HEIGHT` in `referenceLayouts/lines.ts`), so the 5×4 board overhangs it top and
+  bottom until the frame is resized in the Scene Editor (seen in the playtest); scatter anticipation never arms
   (`anticipation.ts` waits for `SCATTER_TRIGGER_COUNT`, 3). **Wilds** (after #1444 merged): the
   preset carries `expandingWilds { symbols: ['W'] }` (the fairy, reels 2–4 from its strips, drawn
   `onWin`) and `growingWild { symbol: 'CL', reels: [2], freeSpinReels: [1, 2, 3] }` (a plus). The
