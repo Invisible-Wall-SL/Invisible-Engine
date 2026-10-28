@@ -28,6 +28,7 @@
 
 	import { getContextApp } from '../context.svelte';
 	import { disposeCameraEffects } from '../cameraEffects';
+	import { disposeScreenTransitions } from '../screenFx/screenTransition';
 	import { renderSettings } from '../renderTier';
 	import { preloadFont } from '../utils.svelte';
 
@@ -127,9 +128,11 @@
 
 	onDestroy(() => {
 		if (context.stateApp.pixiApplication) {
-			// Before `destroy()`: it kills the ticker first, so a camera effect can never observe the
-			// teardown itself and would leave an awaiting flow chain hanging forever.
+			// Before `destroy()`: it kills the ticker first, so a camera effect or a screen transition
+			// can never observe the teardown itself and would leave an awaiting flow chain hanging
+			// forever.
 			disposeCameraEffects(context.stateApp.pixiApplication);
+			disposeScreenTransitions(context.stateApp.pixiApplication);
 			context.stateApp.pixiApplication.destroy();
 		}
 	});

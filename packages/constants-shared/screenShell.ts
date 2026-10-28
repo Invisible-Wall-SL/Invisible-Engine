@@ -10,9 +10,10 @@
  * the same meanings over the whole screen:
  *  - the unit square is the filter's frame (the viewport), with no padding: the element's
  *    `uElement` = (0, 0, 1, 1) and `uPad` = 0, so neither is declared;
- *  - `efxSample` and `efxScreenTo` read the filter's input, the new screen; `efxScreenFrom` reads
- *    the still across the frame, 0 outside it; `efxScreenReverse` is 1 when the transition plays
- *    reversed;
+ *  - `efxSample` and `efxScreenTo` read the filter's input, the new screen, and `efxScreenFrom` the
+ *    still, both across the frame and 0 outside it: the frame's edge pixels read the screen's, where
+ *    the element pass's half-texel clamp would land on them exactly and read 0 or not by rounding;
+ *    `efxScreenReverse` is 1 when the transition plays reversed;
  *  - the body's time, seed and params stay uniforms: one transition is one element;
  *  - the Particle node's helpers read white, 0 and 0, as on an element.
  *
@@ -71,11 +72,12 @@ vec2 efxFromUnit(vec2 u) { return u * efxSize(); }
 vec4 efxSample(vec2 px)
 {
     vec2 uv = px * uInputSize.zw;
-    if (uv.x < uInputClamp.x || uv.y < uInputClamp.y || uv.x > uInputClamp.z || uv.y > uInputClamp.w)
+    vec2 edge = uOutputFrame.zw * uInputSize.zw;
+    if (uv.x < 0.0 || uv.y < 0.0 || uv.x > edge.x || uv.y > edge.y)
     {
         return vec4(0.0);
     }
-    return texture(uTexture, uv);
+    return texture(uTexture, clamp(uv, uInputClamp.xy, uInputClamp.zw));
 }
 
 bool efxInside(vec2 px)
@@ -101,6 +103,16 @@ vec4 efxScreenFrom(vec2 px)
 vec4 efxScreenTo(vec2 px) { return efxSample(px); }
 float efxScreenReverse() { return ${SCREEN_REVERSE}; }
 `;
+
+/**
+ * Whether a compiled body reads the Screens node (calls `efxScreenFrom`, `efxScreenTo` or
+ * `efxScreenReverse`): such a graph draws both screens itself, so as a transition it takes the In
+ * route whatever its phase (§5).
+ */
+export const readsScreens = (effect: Pick<CustomElementFx, 'shader'>): boolean =>
+	/\befxScreen(?:From|To|Reverse)\s*\(/.test(
+		effect.shader.body.replace(/\/\/[^\n\r]*/g, '').replace(/\/\*[\s\S]*?\*\//g, ''),
+	);
 
 /** What the body's own `main` is renamed to: the shell's `main` calls it, then composites. */
 const BODY_MAIN = 'efxScreenBody';
