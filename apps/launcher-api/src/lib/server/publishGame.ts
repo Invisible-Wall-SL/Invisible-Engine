@@ -10,7 +10,7 @@
  *      its `deploy/` files as an immutable published snapshot (`publishedRuntime.ts`),
  *      then point players at it,
  *   3. mint/get the project's read-only token (gates the public fetches),
- *   4. map gameType → mock `protocol` + shared `runtime` bundle id,
+ *   4. map gameType → mock `protocol`, and the config's family → its `runtime` bundle id,
  *   5. merge the test-server manifest (`test_server/games.json`) — read-modify-write,
  *   6. upsert the `games` registry row so the game shows in the portal,
  *   7. best-effort POST the test server's `/refresh`.
@@ -48,7 +48,8 @@ import { checkSoundsForPublish, type SoundPublishCheck } from './soundPublishChe
 import { unplayableFamilyMessage } from './familyGate';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { invalidateRuntimeBundle, withDeployWrite } from './runtimeBundleCache';
-import { SHARED_RUNTIME_ID, runtimePointer, upsertTestServerGame } from './testServerManifest';
+import { runtimePointer, upsertTestServerGame } from './testServerManifest';
+import { chooseRuntime, kindFamilyRefusal } from './runtimeChoice';
 import { postTestServerRefresh } from './testServerRefresh';
 
 export interface PublishResult {
@@ -91,13 +92,15 @@ export class PublishBlockedError extends Error {
 	constructor(
 		message: string,
 		/** What blocked it, for a UI that can offer a way through. `own-bundle` never can — it would
-		 *  clobber a real game — and neither can `unplayable-family` or `flow-wrong-kind` (a flow left
-		 *  from a kind change), a game the runtime cannot play;
+		 *  clobber a real game — and neither can `unplayable-family`, `kind-family` (a config of another
+		 *  family than the project's kind) or `flow-wrong-kind` (a flow left from a kind change), a game
+		 *  the runtime cannot play;
 		 *  `unapproved-sounds`, `invalid-flow` and `paytable-drift` are deliberate-override cases (the
 		 *  last two for the owner role only; see the publish endpoint). */
 		readonly reason:
 			| 'own-bundle'
 			| 'unplayable-family'
+			| 'kind-family'
 			| 'flow-wrong-kind'
 			| 'unapproved-sounds'
 			| 'invalid-flow'
@@ -119,35 +122,6 @@ export class PublishBlockedError extends Error {
 export async function hasOwnBuiltBundle(key: string): Promise<boolean> {
 	const objects = await listAllObjects(`test_server/${key}/`);
 	return objects.some((o) => !o.key.endsWith('/'));
-}
-
-/**
- * The prebuilt runtime bundle id a game is served from (`test_server/_runtime/<runtime>/`).
- *
- * EVERY game type shares ONE bundle, and that is a decision, not a gap — it replaces the old
- * "add a runtime per type" TODO, which Phase D of `docs/design/game-type-templates.md` found to be
- * the wrong shape:
- *
- *   - `runtime-release.yml` builds a runtime FROM `apps/<id>`. A `_runtime/ways` would therefore be
- *     built from `apps/ways`, which is still the vanilla upstream sample: no flow-v2 interpreter,
- *     no editor scenes, no symbols registry, no game-config resolver. It cannot consume a runtime
- *     bundle at all, so pointing a ways project at it would not give that project a ways game — it
- *     would break it.
- *   - The shared bundle (built from `apps/lines`, which carries the whole engine) now ADAPTS: the
- *     config states its `winModel`, `activeWinModel()` reads it, payline-specific surfaces stand
- *     down for a non-lines model, and `ways` book events are identical to `lines` anyway.
- *
- * So a bundle per type buys nothing for `ways` and costs a broken game. It becomes worth revisiting
- * only for a type that needs bespoke COMPILED code the shared bundle cannot carry — `cluster`'s
- * tumble board is the first real candidate.
- *
- * The id stays `'lines'` for compatibility: every published manifest already references it, and
- * `runtime-release.yml` auto-publishes it on every engine merge. The name is historical — it means
- * "the shared engine runtime", not "the lines game", which is why the Game Maker card no longer
- * PRINTS it (it read as a game type: "lines runtime" on a cluster game). See `SHARED_RUNTIME_ID`.
- */
-function runtimeFor(_gameType: string): string {
-	return SHARED_RUNTIME_ID;
 }
 
 /** The flow gate's refusal for a verdict on a project of kind `gameType` (`flowGateRefusal`). */
@@ -234,6 +208,9 @@ async function runPublishGates(
 	// refusing `freePlay` mock.
 	const unplayable = unplayableFamilyMessage(config);
 	if (unplayable) return { refusal: new PublishBlockedError(unplayable, 'unplayable-family') };
+	// The config's family picks the runtime (`runtimeFor`), so it must be the kind's family too.
+	const kindFamily = kindFamilyRefusal(gameType, config);
+	if (kindFamily) return { refusal: new PublishBlockedError(kindFamily, 'kind-family') };
 
 	// 1d. THE PAYTABLE GATE. A project that captured its partner's declared paytable must not ship
 	// quoting other prices unnoticed — the info page is built from the authored config, the partner
@@ -293,7 +270,7 @@ export async function publishGame(
 	// `deploy/` tree the snapshot copies is exactly the one this assemble wrote. The snapshot is only
 	// STAGED here: players switch to it at the end, once the game is registered, so a publish that
 	// fails part-way leaves them on the previous version.
-	const { bundle, flowCheck, snapshot } = await withDeployWrite(projectKey, async () => {
+	const { bundle, flowCheck, snapshot, runtime } = await withDeployWrite(projectKey, async () => {
 		const assembled = await buildRuntimeBundle(projectKey, false);
 		const shipped = await checkShippedFlowV2(clientKey, projectKey, {
 			flowV2: assembled.flowV2,
@@ -307,14 +284,24 @@ export async function publishGame(
 			shaderEffects: assembled.shaderEffects,
 		});
 		refuseFlow(shipped);
-		const engine = await runtimePointer(runtimeFor(gameType));
+		const kindFamily = kindFamilyRefusal(gameType, assembled.config);
+		if (kindFamily) throw new PublishBlockedError(kindFamily, 'kind-family');
+		const chosen = await chooseRuntime(assembled.config, runtimePointer);
+		if (chosen.id !== chosen.wanted) {
+			console.warn(
+				`[publish] ${projectKey}: the ${chosen.wanted} runtime has no release yet, so the game ` +
+					`is published on ${chosen.id}, which still carries every family. Re-publish it once ` +
+					`${chosen.wanted} is released.`,
+			);
+		}
+		const engine = chosen.pointer;
 		const staged = await stageSnapshot(clientKey, projectKey, assembled, {
 			by: options.by ?? null,
 			flow: shipped.status === 'invalid' ? 'overridden' : shipped.status,
-			runtime: runtimeFor(gameType),
+			runtime: chosen.id,
 			engine: engine ? { version: engine.version, shortCommit: engine.shortCommit } : null,
 		});
-		return { bundle: assembled, flowCheck: shipped, snapshot: staged };
+		return { bundle: assembled, flowCheck: shipped, snapshot: staged, runtime: chosen.id };
 	});
 	if (flowCheck.status === 'invalid') {
 		console.warn(
@@ -388,7 +375,6 @@ export async function publishGame(
 			projectKey,
 			gameType,
 		);
-		const runtime = runtimeFor(gameType);
 
 		// 4 + 5. Merge the test-server manifest (read-modify-write, preserves siblings).
 		//
