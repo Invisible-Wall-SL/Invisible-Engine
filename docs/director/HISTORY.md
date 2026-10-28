@@ -15,6 +15,38 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-27 · Phase 9 9F · director-backend (runtime family packs)
+- Did: Runtime family packs (ADR-0009 §4): services/director-worker/families/{slot,match3,arcade}.md
+  carry locked items, mockup tags, region batch order, QA books/screens and the never list; the slot
+  pack has a section per kind. The eight definitions are family-neutral. Every turn's system is two
+  cached blocks (definition, pack); the analyst gets body + pack + catalogue. director_runs.family is
+  frozen at create (migration 0034, backfilled); create refuses a family without a ready pack (409
+  no_family_pack), the worker pauses such a run before any call, the shared math lock (scene, FX,
+  component adapters) reads the run's family. lockedItemsOf/MATH_WORDS are keyed by family (slot
+  byte-identical). New game shows the family's tags and the refusal. Pipeline Changes flags pack
+  edits; packs are refused as agent write targets. agent-eval.ts takes --before-pack/--after-pack;
+  agent-eval.yml runs both sides with main's slot pack.
+- Files: services/director-worker/{families/*,src/{familyPack,families,model,driver,store,main}.ts,
+  src/mockups/analyze.ts,src/eval/run.ts,scripts/agent-eval.ts,agents/*.md,Dockerfile};
+  apps/launcher-api/{drizzle/0034_director_run_family.sql,src/lib/server/{db/schema,director/{runs,
+  templates,store,refusals,ops/{mathLock,scene,fx,components}},pipelineChanges}.ts,
+  routes/(app)/{director,pipeline}/…}; .github/workflows/agent-eval.yml;
+  docs/{status/launcher,tools/director,knowledge/README,knowledge/families/*,director/README}.md.
+- Branch / PR: claude/9f-runtime-family-packs, #1412 (merged 2026-10-28 as 3346f26).
+- Tests: check:family-packs 95, check:model 111, check:mockups 105, check:agent-eval 171,
+  prove:turns 154, prove:breakdown 80, prove:art-plan 103, prove:idle 8, prove:lease,
+  check:director-runs 484, check:director-adapters 739, check:pipeline-changes 7845, lint.
+  The by-hand Agents-tab eval (mockup analyst, before vs after + slot pack) was NOT run before the
+  merge: the owner merged on the deterministic fixtures (no-loss, byte-stable blocks). The command
+  stays in the PR body to run after the fact. The coordinator reviewed the mathLock.ts rewiring.
+- Decisions: match-3 and arcade packs ship refused (READY_FAMILY_PACKS = {slot}); their locked-item
+  and math-word lists wait for the card that makes them ready. Pack edits flagged in Pipeline
+  Changes until eval-gated; the pack is the single source of runtime family text (owner, 2026-10-27).
+  Owner merged #1412 directly in the 9F session on 2026-10-28 without the by-hand eval.
+- Next: deploy the launcher before director-worker (the boot migration adds the column); 9G
+  regenerates its migration on top of 0034; follow-up card: agent-eval.yml evaluates a pack edit;
+  ADR-0009 §5 superseding note; optionally the after-the-fact analyst eval.
+
 ## 2026-10-27 · Phase 9 9D · director-backend + regression-guardian (QA draft play)
 - Did: Served build.request_draft and build.play_draft, so QA can be assigned and the known
   unserved-tool gap is empty. A draft is a run-scoped freeze of the project the way Publish
