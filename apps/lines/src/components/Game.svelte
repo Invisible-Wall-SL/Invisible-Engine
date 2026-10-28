@@ -7,9 +7,11 @@
 	import { Anchor, App, Container, Text, registerGpuWarmup } from 'pixi-svelte';
 	import {
 		ELEMENT_FX_REELS_TARGET,
+		ELEMENT_FX_STAGE_TARGET,
 		readElementFxEntries,
 		setCustomElementFx,
 	} from 'constants-shared/elementFx';
+	import { stageFxFilterCount, stageFxRefusal } from 'pixi-svelte/elementFx';
 	import { setParticleTimeScale } from 'pixi-svelte/particleClock';
 	import {
 		stateBet,
@@ -158,6 +160,7 @@
 		hudScenesForMode,
 		potFillShare,
 		HOLD_AND_WIN_BANNER_SHOW_SOURCES,
+		readPostFx,
 	} from 'engine-layout';
 	import type { ReelGridNode, Scene } from 'engine-layout';
 
@@ -1167,6 +1170,10 @@
 	// Element FX on the reels: the authored `reelGrid` node's `elementFx`, played on the reel stack.
 	const reelFx = $derived(
 		readElementFxEntries(findReelGridNode(editorDoc)?.elementFx).filter((e) => !e.disabled),
+	);
+	// Post FX: the doc's Element FX on the whole stage, played by a player at the root.
+	const postFx = $derived(
+		readPostFx(editorDoc.settings, { refusal: stageFxRefusal, filters: stageFxFilterCount }),
 	);
 	// Screen identity resolves by ROLE (engine-layout `sceneByRole`) — not by matching a magic
 	// scene id — so scene ids stay free-form and renameable (the owner's ask). It reads the scene
@@ -2523,6 +2530,15 @@
 	<EnableHotkey />
 	<EnableGameActor />
 	<EnablePixiExtension />
+
+	<!-- POST FX: the stage is the `stage` target, and plays the doc's post FX. Neither adds a child,
+	     and a doc without post FX mounts no player. -->
+	<Anchor name={ELEMENT_FX_STAGE_TARGET} />
+	{#key postFx}
+		{#if postFx.length}
+			<ElementFxPlayer entries={postFx} />
+		{/if}
+	{/key}
 
 	<!--
 		Persistent authored background (§ persistent-bg-scene) — CODED PATH ONLY. Without a

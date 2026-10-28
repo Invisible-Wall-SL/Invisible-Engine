@@ -9,5 +9,13 @@ export {
 	type ElementFxPlay,
 	type ElementFxPose,
 } from './runtime';
+export {
+	bindStagePostFxSlot,
+	stageFxFilterCount,
+	stageFxRefusal,
+	stagePostFx,
+	type StagePostFx,
+	type StagePostFxSlot,
+} from './stage';
 export { graphFilter } from './custom';
 export type { ElementFxFilter } from './shaders';

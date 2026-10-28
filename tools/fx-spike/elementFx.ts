@@ -57,6 +57,14 @@
  *     custom effect's graph pass is one. A pass's own functions (a Custom GLSL node's) are no unknown
  *     calls; the header's signatures, which the Custom GLSL checker types calls by, are the header's.
  *     (`pnpm --filter fx-spike shader-compile` plays broken passes on WebGL1 and WebGL2.)
+ * 11. Post FX (Shader Graph step 8e): played on its host's stage, an effect folds no motion, measures
+ *     nothing, and never writes the stage's filters, filter area or transform: its passes, fed the
+ *     viewport, go to the stage's post FX slot, which hears null before they are destroyed. Every
+ *     break, exit, enter and motion-only kind is refused with its reason, said once; a third entry,
+ *     or one past four filters, does not play. `settings.postFx` reads triggers `always` and `cue`
+ *     only, drops a refused kind and one past the caps with a warning, and ignores unknown fields;
+ *     `stageFxAntialias` is on only when `true`. The game anchors the stage and mounts its player
+ *     only for a doc with post FX.
  */
 
 import { readFileSync } from 'node:fs';
@@ -83,6 +91,8 @@ import {
 	ELEMENT_FX_CHANNEL_PREFIX,
 	ELEMENT_FX_KINDS,
 	ELEMENT_FX_PASS_KINDS,
+	ELEMENT_FX_STAGE_TARGET,
+	STAGE_FX_LIMITS,
 	customElementFx,
 	customElementFxBreakWindow,
 	elementFxChannels,
@@ -148,10 +158,20 @@ import { customKindImpl } from '../../packages/pixi-svelte/src/lib/elementFx/cus
 import { REST, type FxFrame } from '../../packages/pixi-svelte/src/lib/elementFx/frame';
 import {
 	elementFxCount,
+	elementFxHostFor,
 	playElementFx,
 	stopElementFx,
 	type ElementFxHost,
 } from '../../packages/pixi-svelte/src/lib/elementFx/runtime';
+import {
+	bindStagePostFxSlot,
+	stageFxFilterCount,
+	stageFxLoadText,
+	stageFxRefusal,
+	stagePostFx,
+	type StagePostFx,
+} from '../../packages/pixi-svelte/src/lib/elementFx/stage';
+import { readPostFx, readStageFxAntialias } from '../../packages/engine-layout/src/lib/postFx';
 
 // Building a GL program probes a canvas for the fragment precision; Node has none, so the probe
 // gets a canvas with no context and Pixi falls back to mediump. Nothing is drawn here.
@@ -3199,6 +3219,487 @@ console.log('element fx — custom breaks (Shader Graph Break Output)');
 			'an effect without a break has none, and plays as before',
 		);
 	}
+}
+
+// -------------------------------------------------------------------------------------------------
+console.log('element fx — the stage (post FX, Shader Graph 8e)');
+{
+	const compiled = REFERENCE_GRAPHS.map((doc) => compileShaderEffect(doc));
+	const base = compiled.flatMap((r) => (r.ok ? [r.effect] : []));
+	const TINT = 'custom:pulseTint';
+	const POWER = 'custom:powerUp';
+	const tint = base.find((e) => e.spec.kind === TINT) as CustomElementFx;
+	const passing = (id: string, kinds: readonly string[]): CustomElementFx => ({
+		...tint,
+		spec: { ...tint.spec, kind: `custom:${id}`, label: id },
+		passes: kinds.map((kind) => ({ kind, params: {} })) as CustomElementFx['passes'],
+	});
+	const registered = setCustomElementFx([
+		...base,
+		passing('fourFilters', ['glow', 'shine', 'flash']),
+		passing('fiveFilters', ['glow', 'shine', 'flash', 'blur']),
+		{ ...passing('costed', []), cost: 24 },
+	]);
+	assert(
+		registered.length === base.length + 3 &&
+			customElementFx('custom:fourFilters')?.passes.length === 3 &&
+			customElementFx('custom:fiveFilters')?.passes.length === 4 &&
+			customElementFx(POWER)?.motion !== undefined &&
+			customElementFx(POWER)?.passes.length === 1,
+		'set up: a graph with motion and a pass, and graphs drawing four and five filters',
+	);
+
+	const VIEW = new Rectangle(0, 0, 1280, 720);
+	interface Stage {
+		stage: Container;
+		host: ElementFxHost;
+		advance: (ms: number) => void;
+		heard: (StagePostFx | null)[];
+		measured: () => number;
+		untouched: () => boolean;
+		unbind: () => void;
+	}
+	const makeStage = (renderer: object | null = { screen: VIEW, resolution: 2 }): Stage => {
+		const { host, advance } = makeHost();
+		const stage = new Container();
+		const art = new Container();
+		art.boundsArea = new Rectangle(-500, -500, 4000, 4000);
+		stage.addChild(art);
+		// What the stage's owner (the camera's wobble) may have put there: never touched.
+		const own = new Filter({
+			glProgram: GlProgram.from({
+				vertex: 'void main(){}',
+				fragment: 'void main(){}',
+				name: 'own',
+			}),
+		});
+		stage.filters = [own];
+		const ownList = stage.filters;
+		const ownArea = new Rectangle(-3, -4, 1290, 730);
+		stage.filterArea = ownArea;
+		stage.position.set(5, 7);
+		stage.scale.set(1.1, 1.1);
+		stage.alpha = 0.9;
+		const rest = JSON.stringify(snapshot(stage));
+		let measures = 0;
+		const bounds = stage.getLocalBounds.bind(stage);
+		stage.getLocalBounds = () => {
+			measures++;
+			return bounds();
+		};
+		const heard: (StagePostFx | null)[] = [];
+		const unbind = bindStagePostFxSlot(stage, (postFx) => heard.push(postFx));
+		return {
+			stage,
+			host: { ...host, renderer: (renderer ?? undefined) as never, stage },
+			advance,
+			heard,
+			measured: () => measures,
+			untouched: () =>
+				stage.filters === ownList &&
+				stage.filters.length === 1 &&
+				stage.filters[0] === own &&
+				stage.filterArea === ownArea &&
+				JSON.stringify(snapshot(stage)) === rest,
+			unbind,
+		};
+	};
+	const last = (s: Stage): StagePostFx | null | undefined => s.heard[s.heard.length - 1];
+
+	{
+		const s = makeStage();
+		assert(s.heard.length === 1 && s.heard[0] === null, 'a slot bound to a quiet stage hears null');
+		const play = playElementFx(s.stage, { kind: POWER, durationMs: 600, repeat: 0 }, s.host);
+		s.advance(16 * 20);
+		const fx = last(s);
+		const graph = fx?.filters[0] as ElementFxFilter | undefined;
+		assert(
+			play.active &&
+				fx?.filters.length === 2 &&
+				graph instanceof SHADERS.ElementFxFilter &&
+				fx.area.x === 0 &&
+				fx.area.y === 0 &&
+				fx.area.width === 1280 &&
+				fx.area.height === 720 &&
+				stagePostFx(s.stage) === fx,
+			'a graph with a pass plays on the stage: its two filters handed to the slot, over the viewport',
+		);
+		assert(
+			s.untouched(),
+			'no motion is folded: the stage’s transform, alpha, own filters and filter area are never written',
+		);
+		assert(s.measured() === 0, 'nothing is measured: the box is the viewport');
+		const element = graph?.efx.uElement as Float32Array | undefined;
+		const uFx = graph?.efx.uFx as Float32Array | undefined;
+		assert(
+			!!element &&
+				[...element].join() === '0,0,1,1' &&
+				!!uFx &&
+				uFx[0] > 0 &&
+				uFx[0] < 1 &&
+				uFx[3] === 1,
+			'its unit square is the viewport, fed its progress, looping',
+		);
+		const heardBefore = s.heard.length;
+		s.advance(16 * 10);
+		assert(s.heard.length === heardBefore, 'a steady play hands the slot nothing new');
+		const late: (StagePostFx | null)[] = [];
+		bindStagePostFxSlot(s.stage, (postFx) => late.push(postFx));
+		assert(late.length === 1 && late[0] === fx, 'a slot bound late hears what plays at once');
+		(VIEW as { width: number }).width = 1024;
+		s.advance(16);
+		assert(
+			late.length === 2 && late[1]?.area.width === 1024 && late[1].filters.length === 2,
+			'a resized viewport is handed over again',
+		);
+		(VIEW as { width: number }).width = 1280;
+		const destroyed: Filter[] = [];
+		const order: string[] = [];
+		for (const f of fx?.filters ?? []) {
+			const destroy = f.destroy.bind(f);
+			f.destroy = (...args: Parameters<typeof destroy>) => {
+				order.push('destroy');
+				destroyed.push(f);
+				return destroy(...args);
+			};
+		}
+		bindStagePostFxSlot(s.stage, (postFx) => order.push(postFx ? 'list' : 'null'));
+		order.length = 0;
+		play.stop();
+		assert(
+			order[0] === 'null' &&
+				destroyed.length === 2 &&
+				order.lastIndexOf('null') < order.indexOf('destroy'),
+			'stopped, the slot hears null before its filters are destroyed',
+		);
+		assert(
+			s.untouched() && elementFxCount(s.stage) === 0 && stagePostFx(s.stage) === null,
+			'and the stage is exactly as it was: its own filters and filter area, its transform',
+		);
+	}
+	{
+		const s = makeStage();
+		const first = playElementFx(s.stage, { kind: 'glow', durationMs: 300 }, s.host);
+		const second = playElementFx(s.stage, { kind: TINT, durationMs: 300, repeat: 0 }, s.host);
+		s.advance(32);
+		assert(
+			first.active && second.active && last(s)?.filters.length === 2,
+			'a built-in pixel kind and a graph play together, in the order they started',
+		);
+		s.advance(400);
+		assert(
+			!first.active && last(s)?.filters.length === 1,
+			'one that plays out leaves the list, the other stays',
+		);
+		stopElementFx(s.stage);
+		assert(last(s) === null && s.untouched(), 'stopping all empties the slot');
+		s.unbind();
+		const quiet = s.heard.length;
+		playElementFx(s.stage, { kind: 'glow', durationMs: 300 }, s.host);
+		s.advance(32);
+		assert(s.heard.length === quiet, 'an unbound slot hears nothing more');
+		stopElementFx(s.stage);
+	}
+
+	// Every kind: refused with its reason, or played.
+	{
+		const why = (kind: ElementFxKindId): string | undefined => {
+			const spec = ELEMENT_FX.find((x) => x.kind === kind) ?? customElementFx(kind)?.spec;
+			const impl = isElementFxKind(kind)
+				? KINDS[kind]
+				: customKindImpl(customElementFx(kind) as CustomElementFx);
+			if (impl.breaks || impl.breakWindow) return 'a break';
+			if (spec?.phase === 'exit') return 'an exit kind';
+			if (spec?.phase === 'enter') return 'an enter kind';
+			if (!impl.filter && !impl.filters?.length) return 'a motion-only kind';
+			return undefined;
+		};
+		const warnings: string[] = [];
+		const warn = console.warn;
+		console.warn = (...args: unknown[]) => void warnings.push(args.map(String).join(' '));
+		const wrong: string[] = [];
+		// Its filter draws its noise on a canvas, which Node has none of: its answer alone is checked.
+		const DRAWS_A_CANVAS = new Set<ElementFxKindId>(['glitch']);
+		const counts = { break: 0, exit: 0, enter: 0, motion: 0, played: 0 };
+		// The graph drawing five filters is refused by the caps, below.
+		const kinds = [...ELEMENT_FX_KINDS, ...registered.map((e) => e.spec.kind)].filter(
+			(kind) => kind !== 'custom:fiveFilters',
+		);
+		try {
+			for (const kind of kinds) {
+				const expected = why(kind);
+				const s = makeStage();
+				const reason = stageFxRefusal(kind);
+				if (!expected && DRAWS_A_CANVAS.has(kind)) {
+					if (reason !== undefined) wrong.push(`${kind} (expected to play, refused "${reason}")`);
+					counts.played++;
+					continue;
+				}
+				const handle = playElementFx(s.stage, { kind, durationMs: 300 }, s.host);
+				s.advance(48);
+				if (expected) {
+					const said = warnings.some((w) => w.includes(kind) && !!reason && w.includes(reason));
+					if (
+						!reason?.startsWith(expected) ||
+						handle.active ||
+						elementFxCount(s.stage) !== 0 ||
+						s.heard.length !== 1 ||
+						!said ||
+						!s.untouched()
+					) {
+						wrong.push(`${kind} (expected "${expected}", got "${reason}")`);
+					}
+					if (expected === 'a break') counts.break++;
+					else if (expected === 'an exit kind') counts.exit++;
+					else if (expected === 'an enter kind') counts.enter++;
+					else counts.motion++;
+				} else {
+					if (
+						reason !== undefined ||
+						!handle.active ||
+						!last(s)?.filters.length ||
+						!s.untouched()
+					) {
+						wrong.push(`${kind} (expected to play, refused "${reason}")`);
+					}
+					if (s.measured() !== 0) wrong.push(`${kind} measured the stage`);
+					counts.played++;
+				}
+				stopElementFx(s.stage);
+			}
+			const before = warnings.length;
+			const s = makeStage();
+			playElementFx(s.stage, { kind: 'shake' }, s.host);
+			playElementFx(s.stage, { kind: 'shake' }, s.host);
+			assert(warnings.length === before, 'a refusal is warned once per kind and reason');
+		} finally {
+			console.warn = warn;
+		}
+		assert(
+			!wrong.length,
+			`every kind on the stage: ${counts.played} play; refused with the reason, nothing written: ${counts.break} breaks, ${counts.exit} exit, ${counts.enter} enter, ${counts.motion} motion-only kinds${wrong.length ? ` — wrong: ${wrong.join('; ')}` : ''}`,
+		);
+		assert(
+			counts.break > 0 &&
+				counts.exit > 0 &&
+				counts.enter > 0 &&
+				counts.motion > 0 &&
+				counts.played > 0,
+			'every reason is met at least once',
+		);
+		const element = makeTarget();
+		const s = makeStage();
+		const rest = JSON.stringify(snapshot(element));
+		const shake = playElementFx(element, { kind: 'shake', durationMs: 300 }, s.host);
+		s.advance(64);
+		assert(
+			shake.active && JSON.stringify(snapshot(element)) !== rest && s.heard.length === 1,
+			'a host with a stage plays on any other container as ever',
+		);
+		stopElementFx(element);
+	}
+
+	// The caps: two entries, four filters, decided when an entry starts.
+	{
+		const warnings: string[] = [];
+		const warn = console.warn;
+		console.warn = (...args: unknown[]) => void warnings.push(args.map(String).join(' '));
+		try {
+			const s = makeStage();
+			const a = playElementFx(s.stage, { kind: POWER, repeat: 0 }, s.host);
+			const b = playElementFx(s.stage, { kind: TINT, repeat: 0 }, s.host);
+			const c = playElementFx(s.stage, { kind: 'glow', repeat: 0 }, s.host);
+			s.advance(32);
+			assert(
+				a.active &&
+					b.active &&
+					!c.active &&
+					elementFxCount(s.stage) === 2 &&
+					last(s)?.filters.length === 3 &&
+					warnings.some((w) => w.includes(`at most ${STAGE_FX_LIMITS.entries} post FX at once`)),
+				'a third entry does not play, and says why',
+			);
+			b.stop();
+			const d = playElementFx(s.stage, { kind: 'custom:fourFilters', repeat: 0 }, s.host);
+			assert(
+				!d.active &&
+					warnings.some((w) => w.includes('at most 4 post FX filters (2 drawing, this one 4)')),
+				'one that would draw past four filters does not play, and says why',
+			);
+			a.stop();
+			const e = playElementFx(s.stage, { kind: 'custom:fourFilters', repeat: 0 }, s.host);
+			const f = playElementFx(s.stage, { kind: 'glow', repeat: 0 }, s.host);
+			s.advance(16);
+			assert(
+				e.active && !f.active && last(s)?.filters.length === 4,
+				'four filters alone play; one more does not',
+			);
+			stopElementFx(s.stage);
+			const g = playElementFx(s.stage, { kind: 'custom:fiveFilters', repeat: 0 }, s.host);
+			assert(
+				!g.active && last(s) === null,
+				'a graph drawing five filters never plays on the stage',
+			);
+			const none = makeStage(null);
+			const h = playElementFx(none.stage, { kind: 'glow' }, none.host);
+			assert(
+				!h.active && warnings.some((w) => w.includes('no renderer to size the viewport')),
+				'with no renderer to size the viewport, nothing plays',
+			);
+		} finally {
+			console.warn = warn;
+		}
+	}
+	{
+		const s = makeStage();
+		playElementFx(s.stage, { kind: 'glow', repeat: 0 }, s.host);
+		s.advance(16);
+		s.stage.destroy();
+		s.advance(16);
+		assert(last(s) === null, 'a destroyed stage empties its slot');
+	}
+	{
+		const app = { ticker: new Ticker(), renderer: { screen: VIEW }, stage: new Container() };
+		const host = elementFxHostFor(app as never);
+		assert(host?.stage === app.stage, 'a game’s host carries its stage, so post FX play there');
+	}
+	{
+		const fxdebug = read('packages/pixi-svelte/src/lib/elementFx/stage.ts');
+		assert(
+			stageFxLoadText('custom:costed', VIEW, 2) === '3.69 M px × cost 24 = 88.47 M' &&
+				stageFxLoadText('glow', VIEW, 1) === '0.92 M px × cost not compiled in' &&
+				fxdebug.includes('`post fx ${kind} on the stage: ${state} (${caps})'),
+			'?fxdebug=1: the load is the viewport’s device pixels × the compiled cost',
+		);
+	}
+
+	console.log('element fx — post FX in the doc (settings.postFx, stageFxAntialias)');
+	const judge = { refusal: stageFxRefusal, filters: stageFxFilterCount };
+	const warnings: string[] = [];
+	const warn = console.warn;
+	console.warn = (...args: unknown[]) => void warnings.push(args.map(String).join(' '));
+	try {
+		const ids = (postFx: unknown, withJudge = true) =>
+			readPostFx({ postFx }, withJudge ? judge : undefined).map((e) => e.id);
+		assert(
+			ids(undefined).length === 0 &&
+				readPostFx(undefined).length === 0 &&
+				readPostFx(null, judge).length === 0 &&
+				ids({}).length === 0 &&
+				warnings.length === 0,
+			'no post FX (no settings, no list, not a list) reads as none, quietly',
+		);
+		assert(
+			ids([
+				{ id: 'a', kind: 'glow', trigger: 'always' },
+				{ id: 'b', kind: 'shine', trigger: 'enter' },
+				{ id: 'c', kind: 'glow', trigger: 'keyed' },
+				{ id: 'd', kind: TINT, trigger: 'cue', cue: 'bonus', stopCue: 'base' },
+			]).join() === 'a,d' &&
+				warnings.some((w) => w.includes('"b"') && w.includes('not "enter"')) &&
+				warnings.some((w) => w.includes('"c"') && w.includes('not "keyed"')),
+			'triggers always and cue only: the rest dropped with a warning',
+		);
+		warnings.length = 0;
+		assert(
+			ids([
+				{ id: 'a', kind: 'shake', trigger: 'always' },
+				{ id: 'b', kind: 'fadeOut', trigger: 'always' },
+				{ id: 'c', kind: 'shatter', trigger: 'cue', cue: 'x' },
+				{ id: 'd', kind: 'glow', trigger: 'always' },
+			]).join() === 'd' &&
+				warnings.some((w) => w.includes('"a"') && w.includes('motion-only')) &&
+				warnings.some((w) => w.includes('"b"') && w.includes('exit kind')) &&
+				warnings.some((w) => w.includes('"c"') && w.includes('a break')),
+			'a kind the stage refuses is dropped with its reason, before the caps count',
+		);
+		warnings.length = 0;
+		assert(
+			ids([
+				{ id: 'off', kind: 'glow', trigger: 'always', disabled: true },
+				{ id: 'a', kind: 'glow', trigger: 'always' },
+				{ id: 'b', kind: 'shine', trigger: 'always' },
+				{ id: 'c', kind: 'flash', trigger: 'cue', cue: 'x' },
+			]).join() === 'a,b' &&
+				warnings.length === 1 &&
+				warnings[0].includes('"c"') &&
+				warnings[0].includes(`at most ${STAGE_FX_LIMITS.entries} post FX play`),
+			'past two entries, the rest dropped with a warning; a disabled one counts for nothing',
+		);
+		warnings.length = 0;
+		assert(
+			ids([
+				{ id: 'a', kind: POWER, trigger: 'always' },
+				{ id: 'b', kind: 'custom:fourFilters', trigger: 'always' },
+				{ id: 'c', kind: 'glow', trigger: 'always' },
+			]).join() === 'a,c' &&
+				warnings.length === 1 &&
+				warnings[0].includes('"b"') &&
+				warnings[0].includes(`at most ${STAGE_FX_LIMITS.filters} filters`) &&
+				ids([{ id: 'z', kind: 'custom:fiveFilters', trigger: 'always' }]).length === 0,
+			'past four filters, an entry is dropped with a warning, and the next that fits plays',
+		);
+		warnings.length = 0;
+		assert(
+			ids(
+				[
+					{ id: 'later', kind: 'custom:notYet', trigger: 'always' },
+					{ id: 'a', kind: 'shake', trigger: 'always' },
+					{ id: 'b', kind: 'glow', trigger: 'always' },
+					{ id: 'c', kind: 'glow', trigger: 'always' },
+				],
+				false,
+			).join() === 'later,a',
+			'an unregistered custom kind is kept (the runtime decides it); without the runtime’s judge, triggers and entries alone',
+		);
+		warnings.length = 0;
+		const doc = {
+			jurisdiction: 'UK',
+			postFx: [
+				{ id: 'a', kind: TINT, trigger: 'always', intensity: 0.5, params: {} },
+				{ id: 'b', kind: 'glow', trigger: 'cue', cue: 'big', params: { color: '#ffaa00' } },
+			],
+			stageFxAntialias: true,
+		};
+		const extras = JSON.parse(JSON.stringify(doc)) as typeof doc & Record<string, unknown>;
+		extras.postFxBudget = 9;
+		Object.assign(extras.postFx[0], { layer: 'underHud', note: 'x' });
+		Object.assign(extras.postFx[1].params, { future: 3 });
+		const a = JSON.stringify(readPostFx(doc, judge));
+		const b = JSON.stringify(readPostFx(extras, judge));
+		assert(
+			a === b && a.includes('"id":"a"') && a.includes('"color":"#ffaa00"') && warnings.length === 0,
+			'unknown fields (in settings, an entry, its params) are ignored: the output is byte-identical, quietly',
+		);
+		assert(
+			readStageFxAntialias(doc) === true &&
+				readStageFxAntialias(extras) === true &&
+				[
+					undefined,
+					null,
+					{},
+					{ stageFxAntialias: false },
+					{ stageFxAntialias: 'true' },
+					{ stageFxAntialias: 1 },
+				].every((settings) => readStageFxAntialias(settings) === false),
+			'stageFxAntialias reads as on only when it is true',
+		);
+	} finally {
+		console.warn = warn;
+	}
+
+	const game = read('apps/lines/src/components/Game.svelte');
+	assert(
+		game.includes('<Anchor name={ELEMENT_FX_STAGE_TARGET} />') &&
+			/\{#key postFx\}\s*\{#if postFx\.length\}\s*<ElementFxPlayer entries=\{postFx\} \/>\s*\{\/if\}\s*\{\/key\}/.test(
+				game,
+			) &&
+			game.includes(
+				'readPostFx(editorDoc.settings, { refusal: stageFxRefusal, filters: stageFxFilterCount })',
+			) &&
+			ELEMENT_FX_STAGE_TARGET === 'stage',
+		'the game: the stage anchored as `stage`, its post FX played at the root, and no player for a doc without any',
+	);
 }
 
 // -------------------------------------------------------------------------------------------------
