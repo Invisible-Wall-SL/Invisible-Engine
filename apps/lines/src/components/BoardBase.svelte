@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ReelSymbol from './ReelSymbol.svelte';
+	import ReelPaddingPool from './ReelPaddingPool.svelte';
 	import { getContext } from '../game/context';
 	import { stateTumble, tumbleBoardCombined } from '../game/stateTumble.svelte';
 
@@ -52,7 +53,7 @@
 		for (let row = 0; row < depth; row += 1) {
 			for (let reelIndex = 0; reelIndex < columns.length; reelIndex += 1) {
 				const reelSymbol = columns[reelIndex]?.[row];
-				if (reelSymbol) ordered.push({ reelIndex, row, reelSymbol });
+				if (reelSymbol && !reelSymbol.padding) ordered.push({ reelIndex, row, reelSymbol });
 			}
 		}
 		return ordered;
@@ -74,7 +75,15 @@
 {:else}
 	{#each columns as column, reelIndex (reelIndex)}
 		{#each column as reelSymbol, row (reelSymbol)}
-			<ReelSymbol {reelIndex} {row} {reelSymbol} />
+			<!-- A roll's filler is drawn by `ReelPaddingPool`, through views it keeps. -->
+			{#if !reelSymbol.padding}
+				<ReelSymbol {reelIndex} {row} {reelSymbol} />
+			{/if}
 		{/each}
+	{/each}
+{/if}
+{#if !stateTumble.active}
+	{#each columns as column, reelIndex (reelIndex)}
+		<ReelPaddingPool {reelIndex} {column} />
 	{/each}
 {/if}

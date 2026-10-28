@@ -27,6 +27,10 @@
 		/** Is this cell's reel strip rolling? Only `ReelSymbol` knows, and only it passes it; it is
 		 *  what lets a rolling symbol be drawn before its centre crosses the window edge. */
 		rolling?: boolean;
+		/** Keep the art mounted, hidden, while it is outside the window: a pooled view
+		 *  (`ReelPaddingPool`) that is handed the next cell instead of being destroyed. Absent ⇒
+		 *  mounted only in the window, as before. */
+		keepMounted?: boolean;
 		children: Snippet;
 	};
 
@@ -90,13 +94,19 @@
 	const scale = $derived(props.scale === 1 ? undefined : props.scale);
 </script>
 
-{#if props.debug || (show && inFrame)}
+{#if props.debug || (show && (inFrame || props.keepMounted))}
 	<!-- NO tint here. The win-celebration dim used to be one `tint` on this container, cascading to
 	     everything inside; it now rides each drawn piece inside `Symbol.svelte` instead, because
 	     Pixi's cascade only ever multiplies and a layer that opts out of the dim therefore has to be
 	     outside every tinted node. Same factor, applied one level lower — the leaf colours are
 	     identical either way. -->
-	<Container x={props.x} y={props.y} {scale} zIndex={props.zIndex}>
+	<Container
+		x={props.x}
+		y={props.y}
+		{scale}
+		zIndex={props.zIndex}
+		visible={props.keepMounted ? props.debug || inFrame : undefined}
+	>
 		{@render props.children()}
 	</Container>
 {/if}
