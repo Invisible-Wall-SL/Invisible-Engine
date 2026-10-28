@@ -79,6 +79,38 @@ export interface EvalSide {
 	costUsd: number;
 }
 
+/** One side's run of one repair case (`game-doctor`'s reference set, `repairSet.ts`). */
+export interface EvalCaseSide {
+	/** Every check of the case held. */
+	passed: boolean;
+	/** The outcome the doctor submitted; null when it never submitted. */
+	outcome: string | null;
+	/** The pipeline area it escalated to; null otherwise. */
+	area: string | null;
+	/** Why the run ended: `submitted`, `turn_limit`, `spend_limit`, `stalled`, `refusal`. */
+	stop: string;
+	turns: number;
+	/** Tasks it gave the builder or animator. */
+	tasks: number;
+	costUsd: number;
+	/** The checks that held and the checks the case applies. */
+	checks: { passed: number; total: number };
+	/** One line per failed check; empty when `passed`. */
+	reasons: string[];
+}
+
+/** A case of a reference set of whole runs (not of elements), with each side's result. */
+export interface EvalCase {
+	id: string;
+	title: string;
+	/** What a pass looks like: the outcomes allowed and the pipeline areas allowed (empty: none asked). */
+	expected: { outcomes: string[]; areas: string[] };
+	before: EvalCaseSide | null;
+	after: EvalCaseSide | null;
+	/** The two sides ran and one passed where the other did not. */
+	changed: boolean;
+}
+
 export interface EvalReport {
 	version: typeof EVAL_REPORT_VERSION;
 	agent: string;
@@ -96,11 +128,24 @@ export interface EvalReport {
 	before: EvalSide | null;
 	after: EvalSide | null;
 	items: EvalItem[];
+	/**
+	 * The per-case results of a reference set of whole runs (`game-doctor`'s repair set); absent for
+	 * the mockup set. The `items` of such a report are the same cases in the element table's shape,
+	 * so the launcher's "Agent evaluation" table reads them unchanged: an item's status is the
+	 * outcome, its regions the pipeline area, its region score the share of checks that held.
+	 */
+	cases?: EvalCase[];
 	/** `invalid`: the loader's errors; `error`: what failed; `capped`: where it stopped. */
 	errors: string[];
 	/** The one-line summary, as the status description (at most 140 characters). */
 	line: string;
 }
+
+/** What a run of the eval settles: the report minus its identity (agent, commits, cap) and summary line. */
+export type EvalOutcome = Pick<
+	EvalReport,
+	'result' | 'costUsd' | 'capped' | 'set' | 'before' | 'after' | 'items' | 'cases' | 'errors'
+>;
 
 const DESCRIPTION_MAX = 140;
 const money = (usd: number): string => `$${usd.toFixed(2)}`;
@@ -113,6 +158,15 @@ export function evalLine(
 	let line: string;
 	switch (report.result) {
 		case 'scored': {
+			if (report.cases) {
+				const n = report.cases.length;
+				const passing = (side: 'before' | 'after') =>
+					report.cases!.filter((c) => c[side]?.passed).length;
+				const before = report.before ? `${passing('before')}/${n}` : 'no usable definition on main';
+				const after = report.after ? `${passing('after')}/${n}` : '—';
+				line = `${report.agent}: ${before} → ${after} cases pass · ${money(report.costUsd)} of ${money(report.capUsd)}`;
+				break;
+			}
 			const n = report.set?.elements ?? report.items.length;
 			const before = report.before ? pct(report.before.score) : 'no usable definition on main';
 			const after = report.after ? pct(report.after.score) : '—';
@@ -132,6 +186,26 @@ export function evalLine(
 			line = `${report.agent}: the eval failed — ${report.errors[0] ?? 'error'}`;
 	}
 	return line.length > DESCRIPTION_MAX ? `${line.slice(0, DESCRIPTION_MAX - 1)}…` : line;
+}
+
+/**
+ * The per-case results of a repair report as lines for a person at a terminal: one line per side of
+ * each case, then its failed checks. Empty for a report with no cases.
+ */
+export function caseLines(report: Pick<EvalReport, 'cases'>): string[] {
+	const lines: string[] = [];
+	for (const c of report.cases ?? []) {
+		for (const side of ['before', 'after'] as const) {
+			const r = c[side];
+			if (!r) continue;
+			const outcome = r.outcome ? `${r.outcome}${r.area ? ` (${r.area})` : ''}` : 'no submission';
+			lines.push(
+				`${r.passed ? 'PASS' : 'FAIL'} ${c.id} ${side}: ${outcome}, ${r.turns} turns, ${r.tasks} task${r.tasks === 1 ? '' : 's'}, ${money(r.costUsd)}, ${r.checks.passed}/${r.checks.total} checks`,
+			);
+			for (const reason of r.reasons) lines.push(`    ${reason}`);
+		}
+	}
+	return lines;
 }
 
 /** Whether a result lets the change merge (ADR-0007: a failed or capped eval blocks it). */
@@ -213,6 +287,59 @@ function parseSide(v: unknown): EvalSide | null {
 	};
 }
 
+function parseCaseSide(v: unknown): EvalCaseSide | null {
+	if (v === null) return null;
+	if (
+		!isRecord(v) ||
+		typeof v.passed !== 'boolean' ||
+		(v.outcome !== null && typeof v.outcome !== 'string') ||
+		(v.area !== null && typeof v.area !== 'string') ||
+		typeof v.stop !== 'string' ||
+		!isFiniteNumber(v.turns) ||
+		!isFiniteNumber(v.tasks) ||
+		!isFiniteNumber(v.costUsd) ||
+		!isRecord(v.checks) ||
+		!isFiniteNumber(v.checks.passed) ||
+		!isFiniteNumber(v.checks.total) ||
+		!isStringArray(v.reasons)
+	) {
+		throw new Error('a case side is malformed');
+	}
+	return {
+		passed: v.passed,
+		outcome: v.outcome as string | null,
+		area: v.area as string | null,
+		stop: v.stop,
+		turns: v.turns,
+		tasks: v.tasks,
+		costUsd: v.costUsd,
+		checks: { passed: v.checks.passed, total: v.checks.total },
+		reasons: v.reasons,
+	};
+}
+
+function parseCase(v: unknown): EvalCase {
+	if (
+		!isRecord(v) ||
+		typeof v.id !== 'string' ||
+		typeof v.title !== 'string' ||
+		!isRecord(v.expected) ||
+		!isStringArray(v.expected.outcomes) ||
+		!isStringArray(v.expected.areas) ||
+		typeof v.changed !== 'boolean'
+	) {
+		throw new Error('a case is malformed');
+	}
+	return {
+		id: v.id,
+		title: v.title,
+		expected: { outcomes: v.expected.outcomes, areas: v.expected.areas },
+		before: parseCaseSide(v.before),
+		after: parseCaseSide(v.after),
+		changed: v.changed,
+	};
+}
+
 const RESULTS: readonly EvalResult[] = ['scored', 'no-eval-set', 'invalid', 'capped', 'error'];
 
 /**
@@ -275,6 +402,10 @@ export function parseEvalReport(value: unknown): EvalReport {
 			changed: item.changed,
 		};
 	});
+	if (value.cases !== undefined && !Array.isArray(value.cases)) {
+		throw new Error('the report has no cases list');
+	}
+	const cases = value.cases?.map(parseCase);
 	if (!isStringArray(value.errors)) throw new Error('the report has no errors list');
 	if (typeof value.line !== 'string') throw new Error('the report has no summary line');
 	return {
@@ -290,6 +421,7 @@ export function parseEvalReport(value: unknown): EvalReport {
 		before: parseSide(value.before),
 		after: parseSide(value.after),
 		items,
+		...(cases ? { cases } : {}),
 		errors: value.errors,
 		line: value.line,
 	};

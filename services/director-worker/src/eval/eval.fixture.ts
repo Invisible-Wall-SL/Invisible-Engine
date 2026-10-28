@@ -71,6 +71,7 @@ import {
 	type EvalReport,
 	type EvalResult,
 } from './report.ts';
+import { repairChecks } from './repairEval.fixture.ts';
 import { runAgentEval, type EvalInput } from './run.ts';
 import { evalItems, MATCH_IOU, scoreBreakdown, viewKey } from './score.ts';
 
@@ -1060,6 +1061,41 @@ console.log('runner: family packs');
 		'…one note says why, and it is not a failure',
 		json(badBefore.errors),
 	);
+
+	// A pack change (9G.4): one definition on both sides, main's pack before and the branch's after
+	// (`agent-eval.ts --pack-compare`): the only thing that differs between the sides' requests is
+	// the pack's text. The mockup analyst reads the pack, so its set shows the change.
+	const afterSentence = 'This run works on a slot game:';
+	const mainPack = {
+		file: 'slot.md',
+		text: packText.replace(afterSentence, 'This run re-themes a slot game:'),
+	};
+	const compare = fakeModel();
+	const compared = await go({
+		model: () => compare.transport,
+		beforeText: analystText,
+		afterText: analystText,
+		beforePack: mainPack,
+		afterPack: slotPack,
+	});
+	const sentences = compare.requests.map((q) =>
+		q.system.includes('re-themes a slot game')
+			? 'before'
+			: q.system.includes(afterSentence)
+				? 'after'
+				: 'neither',
+	);
+	check(
+		mainPack.text !== packText && compared.result === 'scored',
+		'a pack change evaluated on the mockup analyst: the same definition on both sides, scored',
+		compared.result,
+	);
+	check(
+		json(sentences) === json(['before', 'before', 'after', 'after']) &&
+			compare.requests.every((q) => q.system.startsWith(analyst.systemPrompt)),
+		'…the before side’s calls carry main’s pack ("re-themes a slot game"), the after side’s this branch’s ("works on a slot game"), the definition identical',
+		json(sentences),
+	);
 }
 
 console.log('runner: an agent with no reference set');
@@ -1564,6 +1600,8 @@ console.log('every report');
 		'a scored report’s cost is its sides’ costs; any other never reports less than they spent',
 	);
 }
+
+await repairChecks({ check, pricing, catalog, root: root('') });
 
 console.log(`agent eval: ${checks - failures}/${checks} checks passed`);
 if (failures > 0) process.exit(1);

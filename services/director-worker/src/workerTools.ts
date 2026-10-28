@@ -329,7 +329,7 @@ type Input = Record<string, unknown>;
 const str = (input: Input, key: string) => String(input[key] ?? '');
 
 /** The submission as stored: every field present, cut to the length the spec allows. */
-function submissionOf(input: Input): RepairSubmission | string {
+export function submissionOf(input: Input): RepairSubmission | string {
 	const outcome = str(input, 'outcome');
 	const verified = str(input, 'verified');
 	if (!(SUBMIT_OUTCOMES as readonly string[]).includes(outcome)) {
