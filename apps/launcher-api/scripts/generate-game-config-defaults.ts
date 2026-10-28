@@ -28,6 +28,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
 	bookOfThermopylaePreset,
+	fairyCloverPreset,
 	HOLD_AND_WIN_COIN_BOARD_KEY,
 	HOLD_AND_WIN_COIN_BOARD_TEMPLATE,
 	HOLD_AND_WIN_PRESETS,
@@ -79,6 +80,8 @@ const PRESETS: Record<string, () => unknown> = {
 	// A LINES preset: the captured Book of Thermopylae, the Book-of mechanic as config
 	// (docs/design/book-feature.md §3.5) — offered by `/config` and Game Maker's Create.
 	'lines.bookOfThermopylae': bookOfThermopylaePreset,
+	// A LINES preset from Slotmotion's Fairy's Charm (docs/design/expanding-and-growing-wilds.md).
+	'lines.fairyClover': fairyCloverPreset,
 };
 
 // `cluster` is still NOT registered: its upstream sample config ships

@@ -62,6 +62,17 @@ overlay add-on.
      retrigger and a 100× buy. It is saved as the project's own [Game Config](/docs/game-config) and
      the project's screens are scaffolded from the Book-of reference layout (Borut's look), saved as
      a lines layout. Change it later in Game Config (Free spins → Expanding symbol).
+     Or **Fairy Clover** — a lines game whose maths starts from Slotmotion's _Fairy's Charm_: 5×4,
+     fifty lines, its paytable (H1–H5, L1–L5), the fairy `W` and the clover `CL` as wilds (`CL`
+     has no art until you bind it in [Symbols](/docs/symbols-state-machine)), the scatter `S`
+     paying 1× for two, 10 free spins on two `S` and +10 on two more, one base mode with no buy.
+     Its strips are the reference's boot-config base set and its free-spin set, so its RTP is not
+     the reference's until the maths is tuned. Scaffolded from the lines reference layout. On the
+     Invisible Test Server its scatters are dealt from its strips, so the feature opens on about one
+     base spin in 27 and retriggers on about one free spin in 50, as the strips say. The fairy
+     expands over its reel (reels 2–4) and the clover grows a plus from reel 3 (reels 2–4 in free
+     spins); the test server lands them at the reference game's rates, a fairy on about one spin in
+     12 and a clover on about one in 8.
    - **Hold and Win** shows a **Base game** dropdown: **Lines game** (the default) or **Coin board
      only**. With **Lines game** it also shows a **Jackpots** dropdown:
      **On (MINI · MINOR · MAJOR · GRAND)** (the default) or **Off**. Either way you get the plain

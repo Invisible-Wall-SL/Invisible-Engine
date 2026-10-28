@@ -30,6 +30,7 @@ import {
 	DEFAULT_FREE_SPINS_TRIGGER_COUNT,
 	freeSpinsAwardsAreDefault,
 	freeSpinsTriggerIsDefault,
+	freeSpinsTriggerStrips,
 	holdAndWinMockInputs,
 	inPlayScatterSymbol,
 	isScatterSymbol,
@@ -446,12 +447,16 @@ function projectWildRewrite(
 	};
 }
 
-type FreeSpinsFields = Pick<Grid, 'freeSpins' | 'freeSpinsTrigger' | 'freeSpinsAwards'>;
+type FreeSpinsFields = Pick<
+	Grid,
+	'freeSpins' | 'freeSpinsTrigger' | 'freeSpinsAwards' | 'freeSpinsTriggerStrips'
+>;
 
 /**
  * The project's free-spins rule for the lines-family mock: `freeSpins: false` when it has none;
  * otherwise a `freeSpinsTrigger` when its trigger departs from 3+ of the scatter and a
- * `freeSpinsAwards` when its awards depart from 10 / +5 / never random. Nothing at all for a
+ * `freeSpinsAwards` when its awards depart from 10 / +5 / never random, and, for a trigger below 3,
+ * the trigger's places on the strips (`freeSpinsTriggerStrips`). Nothing at all for a
  * project that departs from neither, and each field only on its own departure, so an un-authored
  * project's grid is byte-identical.
  */
@@ -467,9 +472,12 @@ function projectFreeSpins(doc: GameConfigDoc, projectKey: string): FreeSpinsFiel
 				retrigger: freeSpins.retriggerAwards,
 				random: freeSpins.randomAwards,
 			};
+	// Only below a count of 3, which no config could author before the strips were measured.
+	const strips = trigger ? freeSpinsTriggerStrips(doc) : undefined;
 	return {
 		...(trigger ? { freeSpinsTrigger: trigger } : {}),
 		...(awards ? { freeSpinsAwards: awards } : {}),
+		...(strips ? { freeSpinsTriggerStrips: strips } : {}),
 	};
 }
 

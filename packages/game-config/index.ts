@@ -17,6 +17,7 @@ export * from './src/expandingSymbol';
 export * from './src/expandingWilds';
 export * from './src/growingWild';
 export * from './src/bookOfPresets';
+export * from './src/fairyCloverPreset';
 export * from './src/holdAndWin';
 export * from './src/holdAndWinPresets';
 export * from './src/holdAndWinMock';
