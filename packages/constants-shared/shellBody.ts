@@ -38,7 +38,7 @@ export const shellDeclarations = (source: string, qualifier: 'in' | 'out' | 'uni
  * `code` with its comments taken out (a line comment up to its line's end, which a lone carriage
  * return also is), or undefined when a block comment never ends.
  */
-function withoutComments(code: string): string | undefined {
+export function withoutComments(code: string): string | undefined {
 	let out = '';
 	for (let at = 0; at < code.length;) {
 		if (code.startsWith('//', at)) {

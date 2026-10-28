@@ -38,7 +38,7 @@ import {
 import {
 	SCREEN_FROM_TEXTURE,
 	SCREEN_REVERSE,
-	readsScreens,
+	screenTransitionRoute,
 	screenShellSource,
 } from 'constants-shared/screenShell';
 import {
@@ -106,15 +106,14 @@ export interface ScreenTransitionHandle {
 }
 
 /**
- * The route `kind` takes as a transition: Out for a built-in exit kind and a custom exit graph that
- * does not read the Screens node, In for every other custom graph, undefined when it cannot play
- * (the fallback).
+ * The route `kind` takes as a transition: a built-in exit kind plays Out; a registered custom graph
+ * takes its own (`screenTransitionRoute`, the screen shell's rule); undefined when it cannot play
+ * (a built-in that is not an exit, a kind not registered: the fallback).
  */
-export function screenTransitionRoute(kind: string): 'in' | 'out' | undefined {
+export function screenTransitionKindRoute(kind: string): 'in' | 'out' | undefined {
 	if (isElementFxKind(kind)) return findElementFxSpec(kind)?.phase === 'exit' ? 'out' : undefined;
 	const effect = customElementFx(kind);
-	if (!effect) return undefined;
-	return effect.spec.phase === 'exit' && !readsScreens(effect) ? 'out' : 'in';
+	return effect ? screenTransitionRoute(effect) : undefined;
 }
 
 interface Transition {
@@ -376,7 +375,7 @@ const fallBack = (t: Transition, still: RenderTexture, why: string): void => {
 const start = (t: Transition, still: RenderTexture): void => {
 	t.still = still;
 	t.stillSize = { width: still.source.pixelWidth, height: still.source.pixelHeight };
-	const route = screenTransitionRoute(t.play.kind);
+	const route = screenTransitionKindRoute(t.play.kind);
 	const effect = route === 'in' ? customElementFx(t.play.kind) : undefined;
 	if (effect) {
 		const made = shellFilter(t, effect, still);

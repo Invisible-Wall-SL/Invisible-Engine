@@ -33,7 +33,7 @@ import {
 	SCREEN_STILL_MAX_PX,
 	disposeScreenTransitions,
 	playScreenTransition,
-	screenTransitionRoute,
+	screenTransitionKindRoute,
 	setStageFxAntialias,
 	stageFilters,
 	stagePostFxSlot,
@@ -337,7 +337,7 @@ const routes = (): void => {
 	for (const [label, kind, route] of cases)
 		claim(
 			`routing: ${label} takes ${route ?? 'the fallback'}`,
-			screenTransitionRoute(kind) === route,
+			screenTransitionKindRoute(kind) === route,
 		);
 };
 

@@ -30,7 +30,7 @@
 
 import type { CustomElementFx } from './elementFx';
 import { linkGlsl } from './glslLibrary';
-import { ELEMENT_PASS_NAMES, shellBody, shellDeclarations } from './shellBody';
+import { ELEMENT_PASS_NAMES, shellBody, shellDeclarations, withoutComments } from './shellBody';
 
 /**
  * The still of the old screen: the filter's second texture. `efxScreenFrom` reads it 0…1 across the
@@ -104,15 +104,22 @@ vec4 efxScreenTo(vec2 px) { return efxSample(px); }
 float efxScreenReverse() { return ${SCREEN_REVERSE}; }
 `;
 
+/** A call of a Screens helper: a graph that reads the Screens node. */
+const READS_SCREENS = /\befxScreen(?:From|To|Reverse)\s*\(/;
+
 /**
- * Whether a compiled body reads the Screens node (calls `efxScreenFrom`, `efxScreenTo` or
- * `efxScreenReverse`): such a graph draws both screens itself, so as a transition it takes the In
- * route whatever its phase (§5).
+ * A custom graph's route as a screen transition (§5): an exit graph whose body (comments aside)
+ * reads no Screens helper plays on the still (Out); every other graph plays in the screen shell
+ * (In), a graph that reads the Screens node drawing both screens itself. The one rule the runtime
+ * plays by and `/shaders` shows.
  */
-export const readsScreens = (effect: Pick<CustomElementFx, 'shader'>): boolean =>
-	/\befxScreen(?:From|To|Reverse)\s*\(/.test(
-		effect.shader.body.replace(/\/\/[^\n\r]*/g, '').replace(/\/\*[\s\S]*?\*\//g, ''),
-	);
+export function screenTransitionRoute(
+	effect: Pick<CustomElementFx, 'spec' | 'shader'>,
+): 'in' | 'out' {
+	if (effect.spec.phase !== 'exit') return 'in';
+	const code = withoutComments(effect.shader.body) ?? effect.shader.body;
+	return READS_SCREENS.test(code) ? 'in' : 'out';
+}
 
 /** What the body's own `main` is renamed to: the shell's `main` calls it, then composites. */
 const BODY_MAIN = 'efxScreenBody';
