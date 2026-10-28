@@ -26,7 +26,8 @@
  *     (`transitionCueStatus`: off / screen / unplayable) the game and the chip share; with the row
  *     off or unplayable the resolution returns the same objects as without it (the wipe, coded or
  *     authored); with it on, the authored swap is not made, the coded part is retired and the cue
- *     is subscribed; with no transition runtime bound the game reads the row as off; the chips.
+ *     is subscribed; with no transition runtime bound the game reads the row as off; the game binds
+ *     the runtime before the scenes load and unbinds on destroy; the chips.
  *
  * Runs the real `engine-layout` readers, player and registry, the real `editorStorage`
  * normalizer and the real `gameProfile`. What it cannot prove: the Svelte mount in `Game.svelte`
@@ -870,6 +871,41 @@ eq(
 			),
 		],
 		[true, true, true, true, true, true],
+	);
+
+	// Phase B: the game binds the runtime at setup, before the scenes load (the rule is read once
+	// there), and unbinds on destroy; the binding puts the still on its band, on the turbo clock.
+	const bindAt = game.indexOf(
+		'onDestroy(bindScreenTransitions(screenTransitionsOn(() => stateApp.pixiApplication)));',
+	);
+	const binding = readFileSync(
+		new URL('../../lines/src/game/screenTransitionsBinding.ts', import.meta.url),
+		'utf8',
+	);
+	eq(
+		'the game binds the transition runtime before the scenes load, and unbinds on destroy',
+		[
+			bindAt > 0 && bindAt < game.indexOf('void loadEditorScenes().then('),
+			binding.includes('{ ...transition, zIndex: LAYER_BAND_SCREEN_TRANSITION }'),
+			binding.includes('elementFxHostFor(stage, particleTimeScale)'),
+			binding.includes('return { captured: handle.captured, done: handle.done };'),
+			binding.includes('wait: () => waitForScreenTransition(app()),'),
+		],
+		[true, true, true, true, true],
+	);
+	const first = {
+		play: () => ({ captured: Promise.resolve(), done: Promise.resolve() }),
+		wait: () => Promise.resolve(),
+	};
+	const unbindFirst = S.bindScreenTransitions(first);
+	const unbindSecond = S.bindScreenTransitions({ ...first });
+	unbindFirst();
+	const afterStaleUnbind = S.bootTransitionCueStatus(() => 'screen');
+	unbindSecond();
+	eq(
+		'a stale unbind (a Game destroyed after the next bound) leaves the later binding in place',
+		[afterStaleUnbind, S.bootTransitionCueStatus(() => 'screen')],
+		['screen', 'off'],
 	);
 
 	// The chips: the same rule, against the project's compiled kinds.
