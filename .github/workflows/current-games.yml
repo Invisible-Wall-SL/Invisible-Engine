@@ -264,7 +264,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .cache/current-games/runtimes/${{ needs.prepare.outputs.base }}
-          key: current-games-runtime-v3-${{ needs.prepare.outputs.base }}
+          key: current-games-runtime-v4-${{ needs.prepare.outputs.base }}
 
       - name: Build the base runtime
         run: |

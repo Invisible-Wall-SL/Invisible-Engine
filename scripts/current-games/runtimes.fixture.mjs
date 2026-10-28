@@ -1,17 +1,17 @@
 // The harness renders each game on the runtime id its publish would pick (`lib/runtimes.mjs`): a
-// kind maps to its family's id, a checkout from before the family seams serves every id from one
-// `lines` build, and a side's folder resolves an id through its `runtimes.json` (a folder without
-// one is a single plain build).
+// kind maps to its family's id, a checkout with no runtime list serves every id from one `lines`
+// build, a checkout's builds take their families from ITS OWN list, and a side's folder resolves
+// an id through its `runtimes.json` (a folder without one is a single plain build).
 //
 //   node scripts/current-games/runtimes.fixture.mjs
 
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { RUNTIME_IDS } from '../../packages/constants-shared/runtimes.ts';
-import { runtimeDirFor, runtimeFolders, runtimeIdFor } from './lib/runtimes.mjs';
+import { familiesIn, runtimeDirFor, runtimeFolders, runtimeIdFor } from './lib/runtimes.mjs';
 
 const ROOT = join(import.meta.dirname, '../..');
 const tmp = mkdtempSync(join(tmpdir(), 'cg-runtimes-'));
@@ -23,14 +23,23 @@ try {
 	assert.deepEqual(
 		runtimeFolders(ROOT, RUNTIME_IDS),
 		Object.fromEntries(RUNTIME_IDS.map((id) => [id, id])),
-		'a checkout with the seams builds each id',
+		'a checkout with a runtime list builds each id',
 	);
+	const other = join(tmp, 'other/packages/constants-shared');
+	mkdirSync(other, { recursive: true });
+	const list = readFileSync(join(ROOT, 'packages/constants-shared/runtimes.ts'), 'utf8');
+	writeFileSync(
+		join(other, 'runtimes.ts'),
+		list.replace(/(id: 'lines', family: 'slot', families: )'[^']*'/, "$1'probe'"),
+	);
+	assert.equal(familiesIn(join(tmp, 'other'), 'lines'), 'probe', "a checkout's own list decides");
+	assert.equal(familiesIn(ROOT, 'card'), 'card');
 	const old = join(tmp, 'old');
 	mkdirSync(old);
 	assert.deepEqual(
 		runtimeFolders(old, ['lines', 'arcade']),
 		Object.fromEntries(RUNTIME_IDS.map((id) => [id, 'lines'])),
-		'a checkout from before the seams serves every id from lines, whichever ids were asked for',
+		'a checkout with no runtime list serves every id from lines, whichever ids were asked for',
 	);
 
 	const side = join(tmp, 'side');
