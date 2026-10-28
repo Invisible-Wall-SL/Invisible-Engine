@@ -367,6 +367,12 @@ the board there. A line set to **Info bar** or **Off** shows no banner at all.
    on: enter** ([Animate a component](#animate-a-component)), and place it here. It plays each time
    the screen appears. A popup that replaces one of its own kind still up (two jackpot upgrades
    back to back) changes the lines without a new entrance.
+4. To give each jackpot tier its own look in ONE banner component, add a **number** input to the
+   component's state machine (Animate → State machine → Inputs), set its **from** to
+   `holdAndWinBannerTier`, and branch on it: **1** MINI, **2** MINOR, **3** MAJOR, **4** GRAND, **0**
+   a banner that names no jackpot. Draw each transition from **Any** (so a tier change while the
+   screen is up still switches): Any → **Grand** with the condition `tier == 4`, Any → **Major** with
+   `tier == 3`, and so on.
 
 The game keeps the screen hidden except while its popup is up, and it is ticked **Always on top**,
 so coins flying to the total pass under it as they pass under the built-in banner. You do not need
