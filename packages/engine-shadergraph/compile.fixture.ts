@@ -341,6 +341,33 @@ const lint = (body: string): string[] => {
 const codes = (doc: ShaderGraphDoc): GraphIssueCode[] =>
 	validateShaderGraph(doc).map((i) => i.code);
 const body = (result: CompileResult): string => (result.ok ? result.shader.body : '');
+/**
+ * The docs whose fragment through `shell` is not `snapshots/<dir>/<id>.frag` (each rewritten with
+ * `--update`), so a change to a shell's GLSL shows in review as a diff.
+ */
+const staleShellSnapshots = (
+	dir: string,
+	shell: (effect: CustomElementFx) => string | undefined,
+	docs: readonly ShaderGraphDoc[],
+): string[] =>
+	docs
+		.filter((doc) => {
+			const r = compileShaderEffect(doc);
+			const fragment = r.ok ? (shell(r.effect) ?? '') : '';
+			const file = join(SNAPSHOTS, dir, `${doc.id}.frag`);
+			if (UPDATE && fragment) {
+				mkdirSync(join(SNAPSHOTS, dir), { recursive: true });
+				writeFileSync(file, fragment);
+			}
+			let snapshot = '';
+			try {
+				snapshot = readFileSync(file, 'utf8');
+			} catch {
+				// no snapshot yet: named by the check, with how to write one
+			}
+			return !fragment || fragment !== snapshot;
+		})
+		.map((doc) => doc.id);
 /** `glsl` with a subgraph's port pass-throughs read through and its locals renumbered in order. */
 const canonical = (glsl: string): string => {
 	const alias = new Map<string, string>();
@@ -4333,6 +4360,15 @@ console.log('shader graph — the particle shell and the Particle node');
 			(comments.match(/^void main\(void\)$/gm) ?? []).length === 1 &&
 			(comments.match(/^void efxParticleBody\(void\)$/gm) ?? []).length === 1,
 		`a body it cannot convert surely is refused (${refusals.length - taken.length} of ${refusals.length}: ${refusals.map(([l]) => l).join('; ')}); comments neither hide nor fake a declaration or a main${taken.length ? `: taken ${taken.join(', ')}` : ''}`,
+	);
+
+	const particleStale = staleShellSnapshots('particle', particleShellSource, [
+		...REFERENCE_GRAPHS,
+		...CALIBRATION_GRAPHS,
+	]);
+	assert(
+		!particleStale.length,
+		`each reference and calibration graph's particle fragment matches snapshots/particle/<id>.frag${UPDATE ? ' (rewritten)' : ''}${particleStale.length ? `: ${particleStale.join(', ')} (run with --update after a deliberate change)` : ''}`,
 	);
 
 	// Custom GLSL calls the helpers, typed.
