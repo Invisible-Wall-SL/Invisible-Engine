@@ -79,10 +79,12 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 - **Mobile frame budget after the warm-up — next steps** (from the 2026-10-27 profile of
   `commonoverlayproject`, below). With the CPU slowed 4× a spin still costs ~46 ms of JS a frame:
-  symbols are mounted and destroyed as they scroll (`SymbolWrap.svelte` `inFrame`), the reel `Tween`
-  fans out to every cell through Svelte's reactivity (~23% of spin CPU), rigs pose twice a frame
-  and keep ticking when hidden, and idle particle layers update every frame. Fix order: a pooled
-  strip per reel moved from `app.ticker`; pause hidden rigs/particles; then confirm on a real phone
+  symbols are mounted and destroyed as they scroll (`SymbolWrap.svelte` `inFrame`, a fresh strip each
+  pre-spin lap; ~40% of spin CPU), rigs pose twice a frame and keep ticking when hidden, and idle
+  particle layers update every frame. The per-cell geometry and prop-sync share is fixed (~18% less
+  spin CPU, `claude/reel-smoothness`); pooling the pre-spin cells alone did not pay (hidden rigs
+  tick). Next: a fixed per-reel view pool whose cells swap texture, not component, as they wrap;
+  then confirm on a real phone
   (Chrome remote-debugging trace) before tuning the GPU side further. The ~118 MB of resident
   textures there is mostly uncompressed stock WebP/PNG sheets (`symbols2/3`, `SD2_Coin`,
   `reels_frame`, `fs_screen`); moving them to KTX2 like the atlas pages would cut it several-fold.
@@ -301,6 +303,21 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-27 — **A rolling reel costs ~18% less CPU: the reel geometry and the prop sync are
+  cached** (branch `claude/reel-smoothness`). Owner report on `commonoverlayproject`: reels not
+  smooth on phones. Profiled an unminified runtime spinning at 4× CPU slowdown: ~40% of spin CPU was
+  Svelte creating and destroying effects as cells mounted (`SymbolWrap`'s in-frame `{#if}`, and
+  `preSpinPadding` making a fresh strip of cells every lap), ~8% was `symbolY` resolving the whole
+  board geometry per cell per frame (through the layout bucket), ~5% `propsSyncEffect`'s
+  `Object.keys` over the props proxy (a descriptor read per prop). Fixed: the layout bucket
+  (`createLayout`) and the reel pitch / lead (`gameState` `buildBoard`) are `$derived` (every input
+  reactive); the prop sync walks `Reflect.ownKeys` (same keys on every Svelte props proxy). Measured
+  on the same data, 6 spins at 4× CPU, alternating builds: main-thread CPU 28.7 s → 23.5 s mean
+  (3–4 runs each), long-task time 28.9 s → 23.0 s. **Tried and dropped:** pooling the pre-spin
+  loop's cells (reuse the cells it made, keep their art mounted hidden while rolling) measured no
+  better than without it (24.8 s mean): the hidden rigs it keeps ticking cost what the saved mounts
+  did, so the churn is still open (see Open items). Rigs still pose twice a frame and tick while
+  hidden on purpose (pausing a hidden rig would starve a `land` beat of its completion).
 - 2026-10-27 — **FX no longer stall the frame they first play on; the game's art stays on the GPU;
   low-end devices draw fewer pixels** (branch `claude/nice-albattani-a03tcm`). Owner report on
   `commonoverlayproject`: reels not smooth and FX skipping frames, mainly on phones. Profiled in the
