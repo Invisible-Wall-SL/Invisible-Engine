@@ -1,7 +1,7 @@
-# Expanding wild, growing wild and respin on win (Lines) — three optional features
+# Expanding wild and growing wild (Lines) — two optional features
 
 > Status: PLAN (2026-10-28), rewritten after playing the reference game. Owner agent:
-> `lines-games`. Reference game: Slotmotion's *Fairy's Charm* (owner's ask, 2026-10-28). All three
+> `lines-games`. Reference game: Slotmotion's *Fairy's Charm* (owner's ask, 2026-10-28). Both
 > features are **optional Game Config blocks**: a config without them is dealt, translated and
 > drawn byte for byte as before.
 
@@ -53,14 +53,12 @@ the rest pay from 3. Base spins draw one of 5 weighted reel sets; free spins use
 - In free spins, `unsetCloverSymbols [{reel,row}]` put the copied cells back after a clover that
   paid nothing (1 case). This looks like presentation only.
 
-**3. Respin on win** (base game)
-
-- **Every winning base spin is followed by a respin at no cost**, and the round goes on until a spin
-  pays nothing. A step that pays sends `gameEnd {win}` without `gameRoundOver`. The client then sends
-  `play` again with no new `bet`. In the data, 214 of 214 winning steps continued.
-- Each respin is a whole new spin, with its own reel set, fairy and clover. Nothing is held.
-- The free spins have no respins. When the free spins end with a win, the round goes back to base
-  respins.
+**Round end.** A winning spin leaves the round open (`gameEnd {win}` with no `gameRoundOver`). The
+client sends `collect`, and the server answers `gameRoundOver {win}` and credits the balance. This
+is our existing Play4Fun collect flow, so nothing new is needed. The first version of this plan read
+a "respin on win" into the capture: the capture script sent `play` on the open round instead of
+`collect`, and the server dealt another spin. The real client never does that, so there is no such
+feature.
 
 **Free spins.** 2 `SCAT` (they land on reels 1 and 5 only) pay 1× the stake and start 10 free
 spins, using their own reel set (`spinTrigger`, `enterBonus`, `playedBonusSpin` … `playedBonusSpins`).
@@ -74,7 +72,7 @@ check what is drawn (see Open).
 
 ## 1. Config
 
-Three new optional blocks on `GameConfigDoc`, **lines win model only** (validator error
+Two new optional blocks on `GameConfigDoc`, **lines win model only** (validator error
 elsewhere). A block's presence turns its feature on.
 
 ```ts
@@ -92,15 +90,10 @@ growingWild?: {
 	freeSpinReels?: number[];   // in free spins (default: same as reels)
 	pattern?: 'plus' | 'vertical' | 'horizontal' | 'all8';   // default 'plus'
 };
-
-/** After a winning base spin, respin at no cost until a spin pays nothing. */
-respinOnWin?: {
-	maxRespins?: number;        // safety cap, default 50 (none seen above 7 in the sample)
-};
 ```
 
-The resolvers and validators live in `packages/game-config/src/expandingWilds.ts`,
-`growingWild.ts` and `respinOnWin.ts`. They mirror `expandingSymbol.ts` and are wired into
+The resolvers and validators live in `packages/game-config/src/expandingWilds.ts` and
+`growingWild.ts`. They mirror `expandingSymbol.ts` and are wired into
 `normalize.ts` and `validate.ts`. The validator checks:
 - every named symbol exists, is in play and is a wild;
 - reels are on the grid;
@@ -118,8 +111,6 @@ Which reels a symbol lands on stays a fact of the **reel strips**, which a perso
 3. **Grow** each growing wild into its pattern. It overwrites anything except a scatter and a Hold
    and Win symbol, and a copy does not grow again.
 4. **Count** the line and scatter wins on the final board. This is the only count that pays.
-5. **Respin**: if the spin paid and `respinOnWin` is on (base game only), the round stays open
-   and the next `play` deals a new spin. Otherwise the round ends.
 
 ## 3. Wire and book events
 
@@ -136,12 +127,7 @@ We take the reference game's event names, because they are already in the shape 
 The facade (`packages/rgs-translator-eagaming/src/engineFacade.ts`) builds them from the wire events
 and applies the cell changes to its board, so the win-line positions are read off the final board.
 
-Respin on win needs a **base-game round of several steps**: `gameEnd` with no `gameRoundOver`
-means "send `play`". The fetcher already does this inside free spins; it needs the same in the base
-game, keeping the `seq` / `gid` rules in `docs/reference/play4fun-protocol.md`. The HUD shows the
-round's running total, and the round is collected once at the end.
-
-The lines mock (`scripts/mock-rgs-server.mjs`) deals all three features from the config blocks.
+The lines mock (`scripts/mock-rgs-server.mjs`) deals both features from the config blocks.
 
 ## 4. Presentation
 
@@ -150,39 +136,32 @@ The lines mock (`scripts/mock-rgs-server.mjs`) deals all three features from the
   stacked art, the column morphs cell by cell like the Book-of column morph (capped at
   `TRANSIT_BEAT_CAP_MS`).
 - **Grow:** the origin cell plays a burst, then each new cell morphs into the symbol, outwards.
-- **Respin:** the board spins again with no bet; the win counter keeps adding up.
-- All three go in the lines Flow vocabulary, so a Flow can own them like any other event. Coded
+- Both go in the lines Flow vocabulary, so a Flow can own them like any other event. Coded
   handlers in `bookEventHandlerMap.ts` are the default.
 
 ## 5. Tools
 
 - `/config`: a section for each block, on lines games only.
-- Game Maker: no new template. A *Fairy's Charm*-like game is a lines game with the three blocks
+- Game Maker: no new template. A *Fairy's Charm*-like game is a lines game with the two blocks
   set and the fairy authored as a stacked picture in `/symbols`.
 
 ## 6. Gates
 
-- Fixtures for normalize, resolve and validate of the three blocks.
+- Fixtures for normalize, resolve and validate of the two blocks.
 - A mock fixture with these cases:
   - without the blocks, the deal is byte-identical;
   - expansion order and `onlyOnWin`;
   - the plus pattern at the board edge;
-  - the grow runs after the expansion;
-  - a respin follows a win and only a win, and stops at the cap.
+  - the grow runs after the expansion.
 - `check:rgs`:
-  - the facade's money and win lines agree with the mock on expanded and grown boards;
-  - a respin round's money is the sum of its steps;
-  - `seq` advances by one stored action per `play`.
+  - the facade's money and win lines agree with the mock on expanded and grown boards.
 - `check:all`, `check:svelte`, `check:undefined-names`; the current-games harness unchanged.
-- A playtest note in `docs/playtest/lines.md` with a forced expansion, grow and respin.
+- A playtest note in `docs/playtest/lines.md` with a forced expansion and grow.
 
 ## Build order
 
-Three PRs, each one off by default:
-1. Respin on win (wire, fetcher, mock, HUD). It touches the round's money, so it lands first and
-   alone.
-2. The expanding wild (config, mock, facade, the stacked-picture grow).
-3. The growing wild.
+One PR for both features, because they share the wire event (`symbolSetInMatrix`), the board
+step between landing and counting, and the cell morph. Off by default.
 
 ## Open
 
