@@ -21,29 +21,20 @@ import {
 	findElementFxSpec,
 	type ElementFxKindId,
 } from 'constants-shared/elementFx';
-import { Rectangle, type Container, type Filter } from 'pixi.js';
+import { Rectangle, type Application, type Container, type Filter } from 'pixi.js';
+import { setStageFilters } from '../screenFx/stageFilters';
 import { kindImpl, passesOf } from './custom';
 
-/** What plays on a stage now, as its post FX slot receives it. */
-export interface StagePostFx {
-	/** Every playing post FX's filters, in the order the effects started (each one's passes in order). */
-	readonly filters: readonly Filter[];
-	/**
-	 * The viewport they draw over, in the renderer's screen units (`app.screen`), at (0, 0). The
-	 * owner bounds the stage's filters to it under the stage's current transform.
-	 */
-	readonly area: Rectangle;
-}
-
 /**
- * The stage filter owner's post FX slot: called with what plays each time the filters or the
- * viewport change, and with `null` when the last post FX ends. A filter leaves the list before it
- * is destroyed.
+ * Where the stage's post FX go: the stage filter owner's post FX slot. Called with every playing
+ * post FX's filters (in the order the effects started, each one's passes in order) each time the
+ * list changes, and with `null` when the last ends, before those filters are destroyed. The owner
+ * bounds them to the viewport, as the passes are fed it.
  */
-export type StagePostFxSlot = (postFx: StagePostFx | null) => void;
+export type StagePostFxSlot = (filters: readonly Filter[] | null) => void;
 
 const slots = new WeakMap<Container, StagePostFxSlot>();
-const playing = new WeakMap<Container, StagePostFx>();
+const playing = new WeakMap<Container, readonly Filter[]>();
 
 /**
  * Send `stage`'s post FX to `slot`: called at once with what plays now (`null`: nothing), then on
@@ -58,15 +49,37 @@ export function bindStagePostFxSlot(stage: Container, slot: StagePostFxSlot): ()
 	};
 }
 
-/** What post FX play on `stage` now, or `null`. */
-export const stagePostFx = (stage: Container): StagePostFx | null => playing.get(stage) ?? null;
-
-/** The runtime's hand-off: what plays on `stage` now. */
-export function publishStagePostFx(stage: Container, postFx: StagePostFx | null): void {
-	if (postFx) playing.set(stage, postFx);
-	else playing.delete(stage);
-	slots.get(stage)?.(postFx);
+/**
+ * Play `app`'s post FX in its stage filter owner's post FX slot (`screenFx/stageFilters.ts`): after a
+ * transition, before the camera, over the viewport. Returns the unbind, which empties the slot, so a
+ * game torn down before its post FX stop leaves no filter on the stage.
+ */
+export function bindStagePostFx(app: Application): () => void {
+	const slot: StagePostFxSlot = (filters) => setStageFilters(app, 'post', filters ?? []);
+	const unbind = bindStagePostFxSlot(app.stage, slot);
+	return () => {
+		unbind();
+		slot(null);
+	};
 }
+
+/** The post FX filters playing on `stage` now, or `null`. */
+export const stagePostFx = (stage: Container): readonly Filter[] | null =>
+	playing.get(stage) ?? null;
+
+/** The runtime's hand-off: the filters playing on `stage` now. */
+export function publishStagePostFx(stage: Container, filters: readonly Filter[] | null): void {
+	if (filters) playing.set(stage, filters);
+	else playing.delete(stage);
+	slots.get(stage)?.(filters);
+}
+
+/**
+ * The padding a post FX stack has at least. Pixi pads a stack's input past the viewport, never
+ * inside it, and an element pass reads 0 at its input's half-texel edge: unpadded, the viewport's
+ * first column or row can read transparent and show the canvas's background.
+ */
+export const STAGE_FX_EDGE_PAD = 1;
 
 /**
  * Why `kind` does not play on the stage, or `undefined` when it does (or is not known: an unknown

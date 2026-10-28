@@ -11,7 +11,8 @@
 		readElementFxEntries,
 		setCustomElementFx,
 	} from 'constants-shared/elementFx';
-	import { stageFxFilterCount, stageFxRefusal } from 'pixi-svelte/elementFx';
+	import { bindStagePostFx, stageFxFilterCount, stageFxRefusal } from 'pixi-svelte/elementFx';
+	import { setStageFxAntialias } from 'pixi-svelte/screenFx';
 	import { setParticleTimeScale } from 'pixi-svelte/particleClock';
 	import {
 		stateBet,
@@ -161,6 +162,7 @@
 		potFillShare,
 		HOLD_AND_WIN_BANNER_SHOW_SOURCES,
 		readPostFx,
+		readStageFxAntialias,
 	} from 'engine-layout';
 	import type { ReelGridNode, Scene } from 'engine-layout';
 
@@ -1174,6 +1176,17 @@
 	const postFx = $derived(
 		readPostFx(editorDoc.settings, { refusal: stageFxRefusal, filters: stageFxFilterCount }),
 	);
+	// They (and a Flow's on `stage`) fill the stage filter owner's post FX slot; the project's
+	// `stageFxAntialias` keeps the canvas's anti-aliasing under every stage filter. Both are no-ops
+	// while nothing filters the stage.
+	$effect(() => {
+		const app = stateApp.pixiApplication;
+		if (app) return bindStagePostFx(app);
+	});
+	$effect(() => {
+		const app = stateApp.pixiApplication;
+		if (app) setStageFxAntialias(app, readStageFxAntialias(editorDoc.settings));
+	});
 	// Screen identity resolves by ROLE (engine-layout `sceneByRole`) — not by matching a magic
 	// scene id — so scene ids stay free-form and renameable (the owner's ask). It reads the scene
 	// `role`, falling back to the legacy scene whose id equals the role name (parity for un-migrated

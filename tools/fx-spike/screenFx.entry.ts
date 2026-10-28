@@ -24,6 +24,7 @@ import {
 	type CustomElementFx,
 } from '@fxroot/packages/constants-shared/elementFx';
 import {
+	REFERENCE_GRAPHS,
 	builtinTwin,
 	compileShaderEffect,
 	graphBuilder,
@@ -42,6 +43,12 @@ import {
 	type ScreenTransitionPlay,
 } from '@fxroot/packages/pixi-svelte/src/lib/screenFx';
 import { runCameraEffect } from '@fxroot/packages/pixi-svelte/src/lib/cameraEffects';
+import {
+	bindStagePostFx,
+	playElementFx,
+	stopElementFx,
+	type ElementFxHandle,
+} from '@fxroot/packages/pixi-svelte/src/lib/elementFx';
 
 const STEP_MS = 16;
 const BAND = 10_500;
@@ -100,6 +107,22 @@ const aloneGraph = (id: string, phase: 'enter' | 'exit'): CustomElementFx => {
 };
 const outputAlone = aloneGraph('output-alone', 'enter');
 const exitAlone = aloneGraph('exit-alone', 'exit');
+/** A post FX that draws the stage as it is: an emphasis Output alone. */
+const postAlone = (() => {
+	const g = graphBuilder({
+		id: 'post-alone',
+		name: 'post-alone',
+		phase: 'emphasis',
+		durationMs: 1000,
+	});
+	g.node('output');
+	return effectOf(g.doc());
+})();
+/** A post FX of two filters: Power-up's graph and its glow pass. */
+const postGlow = effectOf({
+	...(REFERENCE_GRAPHS.find((d) => d.id === 'powerUp') as ShaderGraphDoc),
+	id: 'post-glow',
+});
 const from = screensGraph('from', 'enter', (g, s, o) => g.wire(s, 'from', o, 'color'));
 const reverse = screensGraph('reverse', 'enter', (g, s, o) => g.wire(s, 'reverse', o, 'color'));
 const crossfade = screensGraph('crossfade', 'enter', crossfadeWire);
@@ -127,8 +150,10 @@ const registered = setCustomElementFx([
 	exitPlain,
 	broken,
 	refused,
+	postAlone,
+	postGlow,
 ]);
-claim('the registry takes every effect the gate plays (9 of 9)', registered.length === 9);
+claim('the registry takes every effect the gate plays (11 of 11)', registered.length === 11);
 const kindOf = (effect: CustomElementFx) => effect.spec.kind;
 
 // --- the app and its screens -------------------------------------------------------------------
@@ -162,7 +187,7 @@ const screenArt = (w: number, h: number, palette: number[], offset: number): Con
 
 const makeRig = async (
 	gl: number,
-	{ width = 321, height = 201, resolution = 1 } = {},
+	{ width = 321, height = 201, resolution = 1, antialias = false } = {},
 ): Promise<Rig> => {
 	const app = new Application();
 	await app.init({
@@ -171,7 +196,7 @@ const makeRig = async (
 		background: 0x101418,
 		preference: 'webgl',
 		preferWebGLVersion: gl === 1 ? 1 : 2,
-		antialias: false,
+		antialias,
 		useBackBuffer: true,
 		autoStart: false,
 		sharedTicker: false,
@@ -810,6 +835,128 @@ const lifecycle = async (gl: number): Promise<void> => {
 	dropRig(rig);
 };
 
+/** The game's post FX: the Element FX runtime's stage mode, through the stage filter owner. */
+const stageHost = (rig: Rig) => ({ ...host(rig), stage: rig.app.stage });
+const playPost = (rig: Rig, effect: CustomElementFx): ElementFxHandle =>
+	playElementFx(rig.app.stage, { kind: kindOf(effect), repeat: 0 }, stageHost(rig));
+
+/**
+ * An Output-alone post FX against no post FX, the project's anti-aliasing off and on, on a canvas
+ * with MSAA (`antialias`, as the game's) or without.
+ */
+const postFxIdentity = async (gl: number, antialias: boolean): Promise<void> => {
+	const rig = await makeRig(gl, { antialias });
+	const canvas = antialias ? 'a canvas with MSAA' : 'a canvas without MSAA';
+	show(rig, 'old');
+	frame(rig, 2);
+	const none = shot(rig);
+	const unbind = bindStagePostFx(rig.app);
+	const handle = playPost(rig, postAlone);
+	frame(rig);
+	const list = rig.app.stage.filters ?? [];
+	const area = rig.app.stage.filterArea;
+	const playing =
+		handle.active &&
+		list.length === 1 &&
+		stageFilters(rig.app, 'post')[0] === list[0] &&
+		area?.x === 0 &&
+		area.y === 0 &&
+		area.width === rig.app.screen.width &&
+		area.height === rig.app.screen.height;
+	const off = compare(shot(rig), none);
+	setStageFxAntialias(rig.app, true);
+	frame(rig);
+	const on = compare(shot(rig), none);
+	const inherits = list.every((f) => f.antialias === 'inherit');
+	setStageFxAntialias(rig.app, false);
+	const total = none.length / 4;
+	const share = (d: Difference): string => `${((100 * d.over) / (3 * total)).toFixed(3)} %`;
+	notes.push(
+		`MSAA on ${canvas}: an Output-alone post FX against none, anti-aliasing under stage effects off: ${said(off)} (${share(off)} of channel values); on: ${said(on)} (${share(on)})`,
+	);
+	handle.stop();
+	frame(rig);
+	unbind();
+	const back = compare(shot(rig), none);
+	claim(
+		`on ${canvas}, an Output-alone post FX plays on the stage through the post FX slot, bounded to the viewport${antialias ? '' : ', and draws it exactly as no post FX, the setting off and on'}; the setting reaches it; stopped, the stage is at rest and drawn as before`,
+		playing &&
+			inherits &&
+			(antialias || (off.over === 0 && on.over === 0)) &&
+			back.over === 0 &&
+			atRest(rig),
+	);
+	if (antialias) {
+		// WebGL2 draws a stage filter into a multisampled target when it inherits the canvas's MSAA;
+		// WebGL1 has none to inherit, so the setting changes nothing there.
+		claim(
+			gl === 2
+				? `on a canvas with MSAA (WebGL2), a post FX drawn without MSAA loses it at the edges (${said(off)}), and with the setting on draws exactly as no post FX (${said(on)})`
+				: `on a canvas with MSAA (WebGL1), the setting changes nothing (off: ${said(off)}; on: ${said(on)})`,
+			gl === 2 ? off.over > 0 && on.over === 0 : on.over === off.over,
+		);
+	}
+	dropRig(rig);
+};
+
+/** Post FX with a transition and the chroma wobble, and the setting reaching every stage filter. */
+const postFxSlots = async (gl: number): Promise<void> => {
+	const rig = await makeRig(gl);
+	const unbind = bindStagePostFx(rig.app);
+	const transition = await begin(rig, { kind: kindOf(crossfade), durationMs: 2000 });
+	const post = playPost(rig, postGlow);
+	void runCameraEffect(rig.app, { kind: 'chromaticWobble', durationMs: 600 });
+	frame(rig);
+	const shell = stageFilters(rig.app, 'transition')[0];
+	const posts = stageFilters(rig.app, 'post');
+	const camera = stageFilters(rig.app, 'camera')[0];
+	const list = rig.app.stage.filters ?? [];
+	const ordered =
+		!!shell &&
+		!!camera &&
+		posts.length === 2 &&
+		list.length === 4 &&
+		list[0] === shell &&
+		list[1] === posts[0] &&
+		list[2] === posts[1] &&
+		list[3] === camera;
+	const off = list.every((f) => f.antialias === 'off');
+	setStageFxAntialias(rig.app, true);
+	const on = list.every((f) => f.antialias === 'inherit');
+	const second = playPost(rig, postAlone);
+	frame(rig);
+	const all = rig.app.stage.filters ?? [];
+	const later = all.length === 5 && all.every((f) => f.antialias === 'inherit');
+	setStageFxAntialias(rig.app, false);
+	const back = all.every((f) => f.antialias === 'off');
+	claim(
+		'a transition, two post FX filters and the chroma wobble together: the slots in order transition → post FX (in play order) → camera; every stage filter draws without MSAA, and with the setting on all of them inherit it, one started after too, and off again none does',
+		ordered && off && on && later && back,
+	);
+	second.stop();
+	post.stop();
+	frame(rig);
+	const left = rig.app.stage.filters ?? [];
+	claim(
+		'the post FX stopped, the transition and the camera keep their places',
+		left.length === 2 && left[0] === shell && left[1] === camera,
+	);
+	const again = playPost(rig, postAlone);
+	frame(rig);
+	unbind();
+	const unbound = stageFilters(rig.app, 'post').length === 0;
+	again.stop();
+	stopElementFx(rig.app.stage);
+	transition.end();
+	await transition.done;
+	frame(rig, 60);
+	claim(
+		'unbound while a post FX plays, the slot is emptied; with everything ended the stage is at rest',
+		unbound && atRest(rig),
+	);
+	dropRig(rig);
+};
+
 const capped = async (gl: number): Promise<void> => {
 	const rig = await makeRig(gl, { width: 2600, height: 300, resolution: 2 });
 	const ref = references(rig);
@@ -911,6 +1058,9 @@ const steady = async (gl: number, count: number): Promise<void> => {
 		await exits(gl);
 		await fallbacks(gl);
 		await lifecycle(gl);
+		await postFxIdentity(gl, false);
+		await postFxIdentity(gl, true);
+		await postFxSlots(gl);
 		await capped(gl);
 		await steady(gl, count);
 		const version = (await makeRig(gl)).app.renderer as WebGLRenderer;

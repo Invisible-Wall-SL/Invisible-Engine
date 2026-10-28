@@ -45,6 +45,7 @@ import { type BreakStyle, type BreakWindow, type FilterImpl, type KindImpl } fro
 import { ElementFxFilter } from './shaders';
 import {
 	debugStageFx,
+	STAGE_FX_EDGE_PAD,
 	publishStagePostFx,
 	stageFrameClock,
 	stageFxCapRefusal,
@@ -579,19 +580,14 @@ const stageCounts = (runtime: Runtime): { entries: number; filters: number } => 
 	filters: runtime.effects.reduce((sum, e) => sum + e.passes.length, 0),
 });
 
-/** Hand the stage's slot its post FX, when they or the viewport changed. */
+/** Hand the stage's slot its post FX, when they changed. */
 const publishStage = (runtime: Runtime, filters: readonly Filter[]): void => {
 	const same =
 		runtime.lastFilters.length === filters.length &&
-		filters.every((f, i) => runtime.lastFilters[i] === f) &&
-		(!filters.length || runtime.area === runtime.box);
+		filters.every((f, i) => runtime.lastFilters[i] === f);
 	if (same) return;
 	runtime.lastFilters = filters.length ? [...filters] : NO_FILTERS;
-	runtime.area = runtime.box;
-	publishStagePostFx(
-		runtime.target,
-		filters.length ? { filters: runtime.lastFilters, area: runtime.box } : null,
-	);
+	publishStagePostFx(runtime.target, filters.length ? runtime.lastFilters : null);
 };
 
 /**
@@ -612,7 +608,10 @@ const applyStageFilters = (runtime: Runtime, frames: Map<Effect, FxFrame>): void
 		});
 	}
 	const stack = ours.flatMap((e) => e.filters);
-	const pad = stack.reduce((sum, f) => sum + (f.enabled ? f.padding : 0), 0) | 0;
+	const padOf = () => stack.reduce((sum, f) => sum + (f.enabled ? f.padding : 0), 0) | 0;
+	const first = stack.find((f) => f.enabled);
+	if (first && padOf() < STAGE_FX_EDGE_PAD) first.padding += STAGE_FX_EDGE_PAD - padOf();
+	const pad = padOf();
 	for (const filter of stack) {
 		if (!(filter instanceof ElementFxFilter)) continue;
 		filter.set('uElement', 0, 0, 1, 1);

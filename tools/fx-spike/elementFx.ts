@@ -164,12 +164,12 @@ import {
 	type ElementFxHost,
 } from '../../packages/pixi-svelte/src/lib/elementFx/runtime';
 import {
+	bindStagePostFx,
 	bindStagePostFxSlot,
 	stageFxFilterCount,
 	stageFxLoadText,
 	stageFxRefusal,
 	stagePostFx,
-	type StagePostFx,
 } from '../../packages/pixi-svelte/src/lib/elementFx/stage';
 import { readPostFx, readStageFxAntialias } from '../../packages/engine-layout/src/lib/postFx';
 
@@ -3254,7 +3254,7 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 		stage: Container;
 		host: ElementFxHost;
 		advance: (ms: number) => void;
-		heard: (StagePostFx | null)[];
+		heard: (readonly Filter[] | null)[];
 		measured: () => number;
 		untouched: () => boolean;
 		unbind: () => void;
@@ -3287,7 +3287,7 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 			measures++;
 			return bounds();
 		};
-		const heard: (StagePostFx | null)[] = [];
+		const heard: (readonly Filter[] | null)[] = [];
 		const unbind = bindStagePostFxSlot(stage, (postFx) => heard.push(postFx));
 		return {
 			stage,
@@ -3304,7 +3304,7 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 			unbind,
 		};
 	};
-	const last = (s: Stage): StagePostFx | null | undefined => s.heard[s.heard.length - 1];
+	const last = (s: Stage): readonly Filter[] | null | undefined => s.heard[s.heard.length - 1];
 
 	{
 		const s = makeStage();
@@ -3312,17 +3312,13 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 		const play = playElementFx(s.stage, { kind: POWER, durationMs: 600, repeat: 0 }, s.host);
 		s.advance(16 * 20);
 		const fx = last(s);
-		const graph = fx?.filters[0] as ElementFxFilter | undefined;
+		const graph = fx?.[0] as ElementFxFilter | undefined;
 		assert(
 			play.active &&
-				fx?.filters.length === 2 &&
+				fx?.length === 2 &&
 				graph instanceof SHADERS.ElementFxFilter &&
-				fx.area.x === 0 &&
-				fx.area.y === 0 &&
-				fx.area.width === 1280 &&
-				fx.area.height === 720 &&
 				stagePostFx(s.stage) === fx,
-			'a graph with a pass plays on the stage: its two filters handed to the slot, over the viewport',
+			'a graph with a pass plays on the stage: its two filters handed to the slot, in order',
 		);
 		assert(
 			s.untouched(),
@@ -3340,22 +3336,20 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 				uFx[3] === 1,
 			'its unit square is the viewport, fed its progress, looping',
 		);
+
 		const heardBefore = s.heard.length;
 		s.advance(16 * 10);
 		assert(s.heard.length === heardBefore, 'a steady play hands the slot nothing new');
-		const late: (StagePostFx | null)[] = [];
+		const late: (readonly Filter[] | null)[] = [];
 		bindStagePostFxSlot(s.stage, (postFx) => late.push(postFx));
 		assert(late.length === 1 && late[0] === fx, 'a slot bound late hears what plays at once');
 		(VIEW as { width: number }).width = 1024;
 		s.advance(16);
-		assert(
-			late.length === 2 && late[1]?.area.width === 1024 && late[1].filters.length === 2,
-			'a resized viewport is handed over again',
-		);
+		assert(late.length === 1, 'a resized viewport hands the slot nothing new: the owner bounds it');
 		(VIEW as { width: number }).width = 1280;
 		const destroyed: Filter[] = [];
 		const order: string[] = [];
-		for (const f of fx?.filters ?? []) {
+		for (const f of fx ?? []) {
 			const destroy = f.destroy.bind(f);
 			f.destroy = (...args: Parameters<typeof destroy>) => {
 				order.push('destroy');
@@ -3383,16 +3377,24 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 		const second = playElementFx(s.stage, { kind: TINT, durationMs: 300, repeat: 0 }, s.host);
 		s.advance(32);
 		assert(
-			first.active && second.active && last(s)?.filters.length === 2,
+			first.active && second.active && last(s)?.length === 2,
 			'a built-in pixel kind and a graph play together, in the order they started',
 		);
 		s.advance(400);
 		assert(
-			!first.active && last(s)?.filters.length === 1,
+			!first.active && last(s)?.length === 1,
 			'one that plays out leaves the list, the other stays',
 		);
 		stopElementFx(s.stage);
 		assert(last(s) === null && s.untouched(), 'stopping all empties the slot');
+		const plain = playElementFx(s.stage, { kind: TINT, repeat: 0 }, s.host);
+		s.advance(32);
+		const tinted = last(s)?.[0] as ElementFxFilter | undefined;
+		assert(
+			plain.active && tinted?.padding === 1 && tinted.efx.uPad === 1,
+			'a stack that pads nothing is padded a pixel past the viewport, so its edge pixels are read, and told so (uPad)',
+		);
+		stopElementFx(s.stage);
 		s.unbind();
 		const quiet = s.heard.length;
 		playElementFx(s.stage, { kind: 'glow', durationMs: 300 }, s.host);
@@ -3454,12 +3456,7 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 					else if (expected === 'an enter kind') counts.enter++;
 					else counts.motion++;
 				} else {
-					if (
-						reason !== undefined ||
-						!handle.active ||
-						!last(s)?.filters.length ||
-						!s.untouched()
-					) {
+					if (reason !== undefined || !handle.active || !last(s)?.length || !s.untouched()) {
 						wrong.push(`${kind} (expected to play, refused "${reason}")`);
 					}
 					if (s.measured() !== 0) wrong.push(`${kind} measured the stage`);
@@ -3515,7 +3512,7 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 					b.active &&
 					!c.active &&
 					elementFxCount(s.stage) === 2 &&
-					last(s)?.filters.length === 3 &&
+					last(s)?.length === 3 &&
 					warnings.some((w) => w.includes(`at most ${STAGE_FX_LIMITS.entries} post FX at once`)),
 				'a third entry does not play, and says why',
 			);
@@ -3531,7 +3528,7 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 			const f = playElementFx(s.stage, { kind: 'glow', repeat: 0 }, s.host);
 			s.advance(16);
 			assert(
-				e.active && !f.active && last(s)?.filters.length === 4,
+				e.active && !f.active && last(s)?.length === 4,
 				'four filters alone play; one more does not',
 			);
 			stopElementFx(s.stage);
@@ -3562,6 +3559,40 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 		const app = { ticker: new Ticker(), renderer: { screen: VIEW }, stage: new Container() };
 		const host = elementFxHostFor(app as never);
 		assert(host?.stage === app.stage, 'a game’s host carries its stage, so post FX play there');
+	}
+	{
+		// The game's adapter: the post FX in the stage filter owner's slot.
+		const { host, advance } = makeHost();
+		const stage = new Container();
+		const app = { ticker: host.ticker, stage, screen: VIEW, renderer: { screen: VIEW } };
+		const stageHost = { ...host, renderer: app.renderer as never, stage };
+		const unbind = bindStagePostFx(app as never);
+		assert(
+			!stage.filters?.length && !stage.filterArea,
+			'bound to a quiet stage, nothing is put on it',
+		);
+		const glow = playElementFx(stage, { kind: 'glow', repeat: 0 }, stageHost);
+		advance(16);
+		const on = stage.filters ?? [];
+		const bounded =
+			stage.filterArea?.width === VIEW.width && stage.filterArea.height === VIEW.height;
+		glow.stop();
+		const off = !stage.filters?.length && !stage.filterArea;
+		const again = playElementFx(stage, { kind: 'glow', repeat: 0 }, stageHost);
+		advance(16);
+		const playing = stage.filters?.length === 1;
+		unbind();
+		assert(
+			on.length === 1 &&
+				bounded &&
+				off &&
+				playing &&
+				!stage.filters?.length &&
+				!stage.filterArea &&
+				again.active,
+			'bindStagePostFx: a post FX lands on the stage through the owner, over the viewport; stopped, the stage is back at rest; unbound while one plays, the slot is emptied',
+		);
+		again.stop();
 	}
 	{
 		const fxdebug = read('packages/pixi-svelte/src/lib/elementFx/stage.ts');
@@ -3697,8 +3728,14 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 			game.includes(
 				'readPostFx(editorDoc.settings, { refusal: stageFxRefusal, filters: stageFxFilterCount })',
 			) &&
-			ELEMENT_FX_STAGE_TARGET === 'stage',
-		'the game: the stage anchored as `stage`, its post FX played at the root, and no player for a doc without any',
+			ELEMENT_FX_STAGE_TARGET === 'stage' &&
+			/const app = stateApp\.pixiApplication;\s*if \(app\) return bindStagePostFx\(app\);/.test(
+				game,
+			) &&
+			/if \(app\) setStageFxAntialias\(app, readStageFxAntialias\(editorDoc\.settings\)\);/.test(
+				game,
+			),
+		'the game: the stage anchored as `stage`, its post FX played at the root (no player for a doc without any) into the owner’s post FX slot, and the project’s anti-aliasing under stage effects handed to the owner',
 	);
 }
 

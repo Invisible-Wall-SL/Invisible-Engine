@@ -22,6 +22,13 @@
  *    leaves no child, filter, area or ticker callback; the turbo clock and the 50 ms – 5 s clamp; a
  *    Show made after the call and before the next frame is in the still; the stage's own filters
  *    kept in front and given back exactly, the slots in order;
+ *  - POST FX (step 8e.3): the Element FX runtime's stage mode in the owner's post FX slot. An
+ *    Output-alone post FX draws the stage exactly as no post FX on a canvas without MSAA, the
+ *    project's anti-aliasing off and on; on a canvas with MSAA the difference is measured and
+ *    printed (WebGL2: lost at the edges with the setting off, none with it on; WebGL1: the setting
+ *    changes nothing); a transition, two post FX filters and the chroma wobble sit in that order,
+ *    and the setting reaches every one of them, a filter added after it too; unbound, the slot is
+ *    emptied;
  *  - the still capped at 4096 px a side;
  *  - STEADY: TRANSITIONS transitions after a warm-up leave the live GL objects unchanged and make no
  *    program.

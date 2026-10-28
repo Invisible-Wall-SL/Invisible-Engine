@@ -10,11 +10,11 @@ export {
 	type ElementFxPose,
 } from './runtime';
 export {
+	bindStagePostFx,
 	bindStagePostFxSlot,
 	stageFxFilterCount,
 	stageFxRefusal,
 	stagePostFx,
-	type StagePostFx,
 	type StagePostFxSlot,
 } from './stage';
 export { graphFilter } from './custom';
