@@ -24,7 +24,8 @@
  *     those two fields, and the hash reads them as `main` words them. The same doc stored with the
  *     legacy keys normalizes to the same add-ons, and a current doc carries none. The Element FX
  *     additions (the `elementEffect` / `stopElementEffect` actions and the `ElementFxKind` /
- *     `ElementFxTarget` enums) are pinned on their own and left out of the vocabulary hash.
+ *     `ElementFxTarget` enums) and the lines wild rewrites (`expandWild` / `growWild`, an event and
+ *     an action each) are pinned on their own and left out of the vocabulary hash.
  *
  * `--print` prints the digests instead of checking them.
  */
@@ -334,10 +335,16 @@ const ELEMENT_FX_ACTIONS = ['elementEffect', 'stopElementEffect'];
 const ELEMENT_FX_ENUMS = ['ElementFxKind', 'ElementFxTarget'];
 /** The respin counter's award cue, added to the Hold and Win cues after `main` 5743911. */
 const AWARD_CUE = 'respinCounterAward';
-/** `vocab` as `main` had it: without the Element FX additions and the award cue. */
+/** The lines wild rewrites (expanding / growing wild), each an event and an action of the Book-of
+ *  vocabulary `lines` resolves to, added after `main` 5743911. */
+const WILD_REWRITES = ['expandWild', 'growWild'];
+/** `vocab` as `main` had it: without the Element FX additions, the award cue and the wild rewrites. */
 const asOnMain = (vocab: TemplateVocabulary): TemplateVocabulary => ({
 	...vocab,
-	actions: vocab.actions.filter((a) => !ELEMENT_FX_ACTIONS.includes(a.name)),
+	events: vocab.events.filter((e) => !WILD_REWRITES.includes(e.name)),
+	actions: vocab.actions.filter(
+		(a) => !ELEMENT_FX_ACTIONS.includes(a.name) && !WILD_REWRITES.includes(a.name),
+	),
 	enums: vocab.enums.filter((e) => !ELEMENT_FX_ENUMS.includes(e.name)),
 	cues: vocab.cues.filter((c) => c.name !== AWARD_CUE),
 });
@@ -461,6 +468,16 @@ for (const [name, kind, doc] of currentDocs()) {
 		],
 		[...ELEMENT_FX_ACTIONS, ...ELEMENT_FX_ENUMS],
 	);
+	if (kind !== 'holdAndWin') {
+		same(
+			`5. ${name} · the wild rewrite events and actions are there`,
+			[
+				...docVocab.events.filter((e) => WILD_REWRITES.includes(e.name)).map((e) => e.name),
+				...docVocab.actions.filter((a) => WILD_REWRITES.includes(a.name)).map((a) => a.name),
+			],
+			[...WILD_REWRITES, ...WILD_REWRITES],
+		);
+	}
 	if (docVocab.cues.some((cue) => cue.name === 'respinBoardShow')) {
 		same(
 			`5. ${name} · the award cue is there`,

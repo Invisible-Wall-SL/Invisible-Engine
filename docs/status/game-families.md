@@ -71,14 +71,84 @@ already-bundled `cards.js` values.
 §2.5. Shared code reaches match-3, arcade and card code only through
 `apps/lines/src/families/{match3,arcade,card}.ts`; `families/off/*` are inert stubs with the same
 names and types. `config-vite` (`families.js`, in `baseConfig()`, so game repos get it) reads
-`PUBLIC_IE_FAMILIES` (comma list of `match3` / `arcade` / `card`, or `all`; unset = `all`; empty or
+`PUBLIC_IE_FAMILIES` (comma list of `match3` / `arcade` / `card`, or `all`; unset or empty = `all`;
 `slot` = slot only), swaps each left-out seam for its stub by resolved path (works for
 `engine/apps/lines/src` too), and defines `__IE_FAMILIES__`. The boot (`routes/+layout.ts`,
 `game/runtimeFamilies.ts`) refuses a config whose family the bundle lacks: "this runtime does not
-play <family> games". Nothing sets the env var yet, so every build is still `all`. Left for P11.1b:
+play <family> games". Left for P11.1b:
 `engine-layout`'s `LayoutNodeView` still imports `SpawnLayer` / `Tilemap` / `arcadeLifts` for every
 game, `engine-flow-v2` exports the family vocabularies and action lists to the shared flow code,
 and `game-config`'s card normalizer reads `engine-mechanics` `cards.js`.
+
+**P11.1b — four runtimes, the baked-config default, `check:family-runtimes` (built 2026-10-28; in
+review).** [phase-11.md](../design/phase-11.md) §2.4, §3.1.
+
+- **Four runtimes.** `lines` (every slot kind; still built `all` until P11.1c), `match3`, `arcade`
+  and `card`, listed once in `packages/constants-shared/runtimes.ts` (`RUNTIMES`, `RUNTIME_IDS`,
+  `runtimeIdOfFamily`, `releaseFamiliesOf`). `runtime-release.yml` runs the gates once, then a
+  matrix per id: build `apps/lines` with the id's `PUBLIC_IE_FAMILIES` (always explicit), then
+  `check-family-runtime.mjs`, upload, promote and verify. A failed id blocks no other, and its alert names the id. Rollback's `runtime` is a choice of the four, and
+  `check:runtime-choice` keeps both workflows' lists equal to `RUNTIME_IDS`. Releases of one id queue
+  in a group per id and trigger (a manual run never cancels a pending merge's), and the publish step never promotes over a pointer that names a newer commit
+  (`publish-runtime-bundle.mjs`, by git ancestry; it records the release, puts the launcher's stamp
+  back and skips the served check), so an older push never replaces a newer engine.
+  A bundle over its size budget is a release **warning**, not a failure: no PR check runs the
+  budget, so a hard gate would first fail after merge and keep every game on the old engine; run
+  `pnpm check:family-runtimes` before merging an engine change that grows the bundle.
+- **Publish** (`apps/launcher-api` `runtimeChoice.ts`): a game goes on its config family's id. A
+  kind / family disagreement is refused (`kind-family`, no override). While an id has no release
+  yet, publish falls back to `lines` and the snapshot records the id it used.
+- **Owner decisions (2026-10-28, on #1442):** the harness edits below are approved
+  (`scripts/current-games/lib/runtimes.mjs`, `run.mjs`, `runtimes.fixture.mjs`, the
+  `current-games.yml` cache key); and the `kind-family` refusal is accepted with no R2 scan. A
+  match-3, arcade or card project whose config names no `family` is now refused at publish (it used
+  to publish as a slot); the fix is to re-save its config in `/config`.
+- **The current-games harness** builds one `apps/lines` per id on each side (`<side>/<id>/`,
+  `runtimes.json`; cache key v4) and renders each game on its own id. Each side builds by its own
+  `runtimes.ts`, never the harness's, so a SHA's builds do not depend on who compares; a ref with
+  no runtime list (main before this) builds `lines` once, every family, for every id.
+- **`check:game-app-deps`** keeps `engine-rooms` behind `families/arcade.ts` (`game/online.ts`,
+  `ArcadeStage.svelte`).
+
+- **The baked-config default.** With `PUBLIC_IE_FAMILIES` unset or blank, a build (never a dev
+  server) reads the baked bundle the build compiles (`families.js` `bakedBundlePath()`:
+  `config-svelte`'s `appSrcDir()` rule, so `engine/apps/lines/src` in a game repo) and compiles
+  `familyOfConfig(config)` plus slot. A bundle with no `config` key, as in the checked-in placeholder
+  or when there is no bundle, compiles every family and warns. So `apps/lines`' release build stays
+  `all`. `families.js` still imports no package. `config-vite/bakedFamily.fixture.ts` pins its
+  family rule to `game-config`'s `resolveFamily(normalizeFamily())`, pins its path to `appSrcDir()`,
+  and checks the placeholder gives `all`.
+- **The leftovers.** The family vocabularies and seeds were bundled because Rollup kept the
+  `TEMPLATE_VOCABULARIES` / `DRIVEN_SEEDS` literals (their `.templateId` reads) and the family
+  modules' top-level calls. Fixed in three steps. The runtime builds its registry from
+  `SLOT_TEMPLATE_VOCABULARIES` plus each seam's `flowVocabularies` (`game/familyFlow.ts`, through
+  `vocabularyIn`). The coverage list comes from the seams' `flowBoardActions`. Both registries are
+  built through a `@__PURE__` `byTemplateId`, and the family modules' builders are `@__PURE__` too.
+  This saves 7.6 KB gz on a slot runtime, and the values every consumer reads are unchanged. Two
+  leftovers stay, measured:
+  - `LayoutNodeView`'s `SpawnLayer` / `Tilemap` / `arcadeLifts`: at most 1.5 KB gz, and `SpawnLayer`
+    serves card as well as arcade.
+  - `game-config`'s card reader and validator (`readLibrary` / `validateLibrary`): 2.7 KB gz. Any
+    stub would change the normalizer's result.
+  A `moduleSideEffects` hint was tried and had no effect in the SvelteKit build.
+- **The gate.** `node scripts/check-family-runtime.mjs --id <lines|match3|arcade|card> --families
+  <value> <buildDir>` checks one built `index.html`. Its `__IE_FAMILIES__` must equal the set the
+  value compiles, and the id must fit the set. Each family's markers must be present exactly when
+  the family is compiled in: its error strings, `@colyseus/schema` / `joinOrCreate` / `arseed`, and
+  a vocabulary sentence. Its gzip -6 size must be within `scripts/family-runtime-budget.json`
+  (measured + 2 %, per set). `pnpm check:family-runtimes` builds all five with the release env and
+  checks each; `--measure` prints new budgets. `check:all` skips it (five builds).
+  `scripts/check-family-seams.mjs` walks the import graph with each seam stubbed and fails if
+  shared code imports a family's own module past its seam.
+- **Sizes** (release env, `index.html`, gzip -6). P11.1a's `all` built here: 4,141,645 / 1,415,680.
+
+  | Runtime (`PUBLIC_IE_FAMILIES`) | Raw B | Gzip B | vs `all` | Budget B |
+  |---|---|---|---|---|
+  | `lines` (`all`) | 4,130,290 | 1,411,903 | — (−0.27 % vs P11.1a) | 1,440,127 |
+  | `lines` (`slot`, P11.1c) | 3,778,566 | 1,295,481 | −8.2 % | 1,321,383 |
+  | `match3` | 3,801,955 | 1,303,854 | −7.7 % | 1,329,905 |
+  | `arcade` | 4,072,059 | 1,392,424 | −1.4 % | 1,420,269 |
+  | `card` | 3,814,275 | 1,308,154 | −7.3 % | 1,334,318 |
 
 **Card C3 — playable end to end (built 2026-10-28; in review).** [card-games.md](../design/card-games.md)
 §12's C3 row, in one PR; what it settled where §5–§9 were silent is in the design's new §5.4.
@@ -2206,6 +2276,16 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 ## Recent changes
 
+- 2026-10-28 — **P11.1b engine half: the family default and the gate.** Builds now default to the baked config's
+  family. The runtime drops each left-out family's Flow vocabulary and seeds (`familyFlow.ts`,
+  `vocabularyIn`, `@__PURE__` registries and builders). Adds `check:family-runtimes`
+  (`scripts/check-family-runtime.mjs`, `scripts/family-runtime-budget.json`) and
+  `check-family-seams.mjs`. Gzip sizes: slot 1,295,481 B, match3 1,303,854 B, arcade 1,392,424 B,
+  card 1,308,154 B; `all` 1,411,903 B, −0.27 % against P11.1a. Detail above.
+- 2026-10-28 — **P11.1b pipeline half: four runtime releases.** `packages/constants-shared/runtimes.ts`;
+  the per-id release matrix and the rollback choice (`check:runtime-choice`); publish by family with
+  the `kind-family` refusal and the `lines` fallback (`runtimeChoice.ts`); the harness renders each
+  game on its own id; `check:game-app-deps`' `engine-rooms` rule. Detail above.
 - 2026-10-28 — **The `card-games` build agent** (owner, 2026-10-28) owns the card family end to end:
   `.claude/agents/card-games.md`, `docs/knowledge/families/card.md`, `owners.json` (`kind:card`,
   `tool:cards`; both named gaps closed).

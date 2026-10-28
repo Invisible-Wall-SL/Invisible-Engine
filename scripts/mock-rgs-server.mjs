@@ -32,6 +32,8 @@
  *   MIN_COUNT=8               scatter-pays floor (WIN_MODEL=scatter)
  *   FORCE_TRIGGER=1 · STACKED=1 · CASCADE=1 · MULTIPLIER=1   outcome/presentation forcing
  *   FORCE_RETRIGGER=1   the first free spin of a feature lands the trigger again (a retrigger)
+ *   EXPANDING_WILDS=WILD · GROWING_WILD=WILD   expanding / growing wilds by server name
+ *   FORCE_WILDS=1             every spin lands each of them (`mock-wild-rewrite.mjs`)
  *   WIN_X=10,20,40            the n-th base spin pays ≥ WIN_X[n] × the stake (`parseWinX`)
  *   BUY=1                     a TABLE game selling the default template's buy (`bonus`, 100×)
  *
@@ -45,6 +47,7 @@ import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 
 import { createPlatformJackpot } from './mock-platform-jackpot.mjs';
+import { createWildRewrite } from './mock-wild-rewrite.mjs';
 
 // ---------- pure game data (read-only, shared across instances) ----------
 
@@ -385,11 +388,17 @@ function hashStr(s) {
  * `opts.scatterWild` makes `SCAT` substitute too — the Book-of book, scatter AND wild
  * (`docs/design/book-feature.md` §4, owner decision 2: leading books substitute like any wild). It
  * never pays a line of its own: its pay is the scatter pay, so a line of books alone pays nothing here.
+ *
+ * `opts.landingWilds` names the expanding and growing wilds (`mock-wild-rewrite.mjs`): they
+ * substitute too, and count towards a leading run of wilds the `WILD` paytable prices.
  */
 export const evaluatePaylines = (reels, betPerLine, paylines, wild = null, opts = {}) => {
 	const wildPay = wild?.paytable ?? null;
+	const landingWild = (sym) => opts.landingWilds?.includes(sym) === true;
 	const isWild = (sym) =>
-		(wildPay !== null && sym === 'WILD') || (opts.scatterWild === true && sym === 'SCAT');
+		(wildPay !== null && sym === 'WILD') ||
+		(opts.scatterWild === true && sym === 'SCAT') ||
+		landingWild(sym);
 	const wins = [];
 	for (let p = 0; p < paylines.length; p++) {
 		const line = paylines[p];
@@ -404,7 +413,7 @@ export const evaluatePaylines = (reels, betPerLine, paylines, wild = null, opts 
 		}
 		let wildRun = 0;
 		for (const sym of seq) {
-			if (wildPay !== null && sym === 'WILD') wildRun++;
+			if (wildPay !== null && (sym === 'WILD' || landingWild(sym))) wildRun++;
 			else break;
 		}
 		let best = null;
@@ -1057,13 +1066,44 @@ export function createMockRgs(opts = {}) {
 	 * same list. Spread into each evaluator call below; a standalone caller that passes neither keeps
 	 * the captured seven and the captured Hot Fruits values (`poolOf` / `payRowOf`).
 	 */
+	/**
+	 * EXPANDING and GROWING WILDS (`opts.expandingWilds`, `opts.growingWild`, in server names): the
+	 * board rewrite between the landing and the count (`mock-wild-rewrite.mjs`). A lines game that
+	 * does not tumble only; absent ⇒ null ⇒ no extra draw anywhere. `FORCE_WILDS=1` lands every one
+	 * of them on every spin, for playtests.
+	 */
+	const wildRewrite = (() => {
+		if (!opts.expandingWilds && !opts.growingWild) return null;
+		if (winModel !== 'lines' || (opts.cascade ?? process.env.CASCADE === '1')) {
+			console.warn(
+				`[${label}] expanding and growing wilds need a lines game with no tumble — ignored`,
+			);
+			return null;
+		}
+		return createWildRewrite({
+			expandingWilds: opts.expandingWilds,
+			growingWild: opts.growingWild,
+			rowHeights,
+			rand: () => nextRand(),
+			pick: () => pickSymbol(),
+			protect: (cell) => cell === 'SCAT' || cell === triggerSymbol,
+			force: opts.forceWilds ?? process.env.FORCE_WILDS === '1',
+		});
+	})();
+	/** The feature wilds this instance deals that nothing else declares. */
+	const LANDING_WILDS = (wildRewrite?.names ?? []).filter((name) => !(name === 'WILD' && wild));
 	const evalOpts = {
 		pool: LINE_POOL,
 		symbolPaytable: opts.symbolPaytable ?? null,
 		...(scatterWild ? { scatterWild } : {}),
+		...(wildRewrite ? { landingWilds: wildRewrite.names } : {}),
 	};
 	/** Every symbol that substitutes on a line, as `config` and `spinStart` declare them. */
-	const WILD_SYMBOLS = [...(scatterWild ? ['SCAT'] : []), ...(wild ? ['WILD'] : [])];
+	const WILD_SYMBOLS = [
+		...(scatterWild ? ['SCAT'] : []),
+		...(wild ? ['WILD'] : []),
+		...LANDING_WILDS,
+	];
 
 	/**
 	 * The board vocabulary + the price list this instance ACTUALLY uses, for the `config` and
@@ -1353,6 +1393,9 @@ export function createMockRgs(opts = {}) {
 			return evaluateScatterPays(board, base, wild, { ...scatterPaysOpts, ...o });
 		return evaluatePaylines(board, base, paylines, wild, o);
 	};
+
+	/** The wild rewrite of one spin's dealt board (`wildRewrite`), or null on a game without it. */
+	const rewriteWilds = (dealt, freeSpins) => wildRewrite?.rewrite(dealt, { freeSpins }) ?? null;
 
 	/**
 	 * The cells a win list actually paid on, in the mock's own VISIBLE-grid coordinates (the client
@@ -1897,6 +1940,7 @@ export function createMockRgs(opts = {}) {
 					symbols: [
 						...DEALT_SYMBOLS,
 						...(wild ? ['WILD'] : []),
+						...LANDING_WILDS,
 						...(collectFixture ? [MULT_SYMBOL] : []),
 					],
 					// `rows` stays the BOUNDING BOX (the tallest column), which is what every existing
@@ -2100,9 +2144,9 @@ export function createMockRgs(opts = {}) {
 					const spinStart = {
 						event: 'spinStart',
 						context: {
-							symbols: wild ? [...DEALT_SYMBOLS, 'WILD'] : DEALT_SYMBOLS,
+							symbols: [...DEALT_SYMBOLS, ...(wild ? ['WILD'] : []), ...LANDING_WILDS],
 							symbolsPay: {
-								line: wild ? [...LINE_POOL, 'WILD'] : LINE_POOL,
+								line: [...LINE_POOL, ...(wild ? ['WILD'] : []), ...LANDING_WILDS],
 								scatter: scatterEnabled ? ['SCAT'] : [],
 							},
 							wildSymbols: WILD_SYMBOLS,
@@ -2127,8 +2171,12 @@ export function createMockRgs(opts = {}) {
 									: spinReels();
 						if (forceRetrigger && !game && !strips && pendingRound.bonus.played === 0)
 							forceTriggerSymbols(fsReels);
-						pendingRound.reels = fsReels;
 						const special = pendingRound.bonus.special;
+						// The host's own free spins land, expand and grow like a base spin; an imported
+						// mode and the Book-of special play by their own rules.
+						const fsRewritten = game || strips || special ? null : rewriteWilds(fsReels, true);
+						if (fsRewritten) fsRewritten.landed.forEach((reel, i) => (fsReels[i] = reel));
+						pendingRound.reels = fsReels;
 						// During the feature the special pays scatter-style too, as the book mock declares it.
 						events.push(
 							special
@@ -2144,6 +2192,7 @@ export function createMockRgs(opts = {}) {
 									}
 								: spinStart,
 						);
+						if (fsRewritten) events.push(...fsRewritten.events);
 						// `evaluatePayWins`, NOT a direct evaluator call: it routes through `payoutBaseFor`,
 						// so a free spin prices a win against the same per-model base as a base spin
 						// (per line / per way / whole bet) and `roundPays` it to whole cents there. Calling
@@ -2173,7 +2222,11 @@ export function createMockRgs(opts = {}) {
 										game,
 										bonusEvalOpts(pendingRound.bonus),
 									)
-								: evaluatePayWins(fsReels, pendingRound, bonusEvalOpts(pendingRound.bonus));
+								: evaluatePayWins(
+										fsRewritten?.board ?? fsReels,
+										pendingRound,
+										bonusEvalOpts(pendingRound.bonus),
+									);
 						// The SCAT pay is priced against the WHOLE stake and rounded at the wire — exactly
 						// as the base spin below does it, so the two paths cannot drift apart.
 						if (fsScat.win) fsWins.push(roundPays([fsScat.win])[0]);
@@ -2269,12 +2322,15 @@ export function createMockRgs(opts = {}) {
 					// fired. Not with a trigger symbol this game never deals, which the client has no art
 					// for; that round still enters the feature below.
 					const bought = pendingRound.isBuy;
-					const reels =
+					const triggered =
 						(forceTrigger || bought || hostFeature) && triggerDealt
 							? forceTriggerSymbols(dealt)
 							: dealt;
+					// Land → expand → grow: `reels` is the landed board, the wins are the final board's.
+					const rewritten = rewriteWilds(triggered, false);
+					const reels = rewritten?.landed ?? triggered;
 					pendingRound.reels = reels;
-					const lineWins = evaluatePayWins(reels, pendingRound);
+					const lineWins = evaluatePayWins(rewritten?.board ?? reels, pendingRound);
 					const scat = evaluateScatters(
 						reels,
 						pendingRound.baseTotal,
@@ -2287,6 +2343,7 @@ export function createMockRgs(opts = {}) {
 					pendingRound.win = totalWin;
 
 					events.push(spinStart);
+					if (rewritten) events.push(...rewritten.events);
 					for (const w of wins) events.push({ event: 'spinWin', context: w });
 
 					// FEATURE TRIGGER — the SCAT pay and the trigger are independent, as in the base
@@ -2520,6 +2577,21 @@ if (isMainModule) {
 		return value;
 	};
 	const winModel = envWinModel();
+	const envWilds = () => {
+		const reels = envInt('REELS') ?? DEFAULT_REELS;
+		const expanding = (process.env.EXPANDING_WILDS ?? '')
+			.split(',')
+			.map((n) => n.trim())
+			.filter(Boolean);
+		const growing = (process.env.GROWING_WILD ?? '').trim();
+		const inner = Array.from({ length: Math.max(0, reels - 2) }, (_unused, i) => i + 1);
+		return {
+			...(expanding.length
+				? { expandingWilds: { symbols: expanding.map((symbol) => ({ symbol, reels: inner })) } }
+				: {}),
+			...(growing ? { growingWild: { symbol: growing, reels: [Math.floor(reels / 2)] } } : {}),
+		};
+	};
 	// `CASCADE` and `STACKED` are deliberately NOT forwarded here: `createMockRgs` already reads both
 	// from the environment itself, and passing `cascade` EXPLICITLY would flip `cascadeIsDemo`
 	// (`opts.cascade ?? …` / `opts.cascade === undefined`) and make dead spins tumble on a game that
@@ -2538,6 +2610,9 @@ if (isMainModule) {
 		// `false` and `undefined` are the same answer to its `=== true` gate, so this is inert
 		// everywhere else.
 		multiplier: process.env.MULTIPLIER === '1',
+		// Expanding and growing wilds on the CLI, by server name (`WILD` is the game's `W`): the
+		// expanding ones on every reel but the first and last, the growing one on the centre reel.
+		...envWilds(),
 		// The default template's menu (`apps/lines/src/game/config.ts`), so a local game's BONUS card
 		// is sold at the price it shows. Off ⇒ a line-config game, as every previous CLI run was.
 		...(process.env.BUY === '1'

@@ -112,6 +112,22 @@ const expandBookColumnsChoreography: ChoreographyNode = seq(
 	effect('expandBookColumns', { symbol: trigger('symbol'), reels: trigger('reels') }),
 );
 
+/** `expandWild` — the awaited reel fill (effect; it plays its own clear cue). */
+const expandWildChoreography: ChoreographyNode = effect('expandWild', {
+	reel: trigger('reel'),
+	row: trigger('row'),
+	symbol: trigger('symbol'),
+	cells: trigger('cells'),
+	paid: trigger('paid'),
+});
+
+/** `growWild` — the awaited origin burst + outward copy (effect). */
+const growWildChoreography: ChoreographyNode = effect('growWild', {
+	origin: trigger('origin'),
+	symbol: trigger('symbol'),
+	cells: trigger('cells'),
+});
+
 /** `freeSpinTrigger` — scatter animation, the intro show + count set, then the counter show. */
 const freeSpinTriggerChoreography: ChoreographyNode = seq(
 	// animate scatters
@@ -216,6 +232,8 @@ export const LINES_FLOW_DOC: FlowDoc = {
 		{ event: 'setTotalWin', choreography: setTotalWinChoreography },
 		{ event: 'setExpandingSymbol', choreography: setExpandingSymbolChoreography },
 		{ event: 'expandBookColumns', choreography: expandBookColumnsChoreography },
+		{ event: 'expandWild', choreography: expandWildChoreography },
+		{ event: 'growWild', choreography: growWildChoreography },
 		{ event: 'freeSpinTrigger', choreography: freeSpinTriggerChoreography },
 		{ event: 'updateFreeSpin', choreography: updateFreeSpinChoreography },
 		{ event: 'freeSpinEnd', choreography: freeSpinEndChoreography },

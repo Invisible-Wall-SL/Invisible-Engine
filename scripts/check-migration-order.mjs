@@ -56,7 +56,7 @@ export function journalProblems(head, base, sqlExists = () => true) {
 	for (const e of baseEntries) {
 		if (!headTags.has(e.tag)) {
 			problems.push(
-				`${e.tag} is on the base but gone from this journal: never remove or rename an applied migration`,
+				`${e.tag} is on the base but gone from this journal: never remove or rename an applied migration (behind the base? merge it first)`,
 			);
 		}
 	}

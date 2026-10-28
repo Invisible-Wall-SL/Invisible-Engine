@@ -91,7 +91,7 @@ import { BOOK_OF_VOCAB } from './bookOf';
 import { CLUSTER_VOCAB } from './cluster';
 import { HOLD_AND_WIN_VOCAB } from './holdAndWin';
 import { HOLD_AND_WIN_BASE_CHOREO, HOLD_AND_WIN_FEATURE_CHOREO } from './holdAndWinChoreo';
-import { resolveTemplateId, UNREGISTERED_TEMPLATE_FALLBACK } from './registry';
+import { byTemplateId, resolveTemplateId, UNREGISTERED_TEMPLATE_FALLBACK } from './registry';
 import { SCATTER_VOCAB } from './scatter';
 import { WAYS_VOCAB } from './ways';
 
@@ -952,16 +952,16 @@ export const spinsModeGraph = (
 export const BOOK_OF_DRIVEN_SEED_LIBRARY: FunctionLibraryDoc = { version: 2, functions: [] };
 
 /** Every template that ships a starter flow, keyed by `templateId`. */
-export const DRIVEN_SEEDS: Readonly<Record<string, FlowDoc>> = {
-	[BOOK_OF_DRIVEN_SEED_DOC.templateId]: BOOK_OF_DRIVEN_SEED_DOC,
-	[WAYS_DRIVEN_SEED_DOC.templateId]: WAYS_DRIVEN_SEED_DOC,
-	[CLUSTER_DRIVEN_SEED_DOC.templateId]: CLUSTER_DRIVEN_SEED_DOC,
-	[SCATTER_DRIVEN_SEED_DOC.templateId]: SCATTER_DRIVEN_SEED_DOC,
-	[HOLD_AND_WIN_DRIVEN_SEED_DOC.templateId]: HOLD_AND_WIN_DRIVEN_SEED_DOC,
-	[MATCH3_DRIVEN_SEED_DOC.templateId]: MATCH3_DRIVEN_SEED_DOC,
-	[ARCADE_DRIVEN_SEED_DOC.templateId]: ARCADE_DRIVEN_SEED_DOC,
-	[CARD_DRIVEN_SEED_DOC.templateId]: CARD_DRIVEN_SEED_DOC,
-};
+export const DRIVEN_SEEDS: Readonly<Record<string, FlowDoc>> = /* @__PURE__ */ byTemplateId([
+	BOOK_OF_DRIVEN_SEED_DOC,
+	WAYS_DRIVEN_SEED_DOC,
+	CLUSTER_DRIVEN_SEED_DOC,
+	SCATTER_DRIVEN_SEED_DOC,
+	HOLD_AND_WIN_DRIVEN_SEED_DOC,
+	MATCH3_DRIVEN_SEED_DOC,
+	ARCADE_DRIVEN_SEED_DOC,
+	CARD_DRIVEN_SEED_DOC,
+]);
 
 /**
  * Built-in kinds that ship no starter flow of their own, and the seed each one is scaffolded with —

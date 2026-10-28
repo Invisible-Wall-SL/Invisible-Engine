@@ -114,6 +114,29 @@ type BookEventExpandBookColumns = {
 	symbol: SymbolName;
 };
 
+// Expanding and growing wilds (`docs/design/expanding-and-growing-wilds.md` §3). After the `reveal`
+// and before the spin's `winInfo`: each expanding wild that landed fills its reel (`cells` = the
+// cells that become `symbol`, never the origin or a cell left alone), then at most one growing wild
+// copies itself onto `cells`, in that order. Rows are engine rows, like `winInfo`'s. `paid`: a paying
+// line of the spin crosses that reel.
+type BookEventExpandWild = {
+	index: number;
+	type: 'expandWild';
+	reel: number;
+	row: number;
+	symbol: SymbolName;
+	cells: Position[];
+	paid: boolean;
+};
+
+type BookEventGrowWild = {
+	index: number;
+	type: 'growWild';
+	origin: Position;
+	symbol: SymbolName;
+	cells: Position[];
+};
+
 // --- cascade (tumble) --------------------------------------------------------------------------
 // The three events a tumbling game adds. They are DECLARED here — in the shared runtime's union —
 // rather than in a separate game, because `_runtime/lines` is the one bundle every online game runs;
@@ -359,6 +382,8 @@ export type BookEvent =
 	| BookEventFreeSpinEnd
 	| BookEventSetExpandingSymbol
 	| BookEventExpandBookColumns
+	| BookEventExpandWild
+	| BookEventGrowWild
 	| BookEventFreeSpinRetrigger
 	| BookEventHwLuckySpin
 	| BookEventHwMeterUpdate

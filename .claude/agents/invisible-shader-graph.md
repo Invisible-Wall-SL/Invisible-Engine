@@ -45,7 +45,11 @@ You are the developer for **Invisible Shader Graph**.
     `SCREEN_SHELL_NAMES`); the `screens` input node and the `efxScreenFrom` / `To` / `Reverse`
     header helpers (neutral in the element and particle headers); `TRANSITION_*` / `POST_*` budgets
     in `compile.ts`; held by the `screens` sheet of `shader-compile`
-    (`tools/fx-spike/shaderScreens.entry.ts`).
+    (`tools/fx-spike/shaderScreens.entry.ts`); the runtime `pixi-svelte/screenFx`
+    (`stageFilters.ts`: the one owner of `app.stage.filters`, slots transition → post FX → camera;
+    `screenTransition.ts`: `playScreenTransition`, the still, both routes, the fallbacks), held by
+    fx-spike `screen-fx` and `camera-effects`; the route rule `screenTransitionRoute` in
+    `screenShell.ts`.
   - Particle materials (step 8d, `docs/design/shader-graph-particles.md`):
     `packages/constants-shared/particleShell.ts` (the particle vertex shader, `PARTICLE_HEADER`,
     `PARTICLE_SHELL_NAMES`, `particleShellSource`: a compiled body made a particle fragment); the

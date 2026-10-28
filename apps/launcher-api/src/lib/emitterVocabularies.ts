@@ -1337,6 +1337,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'expandWild',
+				group: 'Effect',
+			},
+			{
+				name: 'growWild',
+				group: 'Effect',
+			},
+			{
 				name: 'setFreeSpinCounterTotal',
 				group: 'Effect',
 			},
@@ -1502,6 +1510,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'expandBookColumns',
+			},
+			{
+				type: 'expandWild',
+			},
+			{
+				type: 'growWild',
 			},
 			{
 				type: 'freeSpinRetrigger',
@@ -2925,6 +2939,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'expandWild',
+				group: 'Effect',
+			},
+			{
+				name: 'growWild',
+				group: 'Effect',
+			},
+			{
 				name: 'setFreeSpinCounterTotal',
 				group: 'Effect',
 			},
@@ -3090,6 +3112,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'expandBookColumns',
+			},
+			{
+				type: 'expandWild',
+			},
+			{
+				type: 'growWild',
 			},
 			{
 				type: 'freeSpinRetrigger',
@@ -4513,6 +4541,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'expandWild',
+				group: 'Effect',
+			},
+			{
+				name: 'growWild',
+				group: 'Effect',
+			},
+			{
 				name: 'setFreeSpinCounterTotal',
 				group: 'Effect',
 			},
@@ -4678,6 +4714,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'expandBookColumns',
+			},
+			{
+				type: 'expandWild',
+			},
+			{
+				type: 'growWild',
 			},
 			{
 				type: 'freeSpinRetrigger',
@@ -6101,6 +6143,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'expandWild',
+				group: 'Effect',
+			},
+			{
+				name: 'growWild',
+				group: 'Effect',
+			},
+			{
 				name: 'setFreeSpinCounterTotal',
 				group: 'Effect',
 			},
@@ -6266,6 +6316,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'expandBookColumns',
+			},
+			{
+				type: 'expandWild',
+			},
+			{
+				type: 'growWild',
 			},
 			{
 				type: 'freeSpinRetrigger',

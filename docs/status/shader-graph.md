@@ -23,7 +23,7 @@ merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) 
 check sets its caps. 8e (screen transitions and post FX) is decided
 ([design](../design/shader-graph-screens.md)) and being built as 8e.1–8e.8; 8e.1 (the screen
 shell and the Screens node) is merged (#1440); 8e.2 (the stage filter owner and the transition
-runtime) and 8e.3 (post FX on the stage) are in progress.
+runtime) is merged (#1454); 8e.3–8e.8 are in progress.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -288,7 +288,38 @@ runtime) and 8e.3 (post FX on the stage) are in progress.
   - **8e, screen transitions and post FX.** Decided 2026-10-28
     ([shader-graph-screens.md](../design/shader-graph-screens.md) §16: every recommendation, except
     that anti-aliasing under a stage effect is a project setting, off by default). Built as
-    8e.1–8e.8, one PR each (its §15). 8e.1 is merged; 8e.2 and 8e.3 are in progress.
+    8e.1–8e.8, one PR each (its §15). 8e.1 and 8e.2 are merged; 8e.3–8e.8 are in
+    progress (each built in phases on its own branch, merging in the order 8e.3, 8e.4, 8e.6, 8e.5,
+    8e.7, 8e.8: 8e.5 proves the ship chain end to end only once 8e.4 and 8e.6 put `transitionCue`
+    and `postFx` through the layout reader, which today drops them).
+    - **8e.2, the stage filter owner and the transition runtime.** Merged (#1454, 2026-10-28).
+      Nothing calls it in a game yet (8e.4).
+      - **The owner** (`pixi-svelte/screenFx` `stageFilters.ts`). One owner for `app.stage.filters`
+        and `filterArea`, slots in the order transition → post FX → camera; a foreign stage filter
+        stays in front. The area is always the viewport under the stage transform, 1/256 px inside
+        it. At rest: no list, no area, no ticker. The post FX slot takes filters only;
+        `setStageFxAntialias(app, on)` gives every stage filter `'inherit'` or `'off'` (§16.10).
+      - **The chroma wobble** claims the camera slot instead of swapping the whole list;
+        `camera-effects` (new) holds 360 moments identical to a shot taken before the move.
+      - **The transition** (`screenTransition.ts`): `playScreenTransition(app, play, host)` →
+        `{ captured, done, end(), route, still, active }`, `waitForScreenTransition`,
+        `disposeScreenTransitions` (beside `disposeCameraEffects`). The still is taken at ticker
+        priority LOW+1 on `app.ticker`, just before the render, with only the owner's slots off;
+        sized to the frame's pixel grid, capped at 4096 px a side; its own texture, freed per
+        transition. One at a time; a real resize ends it; 50 ms–5 s.
+      - **Routes.** `screenTransitionRoute(effect)` in `constants-shared/screenShell.ts` is the one
+        rule (an exit graph reading no Screens helper → Out, else In); the runtime's
+        `screenTransitionKindRoute(kind)` calls it for custom kinds, plays a built-in exit Out and
+        falls back on any other built-in.
+      - **Never black, never stuck.** A missing kind, a refused body or an unlinked program fades
+        the still out; no WebGL, a lost context, a failed capture or a throw while starting cuts.
+        Every path frees the still and settles both promises.
+      - **Also fixed:** the screen header's `efxSample` read the edge texels as 0 (the right column
+        showed the old screen); and `breakApart` leaked its three `Graphics`' GPU buffers on every
+        break, in any Element FX (`destroy({ children: true, context: true })`).
+      - **Left, documented:** the still has no MSAA; nested render groups under a shake at capture
+        are offset in the still; the Out route reads progress a frame late; Out-route passes draw
+        at resolution 1 like every Element FX pass.
     - **8e.1, the screen shell and the Screens node.** Merged (#1440, 2026-10-28).
       - **One body conversion.** `constants-shared/shellBody.ts` (`shellBody`) is the conversion
         8d.1 wrote for the particle shell, moved, not copied; both shells call it. The particle
@@ -726,6 +757,22 @@ runtime) and 8e.3 (post FX on the stage) are in progress.
   the §10 caps (Open items #1).
 
 ## Recent changes
+- 2026-10-28 — **Step 8e.2: the stage filter owner and the transition runtime** (see "Current
+  state"). Merged (#1454): CI green; Current games 8 pass, 0 fail, 0 changed screens. After review
+  it also gained a pad uniform in the screen shell (`uScreenPad`), so a padded post FX no longer
+  shifts the still, and it watches resizes through the renderer's `prerender` runner.
+  - **Proof.** `screen-fx` (new) 78 claims on each of WebGL1 and WebGL2 (both routes, the
+    fallbacks and cuts including a throw while starting and a lost context, one at a time, resize,
+    the 4096 cap, the still's mapping at resolution 1, 1.5 and 2 and under pooled textures, a
+    transition under a camera zoom and shake, a crossfade under a post FX, 2,000 transitions with
+    GL objects unchanged after warm-up); `camera-effects` (new) 360/360 identical to the base shot;
+    `check:element-fx`, `particle-material`, compile fixture and `shader-compile` pass;
+    `shader-parity` identical except the `screens` sheet's edge pixels (the `efxSample` fix);
+    svelte-check at baseline; `check:all` 590/590. 33 mutations caught.
+  - **Review.** Nothing blocking. Fixed: a throw after the capture could stop the ticker with the
+    still on screen; a post FX area squashed the still (the area is now always the viewport); gate
+    gaps (breaks under the GL ledger, a lost context, a moving camera, a leaked tick); the capture
+    moved to `app.ticker`; same-size resizes; foreign filters kept in the still.
 - 2026-10-28 — **Step 8e.1: the screen shell and the Screens node** (see "Current state"). Merged
   (#1440): CI green; Current games 8 pass, 0 fail, 0 changed screens. Step 8e decided (#1434).
   - **Proof.** Compile fixture 230 (the node at every output and its neutral meanings, the

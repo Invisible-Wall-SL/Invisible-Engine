@@ -760,7 +760,12 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 		/engineRead: \(key\) => linesEngineReader\(key\) \?\? boardValue\(key\)/.test(runtime),
 	);
 	const registry = read('apps/lines/src/game/flowBoardEffects.ts');
-	check('9. the family registry covers every arcade action', /ARCADE_LOOP_ACTIONS/.test(registry));
+	check(
+		'9. the family registry covers every arcade action',
+		/flowBoardActions: readonly string\[\] = ARCADE_LOOP_ACTIONS/.test(
+			read('apps/lines/src/families/arcade.ts'),
+		) && /\.\.\.arcadeActions/.test(read('apps/lines/src/game/familyFlow.ts')),
+	);
 	const arcade = read('apps/lines/src/game/arcade.ts');
 	check(
 		'9. only <ArcadeStage /> starts the loop',

@@ -54,7 +54,7 @@ import {
 	toleranceFor,
 } from '../current-games/lib/compare.mjs';
 import { serveSnapshot, startTestServer, testServerTree } from '../current-games/lib/serve.mjs';
-import { buildWorkingTree } from '../current-games/lib/runtimes.mjs';
+import { buildWorkingTree, runtimeDirFor } from '../current-games/lib/runtimes.mjs';
 import { headlessShell } from '../playtest/headless-shell.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
@@ -185,15 +185,15 @@ const build = opt.build
 	? resolve(opt.build)
 	: (() => {
 			const cached = join(ROOT, '.cache/current-games/runtimes/working-tree');
-			if (opt.fresh || !existsSync(join(cached, 'index.html'))) {
+			if (opt.fresh || !existsSync(join(runtimeDirFor(cached, 'lines'), 'index.html'))) {
 				log('building the working-tree runtime (pnpm --filter lines build, release env)…');
-				buildWorkingTree(ROOT, join(ROOT, '.cache/current-games'));
+				buildWorkingTree(ROOT, join(ROOT, '.cache/current-games'), ['lines']);
 			} else {
 				console.warn(
 					`[win-parity] reusing the cached runtime at ${cached} — it may be stale; pass --fresh to rebuild`,
 				);
 			}
-			return cached;
+			return runtimeDirFor(cached, 'lines');
 		})();
 if (!existsSync(join(build, 'index.html'))) {
 	console.error(`no built runtime at ${build}`);

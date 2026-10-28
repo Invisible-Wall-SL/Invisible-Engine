@@ -298,6 +298,8 @@
 		"check:editor-instance-parity": "tsx --tsconfig tsconfig.scripts.json scripts/check-editor-instance-parity.ts",
 		"precheck:flow-publish-gate": "node scripts/ensure-svelte-kit.mjs",
 		"check:flow-publish-gate": "tsx --tsconfig tsconfig.scripts.json scripts/check-flow-publish-gate.ts",
+		"precheck:runtime-choice": "node scripts/ensure-svelte-kit.mjs",
+		"check:runtime-choice": "tsx --tsconfig tsconfig.scripts.json scripts/check-runtime-choice.ts",
 		"precheck:undo-history": "node scripts/ensure-svelte-kit.mjs",
 		"check:undo-history": "tsx --tsconfig tsconfig.scripts.json scripts/check-undo-history.ts",
 		"precheck:tool-launch-token": "node scripts/ensure-svelte-kit.mjs",
