@@ -707,6 +707,7 @@ code default, so the dashboard need not set it):
   memory-heavy, see [design/gpu-compressed-textures](design/gpu-compressed-textures.md)),
   `PAGE_WEBP` (default ON — near-lossless WebP pages), `SOUND_TRANSCODE` (default ON) +
   `SOUND_MAX_KBPS` (default 128).
+- **Ask the AI** (the chat on every tool's bar): `ANTHROPIC_API_KEY`; unset, the chat says it is not configured. The Atlas / Sheet Maker relay it with `ATLAS_TOOL_SIGNING_SECRET` / `SHEET_TOOL_SIGNING_SECRET` (already shared with each tool) to `LAUNCHER_URL` (theirs; code default `https://app.invisiblewall.org`).
 - **Localization:** `ANTHROPIC_API_KEY`, or `LOCALIZATION_LLM_BASE_URL` + `LOCALIZATION_LLM_API_KEY`
   (+ optional `LOCALIZATION_LLM_MODEL`) for an OpenAI-compatible provider.
 - **ComfyUI / RunPod:** `RUNPOD_API_KEY`, `RUNPOD_DATA_CENTER_ID`, `COMFY_VOLUME_POD_ID`,

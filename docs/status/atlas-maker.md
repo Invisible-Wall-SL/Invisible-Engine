@@ -117,6 +117,11 @@ Works today on `main` / live:
 _Nothing._
 
 ## Recent changes
+- 2026-10-27 — **Ask the AI on the bar.** The shared `iw_common/ask_ai.js` window (the twin of the
+  launcher's `$lib/AskAiPanel.svelte`) sits before Report bug; `POST /ask-ai` relays the question to
+  the launcher for the signed-in user (`iw_common/ask_ai.py`, `X-IW-Relay` token) and streams the
+  answer back. Needs a signed launch: a legacy/open session gets a 403. See
+  [launcher status](launcher.md) (Ask the AI).
 - 2026-10-07 — **`?card=<id>` opens a blueprint's card editor.** Used by the launcher's
   Pipeline Changes Catalogue tab (`/atlas?card=<id>` re-launches and forwards it); `card-editor.js`
   opens the editor once the page is loaded and removes the param, so a reload does not reopen it.

@@ -948,5 +948,10 @@ const TOOL_DOC_SLUG: Record<string, string> = {
  * full page behind the auth gate (see `src/routes/(app)/docs/[slug]`).
  */
 export function toolDocPath(id: string): string {
-	return `docs/${TOOL_DOC_SLUG[id] ?? id}`;
+	return `docs/${toolDocSlug(id)}`;
+}
+
+/** The `docs/tools/<slug>.md` a tool's guide lives at. */
+export function toolDocSlug(id: string): string {
+	return TOOL_DOC_SLUG[id] ?? id;
 }

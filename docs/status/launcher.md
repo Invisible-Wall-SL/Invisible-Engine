@@ -18,6 +18,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - **Costs** — `/admin` → Costs reads RunPod, Railway, Cloudflare R2 and whichever LLM provider Localization bills at, plus **Anthropic (agents)** (Invisible Director's spend, from the `director_spend` ledger), cached 10 min, with euro figures at the ECB rate and a monthly history per calendar year. See [tools/launcher.md](../tools/launcher.md) §Admin → Costs.
 - **Client → project hierarchy** — accounts get scoped project access; R2 is **isolated per `<client>/<project>/`** (one unified repo per project shared by all tools). Home game cards are scoped to the active project (`games.project_key`; null = global). Projects soft-delete (restore / purge from /admin).
 - **Tool pages** — full-page, never iframes: each route runs an auth+role gate then renders in the launcher or `throw redirect(303,…)` (atlas/sheet with a signed launch token; rig/rigger to a static `view.html`). Shared `$lib/ToolTopBar.svelte` (`.iw-toolbar`) owns the chrome (see unified-tool-bar).
+- **Ask the AI** — every `ToolTopBar` has an **Ask the AI** button (left of Report bug) that opens `$lib/AskAiPanel.svelte`: a floating chat, dragged by its title bar, closed or minimized only by its own buttons. `POST /api/ask-ai` (`$lib/server/askAi.ts`) checks the asker has the tool, then streams Claude's answer as NDJSON. The system prompt is the tool's guide (`docs/tools/<slug>.md`, prompt-cached), its owning agents (`docs/knowledge/owners.json` + each `.claude/agents/<name>.md` description, written to `src/lib/tool-docs/agents.json` by `scripts/copy-tool-docs.mjs`) and the other tools the asker can open. Read-only, sees no project data. Chat per tool in sessionStorage, window position in localStorage. **Atlas + Sheet Maker:** their HTML bar mounts the vanilla twin `iw_common/ask_ai.js`, which posts to the tool's own `POST /ask-ai`; `iw_common/ask_ai.py` relays it to `/api/ask-ai` with an `X-IW-Relay` token (`{typ:"relay", aud:"launcher", iss, uid}`, 60 s, signed with the tool's `*_TOOL_SIGNING_SECRET`), verified by `$lib/server/toolRelay.ts`; the launcher re-reads the user and their access from Postgres, and a relay may only ask about its own tool. Contract: `check:tool-relay-token` + `services/atlas-tool/test_ask_ai.py` share one vector. **Rigger:** its static `view.html` loads `/shared/ask-ai.js` (generated from `iw_common/ask_ai.js` by `scripts/sync-ask-ai.mjs`; CI's `check-all` runs its `--check`) and posts to `/api/ask-ai` on the session, same-origin. Guide: [tools/launcher.md § Ask the AI](../tools/launcher.md).
 - **Loading screens** — ONE boot experience across stacks: the CRT boot splash (`$lib/BootSplash.svelte` · `static/shared/boot-splash.js` · `iw_common/splash.py`) covers a tool that is still opening; the dimmed overlay + card (`$lib/BusyOverlay.svelte`) covers loading INSIDE an open tool. See `docs/ui-inventory.md` §12.
 - **Tool registry + docs** — `roles.ts` is the single registry; the launcher **serves the guides** at authed `/docs/[slug]` (rendered from `docs/tools/*.md`). `/onboarding` walks each role through its tools with a guide link per tool and saves each user's local-tool install paths (`tool_installs`). CLAUDE.md rule 9 keeps a new/renamed tool from shipping doc-less.
 - **Desktop launcher support** — the `.exe` (separate `invisible-launcher` repo) is served over open routes `/api/launcher/download` + `/api/launcher/latest`; it self-updates via the manifest. `/api/launcher/projects` (session-scoped project sync, with a **derived** build profile from the project's game kind when none is stored, published under `<project>build` — `launcherProfile.ts`, `mockProtocol.ts`), `/api/launcher/game-upload` (the publish relay), `register-game`, `deploy-token` and `git-credentials` (`gamePublish`-gated).
@@ -26,6 +27,11 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - **UI** — full-bleed home: online tools grouped into **game-making stage sections** (Create / Assets / Build / Files & Reference / Pipeline) plus Games and Local tools, Invisible Wall emblem branding. Stages are the single source `TOOL_STAGES` in `roles.ts`; the top-bar switcher tints each tool icon by its stage accent.
 
 ## Open items / next
+- **Ask the AI: first live answers + the Rig Viewer.** Verified against a mock Messages API only
+  (streaming, drag, minimize, close, new chat, stop; Atlas and Sheet Maker through their relay; the
+  Rigger direct). Check real answers on the live key, and spend in Admin › Costs (it bills under
+  the org-wide Anthropic card, not the Director ledger). The Rig Viewer's `view.html` bar has no
+  Ask the AI button yet (mount `/shared/ask-ai.js` the way the Rigger does).
 0. **Key Vault: first live run (owner).** Release launcher v1.0.61 (Actions → Release in
    `invisible-launcher`), create the vault, fill the three *Vault access* rows and ⚙ Settings, **Set**
    each key's current value, then rotate one low-risk secret (*Pipeline CI token*) and one Cloudflare
@@ -80,6 +86,13 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-10-27 — **Ask the AI on every tool's bar.** A movable chat window (minimize / close only by
+  its buttons) where a new user asks how to do something in the open tool; Claude answers as the
+  tool's agent from the tool's guide. `$lib/AskAiPanel.svelte`, `/api/ask-ai`, `$lib/server/askAi.ts`;
+  the guide loader moved to `$lib/server/toolGuides.ts` (shared with `/docs/[slug]`). Same day, the
+  Atlas and Sheet Maker bars got it too, relayed through each tool's server (`iw_common/ask_ai.*`):
+  the launcher's session cookie never reaches their `*.up.railway.app` pages. Then the Rigger,
+  from `static/shared/ask-ai.js` (a synced copy of the same window).
 - 2026-10-27 — **Invisible Director: Sound, FX and Component Editor art adapters** (PLAN card 9H,
   ADR-0011, branch `claude/director-9h-sound-fx-components`, PR #1413, in review). A run can now
   re-theme a template's audio, its effect art and colours, and the art inside its components.

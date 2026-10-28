@@ -35,6 +35,9 @@ short-lived signed launch pass for you and the active project; the tool turns it
 for that project. Always open it from the launcher — see *Always open it from the launcher* under
 [Known gotchas / limitations](#known-gotchas--limitations).
 
+The top bar's **Ask the AI** (left of Report bug) opens a movable chat that answers how to do
+things here from this guide ([launcher guide § Ask the AI](launcher.md#ask-the-ai)).
+
 ## Architecture (how the pieces connect)
 
 ```
