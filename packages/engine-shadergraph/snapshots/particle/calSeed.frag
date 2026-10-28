@@ -40,6 +40,10 @@ vec4 efxParticleColor() { return vEfxColor; }
 float efxParticleWave() { return vEfxMap2.z; }
 float efxParticleOrder() { return vEfxMap2.w; }
 
+vec4 efxScreenFrom(vec2 px) { return efxSample(px); }
+vec4 efxScreenTo(vec2 px) { return efxSample(px); }
+float efxScreenReverse() { return 0.0; }
+
 // A number hashed to 0…1.
 float efxHash1(float n)
 {

@@ -40,6 +40,10 @@ vec4 efxParticleColor() { return vEfxColor; }
 float efxParticleWave() { return vEfxMap2.z; }
 float efxParticleOrder() { return vEfxMap2.w; }
 
+vec4 efxScreenFrom(vec2 px) { return efxSample(px); }
+vec4 efxScreenTo(vec2 px) { return efxSample(px); }
+float efxScreenReverse() { return 0.0; }
+
 // The point a turn of `a` radians about the element's centre draws at u (u in its unit space).
 vec2 efxRotateUv(vec2 u, float a)
 {

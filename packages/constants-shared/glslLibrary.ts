@@ -620,9 +620,11 @@ vec2 efxSparkle(vec2 q, float seed, float time)
 /**
  * The functions the pass header (`HEADER` in pixi-svelte's `elementFx/shaders.ts`) declares in front
  * of every pass, which a pass calls beside the library's entries. The particle shell's header
- * (`particleShell.ts`) declares the same, with their particle meanings. The last three are the
- * Particle node's: on an element a white, opaque colour and 0, 0. `check:element-fx` holds this list
- * to what both headers declare.
+ * (`particleShell.ts`) and the screen shell's (`screenShell.ts`) declare the same, with their
+ * particle and screen meanings. Three are the Particle node's: on an element a white, opaque colour
+ * and 0, 0. The last three are the Screens node's: on an element or a particle both screens are what
+ * `efxSample` reads, and Reverse 0. `check:element-fx` holds this list to what the three headers
+ * declare.
  */
 export const EFX_HEADER_FUNCTIONS = [
 	'efxPx',
@@ -637,11 +639,14 @@ export const EFX_HEADER_FUNCTIONS = [
 	'efxParticleColor',
 	'efxParticleWave',
 	'efxParticleOrder',
+	'efxScreenFrom',
+	'efxScreenTo',
+	'efxScreenReverse',
 ] as const;
 
 /**
  * What each of the pass header's functions takes and gives, as the header declares it: what a Custom
- * GLSL node's checker types a call by. `check:element-fx` holds each to both headers.
+ * GLSL node's checker types a call by. `check:element-fx` holds each to the three headers.
  */
 export const EFX_HEADER_SIGNATURES: Readonly<
 	Record<(typeof EFX_HEADER_FUNCTIONS)[number], string>
@@ -658,6 +663,9 @@ export const EFX_HEADER_SIGNATURES: Readonly<
 	efxParticleColor: 'vec4 efxParticleColor()',
 	efxParticleWave: 'float efxParticleWave()',
 	efxParticleOrder: 'float efxParticleOrder()',
+	efxScreenFrom: 'vec4 efxScreenFrom(vec2 px)',
+	efxScreenTo: 'vec4 efxScreenTo(vec2 px)',
+	efxScreenReverse: 'float efxScreenReverse()',
 };
 
 const live = (code: string): string =>

@@ -40,6 +40,10 @@ vec4 efxParticleColor() { return vEfxColor; }
 float efxParticleWave() { return vEfxMap2.z; }
 float efxParticleOrder() { return vEfxMap2.w; }
 
+vec4 efxScreenFrom(vec2 px) { return efxSample(px); }
+vec4 efxScreenTo(vec2 px) { return efxSample(px); }
+float efxScreenReverse() { return 0.0; }
+
 // How bright a colour reads.
 float efxLuma(vec3 rgb)
 {

@@ -40,6 +40,10 @@ vec4 efxParticleColor() { return vEfxColor; }
 float efxParticleWave() { return vEfxMap2.z; }
 float efxParticleOrder() { return vEfxMap2.w; }
 
+vec4 efxScreenFrom(vec2 px) { return efxSample(px); }
+vec4 efxScreenTo(vec2 px) { return efxSample(px); }
+float efxScreenReverse() { return 0.0; }
+
 // A shock ring `at` diagonals out and `width` element sizes wide, pushing outward by `amount`
 // element sizes: .xy where it reads the pixel at px, .z how far px is on the ring (0 off it, 1 at
 // its middle).

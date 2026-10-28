@@ -37,7 +37,7 @@
  * body's estimate (operators and calls counted, loops by their rounds: they are fixed code); a
  * pass-header helper 2; each statement times the rounds of the loops around it, each loop 2 a round
  * for its test and step. Reads of the element are each `efxSample` call (inside the library's
- * functions too) times its loops' rounds. Never 0. It counts both sides of every branch and every
+ * functions too), and each read of a screen (`efxScreenFrom`, `efxScreenTo`), times its loops' rounds. Never 0. It counts both sides of every branch and every
  * round a loop may run, so it reads 2–6× the hand-set cost of a library node doing the same work:
  * on the safe side. By it the hand-written built-in passes, as bodies, do up to 1,053 units
  * (Electrocute; Petrify 870, Sphericon 575). A node past {@link CUSTOM_GLSL_COST_MAX} units or
@@ -51,6 +51,7 @@ import {
 	EFX_HEADER_SIGNATURES,
 } from 'constants-shared/glslLibrary';
 import { PARTICLE_SHELL_NAMES } from 'constants-shared/particleShell';
+import { SCREEN_SHELL_NAMES } from 'constants-shared/screenShell';
 import type { NodeDef } from './nodes';
 import { isRecord, portDef, portSideIssues, portsOf, quoted } from './ports';
 import type {
@@ -158,8 +159,8 @@ const TEXTURE_READS = /^(texture|texel|textureCube|texture2D)/;
 
 /**
  * The effect's shader's own global names (the pass header's, its macros, the compiler's uniforms and
- * `main`, and every name the particle shell declares in either stage): no port or local takes one,
- * and no body reads one.
+ * `main`, every name the particle shell declares in either stage and every name the screen shell
+ * declares): no port or local takes one, and no body reads one.
  */
 const SHELL_NAMES = new Set([
 	...words(`
@@ -167,6 +168,7 @@ const SHELL_NAMES = new Set([
 		uSeed SHADER_NAME GL_ES GL_FRAGMENT_PRECISION_HIGH aPosition uOutputTexture
 	`),
 	...PARTICLE_SHELL_NAMES,
+	...SCREEN_SHELL_NAMES,
 ]);
 const isShellName = (name: string): boolean => SHELL_NAMES.has(name) || /^uP\d+$/.test(name);
 
@@ -576,9 +578,12 @@ const COUNTED_OPS: ReadonlySet<string> = words(
 );
 const libraryCosts = new Map<string, Cost>();
 
+/** The header's helpers that read a texture: the element, or either screen of a transition. */
+const HEADER_READS: ReadonlySet<string> = new Set(['efxSample', 'efxScreenFrom', 'efxScreenTo']);
+
 /** Library function `name`'s work and reads by the estimate (the header's helpers, a fixed 2). */
 function libraryCost(name: string, visiting: Set<string> = new Set()): Cost {
-	if (!Object.hasOwn(EFX_GLSL, name)) return { ops: 2, reads: name === 'efxSample' ? 1 : 0 };
+	if (!Object.hasOwn(EFX_GLSL, name)) return { ops: 2, reads: HEADER_READS.has(name) ? 1 : 0 };
 	const source = EFX_GLSL[name];
 	const key = `${name}\u0000${source}`;
 	const known = libraryCosts.get(key);
