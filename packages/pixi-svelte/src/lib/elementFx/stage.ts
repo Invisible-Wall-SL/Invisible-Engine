@@ -45,15 +45,17 @@ export function bindStagePostFxSlot(stage: Container, slot: StagePostFxSlot): ()
 
 /**
  * Play `app`'s post FX in its stage filter owner's post FX slot (`screenFx/stageFilters.ts`): after a
- * transition, before the camera, over the viewport. Returns the unbind, which empties the slot, so a
- * game torn down before its post FX stop leaves no filter on the stage.
+ * transition, before the camera, over the viewport. Returns the unbind, which empties the slot
+ * while this bind is still the stage's, so a game torn down before its post FX stop leaves no filter
+ * on the stage and a newer bind keeps its own.
  */
 export function bindStagePostFx(app: Application): () => void {
 	const slot = stagePostFxSlot(app);
 	const unbind = bindStagePostFxSlot(app.stage, slot);
 	return () => {
+		const current = slots.get(app.stage) === slot;
 		unbind();
-		slot(null);
+		if (current) slot(null);
 	};
 }
 

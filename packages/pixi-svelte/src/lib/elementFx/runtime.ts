@@ -608,7 +608,12 @@ const applyStageFilters = (runtime: Runtime, frames: Map<Effect, FxFrame>): void
 		});
 	}
 	const stack = ours.flatMap((e) => e.filters);
-	const padOf = () => stack.reduce((sum, f) => sum + (f.enabled ? f.padding : 0), 0) | 0;
+	publishStage(runtime, stack);
+	// Pixi pads the stage's whole list: the filters the owner keeps beside the post FX count too.
+	const mine = new Set(stack);
+	const others = (runtime.target.filters ?? NO_FILTERS).filter((f) => !mine.has(f));
+	const padOf = () =>
+		[...others, ...stack].reduce((sum, f) => sum + (f.enabled ? f.padding : 0), 0) | 0;
 	const first = stack.find((f) => f.enabled);
 	if (first && padOf() < STAGE_FX_EDGE_PAD) first.padding += STAGE_FX_EDGE_PAD - padOf();
 	const pad = padOf();
@@ -617,7 +622,6 @@ const applyStageFilters = (runtime: Runtime, frames: Map<Effect, FxFrame>): void
 		filter.set('uElement', 0, 0, 1, 1);
 		filter.set('uPad', pad);
 	}
-	publishStage(runtime, stack);
 };
 
 const finish = (runtime: Runtime, effect: Effect): void => {

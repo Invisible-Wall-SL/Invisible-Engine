@@ -3595,6 +3595,52 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 			'bindStagePostFx: a post FX lands on the stage through the owner, over the viewport; stopped, the stage is back at rest; unbound while one plays, the slot is emptied',
 		);
 		again.stop();
+
+		const older = bindStagePostFx(app as never);
+		const newer = bindStagePostFx(app as never);
+		const kept = playElementFx(stage, { kind: 'glow', repeat: 0 }, stageHost);
+		advance(16);
+		older();
+		const survives = stage.filters?.length === 1;
+		newer();
+		assert(
+			kept.active && survives && !stage.filters?.length,
+			'an older bind’s unbind leaves the newer bind’s post FX on the stage; the current one’s empties it',
+		);
+		kept.stop();
+
+		// The graph's uPad is the padding of the stage's whole list: a foreign filter the owner keeps
+		// in front, and Power-up's glow.
+		const foreign = new Filter({
+			glProgram: GlProgram.from({
+				vertex: 'void main(){}',
+				fragment: 'void main(){}',
+				name: 'foreign',
+			}),
+		});
+		foreign.padding = 3;
+		stage.filters = [foreign];
+		const bound = bindStagePostFx(app as never);
+		const power = playElementFx(stage, { kind: POWER, repeat: 0 }, stageHost);
+		advance(16 * 10);
+		const list = stage.filters ?? [];
+		const graph = list.find((f) => f instanceof SHADERS.ElementFxFilter) as
+			ElementFxFilter | undefined;
+		const total = list.reduce((sum, f) => sum + (f.enabled ? f.padding : 0), 0);
+		const glowPad = list[2]?.padding ?? 0;
+		assert(
+			power.active &&
+				list.length === 3 &&
+				list[0] === foreign &&
+				glowPad > 1 &&
+				graph?.efx.uPad === total &&
+				total === 3 + glowPad + (graph?.padding ?? 0),
+			`with Power-up, its graph's uPad is the padding of the stage's whole list, the foreign filter in front included (${String(graph?.efx.uPad)} = ${total})`,
+		);
+		power.stop();
+		bound();
+		stage.filters = null;
+		foreign.destroy();
 	}
 	{
 		const fxdebug = read('packages/pixi-svelte/src/lib/elementFx/stage.ts');
@@ -3684,6 +3730,18 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 				false,
 			).join() === 'later,a',
 			'an unregistered custom kind is kept (the runtime decides it); without the runtime’s judge, triggers and entries alone',
+		);
+		warnings.length = 0;
+		assert(
+			ids([
+				{ id: 'gone', kind: 'custom:deleted', trigger: 'always' },
+				{ id: 'b', kind: 'glow', trigger: 'always' },
+				{ id: 'c', kind: 'shine', trigger: 'always' },
+			]).join() === 'b,c' &&
+				warnings.length === 1 &&
+				warnings[0].includes('"gone"') &&
+				warnings[0].includes('not registered'),
+			'with the judge, an unregistered custom kind is dropped with a warning and takes no place: the next two play',
 		);
 		warnings.length = 0;
 		const doc = {
