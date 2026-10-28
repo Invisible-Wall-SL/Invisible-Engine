@@ -12,6 +12,18 @@ export const LEAD_AGENTS: Readonly<Record<RunKind, string>> = {
 	create: 'coordinator',
 	repair: 'game-doctor',
 };
+/**
+ * Deploy skew: a worker from before repair runs would drive a `kind = 'repair'` row as a create run
+ * (the coordinator, the create steps). It cannot be changed, so the launcher refuses to START a
+ * repair run unless a worker that knows the kind has said so lately: every sweep of a new worker
+ * writes this app setting, at most once a minute. An old worker never writes it, and a rolled-back
+ * one stops refreshing it, so the launcher stops starting repair runs within `WORKER_BEAT_MAX_AGE_MS`.
+ */
+export const WORKER_KINDS_KEY = 'DIRECTOR_WORKER_KINDS';
+export const WORKER_KINDS = 'create,repair';
+export const WORKER_BEAT_EVERY_MS = 45_000;
+export const WORKER_BEAT_MAX_AGE_MS = 5 * 60_000;
+
 export const leadOf = (kind: RunKind): string => LEAD_AGENTS[kind];
 
 /** The agents a repair run may give a task to: the ones that write a project's content. */
@@ -99,22 +111,41 @@ export function playVerdict(status: string, result: unknown): PlayVerdict | null
 	return clean ? 'passed' : 'failed';
 }
 
+/** The draft plays of the current step, counted from their `director_draft_jobs` rows. */
+export interface PlayCounts {
+	/** Plays still queued (or running): nothing is known of them yet. */
+	open: number;
+	/** Plays that settled, cancelled ones left out: `passed + failed + unplayed`. */
+	requested: number;
+	passed: number;
+	failed: number;
+	unplayed: number;
+}
+
 /**
- * What the run's own records say, for `checkSubmission`. `plays` is what this step's plays settled
- * as (`playVerdict`), counted from the run's draft jobs queued since the step began; the checks
- * bind `fixed` and `verified` to it.
+ * What the step's plays say of the fix, derived by code and never taken from the doctor's claim
+ * (`RepairSubmission.verified` is overwritten with it): any play that passed is `played_pass`; else
+ * any that failed is `played_fail`; else `not_played` (no play settled, or only ones that never ran,
+ * `no_player` among them).
  */
+export function derivedVerified(plays: PlayCounts): Verified {
+	return plays.passed > 0 ? 'played_pass' : plays.failed > 0 ? 'played_fail' : 'not_played';
+}
+
+/** What the run's own records say, for `checkSubmission`. */
 export interface RepairFacts {
 	/** The step the run is in. */
 	step: string;
 	/** Writes by `builder` or `animator` that the launcher completed in this run. */
 	fixWrites: number;
-	plays: { requested: number; passed: number; failed: number; unplayed: number } | null;
+	plays: PlayCounts;
 }
 
 /**
- * Why a submission is refused, or null. Code, not the model's say-so: a fix needs the verify step
- * and an edit made by a writing agent; an escalation names a real pipeline area and a title.
+ * Why a submission is refused, or null. Code, not the model's say-so: a fix needs the verify step,
+ * an edit made by a writing agent and a play of the step that settled and did not fail; an
+ * escalation names a real pipeline area and a title. A fix whose plays never ran (no draft player)
+ * is allowed, as `not_played`, so the owner can still approve it knowing it was not played.
  */
 export function checkSubmission(s: RepairSubmission, facts: RepairFacts): string | null {
 	const escalating = s.outcome === 'escalate';
@@ -133,23 +164,17 @@ export function checkSubmission(s: RepairSubmission, facts: RepairFacts): string
 		if (facts.step !== 'verify') {
 			return `A fix is submitted from the verify step, not ${facts.step}: finish the fix, call run.request_checkpoint (step_done), then play it again.`;
 		}
-		if (s.verified === 'played_fail') {
-			return 'A play that failed is not a fix. Fix it again, or submit another outcome.';
-		}
 		if (facts.fixWrites === 0) {
 			return 'Nothing was changed in this run: no builder or animator write completed. Assign the fix first, or submit another outcome.';
 		}
-	}
-	if (facts.plays) {
-		const { requested, passed, failed } = facts.plays;
-		if (s.outcome === 'fixed' && requested === 0) {
-			return 'Play the draft again before concluding a fix.';
+		if (facts.plays.open > 0) {
+			return 'A play of this step is still running. End your turn: you are told, with its report, when it settles. Then conclude.';
 		}
-		if (s.verified === 'played_pass' && passed === 0) {
-			return 'verified says played_pass, but no play of this step passed.';
+		if (facts.plays.requested === 0) {
+			return 'Play the draft again before concluding a fix: request a draft, play it, and wait for the report.';
 		}
-		if (s.verified === 'played_fail' && failed === 0) {
-			return 'verified says played_fail, but no play of this step failed.';
+		if (derivedVerified(facts.plays) === 'played_fail') {
+			return 'A play of this step failed and none passed, so this is not a fix. Fix it again and play it again, or submit another outcome.';
 		}
 	}
 	return null;

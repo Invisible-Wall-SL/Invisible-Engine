@@ -201,6 +201,7 @@ const PROJECTS = new Map<string, Proj>([
 	['tpl-bug', { client: 'acme', gameType: 'lines', template: true }],
 	['away', { client: 'other', gameType: 'lines', template: false }],
 	['gems', { client: 'acme', gameType: 'match3', template: false }],
+	['noconf', { client: 'acme', gameType: 'lines', template: false }],
 ]);
 const PUBLISHED = new Set(['hw', 'lines-sample', 'other-game']);
 const CLIENTS = new Set(['acme', 'other']);
@@ -440,7 +441,10 @@ let raceLiveRun = false;
 const LIVE = ['draft', 'running', 'waiting', 'paused', 'stopping'];
 const liveOn = (projectKey: string) =>
 	[...RUNS.values()].find((r) => r.projectKey === projectKey && LIVE.includes(r.status)) ?? null;
+/** Whether a worker that knows repair runs has swept lately (`workerKnowsRepair`). */
+let workerFresh = true;
 fake('lib/server/director/store.ts', {
+	workerKnowsRepair: async () => workerFresh,
 	liveRunOnProject: async (projectKey: string) => liveOn(projectKey),
 	insertRepairRun: async (row: Record<string, unknown>) => {
 		if (RUNS.has(row.id as string)) return 'exists';
@@ -451,8 +455,8 @@ fake('lib/server/director/store.ts', {
 				...(row as object),
 				kind: 'repair',
 				templateProjectKey: row.projectKey,
-				templateConfigEtag: row.configEtag,
-				projectConfigEtag: row.configEtag,
+				templateConfigEtag: row.templateConfigEtag,
+				projectConfigEtag: row.projectConfigEtag,
 				startingPointJson: {},
 				checkpointsJson: {},
 				budgetCapUsd: null,
@@ -2828,6 +2832,7 @@ console.log('game repair runs');
 	game(75, { kind: 'pipeline', projectKey: null });
 	game(76, { status: 'working' });
 	game(77, { projectKey: 'gems' });
+	game(78, { projectKey: 'noconf' });
 	const repair = (user: User, bug: unknown, requestId = 'rep-0001') =>
 		create(user, { requestId, bug });
 	const gone = await repair(TRIAGER, 999);
@@ -2902,6 +2907,22 @@ console.log('game repair runs');
 		],
 		['broken', true, true, {}, 'triager', 'slot'],
 	);
+	// A project with no stored Game Config can still be repaired (ADR-0010 owner decision 2): the
+	// template side records NO_CONFIG, the project side stays null, and both guards of request_draft
+	// (a recorded template ETag; the live read equal to the project's) hold.
+	const bare = await repair(TRIAGER, 78, 'rep-bare1');
+	const bareRow = RUNS.get((bare.body.run as { id: string }).id)!;
+	check(
+		'a project with no Game Config: the run records NO_CONFIG and a null project ETag',
+		[bare.status, bareRow.templateConfigEtag, bareRow.projectConfigEtag],
+		[201, 'none', null],
+	);
+	check(
+		'...so request_draft neither calls the math unproven nor drifted',
+		[bareRow.templateConfigEtag === null, bareRow.projectConfigEtag !== null],
+		[false, false],
+	);
+	bareRow.status = 'stopped';
 	const again = await repair(TRIAGER, 70);
 	check(
 		'the same request id answers the same run (200, replayed)',
@@ -2933,6 +2954,24 @@ console.log('game repair runs');
 
 	// Start: a repair run is priced from its own profiles, and the cap it gets is the repair cap.
 	const live = RUNS.get((second.body.run as { id: string }).id)!;
+	workerFresh = false;
+	const stale = await act(TRIAGER, live.id, { action: 'start', requestId: 'start-rep-0' });
+	check(
+		'a repair run is not started while no worker that knows the kind has swept lately',
+		[stale.status, stale.body.error],
+		[409, 'worker_outdated'],
+	);
+	workerFresh = true;
+	const profiles = runsMod.ESTIMATE_PROFILES;
+	const pricedModel = profiles.repair.perPass[0].model;
+	profiles.repair.perPass[0].model = 'claude-unpriced-model';
+	const unpriced = await act(TRIAGER, live.id, { action: 'start', requestId: 'start-rep-00' });
+	profiles.repair.perPass[0].model = pricedModel;
+	check(
+		'...and a model with no price is a 409 estimate_unpriced, not a 500',
+		[unpriced.status, unpriced.body.error],
+		[409, 'estimate_unpriced'],
+	);
 	const started = await act(TRIAGER, live.id, { action: 'start', requestId: 'start-rep-1' });
 	check('a repair run starts with no template estimate or project copy', started.status, 200);
 

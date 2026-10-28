@@ -1,7 +1,7 @@
 import type { BetaContentBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { Sql, TransactionSql } from 'postgres';
 import { WAKING_KINDS, type ClaimedRun } from './lease.ts';
-import { playVerdict, type RepairSubmission } from './repair.ts';
+import { playVerdict, type PlayCounts, type RepairSubmission } from './repair.ts';
 import type { AnalystOutput } from './mockups/schema.ts';
 import type { BilledResponse } from './mockups/vision.ts';
 import {
@@ -357,23 +357,26 @@ export async function submittedRepair(db: Db, runId: string): Promise<RepairSubm
 }
 
 /**
- * The run's draft plays (ADR-0010) queued since it entered `step`, counted by what they settled as.
- * The step began at the run's latest `run_status` into it; a play queued before, in an earlier
- * step, proves nothing about this one.
+ * The run's draft plays (ADR-0010) queued since it ENTERED `step`, counted by what they settled as.
+ * The step began at the latest transition into it from another step: a pause and resume inside the
+ * step moves nothing, and a play from an earlier step proves nothing about this one. Queued plays
+ * are `open`; they are in no other count.
  */
-export async function playsOfStep(
-	db: Db,
-	runId: string,
-	step: string,
-): Promise<{ requested: number; passed: number; failed: number; unplayed: number }> {
+export async function playsOfStep(db: Db, runId: string, step: string): Promise<PlayCounts> {
 	const [since] = await db<{ at: Date | null }[]>`
 		select max(at) as at from director_events
-		where run_id = ${runId} and kind = 'run_status' and payload_json->'to'->>'step' = ${step}`;
+		where run_id = ${runId} and kind = 'run_status'
+			and payload_json->'to'->>'step' = ${step}
+			and payload_json->'from'->>'step' is distinct from ${step}`;
 	const rows = await db<{ status: string; result: unknown }[]>`
 		select status, result from director_draft_jobs
 		where run_id = ${runId} and queued_at >= ${since?.at ?? new Date(0)}`;
-	const counts = { requested: 0, passed: 0, failed: 0, unplayed: 0 };
+	const counts: PlayCounts = { open: 0, requested: 0, passed: 0, failed: 0, unplayed: 0 };
 	for (const row of rows) {
+		if (row.status === 'queued') {
+			counts.open++;
+			continue;
+		}
 		const verdict = playVerdict(row.status, row.result);
 		if (verdict === null) continue;
 		counts.requested++;

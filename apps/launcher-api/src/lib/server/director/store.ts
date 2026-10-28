@@ -1,8 +1,14 @@
 import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import { getDb } from '../db';
 import { r2SlugSql, type Queryer } from '../projectKeyLock';
+import {
+	WORKER_BEAT_MAX_AGE_MS,
+	WORKER_KINDS,
+	WORKER_KINDS_KEY,
+} from '../../../../../../services/director-worker/src/repair';
 import type { PackFamily } from '../../../../../../services/director-worker/src/familyPack';
 import {
+	appSettings,
 	directorAtlasJobs,
 	directorBlueprintTimings,
 	directorDraftJobs,
@@ -554,12 +560,30 @@ export interface NewRepairRun {
 	bugNumber: number;
 	/** The game family whose pack the run's agents read, frozen from the project's kind. */
 	family: NewRun['family'];
-	/** The project's config ETag, recorded as BOTH of the run's math-lock ETags (ADR-0012 §1): the
-	 *  project is its own reference, so any Game Config save during the run reads as drift. */
-	configEtag: string | null;
+	/** The run's math lock (ADR-0012 §1): the project is its own reference, so the template ETag is
+	 *  its config's ETag now, or `NO_CONFIG` when it has none (`templateConfigRecord`), and the
+	 *  project ETag is the live one, null with no config: any save during the run reads as drift. */
+	templateConfigEtag: string | null;
+	projectConfigEtag: string | null;
 }
 
 const LIVE_STATUSES = ['draft', 'running', 'waiting', 'paused', 'stopping'] as const;
+
+/**
+ * Whether a worker that knows repair runs has swept lately (`WORKER_KINDS_KEY`): a repair run is
+ * started only then, because a worker from before them would drive it as a create run.
+ */
+export async function workerKnowsRepair(): Promise<boolean> {
+	const [row] = await getDb()
+		.select({ value: appSettings.value, updatedAt: appSettings.updatedAt })
+		.from(appSettings)
+		.where(eq(appSettings.key, WORKER_KINDS_KEY));
+	return (
+		row !== undefined &&
+		row.value === WORKER_KINDS &&
+		Date.now() - row.updatedAt.getTime() < WORKER_BEAT_MAX_AGE_MS
+	);
+}
 
 /** The live run on a project, of either kind: at most one (the partial unique index). */
 export async function liveRunOnProject(projectKey: string): Promise<DirectorRun | null> {
@@ -596,8 +620,8 @@ export async function insertRepairRun(
 				ownerUserId: row.ownerUserId,
 				bugNumber: row.bugNumber,
 				family: row.family,
-				templateConfigEtag: row.configEtag,
-				projectConfigEtag: row.configEtag,
+				templateConfigEtag: row.templateConfigEtag,
+				projectConfigEtag: row.projectConfigEtag,
 				startingPointJson: {},
 				checkpointsJson: {},
 				status: 'draft',

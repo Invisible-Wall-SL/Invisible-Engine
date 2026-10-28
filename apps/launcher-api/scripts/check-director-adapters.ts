@@ -6797,6 +6797,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	for (const r of [
 		run('qd1', { projectKey: 'dfx', ...proven }),
 		run('qd2', { projectKey: 'dfx', ...proven }),
+		run('qd-none', { projectKey: 'draft', templateConfigEtag: 'none', projectConfigEtag: null }),
 		run('qd-null', { projectKey: 'dfx', templateConfigEtag: null, projectConfigEtag: '"cfg1"' }),
 		run('qd-drift', {
 			projectKey: 'dfx',
@@ -7164,6 +7165,12 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			refusedOp('build', 'publish_draft')?.id,
 		],
 		[null, null, 'publish'],
+	);
+	const noConfig = await qa('qd-none', 'request_draft');
+	check(
+		'a repair run on a project with no Game Config (NO_CONFIG, null) is not refused as unproven or drifted',
+		['math_unproven', 'config_drifted'].includes(String(noConfig.body.error)),
+		false,
 	);
 }
 

@@ -71,6 +71,7 @@
  * 33. a repair's verdict is bound to the draft plays of its verify step (ADR-0012 §2): a passing
  *     play backs played_pass, a no_player settle only not_played, a play from an earlier step counts
  *     for nothing;
+ * 34. a sweep records, for the launcher, that this worker knows repair runs;
  * 32. a repair run moves its game bug: Open → Working on at start (the status it found stored),
  *     restored on stop or a no-fix outcome unless a person changed it, left Working on by a fix.
  */
@@ -88,6 +89,7 @@ import { loadFamilyPacks } from '../src/families.ts';
 import { driveRun, MAX_FAILURES, type DriverDeps } from '../src/driver.ts';
 import type { AdapterResult, AdapterSpec, Launcher } from '../src/launcher.ts';
 import { claimRun, deferLease } from '../src/lease.ts';
+import { WORKER_KINDS, WORKER_KINDS_KEY } from '../src/repair.ts';
 import { PartialResponse, toolName, type ModelTransport } from '../src/model.ts';
 import type { VisionTransport } from '../src/mockups/vision.ts';
 import { pricingSource } from '../src/pricing.ts';
@@ -190,7 +192,6 @@ const SPECS: AdapterSpec[] = [
 		description: "The run's bug.",
 		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 		write: false,
-		untrusted: true,
 	},
 	{
 		id: 'bugs.file_pipeline_bug',
@@ -204,7 +205,6 @@ const SPECS: AdapterSpec[] = [
 		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 		write: false,
 		image: true,
-		untrusted: true,
 	},
 	{
 		id: 'bugs.escalate_game_bug',
@@ -2428,6 +2428,7 @@ try {
 		const verifying = async (
 			plays: { status: string; result: unknown; before?: boolean }[],
 			verified: string,
+			pausedInside = false,
 		) => {
 			const n = await newBug();
 			const id = await newRun({ status: 'running', step: 'verify', repairBug: n });
@@ -2436,6 +2437,22 @@ try {
 			await sql`insert into director_events (run_id, agent, kind, at, payload_json)
 				values (${id}, 'worker', 'run_status', now() - interval '1 minute',
 					${sql.json({ to: { status: 'running', step: 'verify', waitingOn: null } })})`;
+			if (pausedInside) {
+				// A pause and a resume inside the verify step, after the plays: the step did not restart.
+				for (const cause of ['pause', 'resume']) {
+					await sql`insert into director_events (run_id, agent, kind, at, payload_json)
+						values (${id}, 'worker', 'run_status', now() - interval '3 seconds',
+							${sql.json({
+								from: { status: 'running', step: 'verify', waitingOn: null },
+								to: {
+									status: cause === 'pause' ? 'paused' : 'running',
+									step: 'verify',
+									waitingOn: null,
+								},
+								cause,
+							})})`;
+				}
+			}
 			for (const [at, play] of plays.entries()) {
 				await sql`insert into director_draft_jobs (job_ref, run_id, agent, draft_id, status, result, queued_at, done_at)
 					values (${`dp_${String(at).padStart(4, '0')}${id
@@ -2453,9 +2470,13 @@ try {
 			]);
 			await drive(id, deps(model.transport, fakeLauncher().launcher));
 			const result = JSON.stringify((await messages(id, 'game-doctor')).at(2)?.content ?? '');
+			const [stored] = await events(id, 'activity').then((rows) =>
+				rows.filter((e) => e.payload.type === 'repair_submitted'),
+			);
 			return {
 				status: (await runRow(id)).status,
 				refused: result.includes('Refused') ? result : '',
+				verified: stored?.payload.verified ?? null,
 			};
 		};
 		const back = async (
@@ -2473,17 +2494,47 @@ try {
 			await back([{ status: 'failed', result: noPlayer }], 'not_played'),
 			'waiting',
 		);
-		const claimed = await verifying([{ status: 'failed', result: noPlayer }], 'played_pass');
+		const unplayed = await verifying([{ status: 'failed', result: noPlayer }], 'played_pass');
 		check(
-			'…but never played_pass: nothing passed, the run keeps going',
-			[claimed.status, claimed.refused.includes('no play of this step passed')],
+			'what is stored as verified is what the plays settled as, not the claim: not_played',
+			[unplayed.status, unplayed.verified],
+			['waiting', 'not_played'],
+		);
+		const passed = await verifying([{ status: 'finished', result: passing }], 'not_played');
+		check(
+			'...a pass is stored as played_pass whatever the doctor said',
+			[passed.status, passed.verified],
+			['waiting', 'played_pass'],
+		);
+		const stalled = await verifying([{ status: 'finished', result: failing }], 'not_played');
+		check(
+			'a stalled play, then fixed + not_played, is refused: the play failed',
+			[stalled.status, stalled.refused.includes('is not a fix')],
 			['running', true],
 		);
-		const failed = await verifying([{ status: 'finished', result: failing }], 'played_pass');
+		const claimedPass = await verifying([{ status: 'finished', result: failing }], 'played_pass');
 		check(
-			'a play that missed its screens is a fail, not a pass',
-			[failed.status, failed.refused.includes('no play of this step passed')],
+			'...and so is fixed + played_pass over a failed play',
+			[claimedPass.status, claimedPass.refused.includes('is not a fix')],
 			['running', true],
+		);
+		const queued = await verifying(
+			[
+				{ status: 'finished', result: passing },
+				{ status: 'queued', result: null },
+			],
+			'played_pass',
+		);
+		check(
+			'a fix while a play of the step is still queued is refused: end the turn and wait',
+			[queued.status, queued.refused.includes('still running')],
+			['running', true],
+		);
+		const paused = await verifying([{ status: 'finished', result: passing }], 'played_pass', true);
+		check(
+			'a pause and resume inside the verify step does not forget its plays',
+			paused.status,
+			'waiting',
 		);
 		const none = await verifying([], 'not_played');
 		check(
@@ -2531,6 +2582,23 @@ try {
 		check(`${family}: zero model calls`, model.calls(), 0);
 		check(`${family}: zero vision calls`, visionCalls, 0);
 		check(`${family}: no adapter call was sent`, gate.sent, []);
+	}
+	// ── 34. The worker tells the launcher it knows repair runs ────────────────
+	console.log('34. a sweep records that this worker knows repair runs (deploy skew)');
+	{
+		await sql`delete from app_settings where key = ${WORKER_KINDS_KEY}`;
+		const wake = await startWake(sql, 'prove-beat', async () => {}, 60_000);
+		await sleep(400);
+		await wake.stop();
+		const [row] = await sql<{ value: string; fresh: boolean }[]>`
+			select value, updated_at > now() - interval '1 minute' as fresh
+			from app_settings where key = ${WORKER_KINDS_KEY}`;
+		check(
+			'the first sweep writes the capability, fresh, for the launcher to read',
+			[row?.value, row?.fresh],
+			[WORKER_KINDS, true],
+		);
+		await sql`delete from app_settings where key = ${WORKER_KINDS_KEY}`;
 	}
 } finally {
 	await sql`delete from director_spend where run_id like ${`${tag}-%`}`;

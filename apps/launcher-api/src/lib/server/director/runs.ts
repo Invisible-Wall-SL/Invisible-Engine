@@ -95,6 +95,7 @@ import {
 	insertRepairRun,
 	lastEventId,
 	liveRunOnProject,
+	workerKnowsRepair,
 	latestCheckpointOpen,
 	listRuns,
 	runSpendTotals,
@@ -475,7 +476,10 @@ export async function createRepairRun(user: User, input: CreateRepairInput): Pro
 		ownerUserId: user.id,
 		bugNumber: number,
 		family,
-		configEtag: config.etag,
+		// With no stored config the template side records NO_CONFIG, as a copy does, so the draft's
+		// math lock is proven; the project side stays the live read (null) the drift check compares.
+		templateConfigEtag: templateConfigRecord(config, config),
+		projectConfigEtag: config.etag,
 	});
 	if (outcome === 'live_run') {
 		throw new RunError(
@@ -495,10 +499,18 @@ export async function estimateForRepair(): Promise<{
 	budgetCapUsd: number;
 }> {
 	const pricing = (await getDirectorPricing()).pricing;
-	return {
-		estimate: estimateRepair(ESTIMATE_PROFILES, pricing),
-		budgetCapUsd: await getDirectorRepairBudget(),
-	};
+	// Money fails closed (ADR-0006): a model with no price is a refusal, as for a create run.
+	let estimate: RepairEstimate;
+	try {
+		estimate = estimateRepair(ESTIMATE_PROFILES, pricing);
+	} catch (e) {
+		throw new RunError(
+			409,
+			'estimate_unpriced',
+			`Refused: this run's cost cannot be estimated: ${e instanceof Error ? e.message : String(e)}.`,
+		);
+	}
+	return { estimate, budgetCapUsd: await getDirectorRepairBudget() };
 }
 
 /** Creating a game is Game Maker's to allow: the duplicate path assumes its caller holds it. */
@@ -815,6 +827,15 @@ export async function performOwnerAction(
 	}
 
 	if (req.action === 'start' && run.kind === 'repair') {
+		// A worker from before repair runs would drive this as a create run (deploy skew): not
+		// started until one that knows the kind has swept lately.
+		if (!(await workerKnowsRepair())) {
+			throw new RunError(
+				409,
+				'worker_outdated',
+				'Refused: the Director worker is not up to date for repair runs, or is not running. Try again in a few minutes.',
+			);
+		}
 		// Priced from the profiles alone (no GPU): a model with no price fails closed here.
 		await estimateForRepair();
 	} else if (req.action === 'start') {

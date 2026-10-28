@@ -6,11 +6,12 @@
  * Pinned:
  *  - the untrusted wrapper: the fixed line, the tags, and every spelling of the wrapper's own tag
  *    inside the text made inert, so whatever a reporter typed the last closing tag is the wrapper's;
- *  - `run.submit_repair`'s code checks, with and without a record of plays (the 9D seam);
+ *  - `run.submit_repair`'s code checks, and the verdict derived from the step's plays;
  *  - who leads each kind of run, and who a repair run may assign.
  */
 import {
 	LEAD_AGENTS,
+	derivedVerified,
 	PIPELINE_AREAS,
 	REPAIR_ASSIGNABLE,
 	checkSubmission,
@@ -21,7 +22,13 @@ import {
 	type RepairFacts,
 	type RepairSubmission,
 } from './repair.ts';
-import { UNTRUSTED_LINE, UNTRUSTED_TAG, escapeUntrusted, wrapUntrusted } from './untrusted.ts';
+import {
+	UNTRUSTED_LINE,
+	UNTRUSTED_OPS,
+	UNTRUSTED_TAG,
+	escapeUntrusted,
+	wrapUntrusted,
+} from './untrusted.ts';
 import { answerContent, capImages } from './toolResult.ts';
 import { workerToolSpecs } from './workerTools.ts';
 
@@ -155,6 +162,13 @@ console.log('an untrusted image answer (9G.0 composed with ADR-0012 layer 2)');
 	);
 }
 
+console.log('the wrap does not rest on the catalogue');
+check(
+	UNTRUSTED_OPS.has('bugs.get_game_bug') && UNTRUSTED_OPS.has('bugs.get_screenshot'),
+	'the worker wraps both bug reads whatever flag the launcher sent (prove:turns sends none)',
+);
+check(UNTRUSTED_OPS.size === 2, '...and nothing else');
+
 console.log('how a draft play counts (9D)');
 {
 	const scenario = (over: object = {}) => ({
@@ -265,7 +279,16 @@ console.log('run.submit_repair checks');
 		pipeline_area: 'none',
 		pipeline_title: '',
 	};
-	const verify: RepairFacts = { step: 'verify', fixWrites: 1, plays: null };
+	const counts = (p: Partial<RepairFacts['plays']> = {}): RepairFacts['plays'] => ({
+		open: 0,
+		requested: 1,
+		passed: 1,
+		failed: 0,
+		unplayed: 0,
+		...p,
+	});
+	const verify: RepairFacts = { step: 'verify', fixWrites: 1, plays: counts() };
+	const none = counts({ requested: 0, passed: 0 });
 	const why = (over: Partial<RepairSubmission>, facts: RepairFacts = verify) =>
 		checkSubmission({ ...base, ...over }, facts);
 
@@ -282,18 +305,9 @@ console.log('run.submit_repair checks');
 		why({}, { ...verify, fixWrites: 0 })?.includes('Nothing was changed') === true,
 		'fixed needs a completed builder or animator write',
 	);
-	check(
-		why({ verified: 'played_fail' })?.includes('failed') === true,
-		'fixed with a failed play is refused',
-	);
-	check(
-		why({ verified: 'not_played' }) === null,
-		'fixed with not_played is accepted: the review says so',
-	);
-
 	for (const outcome of ['needs_person', 'not_reproduced'] as const) {
 		check(
-			why({ outcome, verified: 'not_played' }, { step: 'reproduce', fixWrites: 0, plays: null }) ===
+			why({ outcome, verified: 'not_played' }, { step: 'reproduce', fixWrites: 0, plays: none }) ===
 				null,
 			`${outcome} may be submitted from any step, with no write`,
 		);
@@ -306,7 +320,7 @@ console.log('run.submit_repair checks');
 				pipeline_title: 'Reels clip on 4:3',
 				...over,
 			},
-			{ step: 'reproduce', fixWrites: 0, plays: null },
+			{ step: 'reproduce', fixWrites: 0, plays: none },
 		);
 	check(escalate({}) === null, 'escalate with a real area and a title is accepted');
 	check(escalate({ pipeline_area: 'none' }) !== null, 'escalate needs an area');
@@ -324,29 +338,51 @@ console.log('run.submit_repair checks');
 		'escalate is recorded as escalated',
 	);
 
-	// The 9D seam: with a record of plays, `verified` and `fixed` are bound to it.
-	const plays = (p: Partial<NonNullable<RepairFacts['plays']>>): RepairFacts => ({
-		...verify,
-		plays: { requested: 1, passed: 1, failed: 0, unplayed: 0, ...p },
-	});
-	check(why({}, plays({})) === null, 'a recorded passing play backs played_pass');
+	// A fix is bound to what the step's plays settled as (ADR-0012 §2), not to what the doctor says.
+	const fixed = (plays: RepairFacts['plays'], over: Partial<RepairSubmission> = {}) =>
+		why(over, { ...verify, plays });
+	check(fixed(counts()) === null, 'a passing play backs a fix');
 	check(
-		why({}, plays({ requested: 0, passed: 0 }))?.includes('Play the draft again') === true,
-		'fixed needs a play this step once plays are recorded',
+		fixed(counts({ open: 1 }))?.includes('still running') === true,
+		'a fix is refused while a play of the step is still queued, even after a pass',
 	);
 	check(
-		why({}, plays({ passed: 0, unplayed: 1 }))?.includes('no play of this step passed') === true,
-		'played_pass needs a passing play',
+		fixed(counts({ open: 1, requested: 0, passed: 0 }))?.includes('still running') === true,
+		'...and when the queued one is the only play',
 	);
 	check(
-		why({ verified: 'played_fail', outcome: 'needs_person' }, plays({ failed: 0 }))?.includes(
-			'no play',
-		) === true,
-		'played_fail needs a failing play',
+		fixed(none)?.includes('Play the draft again') === true,
+		'a fix with no settled play in the step is refused',
+	);
+	const stalled = counts({ passed: 0, failed: 1 });
+	check(
+		fixed(stalled)?.includes('is not a fix') === true &&
+			fixed(stalled, { verified: 'not_played' })?.includes('is not a fix') === true &&
+			fixed(stalled, { verified: 'played_pass' })?.includes('is not a fix') === true,
+		'a stalled or failed play refuses a fix whatever the doctor says it verified',
 	);
 	check(
-		why({ verified: 'not_played' }, plays({ passed: 0, unplayed: 1 })) === null,
-		'a no_player settle backs not_played',
+		fixed(counts({ passed: 0, unplayed: 1 }), { verified: 'not_played' }) === null,
+		'a play that never ran (no_player) allows a fix as not played: the owner is told',
+	);
+	check(
+		fixed(counts({ requested: 2, passed: 1, failed: 1 })) === null,
+		'a pass after a failed play (the fix was fixed again) backs the fix',
+	);
+	check(
+		why({ outcome: 'needs_person' }, { ...verify, plays: stalled }) === null &&
+			why({ outcome: 'not_reproduced' }, { ...verify, step: 'reproduce', plays: none }) === null,
+		'other outcomes are not held to the plays',
+	);
+	check(
+		[
+			derivedVerified(counts()),
+			derivedVerified(counts({ requested: 2, passed: 1, failed: 1 })),
+			derivedVerified(stalled),
+			derivedVerified(counts({ passed: 0, unplayed: 1 })),
+			derivedVerified(none),
+		].join() === 'played_pass,played_pass,played_fail,not_played,not_played',
+		'the derived verdict: any pass, else any fail, else not played',
 	);
 }
 

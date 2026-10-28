@@ -83,6 +83,19 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-10-28 — **Repair runs: review fixes (PLAN 9G, ADR-0012)**. `run.submit_repair` no longer
+  trusts the doctor's `verified`: it is derived from the step's settled plays (any pass: played_pass;
+  else any fail: played_fail; else not_played) and stored; a fix is refused while a play is queued
+  or running, with no settled play, or when the step's plays failed and none passed (a
+  `no_player`-only step still allows a fix as "not played"). Plays are counted from the step's
+  entry, so a pause and resume inside it forgets nothing. A project with no stored Game Config can be
+  repaired (`NO_CONFIG` on the template side, null on the project side, as a copy records). The
+  bug reads are wrapped as untrusted by the worker whatever the catalogue flag says. A start with no
+  price is 409 `estimate_unpriced`. **Deploy order: launcher (migration 0035), then worker.** The
+  launcher refuses to start a repair run (409 `worker_outdated`) until a worker that knows repair
+  runs has swept in the last 5 minutes (`app_settings.DIRECTOR_WORKER_KINDS`, written by every new
+  sweep), so an old worker never drives one as a create run. publish-all and the Book of
+  Migration publish without the repair warning.
 - 2026-10-28 — **Invisible Director: repair runs on the family packs (PLAN 9G, ADR-0012)**.
   `createRepairRun` freezes `director_runs.family` from the project's kind and refuses a family with
   no ready pack (409 `no_family_pack`) before anything is written; a repair run reads its pack as

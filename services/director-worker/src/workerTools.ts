@@ -11,6 +11,7 @@ import {
 	SUBMIT_OUTCOMES,
 	VERIFIED,
 	checkSubmission,
+	derivedVerified,
 	leadOf,
 	type RepairSubmission,
 } from './repair.ts';
@@ -303,7 +304,8 @@ export function workerToolSpecs(
 					verified: {
 						type: 'string',
 						enum: [...VERIFIED],
-						description: 'Whether you played the game again after the change, and how it went.',
+						description:
+							"Whether you played the game again after the change, and how it went. The worker overrides it with what this step's plays settled as.",
 					},
 					pipeline_area: {
 						type: 'string',
@@ -493,14 +495,17 @@ export async function runWorkerTool(
 		case 'run.submit_repair': {
 			const from = ctx.live.state;
 			if (from.kind !== 'repair') return refused('Refused: this is not a repair run.');
-			const submission = submissionOf(input);
-			if (typeof submission === 'string') return refused(`Refused: ${submission}`);
-			const why = checkSubmission(submission, {
+			const claimed = submissionOf(input);
+			if (typeof claimed === 'string') return refused(`Refused: ${claimed}`);
+			const plays = await playsOfStep(ctx.tx, ctx.live.id, from.step);
+			const why = checkSubmission(claimed, {
 				step: from.step,
 				fixWrites: await completedWrites(ctx.tx, ctx.live.id, REPAIR_ASSIGNABLE),
-				plays: await playsOfStep(ctx.tx, ctx.live.id, from.step),
+				plays,
 			});
 			if (why) return refused(`Refused: ${why}`);
+			// What was played is what the plays settled as, never the doctor's claim.
+			const submission = { ...claimed, verified: derivedVerified(plays) };
 			const error = await move(ctx, { type: 'conclude' }, `${ctx.agent}: ${submission.outcome}`);
 			if (error) return refused(`Refused: ${error}.`);
 			await activity(ctx, id, { type: 'repair_submitted', step: from.step, ...submission });

@@ -62,6 +62,7 @@ import {
 	type ToolSpec,
 } from './model.ts';
 import { repairEnded, repairStarted } from './bugSync.ts';
+import { UNTRUSTED_OPS } from './untrusted.ts';
 import { ESCALATION_NOT_SERVED, leadOf, repairBrief, repairOutcomeOf } from './repair.ts';
 import { TERMINAL_STATUSES, transition, type Checkpoint, type RunEvent } from './runState.ts';
 import {
@@ -566,7 +567,12 @@ async function settle(
 		}
 		results.set(
 			call.id,
-			answerBlock(call.id, answer, spec.image === true, spec.untrusted === true),
+			answerBlock(
+				call.id,
+				answer,
+				spec.image === true,
+				spec.untrusted === true || UNTRUSTED_OPS.has(id),
+			),
 		);
 	}
 
