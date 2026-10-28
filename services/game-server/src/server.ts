@@ -107,7 +107,11 @@ const locate = (req: IncomingMessage): URL | undefined => {
  * {@link SOCKETS_PER_ADDRESS} WebSockets and held seats together and opens at most
  * {@link UPGRADES_PER_WINDOW} WebSockets a window.
  */
-function guardedHttpServer(trustProxy: boolean, perWindow: number) {
+function guardedHttpServer(
+	trustProxy: boolean,
+	perWindow: number,
+	perAddress: { sockets: number; upgrades: number },
+) {
 	const http = createServer({
 		requestTimeout: REQUEST_TIMEOUT_MS,
 		headersTimeout: REQUEST_TIMEOUT_MS,
@@ -141,7 +145,7 @@ function guardedHttpServer(trustProxy: boolean, perWindow: number) {
 			const address = addressOf(req);
 			const held = heldBy(address);
 			// Every attempt counts, refused or not, so opening and dropping cannot loop.
-			const spent = over(upgrades, address, UPGRADES_PER_WINDOW);
+			const spent = over(upgrades, address, perAddress.upgrades);
 			if (
 				spent ||
 				!url ||
@@ -152,7 +156,7 @@ function guardedHttpServer(trustProxy: boolean, perWindow: number) {
 				// seat is released only once that socket is in, so a full address could not otherwise
 				// rejoin its own dropped player. Any other socket gets nothing.
 				held >=
-					SOCKETS_PER_ADDRESS +
+					perAddress.sockets +
 						(reclaims(
 							address,
 							url.searchParams.get('sessionId'),
@@ -198,6 +202,12 @@ export type GameServerOptions = {
 	trustProxy?: boolean;
 	/** Matchmaking requests one address may make per window. Default {@link MATCHMAKE_PER_WINDOW}. */
 	matchmakePerWindow?: number;
+	/** WebSockets and held seats one address may hold, and open per window. Default
+	 *  {@link SOCKETS_PER_ADDRESS} / {@link UPGRADES_PER_WINDOW}; the load test raises them, since all
+	 *  its devices share one address. */
+	perAddress?: { sockets: number; upgrades: number };
+	/** Told how long each room step took, ms (the load test's step time). */
+	onStep?: (ms: number) => void;
 };
 
 export type GameServer = {
@@ -221,6 +231,7 @@ export function createGameServer(options: GameServerOptions): GameServer {
 				server: guardedHttpServer(
 					options.trustProxy ?? false,
 					options.matchmakePerWindow ?? MATCHMAKE_PER_WINDOW,
+					options.perAddress ?? { sockets: SOCKETS_PER_ADDRESS, upgrades: UPGRADES_PER_WINDOW },
 				),
 				maxPayload: MAX_PAYLOAD_BYTES,
 			}),
@@ -234,6 +245,7 @@ export function createGameServer(options: GameServerOptions): GameServer {
 					maxRooms: options.maxRooms,
 					seatSeconds: SEAT_SECONDS,
 					rooms,
+					onStep: options.onStep,
 				}),
 			).filterBy(['game']),
 		},
