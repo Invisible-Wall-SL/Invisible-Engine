@@ -29,8 +29,8 @@ try {
 	mkdirSync(old);
 	assert.deepEqual(
 		runtimeFolders(old, ['lines', 'arcade']),
-		{ lines: 'lines', arcade: 'lines' },
-		'a checkout from before the seams serves every id from lines',
+		Object.fromEntries(RUNTIME_IDS.map((id) => [id, 'lines'])),
+		'a checkout from before the seams serves every id from lines, whichever ids were asked for',
 	);
 
 	const side = join(tmp, 'side');
