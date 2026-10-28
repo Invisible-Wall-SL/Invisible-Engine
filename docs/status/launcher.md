@@ -62,13 +62,10 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
    components, Shader Graph) reach it by switching items quickly. Fix: `start()` captures the
    `docKey` and drops (and, if held, releases) an answer for a key it no longer holds.
 
-9. **Invisible Director QA plays nothing until `draft-player` is deployed** (ADR-0010, card 9D).
-   QA is assignable and `build.request_draft` freezes a draft, but with `DRAFT_PLAYER_URL` unset
-   every `build.play_draft` settles at once as `no_player` ("not played"), and the hand-off says
-   so. The owner creates the private Railway service and sets `DRAFT_PLAYER_SECRET` on it and the
-   launcher plus `DRAFT_PLAYER_URL` on the launcher (`docs/INFRA.md` "Invisible Director draft
-   player"). Not built: the published-template contract comparison (ADR §1; `contractHash` is in
-   `draft.json` for it) and a player `/cancel` on owner stop (a stopped run drops the late result).
+9. **Invisible Director QA draft play: no real play seen yet** (ADR-0010, card 9D). `draft-player` is
+   live and answers the launcher over the private network (2026-10-28,
+   [infra](infra.md)). The first Director run with QA is its first real play, and it is waiting on
+   Anthropic credits. Check that the Live run shows "N of M screens reached" and not `no_player`.
 
 ## Blocked (owner / external)
 - **Secret rotation (owner):** rotate the secrets in `docs/INFRA.md` "Security / secret rotation";

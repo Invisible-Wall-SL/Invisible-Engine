@@ -10,10 +10,13 @@
 // at the sea); page A's camera frames its own salmon; ArrowUp held on page A swims its salmon
 // upstream and the camera follows; at rest page A draws its own salmon where the room has it; nothing
 // reached an RGS; no page error. The playbook is docs/playtest/salmons.md. It builds its own
-// snapshot and config, so the current-games harness is not touched.
+// snapshot and config, so the current-games harness is not touched. `--netcode colyseus` plays it
+// with the Colyseus SDK's own prediction (`arcade.online.netcode`): a nearby room and the world
+// camera under that netcode; the pages must report the mode they ran.
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
-//     scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>]
+//     scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>] \
+//     [--netcode engine|colyseus]
 //
 // Exit 1 when a verdict fails.
 
@@ -44,8 +47,13 @@ const { values: opt } = parseArgs({
 		runtime: { type: 'string', default: join(ROOT, 'apps/lines/build') },
 		out: { type: 'string', default: join(ROOT, '.cache/salmons-play') },
 		chrome: { type: 'string' },
+		netcode: { type: 'string', default: 'engine' },
 	},
 });
+if (opt.netcode !== 'engine' && opt.netcode !== 'colyseus') {
+	console.error(`--netcode is engine or colyseus, not "${opt.netcode}"`);
+	process.exit(2);
+}
 const out = resolve(opt.out);
 mkdirSync(out, { recursive: true });
 const KEY = 'salmons';
@@ -56,6 +64,7 @@ const river = salmonsRiver();
 const authored = salmonsConfig(river);
 const bots = authored.arcade.online.bots;
 bots.spawns = bots.spawns.filter((p) => p.y < river.sea.y - 2000);
+authored.arcade.online.netcode = opt.netcode;
 const config = normalizeGameConfigDoc(authored);
 const doc = salmonsReferenceLayout(river);
 const library = Object.fromEntries(
@@ -193,6 +202,14 @@ try {
 		!!seenA.find((p) => p.id === me) && !!seenB.find((p) => p.id === meB),
 		{ seenA, seenB },
 	);
+	for (const [name, game] of [
+		['A', a],
+		['B', b],
+	])
+		verdict(
+			`page ${name} plays the ${opt.netcode} netcode`,
+			(await drawnOf(game)).netcode === opt.netcode,
+		);
 	const botsIn = (list) => list.filter((p) => p.id.startsWith('bot:'));
 	verdict(
 		'the bots fill the room: page B is sent the bots near its bank',

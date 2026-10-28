@@ -24,6 +24,7 @@ import {
 	stepContext,
 	stepPlayer,
 } from '../packages/engine-mechanics/src/online.js';
+import { reconcilerOptions } from '../packages/engine-mechanics/src/netcode.js';
 import {
 	ARCADE_ONLINE_MECHANIC,
 	ARCADE_RULES_MECHANIC,
@@ -41,7 +42,9 @@ import { ROOM_NAME, createGameServer } from '../services/game-server/src/server.
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const gameServerRequire = createRequire(join(ROOT, 'services/game-server/package.json'));
-const { Client } = await import(pathToFileURL(gameServerRequire.resolve('@colyseus/sdk')).href);
+const { Client, Predict } = await import(
+	pathToFileURL(gameServerRequire.resolve('@colyseus/sdk')).href
+);
 const { matchMaker } = await import(
 	pathToFileURL(gameServerRequire.resolve('@colyseus/core')).href
 );
@@ -254,6 +257,17 @@ await check('the same inputs replay to the same room', () => {
 	assert.deepEqual(
 		[...a.players.values()].map((p) => [...bodyKey(p.body), p.ack, p.facing]),
 		[...b.players.values()].map((p) => [...bodyKey(p.body), p.ack, p.facing]),
+	);
+});
+
+// A tripwire: it fails only if the server starts reading `netcode`, which it must not.
+await check('the room plays the same under either netcode: the server never reads it', () => {
+	const engine = runHeadless(RATES[0], 2000, 'netcode').sim;
+	const colyseus = runHeadless({ ...RATES[0], netcode: 'colyseus' }, 2000, 'netcode').sim;
+	assert.equal(colyseus.game.online.netcode, 'colyseus');
+	assert.deepEqual(
+		[...colyseus.players.values()].map((p) => [...bodyKey(p.body), p.ack, p.facing]),
+		[...engine.players.values()].map((p) => [...bodyKey(p.body), p.ack, p.facing]),
 	);
 });
 
@@ -541,9 +555,16 @@ await check('the runtime: the SDK is reached only through the online branch, and
 	assert.deepEqual(importing('@colyseus/'), []);
 	assert.deepEqual(importing(`engine-rooms['"\`]`), ['game/online.ts']);
 	const online = readFileSync(join(src, 'game/online.ts'), 'utf8');
-	assert.match(online, /import type \{ Room \} from 'engine-rooms'/);
+	assert.match(online, /import type \{[^}]*\bRoom\b[^}]*\} from 'engine-rooms'/);
 	assert.match(online, /await import\('engine-rooms'\)/);
 	assert.doesNotMatch(online.replace(/import type[^;]+;/g, ''), /^import [^;]*'engine-rooms'/m);
+	// The SDK's prediction is its own entry, imported and called only for `netcode: 'colyseus'`.
+	assert.deepEqual(importing(`engine-rooms/predict['"\`]`), ['game/online.ts']);
+	assert.match(online, /netcode === 'colyseus' \? await import\('engine-rooms\/predict'\)/);
+	assert.doesNotMatch(
+		online.replace(/import type[^;]+;/g, ''),
+		/^import [^;]*'engine-rooms\/predict'/m,
+	);
 	const layout = readFileSync(join(src, 'routes/+layout.ts'), 'utf8');
 	assert.match(layout, /if \(gameMechanic\(\)\.room\) await joinOnlineRoom\(\);/);
 	const stage = readFileSync(join(src, 'components/ArcadeStage.svelte'), 'utf8');
@@ -586,6 +607,10 @@ writeFileSync(
 	JSON.stringify(configOf({ characters: CHARACTERS, rejoinSeconds: 1 })),
 );
 writeFileSync(join(dir, 'third.json'), JSON.stringify(configOf({ characters: CHARACTERS })));
+writeFileSync(
+	join(dir, 'sdk.json'),
+	JSON.stringify(configOf({ characters: CHARACTERS, netcode: 'colyseus' })),
+);
 writeFileSync(
 	join(dir, 'wide.json'),
 	JSON.stringify(configOf({ characters: CHARACTERS, maxPlayers: 40, rejoinSeconds: 3 })),
@@ -1096,6 +1121,48 @@ try {
 		await until('the flood limit', () => left, 3000);
 		await until('the room to close', () => game.rooms.count === 0);
 	});
+
+	await check(
+		"live, netcode 'colyseus': the SDK's own reconciler, over the room's step, lands where the room has the player",
+		async () => {
+			const room = await clientOf().joinOrCreate(ROOM_NAME, { game: 'sdk' });
+			const sim = serverRoom(room).sim;
+			await until('the own player', () => room.state.players?.get(room.sessionId));
+			const player = room.state.players.get(room.sessionId);
+			const predict = Predict.get(room);
+			const input = room.input();
+			let corrected = 0;
+			// The options the runtime builds (`online.ts` `reconcilerOf`), from the room's own game.
+			const options = reconcilerOptions(sim.game, room.sessionId, player);
+			assert.equal(typeof options?.step, 'function', 'the reconciler steps the room’s step');
+			const me = predict.reconciler(player, {
+				input,
+				...options,
+				warnOnDivergence: Number.POSITIVE_INFINITY,
+				onReconcile() {
+					if (me.lastCorrectionMag > 0) corrected += 1;
+				},
+			});
+			const rng = createRng('live-sdk');
+			let seq = 0;
+			for (let i = 0; i < 90; i++) {
+				predict.tick(performance.now());
+				Object.assign(input.data, clampInput(randomInput(rng, ++seq), sim.game.field));
+				input.send();
+				await wait(1000 / 30);
+			}
+			await until('every input acknowledged', () => {
+				predict.tick(performance.now());
+				return input.lastProcessed === seq && me.reconcileSeq > 0;
+			});
+			const server = sim.players.get(room.sessionId).body;
+			assert.deepEqual([me.state.x, me.state.y], [server.x, server.y]);
+			assert.equal(corrected, 0, `${corrected} of the room's states disagreed`);
+			predict.dispose();
+			await room.leave();
+			await until('the room to close', () => game.rooms.count === 0);
+		},
+	);
 
 	await check('live: the process holds at most maxRooms rooms', async () => {
 		const r1 = await clientOf().joinOrCreate(ROOM_NAME, { game: 'river' });

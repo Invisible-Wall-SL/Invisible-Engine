@@ -65,6 +65,73 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
   main 724b41e vs this branch), mostly `cards.js` and `cardAi.js`, then the card reference layout.
   Owner call (open item 0a).
 
+**Arcade netcode selectable per game (built 2026-10-27; in review).** The owner, on P10.15's "our
+own netcode, not Colyseus' `predict`" choice: *"own netcode is fine, but maybe we can make it
+optional"*. One small PR, on P10.15, merged with P10.16. Design:
+[realtime-multiplayer.md](../design/realtime-multiplayer.md) §6.1 and §14 #9. Not deployed.
+
+- **The setting** (`game-config`): `arcade.online.netcode: 'engine' | 'colyseus'`
+  (`ARCADE_NETCODES`, `ArcadeNetcode`), default `engine` in `ARCADE_ONLINE_DEFAULTS`. The normalizer
+  keeps it only when it is known and not the default, so a game with no setting normalizes
+  byte-identically and an unknown value (a newer build's) is dropped. `resolveArcadeOnline` gives
+  `colyseus` only when the doc says so. `/config` shows a **Netcode** select under Arcade → Online,
+  only for an online game (`setNetcode`).
+- **`engine`** is P10.15 unchanged.
+- **`colyseus`** is the Colyseus SDK's (0.18.6) own prediction for the device's own player:
+  `Predict.get(room)` and `predict.reconciler(player, { input, ...reconcilerOptions(game, id,
+  player) })`, driven by `predict.tick(now)` each frame before the frame's inputs are sent.
+  `Predict` comes from `engine-rooms/predict`, a separate entry imported only for this mode (the
+  runtime's one bundle still carries it: see the bundle line). `reconcilerOptions`
+  (`engine-mechanics` `netcode.js`) gives the fields (`RECONCILED_FIELDS`: `x`, `y`, `status`), the
+  step (`reconcilerStep`: the room's `stepPlayer` in the SDK's `(ctx, state, command)` shape, using
+  the room's `stepContext`, stepping a held player with no input) and the snap distance. The SDK's
+  ack is its input handle's `lastProcessed` (the server's consumed-input count, in each state
+  frame's TIMED prefix), not the schema's `ack`. It is a real rollback reconciler, not plain state:
+  it predicts at once, replays the inputs in flight on a miss, skips a reconcile that matches at
+  float32, and fades a correction over one patch interval.
+  - **Shared with `engine`:** everyone else is drawn by our `createSnapshotClock` /
+    `createInterpolator` in both modes, so `Input.view` keeps naming the step the device drew (the
+    room's lag compensation is unchanged). Input pacing is our `createFixedStep` in both; the SDK's
+    reconciler observes each `send()`.
+  - **Not used from the SDK:** `attachAll` lerp for the others, `defineEvent` predicted events, its
+    lag-compensation stamps.
+- **The server** does not read the mode: it already calls `defineInput` and `setFixedTimestep` (with
+  `subSteps`), which is all the SDK's reconciler needs.
+- **P10.16's online world camera** follows the own player as drawn by either netcode
+  (`ownPlace`).
+- **The probe** (`state().arcade.online`) gains `netcode`; `corrections` / `snaps` are reported in
+  `engine` mode only (the SDK's reconciler counts them only with its diagnostics on).
+- **Gates:**
+  - `check:netcode` (23): the six-device room over simulated networks now also runs under `colyseus`
+    — the SDK's real `Reconciler` over `reconcilerStep`, a real `Player` schema instance (so its
+    float32 compare is the device's) and a stand-in input handle fed each state's ack. Reliable link
+    (the runtime's): 0 corrections and every rest exact, as `engine`. Datagram link (modelled — the
+    runtime does not use one; the stand-in feeds the SDK an unreliable-mode ack): 720–755
+    corrections, all converged, but up to 0.55 px off 200 ms after the last ack (bounded at 1 px;
+    `engine` ≤ 0.01 px) — the SDK fades over 50 ms where ours takes 25 ms. A current is predicted
+    with 0 corrections in both; a held player stays still under the SDK. The source scan covers both
+    branches of `online.ts`.
+  - `check:room-sim` (38): a tripwire that the room plays the same under either setting (the server
+    must never read it); **live**, on a real Colyseus server, the SDK's own `Predict` reconciler
+    with the runtime's `reconcilerOptions` lands exactly on the server's place after 90 random
+    inputs with 0 corrections; `engine-rooms/predict` is imported only by `online.ts`, lazily,
+    behind `netcode === 'colyseus'`.
+  - `scripts/playtest/online-play.mjs --netcode engine|colyseus`: 19 / 19 in each mode (the 17 plus
+    "page A / B plays the … netcode").
+  - `scripts/playtest/salmons-play.mjs --netcode engine|colyseus` (added after the merge with
+    P10.16, whose online camera first followed only the engine's predictor): 16 / 16 in each mode,
+    a nearby room and the world camera under `colyseus` (P10.16's 14 plus "page A / B plays the …
+    netcode").
+  - `family.fixture.ts` and the launcher's `check:game-config-family` cover the setting and the
+    select.
+- **Bundle** (`apps/lines` release `index.html`, gzip -6, base 2c8a873): 3,969,567 B / 1,354,873 B
+  gz → 4,025,062 B / 1,372,213 B gz: **+55.5 KB raw, +17.3 KB gz (+1.28 %)** — the SDK's `predict`
+  module, tree-shaken out until now. The runtime builds to one bundle with its dynamic imports
+  inlined, so **every game's file carries it, whatever its netcode**; the `engine-rooms/predict`
+  entry only keeps an `engine` game from ever calling it. No new dependency.
+- **Known limits:** in `colyseus` mode a correction stays visible a little longer on a lossy link
+  (above); a reconnect in `colyseus` mode is not exercised by any gate.
+
 **P10.16 — Arcade A4c: 100 players and Salmons (built 2026-10-27; in review).** §8's P10.16 row,
 per the approved A4 design ([realtime-multiplayer.md](../design/realtime-multiplayer.md) §5, §7,
 §12, §14 #4–#6), in **one PR**, on P10.15. The last step of Phase 10. Not deployed; merging it
@@ -346,7 +413,8 @@ row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-mu
   - **our own netcode in `engine-mechanics`, not Colyseus' `predict` module** (§6 expected Colyseus
     to do the bookkeeping): the same dependency-free file runs in the gate on a virtual clock through
     simulated loss and in the runtime, it keeps the device's float64 fold instead of the wire's
-    float32, and it adds under 4 KB gz where the SDK's `predict` is a 3,000-line module;
+    float32, and it adds under 4 KB gz where the SDK's `predict` is a 3,000-line module. **Owner,
+    2026-10-27: kept as the default, and made optional per game** (`arcade.online.netcode`, above);
   - lag compensation by **`Input.view`** (the device names the step it drew), held to 250 ms — the
     standard trade: a modified client can claim up to 250 ms of hindsight, no more;
   - currents push only on a step that applies an input, so a starved or dropped player stands still
