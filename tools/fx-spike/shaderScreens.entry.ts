@@ -12,9 +12,10 @@
  * Also the Screens node's meanings, read back off the canvas: through the screen shell From reads
  * the still (each quarter where it is, so the mapping is neither turned nor flipped), To and an
  * Output alone the new screen, Reverse the shell's switch (0 leaving the old screen showing through,
- * 1 white), and a crossfade at half way the mean of the two; on an element (through the element's
- * own pass) and on a particle (through the particle shell) From and To read what Sample element
- * reads there, and Reverse 0.
+ * 1 white), a crossfade at half way the mean of the two, and a half-clear colour drawn over the
+ * old screen (the composite: its colour + the old screen × its clearness); on an element (through
+ * the element's own pass) and on a particle (through the particle shell) From and To read what
+ * Sample element reads there, and Reverse 0.
  */
 import {
 	Application,
@@ -42,6 +43,7 @@ import {
 	BUILTIN_TWINS,
 	CALIBRATION_GRAPHS,
 	CUSTOM_GLSL,
+	CUSTOM_GLSL_DEFAULT,
 	CUSTOM_GLSL_EFFECT_COST_MAX,
 	CUSTOM_GLSL_EFFECT_SAMPLES_MAX,
 	REFERENCE_GRAPHS,
@@ -368,6 +370,17 @@ const page = window as unknown as {
 	const halfWay = meaning('a crossfade half way through the screen shell', crossfade.doc(), {
 		progress: 0.5,
 	});
+	/** A half-clear colour, premultiplied: the shell draws it over the old screen. */
+	const HALF = [0.4, 0.2, 0.1, 0.5];
+	const halfClear = meaning(
+		'a half-clear colour over the old screen through the screen shell',
+		customGlslChain('screens-composite', [
+			{
+				...CUSTOM_GLSL_DEFAULT,
+				code: `color = vec4(${HALF.map((c) => c.toFixed(1)).join(', ')});`,
+			},
+		]),
+	);
 
 	// The neutral meanings: on an element and on a particle, beside what Sample element draws there.
 	const neutral: Record<string, { element: number; particle: number }> = {};
@@ -449,6 +462,10 @@ const page = window as unknown as {
 		[
 			'through the screen shell a crossfade half way is the mean of the two screens',
 			everywhere(halfWay, (q) => OLD[q].map((c, k) => (c + NEW[k]) / 2)),
+		],
+		[
+			'through the screen shell a half-clear colour is drawn over the old screen (its colour + the old screen × its clearness)',
+			everywhere(halfClear, (q) => OLD[q].map((c, k) => HALF[k] * 255 + c * (1 - HALF[3]))),
 		],
 		...(['element', 'particle'] as const).flatMap((on): [string, boolean][] => [
 			[

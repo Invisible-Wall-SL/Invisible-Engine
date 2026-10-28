@@ -5,33 +5,38 @@
  * frozen when the transition started, is the filter's second texture.
  *
  * A compiled body's whole contract with its shell is the pass header's helpers
- * (`EFX_HEADER_FUNCTIONS`), the uniforms it declares and `finalColor`, so the body `ElementFxFilter`
- * runs on an element (`pixi-svelte/src/lib/elementFx/shaders.ts`) runs here with the same meanings
- * over the whole screen:
+ * (`EFX_HEADER_FUNCTIONS`), the uniforms it declares and `finalColor`, so the body
+ * `ElementFxFilter` runs on an element (`pixi-svelte/src/lib/elementFx/shaders.ts`) runs here with
+ * the same meanings over the whole screen:
  *  - the unit square is the filter's frame (the viewport), with no padding: the element's
  *    `uElement` = (0, 0, 1, 1) and `uPad` = 0, so neither is declared;
- *  - `efxSample` and `efxScreenTo` read the filter's input, the new screen; `efxScreenFrom` reads the
- *    still across the frame, 0 outside it; `efxScreenReverse` is 1 when the transition plays
+ *  - `efxSample` and `efxScreenTo` read the filter's input, the new screen; `efxScreenFrom` reads
+ *    the still across the frame, 0 outside it; `efxScreenReverse` is 1 when the transition plays
  *    reversed;
  *  - the body's time, seed and params stay uniforms: one transition is one element;
  *  - the Particle node's helpers read white, 0 and 0, as on an element.
  *
  * THE COMPOSITE (§6.4): the body is drawn over the old screen, premultiplied:
- * `finalColor = body + still × (1 − body.a)`. An enter graph, clear at progress 0, starts on the old
- * screen; an emphasis graph, opaque at rest, plays as a cut and a flourish on the new one.
+ * `finalColor = body + still × (1 − body.a)`. An enter graph, clear at progress 0, starts on the
+ * old screen; an emphasis graph, opaque at rest, plays as a cut and a flourish on the new one.
  *
  * Its vertex stage is the element pass's (`VERTEX` in `shaders.ts`): a filter is a filter. The
  * filter binds the still under {@link SCREEN_FROM_TEXTURE} and writes {@link SCREEN_REVERSE}.
  *
- * Dependency-free, like `glslLibrary.ts`, so the launcher and the headless gates read it without Pixi.
- * Written for GLSL ES 1.00 and 3.00 alike through Pixi's `GlProgram`.
+ * Dependency-free, like `glslLibrary.ts`, so the launcher and the headless gates read it without
+ * Pixi. Written for GLSL ES 1.00 and 3.00 alike through Pixi's `GlProgram`.
  */
 
 import type { CustomElementFx } from './elementFx';
 import { linkGlsl } from './glslLibrary';
 import { ELEMENT_PASS_NAMES, shellBody, shellDeclarations } from './shellBody';
 
-/** The still of the old screen: the filter's second texture. */
+/**
+ * The still of the old screen: the filter's second texture. `efxScreenFrom` reads it 0…1 across the
+ * filter's frame, so it must be a texture of its own whose whole UV square is that frame: it is
+ * bound as its source, which drops any frame, so an atlas region or a pooled sub-texture would
+ * squeeze or shift the old screen.
+ */
 export const SCREEN_FROM_TEXTURE = 'uFromTexture';
 /** 1 when the transition plays reversed, else 0. */
 export const SCREEN_REVERSE = 'uEfxReverse';
@@ -39,6 +44,8 @@ export const SCREEN_REVERSE = 'uEfxReverse';
 /**
  * The screen fragment header: the pass header's helpers (`EFX_HEADER_FUNCTIONS`) with their screen
  * meanings, in front of every screen body. Its origin is the frame's top left, its area the frame.
+ * The frame is the viewport only while the filter's `filterArea` is: without one Pixi shrinks it to
+ * the stage's content bounds, and the still, read across it, would shrink with it.
  */
 export const SCREEN_HEADER = `precision highp float;
 in vec2 vTextureCoord;
@@ -99,9 +106,9 @@ float efxScreenReverse() { return ${SCREEN_REVERSE}; }
 const BODY_MAIN = 'efxScreenBody';
 
 /**
- * Every global name the screen shell's fragment declares (its varying, output and uniforms) and the
- * name the body's `main` takes: the Custom GLSL checker keeps them from ports and locals, and a body
- * naming one is not converted.
+ * Every global name the screen shell's fragment declares (its varying, output and uniforms) and
+ * the name the body's `main` takes: the Custom GLSL checker keeps them from ports and locals, and a
+ * body naming one is not converted.
  */
 export const SCREEN_SHELL_NAMES: readonly string[] = [
 	...new Set([
