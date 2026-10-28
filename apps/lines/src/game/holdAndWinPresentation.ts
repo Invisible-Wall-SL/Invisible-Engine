@@ -756,7 +756,7 @@ export const presentCoinUpgrade = async (event: Beat<'coinUpgrade'>) => {
 			releaseHeldJackpot(respinCellKey(change.reel, change.row));
 			const title = jackpotUpgradeText(change.to);
 			const banner = title
-				? showHoldAndWinBanner({ kind: 'jackpotUpgrade', title, size: 'small' })
+				? showHoldAndWinBanner({ kind: 'jackpotUpgrade', title, size: 'small', tier: change.to })
 				: 0;
 			await Promise.all([
 				playHeldBeat([change], 'jackpotReveal', { minMs: HIGHLIGHT_MIN_MS }),
@@ -1166,6 +1166,7 @@ export const presentJackpotWin = async (event: Beat<'jackpotWin'>) => {
 			kind: 'jackpot',
 			...jackpotBannerText(event.tier, amount, event.source === 'fullBoard'),
 			size: 'large',
+			tier: event.tier,
 		});
 		await Promise.all([
 			waitPresentation(JACKPOT_HOLD_MS),
@@ -1182,6 +1183,7 @@ export const presentJackpotWin = async (event: Beat<'jackpotWin'>) => {
 		title: jackpotCoinText(event.tier),
 		detail: amount,
 		size: 'small',
+		tier: event.tier,
 	});
 	await Promise.all([
 		playHeldBeat([event.cell], 'jackpotReveal', { minMs: HIGHLIGHT_MIN_MS }),

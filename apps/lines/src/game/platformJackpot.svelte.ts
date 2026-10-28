@@ -97,6 +97,7 @@ export const presentPlatformJackpotWin = async (event: { tier: string; amount: n
 				amount: bookEventAmountToCurrencyString(event.amount),
 			}),
 			size: 'large',
+			tier: event.tier,
 		});
 		await waitPresentation(PLATFORM_JACKPOT_HOLD_MS);
 		hideHoldAndWinBanner(banner);

@@ -16,6 +16,7 @@
 	import EditorTilemap from './EditorTilemap.svelte';
 	import EditorParallax from './EditorParallax.svelte';
 	import EditorEvents from './EditorEvents.svelte';
+	import { engineNumberSources } from './valueSourceOptions';
 	import EditorListeners from './EditorListeners.svelte';
 	import {
 		backgroundCoverAnchor,
@@ -1002,6 +1003,12 @@
 	};
 	const variablesFor = (kind: string): { id: string; type: string }[] =>
 		flowVariables.filter((v) => (VARIABLE_TYPES_FOR[kind] ?? []).includes(v.type));
+	/** The engine values a number input's "from" list offers beside the Flow variables. */
+	const engineInputSources = engineNumberSources();
+	const inputSourcesFor = (kind: string) => ({
+		variables: variablesFor(kind),
+		engine: kind === 'number' ? engineInputSources : [],
+	});
 	/** This panel's own datalist ids, so two mounted panels never share one. */
 	const panelId = $props.id();
 	const variableListId = `flow-variable-sources-${panelId}`;
@@ -2647,7 +2654,7 @@
 									type="text"
 									value={input.source ?? ''}
 									placeholder="engine value or var:…"
-									list={variablesFor(input.kind).length
+									list={variablesFor(input.kind).length || input.kind === 'number'
 										? `${variableListId}-${input.kind}`
 										: undefined}
 									onchange={(e) => onSetInputSource?.(input.id, e.currentTarget.value)}
@@ -2658,10 +2665,14 @@
 				{/each}
 			</ul>
 			{#each ['number', 'bool', 'text'] as kind (kind)}
-				{#if variablesFor(kind).length}
+				{@const sources = inputSourcesFor(kind)}
+				{#if sources.variables.length || sources.engine.length}
 					<datalist id={`${variableListId}-${kind}`}>
-						{#each variablesFor(kind) as v (v.id)}
+						{#each sources.variables as v (v.id)}
 							<option value={`var:${v.id}`}>{v.id} ({v.type})</option>
+						{/each}
+						{#each sources.engine as source (source.value)}
+							<option value={source.value}>{source.label}</option>
 						{/each}
 					</datalist>
 				{/if}
