@@ -97,12 +97,7 @@ export {
 	type CardDriverState,
 	type CardPresenter,
 } from './src/game/cardDriver';
-export {
-	createCardSession,
-	DEVICE,
-	PLAYER,
-	type CardSession,
-} from './src/game/cardSession';
+export { createCardSession, DEVICE, PLAYER, type CardSession } from './src/game/cardSession';
 export {
 	createMatch3Driver,
 	type Match3Board,
