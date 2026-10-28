@@ -27,6 +27,46 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
 
 ## Current state
 
+**Card C4 — Invisible Card Library (built 2026-10-28; in review).** [card-games.md](../design/card-games.md)
+§12's C4 row and §8, in one PR. A launcher tool only: no game runtime change but five exports of
+already-bundled `cards.js` values.
+
+- **The tool:** `/cards` (`TOOLS.cards`, Build stage beside Characters, the Game Config roles,
+  `TOOL_DOC_SLUG` `invisible-card-library`). `FAMILY_TOOLS` hides it from slot, match-3 and arcade.
+  The load refuses (403) without the Card Library grant or the Game Config grant, as `/characters`.
+  `/config`'s card section now links to it instead of Raw JSON.
+- **Cards:** a grid of every card drawn in its frame (filters by type, cost, keyword, search), the
+  form (id, name, type, cost / attack / health in their ranges, keywords, token, flavour, frame, the
+  frame's image params through the region picker) and up to three effects, each trigger → verb →
+  target dropdowns that offer only what the validator accepts after the choices to their left
+  (`cardEdit.ts` `triggerChoices` / `verbChoices` / `targetChoices` / `includeChoices`, every
+  setter refitting through `fitEffect`). The lists and ranges are `cards.js`'s own exports
+  (`CARD_RANGES`, `CARD_MAX_EFFECTS`, `CARD_SIDES`, `CARD_INCLUDES`, `CARD_UNTILS`, new). The
+  preview shows the card in its frame with the game's frame values (`frameValues`, the twin of
+  `apps/lines` `valuesOf`), eight look buttons, and the generated rules text (none while the card has
+  errors). The text reaches Localization through C3's "Cards" harvest section; the page links to it.
+  The stored library's reader drops are shown before a save. A frame missing §6 inputs is named.
+- **The card drawing is a light DOM renderer** (`(app)/cards/CardFrameView.svelte`), not the Scene
+  Editor's canvas the design named (§8.2): the list draws every card, and one WebGL stage per card
+  runs out of contexts. It draws the frame's own tree with the game's fold (`resolveTransform` →
+  `evaluateBinding` on the instance's params → `foldBoundTransform`): containers, rects, text,
+  sprites (the art from the atlas) and nested instances; any other node kind is named under the card.
+- **Decks:** player and AI decks, add / duplicate / rename / delete, a `{ card, count }` stepper per
+  card (0 … `maxCopies`, tokens excluded), the size against `deckSize`, the cost curve, and an AI
+  deck's difficulty and five weight overrides.
+- **Test match** (`$lib/cards/testMatch.ts`): two decks and difficulties; watch the AI play both sides
+  at a speed or play side A; the placeholder table lists the legal actions as buttons; Copy replay
+  gives the `replayMatch` record. **Run 100** plays seeds 1 … 100 AI-vs-AI (≈0.3 s on the sample) and
+  shows the win rate per side, draws, average turns, how matches ended and the cards most often left
+  in hand. It runs `cards.js` and `cardAi.js` with the config mapped as `cardSession.ts` maps it.
+- **Saving:** `PUT /api/game-config` under the shared `gameConfig` lease, with the read etag, the
+  409 banner and History, as `/characters` (reviewed by `pipeline-concurrency`: no change needed).
+- **Gates:** `check:cards-tool` (281: the form offers exactly what the validator accepts over every
+  trigger × verb × target × side × include on a unit and a spell; every edit stored as edited; the
+  rules text; a test match is the game session's match move for move and replays; Run 100
+  deterministic; the save and the two grants; the registry and guide). `check:family-tools` and
+  `check:card-family` re-pinned for the new exclusions.
+
 **Card C3 — playable end to end (built 2026-10-28; in review).** [card-games.md](../design/card-games.md)
 §12's C3 row, in one PR; what it settled where §5–§9 were silent is in the design's new §5.4.
 
@@ -2011,12 +2051,17 @@ game, bundle or screen changes.
    starter's deck pick is a tap); (d) hero portraits do not light `targetable`; a dragged card is not
    lifted above its neighbours; (e) the current-games `SCRIPT_FOR_KIND` gains `card` when a card
    game is first published, with its screen script; (f) `hard`'s 16 ms budget on a mid phone is not
-   measured; (g) the Card Library (`/cards`) is C4; (h) from the C3 review: the validator does not
+   measured; (g) the Card Library (`/cards`) is built in C4 (below); (h) from the C3 review: the validator does not
    yet warn when `handLimit` / `boardLimit` exceed the table's zone cap (12) or a card names a frame
    the zones cannot spawn (the card would be missing from the table); the drop hit-test
    (`actionAt`, `release`) is covered by the browser playtest only, not a Node gate; the frame's
    trigger inputs (`hit`, `healed`, `summoned`) are declared but not yet fired; Concede works on the
    player's turn only.
+0b. **Card C4 follow-ups:** (a) the Card Library draws frames with its own DOM renderer, not the
+   Scene Editor canvas (§8.2 named the canvas): a rig, effect or flipbook in an authored frame is
+   named, not drawn; (b) the test match's table is a list of legal-action buttons, not drag; (c) a
+   two-user check (`/cards` and `/config` open on one card project) is still to be done by hand; (d)
+   the deck's AI weights take any number (the AI's own reader decides what it accepts).
 0. **P10.15 follow-ups:** (a) **online Flow events** (`onPlayerJoined`, `onPlayerLeft`, `onHit`,
    `onCaught`, `onRoundEnd`) from the room's `event` messages, and **server-owned variables** (the
    room's scores bound as read-only `var:` sources; the validator's `variable-server-owned`) — the
@@ -2075,6 +2120,9 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-28 — **Card C4 built: Invisible Card Library (`/cards`)** — cards in their frame, the
+  closed-list effect form, decks, the test match and Run 100, `check:cards-tool`, its guide. No game
+  runtime change. Detail above.
 - 2026-10-28 — **Card C3 built: playable end to end** (the `card` family, `GameConfigDoc.card`, the
   card table runtime, `CARD_VOCAB` and its starter, the Game Maker scene set and sample, the
   placeholder frame, `check:card-family`, `check:card-runtime`). Slot, match-3 and arcade unchanged

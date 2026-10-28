@@ -1,7 +1,7 @@
 # Card games: a duel against the device (the card family)
 
 > Status: **PLAN APPROVED (owner, 2026-10-27): all seven §13 decisions accepted as recommended.**
-> Written the same day. C1 (#1391) and C2 (#1408) are merged; C3 is built (§5.4); C4 is next. This is the design that
+> Written the same day. C1 (#1391) and C2 (#1408) are merged; C3 is built (§5.4); C4 is built (§8.4). This is the design that
 > [game-families.md](game-families.md) §10 promised for the fourth family, once P10.7 had shipped
 > (§9 #15). P10.3 (variables, timers), P10.4 (drag, Align Target) and P10.7 (spawning, live sets)
 > are on `main`; progress on this plan will live in
@@ -717,7 +717,20 @@ code the game runs. "Run 100" plays 100 AI-vs-AI matches on seeds 1…100 and sh
 deck, the average match length and the cards most often left in the hand: the designer's balance
 check. Any match can be copied as its replay record, to file a bug against.
 
-### 8.4 Its docs (rule 9), in the same change as the tool
+### 8.4 What C4 settled
+
+- **A card is drawn by a light DOM renderer of its frame** (`(app)/cards/CardFrameView.svelte`), not
+  by the Scene Editor's canvas: the list draws every card, and a WebGL stage per card runs out of
+  contexts. It draws the frame's own tree with the game's fold (`resolveTransform`, each `param`
+  value binding evaluated on the card's values, `foldBoundTransform`), so the 0 / 1 looks show as in
+  game. Containers, rects, text, sprites and nested instances are drawn; another node kind is named.
+- **The form's lists are the validator's:** `cards.js` exports its ranges and lists (`CARD_RANGES`,
+  `CARD_MAX_EFFECTS`, `CARD_SIDES`, `CARD_INCLUDES`, `CARD_UNTILS`), and `check:cards-tool` proves the
+  form offers exactly what `validateLibrary` accepts.
+- **The test match's table is the legal actions as buttons**, not drag; the match itself is the one
+  `cardSession.ts` deals from the same config and seed.
+
+### 8.5 Its docs (rule 9), in the same change as the tool
 
 - **`docs/tools/invisible-card-library.md`**, written by the `docs-keeper` agent from the real
   route: what it edits, where the cards are stored (the config, the shared lease, History), the
@@ -902,7 +915,7 @@ game (game-families §7.1 applies to each).
 | C1 | **The rules engine** — ✅ merged (#1391) | `cards.js` + `cards.d.ts`: the match value, zones, phases, the resource, `legalActions`, `apply`, the effect queue, the death check, the loop and turn limits, fatigue; `validateLibrary`; `cardText`; fixtures. No caller | `engine-mechanics` | M |
 | C2 | **The AI** — ✅ built 2026-10-27 | `cardAi.js` + `.d.ts`: lethal, one-step evaluation, the three difficulties with `hard`'s plan search, its own seeded stream; replay records; the budget | `engine-mechanics` | M |
 | C3 | **Card family, end to end** — ✅ built 2026-10-28 | `card` in `GAME_KINDS` / `GAME_FAMILIES` / `CONFIG_FAMILIES` and every copy of the family map (§9.2); `GameConfigDoc.card`, `resolveCard`, the normalizer's board-less set, validation, the `/config` card section and picker; the two collectors on the ship chain; `CARD_RULES_MECHANIC`; `cardSession.ts`, `cardDriver.ts`, `cards.svelte.ts`, `<CardTable />` with drop hit-testing and per-instance spawn params; `CARD_VOCAB` and its starter; the `card` layout template and scene set (which puts `card` in Game Maker); the scaffold's placeholder frame; the "Cards" localization section; the bundle-size cost reported; a sample game and `docs/playtest/card-sample.md` | `constants-shared`, `game-config`, `engine-game`, `engine-layout`, `engine-flow-v2`, `apps/lines`, launcher | L |
-| C4 | **Invisible Card Library** | `/cards`: registry, roles, `FAMILY_TOOLS`, the doc slug; the list, form, live preview, decks, test match and "Run 100"; its docs under rule 9 in the same PR | launcher, `docs/tools/` | L |
+| C4 | **Invisible Card Library** — ✅ built 2026-10-28 | `/cards`: registry, roles, `FAMILY_TOOLS`, the doc slug; the list, form, live preview, decks, test match and "Run 100"; its docs under rule 9 in the same PR | launcher, `docs/tools/` | L |
 | C5 | *(optional, after a decision)* **Phase switches and more lists** | Interleaved play and combat (§13 #2); any verbs, targets or keywords the owner adds to the closed lists (§13 #3) | `engine-mechanics`, launcher | M |
 
 **Why this order.** C1 and C2 are pure and gated in Node, so the rules can be argued about with

@@ -11,6 +11,7 @@
 		"sound": [],
 		"gameConfig": ["invisible-game-config"],
 		"characters": ["arcade-games"],
+		"cards": [],
 		"editor": ["invisible-components"],
 		"ftpBrowser": ["invisible-ftp-browser"],
 		"storybook": ["engine-pixi-svelte"],
@@ -39,7 +40,8 @@
 		"card": []
 	},
 	"gaps": {
-		"kind:card": "No build agent yet: the card family (card-games.md) is built step by step on engine-pixi-svelte; a card-games agent is due with C4.",
+		"kind:card": "No build agent yet: the card family (card-games.md) is built step by step on engine-pixi-svelte; C4 shipped without a card-games agent; adding one is an owner call.",
+		"tool:cards": "No agent yet: Invisible Card Library belongs to the card family, which has no card-games agent (an owner call); launcher-studio and invisible-game-config cover its page and its config block.",
 		"tool:winText": "No agent: a tool shared by every slot kind, not a game type, so 9B left it open.",
 		"tool:sound": "No agent: a tool shared by every kind, not a game type, so 9B left it open."
 	}
