@@ -152,6 +152,9 @@ coordinate with `scatter-games` and `ways-games` on any cascade change.
 
 ## Read more
 
+- `services/director-worker/families/slot.md`: what Director's runtime agents read about this family
+  (its `cluster` section under Kinds, plus the family-wide sections). The pack is the one home of
+  that text; edit it there.
 - `docs/design/game-type-templates.md` (Phase C win models, Phase F the cascade)
 - `docs/status/engine.md` (Open items 0) and `docs/status/engine-history.md` (2026-08-19 to 09-17)
 - `docs/status/game-config.md` (cascade and stepped grids)

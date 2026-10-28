@@ -174,6 +174,9 @@ gone wrong with them. Owner agent: `lines-games`.
 
 ## Read more
 
+- `services/director-worker/families/slot.md`: what Director's runtime agents read about this family
+  (its `lines` section under Kinds, plus the family-wide sections). The pack is the one home of that
+  text; edit it there.
 - `docs/design/book-feature.md` (the mechanic and the kind's retirement plan)
 - `docs/design/game-type-templates.md` (a game type is data plus a mechanic)
 - `docs/design/free-spin-intro-symbol-reveal.md`, `docs/design/reel-anticipation.md`

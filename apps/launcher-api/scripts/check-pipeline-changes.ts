@@ -3701,8 +3701,34 @@ check(
 	);
 }
 {
-	const d = (await detail(ADMIN, '30')).body as { harness: Json; files: Json[] };
+	const file = (path: string, previousPath: string | null = null) => ({ path, previousPath });
+	check(
+		'a change that edits a family pack is flagged, a renamed one by either name',
+		changes.familyPackFilesOf([
+			file('services/director-worker/families/slot.md'),
+			file(
+				'services/director-worker/families/arcade.md',
+				'services/director-worker/families/old.md',
+			),
+			file('services/director-worker/agents/qa.md'),
+			file('services/director-worker/src/familyPack.ts'),
+			file('services/director-worker/fixtures/families/valid/slot.md'),
+		]),
+		[
+			'services/director-worker/families/slot.md',
+			'services/director-worker/families/arcade.md',
+			'services/director-worker/families/old.md',
+		],
+	);
+}
+{
+	const d = (await detail(ADMIN, '30')).body as {
+		harness: Json;
+		files: Json[];
+		familyPacks: string[];
+	};
 	check('#30: every page of files is read', d.files.length, 141);
+	check('#30: a change that edits no family pack carries none', d.familyPacks, []);
 	check(
 		'#30: a harness edit on the second page is seen',
 		String(d.harness.unapprovable).includes('scripts/current-games/lib/compare.mjs'),

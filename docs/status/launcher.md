@@ -131,6 +131,33 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   decided when the request is built, never in storage. The budget projection counts an image at
   3,300 tokens. Changes what the art director, QA and atlas artist see in create runs: re-run the
   create-run Agents-tab eval.
+- 2026-10-27 — **Invisible Director: runtime family packs** (ADR-0009 §4, card 9F). Director
+  re-themes slot templates only, and now says so at the start instead of failing mid-run.
+  - **Packs:** `services/director-worker/families/{slot,match3,arcade}.md` carry what a game family
+    adds to every runtime agent: locked items, mockup screen tags, region batch order, QA books and
+    screens, and its "never" list. The slot pack has a section per kind (lines with the Book of
+    Thermopylae preset, ways, cluster, scatter, holdAndWin with the coin board, the pots overlay and
+    bonus modes). The eight definitions are family-neutral; their slot text moved into the slot
+    pack. The pure loader `src/familyPack.ts` (shared with the launcher, like
+    `agentDefinition.ts`) refuses an unknown family and a missing, empty, unknown or out-of-order
+    section; the worker refuses to boot on a bad pack, and its image copies `families/`.
+  - **Prompt layout:** every turn's system is two cached blocks, the definition body then the run's
+    pack; the mockup analyst's one-shot call gets body + pack + catalogue. Nothing run-specific is
+    in either block, so they are byte-stable within a run (`check:model`).
+  - **The family is frozen on the run:** `director_runs.family` (migration
+    `director_run_family`, backfilled from the run's own project, then the template, else slot,
+    with `familyOfKind`'s map). Create refuses a template whose family has no ready pack (409
+    `no_family_pack`) before anything is written; the worker pauses such a run with the same error
+    before any model call; the math lock the scene, FX and component adapters share
+    (`ops/mathLock.ts`) reads the run's family for its math-word list.
+  - **Ready:** slot only (`READY_FAMILY_PACKS`). Match-3 and arcade packs are drafts, refused until
+    their adapters (the board, Invisible Characters) exist and the owner turns them on. Their
+    locked-item and scene-lock lists are not built yet: a non-slot template shows one "Game Config,
+    locked whole" item.
+  - **New game screen:** the mockup tags come from the template's family (slot: unchanged); a
+    not-ready template says why and **Create** stays disabled.
+  - **Eval:** `agent-eval.ts` takes `--before-pack` / `--after-pack` for a by-hand run; the
+    `agent-eval` workflow still evaluates single-definition changes only.
 - 2026-10-27 — **Desktop build breakdown: what a ☁ Publish / 📦 Deliver shipped** (desktop launcher
   v1.0.59 + engine). After the 🗜 Optimize image pass, the launcher runs the engine's
   `scripts/build-breakdown.mjs` on the finished `build/` and opens a self-contained page. It shows

@@ -60,6 +60,8 @@
  *     a launcher that does not serve the op leaves the coordinator unable to start; a turn whose
  *     bug was filed but whose settle never committed, settled while paused, writes the line then
  *     and tells the model the bug, sending nothing.
+ * 29. a running run whose family has no ready pack (match3, arcade) pauses with a `no_family_pack`
+ *     error event before any model or vision call.
  */
 import type {
 	BetaMessage,
@@ -71,6 +73,7 @@ import { parsePricing, seedRenderUsd } from 'director-costs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { AgentDefinition } from '../src/agents.ts';
+import { loadFamilyPacks } from '../src/families.ts';
 import { driveRun, MAX_FAILURES, type DriverDeps } from '../src/driver.ts';
 import type { AdapterResult, AdapterSpec, Launcher } from '../src/launcher.ts';
 import { claimRun, deferLease } from '../src/lease.ts';
@@ -244,6 +247,7 @@ const agent = (name: string, tools: string[], model = 'claude-sonnet-5-5'): Agen
 	outputs: '',
 	systemPrompt: `You are ${name}.`,
 });
+const PACKS = loadFamilyPacks(fileURLToPath(new URL('../families', import.meta.url)));
 const AGENTS = new Map([
 	[
 		'coordinator',
@@ -287,14 +291,20 @@ const userId = `${tag}-owner`;
 let runSeq = 0;
 
 async function newRun(
-	over: { status?: string; step?: string; waitingOn?: string | null; cap?: number | null } = {},
+	over: {
+		status?: string;
+		step?: string;
+		waitingOn?: string | null;
+		cap?: number | null;
+		family?: string;
+	} = {},
 ) {
 	const id = `${tag}-run-${++runSeq}`;
 	await sql`insert into director_runs (id, project_key, template_project_key, owner_user_id, status,
-			step, waiting_on, budget_cap_usd)
+			step, waiting_on, budget_cap_usd, family)
 		values (${id}, ${`${id}-p`}, 'template', ${userId}, ${over.status ?? 'running'},
 			${over.step ?? 'breakdown'}, ${over.waitingOn ?? null},
-			${over.cap === undefined ? 25 : over.cap})`;
+			${over.cap === undefined ? 25 : over.cap}, ${over.family ?? 'slot'})`;
 	return id;
 }
 async function userMessage(runId: string, agentName: string, text: string) {
@@ -336,6 +346,7 @@ const deps = (
 	vision: noVision,
 	launcher,
 	agents: AGENTS,
+	packs: PACKS,
 	pricing: async () => pricing,
 	retries,
 	leaseMs: 2_000,
@@ -1870,6 +1881,32 @@ try {
 		await new Promise((r) => setTimeout(r, 300));
 		await listener.unlisten();
 		check('two NOTIFYs, each naming the run', heard, [runId, runId]);
+	}
+
+	// ── 29. A family with no ready pack ────────────────────────────────────────
+	console.log('29. a run of a family with no ready pack pauses before any call');
+	for (const family of ['match3', 'arcade']) {
+		const runId = await newRun({ family });
+		await userMessage(runId, 'coordinator', 'Go.');
+		const model = fakeModel([]);
+		const gate = fakeLauncher();
+		let visionCalls = 0;
+		const vision: VisionTransport = {
+			analyze: async () => {
+				visionCalls++;
+				throw new Error('the vision model was called for a family with no pack');
+			},
+		};
+		await drive(runId, deps(model.transport, gate.launcher, { vision }));
+		check(`${family}: the run is paused`, (await runRow(runId)).status, 'paused');
+		check(
+			`${family}: one error event, no_family_pack, naming the family`,
+			(await events(runId, 'error')).map((e) => [e.payload.type, e.payload.family]),
+			[['no_family_pack', family]],
+		);
+		check(`${family}: zero model calls`, model.calls(), 0);
+		check(`${family}: zero vision calls`, visionCalls, 0);
+		check(`${family}: no adapter call was sent`, gate.sent, []);
 	}
 } finally {
 	await sql`delete from director_spend where run_id like ${`${tag}-%`}`;

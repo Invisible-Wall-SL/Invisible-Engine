@@ -42,6 +42,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { AdapterClient } from '../adapters.ts';
 import { loadAgents, pricedModels } from '../agents.ts';
+import { loadFamilyPacks } from '../families.ts';
 import { checkpointSettings, type RunState } from '../runState.ts';
 import { KNOWN_TOOLS } from '../tools.ts';
 import {
@@ -98,6 +99,7 @@ const agents = loadAgents(root('agents'), {
 	tools: KNOWN_TOOLS,
 });
 const analyst = agents.get('mockup-analyst')!;
+const slotPack = loadFamilyPacks(root('families')).get('slot')!;
 
 // ── Fakes ─────────────────────────────────────────────────────────────────────
 
@@ -239,6 +241,7 @@ async function analyze(pass = 1) {
 		adapters: withErrors(launcher.adapters),
 		model: model.transport,
 		agent: analyst,
+		pack: slotPack,
 		run,
 		pass,
 	});
@@ -355,8 +358,8 @@ console.log('calls');
 		"each call uses the analyst's model and effort",
 	);
 	check(
-		requests.every((r) => r.system.includes(analyst.systemPrompt.slice(0, 80))),
-		"the system prompt starts with the agent's definition",
+		requests.every((r) => r.system.startsWith(`${analyst.systemPrompt}\n\n${slotPack.text}\n\n`)),
+		"the system prompt is the agent's definition, then the run's family pack (ADR-0009 §4)",
 	);
 	check(
 		requests.every(
@@ -449,6 +452,7 @@ console.log('font gaps');
 				adapters: withErrors(fakeLauncher({ fonts }).adapters),
 				model: fakeTransport(withGaps(...gaps)).transport,
 				agent: analyst,
+				pack: slotPack,
 				run,
 				pass: 1,
 			})
@@ -533,6 +537,7 @@ console.log('font gaps');
 			adapters: withErrors(fakeLauncher({ fonts: null }).adapters),
 			model: model.transport,
 			agent: analyst,
+			pack: slotPack,
 			run,
 			pass: 1,
 		});
@@ -564,6 +569,7 @@ console.log('a template that can buy');
 		adapters: withErrors(launcher.adapters),
 		model: fakeTransport().transport,
 		agent: analyst,
+		pack: slotPack,
 		run,
 		pass: 1,
 	});
@@ -596,6 +602,7 @@ console.log('a template that can buy');
 			adapters: withErrors(fakeLauncher({ template: withBuy }).adapters),
 			model: fakeTransport({ [base]: wrong }).transport,
 			agent: analyst,
+			pack: slotPack,
 			run,
 			pass: 1,
 		}),
@@ -624,6 +631,7 @@ console.log('a template that can buy');
 		adapters: withErrors(fakeLauncher({ template: noFacts }).adapters),
 		model: fakeTransport().transport,
 		agent: analyst,
+		pack: slotPack,
 		run,
 		pass: 1,
 	});
@@ -643,6 +651,7 @@ console.log('ownership');
 			adapters: launcher.adapters,
 			model: model.transport,
 			agent: analyst,
+			pack: slotPack,
 			run,
 			pass: 1,
 		});
