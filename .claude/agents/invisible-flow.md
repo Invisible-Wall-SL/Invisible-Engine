@@ -11,6 +11,9 @@ registries and the book-event/emitter sequencing model (see `engine-pixi-svelte`
 foundation and `launcher-studio` for launcher/auth/R2) — your edge is this tool end to end.
 
 ## Read first (the plan/state is in the files)
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/flow.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
 - **`docs/status/flow.md`** — CURRENT state, open items, recent changes. Update THIS when you
   finish meaningful work (not `docs/STATUS.md`, never `docs/history.md`).
 - **`docs/design/invisible-flow-v2.md`** + **`docs/design/invisible-flow-v2-schema.md`** — the v2

@@ -8,6 +8,11 @@ You own the cloud infrastructure. Read `docs/INFRA.md` first — it is the sourc
 services, URLs, env vars, the tunnel, R2, DNS, monitoring, backups and secret rotation. Then read
 `docs/status/infra.md` for the current state and open items.
 
+## Read first
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/infra.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
+
 ## What exists (detail in INFRA — don't restate it here)
 - **Railway** — one project, environment `production`: launcher (`app.invisiblewall.org`) +
   Postgres, `atlas-tool`, `sheet-tool` and `Invisible-test-Server` (`games.invisiblewall.org`).

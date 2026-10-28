@@ -90,7 +90,8 @@
 		type RigClip,
 		type StageTransformDelta,
 	} from '$lib/timeline/screenTimeline';
-	import type { TimelineChannel } from '$lib/timeline/timeline';
+	import type { CueSoundKind, CueSoundOptions, TimelineChannel } from '$lib/timeline/timeline';
+	import { timelineSignalNames, timelineSoundNames, type CueLists } from '$lib/timeline/cueNames';
 	import {
 		STARTER_TARGET,
 		contentKey,
@@ -123,6 +124,8 @@
 		name: string;
 		/** The signals `playOn` offers (`componentTimelineSignals`). */
 		signals: string[];
+		/** The events it declares — what an `event:<id>` cue raises. */
+		events?: string[];
 		/** Every other component, for reuse (`playOnComponents`) and its validation. */
 		others: { id: string; name: string; nodes: LayoutNode[] }[];
 	}
@@ -159,6 +162,8 @@
 		baseLayoutType?: string;
 		/** `layoutType`'s name, for the per-ratio buttons. */
 		layoutLabel?: string;
+		/** The sounds and flow cues the cue inspector lists by name; absent ⇒ every name is typed. */
+		cueLists?: CueLists;
 	}
 
 	let {
@@ -174,6 +179,7 @@
 		layoutType,
 		baseLayoutType,
 		layoutLabel,
+		cueLists,
 	}: Props = $props();
 
 	/** The animations a rig node can play on a strip; empty for any other node, or a rig the canvas
@@ -383,6 +389,18 @@
 				actorChannels: (cast: CinematicCast) => actorFxRows(cast),
 				pasteTarget,
 				cueSuggestions: () => (!component && scene ? elementFxCueSuggestions(scene) : []),
+				cueNames: () => ({
+					sfx: timelineSoundNames(cueLists, 'sfx'),
+					music: timelineSoundNames(cueLists, 'music'),
+					signal: timelineSignalNames({
+						lists: cueLists,
+						componentSignals: component?.signals,
+						events: component?.events,
+						elementFx: component && scene ? elementFxCueSuggestions(scene) : undefined,
+					}),
+				}),
+				auditionSound,
+				auditioning: () => auditionCue,
 				clips: (actorId: string) => {
 					const open = tl?.doc() ?? doc;
 					const cast = open.stage.cast.find((c) => c.actorId === actorId);
@@ -399,8 +417,58 @@
 		tl.renderInspector();
 	}
 
+	// ---- cue audition (the cue inspector's ▶) -------------------------------------------------
+
+	let auditionPlayer: HTMLAudioElement | null = null;
+	/** The `sfx:` / `music:` cue playing now, or null. */
+	let auditionCue: string | null = null;
+	/** Bumped by every ▶, so a superseded play's late `ended` / rejection is ignored. */
+	let auditionRun = 0;
+
+	function stopAudition(): void {
+		auditionPlayer?.pause();
+		auditionCue = null;
+	}
+
+	/**
+	 * Play one of the project's uploads as the cue would — its authored level × the cue's volume,
+	 * the cue's rate (pitch with it, as in game), loop and start offset — or stop it when it is the
+	 * one playing. Streams from Invisible Sound's file route, as `/sound` auditions. Pan, jitter,
+	 * fades and alternates are the game's to play; an engine sound has no file here to play.
+	 */
+	function auditionSound(
+		kind: CueSoundKind,
+		name: string,
+		sound: CueSoundOptions | undefined,
+	): void {
+		const cue = `${kind}:${name}`;
+		const entry = cueLists?.auditions[name];
+		const again = auditionCue === cue;
+		stopAudition();
+		if (again || !entry) return;
+		const player = (auditionPlayer ??= new Audio());
+		// Only this play's own end or refusal settles: a newer ▶ must not be cleared by the
+		// rejection of the play it interrupted.
+		const run = ++auditionRun;
+		const settle = () => {
+			if (run !== auditionRun) return;
+			auditionCue = null;
+			tl?.renderInspector();
+		};
+		player.onended = settle;
+		const offset = sound?.offset ? `#t=${sound.offset / 1000}` : '';
+		player.src = `/api/sounds/file?project=${encodeURIComponent(projectKey)}&file=${encodeURIComponent(entry.file)}${offset}`;
+		player.volume = Math.min(Math.max((entry.volume ?? 1) * (sound?.volume ?? 1), 0), 1);
+		player.preservesPitch = false;
+		player.playbackRate = sound?.rate ?? 1;
+		player.loop = sound?.loop ?? entry.loop ?? false;
+		auditionCue = cue;
+		void player.play().catch(settle);
+	}
+
 	function closeTimeline(): void {
 		stop();
+		stopAudition();
 		tl?.destroy();
 		tl = null;
 		openId = null;
@@ -1476,7 +1544,10 @@
 		void openId;
 		untrack(() => {
 			tl?.setActive(on);
-			if (!on) stop();
+			if (!on) {
+				stop();
+				stopAudition();
+			}
 			preview();
 		});
 	});
@@ -1509,6 +1580,7 @@
 
 	onDestroy(() => {
 		stop();
+		stopAudition();
 		// Detaches the module's window keydown listener; without it the Timeline would keep
 		// answering Ctrl+Z / Delete after Animate mode is left.
 		tl?.destroy();

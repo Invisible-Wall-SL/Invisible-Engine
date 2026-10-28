@@ -40,6 +40,7 @@
 		materialChoices,
 		materialGraphId,
 		materialLayerLoad,
+		materialLayerCount,
 		materialNotes,
 		materialParamValue,
 		setLayerMaterial,
@@ -592,6 +593,13 @@
 		void customElementFxVersion();
 		return materialChoices(customElementFxList());
 	});
+	/** The picker's groups: made for particles, then the rest (one group needs no heading). */
+	const materialGroups = $derived(
+		[
+			{ label: 'Made for particles', options: materialOptions.filter((o) => o.particles) },
+			{ label: 'Other effects', options: materialOptions.filter((o) => !o.particles) },
+		].filter((g) => g.options.length),
+	);
 
 	/** How the stage draws each material layer, as it last said. */
 	let materialStats = $state<Record<string, FxStageMaterialStat>>({});
@@ -664,6 +672,7 @@
 			? materialNotes({
 					layer: selected,
 					params: doc.params,
+					materialLayers: materialLayerCount(doc.layers),
 					effect: selectedEffect,
 					notCompiled: materialIssues.has(selected.key),
 					skipped: shaderSet.skipped,
@@ -2142,9 +2151,19 @@
 									)}
 							>
 								<option value="">None (plain sprites)</option>
-								{#each materialOptions as option (option.kind)}
-									<option value={option.kind}>{option.label}</option>
-								{/each}
+								{#if materialGroups.length > 1}
+									{#each materialGroups as group (group.label)}
+										<optgroup label={group.label}>
+											{#each group.options as option (option.kind)}
+												<option value={option.kind}>{option.label}</option>
+											{/each}
+										</optgroup>
+									{/each}
+								{:else}
+									{#each materialOptions as option (option.kind)}
+										<option value={option.kind}>{option.label}</option>
+									{/each}
+								{/if}
 								{#if selected.material && !materialOptions.some((o) => o.kind === selected.material?.kind)}
 									<option value={selected.material.kind}
 										>{selected.material.kind} (not compiled)</option

@@ -1,6 +1,7 @@
 import { isSelfMountedBannerScreen } from '../holdAndWinBanners';
 import type { LayoutDoc, LayoutNode, Scene } from '../types';
 import { arcadeReferenceLayout } from './arcade';
+import { cardReferenceLayout } from './card';
 import { bookofReferenceLayout } from './bookof';
 import { clusterReferenceLayout } from './cluster';
 import {
@@ -23,6 +24,15 @@ export { clusterReferenceLayout } from './cluster';
 export { scatterReferenceLayout } from './scatter';
 export { match3ReferenceLayout, match3RgsReferenceLayout, MATCH3_BOARD } from './match3';
 export { arcadeReferenceLayout, ARCADE_FIELD, ARCADE_SAMPLE_COMPONENTS } from './arcade';
+export {
+	cardReferenceLayout,
+	CARD_FRAME_BODY,
+	CARD_FRAME_ID,
+	CARD_FRAME_PLACEHOLDER_DEF,
+	CARD_FRAME_SIZE,
+	CARD_HEROES,
+	CARD_ZONES,
+} from './card';
 export {
 	holdAndWinReferenceLayout,
 	HOLD_AND_WIN_BOARD,
@@ -112,6 +122,9 @@ const FULL_SCENE_SOURCES: Record<
 	// Arcade (game-families P10.8): the play field (a spawn layer the arcade loop moves), its HUD and
 	// the round-over screen. Engine pieces only, so scaffold-only like the skeletons.
 	arcade: { name: 'Arcade', build: () => arcadeReferenceLayout() },
+	// Card (card-games C3): the table (the zones as spawn layers, the heroes, the readouts, End Turn),
+	// the deck pick and the result screens. Engine pieces only, so scaffold-only like arcade.
+	card: { name: 'Card', build: () => cardReferenceLayout() },
 };
 
 /** A declared respin mode the scene set seeds screens for: its id, the name the tools show it by,

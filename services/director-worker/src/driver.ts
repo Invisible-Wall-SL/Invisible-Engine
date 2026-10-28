@@ -19,7 +19,9 @@ import {
 	type DirectorPricing,
 } from 'director-costs';
 import { adapterClient } from './adapters.ts';
+import { draftPlayMessage } from './draftReport.ts';
 import type { AgentDefinition } from './agents.ts';
+import { readyPack, type FamilyPack, type PackFamily } from './families.ts';
 import {
 	overCap,
 	projectCall,
@@ -27,7 +29,7 @@ import {
 	projectVisionCall,
 	unreportedSeconds,
 } from './budget.ts';
-import type { AdapterSpec, Launcher } from './launcher.ts';
+import type { AdapterResult, AdapterSpec, Launcher } from './launcher.ts';
 import { deferLease, LEASE_MS, releaseLease, renewLease, type ClaimedRun } from './lease.ts';
 import { log } from './log.ts';
 import {
@@ -60,6 +62,7 @@ import {
 import { TERMINAL_STATUSES, transition, type Checkpoint, type RunEvent } from './runState.ts';
 import {
 	appendMessage,
+	cancelQueuedDrafts,
 	appSetting,
 	applyTransition,
 	breakdownAnswers,
@@ -102,6 +105,7 @@ import {
 	type RecipeEdit,
 } from './recipes.ts';
 import { WORKER_TOOL_OPS, WORKER_TOOLS } from './tools.ts';
+import { answerContent, capImages, cutResult } from './toolResult.ts';
 import { runWorkerTool, workerToolSpecs, type FiledBug, type WorkerToolId } from './workerTools.ts';
 
 /**
@@ -143,6 +147,8 @@ export interface DriverDeps {
 	vision: VisionTransport;
 	launcher: Launcher;
 	agents: ReadonlyMap<string, AgentDefinition>;
+	/** The family packs (`families/<family>.md`); a run takes the one its frozen family names. */
+	packs: ReadonlyMap<PackFamily, FamilyPack>;
 	pricing: () => Promise<DirectorPricing>;
 	/** Failed drives in a row, per run, in this process. A successful drive clears its entry. */
 	retries: Map<string, number>;
@@ -168,7 +174,6 @@ const RETRY_MAX_MS = 120_000;
 const WORKER_TOOL_IDS: ReadonlySet<string> = new Set(WORKER_TOOLS);
 const COORDINATOR = 'coordinator';
 const MAX_TURNS = 40;
-const MAX_RESULT_CHARS = 60_000;
 
 /**
  * An answer that says nothing about whether an op ran, or a launcher that could not be asked: the
@@ -234,12 +239,21 @@ export async function driveRun(deps: DriverDeps, claimed: ClaimedRun): Promise<v
 			if (controller.signal.aborted) throw controller.signal.reason;
 			const live = await withLease(ctx.sql, ctx.run, async (_tx, l) => l);
 			if (live.state.status !== 'running') break;
-			if (await breakdownStep(ctx, live)) {
+			const pack = readyPack(ctx.packs, live.family);
+			if (!pack) {
+				await pauseWithError(ctx, 'worker', {
+					type: 'no_family_pack',
+					family: live.family,
+					message: `Director has no ready pack for the ${live.family} family, so no agent can work on this run. Stop the run.`,
+				});
+				break;
+			}
+			if (await breakdownStep(ctx, live, pack)) {
 				await handleEvents(ctx);
 				continue;
 			}
 			const [agent] = await pendingAgents(ctx.sql, ctx.run.id);
-			if (!agent || !(await takeTurn(ctx, agent))) break;
+			if (!agent || !(await takeTurn(ctx, agent, pack))) break;
 			await handleEvents(ctx);
 		}
 		deps.retries.delete(claimed.id);
@@ -328,12 +342,19 @@ async function catalog(ctx: Ctx): Promise<ReadonlyMap<string, AdapterSpec>> {
 const resultBlock = (id: string, content: string, isError = false): BetaToolResultBlockParam => ({
 	type: 'tool_result',
 	tool_use_id: id,
-	content:
-		content.length > MAX_RESULT_CHARS
-			? `${content.slice(0, MAX_RESULT_CHARS)}…[truncated]`
-			: content,
+	content: cutResult(content),
 	...(isError ? { is_error: true } : {}),
 });
+
+/** An adapter's answer: a 200 may carry an image the model is shown; an error is always text. */
+const answerBlock = (
+	id: string,
+	answer: AdapterResult,
+	imageOp: boolean,
+): BetaToolResultBlockParam =>
+	answer.status === 200
+		? { type: 'tool_result', tool_use_id: id, content: answerContent(answer.body, imageOp) }
+		: resultBlock(id, JSON.stringify(answer.body), true);
 
 const opIdOf = (runId: string, agent: string, turnSeq: number, index: number) =>
 	`${runId}:${agent}-t${turnSeq}:${index}`;
@@ -527,7 +548,7 @@ async function settle(
 				await withLease(ctx.sql, ctx.run, (tx, live) => markQueued(tx, live.id, steps, jobRef));
 			}
 		}
-		results.set(call.id, resultBlock(call.id, JSON.stringify(answer.body), answer.status !== 200));
+		results.set(call.id, answerBlock(call.id, answer, spec.image === true));
 	}
 
 	await withLease(ctx.sql, ctx.run, async (tx, live) => {
@@ -711,7 +732,7 @@ async function pauseWithError(ctx: Ctx, agent: string, error: Record<string, unk
 // ── One turn ──────────────────────────────────────────────────────────────────
 
 const toParams = (messages: StoredMessage[]): BetaMessageParam[] =>
-	messages.map((m) => ({ role: m.role, content: m.content }));
+	capImages(messages.map((m) => ({ role: m.role, content: m.content })));
 
 const finalText = (content: BetaContentBlockParam[]) =>
 	content
@@ -728,7 +749,7 @@ const storable = (content: BetaContentBlockParam[]): BetaContentBlockParam[] =>
 	content.length ? content : [{ type: 'text', text: '(no reply)' }];
 
 /** One turn for `name`. False when the loop should stop (paused, or nothing could be done). */
-async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
+async function takeTurn(ctx: Ctx, name: string, pack: FamilyPack): Promise<boolean> {
 	const agent = ctx.agents.get(name);
 	if (!agent) {
 		await pauseWithError(ctx, 'worker', { type: 'unknown_agent', agent: name });
@@ -753,7 +774,7 @@ async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
 	}
 
 	const pricing = await ctx.pricing();
-	const request = buildRequest(agent, specs, toParams(history));
+	const request = buildRequest(agent, pack, specs, toParams(history));
 	const spend = await runSpend(ctx.sql, ctx.run.id);
 	// The call, plus the renders in flight: a run at its cap must not keep talking while their
 	// cost is still to land.
@@ -950,7 +971,7 @@ class StepStopped extends Error {
  * True when the step was the worker's here (the run moved, paused, or kept its state for a retry);
  * false when it is not — the loop then gives an agent its turn.
  */
-async function breakdownStep(ctx: Ctx, live: LiveRun): Promise<boolean> {
+async function breakdownStep(ctx: Ctx, live: LiveRun, pack: FamilyPack): Promise<boolean> {
 	if (live.state.step !== 'breakdown') return false;
 	const listing = await mockupListing(ctx);
 	if (listing.images.length === 0) return false;
@@ -992,6 +1013,7 @@ async function breakdownStep(ctx: Ctx, live: LiveRun): Promise<boolean> {
 			adapters: { analyst: client(ANALYST_AGENT), worker: client('worker') },
 			model: visionFor(ctx, analyst, attempt, answers),
 			agent: analyst,
+			pack,
 			run: { id: ctx.run.id, templateProjectKey: live.templateProjectKey },
 			pass,
 			notes,
@@ -1325,6 +1347,8 @@ async function applyEvent(
 			if (action === 'stop') {
 				const error = await move(tx, live, { type: 'stop' }, 'owner stop');
 				if (error) return refuse(error);
+				// A play queued on the draft player is not waited on; a late callback is a duplicate.
+				await cancelQueuedDrafts(tx, live.id);
 				return finishStop(tx, live);
 			}
 			return refuse(`unknown owner request "${action}"`);
@@ -1416,6 +1440,14 @@ async function applyEvent(
 			return;
 		}
 		case 'job_done': {
+			// A QA play is not a GPU render: it has no usage to bill (`billJob` would flag it as an
+			// `unbilled_job` and block GPU submits) and no recipe step to settle. It is only told.
+			if (event.tool === 'build.play_draft') {
+				if (TERMINAL_STATUSES.includes(live.state.status)) return;
+				const to = ctx.agents.has(event.agent) ? event.agent : COORDINATOR;
+				await appendMessage(tx, live.id, to, 'user', userText(draftPlayMessage(p)));
+				return finishStop(tx, live);
+			}
 			const billed = await billJob(tx, live, event, pricing);
 			const result = isRecord(p.result) ? p.result : {};
 			const variants = (Array.isArray(result.variants) ? result.variants : [])

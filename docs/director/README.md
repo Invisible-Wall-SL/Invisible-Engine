@@ -29,6 +29,7 @@ own session, launched from a task card, and is coordinated from the coordinator 
 | [`DECISIONS/`](DECISIONS/) | One ADR per decision (index below). |
 | [`mockups/`](mockups/) | The target screens: PNG to look at, HTML to inspect. |
 | [`../../services/director-worker/agents/`](../../services/director-worker/agents/) | The eight runtime agents. These are the definitions the Agents tab shows and edits. |
+| [`../../services/director-worker/families/`](../../services/director-worker/families/) | The runtime family packs (slot, match-3, arcade; ADR-0009 §4): what a game family adds to every agent's prompt. Only slot is ready. |
 
 ### ADR index
 
@@ -43,6 +44,8 @@ own session, launched from a task card, and is coordinated from the coordinator 
 | [0007](DECISIONS/0007-pipeline-change-mechanics.md) | Pipeline-change mechanics | approved |
 | [0008](DECISIONS/0008-blueprint-driven-art.md) | Blueprint-driven art | approved |
 | [0009](DECISIONS/0009-repair-agents-families-knowledge.md) | Repair agents, family specialists, knowledge base | approved |
+| [0010](DECISIONS/0010-qa-draft-play.md) | QA's draft play | approved |
+| [0011](DECISIONS/0011-reskin-adapters-sound-fx-components.md) | Reskin adapters: Sound, FX and Component Editor art | approved |
 
 ### Mockups
 

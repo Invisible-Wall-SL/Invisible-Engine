@@ -1,19 +1,16 @@
 import {
-	isCountRepeater,
-	isModeScene,
-	type ComponentDef,
 	type LayoutDoc,
 	type LayoutNode,
 	type LayoutType,
 	type Point2D,
 	type Scene,
 } from 'engine-layout';
-import { loadComponent } from '../../componentStorage';
 import { loadDocWithEtag, saveDoc } from '../../editorStorage';
 import { editorDocBackupTarget, editorDocKey } from '../../projectPaths';
 import { projectGameType } from '../../projects';
 import { AdapterError, defineOp } from '../adapter';
 import { baseEtagProp, baseOf, preconditionOf, projectOf } from './docs';
+import { SKINNABLE, defLoader, lockOf, type DefLoader } from './mathLock';
 
 /**
  * Invisible Scene Editor adapters (PLAN 2.6), through `editorStorage.ts`: the editor's own
@@ -22,130 +19,6 @@ import { baseEtagProp, baseOf, preconditionOf, projectOf } from './docs';
  * bound to the game's math — the reel grid, a bet or buy-feature control, a readout of the bet, a
  * node on the bet / buy screens — is refused and listed, never changed (ADR-0002 "Locked items").
  */
-
-/** Words that tie a binding to the math contract: stakes, bet levels and modes, paylines, features. */
-const MATH_WORD =
-	/(bet|stake|payline|paytable|ways|coin|buy|bonus|feature|trigger|increase|decrease|level|mode|rtp|jackpot)/i;
-
-/**
- * Screens that ARE math: the bet menu, the buy-feature menu and its confirm. The runtime finds each
- * by its role, else by this legacy id (`engine-layout` `sceneByRole`), and the reference layouts
- * seed the buy screens by id with no role, so either one locks the screen. A mode's screens are
- * locked too (`isModeScene`).
- */
-const MATH_SCREENS = new Set(['betMenu', 'buyFeature', 'buyConfirm']);
-
-/** How deep a component placed inside a component is followed; deeper is refused, not trusted. */
-const MAX_COMPONENT_DEPTH = 4;
-
-type DefLoader = (id: string, version: number | undefined) => Promise<ComponentDef | undefined>;
-
-/** One load per component id and pinned version for the whole call. */
-function defLoader(projectKey: string): DefLoader {
-	const seen = new Map<string, Promise<ComponentDef | undefined>>();
-	return (id, version) => {
-		const key = `${id}@${version ?? 'latest'}`;
-		if (!seen.has(key)) seen.set(key, loadComponent(id, projectKey, version));
-		return seen.get(key)!;
-	};
-}
-
-/**
- * Why `node` itself is bound to the math, or `null`: its own bindings, and for a placed component
- * the def's defaults for the params it leaves unset and every node inside the def. Its children are
- * checked by {@link mathBinding}.
- */
-async function ownMathBinding(
-	node: LayoutNode,
-	defs: DefLoader,
-	depth = 0,
-): Promise<string | null> {
-	if (node.kind === 'reelGrid') return 'it is the reel grid';
-	if (node.kind === 'repeater') {
-		if (!isCountRepeater(node)) return `it repeats the game's "${node.source}" data`;
-		const fed = [node.count.source, ...Object.values(node.passInputs ?? {})].filter(Boolean);
-		if (fed.length) return `it counts the game's ${fed.map((s) => `"${s}"`).join(', ')}`;
-		return null;
-	}
-	const params = node.kind === 'componentInstance' ? (node.params ?? {}) : {};
-	// A layout's override can give the instance another action or source on that layout only.
-	const overrideParams = Object.values(node.overrides ?? {}).map((o) => o?.params ?? {});
-	const named: [string, unknown][] = [
-		['press action', node.pressAction],
-		['action', params.action],
-		['value source', params.source],
-		...overrideParams.flatMap((p): [string, unknown][] => [
-			['action on one layout', p.action],
-			['value source on one layout', p.source],
-		]),
-		['component', node.kind === 'componentInstance' ? node.componentId : undefined],
-		['bound component', node.bind?.component],
-		['bound action', node.bind?.props?.action],
-		['bound source', node.bind?.props?.source],
-		...(node.valueBindings ?? []).flatMap((b): [string, unknown][] => [
-			['value binding', b.source],
-			['value binding', b.of],
-		]),
-		...Object.values(node.paramBindings ?? {}).map((v): [string, unknown] => ['param binding', v]),
-	];
-	for (const [what, value] of named) {
-		if (typeof value === 'string' && MATH_WORD.test(value)) return `its ${what} is "${value}"`;
-	}
-	if (node.kind !== 'componentInstance') return null;
-	if (depth >= MAX_COMPONENT_DEPTH) {
-		return `its component "${node.componentId}" nests too deep to check`;
-	}
-	const def = await defs(node.componentId, node.componentVersion);
-	if (!def) return `its component "${node.componentId}" could not be read to check`;
-	for (const param of def.params ?? []) {
-		const unset = params[param.key] === undefined;
-		if (unset && typeof param.default === 'string' && MATH_WORD.test(param.default)) {
-			return `its component's ${param.key} defaults to "${param.default}"`;
-		}
-	}
-	const inner = await mathBinding(def.root, defs, depth + 1);
-	return inner ? `its component "${node.componentId}" holds a node where ${inner}` : null;
-}
-
-/** Why `node` — itself, or anything under it that moves with it — is bound to the math. */
-async function mathBinding(node: LayoutNode, defs: DefLoader, depth = 0): Promise<string | null> {
-	const own = await ownMathBinding(node, defs, depth);
-	if (own) return own;
-	if (node.kind !== 'container') return null;
-	for (const child of node.children) {
-		const why = await mathBinding(child, defs, depth);
-		if (why) return `it contains "${child.id}", and ${why}`;
-	}
-	return null;
-}
-
-function sceneMathBinding(scene: Scene): string | null {
-	if (isModeScene(scene)) return "it is on a game-mode screen, which shows the mode's math";
-	const screen = [scene.role, scene.id].find((name) => name && MATH_SCREENS.has(name));
-	return screen ? `it is on the "${screen}" screen, which shows the bet and feature math` : null;
-}
-
-/**
- * Why a change to `node` (reached through `ancestors`) is refused before looking at the change: the
- * screen, the node or anything under it bound to the math, a parent bound to the math, or the
- * editor's own lock.
- */
-async function lockOf(
-	scene: Scene,
-	ancestors: LayoutNode[],
-	node: LayoutNode,
-	defs: DefLoader,
-): Promise<string | null> {
-	const onScreen = sceneMathBinding(scene);
-	if (onScreen) return `bound to the math: ${onScreen}`;
-	for (const parent of ancestors) {
-		const why = await ownMathBinding(parent, defs);
-		if (why) return `bound to the math: its parent "${parent.id}" is, as ${why}`;
-	}
-	const own = await mathBinding(node, defs);
-	if (own) return `bound to the math: ${own}`;
-	return node.locked ? 'it is locked in the Scene Editor' : null;
-}
 
 /** `id`'s node and the containers above it, outermost first. */
 function findNode(
@@ -242,12 +115,12 @@ export const getLayout = defineOp<
 	write: false,
 	handler: async (ctx, { screen }) => {
 		const { clientKey, projectKey } = projectOf(ctx);
+		const defs = defLoader(projectKey, ctx.run);
 		const { doc, etag } = await loadLayout(clientKey, projectKey);
 		const scenes = screen ? doc.scenes.filter((s) => s.id === screen) : doc.scenes;
 		if (screen && scenes.length === 0) {
 			throw new AdapterError(404, 'unknown_screen', `No screen "${screen}" in this project.`);
 		}
-		const defs = defLoader(projectKey);
 		const screens = [];
 		for (const s of scenes) {
 			const nodes = [];
@@ -278,13 +151,6 @@ export interface NodeChange {
 
 const MOVE_FIELDS = ['x', 'y', 'scale'] as const;
 const SKIN_FIELDS = ['assetKey', 'region', 'skin', 'clipId'] as const;
-
-/** Which re-skin fields a node kind takes. Anything else on the change is refused. */
-const SKINNABLE: Partial<Record<LayoutNode['kind'], readonly string[]>> = {
-	sprite: ['assetKey', 'region'],
-	spine: ['assetKey', 'skin'],
-	flipbook: ['clipId'],
-};
 
 /** Apply one change to its node in place, or say why it cannot be applied. */
 function applyChange(node: LayoutNode, change: NodeChange, layouts: string[]): string | null {
@@ -369,11 +235,11 @@ export const updateNodes = defineOp<
 	],
 	handler: async (ctx, { changes, baseEtag }) => {
 		const { clientKey, projectKey } = projectOf(ctx);
+		const defs = defLoader(projectKey, ctx.run);
 		const { doc, etag } = await loadLayout(clientKey, projectKey);
 		if (etag === null) {
 			throw new AdapterError(404, 'no_layout', 'The project has no Scene Editor layout to change.');
 		}
-		const defs = defLoader(projectKey);
 		const layouts = Object.keys(doc.mainSizesMap);
 		const applied: { screen: string; node: string }[] = [];
 		const refused: { screen: string; node: string; reason: string }[] = [];

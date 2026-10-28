@@ -405,6 +405,7 @@ const HEADINGS: Record<string, ConfigSection> = {
 	'Big win tiers': 'winLevels',
 	'Match-3': 'match3',
 	Arcade: 'arcade',
+	'Card game': 'card',
 };
 /** The dialogs' titles, rendered closed, and the family picker's own heading. */
 const NOT_SECTIONS = new Set([
@@ -490,10 +491,16 @@ try {
 		outcome: 'rules',
 		arcade: { fixedHz: 120 },
 	})!;
+	const card = normalizeGameConfigDoc({
+		family: 'card',
+		outcome: 'rules',
+		card: { rules: { deckSize: 15 } },
+	})!;
 	for (const [label, config, family, outcome] of [
 		['match-3, RGS', m3, 'match3', 'rgs'],
 		['match-3, rules', m3Rules, 'match3', 'rules'],
 		['arcade', arcade, 'arcade', 'rules'],
+		['card', card, 'card', 'rules'],
 	] as const) {
 		const shown = renderPage(config);
 		same(

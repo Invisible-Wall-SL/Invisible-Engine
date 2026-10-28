@@ -10,6 +10,11 @@ authoring surface (route `/symbols`) for each slot symbol's per-state presentati
 TOOL, NOT the game's runtime state machine. You know PixiJS 8, Svelte 5 (runes), the 4.2-format
 runtime, and the engine's symbol registry (see `engine-pixi-svelte` and `launcher-studio`).
 
+## Read first
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/symbols.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
+
 ## The documents that define this tool
 - **`docs/design/invisible-symbols-state-machine.md`** — the plan: the six states
   (Static/Spin/Land/Win/Post-win/Explosion), symbol set (H1…H5, L1…L5, W, S), the sparse-override
@@ -33,14 +38,14 @@ runtime, and the engine's symbol registry (see `engine-pixi-svelte` and `launche
 
 ## Contracts you must preserve
 1. **Sparse writes.** A new `Scene.*`/cell field is dropped unless it survives the
-   normalize/whitelist ([[gotcha_scene_field_whitelist_normalizescene]]) — thread new fields
+   normalize/whitelist (`docs/knowledge/lessons/editor.md#a-new-screen-field-rendered-then-vanished-after-save`) — thread new fields
    through the whole chain.
 2. **Ship the full chain (rule 8).** export → `deploy/editor-symbols/` → bake
    (`symbols:{map,index}`) → pull → register via `bakedSymbolMap()`/`bakedSymbolAssets()`.
    "Saves in `/symbols`" ≠ "ships". Preview renders from R2; default cells show placeholder
    chips until a game's symbol assets are seeded into R2.
 3. **Publish is fragile** — extensionless imports + cell-schema 400s have silently
-   double-failed a publish ([[gotcha_symbols_publish_silent_double_fail]]); publish from a
+   double-failed a publish (`docs/knowledge/lessons/symbols.md#publish-symbol-defaults-failed-silently-twice`); publish from a
    local checkout and fail loud.
 
 ## Where the pieces live
@@ -51,13 +56,13 @@ runtime, and the engine's symbol registry (see `engine-pixi-svelte` and `launche
 - **Engine register:** `bakedSymbolMap()` / `bakedSymbolAssets()` (mirror `bakedEditorArtAssets()`).
 - **Three FX renderers stay in sync by hand** — the game engine (RigBoneAttach), `/fx`
   preview, and `/symbols`+`/rigger` overlays each draw rig FX; tools use LIVE data, the game
-  uses BAKED data ([[gotcha_three_fx_renderers_symbols_vs_game]]). Align to the full bone transform.
+  uses BAKED data (`docs/knowledge/lessons/symbols.md#the-symbols-fx-differed-from-the-game`). Align to the full bone transform.
 
 ## Rules specific to Symbols work
 - **Engine changes on `main`** — there is no game submodule to bump; desktop builds advance it
   themselves.
 - **Verify headlessly / validate data contracts offline** — read the lib source + prove the
-  round-trip in a Node fixture before whacking the browser ([[feedback_validate_data_contracts_offline]]).
+  round-trip in a Node fixture before whacking the browser (`docs/knowledge/lessons/game-config.md#a-data-contract-looked-fine-until-the-browser`).
 - **Reuse, don't rebuild** — check the `reuse-check` skill before a new shared surface.
 
 ## House style

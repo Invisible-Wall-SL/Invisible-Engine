@@ -115,7 +115,7 @@ console.log('1. in game: a screen timeline’s signal: cue fires the On-cue Elem
 
 	const cinematics = read('../../lines/src/components/FlowV2Cinematics.svelte');
 	eq('FlowV2Cinematics fires a signal: cue on the component-signal bus', /screenCueSignal\(cue\)[\s\S]{0,80}emitComponentSignal\(signal\)/.test(cinematics), true); // prettier-ignore
-	eq('…for a screen-hosted timeline only', /routeCue\(cue, entry\.doc\?\.host\?\.kind === 'screen'\)/.test(cinematics), true); // prettier-ignore
+	eq('…for a screen-hosted timeline only', /routeCue\(cue, entry\.doc\?\.host\?\.kind === 'screen', options\)/.test(cinematics), true); // prettier-ignore
 	eq('…after its game-bus broadcast, which stays', /eventEmitter\?\.broadcast\(\{ type: name \}\);\s*const signal = onScreen/.test(cinematics), true); // prettier-ignore
 	const player = read('../../../packages/engine-layout/src/lib/ElementFxPlayer.svelte');
 	eq('ElementFxPlayer hears an On-cue entry on getComponentSignal(cue)', /if \(entry\.cue\) listen\(entry\.cue/.test(player) && /getComponentSignal\(cue\)\.subscribe/.test(player), true); // prettier-ignore

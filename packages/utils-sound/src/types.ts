@@ -25,3 +25,6 @@ export type RateOptions<TSoundName extends string> = {
 	name: TSoundName;
 	rate: number;
 };
+export type PanOptions<TSoundName extends string> = { name: TSoundName; pan: number };
+export type LoopOptions<TSoundName extends string> = { name: TSoundName; loop: boolean };
+export type SeekOptions<TSoundName extends string> = { name: TSoundName; offset: number };

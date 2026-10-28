@@ -5,7 +5,7 @@
  * - a rules-decided game has no wallet and must never reach a real-money session (its runtime also
  *   refuses a delivery profile at boot, the second wall);
  * - an RGS-decided match-3 game waits on a real provider's match-3 wire: ours is a mock extension;
- * - any other family (arcade, and any added later) has no real-money path at all.
+ * - any other family (arcade, card, and any added later) has no real-money path at all.
  *
  * Fails closed: only a config with no family, or `slot`, passes. No override. Plain JS over the
  * stored fields (`family`, `outcome`) because `build-delivery.mjs` runs from a game repo's engine
@@ -14,7 +14,14 @@
 export const deliveryFamilyRefusal = (config) => {
 	const family = config?.family;
 	if (family == null || family === 'slot') return null;
-	const name = family === 'match3' ? 'a match-3' : family === 'arcade' ? 'an arcade' : 'a non-slot';
+	const name =
+		family === 'match3'
+			? 'a match-3'
+			: family === 'arcade'
+				? 'an arcade'
+				: family === 'card'
+					? 'a card'
+					: 'a non-slot';
 	if (config.outcome === 'rules')
 		return (
 			`This game's config is ${name} free-play game. ` +

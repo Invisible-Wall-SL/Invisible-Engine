@@ -1044,6 +1044,27 @@ three Global variables of scope **game** — `score`, `lives` and `playing` — 
 - When `lives` crosses 0 (an **On variable** node), the timers stop, the **Round over** screen waits for the player's tap, a **forEach**
   over `$live` despawns everything left on the field, and a new round starts.
 
+### Card — the match signals and the starter flow
+
+A **card** project (a Game Maker **Card** game) has its own palette. It keeps the standard palette's
+presentation surfaces and drops every reel, spin, bet and payline one. The rules are all in the game
+(`cards.js` and its AI): the flow presents the match and never decides it.
+
+**Match signals:** `matchReady {first}` (true when the player starts), `turnStarted {mine, turn}`,
+`phaseChanged {phase}`, `cardDrawn {card, mine, burned}`, `cardPlayed {card, mine}`,
+`unitAttacked {attacker, target}`, `damaged {target, amount}`, `healed {target, amount}`,
+`unitSummoned {card, mine}`, `unitDied {card}` and `matchEnded {won, reason}`. A card is its id in
+the library; a target is a unit's card id, `myHero` or `enemyHero`.
+
+**Actions:** **End phase** (`cardsEndPhase`), **Concede**, **New match** (`deck`: a player deck's id,
+empty for the first), **Set input** (`enabled`: hold the player's input during a cutscene) and
+**Hint** (light a playable card). **`$engine` values:** `myHealth`, `enemyHealth`, `resource`,
+`resourceMax`, `deckCount`, `enemyDeckCount`, `turn`, `phase`; a readout binds the same numbers as
+`cards.<name>`.
+
+**The starter flow** shows the loading screen and the table on load, then the deck pick on the tap;
+its tap deals a match. `matchEnded` shows **Match won** or **Match lost**, whose tap deals the next.
+
 ### Pots overlay and Hold and Win on any kind — add-ons
 
 A project of any kind (a Book-of game, say) can carry a **Pots overlay** block and/or a **Hold and

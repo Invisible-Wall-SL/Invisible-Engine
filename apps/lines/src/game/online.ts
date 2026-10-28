@@ -7,22 +7,27 @@ import {
 	STATUS,
 	characterBody,
 	clampInput,
+	createCamera,
 	createFixedStep,
 	createInterpolator,
 	createPredictor,
+	createRng,
 	createSnapshotClock,
 	onlineLevel,
 	reconcilerOptions,
 	snapFor,
+	stepCamera,
 	stepContext,
 	strongestForce,
+	type Camera,
 	type FixedStep,
 	type Interpolator,
 	type OnlineEvent,
 	type Predictor,
 	type SnapshotClock,
 } from 'engine-mechanics';
-import { spawnStore } from 'engine-layout/svelte';
+import { sceneCamera, sceneWorld, worldCameraScene, type Scene } from 'engine-layout';
+import { setWorldCameraView, spawnStore } from 'engine-layout/svelte';
 import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-config';
 
 import { bakedGameConfig, refuseOnlineBoot } from '../editor-scenes';
@@ -100,6 +105,16 @@ type Session = {
 };
 
 let session: Session | undefined;
+
+/** The world camera of an online game whose play field is a world (P10.16): it follows the own
+ *  player as it is drawn, so the device's view answers as fast as its controls. */
+type OnlineCamera = {
+	camera: Camera;
+	world: { w: number; h: number } | undefined;
+	view: () => Size;
+};
+type Size = { w: number; h: number };
+let worldCamera: OnlineCamera | undefined;
 
 const MOVE_KEYS: Record<string, [number, number]> = {
 	ArrowLeft: [-1, 0],
@@ -289,11 +304,17 @@ export function listenOnline(): () => void {
 /** The room's synced state, in the shape `services/game-server/src/schema.ts` declares. */
 const stateOf = (room: Room): Partial<RoomState> => room.state as Partial<RoomState>;
 
+/** Where the own player is drawn, by whichever netcode predicts it; `undefined` until placed. */
+function ownPlace(current: Session) {
+	const sdk = current.sdk?.me;
+	if (sdk) return { x: sdk.value('x'), y: sdk.value('y') };
+	return current.me?.drawn(current.clock.alpha);
+}
+
 /** Where a player is drawn: the own one predicted, everyone else between the room's states. */
 function placeOf(current: Session, id: string, player: PlayerState) {
-	const own = current.sdk?.me;
-	if (id === current.room.sessionId && own) return { x: own.value('x'), y: own.value('y') };
-	if (id === current.room.sessionId && current.me) return current.me.drawn(current.clock.alpha);
+	const own = id === current.room.sessionId ? ownPlace(current) : undefined;
+	if (own) return own;
 	return current.others.at(id, current.viewStep) ?? { x: player.x, y: player.y };
 }
 
@@ -331,6 +352,29 @@ function draw(current: Session) {
 	live.move(moves);
 }
 
+/**
+ * Give an online game the camera of the layout's world screen, if it has one (as the offline loop's
+ * `useWorldCamera`); the first world screen seen is kept for the page. `view` reads the current
+ * design size, so a rotated device moves the view with it.
+ */
+export function useOnlineCamera(scenes: readonly Scene[], view: () => Size) {
+	if (worldCamera) return;
+	const scene = worldCameraScene(scenes);
+	if (!scene) return;
+	const camera = createCamera(sceneCamera(scene), createRng('online:camera'));
+	camera.snapNext = true;
+	worldCamera = { camera, world: sceneWorld(scene), view };
+}
+
+/** Move the camera after a frame, towards the own player as drawn. */
+function follow(current: Session, dtMs: number) {
+	const at = worldCamera && ownPlace(current);
+	if (!worldCamera || !at) return;
+	const { camera, world, view } = worldCamera;
+	stepCamera(camera, dtMs / 1000, { view: view(), world, target: { ...at, vx: 0, vy: 0 } });
+	setWorldCameraView({ x: camera.x, y: camera.y, shakeX: camera.offsetX, shakeY: camera.offsetY });
+}
+
 /** One frame: the inputs its fixed steps hold, each predicted as it is sent, then the room drawn. */
 export function tickOnline(dtMs: number) {
 	const current = session;
@@ -350,6 +394,7 @@ export function tickOnline(dtMs: number) {
 	});
 	current.me?.frame(dtMs);
 	draw(current);
+	follow(current, dtMs);
 }
 
 /** The room as the determinism probe reads it: the server's step and places, and how each player is
@@ -363,9 +408,21 @@ export function onlineProbe() {
 		bodies.push({ id, x: p.x, y: p.y, vx: 0, vy: 0, tags: [] });
 		if (current) drawn.push({ id, ...placeOf(current, id, p) });
 	});
+	const camera = worldCamera?.camera;
 	return {
 		steps: state?.step || 0,
 		bodies,
+		...(camera && worldCamera
+			? {
+					camera: {
+						x: camera.x,
+						y: camera.y,
+						shakeX: camera.offsetX,
+						shakeY: camera.offsetY,
+						view: worldCamera.view(),
+					},
+				}
+			: {}),
 		...(current && state
 			? {
 					online: {

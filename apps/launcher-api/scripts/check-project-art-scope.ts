@@ -31,6 +31,10 @@
  *   9. A `tilemap` (P10.13): every tileset region a painted tile draws is in the scope and ships
  *      under `deploy/editor-art/`; an entry no tile uses does not. The tilemap is part of the layout
  *      doc, so it ships with it; its art would otherwise stay at its source R2 prefix (rule 8).
+ *  10. A CARD GAME (card-games.md §9.3): a card frame named only by a card's `frame` in the config's
+ *      library ships its own art, and a card's art named only in its `params` (an image param of the
+ *      frame) ships too (`cardGameComponentIds` / `cardGameParamRefs` seed the export). The same
+ *      config without cards ships neither.
  *
  * Run:  pnpm --filter launcher-api check:art-scope
  */
@@ -636,6 +640,63 @@ check(
 check(
 	'… and no painted frame counts as dangling',
 	!tileIndex.missing.includes('groundTile') && !tileIndex.missing.includes('ledgeTile'),
+);
+
+console.log('10. a card frame and art named only in the card library ship');
+const CARD_PROJECT = 'card_art';
+const cardSheet = (stem: string, frame: string) => {
+	const manifest = `${SUB.manifests(CLIENT, CARD_PROJECT)}/atlas_manifest_${stem}.json`;
+	const page = `${SUB.sheets(CLIENT, CARD_PROJECT)}/${stem}/${stem}.webp`;
+	put(page, 'x');
+	put(manifest, {
+		atlas: { source_image_path: page },
+		regions: [{ name: frame, x: 0, y: 0, w: 8, h: 8 }],
+	});
+	return manifest;
+};
+const FRAME_SHEET = cardSheet('S_Frame', 'frameBorder');
+const ART_SHEET = cardSheet('S_CardArt', 'impArt');
+put(projectComponentKey(CARD_PROJECT, 'unitFrame'), {
+	...spriteDef('unitFrame', `${FRAME_SHEET}::frameBorder`),
+	params: [{ key: 'art', kind: 'image' }],
+});
+put(editorDocKey(CLIENT, CARD_PROJECT), { scenes: [{ id: 'table', name: 'Table', nodes: [] }] });
+const CARD_CONFIG = { family: 'card', outcome: 'rules', gameName: 'Cards' };
+put(gameConfigDocKey(CLIENT, CARD_PROJECT), {
+	...CARD_CONFIG,
+	card: {
+		library: [
+			{
+				id: 'imp',
+				name: 'Imp',
+				type: 'unit',
+				cost: 1,
+				attack: 1,
+				health: 1,
+				frame: 'unitFrame',
+				params: { art: `${ART_SHEET}::impArt` },
+			},
+		],
+	},
+});
+const cardIndex = await exportEditorArt(CLIENT, CARD_PROJECT);
+const cardDeploy = `${SUB.deploy(CLIENT, CARD_PROJECT)}/`;
+const shippedFrame = cardIndex.sheets.find((s) => s.key === FRAME_SHEET);
+check('a card frame named only by a card ships its sheet', !!shippedFrame);
+check(
+	'… its spritesheet written under deploy/editor-art/',
+	!!shippedFrame && bucket.has(`${cardDeploy}${shippedFrame.json}`),
+);
+check(
+	'a card’s art named only in its params ships',
+	cardIndex.sheets.some((s) => s.key === ART_SHEET),
+);
+check('… and its frame does not count as dangling', !cardIndex.missing.includes('impArt'));
+put(gameConfigDocKey(CLIENT, CARD_PROJECT), CARD_CONFIG);
+const noCards = await exportEditorArt(CLIENT, CARD_PROJECT);
+check(
+	'without cards neither ships',
+	!noCards.sheets.some((s) => s.key === FRAME_SHEET || s.key === ART_SHEET),
 );
 
 console.log(failures === 0 ? '\nart scope: OK' : `\nart scope: ${failures} FAILED`);

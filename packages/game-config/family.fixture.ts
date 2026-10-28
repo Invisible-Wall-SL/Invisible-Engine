@@ -135,7 +135,7 @@ check(
 	JSON.stringify(slot),
 );
 check('…and no family key at all', Object.hasOwn(slot, 'family'), false);
-check('an unknown family is a slot', normalize({ ...SLOT, family: 'card' }).family, undefined);
+check('an unknown family is a slot', normalize({ ...SLOT, family: 'poker' }).family, undefined);
 check('an rgs outcome is not stored', normalize({ ...MATCH3, outcome: 'rgs' }).outcome, undefined);
 check('min run 3 is not stored', normalizeMatch3({ minRun: 3 }), undefined);
 check('a run of one is not a run', normalizeMatch3({ minRun: 1 }), undefined);
@@ -369,13 +369,14 @@ check(
 );
 
 console.log('\n4b. the sections /config shows (design §6.2)');
-const sections = (family: 'slot' | 'match3' | 'arcade', outcome: 'rgs' | 'rules') =>
+const sections = (family: 'slot' | 'match3' | 'arcade' | 'card', outcome: 'rgs' | 'rules') =>
 	[...configSectionsFor(family, outcome)].sort();
 check(
 	'a slot shows every slot section, as today',
 	sections('slot', 'rgs'),
-	CONFIG_SECTIONS.filter((s) => s !== 'match3' && s !== 'arcade').sort(),
+	CONFIG_SECTIONS.filter((s) => s !== 'match3' && s !== 'arcade' && s !== 'card').sort(),
 );
+check('a card game shows only its own section', sections('card', 'rules'), ['card']);
 check('a slot ignores a rules outcome', sections('slot', 'rules'), sections('slot', 'rgs'));
 check('match-3, RGS', sections('match3', 'rgs'), [
 	'betModes',
@@ -418,6 +419,8 @@ check(
 check('an empty object is still online', online({}).arcade?.online, { characters: [] });
 /** What an online game with no `rules` resolves them to (P10.15): players only move. */
 const NO_RULES = { zones: [], abilities: [], round: { nextRoundSeconds: 15, goalScore: 1 } };
+/** …and its bots when it names none (P10.16): no room is filled. */
+const NO_BOTS = { fillTo: 0, characters: [], canWin: false, spawns: [] };
 check(
 	'resolve: defaults, the spawn at the field centre',
 	resolveArcadeOnline(online({ characters: swimmers }), { w: 800, h: 600 }),
@@ -432,6 +435,7 @@ check(
 		layer: 'field',
 		rules: NO_RULES,
 		netcode: 'engine',
+		bots: NO_BOTS,
 	},
 );
 check(
@@ -458,6 +462,7 @@ check(
 		layer: 'field',
 		rules: NO_RULES,
 		netcode: 'engine',
+		bots: NO_BOTS,
 	},
 );
 check('resolve: not online', resolveArcadeOnline(normalize(ARCADE), { w: 1, h: 1 }), undefined);

@@ -103,6 +103,28 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-27 — **Invisible Director can re-skin the art inside a component** (Director card 9H,
+  [ADR-0011](../director/DECISIONS/0011-reskin-adapters-sound-fx-components.md), PR #1413, in
+  review). Two adapter ops for the builder agent, `components.get_def` and
+  `components.update_art` (`apps/launcher-api/src/lib/server/director/ops/components.ts`), save
+  through `saveComponent` with `baseEtag`. They change sprite `assetKey`/`region`, rig
+  `assetKey`/`skin` and flipbook `clipId` on nodes inside `def.root`, and nothing else: no params,
+  inputs, state machine, timelines, transforms, tint, text or structure. A shared or built-in def
+  is saved as the project's own copy, the same as this tool's copy-to-project; `_shared/` is never
+  written. Instances pinned to a version that differs from the saved def in art alone are re-pinned
+  in the layout (`saveDoc`, `layoutBaseEtag`); the rest are reported, not touched. A def that is
+  bound to the math, or that is held by a math-locked instance, is refused. The Component Editor
+  itself is unchanged.
+- 2026-10-27 — **Timeline cue inspector: names by dropdown, sound options, component sound cues
+  play** (branch `editor/timeline-sound-cues`, in review; detail in [sound](sound.md)). The cue
+  inspector lists SFX / music names (project uploads ★ first, then the engine's — the
+  `soundOptionsFor` list, from `cueLists.ts`) with ▶ for uploads (users holding Invisible Sound;
+  engine sounds cannot be auditioned in the launcher), and signals (the component's signals, its
+  events as `event:<id>`, its On-cue Element FX, the flow's fired cues). A typed unlisted name warns,
+  never blocks. Sound cues get per-kind options stored in the key's optional `sound` object, a
+  default value storing nothing; the track chip shows a hint (`🔊 name 60% 🔁`). A component
+  timeline's `sfx:` / `music:` cues now play in the game (they were dropped). `/rigger`'s static page
+  gets the options but no lists (the module takes them from its host).
 - 2026-10-26 — **1D blend states** (P10.11, branch `claude/p10-11-arcade-characters`, in review;
   [game-families](game-families.md) P10.11). A state machine state can blend two or more timelines
   by a number input (`SmState.blend`): the two points around the value mix with `blendNodeSamples`,

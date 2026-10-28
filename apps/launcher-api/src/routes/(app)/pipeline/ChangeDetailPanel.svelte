@@ -235,6 +235,7 @@
 				<Pill tone={pill.tone} dot={pill.dot} large>{pill.label}</Pill>
 				{#if detail.draft}<Pill tone="amber" tag>draft</Pill>{/if}
 				{#if detail.agentDefinition}<Pill tone="amber" tag>agent definition</Pill>{/if}
+				{#if detail.familyPacks.length}<Pill tone="amber" tag>family pack</Pill>{/if}
 			</span>
 		</div>
 		<p class="byline">
@@ -351,6 +352,16 @@
 	</section>
 
 	{#if detail.agentEval}<AgentEvalSection check={detail.agentEval} />{/if}
+
+	{#if detail.familyPacks.length}
+		<section class="card" aria-label="Family pack">
+			<p class="dim">
+				This change edits the runtime family pack{detail.familyPacks.length === 1 ? '' : 's'}
+				{detail.familyPacks.join(', ')}, which every Director agent reads. The agent-eval check does
+				not evaluate a pack yet: the change needs a by-hand eval report attached before it merges.
+			</p>
+		</section>
+	{/if}
 
 	<section class="card" aria-labelledby="check2">
 		<div class="card-head">

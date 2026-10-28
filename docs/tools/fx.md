@@ -309,7 +309,10 @@ section is hidden for a **rig clip** layer (those cannot take a material), and t
 into rig clips drops its material.
 
 - **Material** — **None (plain sprites)**, then every effect the project's Shader Graph set
-  compiles, by name (the project's own graphs and the studio library's it does not override).
+  compiles (the project's own graphs and the studio library's it does not override): the ones
+  marked **Made for: Particles** in Shader Graph first, under **Made for particles**, then the rest
+  under **Other effects**, each group by name (one group shows no heading). Any effect can be a
+  material; the mark only says which were made as one.
   Picking another effect starts it at its own param defaults; its Time and Strength stay. A
   material whose graph has been deleted or no longer compiles stays selected, marked **(not
   compiled)**, and its particles draw plain.
@@ -337,6 +340,8 @@ into rig clips drops its material.
   - the effect's **passes**, **motion** or break do not play on particles (a particle's own
     behaviours move it);
   - the graph or the load is **over budget**;
+  - the effect has **more than 8 material layers**: a game draws 8 at once, counting every
+    effect on screen, so at least the ones past 8 draw plain sprites;
   - **Max particles over 512**, or a parameter that can drive it past 512 or has no upper
     bound: the **material is off** and the layer draws plain sprites (lower Max particles, or
     give the parameter a max of 512 or less);
@@ -462,10 +467,15 @@ mere save.
   older tab writes its layers back without the material (after the conflict prompt, if the
   other save came first). Re-pick it under **Material**: it is one choice and its params.
 - **A material layer draws plain sprites.** Check the Material section's notes: Max particles
-  over 512, a parameter on Max particles with no max, no frames yet, or a graph that was deleted
-  or no longer compiles. A game says the same on its `?fxdebug=1` line, which also prints, while a
-  material layer draws, the most pixels its particles have covered (at most every 2 s, as it
-  grows; × the graph's cost is the layer's load).
+  over 512, a parameter on Max particles with no max, no frames yet, a ninth material layer, or a
+  graph that was deleted or no longer compiles. A game says the same on its `?fxdebug=1` line,
+  which also prints, while a material layer draws, the most pixels its particles have covered (at
+  most every 2 s, as it grows), and its load (× the graph's cost) when the effect was made for
+  particles: only those carry their cost into the game. With `?fxdebug=1` the game also writes
+  these lines in its top-left corner while a material layer is mounted, with the page's size, its
+  frame times and each stage's GPU, so they can be read on a phone
+  ([the phone check](../playtest/particle-material.md)). `/fx` opened with `?fxdebug=1` shows the
+  same box for its stage; it goes when the last material layer does.
 - **A parameter on a material param does nothing after you change the material.** Exposed
   parameters are kept when you pick another material, but one that drives a param the new
   material does not have drives nothing; the Material section names it. Remove that drive in
@@ -494,11 +504,9 @@ mere save.
   wired and headless-tested, but firing a baked effect on an event in a real game (in
   particular the rig bone-attach coordinate frame) has not yet been owner-verified on
   live WebGL pixels.
-- **Materials:** the Scene Editor, Rigger and Symbols previews still draw a material layer as
-  plain sprites (a game draws the material). The picker lists effects by name; "made for
-  particles" effects will come first once Shader Graph can mark them. A material's load budgets
-  (150 / 4, 32 M, 64 M) are first estimates, to be revised after a phone check. Nothing pre-checks
-  a material against the game's cap of 8 drawing at once.
+- **Materials:** a material's load budgets (150 / 4, 32 M, 64 M) are first estimates, to be
+  revised after a phone check. Nothing pre-checks a material against the game's cap of 8 drawing
+  at once.
 - **One atlas per layer.** A layer's frames come from a single atlas; mixing regions
   from different atlases in one layer is not supported — add another layer instead.
 - **Forces don't vary per particle**, apart from each particle's own gust and turbulence

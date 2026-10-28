@@ -1,6 +1,8 @@
+import { validateCardGame } from './cardGame';
 import { DEFAULT_ARCADE_TARGET_TAG, type ArcadeCharacter } from './arcadeCharacters';
 import {
 	ARCADE_FIXED_HZ_RANGE,
+	ARCADE_ONLINE_BOT_DEFAULTS,
 	ARCADE_ONLINE_DEFAULTS,
 	ARCADE_ONLINE_LIMITS,
 	ONLINE_RULES_MODULE_IDS,
@@ -15,13 +17,14 @@ import type { GameConfigDoc } from './types';
 import type { GameConfigIssue } from './validate';
 
 /**
- * What is wrong with a match-3 or arcade doc as that family (`docs/design/game-families.md` §2.1).
+ * What is wrong with a match-3, arcade or card doc as that family (`docs/design/game-families.md` §2.1).
  * Nothing for a slot: every slot check lives where it always did, in `validateGameConfigDoc`.
  */
 export function validateFamily(doc: GameConfigDoc): GameConfigIssue[] {
 	const family = resolveFamily(doc);
 	if (family === 'match3') return validateMatch3(doc);
 	if (family === 'arcade') return validateArcade(doc);
+	if (family === 'card') return validateCard(doc);
 	return [];
 }
 
@@ -84,6 +87,19 @@ function validateMatch3(doc: GameConfigDoc): GameConfigIssue[] {
 		});
 	}
 	return issues;
+}
+
+/** A card game is free play (`card-games.md` §9.1): an RGS-decided one is refused, then the library
+ *  and decks are checked. */
+function validateCard(doc: GameConfigDoc): GameConfigIssue[] {
+	const issues: GameConfigIssue[] = [];
+	if (resolveOutcome(doc) !== 'rules')
+		issues.push({
+			severity: 'error',
+			path: 'outcome',
+			message: 'A card game is decided by its own rules: set the outcome to Rules.',
+		});
+	return [...issues, ...validateCardGame(doc)];
 }
 
 function validateArcade(doc: GameConfigDoc): GameConfigIssue[] {
@@ -262,12 +278,13 @@ function validateArcadeOnline(
 	const online = doc.arcade?.online;
 	if (!online) return [];
 	const issues: GameConfigIssue[] = [];
-	if (doc.arcade?.characters?.length) {
+	const botBrains = new Set((online.bots?.characters ?? []).map((b) => b.brain));
+	if (doc.arcade?.characters?.some((c) => !botBrains.has(c.id))) {
 		issues.push({
 			severity: 'warning',
 			path: 'arcade.characters',
 			message:
-				'An online game plays only its online characters: these characters do not run in a room yet.',
+				'An online game plays only its online characters: a character no bot plays does not run in a room.',
 		});
 	}
 	const field = doc.arcade?.field;
@@ -330,15 +347,76 @@ function validateArcadeOnline(
 			message: `State is sent ${patchHz} times a second but the room steps only ${tickHz} times, so a room sends it ${tickHz} times.`,
 		});
 	}
-	const spawn = online.spawn;
-	if (spawn && field && (spawn.x < 0 || spawn.y < 0 || spawn.x > field.w || spawn.y > field.h)) {
+	const off = (p: { x: number; y: number }) =>
+		!!field && (p.x < 0 || p.y < 0 || p.x > field.w || p.y > field.h);
+	const spawnsOff = (path: string, points: readonly { x: number; y: number }[] | undefined) => {
+		if (!points?.some(off)) return;
 		issues.push({
 			severity: 'warning',
-			path: 'arcade.online.spawn',
+			path,
 			message: 'Players start outside the play field; a clamped body is pulled inside at once.',
+		});
+	};
+	spawnsOff('arcade.online.spawn', online.spawn ? [online.spawn] : undefined);
+	online.characters.forEach((c, i) => spawnsOff(`arcade.online.characters[${i}].spawns`, c.spawns));
+	spawnsOff('arcade.online.bots.spawns', online.bots?.spawns);
+	const nearby = online.nearby;
+	const { min, max } = ARCADE_ONLINE_LIMITS.nearby;
+	if (nearby && [nearby.w, nearby.h].some((v) => v < min || v > max)) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.nearby',
+			message: `The box a device is sent players in is held to ${min}–${max} px a side.`,
 		});
 	}
 	issues.push(...validateOnlineRules(doc));
+	issues.push(...validateOnlineBots(doc));
+	return issues;
+}
+
+/** An online game's bots (P10.16): each plays an online character with a character's brain. */
+function validateOnlineBots(doc: GameConfigDoc): GameConfigIssue[] {
+	const online = doc.arcade?.online;
+	const bots = online?.bots;
+	if (!online || !bots) return [];
+	const issues: GameConfigIssue[] = [];
+	const characters = new Set(online.characters.map((c) => c.id));
+	const brains = new Map((doc.arcade?.characters ?? []).map((c) => [c.id, c.brain]));
+	bots.characters.forEach((bot, i) => {
+		const path = `arcade.online.bots.characters[${i}]`;
+		if (!characters.has(bot.character)) {
+			issues.push({
+				severity: 'error',
+				path: `${path}.character`,
+				message: `No online character is "${bot.character}".`,
+			});
+		}
+		if (!brains.get(bot.brain)) {
+			issues.push({
+				severity: 'error',
+				path: `${path}.brain`,
+				message: `No character "${bot.brain}" with a brain is in arcade.characters, so the bot cannot decide where to go.`,
+			});
+		}
+	});
+	const L = ARCADE_ONLINE_LIMITS;
+	if (bots.characters.length > L.botCharacters.max) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.bots.characters',
+			message: `Bots play at most ${L.botCharacters.max} characters; the rest are not played.`,
+		});
+	}
+	const maxPlayers = online.maxPlayers ?? ARCADE_ONLINE_DEFAULTS.maxPlayers;
+	const fillTo = bots.fillTo ?? ARCADE_ONLINE_BOT_DEFAULTS.fillTo;
+	const holds = Math.min(L.maxPlayers.max, Math.max(L.maxPlayers.min, maxPlayers));
+	if (fillTo > holds) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.bots.fillTo',
+			message: `Bots fill a room to ${fillTo}, but it holds ${holds}; a room fills to ${holds}.`,
+		});
+	}
 	return issues;
 }
 

@@ -29,7 +29,7 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
 
 **Arcade netcode selectable per game (built 2026-10-27; in review).** The owner, on P10.15's "our
 own netcode, not Colyseus' `predict`" choice: *"own netcode is fine, but maybe we can make it
-optional"*. One small PR, on P10.15, ahead of P10.16. Design:
+optional"*. One small PR, on P10.15, merged with P10.16. Design:
 [realtime-multiplayer.md](../design/realtime-multiplayer.md) §6.1 and §14 #9. Not deployed.
 
 - **The setting** (`game-config`): `arcade.online.netcode: 'engine' | 'colyseus'`
@@ -59,6 +59,8 @@ optional"*. One small PR, on P10.15, ahead of P10.16. Design:
     lag-compensation stamps.
 - **The server** does not read the mode: it already calls `defineInput` and `setFixedTimestep` (with
   `subSteps`), which is all the SDK's reconciler needs.
+- **P10.16's online world camera** follows the own player as drawn by either netcode
+  (`ownPlace`).
 - **The probe** (`state().arcade.online`) gains `netcode`; `corrections` / `snaps` are reported in
   `engine` mode only (the SDK's reconciler counts them only with its diagnostics on).
 - **Gates:**
@@ -87,6 +89,215 @@ optional"*. One small PR, on P10.15, ahead of P10.16. Design:
   entry only keeps an `engine` game from ever calling it. No new dependency.
 - **Known limits:** in `colyseus` mode a correction stays visible a little longer on a lossy link
   (above); a reconnect in `colyseus` mode is not exercised by any gate.
+
+**Card C3 — playable end to end (built 2026-10-28; in review).** [card-games.md](../design/card-games.md)
+§12's C3 row, in one PR; what it settled where §5–§9 were silent is in the design's new §5.4.
+
+- **The family:** `card` in `GAME_KINDS` / `GAME_FAMILIES` / `familyOfKind`, `CONFIG_FAMILIES`,
+  `kindCapabilities` (`FAMILY_KINDS`, no board / wallet / bet controls), `FAMILY_NAMES`,
+  `FAMILY_LABELS`, `FAMILY_TOOLS` (`card` hides Symbols, Win Text, Characters; the `cards` tool is
+  C4) and the delivery gate's message.
+- **Game Config:** `GameConfigDoc.card` (`game-config` `cardGame.ts`: `CardBlock`, `resolveCard`,
+  `normalizeCard` through `cards.js`'s own `readLibrary`, `cardLibraryOf`, the collectors
+  `cardGameComponentIds` / `cardGameParamRefs`, `validateCardGame`). `game-config` now depends on
+  `engine-mechanics` (workspace, dependency-free) so the config validator runs the very
+  `validateLibrary` the game does. The normalizer's board-less set is `arcade`, `card`. An RGS card
+  config is an error and `unplayable`. `/config` shows a card project its `card` section only (the
+  rules, the card and deck counts; cards and decks in Raw JSON until C4), and the family picker offers
+  Card with Rules only.
+- **Runtime:** `CARD_RULES_MECHANIC` (`cardTable: true`); `engine-game` `cardSession.ts` (the match
+  and the device's AI, player side 0) and `cardDriver.ts` (actions, the device's turn paced by a
+  presentation delay, the §5.3 signals, input); `apps/lines` `cards.ts` (zones as spawn layers, the
+  frame's values, the drop) and `<CardTable />`, mounted in `Game.svelte`'s now three-way branch. The
+  card sources, End Turn action and Flow effects register at `Game.svelte` init, for a card table
+  only.
+- **Flow:** `CARD_VOCAB` and the starter (`CARD_DRIVEN_SEED_DOC`: the table up from boot, the deck
+  pick's tap deals, the won / lost screen's tap deals again).
+- **Game Maker:** the `card` reference layout (`referenceLayouts/card.ts`: loading, background, the
+  table `basegame` with the four zones, two heroes, readouts and End Turn, the deck pick, won, lost),
+  the `card` template, the seed `card.rules.json` (24 invented cards, two 15-card decks, `deckSize` 15) and the placeholder frame `cardFrame`, created by the scaffold.
+- **Ship chain:** no new asset class: the export and the bake seed `cardGameComponentIds` and classify
+  `cardGameParamRefs`; `check:art-scope` section 10. Localization: the "Cards" harvest section.
+- **Gates:** `check:card-family` (113), `check:card-runtime` (32: the starter flow on the real
+  interpreter, the idle relight, a flow action queued from inside a chain, copies counted per deck), `check:art-scope` and `check:flow-publish-gate` extended; the gates card
+  touched re-pinned (`check:authored-freespins`' `drivenSeed.ts` hash, `check:flow-time-events`,
+  `expandingSymbol.fixture`, `check:match3-wire`'s unknown family, `check:stock-asset-coverage`,
+  `flow-spike v2holdandwin`, `owners.json` `kind:card` gap). Played in a real browser by
+  `scripts/playtest/card-play.mjs` ([playtest](../playtest/card-sample.md)).
+- **Bundle:** the shared runtime grows **+52.4 KB raw / +17.7 KB gz** for every game (`index.html`,
+  main 724b41e vs this branch), mostly `cards.js` and `cardAi.js`, then the card reference layout.
+  Owner call (open item 0a).
+
+**P10.16 — Arcade A4c: 100 players and Salmons (built 2026-10-27; in review).** §8's P10.16 row,
+per the approved A4 design ([realtime-multiplayer.md](../design/realtime-multiplayer.md) §5, §7,
+§12, §14 #4–#6), in **one PR**, on P10.15. The last step of Phase 10. Not deployed; merging it
+redeploys the game server (its Railway watch paths cover `services/game-server/**`,
+`packages/engine-mechanics/**` and `packages/game-config/**`).
+
+- **Bots** (§7; `engine-mechanics` `onlineBots.js`, plain ESM + `.d.ts`): a bot is a room player
+  (`bot:<n>` — a Colyseus session id never holds a `:` — and `bot: true` in the state) whose input each step comes from a P10.11 brain
+  (`behaviours.js`) instead of a device. `botInput` steps the brain over the room's free players,
+  turns its velocity into an ordinary clamped input and presses an ability's button while one of its
+  targets is within reach; the room then steps and rules it exactly as a device's player, so a bot
+  is held to its character's speed, cooldowns and rules. Seeded from the room's seed (random per
+  room and written to the server's log when the room has bots; a gate passes its own), so a room's
+  bots replay exactly from it.
+  - Config `arcade.online.bots = { fillTo?, characters: [{ character, brain }], canWin?, spawns? }`
+    (sparse; defaults `fillTo` 20 held to `maxPlayers`, `canWin` false — §14 #5); `brain` names an
+    `arcade.characters` entry whose brain the bot plays (the validator refuses an unknown online
+    character or a character with no brain, and no longer warns that a character a bot plays is
+    inert online). `OnlineGame` gains `brains`.
+  - The room (`roomSim.ts`) keeps people + bots at `fillTo` while a person is in it, the bots taking
+    their characters in turn within each character's `max`; a joining person takes exactly one
+    bot's place — one of its character when only bots hold that character's places, else, in a full
+    room, the newest — so the room never goes over its size; a leave lets a bot back in; the last
+    person out sends every bot away. A join is decided before anything changes, so a refused one
+    sends no bot away (no bot can be reset to its spawn by a bogus join). A bot never connects, is never a Colyseus
+    client and is not counted in the listing's `players` (people only).
+  - The rules (`onlineRules.js`): a bot neither reaches the goal nor tops a round on the clock
+    unless `bots.canWin`.
+- **Nearby-only state** (§5): the load test needed it (below). `arcade.online.nearby = { w, h }`
+  (each 200–20 000 px) sends each device only the players inside that box centred on its own; a
+  player leaves a device's view only 25 % past the box (no flicker on the edge). The room uses a
+  second state class, `NearbyRoomState` (`players: t.map(NearbyPlayer).view()`), and a Colyseus
+  `StateView` per client, updated in `onBeforePatch` by a pass over every pair (10 000 comparisons
+  at 100). **`ack` goes only to its own device** (a `.view(own)` tag): nobody else's prediction
+  reads it, and it was a quarter of every patch. **Events too:** a device is told only of the
+  events about players its view holds (or itself), and of every round's start and end, so a far
+  player's id and fate reach nobody it is not sent to. A room without `nearby` keeps P10.14's state
+  class, encoding and broadcast exactly.
+- **Per-character spawns**: `arcade.online.characters[].spawns` — where that character's people
+  start and respawn, taken in turn (absent ⇒ `online.spawn`); bots use `bots.spawns`.
+- **The online world camera** (P10.15 follow-up e): an online game whose play-field screen has a
+  `world` / `camera` gets a camera that follows the device's own player as drawn (predicted), with
+  the screen's dead zone and smoothing (`game/online.ts` `useOnlineCamera`, from `<ArcadeStage />`).
+  The probe's `arcade.camera` reports it. No culling and no shake online.
+- **The load test** (`scripts/room-load.mjs`, outside CI, §12): N real `@colyseus/sdk` devices in
+  this process join one room of a local game server run in a process of its own
+  (`room-load-server.mjs`: per-address limits raised, every step timed, CPU and memory each
+  second over IPC), each sending one input per step through a TCP proxy that delays each WebSocket
+  ±jitter each way in order; salmon swim upstream and weave, bears and fishermen roam and press J.
+  It reads the steps a second each device sees the room advance, the states a second each
+  receives, the bytes each WebSocket carries down (frames and their headers), the server's step
+  time, CPU and memory; it exits 1 past its budget (a device ≤ 10 KB/s on average and ≤ 16 KB/s at
+  most, egress ≤ 1 MB/s, step p99 < 8 ms, rates held to 95 %). `--everyone` drops `nearby`. It
+  only ever starts its own server.
+  **Measured** (4-core cloud container, Node 22; Salmons; 60 ± 20 ms each way; 30 s after a 3 s
+  warm-up; table below): with every player sent to every device a full room cost **29 KB/s per
+  device and 2.9 MB/s out**, three times the budget, so nearby-only sending went in. As shipped,
+  100 devices hold **29.9 of 30 steps and 19.9 of 20 states a second**, receive **8.4 KB/s on
+  average (11 KB/s at most: the salmon shoal)**, the server sends **0.82 MB/s**, a step takes
+  **0.81 ms at p99**, the server uses **26 % of a core** and 163 MB. Within budget.
+- **Salmons as data** (`engine-mechanics` `salmons.js`, not exported from the package entry):
+  `salmonsRiver(seed)` generates the river (§14 #4: 15 bands sea → source with banks, a current —
+  some rapids — and whirlpools), `salmonsConfig(river)` the online config (detail in
+  [playtest/salmons.md](../playtest/salmons.md)); `engine-layout` `referenceLayouts/salmons.ts`
+  draws it (`salmonsReferenceLayout`, `SALMONS_CHARACTER_COMPONENTS`: three placeholder looks);
+  `scripts/salmons/export.mjs` writes the three documents at their R2 keys into a folder for the
+  owner. Salmons' current rules map to data as §4's table plans, except the climb, sandbanks and
+  the fisherman's line (rules-module work) — [status/salmons.md](salmons.md) has the list.
+- **Gates:**
+  - `check:room-bots` (root, new, 18 checks, ~10 s; discovered by `check:all`): the bots / nearby /
+    spawns config normalized, resolved and validated; fill, give way, evict by character, refused
+    join, leave, last person out; a bot moves no faster than its character, its brain closes on a
+    target, it catches with its ability; a bot cannot win at the goal or on the clock (and can with
+    `canWin`); a refused join changes no bot and a join evicts exactly one; a seeded room replays
+    exactly; spawns in turn; off-field spawns warn. Salmons: the river is the seed's, the
+    config validates with no issue, a salmon steering for the water's middle reaches the source and
+    wins, the current carries it down and a bank pushes it back, a bear bot catches it. *Live* on a
+    real server with SDK clients: bots fill and are marked and give way; nearby — a far player is
+    not sent, it is sent once it swims near and dropped once it leaves, a device gets its own `ack`
+    and nobody else's, and is told of a near player's leave but nothing about a far one; a device is
+    told of the bots that give way to a person and come back after a leave (18 checks).
+  - `check:room-sim`: its source scan now expects the online camera branch in `<ArcadeStage />`
+    (36 checks pass). `check:online-rules`, `check:netcode`: unchanged, pass.
+  - `family.fixture.ts`: the two `resolveArcadeOnline` expectations gain the resolved empty bots.
+- **Verified by playing:** `scripts/playtest/salmons-play.mjs`
+  ([playtest/salmons.md](../playtest/salmons.md)), two headless shells against a local game
+  server: **14 / 14**, three runs in a row — one room; bots fill it; nearby (the bear on its bank is
+  not sent to the salmon at the sea, nor the salmon to it); the camera frames the salmon and follows
+  it up the river within its dead zone; resting, the current carries it down and the page draws it
+  within 20 px of the room; no RGS request, no page error.
+- **Bundle size** (`apps/lines` build's `index.html`, gzip -6; main 9cff0ed vs this branch merged
+  with it, the same build command): 3,974,018 B / 1,356,234 B gz → 3,977,545 B / 1,357,418 B gz:
+  **+3.5 KB raw, +1.2 KB gz (+0.09 %)** — the online camera. Bots, nearby and Salmons add nothing to a game
+  bundle (server code, and `salmons.js` / `salmons.ts` are not exported). No new dependency
+  anywhere (`StateView` is `@colyseus/schema`'s, already the server's).
+- **Slot / match-3 / offline-arcade parity:** every runtime change is in `game/online.ts` and the
+  `online` branch of `<ArcadeStage />`, reached only when `gameMechanic().room`; the offline branch
+  still calls `useWorldCamera` exactly as before. On the server, a config without `bots` resolves to
+  `fillTo` 0 (no bot is ever made) and one without `nearby` keeps the P10.14 state class. Edited
+  shared modules: `game-config` `family.ts` / `familyValidate.ts` / `arcadeOnline.ts`,
+  `engine-mechanics` `index.ts` / `onlineRules.js`. The current-games harness is not edited.
+- **Chosen in P10.16, owner may overturn** (neither plan fixes them):
+  - **the load test's budget** (§12 named none): a device 10 KB/s on average (§5 estimated about 6)
+    and 16 KB/s at most, egress 1 MB/s, step p99 8 ms (§6), rates to 95 %;
+  - nearby as a **box** around the own player, 25 % hysteresis, all pairs compared (no grid) — fine
+    at 100; Salmons' box is 2400 × 1800, wider than any device's view plus the camera's dead zone;
+  - `ack` sent only to its own device (in a nearby room);
+  - a person takes the **newest** bot's place; bots take their characters **in turn**;
+  - a bot presses an ability whenever a target is within its reach (the rules' cooldown paces it);
+    bots see only free, connected players;
+  - Salmons' river is **one seed for every room**, written into the config at authoring time
+    (§14 #4 asked for generation; a new river per room needs the device to draw the room's seed);
+  - Salmons' numbers (speeds, reaches, catch times, currents, bank push, round length, goal score,
+    the bear and fisherman maxima) are first guesses to tune in play;
+  - the load-test devices start where people do (all salmon at the sea): the shoal at a round's
+    start is the costliest moment, and the test keeps it.
+- **Known limits:**
+  - **the salmon shoal**: every salmon starts at the sea, so at a round's start each salmon is sent
+    every other one — a 60-salmon shoal is about 11 KB/s to each of them; it thins as they spread;
+  - nearby does not apply to the room's own fields (`winner` names a far player); a device that
+    joins is not told of its neighbours' `joined` (they arrive in the state);
+  - bots do not jump or use `aim`; a `shootAt` brain's shots are not spawned online; a bot's brain
+    sees no layout paths or solids, so a `patrol` / `followPath` on a path stands still;
+  - bears and fishermen can walk into the water (no per-character solids online);
+  - no culling or shake for the online camera; the camera does not follow a respawn's snap any
+    faster than its smoothing;
+  - the load test runs the devices and the proxy in one Node process: at 100 devices it is not the
+    limit on a 4-core machine, but a slower one would show the devices' lateness as the room's;
+  - P10.15's limits stand (online Flow events, server-owned `var:` sources, predicted ability events,
+    the `out` player still drawn).
+
+| Run (Salmons, 100 devices, 60 ± 20 ms) | Steps / s seen (of 30) | States / s (of 20) | KB/s per device: mean / max | Egress | Step p50 / p99 / max | Server CPU | RSS |
+|---|---|---|---|---|---|---|---|
+| every player to every device (`--everyone`) | 29.9 | 19.9 | 29.2 / 29.2 | 2.85 MB/s | 0.40 / 0.75 / 3.5 ms | 18 % | 160 MB |
+| `nearby`, but every player at one spawn and every `ack` to everyone (first try) | 29.8 | 19.9 | 26.7 / 27.2 | 2.6 MB/s | 0.31 / 0.92 / 9.4 ms | 32 % | 162 MB |
+| **as shipped:** `nearby` + own `ack` + spawns on the banks | **29.9** | **19.9** | **8.4 / 11.0** | **0.82 MB/s** | **0.39 / 0.81 / 2.5 ms** | **26 %** | **163 MB** |
+| 5 devices, bots fill the room to 20 | 29.9 | 19.9 | 1.7 / 1.9 | 0.008 MB/s | 0.20 / 0.55 / 2.7 ms | 6 % | 151 MB |
+| worst bots case: 1 device, 99 bots (`fillTo` 100, no maxima) | 30 | 19.9 | 4.8 / 4.8 | 0.005 MB/s | 0.79 / 2.1 / 3.8 ms | 6 % | 159 MB |
+
+The step time covers the room's step and its events, not `onBeforePatch` (the schema writes, the
+nearby views) or the encoding: the CPU column covers everything.
+
+**Card C2 — the AI (merged 2026-10-27, #1408).** [card-games.md](../design/card-games.md) §12's
+C2 row (§4), in one PR. No caller yet: the family, runtime and sample game are C3.
+
+- **The AI** (`engine-mechanics` `cardAi.js` + `.d.ts`, plain ESM beside `cards.js`):
+  `createAi` / `chooseAction` / `evaluate` / `aiSettings` / `replayMatch`. It takes a certain
+  one-action win at once; `normal` and `hard` search `combat` for a win through any `guard` first;
+  otherwise it tries each legal action on a copy with the rules' own `apply` and keeps the best by
+  §4.1's weighted sum, doing nothing included (it wins ties). `hard` beam-searches sequences of
+  plays in `main` (width 4, depth 3). The three presets of §4.2, with a deck's weight overrides.
+- **Its own stream,** `${seed}:ai:${side}`, a number in the AI's value: one roll per decision for
+  a mistake. The look-ahead runs every trial on one of four fixed sample streams, never the match's,
+  and scores an action that draws (a `randomEnemy`) by the mean over the four. A plan plays only
+  the cards in hand when the decision began, so it never reads the deck's hidden order.
+- **The budget:** `MAX_PLAN_APPLIES` (600) caps every `apply` a decision makes. Real counts, pinned:
+  200 on a full board with 36 listed actions (the design's case); a hand of ten targeted spells (95
+  actions) would take 704 and stops at 600 (11–14 ms on the build machine).
+- What C2 settled where §4 was silent, and its two readings of §4.1's table, are in the design's
+  new §4.4.
+- **Gate:** `check:card-ai` (20 checks; replay trace `fixtures/cards-ai-replay.json`): lethal past a
+  preferred trade, through a guard and past a first attacker whose attack draws, none claimed out
+  of reach or on a random hit; a win in `main`; `hard`'s plan beating one step; no illegal action
+  in 90 AI-vs-AI matches; a decision changes neither input and moves only the AI's stream (one
+  roll, two on a mistake); the same decision on 64 different match streams and on four orders of
+  the deck; each difficulty replaying AI vs AI and from a player's record; the budget; `normal`
+  beats `easy` 61–39 on seeds 1…100 with the sample decks (every sample card twice). Runs under
+  `check:all`.
+- **The design points C1 raised are fixed:** §12.1's C1 row now says the reader drops unknown card
+  fields, and §2.2 states the `endOfTurn` expiry rule.
 
 **P10.15 — Arcade A4b: netcode and the online rules (built 2026-10-27; in review).** §8's P10.15
 row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-multiplayer.md) §4–§6,
@@ -226,7 +437,7 @@ row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-mu
   - everyone respawns at the one `online.spawn`; the grace is the only spawn protection;
   - P10.14's limits on the world camera, `arcade.characters` and the Flow board effects online stand.
 
-**Card C1 — the rules engine (built 2026-10-27; in review).** [card-games.md](../design/card-games.md)
+**Card C1 — the rules engine (merged 2026-10-27, #1391).** [card-games.md](../design/card-games.md)
 §12's C1 row (§2, §3), in one PR. No caller yet: the AI is C2, and the family, runtime and sample
 game are C3.
 
@@ -264,9 +475,6 @@ game are C3.
   the replay trace `fixtures/cards-replay.json`) and `check:card-library` (43 checks); the sample
   library the gates play is `fixtures/cards-sample.library.json`, invented. Both run under
   `check:all`.
-- **Open for the design doc:** §12.1's C1 row says "the normalizer keeps unknown card fields", but
-  §3.6 and doc-readers.md drop them; the gate pins the drop, and the normalizer itself is C3's. The
-  expiry rule above wants a line in §2.
 - **For C3's config validator:** rules that are each valid but clash (`resource.start` above
   `max` is clamped; an `openingHand` larger than the deck ends the match in fatigue at once), and
   `cardText` expects a validated card (C4's live preview must validate first).
@@ -1861,6 +2069,18 @@ game, bundle or screen changes.
 
 ## Open items / next
 
+0a. **Card C3 follow-ups:** (a) the **bundle cost** (+17.7 KB gz for every game; owner): accept
+   until the per-family runtime build (item 9), as P10.14's; (b) the placeholder frame has looks but
+   no state machine: an authored frame's states (§6) need timelines; (c) a real deck picker (the
+   starter's deck pick is a tap); (d) hero portraits do not light `targetable`; a dragged card is not
+   lifted above its neighbours; (e) the current-games `SCRIPT_FOR_KIND` gains `card` when a card
+   game is first published, with its screen script; (f) `hard`'s 16 ms budget on a mid phone is not
+   measured; (g) the Card Library (`/cards`) is C4; (h) from the C3 review: the validator does not
+   yet warn when `handLimit` / `boardLimit` exceed the table's zone cap (12) or a card names a frame
+   the zones cannot spawn (the card would be missing from the table); the drop hit-test
+   (`actionAt`, `release`) is covered by the browser playtest only, not a Node gate; the frame's
+   trigger inputs (`hit`, `healed`, `summoned`) are declared but not yet fired; Concede works on the
+   player's turn only.
 0. **P10.15 follow-ups:** (a) **online Flow events** (`onPlayerJoined`, `onPlayerLeft`, `onHit`,
    `onCaught`, `onRoundEnd`) from the room's `event` messages, and **server-owned variables** (the
    room's scores bound as read-only `var:` sources; the validator's `variable-server-owned`) — the
@@ -1919,6 +2139,20 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-28 — **Card C3 built: playable end to end** (the `card` family, `GameConfigDoc.card`, the
+  card table runtime, `CARD_VOCAB` and its starter, the Game Maker scene set and sample, the
+  placeholder frame, `check:card-family`, `check:card-runtime`). Slot, match-3 and arcade unchanged
+  by design; bundle +17.7 KB gz. Detail above.
+- 2026-10-27 — **P10.16 built: bots, nearby-only state, the load test and Salmons (A4c).** Server
+  bots on the P10.11 brains (`onlineBots.js`, `arcade.online.bots`), `arcade.online.nearby` with the
+  own-only `ack`, per-character spawns, the online world camera, `scripts/room-load.mjs` (100
+  devices: 8.4 KB/s each, 0.82 MB/s out, step p99 0.81 ms, 26 % of a core), Salmons as data
+  (`salmons.js`, `referenceLayouts/salmons.ts`, `scripts/salmons/export.mjs`,
+  [playtest/salmons.md](../playtest/salmons.md) 14 / 14), `check:room-bots`. +1.2 KB gz. Not
+  deployed. Detail above.
+
+- 2026-10-27 — **Card C2 built: the AI** (`engine-mechanics` `cardAi.js`, `check:card-ai`), and the
+  two design points C1 raised fixed in card-games.md. No caller, no game changes. Detail above.
 - 2026-10-27 — **P10.15 built: netcode and the online rules (A4b).** Own-player prediction and
   reconciliation, interpolation of everyone else (`engine-mechanics` `netcode.js`), the online
   rules as data on the server (`onlineRules.js`, `arcade.online.rules`: currents, goal, catch / stun

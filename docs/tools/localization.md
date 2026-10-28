@@ -53,6 +53,10 @@ A spreadsheet-style table of the game's text, in two kinds of section:
     card's title, description and button, the confirm dialog's body, and the
     bet-mode badge the HUD shows while that mode is the active stake. This copy
     lives in `/config`, not on a screen, which is why it needs its own section.
+  - **Cards** — a card game's text, from its Game Config: each card's name and
+    flavour, each sentence of its generated rules text ("Deal 3 damage to a
+    chosen character."), and each deck's name. A sentence several cards share
+    is one row. Only a card project has this section.
   - **Game UI** — the engine's own built-in chrome: HUD captions (`BALANCE`,
     `WIN`, `BET`), the menu and info-page entries, the bet menu, the settings and
     autoplay modals, and the info page's rules copy. The same rows for every

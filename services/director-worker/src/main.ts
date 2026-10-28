@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import Anthropic from '@anthropic-ai/sdk';
 import postgres from 'postgres';
 import { loadAgents, pricedModels } from './agents.ts';
+import { loadFamilyPacks, READY_FAMILY_PACKS } from './families.ts';
 import { driveRun } from './driver.ts';
 import { describeEnv, readEnv } from './env.ts';
 import { healthReport } from './health.ts';
@@ -39,6 +40,10 @@ log.info('agents loaded', {
 		tools: a.tools.length,
 	})),
 });
+const packs = loadFamilyPacks(root('families'));
+log.info('family packs loaded', {
+	packs: [...packs.keys()].map((family) => ({ family, ready: READY_FAMILY_PACKS.has(family) })),
+});
 
 /** Never log the error itself: a malformed URL's error carries the URL, password included. */
 function openDatabase(url: string) {
@@ -74,6 +79,7 @@ else if (!env.anthropicApiKey || !env.directorServiceToken) {
 		vision: visionTransport(new Anthropic({ apiKey: env.anthropicApiKey })),
 		launcher: httpLauncher(env.launcherUrl, env.directorServiceToken),
 		agents,
+		packs,
 		pricing: pricingSource(sql, root('pricing.json')),
 		retries: new Map<string, number>(),
 		shutdown: shuttingDown.signal,

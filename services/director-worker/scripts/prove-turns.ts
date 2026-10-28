@@ -60,6 +60,8 @@
  *     a launcher that does not serve the op leaves the coordinator unable to start; a turn whose
  *     bug was filed but whose settle never committed, settled while paused, writes the line then
  *     and tells the model the bug, sending nothing.
+ * 29. a running run whose family has no ready pack (match3, arcade) pauses with a `no_family_pack`
+ *     error event before any model or vision call.
  */
 import type {
 	BetaMessage,
@@ -71,6 +73,7 @@ import { parsePricing, seedRenderUsd } from 'director-costs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { AgentDefinition } from '../src/agents.ts';
+import { loadFamilyPacks } from '../src/families.ts';
 import { driveRun, MAX_FAILURES, type DriverDeps } from '../src/driver.ts';
 import type { AdapterResult, AdapterSpec, Launcher } from '../src/launcher.ts';
 import { claimRun, deferLease } from '../src/lease.ts';
@@ -159,6 +162,13 @@ const SPECS: AdapterSpec[] = [
 		write: true,
 	},
 	{
+		id: 'atlas.get_variant_image',
+		description: 'One variant image.',
+		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+		write: false,
+		image: true,
+	},
+	{
 		id: 'atlas.queue_variants',
 		description: 'Queue variants.',
 		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -237,6 +247,7 @@ const agent = (name: string, tools: string[], model = 'claude-sonnet-5-5'): Agen
 	outputs: '',
 	systemPrompt: `You are ${name}.`,
 });
+const PACKS = loadFamilyPacks(fileURLToPath(new URL('../families', import.meta.url)));
 const AGENTS = new Map([
 	[
 		'coordinator',
@@ -253,6 +264,15 @@ const AGENTS = new Map([
 		),
 	],
 	['atlas-artist', agent('atlas-artist', ['atlas.queue_variants', 'run.post_activity'])],
+	['qa', agent('qa', ['run.submit_qa'])],
+	[
+		'art-director',
+		agent('art-director', [
+			'atlas.get_variant_image',
+			'gamemaker.create_from_template',
+			'run.post_activity',
+		]),
+	],
 ]);
 
 const use = (id: string, name: string, input: Record<string, unknown> = {}) => ({
@@ -271,14 +291,20 @@ const userId = `${tag}-owner`;
 let runSeq = 0;
 
 async function newRun(
-	over: { status?: string; step?: string; waitingOn?: string | null; cap?: number | null } = {},
+	over: {
+		status?: string;
+		step?: string;
+		waitingOn?: string | null;
+		cap?: number | null;
+		family?: string;
+	} = {},
 ) {
 	const id = `${tag}-run-${++runSeq}`;
 	await sql`insert into director_runs (id, project_key, template_project_key, owner_user_id, status,
-			step, waiting_on, budget_cap_usd)
+			step, waiting_on, budget_cap_usd, family)
 		values (${id}, ${`${id}-p`}, 'template', ${userId}, ${over.status ?? 'running'},
 			${over.step ?? 'breakdown'}, ${over.waitingOn ?? null},
-			${over.cap === undefined ? 25 : over.cap})`;
+			${over.cap === undefined ? 25 : over.cap}, ${over.family ?? 'slot'})`;
 	return id;
 }
 async function userMessage(runId: string, agentName: string, text: string) {
@@ -320,6 +346,7 @@ const deps = (
 	vision: noVision,
 	launcher,
 	agents: AGENTS,
+	packs: PACKS,
 	pricing: async () => pricing,
 	retries,
 	leaseMs: 2_000,
@@ -1602,6 +1629,246 @@ try {
 		);
 	}
 
+	// ── 29. Image answers reach the model as images ──────────────────────────
+	console.log('29. an adapter image answer is a text + image tool_result, stored and replayed');
+	{
+		const PNG = 'iVBORw0KGgo=';
+		const image = { mediaType: 'image/png', base64: PNG };
+		const plainBody = { jobRef: 'job-x', note: 'image is not special here' };
+		const runId = await newRun();
+		await userMessage(runId, 'art-director', 'Look.');
+		const model = fakeModel([
+			{
+				content: [
+					use('i1', 'atlas.get_variant_image', { n: 1 }),
+					use('i2', 'atlas.get_variant_image', { n: 2 }),
+					use('i3', 'atlas.get_variant_image', { n: 3 }),
+					use('i4', 'gamemaker.create_from_template'),
+				],
+			},
+			{ content: [say('Seen.')] },
+			{ content: [say('Noted.')] },
+			{ content: [say('Seen again.')] },
+			{ content: [say('Wrapped.')] },
+			{ content: [say('A stray call is not absorbed.')] },
+		]);
+		const gate = fakeLauncher((id, nth) => {
+			if (id === 'atlas.get_variant_image') {
+				const n = nth - 2;
+				if (n === 0) return { status: 200, body: { region: 'H1', id: '00002', image } };
+				if (n === 1) {
+					return {
+						status: 200,
+						body: { region: 'H1', image: { mediaType: 'image/svg+xml', base64: PNG } },
+					};
+				}
+				return { status: 404, body: { error: 'unknown_variant', image } };
+			}
+			return id === 'gamemaker.create_from_template' ? { status: 200, body: plainBody } : null;
+		});
+		let killed = false;
+		const kill = () => {
+			if (!killed) {
+				killed = true;
+				throw new Error('killed');
+			}
+		};
+		await drive(runId, deps(model.transport, gate.launcher, { afterAdapterCall: kill }));
+		check('the first worker died after an adapter call, before storing results', killed, true);
+		await sql`update director_runs set lease_until = now() - interval '1 second' where id = ${runId} and lease_holder is not null`;
+		await drive(runId, deps(model.transport, gate.launcher));
+		const results = (model.requests[1].messages.at(-1)!.content as { content: unknown }[]).map(
+			(b) => b.content,
+		);
+		// The request is built from the stored history, and JSONB orders an object's keys its own way.
+		check('an image answer is its other fields as text, then an image block', results[0], [
+			{ text: '{"region":"H1","id":"00002"}', type: 'text' },
+			{ type: 'image', source: { data: PNG, type: 'base64', media_type: 'image/png' } },
+		]);
+		check(
+			'an unsupported image type falls back to text, base64 dropped, with a note',
+			results[1],
+			'{"region":"H1","imageNotShown":"the image type image/svg+xml is not one the model can be shown"}',
+		);
+		check(
+			'an error answer is its JSON as text even if it carries an image field',
+			results[2],
+			JSON.stringify({ error: 'unknown_variant', image }),
+		);
+		check(
+			'a non-image answer is its JSON, byte-identical to before',
+			results[3],
+			JSON.stringify(plainBody),
+		);
+		const stored = await messages(runId, 'art-director');
+		check(
+			'the stored result message is what the model was sent (byte-identical)',
+			JSON.stringify(stored[2].content),
+			JSON.stringify(model.requests[1].messages.at(-1)!.content),
+		);
+		await userMessage(runId, 'art-director', 'Again.');
+		await drive(runId, deps(model.transport, gate.launcher));
+		// The coordinator's turn on the artist's report sits between the artist's two.
+		const artist = model.requests.filter((r) => JSON.stringify(r.messages[0]).includes('Look.'));
+		check(
+			'after a later wake the stored image block is replayed byte-identically',
+			JSON.stringify(artist.at(-1)?.messages.slice(0, 3)),
+			JSON.stringify(model.requests[1].messages.slice(0, 3)),
+		);
+		check('…and the model was asked exactly as often as the script says', model.calls(), 5);
+		check(
+			'…and the write did not run twice',
+			gate.sent.filter((e) => e.startsWith('gamemaker.create_from_template@')).length,
+			1,
+		);
+
+		// The request's images are capped, from the stored rows, the same on every replay.
+		const seedHistory = async (id: string, count: number, base64: string) => {
+			const rows: { role: string; content: unknown[] }[] = [
+				{ role: 'user', content: [{ type: 'text', text: 'Review.' }] },
+			];
+			for (let i = 0; i < count; i++) {
+				const toolUse = `toolu_seed${i}`;
+				rows.push(
+					{
+						role: 'assistant',
+						content: [
+							{
+								type: 'tool_use',
+								id: toolUse,
+								name: toolName('atlas.get_variant_image'),
+								input: {},
+							},
+						],
+					},
+					{
+						role: 'user',
+						content: [
+							{
+								type: 'tool_result',
+								tool_use_id: toolUse,
+								content: [
+									{
+										type: 'text',
+										text: JSON.stringify({ region: 'R', id: String(i).padStart(3, '0') }),
+									},
+									{
+										type: 'image',
+										source: { type: 'base64', media_type: 'image/png', data: base64 },
+									},
+								],
+							},
+						],
+					},
+				);
+			}
+			rows.push({ role: 'assistant', content: [{ type: 'text', text: 'Noted.' }] });
+			rows.push({ role: 'user', content: [{ type: 'text', text: 'Again.' }] });
+			for (const [seq, row] of rows.entries()) {
+				await sql`insert into director_messages (run_id, agent, seq, role, content_json)
+					values (${id}, 'art-director', ${seq}, ${row.role}, ${sql.json(row.content as never)})`;
+			}
+		};
+		const imagesOf = (request: BetaMessageStreamParams) =>
+			JSON.stringify(request.messages).split('"type":"image"').length - 1;
+		const runWith = async (count: number, base64: string) => {
+			const id = await newRun();
+			await seedHistory(id, count, base64);
+			const seeded = fakeModel([{ content: [say('Fine.')] }, { content: [say('Spare.')] }]);
+			await drive(id, deps(seeded.transport, fakeLauncher().launcher));
+			return seeded.requests[0];
+		};
+		const long = await runWith(45, PNG);
+		const longText = JSON.stringify(long.messages);
+		check(
+			'45 stored images: the request carries 20 and the older ones are stubs',
+			[
+				imagesOf(long),
+				longText.includes('[image shown earlier: R/000]'),
+				longText.includes('[image shown earlier: R/024]'),
+				longText.includes('[image shown earlier: R/025]'),
+			],
+			[20, true, true, false],
+		);
+		check(
+			'the same stored rows build the same request (a replay, a second run)',
+			JSON.stringify((await runWith(45, PNG)).messages),
+			longText,
+		);
+		check(
+			'six 3 MB images: the byte cap keeps the newest 4 (12 MB)',
+			imagesOf(await runWith(6, 'A'.repeat(3 * 1024 * 1024))),
+			4,
+		);
+	}
+
+	// ── 30. A QA draft play ───────────────────────────────────────────────────
+	console.log(
+		'30. a draft play job_done is told to QA, never billed; submit_qa reaches the coordinator',
+	);
+	{
+		const runId = await newRun({ step: 'regions' });
+		await userMessage(runId, 'qa', 'Play the draft.');
+		await event(
+			runId,
+			'qa',
+			'job_done',
+			{
+				jobRef: 'dp_0000000000000001',
+				draftId: '20261027T101530Z-3fa9',
+				status: 'failed',
+				via: 'inline',
+				result: {
+					reason: 'no_player',
+					message: 'No draft player is deployed, so the draft was not played.',
+				},
+			},
+			'build.play_draft',
+		);
+		const model = fakeModel([
+			{
+				content: [use('s1', 'run.submit_qa', { summary: 'Draft not played.', findings: [] })],
+			},
+			{ content: [say('Reported.')] },
+			{ content: [say('Noted.')] },
+			{ content: [say('Noted again.')] },
+		]);
+		await drive(runId, deps(model.transport, fakeLauncher().launcher));
+		check(
+			'the play was told to QA as not played',
+			JSON.stringify((await messages(runId, 'qa'))[1]?.content).includes('NOT played'),
+			true,
+		);
+		check(
+			'it was not billed: no spend row and no unbilled_job error',
+			[
+				(await spendRows(runId)).filter((r) => r.kind === 'runpod').length,
+				(await events(runId, 'error')).length,
+			],
+			[0, 0],
+		);
+		check(
+			"QA's submit_qa reached the coordinator",
+			(await messages(runId, 'coordinator')).some((m) =>
+				JSON.stringify(m.content).includes('QA results from qa'),
+			),
+			true,
+		);
+
+		const stopping = await newRun({ step: 'regions' });
+		await sql`insert into director_draft_jobs (job_ref, run_id, agent, draft_id, status)
+			values ('dp_0000000000000002', ${stopping}, 'qa', '20261027T101530Z-3fa9', 'queued')`;
+		await event(stopping, 'owner', 'owner_request', { action: 'stop' });
+		await drive(stopping, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		const [job] = await sql<{ status: string }[]>`
+			select status from director_draft_jobs where run_id = ${stopping}`;
+		check(
+			'a stop cancels a queued play and is not held open by it',
+			[job.status, (await runRow(stopping)).status],
+			['cancelled', 'stopped'],
+		);
+	}
+
 	// ── 8. The wake trigger ───────────────────────────────────────────────────
 	console.log('8. the trigger NOTIFYs director_wake for waking rows only');
 	{
@@ -1614,6 +1881,32 @@ try {
 		await new Promise((r) => setTimeout(r, 300));
 		await listener.unlisten();
 		check('two NOTIFYs, each naming the run', heard, [runId, runId]);
+	}
+
+	// ── 29. A family with no ready pack ────────────────────────────────────────
+	console.log('29. a run of a family with no ready pack pauses before any call');
+	for (const family of ['match3', 'arcade']) {
+		const runId = await newRun({ family });
+		await userMessage(runId, 'coordinator', 'Go.');
+		const model = fakeModel([]);
+		const gate = fakeLauncher();
+		let visionCalls = 0;
+		const vision: VisionTransport = {
+			analyze: async () => {
+				visionCalls++;
+				throw new Error('the vision model was called for a family with no pack');
+			},
+		};
+		await drive(runId, deps(model.transport, gate.launcher, { vision }));
+		check(`${family}: the run is paused`, (await runRow(runId)).status, 'paused');
+		check(
+			`${family}: one error event, no_family_pack, naming the family`,
+			(await events(runId, 'error')).map((e) => [e.payload.type, e.payload.family]),
+			[['no_family_pack', family]],
+		);
+		check(`${family}: zero model calls`, model.calls(), 0);
+		check(`${family}: zero vision calls`, visionCalls, 0);
+		check(`${family}: no adapter call was sent`, gate.sent, []);
 	}
 } finally {
 	await sql`delete from director_spend where run_id like ${`${tag}-%`}`;

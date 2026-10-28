@@ -23,17 +23,21 @@ function sameHex(a: string, b: string): boolean {
 	return x.length === y.length && timingSafeEqual(x, y);
 }
 
-const tokenMac = (secret: string, url: string, exp: number) =>
-	hmacHex(secret, `${TOKEN_SCOPE}|${url}|${exp}`);
+/** The token scope of a draft player's callback (ADR-0010): a token minted for one cannot pass as the other. */
+export const DRAFT_TOKEN_SCOPE = 'draft-callback.v1';
+
+const tokenMac = (secret: string, url: string, exp: number, scope: string) =>
+	hmacHex(secret, `${scope}|${url}|${exp}`);
 
 export function mintCallbackToken(
 	secret: string,
 	url: string,
 	ttlSeconds: number,
 	now: number = Date.now(),
+	scope: string = TOKEN_SCOPE,
 ): string {
 	const exp = Math.floor(now / 1000) + Math.floor(ttlSeconds);
-	return `v1.${exp}.${tokenMac(secret, url, exp)}`;
+	return `v1.${exp}.${tokenMac(secret, url, exp, scope)}`;
 }
 
 /** True when `token` was minted with `secret` for exactly `url` and has not expired. */
@@ -42,12 +46,13 @@ export function verifyCallbackToken(
 	url: string,
 	token: string,
 	now: number = Date.now(),
+	scope: string = TOKEN_SCOPE,
 ): boolean {
 	const [v, expRaw, mac, ...rest] = token.split('.');
 	if (rest.length || v !== 'v1' || !/^\d+$/.test(expRaw ?? '') || !mac) return false;
 	const exp = Number(expRaw);
 	if (exp < now / 1000) return false;
-	return sameHex(mac, tokenMac(secret, url, exp));
+	return sameHex(mac, tokenMac(secret, url, exp, scope));
 }
 
 export function signCallbackBody(secret: string, body: string, now: number = Date.now()): string {

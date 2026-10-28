@@ -371,6 +371,11 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 		names: ['transition'],
 	},
 	{
+		file: 'packages/engine-flow-v2/src/reference/cards.ts',
+		rule: 'notAsset',
+		names: ['transition'],
+	},
+	{
 		file: 'packages/engine-flow-v2/src/reference/match3.ts',
 		rule: 'notAsset',
 		names: ['transition'],
@@ -539,6 +544,9 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 		names: ['transition'],
 	},
 	{ file: 'packages/engine-layout/src/lib/coinLabel.ts', rule: 'always', names: ['gold'] },
+	// A timeline cue's route kind (`routeComponentCue`), not the stock sound-toggle art.
+	{ file: 'packages/engine-layout/src/lib/ComponentInstance.svelte', rule: 'notAsset', names: ['sound'] }, // prettier-ignore
+	{ file: 'packages/engine-layout/src/lib/componentEvents.ts', rule: 'notAsset', names: ['sound'] },
 	{
 		file: 'packages/engine-layout/src/lib/freeSpinScenes.ts',
 		rule: 'fallbackScene',

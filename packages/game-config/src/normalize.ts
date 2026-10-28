@@ -57,6 +57,7 @@ import { normalizeWinModel } from './winModel';
 import { normalizeCascade } from './mechanics';
 import { normalizeFreeSpins } from './freeSpins';
 import { normalizePartnerPaytable } from './serverPaytable';
+import { normalizeCard } from './cardGame';
 import { normalizeArcade, normalizeFamily, normalizeMatch3, normalizeOutcome } from './family';
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
@@ -321,6 +322,9 @@ const normalizeWinLevels = (raw: unknown): WinLevelTier[] | undefined => {
  * only self-describing statement of reel count — a stale `numReels` next to a 6-strip
  * `paddingReels` is a config the author edited halfway, and the strips are the half they meant.
  */
+/** The families whose game has no symbol board, so a doc without one is still a doc. */
+const BOARDLESS_FAMILIES: ReadonlySet<GameConfigDoc['family']> = new Set(['arcade', 'card']);
+
 export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined => {
 	if (!isObject(raw)) return undefined;
 
@@ -328,7 +332,7 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 	const symbols = normalizeSymbols(raw.symbols);
 	const paddingReels = normalizePaddingReels(raw.paddingReels);
 	const hasBoard = Object.keys(symbols).length > 0 && Object.keys(paddingReels).length > 0;
-	if (!hasBoard && family !== 'arcade') return undefined;
+	if (!hasBoard && !BOARDLESS_FAMILIES.has(family)) return undefined;
 
 	// A spins mode on a grid of its own (`./spinsGame`) says nothing about the base game's width.
 	const ownGridTypes = new Set(
@@ -369,6 +373,8 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 	if (match3) doc.match3 = match3;
 	const arcade = family === 'arcade' ? normalizeArcade(raw.arcade) : undefined;
 	if (arcade) doc.arcade = arcade;
+	const card = family === 'card' ? normalizeCard(raw.card) : undefined;
+	if (card) doc.card = card;
 
 	const betModePresentation = normalizeBetModePresentation(
 		raw.betModePresentation,

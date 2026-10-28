@@ -229,8 +229,9 @@ export class RegionArt {
  */
 export class ShaderPreviewStage {
 	readonly element = new Sprite();
+	/** The project's atlas pages, loaded once for the element and the Particles element alike. */
+	readonly art = new RegionArt();
 	private readonly sample: Texture;
-	private readonly art = new RegionArt();
 	/** The atlas region on the element, which this stage owns; the sample card stays. */
 	private region: Texture | undefined;
 	private artToken = 0;
@@ -266,6 +267,16 @@ export class ShaderPreviewStage {
 		this.shown = { effect: registered };
 		this.startPlay();
 		return this.handle?.active ?? false;
+	}
+
+	/** The effect {@link show} registered and poses, if any. */
+	get current(): CustomElementFx | undefined {
+		return this.shown?.effect;
+	}
+
+	/** Show the element, or hide it while the preview draws on particles (it keeps posing). */
+	setElementVisible(visible: boolean): void {
+		this.element.visible = visible;
 	}
 
 	/** Draw the effect on the sample card. Cancels a region still loading. */

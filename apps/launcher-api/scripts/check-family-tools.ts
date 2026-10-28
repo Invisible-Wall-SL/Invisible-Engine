@@ -370,6 +370,7 @@ fake('lib/server/director/store.ts', {
 		projectKey: id,
 		clientKey: 'acme',
 		templateProjectKey: 'slot',
+		family: 'slot',
 		ownerUserId: 'owner',
 		projectCreateStartedAt: null,
 		templateConfigEtag: null,

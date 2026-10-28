@@ -47,8 +47,13 @@ The same project setup as Game Maker's "Create a game", plus what the agents nee
    pick, the template's **GAME** and **USING** chips (the same as its Game Maker card) and its
    **LOCKED** items: math contract, paytable, bet modes, paylines, feature rules. The agents never
    change these; a mockup that clashes with one is reported, not worked around.
+   - **Only slot templates can run today.** A match-3 or arcade template is listed, but its card
+     says **Not ready for Director** with the reason (Director has no ready pack for that game
+     family yet), and **Create project & start agents** stays disabled. The server refuses such a
+     run too (`no_family_pack`), before anything is created.
 3. **Starting point.** Upload design mockups (PNG or JPG, 20 MB each, 12 at most) and tag each with
-   the screen it shows: Base game, Hold and Win bonus, Big win, Paytable, … or **Style reference
+   the screen it shows. The tags are the template's game family's: for a slot, Base game, Hold and
+   Win bonus, Bonus, Free spins, Big win, Paytable and Intro; for every family, **Style reference
    only** (palette and mood, never a region). Each card shows the stored file and a tag picker; ×
    removes it. Mockups are stored under the key and client of the game you are about to create,
    so once one is uploaded the key and client lock until you remove them all. Removing the last
@@ -309,7 +314,8 @@ picture on a reload.
   in, each with the time, who (**You**, **Coordinator**, **Mockup analyst**, **Art director**,
   **Atlas artist**, **Animator**, **Builder**, **QA**, **Worker**), what they did, a tool chip
   when a tool was used (Atlas Maker, ComfyUI · RunPod, Game Maker, Scene Editor, Symbols SM, Win
-  Text, Localization, Font Maker, Rigger, Flipbook, Build) and a cost chip on billing rows
+  Text, Localization, Font Maker, Rigger, Flipbook, Sound, FX, Component Editor, Build) and a
+  cost chip on billing rows
   ("$0.22 · RunPod 4090 · 38 s", "$0.40 · Opus 5.5"). **hide costs** hides the billing rows. The
   pill says **Live** while the stream is open, **Reconnecting** while the browser reopens a dropped
   one, **Polling** when it could not be opened (the page then asks for the run every 5 s). 150 rows
@@ -329,6 +335,12 @@ their request is outstanding, so nothing you typed is lost.
   game" plus the template; the project is copied from the template and the run starts in `draft`.
   The project's math contract is recorded at that moment, so the agents can never move it
   unnoticed.
+- **A run works to its game family's pack.** The agents' instructions are the same for every game;
+  what a family adds — what is locked, the mockup screen tags, the order the region batches run in,
+  what QA plays and the family's own "never" list — comes from the pack for the template's family
+  (`services/director-worker/families/<family>.md`). The family is fixed when the run is created,
+  so it cannot change under a run. Changing a pack changes what every agent reads: it is a pipeline
+  change, like editing an agent.
 - **The budget cap is fixed when the run starts**, from Settings' `DIRECTOR_RUN_BUDGET_USD`.
   Changing the setting later never moves a run that has started; raising it on a resume does.
 - **Your actions each leave one entry** that the agents' worker reads: start, pause, resume
@@ -350,6 +362,17 @@ their request is outstanding, so nothing you typed is lost.
   director's pick unless your note says otherwise. Approving the build before hand-off accepts
   whatever was still to review.
 - **Fonts stay yours to bake** (see "Fonts to bake" above).
+- **Sounds, effects and component art are re-pointed, never made.** The builder can point a
+  moment Invisible Sound already offers (a slot, a symbol's state, the anticipation pair, a win
+  tier) at a sound from the project's library or the engine's built-ins. A library sound must be
+  **approved** in Invisible Sound first: agents never approve one, never turn a slot you silenced
+  back on, and never make or upload audio. A sound the game needs that the library lacks is named
+  in the hand-off note for you to add. The animator can point an existing FX layer at other
+  regions of a project atlas and recolour the colour stops it already has. Emitters, triggers,
+  placement and layers stay as the template has them. The builder can also re-skin the sprites,
+  rigs and flipbooks inside a component the screens place. A shared or built-in component becomes
+  this project's own copy, never a change to the shared one. A component or effect placed on a
+  bet or buy screen, or bound to the math, is left alone.
 - **A missing pipeline piece becomes a pipeline bug.** When the coordinator asks for a pipeline
   change (Activity: "asks for a pipeline change: …"), the run files a pipeline bug on
   [Invisible Pipeline Bug Reports](pipeline-bugs.md), and the Activity line carries a `BUG-<n>`
@@ -359,6 +382,10 @@ their request is outstanding, so nothing you typed is lost.
   page, its actions and its images answer only to the person who created it.
 
 ## Known limitations / TODOs
+
+- Director re-themes slot games only. The match-3 and arcade packs are drafts: their templates are
+  listed as not ready, until the board and Invisible Characters adapters exist and the owner turns
+  them on.
 
 - There is no Preset and no "Save as preset" (ADR-0008 card 8C removed them): the atlas technician
   plans each region from the reviewed blueprint cards, starting from the template's approved default

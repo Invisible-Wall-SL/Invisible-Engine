@@ -60,6 +60,21 @@ export const SERVICES = [
 		health: null,
 		watch: ['services/director-worker/**', 'packages/director-costs/**'],
 	},
+	{
+		name: 'draft-player',
+		health: null,
+		watch: [
+			'services/draft-player/**',
+			'services/test-server/**',
+			'scripts/current-games/lib/**',
+			'scripts/current-games/screens/**',
+			'scripts/current-games/costs.json',
+			'scripts/playtest/headless-shell.mjs',
+			'scripts/mock-*.mjs',
+			'packages/engine-mechanics/package.json',
+			'packages/engine-mechanics/src/board.js',
+		],
+	},
 ];
 
 /**

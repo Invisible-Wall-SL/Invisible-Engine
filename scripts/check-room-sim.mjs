@@ -570,9 +570,9 @@ await check('the runtime: the SDK is reached only through the online branch, and
 	const stage = readFileSync(join(src, 'components/ArcadeStage.svelte'), 'utf8');
 	assert.match(stage, /const online = gameMechanic\(\)\.room;/);
 	assert.match(stage, /online \? undefined : startArcade\(/);
-	// The world camera (P10.12) and the characters (P10.11) belong to the local loop: an online
-	// game attaches neither, nor the characters' key and pointer listener.
-	assert.match(stage, /online \? undefined : useWorldCamera\(scenes\)/);
+	// The characters (P10.11) belong to the local loop: an online game attaches none, nor their
+	// key and pointer listener. Its world camera (P10.12) follows the own player instead (P10.16).
+	assert.match(stage, /online\s+\? useOnlineCamera\(scenes,[\s\S]*?: useWorldCamera\(scenes\)/);
 	assert.match(stage, /online \? undefined : useArcadePaths\(/);
 	assert.match(stage, /if \(online \|\| !pixi\) return;\s+return useArcadeInput\(/);
 });

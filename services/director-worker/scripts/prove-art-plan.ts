@@ -76,6 +76,7 @@ import {
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { loadAgents, pricedModels, type AgentDefinition } from '../src/agents.ts';
+import { loadFamilyPacks } from '../src/families.ts';
 import { driveRun, type DriverDeps } from '../src/driver.ts';
 import type { AdapterResult, AdapterSpec, Launcher } from '../src/launcher.ts';
 import { claimRun } from '../src/lease.ts';
@@ -236,6 +237,7 @@ const coordinator: AgentDefinition = {
 };
 const technician = real.get(TECHNICIAN);
 if (!technician) throw new Error(`proof: agents/ has no ${TECHNICIAN} definition`);
+const PACKS = loadFamilyPacks(root('families'));
 const AGENTS = new Map<string, AgentDefinition>([
 	['coordinator', coordinator],
 	['atlas-technician', technician],
@@ -266,9 +268,9 @@ async function newRun(over: { cap?: number; artPlan?: boolean; template?: string
 	const id = `${tag}-run-${++runSeq}`;
 	const checkpoints = over.artPlan === false ? { artPlan: false } : {};
 	await sql`insert into director_runs (id, project_key, template_project_key, owner_user_id, status,
-			step, budget_cap_usd, checkpoints_json)
+			step, budget_cap_usd, checkpoints_json, family)
 		values (${id}, ${`${id}-p`}, ${over.template ?? TEMPLATE}, ${userId}, 'running', 'style_pack',
-			${over.cap ?? 25}, ${sql.json(checkpoints)})`;
+			${over.cap ?? 25}, ${sql.json(checkpoints)}, 'slot')`;
 	await sql`insert into director_events (run_id, agent, kind, tool, payload_json)
 		values (${id}, 'coordinator', 'activity', 'run.set_plan',
 			${sql.json({ type: 'plan', summary: expected.plan.summary, batches: expected.plan.batches })})`;
@@ -292,6 +294,7 @@ const deps = (model: ModelTransport, launcher: Launcher): DriverDeps => ({
 	vision: noVision,
 	launcher,
 	agents: AGENTS,
+	packs: PACKS,
 	pricing: async () => pricing,
 	retries,
 	leaseMs: 2_000,

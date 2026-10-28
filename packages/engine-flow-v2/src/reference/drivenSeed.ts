@@ -76,6 +76,7 @@ import type {
 	TemplateVocabulary,
 } from '../types';
 import { ARCADE_DRIVEN_SEED_DOC } from './arcadeSeed';
+import { CARD_DRIVEN_SEED_DOC } from './cardsSeed';
 import { MATCH3_DRIVEN_SEED_DOC } from './match3Seed';
 import {
 	BOOK_OF_CHOREO,
@@ -959,6 +960,7 @@ export const DRIVEN_SEEDS: Readonly<Record<string, FlowDoc>> = {
 	[HOLD_AND_WIN_DRIVEN_SEED_DOC.templateId]: HOLD_AND_WIN_DRIVEN_SEED_DOC,
 	[MATCH3_DRIVEN_SEED_DOC.templateId]: MATCH3_DRIVEN_SEED_DOC,
 	[ARCADE_DRIVEN_SEED_DOC.templateId]: ARCADE_DRIVEN_SEED_DOC,
+	[CARD_DRIVEN_SEED_DOC.templateId]: CARD_DRIVEN_SEED_DOC,
 };
 
 /**

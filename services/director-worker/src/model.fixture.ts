@@ -17,8 +17,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { costOfResponse, parsePricing, seedRenderUsd } from 'director-costs';
 import { loadAgents, pricedModels } from './agents.ts';
+import { loadFamilyPacks } from './families.ts';
 import {
 	DEFAULT_OUTPUT_TOKENS,
+	IMAGE_TOKENS,
 	overCap,
 	projectCall,
 	projectQueuedGpu,
@@ -32,6 +34,13 @@ import {
 	toolName,
 	type ToolSpec,
 } from './model.ts';
+import {
+	answerContent,
+	capImages,
+	MAX_IMAGE_BASE64_PER_REQUEST,
+	MAX_IMAGES_PER_REQUEST,
+	MAX_RESULT_CHARS,
+} from './toolResult.ts';
 import { KNOWN_TOOLS, WORKER_TOOLS } from './tools.ts';
 import { workerToolSpecs } from './workerTools.ts';
 
@@ -53,6 +62,8 @@ const agents = loadAgents(root('agents'), {
 	models: pricedModels(root('pricing.json')),
 	tools: KNOWN_TOOLS,
 });
+const packs = loadFamilyPacks(root('families'));
+const slot = packs.get('slot')!;
 
 const ADAPTER: ToolSpec = {
 	id: 'atlas.get_region',
@@ -120,7 +131,7 @@ check(
 // ── Requests per model ──
 const history = [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Go.' }] }];
 for (const agent of agents.values()) {
-	const request = buildRequest(agent, [ADAPTER], history);
+	const request = buildRequest(agent, slot, [ADAPTER], history);
 	const name = `${agent.name} (${agent.model})`;
 	const profile = modelProfile(agent.model);
 	check(`${name}: tool_choice is auto`, request.tool_choice, { type: 'auto' });
@@ -130,9 +141,12 @@ for (const agent of agents.values()) {
 		true,
 	);
 	check(
-		`${name}: the system block is a cache breakpoint`,
-		(request.system as { cache_control?: unknown }[])[0].cache_control,
-		{ type: 'ephemeral' },
+		`${name}: two system blocks, the definition then the family pack, each a cache breakpoint`,
+		request.system,
+		[
+			{ type: 'text', text: agent.systemPrompt, cache_control: { type: 'ephemeral' } },
+			{ type: 'text', text: slot.text, cache_control: { type: 'ephemeral' } },
+		],
 	);
 	check(`${name}: the conversation is cached`, request.cache_control, { type: 'ephemeral' });
 	if (agent.model === 'claude-haiku-4-5-20251001') {
@@ -160,6 +174,7 @@ const coordinator = agents.get('coordinator')!;
 const prefix = (r: ReturnType<typeof buildRequest>) => JSON.stringify([r.tools, r.system]);
 const later = buildRequest(
 	coordinator,
+	slot,
 	[ADAPTER],
 	[
 		...history,
@@ -168,10 +183,27 @@ const later = buildRequest(
 	],
 );
 check(
-	'the cached prefix is byte-identical across turns',
+	'the cached prefix (tools and both system blocks) is byte-identical across turns',
 	prefix(later),
-	prefix(buildRequest(coordinator, [ADAPTER], history)),
+	prefix(buildRequest(coordinator, slot, [ADAPTER], history)),
 );
+check(
+	'the two system blocks are byte-identical across two turns of one run',
+	JSON.stringify(later.system),
+	JSON.stringify(buildRequest(coordinator, slot, [ADAPTER], history).system),
+);
+{
+	const blocks = (r: ReturnType<typeof buildRequest>) => r.system as { text: string }[];
+	const other = buildRequest(coordinator, packs.get('match3')!, [ADAPTER], history);
+	check(
+		'another family changes only the second block: the definition block is shared',
+		[
+			blocks(other)[0].text === blocks(later)[0].text,
+			blocks(other)[1].text === blocks(later)[1].text,
+		],
+		[true, false],
+	);
+}
 let threw = false;
 try {
 	modelProfile('claude-opus-5');
@@ -185,7 +217,7 @@ check(
 );
 
 // ── Budget projection ──
-const request = buildRequest(coordinator, [ADAPTER], history);
+const request = buildRequest(coordinator, slot, [ADAPTER], history);
 const inputTokens = Math.ceil(JSON.stringify(request).length / 4);
 const opus = pricing.perMTok['claude-opus-5-5'];
 check(
@@ -205,6 +237,150 @@ try {
 	threw = true;
 }
 check('an unpriced model cannot be projected', threw, true);
+
+// ── Image answers (9G.0) ──
+const PNG = 'iVBORw0KGgo=';
+const img = (body: unknown) => answerContent(body, true);
+check(
+	'an image answer is its other fields as text, then the image block',
+	img({
+		region: 'H1',
+		id: '00002',
+		bytes: 9,
+		image: { mediaType: 'image/png', base64: PNG },
+	}),
+	[
+		{ type: 'text', text: '{"region":"H1","id":"00002","bytes":9}' },
+		{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG } },
+	],
+);
+check(
+	'a non-image answer is its JSON string, as before',
+	answerContent({ region: 'H1', variants: [{ id: '1' }] }),
+	JSON.stringify({ region: 'H1', variants: [{ id: '1' }] }),
+);
+check('an array answer is its JSON string', answerContent([1, { image: 2 }]), '[1,{"image":2}]');
+check(
+	'a text answer over the cap is cut, marked',
+	(img({ t: 'x'.repeat(MAX_RESULT_CHARS) }) as string).endsWith('…[truncated]'),
+	true,
+);
+check(
+	'an unsupported type keeps the text, drops the base64 and says why',
+	img({ id: '1', image: { mediaType: 'image/svg+xml', base64: PNG } }),
+	'{"id":"1","imageNotShown":"the image type image/svg+xml is not one the model can be shown"}',
+);
+check(
+	'a field that is not base64 is dropped with a note',
+	img({ image: { mediaType: 'image/png', base64: 'not base64!' } }),
+	'{"imageNotShown":"the image data is not base64"}',
+);
+check(
+	'an image over 5 MB is dropped, never cut',
+	img({ image: { mediaType: 'image/png', base64: 'A'.repeat(5 * 1024 * 1024 + 4) } }),
+	'{"imageNotShown":"the image is over 5 MB"}',
+);
+check('a non-object image field is not an image answer', img({ image: 'x' }), '{"image":"x"}');
+const withImage = [
+	{
+		type: 'tool_result' as const,
+		tool_use_id: 'toolu_1',
+		content: img({ id: '1', image: { mediaType: 'image/png', base64: PNG } }),
+	},
+];
+
+check(
+	'a stored image result reads back byte-identical (JSON round trip)',
+	JSON.stringify(JSON.parse(JSON.stringify(withImage))),
+	JSON.stringify(withImage),
+);
+check(
+	'an answer of an op not flagged as an image op stays text, whatever fields it has',
+	answerContent({ doc: 'wintext', image: { mediaType: 'image/png', base64: PNG } }),
+	JSON.stringify({ doc: 'wintext', image: { mediaType: 'image/png', base64: PNG } }),
+);
+check(
+	'the 5 MB limit is on the base64 string: 5 MB of it is still shown, one more group is not',
+	[
+		Array.isArray(img({ image: { mediaType: 'image/png', base64: 'A'.repeat(5 * 1024 * 1024) } })),
+		Array.isArray(
+			img({ image: { mediaType: 'image/png', base64: 'A'.repeat(5 * 1024 * 1024 + 4) } }),
+		),
+	],
+	[true, false],
+);
+
+// ── The images of one request are capped (9G.0) ──
+const imageTurn = (label: string, base64: string) => ({
+	role: 'user' as const,
+	content: [
+		{
+			type: 'tool_result' as const,
+			tool_use_id: `toolu_${label}`,
+			content: img({ region: 'R', id: label, image: { mediaType: 'image/png', base64 } }),
+		},
+	],
+});
+const imagesIn = (messages: { content: unknown }[]) =>
+	JSON.stringify(messages).split('"type":"image"').length - 1;
+const many = Array.from({ length: MAX_IMAGES_PER_REQUEST + 30 }, (_, i) =>
+	imageTurn(String(i).padStart(3, '0'), PNG),
+);
+const capped = capImages(many);
+check(
+	'past the image count only the newest stay images',
+	[imagesIn(capped), imagesIn(capped.slice(30)), imagesIn(capped.slice(0, 30))],
+	[MAX_IMAGES_PER_REQUEST, MAX_IMAGES_PER_REQUEST, 0],
+);
+check(
+	'an older image is a text stub naming what it was',
+	(capped[0].content[0].content as { text: string }[])[1],
+	{ type: 'text', text: '[image shown earlier: R/000]' },
+);
+check(
+	'capping does not touch the stored rows, and is the same every time',
+	[
+		JSON.stringify(many) === JSON.stringify(many.map((m) => structuredClone(m))),
+		JSON.stringify(capImages(many)) === JSON.stringify(capped),
+	],
+	[true, true],
+);
+const fat = 'A'.repeat(Math.floor(MAX_IMAGE_BASE64_PER_REQUEST / 2.5));
+const heavy = capImages(Array.from({ length: 6 }, (_, i) => imageTurn(`h${i}`, fat)));
+check(
+	'past the byte cap only the newest that fit stay images',
+	[imagesIn(heavy), imagesIn(heavy.slice(4))],
+	[2, 2],
+);
+check(
+	'a capped request is valid: every tool_result keeps its tool_use_id and content',
+	heavy.every(
+		(m) =>
+			Array.isArray((m.content[0] as { content: unknown }).content) && m.content[0].tool_use_id,
+	),
+	true,
+);
+check(
+	'a short history is returned as it is',
+	capImages(many.slice(0, 3)).every((m, i) => m === many[i]),
+	true,
+);
+const turnWith = (content: unknown) =>
+	buildRequest(coordinator, slot, [ADAPTER], [
+		...history,
+		{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content }] },
+	] as never);
+const plain = projectCall(turnWith('{}'), pricing, undefined);
+const priced = projectCall(
+	turnWith(img({ image: { mediaType: 'image/png', base64: 'A'.repeat(400_000) } })),
+	pricing,
+	undefined,
+);
+check(
+	'the projection counts an image at its token ceiling, not its base64 length',
+	priced > plain && priced - plain < ((IMAGE_TOKENS + 200) * opus.input) / 1_000_000,
+	true,
+);
 check('at the cap is over it', overCap(24, 1, 25), true);
 check('below the cap is not', overCap(23.99, 1, 25), false);
 check(

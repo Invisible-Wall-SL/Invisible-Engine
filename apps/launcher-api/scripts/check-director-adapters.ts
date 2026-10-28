@@ -37,6 +37,11 @@
  *    `/saveadv` gets the whole card; refs are copied create-only; layers only on a scratch atlas
  *    this run made; `set_output` never over a tile the run did not commit; scratch atlases are
  *    never packed or deployed; and the queue gate renders only approved recipe steps.
+ *  - ADR-0010 QA's draft play: `build.request_draft` refuses a null template ETag, a moved project
+ *    config and a desktop build before it builds, then writes only under `director/drafts/` (the
+ *    newest 2 kept); `build.play_draft` with no player settles `no_player` in the same
+ *    transaction as it queues, a replay returns the same jobRef, a second play returns the queued
+ *    one, and `settleDraftJob` settles exactly once.
  *  - 9C (ADR-0009 §2) `bugs.file_pipeline_bug`, the op behind the coordinator's
  *    `run.request_pipeline_change`, over Bug Reports' own create path: an Open, unsent pipeline
  *    bug reported by the run against its owner, naming the run, its project and its template, with
@@ -52,8 +57,10 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
 import type {
 	DirectorAtlasJob,
+	DirectorDraftJob,
 	DirectorOp,
 	DirectorRun,
 	Game,
@@ -102,9 +109,17 @@ function fake(rel: string, impl: Record<string, unknown>): void {
 // ── In-memory R2 ───────────────────────────────────────────────────────────────
 type Obj = { body: string; etag: string };
 const R2 = new Map<string, Obj>();
+/** A 3000×2000 tile: bigger than the model's long edge, so the op must downscale it. */
+const TILE = await sharp({
+	create: { width: 3000, height: 2000, channels: 3, background: '#c33' },
+})
+	.jpeg()
+	.toBuffer();
 let etagSeq = 0;
 let copies = 0;
 const byteReads: string[] = [];
+/** A key whose next reads throw, as a transient R2 error would. */
+let failReadOf: string | null = null;
 const etag = () => `"e${++etagSeq}"`;
 const keysUnder = (prefix: string) => [...R2.keys()].filter((k) => k.startsWith(prefix)).sort();
 
@@ -132,6 +147,7 @@ fake('lib/server/r2.ts', {
 		R2.has(key) ? { etag: R2.get(key)!.etag, size: R2.get(key)!.body.length } : null,
 	getObjectText: async (key: string) => R2.get(key)?.body ?? null,
 	getObjectTextWithEtag: async (key: string) => {
+		if (key === failReadOf) throw new Error('R2 is down');
 		const o = R2.get(key);
 		return o ? { text: o.body, etag: o.etag } : null;
 	},
@@ -157,6 +173,34 @@ fake('lib/server/r2.ts', {
 	listAllObjects: async (prefix: string) =>
 		keysUnder(prefix).map((key) => ({ key, size: R2.get(key)!.body.length, lastModified: 1 })),
 	listObjects: async (prefix: string) => ({ keys: keysUnder(prefix), prefixes: [] }),
+	presignGet: async (key: string) => `https://r2.example/get/${key}?sig=g`,
+	presignPut: async (key: string, type: string) => `https://r2.example/put/${key}?sig=p&t=${type}`,
+	listFolder: async (prefix: string) => ({
+		files: [],
+		folders: [
+			...new Set(
+				keysUnder(prefix)
+					.map((k) => k.slice(prefix.length).split('/'))
+					.filter((parts) => parts.length > 1)
+					.map((parts) => `${prefix}${parts[0]}/`),
+			),
+		],
+	}),
+});
+// The assemble is 20 s of exporters in production; the draft ops only need what it returns.
+let assembles = 0;
+let bundleFlow: unknown;
+fake('lib/server/runtimeBundle.ts', {
+	buildRuntimeBundle: async () => {
+		assembles++;
+		return {
+			doc: { scenes: [] },
+			componentDefs: {},
+			config: null,
+			symbols: { index: {}, map: {} },
+			flowV2: bundleFlow,
+		};
+	},
 });
 
 // ── In-memory Postgres tables ─────────────────────────────────────────────────
@@ -174,6 +218,11 @@ const USER_OVERRIDES = new Map<string, Record<string, boolean>>();
 const RUNS = new Map<string, DirectorRun>();
 const OPS = new Map<string, DirectorOp>();
 const ATLAS_JOBS = new Map<string, DirectorAtlasJob>();
+const DRAFT_JOBS = new Map<string, DirectorDraftJob>();
+/** Make the next N `getDraftJob` reads throw: a failure after the job row committed. */
+let failDraftReads = 0;
+/** The `director_events` rows the draft store functions append: kind and tool. */
+const DRAFT_EVENTS: { runId: string; kind: string; tool: string; payload: unknown }[] = [];
 /** runId → its stored recipes (`director_regions.recipe_json`). */
 const RECIPES = new Map<string, unknown[]>();
 
@@ -371,6 +420,85 @@ fake('lib/server/director/store.ts', {
 			});
 		}
 	},
+	insertDraftJob: async (row: {
+		jobRef: string;
+		runId: string;
+		agent: string;
+		draftId: string;
+		scenarios: string[] | null;
+		settleNow?: { status: 'failed'; result: unknown };
+	}) => {
+		const open = [...DRAFT_JOBS.values()].find(
+			(j) => j.runId === row.runId && j.status === 'queued',
+		);
+		if (open) return { job: open, queued: false };
+		const { settleNow, ...values } = row;
+		const job: DirectorDraftJob = {
+			...values,
+			status: 'queued',
+			result: null,
+			doneVia: null,
+			queuedAt: new Date(),
+			doneAt: null,
+		};
+		DRAFT_JOBS.set(job.jobRef, job);
+		DRAFT_EVENTS.push({
+			runId: row.runId,
+			kind: 'job_queued',
+			tool: 'build.play_draft',
+			payload: {},
+		});
+		if (settleNow) {
+			Object.assign(job, { ...settleNow, doneVia: 'inline', doneAt: new Date() });
+			DRAFT_EVENTS.push({
+				runId: row.runId,
+				kind: 'job_done',
+				tool: 'build.play_draft',
+				payload: { jobRef: job.jobRef, status: job.status, result: job.result },
+			});
+		}
+		return { job: { ...job }, queued: true };
+	},
+	queuedDraftJobs: async () => [...DRAFT_JOBS.values()].filter((j) => j.status === 'queued'),
+	draftJobsToCancel: async (runId: string) =>
+		[...DRAFT_JOBS.values()]
+			.filter(
+				(j) =>
+					j.runId === runId &&
+					(j.status === 'queued' || (j.status === 'cancelled' && j.doneVia === null)),
+			)
+			.map((j) => ({ ...j })),
+	getDraftJob: async (jobRef: string) => {
+		if (failDraftReads > 0) {
+			failDraftReads--;
+			throw new Error('fixture: the read-back failed');
+		}
+		const job = DRAFT_JOBS.get(jobRef);
+		return job ? { ...job } : null;
+	},
+	settleDraftJob: async (done: {
+		jobRef: string;
+		runId: string;
+		status: DirectorDraftJob['status'];
+		result: unknown;
+		via: 'callback' | 'poll' | 'inline';
+	}) => {
+		const row = DRAFT_JOBS.get(done.jobRef);
+		if (!row || row.runId !== done.runId || row.status !== 'queued') return null;
+		Object.assign(row, {
+			status: done.status,
+			result: done.result,
+			doneVia: done.via,
+			doneAt: new Date(),
+		});
+		DRAFT_EVENTS.push({
+			runId: row.runId,
+			kind: 'job_done',
+			tool: 'build.play_draft',
+			payload: { jobRef: row.jobRef, status: row.status, result: row.result },
+		});
+		return { ...row };
+	},
 	getAtlasJob: async (jobRef: string) => ATLAS_JOBS.get(jobRef) ?? null,
 	queuedAtlasJobs: async () => [...ATLAS_JOBS.values()].filter((j) => j.status === 'queued'),
 	settleAtlasJob: async (done: {
@@ -494,6 +622,7 @@ const run = (id: string, over: Partial<DirectorRun> = {}): DirectorRun => ({
 	projectKey: `new_${id}`,
 	clientKey: C,
 	templateProjectKey: 'tpl_lines',
+	family: 'slot',
 	ownerUserId: 'owner',
 	projectCreateStartedAt: null,
 	templateConfigEtag: null,
@@ -820,6 +949,8 @@ for (const [key, id] of [
 	['test_server/games.json', 'publish'],
 	['test_server/plain/index.html', 'publish'],
 	['services/director-worker/agents/qa.md', 'agent_definitions'],
+	['services/director-worker/families/slot.md', 'agent_definitions'],
+	['services/director-worker/families/', 'agent_definitions'],
 	[prefix('plain'), 'game_config'],
 	[`${prefix('plain')}config/`, 'game_config'],
 	[`${prefix('plain')}config/backups/config-20261004.json`, 'game_config'],
@@ -858,6 +989,88 @@ check(
 	).status,
 	403,
 );
+// Component defs sit under `editor/<slug>/components/`, outside the project's own tree: the
+// components tool may write its own project's, and nothing else may.
+{
+	const COMPONENT_WRITE_OP = defineOp<{ key: string }, { ran: true }>({
+		tool: 'components',
+		name: 'write_doc',
+		description: 'A test-only write op that declares a key.',
+		inputSchema: {
+			type: 'object',
+			properties: { key: { type: 'string' } },
+			required: ['key'],
+			additionalProperties: false,
+		},
+		agents: ['builder'],
+		scope: 'project',
+		write: true,
+		writes: (input) => [input.key],
+		handler: async () => {
+			handlerRuns++;
+			return { ran: true };
+		},
+	});
+	const registry = buildRegistry([...GAMEMAKER_OPS, WRITE_OP, COMPONENT_WRITE_OP]);
+	const via = (tool: string, key: string) =>
+		runAdapterCall(
+			{
+				tool,
+				op: 'write_doc',
+				authorization: `Bearer ${TOKEN}`,
+				body: { runId: 'rw', agent: 'builder', opId: `rw:comp:${++seq}`, input: { key } },
+			},
+			registry,
+			TOKEN,
+		);
+	const ran = handlerRuns;
+	const answer = async (tool: string, key: string) => {
+		const res = await via(tool, key);
+		return [
+			res.status,
+			(res.body as { error?: string; refusal?: string }).refusal ??
+				(res.body as { error?: string }).error,
+		];
+	};
+	check(
+		"the components tool may write its project's component prefix and def",
+		[
+			await answer('components', 'editor/plain/components/'),
+			await answer('components', 'editor/plain/components/button.v3.json'),
+		],
+		[
+			[200, undefined],
+			[200, undefined],
+		],
+	);
+	check(
+		"...but not another project's, the shared library or the project's other editor docs",
+		[
+			await answer('components', 'editor/draft/components/button.json'),
+			await answer('components', '_shared/editor-components/button.json'),
+			await answer('components', 'editor/plain/component-defaults/button.json'),
+			await answer('components', 'editor/plain/'),
+		],
+		[
+			[403, 'out_of_scope'],
+			[403, 'library'],
+			[403, 'out_of_scope'],
+			[403, 'game_config'],
+		],
+	);
+	check(
+		'another tool declaring a component key is still out of scope',
+		[
+			await answer('scene', 'editor/plain/components/button.json'),
+			await answer('scene', 'editor/plain/components/'),
+		],
+		[
+			[403, 'out_of_scope'],
+			[403, 'out_of_scope'],
+		],
+	);
+	check('...and only the two allowed writes reached a handler', handlerRuns - ran, 2);
+}
 check(
 	'refusedWriteTarget allows an ordinary doc',
 	refusedWriteTarget(`${prefix('plain')}symbols/symbols.json`),
@@ -1010,6 +1223,97 @@ check(
 	check('a non-admin cannot mark a template', refused, true);
 }
 
+// ── 9F: lockedItemsOf(config, 'slot') is the pre-9F output, for every committed slot config ──
+{
+	const { primaryRespinMode } = await import('game-config');
+	type Cfg = {
+		rtp: number;
+		numReels: number;
+		numRows: number[];
+		betModes?: Record<string, { buyBonus?: boolean }>;
+		symbols?: Record<string, { paytable?: unknown[] }>;
+		paylines?: Record<string, unknown>;
+		cascade?: unknown;
+		modes?: { id: string }[];
+		coinOverlay?: { drops?: unknown };
+	};
+	/** The function as it stood before 9F, copied verbatim (the config argument typed loosely). */
+	const lockedItemsBefore = (config: Cfg | null) => {
+		const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+		const betModes = Object.entries(config?.betModes ?? {}).map(([id, mode]) => ({
+			id,
+			buyBonus: Boolean(mode.buyBonus),
+		}));
+		const paying = Object.values(config?.symbols ?? {}).filter(
+			(s) => (s.paytable ?? []).length > 0,
+		);
+		const lines = config?.paylines ? Object.keys(config.paylines).length : 0;
+		const features = [
+			config?.cascade ? 'cascade' : null,
+			primaryRespinMode(config?.modes as never) ? 'Hold and Win' : null,
+			config?.coinOverlay?.drops ? 'pots overlay' : null,
+			...(config?.modes ?? []).map((m) => `mode ${m.id}`),
+		].filter((f): f is string => f !== null);
+		const grid = config ? `${config.numReels} reels × ${config.numRows.join('/')} rows` : 'unknown';
+		return [
+			{
+				id: 'math',
+				label: 'Math contract',
+				detail: config ? `RTP ${config.rtp}, ${grid}` : 'no config found',
+			},
+			{ id: 'paytable', label: 'Paytable', detail: plural(paying.length, 'paying symbol') },
+			{
+				id: 'bet_modes',
+				label: 'Bet modes',
+				detail: betModes.length
+					? betModes.map((m) => (m.buyBonus ? `${m.id} (buy)` : m.id)).join(', ')
+					: 'none',
+				facts: { betModes },
+			},
+			{ id: 'paylines', label: 'Paylines', detail: plural(lines, 'payline') },
+			{
+				id: 'feature_rules',
+				label: 'Feature rules',
+				detail: features.length ? features.join(', ') : 'none',
+			},
+		];
+	};
+	const seedDir = new URL('../src/lib/data/gameConfig/', import.meta.url);
+	const seeds = readdirSync(seedDir)
+		.filter((f) => f.endsWith('.json'))
+		.map((f) => [
+			f,
+			JSON.parse(readFileSync(new URL(f, seedDir), 'utf8')) as Cfg & { family?: string },
+		])
+		.filter(([, doc]) => typeof (doc as { family?: unknown }).family !== 'string');
+	check('the slot seeds are found', seeds.length >= 8, true);
+	for (const [file, doc] of seeds as [string, Cfg][]) {
+		check(
+			`lockedItemsOf(${file}, 'slot') is byte-identical to the pre-9F output`,
+			JSON.stringify(lockedItemsOf(doc as never, 'slot')),
+			JSON.stringify(lockedItemsBefore(doc)),
+		);
+	}
+	check(
+		'...and with no config',
+		JSON.stringify(lockedItemsOf(null, 'slot')),
+		JSON.stringify(lockedItemsBefore(null)),
+	);
+	for (const family of ['match3', 'arcade'] as const) {
+		check(
+			`${family} locks the whole Game Config, inventing no list`,
+			lockedItemsOf(seeds[0][1] as never, family),
+			[
+				{
+					id: 'math',
+					label: 'Game Config',
+					detail: `Locked whole: Director has no ${family === 'match3' ? 'match-3' : family} pack yet`,
+				},
+			],
+		);
+	}
+}
+
 // ── 2.3 list_templates / get_template ─────────────────────────────────────────
 {
 	seedTemplate('tpl_unpub', {}, false);
@@ -1030,6 +1334,14 @@ check(
 		['tpl_lines', 'tpl_other'],
 	);
 	const t = templates[0];
+	check(
+		'...each carries its family and whether Director has a pack for it',
+		templates.map((x) => [
+			(x as { family?: string }).family,
+			(x as { familyPack?: string }).familyPack,
+		]),
+		templates.map(() => ['slot', 'ready']),
+	);
 	check('...with GAME chips', t.chips.game.length > 0, true);
 	check(
 		'...and USING chips',
@@ -1051,14 +1363,17 @@ check(
 			],
 		},
 	);
-	const scatterLike = lockedItemsOf({
-		rtp: 0.97,
-		numReels: 5,
-		numRows: [3, 3, 3, 3, 3],
-		symbols: {},
-		paylines: {},
-		betModes: { base: { buyBonus: false }, bonus: { buyBonus: true } },
-	} as never).find((l) => l.id === 'bet_modes')!;
+	const scatterLike = lockedItemsOf(
+		{
+			rtp: 0.97,
+			numReels: 5,
+			numRows: [3, 3, 3, 3, 3],
+			symbols: {},
+			paylines: {},
+			betModes: { base: { buyBonus: false }, bonus: { buyBonus: true } },
+		} as never,
+		'slot',
+	).find((l) => l.id === 'bet_modes')!;
 	check(
 		'...a buy mode is told by its flag, not its name (scatter.json buys through `bonus`)',
 		[scatterLike.detail, scatterLike.facts],
@@ -1575,9 +1890,12 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 				return send(200, 'application/json', '[{"id":"00002","seed":3},{"id":"00001","seed":2}]');
 			}
 			if (url.pathname.startsWith('/vthumb/')) {
-				return url.searchParams.get('id') === '00002'
-					? send(200, 'image/jpeg', Buffer.from([0xff, 0xd8, 0xff]))
-					: send(200, 'image/svg+xml', '<svg/>');
+				const vid = url.searchParams.get('id');
+				return vid === '00002'
+					? send(200, 'image/jpeg', TILE)
+					: vid === '00009'
+						? send(200, 'image/jpeg', TILE.subarray(0, 400))
+						: send(200, 'image/svg+xml', '<svg/>');
 			}
 			if (url.pathname === '/save') {
 				// docsave: the page's base must still be what R2 holds, unless only machine writes
@@ -1832,10 +2150,22 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			{ atlas: 'symbols', region: 'W', id: '00002' },
 			'qa',
 		);
+		const shown = img.body.image as { mediaType: string; base64: string };
+		const dims = await sharp(Buffer.from(shown.base64, 'base64')).metadata();
 		check(
-			'get_variant_image returns the bytes base64',
-			[img.status, img.body.contentType, img.body.base64],
-			[200, 'image/jpeg', '/9j/'],
+			'get_variant_image returns { image: { mediaType, base64 } }, downscaled to the model long edge',
+			[img.status, img.body.contentType, img.body.base64, shown.mediaType, dims.width, dims.height],
+			[200, undefined, undefined, 'image/jpeg', 1568, 1045],
+		);
+		const broken = await atlas(
+			'get_variant_image',
+			{ atlas: 'symbols', region: 'W', id: '00009' },
+			'qa',
+		);
+		check(
+			'a variant that does not decode is a settled 422, not a 502 the worker retries',
+			[broken.status, broken.body.error],
+			[422, 'unreadable_image'],
 		);
 		check(
 			"a variant atlas-tool answers with its placeholder is a 404, not an 'image'",
@@ -2901,6 +3231,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	const { saveSymbolsDoc } = await import(src('lib/server/symbolsStorage.ts'));
 	PROJECTS.set('tools', project('tools'));
 	RUNS.set('rt', run('rt', { projectKey: 'tools' }));
+	RUNS.set('rm3', run('rm3', { projectKey: 'tools', family: 'match3' }));
 	const P = 'acme/tools';
 	let toolSeq = 0;
 	const tool = (name: string, agent: string, input: unknown, write = false) => {
@@ -3262,6 +3593,47 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		['no_layout', false],
 	);
 	R2.set(SCENE, sceneBefore!);
+
+	// 9F: the math lock reads the RUN's family; a family with no list refuses before reading.
+	{
+		const before = [...R2].map(([k, o]) => `${k}:${o.etag}`);
+		const asMatch3 = (name: string, input: unknown, write = false, agent = 'builder') =>
+			call(name.split('.')[0], name.split('.')[1], {
+				runId: 'rm3',
+				agent,
+				...(write ? { opId: `rm3:t26:${++toolSeq}` } : {}),
+				input,
+			});
+		const read = await asMatch3('scene.get_layout', {});
+		const write = await asMatch3(
+			'scene.update_nodes',
+			{ changes: [{ screen: 'base', node: 'logo', x: 1 }], baseEtag: String(layout.body.baseEtag) },
+			true,
+		);
+		check(
+			'scene ops on a match-3 run: no_family_pack, whatever the project is',
+			[read.status, read.body.error, write.status, write.body.error],
+			[409, 'no_family_pack', 409, 'no_family_pack'],
+		);
+		const fxRead = await asMatch3('fx.get_effect', {}, false, 'animator');
+		const fxWrite = await asMatch3(
+			'fx.update_art',
+			{ id: 'sparks', layers: [], baseEtag: 'new' },
+			true,
+			'animator',
+		);
+		const defRead = await asMatch3('components.get_def', {});
+		check(
+			'the FX and component ops share the lock: no_family_pack on a match-3 run',
+			[fxRead.body.error, fxWrite.body.error, defRead.body.error],
+			['no_family_pack', 'no_family_pack', 'no_family_pack'],
+		);
+		check(
+			'...and nothing was written',
+			[...R2].map(([k, o]) => `${k}:${o.etag}`),
+			before,
+		);
+	}
 
 	// Win Text
 	const WT = paths.winTextDocKey(C, 'tools');
@@ -3767,6 +4139,1694 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		(await saveClip(R2.get(CLIP)!.etag, { frames: [] })).body.error,
 		'invalid_input',
 	);
+	// ── 9H.1 Sound and FX (ADR-0011 §1, §2) ───────────────────────────────────
+	{
+		const { MUSIC_NAMES, SOUND_EFFECT_NAMES } = await import('engine-flow-v2');
+		const { SOUND_SLOTS } = await import('game-config');
+		const { saveEffect } = await import(src('lib/server/fxStorage.ts'));
+		const { FAMILY_TOOLS, TOOLS, familyUsesTool } = await import(src('lib/roles.ts'));
+		const { ADAPTER_TOOL_IDS } = await import(src('lib/server/director/adapter.ts'));
+		const [sfxA, sfxB, sfxC] = SOUND_EFFECT_NAMES as readonly string[];
+		type Item = { path?: string; layer?: string; reason: string };
+		const world = () => JSON.stringify([...R2.entries()]);
+		const refusals = (a: Answer) => (a.body.refused ?? []) as Item[];
+		const reasonFor = (a: Answer, key: string) =>
+			refusals(a).find((r) => (r.path ?? r.layer) === key)?.reason ?? '';
+
+		// Every op: token, project scope, agent allow-list, family gate.
+		PROJECTS.set('foreign', project('foreign', { clientKey: 'other' }));
+		PROJECTS.set('arc', project('arc', { gameType: 'arcade' }));
+		RUNS.set('rforeign', run('rforeign', { projectKey: 'foreign', ownerUserId: 'dev' }));
+		RUNS.set('rarc', run('rarc', { projectKey: 'arc' }));
+		const ninth: [string, string, string, string, object][] = [
+			['sound', 'get_doc', 'builder', 'animator', {}],
+			['sound', 'set_cues', 'builder', 'animator', { cues: [], baseEtag: 'new' }],
+			['fx', 'get_effect', 'animator', 'builder', {}],
+			['fx', 'update_art', 'animator', 'builder', { id: 'sparks', layers: [], baseEtag: 'new' }],
+		];
+		const asRun = (
+			runId: string,
+			[t, o, agent, , input]: (typeof ninth)[number],
+			over: { agent?: string; headers?: Record<string, string> } = {},
+		) =>
+			call(
+				t,
+				o,
+				{ runId, agent: over.agent ?? agent, opId: `${runId}:nine:1`, input },
+				over.headers,
+			);
+		for (const spec of ninth) {
+			const id = `${spec[0]}.${spec[1]}`;
+			check(
+				`${id}: a wrong token is a 401`,
+				(await asRun('rt', spec, { headers: { authorization: 'Bearer nope' } })).status,
+				401,
+			);
+			const foreign = await asRun('rforeign', spec);
+			check(
+				`${id}: a project the owner cannot reach is a 403`,
+				[foreign.status, foreign.body.error],
+				[403, 'out_of_scope'],
+			);
+			check(
+				`${id}: another agent is refused`,
+				(await asRun('rt', spec, { agent: spec[3] })).body.error,
+				'agent_not_allowed',
+			);
+			check(
+				`${id}: the agent that holds the other tool is not let in either`,
+				(await asRun('rt', spec, { agent: 'qa' })).status,
+				403,
+			);
+			check(
+				`${id}: acts as a launcher tool a family can hide`,
+				[TOOLS[ADAPTER_TOOL_IDS[spec[0]]]?.id, ADAPTER_TOOL_IDS[spec[0]]],
+				[spec[0], spec[0]],
+			);
+		}
+		// FAMILY_TOOLS hides neither tool from any family today, so the gate has nothing to refuse; it
+		// does the moment a family drops one.
+		check(
+			'no family hides Sound or FX today',
+			(['slot', 'match3', 'arcade'] as const).map((f) => [
+				familyUsesTool(f, 'sound'),
+				familyUsesTool(f, 'fx'),
+			]),
+			[
+				[true, true],
+				[true, true],
+				[true, true],
+			],
+		);
+		(FAMILY_TOOLS.arcade as string[]).push('sound', 'fx');
+		try {
+			for (const spec of ninth) {
+				const hidden = await asRun('rarc', spec);
+				check(
+					`${spec[0]}.${spec[1]}: an arcade project whose family drops the tool is not_for_family`,
+					[hidden.status, hidden.body.error],
+					[403, 'not_for_family'],
+				);
+			}
+		} finally {
+			(FAMILY_TOOLS.arcade as string[]).length -= 2;
+		}
+
+		// ── Sound ──
+		const SOUNDS = paths.soundsDocKey(C, 'tools');
+		const baseMusic = SOUND_SLOTS.find((s: { id: string }) => s.id === 'baseMusic')!;
+		check(
+			'the baseMusic default is a built-in music name',
+			MUSIC_NAMES.includes(baseMusic.defaults[0]),
+			true,
+		);
+		R2.set(paths.gameConfigDocKey(C, 'tools'), {
+			body: JSON.stringify({
+				...CONFIG('tools'),
+				sounds: {
+					tumbleExplosion: { names: [sfxA, sfxB] },
+					reelStop: { volume: 0.5 },
+					wildExplode: { enabled: false },
+				},
+				winLevels: [
+					{ alias: 'big', name: 'Big', threshold: 15, type: 'big', sound: { sfx: sfxB } },
+				],
+			}),
+			etag: etag(),
+		});
+		seedDoc(SYM, {
+			...stored(SYM),
+			symbolSounds: { H1: { land: sfxC } },
+			anticipation: { activationSound: sfxA },
+		});
+		const entry = (name: string, kind: string, status: string) => ({
+			id: `id_${name}`,
+			name,
+			kind,
+			file: `${name}.mp3`,
+			durationMs: 1000,
+			status,
+			origin: 'library',
+		});
+		const library = [
+			entry('chime', 'sfx', 'approved'),
+			entry('drafty', 'sfx', 'draft'),
+			entry('theme', 'music', 'approved'),
+		];
+		seedDoc(SOUNDS, { version: 1, entries: library });
+		const doc0 = await tool('sound.get_doc', 'builder', {});
+		check('sound.get_doc answers', doc0.status, 200);
+		check(
+			'...the library with each name, kind and status',
+			(doc0.body.library as { name: string; kind: string; status: string }[]).map((e) => [
+				e.name,
+				e.kind,
+				e.status,
+			]),
+			[
+				['chime', 'sfx', 'approved'],
+				['drafty', 'sfx', 'draft'],
+				['theme', 'music', 'approved'],
+			],
+		);
+		const offered = (doc0.body.moments as { path: string; kind: string }[]).map((m) => m.path);
+		check(
+			'...the moments Sound offers: slots, symbols x states, anticipation, win tiers, and no more',
+			[
+				offered.includes('slots.baseMusic'),
+				offered.includes('symbols.H1.land'),
+				offered.includes('symbols.H1.clearReel'),
+				offered.includes('anticipation.loop'),
+				offered.includes('winTiers.big.bgm'),
+				offered.includes('symbols.ZZ.land'),
+				offered.filter((p) => p.startsWith('slots.')).length,
+			],
+			[true, true, true, true, true, false, SOUND_SLOTS.length],
+		);
+		check(
+			'...the effective choices, from the legacy homes while the doc has none',
+			[doc0.body.migrated, (doc0.body.bindings as { symbols: unknown }).symbols],
+			[false, { H1: { land: sfxC } }],
+		);
+		check(
+			'...the names a cue may take, the project first',
+			[
+				(doc0.body.builtin as { sfx: string[] }).sfx.slice(0, 3),
+				(doc0.body.builtin as { music: string[] }).music.includes('theme'),
+			],
+			[['chime', 'drafty', sfxA], true],
+		);
+		check(
+			'...and a silenced slot is marked',
+			(doc0.body.moments as { path: string; silenced?: true }[]).filter((m) => m.silenced),
+			[
+				{
+					path: 'slots.wildExplode',
+					kind: 'single',
+					music: false,
+					defaults: SOUND_SLOTS.find((s: { id: string }) => s.id === 'wildExplode')!.defaults,
+					silenced: true,
+				},
+			],
+		);
+		check('sound.get_doc hands out the stored ETag', doc0.body.baseEtag, R2.get(SOUNDS)!.etag);
+
+		const setCues = (baseEtag: string, cues: object[]) =>
+			tool('sound.set_cues', 'builder', { cues, baseEtag }, true);
+		const cue = (path: string, ...names: string[]) => ({ path, names });
+		await staleIsConflict(
+			'sound.set_cues',
+			SOUNDS,
+			(b) => setCues(b, [cue('slots.symbolLand', 'chime')]),
+			String(doc0.body.baseEtag),
+		);
+		const entriesBefore = stored(SOUNDS).entries;
+		const first = await setCues(R2.get(SOUNDS)!.etag, [
+			cue('slots.reelStop', 'chime'),
+			cue('winTiers.big.bgm', 'theme'),
+			cue('symbols.H2.land', 'drafty'),
+			cue('symbols.ZZ.land', 'chime'),
+			cue('slots.baseMusic', 'chime'),
+			cue('slots.freeSpinMusic', 'theme', 'theme'),
+			cue('slots.wildExplode', sfxA),
+			cue('anticipation.loop', 'no_such_sound'),
+			cue('slots.tumbleExplosion'),
+			cue('winTiers.big.sfx', 'theme'),
+			cue('slots.reelStop', sfxA),
+		]);
+		check('sound.set_cues lands', first.status, 200);
+		check(
+			'...applying the approved library sounds, in order',
+			(first.body.applied as { path: string }[]).map((a) => a.path),
+			['slots.reelStop', 'winTiers.big.bgm'],
+		);
+		check(
+			'...refusing and listing each of the others',
+			refusals(first).map((r) => r.path),
+			[
+				'symbols.H2.land',
+				'symbols.ZZ.land',
+				'slots.baseMusic',
+				'slots.freeSpinMusic',
+				'slots.wildExplode',
+				'anticipation.loop',
+				'slots.tumbleExplosion',
+				'winTiers.big.sfx',
+				'slots.reelStop',
+			],
+		);
+		check('...a draft sound', reasonFor(first, 'symbols.H2.land').includes('draft'), true);
+		check(
+			'...a moment Sound does not offer',
+			reasonFor(first, 'symbols.ZZ.land').includes('not a moment'),
+			true,
+		);
+		check(
+			'...a sound effect where music is wanted',
+			reasonFor(first, 'slots.baseMusic').includes('takes music'),
+			true,
+		);
+		check(
+			'...the wrong number of names on a single slot',
+			reasonFor(first, 'slots.freeSpinMusic').includes('exactly 1'),
+			true,
+		);
+		check(
+			'...a slot a person silenced',
+			reasonFor(first, 'slots.wildExplode').includes('silenced'),
+			true,
+		);
+		check(
+			'...a name in neither the library nor the built-ins',
+			reasonFor(first, 'anticipation.loop').includes('neither'),
+			true,
+		);
+		check(
+			'...no names on a ladder',
+			reasonFor(first, 'slots.tumbleExplosion').includes('1 to 16'),
+			true,
+		);
+		check(
+			'...music where a sound effect is wanted',
+			reasonFor(first, 'winTiers.big.sfx').includes('takes a sound effect'),
+			true,
+		);
+		check('...a path listed twice', reasonFor(first, 'slots.reelStop').includes('twice'), true);
+		const s1 = stored(SOUNDS);
+		check(
+			'the first save materialises the legacy choices beside the new ones',
+			[s1.bindings, first.body.migrated],
+			[
+				{
+					slots: {
+						tumbleExplosion: { names: [sfxA, sfxB] },
+						reelStop: { names: ['chime'], volume: 0.5 },
+						wildExplode: { enabled: false },
+					},
+					symbols: { H1: { land: sfxC } },
+					anticipation: { activation: sfxA },
+					winTiers: { big: { sfx: sfxB, bgm: 'theme' } },
+				},
+				true,
+			],
+		);
+		check('...the library is untouched', s1.entries, entriesBefore);
+		check('...and `before` holds the old value at each changed path', first.body.before, [
+			{ path: 'slots.reelStop', names: null },
+			{ path: 'winTiers.big.bgm', names: null },
+		]);
+		const SOUNDS_FILES = keysUnder(`${P}/sounds/`);
+		check('...writing only the sounds doc', SOUNDS_FILES, [SOUNDS]);
+
+		const replayInput = {
+			cues: [cue('slots.symbolLand', 'chime')],
+			baseEtag: String(first.body.baseEtag),
+		};
+		const body = (opId: string) => ({ runId: 'rt', agent: 'builder', opId, input: replayInput });
+		const once = await call('sound', 'set_cues', body('rt:nine:50'));
+		const afterOnce = R2.get(SOUNDS)!;
+		const twice = await call('sound', 'set_cues', body('rt:nine:50'));
+		check(
+			'a replayed opId returns the same result and writes once',
+			[once.status, twice.status, twice.replay, twice.body, R2.get(SOUNDS)],
+			[200, 200, true, once.body, afterOnce],
+		);
+		check(
+			'...the second save kept the first save (migrated now false)',
+			[
+				once.body.migrated,
+				stored(SOUNDS).bindings.slots.reelStop,
+				stored(SOUNDS).bindings.slots.symbolLand,
+			],
+			[false, { names: ['chime'], volume: 0.5 }, { names: ['chime'] }],
+		);
+
+		const unchangedSave = R2.get(SOUNDS)!;
+		const same = await setCues(unchangedSave.etag, [cue('slots.symbolLand', 'chime')]);
+		check(
+			'a cue already set that way is unchanged and writes nothing',
+			[same.status, same.body.unchanged, same.body.applied, R2.get(SOUNDS)],
+			[200, ['slots.symbolLand'], [], unchangedSave],
+		);
+		const toDefault = await setCues(unchangedSave.etag, [
+			cue('slots.baseMusic', 'theme'),
+			cue('slots.reelStop', 'chime', sfxA),
+		]);
+		check('a ladder takes several names', stored(SOUNDS).bindings.slots.reelStop, {
+			names: ['chime', sfxA],
+			volume: 0.5,
+		});
+		const back = await setCues(String(toDefault.body.baseEtag), [
+			cue('slots.baseMusic', baseMusic.defaults[0]),
+		]);
+		check(
+			'names equal to the catalogue defaults are stored as no names',
+			[back.status, stored(SOUNDS).bindings.slots.baseMusic],
+			[200, undefined],
+		);
+
+		const corruptBody = '{"entries": [';
+		R2.set(SOUNDS, { body: corruptBody, etag: etag() });
+		const corruptBefore = R2.get(SOUNDS)!;
+		const corruptGet = await tool('sound.get_doc', 'builder', {});
+		const corruptSet = await setCues(corruptBefore.etag, [cue('slots.symbolLand', 'chime')]);
+		check(
+			'a corrupt sounds doc is unreadable, and nothing is written over it',
+			[corruptGet.body.error, corruptSet.status, corruptSet.body.error, R2.get(SOUNDS)],
+			['unreadable_doc', 409, 'unreadable_doc', corruptBefore],
+		);
+		check(
+			'...while the page loader still reads it as an empty library with its ETag',
+			await (await import(src('lib/server/soundsStorage.ts'))).loadSoundsDocWithEtag(C, 'tools'),
+			{ doc: { version: 1, entries: [] }, etag: corruptBefore.etag, existed: true, corrupt: true },
+		);
+		// The legacy docs are the only copy of the choices until the first write: one that cannot be
+		// read refuses the write rather than saving a block without them.
+		seedDoc(SOUNDS, { version: 1, entries: library });
+		const legacyConfig = R2.get(paths.gameConfigDocKey(C, 'tools'))!;
+		const legacySymbols = R2.get(SYM)!;
+		const legacyCase = async (label: string, break_: () => void, mend: () => void) => {
+			break_();
+			const worldBefore = world();
+			const read = await tool('sound.get_doc', 'builder', {});
+			const write = await tool(
+				'sound.set_cues',
+				'builder',
+				{ cues: [cue('slots.symbolLand', 'chime')], baseEtag: R2.get(SOUNDS)!.etag },
+				true,
+			);
+			check(
+				`${label}: sound.set_cues and sound.get_doc answer 409 unreadable_doc`,
+				[write.status, write.body.error, read.status, read.body.error],
+				[409, 'unreadable_doc', 409, 'unreadable_doc'],
+			);
+			check(`${label}: ...and nothing is written`, world(), worldBefore);
+			mend();
+		};
+		const SYMBOLS_KEY = SYM;
+		const CONFIG_KEY = paths.gameConfigDocKey(C, 'tools');
+		await legacyCase(
+			'a corrupt symbols doc',
+			() => R2.set(SYMBOLS_KEY, { body: '{"symbols": ', etag: etag() }),
+			() => R2.set(SYMBOLS_KEY, legacySymbols),
+		);
+		await legacyCase(
+			'a corrupt config doc',
+			() => R2.set(CONFIG_KEY, { body: '{"paddingReels": ', etag: etag() }),
+			() => R2.set(CONFIG_KEY, legacyConfig),
+		);
+		await legacyCase(
+			'a config read that throws',
+			() => (failReadOf = CONFIG_KEY),
+			() => (failReadOf = null),
+		);
+		await legacyCase(
+			'a symbols read that throws',
+			() => (failReadOf = SYMBOLS_KEY),
+			() => (failReadOf = null),
+		);
+		check(
+			'...and with the legacy docs readable again the same call lands',
+			(
+				await tool(
+					'sound.set_cues',
+					'builder',
+					{ cues: [cue('slots.symbolLand', 'chime')], baseEtag: R2.get(SOUNDS)!.etag },
+					true,
+				)
+			).status,
+			200,
+		);
+		check('...carrying the legacy symbol choice over', stored(SOUNDS).bindings.symbols, {
+			H1: { land: sfxC },
+		});
+
+		// Config keys are data: an alias with a dot lands under that alias, and a prototype name is
+		// never offered.
+		const tier = (alias: string, threshold: number) => ({
+			alias,
+			name: alias,
+			threshold,
+			type: 'big',
+		});
+		R2.set(CONFIG_KEY, {
+			body: JSON.stringify({
+				...CONFIG('tools'),
+				winLevels: [tier('big', 15), tier('big.win', 25), tier('__proto__', 35)],
+			}),
+			etag: etag(),
+		});
+		const moments = await tool('sound.get_doc', 'builder', {});
+		check(
+			'a win tier alias that names a prototype is not offered as a moment',
+			(moments.body.moments as { path: string }[])
+				.map((m) => m.path)
+				.filter((p) => p.startsWith('winTiers.')),
+			['winTiers.big.sfx', 'winTiers.big.bgm', 'winTiers.big.win.sfx', 'winTiers.big.win.bgm'],
+		);
+		const protoBefore = Object.getOwnPropertyNames(Object.prototype).sort();
+		const alias = await tool(
+			'sound.set_cues',
+			'builder',
+			{
+				cues: [
+					cue('winTiers.big.win.sfx', 'chime'),
+					cue('winTiers.__proto__.sfx', 'chime'),
+					cue('winTiers.constructor.sfx', 'chime'),
+				],
+				baseEtag: R2.get(SOUNDS)!.etag,
+			},
+			true,
+		);
+		check(
+			'a cue under an alias with a dot lands under that alias, and the prototype names are refused',
+			[
+				(alias.body.applied as { path: string }[]).map((a) => a.path),
+				refusals(alias).map((r) => r.path),
+				stored(SOUNDS).bindings.winTiers['big.win'],
+				stored(SOUNDS).bindings.winTiers.big,
+				Object.hasOwn(stored(SOUNDS).bindings.winTiers, '__proto__'),
+			],
+			[
+				['winTiers.big.win.sfx'],
+				['winTiers.__proto__.sfx', 'winTiers.constructor.sfx'],
+				{ sfx: 'chime' },
+				{ sfx: sfxB },
+				false,
+			],
+		);
+		check(
+			'...and Object.prototype is untouched',
+			[Object.getOwnPropertyNames(Object.prototype).sort(), ({} as { sfx?: string }).sfx],
+			[protoBefore, undefined],
+		);
+		R2.set(CONFIG_KEY, legacyConfig);
+
+		R2.delete(SOUNDS);
+
+		// ── FX ──
+		const ATLAS = `${P}/manifests/atlas_manifest_fx.json`;
+		const ATLAS2 = `${P}/manifests/atlas_manifest_embers.json`;
+		for (const [key, regions, page] of [
+			[ATLAS, ['spark', 'smoke', 'glow'], 'fx'],
+			[ATLAS2, ['ember', 'ash', 'cinder'], 'embers'],
+		] as const) {
+			seedDoc(key, {
+				atlas: { source_image: `${page}.png`, width: 64, height: 64 },
+				regions: regions.map((name, i) => ({ name, x: i * 8, y: 0, w: 8, h: 8 })),
+			});
+			R2.set(`${P}/atlas/${page}.png`, { body: 'PNG', etag: etag() });
+		}
+		const behavior = (type: string, config: object) => ({ type, config });
+		const stops = (a: string, b: string) => ({
+			color: {
+				list: [
+					{ time: 0, value: a },
+					{ time: 1, value: b },
+				],
+			},
+		});
+		const layer = (key: string, art: object, behaviors: object[], over: object = {}) => ({
+			key,
+			particleKind: 'sprite',
+			art,
+			placement: { space: 'free', offset: { x: 1, y: 2 } },
+			trigger: { on: 'event', eventType: 'win' },
+			config: { lifetime: { min: 0.5, max: 1 }, frequency: 0.1, maxParticles: 50, behaviors },
+			...over,
+		});
+		const effect = {
+			version: 1,
+			id: 'sparks',
+			name: 'Sparks',
+			layers: [
+				layer('main', { assetKey: ATLAS, frames: ['spark', 'smoke'], weights: [70, 30] }, [
+					behavior('alpha', { alpha: { start: 1, end: 0 } }),
+					behavior('color', stops('#ffffff', '#ff0000')),
+					behavior('colorStatic', { color: '#00ff00' }),
+					behavior('color', stops('#111111', '#222222')),
+				]),
+				layer('ring', { assetKey: ATLAS, frames: ['glow'] }, [
+					behavior('color', stops('#ff0000', '#112233')),
+				]),
+				layer('rig', { assetKey: '', frames: [] }, [], {
+					particleKind: 'spine',
+					spineParticle: { skeletonKey: 'hero', animation: 'idle' },
+				}),
+			],
+			params: [
+				{
+					id: 'tint',
+					kind: 'color',
+					default: '#ff0000',
+					drives: [{ id: 'd1', layer: 'ring', path: 'behavior:color.color.list.0.value' }],
+				},
+			],
+		};
+		const camera = { camera: { x: 3, y: 4, scale: 2 }, selectedLayer: 'main' };
+		await saveEffect(C, 'tools', effect, camera, null);
+		const FX = paths.fxDocKey(C, 'tools', 'sparks');
+		const FXMETA = paths.fxMetaKey(C, 'tools', 'sparks');
+		const list = await tool('fx.get_effect', 'animator', {});
+		check(
+			'fx.get_effect lists the effects and the project atlases a layer may draw from',
+			[
+				list.body.effects,
+				(list.body.atlases as { manifestKey: string; label: string; regions: string[] }[]).map(
+					(a) => [a.manifestKey, a.label, a.regions],
+				),
+			],
+			[
+				[{ id: 'sparks', name: 'Sparks' }],
+				[
+					[ATLAS2, 'embers', ['ember', 'ash', 'cinder']],
+					[ATLAS, 'fx', ['spark', 'smoke', 'glow']],
+				],
+			],
+		);
+		const got = await tool('fx.get_effect', 'animator', { id: 'sparks' });
+		const layers = got.body.layers as {
+			key: string;
+			particleKind: string;
+			art: object;
+			colors: { behavior: number; type: string; values: string[]; driven: boolean }[];
+			driven: string[];
+		}[];
+		check(
+			"fx.get_effect reads each layer's art and colour behaviours",
+			layers.map((l) => [
+				l.key,
+				l.particleKind,
+				l.colors.map((c) => [c.behavior, c.type, c.values, c.driven]),
+			]),
+			[
+				[
+					'main',
+					'sprite',
+					[
+						[1, 'color', ['#ffffff', '#ff0000'], false],
+						[2, 'colorStatic', ['#00ff00'], false],
+						[3, 'color', ['#111111', '#222222'], false],
+					],
+				],
+				['ring', 'sprite', [[0, 'color', ['#ff0000', '#112233'], true]]],
+				['rig', 'spine', []],
+			],
+		);
+		check(
+			'...the art with its weights, and the leaves a parameter drives',
+			[layers[0].art, layers[1].driven],
+			[
+				{ assetKey: ATLAS, frames: ['spark', 'smoke'], weights: [70, 30], animated: false },
+				['behavior:color.color.list.0.value'],
+			],
+		);
+		check(
+			'...and whether the effect is locked, with its ETag',
+			[got.body.locked, got.body.baseEtag],
+			[null, R2.get(FX)!.etag],
+		);
+
+		const update = (baseEtag: string, changes: object[], id = 'sparks') =>
+			tool('fx.update_art', 'animator', { id, layers: changes, baseEtag }, true);
+		const art = (layerKey: string, assetKey: string, frames: string[], more: object = {}) => ({
+			layer: layerKey,
+			assetKey,
+			frames,
+			...more,
+		});
+		await staleIsConflict(
+			'fx.update_art',
+			FX,
+			(b) => update(b, [art('main', ATLAS2, ['ember', 'ash'])]),
+			String(got.body.baseEtag),
+		);
+		const docBefore = stored(FX);
+		const metaBefore = R2.get(FXMETA)!;
+		const fxFiles = keysUnder(`${P}/`).filter((k) => k.includes('.fx.'));
+		const ok = await update(R2.get(FX)!.etag, [
+			art('main', ATLAS2, ['ember', 'ash'], {
+				colors: [
+					{ behavior: 1, values: ['#FFD700', '#ff8800'] },
+					{ behavior: 2, values: ['#00AAFF'] },
+				],
+			}),
+			art('rig', ATLAS, ['spark']),
+			art('ghost', ATLAS, ['spark']),
+		]);
+		check('fx.update_art lands', ok.status, 200);
+		check(
+			'...applying the layer and listing the rig layer and the layer that is not there',
+			[
+				ok.body.applied,
+				refusals(ok).map((r) => r.layer),
+				reasonFor(ok, 'rig').includes('Rigger'),
+				reasonFor(ok, 'ghost').includes('no such layer'),
+			],
+			[[{ layer: 'main' }], ['rig', 'ghost'], true, true],
+		);
+		const expected = structuredClone(docBefore);
+		expected.layers[0].art.assetKey = ATLAS2;
+		expected.layers[0].art.frames = ['ember', 'ash'];
+		expected.layers[0].config.behaviors[1].config.color.list[0].value = '#ffd700';
+		expected.layers[0].config.behaviors[1].config.color.list[1].value = '#ff8800';
+		expected.layers[0].config.behaviors[2].config.color = '#00aaff';
+		check(
+			'...and everything else in the effect is deep-equal: emitter, other behaviours, placement, trigger, params, layer order, name, id, weights',
+			stored(FX),
+			expected,
+		);
+		check(
+			"...the editor's sidecar (a person's camera) survives",
+			R2.get(FXMETA)?.body,
+			metaBefore.body,
+		);
+		check('...and `before` holds the old art and colours', ok.body.before, [
+			{
+				layer: 'main',
+				assetKey: ATLAS,
+				frames: ['spark', 'smoke'],
+				weights: [70, 30],
+				colors: [
+					{ behavior: 1, values: ['#ffffff', '#ff0000'] },
+					{ behavior: 2, values: ['#00ff00'] },
+				],
+			},
+		]);
+		check(
+			'...writing the effect and its sidecar and no other file',
+			keysUnder(`${P}/`).filter((k) => k.includes('.fx.')),
+			fxFiles,
+		);
+
+		const replayFx = {
+			runId: 'rt',
+			agent: 'animator',
+			opId: 'rt:nine:60',
+			input: {
+				id: 'sparks',
+				layers: [art('ring', ATLAS, ['glow', 'smoke'])],
+				baseEtag: String(ok.body.baseEtag),
+			},
+		};
+		const fxOnce = await call('fx', 'update_art', replayFx);
+		const fxAfter = R2.get(FX)!;
+		const fxTwice = await call('fx', 'update_art', replayFx);
+		check(
+			'a replayed opId returns the same result and writes once',
+			[fxOnce.status, fxTwice.replay, fxTwice.body, R2.get(FX)],
+			[200, true, fxOnce.body, fxAfter],
+		);
+		check(
+			'...a layer may change its frame count when it has no weights',
+			stored(FX).layers[1].art.frames,
+			['glow', 'smoke'],
+		);
+
+		/** One refused layer: the answer lists it with a reason and the doc is not written. */
+		async function refusesLayer(label: string, change: object, reason: RegExp, id = 'sparks') {
+			const before = R2.get(paths.fxDocKey(C, 'tools', id))!;
+			const baseEtag = before.etag;
+			const answer = await update(baseEtag, [change], id);
+			const listed = refusals(answer)[0];
+			check(
+				`fx.update_art refuses ${label}`,
+				[
+					answer.status,
+					answer.body.applied,
+					reason.test(listed?.reason ?? ''),
+					R2.get(paths.fxDocKey(C, 'tools', id)),
+				],
+				[200, [], true, before],
+			);
+		}
+		const unchangedFx = R2.get(FX)!;
+		const noChange = await update(unchangedFx.etag, [art('ring', ATLAS, ['glow', 'smoke'])]);
+		check(
+			'an effect layer already set that way is unchanged and writes nothing',
+			[noChange.status, noChange.body.unchanged, noChange.body.applied, R2.get(FX)],
+			[200, ['ring'], [], unchangedFx],
+		);
+		await refusesLayer('a rig-particle layer', art('rig', ATLAS, ['spark']), /Rigger/);
+		await refusesLayer(
+			'a colour an effect parameter drives',
+			art('ring', ATLAS, ['glow', 'smoke'], {
+				colors: [{ behavior: 0, values: ['#000000', '#ffffff'] }],
+			}),
+			/driven by an effect parameter/,
+		);
+		await refusesLayer(
+			'a colour behaviour with the wrong number of stops',
+			art('main', ATLAS2, ['ember', 'ash'], { colors: [{ behavior: 1, values: ['#ffffff'] }] }),
+			/exactly that many/,
+		);
+		await refusesLayer(
+			'colours for a behaviour that is not a colour',
+			art('main', ATLAS2, ['ember', 'ash'], { colors: [{ behavior: 0, values: ['#ffffff'] }] }),
+			/not a colour behaviour/,
+		);
+		await refusesLayer(
+			'a frame-count change on a layer with weights, without new weights',
+			art('main', ATLAS2, ['ember', 'ash', 'cinder']),
+			/send one new weight per frame/,
+		);
+		await refusesLayer(
+			'weights of the wrong length',
+			art('main', ATLAS2, ['ember', 'ash', 'cinder'], { weights: [1, 2] }),
+			/one weight per frame/,
+		);
+		await refusesLayer(
+			'a weight that is not above 0',
+			art('main', ATLAS2, ['ember', 'ash', 'cinder'], { weights: [1, 0, 2] }),
+			/above 0/,
+		);
+		await refusesLayer(
+			'an atlas the project does not have',
+			art('main', `${P}/manifests/atlas_manifest_nope.json`, ['spark']),
+			/not one of the project's atlases/,
+		);
+		await refusesLayer(
+			'an atlas of another project',
+			art('main', 'other/foreign/manifests/atlas_manifest_fx.json', ['spark']),
+			/not one of the project's atlases/,
+		);
+		await refusesLayer(
+			'a frame that is not a region of the atlas',
+			art('main', ATLAS2, ['ember', 'spark']),
+			/not regions of embers: spark/,
+		);
+		await refusesLayer('a layer with no frames', art('main', ATLAS2, []), /1 to 64 frames/);
+		check(
+			'fx.update_art takes no emitter field, placement, trigger or layer list',
+			(await update('new', [{ ...art('main', ATLAS, ['spark']), config: {} }])).body.error,
+			'invalid_input',
+		);
+
+		const withWeights = await update(R2.get(FX)!.etag, [
+			art('main', ATLAS2, ['ember', 'ash', 'cinder'], { weights: [1, 2, 3] }),
+		]);
+		const expected2 = structuredClone(stored(FX));
+		check(
+			'a frame-count change with one new weight per frame lands',
+			[withWeights.status, stored(FX).layers[0].art],
+			[200, { assetKey: ATLAS2, frames: ['ember', 'ash', 'cinder'], weights: [1, 2, 3] }],
+		);
+		check(
+			'...changing only the art',
+			[stored(FX).layers.length, stored(FX).params],
+			[3, expected2.params],
+		);
+
+		check(
+			'fx.update_art refuses an id the project would store differently',
+			[(await update('new', [], 'Sparks')).status, (await update('new', [], 'Sparks')).body.error],
+			[400, 'invalid_input'],
+		);
+		check(
+			'...and an effect that does not exist',
+			(await update('new', [], 'nothere')).body.error,
+			'unknown_effect',
+		);
+		check(
+			'fx.get_effect on an effect that does not exist is a 404',
+			(await tool('fx.get_effect', 'animator', { id: 'nothere' })).status,
+			404,
+		);
+
+		for (const [id, body] of [
+			['broken', '{"layers": ['],
+			['bare', '{"id":"bare","name":"Bare","layers":[]}'],
+		]) {
+			const key = paths.fxDocKey(C, 'tools', id);
+			R2.set(key, { body, etag: etag() });
+			const unreadable = R2.get(key)!;
+			const read = await tool('fx.get_effect', 'animator', { id });
+			const written = await update(unreadable.etag, [art('main', ATLAS, ['spark'])], id);
+			check(
+				`a ${id === 'broken' ? 'corrupt' : 'layerless'} effect is unreadable, and nothing is written over it`,
+				[read.body.error, written.status, written.body.error, R2.get(key)],
+				['unreadable_doc', 409, 'unreadable_doc', unreadable],
+			);
+		}
+
+		// Placement: an effect placed by a node the math (or an editor lock) holds.
+		const plain = { id: 'x', kind: 'effect', x: 0, y: 0 };
+		const placed = (id: string, effectId: string, over: object = {}) => ({
+			...plain,
+			id,
+			effectId,
+			...over,
+		});
+		for (const id of ['bet_fx', 'pinned_fx', 'nested_fx']) {
+			await saveEffect(C, 'tools', { ...effect, id, name: id }, camera, null);
+		}
+		seedDoc(SCENE, {
+			version: 2,
+			projectKey: 'tools',
+			mainSizesMap: { desktop: { width: 1920, height: 1080 } },
+			updatedAt: '',
+			scenes: [
+				{ id: 'base', name: 'Base', role: 'basegame', nodes: [placed('fxs', 'sparks')] },
+				{ id: 'betMenu', name: 'Bet', nodes: [placed('fxb', 'bet_fx')] },
+				{
+					id: 'extra',
+					name: 'Extra',
+					nodes: [
+						placed('fxp', 'pinned_fx', { locked: true }),
+						{
+							id: 'box',
+							kind: 'container',
+							x: 0,
+							y: 0,
+							children: [placed('fxn', 'nested_fx', { pressAction: 'increase' })],
+						},
+					],
+				},
+			],
+		});
+		const placedOk = await tool('fx.get_effect', 'animator', { id: 'sparks' });
+		check('an effect placed by an unlocked node is not locked', placedOk.body.locked, null);
+		for (const [id, why] of [
+			['bet_fx', /betMenu.*bound to the math/],
+			['pinned_fx', /locked in the Scene Editor/],
+			['nested_fx', /bound to the math/],
+		] as const) {
+			const key = paths.fxDocKey(C, 'tools', id);
+			const before = R2.get(key)!;
+			const read = await tool('fx.get_effect', 'animator', { id });
+			const write = await update(before.etag, [art('main', ATLAS2, ['ember', 'ash'])], id);
+			check(
+				`fx.update_art refuses ${id}, placed by a node that is locked`,
+				[
+					why.test(String(read.body.locked)),
+					write.status,
+					write.body.error,
+					why.test(String(write.body.message)),
+					R2.get(key),
+				],
+				[true, 403, 'locked', true, before],
+			);
+		}
+	}
+	// ── 9H.2 Component Editor art (ADR-0011 §3) ───────────────────────────────
+	{
+		const { saveComponent } = await import(src('lib/server/componentStorage.ts'));
+		const { FAMILY_TOOLS } = await import(src('lib/roles.ts'));
+		const { ADAPTER_TOOL_IDS } = await import(src('lib/server/director/adapter.ts'));
+		PROJECTS.set('comp', project('comp'));
+		RUNS.set('rc', run('rc', { projectKey: 'comp' }));
+		const CP = 'acme/comp';
+		const LAYOUT = paths.editorDocKey(C, 'comp');
+		let compSeq = 0;
+		const ct = (name: string, agent: string, input: unknown, write = false) => {
+			const [t, o] = name.split('.');
+			return call(t, o, {
+				runId: 'rc',
+				agent,
+				...(write ? { opId: `rc:c9:${++compSeq}` } : {}),
+				input,
+			});
+		};
+		const world = () => JSON.stringify([...R2.entries()]);
+		type Item = { node?: string; reason: string };
+		const refusals = (a: Answer) => (a.body.refused ?? []) as Item[];
+
+		// Both ops: token, scope, agent allow-list, family gate.
+		const specs: [string, string, object][] = [
+			['components', 'get_def', {}],
+			[
+				'components',
+				'update_art',
+				{ id: 'frame', changes: [], baseEtag: 'new', layoutBaseEtag: 'new' },
+			],
+		];
+		for (const [t, o, input] of specs) {
+			const id = `${t}.${o}`;
+			const envelope = (runId: string, agent: string) => ({
+				runId,
+				agent,
+				opId: `${runId}:c9:1`,
+				input,
+			});
+			check(
+				`${id}: a wrong token is a 401`,
+				(await call(t, o, envelope('rc', 'builder'), { authorization: 'Bearer nope' })).status,
+				401,
+			);
+			check(
+				`${id}: a project the owner cannot reach is a 403`,
+				(await call(t, o, envelope('rforeign', 'builder'))).body.error,
+				'out_of_scope',
+			);
+			check(
+				`${id}: another agent is refused`,
+				[
+					(await call(t, o, envelope('rc', 'animator'))).body.error,
+					(await call(t, o, envelope('rc', 'qa'))).status,
+				],
+				['agent_not_allowed', 403],
+			);
+		}
+		check('components acts as the editor tool', ADAPTER_TOOL_IDS.components, 'editor');
+		(FAMILY_TOOLS.arcade as string[]).push('editor');
+		try {
+			for (const [t, o, input] of specs) {
+				const hidden = await call(t, o, {
+					runId: 'rarc',
+					agent: 'builder',
+					opId: 'rarc:c9:1',
+					input,
+				});
+				check(
+					`${t}.${o}: a project whose family drops the editor is not_for_family`,
+					[hidden.status, hidden.body.error],
+					[403, 'not_for_family'],
+				);
+			}
+		} finally {
+			(FAMILY_TOOLS.arcade as string[]).length -= 1;
+		}
+
+		// ── Seed: defs and a layout ──
+		const sprite = (id: string, over: object = {}) => ({
+			id,
+			kind: 'sprite',
+			x: 0,
+			y: 0,
+			assetKey: 'old::a',
+			...over,
+		});
+		const defOf = (id: string, children: object[], over: object = {}) => ({
+			id,
+			name: id,
+			version: 1,
+			scope: 'project',
+			category: 'ui',
+			root: { id: 'root', kind: 'container', x: 0, y: 0, children },
+			...over,
+		});
+		const frameChildren = (text: string, iconRegion: string) => [
+			sprite('icon', { region: iconRegion }),
+			{ id: 'rig', kind: 'spine', x: 0, y: 0, assetKey: 'rigs/old/', skin: 'default' },
+			{ id: 'fb', kind: 'flipbook', x: 0, y: 0, clipId: 'c1' },
+			sprite('bound', { region: 'r_bound', paramBindings: { region: 'frame' } }),
+			{ id: 't', kind: 'text', x: 0, y: 0, text },
+		];
+		const frameParams = [{ key: 'frame', kind: 'string' }];
+		const saveFrame = (text: string, iconRegion: string) =>
+			saveComponent(
+				defOf('frame', frameChildren(text, iconRegion), { params: frameParams }),
+				'comp',
+				undefined,
+			);
+		// v1 first, v2 changes the text, v3 only the icon's art: so v2 is an art-only step behind v3 and v1 is not.
+		check('the seeded frame def is at version 1', (await saveFrame('hello', 'r_old')).version, 1);
+		check('...2 once its text changes', (await saveFrame('hello2', 'r_old')).version, 2);
+		check('...3 once only its art changes', (await saveFrame('hello2', 'r_v3')).version, 3);
+		await saveComponent(defOf('plus_btn', [sprite('face')]), 'comp', undefined);
+		await saveComponent(defOf('bet_panel', [sprite('face')]), 'comp', undefined);
+		await saveComponent(defOf('inner', [sprite('spark')]), 'comp', undefined);
+		await saveComponent(
+			defOf('outer', [{ id: 'in1', kind: 'componentInstance', x: 0, y: 0, componentId: 'inner' }]),
+			'comp',
+			undefined,
+		);
+		const SHARED = paths.editorComponentKey('shared_badge');
+		seedDoc(
+			SHARED,
+			defOf('shared_badge', [sprite('logo', { region: 'l_old' })], { scope: 'shared' }),
+		);
+		const sharedBefore = R2.get(SHARED)!;
+		const inst = (id: string, componentId: string, over: object = {}) => ({
+			id,
+			kind: 'componentInstance',
+			x: 0,
+			y: 0,
+			componentId,
+			...over,
+		});
+		const layoutDoc = (extra: object = {}) => ({
+			version: 2,
+			projectKey: 'comp',
+			mainSizesMap: { desktop: { width: 1920, height: 1080 } },
+			updatedAt: '',
+			scenes: [
+				{
+					id: 'base',
+					name: 'Base',
+					role: 'basegame',
+					nodes: [
+						inst('f_latest', 'frame'),
+						inst('f_pin3', 'frame', { componentVersion: 3 }),
+						inst('f_pin2', 'frame', { componentVersion: 2 }),
+						inst('f_pin1', 'frame', { componentVersion: 1 }),
+						inst('badge', 'shared_badge'),
+						inst('badge1', 'shared_badge', { componentVersion: 1 }),
+						inst('plus', 'plus_btn', { params: { action: 'increase' } }),
+					],
+				},
+				{
+					id: 'betMenu',
+					name: 'Bet',
+					nodes: [inst('panel', 'bet_panel'), inst('wrap', 'outer')],
+				},
+			],
+			...extra,
+		});
+		seedDoc(LAYOUT, layoutDoc());
+
+		// ── get_def ──
+		const list = await ct('components.get_def', 'builder', {});
+		check(
+			'components.get_def lists the defs the screens reach, with scope, version, instances and locks',
+			(
+				list.body.defs as {
+					id: string;
+					scope: string;
+					version: number;
+					instances: unknown[];
+					locked: string | null;
+				}[]
+			).map((d) => [d.id, d.scope, d.version, d.instances.length, d.locked !== null]),
+			[
+				['bet_panel', 'project', 1, 1, true],
+				['frame', 'project', 3, 4, false],
+				['inner', 'project', 1, 0, true],
+				['outer', 'project', 1, 1, true],
+				['plus_btn', 'project', 1, 1, true],
+				['shared_badge', 'shared', 1, 2, false],
+			],
+		);
+		check(
+			'...a def held by a locked instance names it, also through a nested def',
+			[
+				(list.body.defs as { id: string; locked: string }[])
+					.find((d) => d.id === 'inner')!
+					.locked.includes('"wrap" on "betMenu"'),
+				(list.body.defs as { id: string; locked: string }[])
+					.find((d) => d.id === 'plus_btn')!
+					.locked.includes('increase'),
+			],
+			[true, true],
+		);
+		const got = await ct('components.get_def', 'builder', { id: 'frame' });
+		const rows = got.body.nodes as { id: string; kind: string; paramBound: string[] }[];
+		check(
+			'components.get_def reads the re-skinnable nodes and which art a param supplies',
+			rows.map((r) => [r.id, r.kind, r.paramBound]),
+			[
+				['icon', 'sprite', []],
+				['rig', 'spine', []],
+				['fb', 'flipbook', []],
+				['bound', 'sprite', ['region']],
+			],
+		);
+		check(
+			'...each pin and whether a write reaches it',
+			(got.body.pins as { node: string; pin: number | null; reached: boolean }[]).map((p) => [
+				p.node,
+				p.pin,
+				p.reached,
+			]),
+			[
+				['f_latest', null, true],
+				['f_pin3', 3, true],
+				['f_pin2', 2, true],
+				['f_pin1', 1, false],
+			],
+		);
+		const FRAME = paths.projectComponentKey('comp', 'frame');
+		check(
+			'...with the stored tokens of the def and the layout',
+			[
+				got.body.baseEtag,
+				got.body.layoutBaseEtag,
+				got.body.locked,
+				got.body.version,
+				got.body.scope,
+			],
+			[R2.get(FRAME)!.etag, R2.get(LAYOUT)!.etag, null, 3, 'project'],
+		);
+		const sharedGot = await ct('components.get_def', 'builder', { id: 'shared_badge' });
+		check(
+			'a shared def reads as shared, with baseEtag new',
+			[sharedGot.body.scope, sharedGot.body.baseEtag],
+			['shared', 'new'],
+		);
+
+		const update = (changes: object[], over: object = {}, id = 'frame') =>
+			ct(
+				'components.update_art',
+				'builder',
+				{
+					id,
+					changes,
+					baseEtag: R2.get(FRAME)!.etag,
+					layoutBaseEtag: R2.get(LAYOUT)!.etag,
+					...over,
+				},
+				true,
+			);
+
+		// Refusals: nothing is written.
+		const refusedWorld = world();
+		const refusedCall = await update([
+			{ node: 't', assetKey: 'x::y' },
+			{ node: 'bound', region: 'r_new' },
+			{ node: 'ghost', assetKey: 'x::y' },
+			{ node: 'icon', clipId: 'c9' },
+			{ node: 'fb' },
+			{ node: 'fb' },
+		]);
+		check(
+			'components.update_art lists everything it refuses, and with nothing applied writes nothing',
+			[
+				refusedCall.status,
+				refusedCall.body.applied,
+				refusals(refusedCall).map((r) => r.node),
+				world(),
+			],
+			[200, [], ['t', 'bound', 'ghost', 'icon', 'fb', 'fb'], refusedWorld],
+		);
+		check(
+			'...a node of a kind with no art field',
+			refusals(refusedCall)[0].reason,
+			'a text node has no assetKey to re-skin',
+		);
+		check(
+			'...a field a param supplies',
+			refusals(refusedCall)[1].reason.includes('bound to the param "frame"'),
+			true,
+		);
+		check(
+			'...a node that is not there',
+			refusals(refusedCall)[2].reason.includes('cannot be added'),
+			true,
+		);
+		check(
+			'...a field the kind lacks',
+			refusals(refusedCall)[3].reason,
+			'a sprite node has no clipId to re-skin',
+		);
+		check(
+			'...a change that re-skins nothing, and a node listed twice',
+			[refusals(refusedCall)[4].reason, refusals(refusedCall)[5].reason],
+			['the change re-skins nothing', 'it is listed twice'],
+		);
+		for (const extra of [{ x: 5 }, { children: [] }, { visible: false }, { text: 'hi' }]) {
+			const res = await update([{ node: 'icon', assetKey: 'new::a', ...extra }]);
+			check(
+				`a structure field (${Object.keys(extra)[0]}) is not in the schema: a 400`,
+				[res.status, res.body.error, world()],
+				[400, 'invalid_input', refusedWorld],
+			);
+		}
+		check(
+			'a def or a layout token must be sent',
+			(
+				await ct(
+					'components.update_art',
+					'builder',
+					{ id: 'frame', changes: [], baseEtag: 'new' },
+					true,
+				)
+			).body.error,
+			'invalid_input',
+		);
+		check(
+			'an unknown component is a 404',
+			(await update([{ node: 'icon', assetKey: 'new::a' }], {}, 'nothere')).body.error,
+			'unknown_component',
+		);
+
+		// Locks: the whole def.
+		for (const [id, why] of [
+			['plus_btn', /increase/],
+			['bet_panel', /betMenu/],
+			['inner', /"wrap" on "betMenu"/],
+			['outer', /betMenu/],
+		] as const) {
+			const key = paths.projectComponentKey('comp', id);
+			const locked = await ct(
+				'components.update_art',
+				'builder',
+				{
+					id,
+					changes: [
+						{
+							node: id === 'outer' ? 'in1' : id === 'inner' ? 'spark' : 'face',
+							assetKey: 'new::a',
+						},
+					],
+					baseEtag: R2.get(key)!.etag,
+					layoutBaseEtag: R2.get(LAYOUT)!.etag,
+				},
+				true,
+			);
+			check(
+				`components.update_art refuses ${id}, held by a locked instance`,
+				[locked.status, locked.body.error, why.test(String(locked.body.message)), world()],
+				[403, 'locked', true, refusedWorld],
+			);
+		}
+
+		// Stale tokens write nothing.
+		const staleDef = String(R2.get(FRAME)!.etag);
+		const change = [{ node: 'icon', assetKey: 'new::a', region: 'r_new' }];
+		await staleIsConflict(
+			'components.update_art (def)',
+			FRAME,
+			(b) => update(change, { baseEtag: b }),
+			staleDef,
+		);
+		const worldAfterStaleDef = world();
+		const staleLayout = String(R2.get(LAYOUT)!.etag);
+		personSaves(LAYOUT);
+		const layoutStale = world();
+		const staleLayoutAnswer = await update(change, { layoutBaseEtag: staleLayout });
+		check(
+			'a stale layoutBaseEtag is a conflict, and the def is not saved either',
+			[staleLayoutAnswer.status, staleLayoutAnswer.body.error, world()],
+			[409, 'conflict', layoutStale],
+		);
+		void worldAfterStaleDef;
+
+		// The write: the three art fields on three kinds, the rest deep-equal.
+		const before = stored(FRAME);
+		const snapshotsBefore = keysUnder(paths.projectComponentsPrefix('comp')).filter((k) =>
+			k.includes('.v'),
+		);
+		const layoutBefore = stored(LAYOUT);
+		const input = {
+			id: 'frame',
+			changes: [
+				{ node: 'icon', assetKey: 'new::a', region: 'r_new' },
+				{ node: 'rig', assetKey: 'rigs/new/', skin: 'gold' },
+				{ node: 'fb', clipId: 'c2' },
+				{ node: 'bound', assetKey: 'new::a' },
+				{ node: 't', assetKey: 'nope' },
+			],
+			baseEtag: R2.get(FRAME)!.etag,
+			layoutBaseEtag: R2.get(LAYOUT)!.etag,
+		};
+		const envelope = { runId: 'rc', agent: 'builder', opId: 'rc:c9:900', input };
+		const ok = await call('components', 'update_art', envelope);
+		check('components.update_art lands', ok.status, 200);
+		check(
+			'...applying the three nodes and refusing the param-bound field of the fourth and the text node',
+			[ok.body.applied, refusals(ok).map((r) => r.node)],
+			[[{ node: 'icon' }, { node: 'rig' }, { node: 'fb' }, { node: 'bound' }], ['t']],
+		);
+		check(
+			'...the def at the next version, which is a new snapshot beside the kept ones',
+			[
+				ok.body.version,
+				stored(FRAME).version,
+				keysUnder(paths.projectComponentsPrefix('comp')).filter((k) => k.includes('.v')).length -
+					snapshotsBefore.length,
+				R2.has(paths.projectComponentVersionKey('comp', 'frame', 4)),
+			],
+			[4, 4, 1, true],
+		);
+		const expected = structuredClone(before);
+		expected.version = 4;
+		const byId = (id: string) => expected.root.children.find((n: { id: string }) => n.id === id);
+		Object.assign(byId('icon'), { assetKey: 'new::a', region: 'r_new' });
+		Object.assign(byId('rig'), { assetKey: 'rigs/new/', skin: 'gold' });
+		Object.assign(byId('fb'), { clipId: 'c2' });
+		Object.assign(byId('bound'), { assetKey: 'new::a' });
+		check(
+			'...and nothing outside those art fields changed: the def is deep-equal to the stored one but for them and the version',
+			stored(FRAME),
+			expected,
+		);
+		check('...`before` holds the old art of each changed node', ok.body.before, [
+			{ node: 'icon', assetKey: 'old::a', region: 'r_v3' },
+			{ node: 'rig', assetKey: 'rigs/old/', skin: 'default' },
+			{ node: 'fb', clipId: 'c1' },
+			{ node: 'bound', assetKey: 'old::a' },
+		]);
+		check(
+			'...the pinned instances that differ in art only are re-pinned; the one that differs in structure is listed',
+			[ok.body.repinned, ok.body.notReached],
+			[
+				[
+					{ screen: 'base', node: 'f_pin3', from: 3, to: 4 },
+					{ screen: 'base', node: 'f_pin2', from: 2, to: 4 },
+				],
+				[
+					{
+						screen: 'base',
+						node: 'f_pin1',
+						pin: 1,
+						reason: 'version 1 also differs in more than art; a person updates this instance',
+					},
+				],
+			],
+		);
+		const nodes = (doc: { scenes: { nodes: { id: string; componentVersion?: number }[] }[] }) =>
+			doc.scenes.flatMap((sc) => sc.nodes).map((n) => [n.id, n.componentVersion ?? null]);
+		const repinnedLayout = structuredClone(layoutBefore);
+		repinnedLayout.scenes[0].nodes[1].componentVersion = 4;
+		repinnedLayout.scenes[0].nodes[2].componentVersion = 4;
+		check(
+			'...and the layout is otherwise as the person left it',
+			[nodes(stored(LAYOUT)), stored(LAYOUT).scenes.map((sc: { nodes: unknown[] }) => sc.nodes)],
+			[nodes(repinnedLayout), repinnedLayout.scenes.map((sc: { nodes: unknown[] }) => sc.nodes)],
+		);
+		check(
+			'...saved with the Director stamp and a backup of the layout before it',
+			[
+				stored(LAYOUT).saved_by?.tool,
+				stored(LAYOUT).saved_by?.agent,
+				keysUnder(`${CP}/editor/backups/`).length +
+					keysUnder(paths.editorDocBackupTarget(C, 'comp').prefix).length >
+					0,
+			],
+			['director', 'builder', true],
+		);
+		check(
+			'...with fresh tokens handed back',
+			[ok.body.baseEtag, ok.body.layoutBaseEtag],
+			[R2.get(FRAME)!.etag, R2.get(LAYOUT)!.etag],
+		);
+
+		const afterOk = world();
+		const replayed = await call('components', 'update_art', envelope);
+		check(
+			'a replayed opId returns the same result and writes once',
+			[replayed.replay, replayed.body, world()],
+			[true, ok.body, afterOk],
+		);
+
+		// Retry after the layout write was lost: the def is saved, the pins are not.
+		const lostLayout = structuredClone(stored(LAYOUT));
+		lostLayout.scenes[0].nodes[1].componentVersion = 3;
+		lostLayout.scenes[0].nodes[2].componentVersion = 2;
+		seedDoc(LAYOUT, lostLayout);
+		const defBytes = R2.get(FRAME)!;
+		const snapshots = keysUnder(paths.projectComponentsPrefix('comp')).map((k) => [k, R2.get(k)]);
+		const retry = await ct(
+			'components.update_art',
+			'builder',
+			{ ...input, baseEtag: R2.get(FRAME)!.etag, layoutBaseEtag: R2.get(LAYOUT)!.etag },
+			true,
+		);
+		check(
+			'resending the same changes after a lost layout write does not bump the def again',
+			[
+				retry.status,
+				retry.body.applied,
+				retry.body.unchanged,
+				retry.body.version,
+				R2.get(FRAME),
+				keysUnder(paths.projectComponentsPrefix('comp')).map((k) => [k, R2.get(k)]),
+			],
+			[200, [], ['icon', 'rig', 'fb', 'bound'], 4, defBytes, snapshots],
+		);
+		check(
+			'...and runs the re-pin',
+			[retry.body.repinned, nodes(stored(LAYOUT)).slice(1, 3)],
+			[
+				[
+					{ screen: 'base', node: 'f_pin3', from: 3, to: 4 },
+					{ screen: 'base', node: 'f_pin2', from: 2, to: 4 },
+				],
+				[
+					['f_pin3', 4],
+					['f_pin2', 4],
+				],
+			],
+		);
+		const idle = world();
+		const nothing = await ct(
+			'components.update_art',
+			'builder',
+			{ ...input, baseEtag: R2.get(FRAME)!.etag, layoutBaseEtag: R2.get(LAYOUT)!.etag },
+			true,
+		);
+		check(
+			'...and once nothing is left to re-pin, a repeat writes nothing',
+			[nothing.status, nothing.body.repinned, world()],
+			[200, [], idle],
+		);
+
+		// A shared def becomes the project's copy.
+		const SHARED_COPY = paths.projectComponentKey('comp', 'shared_badge');
+		check('the project has no copy of the shared badge yet', R2.has(SHARED_COPY), false);
+		const badge = (over: object = {}) =>
+			ct(
+				'components.update_art',
+				'builder',
+				{
+					id: 'shared_badge',
+					changes: [{ node: 'logo', assetKey: 'badge::new', region: 'l_new' }],
+					baseEtag: 'new',
+					layoutBaseEtag: R2.get(LAYOUT)!.etag,
+					...over,
+				},
+				true,
+			);
+		const copied = await badge();
+		check(
+			'a shared def is saved as the project copy, same id and version',
+			[
+				copied.status,
+				copied.body.scope,
+				copied.body.version,
+				stored(SHARED_COPY).scope,
+				stored(SHARED_COPY).version,
+			],
+			[200, 'project', 1, 'project', 1],
+		);
+		check(
+			'...with the new art, and nothing else of the shared def changed',
+			stored(SHARED_COPY).root.children,
+			[{ id: 'logo', kind: 'sprite', x: 0, y: 0, assetKey: 'badge::new', region: 'l_new' }],
+		);
+		check('...leaving the shared library untouched', R2.get(SHARED), sharedBefore);
+		check(
+			'...and the instance pinned at that version follows the copy without a re-pin',
+			[
+				copied.body.repinned,
+				copied.body.notReached,
+				nodes(stored(LAYOUT)).filter(([id]) => id === 'badge1'),
+			],
+			[[], [], [['badge1', 1]]],
+		);
+		check(
+			'...a second copy with baseEtag new is a conflict now that the project has one',
+			(await badge({ changes: [{ node: 'logo', region: 'l_newer' }] })).body.error,
+			'conflict',
+		);
+		check('...and the shared library is still untouched', R2.get(SHARED), sharedBefore);
+
+		// A foreign rig is the component store's own 400.
+		await saveComponent(
+			defOf('rigged', [
+				{ id: 'hero', kind: 'spine', x: 0, y: 0, assetKey: `${CP}/spines/Hero/`, skin: 'default' },
+			]),
+			'comp',
+			undefined,
+		);
+		seedDoc(LAYOUT, {
+			...stored(LAYOUT),
+			scenes: [
+				...stored(LAYOUT).scenes,
+				{ id: 'extra', name: 'Extra', nodes: [inst('r1', 'rigged')] },
+			],
+		});
+		const RIGGED = paths.projectComponentKey('comp', 'rigged');
+		const foreignWorld = world();
+		const foreign = await ct(
+			'components.update_art',
+			'builder',
+			{
+				id: 'rigged',
+				changes: [{ node: 'hero', assetKey: 'acme/other_game/spines/Cage/' }],
+				baseEtag: R2.get(RIGGED)!.etag,
+				layoutBaseEtag: R2.get(LAYOUT)!.etag,
+			},
+			true,
+		);
+		check(
+			"a rig from another project is the component store's 400, and nothing is written",
+			[foreign.status, foreign.body.error, world()],
+			[400, 'invalid_input', foreignWorld],
+		);
+
+		// A shared def's first project copy re-pins an instance pinned to an older SHARED version
+		// that differs in art only (the snapshot says scope shared, the copy says project).
+		const PAIR = paths.editorComponentKey('shared_pair');
+		const pairDef = (version: number, region: string) =>
+			defOf('shared_pair', [sprite('logo', { region })], { scope: 'shared', version });
+		seedDoc(PAIR, pairDef(2, 'p_two'));
+		seedDoc(paths.editorComponentVersionKey('shared_pair', 1), pairDef(1, 'p_one'));
+		seedDoc(paths.editorComponentVersionKey('shared_pair', 2), pairDef(2, 'p_two'));
+		const pairLayout = stored(LAYOUT);
+		pairLayout.scenes[0].nodes.push(
+			inst('pair1', 'shared_pair', { componentVersion: 1 }),
+			inst('pair2', 'shared_pair', { componentVersion: 2 }),
+			inst('pairLatest', 'shared_pair'),
+		);
+		seedDoc(LAYOUT, pairLayout);
+		const pairBefore = R2.get(PAIR)!;
+		const pairCopy = await ct(
+			'components.update_art',
+			'builder',
+			{
+				id: 'shared_pair',
+				changes: [{ node: 'logo', region: 'p_three' }],
+				baseEtag: 'new',
+				layoutBaseEtag: R2.get(LAYOUT)!.etag,
+			},
+			true,
+		);
+		check(
+			'the first project copy of a shared def re-pins an instance pinned to an older art-only shared version',
+			[
+				pairCopy.status,
+				pairCopy.body.scope,
+				pairCopy.body.version,
+				pairCopy.body.repinned,
+				pairCopy.body.notReached,
+				nodes(stored(LAYOUT)).filter(([id]) => String(id).startsWith('pair')),
+				R2.get(PAIR),
+			],
+			[
+				200,
+				'project',
+				2,
+				[{ screen: 'base', node: 'pair1', from: 1, to: 2 }],
+				[],
+				[
+					['pair1', 2],
+					['pair2', 2],
+					['pairLatest', null],
+				],
+				pairBefore,
+			],
+		);
+
+		// The def being written is checked itself: an unplaced def, and a latest the pins hide.
+		await saveComponent(
+			defOf('loose_bet', [
+				sprite('face'),
+				inst('inc', 'plus_btn', { params: { action: 'increase' } }),
+			]),
+			'comp',
+			undefined,
+		);
+		await saveComponent(defOf('drift', [sprite('face')]), 'comp', undefined);
+		check(
+			'the drifting def gains a math node in its second version',
+			(
+				await saveComponent(
+					defOf('drift', [
+						sprite('face'),
+						inst('inc', 'plus_btn', { params: { action: 'increase' } }),
+					]),
+					'comp',
+					undefined,
+				)
+			).version,
+			2,
+		);
+		const driftLayout = stored(LAYOUT);
+		driftLayout.scenes[0].nodes.push(inst('drift_pin', 'drift', { componentVersion: 1 }));
+		seedDoc(LAYOUT, driftLayout);
+		for (const id of ['loose_bet', 'drift']) {
+			const key = paths.projectComponentKey('comp', id);
+			const readDef = await ct('components.get_def', 'builder', { id });
+			const worldBefore = world();
+			const write = await ct(
+				'components.update_art',
+				'builder',
+				{
+					id,
+					changes: [{ node: 'face', assetKey: 'new::a' }],
+					baseEtag: R2.get(key)!.etag,
+					layoutBaseEtag: R2.get(LAYOUT)!.etag,
+				},
+				true,
+			);
+			check(
+				`${id}: get_def shows the def itself bound to the math, and update_art refuses it`,
+				[
+					String(readDef.body.locked).startsWith('the def itself is bound to the math'),
+					write.status,
+					write.body.error,
+					world(),
+				],
+				[true, 403, 'locked', worldBefore],
+			);
+		}
+
+		// An effect placed inside a component def is locked by the instance that holds the def.
+		const { saveEffect } = await import(src('lib/server/fxStorage.ts'));
+		for (const fxId of ['held_fx', 'free_fx']) {
+			await saveEffect(
+				C,
+				'comp',
+				{
+					version: 1,
+					id: fxId,
+					name: fxId,
+					layers: [
+						{
+							key: 'main',
+							particleKind: 'sprite',
+							art: { assetKey: '', frames: [] },
+							placement: { space: 'free' },
+							config: { behaviors: [] },
+						},
+					],
+				},
+				{},
+				null,
+			);
+		}
+		const fxIn = (id: string, effectId: string, node: object = {}) => ({
+			id,
+			kind: 'effect',
+			x: 0,
+			y: 0,
+			effectId,
+			...node,
+		});
+		await saveComponent(defOf('fx_holder', [fxIn('e1', 'held_fx')]), 'comp', undefined);
+		await saveComponent(defOf('fx_outer', [inst('inner_holder', 'fx_holder')]), 'comp', undefined);
+		await saveComponent(defOf('fx_free', [fxIn('e2', 'free_fx')]), 'comp', undefined);
+		const withHolders = stored(LAYOUT);
+		withHolders.scenes[0].nodes.push(inst('free_holder', 'fx_free'));
+		withHolders.scenes[1].nodes.push(inst('bet_holder', 'fx_outer'));
+		seedDoc(LAYOUT, withHolders);
+		const heldFx = await ct('fx.get_effect', 'animator', { id: 'held_fx' });
+		const freeFx = await ct('fx.get_effect', 'animator', { id: 'free_fx' });
+		check(
+			'an effect inside a component that a locked node holds is locked, through a nested def',
+			[
+				/inside the component "fx_holder", held by "bet_holder" on "betMenu"/.test(
+					String(heldFx.body.locked),
+				),
+				freeFx.body.locked,
+			],
+			[true, null],
+		);
+		const heldKey = paths.fxDocKey(C, 'comp', 'held_fx');
+		const heldBefore = R2.get(heldKey);
+		const heldWrite = await ct(
+			'fx.update_art',
+			'animator',
+			{ id: 'held_fx', layers: [], baseEtag: String(heldFx.body.baseEtag) },
+			true,
+		);
+		check(
+			'...and fx.update_art refuses it',
+			[heldWrite.status, heldWrite.body.error, R2.get(heldKey)],
+			[403, 'locked', heldBefore],
+		);
+	}
 }
 
 // ── 9C: a run's pipeline-change request files a pipeline bug ───────────────────
@@ -3981,14 +6041,13 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	}
 	// A tool a definition names but nothing serves makes `run.assign_task` refuse that agent on
 	// every run (the worker's catalogue accepts it, so the loader is no help). QA sat unassignable
-	// this way unnoticed (ADR-0009). The known gap is listed so it can only shrink: when an op lands,
-	// drop it here.
+	// this way unnoticed (ADR-0009). No gap is allowed now that the build ops are served.
 	const catalogue: typeof import('../../../services/director-worker/src/tools.ts') = await import(
 		new URL('../../../services/director-worker/src/tools.ts', import.meta.url).href
 	);
 	const workerOwn: readonly string[] = catalogue.WORKER_TOOLS;
 	check(
-		'the only tools an agent definition names that nothing serves are the known gap',
+		'every tool an agent definition names is served',
 		[...tools]
 			.flatMap(([agent, ids]) =>
 				[...ids]
@@ -3996,7 +6055,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 					.map((id) => `${agent}: ${id}`),
 			)
 			.sort(),
-		['qa: build.play_draft', 'qa: build.request_draft'],
+		[],
 	);
 }
 
@@ -4263,6 +6322,1066 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		[200, null],
 	);
 	PROJECTS.delete('folder_game');
+}
+
+// ── ADR-0010: QA's draft play ─────────────────────────────────────────────────
+{
+	const { freshDrivenSeedDoc } = await import('engine-flow-v2');
+	const drafts = await import(src('lib/server/director/drafts.ts'));
+	const store = await import(src('lib/server/director/store.ts'));
+	const root = `${C}/dfx/`;
+	const configBody = JSON.stringify(CONFIG('dfx'));
+	PROJECTS.set('dfx', project('dfx'));
+	R2.set(`${root}config/config.json`, { body: configBody, etag: '"cfg1"' });
+	R2.set(`${root}deploy/index.json`, { body: '{"a":1}', etag: etag() });
+	R2.set(`${root}deploy/_pages/p1.png`, { body: 'PNGDATA', etag: etag() });
+	R2.set('test_server/_runtime/lines/current.json', {
+		body: JSON.stringify({
+			runtimeId: 'lines',
+			version: '1.4.0',
+			commit: 'abc1234567',
+			shortCommit: 'abc1234',
+		}),
+		etag: etag(),
+	});
+	const proven = { templateConfigEtag: '"tpl1"', projectConfigEtag: '"cfg1"' };
+	for (const r of [
+		run('qd1', { projectKey: 'dfx', ...proven }),
+		run('qd2', { projectKey: 'dfx', ...proven }),
+		run('qd-null', { projectKey: 'dfx', templateConfigEtag: null, projectConfigEtag: '"cfg1"' }),
+		run('qd-drift', {
+			projectKey: 'dfx',
+			templateConfigEtag: '"tpl1"',
+			projectConfigEtag: '"old"',
+		}),
+	]) {
+		RUNS.set(r.id, r);
+	}
+	let seq = 0;
+	const qa = (runId: string, op: string, input: unknown = {}, agent = 'qa') =>
+		call('build', op, { runId, agent, opId: `${runId}:q:${++seq}`, input });
+	const draftKeys = () => keysUnder(`${root}director/drafts/`);
+	const before = new Map(
+		[...R2].filter(([k]) => !k.startsWith(`${root}director/`)).map(([k, v]) => [k, v.body]),
+	);
+	const untouched = () =>
+		[...before].every(([k, body]) => R2.get(k)?.body === body) &&
+		[...R2.keys()].every(
+			(k) => !k.startsWith(`${root}director/`) || k.startsWith(`${root}director/drafts/`),
+		);
+
+	check(
+		'request_draft and play_draft are QA-only writes',
+		['request_draft', 'play_draft'].map((n) => {
+			const op = ADAPTER_OPS.get(`build.${n}`);
+			return [op.agents, op.write, op.scope];
+		}),
+		[
+			[['qa'], true, 'project'],
+			[['qa'], true, 'project'],
+		],
+	);
+	check(
+		'another agent may not request a draft',
+		(await qa('qd1', 'request_draft', {}, 'builder')).status,
+		403,
+	);
+	check(
+		'request_draft writes only its own deploy/ and director/drafts/, never a refused key',
+		ADAPTER_OPS.get('build.request_draft')
+			.writes({}, { clientKey: C, projectKey: 'dfx' })
+			.map((k: string) => [k, refusedWriteTarget(k)]),
+		[
+			[`${root}deploy/`, null],
+			[`${root}director/drafts/`, null],
+		],
+	);
+
+	// Fail closed, before anything is built or written.
+	const nullRun = await qa('qd-null', 'request_draft');
+	check(
+		'a run whose template config ETag is null is refused math_unproven, nothing built',
+		[nullRun.status, nullRun.body.error, assembles, draftKeys().length],
+		[409, 'math_unproven', 0, 0],
+	);
+	const driftRun = await qa('qd-drift', 'request_draft');
+	check(
+		'a project config that moved since the run recorded it is refused config_drifted',
+		[driftRun.status, driftRun.body.error, assembles],
+		[409, 'config_drifted', 0],
+	);
+	R2.set('test_server/dfx/index.html', { body: 'own', etag: etag() });
+	const own = await qa('qd1', 'request_draft');
+	R2.delete('test_server/dfx/index.html');
+	check(
+		'a project with its own desktop build is refused own_bundle',
+		[own.status, own.body.error, assembles],
+		[409, 'own_bundle', 0],
+	);
+	check('a refused call releases its opId so a retry runs again', OPS.size > 0 && claims > 0, true);
+
+	// Success.
+	bundleFlow = undefined;
+	const first = await qa('qd1', 'request_draft');
+	const id1 = first.body.draftId as string;
+	check(
+		'request_draft assembles once and freezes deploy/ under the run drafts folder',
+		[first.status, assembles, drafts.RETAINED_DRAFTS, new RegExp(drafts.DRAFT_ID).test(id1)],
+		[200, 1, 2, true],
+	);
+	const dprefix = `${root}director/drafts/${id1}/`;
+	check(
+		'...the copy, draft.json and runtime.json, with runtime.json last',
+		[keysUnder(dprefix), first.body.files, first.body.runtime, first.body.flow],
+		[
+			[
+				`${dprefix}deploy/_pages/p1.png`,
+				`${dprefix}deploy/index.json`,
+				`${dprefix}draft.json`,
+				`${dprefix}runtime.json`,
+			],
+			2,
+			{ id: 'lines', version: '1.4.0', commit: 'abc1234567' },
+			{ status: 'absent', errors: [] },
+		],
+	);
+	const meta = JSON.parse(R2.get(`${dprefix}draft.json`)!.body);
+	check(
+		'...draft.json names the run, the pinned runtime, the config ETag and the contract hash',
+		[
+			meta.runId,
+			meta.runtime.version,
+			meta.projectConfigEtag,
+			meta.contractHash === first.body.contractHash,
+		],
+		['qd1', '1.4.0', '"cfg1"', true],
+	);
+	check('...and nothing else in the project moved', untouched(), true);
+	check(
+		'a replayed opId returns the stored draft and does not assemble again',
+		await (async () => {
+			const again = await call('build', 'request_draft', {
+				runId: 'qd1',
+				agent: 'qa',
+				opId: `qd1:q:${seq}`,
+				input: {},
+			});
+			return [again.replay, again.body.draftId, assembles];
+		})(),
+		[true, id1, 1],
+	);
+
+	// Retention: the 2 newest drafts of the run stay.
+	await new Promise((r) => setTimeout(r, 1100));
+	const second = await qa('qd1', 'request_draft');
+	await new Promise((r) => setTimeout(r, 1100));
+	const third = await qa('qd1', 'request_draft');
+	const folders = [...new Set(draftKeys().map((k) => k.split('/')[4]))].sort();
+	check(
+		'a run keeps its 2 newest drafts: the oldest is deleted',
+		folders,
+		[second.body.draftId, third.body.draftId].sort(),
+	);
+	const live3 = third.body.draftId as string;
+
+	// An invalid flow is a finding, not a refusal.
+	bundleFlow = freshDrivenSeedDoc('lines');
+	const flowRun = await qa('qd2', 'request_draft');
+	bundleFlow = undefined;
+	check(
+		'an invalid flow still yields a draft; the flow verdict is in the result',
+		[flowRun.status, (flowRun.body.flow as { status: string }).status],
+		[200, 'invalid'],
+	);
+
+	// play_draft.
+	check(
+		'play_draft needs a draftId of the snapshot format',
+		(await qa('qd1', 'play_draft', { draftId: '../x' })).status,
+		400,
+	);
+	const unknown = await qa('qd1', 'play_draft', { draftId: '20200101T000000Z-0000' });
+	check('an unknown draft is a 404', [unknown.status, unknown.body.error], [404, 'unknown_draft']);
+	const foreign = await qa('qd2', 'play_draft', { draftId: live3 });
+	check(
+		"another run's draft is the same 404",
+		[foreign.status, foreign.body.error],
+		[404, 'unknown_draft'],
+	);
+	R2.delete(`${root}director/drafts/${live3}/runtime.json`);
+	const half = await qa('qd1', 'play_draft', { draftId: live3 });
+	R2.set(`${root}director/drafts/${live3}/runtime.json`, { body: '{}', etag: etag() });
+	check('a draft without runtime.json is never played', half.status, 404);
+
+	check('with no player the seam is empty', drafts.getDraftPlayer(), null);
+	const eventsBefore = DRAFT_EVENTS.length;
+	const noPlayer = await qa('qd1', 'play_draft', { draftId: live3 });
+	check(
+		'play_draft with no player settles failed no_player at once',
+		[
+			noPlayer.status,
+			noPlayer.body.status,
+			noPlayer.body.result,
+			/^dp_[0-9a-f]{16}$/.test(String(noPlayer.body.jobRef)),
+		],
+		[200, 'failed', drafts.NO_PLAYER_RESULT, true],
+	);
+	check(
+		'...with exactly one job_queued and one job_done (tool build.play_draft)',
+		DRAFT_EVENTS.slice(eventsBefore).map((e) => [e.kind, e.tool]),
+		[
+			['job_queued', 'build.play_draft'],
+			['job_done', 'build.play_draft'],
+		],
+	);
+	const settled = DRAFT_JOBS.get(noPlayer.body.jobRef as string)!;
+	check(
+		'...the row is terminal, done inline',
+		[settled.status, settled.doneVia],
+		['failed', 'inline'],
+	);
+	const replayed = await call('build', 'play_draft', {
+		runId: 'qd1',
+		agent: 'qa',
+		opId: `qd1:q:${seq}`,
+		input: { draftId: live3 },
+	});
+	check(
+		'a replayed play_draft returns the same jobRef and records nothing more',
+		[replayed.replay, replayed.body.jobRef, DRAFT_EVENTS.length - eventsBefore],
+		[true, noPlayer.body.jobRef, 2],
+	);
+
+	// A player in the seam.
+	const submitted: unknown[] = [];
+	drafts.setDraftPlayer({
+		submit: async (job: unknown) => void submitted.push(job),
+	});
+	const queued = await qa('qd1', 'play_draft', { draftId: live3, scenarios: ['base'] });
+	check(
+		'with a player, play_draft queues, submits once and answers queued at once',
+		[queued.body.status, queued.body.queued, submitted.length],
+		['queued', true, 1],
+	);
+	check('...the player is handed the job, not the run', submitted[0], {
+		jobRef: queued.body.jobRef,
+		runId: 'qd1',
+		clientKey: C,
+		projectKey: 'dfx',
+		gameType: 'lines',
+		draftId: live3,
+		scenarios: ['base'],
+	});
+	const again = await qa('qd1', 'play_draft', { draftId: live3 });
+	check(
+		'a second play while one is queued returns the queued jobRef and submits nothing',
+		[again.body.jobRef, again.body.queued, submitted.length],
+		[queued.body.jobRef, false, 1],
+	);
+	const done = {
+		jobRef: queued.body.jobRef as string,
+		runId: 'qd1',
+		status: 'finished',
+		result: { ok: 1 },
+		via: 'callback',
+	};
+	const eventsMid = DRAFT_EVENTS.length;
+	const won = await store.settleDraftJob(done);
+	const lost = await store.settleDraftJob({ ...done, via: 'poll' });
+	check(
+		'settleDraftJob settles exactly once: one job_done, the loser gets null',
+		[won?.status, lost, DRAFT_EVENTS.length - eventsMid, DRAFT_JOBS.get(done.jobRef)?.doneVia],
+		['finished', null, 1, 'callback'],
+	);
+	const wrongRun = await store.insertDraftJob({
+		jobRef: 'dp_00000000000000aa',
+		runId: 'qd2',
+		agent: 'qa',
+		draftId: live3,
+		scenarios: null,
+	});
+	check(
+		'...and only for the run that owns the job',
+		[
+			wrongRun.queued,
+			await store.settleDraftJob({ ...done, jobRef: 'dp_00000000000000aa', status: 'cancelled' }),
+			DRAFT_JOBS.get('dp_00000000000000aa')?.status,
+		],
+		[true, null, 'queued'],
+	);
+
+	// A player that refuses the play fails the job, not the call.
+	drafts.setDraftPlayer({
+		submit: async () => {
+			throw new Error('down');
+		},
+	});
+	const quiet = mock.method(console, 'error', () => {});
+	const refused = await qa('qd1', 'play_draft', { draftId: live3 });
+	quiet.mock.restore();
+	check(
+		'a player that refuses the play fails the job as submit_failed',
+		[refused.body.status, (refused.body.result as { reason: string }).reason],
+		['failed', 'submit_failed'],
+	);
+	drafts.setDraftPlayer(null);
+
+	check('no draft op wrote a published, config or test_server key', untouched(), true);
+	check(
+		'build.* names are not hard refusals, and the refusals still hold',
+		[
+			refusedOp('build', 'request_draft'),
+			refusedOp('build', 'play_draft'),
+			refusedOp('build', 'publish_draft')?.id,
+		],
+		[null, null, 'publish'],
+	);
+}
+
+// ── ADR-0010: template contract, retention, stop and the replay window ───────
+{
+	const drafts = await import(src('lib/server/director/drafts.ts'));
+	const jobs = await import(src('lib/server/director/draftJobs.ts'));
+	const root = `${C}/dfz/`;
+	PROJECTS.set('dfz', project('dfz'));
+	R2.set(`${root}config/config.json`, { body: JSON.stringify(CONFIG('dfz')), etag: '"cfg1"' });
+	R2.set(`${root}deploy/index.json`, { body: '{"a":1}', etag: etag() });
+	const proven = { templateConfigEtag: '"tpl1"', projectConfigEtag: '"cfg1"' };
+	let zseq = 0;
+	// Draft ids carry a to-the-second stamp: a clock the block moves keeps "newest" well defined.
+	mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-27T10:00:00Z') });
+	const zq = (runId: string, op: string, input: unknown = {}) => {
+		if (op === 'request_draft') mock.timers.tick(2000);
+		return call('build', op, { runId, agent: 'qa', opId: `${runId}:z:${++zseq}`, input });
+	};
+
+	// The template's published snapshot: the draft's own bundle shape (no config), or a config that
+	// deals a cascade.
+	const publish = (template: string, config: unknown) => {
+		PROJECTS.set(template, project(template));
+		const id = '20260101T000000Z-aaaa';
+		R2.set(`${C}/${template}/published/pointer.json`, {
+			body: JSON.stringify({ version: 1, current: id, snapshots: [] }),
+			etag: etag(),
+		});
+		R2.set(`${C}/${template}/published/${id}/runtime.json`, {
+			body: JSON.stringify({ config, symbols: { index: {}, map: {} } }),
+			etag: etag(),
+		});
+	};
+	publish('tpl_same', null);
+	publish('tpl_moved', CONFIG('tpl_moved'));
+	PROJECTS.set('tpl_never', project('tpl_never'));
+	for (const [id, template] of [
+		['z-same', 'tpl_same'],
+		['z-moved', 'tpl_moved'],
+		['z-never', 'tpl_never'],
+	]) {
+		RUNS.set(id, run(id, { projectKey: 'dfz', templateProjectKey: template, ...proven }));
+	}
+	const zDrafts = () => keysUnder(`${root}director/drafts/`);
+
+	const moved = await zq('z-moved', 'request_draft');
+	check(
+		'a published template whose snapshot contract differs is refused contract_drifted, nothing written',
+		[moved.status, moved.body.error, zDrafts().length],
+		[409, 'contract_drifted', 0],
+	);
+	const same = await zq('z-same', 'request_draft');
+	check(
+		'a published template with the same contract gets its draft',
+		[same.status, typeof same.body.draftId],
+		[200, 'string'],
+	);
+	const never = await zq('z-never', 'request_draft');
+	check(
+		'an unpublished template skips the contract check',
+		[never.status, typeof never.body.draftId],
+		[200, 'string'],
+	);
+
+	// Retention never deletes a draft a queued play references.
+	const idsOf = () => [...new Set(zDrafts().map((k) => k.split('/')[4]))].sort();
+	const held = idsOf()[0];
+	drafts.setDraftPlayer({ submit: async () => {} });
+	RUNS.set(
+		'z-ret',
+		run('z-ret', { projectKey: 'dfz', templateProjectKey: 'tpl_never', ...proven }),
+	);
+	R2.set(`${root}director/drafts/${held}/draft.json`, {
+		body: JSON.stringify({ draftId: held, runId: 'z-ret' }),
+		etag: etag(),
+	});
+	const play = await zq('z-ret', 'play_draft', { draftId: held });
+	await zq('z-never', 'request_draft');
+	await zq('z-never', 'request_draft');
+	check(
+		'retention skips a draft a queued play references, and still prunes the others',
+		[play.body.status, idsOf().includes(held), idsOf().length],
+		['queued', true, 3],
+	);
+	const heldJob = play.body.jobRef as string;
+
+	// Stop: the run's queued play is settled cancelled once, and the player is told.
+	const told: string[] = [];
+	drafts.setDraftPlayer({
+		submit: async () => {},
+		cancel: async (ref: string) => void told.push(ref),
+	});
+	const stopEvents = DRAFT_EVENTS.length;
+	const cancelled = await jobs.cancelRunDraftPlays('z-ret');
+	check(
+		'a stop cancels the queued play through the settle path (one job_done) and tells the player',
+		[
+			cancelled,
+			DRAFT_JOBS.get(heldJob)?.status,
+			DRAFT_JOBS.get(heldJob)?.doneVia,
+			DRAFT_EVENTS.slice(stopEvents).map((e) => e.kind),
+			told,
+		],
+		[1, 'cancelled', 'inline', ['job_done'], [heldJob]],
+	);
+	check(
+		'...a second stop finds nothing to settle and tells the player nothing more',
+		[await jobs.cancelRunDraftPlays('z-ret'), DRAFT_EVENTS.length - stopEvents, told.length],
+		[0, 1, 1],
+	);
+	// The worker's own stop got there first (status flipped, no done_via, no event): the player is
+	// still told, and nothing is settled twice.
+	const workerFlipped = 'dp_00000000000000c1';
+	DRAFT_JOBS.set(workerFlipped, {
+		jobRef: workerFlipped,
+		runId: 'z-ret',
+		agent: 'qa',
+		draftId: held,
+		scenarios: null,
+		status: 'cancelled',
+		result: null,
+		doneVia: null,
+		queuedAt: new Date(),
+		doneAt: new Date(),
+	});
+	const eventsNow = DRAFT_EVENTS.length;
+	await jobs.cancelRunDraftPlays('z-ret');
+	check(
+		"a play the worker's stop already flipped is still cancelled on the player, with no second job_done",
+		[told.at(-1), DRAFT_EVENTS.length - eventsNow],
+		[workerFlipped, 0],
+	);
+	DRAFT_JOBS.delete(workerFlipped);
+	// A /cancel that fails is logged, never thrown.
+	drafts.setDraftPlayer({
+		submit: async () => {},
+		cancel: async () => {
+			throw new Error('player down');
+		},
+	});
+	DRAFT_JOBS.set(workerFlipped, {
+		...DRAFT_JOBS.get(heldJob)!,
+		jobRef: workerFlipped,
+		doneVia: null,
+	});
+	const quietStop = mock.method(console, 'error', () => {});
+	const survived = await jobs.cancelRunDraftPlays('z-ret').then(
+		(n: number) => n,
+		() => 'threw',
+	);
+	quietStop.mock.restore();
+	check('...and an error from /cancel is swallowed', survived, 1);
+	DRAFT_JOBS.delete(workerFlipped);
+
+	// The replay window: a throw after the job row committed must not let a retry insert a second job.
+	drafts.setDraftPlayer(null);
+	RUNS.set(
+		'z-replay',
+		run('z-replay', { projectKey: 'dfz', templateProjectKey: 'tpl_never', ...proven }),
+	);
+	const replayDraft = (await zq('z-replay', 'request_draft')).body.draftId as string;
+	const jobsBefore = DRAFT_JOBS.size;
+	const opId = 'z-replay:z:900';
+	const quietReplay = mock.method(console, 'error', () => {});
+	failDraftReads = 1;
+	const first = await call('build', 'play_draft', {
+		runId: 'z-replay',
+		agent: 'qa',
+		opId,
+		input: { draftId: replayDraft },
+	});
+	failDraftReads = 0;
+	quietReplay.mock.restore();
+	const again = await call('build', 'play_draft', {
+		runId: 'z-replay',
+		agent: 'qa',
+		opId,
+		input: { draftId: replayDraft },
+	});
+	check(
+		'a throw after the no_player job committed still answers, and a replay of the opId finds one job',
+		[
+			first.status,
+			first.body.status,
+			again.replay,
+			again.body.jobRef,
+			DRAFT_JOBS.size - jobsBefore,
+		],
+		[200, 'failed', true, first.body.jobRef, 1],
+	);
+	mock.timers.reset();
+}
+
+// ── ADR-0010: the template-config record, the callback, the player client, the watch ─────
+{
+	const drafts = await import(src('lib/server/director/drafts.ts'));
+	const jobs = await import(src('lib/server/director/draftJobs.ts'));
+	const signing = await import(src('lib/server/director/draftSigning.ts'));
+	const scripts = await import(src('lib/server/director/draftScripts.ts'));
+	// The player's own signer and kind map: a drift between the two sides fails here.
+	const playerSigning = await import('../../../services/draft-player/src/signing.mjs');
+	const plan = await import('../../../scripts/current-games/lib/plan.mjs');
+	const cb = await import(src('lib/server/director/atlasCallback.ts'));
+	const { templateConfigRecord, NO_CONFIG } = await import(
+		src('lib/server/director/configEtag.ts')
+	);
+	const { POST: DRAFT_CALLBACK } = await import(
+		src('routes/api/director/drafts/callback/+server.ts')
+	);
+	const store = await import(src('lib/server/director/store.ts'));
+	const read = (etag: string | null, existed = etag !== null) => ({ etag, existed });
+
+	// Decision 2: no config before and after is proven; a moved config is null.
+	check(
+		'a template with no config before and after is recorded as NO_CONFIG',
+		[templateConfigRecord(read(null), read(null)), NO_CONFIG],
+		['none', 'none'],
+	);
+	check(
+		'...an unchanged config records its ETag; a moved one, or one that appeared, records null',
+		[
+			templateConfigRecord(read('"a"'), read('"a"')),
+			templateConfigRecord(read('"a"'), read('"b"')),
+			templateConfigRecord(read(null), read('"a"')),
+			templateConfigRecord(read('"a"'), read(null)),
+			templateConfigRecord(read(null, true), read(null, true)),
+		],
+		['"a"', null, null, null, null],
+	);
+	PROJECTS.set('dnc', project('dnc'));
+	R2.set('acme/dnc/deploy/index.json', { body: '{}', etag: etag() });
+	RUNS.set(
+		'qnc',
+		run('qnc', { projectKey: 'dnc', templateConfigEtag: NO_CONFIG, projectConfigEtag: null }),
+	);
+	const noConfig = await call('build', 'request_draft', {
+		runId: 'qnc',
+		agent: 'qa',
+		opId: 'qnc:q:1',
+		input: {},
+	});
+	check(
+		'request_draft treats NO_CONFIG as proven when the project still has none',
+		[noConfig.status, typeof noConfig.body.draftId],
+		[200, 'string'],
+	);
+	R2.set('acme/dnc/config/config.json', { body: '{}', etag: '"late"' });
+	RUNS.set(
+		'qnc2',
+		run('qnc2', { projectKey: 'dnc', templateConfigEtag: NO_CONFIG, projectConfigEtag: null }),
+	);
+	const gained = await call('build', 'request_draft', {
+		runId: 'qnc2',
+		agent: 'qa',
+		opId: 'qnc2:q:1',
+		input: {},
+	});
+	check(
+		'...and a config that appeared in the project since is config_drifted',
+		[gained.status, gained.body.error],
+		[409, 'config_drifted'],
+	);
+
+	await store.settleDraftJob({
+		jobRef: 'dp_00000000000000aa',
+		runId: 'qd2',
+		status: 'cancelled',
+		result: null,
+		via: 'inline',
+	});
+
+	// The environment and the player client.
+	const SECRET = 'draft-secret-0123456789abcdef';
+	process.env.ORIGIN = 'https://app.example';
+	delete process.env.DRAFT_PLAYER_URL;
+	delete process.env.DRAFT_PLAYER_SECRET;
+	check('with no DRAFT_PLAYER_URL there is no active player', jobs.activeDraftPlayer(), null);
+	process.env.DRAFT_PLAYER_URL = 'http://player.internal:8080/';
+	check('...a URL without the secret is still none', jobs.activeDraftPlayer(), null);
+	process.env.DRAFT_PLAYER_SECRET = SECRET;
+	check('...both set, a player', jobs.activeDraftPlayer() !== null, true);
+
+	const qdraft = [...R2.entries()].find(
+		([k, v]) => k.endsWith('/draft.json') && JSON.parse(v.body).runId === 'qd2',
+	)!;
+	const draftId2 = JSON.parse(qdraft[1].body).draftId as string;
+	R2.set('test_server/_runtime/lines@1.4.0/index.html', { body: '<html>', etag: etag() });
+	const sent: { url: string; init: RequestInit }[] = [];
+	const http = jobs.createHttpDraftPlayer({
+		url: 'http://player.internal:8080',
+		secret: SECRET,
+		fetch: async (url: string, init: RequestInit) => {
+			sent.push({ url, init });
+			if (url.endsWith('/play')) return new Response('{}', { status: 202 });
+			return new Response(JSON.stringify({ jobRef: 'dp_x', status: 'unknown' }), { status: 200 });
+		},
+	});
+	const playJob = {
+		jobRef: 'dp_00000000000000c1',
+		runId: 'qd2',
+		clientKey: C,
+		projectKey: 'dfx',
+		gameType: 'lines',
+		draftId: draftId2,
+		scenarios: ['base'],
+	};
+	// An earlier play's report and shots sit in the draft folder; the player is not handed them.
+	for (const f of ['report.json', 'base-boot.png']) {
+		R2.set(`${C}/dfx/director/drafts/${draftId2}/plays/dp_00000000000000b0/${f}`, {
+			body: 'old',
+			etag: etag(),
+		});
+	}
+	await http.submit(playJob);
+	const posted = sent[0];
+	const body = JSON.parse(posted.init.body as string);
+	const cbUrl = 'https://app.example/api/director/drafts/callback?run=qd2';
+	const headerOf = (init: RequestInit) =>
+		(init.headers as Record<string, string>)['x-draft-signature'];
+	check(
+		'submit POSTs <url>/play, signed the way the player verifies it',
+		[
+			posted.url,
+			playerSigning.verifyRequest(SECRET, 'POST', '/play', posted.init.body, headerOf(posted.init)),
+			playerSigning.verifyRequest(
+				SECRET,
+				'POST',
+				'/cancel',
+				posted.init.body,
+				headerOf(posted.init),
+			),
+		],
+		['http://player.internal:8080/play', true, false],
+	);
+	check(
+		'...the body is the player contract: kind, contract, scenarios, draft and runtime files',
+		[
+			body.jobRef,
+			body.kind,
+			body.scenarios,
+			typeof body.contract,
+			body.draft.files.map((f: { path: string }) => f.path).sort(),
+			body.runtime.version,
+			body.runtime.commit,
+			body.runtime.files.map((f: { path: string }) => f.path),
+			[...body.draft.files, ...body.runtime.files].every((f: { url: string }) =>
+				f.url.startsWith('https://r2.example/get/'),
+			),
+		],
+		[
+			playJob.jobRef,
+			'lines',
+			['base'],
+			'object',
+			['deploy/_pages/p1.png', 'deploy/index.json', 'draft.json', 'runtime.json'],
+			'1.4.0',
+			'abc1234567',
+			['index.html'],
+			true,
+		],
+	);
+	const baseShots = scripts
+		.screenshotSlots('lines', ['base'])
+		.map((x: { scenario: string; screen: string }) => `${x.scenario}/${x.screen}`);
+	check(
+		'...presigned PUTs for the report and one shot per captured screen, keys under plays/<jobRef>/',
+		[
+			body.put.report.includes(`plays/${playJob.jobRef}/report.json`),
+			body.put.shots.map((x: { scenario: string; screen: string }) => `${x.scenario}/${x.screen}`),
+			body.put.shots.every(
+				(x: { key: string; url: string }) =>
+					x.key.includes(`/plays/${playJob.jobRef}/`) && x.url.includes(x.key),
+			),
+			baseShots.length > 0 && baseShots.length <= 40,
+		],
+		[true, baseShots, true, true],
+	);
+	check(
+		'...and a callback bound to this run, under the draft scope only',
+		[
+			body.callback.url,
+			cb.verifyCallbackToken(SECRET, cbUrl, body.callback.token, Date.now(), cb.DRAFT_TOKEN_SCOPE),
+			cb.verifyCallbackToken(SECRET, cbUrl, body.callback.token),
+			cb.verifyCallbackToken(
+				SECRET,
+				cbUrl.replace('qd2', 'qd1'),
+				body.callback.token,
+				Date.now(),
+				cb.DRAFT_TOKEN_SCOPE,
+			),
+		],
+		[cbUrl, true, false, false],
+	);
+	{
+		const target = '/progress?jobRef=dp_x';
+		const now = Date.now();
+		const mine = signing.signDraftRequest(SECRET, 'GET', target, '', now);
+		check(
+			'the launcher signer and the player signer agree, both ways, and refuse the wrong request or a stale clock',
+			[
+				mine === playerSigning.signRequest(SECRET, 'GET', target, '', now),
+				playerSigning.verifyRequest(SECRET, 'GET', target, '', mine, now),
+				signing.verifyDraftRequest(
+					SECRET,
+					'POST',
+					'/cb?run=r',
+					'{"a":1}',
+					playerSigning.signRequest(SECRET, 'POST', '/cb?run=r', '{"a":1}', now),
+					now,
+				),
+				signing.verifyDraftRequest(SECRET, 'POST', '/cb?run=r', '{"a":2}', mine, now),
+				signing.verifyDraftRequest(SECRET, 'GET', '/progress?jobRef=dp_y', '', mine, now),
+				signing.verifyDraftRequest(SECRET, 'GET', target, '', mine, now + 301_000),
+				signing.verifyDraftRequest('other', 'GET', target, '', mine, now),
+				signing.verifyDraftRequest(SECRET, 'GET', target, '', undefined, now),
+				signing.SIGNATURE_TOLERANCE_SECONDS === playerSigning.SIGNATURE_TOLERANCE_SECONDS,
+				signing.SIGNATURE_HEADER === playerSigning.SIGNATURE_HEADER,
+			],
+			[true, true, true, false, false, false, false, false, true, true],
+		);
+	}
+	check(
+		'the screenshot script map follows the harness: every kind picks the same script',
+		[
+			'lines',
+			'bookOf',
+			'holdAndWin',
+			'ways',
+			'cluster',
+			'scatter',
+			'match3',
+			'arcade',
+			'custom',
+		].filter((k) => scripts.scriptNameFor(k) !== plan.scriptFor(k)),
+		[],
+	);
+	check('...and never carries the secret', (posted.init.body as string).includes(SECRET), false);
+	sent.length = 0;
+	check(
+		'/progress is a signed GET (empty body) and a job the player does not know is "unknown"',
+		[
+			await http.progress!('dp_x'),
+			sent[0].url,
+			sent[0].init.method,
+			playerSigning.verifyRequest(
+				SECRET,
+				'GET',
+				'/progress?jobRef=dp_x',
+				'',
+				headerOf(sent[0].init),
+			),
+		],
+		[
+			{ jobRef: 'dp_x', status: 'unknown' },
+			'http://player.internal:8080/progress?jobRef=dp_x',
+			'GET',
+			true,
+		],
+	);
+	await http.cancel!('dp_x');
+	check(
+		'cancel is a signed POST /cancel',
+		[
+			sent[1].url.endsWith('/cancel'),
+			playerSigning.verifyRequest(
+				SECRET,
+				'POST',
+				'/cancel',
+				sent[1].init.body,
+				headerOf(sent[1].init),
+			),
+		],
+		[true, true],
+	);
+	const refusing = jobs.createHttpDraftPlayer({
+		url: 'http://player.internal:8080',
+		secret: SECRET,
+		fetch: async () => new Response('{}', { status: 500 }),
+	});
+	let refusedPlay = '';
+	await refusing.submit(playJob).catch((e: Error) => (refusedPlay = e.message));
+	check(
+		'a player that does not answer 202 fails the submit',
+		refusedPlay,
+		'the draft player answered 500 to /play',
+	);
+	delete process.env.DRAFT_PLAYER_URL;
+
+	// The callback route.
+	const queueFor = async (runId: string, jobRef: string) => {
+		const q = await store.insertDraftJob({
+			jobRef,
+			runId,
+			agent: 'qa',
+			draftId: draftId2,
+			scenarios: null,
+		});
+		return q.job;
+	};
+	const callback = async (
+		runId: string,
+		payload: unknown,
+		over: { token?: string; sign?: boolean; secret?: string } = {},
+	) => {
+		const raw = JSON.stringify(payload);
+		const token =
+			over.token ??
+			cb.mintCallbackToken(
+				SECRET,
+				cbUrl.replace('qd2', runId),
+				600,
+				Date.now(),
+				cb.DRAFT_TOKEN_SCOPE,
+			);
+		const request = new Request(`https://app.example/api/director/drafts/callback?run=${runId}`, {
+			method: 'POST',
+			headers: {
+				authorization: `Bearer ${token}`,
+				'x-draft-signature':
+					over.sign === false
+						? 't=1,v1=00'
+						: playerSigning.signRequest(
+								SECRET,
+								'POST',
+								`/api/director/drafts/callback?run=${runId}`,
+								raw,
+							),
+			},
+			body: raw,
+		});
+		const res: Response = await DRAFT_CALLBACK({
+			request,
+			url: new URL(request.url),
+		} as never);
+		return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+	};
+	await queueFor('qd2', 'dp_00000000000000d1');
+	const report = {
+		jobRef: 'dp_00000000000000d1',
+		status: 'finished',
+		report: { scenarios: [], seconds: 3 },
+	};
+	const evBefore = DRAFT_EVENTS.length;
+	check(
+		'the callback with a bad signature, or an atlas-scope token, is a 400 and settles nothing',
+		[
+			(await callback('qd2', report, { sign: false })).status,
+			(
+				await callback('qd2', report, {
+					token: cb.mintCallbackToken(SECRET, cbUrl, 600),
+				})
+			).status,
+			DRAFT_JOBS.get('dp_00000000000000d1')?.status,
+		],
+		[400, 400, 'queued'],
+	);
+	check(
+		'a callback for another run (token bound to its own URL) is a 400',
+		(
+			await callback('qd1', report, {
+				token: cb.mintCallbackToken(SECRET, cbUrl, 600, Date.now(), cb.DRAFT_TOKEN_SCOPE),
+			})
+		).status,
+		400,
+	);
+	const okCb = await callback('qd2', report);
+	const dup = await callback('qd2', report);
+	check(
+		'a signed callback settles once (one job_done) and a redelivery answers 200 recorded:false',
+		[
+			okCb.status,
+			okCb.body.recorded,
+			dup.status,
+			dup.body.recorded,
+			DRAFT_EVENTS.length - evBefore,
+			DRAFT_JOBS.get('dp_00000000000000d1')?.doneVia,
+		],
+		[200, true, 200, false, 1, 'callback'],
+	);
+	check(
+		'an unknown job is a 404 so the player keeps it',
+		(await callback('qd2', { jobRef: 'dp_00000000000000ff', status: 'finished' })).status,
+		404,
+	);
+	check(
+		'a non-final status is a 400',
+		(await callback('qd2', { jobRef: 'dp_00000000000000d1', status: 'cancelled' })).status,
+		400,
+	);
+	delete process.env.DRAFT_PLAYER_SECRET;
+	check('with no secret the route is a 503', (await callback('qd2', report)).status, 503);
+	process.env.DRAFT_PLAYER_SECRET = SECRET;
+
+	// The fallback watch.
+	const watch = async (
+		runId: string,
+		jobRef: string,
+		views: ({ status: string; result?: object } | Error)[],
+		opts: { age?: number; callbackFirst?: boolean; cancelThrows?: boolean } = {},
+	) => {
+		const job = await queueFor(runId, jobRef);
+		const cancelled: string[] = [];
+		let clock = job.queuedAt.getTime() + (opts.age ?? 0) * 1000;
+		const slept: number[] = [];
+		const resubmitted: string[] = [];
+		const done = await jobs.watchDraftJob(job, {
+			sleep: async (ms: number) => {
+				slept.push(ms / 1000);
+				clock += ms;
+				if (opts.callbackFirst)
+					await store.settleDraftJob({
+						jobRef,
+						runId,
+						status: 'finished',
+						result: {},
+						via: 'callback',
+					});
+			},
+			now: () => clock,
+			progress: async () => {
+				const v = views.shift();
+				if (!v) throw new Error('no more views');
+				if (v instanceof Error) throw v;
+				return v;
+			},
+			resubmit: async (ref: string) => void resubmitted.push(ref),
+			cancel: async (ref: string) => {
+				cancelled.push(ref);
+				if (opts.cancelThrows) throw new Error('the player is gone');
+			},
+		});
+		return { done, slept, resubmitted, cancelled, row: DRAFT_JOBS.get(jobRef)! };
+	};
+	const w1 = await watch('qd2', 'dp_00000000000000e1', [
+		{ status: 'running' },
+		{ status: 'finished', report: { scenarios: [1] } },
+	]);
+	check(
+		'the watch reads on a 60/120 s backoff and settles a finished play via poll',
+		[w1.slept, w1.row.status, w1.row.doneVia, w1.row.result],
+		[[60, 120], 'finished', 'poll', { scenarios: [1] }],
+	);
+	const w2 = await watch('qd2', 'dp_00000000000000e2', [
+		{ status: 'unknown' },
+		{ status: 'finished', report: {} },
+	]);
+	check(
+		'a player that does not know the job gets it once more, then settles it',
+		[w2.resubmitted, w2.row.status],
+		[['dp_00000000000000e2'], 'finished'],
+	);
+	const w3 = await watch('qd2', 'dp_00000000000000e3', [
+		{ status: 'unknown' },
+		{ status: 'unknown' },
+	]);
+	check(
+		'unknown again after the resubmit is failed player_lost',
+		[w3.resubmitted.length, w3.row.status, (w3.row.result as { reason: string }).reason],
+		[1, 'failed', 'player_lost'],
+	);
+	const w4 = await watch('qd2', 'dp_00000000000000e4', [new Error('down')], { age: 31 * 60 });
+	check(
+		'30 minutes after queueing the play is failed timeout, even when the player is unreachable',
+		[w4.row.status, (w4.row.result as { reason: string }).reason],
+		['failed', 'timeout'],
+	);
+	check(
+		'a play the watch fails (player_lost, timeout) is also cancelled on the player; a settled one is not',
+		[w3.cancelled, w4.cancelled, w1.cancelled, w2.cancelled],
+		[['dp_00000000000000e3'], ['dp_00000000000000e4'], [], []],
+	);
+	const quietCancel = mock.method(console, 'error', () => {});
+	const w4b = await watch('qd2', 'dp_00000000000000e7', [new Error('down')], {
+		age: 31 * 60,
+		cancelThrows: true,
+	});
+	quietCancel.mock.restore();
+	check(
+		'...and a /cancel that throws is logged and never breaks the settle',
+		[w4b.cancelled, w4b.row.status, (w4b.row.result as { reason: string }).reason],
+		[['dp_00000000000000e7'], 'failed', 'timeout'],
+	);
+	const w5 = await watch('qd2', 'dp_00000000000000e5', [{ status: 'running' }], {
+		callbackFirst: true,
+	});
+	check(
+		'the watch stops once the callback has settled the play',
+		[w5.done, w5.row.doneVia],
+		[null, 'callback'],
+	);
+	const w6 = await watch('qd2', 'dp_00000000000000e6', [
+		new Error('blip'),
+		{ status: 'failed', error: 'x' },
+	]);
+	check(
+		'a read that fails is retried, not settled',
+		[w6.slept.length, w6.row.status],
+		[2, 'failed'],
+	);
+
+	// Boot re-arm.
+	for (const [ref, runId] of [
+		['dp_00000000000000f1', 'qd2'],
+		['dp_00000000000000f2', 'qd1'],
+	]) {
+		DRAFT_JOBS.set(ref, {
+			jobRef: ref,
+			runId,
+			agent: 'qa',
+			draftId: draftId2,
+			scenarios: null,
+			status: 'queued',
+			result: null,
+			doneVia: null,
+			queuedAt: new Date(),
+			doneAt: null,
+		});
+	}
+	const armed: string[] = [];
+	drafts.setDraftPlayer({
+		submit: async () => {},
+		progress: async () => ({ status: 'running' as const }),
+	});
+	const count = await jobs.resumeDraftJobWatches(
+		(job: { jobRef: string }) => void armed.push(job.jobRef),
+		async () => {},
+	);
+	check(
+		'boot arms a watch for every queued play',
+		[count, armed.filter((r) => r.startsWith('dp_00000000000000f')).sort()],
+		[armed.length, ['dp_00000000000000f1', 'dp_00000000000000f2']],
+	);
+	drafts.setDraftPlayer(null);
+	delete process.env.DRAFT_PLAYER_SECRET;
+	await jobs.resumeDraftJobWatches(
+		() => {},
+		async () => {},
+	);
+	check(
+		'...with no player deployed a queued play is settled no_player instead',
+		[
+			DRAFT_JOBS.get('dp_00000000000000f1')?.status,
+			(DRAFT_JOBS.get('dp_00000000000000f1')?.result as { reason: string }).reason,
+		],
+		['failed', 'no_player'],
+	);
 }
 
 console.log(`director-adapters: ${checks - failures}/${checks} checks passed`);
