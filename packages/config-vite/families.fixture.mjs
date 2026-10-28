@@ -22,7 +22,13 @@ const same = (name, got, want) =>
 const ALL = ['slot', 'match3', 'arcade', 'card'];
 same('unset ⇒ all', compiledFamilies(undefined), ALL);
 same('all ⇒ all', compiledFamilies('all'), ALL);
-same('empty ⇒ slot only', compiledFamilies(''), ['slot']);
+same('empty ⇒ every family (a blank variable is unset)', compiledFamilies(' '), [
+	'slot',
+	'match3',
+	'arcade',
+	'card',
+]);
+same('slot ⇒ slot only', compiledFamilies('slot'), ['slot']);
 same('slot ⇒ slot only', compiledFamilies('slot'), ['slot']);
 same('a list keeps its families, slot implied', compiledFamilies(' card , match3'), [
 	'slot',

@@ -2160,7 +2160,7 @@ game, bundle or screen changes.
   `endMatch3Round`, `presentMatch3Board`, `presentMatch3MovesLeft`; `families/arcade` —
   `ArcadeStage`, `joinOnlineRoom`; `families/card` — `CardTable`, `startCards`). Release-env
   `apps/lines/build/index.html`: main `all` 4,141,309 B raw / 1,412,590 B gzip-6; branch `all`
-  4,141,617 / 1,412,885 (+0.007 % / +0.02 %); branch slot-only (`PUBLIC_IE_FAMILIES=`, not shipped)
+  4,141,617 / 1,412,885 (+0.007 % / +0.02 %); branch slot-only (`PUBLIC_IE_FAMILIES=slot`, not shipped; an empty value counts as unset)
   3,804,801 / 1,301,143 (−8.1 % / −7.9 %), with `@colyseus/schema`, the match-3, card, arcade and
   `engine-mechanics` board/motion/cards/cardAi markers all absent. Fixtures:
   `packages/config-vite/families.fixture.mjs`, `apps/lines/src/game/runtimeFamilies.fixture.ts`.
