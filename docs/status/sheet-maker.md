@@ -83,6 +83,11 @@ Works today on `main` / live:
 - None.
 
 ## Recent changes
+- 2026-10-27 — **Ask the AI on the bar.** The shared `iw_common/ask_ai.js` window (the twin of the
+  launcher's `$lib/AskAiPanel.svelte`) sits before Report bug; `POST /ask-ai` relays the question to
+  the launcher for the signed-in user (`iw_common/ask_ai.py`, `X-IW-Relay` token) and streams the
+  answer back. Needs a signed launch: a legacy/open session gets a 403. See
+  [launcher status](launcher.md) (Ask the AI).
 - 2026-10-14 — **Own padding switch: the sheet's Region padding reaches every cell again.** Loading
   a sheet (or restoring a session) turned each cell's size into its own padding override, and a
   global change also pinned locked cells (loaded cells arrive locked). So the global value never

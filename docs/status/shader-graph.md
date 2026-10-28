@@ -20,7 +20,9 @@ shell and the Particle node) is merged (#1354); 8d.2 (the material renderer) is 
 merged (#1384); 8d.5 (`/fx` authoring) is merged (#1392); 8d.6 (the other previews) is
 merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) is merged
 (#1423); 8d.8 (play-QA and calibration) is merged (#1425). 8d is complete; the owner's phone
-check sets its caps.
+check sets its caps. 8e (screen transitions and post FX) is decided
+([design](../design/shader-graph-screens.md)) and being built as 8e.1–8e.8; 8e.1 (the screen
+shell and the Screens node) is in progress.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -281,7 +283,11 @@ check sets its caps.
     absent when it names none. The bake walks the bundle's values the same way (never a key).
     `deploy/editor-shaders/` still holds the set, and the Publish snapshot copies it, so a game's
     asset base carries the library's compiled effects too; nothing reads them at runtime.
-- **Step 8** (the plan's "Later", split into 8a–8e in design §8). 8e not started.
+- **Step 8** (the plan's "Later", split into 8a–8e in design §8).
+  - **8e, screen transitions and post FX.** Decided 2026-10-28
+    ([shader-graph-screens.md](../design/shader-graph-screens.md) §16: every recommendation, except
+    that anti-aliasing under a stage effect is a project setting, off by default). Built as
+    8e.1–8e.8, one PR each (its §15). 8e.1, the screen shell and the Screens node, is in progress.
   - **8d, particle materials for Invisible FX.** Decided 2026-10-25
     (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
     shader). Built as 8d.1–8d.8, one PR each (its §15). A game plays a material from 8d.3; no

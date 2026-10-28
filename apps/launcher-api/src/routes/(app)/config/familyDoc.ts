@@ -1,4 +1,6 @@
 import {
+	ARCADE_NETCODES,
+	ARCADE_ONLINE_DEFAULTS,
 	CARD_GAME_RULE_DEFAULTS,
 	DEFAULT_ARCADE_FIXED_HZ,
 	DEFAULT_MATCH3_MIN_RUN,
@@ -186,6 +188,16 @@ export function setFixedHz(doc: GameConfigDoc, value: string): void {
 	if (n === undefined || n === DEFAULT_ARCADE_FIXED_HZ) delete arcadeBlock(doc).fixedHz;
 	else arcadeBlock(doc).fixedHz = n;
 	pruneArcade(doc);
+}
+
+/** An online game's netcode. The default (`engine`), or a value no build knows, is not stored; a
+ *  game that is not online is left alone. */
+export function setNetcode(doc: GameConfigDoc, value: string): void {
+	const online = doc.arcade?.online;
+	if (!online) return;
+	const netcode = ARCADE_NETCODES.find((n) => n === value);
+	if (!netcode || netcode === ARCADE_ONLINE_DEFAULTS.netcode) delete online.netcode;
+	else online.netcode = netcode;
 }
 
 /** Add a body for a component id, as a 100 × 100 box. An id already given a body is left alone. */

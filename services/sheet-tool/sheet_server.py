@@ -43,6 +43,7 @@ from iw_common import errors  # noqa: E402  (Sentry reporting; no-op without SEN
 from iw_common import launch  # noqa: E402  (launcher-signed identity + scope)
 from iw_common import docsave  # noqa: E402  (saved_by stamp + compare-and-swap check)
 from iw_common import presence  # noqa: E402  (the person-level "X is editing" soft lease)
+from iw_common import ask_ai  # noqa: E402  (the bar's "Ask the AI" chat, relayed to the launcher)
 
 SELF = Path(__file__).resolve().parent
 
@@ -3222,6 +3223,11 @@ class Handler(BaseHTTPRequestHandler):
         # Who a save is stamped with (`saved_by`) — read by the handlers below.
         set_request_identity(self._identity)
         path = urllib.parse.urlparse(self.path).path
+        if path == "/ask-ai":
+            # The bar's chat: forwarded to the launcher for this user, nothing local.
+            ask_ai.relay(self, iss="sheet", secret_env="SHEET_TOOL_SIGNING_SECRET",
+                         identity=self._identity, before_end=self._apply_cookie)
+            return
         ctype = self.headers.get("Content-Type", "")
         try:
             if path == "/api/upload":
@@ -3273,9 +3279,11 @@ class Handler(BaseHTTPRequestHandler):
 
 def _page() -> str:
     """Serve the UI from ui.html each request so edits show on reload, with the
-    shared "X is editing this sheet" heartbeat inlined."""
-    return (SELF / "ui.html").read_text(encoding="utf-8").replace(
-        "/*__IW_PRESENCE_JS__*/", presence.script("sheet"))
+    shared "X is editing this sheet" heartbeat and the bar's Ask the AI inlined."""
+    return ((SELF / "ui.html").read_text(encoding="utf-8")
+            .replace("/*__IW_PRESENCE_JS__*/", presence.script("sheet"))
+            .replace("/*__IW_ASK_AI_JS__*/",
+                     ask_ai.script("sheetMaker", "Invisible Sheet Maker")))
 
 
 class _Server(errors.ReportingServerMixin, ThreadingHTTPServer):

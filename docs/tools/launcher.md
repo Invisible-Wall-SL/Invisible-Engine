@@ -100,6 +100,33 @@ launch tokens"). For the
 Rig Viewer and the Rigger it redirects to their static `view.html` documents
 (`/rig-viewer/view.html`, `/rigger/view.html`) served by the launcher itself.
 
+### Ask the AI
+
+Every launcher tool's top bar has an **Ask the AI** button, just left of **Report bug**. It opens a
+chat window about the tool you have open: ask how to do something ("How do I add a layer?", "What
+does this panel do?") and Claude answers step by step, as that tool's own agent, from the tool's
+guide (the page **Read the guide** opens). It can point you to another tool when that one does the
+job, with a link to its guide.
+
+- **Move it** by dragging its title bar. It stays where you leave it, in every tool.
+- **–** minimizes it to its title bar (**▢** brings it back); **×** closes it. Nothing else closes
+  it: not Escape, not a click elsewhere on the page, so you can keep working in the tool beside it.
+- **Enter** sends, **Shift+Enter** starts a new line. **Stop** cuts an answer short, **New chat**
+  starts over.
+- The conversation is kept per tool until you close the browser tab; closing the window and opening
+  it again shows the same chat.
+- It only explains. It does not change anything in the tool or read your project's files, and its
+  answers can be wrong: the guide is the reference. When the guide does not cover something, it says
+  so; if something is broken, use **Report bug**.
+
+It needs the launcher's `ANTHROPIC_API_KEY`; without it the chat answers "Ask the AI is not
+configured on this server."
+
+The **Atlas Maker** and **Sheet Maker** have the same button and window on their own bar. They run
+on another site, so the chat goes through the tool's own server, which asks the launcher for you;
+it works only when you opened the tool from the launcher. The **Rigger** has it too. The Rig Viewer
+does not have it yet.
+
 ## Other pages
 
 - **`/onboarding`** ("Getting started" link in the header) — a walkthrough for

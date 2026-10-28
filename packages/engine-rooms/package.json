@@ -5,6 +5,16 @@
 	"license": "MIT",
 	"main": "./index.ts",
 	"types": "./index.ts",
+	"exports": {
+		".": {
+			"types": "./index.ts",
+			"default": "./index.ts"
+		},
+		"./predict": {
+			"types": "./predict.ts",
+			"default": "./predict.ts"
+		}
+	},
 	"type": "module",
 	"scripts": {
 		"typecheck": "tsc --noEmit",

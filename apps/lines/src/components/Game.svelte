@@ -4,7 +4,7 @@
 	import { EnablePixiExtension, DebugStage } from 'components-pixi';
 	import { EnableHotkey, EnableSpaceHold, OnHotkey } from 'components-shared';
 	import { MainContainer } from 'components-layout';
-	import { Anchor, App, Container, Text } from 'pixi-svelte';
+	import { Anchor, App, Container, Text, registerGpuWarmup } from 'pixi-svelte';
 	import {
 		ELEMENT_FX_REELS_TARGET,
 		readElementFxEntries,
@@ -184,6 +184,7 @@
 	} from '../game/stateModes.svelte';
 	import { syncBetModeMeta } from '../game/betModeMeta';
 	import { infoManifest } from '../game/infoManifest';
+	import { gameFxWarmup } from '../game/gpuWarmup';
 	import { getActiveSymbolInfoMap, resetSymbolMapCache } from '../game/symbolMap';
 	import { createLinesFlow, linesValueResolver, type LinesFlow } from '../game/flowRuntime.svelte';
 	import {
@@ -852,6 +853,9 @@
 	// it. The set is replaced, not added to, so a re-mounted game never keeps another boot's. Before
 	// the first render, so nothing an entry starts misses it; an effect that cannot play is left out.
 	setCustomElementFx(bakedShaderEffects());
+	// Compile every Element FX and camera effect the docs can play while the loading screen is up,
+	// not on the frame each first plays (measured: 0.8–2.8 s stalls on a slowed phone-sized page).
+	registerGpuWarmup(gameFxWarmup);
 	// Turbo speeds up the particles too: every `<ParticleEmitter>` steps by this clock and the FX
 	// emission timers divide by it when they start (`pixi-svelte` `particleClock`). Read live, so a
 	// turbo toggle lands on the next frame. The tools never set it and preview at normal speed.

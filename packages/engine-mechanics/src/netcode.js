@@ -20,9 +20,14 @@
  * behind the room, and each player is drawn between the two states around it. The clock never runs
  * past the newest state (no guessing ahead) and changes its speed by at most a quarter, so a late,
  * lost or bunched-up state slows or hurries everyone a little rather than making them jump.
+ *
+ * `arcade.online.netcode: 'colyseus'` swaps the own player's predictor for the Colyseus SDK's own
+ * `Reconciler`; {@link reconcilerStep} is the step it runs. Everyone else is interpolated here in
+ * both modes.
  */
 
-import { stepPlayer } from './online.js';
+import { characterBody, onlineLevel, stepContext, stepPlayer } from './online.js';
+import { STATUS } from './onlineRules.js';
 
 /** A prediction this close to the room's place, px, is the same place. */
 export const MATCH_PX = 1 / 64;
@@ -268,5 +273,53 @@ export function createInterpolator({ snapPx = SNAP_PX, keep = 32 } = {}) {
 			const last = track[track.length - 1];
 			return { x: last.x, y: last.y };
 		},
+	};
+}
+
+/** The most a current of these zone rules adds to a body's speed, px/s. */
+export const strongestForce = (zoneRules) =>
+	Math.max(0, ...zoneRules.map((z) => (z.force ? Math.hypot(z.force.x, z.force.y) : 0)));
+
+/** The own player's fields the Colyseus SDK's `Reconciler` mirrors from the room: its place, and
+ *  the status that holds it still (a changed status is a mismatch: the SDK adopts it and replays). */
+export const RECONCILED_FIELDS = Object.freeze(['x', 'y', 'status']);
+
+/**
+ * The own player's step for the Colyseus SDK's `Reconciler` (`arcade.online.netcode: 'colyseus'`),
+ * in its `(ctx, state, command)` shape over {@link RECONCILED_FIELDS}: the room's own `stepPlayer`
+ * on `body` (the player's shape and edges), with the room's `ctx` (`stepContext`) rather than the
+ * SDK's, so a step is the server's bit for bit. A player the room holds still is stepped with no
+ * input, as the room steps it.
+ */
+export function reconcilerStep({ body, speed, ctx, field, level }) {
+	return (_sdk, state, command) => {
+		body.x = state.x;
+		body.y = state.y;
+		stepPlayer(body, state.status === STATUS.free ? command : undefined, speed, ctx, field, level);
+		state.x = body.x;
+		state.y = body.y;
+	};
+}
+
+/**
+ * Everything but the input handle the Colyseus SDK's `predict.reconciler(player, …)` takes for the
+ * own player `id` of an online `game` (game-config `OnlineGame`), placed at `player`: the mirrored
+ * fields, {@link reconcilerStep} over the room's step context and level, and the snap distance.
+ * `undefined` for a character the game does not have.
+ */
+export function reconcilerOptions(game, id, player) {
+	const { online } = game;
+	const character = online.characters.find((c) => c.id === player.character);
+	if (!character) return undefined;
+	return {
+		fields: RECONCILED_FIELDS,
+		step: reconcilerStep({
+			body: characterBody(id, game.bodies[character.body], player),
+			speed: character.speed,
+			ctx: stepContext(online.tickHz, online.subSteps),
+			field: game.field,
+			level: onlineLevel(game.zones, online.rules.zones, character.id, game.field),
+		}),
+		snap: snapFor(character.speed + strongestForce(online.rules.zones), online.patchHz),
 	};
 }

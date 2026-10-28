@@ -47,6 +47,13 @@ every Domain-A consumer is inside launcher-api — same as `$lib/Emblem.svelte`.
   current one**, icon + text. **Icon-only when the row gets tight** (label hidden,
   `title=` tooltip). Local-install tools (an external rig editor, Invisible Launcher) and
   the admin panel never appear.
+- **Ask the AI** → opens `$lib/AskAiPanel.svelte`, a movable chat about the current tool
+  (`/api/ask-ai`, grounded in its `docs/tools/<slug>.md`). The atlas/sheet twins mount
+  `iw_common/ask_ai.js` before their Report bug and relay through their own server
+  (`iw_common/ask_ai.py`); the Rigger's `view.html` loads the same window as
+  `/shared/ask-ai.js` (synced by `scripts/sync-ask-ai.mjs`) and asks `/api/ask-ai` directly. The Rig
+  Viewer doesn't have it yet.
+- **Report bug** → Pipeline Bug Reports' form with the current tool filled in.
 
 ## Decisions (owner, 2026-06-12)
 

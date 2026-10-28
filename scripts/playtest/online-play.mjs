@@ -11,10 +11,12 @@
 // character came from `?rooms_character=`; nothing reached an RGS; closing page B lets its player
 // go when the rejoin grace runs out; a launch with no `?rooms_url=` stops on
 // the boot-failure screen; no page error. It builds its own snapshot and config, so the
-// current-games harness is not touched.
+// current-games harness is not touched. `--netcode colyseus` plays the config with the Colyseus
+// SDK's own prediction (`arcade.online.netcode`); the pages must report the mode they ran.
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
-//     scripts/playtest/online-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>]
+//     scripts/playtest/online-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>] \
+//     [--netcode engine|colyseus]
 //
 // Exit 1 when a verdict fails.
 
@@ -43,8 +45,13 @@ const { values: opt } = parseArgs({
 		runtime: { type: 'string', default: join(ROOT, 'apps/lines/build') },
 		out: { type: 'string', default: join(ROOT, '.cache/online-play') },
 		chrome: { type: 'string' },
+		netcode: { type: 'string', default: 'engine' },
 	},
 });
+if (opt.netcode !== 'engine' && opt.netcode !== 'colyseus') {
+	console.error(`--netcode is engine or colyseus, not "${opt.netcode}"`);
+	process.exit(2);
+}
 const out = resolve(opt.out);
 mkdirSync(out, { recursive: true });
 const KEY = 'online-sample';
@@ -67,6 +74,7 @@ const config = normalizeGameConfigDoc({
 			],
 			maxPlayers: 4,
 			rejoinSeconds: 2,
+			netcode: opt.netcode,
 			spawn: { x: FIELD.w / 2, y: FIELD.h - 80 },
 		},
 	},
@@ -214,6 +222,14 @@ try {
 			seenB,
 		},
 	);
+	for (const [name, game] of [
+		['A', a],
+		['B', b],
+	])
+		verdict(
+			`page ${name} plays the ${opt.netcode} netcode`,
+			(await drawnOf(game)).netcode === opt.netcode,
+		);
 	const roomA = [...seenA.map((p) => p.id)].sort();
 	const roomB = [...seenB.map((p) => p.id)].sort();
 	verdict('…the same two players', JSON.stringify(roomA) === JSON.stringify(roomB));

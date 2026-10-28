@@ -2,6 +2,7 @@ export {
 	elementFxCount,
 	elementFxHostFor,
 	playElementFx,
+	prewarmElementFx,
 	stopElementFx,
 	type ElementFxHandle,
 	type ElementFxHost,
