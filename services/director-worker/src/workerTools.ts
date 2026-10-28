@@ -4,17 +4,31 @@ import type { ToolSpec } from './model.ts';
 import { MAX_PLAN_REGIONS, REGION_NAME, type RecipeInput } from 'director-costs/recipe';
 import { ANALYST_AGENT } from './mockups/analyze.ts';
 import {
+	ART_NOT_REPAIRED,
+	NO_AREA,
+	PIPELINE_AREAS,
+	REPAIR_ASSIGNABLE,
+	SUBMIT_OUTCOMES,
+	VERIFIED,
+	checkSubmission,
+	derivedVerified,
+	leadOf,
+	type RepairSubmission,
+} from './repair.ts';
+import {
 	TECHNICIAN,
 	defaultsBrief,
 	forgetUnplanned,
 	setRecipe,
 	type RecipeDeps,
 } from './recipes.ts';
-import { transition, type RunEvent } from './runState.ts';
+import { transition, type RunEvent, type RunKind } from './runState.ts';
 import {
 	appendMessage,
 	applyTransition,
+	completedWrites,
 	insertEvent,
+	playsOfStep,
 	rendersInFlight,
 	runSpend,
 	type LiveRun,
@@ -107,12 +121,23 @@ const findings = {
 	),
 };
 
-const UNASSIGNABLE: ReadonlySet<string> = new Set(['coordinator', ANALYST_AGENT]);
+const LEADS: readonly string[] = [leadOf('create'), leadOf('repair')];
+const UNASSIGNABLE: ReadonlySet<string> = new Set([...LEADS, ANALYST_AGENT]);
 
-/** The specs, in a fixed order. `agentNames` fills `run.assign_task`'s enum. */
-export function workerToolSpecs(agentNames: readonly string[]): Record<WorkerToolId, ToolSpec> {
+/**
+ * The specs, in a fixed order. `agentNames` fills `run.assign_task`'s enum: in a repair run only the
+ * agents that write a project's content, in a create run every agent but the leads.
+ */
+export function workerToolSpecs(
+	agentNames: readonly string[],
+	kind: RunKind = 'create',
+): Record<WorkerToolId, ToolSpec> {
 	// The mockup analyst is run by the worker's own code, never as an assigned turn.
-	const assignable = agentNames.filter((name) => !UNASSIGNABLE.has(name)).sort();
+	const assignable = agentNames
+		.filter((name) =>
+			kind === 'repair' ? REPAIR_ASSIGNABLE.includes(name) : !UNASSIGNABLE.has(name),
+		)
+		.sort();
 	return {
 		'run.get_state': {
 			id: 'run.get_state',
@@ -261,6 +286,37 @@ export function workerToolSpecs(agentNames: readonly string[]): Record<WorkerToo
 				['region', 'atlas', 'group', 'steps'],
 			),
 		},
+		'run.submit_repair': {
+			id: 'run.submit_repair',
+			description:
+				"Conclude the repair: what you found, what changed and whether you played it again. Code checks it: a fix is submitted only from the verify step, after a builder or animator change, and an escalation needs a real pipeline area and a title. The owner reviews every outcome at Repair review; end your turn after calling this. Write every field in your own words, never the reporter's.",
+			inputSchema: object(
+				{
+					outcome: {
+						type: 'string',
+						enum: [...SUBMIT_OUTCOMES],
+						description:
+							'fixed: changed and played again. escalate: the cause is in the engine or a tool. needs_person: the cause is math, Game Config or art. not_reproduced: you could not make it happen.',
+					},
+					summary: text('The result in two or three sentences.', 2000),
+					cause: text('What caused it, as far as you found out.', 2000),
+					changes: text('What the builder or animator changed, or "none".', 2000),
+					verified: {
+						type: 'string',
+						enum: [...VERIFIED],
+						description:
+							"Whether you played the game again after the change, and how it went. The worker overrides it with what this step's plays settled as.",
+					},
+					pipeline_area: {
+						type: 'string',
+						enum: [...PIPELINE_AREAS, NO_AREA],
+						description: `The pipeline area when you escalate; "${NO_AREA}" otherwise.`,
+					},
+					pipeline_title: text('The pipeline bug title when you escalate; "" otherwise.', 200),
+				},
+				['outcome', 'summary', 'cause', 'changes', 'verified', 'pipeline_area', 'pipeline_title'],
+			),
+		},
 		'costs.get_run_spend': {
 			id: 'costs.get_run_spend',
 			description: "The run's spend so far, by agent, and its budget cap.",
@@ -271,6 +327,30 @@ export function workerToolSpecs(agentNames: readonly string[]): Record<WorkerToo
 
 type Input = Record<string, unknown>;
 const str = (input: Input, key: string) => String(input[key] ?? '');
+
+/** The submission as stored: every field present, cut to the length the spec allows. */
+export function submissionOf(input: Input): RepairSubmission | string {
+	const outcome = str(input, 'outcome');
+	const verified = str(input, 'verified');
+	if (!(SUBMIT_OUTCOMES as readonly string[]).includes(outcome)) {
+		return `outcome must be one of ${SUBMIT_OUTCOMES.join(', ')}.`;
+	}
+	if (!(VERIFIED as readonly string[]).includes(verified)) {
+		return `verified must be one of ${VERIFIED.join(', ')}.`;
+	}
+	for (const field of ['summary', 'cause', 'changes', 'pipeline_area', 'pipeline_title']) {
+		if (typeof input[field] !== 'string') return `${field} is required.`;
+	}
+	return {
+		outcome: outcome as RepairSubmission['outcome'],
+		summary: str(input, 'summary').slice(0, 2000),
+		cause: str(input, 'cause').slice(0, 2000),
+		changes: str(input, 'changes').slice(0, 2000),
+		verified: verified as RepairSubmission['verified'],
+		pipeline_area: str(input, 'pipeline_area'),
+		pipeline_title: str(input, 'pipeline_title').slice(0, 200),
+	};
+}
 
 async function activity(ctx: ToolContext, tool: string, payload: Record<string, unknown>) {
 	await insertEvent(ctx.tx, ctx.live.id, ctx.agent, 'activity', payload, tool);
@@ -375,6 +455,11 @@ export async function runWorkerTool(
 		case 'run.request_checkpoint': {
 			const kind = input.kind === 'batch_done' ? 'batch_done' : 'step_done';
 			const from = ctx.live.state;
+			if (from.kind === 'repair' && kind !== 'step_done') {
+				return refused(
+					'Refused: a repair run has no region batches. Say a step is done (step_done), or conclude with run.submit_repair.',
+				);
+			}
 			if (kind === 'step_done' && from.step === 'breakdown' && ctx.hasMockups) {
 				return refused(
 					'Refused: this run has mockups, so the worker produces the mockup breakdown itself and opens its checkpoint. You will be told the result.',
@@ -407,6 +492,38 @@ export async function runWorkerTool(
 			}
 			return ok({ step: to.step, note: 'No checkpoint is set here; the run moved on.' });
 		}
+		case 'run.submit_repair': {
+			const from = ctx.live.state;
+			if (from.kind !== 'repair') return refused('Refused: this is not a repair run.');
+			const claimed = submissionOf(input);
+			if (typeof claimed === 'string') return refused(`Refused: ${claimed}`);
+			const plays = await playsOfStep(ctx.tx, ctx.live.id, from.step);
+			const why = checkSubmission(claimed, {
+				step: from.step,
+				fixWrites: await completedWrites(ctx.tx, ctx.live.id, REPAIR_ASSIGNABLE),
+				plays,
+			});
+			if (why) return refused(`Refused: ${why}`);
+			// What was played is what the plays settled as, never the doctor's claim.
+			const submission = { ...claimed, verified: derivedVerified(plays) };
+			const error = await move(ctx, { type: 'conclude' }, `${ctx.agent}: ${submission.outcome}`);
+			if (error) return refused(`Refused: ${error}.`);
+			await activity(ctx, id, { type: 'repair_submitted', step: from.step, ...submission });
+			await insertEvent(
+				ctx.tx,
+				ctx.live.id,
+				ctx.agent,
+				'checkpoint_open',
+				{
+					checkpoint: 'repair_review',
+					step: from.step,
+					outcome: submission.outcome,
+					summary: submission.summary,
+				},
+				id,
+			);
+			return ok({ checkpoint: 'repair_review', note: 'The owner reviews it now. End your turn.' });
+		}
 		case 'run.set_recipe': {
 			if (!ctx.recipes) return refused('The blueprint catalogue could not be read. Try again.');
 			const outcome = await setRecipe(
@@ -420,8 +537,12 @@ export async function runWorkerTool(
 		}
 		case 'run.assign_task': {
 			const agent = str(input, 'agent');
-			if (agent === 'coordinator' || agent === ctx.agent)
-				return refused('Assign to another agent.');
+			if (LEADS.includes(agent) || agent === ctx.agent) return refused('Assign to another agent.');
+			if (ctx.live.state.kind === 'repair' && !REPAIR_ASSIGNABLE.includes(agent)) {
+				return refused(
+					`Refused: ${ART_NOT_REPAIRED}. In a repair run only ${REPAIR_ASSIGNABLE.join(' and ')} take tasks.`,
+				);
+			}
 			if (agent === ANALYST_AGENT) {
 				return refused(
 					'Refused: the mockup analyst is not assigned. The worker runs the mockup breakdown itself when the run has mockups.',

@@ -1,0 +1,586 @@
+{
+	"run": {
+		"project": "jade-tiger-eval",
+		"client": "invisible-demo",
+		"family": "slot",
+		"budgetCapUsd": 10
+	},
+	"answers": {
+		"gamemaker.get_project": {
+			"key": "jade-tiger-eval",
+			"name": "Jade Tiger",
+			"clientKey": "invisible-demo",
+			"gameType": "lines",
+			"gameTypeName": "Lines",
+			"family": "slot",
+			"familyPack": "ready",
+			"published": true,
+			"chips": {
+				"game": [
+					{
+						"id": "kind",
+						"text": "Lines",
+						"title": "The game kind"
+					},
+					{
+						"id": "grid",
+						"text": "5 reels × 3 rows",
+						"title": "The reel grid"
+					},
+					{
+						"id": "rtp",
+						"text": "RTP 96.1%",
+						"title": "Return to player"
+					}
+				],
+				"using": [
+					{
+						"id": "freespins",
+						"text": "Free spins",
+						"title": "Mode freespins is on"
+					},
+					{
+						"id": "wintext",
+						"text": "Win Text",
+						"title": "The project has Win Text"
+					}
+				]
+			},
+			"lockedItems": [
+				{
+					"id": "math",
+					"label": "Math contract",
+					"detail": "RTP 96.1, 5 reels × 3 rows"
+				},
+				{
+					"id": "paytable",
+					"label": "Paytable",
+					"detail": "9 paying symbols"
+				},
+				{
+					"id": "bet_modes",
+					"label": "Bet modes",
+					"detail": "base",
+					"facts": {
+						"betModes": [
+							{
+								"id": "base",
+								"buyBonus": false
+							}
+						]
+					}
+				},
+				{
+					"id": "paylines",
+					"label": "Paylines",
+					"detail": "20 paylines"
+				},
+				{
+					"id": "feature_rules",
+					"label": "Feature rules",
+					"detail": "mode freespins"
+				}
+			],
+			"regionGroups": [
+				{
+					"atlas": "symbols",
+					"manifestKey": "clients/invisible-demo/jade-tiger-eval/manifests/atlas_manifest_symbols.json",
+					"regions": 12
+				},
+				{
+					"atlas": "ui",
+					"manifestKey": "clients/invisible-demo/jade-tiger-eval/manifests/atlas_manifest_ui.json",
+					"regions": 9
+				}
+			],
+			"configEtag": "\"5c1e9a0f7b24d3e8\"",
+			"templateKey": "jade-tiger-eval"
+		},
+		"scene.get_layout": {
+			"layouts": ["desktop", "tablet", "landscape", "portrait"],
+			"mainSizes": {
+				"desktop": {
+					"width": 1920,
+					"height": 1080
+				},
+				"tablet": {
+					"width": 1920,
+					"height": 1080
+				},
+				"landscape": {
+					"width": 1920,
+					"height": 1080
+				},
+				"portrait": {
+					"width": 1080,
+					"height": 1920
+				}
+			},
+			"screens": [
+				{
+					"id": "main",
+					"name": "Base game",
+					"role": "main",
+					"nodes": [
+						{
+							"id": "bg",
+							"kind": "sprite",
+							"label": "Background",
+							"x": 960,
+							"y": 540,
+							"scale": null,
+							"art": "jade_tiger_ui",
+							"region": "bg_main",
+							"skin": null,
+							"clipId": null,
+							"locked": null
+						},
+						{
+							"id": "logo",
+							"kind": "sprite",
+							"label": "Logo",
+							"x": 960,
+							"y": 130,
+							"scale": null,
+							"art": "jade_tiger_ui",
+							"region": "logo",
+							"skin": null,
+							"clipId": null,
+							"locked": null
+						},
+						{
+							"id": "reels",
+							"kind": "reelGrid",
+							"label": "Reels",
+							"x": 960,
+							"y": 560,
+							"scale": null,
+							"art": null,
+							"region": null,
+							"skin": null,
+							"clipId": null,
+							"locked": "bound to the math: the reel grid"
+						},
+						{
+							"id": "bet_panel",
+							"kind": "container",
+							"label": "Bet panel",
+							"x": 960,
+							"y": 1000,
+							"scale": null,
+							"art": null,
+							"region": null,
+							"skin": null,
+							"clipId": null,
+							"locked": null,
+							"children": [
+								{
+									"id": "bet_readout",
+									"kind": "text",
+									"label": "Bet readout",
+									"x": -700,
+									"y": 0,
+									"scale": null,
+									"art": null,
+									"region": null,
+									"skin": null,
+									"clipId": null,
+									"locked": "bound to the math: its parent \"bet_panel\" is, as a readout of the bet"
+								},
+								{
+									"id": "balance_readout",
+									"kind": "text",
+									"label": "Balance readout",
+									"x": -700,
+									"y": 40,
+									"scale": null,
+									"art": null,
+									"region": null,
+									"skin": null,
+									"clipId": null,
+									"locked": null
+								}
+							]
+						},
+						{
+							"id": "spin_button",
+							"kind": "sprite",
+							"label": "Spin button",
+							"x": 1700,
+							"y": 980,
+							"scale": null,
+							"art": "jade_tiger_ui",
+							"region": "btn_spin",
+							"skin": null,
+							"clipId": null,
+							"locked": null
+						},
+						{
+							"id": "autoplay_button",
+							"kind": "sprite",
+							"label": "Autoplay button",
+							"x": 1450,
+							"y": 990,
+							"scale": null,
+							"art": "jade_tiger_ui",
+							"region": "btn_autoplay",
+							"skin": null,
+							"clipId": null,
+							"locked": null
+						},
+						{
+							"id": "menu_button",
+							"kind": "sprite",
+							"label": "Menu button",
+							"x": 90,
+							"y": 90,
+							"scale": null,
+							"art": "jade_tiger_ui",
+							"region": "btn_menu",
+							"skin": null,
+							"clipId": null,
+							"locked": null
+						}
+					]
+				},
+				{
+					"id": "freeSpinsIntro",
+					"name": "Free spins intro",
+					"role": null,
+					"nodes": [
+						{
+							"id": "fs_banner",
+							"kind": "text",
+							"label": "Free spins banner",
+							"x": 960,
+							"y": 450,
+							"scale": null,
+							"art": null,
+							"region": null,
+							"skin": null,
+							"clipId": null,
+							"locked": null
+						},
+						{
+							"id": "fs_continue",
+							"kind": "sprite",
+							"label": "Continue button",
+							"x": 960,
+							"y": 760,
+							"scale": null,
+							"art": "jade_tiger_ui",
+							"region": "btn_continue",
+							"skin": null,
+							"clipId": null,
+							"locked": null
+						}
+					]
+				}
+			],
+			"baseEtag": "\"layout-7a31c0\""
+		},
+		"symbols.get_map": {
+			"states": [
+				"static",
+				"spin",
+				"intro",
+				"land",
+				"win",
+				"postWinStatic",
+				"explosion",
+				"clearReel",
+				"bookIntro",
+				"bookIdle",
+				"stacked",
+				"coinIdle",
+				"coinLand",
+				"coinStick",
+				"coinCollect",
+				"coinBoost",
+				"respinsAdd",
+				"coinUpgrade",
+				"rowUnlock",
+				"jackpotReveal",
+				"mysteryReveal",
+				"flyToMeter",
+				"select",
+				"hint"
+			],
+			"symbols": {
+				"H1": {
+					"static": {
+						"type": "sprite",
+						"assetKey": "jade_tiger_symbols::h1_static"
+					},
+					"win": {
+						"type": "spine",
+						"assetKey": "jade_tiger_rigs",
+						"animationName": "H1_win"
+					}
+				},
+				"H2": {
+					"static": {
+						"type": "sprite",
+						"assetKey": "jade_tiger_symbols::h2_static"
+					},
+					"win": {
+						"type": "spine",
+						"assetKey": "jade_tiger_rigs",
+						"animationName": "H2_win"
+					}
+				},
+				"A": {
+					"static": {
+						"type": "sprite",
+						"assetKey": "jade_tiger_symbols::a_static"
+					}
+				},
+				"K": {
+					"static": {
+						"type": "sprite",
+						"assetKey": "jade_tiger_symbols::k_static"
+					}
+				},
+				"Q": {
+					"static": {
+						"type": "sprite",
+						"assetKey": "jade_tiger_symbols::q_static"
+					}
+				},
+				"J": {
+					"static": {
+						"type": "sprite",
+						"assetKey": "jade_tiger_symbols::j_static"
+					}
+				}
+			},
+			"names": {
+				"H1": "Dragon",
+				"H2": "Tiger",
+				"A": "Ace",
+				"K": "King",
+				"Q": "Queen",
+				"J": "Jack"
+			},
+			"baseEtag": "\"symbols-91d2e4\""
+		},
+		"wintext.get_doc": {
+			"doc": {
+				"amountFormat": "{amount}",
+				"toast": {
+					"full": "WIN {amount}"
+				},
+				"winLevels": {
+					"big": "BIG WIN",
+					"mega": "MEGA WIN",
+					"epic": "EPIC WIN"
+				},
+				"lineMessage": {
+					"byCount": {
+						"3": "{count} {symbolName}",
+						"4": "{count} {symbolName}",
+						"5": "{count} {symbolName}"
+					}
+				}
+			},
+			"existed": true,
+			"blocks": ["amountFormat", "toast", "winLevels", "lineMessage"],
+			"baseEtag": "\"wintext-3be08a\""
+		},
+		"localization.get_strings": {
+			"sourceLang": "en",
+			"targetLangs": ["es"],
+			"protectedTerms": ["Jade Tiger"],
+			"strings": [
+				{
+					"key": "ui.spin",
+					"source": "SPIN",
+					"origin": "manual",
+					"translations": {
+						"es": {
+							"reviewed": true
+						}
+					}
+				},
+				{
+					"key": "ui.bet",
+					"source": "BET",
+					"origin": "manual",
+					"translations": {
+						"es": {
+							"reviewed": true
+						}
+					}
+				},
+				{
+					"key": "ui.balance",
+					"source": "BALANCE",
+					"origin": "manual",
+					"translations": {
+						"es": {
+							"reviewed": true
+						}
+					}
+				},
+				{
+					"key": "freeSpins.intro.title",
+					"source": "YOU WON {count} FREE SPINS",
+					"origin": "manual",
+					"translations": {
+						"es": {
+							"reviewed": true
+						}
+					}
+				},
+				{
+					"key": "freeSpins.intro.button",
+					"source": "CONTINUE",
+					"origin": "manual",
+					"translations": {
+						"es": {
+							"reviewed": true
+						}
+					}
+				},
+				{
+					"key": "bigWin.title",
+					"source": "BIG WIN",
+					"origin": "manual",
+					"translations": {
+						"es": {
+							"reviewed": true
+						}
+					}
+				},
+				{
+					"key": "menu.paytable",
+					"source": "PAYTABLE",
+					"origin": "manual",
+					"translations": {
+						"es": {
+							"reviewed": true
+						}
+					}
+				},
+				{
+					"key": "error.network",
+					"source": "Connection lost. Please try again.",
+					"origin": "manual",
+					"translations": {
+						"es": {
+							"reviewed": false
+						}
+					}
+				}
+			],
+			"baseEtag": "\"strings-c40b71\""
+		},
+		"atlas.list_regions": {
+			"atlases": [
+				{
+					"atlas": "symbols",
+					"boundToAtlasFile": true,
+					"regions": [
+						{
+							"name": "h1_static",
+							"prompt": "a jade dragon coiled on a gold coin",
+							"chosenVariant": "v2",
+							"locked": true,
+							"skipped": false,
+							"mode": null,
+							"layerOf": null,
+							"size": {
+								"w": 256,
+								"h": 256
+							},
+							"rotated": false
+						},
+						{
+							"name": "h2_static",
+							"prompt": "a jade tiger crouching",
+							"chosenVariant": "v1",
+							"locked": true,
+							"skipped": false,
+							"mode": null,
+							"layerOf": null,
+							"size": {
+								"w": 256,
+								"h": 256
+							},
+							"rotated": false
+						}
+					]
+				},
+				{
+					"atlas": "ui",
+					"boundToAtlasFile": true,
+					"regions": [
+						{
+							"name": "btn_spin",
+							"prompt": "a round glowing cyan spin button",
+							"chosenVariant": "v3",
+							"locked": true,
+							"skipped": false,
+							"mode": null,
+							"layerOf": null,
+							"size": {
+								"w": 264,
+								"h": 138
+							},
+							"rotated": false
+						},
+						{
+							"name": "bg_main",
+							"prompt": "deep sea background",
+							"chosenVariant": "v1",
+							"locked": true,
+							"skipped": false,
+							"mode": null,
+							"layerOf": null,
+							"size": {
+								"w": 1920,
+								"h": 1080
+							},
+							"rotated": false
+						}
+					]
+				}
+			]
+		}
+	},
+	"regions": {
+		"ui/btn_spin": {
+			"name": "btn_spin",
+			"prompt": "a round glowing cyan spin button",
+			"chosenVariant": "v3",
+			"locked": true,
+			"skipped": false,
+			"mode": null,
+			"layerOf": null,
+			"size": {
+				"w": 264,
+				"h": 138
+			},
+			"rotated": false,
+			"negative": "",
+			"gptPrompt": "",
+			"seed": 1177,
+			"pipeline": null,
+			"atlasPipeline": "flux-fast",
+			"genPx": 1024,
+			"styleRef": null,
+			"shapeRef": null,
+			"fitMode": null,
+			"outputOverride": null,
+			"position": {
+				"x": 0,
+				"y": 0
+			},
+			"savedBy": {
+				"tool": "atlas",
+				"user": "Mara"
+			},
+			"base": "\"ui-m-2e91\""
+		}
+	}
+}

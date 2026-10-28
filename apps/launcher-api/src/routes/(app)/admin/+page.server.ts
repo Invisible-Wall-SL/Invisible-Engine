@@ -112,6 +112,8 @@ import {
 	DIRECTOR_PENDING_MOCKUP_DAYS_MAX,
 	DIRECTOR_PENDING_MOCKUP_DAYS_MIN,
 	DIRECTOR_PRICING_OVERRIDE_KEY,
+	DIRECTOR_REPAIR_BUDGET_DEFAULT_USD,
+	DIRECTOR_REPAIR_BUDGET_KEY,
 	DIRECTOR_RUN_BUDGET_DEFAULT_USD,
 	DIRECTOR_RUN_BUDGET_KEY,
 	DIRECTOR_RUN_BUDGET_MAX_USD,
@@ -124,6 +126,7 @@ import {
 	deleteAppSetting,
 	getDeployToken,
 	getDirectorPendingMockupDays,
+	getDirectorRepairBudget,
 	getDirectorRunBudget,
 	getRunpodIdleConfig,
 	getRunpodPods,
@@ -250,11 +253,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const runpodStored = await getRunpodPods();
 	const runpodPods = runpodConfigured ? await probeFleet() : [];
 
-	const [directorBudgetUsd, directorPricing, directorPendingMockupDays] = await Promise.all([
-		getDirectorRunBudget(),
-		getDirectorPricing(),
-		getDirectorPendingMockupDays(),
-	]);
+	const [directorBudgetUsd, directorRepairBudgetUsd, directorPricing, directorPendingMockupDays] =
+		await Promise.all([
+			getDirectorRunBudget(),
+			getDirectorRepairBudget(),
+			getDirectorPricing(),
+			getDirectorPendingMockupDays(),
+		]);
 
 	// The own-bundle (desktop) entries of the test-server manifest, for the table-capable stamp
 	// control. One R2 read; a failure is shown on that control, never fails the page.
@@ -347,6 +352,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 			budgetDefaultUsd: DIRECTOR_RUN_BUDGET_DEFAULT_USD,
 			budgetMinUsd: DIRECTOR_RUN_BUDGET_MIN_USD,
 			budgetMaxUsd: DIRECTOR_RUN_BUDGET_MAX_USD,
+			repairBudgetUsd: directorRepairBudgetUsd,
+			repairBudgetDefaultUsd: DIRECTOR_REPAIR_BUDGET_DEFAULT_USD,
 			pricing: directorPricing.pricing,
 			pricingSource: directorPricing.source,
 			pricingOverrideError: directorPricing.overrideError ?? null,
@@ -1327,6 +1334,32 @@ export const actions: Actions = {
 		const budget = Math.round(value * 100) / 100;
 		await setAppSetting(DIRECTOR_RUN_BUDGET_KEY, String(budget), admin.id);
 		return { action: 'setDirectorBudget', ok: `Run budget set to $${budget.toFixed(2)}.` };
+	},
+
+	/** Save the cap of a game repair run (ADR-0012), bounded like the run cap. */
+	setDirectorRepairBudget: async ({ request, locals }) => {
+		const admin = await requireAdmin(locals);
+		const data = await request.formData();
+		const raw = String(data.get('budgetUsd') ?? '').trim();
+		const value = Number(raw);
+		if (!raw || !Number.isFinite(value)) {
+			return fail(400, {
+				action: 'setDirectorRepairBudget',
+				error: 'Enter the budget as a number.',
+			});
+		}
+		if (value < DIRECTOR_RUN_BUDGET_MIN_USD || value > DIRECTOR_RUN_BUDGET_MAX_USD) {
+			return fail(400, {
+				action: 'setDirectorRepairBudget',
+				error: `The budget must be between $${DIRECTOR_RUN_BUDGET_MIN_USD} and $${DIRECTOR_RUN_BUDGET_MAX_USD}.`,
+			});
+		}
+		const budget = Math.round(value * 100) / 100;
+		await setAppSetting(DIRECTOR_REPAIR_BUDGET_KEY, String(budget), admin.id);
+		return {
+			action: 'setDirectorRepairBudget',
+			ok: `Repair budget set to $${budget.toFixed(2)}.`,
+		};
 	},
 
 	/**

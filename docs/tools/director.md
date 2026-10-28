@@ -6,6 +6,8 @@ publish and never change the template's math. You publish in Invisible Game Make
 
 Three screens: **New game** (`/director`), then the run's page (`/director/<run id>`), which is the
 **Mockup breakdown** while the first checkpoint waits and the **Live run** screen from then on.
+Director also repairs one bug in a game that already exists (see "Repair a game bug" below). That run
+has its own layout on the same page and starts from a bug, not from New game.
 
 - **Where it runs:** the launcher itself, at `/director` (a run at `/director/<run id>`). It opens
   full-page behind the launcher's sign-in, never in an iframe. On the launcher home it sits in the
@@ -16,6 +18,7 @@ Three screens: **New game** (`/director`), then the run's page (`/director/<run 
   - Not signed in: you are sent to the sign-in page.
   - Signed in without access: the page shows a 403 error, "Your role does not have access to
     Invisible Director."
+  - A repair run also needs **Triage game bugs** and access to the project (see below).
   - A run answers only to the person who created it: anyone else gets "No such run." The same
     rule covers every image the run page shows (variants, crops, exported art).
 
@@ -100,7 +103,9 @@ The same project setup as Game Maker's "Create a game", plus what the agents nee
    ("This request is still being created" means the first is still copying; wait a moment). A key
    taken meanwhile says so; so does a missing ownership check, or an estimate that has not arrived
    yet ("Wait for the estimate: a run starts only on a priced estimate.").
-7. **Your runs** (below the form): every run you created, with its state, spend and a link.
+7. **Your runs** (below the form): every run you created, with its state, spend and a link. A
+   repair run carries a **Repair · BUG-`<n>`** tag that opens its bug, and shows "—" in the
+   Template column.
 
 ## Mockup breakdown (`/director/<run id>`)
 
@@ -312,7 +317,7 @@ picture on a reload.
   shows the uploads instead: "The galleries fill in as the agents' renders land."
 - **Activity** (right column): the run's rows newest first, grouped under the step they happened
   in, each with the time, who (**You**, **Coordinator**, **Mockup analyst**, **Art director**,
-  **Atlas artist**, **Animator**, **Builder**, **QA**, **Worker**), what they did, a tool chip
+  **Atlas artist**, **Animator**, **Builder**, **QA**, **Game doctor**, **Worker**), what they did, a tool chip
   when a tool was used (Atlas Maker, ComfyUI · RunPod, Game Maker, Scene Editor, Symbols SM, Win
   Text, Localization, Font Maker, Rigger, Flipbook, Sound, FX, Component Editor, Build) and a
   cost chip on billing rows
@@ -320,7 +325,7 @@ picture on a reload.
   pill says **Live** while the stream is open, **Reconnecting** while the browser reopens a dropped
   one, **Polling** when it could not be opened (the page then asks for the run every 5 s). 150 rows
   show at a time; **Show older · n more** pages back.
-- **Message the coordinator:** a text box and **Send**, while the run is running, waiting or
+- **Message the coordinator** (**Message the Game doctor** on a repair run): a text box and **Send**, while the run is running, waiting or
   paused. Otherwise the box is disabled and says "The run is not live, so nobody reads a message
   now." Your message appears in the feed as **You** "…", and the coordinator answers there with
   what changed in the plan ("Sent. The coordinator answers in the activity feed.").
@@ -328,6 +333,57 @@ picture on a reload.
 Every button here is one request with one id: a double click or a retry after a lost connection
 resends the same request and is recorded once. The note, the message and the cap field lock while
 their request is outstanding, so nothing you typed is lost.
+
+## Repair a game bug
+
+A repair run fixes one bug in a game that already exists, inside that game's own project. Nothing is
+copied and no game is created. You start it from the bug, not from New game.
+
+1. Open the bug in [Invisible Game Bug Reports](game-bugs.md) and click **Repair with Director**.
+   It shows only if you have Director and **Triage game bugs**, the bug is **Open** or **Working
+   on**, and no Director run is live on that project.
+2. The run's page opens as a **draft**. The header names the bug: "repairing BUG-12: `<title>`",
+   with a link back to it. Under the banner an **Estimate** card reads "One pass: ~$1.2–5.8. With
+   one revise at Repair review: up to $9" and "The run pauses at its cap of $10". No GPU is used.
+   The figures are placeholders until the pilot measures real repair runs. **Start agents** starts
+   it, as for a new game.
+3. The page shows what is different from a new game:
+   - **Steps:** **1 · Reproduce**, **2 · Fix**, **3 · Verify**, **4 · Repair review**,
+     **5 · Hand-off**. The pill reads "Agents working · step 2 of 5".
+   - No mockups, style board, region groups or Art plan. The RunPod meter is gone.
+   - The agents are the **Game doctor** (reads the bug, makes it happen, plays the game again), the
+     **Builder** and the **Animator** (change the project when the doctor asks). The Game doctor
+     never changes anything itself and never publishes. **Message the Game doctor** sends it a note,
+     for example how to make the bug happen.
+4. When the doctor has finished, the run waits at **Repair review** ("Waiting for you: the repair
+   is ready to review"). The panel shows:
+   - The outcome as a title: **Fixed**, **Hand it to the pipeline**, **Needs a person** (the cause
+     is the math, Game Config or art) or **Could not reproduce it**.
+   - **What caused it**, **What was found**, **What changed** and **Played again**: "Played again:
+     it passed", "Played again: it still fails", "Not played" or, when the draft player is not
+     deployed yet, "Not played (the draft player is not deployed yet)".
+   - For **Hand it to the pipeline**, the pipeline bug **exactly as it will be filed**: tool or
+     area, title and text. It is filed only when you approve.
+   - Your note (optional for approving, needed to send it back), then **Approve the fix** /
+     **Approve and file the pipeline bug** / **Approve and end the run**, and **Send back with my
+     note**. Send back returns the run to the fix step with your note.
+   - Approving needs **Triage game bugs** and the project again. If it was taken away since the
+     run started, the panel shows "Approving a repair needs the “Triage game bugs” permission and
+     access to the project." and nothing changes. **Stop** is never refused.
+5. After you approve, the banner reads "Done: …" with **Open BUG-`<n>`** and **Open in Game
+   Maker ↗**. What happens to the bug:
+   - **Fixed:** the bug stays **Working on**, labelled "Fixed, waiting on publish". The fix is in
+     the project's working copy; you publish it in Game Maker, and that publish resolves the bug.
+   - **Hand it to the pipeline:** the pipeline bug is filed, and the game bug shows "Waiting on
+     pipeline · BUG-`<m>`".
+   - **Needs a person** and **Could not reproduce it:** the bug goes back to the status it had
+     before the run, unless someone changed it meanwhile.
+   - A run that is stopped or fails does the same.
+
+Only one Director run can be live on a project at a time, of either kind. A project marked as a
+Director template cannot be repaired: a template's bug is fixed as a pipeline change. A repair run
+never regenerates art; an art bug ends as **Needs a person**. Publishing in Game Maker while a repair
+run is live asks you to confirm (see [Game Maker](game-maker.md)).
 
 ## How a run works
 
@@ -405,4 +461,6 @@ their request is outstanding, so nothing you typed is lost.
   event does not appear there (the image is still in the project, and in its own tool).
 - The page keeps the newest ~6000 rows of a run; on a longer run the feed and the galleries start
   from there.
+- A repair run cannot repair art, and it plays the game again only once the draft player is
+  deployed. Until then the review says "Not played" and you decide on the doctor's word.
 - The build plan and progress live in `docs/director/PLAN.md` and `docs/director/HISTORY.md`.

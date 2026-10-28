@@ -65,7 +65,7 @@ export const getDoc = defineOp<
 	description:
 		"The project's Win Text templates (sparse: a missing template uses the game's coded default) and the baseEtag to hand back to wintext.update_doc.",
 	inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-	agents: ['builder'],
+	agents: ['builder', 'game-doctor'],
 	scope: 'project',
 	write: false,
 	handler: async (ctx) => {

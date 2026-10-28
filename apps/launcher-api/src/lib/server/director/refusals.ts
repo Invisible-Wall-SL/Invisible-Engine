@@ -26,7 +26,9 @@ export type RefusalId =
 	| 'template_add'
 	| 'global_config'
 	| 'run_on'
-	| 'art_deletion';
+	| 'art_deletion'
+	| 'repair_art'
+	| 'repair_create';
 
 export interface Refusal {
 	id: RefusalId;
@@ -54,6 +56,10 @@ const REFUSALS: Record<RefusalId, string> = {
 	run_on: 'Agents never switch "Run generation on". The Director renders only on RunPod.',
 	art_deletion:
 		'Agents never delete or replace art they did not make: variants, committed tiles, regions.',
+	repair_art:
+		'A repair run does not regenerate or replace art: art is not repaired by Director yet. Report the region as needs_person.',
+	repair_create:
+		'A repair run works on its own project and creates none: Game Maker creates a game from a template.',
 };
 
 export const refusal = (id: RefusalId): Refusal => ({ id, message: REFUSALS[id] });
@@ -168,6 +174,17 @@ export function refusedWriteTarget(key: string): Refusal | null {
 		const segments = key.split('/').filter(Boolean);
 		if (segments.length <= 2) return refusal('game_config');
 	}
+	return null;
+}
+
+/**
+ * What a repair run (ADR-0012) may not do on top of the hard refusals above, or `null`: write to
+ * Atlas Maker or touch ComfyUI at all (`repair_art`), and create a project from a template
+ * (`repair_create`). Asked by the gate once it has the run, so it holds whatever the registry lists.
+ */
+export function repairRefusal(tool: string, op: string, write: boolean): Refusal | null {
+	if (tool === 'comfyui' || (tool === 'atlas' && write)) return refusal('repair_art');
+	if (tool === 'gamemaker' && op === 'create_from_template') return refusal('repair_create');
 	return null;
 }
 

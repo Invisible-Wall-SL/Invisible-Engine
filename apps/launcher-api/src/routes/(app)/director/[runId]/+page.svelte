@@ -27,7 +27,9 @@
 		safeHref,
 		statusLabel,
 		stepNumber,
+		stepsOf,
 		usd,
+		usdRange,
 		variantUrl,
 		type ActionAnswer,
 		type Breakdown,
@@ -35,6 +37,7 @@
 		type CodedElement,
 		type FontRequestEntry,
 		type MockupsAnswer,
+		type RepairEstimateAnswer,
 		type RunEvent,
 		type RunSummary,
 		type StartingPoint,
@@ -49,6 +52,7 @@
 		isRefusedRequest,
 		trimEvents,
 		regionTitle,
+		repairReview,
 		stepViews,
 		type FeedEntry,
 		type RegionView,
@@ -115,19 +119,31 @@
 	const r2Prefix = $derived(run?.r2Prefix ?? '');
 	const folded = $derived.by(() => {
 		void eventsVersion;
-		return foldEvents(events, r2Prefix);
+		return foldEvents(events, r2Prefix, repairRun ? 'repair' : 'create');
 	});
 
+	/** A game repair run (ADR-0012): its bug, repair steps and Repair review replace the create layout. */
+	const repairRun = $derived(run?.kind === 'repair');
 	const startingPoint = $derived(isStartingPoint(run?.startingPoint) ? run.startingPoint : null);
 	const mockupCount = $derived(startingPoint?.mockups.filter((m) => !m.styleOnly).length ?? 0);
 	const styleCount = $derived(startingPoint?.mockups.filter((m) => m.styleOnly).length ?? 0);
-	const stepN = $derived(run ? stepNumber(run.step) : 1);
+	const stepN = $derived(run ? stepNumber(run) : 1);
 	const steps = $derived(run ? stepViews(run, folded, mockupCount) : []);
 	const waitingOnBreakdown = $derived(run?.status === 'waiting' && run.waitingOn === 'breakdown');
 	const waitingOnBatch = $derived(run?.status === 'waiting' && run.waitingOn === 'region_batch');
 	const waitingOnArtPlan = $derived(run?.status === 'waiting' && run.waitingOn === 'art_plan');
 	const waitingOnPublish = $derived(
 		run?.status === 'waiting' && run.waitingOn === 'before_publish',
+	);
+	const waitingOnRepair = $derived(run?.status === 'waiting' && run.waitingOn === 'repair_review');
+	const review = $derived(run && waitingOnRepair ? repairReview(folded, run) : null);
+	const handedOffWords = $derived(
+		{
+			fixed: 'the fix is in the project. Publish it in Game Maker: that publish resolves the bug.',
+			escalate: 'the pipeline bug is filed. The game bug waits on it.',
+			needs_person: 'this needs a person. The bug is back where it was.',
+			not_reproduced: 'it could not be reproduced. The bug is back where it was.',
+		}[folded.repair.submitted?.outcome ?? 'fixed'],
 	);
 	const checkpointPayload = $derived(
 		isRecord(run?.checkpoint?.payload) ? run.checkpoint.payload : null,
@@ -160,7 +176,11 @@
 	/** A checkpoint this page has no panel for: its text and the two buttons. */
 	const waitingOther = $derived(
 		run?.status === 'waiting' &&
-			((!waitingOnBreakdown && !waitingOnArtPlan && !waitingOnBatch && !waitingOnPublish) ||
+			((!waitingOnBreakdown &&
+				!waitingOnArtPlan &&
+				!waitingOnBatch &&
+				!waitingOnPublish &&
+				!waitingOnRepair) ||
 				breakdownUnreadable ||
 				(waitingOnBreakdown && !breakdown && !styleBoard)),
 	);
@@ -220,8 +240,21 @@
 		}
 	}
 
+	/** The repair run's bug title, for the header: a failure only leaves the number. */
+	let bugTitle = $state('');
+	const repairBug = $derived(run?.kind === 'repair' ? run.bugNumber : null);
+	$effect(() => {
+		bugTitle = '';
+		if (repairBug === null) return;
+		let live = true;
+		api<{ title: string }>(`/api/bugs/${repairBug}`)
+			.then((bug) => live && (bugTitle = bug.title))
+			.catch(() => {});
+		return () => (live = false);
+	});
+
 	async function loadProjectDocs(id = runId) {
-		if (!run?.projectCreated) return;
+		if (!run?.projectCreated || run.kind === 'repair') return;
 		const q = projectQuery(run.projectKey, run.clientKey);
 		let doc: MockupsAnswer | null;
 		try {
@@ -247,6 +280,19 @@
 			if (id === runId) fontsErr = describe(e);
 		}
 	}
+
+	/** A repair draft's estimate and the cap it will start with (ADR-0012 §5). */
+	let repairEstimate = $state<RepairEstimateAnswer | null>(null);
+	let repairEstimateErr = $state('');
+	const draftRepair = $derived(repairRun && run?.status === 'draft');
+	$effect(() => {
+		if (!draftRepair) return;
+		let live = true;
+		api<RepairEstimateAnswer>('/api/director/estimate', { json: { kind: 'repair' } })
+			.then((answer) => live && ((repairEstimate = answer), (repairEstimateErr = '')))
+			.catch((e) => live && (repairEstimateErr = describe(e)));
+		return () => (live = false);
+	});
 
 	// ── The live stream, with polling when it cannot be had ───────────────────
 	const KINDS = [
@@ -538,18 +584,22 @@
 	const noteLocked = $derived(Boolean(outstanding[approveIntent] || outstanding[reviseIntent]));
 
 	const approveDone = $derived(
-		waitingOnBatch
-			? 'Recorded. Approved art goes into the project’s Atlas Maker sheet; the agents move on.'
-			: waitingOnPublish
-				? 'Recorded. The draft is yours: publish it in Invisible Game Maker.'
-				: 'Recorded. Rendering starts as soon as the agents pick it up.',
+		waitingOnRepair
+			? 'Recorded. The bug is updated and the run ends. Nothing is published: you do that in Game Maker.'
+			: waitingOnBatch
+				? 'Recorded. Approved art goes into the project’s Atlas Maker sheet; the agents move on.'
+				: waitingOnPublish
+					? 'Recorded. The draft is yours: publish it in Invisible Game Maker.'
+					: 'Recorded. Rendering starts as soon as the agents pick it up.',
 	);
 	const reviseDone = $derived(
-		waitingOnBatch
-			? 'Recorded. The agents redo this batch with your note.'
-			: waitingOnPublish
-				? 'Recorded. The Builder goes back to the build with your note.'
-				: 'Recorded. The Mockup analyst reads your note and looks again.',
+		waitingOnRepair
+			? 'Recorded. The Game doctor goes back to the fix with your note.'
+			: waitingOnBatch
+				? 'Recorded. The agents redo this batch with your note.'
+				: waitingOnPublish
+					? 'Recorded. The Builder goes back to the build with your note.'
+					: 'Recorded. The Mockup analyst reads your note and looks again.',
 	);
 	const approve = () =>
 		act(
@@ -591,7 +641,9 @@
 		act(
 			'message',
 			{ action: 'message', text: message.trim() },
-			'Sent. The coordinator answers in the activity feed.',
+			repairRun
+				? 'Sent. The Game doctor answers in the activity feed.'
+				: 'Sent. The coordinator answers in the activity feed.',
 		).then((ok) => {
 			if (ok) message = '';
 		});
@@ -646,7 +698,7 @@
 	const haveRun = $derived(run !== null);
 	$effect(() => {
 		void recipesKey;
-		if (!haveRun) return;
+		if (!haveRun || repairRun) return;
 		if (artPlanTimer) clearTimeout(artPlanTimer);
 		artPlanTimer = setTimeout(() => void loadArtPlan(), 300);
 		return () => {
@@ -807,7 +859,8 @@
 	/** Newest first, capped: a long run is paged in, never rendered whole. */
 	const feed = $derived(feedAll.slice(-feedShown).reverse());
 	const feedHidden = $derived(Math.max(0, feedAll.length - feed.length));
-	const stepLabel = (id: FeedEntry['step']) => RUN_STEPS.find((s) => s.id === id)?.label ?? id;
+	const stepLabel = (id: FeedEntry['step']) =>
+		(run ? stepsOf(run) : RUN_STEPS).find((s) => s.id === id)?.label ?? id;
 	const lastActivity = $derived(
 		[...folded.feed].reverse().find((f) => f.tone === 'plain' || f.tone === 'job') ?? null,
 	);
@@ -907,6 +960,56 @@
 			{#if fontMarkErr}<p class="err">{fontMarkErr}</p>{/if}
 		</section>
 	{/if}
+{/snippet}
+
+{#snippet repairPanel()}
+	<section class="card review" aria-label="Repair review" bind:this={reviewEl}>
+		<span class="k amber">Waiting for you · Repair review</span>
+		{#if review}
+			<h2 class="review-title">{review.outcomeLabel}</h2>
+			<h3 class="small-head">What caused it</h3>
+			<p class="board">{review.cause || 'Not said.'}</p>
+			<h3 class="small-head">What was found</h3>
+			<p class="board">{review.summary || 'Not said.'}</p>
+			<h3 class="small-head">What changed</h3>
+			<p class="board">{review.changes || 'none'}</p>
+			<h3 class="small-head">Played again</h3>
+			<p class="board">{review.verifiedLabel}</p>
+			{#if review.pipeline}
+				<div class="filed" aria-label="The pipeline bug as it will be filed">
+					<span class="k">The pipeline bug, as it will be filed when you approve</span>
+					<p class="board"><strong>Tool or area:</strong> {review.pipeline.areaName}</p>
+					<p class="board"><strong>Title:</strong> {review.pipeline.title}</p>
+					<p class="board">{review.pipeline.text}</p>
+					<p class="small">
+						It is filed Open, not sent to Pipeline Changes. The game bug then shows “Waiting on
+						pipeline”.
+					</p>
+				</div>
+			{/if}
+		{:else}
+			<h2 class="review-title">The repair</h2>
+			{#if checkpointText}<p class="board">{checkpointText}</p>{/if}
+			<p class="muted">The Game doctor's full report could not be read by this page.</p>
+		{/if}
+		<label class="field">
+			Your note (optional for approving, needed to send it back)
+			<textarea rows="2" bind:value={note} disabled={noteLocked}></textarea>
+		</label>
+		{@render confirmButtons(
+			review?.outcome === 'escalate'
+				? 'Approve and file the pipeline bug'
+				: review?.outcome === 'fixed'
+					? 'Approve the fix'
+					: 'Approve and end the run',
+			'Send back with my note',
+		)}
+		{#if actionErr}<p class="err" role="alert">{actionErr}</p>{/if}
+		<p class="small">
+			Approving ends the run. Director never publishes: you do, in Game Maker, and that publish
+			resolves a fixed bug.
+		</p>
+	</section>
 {/snippet}
 
 {#snippet confirmButtons(approveLabel: string, reviseLabel: string, blocked = '')}
@@ -1410,13 +1513,22 @@
 						<span class="pill {run.status}">{statusLabel(run)}</span>
 					</div>
 					<span class="sub">
-						{run.clientKey ?? 'unassigned'} · from {run.templateProjectKey} ·
-						{mockupCount} mockup{mockupCount === 1 ? '' : 's'}{#if styleCount}, {styleCount} style reference{styleCount ===
-							1
-								? ''
-								: 's'}{/if}
-						{#if startingPoint?.ownershipConfirmed}
-							· ownership confirmed by {startingPoint.ownershipConfirmed.by.name}
+						{#if repairRun}
+							{run.clientKey ?? 'unassigned'} · repairing
+							<a
+								href="{resolve('/game-bugs')}?bug={run.bugNumber}&project={encodeURIComponent(
+									run.projectKey,
+								)}">BUG-{run.bugNumber}</a
+							>{#if bugTitle}: {bugTitle}{/if}
+						{:else}
+							{run.clientKey ?? 'unassigned'} · from {run.templateProjectKey} ·
+							{mockupCount} mockup{mockupCount === 1 ? '' : 's'}{#if styleCount}, {styleCount} style reference{styleCount ===
+								1
+									? ''
+									: 's'}{/if}
+							{#if startingPoint?.ownershipConfirmed}
+								· ownership confirmed by {startingPoint.ownershipConfirmed.by.name}
+							{/if}
 						{/if}
 						{#if run.projectCreated}
 							· <a href="{resolve('/game-maker')}?project={encodeURIComponent(run.projectKey)}"
@@ -1437,17 +1549,19 @@
 					<div class="meter">
 						<span class="k">Claude API</span><span>{usd(run.spend.claudeUsd)}</span>
 					</div>
-					<div class="meter">
-						<span class="k">RunPod{gpuName ? ` ${gpuName}` : ''}</span>
-						<span>
-							{#if run.spend.runpodUsd === 0 && folded.gpuQueued === 0 && (run.step === 'breakdown' || run.status === 'draft')}
-								Idle until you confirm
-							{:else}
-								{usd(run.spend.runpodUsd)}{#if folded.gpuQueued}
-									· {folded.gpuQueued} job{folded.gpuQueued === 1 ? '' : 's'} queued{/if}
-							{/if}
-						</span>
-					</div>
+					{#if !repairRun}
+						<div class="meter">
+							<span class="k">RunPod{gpuName ? ` ${gpuName}` : ''}</span>
+							<span>
+								{#if run.spend.runpodUsd === 0 && folded.gpuQueued === 0 && (run.step === 'breakdown' || run.status === 'draft')}
+									Idle until you confirm
+								{:else}
+									{usd(run.spend.runpodUsd)}{#if folded.gpuQueued}
+										· {folded.gpuQueued} job{folded.gpuQueued === 1 ? '' : 's'} queued{/if}
+								{/if}
+							</span>
+						</div>
+					{/if}
 					{#if run.spend.capUsd !== null}
 						<div class="meter" class:over={capShare >= 1}>
 							<span class="k">Cap</span>
@@ -1489,7 +1603,21 @@
 				{/each}
 			</ol>
 
-			{#if waitingOnBreakdown && !waitingOther}
+			{#if waitingOnRepair}
+				<div class="banner waiting" role="status">
+					<span>
+						<strong>Waiting for you: the repair is ready to review.</strong>
+						Nothing is published and the bug is not closed until you decide.
+					</span>
+					<button
+						type="button"
+						class="amber"
+						onclick={() => reviewEl?.scrollIntoView({ behavior: 'smooth' })}
+					>
+						Review the repair
+					</button>
+				</div>
+			{:else if waitingOnBreakdown && !waitingOther}
 				<div class="banner waiting" role="status">
 					<span>
 						<strong>Waiting for you: check what the agents found in your mockups.</strong>
@@ -1559,7 +1687,10 @@
 				<div class="banner" role="status">
 					<span>
 						<strong>Not started.</strong>
-						{#if run.projectCreated}
+						{#if repairRun}
+							The Game doctor reads the bug and tries to make it happen. Check the estimate, then
+							start.
+						{:else if run.projectCreated}
 							Start the agents when the mockups are ready.
 						{:else}
 							The project was not created, so this draft cannot start. Create the game again from
@@ -1580,8 +1711,10 @@
 			{:else if run.status === 'running'}
 				<div class="banner" role="status">
 					<span>
-						<strong>Agents are working on step {stepN}, {RUN_STEPS[stepN - 1].label}.</strong>
-						{#if run.step === 'breakdown'}
+						<strong>Agents are working on step {stepN}, {stepsOf(run)[stepN - 1].label}.</strong>
+						{#if repairRun}
+							{#if lastActivity}{agentName(lastActivity.agent)} {lastActivity.text}{/if}
+						{:else if run.step === 'breakdown'}
 							The Mockup analyst is reading your mockups.
 						{:else if folded.gpuQueued}
 							{folded.gpuQueued} render{folded.gpuQueued === 1 ? '' : 's'} queued on RunPod.
@@ -1652,6 +1785,25 @@
 						><strong>Stopped.</strong> Nothing more happens on this run; the project stays as it is.</span
 					>
 				</div>
+			{:else if run.status === 'handed_off' && repairRun}
+				<div class="banner done" role="status">
+					<span>
+						<strong>Done: {handedOffWords}</strong>
+					</span>
+					<span class="row">
+						<a
+							class="button"
+							href="{resolve('/game-bugs')}?bug={run.bugNumber}&project={encodeURIComponent(
+								run.projectKey,
+							)}">Open BUG-{run.bugNumber}</a
+						>
+						<a
+							class="button primary"
+							href="{resolve('/game-maker')}?project={encodeURIComponent(run.projectKey)}"
+							>Open in Game Maker ↗</a
+						>
+					</span>
+				</div>
 			{:else if run.status === 'handed_off'}
 				<div class="banner done" role="status">
 					<span>
@@ -1675,6 +1827,30 @@
 				<div class="banner" role="status"><span><strong>{statusLabel(run)}.</strong></span></div>
 			{/if}
 
+			{#if draftRepair}
+				<section class="card" aria-label="Estimate">
+					<h2>What this repair may cost</h2>
+					{#if repairEstimate}
+						{@const est = repairEstimate.estimate}
+						<p>
+							One pass: <strong>{usdRange(est.pass.usd)}</strong>. With one revise at Repair review:
+							up to <strong>{usd(est.withRevise.usd.high)}</strong>. No GPU time is used.
+						</p>
+						<p>
+							The run pauses at its cap of <strong>{usd(repairEstimate.budgetCapUsd)}</strong> and asks
+							you to raise it or stop.
+						</p>
+						{#if est.placeholder}
+							<p class="muted">Placeholder figures until the pilot measures real repair runs.</p>
+						{/if}
+					{:else if repairEstimateErr}
+						<p class="err">{repairEstimateErr}</p>
+					{:else}
+						<p class="muted">Estimating…</p>
+					{/if}
+				</section>
+			{/if}
+
 			{#if refusals.length}
 				<div class="banner refused" role="alert">
 					<span>
@@ -1683,7 +1859,7 @@
 					</span>
 				</div>
 			{/if}
-			{#if actionErr}<p class="err" role="alert">{actionErr}</p>{/if}
+			{#if actionErr && !waitingOnRepair}<p class="err" role="alert">{actionErr}</p>{/if}
 			{#if recorded}<p class="ok" role="status">{recorded}</p>{/if}
 			{#if notice}<p class="ok" role="status">{notice}</p>{/if}
 			{#if loadErr}<p class="err">{loadErr}</p>{/if}
@@ -2150,6 +2326,8 @@
 									Approving ends the run. Director never publishes: you do, in Game Maker.
 								</p>
 							</section>
+						{:else if waitingOnRepair}
+							{@render repairPanel()}
 						{:else if waitingOther}
 							<section class="card review" aria-label="Checkpoint" bind:this={reviewEl}>
 								<span class="k amber">Waiting for you</span>
@@ -2271,19 +2449,28 @@
 							{/if}
 						</section>
 
-						<section class="card" aria-label="Message the coordinator">
-							<h2>Message the coordinator</h2>
+						<section
+							class="card"
+							aria-label="Message the {repairRun ? 'Game doctor' : 'coordinator'}"
+						>
+							<h2>Message the {repairRun ? 'Game doctor' : 'coordinator'}</h2>
 							<textarea
 								rows="3"
 								bind:value={message}
 								disabled={Boolean(outstanding.message) || !can('message')}
 								placeholder={can('message')
-									? 'e.g. Make the wilds gold, not silver'
+									? repairRun
+										? 'e.g. It only happens after a free spin'
+										: 'e.g. Make the wilds gold, not silver'
 									: 'The run is not live, so nobody reads a message now.'}
-								aria-label="Message to the coordinator"
+								aria-label="Message to the {repairRun ? 'Game doctor' : 'coordinator'}"
 							></textarea>
 							<div class="row between">
-								<span class="small">It updates the plan and tells you what changed.</span>
+								<span class="small"
+									>{repairRun
+										? 'It goes to the Game doctor, who answers in the feed.'
+										: 'It updates the plan and tells you what changed.'}</span
+								>
 								<button
 									type="button"
 									class="primary"
@@ -2835,6 +3022,24 @@
 	.fonts a {
 		color: #7ee0c0;
 		font-size: 12px;
+	}
+	.small-head {
+		margin: 10px 0 2px;
+		font-size: 11px;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: #80808c;
+	}
+	.filed {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		margin-top: 12px;
+		padding: 10px 12px;
+		border: 1px solid #5c4613;
+		border-radius: 8px;
+		background: #241d12;
 	}
 	.board {
 		margin: 0;

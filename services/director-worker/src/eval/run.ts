@@ -7,18 +7,27 @@ import {
 	sumUsage,
 	VisionError,
 	type BilledResponse,
-	type Usage,
 	type VisionTransport,
 } from '../mockups/vision.ts';
-import { modelProfile } from '../model.ts';
+import { modelProfile, type ModelTransport } from '../model.ts';
+import {
+	EvalCapped,
+	ModelUnavailable,
+	newLedgers,
+	safeMessage,
+	type Ledger,
+	type Side,
+} from './cap.ts';
 import { expectedBreakdown, referenceAdapters, referenceTemplateKey } from './mockupSet.ts';
 import {
 	EVAL_REPORT_VERSION,
 	evalLine,
 	parseEvalReport,
+	type EvalOutcome,
 	type EvalReport,
 	type EvalSide,
 } from './report.ts';
+import { DOCTOR_AGENT, runRepairEval } from './repairRun.ts';
 import { evalItems, scoreBreakdown } from './score.ts';
 
 /**
@@ -49,11 +58,16 @@ export interface EvalInput {
 	capUsd: number;
 	/** A factory is called only once a model call is certain, so a run that stops earlier needs no key. */
 	model: VisionTransport | (() => VisionTransport);
+	/**
+	 * The chat transport of an agent whose reference set is whole runs (`game-doctor`'s repair
+	 * set): the same seam the worker's drive calls the model through, behind the same cap.
+	 */
+	chat?: ModelTransport | (() => ModelTransport);
+	/** Run only these cases of such a set (an id, or its number: `03`, `3`); absent: all of them. */
+	cases?: string[];
 	pricing: DirectorPricing;
 	catalog: AgentCatalog;
 }
-
-type Side = 'before' | 'after';
 
 /** A pack file: its name (the family) and its text. */
 export interface PackFile {
@@ -70,33 +84,6 @@ function loadPack(
 	return parsed.ok
 		? { ok: true, pack: parsed.pack }
 		: { ok: false, errors: parsed.errors.map((e) => `${pack.file}: ${e}`) };
-}
-
-interface Ledger {
-	calls: number;
-	costUsd: number;
-	usages: Usage[];
-}
-
-type Outcome = Pick<
-	EvalReport,
-	'result' | 'costUsd' | 'capped' | 'set' | 'before' | 'after' | 'items' | 'errors'
->;
-
-/** The cap stopped the run: the message says where. */
-class EvalCapped extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = 'EvalCapped';
-	}
-}
-
-/** The model could not be reached at all (no key, no client): no side made a call. */
-class ModelUnavailable extends Error {
-	constructor(cause: unknown) {
-		super(cause instanceof Error ? cause.message : String(cause));
-		this.name = 'ModelUnavailable';
-	}
 }
 
 /**
@@ -116,17 +103,6 @@ function loadDefinition(
 		return { ok: false, errors: [(error as Error).message] };
 	}
 	return parsed;
-}
-
-/** An error's message as a report may carry it: one line, short, and nothing key-shaped. */
-function safeMessage(error: unknown): string {
-	const text = error instanceof Error ? error.message : String(error);
-	return text
-		.replace(/sk-ant-[\w-]+/g, '[redacted]')
-		.replace(/\bBearer\s+\S+/gi, 'Bearer [redacted]')
-		.replace(/\s+/g, ' ')
-		.trim()
-		.slice(0, 300);
 }
 
 /**
@@ -180,7 +156,7 @@ function capTransport(
 	});
 }
 
-function finish(input: EvalInput, outcome: Outcome): EvalReport {
+function finish(input: EvalInput, outcome: EvalOutcome): EvalReport {
 	const body = {
 		agent: input.agent,
 		head: { sha: input.headSha },
@@ -194,7 +170,12 @@ function finish(input: EvalInput, outcome: Outcome): EvalReport {
 	);
 }
 
-const nothingRan = (result: 'invalid' | 'no-eval-set', errors: string[]): Outcome => ({
+/** An evaluation that needs a chat transport was given none. */
+const notConfigured = (): never => {
+	throw new Error('this evaluation needs a chat transport (EvalInput.chat)');
+};
+
+const nothingRan = (result: 'invalid' | 'no-eval-set', errors: string[]): EvalOutcome => ({
 	result,
 	costUsd: 0,
 	capped: false,
@@ -210,8 +191,11 @@ export async function runAgentEval(input: EvalInput): Promise<EvalReport> {
 	if (!edited.ok) return finish(input, nothingRan('invalid', edited.errors));
 	const afterPack = loadPack(input.afterPack);
 	if (!afterPack.ok) return finish(input, nothingRan('invalid', afterPack.errors));
-	// Only the mockup analyst has a reference set so far (`mockupSet.ts`).
-	if (edited.agent.name !== ANALYST_AGENT) return finish(input, nothingRan('no-eval-set', []));
+	// Two reference sets: the mockup analyst's (`mockupSet.ts`) and the game doctor's repair set
+	// (`repairCase.ts`): everything else has none yet.
+	if (edited.agent.name !== ANALYST_AGENT && edited.agent.name !== DOCTOR_AGENT) {
+		return finish(input, nothingRan('no-eval-set', []));
+	}
 
 	const notes: string[] = [];
 	let main: AgentDefinition | null = null;
@@ -235,10 +219,18 @@ export async function runAgentEval(input: EvalInput): Promise<EvalReport> {
 
 	const definitions: Record<Side, AgentDefinition | null> = { before: main, after: edited.agent };
 	const packs: Record<Side, FamilyPack | null> = { before: mainPack, after: afterPack.pack };
-	const ledgers: Record<Side, Ledger> = {
-		before: { calls: 0, costUsd: 0, usages: [] },
-		after: { calls: 0, costUsd: 0, usages: [] },
-	};
+	if (edited.agent.name === DOCTOR_AGENT) {
+		const outcome = await runRepairEval({
+			definitions,
+			packs,
+			cases: input.cases,
+			capUsd: input.capUsd,
+			chat: input.chat ?? (() => notConfigured()),
+			pricing: input.pricing,
+		});
+		return finish(input, { ...outcome, errors: [...notes, ...outcome.errors] });
+	}
+	const ledgers = newLedgers();
 	const finished: Record<Side, Breakdown | null> = { before: null, after: null };
 	let expected: Breakdown | null = null;
 	let failure: { error: unknown; side: Side | null } | null = null;

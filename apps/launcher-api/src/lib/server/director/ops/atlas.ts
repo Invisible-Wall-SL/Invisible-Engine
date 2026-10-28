@@ -351,7 +351,7 @@ export const listRegions = defineOp<
 		properties: { atlas: atlasProp },
 		additionalProperties: false,
 	},
-	agents: ['atlas-artist', 'atlas-technician', 'mockup-analyst'],
+	agents: ['atlas-artist', 'atlas-technician', 'game-doctor', 'mockup-analyst'],
 	scope: 'project',
 	write: false,
 	handler: async (ctx, { atlas }) => {
@@ -385,7 +385,7 @@ export const getRegion = defineOp<{ atlas: string; region: string }, Record<stri
 		required: ['atlas', 'region'],
 		additionalProperties: false,
 	},
-	agents: ['atlas-artist', 'atlas-technician', 'art-director'],
+	agents: ['atlas-artist', 'atlas-technician', 'art-director', 'game-doctor'],
 	scope: 'project',
 	write: false,
 	handler: async (ctx, { atlas, region }) => {
