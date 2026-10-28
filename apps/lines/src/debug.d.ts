@@ -11,3 +11,5 @@ declare const __IE_BUILD__: {
 	lockfileSha256?: string;
 	launcherVersion?: string;
 };
+/** The game families compiled into the bundle (`config-vite` `PUBLIC_IE_FAMILIES`); `slot` always. */
+declare const __IE_FAMILIES__: readonly import('game-config').ConfigFamily[];
