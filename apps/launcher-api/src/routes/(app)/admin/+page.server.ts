@@ -141,7 +141,11 @@ import { parseCostImport } from '$lib/server/costs/importMonths';
 import { importMonths, setMonthEur, setMonthUsd, TOTAL_KEY } from '$lib/server/costs/months';
 import { isProviderId, type ProviderId } from '$lib/server/costs/types';
 import { FILE_PRICING, getDirectorPricing } from '$lib/server/costs/pricingConfig';
-import { KEPT_REASON_WORDS, sweepPendingMockups } from '$lib/server/director/mockupCleanup';
+import {
+	KEPT_REASON_WORDS,
+	sweepEndedRunDrafts,
+	sweepPendingMockups,
+} from '$lib/server/director/mockupCleanup';
 import { mergePricing } from '$lib/server/costs/directorPricing';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -1382,9 +1386,13 @@ export const actions: Actions = {
 					.map((k) => `${k.client}/${k.project} (${KEPT_REASON_WORDS[k.reason]})`)
 					.join(', ')}.`
 			: '';
+		const drafts = await sweepEndedRunDrafts();
+		const draftFiles =
+			drafts.ended.reduce((n, d) => n + d.deleted, 0) +
+			drafts.orphans.reduce((n, d) => n + d.deleted, 0);
 		return {
 			action: 'sweepDirectorMockups',
-			ok: `Cleared ${report.cleared.length} abandoned key(s), ${files} file(s).${kept}`,
+			ok: `Cleared ${report.cleared.length} abandoned key(s), ${files} file(s).${kept} Drafts: cleared ${drafts.ended.length} ended project(s) and ${drafts.orphans.length} unfinished draft(s), ${draftFiles} file(s); kept ${drafts.keptLive.length} still in use.`,
 		};
 	},
 

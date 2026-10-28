@@ -29,7 +29,20 @@
  *      once draw 8 and one plain, and eight again after draw all 8;
  *    - the clock is the game's (`emitterDeltaSeconds`): a one-shot of 1 emitter-second is on screen
  *      within its game time (~430 ms, failing past 1.5×), not ~1000 ms, and then gone.
- * 3. `node --check` on every inline script of `view.html`.
+ * 3. `/shaders`' Particles element (step 8d.7): the real `ParticlePreviewStage`, its clock stepped by
+ *    hand (`fxPreviews/shaders.entry.ts`), materials made for particles:
+ *    - hidden, or with no effect, it mounts nothing and draws nothing;
+ *    - the Burst: the mesh draws a ring (every 15° at its radius, nothing at the centre), its
+ *      `?fxdebug=1` line on at 1/8; all gone before 2 s, and replayed after;
+ *    - paused, nothing moves; Restart empties it and the ring starts again;
+ *    - Strength is a uniform write (no remount), seen while paused; an edit while paused still
+ *      shows particles;
+ *    - the Fountain: a jet through the mesh, rising above the centre;
+ *    - an atlas region as the art: the mesh draws it, not the sprite;
+ *    - a kind no longer registered: plain, its sprites drawn;
+ *    - hidden: released, its load printed (the effect carries its cost); shown again, 1/8: no slot
+ *      leaked over every rebuild.
+ * 4. `node --check` on every inline script of `view.html`.
  * Never invisible: every plain case draws its sprites.
  *
  *   pnpm --filter fx-spike fx-previews
@@ -92,6 +105,11 @@ try {
 		entry: 'fxPreviews/editor.entry.ts',
 		name: 'editor',
 		outDir: join(dir, 'editor'),
+	});
+	const shadersHtml = await buildLauncherPage({
+		entry: 'fxPreviews/shaders.entry.ts',
+		name: 'shaders',
+		outDir: join(dir, 'shaders'),
 	});
 	console.log(`pages built (${((Date.now() - began) / 1000).toFixed(1)} s)`);
 	browser = await launchChrome({ name: 'fx-previews', logAll: true });
@@ -271,6 +289,95 @@ try {
 					shown < c.emitterSeconds * 1000 * 0.75 &&
 					c.end.drawn === 0,
 				`on screen ${Math.round(shown)} ms (game ${Math.round(c.expectedMs)} ms, wall-clock seconds ${c.emitterSeconds * 1000} ms); peak ${c.peak}; at the end ${px(c.end)}`,
+			);
+		}
+
+		console.log(`\nWebGL${gl}: /shaders' Particles element`);
+		const { result: s, errors: sErrors } = await play(shadersHtml, gl);
+		check('the page ran without errors', !!s && sErrors.length === 0, sErrors.join(' | '));
+		if (s) {
+			check(`drawn on WebGL${gl}`, s.gl === gl, `WebGL${s.gl}`);
+			check(
+				'hidden, or with no effect, it mounts nothing and draws nothing',
+				s.hidden.pixels.drawn === 0 &&
+					s.hidden.lines.length === 0 &&
+					s.hidden.state === 'none' &&
+					s.noEffect.pixels.drawn === 0 &&
+					s.noEffect.state === 'none',
+				`${px(s.hidden.pixels)}; ${s.hidden.lines.length} lines`,
+			);
+			const green = (p) => p[1] > 150 && p[0] < 90 && p[2] < 90 && p[3] > 128;
+			const ringed = s.burst.ring.filter(green).length;
+			check(
+				'the Burst draws a ring through the mesh: every 15° at its radius, nothing at the centre',
+				s.burst.state === 'on' &&
+					mesh(s.burst.pixels) &&
+					ringed === 24 &&
+					s.burst.centre[3] < 128 &&
+					said(s.burst.lines, 'shaders/preview: on (custom:solid; 1/8 drawing)'),
+				`${ringed}/24 on the ring, centre alpha ${s.burst.centre[3]}; ${px(s.burst.pixels)}`,
+			);
+			check(
+				'every particle is gone before 2 s, and the ring is replayed after',
+				s.gone.drawn === 0 && mesh(s.again),
+				`at 1.75 s ${px(s.gone)}; at 2.3 s ${px(s.again)}`,
+			);
+			check(
+				'paused, nothing moves; Restart empties the stage, and playing again starts the ring',
+				s.paused.same &&
+					mesh(s.paused.pixels) &&
+					s.restarted.drawn === 0 &&
+					mesh(s.restartedPlaying),
+				`paused ${px(s.paused.pixels)}; restarted ${px(s.restarted)}; then ${px(s.restartedPlaying)}`,
+			);
+			check(
+				'Strength is a uniform write: seen while paused, with no remount',
+				mesh(s.strength.full) &&
+					s.strength.low.green === 0 &&
+					s.strength.low.drawn > DRAWN &&
+					mesh(s.strength.back) &&
+					s.strength.lines.filter((l) => l.includes(': on (')).length === 1,
+				`1: ${px(s.strength.full)}; 0.25: ${px(s.strength.low)}; 1: ${px(s.strength.back)}`,
+			);
+			check(
+				'paused, an edit rebuilds the emitter and still shows its particles',
+				mesh(s.pausedEdit),
+				px(s.pausedEdit),
+			);
+			check(
+				'the Fountain draws a jet through the mesh, rising above the centre',
+				s.fountain.state === 'on' &&
+					mesh(s.fountain.pixels) &&
+					s.fountain.halves.above > DRAWN / 2 &&
+					s.fountain.halves.below > 0,
+				`${px(s.fountain.pixels)}; above ${s.fountain.halves.above}, below ${s.fountain.halves.below}`,
+			);
+			check(
+				'an atlas region as the art: the mesh draws it, not the sprite',
+				s.region.state === 'on' && mesh(s.region.pixels),
+				px(s.region.pixels),
+			);
+			check(
+				'a kind no longer registered draws plain: the sprites, never invisible',
+				s.unregistered.state === 'not registered' &&
+					plain(s.unregistered.pixels) &&
+					said(s.unregistered.lines, 'shaders/preview: plain, not registered'),
+				px(s.unregistered.pixels),
+			);
+			check(
+				'hidden: released with its load (the effect carries its cost), nothing drawn',
+				s.hiddenAgain.pixels.drawn === 0 &&
+					s.hiddenAgain.lines.some((l) =>
+						/shaders\/preview: released, its peak [\d.]+ (k|M)?px covered, load [\d.]+( k| M)?/.test(
+							l,
+						),
+					),
+				s.hiddenAgain.lines.join(' | '),
+			);
+			check(
+				'shown again it draws at 1/8: no slot leaked over every rebuild, and destroying it leaves nothing',
+				said(s.slots, 'shaders/preview: on (custom:solid; 1/8 drawing)') && s.destroyed === 0,
+				s.slots.join(' | '),
 			);
 		}
 	}

@@ -550,6 +550,12 @@ svelte-check at baseline, and the current games building with no changed screen.
      - the preview harness on WebGL1 and WebGL2;
      - the page played headless.
    - **Exit:** an artist builds a material in `/shaders` and sees it on particles.
+   - **As built** (#1423):
+     - **The cost rides in the effect only when made for particles** (`madeFor`, `cost`,
+       `samples`), so element docs stay byte-identical; the effects route's `costs` stays `/fx`'s
+       source, and the game's `?fxdebug=1` prints load when the effect carries one.
+     - **The page gate** (`shader-page`) mounts the real `/shaders` headless, as `fx-page` does for
+       `/fx`; it found that the page never registered the `fxMaterial` behaviour.
 8. **Play-QA and calibration.**
    - **Contents:** `scripts/playtest/particle-material-play.mjs`, on a current-games stand-in with
      one material layer.
@@ -560,6 +566,14 @@ svelte-check at baseline, and the current games building with no changed screen.
      - there are no errors or stalls.
    - **Owner pass:** a phone check reading `?fxdebug=1`, then the caps in §10 updated from it.
    - **Exit:** the play passes; the status and guides are current.
+   - **As built** (#1425):
+     - **By hand, not in CI:** the play needs a release build of the runtime; its behaviours are
+       held in `check:all` by `particle-material`, `player` and `model`.
+     - **WebGL1 and a cap run:** each run plays on both GL versions, and a nine-layer effect
+       proves the cap holds for the whole play (no pop).
+     - **`?fxdebug=1` is drawn on the page** too (`debugPanel.ts`), since a phone has no console.
+     - **The play found the settled peak never printed** (it read 88× low); fixed with a trailing
+       print.
 
 ## 16. Decisions (owner, 2026-10-25)
 

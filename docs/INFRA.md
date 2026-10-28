@@ -29,6 +29,9 @@
  ├─ (no public domain) ──────► DIRECTOR WORKER (Node, services/director-worker) ──► the launcher's
  │                            Postgres; drives Invisible Director runs (Anthropic API from PLAN 3.4)
  │
+ ├─ (no public domain) ──────► DRAFT PLAYER (Node, services/draft-player) ◄── the launcher, over
+ │                            Railway private networking; plays a QA draft in a headless browser
+ │
  └─ R2 bucket invisibleassets — the shared system of record every service above reads/writes
     R2 bucket invisible-backups — nightly encrypted backups (GitHub Actions, see "Backups")
 
@@ -49,6 +52,7 @@ notes call it `Invisible launcher`.
 | **Invisible-test-Server**       | `games.invisiblewall.org`                                                  | Node (`server.mjs`)              | **repo root**, Dockerfile Path `services/test-server/Dockerfile`   |
 | **game-server**                 | `rooms.invisiblewall.org` (generated: `game-server-production-eda5.up.railway.app`) | Node 22 (Colyseus 0.18)          | **repo root**, Dockerfile Path `services/game-server/Dockerfile`   |
 | **director-worker**             | none (private) — **the owner creates it**, see "Invisible Director worker" | Node 22 (`src/main.ts`)          | **repo root**, Dockerfile Path `services/director-worker/Dockerfile` |
+| **draft-player** | none (private, `draft-player.railway.internal`) — **the owner creates it**, see "Invisible Director draft player" | Node 22 (`src/server.mjs`) + Chromium headless shell | **repo root**, Dockerfile Path `services/draft-player/Dockerfile` |
 | **Postgres**                    | internal (`postgres.railway.internal`)                                     | Postgres                         | —                                                                  |
 
 All deploy from GitHub `Invisible-Wall-SL/Invisible-Engine`, branch `main`, **auto-deploy on push**.
@@ -85,6 +89,7 @@ GitHub Releases during install. Two consequences for a deploy:
 | **sheet-tool**            | `/services/sheet-tool/**`, `/services/_shared/**`           |
 | **Invisible-test-Server** | `/services/test-server/**`, `/scripts/mock-rgs-server*.mjs` |
 | **director-worker**       | `/services/director-worker/**`, `/packages/director-costs/**` |
+| **draft-player** | `/services/draft-player/**`, `/services/test-server/**`, `/scripts/current-games/lib/**`, `/scripts/current-games/screens/**`, `/scripts/current-games/costs.json`, `/scripts/playtest/headless-shell.mjs`, `/scripts/mock-*.mjs`, `/packages/engine-mechanics/package.json`, `/packages/engine-mechanics/src/board.js` |
 | **game-server**           | `/services/game-server/**`, `/packages/engine-mechanics/**`, `/packages/game-config/**`, `/scripts/ts-loader.mjs` |
 
 Each list is exactly what that service's Dockerfile `COPY`s, so **a new build input needs a new watch path** or the service will quietly keep deploying the old code. The same lists live in `scripts/deploy-drift.mjs` (`deploy-drift.fixture.mjs` fails when the two differ), so change both. The **launcher** deliberately has none: it builds from the whole pnpm workspace (`apps/`, `packages/`, the lockfile, turbo config), and a partial list there would strand a real change.
@@ -132,7 +137,7 @@ So a push is fully out when **every service you expected to build says `Success 
 
 **Then verify the RUNNING code, not the build:**
 
-- **Every public service at once** — `node scripts/deploy-drift.mjs` (from a full clone) asks each service which commit it runs and lists the commits on `main` after it that touch its watch paths (every commit, for the launcher). `deploying` means they are under 45 minutes old; `behind` means one is older, a deploy Railway never ran. The **Deploy drift** workflow (`.github/workflows/deploy-drift.yml`) runs it 45 minutes after every push to `main`, then every 15 minutes while anything is behind (up to ~5 h), and keeps ONE open issue, *Deploy drift: a Railway service is behind main*, while anything is behind, closing it once everything has caught up. Its half-hourly schedule is only a backstop: GitHub runs this repo's schedules hours late (the nightly backup set for 02:37 UTC starts around 07:30). Why it matters: Railway deploys on GitHub's push webhook and never retries one it missed (an outage, a dropped webhook). The launcher catches up on the next push, but a watch-path service only rebuilds on a push that touches its own files, so its missed deploy stays missing. The fix is to deploy that service's latest commit in Railway; a Redeploy of an old deployment rebuilds the same old commit. It can't see `director-worker` (no public URL); check that one's commit status by hand.
+- **Every public service at once** — `node scripts/deploy-drift.mjs` (from a full clone) asks each service which commit it runs and lists the commits on `main` after it that touch its watch paths (every commit, for the launcher). `deploying` means they are under 45 minutes old; `behind` means one is older, a deploy Railway never ran. The **Deploy drift** workflow (`.github/workflows/deploy-drift.yml`) runs it 45 minutes after every push to `main`, then every 15 minutes while anything is behind (up to ~5 h), and keeps ONE open issue, *Deploy drift: a Railway service is behind main*, while anything is behind, closing it once everything has caught up. Its half-hourly schedule is only a backstop: GitHub runs this repo's schedules hours late (the nightly backup set for 02:37 UTC starts around 07:30). Why it matters: Railway deploys on GitHub's push webhook and never retries one it missed (an outage, a dropped webhook). The launcher catches up on the next push, but a watch-path service only rebuilds on a push that touches its own files, so its missed deploy stays missing. The fix is to deploy that service's latest commit in Railway; a Redeploy of an old deployment rebuilds the same old commit. It can't see `director-worker` or `draft-player` (no public URL); check their commit statuses by hand.
 - **launcher** — `curl -s https://app.invisiblewall.org/api/health` names the running commit (`"commit"`, 12 chars of `RAILWAY_GIT_COMMIT_SHA`, since 2026-10-21). `curl -s https://app.invisiblewall.org/_app/version.json` returns `{"version":"<ms epoch>"}`, SvelteKit's build stamp. Decode it (`new Date(Number(v))`); if it is minutes old, this deploy is live. Both work for ANY launcher change, unlike probing a route for a 404 → 401 flip, which only proves a deploy when the change ADDS a route.
 - **test server** — `GET https://games.invisiblewall.org/healthz` names the running commit the same way (since 2026-10-21).
 - **atlas-tool / sheet-tool** — `GET /healthz` (gate-exempt since 2026-09-29) names the running commit (`"commit"`, 12 chars of `RAILWAY_GIT_COMMIT_SHA`), the direct answer to "did my commit deploy?". Every other path needs a launcher session, so the only proof of BEHAVIOUR is exercising the change through the launcher, signed in. The commit-status read works too and needs no Railway token:
@@ -271,6 +276,72 @@ Then, on the new service:
      DIRECTOR_SERVICE_TOKEN is unset"`** in the log: the worker is up and idle. Set both
      (`DIRECTOR_SERVICE_TOKEN` must equal the launcher's), then redeploy.
 
+## Invisible Director draft player (2026-10-27, ADR-0010, PLAN 9D)
+
+`services/draft-player` plays a QA draft (the run-scoped freeze `build.request_draft` writes under
+`<C>/<P>/director/drafts/<draftId>/`) in Chromium's headless shell, one side of the kind's
+`scripts/current-games/screens/<kind>.json`, and reports which screens it reached, where a wait
+stalled and what the console said. It reuses the current-games harness libraries and the Invisible
+Test Server unchanged (copied into the image at their repo paths). It never publishes and holds
+**no R2 or database credential**: the launcher sends presigned R2 URLs for everything it reads
+(the draft, `_runtime/lines@<v>`) and writes (the report, up to 40 screenshots, 1 h TTL), plus a
+callback URL. One play at a time; the rest queue in memory.
+
+- **URL:** none public. Reached only over Railway private networking at
+  `http://draft-player.railway.internal:8080` — that is the launcher's `DRAFT_PLAYER_URL` (plain
+  `http`, the private network is not TLS; the port is the service's `PORT`, set to `8080`). The
+  player's "presigned https storage only" check refuses `localhost`, IP literals and
+  `*.internal`/`*.local` hosts for the URLs **inside** a `/play` body (the presigned GETs/PUTs and
+  the callback); it says nothing about its own listen address, so `.railway.internal` as the
+  launcher's `DRAFT_PLAYER_URL` is fine. The callback goes back over the public internet to
+  `${ORIGIN}/api/director/drafts/callback`, so the launcher's `ORIGIN` must be its public https
+  origin (`https://app.invisiblewall.org`), as for the atlas callback.
+- **Listen address:** `server.mjs` binds `::` (dual-stack on Linux), so it is reachable on
+  `draft-player.railway.internal` whether `production`'s private network is IPv6-only (environments
+  created before Railway's late-2025 dual-stack change) or dual-stack. A `/health` read over the
+  private network (step 5 below) is still the proof.
+- **Wire:** `POST /play`, `GET /progress?jobRef=`, `POST /cancel` carry `X-Draft-Signature`
+  (HMAC-SHA256 over time, request line and body with `DRAFT_PLAYER_SECRET`, 300 s tolerance;
+  `src/signing.mjs`). The player signs its callback the same way. `GET /health` is open:
+  `{ok, busy, queued}`. It does not name the commit, so "did it deploy?" is the commit-status read
+  (`Invisible Pipeline - Draft Player`, or whatever Railway names it).
+- **Image:** `node:22-bookworm-slim` + `npx playwright@1.63.0 install --with-deps
+  chromium-headless-shell` (the version CI renders with; keep it in step with
+  `scripts/current-games/headless-shell.sh`). No `pnpm install`, no `node_modules`. Build context =
+  repo root. The build downloads the browser from Playwright's CDN and Debian packages at build
+  time, so a CDN outage fails the build (a red build, the last good deploy stays live).
+- **Watch Paths** (the table above): exactly what the Dockerfile `COPY`s. A push touching the
+  harness libraries, screen scripts, `costs.json`, the test server or any `scripts/mock-*.mjs`
+  rebuilds it. A rebuild kills a play in flight; the launcher's fallback watch sees `unknown` on
+  `/progress`, submits once more, then fails the job.
+- **Resources:** one play = one headless shell on SwiftShader, CPU-bound for 2–11 minutes and
+  0.5–1 GB of memory (ADR-0010 §2, estimates — measure on the first plays). A play may download up
+  to 1 GB (draft + runtime) to the container's temp dir; the runtime is cached by version (two
+  kept), the draft deleted after each play. Replicas: **1**. Jobs live in one process's memory, so
+  a second replica would answer `/progress` for jobs it does not have.
+- **Fonts:** a play loads the game's Typekit kit from Adobe (`use.typekit.net`) over Railway's
+  egress, as players do; unlike the CI harness it has no mirror. An Adobe outage or a kit whose
+  domain list refuses the local play origin shows up as stalled waits or console errors in the
+  report, which QA would read as findings.
+- **Cost:** ~$0.01 per play at Railway's usage rates, ~$1–2/month idle (ADR-0010 §2).
+
+**Owner set-up (once),** in the **existing** Railway project (as for the worker):
+
+1. **+ Create → GitHub Repo** → this repo. **Name** `draft-player`. **Settings → Source:** Root
+   Directory empty (repo root), branch `main`. **Build:** Builder = Dockerfile, Dockerfile Path =
+   `services/draft-player/Dockerfile`. **Watch Paths:** the draft-player row above.
+2. **Networking:** no public domain (delete one if Railway generated it). Private networking is on
+   by default; the service's private host is `draft-player.railway.internal`.
+3. **Deploy → Healthcheck Path** `/health`, timeout 120 s. **Replicas** 1. **Memory** limit 1–2 GB.
+4. **Variables:** `PORT` = `8080`; `DRAFT_PLAYER_SECRET` = a new value from `openssl rand -hex 32`.
+   On the **launcher:** `DRAFT_PLAYER_SECRET` = the same value, `DRAFT_PLAYER_URL` =
+   `http://draft-player.railway.internal:8080`. **Apply changes / Deploy** on both.
+5. **Verify:** the player's deploy log shows `[draft-player] listening on :8080`. Then from the
+   launcher's container (`railway ssh` into the launcher service, or right-click it on the canvas →
+   Copy SSH Command) run `node -e "fetch('http://draft-player.railway.internal:8080/health').then(r=>r.text()).then(console.log)"`:
+   it prints `{"ok":true,…}`. `ECONNREFUSED` there means the private network cannot reach the player (check the listen line and the service name). A QA draft play that
+   then settles `no_player` means the launcher still lacks `DRAFT_PLAYER_URL` or the secret.
+
 ## Invisible Game Server (P10.14 — live 2026-10-27)
 
 Online arcade rooms ([design/realtime-multiplayer.md](design/realtime-multiplayer.md) §9): one
@@ -323,6 +394,17 @@ keeps its last good config through a failed read (not through a 404 / 410 / miss
 refused config); a game key must match
 `^[a-z0-9][a-z0-9_-]{0,63}$`. A device whose room is refused is told only "this game is not
 available"; the reason is logged.
+
+**What a full room costs** (P10.16, measured locally with `scripts/room-load.mjs`; the numbers are
+in [status/game-families.md](status/game-families.md) "P10.16"): a 100-player Salmons room with
+`arcade.online.nearby` takes about a third of one core and under 1 MB/s out, with steps far under
+their 8 ms budget, so CPU is not what sizes `GAME_SERVER_MAX_ROOMS`: outbound bandwidth (which
+Railway bills) is. A room's bots (`arcade.online.bots`) are stepped by the server like players: the worst case, one
+person and 99 bots, measured 2.1 ms a step at p99 and 6 % of a core. A room with bots logs its bots'
+seed when it is made. The
+load test raises the per-address limits for its own server only (`perAddress`): every device it
+runs shares one address. **Never point it at `rooms.invisiblewall.org` without the owner's go**; it
+only ever starts its own server today.
 
 **Env** (names only; no secret is required to boot):
 
@@ -693,6 +775,12 @@ code default, so the dashboard need not set it):
   the callback's `X-Atlas-Signature`. Unset → renders are queued without a callback (a
   `/progress` poll settles them) and the callback route answers 503. The callback URL is built
   from `ORIGIN`, so `ORIGIN` must be the launcher's public https origin.
+- **QA's draft play** (ADR-0010): `DRAFT_PLAYER_URL` (the private `draft-player` service, no code
+  default) and `DRAFT_PLAYER_SECRET` (secret, the SAME value as the player's). It signs the launcher's
+  `POST <url>/play` and `/progress`, and mints and verifies the callback to
+  `POST /api/director/drafts/callback`. `DRAFT_PLAYER_URL` unset → `build.play_draft` fails at once
+  as `no_player` and QA reports the draft as not played. The value is the private URL
+  `http://draft-player.railway.internal:8080` (see "Invisible Director draft player").
 - **Admin → Costs** (all optional): `RAILWAY_API_TOKEN`, `RAILWAY_PROJECT_ID`, `CF_ACCOUNT_ID`,
   `CF_ANALYTICS_TOKEN`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY`.
 - **Error tracking** (optional, see "Monitoring & error tracking"): `SENTRY_DSN` +
@@ -709,6 +797,13 @@ adapter gate and catalog), `DIRECTOR_LAUNCHER_URL` (optional; code default
 `/healthz` answers 200 with `"driving": false` (liveness, not readiness). `PORT` is injected by
 Railway. With `DATABASE_URL` unset the worker still boots but claims nothing and `/healthz` answers
 503 `db: unconfigured`. See "Invisible Director worker" below.
+
+**Invisible Director draft player** (`services/draft-player`, read in `src/server.mjs`; ADR-0010):
+`DRAFT_PLAYER_SECRET` (secret, required, the SAME value as the launcher's; unset → the process
+exits at boot, so the deploy fails its healthcheck) and `PORT` (set it explicitly to `8080` on
+this service, the one exception to "never set `PORT`": the launcher's `DRAFT_PLAYER_URL` names the
+port, so it must not move). Nothing else: no R2 key, no `DATABASE_URL`. The image sets
+`PLAYWRIGHT_BROWSERS_PATH=/ms-playwright` itself. See "Invisible Director draft player" below.
 
 **Invisible Test Server:** `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
 (read), `TEST_SERVER_SECRET` (gates `POST /refresh`, taken as the `x-test-server-secret` header or
@@ -1022,6 +1117,7 @@ node scripts/sentry-sourcemaps.mjs runtime apps/lines/build --dry-run
 | `https://app.invisiblewall.org/api/health` | 200 `{"ok":true,"db":"ok","migrations":{"boot":"ok","schema":"current"}}` — Postgres answered (3s budget) and `max(created_at)` in `drizzle.__drizzle_migrations` reaches the newest journal entry this build ships. | 503 otherwise, with `db: down/unconfigured` or `schema: behind/unknown`. Public, so it names states only — no error text. `boot` is reported, not gated on (a boot that failed only because the DB blinked must not stay red once the schema is current). |
 | `https://games.invisiblewall.org/healthz` | 200 `{"ok":true,…}`; **503 `"ok":false`** when it serves nothing because its boot read of R2 failed | the test server / online games host. `lastHydrate.succeeded: false` with `ok:true` = a later refresh failed and it still serves the previous games (publishes are not landing — see the log). |
 | director-worker `/healthz` (private; Railway's healthcheck) | 200 `{"ok":true,"agents":7,"db":"up","driving":true,"workerId":…}` — every agent definition loaded and validated, and the run tables answer (the last `LISTEN director_wake` connect or 60 s sweep while driving; a `where false` select of the claim columns while not). `"driving":false` = `ANTHROPIC_API_KEY` or `DIRECTOR_SERVICE_TOKEN` unset: up and idle, still 200. | 503 with `db: down/unconfigured` only. A definition that fails validation stops the boot outright, so a bad agent edit shows as a failed deploy, never as a worker running without it. |
+| draft-player `/health` (private; Railway's healthcheck) | 200 `{"ok":true,"busy":…,"queued":…}` — the process is up, `DRAFT_PLAYER_SECRET` is set and a headless shell was found (without either it exits at boot). | No commit in the body; use the commit status. `busy: true` for minutes is a play running, not a hang. |
 | `https://atlas-tool-production.up.railway.app/healthz`, `https://sheet-tool-production.up.railway.app/healthz` | 200 `{"ok":true,"service":…,"build":…,"commit":…}` | Gate-exempt (the only path that is); `commit` = the first 12 chars of `RAILWAY_GIT_COMMIT_SHA`, so it also answers "which commit is running?". |
 
 ### Uptime — Better Stack Uptime (free plan)
@@ -1430,6 +1526,7 @@ apply staged vars.
 | **`GAME_SERVER_CONFIG_SECRET`** (launcher) = **`GAME_SERVER_CONFIG_TOKEN`** (game-server) | The **launcher** and the **game-server** service, one value. Grants only the read-only published-config read `GET /api/game-server/config`. | New random value (e.g. `openssl rand -hex 32`), set in both places at once. | Launcher + game-server → Apply changes / Deploy. Between the two updates config reads get a 401: running rooms keep the config they started with, a game that has loaded once keeps its last good config, and a game with none fails to open. |
 | **`GITHUB_APP_PRIVATE_KEY`** (the Pipeline Changes App; with `GITHUB_APP_ID` / `GITHUB_APP_INSTALLATION_ID`, which are ids, not secrets to rotate) | The **launcher** only. Signs the App JWT that buys the installation tokens `/pipeline` reads GitHub with and posts `current-games` approvals as. | GitHub → the App → Private keys → generate a new key, set it on the launcher, then delete the old one (both are valid meanwhile) — "GitHub App (Pipeline Changes)" above. | Launcher → Apply changes / Deploy. Verify: `/api/pipeline/changes` answers 200. |
 | **`DIRECTOR_SERVICE_TOKEN`** | The **launcher**; the `director-worker` service once it exists (PLAN 3.x). Lets the worker call the Director adapters as a run's owner; no publish, Game Config, roles or merge op exists behind it. | New random value (e.g. `openssl rand -hex 32`) in both places. | Launcher + worker → Apply changes / Deploy. Adapter calls between the two updates get a 401; the worker retries them with the same `opId`. |
+| **`DRAFT_PLAYER_SECRET`** | The **launcher** and the `draft-player` service (the same value on both). Signs the launcher's `/play` · `/progress` · `/cancel` and the player's callback. Holds no data access of its own. | New random value (`openssl rand -hex 32`), set on both, while no QA play is running. | Draft player + launcher → Apply changes / Deploy. A play between the two updates fails its submit or its callback (401/400); the fallback watch then fails the job and QA reports it not played. |
 | **`RUNPOD_API_KEY`** | RunPod → Settings → API Keys. Read by the launcher, atlas-tool and the Serverless endpoint's own env. | Create a new key, switch all three, delete the old. | Launcher + atlas-tool; edit the endpoint's env in RunPod. |
 | **`COMFY_ORG_API_KEY`** (gpt_image) | platform.comfy.org → API Keys. Read by atlas-tool, and locally by the desktop Atlas Maker. | Create a new key, switch consumers, revoke the old. | atlas-tool → Apply changes / Deploy. |
 | **Backup source-reader R2 token** (`backup-source-reader`) | Cloudflare R2 → API Tokens. Object Read only on `invisibleassets`. GitHub env `backups` secrets `BACKUP_SRC_R2_ACCESS_KEY_ID` / `BACKUP_SRC_R2_SECRET_ACCESS_KEY`. Not used by any Railway service. | Create a new token with the same scope, then delete the old one. | Update the two secrets. Actions → **Nightly backup** → Run workflow → green. |

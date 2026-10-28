@@ -117,16 +117,31 @@ export function materialParamValue(
 	return value !== undefined && typeof value === typeof spec.default ? value : spec.default;
 }
 
+/** One effect in the Material picker. */
+export interface FxMaterialChoice {
+	kind: string;
+	label: string;
+	/** Made for particles in Shader Graph (`madeFor`): listed first. */
+	particles: boolean;
+}
+
 /**
- * The picker's list: the project's compiled effects by name. "Made for particles" first once
- * `ShaderGraphDoc.madeFor` exists (step 8d.7); until then every effect is listed alike.
+ * The picker's list: the project's compiled effects made for particles first, then the rest, each
+ * group by name. Any effect may be a material; the order only says which were made as one.
  */
-export function materialChoices(
-	effects: readonly CustomElementFx[],
-): { kind: string; label: string }[] {
+export function materialChoices(effects: readonly CustomElementFx[]): FxMaterialChoice[] {
 	return effects
-		.map((e) => ({ kind: e.spec.kind as string, label: e.spec.label || e.spec.kind }))
-		.sort((a, b) => a.label.localeCompare(b.label) || a.kind.localeCompare(b.kind));
+		.map((e) => ({
+			kind: e.spec.kind as string,
+			label: e.spec.label || e.spec.kind,
+			particles: e.madeFor === 'particles',
+		}))
+		.sort(
+			(a, b) =>
+				Number(b.particles) - Number(a.particles) ||
+				a.label.localeCompare(b.label) ||
+				a.kind.localeCompare(b.kind),
+		);
 }
 
 /**
@@ -242,16 +257,23 @@ export function strayMaterialDrives(
 	return out;
 }
 
+/** How many of an effect's layers carry a material: past the game cap, some draw plain. */
+export const materialLayerCount = (layers: readonly EmitterLayer[]): number =>
+	layers.filter((l) => l.material).length;
+
 /**
  * The notes under the Material section, as they apply (§9): the passes and motion particles
- * ignore, a graph or a load over its budget, Max particles over the cap (or drivable past it, or
- * without a bound), no frames yet, frames on two atlas pages, and a material whose graph was deleted
- * or does not compile (`notCompiled`, from `validateEffectMaterials`; then it is the only note).
- * `stagePlain` is why the preview draws the layer plain, when it does.
+ * ignore, a graph or a load over its budget, more material layers in the effect than a game draws
+ * at once, Max particles over the cap (or drivable past it, or without a bound), no frames yet,
+ * frames on two atlas pages, and a material whose graph was deleted or does not compile
+ * (`notCompiled`, from `validateEffectMaterials`; then it is the only note). `stagePlain` is why the
+ * preview draws the layer plain, when it does.
  */
 export function materialNotes(options: {
 	layer: EmitterLayer;
 	params: readonly EffectParam[] | undefined;
+	/** The effect's layers carrying a material ({@link materialLayerCount}). */
+	materialLayers: number;
 	effect: CustomElementFx | undefined;
 	/** `validateEffectMaterials` named this layer against the registered set. */
 	notCompiled: boolean;
@@ -295,6 +317,11 @@ export function materialNotes(options: {
 		notes.push({
 			level: 'warn',
 			text: `Over its load budget (${shortCount(options.load.load)} of ${shortCount(options.load.budget)}): fewer, smaller or shorter-lived particles, or a lighter graph.`,
+		});
+	if (options.materialLayers > FX_MATERIAL_LAYER_CAP)
+		notes.push({
+			level: 'warn',
+			text: `This effect has ${options.materialLayers} material layers, and a game draws ${FX_MATERIAL_LAYER_CAP} at once (every effect on screen counted), so at least ${options.materialLayers - FX_MATERIAL_LAYER_CAP} of them draw as plain sprites.`,
 		});
 	const max = (layer.config as { maxParticles?: unknown }).maxParticles;
 	const held = typeof max === 'number' && max > 0 ? Math.ceil(max) : FX_LIBRARY_MAX_PARTICLES;

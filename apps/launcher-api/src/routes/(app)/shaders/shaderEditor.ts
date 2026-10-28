@@ -19,6 +19,7 @@ import {
 	type ElementFxPhase,
 	customElementFxBreakWindow,
 	elementFxSpec,
+	findElementFxSpec,
 	isReversedElementFxBreak,
 } from 'constants-shared/elementFx';
 import {
@@ -26,16 +27,15 @@ import {
 	BREAK_KINDS,
 	BREAK_OUTPUT,
 	BUILTIN_TWINS,
-	COST_BUDGET,
 	CUSTOM_GLSL,
 	CUSTOM_GLSL_BYTES_MAX,
 	CUSTOM_GLSL_COST_MAX,
 	CUSTOM_GLSL_DEFAULT,
 	CUSTOM_GLSL_LOOP_MAX,
 	CUSTOM_GLSL_SAMPLES_MAX,
-	SAMPLE_BUDGET,
 	DIMS,
 	SHADER_GRAPH_VERSION,
+	SHADER_MADE_FOR_PARTICLES,
 	SHADER_NODES,
 	SUBGRAPH_CALL,
 	SUBGRAPH_COUNT_MAX,
@@ -65,6 +65,7 @@ import {
 	motionNode,
 	motionGraphSeries,
 	readBreakValue,
+	shaderGraphBudget,
 	shaderNode,
 	subgraphName,
 	subgraphOf,
@@ -78,6 +79,7 @@ import {
 	type NodeDef,
 	type PortType,
 	type ShaderGraphAnalysis,
+	type ShaderGraphBudget,
 	type ShaderGraphDoc,
 	type ShaderMotionAnalysis,
 	type ShaderSubgraph,
@@ -941,12 +943,12 @@ export function liveThumbs(
 
 // ── Cost ────────────────────────────────────────────────────────────────────────────────────────
 
-/** A node's cost as a share of the phone budget past which it reads as medium, then heavy. */
+/** A node's cost as a share of the budget past which it reads as medium, then heavy. */
 export const COST_WEIGHTS = { medium: 0.025, heavy: 0.1 } as const;
 
 export type CostWeight = 'light' | 'medium' | 'heavy';
 
-/** What one node adds to the graph's work per pixel, against the phone budget. */
+/** What one node adds to the graph's work per pixel, against the doc's budget. */
 export interface NodeCost {
 	cost: number;
 	/** Its own reads of the element. */
@@ -956,6 +958,8 @@ export interface NodeCost {
 	/** The larger of its cost's and its reads' share of the budget. */
 	share: number;
 	weight: CostWeight;
+	/** The budget it is a share of: an element's, or a particle material's (`madeFor`). */
+	budget: ShaderGraphBudget;
 }
 
 export const costWeight = (share: number): CostWeight =>
@@ -963,19 +967,44 @@ export const costWeight = (share: number): CostWeight =>
 
 const percent = (share: number): string => `${Math.round(share * 1000) / 10}%`;
 
-/** A node's cost in words, against the phone budget, for its chip's tooltip. */
+/** A node's cost in words, against the budget, for its chip's tooltip. */
 export function costText(c: NodeCost): string {
+	const { budget } = c;
 	return [
-		`About ${c.cost} units of work a pixel: ${percent(c.cost / COST_BUDGET)} of the ${COST_BUDGET} a phone affords.`,
+		`About ${c.cost} units of work a pixel: ${percent(c.cost / budget.cost)} of the ${budget.cost} ${budget.affords}.`,
 		...(c.samples
 			? [
-					`${c.samples} read${c.samples === 1 ? '' : 's'} of the element a pixel: ${percent(c.samples / SAMPLE_BUDGET)} of ${SAMPLE_BUDGET}.`,
+					`${c.samples} read${c.samples === 1 ? '' : 's'} of the element a pixel: ${percent(c.samples / budget.samples)} of ${budget.samples}.`,
 				]
 			: []),
 		...(c.readsPixel
 			? ['It reads the element’s colour at the pixel, read once for the whole graph.']
 			: []),
 	].join('\n');
+}
+
+/** The status bar's cost meter: the graph's work and reads against the doc's budget. */
+export interface CostMeter {
+	cost: number;
+	samples: number;
+	budget: ShaderGraphBudget;
+	/** The work's and the reads' shares of the budget, in that order. */
+	shares: [number, number];
+	over: boolean;
+	text: string;
+}
+
+export function costMeter(doc: ShaderGraphDoc, analysis: ShaderGraphAnalysis): CostMeter {
+	const budget = shaderGraphBudget(doc);
+	const shares: [number, number] = [analysis.cost / budget.cost, analysis.samples / budget.samples];
+	return {
+		cost: analysis.cost,
+		samples: analysis.samples,
+		budget,
+		shares,
+		over: shares.some((share) => share > 1),
+		text: `cost ${analysis.cost}/${budget.cost} · reads ${analysis.samples}/${budget.samples}`,
+	};
 }
 
 /** What stops the analysis before it adds up the cost: nothing then reaches the Output. */
@@ -1041,12 +1070,79 @@ export function nodeCosts(
 		);
 		totals.set(owner, total);
 	}
+	const budget = shaderGraphBudget(doc);
 	for (const [id, total] of totals) {
 		if (unreached.has(id)) continue;
-		const share = Math.max(total.cost / COST_BUDGET, total.samples / SAMPLE_BUDGET);
-		costs.set(id, { ...total, share, weight: costWeight(share) });
+		const share = Math.max(total.cost / budget.cost, total.samples / budget.samples);
+		costs.set(id, { ...total, share, weight: costWeight(share), budget });
 	}
 	return costs;
+}
+
+// ── Made for (step 8d.7) ────────────────────────────────────────────────────────────────────────
+
+/** What the preview draws the effect on: the sample card, an atlas region, or particles. */
+export type PreviewElement = 'sample' | 'region' | 'particles';
+
+/** The effect is made as a particle material (`madeFor`). */
+export const madeForParticles = (
+	doc: Pick<ShaderGraphDoc, 'madeFor'> | null | undefined,
+): boolean => doc?.madeFor === SHADER_MADE_FOR_PARTICLES;
+
+/** Made for particles, or for elements (`madeFor` left out, as every doc before it). */
+export function setMadeFor(doc: ShaderGraphDoc, particles: boolean): ShaderGraphDoc {
+	if (madeForParticles(doc) === particles) return doc;
+	const next = { ...doc };
+	if (particles) next.madeFor = SHADER_MADE_FOR_PARTICLES;
+	else delete next.madeFor;
+	return next;
+}
+
+/** The preview's element when a doc opens or its Made for changes: particles for a material. */
+export const defaultPreviewElement = (
+	doc: Pick<ShaderGraphDoc, 'madeFor'> | null | undefined,
+): PreviewElement => (madeForParticles(doc) ? 'particles' : 'sample');
+
+/** A part of the effect a particle material leaves out (design §7 "What particles ignore"). */
+export interface ParticleIgnoredNote {
+	part: 'passes' | 'motion' | 'padding' | 'break';
+	text: string;
+}
+
+/**
+ * What of the effect does not play on particles, when it is made for them: its passes (each is a
+ * filter), its motion (curves and the motion graph: a particle's behaviours move it), the padding
+ * the motion graph works out (the fixed padding is used) and its break. Empty for an element effect.
+ */
+export function particleIgnoredNotes(doc: ShaderGraphDoc): ParticleIgnoredNote[] {
+	if (!madeForParticles(doc)) return [];
+	const notes: ParticleIgnoredNote[] = [];
+	const passes = doc.passes ?? [];
+	if (passes.length) {
+		const names = passes.map((p) => findElementFxSpec(p.kind)?.label ?? p.kind).join(', ');
+		notes.push({
+			part: 'passes',
+			text: `On particles the passes (${names}) do not play: each is a filter, drawn on elements only.`,
+		});
+	}
+	const curves = Object.keys(doc.motion?.channels ?? {}).length > 0;
+	const graph = (doc.motionGraph?.nodes.length ?? 0) > 0;
+	if (curves || graph)
+		notes.push({
+			part: 'motion',
+			text: `On particles the motion (${[curves ? 'its curves' : '', graph ? 'the motion graph' : ''].filter(Boolean).join(' and ')}) does not play: each particle's own behaviours move it.`,
+		});
+	if (drivenChannels(doc).includes('padding'))
+		notes.push({
+			part: 'padding',
+			text: 'On particles the padding the motion graph works out is not used: the fixed padding is.',
+		});
+	if (breakOutputOf(doc))
+		notes.push({
+			part: 'break',
+			text: 'On particles the Break Output’s break does not play.',
+		});
+	return notes;
 }
 
 // ── Subgraphs ───────────────────────────────────────────────────────────────────────────────────

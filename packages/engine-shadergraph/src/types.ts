@@ -54,7 +54,18 @@ export interface ShaderGraphDoc {
 	 * likes (in its graph or in another subgraph's body). The compiler inlines every call.
 	 */
 	subgraphs?: ShaderSubgraph[];
+	/**
+	 * What the effect is made for: `'particles'` (a particle material, drawn by `/fx`'s sprite layers)
+	 * or absent (elements). It never changes what plays: it orders the pickers, picks `/shaders`'
+	 * preview and switches the cost budget (`shaderGraphBudget`). Compiled into the effect only when
+	 * `'particles'`, so every other doc compiles as before.
+	 */
+	madeFor?: ShaderMadeFor;
 }
+
+/** {@link ShaderGraphDoc.madeFor}'s one value: absent means elements. */
+export const SHADER_MADE_FOR_PARTICLES = 'particles';
+export type ShaderMadeFor = typeof SHADER_MADE_FOR_PARTICLES;
 
 /** A doc's motion graph: nodes and wires as the pixel graph's, its ports all floats. */
 export interface ShaderMotionGraph {
