@@ -205,11 +205,12 @@ has no family control at all. Three more families exist
   - **Resource at start** (1), **Resource per turn** (1) and **Resource cap** (10): what each side
     has to pay for cards, refilled each turn.
   - **Who goes first** — Random (the default), The player or The AI.
-  - **Cards and decks** — the counts, and a note: until Invisible Card Library ships, the cards
-    (`card.library`) and the decks (`card.decks`, each `{ id, name, side, cards: [{ card, count }],
-ai: { difficulty } }`) are edited in **Raw JSON**. A card the rules cannot read, a deck of the
-    wrong size, too many copies, a deck naming a card not in the library, or no player or no AI
-    deck is refused; a card no deck uses warns. These problems show under this section.
+  - **Cards and decks** — how many cards and decks the config has, and **Edit in Invisible Card
+    Library**, which opens `/cards`: the cards (`card.library`) and the decks (`card.decks`) are
+    edited there, not here (see [Invisible Card Library](invisible-card-library.md)). Their
+    problems still show under this section: a card the rules cannot read, a deck of the wrong size,
+    too many copies, a deck naming a card not in the library, or no player or no AI deck is
+    refused; a card no deck uses warns.
     A card game's names, flavour text, generated rules text and deck names appear in
     [Localization](localization.md) under a **Cards** section.
 - **Publishing:** a **match-3** config publishes from Game Maker to the test server, free play or

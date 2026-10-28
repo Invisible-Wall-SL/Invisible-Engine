@@ -147,6 +147,7 @@
 		"precheck:editor-tilemap": "node scripts/ensure-svelte-kit.mjs",
 		"check:editor-tilemap": "tsx --tsconfig tsconfig.scripts.json scripts/check-editor-tilemap.ts",
 		"check:characters-tool": "tsx --tsconfig tsconfig.scripts.json scripts/check-characters-tool.ts",
+		"check:cards-tool": "tsx --tsconfig tsconfig.scripts.json scripts/check-cards-tool.ts",
 		"precheck:match3-rules": "node scripts/ensure-svelte-kit.mjs",
 		"check:match3-rules": "tsx --tsconfig tsconfig.scripts.json scripts/check-match3-rules.ts",
 		"precheck:match3-outcome-guard": "node scripts/ensure-svelte-kit.mjs",

@@ -83,6 +83,7 @@ import { hideWheel, showWheel, spinWheelTo, wheelSegments } from './holdAndWinWh
 import { armLuckySpinReveal } from './luckySpin';
 import { respinCellStopAuthored, respinHeldState } from './respinLanding';
 import {
+	playCoinCollectSound,
 	playSymbolLandSound,
 	playTokenPotArriveSound,
 	playTokenTakeOffSound,
@@ -1271,6 +1272,7 @@ export const presentHoldAndWinEnd = async (event: Beat<'holdAndWinEnd'>) => {
 		total: event.total - counted,
 	});
 	const step = (index: number, amount: number, shown: number) => {
+		playCoinCollectSound(order[index].symbol.name);
 		stateBet.winBookEventAmount = shown;
 		eventEmitter.broadcast({ type: 'respinTallyStep', index, amount, total: shown });
 	};

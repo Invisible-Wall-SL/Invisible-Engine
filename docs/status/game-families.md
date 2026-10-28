@@ -1,6 +1,6 @@
 # Game families (Phase 10) — status
 
-> Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `match3-games`, `arcade-games` (`invisible-game-config` for `/config`, `invisible-game-maker` for Game Maker)
+> Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `match3-games`, `arcade-games`, `card-games` (`invisible-game-config` for `/config`, `invisible-game-maker` for Game Maker)
 
 **One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.8, P10.11, P10.12 and
 P10.14 are merged; P10.13 (gravity, jumps and levels) and P10.15 (A4b, netcode and the online
@@ -26,6 +26,59 @@ server's `match3` mock on our own wire. **Publishing is on for every family the 
 server; delivery stays slot-only, and live real money waits on the partner (§9 #2).
 
 ## Current state
+
+**Card C4 — Invisible Card Library (built 2026-10-28; in review).** [card-games.md](../design/card-games.md)
+§12's C4 row and §8, in one PR. A launcher tool only: no game runtime change but five exports of
+already-bundled `cards.js` values.
+
+- **The tool:** `/cards` (`TOOLS.cards`, Build stage beside Characters, the Game Config roles,
+  `TOOL_DOC_SLUG` `invisible-card-library`). `FAMILY_TOOLS` hides it from slot, match-3 and arcade.
+  The load refuses (403) without the Card Library grant or the Game Config grant, as `/characters`.
+  `/config`'s card section now links to it instead of Raw JSON.
+- **Cards:** a grid of every card drawn in its frame (filters by type, cost, keyword, search), the
+  form (id, name, type, cost / attack / health in their ranges, keywords, token, flavour, frame, the
+  frame's image params through the region picker) and up to three effects, each trigger → verb →
+  target dropdowns that offer only what the validator accepts after the choices to their left
+  (`cardEdit.ts` `triggerChoices` / `verbChoices` / `targetChoices` / `includeChoices`, every
+  setter refitting through `fitEffect`). The lists and ranges are `cards.js`'s own exports
+  (`CARD_RANGES`, `CARD_MAX_EFFECTS`, `CARD_SIDES`, `CARD_INCLUDES`, `CARD_UNTILS`, new). The
+  preview shows the card in its frame with the game's frame values (`frameValues`, the twin of
+  `apps/lines` `valuesOf`), eight look buttons, and the generated rules text (none while the card has
+  errors). The text reaches Localization through C3's "Cards" harvest section; the page links to it.
+  The stored library's reader drops are shown before a save. A frame missing §6 inputs is named.
+- **The card drawing is a light DOM renderer** (`(app)/cards/CardFrameView.svelte`), not the Scene
+  Editor's canvas the design named (§8.2): the list draws every card, and one WebGL stage per card
+  runs out of contexts. It draws the frame's own tree with the game's fold (`resolveTransform` →
+  `evaluateBinding` on the instance's params → `foldBoundTransform`): containers, rects, text,
+  sprites (the art from the atlas) and nested instances; any other node kind is named under the card.
+- **Decks:** player and AI decks, add / duplicate / rename / delete, a `{ card, count }` stepper per
+  card (0 … `maxCopies`, tokens excluded), the size against `deckSize`, the cost curve, and an AI
+  deck's difficulty and five weight overrides.
+- **Test match** (`$lib/cards/testMatch.ts`): two decks and difficulties; watch the AI play both sides
+  at a speed or play side A; the placeholder table lists the legal actions as buttons; Copy replay
+  gives the `replayMatch` record. **Run 100** plays seeds 1 … 100 AI-vs-AI (≈0.3 s on the sample) and
+  shows the win rate per side, draws, average turns, how matches ended and the cards most often left
+  in hand. It runs `cards.js` and `cardAi.js` with the config mapped as `cardSession.ts` maps it.
+- **Saving:** `PUT /api/game-config` under the shared `gameConfig` lease, with the read etag, the
+  409 banner and History, as `/characters` (reviewed by `pipeline-concurrency`: no change needed).
+- **Gates:** `check:cards-tool` (281: the form offers exactly what the validator accepts over every
+  trigger × verb × target × side × include on a unit and a spell; every edit stored as edited; the
+  rules text; a test match is the game session's match move for move and replays; Run 100
+  deterministic; the save and the two grants; the registry and guide). `check:family-tools` and
+  `check:card-family` re-pinned for the new exclusions.
+
+**P11.1a — family seams (built 2026-10-28; in review).** [phase-11.md](../design/phase-11.md) §2.2,
+§2.5. Shared code reaches match-3, arcade and card code only through
+`apps/lines/src/families/{match3,arcade,card}.ts`; `families/off/*` are inert stubs with the same
+names and types. `config-vite` (`families.js`, in `baseConfig()`, so game repos get it) reads
+`PUBLIC_IE_FAMILIES` (comma list of `match3` / `arcade` / `card`, or `all`; unset = `all`; empty or
+`slot` = slot only), swaps each left-out seam for its stub by resolved path (works for
+`engine/apps/lines/src` too), and defines `__IE_FAMILIES__`. The boot (`routes/+layout.ts`,
+`game/runtimeFamilies.ts`) refuses a config whose family the bundle lacks: "this runtime does not
+play <family> games". Nothing sets the env var yet, so every build is still `all`. Left for P11.1b:
+`engine-layout`'s `LayoutNodeView` still imports `SpawnLayer` / `Tilemap` / `arcadeLifts` for every
+game, `engine-flow-v2` exports the family vocabularies and action lists to the shared flow code,
+and `game-config`'s card normalizer reads `engine-mechanics` `cards.js`.
 
 **Card C3 — playable end to end (built 2026-10-28; in review).** [card-games.md](../design/card-games.md)
 §12's C3 row, in one PR; what it settled where §5–§9 were silent is in the design's new §5.4.
@@ -2084,12 +2137,17 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
    starter's deck pick is a tap); (d) hero portraits do not light `targetable`; a dragged card is not
    lifted above its neighbours; (e) the current-games `SCRIPT_FOR_KIND` gains `card` when a card
    game is first published, with its screen script; (f) `hard`'s 16 ms budget on a mid phone is not
-   measured; (g) the Card Library (`/cards`) is C4; (h) from the C3 review: the validator does not
+   measured; (g) the Card Library (`/cards`) is built in C4 (below); (h) from the C3 review: the validator does not
    yet warn when `handLimit` / `boardLimit` exceed the table's zone cap (12) or a card names a frame
    the zones cannot spawn (the card would be missing from the table); the drop hit-test
    (`actionAt`, `release`) is covered by the browser playtest only, not a Node gate; the frame's
    trigger inputs (`hit`, `healed`, `summoned`) are declared but not yet fired; Concede works on the
    player's turn only.
+0b. **Card C4 follow-ups:** (a) the Card Library draws frames with its own DOM renderer, not the
+   Scene Editor canvas (§8.2 named the canvas) — **accepted by the owner 2026-10-28; the canvas is a
+   follow-up**: a rig, effect or flipbook in an authored frame is named, not drawn, until then; (b) the test match's table is a list of legal-action buttons, not drag; (c) a
+   two-user check (`/cards` and `/config` open on one card project) is still to be done by hand; (d)
+   the deck's AI weights take any number (the AI's own reader decides what it accepts).
 0. **P10.15 follow-ups:** (a) **online Flow events** (`onPlayerJoined`, `onPlayerLeft`, `onHit`,
    `onCaught`, `onRoundEnd`) from the room's `event` messages, and **server-owned variables** (the
    room's scores bound as read-only `var:` sources; the validator's `variable-server-owned`) — the
@@ -2148,6 +2206,20 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 ## Recent changes
 
+- 2026-10-28 — **The `card-games` build agent** (owner, 2026-10-28) owns the card family end to end:
+  `.claude/agents/card-games.md`, `docs/knowledge/families/card.md`, `owners.json` (`kind:card`,
+  `tool:cards`; both named gaps closed).
+- 2026-10-28 — **Card C4 built: Invisible Card Library (`/cards`)** — cards in their frame, the
+  closed-list effect form, decks, the test match and Run 100, `check:cards-tool`, its guide. No game
+  runtime change. Detail above.
+- 2026-10-28 — **P11.1a family seams** (seams `families/match3` — `Match3Input`, `awaitMatch3Round`,
+  `endMatch3Round`, `presentMatch3Board`, `presentMatch3MovesLeft`; `families/arcade` —
+  `ArcadeStage`, `joinOnlineRoom`; `families/card` — `CardTable`, `startCards`). Release-env
+  `apps/lines/build/index.html`: main `all` 4,141,309 B raw / 1,412,590 B gzip-6; branch `all`
+  4,141,617 / 1,412,885 (+0.007 % / +0.02 %); branch slot-only (`PUBLIC_IE_FAMILIES=slot`, not shipped; an empty value counts as unset)
+  3,804,801 / 1,301,143 (−8.1 % / −7.9 %), with `@colyseus/schema`, the match-3, card, arcade and
+  `engine-mechanics` board/motion/cards/cardAi markers all absent. Fixtures:
+  `packages/config-vite/families.fixture.mjs`, `apps/lines/src/game/runtimeFamilies.fixture.ts`.
 - 2026-10-28 — **Card C3 built: playable end to end** (the `card` family, `GameConfigDoc.card`, the
   card table runtime, `CARD_VOCAB` and its starter, the Game Maker scene set and sample, the
   placeholder frame, `check:card-family`, `check:card-runtime`). Slot, match-3 and arcade unchanged

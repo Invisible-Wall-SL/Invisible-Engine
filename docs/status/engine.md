@@ -82,9 +82,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   symbols are mounted and destroyed as they scroll (`SymbolWrap.svelte` `inFrame`, a fresh strip each
   pre-spin lap; ~40% of spin CPU), rigs pose twice a frame and keep ticking when hidden, and idle
   particle layers update every frame. The per-cell geometry and prop-sync share is fixed (~18% less
-  spin CPU, `claude/reel-smoothness`); pooling the pre-spin cells alone did not pay (hidden rigs
-  tick). Next: a fixed per-reel view pool whose cells swap texture, not component, as they wrap;
-  then confirm on a real phone
+  spin CPU, `claude/reel-smoothness`) and the roll's filler now goes through a fixed per-reel view
+  pool (`claude/reel-view-pool`, ~11% less again). Next: confirm on a real phone
   (Chrome remote-debugging trace) before tuning the GPU side further. The ~118 MB of resident
   textures there is mostly uncompressed stock WebP/PNG sheets (`symbols2/3`, `SD2_Coin`,
   `reels_frame`, `fs_screen`); moving them to KTX2 like the atlas pages would cut it several-fold.
@@ -340,6 +339,26 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     which is why the harness is used. The grow's "burst" reuses the wild's `win` state (gold frame
     included), so the origin reads as a winning cell for about half a second. It is open for a
     design look.
+- 2026-10-28 — **A rolling reel's filler is drawn through a fixed pool of views per reel**
+  (branch `claude/reel-view-pool`). The cells a spin streams through the window (each pre-spin
+  lap's fresh strip, the slide's padding) each mounted their own `ReelSymbol` and were destroyed
+  after one pass — the mount churn the 10-27 profile put at ~40% of spin CPU. `createReelForSpinning`
+  now marks those cells `padding`; `BoardBase` skips them and `ReelPaddingPool` draws them through
+  `rows + 2` views a reel (a cell's view = its strip ordinal mod `rows + 2`, the ordinal carried
+  across the lap renumbering). A view takes its next cell on the frame that cell enters the window
+  and keys everything inside on it (`instanceKey`), so the art starts as a new mount's would;
+  `SymbolWrap` keeps the view mounted, hidden outside the window (`keepMounted`). Board cells,
+  targets and every cascade path are drawn as before. Two traps found on the way: a reused view's
+  `Symbol` re-mounts its top node when its `symbolFx` branch flips and Pixi appends it last, over
+  the pots overlay's rolling token (the view's symbol now sits in its own `Container`); and handing
+  the views fresh `{ cell, row }` objects every frame re-ran every prop-derived in them per frame
+  (`shown` now holds the cells). Verified with seeded renders of `commonoverlayproject` against
+  `main` on a replayed RGS answer: identical at idle and every 4th frame from 4 to 200 of a spin.
+  Measured (4 spins, 4× CPU, alternating builds, 3 runs each): main-thread CPU 16.0 s → 14.2 s
+  mean (−11%), long-task time 15.3 s → 14.1 s; noisy in this GPU-less container, ranges overlap.
+  Left: `BoardBase`'s keyed `{#each}` still makes an item per filler cell each lap (cheap), and
+  `addPadding` publishes the renumbered strip one flush before `placeY` moves it (a possible
+  double swap per lap, pre-existing). Not verified on a physical phone.
 - 2026-10-27 — **A rolling reel costs ~18% less CPU: the reel geometry and the prop sync are
   cached** (branch `claude/reel-smoothness`). Owner report on `commonoverlayproject`: reels not
   smooth on phones. Profiled an unminified runtime spinning at 4× CPU slowdown: ~40% of spin CPU was
