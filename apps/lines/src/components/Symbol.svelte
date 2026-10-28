@@ -260,10 +260,12 @@
 {#if symbolFx}
 	<Container>
 		{@render bands()}
-		{#key `${props.state}:${props.instanceKey}`}
-			{#if stateFx.length}
-				<ElementFxPlayer entries={stateFx} ondone={gate.fx} />
-			{/if}
+		{#key props.instanceKey}
+			{#key props.state}
+				{#if stateFx.length}
+					<ElementFxPlayer entries={stateFx} ondone={gate.fx} />
+				{/if}
+			{/key}
 		{/key}
 	</Container>
 {:else}

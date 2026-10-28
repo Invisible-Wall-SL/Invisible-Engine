@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	/** A number per cell: the pooled view's art is keyed on it inside a string key (`Symbol.svelte`). */
+	/** One number per cell: the key a pooled view's art restarts on (`Symbol.svelte`). */
 	const instanceIds = new WeakMap<object, number>();
 	let nextInstanceId = 1;
 	const instanceIdOf = (cell: object): number => {
