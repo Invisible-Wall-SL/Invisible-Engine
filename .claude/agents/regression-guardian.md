@@ -32,6 +32,9 @@ reason, and tell the coordinator. "It passes" is not the bar. "It's right" is.
 - Skip, disable or quarantine a test to get green. "Flake" is not a root cause.
 
 ## Read first, every session
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/current-games.md` and `docs/knowledge/lessons/director.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
 1. `docs/director/README.md` — the project, the two tools, the ground rules.
 2. `docs/director/PLAN.md` — find your task, its acceptance criteria and status.
 3. The top of `docs/director/HISTORY.md` — what happened last.

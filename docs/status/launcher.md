@@ -22,7 +22,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - **Tool registry + docs** — `roles.ts` is the single registry; the launcher **serves the guides** at authed `/docs/[slug]` (rendered from `docs/tools/*.md`). `/onboarding` walks each role through its tools with a guide link per tool and saves each user's local-tool install paths (`tool_installs`). CLAUDE.md rule 9 keeps a new/renamed tool from shipping doc-less.
 - **Desktop launcher support** — the `.exe` (separate `invisible-launcher` repo) is served over open routes `/api/launcher/download` + `/api/launcher/latest`; it self-updates via the manifest. `/api/launcher/projects` (session-scoped project sync, with a **derived** build profile from the project's game kind when none is stored, published under `<project>build` — `launcherProfile.ts`, `mockProtocol.ts`), `/api/launcher/game-upload` (the publish relay), `register-game`, `deploy-token` and `git-credentials` (`gamePublish`-gated).
 - **Saving together** — every authoring tool saves through `$lib/saveState.svelte.ts` with R2 conditional writes, holds a soft lease (`/api/lease`, `doc_leases`) with a presence banner, and keeps rolling backups of its whole-doc saves (`docBackups.ts`).
-- **DB migrations** — applied by the launcher at boot (`init` hook → `runMigrations()`); `0000`–`0028` are live, `0029_director_recipes` ships with Director card 8D, `0030_director_job_steps` with 8E and `0031_director_drop_preset_json` with 8F (it drops data), and `/api/health` reports `schema: current`. **`db:push` is banned on prod** — `db:generate` + the boot migrator.
+- **DB migrations** — applied by the launcher at boot (`init` hook → `runMigrations()`); `0000`–`0028` are live, `0029_director_recipes` ships with Director card 8D, `0030_director_job_steps` with 8E `0031_director_drop_preset_json` with 8F (it drops data) and `0033_director_draft_jobs` with 9D, and `/api/health` reports `schema: current`. **`db:push` is banned on prod** — `db:generate` + the boot migrator.
 - **UI** — full-bleed home: online tools grouped into **game-making stage sections** (Create / Assets / Build / Files & Reference / Pipeline) plus Games and Local tools, Invisible Wall emblem branding. Stages are the single source `TOOL_STAGES` in `roles.ts`; the top-bar switcher tints each tool icon by its stage accent.
 
 ## Open items / next
@@ -62,6 +62,14 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
    components, Shader Graph) reach it by switching items quickly. Fix: `start()` captures the
    `docKey` and drops (and, if held, releases) an answer for a key it no longer holds.
 
+9. **Invisible Director QA plays nothing until `draft-player` is deployed** (ADR-0010, card 9D).
+   QA is assignable and `build.request_draft` freezes a draft, but with `DRAFT_PLAYER_URL` unset
+   every `build.play_draft` settles at once as `no_player` ("not played"), and the hand-off says
+   so. The owner creates the private Railway service and sets `DRAFT_PLAYER_SECRET` on it and the
+   launcher plus `DRAFT_PLAYER_URL` on the launcher (`docs/INFRA.md` "Invisible Director draft
+   player"). Not built: the published-template contract comparison (ADR §1; `contractHash` is in
+   `draft.json` for it) and a player `/cancel` on owner stop (a stopped run drops the late result).
+
 ## Blocked (owner / external)
 - **Secret rotation (owner):** rotate the secrets in `docs/INFRA.md` "Security / secret rotation";
   since desktop launcher v1.0.56 the R2 key no longer lives on any publisher's desktop. From v1.0.61
@@ -75,6 +83,41 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-10-27 — **Invisible Director: Sound, FX and Component Editor art adapters** (PLAN card 9H,
+  ADR-0011, branch `claude/director-9h-sound-fx-components`, PR #1413, in review). A run can now
+  re-theme a template's audio, its effect art and colours, and the art inside its components.
+  Inert for a person and for every current game: only a Director run reaches any of it.
+  - **Ops** (`director/ops/{sound,fx,components}.ts`, one read and one write each, every write
+    through the tool's own storage with `baseEtag`, a 409 answered `conflict`):
+    - `sound.get_doc` / `sound.set_cues` (builder): binds only the moments `/sound` offers
+      (`$lib/soundMoments.ts`, shared with the page) to built-ins or **approved** library sounds.
+      It refuses a draft, a silenced slot and the wrong music/sfx kind. A first save carries the
+      legacy bindings over (`soundLegacy.ts` `resolveSoundBindings`, now shared with
+      `soundExport.ts`). `loadSoundsDocWithEtag` gains `corrupt`, so an unreadable doc is refused,
+      not wiped. The answer carries `before`, since the doc has no backups.
+    - `fx.get_effect` / `fx.update_art` (animator): only a layer's `art.assetKey` (a project atlas,
+      `fxAtlases.ts`, shared with `/fx`), frames, weights and the values of its existing
+      `color` / `colorStatic` stops change. It refuses rig particles, a param-driven colour, and
+      an effect placed on a math-locked node, including one inside a component.
+    - `components.get_def` / `components.update_art` (builder): sprite, rig and flipbook refs
+      inside a def. A shared or built-in def becomes the project's copy (same id and version).
+      Instances pinned to a version that differs only in art are re-pinned in the layout
+      (`saveDoc`, `layoutBaseEtag`, `saved_by`); the rest are listed `notReached`. A def any
+      math-locked instance holds is refused.
+  - **Gate:** `ADAPTER_TOOL_IDS` maps `sound → sound`, `fx → fx` and `components → editor`, so
+    `not_for_family` applies. Only the `components` tool may also write
+    `editor/<slug>/components/`. The math lock moved verbatim from `ops/scene.ts` to
+    `ops/mathLock.ts`.
+  - **Attribution:** the sounds, FX and component docs carry no `saved_by` (owner decision 3 in
+    ADR-0011). The `director_ops` row and the activity line record the change; the layout re-pin
+    is stamped.
+  - **Agents:** the builder has 13 tools (19 optional, 0 unions) and the animator 9 (17, 0); only
+    their `tools:` frontmatter changed. The live run labels the chips Sound, FX and Component
+    Editor.
+  - **Tests:** `check:director-adapters` 609 (443 before), `check:director-live` 109,
+    `check:director-runs` 471, `check:director-mockups` 153, `check:pipeline-changes` 7843,
+    `check:family-tools` 177. The worker's `eval:agent` passes the builder and animator with
+    "nothing to compare": neither has a reference set yet.
 - 2026-10-27 — **Invisible Director: adapter image answers reach the model as images** (ADR-0012
   (proposed, #1414) card 9G.0, pipeline change). Ops flagged `image: true` in the catalog
   (`atlas.get_variant_image`, `mockups.get_crop`) answer
@@ -130,6 +173,28 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   vault can set the deploy token; `MIN_DEPLOY_TOKEN` moved to `appSettings.ts` for both writers.
   Offline fixture `verify_key_vault.py` (68 checks, including the review findings: two rotations before a revoke, a dead host mid-batch, an unknown Railway service, an orphaned `.bak`); the tab was driven in a real window under Xvfb.
   **Not yet run against the live providers** — see Open items.
+
+- 2026-10-27 — **Invisible Director: QA can play a draft** (ADR-0010, PLAN 9D, #1398).
+  - `build.request_draft` (`director/ops/build.ts`): freezes the run's project the way Publish
+    does (`buildRuntimeBundle` + a `deploy/` copy through `copyDeployTree`, shared with
+    `stageSnapshot` unchanged) under `<C>/<P>/director/drafts/<id>/`, pinned to today's
+    `_runtime/lines`, never `published/**`, the pointer, `test_server/**` or config. It refuses a
+    null `templateConfigEtag` (`math_unproven`), a moved project config, a desktop-built project
+    and an unplayable family. A template with no authored config now records `'none'`
+    (`configEtag.ts`), which counts as proven. It keeps the 2 newest drafts.
+  - `build.play_draft`: one queued play per run (`director_draft_jobs`, migration 0033, jobRef
+    `dp_…`). It is submitted to the private `draft-player` service (`services/draft-player`, the
+    current-games harness libs unchanged) with presigned URLs. The player answers through a signed
+    callback (`/api/director/drafts/callback`) with a `/progress` fallback watch re-armed at boot.
+    With no player, it settles inline as `no_player`.
+  - Retention: `request_draft` keeps 2 drafts; Admin › Settings › Invisible Director's mockup
+    sweep also clears the drafts of a project whose runs all ended 14 days ago, and an unfinished
+    draft (no `runtime.json`) over 1 h old (`sweepEndedRunDrafts`, `mockupCleanup.ts`).
+  - The worker routes a draft `job_done` to QA ahead of the atlas billing path, and `run.submit_qa`
+    also reaches the coordinator. `check:director-adapters`' allowed unserved-tool gap is empty.
+  - Tests: `check:director-adapters` 507, `check:director-mockups` 159, `check:published-runtime` 37, `check:director-runs` 471,
+    worker `check:draft-report` 6, `prove:turns` 124 (section 28), the player's offline fixtures
+    and its browser fixture (good, refused boot, console error, stall, service end to end).
 
 - 2026-10-23 — **Tools per game family (Phase 10 P10.1b).** The home grid and `ToolTopBar` list
   only the tools the active project's family uses (`FAMILY_TOOLS` in `roles.ts`; arcade hides

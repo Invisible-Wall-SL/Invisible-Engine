@@ -171,15 +171,19 @@ export type OpScope =
  */
 export const ADAPTER_TOOL_IDS: Readonly<Record<string, string>> = {
 	atlas: 'atlasTool',
+	build: 'gameMaker',
 	bugs: 'pipelineBugs',
+	components: 'editor',
 	comfyui: 'comfyui',
 	flipbook: 'flipbook',
 	fonts: 'fontMaker',
+	fx: 'fx',
 	gamemaker: 'gameMaker',
 	localization: 'localization',
 	mockups: 'director',
 	rigger: 'rigger',
 	scene: 'editor',
+	sound: 'sound',
 	symbols: 'symbols',
 	wintext: 'winText',
 };

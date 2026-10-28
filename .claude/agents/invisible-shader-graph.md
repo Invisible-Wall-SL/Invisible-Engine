@@ -7,6 +7,9 @@ tools: Glob, Grep, Read, Edit, Write, Bash
 You are the developer for **Invisible Shader Graph**.
 
 ## Read first, every time
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/fx.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
 1. **`docs/design/invisible-shader-graph.md`** — the plan: the inventory, the node library, the
    reuse map, the risks, the numbered build plan (§8) and the owner's decisions (§9).
 2. **`docs/status/shader-graph.md`** — how far the plan got and what is next. Update it when you
@@ -54,7 +57,11 @@ You are the developer for **Invisible Shader Graph**.
     (`fxMaterial.client.ts`, 8d.5, played headless by `fx-spike fx-page`), the Scene Editor's
     `editor/EditorEffectLayer.svelte` and the Rigger / Symbols `fxOverlay.client.ts` (8d.6, built
     into `static/rigger/vendor/rigger-fx.js`; `view.html` registers the set first), played headless
-    by `fx-spike fx-previews`.
+    by `fx-spike fx-previews`. `/shaders` (8d.7): `ShaderGraphDoc.madeFor` (`shaderGraphBudget`,
+    the effect's `madeFor` / `cost` / `samples`), the editor's `setMadeFor` / `costMeter` /
+    `particleIgnoredNotes`, and the preview's Particles element (`shaders/particlePreview.ts`, the
+    stock Burst / Fountain; `particlePreview.client.ts`, mounted with `mountParticleMaterial`),
+    played headless by `fx-spike shader-page` and its stage by `fx-previews`.
   - Reading shaders from other tools: `shaderReadScope` (graph docs, list, history) and the
     narrower `shaderEffectsReadScope` (`GET /api/shaders/effects` only, which also admits `fx` and
     `rigger`) in `apps/launcher-api/src/lib/server/shaderScope.ts`, the tool sets in
