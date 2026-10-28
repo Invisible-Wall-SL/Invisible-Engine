@@ -40,9 +40,10 @@
 		 * by the inline message symbol, where a moving icon inside a line of text pulls the eye off
 		 * the sentence it illustrates. */
 		frozen?: boolean;
-		/** Hold the base art (rig or flipbook) on its current frame and nothing else, so it starts
-		 *  later without remounting: a rolling cell drawn before its centre reaches the window
-		 *  (`SymbolWrap`'s `held`). Unlike {@link frozen}, the Element FX are untouched. */
+		/** Not started yet, without remounting: the base art (rig or flipbook) holds its first frame
+		 *  and the state's Element FX are not made. A rolling cell drawn before its centre reaches
+		 *  the window (`SymbolWrap`'s `held`). Unlike {@link frozen}, the FX container stays, so
+		 *  starting does not remount the art. */
 		held?: boolean;
 		/**
 		 * The win-celebration DIM for this cell (`winCycle.dimNonWinning`) — a Pixi tint, applied to
@@ -229,7 +230,9 @@
 	 * visit of a state; a gate the symbol has moved on from reports nothing.
 	 */
 	const symbolFx = $derived(props.frozen ? undefined : bakedSymbolFx()[props.rawSymbol.name]);
-	const stateFx = $derived(symbolFx ? symbolStateFx(props.rawSymbol.name, props.state) : []);
+	const stateFx = $derived(
+		symbolFx && !props.held ? symbolStateFx(props.rawSymbol.name, props.state) : [],
+	);
 	const waitsForFx = $derived(stateFx.some(elementFxEnterEnds));
 	const ownArt = $derived(hasAuthoredSymbolState(props.rawSymbol.name, props.state));
 	const gate = $derived.by(() => {

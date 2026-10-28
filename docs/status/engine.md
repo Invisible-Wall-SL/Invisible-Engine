@@ -319,9 +319,12 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   Drawing early must not START early: a rig or flipbook's clock runs from mount, so mounting half a
   row sooner left every animated symbol further into its loop at rest — `commonoverlayproject`'s
   settled, win and big-win screens all changed, identically with or without the margin at rest.
-  A cell in the half-row band (centre still outside) is now `held`: `Symbol` holds its rig / flipbook
-  on the first frame (`frozen` without touching the Element FX) until the centre crosses — the frame
-  it used to mount on.
+  A cell in the half-row band ABOVE the window (centre not yet inside) is now `held`: `Symbol` holds
+  its rig / flipbook on the first frame and does not make its state's Element FX until the centre
+  crosses — the frame it used to mount on. The FX matter twice: their loops' clocks start at mount,
+  and each FX filter draws its seed from `Math.random` when it is made, which the harness seeds as
+  one sequence for all cosmetic code (`determinism.ts`), so an early filter shifts every later draw.
+  (Holding only the rig / flipbook left the harness diffs pixel-identical.)
   `check:svelte --only apps/lines` at baseline; not seen in a browser (the sandbox could not load the
   game's art), so the owner should watch a spin.
 - 2026-10-28 — **Expanding and growing wilds on lines games** (branch

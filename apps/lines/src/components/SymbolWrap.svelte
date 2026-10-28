@@ -89,13 +89,14 @@
 			: props.y + margin > top && props.y - margin < bottom,
 	);
 	/**
-	 * Drawn early: in that half-row band, its centre still outside the window. The art is held on
-	 * its first frame there and starts on the frame the centre crosses, which is when the cell used
-	 * to mount, so a rig or flipbook reaches the same pose at the same frame as it always did.
-	 * Animation clocks start at mount; without the hold, every animated symbol would come to rest
-	 * half a row's travel further into its loop.
+	 * Drawn early: in the half-row band above the window, its centre not yet inside. The art is held
+	 * there — the rig or flipbook on its first frame, its state's Element FX not yet made — and starts
+	 * on the frame the centre crosses, which is when the cell used to mount. Both clocks start at
+	 * mount, and an FX filter draws its seed from `Math.random` when it is made, so without the hold a
+	 * symbol drawn early comes to rest further into its loops and every cosmetic draw after it shifts.
+	 * Only on the way in: on the way out the cell used to unmount, so nothing there runs early.
 	 */
-	const held = $derived(margin > 0 && !(props.y >= top && props.y <= bottom));
+	const held = $derived(margin > 0 && props.y < top);
 	// A flat seat passes `undefined`, NOT 1, because `1` is not a no-op in Pixi v8: assigning
 	// `container.scale` swaps the shared `defaultScale` singleton for an owned `ObservablePoint` and
 	// dirties the transform. `pixi-svelte`'s `propsSyncEffect` skips undefined props, so an unscaled
