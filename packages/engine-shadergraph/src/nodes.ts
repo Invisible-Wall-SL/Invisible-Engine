@@ -343,6 +343,26 @@ export const SHADER_NODES: readonly NodeDef[] = [
 			order: 'efxParticleOrder()',
 		}),
 	},
+	{
+		type: 'screens',
+		label: 'Screens',
+		category: 'input',
+		description:
+			'The two screens of a screen transition at a UV (unwired, at this pixel): From is the old screen, frozen when the transition started, and To the new one, live (both premultiplied). Reverse is 1 when the transition plays reversed, else 0, so a graph can mirror itself. A graph reading it draws both screens itself. On an element both screens are the element, on a particle the particle, and Reverse is 0.',
+		inputs: [uvIn()],
+		outputs: [
+			port('from', 'From', 'vec4'),
+			port('to', 'To', 'vec4'),
+			port('reverse', 'Reverse', 'float'),
+		],
+		cost: 4,
+		samples: 2,
+		emit: (c) => ({
+			from: `efxScreenFrom(efxFromUnit(${c.in.uv}))`,
+			to: `efxScreenTo(efxFromUnit(${c.in.uv}))`,
+			reverse: 'efxScreenReverse()',
+		}),
+	},
 
 	// --- math: on numbers or vectors alike ---
 	binary('add', 'Add', 'A + B.', (a, b) => `(${a} + ${b})`),
