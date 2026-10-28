@@ -294,13 +294,14 @@ const begin = async (
 	return handle;
 };
 
-/** Frames until `handle` is done (at most `limit`); how many. */
+/** Frames until `handle` is done (at most `limit`, then it is ended); how many. */
 const playOut = async (rig: Rig, handle: ScreenTransitionHandle, limit = 2000): Promise<number> => {
 	let n = 0;
 	while (handle.active && n < limit) {
 		frame(rig);
 		n++;
 	}
+	handle.end();
 	await handle.done;
 	return n;
 };
@@ -732,6 +733,28 @@ const lifecycle = async (gl: number): Promise<void> => {
 		rig.app.stage.filters = null;
 		rig.app.stage.filterArea = undefined as unknown as typeof foreignArea;
 		foreign.destroy();
+	}
+	// The still is taken with the stage's filters off: a post FX is not baked into it, so a From
+	// transition under it draws the old screen through the post FX once.
+	{
+		const post = new AlphaFilter({ alpha: 0.5 });
+		const slot = stagePostFxSlot(rig.app);
+		slot({ filters: [post], area: rig.app.screen.clone() });
+		show(rig, 'old');
+		frame(rig);
+		const graded = shot(rig);
+		const handle = await begin(rig, { kind: kindOf(from), pose: () => ({ progress: 0.5 }) });
+		frame(rig, 2);
+		const c = compare(shot(rig), graded);
+		handle.end();
+		await handle.done;
+		slot(null);
+		post.destroy();
+		frame(rig);
+		claim(
+			`the still is taken with the stage's filters off: under a post FX, Screens → From draws the old screen graded once (${said(c)})`,
+			compare(graded, ref.old).over > 1000 && c.over === 0 && atRest(rig),
+		);
 	}
 	// The post FX slot in the shape the post FX fill it, and the project's anti-aliasing.
 	{
