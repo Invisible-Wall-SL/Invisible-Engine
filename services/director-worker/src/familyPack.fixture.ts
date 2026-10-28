@@ -98,7 +98,7 @@ console.log('the loader');
 	const load = (name: string) => throws(() => loadFamilyPacks(`${CASES}/${name}`));
 	const valid = loadFamilyPacks(`${CASES}/valid`);
 	check(
-		json([...valid.keys()].sort()) === json(['arcade', 'match3', 'slot']) &&
+		json([...valid.keys()].sort()) === json(['arcade', 'card', 'match3', 'slot']) &&
 			valid.get('slot')!.sections.get(KINDS_SECTION) === '### lines\n- A fixture kind.' &&
 			valid.get('arcade')!.text.startsWith('# Fixture pack'),
 		"a valid set loads, a pack's text is its body after the frontmatter, trimmed",
