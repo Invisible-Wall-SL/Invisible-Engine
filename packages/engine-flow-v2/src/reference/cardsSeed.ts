@@ -26,7 +26,7 @@ export const CARD_TEMPLATE_ID = 'card';
 export const CARD_SCREENS = {
 	loading: 'loading',
 	deckPick: 'cardDeckPick',
-	table: 'cardTable',
+	table: 'basegame',
 	won: 'cardWon',
 	lost: 'cardLost',
 } as const;
@@ -78,7 +78,12 @@ const buildGraph = (): FlowDoc['graph'] => {
 	const signals = add({ id: 'cd_signals', kind: 'gameSignals' });
 	const pin = (name: string): PinPath => ({ node: signals, pin: name });
 
-	chain(pin('load'), [show('cd_load_show', CARD_SCREENS.loading)]);
+	// The table is up from the start, under the loading and deck-pick screens: it mounts the match
+	// driver, which must be listening before the deck pick asks for a match.
+	chain(pin('load'), [
+		show('cd_load_show', CARD_SCREENS.loading),
+		show('cd_table_boot', CARD_SCREENS.table),
+	]);
 
 	// The first of `complete:loading` / `tapToStart` starts the game; the second finds it started.
 	const start = (prefix: string, from: PinPath) => {

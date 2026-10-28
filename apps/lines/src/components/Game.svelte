@@ -347,6 +347,7 @@
 	import Match3Input from './Match3Input.svelte';
 	import ArcadeStage from './ArcadeStage.svelte';
 	import CardTable from './CardTable.svelte';
+	import { startCards } from '../game/cards';
 	import { gameMechanic } from '../game/mechanic';
 	import CoinBoardLinesSelector from './CoinBoardLinesSelector.svelte';
 	import FlightLayer from './FlightLayer.svelte';
@@ -871,6 +872,8 @@
 	);
 	/** The feature is recorded but its board has not shown it yet — a held intro before the board. */
 	const respinsBeforeBoard = () => stateHoldAndWin.active && !stateRespinBoard.counter.show;
+	// A card table's sources and actions, registered before the layout mounts (`cards.ts`).
+	if (mechanic.cardTable) startCards();
 	registerComponentValues({
 		balance: valueSource(() => stateBet.balanceAmount, numberToCurrencyString),
 		win: valueSource(() => stateBet.winBookEventAmount, bookEventAmountToCurrencyString),

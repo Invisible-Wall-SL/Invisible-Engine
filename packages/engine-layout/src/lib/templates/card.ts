@@ -28,7 +28,7 @@ export const cardTemplate: GameTemplate = {
 				{ slotId: 'background', name: 'Background', kind: 'mount', mountComponent: 'Background' },
 			],
 		},
-		{ id: 'cardTable', name: 'Table', slots: [] },
+		{ id: 'basegame', name: 'Table', slots: [] },
 		{ id: 'cardDeckPick', name: 'Deck pick', slots: [] },
 		{ id: 'cardWon', name: 'Match won', slots: [] },
 		{ id: 'cardLost', name: 'Match lost', slots: [] },

@@ -345,6 +345,32 @@ export const notePointer = (at: Point) => {
 	pointer = at;
 };
 
+/** The table for the determinism probe (the playtester): the numbers and every seated card. */
+export const cardsProbe = () => {
+	const match = driver?.session?.match;
+	const cards = [...seated].map(([uid, at]) => {
+		const instance = live.get(at.id);
+		return {
+			uid,
+			cardId: match ? cardIdIn(match, uid) : '',
+			zone: at.layer,
+			id: at.id,
+			x: instance?.x ?? 0,
+			y: instance?.y ?? 0,
+		};
+	});
+	const { seed, mine, phase, turn, myHealth, enemyHealth, over, won } = stateCards;
+	return { seed, mine, phase, turn, myHealth, enemyHealth, over, won, cards };
+};
+
+const cardIdIn = (match: Match, uid: number): string => {
+	for (const [, cards] of zonesOf(match)) {
+		const card = cards.find((c) => c.uid === uid);
+		if (card) return card.cardId;
+	}
+	return '';
+};
+
 /** The layout's screens, for the heroes' places. */
 export const useCardScenes = (next: readonly Scene[], type: LayoutType) => {
 	scenes = next;
@@ -366,7 +392,17 @@ const present = {
 	wait,
 };
 
-/** Start the match driver, once per page; with no flow, the first match starts at once. */
+/** With no flow to ask for one, the table deals the first match itself once it is up. */
+export function startFirstMatch() {
+	if (driver && !driver.session && !getFlowV2()) void driver.newMatch();
+}
+
+/**
+ * Start the match driver and register what the layout reads: the flow's actions and `$engine`
+ * keys, the HUD's `cards.*` value sources and the End Turn button's action. Called from
+ * `Game.svelte`'s init for a card table only, BEFORE the layout mounts — a readout or a button
+ * looks its source up once, when it mounts.
+ */
 export function startCards(): () => void {
 	const doc = normalizeGameConfigDoc(bakedGameConfig());
 	if (!doc) throw new Error('cards: the game has no config');
@@ -381,7 +417,6 @@ export function startCards(): () => void {
 			},
 			present,
 		});
-		if (!getFlowV2()) void driver.newMatch();
 	}
 	const d = driver;
 	registerBoardEffects({

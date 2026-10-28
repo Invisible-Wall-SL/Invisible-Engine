@@ -10,21 +10,25 @@
 <script lang="ts">
 	import { getContextApp } from 'pixi-svelte';
 
-	import { notePointer, startCards, tapTable, useCardScenes } from '../game/cards';
+	import { onDestroy } from 'svelte';
+
+	import { cardsProbe, notePointer, startFirstMatch, tapTable, useCardScenes } from '../game/cards';
 	import { getContext } from '../game/context';
+	import { registerDeterminismCards } from '../game/determinism';
 
 	/**
 	 * THE CARD TABLE (`docs/design/card-games.md` §5.1): mounted in the reel stack's place for a
 	 * mechanic that is a card table. It draws nothing of its own — the cards are spawned instances of
-	 * their frame, drawn by the table screen's spawn layers where the runtime puts them — and starts
-	 * the match driver, hands it the screens, and follows the canvas pointer for the drop.
+	 * their frame, drawn by the table screen's spawn layers where the runtime puts them. It hands the
+	 * runtime the screens and the canvas pointer for the drop; `Game.svelte` started the driver.
 	 */
 
 	const { scenes }: Props = $props();
 	const context = getContext();
 	const app = getContextApp();
 
-	$effect(() => startCards());
+	$effect(() => startFirstMatch());
+	onDestroy(registerDeterminismCards({ read: cardsProbe }));
 	$effect(() => useCardScenes(scenes, context.stateLayoutDerived.layoutType()));
 
 	$effect(() => {

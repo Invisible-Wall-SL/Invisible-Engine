@@ -27,6 +27,44 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
 
 ## Current state
 
+**Card C3 — playable end to end (built 2026-10-28; in review).** [card-games.md](../design/card-games.md)
+§12's C3 row, in one PR; what it settled where §5–§9 were silent is in the design's new §5.4.
+
+- **The family:** `card` in `GAME_KINDS` / `GAME_FAMILIES` / `familyOfKind`, `CONFIG_FAMILIES`,
+  `kindCapabilities` (`FAMILY_KINDS`, no board / wallet / bet controls), `FAMILY_NAMES`,
+  `FAMILY_LABELS`, `FAMILY_TOOLS` (`card` hides Symbols, Win Text, Characters; the `cards` tool is
+  C4) and the delivery gate's message.
+- **Game Config:** `GameConfigDoc.card` (`game-config` `cardGame.ts`: `CardBlock`, `resolveCard`,
+  `normalizeCard` through `cards.js`'s own `readLibrary`, `cardLibraryOf`, the collectors
+  `cardGameComponentIds` / `cardGameParamRefs`, `validateCardGame`). `game-config` now depends on
+  `engine-mechanics` (workspace, dependency-free) so the config validator runs the very
+  `validateLibrary` the game does. The normalizer's board-less set is `arcade`, `card`. An RGS card
+  config is an error and `unplayable`. `/config` shows a card project its `card` section only (the
+  rules, the card and deck counts; cards and decks in Raw JSON until C4), and the family picker offers
+  Card with Rules only.
+- **Runtime:** `CARD_RULES_MECHANIC` (`cardTable: true`); `engine-game` `cardSession.ts` (the match
+  and the device's AI, player side 0) and `cardDriver.ts` (actions, the device's turn paced by a
+  presentation delay, the §5.3 signals, input); `apps/lines` `cards.ts` (zones as spawn layers, the
+  frame's values, the drop) and `<CardTable />`, mounted in `Game.svelte`'s now three-way branch. The
+  card sources, End Turn action and Flow effects register at `Game.svelte` init, for a card table
+  only.
+- **Flow:** `CARD_VOCAB` and the starter (`CARD_DRIVEN_SEED_DOC`: the table up from boot, the deck
+  pick's tap deals, the won / lost screen's tap deals again).
+- **Game Maker:** the `card` reference layout (`referenceLayouts/card.ts`: loading, background, the
+  table `basegame` with the four zones, two heroes, readouts and End Turn, the deck pick, won, lost),
+  the `card` template, the seed `card.rules.json` (24 invented cards, two 15-card decks, `deckSize` 15) and the placeholder frame `cardFrame`, created by the scaffold.
+- **Ship chain:** no new asset class: the export and the bake seed `cardGameComponentIds` and classify
+  `cardGameParamRefs`; `check:art-scope` section 10. Localization: the "Cards" harvest section.
+- **Gates:** `check:card-family` (113), `check:card-runtime` (28, the starter flow on the real
+  interpreter included), `check:art-scope` and `check:flow-publish-gate` extended; the gates card
+  touched re-pinned (`check:authored-freespins`' `drivenSeed.ts` hash, `check:flow-time-events`,
+  `expandingSymbol.fixture`, `check:match3-wire`'s unknown family, `check:stock-asset-coverage`,
+  `flow-spike v2holdandwin`, `owners.json` `kind:card` gap). Played in a real browser by
+  `scripts/playtest/card-play.mjs` ([playtest](../playtest/card-sample.md)).
+- **Bundle:** the shared runtime grows **+51.6 KB raw / +17.4 KB gz** for every game (`index.html`,
+  main 724b41e vs this branch), mostly `cards.js` and `cardAi.js`, then the card reference layout.
+  Owner call (open item 0a).
+
 **Card C2 — the AI (built 2026-10-27; in review).** [card-games.md](../design/card-games.md) §12's
 C2 row (§4), in one PR. No caller yet: the family, runtime and sample game are C3.
 
@@ -1825,7 +1863,13 @@ game, bundle or screen changes.
 
 ## Open items / next
 
-0. **P10.15 follow-ups:** (a) **online Flow events** (`onPlayerJoined`, `onPlayerLeft`, `onHit`,
+0a. **Card C3 follow-ups:** (a) the **bundle cost** (+17.4 KB gz for every game; owner): accept
+until the per-family runtime build (item 9), as P10.14's; (b) the placeholder frame has looks but
+no state machine: an authored frame's states (§6) need timelines; (c) a real deck picker (the
+starter's deck pick is a tap); (d) hero portraits do not light `targetable`; a dragged card is not
+lifted above its neighbours; (e) the current-games `SCRIPT_FOR_KIND` gains `card` when a card
+game is first published, with its screen script; (f) `hard`'s 16 ms budget on a mid phone is not
+measured; (g) the Card Library (`/cards`) is C4. 0. **P10.15 follow-ups:** (a) **online Flow events** (`onPlayerJoined`, `onPlayerLeft`, `onHit`,
    `onCaught`, `onRoundEnd`) from the room's `event` messages, and **server-owned variables** (the
    room's scores bound as read-only `var:` sources; the validator's `variable-server-owned`) — the
    design's P10.15 row names both; (b) predicted ability events (a swipe drawn when pressed) and
@@ -1883,6 +1927,10 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-28 — **Card C3 built: playable end to end** (the `card` family, `GameConfigDoc.card`, the
+  card table runtime, `CARD_VOCAB` and its starter, the Game Maker scene set and sample, the
+  placeholder frame, `check:card-family`, `check:card-runtime`). Slot, match-3 and arcade unchanged
+  by design; bundle +17.4 KB gz. Detail above.
 - 2026-10-27 — **Card C2 built: the AI** (`engine-mechanics` `cardAi.js`, `check:card-ai`), and the
   two design points C1 raised fixed in card-games.md. No caller, no game changes. Detail above.
 - 2026-10-27 — **P10.15 built: netcode and the online rules (A4b).** Own-player prediction and

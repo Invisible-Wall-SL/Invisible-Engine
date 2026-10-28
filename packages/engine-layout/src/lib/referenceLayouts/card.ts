@@ -20,7 +20,7 @@ import type {
  *   - `loading` — the loading bar; its tap completes the screen and starts the game;
  *   - `background` — the coded background;
  *   - `cardDeckPick` — a tap-to-continue that starts a match with the first player deck;
- *   - `cardTable` — the four zones as top-level spawn layers (`enemyHand`, `enemyBoard`, `board`,
+ *   - `basegame` (the table) — the four zones as top-level spawn layers (`enemyHand`, `enemyBoard`, `board`,
  *     `hand`; the table lays the cards out in each), the two hero portraits (`enemyHero`,
  *     `playerHero`), the health, resource and deck readouts and the End Turn button;
  *   - `cardWon` / `cardLost` — a dimmed tap-to-continue with its line; the flow holds on the tap.
@@ -150,7 +150,19 @@ const rect = (
 	color: number,
 	extra: Partial<LayoutNode> = {},
 ): LayoutNode =>
-	({ id, kind: 'rect', x, y, width, height, color, borderRadius: 10, ...extra }) as LayoutNode;
+	({
+		id,
+		kind: 'rect',
+		x,
+		y,
+		// `x, y` is the top-left corner: a rect's default anchor is its centre.
+		anchor: { x: 0, y: 0 },
+		width,
+		height,
+		color,
+		borderRadius: 10,
+		...extra,
+	}) as LayoutNode;
 
 const label = (
 	id: string,
@@ -469,7 +481,7 @@ export function cardReferenceLayout(): LayoutDoc {
 				],
 			},
 			{
-				id: 'cardTable',
+				id: 'basegame',
 				name: 'Table',
 				role: 'basegame',
 				nodes: [
