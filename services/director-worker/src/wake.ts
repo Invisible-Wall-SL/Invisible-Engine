@@ -1,6 +1,7 @@
 import type { Sql } from 'postgres';
 import { claimRun } from './lease.ts';
 import { log } from './log.ts';
+import { WORKER_BEAT_EVERY_MS, WORKER_KINDS, WORKER_KINDS_KEY } from './repair.ts';
 
 /**
  * How a run gets the worker's attention (ADR-0003 "Wake-up"): an AFTER INSERT trigger on
@@ -54,10 +55,26 @@ export async function startWake(
 			if (runId) return;
 		}
 	};
+	let beatAt = 0;
+	/** Tell the launcher this worker knows repair runs (`WORKER_KINDS_KEY`): never fails a sweep. */
+	const beat = async () => {
+		if (Date.now() - beatAt < WORKER_BEAT_EVERY_MS) return;
+		beatAt = Date.now();
+		try {
+			await sql`
+				insert into app_settings (key, value, updated_at)
+				values (${WORKER_KINDS_KEY}, ${WORKER_KINDS}, now())
+				on conflict (key) do update set value = excluded.value, updated_at = now()`;
+		} catch (error) {
+			beatAt = 0;
+			log.warn('could not record the worker heartbeat', { error });
+		}
+	};
 	const kick = async (runId: string | null) => {
 		try {
 			await pump(runId);
 			healthy = true;
+			void beat();
 		} catch (error) {
 			healthy = false;
 			log.error('claim failed', { runId, error });

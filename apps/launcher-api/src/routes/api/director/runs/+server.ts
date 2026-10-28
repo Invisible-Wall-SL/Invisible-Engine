@@ -1,7 +1,12 @@
 import { json } from '@sveltejs/kit';
 import { requireDirectorAccess, requireDirectorProjectScope } from '$lib/server/director/access';
 import { NO_STORE, answering, jsonBody } from '$lib/server/director/api';
-import { createRun, listRunSummaries, summarizeRun } from '$lib/server/director/runs';
+import {
+	createRepairRun,
+	createRun,
+	listRunSummaries,
+	summarizeRun,
+} from '$lib/server/director/runs';
 import type { RequestHandler } from './$types';
 
 /**
@@ -13,6 +18,11 @@ import type { RequestHandler } from './$types';
  *        { requestId, key, name, clientKey?, gameType?, template, notes?, checkpoints? }
  *        → 200 { run: <summary>, replayed }   (201 on the first answer)
  *        A body that still sends the retired `preset` is refused 400 `bad_request`.
+ *   POST /api/director/runs   { requestId, bug }   create a game REPAIR run for game bug `bug` (a
+ *        number), in `draft` (ADR-0012): the bug's own project, nothing copied. Needs Director and
+ *        the game triage capability (403 `triage_required`) and a bug the caller can see (else 404);
+ *        409 `bug_closed`, `template_project`, `live_run_on_project`. Same answer shape and
+ *        `requestId` replay as a create.
  *
  * Session-gated on the `director` tool, and a create on Game Maker's too (403
  * `game_maker_required`): it takes the same fields and validation as Game Maker's "Create a
@@ -36,17 +46,20 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	const user = await requireDirectorAccess(locals);
 	const body = await jsonBody(request);
 	return answering(async () => {
-		const { run, replayed } = await createRun(user, {
-			requestId: body.requestId,
-			key: body.key,
-			name: body.name,
-			clientKey: body.clientKey,
-			gameType: body.gameType,
-			template: body.template,
-			notes: body.notes,
-			preset: body.preset,
-			checkpoints: body.checkpoints,
-		});
+		const { run, replayed } =
+			body.bug !== undefined
+				? await createRepairRun(user, { requestId: body.requestId, bug: body.bug })
+				: await createRun(user, {
+						requestId: body.requestId,
+						key: body.key,
+						name: body.name,
+						clientKey: body.clientKey,
+						gameType: body.gameType,
+						template: body.template,
+						notes: body.notes,
+						preset: body.preset,
+						checkpoints: body.checkpoints,
+					});
 		return json(
 			{ run: await summarizeRun(run), replayed },
 			{ status: replayed ? 200 : 201, headers: NO_STORE },

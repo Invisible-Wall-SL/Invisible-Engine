@@ -201,6 +201,13 @@ naming the cause. On SIGTERM it stops claiming and gives turns in flight 20 s to
   `packages/director-costs`, copied to `/packages` and linked into `node_modules` (Node strips
   types only outside `node_modules`). The TypeScript runs directly with `--experimental-strip-types`. Locally: `pnpm --filter director-worker start`;
   `pnpm --filter director-worker build` is the typecheck.
+- **Deploy order for repair runs (ADR-0012, migration `0035_director_repair_runs`):** launcher first,
+  then the worker. The new worker reads `director_runs.kind` in its claim, so it fails (503 on
+  `/healthz`; redeploy it) against a database the launcher has not migrated. A worker from before
+  repair runs cannot be changed and would drive a repair run as a create run, so the launcher refuses
+  to START one (409 `worker_outdated`) until a worker that knows the kind has swept in the last five
+  minutes: every sweep of a new worker upserts `app_settings.DIRECTOR_WORKER_KINDS` (`create,repair`),
+  an old or rolled-back worker never does. Creating a repair draft is not gated; it wakes no worker.
 - **Replicas:** safe to scale. The lease keeps one driver per run, and
   `pnpm --filter director-worker prove:lease` proves it against a scratch database;
   `prove:turns` proves the turn loop there with a fake model, and `prove:breakdown` the worker-run
@@ -707,6 +714,7 @@ code default, so the dashboard need not set it):
   memory-heavy, see [design/gpu-compressed-textures](design/gpu-compressed-textures.md)),
   `PAGE_WEBP` (default ON — near-lossless WebP pages), `SOUND_TRANSCODE` (default ON) +
   `SOUND_MAX_KBPS` (default 128).
+- **Ask the AI** (the chat on every tool's bar): `ANTHROPIC_API_KEY`; unset, the chat says it is not configured. The Atlas / Sheet Maker relay it with `ATLAS_TOOL_SIGNING_SECRET` / `SHEET_TOOL_SIGNING_SECRET` (already shared with each tool) to `LAUNCHER_URL` (theirs; code default `https://app.invisiblewall.org`).
 - **Localization:** `ANTHROPIC_API_KEY`, or `LOCALIZATION_LLM_BASE_URL` + `LOCALIZATION_LLM_API_KEY`
   (+ optional `LOCALIZATION_LLM_MODEL`) for an OpenAI-compatible provider.
 - **ComfyUI / RunPod:** `RUNPOD_API_KEY`, `RUNPOD_DATA_CENTER_ID`, `COMFY_VOLUME_POD_ID`,

@@ -364,7 +364,7 @@
 	import RespinCellTiles from './RespinCellTiles.svelte';
 	import LineOverlayPart from './LineOverlayPart.svelte';
 	import RespinLockedRows from './RespinLockedRows.svelte';
-	import { stateHoldAndWinBanner } from '../game/holdAndWinBanner.svelte';
+	import { bannerTierIndex, stateHoldAndWinBanner } from '../game/holdAndWinBanner.svelte';
 	import { bannerShows } from '../game/holdAndWinBannerScreen.svelte';
 	import FreeSpinIntroSymbolReveal from './FreeSpinIntroSymbolReveal.svelte';
 	import ExpandingSymbol from './ExpandingSymbol.svelte';
@@ -993,6 +993,9 @@
 		// banner screens show — one beat sets them for both paths.
 		holdAndWinBanner: textSource(() => stateHoldAndWinBanner.current?.title ?? ''),
 		holdAndWinBannerDetail: textSource(() => stateHoldAndWinBanner.current?.detail ?? ''),
+		// …and the jackpot tier it names as a number (MINI 1 … GRAND 4, else 0): one banner component's
+		// state machine picks its per-tier look from it.
+		holdAndWinBannerTier: valueSource(bannerTierIndex),
 		// The RETRIGGER delta — extra free spins won mid-feature. Set universally at dispatch
 		// (`engine-game`'s `playBook.ts`) so it's populated whether the flow or the coded path
 		// presents the retrigger.

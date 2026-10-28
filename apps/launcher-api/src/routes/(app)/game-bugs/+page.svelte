@@ -13,6 +13,8 @@
 		user={data.user}
 		projects={data.projects}
 		canTriage={data.canTriage}
+		repair={data.repair}
+		pipelineAreas={data.pipelineAreas}
 		selected={data.selected}
 		report={data.report}
 		areas={data.areas}

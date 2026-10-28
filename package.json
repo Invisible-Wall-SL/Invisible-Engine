@@ -77,6 +77,7 @@
 		"check:game-app-deps": "node scripts/check-game-app-deps.mjs",
 		"check:svelte-pins": "node packages/config-vite/svelteVersions.fixture.mjs",
 		"check:toolbar-icons": "node scripts/check-toolbar-icons.mjs",
+		"check:ask-ai-sync": "node scripts/sync-ask-ai.mjs --check",
 		"check:agents-knowledge": "node --experimental-strip-types --no-warnings scripts/check-agents-knowledge.mjs",
 		"check:transition-parity": "node scripts/transition-parity/run.mjs",
 		"check:win-parity": "node scripts/win-parity/run.mjs",

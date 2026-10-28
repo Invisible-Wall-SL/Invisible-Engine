@@ -114,6 +114,26 @@ export async function validateSession(raw: string | undefined): Promise<SessionU
 }
 
 /**
+ * A user by id, as `validateSession` would answer for them: null when the account is unknown,
+ * disabled or past its login window. For a caller a tool vouches for (`toolRelay.ts`).
+ */
+export async function activeUser(id: string): Promise<SessionUser | null> {
+	const [row] = await getDb()
+		.select({
+			id: users.id,
+			email: users.email,
+			name: users.name,
+			role: users.role,
+			active: users.active,
+			expiresAt: users.expiresAt,
+		})
+		.from(users)
+		.where(eq(users.id, id));
+	if (!row || !row.active || isExpired(row.expiresAt)) return null;
+	return { id: row.id, email: row.email, name: row.name, role: row.role };
+}
+
+/**
  * The stable server-side id for a session token — the hashed token, i.e. the
  * `sessions.id` primary key. Safe to persist elsewhere (e.g. a doc lease holder):
  * it is the same value already stored in the `sessions` table, NOT the raw cookie

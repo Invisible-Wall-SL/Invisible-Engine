@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { requireDirectorAccess } from '$lib/server/director/access';
 import { NO_STORE, answering, jsonBody } from '$lib/server/director/api';
-import { estimateForTemplate } from '$lib/server/director/runs';
+import { estimateForRepair, estimateForTemplate } from '$lib/server/director/runs';
 import type { RequestHandler } from './$types';
 
 /**
@@ -9,6 +9,9 @@ import type { RequestHandler } from './$types';
  *
  *   { template, mockups?: <count>, checkpoints? }
  *   → 200 { estimate: { claude, runpod, total, checkpoints, placeholder }, template, chains, checkpoints }
+ *
+ * `{ kind: 'repair' }` answers a game repair run's estimate instead (ADR-0012 §5): `{ estimate:
+ * { pass, perRevise, withRevise }, budgetCapUsd }`, from the `repair` profiles, no GPU.
  *
  * Computed from the template's region counts, the mockup count, the checkpoints and each region
  * group's default chain (the template's approved one, else the profiles' `fallbackRecipe`)
@@ -20,6 +23,9 @@ import type { RequestHandler } from './$types';
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const user = await requireDirectorAccess(locals);
 	const body = await jsonBody(request);
+	if (body.kind === 'repair') {
+		return answering(async () => json(await estimateForRepair(), { headers: NO_STORE }));
+	}
 	return answering(async () =>
 		json(
 			await estimateForTemplate(user, {

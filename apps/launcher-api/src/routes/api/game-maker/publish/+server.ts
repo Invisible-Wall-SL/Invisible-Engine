@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { OWNER_ROLE } from '$lib/launcherGates';
 import { GAME_PUBLISH_CAPABILITY } from '$lib/roles';
+import { liveRunOnProject } from '$lib/server/director/store';
 import { SESSION_COOKIE, setActiveProjectKey } from '$lib/server/auth';
 import { userHasCapability } from '$lib/server/launcherAuth';
 import { DEFAULT_PROJECT_KEY, canAccessProject } from '$lib/server/projects';
@@ -18,9 +19,12 @@ const NO_STORE = { 'cache-control': 'no-store' };
  * whole admin panel. Body: `{ project: string }`. On success returns the playable game URL.
  *
  *   POST /api/game-maker/publish
- *     { "project": "<key>", "allowUnapproved"?: true, "allowInvalidFlow"?: true,
+ *     { "project": "<key>", "confirmRepairRun"?: true, "allowUnapproved"?: true, "allowInvalidFlow"?: true,
  *       "allowPaytableDrift"?: true }
  *   → 200 { ok, key, url, playUrl, sounds, flow }
+ *   → 409 { error, reason: 'repair-run-live', details: { runId, bugNumber }, canOverride: true } — a
+ *     Director game repair run is changing the project (ADR-0012): publishing would ship its
+ *     half-done edits. Any publisher may confirm with `confirmRepairRun: true`; it only warns.
  *   → 409 { error, reason, details, canOverride }   — blocked; `unapproved-sounds` is overridable by
  *     any publisher, `invalid-flow` and `paytable-drift` by the owner role only (`canOverride` says
  *     which applies here)
@@ -36,6 +40,7 @@ export const POST: RequestHandler = async ({ request, locals, url, cookies }) =>
 		allowUnapproved?: unknown;
 		allowInvalidFlow?: unknown;
 		allowPaytableDrift?: unknown;
+		confirmRepairRun?: unknown;
 	};
 	try {
 		body = await request.json();
@@ -51,6 +56,20 @@ export const POST: RequestHandler = async ({ request, locals, url, cookies }) =>
 		return json(
 			{ error: 'Unknown project, or you do not have access to it.' },
 			{ status: 403, headers: NO_STORE },
+		);
+	}
+
+	// A live repair run is rewriting this project's content: warn, and publish only once confirmed.
+	const repairing = await liveRunOnProject(project);
+	if (repairing?.kind === 'repair' && body.confirmRepairRun !== true) {
+		return json(
+			{
+				error: `A Director repair run is changing this project (BUG-${repairing.bugNumber}). Publishing now ships its changes as they stand.`,
+				reason: 'repair-run-live',
+				details: { runId: repairing.id, bugNumber: repairing.bugNumber },
+				canOverride: true,
+			},
+			{ status: 409, headers: NO_STORE },
 		);
 	}
 

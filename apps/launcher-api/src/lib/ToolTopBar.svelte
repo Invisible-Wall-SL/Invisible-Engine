@@ -5,6 +5,7 @@
 	// (atlas/sheet) render a visually identical HTML twin fed by the launcher.
 	// See docs/design/unified-tool-bar.md.
 	import { page } from '$app/state';
+	import AskAiPanel from '$lib/AskAiPanel.svelte';
 	import { BUG_TOOL } from '$lib/bugReports';
 	import Emblem from '$lib/Emblem.svelte';
 	import { TOOLS, toolBarItems, toolAccent, type ToolDef } from '$lib/roles';
@@ -43,6 +44,10 @@
 			? reportBugHref('/bugs', current, page.url.origin + page.url.pathname, projectKey)
 			: null,
 	);
+
+	// "Ask the AI": a movable chat about this tool, for anyone who has it open.
+	const canAsk = $derived(current in TOOLS);
+	let asking = $state(false);
 
 	// Drop the tool labels (icon-only) only when the labelled row would actually
 	// overflow its track — not on a blunt viewport breakpoint. We watch the nav with a
@@ -107,6 +112,33 @@
 
 	{#if meta}<div class="meta">{@render meta()}</div>{/if}
 
+	{#if canAsk}
+		<button
+			type="button"
+			class="ask"
+			class:on={asking}
+			title={`Ask the AI how to do something in ${name}`}
+			onclick={() => (asking = true)}
+		>
+			<span class="ic">
+				<svg
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.6"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					aria-hidden="true"
+				>
+					<path d="M20 14a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z" />
+					<path d="M9.5 8.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.4" />
+					<path d="M12 14.2v.01" />
+				</svg>
+			</span>
+			<span class="label">Ask the AI</span>
+		</button>
+	{/if}
+
 	{#if reportHref}
 		<!-- Another tool's form, with this tool filled in: `resolve()` cannot carry a query. -->
 		<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
@@ -137,6 +169,10 @@
 		</a>
 	{/if}
 </header>
+
+{#if asking}
+	<AskAiPanel tool={current} toolName={name} {projectKey} onclose={() => (asking = false)} />
+{/if}
 
 <style>
 	/* The single source of truth for tool-bar chrome. Every launcher tool renders
@@ -266,6 +302,27 @@
 	.report:hover {
 		background: #2a1a22;
 		border-color: #6b3550;
+	}
+	.ask {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		flex: none;
+		padding: 5px 10px;
+		border-radius: 8px;
+		border: 1px solid #2a3150;
+		background: none;
+		color: #9ab8ff;
+		font: inherit;
+		font-size: 12px;
+		font-weight: 600;
+		white-space: nowrap;
+		cursor: pointer;
+	}
+	.ask:hover,
+	.ask.on {
+		background: #1a2038;
+		border-color: #3b5290;
 	}
 	/* Icon-only when the labelled row would overflow its track (driven by the
 	   ResizeObserver above): drop labels before anything else collapses. */

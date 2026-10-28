@@ -19,9 +19,21 @@ export type HoldAndWinBannerView = {
 	title: string;
 	detail?: string;
 	size: 'large' | 'small';
+	/** The jackpot tier a jackpot beat names (`GRAND`, `mini`…), read by `bannerTierIndex`. */
+	tier?: string;
 };
 
 export const stateHoldAndWinBanner = $state({ current: null as HoldAndWinBannerView | null });
+
+const STANDARD_JACKPOT_TIERS = ['mini', 'minor', 'major', 'grand'];
+
+/**
+ * The shown banner's jackpot tier as a number — MINI 1, MINOR 2, MAJOR 3, GRAND 4 — what an authored
+ * banner's state machine branches on (`holdAndWinBannerTier`). 0 for a banner naming no tier, no
+ * banner, or a tier outside the standard four.
+ */
+export const bannerTierIndex = (): number =>
+	STANDARD_JACKPOT_TIERS.indexOf(stateHoldAndWinBanner.current?.tier?.toLowerCase() ?? '') + 1;
 
 let nextId = 1;
 

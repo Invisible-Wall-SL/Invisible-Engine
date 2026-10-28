@@ -15,11 +15,15 @@
 		bugTriageName,
 	} from '$lib/bugReports';
 	import type { BugDetail, LinkSync } from '$lib/server/bugReports';
+	import { resolve } from '$app/paths';
 	import Pill from '../pipeline/Pill.svelte';
 	import { apiErrorText, timeAgo } from '../pipeline/view';
+	import RepairCard from './RepairCard.svelte';
 	import ShotDrop from './ShotDrop.svelte';
 	import {
 		LINK_STATE_LABELS,
+		NO_REPAIR,
+		eventNote,
 		eventText,
 		formatBytes,
 		linkTone,
@@ -28,12 +32,17 @@
 		statusLabel,
 		statusTone,
 		syncText,
+		type RepairFacts,
 	} from './view';
 
 	let {
 		detail,
 		canTriage,
 		canOpenPipeline,
+		canOpenPipelineBugs = false,
+		canOpenGameBugs = false,
+		repair = NO_REPAIR,
+		pipelineAreas = [],
 		areas,
 		projects,
 		sync,
@@ -45,6 +54,11 @@
 		canTriage: boolean;
 		/** The viewer has Invisible Pipeline Changes, so its Bugs tab can be linked. */
 		canOpenPipeline: boolean;
+		/** The viewer has Invisible Pipeline Bug Reports / Game Bug Reports, so the other list can be linked. */
+		canOpenPipelineBugs?: boolean;
+		canOpenGameBugs?: boolean;
+		repair?: RepairFacts;
+		pipelineAreas?: { id: string; name: string }[];
 		areas: { id: string; name: string }[];
 		projects: { key: string; name: string; clientName: string | null }[];
 		sync: LinkSync | null;
@@ -68,6 +82,11 @@
 		detail.pageUrl && /^https?:\/\//.test(detail.pageUrl) ? detail.pageUrl : null,
 	);
 	const syncLine = $derived(syncText(sync));
+	/** The game bug a pipeline bug was escalated from (ADR-0012 §3). */
+	const escalatedFrom = $derived.by(() => {
+		const e = detail.events.find((x) => x.kind === 'escalated' && typeof x.data.from === 'number');
+		return e ? Number(e.data.from) : null;
+	});
 
 	let busy = $state<string | null>(null);
 	let failure = $state<{ text: string; reload: boolean } | null>(null);
@@ -389,8 +408,8 @@
 			{#if game}
 				<p class="muted">
 					A game bug is fixed in this project's own content, not through Pipeline Changes. The fix
-					brief asks for exactly that; if the cause turns out to be in the engine or a tool, report
-					it as a pipeline bug.
+					brief asks for exactly that; if the cause turns out to be in the engine or a tool,
+					escalate it to the pipeline.
 				</p>
 				<div class="actions">
 					<button type="button" class="btn" onclick={copyBrief}>Copy fix brief</button>
@@ -438,6 +457,26 @@
 			{/if}
 		</div>
 	</section>
+
+	{#if game}
+		<RepairCard {detail} {repair} {pipelineAreas} {canOpenPipelineBugs} {now} {onchanged} />
+	{:else if escalatedFrom !== null}
+		<section class="card" aria-labelledby="escalated-h">
+			<div class="card-head">
+				<h3 id="escalated-h">Escalated from a game bug</h3>
+			</div>
+			<p>
+				Filed from game bug <span class="mono">{bugRef(escalatedFrom)}</span>.
+				{#if canOpenGameBugs && detail.projectKey}
+					<a
+						href="{resolve('/game-bugs')}?project={encodeURIComponent(
+							detail.projectKey,
+						)}&bug={escalatedFrom}">Open it there</a
+					>
+				{/if}
+			</p>
+		</section>
+	{/if}
 
 	<section class="card" aria-labelledby="shots-h">
 		<div class="card-head">
@@ -522,8 +561,8 @@
 						{eventText(e)}
 						<span class="when" title={e.at}>{timeAgo(e.at, now)}</span>
 					</span>
-					{#if e.kind === 'comment' && typeof e.data.text === 'string'}
-						<p class="comment">{e.data.text}</p>
+					{#if eventNote(e)}
+						<p class="comment">{eventNote(e)}</p>
 					{/if}
 				</li>
 			{/each}

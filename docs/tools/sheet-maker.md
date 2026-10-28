@@ -25,8 +25,9 @@ ComfyUI** is involved.
 
 ## Layout
 
-A single top bar (the shared tool bar — emblem, tool switcher, project picker,
-build pill, Atlas-Maker-link status), then three columns:
+A single top bar (the shared tool bar — emblem, tool switcher, **Ask the AI**, Report bug, project
+picker, build pill, Atlas-Maker-link status), then three columns. **Ask the AI** opens a movable chat
+that answers how to do things here from this guide ([launcher guide § Ask the AI](launcher.md#ask-the-ai)).
 
 - **Left — Sheets rail (resizable):** the project's saved sheets as a clickable
   list, with **Load sheet**, **↻ Refresh** (re-pull from R2), **↺ Reset**
