@@ -754,6 +754,15 @@ compiled effect, and steps 3 and 7 build on both.
      - `shader-compile` gains a `screens` sheet (every reference graph, twin and node body through
        the screen shell, WebGL1 and WebGL2).
    - **Exit:** those green; nothing plays differently.
+   - **As built (8e.1).** The conversion lives in `constants-shared/shellBody.ts`. The screen shell
+     declares no `uElement` / `uPad`: its unit square is the filter frame. `uTexture` is the live new
+     screen, `uFromTexture` the still, `uEfxReverse` the direction; the composite after the body is
+     `finalColor += efxScreenFrom(efxPx()) * (1.0 - finalColor.a)`. From and To are neutral as
+     Sample element on an element or particle. The Screens node costs 4 and 2 reads. The
+     `px ÷ frame` mapping does not depend on resolution or on Pixi's pooled texture sizes; it does
+     need the still to be a dedicated texture whose UV 0…1 is the filter frame, and the filter's
+     area to be the viewport (written on `SCREEN_FROM_TEXTURE`). 8e.2 proves the capture itself.
+     The shell's own composite read of the still is fixed overhead, outside the budget.
 2. **The stage filter owner and the transition runtime** (engine, `pixi-svelte`, no doc or
    vocabulary change).
    - **Contents:**
