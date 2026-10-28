@@ -166,12 +166,16 @@ export function factsOf(kind: string, doc: GameConfigDoc | null): Record<string,
 			validateFlowV2Against(seed, scenesFor(kind, doc), null, EMPTY_LIBRARY, [], addOns),
 		),
 		// `featurePlacement` (2026-10-26) is the same defaults for every doc, pinned by engine-layout's
-		// `test-win-text-hold-and-win.mjs`; the rest is main's.
+		// `test-win-text-hold-and-win.mjs`, and so is `toast.symbolImageSize` (2026-10-28), pinned by
+		// `check:win-text-doc`; the rest is main's.
 		winText: digest(
 			[
 				resolveWinText(AUTHORED_WIN_TEXT),
 				...respinModes.map((mode) => resolveWinTextForMode(AUTHORED_WIN_TEXT, mode)),
-			].map(({ featurePlacement: _placement, ...resolved }) => resolved),
+			].map(({ featurePlacement: _placement, ...resolved }) => {
+				const { symbolImageSize: _size, ...toast } = resolved.toast;
+				return { ...resolved, toast };
+			}),
 		),
 		localization: digest(harvestProjectWinText(AUTHORED_WIN_TEXT, kind, doc)),
 		symbols: digest(symbols),
