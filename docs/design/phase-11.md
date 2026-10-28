@@ -1,7 +1,8 @@
 # Phase 11: a runtime per family, then online arcade and Salmons (plan)
 
-> **Status:** plan, written 2026-10-28 after the owner approved starting the next phase. Not
-> started; every step waits for the owner's review of §4. Phase 10 is done
+> **Status:** plan, written 2026-10-28 after the owner approved starting the next phase.
+> **Approved by the owner on 2026-10-28: every §4 recommendation is accepted as written, and
+> P11.1a is started.** Phase 10 is done
 > ([game-families.md](game-families.md) §8, [status/game-families](../status/game-families.md)),
 > and so are Cards C1–C3 ([card-games.md](card-games.md) §12); C4, the Card Library, is being built
 > separately and is not part of this phase.
@@ -223,37 +224,39 @@ current-games run shows every game unchanged, with the owner's approval (Directo
 
 ## 4. Decisions (owner)
 
+**#1–#9 DECIDED (owner, 2026-10-28): every recommendation is accepted as written.**
+
 1. **How to split: one source built per family (seams + aliases), a second runtime app, or a
    different bundle strategy?**
-   - *Recommend:* **one source built per family** (§2.2). It is the only one of the three that
+   - *Approved:* **one source built per family** (§2.2). It is the only one of the three that
      removes the cost without a second copy of the engine
      ([game-families.md](game-families.md) §6.4 option B's drift) or a change to how every game
      loads (a split bundle).
 2. **The Colyseus netcode's predictor: ship it in `arcade`, or build a fifth runtime for games that
    pick `netcode: colyseus`?**
-   - *Recommend:* **in `arcade`.** The 17.3 KB gz cost then falls only on arcade games, which are
+   - *Approved:* **in `arcade`.** The 17.3 KB gz cost then falls only on arcade games, which are
      free play, and a fifth runtime would mean a fifth pointer to release and roll back for one
      setting.
 3. **Should a non-slot runtime also drop the slot code (reels, paylines, Hold and Win)?**
-   - *Recommend:* **not in this phase.** The slot code is the shared base: boot, HUD, Flow and the
+   - *Approved:* **not in this phase.** The slot code is the shared base: boot, HUD, Flow and the
      board that match-3 reuses. Separating it is a refactor of the engine's centre for a saving
      that only free-play games would get.
 4. **The size budget `check:family-runtimes` enforces.**
-   - *Recommend:* **the sizes P11.1b measures, plus 2 %**, recorded in the gate. A step that goes
+   - *Approved:* **the sizes P11.1b measures, plus 2 %**, recorded in the gate. A step that goes
      over the budget either explains why in its PR, or the owner raises the budget.
 5. **The id of the slot runtime: keep `lines`, or rename it `slot`?**
-   - *Recommend:* **keep `lines`.** Every published manifest and pinned canary already names it,
+   - *Approved:* **keep `lines`.** Every published manifest and pinned canary already names it,
      and renaming it would need a migration of every live game for a label.
 6. **The family default for a standalone game repo with no baked config.**
-   - *Recommend:* **`all`, with a build warning.** A wrong guess would cost a game its family. A
+   - *Approved:* **`all`, with a build warning.** A wrong guess would cost a game its family. A
      game that is too big costs bytes only, and the desktop launcher's builds do bake the config.
 7. **P11.2's size: one PR, or split?**
-   - *Recommend:* **two PRs.** (a–b) covers the device and Flow. (c–e) covers publish, `/config` and
+   - *Approved:* **two PRs.** (a–b) covers the device and Flow. (c–e) covers publish, `/config` and
      the river per room. They touch different owners' files (the arcade runtime, the launcher), so
      each review stays small.
 8. **Order of P11.3 against P11.4.** Both are what Salmons needs.
-   - *Recommend:* **run them in parallel after P11.1a.** They share no files. P11.3 is server-side
+   - *Approved:* **run them in parallel after P11.1a.** They share no files. P11.3 is server-side
      rules; P11.4 is drawing.
 9. **Cards C5.**
-   - *Recommend:* **not scheduled.** List it, and start it only on a playtest that asks for
+   - *Approved:* **not scheduled.** List it, and start it only on a playtest that asks for
      interleaved play or more verbs ([card-games.md](card-games.md) §13 #2–#3).

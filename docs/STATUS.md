@@ -69,7 +69,7 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 - [element-fx](design/element-fx.md) — **built 2026-10-21; ⏳ not clicked in the editor or seen in a published game:** effects that play ON an element (any node, a whole screen, the reels, a symbol's state): 50 kinds in five families (motion, 3D, distort, light, break), authored in the Scene Editor's Element FX section, fired by cue or by the Flow's `elementEffect`, and posed by a timeline or a state-machine state (✦ Animate rows). State in [status/fx](status/fx.md).
 - [multi-user-concurrency](design/multi-user-concurrency.md) — **lost-update prevention**: doc leases + R2 conditional writes, so two users stop overwriting each other. Agent: `pipeline-concurrency`.
 - [game-families](design/game-families.md) — **Phase 10 of rive-style-editor, plan approved 2026-10-20 (§9 #1–#9 accepted); started 2026-10-23 on the owner's go, P10.1–P10.8 and P10.11–P10.16 built ([status/game-families](status/game-families.md)):** non-slot games, match-3 first then arcade; the outcome source (RGS or the game's own rules) is a per-game Game Config option; Flow variables / tick / timers / spawning, a shared board mechanic, one shared runtime. **Amended 2026-10-22 (owner's questions):** each family sees only its own tools and `/config` sections; arcade grows past one screen (characters in a new Invisible Characters tool, then a scrolling camera, jumps and tile levels: P10.11–P10.13); Salmons (100-player real-time multiplayer) is the arcade target, so online rooms join as tier A4 (P10.14–P10.16, its own design doc first); Colyseus is the game server; Salmons is isometric and its art gets a pass (S0) before the rebuild; card games are a fourth family with a plan of their own (confirmed); §9 #18 decided 2026-10-25 with the A4 design (rules on the server as `engine-mechanics` data).
-- [phase-11](design/phase-11.md) — **Phase 11 plan, written 2026-10-28, not started:** a runtime per family first (P11.1), then online arcade completion, Salmons' rules, isometric and offline abilities (P11.2–P11.5); Cards C5 optional.
+- [phase-11](design/phase-11.md) — **Phase 11 plan, approved 2026-10-28 (§4 #1–#9 accepted), P11.1a started:** a runtime per family first (P11.1), then online arcade completion, Salmons' rules, isometric and offline abilities (P11.2–P11.5); Cards C5 optional.
 - [realtime-multiplayer](design/realtime-multiplayer.md) — **plan approved by the owner 2026-10-25:** online arcade rooms (tier A4 of game-families, P10.14–P10.16): the server owns the game, devices send inputs and predict their own player, Colyseus in `services/game-server`; Salmons first. Rules run on the server as `engine-mechanics` data (game-families §9 #18); Colyseus 0.18; decisions in its §14.
 - [invisible-blueprints](design/invisible-blueprints.md) — shareable ComfyUI workflows for the Atlas Maker (feature, not a tool).
 - [unified-project-repo](design/unified-project-repo.md) — **the live R2 folder layout**: one `<client>/<project>/` tree (by asset type) shared by all tools.
@@ -103,8 +103,8 @@ tool guides rather than restating them.
 
 Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide priority order.
 
-0. **Phase 11 — a runtime per family first** ([design/phase-11](design/phase-11.md), planned
-   2026-10-28, not started; waits on the owner's review of its §4): `_runtime/lines` built slot-only and
+0. **Phase 11 — a runtime per family first** ([design/phase-11](design/phase-11.md), approved
+   2026-10-28, every §4 recommendation accepted; P11.1a started): `_runtime/lines` built slot-only and
    `match3` / `arcade` / `card` runtimes beside it, so slot games stop downloading the other families'
    code (P11.1); then online arcade completion, Salmons' own rules, isometric, and offline abilities
    (P11.2–P11.5). State in [status/game-families](status/game-families.md).

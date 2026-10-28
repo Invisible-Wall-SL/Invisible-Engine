@@ -2073,7 +2073,7 @@ game, bundle or screen changes.
 
 ## Open items / next
 
-**Phase 11** ([design/phase-11](../design/phase-11.md), planned 2026-10-28, not started) schedules
+**Phase 11** ([design/phase-11](../design/phase-11.md), approved 2026-10-28; P11.1a started) schedules
 items 0, 0a (a), 1 (a)–(c), 9, 13 and 15 below as P11.1–P11.5; each item stays here until its step
 lands. (P11.1 replaces item 9's define + dead-code elimination with seam modules and a
 build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
