@@ -356,6 +356,8 @@ const warnDroppedBetModes = (raw) => {
  *  the project's in-play wild; a malformed wild is simply dropped (the grid still stands). */
 /** Bounds on an expanding-special draw table from an external manifest (see `validGrid`). */
 const MAX_EXPANDING_CANDIDATES = 32;
+/** The longest reel strip a trigger-strip table may describe (`freeSpinsTriggerStrips`). */
+const MAX_TRIGGER_STRIP_CELLS = 1000;
 const MAX_EXPANDING_WEIGHT = 1_000_000;
 
 export const validGrid = (grid) => {
@@ -488,6 +490,35 @@ export const validGrid = (grid) => {
 		entryAwards && retriggerAwards && typeof awards.random === 'boolean'
 			? { awards: entryAwards, retrigger: retriggerAwards, random: awards.random }
 			: null;
+	// Where the trigger sits on each base / free-spin strip (game-config's `freeSpinsTriggerStrips`),
+	// sent only for a trigger below 3: one `{ length, at }` per reel. Validated WHOLE per game type —
+	// a reel with a hole would deal a different game — so a malformed one is dropped and that game
+	// type keeps the flat scatter rate.
+	const stripStops = (list) =>
+		Array.isArray(list) &&
+		list.length === reels &&
+		list.every(
+			(strip) =>
+				strip &&
+				Number.isInteger(strip.length) &&
+				strip.length >= 1 &&
+				strip.length <= MAX_TRIGGER_STRIP_CELLS &&
+				Array.isArray(strip.at) &&
+				strip.at.every((i) => Number.isInteger(i) && i >= 0 && i < strip.length),
+		)
+			? list.map(({ length, at }) => ({ length, at: [...new Set(at)] }))
+			: null;
+	const rawTriggerStrips = grid.freeSpinsTriggerStrips;
+	const triggerStrips =
+		freeSpinsTrigger && rawTriggerStrips && typeof rawTriggerStrips === 'object'
+			? Object.fromEntries(
+					['basegame', 'freegame'].flatMap((gameType) => {
+						const stops = stripStops(rawTriggerStrips[gameType]);
+						return stops ? [[gameType, stops]] : [];
+					}),
+				)
+			: {};
+	const freeSpinsTriggerStrips = Object.keys(triggerStrips).length ? triggerStrips : null;
 	// The Book-of expanding special (game-config's `resolveExpandingSymbol`, in server names): a
 	// candidate per symbol it may be drawn as. Validated WHOLE — a draw table with a hole in it would
 	// deal a different game — so malformed ⇒ dropped ⇒ no special. Bounded like the award tables: no
@@ -675,6 +706,7 @@ export const validGrid = (grid) => {
 		...(freeSpinsOff ? { freeSpins: false } : {}),
 		...(freeSpinsTrigger ? { freeSpinsTrigger } : {}),
 		...(freeSpinsAwards ? { freeSpinsAwards } : {}),
+		...(freeSpinsTriggerStrips ? { freeSpinsTriggerStrips } : {}),
 		...(expandingSymbol ? { expandingSymbol } : {}),
 		...(scatterWild ? { scatterWild: true } : {}),
 		...(match3 ? { match3 } : {}),

@@ -68,9 +68,9 @@ overlay add-on.
      paying 1× for two, 10 free spins on two `S` and +10 on two more, one base mode with no buy.
      Its strips are the reference's boot-config base set and its free-spin set, so its RTP is not
      the reference's until the maths is tuned. Scaffolded from the lines reference layout. On the
-     Invisible Test Server the feature runs far longer than the real game: the mock deals its own
-     scatters (about 4% of cells, not the strips), so two land on about one spin in five and most
-     features run to the 200-spin cap.
+     Invisible Test Server its scatters are dealt from its strips, so the feature opens on about one
+     base spin in 27 and retriggers on about one free spin in 50, as the strips say; the other
+     symbols are the test server's own draw, which never deals `W` or `CL`.
    - **Hold and Win** shows a **Base game** dropdown: **Lines game** (the default) or **Coin board
      only**. With **Lines game** it also shows a **Jackpots** dropdown:
      **On (MINI · MINOR · MAJOR · GRAND)** (the default) or **Off**. Either way you get the plain

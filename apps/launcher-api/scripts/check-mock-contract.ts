@@ -24,6 +24,7 @@ import { isHttpError } from '@sveltejs/kit';
 import {
 	addPotsOverlay,
 	bookOfThermopylaePreset,
+	fairyCloverPreset,
 	importBonus,
 	normalizeGameConfigDoc,
 	potsOverlayPreset,
@@ -557,6 +558,41 @@ await check('awarded spins ride last, only when they depart, with both tables re
 	);
 	const off = linesGrid(withFreeSpins({ enabled: false, awards: [{ count: 3, spins: 7 }] }));
 	eq([off.freeSpins, 'freeSpinsAwards' in off], [false, false], 'no awards while off');
+});
+
+await check('a trigger below 3 carries its places on the strips; 3 and up never do', async () => {
+	const fairy = linesGrid(normalizeGameConfigDoc(fairyCloverPreset())!);
+	const strips = fairy.freeSpinsTriggerStrips;
+	eq(Object.keys(fairy).at(-1), 'freeSpinsTriggerStrips', 'last');
+	eq(fairy.freeSpinsTrigger, { symbol: 'SCAT', count: 2 }, 'Fairy Clover: 2 SCAT');
+	eq(
+		[strips?.basegame?.map((s) => s.at.length), strips?.freegame?.map((s) => s.at.length)],
+		[
+			[2, 0, 0, 0, 2],
+			[2, 0, 0, 0, 2],
+		],
+		'two S on reels 1 and 5, base and free',
+	);
+	eq(
+		strips?.freegame?.map((s) => s.length),
+		[57, 69, 54, 58, 55],
+		'the free strips’ lengths',
+	);
+	eq(
+		'freeSpinsTriggerStrips' in linesGrid(withFreeSpins({ triggerCount: 5 })),
+		false,
+		'a count of 5',
+	);
+	eq('freeSpinsTriggerStrips' in linesGrid(template('lines')), false, 'un-authored');
+	const { validGrid } = await import('../../../services/test-server/makeMock.mjs');
+	eq(validGrid(fairy)?.freeSpinsTriggerStrips, strips, 'the test server keeps it');
+	const holed = {
+		...fairy,
+		freeSpinsTriggerStrips: { ...strips, freegame: strips?.freegame?.slice(1) },
+	};
+	eq(validGrid(holed)?.freeSpinsTriggerStrips, { basegame: strips?.basegame }, 'a short game type is dropped'); // prettier-ignore
+	const untriggered = { ...fairy, freeSpinsTrigger: undefined };
+	eq('freeSpinsTriggerStrips' in (validGrid(untriggered) ?? {}), false, 'no trigger, no strips');
 });
 
 await check(

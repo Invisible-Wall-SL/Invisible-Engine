@@ -365,6 +365,37 @@ export function retriggerSpinsPerSpin(doc: GameConfigDoc): number | undefined {
 	}, 0);
 }
 
+/** Where the trigger symbol sits on each reel strip: the strip's length and the indices it holds. */
+export type TriggerStripStops = { length: number; at: number[] };
+
+/**
+ * The trigger symbol's places on each `basegame` and `freegame` strip — what the lines mock needs to
+ * deal the trigger as the strips do (`freeSpinsTriggerStrips` in the mock contract), for a trigger
+ * below {@link MIN_FREE_SPINS_TRIGGER_COUNT}, whose rate the validator measured on those strips. A
+ * game type is left out unless it has a non-empty strip for every reel. `undefined` for a count of
+ * 3 or more, or with nothing to send, so every other game's contract is unchanged.
+ */
+export function freeSpinsTriggerStrips(
+	doc: GameConfigDoc,
+): Partial<Record<'basegame' | 'freegame', TriggerStripStops[]>> | undefined {
+	const freeSpins = resolveFreeSpins(doc);
+	const symbol = freeSpins.triggerSymbol;
+	if (!freeSpins.enabled || !symbol || freeSpins.triggerCount >= MIN_FREE_SPINS_TRIGGER_COUNT) {
+		return undefined;
+	}
+	const reels = resolveGrid(doc).reels;
+	const out: Partial<Record<'basegame' | 'freegame', TriggerStripStops[]>> = {};
+	for (const gameType of ['basegame', 'freegame'] as const) {
+		const strips = doc.paddingReels[gameType];
+		if (!strips || strips.length < reels || strips.some((strip) => !strip.length)) continue;
+		out[gameType] = strips.slice(0, reels).map((strip) => ({
+			length: strip.length,
+			at: strip.flatMap((cell, i) => (cell.name === symbol ? [i] : [])),
+		}));
+	}
+	return Object.keys(out).length ? out : undefined;
+}
+
 const quotedList = (names: string[]): string => {
 	const quoted = names.map((name) => `"${name}"`);
 	return quoted.length > 1

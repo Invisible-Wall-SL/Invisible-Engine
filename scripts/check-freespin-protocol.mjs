@@ -17,7 +17,12 @@
 import { createServer, request } from 'node:http';
 
 import { fairyCloverPreset } from '../packages/game-config/src/fairyCloverPreset.ts';
-import { freeSpinsAwardFor } from '../packages/game-config/src/freeSpins.ts';
+import {
+	freeSpinsAwardFor,
+	freeSpinsTriggerStrips,
+	triggerCountDistribution,
+} from '../packages/game-config/src/freeSpins.ts';
+import { normalizeGameConfigDoc } from '../packages/game-config/src/normalize.ts';
 import { createMockRgs, MAX_ROUND_FREE_SPINS } from './mock-rgs-server.mjs';
 
 let failed = 0;
@@ -674,14 +679,17 @@ console.log('\n§15 — the facade lights the trigger where it landed, whichever
 	);
 }
 
-console.log('\n§16 — a two-scatter trigger (Fairy Clover): 2+ open it, 2+ retrigger it, +10 each');
-{
+/**
+ * A two-scatter trigger (Fairy Clover) on its own board, as its mock contract sends it: 5×4, its 50
+ * lines, 2 SCAT pay 1×, +10 on a retrigger — dealt from its strips (`freeSpinsTriggerStrips`) or,
+ * without them, at the flat scatter rate.
+ */
+const playTwoScatters = async (rounds, triggerStrips) => {
 	const rule = {
 		awards: [{ count: 2, spins: 10 }],
 		retrigger: [{ count: 2, spins: 10 }],
 		random: false,
 	};
-	// Fairy Clover's own board, as its mock contract sends it: 5×4, its 50 lines, 2 SCAT pay 1×.
 	const fairy = fairyCloverPreset();
 	const { post, close } = await boot({
 		reels: fairy.numReels,
@@ -690,46 +698,97 @@ console.log('\n§16 — a two-scatter trigger (Fairy Clover): 2+ open it, 2+ ret
 		scatterPaytable: { 2: 1 },
 		freeSpinsTrigger: { symbol: 'SCAT', count: 2 },
 		freeSpinsAwards: rule,
+		...(triggerStrips ? { freeSpinsTriggerStrips: triggerStrips } : {}),
 		startBalance: 100_000_000,
 		quiet: true,
 	});
 	const sid = (await post('/wallet/authenticate', { sessionID: 'demo' }))?.sid ?? 'demo';
-	let disagree = 0;
-	let opened = 0;
-	let missed = 0;
-	let badRetrigger = 0;
-	let over = 0;
-	let tall = 0;
-	const audited = [];
-	for (let i = 0; i < 60; i++) {
+	const t = { disagree: 0, opened: 0, missed: 0, badRetrigger: 0, over: 0, tall: 0, freeSpins: 0 };
+	t.retriggers = 0;
+	t.scatterReels = new Set();
+	t.audited = [];
+	for (let i = 0; i < rounds; i++) {
 		const round = await playRound(post, sid);
+		const board = baseBoard(round);
 		const triggered = round.spins.some((s, n) => n === 0 && ev(s, 'spinTrigger'));
-		if (triggered !== countOn(baseBoard(round), 'SCAT') >= 2) disagree++;
-		if (baseBoard(round).some((reel) => reel.length !== 4)) tall++;
+		if (triggered !== countOn(board, 'SCAT') >= 2) t.disagree++;
+		if (board.some((reel) => reel.length !== 4)) t.tall++;
+		board.forEach((reel, r) => reel.includes('SCAT') && t.scatterReels.add(r));
 		if (!triggered) continue;
-		opened++;
+		t.opened++;
 		const f = auditRound(round, rule);
-		audited.push(f);
-		if (f.counters.length > MAX_ROUND_FREE_SPINS) over++;
+		t.audited.push(f);
+		if (f.counters.length > MAX_ROUND_FREE_SPINS) t.over++;
 		let total = f.awarded;
 		for (const s of round.spins.slice(1)) {
-			const landed = countOn(ev(s, 'playedSpin')?.context ?? [], 'SCAT');
+			const fsBoard = ev(s, 'playedSpin')?.context ?? [];
+			const landed = countOn(fsBoard, 'SCAT');
+			fsBoard.forEach((reel, r) => reel.includes('SCAT') && t.scatterReels.add(r));
+			t.freeSpins++;
 			const retrigger = ev(s, 'retrigger')?.context;
 			if (retrigger) {
+				t.retriggers++;
 				total += retrigger.spins;
-				if (landed < 2 || retrigger.occurs < 2 || retrigger.spins !== 10) badRetrigger++;
-			} else if (landed >= 2 && total + 10 <= MAX_ROUND_FREE_SPINS) missed++;
+				if (landed < 2 || retrigger.occurs < 2 || retrigger.spins !== 10) t.badRetrigger++;
+			} else if (landed >= 2 && total + 10 <= MAX_ROUND_FREE_SPINS) t.missed++;
 		}
 	}
-	check(tall === 0, 'every board is 4 rows deep', ` (${tall})`);
-	check(disagree === 0, 'a round opens exactly when 2+ SCAT land', ` (${disagree})`);
-	check(opened > 0, 'the feature opens naturally', ` (${opened}/60)`);
-	check(broken(audited).length === 0, 'every feature deals 10, its counter runs down to 0, it closes', ` (${broken(audited).join(', ') || `${audited.length} features`})`); // prettier-ignore
-	check(badRetrigger === 0, 'every retrigger lands 2+ SCAT and adds 10', ` (${badRetrigger})`);
-	check(missed === 0, 'every free spin with 2+ SCAT retriggers, unless the cap stops it', ` (${missed})`); // prettier-ignore
-	check(over === 0, `none plays more than ${MAX_ROUND_FREE_SPINS} free spins`, ` (${over})`);
 	await close();
+	return t;
+};
+const twoScatterChecks = (t) => {
+	check(t.tall === 0, 'every board is 4 rows deep', ` (${t.tall})`);
+	check(t.disagree === 0, 'a round opens exactly when 2+ SCAT land', ` (${t.disagree})`);
+	check(t.opened > 0, 'the feature opens naturally', ` (${t.opened})`);
+	check(broken(t.audited).length === 0, 'every feature deals 10, its counter runs down to 0, it closes', ` (${broken(t.audited).join(', ') || `${t.audited.length} features`})`); // prettier-ignore
+	check(t.badRetrigger === 0, 'every retrigger lands 2+ SCAT and adds 10', ` (${t.badRetrigger})`);
+	check(t.missed === 0, 'every free spin with 2+ SCAT retriggers, unless the cap stops it', ` (${t.missed})`); // prettier-ignore
+	check(t.over === 0, `none plays more than ${MAX_ROUND_FREE_SPINS} free spins`, ` (${t.over})`);
+};
+
+console.log(
+	'\n§16 — Fairy Clover dealt from its strips: it opens and retriggers at the measured rate',
+);
+{
+	const doc = normalizeGameConfigDoc(fairyCloverPreset());
+	const strips = freeSpinsTriggerStrips(doc);
+	const rows = doc.numRows;
+	const chance = (gameType) =>
+		triggerCountDistribution(doc.paddingReels[gameType], rows, 'S')
+			.slice(2)
+			.reduce((a, b) => a + b, 0);
+	const rounds = 1500;
+	const t = await playTwoScatters(rounds, strips);
+	twoScatterChecks(t);
+	/** Within four standard deviations of `p` over `n` tries. */
+	const near = (hits, n, p) => Math.abs(hits / n - p) <= 4 * Math.sqrt((p * (1 - p)) / n);
+	check(
+		near(t.opened, rounds, chance('basegame')),
+		`the base game opens it at the strips' rate`,
+		` (${t.opened}/${rounds} vs ${(chance('basegame') * 100).toFixed(2)}%)`,
+	);
+	check(
+		near(t.retriggers, t.freeSpins, chance('freegame')),
+		`a free spin retriggers at the strips' rate`,
+		` (${t.retriggers}/${t.freeSpins} vs ${(chance('freegame') * 100).toFixed(2)}%)`,
+	);
+	check(
+		[...t.scatterReels].sort().join() === '0,4',
+		'SCAT lands only on the reels its strips carry it (1 and 5)',
+		` (${[...t.scatterReels].sort()})`,
+	);
+	const longest = Math.max(...t.audited.map((f) => f.counters.length));
+	check(
+		longest < MAX_ROUND_FREE_SPINS,
+		'no feature runs to the round cap',
+		` (longest ${longest})`,
+	);
 }
+
+console.log(
+	'\n§17 — without its strips the flat rate still deals 2+ correctly, and the cap ends it',
+);
+twoScatterChecks(await playTwoScatters(60));
 
 console.log(failed === 0 ? '\nALL CHECKS PASSED' : `\n${failed} CHECK(S) FAILED`);
 process.exit(failed === 0 ? 0 : 1);

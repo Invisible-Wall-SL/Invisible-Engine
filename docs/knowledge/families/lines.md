@@ -84,9 +84,9 @@ gone wrong with them. Owner agent: `lines-games`.
   sets, so its RTP (0.96) is a placeholder, not the reference's.
 - **A free-spin trigger below 3 needs freegame strips that end it.** `retriggerSpinsPerSpin`
   (`packages/game-config/src/freeSpins.ts`) measures the spins a retrigger adds per free spin exactly
-  on the `freegame` strips; 0.5 or more, or no strips, is an error. The lines mock does not deal from
-  the strips (SCAT on 4% of cells), so on the test server a 2-scatter 5×4 game opens the feature
-  about every fifth spin and most features run to `MAX_ROUND_FREE_SPINS` (200).
+  on the `freegame` strips; 0.5 or more, or no strips, is an error. Such a game's mock contract
+  carries the trigger's places on the strips (`freeSpinsTriggerStrips`) and the lines mock deals the
+  trigger from them; every other game keeps the flat 4% scatter rate (`check:freespins` §16–§17).
 - **Only in-play symbols are drawn** (`getSymbolsInPlay`), including the book shuffle.
 - **Determinism:** `?ie_determinism=<seed>` (`apps/lines/src/game/determinism.ts`) makes two renders
   of one forced book pixel-identical; the current-games harness depends on it.

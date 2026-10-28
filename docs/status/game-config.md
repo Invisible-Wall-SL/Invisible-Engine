@@ -806,13 +806,20 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   config; the Book-of set carries a 5×3 reel-grid node). **Gates:** `check:fairy-clover-preset`
   (in `check:rgs`: preset vs capture through `symbolMap`, committed JSON vs preset),
   `check:lines-presets`, `check:project-scaffold`, `check:family-defaults-identity`,
-  `check:game-config-defaults`. **Known gaps:** `CL` has no stock art (draws nothing until bound in
-  `/symbols`); the lines mock deals neither `W` nor `CL` (a wild without a paytable is not sent in the
-  mock contract) and does not deal from the strips: it deals SCAT on 4% of cells, so on 5×4 two land
-  on about one spin in five — the feature opens about every fifth base spin and a free spin adds
-  ≈ 1.9 spins, so most features (≈ 80% in a simulation of the mock's rule) run to about 190–200
-  spins under `MAX_ROUND_FREE_SPINS`; scatter anticipation never arms (`anticipation.ts` waits for
-  `SCATTER_TRIGGER_COUNT`, 3); the `expandingWilds` / `growingWild` blocks wait on the `lines/expanding-growing-wilds` work.
+  `check:game-config-defaults`. **Test server:** a trigger below 3 now sends its places on the strips
+  (`freeSpinsTriggerStrips`, game-config → mock contract → `validGrid` → the lines mock's
+  `spinTriggerStrips`): each reel stops at a random cell of its `basegame` / `freegame` strip, the
+  trigger lands where that window holds it, every other cell is the usual draw with the trigger
+  redrawn. Only a count below 3 sends it, so every existing game's deal is byte-identical
+  (`check:deal-parity`, `check:lines-parity`). Before it the mock dealt SCAT on 4% of cells: the
+  feature opened on one 5×4 spin in five and most features ran to `MAX_ROUND_FREE_SPINS`; now it
+  opens on ~3.7% of base spins and retriggers on ~2% of free spins (`check:freespins` §16, 1500
+  rounds, longest feature 50; §17 keeps the flat-rate path and the cap). **Known gaps:** `CL` has no
+  stock art: a scaffolded project draws nothing in a `CL` cell (one console warning, "rendering
+  nothing for it") until art is bound in `/symbols`; the lines mock deals neither `W` nor `CL` (a
+  wild without a paytable is not sent in the mock contract), so on the test server they never land;
+  scatter anticipation never arms (`anticipation.ts` waits for `SCATTER_TRIGGER_COUNT`, 3); the
+  `expandingWilds` / `growingWild` blocks wait on the `lines/expanding-growing-wilds` work.
 - 2026-10-28 — **The free-spin trigger floor is measured on the freegame strips** (branch
   `lines/fairys-charm-preset`). A trigger count of 3 or more validates exactly as before. Below 3,
   `retriggerSpinsPerSpin` computes, exactly, the spins a retrigger adds per free spin played: per reel
@@ -820,11 +827,10 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   (`triggerCountDistribution`), convolved across reels, times the retrigger row's award (the top of a
   random range). It is an error at `MAX_RETRIGGER_SPINS_PER_SPIN` (0.5: a round then averages twice its
   award) or with no `freegame` strip for every reel (the old floor). The 2026-10-07 note below chose
-  not to measure strips because the lines mock does not deal from them; that still holds, so the mock's
-  `MAX_ROUND_FREE_SPINS` cap remains what ends a round on the test server — the strips are the deal the
-  config states, which a partner server (Fairy's Charm: two scatters ≈ +0.2 spins per spin) follows.
+  not to measure strips because the lines mock did not deal from them; for a count below 3 it now
+  deals the trigger from them (see the Fairy Clover entry above), and the cap still ends any round.
   `/config`'s How many now allows 1. **Verified:** `check:freespins` — `freeSpins.fixture.ts` (exact
-  distribution, the 0.5 line at +49/+50, unmeasured strips keep the floor, 3+ is never measured) and
+  distribution, the 0.5 line at +40/+60, unmeasured strips keep the floor, 3+ is never measured) and
   `check-freespin-protocol.mjs` §16 (a 2-SCAT trigger opens exactly at 2+, every retrigger lands 2+ and
   adds 10, rounds close under the cap).
 - 2026-10-23 — **Game families in the config: `family`, `outcome` and the `match3` / `arcade`
