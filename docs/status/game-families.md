@@ -2075,7 +2075,8 @@ game, bundle or screen changes.
 
 **Phase 11** ([design/phase-11](../design/phase-11.md), planned 2026-10-28, not started) schedules
 items 0, 0a (a), 1 (a)–(c), 9, 13 and 15 below as P11.1–P11.5; each item stays here until its step
-lands.
+lands. (P11.1 replaces item 9's define + dead-code elimination with seam modules and a
+build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 0a. **Card C3 follow-ups:** (a) the **bundle cost** (+17.7 KB gz for every game; owner): accept
    until the per-family runtime build (item 9), as P10.14's; (b) the placeholder frame has looks but

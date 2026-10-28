@@ -88,18 +88,26 @@ one runtime app and one interpreter, and no copy of the code drifts
 | `match3` | slot + match3 | match-3, rules or RGS | |
 | `arcade` | slot + arcade | arcade offline and online, both netcodes | Carries `engine-rooms` and the predictor (§4 #2) |
 | `card` | slot + card | card games | |
-| `all` | every family | nothing published | Dev server, Storybook, `/flow-v2` and `/editor` previews: authoring sees every family as today |
+| `all` | every family | nothing published | The dev server and Storybook only. The launcher's `/editor` and `/flow-v2` previews do not use `apps/lines`, and an authoring Play opens the game's test-server entry, so it runs the game's own published id |
 
-**Expected sizes** (gz, against today's runtime of about 1,391 KB gz: P10.15's measured
-1,372.2 KB, plus P10.16's 1.2 KB, plus C3's 17.7 KB). These are estimates from the per-step
-measures in the status file. P11.1b measures them and the status file records the real figures.
+**Expected sizes** (gz). Today's runtime is about 1,391 KB gz: P10.15's measured 1,372.2 KB,
+plus P10.16's 1.2 KB, plus C3's 17.7 KB. The estimates below add up the per-step measures in the
+status file:
+- match-3: P10.5 8.0 + P10.6 3.0 ≈ 11 KB;
+- arcade: P10.8 6.6 + P10.11 9.1 + P10.12 3.0 + P10.13 4.8 + P10.15 3.9 + P10.16 1.2 ≈ 29 KB;
+- P10.14's 59.1 KB, of which the SDK's `Client` is about 53;
+- the predictor's 17.3 KB;
+- the card table's 17.7 KB.
+
+Each step measured against its own base, so the sum is only a guide. P11.1b measures the real
+sizes, and the status file records them.
 
 | Runtime | Expected | Against today |
 |---|---|---|
-| `lines` (slot) | about 1,270–1,295 KB | about −95 to −120 KB (−7 to −9 %) |
-| `match3` | slot + about 6–9 KB | about −90 to −110 KB |
-| `arcade` | slot + about 95–100 KB (arcade about 20, SDK 59, predictor 17.3) | about −20 KB |
-| `card` | slot + about 18 KB | about −80 to −100 KB |
+| `lines` (slot) | about 1,255–1,265 KB | about −125 to −135 KB (about −9 to −10 %) |
+| `match3` | slot + about 11 KB | about −115 to −125 KB |
+| `arcade` | slot + about 105 KB (arcade 29, P10.14 59, predictor 17.3) | about −20 to −30 KB |
+| `card` | slot + about 18 KB | about −110 to −115 KB |
 
 ### 2.4 How each consumer picks its runtime
 
@@ -108,18 +116,21 @@ measures in the status file. P11.1b measures them and the status file records th
   `resolveFamily(assembled.config)` (`slot` → `lines`). It refuses a publish where the project's
   kind (`familyOfKind`) and the config's family disagree. The snapshot's `runtime` field and
   `runtimePointer()` take the id unchanged.
-- **The test server** (`services/test-server/server.mjs`) does not change. It already resolves
-  `_runtime/<id>/current.json` per manifest entry's `runtime` and serves `<id>@<version>`. Each id
-  gets its own pointer and its own last-good fallback.
+- **The test server** (`services/test-server/server.mjs`) serves as it does today. It already
+  resolves `_runtime/<id>/current.json` per manifest entry's `runtime` and serves `<id>@<version>`.
+  Each id has its own pointer and its own last-good fallback. Its only change is P11.1c's
+  listing.
 - **Runtime release** (`.github/workflows/runtime-release.yml`):
   - The gates run once.
-  - A matrix of the four published ids then builds, uploads and promotes each id
-    (`--filter lines build` with `PUBLIC_IE_FAMILIES` set per id), each under its own
-    `runtime-release-<id>` concurrency group, which is how the group is already keyed.
+  - A matrix of the four published ids then builds, uploads and promotes each id.
+  - Today the workflow builds `--filter ${RUNTIME}`, which means "built from `apps/<id>`". The
+    matrix always builds `--filter lines`, with `PUBLIC_IE_FAMILIES` set per id.
+  - Today's concurrency group is workflow-level, and every push lands in
+    `runtime-release-lines`. The matrix needs a job-level group keyed on the matrix id.
   - The push trigger and its path filter are unchanged: an engine merge releases all four.
   - A failure in one id does not promote the others. Its "Runtime release failed" issue names the
     id.
-  - `verify-runtime-live.mjs` runs per id.
+  - `apps/launcher-api/scripts/verify-runtime-live.mjs` runs per id.
 - **Runtime rollback** (`runtime-rollback.yml`): its `runtime` input becomes a choice of the four
   ids. A rollback is per id, because the pointers are separate. The guide
   ([release-and-rollback](../guides/release-and-rollback.md)) says which id a broken game is on: its
@@ -128,9 +139,13 @@ measures in the status file. P11.1b measures them and the status file records th
   builds `engine/apps/lines/src` with its own scaffold-day `vite.config.js`, which calls
   `config-vite`'s `baseConfig()`. The alias therefore reaches every existing repo with no edit to
   the repo.
-  - `config-vite` takes the family set from `PUBLIC_IE_FAMILIES` when it is set, otherwise from the
-    baked game config (`bake:doc`'s output) when one is present, otherwise `all`, with a warning. So
-    an old repo never loses a family it needs.
+  - `config-vite` takes the family set from `PUBLIC_IE_FAMILIES` when it is set.
+  - Otherwise it uses `resolveFamily` on the `config` key of the baked bundle
+    (`apps/lines/src/baked-editor-bundle.json`). `bake:doc` writes that file before `vite build`
+    in the scaffold's build script, and `build-delivery.mjs` already reads it.
+  - A config with no `family` resolves to `slot`. Only a bundle with no `config` key at all (the
+    checked-in placeholder) falls back to `all`, with a warning. So an old repo never loses a
+    family it needs.
   - `build-delivery.mjs` sets `slot`: delivery is slot-only (§9 #26).
   - The desktop launcher's builds rely on the baked-config default, so nothing changes there.
   - `new-game.mjs` writes nothing new.
@@ -157,13 +172,14 @@ measures in the status file. P11.1b measures them and the status file records th
   new `check:family-runtimes` (§3.1). The ids `match3`, `arcade` and `card` start releasing. A
   republish now points a non-slot game at its own id. `lines` is still built `all`, so a game not
   yet republished still plays.
-- **P11.1c — strip `lines`.** First, every non-slot game is republished: on the test server
-  today that is the match-3 samples and the `salmons` project. This is the owner's or
+- **P11.1c — strip `lines`.** First, every non-slot game is republished: every non-slot entry
+  the per-runtime listing shows. This is the owner's or
   coordinator's step, because it needs launcher access. Then `lines` is built `slot` only, and
   every slot game gets the smaller file on the next release. The boot check turns a missed
   non-slot entry into an honest failure screen, never a broken board. The gate is a list of the
   test server's manifest entries by runtime id, showing that no non-slot game is on `lines`.
-  P11.1c adds this listing to the test server's admin output, so no one needs R2 access to check.
+  Today the public `GET /healthz` returns the game keys and each id's pointer, but not which id
+  each game is on. P11.1c adds a games-to-runtime map to it, so no one needs R2 access to check.
 
 ---
 
@@ -178,7 +194,7 @@ a person is at the tools.
 |---|---|---|---|---|---|
 | P11.1a | **Family seams** | `families/*` seam modules + `off/` stubs; the `config-vite` alias from `PUBLIC_IE_FAMILIES`; `__IE_FAMILIES__` and the boot check. Every published build stays `all` | `apps/lines` (`Game.svelte`, `online.ts`, the family imports), `packages/config-vite` | M | first; alone |
 | P11.1b | **Four runtimes** | The release matrix and per-id promote/alert; the rollback choice; `runtimeFor(config)` + the kind/family refusal; the harness per-id builds; the `check:game-app-deps` rule; `check:family-runtimes`; the measured sizes in the status file; the release guide | `.github/workflows/runtime-*.yml`, `apps/launcher-api` (`publishGame.ts`), `scripts/current-games/lib/runtimes.mjs`, `scripts/check-game-app-deps.mjs`, `docs/guides/release-and-rollback.md` | M–L | after P11.1a; P11.3 / P11.4 may run beside it |
-| P11.1c | **Strip `lines`** | Non-slot games republished (owner/coordinator), the test server's per-runtime listing, then `lines` built `slot` | `services/test-server`, the release workflow | S | after P11.1b + the republish |
+| P11.1c | **Strip `lines`** | Non-slot games republished (owner/coordinator), the test server's per-runtime listing, then `lines` built `slot` | `services/test-server` (`/healthz`), the release workflow | S | after P11.1b + the republish |
 | P11.2 | **Online arcade completion** | (a) Online Flow events (`onPlayerJoined`, `onPlayerLeft`, `onHit`, `onCaught`, `onRoundEnd`) from the room's `event` messages, and server-owned `var:` sources (read-only, the validator's `variable-server-owned`), which give Salmons a HUD and a round-over screen. (b) Predicted ability events (the swipe drawn on the press) and hiding an `out` player. (c) Publish writes `rooms_url` into an online game's launch URL and refuses an online game with no server address ([realtime-multiplayer.md](realtime-multiplayer.md) §10). (d) `/config` sections for `arcade.online`, its `rules` and its `bots`. (e) A new river per room: the room's seed reaches the device, which generates the same river ([realtime-multiplayer.md](realtime-multiplayer.md) §14 #4) | `apps/lines` (`online.ts`, the arcade seam), `engine-flow-v2` (vocab, validator), `services/game-server`, `packages/game-config`, `apps/launcher-api` (`publishGame.ts`, `/config`), `docs/tools/game-config.md` | L (split a–b, c–e if the review asks) | after P11.1b (same files) |
 | P11.3 | **Salmons' rules** | `ONLINE_RULES_MODULES` entries: the waterfall climb by tapping, sandbanks that ground a salmon until it jumps, rocks and one-way waterfalls as solids (per-character solids online, so bears and fishermen stay out of the water), the fisherman's line (hook, reel, land), the golden salmon; `check:online-rules` on recorded Salmons traces; `salmons.js` / `referenceLayouts/salmons.ts` updated; [playtest/salmons.md](../playtest/salmons.md) extended | `packages/engine-mechanics` (`onlineRules.js`, `salmons.js`, `motion.js` solids), `services/game-server` | L | after P11.1a; parallel with P11.1b and P11.4; touches `onlineRules.js` with P11.5, so it goes first |
 | S0 | **Salmons art** (owner/art) | The 22 character clips, then the arcade sample's four sprites ([status/salmons](../status/salmons.md) open items 1–4) | no code | L | any time; needs a person at the launcher's tools |
