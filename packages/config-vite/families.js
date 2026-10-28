@@ -9,11 +9,12 @@ export const OPTIONAL_FAMILIES = Object.freeze(['match3', 'arcade', 'card']);
 /**
  * The families to compile in, from `PUBLIC_IE_FAMILIES`: a comma list of `match3`, `arcade`,
  * `card` (and `slot`, which is implied), or `all`. Unset is `all`, so every build that does not opt
- * in ships what it shipped before the seams. An empty value, or `slot` alone, is a slot-only build.
- * An unknown name throws: a typo would otherwise quietly strip a family out of a release.
+ * in ships what it shipped before the seams. Empty is unset too: a blank CI input or service
+ * variable must never strip a release, so a slot-only build names `slot`. An unknown name throws:
+ * a typo would otherwise quietly strip a family out of a release.
  */
 export const compiledFamilies = (value = process.env.PUBLIC_IE_FAMILIES) => {
-	if (value === undefined) return ['slot', ...OPTIONAL_FAMILIES];
+	if (!value?.trim()) return ['slot', ...OPTIONAL_FAMILIES];
 	const names = value
 		.split(',')
 		.map((n) => n.trim())
