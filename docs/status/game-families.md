@@ -40,6 +40,19 @@ play <family> games". Left for P11.1b:
 game, `engine-flow-v2` exports the family vocabularies and action lists to the shared flow code,
 and `game-config`'s card normalizer reads `engine-mechanics` `cards.js`.
 
+**P11.1c — `lines` is slot only (built 2026-10-28; in review, merge only after the republish).**
+[phase-11.md](../design/phase-11.md) §2.5. Two PRs:
+- **c1, the listing and Director** (mergeable with P11.1b): the test server's public `/healthz`
+  gains `gameRuntimes` (each game's `runtime` and `protocol`; `match3` / `freePlay` mean a non-slot
+  game), so the strip can be proven safe without R2; Director's draft build picks its runtime with
+  publish's `chooseRuntime`, and a draft's play reads the runtime id its `draft.json` recorded
+  (`director/ops/build.ts`, `director/draftJobs.ts`). Game Maker's runtime line names a family
+  runtime (`gameProfile.ts`).
+- **c2, the strip** (merge only once `/healthz` shows no `match3` / `freePlay` game on `lines`):
+  `RUNTIMES`' `lines` is built `slot`. Publish no longer falls back to `lines` (it could not play a
+  non-slot game now): a family runtime with no release refuses the publish (`runtime-unreleased`).
+  Every slot game downloads the slot runtime, about 1,296 KB gz against 1,412 KB (−8.2 %).
+
 **P11.1b — four runtimes, the baked-config default, `check:family-runtimes` (built 2026-10-28; in
 review).** [phase-11.md](../design/phase-11.md) §2.4, §3.1.
 
