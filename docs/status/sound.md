@@ -230,6 +230,18 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
 
 ## Recent changes
 
+- 2026-10-28 — **A Hold and Win coin can sound as it lands in the total** (branch
+  `claude/fervent-ride-ccp7qf`, in review). Asked for a sound on the coin collect at the end of
+  the respins: the end tally (`presentHoldAndWinEnd`) flew every coin into the Total Win bar
+  silently, and nothing could bind one (no slot, and Flow cannot listen to `respinTallyStep`).
+  `/sound` now has a **Hold and Win coins** section: every symbol with a Hold and Win role but
+  `blank` and `meterSpecial`, one moment, `COIN_COLLECT_SOUND_MOMENT` (`collectToTotal`) in
+  `engine-layout`'s `soundLibrary.ts`, stored in the coin's `bindings.symbols` row like the token
+  moments. The tally's per-coin landing (`step`) plays it through `playCoinCollectSound`, forced so
+  every coin is heard. Layer 1 only: unbound ⇒ silent, so no current game changes. The per-symbol
+  grid now hides a row that holds only this cue, and its × clears the grid's own states only. Gate:
+  `check:sounds-doc` round-trips the cue. ⏳ Not heard in a live game yet.
+
 - 2026-10-27 — **Invisible Director can re-point a project's cues** (Director card 9H,
   [ADR-0011](../director/DECISIONS/0011-reskin-adapters-sound-fx-components.md), PR #1413, in
   review). Two adapter ops for the builder agent, `sound.get_doc` and `sound.set_cues`
