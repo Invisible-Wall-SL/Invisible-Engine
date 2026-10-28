@@ -52,7 +52,7 @@ notes call it `Invisible launcher`.
 | **Invisible-test-Server**       | `games.invisiblewall.org`                                                  | Node (`server.mjs`)              | **repo root**, Dockerfile Path `services/test-server/Dockerfile`   |
 | **game-server**                 | `rooms.invisiblewall.org` (generated: `game-server-production-eda5.up.railway.app`) | Node 22 (Colyseus 0.18)          | **repo root**, Dockerfile Path `services/game-server/Dockerfile`   |
 | **director-worker**             | none (private) — **the owner creates it**, see "Invisible Director worker" | Node 22 (`src/main.ts`)          | **repo root**, Dockerfile Path `services/director-worker/Dockerfile` |
-| **draft-player** | none (private, `draft-player.railway.internal`) — **the owner creates it**, see "Invisible Director draft player" | Node 22 (`src/server.mjs`) + Chromium headless shell | **repo root**, Dockerfile Path `services/draft-player/Dockerfile` |
+| **draft-player** | none (private, `draft-player.railway.internal`; live 2026-10-28), see "Invisible Director draft player" | Node 22 (`src/server.mjs`) + Chromium headless shell | **repo root**, Dockerfile Path `services/draft-player/Dockerfile` |
 | **Postgres**                    | internal (`postgres.railway.internal`)                                     | Postgres                         | —                                                                  |
 
 All deploy from GitHub `Invisible-Wall-SL/Invisible-Engine`, branch `main`, **auto-deploy on push**.
