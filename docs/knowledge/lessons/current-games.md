@@ -10,9 +10,9 @@ Traps of one game type live in its family file, e.g. [lines](../families/lines.m
 - **Symptom:** spinning reels show a gap at the top and bottom; symbols snap in and out.
 - **Cause:** `SymbolWrap` culled on the seat's centre, so a cell drew only when half inside, and the
   mask had nothing left to clip.
-- **Fix:** on the masked layer, while the mask is tight, draw while any part of the row overlaps the
-  window; keep the centre test where nothing clips (the animating layer, a grown overflow mask).
-- **Guard:** none; watch a spin after touching `SymbolWrap`, `BoardMask` or `boardOverflow`.
+- **Fix:** while the cell's reel rolls, draw it on the masked layer once any part of its row
+  overlaps the window; keep the centre test at rest (a margin at rest changed settled boards).
+- **Guard:** the current-games harness for rest; watch a spin for the roll itself.
 - **PR:** not recorded (2026-10-28) · source: `docs/status/engine.md`
 
 ### Shipped is not the same as running

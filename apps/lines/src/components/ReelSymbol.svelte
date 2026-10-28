@@ -174,6 +174,7 @@
 		{zIndex}
 		reelIndex={props.reelIndex}
 		scale={seat.scale}
+		rolling={stateGame.board[props.reelIndex]?.reelState.rolling}
 		animating={symbolInfo.type === 'spine' &&
 			ANIMATING_SYMBOL_STATES.includes(props.reelSymbol.symbolState)}
 	>

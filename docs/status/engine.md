@@ -308,11 +308,13 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   was well into the window and snapped out the same way, leaving a visible gap at the top and bottom
   of every spinning reel. Cause: `SymbolWrap`'s in-frame cull tested the symbol's CENTRE against the
   window, so a cell was not drawn until half of it was already inside, and `BoardMask` never got
-  to clip anything. Fix: on the masked layer, while the mask is the tight window (no authored
-  overflow showing, i.e. always while a reel rolls), a symbol is drawn as soon as any part of its row
-  touches the window and the mask clips the rest. The unmasked animating layer, and a settled board
-  whose mask has grown by its authored overflow, keep the centre test, so a resting padding row is
-  never uncovered. Each cell still mounts once per pass, so the 2026-10-27 spin-CPU work is unchanged.
+  to clip anything. Fix: while a cell's reel is ROLLING (`reelState.rolling`, passed by
+  `ReelSymbol`), a symbol on the masked layer is drawn as soon as any part of its row touches the
+  window and the mask clips the rest; the mask is always the tight window while a reel rolls. At
+  rest, and on the unmasked animating layer, the centre test is unchanged, so a resting board draws
+  exactly what it did. (A first cut applied the margin at rest too, and the current-games harness
+  showed changed settled boards on `commonoverlayproject`.) Each cell still mounts once per pass, so
+  the 2026-10-27 spin-CPU work is unchanged.
   `check:svelte --only apps/lines` at baseline; not seen in a browser (the sandbox could not load the
   game's art), so the owner should watch a spin.
 - 2026-10-27 — **A rolling reel costs ~18% less CPU: the reel geometry and the prop sync are

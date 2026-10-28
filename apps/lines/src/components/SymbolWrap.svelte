@@ -24,6 +24,9 @@
 		 *  Absent ⇒ the container keeps Pixi's default `0` and the parent is never flagged
 		 *  sort-dirty, which is the pre-existing mount-order behaviour exactly. */
 		zIndex?: number;
+		/** Is this cell's reel strip rolling? Only `ReelSymbol` knows, and only it passes it; it is
+		 *  what lets a rolling symbol be drawn before its centre crosses the window edge. */
+		rolling?: boolean;
 		children: Snippet;
 	};
 
@@ -60,21 +63,20 @@
 			? steppedWindow.top + steppedWindow.height
 			: context.stateGameDerived.boardWindowHeight(),
 	);
-	// How far past the window edge a symbol's SEAT may sit and still be drawn. On the masked layer
-	// that is half a row: the symbol mounts the moment its cell first touches the window and the
-	// mask clips the part still outside, so a rolling strip slides under the edge instead of popping
-	// in once its centre crosses it (the gap the reels used to show at the top and bottom while
-	// spinning). A resting padding row sits exactly a half-row outside, so the strict test below
-	// still leaves it undrawn.
+	// How far past the window edge a ROLLING symbol's seat may sit and still be drawn: half a row,
+	// on the masked layer. It mounts the moment its cell first touches the window and the mask clips
+	// the part still outside, so the strip slides under the edge instead of popping in once a
+	// symbol's centre crosses it (the gap the reels used to show at the top and bottom mid-spin).
+	// While any reel rolls the mask is the tight window (`boardOverflow()` is `{ 0, 0 }`), so nothing
+	// outside it can show.
 	//
-	// Zero — the centre test — on the UNMASKED animating layer, where nothing would clip the outside
-	// part; and whenever the mask has grown by the board's authored overflow, which would uncover a
-	// padding row a half-row margin had drawn. `boardOverflow()` is `{ 0, 0 }` for every board that
-	// authored none and for every frame a reel rolls, so the margin applies wherever it matters.
+	// Zero — the centre test — everywhere else: on the UNMASKED animating layer, where nothing would
+	// clip the outside part, and at rest, so a resting board draws exactly the cells it always did
+	// (the current-games harness showed a half-row margin at rest changing settled boards).
 	const margin = $derived(
-		boardContext.animate || context.stateGameDerived.boardOverflow().y !== 0
-			? 0
-			: (context.stateGameDerived.boardGeometry().rowPitchLocal * (props.scale ?? 1)) / 2,
+		props.rolling && !boardContext.animate
+			? (context.stateGameDerived.boardGeometry().rowPitchLocal * (props.scale ?? 1)) / 2
+			: 0,
 	);
 	const inFrame = $derived(
 		margin === 0
