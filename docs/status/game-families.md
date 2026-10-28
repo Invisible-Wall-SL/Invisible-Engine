@@ -40,6 +40,50 @@ play <family> games". Nothing sets the env var yet, so every build is still `all
 game, `engine-flow-v2` exports the family vocabularies and action lists to the shared flow code,
 and `game-config`'s card normalizer reads `engine-mechanics` `cards.js`.
 
+**P11.1b engine half — four runtimes, the baked-config default, `check:family-runtimes` (built
+2026-10-28; in review).** [phase-11.md](../design/phase-11.md) §2.4, §3.1. The release workflow,
+`runtimeFor(config)` and the harness are the pipeline half, on their own branch.
+
+- **The baked-config default.** With `PUBLIC_IE_FAMILIES` unset or blank, a build (never a dev
+  server) reads the baked bundle the build compiles (`families.js` `bakedBundlePath()`:
+  `config-svelte`'s `appSrcDir()` rule, so `engine/apps/lines/src` in a game repo) and compiles
+  `familyOfConfig(config)` plus slot. A bundle with no `config` key, as in the checked-in placeholder
+  or when there is no bundle, compiles every family and warns. So `apps/lines`' release build stays
+  `all`. `families.js` still imports no package. `config-vite/bakedFamily.fixture.ts` pins its
+  family rule to `game-config`'s `resolveFamily(normalizeFamily())`, pins its path to `appSrcDir()`,
+  and checks the placeholder gives `all`.
+- **The leftovers.** The family vocabularies and seeds were bundled because Rollup kept the
+  `TEMPLATE_VOCABULARIES` / `DRIVEN_SEEDS` literals (their `.templateId` reads) and the family
+  modules' top-level calls. Fixed in three steps. The runtime builds its registry from
+  `SLOT_TEMPLATE_VOCABULARIES` plus each seam's `flowVocabularies` (`game/familyFlow.ts`, through
+  `vocabularyIn`). The coverage list comes from the seams' `flowBoardActions`. Both registries are
+  built through a `@__PURE__` `byTemplateId`, and the family modules' builders are `@__PURE__` too.
+  This saves 7.6 KB gz on a slot runtime, and the values every consumer reads are unchanged. Two
+  leftovers stay, measured:
+  - `LayoutNodeView`'s `SpawnLayer` / `Tilemap` / `arcadeLifts`: at most 1.5 KB gz, and `SpawnLayer`
+    serves card as well as arcade.
+  - `game-config`'s card reader and validator (`readLibrary` / `validateLibrary`): 2.7 KB gz. Any
+    stub would change the normalizer's result.
+  A `moduleSideEffects` hint was tried and had no effect in the SvelteKit build.
+- **The gate.** `node scripts/check-family-runtime.mjs --id <lines|match3|arcade|card> --families
+  <value> <buildDir>` checks one built `index.html`. Its `__IE_FAMILIES__` must equal the set the
+  value compiles, and the id must fit the set. Each family's markers must be present exactly when
+  the family is compiled in: its error strings, `@colyseus/schema` / `joinOrCreate` / `arseed`, and
+  a vocabulary sentence. Its gzip -6 size must be within `scripts/family-runtime-budget.json`
+  (measured + 2 %, per set). `pnpm check:family-runtimes` builds all five with the release env and
+  checks each; `--measure` prints new budgets. `check:all` skips it (five builds).
+  `scripts/check-family-seams.mjs` walks the import graph with each seam stubbed and fails if
+  shared code imports a family's own module past its seam.
+- **Sizes** (release env, `index.html`, gzip -6). P11.1a's `all` built here: 4,141,645 / 1,415,680.
+
+  | Runtime (`PUBLIC_IE_FAMILIES`) | Raw B | Gzip B | vs `all` | Budget B |
+  |---|---|---|---|---|
+  | `lines` (`all`) | 4,130,290 | 1,411,903 | — (−0.27 % vs P11.1a) | 1,440,127 |
+  | `lines` (`slot`, P11.1c) | 3,778,566 | 1,295,481 | −8.2 % | 1,321,383 |
+  | `match3` | 3,801,955 | 1,303,854 | −7.7 % | 1,329,905 |
+  | `arcade` | 4,072,059 | 1,392,424 | −1.4 % | 1,420,269 |
+  | `card` | 3,814,275 | 1,308,154 | −7.3 % | 1,334,318 |
+
 **Card C3 — playable end to end (built 2026-10-28; in review).** [card-games.md](../design/card-games.md)
 §12's C3 row, in one PR; what it settled where §5–§9 were silent is in the design's new §5.4.
 
@@ -2156,6 +2200,12 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-28 — **P11.1b engine half: four runtimes.** Builds now default to the baked config's
+  family. The runtime drops each left-out family's Flow vocabulary and seeds (`familyFlow.ts`,
+  `vocabularyIn`, `@__PURE__` registries and builders). Adds `check:family-runtimes`
+  (`scripts/check-family-runtime.mjs`, `scripts/family-runtime-budget.json`) and
+  `check-family-seams.mjs`. Gzip sizes: slot 1,295,481 B, match3 1,303,854 B, arcade 1,392,424 B,
+  card 1,308,154 B; `all` 1,411,903 B, −0.27 % against P11.1a. Detail above.
 - 2026-10-28 — **P11.1a family seams** (seams `families/match3` — `Match3Input`, `awaitMatch3Round`,
   `endMatch3Round`, `presentMatch3Board`, `presentMatch3MovesLeft`; `families/arcade` —
   `ArcadeStage`, `joinOnlineRoom`; `families/card` — `CardTable`, `startCards`). Release-env

@@ -1,5 +1,4 @@
 import type { FlowEffect } from 'engine-flow';
-import { ARCADE_LOOP_ACTIONS, CARD_MATCH_ACTIONS, MATCH3_BOARD_ACTIONS } from 'engine-flow-v2';
 
 /**
  * The actions a family mechanic backs (`MATCH3_VOCAB`'s `boardSwap`, `boardShuffle`, …;
@@ -15,13 +14,6 @@ export const registerBoardEffects = (effects: Readonly<Record<string, FlowEffect
 };
 
 export const boardEffect = (name: string): FlowEffect | undefined => registered[name];
-
-/** Every family action a vocabulary may declare, backed or not yet (the vocabulary coverage check). */
-export const boardEffectNames: readonly string[] = [
-	...MATCH3_BOARD_ACTIONS,
-	...ARCADE_LOOP_ACTIONS,
-	...CARD_MATCH_ACTIONS,
-];
 
 let values: ((key: string) => unknown) | undefined;
 

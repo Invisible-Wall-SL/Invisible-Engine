@@ -1,0 +1,8 @@
+{
+	"$comment": "check:family-runtimes: the most gzip -6 bytes each runtime's index.html may be, by family set. Measured + 2 % (docs/design/phase-11.md §4 #4); re-measure with `pnpm check:family-runtimes --measure`. Sizes: docs/status/game-families.md.",
+	"slot,match3,arcade,card": 1440127,
+	"slot": 1321383,
+	"slot,match3": 1329905,
+	"slot,arcade": 1420269,
+	"slot,card": 1334318
+}

@@ -217,7 +217,8 @@ const buildGraph = (): FlowDoc['graph'] => {
 export const ARCADE_GUARD_SEED_DOC: FlowDoc = {
 	version: 2,
 	templateId: ARCADE_TEMPLATE_ID,
-	graph: buildGraph(),
+	// `@__PURE__`: a runtime built without this family drops the seed.
+	graph: /* @__PURE__ */ buildGraph(),
 	containers: [
 		{ id: ARCADE_SCREENS.basegame, sceneId: ARCADE_SCREENS.basegame, z: 0 },
 		{ id: ARCADE_SCREENS.hud, sceneId: ARCADE_SCREENS.hud, z: 60 },

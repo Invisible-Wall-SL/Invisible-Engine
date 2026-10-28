@@ -141,7 +141,9 @@ const MATCH_ACTIONS: ActionDecl[] = [
 ];
 
 /** Every action the card runtime backs. */
-export const CARD_MATCH_ACTIONS: readonly string[] = MATCH_ACTIONS.map((action) => action.name);
+export const CARD_MATCH_ACTIONS: readonly string[] = /* @__PURE__ */ MATCH_ACTIONS.map(
+	(action) => action.name,
+);
 
 /** The `$engine` values the card runtime answers. */
 export const CARD_MATCH_VALUES: readonly string[] = [
@@ -195,9 +197,11 @@ const VALUE_HELP: Record<string, string> = {
 	phase: "The current phase's name.",
 };
 
-const standard = standardVocabulary({ templateId: CARD_TEMPLATE_ID });
+// `@__PURE__`: a runtime built without this family drops it (`docs/design/phase-11.md` §2.2);
+// Rollup otherwise keeps a top-level call for its possible side effects.
+const standard = /* @__PURE__ */ standardVocabulary({ templateId: CARD_TEMPLATE_ID });
 
-export const CARD_VOCAB: TemplateVocabulary = {
+export const CARD_VOCAB: TemplateVocabulary = /* @__PURE__ */ (() => ({
 	templateId: CARD_TEMPLATE_ID,
 	structs: [],
 	enums: [
@@ -214,4 +218,4 @@ export const CARD_VOCAB: TemplateVocabulary = {
 		type: name === 'phase' ? STRING : INT,
 		description: VALUE_HELP[name],
 	})),
-};
+}))();
