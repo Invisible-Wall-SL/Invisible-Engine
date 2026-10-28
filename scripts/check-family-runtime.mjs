@@ -36,9 +36,8 @@ const FAMILY_MARKERS = {
 	card: ['cards: the game has no config', 'A card was drawn.'],
 };
 
-/** The runtimes the release builds (`id`, its `PUBLIC_IE_FAMILIES`), and slot-only for P11.1c. */
+/** The runtimes the release builds (`id`, its `PUBLIC_IE_FAMILIES`). */
 const RUNTIMES = [
-	{ id: 'lines', families: 'all' },
 	{ id: 'lines', families: 'slot' },
 	{ id: 'match3', families: 'match3' },
 	{ id: 'arcade', families: 'arcade' },
@@ -47,12 +46,10 @@ const RUNTIMES = [
 
 const keyOf = (list) => list.join(',');
 
-/** The family set an id may carry: `lines` is every slot kind (all until P11.1c strips it). */
+/** The family set an id may carry: `lines` is every slot kind and nothing else. */
 const idProblem = (id, list) => {
 	if (id === 'lines')
-		return list.length === 1 || list.length === OPTIONAL_FAMILIES.length + 1
-			? null
-			: `'lines' is built slot-only or with every family, not ${keyOf(list)}`;
+		return list.length === 1 ? null : `'lines' is built slot-only, not ${keyOf(list)}`;
 	if (!OPTIONAL_FAMILIES.includes(id)) return `unknown runtime id '${id}'`;
 	return keyOf(list) === keyOf(['slot', id])
 		? null

@@ -5,7 +5,8 @@
  * Pins, each because getting it wrong is silent until a player loads the game:
  *  - every family maps to its own id, `slot` to `lines`, and each id's build carries its family;
  *  - a project whose kind and config disagree on the family is refused;
- *  - an id with no release yet falls back to `lines`, so a game is never pointed at nothing;
+ *  - a family id with no release is `unreleased` (publish refuses), never `lines`, which is slot
+ *    only and could not play the game;
  *  - the release and rollback workflows offer exactly the ids publish can pick.
  */
 import assert from 'node:assert/strict';
