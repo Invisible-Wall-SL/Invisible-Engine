@@ -67,6 +67,22 @@ export type DeterminismProbeState = {
 	board?: DeterminismBoardState;
 	/** An arcade play field, while it is mounted; absent for every slot. */
 	arcade?: DeterminismArcadeState;
+	/** A card table, while it is mounted; absent for every slot. */
+	cards?: DeterminismCardsState;
+};
+
+/** A card table, as `registerDeterminismCards` reads it: the driver's numbers and every seated card
+ *  with its zone, instance id and place in the zone's space. */
+export type DeterminismCardsState = {
+	seed: string;
+	mine: boolean;
+	phase: string;
+	turn: number;
+	myHealth: number;
+	enemyHealth: number;
+	over: boolean;
+	won: boolean;
+	cards: { uid: number; cardId: string; zone: string; id: string; x: number; y: number }[];
 };
 
 /** An arcade play field, as `registerDeterminismArcade` reads it. */
@@ -311,6 +327,16 @@ export function registerDeterminismBoard(board: NonNullable<typeof boardProbe>):
 }
 
 let arcadeProbe: { read(): DeterminismArcadeState } | undefined;
+let cardsProbe: { read(): DeterminismCardsState } | undefined;
+
+/** `<CardTable />` hands over its table while it is mounted. A no-op when the mode is off. */
+export function registerDeterminismCards(cards: NonNullable<typeof cardsProbe>): () => void {
+	if (!globalThis.__IE_DETERMINISM__) return () => {};
+	cardsProbe = cards;
+	return () => {
+		if (cardsProbe === cards) cardsProbe = undefined;
+	};
+}
 
 /**
  * `<ArcadeStage />` hands over its loop while the play field is mounted. A no-op when the mode is
@@ -739,6 +765,7 @@ export function installDeterminism(): void {
 		const families = {
 			...(boardProbe ? { board: boardProbe.read() } : {}),
 			...(arcadeProbe ? { arcade: arcadeProbe.read() } : {}),
+			...(cardsProbe ? { cards: cardsProbe.read() } : {}),
 		};
 		// The screen set is a Svelte state proxy; hand out a plain copy.
 		return read

@@ -88,6 +88,7 @@ import {
 } from 'engine-flow-v2';
 import {
 	ARCADE_SAMPLE_COMPONENTS,
+	CARD_FRAME_PLACEHOLDER_DEF,
 	engineOwnedOnly,
 	getFullSceneSet,
 	kindCapabilities,
@@ -126,16 +127,23 @@ const check = (name: string, ok: boolean, detail = ''): void => {
 
 const EMPTY_LIBRARY = { version: 2 as const, functions: [] };
 // The kinds of the other families (game-families.md §6.1) get their scene set, starter flow and
-// vocabulary with their own phase: match-3 with P10.5, arcade with P10.8. Until then no project can
+// vocabulary with their own phase: match-3 with P10.5, arcade with P10.8, card with C3. Until then no project can
 // be one, and that phase moves its kind into the loops below.
-const PLAYABLE_KINDS: readonly string[] = [...SLOT_GAME_KINDS, 'match3', 'arcade'];
+const PLAYABLE_KINDS: readonly string[] = [...SLOT_GAME_KINDS, 'match3', 'arcade', 'card'];
+/** The components a kind's scaffold writes besides the scenes (`projectScaffold.ts`). */
+const scaffoldComponents = (kind: string): readonly ComponentDef[] =>
+	kind === 'arcade'
+		? ARCADE_SAMPLE_COMPONENTS
+		: kind === 'card'
+			? [CARD_FRAME_PLACEHOLDER_DEF]
+			: [];
 for (const gameType of GAME_KINDS.filter((kind) => !PLAYABLE_KINDS.includes(kind))) {
 	check(`1. ${gameType}: has no full scene set yet`, !getFullSceneSet(gameType));
 }
 check(
-	'1. every kind outside the slot family that has a scene set is match-3 or arcade',
+	'1. every kind outside the slot family that has a scene set is match-3, arcade or card',
 	GAME_KINDS.filter((kind) => familyOfKind(kind) !== 'slot' && getFullSceneSet(kind)).join() ===
-		'match3,arcade',
+		'match3,arcade,card',
 );
 for (const gameType of PLAYABLE_KINDS) {
 	const reference = getFullSceneSet(gameType);
@@ -149,8 +157,7 @@ for (const gameType of PLAYABLE_KINDS) {
 		scenes,
 		null,
 		EMPTY_LIBRARY,
-		// An arcade scaffold also writes the components its sample spawns (`projectScaffold.ts`).
-		gameType === 'arcade' ? ARCADE_SAMPLE_COMPONENTS : [],
+		scaffoldComponents(gameType),
 		undefined,
 		[],
 		resolveOutcome(gameConfigDefaultFor(gameType)),
@@ -210,6 +217,7 @@ const RESOLVES_TO: Record<string, [string, string]> = {
 	holdAndWin: ['holdAndWin', 'holdAndWin'],
 	match3: ['match3', 'match3'],
 	arcade: ['arcade', 'arcade'],
+	card: ['card', 'card'],
 	'my-custom-kind': ['bookOf', 'bookOf'],
 };
 for (const kind of PLAYABLE_KINDS) {
@@ -918,7 +926,7 @@ check(
 			engineOwnedOnly(getFullSceneSet(templateKind)!).scenes,
 			null,
 			EMPTY_LIBRARY,
-			templateKind === 'arcade' ? ARCADE_SAMPLE_COMPONENTS : [],
+			scaffoldComponents(templateKind),
 			undefined,
 			[],
 			resolveOutcome(gameConfigDefaultFor(templateKind)),

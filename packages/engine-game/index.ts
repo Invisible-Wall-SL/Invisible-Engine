@@ -56,6 +56,7 @@ export { createPlayBook, type PlayBookDeps } from './src/game/playBook';
 export {
 	ARCADE_ONLINE_MECHANIC,
 	ARCADE_RULES_MECHANIC,
+	CARD_RULES_MECHANIC,
 	CONTINUOUS_INTENTS,
 	MATCH3_RGS_MECHANIC,
 	MATCH3_RULES_MECHANIC,
@@ -86,6 +87,17 @@ export {
 	type ArcadeCharacterIo,
 	type CharacterControl,
 } from './src/game/arcadeCharacters';
+export {
+	CARD_ENGINE_KEYS,
+	createCardDriver,
+	DEFAULT_DEVICE_DELAY_MS,
+	initialCardDriverState,
+	signalsOf,
+	type CardDriver,
+	type CardDriverState,
+	type CardPresenter,
+} from './src/game/cardDriver';
+export { createCardSession, DEVICE, PLAYER, type CardSession } from './src/game/cardSession';
 export {
 	createMatch3Driver,
 	type Match3Board,

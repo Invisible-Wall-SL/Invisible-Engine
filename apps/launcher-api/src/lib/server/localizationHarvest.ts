@@ -33,7 +33,8 @@ import {
 	type FlowSpawnLayerDecl,
 } from 'engine-flow-v2';
 import type { GameConfigDoc } from 'game-config';
-import { resolveBetModes } from 'game-config';
+import { cardText } from 'engine-mechanics';
+import { resolveBetModes, resolveCard, resolveFamily } from 'game-config';
 import type { LocalizationDoc, LocalizationEntry } from './localization';
 import { projectAddOns } from '../addOns';
 import {
@@ -570,6 +571,41 @@ export function harvestBetModeText(doc: GameConfigDoc | null | undefined): Harve
 	}
 	if (items.length === 0) return [];
 	return [{ sceneId: BET_MODE_SECTION_ID, sceneName: 'Bet modes', items, origin: 'gameConfig' }];
+}
+
+/** The synthetic section id the card game's text is grouped under (see {@link WIN_TEXT_SECTION_ID}). */
+export const CARDS_SECTION_ID = '__cards';
+
+/**
+ * Collect a CARD GAME's text as one translatable section (`card-games.md` §9.4): each card's name,
+ * flavour and generated rules sentences (`cardText`, the English is the key, so cards that say the
+ * same thing share one row), and each deck's name. They live in the config, which the scene walk
+ * never sees — the reason {@link harvestBetModeText} exists. Nothing for any other family.
+ */
+export function harvestCardText(doc: GameConfigDoc | null | undefined): HarvestSection[] {
+	if (!doc || resolveFamily(doc) !== 'card') return [];
+	const { library, decks } = resolveCard(doc);
+	const items: HarvestedItem[] = [];
+	const seen = new Set<string>();
+	const add = (source: unknown, label: string): void => {
+		if (!isLocalizableText(source) || seen.has(source)) return;
+		seen.add(source);
+		items.push({ key: source, source, label });
+	};
+	for (const card of library) {
+		add(card.name, `${card.id} — name`);
+		add(card.flavor, `${card.id} — flavour`);
+		let sentences: string[] = [];
+		try {
+			sentences = cardText(card, library);
+		} catch {
+			// A card the validator refuses has no rules text to translate until it is fixed.
+		}
+		for (const sentence of sentences) add(sentence, `${card.id} — rules text`);
+	}
+	for (const deck of decks) add(deck.name, `${deck.id} — deck name`);
+	if (items.length === 0) return [];
+	return [{ sceneId: CARDS_SECTION_ID, sceneName: 'Cards', items, origin: 'gameConfig' }];
 }
 
 function newId(): string {

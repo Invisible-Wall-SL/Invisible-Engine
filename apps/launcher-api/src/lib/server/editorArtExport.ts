@@ -42,7 +42,13 @@ import {
 	tilemapRegions,
 } from 'engine-layout';
 import { EDITOR_RIG_LOAD_SCALE } from '$lib/rigScale';
-import { betModeCardIds, betModeCardParamRefs, characterComponentIds } from 'game-config';
+import {
+	betModeCardIds,
+	betModeCardParamRefs,
+	cardGameComponentIds,
+	cardGameParamRefs,
+	characterComponentIds,
+} from 'game-config';
 import { sheetVersion } from './assetVersion';
 import { repairComponentDefsAtlasRefs } from './atlasRefRepair';
 import { componentDefaultsFor, listComponentDefaults } from './componentDefaultsStorage';
@@ -540,7 +546,10 @@ export async function exportEditorArt(
 		: cardComponentIds;
 	// An arcade character's look and its `shootAt` shots are spawned at runtime too, so they seed
 	// the walk the same way; a config without characters adds nothing (parity).
-	const characterIds = gameConfig ? characterComponentIds(gameConfig) : [];
+	// A card game's frames are spawned by the table too, and each card's art is a frame param.
+	const characterIds = gameConfig
+		? [...characterComponentIds(gameConfig), ...cardGameComponentIds(gameConfig)]
+		: [];
 	const seedIds = characterIds.length ? [...cardParamSeedIds, ...characterIds] : cardParamSeedIds;
 	const defs = await phase('defs', () => resolveReferencedDefs(doc, projectKey, seedIds));
 	// `loadDoc` repaired the doc's own atlas refs; do the same for the defs BEFORE collecting, so a
@@ -562,6 +571,17 @@ export async function exportEditorArt(
 		if (!cardDef) continue;
 		for (const p of cardDef.params ?? []) {
 			const value = ref.cardParams[p.key];
+			if (typeof value !== 'string' || !value) continue;
+			if (p.kind === 'image') addImageRef(refs, value);
+			else if (p.kind === 'spine') refs.rigNames.add(value);
+		}
+	}
+	// A card's own art: its `params` on its frame, classified the same way.
+	for (const ref of gameConfig ? cardGameParamRefs(gameConfig) : []) {
+		const frameDef = defs[ref.frame];
+		if (!frameDef) continue;
+		for (const p of frameDef.params ?? []) {
+			const value = ref.params[p.key];
 			if (typeof value !== 'string' || !value) continue;
 			if (p.kind === 'image') addImageRef(refs, value);
 			else if (p.kind === 'spine') refs.rigNames.add(value);

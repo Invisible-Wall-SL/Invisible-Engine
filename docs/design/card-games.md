@@ -1,7 +1,7 @@
 # Card games: a duel against the device (the card family)
 
 > Status: **PLAN APPROVED (owner, 2026-10-27): all seven §13 decisions accepted as recommended.**
-> Written the same day. C1 is merged (#1391) and C2 is built; C3 is the next step. This is the design that
+> Written the same day. C1 (#1391) and C2 (#1408) are merged; C3 is built (§5.4); C4 is next. This is the design that
 > [game-families.md](game-families.md) §10 promised for the fourth family, once P10.7 had shipped
 > (§9 #15). P10.3 (variables, timers), P10.4 (drag, Align Target) and P10.7 (spawning, live sets)
 > are on `main`; progress on this plan will live in
@@ -570,6 +570,32 @@ presentation and game flow (menus, the deck pick, the result screen), never rule
 `withOutcome` strip because there are no rules-only actions to strip: the rules are all in
 `cards.js`.
 
+### 5.4 What C3 settled
+
+- **Per-instance values ride `registerInstanceValues`, not spawn params.** A spawned card's frame
+  reads its live values (name, rules text, cost, attack, health, art and the 0 / 1 look flags) as
+  `engineProvided` params fed under its instance id, so `spawn.ts` and `<SpawnLayer>` are unchanged
+  and a stat change redraws without a remount. The §6 inputs are declared on the frame too, for an
+  authored state machine.
+- **Drag is the frame's own P10.4 listeners.** The placeholder's hit rect raises `cardTap`,
+  `cardDragStart`, `cardDrag`, `cardDragEnd` and Aligns its body (`cardFrame-body`) to the pointer;
+  the runtime observes the events by instance id (`observeComponentEvents`) and reads the drop from
+  the canvas pointer in each zone's space (`spawnLayerPoint`). A snapped-back card is respawned, which
+  resets its aligned body. A tap picks a card and a second tap (a unit, a hero, the board) is its drop.
+- **The table is the `basegame` screen**, shown from boot under the loading and deck-pick screens:
+  the runtime needs a `basegame` scene, and `<CardTable />` is inside it.
+- **What is registered before the layout mounts:** the `cards.*` value sources, the End Turn button's
+  action and the Flow effects are registered at `Game.svelte` init for a card table, because a
+  readout or a button looks its source up once, when it mounts.
+- **Signal payloads:** a card is its library id (`card`, `attacker`), a target a unit's card id or
+  `myHero` / `enemyHero`, `matchReady.first` a bool (true when the player starts).
+- **A flow action raised inside a chain is queued** (`flowAct`) and taken, if the rules allow it,
+  when it reaches the front; a chain that waits (a turn timer) holds the match while it waits.
+- **The device's pace** is the driver's `deviceDelayMs` (600 ms) before each action, presentation
+  only (§4.3). A new match after the first is seeded `${seed}:${n}`, so each replays.
+- **The config validator runs `cards.js`'s `validateLibrary`:** `game-config` depends on
+  `engine-mechanics` (dependency-free) rather than restating §3.6.
+
 ---
 
 ## 6. The card-frame component
@@ -875,7 +901,7 @@ game (game-families §7.1 applies to each).
 | C0 | **Plan + decisions** (this doc) — ✅ approved 2026-10-27 | Owner review of §13 | docs | S |
 | C1 | **The rules engine** — ✅ merged (#1391) | `cards.js` + `cards.d.ts`: the match value, zones, phases, the resource, `legalActions`, `apply`, the effect queue, the death check, the loop and turn limits, fatigue; `validateLibrary`; `cardText`; fixtures. No caller | `engine-mechanics` | M |
 | C2 | **The AI** — ✅ built 2026-10-27 | `cardAi.js` + `.d.ts`: lethal, one-step evaluation, the three difficulties with `hard`'s plan search, its own seeded stream; replay records; the budget | `engine-mechanics` | M |
-| C3 | **Card family, end to end** | `card` in `GAME_KINDS` / `GAME_FAMILIES` / `CONFIG_FAMILIES` and every copy of the family map (§9.2); `GameConfigDoc.card`, `resolveCard`, the normalizer's board-less set, validation, the `/config` card section and picker; the two collectors on the ship chain; `CARD_RULES_MECHANIC`; `cardSession.ts`, `cardDriver.ts`, `cards.svelte.ts`, `<CardTable />` with drop hit-testing and per-instance spawn params; `CARD_VOCAB` and its starter; the `card` layout template and scene set (which puts `card` in Game Maker); the scaffold's placeholder frame; the "Cards" localization section; the bundle-size cost reported; a sample game and `docs/playtest/card-sample.md` | `constants-shared`, `game-config`, `engine-game`, `engine-layout`, `engine-flow-v2`, `apps/lines`, launcher | L |
+| C3 | **Card family, end to end** — ✅ built 2026-10-28 | `card` in `GAME_KINDS` / `GAME_FAMILIES` / `CONFIG_FAMILIES` and every copy of the family map (§9.2); `GameConfigDoc.card`, `resolveCard`, the normalizer's board-less set, validation, the `/config` card section and picker; the two collectors on the ship chain; `CARD_RULES_MECHANIC`; `cardSession.ts`, `cardDriver.ts`, `cards.svelte.ts`, `<CardTable />` with drop hit-testing and per-instance spawn params; `CARD_VOCAB` and its starter; the `card` layout template and scene set (which puts `card` in Game Maker); the scaffold's placeholder frame; the "Cards" localization section; the bundle-size cost reported; a sample game and `docs/playtest/card-sample.md` | `constants-shared`, `game-config`, `engine-game`, `engine-layout`, `engine-flow-v2`, `apps/lines`, launcher | L |
 | C4 | **Invisible Card Library** | `/cards`: registry, roles, `FAMILY_TOOLS`, the doc slug; the list, form, live preview, decks, test match and "Run 100"; its docs under rule 9 in the same PR | launcher, `docs/tools/` | L |
 | C5 | *(optional, after a decision)* **Phase switches and more lists** | Interleaved play and combat (§13 #2); any verbs, targets or keywords the owner adds to the closed lists (§13 #3) | `engine-mechanics`, launcher | M |
 
@@ -906,7 +932,7 @@ changed screens, `check:svelte` not rising) hold for C3 and C4.
 ## 13. Decisions (owner)
 
 **#1–#7 DECIDED (owner, 2026-10-27): every recommendation is accepted as written.** No question
-is open. The C0 row is done, C1 is merged and C2 is built; C3 is the next step.
+is open. The C0 row is done, C1 and C2 are merged and C3 is built; C4 is next.
 
 1. **Where card data lives.** *(owner, 2026-10-27: as recommended)*
    - **In Game Config, as `GameConfigDoc.card`** (§7, option A). It reuses the bake, versions,

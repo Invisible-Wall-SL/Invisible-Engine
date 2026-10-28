@@ -110,6 +110,7 @@ report: [current-games.md](current-games.md). Its screen scripts are per game TY
 | [hold-and-win-coin-board.md](hold-and-win-coin-board.md) | Hold and Win coin board (no line game): paying lines, the three pay rules, player-picked lines, local boot |
 | [match3-sample.md](match3-sample.md) | the first non-slot game: a rules-decided match-3 (free play, no RGS), played with scripted swipes |
 | [arcade-sample.md](arcade-sample.md) | the first arcade game: a rules-decided catcher / dodger (free play, no RGS), played with key events |
+| [card-sample.md](card-sample.md) | the first card game: a duel against the device (free play, no RGS), played with mouse drags |
 | [arcade-characters.md](arcade-characters.md) | arcade characters (P10.11): a played runner, a guard on a patrol / chase brain, solid walls, a path, a blended look |
 | [arcade-platformer.md](arcade-platformer.md) | gravity, jumps and levels (P10.13): a side-view hero with a held / tapped jump on a painted tilemap (solid ground, a wall, one-way ledges), coins, a pit |
 | [online-sample.md](online-sample.md) | the first online arcade room: two browsers in one room on a local game server, inputs only (P10.14) |

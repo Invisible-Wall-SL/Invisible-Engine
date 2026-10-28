@@ -1,3 +1,4 @@
+import { validateCardGame } from './cardGame';
 import { DEFAULT_ARCADE_TARGET_TAG, type ArcadeCharacter } from './arcadeCharacters';
 import {
 	ARCADE_FIXED_HZ_RANGE,
@@ -16,13 +17,14 @@ import type { GameConfigDoc } from './types';
 import type { GameConfigIssue } from './validate';
 
 /**
- * What is wrong with a match-3 or arcade doc as that family (`docs/design/game-families.md` §2.1).
+ * What is wrong with a match-3, arcade or card doc as that family (`docs/design/game-families.md` §2.1).
  * Nothing for a slot: every slot check lives where it always did, in `validateGameConfigDoc`.
  */
 export function validateFamily(doc: GameConfigDoc): GameConfigIssue[] {
 	const family = resolveFamily(doc);
 	if (family === 'match3') return validateMatch3(doc);
 	if (family === 'arcade') return validateArcade(doc);
+	if (family === 'card') return validateCard(doc);
 	return [];
 }
 
@@ -85,6 +87,19 @@ function validateMatch3(doc: GameConfigDoc): GameConfigIssue[] {
 		});
 	}
 	return issues;
+}
+
+/** A card game is free play (`card-games.md` §9.1): an RGS-decided one is refused, then the library
+ *  and decks are checked. */
+function validateCard(doc: GameConfigDoc): GameConfigIssue[] {
+	const issues: GameConfigIssue[] = [];
+	if (resolveOutcome(doc) !== 'rules')
+		issues.push({
+			severity: 'error',
+			path: 'outcome',
+			message: 'A card game is decided by its own rules: set the outcome to Rules.',
+		});
+	return [...issues, ...validateCardGame(doc)];
 }
 
 function validateArcade(doc: GameConfigDoc): GameConfigIssue[] {

@@ -16,7 +16,7 @@ import type { GameConfigDoc } from './types';
  */
 
 /** The families a config can name. `slot` is the default and is never stored. */
-export const CONFIG_FAMILIES = ['slot', 'match3', 'arcade'] as const;
+export const CONFIG_FAMILIES = ['slot', 'match3', 'arcade', 'card'] as const;
 
 export type ConfigFamily = (typeof CONFIG_FAMILIES)[number];
 
@@ -436,7 +436,7 @@ export const resolveArcadeOnline = (
 
 /** A stored family, or `undefined` for the default and for anything unreadable. */
 export const normalizeFamily = (raw: unknown): GameConfigDoc['family'] =>
-	raw === 'match3' || raw === 'arcade' ? raw : undefined;
+	raw === 'match3' || raw === 'arcade' || raw === 'card' ? raw : undefined;
 
 /** A stored outcome: only `rules`, and only beside a family that can be one (a slot cannot). */
 export const normalizeOutcome = (

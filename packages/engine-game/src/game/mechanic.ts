@@ -11,7 +11,7 @@ import { resolveFamily, resolveOutcome, type GameConfigDoc, type GameOutcome } f
  * results come from. Everything else (scenes, components, symbols, Flow) is data the shared runtime
  * already plays for every type.
  */
-export type MechanicId = 'reels' | 'match3' | 'arcade';
+export type MechanicId = 'reels' | 'match3' | 'arcade' | 'card';
 
 export interface GameMechanic {
 	id: MechanicId;
@@ -36,6 +36,9 @@ export interface GameMechanic {
 	/** The game is played in a room on the game server (tier A4, `realtime-multiplayer.md` §10):
 	 *  the device joins it at boot, sends inputs and draws the bodies the server places. */
 	room: boolean;
+	/** The game is a card duel (`card-games.md` §5.1): `<CardTable />` and its match driver stand in
+	 *  for the reel stack. */
+	cardTable: boolean;
 	/** The book events the mechanic adds to the shared runtime's union. */
 	bookEvents: readonly string[];
 	/** Why the runtime cannot play this mechanic yet, or `undefined` when it can. */
@@ -54,6 +57,7 @@ export const REELS_MECHANIC: GameMechanic = Object.freeze({
 	boardInput: false,
 	playField: false,
 	room: false,
+	cardTable: false,
 	bookEvents: [],
 });
 
@@ -69,6 +73,7 @@ export const MATCH3_RULES_MECHANIC: GameMechanic = Object.freeze({
 	boardInput: true,
 	playField: false,
 	room: false,
+	cardTable: false,
 	bookEvents: [],
 });
 
@@ -85,6 +90,7 @@ export const MATCH3_RGS_MECHANIC: GameMechanic = Object.freeze({
 	boardInput: true,
 	playField: false,
 	room: false,
+	cardTable: false,
 	bookEvents: ['boardInit', 'swap', 'movesLeft', 'match3RoundEnd'],
 });
 
@@ -100,6 +106,7 @@ export const ARCADE_RULES_MECHANIC: GameMechanic = Object.freeze({
 	boardInput: false,
 	playField: true,
 	room: false,
+	cardTable: false,
 	bookEvents: [],
 });
 
@@ -110,10 +117,26 @@ export const ARCADE_ONLINE_MECHANIC: GameMechanic = Object.freeze({
 	room: true,
 });
 
+/** A card duel against the device (`card-games.md` §5.1): no spins, bets, RGS session or wallet. */
+export const CARD_RULES_MECHANIC: GameMechanic = Object.freeze({
+	id: 'card',
+	outcome: 'rules',
+	spins: false,
+	bets: false,
+	interactiveRound: false,
+	rgsSession: false,
+	wallet: false,
+	boardInput: false,
+	playField: false,
+	room: false,
+	cardTable: true,
+	bookEvents: [],
+});
+
 /**
  * The mechanic a config plays as. An arcade game is decided by its rules (an RGS-decided one is the
- * optional P10.10, and the config validator refuses it), so an arcade config that says otherwise is
- * `unplayable` and the boot refuses it.
+ * optional P10.10), and a card game always is (card-games.md §9.1): the config validator refuses
+ * either one decided by the RGS, and it is `unplayable`, which the boot refuses.
  */
 export function mechanicFor(doc: GameConfigDoc | null | undefined): GameMechanic {
 	const family = resolveFamily(doc);
@@ -128,6 +151,14 @@ export function mechanicFor(doc: GameConfigDoc | null | undefined): GameMechanic
 					...ARCADE_RULES_MECHANIC,
 					outcome: 'rgs',
 					unplayable: 'an arcade game decided by the RGS is not built yet (P10.10)',
+				};
+	if (family === 'card')
+		return resolveOutcome(doc) === 'rules'
+			? CARD_RULES_MECHANIC
+			: {
+					...CARD_RULES_MECHANIC,
+					outcome: 'rgs',
+					unplayable: 'a card game is decided by its own rules, never by the RGS',
 				};
 	return REELS_MECHANIC;
 }
