@@ -931,6 +931,12 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 	};
 	// Each spin's expanding and growing wilds, presented with its board (`./wildRewrite`).
 	const wildRewrites = wildRewritesBySpin(events);
+	if (wildRewrites.ambiguous && !warnedWildDrift.has(`${sid}:spans`)) {
+		warnedWildDrift.add(`${sid}:spans`);
+		console.warn(
+			'[engine-facade] expanding/growing wilds in a response with two boards and no spinStart between them — presented with the later board',
+		);
+	}
 	const pushWildRewritesOf = (spin: number, landed: string[][]) => {
 		const rewrites = wildRewrites.bySpin.get(spin);
 		if (!rewrites) return;

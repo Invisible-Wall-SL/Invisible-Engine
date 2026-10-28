@@ -15,7 +15,7 @@ import { createWildRewrite, growCells as mockGrowCells } from './mock-wild-rewri
 const facade = await import('../packages/rgs-translator-eagaming/engine-facade.ts');
 const { growCells } = await import('../packages/game-config/src/growingWild.ts');
 const { GROWING_WILD_PATTERNS } = await import('../packages/game-config/src/types.ts');
-const { wildRewritesBySpin } =
+const { translateWildRewrites, wildRewritesBySpin } =
 	await import('../packages/rgs-translator-eagaming/src/wildRewrite.ts');
 
 let failed = 0;
@@ -437,6 +437,48 @@ const presented = async (make, label, rounds) => {
 	check(
 		JSON.stringify([...consumed]) === '[2,3]',
 		'a symbolSetInMatrix with no wild before it is left to the facade (a Hold and Win server may send one)',
+	);
+
+	const expandSpin = (win, board = [['A'], ['WILD'], ['B']]) => [
+		{ event: 'spinStart', context: {} },
+		{ event: 'expandedWild', context: { wild: 'WILD', reel: 1, row: 0 } },
+		{ event: 'symbolSetInMatrix', context: { reel: 1, row: 0, symbol: 'WILD', oldSymbol: 'WILD' } },
+		...(win ? [{ event: 'spinWin', context: win }] : []),
+		{ event: 'playedSpin', context: board },
+	];
+	const paidOf = (events, board) => {
+		const { bySpin } = wildRewritesBySpin(events);
+		return translateWildRewrites([...bySpin.values()][0], board, (n) => n, 1).bookEvents[0].paid;
+	};
+	const board = [['A'], ['WILD'], ['B']];
+	check(
+		paidOf(expandSpin({ what: 'A', occurs: 1, mode: 'line', context: { payline: [0, 0, 0] } }), board) === false &&
+			paidOf(expandSpin({ what: 'A', occurs: 2, mode: 'line', context: { payline: [0, 0, 0] } }), board) === true &&
+			paidOf(expandSpin({ what: 'S', mode: 'scatter', context: [{ reel: 1, row: 0 }] }), board) === false,
+		'paid: a line win crosses the reel; a scatter pay never does',
+	); // prettier-ignore
+	check(
+		paidOf(expandSpin({ what: 'A', mode: 'line', context: { lineId: 3 } }), board) === true,
+		'a line win whose reels cannot be read marks the expansion paid (fail open)',
+	);
+	const mult = translateWildRewrites(
+		{
+			rewrites: [{ kind: 'expand', wild: 'WILD', origin: { reel: 0, row: 0 }, cells: [{ reel: 0, row: 1, symbol: 'WILD', oldSymbol: 'MULT' }] }],
+			paidReels: new Set([0]),
+			paidAll: false,
+		},
+		[['WILD', 'MULT:5']],
+		(n) => n,
+		1,
+	); // prettier-ignore
+	check(mult.drift === 0, 'a valued cell (MULT:5) is not drift against its base name');
+	const twoBoards = wildRewritesBySpin([
+		...expandSpin(null),
+		{ event: 'playedSpin', context: board },
+	]);
+	check(
+		twoBoards.ambiguous && !wildRewritesBySpin(expandSpin(null)).ambiguous,
+		'two boards in one spin span are flagged',
 	);
 
 	const plain = await presented(

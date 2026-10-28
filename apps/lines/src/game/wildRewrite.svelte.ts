@@ -83,9 +83,12 @@ const morphCells = async (cells: Position[], raw: RawSymbol): Promise<void> => {
 	}
 };
 
+/** Rows the reveal pads above the visible grid — the facade's `BOARD_PADDING_ROWS`. */
+const BOARD_PADDING_ROWS = 1;
+
 /** The visible rows of `reel` ordered outwards from `row` — nearest first, above before below. */
 const rowsOutward = (row: number, rows: number): number[] =>
-	Array.from({ length: rows }, (_, i) => i + 1).sort(
+	Array.from({ length: rows }, (_, i) => i + BOARD_PADDING_ROWS).sort(
 		(a, b) => Math.abs(a - row) - Math.abs(b - row) || a - b,
 	);
 
@@ -173,7 +176,7 @@ const growStacked = async ({
 		originRow: row,
 		fromBoxTop: slice.topRow - slice.hiddenAbove,
 		from: { top: slice.topRow, bottom: slice.topRow + slice.visibleCells },
-		to: { top: 1, bottom: rows + 1 },
+		to: { top: BOARD_PADDING_ROWS, bottom: rows + BOARD_PADDING_ROWS },
 		progress,
 	};
 	settle(targets, raw);

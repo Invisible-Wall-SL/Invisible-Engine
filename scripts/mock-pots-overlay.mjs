@@ -714,7 +714,16 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 	};
 
 	/** The host has dealt the play: place the drops and the pots' moves, then restate every pot. */
-	const PLAY_EVENTS = new Set(['luckySpin', 'overlayDrop', 'spinWin', 'bonusWin', 'playedSpin']);
+	const PLAY_EVENTS = new Set([
+		'luckySpin',
+		'overlayDrop',
+		'expandedWild',
+		'growingWild',
+		'symbolSetInMatrix',
+		'spinWin',
+		'bonusWin',
+		'playedSpin',
+	]);
 	const endPlay = (events, from, session, round) => {
 		const turn = round.potsTurn;
 		round.potsTurn = null;

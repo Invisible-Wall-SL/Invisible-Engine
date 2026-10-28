@@ -25,8 +25,16 @@ export type WildRewrite = {
 	cells: (Cell & { symbol: string; oldSymbol?: string })[];
 };
 
-/** One spin's rewrites and the reels its paying wins cross. */
-export type SpinWildRewrites = { rewrites: WildRewrite[]; paidReels: Set<number> };
+/**
+ * One spin's rewrites and the reels its paying wins cross. `paidAll` when a line win's reels could
+ * not be read: every expansion of the spin then counts as paid, so `show: 'onWin'` never leaves a
+ * reel un-expanded under a win line it cannot place.
+ */
+export type SpinWildRewrites = {
+	rewrites: WildRewrite[];
+	paidReels: Set<number>;
+	paidAll: boolean;
+};
 
 const cellOf = (context: unknown): (Cell & { wild?: string; symbol?: string }) | null => {
 	const c = context as { reel?: unknown; row?: unknown; wild?: unknown; symbol?: unknown } | null;
@@ -39,19 +47,27 @@ const cellOf = (context: unknown): (Cell & { wild?: string; symbol?: string }) |
 	};
 };
 
-/** The reels a LINE win pays across: its `occurs` reels from the side it reads from. A scatter
- *  pay crosses none, whatever its symbol. */
-const reelsPaidBy = (context: unknown): number[] => {
-	const win = context as { mode?: string; occurs?: number; context?: unknown } | null;
-	if (!win || win.mode === 'scatter') return [];
-	const ctx = win.context as { payline?: number[]; direction?: string } | Cell[] | undefined;
-	if (Array.isArray(ctx)) return ctx.map((c) => c.reel);
+/** The reels a LINE win pays across: its `occurs` reels from the side it reads from, or its
+ *  cells' reels. A scatter pay crosses none, whatever its symbol; a win whose reels cannot be read
+ *  is `null`. */
+const reelsPaidBy = (context: unknown): number[] | null => {
+	const win = context as { mode?: string; occurs?: unknown; context?: unknown } | null;
+	if (!win) return null;
+	if (win.mode === 'scatter') return [];
+	const ctx = win.context as { payline?: unknown; direction?: string } | Cell[] | undefined;
+	if (Array.isArray(ctx))
+		return ctx.every((c) => Number.isInteger(c?.reel)) ? ctx.map((c) => c.reel) : null;
 	const payline = ctx?.payline;
-	if (!Array.isArray(payline)) return [];
+	const occurs = win.occurs;
+	if (!Array.isArray(payline) || !Number.isInteger(occurs) || (occurs as number) < 1) return null;
 	const reels = payline.map((_row, reel) => reel);
-	const occurs = win.occurs ?? 0;
-	return ctx?.direction === 'right' ? reels.slice(reels.length - occurs) : reels.slice(0, occurs);
+	return ctx?.direction === 'right'
+		? reels.slice(reels.length - (occurs as number))
+		: reels.slice(0, occurs as number);
 };
+
+/** A cell's symbol without the value it may carry (`MULT:5` is `MULT`). */
+const baseName = (cell: string): string => cell.split(':')[0];
 
 /**
  * Every spin's rewrites, by the index of the `playedSpin` they belong to, and the indices of the
@@ -59,26 +75,41 @@ const reelsPaidBy = (context: unknown): number[] => {
  * `spinStart` to the next one; a `symbolSetInMatrix` belongs to the `expandedWild` or `growingWild`
  * before it in the spin, and one with no such parent is left to the facade (a Hold and Win server
  * may send it). Empty when the wire carries none, which is every game without these features.
+ * `ambiguous` when a span between two `spinStart`s holds two boards and rewrites: they are kept with
+ * the last board, which may not be theirs.
  */
 export const wildRewritesBySpin = (
 	events: Play4FunBookEvent[],
-): { bySpin: Map<number, SpinWildRewrites>; consumed: Set<number> } => {
+): { bySpin: Map<number, SpinWildRewrites>; consumed: Set<number>; ambiguous: boolean } => {
 	const out = new Map<number, SpinWildRewrites>();
 	const consumed = new Set<number>();
 	let pending: WildRewrite[] = [];
 	let paidReels = new Set<number>();
+	let paidAll = false;
 	let spin: number | undefined;
+	let boards = 0;
+	let ambiguous = false;
 	const flush = () => {
-		if (spin !== undefined && pending.length) out.set(spin, { rewrites: pending, paidReels });
+		if (spin !== undefined && pending.length) {
+			out.set(spin, { rewrites: pending, paidReels, paidAll });
+			if (boards > 1) ambiguous = true;
+		}
 		pending = [];
 		paidReels = new Set();
+		paidAll = false;
 		spin = undefined;
+		boards = 0;
 	};
 	events.forEach((e, at) => {
 		if (e.event === 'spinStart') flush();
-		else if (e.event === 'playedSpin') spin = at;
-		else if (e.event === 'spinWin') for (const reel of reelsPaidBy(e.context)) paidReels.add(reel);
-		else if (e.event === 'expandedWild' || e.event === 'growingWild') {
+		else if (e.event === 'playedSpin') {
+			spin = at;
+			boards += 1;
+		} else if (e.event === 'spinWin') {
+			const reels = reelsPaidBy(e.context);
+			if (reels) for (const reel of reels) paidReels.add(reel);
+			else paidAll = true;
+		} else if (e.event === 'expandedWild' || e.event === 'growingWild') {
 			const origin = cellOf(e.context);
 			if (origin?.wild) {
 				consumed.add(at);
@@ -104,7 +135,7 @@ export const wildRewritesBySpin = (
 		}
 	});
 	flush();
-	return { bySpin: out, consumed };
+	return { bySpin: out, consumed, ambiguous };
 };
 
 /**
@@ -115,7 +146,7 @@ export const wildRewritesBySpin = (
  * disagrees with the board, which means the server and the client no longer read the same board.
  */
 export const translateWildRewrites = (
-	{ rewrites, paidReels }: SpinWildRewrites,
+	{ rewrites, paidReels, paidAll }: SpinWildRewrites,
 	board: string[][],
 	map: (name: string) => string,
 	padding: number,
@@ -128,7 +159,8 @@ export const translateWildRewrites = (
 			(c) => c.row >= 0 && c.row < (final[c.reel]?.length ?? 0) && c.symbol === wild,
 		);
 		for (const c of changed) {
-			if (c.oldSymbol !== undefined && c.oldSymbol !== final[c.reel][c.row]) drift += 1;
+			const was = c.oldSymbol;
+			if (was !== undefined && baseName(was) !== baseName(final[c.reel][c.row])) drift += 1;
 			final[c.reel][c.row] = c.symbol;
 		}
 		const moved = changed
@@ -142,7 +174,7 @@ export const translateWildRewrites = (
 					row: origin.row + padding,
 					symbol,
 					cells: moved,
-					paid: paidReels.has(origin.reel),
+					paid: paidAll || paidReels.has(origin.reel),
 				}
 			: { type: 'growWild', origin: engineCell(origin), symbol, cells: moved };
 	});
