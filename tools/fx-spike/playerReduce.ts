@@ -300,8 +300,17 @@ assert(
 		'a slot freed later does not turn the ninth on (decided at mount, kept for its life)',
 	);
 	assert(decide().on && slots.drawing === 8, 'a layer mounting after that takes the free slot');
+	const warnings: unknown[][] = [];
+	const warn = console.warn;
+	console.warn = (...args: unknown[]) => warnings.push(args);
 	for (let i = 0; i < 20; i++) slots.release();
-	assert(slots.drawing === 0, 'releasing more than was claimed never goes below 0');
+	console.warn = warn;
+	assert(slots.drawing === 0, 'releasing more than was claimed never goes below 0…');
+	assert(
+		warnings.length === 1 && /did not hold/.test(String(warnings[0][0])),
+		'…and warns, once, that a slot came back that no layer held',
+	);
+	assert(decide().on && slots.drawing === 1, 'a slot is claimed as before after it warned');
 }
 
 {

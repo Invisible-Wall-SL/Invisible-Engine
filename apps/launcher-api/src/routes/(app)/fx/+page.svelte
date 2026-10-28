@@ -40,6 +40,7 @@
 		materialChoices,
 		materialGraphId,
 		materialLayerLoad,
+		materialLayerCount,
 		materialNotes,
 		materialParamValue,
 		setLayerMaterial,
@@ -671,6 +672,7 @@
 			? materialNotes({
 					layer: selected,
 					params: doc.params,
+					materialLayers: materialLayerCount(doc.layers),
 					effect: selectedEffect,
 					notCompiled: materialIssues.has(selected.key),
 					skipped: shaderSet.skipped,
