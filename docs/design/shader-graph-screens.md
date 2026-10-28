@@ -1,6 +1,8 @@
 # Invisible Shader Graph: screen transitions and post FX (step 8e)
 
-> **Draft, not approved: the owner decides §16.** Design pass for step 8e of
+> **Decided 2026-10-28.** The owner answered §16: every recommendation, except that anti-aliasing
+> under a stage effect (§16.10) is an author's choice, off by default. Being built as 8e.1–8e.8
+> (§15). Design pass for step 8e of
 > [invisible-shader-graph.md](invisible-shader-graph.md) §8, written against the code maps of the
 > `invisible-flow`, `engine-pixi-svelte` and `invisible-fx` agents. It follows the shape of the 8d
 > design, [shader-graph-particles.md](shader-graph-particles.md). Current state:
@@ -453,6 +455,8 @@ interface GameSettings {
   };
   /** 8e: Element FX on the whole stage. */
   postFx?: ElementFxEntry[];    // triggers 'always' | 'cue'; read by readElementFxEntries
+  /** 8e (§16.10): stage filters keep the canvas's anti-aliasing. Absent = off. */
+  stageFxAntialias?: true;
 }
 ```
 
@@ -525,6 +529,10 @@ A block beside **Authored overlays**, with two rows.
 - **▶** plays the entry on the stage as the editor shows it: the live still of the screen being
   edited, through the stage rules. `ElementFxPreviewTarget` gains `{ kind: 'stage' }`;
 - **the cue palette** harvests the post FX cues (`collectSceneCueNames`, `sceneCues.ts` line 62).
+
+**Anti-aliasing under stage effects** (§16.10): a switch, off by default. On, transitions, post FX
+and the camera effects keep the canvas's anti-aliasing where it has any (WebGL2), at about four
+times a stage pass's memory; the note beside it says so.
 
 **No per-screen "Transition in / out" field.** v2 shows are hard cuts by design (§2.2), and a
 screen's own Element FX *When shown* already plays an entrance on its content (§16.5).
@@ -773,12 +781,15 @@ compiled effect, and steps 3 and 7 build on both.
      - the `stage` anchor in `Game.svelte`;
      - `GameSettings.postFx` (type, reader, the game's `<ElementFxPlayer>` at the root);
      - the caps;
+     - `GameSettings.stageFxAntialias` (§16.10): the owner gives every stage filter
+       `antialias: 'inherit'` when set, `'off'` otherwise;
      - `?fxdebug=1` lines with load from the compiled effect's cost.
    - **Gates:**
      - `check:element-fx`: no motion folded, no measure, filters and area restored exactly, the
        refused kinds;
      - `screen-fx`: an Output-alone post FX matches no post FX (the MSAA difference measured and
-       reported); the slot order with a transition and the chroma wobble;
+       reported, with the setting off and on); the setting reaches every stage filter; the slot
+       order with a transition and the chroma wobble;
      - current-games: no changed screen.
    - **Exit:** a game build plays a doc's post FX headless. The post FX floor starts here.
 4. **Transitions in the game: the Flow actions and the transition cue** (engine-flow-v2,
@@ -817,7 +828,8 @@ compiled effect, and steps 3 and 7 build on both.
    - **Exit:** those green.
 6. **Authoring in the Scene Editor and the Flow** (launcher).
    - **Contents:**
-     - Game Settings → Screen FX (both rows);
+     - Game Settings → Screen FX (both rows, and the **Anti-aliasing under stage effects** switch
+       with its memory note, §16.10);
      - `normalizeGameSettings`, `buildGameSettings`;
      - the publish chip;
      - the cue harvest;
@@ -859,7 +871,11 @@ compiled effect, and steps 3 and 7 build on both.
    - **Owner pass:** a phone check reading `?fxdebug=1`, then the caps in §10 updated from it.
    - **Exit:** the play passes; the status files and guides are current.
 
-## 16. Decisions (owner)
+## 16. Decisions (owner, 2026-10-28)
+
+The owner answered each one. All are as recommended except 10, where the owner chose "optional":
+anti-aliasing under a stage effect is the author's choice, off by default. The alternatives are
+kept for the record.
 
 1. **Which option.**
    - *Recommended:* the old screen frozen once and the new one live, with two routes:
@@ -908,6 +924,12 @@ compiled effect, and steps 3 and 7 build on both.
 10. **MSAA under a stage filter.**
     - *Recommended:* off, as every Element FX pass and today's chroma wobble, measured in step 3.
     - *Alternative:* `inherit` on WebGL2, about four times the pass's memory; WebGL1 cannot do it.
+    - **Decided: optional.** A project setting, Game Settings → Screen FX → **Anti-aliasing under
+      stage effects** (`settings.stageFxAntialias`), off by default. On, the stage filter owner
+      gives every stage filter it runs (transition, post FX, camera) `antialias: 'inherit'`, so
+      they keep the canvas's MSAA where the canvas has it (WebGL2); on WebGL1 it changes nothing.
+      Step 3 measures both settings' cost and look; the editor's Screen FX block shows the memory
+      note beside the switch.
 11. **Who may.**
     - *Recommended:* no new capability. Flow authors place transitions; anyone who saves the
       Scene Editor sets Screen FX.
