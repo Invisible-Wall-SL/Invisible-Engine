@@ -2003,6 +2003,22 @@
       }
     ]
   },
+  "expandingWilds": {
+    "symbols": [
+      "W"
+    ]
+  },
+  "growingWild": {
+    "symbol": "CL",
+    "reels": [
+      2
+    ],
+    "freeSpinReels": [
+      1,
+      2,
+      3
+    ]
+  },
   "winLevels": [
     {
       "alias": "zero",

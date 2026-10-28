@@ -698,7 +698,13 @@ const playTwoScatters = async (rounds, triggerStrips) => {
 		scatterPaytable: { 2: 1 },
 		freeSpinsTrigger: { symbol: 'SCAT', count: 2 },
 		freeSpinsAwards: rule,
-		...(triggerStrips ? { freeSpinsTriggerStrips: triggerStrips } : {}),
+		...(triggerStrips
+			? {
+					freeSpinsTriggerStrips: triggerStrips,
+					expandingWilds: { symbols: [{ symbol: 'WILD', reels: [1, 2, 3] }] },
+					growingWild: { symbol: 'CL', reels: [2], freeSpinReels: [1, 2, 3], pattern: 'plus' },
+				}
+			: {}),
 		startBalance: 100_000_000,
 		quiet: true,
 	});
@@ -706,6 +712,18 @@ const playTwoScatters = async (rounds, triggerStrips) => {
 	const t = { disagree: 0, opened: 0, missed: 0, badRetrigger: 0, over: 0, tall: 0, freeSpins: 0 };
 	t.retriggers = 0;
 	t.scatterReels = new Set();
+	/** Per base / free spin: how many landed a fairy, a clover, and on which reels. */
+	t.wilds = { base: { W: 0, CL: 0, n: 0 }, free: { W: 0, CL: 0, n: 0 } };
+	t.wildReels = { WILD: new Set(), CLbase: new Set(), CLfree: new Set() };
+	const tallyWilds = (board, side) => {
+		t.wilds[side].n++;
+		if (board.flat().includes('WILD')) t.wilds[side].W++;
+		if (board.flat().includes('CL')) t.wilds[side].CL++;
+		board.forEach((reel, r) => {
+			if (reel.includes('WILD')) t.wildReels.WILD.add(r);
+			if (reel.includes('CL')) t.wildReels[side === 'base' ? 'CLbase' : 'CLfree'].add(r);
+		});
+	};
 	t.audited = [];
 	for (let i = 0; i < rounds; i++) {
 		const round = await playRound(post, sid);
@@ -714,6 +732,7 @@ const playTwoScatters = async (rounds, triggerStrips) => {
 		if (triggered !== countOn(board, 'SCAT') >= 2) t.disagree++;
 		if (board.some((reel) => reel.length !== 4)) t.tall++;
 		board.forEach((reel, r) => reel.includes('SCAT') && t.scatterReels.add(r));
+		tallyWilds(board, 'base');
 		if (!triggered) continue;
 		t.opened++;
 		const f = auditRound(round, rule);
@@ -724,6 +743,7 @@ const playTwoScatters = async (rounds, triggerStrips) => {
 			const fsBoard = ev(s, 'playedSpin')?.context ?? [];
 			const landed = countOn(fsBoard, 'SCAT');
 			fsBoard.forEach((reel, r) => reel.includes('SCAT') && t.scatterReels.add(r));
+			tallyWilds(fsBoard, 'free');
 			t.freeSpins++;
 			const retrigger = ev(s, 'retrigger')?.context;
 			if (retrigger) {
@@ -777,6 +797,16 @@ console.log(
 		'SCAT lands only on the reels its strips carry it (1 and 5)',
 		` (${[...t.scatterReels].sort()})`,
 	);
+	const reels = (set) => [...set].sort().join();
+	const rate = ({ n, W, CL }) => `fairy ${((100 * W) / n).toFixed(1)}%, clover ${((100 * CL) / n).toFixed(1)}%`; // prettier-ignore
+	check(
+		t.wilds.base.W > 0 && t.wilds.base.CL > 0 && t.wilds.free.W > 0 && t.wilds.free.CL > 0,
+		'an unforced deal lands the fairy and the clover, in base and free spins',
+		` (base ${rate(t.wilds.base)}; free ${rate(t.wilds.free)})`,
+	);
+	check(reels(t.wildReels.WILD) === '1,2,3', 'the fairy lands on reels 2–4 only', ` (${reels(t.wildReels.WILD)})`); // prettier-ignore
+	check(reels(t.wildReels.CLbase) === '2', 'the clover lands on reel 3 in the base game', ` (${reels(t.wildReels.CLbase)})`); // prettier-ignore
+	check(reels(t.wildReels.CLfree) === '1,2,3', '…and on reels 2–4 in free spins', ` (${reels(t.wildReels.CLfree)})`); // prettier-ignore
 	const longest = Math.max(...t.audited.map((f) => f.counters.length));
 	check(
 		longest < MAX_ROUND_FREE_SPINS,

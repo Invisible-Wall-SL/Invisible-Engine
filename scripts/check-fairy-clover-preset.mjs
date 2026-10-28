@@ -9,7 +9,9 @@ import { readFileSync } from 'node:fs';
 import {
 	fairyCloverPreset,
 	normalizeGameConfigDoc,
+	resolveExpandingWilds,
 	resolveFreeSpins,
+	resolveGrowingWild,
 	retriggerSpinsPerSpin,
 	MAX_RETRIGGER_SPINS_PER_SPIN,
 	symbolsInPlay,
@@ -81,6 +83,15 @@ check(same(freeSpins.awards, [{ count: 2, spins: CAPTURE.freeSpins.awards }]), `
 check(same(freeSpins.retriggerAwards, [{ count: 2, spins: 10 }]), 'a retrigger adds 10');
 const growth = retriggerSpinsPerSpin(preset);
 check(growth !== undefined && growth < MAX_RETRIGGER_SPINS_PER_SPIN, 'the freegame strips show the feature ends', ` (+${growth?.toFixed(3)} spins per spin)`); // prettier-ignore
+const expanding = resolveExpandingWilds(preset);
+check(
+	same(expanding?.symbols.map((w) => [w.symbol, w.reels]), [['W', [1, 2, 3]]]) && expanding?.show === 'onWin',
+	'the fairy expands, on the reels its strips deal it (2–4), drawn on a win',
+); // prettier-ignore
+check(
+	same(resolveGrowingWild(preset), { symbol: 'CL', reels: [2], freeSpinReels: [1, 2, 3], pattern: 'plus' }),
+	'the clover grows a plus, from reel 3 (reels 2–4 in free spins)',
+); // prettier-ignore
 const modes = Object.values(preset.betModes);
 check(
 	modes.length === 1 && modes[0].cost === 1 && !modes[0].buyBonus,

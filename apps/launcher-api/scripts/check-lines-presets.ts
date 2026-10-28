@@ -14,6 +14,8 @@ import {
 	HOLD_AND_WIN_PRESET_IDS,
 	normalizeGameConfigDoc,
 	resolveExpandingSymbol,
+	resolveExpandingWilds,
+	resolveGrowingWild,
 	resolveFreeSpins,
 	retriggerSpinsPerSpin,
 	type GameConfigDoc,
@@ -75,6 +77,7 @@ check('…is the generated preset', fairy, normalizeGameConfigDoc({ ...fairyClov
 check('…on 5×4 with 50 lines', [fairy.numRows, Object.keys(fairy.paylines).length], [[4, 4, 4, 4, 4], 50]); // prettier-ignore
 check('…two scatters trigger, two retrigger +10', [resolveFreeSpins(fairy).triggerCount, resolveFreeSpins(fairy).retriggerAwards], [2, [{ count: 2, spins: 10 }]]); // prettier-ignore
 check('…a retrigger the freegame strips show ends', (retriggerSpinsPerSpin(fairy) ?? 1) < 0.5, true); // prettier-ignore
+check('…the fairy expands, the clover grows', [resolveExpandingWilds(fairy)?.symbols.map((w) => w.symbol), resolveGrowingWild(fairy)?.symbol], [['W'], 'CL']); // prettier-ignore
 check('…its win levels are the lines template\'s', fairy.winLevels, gameConfigDefaultFor('lines')?.winLevels); // prettier-ignore
 check('…and a project starts from it', gameConfigSeedFor('lines', 'fairyClover'), fairy);
 check('a lines project with no preset stays un-authored', gameConfigSeedFor('lines'), null);

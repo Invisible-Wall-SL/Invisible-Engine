@@ -7,7 +7,8 @@
  *
  * 5×4, 50 lines. Line pays are per line bet; the scatter pays 1× the total bet for two. Free spins:
  * two scatters (they sit on reels 1 and 5 only) award 10, and two more during free spins add 10 —
- * a count below 3 that the free-game strips show ends (`retriggerSpinsPerSpin`, about 0.2).
+ * a count below 3 that the free-game strips show ends (`retriggerSpinsPerSpin`, about 0.2). The
+ * fairy is an expanding wild and the clover a growing one (`docs/design/expanding-and-growing-wilds.md`).
  *
  * NOT the reference's RTP. It draws one of five weighted base reel sets per spin; a config holds one,
  * so `basegame` is the set its boot config declares (the one with the fairy, the clover and the
@@ -132,6 +133,10 @@ export const fairyCloverPreset = (): RawGameConfig => ({
 		basegame: BASE_STRIPS.map(strip),
 		freegame: FREE_STRIPS.map(strip),
 	},
+	// The fairy fills its reel when it lands, drawn only when a win crosses it (`show` 'onWin', the
+	// reference); the clover lands on the centre reel (reels 2–4 in free spins) and grows a plus.
+	expandingWilds: { symbols: ['W'] },
+	growingWild: { symbol: 'CL', reels: [2], freeSpinReels: [1, 2, 3] },
 	freeSpins: {
 		triggerCount: 2,
 		awards: [{ count: 2, spins: 10 }],

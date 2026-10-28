@@ -519,7 +519,8 @@ taken id is refused beside the button.
 
 To replace the whole config with one of these games, pick it in the banner's preset menu and press
 **Reset to preset** (it asks first; a lines project's menu offers the **Book of Thermopylae**, see
-_Free spins_, and **Fairy Clover** — 5×4, fifty lines, the fairy `W` and the clover `CL` as wilds,
+_Free spins_, and **Fairy Clover** — 5×4, fifty lines, the fairy `W` (an expanding wild) and the
+clover `CL` (a growing wild),
 free spins on two `S`, from Slotmotion's _Fairy's Charm_; its RTP is a placeholder until the maths
 is tuned). On a Hold and Win project the menu lists **Plain (Jackpots on)** and **Plain
 (Jackpots off)** first, the game Game Maker's template creates (coins only, no pots or specials),

@@ -69,8 +69,10 @@ overlay add-on.
      Its strips are the reference's boot-config base set and its free-spin set, so its RTP is not
      the reference's until the maths is tuned. Scaffolded from the lines reference layout. On the
      Invisible Test Server its scatters are dealt from its strips, so the feature opens on about one
-     base spin in 27 and retriggers on about one free spin in 50, as the strips say; the other
-     symbols are the test server's own draw, which never deals `W` or `CL`.
+     base spin in 27 and retriggers on about one free spin in 50, as the strips say. The fairy
+     expands over its reel (reels 2–4) and the clover grows a plus from reel 3 (reels 2–4 in free
+     spins); the test server lands them at the reference game's rates, a fairy on about one spin in
+     12 and a clover on about one in 8.
    - **Hold and Win** shows a **Base game** dropdown: **Lines game** (the default) or **Coin board
      only**. With **Lines game** it also shows a **Jackpots** dropdown:
      **On (MINI · MINOR · MAJOR · GRAND)** (the default) or **Off**. Either way you get the plain

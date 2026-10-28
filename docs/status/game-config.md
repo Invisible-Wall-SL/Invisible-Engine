@@ -817,10 +817,15 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   opens on ~3.7% of base spins and retriggers on ~2% of free spins (`check:freespins` §16, 1500
   rounds, longest feature 50; §17 keeps the flat-rate path and the cap). **Known gaps:** `CL` has no
   stock art: a scaffolded project draws nothing in a `CL` cell (one console warning, "rendering
-  nothing for it") until art is bound in `/symbols`; the lines mock deals neither `W` nor `CL` (a
-  wild without a paytable is not sent in the mock contract), so on the test server they never land;
-  scatter anticipation never arms (`anticipation.ts` waits for `SCATTER_TRIGGER_COUNT`, 3); the
-  `expandingWilds` / `growingWild` blocks wait on the `lines/expanding-growing-wilds` work.
+  nothing for it") until art is bound in `/symbols`; scatter anticipation never arms
+  (`anticipation.ts` waits for `SCATTER_TRIGGER_COUNT`, 3). **Wilds** (after #1444 merged): the
+  preset carries `expandingWilds { symbols: ['W'] }` (the fairy, reels 2–4 from its strips, drawn
+  `onWin`) and `growingWild { symbol: 'CL', reels: [2], freeSpinReels: [1, 2, 3] }` (a plus). The
+  test server lands them through `mock-wild-rewrite.mjs` at the reference game's observed rates
+  (`EXPAND_RATE` 3% per reel, `GROW_RATE` 12% per spin): a fairy on ~8.5% of spins, a clover on
+  ~12%, unforced (`check:freespins` §16 holds the reels: fairy 2–4, clover 3 / 2–4 in free spins).
+  The boot-config strips alone would land a fairy on 39% and a clover on 34% of base spins: that set
+  is the richest of the reference's five, so the mock keeps the reference's rates.
 - 2026-10-28 — **The free-spin trigger floor is measured on the freegame strips** (branch
   `lines/fairys-charm-preset`). A trigger count of 3 or more validates exactly as before. Below 3,
   `retriggerSpinsPerSpin` computes, exactly, the spins a retrigger adds per free spin played: per reel

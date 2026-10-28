@@ -563,7 +563,8 @@ await check('awarded spins ride last, only when they depart, with both tables re
 await check('a trigger below 3 carries its places on the strips; 3 and up never do', async () => {
 	const fairy = linesGrid(normalizeGameConfigDoc(fairyCloverPreset())!);
 	const strips = fairy.freeSpinsTriggerStrips;
-	eq(Object.keys(fairy).at(-1), 'freeSpinsTriggerStrips', 'last');
+	eq(fairy.expandingWilds, { symbols: [{ symbol: 'WILD', reels: [1, 2, 3] }] }, 'the fairy');
+	eq(fairy.growingWild?.symbol, 'CL', 'the clover');
 	eq(fairy.freeSpinsTrigger, { symbol: 'SCAT', count: 2 }, 'Fairy Clover: 2 SCAT');
 	eq(
 		[strips?.basegame?.map((s) => s.at.length), strips?.freegame?.map((s) => s.at.length)],
