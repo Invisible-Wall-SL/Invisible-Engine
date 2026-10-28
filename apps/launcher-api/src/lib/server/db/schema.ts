@@ -459,7 +459,7 @@ export const directorRuns = pgTable(
 		templateProjectKey: text('template_project_key').notNull(),
 		/** The game family whose pack the run's agents read (9F): frozen at create from the template's
 		 *  kind, so a template whose kind is edited later cannot change a run's pack mid-way. */
-		family: text('family').$type<'slot' | 'match3' | 'arcade'>().notNull(),
+		family: text('family').$type<'slot' | 'match3' | 'arcade' | 'card'>().notNull(),
 		ownerUserId: text('owner_user_id')
 			.notNull()
 			.references(() => users.id, { onDelete: 'cascade' }),

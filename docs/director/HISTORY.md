@@ -15,6 +15,25 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-28 · Phase 9 9F follow-up · director-backend (card family in the pack lists)
+- Did: C3 (#1426) added `card` to `GAME_FAMILIES`; the 9F pack lists still named only slot,
+  match-3 and arcade, so launcher svelte-check rose 45 → 51 on main. `card` joins
+  `FAMILY_PACK_FAMILIES`, `PACK_FAMILY_LABELS` and `MOCKUP_SCREEN_TAGS` (Table, Hand, Deck pick,
+  Match won, Match lost, Intro, after card-games.md §5's table, hand, deck-pick and result
+  screens) and the `director_runs.family` column type. A DRAFT `families/card.md` carries every
+  pack section. `card` stays out of `READY_FAMILY_PACKS`: a card run is refused at create
+  (`no_family_pack`) like match-3 and arcade. Slot runs are unchanged.
+- Files: services/director-worker/{families/card.md,src/familyPack.ts,src/familyPack.fixture.ts,
+  fixtures/families/{valid,all-problems,missing-family-file}/card.md};
+  apps/launcher-api/src/lib/server/db/schema.ts.
+- Branch / PR: director-card-family-packs.
+- Tests: check:svelte --only apps/launcher-api 45 (baseline 45); check:family-packs 97/97; lint;
+  launcher build; check:game-app-deps.
+- Decisions: no migration. The column is text and its CHECK constraint still lists slot, match3 and
+  arcade, which is right while no card run can be created; widen it in the migration that makes
+  `card` ready.
+- Next: a card pack goes ready with its adapters and a current-games card screen script.
+
 ## 2026-10-27 · Phase 9 9F · director-backend (runtime family packs)
 - Did: Runtime family packs (ADR-0009 §4): services/director-worker/families/{slot,match3,arcade}.md
   carry locked items, mockup tags, region batch order, QA books/screens and the never list; the slot
