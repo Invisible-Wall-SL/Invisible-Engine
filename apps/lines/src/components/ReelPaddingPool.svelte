@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	/** A number per cell for the pooled view's `{#key}`: `{#key}` treats every object as new. */
+	/** A number per cell: the pooled view's art is keyed on it inside a string key (`Symbol.svelte`). */
 	const instanceIds = new WeakMap<object, number>();
 	let nextInstanceId = 1;
 	const instanceIdOf = (cell: object): number => {
@@ -38,8 +38,8 @@
 	 * `slots` views are handed one filler cell after another.
 	 *
 	 * WHICH VIEW DRAWS WHICH CELL. Strip neighbours are one pitch apart, so a cell's place in the
-	 * strip modulo `slots` picks its view; with one view more than the window can show plus one, no two
-	 * cells of a view are ever in the window together. A view takes its next cell on the frame that
+	 * strip modulo `slots` picks its view. There are `rows + 2` views, so cells of one view are `rows + 2`
+	 * pitches apart and no two of them are ever in the window together. A view takes its next cell on the frame that
 	 * cell enters the window — the frame its own `ReelSymbol` would have drawn it — and everything
 	 * inside the view is keyed on the cell (`instanceKey`), so the art starts there as a new mount's
 	 * would: a rig on frame 0, a state's Element FX and its beat gate fresh. What is kept is the view
@@ -71,6 +71,7 @@
 			return { cell, row, slot: ((ordinal % slots) + slots) % slots };
 		});
 	});
+	const rowOf = $derived(new Map(placed.map(({ cell, row }) => [cell, row])));
 
 	/** The window a cell is drawn in: the SAME bound `SymbolWrap` culls at. */
 	const top = $derived(
@@ -86,27 +87,31 @@
 	/**
 	 * Each view's cell now: of the cells it serves that have entered the window (y at or below its
 	 * top edge — the strip moves down), the most recent one. A board cell in that place means the
-	 * view has nothing to draw: that cell is drawn as board cells are.
+	 * view has nothing to draw: that cell is drawn as board cells are. Recomputed every frame the reel
+	 * moves, so it holds the cells themselves: a view's item changes only when its cell does.
 	 */
 	const shown = $derived.by(() => {
-		const best: ({ cell: Cell; row: number; y: number } | undefined)[] = Array(slots);
+		const best: (Cell | undefined)[] = Array(slots);
+		const bestY: number[] = Array(slots);
 		for (const { cell, row, slot } of placed) {
 			const y = yOf(cell, row);
 			if (y < top) continue;
-			const current = best[slot];
-			if (!current || y < current.y) best[slot] = { cell, row, y };
+			if (!best[slot] || y < bestY[slot]) {
+				best[slot] = cell;
+				bestY[slot] = y;
+			}
 		}
-		return Array.from(best, (entry) => (entry?.cell.padding ? entry : undefined));
+		return Array.from(best, (cell) => (cell?.padding ? cell : undefined));
 	});
 </script>
 
-{#each shown as entry, slot (slot)}
-	{#if entry}
+{#each shown as cell, slot (slot)}
+	{#if cell}
 		<ReelSymbol
 			reelIndex={props.reelIndex}
-			row={entry.row}
-			reelSymbol={entry.cell}
-			instanceKey={instanceIdOf(entry.cell)}
+			row={rowOf.get(cell) ?? 0}
+			reelSymbol={cell}
+			instanceKey={instanceIdOf(cell)}
 		/>
 	{/if}
 {/each}
