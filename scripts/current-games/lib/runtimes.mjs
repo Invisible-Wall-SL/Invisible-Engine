@@ -2,9 +2,10 @@
 // first (a stale `dist` silently ships old engine code), then `apps/lines` once per runtime id with
 // the release's public env and that id's `PUBLIC_IE_FAMILIES` — and keep each checkout's builds
 // under `<cache>/runtimes/<sha>/<id>/`. A SHA's runtimes never change, so main's are built once per
-// main commit and reused (CI restores the folder with actions/cache). A ref from before the family
-// seams (no `packages/config-vite/families.js`) has one runtime that plays every family: `lines`
-// is built once and stands in for every id. `runtimes.json` beside the builds maps each id to its
+// main commit and reused (CI restores the folder with actions/cache). Each checkout builds by ITS
+// OWN runtime list (`packages/constants-shared/runtimes.ts`), never the harness's, so a SHA's
+// builds are the same whichever branch runs the compare. A ref with no list (before P11.1b) has one
+// runtime that plays every family: `lines` is built once, unset, and stands in for every id. `runtimes.json` beside the builds maps each id to its
 // folder; a game renders on the id its publish would pick (`runtimeIdFor`).
 // The Sentry and build-SHA env are left out: without a DSN the bundle carries no SDK, and a SHA
 // stamped into one side only would be a difference the harness put there.
@@ -13,15 +14,15 @@
 // (`builtins.mjs`): what a publish on that commit would bake into a game, which the "as republished"
 // render needs from both sides.
 
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { familyOfKind } from '../../../packages/constants-shared/gameKinds.ts';
 import {
 	FALLBACK_RUNTIME_ID,
 	RUNTIME_IDS,
-	releaseFamiliesOf,
 	runtimeIdOfFamily,
 } from '../../../packages/constants-shared/runtimes.ts';
 import { BUILTINS_FILE, extractBuiltins } from './builtins.mjs';
@@ -56,10 +57,26 @@ export const runtimeIdFor = (gameType) => runtimeIdOfFamily(familyOfKind(gameTyp
  * the family seams, `lines` for every id (all of them, so a later run asking for more ids reuses it).
  */
 export const runtimeFolders = (checkout, ids) => {
-	if (existsSync(join(checkout, 'packages/config-vite/families.js')))
-		return Object.fromEntries(ids.map((id) => [id, id]));
+	if (existsSync(runtimeList(checkout))) return Object.fromEntries(ids.map((id) => [id, id]));
 	return Object.fromEntries(RUNTIME_IDS.map((id) => [id, FALLBACK_RUNTIME_ID]));
 };
+
+const runtimeList = (checkout) => join(checkout, 'packages/constants-shared/runtimes.ts');
+
+/** The `PUBLIC_IE_FAMILIES` `checkout`'s own release builds runtime `id` with. */
+export const familiesIn = (checkout, id) =>
+	execFileSync(
+		process.execPath,
+		[
+			'--input-type=module',
+			'-e',
+			'const [file, id] = process.argv.slice(1); ' +
+				'const m = await import(file); process.stdout.write(m.releaseFamiliesOf(id));',
+			pathToFileURL(runtimeList(checkout)).href,
+			id,
+		],
+		{ encoding: 'utf8' },
+	);
 
 /**
  * The build of runtime `id` in a side's folder. A folder with no `runtimes.json` is one plain build
@@ -84,6 +101,7 @@ const complete = (out, ids) => {
 /** Build `checkout`'s runtimes for `ids` into `out` (replacing it). */
 function buildInto(checkout, out, ids) {
 	const folders = runtimeFolders(checkout, ids);
+	const listed = existsSync(runtimeList(checkout));
 	run('pnpm', ['--filter', 'lines^...', 'build'], checkout);
 	rmSync(out, { recursive: true, force: true });
 	mkdirSync(out, { recursive: true });
@@ -92,7 +110,7 @@ function buildInto(checkout, out, ids) {
 		rmSync(join(checkout, 'apps/lines/build'), { recursive: true, force: true });
 		run('pnpm', ['--filter', 'lines', 'build'], checkout, {
 			...RELEASE_ENV,
-			PUBLIC_IE_FAMILIES: releaseFamiliesOf(folder),
+			...(listed ? { PUBLIC_IE_FAMILIES: familiesIn(checkout, folder) } : {}),
 		});
 		cpSync(join(checkout, 'apps/lines/build'), join(out, folder), { recursive: true });
 	}
