@@ -5,6 +5,17 @@ Current state lives in [status/launcher.md](../../status/launcher.md); this file
 traps. Localization, FTP Browser, Font Maker and Bug Reports have their own status files under
 `docs/status/`. Publish and runtime traps are in [game-maker.md](game-maker.md).
 
+### A desktop publish sits on "Writing the build breakdown…" for an hour
+- **Symptom:** after the build finished, ☁ Publish stayed on "Writing the build breakdown…" far
+  longer than the build itself (a 30 MB game); ending `node.exe` let the upload carry on.
+- **Cause:** `scripts/lib/build-breakdown.mjs` matched its path pattern (`[…]+\.(png|…)\b`) across
+  whole bundles; on a long base64 data URI with no extension it backtracks from every start
+  position, so time grows with the square of the run (80 KB ≈ 4 s, a few MB ≈ an hour). The
+  launcher runs the script with no time limit.
+- **Fix:** match one path-character run at a time and skip runs over 1 KB (no path is that long).
+- **Guard:** `node scripts/check-build-breakdown-desktop.mjs` (a 2 MB data URI must scan in < 2 s).
+- **PR:** see git log (2026-10-28) · source: this lesson
+
 ### A desktop request gets an HTML error instead of the reason
 - **Symptom:** the desktop launcher shows "the portal returned HTTP 409" and nothing else.
 - **Cause:** its `http.client` sends no `Accept`, and SvelteKit answers a thrown `error()` to such a

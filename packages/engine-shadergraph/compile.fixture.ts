@@ -178,9 +178,11 @@ import {
 import {
 	SCREEN_FROM_TEXTURE,
 	SCREEN_HEADER,
+	SCREEN_PAD,
 	SCREEN_REVERSE,
 	SCREEN_SHELL_NAMES,
 	screenShellSource,
+	screenTransitionRoute,
 } from 'constants-shared/screenShell';
 import {
 	MOTION_INPUTS,
@@ -4748,6 +4750,7 @@ console.log('shader graph — the screen shell and the Screens node');
 				'vec4 uOutputFrame',
 				`sampler2D ${SCREEN_FROM_TEXTURE}`,
 				`float ${SCREEN_REVERSE}`,
+				`float ${SCREEN_PAD}`,
 			]) &&
 			declared(SCREEN_HEADER, 'in').every((v) => declared(vertexOut, 'out').includes(v)) &&
 			declared(SCREEN_HEADER, 'in').length === 1 &&
@@ -4756,10 +4759,11 @@ console.log('shader graph — the screen shell and the Screens node');
 				(u) =>
 					u.startsWith('sampler2D') ||
 					declared(elementHeader, 'uniform').includes(u) ||
-					u.endsWith(SCREEN_REVERSE),
+					u.endsWith(SCREEN_REVERSE) ||
+					u.endsWith(SCREEN_PAD),
 			) &&
 			!/\buElement\b|\buPad\b|\bgl_FragCoord\b/.test(SCREEN_HEADER),
-		'the screen header reads what the element pass’s vertex stage hands on and Pixi’s own filter uniforms, plus the still and Reverse; no element box or padding (the frame is the unit square)',
+		'the screen header reads what the element pass’s vertex stage hands on and Pixi’s own filter uniforms, plus the still, Reverse and the stack’s padding; no element box (the viewport in the frame is the unit square)',
 	);
 	const screenDefined = [
 		...SCREEN_HEADER.matchAll(/^(?:vec[234]|float|bool)\s+(efx\w+)\s*\(/gm),
@@ -4864,6 +4868,54 @@ console.log('shader graph — the screen shell and the Screens node');
 	assert(
 		!screenStale.length,
 		`each reference graph's screen fragment, and a crossfade's, matches snapshots/screen/<id>.frag${UPDATE ? ' (rewritten)' : ''}${screenStale.length ? `: ${screenStale.join(', ')} (run with --update after a deliberate change)` : ''}`,
+	);
+
+	// The route a custom graph takes as a transition (§5), one rule for the runtime and `/shaders`.
+	const routeOf = (phase: 'enter' | 'exit' | 'emphasis', screens: boolean): CustomElementFx => {
+		const g = graphBuilder({ id: `route-${phase}`, name: 'Route', phase, durationMs: 1000 });
+		const out = g.node('output');
+		if (screens) g.wire(g.node('screens'), 'from', out, 'color');
+		const r = compileShaderEffect(g.doc());
+		if (!r.ok) throw new Error(r.issues.map((i) => i.message).join('; '));
+		return r.effect;
+	};
+	const plainExit = routeOf('exit', false);
+	const bodied = (effect: CustomElementFx, body: string): CustomElementFx => ({
+		...effect,
+		shader: { ...effect.shader, body },
+	});
+	const routes: [string, CustomElementFx, 'in' | 'out'][] = [
+		['an exit graph reading no Screens helper', plainExit, 'out'],
+		['an exit graph reading the Screens node', routeOf('exit', true), 'in'],
+		['an enter graph', routeOf('enter', false), 'in'],
+		['an emphasis graph', routeOf('emphasis', false), 'in'],
+		['an enter graph reading the Screens node', routeOf('enter', true), 'in'],
+		[
+			'an exit graph whose comments name the helpers',
+			bodied(
+				plainExit,
+				`// efxScreenFrom(px)\n/* efxScreenTo(px) and\n efxScreenReverse() */\n${plainExit.shader.body}`,
+			),
+			'out',
+		],
+		[
+			'an exit graph calling a helper outside its comments',
+			bodied(
+				plainExit,
+				`${plainExit.shader.body}\nfloat efxRouted() { return efxScreenReverse(); }\n`,
+			),
+			'in',
+		],
+		[
+			'an exit graph whose block comment never ends (read as it is)',
+			bodied(plainExit, `${plainExit.shader.body}\n/* efxScreenFrom(px)`),
+			'in',
+		],
+	];
+	const misrouted = routes.filter(([, effect, route]) => screenTransitionRoute(effect) !== route);
+	assert(
+		!misrouted.length,
+		`screenTransitionRoute: an exit graph reading no Screens helper, comments aside, plays on the still (Out), every other graph in the screen shell (In) (${routes.length} cases${misrouted.length ? `; wrong: ${misrouted.map(([label]) => label).join(', ')}` : ''})`,
 	);
 
 	// What it refuses: what the particle shell refuses (one conversion), and the screen shell's names.

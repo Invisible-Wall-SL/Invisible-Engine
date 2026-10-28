@@ -784,6 +784,11 @@ compiled effect, and steps 3 and 7 build on both.
        - a second transition ends the first, and a resize ends one;
        - 2,000 transitions reallocate nothing after warm-up.
    - **Exit:** both routes and the fail-safes proven headless; no game calls them yet.
+   - **As built (8e.2).** The post FX slot takes filters only, and `filterArea` is always the
+     viewport (1/256 px inside it), so no slot can narrow the still's frame. The still is taken at
+     LOW+1 on `app.ticker` with only the owner's slots off. A throw while starting cuts. The route
+     rule for custom graphs is `screenTransitionRoute(effect)` in `constants-shared/screenShell.ts`
+     (the editor's route note reads the same). The link is checked once before the first frame.
 3. **Post FX on the stage** (engine).
    - **Contents:**
      - the Element FX runtime's stage mode;

@@ -60,7 +60,7 @@ import {
 } from './flowEffects';
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
 import { activeWinLevelData, boardDimensions } from './gameConfig';
-import { endMatch3Round, presentMatch3Board, presentMatch3MovesLeft } from './match3.svelte';
+import { endMatch3Round, presentMatch3Board, presentMatch3MovesLeft } from '../families/match3';
 import { bakedWinLineConfig } from '../editor-scenes';
 
 export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContext> = {

@@ -41,6 +41,22 @@ export const SCANNED_EXT = /\.(json|atlas|fnt|xml|txt|m?js|css|html?)$/i;
 /** A token that looks like a path to a shippable file. */
 const REF_TOKEN =
 	/[A-Za-z0-9_\-./@%+]+\.(?:png|webp|jpe?g|avif|gif|svg|ktx2|basis|json|atlas|fnt|xml|mp3|ogg|m4a|aac|wav|webm|opus|woff2?|ttf|otf|m?js|css|wasm)\b/gi;
+/** A maximal run of path characters: every REF_TOKEN match lies inside one. */
+const PATH_RUN = /[A-Za-z0-9_\-./@%+]+/g;
+/** No file path is this long; a longer run is a base64 data URI or a minified blob. */
+const MAX_PATH_RUN = 1024;
+
+/**
+ * REF_TOKEN's tokens in `text`, matched one path-character run at a time. Matching it across a
+ * whole bundle backtracks quadratically through a long base64 run (an inlined image or font):
+ * a few MB of data URI held a desktop publish on "Writing the build breakdown…" for an hour.
+ */
+function* refTokens(text) {
+	for (const run of text.matchAll(PATH_RUN)) {
+		if (run[0].length > MAX_PATH_RUN) continue;
+		for (const m of run[0].matchAll(REF_TOKEN)) yield m[0];
+	}
+}
 
 /** Kinds that are dead weight when nothing loads them (code and indices are loaded by the shell). */
 const ASSET_KINDS = new Set([
@@ -328,8 +344,7 @@ export function analyzeDesktopBuild(input) {
 		const dir = posix.dirname(rel);
 		const code = CODE_EXT.test(rel);
 		const seen = new Set();
-		for (const m of text.matchAll(REF_TOKEN)) {
-			const token = m[0];
+		for (const token of refTokens(text)) {
 			// Code names a file by a path from the site root, from `static/assets/`, or from itself.
 			const candidates = code
 				? [normalizeRel(token, dir), normalizeRel(token), asset(token)]

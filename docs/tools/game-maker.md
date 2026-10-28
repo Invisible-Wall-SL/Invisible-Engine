@@ -155,7 +155,7 @@ overlay add-on.
    - **Card** asks nothing more: a card game is a duel against the device, always free play. You get
      a playable sample, _Ember and Grove_: 24 invented cards and two 15-card decks (one for the
      player, one for the device at `normal`), in [Game Config → Card game](game-config.md) (the
-     cards and decks are Raw JSON until Invisible Card Library ships). Its screens are the card set:
+     cards and decks are edited in [Invisible Card Library](invisible-card-library.md)). Its screens are the card set:
      **Loading / logo**, **Background**, **Table** (the four zones as
      [Spawn layers](invisible-editor.md#spawn-layer--a-field-flow-fills-while-the-game-runs) `hand`,
      `board`, `enemyBoard`, `enemyHand`; the two hero portraits; HEALTH, ENEMY, RESOURCE, MAX, DECK,

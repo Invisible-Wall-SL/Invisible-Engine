@@ -1,7 +1,15 @@
 import { error, redirect } from '@sveltejs/kit';
 import { MUSIC_NAMES, SOUND_EFFECT_NAMES } from 'engine-flow-v2';
-import { SOUND_SLOTS, symbolUses, symbolsInPlay, symbolsUsed } from 'game-config';
 import {
+	SOUND_SLOTS,
+	symbolHoldAndWinRoles,
+	symbolUses,
+	symbolsInPlay,
+	symbolsUsed,
+} from 'game-config';
+import {
+	COIN_COLLECT_SOUND_LABEL,
+	COIN_COLLECT_SOUND_MOMENT,
 	SYMBOL_STATE_LABELS,
 	TOKEN_SOUND_LABELS,
 	TOKEN_SOUND_MOMENTS,
@@ -110,6 +118,18 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 			moment,
 			label: TOKEN_SOUND_LABELS[moment],
 		})),
+		/** The symbols that can sit on the Hold and Win board with a value — every one with a Hold
+		 *  and Win role but the blank and a pot's token — for the end tally's per-coin cue. */
+		coinIds: config
+			? Object.keys(config.symbols)
+					.filter((name) =>
+						symbolHoldAndWinRoles(config.symbols[name]).some(
+							(role) => role !== 'blank' && role !== 'meterSpecial',
+						),
+					)
+					.sort()
+			: [],
+		coinMoment: { moment: COIN_COLLECT_SOUND_MOMENT, label: COIN_COLLECT_SOUND_LABEL },
 		/**
 		 * ONLY the states the engine actually resolves a per-symbol cue on. Offering the others would
 		 * let an author bind a cue nothing will ever play and be told nothing, which is precisely how
