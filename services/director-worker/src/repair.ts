@@ -45,6 +45,7 @@ export type Verified = (typeof VERIFIED)[number];
 export const PIPELINE_AREAS = [
 	'comfyui',
 	'atlasTool',
+	'cards',
 	'characters',
 	'componentEditor',
 	'director',
