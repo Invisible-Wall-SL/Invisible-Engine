@@ -239,11 +239,10 @@ export function isMockProtocol(value: unknown): value is MockProtocol {
 }
 
 /**
- * The ONE shared prebuilt runtime bundle every online game is served from
- * (`test_server/_runtime/lines/`). The id is historical: it means "the shared engine runtime", NOT
- * "the lines game" — the bundle is built from `apps/lines`, which carries the whole engine, and a
- * published game behaves as ways/cluster/scatter because its CONFIG says so. See `runtimeFor` in
- * `publishGame.ts` for why there is deliberately only one.
+ * The slot runtime every slot game is served from (`test_server/_runtime/lines/`). The id is
+ * historical: it means "the slot runtime", NOT "the lines game" — a published game behaves as
+ * ways/cluster/scatter because its CONFIG says so. The other families have their own ids
+ * (`constants-shared/runtimes`); see `runtimeFor` in `runtimeChoice.ts`.
  */
 export const SHARED_RUNTIME_ID = 'lines';
 
