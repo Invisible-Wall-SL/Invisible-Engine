@@ -16,7 +16,7 @@ import { paddingReels } from './gameConfig';
 import { isCoinBoard } from './coinBoard.svelte';
 import { resetFlowV2Round } from './flowV2InterpreterHolder';
 import { gameMechanic } from './mechanic';
-import { awaitMatch3Round } from './match3.svelte';
+import { awaitMatch3Round } from '../families/match3';
 
 const primaryMachines = createPrimaryMachines<Bet>({
 	onResumeGameActive: (betToResume) => convertTorResumableBet(betToResume),

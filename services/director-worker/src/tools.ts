@@ -53,6 +53,8 @@ export const ADAPTER_OPS = [
 	'localization.update_strings',
 	'fonts.list',
 	'fonts.bake_from_ttf',
+	'bugs.get_game_bug',
+	'bugs.get_screenshot',
 	'sound.get_doc',
 	'sound.set_cues',
 	'fx.get_effect',
@@ -60,8 +62,10 @@ export const ADAPTER_OPS = [
 	'components.get_def',
 	'components.update_art',
 	'bugs.file_pipeline_bug',
+	'bugs.escalate_game_bug',
 	'build.request_draft',
 	'build.play_draft',
+	'build.get_play_shot',
 ] as const;
 
 export const WORKER_TOOLS = [
@@ -75,6 +79,7 @@ export const WORKER_TOOLS = [
 	'run.submit_review',
 	'run.submit_qa',
 	'run.set_recipe',
+	'run.submit_repair',
 	'costs.get_run_spend',
 ] as const;
 

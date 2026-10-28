@@ -68,9 +68,10 @@ export interface OwnerActionRequest {
 
 /** The state-machine view of a stored run, as the worker reads it (`lease.ts` `toClaimed`). */
 export function runStateOf(
-	run: Pick<DirectorRun, 'status' | 'step' | 'waitingOn' | 'checkpointsJson'>,
+	run: Pick<DirectorRun, 'kind' | 'status' | 'step' | 'waitingOn' | 'checkpointsJson'>,
 ): RunState {
 	return {
+		kind: run.kind,
 		status: run.status,
 		step: run.step,
 		waitingOn: run.waitingOn,

@@ -1,11 +1,14 @@
 import type { BetaContentBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { Sql, TransactionSql } from 'postgres';
 import { WAKING_KINDS, type ClaimedRun } from './lease.ts';
+import { playVerdict, type PlayCounts, type RepairSubmission } from './repair.ts';
 import type { AnalystOutput } from './mockups/schema.ts';
 import type { BilledResponse } from './mockups/vision.ts';
 import {
 	checkpointSettings,
 	type Checkpoint,
+	type RepairOutcome,
+	type RunKind,
 	type RunState,
 	type RunStatus,
 	type RunStep,
@@ -30,6 +33,8 @@ export interface LiveRun {
 	/** The template's game family, frozen at create: it picks the run's family pack. */
 	family: string;
 	startingPointJson: unknown;
+	/** The game bug a repair run fixes; null for a create run. */
+	bugNumber: number | null;
 }
 
 export class LeaseLost extends Error {
@@ -41,6 +46,8 @@ export class LeaseLost extends Error {
 
 interface RunRow {
 	id: string;
+	kind: RunKind;
+	bug_number: number | null;
 	status: RunStatus;
 	step: RunStep;
 	waiting_on: Checkpoint | null;
@@ -64,8 +71,8 @@ export async function withLease<T>(
 ): Promise<T> {
 	const result = await sql.begin(async (tx) => {
 		const [row] = await tx<RunRow[]>`
-			select id, status, step, waiting_on, checkpoints_json, budget_cap_usd, project_key,
-				client_key, template_project_key, family, starting_point_json
+			select id, kind, bug_number, status, step, waiting_on, checkpoints_json, budget_cap_usd,
+				project_key, client_key, template_project_key, family, starting_point_json
 			from director_runs
 			where id = ${run.id} and lease_holder = ${run.lease} and lease_until > now()
 			for update`;
@@ -73,6 +80,7 @@ export async function withLease<T>(
 		const live: LiveRun = {
 			id: row.id,
 			state: {
+				kind: row.kind,
 				status: row.status,
 				step: row.step,
 				waitingOn: row.waiting_on,
@@ -84,6 +92,7 @@ export async function withLease<T>(
 			templateProjectKey: row.template_project_key,
 			family: row.family,
 			startingPointJson: row.starting_point_json,
+			bugNumber: row.bug_number,
 		};
 		return { lost: false as const, value: await fn(tx, live) };
 	});
@@ -280,6 +289,19 @@ export async function opRecord(
 	return row.status === 'done' ? { status: 'done', result: row.result } : { status: 'pending' };
 }
 
+/** Writes by any of `agents` that the launcher completed in this run (`director_ops` rows). */
+export async function completedWrites(
+	db: Db,
+	runId: string,
+	agents: readonly string[],
+): Promise<number> {
+	const [row] = await db<{ n: number }[]>`
+		select count(*)::int as n from director_ops
+		where run_id = ${runId} and status = 'done'
+			and agent = any(string_to_array(${agents.join(',')}, ','))`;
+	return row.n;
+}
+
 /** Cancel the run's queued draft plays when it stops (ADR-0010 §3): no event, nothing waits on them. */
 export async function cancelQueuedDrafts(db: Db, runId: string): Promise<void> {
 	await db`
@@ -323,6 +345,53 @@ export async function unpricedSinceResume(db: Db, runId: string): Promise<number
 				where run_id = ${runId} and kind = 'owner_request'
 					and payload_json->>'action' = 'resume'), 0)`;
 	return row.n;
+}
+
+/** The repair the lead agent last submitted (`run.submit_repair`); null when none was. */
+export async function submittedRepair(db: Db, runId: string): Promise<RepairSubmission | null> {
+	const [row] = await db<{ payload: RepairSubmission }[]>`
+		select payload_json as payload from director_events
+		where run_id = ${runId} and kind = 'activity' and payload_json->>'type' = 'repair_submitted'
+		order by id desc limit 1`;
+	return row?.payload ?? null;
+}
+
+/**
+ * The run's draft plays (ADR-0010) queued since it ENTERED `step`, counted by what they settled as.
+ * The step began at the latest transition into it from another step: a pause and resume inside the
+ * step moves nothing, and a play from an earlier step proves nothing about this one. Queued plays
+ * are `open`; they are in no other count.
+ */
+export async function playsOfStep(db: Db, runId: string, step: string): Promise<PlayCounts> {
+	const [since] = await db<{ at: Date | null }[]>`
+		select max(at) as at from director_events
+		where run_id = ${runId} and kind = 'run_status'
+			and payload_json->'to'->>'step' = ${step}
+			and payload_json->'from'->>'step' is distinct from ${step}`;
+	const rows = await db<{ status: string; result: unknown }[]>`
+		select status, result from director_draft_jobs
+		where run_id = ${runId} and queued_at >= ${since?.at ?? new Date(0)}`;
+	const counts: PlayCounts = { open: 0, requested: 0, passed: 0, failed: 0, unplayed: 0 };
+	for (const row of rows) {
+		if (row.status === 'queued') {
+			counts.open++;
+			continue;
+		}
+		const verdict = playVerdict(row.status, row.result);
+		if (verdict === null) continue;
+		counts.requested++;
+		counts[verdict]++;
+	}
+	return counts;
+}
+
+/** Record how a repair run ended, once the owner has approved it. */
+export async function setRepairOutcome(
+	tx: Db,
+	runId: string,
+	outcome: RepairOutcome,
+): Promise<void> {
+	await tx`update director_runs set repair_outcome = ${outcome} where id = ${runId}`;
 }
 
 export async function setBudgetCap(tx: Db, runId: string, usd: number): Promise<void> {

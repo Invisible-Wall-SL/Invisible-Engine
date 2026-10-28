@@ -12,6 +12,8 @@ import {
 	clampDirectorBudget,
 	costOfResponse,
 	costOfRunpodJob,
+	DIRECTOR_REPAIR_BUDGET_DEFAULT_USD,
+	DIRECTOR_REPAIR_BUDGET_KEY,
 	DIRECTOR_RUN_BUDGET_DEFAULT_USD,
 	DIRECTOR_RUN_BUDGET_KEY,
 	pricingRate,
@@ -59,6 +61,9 @@ import {
 	type ModelTransport,
 	type ToolSpec,
 } from './model.ts';
+import { repairEnded, repairStarted } from './bugSync.ts';
+import { UNTRUSTED_OPS } from './untrusted.ts';
+import { ESCALATION_NOT_SERVED, leadOf, repairBrief, repairOutcomeOf } from './repair.ts';
 import { TERMINAL_STATUSES, transition, type Checkpoint, type RunEvent } from './runState.ts';
 import {
 	appendMessage,
@@ -79,6 +84,8 @@ import {
 	recordSpend,
 	runSpend,
 	setBudgetCap,
+	setRepairOutcome,
+	submittedRepair,
 	unhandledEvents,
 	unpricedSinceResume,
 	withLease,
@@ -172,7 +179,8 @@ const RETRY_BASE_MS = 15_000;
 const RETRY_MAX_MS = 120_000;
 
 const WORKER_TOOL_IDS: ReadonlySet<string> = new Set(WORKER_TOOLS);
-const COORDINATOR = 'coordinator';
+const COORDINATOR = leadOf('create');
+const ESCALATE_OP = 'bugs.escalate_game_bug';
 const MAX_TURNS = 40;
 
 /**
@@ -229,7 +237,7 @@ export async function driveRun(deps: DriverDeps, claimed: ClaimedRun): Promise<v
 		...deps,
 		run: claimed,
 		signal: controller.signal,
-		workerSpecs: workerToolSpecs([...deps.agents.keys()]),
+		workerSpecs: workerToolSpecs([...deps.agents.keys()], claimed.state.kind),
 	};
 	let deferMs: number | null = null;
 	try {
@@ -309,7 +317,11 @@ async function failed(ctx: Ctx, error: unknown): Promise<number> {
 }
 
 /** The run's cap. Null only for a run that never started through the worker: the default applies. */
-const capOf = (live: LiveRun) => live.budgetCapUsd ?? DIRECTOR_RUN_BUDGET_DEFAULT_USD;
+const capOf = (live: LiveRun) =>
+	live.budgetCapUsd ??
+	(live.state.kind === 'repair'
+		? DIRECTOR_REPAIR_BUDGET_DEFAULT_USD
+		: DIRECTOR_RUN_BUDGET_DEFAULT_USD);
 
 // ── Tools ─────────────────────────────────────────────────────────────────────
 
@@ -351,9 +363,14 @@ const answerBlock = (
 	id: string,
 	answer: AdapterResult,
 	imageOp: boolean,
+	untrusted: boolean,
 ): BetaToolResultBlockParam =>
 	answer.status === 200
-		? { type: 'tool_result', tool_use_id: id, content: answerContent(answer.body, imageOp) }
+		? {
+				type: 'tool_result',
+				tool_use_id: id,
+				content: answerContent(answer.body, imageOp, untrusted),
+			}
 		: resultBlock(id, JSON.stringify(answer.body), true);
 
 const opIdOf = (runId: string, agent: string, turnSeq: number, index: number) =>
@@ -548,7 +565,15 @@ async function settle(
 				await withLease(ctx.sql, ctx.run, (tx, live) => markQueued(tx, live.id, steps, jobRef));
 			}
 		}
-		results.set(call.id, answerBlock(call.id, answer, spec.image === true));
+		results.set(
+			call.id,
+			answerBlock(
+				call.id,
+				answer,
+				spec.image === true,
+				spec.untrusted === true || UNTRUSTED_OPS.has(id),
+			),
+		);
 	}
 
 	await withLease(ctx.sql, ctx.run, async (tx, live) => {
@@ -849,9 +874,9 @@ async function takeTurn(ctx: Ctx, name: string, pack: FamilyPack): Promise<boole
 				...calls.map((c) => resultBlock(c.id, 'Not run: the reply was cut off.', true)),
 				{ type: 'text', text: note },
 			]);
-		} else if (calls.length === 0 && name !== COORDINATOR) {
+		} else if (calls.length === 0 && name !== leadOf(live.state.kind)) {
 			const report = finalText(content) || '(no report)';
-			await appendMessage(tx, live.id, COORDINATOR, 'user', [
+			await appendMessage(tx, live.id, leadOf(live.state.kind), 'user', [
 				{ type: 'text', text: `Report from ${name}:\n\n${report}` },
 			]);
 		}
@@ -1236,11 +1261,70 @@ async function handleEvents(ctx: Ctx, { ownerRequestsOnly = false } = {}): Promi
 		// refused, never retried: a retry would hold every later row of the owner's (a stop
 		// included) behind the launcher.
 		const deps = decidesArtPlan(event) ? await recipeDepsOrNull(ctx) : undefined;
+		const escalated = decidesEscalation(event) ? await escalateBeforeApproval(ctx) : undefined;
 		await withLease(ctx.sql, ctx.run, async (tx, live) => {
-			await applyEvent(ctx, tx, live, event, pricing, deps);
+			await applyEvent(ctx, tx, live, event, pricing, deps, escalated);
 			await markHandled(tx, event.id);
 		});
 	}
+}
+
+const decidesEscalation = (event: WakingEvent): boolean =>
+	event.kind === 'checkpoint_resolved' &&
+	event.payload.checkpoint === 'repair_review' &&
+	event.payload.decision === 'approve';
+
+/** What filing the escalation came to: the pipeline bug, or why none was filed. */
+type Escalated = { ok: true; ref: string } | { ok: false; error: string };
+
+/**
+ * The owner approved a repair that escalates (ADR-0012 §3): the launcher files the pipeline bug
+ * BEFORE the run's transition, as the worker, at the one opId `<runId>:escalate`. A replay (a crash
+ * after the filing, or the transition refused and the approval sent again) answers the same bug.
+ * Nothing is filed unless the run waits at Repair review with an escalating submission; undefined
+ * then. An outcome the launcher cannot settle leaves the approval for the next drive.
+ */
+async function escalateBeforeApproval(ctx: Ctx): Promise<Escalated | undefined> {
+	const { live, submitted } = await withLease(ctx.sql, ctx.run, async (tx, l) => ({
+		live: l,
+		submitted: await submittedRepair(tx, l.id),
+	}));
+	const { state } = live;
+	if (
+		state.kind !== 'repair' ||
+		state.status !== 'waiting' ||
+		state.waitingOn !== 'repair_review' ||
+		submitted?.outcome !== 'escalate'
+	) {
+		return undefined;
+	}
+	if (!(await catalog(ctx)).has(ESCALATE_OP)) return { ok: false, error: ESCALATION_NOT_SERVED };
+	const answer = await ctx.launcher.call(
+		ESCALATE_OP,
+		{
+			runId: ctx.run.id,
+			agent: 'worker',
+			opId: `${ctx.run.id}:escalate`,
+			input: {
+				area: submitted.pipeline_area,
+				title: submitted.pipeline_title,
+				cause: submitted.cause,
+				summary: submitted.summary,
+			},
+		},
+		ctx.signal,
+	);
+	if (unsettled(answer.status, answer.body)) {
+		throw new RetryLater(`${ESCALATE_OP} answered ${answer.status}`);
+	}
+	if (answer.status !== 200) {
+		const message = (answer.body as { message?: unknown } | null)?.message;
+		return {
+			ok: false,
+			error: `the pipeline bug was not filed: ${String(message ?? answer.status)}`,
+		};
+	}
+	return { ok: true, ref: String((answer.body as { ref?: unknown }).ref) };
 }
 
 const decidesArtPlan = (event: WakingEvent): boolean =>
@@ -1272,11 +1356,24 @@ async function move(tx: Db, live: LiveRun, event: RunEvent, cause: string): Prom
 /** Finish a stop once no GPU job of the run is still in flight. */
 async function finishStop(tx: Db, live: LiveRun) {
 	if (live.state.status === 'stopping' && (await queuedJobs(tx, live.id)) === 0) {
-		await move(tx, live, { type: 'stopped' }, 'no GPU job in flight');
+		const error = await move(tx, live, { type: 'stopped' }, 'no GPU job in flight');
+		if (!error && live.state.kind === 'repair') {
+			await repairEnded(tx, live.id, live.bugNumber, 'stopped');
+		}
 	}
 }
 
 function brief(live: LiveRun): string {
+	if (live.state.kind === 'repair') {
+		return repairBrief({
+			runId: live.id,
+			project: live.projectKey,
+			client: live.clientKey,
+			bugNumber: live.bugNumber,
+			family: live.family,
+			budgetCapUsd: live.budgetCapUsd,
+		});
+	}
 	return [
 		'A new Invisible Director run. Plan it and start it.',
 		'',
@@ -1303,6 +1400,7 @@ async function applyEvent(
 	event: WakingEvent,
 	pricing: DirectorPricing,
 	deps?: RecipeDeps | null,
+	escalated?: Escalated,
 ): Promise<void> {
 	const p = event.payload;
 	const refuse = (error: string) =>
@@ -1318,11 +1416,18 @@ async function applyEvent(
 			if (action === 'start') {
 				const error = await move(tx, live, { type: 'start' }, 'owner start');
 				if (error) return refuse(error);
+				if (live.state.kind === 'repair') await repairStarted(tx, live.id, live.bugNumber);
 				if (live.budgetCapUsd === null) {
-					live.budgetCapUsd = budgetFromSetting(await appSetting(tx, DIRECTOR_RUN_BUDGET_KEY));
+					live.budgetCapUsd =
+						live.state.kind === 'repair'
+							? budgetFromSetting(
+									await appSetting(tx, DIRECTOR_REPAIR_BUDGET_KEY),
+									DIRECTOR_REPAIR_BUDGET_DEFAULT_USD,
+								)
+							: budgetFromSetting(await appSetting(tx, DIRECTOR_RUN_BUDGET_KEY));
 					await setBudgetCap(tx, live.id, live.budgetCapUsd);
 				}
-				await appendMessage(tx, live.id, COORDINATOR, 'user', userText(brief(live)));
+				await appendMessage(tx, live.id, leadOf(live.state.kind), 'user', userText(brief(live)));
 				return;
 			}
 			if (action === 'pause') {
@@ -1357,7 +1462,7 @@ async function applyEvent(
 			await appendMessage(
 				tx,
 				live.id,
-				COORDINATOR,
+				leadOf(live.state.kind),
 				'user',
 				userText(`Owner: ${String(p.text ?? '')}`),
 			);
@@ -1384,6 +1489,15 @@ async function applyEvent(
 				checkpoint === 'art_plan' && decision === 'revise' ? recipeEditsOf(p.recipeEdits) : null;
 			if (edits === undefined) return refuse('the recipe edits are not a list of region chains');
 			if (edits?.length && !deps) return refuse(unreadable);
+			const submitted =
+				checkpoint === 'repair_review' && decision === 'approve' && live.state.kind === 'repair'
+					? await submittedRepair(tx, live.id)
+					: undefined;
+			if (submitted === null) return refuse('no repair was submitted to approve');
+			if (submitted?.outcome === 'escalate') {
+				if (!escalated) return refuse(ESCALATION_NOT_SERVED);
+				if (!escalated.ok) return refuse(escalated.error);
+			}
 			const error = await move(
 				tx,
 				live,
@@ -1391,6 +1505,17 @@ async function applyEvent(
 				`owner ${decision}`,
 			);
 			if (error) return refuse(error);
+			if (submitted) {
+				const outcome = repairOutcomeOf(submitted.outcome);
+				await setRepairOutcome(tx, live.id, outcome);
+				await repairEnded(tx, live.id, live.bugNumber, outcome, submitted.summary);
+			}
+			if (escalated?.ok) {
+				await insertEvent(tx, live.id, 'worker', 'activity', {
+					type: 'note',
+					text: `Escalated to the pipeline as ${escalated.ref}.`,
+				});
+			}
 			const owner = ownerOf(p);
 			if (approvingPlan && deps) await approveArtPlan(tx, live, owner, deps);
 			if (edits?.length && deps) {
@@ -1431,7 +1556,7 @@ async function applyEvent(
 			await appendMessage(
 				tx,
 				live.id,
-				COORDINATOR,
+				leadOf(live.state.kind),
 				'user',
 				userText(
 					`The owner ${what} the ${checkpoint} checkpoint. The run is now in the ${live.state.step} step.${reopened}${note}`,
@@ -1474,7 +1599,7 @@ async function applyEvent(
 					text: `${spent} failed again after ${RETRIES_PER_APPROVAL} retries: its recipe renders nothing more until the plan is approved again.`,
 				});
 			}
-			const to = ctx.agents.has(event.agent) ? event.agent : COORDINATOR;
+			const to = ctx.agents.has(event.agent) ? event.agent : leadOf(live.state.kind);
 			const body = JSON.stringify({ jobRef: p.jobRef, status: p.status, result: p.result });
 			const held = withdrawn.length
 				? ` ${spent} has used its ${RETRIES_PER_APPROVAL} retries: the owner approves it again before it renders.`

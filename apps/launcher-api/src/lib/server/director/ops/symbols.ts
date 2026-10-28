@@ -48,7 +48,7 @@ export const getMap = defineOp<
 	description:
 		"The project's symbol × state bindings (sparse: an unbound state falls back to the game's coded art), the symbols' display names, and the baseEtag to hand back to symbols.set_state.",
 	inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-	agents: ['animator'],
+	agents: ['animator', 'game-doctor'],
 	scope: 'project',
 	write: false,
 	handler: async (ctx) => {

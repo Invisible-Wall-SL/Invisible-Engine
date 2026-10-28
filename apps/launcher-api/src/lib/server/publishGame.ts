@@ -19,6 +19,7 @@
  * never rebuilds. Players boot the snapshot; authors (launcher links) boot live data.
  */
 import type { SoundLicenceSummary } from '$lib/soundUsage';
+import { resolveFixedBugs } from './bugReportsStore';
 import { ENV } from './env';
 import {
 	checkFlowV2ForPublish,
@@ -444,6 +445,14 @@ export async function publishGame(
 		`[publish] ${projectKey}: snapshot ${snapshot.id} is live — ${snapshot.files} files, ` +
 			`${(snapshot.bytes / 1e6).toFixed(1)} MB`,
 	);
+
+	// A repair run's fixes ship with this snapshot (ADR-0012 §4). Best effort and repeatable: a bug
+	// that cannot be resolved here is resolved by hand, and never fails a publish.
+	try {
+		await resolveFixedBugs(projectKey, snapshot.id);
+	} catch (e) {
+		console.warn(`[publish] ${projectKey}: could not resolve repaired bugs:`, e);
+	}
 
 	// 7. Best-effort refresh — Phase 0 made /refresh 202 + background-hydrate, so a
 	//    slow or failing call must never fail the publish.

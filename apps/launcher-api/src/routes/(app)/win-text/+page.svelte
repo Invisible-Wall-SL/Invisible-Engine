@@ -27,6 +27,8 @@
 		potCaption,
 		formatWinText,
 		jackpotCaption,
+		SYMBOL_IMAGE_SIZE_MAX,
+		SYMBOL_IMAGE_SIZE_MIN,
 		platformJackpotCaption,
 		resolveSymbolName,
 		resolveToastTemplate,
@@ -276,6 +278,16 @@
 		const toast = (doc.toast ??= {});
 		if (on) toast.symbolAsImage = true;
 		else delete toast.symbolAsImage;
+	}
+
+	function setSymbolImageSize(percent: number) {
+		const toast = (doc.toast ??= {});
+		if (!Number.isFinite(percent)) return;
+		const clamped = Math.round(
+			Math.min(SYMBOL_IMAGE_SIZE_MAX, Math.max(SYMBOL_IMAGE_SIZE_MIN, percent)),
+		);
+		if (clamped === 100) delete toast.symbolImageSize;
+		else toast.symbolImageSize = clamped;
 	}
 
 	function setFreeSpins(branch: 'retrigger', value: string) {
@@ -794,6 +806,33 @@
 					name if a symbol has no art.</span
 				>
 			</label>
+			{#if doc.toast?.symbolAsImage}
+				<label class="single size">
+					<span>Symbol size</span>
+					<input
+						type="range"
+						min={SYMBOL_IMAGE_SIZE_MIN}
+						max={SYMBOL_IMAGE_SIZE_MAX}
+						step="5"
+						value={resolved.toast.symbolImageSize}
+						oninput={(e) => setSymbolImageSize(e.currentTarget.valueAsNumber)}
+					/>
+					<input
+						class="size-number"
+						type="number"
+						min={SYMBOL_IMAGE_SIZE_MIN}
+						max={SYMBOL_IMAGE_SIZE_MAX}
+						step="5"
+						value={resolved.toast.symbolImageSize}
+						onchange={(e) => setSymbolImageSize(e.currentTarget.valueAsNumber)}
+					/>
+					<em>% of the text height</em>
+				</label>
+				<p class="hint">
+					How tall the symbol is drawn in the <strong>info bar</strong> only — 100% stands as tall as
+					the words. The bar's text box still bounds it, and the text never shrinks to make room.
+				</p>
+			{/if}
 		</section>
 
 		{#if data.capabilities.freeSpins}
@@ -1309,6 +1348,16 @@
 		background: #0e0e13;
 		color: #e8e8ee;
 		font-size: 12px;
+	}
+	.single.size input[type='number'].size-number {
+		flex: none;
+		width: 70px;
+	}
+	.single.size em {
+		flex: none;
+		font-size: 12px;
+		font-style: normal;
+		color: #8b8b98;
 	}
 	.single select {
 		flex: 1;

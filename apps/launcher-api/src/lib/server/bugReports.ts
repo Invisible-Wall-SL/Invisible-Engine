@@ -10,7 +10,16 @@ import {
 	MAX_SCREENSHOT_BYTES,
 	MAX_TITLE,
 	autoStatus,
+	bugAreaName,
+	bugRef,
 	bugRefsIn,
+	escalationDescription,
+	escalationTitle,
+	unlinkBugRefs,
+	FIXED_WAITING_LABEL,
+	pipelineWaitLabel,
+	pipelineWaitOf,
+	type PipelineWait,
 	bugTriageName,
 	cleanPageUrl,
 	isBugArea,
@@ -26,7 +35,10 @@ import { TOOLS, roleHasCapability, roleHasTool } from '$lib/roles';
 import {
 	bugsReportedAs,
 	deleteScreenshot,
+	escalationsFor,
 	existingBugNumbers,
+	fixedAwaitingPublish,
+	insertEscalation,
 	getBugFull,
 	getScreenshot,
 	insertBug,
@@ -188,6 +200,10 @@ export interface BugSummary {
 	updatedAt: string;
 	screenshots: number;
 	links: BugLinkView[];
+	/** The pipeline bug this game bug was handed to, and where it stands (derived, ADR-0012 §3). */
+	escalation: { number: number; ref: string; state: PipelineWait; label: string } | null;
+	/** "Fixed, waiting on publish" while a repair run's fix has not been published (derived). */
+	repairLabel: string | null;
 	/** The viewer reported it. */
 	mine: boolean;
 }
@@ -245,6 +261,8 @@ function summaryOf(
 	bug: BugReport,
 	screenshots: number,
 	links: BugReportLink[],
+	escalated?: { toBug: number; toStatus: BugStatus },
+	fixed = false,
 ): BugSummary {
 	return {
 		number: bug.number,
@@ -266,17 +284,34 @@ function summaryOf(
 		updatedAt: bug.updatedAt.toISOString(),
 		screenshots,
 		links: links.map(linkView),
+		escalation: escalated
+			? (() => {
+					const state = pipelineWaitOf(escalated.toStatus);
+					return {
+						number: escalated.toBug,
+						ref: bugRef(escalated.toBug),
+						state,
+						label: pipelineWaitLabel(escalated.toBug, state),
+					};
+				})()
+			: null,
+		repairLabel: fixed && bug.status === 'working' ? FIXED_WAITING_LABEL : null,
 		mine: bug.reporterId === viewerId,
 	};
 }
 
 const isReporter = (access: BugAccess, bug: BugReport) => bug.reporterId === access.user.id;
 
-function detailOf(access: BugAccess, full: BugFull): BugDetail {
+function detailOf(
+	access: BugAccess,
+	full: BugFull,
+	escalated?: { toBug: number; toStatus: BugStatus },
+	fixed = false,
+): BugDetail {
 	const { bug } = full;
 	const mine = isReporter(access, bug);
 	return {
-		...summaryOf(access.user.id, bug, full.screenshots.length, full.links),
+		...summaryOf(access.user.id, bug, full.screenshots.length, full.links, escalated, fixed),
 		revision: bug.revision,
 		canEdit: mine || access.triage.has(bug.kind),
 		screenshotList: full.screenshots.map((s) => ({
@@ -305,16 +340,21 @@ export async function listBugs(
 	where: { kind: BugKind; projectKey?: string },
 ): Promise<BugSummary[]> {
 	const rows = await listBugRows(where);
-	return rows.bugs
-		.filter((b) => canSee(scope, b))
-		.map((b) =>
-			summaryOf(
-				scope.user.id,
-				b,
-				rows.screenshots.get(b.number) ?? 0,
-				rows.links.get(b.number) ?? [],
-			),
-		);
+	const seen = rows.bugs.filter((b) => canSee(scope, b));
+	const numbers = seen.map((b) => b.number);
+	const game = where.kind === 'game';
+	const escalated = game ? await escalationsFor(numbers) : new Map();
+	const fixed = game ? await fixedAwaitingPublish(numbers) : new Set<number>();
+	return seen.map((b) =>
+		summaryOf(
+			scope.user.id,
+			b,
+			rows.screenshots.get(b.number) ?? 0,
+			rows.links.get(b.number) ?? [],
+			escalated.get(b.number),
+			fixed.has(b.number),
+		),
+	);
 }
 
 const PRIORITY_RANK: Record<BugPriority, number> = { critical: 0, high: 1, medium: 2, low: 3 };
@@ -344,7 +384,11 @@ async function readVisible(access: BugAccess, number: number): Promise<BugFull> 
 }
 
 export async function getBug(access: BugAccess, number: number): Promise<BugDetail> {
-	return detailOf(access, await readVisible(access, number));
+	const full = await readVisible(access, number);
+	const escalated =
+		full.bug.kind === 'game' ? (await escalationsFor([number])).get(number) : undefined;
+	const fixed = full.bug.kind === 'game' && (await fixedAwaitingPublish([number])).has(number);
+	return detailOf(access, full, escalated, fixed);
 }
 
 export function parseBugNumber(param: string): number {
@@ -452,6 +496,12 @@ export interface DirectorBugInput {
 	templateProjectKey: string;
 	what: string;
 	reason: string;
+	/**
+	 * A repair run handing its game bug to the pipeline (ADR-0012 §3): the pipeline bug then names
+	 * the game bug and takes the doctor's own cause and summary, never the reporter's words, and is
+	 * filed with its relation and events in one transaction. `what` is its title, `reason` its cause.
+	 */
+	escalatedFrom?: { gameBug: number; area: string; summary: string };
 }
 
 /** A run's own requests, at most: a run that keeps asking is a run to look at, not more bugs. */
@@ -464,13 +514,6 @@ export type DirectorBugAnswer =
 
 /** How a Director run is named as a bug's reporter and in its activity. */
 export const directorReporter = (runId: string): string => `Director run ${runId}`;
-
-/**
- * Agent text never names a bug the link sync reads: `BUG-7` becomes `bug #7`, so a pull request
- * whose title echoes this bug's title (as the fix brief leads it to) moves no other bug.
- */
-export const unlinkBugRefs = (text: string): string =>
-	text.replace(/\bbug-(\d{1,7})\b/gi, 'bug #$1');
 
 const requestHash = (what: string): string =>
 	createHash('sha256').update(what.replace(/\s+/g, ' ').trim().toLowerCase()).digest('hex');
@@ -495,6 +538,7 @@ export async function createDirectorBug(input: DirectorBugInput): Promise<Direct
 	const again = mine.find((b) => b.data.opId === input.opId);
 	if (again) return { filed: again };
 	if (mine.length >= MAX_DIRECTOR_BUGS) return { refused: 'cap' };
+	if (input.escalatedFrom) return escalateFromRun(input, input.escalatedFrom, actor);
 	const request = requestHash(input.what);
 	const same = mine.find(
 		(b) => b.data.request === request && (b.status === 'open' || b.status === 'working'),
@@ -541,6 +585,90 @@ export async function createDirectorBug(input: DirectorBugInput): Promise<Direct
 		{ opId: input.opId, request },
 	);
 	return { filed: bug };
+}
+
+/** File the escalation of a repair run's game bug; see {@link DirectorBugInput.escalatedFrom}. */
+async function escalateFromRun(
+	input: DirectorBugInput,
+	from: NonNullable<DirectorBugInput['escalatedFrom']>,
+	actor: Actor,
+): Promise<DirectorBugAnswer> {
+	const game = (await getBugFull(from.gameBug))?.bug;
+	if (!game || game.kind !== 'game' || game.projectKey !== input.runProjectKey) {
+		throw error(404, `There is no game bug BUG-${from.gameBug} in this run's project.`);
+	}
+	const title = escalationTitle(input.what);
+	const filed = await insertEscalation({
+		gameBug: game.number,
+		values: {
+			kind: 'pipeline',
+			title: cleanTitle(title),
+			description: cleanDescription(
+				escalationDescription(game.number, game.projectKey, actor.name, input.reason, from.summary),
+			),
+			area: cleanArea('pipeline', from.area),
+			projectKey: game.projectKey,
+			pageUrl: game.pageUrl,
+			priority: null,
+			reporterId: input.ownerId,
+			reporter: actor.name,
+		},
+		actor,
+		data: { opId: input.opId, escalatedFrom: game.number },
+		runId: input.runId,
+	});
+	if (!filed) throw error(404, `There is no game bug BUG-${from.gameBug}.`);
+	return { filed: filed.bug };
+}
+
+/**
+ * A triager's own "Escalate to pipeline" on a game bug, with no run: the same transaction, the
+ * relation's `run_id` null. Needs the game triage capability and the pipeline bug tool, and the
+ * bug (so its project) must be one the user can open. The words are theirs.
+ */
+export async function escalateGameBug(
+	access: BugAccess,
+	number: number,
+	body: unknown,
+): Promise<BugDetail> {
+	const input = record(body);
+	const game = (await readVisible(access, number)).bug;
+	if (game.kind !== 'game') throw error(400, 'Only a game bug is escalated to the pipeline.');
+	requireTriage(access, 'game', 'Escalating a game bug');
+	if (!access.kinds.has('pipeline')) {
+		throw error(403, `Your role does not have access to ${TOOLS[BUG_TOOL.pipeline].name}.`);
+	}
+	if (game.status === 'resolved' || game.status === 'wontFix') {
+		throw error(409, 'This bug is closed. Reopen it before escalating.');
+	}
+	const note = typeof input.description === 'string' ? input.description : '';
+	const filed = await insertEscalation({
+		gameBug: number,
+		values: {
+			kind: 'pipeline',
+			title: cleanTitle(unlinkBugRefs(String(input.title ?? ''))),
+			description: cleanDescription(
+				escalationDescription(
+					game.number,
+					game.projectKey,
+					access.actor.name,
+					note || 'See the title.',
+					'',
+				),
+			),
+			area: cleanArea('pipeline', input.area),
+			projectKey: game.projectKey,
+			pageUrl: game.pageUrl,
+			priority: null,
+			reporterId: access.user.id,
+			reporter: access.actor.name,
+		},
+		actor: access.actor,
+		data: { escalatedFrom: number },
+		runId: null,
+	});
+	if (!filed) throw error(404, `There is no BUG-${number}.`);
+	return getBug(access, number);
 }
 
 const EDITABLE = ['title', 'description', 'area', 'project', 'pageUrl'] as const;
@@ -750,6 +878,20 @@ export async function removeScreenshot(
 	return getBug(access, number);
 }
 
+/** A bug's screenshot bytes, only through the row that lists it; null when no row or object. */
+async function screenshotBytes(
+	number: number,
+	id: string,
+): Promise<{ bytes: Uint8Array<ArrayBuffer>; mediaType: string } | null> {
+	if (!SCREENSHOT_ID.test(id)) return null;
+	const shot = await getScreenshot(number, id);
+	const got =
+		shot && SCREENSHOT_FILE.test(shot.file)
+			? await getObjectBytes(screenshotKey(number, shot.file))
+			: null;
+	return shot && got ? { bytes: got.body, mediaType: shot.mediaType } : null;
+}
+
 /** A screenshot's bytes, only through the row that lists it, on a bug the viewer can see. */
 export async function readScreenshot(
 	access: BugAccess,
@@ -758,13 +900,70 @@ export async function readScreenshot(
 ): Promise<{ bytes: Uint8Array<ArrayBuffer>; mediaType: string }> {
 	if (!SCREENSHOT_ID.test(id)) throw error(404, 'No such screenshot.');
 	await readVisible(access, number);
-	const shot = await getScreenshot(number, id);
-	const got =
-		shot && SCREENSHOT_FILE.test(shot.file)
-			? await getObjectBytes(screenshotKey(number, shot.file))
-			: null;
-	if (!shot || !got) throw error(404, 'No such screenshot.');
-	return { bytes: got.body, mediaType: shot.mediaType };
+	const shot = await screenshotBytes(number, id);
+	if (!shot) throw error(404, 'No such screenshot.');
+	return shot;
+}
+
+// ── A repair run reads its bug ─────────────────────────────────────────────────
+
+/**
+ * The game bug a Director repair run fixes, as its doctor reads it (ADR-0012 §2): the report and its
+ * comments, nobody's email or id, and none of the Director data on `reported` events. Plain text
+ * people wrote, which the worker hands the model as data.
+ */
+export interface RunBugView {
+	number: number;
+	ref: string;
+	title: string;
+	description: string;
+	area: string;
+	areaName: string;
+	priority: BugPriority | null;
+	status: BugStatus;
+	pageUrl: string | null;
+	comments: { by: string; at: string; text: string }[];
+	screenshots: { id: string; mediaType: string; bytes: number }[];
+}
+
+/** The run's bug, only while it is still a game bug of the run's own project: else null. */
+async function runBugOf(number: number, projectKey: string): Promise<BugFull | null> {
+	const full = await getBugFull(number);
+	return full && full.bug.kind === 'game' && full.bug.projectKey === projectKey ? full : null;
+}
+
+export async function readRunBug(number: number, projectKey: string): Promise<RunBugView | null> {
+	const full = await runBugOf(number, projectKey);
+	if (!full) return null;
+	const { bug } = full;
+	return {
+		number,
+		ref: bugRef(number),
+		title: bug.title,
+		description: bug.description,
+		area: bug.area,
+		areaName: bugAreaName('game', bug.area),
+		priority: bug.priority,
+		status: bug.status,
+		pageUrl: bug.pageUrl,
+		comments: full.events
+			.filter((e) => e.kind === 'comment')
+			.map((e) => ({ by: e.actor, at: e.at.toISOString(), text: String(e.data.text ?? '') })),
+		screenshots: full.screenshots.map((s) => ({
+			id: s.id,
+			mediaType: s.mediaType,
+			bytes: s.bytes,
+		})),
+	};
+}
+
+/** One of the run's bug's screenshots, through its row; another bug's id is null, as a missing one. */
+export async function readRunScreenshot(
+	number: number,
+	projectKey: string,
+	id: string,
+): Promise<{ bytes: Uint8Array<ArrayBuffer>; mediaType: string } | null> {
+	return (await runBugOf(number, projectKey)) ? screenshotBytes(number, id) : null;
 }
 
 /**

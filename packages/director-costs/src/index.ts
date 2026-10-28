@@ -286,6 +286,10 @@ export function costOfResponse(
 export const DIRECTOR_RUN_BUDGET_KEY = 'DIRECTOR_RUN_BUDGET_USD';
 /** Budget cap when the admin hasn't set one. */
 export const DIRECTOR_RUN_BUDGET_DEFAULT_USD = 25;
+/** Settings key: the cap of a game repair run in USD (ADR-0012), bounded like the run cap. */
+export const DIRECTOR_REPAIR_BUDGET_KEY = 'DIRECTOR_REPAIR_BUDGET_USD';
+/** Repair cap when the admin hasn't set one: a repair renders nothing, so it is kept near its estimate. */
+export const DIRECTOR_REPAIR_BUDGET_DEFAULT_USD = 10;
 /** Lowest cap a run can be given — below this a run would pause on its first call. */
 export const DIRECTOR_RUN_BUDGET_MIN_USD = 1;
 /** Highest cap Settings accepts, so a typo (2500 for 25.00) can't remove the guard. */
@@ -310,12 +314,15 @@ export function clampDirectorBudget(value: number): number | null {
 }
 
 /**
- * The cap a stored `DIRECTOR_RUN_BUDGET_USD` value means: the default when unset or unparseable,
- * clamped otherwise.
+ * The cap a stored `DIRECTOR_RUN_BUDGET_USD` (or `DIRECTOR_REPAIR_BUDGET_USD`, with its default as
+ * `fallback`) value means: the default when unset or unparseable, clamped otherwise.
  */
-export function budgetFromSetting(raw: string | undefined | null): number {
-	if (raw == null || raw.trim() === '') return DIRECTOR_RUN_BUDGET_DEFAULT_USD;
-	return clampDirectorBudget(Number(raw)) ?? DIRECTOR_RUN_BUDGET_DEFAULT_USD;
+export function budgetFromSetting(
+	raw: string | undefined | null,
+	fallback = DIRECTOR_RUN_BUDGET_DEFAULT_USD,
+): number {
+	if (raw == null || raw.trim() === '') return fallback;
+	return clampDirectorBudget(Number(raw)) ?? fallback;
 }
 
 // ── The New-game estimate ─────────────────────────────────────────────────────
@@ -378,6 +385,13 @@ export interface EstimateProfiles {
 	 * approved one (ADR-0008 §5 "Reuse"): `pipeline` at `genPx` × `variants`, then `process`.
 	 */
 	fallbackRecipe: FallbackRecipe;
+	/** A game repair run (ADR-0012 §5): one pass, and each revise the owner may ask for. */
+	repair: {
+		/** Once per run: reproduce, one fix, one verify. */
+		perPass: TokenProfile[];
+		/** Once per revise: another fix and verify. */
+		perRevise: TokenProfile[];
+	};
 }
 
 export interface FallbackRecipe {
@@ -517,13 +531,20 @@ export function parseEstimateProfiles(raw: unknown): EstimateProfiles {
 			),
 		},
 		fallbackRecipe: fallbackRecipe(raw.fallbackRecipe),
+		repair: {
+			perPass: profiles(isRecord(raw.repair) ? raw.repair.perPass : undefined, 'repair.perPass'),
+			perRevise: profiles(
+				isRecord(raw.repair) ? raw.repair.perRevise : undefined,
+				'repair.perRevise',
+			),
+		},
 	};
 }
 
 /** Every model the profiles name, so a caller can check them against the agents' definitions. */
 export function profileModels(p: EstimateProfiles): Record<string, string> {
 	const out: Record<string, string> = {};
-	for (const list of Object.values(p.claude)) {
+	for (const list of [...Object.values(p.claude), ...Object.values(p.repair)]) {
 		for (const line of list) out[line.agent] = line.model;
 	}
 	return out;
@@ -546,6 +567,50 @@ export function checkpointCount(checkpoints: EstimateInput['checkpoints']): numb
 		(checkpoints.regionBatch ? 1 : 0) +
 		1
 	);
+}
+
+/** A repair run's estimate: no GPU, so the total is the Claude side (ADR-0012 §5). */
+export interface RepairEstimate {
+	placeholder: boolean;
+	note?: string;
+	/** One pass with no revise. */
+	pass: { usd: Range; byAgent: Record<string, Range> };
+	/** What each revise the owner asks for adds. */
+	perRevise: { usd: Range };
+	/** One pass and one revise: the figure to set the cap against. */
+	withRevise: { usd: Range };
+}
+
+function priceLines(lines: TokenProfile[], pricing: DirectorPricing) {
+	const byAgent: Record<string, Range> = {};
+	let usd: Range = { low: 0, high: 0 };
+	for (const line of lines) {
+		const rate = Object.hasOwn(pricing.perMTok, line.model)
+			? pricing.perMTok[line.model]
+			: undefined;
+		if (!rate) throw new Error(`estimate: no price for model "${line.model}"`);
+		const cost = (side: 'low' | 'high') =>
+			(line.input[side] * rate.input + line.output[side] * rate.output) / 1_000_000;
+		const own = { low: cost('low'), high: cost('high') };
+		byAgent[line.agent] = add(byAgent[line.agent] ?? { low: 0, high: 0 }, own);
+		usd = add(usd, own);
+	}
+	for (const agent of Object.keys(byAgent)) {
+		byAgent[agent] = { low: cents(byAgent[agent].low), high: cents(byAgent[agent].high) };
+	}
+	return { usd: { low: cents(usd.low), high: cents(usd.high) }, byAgent };
+}
+
+export function estimateRepair(p: EstimateProfiles, pricing: DirectorPricing): RepairEstimate {
+	const pass = priceLines(p.repair.perPass, pricing);
+	const revise = priceLines(p.repair.perRevise, pricing);
+	return {
+		placeholder: p.placeholder,
+		note: p.note,
+		pass,
+		perRevise: { usd: revise.usd },
+		withRevise: { usd: add(pass.usd, revise.usd) },
+	};
 }
 
 export function estimateRun(
