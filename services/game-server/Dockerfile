@@ -10,7 +10,8 @@
 # The npm dependencies are installed with npm, so the image needs none of the rest of the pnpm
 # workspace; the `workspace:*` entries npm cannot read are dropped first and the two packages are
 # linked into node_modules. Node strips types only OUTSIDE node_modules, and it resolves the links
-# to their real paths, as pnpm's own links do in the repo.
+# to their real paths, as pnpm's own links do in the repo. `game-config` imports `engine-mechanics`
+# itself, so it gets its own node_modules link to it, as pnpm lays it out in the repo.
 FROM node:22-slim
 
 WORKDIR /app/services/game-server
@@ -23,7 +24,9 @@ COPY packages/engine-mechanics/src /app/packages/engine-mechanics/src
 COPY packages/game-config/package.json packages/game-config/index.ts /app/packages/game-config/
 COPY packages/game-config/src /app/packages/game-config/src
 RUN ln -s /app/packages/engine-mechanics node_modules/engine-mechanics \
-	&& ln -s /app/packages/game-config node_modules/game-config
+	&& ln -s /app/packages/game-config node_modules/game-config \
+	&& mkdir -p /app/packages/game-config/node_modules \
+	&& ln -s /app/packages/engine-mechanics /app/packages/game-config/node_modules/engine-mechanics
 COPY services/game-server/src ./src
 
 ENV NODE_ENV=production
