@@ -76,6 +76,14 @@
 		 *  the value upright while the symbol turns — and no win frame, which marks a win on the
 		 *  board, not a symbol in the air. */
 		inFlight?: boolean;
+		/**
+		 * Which cell a POOLED view is drawing (`ReelPaddingPool` → `ReelSymbol`). The view outlives the
+		 * cells it is handed, so everything inside the bands is keyed on it and starts again for each
+		 * cell — a rig on frame 0, a state's Element FX and its beat gate fresh — exactly as a newly
+		 * mounted symbol would; only the band containers themselves are kept. Omitted everywhere else,
+		 * where the key never changes.
+		 */
+		instanceKey?: number;
 	};
 
 	const props: Props = $props();
@@ -222,6 +230,7 @@
 	const ownArt = $derived(hasAuthoredSymbolState(props.rawSymbol.name, props.state));
 	const gate = $derived.by(() => {
 		void props.state;
+		void props.instanceKey;
 		const visit = stateFxGate(waitsForFx, ownArt, () => {
 			if (visit === gate) props.oncomplete?.();
 		});
@@ -251,10 +260,12 @@
 {#if symbolFx}
 	<Container>
 		{@render bands()}
-		{#key props.state}
-			{#if stateFx.length}
-				<ElementFxPlayer entries={stateFx} ondone={gate.fx} />
-			{/if}
+		{#key props.instanceKey}
+			{#key props.state}
+				{#if stateFx.length}
+					<ElementFxPlayer entries={stateFx} ondone={gate.fx} />
+				{/if}
+			{/key}
 		{/key}
 	</Container>
 {:else}
@@ -263,91 +274,101 @@
 
 {#snippet bands()}
 	<Container>
-		{#each behindLayers as layer, i (layerKey(layer, i))}
-			<SymbolLayer
-				{layer}
-				x={props.x ?? 0}
-				y={props.y ?? 0}
-				tint={layerTint(layer)}
-				zIndex={i + 1}
-			/>
-		{/each}
+		{#key props.instanceKey}
+			{#each behindLayers as layer, i (layerKey(layer, i))}
+				<SymbolLayer
+					{layer}
+					x={props.x ?? 0}
+					y={props.y ?? 0}
+					tint={layerTint(layer)}
+					zIndex={i + 1}
+				/>
+			{/each}
+		{/key}
 	</Container>
 
 	<Container tint={props.tint}>
-		{#if !hasArt}
-			{#if placeholder}
-				<SymbolPlaceholder
-					look={placeholder}
-					state={props.state}
-					showText={!coinLabel}
+		{#key props.instanceKey}
+			{#if !hasArt}
+				{#if placeholder}
+					<SymbolPlaceholder
+						look={placeholder}
+						state={props.state}
+						showText={!coinLabel}
+						x={props.x}
+						y={props.y}
+						oncomplete={artComplete}
+					/>
+				{/if}
+			{:else if isFlipbook}
+				<SymbolFlipbook
+					{symbolInfo}
+					{loop}
+					frozen={props.frozen}
 					x={props.x}
 					y={props.y}
 					oncomplete={artComplete}
 				/>
+			{:else if isSprite}
+				<SymbolSprite {symbolInfo} x={props.x} y={props.y} oncomplete={artComplete} />
+			{:else}
+				<SymbolRigMain
+					{loop}
+					{symbolInfo}
+					frozen={props.frozen}
+					x={props.x}
+					y={props.y}
+					listener={{
+						complete: artComplete,
+						event: (_, event) => {
+							if (event.data?.name === 'wildExplode') playWildExplodeSound();
+						},
+					}}
+				/>
 			{/if}
-		{:else if isFlipbook}
-			<SymbolFlipbook
-				{symbolInfo}
-				{loop}
-				frozen={props.frozen}
-				x={props.x}
-				y={props.y}
-				oncomplete={artComplete}
-			/>
-		{:else if isSprite}
-			<SymbolSprite {symbolInfo} x={props.x} y={props.y} oncomplete={artComplete} />
-		{:else}
-			<SymbolRigMain
-				{loop}
-				{symbolInfo}
-				frozen={props.frozen}
-				x={props.x}
-				y={props.y}
-				listener={{
-					complete: artComplete,
-					event: (_, event) => {
-						if (event.data?.name === 'wildExplode') playWildExplodeSound();
-					},
-				}}
-			/>
-		{/if}
+		{/key}
 	</Container>
 
 	<Container>
-		{#each overLayers as layer, i (layerKey(layer, i))}
-			<SymbolLayer
-				{layer}
-				x={props.x ?? 0}
-				y={props.y ?? 0}
-				tint={layerTint(layer)}
-				zIndex={i + 1}
-			/>
-		{/each}
+		{#key props.instanceKey}
+			{#each overLayers as layer, i (layerKey(layer, i))}
+				<SymbolLayer
+					{layer}
+					x={props.x ?? 0}
+					y={props.y ?? 0}
+					tint={layerTint(layer)}
+					zIndex={i + 1}
+				/>
+			{/each}
+		{/key}
 	</Container>
 
 	<Container tint={props.tint}>
-		{#if showWinFrame}
-			<SymbolWinFrame x={props.x} y={props.y} winLineColor={props.winLineColor} />
-		{/if}
+		{#key props.instanceKey}
+			{#if showWinFrame}
+				<SymbolWinFrame x={props.x} y={props.y} winLineColor={props.winLineColor} />
+			{/if}
 
-		{#if props.rawSymbol.multiplier}
-			<BitmapText
-				anchor={0.5}
-				x={props.x}
-				y={props.y}
-				text={`${props.rawSymbol.multiplier}X`}
-				style={{
-					fontFamily: 'gold',
-					fontSize: 50,
-				}}
-			/>
-		{/if}
+			{#if props.rawSymbol.multiplier}
+				<BitmapText
+					anchor={0.5}
+					x={props.x}
+					y={props.y}
+					text={`${props.rawSymbol.multiplier}X`}
+					style={{
+						fontFamily: 'gold',
+						fontSize: 50,
+					}}
+				/>
+			{/if}
+		{/key}
 	</Container>
 
 	<Container tint={props.tint}>
-		{#if coinLabel && !props.inFlight}
-			<CoinLabel x={props.x} y={props.y} text={coinLabel} look={labelLook} pop={props.labelPop} />
-		{/if}
+		{#key props.instanceKey}
+			{#if coinLabel && !props.inFlight}
+				<CoinLabel x={props.x} y={props.y} text={coinLabel} look={labelLook} pop={props.labelPop} />
+			{/if}
+		{/key}
 	</Container>
 {/snippet}
