@@ -64,14 +64,6 @@ on:
         type: boolean
         default: true
 
-concurrency:
-  # ONE group for every release, push or dispatch, whichever ids it carries: runs then promote in
-  # the order they were queued, so an older commit can never be promoted over a newer one (a
-  # pointer write is a compare-and-swap, not an order check). Inside a run the ids still release
-  # in parallel and fail independently. "Runtime rollback" is deliberately NOT in this group.
-  group: runtime-release
-  cancel-in-progress: false
-
 jobs:
   gates:
     runs-on: ubuntu-latest
@@ -153,9 +145,13 @@ jobs:
       fail-fast: false
       matrix:
         runtime: ${{ fromJSON(needs.gates.outputs.runtimes) }}
-    # Per id, so a push- and a dispatch-triggered release of the same runtime serialize, and
-    # releases of different ids run side by side.
+    # Per id: releases of one runtime queue, different ids run side by side, and a newer run that
+    # replaces a pending one only ever replaces the same id's, with newer code. Queueing orders
+    # jobs, not commits, so the publish step itself never promotes over a newer commit's release.
     # "Runtime rollback" is deliberately NOT in this group; the pointer write is a compare-and-swap.
+    concurrency:
+      group: runtime-release-${{ matrix.runtime }}
+      cancel-in-progress: false
     # `issues: write` is for the failure alert below and nothing else.
     permissions:
       contents: read
@@ -163,7 +159,11 @@ jobs:
     env:
       RUNTIME: ${{ matrix.runtime }}
     steps:
+      # The whole history (no blobs), so the publish step can tell whether the live release is newer.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          filter: blob:none
 
       - uses: pnpm/action-setup@v6
 
@@ -262,6 +262,7 @@ jobs:
         run: node scripts/sentry-sourcemaps.mjs verify apps/lines/build
 
       - name: Publish to _runtime/${{ matrix.runtime }}@<version> and promote it
+        id: publish
         env:
           GITHUB_SHA: ${{ github.sha }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
@@ -286,7 +287,8 @@ jobs:
       - name: Refresh the test server and verify the served bundle
         # Auto push-releases always verify; a manual dispatch honours its refresh checkbox, and an
         # unpromoted release has nothing new to serve.
-        if: ${{ github.event_name != 'workflow_dispatch' || (inputs.refresh && inputs.promote) }}
+        # A release a newer one superseded was never promoted, so there is nothing of it to serve.
+        if: ${{ steps.publish.outputs.superseded != 'true' && (github.event_name != 'workflow_dispatch' || (inputs.refresh && inputs.promote)) }}
         env:
           TEST_SERVER_SECRET: ${{ secrets.TEST_SERVER_SECRET }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}

@@ -123,7 +123,8 @@ const readBudgets = () => JSON.parse(readFileSync(BUDGET_FILE, 'utf8'));
 
 const report = (label, result) => {
 	const sizes = result.size === undefined ? '' : ` ${result.raw} B raw, ${result.size} B gzip`;
-	console.log(`${result.problems.length || result.over ? 'FAIL' : 'ok  '} ${label}${sizes}`);
+	const verdict = result.problems.length ? 'FAIL' : result.over ? 'WARN' : 'ok  ';
+	console.log(`${verdict} ${label}${sizes}`);
 	for (const p of [...result.problems, ...(result.over ? [result.over] : [])])
 		console.log(`       ${p}`);
 };
