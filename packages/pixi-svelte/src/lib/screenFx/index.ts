@@ -15,6 +15,5 @@ export {
 	stageFilters,
 	stagePostFxSlot,
 	type StageFilterSlot,
-	type StagePostFx,
 	type StagePostFxSlot,
 } from './stageFilters';

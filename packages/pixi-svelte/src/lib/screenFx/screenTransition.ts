@@ -1,6 +1,6 @@
 /**
- * SCREEN TRANSITIONS (Invisible Shader Graph step 8e, `docs/design/shader-graph-screens.md` §6.2–6.4):
- * the game moves from one screen to the next under an effect that can read both.
+ * SCREEN TRANSITIONS (Invisible Shader Graph step 8e, `docs/design/shader-graph-screens.md`
+ * §6.2–6.4): the game moves from one screen to the next under an effect that can read both.
  *
  * The old screen is frozen ONCE, into a still, on the frame after the call, just before the app
  * draws it, so a Show or Hide made before the call is in it. The caller changes the screen once the
@@ -64,7 +64,8 @@ export const SCREEN_TRANSITION_LIMITS = {
 	durationMs: { min: 50, max: 5000 },
 } as const;
 
-/** The still's longest side, in pixels (design §10): a desktop at 2560 × 1440 × 2 is scaled to 0.8. */
+/** The still's longest side, in pixels (design §10): a desktop at 2560 × 1440 × 2 is scaled to
+ *  0.8. */
 export const SCREEN_STILL_MAX_PX = 4096;
 
 /** What a transition that cannot play as asked plays instead. */
@@ -148,7 +149,6 @@ interface Transition {
 }
 
 const playing = new WeakMap<Application, Transition>();
-const NO_FILTERS: readonly Filter[] = Object.freeze([]);
 const VECTOR_TYPES = { vec2: 2, vec3: 3, vec4: 4 } as const;
 
 const finite = (v: unknown, fallback: number): number =>
@@ -177,12 +177,23 @@ const contextLost = (renderer: Renderer): boolean =>
 	renderer.type === RendererType.WEBGL && (renderer as WebGLRenderer).gl.isContextLost();
 
 /**
+ * The transition filter's frame, in the stage's units: the viewport on whole pixels, rounded out as
+ * Pixi rounds a filter's bounds.
+ */
+const stillFrame = (app: Application, renderer: Renderer): { width: number; height: number } => ({
+	width: Math.ceil(app.screen.width * renderer.resolution) / renderer.resolution,
+	height: Math.ceil(app.screen.height * renderer.resolution) / renderer.resolution,
+});
+
+/**
  * The old screen: the stage drawn once into a texture of its own whose UV square is the transition
  * filter's frame (the screen shell's contract, `SCREEN_FROM_TEXTURE`): the viewport on whole pixels,
  * rounded out as Pixi rounds a filter's bounds, so the still's pixels are the frame's one for one at
  * any resolution. Past {@link SCREEN_STILL_MAX_PX} a side it is scaled down to fit. Drawn at the
- * stage's resting transform with the stage's filters off, so a camera shake or a post FX is not baked
- * in. Throws when it cannot be drawn. `frame` is the frame's size in the stage's units.
+ * stage's resting transform with the stage filter owner's slots off, so a camera shake, a post FX or
+ * a wobble is not baked in; a filter someone else put on the stage stays, as it stays in front of
+ * the transition (§6.2). Throws when it cannot be drawn. `frame` is the frame's size in the stage's
+ * units.
  */
 const takeStill = (
 	app: Application,
@@ -204,8 +215,8 @@ const takeStill = (
 		Math.min(maxPx, Math.round(frameH * fit)) / stillResolution,
 		stillResolution,
 	);
-	const frame = { width: frameW / resolution, height: frameH / resolution };
-	const filters = app.stage.filters ?? NO_FILTERS;
+	const frame = stillFrame(app, renderer);
+	const filters = stageFilters(app);
 	const enabled = filters.map((f) => f.enabled);
 	try {
 		for (const filter of filters) filter.enabled = false;
@@ -225,12 +236,17 @@ const takeStill = (
 	return { still, frame };
 };
 
+type ShellFilter = {
+	filter: Filter;
+	write: (progress: number, seconds: number, intensity: number) => void;
+};
+
 /** The screen shell's filter for `effect` over `still`, and what writes its uniforms; or why not. */
 const shellFilter = (
 	t: Transition,
 	effect: CustomElementFx,
 	still: RenderTexture,
-): Pick<Transition, 'filter' | 'write'> | string => {
+): ShellFilter | string => {
 	const fragment = screenShellSource(effect);
 	if (!fragment) return 'the screen shell refuses its body';
 	const program = GlProgram.from({
@@ -323,9 +339,9 @@ const finish = (t: Transition): void => {
 	if (t.ended) return;
 	t.ended = true;
 	const { app, host } = t;
-	host.ticker.remove(t.capture);
+	app.ticker?.remove(t.capture);
+	app.ticker?.remove(t.place);
 	host.ticker.remove(t.tick);
-	host.ticker.remove(t.place);
 	t.renderer.off('resize', t.onResize);
 	if (t.filter) {
 		if (stageFilters(app, 'transition').includes(t.filter)) setStageFilters(app, 'transition', []);
@@ -347,9 +363,13 @@ const finish = (t: Transition): void => {
 
 /** Play the fallback fade on the still, or cut when even that cannot play. */
 const fallBack = (t: Transition, still: RenderTexture, why: string): void => {
-	sayOnce(`${t.play.kind}: ${why}; a fade out plays instead.`);
-	if (playOnStill(t, FALLBACK_KIND, still)) t.route = 'fallback';
-	else finish(t);
+	if (playOnStill(t, FALLBACK_KIND, still)) {
+		t.route = 'fallback';
+		sayOnce(`${t.play.kind}: ${why}; a fade out plays instead.`);
+		return;
+	}
+	sayOnce(`${t.play.kind}: ${why}, and the fade cannot play either; it cuts.`);
+	finish(t);
 };
 
 /** The still is taken: route and start. */
@@ -357,19 +377,20 @@ const start = (t: Transition, still: RenderTexture): void => {
 	t.still = still;
 	t.stillSize = { width: still.source.pixelWidth, height: still.source.pixelHeight };
 	const route = screenTransitionRoute(t.play.kind);
-	if (route === 'in') {
-		const made = shellFilter(t, customElementFx(t.play.kind) as CustomElementFx, still);
+	const effect = route === 'in' ? customElementFx(t.play.kind) : undefined;
+	if (effect) {
+		const made = shellFilter(t, effect, still);
 		if (typeof made === 'string') fallBack(t, still, made);
 		else {
 			t.route = 'in';
 			t.filter = made.filter;
 			t.write = made.write;
-			t.write?.(
+			made.write(
 				t.progress,
 				(t.progress * t.durationMs) / 1000,
 				clampTo(t.intensity * t.poseIntensity, ELEMENT_FX_LIMITS.intensity),
 			);
-			setStageFilters(t.app, 'transition', [made.filter as Filter]);
+			setStageFilters(t.app, 'transition', [made.filter]);
 		}
 	} else if (route === 'out' && playOnStill(t, t.play.kind, still)) t.route = 'out';
 	else
@@ -380,7 +401,7 @@ const start = (t: Transition, still: RenderTexture): void => {
 		);
 	if (t.ended) return;
 	t.host.ticker.add(t.tick);
-	if (t.holder) t.host.ticker.add(t.place, undefined, BEFORE_RENDER);
+	if (t.holder) t.app.ticker.add(t.place, undefined, BEFORE_RENDER);
 	t.resolveCaptured();
 };
 
@@ -438,7 +459,11 @@ export function playScreenTransition(
 		capture: () => {},
 		tick: () => {},
 		place: () => {},
-		onResize: () => finish(t),
+		onResize: () => {
+			// Pixi says so on a resize to the same size too: only a still that no longer fits ends it.
+			const size = stillFrame(app, renderer);
+			if (t.still && (size.width !== t.frame.width || size.height !== t.frame.height)) finish(t);
+		},
 	};
 
 	const readPose = (): void => {
@@ -453,7 +478,7 @@ export function playScreenTransition(
 	};
 
 	t.capture = () => {
-		host.ticker.remove(t.capture);
+		app.ticker.remove(t.capture);
 		if (play.pose) readPose();
 		let taken: ReturnType<typeof takeStill>;
 		try {
@@ -466,7 +491,14 @@ export function playScreenTransition(
 			return;
 		}
 		t.frame = taken.frame;
-		start(t, taken.still);
+		t.still = taken.still;
+		try {
+			start(t, taken.still);
+		} catch (error) {
+			// Thrown from this tick it would stop the app's ticker for good, the still over the game.
+			sayOnce(`${play.kind} could not start (${(error as Error).message}), so it cuts.`);
+			finish(t);
+		}
 	};
 
 	t.tick = (ticker) => {
@@ -498,7 +530,7 @@ export function playScreenTransition(
 	};
 
 	playing.set(app, t);
-	host.ticker.add(t.capture, undefined, BEFORE_RENDER);
+	app.ticker.add(t.capture, undefined, BEFORE_RENDER);
 	renderer.on('resize', t.onResize);
 
 	return {

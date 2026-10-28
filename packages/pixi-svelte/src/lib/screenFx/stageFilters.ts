@@ -28,19 +28,11 @@ export type StageFilterSlot = 'transition' | 'post' | 'camera';
 const SLOTS: readonly StageFilterSlot[] = ['transition', 'post', 'camera'];
 
 /**
- * The post FX slot's contents: its filters, and the viewport they cover in `app.screen` units (the
- * owner maps it under the stage's transform).
+ * How the post FX fill their slot: called when their list changes; `null` when the last ends,
+ * before those filters are destroyed. Their box is the viewport, as every stage filter's is (design
+ * §6.5): one `filterArea` bounds the whole list.
  */
-export interface StagePostFx {
-	readonly filters: readonly Filter[];
-	readonly area: Rectangle;
-}
-
-/**
- * How the post FX fill their slot: called when their list or viewport changes; `null` when the last
- * ends, before those filters are destroyed.
- */
-export type StagePostFxSlot = (postFx: StagePostFx | null) => void;
+export type StagePostFxSlot = (filters: readonly Filter[] | null) => void;
 
 /** Apps whose stage filters keep the canvas's anti-aliasing (`settings.stageFxAntialias`, §16.10). */
 const antialiased = new WeakSet<Application>();
@@ -64,8 +56,6 @@ interface Owner {
 	/** The stage's own `filterArea`, given back at rest. */
 	priorArea: Rectangle | undefined;
 	area: Rectangle;
-	/** The post FX's viewport, in `app.screen` units; unset, `app.screen`. */
-	viewport?: Rectangle;
 	/** The list this owner last set, to notice someone else replacing it. */
 	last: readonly Filter[];
 	tick: () => void;
@@ -73,23 +63,35 @@ interface Owner {
 
 const owners = new WeakMap<Application, Owner>();
 
+/**
+ * How far inside the viewport's edges the area is drawn, in screen pixels. Mapped back through a
+ * moved stage, the viewport's edges land a rounding error off whole pixels, and Pixi rounds a
+ * filter's frame outwards: a pixel wider, a pixel off, and the screen shell's still read across it
+ * would shift. Drawn this far in, the frame always rounds to the viewport.
+ */
+const INSET_PX = 1 / 256;
+
 /** The viewport in the stage's own space, under its transform now. */
 const fitArea = (owner: Owner): void => {
 	const { app, area } = owner;
 	const stage = app.stage;
-	const view = owner.viewport ?? app.screen;
-	area.x = (view.x - stage.position.x) / stage.scale.x;
-	area.y = (view.y - stage.position.y) / stage.scale.y;
-	area.width = view.width / stage.scale.x;
-	area.height = view.height / stage.scale.y;
+	area.x = (INSET_PX - stage.position.x) / stage.scale.x;
+	area.y = (INSET_PX - stage.position.y) / stage.scale.y;
+	area.width = (app.screen.width - 2 * INSET_PX) / stage.scale.x;
+	area.height = (app.screen.height - 2 * INSET_PX) / stage.scale.y;
 };
 
 const ours = (owner: Owner): Set<Filter> => new Set(SLOTS.flatMap((slot) => owner.slots[slot]));
 
-/** Keep the stage's list as the slots say, after anything someone else put there since. */
-const apply = (owner: Owner): void => {
+/**
+ * Keep the stage's list as the slots say, after anything someone else put there since. Each frame
+ * this is a comparison and nothing more, unless the list was replaced or a slot changed (`changed`).
+ */
+const apply = (owner: Owner, changed: boolean): void => {
 	const stage = owner.app.stage;
 	const current = stage.filters ?? NONE;
+	if (stage.filterArea !== owner.area) stage.filterArea = owner.area;
+	if (current === owner.last && !changed) return;
 	if (current !== owner.last) {
 		const mine = ours(owner);
 		owner.external = current.filter((f) => !mine.has(f));
@@ -100,7 +102,6 @@ const apply = (owner: Owner): void => {
 		stage.filters = stack;
 		owner.last = stage.filters ?? NONE;
 	}
-	if (stage.filterArea !== owner.area) stage.filterArea = owner.area;
 };
 
 const claim = (app: Application): Owner => {
@@ -120,7 +121,7 @@ const claim = (app: Application): Owner => {
 			return;
 		}
 		fitArea(owner);
-		apply(owner);
+		apply(owner, false);
 	};
 	owners.set(app, owner);
 	app.ticker.add(owner.tick, undefined, BEFORE_RENDER);
@@ -166,26 +167,24 @@ export function setStageFilters(
 		owner.slots[slot] = [...filters];
 	}
 	fitArea(owner);
-	apply(owner);
+	apply(owner, true);
 }
 
-/** What `slot` holds on `app`'s stage. */
-export const stageFilters = (app: Application, slot: StageFilterSlot): readonly Filter[] =>
-	owners.get(app)?.slots[slot] ?? NONE;
+/** What `slot` holds on `app`'s stage; every slot's filters, in order, without one. */
+export const stageFilters = (app: Application, slot?: StageFilterSlot): readonly Filter[] => {
+	const owner = owners.get(app);
+	if (!owner) return NONE;
+	return slot ? owner.slots[slot] : SLOTS.flatMap((s) => owner.slots[s]);
+};
 
 /**
  * The post FX slot of `app`'s stage, in the shape the post FX fill it (`StagePostFxSlot`): their
- * filters after the transition's and before the camera's, bounded to their viewport.
+ * filters after the transition's and before the camera's.
  */
 export const stagePostFxSlot =
 	(app: Application): StagePostFxSlot =>
-	(postFx) => {
-		setStageFilters(app, 'post', postFx?.filters ?? NONE);
-		const owner = owners.get(app);
-		if (!owner) return;
-		owner.viewport = postFx?.area;
-		fitArea(owner);
-	};
+	(filters) =>
+		setStageFilters(app, 'post', filters ?? NONE);
 
 /**
  * Whether every filter on `app`'s stage keeps the canvas's anti-aliasing (`'inherit'`: MSAA where
