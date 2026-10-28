@@ -235,6 +235,8 @@
 		damaged: 'Damaged',
 		buffed: 'Buffed',
 	};
+	const numberKeys = (c: CardDef): readonly edit.CardNumber[] =>
+		c.type === 'unit' ? ['cost', 'attack', 'health'] : ['cost'];
 	const issueText = (list: GameConfigIssue[]) => list.map((i) => i.message).join(' ');
 </script>
 
@@ -438,7 +440,7 @@
 												<option value="spell">Spell</option>
 											</select>
 										</label>
-										{#each c.type === 'unit' ? (['cost', 'attack', 'health'] as const) : (['cost'] as const as key (key)}
+										{#each numberKeys(c) as key (key)}
 											<label
 												>{key[0].toUpperCase() + key.slice(1)} ({CARD_RANGES[key][0]}–{CARD_RANGES[
 													key

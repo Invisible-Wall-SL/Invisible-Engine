@@ -70,13 +70,13 @@
 
 	/** The node kinds the frame uses that this drawing leaves out. */
 	function skipped(root: LayoutNode | undefined): string[] {
-		const out = new Set<string>();
+		const out: string[] = [];
 		const walk = (n: LayoutNode): void => {
-			if (!DRAWN.has(n.kind)) out.add(n.kind);
+			if (!DRAWN.has(n.kind) && !out.includes(n.kind)) out.push(n.kind);
 			if (n.kind === 'container') n.children.forEach(walk);
 		};
 		if (root) walk(root);
-		return [...out];
+		return out;
 	}
 	const left = $derived(skipped(frame?.root));
 </script>
