@@ -12,12 +12,22 @@
 // timeout and everything behind it waits), and DATAGRAM (lost messages are gone, late ones overtake
 // — no input or state is safe), which makes the room miss inputs the device predicted.
 //
+// Both `arcade.online.netcode` modes run the room: `engine` (createPredictor) and `colyseus` (the
+// Colyseus SDK's own `Reconciler`, from the SDK `engine-rooms` installs, over `reconcilerStep` and
+// a real `Player` schema instance, so its wire-precision compare reads float32 as on a device). The
+// SDK's reconciler reads its ack from the input handle; here a stand-in handle takes it from each
+// state (the room's last applied `seq`). On the reliable link that is what the runtime's handle
+// reads (the room's consumed-input count, in each state frame: nothing is lost). The runtime uses
+// only the reliable channel, so the datagram rows under `colyseus` model the SDK's unreliable-mode
+// ack: they compare how the two reconcilers absorb a misprediction, not a setup the runtime is in.
+//
 // Run: pnpm check:netcode
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { createRng } from '../packages/engine-mechanics/src/board.js';
 import { createFixedStep } from '../packages/engine-mechanics/src/motion.js';
@@ -33,17 +43,24 @@ import {
 import {
 	INTERPOLATION_DELAY_MS,
 	MATCH_PX,
+	RECONCILED_FIELDS,
 	SNAP_PX,
 	createInterpolator,
 	createPredictor,
 	createSnapshotClock,
+	reconcilerStep,
 	snapFor,
 } from '../packages/engine-mechanics/src/netcode.js';
 import { STATUS } from '../packages/engine-mechanics/src/onlineRules.js';
 import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/index.ts';
 import { createRoomSim, inputsThisStep } from '../services/game-server/src/roomSim.ts';
+import { Player } from '../services/game-server/src/schema.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const roomsRequire = createRequire(join(ROOT, 'packages/engine-rooms/package.json'));
+const { Reconciler } = await import(
+	pathToFileURL(roomsRequire.resolve('@colyseus/sdk/predict')).href
+);
 
 let passed = 0;
 const check = async (name, fn) => {
@@ -197,11 +214,136 @@ const createPilot = (rng, stepMs) => {
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
+/** The own player under `netcode: 'engine'`: the runtime's predictor. */
+const enginePlayer = ({ body, character, ctx, field, level }) => {
+	const predictor = createPredictor({ body, speed: character.speed, ctx, field, level });
+	return {
+		/** Before the frame's inputs: nothing (this predictor reconciles as a state arrives). */
+		tick() {},
+		input: (input) => predictor.input(input),
+		receive: (p, step) =>
+			predictor.reconcile({ x: p.x, y: p.y, ack: p.ack, still: p.status !== STATUS.free, step }),
+		frame: (dtMs) => predictor.frame(dtMs),
+		drawn: (alpha) => predictor.drawn(alpha),
+		place: () => predictor.body,
+		get corrections() {
+			return predictor.corrections;
+		},
+		get snaps() {
+			return predictor.snaps;
+		},
+	};
+};
+
+/** A stand-in for the SDK's input handle (`room.input()`): the reliable channel's implicit seq,
+ *  the inputs not yet acknowledged, and the server's advertised rates. */
+const createInputHandle = (online) => {
+	const sent = new Map();
+	const listeners = [];
+	let sentCount = 0;
+	let lastProcessed = 0;
+	return {
+		stepMs: 1000 / online.tickHz,
+		stepSeconds: 1 / online.tickHz,
+		subSteps: online.subSteps,
+		patchRate: 1000 / online.patchHz,
+		replayBufferSize: 256,
+		epoch: 0,
+		get sentCount() {
+			return sentCount;
+		},
+		get lastProcessed() {
+			return lastProcessed;
+		},
+		get pendingCount() {
+			return sentCount - lastProcessed;
+		},
+		at: (seq) => (seq > lastProcessed && seq <= sentCount ? sent.get(seq) : undefined),
+		reckonTimeAt: () => 0,
+		onSend(listener) {
+			listeners.push(listener);
+			return () => {};
+		},
+		send(input) {
+			sentCount = input.seq;
+			sent.set(input.seq, input);
+			for (const listener of listeners) listener(input.seq);
+		},
+		ack(seq) {
+			if (seq <= lastProcessed) return;
+			lastProcessed = seq;
+			for (const key of sent.keys()) if (key <= seq) sent.delete(key);
+		},
+	};
+};
+
+/** The own player under `netcode: 'colyseus'`: the SDK's `Reconciler`, as the runtime builds it. */
+const colyseusPlayer = ({ body, character, ctx, field, level, online }) => {
+	const instance = new Player();
+	instance.x = body.x;
+	instance.y = body.y;
+	instance.status = STATUS.free;
+	const handle = createInputHandle(online);
+	const snap = snapFor(character.speed, online.patchHz);
+	let corrections = 0;
+	let snaps = 0;
+	let newest = -1;
+	let now = 0;
+	const me = new Reconciler(instance, {
+		input: handle,
+		fields: RECONCILED_FIELDS,
+		step: reconcilerStep({ body, speed: character.speed, ctx, field, level }),
+		snap,
+		// Turns on the reconciler's correction telemetry; never warns.
+		warnOnDivergence: Number.POSITIVE_INFINITY,
+		onReconcile() {
+			if (me.lastCorrectionMag === 0) return;
+			corrections += 1;
+			if (me.lastCorrectionMag > snap) snaps += 1;
+		},
+	});
+	return {
+		tick(at) {
+			now = at;
+			me.tick(now);
+		},
+		input: (input) => handle.send(input),
+		receive(p, step) {
+			// Colyseus applies state patches in order; a reordered datagram's state is never applied.
+			if (step <= newest) return;
+			newest = step;
+			instance.x = p.x;
+			instance.y = p.y;
+			instance.status = p.status;
+			handle.ack(p.ack);
+		},
+		frame() {},
+		drawn: () => ({ x: me.value('x'), y: me.value('y') }),
+		place: () => me.state,
+		get corrections() {
+			return corrections;
+		},
+		get snaps() {
+			return snaps;
+		},
+	};
+};
+
 /**
  * Run a room with `players` devices for `seconds` over links of `net`, and measure what each device
  * draws against what the room did.
  */
-const simulate = ({ net, seconds, seed, players = 6, zones, rules, drifts = false }) => {
+const simulate = ({
+	net,
+	seconds,
+	seed,
+	players = 6,
+	zones,
+	rules,
+	drifts = false,
+	netcode = 'engine',
+	settlePx = 0.01,
+}) => {
 	const game = gameOf(rules ? { rules } : {}, zones);
 	const { online, field } = game;
 	const stepMs = 1000 / online.tickHz;
@@ -234,12 +376,13 @@ const simulate = ({ net, seconds, seed, players = 6, zones, rules, drifts = fals
 			steps: createFixedStep({ hz: online.tickHz }),
 			seq: 0,
 			lastMoving: 0,
-			predictor: createPredictor({
+			predictor: (netcode === 'colyseus' ? colyseusPlayer : enginePlayer)({
 				body,
-				speed: character.speed,
+				character,
 				ctx,
 				field,
 				level: onlineLevel(game.zones, online.rules.zones, character.id, field),
+				online,
 			}),
 			view: createSnapshotClock({ stepMs }),
 			others: createInterpolator(),
@@ -254,6 +397,7 @@ const simulate = ({ net, seconds, seed, players = 6, zones, rules, drifts = fals
 
 	const stats = {
 		settles: 0,
+		worstSettle: 0,
 		worstSettleMs: 0,
 		corrections: 0,
 		snaps: 0,
@@ -308,13 +452,7 @@ const simulate = ({ net, seconds, seed, players = 6, zones, rules, drifts = fals
 				device.others.push(p.id, state.step, p.x, p.y);
 				continue;
 			}
-			device.predictor.reconcile({
-				x: p.x,
-				y: p.y,
-				ack: p.ack,
-				still: p.status !== STATUS.free,
-				step: state.step,
-			});
+			device.predictor.receive(p, state.step);
 			if (device.pilot.resting && device.lastMoving && p.ack >= device.lastMoving) {
 				if (device.settleFrom === undefined) {
 					device.settleFrom = clock.now;
@@ -327,6 +465,7 @@ const simulate = ({ net, seconds, seed, players = 6, zones, rules, drifts = fals
 	const frame = (device) => {
 		const now = clock.now + device.skew;
 		device.viewStep = device.view.advance(now) ?? device.viewStep;
+		device.predictor.tick(now);
 		device.steps.advance(frameMs, () => {
 			device.seq += 1;
 			const raw = { seq: device.seq, ...device.pilot.next(), view: Math.floor(device.viewStep) };
@@ -365,9 +504,13 @@ const simulate = ({ net, seconds, seed, players = 6, zones, rules, drifts = fals
 			const room = sim.players.get(device.id).body;
 			const off = dist(own, room);
 			stats.rests += 1;
-			assert.ok(off <= 0.01, `${device.id} is drawn ${off} px from the room 200 ms after its ack`);
-			if (device.predictor.body.x === room.x && device.predictor.body.y === room.y)
-				stats.exactRests += 1;
+			stats.worstSettle = Math.max(stats.worstSettle, off);
+			assert.ok(
+				off <= settlePx,
+				`${device.id} is drawn ${off} px from the room 200 ms after its ack`,
+			);
+			const place = device.predictor.place();
+			if (place.x === room.x && place.y === room.y) stats.exactRests += 1;
 		}
 
 		// Everyone else: on the room's path at the render step, and no faster than the room moved them.
@@ -512,6 +655,34 @@ await check('a player the room holds still is predicted still, and freed again',
 });
 
 await check(
+	'colyseus: a player the room holds still is predicted still by the SDK, and freed',
+	() => {
+		const me = colyseusPlayer({
+			body: characterBody('me', PLAIN.bodies.salmon, { x: 400, y: 400 }),
+			character: { speed: 240 },
+			ctx: plainCtx,
+			field: PLAIN.field,
+			online: PLAIN.online,
+		});
+		let now = 0;
+		const frameThen = (input) => {
+			now += 1000 / 30;
+			me.tick(now);
+			if (input) me.input(input);
+		};
+		for (let seq = 1; seq <= 3; seq++) frameThen(moveInput(seq));
+		assert.equal(me.place().x, 424);
+		me.receive({ x: 400, y: 400, ack: 1, status: STATUS.stunned }, 1);
+		frameThen(moveInput(4));
+		assert.equal(me.place().x, 400, 'the inputs in flight and the next do not move a held player');
+		me.receive({ x: 400, y: 400, ack: 4, status: STATUS.free }, 2);
+		frameThen(moveInput(5));
+		assert.equal(me.place().x, 408);
+		assert.ok(me.corrections >= 1);
+	},
+);
+
+await check(
 	'the interpolator draws between states, holds at the ends, and takes a teleport whole',
 	() => {
 		const it = createInterpolator({ snapPx: 100 });
@@ -620,31 +791,83 @@ for (const net of NETWORKS) {
 	);
 }
 
-await check('a current is predicted exactly: the device steps the same level the room does', () => {
-	const zones = [
-		{ id: 'river', x: 0, y: 300, w: 1600, h: 400 },
-		{ id: 'eddy', x: 600, y: 0, w: 300, h: 1000 },
-	];
-	const rules = {
-		zones: [
-			{ zone: 'river', force: { x: -60, y: 0 } },
-			{ zone: 'eddy', force: { x: 0, y: 45 }, characters: ['fish'] },
-		],
-	};
-	const r = simulate({
-		net: { latency: 150, jitter: 50, loss: 0.03, reliable: true },
-		seconds: 30,
-		seed: 'current',
-		zones,
-		rules,
-		drifts: true,
-	});
-	assert.equal(r.corrections, 0, `${r.corrections} of the room's states disagreed`);
-	assert.ok(r.worstOffPath <= 2, `${r.worstOffPath} steps off the room's path`);
-});
+// --- 3. the same room under `netcode: 'colyseus'` (the SDK's own reconciler) -----------------
+
+for (const net of NETWORKS) {
+	await check(
+		`colyseus, reliable link, ${net.latency} ms ±${net.jitter}, ${net.loss * 100}% loss: the SDK's prediction is exact`,
+		() => {
+			const r = simulate({
+				net: { ...net, reliable: true },
+				seconds: 40,
+				seed: `rel-${net.latency}`,
+				netcode: 'colyseus',
+			});
+			assert.ok(r.lostUp > 20, `packets lost: ${r.lostUp}`);
+			assert.equal(r.corrections, 0, `${r.corrections} corrections`);
+			assert.ok(r.rests >= 30, `${r.rests} rests checked`);
+			assert.equal(r.exactRests, r.rests, 'every rest is the room’s own place, bit for bit');
+			assert.ok(r.worstOwnJump <= 1.5, `the own player moved ${r.worstOwnJump} steps in a frame`);
+			assert.ok(r.worstOffPath <= 2, `${r.worstOffPath} steps off the room's path`);
+			console.log(
+				`  colyseus reliable ${net.latency} ms: ${r.rests} rests exact, own ≤ ${r.worstOwnJump.toFixed(2)} steps a frame`,
+			);
+		},
+	);
+	await check(
+		`colyseus, datagram link, ${net.latency} ms ±${net.jitter}, ${net.loss * 100}% loss: the SDK's corrections converge`,
+		() => {
+			const r = simulate({
+				net: { ...net, reliable: false },
+				seconds: 40,
+				seed: `dgram-${net.latency}`,
+				netcode: 'colyseus',
+				// The SDK fades a correction over one patch interval (50 ms here, where the engine's
+				// predictor takes 25 ms), so 200 ms on it is still in view: bounded, and reported.
+				settlePx: 1,
+			});
+			assert.ok(r.corrections > 0, 'lost inputs were mispredicted and corrected');
+			assert.equal(r.snaps, 0, 'no correction was long enough to draw at once');
+			assert.ok(r.rests >= 30, `${r.rests} rests checked`);
+			assert.ok(r.worstOwnJump <= 1.5, `the own player moved ${r.worstOwnJump} steps in a frame`);
+			assert.ok(r.worstOffPath <= 2, `${r.worstOffPath} steps off the room's path`);
+			console.log(
+				`  colyseus datagram ${net.latency} ms: ${r.corrections} corrections, ${r.rests} rests within ${r.worstSettle.toFixed(2)} px at 200 ms, own ≤ ${r.worstOwnJump.toFixed(2)} steps a frame`,
+			);
+		},
+	);
+}
+
+for (const netcode of ['engine', 'colyseus'])
+	await check(
+		`${netcode}: a current is predicted exactly: the device steps the same level the room does`,
+		() => {
+			const zones = [
+				{ id: 'river', x: 0, y: 300, w: 1600, h: 400 },
+				{ id: 'eddy', x: 600, y: 0, w: 300, h: 1000 },
+			];
+			const rules = {
+				zones: [
+					{ zone: 'river', force: { x: -60, y: 0 } },
+					{ zone: 'eddy', force: { x: 0, y: 45 }, characters: ['fish'] },
+				],
+			};
+			const r = simulate({
+				net: { latency: 150, jitter: 50, loss: 0.03, reliable: true },
+				seconds: 30,
+				seed: 'current',
+				zones,
+				rules,
+				drifts: true,
+				netcode,
+			});
+			assert.equal(r.corrections, 0, `${r.corrections} of the room's states disagreed`);
+			assert.ok(r.worstOffPath <= 2, `${r.worstOffPath} steps off the room's path`);
+		},
+	);
 
 await check(
-	'the runtime runs this netcode: predicted own player, interpolated others, view sent',
+	'the runtime runs this netcode: predicted own player (either netcode), interpolated others, view sent',
 	() => {
 		const source = readFileSync(join(ROOT, 'apps/lines/src/game/online.ts'), 'utf8');
 		for (const used of [
@@ -655,6 +878,11 @@ await check(
 			'me?.input(input)',
 			'onlineLevel(',
 			'viewStep',
+			"netcode === 'colyseus'",
+			'Predict.get(room)',
+			'predict.reconciler(',
+			'reconcilerOptions(',
+			'predict.tick(',
 		]) {
 			assert.ok(source.includes(used), `online.ts does not use ${used}`);
 		}
