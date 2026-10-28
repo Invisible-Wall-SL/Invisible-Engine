@@ -150,8 +150,7 @@ export const requestDraft = defineOp<Record<string, never>, RequestDraftResult>(
 		}
 		const unplayable = unplayableFamilyMessage(config.doc);
 		if (unplayable) throw new AdapterError(409, 'unplayable_family', unplayable);
-		// The runtime its publish would pick (`chooseRuntime`): the config family's, or `lines` while
-		// that one has no release.
+		// The runtime its publish would pick (`chooseRuntime`): the config family's.
 		const chosen = await chooseRuntime(config.doc, runtimePointer);
 		const engine = chosen.pointer;
 		if (!engine) {

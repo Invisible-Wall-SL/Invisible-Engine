@@ -176,8 +176,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # The families this id's build compiles in (`releaseFamiliesOf`): `all` for `lines` until
-      # P11.1c, the id's own family otherwise. Always written out from the list, never left blank:
+      # The families this id's build compiles in (`releaseFamiliesOf`): `slot` for `lines`, the id's
+      # own family otherwise. Always written out from the list, never left blank:
       # a blank value counts as `all`, so a lost value would silently ship every family.
       - name: Read the ${{ matrix.runtime }} runtime's families
         id: families
