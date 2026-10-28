@@ -145,12 +145,14 @@ jobs:
       fail-fast: false
       matrix:
         runtime: ${{ fromJSON(needs.gates.outputs.runtimes) }}
-    # Per id: releases of one runtime queue, different ids run side by side, and a newer run that
-    # replaces a pending one only ever replaces the same id's, with newer code. Queueing orders
-    # jobs, not commits, so the publish step itself never promotes over a newer commit's release.
-    # "Runtime rollback" is deliberately NOT in this group; the pointer write is a compare-and-swap.
+    # Per id AND per trigger: releases of one runtime queue, different ids run side by side. A group
+    # keeps one pending job and a newer one replaces it, so pushes only ever replace pushes (newer
+    # main code) and a manual dispatch (a canary, another ref) can never drop a pending push. A push
+    # and a dispatch of one id that do overlap meet at the pointer's compare-and-swap, which fails
+    # loudly. Queueing orders jobs, not commits, so the publish step itself never promotes over a
+    # newer commit's release. "Runtime rollback" is deliberately NOT in this group.
     concurrency:
-      group: runtime-release-${{ matrix.runtime }}
+      group: runtime-release-${{ matrix.runtime }}-${{ github.event_name }}
       cancel-in-progress: false
     # `issues: write` is for the failure alert below and nothing else.
     permissions:

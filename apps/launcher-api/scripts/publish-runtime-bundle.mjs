@@ -117,16 +117,7 @@ if (statusFlag === 'failed') {
 	const next =
 		stamp?.status === 'building' && stamp.commit === commit
 			? pointer
-				? {
-						runtimeId,
-						commit: pointer.commit,
-						shortCommit: pointer.shortCommit,
-						builtAt: pointer.builtAt,
-						status: 'released',
-						version: pointer.version,
-						promotedAt: pointer.promotedAt,
-						via: pointer.via,
-					}
+				? releasedStamp(pointer)
 				: { runtimeId, commit, shortCommit, builtAt, status: 'failed' }
 			: stamp;
 	await writeJson(r2, keys.status(runtimeId), { ...next, lastFailure });
@@ -265,19 +256,8 @@ if (!promoteAfterUpload) {
 const live = swap.pointer?.commit;
 if (live && live !== commit && commit !== 'unknown' && isAncestor(commit, live)) {
 	const stamp = (await readJson(r2, keys.status(runtimeId)))?.value ?? null;
-	if (stamp?.status === 'building' && stamp.commit === commit) {
-		const p = swap.pointer;
-		await writeJson(r2, keys.status(runtimeId), {
-			runtimeId,
-			commit: p.commit,
-			shortCommit: p.shortCommit,
-			builtAt: p.builtAt,
-			status: 'released',
-			version: p.version,
-			promotedAt: p.promotedAt,
-			via: p.via,
-		});
-	}
+	if (stamp?.status === 'building' && stamp.commit === commit)
+		await writeJson(r2, keys.status(runtimeId), releasedStamp(swap.pointer));
 	if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, 'superseded=true\n');
 	console.info(
 		`\nRecorded ${runtimeId}@${version} WITHOUT promoting it: the pointer already names a newer ` +
@@ -306,6 +286,23 @@ function isAncestor(a, b) {
 	const r = spawnSync('git', ['merge-base', '--is-ancestor', a, b], { stdio: 'ignore' });
 	if (r.status === 0) return true;
 	if (r.status !== 1)
-		console.warn(`git cannot order ${a.slice(0, 7)} and ${b.slice(0, 7)}; promoting as before.`);
+		console.info(
+			`::warning title=Release order unknown::git cannot order ${a.slice(0, 7)} and ` +
+				`${b.slice(0, 7)}; promoting as before.`,
+		);
 	return false;
+}
+
+/** The launcher's stamp for the release `pointer` names (it is what is live). */
+function releasedStamp(pointer) {
+	return {
+		runtimeId,
+		commit: pointer.commit,
+		shortCommit: pointer.shortCommit,
+		builtAt: pointer.builtAt,
+		status: 'released',
+		version: pointer.version,
+		promotedAt: pointer.promotedAt,
+		via: pointer.via,
+	};
 }

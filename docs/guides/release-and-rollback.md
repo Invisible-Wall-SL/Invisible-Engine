@@ -149,7 +149,7 @@ page check is the reliable one. Always load the page with a `?cb=` query, as abo
 
 If several engine PRs merge close together, GitHub runs one release of each id at a time. A queued release can
 be cancelled when a newer merge queues behind it, so the newest commit is the one that ends up
-live. A cancelled run does not open an issue. A release that reaches its promote after a newer
+live. A manual "Runtime release" run queues apart from the merges, so it never cancels one. A cancelled run does not open an issue. A release that reaches its promote after a newer
 commit's is recorded but not promoted (its log says so), so an older merge never replaces a newer
 engine.
 

@@ -49,7 +49,7 @@ review).** [phase-11.md](../design/phase-11.md) §2.4, §3.1.
   matrix per id: build `apps/lines` with the id's `PUBLIC_IE_FAMILIES` (always explicit), then
   `check-family-runtime.mjs`, upload, promote and verify. A failed id blocks no other, and its alert names the id. Rollback's `runtime` is a choice of the four, and
   `check:runtime-choice` keeps both workflows' lists equal to `RUNTIME_IDS`. Releases of one id queue
-  in a per-id group, and the publish step never promotes over a pointer that names a newer commit
+  in a group per id and trigger (a manual run never cancels a pending merge's), and the publish step never promotes over a pointer that names a newer commit
   (`publish-runtime-bundle.mjs`, by git ancestry; it records the release, puts the launcher's stamp
   back and skips the served check), so an older push never replaces a newer engine.
   A bundle over its size budget is a release **warning**, not a failure: no PR check runs the
