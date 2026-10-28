@@ -399,6 +399,45 @@ export type FreeSpinsAward = {
 	maxSpins?: number;
 };
 
+/**
+ * Wilds that fill their whole reel when they land, before any win is counted (the reference game's
+ * fairy). Its presence is the feature.
+ */
+export type ExpandingWildsConfig = {
+	/** The wilds that expand, by dictionary name. Each must be a dealt, non-scatter wild. */
+	symbols: string[];
+	/**
+	 * When the CLIENT draws an expansion. The server always expands before the count; this only
+	 * decides the picture. `onWin` (absent, the reference game): only when a paying line of the spin
+	 * crosses the reel — otherwise the reel keeps its landed cells on screen, which no win line
+	 * needs. `always`: every time.
+	 */
+	show?: ExpandingWildsShow;
+};
+
+/** Every {@link ExpandingWildsConfig.show}, the default first. */
+export const EXPANDING_WILDS_SHOW = ['onWin', 'always'] as const;
+export type ExpandingWildsShow = (typeof EXPANDING_WILDS_SHOW)[number];
+
+/** Every {@link GrowingWildConfig.pattern}, the default first. */
+export const GROWING_WILD_PATTERNS = ['plus', 'vertical', 'horizontal', 'all8'] as const;
+export type GrowingWildPattern = (typeof GROWING_WILD_PATTERNS)[number];
+
+/**
+ * A wild that copies itself onto the cells around it when it lands, after the expanding wilds and
+ * before any win is counted (the reference game's clover). Its presence is the feature.
+ */
+export type GrowingWildConfig = {
+	/** The wild that grows, by dictionary name. It must be a dealt, non-scatter wild. */
+	symbol: string;
+	/** 0-based reels it may land on in the base game. Absent ⇒ the centre reel. */
+	reels?: number[];
+	/** 0-based reels it may land on in free spins. Absent ⇒ the same as {@link reels}. */
+	freeSpinReels?: number[];
+	/** Which neighbours it copies onto. Absent ⇒ `plus` (up, down, left, right). */
+	pattern?: GrowingWildPattern;
+};
+
 /** Every {@link ReelBehaviour.swapStyle} literal, for validation + the tool's picker. */
 export const SWAP_STYLES = ['dropIn', 'columnCascade', 'emerge'] as const;
 
@@ -553,6 +592,17 @@ export type GameConfigDoc = {
 	 * Read it through `resolveReelBehaviour` rather than directly, so the defaults live in one place.
 	 */
 	reelBehaviour?: ReelBehaviour;
+	/**
+	 * OPTIONAL expanding wilds (see {@link ExpandingWildsConfig},
+	 * `docs/design/expanding-and-growing-wilds.md`). A lines game only. Absent ⇒ no wild expands.
+	 * Read it through `resolveExpandingWilds`.
+	 */
+	expandingWilds?: ExpandingWildsConfig;
+	/**
+	 * OPTIONAL growing wild (see {@link GrowingWildConfig}). A lines game only. Absent ⇒ no wild
+	 * grows. Read it through `resolveGrowingWild`.
+	 */
+	growingWild?: GrowingWildConfig;
 	/**
 	 * OPTIONAL coin overlay (see `./coinOverlay`, `docs/design/bonus-games.md` §2.1) — the option a base
 	 * game switches on: what lands in the base game, the pots, and the triggers, each naming the bonus

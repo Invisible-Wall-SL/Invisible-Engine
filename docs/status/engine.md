@@ -302,6 +302,43 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-28 — **Expanding and growing wilds on lines games** (branch
+  `lines/expanding-growing-wilds`, plan `docs/design/expanding-and-growing-wilds.md`, reference game
+  Slotmotion's *Fairy's Charm*). Runtime release: it touches `apps/lines` and
+  `packages/engine-flow-v2`, but a game whose RGS never sends the new events is drawn as before.
+  - Wire → book: the lines mock (`scripts/mock-wild-rewrite.mjs`) emits the reference game's
+    `expandedWild` / `growingWild` + `symbolSetInMatrix`. The facade
+    (`packages/rgs-translator-eagaming/src/wildRewrite.ts`) turns them into `expandWild { reel, row,
+    symbol, cells, paid }` and `growWild { origin, symbol, cells }`, after the `reveal` and before
+    its `winInfo`. `playedSpin` stays the landed board; the wins are the final board's. A
+    `symbolSetInMatrix` with no wild before it still reaches the facade's other paths.
+  - Presentation: one module, `apps/lines/src/game/wildRewrite.svelte.ts`, serves the coded
+    handlers and the Flow effects (both events are in the v1 and v2 lines vocabularies).
+    - Expand, with stacked art covering the whole reel: the stacked picture grows from the landed
+      slice to the full reel (`StackedPicture.svelte` follows the grow state).
+    - Expand, otherwise: a cell-by-cell morph outwards from the origin, each beat capped at
+      `TRANSIT_BEAT_CAP_MS`.
+    - With `expandingWilds.show` `onWin` (the default, as the reference game draws it), an
+      expansion no paying line crosses (`paid` false) is not drawn.
+    - Grow: the origin bursts, then the cells morph into the wild.
+    - On a slam the final board still lands at once.
+  - Gates: `pnpm check:wild-rewrite` (in `check:rgs`, base spins and free spins),
+    `check:lines-parity` unchanged, `check:mock-contract`, `check:game-config-family`,
+    `check:flow-bonus-modes` (the new vocabulary entries are checked on their own, outside the
+    pinned hashes).
+  - **Played** through `scripts/playtest/wilds-screens.mjs`: the built runtime on the harness's
+    `cg-lines` stand-in, `FORCE_WILDS=1`, `?ie_determinism`, both the coded path and
+    `?flowV2=lines`, with no console errors. It showed four things:
+    - a paid expansion fills the reel before the win line is drawn;
+    - an unpaid one under `onWin` leaves the reel as it landed;
+    - `always` draws it;
+    - the plus-grow morphs up, down, left and right, clipped at the edge.
+    A scatter on the reel stays.
+
+    The plain vite dev game draws no board in the build container (software WebGL at about 4 fps),
+    which is why the harness is used. The grow's "burst" reuses the wild's `win` state (gold frame
+    included), so the origin reads as a winning cell for about half a second. It is open for a
+    design look.
 - 2026-10-28 — **A rolling reel's filler is drawn through a fixed pool of views per reel**
   (branch `claude/reel-view-pool`). The cells a spin streams through the window (each pre-spin
   lap's fresh strip, the slide's padding) each mounted their own `ReelSymbol` and were destroyed

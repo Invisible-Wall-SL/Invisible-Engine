@@ -62,6 +62,7 @@ import {
 	responseClosedRound,
 } from './translator';
 import { isPlay4FunError } from './types';
+import { translateWildRewrites, wildRewritesBySpin } from './wildRewrite';
 import type {
 	Play4FunActionEnvelope,
 	Play4FunBookEvent,
@@ -183,6 +184,8 @@ const warnedUncapturedModes = new Set<string>();
 /** Track unknown symbols we've already warned about, keyed by `sid:symbol`, so
  *  a malformed reveal doesn't spam the console. */
 const warnedUnknownSymbols = new Set<string>();
+/** Sessions already warned that a wild rewrite disagrees with their board (`./wildRewrite`). */
+const warnedWildDrift = new Set<string>();
 
 /** Locate the `config` event in a raw Play4Fun response. */
 const findConfigEvent = (events: Play4FunBookEvent[] | undefined): Play4FunConfigContext | null => {
@@ -926,6 +929,31 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 		if (drop !== undefined)
 			push(overlayDropEvent(events[drop].context, (n) => mapSymbol(activeMapping, n)));
 	};
+	// Each spin's expanding and growing wilds, presented with its board (`./wildRewrite`).
+	const wildRewrites = wildRewritesBySpin(events);
+	if (wildRewrites.ambiguous && !warnedWildDrift.has(`${sid}:spans`)) {
+		warnedWildDrift.add(`${sid}:spans`);
+		console.warn(
+			'[engine-facade] expanding/growing wilds in a response with two boards and no spinStart between them — presented with the later board',
+		);
+	}
+	const pushWildRewritesOf = (spin: number, landed: string[][]) => {
+		const rewrites = wildRewrites.bySpin.get(spin);
+		if (!rewrites) return;
+		const out = translateWildRewrites(
+			rewrites,
+			landed,
+			(name) => mapSymbol(activeMapping, name),
+			BOARD_PADDING_ROWS,
+		);
+		out.bookEvents.forEach(push);
+		if (out.drift && !warnedWildDrift.has(sid)) {
+			warnedWildDrift.add(sid);
+			console.warn(
+				`[engine-facade] ${out.drift} wild cell(s) changed from a symbol the board does not hold — the server and the client read different boards`,
+			);
+		}
+	};
 	const pushFillsOf = (spin: number) => {
 		for (const at of ahead.get(spin)?.meters ?? [])
 			push(meterUpdateEvent((events[at].context ?? {}) as Record<string, unknown>));
@@ -1053,6 +1081,8 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 	};
 
 	for (const [i, e] of events.entries()) {
+		// Read with its spin's board (`pushWildRewritesOf`).
+		if (wildRewrites.consumed.has(i)) continue;
 		if (overlay) closeFreeSpinsBefore(e);
 		const ruleless = !inRuleless ? opensRuleless(i, e) : undefined;
 		if (ruleless !== undefined) {
@@ -1156,6 +1186,8 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				});
 				// The tokens dropped on this board appear with it, before anything it pays (§3.2).
 				pushDropOf(i);
+				// Its wilds expand and grow next, before the wins, which are the final board's.
+				pushWildRewritesOf(i, reels);
 				// AFTER the natural board lands, if this is a free spin and 3+ of the
 				// special symbol are on the board, tell the client which reels to
 				// morph (every non-special cell in those reels becomes the special,

@@ -15,6 +15,7 @@
 		resolveWinLevels,
 		resolveWinModel,
 		resolveCascade,
+		rewritesBoard,
 		cascadeDefaultFor,
 		configSectionsOf,
 		configShowsPays,
@@ -76,6 +77,7 @@
 	import CoinOverlaySection from './CoinOverlaySection.svelte';
 	import FamilySection from './FamilySection.svelte';
 	import GameModesSection from './GameModesSection.svelte';
+	import WildsSections from './WildsSections.svelte';
 	import {
 		adoptSaved,
 		baseWidthGameTypes,
@@ -976,6 +978,9 @@
 	 * leaves a symbol out; a reel count at the default is not stored.
 	 */
 	const offersExpandingSymbol = $derived(!bookGame && winModelType === 'lines');
+	/** Expanding and growing wilds change cells before the line count, so they need a lines game that
+	 *  does not tumble; not a Book-of kind (its book mock deals its own) or a Hold and Win game. */
+	const offersLandingWilds = $derived(!bookGame && !winModelLinesOnly && rewritesBoard(snapshot));
 	/** The panel shows its own issues; while it is hidden the section lists them. */
 	const expandingShown = $derived(offersExpandingSymbol && freeSpins.enabled);
 	const expandingBlock = $derived(doc.freeSpins?.expandingSymbol);
@@ -2681,6 +2686,16 @@
 				{/each}
 			</div>
 		{/snippet}
+
+		<WildsSections
+			bind:doc
+			{issuesFor}
+			readOnly={lease.readOnly}
+			offered={offersLandingWilds}
+			expanding={sections.has('expandingWilds')}
+			growing={sections.has('growingWild')}
+			freeSpins={offersFreeSpins}
+		/>
 
 		<!-- Reel behaviour --------------------------------------------------------->
 		{#if sections.has('reelBehaviour')}

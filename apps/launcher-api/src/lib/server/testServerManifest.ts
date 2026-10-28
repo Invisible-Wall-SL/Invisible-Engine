@@ -390,6 +390,12 @@ export interface TestServerGameEntry {
 		 *  drawn as when free spins start, in SERVER names, with its draw weight and the fewest reels
 		 *  it must cover to expand and pay. Absent ⇒ no special. See `projectExpandingSymbol`. */
 		expandingSymbol?: { candidates: { symbol: string; weight: number; minReels: number }[] };
+		/** Expanding wilds (lines mock, a `lines` win model with no tumble): each wild in SERVER
+		 *  names with the reels its base strips deal it on. Absent ⇒ none.
+		 *  See `projectWildRewrite`. */
+		expandingWilds?: { symbols: { symbol: string; reels: number[] }[] };
+		/** The growing wild (same gate), in SERVER names, every default resolved. Absent ⇒ none. */
+		growingWild?: { symbol: string; reels: number[]; freeSpinReels: number[]; pattern: string };
 		/** `true` when the in-play scatter is also wild (a Book-of book): the lines mock substitutes
 		 *  `SCAT` on lines and declares it in `wildSymbols`. Absent ⇒ the scatter is only a scatter. */
 		scatterWild?: true;
