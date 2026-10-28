@@ -9,7 +9,7 @@
 # ONE RUNTIME PER FAMILY (docs/design/phase-11.md §2.3): `lines` (every slot kind), `match3`,
 # `arcade` and `card` are all built from `apps/lines`, each with the `PUBLIC_IE_FAMILIES` its id
 # carries — the list is `RUNTIMES` in packages/constants-shared/runtimes.ts, which publish reads to
-# point a game at its family's id. `lines` is slot only (P11.1c).
+# point a game at its family's id. `lines` is still built with every family until P11.1c.
 #
 # AUTOMATIC on merge — a `push` to `main` that touches the engine (`apps/lines/**` or `packages/**`)
 # auto-builds + publishes all four runtimes, so a merged engine fix reaches the online games with
@@ -176,8 +176,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # The families this id's build compiles in (`releaseFamiliesOf`): `slot` for `lines`, the id's
-      # own family otherwise. Always written out from the list, never left blank:
+      # The families this id's build compiles in (`releaseFamiliesOf`): `all` for `lines` until
+      # P11.1c, the id's own family otherwise. Always written out from the list, never left blank:
       # a blank value counts as `all`, so a lost value would silently ship every family.
       - name: Read the ${{ matrix.runtime }} runtime's families
         id: families
