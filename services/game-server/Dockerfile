@@ -22,8 +22,13 @@ COPY packages/engine-mechanics/package.json packages/engine-mechanics/index.ts /
 COPY packages/engine-mechanics/src /app/packages/engine-mechanics/src
 COPY packages/game-config/package.json packages/game-config/index.ts /app/packages/game-config/
 COPY packages/game-config/src /app/packages/game-config/src
+# Also linked at /app/node_modules: Node resolves a package's imports from its real path, so
+# game-config's own `import 'engine-mechanics'` looks under /app/packages/…, never here.
 RUN ln -s /app/packages/engine-mechanics node_modules/engine-mechanics \
-	&& ln -s /app/packages/game-config node_modules/game-config
+	&& ln -s /app/packages/game-config node_modules/game-config \
+	&& mkdir -p /app/node_modules \
+	&& ln -s /app/packages/engine-mechanics /app/node_modules/engine-mechanics \
+	&& ln -s /app/packages/game-config /app/node_modules/game-config
 COPY services/game-server/src ./src
 
 ENV NODE_ENV=production

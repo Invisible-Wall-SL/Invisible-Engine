@@ -148,6 +148,12 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-28 — **Game server boots again.** Since C3 (#1426) `game-config/src/cardGame.ts` imports
+  `engine-mechanics`, and Node resolves that from the package's real path (`/app/packages/…`), where
+  the image had no `node_modules`; the server crashed with `ERR_MODULE_NOT_FOUND` and every deploy
+  failed its `/healthz` check. `services/game-server/Dockerfile` now also links both workspace
+  packages under `/app/node_modules`. Verified on a copy of the image's file layout: boots,
+  `/healthz` 200.
 - 2026-10-27 — **The Invisible Game Server is live** (owner): Railway service `game-server`
   (`game-server-production-eda5.up.railway.app`), custom domain `rooms.invisiblewall.org` (Cloudflare
   CNAME, DNS-only); `/healthz` answered `{"ok":true,"commit":"b0a7f9e4638f","rooms":0}`. It is now in
