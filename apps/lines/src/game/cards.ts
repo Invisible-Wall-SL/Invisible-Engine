@@ -171,6 +171,8 @@ function unseat(uid: number) {
 	if (!card) return;
 	live.despawn(card.id);
 	unregisterInstanceValues(card.id);
+	// A card gone mid-drag never ends its drag.
+	if (stray === uid) stray = 0;
 	uidOf.delete(card.id);
 	seated.delete(uid);
 }
@@ -329,6 +331,7 @@ function onCardEvent(instanceId: string, event: string) {
 			stray = uid;
 			return;
 		}
+		stray = 0;
 		dragging = true;
 		stateCards.picked = uid;
 		relight();

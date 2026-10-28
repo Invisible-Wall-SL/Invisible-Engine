@@ -61,7 +61,7 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
   `expandingSymbol.fixture`, `check:match3-wire`'s unknown family, `check:stock-asset-coverage`,
   `flow-spike v2holdandwin`, `owners.json` `kind:card` gap). Played in a real browser by
   `scripts/playtest/card-play.mjs` ([playtest](../playtest/card-sample.md)).
-- **Bundle:** the shared runtime grows **+51.6 KB raw / +17.4 KB gz** for every game (`index.html`,
+- **Bundle:** the shared runtime grows **+52.4 KB raw / +17.7 KB gz** for every game (`index.html`,
   main 724b41e vs this branch), mostly `cards.js` and `cardAi.js`, then the card reference layout.
   Owner call (open item 0a).
 
@@ -1863,7 +1863,7 @@ game, bundle or screen changes.
 
 ## Open items / next
 
-0a. **Card C3 follow-ups:** (a) the **bundle cost** (+17.4 KB gz for every game; owner): accept
+0a. **Card C3 follow-ups:** (a) the **bundle cost** (+17.7 KB gz for every game; owner): accept
    until the per-family runtime build (item 9), as P10.14's; (b) the placeholder frame has looks but
    no state machine: an authored frame's states (§6) need timelines; (c) a real deck picker (the
    starter's deck pick is a tap); (d) hero portraits do not light `targetable`; a dragged card is not
@@ -1936,7 +1936,7 @@ game, bundle or screen changes.
 - 2026-10-28 — **Card C3 built: playable end to end** (the `card` family, `GameConfigDoc.card`, the
   card table runtime, `CARD_VOCAB` and its starter, the Game Maker scene set and sample, the
   placeholder frame, `check:card-family`, `check:card-runtime`). Slot, match-3 and arcade unchanged
-  by design; bundle +17.4 KB gz. Detail above.
+  by design; bundle +17.7 KB gz. Detail above.
 - 2026-10-27 — **Card C2 built: the AI** (`engine-mechanics` `cardAi.js`, `check:card-ai`), and the
   two design points C1 raised fixed in card-games.md. No caller, no game changes. Detail above.
 - 2026-10-27 — **P10.15 built: netcode and the online rules (A4b).** Own-player prediction and

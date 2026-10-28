@@ -589,6 +589,8 @@ presentation and game flow (menus, the deck pick, the result screen), never rule
   readout or a button looks its source up once, when it mounts.
 - **Signal payloads:** a card is its library id (`card`, `attacker`), a target a unit's card id or
   `myHero` / `enemyHero`, `matchReady.first` a bool (true when the player starts).
+- **A flow action raised inside a chain is queued** (`flowAct`) and taken, if the rules allow it,
+  when it reaches the front; a chain that waits (a turn timer) holds the match while it waits.
 - **The device's pace** is the driver's `deviceDelayMs` (600 ms) before each action, presentation
   only (§4.3). A new match after the first is seeded `${seed}:${n}`, so each replays.
 - **The config validator runs `cards.js`'s `validateLibrary`:** `game-config` depends on
