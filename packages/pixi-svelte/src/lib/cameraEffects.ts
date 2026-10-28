@@ -26,6 +26,7 @@ import { RGBSplitFilter } from 'pixi-filters';
 import { CAMERA_EFFECT_KINDS, type CameraEffectKind } from 'constants-shared/camera';
 
 import { compileFilter } from './gpuWarmup';
+import { setStageFilters } from './screenFx/stageFilters';
 
 export { CAMERA_EFFECT_KINDS, type CameraEffectKind };
 
@@ -101,12 +102,9 @@ type CameraRuntime = {
 	/** The stage's resting transform, captured before the first effect touches it. */
 	base: { x: number; y: number; scaleX: number; scaleY: number };
 	flashSprite?: PIXI.Sprite;
+	/** In the stage filter owner's camera slot (`screenFx/stageFilters.ts`), which bounds it to the
+	 *  viewport under the transform written here. */
 	chromaFilter?: RGBSplitFilter;
-	/** The stage-local rect the chroma pass is bounded to; recomputed per frame. */
-	filterArea?: PIXI.Rectangle;
-	/** Whatever was on the stage before the chroma filter displaced it, restored on release. */
-	priorFilters?: readonly PIXI.Filter[];
-	priorFilterArea?: PIXI.Rectangle;
 	tick: () => void;
 };
 
@@ -168,25 +166,12 @@ const releaseFlashSprite = (runtime: CameraRuntime): void => {
 
 const ensureChromaFilter = (runtime: CameraRuntime): RGBSplitFilter => {
 	if (runtime.chromaFilter) return runtime.chromaFilter;
-	const stage = runtime.app.stage;
 	const filter = new RGBSplitFilter({
 		red: { x: 0, y: 0 },
 		green: { x: 0, y: 0 },
 		blue: { x: 0, y: 0 },
 	});
-	// Remember what was on the stage so detach RESTORES it rather than assuming we were the only
-	// filter. Nothing else filters the stage today, but silently eating a future global colour grade
-	// the first time an author fires a wobble is not a trade worth making.
-	runtime.priorFilters = stage.filters;
-	runtime.priorFilterArea = stage.filterArea;
-	// Bound the filter pass to the viewport rather than letting Pixi derive it from the stage's
-	// children (slower, and larger than the screen — padding reels sit outside it). `filterArea` is
-	// LOCAL: `FilterSystem` multiplies it by the container's worldTransform, and this module is what
-	// writes that transform — so it is recomputed per frame in `applyCameraSample`, never set to
-	// `app.screen`. Pinned to a rect we own, since Pixi mutates `app.screen` on resize.
-	runtime.filterArea = new PIXI.Rectangle();
-	stage.filterArea = runtime.filterArea;
-	stage.filters = [filter];
+	setStageFilters(runtime.app, 'camera', [filter]);
 	runtime.chromaFilter = filter;
 	return filter;
 };
@@ -207,16 +192,9 @@ export const prewarmCameraEffects = (
 
 const releaseChromaFilter = (runtime: CameraRuntime): void => {
 	if (!runtime.chromaFilter) return;
-	const stage = runtime.app.stage;
-	if (stage && !stage.destroyed) {
-		stage.filters = [...(runtime.priorFilters ?? [])];
-		stage.filterArea = runtime.priorFilterArea;
-	}
+	setStageFilters(runtime.app, 'camera', []);
 	runtime.chromaFilter.destroy();
 	runtime.chromaFilter = undefined;
-	runtime.filterArea = undefined;
-	runtime.priorFilters = undefined;
-	runtime.priorFilterArea = undefined;
 };
 
 /** Apply the accumulated frame to the stage. `zoom` scales about the VIEWPORT centre rather than
@@ -252,16 +230,9 @@ const applyCameraSample = (runtime: CameraRuntime, total: CameraSample): void =>
 		sprite.height = cover;
 	}
 
-	if (runtime.chromaFilter && runtime.filterArea) {
+	if (runtime.chromaFilter) {
 		runtime.chromaFilter.redX = total.chroma;
 		runtime.chromaFilter.blueX = -total.chroma;
-		// `filterArea` is stage-LOCAL and gets multiplied by the transform written above, so a rect
-		// of `app.screen` would RIDE a concurrent shake and clip a blank strip off the screen edge.
-		// Invert the transform so the filtered region stays exactly the viewport.
-		runtime.filterArea.x = -stage.position.x / stage.scale.x;
-		runtime.filterArea.y = -stage.position.y / stage.scale.y;
-		runtime.filterArea.width = app.screen.width / stage.scale.x;
-		runtime.filterArea.height = app.screen.height / stage.scale.y;
 	}
 };
 
