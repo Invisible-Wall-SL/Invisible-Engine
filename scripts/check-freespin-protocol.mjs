@@ -16,6 +16,7 @@
 
 import { createServer, request } from 'node:http';
 
+import { fairyCloverPreset } from '../packages/game-config/src/fairyCloverPreset.ts';
 import { freeSpinsAwardFor } from '../packages/game-config/src/freeSpins.ts';
 import { createMockRgs, MAX_ROUND_FREE_SPINS } from './mock-rgs-server.mjs';
 
@@ -633,7 +634,13 @@ console.log('\n§16 — a two-scatter trigger (Fairy Clover): 2+ open it, 2+ ret
 		retrigger: [{ count: 2, spins: 10 }],
 		random: false,
 	};
+	// Fairy Clover's own board, as its mock contract sends it: 5×4, its 50 lines, 2 SCAT pay 1×.
+	const fairy = fairyCloverPreset();
 	const { post, close } = await boot({
+		reels: fairy.numReels,
+		rows: fairy.numRows[0],
+		paylines: Object.values(fairy.paylines),
+		scatterPaytable: { 2: 1 },
 		freeSpinsTrigger: { symbol: 'SCAT', count: 2 },
 		freeSpinsAwards: rule,
 		startBalance: 100_000_000,
@@ -645,11 +652,13 @@ console.log('\n§16 — a two-scatter trigger (Fairy Clover): 2+ open it, 2+ ret
 	let missed = 0;
 	let badRetrigger = 0;
 	let over = 0;
+	let tall = 0;
 	const audited = [];
 	for (let i = 0; i < 60; i++) {
 		const round = await playRound(post, sid);
 		const triggered = round.spins.some((s, n) => n === 0 && ev(s, 'spinTrigger'));
 		if (triggered !== countOn(baseBoard(round), 'SCAT') >= 2) disagree++;
+		if (baseBoard(round).some((reel) => reel.length !== 4)) tall++;
 		if (!triggered) continue;
 		opened++;
 		const f = auditRound(round, rule);
@@ -665,6 +674,7 @@ console.log('\n§16 — a two-scatter trigger (Fairy Clover): 2+ open it, 2+ ret
 			} else if (landed >= 2 && total + 10 <= MAX_ROUND_FREE_SPINS) missed++;
 		}
 	}
+	check(tall === 0, 'every board is 4 rows deep', ` (${tall})`);
 	check(disagree === 0, 'a round opens exactly when 2+ SCAT land', ` (${disagree})`);
 	check(opened > 0, 'the feature opens naturally', ` (${opened}/60)`);
 	check(broken(audited).length === 0, 'every feature deals 10, its counter runs down to 0, it closes', ` (${broken(audited).join(', ') || `${audited.length} features`})`); // prettier-ignore

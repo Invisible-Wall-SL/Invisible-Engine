@@ -793,6 +793,23 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-28 — **Fairy Clover, a second lines preset** (branch `lines/fairys-charm-preset`).
+  `fairyCloverPreset()` (`packages/game-config/src/fairyCloverPreset.ts`) → generated
+  `lines.fairyClover.json`, from Slotmotion's _Fairy's Charm_ (`docs/reference/fairys-charm-capture.json`):
+  5×4, its 50 lines, its paytable in our ids (H1–H5, L1–L5), `W` (fairy) and `CL` (clover) wilds with
+  no paytable, `S` paying `{2: 1}` × total bet, free spins on 2 `S` → 10, +10 on 2 more (≈ +0.20 spins
+  per spin on its freegame strips), one base mode (cost 1, no buy), the lines win levels. Strips:
+  the boot-config base set as `basegame` (the reference draws one of five weighted sets) and its
+  free-spin set as `freegame`, so **RTP 0.96 and max win 5000 are placeholders** until the maths is
+  tuned. Registered as lines preset `fairyClover` ("Fairy Clover"): `/config`'s Reset to preset and
+  Game Maker's Preset picker, scaffolded from the **lines** scene set (its board sizes from the
+  config; the Book-of set carries a 5×3 reel-grid node). **Gates:** `check:fairy-clover-preset`
+  (in `check:rgs`: preset vs capture through `symbolMap`, committed JSON vs preset),
+  `check:lines-presets`, `check:project-scaffold`, `check:family-defaults-identity`,
+  `check:game-config-defaults`. **Known gaps:** `CL` has no stock art (draws nothing until bound in
+  `/symbols`); the lines mock deals neither `W` nor `CL` (a wild without a paytable is not sent in the
+  mock contract) and does not deal from the strips, so its retriggers hit `MAX_ROUND_FREE_SPINS`
+  often; the `expandingWilds` / `growingWild` blocks wait on the `lines/expanding-growing-wilds` work.
 - 2026-10-28 — **The free-spin trigger floor is measured on the freegame strips** (branch
   `lines/fairys-charm-preset`). A trigger count of 3 or more validates exactly as before. Below 3,
   `retriggerSpinsPerSpin` computes, exactly, the spins a retrigger adds per free spin played: per reel

@@ -1,6 +1,6 @@
 # Lines — family knowledge
 
-What is always true about payline slots, the Book of Thermopylae preset and free spins, and what has
+What is always true about payline slots, the Book of Thermopylae and Fairy Clover presets and free spins, and what has
 gone wrong with them. Owner agent: `lines-games`.
 
 ## What it is and must stay
@@ -76,7 +76,16 @@ gone wrong with them. Owner agent: `lines-games`.
   (lines win model only, no base-game Hold and Win, one book).
 - **The preset and the capture are one game.** `bookOfThermopylaePreset()`
   (`packages/game-config/src/bookOfPresets.ts`) equals `BOOK_OF_THERMOPYLAE` in
-  `scripts/mock-rgs-server-book.mjs` through `bookMapping`: `check:book-preset`.
+  `scripts/mock-rgs-server-book.mjs` through `bookMapping`: `check:book-preset`. Likewise
+  `fairyCloverPreset()` (`packages/game-config/src/fairyCloverPreset.ts`) equals
+  `docs/reference/fairys-charm-capture.json` through its `symbolMap`, and the committed JSON equals
+  the preset: `check:fairy-clover-preset`. Its strips are ONE of the reference's five weighted base
+  sets, so its RTP (0.96) is a placeholder, not the reference's.
+- **A free-spin trigger below 3 needs freegame strips that end it.** `retriggerSpinsPerSpin`
+  (`packages/game-config/src/freeSpins.ts`) measures the spins a retrigger adds per free spin exactly
+  on the `freegame` strips; 0.5 or more, or no strips, is an error. The lines mock does not deal from
+  the strips, so on the test server a 2-scatter game retriggers far more often than its strips say
+  and `MAX_ROUND_FREE_SPINS` ends the round.
 - **Only in-play symbols are drawn** (`getSymbolsInPlay`), including the book shuffle.
 - **Determinism:** `?ie_determinism=<seed>` (`apps/lines/src/game/determinism.ts`) makes two renders
   of one forced book pixel-identical; the current-games harness depends on it.
@@ -92,12 +101,12 @@ gone wrong with them. Owner agent: `lines-games`.
 | Book anticipation                            | `apps/lines/src/game/anticipation.ts`                                                                                                                      |
 | Board state, config resolver                 | `packages/engine-game/src/game/gameState.svelte.ts`, `packages/engine-game/src/game/gameConfig.ts`                                                         |
 | Coded symbol map                             | `apps/lines/src/game/constants.ts` (`SYMBOL_INFO_MAP`)                                                                                                     |
-| Config: free spins, expanding symbol, preset | `packages/game-config/src/freeSpins.ts`, `expandingSymbol.ts`, `bookOfPresets.ts`                                                                          |
+| Config: free spins, expanding symbol, preset | `packages/game-config/src/freeSpins.ts`, `expandingSymbol.ts`, `bookOfPresets.ts`, `fairyCloverPreset.ts`                                                  |
 | Book-of flow choreography                    | `packages/engine-flow-v2/src/reference/bookOfChoreo.ts`                                                                                                    |
 | Wire translation                             | `packages/rgs-translator-eagaming/src/engineFacade.ts`, `gameMappings.ts` (`linesMapping`, `bookMapping`, `pickMappingForConfig`)                          |
 | Mocks                                        | `scripts/mock-rgs-server.mjs` (lines), `scripts/mock-rgs-server-book.mjs` (book)                                                                           |
 | Kind retirement and migration                | `apps/launcher-api/src/lib/server/gameKinds.ts`, `bookOfMigration.ts`, `mockProtocol.ts`                                                                   |
-| Preset JSON                                  | `apps/launcher-api/src/lib/data/gameConfig/lines.bookOfThermopylae.json`                                                                                   |
+| Preset JSON                                  | `apps/launcher-api/src/lib/data/gameConfig/lines.bookOfThermopylae.json`, `lines.fairyClover.json`                                                         |
 
 ## Known failure modes
 
