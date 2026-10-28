@@ -139,6 +139,12 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-28 — **Game server boots again.** Since C3 (#1426) `game-config/src/cardGame.ts` imports
+  `engine-mechanics`, and Node resolves that from the package's real path (`/app/packages/…`), where
+  the image had no `node_modules`; the server crashed with `ERR_MODULE_NOT_FOUND` and every deploy
+  failed its `/healthz` check. `services/game-server/Dockerfile` now also links both workspace
+  packages under `/app/node_modules`. Verified on a copy of the image's file layout: boots,
+  `/healthz` 200.
 - 2026-10-28 — **`draft-player` is live** (owner): Railway service `draft-player`, private only
   (`draft-player.railway.internal:8080`), built from `services/draft-player/Dockerfile` on its first
   try. Its log printed `[draft-player] listening on :8080` with the headless shell found, and a
