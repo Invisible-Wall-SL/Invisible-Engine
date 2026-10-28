@@ -296,6 +296,20 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
+- 2026-10-28 — **"Show the symbol as an image" has a size.** New `toast.symbolImageSize` (`winText.ts`
+  type + `WIN_TEXT_DEFAULTS` 100 + `resolveWinText`; range `SYMBOL_IMAGE_SIZE_MIN`/`MAX` = 25–300):
+  the inline symbol's height as a percent of the text's, info bar only. Storage validates it
+  (`z.number().int()` in range, refused on a save) and persists it only when it isn't 100. The page
+  shows a slider + number under the toggle while it is ticked. It travels to the renderer INSIDE the
+  sentinel: `wrapInlineImage(token, fallback, scale)` appends `U+E003<scale>` to the token when the
+  scale isn't 1 (so an unsized sentinel keeps its exact bytes), `parseInlineImageSegments` returns a
+  `scale` per image (1 when absent or malformed), and `InlineImageText` sizes each image at
+  `min(textHeight × scale, box content height)` — still out of the auto-fit, so a bigger symbol never
+  shrinks the words. `flowEffects.ts` passes `symbolImageSize / 100`. Gates: `check:win-text-doc` §3b
+  (kept / default pruned / default resolves to 100 / out of range is a 400),
+  `test-inline-image-box.mjs` §7 (round trip, scale 1 adds no bytes, 1.5× height with the words
+  unchanged, the plaque still bounds a 3× symbol, malformed → 1). Owed: an owner pass on the live bar.
+
 - 2026-10-26 — **Each Hold and Win feature line picks where it shows: Board banner, Info bar, Both
   or Off.** Clearing a feature box only brings its default back (blanks prune to unset), so an author
   could neither hide a line nor move one: the game hard-wired seven lines to the board banner and three

@@ -1104,7 +1104,7 @@
 		}
 	},
 	"packages/engine-layout": {
-		"errors": 291,
+		"errors": 290,
 		"byFile": {
 			"packages/engine-layout/scopedFrameRef.fixture.ts": {
 				"ts:2591": 1
@@ -1154,7 +1154,6 @@
 			},
 			"packages/engine-layout/scripts/test-inline-image-box.mjs": {
 				"ts:1378": 4,
-				"ts:2345": 1,
 				"ts:2591": 6,
 				"ts:7006": 14,
 				"ts:7031": 6

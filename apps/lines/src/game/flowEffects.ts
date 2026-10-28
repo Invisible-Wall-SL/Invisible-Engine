@@ -388,7 +388,11 @@ export const showWinInfoMessage = ({
 			winText.toast.symbolAsImage && symbol !== undefined && vars.symbolName !== undefined
 				? formatWinText(template, {
 						...vars,
-						symbolName: wrapInlineImage(symbol, vars.symbolName),
+						symbolName: wrapInlineImage(
+							symbol,
+							vars.symbolName,
+							winText.toast.symbolImageSize / 100,
+						),
 					})
 				: undefined;
 		showGameMessage(text, { kind: messageKind, durationMs, richText });
