@@ -83,6 +83,10 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 			/** What the game draws riding this cell while it rolls (`reelOptions.riders`). The reel
 			 *  never reads it; `undefined` on every cell of a game that passes no riders. */
 			rider: undefined as unknown,
+			/** A roll's filler (`paddingSymbolsOf`): it never comes to rest, never wins and is dropped
+			 *  when the reel lands, so the board may draw it through a pooled view rather than a
+			 *  component of its own (`ReelPaddingPool`). `false` on every board cell. */
+			padding: false,
 		});
 
 		return reelSymbol;
@@ -105,6 +109,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	const paddingSymbolsOf = (rawSymbols: TRawSymbol[]) => {
 		const riders = reelOptions.riders;
 		const reelSymbols = createReelSymbols(rawSymbols);
+		for (const reelSymbol of reelSymbols) reelSymbol.padding = true;
 		return riders ? withRiders(reelSymbols, riders.padding) : reelSymbols;
 	};
 
@@ -495,7 +500,11 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 			// which is the only thing that concatenates the two. That ordering is what keeps a spin
 			// strip free of the same cell twice.
 			// A settled strip carries no riders: what landed riding a cell is the game's to draw at rest.
-			reelSymbols.forEach((reelSymbol) => (reelSymbol.rider = undefined));
+			// Nor filler: whatever it lands on is the board, drawn as board cells are.
+			reelSymbols.forEach((reelSymbol) => {
+				reelSymbol.rider = undefined;
+				reelSymbol.padding = false;
+			});
 			prevSymbols = [...reelSymbols];
 			targetSymbols = [...reelSymbols];
 			paddingRawReel = reelOptions.initialSymbols;

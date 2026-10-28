@@ -25,6 +25,9 @@
 		 *  above the visible window, which is what {@link PADDING_ROW} takes back off. */
 		row: number;
 		reelSymbol: ReelSymbol;
+		/** Set by `ReelPaddingPool` only: this view is pooled and is handed one roll filler after
+		 *  another, each with its own key, so the art inside restarts per cell as a new mount would. */
+		instanceKey?: number;
 	};
 
 	const props: Props = $props();
@@ -174,6 +177,7 @@
 		{zIndex}
 		reelIndex={props.reelIndex}
 		scale={seat.scale}
+		keepMounted={props.instanceKey !== undefined}
 		animating={symbolInfo.type === 'spine' &&
 			ANIMATING_SYMBOL_STATES.includes(props.reelSymbol.symbolState)}
 	>
@@ -182,6 +186,7 @@
 			rawSymbol={props.reelSymbol.rawSymbol}
 			winLineColor={props.reelSymbol.winLineColor}
 			tint={dimmed ? SYMBOL_DIM_TINT : 0xffffff}
+			instanceKey={props.instanceKey}
 			oncomplete={() => {
 				const state = props.reelSymbol.symbolState;
 				// EVERY STATE A BEAT DRIVES reports straight through, whoever armed it — and WITHOUT
@@ -226,7 +231,7 @@
 			}}
 		/>
 		{#if rider}
-			<Symbol state="static" rawSymbol={rider} />
+			<Symbol state="static" rawSymbol={rider} instanceKey={props.instanceKey} />
 		{/if}
 	</SymbolWrap>
 {/if}
