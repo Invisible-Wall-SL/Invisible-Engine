@@ -1,6 +1,6 @@
 # Game families (Phase 10) — status
 
-> Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `match3-games`, `arcade-games` (`invisible-game-config` for `/config`, `invisible-game-maker` for Game Maker)
+> Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `match3-games`, `arcade-games`, `card-games` (`invisible-game-config` for `/config`, `invisible-game-maker` for Game Maker)
 
 **One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1–P10.8, P10.11, P10.12 and
 P10.14 are merged; P10.13 (gravity, jumps and levels) and P10.15 (A4b, netcode and the online
@@ -2120,6 +2120,9 @@ game, bundle or screen changes.
 
 ## Recent changes
 
+- 2026-10-28 — **The `card-games` build agent** (owner, 2026-10-28) owns the card family end to end:
+  `.claude/agents/card-games.md`, `docs/knowledge/families/card.md`, `owners.json` (`kind:card`,
+  `tool:cards`; both named gaps closed).
 - 2026-10-28 — **Card C4 built: Invisible Card Library (`/cards`)** — cards in their frame, the
   closed-list effect form, decks, the test match and Run 100, `check:cards-tool`, its guide. No game
   runtime change. Detail above.
