@@ -1,15 +1,20 @@
 import { resolveArcade, resolveArcadeOnline, resolveFamily, resolveOutcome } from './family';
-import type { ArcadeBody, ResolvedArcadeOnline } from './family';
+import type { ArcadeBrain } from './arcadeCharacters';
+import type { ArcadeBody, ArcadeZone, ResolvedArcadeOnline } from './family';
 import { validateFamily } from './familyValidate';
 import type { GameConfigDoc } from './types';
 
-/** An online arcade game as its room plays it (P10.14): one answer the game server and a device
- *  both derive from the same config, so the two step the same field at the same rates. */
+/** An online arcade game as its room plays it (P10.14, P10.15): one answer the game server and a
+ *  device both derive from the same config, so the two step the same field at the same rates. */
 export type OnlineGame = {
 	field: { w: number; h: number };
 	online: ResolvedArcadeOnline;
 	/** The arcade bodies by component id: a character's `body` names one. */
 	bodies: Record<string, ArcadeBody>;
+	/** The field's zones: `online.rules.zones` gives some of them a part in the rules. */
+	zones: ArcadeZone[];
+	/** The brains the room's bots play with, by `arcade.characters` id (P10.16). */
+	brains: Record<string, ArcadeBrain>;
 };
 
 /**
@@ -27,5 +32,10 @@ export function onlineGameOf(
 	const field = arcade.field;
 	const online = field ? resolveArcadeOnline(doc, field) : undefined;
 	if (!field || !online) return { refused: 'arcade.field: an online game needs a field size' };
-	return { field, online, bodies: arcade.bodies };
+	const brains: Record<string, ArcadeBrain> = {};
+	for (const bot of online.bots.characters) {
+		const brain = arcade.characters.find((c) => c.id === bot.brain)?.brain;
+		if (brain) brains[bot.brain] = brain;
+	}
+	return { field, online, bodies: arcade.bodies, zones: arcade.zones, brains };
 }

@@ -3,11 +3,15 @@
 
 	import {
 		ARCADE_BODY_EDGES,
+		resolveCard,
 		ARCADE_FIXED_HZ_RANGE,
+		ARCADE_NETCODES,
+		ARCADE_ONLINE_DEFAULTS,
 		DEFAULT_ARCADE_FIXED_HZ,
 		DEFAULT_MATCH3_MIN_RUN,
 		resolveFamily,
 		resolveOutcome,
+		type ArcadeNetcode,
 		type ConfigFamily,
 		type GameConfigDoc,
 		type GameConfigIssue,
@@ -28,12 +32,16 @@
 		setBodySize,
 		setBodySolid,
 		setBodyTags,
+		setCardFirst,
+		setCardResource,
+		setCardRule,
 		setFamily,
 		setField,
 		setFixedHz,
 		setGoalField,
 		setMinRun,
 		setMoves,
+		setNetcode,
 		setOutcome,
 		setPairs,
 		setScoreTable,
@@ -66,6 +74,12 @@
 		slot: 'Slot — reels that spin',
 		match3: 'Match-3 — swap gems to match runs',
 		arcade: 'Arcade — a play field with moving objects',
+		card: 'Card — a duel against the device',
+	};
+
+	const NETCODE_LABELS: Record<ArcadeNetcode, string> = {
+		engine: 'Engine — our own prediction (default)',
+		colyseus: "Colyseus — the SDK's own prediction",
 	};
 
 	const family = $derived(resolveFamily(doc));
@@ -74,6 +88,21 @@
 	const stripSets = $derived(Object.keys(doc.paddingReels));
 	const bodies = $derived(Object.entries(doc.arcade?.bodies ?? {}));
 	const characterCount = $derived(doc.arcade?.characters?.length ?? 0);
+	const cardGame = $derived(resolveCard(doc));
+	const CARD_RULE_FIELDS = [
+		['startHealth', 'Hero health', 1],
+		['openingHand', 'Opening hand', 0],
+		['handLimit', 'Hand limit', 1],
+		['boardLimit', 'Board limit', 1],
+		['deckSize', 'Deck size', 1],
+		['maxCopies', 'Copies per deck', 1],
+		['turnLimit', 'Turn limit', 1],
+	] as const;
+	const CARD_RESOURCE_FIELDS = [
+		['start', 'Resource at start', 0],
+		['perTurn', 'Resource per turn', 0],
+		['max', 'Resource cap', 1],
+	] as const;
 	let newBody = $state('');
 	let newGoal = $state<'score' | 'collect'>('score');
 </script>
@@ -89,8 +118,8 @@
 	<p class="hint">
 		What kind of game this is. A <strong>slot</strong> spins reels. A <strong>match-3</strong>
 		board does not spin: the player swaps two gems, runs explode, the rest fall and refill. An
-		<strong>arcade</strong> game is a play field of moving objects. The page shows only the sections the
-		family uses.
+		<strong>arcade</strong> game is a play field of moving objects. A <strong>card</strong> game is a
+		duel against the device. The page shows only the sections the family uses.
 	</p>
 	<fieldset class="panel" disabled={readOnly}>
 		<div class="row">
@@ -114,7 +143,7 @@
 						<option value="rules">The game's rules — free play, no money</option>
 					</select></label
 				>
-			{:else if family === 'arcade'}
+			{:else if family === 'arcade' || family === 'card'}
 				<label
 					>Who decides the result<select value="rules" disabled>
 						<option value="rules">The game's rules — free play, no money</option>
@@ -133,6 +162,8 @@
 				{/if}
 				{#if family === 'arcade'}
 					An arcade game decided by the server is not built yet.
+				{:else if family === 'card'}
+					A card game is always decided by its own rules.
 				{/if}
 				It publishes to our test server; it is never built for a real-money delivery.
 			</p>
@@ -492,8 +523,78 @@
 					: `${characterCount} character${characterCount === 1 ? '' : 's'}.`}
 				<a href={resolve('/characters')}>Edit in Invisible Characters</a>
 			</p>
+			{#if doc.arcade?.online}
+				<span class="legend">Online</span>
+				<div class="row">
+					<label
+						>Netcode<select
+							value={doc.arcade.online.netcode ?? ARCADE_ONLINE_DEFAULTS.netcode}
+							onchange={(e) => setNetcode(doc, e.currentTarget.value)}
+						>
+							{#each ARCADE_NETCODES as netcode (netcode)}
+								<option value={netcode}>{NETCODE_LABELS[netcode]}</option>
+							{/each}
+						</select></label
+					>
+				</div>
+			{/if}
 		</fieldset>
 		{@render issueList('arcade')}
+	</section>
+{/if}
+
+{#if family === 'card'}
+	<section>
+		<h2>Card game</h2>
+		<p class="hint">
+			One player duels an AI on the device. Each side has a fixed <strong>deck</strong>, a hand, a
+			board of units, a hero with <strong>health</strong> and a <strong>resource</strong> that grows each
+			turn and pays for cards. The second player draws one card more than the opening hand.
+		</p>
+		<fieldset class="panel" disabled={readOnly}>
+			<div class="row">
+				{#each CARD_RULE_FIELDS as [key, label, min] (key)}
+					<label
+						>{label}<input
+							type="number"
+							{min}
+							value={cardGame.rules[key]}
+							oninput={(e) => setCardRule(doc, key, e.currentTarget.value)}
+						/></label
+					>
+				{/each}
+			</div>
+			<div class="row">
+				{#each CARD_RESOURCE_FIELDS as [key, label, min] (key)}
+					<label
+						>{label}<input
+							type="number"
+							{min}
+							value={cardGame.rules.resource[key]}
+							oninput={(e) => setCardResource(doc, key, e.currentTarget.value)}
+						/></label
+					>
+				{/each}
+				<label
+					>Who goes first<select
+						value={cardGame.rules.first}
+						onchange={(e) => setCardFirst(doc, e.currentTarget.value as 'player' | 'ai' | 'random')}
+					>
+						<option value="random">Random</option>
+						<option value="player">The player</option>
+						<option value="ai">The AI</option>
+					</select></label
+				>
+			</div>
+			<span class="legend">Cards and decks</span>
+			<p class="characters">
+				{cardGame.library.length} card{cardGame.library.length === 1 ? '' : 's'}, {cardGame.decks
+					.length} deck{cardGame.decks.length === 1 ? '' : 's'}. Until Invisible Card Library ships,
+				cards and decks are edited in <strong>Raw JSON</strong> (the <code>card.library</code> and
+				<code>card.decks</code> fields).
+			</p>
+		</fieldset>
+		{@render issueList('card')}
 	</section>
 {/if}
 

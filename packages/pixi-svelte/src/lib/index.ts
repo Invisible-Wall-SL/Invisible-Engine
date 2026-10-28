@@ -21,6 +21,10 @@ export * from './cameraEffects';
 export * from './anchors';
 // Element FX: shake / bend / light / break ONE container (a node, a screen, the reels).
 export * from './elementFx';
+// Which devices draw fewer pixels a frame (lower resolution, no antialiasing).
+export * from './renderTier';
+// The loader's last step: upload every texture and compile every program a game will draw with.
+export * from './gpuWarmup';
 // Press-and-hold on a pointer-up press surface (the spin button's hold-to-spin).
 export * from './pressHold';
 // The rotation `<RigBoneAttach followRotation>` gives a bone-bound child (and the `/fx` stage copies).

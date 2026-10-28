@@ -7,6 +7,11 @@ tools: Glob, Grep, Read, Edit, Write, Bash
 You own the launcher portal (`apps/launcher-api`). Read `apps/launcher-api/CLAUDE.md` first, then
 `docs/status/launcher.md` (current state + open items).
 
+## Read first
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/launcher.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
+
 ## What it is
 SvelteKit 2 (`adapter-node`) at `app.invisiblewall.org` (Railway service `launcher` + Postgres).
 Invite-only email+password auth (scrypt), sessions in Postgres/Drizzle, roles + per-role tool

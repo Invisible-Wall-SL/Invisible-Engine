@@ -11,3 +11,4 @@ export {
 	type MountedParticleMaterial,
 	type ParticleMaterialSpec,
 } from './mount';
+export { FX_DEBUG_PANEL_ID } from './debugPanel';

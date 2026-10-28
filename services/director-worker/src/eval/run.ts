@@ -1,5 +1,6 @@
 import { costOfResponse, type DirectorPricing } from 'director-costs';
 import { parseAgent, type AgentCatalog, type AgentDefinition } from '../agents.ts';
+import { parseFamilyPack, type FamilyPack } from '../familyPack.ts';
 import { ANALYST_AGENT, analyzeMockups, type Breakdown } from '../mockups/analyze.ts';
 import {
 	summarizeUsage,
@@ -37,6 +38,12 @@ export interface EvalInput {
 	beforeText: string | null;
 	/** The edited definition, as the PR head has it. */
 	afterText: string;
+	/**
+	 * The family pack each side runs with (`families/<family>.md`, ADR-0009 §4), as its checkout has
+	 * it; absent or null for a side whose checkout has no packs (a `main` from before 9F).
+	 */
+	beforePack?: PackFile | null;
+	afterPack?: PackFile | null;
 	headSha: string;
 	baseSha: string;
 	capUsd: number;
@@ -47,6 +54,23 @@ export interface EvalInput {
 }
 
 type Side = 'before' | 'after';
+
+/** A pack file: its name (the family) and its text. */
+export interface PackFile {
+	file: string;
+	text: string;
+}
+
+/** A side's pack, parsed: null for no pack, else the pack or the loader's errors. */
+function loadPack(
+	pack: PackFile | null | undefined,
+): { ok: true; pack: FamilyPack | null } | { ok: false; errors: string[] } {
+	if (!pack) return { ok: true, pack: null };
+	const parsed = parseFamilyPack(pack.file, pack.text);
+	return parsed.ok
+		? { ok: true, pack: parsed.pack }
+		: { ok: false, errors: parsed.errors.map((e) => `${pack.file}: ${e}`) };
+}
 
 interface Ledger {
 	calls: number;
@@ -184,22 +208,33 @@ const nothingRan = (result: 'invalid' | 'no-eval-set', errors: string[]): Outcom
 export async function runAgentEval(input: EvalInput): Promise<EvalReport> {
 	const edited = loadDefinition(input.agent, input.afterText, input.catalog);
 	if (!edited.ok) return finish(input, nothingRan('invalid', edited.errors));
+	const afterPack = loadPack(input.afterPack);
+	if (!afterPack.ok) return finish(input, nothingRan('invalid', afterPack.errors));
 	// Only the mockup analyst has a reference set so far (`mockupSet.ts`).
 	if (edited.agent.name !== ANALYST_AGENT) return finish(input, nothingRan('no-eval-set', []));
 
 	const notes: string[] = [];
 	let main: AgentDefinition | null = null;
+	let mainPack: FamilyPack | null = null;
 	if (input.beforeText !== null) {
 		const parsed = loadDefinition(input.agent, input.beforeText, input.catalog);
-		if (parsed.ok) main = parsed.agent;
-		else {
+		const pack = loadPack(input.beforePack);
+		if (!parsed.ok) {
 			notes.push(
 				`main's definition fails the loader, so there is no "before" run: ${parsed.errors.join('; ')}`,
 			);
+		} else if (!pack.ok) {
+			notes.push(
+				`main's family pack fails the loader, so there is no "before" run: ${pack.errors.join('; ')}`,
+			);
+		} else {
+			main = parsed.agent;
+			mainPack = pack.pack;
 		}
 	}
 
 	const definitions: Record<Side, AgentDefinition | null> = { before: main, after: edited.agent };
+	const packs: Record<Side, FamilyPack | null> = { before: mainPack, after: afterPack.pack };
 	const ledgers: Record<Side, Ledger> = {
 		before: { calls: 0, costUsd: 0, usages: [] },
 		after: { calls: 0, costUsd: 0, usages: [] },
@@ -230,6 +265,7 @@ export async function runAgentEval(input: EvalInput): Promise<EvalReport> {
 				adapters: referenceAdapters(),
 				model: transportFor(side),
 				agent,
+				pack: packs[side],
 				run,
 				pass,
 			});

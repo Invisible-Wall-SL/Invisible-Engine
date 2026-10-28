@@ -26,7 +26,8 @@
  *      named nowhere else, keeps its compiled effect in `shaderEffects` through the real runtime
  *      bundle (Publish) and the real bake script (driven against a portal answering through the
  *      real routes); a broken or deleted graph is named by `shaderEffectsMissing` and the bake's
- *      log; an unreachable effect, pruned, brings no material in.
+ *      log; an unreachable effect, pruned, brings no material in. A graph made for particles ships
+ *      its `madeFor` and its cost, which the game registers (8d.7: `?fxdebug=1` reads its load).
  *
  * `r2.ts` is an in-memory bucket honouring `If-Match` / `If-None-Match`; the tool gate, the
  * capability overrides, the deploy token, the project lookup and the deploy lock are stubbed. Run:
@@ -1270,7 +1271,12 @@ console.log('8. a particle material ships');
 {
 	for (const key of keysUnder(projectDir)) R2.delete(key);
 	for (const key of keysUnder(`${SHARED_SHADERS_PREFIX}/`)) R2.delete(key);
-	await storage.saveShader(CLIENT, PROJECT, { ...ref('pulseTint'), id: 'ember' }, null);
+	await storage.saveShader(
+		CLIENT,
+		PROJECT,
+		{ ...ref('pulseTint'), id: 'ember', madeFor: 'particles' },
+		null,
+	);
 	await storage.saveShader(CLIENT, PROJECT, { ...ref('frost'), id: 'orphan_glow' }, null);
 	await storage.saveShader(CLIENT, PROJECT, { ...broken, id: 'cracked_mat' }, null);
 	await storage.saveShader(CLIENT, PROJECT, { ...ref('frost'), id: 'gone' }, null);
@@ -1340,6 +1346,25 @@ console.log('8. a particle material ships');
 		'…and the game registers it',
 		setCustomElementFx(bundle.shaderEffects ?? []).map((e) => e.spec.kind),
 		['custom:ember'],
+	);
+	const pulseCost = analyzeShaderGraph(ref('pulseTint'));
+	const madeFor = (e: { madeFor?: string; cost?: number; samples?: number } | undefined) => [
+		e?.madeFor,
+		e?.cost,
+		e?.samples,
+	];
+	check(
+		'made for particles, it ships its madeFor and its cost, and the game keeps them (?fxdebug=1 reads its load)',
+		[
+			madeFor(bundle.shaderEffects?.[0]),
+			madeFor(setCustomElementFx(bundle.shaderEffects ?? [])[0]),
+			madeFor(set.effects.find((e) => e.spec.kind === 'custom:orphan_glow')),
+		],
+		[
+			['particles', pulseCost.cost, pulseCost.samples],
+			['particles', pulseCost.cost, pulseCost.samples],
+			[undefined, undefined, undefined],
+		],
 	);
 	setCustomElementFx([]);
 	check(

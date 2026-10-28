@@ -111,14 +111,14 @@ before — an un-authored project still runs the compiled template.
 - **Big win tiers** — the big-win celebrations the game plays, as an ordered list.
   See _Big win tiers_ below. Leave it empty to keep the game's built-in tiers.
 
-## Game family: match-3 and arcade
+## Game family: match-3, arcade and card
 
 Every project so far is a **slot**, and a slot project's page is exactly as described above: it
-has no family control at all. Two more families exist
+has no family control at all. Three more families exist
 ([game-families.md](../design/game-families.md)), and their configs can be authored here, though
 **none can be published yet** (below).
 
-- **Where the picker shows:** only on a project whose kind is `match3` or `arcade`, or whose
+- **Where the picker shows:** only on a project whose kind is `match3`, `arcade` or `card`, or whose
   config already names a family. [Game Maker](game-maker.md) creates a **Match-3** project with
   its config already set, by the answer to its **Who decides the result?**: for **Free play**,
   Match-3 decided by the game's rules, a 7×7 board of six gems, 20 moves, a score goal of 1500 and
@@ -128,28 +128,31 @@ has no family control at all. Two more families exist
   5+. An **Arcade** project starts as Arcade decided by its rules, with no field size (the
   layout's design size), the sample's four bodies and two collisions (see [Game Maker](game-maker.md)). On any other
   project the way in is **raw JSON**: add `"family": "arcade"`, apply, and the page re-renders
-  for that family.
-- **Game family** (the panel at the top): the **Family** (Slot / Match-3 / Arcade) and **Who
+  for that family. A **Card** project starts as Card decided by its rules, with the sample set
+  of 24 cards and two 15-card decks (one for the player, one for the AI) and a deck size of 15.
+- **Game family** (the panel at the top): the **Family** (Slot / Match-3 / Arcade / Card) and **Who
   decides the result**:
   - **The server (RGS) — real money**: the server decides every gem that falls and every win, so
     the game has a stake, bet modes and a paytable.
   - **The game's rules — free play, no money**: no stake, no balance and no wins in money.
-  An arcade game is always decided by its rules for now; one decided by the server is a later,
-  optional step. Choosing **Slot** removes the family and every family field, and the page is a
-  slot's again.
+    An arcade game is always decided by its rules for now; one decided by the server is a later,
+    optional step. A card game is always decided by its rules (a card config that says otherwise is
+    refused). Choosing **Slot** removes the family and every family field, and the page is a
+    slot's again.
 - **Only the family's sections are shown.** The rest are not rendered at all, and nothing they
   hold is checked, so a hidden section never blocks Save:
 
-  | Section | Slot | Match-3, RGS | Match-3, rules | Arcade |
-  |---|---|---|---|---|
-  | Return to player, Bet modes, Big win tiers | ✓ | ✓ | — | — |
-  | Grid | ✓ | ✓ (the board: columns × rows) | ✓ (the board) | — |
-  | Symbols | ✓ | ✓ (gems, with pays) | ✓ (gems, no pays, no import buttons) | — |
-  | How wins are decided | ✓ | ✓ (a read-only Match-3 line) | — | — |
-  | Sounds | ✓ | ✓ | ✓ | — |
-  | Free spins, Expanding symbol, Coins, Coin board, Coin overlay, Bonus modes, Game modes, Reel behaviour, Paylines | ✓ | — | — | — |
-  | Match-3 | — | ✓ | ✓ | — |
-  | Arcade | — | — | — | ✓ |
+  | Section                                                                                                          | Slot | Match-3, RGS                  | Match-3, rules                       | Arcade | Card |
+  | ---------------------------------------------------------------------------------------------------------------- | ---- | ----------------------------- | ------------------------------------ | ------ | ---- |
+  | Return to player, Bet modes, Big win tiers                                                                       | ✓    | ✓                             | —                                    | —      | —    |
+  | Grid                                                                                                             | ✓    | ✓ (the board: columns × rows) | ✓ (the board)                        | —      | —    |
+  | Symbols                                                                                                          | ✓    | ✓ (gems, with pays)           | ✓ (gems, no pays, no import buttons) | —      | —    |
+  | How wins are decided                                                                                             | ✓    | ✓ (a read-only Match-3 line)  | —                                    | —      | —    |
+  | Sounds                                                                                                           | ✓    | ✓                             | ✓                                    | —      | —    |
+  | Free spins, Expanding symbol, Coins, Coin board, Coin overlay, Bonus modes, Game modes, Reel behaviour, Paylines | ✓    | —                             | —                                    | —      | —    |
+  | Match-3                                                                                                          | —    | ✓                             | ✓                                    | —      | —    |
+  | Arcade                                                                                                           | —    | —                             | —                                    | ✓      | —    |
+  | Card game                                                                                                        | —    | —                             | —                                    | —      | ✓    |
 
 - **Match-3** — the board's rules. The board itself is the **Grid**: its reels are the columns,
   and every column must be the same height (a stepped match-3 board is refused).
@@ -183,10 +186,32 @@ has no family control at all. Two more families exist
     there, not here. Its problems still show under this section (a repeated id, two characters
     sharing a component, a brain naming a state it does not have; a played character whose
     component has no body warns).
-  See [Flow → Arcade](flow.md#arcade--the-play-field-signals-and-the-starter-flow) for the signals.
+    See [Flow → Arcade](flow.md#arcade--the-play-field-signals-and-the-starter-flow) for the signals.
+  - **Online** — shown only for an online game (one whose config has an `arcade.online` block,
+    authored in raw JSON). **Netcode** picks who predicts your own player between the server's
+    states: **Engine** (the default) is our own prediction and reconciliation; **Colyseus** is the
+    Colyseus SDK's own `Predict` reconciler for your own player. The server is authoritative
+    either way, and other players are drawn the same in both.
+- **Card game** — the duel's rules
+  ([card-games.md](../design/card-games.md)). Each number is stored only when it departs from its
+  default:
+  - **Hero health** (30), **Opening hand** (3; the second player draws one more), **Hand limit**
+    (10; a card drawn into a full hand is burned), **Board limit** (7 units a side), **Deck size**
+    (30; every deck must hold exactly this many), **Copies per deck** (2 of one card), **Turn
+    limit** (60; the match is a draw there).
+  - **Resource at start** (1), **Resource per turn** (1) and **Resource cap** (10): what each side
+    has to pay for cards, refilled each turn.
+  - **Who goes first** — Random (the default), The player or The AI.
+  - **Cards and decks** — the counts, and a note: until Invisible Card Library ships, the cards
+    (`card.library`) and the decks (`card.decks`, each `{ id, name, side, cards: [{ card, count }],
+ai: { difficulty } }`) are edited in **Raw JSON**. A card the rules cannot read, a deck of the
+    wrong size, too many copies, a deck naming a card not in the library, or no player or no AI
+    deck is refused; a card no deck uses warns. These problems show under this section.
+    A card game's names, flavour text, generated rules text and deck names appear in
+    [Localization](localization.md) under a **Cards** section.
 - **Publishing:** a **match-3** config publishes from Game Maker to the test server, free play or
   decided by the server (against the test server's match-3 mock), and so does a free-play
-  **arcade** config. An arcade config decided by the server is refused by Game Maker's publish and
+  **arcade** or **card** config. A card or arcade config decided by the server is refused by Game Maker's publish and
   the desktop bake, with no override, while the game runtime cannot play it. Neither family can be
   built for a partner delivery: free play has no wallet, and live real money for a server-decided
   match-3 waits on a real provider's match-3 wire. Set the family back to Slot to publish or
@@ -518,6 +543,7 @@ reported under `modes.<id>.holdAndWin`.
     respins still run on their own.
 
   The intro and the outro advance on their own either way.
+
 - **Board end** — none, a **full board** jackpot (and which roles count as filling), or **column
   letters** (one letter per reel; a full column lights its letter and, if you tick it, clears;
   every letter lit pays the jackpot).
@@ -1060,7 +1086,7 @@ Each bet mode is one card, read top to bottom as four labelled blocks:
 | **Math**          | Cost × (a multiple of the base bet), RTP, Max win ×, and the **Feature** / **Buy bonus** toggles — the engine config shape the math team ships. |
 | **Menu**          | **Kind**, **Order**, and the **Card** component this mode renders.                                                                              |
 | **Copy**          | **Title**, **Button**, **Bet label**, **Description**, **Dialog**.                                                                              |
-| **Card graphics** | Per-mode overrides of the card component's params, clustered by the group each param declares (Panel · Icon · rig · Button).                  |
+| **Card graphics** | Per-mode overrides of the card component's params, clustered by the group each param declares (Panel · Icon · rig · Button).                    |
 
 The card is **colour-coded by kind** — a blue rail for `base`, gold for `buy`, teal
 for `ante` — matching the chip this mode gets in the menu preview above, so a card

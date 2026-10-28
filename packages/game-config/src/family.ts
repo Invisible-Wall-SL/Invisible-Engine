@@ -16,7 +16,7 @@ import type { GameConfigDoc } from './types';
  */
 
 /** The families a config can name. `slot` is the default and is never stored. */
-export const CONFIG_FAMILIES = ['slot', 'match3', 'arcade'] as const;
+export const CONFIG_FAMILIES = ['slot', 'match3', 'arcade', 'card'] as const;
 
 export type ConfigFamily = (typeof CONFIG_FAMILIES)[number];
 
@@ -96,6 +96,92 @@ export type ArcadeOnlineCharacter = {
 	speed: number;
 	/** How many players of a room may be this character. Absent ⇒ any number. */
 	max?: number;
+	/** Where its players start and respawn (field px), taken in turn (P10.16). Absent ⇒
+	 *  `online.spawn`. */
+	spawns?: { x: number; y: number }[];
+};
+
+/** A zone's part in an online game's rules (P10.15): a current that pushes, or the round's goal. */
+export type ArcadeOnlineZoneRule = {
+	/** An `arcade.zones` id. */
+	zone: string;
+	/** px/s added to a moving player's velocity while it is in the zone (a river's current). */
+	force?: { x: number; y: number };
+	/** The first player to reach it wins the round. */
+	goal?: boolean;
+	/** The characters it applies to. Absent ⇒ every character. */
+	characters?: string[];
+};
+
+/** What a hit does to its target (`docs/design/realtime-multiplayer.md` §4): a closed list. */
+export type ArcadeOnlineHitEffect = 'catch' | 'stun';
+
+/** A button of a character that hits the players of other characters within its reach. */
+export type ArcadeOnlineAbility = {
+	character: string;
+	button: 'ability1' | 'ability2';
+	/** px from the user's centre to a target's. */
+	reach: number;
+	/** The characters it can hit. */
+	targets: string[];
+	effect: ArcadeOnlineHitEffect;
+	/** How long the effect holds the target, ms: a stun, or a catch's time out before it respawns. */
+	ms?: number;
+	/** Added to the user's score per player hit (a whole number). */
+	score?: number;
+	/** ms before it can be used again (at least 100). */
+	cooldownMs?: number;
+};
+
+/** An online game's rounds: they end at the goal, or on the clock, and the next starts after a pause. */
+export type ArcadeOnlineRound = {
+	/** A round's length. Absent ⇒ until a player reaches the goal. */
+	seconds?: number;
+	/** The pause between rounds (§14 #6). */
+	nextRoundSeconds?: number;
+	/** Added to the score of the player who reaches the goal. */
+	goalScore?: number;
+};
+
+/** The named rules modules a room can run: the ids of `engine-mechanics` `ONLINE_RULES_MODULES`
+ *  (this package depends on nothing, so `check:online-rules` holds the two lists equal). */
+export const ONLINE_RULES_MODULE_IDS: readonly string[] = Object.freeze(['tag']);
+
+/**
+ * The rules an online room runs (§9 #18, P10.15): on the server, as data, with a named rules module
+ * (`engine-mechanics` `onlineRules.js` `ONLINE_RULES_MODULES`) for what the data cannot say. A device
+ * runs none of them except the currents, which it predicts.
+ */
+export type ArcadeOnlineRules = {
+	zones?: ArcadeOnlineZoneRule[];
+	abilities?: ArcadeOnlineAbility[];
+	round?: ArcadeOnlineRound;
+	/** A named rules module the room also runs. */
+	module?: string;
+};
+
+/** A character the room's bots play (P10.16), and the brain they play it with. */
+export type ArcadeOnlineBotCharacter = {
+	/** An online character id. */
+	character: string;
+	/** An `arcade.characters` id: its brain decides where the bot goes. */
+	brain: string;
+};
+
+/**
+ * Bots that fill a room's empty places (`docs/design/realtime-multiplayer.md` §7, P10.16): bodies
+ * the server steps with a P10.11 brain instead of a device's inputs. A joining player takes a bot's
+ * place, so the room never goes over its size.
+ */
+export type ArcadeOnlineBots = {
+	/** Players plus bots a room is kept at, while anyone is in it (§14 #5: 20). */
+	fillTo?: number;
+	/** What the bots play, taken in turn. */
+	characters: ArcadeOnlineBotCharacter[];
+	/** Whether a bot can win a round (§14 #5: no). */
+	canWin?: boolean;
+	/** Where bots start and respawn (field px), taken in turn. Absent ⇒ the players' spawn. */
+	spawns?: { x: number; y: number }[];
 };
 
 /**
@@ -120,7 +206,23 @@ export type ArcadeOnline = {
 	spawn?: { x: number; y: number };
 	/** The spawn layer the players are drawn in. */
 	layer?: string;
+	/** What decides the game (P10.15). Absent ⇒ players only move. */
+	rules?: ArcadeOnlineRules;
+	/** Who predicts the own player between server states: `engine` (our own prediction and
+	 *  reconciliation, the default) or `colyseus` (the Colyseus SDK's own `Predict`). The server is
+	 *  authoritative either way. */
+	netcode?: ArcadeNetcode;
+	/** Bots that fill empty places (P10.16). Absent ⇒ none. */
+	bots?: ArcadeOnlineBots;
+	/** Send each device only the players inside this box (field px) centred on its own player
+	 *  (P10.16): what a big room needs to stay within its bandwidth. Absent ⇒ every player. */
+	nearby?: { w: number; h: number };
 };
+
+/** The netcodes an online arcade game can be played with. */
+export const ARCADE_NETCODES = Object.freeze(['engine', 'colyseus'] as const);
+
+export type ArcadeNetcode = (typeof ARCADE_NETCODES)[number];
 
 /** What an online arcade block resolves to when it names nothing. */
 export const ARCADE_ONLINE_DEFAULTS = Object.freeze({
@@ -130,7 +232,11 @@ export const ARCADE_ONLINE_DEFAULTS = Object.freeze({
 	patchHz: 20,
 	rejoinSeconds: 60,
 	layer: 'field',
+	netcode: 'engine' as ArcadeNetcode,
 });
+
+/** What a bots block names when it names nothing (§14 #5). */
+export const ARCADE_ONLINE_BOT_DEFAULTS = Object.freeze({ fillTo: 20, canWin: false });
 
 /** The bounds a room is held to whatever its config says: the server's resource limits (§11). */
 export const ARCADE_ONLINE_LIMITS = Object.freeze({
@@ -141,7 +247,27 @@ export const ARCADE_ONLINE_LIMITS = Object.freeze({
 	rejoinSeconds: { min: 0, max: 60 },
 	speed: { min: 1, max: 5000 },
 	characters: { min: 1, max: 16 },
+	reach: { min: 1, max: 2000 },
+	effectMs: { min: 0, max: 60_000 },
+	cooldownMs: { min: 100, max: 60_000 },
+	score: { min: -1000, max: 1000 },
+	force: { min: -5000, max: 5000 },
+	roundSeconds: { min: 5, max: 3600 },
+	nextRoundSeconds: { min: 0, max: 300 },
+	abilities: { max: 16 },
+	zoneRules: { max: 64 },
+	fillTo: { min: 0, max: 100 },
+	nearby: { min: 200, max: 20_000 },
+	botCharacters: { max: 16 },
 } as const);
+
+/** What an online round names when it names nothing. */
+export const ARCADE_ONLINE_RULE_DEFAULTS = Object.freeze({
+	effectMs: 3000,
+	cooldownMs: 1000,
+	nextRoundSeconds: 15,
+	goalScore: 1,
+});
 
 /**
  * An arcade game's play field and bodies (§4.2). Its characters arrive in P10.11; the world and online
@@ -200,8 +326,75 @@ export const resolveArcade = (
 	characters: doc?.arcade?.characters ?? [],
 });
 
-export type ResolvedArcadeOnline = Required<Omit<ArcadeOnline, 'spawn'>> & {
+export type ResolvedArcadeOnlineRules = {
+	zones: ArcadeOnlineZoneRule[];
+	abilities: (Required<Omit<ArcadeOnlineAbility, 'score'>> & { score: number })[];
+	round: { seconds?: number; nextRoundSeconds: number; goalScore: number };
+	module?: string;
+};
+
+export type ResolvedArcadeOnlineBots = {
+	fillTo: number;
+	characters: ArcadeOnlineBotCharacter[];
+	canWin: boolean;
+	spawns: { x: number; y: number }[];
+};
+
+export type ResolvedArcadeOnline = Required<
+	Omit<ArcadeOnline, 'spawn' | 'rules' | 'bots' | 'nearby'>
+> & {
 	spawn: { x: number; y: number };
+	/** Absent ⇒ every device is sent every player. */
+	nearby?: { w: number; h: number };
+	rules: ResolvedArcadeOnlineRules;
+	/** No bots block ⇒ `fillTo` 0. */
+	bots: ResolvedArcadeOnlineBots;
+};
+
+const resolveBots = (
+	bots: ArcadeOnlineBots | undefined,
+	maxPlayers: number,
+): ResolvedArcadeOnlineBots => {
+	const d = ARCADE_ONLINE_BOT_DEFAULTS;
+	const characters = (bots?.characters ?? []).slice(0, ARCADE_ONLINE_LIMITS.botCharacters.max);
+	return {
+		fillTo: characters.length
+			? Math.round(within(bots?.fillTo ?? d.fillTo, { min: 0, max: maxPlayers }))
+			: 0,
+		characters,
+		canWin: bots?.canWin ?? d.canWin,
+		spawns: bots?.spawns ?? [],
+	};
+};
+
+const resolveRules = (rules: ArcadeOnlineRules | undefined): ResolvedArcadeOnlineRules => {
+	const d = ARCADE_ONLINE_RULE_DEFAULTS;
+	const L = ARCADE_ONLINE_LIMITS;
+	const seconds = rules?.round?.seconds;
+	return {
+		zones: (rules?.zones ?? []).slice(0, L.zoneRules.max).map((z) => ({
+			...z,
+			...(z.force
+				? { force: { x: within(z.force.x, L.force), y: within(z.force.y, L.force) } }
+				: {}),
+		})),
+		abilities: (rules?.abilities ?? []).slice(0, L.abilities.max).map((a) => ({
+			...a,
+			reach: within(a.reach, L.reach),
+			ms: within(a.ms ?? d.effectMs, L.effectMs),
+			score: Math.round(within(a.score ?? 0, L.score)),
+			cooldownMs: within(a.cooldownMs ?? d.cooldownMs, L.cooldownMs),
+		})),
+		round: {
+			...(seconds !== undefined ? { seconds: within(seconds, L.roundSeconds) } : {}),
+			nextRoundSeconds: within(
+				rules?.round?.nextRoundSeconds ?? d.nextRoundSeconds,
+				L.nextRoundSeconds,
+			),
+			goalScore: Math.round(within(rules?.round?.goalScore ?? d.goalScore, L.score)),
+		},
+		...(rules?.module ? { module: rules.module } : {}),
+	};
 };
 
 const within = (v: number, range: { min: number; max: number }) =>
@@ -222,8 +415,9 @@ export const resolveArcadeOnline = (
 	const d = ARCADE_ONLINE_DEFAULTS;
 	const L = ARCADE_ONLINE_LIMITS;
 	const tickHz = within(online.tickHz ?? d.tickHz, L.tickHz);
+	const maxPlayers = within(online.maxPlayers ?? d.maxPlayers, L.maxPlayers);
 	return {
-		maxPlayers: within(online.maxPlayers ?? d.maxPlayers, L.maxPlayers),
+		maxPlayers,
 		characters: online.characters.slice(0, L.characters.max).map((c) => ({
 			...c,
 			speed: within(c.speed, L.speed),
@@ -237,12 +431,23 @@ export const resolveArcadeOnline = (
 		rejoinSeconds: within(online.rejoinSeconds ?? d.rejoinSeconds, L.rejoinSeconds),
 		spawn: online.spawn ?? { x: field.w / 2, y: field.h / 2 },
 		layer: online.layer ?? d.layer,
+		rules: resolveRules(online.rules),
+		netcode: ARCADE_NETCODES.find((n) => n === online.netcode) ?? d.netcode,
+		bots: resolveBots(online.bots, maxPlayers),
+		...(online.nearby
+			? {
+					nearby: {
+						w: within(online.nearby.w, L.nearby),
+						h: within(online.nearby.h, L.nearby),
+					},
+				}
+			: {}),
 	};
 };
 
 /** A stored family, or `undefined` for the default and for anything unreadable. */
 export const normalizeFamily = (raw: unknown): GameConfigDoc['family'] =>
-	raw === 'match3' || raw === 'arcade' ? raw : undefined;
+	raw === 'match3' || raw === 'arcade' || raw === 'card' ? raw : undefined;
 
 /** A stored outcome: only `rules`, and only beside a family that can be one (a slot cannot). */
 export const normalizeOutcome = (
@@ -386,6 +591,18 @@ const nonNegInt = (v: unknown): number | undefined => {
 	return n !== undefined && Number.isInteger(n) && n >= 0 ? n : undefined;
 };
 
+/** The whole points of a list (at most {@link ARCADE_ONLINE_LIMITS} `fillTo.max`). */
+const points = (raw: unknown): { x: number; y: number }[] =>
+	Array.isArray(raw)
+		? raw
+				.flatMap((p) => {
+					const x = isObject(p) ? num(p.x) : undefined;
+					const y = isObject(p) ? num(p.y) : undefined;
+					return x !== undefined && y !== undefined ? [{ x, y }] : [];
+				})
+				.slice(0, ARCADE_ONLINE_LIMITS.fillTo.max)
+		: [];
+
 /** Characters with a unique id, a body and a positive speed; the first of a repeated id wins. */
 const normalizeCharacters = (raw: unknown): ArcadeOnlineCharacter[] => {
 	if (!Array.isArray(raw)) return [];
@@ -399,6 +616,8 @@ const normalizeCharacters = (raw: unknown): ArcadeOnlineCharacter[] => {
 		const character: ArcadeOnlineCharacter = { id, body, speed };
 		const max = posInt(entry.max);
 		if (max) character.max = max;
+		const spawns = points(entry.spawns);
+		if (spawns.length) character.spawns = spawns;
 		characters.push(character);
 	}
 	return characters;
@@ -426,7 +645,108 @@ export function normalizeArcadeOnline(raw: unknown): ArcadeOnline | undefined {
 	}
 	const layer = tagOf(raw.layer);
 	if (layer && layer !== d.layer) block.layer = layer;
+	const rules = normalizeOnlineRules(raw.rules);
+	if (rules) block.rules = rules;
+	const netcode = ARCADE_NETCODES.find((n) => n === raw.netcode);
+	if (netcode && netcode !== d.netcode) block.netcode = netcode;
+	const bots = normalizeOnlineBots(raw.bots);
+	if (bots) block.bots = bots;
+	if (isObject(raw.nearby)) {
+		const w = positive(raw.nearby.w);
+		const h = positive(raw.nearby.h);
+		if (w && h) block.nearby = { w, h };
+	}
 	return block;
+}
+
+/** Normalize a bots block, or `undefined` when it plays nothing. An entry missing its character or
+ *  brain is dropped; defaults are dropped. */
+export function normalizeOnlineBots(raw: unknown): ArcadeOnlineBots | undefined {
+	if (!isObject(raw) || !Array.isArray(raw.characters)) return undefined;
+	const characters: ArcadeOnlineBotCharacter[] = [];
+	for (const entry of raw.characters) {
+		if (!isObject(entry)) continue;
+		const character = tagOf(entry.character);
+		const brain = tagOf(entry.brain);
+		if (character && brain) characters.push({ character, brain });
+	}
+	if (!characters.length) return undefined;
+	const d = ARCADE_ONLINE_BOT_DEFAULTS;
+	const bots: ArcadeOnlineBots = { characters };
+	const fillTo = nonNegInt(raw.fillTo);
+	if (fillTo !== undefined && fillTo !== d.fillTo) bots.fillTo = fillTo;
+	if (typeof raw.canWin === 'boolean' && raw.canWin !== d.canWin) bots.canWin = raw.canWin;
+	const spawns = points(raw.spawns);
+	if (spawns.length) bots.spawns = spawns;
+	return bots;
+}
+
+const ids = (raw: unknown): string[] | undefined => {
+	if (!Array.isArray(raw)) return undefined;
+	const list = [...new Set(raw.map(tagOf).filter((id) => id.length > 0))];
+	return list.length ? list : undefined;
+};
+
+const normalizeZoneRule = (raw: unknown): ArcadeOnlineZoneRule | undefined => {
+	if (!isObject(raw)) return undefined;
+	const zone = tagOf(raw.zone);
+	if (!zone) return undefined;
+	const rule: ArcadeOnlineZoneRule = { zone };
+	if (isObject(raw.force)) {
+		const x = num(raw.force.x) ?? 0;
+		const y = num(raw.force.y) ?? 0;
+		if (x || y) rule.force = { x, y };
+	}
+	if (raw.goal === true) rule.goal = true;
+	const characters = ids(raw.characters);
+	if (characters) rule.characters = characters;
+	return rule.force || rule.goal ? rule : undefined;
+};
+
+const normalizeAbility = (raw: unknown): ArcadeOnlineAbility | undefined => {
+	if (!isObject(raw)) return undefined;
+	const character = tagOf(raw.character);
+	const button = raw.button === 'ability1' || raw.button === 'ability2' ? raw.button : undefined;
+	const reach = positive(raw.reach);
+	const targets = ids(raw.targets);
+	const effect = raw.effect === 'catch' || raw.effect === 'stun' ? raw.effect : undefined;
+	if (!character || !button || !reach || !targets || !effect) return undefined;
+	const ability: ArcadeOnlineAbility = { character, button, reach, targets, effect };
+	const ms = nonNegInt(raw.ms);
+	if (ms !== undefined) ability.ms = ms;
+	const score = num(raw.score);
+	if (score) ability.score = score;
+	const cooldownMs = nonNegInt(raw.cooldownMs);
+	if (cooldownMs !== undefined) ability.cooldownMs = cooldownMs;
+	return ability;
+};
+
+/** Normalize an online game's rules, or `undefined` when they say nothing. A zone rule with no
+ *  force and no goal, and an ability missing what it needs to hit, are dropped. */
+export function normalizeOnlineRules(raw: unknown): ArcadeOnlineRules | undefined {
+	if (!isObject(raw)) return undefined;
+	const rules: ArcadeOnlineRules = {};
+	const zones = Array.isArray(raw.zones)
+		? raw.zones.map(normalizeZoneRule).filter((z): z is ArcadeOnlineZoneRule => z !== undefined)
+		: [];
+	if (zones.length) rules.zones = zones;
+	const abilities = Array.isArray(raw.abilities)
+		? raw.abilities.map(normalizeAbility).filter((a): a is ArcadeOnlineAbility => a !== undefined)
+		: [];
+	if (abilities.length) rules.abilities = abilities;
+	if (isObject(raw.round)) {
+		const round: ArcadeOnlineRound = {};
+		const seconds = positive(raw.round.seconds);
+		if (seconds) round.seconds = seconds;
+		const next = num(raw.round.nextRoundSeconds);
+		if (next !== undefined && next >= 0) round.nextRoundSeconds = next;
+		const goalScore = num(raw.round.goalScore);
+		if (goalScore !== undefined) round.goalScore = goalScore;
+		if (Object.keys(round).length) rules.round = round;
+	}
+	const module = tagOf(raw.module);
+	if (module) rules.module = module;
+	return Object.keys(rules).length ? rules : undefined;
 }
 
 /** Normalize an authored `arcade` block, or `undefined` when nothing in it departs from the

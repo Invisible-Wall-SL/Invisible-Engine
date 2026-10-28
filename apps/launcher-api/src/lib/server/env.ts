@@ -314,6 +314,12 @@ export const ENV = {
 	get PIPELINE_CI_TOKEN() {
 		return (env.PIPELINE_CI_TOKEN ?? '').trim();
 	},
+	/** Bearer token the Invisible Game Server reads a game's published config with, from
+	 *  `GET /api/game-server/config` and nowhere else (it never opens `/api/deploy` or an export).
+	 *  Secret: no code default; trimmed like {@link PIPELINE_CI_TOKEN}. Unset ⇒ every read is a 401. */
+	get GAME_SERVER_CONFIG_SECRET() {
+		return (env.GAME_SERVER_CONFIG_SECRET ?? '').trim();
+	},
 	/** Bearer token the Director worker calls `/api/director/adapter/*` with
 	 *  (`docs/director/DECISIONS/0002-tool-adapters.md`). Secret: no code default; trimmed like
 	 *  {@link PIPELINE_CI_TOKEN}. Unset ⇒ every adapter call answers 503, never an open gate. */
@@ -326,6 +332,16 @@ export const ENV = {
 	 *  callback (the `/progress` fallback still settles them) and the callback route answers 503. */
 	get ATLAS_CALLBACK_SECRET() {
 		return (env.ATLAS_CALLBACK_SECRET ?? '').trim();
+	},
+	/** The private `draft-player` service QA's plays run on (ADR-0010). No code default: unset ⇒ no
+	 *  player is deployed, and `build.play_draft` settles `no_player` at once. */
+	get DRAFT_PLAYER_URL() {
+		return (env.DRAFT_PLAYER_URL ?? '').trim().replace(/\/+$/, '');
+	},
+	/** Shared with `draft-player`: signs the launcher's submit and verifies the player's callback.
+	 *  Secret: no code default; trimmed; never logged. Needs {@link DRAFT_PLAYER_URL} too. */
+	get DRAFT_PLAYER_SECRET() {
+		return (env.DRAFT_PLAYER_SECRET ?? '').trim();
 	},
 	// GitHub read-only token the desktop launcher uses to clone PRIVATE game repos
 	// (and their submodules) on any machine with no per-user GitHub login. Served by

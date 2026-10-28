@@ -166,6 +166,8 @@ export interface FeedEntry {
 	/** What the row cost, when it is a spend row. */
 	cost: string | null;
 	tone: FeedTone;
+	/** The pipeline bug a pipeline-change request filed (`BUG-<n>`). */
+	bug?: number;
 }
 
 export interface Folded {
@@ -220,6 +222,12 @@ export function toolLabel(tool: string | null): string | null {
 			return 'Rigger';
 		case 'flipbook':
 			return 'Flipbook';
+		case 'sound':
+			return 'Sound';
+		case 'fx':
+			return 'FX';
+		case 'components':
+			return 'Component Editor';
 		case 'build':
 			return 'Build';
 		case 'run':
@@ -518,7 +526,14 @@ const costOf = (payload: Record<string, unknown>): string | null => {
 	return `${usd(amount)}${model ? ` · ${modelLabel(model)}` : ''}`;
 };
 
-function push(ctx: Ctx, event: RunEvent, text: string, tone: FeedTone, cost: string | null = null) {
+function push(
+	ctx: Ctx,
+	event: RunEvent,
+	text: string,
+	tone: FeedTone,
+	cost: string | null = null,
+	bug?: number,
+) {
 	ctx.feed.push({
 		id: event.id,
 		at: event.at,
@@ -529,6 +544,7 @@ function push(ctx: Ctx, event: RunEvent, text: string, tone: FeedTone, cost: str
 		tool: toolLabel(event.tool),
 		cost,
 		tone,
+		...(bug ? { bug } : {}),
 	});
 }
 
@@ -589,13 +605,17 @@ function foldActivity(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 				`gave ${str(p.to, 40) ?? 'an agent'} a task: ${clip(str(p.task) ?? '', 240)}`,
 				'plain',
 			);
-		case 'pipeline_change_request':
+		case 'pipeline_change_request': {
+			const bug = typeof p.bug === 'number' && Number.isInteger(p.bug) && p.bug > 0 ? p.bug : 0;
 			return push(
 				ctx,
 				event,
 				`asks for a pipeline change: ${str(p.what) ?? ''}${p.reason ? ` — ${str(p.reason)}` : ''}`,
 				'checkpoint',
+				null,
+				bug,
 			);
+		}
 		case 'review': {
 			const { subjects } = applyFindings(ctx, event, p.findings, 'pick');
 			return push(
@@ -752,7 +772,61 @@ function foldResolved(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 	);
 }
 
+/** A QA play of a draft (`build.play_draft`) is not an atlas render: it has no regions or variants. */
+const isDraftPlay = (event: RunEvent) => event.tool === 'build.play_draft';
+
+function foldDraftPlayQueued(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
+	const draftId = str(p.draftId, 40);
+	const scenarios = strings(p.scenarios, 20);
+	push(
+		ctx,
+		event,
+		`queued a QA play of the draft${draftId ? ` ${draftId}` : ''}${scenarios.length ? ` (${list(scenarios)})` : ''}.`,
+		'job',
+	);
+}
+
+function foldDraftPlayDone(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
+	const draftId = str(p.draftId, 40);
+	const draft = draftId ? ` of the draft ${draftId}` : ' of the draft';
+	const result = isRecord(p.result) ? p.result : {};
+	if (p.status === 'finished') {
+		let expected = 0;
+		let reached = 0;
+		const scenarios = Array.isArray(result.scenarios) ? result.scenarios.slice(0, 20) : [];
+		for (const s of scenarios) {
+			if (!isRecord(s)) continue;
+			const want = strings(s.expected, 40);
+			const got = strings(s.reached, 40);
+			expected += want.length;
+			reached += want.length ? want.filter((screen) => got.includes(screen)).length : got.length;
+		}
+		const boot = str(result.bootRefused, 300);
+		push(
+			ctx,
+			event,
+			boot
+				? `QA play${draft}: the runtime refused to boot: ${boot}`
+				: `QA play${draft} finished: ${reached} of ${expected} screens reached.`,
+			expected > 0 && reached === expected && !boot ? 'job' : 'error',
+		);
+		return;
+	}
+	// A play that never ran says why; it is "not played", never a pass.
+	const reason = str(result.reason, 40) ?? (p.status === 'cancelled' ? 'cancelled' : 'failed');
+	const message = str(result.message, 300) ?? str(result.error, 300);
+	push(
+		ctx,
+		event,
+		`QA play${draft} was not played (${reason})${message ? `: ${message}` : '.'}`,
+		reason === 'no_player' || reason === 'run_stopped' || p.status === 'cancelled'
+			? 'job'
+			: 'error',
+	);
+}
+
 function foldJobQueued(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
+	if (isDraftPlay(event)) return foldDraftPlayQueued(ctx, event, p);
 	const jobRef = str(p.jobRef, 40) ?? '';
 	const atlas = str(p.atlas, 64);
 	const regions = strings(p.regions, 64).filter((r) => REGION_NAME.test(r));
@@ -787,6 +861,7 @@ function foldJobQueued(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 }
 
 function foldJobDone(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
+	if (isDraftPlay(event)) return foldDraftPlayDone(ctx, event, p);
 	const jobRef = str(p.jobRef, 40) ?? '';
 	const atlas = str(p.atlas, 64);
 	const regions = strings(p.regions, 64).filter((r) => REGION_NAME.test(r));

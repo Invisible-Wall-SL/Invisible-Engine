@@ -1,5 +1,5 @@
 import type { FlowEffect } from 'engine-flow';
-import { ARCADE_LOOP_ACTIONS, MATCH3_BOARD_ACTIONS } from 'engine-flow-v2';
+import { ARCADE_LOOP_ACTIONS, CARD_MATCH_ACTIONS, MATCH3_BOARD_ACTIONS } from 'engine-flow-v2';
 
 /**
  * The actions a family mechanic backs (`MATCH3_VOCAB`'s `boardSwap`, `boardShuffle`, …;
@@ -20,6 +20,7 @@ export const boardEffect = (name: string): FlowEffect | undefined => registered[
 export const boardEffectNames: readonly string[] = [
 	...MATCH3_BOARD_ACTIONS,
 	...ARCADE_LOOP_ACTIONS,
+	...CARD_MATCH_ACTIONS,
 ];
 
 let values: ((key: string) => unknown) | undefined;

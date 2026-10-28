@@ -6,7 +6,8 @@
  * `fxPage/entry.ts` mounts the real `/fx` `+page.svelte` outside SvelteKit (its requests answered in
  * memory, see there); this script builds it with Vite and the launcher's Svelte plugin and drives it
  * in headless Chromium through the DOM, as an author would:
- *  1. bind the atlas and a frame, pick a material: the page registered the compiled set, the stage
+ *  1. the Material picker lists the effects made for particles first, under their own heading;
+ *     bind the atlas and a frame, pick a material: the page registered the compiled set, the stage
  *     mounts the material through the game's renderer (`?fxdebug=1`: on) and the layer's load turns
  *     from the §10 estimate into the measured peak;
  *  2. paused, drag a material param: the stage's pixels change, the particles are still there and the
@@ -26,21 +27,12 @@
  *   pnpm --filter fx-spike fx-page [--keep <dir>]
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { launchChrome } from '../rigger-spike/chrome.mjs';
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO = resolve(HERE, '../..');
-const LAUNCHER = join(REPO, 'apps/launcher-api');
-/** Import `name` (an ES module package) as the launcher resolves it: its `exports` import entry. */
-const load = (name) => {
-	const root = join(LAUNCHER, 'node_modules', name);
-	const entry = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).exports['.'].import;
-	return import(pathToFileURL(join(root, typeof entry === 'string' ? entry : entry.default)).href);
-};
+import { buildLauncherPage } from './launcherPage.mjs';
 
 const keepAt = process.argv.includes('--keep')
 	? resolve(process.argv[process.argv.indexOf('--keep') + 1])
@@ -54,46 +46,13 @@ const check = (name, ok, detail = '') => {
 	console.log(`  ${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
 };
 
-async function build() {
-	const { build: viteBuild } = await load('vite');
-	const { svelte, vitePreprocess } = await load('@sveltejs/vite-plugin-svelte');
-	await viteBuild({
-		configFile: false,
-		// Bare imports the entry makes (`svelte`, its runtime) resolve as the launcher's do.
-		root: LAUNCHER,
-		logLevel: 'error',
-		base: './',
-		plugins: [svelte({ configFile: false, preprocess: vitePreprocess() })],
-		resolve: {
-			alias: [
-				{ find: /^\$lib\//, replacement: `${join(LAUNCHER, 'src/lib')}/` },
-				{ find: '$app/navigation', replacement: join(HERE, 'fxPage/appNavigation.ts') },
-				{ find: '$app/environment', replacement: join(HERE, 'fxPage/appEnvironment.ts') },
-				{ find: '$app/state', replacement: join(HERE, 'fxPage/appState.ts') },
-				{ find: '$app/paths', replacement: join(HERE, 'fxPage/appPaths.ts') },
-				{ find: /^@fxroot\//, replacement: `${REPO}/` },
-			],
-			conditions: ['svelte', 'browser', 'import', 'default'],
-			dedupe: ['svelte'],
-		},
-		build: {
-			outDir: join(dir, 'out'),
-			emptyOutDir: true,
-			minify: false,
-			// One classic script: the page opens from a file:// URL.
-			rollupOptions: {
-				input: join(HERE, 'fxPage/entry.ts'),
-				output: { format: 'iife', entryFileNames: 'fx-page.js', inlineDynamicImports: true },
-			},
-		},
+const build = () =>
+	buildLauncherPage({
+		entry: 'fxPage/entry.ts',
+		name: 'fx-page',
+		outDir: join(dir, 'out'),
+		title: 'fx page',
 	});
-	writeFileSync(
-		join(dir, 'out/fx.html'),
-		'<!doctype html><html><head><meta charset="utf-8"><title>fx page</title></head>' +
-			'<body style="margin:0;background:#0b0e13"><script src="fx-page.js"></script></body></html>',
-	);
-	return join(dir, 'out/fx.html');
-}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -197,16 +156,25 @@ try {
 			`fxPage.requests.some((r) => r.startsWith('GET /api/shaders/effects?projectKey=project'))`,
 		),
 	);
-	const options = await ev(
-		`[...[...document.querySelectorAll('.inspector .row')].find((r) => r.textContent.includes('Material'))
-			.querySelectorAll('option')].map((o) => o.textContent.trim())`,
+	const picker = await ev(
+		`(() => {
+			const select = [...document.querySelectorAll('.inspector .row')].find((r) => r.textContent.includes('Material')).querySelector('select');
+			return {
+				options: [...select.querySelectorAll('option')].map((o) => o.textContent.trim()),
+				groups: [...select.querySelectorAll('optgroup')].map((g) => [g.label, [...g.querySelectorAll('option')].map((o) => o.textContent.trim())]),
+			};
+		})()`,
 	);
+	const rest = picker.groups[1]?.[1] ?? [];
 	check(
-		'Material lists None first, then the compiled effects by name',
-		options[0] === 'None (plain sprites)' &&
-			options.slice(1).join('|') ===
-				[...options.slice(1)].sort((a, b) => a.localeCompare(b)).join('|'),
-		options.join(', '),
+		'Material lists None first, then the effects made for particles (Ripple), then the rest, each by name',
+		picker.options[0] === 'None (plain sprites)' &&
+			picker.options[1] === 'Ripple' &&
+			JSON.stringify(picker.groups[0]) === JSON.stringify(['Made for particles', ['Ripple']]) &&
+			picker.groups[1]?.[0] === 'Other effects' &&
+			rest.length === picker.options.length - 2 &&
+			rest.join('|') === [...rest].sort((a, b) => a.localeCompare(b)).join('|'),
+		picker.options.join(', '),
 	);
 	await ev(`fxDrive.select('Atlas', 'client/project/manifests/atlas_manifest_sparks.json')`);
 	await waitFor(`document.querySelectorAll('.frames label').length === 2`, 'the regions');
@@ -215,10 +183,13 @@ try {
 	await ev(`fxDrive.button('❚❚ Pause')`);
 	await ev(`fxDrive.select('Material', 'custom:noiseDissolve')`);
 	await waitFor(`!!fxDrive.section('Material')?.querySelector('.loadrow')`, 'the load meter');
-	await sleep(400);
+	// The mount's line reaches the page log when the stage has built: under load, later.
+	const mountedOn = () =>
+		mounts().some((l) => l.includes('fx/layer-1: on (custom:noiseDissolve; 1/8 drawing)'));
+	for (const until = Date.now() + 10_000; !mountedOn() && Date.now() < until;) await sleep(100);
 	check(
 		'the stage mounts the material through the game renderer (?fxdebug=1: on)',
-		mounts().some((l) => l.includes('fx/layer-1: on (custom:noiseDissolve; 1/8 drawing)')),
+		mountedOn(),
 		mounts().at(-1),
 	);
 	const params = await ev(

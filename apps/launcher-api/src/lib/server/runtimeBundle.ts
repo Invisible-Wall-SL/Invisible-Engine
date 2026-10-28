@@ -42,7 +42,12 @@ import {
 	type RigFxBinding,
 	type WinTextDoc,
 } from 'engine-layout';
-import { betModeCardIds, characterComponentIds, type GameConfigDoc } from 'game-config';
+import {
+	betModeCardIds,
+	cardGameComponentIds,
+	characterComponentIds,
+	type GameConfigDoc,
+} from 'game-config';
 import {
 	componentDefaultsFor,
 	keyComponentDefaultsById,
@@ -214,6 +219,7 @@ function resolveRigKeysForComponentDefs(
  * skipped (⇒ the mode falls back to the default `featureCard` at runtime — no broken bundle).
  * `characterIds` (`characterComponentIds`) are seeded the same way — an arcade character's look and
  * its `shootAt` shots are spawned at runtime — but a missing one is reported: nothing replaces it.
+ * A card game's frames (`cardGameComponentIds`) ride the same list: the table spawns them.
  */
 async function resolveReferencedDefs(
 	doc: LayoutDoc,
@@ -366,7 +372,9 @@ async function assembleRuntimeBundle(
 		step('gameConfig', timings, () => loadGameConfigDoc(clientKey, projectKey)),
 	]);
 	const cardComponentIds = gameConfig ? betModeCardIds(gameConfig) : [];
-	const characterIds = gameConfig ? characterComponentIds(gameConfig) : [];
+	const characterIds = gameConfig
+		? [...characterComponentIds(gameConfig), ...cardGameComponentIds(gameConfig)]
+		: [];
 	const { defs: componentDefs, versions: componentVersions } = await step(
 		'componentDefs',
 		timings,

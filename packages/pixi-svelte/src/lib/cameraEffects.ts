@@ -25,6 +25,8 @@ import * as PIXI from 'pixi.js';
 import { RGBSplitFilter } from 'pixi-filters';
 import { CAMERA_EFFECT_KINDS, type CameraEffectKind } from 'constants-shared/camera';
 
+import { compileFilter } from './gpuWarmup';
+
 export { CAMERA_EFFECT_KINDS, type CameraEffectKind };
 
 export type CameraEffectOptions = {
@@ -187,6 +189,20 @@ const ensureChromaFilter = (runtime: CameraRuntime): RGBSplitFilter => {
 	stage.filters = [filter];
 	runtime.chromaFilter = filter;
 	return filter;
+};
+
+/**
+ * Compile the programs `kinds` will draw with (see `gpuWarmup.ts`): the chromatic wobble's full-stage
+ * split, whose first frame otherwise stalls on the driver. The others draw with Pixi's own.
+ */
+export const prewarmCameraEffects = (
+	renderer: PIXI.Renderer,
+	kinds: Iterable<CameraEffectKind>,
+): void => {
+	if (![...kinds].includes('chromaticWobble')) return;
+	const filter = new RGBSplitFilter();
+	compileFilter(renderer, filter);
+	filter.destroy();
 };
 
 const releaseChromaFilter = (runtime: CameraRuntime): void => {

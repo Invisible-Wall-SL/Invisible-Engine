@@ -1831,6 +1831,10 @@ importers:
         version: 16.3.0
 
   packages/game-config:
+    dependencies:
+      engine-mechanics:
+        specifier: workspace:*
+        version: link:../engine-mechanics
     devDependencies:
       eslint:
         specifier: 9.21.0

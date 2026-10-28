@@ -15,7 +15,7 @@ aiming at, what is always true, and what went wrong and how it was fixed.
 | Path | Holds | Line budget |
 |---|---|---|
 | [`targets.md`](targets.md) | What the pipeline is for, who it serves, the standing decisions and the non-negotiables | 120 |
-| `families/<family>.md` | One per game family agent: its invariants, where its code lives, its known failure modes, how to test it | 200 |
+| `families/<family>.md` | One per game-type build agent (`lines`, `ways`, `cluster`, `scatter`, `hold-and-win`, `bonus-games`, `match3`, `arcade`): its invariants, where its code lives, its known failure modes, how to test it | 200 |
 | `games/<project>.md` | One per live game: its client, what it must be, its kind and add-ons, its playbook | 80 |
 | `lessons/<area>.md` | Lessons for one area, newest first, each **symptom → cause → fix → guard → PR** in 8 lines or fewer | 300 |
 | [`owners.json`](owners.json) | Which build agents own each launcher tool and each game kind, and the known gaps | — |
@@ -45,6 +45,8 @@ one. Only merged fixes become lessons.
 
 - **Build agents:** `targets.md` and their own family or area file come first in "Read first", before
   the status file.
-- **Runtime agents:** `targets.md` and the run's family pack, as a cached system block (ADR-0009
-  §4). Text that reaches a runtime prompt is a pipeline change and goes through the Agents tab
-  evaluation.
+- **Runtime agents:** the run's family pack (`services/director-worker/families/<family>.md`), as
+  a second cached system block after the agent's definition (ADR-0009 §4). The pack is the one
+  home of what runtime agents read about a family; the `families/` files here link to it rather
+  than repeat it. `targets.md` does not reach a runtime prompt yet. Text that reaches a runtime
+  prompt is a pipeline change and goes through the Agents tab evaluation.

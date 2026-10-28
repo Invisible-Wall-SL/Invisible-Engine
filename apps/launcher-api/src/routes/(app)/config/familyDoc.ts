@@ -1,9 +1,14 @@
 import {
+	ARCADE_NETCODES,
+	ARCADE_ONLINE_DEFAULTS,
+	CARD_GAME_RULE_DEFAULTS,
 	DEFAULT_ARCADE_FIXED_HZ,
 	DEFAULT_MATCH3_MIN_RUN,
 	type ArcadeBody,
 	type ArcadeBodyEdges,
 	type ArcadeZone,
+	type CardGameFirst,
+	type CardGameRules,
 	type ConfigFamily,
 	type GameConfigDoc,
 	type GameOutcome,
@@ -18,19 +23,21 @@ import {
  */
 
 /** Pick the family. A slot deletes every family field; a match-3 doc drops the slot win model and
- *  cascade it no longer stores; an arcade game is decided by its own rules (an RGS-decided arcade
- *  game is not built yet). */
+ *  cascade it no longer stores; an arcade or card game is decided by its own rules (an RGS-decided
+ *  arcade game is not built yet, and a card game is never one). */
 export function setFamily(doc: GameConfigDoc, family: ConfigFamily): void {
 	if (family === 'slot') {
 		delete doc.family;
 		delete doc.outcome;
 		delete doc.match3;
 		delete doc.arcade;
+		delete doc.card;
 		return;
 	}
 	doc.family = family;
+	if (family !== 'arcade') delete doc.arcade;
+	if (family !== 'card') delete doc.card;
 	if (family === 'match3') {
-		delete doc.arcade;
 		delete doc.winModel;
 		delete doc.cascade;
 	} else {
@@ -181,6 +188,16 @@ export function setFixedHz(doc: GameConfigDoc, value: string): void {
 	if (n === undefined || n === DEFAULT_ARCADE_FIXED_HZ) delete arcadeBlock(doc).fixedHz;
 	else arcadeBlock(doc).fixedHz = n;
 	pruneArcade(doc);
+}
+
+/** An online game's netcode. The default (`engine`), or a value no build knows, is not stored; a
+ *  game that is not online is left alone. */
+export function setNetcode(doc: GameConfigDoc, value: string): void {
+	const online = doc.arcade?.online;
+	if (!online) return;
+	const netcode = ARCADE_NETCODES.find((n) => n === value);
+	if (!netcode || netcode === ARCADE_ONLINE_DEFAULTS.netcode) delete online.netcode;
+	else online.netcode = netcode;
 }
 
 /** Add a body for a component id, as a 100 × 100 box. An id already given a body is left alone. */
@@ -340,4 +357,48 @@ export function setZoneField(
 	}
 	const n = Number(value);
 	if (value.trim() !== '' && Number.isFinite(n)) zone[field] = n;
+}
+
+type CardRuleKey = Exclude<keyof CardGameRules, 'resource' | 'first'>;
+
+function pruneCard(doc: GameConfigDoc): void {
+	if (doc.card?.rules?.resource && !Object.keys(doc.card.rules.resource).length)
+		delete doc.card.rules.resource;
+	if (doc.card?.rules && !Object.keys(doc.card.rules).length) delete doc.card.rules;
+	if (doc.card && !Object.keys(doc.card).length) delete doc.card;
+}
+
+/** A card game's rule number. Its default, or anything below the rule's minimum, is not stored. */
+export function setCardRule(doc: GameConfigDoc, key: CardRuleKey, value: string): void {
+	const n = intAtLeast(value, key === 'openingHand' ? 0 : 1);
+	doc.card ??= {};
+	doc.card.rules ??= {};
+	if (n === undefined || n === CARD_GAME_RULE_DEFAULTS[key]) delete doc.card.rules[key];
+	else doc.card.rules[key] = n;
+	pruneCard(doc);
+}
+
+/** The resource's start, growth per turn or cap. */
+export function setCardResource(
+	doc: GameConfigDoc,
+	key: 'start' | 'perTurn' | 'max',
+	value: string,
+): void {
+	const n = intAtLeast(value, key === 'max' ? 1 : 0);
+	doc.card ??= {};
+	doc.card.rules ??= {};
+	doc.card.rules.resource ??= {};
+	if (n === undefined || n === CARD_GAME_RULE_DEFAULTS.resource[key])
+		delete doc.card.rules.resource[key];
+	else doc.card.rules.resource[key] = n;
+	pruneCard(doc);
+}
+
+/** Who goes first. `random` is the default. */
+export function setCardFirst(doc: GameConfigDoc, first: CardGameFirst): void {
+	doc.card ??= {};
+	doc.card.rules ??= {};
+	if (first === CARD_GAME_RULE_DEFAULTS.first) delete doc.card.rules.first;
+	else doc.card.rules.first = first;
+	pruneCard(doc);
 }

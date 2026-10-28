@@ -48,6 +48,16 @@ export interface ToolContext {
 	/** The reviewed cards and GPU price, fetched before the transaction when the turn sets a
 	 *  recipe; undefined otherwise. */
 	recipes?: RecipeDeps;
+	/** The pipeline bug `bugs.file_pipeline_bug` filed for this `run.request_pipeline_change`,
+	 *  before the transaction. */
+	bug?: FiledBug;
+}
+
+/** What the launcher's `bugs.file_pipeline_bug` answers. */
+export interface FiledBug {
+	number: number;
+	ref: string;
+	path: string;
 }
 
 export interface ToolOutcome {
@@ -330,20 +340,38 @@ export async function runWorkerTool(
 			await activity(ctx, id, { type: 'question', question: str(input, 'question') });
 			return ok({ asked: true, note: 'The answer arrives as an owner message in a later turn.' });
 		case 'run.request_pipeline_change':
+			// The driver files the bug first (`WORKER_TOOL_OPS`) and refuses to run this without it.
+			if (!ctx.bug) return refused('Not run: no pipeline bug was filed for this request.');
 			await activity(ctx, id, {
 				type: 'pipeline_change_request',
 				what: str(input, 'what'),
 				reason: str(input, 'reason'),
+				bug: ctx.bug.number,
 			});
-			return ok({ requested: true });
+			return ok({
+				requested: true,
+				bug: ctx.bug.ref,
+				note: 'Filed as a pipeline bug, Open and not sent: a triager decides whether it is fixed.',
+			});
 		case 'run.submit_review':
-		case 'run.submit_qa':
+		case 'run.submit_qa': {
 			await activity(ctx, id, {
 				type: id.slice('run.submit_'.length),
 				summary: input.summary,
 				findings: input.findings,
 			});
+			// QA's failures go to the coordinator (qa.md), who is otherwise told only by QA's last
+			// words. Not the coordinator's own submit: it would be told its own report.
+			if (id === 'run.submit_qa' && ctx.agent !== 'coordinator') {
+				await appendMessage(ctx.tx, ctx.live.id, 'coordinator', 'user', [
+					{
+						type: 'text',
+						text: `QA results from ${ctx.agent}:\n\n${str(input, 'summary')}\n\nFindings: ${JSON.stringify(input.findings)}`,
+					},
+				]);
+			}
 			return ok({ submitted: true });
+		}
 		case 'run.request_checkpoint': {
 			const kind = input.kind === 'batch_done' ? 'batch_done' : 'step_done';
 			const from = ctx.live.state;

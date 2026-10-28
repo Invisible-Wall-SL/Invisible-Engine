@@ -80,10 +80,12 @@ cheaper than a leaked write key.
 | Holder | What it holds |
 | --- | --- |
 | Railway Shared Variables (`production`) | `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY`, `CF_ACCESS_CLIENT_ID` + `CF_ACCESS_CLIENT_SECRET`, `COMFY_ORG_API_KEY`, `ATLAS_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SIGNING_SECRET`, and until the cut-over the legacy `ATLAS_TOOL_SECRET` / `SHEET_TOOL_SECRET` |
-| Railway **launcher** | `DATABASE_URL`, `EDITOR_DOC_SECRET`, `RUNPOD_API_KEY`, `GIT_CLONE_TOKEN`, `GITHUB_ENGINE_READ_TOKEN`, `GITHUB_ACTIONS_TOKEN`, `CF_API_TOKEN`, `CF_ANALYTICS_TOKEN`, `RAILWAY_API_TOKEN`, `ANTHROPIC_API_KEY`, `LOCALIZATION_LLM_API_KEY`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY`, `PARTNER_RGS`, `ATLAS_BLUEPRINT_SECRET` (legacy), `SENTRY_DSN`, `PUBLIC_SENTRY_DSN`, `TEST_SERVER_SECRET` if set, `PIPELINE_CI_TOKEN`, `GITHUB_APP_PRIVATE_KEY` (+ the ids `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`) |
+| Railway **launcher** | `DATABASE_URL`, `EDITOR_DOC_SECRET`, `RUNPOD_API_KEY`, `GIT_CLONE_TOKEN`, `GITHUB_ENGINE_READ_TOKEN`, `GITHUB_ACTIONS_TOKEN`, `CF_API_TOKEN`, `CF_ANALYTICS_TOKEN`, `RAILWAY_API_TOKEN`, `ANTHROPIC_API_KEY`, `LOCALIZATION_LLM_API_KEY`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY`, `PARTNER_RGS`, `ATLAS_BLUEPRINT_SECRET` (legacy), `SENTRY_DSN`, `PUBLIC_SENTRY_DSN`, `TEST_SERVER_SECRET` if set, `PIPELINE_CI_TOKEN`, `GAME_SERVER_CONFIG_SECRET`, `GITHUB_APP_PRIVATE_KEY` (+ the ids `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`), `DRAFT_PLAYER_SECRET` |
 | Railway **atlas-tool** | the shared R2, CF Access, comfy.org and atlas signing vars; `RUNPOD_API_KEY`; `ATLAS_BLUEPRINT_SECRET` (legacy); `SENTRY_DSN` |
 | Railway **sheet-tool** | the shared R2 and sheet signing vars; `SENTRY_DSN` |
 | Railway **Invisible-test-Server** | `R2_*` (it only reads); `TEST_SERVER_SECRET` if set |
+| Railway **game-server** (once it exists) | `GAME_SERVER_CONFIG_TOKEN` (= the launcher's `GAME_SERVER_CONFIG_SECRET`) |
+| Railway **draft-player** | `DRAFT_PLAYER_SECRET` only (no R2 or database credential) |
 | GitHub Actions repo secrets | `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `TEST_SERVER_SECRET` (runtime release and rollback), `PUBLIC_SENTRY_DSN` (baked into the game runtime) |
 | GitHub environment `backups` | the five backup secrets; the age public keys are a variable ([INFRA § Backups](../INFRA.md#backups-2026-09-29)) |
 | RunPod | the Serverless endpoint's environment variables (`RUNPOD_API_KEY`, `RUNPOD_ENDPOINT_ID`); a Container Registry Credential (a GitHub token that can read our private GHCR images) |
@@ -372,6 +374,51 @@ run between the two updates gets a 401 and fails visibly.
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $PIPELINE_CI_TOKEN" \
   "https://app.invisiblewall.org/api/pipeline/games"
+```
+
+### `DRAFT_PLAYER_SECRET`
+
+The shared HMAC key between the launcher and the private `draft-player` service (ADR-0010). It
+signs the launcher's `POST /play`, `GET /progress` and `POST /cancel` and the player's callback to
+`/api/director/drafts/callback` (`X-Draft-Signature`, `services/draft-player/src/signing.mjs`). It
+opens no data: the player holds no R2 or database credential and only acts on presigned URLs.
+
+**Consumers:**
+
+- the launcher (Railway var), read in `src/lib/server/env.ts`;
+- the `draft-player` service (Railway var); it refuses to boot without it.
+
+**Pattern: single value.** Generate a new value with `openssl rand -hex 32`, set it on both
+services, then **Apply changes / Deploy** on both, preferably while no QA play is running. A play
+caught between the two deploys fails its submit (401) or its callback; its fallback watch then
+fails the job and QA reports the draft as not played. Nothing needs cleaning up.
+
+**Verify.** The player's `/health` answers (it exits at boot without a secret), and the next QA
+draft play settles `finished` rather than `failed`. A wrong value shows as `401 bad signature` on
+the launcher's submit.
+
+### `GAME_SERVER_CONFIG_SECRET` / `GAME_SERVER_CONFIG_TOKEN`
+
+The bearer token the Invisible Game Server reads a game's published config with, from the
+read-only `GET /api/game-server/config`. It opens nothing else. Unset on the launcher, that route
+answers 401. Setup: [INFRA § Invisible Game Server](../INFRA.md#invisible-game-server-p1014--live-2026-10-27).
+
+**Consumers:**
+
+- the launcher, as `GAME_SERVER_CONFIG_SECRET`, compared in `src/lib/server/gameServerConfig.ts`;
+- the game-server service, as `GAME_SERVER_CONFIG_TOKEN`.
+
+**Pattern: single value.** A new random value (`openssl rand -hex 32`) in both places at once,
+then Apply changes / Deploy on both. Between the two updates config reads get a 401: running rooms
+keep their config, a game that has loaded once keeps its last good config, and a game with none
+fails to open.
+
+**Verify.** With the new value in `$GAME_SERVER_CONFIG_SECRET`, this must answer 200 for a
+published online game, and the old value 401:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $GAME_SERVER_CONFIG_SECRET" \
+  "https://app.invisiblewall.org/api/game-server/config?project=<published online game>"
 ```
 
 ### RunPod API key (`RUNPOD_API_KEY`)

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
+import { DEFAULT_GAME_KIND, familyOfKind } from 'constants-shared/gameKinds';
 import { estimateRun, parseEstimateProfiles, type RunEstimate } from 'director-costs';
 import {
 	fallbackDefaultChain,
@@ -18,6 +18,10 @@ import {
 import { PROJECT_KEY_WORDS } from '$lib/projectKey';
 import { roleHasTool } from '$lib/roles';
 import profilesFile from '../../../../../../services/director-worker/estimate-profiles.json';
+import {
+	PACK_FAMILY_LABELS,
+	READY_FAMILY_PACKS,
+} from '../../../../../../services/director-worker/src/familyPack';
 import {
 	CHECKPOINTS,
 	type Checkpoint,
@@ -45,6 +49,7 @@ import {
 } from '../projects';
 import { DIRECTOR_AGENTS } from './adapter';
 import { artPlanApprovalRefusal, pricedCatalogue } from './artPlan';
+import { templateConfigRecord } from './configEtag';
 import {
 	MAX_MOCKUPS,
 	loadMockupsDoc,
@@ -66,6 +71,7 @@ import {
 	type OwnerActionRequest,
 	type Stamp,
 } from './ownerActions';
+import { cancelRunDraftPlays } from './draftJobs';
 import {
 	agentConversations,
 	appendOwnerEvent,
@@ -335,7 +341,7 @@ async function copyTemplate(
 		loadGameConfigDocWithEtag(templateClient, template.key),
 		loadGameConfigDocWithEtag(run.clientKey ?? UNASSIGNED_CLIENT, run.projectKey),
 	]);
-	const templateConfigEtag = before.etag === after.etag ? before.etag : null;
+	const templateConfigEtag = templateConfigRecord(before, after);
 	await setRunConfigEtags(run.id, { template: templateConfigEtag, project: copy.etag });
 }
 
@@ -371,6 +377,7 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 	}
 	const template = await requireTemplate(user, templateKey);
 	const templateType = template.gameType || DEFAULT_GAME_KIND;
+	const family = familyOfKind(templateType);
 	if (gameType !== '' && templateType !== gameType) {
 		throw bad('template_kind', `"${template.key}" is a ${templateType} game, not ${gameType}.`);
 	}
@@ -408,6 +415,14 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 	// After the replay: a tab open across the 8C deploy that resends a create the old build made
 	// gets its run back, while a new create from it is refused.
 	refuseRetiredPreset(input.preset);
+	// Before the key checks and the folder claim, so a refused family writes nothing.
+	if (!READY_FAMILY_PACKS.has(family)) {
+		throw new RunError(
+			409,
+			'no_family_pack',
+			`Director has no ready pack for ${PACK_FAMILY_LABELS[family]} games yet, so it cannot re-theme ${template.name}.`,
+		);
+	}
 
 	if (await projectExists(key)) throw bad('key_exists', 'A project with that key exists.');
 	if (await projectKeyTaken(key)) {
@@ -437,6 +452,7 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 			projectKey: key,
 			clientKey,
 			templateProjectKey: template.key,
+			family,
 			ownerUserId: user.id,
 			startingPointJson: await startingPointFor(clientKey, key, notes, user),
 			checkpointsJson: checkpoints,
@@ -677,6 +693,12 @@ export async function performOwnerAction(
 			outcome.conflict === 'reused'
 				? `${requestId} was already used for another action.`
 				: `${requestId} is still being written.`,
+		);
+	}
+	if (req.action === 'stop' && !outcome.replayed) {
+		// The worker flips the run's queued plays when it applies the stop; the player is only told here.
+		await cancelRunDraftPlays(run.id).catch((e) =>
+			console.error(`director run ${run.id}: its draft plays were not cancelled:`, e),
 		);
 	}
 	return { action: req.action, eventId: outcome.eventId, replayed: outcome.replayed };

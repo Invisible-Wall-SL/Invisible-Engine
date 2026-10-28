@@ -9,6 +9,7 @@ production generation runs on RunPod Serverless. What is owed is owner-side: rou
 rotation, the monitoring setup and the backups setup (see Blocked).
 
 ## Current state
+
 The topology is **cloud-stateless Railway services + a shared R2 system-of-record**. ComfyUI runs in
 three places: the **RunPod Serverless endpoint** the Atlas Maker generates on
 (`COMFY_TRANSPORT=serverless`, owner-confirmed 2026-08-18), **RunPod R&D pods** for artist
@@ -17,7 +18,8 @@ tunnel** (⚙ _Run generation on_ = My computer). Nothing in production depends 
 being up. See docs/INFRA.md for the diagram and the service/env tables.
 
 - **Railway (one project, env `production`):** launcher (`app.invisiblewall.org`), `atlas-tool`,
-  `sheet-tool`, `Invisible-test-Server` (`games.invisiblewall.org`) and Postgres. All auto-deploy
+  `sheet-tool`, `Invisible-test-Server` (`games.invisiblewall.org`), `game-server`
+  (`rooms.invisiblewall.org`, since 2026-10-27) and Postgres. All auto-deploy
   from GitHub `main`; the repo-root Python services and the test server rebuild only on their
   Watch Paths.
 - **Health:** the launcher's `/api/health` is a readiness check (DB + migrations); atlas-tool and
@@ -70,6 +72,7 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   third-party rig runtime manifest entry, lockfile entry, import or vendored file (2026-10-06 below).
 
 ## Open items / next
+
 1. **Pin a Railway `/data` persistent volume** on atlas-tool + sheet-tool — the incremental-hydrate
    skip only persists across deploys with a real volume; on ephemeral disk the first hydrate per
    boot re-reads everything, which costs R2 request operations (R2 has no egress fees). Disk growth
@@ -96,8 +99,8 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
    This is harmless while Sentry is dormant (owner setup, Blocked) but must be fixed before it goes
    live. The likely fix is a Vite `generateBundle` hook in `config-vite` that writes the bundle's
    map aside before kit deletes it.
-
 ## Blocked (owner / external)
+
 - **Dependabot security updates (owner, ~2 min, GitHub → Settings → Advanced Security):** switch on
   Dependabot alerts, Dependabot security updates and Grouped security updates. Both are off today
   (read via `gh api`); the weekly version updates run without them, security PRs do not. Details
@@ -120,6 +123,12 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   order and the verification, [guides/rotate-a-secret](../guides/rotate-a-secret.md). Verify the
   runtime after each, not just the dashboard. Since desktop launcher v1.0.56 the R2 key can be
   rotated without touching a publisher's desktop.
+- **Invisible Game Server config credential (owner, Railway; P10.14):** the service is live
+  (2026-10-27); what remains is its config credential, once this PR's route is deployed — one
+  random value as the launcher's `GAME_SERVER_CONFIG_SECRET` and game-server's
+  `GAME_SERVER_CONFIG_TOKEN`, plus `GAME_SERVER_CONFIG_URL` (deliberately unset until then). INFRA
+  "Invisible Game Server" steps 5–7, with the verify curl. Also the Better Stack "Game server"
+  monitor (INFRA "Uptime"), which the owner is adding.
 - **ComfyUI-Manager prerequisite** for Blueprints model auto-install — needs ComfyUI-Manager at
   security level "middle" or below on whichever ComfyUI generates (else 403). The baked R&D pod
   image already ships it at `middle`; a person's **local** install is the one still to confirm. The
@@ -130,6 +139,33 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-28 — **`draft-player` is live** (owner): Railway service `draft-player`, private only
+  (`draft-player.railway.internal:8080`), built from `services/draft-player/Dockerfile` on its first
+  try. Its log printed `[draft-player] listening on :8080` with the headless shell found, and a
+  `/health` read from inside the launcher container (`railway ssh`; the launcher image has no
+  `curl`/`wget` and `node` is at `/mise/installs/node/<v>/bin/node`, off PATH) answered
+  `{"ok":true,"busy":false,"queued":0}`. `DRAFT_PLAYER_SECRET` is set on both, `DRAFT_PLAYER_URL` on
+  the launcher. Not yet seen: a real play (a Director run needs Anthropic credits).
+- 2026-10-27 — **The Invisible Game Server is live** (owner): Railway service `game-server`
+  (`game-server-production-eda5.up.railway.app`), custom domain `rooms.invisiblewall.org` (Cloudflare
+  CNAME, DNS-only); `/healthz` answered `{"ok":true,"commit":"b0a7f9e4638f","rooms":0}`. It is now in
+  `scripts/deploy-drift.mjs` `SERVICES` with its Watch Paths (fixture-checked against INFRA), in the
+  INFRA service map, services table and uptime table. It plays no game until its config credential
+  is set (Blocked).
+- 2026-10-27 — **The game server has its own read-only config credential.** The launcher's new
+  `GET /api/game-server/config?project=` serves a project's PUBLISHED config (its published
+  snapshot, not the authored doc) to the Invisible Game Server, gated on a bearer
+  `GAME_SERVER_CONFIG_SECRET` only — never `k=`, the deploy token or a session — and that secret
+  opens nothing else; unset, every read is a 401. Game-server's `GAME_SERVER_CONFIG_TOKEN` carries
+  the same value, so the deploy token no longer has to sit in its env. Gate
+  `check:game-server-config` (Lint). Not set in Railway yet: owner step in Blocked; setup, env
+  rows and rotation in INFRA.
+- 2026-10-27 — **`draft-player` documented** (ADR-0010, PLAN 9D; not yet created on Railway). INFRA
+  has its service-map and Watch Paths rows (mirrored in `scripts/deploy-drift.mjs`, `health: null`
+  like the worker), a section with URL, image, resources and the owner set-up, its env vars, a
+  `/health` row and a `DRAFT_PLAYER_SECRET` rotation row (also in guides/rotate-a-secret). The
+  `/deploy` skill lists it. Found and fixed: its IPv4-only listen address (now `::`); found: the
+  player loads Typekit from Adobe with no mirror, unlike the CI harness.
 - 2026-10-27 — **cloudflared minimum version documented** after Cloudflare's eMudhra advisory
   (builds before 2026.10.2 trust compromised intermediates). Only the desktop tunnel connector runs
   cloudflared — no Railway or RunPod service does — so production is unaffected. INFRA "ComfyUI
@@ -151,6 +187,7 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   would fail; the lock here is re-run through pip-compile on Python 3.12 for the boto3 chain only.
   `svelte-package` output under v3 matches v2 file for file. The `lines` release `index.html` is
   byte-identical in size and still self-contained.
+
 - 2026-10-23 — **TypeScript 5.9.3 → 6.0.3 (#1300, replaces Dependabot #1165).** No tsconfig used an
   option TS 6 deprecates (`baseUrl`, `moduleResolution: node10`, `downlevelIteration`, …). Three
   TS 6 changes hit:
@@ -165,12 +202,13 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   `components-storybook` keeps a private TS 5.9.3 because Storybook 9's `@storybook/svelte-vite`
   depends on `typescript ^5`; it goes with the Storybook 10 upgrade. typescript-eslint 8.71.2
   accepts TS `<6.1.0`, so a TS 6.1 bump needs a typescript-eslint bump with it.
+
 - 2026-10-23 — **The headless shell and its apt deps come from a cache.** The Azure mirror crawled
   again, and the 15-minute install step killed whole current-games render shards before any game
   rendered (runs 39939661842, 39930759968): 20 shards a run each fetched ~26 MB of fonts and
   libraries on their own. `scripts/current-games/headless-shell.sh` now owns the install for
   current-games and the four parity workflows. Cold, it runs the same `playwright install
-  --with-deps chromium-headless-shell` with the same retries, but points apt's archive dir at an
+--with-deps chromium-headless-shell` with the same retries, but points apt's archive dir at an
   `actions/cache` entry (`.cache/headless-shell`), keyed on the runner image version
   (`$ImageOS-$ImageVersion`) and the Playwright version, which then holds the exact .debs fetched,
   the unpacked browser and a version manifest. Warm, it installs those .debs offline (apt is given
@@ -200,8 +238,8 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   an outage outlasting the run. Its first real run (manual, 14:22 UTC) opened #1288 with atlas-tool
   and sheet-tool behind on `8db81ae`.
 - 2026-10-21 — **The deploy drift check runs on a schedule.** `.github/workflows/deploy-drift.yml`
-  runs `scripts/deploy-drift.mjs` at :07 and :37 and keeps one issue, *Deploy drift: a Railway
-  service is behind main*, open while anything is behind. It edits the issue's body rather than
+  runs `scripts/deploy-drift.mjs` at :07 and :37 and keeps one issue, _Deploy drift: a Railway
+  service is behind main_, open while anything is behind. It edits the issue's body rather than
   commenting, so an outage is one notification, and closes it on catch-up. Its own PR, because a
   diff under `.github/workflows/**` makes `current-games` ask for a human review.
 - 2026-10-21 — **Services report their commit, and `deploy-drift.mjs` finds a deploy Railway missed.** During a

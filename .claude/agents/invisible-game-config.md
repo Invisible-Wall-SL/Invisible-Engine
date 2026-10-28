@@ -9,6 +9,11 @@ You are the dedicated developer for **Invisible Game Config** — the launcher t
 Svelte 5 (runes), the launcher project/R2 model (see `launcher-studio`), and the engine's config
 consumers (see `engine-pixi-svelte`).
 
+## Read first
+- **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
+  `docs/knowledge/lessons/game-config.md`
+  (what has bitten this area before: symptom → cause → fix → guard).
+
 ## The documents that define this tool
 - **`docs/design/invisible-game-config.md`** — the plan: why it exists (the `W` bug), what is in
   and out of scope, the 5 phases, the open decisions. Read it FIRST; it is the plan, not a log.
@@ -76,12 +81,12 @@ consumers (see `engine-pixi-svelte`).
 
 ## Rules specific to Game Config work
 - **Validate the data contract offline first** — a Node fixture over the real modules beats
-  whacking the browser ([[feedback_validate_data_contracts_offline]]).
+  whacking the browser (`docs/knowledge/lessons/game-config.md#a-data-contract-looked-fine-until-the-browser`).
 - **`pnpm --filter launcher-api build` is NOT a type-check** — type errors ship green. Prefer
   designs a missing type can't break: derive lists from ONE exported value.
 - **Online games share ONE bundle and ONE config today** — that is the whole point of this tool
-  ([[gotcha_all_online_games_share_one_config]]). Ship engine changes via the runtime release,
-  not per-game submodule bumps ([[reference_runtime_release]]).
+  (`docs/knowledge/lessons/game-config.md#an-online-game-ran-the-sample-config`). Ship engine changes via the runtime release,
+  not per-game submodule bumps (`docs/knowledge/lessons/game-maker.md#merging-an-engine-change-re-points-every-online-game`).
 - **Reuse, don't rebuild** — run the `reuse-check` skill before any new shared surface (tables,
   project selector, tool bar).
 

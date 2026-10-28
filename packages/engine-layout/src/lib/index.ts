@@ -91,6 +91,7 @@ export * from './pressSounds';
 export * from './componentInterface';
 export * from './stateMachine';
 export * from './componentEvents';
+export * from './cueSound';
 export * from './componentPointer';
 export * from './registerEffects';
 export * from './rigBeat';

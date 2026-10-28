@@ -81,7 +81,7 @@ import {
 	parseEvalReport,
 	type EvalReport,
 } from '../../../services/director-worker/src/eval/report.ts';
-import { KNOWN_TOOLS } from '../../../services/director-worker/src/tools.ts';
+import { KNOWN_TOOLS, WORKER_TOOL_OPS } from '../../../services/director-worker/src/tools.ts';
 
 const src = (rel: string) => new URL(`../src/${rel}`, import.meta.url).href;
 
@@ -2507,13 +2507,15 @@ check(
 	const registered = [...ADAPTER_OPS.values()].map((op: { tool: string; name: string }) =>
 		opId(op),
 	);
+	// An op a worker tool calls is held through that tool (`WORKER_TOOL_OPS`).
+	const throughTool = new Map(Object.entries(WORKER_TOOL_OPS).map(([tool, op]) => [op, tool]));
 	check(
-		'rules: every registered op is served to it or to another agent, never both',
+		'rules: every registered op (or the worker tool that calls it) is served to it or to another agent, never both',
 		[
 			[...ma.fixedAdapterTools, ...ma.otherAdapterTools].sort(),
 			ma.fixedAdapterTools.some((id: string) => ma.otherAdapterTools.includes(id)),
 		],
-		[[...registered].sort(), false],
+		[registered.map((id: string) => throughTool.get(id) ?? id).sort(), false],
 	);
 	check(
 		'rules: the tools an agent may name are the worker catalogue, every registered op among them',
@@ -2522,9 +2524,9 @@ check(
 	);
 	const qaNames = frontOf(AGENT_TEXTS.get('qa') as string).tools;
 	check(
-		'rules: qa is served the ops it names, bar the build.* and run.* ones',
+		'rules: qa is served the ops it names, bar the run.* ones',
 		agents.agentEditRules('qa').fixedAdapterTools,
-		qaNames.filter((t) => !/^(build|run)\./.test(t)).sort(),
+		qaNames.filter((t) => !/^run\./.test(t)).sort(),
 	);
 	check(
 		'rules: the real definitions meet their own, both ways',
@@ -3699,8 +3701,34 @@ check(
 	);
 }
 {
-	const d = (await detail(ADMIN, '30')).body as { harness: Json; files: Json[] };
+	const file = (path: string, previousPath: string | null = null) => ({ path, previousPath });
+	check(
+		'a change that edits a family pack is flagged, a renamed one by either name',
+		changes.familyPackFilesOf([
+			file('services/director-worker/families/slot.md'),
+			file(
+				'services/director-worker/families/arcade.md',
+				'services/director-worker/families/old.md',
+			),
+			file('services/director-worker/agents/qa.md'),
+			file('services/director-worker/src/familyPack.ts'),
+			file('services/director-worker/fixtures/families/valid/slot.md'),
+		]),
+		[
+			'services/director-worker/families/slot.md',
+			'services/director-worker/families/arcade.md',
+			'services/director-worker/families/old.md',
+		],
+	);
+}
+{
+	const d = (await detail(ADMIN, '30')).body as {
+		harness: Json;
+		files: Json[];
+		familyPacks: string[];
+	};
 	check('#30: every page of files is read', d.files.length, 141);
+	check('#30: a change that edits no family pack carries none', d.familyPacks, []);
 	check(
 		'#30: a harness edit on the second page is seen',
 		String(d.harness.unapprovable).includes('scripts/current-games/lib/compare.mjs'),
@@ -4189,7 +4217,10 @@ check('a Pipeline Tester sees the agents', listed.status, 200);
 	check(
 		'qa: its rules say which adapter ops its definition must keep',
 		[d.rules.fixedAdapterTools, d.openChanges],
-		[['atlas.get_variant_image', 'atlas.sheet_stats'], []],
+		[
+			['atlas.get_variant_image', 'atlas.sheet_stats', 'build.play_draft', 'build.request_draft'],
+			[],
+		],
 	);
 }
 
