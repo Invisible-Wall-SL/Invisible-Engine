@@ -6,20 +6,25 @@ import {
 	STATUS,
 	characterBody,
 	clampInput,
+	createCamera,
 	createFixedStep,
 	createInterpolator,
 	createPredictor,
+	createRng,
 	createSnapshotClock,
 	onlineLevel,
 	snapFor,
+	stepCamera,
 	stepContext,
+	type Camera,
 	type FixedStep,
 	type Interpolator,
 	type OnlineEvent,
 	type Predictor,
 	type SnapshotClock,
 } from 'engine-mechanics';
-import { spawnStore } from 'engine-layout/svelte';
+import { sceneCamera, sceneWorld, worldCameraScene, type Scene } from 'engine-layout';
+import { setWorldCameraView, spawnStore } from 'engine-layout/svelte';
 import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-config';
 
 import { bakedGameConfig, refuseOnlineBoot } from '../editor-scenes';
@@ -90,6 +95,16 @@ type Session = {
 };
 
 let session: Session | undefined;
+
+/** The world camera of an online game whose play field is a world (P10.16): it follows the own
+ *  player as it is drawn, so the device's view answers as fast as its controls. */
+type OnlineCamera = {
+	camera: Camera;
+	world: { w: number; h: number } | undefined;
+	view: () => Size;
+};
+type Size = { w: number; h: number };
+let worldCamera: OnlineCamera | undefined;
 
 const MOVE_KEYS: Record<string, [number, number]> = {
 	ArrowLeft: [-1, 0],
@@ -303,6 +318,29 @@ function draw(current: Session) {
 	live.move(moves);
 }
 
+/**
+ * Give an online game the camera of the layout's world screen, if it has one (as the offline loop's
+ * `useWorldCamera`); the first world screen seen is kept for the page. `view` reads the current
+ * design size, so a rotated device moves the view with it.
+ */
+export function useOnlineCamera(scenes: readonly Scene[], view: () => Size) {
+	if (worldCamera) return;
+	const scene = worldCameraScene(scenes);
+	if (!scene) return;
+	const camera = createCamera(sceneCamera(scene), createRng('online:camera'));
+	camera.snapNext = true;
+	worldCamera = { camera, world: sceneWorld(scene), view };
+}
+
+/** Move the camera after a frame, towards the own player as drawn. */
+function follow(current: Session, dtMs: number) {
+	if (!worldCamera || !current.me) return;
+	const { camera, world, view } = worldCamera;
+	const at = current.me.drawn(current.clock.alpha);
+	stepCamera(camera, dtMs / 1000, { view: view(), world, target: { ...at, vx: 0, vy: 0 } });
+	setWorldCameraView({ x: camera.x, y: camera.y, shakeX: camera.offsetX, shakeY: camera.offsetY });
+}
+
 /** One frame: the inputs its fixed steps hold, each predicted as it is sent, then the room drawn. */
 export function tickOnline(dtMs: number) {
 	const current = session;
@@ -319,6 +357,7 @@ export function tickOnline(dtMs: number) {
 	});
 	current.me?.frame(dtMs);
 	draw(current);
+	follow(current, dtMs);
 }
 
 /** The room as the determinism probe reads it: the server's step and places, and how each player is
@@ -332,9 +371,21 @@ export function onlineProbe() {
 		bodies.push({ id, x: p.x, y: p.y, vx: 0, vy: 0, tags: [] });
 		if (current) drawn.push({ id, ...placeOf(current, id, p) });
 	});
+	const camera = worldCamera?.camera;
 	return {
 		steps: state?.step || 0,
 		bodies,
+		...(camera && worldCamera
+			? {
+					camera: {
+						x: camera.x,
+						y: camera.y,
+						shakeX: camera.offsetX,
+						shakeY: camera.offsetY,
+						view: worldCamera.view(),
+					},
+				}
+			: {}),
 		...(current && state
 			? {
 					online: {

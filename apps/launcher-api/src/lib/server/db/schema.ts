@@ -757,6 +757,43 @@ export const directorAtlasJobs = pgTable(
 );
 
 /**
+ * A QA play of a run's frozen draft (ADR-0010). Modelled on {@link directorAtlasJobs}: the launcher
+ * inserts and settles rows, and `queued` -> terminal there is the one transition that writes the
+ * run's `job_done` event. The one other writer is the worker's stop (`cancelQueuedDrafts`), which
+ * flips a stopping run's queued rows to `cancelled` with no event. `draftId` names a folder under the run's `director/drafts/`.
+ */
+export const directorDraftJobs = pgTable(
+	'director_draft_jobs',
+	{
+		jobRef: text('job_ref').primaryKey(),
+		runId: text('run_id')
+			.notNull()
+			.references(() => directorRuns.id, { onDelete: 'cascade' }),
+		agent: text('agent').notNull(),
+		draftId: text('draft_id').notNull(),
+		/** The scenarios asked for; null plays every scenario of the kind's script. */
+		scenarios: jsonb('scenarios').$type<string[]>(),
+		status: text('status').$type<'queued' | 'finished' | 'failed' | 'cancelled'>().notNull(),
+		/** The report summary (or the failure reason) that settled it. */
+		result: jsonb('result'),
+		doneVia: text('done_via').$type<'callback' | 'poll' | 'inline'>(),
+		queuedAt: timestamp('queued_at', { withTimezone: true }).notNull().defaultNow(),
+		doneAt: timestamp('done_at', { withTimezone: true }),
+	},
+	(table) => [
+		index('director_draft_jobs_run_idx').on(table.runId),
+		check(
+			'director_draft_jobs_status_check',
+			sql`${table.status} in ('queued', 'finished', 'failed', 'cancelled')`,
+		),
+		check(
+			'director_draft_jobs_done_check',
+			sql`(${table.status} = 'queued') = (${table.doneAt} is null)`,
+		),
+	],
+);
+
+/**
  * Invisible Pipeline Changes: an owner's approval of one changed screen the current-games harness
  * found (ADR-0004 "Approving an intended difference", ADR-0007). `diffId` is the screen's stable id
  * from the report, `<head sha>:<game key>:<screen>:<diff hash>`: it embeds the head, so a new push
@@ -1005,6 +1042,7 @@ export type DirectorMessage = typeof directorMessages.$inferSelect;
 export type DirectorRegion = typeof directorRegions.$inferSelect;
 export type DirectorOp = typeof directorOps.$inferSelect;
 export type DirectorAtlasJob = typeof directorAtlasJobs.$inferSelect;
+export type DirectorDraftJob = typeof directorDraftJobs.$inferSelect;
 export type PipelineApproval = typeof pipelineApprovals.$inferSelect;
 export type PipelineMerge = typeof pipelineMerges.$inferSelect;
 export type BugReport = typeof bugReports.$inferSelect;

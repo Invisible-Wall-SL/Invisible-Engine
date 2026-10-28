@@ -23,7 +23,7 @@
 	import { getContext } from '../game/context';
 	import { registerDeterminismArcade } from '../game/determinism';
 	import { gameMechanic } from '../game/mechanic';
-	import { listenOnline, onlineProbe, tickOnline } from '../game/online';
+	import { listenOnline, onlineProbe, tickOnline, useOnlineCamera } from '../game/online';
 
 	/**
 	 * THE ARCADE PLAY FIELD'S LOOP (`docs/design/game-families.md` §4.2, §6.4): mounted in the reel
@@ -38,10 +38,17 @@
 	const context = getContext();
 	const app = getContextApp();
 	// An online game's bodies are the room's (`game/online.ts`): the server moves them, so the
-	// local loop (its camera and its characters) never starts.
+	// local loop (its characters) never starts; its world camera follows the own player instead.
 	const online = gameMechanic().room;
 	const loop = online ? undefined : startArcade(() => context.stateLayoutDerived.mainLayout());
-	$effect(() => (online ? undefined : useWorldCamera(scenes)));
+	$effect(() =>
+		online
+			? useOnlineCamera(scenes, () => {
+					const { width, height } = context.stateLayoutDerived.mainLayout();
+					return { w: width, h: height };
+				})
+			: useWorldCamera(scenes),
+	);
 	$effect(() =>
 		online ? undefined : useArcadePaths(scenes, context.stateLayoutDerived.layoutType()),
 	);
