@@ -12,8 +12,10 @@ import {
 	docButtonVersions,
 	isBuiltinButtonShape,
 	authoredWinEnabled,
+	readTransitionCue,
 	withAuthoredButtonsDoc,
 } from 'engine-layout';
+import { isCustomElementFxKind } from 'constants-shared/elementFx';
 import { PROJECT_KEY_WORDS } from '$lib/projectKey';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { mayTargetClient } from '$lib/accessRules';
@@ -41,6 +43,7 @@ import {
 import { offeredGameKinds, RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
 import { loadDocWithEtag } from '$lib/server/editorStorage';
 import { loadComponent } from '$lib/server/componentStorage';
+import { loadCustomElementFx } from '$lib/server/shaderStorage';
 import { authoredOverlayChips } from '$lib/server/authoredWinTiers';
 import { buildGameProfile } from '$lib/server/gameProfile';
 import { listGames } from '$lib/server/games';
@@ -244,6 +247,14 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 							),
 						)
 					: [];
+			// The `transition` cue's row names a shader graph: whether it compiles decides the chip, as
+			// it decides the game (Invisible Shader Graph 8e) — compiled only for such a project.
+			const cueKind = layout ? readTransitionCue(layout)?.kind : undefined;
+			const compiledKinds = new Set<string>(
+				isCustomElementFxKind(cueKind)
+					? (await loadCustomElementFx(clientKey, p.key)).map((e) => e.spec.kind)
+					: [],
+			);
 			// The chips read the doc the game boots, in its order: the button swap first (8d), then the
 			// shared resolution of the Transition, Win and free-spin rows on its output.
 			const layoutChips = (doc: NonNullable<typeof layout>) => {
@@ -251,7 +262,10 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 					shadowed: !buttonDefs.every(isBuiltinButtonShape),
 				});
 				const buttoned = authoredButtons === 'ready' ? withAuthoredButtonsDoc(doc) : doc;
-				return { ...authoredOverlayChips(buttoned, config.doc, winText), authoredButtons };
+				return {
+					...authoredOverlayChips(buttoned, config.doc, winText, (kind) => compiledKinds.has(kind)),
+					authoredButtons,
+				};
 			};
 			const profile = buildGameProfile({
 				gameTypeId: p.gameType,

@@ -398,7 +398,7 @@ const withRows = (doc: LayoutDoc, rows: Record<string, boolean>): LayoutDoc => (
 		[
 			game.includes('resolveAuthoredOverlays(rawDoc, {'),
 			/authoredFreeSpinsStatus\(|withAuthoredFreeSpinsDoc\(|withAuthoredWinDoc\(/.test(game),
-			page.includes('authoredOverlayChips(buttoned, config.doc, winText)'),
+			page.includes('authoredOverlayChips(buttoned, config.doc, winText, '),
 			/authored(Transition|Win|FreeSpins)Status\(/.test(page),
 		],
 		[true, false, true, false],

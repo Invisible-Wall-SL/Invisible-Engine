@@ -626,7 +626,7 @@ for (const [name, doc] of Object.entries(layouts)) {
 	eq(
 		'the Game Maker page computes the status from the builder, reading Win Text only with the flag on',
 		[
-			page.includes('authoredOverlayChips(buttoned, config.doc, winText)') &&
+			page.includes('authoredOverlayChips(buttoned, config.doc, winText, ') &&
 				/status: \(doc\) => authoredWinStatus\(\{ doc, tiers \}\)/.test(
 					src('../src/lib/server/authoredWinTiers.ts'),
 				),

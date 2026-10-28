@@ -1,20 +1,22 @@
 import {
 	ELEMENT_FX_KIND_ENUM,
 	ELEMENT_FX_TARGET_ENUM,
+	SCREEN_TRANSITION_KIND_ENUM,
 	type TemplateVocabulary,
 } from 'engine-flow-v2';
 import {
 	ELEMENT_FX_REELS_TARGET,
+	ELEMENT_FX_STAGE_TARGET,
 	elementFxScreenTarget,
 	readElementFxEntries,
 } from 'constants-shared/elementFx';
 import type { ComponentDef, LayoutNode, Scene } from 'engine-layout';
 
 /**
- * What a Flow `elementEffect` can aim at in this project: the reels, every screen, and every node
- * the game registers an anchor for — a group, a component placement, a coded mount, and any node
- * that carries Element FX of its own (inside a component too, given its defs). The order is the
- * dropdown's: reels, screens in doc order, then node ids sorted.
+ * What a Flow `elementEffect` can aim at in this project: the whole stage, the reels, every screen,
+ * and every node the game registers an anchor for — a group, a component placement, a coded mount,
+ * and any node that carries Element FX of its own (inside a component too, given its defs). The
+ * order is the dropdown's: the stage, the reels, screens in doc order, then node ids sorted.
  */
 export function collectElementFxTargets(
 	scenes: readonly Scene[],
@@ -41,6 +43,7 @@ export function collectElementFxTargets(
 	};
 	for (const scene of scenes) walk(scene.nodes ?? [], false);
 	return [
+		ELEMENT_FX_STAGE_TARGET,
 		ELEMENT_FX_REELS_TARGET,
 		...scenes.map((scene) => elementFxScreenTarget(scene.id)),
 		...[...nodes].sort(),
@@ -76,3 +79,9 @@ export const withCustomElementFxKinds = (
 	vocab: TemplateVocabulary,
 	kinds: readonly string[],
 ): TemplateVocabulary => widenEnum(vocab, ELEMENT_FX_KIND_ENUM, kinds);
+
+/** The vocabulary with its `ScreenTransitionKind` enum widened to the project's custom kinds. */
+export const withCustomScreenTransitionKinds = (
+	vocab: TemplateVocabulary,
+	kinds: readonly string[],
+): TemplateVocabulary => widenEnum(vocab, SCREEN_TRANSITION_KIND_ENUM, kinds);

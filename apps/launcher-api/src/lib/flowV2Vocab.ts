@@ -7,7 +7,11 @@ import {
 	type FlowOutcome,
 	type TemplateVocabulary,
 } from 'engine-flow-v2';
-import { withCustomElementFxKinds, withElementFxTargets } from './elementFxTargets';
+import {
+	withCustomElementFxKinds,
+	withCustomScreenTransitionKinds,
+	withElementFxTargets,
+} from './elementFxTargets';
 import { withSceneCues } from './sceneCues';
 import { withProjectSounds, type SoundOptions } from './soundOptions';
 
@@ -25,17 +29,19 @@ export interface FlowV2VocabInputs {
 	sceneCues: string[];
 	/** What a Flow `elementEffect` can aim at (`collectElementFxTargets`); absent ⇒ the reels only. */
 	fxTargets?: readonly string[];
-	/** The project's shader effects (`custom:<id>`) an `elementEffect` can play; absent ⇒ none. */
+	/** The project's shader effects (`custom:<id>`) an `elementEffect` or a `screenTransition` can
+	 *  play; absent ⇒ none. */
 	customFxKinds?: readonly string[];
 }
 
 /**
  * The vocabulary a project's flow is authored and judged against: the kind's, less what its outcome
  * forbids, plus its Game Config add-ons, its symbols, its sounds, its scene cues, its Element FX
- * targets and its custom Element FX kinds. ONE function, so the `/flow-v2` editor and the publish
- * gate (`validateFlowV2Against`) cannot compose it differently. Each step returns its input
- * unchanged when the project adds nothing. (The stored-flow check before Publish's assemble passes
- * no custom kinds; an enum value is judged as text, so its verdict is the same.)
+ * targets and its custom Element FX kinds (for `elementEffect` and `screenTransition`). ONE
+ * function, so the `/flow-v2` editor and the publish gate (`validateFlowV2Against`) cannot compose
+ * it differently. Each step returns its input unchanged when the project adds nothing. (The
+ * stored-flow check before Publish's assemble passes no custom kinds; an enum value is judged as
+ * text, so its verdict is the same.)
  */
 export function composeFlowV2Vocab(
 	templateId: string | undefined,
@@ -49,19 +55,22 @@ export function composeFlowV2Vocab(
 		customFxKinds = [],
 	}: FlowV2VocabInputs,
 ): TemplateVocabulary {
-	return withCustomElementFxKinds(
-		withElementFxTargets(
-			withSceneCues(
-				withProjectSounds(
-					withSymbols(
-						withAddOns(withOutcome(templateVocabulary(templateId), outcome), addOns),
-						symbols,
+	return withCustomScreenTransitionKinds(
+		withCustomElementFxKinds(
+			withElementFxTargets(
+				withSceneCues(
+					withProjectSounds(
+						withSymbols(
+							withAddOns(withOutcome(templateVocabulary(templateId), outcome), addOns),
+							symbols,
+						),
+						sounds,
 					),
-					sounds,
+					sceneCues,
 				),
-				sceneCues,
+				fxTargets,
 			),
-			fxTargets,
+			customFxKinds,
 		),
 		customFxKinds,
 	);

@@ -22,6 +22,11 @@
  *     localization harvest is unchanged by the flag;
  *  5. the publish chips: a project with the flag on shows "Authored Transition (pilot)", one with
  *     the flag on and no coded Transition to replace gets the warning, one with the flag off neither.
+ *  6. the `transition` cue's screen transition (Invisible Shader Graph 8e): the one rule
+ *     (`transitionCueStatus`: off / screen / unplayable) the game and the chip share; with the row
+ *     off or unplayable the resolution returns the same objects as without it (the wipe, coded or
+ *     authored); with it on, the authored swap is not made, the coded part is retired and the cue
+ *     is subscribed; with no transition runtime bound the game reads the row as off; the chips.
  *
  * Runs the real `engine-layout` readers, player and registry, the real `editorStorage`
  * normalizer and the real `gameProfile`. What it cannot prove: the Svelte mount in `Game.svelte`
@@ -40,6 +45,9 @@ const N = await import('../../../packages/engine-layout/src/lib/cinematicNodes.t
 const R = await import('../../../packages/engine-layout/src/lib/referenceLayouts/index.ts');
 const { normalizeDoc: normalizeLayoutDoc } = await import('../src/lib/server/editorStorage.ts');
 const { buildGameProfile } = await import('../src/lib/server/gameProfile.ts');
+const { authoredOverlayChips } = await import('../src/lib/server/authoredWinTiers.ts');
+const S = await import('../../lines/src/game/screenTransitions.ts');
+const { basegameOverlaysSceneOf } = await import('../../lines/src/game/sceneSelection.ts');
 
 let failures = 0;
 let passes = 0;
@@ -708,6 +716,203 @@ eq(
 		'the game swaps once and builds both flow interpreters from the swapped doc',
 		[swapAt > 0, v2At > swapAt, v1At > swapAt, /createLinesFlow(V2)?\(\s*rawDoc/.test(load)],
 		[true, true, true, false],
+	);
+}
+
+// ---- 6. the transition cue's screen transition ---------------------------------------------------
+
+{
+	const lines = layouts.lines;
+	const withSettings = (doc: LayoutDoc, settings: unknown): LayoutDoc =>
+		({ ...doc, settings }) as LayoutDoc;
+	const builtin = { kind: 'dissolveOut', durationMs: 900 };
+	const custom = { kind: 'custom:swirl' };
+	const none = () => false;
+	const swirl = (kind: string) => kind === 'custom:swirl';
+	eq(
+		'off / screen / unplayable, from the one rule',
+		[
+			A.transitionCueStatus(lines, swirl),
+			A.transitionCueStatus(withSettings(lines, { transitionCue: builtin }), none),
+			A.transitionCueStatus(withSettings(lines, { transitionCue: custom }), swirl),
+			A.transitionCueStatus(withSettings(lines, { transitionCue: custom }), none),
+			A.transitionCueStatus(withSettings(lines, { transitionCue: { kind: 'shake' } }), swirl),
+			A.transitionCueStatus(withSettings(lines, { transitionCue: { kind: 'custom:' } }), swirl),
+		],
+		['off', 'screen', 'screen', 'unplayable', 'off', 'off'],
+	);
+	const win = { status: () => 'off' as const };
+	const resolve = (doc: LayoutDoc, transitionCue?: A.TransitionCueStatus) =>
+		A.resolveAuthoredOverlays(doc, transitionCue ? { ...win, transitionCue } : win);
+	const flagOn = withSettings(lines, { authoredOverlays: { transition: true } });
+	for (const [label, doc] of [
+		['the flag off', lines],
+		['the flag on', flagOn],
+	] as const) {
+		const today = resolve(doc);
+		for (const status of ['off', 'unplayable'] as const) {
+			const row = resolve(doc, status);
+			eq(
+				`${label}, the row ${status}: the same objects as without it`,
+				[
+					row.doc === today.doc ||
+						JSON.stringify(row.doc) === JSON.stringify(today.doc) ||
+						'different',
+					row.doc.scenes.every((scene, i) => scene === today.doc.scenes[i]) ||
+						JSON.stringify(row.doc.scenes) === JSON.stringify(today.doc.scenes),
+					row.transition,
+					row.transitionCue,
+				],
+				[true, true, today.transition, status],
+			);
+		}
+	}
+	eq(
+		'the flag off, the row off: the raw doc itself',
+		[resolve(lines).doc === lines, resolve(lines, 'off').doc === lines],
+		[true, true],
+	);
+	const onScreen = resolve(flagOn, 'screen');
+	eq(
+		'the flag on, the row screen: the authored swap is not made (the coded node stays, retired)',
+		[
+			onScreen.doc === flagOn,
+			onScreen.transition,
+			A.authoredTransitionSwapped(onScreen.transition, onScreen.transitionCue),
+			transitionNodes(overlaysOf(onScreen.doc).nodes).map((n) => n.bind?.component ?? 'authored'),
+		],
+		[true, 'ready', false, ['Transition']],
+	);
+	eq(
+		'…where the flag on alone swaps it',
+		transitionNodes(overlaysOf(resolve(flagOn, 'off').doc).nodes).map(
+			(n) => n.bind?.component ?? 'authored',
+		),
+		['authored'],
+	);
+	const bare = withSettings(
+		{ ...lines, scenes: lines.scenes.filter((sc) => sc.id !== 'basegameOverlays') },
+		{ authoredOverlays: { transition: true } },
+	);
+	const fallbackOverlays = overlaysOf(lines);
+	eq(
+		'the reference overlays a doc without its own gets: swapped under the flag, not under the row',
+		[
+			basegameOverlaysSceneOf(bare, lines, false, 'screen') === fallbackOverlays,
+			basegameOverlaysSceneOf(bare, lines, false, 'unplayable') === fallbackOverlays,
+			basegameOverlaysSceneOf(bare, lines, false) === fallbackOverlays,
+		],
+		[true, false, false],
+	);
+
+	// The game: no transition runtime bound ⇒ the row reads as off (the wipe, as before 8e); bound ⇒
+	// the rule's verdict. On `screen` alone the cue is subscribed.
+	eq(
+		'no runtime bound ⇒ off, whatever the rule says',
+		[S.bootTransitionCueStatus(() => 'screen'), S.bootTransitionCueStatus(() => 'unplayable')],
+		['off', 'off'],
+	);
+	let played = 0;
+	S.bindScreenTransitions({
+		play: () => {
+			played++;
+			return { captured: Promise.resolve(), done: Promise.resolve() };
+		},
+		wait: () => Promise.resolve(),
+	});
+	eq(
+		'a runtime bound ⇒ the rule’s verdict',
+		[
+			S.bootTransitionCueStatus(() => 'screen'),
+			S.bootTransitionCueStatus(() => 'unplayable'),
+			S.bootTransitionCueStatus(() => 'off'),
+		],
+		['screen', 'unplayable', 'off'],
+	);
+	const subscribed: string[] = [];
+	for (const status of ['off', 'unplayable', 'screen'] as const) {
+		const stop = S.subscribeTransitionCue(
+			status,
+			A.readTransitionCue({ settings: { transitionCue: builtin } }),
+			(handler) => {
+				subscribed.push(status);
+				void handler();
+				return () => subscribed.push(`${status}:stopped`);
+			},
+		);
+		stop();
+	}
+	await Promise.resolve();
+	eq(
+		'the cue is subscribed (and played) on screen alone, and unsubscribed on stop',
+		[subscribed, played],
+		[['screen', 'screen:stopped'], 1],
+	);
+	S.bindScreenTransitions(null);
+
+	const game = readFileSync(
+		new URL('../../lines/src/components/Game.svelte', import.meta.url),
+		'utf8',
+	);
+	const load = game.slice(game.indexOf('void loadEditorScenes().then('));
+	eq(
+		'the game reads the rule before the swap, hands it to the resolution and retires on it',
+		[
+			load.indexOf('bootTransitionCueStatus(() =>') > 0 &&
+				load.indexOf('bootTransitionCueStatus(() =>') <
+					load.indexOf('resolveAuthoredOverlays(rawDoc, {'),
+			load.includes('transitionCueStatus(rawDoc, isPlayableElementFxKind)'),
+			load.includes('transitionCue: cueStatus,'),
+			load.includes("retireCodedOverlay('transition', authored || screenCue);"),
+			load.indexOf('subscribeTransitionCue(cueStatus, readTransitionCue(rawDoc)') > 0,
+			game.includes(
+				'basegameOverlaysSceneOf(editorDoc, fallbackEditorScenes, authoredWinRuntime.on, transitionCue)',
+			),
+		],
+		[true, true, true, true, true, true],
+	);
+
+	// The chips: the same rule, against the project's compiled kinds.
+	const cueChips = (layout: {
+		authoredTransition: A.AuthoredTransitionStatus;
+		transitionCue?: A.TransitionCueStatus;
+	}) =>
+		buildGameProfile({
+			gameTypeId: 'lines',
+			gameTypeName: 'Lines',
+			config: null,
+			configSource: 'template' as never,
+			symbols: { symbols: {} } as never,
+			runtimeId: 'lines',
+			protocol: 'lines',
+			layout,
+		})
+			.features.filter((c) => c.id.startsWith('transitionCue'))
+			.map((c) => [c.id, c.tone]);
+	eq(
+		'screen ⇒ the fact chip, unplayable ⇒ the warning, off or absent ⇒ none',
+		[
+			cueChips({ authoredTransition: 'off', transitionCue: 'screen' }),
+			cueChips({ authoredTransition: 'ready', transitionCue: 'unplayable' }),
+			cueChips({ authoredTransition: 'off', transitionCue: 'off' }),
+			cueChips({ authoredTransition: 'off' }),
+		],
+		[[['transitionCue', undefined]], [['transitionCueUnplayable', 'warn']], [], []],
+	);
+	const cueDoc = withSettings(lines, {
+		authoredOverlays: { transition: true },
+		transitionCue: custom,
+	});
+	eq(
+		'the Game Maker chips judge the row by the compiled kinds, the Transition row unchanged',
+		[
+			authoredOverlayChips(cueDoc, null, undefined),
+			authoredOverlayChips(cueDoc, null, undefined, swirl),
+		].map((c) => [c.transitionCue, c.authoredTransition]),
+		[
+			['unplayable', 'ready'],
+			['screen', 'ready'],
+		],
 	);
 }
 

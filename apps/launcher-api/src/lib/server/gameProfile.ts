@@ -50,6 +50,7 @@ import {
 	type AuthoredWinStatus,
 	type AuthoredFreeSpinsStatus,
 	type AuthoredButtonsStatus,
+	type TransitionCueStatus,
 } from 'engine-layout';
 import { projectAddOns } from '../addOns';
 import type { GameConfigSource } from './gameConfigDefaults';
@@ -86,6 +87,8 @@ export interface GameProfileSignals {
 	 */
 	layout?: {
 		authoredTransition: AuthoredTransitionStatus;
+		/** Invisible Shader Graph 8e `transitionCueStatus`; absent ⇒ off. */
+		transitionCue?: TransitionCueStatus;
 		authoredWin: AuthoredWinStatus;
 		/** Rive plan Phase 8c `authoredFreeSpinsStatus`; absent ⇒ off. */
 		authoredFreeSpins?: AuthoredFreeSpinsStatus;
@@ -595,6 +598,23 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		text: (ctx) =>
 			ctx.layout?.authoredTransition === 'non-canvas-scene'
 				? 'Authored Transition on, held back: a Transition sits outside canvas space'
+				: null,
+	},
+	{
+		id: 'transitionCue',
+		title:
+			'The transition cue (free-spin entry and exit) plays a screen transition from the old screen to the new one instead of the wipe, set in Game Settings → Screen FX. The flow goes on once the old screen is frozen, so the next screen appears under the transition.',
+		text: (ctx) =>
+			ctx.layout?.transitionCue === 'screen' ? 'Transition cue: screen transition' : null,
+	},
+	{
+		id: 'transitionCueUnplayable',
+		title:
+			'The transition cue names a Shader Graph effect that does not ship (deleted, or it does not compile), so the game plays the wipe instead. Fix the graph in Invisible Shader Graph or pick another transition in Game Settings → Screen FX.',
+		tone: 'warn',
+		text: (ctx) =>
+			ctx.layout?.transitionCue === 'unplayable'
+				? 'Transition cue: its effect does not ship, the wipe plays'
 				: null,
 	},
 	{
