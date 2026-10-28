@@ -314,8 +314,11 @@ Each step has its own branch, gates and status entry.
      renderer; the material in the game; the ship chain; `/fx` authoring; the other previews;
      `/shaders` (Made for particles, the Particles preview); play-QA and calibration.
    - **8e. Screen transitions and post FX.** A graph that reads two screens (from, to) over a
-     transition, and one applied to the whole stage. Needs its own design pass first: where
-     transitions and post FX live in the Scene Editor and the Flow, and their phone budget.
+     transition, and one applied to the whole stage. Designed in
+     [shader-graph-screens.md](shader-graph-screens.md) (decided 2026-10-28): the old screen frozen
+     once and the new one live; an exit effect plays on the still, any other graph plays on the
+     live stage in a screen shell and reads both through a Screens node; post FX are Element FX on
+     the stage; one owner for the stage's filters. Built as 8e.1–8e.8, one PR each (its §15).
 
 Rough size: steps 1–3 are engine work, roughly one PR each. Steps 4 and 5 are the large ones (the
 editor UI and the ship chain). Steps 6–7 build on top of them.
