@@ -198,6 +198,12 @@ export const TOOL_ICONS: Record<string, string> = {
 		'<circle cx="14" cy="5" r="2"/><path d="M14 7.5v6l3 6.5"/><path d="M14 13.5l-3 6.5"/>' +
 			'<path d="M10.5 10.5l3.5-2 3.5 2"/><path d="M3 9h4"/><path d="M2 13h5"/><path d="M4 17h4"/>',
 	),
+	// two cards fanned (a card game's cards and decks)
+	cards: I(
+		'<rect x="3.5" y="6" width="10" height="14" rx="1.5"/>' +
+			'<path d="M9 4.6 10.2 4a1.5 1.5 0 0 1 2 .7l6.6 12.6a1.5 1.5 0 0 1-.6 2l-4.7 2.5"/>' +
+			'<path d="M6.5 10h4"/><path d="M6.5 13h4"/>',
+	),
 	// clapperboard (direct a game's production)
 	director: I(
 		'<path d="M3 9.75h18v10.5H3z"/><path d="M3 9.75 4.8 4.5h15.9L21 9.75"/>' +
@@ -333,6 +339,16 @@ export const TOOLS: Record<string, ToolDef> = {
 		kind: 'online',
 		url: '/characters',
 		icon: TOOL_ICONS.characters,
+		isNew: true,
+	},
+	cards: {
+		id: 'cards',
+		name: 'Invisible Card Library',
+		description:
+			"A card game's cards and decks: each card in its frame, its effects from a form, and test matches between the decks.",
+		kind: 'online',
+		url: '/cards',
+		icon: TOOL_ICONS.cards,
 		isNew: true,
 	},
 	editor: {
@@ -487,15 +503,15 @@ export const TOOLS: Record<string, ToolDef> = {
 /**
  * The tools each game family does NOT use (`docs/design/game-families.md` §6.5). An exclusion list,
  * so a new tool is offered to every family until someone says otherwise. Slot and match-3 hide only
- * Invisible Characters, which is arcade-only: a slot project's manifest is the role's without it,
- * exactly the list from before that tool existed. The role still decides what a user may
+ * the family tools, Invisible Characters (arcade-only) and Invisible Card Library (card-only): a slot
+ * project's manifest is the role's without them, exactly the list from before those tools existed. The role still decides what a user may
  * open; the family only narrows it. A tool that depends on the outcome (Win Text for match-3) stays
  * listed and checks the outcome itself.
  */
 export const FAMILY_TOOLS: Record<GameFamily, readonly string[]> = {
-	slot: ['characters'],
-	match3: ['characters'],
-	arcade: ['symbols', 'winText'],
+	slot: ['characters', 'cards'],
+	match3: ['characters', 'cards'],
+	arcade: ['symbols', 'winText', 'cards'],
 	card: ['symbols', 'winText', 'characters'],
 };
 
@@ -573,6 +589,7 @@ export const TOOL_STAGES: ToolStage[] = [
 			'editor',
 			'flow',
 			'characters',
+			'cards',
 			'symbols',
 			'componentEditor',
 			'winText',
@@ -639,6 +656,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'winText',
 		'gameConfig',
 		'characters',
+		'cards',
 		'editor',
 		'flow',
 		'fx',
@@ -662,6 +680,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'winText',
 		'gameConfig',
 		'characters',
+		'cards',
 		'editor',
 		'flow',
 		'fx',
@@ -679,6 +698,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'gameMaker',
 		'gameConfig',
 		'characters',
+		'cards',
 		'editor',
 		'flow',
 		'fx',
@@ -924,6 +944,7 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	winText: 'win-text',
 	gameConfig: 'game-config',
 	characters: 'invisible-characters',
+	cards: 'invisible-card-library',
 	editor: 'invisible-editor',
 	ftpBrowser: 'ftp-browser',
 	componentEditor: 'component-editor',
