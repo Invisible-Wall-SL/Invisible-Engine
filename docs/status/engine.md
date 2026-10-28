@@ -327,9 +327,19 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     `check:lines-parity` unchanged, `check:mock-contract`, `check:game-config-family`,
     `check:flow-bonus-modes` (the new vocabulary entries are checked on their own, outside the
     pinned hashes).
-  - **Not seen in a browser yet.** In the build container the dev game draws no board (software
-    WebGL at about 4 fps), with or without the blocks. Playtest S8 in `docs/playtest/lines.md` is
-    still owed by eye.
+  - **Played** through `scripts/playtest/wilds-screens.mjs`: the built runtime on the harness's
+    `cg-lines` stand-in, `FORCE_WILDS=1`, `?ie_determinism`, both the coded path and
+    `?flowV2=lines`, with no console errors. It showed four things:
+    - a paid expansion fills the reel before the win line is drawn;
+    - an unpaid one under `onWin` leaves the reel as it landed;
+    - `always` draws it;
+    - the plus-grow morphs up, down, left and right, clipped at the edge.
+    A scatter on the reel stays.
+
+    The plain vite dev game draws no board in the build container (software WebGL at about 4 fps),
+    which is why the harness is used. The grow's "burst" reuses the wild's `win` state (gold frame
+    included), so the origin reads as a winning cell for about half a second. It is open for a
+    design look.
 - 2026-10-27 — **A rolling reel costs ~18% less CPU: the reel geometry and the prop sync are
   cached** (branch `claude/reel-smoothness`). Owner report on `commonoverlayproject`: reels not
   smooth on phones. Profiled an unminified runtime spinning at 4× CPU slowdown: ~40% of spin CPU was

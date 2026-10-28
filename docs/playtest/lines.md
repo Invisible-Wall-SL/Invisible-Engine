@@ -129,5 +129,8 @@ available.
   config and every landing is drawn expanded.
 - **Expect (grow):** a `W` lands on the centre reel, bursts, and its plus-shaped neighbours become
   `W` outwards, then the wins show. Slam mid-way: the board still ends in the final state.
+- **Headless, rendered:** `node scripts/playtest/wilds-screens.mjs` runs all three cases on the
+  built runtime with stepped frames (works on a GPU-less box, where the vite dev game draws no
+  board). Captures and each spin's wire, including `paid`, are written to `--out`.
 - **Offline gate:** `pnpm check:wild-rewrite`.
 
