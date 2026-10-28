@@ -109,7 +109,8 @@
  *     local's reach. `particleShellSource` converts every compiled body the gates know (the time and
  *     seed made varyings, the params kept, the body's main wrapped, the colour rule by the body's own
  *     call, the library linked) and refuses each body it cannot convert surely; comments fool
- *     neither way. A Custom GLSL body calls the three helpers, typed. (`pnpm --filter fx-spike
+ *     neither way. A Custom GLSL body calls the three helpers, typed. The reference and calibration
+ *     graphs' fragments match `snapshots/particle/<id>.frag`. (`pnpm --filter fx-spike
  *     shader-compile` builds the same bodies through the shell on WebGL1 and WebGL2.)
  * 16. MADE FOR PARTICLES (step 8d.7): no doc of the corpus carries `madeFor`, and none compiles to an
  *     effect carrying it or a cost (with the snapshots, the byte-identity gate). Made for particles,
@@ -118,6 +119,20 @@
  *     The budget is a particle material's (150 / 4) when made for particles, else an element's
  *     (400 / 16): a graph between the two is warned of only made for particles. The registry keeps
  *     the three fields, and drops a malformed one while keeping the effect.
+ * 17. THE SCREEN SHELL AND THE SCREENS NODE (step 8e.1): the node is an input of a UV and three
+ *     outputs, each its header helper, costed as two Sample elements (both screens are the element
+ *     on an element, the particle on a particle, and Reverse 0); each compiles alone, and in a
+ *     subgraph body as in the graph; the motion graph refuses it. The corpus compiles the same with
+ *     one beside it. The transition and post FX budgets are 200 / 8 and 60 / 4, and nothing is held
+ *     to them yet. The shell's header reads what the element pass's vertex stage hands on, Pixi's
+ *     filter uniforms, the still and Reverse; it defines every header helper; every global name it
+ *     declares is out of a Custom GLSL port's or local's reach. `screenShellSource` converts every
+ *     compiled body the gates know (its uniforms kept, the body converted exactly as the particle
+ *     shell converts it but for the varyings, drawn over the old screen) and refuses what the
+ *     particle shell refuses and a body reading its own names; the two shells take the same bodies.
+ *     Its fragments match `snapshots/screen/<id>.frag`. A Custom GLSL body calls the three helpers,
+ *     typed, each screen counted as a read. (`pnpm --filter fx-spike shader-compile` builds the same
+ *     bodies through the shell on WebGL1 and WebGL2, and reads the meanings back.)
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -161,6 +176,13 @@ import {
 	particleShellSource,
 } from 'constants-shared/particleShell';
 import {
+	SCREEN_FROM_TEXTURE,
+	SCREEN_HEADER,
+	SCREEN_REVERSE,
+	SCREEN_SHELL_NAMES,
+	screenShellSource,
+} from 'constants-shared/screenShell';
+import {
 	MOTION_INPUTS,
 	MOTION_OPS,
 	runMotionProgram,
@@ -172,7 +194,11 @@ import {
 	MOTION_GRAPH_WIRE_LIMIT,
 	PARTICLE_COST_BUDGET,
 	PARTICLE_SAMPLE_BUDGET,
+	POST_COST_BUDGET,
+	POST_SAMPLE_BUDGET,
 	SAMPLE_BUDGET,
+	TRANSITION_COST_BUDGET,
+	TRANSITION_SAMPLE_BUDGET,
 	analyzeShaderGraph,
 	analyzeShaderMotion,
 	analyzeShaderSubgraph,
@@ -213,6 +239,7 @@ import {
 	CUSTOM_GLSL_EXAMPLES,
 	INVALID_GLSL,
 	PARTICLE_GLSL,
+	SCREEN_GLSL,
 	VALID_GLSL,
 	customGlslChain,
 	generatedGlsl,
@@ -341,6 +368,33 @@ const lint = (body: string): string[] => {
 const codes = (doc: ShaderGraphDoc): GraphIssueCode[] =>
 	validateShaderGraph(doc).map((i) => i.code);
 const body = (result: CompileResult): string => (result.ok ? result.shader.body : '');
+/**
+ * The docs whose fragment through `shell` is not `snapshots/<dir>/<id>.frag` (each rewritten with
+ * `--update`), so a change to a shell's GLSL shows in review as a diff.
+ */
+const staleShellSnapshots = (
+	dir: string,
+	shell: (effect: CustomElementFx) => string | undefined,
+	docs: readonly ShaderGraphDoc[],
+): string[] =>
+	docs
+		.filter((doc) => {
+			const r = compileShaderEffect(doc);
+			const fragment = r.ok ? (shell(r.effect) ?? '') : '';
+			const file = join(SNAPSHOTS, dir, `${doc.id}.frag`);
+			if (UPDATE && fragment) {
+				mkdirSync(join(SNAPSHOTS, dir), { recursive: true });
+				writeFileSync(file, fragment);
+			}
+			let snapshot = '';
+			try {
+				snapshot = readFileSync(file, 'utf8');
+			} catch {
+				// no snapshot yet: named by the check, with how to write one
+			}
+			return !fragment || fragment !== snapshot;
+		})
+		.map((doc) => doc.id);
 /** `glsl` with a subgraph's port pass-throughs read through and its locals renumbered in order. */
 const canonical = (glsl: string): string => {
 	const alias = new Map<string, string>();
@@ -4335,6 +4389,15 @@ console.log('shader graph — the particle shell and the Particle node');
 		`a body it cannot convert surely is refused (${refusals.length - taken.length} of ${refusals.length}: ${refusals.map(([l]) => l).join('; ')}); comments neither hide nor fake a declaration or a main${taken.length ? `: taken ${taken.join(', ')}` : ''}`,
 	);
 
+	const particleStale = staleShellSnapshots('particle', particleShellSource, [
+		...REFERENCE_GRAPHS,
+		...CALIBRATION_GRAPHS,
+	]);
+	assert(
+		!particleStale.length,
+		`each reference and calibration graph's particle fragment matches snapshots/particle/<id>.frag${UPDATE ? ' (rewritten)' : ''}${particleStale.length ? `: ${particleStale.join(', ')} (run with --update after a deliberate change)` : ''}`,
+	);
+
 	// Custom GLSL calls the helpers, typed.
 	const typed = [
 		'float c = efxParticleColor();\ncolor = color;',
@@ -4454,6 +4517,477 @@ console.log('shader graph — made for particles');
 			!('samples' in badCost) &&
 			badCost.madeFor === 'particles',
 		'the registry keeps madeFor, cost and samples, and drops a malformed one while keeping the effect',
+	);
+}
+
+// -------------------------------------------------------------------------------------------------
+console.log('shader graph — the screen shell and the Screens node');
+{
+	const glslDoc = (sample: CustomGlslDefinition, id: string): ShaderGraphDoc =>
+		customGlslChain(id, [sample]);
+	const accepted = (sample: CustomGlslDefinition): boolean =>
+		!customGlslIssues({ id: 'g', type: CUSTOM_GLSL, x: 0, y: 0, glsl: sample }).some(
+			(i) => i.level === 'error',
+		);
+	const emitOf = (def: NodeDef, uv: string) =>
+		def.emit({
+			in: { uv },
+			type: 'float',
+			splat: (x) => x,
+			setting: () => '',
+			local: (_t, x) => x,
+		});
+
+	// The node: Sample element's twin over two screens.
+	const screens = shaderNode('screens');
+	const sample = shaderNode('sample');
+	const helpers = {
+		from: 'efxScreenFrom(efxFromUnit(uv))',
+		to: 'efxScreenTo(efxFromUnit(uv))',
+		reverse: 'efxScreenReverse()',
+	};
+	assert(
+		!!screens &&
+			!!sample &&
+			screens.category === 'input' &&
+			JSON.stringify(screens.inputs) === JSON.stringify(sample.inputs) &&
+			!screens.settings &&
+			JSON.stringify(screens.outputs.map((p) => [p.id, p.type])) ===
+				'[["from","vec4"],["to","vec4"],["reverse","float"]]' &&
+			JSON.stringify(emitOf(screens, 'uv')) === JSON.stringify(helpers) &&
+			!screens.motion &&
+			screens.cost === 4 &&
+			screens.samples === 2 &&
+			screens.cost === 2 * sample.cost &&
+			screens.samples === 2 * (sample.samples ?? 0) &&
+			['element', 'particle', 'old screen', 'new one', 'reversed'].every((w) =>
+				screens.description.includes(w),
+			),
+		'the Screens node: an input with a UV (unwired, this pixel), From and To (vec4) and Reverse (float), each its header helper; no CPU form; cost 4 and 2 reads, two Sample elements; described on an element, a particle and a transition',
+	);
+	const showcase = nodeShowcase();
+	const showcased = showcase.filter((doc) => doc.nodes.some((n) => n.type === 'screens'));
+	const sampleOut = compileShaderGraph(
+		showcase.find((doc) => doc.id === 'sample-out') as ShaderGraphDoc,
+	);
+	const outputsCompile = showcased.map((doc) => {
+		const r = compileShaderGraph(doc);
+		const port = doc.id.slice('screens-'.length) as keyof typeof helpers;
+		const name = helpers[port].split('(')[0];
+		return (
+			r.ok &&
+			sampleOut.ok &&
+			!lint(r.shader.body).length &&
+			JSON.stringify(r.shader.uniforms.map((u) => u.name)) === '["uFx"]' &&
+			r.shader.cost === sampleOut.shader.cost + 2 &&
+			r.shader.samples === sampleOut.shader.samples + 1 &&
+			Object.entries(helpers).every(
+				([id, call]) => r.shader.body.includes(call.split('(')[0]) === (id === port),
+			) &&
+			(port === 'reverse' || r.shader.body.includes(helpers[port])) &&
+			!!name
+		);
+	});
+	assert(
+		showcased.map((d) => d.id).join() === 'screens-from,screens-to,screens-reverse' &&
+			outputsCompile.every(Boolean),
+		'each of its outputs compiles alone and links, calling its own helper and no other (From and To at this pixel unwired), costing what a Sample element does and one more of each',
+	);
+	const elementHeader = (SHADERS.split('const HEADER')[1] ?? '').split('`;')[0];
+	const neutral = [
+		'vec4 efxScreenFrom(vec2 px) { return efxSample(px); }',
+		'vec4 efxScreenTo(vec2 px) { return efxSample(px); }',
+		'float efxScreenReverse() { return 0.0; }',
+	];
+	assert(
+		neutral.every((line) => elementHeader.includes(`\n${line}\n`)) &&
+			neutral.every((line) => PARTICLE_HEADER.includes(`\n${line}\n`)) &&
+			HEADER_HELPERS.length === EFX_HEADER_FUNCTIONS.length,
+		'on an element and on a particle both screens are what efxSample reads there (the element, the particle) and Reverse is 0: the element and particle headers’ helpers (`shader-compile` reads them back)',
+	);
+	const motionDoc = (port: string): ShaderGraphDoc => ({
+		...REFERENCE_GRAPHS[0],
+		motionGraph: {
+			nodes: [
+				{ id: 's', type: 'screens', x: 0, y: 0 },
+				{ id: 'out', type: 'motionOutput', x: 0, y: 0 },
+			],
+			wires: [{ from: { node: 's', port }, to: { node: 'out', port: 'x' } }],
+		},
+	});
+	assert(
+		!isMotionNode('screens') &&
+			['reverse', 'from'].every(
+				(port) =>
+					analyzeShaderMotion(motionDoc(port)).issues.some(
+						(i) => i.node === 's' && i.level === 'error' && i.graph === 'motion',
+					) && !compileShaderEffect(motionDoc(port)).ok,
+			),
+		'the motion graph refuses it, so the effect does not compile',
+	);
+	const inline = graphBuilder({
+		id: 'screensCrossfade',
+		name: 'Screens crossfade',
+		phase: 'enter',
+		durationMs: 1000,
+	});
+	const fade = inline.node('mix');
+	const node = inline.node('screens');
+	inline.wire(node, 'from', fade, 'a');
+	inline.wire(node, 'to', fade, 'b');
+	inline.wire(inline.node('time'), 'progress', fade, 't');
+	const output = inline.node('output');
+	inline.wire(fade, 'out', output, 'color');
+	const inlined = inline.doc();
+	const called: ShaderGraphDoc = {
+		...inlined,
+		id: 'called',
+		subgraphs: [
+			{
+				id: 'body',
+				name: 'Body',
+				inputs: [],
+				outputs: [
+					{ id: 'from', label: 'From', type: 'vec4' },
+					{ id: 'to', label: 'To', type: 'vec4' },
+				],
+				nodes: [
+					{ id: 'in', type: 'subgraphIn', x: 0, y: 0 },
+					{ id: 's', type: 'screens', x: 0, y: 0 },
+					{ id: 'out', type: 'subgraphOut', x: 0, y: 0 },
+				],
+				wires: [
+					{ from: { node: 's', port: 'from' }, to: { node: 'out', port: 'from' } },
+					{ from: { node: 's', port: 'to' }, to: { node: 'out', port: 'to' } },
+				],
+			},
+		],
+		nodes: [
+			...inlined.nodes.filter((n) => n.type !== 'screens'),
+			{ id: 'call', type: 'subgraph', x: 0, y: 0, values: { subgraph: 'body' } },
+		],
+		wires: inlined.wires.map((w) =>
+			w.from.node === node ? { ...w, from: { node: 'call', port: w.from.port } } : w,
+		),
+	};
+	const inlineBody = body(compileShaderGraph(inlined));
+	assert(
+		inlineBody.includes('efxScreenFrom(') &&
+			inlineBody.includes('efxScreenTo(') &&
+			analyzeShaderGraph(called).samples === analyzeShaderGraph(inlined).samples &&
+			canonical(body(compileShaderGraph(called))) === canonical(inlineBody),
+		'in a subgraph body it compiles as it does in the graph',
+	);
+
+	// Nothing else moves: the corpus compiles the same with a Screens node beside it.
+	const samples = [
+		...VALID_GLSL,
+		...PARTICLE_GLSL,
+		...Array.from({ length: 200 }, (_, n) => generatedGlsl(5, n)),
+		...Array.from({ length: 700 }, (_, n) => mutatedGlsl(13, n)).filter(accepted),
+		...nearMissGlsl().filter(accepted),
+	];
+	const corpus = [
+		...REFERENCE_GRAPHS,
+		...CALIBRATION_GRAPHS,
+		...BUILTIN_TWINS.map((t) => t.doc as ShaderGraphDoc),
+		...showcase.filter((doc) => !showcased.includes(doc)),
+		customGlslChain('examples', [...CUSTOM_GLSL_EXAMPLES]),
+		...samples.map((sample, i) => glslDoc(sample, `sample${i}`)),
+	];
+	const besides = corpus.filter((doc) => {
+		const before = compileShaderGraph(doc);
+		const withNode = {
+			...doc,
+			nodes: [...doc.nodes, { id: 'screensProbe', type: 'screens', x: 0, y: 0 }],
+		};
+		const after = compileShaderGraph(withNode);
+		const a = analyzeShaderGraph(doc);
+		const b = analyzeShaderGraph(withNode);
+		delete b.inputs.screensProbe;
+		delete b.outputs.screensProbe;
+		const shader = (r: CompileResult) =>
+			JSON.stringify(r.ok && [r.shader.body, r.shader.uniforms, r.shader.cost, r.shader.samples]);
+		return (
+			shader(before) !== shader(after) ||
+			JSON.stringify([a.inputs, a.outputs, a.cost, a.samples]) !==
+				JSON.stringify([b.inputs, b.outputs, b.cost, b.samples])
+		);
+	});
+	assert(
+		corpus.length > 800 && !besides.length,
+		`${corpus.length} docs (references, calibration graphs, twins, the node showcase, the Custom GLSL samples) compile to the same shader and analyse to the same types and cost with a Screens node beside them${besides.length ? `: not ${besides.map((d) => d.id).join(', ')}` : ''}`,
+	);
+
+	// The budgets.
+	const element = shaderGraphBudget({});
+	assert(
+		TRANSITION_COST_BUDGET === 200 &&
+			TRANSITION_SAMPLE_BUDGET === 8 &&
+			POST_COST_BUDGET === 60 &&
+			POST_SAMPLE_BUDGET === 4 &&
+			element.cost === COST_BUDGET &&
+			element.samples === SAMPLE_BUDGET &&
+			shaderGraphBudget({ madeFor: 'particles' }).cost === PARTICLE_COST_BUDGET &&
+			shaderGraphBudget({ madeFor: 'particles' }).samples === PARTICLE_SAMPLE_BUDGET,
+		`the screen budgets: transitions ${TRANSITION_COST_BUDGET} / ${TRANSITION_SAMPLE_BUDGET}, post FX ${POST_COST_BUDGET} / ${POST_SAMPLE_BUDGET}; nothing is held to them yet (an element ${element.cost} / ${element.samples}, made for particles ${PARTICLE_COST_BUDGET} / ${PARTICLE_SAMPLE_BUDGET})`,
+	);
+
+	// The shell's text.
+	const declared = (source: string, qualifier: string) =>
+		[...source.matchAll(new RegExp(`^${qualifier}\\s+(\\w+)\\s+(\\w+)\\s*;`, 'gm'))].map(
+			(m) => `${m[1]} ${m[2]}`,
+		);
+	const vertexOut = (SHADERS.split('export const VERTEX = `')[1] ?? '').split('`;')[0];
+	assert(
+		JSON.stringify(declared(SCREEN_HEADER, 'uniform')) ===
+			JSON.stringify([
+				'sampler2D uTexture',
+				'vec4 uInputSize',
+				'vec4 uInputClamp',
+				'vec4 uOutputFrame',
+				`sampler2D ${SCREEN_FROM_TEXTURE}`,
+				`float ${SCREEN_REVERSE}`,
+			]) &&
+			declared(SCREEN_HEADER, 'in').every((v) => declared(vertexOut, 'out').includes(v)) &&
+			declared(SCREEN_HEADER, 'in').length === 1 &&
+			JSON.stringify(declared(SCREEN_HEADER, 'out')) === '["vec4 finalColor"]' &&
+			declared(SCREEN_HEADER, 'uniform').every(
+				(u) =>
+					u.startsWith('sampler2D') ||
+					declared(elementHeader, 'uniform').includes(u) ||
+					u.endsWith(SCREEN_REVERSE),
+			) &&
+			!/\buElement\b|\buPad\b|\bgl_FragCoord\b/.test(SCREEN_HEADER),
+		'the screen header reads what the element pass’s vertex stage hands on and Pixi’s own filter uniforms, plus the still and Reverse; no element box or padding (the frame is the unit square)',
+	);
+	const screenDefined = [
+		...SCREEN_HEADER.matchAll(/^(?:vec[234]|float|bool)\s+(efx\w+)\s*\(/gm),
+	].map((m) => m[1]);
+	assert(
+		[...screenDefined].sort().join() === [...EFX_HEADER_FUNCTIONS].sort().join(),
+		`the screen header defines every pass-header helper once (${screenDefined.length})`,
+	);
+	const globals = [
+		...[...SCREEN_HEADER.matchAll(/^(?:in|out|uniform|const)\s+\w+\s+(\w+)/gm)].map((m) => m[1]),
+		...[...SCREEN_HEADER.matchAll(/^(?:void|bool|float|vec[234]|mat[234])\s+(\w+)\s*\(/gm)].map(
+			(m) => m[1],
+		),
+		'efxScreenBody',
+	];
+	const open = [...new Set([...globals, ...SCREEN_SHELL_NAMES])].filter(
+		(name) => name !== 'main' && !customGlslNameIssue(name),
+	);
+	assert(
+		[SCREEN_FROM_TEXTURE, SCREEN_REVERSE, 'efxScreenBody'].every((n) =>
+			SCREEN_SHELL_NAMES.includes(n),
+		) && !open.length,
+		`every global name the screen shell declares (${new Set(globals).size}) is out of a Custom GLSL port's or local's reach${open.length ? `: not ${open.join(', ')}` : ''}`,
+	);
+
+	// Every compiled body the gates know converts, its uniforms kept.
+	const screenCalls = (fragment: string): string[] => {
+		const code = fragment.replace(/\/\/[^\n]*/g, '');
+		const defined = new Set(
+			[...code.matchAll(/^(?:void|bool|float|vec[234]|mat[234])\s+(\w+)\s*\(/gm)].map((m) => m[1]),
+		);
+		return [
+			...new Set(
+				[...code.matchAll(/\b([A-Za-z_]\w*)\s*\(/g)]
+					.map((m) => m[1])
+					.filter(
+						(c) => !defined.has(c) && !ES1_CALLS.has(c) && !KEYWORDS.has(c) && c !== 'texture',
+					),
+			),
+		];
+	};
+	const composite =
+		'void main(void)\n{\n    efxScreenBody();\n    finalColor += efxScreenFrom(efxPx()) * (1.0 - finalColor.a);\n}\n';
+	const known = [
+		...corpus,
+		...showcased,
+		...showcase.filter((doc) => doc.nodes.some((n) => n.type === 'particle')),
+		...PARTICLE_GLSL.map((sample, i) => glslDoc(sample, `particle${i}`)),
+		...SCREEN_GLSL.map((sample, i) => glslDoc(sample, `screen${i}`)),
+		inlined,
+		called,
+	];
+	/** The particle shell's conversion of a body (its libraries and body) as the screen shell's. */
+	const asParticle = (effect: CustomElementFx): string | undefined => {
+		const fragment = particleShellSource(effect);
+		const end = fragment?.lastIndexOf('void main(void)\n{\n    efxParticleBody();');
+		return fragment
+			?.slice(PARTICLE_HEADER.length, end)
+			.replace(/^in (vec4 uFx|float uSeed);$/gm, 'uniform $1;')
+			.replace(/^void efxParticleBody\(void\)$/m, 'void efxScreenBody(void)');
+	};
+	const converted = known.map((doc) => {
+		const r = compileShaderEffect(doc);
+		if (!r.ok) return { doc, problem: 'does not compile' };
+		const fragment = screenShellSource(r.effect);
+		if (!fragment) return { doc, problem: 'not converted' };
+		const { uniforms } = r.effect.shader;
+		const own = fragment.slice(SCREEN_HEADER.length);
+		const problems = [
+			!fragment.startsWith(SCREEN_HEADER) && 'no header',
+			!uniforms.every(
+				(u) =>
+					own.includes(`\nuniform ${u.type} ${u.name};\n`) ||
+					own.startsWith(`uniform ${u.type} ${u.name};\n`),
+			) && 'a uniform lost',
+			/^in\s/m.test(own) && 'a uniform made a varying',
+			(fragment.match(/^void main\(void\)$/gm) ?? []).length !== 1 && 'not one main',
+			(fragment.match(/^void efxScreenBody\(void\)$/gm) ?? []).length !== 1 && 'not one body',
+			!fragment.endsWith(composite) && 'not the composite',
+			asParticle(r.effect) !== own.slice(0, -composite.length) &&
+				'not the particle shell’s conversion',
+			...screenCalls(fragment).map((c) => `calls ${c}, which nothing defines`),
+		].filter(Boolean);
+		return { doc, problem: problems.join(', ') };
+	});
+	const unconverted = converted.filter((c) => c.problem);
+	assert(
+		converted.length > 800 && !unconverted.length,
+		`screenShellSource converts every compiled body the gates know (${converted.length}: references, calibration graphs, twins, the node showcase, the Custom GLSL samples, the Particle and Screens nodes' bodies): the uniforms kept, the body's main called by the shell's, drawn over the old screen, the library linked; the body converted as the particle shell converts it, but for the varyings${
+			unconverted.length
+				? `: not ${unconverted
+						.slice(0, 8)
+						.map((c) => `${c.doc.id} (${c.problem})`)
+						.join(', ')}`
+				: ''
+		}`,
+	);
+	const screenStale = staleShellSnapshots('screen', screenShellSource, [
+		...REFERENCE_GRAPHS,
+		inlined,
+	]);
+	assert(
+		!screenStale.length,
+		`each reference graph's screen fragment, and a crossfade's, matches snapshots/screen/<id>.frag${UPDATE ? ' (rewritten)' : ''}${screenStale.length ? `: ${screenStale.join(', ')} (run with --update after a deliberate change)` : ''}`,
+	);
+
+	// What it refuses: what the particle shell refuses (one conversion), and the screen shell's names.
+	const twin = BUILTIN_TWINS.map((t) => compileShaderEffect(t.doc as ShaderGraphDoc)).find(
+		(r) => r.ok && r.effect.shader.uniforms.some((u) => u.source.kind === 'seed'),
+	);
+	const effect = twin?.ok ? twin.effect : undefined;
+	const shader = effect?.shader ?? { body: '', uniforms: [] };
+	const withBody = (edit: (b: string) => string, uniforms = shader.uniforms) => ({
+		shader: { body: edit(shader.body), uniforms },
+	});
+	const reading = (name: string) =>
+		withBody((b) =>
+			b.replace('void main(void)\n{', `void main(void)\n{\n    float v = ${name}.x;`),
+		);
+	const shared: [string, ReturnType<typeof withBody>][] = [
+		['a preprocessor line', withBody((b) => `#define X 1.0\n${b}`)],
+		['a backslash', withBody((b) => b.replace('{', '{ \\'))],
+		['an unended comment', withBody((b) => `${b}/* never closed`)],
+		[
+			'the time under another name',
+			withBody(
+				(b) => b.replace(/\buFx\b/g, 'uTime'),
+				shader.uniforms.map((u) => (u.source.kind === 'time' ? { ...u, name: 'uTime' } : u)),
+			),
+		],
+		[
+			'the time of another type',
+			withBody(
+				(b) => b,
+				shader.uniforms.map((u) =>
+					u.source.kind === 'time' ? { ...u, type: 'vec3' as const } : u,
+				),
+			),
+		],
+		[
+			'the seed reported as a param',
+			withBody(
+				(b) => b,
+				shader.uniforms.map((u) =>
+					u.source.kind === 'seed' ? { ...u, source: { kind: 'param' as const, id: 'x' } } : u,
+				),
+			),
+		],
+		['two uniforms of one name', withBody((b) => b, [...shader.uniforms, shader.uniforms[0]])],
+		[
+			'the time declared in another form',
+			withBody((b) => b.replace('uniform vec4 uFx;', 'uniform  vec4 uFx;')),
+		],
+		[
+			'the time declared twice',
+			withBody((b) => b.replace('uniform vec4 uFx;', 'uniform vec4 uFx;\nuniform vec4 uFx;')),
+		],
+		[
+			'the seed named with no seed source',
+			withBody(
+				(b) => b.replace('uniform float uSeed;', ''),
+				shader.uniforms.filter((u) => u.source.kind !== 'seed'),
+			),
+		],
+		['an element pass name read', reading('uElement')],
+		['no main', withBody((b) => b.replace('void main(void)', 'void mainly(void)'))],
+		['main in another form', withBody((b) => b.replace('void main(void)', 'void main()'))],
+		['two mains', withBody((b) => `${b}\nvoid main(void)\n{\n}\n`)],
+		['no finalColor', withBody((b) => b.replace(/\bfinalColor\b/g, 'gl_FragColor'))],
+	];
+	const own: [string, ReturnType<typeof withBody>][] = [
+		['the still read', reading(SCREEN_FROM_TEXTURE)],
+		['Reverse read as a uniform', reading(SCREEN_REVERSE)],
+		['a filter uniform read', reading('uInputClamp')],
+		['the shell’s body name taken', withBody((b) => `void efxScreenBody(void) {}\n${b}`)],
+	];
+	const taken = [...shared, ...own]
+		.filter(([, e]) => screenShellSource(e) !== undefined)
+		.map(([label]) => label);
+	const disagree = shared
+		.filter(([, e]) => particleShellSource(e) !== undefined)
+		.map(([label]) => label);
+	const comments = screenShellSource(
+		withBody((b) => `// uniform vec4 uFx;\n/* void main(void) */\n${b}// void main(void)\n`),
+	);
+	assert(
+		!!effect &&
+			!!screenShellSource(effect) &&
+			!taken.length &&
+			!disagree.length &&
+			!!comments &&
+			(comments.match(/^uniform vec4 uFx;$/gm) ?? []).length === 1 &&
+			(comments.match(/^void main\(void\)$/gm) ?? []).length === 1 &&
+			(comments.match(/^void efxScreenBody\(void\)$/gm) ?? []).length === 1,
+		`a body it cannot convert surely is refused (${shared.length + own.length - taken.length} of ${shared.length + own.length}), each shared refusal the particle shell's too; comments neither hide nor fake a declaration or a main${taken.length ? `: taken ${taken.join(', ')}` : ''}${disagree.length ? `: the particle shell takes ${disagree.join(', ')}` : ''}`,
+	);
+	const agree = known.filter((doc) => {
+		const r = compileShaderEffect(doc);
+		return r.ok && !!particleShellSource(r.effect) !== !!screenShellSource(r.effect);
+	});
+	assert(
+		!agree.length,
+		`the two shells take the same bodies (${known.length})${agree.length ? `: not ${agree.map((d) => d.id).join(', ')}` : ''}`,
+	);
+
+	// Custom GLSL calls the helpers, typed, and counts the screens as reads.
+	const typed = [
+		'float c = efxScreenFrom(efxPx());\ncolor = color;',
+		'color = efxScreenTo();',
+		'vec4 w = efxScreenReverse();\ncolor = color;',
+		'color = vec4(efxScreenReverse(1.0));',
+	].map((code) => accepted({ ...CUSTOM_GLSL_DEFAULT, code }));
+	const reads = (code: string) =>
+		customGlslDef({
+			id: 'g',
+			type: CUSTOM_GLSL,
+			x: 0,
+			y: 0,
+			glsl: { ...CUSTOM_GLSL_DEFAULT, code },
+		}).samples ?? 0;
+	assert(
+		SCREEN_GLSL.every(accepted) &&
+			typed.every((ok) => !ok) &&
+			reads('color = efxSample(efxPx());') === 1 &&
+			reads('color = efxScreenFrom(efxPx());') === 1 &&
+			reads('color = efxScreenTo(efxPx()) + efxScreenFrom(efxPx());') === 2 &&
+			reads('color = vec4(efxScreenReverse());') === 0,
+		'a Custom GLSL body calls the three helpers, typed by their signatures, each screen read counted as a read of the element is',
 	);
 }
 

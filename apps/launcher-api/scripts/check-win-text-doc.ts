@@ -166,6 +166,26 @@ check(
 	'an empty doc is still {version:1}',
 );
 
+console.info('§3b the inline symbol size keeps only an authored, in-range value');
+check(
+	JSON.stringify(normalizeWinTextDoc({ toast: { symbolAsImage: true, symbolImageSize: 150 } })) ===
+		'{"version":1,"toast":{"symbolAsImage":true,"symbolImageSize":150}}',
+	'an authored size is kept',
+);
+check(
+	JSON.stringify(normalizeWinTextDoc({ toast: { symbolAsImage: true, symbolImageSize: 100 } })) ===
+		'{"version":1,"toast":{"symbolAsImage":true}}',
+	'the default size is not persisted',
+);
+check(
+	resolveWinText(undefined).toast.symbolImageSize === 100,
+	'an unauthored doc draws the symbol at text height',
+);
+check(
+	throws(() => normalizeWinTextDoc({ toast: { symbolImageSize: 5000 } }, 'reject')),
+	'an out-of-range size is a 400 on a save',
+);
+
 console.info('§4 Localization lists the families for a Hold and Win project only');
 const items = (doc: WinTextDoc | undefined, holdAndWin: boolean) =>
 	harvestWinText(doc, { holdAndWin, jackpots: ['MINI', 'GRAND'] }).flatMap((s) =>

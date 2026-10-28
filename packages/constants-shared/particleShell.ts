@@ -11,7 +11,8 @@
  *    particle's texture at its current frame through the atlas, 0 outside the trimmed box;
  *  - the body's time (`uFx`) and seed (`uSeed`) become varyings, one value per particle; its params
  *    (`uP<n>`) stay uniforms, one set per layer;
- *  - the Particle node's helpers read the particle's own colour and indexes.
+ *  - the Particle node's helpers read the particle's own colour and indexes;
+ *  - the Screens node's read the particle as both screens, and 0 for Reverse.
  *
  * THE COLOUR RULE (§7): a body that calls `efxParticleColor` owns the particle's colour and alpha;
  * any other is tinted and faded after, as a sprite is. Either way the mesh's own colour (the tint and
@@ -24,6 +25,7 @@
 
 import type { CustomElementFx } from './elementFx';
 import { linkGlsl } from './glslLibrary';
+import { ELEMENT_PASS_NAMES, shellBody, shellDeclarations } from './shellBody';
 
 /**
  * The particle vertex shader, for a Pixi 8 `Mesh` drawn with this shell's program. Pixi binds its
@@ -135,37 +137,19 @@ bool efxInside(vec2 px)
 vec4 efxParticleColor() { return vEfxColor; }
 float efxParticleWave() { return vEfxMap2.z; }
 float efxParticleOrder() { return vEfxMap2.w; }
+
+vec4 efxScreenFrom(vec2 px) { return efxSample(px); }
+vec4 efxScreenTo(vec2 px) { return efxSample(px); }
+float efxScreenReverse() { return 0.0; }
 `;
 
 /** What the body's own `main` is renamed to: the shell's `main` calls it, then applies the colour rule. */
 const BODY_MAIN = 'efxParticleBody';
 
-/** The element pass's own names, which the particle program does not declare. */
-const ELEMENT_ONLY_NAMES = [
-	'vTextureCoord',
-	'uInputSize',
-	'uInputClamp',
-	'uOutputFrame',
-	'uOutputTexture',
-	'uElement',
-	'uPad',
-] as const;
-
-/** Each per-particle source a body reads, as the compiler declares it and the vertex shader writes it. */
-const PER_PARTICLE = {
-	time: { name: 'uFx', type: 'vec4' },
-	seed: { name: 'uSeed', type: 'float' },
-} as const;
-
 const SIZES: Readonly<Record<string, number>> = { float: 1, vec2: 2, vec3: 3, vec4: 4 };
 
-const declarations = (source: string, qualifier: 'in' | 'out' | 'uniform') =>
-	[...source.matchAll(new RegExp(`^${qualifier}\\s+(\\w+)\\s+(\\w+)\\s*;`, 'gm'))].map(
-		([, type, name]) => ({ type, name }),
-	);
-
 /** The vertex shader's attributes in order, each with its size in floats: what a geometry gives. */
-export const PARTICLE_ATTRIBUTES: readonly { name: string; size: number }[] = declarations(
+export const PARTICLE_ATTRIBUTES: readonly { name: string; size: number }[] = shellDeclarations(
 	PARTICLE_VERTEX,
 	'in',
 ).map(({ type, name }) => ({ name, size: SIZES[type] }));
@@ -178,94 +162,32 @@ export const PARTICLE_ATTRIBUTES: readonly { name: string; size: number }[] = de
 export const PARTICLE_SHELL_NAMES: readonly string[] = [
 	...new Set([
 		...(['in', 'out', 'uniform'] as const).flatMap((q) =>
-			[PARTICLE_VERTEX, PARTICLE_HEADER].flatMap((s) => declarations(s, q).map((d) => d.name)),
+			[PARTICLE_VERTEX, PARTICLE_HEADER].flatMap((s) => shellDeclarations(s, q).map((d) => d.name)),
 		),
 		BODY_MAIN,
 	]),
 ];
 
 /**
- * `code` with its comments taken out (a line comment up to its line's end, which a lone carriage
- * return also is), or undefined when a block comment never ends.
- */
-function withoutComments(code: string): string | undefined {
-	let out = '';
-	for (let at = 0; at < code.length;) {
-		if (code.startsWith('//', at)) {
-			at += 2;
-			while (at < code.length && code[at] !== '\n' && code[at] !== '\r') at++;
-		} else if (code.startsWith('/*', at)) {
-			const end = code.indexOf('*/', at + 2);
-			if (end < 0) return undefined;
-			out += ' ';
-			at = end + 2;
-		} else {
-			out += code[at++];
-		}
-	}
-	return out;
-}
-
-const count = (code: string, pattern: RegExp): number => code.match(pattern)?.length ?? 0;
-
-/**
  * The particle fragment for a compiled effect's pass body: the particle header, the body with its
  * time and seed uniforms made varyings and its `main` renamed, a `main` applying the colour rule,
  * and the library entries it calls linked in as `ElementFxFilter` links them. Undefined for a body
- * it cannot convert surely, which then draws as plain sprites: a preprocessor line or a backslash,
- * an unended comment, two uniforms of one name, a time or seed source not under the name and type
- * the vertex shader writes, or a param under either name; either not declared once in the
- * compiler's form (`uniform vec4 uFx;` on its own line), or named in a body that reports no such
- * source; any other of the shell's names but `finalColor`, or a name only the element's pass declares,
- * in the body; no single `void main(void)`;
- * no `finalColor`.
+ * it cannot convert surely (`shellBody`), which then draws as plain sprites; a body may read none of
+ * the shell's names but `finalColor`, and none only the element's pass declares.
  */
 export function particleShellSource(effect: Pick<CustomElementFx, 'shader'>): string | undefined {
-	const { body, uniforms } = effect.shader;
-	if (/[#\\]/.test(body)) return undefined;
-	const live = withoutComments(body);
-	if (live === undefined) return undefined;
-	const names = uniforms.map((u) => u.name);
-	if (new Set(names).size !== names.length) return undefined;
-	const varyings: readonly string[] = Object.values(PER_PARTICLE).map((v) => v.name);
-	for (const { name, type, source } of uniforms) {
-		if (source.kind === 'param') {
-			if (varyings.includes(name)) return undefined;
-			continue;
-		}
-		const varying = Object.hasOwn(PER_PARTICLE, source.kind)
-			? PER_PARTICLE[source.kind]
-			: undefined;
-		if (!varying || name !== varying.name || type !== varying.type) return undefined;
-	}
-	let code = live;
-	for (const { name, type } of Object.values(PER_PARTICLE)) {
-		if (!names.includes(name)) {
-			if (count(code, new RegExp(`\\b${name}\\b`, 'g'))) return undefined;
-			continue;
-		}
-		const line = new RegExp(`^uniform ${type} ${name};$`, 'm');
-		const declared = new RegExp(`\\b(?:float|int|bool|vec[234]|mat[234])\\s+${name}\\b`, 'g');
-		if (!line.test(code) || count(code, declared) !== 1) return undefined;
-		code = code.replace(line, `in ${type} ${name};`);
-	}
-	const reads = [...varyings, 'finalColor'];
-	if (
-		[...PARTICLE_SHELL_NAMES, ...ELEMENT_ONLY_NAMES].some(
-			(name) => !reads.includes(name) && count(live, new RegExp(`\\b${name}\\b`, 'g')),
-		) ||
-		count(live, /\bmain\b/g) !== 1 ||
-		!/^void main\(void\)$/m.test(live) ||
-		!/\bfinalColor\b/.test(live)
-	) {
-		return undefined;
-	}
-	const owned = /\befxParticleColor\s*\(/.test(live);
+	const body = shellBody(effect.shader, {
+		varyings: true,
+		reserved: [...PARTICLE_SHELL_NAMES, ...ELEMENT_PASS_NAMES],
+		main: BODY_MAIN,
+	});
+	if (!body) return undefined;
+	const owned = /\befxParticleColor\s*\(/.test(body.live);
 	return (
 		PARTICLE_HEADER +
 		linkGlsl(
 			[
-				code.replace(/^void main\(void\)$/m, `void ${BODY_MAIN}(void)`),
+				body.code,
 				'void main(void)',
 				'{',
 				`    ${BODY_MAIN}();`,

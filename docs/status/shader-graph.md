@@ -22,7 +22,8 @@ merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) 
 (#1423); 8d.8 (play-QA and calibration) is merged (#1425). 8d is complete; the owner's phone
 check sets its caps. 8e (screen transitions and post FX) is decided
 ([design](../design/shader-graph-screens.md)) and being built as 8e.1–8e.8; 8e.1 (the screen
-shell and the Screens node) is in progress.
+shell and the Screens node) is merged (#1440); 8e.2 (the stage filter owner and the transition
+runtime) and 8e.3 (post FX on the stage) are in progress.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -287,7 +288,28 @@ shell and the Screens node) is in progress.
   - **8e, screen transitions and post FX.** Decided 2026-10-28
     ([shader-graph-screens.md](../design/shader-graph-screens.md) §16: every recommendation, except
     that anti-aliasing under a stage effect is a project setting, off by default). Built as
-    8e.1–8e.8, one PR each (its §15). 8e.1, the screen shell and the Screens node, is in progress.
+    8e.1–8e.8, one PR each (its §15). 8e.1 is merged; 8e.2 and 8e.3 are in progress.
+    - **8e.1, the screen shell and the Screens node.** Merged (#1440, 2026-10-28).
+      - **One body conversion.** `constants-shared/shellBody.ts` (`shellBody`) is the conversion
+        8d.1 wrote for the particle shell, moved, not copied; both shells call it. The particle
+        shell's output is byte-identical bar its header's growth (a dump of 5,038 docs and 2,271
+        Custom GLSL samples against the base, and the particle snapshots taken on the base).
+      - **The screen shell** (`constants-shared/screenShell.ts`: `SCREEN_HEADER`,
+        `screenShellSource`, `SCREEN_SHELL_NAMES`). A full-stage filter over the element pass's own
+        vertex stage (`VERTEX`, now exported from `elementFx/shaders.ts`): `uTexture` is the live
+        **new** screen, `uFromTexture` the frozen **old** one, `uEfxReverse` the direction. The unit
+        square is the filter frame. The body's `main` becomes `efxScreenBody`, then the old screen
+        shows through where the new one is clear.
+      - **Three header helpers** in all three headers: `vec4 efxScreenFrom(vec2 px)`,
+        `vec4 efxScreenTo(vec2 px)`, `float efxScreenReverse()`. On an element or a particle From
+        and To read what Sample element reads, Reverse 0. A pre-8e runtime drops a body calling
+        them (`unknownEfxCalls`).
+      - **The Screens node** (Input): a UV input (this pixel by default), outputs From, To and
+        Reverse; cost 4 and 2 reads; the motion graph refuses it. It shows in the palette now.
+      - **Budgets** `TRANSITION_*` (200 / 8) and `POST_*` (60 / 4) beside `PARTICLE_*`, not yet
+        wired into `shaderGraphBudget` (8e.7).
+      - **Custom GLSL.** The screen shell's globals are out of reach; a call to From or To counts
+        as a read in the cost estimate.
   - **8d, particle materials for Invisible FX.** Decided 2026-10-25
     (`docs/design/shader-graph-particles.md` §16: every recommendation, option (b), a per-particle
     shader). Built as 8d.1–8d.8, one PR each (its §15). A game plays a material from 8d.3; no
@@ -704,6 +726,21 @@ shell and the Screens node) is in progress.
   the §10 caps (Open items #1).
 
 ## Recent changes
+- 2026-10-28 — **Step 8e.1: the screen shell and the Screens node** (see "Current state"). Merged
+  (#1440): CI green; Current games 8 pass, 0 fail, 0 changed screens. Step 8e decided (#1434).
+  - **Proof.** Compile fixture 230 (the node at every output and its neutral meanings, the
+    corpus beside a Screens node unchanged, 884 bodies through the screen shell, 19 refusals, the
+    shell's names out of Custom GLSL's reach); `check:element-fx` (the list held to all three
+    headers; the reader drops a body calling the helpers under the pre-8e list); `shader-parity`
+    against the base IDENTICAL on every sheet; `shader-compile` 30 sheets, the new `screens` sheet
+    compiling and linking every body on WebGL1 and WebGL2 and reading back From (unturned,
+    unflipped), To, Reverse and a crossfade 12/12; `particle-material` unchanged; `shader-twins`
+    36, `shader-motion` 53, `check:shader-editor` 263, `check:shader-pipeline` 149; svelte-check at
+    baseline; `check:all` 578/578. Each new check mutation-checked.
+  - **Review.** Nothing blocking. Fixed: the still's contract written on `SCREEN_FROM_TEXTURE` (a
+    texture of its own whose UV square is the filter frame, the filter's area the viewport); a
+    half-alpha composite cell on the `screens` sheet (13/13 now; a straight-alpha composite fails
+    it); comment wrapping and the budget's note that the shell's read of the still is overhead.
 - 2026-10-27 — **Step 8d.8: play-QA and calibration** (see "Current state"). Merged (#1425,
   2026-10-28): CI green; Current games 8 pass, 0 fail, 0 changed screens. Step 8d is complete.
   - **Proof.** The play passes on WebGL2 and WebGL1, twice, once with `--calibrate` (same loads

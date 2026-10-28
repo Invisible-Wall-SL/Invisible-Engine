@@ -117,7 +117,7 @@ node's top edge):
 
 | Family         | What it holds                                                    | Some of its nodes                                                       |
 | -------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| **Input**      | Where the pixel is, when it is, what the element looks like there | UV, UV (square), Element size, Time, Param, Number, Colour, Sample element, Outline, Relief height, Seed, Particle |
+| **Input**      | Where the pixel is, when it is, what the element looks like there | UV, UV (square), Element size, Time, Param, Number, Colour, Sample element, Outline, Relief height, Seed, Particle, Screens |
 | **Time**       | Shapes for the play's progress                                   | Bell, Swell, Ease in-out, Overshoot, *In, hold, out*, Pulse, Flicker, Loop envelope, Bounce, Oscillate |
 | **Math**       | Arithmetic on numbers or vectors alike                           | Add, Multiply, Mix, Clamp, Smooth step, Remap, Split, Combine, Pick     |
 | **Procedural** | Noise and patterns                                               | Random, Noise, Fractal noise, Cells, Gradient, Radial, Stripes, Random number, Line noise, Arcs, Sparkles |
@@ -141,6 +141,11 @@ premultiplied), its **Wave index** (its place in its spawn wave, 0…1 across a 
 order** (0…1, wrapping at Max particles). Read its Colour and the graph owns the particle's colour
 and alpha: it is not tinted or faded after. On an element it reads white, 0 and 0. The preview's
 **Particles** element shows what it reads on particles.
+
+**Screens** (Input) is for a screen transition (coming with step 8e): **From** is the old screen at
+the given UV (this pixel when nothing is wired), **To** the new one, and **Reverse** reads 1 when the
+transition plays backwards. On an element or a particle From and To read what Sample element reads,
+and Reverse reads 0. It costs two reads.
 
 **Pick** (Math) turns a choice param into numbers: a choice reads as its option's place in the list
 (0, 1, 2 …), and Pick gives the value you set for each. **Away from side N** takes a side as such a

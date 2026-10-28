@@ -112,6 +112,25 @@ color.rgb = efxHueShift(color.rgb / max(color.a, 0.0001), efxParticleOrder()) * 
 	),
 ];
 
+/**
+ * Bodies reading the Screens node's helpers (step 8e): a crossfade, and a wipe that mirrors itself
+ * when reversed. Apart from {@link VALID_GLSL}, whose order lays out the GPU sheets.
+ */
+export const SCREEN_GLSL: readonly GlslSample[] = [
+	sample(
+		'screens crossfade',
+		`// The old screen fading into the new over the play.
+color = mix(efxScreenFrom(efxPx()), efxScreenTo(efxPx()), t);`,
+	),
+	sample(
+		'screens wipe',
+		`// A soft wipe left to right, right to left when reversed.
+float x = mix(uv.x, 1.0 - uv.x, efxScreenReverse());
+float shown = 1.0 - smoothstep(t - 0.05, t + 0.05, x);
+color = mix(efxScreenFrom(efxFromUnit(uv)), efxScreenTo(efxFromUnit(uv)), shown) * k;`,
+	),
+];
+
 /** Bodies the checker takes with no error (a warning only where `warns`). */
 export const VALID_GLSL: readonly (GlslSample & { warns?: boolean })[] = [
 	...CUSTOM_GLSL_EXAMPLES,

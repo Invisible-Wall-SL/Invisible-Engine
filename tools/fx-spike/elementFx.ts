@@ -30,8 +30,9 @@
  *     keeps it; one that reads none draws none. The registry leaves out an effect whose pass calls
  *     an `efx…` function this version's library and pass header lack (one compiled by a newer
  *     Shader Graph), or reads two seeds; `EFX_HEADER_FUNCTIONS` is what the header declares, and
- *     what the particle shell's header declares too (step 8d), each as `EFX_HEADER_SIGNATURES`
- *     says. A body reading the Particle node is kept; a runtime from before its helpers drops it.
+ *     what the particle shell's header (step 8d) and the screen shell's (step 8e) declare too, each
+ *     as `EFX_HEADER_SIGNATURES` says. A body reading the Particle node, or the Screens node, is
+ *     kept; a runtime from before its helpers drops it.
  *  8. Motion programs (Shader Graph step 8a): the twins' motion graphs move and pad as the built-ins'
  *     own samplers do over every param, size, strength and play — the freeze shiver, petrify thud
  *     and gold ring timed by Hold, the electrocute jitter of the seconds played, the poison sway
@@ -139,6 +140,7 @@ import {
 	unknownEfxCalls,
 } from '../../packages/constants-shared/glslLibrary';
 import { PARTICLE_HEADER } from '../../packages/constants-shared/particleShell';
+import { SCREEN_HEADER } from '../../packages/constants-shared/screenShell';
 import * as SHADERS from '../../packages/pixi-svelte/src/lib/elementFx/shaders';
 import type { ElementFxFilter } from '../../packages/pixi-svelte/src/lib/elementFx/shaders';
 import { KINDS } from '../../packages/pixi-svelte/src/lib/elementFx/kinds';
@@ -1517,6 +1519,20 @@ console.log('element fx — the shared GLSL library');
 			!particleUnheld.length,
 		`EFX_HEADER_FUNCTIONS is what the particle shell's header declares too (${particleDeclared.length}), each as EFX_HEADER_SIGNATURES says${particleUnheld.length ? `: not ${particleUnheld.join(', ')}` : ''}`,
 	);
+	// The screen shell (Shader Graph step 8e) runs them too: its header declares the same helpers.
+	const screenHeader = SCREEN_HEADER.replace(/\/\/[^\n]*/g, '');
+	const screenDeclared = [
+		...screenHeader.matchAll(/^(?:vec[234]|float|bool)\s+(efx\w+)\s*\(/gm),
+	].map((m) => m[1]);
+	const screenUnheld = Object.values(EFX_HEADER_SIGNATURES).filter(
+		(signature) => !flat(screenHeader).includes(flat(signature)),
+	);
+	assert(
+		[...screenDeclared].sort().join() === [...EFX_HEADER_FUNCTIONS].sort().join() &&
+			screenDeclared.every((name) => !(name in EFX_GLSL)) &&
+			!screenUnheld.length,
+		`EFX_HEADER_FUNCTIONS is what the screen shell's header declares too (${screenDeclared.length}), each as EFX_HEADER_SIGNATURES says${screenUnheld.length ? `: not ${screenUnheld.join(', ')}` : ''}`,
+	);
 	// A body reading the Particle node (step 8d) calls its three helpers: this runtime keeps it, and a
 	// runtime whose header list lacks them (before 8d) leaves the effect out.
 	const reading = graphBuilder({
@@ -1557,6 +1573,46 @@ console.log('element fx — the shared GLSL library');
 			older?.calls.join() === 'efxParticleColor,efxParticleWave,efxParticleOrder' &&
 			older.read === false,
 		`the reader keeps an effect whose body calls the Particle node's helpers; with the header list before 8d (without them) it would drop it (unknown: ${older?.calls.join(', ')})`,
+	);
+	// A body reading the Screens node (step 8e) calls its three helpers: this runtime keeps it, and a
+	// runtime whose header list lacks them (before 8e) leaves the effect out.
+	const crossing = graphBuilder({
+		id: 'screens-reader',
+		name: 'Screens reader',
+		phase: 'enter',
+		durationMs: 1000,
+	});
+	const screensNode = crossing.node('screens');
+	const crossfade = crossing.node('mix');
+	const mirrored = crossing.node('add');
+	crossing.wire(screensNode, 'from', crossfade, 'a');
+	crossing.wire(screensNode, 'to', crossfade, 'b');
+	crossing.wire(screensNode, 'reverse', crossfade, 't');
+	crossing.wire(crossfade, 'out', mirrored, 'a');
+	crossing.wire(screensNode, 'reverse', mirrored, 'b');
+	crossing.wire(mirrored, 'out', crossing.node('output'), 'color');
+	const crossingEffect = compileShaderEffect(crossing.doc());
+	const screensBody = crossingEffect.ok ? crossingEffect.effect.shader.body : '';
+	let beforeScreens: { calls: string[]; read: boolean } | undefined;
+	try {
+		headerList.splice(0, headerList.length, ...current.filter((n) => !n.startsWith('efxScreen')));
+		beforeScreens = {
+			calls: unknownEfxCalls(screensBody),
+			read: !!(crossingEffect.ok && readCustomElementFx(crossingEffect.effect)),
+		};
+	} finally {
+		headerList.splice(0, headerList.length, ...current);
+	}
+	assert(
+		crossingEffect.ok &&
+			['efxScreenFrom(', 'efxScreenTo(', 'efxScreenReverse('].every((c) =>
+				screensBody.includes(c),
+			) &&
+			!unknownEfxCalls(screensBody).length &&
+			!!readCustomElementFx(crossingEffect.effect) &&
+			beforeScreens?.calls.join() === 'efxScreenFrom,efxScreenTo,efxScreenReverse' &&
+			beforeScreens.read === false,
+		`the reader keeps an effect whose body calls the Screens node's helpers; with the header list before 8e (without them) it would drop it (unknown: ${beforeScreens?.calls.join(', ')})`,
 	);
 	const EFX_GLSL_MUTABLE = EFX_GLSL as Record<string, string>;
 	const ORIGINAL_HASH = EFX_GLSL.efxHash;

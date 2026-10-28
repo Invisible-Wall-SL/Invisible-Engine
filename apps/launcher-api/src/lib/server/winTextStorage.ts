@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import {
+	SYMBOL_IMAGE_SIZE_MAX,
+	SYMBOL_IMAGE_SIZE_MIN,
 	WIN_TEXT_FEATURE_FIELDS,
 	WIN_TEXT_FEATURE_MAPS,
 	WIN_TEXT_JACKPOT_FIELDS,
@@ -64,6 +66,13 @@ const toastSchema = z
 		countOnly: templateSchema.optional(),
 		/** Render the paying symbol as its sprite instead of its name in the info-bar toast. */
 		symbolAsImage: z.boolean().optional(),
+		/** That symbol's height as a percent of the text's. */
+		symbolImageSize: z
+			.number()
+			.int()
+			.min(SYMBOL_IMAGE_SIZE_MIN)
+			.max(SYMBOL_IMAGE_SIZE_MAX)
+			.optional(),
 	})
 	.strict();
 
@@ -183,6 +192,8 @@ function pruneToast(input: WinTextDoc['toast']): WinTextDoc['toast'] {
 	if (input.countOnly?.trim()) next.countOnly = input.countOnly;
 	// Only persist the flag when ON — false round-trips to "unset" and falls back to the default (off).
 	if (input.symbolAsImage) next.symbolAsImage = true;
+	if (input.symbolImageSize !== undefined && input.symbolImageSize !== 100)
+		next.symbolImageSize = input.symbolImageSize;
 	return Object.keys(next).length ? next : undefined;
 }
 
