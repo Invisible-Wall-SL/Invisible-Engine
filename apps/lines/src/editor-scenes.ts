@@ -582,6 +582,12 @@ function hasBakedDoc(): boolean {
 	return !!(doc && Array.isArray(doc.scenes) && doc.scenes.length > 0);
 }
 
+/** The whole doc set the game boots from (runtime or baked), or undefined when it has none: read
+ * as raw data by a pass that looks for every authored use of something (`game/gpuWarmup.ts`). */
+export function bakedBundleData(): unknown {
+	return hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : undefined;
+}
+
 /**
  * Register the baked component defs + per-project param defaults (no-op when not
  * baked). Call at boot BEFORE the doc renders, AFTER the game's built-in
