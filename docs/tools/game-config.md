@@ -656,8 +656,9 @@ A wild that fills its whole reel when it lands.
 - **The table** lists every wild in the dictionary (a symbol with the _wild_ property that is
   not a scatter or a Hold and Win symbol). Tick **Expands** for each wild that expands. **Dealt
   on reels (base game)** is read-only: the reels the base game's strips deal it on, or _none_.
-- **Expand only on a win** — off by default: a wild expands every time it lands, as in the
-  reference game. On, it expands only when it sits on a winning line.
+- **Show every expansion** — off by default. A wild always expands before the wins are counted;
+  off, the player sees the expansion only when a win uses that reel (the reel otherwise keeps its
+  landed symbols on screen), as in the reference game. On, every expansion is drawn.
 
 ### Growing wild
 

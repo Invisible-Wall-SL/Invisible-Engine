@@ -64,7 +64,7 @@ const reelList = (raw, reelCount) =>
  * The rewrite for one mock instance, or null when the project has neither block.
  *
  * @param {{
- *   expandingWilds?: { symbols: { symbol: string, reels: number[] }[], onlyOnWin?: boolean },
+ *   expandingWilds?: { symbols: { symbol: string, reels: number[] }[] },
  *   growingWild?: { symbol: string, reels: number[], freeSpinReels?: number[], pattern?: string },
  *   rowHeights: number[], rand: () => number, pick: () => string,
  *   protect: (cell: string) => boolean, force?: boolean,
@@ -93,7 +93,6 @@ export function createWildRewrite(o) {
 				})()
 			: null;
 	if (!expanding.length && !growing?.reels.length) return null;
-	const onlyOnWin = o.expandingWilds?.onlyOnWin === true;
 	const names = [
 		...new Set([...expanding.map((w) => w.symbol), ...(growing ? [growing.symbol] : [])]),
 	];
@@ -134,11 +133,10 @@ export function createWildRewrite(o) {
 
 	/**
 	 * Land, expand and grow on `dealt` (left untouched). Returns the LANDED board (for `playedSpin`),
-	 * the FINAL board (for the count) and the wire events, which go before the spin's wins.
-	 * `paidCells(board)` is the `reel:row` set of the landed board's winning cells, read only when
-	 * the expanding wilds expand on a win alone.
+	 * the FINAL board (for the count) and the wire events, which go before the spin's wins. Every
+	 * landed expanding wild expands, win or not, as the reference game's server does.
 	 */
-	const rewrite = (dealt, { freeSpins = false, paidCells } = {}) => {
+	const rewrite = (dealt, { freeSpins = false } = {}) => {
 		const landed = dealt.map((column) => [...column]);
 		land(landed, freeSpins);
 		const board = landed.map((column) => [...column]);
@@ -150,12 +148,9 @@ export function createWildRewrite(o) {
 			});
 			board[reel][row] = symbol;
 		};
-		const paid = onlyOnWin && expanding.length ? paidCells(landed) : null;
 		board.forEach((column, reel) => {
-			const row = column.findIndex(
-				(cell, r) =>
-					expanding.some((w) => w.symbol === cell && w.reels.includes(reel)) &&
-					(!paid || paid.has(`${reel}:${r}`)),
+			const row = column.findIndex((cell) =>
+				expanding.some((w) => w.symbol === cell && w.reels.includes(reel)),
 			);
 			if (row < 0) return;
 			const wild = column[row];

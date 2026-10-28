@@ -3,7 +3,7 @@ import { holdAndWinIsOverlayBonus, isHoldAndWinSymbol } from './holdAndWin';
 import { symbolsInPlay } from './inPlay';
 import { resolveCascade } from './mechanics';
 import { isScatterSymbol } from './serverPaytable';
-import type { ExpandingWildsConfig, GameConfigDoc } from './types';
+import type { ExpandingWildsConfig, ExpandingWildsShow, GameConfigDoc } from './types';
 import type { GameConfigIssue } from './validate';
 import { resolveWinModel } from './winModel';
 
@@ -19,7 +19,8 @@ export type ResolvedExpandingWilds = {
 	/** Each wild that expands, in the order the block names them, with the 0-based reels the base
 	 *  game's strips deal it on. */
 	symbols: { symbol: string; reels: number[] }[];
-	onlyOnWin: boolean;
+	/** When the client draws an expansion (see {@link ExpandingWildsConfig.show}). */
+	show: ExpandingWildsShow;
 };
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -36,11 +37,11 @@ export const nameList = (raw: unknown): string[] =>
 /**
  * Normalize an authored block. Its PRESENCE is the feature, so any object normalizes to a block,
  * with an empty `symbols` list when none survives (the validator's error); anything else is
- * `undefined`. `onlyOnWin` is stored only when `true`, its departure from the default.
+ * `undefined`. `show` is stored only as `always`, its departure from the `onWin` default.
  */
 export function normalizeExpandingWilds(raw: unknown): ExpandingWildsConfig | undefined {
 	if (!isRecord(raw)) return undefined;
-	return { symbols: nameList(raw.symbols), ...(raw.onlyOnWin === true ? { onlyOnWin: true } : {}) };
+	return { symbols: nameList(raw.symbols), ...(raw.show === 'always' ? { show: 'always' } : {}) };
 }
 
 /** The 0-based reels the `gameType` strips deal `symbol` on. */
@@ -91,7 +92,9 @@ export function resolveExpandingWilds(
 	const symbols = block.symbols
 		.filter((name) => !landingWildProblem(doc, name, inPlay))
 		.map((symbol) => ({ symbol, reels: reelsDealing(doc, symbol) }));
-	return symbols.length ? { symbols, onlyOnWin: block.onlyOnWin === true } : undefined;
+	return symbols.length
+		? { symbols, show: block.show === 'always' ? 'always' : 'onWin' }
+		: undefined;
 }
 
 /**

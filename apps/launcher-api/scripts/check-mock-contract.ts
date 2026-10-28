@@ -829,7 +829,7 @@ const withWilds = (blocks: Record<string, unknown>, base = template('lines')): G
 await check('both blocks ride in server names: W is WILD, any other wild its own name', () => {
 	const grid = linesGrid(
 		withWilds({
-			expandingWilds: { symbols: ['W'], onlyOnWin: true },
+			expandingWilds: { symbols: ['W'], show: 'always' },
 			growingWild: { symbol: 'CLOVER' },
 		}),
 	);
@@ -838,7 +838,6 @@ await check('both blocks ride in server names: W is WILD, any other wild its own
 		['WILD'],
 		'expanding',
 	);
-	eq(grid.expandingWilds?.onlyOnWin, true, 'onlyOnWin');
 	eq(grid.growingWild, { symbol: 'CLOVER', reels: [2], freeSpinReels: [2], pattern: 'plus' }, 'growing'); // prettier-ignore
 	const { expandingWilds: _e, growingWild: _g, ...rest } = grid;
 	eq(rest, linesGrid(withWilds({})), 'nothing else moves');

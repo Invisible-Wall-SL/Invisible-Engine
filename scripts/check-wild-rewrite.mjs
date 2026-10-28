@@ -229,7 +229,7 @@ console.log('\n2. the mock: land → expand → grow → count');
 }
 
 // ---------------------------------------------------------------------------------------------
-console.log('\n3. the mock: rates, free spins, and onlyOnWin');
+console.log('\n3. the mock: rates, free spins, and expansion on every landing');
 {
 	const mock = mockOf();
 	let spins = 0;
@@ -262,33 +262,28 @@ console.log('\n3. the mock: rates, free spins, and onlyOnWin');
 		` (${[...fsReels].sort()})`,
 	);
 
-	const won = mockOf({ forceWilds: true, expandingWilds: { symbols: [FAIRY], onlyOnWin: true } });
-	let kept = 0;
-	let skipped = 0;
-	let wrong = 0;
-	const config = (await call(won, [], '/rgs/engine?sid=c&seq=0')).events[0].context;
+	// The server expands every landed fairy, paying or not (the reference game: 97 of 320 paid
+	// nothing); whether the client DRAWS one that pays nothing is presentation.
+	const every = mockOf({ forceWilds: true, seed: 'every' });
+	let landedFairies = 0;
+	let expanded = 0;
+	let unpaid = 0;
 	for (let r = 0; r < 200; r++) {
-		for (const s of spinsOf(await playRound(won, 'won'))) {
-			const expanded = new Set(
-				s.parents.filter((p) => p.event === 'expandedWild').map((p) => p.context.reel),
+		for (const s of spinsOf(await playRound(every, 'every'))) {
+			const reels = s.landed.flatMap((reel, i) => (reel.includes('WILD') ? [i] : []));
+			const exp = s.parents.filter((p) => p.event === 'expandedWild').map((p) => p.context.reel);
+			landedFairies += reels.length;
+			expanded += exp.filter((reel) => reels.includes(reel)).length;
+			const paidReels = new Set(
+				s.wins
+					.filter((w) => w.mode === 'line')
+					.flatMap((w) => w.context.payline.slice(0, w.occurs).map((_row, reel) => reel)),
 			);
-			const paid = new Set(
-				evaluatePaylines(s.landed, 1, config.paylines, null, {
-					landingWilds: ['WILD', 'CLOVER'],
-				}).flatMap((w) =>
-					w.context.payline.slice(0, w.occurs).map((row, reel) => `${reel}:${row}`),
-				),
-			);
-			s.landed.forEach((reel, i) => {
-				const onWin = reel.some((c, row) => c === 'WILD' && paid.has(`${i}:${row}`));
-				if (!reel.includes('WILD')) return;
-				if (onWin !== expanded.has(i)) wrong++;
-				else if (onWin) kept++;
-				else skipped++;
-			});
+			unpaid += exp.filter((reel) => !paidReels.has(reel)).length;
 		}
 	}
-	check(wrong === 0 && kept > 0 && skipped > 0, 'onlyOnWin: a fairy expands exactly when it is on a winning line of the landed board', ` (${kept} expanded, ${skipped} not)`); // prettier-ignore
+	check(landedFairies > 0 && expanded === landedFairies, 'every landed fairy expands, win or not', ` (${expanded}/${landedFairies})`); // prettier-ignore
+	check(unpaid > 0, 'some expansions pay nothing', ` (${unpaid})`);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -345,7 +340,10 @@ const presented = async (make, label, rounds) => {
 	let expands = 0;
 	let growsSeen = 0;
 	let wins = 0;
+	let paidSeen = 0;
+	let unpaidSeen = 0;
 	for (const { state, raw } of rounds) {
+		const oneSpin = state.filter((e) => e.type === 'reveal').length === 1;
 		// Engine order per spin: reveal, then its expandWilds, then at most one growWild, then wins.
 		const types = state.map((e) => e.type).join(' ');
 		if (!/^(reveal( expandWild)+( growWild)?( winInfo)*)/.test(types)) bad.push(types);
@@ -355,6 +353,12 @@ const presented = async (make, label, rounds) => {
 			if (e.type === 'reveal') board = e.board.map((reel) => reel.map((c) => c.name));
 			if (e.type === 'expandWild') {
 				expands++;
+				const crossed = raw
+					.filter((w) => w.event === 'spinWin' && w.context.mode === 'line')
+					.some((w) => w.context.occurs > e.reel);
+				if (oneSpin && e.paid !== crossed) bad.push(`paid ${e.paid} on reel ${e.reel}`);
+				if (e.paid) paidSeen++;
+				else unpaidSeen++;
 				if (e.symbol !== 'W' || board[e.reel][e.row] !== 'W')
 					bad.push(`expand origin ${JSON.stringify(e)}`);
 				for (const c of e.cells) board[c.reel][c.row] = e.symbol;
@@ -388,7 +392,6 @@ const presented = async (make, label, rounds) => {
 				c === 'WILD' || c === 'CLOVER' || c === 'S' ? (c === 'S' ? 'SCAT' : c) : 'x',
 			),
 		);
-		const oneSpin = state.filter((e) => e.type === 'reveal').length === 1;
 		if (oneSpin && JSON.stringify(mapped) !== JSON.stringify(mine)) bad.push('final board differs');
 		// The money: the round's win in book amount is the server's.
 		const bet = raw.find((e) => e.event === 'bet').context;
@@ -401,6 +404,7 @@ const presented = async (make, label, rounds) => {
 			bad.push(`wins ${sumWins} vs ${expected}`);
 	}
 	check(bad.length === 0, 'order, origins, final board, win cells and money all agree', bad.length ? `\n      ${bad.slice(0, 3).join('\n      ')}` : ''); // prettier-ignore
+	check(paidSeen > 0 && unpaidSeen > 0, 'expandWild says whether a paying line crosses its reel', ` (${paidSeen} paid, ${unpaidSeen} not)`); // prettier-ignore
 	check(expands > 0 && growsSeen > 0 && wins > 0, 'with expansions, grows and wins to check', ` (${expands} / ${growsSeen} / ${wins})`); // prettier-ignore
 
 	const plain = await presented(

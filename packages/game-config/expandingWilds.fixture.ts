@@ -71,13 +71,13 @@ console.log('\n1. normalize: presence is the feature; only departures are stored
 check('not an object ⇒ no block', normalizeExpandingWilds('x'), undefined);
 check('{} ⇒ an empty block', normalizeExpandingWilds({}), { symbols: [] });
 check(
-	'names trimmed, deduped, non-strings dropped; onlyOnWin only when true',
-	normalizeExpandingWilds({ symbols: [' FAIRY', 'FAIRY', 3, ''], onlyOnWin: false }),
+	'names trimmed, deduped, non-strings dropped; show only when always',
+	normalizeExpandingWilds({ symbols: [' FAIRY', 'FAIRY', 3, ''], show: 'onWin' }),
 	{ symbols: ['FAIRY'] },
 );
-check('onlyOnWin true is stored', normalizeExpandingWilds({ symbols: ['A'], onlyOnWin: true }), {
+check('show always is stored', normalizeExpandingWilds({ symbols: ['A'], show: 'always' }), {
 	symbols: ['A'],
-	onlyOnWin: true,
+	show: 'always',
 });
 check('growing: {} ⇒ a block with no symbol', normalizeGrowingWild({}), { symbol: '' });
 check(
@@ -99,7 +99,7 @@ check(
 	[{ symbol: 'C', pattern: 'all8' }, { symbol: 'C' }],
 );
 const authored = doc({
-	expandingWilds: { symbols: ['FAIRY'], onlyOnWin: true },
+	expandingWilds: { symbols: ['FAIRY'], show: 'always' },
 	growingWild: { symbol: 'CLOVER', freeSpinReels: [1, 2, 3], pattern: 'vertical' },
 });
 check(
@@ -123,7 +123,7 @@ check('no block ⇒ undefined', resolveExpandingWilds(doc()), undefined);
 check(
 	'expanding: each wild with the reels its base strips deal it on',
 	resolveExpandingWilds(doc({ expandingWilds: { symbols: ['FAIRY', 'OFF', 'H1'] } })),
-	{ symbols: [{ symbol: 'FAIRY', reels: [1, 2, 3] }], onlyOnWin: false },
+	{ symbols: [{ symbol: 'FAIRY', reels: [1, 2, 3] }], show: 'onWin' },
 );
 check(
 	'expanding: nothing usable ⇒ undefined',

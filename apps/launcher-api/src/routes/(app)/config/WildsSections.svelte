@@ -15,7 +15,7 @@
 		setGrowingReel,
 		setGrowingSymbol,
 		setGrowingWildOn,
-		setOnlyOnWin,
+		setExpandShowAlways,
 		wildChoices,
 		type GrowingReelsKey,
 	} from './wildsDoc';
@@ -171,13 +171,13 @@
 					<label class="check"
 						><input
 							type="checkbox"
-							checked={expandingBlock.onlyOnWin === true}
-							onchange={(e) => setOnlyOnWin(doc, e.currentTarget.checked)}
-						/><span>Expand only on a win</span></label
+							checked={expandingBlock.show === 'always'}
+							onchange={(e) => setExpandShowAlways(doc, e.currentTarget.checked)}
+						/><span>Show every expansion</span></label
 					>
 					<p class="note">
-						Off, a wild expands every time it lands, as in the reference game. On, only when it sits
-						on a winning line.
+						A wild always expands before the wins are counted. Off, the player sees the expansion
+						only when a win uses that reel, as in the reference game. On, every time.
 					</p>
 				{/if}
 			</fieldset>

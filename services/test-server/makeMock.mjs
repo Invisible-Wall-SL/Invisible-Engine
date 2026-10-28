@@ -529,10 +529,7 @@ export const validGrid = (grid) => {
 		ew.symbols.length > 0 &&
 		ew.symbols.length <= reels &&
 		ew.symbols.every((w) => w && named(w.symbol) && reelsOnBoard(w.reels))
-			? {
-					symbols: ew.symbols.map(({ symbol, reels: on }) => ({ symbol, reels: on })),
-					...(ew.onlyOnWin === true ? { onlyOnWin: true } : {}),
-				}
+			? { symbols: ew.symbols.map(({ symbol, reels: on }) => ({ symbol, reels: on })) }
 			: null;
 	const gw = grid.growingWild;
 	const growingWild =

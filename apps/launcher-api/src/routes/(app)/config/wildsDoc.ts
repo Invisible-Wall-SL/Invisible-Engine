@@ -41,12 +41,12 @@ export function setExpandingWild(doc: GameConfigDoc, name: string, on: boolean):
 	block.symbols = on ? [...others, name] : others;
 }
 
-/** `onlyOnWin` is stored only when true, its departure from the default. */
-export function setOnlyOnWin(doc: GameConfigDoc, on: boolean): void {
+/** `show` is stored only as `always`, its departure from the `onWin` default. */
+export function setExpandShowAlways(doc: GameConfigDoc, always: boolean): void {
 	const block = doc.expandingWilds;
 	if (!block) return;
-	if (on) block.onlyOnWin = true;
-	else delete block.onlyOnWin;
+	if (always) block.show = 'always';
+	else delete block.show;
 }
 
 /** Turn the growing wild on (naming `first`, or none yet) or off. */

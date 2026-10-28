@@ -598,7 +598,7 @@ try {
 	const withWilds = normalizeGameConfigDoc({
 		...lines,
 		paddingReels: dealtW,
-		expandingWilds: { symbols: ['W'], onlyOnWin: true },
+		expandingWilds: { symbols: ['W'], show: 'always' },
 		growingWild: { symbol: 'W', reels: [1, 3], pattern: 'all8' },
 	})!;
 	same(
@@ -621,14 +621,14 @@ try {
 		(d) => d.expandingWilds?.symbols[0] === 'W',
 	);
 	step(
-		'expand only on a win',
-		(d) => wildsDoc.setOnlyOnWin(d, true),
-		(d) => d.expandingWilds?.onlyOnWin === true,
+		'show every expansion',
+		(d) => wildsDoc.setExpandShowAlways(d, true),
+		(d) => d.expandingWilds?.show === 'always',
 	);
 	step(
-		'expand on every landing (the default)',
-		(d) => wildsDoc.setOnlyOnWin(d, false),
-		(d) => d.expandingWilds !== undefined && !('onlyOnWin' in d.expandingWilds),
+		'show it only when a win uses the reel (the default)',
+		(d) => wildsDoc.setExpandShowAlways(d, false),
+		(d) => d.expandingWilds !== undefined && !('show' in d.expandingWilds),
 	);
 	step(
 		'untick the last wild keeps the block',

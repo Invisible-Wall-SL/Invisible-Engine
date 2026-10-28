@@ -406,10 +406,18 @@ export type FreeSpinsAward = {
 export type ExpandingWildsConfig = {
 	/** The wilds that expand, by dictionary name. Each must be a dealt, non-scatter wild. */
 	symbols: string[];
-	/** Expand only when the landed cell is on a winning line of the landed board. Absent ⇒ every
-	 *  landing expands, which is what the reference game does. */
-	onlyOnWin?: boolean;
+	/**
+	 * When the CLIENT draws an expansion. The server always expands before the count; this only
+	 * decides the picture. `onWin` (absent, the reference game): only when a paying line of the spin
+	 * crosses the reel — otherwise the reel keeps its landed cells on screen, which no win line
+	 * needs. `always`: every time.
+	 */
+	show?: ExpandingWildsShow;
 };
+
+/** Every {@link ExpandingWildsConfig.show}, the default first. */
+export const EXPANDING_WILDS_SHOW = ['onWin', 'always'] as const;
+export type ExpandingWildsShow = (typeof EXPANDING_WILDS_SHOW)[number];
 
 /** Every {@link GrowingWildConfig.pattern}, the default first. */
 export const GROWING_WILD_PATTERNS = ['plus', 'vertical', 'horizontal', 'all8'] as const;

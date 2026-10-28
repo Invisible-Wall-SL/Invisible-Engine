@@ -1395,14 +1395,7 @@ export function createMockRgs(opts = {}) {
 	};
 
 	/** The wild rewrite of one spin's dealt board (`wildRewrite`), or null on a game without it. */
-	const rewriteWilds = (dealt, round, freeSpins) =>
-		wildRewrite?.rewrite(dealt, {
-			freeSpins,
-			paidCells: (board) =>
-				new Set(
-					payingCells(evaluateRawWins(board, round)).map(({ reel, row }) => `${reel}:${row}`),
-				),
-		}) ?? null;
+	const rewriteWilds = (dealt, freeSpins) => wildRewrite?.rewrite(dealt, { freeSpins }) ?? null;
 
 	/**
 	 * The cells a win list actually paid on, in the mock's own VISIBLE-grid coordinates (the client
@@ -2181,8 +2174,7 @@ export function createMockRgs(opts = {}) {
 						const special = pendingRound.bonus.special;
 						// The host's own free spins land, expand and grow like a base spin; an imported
 						// mode and the Book-of special play by their own rules.
-						const fsRewritten =
-							game || strips || special ? null : rewriteWilds(fsReels, pendingRound, true);
+						const fsRewritten = game || strips || special ? null : rewriteWilds(fsReels, true);
 						if (fsRewritten) fsRewritten.landed.forEach((reel, i) => (fsReels[i] = reel));
 						pendingRound.reels = fsReels;
 						// During the feature the special pays scatter-style too, as the book mock declares it.
@@ -2335,7 +2327,7 @@ export function createMockRgs(opts = {}) {
 							? forceTriggerSymbols(dealt)
 							: dealt;
 					// Land → expand → grow: `reels` is the landed board, the wins are the final board's.
-					const rewritten = rewriteWilds(triggered, pendingRound, false);
+					const rewritten = rewriteWilds(triggered, false);
 					const reels = rewritten?.landed ?? triggered;
 					pendingRound.reels = reels;
 					const lineWins = evaluatePayWins(rewritten?.board ?? reels, pendingRound);

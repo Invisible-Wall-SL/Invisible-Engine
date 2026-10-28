@@ -7,6 +7,9 @@
  * A server may send them before or after `playedSpin` (the two-pass rule), so each spin's are
  * collected up front, by the index of its `playedSpin`, and presented with it — the way the pots
  * overlay's drop is.
+ *
+ * Each `expandWild` says whether a paying line of its spin crosses the reel (`paid`): the client
+ * draws an expansion no win uses only when the game asks for it (`expandingWilds.show`).
  */
 
 import type { Play4FunBookEvent } from './types';
@@ -22,6 +25,9 @@ export type WildRewrite = {
 	cells: (Cell & { symbol: string; oldSymbol?: string })[];
 };
 
+/** One spin's rewrites and the reels its paying wins cross. */
+export type SpinWildRewrites = { rewrites: WildRewrite[]; paidReels: Set<number> };
+
 /** The wire events this module owns; the facade's main loop skips them. */
 export const WILD_REWRITE_EVENTS = new Set(['expandedWild', 'growingWild', 'symbolSetInMatrix']);
 
@@ -36,23 +42,37 @@ const cellOf = (context: unknown): (Cell & { wild?: string; symbol?: string }) |
 	};
 };
 
+/** The reels a `spinWin` pays across: a line's leftmost `occurs` reels, or the reels of its
+ *  cells. The scatter's own pay crosses none. */
+const reelsPaidBy = (context: unknown): number[] => {
+	const win = context as { what?: string; mode?: string; occurs?: number; context?: unknown };
+	if (!win || (win.mode === 'scatter' && win.what === 'SCAT')) return [];
+	const ctx = win.context as { payline?: number[] } | Cell[] | undefined;
+	if (Array.isArray(ctx)) return ctx.map((c) => c.reel);
+	const payline = ctx?.payline;
+	return Array.isArray(payline) ? payline.slice(0, win.occurs ?? 0).map((_row, reel) => reel) : [];
+};
+
 /**
  * Every spin's rewrites, by the index of the `playedSpin` they belong to. A spin runs from its
  * `spinStart` to the next one; a `symbolSetInMatrix` belongs to the `expandedWild` or `growingWild`
  * before it. Empty when the wire carries none, which is every game without these features.
  */
-export const wildRewritesBySpin = (events: Play4FunBookEvent[]): Map<number, WildRewrite[]> => {
-	const out = new Map<number, WildRewrite[]>();
+export const wildRewritesBySpin = (events: Play4FunBookEvent[]): Map<number, SpinWildRewrites> => {
+	const out = new Map<number, SpinWildRewrites>();
 	let pending: WildRewrite[] = [];
+	let paidReels = new Set<number>();
 	let spin: number | undefined;
 	const flush = () => {
-		if (spin !== undefined && pending.length) out.set(spin, pending);
+		if (spin !== undefined && pending.length) out.set(spin, { rewrites: pending, paidReels });
 		pending = [];
+		paidReels = new Set();
 		spin = undefined;
 	};
 	events.forEach((e, at) => {
 		if (e.event === 'spinStart') flush();
 		else if (e.event === 'playedSpin') spin = at;
+		else if (e.event === 'spinWin') for (const reel of reelsPaidBy(e.context)) paidReels.add(reel);
 		else if (e.event === 'expandedWild' || e.event === 'growingWild') {
 			const origin = cellOf(e.context);
 			if (origin?.wild) {
@@ -88,7 +108,7 @@ export const wildRewritesBySpin = (events: Play4FunBookEvent[]): Map<number, Wil
  * which means the server and the client no longer read the same board.
  */
 export const translateWildRewrites = (
-	rewrites: WildRewrite[],
+	{ rewrites, paidReels }: SpinWildRewrites,
 	board: string[][],
 	map: (name: string) => string,
 	padding: number,
@@ -109,7 +129,14 @@ export const translateWildRewrites = (
 			.map(engineCell);
 		const symbol = map(wild);
 		return kind === 'expand'
-			? { type: 'expandWild', reel: origin.reel, row: origin.row + padding, symbol, cells: moved }
+			? {
+					type: 'expandWild',
+					reel: origin.reel,
+					row: origin.row + padding,
+					symbol,
+					cells: moved,
+					paid: paidReels.has(origin.reel),
+				}
 			: { type: 'growWild', origin: engineCell(origin), symbol, cells: moved };
 	});
 	return { bookEvents, board: final, drift };

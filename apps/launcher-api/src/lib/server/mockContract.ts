@@ -441,14 +441,7 @@ function projectWildRewrite(
 	const growing = resolveGrowingWild(doc);
 	const growName = growing && serverName(growing.symbol);
 	return {
-		...(symbols.length
-			? {
-					expandingWilds: {
-						symbols,
-						...(expanding?.onlyOnWin ? { onlyOnWin: true as const } : {}),
-					},
-				}
-			: {}),
+		...(symbols.length ? { expandingWilds: { symbols } } : {}),
 		...(growing && growName ? { growingWild: { ...growing, symbol: growName } } : {}),
 	};
 }
