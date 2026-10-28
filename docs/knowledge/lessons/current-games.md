@@ -11,7 +11,8 @@ Traps of one game type live in its family file, e.g. [lines](../families/lines.m
 - **Cause:** `SymbolWrap` culled on the seat's centre, so a cell drew only when half inside, and the
   mask had nothing left to clip.
 - **Fix:** while the cell's reel rolls, draw it on the masked layer once any part of its row
-  overlaps the window; keep the centre test at rest (a margin at rest changed settled boards).
+  overlaps the window, but hold its art on frame 0 until the centre crosses: an animation clock
+  starts at mount, so drawing early without the hold shifts every rig's pose at rest.
 - **Guard:** the current-games harness for rest; watch a spin for the roll itself.
 - **PR:** not recorded (2026-10-28) · source: `docs/status/engine.md`
 

@@ -316,6 +316,12 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   the 2026-10-27 spin-CPU work is unchanged. Merged with the filler pool (`ReelPaddingPool`, entry
   below): a pooled view now takes its next cell half a row before the window edge too; a view's
   cells are `rows + 2` pitches apart and the widened window is `rows + 1`, so no view needs two.
+  Drawing early must not START early: a rig or flipbook's clock runs from mount, so mounting half a
+  row sooner left every animated symbol further into its loop at rest — `commonoverlayproject`'s
+  settled, win and big-win screens all changed, identically with or without the margin at rest.
+  A cell in the half-row band (centre still outside) is now `held`: `Symbol` holds its rig / flipbook
+  on the first frame (`frozen` without touching the Element FX) until the centre crosses — the frame
+  it used to mount on.
   `check:svelte --only apps/lines` at baseline; not seen in a browser (the sandbox could not load the
   game's art), so the owner should watch a spin.
 - 2026-10-28 — **A rolling reel's filler is drawn through a fixed pool of views per reel**

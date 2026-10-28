@@ -40,6 +40,10 @@
 		 * by the inline message symbol, where a moving icon inside a line of text pulls the eye off
 		 * the sentence it illustrates. */
 		frozen?: boolean;
+		/** Hold the base art (rig or flipbook) on its current frame and nothing else, so it starts
+		 *  later without remounting: a rolling cell drawn before its centre reaches the window
+		 *  (`SymbolWrap`'s `held`). Unlike {@link frozen}, the Element FX are untouched. */
+		held?: boolean;
 		/**
 		 * The win-celebration DIM for this cell (`winCycle.dimNonWinning`) — a Pixi tint, applied to
 		 * each drawn PIECE below rather than once on a container above them all.
@@ -304,7 +308,7 @@
 				<SymbolFlipbook
 					{symbolInfo}
 					{loop}
-					frozen={props.frozen}
+					frozen={props.frozen || props.held}
 					x={props.x}
 					y={props.y}
 					oncomplete={artComplete}
@@ -315,7 +319,7 @@
 				<SymbolRigMain
 					{loop}
 					{symbolInfo}
-					frozen={props.frozen}
+					frozen={props.frozen || props.held}
 					x={props.x}
 					y={props.y}
 					listener={{

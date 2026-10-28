@@ -31,7 +31,8 @@
 		 *  (`ReelPaddingPool`) that is handed the next cell instead of being destroyed. Absent ⇒
 		 *  mounted only in the window, as before. */
 		keepMounted?: boolean;
-		children: Snippet;
+		/** Told whether the symbol is drawn ahead of its time (see `held` below). */
+		children: Snippet<[held: boolean]>;
 	};
 
 	const props: Props = $props();
@@ -87,6 +88,14 @@
 			? props.y >= top && props.y <= bottom
 			: props.y + margin > top && props.y - margin < bottom,
 	);
+	/**
+	 * Drawn early: in that half-row band, its centre still outside the window. The art is held on
+	 * its first frame there and starts on the frame the centre crosses, which is when the cell used
+	 * to mount, so a rig or flipbook reaches the same pose at the same frame as it always did.
+	 * Animation clocks start at mount; without the hold, every animated symbol would come to rest
+	 * half a row's travel further into its loop.
+	 */
+	const held = $derived(margin > 0 && !(props.y >= top && props.y <= bottom));
 	// A flat seat passes `undefined`, NOT 1, because `1` is not a no-op in Pixi v8: assigning
 	// `container.scale` swaps the shared `defaultScale` singleton for an owned `ObservablePoint` and
 	// dirties the transform. `pixi-svelte`'s `propsSyncEffect` skips undefined props, so an unscaled
@@ -107,6 +116,6 @@
 		zIndex={props.zIndex}
 		visible={props.keepMounted ? props.debug || inFrame : undefined}
 	>
-		{@render props.children()}
+		{@render props.children(held)}
 	</Container>
 {/if}
