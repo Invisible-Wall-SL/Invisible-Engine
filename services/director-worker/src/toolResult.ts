@@ -1,4 +1,5 @@
 import type { BetaToolResultBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
+import { wrapUntrusted } from './untrusted.ts';
 
 /** The most characters of a text result the model is shown; the rest is cut and marked. */
 export const MAX_RESULT_CHARS = 60_000;
@@ -19,6 +20,9 @@ export const MAX_IMAGES_PER_REQUEST = 20;
 export const MAX_IMAGE_BASE64_PER_REQUEST = 12 * 1024 * 1024;
 
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/** What an untrusted answer's text is cut to: the wrapper's own lines still fit in the result. */
+const UNTRUSTED_MAX_CHARS = MAX_RESULT_CHARS - 500;
 
 export const cutResult = (text: string) =>
 	text.length > MAX_RESULT_CHARS ? `${text.slice(0, MAX_RESULT_CHARS)}…[truncated]` : text;
@@ -55,13 +59,21 @@ function refusal(mediaType: unknown, data: unknown): string | null {
  * so the model sees it; an image it cannot be shown is dropped with a note, never cut mid-base64.
  * Every other answer, of any op, is its JSON, cut at `MAX_RESULT_CHARS`, as it always was.
  */
-export function answerContent(body: unknown, imageOp = false): BetaToolResultBlockParam['content'] {
+export function answerContent(
+	body: unknown,
+	imageOp = false,
+	untrusted = false,
+): BetaToolResultBlockParam['content'] {
+	// People's words are data, whole or not at all: the fixed line, then the text between the
+	// tags, cut inside them (`wrapUntrusted`). An image rides after that text block.
+	const text = (json: string) =>
+		untrusted ? wrapUntrusted(json, UNTRUSTED_MAX_CHARS) : cutResult(json);
 	const found = imageOp ? imageOf(body) : null;
-	if (!found) return cutResult(JSON.stringify(body));
+	if (!found) return text(JSON.stringify(body));
 	const why = refusal(found.mediaType, found.data);
-	if (why) return cutResult(JSON.stringify({ ...found.rest, imageNotShown: why }));
+	if (why) return text(JSON.stringify({ ...found.rest, imageNotShown: why }));
 	return [
-		{ type: 'text', text: cutResult(JSON.stringify(found.rest)) },
+		{ type: 'text', text: text(JSON.stringify(found.rest)) },
 		{
 			type: 'image',
 			source: {

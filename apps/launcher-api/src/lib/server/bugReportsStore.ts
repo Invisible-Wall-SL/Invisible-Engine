@@ -1,9 +1,10 @@
-import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { BugKind, BugStatus, LinkState } from '$lib/bugReports';
 import { getDb } from './db';
 import {
 	bugReportEvents,
 	bugReportLinks,
+	bugReportRelations,
 	bugReportScreenshots,
 	bugReports,
 	type BugEventKind,
@@ -220,6 +221,198 @@ export async function insertBug(
 			data: { ...data, ...(values.priority ? { priority: values.priority } : {}) },
 		});
 		return bug;
+	});
+}
+
+export interface EscalationInput {
+	/** The game bug handed to the pipeline. */
+	gameBug: number;
+	/** The pipeline bug to file for its cause. */
+	values: NewBug;
+	/** Who escalates: the run (`Director run <id>`) or the triager. */
+	actor: Actor;
+	/** Rides on the pipeline bug's `reported` event: the run's `opId`. */
+	data: Record<string, unknown>;
+	/** The repair run that proposed it; null for a triager's own escalation. */
+	runId: string | null;
+}
+
+/**
+ * Hand a game bug to the pipeline (ADR-0012 §3), in one transaction under the game bug's lock: the
+ * pipeline bug and its `reported` event, the relation row, an `escalated` event on each bug, and
+ * the game bug Open → Working on. A game bug is escalated once (the relation's primary key), so a
+ * replay answers the pipeline bug already filed, with `created: false`. `null` when the game bug is
+ * gone or not a game bug.
+ */
+export async function insertEscalation(
+	e: EscalationInput,
+): Promise<{ bug: BugReport; created: boolean } | null> {
+	return getDb().transaction(async (tx) => {
+		const [game] = await tx
+			.select()
+			.from(bugReports)
+			.where(eq(bugReports.number, e.gameBug))
+			.for('update');
+		if (!game || game.kind !== 'game') return null;
+		const [prior] = await tx
+			.select({ toBug: bugReportRelations.toBug })
+			.from(bugReportRelations)
+			.where(
+				and(eq(bugReportRelations.fromBug, e.gameBug), eq(bugReportRelations.kind, 'escalated_to')),
+			);
+		if (prior) {
+			const [bug] = await tx.select().from(bugReports).where(eq(bugReports.number, prior.toBug));
+			return { bug, created: false };
+		}
+		const [bug] = await tx.insert(bugReports).values(e.values).returning();
+		const who = { actorId: e.actor.id, actor: e.actor.name };
+		await tx.insert(bugReportEvents).values([
+			{ bugNumber: bug.number, kind: 'reported', ...who, data: e.data },
+			{
+				bugNumber: bug.number,
+				kind: 'escalated',
+				...who,
+				data: { from: e.gameBug, runId: e.runId },
+			},
+			{
+				bugNumber: e.gameBug,
+				kind: 'escalated',
+				...who,
+				data: { to: bug.number, runId: e.runId },
+			},
+		]);
+		await tx.insert(bugReportRelations).values({
+			fromBug: e.gameBug,
+			toBug: bug.number,
+			kind: 'escalated_to',
+			runId: e.runId,
+			createdBy: e.actor.name,
+		});
+		const now = new Date();
+		if (game.status === 'open') {
+			await tx
+				.update(bugReports)
+				.set({
+					status: 'working',
+					statusBy: e.actor.name,
+					statusAt: now,
+					statusAuto: false,
+					updatedAt: now,
+				})
+				.where(eq(bugReports.number, e.gameBug));
+			await tx.insert(bugReportEvents).values({
+				bugNumber: e.gameBug,
+				kind: 'status',
+				...who,
+				data: { to: 'working', because: 'escalated' },
+			});
+		}
+		return { bug, created: true };
+	});
+}
+
+/** The pipeline bug each of these game bugs was handed to, with that bug's status now. */
+export async function escalationsFor(
+	numbers: number[],
+): Promise<Map<number, { toBug: number; toStatus: BugStatus }>> {
+	if (!numbers.length) return new Map();
+	const rows = await getDb()
+		.select({
+			fromBug: bugReportRelations.fromBug,
+			toBug: bugReportRelations.toBug,
+			toStatus: bugReports.status,
+		})
+		.from(bugReportRelations)
+		.innerJoin(bugReports, eq(bugReports.number, bugReportRelations.toBug))
+		.where(
+			and(
+				inArray(bugReportRelations.fromBug, numbers),
+				eq(bugReportRelations.kind, 'escalated_to'),
+			),
+		);
+	return new Map(rows.map((r) => [r.fromBug, { toBug: r.toBug, toStatus: r.toStatus }]));
+}
+
+/** The game bugs among `numbers` whose last `repair` event says a run fixed them (ADR-0012 §4). */
+export async function fixedAwaitingPublish(numbers: number[]): Promise<Set<number>> {
+	if (!numbers.length) return new Set();
+	const rows = await getDb()
+		.selectDistinctOn([bugReportEvents.bugNumber], {
+			bugNumber: bugReportEvents.bugNumber,
+			phase: sql<string>`${bugReportEvents.data}->>'phase'`,
+		})
+		.from(bugReportEvents)
+		.where(and(inArray(bugReportEvents.bugNumber, numbers), eq(bugReportEvents.kind, 'repair')))
+		.orderBy(bugReportEvents.bugNumber, desc(bugReportEvents.id));
+	return new Set(rows.filter((r) => r.phase === 'fixed').map((r) => r.bugNumber));
+}
+
+/**
+ * A Game Maker publish ships the project's fixes: every Working on game bug of `projectKey` whose
+ * last `repair` event is `fixed` becomes Resolved, by "Game Maker publish", with the snapshot id.
+ * Idempotent: the `published` event it writes ends the "fixed" state. Returns the bugs it resolved.
+ */
+export async function resolveFixedBugs(projectKey: string, snapshotId: string): Promise<number[]> {
+	return getDb().transaction(async (tx) => {
+		const working = await tx
+			.select({ number: bugReports.number })
+			.from(bugReports)
+			.where(
+				and(
+					eq(bugReports.kind, 'game'),
+					eq(bugReports.projectKey, projectKey),
+					eq(bugReports.status, 'working'),
+				),
+			)
+			.for('update');
+		if (!working.length) return [];
+		const last = await tx
+			.selectDistinctOn([bugReportEvents.bugNumber], {
+				bugNumber: bugReportEvents.bugNumber,
+				phase: sql<string>`${bugReportEvents.data}->>'phase'`,
+			})
+			.from(bugReportEvents)
+			.where(
+				and(
+					inArray(
+						bugReportEvents.bugNumber,
+						working.map((b) => b.number),
+					),
+					eq(bugReportEvents.kind, 'repair'),
+				),
+			)
+			.orderBy(bugReportEvents.bugNumber, desc(bugReportEvents.id));
+		const fixed = last.filter((r) => r.phase === 'fixed').map((r) => r.bugNumber);
+		const now = new Date();
+		for (const number of fixed) {
+			await tx
+				.update(bugReports)
+				.set({
+					status: 'resolved',
+					statusBy: 'Game Maker publish',
+					statusAt: now,
+					statusAuto: false,
+					updatedAt: now,
+				})
+				.where(eq(bugReports.number, number));
+			await tx.insert(bugReportEvents).values([
+				{
+					bugNumber: number,
+					kind: 'status',
+					actorId: null,
+					actor: 'Game Maker publish',
+					data: { to: 'resolved', because: 'published', snapshot: snapshotId },
+				},
+				{
+					bugNumber: number,
+					kind: 'repair',
+					actorId: null,
+					actor: 'Game Maker publish',
+					data: { phase: 'published', snapshot: snapshotId },
+				},
+			]);
+		}
+		return fixed;
 	});
 }
 

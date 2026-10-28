@@ -198,6 +198,17 @@ project is named in the text only).
 It arrives **Open**, with no priority, and is **not sent** to Pipeline Changes: a triager decides,
 as for any other report, whether to send it.
 
+### A bug escalated from a game bug
+
+A triager of game bugs, or a Director repair run you approve, can hand a game bug to the pipeline
+when the cause is in the engine or a tool (see [Game Bug Reports](game-bugs.md#repair-a-bug)). The
+pipeline bug arrives **Open**, not sent, reported by the triager or by "Director run `<id>`", in the
+game bug's project, with the escalator's own words and a first line naming the game bug and the
+project. Its Activity says "filed this from game bug BUG-`<n>`", and the card **Escalated from a
+game bug** names the bug, with **Open it there** for people who have Game Bug Reports. While it is
+Open or Working on, the game bug reads "Waiting on pipeline"; when it is Resolved, "Pipeline fix
+merged: check the game"; when it is Won't fix, "Pipeline: won't fix". Triage it like any other bug.
+
 ### How a pull request moves a bug
 
 A pull request is linked to a bug when its title or branch name says `BUG-12` (or `bug-12`, as in
@@ -231,8 +242,8 @@ and **Status set** names the pull request.
   every minute).
 - A bug cannot be deleted. Mark a duplicate or a non-bug **Won't fix**. Comments cannot be edited
   or deleted.
-- A pipeline bug cannot be turned into a game bug, or a game bug into a pipeline bug. Report it
-  again in the right list.
+- A pipeline bug cannot be turned into a game bug. A game bug is handed to the pipeline with
+  **Escalate to pipeline** (one pipeline bug per game bug), not moved.
 - Automatic status needs the GitHub App, and only runs while someone has a bug list open. GitHub
   is asked for the open pull requests and the hundred most recently updated closed ones, so a pull
   request that closed long before anyone looked may never be linked.

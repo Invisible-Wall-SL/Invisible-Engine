@@ -1,6 +1,8 @@
 import { eq } from 'drizzle-orm';
 import {
 	budgetFromSetting,
+	DIRECTOR_REPAIR_BUDGET_DEFAULT_USD,
+	DIRECTOR_REPAIR_BUDGET_KEY,
 	DIRECTOR_RUN_BUDGET_DEFAULT_USD,
 	DIRECTOR_RUN_BUDGET_KEY,
 } from 'director-costs';
@@ -42,6 +44,8 @@ export const DIRECTOR_PENDING_MOCKUP_DAYS_MAX = 365;
 export {
 	clampDirectorBudget,
 	DIRECTOR_PRICING_OVERRIDE_KEY,
+	DIRECTOR_REPAIR_BUDGET_DEFAULT_USD,
+	DIRECTOR_REPAIR_BUDGET_KEY,
 	DIRECTOR_RUN_BUDGET_DEFAULT_USD,
 	DIRECTOR_RUN_BUDGET_KEY,
 	DIRECTOR_RUN_BUDGET_MAX_USD,
@@ -145,6 +149,26 @@ export async function getDirectorRunBudget(): Promise<number> {
 			err instanceof Error ? err.message : err,
 		);
 		return DIRECTOR_RUN_BUDGET_DEFAULT_USD;
+	}
+}
+
+/**
+ * The cap of a game repair run in USD (`DIRECTOR_REPAIR_BUDGET_USD`, ADR-0012), bounded like the
+ * run cap, default `DIRECTOR_REPAIR_BUDGET_DEFAULT_USD`. A repair run copies it at start. Fails
+ * SAFE to the default and never throws, as {@link getDirectorRunBudget} does.
+ */
+export async function getDirectorRepairBudget(): Promise<number> {
+	try {
+		return budgetFromSetting(
+			await getAppSetting(DIRECTOR_REPAIR_BUDGET_KEY),
+			DIRECTOR_REPAIR_BUDGET_DEFAULT_USD,
+		);
+	} catch (err) {
+		console.warn(
+			'[appSettings] director repair budget DB read failed — using the default cap:',
+			err instanceof Error ? err.message : err,
+		);
+		return DIRECTOR_REPAIR_BUDGET_DEFAULT_USD;
 	}
 }
 

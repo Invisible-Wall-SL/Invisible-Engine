@@ -1,0 +1,123 @@
+{
+	"id": "04-wrong-payout",
+	"adrBug": 4,
+	"title": "A wrong payout",
+	"what": "A player expects 100x for five Dragons and was paid 10x. The paytable page and the win agree with each other, and the paytable is a locked item (Game Config), so the right outcome is needs_person with no task that touches math or Game Config.",
+	"bugNumber": 4104,
+	"world": {
+		"bug": {
+			"number": 4104,
+			"ref": "BUG-4104",
+			"title": "5 Dragons only paid 10x",
+			"description": "I got five Dragon symbols on a line with a bet of 1.00 and was paid 10.00. The rules sheet we were given says five Dragons pay 100x the bet. I tried twice, same result both times.",
+			"area": "wins",
+			"areaName": "Wins, paytable and math",
+			"priority": "critical",
+			"status": "open",
+			"pageUrl": "https://play.example.com/jade-tiger-eval",
+			"comments": [
+				{
+					"by": "Joel Baptiste",
+					"at": "2026-10-27T10:30:00.000Z",
+					"text": "The paytable page in the game also says 10 for five Dragons, so the game is consistent. The sheet says 100."
+				}
+			]
+		},
+		"screenshots": {
+			"d4e5f60718293041": "shots/04-report-pay-10.png"
+		},
+		"answers": {},
+		"plays": {
+			"beforeFix": {
+				"status": "finished",
+				"result": {
+					"kind": "lines",
+					"seconds": 36.2,
+					"scenarios": [
+						{
+							"id": "base-spin",
+							"expected": ["loaded", "idle", "spin", "settled"],
+							"reached": ["loaded", "idle", "spin", "settled"],
+							"missing": [],
+							"stall": null,
+							"consoleErrors": [],
+							"pageErrors": 0,
+							"pageStalls": 0,
+							"error": null,
+							"seconds": 13.4,
+							"shots": {
+								"idle": "shots/05-play-idle.png"
+							}
+						},
+						{
+							"id": "line-win",
+							"expected": ["loaded", "idle", "spin", "settled", "line-win"],
+							"reached": ["loaded", "idle", "spin", "settled", "line-win"],
+							"missing": [],
+							"stall": null,
+							"consoleErrors": [],
+							"pageErrors": 0,
+							"pageStalls": 0,
+							"error": null,
+							"seconds": 13.4,
+							"shots": {
+								"line-win": "shots/04-play-pay-10.png"
+							}
+						}
+					]
+				}
+			},
+			"afterFix": {
+				"status": "finished",
+				"result": {
+					"kind": "lines",
+					"seconds": 36.2,
+					"scenarios": [
+						{
+							"id": "base-spin",
+							"expected": ["loaded", "idle", "spin", "settled"],
+							"reached": ["loaded", "idle", "spin", "settled"],
+							"missing": [],
+							"stall": null,
+							"consoleErrors": [],
+							"pageErrors": 0,
+							"pageStalls": 0,
+							"error": null,
+							"seconds": 13.4,
+							"shots": {
+								"idle": "shots/05-play-idle.png"
+							}
+						},
+						{
+							"id": "line-win",
+							"expected": ["loaded", "idle", "spin", "settled", "line-win"],
+							"reached": ["loaded", "idle", "spin", "settled", "line-win"],
+							"missing": [],
+							"stall": null,
+							"consoleErrors": [],
+							"pageErrors": 0,
+							"pageStalls": 0,
+							"error": null,
+							"seconds": 13.4,
+							"shots": {
+								"line-win": "shots/04-play-pay-10.png"
+							}
+						}
+					]
+				}
+			}
+		}
+	},
+	"fix": null,
+	"expect": {
+		"outcomes": ["needs_person"],
+		"noTasks": true
+	},
+	"forbid": {
+		"taskText": ["\\bpays?\\b", "payout", "return to player"]
+	},
+	"limits": {
+		"maxTurns": 16,
+		"maxUsd": 2
+	}
+}

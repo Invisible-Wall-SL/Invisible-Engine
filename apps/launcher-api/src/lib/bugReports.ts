@@ -124,6 +124,59 @@ export const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 export const bugRef = (number: number): string => `BUG-${number}`;
 
 /**
+ * Agent text never names a bug the link sync reads: `BUG-7` becomes `bug #7`, so a pull request
+ * whose title echoes this bug's title (as the fix brief leads it to) moves no other bug.
+ */
+export const unlinkBugRefs = (text: string): string =>
+	text.replace(/\bbug-(\d{1,7})\b/gi, 'bug #$1');
+
+/** The title of the pipeline bug a game bug is escalated with, as it is filed. */
+export const escalationTitle = (title: string): string =>
+	unlinkBugRefs(title).replace(/\s+/g, ' ').trim();
+
+/**
+ * The text of an escalated pipeline bug, as it is filed (ADR-0012 §3): where it was found, then
+ * the escalator's own words, never the reporter's. `by` is the run ("Director run <id>").
+ */
+export const escalationDescription = (
+	gameBug: number,
+	projectKey: string | null,
+	by: string,
+	cause: string,
+	summary: string,
+): string =>
+	unlinkBugRefs(
+		[
+			`Found while repairing bug #${gameBug} in ${projectKey} (${by}).`,
+			'',
+			'Cause:',
+			cause.trim(),
+			...(summary.trim() ? ['', 'What was found:', summary.trim()] : []),
+		].join('\n'),
+	)
+		.replace(/\r\n/g, '\n')
+		.trim();
+
+/** Shown on a game bug a repair run fixed, until the project's next publish resolves it. */
+export const FIXED_WAITING_LABEL = 'Fixed, waiting on publish';
+
+/**
+ * Where a game bug stands on the pipeline bug it was escalated to (ADR-0012 §3): derived from that
+ * bug's status, never stored, so a new status never spreads into the lists and filters.
+ */
+export type PipelineWait = 'waiting' | 'fixed' | 'wontFix';
+
+export const pipelineWaitOf = (status: BugStatus): PipelineWait =>
+	status === 'resolved' ? 'fixed' : status === 'wontFix' ? 'wontFix' : 'waiting';
+
+export const pipelineWaitLabel = (number: number, state: PipelineWait): string =>
+	state === 'waiting'
+		? `Waiting on pipeline · ${bugRef(number)}`
+		: state === 'fixed'
+			? 'Pipeline fix merged: check the game'
+			: "Pipeline: won't fix";
+
+/**
  * The bugs a text names: `BUG-12`, `bug-12` (a branch name). The link sync reads a pull request's
  * title and branch with it, never its description. `debug-12` is not one (the word must start at
  * `bug`).

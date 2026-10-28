@@ -5,12 +5,14 @@ import {
 	BUG_STATUS_LABELS,
 	NO_PRIORITY_LABEL,
 	bugAreaName,
+	bugRef,
 	isBugPriority,
 	isBugStatus,
 	type BugKind,
 	type BugPriority,
 	type BugStatus,
 	type LinkState,
+	type PipelineWait,
 } from '$lib/bugReports';
 import type { BugEventView, BugSummary, LinkSync } from '$lib/server/bugReports';
 import type { PillTone } from '../pipeline/view';
@@ -213,6 +215,92 @@ export const priorityLabel = (p: BugPriority | null): string =>
 
 export const statusLabel = (s: BugStatus): string => BUG_STATUS_LABELS[s];
 
+/** The tag a game bug carries for the pipeline bug it was handed to (ADR-0012 §3). */
+export function escalationTone(state: PipelineWait): PillTone {
+	if (state === 'waiting') return 'amber';
+	if (state === 'fixed') return 'green';
+	return 'muted';
+}
+
+export interface DerivedLabel {
+	tone: PillTone;
+	text: string;
+	/** The pipeline bug the label names, when it does. */
+	pipelineBug: number | null;
+}
+
+/**
+ * The labels beside a game bug's status (list row and panel), all derived by the server: where
+ * its pipeline bug stands, and a repair run's fix not yet published.
+ */
+export function derivedLabels(b: Pick<BugSummary, 'escalation' | 'repairLabel'>): DerivedLabel[] {
+	const out: DerivedLabel[] = [];
+	if (b.escalation) {
+		out.push({
+			tone: escalationTone(b.escalation.state),
+			text: b.escalation.label,
+			pipelineBug: b.escalation.number,
+		});
+	}
+	if (b.repairLabel) out.push({ tone: 'green', text: b.repairLabel, pipelineBug: null });
+	return out;
+}
+
+/** Whether the bug is still to do: only then does a run or an escalation make sense. */
+export const isRepairable = (status: BugStatus): boolean =>
+	status === 'open' || status === 'working';
+
+/** What the game bug page learned on the server, to decide which repair controls to show. */
+export interface RepairFacts {
+	/** The viewer holds the Director tool and the game triage capability. */
+	canStart: boolean;
+	/** Some Director run (either kind) is live on the project. */
+	liveRun: boolean;
+	/** The viewer holds game triage and the Pipeline Bug Reports tool. */
+	canEscalate: boolean;
+}
+
+/** A page with no repair controls: the pipeline list. */
+export const NO_REPAIR: RepairFacts = { canStart: false, liveRun: false, canEscalate: false };
+
+export const showRepairWithDirector = (
+	facts: RepairFacts,
+	bug: Pick<BugSummary, 'kind' | 'status'>,
+): boolean => bug.kind === 'game' && facts.canStart && isRepairable(bug.status) && !facts.liveRun;
+
+export const showEscalate = (
+	facts: RepairFacts,
+	bug: Pick<BugSummary, 'kind' | 'status' | 'escalation'>,
+): boolean =>
+	bug.kind === 'game' && facts.canEscalate && isRepairable(bug.status) && bug.escalation === null;
+
+export interface RepairRunLine {
+	runId: string;
+	/** Where it stands, in words: running, fixed, handed to the pipeline… */
+	state: string;
+	at: string;
+}
+
+const REPAIR_END_WORDS: Record<string, string> = {
+	fixed: 'fixed',
+	escalated: 'handed to the pipeline',
+	needs_person: 'needs a person',
+	not_reproduced: 'could not be reproduced',
+	stopped: 'stopped',
+};
+
+/** The bug's repair runs, newest first, each as its `repair` events last left it. */
+export function repairRuns(events: readonly BugEventView[]): RepairRunLine[] {
+	const runs = new Map<string, RepairRunLine>();
+	for (const e of events) {
+		if (e.kind !== 'repair' || typeof e.data.runId !== 'string') continue;
+		const outcome = typeof e.data.outcome === 'string' ? e.data.outcome : '';
+		const state = e.data.phase === 'started' ? 'running' : (REPAIR_END_WORDS[outcome] ?? 'ended');
+		runs.set(e.data.runId, { runId: e.data.runId, state, at: e.at });
+	}
+	return [...runs.values()].reverse();
+}
+
 export function linkTone(state: LinkState): PillTone {
 	if (state === 'open') return 'blue';
 	if (state === 'merged') return 'green';
@@ -231,6 +319,31 @@ const BECAUSE: Record<LinkState | 'unlinked', string> = {
 	closed: 'closed without merging',
 	unlinked: 'no longer names it',
 };
+
+const STATUS_BECAUSE: Record<string, string> = {
+	repair: 'a Director repair run started',
+	'repair ended': 'the repair run ended without a fix',
+	escalated: 'it was handed to the pipeline',
+	published: 'the fix was published',
+};
+
+/** One `repair` event, after the actor's name ("Director run abc started a repair"). */
+function repairText(d: Record<string, unknown>): string {
+	if (d.phase === 'started') return 'started a repair';
+	if (d.phase === 'fixed') return 'fixed it: it ships with the next publish';
+	if (d.phase === 'published') return 'published the fix';
+	const outcome = typeof d.outcome === 'string' ? d.outcome : '';
+	return `ended the repair: ${REPAIR_END_WORDS[outcome] ?? 'ended'}`;
+}
+
+/** The longer text under an activity line: a comment, or what a repair run reported. */
+export function eventNote(e: BugEventView): string | null {
+	if (e.kind === 'comment') return typeof e.data.text === 'string' ? e.data.text : null;
+	if (e.kind === 'repair' && typeof e.data.summary === 'string' && e.data.summary.trim()) {
+		return e.data.summary;
+	}
+	return null;
+}
 
 const word = (v: unknown, labels: Record<string, string>, none: string): string =>
 	typeof v === 'string' && v in labels ? labels[v] : none;
@@ -262,10 +375,20 @@ export function eventText(e: BugEventView): string {
 				: 'cleared the priority';
 		case 'status': {
 			const to = word(d.to, BUG_STATUS_LABELS, String(d.to));
-			return typeof d.pr === 'number'
-				? `marked it ${to}: #${d.pr} ${word(d.because, BECAUSE, 'changed')}`
-				: `marked it ${to}`;
+			if (typeof d.pr === 'number') {
+				return `marked it ${to}: #${d.pr} ${word(d.because, BECAUSE, 'changed')}`;
+			}
+			const why = typeof d.because === 'string' ? STATUS_BECAUSE[d.because] : undefined;
+			return why ? `marked it ${to}: ${why}` : `marked it ${to}`;
 		}
+		case 'repair':
+			return repairText(d);
+		case 'escalated':
+			return typeof d.to === 'number'
+				? `handed it to the pipeline as ${bugRef(d.to)}`
+				: typeof d.from === 'number'
+					? `filed this from game bug ${bugRef(d.from)}`
+					: 'escalated it';
 		case 'sent':
 			return 'sent it to Pipeline Changes';
 		case 'unsent':

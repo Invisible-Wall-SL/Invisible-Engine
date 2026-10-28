@@ -3,7 +3,7 @@ family: slot
 ---
 # Slot family pack
 
-This run re-themes a slot game: reels that spin, a math contract the RGS decides, and the
+This run works on a slot game: reels that spin, a math contract the RGS decides, and the
 presentation the engine plays from its books. What follows is what the slot family adds to your
 definition. Where it is more specific than your definition, it wins.
 

@@ -9,6 +9,7 @@ import { FLIPBOOK_OPS } from './ops/flipbook';
 import { FONTS_OPS } from './ops/fonts';
 import { FX_OPS } from './ops/fx';
 import { GAMEMAKER_OPS } from './ops/gamemaker';
+import { GAME_BUG_OPS } from './ops/gameBugs';
 import { LOCALIZATION_OPS } from './ops/localization';
 import { MOCKUP_OPS } from './ops/mockups';
 import { RIGGER_OPS } from './ops/rigger';
@@ -61,8 +62,12 @@ export function buildRegistry(ops: readonly AdapterOp[]): ReadonlyMap<string, Ad
 			throw new Error(`Director adapter ${id}: creating the project is scoped to its template`);
 		}
 		// Pinned like the project creator: no other op may skip the write-target guard this way.
-		if (op.write && 'recordsOnly' in op && id !== 'bugs.file_pipeline_bug') {
-			throw new Error(`Director adapter ${id}: only bugs.file_pipeline_bug writes records only`);
+		if (
+			op.write &&
+			'recordsOnly' in op &&
+			!['bugs.file_pipeline_bug', 'bugs.escalate_game_bug'].includes(id)
+		) {
+			throw new Error(`Director adapter ${id}: only the two bug filers write records only`);
 		}
 		out.set(id, op);
 	}
@@ -82,6 +87,7 @@ export const ADAPTER_OPS = buildRegistry([
 	...FONTS_OPS,
 	...RIGGER_OPS,
 	...FLIPBOOK_OPS,
+	...GAME_BUG_OPS,
 	...BUILD_OPS,
 	...SOUND_OPS,
 	...FX_OPS,

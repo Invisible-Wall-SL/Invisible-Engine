@@ -123,9 +123,11 @@ check(
 	[],
 );
 check(
-	'run.assign_task offers every agent but the coordinator and the mockup analyst (the worker runs it)',
+	'run.assign_task offers every agent but the leads and the mockup analyst (the worker runs it)',
 	(specs['run.assign_task'].inputSchema.properties as { agent: { enum: string[] } }).agent.enum,
-	[...agents.keys()].filter((a) => a !== 'coordinator' && a !== 'mockup-analyst').sort(),
+	[...agents.keys()]
+		.filter((a) => a !== 'coordinator' && a !== 'game-doctor' && a !== 'mockup-analyst')
+		.sort(),
 );
 
 // ── Requests per model ──

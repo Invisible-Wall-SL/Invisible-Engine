@@ -51,12 +51,17 @@ const { FILE_PRICING, getDirectorPricing } =
 const {
 	clampDirectorBudget,
 	DIRECTOR_PRICING_OVERRIDE_KEY,
+	DIRECTOR_REPAIR_BUDGET_DEFAULT_USD,
+	DIRECTOR_REPAIR_BUDGET_KEY,
 	DIRECTOR_RUN_BUDGET_DEFAULT_USD,
 	DIRECTOR_RUN_BUDGET_KEY,
 	DIRECTOR_RUN_BUDGET_MAX_USD,
 	DIRECTOR_RUN_BUDGET_MIN_USD,
+	getDirectorRepairBudget,
 	getDirectorRunBudget,
 } = await import('../src/lib/server/appSettings.ts');
+const { estimateRepair, parseEstimateProfiles } = await import('director-costs');
+const { readFileSync } = await import('node:fs');
 const { collectAnthropicAgents } = await import('../src/lib/server/costs/anthropicAgents.ts');
 const { summarize } = await import('../src/lib/server/costs/months.ts');
 
@@ -256,4 +261,53 @@ test('monthly rollup: agent spend is not counted twice when Anthropic reports', 
 	assert.equal(oct.totalUsd, 35, 'inside Anthropic → not added again');
 	assert.equal(sep.totalUsd, 9, 'no Anthropic figure → counted');
 	assert.equal(year.totalUsd, 44);
+});
+
+test('repair budget: its own key and default, bounded like the run cap, safe on a DB error', async () => {
+	reset();
+	assert.equal(await getDirectorRepairBudget(), DIRECTOR_REPAIR_BUDGET_DEFAULT_USD);
+	assert.equal(DIRECTOR_REPAIR_BUDGET_DEFAULT_USD, 10);
+	settings = { [DIRECTOR_REPAIR_BUDGET_KEY]: '6.5' };
+	assert.equal(await getDirectorRepairBudget(), 6.5);
+	settings = { [DIRECTOR_REPAIR_BUDGET_KEY]: '5000' };
+	assert.equal(await getDirectorRepairBudget(), DIRECTOR_RUN_BUDGET_MAX_USD);
+	settings = { [DIRECTOR_REPAIR_BUDGET_KEY]: 'lots' };
+	assert.equal(await getDirectorRepairBudget(), DIRECTOR_REPAIR_BUDGET_DEFAULT_USD);
+	dbDown = true;
+	assert.equal(await getDirectorRepairBudget(), DIRECTOR_REPAIR_BUDGET_DEFAULT_USD);
+	reset();
+	assert.equal(
+		await getDirectorRunBudget(),
+		DIRECTOR_RUN_BUDGET_DEFAULT_USD,
+		'the run cap is its own',
+	);
+});
+
+test('repair estimate (ADR-0012 §5): a pass, a revise, no GPU, priced from the profiles', () => {
+	const profiles = parseEstimateProfiles(
+		JSON.parse(
+			readFileSync(
+				new URL('../../../services/director-worker/estimate-profiles.json', import.meta.url),
+				'utf8',
+			),
+		),
+	);
+	const e = estimateRepair(profiles, FILE_PRICING);
+	assert.deepEqual(Object.keys(e.pass.byAgent).sort(), ['animator', 'builder', 'game-doctor']);
+	close(e.pass.byAgent['game-doctor'].low, 1.2);
+	close(e.pass.byAgent['game-doctor'].high, 4.8);
+	close(e.pass.usd.low, 1.2);
+	assert.ok(e.pass.usd.high > 5.5 && e.pass.usd.high < 6, 'one pass is about $1.2 to $5.8');
+	close(e.withRevise.usd.low, e.pass.usd.low + e.perRevise.usd.low);
+	assert.ok(e.withRevise.usd.high < 10, 'one revise stays under the $10 cap');
+	assert.equal(e.placeholder, true, 'placeholder figures say so');
+	assert.throws(
+		() =>
+			estimateRepair(profiles, {
+				...FILE_PRICING,
+				perMTok: { 'claude-sonnet-5-5': FILE_PRICING.perMTok['claude-sonnet-5-5'] },
+			}),
+		/no price for model/,
+		'a model with no price fails closed',
+	);
 });

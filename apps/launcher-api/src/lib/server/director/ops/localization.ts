@@ -64,7 +64,7 @@ export const getStrings = defineOp<
 	description:
 		"The project's game strings as Invisible Localization shows them: key, source text, which tool owns it (`origin`; only `manual` rows are edited here), and per language whether its translation is reviewed. Plus the baseEtag to hand back to localization.update_strings.",
 	inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-	agents: ['builder'],
+	agents: ['builder', 'game-doctor'],
 	scope: 'project',
 	write: false,
 	handler: async (ctx) => {
