@@ -736,6 +736,8 @@ const lifecycle = async (gl: number): Promise<void> => {
 		frame(rig);
 		claim('a resize to the same size keeps the transition playing', handle.active);
 		rig.app.renderer.resize(rig.app.screen.width + 10, rig.app.screen.height);
+		// Ended before the next frame is drawn (Pixi's resize plugin draws at once).
+		frame(rig);
 		const ended = !handle.active && (await settled(handle.done)) && atRest(rig);
 		rig.app.renderer.resize(rig.app.screen.width - 10, rig.app.screen.height);
 		frame(rig);
@@ -885,9 +887,11 @@ const lifecycle = async (gl: number): Promise<void> => {
 			compare(before, ref.old).over > 1000 && atCapture.over === 0 && after.over === 0 && kept,
 		);
 	}
-	// A crossfade under a post FX: one frame bounds the list, the viewport, so the still is unsquashed.
-	{
+	// A crossfade under a post FX: one frame bounds the list, the viewport, so the still is unsquashed;
+	// a post FX that pads widens that frame all round, and the still is read inside it, unshifted.
+	for (const padding of [0, 8]) {
 		const post = new AlphaFilter({ alpha: 1 });
+		post.padding = padding;
 		const slot = stagePostFxSlot(rig.app);
 		slot([post]);
 		const handle = await begin(rig, { kind: kindOf(crossfade), pose: () => ({ progress: 0 }) });
@@ -899,7 +903,7 @@ const lifecycle = async (gl: number): Promise<void> => {
 		post.destroy();
 		frame(rig);
 		claim(
-			`a crossfade at its start under a post FX draws the old screen unsquashed, pixel for pixel (${said(c)})`,
+			`a crossfade at its start under a post FX padding ${padding} px draws the old screen unsquashed and unshifted, pixel for pixel (${said(c)})`,
 			c.over === 0 && atRest(rig),
 		);
 	}

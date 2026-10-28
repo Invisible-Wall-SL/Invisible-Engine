@@ -37,6 +37,7 @@ import {
 } from 'constants-shared/elementFx';
 import {
 	SCREEN_FROM_TEXTURE,
+	SCREEN_PAD,
 	SCREEN_REVERSE,
 	screenTransitionRoute,
 	screenShellSource,
@@ -136,6 +137,7 @@ interface Transition {
 	/** The In route: the screen shell's filter, and what writes its uniforms. */
 	filter?: Filter;
 	write?: (progress: number, seconds: number, intensity: number) => void;
+	pad?: (padding: number) => void;
 	elapsedMs: number;
 	progress: number;
 	poseIntensity: number;
@@ -144,7 +146,9 @@ interface Transition {
 	capture: () => void;
 	tick: (ticker: Ticker) => void;
 	place: () => void;
-	onResize: () => void;
+	/** On the renderer's `prerender` runner: ends a transition whose still no longer fits, before
+	 *  the frame after a resize is drawn (Pixi's resize plugin draws at once). */
+	watch: { prerender: () => void };
 }
 
 const playing = new WeakMap<Application, Transition>();
@@ -238,6 +242,8 @@ const takeStill = (
 type ShellFilter = {
 	filter: Filter;
 	write: (progress: number, seconds: number, intensity: number) => void;
+	/** The padding Pixi puts round the stage's filter stack, in which the viewport sits. */
+	pad: (padding: number) => void;
 };
 
 /** The screen shell's filter for `effect` over `still`, and what writes its uniforms; or why not. */
@@ -258,6 +264,7 @@ const shellFilter = (
 	const { uniforms } = effect.shader;
 	const group = new UniformGroup({
 		[SCREEN_REVERSE]: { value: t.play.reverse ? 1 : 0, type: 'f32' },
+		[SCREEN_PAD]: { value: 0, type: 'f32' },
 		...Object.fromEntries(
 			uniforms.map((u) => [
 				u.name,
@@ -297,6 +304,7 @@ const shellFilter = (
 		write: (progress, seconds, intensity) => {
 			if (time) set(time.name, progress, seconds, intensity, 0);
 		},
+		pad: (padding) => set(SCREEN_PAD, padding),
 	};
 };
 
@@ -341,7 +349,7 @@ const finish = (t: Transition): void => {
 	app.ticker?.remove(t.capture);
 	app.ticker?.remove(t.place);
 	host.ticker.remove(t.tick);
-	t.renderer.off('resize', t.onResize);
+	t.renderer.runners.prerender.remove(t.watch);
 	if (t.filter) {
 		if (stageFilters(app, 'transition').includes(t.filter)) setStageFilters(app, 'transition', []);
 		t.filter.destroy();
@@ -384,12 +392,14 @@ const start = (t: Transition, still: RenderTexture): void => {
 			t.route = 'in';
 			t.filter = made.filter;
 			t.write = made.write;
+			t.pad = made.pad;
 			made.write(
 				t.progress,
 				(t.progress * t.durationMs) / 1000,
 				clampTo(t.intensity * t.poseIntensity, ELEMENT_FX_LIMITS.intensity),
 			);
 			setStageFilters(t.app, 'transition', [made.filter]);
+			t.place();
 		}
 	} else if (route === 'out' && playOnStill(t, t.play.kind, still)) t.route = 'out';
 	else
@@ -400,7 +410,7 @@ const start = (t: Transition, still: RenderTexture): void => {
 		);
 	if (t.ended) return;
 	t.host.ticker.add(t.tick);
-	if (t.holder) t.app.ticker.add(t.place, undefined, BEFORE_RENDER);
+	t.app.ticker.add(t.place, undefined, BEFORE_RENDER);
 	t.resolveCaptured();
 };
 
@@ -458,10 +468,11 @@ export function playScreenTransition(
 		capture: () => {},
 		tick: () => {},
 		place: () => {},
-		onResize: () => {
-			// Pixi says so on a resize to the same size too: only a still that no longer fits ends it.
-			const size = stillFrame(app, renderer);
-			if (t.still && (size.width !== t.frame.width || size.height !== t.frame.height)) finish(t);
+		watch: {
+			prerender: () => {
+				const size = stillFrame(app, renderer);
+				if (t.still && (size.width !== t.frame.width || size.height !== t.frame.height)) finish(t);
+			},
 		},
 	};
 
@@ -518,19 +529,24 @@ export function playScreenTransition(
 		t.write?.(t.progress, (t.progress * t.durationMs) / 1000, intensity);
 	};
 
-	// The holder undoes the stage's transform (the camera's), as the camera's flash does, so the
-	// still stays on the screen whatever moves the stage.
+	// Just before each render, once the stage's transform and filters are this frame's. The holder
+	// undoes the stage's transform (the camera's), as the camera's flash does, so the still stays on
+	// the screen whatever moves the stage. The shell is told the stack's padding, which Pixi puts
+	// round the frame it sees, whichever stage filter brings it.
 	t.place = () => {
 		const { holder } = t;
 		const stage = app.stage;
-		if (!holder || stage.destroyed) return;
-		holder.scale.set(1 / stage.scale.x, 1 / stage.scale.y);
-		holder.position.set(-stage.position.x / stage.scale.x, -stage.position.y / stage.scale.y);
+		if (stage.destroyed) return;
+		if (holder) {
+			holder.scale.set(1 / stage.scale.x, 1 / stage.scale.y);
+			holder.position.set(-stage.position.x / stage.scale.x, -stage.position.y / stage.scale.y);
+		}
+		t.pad?.((stage.filters ?? []).reduce((sum, f) => sum + (f.enabled ? f.padding : 0), 0) | 0);
 	};
 
 	playing.set(app, t);
 	app.ticker.add(t.capture, undefined, BEFORE_RENDER);
-	renderer.on('resize', t.onResize);
+	renderer.runners.prerender.add(t.watch);
 
 	return {
 		captured,

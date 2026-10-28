@@ -8,16 +8,17 @@ uniform vec4 uInputClamp;
 uniform vec4 uOutputFrame;
 uniform sampler2D uFromTexture;
 uniform float uEfxReverse;
+uniform float uScreenPad;
 
 const float PI = 3.14159265358979;
 
 vec2 efxPx() { return vTextureCoord * uInputSize.xy; }
-vec2 efxArea() { return max(uOutputFrame.zw, vec2(1.0)); }
+vec2 efxArea() { return max(uOutputFrame.zw - 2.0 * uScreenPad, vec2(1.0)); }
 vec2 efxSize() { return efxArea(); }
-vec2 efxOrigin() { return vec2(0.0); }
-vec2 efxCenter() { return 0.5 * efxSize(); }
-vec2 efxToUnit(vec2 px) { return px / efxSize(); }
-vec2 efxFromUnit(vec2 u) { return u * efxSize(); }
+vec2 efxOrigin() { return vec2(uScreenPad); }
+vec2 efxCenter() { return efxOrigin() + 0.5 * efxSize(); }
+vec2 efxToUnit(vec2 px) { return (px - efxOrigin()) / efxSize(); }
+vec2 efxFromUnit(vec2 u) { return efxOrigin() + u * efxSize(); }
 
 vec4 efxSample(vec2 px)
 {
@@ -42,7 +43,7 @@ float efxParticleOrder() { return 0.0; }
 
 vec4 efxScreenFrom(vec2 px)
 {
-    vec2 u = px / efxArea();
+    vec2 u = efxToUnit(px);
     if (u.x < 0.0 || u.y < 0.0 || u.x > 1.0 || u.y > 1.0)
     {
         return vec4(0.0);

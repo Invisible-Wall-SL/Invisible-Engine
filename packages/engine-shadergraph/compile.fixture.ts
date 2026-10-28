@@ -178,6 +178,7 @@ import {
 import {
 	SCREEN_FROM_TEXTURE,
 	SCREEN_HEADER,
+	SCREEN_PAD,
 	SCREEN_REVERSE,
 	SCREEN_SHELL_NAMES,
 	screenShellSource,
@@ -4749,6 +4750,7 @@ console.log('shader graph — the screen shell and the Screens node');
 				'vec4 uOutputFrame',
 				`sampler2D ${SCREEN_FROM_TEXTURE}`,
 				`float ${SCREEN_REVERSE}`,
+				`float ${SCREEN_PAD}`,
 			]) &&
 			declared(SCREEN_HEADER, 'in').every((v) => declared(vertexOut, 'out').includes(v)) &&
 			declared(SCREEN_HEADER, 'in').length === 1 &&
@@ -4757,10 +4759,11 @@ console.log('shader graph — the screen shell and the Screens node');
 				(u) =>
 					u.startsWith('sampler2D') ||
 					declared(elementHeader, 'uniform').includes(u) ||
-					u.endsWith(SCREEN_REVERSE),
+					u.endsWith(SCREEN_REVERSE) ||
+					u.endsWith(SCREEN_PAD),
 			) &&
 			!/\buElement\b|\buPad\b|\bgl_FragCoord\b/.test(SCREEN_HEADER),
-		'the screen header reads what the element pass’s vertex stage hands on and Pixi’s own filter uniforms, plus the still and Reverse; no element box or padding (the frame is the unit square)',
+		'the screen header reads what the element pass’s vertex stage hands on and Pixi’s own filter uniforms, plus the still, Reverse and the stack’s padding; no element box (the viewport in the frame is the unit square)',
 	);
 	const screenDefined = [
 		...SCREEN_HEADER.matchAll(/^(?:vec[234]|float|bool)\s+(efx\w+)\s*\(/gm),
