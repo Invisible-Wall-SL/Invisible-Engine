@@ -589,9 +589,8 @@
 			<span class="legend">Cards and decks</span>
 			<p class="characters">
 				{cardGame.library.length} card{cardGame.library.length === 1 ? '' : 's'}, {cardGame.decks
-					.length} deck{cardGame.decks.length === 1 ? '' : 's'}. Until Invisible Card Library ships,
-				cards and decks are edited in <strong>Raw JSON</strong> (the <code>card.library</code> and
-				<code>card.decks</code> fields).
+					.length} deck{cardGame.decks.length === 1 ? '' : 's'}.
+				<a href={resolve('/cards')}>Edit in Invisible Card Library</a>
 			</p>
 		</fieldset>
 		{@render issueList('card')}

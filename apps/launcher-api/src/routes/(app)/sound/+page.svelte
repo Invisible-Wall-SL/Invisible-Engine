@@ -154,13 +154,19 @@
 	let extraSymbols = $state<string[]>([]);
 	const symbolRows = $derived(
 		[...new Set([...Object.keys(choices.symbols ?? {}), ...extraSymbols])].filter(
-			(symbol) => !data.tokenIds.includes(symbol),
+			(symbol) =>
+				!data.tokenIds.includes(symbol) &&
+				(extraSymbols.includes(symbol) ||
+					Object.keys(choices.symbols?.[symbol] ?? {}).some(
+						(key) => key !== data.coinMoment.moment,
+					)),
 		),
 	);
 	let addSymbol = $state('');
 
+	/** Clears this grid's states only: a coin's end-tally cue lives in its own section. */
 	function dropSymbol(symbol: string) {
-		if (doc.bindings?.symbols) delete doc.bindings.symbols[symbol];
+		for (const { state } of data.symbolStates) setSymbolCue(symbol, state, '');
 		extraSymbols = extraSymbols.filter((s) => s !== symbol);
 	}
 
@@ -834,6 +840,34 @@
 									{@render audition(bound)}
 								</span>
 							{/each}
+							<span></span>
+						</div>
+					{/each}
+				</div>
+			</section>
+		{/if}
+
+		{#if data.coinIds.length}
+			<section class="authoring">
+				<h2>Hold and Win coins</h2>
+				<p class="hint">
+					The noise each coin makes as it lands in the Total Win bar when the respins end, one per
+					coin. Unset, the coins land silently.
+				</p>
+				<div class="grid" style="--cols:1">
+					<div class="grow head">
+						<span>Coin</span>
+						<span>{data.coinMoment.label}</span>
+						<span></span>
+					</div>
+					{#each data.coinIds as coin (coin)}
+						{@const bound = choices.symbols?.[coin]?.[data.coinMoment.moment] ?? ''}
+						<div class="grow">
+							<code>{coin}</code>
+							<span class="cell">
+								{@render pick(bound, (v) => setSymbolCue(coin, data.coinMoment.moment, v), true)}
+								{@render audition(bound)}
+							</span>
 							<span></span>
 						</div>
 					{/each}
