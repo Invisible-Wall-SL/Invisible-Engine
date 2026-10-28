@@ -42,7 +42,14 @@
 	const playable = $derived(game.library.filter((c) => !c.token));
 	/** Entries the pool cannot show: a token, or a card not in the library. Listed to be removed. */
 	const strays = $derived(
-		(deck?.cards ?? []).filter((e) => !playable.some((c) => c.id === e.card)),
+		(deck?.cards ?? [])
+			.filter((e) => !playable.some((c) => c.id === e.card))
+			.reduce<{ card: string; count: number }[]>((out, e) => {
+				const seen = out.find((x) => x.card === e.card);
+				if (seen) seen.count += e.count;
+				else out.push({ ...e });
+				return out;
+			}, []),
 	);
 
 	let renameText = $state('');

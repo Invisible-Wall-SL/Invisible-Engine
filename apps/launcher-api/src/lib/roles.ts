@@ -505,8 +505,8 @@ export const TOOLS: Record<string, ToolDef> = {
  * so a new tool is offered to every family until someone says otherwise. Slot and match-3 hide only
  * the family tools, Invisible Characters (arcade-only) and Invisible Card Library (card-only): a slot
  * project's manifest is the role's without them, exactly the list from before those tools existed.
- * The role still decides what a user may open; the family only narrows it. A tool that depends on the outcome (Win Text for match-3) stays
- * listed and checks the outcome itself.
+ * The role still decides what a user may open; the family only narrows it. A tool that depends on
+ * the outcome (Win Text for match-3) stays listed and checks the outcome itself.
  */
 export const FAMILY_TOOLS: Record<GameFamily, readonly string[]> = {
 	slot: ['characters', 'cards'],
