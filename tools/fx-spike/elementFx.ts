@@ -3557,9 +3557,38 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 		assert(last(s) === null, 'a destroyed stage empties its slot');
 	}
 	{
-		const app = { ticker: new Ticker(), renderer: { screen: VIEW }, stage: new Container() };
+		const app = {
+			ticker: new Ticker(),
+			renderer: { screen: VIEW },
+			stage: new Container(),
+			screen: VIEW,
+		};
 		const host = elementFxHostFor(app as never);
-		assert(host?.stage === app.stage, 'a game’s host carries its stage, so post FX play there');
+		assert(
+			host?.stage === app.stage && host.screen === app.screen,
+			'a game’s host carries its stage and its viewport, so post FX play there',
+		);
+	}
+	{
+		// A tool drawing through a renderer it shares (the Scene Editor's ▶): the renderer's own
+		// screen is not the stage's, so stage mode plays over the host's viewport.
+		const widest = (screen: Rectangle | undefined): number => {
+			const s = makeStage({ screen: new Rectangle(0, 0, 1, 1), resolution: 2 });
+			const host = { ...s.host, screen };
+			playElementFx(s.stage, { kind: 'electrocute', durationMs: 1000, repeat: 0 }, host);
+			let pad = 0;
+			for (let i = 0; i < 60; i++) {
+				s.advance(16);
+				for (const f of last(s) ?? []) pad = Math.max(pad, f.padding);
+			}
+			s.unbind();
+			return pad;
+		};
+		const viewPad = Math.ceil(0.15 * Math.max(VIEW.width, VIEW.height)) + 2;
+		assert(
+			widest(VIEW) >= viewPad && widest(undefined) < viewPad,
+			'stage mode plays over the host’s viewport, not a shared renderer’s screen',
+		);
 	}
 	{
 		// The game's adapter: the post FX in the stage filter owner's slot.
