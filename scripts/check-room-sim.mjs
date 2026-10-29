@@ -25,6 +25,8 @@ import {
 	stepPlayer,
 } from '../packages/engine-mechanics/src/online.js';
 import { reconcilerOptions } from '../packages/engine-mechanics/src/netcode.js';
+import { flowSignalsOf, serverValuesOf } from '../packages/engine-mechanics/src/onlineFlow.js';
+import { ONLINE_EVENT } from '../packages/engine-mechanics/src/onlineRules.js';
 import {
 	ARCADE_ONLINE_MECHANIC,
 	ARCADE_RULES_MECHANIC,
@@ -1063,6 +1065,28 @@ try {
 		for (const r of [...fill.slice(0, -1), back]) await r.leave();
 		await until('the wide room to close', () => game.rooms.count === 1, 8000);
 	});
+
+	await check(
+		'live: a device’s Flow hears the room’s joins and leaves and reads its values off the state',
+		async () => {
+			const heard = [];
+			const off = a.onMessage(ONLINE_EVENT, (events) => heard.push(...events));
+			const b = await clientOf().joinById(a.roomId, { character: 'bear' });
+			await until('the join told', () => heard.some((e) => e.type === 'joined'));
+			await b.leave();
+			await until('the leave told', () => heard.some((e) => e.type === 'left'));
+			off();
+			assert.deepEqual(flowSignalsOf(heard, a.sessionId), [
+				{ name: 'playerJoined', payload: { player: b.sessionId, me: false } },
+				{ name: 'playerLeft', payload: { player: b.sessionId, me: false } },
+			]);
+			const values = serverValuesOf(a.state, a.sessionId, 30);
+			assert.deepEqual(
+				[values.phase, values.round, values.score, values.status, values.secondsLeft],
+				['running', 1, 0, 'free', 0],
+			);
+		},
+	);
 
 	await check('live: the room holds its size and each character’s max', async () => {
 		const b = await clientOf().joinOrCreate(ROOM_NAME, { game: 'river', character: 'bear' });

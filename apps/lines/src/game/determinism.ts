@@ -110,7 +110,8 @@ export type DeterminismArcadeState = {
 	/** An online game (P10.15): the bodies above are the room's places, and these how they are
 	 *  drawn — the own player (`me`) predicted by `netcode`, everyone else at `viewStep` — with the
 	 *  prediction's corrections (the engine's predictor only: the SDK's does not count them), the
-	 *  round and the room's recent events. */
+	 *  round and the room's recent events; from P11.2 the players hidden because they are out, the
+	 *  flow signals raised (the own abilities on the press) and the components live in the layer. */
 	online?: {
 		me: string;
 		drawn: { id: string; x: number; y: number }[];
@@ -123,6 +124,9 @@ export type DeterminismArcadeState = {
 		winner: string;
 		scores: Record<string, number>;
 		events: unknown[];
+		hidden: string[];
+		signals: { name: string; payload: Record<string, unknown> }[];
+		spawned: string[];
 	};
 };
 

@@ -67,6 +67,83 @@ already-bundled `cards.js` values.
   deterministic; the save and the two grants; the registry and guide). `check:family-tools` and
   `check:card-family` re-pinned for the new exclusions.
 
+**P11.2 (a–b) — online Flow events, server-owned variables, predicted abilities, `out` hidden
+(built 2026-10-29; in review).** [phase-11.md](../design/phase-11.md) §3 (P11.2 a–b), §3.1;
+[realtime-multiplayer.md](../design/realtime-multiplayer.md) §4, §6, §10. The first of P11.2's two
+PRs (owner decision #7); (c)–(e) follow. Not deployed (nothing server-side changes).
+
+- **What reaches Flow** (`engine-mechanics` `onlineFlow.js` + `.d.ts`, plain ESM, run by the gates
+  and by `apps/lines` `game/online.ts`):
+  - **online events**, raised from the room's `event` messages (`flowSignalsOf`): `playerJoined` /
+    `playerLeft` (`player`, `me`), `hit` / `caught` (`by`, `target`, `effect`, `mine`, `me`),
+    `roundStart` (`round`), `roundEnd` (`round`, `winner`, `won`), `ability` (`player`,
+    `character`, `button`, `x`, `y`, `mine`, `predicted`). Declared in `ARCADE_VOCAB`
+    (`ARCADE_ONLINE_EVENTS`), so they show in `/flow-v2`'s arcade palette;
+  - **server-owned variables**: a `FlowVariable` gains `server`, naming a room value
+    (`SERVER_VARIABLE_SOURCES`: `score`, `status`, `round`, `phase`, `secondsLeft`, `winner`,
+    `won`; `serverValuesOf` makes them). `online.ts` writes them from each state; a HUD binds them
+    as `var:<id>`. The validator's new **`variable-server-owned`** refuses a Set or Change of one,
+    a `server` naming no room value, and one not `game`-scoped (a wrong type is `variable-type`).
+- **Predicted abilities** (`createAbilityPredictor`): each input the device sends is run through
+  the room's own test (button held, off cooldown, round running, player free) and an `ability`
+  signal (`predicted: true`) is raised in the same fixed step, so the flow draws the swipe or cast
+  on the press. The room's echo of such a press is dropped, per button; an echo with no press
+  waiting on its button (the device thought the player held, e.g. just after `roundStart` or a
+  stun) is raised then, `predicted: false`. A press the room refused never echoes: it is dropped
+  one state after the state that acknowledged its input (`acked`), since the room's event comes
+  right after that state. `roundStart` and the own `joined` clear the cooldowns set by inputs the
+  room had taken, except one whose echo is still due (it was taken after the clear); waiting
+  presses are kept.
+- **`out` hidden** (`shownInRoom`): a caught player is despawned and not drawn until it respawns
+  (it reappears at the spawn, not sliding from where it was caught); the probe lists it in
+  `online.hidden`. The probe also gains `signals` and `spawned`.
+- **Salmons' screens:** `engine-flow-v2` `reference/salmonsSeed.ts` (`SALMONS_SEED_DOC`, not
+  exported, so no game bundles it): `load` / tap → river + HUD; `roundEnd` shows the round-over,
+  `roundStart` hides it; `ability` spawns a bear's swipe or a fisherman's cast at the user for
+  300 ms. `referenceLayouts/salmons.ts` gains `salmonsHud` (SCORE, ROUND, TIME) and
+  `salmonsRoundOver` (counting down `secondsLeft`) and the `salmonsSwipe` / `salmonsCast`
+  placeholders; `scripts/salmons/export.mjs` writes the flow (`editor/flow-v2.json`) and the two
+  new components.
+- **Gates:** `check:online-rules` 17 → **23** (signals from a played room, the own ability left to
+  the press, an unpredicted accepted press drawn on the room's word; cooldowns cleared at
+  `roundStart`; the values; `out` hidden; the predictor against the room step for step over 90 mixed
+  presses on two buttons; the live catch / round end through `flowSignalsOf` / `serverValuesOf` /
+  `shownInRoom`); `check:netcode` 23 → **28** (a swipe raised on the press a full round trip, 10
+  steps at 150 ms each way, before the room's word, and a press the device did not predict drawn
+  when the room tells; a refused press expiring so a later unpredicted swipe is drawn; an echo on
+  one button never answering the other; a `[roundStart, ability]` batch neither doubling the swipe
+  nor reopening its cooldown; a source scan of the event, value, press and
+  hide paths in `online.ts`); `check:room-sim` 38 → **39** (live joins / leaves as signals, values
+  off the SDK-decoded state); launcher `check:flow-variables` → **48** (the
+  `variable-server-owned` fixtures, the shared lists, Salmons' flow clean on its layout);
+  `check:arcade-rules` 78 (its loop-signal list leaves the online events out).
+- **Verified by playing:** `scripts/playtest/salmons-play.mjs` **23 / 23** in each netcode (P10.16's
+  16 plus: the HUD shows the room's round and score; page B's J draws the swipe before the room
+  tells of it; the room then tells, it is not drawn twice and is gone; page C, in a 5 s-round room,
+  sees the round over come up counting down and go at round 2; page C sends the RGS nothing and
+  has no page error). `online-play.mjs` 19 / 19, `arcade-play.mjs` and `arcade-camera-play.mjs`
+  OK on the same build.
+- **Runtime sizes** (`check:family-runtimes`, gzip -6; `main` 3f50bc8 → this branch, the same
+  build): slot 1,303,333 → 1,303,338 B, match3 1,311,692 → 1,311,697 B, card 1,316,029 →
+  1,316,034 B (raw bytes identical: nothing reaches them); **arcade 1,400,046 → 1,401,737 B
+  (+1.7 KB gz, +5.2 KB raw)**. All within `family-runtime-budget.json` (arcade 1,420,269).
+- **Slot / match-3 / card / offline-arcade parity:** the runtime change is in `game/online.ts`,
+  reached only when `gameMechanic().room`, behind the arcade seam; the three other runtimes'
+  bundles are byte-for-byte the same size. Offline arcade: `ARCADE_VOCAB` gains events the loop
+  never raises; the starter and sample flows are unchanged. Edited shared modules:
+  `engine-flow-v2` `types.ts` (an optional field), `variables.ts`, `variableValidate.ts`,
+  `validate.ts` (a new code), `engine-layout` `referenceLayouts/arcade.ts` (exports `textBox`),
+  `apps/lines` `determinism.ts` (probe type only), `/flow-v2`'s issue icon.
+- **Chosen here, owner may overturn:** event names follow the vocabulary's convention (`roundEnd`
+  shows as **onRoundEnd**); `roundStart` and `ability` are added to the design's five (the
+  round-over needs a close, the swipe needs a press); the room values are the seven above; a
+  predicted press the room did not take still shows its swipe.
+- **Known limits:** the Variables panel in `/flow-v2` does not set `server` yet (the Salmons
+  export writes it); the predictor counts cooldowns from the device's own steps, so a dropped or
+  late input can show a swipe the room did not take, or miss one (presentation only); a swipe
+  is drawn over its user (placeholder looks); `winner` is a room id, and in a `nearby` room the
+  winner may not be in the device's state, so there is no winner's name.
+
 **P11.1a — family seams (merged 2026-10-28, #1437).** [phase-11.md](../design/phase-11.md) §2.2,
 §2.5. Shared code reaches match-3, arcade and card code only through
 `apps/lines/src/families/{match3,arcade,card}.ts`; `families/off/*` are inert stubs with the same
@@ -397,7 +474,7 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
   - the load test runs the devices and the proxy in one Node process: at 100 devices it is not the
     limit on a 4-core machine, but a slower one would show the devices' lateness as the room's;
   - P10.15's limits stand (online Flow events, server-owned `var:` sources, predicted ability events,
-    the `out` player still drawn).
+    the `out` player still drawn) — all four lifted by P11.2 (a–b).
 
 | Run (Salmons, 100 devices, 60 ± 20 ms) | Steps / s seen (of 30) | States / s (of 20) | KB/s per device: mean / max | Egress | Step p50 / p99 / max | Server CPU | RSS |
 |---|---|---|---|---|---|---|---|
@@ -567,10 +644,10 @@ row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-mu
     unreliable input frames because of the schema 5.0.42 decoder loop (P10.14);
   - **room events do not reach Flow** (`onPlayerJoined`, `onHit`, `onCaught`, `onRoundEnd`, …), and
     **scores are not bound to `var:` sources** — the server-owned variables and their validator rule
-    (`variable-server-owned`) — so a HUD cannot show them yet (open item);
+    (`variable-server-owned`) — so a HUD cannot show them yet (lifted by P11.2 (a–b));
   - **predicted events** (§6: a swipe played the moment it is pressed) are not drawn: the device
-    has no ability presentation yet;
-  - a player that is `out` is still drawn (where it was caught) until it respawns;
+    has no ability presentation yet (lifted by P11.2 (a–b));
+  - a player that is `out` is still drawn (where it was caught) until it respawns (lifted by P11.2 (a–b));
   - the 250 ms rewind covers an honest view only up to about a 120 ms round trip (the view is the
     100 ms interpolation delay plus the trip plus a step behind): a slower player's hits are tested
     against a later place than it saw;
@@ -2231,11 +2308,11 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
    follow-up**: a rig, effect or flipbook in an authored frame is named, not drawn, until then; (b) the test match's table is a list of legal-action buttons, not drag; (c) a
    two-user check (`/cards` and `/config` open on one card project) is still to be done by hand; (d)
    the deck's AI weights take any number (the AI's own reader decides what it accepts).
-0. **P10.15 follow-ups:** (a) **online Flow events** (`onPlayerJoined`, `onPlayerLeft`, `onHit`,
+0. **P10.15 follow-ups:** ~~(a) **online Flow events** (`onPlayerJoined`, `onPlayerLeft`, `onHit`,
    `onCaught`, `onRoundEnd`) from the room's `event` messages, and **server-owned variables** (the
    room's scores bound as read-only `var:` sources; the validator's `variable-server-owned`) — the
    design's P10.15 row names both; (b) predicted ability events (a swipe drawn when pressed) and
-   hiding an `out` player; (c) Salmons' own rules (the climb, the line) as `ONLINE_RULES_MODULES`
+   hiding an `out` player~~ — done in P11.2 (a–b), 2026-10-29; (c) Salmons' own rules (the climb, the line) as `ONLINE_RULES_MODULES`
    entries and `check:online-rules` on its recorded traces, with the P10.16 rebuild; (d) a `/config`
    section for `arcade.online.rules`; (e) the online world camera following the predicted player.
 1. **P10.14 follow-ups:** (a) the **bundle cost** (+59 KB gz for every game; owner): accept it as
@@ -2289,6 +2366,10 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 ## Recent changes
 
+- 2026-10-29 — **P11.2 (a–b): online Flow events, server-owned variables, predicted abilities,
+  `out` hidden** (`engine-mechanics` `onlineFlow.js`, `variable-server-owned`, Salmons' HUD and
+  round over). Arcade runtime +1.7 KB gz; the other three unchanged. Open items 0 (a) and (b) are
+  done. Detail above.
 - 2026-10-29 — **P11.1 done.** #1449 (`/healthz` `gameRuntimes`, Director drafts on the family
   runtime) and #1450 (`lines` built slot only, publish refuses an unreleased family runtime) merged
   after the non-slot republish; every slot game's runtime is about 1,296 KB gz (−8.2 %).

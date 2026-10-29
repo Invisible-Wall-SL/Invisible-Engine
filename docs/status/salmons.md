@@ -28,10 +28,16 @@ the placeholders when they are.
     salmon; a new river per room (§14 #4: today every room plays the one seed's river);
   - **the layout and looks**: `engine-layout` `referenceLayouts/salmons.ts` — the river as the
     play field's world, a camera following the device's own player, placeholder looks
-    (`salmonsSalmon`, `salmonsBear`, `salmonsFisherman`); no HUD or round-over screen until room
-    events and scores reach Flow (P10.15's open item);
+    (`salmonsSalmon`, `salmonsBear`, `salmonsFisherman`);
+  - **the HUD and the round over (P11.2 a–b, built 2026-10-29; in review)**: Salmons' own flow
+    (`engine-flow-v2` `reference/salmonsSeed.ts`) shows a HUD of the room's own values — SCORE,
+    ROUND, TIME (`score`, `round`, `secondsLeft`, variables the room owns) — and a round-over
+    screen at each `roundEnd`, counting down to the next round and gone at `roundStart`; the bear's
+    swipe and the fisherman's cast are drawn on the press (placeholders `salmonsSwipe`,
+    `salmonsCast`); a caught salmon is not drawn until it respawns;
   - **proof**: `check:room-bots` (a salmon swims the river to the source and wins; a bear bot
-    catches one; the config validates clean), `scripts/playtest/salmons-play.mjs` (14 / 14), and
+    catches one; the config validates clean), `scripts/playtest/salmons-play.mjs` (23 / 23 with the
+    HUD, the swipe and a round over), and
     the 100-device load test ([status/game-families](game-families.md) P10.16).
 - **The Salmons that players reach today is not built from this repository.** It lives in
   `GuiltyForever/Salmon-` (a Colyseus 0.15 server and a PixiJS client) and deploys from there.
@@ -66,10 +72,10 @@ the placeholders when they are.
    `node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/salmons/export.mjs --out <dir>`
    and upload what it writes, at the same keys, into R2 (the FTP Browser, admin full-bucket):
    `invisible_wall/salmons/config/config.json` (replaces the dodger's config),
-   `invisible_wall/salmons/editor/scenes.json` (replaces its screens) and the three
-   `editor/salmons/components/salmons*.json`. Back up the current three first.
-2. **Remove the arcade starter flow** from the project (`invisible_wall/salmons/editor/flow-v2.json`,
-   after a backup): it is an offline flow, and Salmons has none yet.
+   `invisible_wall/salmons/editor/scenes.json` (replaces its screens),
+   `invisible_wall/salmons/editor/flow-v2.json` (Salmons' flow, replacing the offline arcade
+   starter) and the five `editor/salmons/components/salmons*.json`. Back up the current files first.
+2. (No longer needed since P11.2: the export now writes Salmons' own flow over the starter.)
 3. **Publish** `salmons` from Game Maker. The publish does not yet write the game server's address
    into the launch URL (P10.14 open item 1b), so open it with
    `?rooms_url=wss://rooms.invisiblewall.org` added.

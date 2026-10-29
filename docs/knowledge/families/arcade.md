@@ -58,6 +58,15 @@ A seed and the same keys replay the same game.
 - **Online is inputs only.** A device sends `{seq, moveX, moveY, buttons, aimX, aimY}`. The server
   owns every place. The room's body equals the device's `stepPlayer` fold bit for bit
   (`services/game-server/src/roomSim.ts`; `check:room-sim`).
+- **Online, device Flow is presentation (P11.2).** The room's events reach Flow as online events
+  (`engine-mechanics` `onlineFlow.js` `flowSignalsOf`); its scores and round reach it only as
+  variables with `server`, written by `online.ts` from each state. Flow never writes one
+  (`variable-server-owned`). The own player's `ability` is raised on the press by
+  `createAbilityPredictor`, which mirrors `onlineRules.js`'s cooldown test: change one, change both
+  (`check:online-rules` compares them step for step). The room's echo of a press it raised is
+  dropped, per button; an echo with no press waiting is raised then (`predicted: false`); a
+  refused press expires one state after its input is acknowledged; a round's start or the own join
+  clears the cooldowns of inputs already taken, but not of a press whose echo is still due.
 - **A bot is a player whose input comes from a brain.** `botInput` turns a P10.11 brain's velocity
   into a clamped input; the room steps and rules it exactly as a device's
   (`packages/engine-mechanics/src/onlineBots.js`, `services/game-server/src/roomSim.ts`). A config
@@ -81,11 +90,11 @@ A seed and the same keys replay the same game.
 
 | Area                  | Paths                                                                                                                                                                                                                                 |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,online,netcode,onlineRules,onlineBots,salmons}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/`                                                      |
+| Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,online,netcode,onlineRules,onlineFlow,onlineBots,salmons}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/`                                             |
 | Loop                  | `packages/engine-game/src/game/arcadeLoop.ts`, `arcadeCharacters.ts`, `mechanic.ts`                                                                                                                                                   |
 | Runtime               | `apps/lines/src/components/ArcadeStage.svelte`, `apps/lines/src/game/arcade.ts`, `online.ts`, `flowKeys.ts`, `flowBoardEffects.ts`                                                                                                    |
 | Layout                | `packages/engine-layout/src/lib/SpawnLayer.svelte`, `worldCamera.ts`, `worldCameraView.svelte.ts`, `tilemapNodes.ts`, `Tilemap.svelte`, `pathNodes.ts`, `arcadeLifts.svelte.ts`, `templates/arcade.ts`, `referenceLayouts/arcade*.ts` |
-| Flow                  | `packages/engine-flow-v2/src/reference/arcade.ts` (`ARCADE_VOCAB`), `arcadeSeed.ts` (starter) and the sample seeds                                                                                                                    |
+| Flow                  | `packages/engine-flow-v2/src/reference/arcade.ts` (`ARCADE_VOCAB`), `arcadeSeed.ts` (starter), the sample seeds, `salmonsSeed.ts`                                                                                                     |
 | Config                | `packages/game-config/src/family.ts`, `familyValidate.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`; seed `apps/launcher-api/src/lib/data/gameConfig/arcade.rules.json`                                                               |
 | Characters tool       | `apps/launcher-api/src/routes/(app)/characters/`, `apps/launcher-api/src/lib/characters/characterEdit.ts`                                                                                                                             |
 | Editor                | `EditorWorldCamera.svelte`, `EditorParallax.svelte`, `EditorSpawnLayer.svelte`, `EditorTilemap.svelte`, `tilemapPaint.client.svelte.ts` in `apps/launcher-api/src/routes/(app)/editor/`                                               |

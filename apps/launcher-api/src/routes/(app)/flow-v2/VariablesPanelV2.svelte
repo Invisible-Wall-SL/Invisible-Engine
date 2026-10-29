@@ -78,6 +78,7 @@
 			scope: v.scope,
 		};
 		if (values) next.values = values;
+		if (v.server !== undefined) next.server = v.server;
 		write(variables.map((w, j) => (j === i ? next : w)));
 	}
 	function setValues(i: number, raw: string): void {

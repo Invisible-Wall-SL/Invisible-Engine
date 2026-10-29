@@ -15,6 +15,8 @@
  *     no store makes them no-ops (every doc authored before P10.3).
  *  5. VALIDATION: `variable-unknown`, `variable-type`, `variable-scope`, `variable-duplicate`,
  *     `variable-shadows-money` (a money name, a variable fed to a money param; not in a rules game),
+ *     `variable-server-owned` (P11.2: a room value Flow sets or changes, one it cannot mirror, the
+ *     lists the room and the vocabulary share, Salmons' flow on its layout),
  *     `$var` typing; and no committed seed flow gains a variable issue.
  *  6. `var:` BINDINGS: `variableValueSources` names `var:<id>`, passes numbers and strings, a bool as
  *     1 / 0, and hears changes once per flush; engine-layout's coercion reads 1 / 0 as on / off.
@@ -39,6 +41,12 @@ import type {
 } from 'engine-flow-v2';
 
 const F = await import('../../../packages/engine-flow-v2/index.ts');
+const M = await import('../../../packages/engine-mechanics/src/onlineFlow.js');
+const { SALMONS_SEED_DOC } =
+	await import('../../../packages/engine-flow-v2/src/reference/salmonsSeed.ts');
+const { salmonsRiver } = await import('../../../packages/engine-mechanics/src/salmons.js');
+const { salmonsReferenceLayout } =
+	await import('../../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts');
 const { normalizeComponent } = await import('../src/lib/server/componentStorage.ts');
 const { setInputSource } = await import('../src/lib/timeline/stateMachineEdit.ts');
 const { coerceInstanceInput } =
@@ -397,6 +405,116 @@ const GAME = doc(EMPTY, {
 		issues(doc(EMPTY, { variables: [v('win', 'float', 0)] }), 'rules'),
 		[],
 	);
+	const owned = (
+		id: string,
+		type: FlowVariable['type'],
+		initial: FlowVariable['initial'],
+		server: string,
+		scope: FlowVariable['scope'] = 'game',
+	): FlowVariable => ({ ...v(id, type, initial, scope), server });
+	eq(
+		'server-owned declarations: an unknown room value, the wrong kind, a reset scope',
+		issues(
+			doc(EMPTY, {
+				variables: [
+					owned('score', 'int', 0, 'score'),
+					owned('left', 'float', 0, 'secondsLeft'),
+					{
+						...owned('phase', 'enum', 'waiting', 'phase'),
+						values: ['waiting', 'running', 'ended'],
+					},
+					owned('won', 'bool', false, 'won'),
+					owned('lives', 'int', 3, 'lives'),
+					owned('proto', 'int', 0, 'toString'),
+					owned('who', 'int', 0, 'winner'),
+					owned('round', 'int', 0, 'round', 'round'),
+				],
+			}),
+			'rules',
+		),
+		[
+			'variable-server-owned lives',
+			'variable-server-owned proto',
+			'variable-server-owned round',
+			'variable-type who',
+		],
+	);
+	eq(
+		'variable-server-owned: Flow may read a room value, never Set or Change it',
+		issues(
+			doc(
+				{
+					nodes: [
+						{ id: 'go', kind: 'event', pos: at, ref: 'go' },
+						{
+							id: 'set',
+							kind: 'setVariable',
+							pos: at,
+							variable: 'score',
+							inputs: { value: int(1) },
+						},
+						{ id: 'add', kind: 'changeVariable', pos: at, variable: 'score', op: 'add' },
+						{ id: 'mine', kind: 'changeVariable', pos: at, variable: 'mine', op: 'add' },
+						{
+							id: 'big',
+							kind: 'branch',
+							pos: at,
+							guard: { all: [{ left: varRead('score'), op: 'gt', right: int(5) }] },
+						},
+						{ id: 'watch', kind: 'onVariable', pos: at, variable: 'score', on: 'changed' },
+					],
+					exec: [ex('go', 'set'), ex('set', 'add'), ex('add', 'mine'), ex('mine', 'big')],
+					data: [],
+				},
+				{ variables: [owned('score', 'int', 0, 'score'), v('mine', 'int', 0)] },
+			),
+			'rules',
+		),
+		['variable-server-owned add', 'variable-server-owned set'],
+	);
+	eq(
+		'the room values a variable may mirror are the ones the room gives (engine-mechanics)',
+		F.SERVER_VARIABLE_SOURCES,
+		M.SERVER_VALUE_KINDS,
+	);
+	eq(
+		'the online events the arcade vocabulary declares are the ones the room raises',
+		[...F.ARCADE_ONLINE_EVENTS].sort(),
+		Object.values(M.ONLINE_FLOW_EVENTS).sort(),
+	);
+	eq(
+		'…and each is an arcade event',
+		F.ARCADE_ONLINE_EVENTS.filter((name) => !F.ARCADE_VOCAB.events.some((e) => e.name === name)),
+		[],
+	);
+	const river = salmonsRiver();
+	const salmons = salmonsReferenceLayout(river);
+	eq(
+		"Salmons' flow validates clean on its layout, its HUD reading only room values",
+		[
+			F.validateFlowDoc(
+				SALMONS_SEED_DOC,
+				F.ARCADE_VOCAB,
+				LIBRARY,
+				undefined,
+				undefined,
+				salmons.scenes.map((scene) => scene.id),
+				undefined,
+				'rules',
+			)
+				.filter((i) => i.severity === 'error')
+				.map((i) => i.code),
+			F.serverVariablesOf(SALMONS_SEED_DOC),
+		],
+		[
+			[],
+			[
+				{ id: 'score', server: 'score' },
+				{ id: 'round', server: 'round' },
+				{ id: 'secondsLeft', server: 'secondsLeft' },
+			],
+		],
+	);
 	const nodes = doc(
 		{
 			nodes: [
@@ -533,6 +651,7 @@ const GAME = doc(EMPTY, {
 		'variable-scope',
 		'variable-duplicate',
 		'variable-shadows-money',
+		'variable-server-owned',
 		'tick-async',
 		'tick-fast',
 		'input-unknown',

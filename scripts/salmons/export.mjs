@@ -7,8 +7,9 @@
 //
 // Writes:
 //   <client>/<project>/config/config.json   the online game config (`engine-mechanics` salmons.js)
-//   <client>/<project>/editor/scenes.json   the river layout (`engine-layout` salmons.ts)
-//   editor/<project>/components/<id>.json   the three characters' placeholder looks
+//   <client>/<project>/editor/scenes.json   the river layout, HUD and round over (`engine-layout` salmons.ts)
+//   <client>/<project>/editor/flow-v2.json  its flow (`engine-flow-v2` salmonsSeed.ts)
+//   editor/<project>/components/<id>.json   the placeholder looks (characters, swipe, cast)
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -19,6 +20,7 @@ import {
 	SALMONS_CHARACTER_COMPONENTS,
 	salmonsReferenceLayout,
 } from '../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
+import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/salmonsSeed.ts';
 import { normalizeGameConfigDoc } from '../../packages/game-config/index.ts';
 import { validateFamily } from '../../packages/game-config/src/familyValidate.ts';
 
@@ -48,5 +50,6 @@ const layout = { ...salmonsReferenceLayout(river), projectKey: opt.project };
 console.log(`Salmons (river ${river.seed}) → ${out}`);
 write(`${opt.client}/${opt.project}/config/config.json`, config);
 write(`${opt.client}/${opt.project}/editor/scenes.json`, layout);
+write(`${opt.client}/${opt.project}/editor/flow-v2.json`, SALMONS_SEED_DOC);
 for (const def of SALMONS_CHARACTER_COMPONENTS)
 	write(`editor/${opt.project}/components/${def.id}.json`, def);

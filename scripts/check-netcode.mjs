@@ -51,7 +51,12 @@ import {
 	reconcilerStep,
 	snapFor,
 } from '../packages/engine-mechanics/src/netcode.js';
-import { STATUS } from '../packages/engine-mechanics/src/onlineRules.js';
+import { BUTTONS } from '../packages/engine-mechanics/src/online.js';
+import {
+	createAbilityPredictor,
+	flowSignalsOf,
+} from '../packages/engine-mechanics/src/onlineFlow.js';
+import { GRACE_MS, STATUS } from '../packages/engine-mechanics/src/onlineRules.js';
 import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/index.ts';
 import { createRoomSim, inputsThisStep } from '../services/game-server/src/roomSim.ts';
 import { Player } from '../services/game-server/src/schema.ts';
@@ -866,6 +871,164 @@ for (const netcode of ['engine', 'colyseus'])
 		},
 	);
 
+const ABILITY_TICK = 30;
+/** 150 ms each way: an input reaches the room 5 steps after it is sent, and the room's state and
+ *  events reach the device 5 steps after that. */
+const LAG = 5;
+const abilityGame = () =>
+	gameOf({
+		tickHz: ABILITY_TICK,
+		rules: {
+			abilities: ['ability1', 'ability2'].map((button, i) => ({
+				character: 'bear',
+				button,
+				reach: 80,
+				targets: ['salmon'],
+				effect: 'stun',
+				ms: 400,
+				score: 1,
+				cooldownMs: 600 + 300 * i,
+			})),
+		},
+	});
+
+/**
+ * A bear's device and the room over the lag: `buttonsAt(step)` held, `freeAt(step)` what the
+ * device's last state says, `room(step, sim)` a hand on the room before its step. Each step the
+ * device sends its input (predicting it), then hears the state of `LAG` steps ago and its events,
+ * in that order, as `online.ts` does. Returns what it drew and when the room's `ability` came.
+ */
+const playAbilities = ({ steps, buttonsAt, freeAt = () => true, room = () => {} }) => {
+	const game = abilityGame();
+	const sim = createRoomSim(game);
+	sim.join('s', { character: 'salmon' });
+	sim.join('b', { character: 'bear' });
+	sim.events();
+	const graceSteps = Math.round((GRACE_MS * ABILITY_TICK) / 1000);
+	for (let i = 0; i < graceSteps; i++) sim.step(() => []);
+	const device = createAbilityPredictor(game, 'bear');
+	const inFlight = [];
+	const back = [];
+	const drawn = [];
+	const told = [];
+	for (let step = 0; step < steps; step++) {
+		const seq = step + 1;
+		const buttons = buttonsAt(step);
+		inFlight.push({ due: step + LAG, input: clampInput({ seq, buttons, view: 0 }, game.field) });
+		for (const button of device.step(buttons, freeAt(step), seq))
+			drawn.push({ step, button, predicted: true });
+		const arriving = inFlight.filter((f) => f.due === step).map((f) => f.input);
+		room(step, sim);
+		const events = sim.step((id) => (id === 'b' ? arriving : []));
+		back.push({ due: step + LAG, ack: sim.players.get('b').ack, events });
+		for (const event of events)
+			if (event.type === 'ability' && event.by === 'b')
+				told.push({ step: step + LAG, button: event.button });
+		for (const heard of back.filter((b) => b.due === step)) {
+			device.acked(heard.ack);
+			for (const signal of flowSignalsOf(heard.events, 'b', undefined, device))
+				if (signal.name === 'ability')
+					drawn.push({ step, button: signal.payload.button, predicted: signal.payload.predicted });
+		}
+	}
+	return { drawn, told, device };
+};
+
+await check(
+	'a predicted swipe is raised on the press, a round trip before the room tells of it; one the device did not predict, when it tells',
+	() => {
+		// The first press comes while the device's last state still shows the bear held (it is free
+		// in the room): the device does not predict it, the room takes it.
+		const { drawn, told } = playAbilities({
+			steps: 190,
+			buttonsAt: (step) => (step < 3 || (step >= 40 && step % 40 < 25) ? BUTTONS.ability1 : 0),
+			freeAt: (step) => step >= 3,
+		});
+		assert.deepEqual(drawn[0], { step: 2 * LAG, button: 'ability1', predicted: false });
+		const pressed = drawn.slice(1);
+		const roundTrip = told.slice(1, 1 + pressed.length).map((t, i) => t.step - pressed[i].step);
+		assert.ok(pressed.length >= 5, `${pressed.length} swipes`);
+		assert.ok(pressed.every((d) => d.predicted));
+		assert.ok(told.length >= drawn.length - 1, 'the room used every swipe drawn but the last');
+		assert.ok(
+			roundTrip.every((d) => d === 2 * LAG),
+			`each swipe was drawn on its press, ${2 * LAG} steps before the room's word: ${roundTrip}`,
+		);
+	},
+);
+
+await check(
+	'a press the room refused expires, so a later unpredicted swipe the room takes is still drawn',
+	() => {
+		// The room stuns the bear just before its press arrives; the device has not heard yet. Later
+		// the device thinks it still held while the room has freed it.
+		const { drawn, told } = playAbilities({
+			steps: 80,
+			buttonsAt: (step) => (step === 0 || step === 40 ? BUTTONS.ability1 : 0),
+			freeAt: (step) => step < 20,
+			room: (step, sim) => {
+				if (step !== LAG - 1) return;
+				const bear = sim.players.get('b');
+				bear.status = STATUS.stunned;
+				bear.until = sim.steps + 20;
+			},
+		});
+		assert.deepEqual(told, [{ step: 40 + 2 * LAG, button: 'ability1' }], 'the room took one');
+		assert.deepEqual(drawn, [
+			{ step: 0, button: 'ability1', predicted: true },
+			{ step: 40 + 2 * LAG, button: 'ability1', predicted: false },
+		]);
+	},
+);
+
+await check('an echo on one button never answers a press on the other', () => {
+	const device = createAbilityPredictor(abilityGame(), 'bear');
+	assert.deepEqual(device.step(BUTTONS.ability1, true, 1), ['ability1']);
+	device.acked(1);
+	const echo = (button) =>
+		flowSignalsOf([{ type: 'ability', by: 'b', button }], 'b', undefined, device).map(
+			(s) => `${s.payload.button}:${s.payload.predicted}`,
+		);
+	assert.deepEqual(echo('ability2'), ['ability2:false'], 'an unpredicted ability2 is drawn');
+	assert.deepEqual(echo('ability1'), [], "ability1's echo answers its press");
+});
+
+await check(
+	"a round's start in the batch of an echo neither doubles the swipe nor reopens it",
+	() => {
+		const device = createAbilityPredictor(abilityGame(), 'bear');
+		assert.deepEqual(device.step(BUTTONS.ability1, true, 7), ['ability1']);
+		device.acked(7);
+		const batch = flowSignalsOf(
+			[
+				{ type: 'roundStart', round: 2 },
+				{ type: 'ability', by: 'b', button: 'ability1' },
+			],
+			'b',
+			undefined,
+			device,
+		);
+		assert.deepEqual(
+			batch.map((s) => s.name),
+			['roundStart'],
+			'the echo answers the press: not drawn again',
+		);
+		assert.deepEqual(
+			device.step(BUTTONS.ability1, true, 8),
+			[],
+			'its cooldown, set after the start, holds',
+		);
+		// A press echoed before the start has its cooldown cleared by it, as the room's.
+		const early = createAbilityPredictor(abilityGame(), 'bear');
+		early.step(BUTTONS.ability1, true, 1);
+		early.acked(1);
+		flowSignalsOf([{ type: 'ability', by: 'b', button: 'ability1' }], 'b', undefined, early);
+		early.acked(2);
+		flowSignalsOf([{ type: 'roundStart', round: 2 }], 'b', undefined, early);
+		assert.deepEqual(early.step(BUTTONS.ability1, true, 3), ['ability1']);
+	},
+);
+
 await check(
 	'the runtime runs this netcode: predicted own player (either netcode), interpolated others, view sent',
 	() => {
@@ -886,6 +1049,41 @@ await check(
 		]) {
 			assert.ok(source.includes(used), `online.ts does not use ${used}`);
 		}
+	},
+);
+
+await check(
+	"the runtime gives Flow the room: its events, its values, the press's abilities; out is hidden",
+	() => {
+		const source = readFileSync(join(ROOT, 'apps/lines/src/game/online.ts'), 'utf8');
+		const body = (name) => {
+			const at = source.indexOf(`function ${name}(`);
+			assert.ok(at >= 0, `online.ts has no ${name}`);
+			return source.slice(at, source.indexOf('\n}\n', at));
+		};
+		const joining = body('joinOnlineRoom');
+		assert.ok(/onMessage\(ONLINE_EVENT[\s\S]*flowSignalsOf\([\s\S]*raise\(/.test(joining));
+		assert.ok(body('raise').includes('getFlowV2()?.dispatch(signal.name, signal.payload)'));
+		assert.ok(body('received').includes('bindServerVariables(current, state)'));
+		assert.ok(body('bindServerVariables').includes('serverValuesOf('));
+		assert.ok(body('bindServerVariables').includes('serverVariablesOf('));
+		// Raised in the fixed step that sends the input, not when the room answers.
+		const tick = body('tickOnline');
+		assert.ok(
+			/handle\.send\(\);[\s\S]*predictAbilities\(current, input\.buttons, input\.seq\)/.test(tick),
+		);
+		assert.ok(body('received').includes('abilities.acked(player.ack)'), 'refused presses expire');
+		assert.ok(body('predictAbilities').includes('abilitySignal('));
+		assert.ok(
+			/flowSignalsOf\([\s\S]*current\.abilities,?\s*\)/.test(joining),
+			'echoes meet the predictor',
+		);
+		const draw = body('draw');
+		assert.equal(
+			draw.split('shownInRoom(player)').length - 1,
+			2,
+			'an out player is despawned and not spawned',
+		);
 	},
 );
 
