@@ -100,12 +100,16 @@ function compiledCost(kind: ElementFxKindId): { cost: number; samples?: number }
 
 const twinCosts = new Map<string, { cost: number; samples: number } | undefined>();
 
-/** A built-in kind's cost as its graph twin's (§10: built-in transitions are costed so), compiled
- *  once; `undefined` for a kind with no twin, or a break's (its pieces, not its graph, cost). */
+/**
+ * A built-in kind's cost as its graph twin's (§10: built-in transitions and post FX), compiled
+ * once; `undefined` for a kind with no twin, a break (its pieces cost, not its graph) or a twin
+ * that draws a built-in pass (the graph cost leaves passes out, §10).
+ */
 function twinCost(kind: ElementFxKindId): { cost: number; samples: number } | undefined {
 	if (!twinCosts.has(kind)) {
 		const twin = builtinTwin(kind);
-		const compiled = twin && !isBreakTwin(twin) ? compileShaderGraph(twin.doc) : undefined;
+		const counted = twin && !isBreakTwin(twin) && !twin.doc.passes?.length;
+		const compiled = counted ? compileShaderGraph(twin.doc) : undefined;
 		twinCosts.set(
 			kind,
 			compiled?.ok ? { cost: compiled.shader.cost, samples: compiled.shader.samples } : undefined,
@@ -114,13 +118,19 @@ function twinCost(kind: ElementFxKindId): { cost: number; samples: number } | un
 	return twinCosts.get(kind);
 }
 
+/** A custom kind's compiled cost, or a built-in's as its graph twin (§10). */
+const builtinOrCompiledCost = (
+	kind: ElementFxKindId,
+): { cost: number; samples?: number } | undefined =>
+	isCustomElementFxKind(kind) ? compiledCost(kind) : twinCost(kind);
+
 /**
- * What `kind` costs as a post FX on the reference phone: its compiled graph cost × the phone's
- * pixels, against {@link POST_FX_LOAD_BUDGET}. A kind whose effect carries no compiled cost (a
- * built-in, or a graph compiled without one) is `none`: nothing is guessed.
+ * What `kind` costs as a post FX on the reference phone, against {@link POST_FX_LOAD_BUDGET}: a
+ * custom kind's compiled cost, a built-in's as its graph twin (§10); `none` when neither is known
+ * (a graph compiled without its cost, a break, a kind with no twin): nothing is guessed.
  */
 export const postFxLoad = (kind: ElementFxKindId): ScreenFxLoad =>
-	loadOf(compiledCost(kind), 'post');
+	loadOf(builtinOrCompiledCost(kind), 'post');
 
 /**
  * What `kind` costs as a transition on the reference phone, against
@@ -128,7 +138,7 @@ export const postFxLoad = (kind: ElementFxKindId): ScreenFxLoad =>
  * (§10). `none` when neither is known.
  */
 export const transitionLoad = (kind: ElementFxKindId): ScreenFxLoad =>
-	loadOf(isCustomElementFxKind(kind) ? compiledCost(kind) : twinCost(kind), 'transition');
+	loadOf(builtinOrCompiledCost(kind), 'transition');
 
 /** `1.32 M`: a pixel count or a load, in millions. */
 export const millions = (n: number): string => `${(n / 1e6).toFixed(2)} M`;

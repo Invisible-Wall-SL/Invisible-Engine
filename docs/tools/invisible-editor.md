@@ -1548,8 +1548,10 @@ shine over the whole game, HUD included.
   kinds would hide the whole game; a motion-only kind and a break move or cut it, and the stage's
   transform is the camera's) and every kind that would pass a cap.
 - **Each row** has its load line (the cost × the reference phone's pixels against the post FX
-  budget, cost 60, 4 reads a pixel; *No compiled cost for this kind* for a built-in or a graph
-  compiled without one), or, in amber, *Does not play in the game:* and the game's own reason (a
+  budget, cost 60, 4 reads a pixel, amber when over; a built-in is costed as its Shader Graph twin:
+  Wave (X) 18, Shine 22, Ripple 27, Poison 186 — over; *No compiled cost for this kind* for a Glow
+  or Blur, a built-in pass the graph cost does not count, and for a graph compiled without its
+  cost), or, in amber, *Does not play in the game:* and the game's own reason (a
   kind the project no longer compiles, a refused kind, a trigger other than Always or On cue, or
   one past a cap). The rows that play are exactly the ones the game plays.
 - **▶** plays the entry over the whole stage through the game's runtime, as a post FX: on a still

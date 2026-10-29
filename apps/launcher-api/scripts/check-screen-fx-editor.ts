@@ -13,8 +13,9 @@
  *  3. **What the editor says plays is what the game plays.** For every list, the entries the block
  *     marks as playing are exactly `readPostFx`'s with the game's judge, in the reader's order, and
  *     every other enabled entry says why in the reader's words.
- *  4. **The load line** is the compiled cost × the reference phone's pixels against the post FX
- *     budget, and a kind without a compiled cost says so.
+ *  4. **The load line** is the compiled cost (a built-in's as its Shader Graph twin) × the
+ *     reference phone's pixels against the post FX budget; a kind with none (a pass kind, a break,
+ *     a graph compiled without its cost) says so.
  *  5. **The settings are sparse**: `transitionCue` only when set, `postFx` only with an entry,
  *     `stageFxAntialias` only when on.
  *  5b. **The transition cue row**: the built-in exit kinds then the project's compiled effects;
@@ -305,11 +306,36 @@ const entry = (id: string, kind: string, more: Partial<ElementFxEntry> = {}): El
 		(postFxLoad('custom:manyReads') as { over?: boolean }).over === true,
 	);
 	check(
-		'a built-in and a graph compiled without a cost: no load, said so, nothing guessed',
+		'a pass kind and a graph compiled without a cost: no load, said so, nothing guessed',
 		postFxLoad('glow').kind === 'none' &&
 			postFxLoad('custom:pulseTint').kind === 'none' &&
 			postFxLoadText('glow').startsWith('No compiled cost for this kind') &&
 			!/cost \d/.test(postFxLoadText('glow')),
+	);
+	eq(
+		'built-in post FX are costed as their twins (§10: wave X 18, flag 23, ripple 27, shine 22, flash 17 fit; Poison 186, Freeze 211 over)',
+		(['waveX', 'flag', 'ripple', 'shine', 'flash', 'poison', 'freeze'] as const).map((k) => {
+			const l = postFxLoad(k);
+			return l.kind === 'compiled' ? [l.cost, l.over] : null;
+		}),
+		[
+			[18, false],
+			[23, false],
+			[27, false],
+			[22, false],
+			[17, false],
+			[186, true],
+			[211, true],
+		],
+	);
+	check(
+		'a break and a kind with no twin show no load',
+		postFxLoad('crumble').kind === 'none' && postFxLoad('shake').kind === 'none',
+	);
+	eq(
+		'its words',
+		postFxLoadText('waveX'),
+		`Load 1.32 M px × cost 18 = 23.70 M of 79.00 M (the post FX budget, cost ${POST_COST_BUDGET}; 1 reads a pixel of ${POST_SAMPLE_BUDGET}).`,
 	);
 }
 
