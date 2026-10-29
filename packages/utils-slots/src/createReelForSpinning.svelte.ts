@@ -198,6 +198,10 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	let onSpinFinishing: () => void = () => {};
 	let noStop = false;
 	let paddingSize = 0;
+	// How far the last handover laid the strip from where the resting placement would have put it
+	// (under half a row; `generalSpinWith`). The slide that follows spends the time it would have
+	// spent from there, so every reel still lands on the frame it always did.
+	let handoverShift = 0;
 
 	const getPaddingRawSymbol = ({
 		paddingRawReel,
@@ -254,8 +258,8 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		speed: number;
 		easing?: (value: number) => number;
 	}) => {
-		const currentY = reelY.current;
-		const distance = Math.abs(targetY - currentY);
+		const distance = Math.abs(targetY - (reelY.current - handoverShift));
+		handoverShift = 0;
 		const duration = distance / speed; // (speed unit: pixel / ms)
 
 		await reelY.set(targetY, { duration, easing });
@@ -350,6 +354,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 			homeY(),
 			getSymbolHeight(),
 		);
+		handoverShift = tailY - homeY();
 		placeY(addPadding(paddingSize, tail, tailY));
 
 		if (!isSpinning) {
@@ -372,7 +377,8 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		// `stopButtonClick`, so by the time any subscriber (including the board's `stop()`) runs,
 		// and for every reel that starts rolling afterwards, `isSkipped()` is already true.
 		if (roundSkip.isSkipped() || (!noStop && stateBet.isTurbo && isSpinning)) {
-			// skip
+			// The slide it was meant for is skipped: the bounce-back must not inherit it.
+			handoverShift = 0;
 		} else {
 			await interruptible.add(slideDown);
 		}

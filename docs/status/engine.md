@@ -311,9 +311,11 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   on screen was replaced by that one in a single frame. It now hands over from the strip as drawn
   (`onScreenTail` in `src/stripHandover.ts`: the cells from the top resting seat down, at their
   current y), `prevSymbols` is gone, the pre-spin lap handover is synchronous, and the loop stops
-  once the spin has taken over. At rest and at a lap's end the strip lands exactly where it did, so
-  spin timing is unchanged: seeded renders on replayed RGS answers match `main` at rest and on the
-  frame each spin settles. Fixture: `packages/utils-slots/stripHandover.fixture.ts`.
+  once the spin has taken over. At rest and at a lap's end the strip lands exactly where it did;
+  mid-lap it starts up to half a row off the old placement, and the slide that follows spends the
+  time it would have from there (`handoverShift`), so every reel still lands on the frame it always
+  did: seeded renders on replayed RGS answers match `main` at rest and on the frame each spin
+  settles. Fixture: `packages/utils-slots/stripHandover.fixture.ts`.
 - 2026-10-28 — **Rolling symbols slide under the board edge instead of popping in and out**
   (branch `claude/trusting-bardeen-1rd4b9`). Owner report: a reel symbol only appeared once its cell
   was well into the window and snapped out the same way, leaving a visible gap at the top and bottom
