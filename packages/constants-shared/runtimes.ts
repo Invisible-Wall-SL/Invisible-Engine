@@ -10,9 +10,8 @@
 import type { GameFamily } from './gameKinds';
 
 export const RUNTIMES = [
-	// `lines` keeps its id: every published manifest names it. It carries every family until
-	// P11.1c strips it to `slot`, so a non-slot game not yet republished still plays.
-	{ id: 'lines', family: 'slot', families: 'all' },
+	// `lines` keeps its id: every published manifest names it. Slot only since P11.1c.
+	{ id: 'lines', family: 'slot', families: 'slot' },
 	{ id: 'match3', family: 'match3', families: 'match3' },
 	{ id: 'arcade', family: 'arcade', families: 'arcade' },
 	{ id: 'card', family: 'card', families: 'card' },
@@ -22,7 +21,8 @@ export type RuntimeId = (typeof RUNTIMES)[number]['id'];
 
 export const RUNTIME_IDS: readonly RuntimeId[] = RUNTIMES.map((r) => r.id);
 
-/** The runtime every family can fall back to while its own has no release yet (until P11.1c). */
+/** The slot runtime: what an unknown family maps to, and the one runtime a checkout from before
+ *  the family seams builds (the current-games harness). */
 export const FALLBACK_RUNTIME_ID: RuntimeId = 'lines';
 
 /** The runtime a game of `family` is published to. */

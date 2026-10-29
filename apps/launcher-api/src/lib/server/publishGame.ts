@@ -94,7 +94,8 @@ export class PublishBlockedError extends Error {
 		message: string,
 		/** What blocked it, for a UI that can offer a way through. `own-bundle` never can — it would
 		 *  clobber a real game — and neither can `unplayable-family`, `kind-family` (a config of another
-		 *  family than the project's kind) or `flow-wrong-kind` (a flow left from a kind change), a game
+		 *  family than the project's kind), `runtime-unreleased` (its family's runtime has no release)
+		 *  or `flow-wrong-kind` (a flow left from a kind change), a game
 		 *  the runtime cannot play;
 		 *  `unapproved-sounds`, `invalid-flow` and `paytable-drift` are deliberate-override cases (the
 		 *  last two for the owner role only; see the publish endpoint). */
@@ -102,6 +103,7 @@ export class PublishBlockedError extends Error {
 			| 'own-bundle'
 			| 'unplayable-family'
 			| 'kind-family'
+			| 'runtime-unreleased'
 			| 'flow-wrong-kind'
 			| 'unapproved-sounds'
 			| 'invalid-flow'
@@ -290,13 +292,12 @@ export async function publishGame(
 		const kindFamily = kindFamilyRefusal(gameType, assembled.config);
 		if (kindFamily) throw new PublishBlockedError(kindFamily, 'kind-family');
 		const chosen = await chooseRuntime(assembled.config, runtimePointer);
-		if (chosen.id !== chosen.wanted) {
-			console.warn(
-				`[publish] ${projectKey}: the ${chosen.wanted} runtime has no release yet, so the game ` +
-					`is published on ${chosen.id}, which still carries every family. Re-publish it once ` +
-					`${chosen.wanted} is released.`,
+		if (chosen.unreleased)
+			throw new PublishBlockedError(
+				`The ${chosen.id} runtime has no release yet, so this game has nothing to be played on. ` +
+					'Run "Runtime release" for it, then publish again.',
+				'runtime-unreleased',
 			);
-		}
 		const engine = chosen.pointer;
 		const staged = await stageSnapshot(clientKey, projectKey, assembled, {
 			by: options.by ?? null,
