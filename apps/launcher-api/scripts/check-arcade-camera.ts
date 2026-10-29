@@ -26,7 +26,8 @@
  *     the same seed replays the same framing; the flow validates clean.
  *  5. THE DATA: `sceneWorld` / `sceneCamera` keep only whole fields on a `game` screen; the save
  *     keeps them; a spawn layer's margin reaches the live set's spec.
- *  6. PARITY (source-scanned): `<LayoutScene>` adds the world container only on a world screen,
+ *  6. PARITY (source-scanned): `<LayoutScene>` adds the world container only on a world screen
+ *     (and draws it projected only when it names `isometric` and the arcade seam registered one),
  *     `<SpawnLayer>` culls only under one, the runtime publishes only with a camera, and the river
  *     sample stays off the package entries.
  */
@@ -808,8 +809,16 @@ function scene4(): Scene {
 		/const worldCamera = untrack\(\s*\(\) => \(scene\.space \?\? 'game'\) === 'game' && hasWorldCamera\(scene\)/.test(
 			layoutScene,
 		) &&
-			/\{#if worldCamera\}[\s\S]*?\{:else\}\s*\{@render sceneNodes\(\)\}/.test(layoutScene) &&
+			/\{(?:#|:else )if worldCamera\}[\s\S]*?\{:else\}\s*\{@render sceneNodes\(\)\}/.test(
+				layoutScene,
+			) &&
 			/\{@const factor = worldCamera \? nodeParallax\(node\) : undefined\}/.test(layoutScene),
+	);
+	check(
+		'6. <LayoutScene> draws projected only a world screen naming isometric, with a registered world',
+		/const ProjectedWorld = untrack\(\(\) =>\s*worldCamera && scene\.projection === 'isometric' \? getProjectedWorld\(\) : undefined,?\s*\)/.test(
+			layoutScene,
+		) && /\{#if ProjectedWorld\}/.test(layoutScene),
 	);
 	const spawnLayer = read('packages/engine-layout/src/lib/SpawnLayer.svelte');
 	check(

@@ -105,7 +105,9 @@ already-bundled `cards.js` values.
   depth order, the diamond hit-test from every cell's centre and corners and off the grid, the
   autotile mask and variants, the export, old tilesets byte for byte, `sceneProjection`, the level
   the same flat or isometric, Salmons isometric); `check:editor-tilemap` 82 (6 new, §4: box, paint
-  under the pointer, placement, autotile setter, the save, the setter's refusals).
+  under the pointer, placement, autotile setter, the save, the setter's refusals);
+  `check:arcade-camera` 77 (its `LayoutScene` parity scan now also pins the projected branch).
+  `check:all`: 602 / 603, the one red this scan, fixed and re-run green.
   `salmons-play.mjs` **37 / 37 in each netcode** (new: page A's salmon is drawn at its projected
   place and not its flat one, read off the screenshot). `arcade-play` 14, `arcade-camera-play`
   12, `arcade-platformer-play` 15, `arcade-characters-play` 14, all passing.
