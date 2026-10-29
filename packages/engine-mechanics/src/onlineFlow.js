@@ -136,7 +136,9 @@ const stepsOf = (ms, tickHz) => Math.max(0, Math.round((ms * tickHz) / 1000));
  * It keeps, per button, the inputs (`seq`) whose press it raised and whose room `ability` has not
  * come back ({@link flowSignalsOf} takes the oldest off per echo). The room sends an `ability` just
  * after the state that acknowledges its input, so a press still waiting when a later state comes
- * (one after the state that first acknowledged it) was refused, and is dropped.
+ * (one after the state that first acknowledged it) was refused, and is dropped. This leans on the
+ * room queuing its events with `afterNextPatch`; a plain `broadcast` would race the patch and drop
+ * presses still in flight.
  */
 export function createAbilityPredictor(game, character) {
 	const { tickHz } = game.online;
