@@ -3,6 +3,7 @@
 	import {
 		elementFxIntensityChannel,
 		elementFxProgressChannel,
+		isReservedElementFxId,
 		readElementFxEntries,
 	} from 'constants-shared/elementFx';
 
@@ -194,6 +195,14 @@
 		const alignId = untrack(() => node.id);
 		onDestroy(() => componentAlign!.detach(alignId, alignTarget));
 	}
+
+	// A node is anchored under its id, which a Flow `elementEffect` can aim at, unless the id is a
+	// reserved target (`reels`, `stage`, Shader Graph 8e): those always mean the reels and the whole
+	// stage, so the node keeps its id but is not anchored under it. The reel grid keeps its anchor,
+	// as before: it IS the reels.
+	const ownAnchor =
+		!isReservedElementFxId(untrack(() => node.id)) ||
+		untrack(() => node.kind === 'reelGrid' || node.bind?.component === 'ReelGrid');
 
 	// Element FX (`docs/design/element-fx.md`): a node carrying effects renders inside one extra
 	// container they play on, which takes the node's `zIndex` so it sorts among its siblings as the
@@ -1300,7 +1309,7 @@
 				alpha={transform.alpha}
 				zIndex={transform.zIndex}
 			>
-				<Anchor name={node.id} />
+				{#if ownAnchor}<Anchor name={node.id} />{/if}
 				{#if isBackground}
 					<Bound
 						{transform}
@@ -1331,7 +1340,7 @@
 				onpointerup={isPressTarget ? onNodePress : undefined}
 				tint={containerTint}
 			>
-				<Anchor name={node.id} />
+				{#if ownAnchor}<Anchor name={node.id} />{/if}
 				<!--
 					Rig-slot riders (Rive plan Phase 8b): a child whose `rigSlot` names a slot is not drawn
 					here — the first rig child hosts it inside that slot, so the rig drives it every frame.
@@ -1370,7 +1379,7 @@
 				alpha={transform.alpha}
 				zIndex={transform.zIndex}
 			>
-				<Anchor name={node.id} />
+				{#if ownAnchor}<Anchor name={node.id} />{/if}
 				<ComponentInstance {node} {space} bind:tap={instanceTap} />
 			</Container>
 			<!--
@@ -1981,7 +1990,7 @@
 -->
 {#if elementFx.length}
 	<Container zIndex={transform.zIndex}>
-		<Anchor name={node.id} />
+		{#if ownAnchor}<Anchor name={node.id} />{/if}
 		{#if transform.visible && revealed}
 			<ElementFxPlayer entries={elementFx} scope={signalScope} pose={elementFxPose} />
 		{/if}

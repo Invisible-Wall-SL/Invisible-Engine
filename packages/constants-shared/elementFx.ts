@@ -1918,13 +1918,19 @@ export const ELEMENT_FX_REELS_TARGET = 'reels';
 /** The target name for the whole stage: the game's root, where its post FX play. */
 export const ELEMENT_FX_STAGE_TARGET = 'stage';
 /**
- * The target names no layout node may take as its id: a node's id is its anchor, so a node named
- * `reels` or `stage` would catch the Flow's effects on the reels or the whole stage (8e).
+ * The target names a layout node may not take as its id (8e): a node's id is its anchor, so these
+ * always mean the reels and the whole stage. The game does not anchor a node under one (a node
+ * already called so keeps its id and its other references), the Flow does not list one as a node
+ * target, and the editors refuse one.
  */
 export const ELEMENT_FX_RESERVED_IDS: readonly string[] = [
 	ELEMENT_FX_REELS_TARGET,
 	ELEMENT_FX_STAGE_TARGET,
 ];
+
+/** `id` is one of {@link ELEMENT_FX_RESERVED_IDS}. */
+export const isReservedElementFxId = (id: unknown): boolean =>
+	typeof id === 'string' && ELEMENT_FX_RESERVED_IDS.includes(id);
 
 /**
  * Post FX: Element FX on the whole stage (Shader Graph 8e, `shader-graph-screens.md` §10). At most

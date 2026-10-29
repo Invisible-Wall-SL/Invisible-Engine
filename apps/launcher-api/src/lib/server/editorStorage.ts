@@ -18,7 +18,6 @@ import {
 	sceneWorld,
 } from 'engine-layout';
 import { normalizeBootSplashRef } from 'constants-shared/bootSplash';
-import { ELEMENT_FX_RESERVED_IDS } from 'constants-shared/elementFx';
 import { readScreenTransition } from 'constants-shared/screenTransition';
 import { repairLayoutDocAtlasRefs } from './atlasRefRepair';
 import { putDocWithBackup, type BackupMode } from './docBackups';
@@ -215,11 +214,9 @@ export function normalizeDoc(input: unknown, fallbackProjectKey = ''): LayoutDoc
 	const gameType =
 		typeof obj.gameType === 'string' && obj.gameType.trim() ? obj.gameType.trim() : undefined;
 	const mainSizesMap = normalizeMainSizesMap(obj.mainSizesMap);
-	const scenes = releaseReservedNodeIds(
-		Array.isArray(obj.scenes)
-			? obj.scenes.map(normalizeScene).filter((s): s is Scene => s !== null)
-			: [],
-	);
+	const scenes = Array.isArray(obj.scenes)
+		? obj.scenes.map(normalizeScene).filter((s): s is Scene => s !== null)
+		: [];
 	const settings = normalizeGameSettings(obj.settings);
 	const updatedAt = typeof obj.updatedAt === 'string' ? obj.updatedAt : '';
 	backfillAlwaysOnTop(scenes, typeof obj.version === 'number' ? obj.version : 1);
@@ -238,48 +235,6 @@ export function normalizeDoc(input: unknown, fallbackProjectKey = ''): LayoutDoc
 	// project stops depending on the runtime fallback. No-op for an already-parametric bar or a doc
 	// with no `hudBar` (returns the same object).
 	return normalizeHudScenes(doc);
-}
-
-/**
- * The scenes with every node whose id is a reserved Element FX target (`ELEMENT_FX_RESERVED_IDS`:
- * `reels`, `stage`) given a free id of its own (`stage_node`, `stage_node2`, …), at any depth, so
- * the Flow's `reels` and `stage` always mean the reels and the whole stage. The same scenes (and
- * the same objects) when none does.
- */
-export function releaseReservedNodeIds(scenes: Scene[]): Scene[] {
-	const reserved = new Set(ELEMENT_FX_RESERVED_IDS);
-	const taken = new Set<string>();
-	const collect = (nodes: readonly LayoutNode[]): void => {
-		for (const node of nodes) {
-			// A node passes through as stored: a container's children are not known to be nodes.
-			if (!isRecord(node)) continue;
-			taken.add(node.id);
-			if (node.kind === 'container' && Array.isArray(node.children)) collect(node.children);
-		}
-	};
-	for (const scene of scenes) collect(scene.nodes);
-	if (![...reserved].some((id) => taken.has(id))) return scenes;
-	const free = (id: string): string => {
-		let n = 1;
-		while (taken.has(`${id}_node${n === 1 ? '' : n}`)) n++;
-		const next = `${id}_node${n === 1 ? '' : n}`;
-		taken.add(next);
-		return next;
-	};
-	const release = (node: LayoutNode): LayoutNode => {
-		if (!isRecord(node)) return node;
-		const id = reserved.has(node.id) ? free(node.id) : node.id;
-		if (node.kind === 'container' && Array.isArray(node.children)) {
-			const children = node.children.map(release);
-			const moved = children.some((child, i) => child !== node.children[i]);
-			return id === node.id && !moved ? node : { ...node, id, children };
-		}
-		return id === node.id ? node : { ...node, id };
-	};
-	return scenes.map((scene) => {
-		const nodes = scene.nodes.map(release);
-		return nodes.some((node, i) => node !== scene.nodes[i]) ? { ...scene, nodes } : scene;
-	});
 }
 
 /**
@@ -321,14 +276,6 @@ function normalizeGameSettings(input: unknown): GameSettings | undefined {
 		if (input.authoredOverlays.buttons === true) overlays.buttons = true;
 		if (Object.keys(overlays).length > 0) out.authoredOverlays = overlays;
 	}
-	// Screen FX (Shader Graph 8e): the post FX list verbatim, as a screen's Element FX are (the game
-	// and the editor read it through `readPostFx` / `readElementFxEntries`, so an entry a newer build
-	// wrote survives a save), and the stage anti-aliasing switch. Sparse: a list only when it has an
-	// entry, the switch only when on.
-	if (Array.isArray(input.postFx) && input.postFx.length) {
-		out.postFx = input.postFx as GameSettings['postFx'];
-	}
-	if (input.stageFxAntialias === true) out.stageFxAntialias = true;
 	return Object.keys(out).length > 0 ? out : undefined;
 }
 

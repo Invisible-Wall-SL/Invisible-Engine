@@ -2491,11 +2491,12 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   (`signal:FX_Intro` plays the Element FX whose cue is `FX_Intro`); one without it does not reach
   Element FX. Check the entry's **Trigger** too: _When shown_ plays when the screen appears, not on
   a cue.
-- **A node called `reels` or `stage` came back as `reels_node` or `stage_node`.** A node's id is
-  what the Flow aims an `elementEffect` at, and `reels` and `stage` belong to the reels and the
-  whole stage. A layout that has a node with either id (from an old save or an import) gives it a
-  free id of its own when it loads or saves; a Flow node or timeline aimed at the old id needs the
-  new one.
+- **A Flow Element FX aimed at a node called `reels` or `stage` plays on the reels or the whole
+  stage instead.** In the Flow those two names always mean the reels and the whole stage, so the
+  game does not aim at a node with either id (a reel grid called `reels` is the reels, and works
+  as always). The node keeps its id: everything else that names it (a Flow component node, a
+  timeline) still finds it, and its own Element FX still play. Properties says so on such a node;
+  duplicate it to give the copy an id the Flow can aim at, and point the Flow at the copy.
 
 ## Known limitations / TODOs
 

@@ -17,9 +17,10 @@
  *  3. **One composition.** `composeFlowV2Vocab` widens the enum with the targets for the editor and
  *     the publish gate alike; with no targets the vocabulary keeps its identity. The project's
  *     custom kinds widen both `ElementFxKind` and `ScreenTransitionKind` (8e).
- *  4. **`reels` and `stage` are reserved** (8e): the server's layout reader gives a node with
- *     either id a free one of its own, at any depth, so a node never catches the Flow's reels or
- *     stage.
+ *  4. **`reels` and `stage` are reserved** (8e) without touching stored data: a node so called keeps
+ *     its id (a flow driving a placement called `reels` still passes the shipped-flow gate), is never
+ *     a node target (in the layout or a component), and the game does not anchor it — the reel grid
+ *     excepted, which is the reels.
  *  5. **The stage in the editor** (8e.6): an `elementEffect` on `stage` whose kind the stage
  *     refuses (`stageFxRefusal`) is warned, in its mode section; the inspector flags those kinds.
  */
@@ -36,8 +37,10 @@ import {
 import { stageFxRefusal } from 'pixi-svelte/elementFx';
 import { stageEffectIssues } from '../src/lib/flowScreenFx';
 import { SCREEN_TRANSITION_KINDS } from 'constants-shared/screenTransition';
-import { ELEMENT_FX_RESERVED_IDS } from 'constants-shared/elementFx';
-import { normalizeDoc, releaseReservedNodeIds } from '../src/lib/server/editorStorage';
+import { ELEMENT_FX_RESERVED_IDS, isReservedElementFxId } from 'constants-shared/elementFx';
+import { engineOwnedOnly, getFullSceneSet } from 'engine-layout';
+import { normalizeDoc } from '../src/lib/server/editorStorage';
+import { flowGateRefusal, validateFlowV2Against } from '../src/lib/server/flowV2Validation';
 
 import { collectElementFxTargets, withElementFxTargets } from '../src/lib/elementFxTargets';
 import { readFileSync } from 'node:fs';
@@ -221,67 +224,131 @@ check(
 
 // ── 4. reserved ids ───────────────────────────────────────────────────────────────────────────
 {
-	const doc = normalizeDoc(
-		{
-			scenes: [
+	const placed = (id: string) =>
+		({ id, kind: 'componentInstance', label: id, x: 0, y: 0, componentId: 'banner' }) as const;
+	const stored = {
+		scenes: [
+			{
+				id: 'basegame',
+				name: 'Base',
+				nodes: [
+					placed('reels'),
+					{
+						id: 'stage',
+						kind: 'container',
+						x: 0,
+						y: 0,
+						children: [{ id: 'hero', kind: 'container', x: 0, y: 0, children: [] }],
+					},
+					{ id: 'reels', kind: 'reelGrid', x: 0, y: 0, reels: 5, rows: 3 },
+				],
+			},
+		],
+	};
+	const doc = normalizeDoc(stored, 'demo');
+	eq(
+		'4. a stored node called `reels` or `stage` keeps its id (no rewrite on read or save)',
+		doc.scenes[0].nodes.map((n) => n.id),
+		['reels', 'stage', 'reels'],
+	);
+	const def = {
+		id: 'banner',
+		name: 'Banner',
+		version: 1,
+		scope: 'project',
+		category: 'ui',
+		root: { id: 'root', kind: 'container', x: 0, y: 0, children: [] },
+		inputs: [{ id: 'win', kind: 'trigger' }],
+		events: [],
+	} as unknown as ComponentDef;
+	const withStage = {
+		...def,
+		id: 'withStage',
+		root: {
+			id: 'root',
+			kind: 'container',
+			x: 0,
+			y: 0,
+			children: [
 				{
-					id: 'basegame',
-					name: 'Base',
-					nodes: [
-						{
-							id: 'stage',
-							kind: 'container',
-							x: 0,
-							y: 0,
-							children: [{ id: 'reels', kind: 'sprite', assetKey: 'a', x: 0, y: 0 }],
-						},
-						{ id: 'stage_node', kind: 'sprite', assetKey: 'a', x: 0, y: 0 },
-						{ id: 'logo', kind: 'sprite', assetKey: 'a', x: 0, y: 0 },
-					],
-				},
-				{
-					id: 'freeSpins',
-					name: 'Free spins',
-					nodes: [{ id: 'reels', kind: 'container', x: 0, y: 0 }],
+					id: 'stage',
+					kind: 'sprite',
+					assetKey: 'a',
+					x: 0,
+					y: 0,
+					elementFx: [{ id: 'efx1', kind: 'glow', trigger: 'always' }],
 				},
 			],
 		},
-		'demo',
-	);
-	const ids = (nodes: readonly { id: string; children?: unknown }[]): string[] =>
-		nodes.flatMap((n) =>
-			n && typeof n === 'object'
-				? [n.id, ...(Array.isArray(n.children) ? ids(n.children) : [])]
-				: [],
-		);
-	eq(
-		'4. a node may not take `reels` or `stage` (any depth, any screen): it gets a free id of its own',
-		doc.scenes.map((scene) => ids(scene.nodes)),
-		[['stage_node2', 'reels_node', 'stage_node', 'logo'], ['reels_node2']],
-	);
-	check(
-		'4. so the dropdown lists the reels and the stage once each, as the targets',
-		collectElementFxTargets(doc.scenes).filter((t) => t === 'reels' || t === 'stage').length === 2,
-	);
-	const plain = [
-		{ id: 'basegame', name: 'Base', nodes: [{ id: 'logo', kind: 'sprite', x: 0, y: 0 }] },
-	] as unknown as Scene[];
-	check('4. a doc with none keeps its scenes as they are', releaseReservedNodeIds(plain) === plain);
-	const malformed = [
+	} as unknown as ComponentDef;
+	const scenesWithDef = [
+		...doc.scenes,
 		{
-			id: 'basegame',
-			name: 'Base',
-			nodes: [{ id: 'stage', kind: 'container', x: 0, y: 0, children: [null, 3] }],
+			id: 'hud',
+			name: 'HUD',
+			nodes: [{ id: 'c_w', kind: 'componentInstance', componentId: 'withStage', x: 0, y: 0 }],
 		},
 	] as unknown as Scene[];
-	check(
-		'4. a container holding something that is not a node is still read (the reader never throws)',
-		releaseReservedNodeIds(malformed)[0].nodes[0].id === 'stage_node',
+	eq(
+		'4. a node called `stage` or `reels` (a layout node or one in a component) is never a node target',
+		collectElementFxTargets(scenesWithDef, [def, withStage]),
+		['reels', 'stage', 'screen:basegame', 'screen:hud', 'c_w', 'hero'],
+	);
+	const seed = freshDrivenSeedDoc('lines');
+	const flow: FlowDoc = {
+		...seed,
+		containers: [...seed.containers, { id: 'basegame', sceneId: 'basegame', z: 10 }],
+		graph: {
+			...seed.graph,
+			nodes: [
+				...seed.graph.nodes,
+				{
+					id: 'fireWin',
+					kind: 'componentInstance',
+					pos: { x: 0, y: 0 },
+					container: 'basegame',
+					instance: 'reels',
+				} as Node,
+			],
+		},
+	};
+	const shipScenes = [...engineOwnedOnly(getFullSceneSet('lines')!).scenes, doc.scenes[0]];
+	const errors = validateFlowV2Against(flow, shipScenes, null, { version: 2, functions: [] }, [
+		def,
+	]).filter((i) => i.severity === 'error');
+	eq(
+		'4. a flow driving a placement called `reels` passes the shipped-flow gate (its instance found)',
+		[
+			errors.map((i) => i.code),
+			flowGateRefusal(
+				errors.length
+					? { status: 'invalid', templateId: flow.templateId, errors }
+					: { status: 'valid', templateId: flow.templateId },
+				'lines',
+			),
+		],
+		[[], null],
+	);
+	const view = read('../../../packages/engine-layout/src/lib/LayoutNodeView.svelte');
+	eq(
+		'4. the game anchors no node under a reserved id, but the reel grid keeps its anchor',
+		[
+			(view.match(/\{#if ownAnchor\}<Anchor name=\{node\.id\} \/>\{\/if\}/g) ?? []).length,
+			/(?<!\{#if ownAnchor\})<Anchor name=\{node\.id\} \/>/.test(view),
+			/const ownAnchor =\s*!isReservedElementFxId\(untrack\(\(\) => node\.id\)\) \|\|\s*untrack\(\(\) => node\.kind === 'reelGrid' \|\| node\.bind\?\.component === 'ReelGrid'\);/.test(
+				view,
+			),
+		],
+		[4, false, true],
 	);
 	eq(
 		'4. the reserved ids are the reels and the stage',
-		[...ELEMENT_FX_RESERVED_IDS],
-		['reels', 'stage'],
+		[
+			[...ELEMENT_FX_RESERVED_IDS],
+			isReservedElementFxId('stage'),
+			isReservedElementFxId('n_stage'),
+		],
+		[['reels', 'stage'], true, false],
 	);
 }
 
