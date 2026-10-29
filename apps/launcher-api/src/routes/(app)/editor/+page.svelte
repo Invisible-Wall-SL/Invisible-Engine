@@ -59,6 +59,7 @@
 	import { SPAWN_DEFAULT_CAP } from 'constants-shared/spawn';
 	import { newPathNode } from '$lib/editor/pathNodeEdit';
 	import { newTilemapAt } from '$lib/editor/tilemapEdit';
+	import { sceneProjection } from 'engine-layout';
 	import {
 		BOOT_SPLASH_DEFAULT_BACKGROUND,
 		BOOT_SPLASH_DEFAULT_SIZE,
@@ -1155,6 +1156,7 @@
 			'n_' + Math.random().toString(36).slice(2, 10),
 			main.width / 2,
 			main.height / 2,
+			sceneProjection(activeScene),
 		);
 		onSpawn(node);
 		selectOnly(node.id);
@@ -4123,6 +4125,7 @@
 							selectedNode.kind !== 'spawnLayer' &&
 							activeScene.nodes.some((n) => n.id === selectedNode.id)}
 						worldCamera={!!activeScene && hasWorldCamera(activeScene)}
+						projection={sceneProjection(activeScene)}
 						{templateMode}
 						{slotMeta}
 						sceneSlots={activeSceneSlots}

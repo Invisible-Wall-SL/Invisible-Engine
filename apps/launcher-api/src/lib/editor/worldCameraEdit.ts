@@ -9,12 +9,14 @@
  */
 import {
 	despawnOutsideViewMargin,
+	hasWorldCamera,
 	nodeParallax,
 	sceneCamera,
 	sceneWorld,
 	type LayoutNode,
 	type Scene,
 	type SceneCamera,
+	type SceneProjection,
 	type SpawnLayerNode,
 } from 'engine-layout';
 
@@ -40,6 +42,19 @@ export function setSceneWorldOn(scene: Scene, on: boolean, main: Size): void {
 	}
 	delete scene.world;
 	delete scene.camera;
+	delete scene.projection;
+}
+
+/** Set the screen's projection (P11.4), sparse: `flat` deletes it. Only a `game` screen with a
+ *  world or a camera draws projected, so it is refused (false) on any other. */
+export function setSceneProjection(scene: Scene, projection: 'flat' | SceneProjection): boolean {
+	if (projection === 'flat') {
+		delete scene.projection;
+		return true;
+	}
+	if ((scene.space ?? 'game') !== 'game' || !hasWorldCamera(scene)) return false;
+	scene.projection = projection;
+	return true;
 }
 
 /** Set one side of the world. A side that is not a number above 0 is refused (false). */

@@ -1,9 +1,18 @@
 <script lang="ts">
-	import { hasWorldCamera, sceneWorld, type Scene, type SceneCamera } from 'engine-layout';
+	import {
+		SCENE_PROJECTIONS,
+		hasWorldCamera,
+		sceneProjection,
+		sceneWorld,
+		type Scene,
+		type SceneCamera,
+		type SceneProjection,
+	} from 'engine-layout';
 	import {
 		cameraFields,
 		seedWorld,
 		setSceneCamera,
+		setSceneProjection,
 		setSceneWorldOn,
 		setSceneWorldSize,
 	} from '$lib/editor/worldCameraEdit';
@@ -35,6 +44,15 @@
 
 	function setSize(side: 'w' | 'h', v: number): void {
 		if (setSceneWorldSize(scene, side, v)) onChange();
+	}
+
+	const PROJECTION_LABEL: Record<'flat' | SceneProjection, string> = {
+		flat: 'flat (top-down / side)',
+		isometric: 'isometric (2:1 diamonds)',
+	};
+
+	function setProjection(projection: 'flat' | SceneProjection): void {
+		if (setSceneProjection(scene, projection)) onChange();
 	}
 
 	function setCamera(patch: Partial<SceneCamera>): void {
@@ -192,6 +210,20 @@
 			/>
 			<span>Clamp to world</span>
 		</label>
+		<label
+			class="field"
+			title="How the game draws this world. Isometric draws the ground 2:1 isometric (a rectangle becomes the diamond it covers), its tilemaps as 2:1 diamonds painted on a diamond grid, and the spawned characters upright, nearer ones in front. The game still moves everything on the flat world: only the drawing changes. The stage here draws the other nodes flat."
+		>
+			<span>projection</span>
+			<select
+				value={sceneProjection(scene) ?? 'flat'}
+				onchange={(e) => setProjection(e.currentTarget.value as 'flat' | SceneProjection)}
+			>
+				{#each SCENE_PROJECTIONS as p (p)}
+					<option value={p}>{PROJECTION_LABEL[p]}</option>
+				{/each}
+			</select>
+		</label>
 	{/if}
 </div>
 
@@ -237,7 +269,8 @@
 		letter-spacing: 0.04em;
 		color: #777;
 	}
-	.field input {
+	.field input,
+	.field select {
 		background: #0b0b10;
 		border: 1px solid #2a2a33;
 		border-radius: 6px;
@@ -248,7 +281,8 @@
 		width: 100%;
 		box-sizing: border-box;
 	}
-	.field input:focus {
+	.field input:focus,
+	.field select:focus {
 		outline: none;
 		border-color: #6b5bff;
 	}

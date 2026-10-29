@@ -18,7 +18,7 @@
 	import { spawnLayerSpec } from './spawnLayerFields';
 	import { registerSpawnLayerSpace, spawnStore } from './spawnLayers';
 	import { liftOf, liftsOn } from './arcadeLifts.svelte';
-	import { inWorldCamera, isCulled } from './worldCameraView.svelte';
+	import { inWorldCamera, isCulled, spawnProjection } from './worldCameraView.svelte';
 
 	const { node, space }: Props = $props();
 
@@ -58,11 +58,13 @@
 	});
 
 	// The layer's space for a pointer (P10.11): the container the node's transform places it in.
+	// On a projected screen (P11.4) the point is un-projected back to the world.
 	const parent = getContextParent();
+	const projection = spawnProjection();
 	$effect(() =>
 		registerSpawnLayerSpace(node.id, (x, y) => {
 			const local = parent.parent.toLocal({ x, y });
-			return { x: local.x, y: local.y };
+			return projection ? projection.unproject(local.x, local.y) : { x: local.x, y: local.y };
 		}),
 	);
 
@@ -86,7 +88,21 @@
 </script>
 
 {#each instances as instance (instance.id)}
-	{#if liftsOn()}
+	{#if projection}
+		<!-- A projected screen (P11.4): drawn upright at the projected place, in ground-depth order
+		     (the depth is the zIndex), never culled (the loop's view is a flat rectangle). -->
+		{@const place = places[instance.id] ?? instance}
+		{@const at = projection.project(place.x, place.y)}
+		{@const lift = liftsOn() ? liftOf(instance.id) : undefined}
+		<Container x={at.x} y={at.y} zIndex={projection.depth(place.x, place.y)}>
+			{#if lift}
+				<Graphics y={lift.foot} draw={shadowOf(lift.shadow)} />
+			{/if}
+			<Container y={-(lift?.z ?? 0)}>
+				<ComponentInstance node={instanceNode(instance)} {space} />
+			</Container>
+		</Container>
+	{:else if liftsOn()}
 		{@const lift = liftOf(instance.id)}
 		<Container
 			x={places[instance.id]?.x ?? instance.x}

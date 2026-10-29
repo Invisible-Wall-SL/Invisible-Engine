@@ -66,7 +66,9 @@ casts, Space climbs, jumps off a sandbank or shakes a hook. Open a second tab wi
 4. Page A's salmon starts at the sea, and page A's camera frames it.
 5. ArrowUp held on page A swims its salmon upstream (against the current), and the camera follows.
 6. Resting in the water, page A's salmon drifts downstream with the current, and page A draws
-   it within 20 px of the room's place (its prediction of the drift, a little ahead).
+   it within 20 px of the room's place (its prediction of the drift, a little ahead). The river
+   screen is isometric (P11.4): in `03-salmon-upstream.png` the salmon's colour is at its
+   projected place (x − y, (x + y) / 2 from the camera's centre) and not at its flat one.
 7. Page A shows the HUD (SCORE, ROUND, TIME) over the river, with the room's round and its own
    score (variables the room owns).
 8. Page B's J draws the bear's swipe on the press, before the room tells of it; the room then
@@ -89,7 +91,7 @@ casts, Space climbs, jumps off a sandbank or shakes a hook. Open a second tab wi
 14. No page sends the RGS anything; no page error.
 
 The bots are bears with a brain that stands still: each room places them on its own river's
-banks, so the hunt (`check:room-bots`') stays out of this test. 36 verdicts.
+banks, so the hunt (`check:room-bots`') stays out of this test. 37 verdicts.
 
 Screens: `01-salmon-at-the-sea.png`, `02-bear-on-its-bank.png`, `03-salmon-upstream.png`,
 `04-bear-swipes.png`, `05-another-river.png`, `06-round-over.png`, `07-at-the-waterfall.png`,

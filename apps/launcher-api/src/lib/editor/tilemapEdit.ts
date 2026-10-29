@@ -8,6 +8,10 @@ import {
 	TILE_EMPTY,
 	TILEMAP_MAX_SIDE,
 	TILEMAP_MAX_TILES,
+	TILE_AUTOTILE_VARIANTS,
+	isoCellAt,
+	isoGridBox,
+	isoProject,
 	newTilemapNode,
 	tilemapCellAt,
 	tilemapFill,
@@ -17,6 +21,7 @@ import {
 	tilemapTiles,
 	type Point2D,
 	type ResolvedTransform,
+	type SceneProjection,
 	type TileCollide,
 	type TilemapNode,
 } from 'engine-layout';
@@ -53,20 +58,32 @@ export function tilemapToolForKey(e: {
 
 /** A new tilemap of `cols × rows` tiles, centred on (`cx`, `cy`) (a tilemap draws from its
  *  top-left). */
-export function newTilemapAt(id: string, cx: number, cy: number): TilemapNode {
+export function newTilemapAt(
+	id: string,
+	cx: number,
+	cy: number,
+	projection?: SceneProjection,
+): TilemapNode {
 	const node = newTilemapNode(id, 0, 0);
-	node.x = Math.round(cx - (node.cols * node.tileWidth) / 2);
-	node.y = Math.round(cy - (node.rows * node.tileHeight) / 2);
+	const half = { x: (node.cols * node.tileWidth) / 2, y: (node.rows * node.tileHeight) / 2 };
+	const centre = projection === 'isometric' ? isoProject(half.x, half.y) : half;
+	node.x = Math.round(cx - centre.x);
+	node.y = Math.round(cy - centre.y);
 	return node;
 }
 
-/** The box the canvas selects and frames: the whole grid, from the node's top-left. */
-export function tilemapBox(node: Pick<TilemapNode, 'cols' | 'rows' | 'tileWidth' | 'tileHeight'>): {
+/** The box the canvas selects and frames: the whole grid, from the node's top-left (on an
+ *  isometric screen the diamond grid, its top corner at the node's place). */
+export function tilemapBox(
+	node: Pick<TilemapNode, 'cols' | 'rows' | 'tileWidth' | 'tileHeight'>,
+	projection?: SceneProjection,
+): {
 	w: number;
 	h: number;
 	ax: number;
 	ay: number;
 } {
+	if (projection === 'isometric') return isoGridBox(node);
 	return {
 		w: Math.max(1, node.cols * node.tileWidth),
 		h: Math.max(1, node.rows * node.tileHeight),
@@ -81,14 +98,16 @@ export function tilemapWorldToLocal(t: ResolvedTransform, w: Point2D): Point2D {
 	return { x: (w.x - t.x) / (t.scale?.x || 1), y: (w.y - t.y) / (t.scale?.y || 1) };
 }
 
-/** The cell under a stage point, or `undefined` off the grid. */
+/** The cell under a stage point, or `undefined` off the grid (on an isometric screen, the
+ *  diamond under it). */
 export function tilemapCellAtWorld(
 	node: TilemapNode,
 	t: ResolvedTransform,
 	w: Point2D,
+	projection?: SceneProjection,
 ): { col: number; row: number } | undefined {
 	const p = tilemapWorldToLocal(t, w);
-	return tilemapCellAt(node, p.x, p.y);
+	return projection === 'isometric' ? isoCellAt(node, p.x, p.y) : tilemapCellAt(node, p.x, p.y);
 }
 
 /** Every cell on the line from `a` to `b`, both ends included (so a fast drag leaves no gaps). */
@@ -163,6 +182,29 @@ export function setTilesetRegion(node: TilemapNode, index: number, region: strin
 	const entry = node.tileset?.[index];
 	if (!entry) return false;
 	entry.region = region;
+	return true;
+}
+
+/** Set an entry's autotile variant for neighbour mask `mask` (0 … 15), sparse: an empty region
+ *  clears the slot, and an entry with no variant left loses `autotile`. False when there is no
+ *  such entry or mask. */
+export function setTilesetAutotile(
+	node: TilemapNode,
+	index: number,
+	mask: number,
+	region: string,
+): boolean {
+	const entry = node.tileset?.[index];
+	if (!entry || !Number.isInteger(mask) || mask < 0 || mask >= TILE_AUTOTILE_VARIANTS) return false;
+	const variants = Array.from(
+		{ length: TILE_AUTOTILE_VARIANTS },
+		(_, i) => entry.autotile?.[i] ?? '',
+	);
+	variants[mask] = region;
+	let end = variants.length;
+	while (end > 0 && !variants[end - 1]) end -= 1;
+	if (end === 0) delete entry.autotile;
+	else entry.autotile = variants.slice(0, end);
 	return true;
 }
 

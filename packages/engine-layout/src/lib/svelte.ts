@@ -74,5 +74,13 @@ export { getComponentNestState } from './componentInstanceContext';
 // an authored twin while it is mounted.
 export { isComponentMounted, sceneMountKey, trackComponentMount } from './mountedComponents';
 export { registerSpawnLayerSpace, spawnLayerPoint, spawnStore } from './spawnLayers';
-export { isCulled, setCulled, setWorldCameraView, worldCameraView } from './worldCameraView.svelte';
+export {
+	isCulled,
+	registerProjectedWorld,
+	setCulled,
+	setWorldCameraView,
+	worldCameraView,
+} from './worldCameraView.svelte';
+// The isometric world (P11.4): only the arcade family imports it, and registers it.
+export { default as IsoWorld } from './IsoWorld.svelte';
 export { liftOf, liftsOn, setLifts } from './arcadeLifts.svelte';

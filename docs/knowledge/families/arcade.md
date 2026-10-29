@@ -13,8 +13,8 @@ keeps the score and lives. On top of that (Phase 10, `docs/design/game-families.
   dodger with placeholder shapes.
 - **A2, P10.11:** characters (look, body, movement, controller, brain), authored in **Invisible
   Characters** (`/characters`).
-- **A3, P10.12–P10.13:** a world bigger than the screen with a camera and parallax; gravity, jumps,
-  one-way platforms and the `tilemap` node.
+- **A3, P10.12–P10.13, P11.4:** a world bigger than the screen with a camera and parallax; gravity,
+  jumps, one-way platforms and the `tilemap` node; an isometric projection per screen.
 - **A4, P10.14–P10.16, P11.3:** online rooms on `services/game-server` (Colyseus 0.18): server,
   netcode, rules, bots, nearby state, the 100-device load test, Salmons as data and its rules.
 
@@ -88,6 +88,8 @@ A seed and the same keys replay the same game.
 - **The Colyseus SDK is reached only through `packages/engine-rooms`**, imported dynamically from
   `apps/lines/src/game/online.ts`. `apps/lines` declares no new third-party package
   (`check:game-app-deps`).
+- **Isometric is drawing only (P11.4).** `Scene.projection` moves no place, level or probe: `IsoWorld`
+  (registered by `families/arcade.ts`) projects, `SpawnLayer` un-projects a pointer (`projection.ts`).
 - **Sparse config.** Every arcade field is optional and defaults are dropped
   (`packages/game-config/src/family.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`;
   `check:game-config-family`).
@@ -106,7 +108,7 @@ A seed and the same keys replay the same game.
 | Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,online,netcode,onlineRules,onlineFlow,onlineBots,salmons,salmonsRules}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/`                                             |
 | Loop                  | `packages/engine-game/src/game/arcadeLoop.ts`, `arcadeCharacters.ts`, `mechanic.ts`                                                                                                                                                   |
 | Runtime               | `apps/lines/src/components/ArcadeStage.svelte`, `apps/lines/src/game/arcade.ts`, `online.ts`, `flowKeys.ts`, `flowBoardEffects.ts`                                                                                                    |
-| Layout                | `packages/engine-layout/src/lib/SpawnLayer.svelte`, `worldCamera.ts`, `worldCameraView.svelte.ts`, `tilemapNodes.ts`, `Tilemap.svelte`, `pathNodes.ts`, `arcadeLifts.svelte.ts`, `templates/arcade.ts`, `referenceLayouts/arcade*.ts` |
+| Layout                | `packages/engine-layout/src/lib/SpawnLayer.svelte`, `worldCamera.ts`, `worldCameraView.svelte.ts`, `tilemapNodes.ts`, `Tilemap.svelte`, `projection.ts`, `IsoWorld.svelte`, `IsoTilemap.svelte`, `pathNodes.ts`, `arcadeLifts.svelte.ts`, `templates/arcade.ts`, `referenceLayouts/arcade*.ts` |
 | Flow                  | `packages/engine-flow-v2/src/reference/arcade.ts` (`ARCADE_VOCAB`), `arcadeSeed.ts` (starter), the sample seeds, `salmonsSeed.ts`                                                                                                     |
 | Config                | `packages/game-config/src/family.ts`, `familyValidate.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`; seed `apps/launcher-api/src/lib/data/gameConfig/arcade.rules.json`                                                               |
 | Characters tool       | `apps/launcher-api/src/routes/(app)/characters/`, `apps/launcher-api/src/lib/characters/characterEdit.ts`                                                                                                                             |
@@ -160,8 +162,6 @@ A seed and the same keys replay the same game.
   default anchor plus a `-w/2` offset. **Guard:** none (seen in P10.11, not fixed).
 - **Symptom:** an edited layout, camera or tilemap does not change a running game. **Cause:** they
   are read once when the loop first sees them. **Guard:** none; reload.
-- **Symptom:** `check:family-tools` was red on `main`. **Cause:** its tool baseline did not know
-  tools merged beside P10.11. **Guard:** update the baseline in the same change as a new tool.
 - **Symptom:** the owner was never asked to approve the Salmons art pass. **Cause:** S0 had no row
   in game-families §8, the table the coordinator walks. **Guard:** S0 now has a §8 row and a
   `docs/STATUS.md` owner entry.

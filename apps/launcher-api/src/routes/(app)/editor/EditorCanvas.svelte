@@ -43,6 +43,11 @@
 		resolveTransform,
 		STANDARD_MAIN_SIZES_MAP,
 		TILE_EMPTY,
+		isoCellBox,
+		isoCellDiamond,
+		isoGridBox,
+		isoTileRegions,
+		sceneProjection,
 		tilemapTiles,
 		tilemapTileset,
 		type TilemapNode,
@@ -3382,7 +3387,8 @@
 		} else if (node.kind === 'path') {
 			drawPathNode(ctx, node, selectedIds.includes(node.id));
 		} else if (node.kind === 'tilemap') {
-			drawTilemap(ctx, node, selectedIds.includes(node.id));
+			if (sceneProjection(sceneCtx)) drawIsoTilemap(ctx, node, selectedIds.includes(node.id));
+			else drawTilemap(ctx, node, selectedIds.includes(node.id));
 		}
 
 		ctx.restore();
@@ -3407,6 +3413,8 @@
 	 * hit rect frames the SAME grid `drawRepeater` draws. Every canvas `nodeBox` call routes through
 	 * here, so the count is resolved in ONE place (non-repeater nodes are unaffected). */
 	function boxOf(node: LayoutNode, t: ResolvedTransform, rigBundle?: string): NodeBox {
+		// A tilemap on an isometric screen (P11.4) frames its diamond grid.
+		if (node.kind === 'tilemap' && sceneProjection(scene)) return isoGridBox(node);
 		return nodeBox(
 			node,
 			t,
@@ -4061,6 +4069,114 @@
 		ctx.fillStyle = '#e8e8ee';
 		ctx.font = `${12 * u}px sans-serif`;
 		ctx.fillText(`▤ ${node.label ?? 'Tilemap'} · ${cols} × ${rows}`, 0, -6 * u);
+	}
+
+	/** A tilemap on an isometric screen (P11.4): each tile its cell's 2:1 diamond, the art its
+	 *  neighbours pick (`autotile`), drawn back to front, with the diamond grid, the colliding cells
+	 *  and the cell a paint tool would hit, all from the node's place (the grid's top corner). */
+	function drawIsoTilemap(
+		ctx: CanvasRenderingContext2D,
+		node: TilemapNode,
+		selected: boolean,
+	): void {
+		const { cols, rows } = node;
+		const tiles = tilemapTiles(node);
+		const tileset = tilemapTileset(node);
+		const regions = isoTileRegions(node);
+		const diamond = (col: number, row: number): void => {
+			const [a, b, c, d] = isoCellDiamond(node, col, row);
+			ctx.beginPath();
+			ctx.moveTo(a.x, a.y);
+			ctx.lineTo(b.x, b.y);
+			ctx.lineTo(c.x, c.y);
+			ctx.lineTo(d.x, d.y);
+			ctx.closePath();
+		};
+		const order = tiles
+			.map((tile, i) => ({ tile, i, col: i % cols, row: Math.floor(i / cols) }))
+			.filter((c) => c.tile !== TILE_EMPTY)
+			.sort((a, b) => a.col + a.row - (b.col + b.row) || a.col - b.col);
+		for (const { i, col, row } of order) {
+			const ref = parseScopedFrameRef(regions[i]);
+			const found = ref.region ? findRegion(ref.assetKey ?? '', ref.region) : null;
+			const img = found?.set.pageKey ? ensureImage(found.set.pageKey) : null;
+			if (!img || !img.complete || img.naturalWidth === 0) {
+				ctx.fillStyle = 'rgba(120, 140, 170, 0.35)';
+				diamond(col, row);
+				ctx.fill();
+				continue;
+			}
+			const box = isoCellBox(node, col, row);
+			ctx.save();
+			ctx.translate(box.x, box.y);
+			drawArtRegionSprite(ctx, ref.assetKey ?? '', ref.region, {
+				x: 0,
+				y: 0,
+				anchor: { x: 0, y: 0 },
+				width: box.w,
+				height: box.h,
+				visible: true,
+			});
+			ctx.restore();
+		}
+
+		const m = ctx.getTransform();
+		const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+		const u = dpr / (Math.hypot(m.a, m.b) || 1);
+		const top = isoCellDiamond(node, 0, 0)[0];
+		const right = isoCellDiamond(node, cols - 1, 0)[1];
+		const bottom = isoCellDiamond(node, cols - 1, rows - 1)[2];
+		const left = isoCellDiamond(node, 0, rows - 1)[3];
+		ctx.lineWidth = u;
+		ctx.strokeStyle = 'rgba(140, 220, 160, 0.55)';
+		ctx.setLineDash([6 * u, 4 * u]);
+		ctx.beginPath();
+		ctx.moveTo(top.x, top.y);
+		ctx.lineTo(right.x, right.y);
+		ctx.lineTo(bottom.x, bottom.y);
+		ctx.lineTo(left.x, left.y);
+		ctx.closePath();
+		ctx.stroke();
+		ctx.setLineDash([]);
+		if (selected) {
+			ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+			ctx.beginPath();
+			for (let c = 1; c < cols; c++) {
+				const a = isoCellDiamond(node, c, 0)[0];
+				const b = isoCellDiamond(node, c, rows - 1)[3];
+				ctx.moveTo(a.x, a.y);
+				ctx.lineTo(b.x, b.y);
+			}
+			for (let r = 1; r < rows; r++) {
+				const a = isoCellDiamond(node, 0, r)[0];
+				const b = isoCellDiamond(node, cols - 1, r)[1];
+				ctx.moveTo(a.x, a.y);
+				ctx.lineTo(b.x, b.y);
+			}
+			ctx.stroke();
+			tiles.forEach((tile, i) => {
+				const collide = tile === TILE_EMPTY ? undefined : tileset[tile].collide;
+				if (!collide) return;
+				diamond(i % cols, Math.floor(i / cols));
+				ctx.fillStyle = collide === 'solid' ? 'rgba(255, 90, 90, 0.22)' : 'rgba(93, 176, 255, 0.3)';
+				ctx.fill();
+				ctx.strokeStyle =
+					collide === 'solid' ? 'rgba(255, 90, 90, 0.7)' : 'rgba(93, 176, 255, 0.9)';
+				ctx.lineWidth = u;
+				ctx.stroke();
+			});
+			const hover =
+				tilemapPaint.tool !== 'move' && tilemapHover?.nodeId === node.id ? tilemapHover : null;
+			if (hover) {
+				ctx.lineWidth = 2 * u;
+				ctx.strokeStyle = tilemapPaint.tool === 'erase' ? '#ff8a8a' : '#ffe08a';
+				diamond(hover.col, hover.row);
+				ctx.stroke();
+			}
+		}
+		ctx.fillStyle = '#e8e8ee';
+		ctx.font = `${12 * u}px sans-serif`;
+		ctx.fillText(`◇ ${node.label ?? 'Tilemap'} · ${cols} × ${rows}`, left.x, -6 * u);
 	}
 
 	function drawRegionSprite(
@@ -5086,7 +5202,7 @@
 	function tilemapPaintGesture(world: Vec2): boolean {
 		const node = paintingTilemap();
 		if (!node) return false;
-		const cell = tilemapCellAtWorld(node, nodeTransform(node), world);
+		const cell = tilemapCellAtWorld(node, nodeTransform(node), world, sceneProjection(scene));
 		if (!cell) return false;
 		const { tool, brush } = tilemapPaint;
 		if (tool === 'pick') {
@@ -5586,7 +5702,7 @@
 			const node = findNodeById(tilemapStroke.nodeId);
 			if (node?.kind === 'tilemap') {
 				const world = clientToWorld(e.clientX, e.clientY);
-				const cell = tilemapCellAtWorld(node, nodeTransform(node), world);
+				const cell = tilemapCellAtWorld(node, nodeTransform(node), world, sceneProjection(scene));
 				if (!cell) tilemapStroke.last = null;
 				else if (
 					!tilemapStroke.last ||
@@ -5681,7 +5797,9 @@
 	/** Track the cell a paint tool would hit; true while the pointer is over the painted grid. */
 	function updateTilemapHover(world: Vec2): boolean {
 		const node = paintingTilemap();
-		const cell = node ? tilemapCellAtWorld(node, nodeTransform(node), world) : undefined;
+		const cell = node
+			? tilemapCellAtWorld(node, nodeTransform(node), world, sceneProjection(scene))
+			: undefined;
 		const next = node && cell ? { nodeId: node.id, ...cell } : null;
 		if (
 			next?.nodeId !== tilemapHover?.nodeId ||

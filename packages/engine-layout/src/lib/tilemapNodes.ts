@@ -49,11 +49,21 @@ const size = (v: unknown): number | undefined =>
 const isRecord = (v: unknown): v is Record<string, unknown> =>
 	typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** A tileset entry as the save keeps it: a string region, `collide` only when it collides. */
+/** The most autotile variants an entry has: one per neighbour mask. */
+export const TILE_AUTOTILE_VARIANTS = 16;
+
+/** A tileset entry as the save keeps it: a string region, `collide` only when it collides,
+ *  `autotile` only when it names a variant (its slots strings, at most 16). */
 const normalizeEntry = (raw: unknown): TilesetEntry => {
 	const entry = isRecord(raw) ? raw : {};
 	const out: TilesetEntry = { region: typeof entry.region === 'string' ? entry.region : '' };
 	if (entry.collide === 'solid' || entry.collide === 'oneWay') out.collide = entry.collide;
+	if (Array.isArray(entry.autotile)) {
+		const variants = entry.autotile
+			.slice(0, TILE_AUTOTILE_VARIANTS)
+			.map((v) => (typeof v === 'string' ? v : ''));
+		if (variants.some(Boolean)) out.autotile = variants;
+	}
 	return out;
 };
 
@@ -201,14 +211,16 @@ export function tilemapCells(node: Grid): Uint8Array {
 /** Whether a tilemap has a tile that collides. */
 export const tilemapCollides = (node: Grid): boolean => tilemapCells(node).some((c) => c !== 0);
 
-/** The regions a tilemap draws (its tileset entries that some tile uses), distinct, in tileset
- *  order: what the art export ships for it. */
+/** The regions a tilemap draws (its tileset entries that some tile uses, and their autotile
+ *  variants), distinct, in tileset order: what the art export ships for it. */
 export function tilemapRegions(node: Grid): string[] {
 	const tileset = tilemapTileset(node);
 	const used = new Set(tilemapTiles(node).filter((t) => t !== TILE_EMPTY));
 	const out = new Set<string>();
 	tileset.forEach((entry, i) => {
-		if (used.has(i) && entry.region) out.add(entry.region);
+		if (!used.has(i)) return;
+		if (entry.region) out.add(entry.region);
+		for (const variant of entry.autotile ?? []) if (variant) out.add(variant);
 	});
 	return [...out];
 }

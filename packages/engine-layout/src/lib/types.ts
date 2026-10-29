@@ -1399,6 +1399,12 @@ export interface TilesetEntry {
 	region: string;
 	/** Absent ⇒ `none`. */
 	collide?: Exclude<TileCollide, 'none'>;
+	/**
+	 * NEIGHBOUR AUTOTILING on an isometric screen (P11.4): up to 16 regions, by the mask of the
+	 * cell's neighbours holding the same tile (1 above, 2 right, 4 below, 8 left;
+	 * `tilemapAutotileMask`). An empty or missing slot draws {@link region}. Absent ⇒ none.
+	 */
+	autotile?: string[];
 }
 
 /**
@@ -1625,9 +1631,19 @@ export interface Scene {
 	 * that stays where Flow puts it.
 	 */
 	camera?: SceneCamera;
+	/**
+	 * THE PROJECTION (`docs/design/phase-11.md` P11.4): how a world-camera `game` screen draws its
+	 * flat world. `isometric` draws the ground 2:1 isometric, its tilemaps as diamonds and its spawned
+	 * instances upright in ground-depth order (`engine-layout` `projection.ts`). Presentation only:
+	 * the loop and the room keep flat world px. Absent ⇒ flat, as before; stored only when set.
+	 */
+	projection?: SceneProjection;
 	/** EDITOR-ONLY ruler guides per device layout (`editorGuides.ts`); stripped before a game. */
 	guides?: EditorGuideSet;
 }
+
+/** A screen's projection other than flat (`Scene.projection`). */
+export type SceneProjection = 'isometric';
 
 /** A play-field screen's camera block (`engine-mechanics` `CameraSpec`). Every field optional. */
 export interface SceneCamera {

@@ -13,6 +13,10 @@
  *  3. THE PAINT TOOLS (`tilemapEdit.ts` over `engine-layout`'s paint): cell under a point, brush,
  *     erase, fill, pick, the stroke line, resize (clamped), tileset add / collide / remove (the
  *     tiles remapped), the brush after a removal, the tool keys and the box.
+ *  4. THE DIAMOND GRID (P11.4): on an isometric screen the box is the diamond grid, a stage point
+ *     paints the diamond under it, a new tilemap is centred on its diamond; an autotile slot is set
+ *     and cleared sparsely; the save keeps a `game` screen's projection only; the projection
+ *     setter refuses a screen with no world and a world turned off takes it away.
  */
 import {
 	LAYOUT_NODE_KINDS,
@@ -21,6 +25,8 @@ import {
 	TILEMAP_MAX_TILES,
 	newTilemapNode,
 	normalizeTilemapNode,
+	isoCellDiamond,
+	isoGridBox,
 	tilemapCellAt,
 	type ResolvedTransform,
 	type Scene,
@@ -38,6 +44,7 @@ import {
 	removeTilesetEntry,
 	resizeTilemap,
 	setTilemapTileSize,
+	setTilesetAutotile,
 	setTilesetCollide,
 	tilemapBox,
 	tilemapCellAtWorld,
@@ -46,6 +53,7 @@ import {
 	tilemapToolForKey,
 	tilesWithoutEntry,
 } from '../src/lib/editor/tilemapEdit';
+import { setSceneProjection, setSceneWorldOn } from '../src/lib/editor/worldCameraEdit';
 
 let passed = 0;
 let failures = 0;
@@ -337,6 +345,62 @@ console.log('3. the paint tools');
 		key('b', { ctrlKey: true }) === null && key('e', { shiftKey: true }) === null,
 	);
 	check('no tool key is a stage key (F fit, X reveal)', key('f') === null && key('x') === null);
+}
+
+{
+	const node = newTilemapNode('iso', 100, 50, { cols: 4, rows: 2, tile: 64 });
+	const t = { x: 100, y: 50, scale: { x: 1, y: 1 } } as ResolvedTransform;
+	check(
+		'4. the iso box is the diamond grid, its top corner at the node',
+		json(tilemapBox(node, 'isometric')) === json(isoGridBox(node)) &&
+			json(isoGridBox(node)) === json({ w: 384, h: 192, ax: 128 / 384, ay: 0 }),
+	);
+	const [top, right, bottom, left] = isoCellDiamond(node, 2, 1);
+	const centre = { x: 100 + (left.x + right.x) / 2, y: 50 + (top.y + bottom.y) / 2 };
+	check(
+		'4. a stage point paints the diamond under it (flat would pick another cell)',
+		json(tilemapCellAtWorld(node, t, centre, 'isometric')) === json({ col: 2, row: 1 }) &&
+			json(tilemapCellAtWorld(node, t, centre)) !== json({ col: 2, row: 1 }),
+		json([tilemapCellAtWorld(node, t, centre, 'isometric'), tilemapCellAtWorld(node, t, centre)]),
+	);
+	const fresh = newTilemapAt('n', 640, 360, 'isometric');
+	const half = isoGridBox(fresh);
+	check(
+		'4. a new tilemap on an isometric screen is centred on its diamond grid',
+		Math.abs(fresh.x - half.ax * half.w + half.w / 2 - 640) <= 1 &&
+			Math.abs(fresh.y + half.h / 2 - 360) <= 1,
+		json({ x: fresh.x, y: fresh.y, half }),
+	);
+	const tm = newTilemapNode('a', 0, 0);
+	addTilesetEntry(tm, 'r');
+	check(
+		'4. an autotile slot is stored up to the last set, and clearing the last drops the field',
+		setTilesetAutotile(tm, 0, 5, 'v') &&
+			json(tm.tileset[0].autotile) === json(['', '', '', '', '', 'v']) &&
+			setTilesetAutotile(tm, 0, 5, '') &&
+			!('autotile' in tm.tileset[0]) &&
+			!setTilesetAutotile(tm, 0, 16, 'v') &&
+			!setTilesetAutotile(tm, 3, 0, 'v'),
+		json(tm.tileset),
+	);
+	const doc = (scene: Record<string, unknown>) =>
+		normalizeDoc({ version: 1, scenes: [{ id: 's', name: 'S', nodes: [], ...scene }] }).scenes[0];
+	check(
+		'4. the save keeps a game screen’s projection, drops it elsewhere or when unknown',
+		doc({ world: { w: 2000, h: 2000 }, projection: 'isometric' }).projection === 'isometric' &&
+			!('projection' in doc({ space: 'canvas', projection: 'isometric' })) &&
+			!('projection' in doc({ projection: 'oblique' })) &&
+			!('projection' in doc({})),
+	);
+	const flat: Scene = { id: 's', name: 'S', nodes: [] };
+	const refused = !setSceneProjection(flat, 'isometric') && !('projection' in flat);
+	setSceneWorldOn(flat, true, { width: 1280, height: 720 });
+	const set = setSceneProjection(flat, 'isometric') && flat.projection === 'isometric';
+	setSceneWorldOn(flat, false, { width: 1280, height: 720 });
+	check(
+		'4. projection needs a world; turning the world off takes it away',
+		refused && set && !('projection' in flat),
+	);
 }
 
 console.log(

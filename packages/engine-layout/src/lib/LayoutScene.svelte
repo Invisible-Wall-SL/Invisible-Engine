@@ -27,7 +27,7 @@
 	import { getComponentVisibility, type BoolSource } from './registerComponentVisibility';
 	import { getSceneCameraTransform } from './registerSceneCameraTransform';
 	import { hasWorldCamera, nodeParallax, parallaxShift } from './worldCamera';
-	import { setInWorldCamera, worldCameraView } from './worldCameraView.svelte';
+	import { getProjectedWorld, setInWorldCamera, worldCameraView } from './worldCameraView.svelte';
 	import { setCinematicNodeDriver } from './cinematicNodeContext';
 	import { setSceneIdContext } from './sceneIdContext';
 	import { setSceneVisibleContext } from './sceneVisibilityContext';
@@ -172,6 +172,11 @@
 	// once; a screen with neither adds no container (parity).
 	const worldCamera = untrack(() => (scene.space ?? 'game') === 'game' && hasWorldCamera(scene));
 	if (worldCamera) setInWorldCamera();
+	// THE PROJECTION (`Scene.projection`, P11.4): a world screen naming `isometric` is drawn by the
+	// projected world the arcade family registered. Without either, the world is drawn flat.
+	const ProjectedWorld = untrack(() =>
+		worldCamera && scene.projection === 'isometric' ? getProjectedWorld() : undefined,
+	);
 
 	// Publish this screen's live gate-visibility to the components rendered inside it,
 	// so a `ComponentInstance` fires its `enter` cue when THIS SCREEN appears (a gated
@@ -193,26 +198,32 @@
 	/>
 {/snippet}
 
+{#snippet sceneNode(node: (typeof scene.nodes)[number])}
+	{#if isHosted(node)}
+		<!-- rendered inside its host rig's <RigProvider> (per-rig bone hosting) — skip here -->
+	{:else}
+		{@const factor = worldCamera ? nodeParallax(node) : undefined}
+		{#if factor}
+			{@const shift = parallaxShift(worldCameraView(), factor)}
+			<Container x={shift.x} y={shift.y} zIndex={node.zIndex}>
+				{@render nodeView(node)}
+			</Container>
+		{:else}
+			{@render nodeView(node)}
+		{/if}
+	{/if}
+{/snippet}
+
 {#snippet sceneNodes()}
 	{#each scene.nodes as node (node.id)}
-		{#if isHosted(node)}
-			<!-- rendered inside its host rig's <RigProvider> (per-rig bone hosting) — skip here -->
-		{:else}
-			{@const factor = worldCamera ? nodeParallax(node) : undefined}
-			{#if factor}
-				{@const shift = parallaxShift(worldCameraView(), factor)}
-				<Container x={shift.x} y={shift.y} zIndex={node.zIndex}>
-					{@render nodeView(node)}
-				</Container>
-			{:else}
-				{@render nodeView(node)}
-			{/if}
-		{/if}
+		{@render sceneNode(node)}
 	{/each}
 {/snippet}
 
 {#snippet nodes()}
-	{#if worldCamera}
+	{#if ProjectedWorld}
+		<ProjectedWorld nodes={scene.nodes} node={sceneNode} />
+	{:else if worldCamera}
 		{@const view = worldCameraView()}
 		<!-- The world container: the camera's view at the design box's origin, plus its shake. -->
 		<Container x={view.shakeX - view.x} y={view.shakeY - view.y}>

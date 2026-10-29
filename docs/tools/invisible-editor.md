@@ -166,6 +166,12 @@ each direction (the note under the tick shows the size before you tick). The fie
 - **auto-scroll x** / **auto-scroll y** — the camera scrolls on its own, px per second (a runner, a
   shooter). An axis that scrolls does not follow.
 - **Clamp to world** — on by default: the view never shows past the world's edges.
+- **projection** — **flat (top-down / side)**, the default, or **isometric (2:1 diamonds)**. An
+  isometric screen draws the world's ground 2:1 isometric in the game (a rectangle becomes the
+  diamond it covers), its tilemaps as diamonds, and its spawned characters upright, nearer ones in
+  front. The game still moves everything on the flat world: only the drawing changes. The stage
+  here draws the other nodes flat; only a tilemap is drawn and painted as diamonds (see
+  [Tilemap](#tilemap-arcade-level)). Unticking the world sets it back to flat.
 
 Only what differs from a default is saved, so a screen left at the defaults saves just its world.
 Unticking removes the world and the camera; so does switching the screen to another space.
@@ -1398,8 +1404,18 @@ Its Properties block, top to bottom:
 - **add a tile** — pick a frame to add it to the tileset. It becomes the brush, and the Brush tool
   is turned on.
 
-The tileset's frames ship with the game's art export, as a sprite's do. The engine design is in
-[game families §4.4](../design/game-families.md).
+**On an isometric screen** (the screen's **projection**, above) the tilemap is drawn and painted
+as 2:1 diamonds: each tile w × h of world is a diamond (tile w + tile h) wide and half that high,
+the tilemap's place is the grid's top corner, and the brush, the hover outline, the colliding
+cells and the grid lines follow the diamonds. A new tilemap is centred on its diamond grid. The
+size note under the grid also gives the drawn diamond. Each tileset row gains an **autotile**
+fold: sixteen frame pickers, one per set of neighbours (`↑ → ↓ ←` on the grid, `·` for none)
+holding the same tile. A cell draws the frame of its neighbours' slot, or the tile's own frame when
+that slot is empty (neighbour autotiling: shores, path corners).
+
+The tileset's frames, autotile frames included, ship with the game's art export, as a sprite's
+do. The engine design is in [game families §4.4](../design/game-families.md) and
+[phase 11 §3](../design/phase-11.md) (P11.4).
 
 ### 5. Author across device layouts
 
