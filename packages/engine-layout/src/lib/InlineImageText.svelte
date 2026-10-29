@@ -166,11 +166,13 @@
 	// Because it FOLLOWS the text it must never feed back into the fit (see `fitRow`). While it
 	// did, a boxed message shrank its own font until the symbol fitted the plaque — so the same
 	// sentence rendered visibly smaller with a symbol than without one, with nothing in the layout
-	// to explain it. The box still bounds the picture, so it can't spill out of the frame.
-	// The author's size option (`scale`, Win Text `toast.symbolImageSize`) multiplies that height,
-	// still inside the box and still kept out of the fit for the same reason.
-	const imageHeight = (scale: number): number =>
-		Math.min(textHeight * scale, contentHeight ?? Infinity);
+	// to explain it.
+	//
+	// The author's size option (`scale`, Win Text `toast.symbolImageSize`) multiplies the words'
+	// height, and the box does NOT cap it. A real bar's box is routinely far shallower than its
+	// words (a 32 px box under 75 px text, which spill out of it with no auto-fit), and a cap on
+	// the box drew every size, 230% included, smaller than the text beside it.
+	const imageHeight = (scale: number): number => textHeight * scale;
 	// Side breathing room around a symbol. The template's space around the token is trimmed off the
 	// adjacent text runs' measured width (pixi drops boundary whitespace), so without this the symbol
 	// butts straight against the neighbouring word ("2🐄"). ~a space's width on each side.

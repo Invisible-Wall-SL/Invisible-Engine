@@ -24,7 +24,8 @@ import {
 } from '../../r2';
 import { buildRuntimeBundle } from '../../runtimeBundle';
 import { withDeployWrite } from '../../runtimeBundleCache';
-import { SHARED_RUNTIME_ID, runtimePointer } from '../../testServerManifest';
+import { chooseRuntime } from '../../runtimeChoice';
+import { runtimePointer } from '../../testServerManifest';
 import { SUB, UNASSIGNED_CLIENT } from '../../projectPaths';
 import { AdapterError, defineOp, type AdapterContext } from '../adapter';
 import { validatedModelImage } from '../mockupPixels';
@@ -149,12 +150,14 @@ export const requestDraft = defineOp<Record<string, never>, RequestDraftResult>(
 		}
 		const unplayable = unplayableFamilyMessage(config.doc);
 		if (unplayable) throw new AdapterError(409, 'unplayable_family', unplayable);
-		const engine = await runtimePointer(SHARED_RUNTIME_ID);
+		// The runtime its publish would pick (`chooseRuntime`): the config family's.
+		const chosen = await chooseRuntime(config.doc, runtimePointer);
+		const engine = chosen.pointer;
 		if (!engine) {
 			throw new AdapterError(
 				503,
 				'no_runtime',
-				'The shared runtime has no released version, so a draft has nothing to be played on.',
+				`The ${chosen.id} runtime has no released version, so a draft has nothing to be played on.`,
 			);
 		}
 		const gameType = await projectGameType(projectKey);
@@ -190,7 +193,7 @@ export const requestDraft = defineOp<Record<string, never>, RequestDraftResult>(
 				const meta: DraftMeta = {
 					draftId,
 					runId: run.id,
-					runtime: { id: SHARED_RUNTIME_ID, version: engine.version, commit: engine.commit },
+					runtime: { id: chosen.id, version: engine.version, commit: engine.commit },
 					contractHash,
 					contract,
 					projectConfigEtag: config.etag,

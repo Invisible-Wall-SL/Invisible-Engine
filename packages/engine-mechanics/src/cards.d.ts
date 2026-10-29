@@ -203,6 +203,18 @@ export const CARD_TARGET_KINDS: readonly Target['kind'][];
 export const CARD_VERBS: readonly CardEffect['verb'][];
 /** What each verb may aim at: any target, units only, or none. */
 export const CARD_VERB_TARGETS: Readonly<Record<CardEffect['verb'], 'any' | 'units' | 'none'>>;
+/** The validator's whole-number ranges, `[min, max]`: a card's numbers and each verb's fields. */
+export const CARD_RANGES: Readonly<
+	Record<
+		'cost' | 'attack' | 'health' | 'damage' | 'heal' | 'draw' | 'count' | 'buff',
+		readonly [number, number]
+	>
+>;
+/** Effects one card may hold. */
+export const CARD_MAX_EFFECTS: number;
+export const CARD_SIDES: readonly ('enemy' | 'friendly' | 'any')[];
+export const CARD_INCLUDES: readonly Include[];
+export const CARD_UNTILS: readonly ('endOfTurn' | 'permanent')[];
 export const CARD_RULE_DEFAULTS: Readonly<CardRules>;
 export const MAX_QUEUE_STEPS: number;
 

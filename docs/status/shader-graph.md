@@ -23,7 +23,8 @@ merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) 
 check sets its caps. 8e (screen transitions and post FX) is decided
 ([design](../design/shader-graph-screens.md)) and being built as 8e.1–8e.8; 8e.1 (the screen
 shell and the Screens node) is merged (#1440); 8e.2 (the stage filter owner and the transition
-runtime) and 8e.3 (post FX on the stage) are in progress.
+runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 (transitions in the game) is merged (#1461);
+8e.5–8e.8 are in progress.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -288,7 +289,87 @@ runtime) and 8e.3 (post FX on the stage) are in progress.
   - **8e, screen transitions and post FX.** Decided 2026-10-28
     ([shader-graph-screens.md](../design/shader-graph-screens.md) §16: every recommendation, except
     that anti-aliasing under a stage effect is a project setting, off by default). Built as
-    8e.1–8e.8, one PR each (its §15). 8e.1 is merged; 8e.2 and 8e.3 are in progress.
+    8e.1–8e.8, one PR each (its §15). 8e.1–8e.4 are merged; 8e.5–8e.8 are
+    in progress (each built in phases on its own branch, merging in the order 8e.3, 8e.4, 8e.6, 8e.5,
+    8e.7, 8e.8: 8e.5 proves the ship chain end to end only once 8e.4 and 8e.6 put `transitionCue`
+    and `postFx` through the layout reader, which today drops them).
+    - **8e.4, transitions in the game: the Flow actions and the transition cue.** Merged
+      (#1461, 2026-10-29).
+      - **The Flow.** `screenTransition` (kind, durationMs, intensity, color, reverse, blocking —
+        off by default: the old screen is frozen and the flow goes on) and
+        `waitForScreenTransition` in the standard, match3 and arcade vocabularies;
+        `ScreenTransitionKind` (the built-in exit kinds, widened per project with `custom:<id>`);
+        `stage` in `ElementFxTarget` (after `reels`, which stays the default).
+        `constants-shared/screenTransition.ts` is the one home for the kinds and
+        `SCREEN_TRANSITION_LIMITS`.
+      - **The game.** `apps/lines/src/game/screenTransitions.ts` (the `ScreenTransitionsApi`
+        seam the `flowEffects` call) is bound to the 8e.2 runtime by
+        `screenTransitionsBinding.ts` during `Game.svelte`'s setup, before the scenes load; the
+        still sits on `LAYER_BAND_SCREEN_TRANSITION` (10 500) and runs on the turbo clock. An
+        unbound call plays as a cut with a warning.
+      - **The transition cue** (`settings.transitionCue`). `transitionCueStatus` (off / screen /
+        unplayable) in `authoredOverlays.ts` is the one rule with Authored overlays: on `screen`
+        every `transition` cue plays the row's transition and the authored Transition pilot is
+        not swapped in; off or unplayable leaves the doc exactly as before. Game Maker shows
+        "Transition cue: screen transition" (and hides the pilot chip) or warns when the row's
+        effect does not ship.
+      - **Determinism** (`apps/lines/src/game/determinism.ts`): a `draw: 'last'` frame now skips
+        only renders to the screen, so a still taken under it is no longer blank.
+      - **A slam cuts it** (owner, 2026-10-29). The stop press trips `roundSkip`; the seam ends a
+        playing transition through the runtime's dispose, so the new screen shows at once and
+        `waitForScreenTransition` goes on. A slam with none playing does nothing, and one that
+        starts later in a slammed round plays in full.
+      - **Free-spin exit stays as is** (owner, 2026-10-29): the screen has already changed when
+        the cue fires, so that transition plays over the base game.
+      - **Left:** the editor row and the save path for `transitionCue` (8e.6: an editor save
+        drops it today).
+    - **8e.3, post FX on the stage.** Merged (#1459, 2026-10-29). A game plays `settings.postFx`.
+      - **Stage mode** (`pixi-svelte` `elementFx/stage.ts`). An Element FX entry on the `stage`
+        target (`ELEMENT_FX_STAGE_TARGET`, a children-less `Anchor` in `Game.svelte`) fills the
+        owner's post FX slot through `bindStagePostFx(app)` instead of the element's filters: no
+        motion is folded, nothing is measured, and the stage's filters and area come back exactly.
+        Exit, enter, motion-only and break kinds are refused with the reason
+        (`stageFxRefusal`); a stage pass pads by `STAGE_FX_EDGE_PAD` (1 px), and a graph's `uPad`
+        counts the whole stage list, foreign filters included.
+      - **The doc** (`GameSettings.postFx`, `stageFxAntialias`). `readPostFx` (`engine-layout`
+        `postFx.ts`) keeps triggers `always` and `cue`, drops an unregistered custom kind (the game
+        registers its effects first), a refused kind, and anything past `STAGE_FX_LIMITS` (2
+        entries, 4 filters), each with a warning. The runtime checks the same caps as an entry
+        starts (a Flow's entries on `stage` count too). `readStageFxAntialias` drives
+        `setStageFxAntialias` (§16.10, off by default).
+      - **`?fxdebug=1`** logs each post FX as it starts, is refused and ends. The load line waits
+        for 8e.7 (`cost` is absent until then).
+      - **Left:** the layout reader (`normalizeGameSettings`) still drops `postFx` (8e.6 puts it
+        through); reserving the `stage` and `reels` ids in the editor is 8e.6's; the `fxdebug` cost
+        baseline is 8e.7's.
+    - **8e.2, the stage filter owner and the transition runtime.** Merged (#1454, 2026-10-28).
+      A game calls it from 8e.4.
+      - **The owner** (`pixi-svelte/screenFx` `stageFilters.ts`). One owner for `app.stage.filters`
+        and `filterArea`, slots in the order transition → post FX → camera; a foreign stage filter
+        stays in front. The area is always the viewport under the stage transform, 1/256 px inside
+        it. At rest: no list, no area, no ticker. The post FX slot takes filters only;
+        `setStageFxAntialias(app, on)` gives every stage filter `'inherit'` or `'off'` (§16.10).
+      - **The chroma wobble** claims the camera slot instead of swapping the whole list;
+        `camera-effects` (new) holds 360 moments identical to a shot taken before the move.
+      - **The transition** (`screenTransition.ts`): `playScreenTransition(app, play, host)` →
+        `{ captured, done, end(), route, still, active }`, `waitForScreenTransition`,
+        `disposeScreenTransitions` (beside `disposeCameraEffects`). The still is taken at ticker
+        priority LOW+1 on `app.ticker`, just before the render, with only the owner's slots off;
+        sized to the frame's pixel grid, capped at 4096 px a side; its own texture, freed per
+        transition. One at a time; a real resize ends it; 50 ms–5 s.
+      - **Routes.** `screenTransitionRoute(effect)` in `constants-shared/screenShell.ts` is the one
+        rule (an exit graph reading no Screens helper → Out, else In); the runtime's
+        `screenTransitionKindRoute(kind)` calls it for custom kinds, plays a built-in exit Out and
+        falls back on any other built-in.
+      - **Never black, never stuck.** A missing kind, a refused body or an unlinked program fades
+        the still out; no WebGL, a lost context, a failed capture or a throw while starting cuts.
+        Every path frees the still and settles both promises.
+      - **Also fixed:** the screen header's `efxSample` read the edge texels as 0 (the right column
+        showed the old screen); and `breakApart` leaked its three `Graphics`' GPU buffers on every
+        break, in any Element FX (`destroy({ children: true, context: true })`).
+      - **Left, documented:** the still has no MSAA; nested render groups under a shake at capture
+        are offset in the still; the Out route reads progress a frame late; Out-route passes draw
+        at resolution 1 like every Element FX pass.
     - **8e.1, the screen shell and the Screens node.** Merged (#1440, 2026-10-28).
       - **One body conversion.** `constants-shared/shellBody.ts` (`shellBody`) is the conversion
         8d.1 wrote for the particle shell, moved, not copied; both shells call it. The particle
@@ -726,6 +807,55 @@ runtime) and 8e.3 (post FX on the stage) are in progress.
   the §10 caps (Open items #1).
 
 ## Recent changes
+- 2026-10-29 — **Step 8e.4: transitions in the game — the Flow actions and the transition cue**
+  (see "Current state"). Merged (#1461): CI green; Current games 8 pass, 0 fail, 0
+  changed screens.
+  - **Proof.** `transition-parity` (the cue row on, a third variant: the next cue fires 1 frame
+    after `transition`; every captured frame within 2/120 of the expected From/To mix and within 2
+    of it per channel; From travels strictly to To; nothing darker than both screens; with the
+    graph not shipped, pixel-identical to the published wipe on the same frames), 72 checks;
+    `check:authored-transition` 103 (the row off: the identical doc; on: no swap; the binding; the
+    chips); `check:flow-bonus-modes` 137; `check:flow-publish-gate` (every starter flow
+    byte-identical); `gen:flow-vocab:check`; flow-spike `v2screentransition` (all three
+    vocabularies); `check:element-fx-flow` 22; svelte-check at baseline; `check:all` 601/601.
+  - **Review.** Fixed, each mutation-checked: a new `elementEffect` defaulted to `stage`; the
+    pilot and cue chips contradicted each other; the cue chip promised a free-spin exit transition
+    out of the free spins; the parity checks passed on backdrop drift and on equal steps; a still
+    taken under `draw: 'last'` was blank. CI then showed the t+12 "differs from the cue frame"
+    check passed locally only on backdrop drift; it starts at t+24 (the mix check still holds
+    t+12).
+  - **Owner's calls.** A slam cuts a playing transition to the new screen (flow-spike
+    `v2screentransition` §6, `check:authored-transition` 104, fx-spike `screen-fx` 172; 5
+    mutations caught); the free-spin exit stays as is.
+- 2026-10-28 — **Step 8e.3: post FX on the stage** (see "Current state"). Merged
+  (#1459): CI green; Current games 8 pass, 0 fail, 0 changed screens.
+  - **Proof.** `check:element-fx` 276 (stage mode: no motion, no measure, filters and area restored
+    exactly, the refused kinds, the caps at start, `uPad` over the whole list, a stale unbind);
+    fx-spike `screen-fx` 172 claims on WebGL1 and WebGL2 (an Output-alone post FX matches none; the
+    MSAA difference with the setting off is 1.05 % of channel values on WebGL2, 0 with it on; the
+    setting reaches every stage filter; the slot order with a transition and the chroma wobble);
+    `scripts/playtest/post-fx-play.mjs` plays a doc's post FX in a fresh `apps/lines` build
+    headless; svelte-check at baseline (pixi-svelte 14, lines 156, engine-layout 290);
+    `check:all` 599/599.
+  - **Review.** Fixed, each mutation-checked: `uPad` counted only the post FX, not the whole stage
+    list; an unregistered custom kind was kept; an older bind's unbind emptied a newer bind's slot;
+    three unused exports.
+- 2026-10-28 — **Step 8e.2: the stage filter owner and the transition runtime** (see "Current
+  state"). Merged (#1454): CI green; Current games 8 pass, 0 fail, 0 changed screens. After review
+  it also gained a pad uniform in the screen shell (`uScreenPad`), so a padded post FX no longer
+  shifts the still, and it watches resizes through the renderer's `prerender` runner.
+  - **Proof.** `screen-fx` (new) 78 claims on each of WebGL1 and WebGL2 (both routes, the
+    fallbacks and cuts including a throw while starting and a lost context, one at a time, resize,
+    the 4096 cap, the still's mapping at resolution 1, 1.5 and 2 and under pooled textures, a
+    transition under a camera zoom and shake, a crossfade under a post FX, 2,000 transitions with
+    GL objects unchanged after warm-up); `camera-effects` (new) 360/360 identical to the base shot;
+    `check:element-fx`, `particle-material`, compile fixture and `shader-compile` pass;
+    `shader-parity` identical except the `screens` sheet's edge pixels (the `efxSample` fix);
+    svelte-check at baseline; `check:all` 590/590. 33 mutations caught.
+  - **Review.** Nothing blocking. Fixed: a throw after the capture could stop the ticker with the
+    still on screen; a post FX area squashed the still (the area is now always the viewport); gate
+    gaps (breaks under the GL ledger, a lost context, a moving camera, a leaked tick); the capture
+    moved to `app.ticker`; same-size resizes; foreign filters kept in the still.
 - 2026-10-28 — **Step 8e.1: the screen shell and the Screens node** (see "Current state"). Merged
   (#1440): CI green; Current games 8 pass, 0 fail, 0 changed screens. Step 8e decided (#1434).
   - **Proof.** Compile fixture 230 (the node at every output and its neutral meanings, the

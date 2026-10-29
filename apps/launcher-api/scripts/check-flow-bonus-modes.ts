@@ -24,7 +24,10 @@
  *     those two fields, and the hash reads them as `main` words them. The same doc stored with the
  *     legacy keys normalizes to the same add-ons, and a current doc carries none. The Element FX
  *     additions (the `elementEffect` / `stopElementEffect` actions and the `ElementFxKind` /
- *     `ElementFxTarget` enums) are pinned on their own and left out of the vocabulary hash.
+ *     `ElementFxTarget` enums), the screen transition additions (Invisible Shader Graph 8e: the
+ *     `screenTransition` / `waitForScreenTransition` actions and the `ScreenTransitionKind` enum) and
+ *     the lines wild rewrites (`expandWild` / `growWild`, an event and an action each) are pinned on
+ *     their own and left out of the vocabulary hash.
  *
  * `--print` prints the digests instead of checking them.
  */
@@ -332,13 +335,25 @@ const digest = (value: unknown): string =>
 /** The Element FX surface added to every kind's vocabulary after `main` 5743911. */
 const ELEMENT_FX_ACTIONS = ['elementEffect', 'stopElementEffect'];
 const ELEMENT_FX_ENUMS = ['ElementFxKind', 'ElementFxTarget'];
+/** The screen transition surface (Invisible Shader Graph 8e) added to every kind's vocabulary. */
+const SCREEN_TRANSITION_ACTIONS = ['screenTransition', 'waitForScreenTransition'];
+const SCREEN_TRANSITION_ENUMS = ['ScreenTransitionKind'];
+const ADDED_ACTIONS = [...ELEMENT_FX_ACTIONS, ...SCREEN_TRANSITION_ACTIONS];
+const ADDED_ENUMS = [...ELEMENT_FX_ENUMS, ...SCREEN_TRANSITION_ENUMS];
 /** The respin counter's award cue, added to the Hold and Win cues after `main` 5743911. */
 const AWARD_CUE = 'respinCounterAward';
-/** `vocab` as `main` had it: without the Element FX additions and the award cue. */
+/** The lines wild rewrites (expanding / growing wild), each an event and an action of the Book-of
+ *  vocabulary `lines` resolves to, added after `main` 5743911. */
+const WILD_REWRITES = ['expandWild', 'growWild'];
+/** `vocab` as `main` had it: without the Element FX and screen transition additions, the award cue
+ *  and the wild rewrites. */
 const asOnMain = (vocab: TemplateVocabulary): TemplateVocabulary => ({
 	...vocab,
-	actions: vocab.actions.filter((a) => !ELEMENT_FX_ACTIONS.includes(a.name)),
-	enums: vocab.enums.filter((e) => !ELEMENT_FX_ENUMS.includes(e.name)),
+	events: vocab.events.filter((e) => !WILD_REWRITES.includes(e.name)),
+	actions: vocab.actions.filter(
+		(a) => !ADDED_ACTIONS.includes(a.name) && !WILD_REWRITES.includes(a.name),
+	),
+	enums: vocab.enums.filter((e) => !ADDED_ENUMS.includes(e.name)),
 	cues: vocab.cues.filter((c) => c.name !== AWARD_CUE),
 });
 
@@ -461,6 +476,26 @@ for (const [name, kind, doc] of currentDocs()) {
 		],
 		[...ELEMENT_FX_ACTIONS, ...ELEMENT_FX_ENUMS],
 	);
+	same(
+		`5. ${name} · the screen transition actions and enum are there, after the camera effect`,
+		[
+			...docVocab.actions
+				.map((a) => a.name)
+				.filter((a) => a === 'cameraEffect' || SCREEN_TRANSITION_ACTIONS.includes(a)),
+			...docVocab.enums.filter((e) => SCREEN_TRANSITION_ENUMS.includes(e.name)).map((e) => e.name),
+		],
+		['cameraEffect', ...SCREEN_TRANSITION_ACTIONS, ...SCREEN_TRANSITION_ENUMS],
+	);
+	if (kind !== 'holdAndWin') {
+		same(
+			`5. ${name} · the wild rewrite events and actions are there`,
+			[
+				...docVocab.events.filter((e) => WILD_REWRITES.includes(e.name)).map((e) => e.name),
+				...docVocab.actions.filter((a) => WILD_REWRITES.includes(a.name)).map((a) => a.name),
+			],
+			[...WILD_REWRITES, ...WILD_REWRITES],
+		);
+	}
 	if (docVocab.cues.some((cue) => cue.name === 'respinBoardShow')) {
 		same(
 			`5. ${name} · the award cue is there`,

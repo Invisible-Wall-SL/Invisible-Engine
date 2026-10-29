@@ -45,7 +45,19 @@ You are the developer for **Invisible Shader Graph**.
     `SCREEN_SHELL_NAMES`); the `screens` input node and the `efxScreenFrom` / `To` / `Reverse`
     header helpers (neutral in the element and particle headers); `TRANSITION_*` / `POST_*` budgets
     in `compile.ts`; held by the `screens` sheet of `shader-compile`
-    (`tools/fx-spike/shaderScreens.entry.ts`).
+    (`tools/fx-spike/shaderScreens.entry.ts`); the runtime `pixi-svelte/screenFx`
+    (`stageFilters.ts`: the one owner of `app.stage.filters`, slots transition → post FX → camera;
+    `screenTransition.ts`: `playScreenTransition`, the still, both routes, the fallbacks), held by
+    fx-spike `screen-fx` and `camera-effects`; the route rule `screenTransitionRoute` in
+    `screenShell.ts`; post FX: the Element FX runtime's stage mode (`elementFx/stage.ts`,
+    `bindStagePostFx`), `readPostFx` / `readStageFxAntialias` (`engine-layout` `postFx.ts`),
+    `STAGE_FX_LIMITS` in `constants-shared/elementFx.ts`, the `stage` anchor in `Game.svelte`,
+    played by `scripts/playtest/post-fx-play.mjs`; transitions in the game (8e.4): the Flow's
+    `screenTransition` / `waitForScreenTransition` (`engine-flow-v2` `standardVocab.ts`), the kinds
+    and limits in `constants-shared/screenTransition.ts`, the game seam
+    `apps/lines/src/game/screenTransitions.ts` + `screenTransitionsBinding.ts`, the transition cue
+    (`transitionCueStatus` in `engine-layout` `authoredOverlays.ts`), held by
+    `scripts/transition-parity` (cue-row variant) and `check:authored-transition`.
   - Particle materials (step 8d, `docs/design/shader-graph-particles.md`):
     `packages/constants-shared/particleShell.ts` (the particle vertex shader, `PARTICLE_HEADER`,
     `PARTICLE_SHELL_NAMES`, `particleShellSource`: a compiled body made a particle fragment); the

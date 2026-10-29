@@ -5,19 +5,22 @@
  *   pnpm --filter launcher-api check:family-tools
  *
  *  1. THE LIST. Every id `FAMILY_TOOLS` names is a real tool, every family has a row, and slot and
- *     match-3 hide only Invisible Characters (arcade-only, P10.11). Every Director adapter tool maps
+ *     match-3 hide only the family tools: Invisible Characters (arcade-only, P10.11) and Invisible
+ *     Card Library (card-only, card-games.md C4). Every Director adapter tool maps
  *     to a real launcher tool.
  *  2. THE MANIFEST. The REAL `(app)/+layout.server.ts` load, for every role: a slot project, a
  *     project with no recorded kind and the shared `cloud` scope get `manifestForRole` without
- *     Invisible Characters — the list from before that tool existed, pinned by name; a match-3
- *     project the same; an arcade project the role's whole manifest minus Symbols and Win Text. A tool
+ *     Invisible Characters and Invisible Card Library — the list from before those tools existed,
+ *     pinned by name; a match-3 project the same; an arcade project the role's whole manifest minus
+ *     Symbols, Win Text and Card Library. A tool
  *     page's `?project=` decides the family before the page syncs it into the session, and the
  *     load reads it TRACKED (the event has no `untrack`), so a client-side hop to another
  *     project's `?project=` re-runs it. Onboarding keeps the role's whole manifest.
  *  3. THE NOTICE. The REAL `(app)/+layout.svelte`, rendered on the server: a hidden tool's URL (and
  *     a path under it) shows the notice, naming the project, and not the page; a slot project, and
  *     any tool the family uses, render the page untouched. `/characters` is the notice for a slot
- *     or match-3 project and the page for an arcade one.
+ *     or match-3 project and the page for an arcade one; `/cards` the notice for a slot, match-3 or
+ *     arcade project.
  *  4. DIRECTOR'S GATE. The REAL `director/gate.ts` refuses an op on a tool the project's family
  *     does not use (`not_for_family`) and runs the same op for a slot project. No Director op
  *     authors characters, so the gate needs no row for them.
@@ -90,12 +93,13 @@ for (const [family, ids] of Object.entries(FAMILY_TOOLS)) {
 		[],
 	);
 }
-check('1. the slot family hides only Invisible Characters', FAMILY_TOOLS.slot, ['characters']);
-check('1. match-3 hides only Invisible Characters', FAMILY_TOOLS.match3, ['characters']);
-check('1. arcade hides Symbols and Win Text (§6.5)', [...FAMILY_TOOLS.arcade].sort(), [
-	'symbols',
-	'winText',
-]);
+check('1. the slot family hides only the family tools', FAMILY_TOOLS.slot, ['characters', 'cards']);
+check('1. match-3 hides only the family tools', FAMILY_TOOLS.match3, ['characters', 'cards']);
+check(
+	'1. arcade hides Symbols, Win Text and Card Library (§6.5)',
+	[...FAMILY_TOOLS.arcade].sort(),
+	['cards', 'symbols', 'winText'],
+);
 
 // The real `projectFamily`, read before `projects.ts` is faked (a query makes it another module).
 const { projectFamily } = (await import(
@@ -191,9 +195,9 @@ const BEFORE_CHARACTERS = new Set([
 	'gameBugs',
 ]);
 check(
-	'2. the registry is the pre-P10.11 list plus Invisible Characters',
+	'2. the registry is the pre-P10.11 list plus Invisible Characters and Card Library',
 	Object.keys(TOOLS).sort(),
-	[...BEFORE_CHARACTERS, 'characters'].sort(),
+	[...BEFORE_CHARACTERS, 'characters', 'cards'].sort(),
 );
 for (const role of ROLES) {
 	const all = ids(manifestForRole(role));
@@ -201,6 +205,11 @@ for (const role of ROLES) {
 	check(
 		`2. ${role}: holds Invisible Characters exactly when it holds Game Config`,
 		all.includes('characters'),
+		all.includes('gameConfig'),
+	);
+	check(
+		`2. ${role}: holds Invisible Card Library exactly when it holds Game Config`,
+		all.includes('cards'),
 		all.includes('gameConfig'),
 	);
 	for (const [key, family] of [
@@ -212,7 +221,7 @@ for (const role of ROLES) {
 	] as const) {
 		const data = await loadFor(role, key);
 		check(
-			`2. ${role}, ${key}: the role's manifest as before Invisible Characters`,
+			`2. ${role}, ${key}: the role's manifest as before the family tools`,
 			ids(data.tools),
 			today,
 		);
@@ -220,9 +229,9 @@ for (const role of ROLES) {
 	}
 	const arcade = await loadFor(role, 'catcher');
 	check(
-		`2. ${role}, an arcade project: the manifest without Symbols and Win Text`,
+		`2. ${role}, an arcade project: the manifest without Symbols, Win Text and Card Library`,
 		ids(arcade.tools),
-		all.filter((id) => id !== 'symbols' && id !== 'winText'),
+		all.filter((id) => id !== 'symbols' && id !== 'winText' && id !== 'cards'),
 	);
 	check(
 		`2. ${role}, an arcade project: Invisible Characters when the role has it`,
@@ -312,6 +321,25 @@ try {
 				[true, false],
 			);
 		}
+	}
+	for (const family of ['slot', 'match3', 'arcade'] as const) {
+		for (const path of ['/cards', '/cards/anything']) {
+			const body = renderAt(path, family);
+			check(
+				`3. ${family} ${path}: the notice`,
+				body.includes(`Invisible Card Library is not used by ${FAMILY_LABELS[family]} games`),
+				true,
+			);
+			check(`3. ${family} ${path}: not the tool`, body.includes(PAGE), false);
+		}
+	}
+	for (const path of ['/cards', '/config']) {
+		const body = renderAt(path, 'card');
+		check(
+			`3. card ${path}: the page, no notice`,
+			[body.includes(PAGE), body.includes('not used by')],
+			[true, false],
+		);
 	}
 	for (const family of ['slot', 'match3'] as const) {
 		for (const path of ['/characters', '/characters/anything']) {

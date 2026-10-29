@@ -1139,7 +1139,8 @@ export function startBreak(options: BreakOptions): BreakRun | undefined {
 		update: pose,
 		follow: live ? follow : undefined,
 		destroy(): void {
-			if (!holder.destroyed) holder.destroy({ children: true });
+			// `context`: a Graphics destroyed with options keeps its own context, and its buffers.
+			if (!holder.destroyed) holder.destroy({ children: true, context: true });
 			texture.destroy(true);
 			retired?.destroy(true);
 			iced?.destroy(true);

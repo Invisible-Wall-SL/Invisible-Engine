@@ -24,7 +24,15 @@
 		 *  Absent ⇒ the container keeps Pixi's default `0` and the parent is never flagged
 		 *  sort-dirty, which is the pre-existing mount-order behaviour exactly. */
 		zIndex?: number;
-		children: Snippet;
+		/** Is this cell's reel strip rolling? Only `ReelSymbol` knows, and only it passes it; it is
+		 *  what lets a rolling symbol be drawn before its centre crosses the window edge. */
+		rolling?: boolean;
+		/** Keep the art mounted, hidden, while it is outside the window: a pooled view
+		 *  (`ReelPaddingPool`) that is handed the next cell instead of being destroyed. Absent ⇒
+		 *  mounted only in the window, as before. */
+		keepMounted?: boolean;
+		/** Told whether the symbol is drawn ahead of its time (see `held` below). */
+		children: Snippet<[held: boolean]>;
 	};
 
 	const props: Props = $props();
@@ -60,7 +68,35 @@
 			? steppedWindow.top + steppedWindow.height
 			: context.stateGameDerived.boardWindowHeight(),
 	);
-	const inFrame = $derived(props.y >= top && props.y <= bottom);
+	// How far past the window edge a ROLLING symbol's seat may sit and still be drawn: half a row,
+	// on the masked layer. It mounts the moment its cell first touches the window and the mask clips
+	// the part still outside, so the strip slides under the edge instead of popping in once a
+	// symbol's centre crosses it (the gap the reels used to show at the top and bottom mid-spin).
+	// While any reel rolls the mask is the tight window (`boardOverflow()` is `{ 0, 0 }`), so nothing
+	// outside it can show.
+	//
+	// Zero — the centre test — everywhere else: on the UNMASKED animating layer, where nothing would
+	// clip the outside part, and at rest, so a resting board draws exactly the cells it always did
+	// (the current-games harness showed a half-row margin at rest changing settled boards).
+	const margin = $derived(
+		props.rolling && !boardContext.animate
+			? (context.stateGameDerived.boardGeometry().rowPitchLocal * (props.scale ?? 1)) / 2
+			: 0,
+	);
+	const inFrame = $derived(
+		margin === 0
+			? props.y >= top && props.y <= bottom
+			: props.y + margin > top && props.y - margin < bottom,
+	);
+	/**
+	 * Drawn early: in the half-row band above the window, its centre not yet inside. The art is held
+	 * there — the rig or flipbook on its first frame, its state's Element FX not yet made — and starts
+	 * on the frame the centre crosses, which is when the cell used to mount. Both clocks start at
+	 * mount, and an FX filter draws its seed from `Math.random` when it is made, so without the hold a
+	 * symbol drawn early comes to rest further into its loops and every cosmetic draw after it shifts.
+	 * Only on the way in: on the way out the cell used to unmount, so nothing there runs early.
+	 */
+	const held = $derived(margin > 0 && props.y < top);
 	// A flat seat passes `undefined`, NOT 1, because `1` is not a no-op in Pixi v8: assigning
 	// `container.scale` swaps the shared `defaultScale` singleton for an owned `ObservablePoint` and
 	// dirties the transform. `pixi-svelte`'s `propsSyncEffect` skips undefined props, so an unscaled
@@ -68,13 +104,19 @@
 	const scale = $derived(props.scale === 1 ? undefined : props.scale);
 </script>
 
-{#if props.debug || (show && inFrame)}
+{#if props.debug || (show && (inFrame || props.keepMounted))}
 	<!-- NO tint here. The win-celebration dim used to be one `tint` on this container, cascading to
 	     everything inside; it now rides each drawn piece inside `Symbol.svelte` instead, because
 	     Pixi's cascade only ever multiplies and a layer that opts out of the dim therefore has to be
 	     outside every tinted node. Same factor, applied one level lower — the leaf colours are
 	     identical either way. -->
-	<Container x={props.x} y={props.y} {scale} zIndex={props.zIndex}>
-		{@render props.children()}
+	<Container
+		x={props.x}
+		y={props.y}
+		{scale}
+		zIndex={props.zIndex}
+		visible={props.keepMounted ? props.debug || inFrame : undefined}
+	>
+		{@render props.children(held)}
 	</Container>
 {/if}

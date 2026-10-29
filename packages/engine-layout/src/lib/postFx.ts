@@ -8,8 +8,9 @@ import {
 
 /**
  * What the stage knows of a kind (the Element FX runtime's `stageFxRefusal` / `stageFxFilterCount`),
- * passed in so this reader stays free of Pixi. Either answers `undefined` for a kind it does not
- * know yet (a custom effect not registered): the runtime decides that one when it starts.
+ * passed in so this reader stays free of Pixi. Either answers `undefined` for a kind that cannot
+ * play (a custom effect not registered). The game registers its effects before it reads its doc, so
+ * with a judge such an entry is dropped; without one it is kept, for the runtime to decide.
  */
 export interface PostFxJudge {
 	refusal(kind: ElementFxKindId): string | undefined;
@@ -22,8 +23,9 @@ const settingOf = (settings: unknown, key: string): unknown =>
 /**
  * `settings.postFx` as the game plays it (`shader-graph-screens.md` §8, §10): read as any Element FX
  * list, then, in order, an entry is dropped with a warning when its trigger is neither `always` nor
- * `cue`, when the stage refuses its kind, or when it would pass {@link STAGE_FX_LIMITS} (two entries,
- * four filters). A disabled entry is dropped and counts for nothing.
+ * `cue`, when its kind is not registered (with a judge), when the stage refuses its kind, or when it
+ * would pass {@link STAGE_FX_LIMITS} (two entries, four filters). A disabled entry is dropped and
+ * counts for nothing.
  */
 export function readPostFx(settings: unknown, judge?: PostFxJudge): ElementFxEntry[] {
 	const out: ElementFxEntry[] = [];
@@ -36,6 +38,11 @@ export function readPostFx(settings: unknown, judge?: PostFxJudge): ElementFxEnt
 			drop(entry, `a post FX plays always or on a cue, not "${entry.trigger}"`);
 			continue;
 		}
+		const drawn = judge?.filters(entry.kind);
+		if (judge && drawn === undefined) {
+			drop(entry, 'its effect is not registered');
+			continue;
+		}
 		const refusal = judge?.refusal(entry.kind);
 		if (refusal) {
 			drop(entry, refusal);
@@ -45,12 +52,11 @@ export function readPostFx(settings: unknown, judge?: PostFxJudge): ElementFxEnt
 			drop(entry, `at most ${STAGE_FX_LIMITS.entries} post FX play`);
 			continue;
 		}
-		const drawn = judge?.filters(entry.kind) ?? 0;
-		if (filters + drawn > STAGE_FX_LIMITS.filters) {
+		if (filters + (drawn ?? 0) > STAGE_FX_LIMITS.filters) {
 			drop(entry, `post FX draw at most ${STAGE_FX_LIMITS.filters} filters in all`);
 			continue;
 		}
-		filters += drawn;
+		filters += drawn ?? 0;
 		out.push(entry);
 	}
 	return out;

@@ -18,14 +18,17 @@
  *    both copied) must be one game repos already carry ({@link SCAFFOLD_EXTERNALS});
  *  - every `workspace:` dependency, of `apps/lines` and of every workspace package it reaches, must
  *    live under `packages/`, the only engine folder a game repo's workspace includes;
- *  - every package `apps/lines/src` imports must be one `apps/lines` declares.
+ *  - every package `apps/lines/src` imports must be one `apps/lines` declares;
+ *  - a family-only package ({@link FAMILY_ONLY}: `engine-rooms`) is reached only through its
+ *    family's seam module, so a runtime built without the family carries none of it
+ *    (`docs/design/phase-11.md` §2.4).
  *
  * Third-party VERSIONS are not compared: Svelte's are `config-vite`'s guard; the others a game repo
  * keeps at its scaffold-day pins.
  *
  *   node scripts/check-game-app-deps.mjs
  */
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -47,6 +50,24 @@ const SCAFFOLD_EXTERNALS = new Set([
 	'cross-env',
 	'svelte-check',
 ]);
+
+/** Workspace packages only one family uses: each is imported only behind that family's seam (paths
+ *  relative to apps/lines/src; `behind` lists every module that may import the package or reach a
+ *  module that does). */
+const FAMILY_ONLY = {
+	'engine-rooms': {
+		seam: 'families/arcade.ts',
+		behind: ['game/online.ts', 'components/ArcadeStage.svelte'],
+	},
+};
+
+/** The file a relative import names, as Vite resolves the extensions apps/lines omits. */
+const resolveRelative = (from, spec) => {
+	const base = resolve(dirname(from), spec);
+	return [base, `${base}.ts`, `${base}.js`, join(base, 'index.ts')].find(
+		(f) => existsSync(f) && !statSync(f).isDirectory(),
+	);
+};
 
 const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));
 const depsOf = (pkg) => ({ ...pkg.devDependencies, ...pkg.dependencies, ...pkg.peerDependencies });
@@ -128,6 +149,41 @@ for (const [name, file] of imported) {
 			`${file} imports "${name}", which apps/lines/package.json does not declare — it resolves ` +
 				`in the monorepo through the root install, never in a game repo.`,
 		);
+	}
+}
+
+// A family-only package is reachable only through its family's seam (`families/<family>.ts`), so a
+// build that leaves the family out (`config-vite`'s seam stub) really leaves the package out. Its
+// importers must be among the seam's modules, and those are imported only by the seam or by each
+// other (paths relative to apps/lines/src).
+for (const [name, { seam, behind }] of Object.entries(FAMILY_ONLY)) {
+	const inside = new Set([seam, ...behind].map((p) => join(srcDir, p)));
+	for (const file of inside) {
+		if (!existsSync(file)) problems.push(`${relative(ROOT, file)} (${name}'s seam) does not exist`);
+	}
+	for (const [pkg, json] of workspacePackages) {
+		if (name in depsOf(json))
+			problems.push(`packages/…/${pkg} depends on "${name}", which only ${seam} may reach`);
+	}
+	for (const file of sources) {
+		const rel = relative(ROOT, file);
+		for (const m of readFileSync(file, 'utf8').matchAll(IMPORT)) {
+			const spec = m[2] ?? m[4] ?? m[6];
+			if (
+				(spec === name || spec.startsWith(`${name}/`)) &&
+				!behind.includes(relative(srcDir, file))
+			)
+				problems.push(
+					`${rel} imports "${name}", which only the ${seam} seam's modules may: a build ` +
+						`without that family would still carry it.`,
+				);
+			const target = spec.startsWith('.') ? resolveRelative(file, spec) : null;
+			if (target && behind.includes(relative(srcDir, target)) && !inside.has(file))
+				problems.push(
+					`${rel} imports ${relative(ROOT, target)}, which carries "${name}": import it only ` +
+						`through ${seam}, so a build without that family leaves it out.`,
+				);
+		}
 	}
 }
 

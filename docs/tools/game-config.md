@@ -98,6 +98,9 @@ before — an un-authored project still runs the compiled template.
   (which symbol, how many) and how many spins they award. Shown for every kind but
   Hold and Win (no free spins); a Book-of game always triggers on its book. See
   _Free spins_ below.
+- **Expanding wilds** and **Growing wild** — wilds that change the board when they land,
+  before any win is counted. Shown on a lines game that does not tumble. See _Expanding wilds
+  and the growing wild_ below.
 - **Reel behaviour** — how a round **arrives** on the board: whether the reels roll
   at all, and if not, how the new symbols get there. See _Reel behaviour_ below.
 - **Game modes** — every mode's board and presentation (base game, free spins, respin
@@ -202,11 +205,12 @@ has no family control at all. Three more families exist
   - **Resource at start** (1), **Resource per turn** (1) and **Resource cap** (10): what each side
     has to pay for cards, refilled each turn.
   - **Who goes first** — Random (the default), The player or The AI.
-  - **Cards and decks** — the counts, and a note: until Invisible Card Library ships, the cards
-    (`card.library`) and the decks (`card.decks`, each `{ id, name, side, cards: [{ card, count }],
-ai: { difficulty } }`) are edited in **Raw JSON**. A card the rules cannot read, a deck of the
-    wrong size, too many copies, a deck naming a card not in the library, or no player or no AI
-    deck is refused; a card no deck uses warns. These problems show under this section.
+  - **Cards and decks** — how many cards and decks the config has, and **Edit in Invisible Card
+    Library**, which opens `/cards`: the cards (`card.library`) and the decks (`card.decks`) are
+    edited there, not here (see [Invisible Card Library](invisible-card-library.md)). Their
+    problems still show under this section: a card the rules cannot read, a deck of the wrong size,
+    too many copies, a deck naming a card not in the library, or no player or no AI deck is
+    refused; a card no deck uses warns.
     A card game's names, flavour text, generated rules text and deck names appear in
     [Localization](localization.md) under a **Cards** section.
 - **Publishing:** a **match-3** config publishes from Game Maker to the test server, free play or
@@ -515,7 +519,10 @@ taken id is refused beside the button.
 
 To replace the whole config with one of these games, pick it in the banner's preset menu and press
 **Reset to preset** (it asks first; a lines project's menu offers the **Book of Thermopylae**, see
-_Free spins_). On a Hold and Win project the menu lists **Plain (Jackpots on)** and **Plain
+_Free spins_, and **Fairy Clover** — 5×4, fifty lines, the fairy `W` (an expanding wild) and the
+clover `CL` (a growing wild),
+free spins on two `S`, from Slotmotion's _Fairy's Charm_; its RTP is a placeholder until the maths
+is tuned). On a Hold and Win project the menu lists **Plain (Jackpots on)** and **Plain
 (Jackpots off)** first, the game Game Maker's template creates (coins only, no pots or specials),
 then **Coin board only (no line game)** (the template with _Base game: Coin board only_, see
 _Coin board_), then the three games above. A new Hold and Win project already has its own config: Game Maker
@@ -634,6 +641,42 @@ Lucky Spin or the random metre to it in Coin overlay_), then:
 
 A field left on the base game's is not stored: the mode follows the base game for it, so a later
 change to the base game reaches the spins mode too.
+
+## Expanding wilds and the growing wild
+
+Two optional sections, each with an **on/off** select: on adds the block to the config, off
+removes it. They show on a **lines** game that does **not tumble**, and not on a Book-of or Hold
+and Win project. Anywhere else, a block the config already has shows only a **Remove** link, so
+its error never blocks Save for good. Their problems are listed under each section.
+
+Which reels a wild lands on is always set by the **reel strips** — these sections only say what
+it does once it has landed. The Invisible Test Server deals both from the config; a partner
+server deals them by its own math.
+
+### Expanding wilds
+
+A wild that fills its whole reel when it lands.
+
+- **The table** lists every wild in the dictionary (a symbol with the _wild_ property that is
+  not a scatter or a Hold and Win symbol). Tick **Expands** for each wild that expands. **Dealt
+  on reels (base game)** is read-only: the reels the base game's strips deal it on, or _none_.
+- **Show every expansion** — off by default. A wild always expands before the wins are counted;
+  off, the player sees the expansion only when a win uses that reel (the reel otherwise keeps its
+  landed symbols on screen), as in the reference game. On, every expansion is drawn.
+
+### Growing wild
+
+A wild that copies itself onto the cells around it when it lands, after any expanding wild has
+expanded. It never covers a scatter or a Hold and Win symbol, and a copy does not grow again.
+
+- **Wild** — the one wild that grows. A wild either expands or grows, not both. A line under the
+  select shows the reels the base game's strips deal it on.
+- **Pattern** — which cells it copies onto: _Plus_ (up, down, left, right — the default),
+  _Vertical_, _Horizontal_ or _All 8 around_. Cells off the board are skipped.
+- **Base game reels it grows from** — tick the reels (1 to N). None ticked means the centre
+  reel, which the row says.
+- **Free spins reels it grows from** — on a game with free spins. None ticked means the same
+  reels as the base game.
 
 ## Reel behaviour
 
@@ -845,9 +888,11 @@ whether the game has the free-spins feature at all, and what lands it.
   that is not on the strips is listed with _(not on the strips)_ and is an error:
   it is never dealt, so free spins could never trigger.
 - **How many** (only while on) — the fewest trigger symbols, **anywhere on the
-  board**, that award the feature. Default **3**, and **3 is the least** allowed:
-  free spins retrigger on the same rule, and at one or two a retrigger would come so
-  often that the feature never ended. More than the board has cells is an error too.
+  board**, that award the feature. Default **3**. Free spins retrigger on the same
+  rule, so **1 or 2** is allowed only when the game has **freegame** reel strips and,
+  measured exactly on them, a retrigger adds under **0.5** spins per free spin played
+  (the error names the measured figure); with no freegame strips 3 is the least. More
+  than the board has cells is an error too.
 - **Random amount** (only while on) — _off — each row awards a fixed number_ (the
   default) or _on — a random number between two values_. It applies to both tables
   below.

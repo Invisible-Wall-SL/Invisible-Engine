@@ -139,6 +139,18 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-28 — **Four runtimes, one per family (P11.1b, branch `ci/p11-1b-runtime-matrix`, not
+  merged; needs the P11.1b engine branch's `scripts/check-family-runtime.mjs` beside it).**
+  `runtime-release.yml` runs the gates once (`gates`), then a `publish` matrix over `lines`,
+  `match3`, `arcade`, `card` (`RUNTIMES` in `packages/constants-shared/runtimes.ts`), each building
+  `apps/lines` with its `PUBLIC_IE_FAMILIES` (`lines` stays `all`), its family gate, Sentry maps,
+  upload, promote and served check. Concurrency is per job, keyed on the id; `fail-fast: false`, so
+  one id's failure promotes nothing of its own and blocks none of the others; the failure issue
+  names the id (`Runtime release failed: <id>`, or `… gates (no runtime released)`). A dispatch
+  releases one id (a choice). `runtime-rollback.yml`'s `runtime` is the same choice. Publish now
+  puts a game on its config family's id (`runtimeChoice.ts`), falling back to `lines` while that
+  id has no release. The current-games cache key is `current-games-runtime-v3-<sha>` (one build per
+  id). Nothing deployed or dispatched. Guide: [release-and-rollback](../guides/release-and-rollback.md).
 - 2026-10-28 — **Game server boots again.** Since C3 (#1426) `game-config/src/cardGame.ts` imports
   `engine-mechanics`, and Node resolves that from the package's real path (`/app/packages/…`), where
   the image had no `node_modules`; the server crashed with `ERR_MODULE_NOT_FOUND` and every deploy

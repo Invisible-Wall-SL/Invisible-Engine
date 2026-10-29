@@ -139,7 +139,9 @@ const BOARD_ACTIONS: ActionDecl[] = [
 ];
 
 /** Every board action's name — what a runtime that backs the vocabulary must implement. */
-export const MATCH3_BOARD_ACTIONS: readonly string[] = BOARD_ACTIONS.map((action) => action.name);
+export const MATCH3_BOARD_ACTIONS: readonly string[] = /* @__PURE__ */ BOARD_ACTIONS.map(
+	(action) => action.name,
+);
 
 /**
  * The actions that decide the board, which only a rules-decided game may call (§2.2 #2): in an
@@ -169,6 +171,8 @@ const KEPT_ACTIONS = new Set([
 	'cameraEffect',
 	'elementEffect',
 	'stopElementEffect',
+	'screenTransition',
+	'waitForScreenTransition',
 	'openGameRules',
 	'openSettings',
 	'toggleSound',
@@ -190,14 +194,17 @@ const KEPT_ENUMS = new Set([
 	'CameraEffectKind',
 	'ElementFxKind',
 	'ElementFxTarget',
+	'ScreenTransitionKind',
 	'MusicName',
 	'SoundEffectName',
 	'SoundName',
 ]);
 
-const standard = standardVocabulary({ templateId: MATCH3_TEMPLATE_ID });
+// `@__PURE__`: a runtime built without this family drops it (`docs/design/phase-11.md` §2.2);
+// Rollup otherwise keeps a top-level call for its possible side effects.
+const standard = /* @__PURE__ */ standardVocabulary({ templateId: MATCH3_TEMPLATE_ID });
 
-export const MATCH3_VOCAB: TemplateVocabulary = {
+export const MATCH3_VOCAB: TemplateVocabulary = /* @__PURE__ */ (() => ({
 	templateId: MATCH3_TEMPLATE_ID,
 	structs: [
 		...standard.structs.filter((s) => s.name === 'Position'),
@@ -220,4 +227,4 @@ export const MATCH3_VOCAB: TemplateVocabulary = {
 	cues: [...TUMBLE_CUES, ...standard.cues.filter((c) => KEPT_CUES.has(c.name))],
 	collections: [],
 	values: [],
-};
+}))();

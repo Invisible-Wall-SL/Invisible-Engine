@@ -3,7 +3,6 @@ import type { DirectorDraftJob } from '../db/schema';
 import { projectGameType } from '../projects';
 import { getObjectText, listAllKeys, presignGet, presignPut } from '../r2';
 import { requireProjectScope } from '../toolScope';
-import { SHARED_RUNTIME_ID } from '../testServerManifest';
 import { mintCallbackToken, DRAFT_TOKEN_SCOPE } from './atlasCallback';
 import { SIGNATURE_HEADER, signDraftRequest } from './draftSigning';
 import { screenshotSlots } from './draftScripts';
@@ -103,11 +102,11 @@ export function createHttpDraftPlayer(
 		async submit(job) {
 			const prefix = draftPrefix(job.clientKey, job.projectKey, job.draftId);
 			const meta = JSON.parse((await getObjectText(`${prefix}draft.json`)) ?? 'null') as {
-				runtime: { version: string; commit: string };
+				runtime: { id: string; version: string; commit: string };
 				contract: unknown;
 			} | null;
 			if (!meta) throw new Error(`draft ${job.draftId} has no draft.json`);
-			const runtimePrefix = `test_server/_runtime/${SHARED_RUNTIME_ID}@${meta.runtime.version}/`;
+			const runtimePrefix = `test_server/_runtime/${meta.runtime.id}@${meta.runtime.version}/`;
 			const callbackUrl = draftCallbackUrl(job.runId);
 			const playPrefix = `${prefix}plays/${job.jobRef}/`;
 			const slots = screenshotSlots(job.gameType, job.scenarios).slice(0, MAX_SHOTS);

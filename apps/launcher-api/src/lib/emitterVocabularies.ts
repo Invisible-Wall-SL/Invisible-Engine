@@ -1185,6 +1185,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'screenTransition',
+				group: 'Effect',
+			},
+			{
+				name: 'waitForScreenTransition',
+				group: 'Effect',
+			},
+			{
 				name: 'elementEffect',
 				group: 'Effect',
 			},
@@ -1334,6 +1342,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'expandBookColumns',
+				group: 'Effect',
+			},
+			{
+				name: 'expandWild',
+				group: 'Effect',
+			},
+			{
+				name: 'growWild',
 				group: 'Effect',
 			},
 			{
@@ -1502,6 +1518,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'expandBookColumns',
+			},
+			{
+				type: 'expandWild',
+			},
+			{
+				type: 'growWild',
 			},
 			{
 				type: 'freeSpinRetrigger',
@@ -2773,6 +2795,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'screenTransition',
+				group: 'Effect',
+			},
+			{
+				name: 'waitForScreenTransition',
+				group: 'Effect',
+			},
+			{
 				name: 'elementEffect',
 				group: 'Effect',
 			},
@@ -2922,6 +2952,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'expandBookColumns',
+				group: 'Effect',
+			},
+			{
+				name: 'expandWild',
+				group: 'Effect',
+			},
+			{
+				name: 'growWild',
 				group: 'Effect',
 			},
 			{
@@ -3090,6 +3128,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'expandBookColumns',
+			},
+			{
+				type: 'expandWild',
+			},
+			{
+				type: 'growWild',
 			},
 			{
 				type: 'freeSpinRetrigger',
@@ -4361,6 +4405,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'screenTransition',
+				group: 'Effect',
+			},
+			{
+				name: 'waitForScreenTransition',
+				group: 'Effect',
+			},
+			{
 				name: 'elementEffect',
 				group: 'Effect',
 			},
@@ -4510,6 +4562,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'expandBookColumns',
+				group: 'Effect',
+			},
+			{
+				name: 'expandWild',
+				group: 'Effect',
+			},
+			{
+				name: 'growWild',
 				group: 'Effect',
 			},
 			{
@@ -4678,6 +4738,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'expandBookColumns',
+			},
+			{
+				type: 'expandWild',
+			},
+			{
+				type: 'growWild',
 			},
 			{
 				type: 'freeSpinRetrigger',
@@ -5949,6 +6015,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'screenTransition',
+				group: 'Effect',
+			},
+			{
+				name: 'waitForScreenTransition',
+				group: 'Effect',
+			},
+			{
 				name: 'elementEffect',
 				group: 'Effect',
 			},
@@ -6098,6 +6172,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'expandBookColumns',
+				group: 'Effect',
+			},
+			{
+				name: 'expandWild',
+				group: 'Effect',
+			},
+			{
+				name: 'growWild',
 				group: 'Effect',
 			},
 			{
@@ -6266,6 +6348,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'expandBookColumns',
+			},
+			{
+				type: 'expandWild',
+			},
+			{
+				type: 'growWild',
 			},
 			{
 				type: 'freeSpinRetrigger',

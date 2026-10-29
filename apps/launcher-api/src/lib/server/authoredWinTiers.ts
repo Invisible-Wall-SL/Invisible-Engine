@@ -2,6 +2,7 @@ import {
 	authoredWinStatus,
 	resolveAuthoredOverlays,
 	resolveWinText,
+	transitionCueStatus,
 	winTierModeCaptions,
 	type AuthoredFreeSpinsStatus,
 	type AuthoredTransitionStatus,
@@ -9,7 +10,9 @@ import {
 	type AuthoredWinTier,
 	type LayoutDoc,
 	type LayoutNode,
+	type TransitionCueStatus,
 } from 'engine-layout';
+import type { CustomElementFxKind } from 'constants-shared/elementFx';
 import type { WinTextDoc } from 'engine-layout';
 // Deep imports of engine-game's PURE tier modules: its index re-exports Svelte components, which
 // the launcher's server must not load. Both files are Svelte- and Pixi-free.
@@ -101,23 +104,29 @@ export function authoredWinTiersFor(input: {
 /**
  * The authored-overlay chips' statuses for a project, read by the SAME resolution the game boots
  * with (`resolveAuthoredOverlays`: Transition, then the Win, then the free spins, each on the doc
- * the swaps before it produced), so a chip never reports a status read on a different doc.
+ * the swaps before it produced), so a chip never reports a status read on a different doc. The
+ * `transition` cue's row (Invisible Shader Graph 8e) is judged by the game's rule against the
+ * project's compiled shader effects (`registered`).
  */
 export function authoredOverlayChips(
 	layout: LayoutDoc,
 	config: GameConfigDoc | null,
 	winText: WinTextDoc | undefined,
+	registered: (kind: CustomElementFxKind) => boolean,
 ): {
 	authoredTransition: AuthoredTransitionStatus;
+	transitionCue: TransitionCueStatus;
 	authoredWin: AuthoredWinStatus;
 	authoredFreeSpins: AuthoredFreeSpinsStatus;
 } {
 	const tiers = authoredWinTiersFor({ config, layout, winText });
 	const resolved = resolveAuthoredOverlays(layout, {
 		status: (doc) => authoredWinStatus({ doc, tiers }),
+		transitionCue: transitionCueStatus(layout, registered),
 	});
 	return {
 		authoredTransition: resolved.transition,
+		transitionCue: resolved.transitionCue,
 		authoredWin: resolved.win,
 		authoredFreeSpins: resolved.freeSpins,
 	};

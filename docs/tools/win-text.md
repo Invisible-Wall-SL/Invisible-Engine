@@ -135,8 +135,9 @@ readable, and a symbol with no art falls back to its name.
 
 **Symbol size.** Once the image is ticked, a **Symbol size** slider (25–300%) sets how
 tall the symbol is drawn, as a percent of the text height — 100% stands as tall as the
-words. It changes the info bar only. The bar's text box still bounds the symbol, and the
-words never shrink to make room for a bigger one.
+words, however small the bar's text box is. It changes the info bar only. The words keep
+their size, unless a much wider symbol makes the line too long for the bar, when the whole
+line shrinks to fit as it always has.
 
 #### Why expanded wins get their own line
 

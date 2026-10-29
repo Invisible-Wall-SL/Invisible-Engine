@@ -50,6 +50,7 @@ import {
 	type AuthoredWinStatus,
 	type AuthoredFreeSpinsStatus,
 	type AuthoredButtonsStatus,
+	type TransitionCueStatus,
 } from 'engine-layout';
 import { projectAddOns } from '../addOns';
 import type { GameConfigSource } from './gameConfigDefaults';
@@ -86,6 +87,8 @@ export interface GameProfileSignals {
 	 */
 	layout?: {
 		authoredTransition: AuthoredTransitionStatus;
+		/** Invisible Shader Graph 8e `transitionCueStatus`; absent ⇒ off. */
+		transitionCue?: TransitionCueStatus;
 		authoredWin: AuthoredWinStatus;
 		/** Rive plan Phase 8c `authoredFreeSpinsStatus`; absent ⇒ off. */
 		authoredFreeSpins?: AuthoredFreeSpinsStatus;
@@ -225,10 +228,9 @@ const FACTS: readonly ChipSource[] = [
 	{
 		id: 'runtime',
 		title: 'The shared prebuilt engine bundle this published game is served from.',
-		// Deliberately NOT `${runtimeId} runtime`. Every online game is served from the same bundle,
-		// so naming it says nothing about THIS game — and because the id is historically `lines`, it
-		// read as a game type: a cluster game displaying "lines runtime" looked misconfigured, and
-		// cost a real double-take. Name the bundle only if a second one ever exists.
+		// The slot runtime is NOT shown as `${runtimeId} runtime`: every slot kind shares it, and
+		// because its id is historically `lines` it read as a game type (a cluster game displaying
+		// "lines runtime" looked misconfigured). The family runtimes (phase-11) are named.
 		text: (ctx) =>
 			ctx.runtimeId
 				? ctx.runtimeId === SHARED_RUNTIME_ID
@@ -575,7 +577,9 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		title:
 			'The free-spin transition wipe plays from the built-in “Transition wipe” component and its timeline instead of the coded Transition mount (Rive plan Phase 8a pilot).',
 		text: (ctx) =>
-			ctx.layout?.authoredTransition === 'ready' ? 'Authored Transition (pilot)' : null,
+			ctx.layout?.authoredTransition === 'ready' && ctx.layout.transitionCue !== 'screen'
+				? 'Authored Transition (pilot)'
+				: null,
 	},
 	{
 		id: 'authoredTransitionUnbound',
@@ -595,6 +599,23 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		text: (ctx) =>
 			ctx.layout?.authoredTransition === 'non-canvas-scene'
 				? 'Authored Transition on, held back: a Transition sits outside canvas space'
+				: null,
+	},
+	{
+		id: 'transitionCue',
+		title:
+			'Every transition cue (free-spin entry and exit) plays a screen transition instead of the wipe, set in Game Settings → Screen FX: it freezes what is on screen as the cue fires and plays out over whatever the flow shows next, which goes on once the frame is frozen. On free-spin exit the screen has already changed back to the base game when the cue fires, so that transition plays over the base game, not out of the free spins. While it is on, the authored Transition pilot is set aside.',
+		text: (ctx) =>
+			ctx.layout?.transitionCue === 'screen' ? 'Transition cue: screen transition' : null,
+	},
+	{
+		id: 'transitionCueUnplayable',
+		title:
+			'The transition cue names a Shader Graph effect that does not ship (deleted, or it does not compile), so the game plays the wipe instead. Fix the graph in Invisible Shader Graph or pick another transition in Game Settings → Screen FX.',
+		tone: 'warn',
+		text: (ctx) =>
+			ctx.layout?.transitionCue === 'unplayable'
+				? 'Transition cue: its effect does not ship, the wipe plays'
 				: null,
 	},
 	{

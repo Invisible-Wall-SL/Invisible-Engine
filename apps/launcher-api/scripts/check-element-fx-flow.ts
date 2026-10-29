@@ -9,15 +9,23 @@
  *     stops) on a cue is harvested into the flow's cue list like a rig's own cue, inside components
  *     too; a disabled entry and an unreadable one are not.
  *  2. **The target dropdown lists what the game anchors.** `elementEffect.target` is an enum, and an
- *     enum literal is pick-only, so a target missing here cannot be authored: the reels, every
- *     screen, and every node the game registers an anchor for (a group, a component placement, a
- *     coded mount, any node carrying Element FX — inside a component too). Not a reel grid, whose
- *     effects play on the reel stack.
+ *     enum literal is pick-only, so a target missing here cannot be authored: the reels (first, so
+ *     a new node defaults to them), the whole stage (Invisible Shader Graph 8e), every screen, and
+ *     every node the game registers an anchor for (a group, a component placement, a coded mount,
+ *     any node carrying Element FX — inside a component too). Not a reel grid, whose effects play
+ *     on the reel stack.
  *  3. **One composition.** `composeFlowV2Vocab` widens the enum with the targets for the editor and
- *     the publish gate alike; with no targets the vocabulary keeps its identity.
+ *     the publish gate alike; with no targets the vocabulary keeps its identity. The project's
+ *     custom kinds widen both `ElementFxKind` and `ScreenTransitionKind` (8e).
  */
 import type { ComponentDef, Scene } from 'engine-layout';
-import { ELEMENT_FX_TARGET_ENUM, templateVocabulary } from 'engine-flow-v2';
+import {
+	ELEMENT_FX_KIND_ENUM,
+	ELEMENT_FX_TARGET_ENUM,
+	SCREEN_TRANSITION_KIND_ENUM,
+	templateVocabulary,
+} from 'engine-flow-v2';
+import { SCREEN_TRANSITION_KINDS } from 'constants-shared/screenTransition';
 
 import { collectElementFxTargets, withElementFxTargets } from '../src/lib/elementFxTargets';
 import { readFileSync } from 'node:fs';
@@ -127,8 +135,9 @@ eq(
 
 // ── 2. targets ────────────────────────────────────────────────────────────────────────────────
 const targets = collectElementFxTargets(scenes, [pot]);
-eq('2. reels, every screen, then anchored nodes sorted', targets, [
+eq('2. the reels, the stage, every screen, then anchored nodes sorted', targets, [
 	'reels',
+	'stage',
 	'screen:basegame',
 	'screen:freeSpins',
 	'beam',
@@ -140,19 +149,22 @@ eq('2. reels, every screen, then anchored nodes sorted', targets, [
 check('2. a plain sprite is not a target', !targets.includes('logo'));
 check('2. a reel grid is not (its FX play on the reel stack)', !targets.includes('grid'));
 check('2. a group inside a component is not (no anchor there)', !targets.includes('plain'));
-eq('2. no scenes ⇒ the reels alone', collectElementFxTargets([]), ['reels']);
+eq('2. no scenes ⇒ the reels and the stage', collectElementFxTargets([]), ['reels', 'stage']);
 
 // ── 3. composition ────────────────────────────────────────────────────────────────────────────
 const base = templateVocabulary('lines');
 const baseTargets = base.enums.find((e) => e.name === ELEMENT_FX_TARGET_ENUM)?.values;
-eq('3. the kind’s vocabulary offers the reels', baseTargets, ['reels']);
+eq('3. the kind’s vocabulary offers the reels, then the stage', baseTargets, ['reels', 'stage']);
 const widened = withElementFxTargets(base, targets);
 eq(
 	'3. widened with the project’s targets',
 	widened.enums.find((e) => e.name === ELEMENT_FX_TARGET_ENUM)?.values,
 	targets,
 );
-check('3. nothing to add ⇒ the same object', withElementFxTargets(base, ['reels']) === base);
+check(
+	'3. nothing to add ⇒ the same object',
+	withElementFxTargets(base, ['reels', 'stage']) === base,
+);
 const composed = composeFlowV2Vocab('lines', {
 	sounds: soundOptionsFor(null),
 	sceneCues: [],
@@ -162,6 +174,26 @@ eq(
 	'3. composeFlowV2Vocab carries them',
 	composed.enums.find((e) => e.name === ELEMENT_FX_TARGET_ENUM)?.values,
 	targets,
+);
+const enumOf = (vocab: typeof base, name: string) =>
+	vocab.enums.find((e) => e.name === name)?.values;
+eq(
+	'3. the kind’s transition kinds are the built-in exits',
+	enumOf(base, SCREEN_TRANSITION_KIND_ENUM),
+	[...SCREEN_TRANSITION_KINDS],
+);
+const withCustom = composeFlowV2Vocab('lines', {
+	sounds: soundOptionsFor(null),
+	sceneCues: [],
+	customFxKinds: ['custom:swirl'],
+});
+eq(
+	'3. a custom kind widens the Element FX kinds and the transition kinds alike',
+	[
+		enumOf(withCustom, ELEMENT_FX_KIND_ENUM)?.at(-1),
+		enumOf(withCustom, SCREEN_TRANSITION_KIND_ENUM),
+	],
+	['custom:swirl', [...SCREEN_TRANSITION_KINDS, 'custom:swirl']],
 );
 const read = (path: string): string => readFileSync(new URL(path, import.meta.url), 'utf8');
 check(

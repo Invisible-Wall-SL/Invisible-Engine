@@ -8,3 +8,5 @@ export const awaitMatch3Round: typeof Match3.awaitMatch3Round = async () => {};
 export const endMatch3Round: typeof Match3.endMatch3Round = async () => {};
 export const presentMatch3Board: typeof Match3.presentMatch3Board = async () => {};
 export const presentMatch3MovesLeft: typeof Match3.presentMatch3MovesLeft = () => {};
+export const flowVocabularies: typeof Match3.flowVocabularies = {};
+export const flowBoardActions: typeof Match3.flowBoardActions = [];

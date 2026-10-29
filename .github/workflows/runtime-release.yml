@@ -1,22 +1,29 @@
-# Runtime release — build the shared engine bundle and publish it to `_runtime/<id>`.
+# Runtime release — build the shared engine bundles and publish each to `_runtime/<id>`.
 #
-# WHY THIS EXISTS: online games do NOT run their own build; they run the SHARED engine bundle at
+# WHY THIS EXISTS: online games do NOT run their own build; they run a SHARED engine bundle at
 # `test_server/_runtime/<id>/` (Game Maker's Publish only POINTS a game at it — it never rebuilds
 # it). So an engine change reaches a live game ONLY through this release. It used to require the
 # R2 keys on a developer's machine; running it here means the keys live in GitHub's encrypted
 # secrets and a release is a button, not a local shell.
 #
+# ONE RUNTIME PER FAMILY (docs/design/phase-11.md §2.3): `lines` (every slot kind), `match3`,
+# `arcade` and `card` are all built from `apps/lines`, each with the `PUBLIC_IE_FAMILIES` its id
+# carries — the list is `RUNTIMES` in packages/constants-shared/runtimes.ts, which publish reads to
+# point a game at its family's id. `lines` is slot only (P11.1c).
+#
 # AUTOMATIC on merge — a `push` to `main` that touches the engine (`apps/lines/**` or `packages/**`)
-# auto-builds + publishes the `lines` runtime, so a merged engine fix reaches the online games with
-# no extra step. Still `workflow_dispatch` too, for a manual release or to publish a different
-# runtime id. Note the blast radius: a release re-points EVERY online game on that runtime at the new
-# engine code, so an unverified engine commit on `main` goes live to all of them.
+# auto-builds + publishes all four runtimes, so a merged engine fix reaches the online games with
+# no extra step. Still `workflow_dispatch` too, for a manual release of ONE id. Note the blast
+# radius: a release re-points EVERY online game on that runtime at the new engine code, so an
+# unverified engine commit on `main` goes live to all of them.
 #
 # GATED, then VERIFIED. Nothing is uploaded until the gates that catch a shipped-game crash pass
 # (the same ones Lint runs, which is not a required check, so a merge can land with it red) and
-# the build succeeds. After the upload, the job is green only once games.invisiblewall.org SERVES
-# the bundle it just built — a 202 from /refresh and a `released` stamp prove the upload, not the
-# serving (see apps/launcher-api/scripts/verify-runtime-live.mjs).
+# the build succeeds. The gates run once, in `gates`; each id is then its own `publish` job, so a
+# failed build or verify of one id neither stops nor un-promotes the others. After the upload, a
+# job is green only once games.invisiblewall.org SERVES the bundle it just built — a 202 from
+# /refresh and a `released` stamp prove the upload, not the serving (see
+# apps/launcher-api/scripts/verify-runtime-live.mjs).
 #
 # VERSIONED: each release is uploaded to its own immutable `_runtime/<id>@<version>/` and only then
 # made live by ONE write of the pointer `_runtime/<id>/current.json` — nothing being served is ever
@@ -31,7 +38,7 @@
 name: Runtime release
 
 on:
-  # Auto-release the `lines` runtime whenever engine code merges to main. Path-filtered so a
+  # Auto-release every runtime whenever engine code merges to main. Path-filtered so a
   # docs/launcher-only merge doesn't trigger a pointless rebuild.
   push:
     branches: [main]
@@ -41,9 +48,12 @@ on:
   workflow_dispatch:
     inputs:
       runtime:
-        description: 'Runtime id to publish (built from apps/<id>)'
-        type: string
-        default: 'lines'
+        # Must list exactly `RUNTIME_IDS` (packages/constants-shared/runtimes.ts); the launcher's
+        # check:runtime-choice fails otherwise.
+        description: 'Runtime id to publish (the family it plays: lines = every slot kind)'
+        type: choice
+        options: [lines, match3, arcade, card]
+        default: lines
         required: true
       refresh:
         description: 'POST /refresh and verify the new bundle is served (unticked: no live check)'
@@ -54,24 +64,16 @@ on:
         type: boolean
         default: true
 
-concurrency:
-  # `inputs.runtime` is empty on a push event → fall back to 'lines' so a push- and a dispatch-
-  # triggered release for the same runtime still serialize into one group.
-  # "Runtime rollback" is deliberately NOT in this group; the pointer write is a compare-and-swap.
-  group: runtime-release-${{ inputs.runtime || 'lines' }}
-  cancel-in-progress: false
-
 jobs:
-  publish:
+  gates:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     # `issues: write` is for the failure alert below and nothing else.
     permissions:
       contents: read
       issues: write
-    # One knob both triggers read: the dispatched runtime id, or 'lines' for an auto push-release.
-    env:
-      RUNTIME: ${{ inputs.runtime || 'lines' }}
+    outputs:
+      runtimes: ${{ steps.runtimes.outputs.runtimes }}
     steps:
       - uses: actions/checkout@v7
 
@@ -84,9 +86,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Release gates — the Lint workflow's crash-class checks, run HERE because this job publishes
-      # to every online game and Lint is advisory (not a required check). A failure stops the job
-      # before anything is stamped or uploaded, so the games keep the previous engine.
+      # Release gates — the Lint workflow's crash-class checks, run HERE because this workflow
+      # publishes to every online game and Lint is advisory (not a required check). A failure stops
+      # the run before anything is stamped or uploaded, so the games keep the previous engine.
       #
       # `check:undefined-names` is the one that matters most: the build cannot catch a name that
       # was never imported, and three such misses (#373 in a `.ts`, #549 and #567 in a `.svelte`)
@@ -99,6 +101,89 @@ jobs:
 
       - name: 'Gate: rgs win models agree on money'
         run: pnpm check:rgs
+
+      # The ids to release, read from the one list: all of them on a push, the chosen one on a
+      # dispatch.
+      - name: List the runtimes to release
+        id: runtimes
+        env:
+          ONLY: ${{ inputs.runtime }}
+        run: |
+          node -e "import('./packages/constants-shared/runtimes.ts').then((m) => {
+            const only = process.env.ONLY;
+            if (only && !m.RUNTIME_IDS.includes(only)) throw new Error('unknown runtime ' + only);
+            console.log('runtimes=' + JSON.stringify(only ? [only] : m.RUNTIME_IDS));
+          })" >> "$GITHUB_OUTPUT"
+
+      # A gate failure releases nothing, for any id. Named apart from the per-id alert so its issue
+      # says the whole release stopped.
+      - name: Alert — open or update the "Runtime release failed" issue
+        if: ${{ failure() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Runtime release failed: gates (no runtime released)"
+          body="Run: ${RUN_URL}
+          Commit: ${GITHUB_SHA} (${GITHUB_EVENT_NAME} by ${GITHUB_ACTOR})
+
+          A release gate failed, so no runtime was built. Online games stay on the releases their pointers still name. Fix forward; close this issue once a release is green."
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          fi
+
+  publish:
+    needs: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Each id is released on its own: one id's failure must not cancel the others mid-upload.
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: ${{ fromJSON(needs.gates.outputs.runtimes) }}
+    # Per id AND per trigger: releases of one runtime queue, different ids run side by side. A group
+    # keeps one pending job and a newer one replaces it, so pushes only ever replace pushes (newer
+    # main code) and a manual dispatch (a canary, another ref) can never drop a pending push. A push
+    # and a dispatch of one id that do overlap meet at the pointer's compare-and-swap, which fails
+    # loudly. Queueing orders jobs, not commits, so the publish step itself never promotes over a
+    # newer commit's release. "Runtime rollback" is deliberately NOT in this group.
+    concurrency:
+      group: runtime-release-${{ matrix.runtime }}-${{ github.event_name }}
+      cancel-in-progress: false
+    # `issues: write` is for the failure alert below and nothing else.
+    permissions:
+      contents: read
+      issues: write
+    env:
+      RUNTIME: ${{ matrix.runtime }}
+    steps:
+      # The whole history (no blobs), so the publish step can tell whether the live release is newer.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The families this id's build compiles in (`releaseFamiliesOf`): `slot` for `lines`, the id's
+      # own family otherwise. Always written out from the list, never left blank:
+      # a blank value counts as `all`, so a lost value would silently ship every family.
+      - name: Read the ${{ matrix.runtime }} runtime's families
+        id: families
+        run: |
+          node -e "import('./packages/constants-shared/runtimes.ts').then((m) =>
+            console.log('families=' + m.releaseFamiliesOf(process.argv[1])))" "$RUNTIME" >> "$GITHUB_OUTPUT"
 
       # Advisory: mark the runtime as "building" BEFORE the (multi-minute) build so the launcher can
       # show "Releasing engine…" while it runs. `continue-on-error` — the stamp must never fail a
@@ -120,8 +205,10 @@ jobs:
       # The workspace `dist` outputs the game build consumes are NOT rebuilt by the app's own vite
       # build — a stale dist silently ships old engine code (the "stale engine dist" trap).
       - name: Build workspace packages
-        run: pnpm --filter "${{ env.RUNTIME }}^..." build
+        run: pnpm --filter "lines^..." build
 
+      # Every id is the `apps/lines` build; PUBLIC_IE_FAMILIES picks what it carries.
+      #
       # PUBLIC_RGS_TRANSPORT=play4fun is REQUIRED: the test server's mock RGS speaks Play4Fun, and a
       # bundle built without it never completes the handshake and hangs on a blank loading screen.
       #
@@ -139,15 +226,24 @@ jobs:
       # IE_SOURCEMAPS=hidden writes the bundle's source map with no reference to it, for the next
       # step to upload to Sentry and delete. Always on, token or not, so the strip + gate below run
       # on every release rather than only once someone configures Sentry.
-      - name: Build the ${{ env.RUNTIME }} runtime
+      - name: Build the ${{ matrix.runtime }} runtime
         env:
+          PUBLIC_IE_FAMILIES: ${{ steps.families.outputs.families }}
           PUBLIC_RGS_TRANSPORT: play4fun
           PUBLIC_DELIVERY_PROFILES: '*'
           PUBLIC_BUILD_SHA: ${{ github.sha }}
           PUBLIC_SENTRY_DSN: ${{ secrets.PUBLIC_SENTRY_DSN }}
           PUBLIC_SENTRY_SAMPLE_RATE: ${{ vars.PUBLIC_SENTRY_SAMPLE_RATE }}
           IE_SOURCEMAPS: hidden
-        run: pnpm --filter ${{ env.RUNTIME }} build
+        run: pnpm --filter lines build
+
+      # The bundle carries exactly the families its id names: its `__IE_FAMILIES__` and no left-out
+      # family's code. Over its size budget is a warning only (no PR check runs the budget).
+      - name: 'Gate: the ${{ matrix.runtime }} bundle carries its families only'
+        env:
+          FAMILIES: ${{ steps.families.outputs.families }}
+        run: |
+          node scripts/check-family-runtime.mjs --id "$RUNTIME" --families "$FAMILIES" apps/lines/build
 
       # The repo and every served bundle are PUBLIC, so the map goes to Sentry and nowhere else. The
       # script re-bases it onto index.html (the game is one inlined file, so frames are numbered by
@@ -162,12 +258,13 @@ jobs:
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
           SENTRY_URL: ${{ vars.SENTRY_URL }}
-        run: node scripts/sentry-sourcemaps.mjs runtime "apps/${{ env.RUNTIME }}/build"
+        run: node scripts/sentry-sourcemaps.mjs runtime apps/lines/build
 
       - name: 'Gate: no source map or sourceMappingURL ships'
-        run: node scripts/sentry-sourcemaps.mjs verify "apps/${{ env.RUNTIME }}/build"
+        run: node scripts/sentry-sourcemaps.mjs verify apps/lines/build
 
-      - name: Publish to _runtime/${{ env.RUNTIME }}@<version> and promote it
+      - name: Publish to _runtime/${{ matrix.runtime }}@<version> and promote it
+        id: publish
         env:
           GITHUB_SHA: ${{ github.sha }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
@@ -176,7 +273,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           node apps/launcher-api/scripts/publish-runtime-bundle.mjs \
-            "${{ env.RUNTIME }}" "apps/${{ env.RUNTIME }}/build" \
+            "${{ env.RUNTIME }}" apps/lines/build \
             ${{ (github.event_name == 'workflow_dispatch' && !inputs.promote) && '--no-promote' || '' }}
 
       # The test server hydrates every bundle from R2 on boot and on POST /refresh — nowhere else,
@@ -185,13 +282,15 @@ jobs:
       # `bundle.<hash>.js` this job just built from the release it just promoted (`X-Runtime-Release`),
       # re-POSTing /refresh with backoff (a hydrate that read the pointer before the flip finishes on
       # the old release; a rebooting server drops the request).
-      # If it never matches, the job FAILS: the bundle is in R2 but every online game is still on
-      # the previous engine, which must read as red, not as a green run with a warning. The
-      # deadline (15 min) outlasts a test server reboot, which can coincide with a merge to main.
+      # If it never matches, the job FAILS: the bundle is in R2 but every online game on this id is
+      # still on the previous engine, which must read as red, not as a green run with a warning. The
+      # deadline (15 min) outlasts a test server reboot, which can coincide with a merge to main. An
+      # id no game is on yet has nothing to verify: a warning, not a failure.
       - name: Refresh the test server and verify the served bundle
         # Auto push-releases always verify; a manual dispatch honours its refresh checkbox, and an
         # unpromoted release has nothing new to serve.
-        if: ${{ github.event_name != 'workflow_dispatch' || (inputs.refresh && inputs.promote) }}
+        # A release a newer one superseded was never promoted, so there is nothing of it to serve.
+        if: ${{ steps.publish.outputs.superseded != 'true' && (github.event_name != 'workflow_dispatch' || (inputs.refresh && inputs.promote)) }}
         env:
           TEST_SERVER_SECRET: ${{ secrets.TEST_SERVER_SECRET }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
@@ -200,9 +299,9 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           node apps/launcher-api/scripts/verify-runtime-live.mjs \
-            "${{ env.RUNTIME }}" "apps/${{ env.RUNTIME }}/build"
+            "${{ env.RUNTIME }}" apps/lines/build
 
-      # Without this, a release that fails after the `building` stamp (a gate, the build, the upload)
+      # Without this, a release that fails after the `building` stamp (the build, a gate, the upload)
       # left the launcher on "Releasing engine…" until the stamp aged out 30 min later. Puts the stamp
       # back to the release the pointer still names and records the failure next to it.
       - name: Stamp the failed release
@@ -221,7 +320,7 @@ jobs:
       # A red run only emails whoever triggered it, and only if their personal Actions notification
       # setting allows it — a merge by someone else, or a muted setting, and a failed release goes
       # unseen while every online game stays on the previous engine. An ISSUE notifies everyone
-      # watching the repo. One open issue collects every failure (a comment each) until closed.
+      # watching the repo. One open issue per id collects every failure (a comment each) until closed.
       - name: Alert — open or update the "Runtime release failed" issue
         if: ${{ failure() }}
         continue-on-error: true
@@ -233,7 +332,7 @@ jobs:
           body="Run: ${RUN_URL}
           Commit: ${GITHUB_SHA} (${GITHUB_EVENT_NAME} by ${GITHUB_ACTOR})
 
-          Online games stay on the release the pointer still names. Fix forward or use the \"Runtime rollback\" workflow; close this issue once a release is green."
+          Online games on the ${RUNTIME} runtime stay on the release its pointer still names; the other runtimes are released on their own. Fix forward or use the \"Runtime rollback\" workflow on ${RUNTIME}; close this issue once a release is green."
           existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"

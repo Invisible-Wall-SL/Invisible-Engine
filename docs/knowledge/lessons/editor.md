@@ -7,6 +7,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 [components.md](components.md).
 
 ### A canvas screen ended differently on a wider window
+
 - **Symptom:** a feature intro's curtains met on one PC and left a strip of reels open on another.
 - **Cause:** the game drew a `canvas` screen one window pixel per unit; the editor frames it at the
   design box (`LayoutScene`): curtains keyed to 1200 px each met only up to a 2400 px window.
@@ -16,6 +17,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** #1315 (2026-10-25) · source: `docs/status/editor.md` · session 016sy31TWY7BzxzvRsmoEkyX
 
 ### A background Rect showed black past 1920 by 1080 in game
+
 - **Symptom:** full-bleed in the editor's Desktop frame, black edges on a bigger window in game.
 - **Cause:** the game drew a top-level Rect on a `background` screen at raw window pixels; only
   image, rig, clip and component nodes cover-fitted.
@@ -24,6 +26,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (2026-10-23) · source: `docs/status/editor.md`
 
 ### A rig draws in one place and selects in another
+
 - **Symptom:** a placed rig's art sits far from its selection box (the `R_Widget` reports, ~950 px).
 - **Cause:** first blamed on the rig's origin; measuring 23 stock rigs disproved it (frames up to
   1428 px off-centre). Really a second copy of the placement maths: the box centred the Bounds
@@ -33,6 +36,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** #1270, #1274 (2026-10-20); earlier not recorded · session 01Vy9y2XwRJtbLm115iUxbWX
 
 ### A timeline restarted part-way or stuck on frame 0 in game
+
 - **Symptom:** an intro played twice or jumped back when a later intro ended (Wait off); pot
   timelines never moved and the Flow chain after hung.
 - **Cause:** `<Cinematic>`'s re-arm `$effect` read reactive state: `time` (every tick re-ran it),
@@ -42,6 +46,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** #1316 (2026-10-24); earlier not recorded · session 017TVs6Ky38n1yQQjwGcPyeB
 
 ### Base-game art drew over the reels after a timeline
+
 - **Symptom:** after the intro played, the `Reel.png` frame sat on top of the reels all session.
 - **Cause:** a keyed remount (`{#key basegameDrive?.key}`) appends the pixi-svelte child last, and
   those layers share the board's parent (`Game.svelte`).
@@ -50,6 +55,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (2026-10-23) · source: `docs/status/cinematic.md`
 
 ### A screen timeline cue never reached an On cue Element FX
+
 - **Symptom:** a `signal:` cue on a screen timeline played nothing; the editor's ▶ fired no cues.
 - **Cause:** `FlowV2Cinematics.routeCue` broadcast on the game event bus; `ElementFxPlayer` listens
   on the component-signal bus.
@@ -58,6 +64,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (2026-10-23) · source: `docs/status/editor.md`
 
 ### A placed component looks different in the editor than in game
+
 - **Symptom:** frames looked alike and sat higher in the editor; each tier had its own look in game.
 - **Cause:** editor renderers resolved instances by bare id (latest def) while the game draws the
   pinned version; a still rig drew its setup pose, the game its state machine's rest state. Check
@@ -67,6 +74,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** #1296 (2026-10-22) · source: `docs/status/editor.md` · session 01PRe8zNYgJiF1wLW4Xm3vfA
 
 ### A placed component selects a small box in the middle
+
 - **Symptom:** the canvas draws the whole pot, but the selection box is a small rect.
 - **Cause:** `nodeBox` walked a def one level; a group or bound part got a fixed or chip box. Same
   class: a HUD Readout's box ignored the instance's background image (2026-10-08).
@@ -75,6 +83,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (2026-10-22) · source: `docs/status/editor.md`
 
 ### A timeline looked right in the editor and did nothing in game
+
 - **Symptom:** a feature intro, the Pots screen or the base game keyed in Animate never moved in
   game, or a second misplaced copy animated and vanished.
 - **Cause:** `createFlowV2Env` dropped `playCinematic`; then the player drew its own copy of the
@@ -84,6 +93,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (2026-10-16, 2026-10-21) · source: `docs/status/cinematic.md`
 
 ### Svelte-check errors hid real crashes in the baseline
+
 - **Symptom:** `<Cinematic>` threw on every in-game mount; later every `playCinematic` was a no-op.
 - **Cause:** svelte-check reported both (`ts:2339`, excess properties), but the errors sat in
   `svelte-check-baseline.json`, so CI stayed green.
@@ -92,6 +102,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (2026-10-01, 2026-10-16) · source: `docs/status/cinematic.md`
 
 ### The editor canvas turned white
+
 - **Symptom:** the earliest screens (Background, Base game) vanished under a white sheet.
 - **Cause:** each rig, text and FX overlay opened its own WebGL context; past the browser's 16,
   Chrome drops the oldest and paints it opaque white (found in headless Chromium).
@@ -101,6 +112,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** #1254 (2026-10-16) · source: `docs/status/editor.md` · session 018p88xDA43Xw6keRgHkv3HM
 
 ### The editor crashed on every load
+
 - **Symptom:** `/editor` threw `Cannot access … before initialization` on load.
 - **Cause:** the lease take-over re-arm block read `lease` ~1500 lines above `const lease`.
   `vite build`, `svelte-check` and `check:undefined-names` all pass such a file.
@@ -109,6 +121,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** #1190 → #1195 (2026-10-14) · source: `docs/status/editor.md`
 
 ### A save from the editor landed in another project
+
 - **Symptom:** (review) a tool-bar click after another tab switched project could save one
   project's layout into another.
 - **Cause:** writes named the session's project, not the one the page was loaded for.
@@ -117,6 +130,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (2026-10-13) · source: `docs/status/editor.md`
 
 ### Art picked in the editor is blank in the game
+
 - **Symptom:** a sprite, rig, font or portrait-only image shows in the editor, missing in game.
 - **Cause:** the editor reads R2 directly; the export walk missed the reference: doc art at all
   (2026-06-10), fonts (06-12), component `spine` params (07-23), `_shared/spines/` (08-21),
@@ -126,6 +140,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (latest 2026-10-03) · source: `docs/status/editor.md`
 
 ### The editor behaved as lines on a Hold and Win project
+
 - **Symptom:** no Pots screen offered, no Pot Meter in Components.
 - **Cause:** the client took the kind from `doc.gameType`, which a layout loaded from the lines
   reference set to `lines`. Every other tool reads the stored project kind.
@@ -134,6 +149,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (2026-10-02) · source: `docs/status/editor.md`
 
 ### Every authored win text vanished at once
+
 - **Symptom:** the tool, the bake and the runtime bundle all lost every authored template.
 - **Cause:** `.strict()` families failed on a field a newer launcher wrote, and the reader fell
   back to `{ version: 1 }`; a newer `version` did the same.
@@ -142,6 +158,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (2026-10-01, 2026-10-02) · source: `docs/status/win-text.md`
 
 ### A new screen field rendered then vanished after save
+
 - **Symptom:** a new `Scene` field (role, `align: top`, a node kind) draws, then is gone on reload.
 - **Cause:** `editorStorage.ts` rebuilds a scene from a whitelist (`normalizeScene`,
   `normalizeAlign`, `normalizeGameSettings`, `NODE_KINDS`); an unlisted field is silently dropped.
@@ -151,6 +168,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (2026-06-24 to 2026-09-23) · source: `docs/status/editor.md`
 
 ### A blend looked weaker or seamed in game
+
 - **Symptom:** `overlay`/`lighten` did nothing, partial alpha blended weak, a hard seam at 150%.
 - **Cause:** backdrop filters need `useBackBuffer: true`; Pixi's advanced filters treat
   premultiplied colour as straight; filter and backdrop resolutions diverged. Rigs cannot blend.
@@ -159,6 +177,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (2026-09-16 to 2026-09-18) · source: `docs/status/editor.md`
 
 ### The editor showed the old art after a re-pack
+
 - **Symptom:** after re-pack and deploy, regions were cut wrong or the old picture came back.
 - **Cause:** the page pick took the editor's own `deploy/editor-art/` output (2026-06-10), then a
   guard rejected a fresh deploy whenever the manifest was newer (2026-09-16).
@@ -167,6 +186,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (2026-09-16) · source: `docs/status/editor.md`
 
 ### A boxed info bar ignored symbol as image
+
 - **Symptom:** the toast printed the symbol's name with `toast.symbolAsImage` ticked.
 - **Cause:** a node with `boxWidth` took the `<TextBox>` branch in `LayoutNodeView`, which strips
   the inline image; the localized bar needs the box.
@@ -174,7 +194,19 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **Guard:** `packages/engine-layout/scripts/test-inline-image-box.mjs`.
 - **PR:** not recorded (2026-08-18) · source: `docs/status/win-text.md`
 
+### The info bar's symbol size did nothing in game
+
+- **Symptom:** `toast.symbolImageSize` at 130%, then 230%, drew a symbol smaller than the words.
+- **Cause:** `InlineImageText` measured the symbol against the text box, and the owner's bar has a
+  32 px box under 75 px words. Capping after the size (first fix) or before it (second) both
+  measured from the box.
+- **Fix:** size from the words alone: `textHeight × scale`. Test with a real project's numbers
+  (read its runtime data), not a box you made up, and see the render before calling it fixed.
+- **Guard:** `test-inline-image-box.mjs` §7 "a box shallower than the words".
+- **PR:** not recorded (2026-10-28) · source: `docs/status/win-text.md`
+
 ### Every game app's build broke while dev stayed green
+
 - **Symptom:** `vite dev` and the launcher worked; every game app failed to build.
 - **Cause:** `engine-layout` imported the rig runtime without declaring it; the launcher declared
   it, so its build resolved it.
@@ -183,6 +215,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (2026-08-17) · source: `docs/status/cinematic.md`
 
 ### A setting worked from Game Maker but not from the bake
+
 - **Symptom:** a project that turned the win-symbol replay off shipped it on.
 - **Cause:** `winCycle` was carried by `runtimeBundle.ts` but missing from the bake path's
   whitelist (`bake-editor-doc.mjs`).
@@ -191,6 +224,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (2026-07-24) · source: `docs/status/win-text.md`
 
 ### Editor and game drifted because placement maths was copied
+
 - **Symptom:** canvas nodes placed, boxed and scaled differently than in game.
 - **Cause:** three copies of the `screenAnchor` maths drifted; `nodeTransform` game-mapped a
   `canvas` node with no anchor, which the game draws raw.
@@ -200,6 +234,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (2026-06-20, 2026-07-17) · source: `docs/history.md`
 
 ### The canvas did not repaint after a Properties edit
+
 - **Symptom:** changing an anchor or param in the panel did nothing on the canvas.
 - **Cause:** the redraw effects track a field whitelist plus a nonce, never a deep node mutation;
   the Component Editor passed no nonce at all.
@@ -208,6 +243,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (2026-07-15) · source: `docs/history.md`
 
 ### An author screen showed in the editor but not in the game
+
 - **Symptom:** a new HUD screen or the info bar drew in the editor; the game showed a fallback.
 - **Cause:** `Game.svelte` mounted scenes by hard-coded id (`infoBar`, `basegame`…); the editor
   mints `hud_…` ids.
@@ -217,6 +253,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (2026-06-19, 2026-06-29, 2026-07-01) · source: `docs/history.md`
 
 ### A rig shows in the editor but not in the game
+
 - **Symptom:** a placed rig, or a component's own rig, never loads in game; or draws half size.
 - **Cause:** the game looks a rig up by bundle name; `editorArtExport` registered the full R2
   prefix, and the key rewrite skipped component defs. The editor loaded at 1×, the bake at ×2.
@@ -226,6 +263,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (2026-06-18, 2026-06-29) · source: `docs/history.md`
 
 ### A new sheet's art did not reach the game
+
 - **Symptom:** a deployed sheet "didn't ship"; only its uniquely named region showed new art.
 - **Cause:** the engine loads every sheet into one map by bare frame name, last loaded wins, and a
   remake sheet reused the old sheet's region names (`assetLoad.ts`, `LayoutNodeView`).
@@ -235,6 +273,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **PR:** not recorded (2026-06-12, 2026-06-17) · source: `docs/history.md`
 
 ### HUD rotation was dropped in game
+
 - **Symptom:** a rotated (or free-placed) HUD element looked right in the editor, not in game.
 - **Cause:** the HUD bar and corners render through the bespoke `LayoutEditable.svelte`, which
   re-implements placement; `hudPos()` returned no rotation and dropped free nodes.

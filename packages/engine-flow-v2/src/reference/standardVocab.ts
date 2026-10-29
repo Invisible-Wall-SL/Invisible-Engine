@@ -34,7 +34,12 @@
  */
 
 import { CAMERA_EFFECT_KINDS } from 'constants-shared/camera';
-import { ELEMENT_FX_KINDS, ELEMENT_FX_REELS_TARGET } from 'constants-shared/elementFx';
+import {
+	ELEMENT_FX_KINDS,
+	ELEMENT_FX_REELS_TARGET,
+	ELEMENT_FX_STAGE_TARGET,
+} from 'constants-shared/elementFx';
+import { SCREEN_TRANSITION_KINDS } from 'constants-shared/screenTransition';
 
 import { SYMBOL_ENUM } from '../symbols';
 import type { TemplateVocabulary, TypeRef } from '../types';
@@ -59,6 +64,10 @@ export const ELEMENT_FX_KIND_ENUM = 'ElementFxKind';
 const ELEMENT_FX: TypeRef = { t: 'enum', name: ELEMENT_FX_KIND_ENUM };
 export const ELEMENT_FX_TARGET_ENUM = 'ElementFxTarget';
 const ELEMENT_FX_TARGET: TypeRef = { t: 'enum', name: ELEMENT_FX_TARGET_ENUM };
+/** The `screenTransition` kind dropdown: the built-in exit kinds, widened per project by the
+ *  launcher with its shader graphs (`custom:<id>`). */
+export const SCREEN_TRANSITION_KIND_ENUM = 'ScreenTransitionKind';
+const SCREEN_TRANSITION: TypeRef = { t: 'enum', name: SCREEN_TRANSITION_KIND_ENUM };
 const CONFIDENCE: TypeRef = { t: 'enum', name: 'AnticipationConfidence' };
 const BOOL: TypeRef = { t: 'bool' };
 const MS: TypeRef = { t: 'ms' };
@@ -197,9 +206,12 @@ export const standardVocabulary = ({ templateId }: { templateId: string }): Temp
 		{ name: 'CameraEffectKind', values: [...CAMERA_EFFECT_KINDS] },
 		// The Element FX catalog (`constants-shared/elementFx`), shared with the runtime the same way.
 		{ name: ELEMENT_FX_KIND_ENUM, values: [...ELEMENT_FX_KINDS] },
-		// What an `elementEffect` can aim at: the reels here; the launcher adds each project's screens
-		// (`screen:<id>`) and anchored nodes (`withElementFxTargets`). The runtime takes any name.
-		{ name: ELEMENT_FX_TARGET_ENUM, values: [ELEMENT_FX_REELS_TARGET] },
+		// What an `elementEffect` can aim at: the reels (first, so a new node defaults to them) and the
+		// whole stage here; the launcher adds each project's screens (`screen:<id>`) and anchored
+		// nodes (`withElementFxTargets`). The runtime takes any name.
+		{ name: ELEMENT_FX_TARGET_ENUM, values: [ELEMENT_FX_REELS_TARGET, ELEMENT_FX_STAGE_TARGET] },
+		// What a `screenTransition` plays: the built-in exit kinds (`constants-shared/screenTransition`).
+		{ name: SCREEN_TRANSITION_KIND_ENUM, values: [...SCREEN_TRANSITION_KINDS] },
 		// Reel-anticipation confidence (docs/design/reel-anticipation.md): `possible` teases on the
 		// reachable-win MAX bound (near-misses), `guaranteed` fires only once the win is locked in (MIN).
 		{ name: 'AnticipationConfidence', values: ['possible', 'guaranteed'] },
@@ -465,6 +477,58 @@ export const standardVocabulary = ({ templateId }: { templateId: string }): Temp
 			],
 			category: 'effect',
 		},
+		// --- screen transitions ---
+		// The old screen frozen once, then an effect plays from it to the live new screen
+		// (`docs/design/shader-graph-screens.md` §6.2). The action returns once the old screen is
+		// captured, so the nodes after it change the screen under the transition.
+		{
+			name: 'screenTransition',
+			params: [
+				{
+					name: 'kind',
+					type: SCREEN_TRANSITION,
+					description:
+						'Which transition: a built-in exit (dissolve, burn, melt, shatter…) played on a still of the old screen, or a Shader Graph effect, which can read both screens.',
+				},
+				{
+					name: 'durationMs',
+					type: MS,
+					optional: true,
+					description: "How long it plays, 50 ms to 5 s. Leave unset for the effect's own.",
+				},
+				{
+					name: 'intensity',
+					type: FLOAT,
+					optional: true,
+					description:
+						"How strong, as a multiplier of the effect's reference strength. Unset ⇒ 1. Capped at 4.",
+				},
+				{
+					name: 'color',
+					type: STRING,
+					optional: true,
+					description:
+						"A `#rrggbb` colour for the effects that take one. Unset ⇒ the effect's own.",
+				},
+				{
+					name: 'reverse',
+					type: BOOL,
+					optional: true,
+					description:
+						'Play it mirrored: a Shader Graph transition reads this as Screens → Reverse. Unset ⇒ false.',
+				},
+				{
+					name: 'blocking',
+					type: BOOL,
+					optional: true,
+					description:
+						'Whether the flow WAITS for the transition to finish. Unset ⇒ false: the old screen is frozen, the flow goes on at once, and the next nodes change the screen under it. Set it true for a flourish over an unchanged screen.',
+				},
+			],
+			category: 'effect',
+		},
+		// Holds the chain until no transition is playing; goes on at once when none is.
+		{ name: 'waitForScreenTransition', params: [], category: 'effect' },
 		// --- element effects ---
 		// The camera's sibling for ONE element: a screen, the reels, or a placed node (a group, a
 		// component, or any node that carries Element FX of its own). Kinds come from

@@ -837,6 +837,15 @@ const handleRequest = async (req, res) => {
 			commit: (process.env.RAILWAY_GIT_COMMIT_SHA ?? '').slice(0, 12),
 			games: Object.keys(registry),
 			runtimes: runtimePointers,
+			// Which runtime each game boots and the protocol it is dealt (`match3`, `freePlay` ⇒ not a
+			// slot), so `lines` is stripped to slot only once no other family is on it (phase-11
+			// P11.1c). Every field here is already in the public game URL.
+			gameRuntimes: Object.fromEntries(
+				Object.entries(registry).map(([key, m]) => [
+					key,
+					{ runtime: m.runtime, protocol: m.protocol },
+				]),
+			),
 			pinned,
 			lastHydrate,
 		});

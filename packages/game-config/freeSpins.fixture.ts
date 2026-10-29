@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import {
 	BOOK_FREE_SPINS_DEFAULTS,
 	MAX_FREE_SPINS_PER_ROUND,
+	MAX_RETRIGGER_SPINS_PER_SPIN,
 	MIN_FREE_SPINS_TRIGGER_COUNT,
 	DEFAULT_FREE_SPINS_AWARD,
 	DEFAULT_FREE_SPINS_TRIGGER_COUNT,
@@ -27,6 +28,8 @@ import {
 	normalizeAwardTable,
 	normalizeFreeSpins,
 	resolveFreeSpins,
+	retriggerSpinsPerSpin,
+	triggerCountDistribution,
 	validateFreeSpins,
 } from './src/freeSpins.ts';
 import { normalizeGameConfigDoc } from './src/normalize.ts';
@@ -571,7 +574,7 @@ console.log('\nbounds — every free-spins round ends');
 check('the round cap is 200', MAX_FREE_SPINS_PER_ROUND, 200);
 check('the trigger floor is 3', MIN_FREE_SPINS_TRIGGER_COUNT, 3);
 check(
-	'a trigger count of 2 ⇒ an error (the feature would retrigger itself without end)',
+	'a trigger count of 2 with no freegame strips ⇒ an error (the feature would retrigger itself without end)',
 	issuesAt(doc({ freeSpins: { triggerCount: 2 } }), 'freeSpins.triggerCount'),
 	['error'],
 );
@@ -583,6 +586,125 @@ check(
 check(
 	'…but not while free spins are off',
 	issuesAt(doc({ freeSpins: { enabled: false, triggerCount: 2 } }), 'freeSpins.triggerCount'),
+	[],
+);
+
+console.log('\nbelow 3 — the retrigger measured on the freegame strips');
+const padded = (n: number, ...cells: string[]) => [...cells, ...Array(n - cells.length).fill('L1')];
+/** S on reels 1 and 5 only, `perStrip` of them spread over `length` cells. */
+const scatterEnds = (length: number, perStrip: number) =>
+	Array.from({ length: 5 }, (_unused, reel) =>
+		strip(
+			...padded(
+				length,
+				...(reel === 0 || reel === 4
+					? Array.from({ length: perStrip }, (_u, i) =>
+							i ? ['L1', 'L1', 'L1', 'L1', 'S'] : ['S'],
+						).flat()
+					: []),
+			),
+		),
+	);
+const sparse = { basegame: reels('H1', 'L1', 'S'), freegame: scatterEnds(60, 2) };
+const twoScatters = (paddingReels: Record<string, unknown>, retrigger = 10) =>
+	doc({
+		paddingReels,
+		freeSpins: { triggerCount: 2, retriggerAwards: [{ count: 2, spins: retrigger }] },
+	});
+const dist = triggerCountDistribution(scatterEnds(60, 2), [3, 3, 3, 3, 3], 'S');
+check(
+	'the distribution is a distribution',
+	Math.abs(dist.reduce((a, b) => a + b, 0) - 1) < 1e-12,
+	true,
+);
+// 2 S per 60-cell strip, never within a window of each other: a reel shows one on 6/60 stops.
+check('exact per reel: 2 S on 60 cells over 3 rows ⇒ 0.1 × 0.1 for both', dist[2].toFixed(6), (0.01).toFixed(6)); // prettier-ignore
+check('…and +10 each ⇒ 0.1 spins per spin', retriggerSpinsPerSpin(twoScatters(sparse))?.toFixed(6), (0.1).toFixed(6)); // prettier-ignore
+check(
+	'two scatters on sparse freegame strips ⇒ no issue',
+	issuesAt(twoScatters(sparse), 'freeSpins.triggerCount'),
+	[],
+);
+check(
+	'…dense ones (every cell of reels 1 and 5) ⇒ an error',
+	issuesAt(
+		twoScatters({ ...sparse, freegame: Array.from({ length: 5 }, (_u, r) => strip(r === 0 || r === 4 ? 'S' : 'L1')) }), // prettier-ignore
+		'freeSpins.triggerCount',
+	),
+	['error'],
+);
+check(
+	`…the line is ${MAX_RETRIGGER_SPINS_PER_SPIN} spins per spin: +60 (0.6) ⇒ an error`,
+	issuesAt(twoScatters(sparse, 60), 'freeSpins.triggerCount'),
+	['error'],
+);
+check('…and +40 (0.4) ⇒ none', issuesAt(twoScatters(sparse, 40), 'freeSpins.triggerCount'), []);
+check(
+	'a strip shorter than its window wraps, as the deal does: one S in 2 cells over 3 rows ⇒ 1 or 2',
+	triggerCountDistribution([strip('S', 'L1')], [3], 'S').map((p) => p.toFixed(6)),
+	[0, 0.5, 0.5, 0].map((p) => p.toFixed(6)),
+);
+check(
+	'a stepped grid reads each reel’s own rows: S on 1 of 4 cells, 1 row (¼) then 4 rows (always)',
+	triggerCountDistribution([strip('S', 'L1', 'L1', 'L1'), strip('S', 'L1', 'L1', 'L1')], [1, 4], 'S').map((p) => p.toFixed(6)), // prettier-ignore
+	[0, 0.75, 0.25, 0, 0, 0].map((p) => p.toFixed(6)),
+);
+check(
+	'each landed count is priced by its own row: 2 ⇒ +5, 3+ ⇒ +20',
+	retriggerSpinsPerSpin(
+		doc({
+			numReels: 3,
+			numRows: [1, 1, 1],
+			paylines: { '0': [0, 0, 0] },
+			paddingReels: {
+				basegame: reels('H1', 'L1', 'S').slice(0, 3),
+				freegame: Array.from({ length: 3 }, () => strip('S', 'L1')),
+			},
+			freeSpins: {
+				triggerCount: 2,
+				retriggerAwards: [
+					{ count: 2, spins: 5 },
+					{ count: 3, spins: 20 },
+				],
+			},
+		}),
+	)?.toFixed(6),
+	(3 * 0.125 * 5 + 0.125 * 20).toFixed(6),
+);
+check(
+	'a random retrigger range is measured at its top',
+	retriggerSpinsPerSpin(
+		doc({
+			paddingReels: sparse,
+			freeSpins: {
+				triggerCount: 2,
+				randomAwards: true,
+				retriggerAwards: [{ count: 2, spins: 5, maxSpins: 20 }],
+			},
+		}),
+	)?.toFixed(6),
+	(0.2).toFixed(6),
+);
+check(
+	'freegame strips short of a reel ⇒ unmeasured, the floor of 3 stands',
+	[
+		retriggerSpinsPerSpin(twoScatters({ ...sparse, freegame: sparse.freegame.slice(0, 4) })),
+		issuesAt(
+			twoScatters({ ...sparse, freegame: sparse.freegame.slice(0, 4) }),
+			'freeSpins.triggerCount',
+		),
+	],
+	[undefined, ['error']],
+);
+check(
+	'a count of 3 or more is not measured at all — dense strips and +50 still pass',
+	issuesAt(
+		doc({
+			paddingReels: { ...sparse, freegame: Array.from({ length: 5 }, () => strip('S')) },
+			freeSpins: { retriggerAwards: [{ count: 3, spins: 50 }] },
+		}),
+		'freeSpins.triggerCount',
+	),
 	[],
 );
 check(

@@ -1181,6 +1181,14 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Effect',
 		},
 		{
+			name: 'screenTransition',
+			group: 'Effect',
+		},
+		{
+			name: 'waitForScreenTransition',
+			group: 'Effect',
+		},
+		{
 			name: 'elementEffect',
 			group: 'Effect',
 		},
@@ -1330,6 +1338,14 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 		},
 		{
 			name: 'expandBookColumns',
+			group: 'Effect',
+		},
+		{
+			name: 'expandWild',
+			group: 'Effect',
+		},
+		{
+			name: 'growWild',
 			group: 'Effect',
 		},
 		{
@@ -1498,6 +1514,12 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 		},
 		{
 			type: 'expandBookColumns',
+		},
+		{
+			type: 'expandWild',
+		},
+		{
+			type: 'growWild',
 		},
 		{
 			type: 'freeSpinRetrigger',

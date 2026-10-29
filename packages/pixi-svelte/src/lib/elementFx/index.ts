@@ -10,13 +10,10 @@ export {
 	type ElementFxPose,
 } from './runtime';
 export {
-	bindStagePostFxSlot,
+	bindStagePostFx,
 	stageFxCapRefusal,
 	stageFxFilterCount,
 	stageFxRefusal,
-	stagePostFx,
-	type StagePostFx,
-	type StagePostFxSlot,
 } from './stage';
 export { graphFilter } from './custom';
 export type { ElementFxFilter } from './shaders';

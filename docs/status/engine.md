@@ -82,9 +82,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   symbols are mounted and destroyed as they scroll (`SymbolWrap.svelte` `inFrame`, a fresh strip each
   pre-spin lap; ~40% of spin CPU), rigs pose twice a frame and keep ticking when hidden, and idle
   particle layers update every frame. The per-cell geometry and prop-sync share is fixed (~18% less
-  spin CPU, `claude/reel-smoothness`); pooling the pre-spin cells alone did not pay (hidden rigs
-  tick). Next: a fixed per-reel view pool whose cells swap texture, not component, as they wrap;
-  then confirm on a real phone
+  spin CPU, `claude/reel-smoothness`) and the roll's filler now goes through a fixed per-reel view
+  pool (`claude/reel-view-pool`, ~11% less again). Next: confirm on a real phone
   (Chrome remote-debugging trace) before tuning the GPU side further. The ~118 MB of resident
   textures there is mostly uncompressed stock WebP/PNG sheets (`symbols2/3`, `SD2_Coin`,
   `reels_frame`, `fs_screen`); moving them to KTX2 like the atlas pages would cut it several-fold.
@@ -303,6 +302,88 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-28 — **Rolling symbols slide under the board edge instead of popping in and out**
+  (branch `claude/trusting-bardeen-1rd4b9`). Owner report: a reel symbol only appeared once its cell
+  was well into the window and snapped out the same way, leaving a visible gap at the top and bottom
+  of every spinning reel. Cause: `SymbolWrap`'s in-frame cull tested the symbol's CENTRE against the
+  window, so a cell was not drawn until half of it was already inside, and `BoardMask` never got
+  to clip anything. Fix: while a cell's reel is ROLLING (`reelState.rolling`, passed by
+  `ReelSymbol`), a symbol on the masked layer is drawn as soon as any part of its row touches the
+  window and the mask clips the rest; the mask is always the tight window while a reel rolls. At
+  rest, and on the unmasked animating layer, the centre test is unchanged, so a resting board draws
+  exactly what it did. (A first cut applied the margin at rest too, and the current-games harness
+  showed changed settled boards on `commonoverlayproject`.) Each cell still mounts once per pass, so
+  the 2026-10-27 spin-CPU work is unchanged. Merged with the filler pool (`ReelPaddingPool`, entry
+  below): a pooled view now takes its next cell half a row before the window edge too; a view's
+  cells are `rows + 2` pitches apart and the widened window is `rows + 1`, so no view needs two.
+  Drawing early must not START early: a rig or flipbook's clock runs from mount, so mounting half a
+  row sooner left every animated symbol further into its loop at rest — `commonoverlayproject`'s
+  settled, win and big-win screens all changed, identically with or without the margin at rest.
+  A cell in the half-row band ABOVE the window (centre not yet inside) is now `held`: `Symbol` holds
+  its rig / flipbook on the first frame and does not make its state's Element FX until the centre
+  crosses — the frame it used to mount on. The FX matter twice: their loops' clocks start at mount,
+  and each FX filter draws its seed from `Math.random` when it is made, which the harness seeds as
+  one sequence for all cosmetic code (`determinism.ts`), so an early filter shifts every later draw.
+  (Holding only the rig / flipbook left the harness diffs pixel-identical.)
+  `check:svelte --only apps/lines` at baseline; not seen in a browser (the sandbox could not load the
+  game's art), so the owner should watch a spin.
+- 2026-10-28 — **Expanding and growing wilds on lines games** (branch
+  `lines/expanding-growing-wilds`, plan `docs/design/expanding-and-growing-wilds.md`, reference game
+  Slotmotion's *Fairy's Charm*). Runtime release: it touches `apps/lines` and
+  `packages/engine-flow-v2`, but a game whose RGS never sends the new events is drawn as before.
+  - Wire → book: the lines mock (`scripts/mock-wild-rewrite.mjs`) emits the reference game's
+    `expandedWild` / `growingWild` + `symbolSetInMatrix`. The facade
+    (`packages/rgs-translator-eagaming/src/wildRewrite.ts`) turns them into `expandWild { reel, row,
+    symbol, cells, paid }` and `growWild { origin, symbol, cells }`, after the `reveal` and before
+    its `winInfo`. `playedSpin` stays the landed board; the wins are the final board's. A
+    `symbolSetInMatrix` with no wild before it still reaches the facade's other paths.
+  - Presentation: one module, `apps/lines/src/game/wildRewrite.svelte.ts`, serves the coded
+    handlers and the Flow effects (both events are in the v1 and v2 lines vocabularies).
+    - Expand, with stacked art covering the whole reel: the stacked picture grows from the landed
+      slice to the full reel (`StackedPicture.svelte` follows the grow state).
+    - Expand, otherwise: a cell-by-cell morph outwards from the origin, each beat capped at
+      `TRANSIT_BEAT_CAP_MS`.
+    - With `expandingWilds.show` `onWin` (the default, as the reference game draws it), an
+      expansion no paying line crosses (`paid` false) is not drawn.
+    - Grow: the origin bursts, then the cells morph into the wild.
+    - On a slam the final board still lands at once.
+  - Gates: `pnpm check:wild-rewrite` (in `check:rgs`, base spins and free spins),
+    `check:lines-parity` unchanged, `check:mock-contract`, `check:game-config-family`,
+    `check:flow-bonus-modes` (the new vocabulary entries are checked on their own, outside the
+    pinned hashes).
+  - **Played** through `scripts/playtest/wilds-screens.mjs`: the built runtime on the harness's
+    `cg-lines` stand-in, `FORCE_WILDS=1`, `?ie_determinism`, both the coded path and
+    `?flowV2=lines`, with no console errors. It showed four things:
+    - a paid expansion fills the reel before the win line is drawn;
+    - an unpaid one under `onWin` leaves the reel as it landed;
+    - `always` draws it;
+    - the plus-grow morphs up, down, left and right, clipped at the edge.
+    A scatter on the reel stays.
+
+    The plain vite dev game draws no board in the build container (software WebGL at about 4 fps),
+    which is why the harness is used. The grow's "burst" reuses the wild's `win` state (gold frame
+    included), so the origin reads as a winning cell for about half a second. It is open for a
+    design look.
+- 2026-10-28 — **A rolling reel's filler is drawn through a fixed pool of views per reel**
+  (branch `claude/reel-view-pool`). The cells a spin streams through the window (each pre-spin
+  lap's fresh strip, the slide's padding) each mounted their own `ReelSymbol` and were destroyed
+  after one pass — the mount churn the 10-27 profile put at ~40% of spin CPU. `createReelForSpinning`
+  now marks those cells `padding`; `BoardBase` skips them and `ReelPaddingPool` draws them through
+  `rows + 2` views a reel (a cell's view = its strip ordinal mod `rows + 2`, the ordinal carried
+  across the lap renumbering). A view takes its next cell on the frame that cell enters the window
+  and keys everything inside on it (`instanceKey`), so the art starts as a new mount's would;
+  `SymbolWrap` keeps the view mounted, hidden outside the window (`keepMounted`). Board cells,
+  targets and every cascade path are drawn as before. Two traps found on the way: a reused view's
+  `Symbol` re-mounts its top node when its `symbolFx` branch flips and Pixi appends it last, over
+  the pots overlay's rolling token (the view's symbol now sits in its own `Container`); and handing
+  the views fresh `{ cell, row }` objects every frame re-ran every prop-derived in them per frame
+  (`shown` now holds the cells). Verified with seeded renders of `commonoverlayproject` against
+  `main` on a replayed RGS answer: identical at idle and every 4th frame from 4 to 200 of a spin.
+  Measured (4 spins, 4× CPU, alternating builds, 3 runs each): main-thread CPU 16.0 s → 14.2 s
+  mean (−11%), long-task time 15.3 s → 14.1 s; noisy in this GPU-less container, ranges overlap.
+  Left: `BoardBase`'s keyed `{#each}` still makes an item per filler cell each lap (cheap), and
+  `addPadding` publishes the renumbered strip one flush before `placeY` moves it (a possible
+  double swap per lap, pre-existing). Not verified on a physical phone.
 - 2026-10-27 — **A rolling reel costs ~18% less CPU: the reel geometry and the prop sync are
   cached** (branch `claude/reel-smoothness`). Owner report on `commonoverlayproject`: reels not
   smooth on phones. Profiled an unminified runtime spinning at 4× CPU slowdown: ~40% of spin CPU was

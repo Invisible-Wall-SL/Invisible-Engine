@@ -30,6 +30,7 @@ import {
 	DEFAULT_FREE_SPINS_TRIGGER_COUNT,
 	freeSpinsAwardsAreDefault,
 	freeSpinsTriggerIsDefault,
+	freeSpinsTriggerStrips,
 	holdAndWinMockInputs,
 	inPlayScatterSymbol,
 	isScatterSymbol,
@@ -39,6 +40,8 @@ import {
 	potsOverlayMockInputs,
 	resolveBetModes,
 	resolveExpandingSymbol,
+	resolveExpandingWilds,
+	resolveGrowingWild,
 	resolveFreeSpins,
 	resolveOutcome,
 	resolveWinModel,
@@ -408,12 +411,52 @@ function projectExpandingSymbol(doc: GameConfigDoc, projectKey: string): Grid['e
 	return candidates.length ? { candidates } : undefined;
 }
 
-type FreeSpinsFields = Pick<Grid, 'freeSpins' | 'freeSpinsTrigger' | 'freeSpinsAwards'>;
+/**
+ * The project's expanding and growing wilds for the lines mock, in SERVER names: the in-play `W` is
+ * the mock's `WILD`; any other wild keeps its own name, which the facade passes through unmapped. A
+ * name the lines vocabulary already gives another meaning cannot travel, so it is left out (warned).
+ */
+function projectWildRewrite(
+	doc: GameConfigDoc,
+	projectKey: string,
+): Pick<Grid, 'expandingWilds' | 'growingWild'> {
+	const toServer = new Map(
+		Object.entries(linesMapping.symbols).map(([server, client]) => [client, server]),
+	);
+	const serverName = (client: string): string | undefined => {
+		const name = toServer.get(client) ?? client;
+		if (name === client && client in linesMapping.symbols) {
+			warnOnce(
+				`${projectKey}:wildRewrite:${client}`,
+				`[mock-contract] '${projectKey}' names a wild ${client}, which the test server's mock already uses for another symbol — it is never dealt there.`,
+			);
+			return undefined;
+		}
+		return name;
+	};
+	const expanding = resolveExpandingWilds(doc);
+	const symbols = (expanding?.symbols ?? []).flatMap(({ symbol, reels }) => {
+		const name = serverName(symbol);
+		return name ? [{ symbol: name, reels }] : [];
+	});
+	const growing = resolveGrowingWild(doc);
+	const growName = growing && serverName(growing.symbol);
+	return {
+		...(symbols.length ? { expandingWilds: { symbols } } : {}),
+		...(growing && growName ? { growingWild: { ...growing, symbol: growName } } : {}),
+	};
+}
+
+type FreeSpinsFields = Pick<
+	Grid,
+	'freeSpins' | 'freeSpinsTrigger' | 'freeSpinsAwards' | 'freeSpinsTriggerStrips'
+>;
 
 /**
  * The project's free-spins rule for the lines-family mock: `freeSpins: false` when it has none;
  * otherwise a `freeSpinsTrigger` when its trigger departs from 3+ of the scatter and a
- * `freeSpinsAwards` when its awards depart from 10 / +5 / never random. Nothing at all for a
+ * `freeSpinsAwards` when its awards depart from 10 / +5 / never random, and, for a trigger below 3,
+ * the trigger's places on the strips (`freeSpinsTriggerStrips`). Nothing at all for a
  * project that departs from neither, and each field only on its own departure, so an un-authored
  * project's grid is byte-identical.
  */
@@ -429,9 +472,12 @@ function projectFreeSpins(doc: GameConfigDoc, projectKey: string): FreeSpinsFiel
 				retrigger: freeSpins.retriggerAwards,
 				random: freeSpins.randomAwards,
 			};
+	// Only below a count of 3, which no config could author before the strips were measured.
+	const strips = trigger ? freeSpinsTriggerStrips(doc) : undefined;
 	return {
 		...(trigger ? { freeSpinsTrigger: trigger } : {}),
 		...(awards ? { freeSpinsAwards: awards } : {}),
+		...(strips ? { freeSpinsTriggerStrips: strips } : {}),
 	};
 }
 
@@ -656,6 +702,7 @@ function projectGrid(
 		const paysLines = model.type === 'lines';
 		const expandingSymbol = paysLines ? projectExpandingSymbol(doc, projectKey) : undefined;
 		const scatterWild = paysLines && projectScatterWild(doc);
+		const wildRewrite = projectWildRewrite(doc, projectKey);
 		// The pots overlay composes over the lines mock as over the book mock (book-feature Phase 4),
 		// its imported modes' names in the lines vocabulary. Last, so a project without it is unchanged.
 		const potsOverlay = inServerNames(potsOverlayMockInputs(doc), linesMapping, projectKey);
@@ -676,6 +723,7 @@ function projectGrid(
 			...freeSpins,
 			...(expandingSymbol ? { expandingSymbol } : {}),
 			...(scatterWild ? { scatterWild: true } : {}),
+			...wildRewrite,
 			...(potsOverlay ? { potsOverlay } : {}),
 		};
 	} catch {

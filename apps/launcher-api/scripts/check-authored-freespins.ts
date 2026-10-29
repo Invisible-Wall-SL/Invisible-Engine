@@ -50,8 +50,9 @@ const PINNED = [
 	'7dd3210babd5d462fe768db2e59dc39300ca0066d44863e45972f6e0be78ca0a', // pragma: allowlist secret
 	'0825a395ed07f094c07f7119e9f2f1218ab3b8b3a95cb233a3bb16df3a393125', // pragma: allowlist secret
 	// drivenSeed.ts, re-pinned for game-families P10.5 and P10.8 and card-games C3: one import and
-	// one DRIVEN_SEEDS entry each (`match3`, `arcade`, `card`).
-	'26fde91b385425a2efd08870a353791791b908f6777fee6f381510cbaf6cac89', // pragma: allowlist secret
+	// one DRIVEN_SEEDS entry each (`match3`, `arcade`, `card`); and for phase-11 P11.1b: the same
+	// entries built through `@__PURE__ byTemplateId` so a slot runtime can drop the family seeds.
+	'f947a24359b27bc24d65ccc091f5c460e5e7b52726bd6af3f89ef65ac6fc786c', // pragma: allowlist secret
 	'3bfe8005429caf31bec13098254b77c8d788190f38938d7cdb562cfbef531682', // pragma: allowlist secret
 ];
 
@@ -372,7 +373,7 @@ eq(
 	const page = src('../src/routes/(app)/game-maker/+page.server.ts');
 	eq(
 		'the Game Maker page builds the chip from the same rule',
-		page.includes('authoredOverlayChips(buttoned, config.doc, winText)') &&
+		page.includes('authoredOverlayChips(buttoned, config.doc, winText, ') &&
 			src('../src/lib/server/authoredWinTiers.ts').includes(
 				'authoredFreeSpins: resolved.freeSpins,',
 			),

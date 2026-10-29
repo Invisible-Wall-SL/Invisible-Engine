@@ -211,7 +211,8 @@ const buildGraph = (): FlowDoc['graph'] => {
 export const MATCH3_DRIVEN_SEED_DOC: FlowDoc = {
 	version: 2,
 	templateId: MATCH3_TEMPLATE_ID,
-	graph: buildGraph(),
+	// `@__PURE__`: a runtime built without this family drops the seed.
+	graph: /* @__PURE__ */ buildGraph(),
 	containers: CONTAINERS,
 	variables: [
 		{ id: MATCH3_VARIABLES.score, type: 'int', initial: 0, scope: 'game' },

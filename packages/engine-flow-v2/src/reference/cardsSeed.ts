@@ -141,7 +141,8 @@ const buildGraph = (): FlowDoc['graph'] => {
 export const CARD_DRIVEN_SEED_DOC: FlowDoc = {
 	version: 2,
 	templateId: CARD_TEMPLATE_ID,
-	graph: buildGraph(),
+	// `@__PURE__`: a runtime built without this family drops the seed.
+	graph: /* @__PURE__ */ buildGraph(),
 	containers: CONTAINERS,
 	variables: [{ id: CARD_VARIABLES.started, type: 'bool', initial: false, scope: 'game' }],
 };

@@ -574,6 +574,48 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		),
 	);
 
+	// Invisible Shader Graph 8e: the `transition` cue's screen transition round-trips through the
+	// game's own reader; an unknown field inside it, and one beside it, are dropped. A kind that is
+	// no transition (a built-in that is not an exit, or a newer build's) drops the row, so the game
+	// plays the wipe; the length and strength are clamped.
+	const cueOn = clone(base) as typeof base & { settings: Record<string, unknown> };
+	cueOn.settings.transitionCue = {
+		kind: 'custom:swirl',
+		durationMs: 1200,
+		intensity: 1.5,
+		params: { color: '#ff0000', soft: true },
+	};
+	const cueExtras = clone(cueOn);
+	Object.assign(cueExtras.settings.transitionCue as object, { easing: 'out', layer: 3 });
+	Object.assign((cueExtras.settings.transitionCue as { params: Record<string, unknown> }).params, {
+		curve: [0, 1],
+		nested: { a: 1 },
+	});
+	ignores('4. layout (transition cue)', (d) => normalizeLayoutDoc(d, 'demo'), cueOn, cueExtras, [
+		'"transitionCue":{"kind":"custom:swirl","durationMs":1200,"intensity":1.5,"params":{"color":"#ff0000","soft":true}}',
+	]);
+	for (const [label, row] of [
+		['a built-in that is not an exit', { kind: 'shake' }],
+		['a kind from a newer build', { kind: 'vortexOut' }],
+		['no kind', { durationMs: 900 }],
+		['a non-object', 'dissolveOut'],
+	] as const) {
+		const cueOff = clone(base) as typeof base & { settings: Record<string, unknown> };
+		cueOff.settings.transitionCue = row;
+		check(
+			`4. layout: a transition cue with ${label} is not written`,
+			!JSON.stringify(normalizeLayoutDoc(cueOff, 'demo')).includes('transitionCue'),
+		);
+	}
+	const cueClamped = clone(base) as typeof base & { settings: Record<string, unknown> };
+	cueClamped.settings.transitionCue = { kind: 'dissolveOut', durationMs: 60_000, intensity: -2 };
+	check(
+		'4. layout: a built-in exit cue is kept, its length and strength clamped',
+		JSON.stringify(normalizeLayoutDoc(cueClamped, 'demo')).includes(
+			'"transitionCue":{"kind":"dissolveOut","durationMs":5000,"intensity":0}',
+		),
+	);
+
 	const withNodeField = clone(base);
 	Object.assign(withNodeField.scenes[0].nodes[0], { glow: 0.2 });
 	const kept = run(() => normalizeLayoutDoc(withNodeField, 'demo'));

@@ -69,6 +69,7 @@ import {
 import { eventEmitter } from './eventEmitter';
 import { broadcastMusicCue, playWildExplodeSound } from './soundBindings';
 import { getFlowV2 } from './flowV2InterpreterHolder';
+import { screenTransitionEffect, waitForScreenTransitionEffect } from './screenTransitions';
 import { boardWinText } from './boardWinText';
 import { stateApp } from './stateApp';
 import { winState } from './winState.svelte';
@@ -106,6 +107,7 @@ import {
 	presentWheel,
 } from './holdAndWinPresentation';
 import { presentOverlayDrop, presentTokenLift } from './overlayPresentation';
+import { presentExpandWild, presentGrowWild } from './wildRewrite.svelte';
 import { armReelTokens } from './stateOverlay.svelte';
 import { luckySpinArming, takeLuckySpinReveal } from './luckySpin';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
@@ -1214,6 +1216,16 @@ const effects: Record<string, FlowEffect> = {
 	},
 
 	/**
+	 * Screen transition (`screenTransition`) — the old screen frozen once, then a transition plays
+	 * from it to the live new screen. Returns once the screen is captured (one frame), or with
+	 * `blocking` once it has played out. No transition runtime bound ⇒ a cut, as before 8e.
+	 */
+	screenTransition: screenTransitionEffect,
+
+	/** Hold until no screen transition is playing; at once when none is. */
+	waitForScreenTransition: waitForScreenTransitionEffect,
+
+	/**
 	 * Element FX (`elementEffect`) — the camera's sibling for ONE element: the reels, a screen
 	 * (`screen:<id>`) or a node, found through the named anchors (the reel stack, every mounted
 	 * screen, groups, components and each node carrying Element FX register one). The kind is a
@@ -1506,6 +1518,29 @@ const effects: Record<string, FlowEffect> = {
 				await roundSkip.wait(0.12 * SECOND);
 			}
 		}
+	},
+
+	/** The expanding wild (`expandWild`) — its coded handler's presentation, shared (`wildRewrite`). */
+	expandWild: async (payload) => {
+		const [origin] = toCells(payload);
+		if (!origin || typeof payload.symbol !== 'string') return;
+		await presentExpandWild({
+			...origin,
+			symbol: payload.symbol as SymbolName,
+			cells: toCells(payload.cells),
+			paid: payload.paid === true,
+		});
+	},
+
+	/** The growing wild (`growWild`) — its coded handler's presentation, shared (`wildRewrite`). */
+	growWild: async (payload) => {
+		const [origin] = toCells(payload.origin);
+		if (!origin || typeof payload.symbol !== 'string') return;
+		await presentGrowWild({
+			origin,
+			symbol: payload.symbol as SymbolName,
+			cells: toCells(payload.cells),
+		});
 	},
 
 	/**

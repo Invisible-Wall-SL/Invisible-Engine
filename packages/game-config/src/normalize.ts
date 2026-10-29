@@ -50,6 +50,8 @@ import { normalizeCoinBoard } from './coinBoard';
 import { gameTypeForMode, normalizeGameModes } from './modes';
 import { normalizeBonusImports } from './bonusImports';
 import { normalizeReelBehaviour } from './reelBehaviour';
+import { normalizeExpandingWilds } from './expandingWilds';
+import { normalizeGrowingWild } from './growingWild';
 import { normalizeSounds } from './sounds';
 
 import { resolveGridAlign } from './grid';
@@ -408,6 +410,12 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 	// all and stays byte-identical to a math export.
 	const reelBehaviour = normalizeReelBehaviour(raw.reelBehaviour);
 	if (reelBehaviour) doc.reelBehaviour = reelBehaviour;
+
+	// Expanding and growing wilds: present only when authored, so every other config is unchanged.
+	const expandingWilds = normalizeExpandingWilds(raw.expandingWilds);
+	if (expandingWilds) doc.expandingWilds = expandingWilds;
+	const growingWild = normalizeGrowingWild(raw.growingWild);
+	if (growingWild) doc.growingWild = growingWild;
 
 	// Bonuses in the split form (`./bonusGames`): the coin overlay and the declared modes, a legacy
 	// `holdAndWin` / `potsOverlay` block migrated into them (and never stored). Modes store only

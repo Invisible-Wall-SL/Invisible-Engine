@@ -18,6 +18,7 @@ import {
 	sceneWorld,
 } from 'engine-layout';
 import { normalizeBootSplashRef } from 'constants-shared/bootSplash';
+import { readScreenTransition } from 'constants-shared/screenTransition';
 import { repairLayoutDocAtlasRefs } from './atlasRefRepair';
 import { putDocWithBackup, type BackupMode } from './docBackups';
 import { editorDocBackupTarget, editorDocKey } from './projectPaths';
@@ -261,6 +262,10 @@ function normalizeGameSettings(input: unknown): GameSettings | undefined {
 	// the next save — the field would appear to save in the editor and never reach R2.
 	const bootLoader = normalizeBootSplashRef(input.bootLoader);
 	if (bootLoader) out.bootLoader = bootLoader;
+	// The `transition` cue's screen transition (Invisible Shader Graph 8e): sparse, written only when
+	// it names a transition kind, read by the game's own reader so the two keep the same fields.
+	const transitionCue = readScreenTransition(input.transitionCue);
+	if (transitionCue) out.transitionCue = transitionCue;
 	// Authored overlays (Rive plan Phase 8a / 8b): sparse, ON rows only — an off row is the same as
 	// an absent one to the runtime, so it is never written and an older doc never gains the block.
 	if (isRecord(input.authoredOverlays)) {

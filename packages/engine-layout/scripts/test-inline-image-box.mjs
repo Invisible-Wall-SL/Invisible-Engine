@@ -82,10 +82,6 @@ const measureRun = (value, fontSize) => ({
 });
 
 function layoutRow({ text, fontSize, box }) {
-	const contentHeight =
-		box && box.boxHeight !== undefined
-			? textBoxContentHeight(box.boxHeight, box.padding)
-			: Infinity;
 	// Resolver knows every token here, so each image segment stays an image.
 	const segments = parseInlineImageSegments(text);
 	let scale = 1;
@@ -97,7 +93,7 @@ function layoutRow({ text, fontSize, box }) {
 				s.kind === 'image' ? tallest : Math.max(tallest, measureRun(s.value, fontSize).height),
 			0,
 		) || fontSize;
-	const imageHeight = Math.min(textHeight * scale, contentHeight);
+	const imageHeight = textHeight * scale;
 	const imageMargin = fontSize * 0.22;
 	const imageSlot = imageHeight + imageMargin * 2;
 	const widths = segments.map((s) =>
@@ -266,7 +262,7 @@ check(
 
 // 7. The author's size option (Win Text `toast.symbolImageSize`) rides the sentinel as a scale on
 //    the text height: an unsized sentinel parses at 1 and keeps its old bytes, a sized one scales
-//    the picture without touching the words, and the plaque still bounds it.
+//    the picture without touching the words, and scales the words' height, never the box's.
 {
 	check('an unsized sentinel parses at scale 1', parseInlineImageSegments(RICH)[1].scale, 1);
 	check(
@@ -290,9 +286,41 @@ check(
 		fontSize: FONT,
 		box,
 	});
-	assert(
-		'a big symbol still stays inside the plaque',
-		boxed.imageHeight <= textBoxContentHeight(box.boxHeight, box.padding) + 0.5,
+	check('a sized symbol scales the words’ height', boxed.imageHeight, boxed.textHeight * 3);
+	// The owner's bar (commonoverlayproject): 75 px words in a box only 32 px tall, no auto-fit, so
+	// the words spill well outside it. 100% must still mean the WORDS' height — the bug was the box
+	// capping the base, which drew the 230% symbol smaller than the text beside it.
+	const ownerBox = { ...CENTRED, boxWidth: 182, boxHeight: 32 };
+	const owner100 = layoutRow({
+		text: `€0.10 with 3 ${wrapInlineImage('H4', 'Hammer')}`,
+		fontSize: 75,
+		box: ownerBox,
+	});
+	const owner230 = layoutRow({
+		text: `€0.10 with 3 ${wrapInlineImage('H4', 'Hammer', 2.3)}`,
+		fontSize: 75,
+		box: ownerBox,
+	});
+	check(
+		'a box shallower than the words: 100% is the words’ height',
+		owner100.imageHeight,
+		owner100.textHeight,
+	);
+	check('…and 230% is 2.3× the words’ height', owner230.imageHeight, owner230.textHeight * 2.3);
+	// An auto-fitted plaque shallower than its font: the size must still change the symbol (the
+	// first bug capped the SIZED height at the box, which sent 130% straight back to 100%).
+	const plaque = { ...CENTRED, boxWidth: 520, boxHeight: 20, padding: 4 };
+	const atFull = fitFont({ text: RICH, box: plaque, baseFontSize: FONT });
+	const sized = fitFont({
+		text: `You win $4.00 with 4 ${wrapInlineImage('H4', 'Cowboys', 1.3)}`,
+		box: plaque,
+		baseFontSize: FONT,
+	});
+	check('130% in a fitted plaque keeps the words’ size', sized.font, atFull.font);
+	check(
+		'130% in a fitted plaque draws 1.3× the 100% symbol',
+		sized.row.imageHeight,
+		atFull.row.imageHeight * 1.3,
 	);
 	check(
 		'a malformed scale falls back to 1',

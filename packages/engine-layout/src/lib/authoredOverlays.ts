@@ -1,3 +1,5 @@
+import { isCustomElementFxKind, type CustomElementFxKind } from 'constants-shared/elementFx';
+import { readScreenTransition, type ScreenTransitionSpec } from 'constants-shared/screenTransition';
 import {
 	FREE_SPIN_INTRO_PRESENTATION_ID,
 	FREE_SPIN_OUTRO_PRESENTATION_ID,
@@ -112,6 +114,39 @@ export function authoredTransitionStatus(
 	if (holding.some((scene) => (scene.space ?? 'game') !== 'canvas')) return 'non-canvas-scene';
 	return 'ready';
 }
+
+/** The `transition` cue's screen transition (Invisible Shader Graph 8e), or `undefined` when the
+ *  row is unset or names no transition kind. */
+export const readTransitionCue = (
+	doc: Pick<LayoutDoc, 'settings'>,
+): ScreenTransitionSpec | undefined => readScreenTransition(doc.settings?.transitionCue);
+
+/**
+ * What the `transition` cue plays (Invisible Shader Graph 8e, `docs/design/shader-graph-screens.md`
+ * §8), the ONE rule the game and the launcher's publish chip share:
+ * - `off` — no row: the wipe, coded or authored as {@link authoredTransitionStatus} says.
+ * - `screen` — the row's screen transition: the coded Transition is retired for the boot and the
+ *   authored swap is not made, so nothing else holds the cue.
+ * - `unplayable` — the row names a custom kind that is not `registered` (its graph deleted, or one
+ *   that does not compile): the wipe plays, as with no row; the chip warns.
+ */
+export type TransitionCueStatus = 'off' | 'screen' | 'unplayable';
+
+export function transitionCueStatus(
+	doc: Pick<LayoutDoc, 'settings'>,
+	registered: (kind: CustomElementFxKind) => boolean,
+): TransitionCueStatus {
+	const cue = readTransitionCue(doc);
+	if (!cue) return 'off';
+	return isCustomElementFxKind(cue.kind) && !registered(cue.kind) ? 'unplayable' : 'screen';
+}
+
+/** Whether the game swaps the coded Transition for the authored wipe: the authored row is ready and
+ *  the `transition` cue does not play a screen transition. */
+export const authoredTransitionSwapped = (
+	transition: AuthoredTransitionStatus,
+	transitionCue: TransitionCueStatus,
+): boolean => transition === 'ready' && transitionCue !== 'screen';
 
 /**
  * A scene with every coded `bind: Transition` node swapped for the authored instance, wherever it
@@ -525,6 +560,8 @@ export interface AuthoredOverlayResolution<T> {
 	/** The doc the game renders: every ready overlay swapped; none ⇒ the SAME doc object. */
 	doc: T;
 	transition: AuthoredTransitionStatus;
+	/** As given: the `transition` cue's status, which holds the Transition's swap back on `screen`. */
+	transitionCue: TransitionCueStatus;
 	win: AuthoredWinStatus;
 	freeSpins: AuthoredFreeSpinsStatus;
 }
@@ -532,23 +569,31 @@ export interface AuthoredOverlayResolution<T> {
 /**
  * Resolve every authored-overlay row on `raw`. The Win's status needs the active tiers, which only
  * the caller has (the game's config, the launcher's config + Win Text), so it is passed in; its
- * `presentation` is read only when the Win is `ready`.
+ * `presentation` is read only when the Win is `ready`. So is the `transition` cue's status
+ * (`transitionCue`, {@link transitionCueStatus}), whose registered kinds only the caller knows;
+ * absent ⇒ `off`.
  */
 export function resolveAuthoredOverlays<
 	T extends Pick<LayoutDoc, 'scenes' | 'settings' | 'mainSizesMap'>,
 >(
 	raw: T,
-	win: {
+	options: {
 		status: (doc: T) => AuthoredWinStatus;
 		presentation?: () => AuthoredWinPresentation | undefined;
+		transitionCue?: TransitionCueStatus;
 	},
 ): AuthoredOverlayResolution<T> {
+	const transitionCue = options.transitionCue ?? 'off';
 	const transition = authoredTransitionStatus(raw);
-	const transitioned = transition === 'ready' ? withAuthoredTransitionDoc(raw) : raw;
-	const winStatus = win.status(transitioned);
+	const transitioned = authoredTransitionSwapped(transition, transitionCue)
+		? withAuthoredTransitionDoc(raw)
+		: raw;
+	const winStatus = options.status(transitioned);
 	const won =
-		winStatus === 'ready' ? withAuthoredWinDoc(transitioned, win.presentation?.()) : transitioned;
+		winStatus === 'ready'
+			? withAuthoredWinDoc(transitioned, options.presentation?.())
+			: transitioned;
 	const freeSpins = authoredFreeSpinsStatus(won);
 	const doc = freeSpins === 'ready' ? withAuthoredFreeSpinsDoc(won) : won;
-	return { doc, transition, win: winStatus, freeSpins };
+	return { doc, transition, transitionCue, win: winStatus, freeSpins };
 }
