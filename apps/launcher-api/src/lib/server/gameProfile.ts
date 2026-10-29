@@ -577,7 +577,9 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		title:
 			'The free-spin transition wipe plays from the built-in “Transition wipe” component and its timeline instead of the coded Transition mount (Rive plan Phase 8a pilot).',
 		text: (ctx) =>
-			ctx.layout?.authoredTransition === 'ready' ? 'Authored Transition (pilot)' : null,
+			ctx.layout?.authoredTransition === 'ready' && ctx.layout.transitionCue !== 'screen'
+				? 'Authored Transition (pilot)'
+				: null,
 	},
 	{
 		id: 'authoredTransitionUnbound',
@@ -602,7 +604,7 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 	{
 		id: 'transitionCue',
 		title:
-			'The transition cue (free-spin entry and exit) plays a screen transition from the old screen to the new one instead of the wipe, set in Game Settings → Screen FX. The flow goes on once the old screen is frozen, so the next screen appears under the transition.',
+			'Every transition cue (free-spin entry and exit) plays a screen transition instead of the wipe, set in Game Settings → Screen FX: it freezes what is on screen as the cue fires and plays out over whatever the flow shows next, which goes on once the frame is frozen. On free-spin exit the screen has already changed back to the base game when the cue fires, so that transition plays over the base game, not out of the free spins. While it is on, the authored Transition pilot is set aside.',
 		text: (ctx) =>
 			ctx.layout?.transitionCue === 'screen' ? 'Transition cue: screen transition' : null,
 	},

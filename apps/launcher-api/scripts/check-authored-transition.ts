@@ -24,10 +24,12 @@
  *     the flag on and no coded Transition to replace gets the warning, one with the flag off neither.
  *  6. the `transition` cue's screen transition (Invisible Shader Graph 8e): the one rule
  *     (`transitionCueStatus`: off / screen / unplayable) the game and the chip share; with the row
- *     off or unplayable the resolution returns the same objects as without it (the wipe, coded or
- *     authored); with it on, the authored swap is not made, the coded part is retired and the cue
- *     is subscribed; with no transition runtime bound the game reads the row as off; the game binds
- *     the runtime before the scenes load and unbinds on destroy; the chips.
+ *     off or unplayable the resolution returns what it returns without it (the wipe, coded or
+ *     authored: the very doc with the flag off; with it on an equal doc, the same scenes swapped and
+ *     the rest the very scene objects); with it on, the authored swap is not made, the coded part
+ *     is retired and the cue is subscribed; with no transition runtime bound the game reads the row
+ *     as off; the game binds the runtime before the scenes load and unbinds on destroy; the chips
+ *     (the pilot chip hidden while the row plays a screen transition, since its swap is not made).
  *
  * Runs the real `engine-layout` readers, player and registry, the real `editorStorage`
  * normalizer and the real `gameProfile`. What it cannot prove: the Svelte mount in `Game.svelte`
@@ -751,27 +753,33 @@ eq(
 		['the flag on', flagOn],
 	] as const) {
 		const today = resolve(doc);
+		const swappedIds = (out: LayoutDoc) =>
+			out.scenes.filter((scene, i) => scene !== doc.scenes[i]).map((scene) => scene.id);
 		for (const status of ['off', 'unplayable'] as const) {
 			const row = resolve(doc, status);
 			eq(
-				`${label}, the row ${status}: the same objects as without it`,
+				`${label}, the row ${status}: an equal doc, the same scenes swapped, the rest the very objects`,
 				[
-					row.doc === today.doc ||
-						JSON.stringify(row.doc) === JSON.stringify(today.doc) ||
-						'different',
-					row.doc.scenes.every((scene, i) => scene === today.doc.scenes[i]) ||
-						JSON.stringify(row.doc.scenes) === JSON.stringify(today.doc.scenes),
+					JSON.stringify(row.doc) === JSON.stringify(today.doc),
+					swappedIds(row.doc),
 					row.transition,
 					row.transitionCue,
 				],
-				[true, true, today.transition, status],
+				[true, swappedIds(today.doc), today.transition, status],
 			);
 		}
 	}
 	eq(
-		'the flag off, the row off: the raw doc itself',
-		[resolve(lines).doc === lines, resolve(lines, 'off').doc === lines],
-		[true, true],
+		'the flag off, the row off or unplayable: the raw doc itself; the flag on swaps the overlays',
+		[
+			resolve(lines).doc === lines,
+			resolve(lines, 'off').doc === lines,
+			resolve(lines, 'unplayable').doc === lines,
+			flagOn.scenes
+				.filter((scene, i) => scene !== resolve(flagOn, 'unplayable').doc.scenes[i])
+				.map((scene) => scene.id),
+		],
+		[true, true, true, ['basegameOverlays']],
 	);
 	const onScreen = resolve(flagOn, 'screen');
 	eq(
@@ -925,6 +933,29 @@ eq(
 		})
 			.features.filter((c) => c.id.startsWith('transitionCue'))
 			.map((c) => [c.id, c.tone]);
+	const pilotChips = (transitionCue?: A.TransitionCueStatus) =>
+		buildGameProfile({
+			gameTypeId: 'lines',
+			gameTypeName: 'Lines',
+			config: null,
+			configSource: 'template' as never,
+			symbols: { symbols: {} } as never,
+			runtimeId: 'lines',
+			protocol: 'lines',
+			layout: { authoredTransition: 'ready', transitionCue },
+		})
+			.features.filter((c) => c.id === 'authoredTransition' || c.id.startsWith('transitionCue'))
+			.map((c) => c.id);
+	eq(
+		'the pilot ready and the row screen ⇒ only the cue chip (the swap is not made); otherwise both',
+		[pilotChips('screen'), pilotChips('unplayable'), pilotChips('off'), pilotChips()],
+		[
+			['transitionCue'],
+			['authoredTransition', 'transitionCueUnplayable'],
+			['authoredTransition'],
+			['authoredTransition'],
+		],
+	);
 	eq(
 		'screen ⇒ the fact chip, unplayable ⇒ the warning, off or absent ⇒ none',
 		[
