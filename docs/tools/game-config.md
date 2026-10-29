@@ -224,8 +224,9 @@ has no family control at all. Three more families exist
     no such module it does nothing, and the section warns.
   - A generated game's zone rules (Salmons') may also make a zone **solid** (a rock; a waterfall,
     solid from below only) or give it a **kind** a rules module acts on (`sandbank`,
-    `waterfall`). The section does not edit those two yet; an edit keeps them, and a generated
-    game's room replaces every zone rule with its generator's anyway.
+    `waterfall`). The **Solid / kind** column shows them read-only; an edit keeps them (so a
+    solid or kind rule may drop its push and goal), and a generated game's room replaces every
+    zone rule with its generator's anyway.
 - **Bots** (an online game only) — bots fill a room's empty places while anyone is in it, and a
   joining player takes a bot's place. Each bot **Plays** an online character with a **Brain** (a
   character from Invisible Characters). **Fill room to** (20), **A bot can win** (off) and **Bot

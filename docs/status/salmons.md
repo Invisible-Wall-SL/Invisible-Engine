@@ -112,8 +112,15 @@ the placeholders when they are.
 
 The isometric view is scheduled in [Phase 11](../design/phase-11.md) (P11.4); its HUD and round
 over, the published `rooms_url` and a river per room (P11.2) and its own rules (P11.3) are built.
-Left from P11.3: the rules' events (`climbed`, `hooked`, `golden`, …) as Flow events with cues, and
-the golden salmon and the line drawn. S0 runs beside them.
+Left from P11.3 (known limits):
+
+- The rules' room events `climbed`, `grounded`, `jumped`, `hooked`, `escaped` and `golden` reach the
+  device's probe but are not in `onlineFlow.js` `ONLINE_FLOW_EVENTS` (nor `engine-flow-v2`
+  `ARCADE_ONLINE_EVENTS`), so Flow cannot play a cue or sound on them yet. A landing is `caught`
+  (effect `hook`), which Flow does hear.
+- The golden salmon is not drawn gold and the line is not drawn.
+- One tap of Space can do two things at once: a salmon that jumps off a sandbank at a waterfall's
+  foot also gets a quarter of the climb from that tap (each rule reads the tap on its own). S0 runs beside them.
 
 1. **Generate the 22 character clips** in the project `salmons`, following the Salmon repository's
    `docs/art-pass.md` recipes: `salmon_pink` and `salmon_golden` (`swim`, `hop`, `caught`), `bear`

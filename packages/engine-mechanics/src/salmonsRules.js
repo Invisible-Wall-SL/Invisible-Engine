@@ -82,6 +82,7 @@ const mix = (...values) => {
 const waterfallClimb = {
 	create(game, api) {
 		const falls = zonesOfKind(game, 'waterfall');
+		if (!falls.length) return {};
 		const footOf = (player) => {
 			const box = aabbOf(player.body);
 			return falls.find(
@@ -92,7 +93,6 @@ const waterfallClimb = {
 					Math.abs(box.y0 - (z.y + z.h)) <= CLIMB.footPx,
 			);
 		};
-		if (!falls.length) return {};
 		return {
 			input(player, input, world) {
 				const tap = tapped(player, input, 'climbTap');

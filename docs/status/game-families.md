@@ -140,10 +140,16 @@ already-bundled `cards.js` values.
   chances and sizes); a grounded salmon can be hit, a hooked one cannot; a sandbank jump has no
   grace, an escape has; waterfalls span the whole river width; the water, sea and source are
   walls to bears and fishermen (so a bear reaches only salmon within ~64 px of its bank).
-- **Known limits.** The new events reach the device but are not Flow events yet (no cue or sound);
+- **Review fixes (same day).** `/config`'s zone-rule setter keeps a rule that has a `solid` or
+  a `kind` (unticking its goal, clearing its push), and the rule table shows both read-only
+  (`check:game-config-family` 252); bots target a grounded salmon as well as a free one
+  (`onlineBots.js`; `check:room-bots` 21: a bear bot catches a grounded salmon).
+- **Known limits.** The new events reach the device but are not in `ONLINE_FLOW_EVENTS` yet (no cue
+  or sound);
   the golden salmon is not drawn gold and the line is not drawn; a climb and a reel move a body on
   the server only, so the own device sees them as a correction (a climb is ~100 px, faded, not
-  snapped); rocks are rectangles; bots never climb (bots are bears and fishermen); the line and the
+  snapped); one tap of jump is read by each rule on its own, so a salmon jumping off a sandbank at
+  a waterfall's foot also climbs a quarter (left as is); rocks are rectangles; bots never climb (bots are bears and fishermen); the line and the
   golden salmon are proven by the gates, not in a browser.
 
 **P11.2 (c–e) — publish writes `rooms_url`, `/config` online sections, a new river per room

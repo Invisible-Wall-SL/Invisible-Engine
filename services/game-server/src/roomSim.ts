@@ -36,8 +36,9 @@ import type { ArcadeOnlineCharacter, OnlineGame } from 'game-config';
  * THE RULES (P10.15) are the game's data, run by `engine-mechanics` `createOnlineRules`: a level's
  * currents push a player inside `stepPlayer` (so a device predicts them), and after each applied
  * input and each step the rules decide hits, statuses, the goal and the round. A player the rules
- * hold (stunned, out) still has its inputs taken and acknowledged, but stands still for them, as a
- * device told it is held predicts. A respawn moves a body with no input: the device reconciles it.
+ * hold (stunned, out; a module's grounded, hooked) still has its inputs taken and acknowledged —
+ * and passed to the rules, so a grounded salmon can jump — but stands still for them, as a device
+ * told it is held predicts. A respawn moves a body with no input: the device reconciles it.
  *
  * BOTS (P10.16, §7) fill the room to `online.bots.fillTo` while anyone is in it. A bot is a player
  * (id `bot:<n>`, `bot: true`) whose input each step comes from its brain (`engine-mechanics`

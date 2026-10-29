@@ -175,7 +175,6 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 				},
 				score,
 				worth: (player, points) => worth(player, points),
-				field: game.field,
 			})
 		: definition;
 

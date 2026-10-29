@@ -565,6 +565,27 @@ await check('Salmons: a bear bot on its bank catches a salmon near the shore', (
 	assert.equal(wet, 0, 'P11.3: the water is solid to bears and fishermen');
 });
 
+await check('Salmons: a bear bot sees and catches a salmon grounded on a sandbank', () => {
+	const sim = createRoomSim(salmons, { seed: 5 });
+	const river = salmonsRiver(sim.seed);
+	const me = sim.join('me', { character: 'salmon' });
+	const bear = bots(sim).find((b) => b.character.id === 'bear');
+	const band = river.bands.find((b) => bear.body.y >= b.y && bear.body.y < b.y + b.h);
+	me.body.x = bear.body.x < band.left ? band.left + 50 : band.right - 50;
+	me.body.y = bear.body.y;
+	// Grounded as the sandbanks module grounds it: held, and only a jump frees it.
+	me.status = STATUS.grounded;
+	let caught;
+	for (let i = 0; i < 300 && !caught; i++) {
+		const events = sim.step(() => [clampInput({ seq: i + 1 })]);
+		caught = events.find((e) => e.type === 'caught' && e.target === 'me');
+		if (!caught) assert.equal(me.status, STATUS.grounded);
+	}
+	assert.ok(caught, 'the bear bot went for the grounded salmon and swiped');
+	assert.equal(sim.players.get(caught.by).character.id, 'bear');
+	assert.equal(me.status, STATUS.out);
+});
+
 // --- 4. live: a real server ------------------------------------------------------------------------
 
 const freePort = () =>

@@ -723,6 +723,8 @@ const ids = (raw: unknown): string[] | undefined => {
 	return list.length ? list : undefined;
 };
 
+const SOLID_SIDES = new Set(['below', 'above', 'left', 'right']);
+
 const normalizeZoneRule = (raw: unknown): ArcadeOnlineZoneRule | undefined => {
 	if (!isObject(raw)) return undefined;
 	const zone = tagOf(raw.zone);
@@ -742,8 +744,6 @@ const normalizeZoneRule = (raw: unknown): ArcadeOnlineZoneRule | undefined => {
 	if (characters) rule.characters = characters;
 	return rule.force || rule.solid || rule.kind || rule.goal ? rule : undefined;
 };
-
-const SOLID_SIDES = new Set(['below', 'above', 'left', 'right']);
 
 const normalizeAbility = (raw: unknown): ArcadeOnlineAbility | undefined => {
 	if (!isObject(raw)) return undefined;

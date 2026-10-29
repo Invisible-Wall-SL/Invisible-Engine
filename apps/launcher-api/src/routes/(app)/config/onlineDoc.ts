@@ -246,7 +246,7 @@ export function setZoneRuleField(
 		force[field === 'forceX' ? 'x' : 'y'] = n;
 		next.force = force.x || force.y ? force : undefined;
 	}
-	if (!next.force && !next.goal) return;
+	if (!next.force && !next.goal && !rule.solid && !rule.kind) return;
 	if (next.force) rule.force = next.force;
 	else delete rule.force;
 	if (next.goal) rule.goal = true;
