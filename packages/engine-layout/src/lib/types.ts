@@ -7,6 +7,7 @@
 import type { LayoutProfile } from 'constants-shared/layoutProfile';
 import type { BootSplashRef } from 'constants-shared/bootSplash';
 import type { ElementFxEntry } from 'constants-shared/elementFx';
+import type { ScreenTransitionSpec } from 'constants-shared/screenTransition';
 import type { ParamDecl } from 'engine-flow-v2';
 import type { EffectParamValue } from 'engine-fx';
 
@@ -1672,6 +1673,13 @@ export interface GameSettings {
 	 * See `constants-shared/bootSplash`.
 	 */
 	bootLoader?: BootSplashRef;
+	/**
+	 * Invisible Shader Graph 8e: the awaited `transition` cue plays this screen transition instead of
+	 * the wipe (`docs/design/shader-graph-screens.md` §9.2). Sparse: written only when set, so every
+	 * doc without it plays the wipe. Read through `readTransitionCue`; `transitionCueStatus` is the
+	 * one rule with the authored Transition.
+	 */
+	transitionCue?: ScreenTransitionSpec;
 	/**
 	 * The coded overlays this project renders from their AUTHORED component instead of the coded
 	 * mount (Rive plan Phase 8, `docs/design/rive-style-editor.md` §13). Sparse: a row is written

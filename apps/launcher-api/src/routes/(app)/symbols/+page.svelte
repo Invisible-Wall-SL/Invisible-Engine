@@ -72,6 +72,7 @@
 		clearBookVfxLayer,
 		clearHighlight,
 		clearOverride,
+		copyStaticToStates,
 		clearWinLineLineStyle,
 		clearWinLineTextStyle,
 		docSignature,
@@ -1139,6 +1140,35 @@
 	function resetCell(symbol: string, state: SymbolState): void {
 		doc = clearOverride(doc, symbol, state);
 		if (focus && focus.symbol === symbol && focus.state === state) closeCell();
+	}
+
+	/**
+	 * The reskin shortcut: bind each symbol's Static art to every other state its row shows, so a new
+	 * picture reads everywhere before any state gets its own animation. Asks first when it would
+	 * replace edits already made — only then, since an unedited state just shows a default.
+	 */
+	async function copyStatic(symbols: readonly string[]): Promise<void> {
+		const targets = symbols
+			.filter((symbol) => effectiveCell(doc, data.defaults, symbol, 'static').cell)
+			.map((symbol) => ({
+				symbol,
+				states: (playedStates[symbol] ?? []).filter((state) => state !== 'static'),
+			}));
+		const replaced = targets.reduce(
+			(n, t) => n + t.states.filter((state) => doc.symbols[t.symbol]?.[state]).length,
+			0,
+		);
+		if (replaced) {
+			const ok = await askConfirm({
+				title: 'Copy Static to every state',
+				message: `${replaced} edited ${replaced === 1 ? 'cell' : 'cells'} will be replaced by the Static art. Nothing is saved until you press Save.`,
+				confirmLabel: 'Replace',
+				danger: true,
+			});
+			if (!ok) return;
+		}
+		for (const t of targets) doc = copyStaticToStates(doc, data.defaults, t.symbol, t.states);
+		if (focus && targets.some((t) => t.symbol === focus!.symbol)) closeCell();
 	}
 
 	/**
@@ -5504,11 +5534,25 @@
 							<col class="rowhead-col" />
 							{#each gridColumnIds as id (id)}<col />{/each}
 						</colgroup>
-						{#snippet stateHeads(columns: readonly SymbolState[], tokens = false)}
+						{#snippet stateHeads(
+							columns: readonly SymbolState[],
+							rows: readonly string[],
+							tokens = false,
+						)}
 							<tr>
 								<th class="corner">Symbol</th>
 								{#each columns as state (state)}
-									<th title={stateHint(state, tokens)}>{STATE_LABELS[state]}</th>
+									<th title={stateHint(state, tokens)}>
+										{STATE_LABELS[state]}
+										{#if state === 'static' && columns.length > 1}
+											<button
+												type="button"
+												class="copy-static head"
+												title="Copy every symbol's Static art to all its other states (reskin)"
+												onclick={() => copyStatic(rows)}>⇉ all</button
+											>
+										{/if}
+									</th>
 								{/each}
 							</tr>
 						{/snippet}
@@ -5682,13 +5726,24 @@
 													}}>↺</button
 												>
 											{/if}
+											{#if state === 'static' && eff.cell && playedStates[symbol].length > 1}
+												<button
+													type="button"
+													class="copy-static"
+													title="Copy this Static art to all of {symbol}'s other states"
+													onclick={(e) => {
+														e.stopPropagation();
+														copyStatic([symbol]);
+													}}>⇉</button
+												>
+											{/if}
 										</td>
 									{/if}
 								{/each}
 							</tr>
 						{/snippet}
 						{#if symbolRows.length}
-							<thead>{@render stateHeads(symbolColumns)}</thead>
+							<thead>{@render stateHeads(symbolColumns, symbolRows)}</thead>
 							<tbody>
 								{#each symbolRows as symbol (symbol)}
 									{@render gridRow(symbol, symbolColumns)}
@@ -5705,7 +5760,7 @@
 										>
 									</th>
 								</tr>
-								{@render stateHeads(holdAndWinColumns)}
+								{@render stateHeads(holdAndWinColumns, holdAndWinRows)}
 								{#each holdAndWinRows as symbol (symbol)}
 									{@render gridRow(symbol, holdAndWinColumns)}
 								{/each}
@@ -5721,7 +5776,7 @@
 										>
 									</th>
 								</tr>
-								{@render stateHeads(coinColumns, true)}
+								{@render stateHeads(coinColumns, coinRows, true)}
 								{#each coinRows as symbol (symbol)}
 									{@render gridRow(symbol, coinColumns)}
 								{/each}
@@ -6678,6 +6733,31 @@
 		padding: 0;
 	}
 	.reset:hover {
+		border-color: #5b8cff;
+		color: #cfe0ff;
+	}
+	.copy-static {
+		position: absolute;
+		top: 2px;
+		left: 2px;
+		min-width: 18px;
+		height: 18px;
+		border-radius: 4px;
+		border: 1px solid #33333f;
+		background: #14141a;
+		color: #b9b9c4;
+		font-size: 11px;
+		line-height: 1;
+		cursor: pointer;
+		padding: 0 3px;
+	}
+	.copy-static.head {
+		position: static;
+		margin-left: 6px;
+		vertical-align: middle;
+		font-weight: 400;
+	}
+	.copy-static:hover {
 		border-color: #5b8cff;
 		color: #cfe0ff;
 	}

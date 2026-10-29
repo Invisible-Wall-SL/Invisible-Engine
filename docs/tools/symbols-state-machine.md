@@ -116,6 +116,13 @@ tool top bar). Switch projects from the launcher before opening the tool.
    (removing the override). The whole grid scrolls vertically; cells resize with the
    window.
 
+   **Copy Static to every state (reskinning).** A Static cell's **⇉** button (top-left) binds that
+   symbol's Static art to every other state its row shows, so a new picture reads in Spin, Land,
+   Win, Explosion … before any of them gets its own animation. **⇉ all** in the Static column
+   header does it for every symbol in that group. Each copy is an ordinary override (**edited**,
+   **↺** resets it); Element FX are not copied. If it would replace cells you already edited it
+   asks first. Nothing is saved until you press **Save**.
+
    **Never played** — art or Element FX set on a state the game never plays for that symbol (set
    before the grid narrowed each row) gets no cell. The row head lists those states under **Never
    played: …** with a **Clear** button, and a note above the grid counts them with **Clear all**.

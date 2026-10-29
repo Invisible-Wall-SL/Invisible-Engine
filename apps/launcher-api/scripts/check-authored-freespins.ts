@@ -373,7 +373,7 @@ eq(
 	const page = src('../src/routes/(app)/game-maker/+page.server.ts');
 	eq(
 		'the Game Maker page builds the chip from the same rule',
-		page.includes('authoredOverlayChips(buttoned, config.doc, winText)') &&
+		page.includes('authoredOverlayChips(buttoned, config.doc, winText, ') &&
 			src('../src/lib/server/authoredWinTiers.ts').includes(
 				'authoredFreeSpins: resolved.freeSpins,',
 			),

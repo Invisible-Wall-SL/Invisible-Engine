@@ -185,6 +185,12 @@ or the effect is pruned as an orphan.
 
 ## Recent changes
 
+- 2026-10-29 — **Copy Static to every state, for reskinning.** Owner asked for an easy way to put a
+  symbol's Static art on all its other states. A Static cell's **⇉** copies it to every state that
+  row shows; **⇉ all** in a group's Static header does every symbol in the group. Each target gets
+  its own override (copy of the effective Static, override else default, minus the tool-only
+  `previewKey`) via `copyStaticToStates` in `symbols.client.ts`; it confirms before replacing
+  existing edits, never touches Element FX, and saves only on **Save**.
 - 2026-10-23 — **Each row offers only the states the game plays for it.** Owner: the Hold and Win
   and pots overlay rows showed every state (17 columns on a Hold and Win + 3 Pots project), most of
   them never played for that symbol (a token's Spin / Land / Win / Post-win / Explosion; a coin's

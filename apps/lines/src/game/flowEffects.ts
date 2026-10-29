@@ -69,6 +69,7 @@ import {
 import { eventEmitter } from './eventEmitter';
 import { broadcastMusicCue, playWildExplodeSound } from './soundBindings';
 import { getFlowV2 } from './flowV2InterpreterHolder';
+import { screenTransitionEffect, waitForScreenTransitionEffect } from './screenTransitions';
 import { boardWinText } from './boardWinText';
 import { stateApp } from './stateApp';
 import { winState } from './winState.svelte';
@@ -1213,6 +1214,16 @@ const effects: Record<string, FlowEffect> = {
 		});
 		return payload.blocking ? playing : undefined;
 	},
+
+	/**
+	 * Screen transition (`screenTransition`) — the old screen frozen once, then a transition plays
+	 * from it to the live new screen. Returns once the screen is captured (one frame), or with
+	 * `blocking` once it has played out. No transition runtime bound ⇒ a cut, as before 8e.
+	 */
+	screenTransition: screenTransitionEffect,
+
+	/** Hold until no screen transition is playing; at once when none is. */
+	waitForScreenTransition: waitForScreenTransitionEffect,
 
 	/**
 	 * Element FX (`elementEffect`) — the camera's sibling for ONE element: the reels, a screen

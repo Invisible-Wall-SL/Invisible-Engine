@@ -52,7 +52,12 @@ You are the developer for **Invisible Shader Graph**.
     `screenShell.ts`; post FX: the Element FX runtime's stage mode (`elementFx/stage.ts`,
     `bindStagePostFx`), `readPostFx` / `readStageFxAntialias` (`engine-layout` `postFx.ts`),
     `STAGE_FX_LIMITS` in `constants-shared/elementFx.ts`, the `stage` anchor in `Game.svelte`,
-    played by `scripts/playtest/post-fx-play.mjs`.
+    played by `scripts/playtest/post-fx-play.mjs`; transitions in the game (8e.4): the Flow's
+    `screenTransition` / `waitForScreenTransition` (`engine-flow-v2` `standardVocab.ts`), the kinds
+    and limits in `constants-shared/screenTransition.ts`, the game seam
+    `apps/lines/src/game/screenTransitions.ts` + `screenTransitionsBinding.ts`, the transition cue
+    (`transitionCueStatus` in `engine-layout` `authoredOverlays.ts`), held by
+    `scripts/transition-parity` (cue-row variant) and `check:authored-transition`.
   - Particle materials (step 8d, `docs/design/shader-graph-particles.md`):
     `packages/constants-shared/particleShell.ts` (the particle vertex shader, `PARTICLE_HEADER`,
     `PARTICLE_SHELL_NAMES`, `particleShellSource`: a compiled body made a particle fragment); the
