@@ -17,10 +17,11 @@
  *  3. **One composition.** `composeFlowV2Vocab` widens the enum with the targets for the editor and
  *     the publish gate alike; with no targets the vocabulary keeps its identity. The project's
  *     custom kinds widen both `ElementFxKind` and `ScreenTransitionKind` (8e).
- *  4. **`reels` and `stage` are reserved** (8e): the server's layout reader gives a node with either
- *     id a free one of its own, at any depth, so a node never catches the Flow's reels or stage.
- *  5. **The stage in the editor** (8e.6): an `elementEffect` on `stage` whose kind the stage refuses
- *     (`stageFxRefusal`) is warned, in its mode section; the inspector flags those kinds there.
+ *  4. **`reels` and `stage` are reserved** (8e): the server's layout reader gives a node with
+ *     either id a free one of its own, at any depth, so a node never catches the Flow's reels or
+ *     stage.
+ *  5. **The stage in the editor** (8e.6): an `elementEffect` on `stage` whose kind the stage
+ *     refuses (`stageFxRefusal`) is warned, in its mode section; the inspector flags those kinds.
  */
 import type { ComponentDef, Scene } from 'engine-layout';
 import {

@@ -1,9 +1,10 @@
 /**
- * `/flow-v2` as `screenFxFlow.mjs` plays it: the real `+page.svelte` mounted outside SvelteKit, with
- * `$app/*` stubbed (`fxPage/app*.ts`) and every request answered here, in memory. The flow it opens
- * is the lines starter, or `localStorage['screenFxFlow.doc']` when the driver put one there; the
- * project's compiled shader effects are the reference graphs; `localStorage['screenFxFlow.cueOn']`
- * says whether Game Settings → Screen FX plays a screen transition on the `transition` cue.
+ * `/flow-v2` as `screenFxFlow.mjs` plays it: the real `+page.svelte` mounted outside SvelteKit,
+ * with `$app/*` stubbed (`fxPage/app*.ts`) and every request answered here, in memory. The flow
+ * it opens is the lines starter, or `localStorage['screenFxFlow.doc']` when the driver put one
+ * there; the project's compiled shader effects are the reference graphs;
+ * `localStorage['screenFxFlow.cueOn']` says whether Game Settings → Screen FX plays a screen
+ * transition on the `transition` cue.
  *
  * A save (`POST /api/flow-v2/save`) answers as the endpoint does, and keeps the doc it was sent in
  * `window.flowPage.saved`. Every other request is a 404 the page already copes with.

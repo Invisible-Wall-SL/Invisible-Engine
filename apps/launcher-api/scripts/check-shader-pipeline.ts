@@ -814,11 +814,14 @@ check(
 	2,
 );
 for (const page of ['editor', 'symbols', 'flow-v2']) {
+	// `/flow-v2` reads the set with its costs: its "Open in Shader Graph" needs each graph's home.
+	const loader =
+		page === 'flow-v2'
+			? 'compileProjectShadersWithCosts(clientKey, projectKey)'
+			: 'loadCustomElementFx(clientKey, projectKey)';
 	check(
 		`the ${page} page loads the project set`,
-		readLF(`${here}../src/routes/(app)/${page}/+page.server.ts`).includes(
-			'loadCustomElementFx(clientKey, projectKey)',
-		),
+		readLF(`${here}../src/routes/(app)/${page}/+page.server.ts`).includes(loader),
 		true,
 	);
 }

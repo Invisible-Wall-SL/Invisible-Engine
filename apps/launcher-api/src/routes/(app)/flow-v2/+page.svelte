@@ -567,8 +567,8 @@
 				],
 	);
 
-	// The Screen FX transition cue row is on in the Scene Editor, but this flow never fires the cue it
-	// answers (Shader Graph 8e, §9.2): said beside the issues, as Game Maker's chip says it.
+	// The Screen FX transition cue row is on in the Scene Editor, but this flow never fires the cue
+	// it answers (Shader Graph 8e, §9.2): said beside the issues, as Game Maker's chip says it.
 	const transitionCueUnfired = $derived(
 		data.transitionCueOn && flowFiresTransition(doc, library) === false,
 	);

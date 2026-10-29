@@ -243,8 +243,8 @@ export function normalizeDoc(input: unknown, fallbackProjectKey = ''): LayoutDoc
 /**
  * The scenes with every node whose id is a reserved Element FX target (`ELEMENT_FX_RESERVED_IDS`:
  * `reels`, `stage`) given a free id of its own (`stage_node`, `stage_node2`, …), at any depth, so
- * the Flow's `reels` and `stage` always mean the reels and the whole stage. The same scenes (and the
- * same objects) when none does.
+ * the Flow's `reels` and `stage` always mean the reels and the whole stage. The same scenes (and
+ * the same objects) when none does.
  */
 export function releaseReservedNodeIds(scenes: Scene[]): Scene[] {
 	const reserved = new Set(ELEMENT_FX_RESERVED_IDS);

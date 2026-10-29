@@ -113,8 +113,7 @@
 	function setCueKind(kind: string): void {
 		if (!kind) return commitCue(undefined);
 		if (!isScreenTransitionKind(kind)) return;
-		const { params: _params, ...rest } = transitionCue ?? { kind };
-		commitCue({ ...rest, kind });
+		commitCue({ kind, durationMs: transitionCue?.durationMs, intensity: transitionCue?.intensity });
 	}
 
 	/** One number field; blank (or the value it means unset) leaves it to the effect. */

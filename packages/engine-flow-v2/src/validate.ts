@@ -576,10 +576,10 @@ export const validateFlowDoc = (
 };
 
 /**
- * `screen-transition-unwaited` — an info (`shader-graph-screens.md` §9.1): a `screenTransition` that
- * is not blocking (its `blocking` literally true; a wired one is not judged) whose chain never
- * reaches a `waitForScreenTransition`, in the graph or a library function its chain calls. Legitimate
- * (a transition may play under the next beat), so a hint, never a defect.
+ * `screen-transition-unwaited` — an info (`shader-graph-screens.md` §9.1): a `screenTransition`
+ * that is not blocking (its `blocking` literally true; a wired one is not judged) whose chain never
+ * reaches a `waitForScreenTransition`, in the graph or a library function its chain calls.
+ * Legitimate (a transition may play under the next beat), so a hint, never a defect.
  */
 const screenTransitionIssues = (
 	graph: FlowDoc['graph'],

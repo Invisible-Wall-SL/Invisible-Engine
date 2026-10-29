@@ -39,8 +39,8 @@ import {
 /**
  * Game Settings → Screen FX in the Scene Editor (Shader Graph 8e, `shader-graph-screens.md` §9.2):
  * what the transition cue row and the post FX list offer, what each costs, and what the block
- * writes into `settings`. Every rule about the stage is the runtime's own (`pixi-svelte/elementFx`), so the
- * editor greys exactly what the game refuses.
+ * writes into `settings`. Every rule about the stage is the runtime's own
+ * (`pixi-svelte/elementFx`), so the editor greys exactly what the game refuses.
  */
 
 /** The reference phone the budget is set on (§10): 390 × 844 CSS px at DPR 2, in device pixels. */
@@ -63,7 +63,6 @@ export type ScreenFxLoad =
 			budget: number;
 			over: boolean;
 	  };
-export type PostFxLoad = ScreenFxLoad;
 
 /** What a screen effect is held to: its graph cost and reads, and the words for it. */
 const USES = {

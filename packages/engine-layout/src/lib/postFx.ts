@@ -28,9 +28,9 @@ const warnDropped: PostFxDropped = (entry, why) =>
 
 /**
  * `settings.postFx` as the game plays it (`shader-graph-screens.md` §8, §10): read as any Element FX
- * list, then, in order, an entry is dropped when its trigger is neither `always` nor `cue`, when its
- * kind is not registered (with a judge), when the stage refuses its kind, or when it would pass
- * {@link STAGE_FX_LIMITS} (two entries, four filters), each told to `drop` (a console warning
+ * list, then, in order, an entry is dropped when its trigger is neither `always` nor `cue`, when
+ * its kind is not registered (with a judge), when the stage refuses its kind, or when it would
+ * pass {@link STAGE_FX_LIMITS} (two entries, four filters), each told to `drop` (a console warning
  * unless given). A disabled entry is dropped and counts for nothing.
  */
 export function readPostFx(

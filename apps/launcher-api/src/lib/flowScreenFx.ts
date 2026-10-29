@@ -4,8 +4,8 @@ import { stageFxRefusal } from 'pixi-svelte/elementFx';
 
 /**
  * Screen FX in `/flow-v2` (Shader Graph 8e, `shader-graph-screens.md` §9.1): what the Flow editor
- * says about an `elementEffect` on the whole stage. The runtime's own rule (`stageFxRefusal`) decides,
- * so the editor warns on exactly the kinds the game will not play there.
+ * says about an `elementEffect` on the whole stage. The runtime's own rule (`stageFxRefusal`)
+ * decides, so the editor warns on exactly the kinds the game will not play there.
  */
 
 /** The `elementEffect` action. */

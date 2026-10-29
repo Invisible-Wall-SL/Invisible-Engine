@@ -328,7 +328,7 @@ const entry = (id: string, kind: string, more: Partial<ElementFxEntry> = {}): El
 	check('the list is a copy', screenFxSettings({ ...none, postFx: list }).postFx !== list);
 }
 
-// ---- 5b. the transition cue row ------------------------------------------------------------------
+// ---- 5b. the transition cue row -----------------------------------------------------------------
 {
 	eq(
 		'the kinds: the built-in exits, then the project’s compiled effects (§9.1, §9.2)',
