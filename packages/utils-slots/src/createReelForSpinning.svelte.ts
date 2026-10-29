@@ -278,9 +278,15 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		setSymbolsWithReelSymbols(targetSymbols);
 	};
 
-	// Synchronous, so nothing can run between the strip changing and the reel Y that keeps it in
-	// place: a spin that took over in between would hand over from a strip drawn somewhere else.
-	const preSpinPadding = ({ preSpinPaddingRawReel }: { preSpinPaddingRawReel: TRawSymbol[] }) => {
+	// The strip and the reel Y that keeps it in place change together, so a spin that takes over
+	// never hands over from a strip drawn somewhere else. The yields after are the ones this step
+	// always had: a spin that takes over as the first lap ends still lays its strip before the loop
+	// turns the reel's symbols to their spin state, so the result turns with them, as it always did.
+	const preSpinPadding = async ({
+		preSpinPaddingRawReel,
+	}: {
+		preSpinPaddingRawReel: TRawSymbol[];
+	}) => {
 		const randomStart = Math.floor(Math.random() * preSpinPaddingRawReel.length);
 		const onScreen = targetSymbols;
 		const targetRawSymbols = getPaddingRawSymbols({
@@ -290,6 +296,8 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		});
 		targetSymbols = paddingSymbolsOf(targetRawSymbols);
 		placeY(addPadding(0, onScreen, reelY.current));
+		await Promise.resolve();
+		await Promise.resolve();
 	};
 
 	const preSpinSlideDownLoop = async ({
@@ -308,7 +316,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 			await slideY({ reelY: homeY(), speed, easing });
 			// The spin took over while this lap was sliding: the strip is its strip now.
 			if (!isPreSpinning) break;
-			preSpinPadding({ preSpinPaddingRawReel });
+			await preSpinPadding({ preSpinPaddingRawReel });
 			if (!started) {
 				reelState.motion = 'spinning';
 				updateAllReelSymbolState('spin');
@@ -336,7 +344,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		// time anything slides. Everything from here to the bounce-back is "moving".
 		reelState.rolling = true;
 		reelState.spinType = isTurboBeforeAll ? 'fast' : 'normal';
-		preSpinPadding({ preSpinPaddingRawReel });
+		await preSpinPadding({ preSpinPaddingRawReel });
 		if (!isTurboBeforeAll) await delaySpinByReelIndex();
 		preSpinSlideDownLoop({ isTurboBeforeAll, preSpinPaddingRawReel });
 	};
