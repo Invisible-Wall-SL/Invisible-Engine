@@ -2352,10 +2352,7 @@
 						isBuiltinButtonShape(resolveComponent('button', version).def),
 					),
 				}) === 'ready';
-			// An online room that made its own field draws it in place of the authored one (P11.2 (e));
-			// any other game gets `loadedDoc` back.
-			const roomDoc = withRoomField(loadedDoc);
-			const rawDoc = authoredButtons ? withAuthoredButtonsDoc(roomDoc) : roomDoc;
+			const rawDoc = authoredButtons ? withAuthoredButtonsDoc(loadedDoc) : loadedDoc;
 			if (authoredButtons) {
 				registerComponents(
 					{ [BUTTON_PRESENTATION_DEF.id]: BUTTON_PRESENTATION_DEF },
@@ -2383,7 +2380,9 @@
 			// stay coded). `doc` below — the scenes rendered, both flow interpreters' `resolveScene`, the
 			// board override — is the swapped doc, so no mount path renders a coded node the retires
 			// below have made inert. Off, or held back ⇒ the same doc object (parity).
-			const overlays = resolveAuthoredOverlays(rawDoc, {
+			// An online room that made its own field draws it in place of the authored one (P11.2 (e));
+			// any other game gets `rawDoc` back.
+			const overlays = resolveAuthoredOverlays(withRoomField(rawDoc), {
 				status: resolveAuthoredWinStatus,
 				presentation: authoredWinPresentation,
 			});

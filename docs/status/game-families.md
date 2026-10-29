@@ -129,8 +129,8 @@ P11.2's two PRs. Not deployed.
   spawns cannot hold them upstream). `online-play.mjs` 19 / 19 and `arcade-play.mjs` OK on the same
   build.
 - **Runtime sizes** (`check:family-runtimes`, gzip -6; (a–b) → this branch): slot 1,303,338 →
-  1,303,424 B (+86), match3 1,311,697 → 1,311,802 B (+105), card 1,316,034 → 1,316,192 B (+158),
-  **arcade 1,401,737 → 1,403,015 B (+1.3 KB gz; 4,107,065 B raw)**. All within
+  1,303,401 B (+63), match3 1,311,697 → 1,311,793 B (+96), card 1,316,034 → 1,316,150 B (+116),
+  **arcade 1,401,737 → 1,403,017 B (+1.3 KB gz; 4,107,059 B raw)**. All within
   `family-runtime-budget.json`. The non-arcade growth is shared config code every runtime boots
   (`generator` normalized / resolved / validated) and the one `withRoomField` call; the river's
   generator and drawing reach the arcade runtime only (no `whirlpool` in the slot build).
@@ -2448,7 +2448,7 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 - 2026-10-29 — **P11.2 (c–e): publish writes `rooms_url`, `/config` online sections, a new river
   per room** (launcher `GAME_SERVER_URL`, reason `no-game-server`, `check:online-publish`;
   `OnlineSection.svelte`; `arcade.online.generator`, `onlineGenerators.js`, the room state's
-  `seed`). Arcade runtime +1.3 KB gz, the others +86 to +158 B. Open items 0 (d), 1 (b) and (c)
+  `seed`). Arcade runtime +1.3 KB gz, the others +63 to +116 B. Open items 0 (d), 1 (b) and (c)
   are done. Detail above.
 
 - 2026-10-29 — **P11.2 (a–b): online Flow events, server-owned variables, predicted abilities,

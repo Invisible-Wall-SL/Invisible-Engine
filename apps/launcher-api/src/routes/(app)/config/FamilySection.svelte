@@ -45,6 +45,7 @@
 		setZoneField,
 		stripText,
 	} from './familyDoc';
+	import { askConfirm } from '$lib/dialogs.svelte';
 	import { setPlayedOnline } from './onlineDoc';
 	import OnlineSection from './OnlineSection.svelte';
 
@@ -96,6 +97,19 @@
 		['perTurn', 'Resource per turn', 0],
 		['max', 'Resource cap', 1],
 	] as const;
+	/** Played online on adds an empty block; off asks first, as it removes the room, its rules and
+	 *  its bots. */
+	async function togglePlayedOnline(box: HTMLInputElement) {
+		if (box.checked) return setPlayedOnline(doc, true);
+		const ok = await askConfirm({
+			title: 'Stop playing online?',
+			message: "The game's online room, its rules and its bots are removed from the config.",
+			confirmLabel: 'Stop playing online',
+			danger: true,
+		});
+		if (ok) setPlayedOnline(doc, false);
+		else box.checked = true;
+	}
 	let newBody = $state('');
 	let newGoal = $state<'score' | 'collect'>('score');
 </script>
@@ -521,14 +535,7 @@
 				><input
 					type="checkbox"
 					checked={doc.arcade?.online !== undefined}
-					onchange={(e) => {
-						const on = e.currentTarget.checked;
-						if (!on && !confirm('Stop playing online? Its room, rules and bots are removed.')) {
-							e.currentTarget.checked = true;
-							return;
-						}
-						setPlayedOnline(doc, on);
-					}}
+					onchange={(e) => void togglePlayedOnline(e.currentTarget)}
 				/>Played online</label
 			>
 		</fieldset>

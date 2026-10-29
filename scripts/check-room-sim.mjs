@@ -584,7 +584,7 @@ await check('the runtime: the SDK is reached only through the online branch, and
 	assert.match(online, /: generatedOnlineGame\(resolved, seed\);/);
 	assert.match(online, /const field = session\?\.field;\s+if \(!field\) return doc;/);
 	const game = readFileSync(join(src, 'components/Game.svelte'), 'utf8');
-	assert.match(game, /const roomDoc = withRoomField\(loadedDoc\);/);
+	assert.match(game, /const overlays = resolveAuthoredOverlays\(withRoomField\(rawDoc\), \{/);
 	const off = readFileSync(join(src, 'families/off/arcade.ts'), 'utf8');
 	assert.match(off, /withRoomField: typeof Arcade\.withRoomField = \(doc\) => doc;/);
 });
