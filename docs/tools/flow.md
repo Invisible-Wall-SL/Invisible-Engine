@@ -416,7 +416,8 @@ dissolve, a burn, a shatter, or a [Shader Graph](shader-graph.md) effect that re
 - **`waitForScreenTransition`** holds the chain until no transition is playing (goes on at once
   when none is).
 
-Only one transition plays at a time; a second one ends the first. If the effect can't play (not
+Only one transition plays at a time; a second one ends the first. A slam (the player's stop
+press) cuts a playing transition straight to the new screen. If the effect can't play (not
 shipped, refused, no WebGL), the game fades or cuts instead — it never goes black or stalls.
 
 **The transition cue.** A project can also play one on every `transition` cue (free-spin entry and

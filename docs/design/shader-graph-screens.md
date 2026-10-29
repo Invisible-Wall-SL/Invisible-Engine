@@ -842,8 +842,9 @@ compiled effect, and steps 3 and 7 build on both.
      `screenTransitionsBinding.ts` in `Game.svelte`'s setup. `stage` sits after `reels` in
      `ElementFxTarget`, so a new node still defaults to the reels. The determinism clock now lets
      a render to a texture through on a `draw: 'last'` frame. The parity variant fits each frame
-     to the From/To mix rather than only "differs". Open for the owner: a slam during a
-     transition, and the free-spin exit (the screen changes before the cue fires).
+     to the From/To mix rather than only "differs". Owner, 2026-10-29: a slam cuts a playing
+     transition to the new screen (through `roundSkip`); the free-spin exit stays as is (the
+     screen changes before the cue fires).
 5. **The ship chain, proven** (launcher).
    - **Contents:** `check:shader-pipeline` grows; the soft floors in `docs/design/games-deploy.md`.
    - **Gates:**

@@ -315,11 +315,14 @@ runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 
         effect does not ship.
       - **Determinism** (`apps/lines/src/game/determinism.ts`): a `draw: 'last'` frame now skips
         only renders to the screen, so a still taken under it is no longer blank.
+      - **A slam cuts it** (owner, 2026-10-29). The stop press trips `roundSkip`; the seam ends a
+        playing transition through the runtime's dispose, so the new screen shows at once and
+        `waitForScreenTransition` goes on. A slam with none playing does nothing, and one that
+        starts later in a slammed round plays in full.
+      - **Free-spin exit stays as is** (owner, 2026-10-29): the screen has already changed when
+        the cue fires, so that transition plays over the base game.
       - **Left:** the editor row and the save path for `transitionCue` (8e.6: an editor save
-        drops it today); a slam during a transition neither ends nor speeds it (owner's call
-        pending); on free-spin exit the screen has already changed when the cue fires, so that
-        transition plays over the base game (owner's call pending; changing it changes every
-        starter flow).
+        drops it today).
     - **8e.3, post FX on the stage.** Merged (#1459, 2026-10-29). A game plays `settings.postFx`.
       - **Stage mode** (`pixi-svelte` `elementFx/stage.ts`). An Element FX entry on the `stage`
         target (`ELEMENT_FX_STAGE_TARGET`, a children-less `Anchor` in `Game.svelte`) fills the
@@ -817,7 +820,12 @@ runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 
   - **Review.** Fixed, each mutation-checked: a new `elementEffect` defaulted to `stage`; the
     pilot and cue chips contradicted each other; the cue chip promised a free-spin exit transition
     out of the free spins; the parity checks passed on backdrop drift and on equal steps; a still
-    taken under `draw: 'last'` was blank.
+    taken under `draw: 'last'` was blank. CI then showed the t+12 "differs from the cue frame"
+    check passed locally only on backdrop drift; it starts at t+24 (the mix check still holds
+    t+12).
+  - **Owner's calls.** A slam cuts a playing transition to the new screen (flow-spike
+    `v2screentransition` §6, `check:authored-transition` 104, fx-spike `screen-fx` 172; 5
+    mutations caught); the free-spin exit stays as is.
 - 2026-10-28 — **Step 8e.3: post FX on the stage** (see "Current state"). Merged
   (#1459): CI green; Current games 8 pass, 0 fail, 0 changed screens.
   - **Proof.** `check:element-fx` 276 (stage mode: no motion, no measure, filters and area restored
