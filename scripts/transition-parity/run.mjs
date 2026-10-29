@@ -20,7 +20,7 @@
 // compiled crossfade that reads both screens (`screenEffects.mts`), shipped in the bundle's
 // `shaderEffects`. On that side the flow goes on within 2 frames of the cue (the cue resolves once
 // the old screen is frozen, not after the wipe), the shell filter is on the stage, every captured
-// frame differs from the cue frame, each is the mix of the two screens at the clock's progress
+// frame from t+24 differs from the cue frame, each is the mix of the two screens at the clock's progress
 // (to within two frames), the frames travel strictly from the old screen to the new one, and no
 // frame is darker than both screens at any pixel — the two screens read off two more sides that
 // play the crossfade's halves alone (From: the frozen old screen, checked frozen and not blank; To:
@@ -515,10 +515,13 @@ if (!results.coded.error && cueRow.every((r) => !r.error)) {
 				offMix++;
 		const clock = offset / SCREEN_FRAMES;
 		row.screen.push({ offset, diffRatio: moved, fromOld, fromNew, darker, progress, offMix });
-		check(
-			moved > WIPE_ON_SCREEN,
-			`${at}: differs from the cue frame by ${(moved * 100).toFixed(2)}% (floor ${WIPE_ON_SCREEN * 100}%)`,
-		);
+		// At t+12 the mix is still within a pixel step of the old screen, so only the mix check
+		// below can tell it from a held frame; from t+24 on it must also visibly differ.
+		if (offset >= 24)
+			check(
+				moved > WIPE_ON_SCREEN,
+				`${at}: differs from the cue frame by ${(moved * 100).toFixed(2)}% (floor ${WIPE_ON_SCREEN * 100}%)`,
+			);
 		check(darker === 0, `${at}: ${darker} values darker than both screens`);
 		check(
 			Math.abs(progress - clock) <= MIX_PROGRESS_SLACK && offMix === 0,
