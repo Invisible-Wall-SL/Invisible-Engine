@@ -806,6 +806,13 @@ compiled effect, and steps 3 and 7 build on both.
        order with a transition and the chroma wobble;
      - current-games: no changed screen.
    - **Exit:** a game build plays a doc's post FX headless. The post FX floor starts here.
+   - **As built (8e.3).** Stage mode lives in `pixi-svelte` `elementFx/stage.ts`; the reader is
+     `engine-layout` `readPostFx`, which, given the runtime as judge, also drops an unregistered
+     custom kind. A stage pass pads by 1 px (`STAGE_FX_EDGE_PAD`) and a graph's `uPad` counts the
+     whole stage list. The caps are checked twice: by the reader on the doc, and by the runtime as
+     each entry starts (a Flow's `stage` entries count). `cost` is absent until 8e.7, so the
+     `?fxdebug=1` load line and its baseline wait for it; reserving the `stage` and `reels` ids
+     in the editor moves to 8e.6.
 4. **Transitions in the game: the Flow actions and the transition cue** (engine-flow-v2,
    `apps/lines`).
    - **Contents:**

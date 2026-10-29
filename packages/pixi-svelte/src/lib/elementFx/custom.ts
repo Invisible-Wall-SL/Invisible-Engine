@@ -13,8 +13,10 @@ import {
 	ELEMENT_FX_LIMITS,
 	ELEMENT_FX_MOTION_RANGES,
 	ELEMENT_FX_PASS_KINDS,
+	customElementFx,
 	customElementFxBreakWindow,
 	elementFxParamUniform,
+	isElementFxKind,
 	resolveElementFxParams,
 	sampleElementFxCurve,
 	type CustomElementFx,
@@ -23,6 +25,7 @@ import {
 	type CustomElementFxMotionProgram,
 	type CustomElementFxPass,
 	type CustomElementFxPassValue,
+	type ElementFxKindId,
 	type ElementFxMotionChannel,
 	type ElementFxMotionOutput,
 	type ElementFxParamValue,
@@ -366,3 +369,14 @@ export function customKindImpl(effect: CustomElementFx): KindImpl {
 	impls.set(effect, impl);
 	return impl;
 }
+
+/** How `kind` plays: a built-in's implementation, or a registered custom effect's. */
+export function kindImpl(kind: ElementFxKindId): KindImpl | undefined {
+	if (isElementFxKind(kind)) return KINDS[kind];
+	const custom = customElementFx(kind);
+	return custom ? customKindImpl(custom) : undefined;
+}
+
+/** The passes `impl` draws, in order: its one filter, or its several. */
+export const passesOf = (impl: KindImpl): readonly FilterImpl<Filter>[] =>
+	impl.filter ? [impl.filter] : (impl.filters ?? []);

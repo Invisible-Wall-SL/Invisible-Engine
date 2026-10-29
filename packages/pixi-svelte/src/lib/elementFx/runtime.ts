@@ -23,9 +23,7 @@
 
 import {
 	ELEMENT_FX_LIMITS,
-	customElementFx,
 	findElementFxSpec,
-	isElementFxKind,
 	resolveElementFxParams,
 	type ElementFxKindId,
 	type ElementFxKindSpec,
@@ -41,10 +39,21 @@ import {
 	type Ticker,
 } from 'pixi.js';
 import { dustWind, startBreak, type BreakRun } from './breakApart';
-import { customKindImpl } from './custom';
+import { kindImpl, passesOf } from './custom';
 import { REST, clamp01, smoothstep, TAU, type FxFrame, type Motion } from './frame';
-import { KINDS, type BreakStyle, type BreakWindow, type FilterImpl, type KindImpl } from './kinds';
+import { type BreakStyle, type BreakWindow, type FilterImpl, type KindImpl } from './kinds';
 import { ElementFxFilter } from './shaders';
+import {
+	debugStageFx,
+	STAGE_FX_EDGE_PAD,
+	publishStagePostFx,
+	stageFrameClock,
+	stageFxCapRefusal,
+	stageFxLoadText,
+	stageFxRefusal,
+	viewportOf,
+	warnStageFxRefused,
+} from './stage';
 import { compileFilter } from '../gpuWarmup';
 
 export interface ElementFxHost {
@@ -54,6 +63,11 @@ export interface ElementFxHost {
 	renderer?: Renderer;
 	/** Presentation speed, read every frame (the game's turbo). Unset ⇒ 1. */
 	timeScale?: () => number;
+	/**
+	 * The app's root. An effect played on it runs in STAGE MODE, as a post FX (`stage.ts`): its pixel
+	 * passes only, over the renderer's viewport, handed to the stage's post FX slot.
+	 */
+	stage?: Container;
 }
 
 /** The host for a Pixi app, or `undefined` before it exists. */
@@ -62,7 +76,7 @@ export const elementFxHostFor = (
 	timeScale?: () => number,
 ): ElementFxHost | undefined =>
 	app?.ticker && app.renderer
-		? { ticker: app.ticker, renderer: app.renderer, timeScale }
+		? { ticker: app.ticker, renderer: app.renderer, timeScale, stage: app.stage }
 		: undefined;
 
 export interface ElementFxPlay {
@@ -138,8 +152,13 @@ interface Effect {
 interface Runtime {
 	target: Container;
 	host: ElementFxHost;
+	/** Playing on the host's stage, as post FX: no motion, no measure, filters to the slot. */
+	stage: boolean;
+	/** `?fxdebug=1`'s frame clock, on the stage. */
+	clock?: (deltaMs: number) => void;
 	effects: Effect[];
-	/** The element's box in its own space, taken when the first effect starts. */
+	/** The element's box in its own space, taken when the first effect starts (the stage: the
+	 *  viewport, each frame). */
 	box: Rectangle;
 	/** Nothing measured yet (art still loading): measured again each frame until it has a size. */
 	boxPending: boolean;
@@ -549,6 +568,62 @@ const applyFilters = (runtime: Runtime, frames: Map<Effect, FxFrame>): void => {
 	}
 };
 
+const isStage = (target: Container, host: ElementFxHost): boolean =>
+	!!host.stage && target === host.stage;
+
+/** The renderer's viewport, kept in `box` while its size holds. */
+const stageViewport = (host: ElementFxHost, box: Rectangle | undefined): Rectangle =>
+	host.renderer ? viewportOf(host.renderer.screen, box) : (box ?? new Rectangle(0, 0, 1, 1));
+
+const stageCounts = (runtime: Runtime): { entries: number; filters: number } => ({
+	entries: runtime.effects.length,
+	filters: runtime.effects.reduce((sum, e) => sum + e.passes.length, 0),
+});
+
+/** Hand the stage's slot its post FX, when they changed. */
+const publishStage = (runtime: Runtime, filters: readonly Filter[]): void => {
+	const same =
+		runtime.lastFilters.length === filters.length &&
+		filters.every((f, i) => runtime.lastFilters[i] === f);
+	if (same) return;
+	runtime.lastFilters = filters.length ? [...filters] : NO_FILTERS;
+	publishStagePostFx(runtime.target, filters.length ? runtime.lastFilters : null);
+};
+
+/**
+ * Feed each post FX pass its frame over the viewport and hand the slot the list. The stage's own
+ * filters, filter area and transform are never written.
+ */
+const applyStageFilters = (runtime: Runtime, frames: Map<Effect, FxFrame>): void => {
+	const ours = runtime.effects.filter((e) => e.filters.length && frames.has(e));
+	const { box } = runtime;
+	const view = { screenWidth: box.width, screenHeight: box.height };
+	for (const effect of ours) {
+		const frame = frames.get(effect) as FxFrame;
+		effect.passes.forEach((pass, i) => {
+			const filter = effect.filters[i];
+			pass.update(filter, frame, view);
+			const padding = pass.padding?.(frame, view);
+			if (padding !== undefined) filter.padding = Math.max(0, Math.ceil(padding));
+		});
+	}
+	const stack = ours.flatMap((e) => e.filters);
+	publishStage(runtime, stack);
+	// Pixi pads the stage's whole list: the filters the owner keeps beside the post FX count too.
+	const mine = new Set(stack);
+	const others = (runtime.target.filters ?? NO_FILTERS).filter((f) => !mine.has(f));
+	const padOf = () =>
+		[...others, ...stack].reduce((sum, f) => sum + (f.enabled ? f.padding : 0), 0) | 0;
+	const first = stack.find((f) => f.enabled);
+	if (first && padOf() < STAGE_FX_EDGE_PAD) first.padding += STAGE_FX_EDGE_PAD - padOf();
+	const pad = padOf();
+	for (const filter of stack) {
+		if (!(filter instanceof ElementFxFilter)) continue;
+		filter.set('uElement', 0, 0, 1, 1);
+		filter.set('uPad', pad);
+	}
+};
+
 const finish = (runtime: Runtime, effect: Effect): void => {
 	effect.breakRun?.destroy();
 	effect.breakRun = undefined;
@@ -564,7 +639,12 @@ const removeEffect = (runtime: Runtime, effect: Effect): void => {
 	if (effect.filters.length) {
 		const { target } = runtime;
 		const leaving = new Set(effect.filters);
-		if (runtime.filtersOn && !target.destroyed) {
+		if (runtime.stage) {
+			publishStage(
+				runtime,
+				runtime.lastFilters.filter((f) => !leaving.has(f)),
+			);
+		} else if (runtime.filtersOn && !target.destroyed) {
 			const left = (target.filters ?? NO_FILTERS).filter((f) => !leaving.has(f));
 			target.filters = left.length ? left : null;
 			runtime.lastFilters = target.filters ?? NO_FILTERS;
@@ -572,14 +652,20 @@ const removeEffect = (runtime: Runtime, effect: Effect): void => {
 		for (const filter of effect.filters) filter.destroy();
 		effect.filters = [];
 	}
+	if (runtime.stage) debugStageFx(effect.kind, 'off', stageCounts(runtime), () => '');
 	if (!runtime.effects.length) {
 		if (!runtime.target.destroyed) settle(runtime);
 		detach(runtime);
 	}
 };
 
-/** Put the container back at rest: its own transform, alpha, filters and filter area. */
+/** Put the container back at rest: its own transform, alpha, filters and filter area. The stage
+ *  was never touched: its slot is emptied. */
 const settle = (runtime: Runtime): void => {
+	if (runtime.stage) {
+		publishStage(runtime, NO_FILTERS);
+		return;
+	}
 	applyMotion(runtime, new Map());
 	releaseFilters(runtime);
 };
@@ -761,16 +847,10 @@ const createFilters = (effect: Effect, frame: FxFrame): void => {
 	}
 };
 
-/** How `kind` plays: a built-in's implementation, or a registered custom effect's. */
-const implFor = (kind: ElementFxKindId): KindImpl | undefined => {
-	if (isElementFxKind(kind)) return KINDS[kind];
-	const custom = customElementFx(kind);
-	return custom ? customKindImpl(custom) : undefined;
-};
-
 const step = (runtime: Runtime, deltaMs: number): void => {
 	const { target } = runtime;
 	if (target.destroyed) {
+		if (runtime.stage) publishStage(runtime, NO_FILTERS);
 		for (const effect of [...runtime.effects]) {
 			finish(runtime, effect);
 			for (const filter of effect.filters) filter.destroy();
@@ -780,7 +860,8 @@ const step = (runtime: Runtime, deltaMs: number): void => {
 		return;
 	}
 
-	if (runtime.boxPending) {
+	if (runtime.stage) runtime.box = stageViewport(runtime.host, runtime.box);
+	else if (runtime.boxPending) {
 		const box = measure(target);
 		if (box) {
 			runtime.box = box;
@@ -840,6 +921,10 @@ const step = (runtime: Runtime, deltaMs: number): void => {
 		effect.breakRun?.update(breakProgress(effect, frame));
 	}
 	if (!runtime.effects.length) return;
+	if (runtime.stage) {
+		applyStageFilters(runtime, frames);
+		return;
+	}
 	if (cuts.length) {
 		// The still is the element with the graph's look: its passes go on first.
 		applyFilters(runtime, frames);
@@ -858,10 +943,13 @@ const step = (runtime: Runtime, deltaMs: number): void => {
 const runtimeFor = (target: Container, host: ElementFxHost): Runtime => {
 	const existing = runtimes.get(target);
 	if (existing) return existing;
-	const box = measure(target);
+	const stage = isStage(target, host);
+	const box = stage ? stageViewport(host, undefined) : measure(target);
 	const runtime: Runtime = {
 		target,
 		host,
+		stage,
+		clock: stage ? stageFrameClock() : undefined,
 		effects: [],
 		box: box ?? new Rectangle(0, 0, 1, 1),
 		boxPending: !box,
@@ -872,7 +960,10 @@ const runtimeFor = (target: Container, host: ElementFxHost): Runtime => {
 		area: new Rectangle(),
 		tick: () => {},
 	};
-	runtime.tick = (ticker) => step(runtime, ticker.deltaMS * timeScaleOf(runtime.host));
+	runtime.tick = (ticker) => {
+		runtime.clock?.(ticker.deltaMS);
+		step(runtime, ticker.deltaMS * timeScaleOf(runtime.host));
+	};
 	host.ticker.add(runtime.tick);
 	runtimes.set(target, runtime);
 	return runtime;
@@ -883,16 +974,32 @@ const NOOP_HANDLE: ElementFxHandle = { done: Promise.resolve(), stop: () => {}, 
 /**
  * Play `play` on `target`. An `enter` kind first releases any exit the element is holding (a
  * dissolve-out then a dissolve-in brings it back). Plays alongside whatever else is on the element.
- * An unknown kind, or a custom one not registered, plays nothing.
+ * An unknown kind, or a custom one not registered, plays nothing. On the host's stage it plays as a
+ * post FX (`stage.ts`), or, refused, plays nothing and says why.
  */
 export function playElementFx(
 	target: Container | undefined | null,
 	play: ElementFxPlay,
 	host: ElementFxHost | undefined,
 ): ElementFxHandle {
-	const impl = implFor(play.kind);
+	const impl = kindImpl(play.kind);
 	const spec = findElementFxSpec(play.kind);
 	if (!target || target.destroyed || !host || !impl || !spec) return NOOP_HANDLE;
+	const onStage = isStage(target, host);
+	if (onStage) {
+		const playing = runtimes.get(target)?.effects ?? [];
+		const refusal =
+			stageFxRefusal(play.kind) ??
+			(host.renderer ? undefined : 'there is no renderer to size the viewport') ??
+			stageFxCapRefusal(
+				playing.map((e) => e.passes.length),
+				passesOf(impl).length,
+			);
+		if (refusal) {
+			warnStageFxRefused(play.kind, refusal);
+			return NOOP_HANDLE;
+		}
+	}
 	const runtime = runtimeFor(target, host);
 	if (spec.phase === 'enter' && !play.pose) {
 		for (const held of runtime.effects.filter((e) => e.held)) removeEffect(runtime, held);
@@ -905,7 +1012,7 @@ export function playElementFx(
 		kind: play.kind,
 		spec,
 		impl,
-		passes: impl.filter ? [impl.filter] : (impl.filters ?? []),
+		passes: passesOf(impl),
 		durationMs: clampTo(finite(play.durationMs, spec.durationMs), ELEMENT_FX_LIMITS.durationMs),
 		delayMs: clampTo(finite(play.delayMs, 0), ELEMENT_FX_LIMITS.delayMs),
 		intensity: clampTo(finite(play.intensity, 1), ELEMENT_FX_LIMITS.intensity),
@@ -921,6 +1028,11 @@ export function playElementFx(
 		},
 	};
 	live.effects.push(effect);
+	if (onStage) {
+		debugStageFx(effect.kind, 'on', stageCounts(live), () =>
+			stageFxLoadText(effect.kind, live.box, host.renderer?.resolution ?? 1),
+		);
+	}
 	step(live, 0);
 
 	return {
@@ -960,9 +1072,9 @@ export function prewarmElementFx(
 	renderer: Renderer,
 	play: Pick<ElementFxPlay, 'kind' | 'params'>,
 ): void {
-	const impl = implFor(play.kind);
+	const impl = kindImpl(play.kind);
 	if (!impl) return;
-	const passes = impl.filter ? [impl.filter] : (impl.filters ?? []);
+	const passes = passesOf(impl);
 	const frame: FxFrame = {
 		t: 0,
 		seconds: 0,
