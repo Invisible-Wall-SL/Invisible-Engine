@@ -73,18 +73,13 @@ A seed and the same keys replay the same game.
   with no `bots` makes none; with no `nearby` the room keeps the P10.14 state class
   (`check:room-bots`).
 - **A generated field is one function on both sides (P11.2 e).** A config naming
-  `arcade.online.generator` plays, in each room, the field `engine-mechanics`
-  `generatedOnlineGame(game, seed)` makes from the room's seed (state `seed`): `createRoomSim` runs
-  it on the server, `online.ts` on the device, and `engine-layout` `FIELD_DRAWINGS` draws it in
-  place of the authored node of its id (registered with `editor-scenes` `setRoomDocChange`, so
-  `loadEditorScenes` returns the room's doc; `Game.svelte` is pinned by the authored-overlay
-  checks and is not touched). One seed seeds the bots and the field, so a room replays
-  from it. Change the generator, its geometry or the drawing together (`check:room-bots`,
-  `salmons-play.mjs`). A config without a generator keeps the same game object.
-  **A generator game's layout must keep the drawing's node id** (`river` for Salmons): S0 art may
-  restyle that node but must not rename or delete it. Without it the device leaves the room and
-  stops on the failure screen ("keep a node with id `river`, or remove
-  `arcade.online.generator`"), checked in `joinOnlineRoom` before the game mounts.
+  `arcade.online.generator` plays, per room, the field `generatedOnlineGame(game, seed)` makes from
+  the room's `seed`: `createRoomSim` runs it on the server, `online.ts` on the device, and
+  `FIELD_DRAWINGS` draws it in place of the layout node of its id (via `setRoomDocChange`;
+  `Game.svelte` untouched). One seed drives bots and field. Change generator, geometry and drawing
+  together (`check:room-bots`, `salmons-play.mjs`). **The layout must keep that node id** (`river`
+  for Salmons; S0 art may restyle it, never rename or delete it): without it `joinOnlineRoom`
+  leaves the room and refuses the boot before the game mounts.
 - **Publish names the game server.** An online game's launch URL carries `rooms_url` (the
   launcher's `GAME_SERVER_URL`; `onlineLaunch.ts`); an empty address refuses it
   (`no-game-server`, `check:online-publish`).
