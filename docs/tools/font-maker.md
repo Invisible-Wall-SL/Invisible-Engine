@@ -7,7 +7,7 @@ web font — all writing into the project's R2 font catalog that the engine read
 ## What it is
 
 A launcher-native authoring UI for the project font catalog (`fonts.json` in the
-shared `invisibleassets` R2 bucket). It has three tabs:
+shared `invisibleassets` R2 bucket). It has four tabs:
 
 - **View** — lists the project's fonts (with a `_shared` library fallback) and
   live-renders each one with PIXI so you can read it before you commit to it.
@@ -15,6 +15,8 @@ shared `invisibleassets` R2 bucket). It has three tabs:
   **web font** (`.woff2`/`.woff`/`.ttf`/`.otf`), preview it, and save.
 - **Generate** — upload a **TTF/OTF**, pick a character set + size + effects, and
   bake a BMFont (XML descriptor + page PNG) entirely in the browser, then save.
+- **Swap** — replace one font with another **everywhere in the project**: make the
+  new font in Import or Generate, then point every use of the old one at it.
 
 The output is byte-compatible with what the games already load: a BMFont `.xml`
 descriptor + page PNG. Games and the Scene Editor pick a font by its catalog **id**
@@ -40,7 +42,7 @@ two gradient variants of one family — stay separate.
 The page header shows the active **client / project** — every save, delete, and
 the View catalog are scoped to that project (set it from the launcher project
 selector before you start). Two shared controls at the top — **Sample text** and
-a **Size** slider — drive every live preview across the View and Generate tabs.
+a **Size** slider — drive every live preview across the View, Generate and Swap tabs.
 
 ### View — see what the project already has
 
@@ -53,6 +55,7 @@ a **Size** slider — drive every live preview across the View and Generate tabs
 3. **Delete** removes the entry and its R2 files after an inline **Delete? → Yes,
    delete** confirm. Delete is hidden for `_shared` fonts unless you hold
    `fontPublish`.
+4. **Swap…** opens the Swap tab with that font picked as the one to replace.
 
 ### Import — bring in an existing font
 
@@ -111,6 +114,49 @@ a **Size** slider — drive every live preview across the View and Generate tabs
    Generated fonts also persist an
    authoring-only re-bake recipe (the source font + bake params) so they can be
    reopened via **Edit** later; the recipe is never shipped to a game.
+
+### Swap — replace a font everywhere in the project
+
+1. Make the replacement first (Import or Generate) if the project does not have it yet.
+2. Open **Swap** (or **Swap…** on a View card). Pick the font to **Replace** and the
+   font to swap in **With**. Both lists hold every font the game renders: the
+   project's own and the `_shared` library's. Each pick live-previews.
+3. **Find references** is a dry run. It lists, per tool, every place that uses the
+   font, and writes nothing:
+   - **Scene Editor**: text node fonts (and their per-ratio overrides), component
+     instance font params, bound HUD components' fonts;
+   - **Project components**: font param defaults and text inside the component;
+   - **Component project defaults**: the per-project font param values;
+   - **Flow**: text message fonts, in the event graph and every mode's graph;
+   - **Symbols**: the win-line amount font, the coin label and each jackpot tier.
+   A reference counts when the game would resolve it to that font, by id or by name.
+   Another font that shares its face name, and built-in families such as
+   `proxima-nova`, are left alone.
+4. **Swap N references → Yes, swap** writes them. The swap reads every doc again
+   first: if the count is no longer the N you confirmed, nothing is written and the
+   new list is shown to confirm. If another author has the Scene Editor, Flow, Symbols
+   or one of those components open, nothing is written and the page names them. Each
+   doc is then saved under its ETag with a full backup, so it can be restored from that
+   tool's backups. One saved by someone else in that moment is reported **not
+   swapped**, with what did land: run the swap again. A tool your role cannot edit
+   (Scene Editor and components need `editor`) is reported **skipped**. The swap runs
+   only on the project the page loaded: if you switched project in another tab, reload.
+5. The old font stays in the catalog. Delete it from View once nothing needs it.
+   Published games pick the swap up on their next publish.
+
+Not swapped, by design:
+- **Rig text** is pixels baked from the font. Rigs that use it are listed with their
+  elements: re-bake them in the Rigger.
+- **Shared library** components and flow functions belong to every project. To change
+  a shared component's font for this project only, set it in its project defaults.
+- A component instance **pinned to an older version** keeps that version's font until
+  it is re-pinned.
+- **Fonts used by default** are not references. The Symbols win-line amount and coin
+  label draw `gold` when no font is set, and an instance with no font param uses its
+  component's default. If the font you swap is one of these defaults, set the font
+  explicitly (in Symbols, or the component's project defaults) to change those uses.
+- In Symbols, a replacement that shares its face name with another font is stored by
+  id, so the Symbols font picker (which lists names) shows it blank. It still renders.
 
 ### Saving (how it lands in R2)
 

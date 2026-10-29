@@ -5,11 +5,12 @@
 	import FontPreview from './FontPreview.svelte';
 	import FontImport from './FontImport.svelte';
 	import FontGenerate from './FontGenerate.svelte';
+	import FontSwap from './FontSwap.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
-	type Tab = 'view' | 'import' | 'generate';
+	type Tab = 'view' | 'import' | 'generate' | 'swap';
 	let tab = $state<Tab>('view');
 
 	// View-mode state.
@@ -22,6 +23,8 @@
 
 	// When set, the Generate tab opens that font's recipe for re-baking.
 	let editId = $state<string | null>(null);
+	// When set, the Swap tab opens with this font picked as the one to replace.
+	let swapFromId = $state<string | null>(null);
 
 	// Delete flow: the id pending confirmation + in-flight / error state.
 	let confirmingId = $state<string | null>(null);
@@ -93,6 +96,13 @@
 		<button class:active={tab === 'view'} onclick={() => (tab = 'view')}>View</button>
 		<button class:active={tab === 'import'} onclick={() => (tab = 'import')}>Import</button>
 		<button class:active={tab === 'generate'} onclick={() => (tab = 'generate')}>Generate</button>
+		<button
+			class:active={tab === 'swap'}
+			onclick={() => {
+				swapFromId = null;
+				tab = 'swap';
+			}}>Swap</button
+		>
 	</nav>
 
 	{#if tab !== 'import'}
@@ -130,54 +140,63 @@
 								<span class="font-name">{font.name}</span>
 								<span class="badge {font.kind}">{font.kind}</span>
 								{#if source === 'shared'}<span class="badge shared">shared</span>{/if}
-								{#if font.editable || canDelete}
-									<div class="card-actions">
-										{#if font.editable}
+								<div class="card-actions">
+									<button
+										class="edit"
+										type="button"
+										title="Replace this font everywhere in the project"
+										onclick={() => {
+											swapFromId = font.id;
+											tab = 'swap';
+										}}
+									>
+										Swap…
+									</button>
+									{#if font.editable}
+										<button
+											class="edit"
+											type="button"
+											onclick={() => {
+												editId = font.id;
+												tab = 'generate';
+											}}
+										>
+											Edit
+										</button>
+									{/if}
+									{#if canDelete}
+										{#if confirmingId === font.id}
+											<span class="confirm-q">Delete?</span>
 											<button
-												class="edit"
+												class="del confirm"
+												type="button"
+												disabled={deletingId === font.id}
+												onclick={() => confirmDelete(font.id)}
+											>
+												{deletingId === font.id ? 'Deleting…' : 'Yes, delete'}
+											</button>
+											<button
+												class="del cancel"
+												type="button"
+												disabled={deletingId === font.id}
+												onclick={() => (confirmingId = null)}
+											>
+												Cancel
+											</button>
+										{:else}
+											<button
+												class="del"
 												type="button"
 												onclick={() => {
-													editId = font.id;
-													tab = 'generate';
+													confirmingId = font.id;
+													deleteError = null;
 												}}
 											>
-												Edit
+												Delete
 											</button>
 										{/if}
-										{#if canDelete}
-											{#if confirmingId === font.id}
-												<span class="confirm-q">Delete?</span>
-												<button
-													class="del confirm"
-													type="button"
-													disabled={deletingId === font.id}
-													onclick={() => confirmDelete(font.id)}
-												>
-													{deletingId === font.id ? 'Deleting…' : 'Yes, delete'}
-												</button>
-												<button
-													class="del cancel"
-													type="button"
-													disabled={deletingId === font.id}
-													onclick={() => (confirmingId = null)}
-												>
-													Cancel
-												</button>
-											{:else}
-												<button
-													class="del"
-													type="button"
-													onclick={() => {
-														confirmingId = font.id;
-														deleteError = null;
-													}}
-												>
-													Delete
-												</button>
-											{/if}
-										{/if}
-									</div>
-								{/if}
+									{/if}
+								</div>
 							</div>
 							<div class="font-id">{font.id}</div>
 							{#if confirmingId === font.id && deleteError}
@@ -198,6 +217,14 @@
 		</section>
 	{:else if tab === 'import'}
 		<FontImport {sample} {size} canPublishShared={data.canPublishShared} onsaved={onImported} />
+	{:else if tab === 'swap'}
+		<FontSwap
+			{sample}
+			{size}
+			projectKey={data.projectKey}
+			fromId={swapFromId}
+			onmake={(t) => (tab = t)}
+		/>
 	{:else}
 		<FontGenerate
 			{sample}

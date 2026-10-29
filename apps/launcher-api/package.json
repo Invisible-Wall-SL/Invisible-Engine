@@ -84,6 +84,7 @@
 		"check:timeline-keying": "tsx --tsconfig tsconfig.scripts.json scripts/check-timeline-keying.ts",
 		"precheck:timeline-rows": "node scripts/ensure-svelte-kit.mjs",
 		"check:timeline-rows": "tsx --tsconfig tsconfig.scripts.json scripts/check-timeline-rows.ts",
+		"check:font-swap": "tsx --tsconfig tsconfig.scripts.json scripts/check-font-swap.ts",
 		"precheck:timeline-ratio-keys": "node scripts/ensure-svelte-kit.mjs",
 		"check:timeline-ratio-keys": "tsx --tsconfig tsconfig.scripts.json scripts/check-timeline-ratio-keys.ts",
 		"precheck:timeline-node-paste": "node scripts/ensure-svelte-kit.mjs",
