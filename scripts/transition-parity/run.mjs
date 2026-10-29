@@ -20,7 +20,8 @@
 // compiled crossfade that reads both screens (`screenEffects.mts`), shipped in the bundle's
 // `shaderEffects`. On that side the flow goes on within 2 frames of the cue (the cue resolves once
 // the old screen is frozen, not after the wipe), the shell filter is on the stage, every captured
-// frame differs from the cue frame, the frames travel from the old screen to the new one, and no
+// frame differs from the cue frame, each is the mix of the two screens at the clock's progress
+// (to within two frames), the frames travel strictly from the old screen to the new one, and no
 // frame is darker than both screens at any pixel — the two screens read off two more sides that
 // play the crossfade's halves alone (From: the frozen old screen, checked frozen and not blank; To:
 // the live new one) on the same frames, all three drawing every frame. With the row's graph left
@@ -210,6 +211,16 @@ const SCREEN_CONTINUES_WITHIN = 2;
 const STILL_NEAR_CUE = 0.1;
 // A channel value this far below both screens' counts as darker (8-bit steps, the screen-fx bar).
 const DARKER_STEP = 2;
+// The crossfade is From and To mixed by its progress, so every captured frame is that mix: the
+// progress that fits it (least squares over the channels where the screens differ by at least
+// `MIX_SPREAD`) must be the clock's, offset / the length in frames, within `MIX_PROGRESS_SLACK`
+// (the still is taken a frame after the cue, so it reads a frame behind), and every channel must
+// sit within `MIX_STEP` of the mix at that progress. Measured 2026-10-29: a frame behind (0.008
+// under), every channel within 0.6.
+const SCREEN_FRAMES = (SCREEN_MS * 60) / 1000;
+const MIX_SPREAD = 16;
+const MIX_PROGRESS_SLACK = 2 / SCREEN_FRAMES;
+const MIX_STEP = 2;
 // The turbo variant (Rive plan Phase 8b, condition 1): the same book with turbo on at boot
 // (`ie_turbo=1`, honoured with `ie_determinism` only). The runtime divides measured cue waits by
 // `timeScale`; the rigs ride the ticker, so the wipe must track the coded one here too.
@@ -489,25 +500,46 @@ if (!results.coded.error && cueRow.every((r) => !r.error)) {
 		let darker = 0;
 		for (let i = 0; i < a.length; i++)
 			if ((i & 3) !== 3 && a[i] < Math.min(old[i], now[i]) - DARKER_STEP) darker++;
-		row.screen.push({ offset, diffRatio: moved, fromOld, fromNew, darker });
+		let num = 0;
+		let den = 0;
+		for (let i = 0; i < a.length; i++) {
+			const spread = now[i] - old[i];
+			if ((i & 3) === 3 || Math.abs(spread) < MIX_SPREAD) continue;
+			num += (a[i] - old[i]) * spread;
+			den += spread * spread;
+		}
+		const progress = den ? num / den : NaN;
+		let offMix = 0;
+		for (let i = 0; i < a.length; i++)
+			if ((i & 3) !== 3 && Math.abs(a[i] - (old[i] + progress * (now[i] - old[i]))) > MIX_STEP)
+				offMix++;
+		const clock = offset / SCREEN_FRAMES;
+		row.screen.push({ offset, diffRatio: moved, fromOld, fromNew, darker, progress, offMix });
 		check(
 			moved > WIPE_ON_SCREEN,
 			`${at}: differs from the cue frame by ${(moved * 100).toFixed(2)}% (floor ${WIPE_ON_SCREEN * 100}%)`,
 		);
 		check(darker === 0, `${at}: ${darker} values darker than both screens`);
+		check(
+			Math.abs(progress - clock) <= MIX_PROGRESS_SLACK && offMix === 0,
+			`${at}: the mix of From and To at progress ${progress.toFixed(4)} (the clock's ${clock.toFixed(4)} ± ${MIX_PROGRESS_SLACK.toFixed(4)}), ${offMix} values off it by more than ${MIX_STEP}`,
+		);
 	}
 	// …and it travels from one to the other: off the old screen more at each capture, off the new
-	// one less (a frame that stays on either screen fails this).
+	// one less, strictly from t+24 on (at t+12 the mix is still within the tolerance of the old
+	// screen); a frame held on either screen, or frozen between captures, fails this.
 	const series = (key) => row.screen.map((f) => f[key]);
-	const rising = (list) => list.every((v, i) => i === 0 || v >= list[i - 1]);
+	const moving = (key) => series(key).slice(OFFSETS.indexOf(24));
+	const strictly = (list, up) =>
+		list.every((v, i) => i === 0 || (up ? v > list[i - 1] : v < list[i - 1]));
 	const percent = (list) => list.map((v) => (v * 100).toFixed(2)).join(' → ');
 	check(
-		rising(series('fromOld')) && series('fromOld').at(-1) > WIPE_ON_SCREEN,
-		`it leaves the old screen: ${percent(series('fromOld'))}% off it`,
+		strictly(moving('fromOld'), true) && series('fromOld').at(-1) > WIPE_ON_SCREEN,
+		`it leaves the old screen: ${percent(series('fromOld'))}% off it, rising strictly from t+24`,
 	);
 	check(
-		rising(series('fromNew').toReversed()) && series('fromNew')[0] > WIPE_ON_SCREEN,
-		`it reaches the new screen: ${percent(series('fromNew'))}% off it`,
+		strictly(moving('fromNew'), false) && series('fromNew')[0] > WIPE_ON_SCREEN,
+		`it reaches the new screen: ${percent(series('fromNew'))}% off it, falling strictly from t+24`,
 	);
 	check(
 		!missing.held && !coded.held,
