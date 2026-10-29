@@ -51,7 +51,7 @@ export interface FontSwapPart {
 	doc: FontSwapDocId;
 	label: string;
 	/** The `/route` that edits the doc. */
-	path: '/editor' | '/components' | '/flow-v2' | '/symbols';
+	path: '/editor' | '/flow-v2' | '/symbols';
 	/** Every reference found, as a readable location. */
 	refs: string[];
 	status: FontSwapStatus;
@@ -78,12 +78,12 @@ export class FontSwapError extends Error {}
  */
 const PARTS: { doc: FontSwapDocId; label: string; tool: string; path: FontSwapPart['path'] }[] = [
 	{ doc: 'layout', label: 'Scene Editor', tool: 'editor', path: '/editor' },
-	{ doc: 'components', label: 'Project components', tool: 'editor', path: '/components' },
+	{ doc: 'components', label: 'Project components', tool: 'editor', path: '/editor' },
 	{
 		doc: 'componentDefaults',
 		label: 'Component project defaults',
 		tool: 'editor',
-		path: '/components',
+		path: '/editor',
 	},
 	{ doc: 'flow', label: 'Flow', tool: 'flow', path: '/flow-v2' },
 	{ doc: 'symbols', label: 'Symbols', tool: 'symbols', path: '/symbols' },

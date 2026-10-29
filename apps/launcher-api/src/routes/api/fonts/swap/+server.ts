@@ -3,6 +3,7 @@ import { SESSION_COOKIE, sessionIdFromToken } from '$lib/server/auth';
 import { resolveEditorFonts } from '$lib/server/fonts';
 import { FontSwapError, runFontSwap } from '$lib/server/fontSwap';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { scopeMismatch } from '$lib/server/scopeGuard';
 import { gate } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { RequestHandler } from './$types';
@@ -43,8 +44,8 @@ interface SwapRequest {
  * (the default) is a dry run: it reports every reference it would rewrite and writes nothing.
  * `apply: true` rewrites them, doc by doc, through each doc's own conditional save; a doc whose
  * tool the caller's role lacks is reported and left alone, and a doc open in another author's
- * tab blocks the whole apply. A page whose project is no longer the session's is refused (409),
- * as `flow-v2/save` does: the swap would otherwise rewrite a project nobody looked at.
+ * tab blocks the whole apply. A page whose project is no longer the session's is refused
+ * (`scopeMismatch`): the swap would otherwise rewrite a project nobody looked at.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, GATE);
@@ -59,12 +60,9 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	}
 	if (typeof body.from !== 'string' || !body.from) throw error(400, 'Expected a `from` font id.');
 	if (typeof body.to !== 'string' || !body.to) throw error(400, 'Expected a `to` font id.');
-	if (typeof body.projectKey === 'string' && body.projectKey !== projectKey) {
-		throw error(
-			409,
-			`This tab is on "${body.projectKey}" but your active project is now "${projectKey}". Reload to continue.`,
-		);
-	}
+	// Its only caller (the Swap tab) always sends the project it loaded, so a missing one is a 400.
+	const mismatch = scopeMismatch(body.projectKey, projectKey, { required: true });
+	if (mismatch) return mismatch;
 
 	const user = locals.user!;
 	try {

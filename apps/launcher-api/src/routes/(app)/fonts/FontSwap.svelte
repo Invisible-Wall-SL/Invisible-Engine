@@ -1,8 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
+	import { COMPONENTS_VIEW_PARAM, COMPONENTS_VIEW_VALUE } from '$lib/componentLinks';
 	import FontPreview from './FontPreview.svelte';
-	import { fetchSwapFonts, swapFont, type CatalogFont, type FontSwapReport } from './fonts.client';
+	import {
+		fetchSwapFonts,
+		swapFont,
+		type CatalogFont,
+		type FontSwapPart,
+		type FontSwapReport,
+	} from './fonts.client';
 
 	interface Props {
 		sample: string;
@@ -65,6 +72,12 @@
 		skipped: 'skipped',
 		error: 'not swapped',
 	};
+
+	/** Component docs open the Components side of `/editor` (`$lib/componentLinks`). */
+	const partQuery = (part: FontSwapPart) =>
+		part.doc === 'components' || part.doc === 'componentDefaults'
+			? `?${COMPONENTS_VIEW_PARAM}=${COMPONENTS_VIEW_VALUE}`
+			: '';
 
 	const label = (f: CatalogFont) => (f.name === f.id ? f.name : `${f.name} — ${f.id}`);
 </script>
@@ -162,7 +175,7 @@
 					{#each report.parts.filter((p) => p.status !== 'none') as part (part.doc)}
 						<li>
 							<div class="part-head">
-								<a href={resolve(part.path)}>{part.label}</a>
+								<a href="{resolve(part.path)}{partQuery(part)}">{part.label}</a>
 								<span class="count">{part.refs.length}</span>
 								<span class="status {part.status}">{STATUS_LABEL[part.status]}</span>
 							</div>

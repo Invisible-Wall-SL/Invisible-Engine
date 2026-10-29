@@ -363,6 +363,7 @@ const STALE_TAB_GUARDS = [
 	'flipbook/save',
 	'flow-v2/backups',
 	'flow-v2/save',
+	'fonts/swap',
 	'fx/save',
 	'rigger/backups',
 	'rigger/save',

@@ -284,7 +284,7 @@ async function errText(res: Response, fallback: string): Promise<string> {
 export interface FontSwapPart {
 	doc: string;
 	label: string;
-	path: '/editor' | '/components' | '/flow-v2' | '/symbols';
+	path: '/editor' | '/flow-v2' | '/symbols';
 	refs: string[];
 	status: 'none' | 'planned' | 'written' | 'skipped' | 'error';
 	note?: string;
