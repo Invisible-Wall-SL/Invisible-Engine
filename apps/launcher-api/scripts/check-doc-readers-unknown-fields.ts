@@ -31,6 +31,7 @@
  * because the storage modules reach R2 → `env.ts` → that virtual module.
  */
 
+import { readFileSync } from 'node:fs';
 import type { ComponentDef } from 'engine-layout';
 import {
 	BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS,
@@ -47,6 +48,7 @@ import { normalizeArtBoundsDoc } from '../src/lib/artBounds.ts';
 import { normalizeArtSlicesDoc } from '../src/lib/artSlices.ts';
 import { normalizeComponent } from '../src/lib/server/componentStorage.ts';
 import { normalizeDoc as normalizeLayoutDoc } from '../src/lib/server/editorStorage.ts';
+import { screenFxSettings } from '../src/lib/screenFx.ts';
 import { isFlowV2Doc } from '../src/lib/server/flowV2Storage.ts';
 import { normalizeFxMeta } from '../src/lib/server/fxStorage.ts';
 import { normalizeDoc as normalizeLocalizationDoc } from '../src/lib/server/localization.ts';
@@ -614,6 +616,50 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		JSON.stringify(normalizeLayoutDoc(cueClamped, 'demo')).includes(
 			'"transitionCue":{"kind":"dissolveOut","durationMs":5000,"intensity":0}',
 		),
+	);
+
+	// The Scene Editor's half (8e.6): Game Settings → Screen FX writes the three fields back
+	// through `screenFxSettings` from what it read, so an editor save of a stored doc keeps the cue
+	// row, the post FX and the switch exactly; a row set to the wipe writes nothing.
+	const stored = normalizeLayoutDoc(
+		{ ...clone(cueOn), settings: { ...cueOn.settings, ...screenFx.settings } },
+		'demo',
+	).settings;
+	const resaved = normalizeLayoutDoc(
+		{
+			...clone(base),
+			settings: screenFxSettings({
+				transitionCue: stored?.transitionCue,
+				postFx: stored?.postFx,
+				stageFxAntialias: stored?.stageFxAntialias === true,
+			}),
+		},
+		'demo',
+	).settings;
+	check(
+		'4. layout: an editor save of the Screen FX block keeps the cue row, the post FX and the switch',
+		!!stored?.transitionCue &&
+			JSON.stringify(resaved) ===
+				JSON.stringify({
+					transitionCue: stored.transitionCue,
+					postFx: stored.postFx,
+					stageFxAntialias: true,
+				}),
+		JSON.stringify(resaved),
+	);
+	check(
+		'4. layout: the wipe (no row) writes no transition cue',
+		!(
+			'transitionCue' in
+			screenFxSettings({ transitionCue: undefined, postFx: undefined, stageFxAntialias: false })
+		),
+	);
+	check(
+		'4. layout: the editor builds its settings through the block’s helper, the cue row included',
+		readFileSync(
+			new URL('../src/routes/(app)/editor/+page.svelte', import.meta.url),
+			'utf8',
+		).includes('screenFxSettings({ transitionCue, postFx, stageFxAntialias })'),
 	);
 
 	const withNodeField = clone(base);

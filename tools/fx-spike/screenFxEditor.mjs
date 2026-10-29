@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * SCREEN FX EDITOR — the Scene Editor's Game Settings → Screen FX played headless (Invisible Shader
- * Graph step 8e.6 phase A, `docs/design/shader-graph-screens.md` §9.2).
+ * Graph step 8e.6, `docs/design/shader-graph-screens.md` §9.2).
  *
  * `screenFxEditor/entry.ts` mounts the real `/editor` `+page.svelte` outside SvelteKit (its requests
  * answered in memory, see there); this script builds it with Vite and the launcher's Svelte plugin
@@ -11,11 +11,13 @@
  *  2. add Glow and a graph compiled with a cost: each row has its load line (no compiled cost /
  *     cost × the reference phone's pixels against the post FX budget); the trigger offers Always and
  *     On cue only; put the graph on a cue with a stop cue; Add is off at two entries;
+ *  2b. the transition cue row: the wipe by default; the built-in exits, then the project's effects;
+ *     set Dissolve out, 900 ms, strength 1.5: its status and its load against the transition budget;
  *  3. flip "Anti-aliasing under stage effects", with its memory note;
- *  4. save: the doc sent carries both, sparsely;
+ *  4. save: the doc sent carries all three, sparsely;
  *  5. reopen on that doc as the server stores it (the real `normalizeDoc`): the block reads back
- *     identical (rows, triggers, cues, load lines, the greyed kinds, the switch), and saving it again
- *     sends the same settings.
+ *     identical (the cue row, rows, triggers, cues, load lines, the greyed kinds, the switch), and
+ *     saving it again sends the same settings.
  * Screenshots of the block before the save and after the reopen are kept with `--keep <dir>`.
  *
  *   pnpm --filter fx-spike screen-fx-editor [--keep <dir>]
@@ -87,8 +89,26 @@ const HELPERS = `(() => {
 		full: [...postFx().querySelectorAll('.hint')].some((h) => h.textContent.includes('At most 2 here')),
 		greyed: [...addSelect().options].filter((o) => o.disabled).map((o) => \`\${o.value}: \${o.title}\`),
 		aa: block().querySelector('[data-row="antialias"] input[type=checkbox]').checked,
+		cue: cueState(),
 	});
-	window.sfx = { block, postFx, addSelect, rows, pick, field, option, state };
+	const cueRow = () => block().querySelector('[data-row="transition-cue"]');
+	const cueField = (label) =>
+		[...cueRow().querySelectorAll('label.sfx-field')].find((l) => l.querySelector('span')?.textContent.trim() === label)
+			?.querySelector('input, select');
+	const cueState = () => ({
+		kind: cueField('The transition cue plays').value,
+		durationMs: cueField('Duration ms')?.value ?? null,
+		strength: cueField('Strength')?.value ?? null,
+		lines: [...cueRow().querySelectorAll('.sfx-line')].map((l) => ({
+			text: l.textContent.replace(/\\s+/g, ' ').trim(),
+			warn: l.classList.contains('warn'),
+		})),
+	});
+	const setField = (input, value) => {
+		input.value = value;
+		input.dispatchEvent(new Event('change', { bubbles: true }));
+	};
+	window.sfx = { block, postFx, addSelect, rows, pick, field, option, state, cueRow, cueField, cueState, setField };
 	return true;
 })()`;
 
@@ -112,8 +132,10 @@ try {
 				? `localStorage.setItem('screenFxEditor.doc', ${JSON.stringify(JSON.stringify(doc))}), true`
 				: `localStorage.removeItem('screenFxEditor.doc'), true`,
 		);
+		// Marks the page being left, so the wait below cannot be met by its block before the reload.
+		await ev('window.leaving = true');
 		await browser.send('Page.reload', {});
-		await browser.waitFor('!!document.querySelector(".screen-fx")', 60_000);
+		await browser.waitFor('!window.leaving && !!document.querySelector(".screen-fx")', 60_000);
 		await ev(HELPERS);
 		// Open Game Settings, as the author clicks its heading.
 		await ev(`(() => {
@@ -238,6 +260,48 @@ try {
 	state = await ev('sfx.state()');
 	check('the graph plays on its cue', state.rows[1].when === 'on cue gradeOn', state.rows[1].when);
 
+	console.log('2b. the transition cue row');
+	const cueOptions = await ev(`(() => {
+		const s = sfx.cueField('The transition cue plays');
+		return {
+			first: s.options[0].textContent.trim(),
+			groups: [...s.querySelectorAll('optgroup')].map((g) => [g.label, g.children.length, g.children[0].value]),
+		};
+	})()`);
+	check(
+		'the wipe by default; the built-in exits, then the project’s compiled effects',
+		cueOptions.first === 'The wipe' &&
+			cueOptions.groups[0][0] === 'Built-in (exit)' &&
+			cueOptions.groups[0][1] === 10 &&
+			cueOptions.groups[1]?.[0] === 'Custom (Shader Graph)' &&
+			cueOptions.groups[1][2].startsWith('custom:'),
+		JSON.stringify(cueOptions),
+	);
+	check(
+		'off, it says the wipe plays, and offers no length or strength',
+		(await ev('sfx.cueState()')).lines[0]?.text.includes('plays the wipe') &&
+			(await ev('sfx.cueState()')).durationMs === null,
+		JSON.stringify(await ev('sfx.cueState()')),
+	);
+	await ev(`sfx.pick(sfx.cueField('The transition cue plays'), 'dissolveOut'), true`);
+	await sleep(50);
+	await ev(`sfx.setField(sfx.cueField('Duration ms'), '900'), true`);
+	await sleep(50);
+	await ev(`sfx.setField(sfx.cueField('Strength'), '1.5'), true`);
+	await sleep(100);
+	const cue = await ev('sfx.cueState()');
+	check(
+		'Dissolve out, 900 ms, strength 1.5: it plays instead of the wipe, with its load against the transition budget',
+		cue.kind === 'dissolveOut' &&
+			cue.durationMs === '900' &&
+			cue.strength === '1.5' &&
+			cue.lines[0]?.text.includes('instead of the wipe') &&
+			!cue.lines[0]?.warn &&
+			cue.lines[1]?.text ===
+				'Load 1.32 M px × cost 80 = 105.33 M of 263.33 M (the transition budget, cost 200; 1 reads a pixel of 8).',
+		JSON.stringify(cue),
+	);
+
 	console.log('3. the anti-aliasing switch');
 	const note = await ev(
 		`sfx.block().querySelector('[data-row="antialias"]').textContent.replace(/\\s+/g, ' ')`,
@@ -262,15 +326,16 @@ try {
 	);
 	await browser
 		.waitFor(
-			`editorPage.saved.some((d) => d.settings?.stageFxAntialias === true && d.settings?.postFx?.[1]?.stopCue === 'gradeOff')`,
+			`editorPage.saved.some((d) => d.settings?.stageFxAntialias === true && d.settings?.postFx?.[1]?.stopCue === 'gradeOff' && d.settings?.transitionCue?.intensity === 1.5)`,
 			20_000,
 		)
 		.catch(() => {});
 	const sent = (await ev('editorPage.saved.at(-1)')) ?? {};
 	check(
-		'the doc sent carries the post FX and the switch, sparsely',
+		'the doc sent carries the cue row, the post FX and the switch, sparsely',
 		JSON.stringify(sent.settings) ===
 			JSON.stringify({
+				transitionCue: { kind: 'dissolveOut', durationMs: 900, intensity: 1.5 },
 				postFx: [
 					{ id: 'efx1', kind: 'glow', trigger: 'always' },
 					{
@@ -296,7 +361,7 @@ try {
 	await open(stored);
 	const reopened = await ev('sfx.state()');
 	check(
-		'the block reads back identical: rows, triggers, cues, load lines, greyed kinds, the switch',
+		'the block reads back identical: the cue row, rows, triggers, cues, load lines, greyed kinds, the switch',
 		JSON.stringify(reopened) === JSON.stringify(state),
 		`\n      before ${JSON.stringify(state)}\n      after  ${JSON.stringify(reopened)}`,
 	);

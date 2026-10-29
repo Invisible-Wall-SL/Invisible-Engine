@@ -1,6 +1,6 @@
 /**
  * Guard the Scene Editor's Game Settings → SCREEN FX block (Shader Graph 8e,
- * `docs/design/shader-graph-screens.md` §9.2, step 6 phase A), offline, over the real modules.
+ * `docs/design/shader-graph-screens.md` §9.2, step 6), offline, over the real modules.
  *
  * Run: `pnpm --filter launcher-api run check:screen-fx-editor`
  *
@@ -11,21 +11,29 @@
  *     enabled entry; an entry replacing its own kind does not count itself; a graph drawing five
  *     filters is never offered.
  *  3. **What the editor says plays is what the game plays.** For every list, the entries the block
- *     marks as playing are exactly `readPostFx`'s, in the reader's order.
+ *     marks as playing are exactly `readPostFx`'s with the game's judge, in the reader's order, and
+ *     every other enabled entry says why in the reader's words.
  *  4. **The load line** is the compiled cost × the reference phone's pixels against the post FX
  *     budget, and a kind without a compiled cost says so.
- *  5. **The settings are sparse**: `postFx` only with an entry, `stageFxAntialias` only when on.
+ *  5. **The settings are sparse**: `transitionCue` only when set, `postFx` only with an entry,
+ *     `stageFxAntialias` only when on.
+ *  5b. **The transition cue row**: the built-in exit kinds then the project's compiled effects;
+ *     its status is the game's rule (off / screen / unplayable) and warns when the project's flow
+ *     never fires `transition` (a library function it calls counts), as Game Maker's chip does;
+ *     its load is a custom kind's compiled cost or a built-in twin's against the transition budget.
  *  6. **The cue palette** harvests the post FX cues, and the publish gate's vocabulary resolves a
  *     Fire Cue on one only given the doc's settings.
  *  7. **No new capability** (§16.11): a save that changes Screen FX is anyone's.
  *  8. **The wiring**, by source: the page builds `settings` through the block's helper and renders
- *     the block in Game Settings; the block is held to the stage's triggers and caps.
+ *     the block in Game Settings; the block is held to the stage's triggers and caps; the cue row
+ *     comes first and writes through the game's reader.
  */
 import { readFileSync } from 'node:fs';
 import {
 	ELEMENT_FX,
 	STAGE_FX_LIMITS,
 	customElementFx,
+	customElementFxList,
 	setCustomElementFx,
 	type CustomElementFx,
 	type ElementFxEntry,
@@ -33,10 +41,13 @@ import {
 } from 'constants-shared/elementFx';
 import { freshDrivenSeedDoc, type FlowDoc } from 'engine-flow-v2';
 import { readPostFx } from 'engine-layout';
+import { SCREEN_TRANSITION_KINDS } from 'constants-shared/screenTransition';
 import {
 	POST_COST_BUDGET,
 	POST_SAMPLE_BUDGET,
 	REFERENCE_GRAPHS,
+	TRANSITION_COST_BUDGET,
+	TRANSITION_SAMPLE_BUDGET,
 	compileShaderEffect,
 } from 'engine-shadergraph';
 import { stageFxFilterCount, stageFxJudge, stageFxRefusal } from 'pixi-svelte/elementFx';
@@ -51,7 +62,14 @@ import {
 	postFxLoad,
 	postFxLoadText,
 	screenFxSettings,
+	screenTransitionKindGroups,
+	TRANSITION_LOAD_BUDGET,
+	transitionCueLine,
+	transitionLoad,
+	transitionLoadText,
 } from '../src/lib/screenFx';
+import { flowFiresTransition, flowFiresTransitionWith } from '../src/lib/server/cueLists';
+import { buildGameProfile } from '../src/lib/server/gameProfile';
 import { authoredOverlaySaveDecision } from '../src/lib/server/authoredOverlayGuard';
 import { validateFlowV2Against } from '../src/lib/server/flowV2Validation';
 
@@ -297,14 +315,194 @@ const entry = (id: string, kind: string, more: Partial<ElementFxEntry> = {}): El
 
 // ---- 5. the settings are sparse -----------------------------------------------------------------
 {
-	eq('nothing set: nothing written', screenFxSettings(undefined, false), {});
-	eq('an empty list: nothing written', screenFxSettings([], false), {});
+	const none = { transitionCue: undefined, postFx: undefined, stageFxAntialias: false };
+	eq('nothing set: nothing written', screenFxSettings(none), {});
+	eq('an empty list: nothing written', screenFxSettings({ ...none, postFx: [] }), {});
 	const list = [entry('a', 'glow')];
-	eq('a list and the switch', screenFxSettings(list, true), {
-		postFx: list,
-		stageFxAntialias: true,
-	});
-	check('the list is a copy', screenFxSettings(list, false).postFx !== list);
+	const cue = { kind: 'dissolveOut' as const, durationMs: 900 };
+	eq(
+		'the cue row, a list and the switch',
+		screenFxSettings({ transitionCue: cue, postFx: list, stageFxAntialias: true }),
+		{ transitionCue: cue, postFx: list, stageFxAntialias: true },
+	);
+	check('the list is a copy', screenFxSettings({ ...none, postFx: list }).postFx !== list);
+}
+
+// ---- 5b. the transition cue row ------------------------------------------------------------------
+{
+	eq(
+		'the kinds: the built-in exits, then the project’s compiled effects (§9.1, §9.2)',
+		screenTransitionKindGroups().map((g) => [g.label, g.kinds.length, g.kinds[0]]),
+		[
+			['Built-in (exit)', SCREEN_TRANSITION_KINDS.length, SCREEN_TRANSITION_KINDS[0]],
+			['Custom (Shader Graph)', customElementFxList().length, customElementFxList()[0].spec.kind],
+		],
+	);
+	eq(
+		'the built-ins are exactly the transition kinds the game reads',
+		screenTransitionKindGroups()[0].kinds,
+		[...SCREEN_TRANSITION_KINDS],
+	);
+	const line = (cue: unknown, fires?: boolean) => transitionCueLine(cue, fires);
+	eq(
+		'its status is the game’s rule: off, screen, unplayable (a custom kind not compiled)',
+		[
+			line(undefined).status,
+			line({ kind: 'burn' }).status,
+			line({ kind: 'custom:costed' }).status,
+			line({ kind: 'custom:gone' }).status,
+			line({ kind: 'shake' }).status,
+		],
+		['off', 'screen', 'screen', 'unplayable', 'off'],
+	);
+	check(
+		'off says the wipe plays; unplayable warns',
+		line(undefined).text.includes('plays the wipe') &&
+			!line(undefined).warn &&
+			line({ kind: 'custom:gone' }).warn &&
+			line({ kind: 'custom:gone' }).text.includes('the wipe'),
+	);
+	check(
+		'on, it names the trade: the flow goes on about 1.6 s sooner, the pilot set aside',
+		line({ kind: 'burn' }).text.includes('1.6 s sooner') &&
+			line({ kind: 'burn' }).text.includes('pilot is set aside') &&
+			!line({ kind: 'burn' }).warn,
+	);
+	check(
+		'a stored flow that never fires transition warns; no stored flow (the coded one) does not',
+		line({ kind: 'burn' }, false).warn &&
+			line({ kind: 'burn' }, false).text.includes('never fires transition') &&
+			!line({ kind: 'burn' }, undefined).warn &&
+			!line({ kind: 'burn' }, true).warn &&
+			!line(undefined, false).warn,
+	);
+	const load = (kind: ElementFxKindId) => transitionLoad(kind);
+	eq(
+		'built-in transitions are costed as their twins (§10: Dissolve out 80, Melt 71, Burn 222 over)',
+		[load('dissolveOut'), load('melt'), load('burn')].map((l) =>
+			l.kind === 'compiled' ? [l.cost, l.over] : null,
+		),
+		[
+			[80, false],
+			[71, false],
+			[222, true],
+		],
+	);
+	check(
+		'a break (its pieces cost, not its graph) and a kind without a twin show no load',
+		load('shatter').kind === 'none' && load('fadeOut').kind === 'none',
+	);
+	check(
+		'a custom transition’s load is its compiled cost against the transition budget',
+		(() => {
+			const l = load('custom:costed');
+			return (
+				l.kind === 'compiled' &&
+				l.load === 24 * REFERENCE_PHONE_PX.width * REFERENCE_PHONE_PX.height &&
+				l.budget === TRANSITION_LOAD_BUDGET
+			);
+		})(),
+	);
+	eq(
+		'its words',
+		transitionLoadText('dissolveOut'),
+		`Load 1.32 M px × cost 80 = 105.33 M of 263.33 M (the transition budget, cost ${TRANSITION_COST_BUDGET}; 1 reads a pixel of ${TRANSITION_SAMPLE_BUDGET}).`,
+	);
+	eq(
+		'the transition budget is its cost × the phone’s pixels',
+		TRANSITION_LOAD_BUDGET,
+		200 * 1_316_640,
+	);
+
+	const seed = freshDrivenSeedDoc('lines');
+	const withoutCue: FlowDoc = {
+		...seed,
+		graph: {
+			...seed.graph,
+			nodes: seed.graph.nodes.filter((n) => !(n.kind === 'fireCue' && n.ref === 'transition')),
+		},
+		modes: Object.fromEntries(
+			Object.entries(seed.modes ?? {}).map(([id, mode]) => [
+				id,
+				{
+					...mode,
+					graph: {
+						...mode.graph,
+						nodes: mode.graph.nodes.filter(
+							(n) => !(n.kind === 'fireCue' && n.ref === 'transition'),
+						),
+					},
+				},
+			]),
+		),
+	};
+	const calls: FlowDoc = {
+		...withoutCue,
+		graph: {
+			...withoutCue.graph,
+			nodes: [
+				...withoutCue.graph.nodes,
+				{ id: 'call', kind: 'functionCall', pos: { x: 0, y: 0 }, ref: 'fn_wipe' },
+			],
+		},
+	};
+	const library = {
+		version: 2 as const,
+		functions: [
+			{
+				id: 'fn_wipe',
+				name: 'Wipe',
+				inputs: [],
+				outputs: [],
+				requires: {},
+				body: {
+					nodes: [{ id: 'c', kind: 'fireCue' as const, pos: { x: 0, y: 0 }, ref: 'transition' }],
+					exec: [],
+					data: [],
+				},
+			},
+		],
+	};
+	eq(
+		'whether the flow fires transition: the starter does; one without does not; no stored flow is unknown',
+		[flowFiresTransition(seed), flowFiresTransition(withoutCue), flowFiresTransition(null)],
+		[true, false, undefined],
+	);
+	eq(
+		'…a library function it calls counts, read only when its own graphs do not fire it',
+		[
+			flowFiresTransition(calls),
+			flowFiresTransition(calls, library),
+			await flowFiresTransitionWith(calls, async () => library),
+			await flowFiresTransitionWith(seed, async () => {
+				throw new Error('the library is not read');
+			}),
+		],
+		[false, true, true, true],
+	);
+	const chips = (layout: Parameters<typeof buildGameProfile>[0]['layout']) =>
+		buildGameProfile({
+			gameTypeId: 'lines',
+			gameTypeName: 'Lines',
+			config: null,
+			configSource: 'template',
+			symbols: {} as Parameters<typeof buildGameProfile>[0]['symbols'],
+			runtimeId: null,
+			protocol: null,
+			layout,
+		}).features.map((c) => c.id);
+	const on = { authoredTransition: 'off', authoredWin: 'off', transitionCue: 'screen' } as const;
+	eq(
+		'Game Maker warns when the flow never fires transition (only with the row on)',
+		[
+			chips({ ...on, transitionCueUnfired: true }).filter((id) => id.startsWith('transitionCue')),
+			chips({ ...on, transitionCueUnfired: false }).filter((id) => id.startsWith('transitionCue')),
+			chips({ ...on, transitionCue: 'off', transitionCueUnfired: true }).filter((id) =>
+				id.startsWith('transitionCue'),
+			),
+		],
+		[['transitionCue', 'transitionCueUnfired'], ['transitionCue'], []],
+	);
 }
 
 // ---- 6. the cue palette ---------------------------------------------------------------------------
@@ -353,10 +551,16 @@ const entry = (id: string, kind: string, more: Partial<ElementFxEntry> = {}): El
 
 // ---- 7. no new capability -------------------------------------------------------------------------
 eq(
-	'a non-publisher’s save that sets post FX and the switch is written',
+	'a non-publisher’s save that sets the cue row, post FX and the switch is written',
 	authoredOverlaySaveDecision({
 		before: { settings: {} },
-		after: { settings: { postFx: [entry('a', 'glow')], stageFxAntialias: true } },
+		after: {
+			settings: {
+				transitionCue: { kind: 'burn' },
+				postFx: [entry('a', 'glow')],
+				stageFxAntialias: true,
+			},
+		},
 		canPublish: false,
 		baseEtag: '"e"',
 		storedEtag: '"e"',
@@ -372,11 +576,14 @@ eq(
 	eq(
 		'the page builds settings through the block’s helper, and a doc with only Screen FX keeps them',
 		[
-			/const screenFx = screenFxSettings\(postFx, stageFxAntialias\);/.test(page),
+			page.includes(
+				'const screenFx = screenFxSettings({ transitionCue, postFx, stageFxAntialias });',
+			),
 			/!authoredOverlays && !screenFxSet\)/.test(page),
 			/Object\.assign\(settings, screenFx\);\s*return settings;/.test(page),
 			page.includes('data.doc.settings?.postFx') &&
-				page.includes('data.doc.settings?.stageFxAntialias === true'),
+				page.includes('data.doc.settings?.stageFxAntialias === true') &&
+				page.includes('data.doc.settings?.transitionCue'),
 		],
 		[true, true, true, true],
 	);
@@ -401,6 +608,22 @@ eq(
 			/<EditorElementFx[^>]*\bpreview=/.test(block),
 		],
 		[true, true, true, true, false],
+	);
+	eq(
+		'the cue row: first in the block, the wipe by default, set through the game’s reader, told whether the flow fires transition',
+		[
+			block.indexOf('data-row="transition-cue"') < block.indexOf('data-row="post-fx"'),
+			block.includes('<option value="">The wipe</option>'),
+			block.includes('onTransitionCueChange(next ? readScreenTransition(next) : undefined)'),
+			page.includes('flowFiresTransition={data.flowFiresTransition}'),
+			src('../src/routes/(app)/editor/+page.server.ts').includes(
+				'const firesTransition = await flowFiresTransitionWith(flowDoc,',
+			),
+			/transitionCueUnfired =\s*chips\?\.transitionCue === 'screen' &&/.test(
+				src('../src/routes/(app)/game-maker/+page.server.ts'),
+			),
+		],
+		[true, true, true, true, true, true],
 	);
 	eq(
 		'the list greys a refused kind with its reason, and refuses it on add and on change',

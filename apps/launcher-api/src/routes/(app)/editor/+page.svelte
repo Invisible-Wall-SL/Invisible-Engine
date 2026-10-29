@@ -107,6 +107,7 @@
 	import { setSceneWorldOn } from '$lib/editor/worldCameraEdit';
 	import { playElementFxPreview } from './elementFxPreview.client.svelte';
 	import type { ElementFxEntry } from 'constants-shared/elementFx';
+	import type { ScreenTransitionSpec } from 'constants-shared/screenTransition';
 	import EditorTemplatePanel from './EditorTemplatePanel.svelte';
 	import PanelResizers from './PanelResizers.svelte';
 	import PanelSection from './PanelSection.svelte';
@@ -2840,8 +2841,11 @@
 	let authoredWin = $state<boolean>(data.doc.settings?.authoredOverlays?.win === true);
 	let authoredFreeSpins = $state<boolean>(data.doc.settings?.authoredOverlays?.freeSpins === true);
 	let authoredButtons = $state<boolean>(data.doc.settings?.authoredOverlays?.buttons === true);
-	// Screen FX (Shader Graph 8e): the post FX list and the stage anti-aliasing switch. Off, and
-	// absent from the doc, unless set.
+	// Screen FX (Shader Graph 8e): the transition cue row, the post FX list and the stage
+	// anti-aliasing switch. Off, and absent from the doc, unless set.
+	let transitionCue = $state.raw<ScreenTransitionSpec | undefined>(
+		data.doc.settings?.transitionCue,
+	);
 	let postFx = $state.raw<ElementFxEntry[] | undefined>(data.doc.settings?.postFx);
 	let stageFxAntialias = $state<boolean>(data.doc.settings?.stageFxAntialias === true);
 
@@ -2869,7 +2873,7 @@
 		});
 		const authoredOverlays =
 			authoredTransition || authoredWin || authoredFreeSpins || authoredButtons;
-		const screenFx = screenFxSettings(postFx, stageFxAntialias);
+		const screenFx = screenFxSettings({ transitionCue, postFx, stageFxAntialias });
 		const screenFxSet = Object.keys(screenFx).length > 0;
 		if (jurisdiction === 'default' && allOn && !bootLoader && !authoredOverlays && !screenFxSet) {
 			return undefined;
@@ -4463,6 +4467,12 @@
 
 								<hr class="gs-rule" />
 								<EditorScreenFx
+									{transitionCue}
+									onTransitionCueChange={(next) => {
+										transitionCue = next;
+										onGameSettingChange();
+									}}
+									flowFiresTransition={data.flowFiresTransition}
 									{postFx}
 									onPostFxChange={(next) => {
 										postFx = next;

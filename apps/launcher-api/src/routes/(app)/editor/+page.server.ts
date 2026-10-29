@@ -45,8 +45,9 @@ import { resolveLayoutProfile } from '$lib/server/layoutProfile';
 import { loadPublishedSymbolDefaults, symbolDefaultsFor } from '$lib/server/symbolDefaults';
 import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
 import { loadSoundsDoc } from '$lib/server/soundsStorage';
-import { cueListsFor } from '$lib/server/cueLists';
 import { loadCustomElementFx } from '$lib/server/shaderStorage';
+import { loadFlowV2LibraryWithEtag } from '$lib/server/flowV2LibraryStorage';
+import { cueListsFor, flowFiresTransitionWith } from '$lib/server/cueLists';
 import { loadTemplate, loadTemplateWithEtag } from '$lib/server/templateStorage';
 import { resolveActionScope, resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
@@ -282,6 +283,13 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// editor as a fallback, NOT written to the doc, so it tracks the project name
 	// until the author types an explicit override).
 	const gameName = await projectName(projectKey);
+	// Whether the project's flow fires the `transition` cue its Screen FX row answers: in its own
+	// graphs, else through the shared library's functions it calls (read only then).
+	const firesTransition = await flowFiresTransitionWith(flowDoc, () =>
+		loadFlowV2LibraryWithEtag()
+			.then((r) => r.lib)
+			.catch(() => null),
+	);
 	// Resolve the symbol set the canvas draws: the project's PUBLISHED coded map when
 	// available, else the committed coded defaults for the resolved game type. The
 	// override doc above is layered on top per-cell in the client (parity with the tool).
@@ -316,6 +324,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		components,
 		componentEtags,
 		canPublishShared,
+		flowFiresTransition: firesTransition,
 		flowVariables: flowDoc ? docVariables(flowDoc).map((v) => ({ id: v.id, type: v.type })) : [],
 		// What the timeline cue inspector lists by name: sounds (▶ for the uploads, when this user
 		// holds Invisible Sound, whose file route plays them) and the flow's own fired cues.

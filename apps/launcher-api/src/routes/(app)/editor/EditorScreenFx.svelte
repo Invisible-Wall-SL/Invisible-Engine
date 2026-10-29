@@ -2,27 +2,47 @@
 	import {
 		STAGE_FX_LIMITS,
 		STAGE_FX_TRIGGERS,
+		findElementFxSpec,
 		type ElementFxEntry,
 		type ElementFxKindId,
 	} from 'constants-shared/elementFx';
+	import {
+		SCREEN_TRANSITION_LIMITS,
+		isScreenTransitionKind,
+		readScreenTransition,
+		type ScreenTransitionSpec,
+	} from 'constants-shared/screenTransition';
 	import { customElementFxVersion } from '$lib/customElementFx.svelte';
 	import {
 		postFxEntryRefusals,
 		postFxKindRefusal,
 		postFxLoad,
 		postFxLoadText,
+		screenTransitionKindGroups,
+		screenTransitionKindLabel,
+		transitionCueLine,
+		transitionLoad,
+		transitionLoadText,
 	} from '$lib/screenFx';
 	import EditorElementFx from './EditorElementFx.svelte';
 
 	/**
 	 * Game Settings → SCREEN FX (Shader Graph 8e, `docs/design/shader-graph-screens.md` §9.2): what
-	 * plays over the whole game screen. Each row is its own block in `.sfx-rows`, in the order the
-	 * stage draws them. POST FX are the `EditorElementFx` section on `settings.postFx`, held to the
-	 * stage's rules (`$lib/screenFx`: the runtime's refusals and caps), each with its load on the
-	 * reference phone; the anti-aliasing switch writes `settings.stageFxAntialias` (§16.10). Anyone
-	 * who saves the Scene Editor sets them (§16.11).
+	 * plays over the whole game screen. Each row is its own block in `.sfx-rows`. THE TRANSITION CUE
+	 * row writes `settings.transitionCue`: the wipe (unset) or a transition, with its length and
+	 * strength, and says what the game makes of it (`transitionCueLine`). POST FX are the
+	 * `EditorElementFx` section on `settings.postFx`, held to the stage's rules (`$lib/screenFx`: the
+	 * runtime's refusals and caps), each with its load on the reference phone; the anti-aliasing
+	 * switch writes `settings.stageFxAntialias` (§16.10). Anyone who saves the Scene Editor sets them
+	 * (§16.11).
 	 */
 	interface Props {
+		/** The stored row, as saved (a kind this page cannot play is kept and shown). */
+		transitionCue: ScreenTransitionSpec | undefined;
+		/** The next row; `undefined` ⇒ the wipe. */
+		onTransitionCueChange: (next: ScreenTransitionSpec | undefined) => void;
+		/** Whether the project's flow fires `transition` (`undefined`: no stored flow). */
+		flowFiresTransition?: boolean;
 		postFx: ElementFxEntry[] | undefined;
 		/** The next list; `undefined` ⇒ no post FX. */
 		onPostFxChange: (next: ElementFxEntry[] | undefined) => void;
@@ -32,7 +52,58 @@
 		cueListId?: string;
 	}
 
-	const { postFx, onPostFxChange, antialias, onAntialiasChange, cueListId }: Props = $props();
+	const {
+		transitionCue,
+		onTransitionCueChange,
+		flowFiresTransition,
+		postFx,
+		onPostFxChange,
+		antialias,
+		onAntialiasChange,
+		cueListId,
+	}: Props = $props();
+
+	/** The pickers' groups, once the page has registered the project's effects. */
+	const kindGroups = $derived.by(() => {
+		customElementFxVersion();
+		return screenTransitionKindGroups();
+	});
+	const cueLine = $derived.by(() => {
+		customElementFxVersion();
+		return transitionCueLine(transitionCue, flowFiresTransition);
+	});
+	const cueKind = $derived(transitionCue?.kind);
+	/** The stored kind, when no group lists it (a graph deleted since): shown, flagged, kept. */
+	const staleKind = $derived(
+		cueKind && !kindGroups.some((group) => group.kinds.includes(cueKind)) ? cueKind : undefined,
+	);
+	const cueSpec = $derived.by(() => {
+		customElementFxVersion();
+		return cueKind ? findElementFxSpec(cueKind) : undefined;
+	});
+
+	/** The row through the game's own reader (lengths and strength clamped), or the wipe. */
+	function commitCue(next: Partial<ScreenTransitionSpec> | undefined): void {
+		onTransitionCueChange(next ? readScreenTransition(next) : undefined);
+	}
+
+	/** A new kind keeps the length and strength; its params belong to the old kind and go. */
+	function setCueKind(kind: string): void {
+		if (!kind) return commitCue(undefined);
+		if (!isScreenTransitionKind(kind)) return;
+		const { params: _params, ...rest } = transitionCue ?? { kind };
+		commitCue({ ...rest, kind });
+	}
+
+	/** One number field; blank (or the value it means unset) leaves it to the effect. */
+	function setCueNumber(field: 'durationMs' | 'intensity', value: number): void {
+		if (!transitionCue) return;
+		const next: Partial<ScreenTransitionSpec> = { ...transitionCue };
+		const unset = field === 'intensity' ? 1 : undefined;
+		if (!Number.isFinite(value) || value === unset) delete next[field];
+		else next[field] = field === 'durationMs' ? Math.round(value) : value;
+		commitCue(next);
+	}
 
 	/** Why each stored entry does not play in the game (`undefined`: it plays, or is off). */
 	const refusals = $derived.by(() => {
@@ -57,10 +128,67 @@
 
 <div class="screen-fx">
 	<p class="sfx-note">
-		<strong>Screen FX</strong> — effects over the whole game screen. Each runs every frame over the whole
-		game, HUD included, so keep them light: a phone pays for every pixel of the screen.
+		<strong>Screen FX</strong> — effects over the whole game screen, HUD included: a transition between
+		screens, and post FX that run every frame. Keep them light: a phone pays for every pixel of the screen.
 	</p>
 	<div class="sfx-rows">
+		<div class="sfx-row" data-row="transition-cue">
+			<label class="sfx-field">
+				<span>The transition cue plays</span>
+				<select value={cueKind ?? ''} onchange={(e) => setCueKind(e.currentTarget.value)}>
+					<option value="">The wipe</option>
+					{#if staleKind}
+						<option value={staleKind}>{screenTransitionKindLabel(staleKind)} — not compiled</option>
+					{/if}
+					{#each kindGroups as group (group.label)}
+						<optgroup label={group.label}>
+							{#each group.kinds as kind (kind)}
+								<option value={kind}>{screenTransitionKindLabel(kind)}</option>
+							{/each}
+						</optgroup>
+					{/each}
+				</select>
+			</label>
+			{#if transitionCue}
+				<div class="sfx-pair">
+					<label class="sfx-field">
+						<span>Duration ms</span>
+						<input
+							type="number"
+							min={SCREEN_TRANSITION_LIMITS.durationMs.min}
+							max={SCREEN_TRANSITION_LIMITS.durationMs.max}
+							step="10"
+							value={transitionCue.durationMs ?? ''}
+							placeholder={cueSpec ? String(cueSpec.durationMs) : 'its own'}
+							onchange={(e) => setCueNumber('durationMs', e.currentTarget.valueAsNumber)}
+						/>
+					</label>
+					<label class="sfx-field">
+						<span>Strength</span>
+						<input
+							type="number"
+							min={SCREEN_TRANSITION_LIMITS.intensity.min}
+							max={SCREEN_TRANSITION_LIMITS.intensity.max}
+							step="0.05"
+							value={transitionCue.intensity ?? ''}
+							placeholder="1"
+							onchange={(e) => setCueNumber('intensity', e.currentTarget.valueAsNumber)}
+						/>
+					</label>
+				</div>
+			{/if}
+			<p class="sfx-line" class:warn={cueLine.warn} data-status={cueLine.status}>{cueLine.text}</p>
+			{#if transitionCue && cueLine.status === 'screen'}
+				{@const load = transitionLoad(transitionCue.kind)}
+				<p class="sfx-line load" class:warn={load.kind === 'compiled' && load.over}>
+					{transitionLoadText(transitionCue.kind)}
+				</p>
+			{/if}
+			<p class="sfx-note">
+				The cue carries nothing, so the same transition plays into the free spins and out of them.
+				On the way out the screen is already back on the base game when the cue fires.
+			</p>
+		</div>
 		<div class="sfx-row" data-row="post-fx">
 			<EditorElementFx
 				title="Post FX"
@@ -123,6 +251,40 @@
 	}
 	.sfx-line.warn {
 		color: #d98a3a;
+	}
+	.sfx-field {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		min-width: 0;
+	}
+	.sfx-field > span {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: #777;
+	}
+	.sfx-field select,
+	.sfx-field input {
+		background: #0b0b10;
+		border: 1px solid #2a2a33;
+		border-radius: 6px;
+		padding: 6px 8px;
+		color: #e8e8ee;
+		font-size: 12px;
+		font-family: inherit;
+		width: 100%;
+		box-sizing: border-box;
+	}
+	.sfx-field select:focus,
+	.sfx-field input:focus {
+		outline: none;
+		border-color: #6b5bff;
+	}
+	.sfx-pair {
+		display: flex;
+		gap: 6px;
 	}
 	.sfx-toggle {
 		display: flex;
