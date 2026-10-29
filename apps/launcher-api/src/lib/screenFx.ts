@@ -1,5 +1,4 @@
 import {
-	STAGE_FX_LIMITS,
 	customElementFx,
 	customElementFxList,
 	findElementFxSpec,
@@ -204,10 +203,6 @@ export function postFxEntryRefusals(raw: unknown): (string | undefined)[] {
 		return entry.disabled ? undefined : dropped.get(entry.id);
 	});
 }
-
-/** The post FX list is full: one more entry would not play. */
-export const postFxFull = (entries: readonly unknown[] | undefined): boolean =>
-	(entries?.length ?? 0) >= STAGE_FX_LIMITS.entries;
 
 /** What the Screen FX block holds. */
 export interface ScreenFxState {

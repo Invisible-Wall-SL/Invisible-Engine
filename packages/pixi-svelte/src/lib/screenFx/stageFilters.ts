@@ -34,7 +34,6 @@ const SLOTS: readonly StageFilterSlot[] = ['transition', 'post', 'camera'];
  */
 export type StagePostFxSlot = (filters: readonly Filter[] | null) => void;
 
-/** Apps whose stage filters keep the canvas's anti-aliasing (`settings.stageFxAntialias`, §16.10). */
 /**
  * What the stage's runtime reads of an app: its root, its viewport, its clock and its renderer. A
  * Pixi `Application` is one; a tool that draws through a renderer it shares (the Scene Editor's ▶
@@ -42,6 +41,7 @@ export type StagePostFxSlot = (filters: readonly Filter[] | null) => void;
  */
 export type StageApp = Pick<Application, 'stage' | 'screen' | 'ticker' | 'renderer'>;
 
+/** Apps whose stage filters keep the canvas's anti-aliasing (`settings.stageFxAntialias`, §16.10). */
 const antialiased = new WeakSet<StageApp>();
 
 /** Every stage filter draws without MSAA (Pixi's default, as the chromatic wobble always has), or,

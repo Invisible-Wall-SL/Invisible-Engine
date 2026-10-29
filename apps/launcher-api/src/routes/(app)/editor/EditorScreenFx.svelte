@@ -247,6 +247,7 @@
 				maxEntries={STAGE_FX_LIMITS.entries}
 				rowNote={postFxNote}
 				preview={previewPostFx}
+				previewRefusal={(index) => refusals[index]}
 				missedText="Nothing on the stage to play it on: open the Screens side first."
 				intro="A grade, a vignette, a wave or a shine over the whole game, HUD included, always or on a cue."
 			/>

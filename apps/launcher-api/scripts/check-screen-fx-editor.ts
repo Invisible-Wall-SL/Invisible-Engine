@@ -58,7 +58,6 @@ import {
 	POST_FX_LOAD_BUDGET,
 	REFERENCE_PHONE_PX,
 	postFxEntryRefusals,
-	postFxFull,
 	postFxKindRefusal,
 	postFxLoad,
 	postFxLoadText,
@@ -183,10 +182,6 @@ const entry = (id: string, kind: string, more: Partial<ElementFxEntry> = {}): El
 			'flash',
 			undefined,
 		) === undefined,
-	);
-	check(
-		`Add is off at ${STAGE_FX_LIMITS.entries} entries, on below`,
-		postFxFull(two) && !postFxFull([two[0]]) && !postFxFull(undefined),
 	);
 	const four = [entry('a', 'custom:fourFilters')];
 	check(
@@ -625,13 +620,15 @@ eq(
 		[true, true],
 	);
 	eq(
-		'the block holds the list to the stage: its triggers, no keying, the caps, the kind filter, its ▶',
+		'the block holds the list to the stage: its triggers, no keying, the caps, the kind filter, its ▶ (off on a row the game does not play)',
 		[
 			block.includes('triggers={STAGE_FX_TRIGGERS}'),
 			block.includes('keyable={false}'),
 			block.includes('maxEntries={STAGE_FX_LIMITS.entries}'),
 			block.includes('{kindRefusal}'),
-			block.includes('preview={previewPostFx}'),
+			block.includes('preview={previewPostFx}') &&
+				block.includes('previewRefusal={(index) => refusals[index]}') &&
+				list.includes('disabled={!!noPlay}'),
 		],
 		[true, true, true, true, true],
 	);
@@ -681,14 +678,17 @@ eq(
 		[true, true, true],
 	);
 	eq(
-		'the list greys a refused kind with its reason, and refuses it on add and on change',
+		'the list greys a refused kind with its reason, refuses it on add and on change, and Add is off when full',
 		[
 			list.includes('disabled={!!refusal} title={refusal}'),
 			list.includes("{refusal ? ` — ${refusal}` : ''}"),
 			list.includes('if (full || kindRefusal?.(kind, undefined)) return;'),
 			list.includes('if (!spec || kindRefusal?.(kind, index)) return;'),
+			list.includes(
+				'const full = $derived(maxEntries !== undefined && (entries?.length ?? 0) >= maxEntries);',
+			) && list.includes('disabled={disabled || full}'),
 		],
-		[true, true, true, true],
+		[true, true, true, true, true],
 	);
 }
 

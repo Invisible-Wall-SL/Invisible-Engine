@@ -35,6 +35,7 @@
 		commit: (value: string | string[]) => void;
 	} = $props();
 
+	const choices = $derived(enumChoices(enumName, values, unset ? undefined : value));
 	/** The options in their groups, then any the groups leave out. */
 	const grouped = $derived.by(() => {
 		if (!groups) return undefined;
@@ -52,7 +53,6 @@
 		return `${labelOf?.(v) ?? v}${why ? ` — ${why}` : ''}`;
 	};
 
-	const choices = $derived(enumChoices(enumName, values, unset ? undefined : value));
 	const selected = $derived(Array.isArray(value) ? value.map(String) : []);
 </script>
 

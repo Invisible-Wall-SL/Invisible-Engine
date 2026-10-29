@@ -40,6 +40,8 @@
 		onChange: (next: ElementFxEntry[] | undefined) => void;
 		/** Play one entry on the stage; false when nothing on the stage shows the element. Unset ⇒ no ▶. */
 		preview?: (entry: ElementFxEntry) => boolean | void;
+		/** Why entry `index` has nothing to preview (it does not play); its ▶ is off with the reason. */
+		previewRefusal?: (index: number) => string | undefined;
 		/** The section's heading. */
 		title?: string;
 		/**
@@ -77,6 +79,7 @@
 		entries,
 		onChange,
 		preview,
+		previewRefusal,
 		title = 'Element FX',
 		kindRefusal,
 		maxEntries,
@@ -383,11 +386,15 @@
 					</button>
 					<span class="fx-actions">
 						{#if preview}
+							{@const noPlay = previewRefusal?.(index)}
 							<button
 								type="button"
 								class="icon play"
-								title="Preview on the stage (Esc stops it)"
+								title={noPlay
+									? `Nothing to preview: it does not play in the game (${noPlay})`
+									: 'Preview on the stage (Esc stops it)'}
 								aria-label="Preview"
+								disabled={!!noPlay}
 								onclick={() => play(entry)}>▶</button
 							>
 						{/if}

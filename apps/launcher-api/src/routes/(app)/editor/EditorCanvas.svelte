@@ -6545,30 +6545,47 @@
 
 	type LayerLook = NonNullable<ReturnType<typeof layerLook>>;
 
+	/** What a stage preview reads of the stage once, not every frame: each surface's look (so one
+	 *  this preview hid still counts as shown) and the surfaces in stacking order, sorted again only
+	 *  when the stage's canvases change (a screen revealed). */
+	interface FxStageMemo {
+		looks: Map<HTMLCanvasElement, LayerLook>;
+		canvases: HTMLCanvasElement[];
+		stacked: HTMLCanvasElement[];
+	}
+
 	/**
-	 * The whole stage's art, bottom first, each with how it lays over the rest (`looks`, read once
-	 * per surface, so one this preview hid still counts as shown): every shown screen's surfaces, the
-	 * stand-in symbols, the HUD's art (never its selection or guides) and its overlays. Not the
-	 * backdrop, the rulers or a preview's own overlay. `surfaces` are the canvases they come from.
+	 * The whole stage's art, bottom first, each with how it lays over the rest: every shown screen's
+	 * surfaces, the stand-in symbols, the HUD's art (never its selection or guides) and its
+	 * overlays. Not the backdrop, the rulers or a preview's own overlay. `surfaces` are the canvases
+	 * they come from.
 	 */
 	function fxStageSources(
 		origin: DOMRect,
-		looks: Map<HTMLCanvasElement, LayerLook>,
+		memo: FxStageMemo,
 	): { sources: StillSource[]; surfaces: HTMLCanvasElement[] } {
 		const stage = wrap;
 		const sources: StillSource[] = [];
 		const surfaces: HTMLCanvasElement[] = [];
 		if (!stage) return { sources, surfaces };
-		const layers = [...stage.querySelectorAll('canvas')]
-			.map((c, order) => ({ c, order, z: stackZ(c, stage) }))
-			.sort((a, b) => a.z - b.z || a.order - b.order);
-		for (const { c } of layers) {
+		const canvases = [...stage.querySelectorAll('canvas')];
+		if (
+			canvases.length !== memo.canvases.length ||
+			canvases.some((c, i) => c !== memo.canvases[i])
+		) {
+			memo.canvases = canvases;
+			memo.stacked = canvases
+				.map((c, order) => ({ c, order, z: stackZ(c, stage) }))
+				.sort((a, b) => a.z - b.z || a.order - b.order)
+				.map(({ c }) => c);
+		}
+		for (const c of memo.stacked) {
 			if (c === canvas || c.classList.contains('ruler') || isFxOverlayCanvas(c)) continue;
-			let look = looks.get(c);
+			let look = memo.looks.get(c);
 			if (!look) {
 				const now = layerLook(c);
 				if (!now) continue;
-				looks.set(c, now);
+				memo.looks.set(c, now);
 				look = now;
 			}
 			const at = stageSource(c, origin);
@@ -6606,8 +6623,8 @@
 			{ x: 0, y: 0, w: surface.clientWidth, h: surface.clientHeight },
 		);
 		if (!rect) return null;
-		const looks = new Map<HTMLCanvasElement, LayerLook>();
-		const first = fxStageSources(surface.getBoundingClientRect(), looks);
+		const memo: FxStageMemo = { looks: new Map(), canvases: [], stacked: [] };
+		const first = fxStageSources(surface.getBoundingClientRect(), memo);
 		const still = captureStill(first.sources, rect, window.devicePixelRatio || 1);
 		if (!still) return null;
 
@@ -6659,7 +6676,7 @@
 				// What the stage draws now, copied over the still; any surface new to it hidden too.
 				refresh: () => {
 					if (!live || !canvas) return false;
-					const now = fxStageSources(canvas.getBoundingClientRect(), looks);
+					const now = fxStageSources(canvas.getBoundingClientRect(), memo);
 					if (shown) hide(now.surfaces);
 					return drawStill(still, now.sources, rect);
 				},
