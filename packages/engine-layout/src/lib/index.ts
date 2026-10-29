@@ -45,6 +45,7 @@ export * from './nineSlice';
 export * from './componentDesignSize';
 export * from './blendMode';
 export * from './backgroundScenes';
+export * from './postFx';
 export * from './buyFeatureScene';
 export * from './hudMenuScenes';
 export * from './confirmScene';

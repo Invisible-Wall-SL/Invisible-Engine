@@ -1711,6 +1711,19 @@ export interface GameSettings {
 		 */
 		buttons?: boolean;
 	};
+	/**
+	 * Post FX: Element FX on the whole stage, HUD included (Shader Graph 8e,
+	 * `shader-graph-screens.md` §6.5). Triggers `always` and `cue` only; at most two play, drawing at
+	 * most four filters (`STAGE_FX_LIMITS`). Exit, enter, motion-only and break kinds do not play.
+	 * Read by `readPostFx`. Absent ⇒ the stage draws as it always has.
+	 */
+	postFx?: ElementFxEntry[];
+	/**
+	 * Stage filters (transitions, post FX, the camera's) keep the canvas's anti-aliasing where it has
+	 * any (WebGL2), at about four times a stage pass's memory (§16.10). Written only when on; read
+	 * by `readStageFxAntialias`.
+	 */
+	stageFxAntialias?: true;
 }
 
 export interface LayoutDoc {
