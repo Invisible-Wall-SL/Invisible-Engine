@@ -41,6 +41,7 @@ import { resolve } from 'node:path';
 import { Container } from 'pixi.js';
 
 import {
+	ARCADE_ABILITY_BUTTONS,
 	ARCADE_CHARACTER_CONTROLS,
 	ARCADE_FIELD_LAYER,
 	ARCADE_SCREENS,
@@ -61,6 +62,7 @@ import {
 } from 'engine-flow-v2';
 import { CHARACTER_CONTROLS } from 'engine-game/src/game/arcadeCharacters';
 import { ABILITY_BUTTONS, ABILITY_SIGNALS } from 'engine-game/src/game/arcadeAbilities';
+import { ABILITY_BUTTONS as TOOL_ABILITY_BUTTONS } from '../src/lib/characters/characterEdit.ts';
 import { createArcadeLoop, type ArcadeRules } from 'engine-game/src/game/arcadeLoop';
 import {
 	ComponentStateMachineRunner,
@@ -438,7 +440,7 @@ const playFlow = (opts: {
 	const src = read('packages/engine-game/src/game/arcadeLoop.ts');
 	check(
 		'1. without a characters stage the step is P10.8’s `step(list, …)` (source)',
-		/if \(characters\) for \(const id of characters\.move\(list, clock\.dt, area\)\) moved\.add\(id\);\s*else step\(list, clock\.dt, area\);/.test(
+		/if \(characters\)\s*for \(const id of characters\.move\(list, clock\.dt, area, solidFrom\)\) moved\.add\(id\);\s*else step\(list, clock\.dt, area\);/.test(
 			src,
 		) && /if \(rules\.characters\?\.length\)\s*characters = createCharacterStage/.test(src),
 	);
@@ -1604,6 +1606,103 @@ const offRoute = (b: { x: number; y: number }) => {
 			!b.signals.length && b.loop.culled().size === 0,
 		);
 	}
+
+	// A held character still stops others: a stunned solid one is a solid, a caught one is not.
+	for (const effect of ['stun', 'catch'] as const) {
+		const rockBodies = {
+			bearLook: box(40, 40, ['bear']),
+			rockLook: box(40, 40, ['rock'], true),
+			runnerLook: box(20, 20, ['runner']),
+		};
+		const b = bench(
+			[
+				{ id: 'bear', component: 'bearLook', controller: { kind: 'topDown', speed: 0 } },
+				{ id: 'rock', component: 'rockLook' },
+				{ id: 'runner', component: 'runnerLook', controller: { kind: 'topDown', speed: 200 } },
+			],
+			rockBodies,
+			[],
+			undefined,
+			{
+				abilities: resolveArcade({
+					arcade: {
+						abilities: [
+							{
+								character: 'bear',
+								button: 'ability1',
+								reach: 1000,
+								targets: ['rock'],
+								effect,
+								ms: 5000,
+							},
+						],
+					},
+				}).abilities,
+			},
+		);
+		b.spawn('bearLook', 100, 300);
+		const rock = b.spawn('rockLook', 400, 300);
+		const runner = b.spawn('runnerLook', 300, 300);
+		b.io.held.add('ability1');
+		b.frames(1);
+		b.io.held.clear();
+		b.io.held.add('right');
+		b.frames(90);
+		const x = b.body(runner.id).x;
+		check(
+			effect === 'stun'
+				? '13. a stunned solid character still stops a mover'
+				: '13. a caught (out) solid character stops nothing',
+			effect === 'stun' ? near(x, 400 - 20 - 10) : x > b.body(rock.id).x,
+			`runner at ${x}`,
+		);
+	}
+
+	// A pushed fall the move capped at maxFall keeps the cap: never slowed nor kicked up, in the zone
+	// or after it.
+	{
+		const faller: ArcadeCharacter = {
+			id: 'faller',
+			component: 'fallerLook',
+			movement: { gravity: 2000, maxFall: 300 },
+		};
+		const b = bench(
+			[faller],
+			{ fallerLook: box(20, 20, ['faller']) },
+			[],
+			{ w: 1000, h: 4000 },
+			{
+				zones: [{ id: 'down', x: 0, y: 400, w: 1000, h: 600 }],
+				forces: [{ zone: 'down', force: { x: 0, y: 500 } }],
+			},
+		);
+		const f = b.spawn('fallerLook', 500, 100);
+		const vys: number[] = [];
+		const ys: number[] = [];
+		for (let i = 0; i < 240; i++) {
+			b.frames(1);
+			vys.push(b.body(f.id).vy);
+			ys.push(b.body(f.id).y);
+		}
+		const inZone = ys
+			.map((y, i) => (y > 410 && y < 990 ? vys[i] : undefined))
+			.filter((v) => v !== undefined);
+		const after = ys.map((y, i) => (y > 1100 ? vys[i] : undefined)).filter((v) => v !== undefined);
+		check(
+			'13. a fall at maxFall through a downward push keeps maxFall, and keeps it after the zone',
+			inZone.length > 0 &&
+				after.length > 0 &&
+				vys.every((v) => v >= 0 && v <= 300) &&
+				[...inZone, ...after].every((v) => v === 300),
+			json({ inZone: inZone.slice(0, 3), after: after.slice(0, 3), min: Math.min(...vys) }),
+		);
+	}
+
+	check(
+		'13. the ability buttons agree: the loop, the vocabulary and Invisible Characters',
+		json(ABILITY_BUTTONS) === json(ARCADE_ABILITY_BUTTONS) &&
+			json(ABILITY_BUTTONS) === json(TOOL_ABILITY_BUTTONS),
+	);
 
 	const vocab = ARCADE_VOCAB.actions.find((a) => a.name === 'useAbility');
 	check(

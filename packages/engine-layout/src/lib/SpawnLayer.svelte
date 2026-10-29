@@ -73,7 +73,9 @@
 	// On a world-camera screen (P10.12) an instance the arcade loop finds out of view is not drawn;
 	// it stays mounted, so its state machine runs on. Elsewhere nothing is culled (parity), unless
 	// the game hides characters its abilities put out (P11.5, `setHiding`).
-	const culling = inWorldCamera() || hidingOn();
+	// `hidingOn` is read reactively: the arcade runtime may turn it on after this layer mounted.
+	const inWorld = inWorldCamera();
+	const culling = $derived(inWorld || hidingOn());
 
 	// A hopping character (P10.13) is drawn raised by its height over a shadow on the ground. Only a
 	// game whose loop publishes lifts takes this branch; elsewhere the markup is as before.

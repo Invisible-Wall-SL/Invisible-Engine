@@ -122,8 +122,23 @@ merged in). Not deployed.
   a move that zeroes a pushed velocity (a wall) keeps 0; no grace event.
 - **Known limits.** No hit-zone shape, offset or live frames (a reach around the centre, as online);
   no animation is played by an ability (Flow does it from `ability`); the `/characters` sandbox
-  does not run abilities or forces; no touch gesture for an ability; a held solid character stops
-  being solid while held; `/flow-v2`'s Preview does not run them.
+  does not run abilities or forces; no touch gesture for an ability; `/flow-v2`'s Preview does not
+  run them; a pushed fall at `maxFall` is not pushed faster (the cap holds); the Zone forces panel
+  shows only a zone's first force (a hand-written second one plays but is not shown);
+  `ABILITY_BUTTONS` is written three times (engine-game, the vocabulary, `characterEdit.ts`) and
+  `check:arcade-characters` holds them equal.
+- **Review fixes (same day, on b194a0d).** `<SpawnLayer>` reads the hiding switch reactively
+  (`$derived`), so a layer mounted before the loop started hides a caught character too (a source
+  scan; no browser check: no playbook has a no-camera screen with abilities). Taking a push off a
+  fall the move capped at `maxFall` holds it between its unpushed velocity and the cap (it was
+  slowed, or kicked up by a push above the cap). A held character still stops others: a stunned
+  solid one is a solid, a caught one is not (`move` takes the solids from every body not out). A
+  force naming only a removed character is dropped, not widened to every body. The cooldown is
+  tested before `pressed` (a brain on cooldown no longer scans for targets; online `pressed` is a
+  bitmask, traces unchanged). A warning for forces over the cap; `/characters` clears its ability
+  note on a switch; the loop's step count resets on dispose. Gates: `check:arcade-characters` 104
+  (stunned / caught solids, the capped fall, the three button lists), `check:characters-tool`
+  187.
 
 **P11.4 — isometric projection and diamond tiles (built 2026-10-29; in review).**
 [phase-11.md](../design/phase-11.md) §3 (P11.4), §3.1, §4 #8. Branch `engine/p11-4-isometric`, from

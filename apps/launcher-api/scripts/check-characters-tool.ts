@@ -985,8 +985,24 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 	);
 	mirrored('remove the target', doc, (d) => edit.removeCharacter(d, 'fish'));
 	check(
-		'6. removing the only target drops its abilities; a force pushes every body again',
-		!doc.arcade?.abilities && !doc.arcade?.forces?.[0].characters,
+		'6. removing the only target drops its abilities, and a force naming only it',
+		!doc.arcade?.abilities && !doc.arcade?.forces,
+		JSON.stringify(doc.arcade?.forces),
+	);
+	edit.addCharacter(doc, 'hero');
+	mirrored('force for two', doc, (d) => {
+		edit.setZoneForce(d, 'river', 'x', '-80');
+		edit.setZoneForceCharacter(d, 'river', 'hero', true);
+		edit.setZoneForceCharacter(d, 'river', 'goblin', true);
+	});
+	mirrored('remove one of two', doc, (d) => edit.removeCharacter(d, 'hero'));
+	same('6. a force keeps the characters it still names', doc.arcade?.forces?.[0].characters, [
+		'goblin',
+	]);
+	mirrored('force for all', doc, (d) => edit.setZoneForceCharacter(d, 'river', 'goblin', false));
+	check(
+		'6. unticking the last character pushes every body',
+		!!doc.arcade?.forces?.[0] && !doc.arcade.forces[0].characters,
 	);
 	mirrored('zone force off', doc, (d) => edit.setZoneForce(d, 'river', 'x', '0'));
 	check('6. a force of 0 is not stored', !doc.arcade?.forces);

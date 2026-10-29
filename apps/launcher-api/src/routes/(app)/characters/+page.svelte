@@ -154,6 +154,11 @@
 			: null,
 	);
 
+	// Another character's abilities are on screen: an old refusal is not about them.
+	$effect(() => {
+		void selectedId;
+		abilityError = '';
+	});
 	$effect(() => {
 		renameText = character?.id ?? '';
 		renameError = '';

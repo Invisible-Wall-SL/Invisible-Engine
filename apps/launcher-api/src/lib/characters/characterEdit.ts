@@ -206,10 +206,12 @@ export function removeCharacter(doc: GameConfigDoc, id: string): void {
 			.map((a) => ({ ...a, targets: a.targets.filter((t) => t !== id) }))
 			.filter((a) => a.targets.length);
 	}
-	for (const force of doc.arcade?.forces ?? []) {
-		if (!force.characters) continue;
-		force.characters = force.characters.filter((c) => c !== id);
-		if (!force.characters.length) delete force.characters;
+	// A force that named only this character is dropped (as an ability with no target), not
+	// widened to push every body.
+	if (doc.arcade?.forces) {
+		doc.arcade.forces = doc.arcade.forces
+			.map((f) => (f.characters ? { ...f, characters: f.characters.filter((c) => c !== id) } : f))
+			.filter((f) => !f.characters || f.characters.length);
 	}
 	prune(doc);
 }

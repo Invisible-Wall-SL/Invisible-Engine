@@ -114,8 +114,9 @@ export interface CharacterStage {
 	forget(id: string): void;
 	/** Controllers and brains → steer, for every character in `list` (before the step). */
 	decide(list: readonly StageBody[], dt: number): void;
-	/** Step every body: the rest as P10.8, the characters with solids. Returns the characters moved. */
-	move(list: StageBody[], dt: number, area: Field): string[];
+	/** Step every body: the rest as P10.8, the characters with solids — those of `solidFrom` (default
+	 *  `list`: P11.5 passes the held characters too). Returns the characters moved. */
+	move(list: StageBody[], dt: number, area: Field, solidFrom?: readonly StageBody[]): string[];
 	/** Hand the looks their `animInputs` (after the frame). */
 	writeLooks(): void;
 	/** Flow's `character.setState`: aimed bodies enter `state`. */
@@ -382,13 +383,13 @@ export function createCharacterStage(options: {
 				}
 			}
 		},
-		move(list, dt, area) {
+		move(list, dt, area, solidFrom = list) {
 			step(
 				list.filter((body) => !actors.has(body.id)),
 				dt,
 				area,
 			);
-			const solids = list.filter(
+			const solids = solidFrom.filter(
 				(body) => body.solid === true || (body as { oneWay?: boolean }).oneWay === true,
 			);
 			const tiles = io.tiles?.() ?? [];

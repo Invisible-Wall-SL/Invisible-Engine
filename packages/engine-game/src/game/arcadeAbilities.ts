@@ -78,7 +78,7 @@ export function createAbilityStage(options: {
 	const specs: Spec[] = abilitySpecs(options.abilities, options.fixedHz);
 	const grace = stepsOf(GRACE_MS, options.fixedHz);
 	const actors = new Map<string, Actor>();
-	const asked = new Map<string, Set<AbilityButton>>();
+	const asked = new Map<string, Set<string>>();
 	const outs = new Set<string>();
 	const reach = { present: () => true, placeOf: (target: Actor) => target.body };
 	const held = (actor: Actor | undefined) =>
@@ -115,7 +115,7 @@ export function createAbilityStage(options: {
 				useAbilities(user, stamp, specs, {
 					...reach,
 					pressed: (ability) =>
-						!!flow?.has(ability.button as AbilityButton) ||
+						!!flow?.has(ability.button) ||
 						(drive === 'controller' && !!options.input?.held(ability.button)) ||
 						(drive === 'brain' && abilityTargets(user, ability, list, stamp, reach).length > 0),
 					used: (ability) =>

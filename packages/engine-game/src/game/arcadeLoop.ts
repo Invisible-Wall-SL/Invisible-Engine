@@ -34,12 +34,7 @@ import type {
 	ResolvedArcadeAbility,
 } from 'game-config';
 
-import {
-	ABILITY_BUTTONS,
-	createAbilityStage,
-	type AbilityButton,
-	type AbilityStage,
-} from './arcadeAbilities';
+import { ABILITY_BUTTONS, createAbilityStage, type AbilityStage } from './arcadeAbilities';
 
 import {
 	CHARACTER_CONTROLS,
@@ -362,7 +357,13 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 		});
 	watchNewLayers();
 
-	/** Push the bodies in a force zone for the move; returns how to take it off again. */
+	/**
+	 * Push the bodies in a force zone for the move; returns how to take it off again. A velocity the
+	 * move left as pushed goes back to what it was; one a wall stopped stays 0; one the move changed
+	 * keeps the change, less the push. A fall the move capped at the character's `maxFall` is held
+	 * between its velocity before the push and the cap, so a push down never slows a capped fall
+	 * nor kicks it up.
+	 */
 	const push = (list: readonly LoopBody[]) => {
 		if (!forces) return undefined;
 		const pushed: { body: LoopBody; vx: number; vy: number; px: number; py: number }[] = [];
@@ -374,7 +375,14 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 		return () => {
 			for (const { body, vx, vy, px, py } of pushed) {
 				body.vx = body.vx === px ? vx : body.vx === 0 ? 0 : body.vx - (px - vx);
-				body.vy = body.vy === py ? vy : body.vy === 0 ? 0 : body.vy - (py - vy);
+				if (body.vy === py) body.vy = vy;
+				else if (body.vy !== 0) {
+					const cap = characterByLook.get(body.componentId)?.movement?.maxFall ?? 0;
+					const after = body.vy;
+					body.vy = after - (py - vy);
+					if (cap > 0 && after >= cap)
+						body.vy = Math.min(cap, Math.max(body.vy, Math.min(vy, cap)));
+				}
 			}
 		};
 	};
@@ -387,7 +395,10 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 		const unpush = push(list);
 		for (const body of list) if (body.vx || body.vy) moved.add(body.id);
 		const area = field();
-		if (characters) for (const id of characters.move(list, clock.dt, area)) moved.add(id);
+		// A held character still stops others (a stunned one is a solid); one that is out does not.
+		const solidFrom = abilities ? all.filter((body) => !abilities?.isOut(body.id)) : undefined;
+		if (characters)
+			for (const id of characters.move(list, clock.dt, area, solidFrom)) moved.add(id);
 		else step(list, clock.dt, area);
 		unpush?.();
 		if (abilities) for (const id of abilities.step(stamp)) moved.add(id);
@@ -556,7 +567,7 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 		},
 		useAbility: (payload) => {
 			const button = ABILITY_BUTTONS.find((b) => b === payload.button);
-			if (button) abilities?.use(targets(payload), button as AbilityButton);
+			if (button) abilities?.use(targets(payload), button);
 		},
 		setTag: (payload) => {
 			const tag = str(payload.tag);
@@ -636,6 +647,7 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 		lifts: () => characters?.lifts() ?? NO_LIFTS,
 		dispose() {
 			disposed = true;
+			stamp = 0;
 			for (const off of unsubscribe.splice(0)) off();
 			for (const state of [bodies, touching, outside, inZones, moved, watched, inView, seen])
 				state.clear();

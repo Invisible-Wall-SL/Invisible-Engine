@@ -80,8 +80,8 @@ export function abilityTargets(user, ability, players, stamp, { present, placeOf
 export function useAbilities(user, stamp, specs, ctx) {
 	let players;
 	for (const ability of specs) {
-		if (ability.character !== user.character.id || !ctx.pressed(ability)) continue;
-		if (stamp < (user.cooldowns[ability.key] ?? 0)) continue;
+		if (ability.character !== user.character.id) continue;
+		if (stamp < (user.cooldowns[ability.key] ?? 0) || !ctx.pressed(ability)) continue;
 		user.cooldowns[ability.key] = stamp + ability.cooldown;
 		ctx.used(ability);
 		players ??= ctx.players();

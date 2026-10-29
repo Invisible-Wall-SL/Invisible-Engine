@@ -217,6 +217,13 @@ function validateOfflineAbilities(doc: GameConfigDoc): GameConfigIssue[] {
 			message: `At most ${L.abilities.max} abilities play; the rest do nothing.`,
 		});
 	}
+	if (forces.length > L.zoneRules.max) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.forces',
+			message: `At most ${L.zoneRules.max} zone forces push; the rest do nothing.`,
+		});
+	}
 	forces.forEach((rule, i) => {
 		const path = `arcade.forces[${i}]`;
 		if (!zones.has(rule.zone)) {
