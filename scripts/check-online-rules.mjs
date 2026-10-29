@@ -628,14 +628,69 @@ await check('room events become Flow signals; the own ability is left to the pre
 		mine: false,
 		predicted: false,
 	});
-	const forB = flowSignalsOf(room.events, 'b', drawn);
+	// The bear's device raised its swipe on the press; the room's echo of it is not raised again.
+	const pressedAt = room.events.findIndex((e) => e.type === 'ability');
+	const bear = createAbilityPredictor(room.sim.game, 'bear');
+	const forB = flowSignalsOf(room.events.slice(0, pressedAt), 'b', drawn, bear);
+	assert.deepEqual(bear.step(BUTTONS.ability1, true), ['ability1']);
+	forB.push(...flowSignalsOf(room.events.slice(pressedAt), 'b', drawn, bear));
 	assert.ok(!forB.some((s) => s.name === 'ability'), "the bear's own swipe is raised on its press");
+	// Without a press it raised (the device thought it held), the room's echo is raised now.
+	const unsure = createAbilityPredictor(room.sim.game, 'bear');
+	assert.deepEqual(unsure.step(BUTTONS.ability1, false), []);
+	assert.deepEqual(
+		flowSignalsOf(room.events.slice(pressedAt), 'b', drawn, unsure).find(
+			(s) => s.name === 'ability',
+		)?.payload,
+		{
+			player: 'b',
+			character: 'bear',
+			button: 'ability1',
+			x: 445,
+			y: 300,
+			mine: true,
+			predicted: false,
+		},
+		'a press the room took and the device did not predict is drawn when the room tells',
+	);
 	assert.equal(forB.find((s) => s.name === 'caught').payload.mine, true);
 	assert.deepEqual(forB.find((s) => s.name === 'roundEnd').payload, {
 		round: 1,
 		winner: 'b',
 		won: true,
 	});
+});
+
+await check("a round's start clears the device's cooldowns, as it clears the room's", () => {
+	const room = roomOf({
+		abilities: [{ ...CATCH, cooldownMs: 60_000 }],
+		round: { seconds: 5, nextRoundSeconds: 0 },
+	});
+	room.join('a', 'salmon');
+	room.join('b', 'bear');
+	const bear = createAbilityPredictor(room.sim.game, 'bear');
+	bear.reset();
+	const drawn = [];
+	let seen = room.events.length;
+	for (let i = 0; i < 8 * TICK; i++) {
+		// The device presses on what it last saw: the round running.
+		const running = room.sim.rules.phase === 'running';
+		for (const button of bear.step(BUTTONS.ability1, running))
+			drawn.push({ i, button, predicted: true });
+		room.press('b', { buttons: BUTTONS.ability1 });
+		room.step();
+		for (const signal of flowSignalsOf(room.events.slice(seen), 'b', undefined, bear))
+			if (signal.name === 'ability') drawn.push({ i, predicted: signal.payload.predicted });
+		seen = room.events.length;
+	}
+	const used = room.of('ability').length;
+	assert.equal(used, 2, 'the room takes one swipe a round on a minute-long cooldown');
+	assert.deepEqual(
+		drawn.map((d) => d.predicted),
+		[true, true],
+		`each drawn once, on the press: ${JSON.stringify(drawn)}`,
+	);
+	assert.ok(drawn[1].i > 5 * TICK, 'the second is in round two');
 });
 
 await check('server-owned values come from the room: scores, status, round, clock, winner', () => {

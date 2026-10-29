@@ -63,7 +63,9 @@ A seed and the same keys replay the same game.
   variables with `server`, written by `online.ts` from each state. Flow never writes one
   (`variable-server-owned`). The own player's `ability` is raised on the press by
   `createAbilityPredictor`, which mirrors `onlineRules.js`'s cooldown test: change one, change both
-  (`check:online-rules` compares them step for step). Its room `ability` is never raised again.
+  (`check:online-rules` compares them step for step). The room's echo of a press it raised is
+  dropped; an echo with no press waiting is raised then (`predicted: false`); a round's start or
+  the own join clears its cooldowns, as the room does.
 - **A bot is a player whose input comes from a brain.** `botInput` turns a P10.11 brain's velocity
   into a clamped input; the room steps and rules it exactly as a device's
   (`packages/engine-mechanics/src/onlineBots.js`, `services/game-server/src/roomSim.ts`). A config

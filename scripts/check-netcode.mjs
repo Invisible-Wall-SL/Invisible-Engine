@@ -52,7 +52,10 @@ import {
 	snapFor,
 } from '../packages/engine-mechanics/src/netcode.js';
 import { BUTTONS } from '../packages/engine-mechanics/src/online.js';
-import { createAbilityPredictor } from '../packages/engine-mechanics/src/onlineFlow.js';
+import {
+	createAbilityPredictor,
+	flowSignalsOf,
+} from '../packages/engine-mechanics/src/onlineFlow.js';
 import { GRACE_MS, STATUS } from '../packages/engine-mechanics/src/onlineRules.js';
 import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/index.ts';
 import { createRoomSim, inputsThisStep } from '../services/game-server/src/roomSim.ts';
@@ -869,7 +872,7 @@ for (const netcode of ['engine', 'colyseus'])
 	);
 
 await check(
-	'a predicted swipe is raised on the press, a round trip before the room tells of it',
+	'a predicted swipe is raised on the press, a round trip before the room tells of it; one the device did not predict, when it tells',
 	() => {
 		const TICK = 30;
 		const game = gameOf({
@@ -900,21 +903,34 @@ await check(
 		const LAG = 5;
 		const device = createAbilityPredictor(game, 'bear');
 		const inFlight = [];
+		const back = [];
 		const drawn = [];
 		const told = [];
 		let seq = 0;
-		for (let step = 0; step < 150; step++) {
-			const buttons = step % 40 < 25 ? BUTTONS.ability1 : 0;
+		for (let step = 0; step < 190; step++) {
+			// The first press comes while the device's last state still shows the bear held (it is
+			// free in the room): the device does not predict it, the room takes it.
+			const buttons = step < 3 || (step >= 40 && step % 40 < 25) ? BUTTONS.ability1 : 0;
 			seq += 1;
 			inFlight.push({ due: step + LAG, input: clampInput({ seq, buttons, view: 0 }, game.field) });
-			for (const button of device.step(buttons, true)) drawn.push({ step, button });
+			for (const button of device.step(buttons, step >= 3))
+				drawn.push({ step, button, predicted: true });
 			const arriving = inFlight.filter((f) => f.due === step).map((f) => f.input);
-			for (const event of sim.step((id) => (id === 'b' ? arriving : [])))
+			for (const event of sim.step((id) => (id === 'b' ? arriving : []))) {
+				back.push({ due: step + LAG, event });
 				if (event.type === 'ability' && event.by === 'b')
 					told.push({ step: step + LAG, button: event.button });
+			}
+			const heard = back.filter((b) => b.due === step).map((b) => b.event);
+			for (const signal of flowSignalsOf(heard, 'b', undefined, device))
+				if (signal.name === 'ability')
+					drawn.push({ step, button: signal.payload.button, predicted: signal.payload.predicted });
 		}
-		const roundTrip = told.slice(0, drawn.length).map((t, i) => t.step - drawn[i].step);
-		assert.ok(drawn.length >= 5, `${drawn.length} swipes`);
+		assert.deepEqual(drawn[0], { step: 2 * LAG, button: 'ability1', predicted: false });
+		const pressed = drawn.slice(1);
+		const roundTrip = told.slice(1, 1 + pressed.length).map((t, i) => t.step - pressed[i].step);
+		assert.ok(pressed.length >= 5, `${pressed.length} swipes`);
+		assert.ok(pressed.every((d) => d.predicted));
 		assert.ok(told.length >= drawn.length - 1, 'the room used every swipe drawn but the last');
 		assert.ok(
 			roundTrip.every((d) => d === 2 * LAG),
@@ -965,6 +981,10 @@ await check(
 		const tick = body('tickOnline');
 		assert.ok(/handle\.send\(\);[\s\S]*predictAbilities\(current, input\.buttons\)/.test(tick));
 		assert.ok(body('predictAbilities').includes('abilitySignal('));
+		assert.ok(
+			/flowSignalsOf\([\s\S]*current\.abilities,?\s*\)/.test(joining),
+			'echoes meet the predictor',
+		);
 		const draw = body('draw');
 		assert.equal(
 			draw.split('shownInRoom(player)').length - 1,

@@ -87,7 +87,9 @@ PRs (owner decision #7); (c)–(e) follow. Not deployed (nothing server-side cha
 - **Predicted abilities** (`createAbilityPredictor`): each input the device sends is run through
   the room's own test (button held, off cooldown, round running, player free) and an `ability`
   signal (`predicted: true`) is raised in the same fixed step, so the flow draws the swipe or cast
-  on the press; the room's later `ability` for the own player is not raised again.
+  on the press. The room's echo of such a press is dropped; an echo with no press waiting (the
+  device thought the player held, e.g. just after `roundStart` or a stun) is raised then,
+  `predicted: false`. `roundStart` and the own `joined` clear its cooldowns, as the room does.
 - **`out` hidden** (`shownInRoom`): a caught player is despawned and not drawn until it respawns
   (it reappears at the spawn, not sliding from where it was caught); the probe lists it in
   `online.hidden`. The probe also gains `signals` and `spawned`.
@@ -98,11 +100,13 @@ PRs (owner decision #7); (c)–(e) follow. Not deployed (nothing server-side cha
   `salmonsRoundOver` (counting down `secondsLeft`) and the `salmonsSwipe` / `salmonsCast`
   placeholders; `scripts/salmons/export.mjs` writes the flow (`editor/flow-v2.json`) and the two
   new components.
-- **Gates:** `check:online-rules` 17 → **22** (signals from a played room, the own ability left to
-  the press; the values; `out` hidden; the predictor against the room step for step over 90 mixed
+- **Gates:** `check:online-rules` 17 → **23** (signals from a played room, the own ability left to
+  the press, an unpredicted accepted press drawn on the room's word; cooldowns cleared at
+  `roundStart`; the values; `out` hidden; the predictor against the room step for step over 90 mixed
   presses on two buttons; the live catch / round end through `flowSignalsOf` / `serverValuesOf` /
   `shownInRoom`); `check:netcode` 23 → **25** (a swipe raised on the press a full round trip, 10
-  steps at 150 ms each way, before the room's word; a source scan of the event, value, press and
+  steps at 150 ms each way, before the room's word, and a press the device did not predict drawn
+  when the room tells; a source scan of the event, value, press and
   hide paths in `online.ts`); `check:room-sim` 38 → **39** (live joins / leaves as signals, values
   off the SDK-decoded state); launcher `check:flow-variables` → **48** (the
   `variable-server-owned` fixtures, the shared lists, Salmons' flow clean on its layout);
@@ -126,8 +130,8 @@ PRs (owner decision #7); (c)–(e) follow. Not deployed (nothing server-side cha
   `apps/lines` `determinism.ts` (probe type only), `/flow-v2`'s issue icon.
 - **Chosen here, owner may overturn:** event names follow the vocabulary's convention (`roundEnd`
   shows as **onRoundEnd**); `roundStart` and `ability` are added to the design's five (the
-  round-over needs a close, the swipe needs a press); the room values are the seven above; the
-  own player's room `ability` is never raised (a press the room did not take still shows its swipe).
+  round-over needs a close, the swipe needs a press); the room values are the seven above; a
+  predicted press the room did not take still shows its swipe.
 - **Known limits:** the Variables panel in `/flow-v2` does not set `server` yet (the Salmons
   export writes it); the predictor counts cooldowns from the device's own steps, so a dropped or
   late input can show a swipe the room did not take, or miss one (presentation only); a swipe

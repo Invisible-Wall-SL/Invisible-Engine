@@ -54,16 +54,21 @@ export function abilitySignal(by, button, me, at, predicted) {
 
 /**
  * The Flow signals a batch of room events raises, in order, for the device whose player is `me`.
- * The own player's `ability` is left out: the device raised it on the press
- * ({@link createAbilityPredictor}). `at(id)` is a player as drawn (where, which character), if it is.
+ * `at(id)` is a player as drawn (where, which character), if it is. With the device's `predictor`
+ * ({@link createAbilityPredictor}), the own player's `ability` that answers a press it already
+ * raised is left out; one it did not predict (the device thought it held or on cooldown) is raised
+ * now, `predicted: false`. A round's start, or the own player joining, clears its cooldowns, as the
+ * room clears them.
  */
-export function flowSignalsOf(events, me, at = () => undefined) {
+export function flowSignalsOf(events, me, at = () => undefined, predictor = undefined) {
 	const signals = [];
 	for (const event of events) {
 		const name = ONLINE_FLOW_EVENTS[event.type];
 		if (!name) continue;
 		switch (event.type) {
 			case 'joined':
+				if (event.id === me) predictor?.reset();
+			// falls through
 			case 'left':
 				signals.push({ name, payload: { player: event.id, me: event.id === me } });
 				break;
@@ -81,6 +86,7 @@ export function flowSignalsOf(events, me, at = () => undefined) {
 				});
 				break;
 			case 'roundStart':
+				predictor?.reset();
 				signals.push({ name, payload: { round: event.round } });
 				break;
 			case 'roundEnd':
@@ -90,7 +96,7 @@ export function flowSignalsOf(events, me, at = () => undefined) {
 				});
 				break;
 			case 'ability':
-				if (event.by !== me)
+				if (event.by !== me || !predictor?.echo())
 					signals.push(abilitySignal(event.by, event.button, me, at(event.by), false));
 				break;
 		}
@@ -125,7 +131,8 @@ const stepsOf = (ms, tickHz) => Math.max(0, Math.round((ms * tickHz) / 1000));
  * the device sends, it says which of `character`'s abilities that input uses, by the room's own
  * test — the button held, off its cooldown, in a running round, the player free — so a held button
  * raises one each cooldown, as the room acts. A guess the room may still miss (a cooldown the room
- * counted from another step); it decides nothing.
+ * counted from another step); it decides nothing. It counts the presses it raised whose room
+ * `ability` has not come back yet ({@link flowSignalsOf} takes one off per echo).
  */
 export function createAbilityPredictor(game, character) {
 	const { tickHz } = game.online;
@@ -140,6 +147,7 @@ export function createAbilityPredictor(game, character) {
 		.filter((a) => a.character === character);
 	const ready = new Map();
 	let step = 0;
+	let waiting = 0;
 	return {
 		/** One sent input's buttons; `free` when the round runs and the own player is free. */
 		step(buttons, free) {
@@ -151,7 +159,19 @@ export function createAbilityPredictor(game, character) {
 				ready.set(ability.key, step + ability.cooldown);
 				used.push(ability.button);
 			}
+			waiting += used.length;
 			return used;
+		},
+		/** The room's `ability` for the own player came: whether it answers a press already raised. */
+		echo() {
+			if (!waiting) return false;
+			waiting -= 1;
+			return true;
+		},
+		/** The room cleared the player's cooldowns (a round started, the player joined). */
+		reset() {
+			ready.clear();
+			waiting = 0;
 		},
 	};
 }

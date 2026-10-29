@@ -257,10 +257,15 @@ export async function joinOnlineRoom(): Promise<void> {
 		current.events.push(...events);
 		current.events.splice(0, current.events.length - EVENTS_KEPT);
 		const players = stateOf(current.room).players;
-		for (const signal of flowSignalsOf(events, current.room.sessionId, (id) => {
-			const player = players?.get(id);
-			return player && { ...placeOf(current, id, player), character: player.character };
-		}))
+		for (const signal of flowSignalsOf(
+			events,
+			current.room.sessionId,
+			(id) => {
+				const player = players?.get(id);
+				return player && { ...placeOf(current, id, player), character: player.character };
+			},
+			current.abilities,
+		))
 			raise(current, signal);
 	});
 }

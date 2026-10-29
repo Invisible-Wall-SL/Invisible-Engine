@@ -1019,8 +1019,9 @@ shows them). A player is its room id; `me` / `mine` say whether it is this devic
 **Room values.** A variable can mirror a value the room owns: give it `server` — `score` or `status`
 (this device's player), `round`, `phase`, `secondsLeft` (in the round, or until the next), `winner`
 or `won`. The game writes it from every room state, so a HUD Text Box bound to `var:<id>` shows it.
-Flow only reads it: a Set or Change of it is refused (`variable-server-owned`). The Variables panel
-does not set `server` yet; it is in the flow's file (the Salmons export writes it).
+Flow only reads it: a Set or Change of it is refused (`variable-server-owned`). `server` is set in the
+flow's file (the Salmons export writes it), not in the Variables panel, which keeps it when you
+change the variable's type.
 
 **Actions** — each aims at the instance fed to **instance**, or, with **instance** unwired, at
 every body carrying the tag in **tagged** (`player`):

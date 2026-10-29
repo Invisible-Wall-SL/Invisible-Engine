@@ -134,8 +134,9 @@ export const variableDeclIssues = (doc: FlowDoc, outcome: PinContext['outcome'])
 
 /** A server-owned variable names a room value it can hold, and is never reset by Flow. */
 const serverDeclIssues = (v: FlowVariableDecl): FlowIssue[] => {
-	const kind = Object.hasOwn(SERVER_VARIABLE_SOURCES, v.server ?? '')
-		? SERVER_VARIABLE_SOURCES[v.server ?? '']
+	const server = v.server ?? '';
+	const kind = Object.hasOwn(SERVER_VARIABLE_SOURCES, server)
+		? SERVER_VARIABLE_SOURCES[server]
 		: undefined;
 	if (!kind) {
 		return [
