@@ -1156,7 +1156,6 @@
 			'n_' + Math.random().toString(36).slice(2, 10),
 			main.width / 2,
 			main.height / 2,
-			sceneProjection(activeScene),
 		);
 		onSpawn(node);
 		selectOnly(node.id);

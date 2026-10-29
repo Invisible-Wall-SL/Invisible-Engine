@@ -820,6 +820,15 @@ function scene4(): Scene {
 			layoutScene,
 		) && /\{#if ProjectedWorld\}/.test(layoutScene),
 	);
+	const loopSrc = read('packages/engine-game/src/game/arcadeLoop.ts');
+	const arcadeSrc = read('apps/lines/src/game/arcade.ts');
+	check(
+		'6. the loop judges the view by `visible` only when given one (an isometric screen); else `viewRect`',
+		(loopSrc.match(/\(\w+\.visible \?\? viewRect\)\(/g) ?? []).length === 2 &&
+			!/[^.]viewRect\(cam/.test(loopSrc) &&
+			/const visible = sceneProjection\(scene\) \? isoViewRect : undefined;/.test(arcadeSrc) &&
+			/\.\.\.\(visible \? \{ visible \} : \{\}\)/.test(arcadeSrc),
+	);
 	const spawnLayer = read('packages/engine-layout/src/lib/SpawnLayer.svelte');
 	check(
 		'6. <SpawnLayer> culls only under a world camera',

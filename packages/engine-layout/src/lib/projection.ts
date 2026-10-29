@@ -10,13 +10,18 @@
 
 import { TILE_EMPTY, tilemapTiles, tilemapTileset } from './tilemapNodes';
 import type { Point2D, Scene, SceneProjection, TilemapNode } from './types';
+import { hasWorldCamera } from './worldCamera';
 
 /** The projections a screen may name; `flat` is the default and is never stored. */
 export const SCENE_PROJECTIONS: readonly ('flat' | SceneProjection)[] = ['flat', 'isometric'];
 
-/** A screen's projection, when it departs from flat: a `game` screen naming `isometric`. */
+/** A screen's projection, when it departs from flat: a `game` screen with a world or a camera
+ *  (`hasWorldCamera`) naming `isometric`. The one answer the game, the save and the editor read. */
 export const sceneProjection = (scene: Scene | undefined): SceneProjection | undefined =>
-	scene && (scene.space ?? 'game') === 'game' && scene.projection === 'isometric'
+	scene &&
+	(scene.space ?? 'game') === 'game' &&
+	scene.projection === 'isometric' &&
+	hasWorldCamera(scene)
 		? 'isometric'
 		: undefined;
 
@@ -28,9 +33,64 @@ export const isoUnproject = (x: number, y: number): Point2D => ({ x: y + x / 2, 
 
 /**
  * A body's ground depth: drawn later (in front) the larger it is. Twice the projected y of its
- * place, so it orders by how far down the screen it stands; equal depths keep spawn order.
+ * place, so it orders by how far down the screen it stands.
  */
 export const isoDepth = (x: number, y: number): number => x + y;
+
+/** How many places in spawn order {@link isoDepthOrder} breaks a tie between. */
+export const ISO_DEPTH_SPREAD = 65536;
+
+/**
+ * The draw order (zIndex) of a body: its ground depth to the whole px, then its place `seq` in
+ * its layer's spawn order, so a tie draws the same on every device whatever the sort's history.
+ */
+export const isoDepthOrder = (x: number, y: number, seq: number): number =>
+	Math.floor(isoDepth(x, y)) * ISO_DEPTH_SPREAD + (seq % ISO_DEPTH_SPREAD);
+
+/**
+ * How far a top-level node placed at world (x, y) is moved so it is drawn at its projected place:
+ * `isoProject(x, y) − (x, y)`. A spawn layer's and a tilemap's own place go through it, so a
+ * world point inside them is `node.xy + place` projected.
+ */
+export const isoNodeShift = (x: number, y: number): Point2D => {
+	const at = isoProject(x, y);
+	return { x: at.x - x, y: at.y - y };
+};
+
+/**
+ * The world box an isometric screen shows: the bounding box of its four corners un-projected
+ * about the camera's centre (`camera` the view's top-left in world px, as `camera.js` `viewRect`).
+ * The arcade loop judges `enterView` / `leaveView`, `despawnOutsideView` and culling by it.
+ */
+export function isoViewRect(
+	camera: { x: number; y: number },
+	view: { w: number; h: number },
+): { x0: number; y0: number; x1: number; y1: number } {
+	const cx = camera.x + view.w / 2;
+	const cy = camera.y + view.h / 2;
+	const half = view.w / 4 + view.h / 2;
+	return { x0: cx - half, y0: cy - half, x1: cx + half, y1: cy + half };
+}
+
+/**
+ * What an isometric screen's tilemap does not draw as it collides, for the editor to say: tiles
+ * that are not square (a cell is then a parallelogram the diamond art does not cover), a rotation,
+ * a scale that is not uniform and positive, a parallax factor. Empty when it draws true.
+ */
+export function isoTilemapIssues(
+	node: Pick<TilemapNode, 'tileWidth' | 'tileHeight' | 'rotation' | 'scale' | 'parallax'>,
+): string[] {
+	const out: string[] = [];
+	if (node.tileWidth !== node.tileHeight)
+		out.push('tiles are not square: an isometric tile is a square of world, tile w = tile h');
+	if (node.rotation) out.push('it is rotated: the game draws the diamonds turned');
+	const sx = node.scale?.x ?? 1;
+	const sy = node.scale?.y ?? 1;
+	if (sx !== sy || sx <= 0) out.push('its scale is not uniform and positive');
+	if (node.parallax && (node.parallax.x !== 1 || node.parallax.y !== 1))
+		out.push('it has a parallax factor: it is shifted in world px, not on the diamonds');
+	return out;
+}
 
 /**
  * The box a tilemap cell's art fills, in the tilemap's own space (its top-left world corner at 0,

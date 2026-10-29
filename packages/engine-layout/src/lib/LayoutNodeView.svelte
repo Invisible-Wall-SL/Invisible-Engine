@@ -49,6 +49,7 @@
 	import TextBox from './TextBox.svelte';
 	import SlicedSprite from './SlicedSprite.svelte';
 	import Tilemap from './Tilemap.svelte';
+	import { worldProjection } from './worldCameraView.svelte';
 	import InlineImageText from './InlineImageText.svelte';
 	import { anchoredPosition, resolveOverrideTextStyle, resolveTransform } from './resolveTransform';
 	import { pixiBlendMode } from './blendMode';
@@ -374,6 +375,12 @@
 		const anchored = anchoredPosition(transform, space, canvas.width, canvas.height);
 		const at = alignedAt?.();
 		return at ? { x: at.x ?? anchored.x, y: at.y ?? anchored.y } : anchored;
+	});
+	// A projected world screen's top-level tilemap (P11.4) is drawn by the projected world's own
+	// tilemap (diamonds); anywhere else, or nested, as before.
+	const ProjectedTilemap = untrack(() => {
+		const scope = node.kind === 'tilemap' ? worldProjection() : undefined;
+		return scope?.tilemaps.has(node.id) ? scope.tilemap : undefined;
 	});
 	const tilemapScale = $derived(
 		node.kind === 'tilemap'
@@ -1433,7 +1440,11 @@
 				alpha={transform.alpha}
 				zIndex={transform.zIndex}
 			>
-				<Tilemap {node} />
+				{#if ProjectedTilemap}
+					<ProjectedTilemap {node} />
+				{:else}
+					<Tilemap {node} />
+				{/if}
 			</Container>
 		{:else if node.kind === 'sprite'}
 			{#if fillBound && !bg && spriteKey}

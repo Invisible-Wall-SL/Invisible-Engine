@@ -11,6 +11,7 @@ import {
 	TILE_AUTOTILE_VARIANTS,
 	isoCellAt,
 	isoGridBox,
+	isoNodeShift,
 	isoProject,
 	newTilemapNode,
 	tilemapCellAt,
@@ -57,33 +58,47 @@ export function tilemapToolForKey(e: {
 }
 
 /** A new tilemap of `cols × rows` tiles, centred on (`cx`, `cy`) (a tilemap draws from its
- *  top-left). */
-export function newTilemapAt(
-	id: string,
-	cx: number,
-	cy: number,
-	projection?: SceneProjection,
-): TilemapNode {
+ *  top-left). Its place is world px on every screen, flat or isometric: the loop reads it as the
+ *  level's top-left. */
+export function newTilemapAt(id: string, cx: number, cy: number): TilemapNode {
 	const node = newTilemapNode(id, 0, 0);
-	const half = { x: (node.cols * node.tileWidth) / 2, y: (node.rows * node.tileHeight) / 2 };
-	const centre = projection === 'isometric' ? isoProject(half.x, half.y) : half;
-	node.x = Math.round(cx - centre.x);
-	node.y = Math.round(cy - centre.y);
+	node.x = Math.round(cx - (node.cols * node.tileWidth) / 2);
+	node.y = Math.round(cy - (node.rows * node.tileHeight) / 2);
 	return node;
 }
 
-/** The box the canvas selects and frames: the whole grid, from the node's top-left (on an
- *  isometric screen the diamond grid, its top corner at the node's place). */
+/** The scale the stage applies to a tilemap: the game's (`<LayoutNodeView>`: unsigned). */
+const scaleOf = (t: Pick<ResolvedTransform, 'scale'>): Point2D => ({
+	x: Math.abs(t.scale?.x || 1),
+	y: Math.abs(t.scale?.y || 1),
+});
+
+/**
+ * The box the canvas selects and frames: the whole grid, from the node's top-left. On an isometric
+ * screen it is the diamond grid where the game draws it, its top corner at the node's projected
+ * place (`isoNodeShift` from `t`, the node's place), as `ax` / `ay` fractions from that place.
+ */
 export function tilemapBox(
 	node: Pick<TilemapNode, 'cols' | 'rows' | 'tileWidth' | 'tileHeight'>,
 	projection?: SceneProjection,
+	t: Pick<ResolvedTransform, 'x' | 'y' | 'scale'> = { x: 0, y: 0 },
 ): {
 	w: number;
 	h: number;
 	ax: number;
 	ay: number;
 } {
-	if (projection === 'isometric') return isoGridBox(node);
+	if (projection === 'isometric') {
+		const grid = isoGridBox(node);
+		const shift = isoNodeShift(t.x, t.y);
+		const s = scaleOf(t);
+		return {
+			w: grid.w,
+			h: grid.h,
+			ax: (grid.ax * grid.w - shift.x / s.x) / grid.w,
+			ay: -shift.y / s.y / grid.h,
+		};
+	}
 	return {
 		w: Math.max(1, node.cols * node.tileWidth),
 		h: Math.max(1, node.rows * node.tileHeight),
@@ -99,15 +114,20 @@ export function tilemapWorldToLocal(t: ResolvedTransform, w: Point2D): Point2D {
 }
 
 /** The cell under a stage point, or `undefined` off the grid (on an isometric screen, the
- *  diamond under it). */
+ *  diamond under it, the grid drawn from the node's projected place). */
 export function tilemapCellAtWorld(
 	node: TilemapNode,
 	t: ResolvedTransform,
 	w: Point2D,
 	projection?: SceneProjection,
 ): { col: number; row: number } | undefined {
+	if (projection === 'isometric') {
+		const at = isoProject(t.x, t.y);
+		const s = scaleOf(t);
+		return isoCellAt(node, (w.x - at.x) / s.x, (w.y - at.y) / s.y);
+	}
 	const p = tilemapWorldToLocal(t, w);
-	return projection === 'isometric' ? isoCellAt(node, p.x, p.y) : tilemapCellAt(node, p.x, p.y);
+	return tilemapCellAt(node, p.x, p.y);
 }
 
 /** Every cell on the line from `a` to `b`, both ends included (so a fast drag leaves no gaps). */

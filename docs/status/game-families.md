@@ -85,7 +85,7 @@ already-bundled `cards.js` values.
   before. `IsoWorld.svelte` (new) puts the camera's centre at the view's centre (the view size now
   rides `setWorldCameraView`) and draws each top-level node by kind: a `spawnLayer` upright, its
   instances at their projected places, zIndex = ground depth (`SpawnLayer`'s new first branch, read
-  from the `spawnProjection` context `IsoWorld` sets); a `tilemap` as 2:1 diamonds from its
+  from the `WorldProjection` scope `IsoWorld` sets); a `tilemap` as 2:1 diamonds from its
   projected corner (`IsoTilemap.svelte`, new: back to front, the autotile variant per cell); any
   other node as ground (drawn flat in a container turned 45° and squashed to half height).
 - **Diamond tiles and autotiling.** A tilemap cell stays a world `tileWidth × tileHeight`; on an
@@ -96,7 +96,7 @@ already-bundled `cards.js` values.
 - **`/editor`.** The world-and-camera block gains **projection** (flat / isometric;
   `setSceneProjection`, refused without a world; unticking the world clears it). On an isometric
   screen a tilemap is drawn, selected and painted on its diamond grid (`drawIsoTilemap`,
-  `tilemapBox` / `tilemapCellAtWorld` / `newTilemapAt` take the projection); each tileset row gains
+  `tilemapBox` / `tilemapCellAtWorld` take the projection); each tileset row gains
   an **autotile** fold of 16 pickers (`setTilesetAutotile`). Guide:
   [invisible-editor.md](../tools/invisible-editor.md).
 - **Salmons is isometric:** `salmonsReferenceLayout`'s river screen sets it (and so
@@ -118,18 +118,51 @@ already-bundled `cards.js` values.
   a runtime without arcade.
 - **Chosen here, owner may overturn:** the 2:1 projection without scale (a 64 px world square is a
   128 × 64 diamond, so the view shows about half the world a flat view does); the camera's centre
-  at the view's centre, the clamp still the flat one; ground depth `x + y` of a body's place,
-  ties in spawn order; every top-level node that is not a spawn layer or a tilemap is ground;
-  diamond art fills the cell's diamond box (no taller-than-diamond tile height); autotile by four
-  edge neighbours (16 variants, not 47 with corners); keys move along the world's axes (Up is
-  screen up-right); the projection needs a world or camera; the editor draws only tilemaps as
+  at the view's centre, the clamp still the flat one; ground depth `x + y` of a body's place to
+  the whole px, ties by spawn order in the layer (`isoDepthOrder`); every top-level node that is
+  not a spawn layer or a tilemap is ground; isometric tiles are square (tile w = tile h) and their
+  art fills the cell's diamond (no taller-than-diamond tile height); autotile by four edge
+  neighbours (16 variants, not 47 with corners); keys move along the world's axes (Up is screen
+  up-right); the projection needs a world or camera; the editor draws only top-level tilemaps as
   diamonds.
+- **Review fixes (2026-10-29, code-reviewer on 12adbbe).**
+  1. *Nested layers projected twice:* the scope `IsoWorld` sets (`WorldProjection`, was
+     `spawnProjection`) names its top-level spawn layers and tilemaps by id; only those read it, so
+     one nested in a ground node or a spawned component draws as it would flat.
+  2. *A layer's own place:* a top-level spawn layer and tilemap are moved by `isoNodeShift`
+     (projected place − place), so a world point in them is `node.xy + place` projected; pinned
+     in `check:arcade-platformer` §6.
+  3. *Non-square tiles (warned):* an isometric tile must be square; `isoTilemapIssues` flags a
+     non-square, rotated, unevenly or negatively scaled or parallax tilemap, and `/editor`'s
+     Tilemap properties show it. No layout validator exists to refuse it; the game draws it
+     anyway (the art then misses the cells it collides on).
+  4. *Placement:* `node.x / y` stay world px on every screen (`newTilemapAt` has no projection
+     branch); the editor draws, frames and paints an isometric tilemap from its projected place,
+     relative to the world's origin, as the game does.
+  5. *The loop's view (bounding box):* the loop takes an optional `visible` (`ArcadeCameraOptions`);
+     on an isometric screen `apps/lines` `arcade.ts` passes `isoViewRect`, the world box of the
+     screen's four corners un-projected, so `enterView` / `leaveView`, `despawnOutsideView` and
+     culling judge what is on screen (a little more: the box's corners off screen). `SpawnLayer`'s
+     projected branch now culls by it. Without it, `viewRect` as before (replays unchanged).
+  6. *Tilemaps through `LayoutNodeView` (routed):* an isometric top-level tilemap is drawn by
+     `LayoutNodeView` (bindings, FX, visibility, timelines) with the scope's `IsoTilemap` in
+     `<Tilemap>`'s place; what stays approximate (rotation, uneven scale, parallax) is flagged as
+     in 3.
+  7. *One gate:* `sceneProjection` also needs `hasWorldCamera`, so the save, the editor and the game
+     agree; a doc with `projection` and no world is flat (pinned in both gates).
+  Nits: depth ties by spawn order; nothing drawn until the view has a size; the editor reads a
+  tilemap's projection from its own screen and draws a nested one flat; trailing empty autotile
+  slots are trimmed by the normalizer. Gates: `check:arcade-platformer` 68, `check:editor-tilemap`
+  82, `check:arcade-camera` 78, `check:arcade-characters` 89; `salmons-play.mjs` 37 / 37 in each
+  netcode; `arcade-play` 14, `arcade-camera-play` 12. Sizes: lines 1,307,796 B gz, match3
+  1,316,188, card 1,320,328, arcade 1,409,510 (all within budget).
 - **Known limits.** The editor stage draws every other node flat, so a diamond tilemap lines up
-  with them only at the world's origin; on an isometric screen no instance is culled (the loop's
-  view is a flat rectangle), and `despawnOutsideView` still judges that rectangle; depth sorts
-  within one spawn layer, not across layers or against ground nodes; a hopping character's shadow
-  is drawn upright; Salmons' placeholder looks still draw up and left of their place (the known
-  P10.8 failure mode); current-games is left to CI (no arcade fixture is isometric).
+  with them only at the world's origin; depth sorts within one spawn layer, not across layers or
+  against ground nodes; a hopping character's shadow is drawn upright; an isometric tilemap's
+  issues are warned in `/editor`, not refused; the loop's isometric view box is only exercised by
+  the gates (no offline isometric sample is played in a browser; Salmons is online and does not
+  cull); Salmons' placeholder looks still draw up and left of their place (the known P10.8 failure
+  mode); current-games is left to CI (no arcade fixture is isometric).
 
 **P11.3 — Salmons' rules (built 2026-10-29; in review, stacked on P11.2 c–e / #1466).**
 [phase-11.md](../design/phase-11.md) §3 (P11.3), §3.1, §4 #8;

@@ -88,8 +88,8 @@ A seed and the same keys replay the same game.
 - **The Colyseus SDK is reached only through `packages/engine-rooms`**, imported dynamically from
   `apps/lines/src/game/online.ts`. `apps/lines` declares no new third-party package
   (`check:game-app-deps`).
-- **Isometric is drawing only (P11.4).** `Scene.projection` moves no place, level or probe: `IsoWorld`
-  (registered by `families/arcade.ts`) projects, `SpawnLayer` un-projects a pointer (`projection.ts`).
+- **Isometric is drawing only (P11.4).** `Scene.projection` moves no place or level: `IsoWorld` (registered by
+  `families/arcade.ts`) projects top-level layers and tilemaps only; the loop's view is `isoViewRect`.
 - **Sparse config.** Every arcade field is optional and defaults are dropped
   (`packages/game-config/src/family.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`;
   `check:game-config-family`).

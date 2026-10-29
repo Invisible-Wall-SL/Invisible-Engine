@@ -11,7 +11,7 @@
 import { getContext, setContext, type Component, type Snippet } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
 
-import type { LayoutNode, Point2D } from './types';
+import type { LayoutNode, Point2D, TilemapNode } from './types';
 
 const view = $state({ x: 0, y: 0, shakeX: 0, shakeY: 0, w: 0, h: 0 });
 const culled = new SvelteSet<string>();
@@ -61,24 +61,33 @@ export const registerProjectedWorld = (world: ProjectedWorld): void => {
 /** The registered projected-world drawing, if any. */
 export const getProjectedWorld = (): ProjectedWorld | undefined => projectedWorld;
 
-/** How a spawn layer on a projected screen places its instances: where a world place is drawn,
- *  its depth, and a drawn point back to the world. */
-export type SpawnProjection = {
+/**
+ * A projected world screen's scope (P11.4), set by the projected world for its subtree. Only the
+ * screen's own TOP-LEVEL spawn layers (`layers`) and tilemaps (`tilemaps`) read it, by node id, so
+ * one nested in a ground node or in a spawned instance's component draws as it would flat (and is
+ * never projected twice). A spawn layer places its instances by `project` and draws them in
+ * `depth` order (its spawn order `seq` breaking a tie), and reads a pointer back by `unproject`; a
+ * tilemap is drawn by `tilemap`.
+ */
+export type WorldProjection = {
+	layers: ReadonlySet<string>;
+	tilemaps: ReadonlySet<string>;
+	tilemap: Component<{ node: TilemapNode }>;
 	project: (x: number, y: number) => Point2D;
 	unproject: (x: number, y: number) => Point2D;
-	depth: (x: number, y: number) => number;
+	depth: (x: number, y: number, seq: number) => number;
 };
 
-const PROJECTION_KEY = Symbol('engine-layout:spawnProjection');
+const PROJECTION_KEY = Symbol('engine-layout:worldProjection');
 
-/** Mark a subtree as drawn projected (the projected world sets it). */
-export const setSpawnProjection = (projection: SpawnProjection): void => {
+/** Set the projected world's scope for its subtree. */
+export const setWorldProjection = (projection: WorldProjection): void => {
 	setContext(PROJECTION_KEY, projection);
 };
 
-/** The projection this subtree's spawn layers place by, or none (flat). */
-export const spawnProjection = (): SpawnProjection | undefined =>
-	getContext<SpawnProjection | undefined>(PROJECTION_KEY);
+/** The projected world's scope this subtree is in, or none (flat). */
+export const worldProjection = (): WorldProjection | undefined =>
+	getContext<WorldProjection | undefined>(PROJECTION_KEY);
 
 /** Whether a spawned instance is out of view and not drawn. */
 export const isCulled = (id: string): boolean => culled.has(id);

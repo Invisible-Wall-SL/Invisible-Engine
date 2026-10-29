@@ -5,7 +5,9 @@ import {
 	type ArcadeLoop,
 } from 'engine-game';
 import {
+	isoViewRect,
 	sceneCamera,
+	sceneProjection,
 	scenePaths,
 	sceneTilemaps,
 	sceneWorld,
@@ -254,7 +256,9 @@ export const useWorldCamera = (scenes: readonly Scene[]) => {
 	const scene = worldCameraScene(scenes);
 	if (!scene) return;
 	world = sceneWorld(scene);
-	loop.attachCamera({ spec: sceneCamera(scene), world, view });
+	// An isometric screen (P11.4) shows a turned region: the loop judges the view by its world box.
+	const visible = sceneProjection(scene) ? isoViewRect : undefined;
+	loop.attachCamera({ spec: sceneCamera(scene), world, view, ...(visible ? { visible } : {}) });
 };
 
 /** One frame of the play field. */

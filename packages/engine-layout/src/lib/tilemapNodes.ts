@@ -53,7 +53,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 export const TILE_AUTOTILE_VARIANTS = 16;
 
 /** A tileset entry as the save keeps it: a string region, `collide` only when it collides,
- *  `autotile` only when it names a variant (its slots strings, at most 16). */
+ *  `autotile` only when it names a variant (its slots strings, at most 16, none empty at the end). */
 const normalizeEntry = (raw: unknown): TilesetEntry => {
 	const entry = isRecord(raw) ? raw : {};
 	const out: TilesetEntry = { region: typeof entry.region === 'string' ? entry.region : '' };
@@ -62,7 +62,8 @@ const normalizeEntry = (raw: unknown): TilesetEntry => {
 		const variants = entry.autotile
 			.slice(0, TILE_AUTOTILE_VARIANTS)
 			.map((v) => (typeof v === 'string' ? v : ''));
-		if (variants.some(Boolean)) out.autotile = variants;
+		while (variants.length && !variants[variants.length - 1]) variants.pop();
+		if (variants.length) out.autotile = variants;
 	}
 	return out;
 };

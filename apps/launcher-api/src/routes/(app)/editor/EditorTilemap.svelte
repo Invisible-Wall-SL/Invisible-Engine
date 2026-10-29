@@ -5,6 +5,7 @@
 		TILEMAP_MAX_TILES,
 		TILE_AUTOTILE_VARIANTS,
 		autotileMaskLabel,
+		isoTilemapIssues,
 		parseScopedFrameRef,
 		tilemapTiles,
 		type SceneProjection,
@@ -41,6 +42,7 @@
 	};
 	const { node, projection, sheets, onChange }: Props = $props();
 	const iso = $derived(projection === 'isometric');
+	const issues = $derived(iso ? isoTilemapIssues(node) : []);
 	const MASKS = Array.from({ length: TILE_AUTOTILE_VARIANTS }, (_, mask) => mask);
 
 	const COLLIDE_LABEL: Record<TileCollide, string> = {
@@ -187,10 +189,16 @@
 	</div>
 	<p class="muted small">
 		{node.cols * node.tileWidth} × {node.rows * node.tileHeight} px{#if iso}
-			of world, each tile drawn as a {node.tileWidth + node.tileHeight} × {(node.tileWidth +
-				node.tileHeight) /
-				2} diamond (isometric screen){/if}
+			of world. On this isometric screen a tile is a square of world (tile w = tile h), drawn as a {node.tileWidth *
+				2} × {node.tileWidth} diamond{/if}
 	</p>
+	{#if iso && issues.length}
+		<ul class="issues" role="alert">
+			{#each issues as issue (issue)}
+				<li>{issue}</li>
+			{/each}
+		</ul>
+	{/if}
 
 	<span class="sub-label">tileset</span>
 	<ul class="tileset">
@@ -403,6 +411,12 @@
 	.entry-row select {
 		flex: 1;
 		padding: 3px 6px;
+	}
+	.issues {
+		margin: 0 0 6px;
+		padding-left: 16px;
+		color: #ffb27a;
+		font-size: 11px;
 	}
 	.autotile summary {
 		color: #9a9aa6;

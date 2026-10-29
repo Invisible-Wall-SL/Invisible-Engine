@@ -1404,11 +1404,17 @@ Its Properties block, top to bottom:
 - **add a tile** — pick a frame to add it to the tileset. It becomes the brush, and the Brush tool
   is turned on.
 
-**On an isometric screen** (the screen's **projection**, above) the tilemap is drawn and painted
-as 2:1 diamonds: each tile w × h of world is a diamond (tile w + tile h) wide and half that high,
-the tilemap's place is the grid's top corner, and the brush, the hover outline, the colliding
-cells and the grid lines follow the diamonds. A new tilemap is centred on its diamond grid. The
-size note under the grid also gives the drawn diamond. Each tileset row gains an **autotile**
+**On an isometric screen** (the screen's **projection**, above) a tilemap placed directly on the
+screen is drawn and painted as 2:1 diamonds, where the game draws it: its **x / y** are still
+the level's top-left in world px, and the grid's top corner is drawn at that point projected from
+the world's origin (the stage draws the screen's other nodes flat, so only there do the two line
+up). The brush, the hover outline, the colliding cells and the grid lines follow the diamonds.
+Tiles must be square (**tile w** = **tile h**): each is drawn as a diamond twice its side wide
+and its side high, as the size note under the grid says. An orange note under the grid names
+what the game cannot draw true: tiles that are not square (the art then misses the cells they
+collide on), a rotation, a scale that is not the same on both axes or is negative, a parallax
+factor. A tilemap nested in a container is drawn flat, as the game draws it. Each tileset row
+gains an **autotile**
 fold: sixteen frame pickers, one per set of neighbours (`↑ → ↓ ←` on the grid, `·` for none)
 holding the same tile. A cell draws the frame of its neighbours' slot, or the tile's own frame when
 that slot is empty (neighbour autotiling: shores, path corners).

@@ -45,7 +45,7 @@
 		TILE_EMPTY,
 		isoCellBox,
 		isoCellDiamond,
-		isoGridBox,
+		isoNodeShift,
 		isoTileRegions,
 		sceneProjection,
 		tilemapTiles,
@@ -67,6 +67,7 @@
 		type EditorGuides,
 		type SliceMode,
 		type Scene,
+		type SceneProjection,
 	} from 'engine-layout';
 	import type { EffectParamValues } from 'engine-fx';
 	import { onDestroy, onMount, untrack, type Snippet } from 'svelte';
@@ -146,6 +147,7 @@
 	import { tilemapPaint } from './tilemapPaint.client.svelte';
 	import {
 		applyTilemapTool,
+		tilemapBox,
 		tilemapCellAtWorld,
 		tilemapCellsBetween,
 		tilemapPickTool,
@@ -3387,7 +3389,8 @@
 		} else if (node.kind === 'path') {
 			drawPathNode(ctx, node, selectedIds.includes(node.id));
 		} else if (node.kind === 'tilemap') {
-			if (sceneProjection(sceneCtx)) drawIsoTilemap(ctx, node, selectedIds.includes(node.id));
+			if (!nested && sceneCtx.nodes.includes(node) && sceneProjection(sceneCtx))
+				drawIsoTilemap(ctx, node, t, selectedIds.includes(node.id));
 			else drawTilemap(ctx, node, selectedIds.includes(node.id));
 		}
 
@@ -3414,7 +3417,10 @@
 	 * here, so the count is resolved in ONE place (non-repeater nodes are unaffected). */
 	function boxOf(node: LayoutNode, t: ResolvedTransform, rigBundle?: string): NodeBox {
 		// A tilemap on an isometric screen (P11.4) frames its diamond grid.
-		if (node.kind === 'tilemap' && sceneProjection(scene)) return isoGridBox(node);
+		if (node.kind === 'tilemap') {
+			const projection = tilemapProjection(node);
+			if (projection) return tilemapBox(node, projection, t);
+		}
 		return nodeBox(
 			node,
 			t,
@@ -4071,15 +4077,26 @@
 		ctx.fillText(`▤ ${node.label ?? 'Tilemap'} · ${cols} × ${rows}`, 0, -6 * u);
 	}
 
+	/** The projection a tilemap is drawn and painted by: its screen's, when it is a top-level node
+	 *  of an isometric screen (a nested one is drawn as the game draws it, flat on the ground). */
+	function tilemapProjection(node: TilemapNode): SceneProjection | undefined {
+		const home = [scene, ...scenes].find((s) => s.nodes.includes(node));
+		return home ? sceneProjection(home) : undefined;
+	}
+
 	/** A tilemap on an isometric screen (P11.4): each tile its cell's 2:1 diamond, the art its
 	 *  neighbours pick (`autotile`), drawn back to front, with the diamond grid, the colliding cells
-	 *  and the cell a paint tool would hit, all from the node's place (the grid's top corner). */
+	 *  and the cell a paint tool would hit, from the node's projected place (the grid's top corner
+	 *  where the game draws it, relative to the world's origin; the stage draws other nodes flat). */
 	function drawIsoTilemap(
 		ctx: CanvasRenderingContext2D,
 		node: TilemapNode,
+		t: ResolvedTransform,
 		selected: boolean,
 	): void {
 		const { cols, rows } = node;
+		const shift = isoNodeShift(t.x, t.y);
+		ctx.translate(shift.x / (t.scale?.x || 1), shift.y / (t.scale?.y || 1));
 		const tiles = tilemapTiles(node);
 		const tileset = tilemapTileset(node);
 		const regions = isoTileRegions(node);
@@ -5202,7 +5219,7 @@
 	function tilemapPaintGesture(world: Vec2): boolean {
 		const node = paintingTilemap();
 		if (!node) return false;
-		const cell = tilemapCellAtWorld(node, nodeTransform(node), world, sceneProjection(scene));
+		const cell = tilemapCellAtWorld(node, nodeTransform(node), world, tilemapProjection(node));
 		if (!cell) return false;
 		const { tool, brush } = tilemapPaint;
 		if (tool === 'pick') {
@@ -5702,7 +5719,7 @@
 			const node = findNodeById(tilemapStroke.nodeId);
 			if (node?.kind === 'tilemap') {
 				const world = clientToWorld(e.clientX, e.clientY);
-				const cell = tilemapCellAtWorld(node, nodeTransform(node), world, sceneProjection(scene));
+				const cell = tilemapCellAtWorld(node, nodeTransform(node), world, tilemapProjection(node));
 				if (!cell) tilemapStroke.last = null;
 				else if (
 					!tilemapStroke.last ||
@@ -5798,7 +5815,7 @@
 	function updateTilemapHover(world: Vec2): boolean {
 		const node = paintingTilemap();
 		const cell = node
-			? tilemapCellAtWorld(node, nodeTransform(node), world, sceneProjection(scene))
+			? tilemapCellAtWorld(node, nodeTransform(node), world, tilemapProjection(node))
 			: undefined;
 		const next = node && cell ? { nodeId: node.id, ...cell } : null;
 		if (
