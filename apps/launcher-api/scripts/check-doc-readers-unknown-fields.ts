@@ -31,6 +31,7 @@
  * because the storage modules reach R2 → `env.ts` → that virtual module.
  */
 
+import { readFileSync } from 'node:fs';
 import type { ComponentDef } from 'engine-layout';
 import {
 	BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS,
@@ -47,6 +48,7 @@ import { normalizeArtBoundsDoc } from '../src/lib/artBounds.ts';
 import { normalizeArtSlicesDoc } from '../src/lib/artSlices.ts';
 import { normalizeComponent } from '../src/lib/server/componentStorage.ts';
 import { normalizeDoc as normalizeLayoutDoc } from '../src/lib/server/editorStorage.ts';
+import { screenFxSettings } from '../src/lib/screenFx.ts';
 import { isFlowV2Doc } from '../src/lib/server/flowV2Storage.ts';
 import { normalizeFxMeta } from '../src/lib/server/fxStorage.ts';
 import { normalizeDoc as normalizeLocalizationDoc } from '../src/lib/server/localization.ts';
@@ -525,6 +527,54 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		'4. layout: a non-boolean buttons row is dropped',
 		!JSON.stringify(normalizeLayoutDoc(buttonsOff, 'demo')).includes('authoredOverlays'),
 	);
+	// Screen FX (Shader Graph 8e): `postFx` round-trips verbatim, as a screen's Element FX do (an
+	// entry's own unknown field KEPT, by design: the readers drop what they cannot play), and
+	// `stageFxAntialias` only when it is `true`. An empty or non-list `postFx` and an OFF or
+	// non-boolean switch are never written.
+	const postFxEntry = { id: 'efx1', kind: 'shine', trigger: 'always', cue: 'x', glowBy: 2 };
+	const screenFx = clone(base) as typeof base & { settings: Record<string, unknown> };
+	Object.assign(screenFx.settings, {
+		postFx: [postFxEntry, { id: 'efx2', kind: 'custom:grade', trigger: 'cue', cue: 'grade' }],
+		stageFxAntialias: true,
+	});
+	const screenFxExtras = clone(screenFx);
+	Object.assign(screenFxExtras.settings, { transitionCueLater: { kind: 'burn' } });
+	ignores('4. layout (screen fx)', (d) => normalizeLayoutDoc(d, 'demo'), screenFx, screenFxExtras, [
+		`"postFx":[${JSON.stringify(postFxEntry)},{"id":"efx2","kind":"custom:grade","trigger":"cue","cue":"grade"}]`,
+		'"stageFxAntialias":true',
+	]);
+	for (const [label, settings] of [
+		['an empty post FX list', { postFx: [] }],
+		['a post FX that is not a list', { postFx: { id: 'efx1', kind: 'shine', trigger: 'always' } }],
+		['an OFF switch', { stageFxAntialias: false }],
+		['a non-boolean switch', { stageFxAntialias: 'yes' }],
+	] as const) {
+		const off = clone(base) as typeof base & { settings: Record<string, unknown> };
+		Object.assign(off.settings, settings);
+		const out = JSON.stringify(normalizeLayoutDoc(off, 'demo'));
+		check(
+			`4. layout: ${label} is not written`,
+			!out.includes('postFx') && !out.includes('stageFxAntialias'),
+			out,
+		);
+	}
+	const screenFxOnly = {
+		...clone(base),
+		settings: { postFx: [postFxEntry] },
+	};
+	check(
+		'4. layout: post FX alone keep the settings block',
+		JSON.stringify(normalizeLayoutDoc(screenFxOnly, 'demo')).includes(
+			`"settings":{"postFx":[${JSON.stringify(postFxEntry)}]}`,
+		),
+	);
+	const antialiasOnly = { ...clone(base), settings: { stageFxAntialias: true } };
+	check(
+		'4. layout: the switch alone keeps the settings block',
+		JSON.stringify(normalizeLayoutDoc(antialiasOnly, 'demo')).includes(
+			'"settings":{"stageFxAntialias":true}',
+		),
+	);
 
 	// Invisible Shader Graph 8e: the `transition` cue's screen transition round-trips through the
 	// game's own reader; an unknown field inside it, and one beside it, are dropped. A kind that is
@@ -566,6 +616,50 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		JSON.stringify(normalizeLayoutDoc(cueClamped, 'demo')).includes(
 			'"transitionCue":{"kind":"dissolveOut","durationMs":5000,"intensity":0}',
 		),
+	);
+
+	// The Scene Editor's half (8e.6): Game Settings → Screen FX writes the three fields back
+	// through `screenFxSettings` from what it read, so an editor save of a stored doc keeps the cue
+	// row, the post FX and the switch exactly; a row set to the wipe writes nothing.
+	const stored = normalizeLayoutDoc(
+		{ ...clone(cueOn), settings: { ...cueOn.settings, ...screenFx.settings } },
+		'demo',
+	).settings;
+	const resaved = normalizeLayoutDoc(
+		{
+			...clone(base),
+			settings: screenFxSettings({
+				transitionCue: stored?.transitionCue,
+				postFx: stored?.postFx,
+				stageFxAntialias: stored?.stageFxAntialias === true,
+			}),
+		},
+		'demo',
+	).settings;
+	check(
+		'4. layout: an editor save of the Screen FX block keeps the cue row, the post FX and the switch',
+		!!stored?.transitionCue &&
+			JSON.stringify(resaved) ===
+				JSON.stringify({
+					transitionCue: stored.transitionCue,
+					postFx: stored.postFx,
+					stageFxAntialias: true,
+				}),
+		JSON.stringify(resaved),
+	);
+	check(
+		'4. layout: the wipe (no row) writes no transition cue',
+		!(
+			'transitionCue' in
+			screenFxSettings({ transitionCue: undefined, postFx: undefined, stageFxAntialias: false })
+		),
+	);
+	check(
+		'4. layout: the editor builds its settings through the block’s helper, the cue row included',
+		readFileSync(
+			new URL('../src/routes/(app)/editor/+page.svelte', import.meta.url),
+			'utf8',
+		).includes('screenFxSettings({ transitionCue, postFx, stageFxAntialias })'),
 	);
 
 	const withNodeField = clone(base);

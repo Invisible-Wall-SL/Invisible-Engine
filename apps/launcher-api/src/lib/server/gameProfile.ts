@@ -89,6 +89,9 @@ export interface GameProfileSignals {
 		authoredTransition: AuthoredTransitionStatus;
 		/** Invisible Shader Graph 8e `transitionCueStatus`; absent ⇒ off. */
 		transitionCue?: TransitionCueStatus;
+		/** The row plays a screen transition, but the project's stored flow never fires
+		 *  `transition` (`flowFiresTransition`), so it never plays. */
+		transitionCueUnfired?: boolean;
 		authoredWin: AuthoredWinStatus;
 		/** Rive plan Phase 8c `authoredFreeSpinsStatus`; absent ⇒ off. */
 		authoredFreeSpins?: AuthoredFreeSpinsStatus;
@@ -607,6 +610,16 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 			'Every transition cue (free-spin entry and exit) plays a screen transition instead of the wipe, set in Game Settings → Screen FX: it freezes what is on screen as the cue fires and plays out over whatever the flow shows next, which goes on once the frame is frozen. On free-spin exit the screen has already changed back to the base game when the cue fires, so that transition plays over the base game, not out of the free spins. While it is on, the authored Transition pilot is set aside.',
 		text: (ctx) =>
 			ctx.layout?.transitionCue === 'screen' ? 'Transition cue: screen transition' : null,
+	},
+	{
+		id: 'transitionCueUnfired',
+		title:
+			"The transition cue plays a screen transition, but this project's flow never fires the transition cue, so it never plays. Fire the transition cue in Invisible Flow (the starter flows do, into and out of the free spins), or set the row back to the wipe in Game Settings → Screen FX.",
+		tone: 'warn',
+		text: (ctx) =>
+			ctx.layout?.transitionCue === 'screen' && ctx.layout.transitionCueUnfired === true
+				? 'Transition cue: the flow never fires transition'
+				: null,
 	},
 	{
 		id: 'transitionCueUnplayable',

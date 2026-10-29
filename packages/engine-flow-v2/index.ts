@@ -20,6 +20,7 @@ export * from './src/runtime';
 export * from './src/mount';
 export * from './src/env';
 export * from './src/preview';
+export * from './src/screenTransitionActions';
 export * from './src/symbols';
 export * from './src/reference/standardVocab';
 export * from './src/reference/bookOf';

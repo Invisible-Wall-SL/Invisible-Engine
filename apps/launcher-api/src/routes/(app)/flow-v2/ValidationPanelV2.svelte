@@ -59,6 +59,8 @@
 		'spawn-layer-unknown': '✗',
 		'spawn-not-spawnable': '⊘',
 		'spawn-cell-free': '⊞',
+		'screen-transition-unwaited': 'ℹ',
+		'stage-fx-refused': '⊘',
 	};
 
 	// Best-effort node id an issue points at — a node/pin `at`, or an edge's TARGET node.

@@ -4,6 +4,8 @@
 		flowUsesState,
 		PREVIEW_HORIZON_MS,
 		previewFlowEvent,
+		SCREEN_TRANSITION_ACTION,
+		WAIT_FOR_SCREEN_TRANSITION_ACTION,
 		spawnSpecsOf,
 		type FlowDoc,
 		type FlowPreviewEntry,
@@ -197,9 +199,21 @@
 				return `${e.componentId} → ${layerName(e.layer)}${e.instance ? ` · ${e.instance}` : ` · refused: ${REFUSED[e.refused ?? ''] ?? e.refused ?? 'unknown'}`}`;
 			case 'despawn':
 				return e.instance;
+			case 'effect':
+				return e.name + (e.payload ? ` ${JSON.stringify(e.payload)}` : '') + effectLength(e);
 			default:
 				return e.name + (e.payload ? ` ${JSON.stringify(e.payload)}` : '');
 		}
+	};
+
+	/** A screen transition's length, and how long a Wait for transition holds (Shader Graph 8e). */
+	const effectLength = (e: Extract<FlowPreviewEntry, { kind: 'effect' }>): string => {
+		if (e.name === WAIT_FOR_SCREEN_TRANSITION_ACTION) {
+			return e.lengthMs ? ` · holds ${e.lengthMs} ms` : ' · nothing playing';
+		}
+		if (e.name !== SCREEN_TRANSITION_ACTION) return '';
+		if (e.lengthMs === undefined) return " · its effect's own length";
+		return ` · ${e.lengthMs} ms${e.payload?.blocking === true ? ', holds the chain' : ''}`;
 	};
 </script>
 

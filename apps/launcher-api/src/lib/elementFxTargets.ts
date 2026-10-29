@@ -8,6 +8,7 @@ import {
 	ELEMENT_FX_REELS_TARGET,
 	ELEMENT_FX_STAGE_TARGET,
 	elementFxScreenTarget,
+	isReservedElementFxId,
 	readElementFxEntries,
 } from 'constants-shared/elementFx';
 import type { ComponentDef, LayoutNode, Scene } from 'engine-layout';
@@ -15,9 +16,10 @@ import type { ComponentDef, LayoutNode, Scene } from 'engine-layout';
 /**
  * What a Flow `elementEffect` can aim at in this project: the reels, the whole stage, every screen,
  * and every node the game registers an anchor for — a group, a component placement, a coded mount,
- * and any node that carries Element FX of its own (inside a component too, given its defs). The
- * order is the dropdown's: the reels (a new node's default), the stage, screens in doc order, then
- * node ids sorted.
+ * and any node that carries Element FX of its own (inside a component too, given its defs). Never
+ * a node whose id is a reserved target (`reels`, `stage`): the game does not anchor it, and the
+ * name means the built-in target. The order is the dropdown's: the reels (a new node's default),
+ * the stage, screens in doc order, then node ids sorted.
  */
 export function collectElementFxTargets(
 	scenes: readonly Scene[],
@@ -32,7 +34,11 @@ export function collectElementFxTargets(
 			const anchored =
 				!inComponent &&
 				(node.kind === 'container' || node.kind === 'componentInstance' || !!node.bind);
-			if (node.kind !== 'reelGrid' && (anchored || readElementFxEntries(node.elementFx).length)) {
+			if (
+				node.kind !== 'reelGrid' &&
+				!isReservedElementFxId(node.id) &&
+				(anchored || readElementFxEntries(node.elementFx).length)
+			) {
 				nodes.add(node.id);
 			}
 			if (node.kind === 'container') walk(node.children ?? [], inComponent);

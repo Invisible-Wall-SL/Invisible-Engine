@@ -167,6 +167,7 @@ import {
 	bindStagePostFx,
 	bindStagePostFxSlot,
 	stageFxFilterCount,
+	stageFxJudge,
 	stageFxLoadText,
 	stageFxRefusal,
 	stagePostFx,
@@ -3556,9 +3557,38 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 		assert(last(s) === null, 'a destroyed stage empties its slot');
 	}
 	{
-		const app = { ticker: new Ticker(), renderer: { screen: VIEW }, stage: new Container() };
+		const app = {
+			ticker: new Ticker(),
+			renderer: { screen: VIEW },
+			stage: new Container(),
+			screen: VIEW,
+		};
 		const host = elementFxHostFor(app as never);
-		assert(host?.stage === app.stage, 'a game’s host carries its stage, so post FX play there');
+		assert(
+			host?.stage === app.stage && host.screen === app.screen,
+			'a game’s host carries its stage and its viewport, so post FX play there',
+		);
+	}
+	{
+		// A tool drawing through a renderer it shares (the Scene Editor's ▶): the renderer's own
+		// screen is not the stage's, so stage mode plays over the host's viewport.
+		const widest = (screen: Rectangle | undefined): number => {
+			const s = makeStage({ screen: new Rectangle(0, 0, 1, 1), resolution: 2 });
+			const host = { ...s.host, screen };
+			playElementFx(s.stage, { kind: 'electrocute', durationMs: 1000, repeat: 0 }, host);
+			let pad = 0;
+			for (let i = 0; i < 60; i++) {
+				s.advance(16);
+				for (const f of last(s) ?? []) pad = Math.max(pad, f.padding);
+			}
+			s.unbind();
+			return pad;
+		};
+		const viewPad = Math.ceil(0.15 * Math.max(VIEW.width, VIEW.height)) + 2;
+		assert(
+			widest(VIEW) >= viewPad && widest(undefined) < viewPad,
+			'stage mode plays over the host’s viewport, not a shared renderer’s screen',
+		);
 	}
 	{
 		// The game's adapter: the post FX in the stage filter owner's slot.
@@ -3653,7 +3683,11 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 	}
 
 	console.log('element fx — post FX in the doc (settings.postFx, stageFxAntialias)');
-	const judge = { refusal: stageFxRefusal, filters: stageFxFilterCount };
+	const judge = stageFxJudge;
+	assert(
+		judge.refusal === stageFxRefusal && judge.filters === stageFxFilterCount,
+		'the stage’s judge is its own refusal and filter count',
+	);
 	const warnings: string[] = [];
 	const warn = console.warn;
 	console.warn = (...args: unknown[]) => void warnings.push(args.map(String).join(' '));
@@ -3744,6 +3778,25 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 			'with the judge, an unregistered custom kind is dropped with a warning and takes no place: the next two play',
 		);
 		warnings.length = 0;
+		const told: string[] = [];
+		const kept = readPostFx(
+			{
+				postFx: [
+					{ id: 'gone', kind: 'custom:deleted', trigger: 'always' },
+					{ id: 'b', kind: 'fadeOut', trigger: 'always' },
+					{ id: 'c', kind: 'glow', trigger: 'always' },
+				],
+			},
+			judge,
+			(entry, why) => told.push(`${entry.id}: ${why}`),
+		);
+		assert(
+			kept.map((e) => e.id).join() === 'c' &&
+				warnings.length === 0 &&
+				told.join(' | ') === `gone: its effect is not registered | b: ${stageFxRefusal('fadeOut')}`,
+			'a caller that asks is told why each entry does not play (the Scene Editor), and nothing is warned',
+		);
+		warnings.length = 0;
 		const doc = {
 			jurisdiction: 'UK',
 			postFx: [
@@ -3785,9 +3838,7 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 			/\{#key postFx\}\s*\{#if postFx\.length\}\s*<ElementFxPlayer entries=\{postFx\} \/>\s*\{\/if\}\s*\{\/key\}/.test(
 				game,
 			) &&
-			game.includes(
-				'readPostFx(editorDoc.settings, { refusal: stageFxRefusal, filters: stageFxFilterCount })',
-			) &&
+			game.includes('readPostFx(editorDoc.settings, stageFxJudge)') &&
 			ELEMENT_FX_STAGE_TARGET === 'stage' &&
 			/const app = stateApp\.pixiApplication;\s*if \(app\) return bindStagePostFx\(app\);/.test(
 				game,
@@ -3808,10 +3859,10 @@ console.log('element fx — the wiring');
 		'a node with FX renders in one container that sorts as the node did',
 	);
 	assert(
-		/<Anchor name=\{node\.id\} \/>\s*\{#if transform\.visible && revealed\}\s*<ElementFxPlayer/.test(
+		/\{#if ownAnchor\}<Anchor name=\{node\.id\} \/>\{\/if\}\s*\{#if transform\.visible && revealed\}\s*<ElementFxPlayer/.test(
 			view,
 		),
-		'anchored by node id, playing only while shown',
+		'anchored by node id (a reserved `reels` / `stage` id excepted), playing only while shown',
 	);
 	assert(
 		/\{:else\}\s*\{@render listened\(\)\}\s*\{\/if\}\s*$/.test(view.trim() + '\n'),

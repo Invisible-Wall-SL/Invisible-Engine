@@ -872,6 +872,11 @@ compiled effect, and steps 3 and 7 build on both.
      - the pages played headless: set a post FX, preview, save, reopen identical; set the cue row;
        place a transition in a flow, save, publish.
    - **Exit:** an author sets both in the Scene Editor and places one in the Flow.
+   - **As built (8e.6).** The editor reads post FX through the game's own `readPostFx` and
+     `stageFxJudge`. Built-ins are costed as their graph twin for both rows. The cue row's ▶ plays
+     into the screens shown now or a chosen screen. Reserved ids are not migrated: stored ids stay,
+     the game gives a reserved id no node anchor (a reel grid called `reels` excepted) and the
+     editor warns.
 7. **`/shaders`: Made for transitions and post FX, the Two screens and Stage previews** (launcher
    and engine).
    - **Contents:**

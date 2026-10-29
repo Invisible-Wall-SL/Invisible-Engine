@@ -12,7 +12,7 @@
 		readElementFxEntries,
 		setCustomElementFx,
 	} from 'constants-shared/elementFx';
-	import { bindStagePostFx, stageFxFilterCount, stageFxRefusal } from 'pixi-svelte/elementFx';
+	import { bindStagePostFx, stageFxJudge } from 'pixi-svelte/elementFx';
 	import { setStageFxAntialias } from 'pixi-svelte/screenFx';
 	import { setParticleTimeScale } from 'pixi-svelte/particleClock';
 	import {
@@ -1191,9 +1191,7 @@
 		readElementFxEntries(findReelGridNode(editorDoc)?.elementFx).filter((e) => !e.disabled),
 	);
 	// Post FX: the doc's Element FX on the whole stage, played by a player at the root.
-	const postFx = $derived(
-		readPostFx(editorDoc.settings, { refusal: stageFxRefusal, filters: stageFxFilterCount }),
-	);
+	const postFx = $derived(readPostFx(editorDoc.settings, stageFxJudge));
 	// They (and a Flow's on `stage`) fill the stage filter owner's post FX slot; the project's
 	// `stageFxAntialias` keeps the canvas's anti-aliasing under every stage filter. Both are no-ops
 	// while nothing filters the stage.

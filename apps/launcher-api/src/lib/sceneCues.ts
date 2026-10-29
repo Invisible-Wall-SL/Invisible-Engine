@@ -1,7 +1,13 @@
 import { elementFxCueNames, readElementFxEntries } from 'constants-shared/elementFx';
 import type { CueDecl, TemplateVocabulary } from 'engine-flow-v2';
 import { engineSignalsForKind } from 'engine-layout';
-import type { ComponentDef, KindCapabilityConfig, LayoutNode, Scene } from 'engine-layout';
+import type {
+	ComponentDef,
+	GameSettings,
+	KindCapabilityConfig,
+	LayoutNode,
+	Scene,
+} from 'engine-layout';
 
 /**
  * Signal names the GAME drives for a project of `gameType`, so a flow must not offer to fire them.
@@ -56,6 +62,9 @@ const gameDrivenSignals = (
  * once, nested instances included, so a component that contains itself cannot loop. Without the defs
  * (they live in R2, which this pure helper does not read) only the scenes' own nodes count.
  *
+ * Given the doc's `settings`, its POST FX cues too (`settings.postFx`, Shader Graph 8e): a post FX
+ * plays on a cue on the same bus, so a flow fires it like any other Element FX cue.
+ *
  * Names the game drives for the project's kind ({@link gameDrivenSignals}) are excluded: they work
  * on the node but are not flow-fireable, so offering them in the palette would author a dead node.
  */
@@ -64,6 +73,7 @@ export function collectSceneCueNames(
 	components: readonly ComponentDef[] = [],
 	gameType?: string,
 	config?: KindCapabilityConfig,
+	settings?: Pick<GameSettings, 'postFx'>,
 ): string[] {
 	const gameDriven = gameDrivenSignals(gameType, config);
 	const defs = new Map<string, ComponentDef[]>();
@@ -101,6 +111,7 @@ export function collectSceneCueNames(
 		addFx(scene.elementFx);
 		walk(scene.nodes ?? []);
 	}
+	addFx(settings?.postFx);
 	return [...names].sort();
 }
 

@@ -24,7 +24,7 @@ check sets its caps. 8e (screen transitions and post FX) is decided
 ([design](../design/shader-graph-screens.md)) and being built as 8e.1–8e.8; 8e.1 (the screen
 shell and the Screens node) is merged (#1440); 8e.2 (the stage filter owner and the transition
 runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 (transitions in the game) is merged (#1461);
-8e.5–8e.8 are in progress.
+8e.6 (authoring in the Scene Editor and the Flow) is in review; 8e.5, 8e.7 and 8e.8 are in progress.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -289,10 +289,37 @@ runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 
   - **8e, screen transitions and post FX.** Decided 2026-10-28
     ([shader-graph-screens.md](../design/shader-graph-screens.md) §16: every recommendation, except
     that anti-aliasing under a stage effect is a project setting, off by default). Built as
-    8e.1–8e.8, one PR each (its §15). 8e.1–8e.4 are merged; 8e.5–8e.8 are
+    8e.1–8e.8, one PR each (its §15). 8e.1–8e.4 are merged; 8e.6 is in review; 8e.5, 8e.7 and 8e.8 are
     in progress (each built in phases on its own branch, merging in the order 8e.3, 8e.4, 8e.6, 8e.5,
     8e.7, 8e.8: 8e.5 proves the ship chain end to end only once 8e.4 and 8e.6 put `transitionCue`
     and `postFx` through the layout reader, which today drops them).
+    - **8e.6, authoring in the Scene Editor and the Flow.** In review (2026-10-29).
+      - **Game Settings → Screen FX** (`editor/EditorScreenFx.svelte`, `$lib/screenFx.ts`): post FX
+        entries, the **Anti-aliasing under stage effects** switch, and the transition cue row (the
+        wipe, a built-in exit kind or a project effect, with duration and strength). Its status line
+        reads `transitionCueStatus` (off / screen / unplayable) and warns when the saved flow never
+        fires `transition` (`$lib/transitionCueFlow.ts`; Game Maker chip `transitionCueUnfired`).
+        `normalizeGameSettings` / `buildGameSettings` now carry `postFx`, `stageFxAntialias` and
+        `transitionCue` (before, an editor save dropped `transitionCue` and the server `postFx`).
+      - **The editor shows what the game plays.** The block and `Game.svelte` both read through
+        `readPostFx(settings, stageFxJudge)`; `readPostFx` gains a `drop` callback so every
+        refusal shows in the reader's words. ▶ is off on a refused row.
+      - **The load line** costs a built-in as its Shader Graph twin (§10), for transitions and post
+        FX alike (`builtinOrCompiledCost`); a break, a kind with no twin or a twin drawing a
+        built-in pass shows none. Custom effects show a cost from 8e.7.
+      - **▶ on the stage** (`editor/stagePreview.client.ts`, `EditorCanvas.svelte`): plays a post FX
+        entry in stage mode and the cue row's transition through the game's runtime, on the shared
+        renderer (`createPixiSurface`); the cue row plays into the screens shown now or a chosen
+        screen. pixi-svelte gains a `StageApp` type and `ElementFxHost.screen` (the same object as
+        before for the game).
+      - **Reserved ids** (`ELEMENT_FX_RESERVED_IDS`: `stage`, `reels`). Stored ids are never
+        changed: in the game a reserved id registers no node anchor (a reel grid called `reels`
+        keeps behaving as before), the target list never offers one, and Properties warns on such a
+        node. The editor mints only `n_…` / `c_…` ids, so there is no write path to refuse.
+      - **`/flow-v2`**: the `screenTransition` inspector (kinds grouped, cost, hint, "Open in Shader
+        Graph"), `stage` in the target list with refusals flagged (`stage-fx-refused`, a warning),
+        validator info `screen-transition-unwaited`, Preview lengths for a blocking transition and
+        a wait, and a note when the cue row is on but the flow never fires `transition`.
     - **8e.4, transitions in the game: the Flow actions and the transition cue.** Merged
       (#1461, 2026-10-29).
       - **The Flow.** `screenTransition` (kind, durationMs, intensity, color, reverse, blocking —
@@ -321,8 +348,7 @@ runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 
         starts later in a slammed round plays in full.
       - **Free-spin exit stays as is** (owner, 2026-10-29): the screen has already changed when
         the cue fires, so that transition plays over the base game.
-      - **Left:** the editor row and the save path for `transitionCue` (8e.6: an editor save
-        drops it today).
+      - **The editor row and its save path** came in 8e.6.
     - **8e.3, post FX on the stage.** Merged (#1459, 2026-10-29). A game plays `settings.postFx`.
       - **Stage mode** (`pixi-svelte` `elementFx/stage.ts`). An Element FX entry on the `stage`
         target (`ELEMENT_FX_STAGE_TARGET`, a children-less `Anchor` in `Game.svelte`) fills the
@@ -339,9 +365,8 @@ runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 
         `setStageFxAntialias` (§16.10, off by default).
       - **`?fxdebug=1`** logs each post FX as it starts, is refused and ends. The load line waits
         for 8e.7 (`cost` is absent until then).
-      - **Left:** the layout reader (`normalizeGameSettings`) still drops `postFx` (8e.6 puts it
-        through); reserving the `stage` and `reels` ids in the editor is 8e.6's; the `fxdebug` cost
-        baseline is 8e.7's.
+      - **Left:** the `fxdebug` cost baseline is 8e.7's. (The layout reader carries `postFx` and
+        the reserved ids are handled from 8e.6.)
     - **8e.2, the stage filter owner and the transition runtime.** Merged (#1454, 2026-10-28).
       A game calls it from 8e.4.
       - **The owner** (`pixi-svelte/screenFx` `stageFilters.ts`). One owner for `app.stage.filters`
@@ -807,6 +832,20 @@ runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 
   the §10 caps (Open items #1).
 
 ## Recent changes
+- 2026-10-29 — **Step 8e.6: authoring in the Scene Editor and the Flow** (see "Current state").
+  In review.
+  - **Proof.** `check:screen-fx-editor` 77; `check:element-fx-flow` 31 (both run in CI's Checks
+    shards: the `stage` target, reserved ids keep their stored id and get no anchor, a flow naming a
+    `reels` placement still passes the shipped-flow gate); `check:doc-readers-unknown-fields` 304;
+    fx-spike `screen-fx-editor` 35 (set the cue row, ▶ a post FX in stage mode, Esc restores the
+    stage, ▶ the cue into the free-spin intro and Esc before it lands, save, reopen identical) and
+    `screen-fx-flow` 14 (place a transition, kinds, cost, stage flags, autosave, the real flow
+    gate, Preview lengths); flow-spike `v2screentransition` §7–8; `check:flow-publish-gate`;
+    `check:shader-pipeline` 149; svelte-check at baseline; `check:all` 605/605.
+  - **Review.** Blocking, fixed: the first build renamed a node called `stage`/`reels` on every
+    read, which would have broken Flow instance references (a publish-blocking error) and
+    re-published games; now stored ids are never changed and reserved names win in the game.
+    Also fixed: a cancelled transition ▶ could leave a hidden screen drawn; built-in post FX had no load line (owner's call: twin cost, as transitions).
 - 2026-10-29 — **Step 8e.4: transitions in the game — the Flow actions and the transition cue**
   (see "Current state"). Merged (#1461): CI green; Current games 8 pass, 0 fail, 0
   changed screens.

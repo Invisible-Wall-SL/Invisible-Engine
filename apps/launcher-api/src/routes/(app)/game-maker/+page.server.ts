@@ -44,6 +44,10 @@ import { offeredGameKinds, RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/
 import { loadDocWithEtag } from '$lib/server/editorStorage';
 import { loadComponent } from '$lib/server/componentStorage';
 import { loadCustomElementFx } from '$lib/server/shaderStorage';
+import { flowFiresTransitionWith } from '$lib/transitionCueFlow';
+import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
+import { loadFlowV2LibraryWithEtag } from '$lib/server/flowV2LibraryStorage';
+import type { FunctionLibraryDoc } from 'engine-flow-v2';
 import { authoredOverlayChips } from '$lib/server/authoredWinTiers';
 import { buildGameProfile } from '$lib/server/gameProfile';
 import { listGames } from '$lib/server/games';
@@ -203,6 +207,13 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 	// Which projects already have a registered (published) game + its launch URL,
 	// so the page can show "Re-publish" + the current play link.
 	const gamesByKey = new Map(games.map((g) => [g.key, g]));
+	// The shared Flow function library, read at most once for the page (a `transition` cue row's
+	// chip looks through the functions a flow calls).
+	let flowLibrary: Promise<FunctionLibraryDoc | null> | undefined;
+	const sharedFlowLibrary = (): Promise<FunctionLibraryDoc | null> =>
+		(flowLibrary ??= loadFlowV2LibraryWithEtag()
+			.then((r) => r.lib)
+			.catch(() => null));
 	const projects = await Promise.all(
 		accessible.map(async (p) => {
 			const game = gamesByKey.get(p.key);
@@ -267,6 +278,15 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 					authoredButtons,
 				};
 			};
+			// The row plays only if the flow fires `transition`: a stored flow that never does gets a
+			// warning chip (read only for a project whose row is on).
+			const chips = layout ? layoutChips(layout) : null;
+			const transitionCueUnfired =
+				chips?.transitionCue === 'screen' &&
+				(await flowFiresTransitionWith(
+					await loadFlowV2Doc(clientKey, p.key).catch(() => null),
+					sharedFlowLibrary,
+				)) === false;
 			const profile = buildGameProfile({
 				gameTypeId: p.gameType,
 				gameTypeName: kindNames.get(p.gameType) ?? p.gameType,
@@ -275,7 +295,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				symbols,
 				runtimeId: engine.runtimeId,
 				protocol: entry?.protocol ?? null,
-				layout: layout ? layoutChips(layout) : null,
+				layout: chips ? { ...chips, transitionCueUnfired } : null,
 			});
 
 			return {

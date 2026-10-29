@@ -57,7 +57,12 @@ You are the developer for **Invisible Shader Graph**.
     and limits in `constants-shared/screenTransition.ts`, the game seam
     `apps/lines/src/game/screenTransitions.ts` + `screenTransitionsBinding.ts`, the transition cue
     (`transitionCueStatus` in `engine-layout` `authoredOverlays.ts`), held by
-    `scripts/transition-parity` (cue-row variant) and `check:authored-transition`.
+    `scripts/transition-parity` (cue-row variant) and `check:authored-transition`; authoring (8e.6): Game Settings → Screen FX
+    (`editor/EditorScreenFx.svelte`, `$lib/screenFx.ts`, `$lib/transitionCueFlow.ts`), ▶ on the
+    stage (`editor/stagePreview.client.ts`), the reserved ids (`ELEMENT_FX_RESERVED_IDS`), the
+    `/flow-v2` inspector and `stage-fx-refused` (`$lib/flowScreenFx.ts`), held by
+    `check:screen-fx-editor`, `check:element-fx-flow` and fx-spike `screen-fx-editor` /
+    `screen-fx-flow`.
   - Particle materials (step 8d, `docs/design/shader-graph-particles.md`):
     `packages/constants-shared/particleShell.ts` (the particle vertex shader, `PARTICLE_HEADER`,
     `PARTICLE_SHELL_NAMES`, `particleShellSource`: a compiled body made a particle fragment); the

@@ -20,18 +20,26 @@ export interface PostFxJudge {
 const settingOf = (settings: unknown, key: string): unknown =>
 	settings && typeof settings === 'object' ? (settings as Record<string, unknown>)[key] : undefined;
 
+/** Told why an entry does not play, in the reader's words. */
+export type PostFxDropped = (entry: ElementFxEntry, why: string) => void;
+
+const warnDropped: PostFxDropped = (entry, why) =>
+	console.warn(`Post FX: "${entry.id}" (${entry.kind}) does not play: ${why}.`);
+
 /**
  * `settings.postFx` as the game plays it (`shader-graph-screens.md` §8, §10): read as any Element FX
- * list, then, in order, an entry is dropped with a warning when its trigger is neither `always` nor
- * `cue`, when its kind is not registered (with a judge), when the stage refuses its kind, or when it
- * would pass {@link STAGE_FX_LIMITS} (two entries, four filters). A disabled entry is dropped and
- * counts for nothing.
+ * list, then, in order, an entry is dropped when its trigger is neither `always` nor `cue`, when
+ * its kind is not registered (with a judge), when the stage refuses its kind, or when it would
+ * pass {@link STAGE_FX_LIMITS} (two entries, four filters), each told to `drop` (a console warning
+ * unless given). A disabled entry is dropped and counts for nothing.
  */
-export function readPostFx(settings: unknown, judge?: PostFxJudge): ElementFxEntry[] {
+export function readPostFx(
+	settings: unknown,
+	judge?: PostFxJudge,
+	drop: PostFxDropped = warnDropped,
+): ElementFxEntry[] {
 	const out: ElementFxEntry[] = [];
 	let filters = 0;
-	const drop = (entry: ElementFxEntry, why: string): void =>
-		console.warn(`Post FX: "${entry.id}" (${entry.kind}) does not play: ${why}.`);
 	for (const entry of readElementFxEntries(settingOf(settings, 'postFx'))) {
 		if (entry.disabled) continue;
 		if (!(STAGE_FX_TRIGGERS as readonly string[]).includes(entry.trigger)) {

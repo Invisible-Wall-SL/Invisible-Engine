@@ -102,10 +102,16 @@
 	import EditorOutline from './EditorOutline.svelte';
 	import EditorProperties, { SIGNAL_SUGGESTIONS_ID } from './EditorProperties.svelte';
 	import EditorElementFx from './EditorElementFx.svelte';
+	import EditorScreenFx from './EditorScreenFx.svelte';
+	import { screenFxSettings } from '$lib/screenFx';
 	import EditorWorldCamera from './EditorWorldCamera.svelte';
 	import { setSceneWorldOn } from '$lib/editor/worldCameraEdit';
-	import { playElementFxPreview } from './elementFxPreview.client.svelte';
+	import {
+		playElementFxPreview,
+		playScreenTransitionPreview,
+	} from './elementFxPreview.client.svelte';
 	import type { ElementFxEntry } from 'constants-shared/elementFx';
+	import type { ScreenTransitionSpec } from 'constants-shared/screenTransition';
 	import EditorTemplatePanel from './EditorTemplatePanel.svelte';
 	import PanelResizers from './PanelResizers.svelte';
 	import PanelSection from './PanelSection.svelte';
@@ -1273,14 +1279,22 @@
 		animateVisited = true;
 	}
 
+	/** The screen the transition cue's ▶ plays into (Game Settings → Screen FX). */
+	let transitionPreviewScene = $state<string | null>(null);
 	/** What the canvas hides: the eye toggles plus whatever In-game view leaves off — and, while
 	 *  the Outline isolates a node, every other screen. */
-	const canvasHiddenScenes = $derived(
+	const screensOffStage = $derived(
 		isolating
 			? new Set(scenes.filter((s) => s.id !== activeScene?.id).map((s) => s.id))
 			: offInGameView.size === 0
 				? hiddenScenes
 				: new Set([...hiddenScenes, ...offInGameView]),
+	);
+	/** …less the screen the transition cue's ▶ is playing into, shown for that play. */
+	const canvasHiddenScenes = $derived(
+		transitionPreviewScene && screensOffStage.has(transitionPreviewScene)
+			? new Set([...screensOffStage].filter((id) => id !== transitionPreviewScene))
+			: screensOffStage,
 	);
 	/** The scene the canvas/outline/properties edit (the active doc scene). */
 	const editScene = $derived(activeScene);
@@ -2839,6 +2853,13 @@
 	let authoredWin = $state<boolean>(data.doc.settings?.authoredOverlays?.win === true);
 	let authoredFreeSpins = $state<boolean>(data.doc.settings?.authoredOverlays?.freeSpins === true);
 	let authoredButtons = $state<boolean>(data.doc.settings?.authoredOverlays?.buttons === true);
+	// Screen FX (Shader Graph 8e): the transition cue row, the post FX list and the stage
+	// anti-aliasing switch. Off, and absent from the doc, unless set.
+	let transitionCue = $state.raw<ScreenTransitionSpec | undefined>(
+		data.doc.settings?.transitionCue,
+	);
+	let postFx = $state.raw<ElementFxEntry[] | undefined>(data.doc.settings?.postFx);
+	let stageFxAntialias = $state<boolean>(data.doc.settings?.stageFxAntialias === true);
 
 	// The project's own BOOT SPLASH — the second pre-game screen, after the admin-owned engine
 	// mark. A blank bundle means "no game splash", so the panel needs no separate clear button.
@@ -2864,7 +2885,11 @@
 		});
 		const authoredOverlays =
 			authoredTransition || authoredWin || authoredFreeSpins || authoredButtons;
-		if (jurisdiction === 'default' && allOn && !bootLoader && !authoredOverlays) return undefined;
+		const screenFx = screenFxSettings({ transitionCue, postFx, stageFxAntialias });
+		const screenFxSet = Object.keys(screenFx).length > 0;
+		if (jurisdiction === 'default' && allOn && !bootLoader && !authoredOverlays && !screenFxSet) {
+			return undefined;
+		}
 		const settings: GameSettings = {};
 		if (jurisdiction !== 'default') settings.jurisdiction = jurisdiction;
 		if (!allOn) {
@@ -2884,6 +2909,7 @@
 				...(authoredButtons ? { buttons: true } : {}),
 			};
 		}
+		Object.assign(settings, screenFx);
 		return settings;
 	}
 
@@ -4455,6 +4481,40 @@
 										<span>Buttons</span>
 									</label>
 								{/if}
+
+								<hr class="gs-rule" />
+								<EditorScreenFx
+									{transitionCue}
+									onTransitionCueChange={(next) => {
+										transitionCue = next;
+										onGameSettingChange();
+									}}
+									flowFiresTransition={data.flowFiresTransition}
+									previewTransition={(spec, into) =>
+										playScreenTransitionPreview({
+											spec,
+											antialias: stageFxAntialias,
+											reveal: into
+												? (on) => (transitionPreviewScene = on ? into : null)
+												: undefined,
+										})}
+									offStageScreens={scenes
+										.filter((s) => screensOffStage.has(s.id))
+										.map((s) => ({ id: s.id, name: s.name || s.id }))}
+									previewPostFx={(entry) =>
+										playElementFxPreview({ kind: 'stage', antialias: stageFxAntialias }, entry)}
+									{postFx}
+									onPostFxChange={(next) => {
+										postFx = next;
+										onGameSettingChange();
+									}}
+									antialias={stageFxAntialias}
+									onAntialiasChange={(on) => {
+										stageFxAntialias = on;
+										onGameSettingChange();
+									}}
+									cueListId={SIGNAL_SUGGESTIONS_ID}
+								/>
 
 								<hr class="gs-rule" />
 								<p class="gs-note">

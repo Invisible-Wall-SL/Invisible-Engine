@@ -1,4 +1,5 @@
 import { findElementFxSpec, type ElementFxEntry } from 'constants-shared/elementFx';
+import type { ScreenTransitionSpec } from 'constants-shared/screenTransition';
 import { playElementFx, type ElementFxHandle, type ElementFxPose } from 'pixi-svelte/elementFx';
 import { Container, Matrix, Rectangle, Sprite, Texture, Ticker, UPDATE_PRIORITY } from 'pixi.js';
 import { createPixiSurface, sharedPixiRenderer } from './sharedGl.client';
@@ -22,11 +23,17 @@ import { createPixiSurface, sharedPixiRenderer } from './sharedGl.client';
  * real node hidden only while the effect is past its rest.
  *
  * Every mounted `EditorCanvas` (the Screens side and the Components side) adds a handler; the first
- * whose stage is showing and holds the target plays it. One preview at a time; never saved.
+ * whose stage is showing and holds the target plays it. One preview at a time; never saved. The
+ * Screen FX block's ▶ plays on the whole stage the same way (`{ kind: 'stage' }` for a post FX,
+ * {@link playScreenTransitionPreview} for the `transition` cue's row), through the game's runtime
+ * on a Pixi app of its own (`stagePreview.client.ts`).
  */
 
+/** What ▶ plays on: a node, a screen, or the whole stage (a post FX, `stagePreview.client.ts`). */
 export type ElementFxPreviewTarget =
-	{ kind: 'node'; id: string } | { kind: 'screen'; sceneId: string };
+	| { kind: 'node'; id: string }
+	| { kind: 'screen'; sceneId: string }
+	| { kind: 'stage'; antialias?: boolean };
 
 /**
  * A canvas's preview of `entry` on `target`: the function that cancels it, or null when the target
@@ -39,7 +46,24 @@ export type ElementFxPreviewHandler = (
 	finished: () => void,
 ) => (() => void) | null;
 
+/** What the `transition` cue's ▶ asks for: the row, and how to show the screen it plays into. */
+export interface ScreenTransitionPreview {
+	spec: ScreenTransitionSpec;
+	/** Show (`true`) or take back (`false`) the screen the transition reveals; unset ⇒ it reveals
+	 *  the stage as it is. */
+	reveal?: (on: boolean) => void;
+	/** The project's "Anti-aliasing under stage effects". */
+	antialias?: boolean;
+}
+
+/** A canvas's preview of a transition: as {@link ElementFxPreviewHandler}. */
+export type ScreenTransitionPreviewHandler = (
+	preview: ScreenTransitionPreview,
+	finished: () => void,
+) => (() => void) | null;
+
 const handlers: ElementFxPreviewHandler[] = [];
+const transitionHandlers: ScreenTransitionPreviewHandler[] = [];
 let current: { cancel: () => void } | null = null;
 
 /** Offer a canvas's handler; the returned function withdraws it (call it on unmount). */
@@ -58,18 +82,14 @@ function stopElementFxPreview(): void {
 	run?.cancel();
 }
 
-/**
- * Play `entry` on `target` on the stage, replacing any preview playing. False when no stage shows
- * the target: its screen is hidden, or it or a container above it is.
- */
-export function playElementFxPreview(
-	target: ElementFxPreviewTarget,
-	entry: ElementFxEntry,
+/** Start a preview through the first handler that takes it, replacing any preview playing. */
+function startPreview(
+	attempts: readonly ((finished: () => void) => (() => void) | null)[],
 ): boolean {
 	stopElementFxPreview();
-	for (let i = handlers.length - 1; i >= 0; i--) {
+	for (let i = attempts.length - 1; i >= 0; i--) {
 		const run = { cancel: () => {} };
-		const cancel = handlers[i](target, entry, () => {
+		const cancel = attempts[i](() => {
 			if (current === run) current = null;
 		});
 		if (!cancel) continue;
@@ -79,6 +99,34 @@ export function playElementFxPreview(
 	}
 	return false;
 }
+
+/**
+ * Play `entry` on `target` on the stage, replacing any preview playing. False when no stage shows
+ * the target: its screen is hidden, or it or a container above it is.
+ */
+export const playElementFxPreview = (
+	target: ElementFxPreviewTarget,
+	entry: ElementFxEntry,
+): boolean => startPreview(handlers.map((handler) => (done) => handler(target, entry, done)));
+
+/** Offer a canvas's transition handler; the returned function withdraws it. */
+export function addScreenTransitionPreviewHandler(
+	handler: ScreenTransitionPreviewHandler,
+): () => void {
+	transitionHandlers.push(handler);
+	return () => {
+		const index = transitionHandlers.indexOf(handler);
+		if (index >= 0) transitionHandlers.splice(index, 1);
+	};
+}
+
+/**
+ * Play the `transition` cue's row on the stage, replacing any preview playing: the stage as it is
+ * now is frozen, the screen `reveal` shows comes in under it, and the transition plays between
+ * them. False when no stage is showing.
+ */
+export const playScreenTransitionPreview = (preview: ScreenTransitionPreview): boolean =>
+	startPreview(transitionHandlers.map((handler) => (done) => handler(preview, done)));
 
 /** Settles after `count` animation frames: what the stage's layers take to redraw a change. */
 export function afterFrames(count: number): Promise<void> {
@@ -117,6 +165,9 @@ export interface StillSource {
 	/** Backing-store pixels per CSS px. */
 	scaleX: number;
 	scaleY: number;
+	/** How it lays over what is under it (its CSS opacity and blend mode); unset ⇒ as drawn. */
+	alpha?: number;
+	blend?: GlobalCompositeOperation;
 }
 
 /** `canvas` as laid out on the stage whose top-left is `origin`; null while it has no size. */
@@ -142,6 +193,8 @@ export function drawStill(
 	if (!ctx) return false;
 	ctx.clearRect(0, 0, still.width, still.height);
 	for (const s of sources) {
+		ctx.globalAlpha = s.alpha ?? 1;
+		ctx.globalCompositeOperation = s.blend ?? 'source-over';
 		ctx.drawImage(
 			s.canvas,
 			(rect.x - s.x) * s.scaleX,
@@ -154,6 +207,8 @@ export function drawStill(
 			still.height,
 		);
 	}
+	ctx.globalAlpha = 1;
+	ctx.globalCompositeOperation = 'source-over';
 	return true;
 }
 
@@ -186,7 +241,7 @@ const ALWAYS_PLAYS = 2;
 /** At most this many plays of a counted entry ("until stopped" included). */
 const MAX_PLAYS = 3;
 /** Marks an overlay's host: a still never copies another preview's overlay. */
-const OVERLAY_ATTR = 'data-element-fx-overlay';
+export const OVERLAY_ATTR = 'data-element-fx-overlay';
 
 /** Whether `canvas` is an Element FX overlay's, not a stage surface. */
 export function isFxOverlayCanvas(canvas: Element): boolean {
@@ -199,9 +254,23 @@ const COMPOSITE: Record<string, GlobalCompositeOperation> = {
 	'plus-lighter': 'lighter',
 };
 
+/** How `canvas` lays over the stage under it: its opacity and blend mode, or null when it does
+ *  not show (no display, hidden, or fully transparent). */
+export function layerLook(
+	canvas: HTMLCanvasElement,
+): { alpha: number; blend: GlobalCompositeOperation } | null {
+	const style = getComputedStyle(canvas);
+	const alpha = Number.parseFloat(style.opacity);
+	if (style.display === 'none' || style.visibility === 'hidden' || alpha === 0) return null;
+	return {
+		alpha: Number.isFinite(alpha) ? alpha : 1,
+		blend: COMPOSITE[style.mixBlendMode] ?? (style.mixBlendMode as GlobalCompositeOperation),
+	};
+}
+
 /** Where `el` paints in `stage`: the z-index of the nearest element (itself included) under the
  *  stage that sets one, else 0. DOM order breaks ties. */
-function stackZ(el: Element, stage: HTMLElement): number {
+export function stackZ(el: Element, stage: HTMLElement): number {
 	for (let at: Element | null = el; at && at !== stage; at = at.parentElement) {
 		const z = Number.parseInt(getComputedStyle(at).zIndex, 10);
 		if (Number.isFinite(z)) return z;
@@ -230,13 +299,11 @@ export function coverStage(stage: HTMLElement, zIndex: number): () => void {
 		.map((canvas, order) => ({ canvas, order, z: stackZ(canvas, stage) }))
 		.sort((a, b) => a.z - b.z || a.order - b.order);
 	for (const { canvas } of layers) {
-		const style = getComputedStyle(canvas);
-		const alpha = Number.parseFloat(style.opacity);
+		const look = layerLook(canvas);
 		const at = stageSource(canvas, origin);
-		if (!at || style.display === 'none' || style.visibility === 'hidden' || alpha === 0) continue;
-		ctx.globalAlpha = Number.isFinite(alpha) ? alpha : 1;
-		ctx.globalCompositeOperation =
-			COMPOSITE[style.mixBlendMode] ?? (style.mixBlendMode as GlobalCompositeOperation);
+		if (!at || !look) continue;
+		ctx.globalAlpha = look.alpha;
+		ctx.globalCompositeOperation = look.blend;
 		ctx.drawImage(
 			canvas,
 			at.x * resolution,

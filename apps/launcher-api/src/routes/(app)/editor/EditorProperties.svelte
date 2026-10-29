@@ -104,7 +104,7 @@
 	} from './instanceParamForwarding';
 	import { placedEffect } from './placedEffects.client.svelte';
 	import { playElementFxPreview } from './elementFxPreview.client.svelte';
-	import type { ElementFxEntry } from 'constants-shared/elementFx';
+	import { isReservedElementFxId, type ElementFxEntry } from 'constants-shared/elementFx';
 	import { keyingFor, type KeyField, type KeyingPanel } from './animateKeying.client.svelte';
 	import {
 		relativeChannelValue,
@@ -6206,6 +6206,14 @@
 			rigMeta={node.kind === 'spine' ? rigMetaFor(node.assetKey) : undefined}
 			onChange={markDirty}
 		/>
+	{/if}
+	{#if node.kind !== 'reelGrid' && isReservedElementFxId(node.id)}
+		<p class="muted small warn" data-reserved-id>
+			This node's id is <code>{node.id}</code>, which in the Flow means {node.id === 'stage'
+				? 'the whole stage'
+				: 'the reels'}: a Flow Element FX aimed at <code>{node.id}</code> plays there, not on this node.
+			Its own Element FX still play. Duplicate it to give the copy an id the Flow can aim at.
+		</p>
 	{/if}
 	<!-- Keyed by node: which rows are open is per element (entry ids repeat across nodes). -->
 	{#key node.id}

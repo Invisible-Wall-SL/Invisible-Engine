@@ -34,7 +34,9 @@
 		"fx-page": "node fxPage.mjs",
 		"nine-slice-parity": "node nineSliceParity.mjs",
 		"fx-previews": "node fxPreviews.mjs",
-		"shader-page": "node shaderPage.mjs"
+		"shader-page": "node shaderPage.mjs",
+		"screen-fx-editor": "node screenFxEditor.mjs",
+		"screen-fx-flow": "node screenFxFlow.mjs"
 	},
 	"devDependencies": {
 		"tsx": "4.23.15",

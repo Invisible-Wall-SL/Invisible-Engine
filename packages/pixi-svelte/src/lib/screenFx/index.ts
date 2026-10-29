@@ -13,6 +13,7 @@ export {
 	setStageFxAntialias,
 	stageFilters,
 	stagePostFxSlot,
+	type StageApp,
 	type StageFilterSlot,
 	type StagePostFxSlot,
 } from './stageFilters';

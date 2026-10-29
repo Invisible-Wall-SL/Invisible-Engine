@@ -194,21 +194,30 @@
 	import type { ElementFxEntry } from 'constants-shared/elementFx';
 	import {
 		addElementFxPreviewHandler,
+		addScreenTransitionPreviewHandler,
 		afterFrames,
 		captureStill,
 		coverStage,
 		drawStill,
 		intersectRect,
 		isFxOverlayCanvas,
+		layerLook,
 		playOnStill,
 		posedPastRest,
 		poseOnStill,
+		stackZ,
 		stageSource,
 		type ElementFxPreviewTarget,
 		type PosedOverlay,
+		type ScreenTransitionPreview,
 		type StageRect,
 		type StillSource,
 	} from './elementFxPreview.client.svelte';
+	import {
+		playPostFxOnStage,
+		playTransitionOnStage,
+		type StageOverlay,
+	} from './stagePreview.client';
 	import { findById, flattenSceneIds } from './layoutTree.client';
 	import {
 		isTypingTarget,
@@ -6506,7 +6515,10 @@
 	}
 
 	/** The still of `target` on screen `s`, or null when this stage does not show it. */
-	function fxStillPlan(s: Scene, target: ElementFxPreviewTarget): FxStillPlan | null {
+	function fxStillPlan(
+		s: Scene,
+		target: Exclude<ElementFxPreviewTarget, { kind: 'stage' }>,
+	): FxStillPlan | null {
 		if (!wrap || !canvas || hiddenSceneIds.has(s.id)) return null;
 		const hud = isHudScene(s);
 		// The HUD screens share their surfaces, so a HUD still also hides the other HUD screens.
@@ -6579,6 +6591,12 @@
 		entry: ElementFxEntry,
 		finished: () => void,
 	): (() => void) | null {
+		if (target.kind === 'stage') {
+			return previewOnStage((overlay) => playPostFxOnStage({ ...overlay, entry }), finished, {
+				live: true,
+				antialias: target.antialias === true,
+			});
+		}
 		const stage = wrap;
 		if (!stage || stage.clientWidth === 0 || stage.clientHeight === 0) return null;
 		const s = scenes.find((x) =>
@@ -6684,6 +6702,197 @@
 			});
 		});
 		return cancel;
+	}
+
+	// ---------- ▶ on the whole stage (Game Settings → Screen FX) ----------
+
+	type LayerLook = NonNullable<ReturnType<typeof layerLook>>;
+
+	/** What a stage preview reads of the stage once, not every frame: each surface's look (so one
+	 *  this preview hid still counts as shown) and the surfaces in stacking order, sorted again only
+	 *  when the stage's canvases change (a screen revealed). */
+	interface FxStageMemo {
+		looks: Map<HTMLCanvasElement, LayerLook>;
+		canvases: HTMLCanvasElement[];
+		stacked: HTMLCanvasElement[];
+	}
+
+	/**
+	 * The whole stage's art, bottom first, each with how it lays over the rest: every shown screen's
+	 * surfaces, the stand-in symbols, the HUD's art (never its selection or guides) and its
+	 * overlays. Not the backdrop, the rulers or a preview's own overlay. `surfaces` are the canvases
+	 * they come from.
+	 */
+	function fxStageSources(
+		origin: DOMRect,
+		memo: FxStageMemo,
+	): { sources: StillSource[]; surfaces: HTMLCanvasElement[] } {
+		const stage = wrap;
+		const sources: StillSource[] = [];
+		const surfaces: HTMLCanvasElement[] = [];
+		if (!stage) return { sources, surfaces };
+		const canvases = [...stage.querySelectorAll('canvas')];
+		if (
+			canvases.length !== memo.canvases.length ||
+			canvases.some((c, i) => c !== memo.canvases[i])
+		) {
+			memo.canvases = canvases;
+			memo.stacked = canvases
+				.map((c, order) => ({ c, order, z: stackZ(c, stage) }))
+				.sort((a, b) => a.z - b.z || a.order - b.order)
+				.map(({ c }) => c);
+		}
+		for (const c of memo.stacked) {
+			if (c === canvas || c.classList.contains('ruler') || isFxOverlayCanvas(c)) continue;
+			let look = memo.looks.get(c);
+			if (!look) {
+				const now = layerLook(c);
+				if (!now) continue;
+				memo.looks.set(c, now);
+				look = now;
+			}
+			const at = stageSource(c, origin);
+			const art = c === hudCanvas ? paintHudArt() : c;
+			if (!at || !art) continue;
+			sources.push({ ...at, canvas: art, ...look });
+			surfaces.push(c);
+		}
+		return { sources, surfaces };
+	}
+
+	/**
+	 * Play an effect over the whole stage (`stagePreview.client.ts`): cut a still of everything the
+	 * stage shows inside the frame, lay a Pixi app over the frame showing it, hide the surfaces it
+	 * stands in for, and copy them into it every frame while it is live (a transition goes live once
+	 * it has frozen the old screen, `setLive`). Null when this stage is not showing. Escape, a press
+	 * or a wheel on the stage ends it.
+	 */
+	function previewOnStage(
+		play: (
+			overlay: StageOverlay,
+			setLive: (on: boolean) => void,
+			isOpen: () => boolean,
+		) => () => void,
+		finished: () => void,
+		options: { live: boolean; antialias: boolean; onClose?: () => void },
+	): (() => void) | null {
+		const stage = wrap;
+		const surface = canvas;
+		if (!stage || !surface || stage.clientWidth === 0 || stage.clientHeight === 0) return null;
+		const a = worldToScreen({ x: 0, y: 0 });
+		const b = worldToScreen({ x: frameWidth, y: frameHeight });
+		const rect = intersectRect(
+			{ x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y },
+			{ x: 0, y: 0, w: surface.clientWidth, h: surface.clientHeight },
+		);
+		if (!rect) return null;
+		const memo: FxStageMemo = { looks: new Map(), canvases: [], stacked: [] };
+		const first = fxStageSources(surface.getBoundingClientRect(), memo);
+		const still = captureStill(first.sources, rect, window.devicePixelRatio || 1);
+		if (!still) return null;
+
+		const view = { panX, panY, zoom, layoutType };
+		let live = options.live;
+		let shown = false;
+		const hidden: HTMLCanvasElement[] = [];
+		const hide = (surfaces: readonly HTMLCanvasElement[]): void => {
+			for (const c of surfaces) {
+				if (hidden.includes(c)) continue;
+				hidden.push(c);
+				c.style.visibility = 'hidden';
+			}
+		};
+		let over = false;
+		let stopOverlay: (() => void) | null = null;
+		const onKey = (e: KeyboardEvent): void => {
+			if (e.key !== 'Escape') return;
+			e.preventDefault();
+			e.stopPropagation();
+			cancel();
+		};
+		const close = (): void => {
+			window.removeEventListener('keydown', onKey, true);
+			stage.removeEventListener('pointerdown', cancel, true);
+			stage.removeEventListener('wheel', cancel, true);
+			for (const c of hidden.splice(0)) c.style.visibility = '';
+			options.onClose?.();
+			if (fxPreviewStop === cancel) fxPreviewStop = null;
+			finished();
+		};
+		const cancel = (): void => {
+			if (over) return;
+			over = true;
+			stopOverlay?.();
+			close();
+		};
+		fxPreviewStop = cancel;
+		window.addEventListener('keydown', onKey, true);
+		stage.addEventListener('pointerdown', cancel, true);
+		stage.addEventListener('wheel', cancel, { capture: true, passive: true });
+		stopOverlay = play(
+			{
+				mount: stage,
+				zIndex: FX_HUD_OVERLAY_Z,
+				rect,
+				still,
+				antialias: options.antialias,
+				// What the stage draws now, copied over the still; any surface new to it hidden too.
+				refresh: () => {
+					if (!live || !canvas) return false;
+					const now = fxStageSources(canvas.getBoundingClientRect(), memo);
+					if (shown) hide(now.surfaces);
+					return drawStill(still, now.sources, rect);
+				},
+				stale: () =>
+					panX !== view.panX ||
+					panY !== view.panY ||
+					zoom !== view.zoom ||
+					layoutType !== view.layoutType,
+				onShown: () => {
+					shown = true;
+					hide(first.surfaces);
+				},
+				onEnd: () => {
+					if (over) return;
+					over = true;
+					close();
+				},
+			},
+			(on) => (live = on),
+			() => !over,
+		);
+		return cancel;
+	}
+
+	/**
+	 * Play the `transition` cue's row over the whole stage: the stage as shown is frozen, the screen
+	 * the preview reveals comes in under it (its surfaces copied live from then on), and the
+	 * transition plays between them through the game's `playScreenTransition`. The screen goes back
+	 * when it ends.
+	 */
+	function previewScreenTransition(
+		preview: ScreenTransitionPreview,
+		finished: () => void,
+	): (() => void) | null {
+		return previewOnStage(
+			(overlay, setLive, isOpen) =>
+				playTransitionOnStage({
+					...overlay,
+					spec: preview.spec,
+					onCaptured: () => {
+						// A preview closed meanwhile has already taken the screen back.
+						if (!isOpen()) return;
+						preview.reveal?.(true);
+						setLive(true);
+					},
+				}),
+			finished,
+			{
+				live: false,
+				antialias: preview.antialias === true,
+				onClose: () => preview.reveal?.(false),
+			},
+		);
 	}
 
 	// ---------- Element FX posed by a previewed timeline ----------
@@ -6888,8 +7097,10 @@
 
 	onMount(() => {
 		const withdraw = addElementFxPreviewHandler(previewElementFx);
+		const withdrawTransition = addScreenTransitionPreviewHandler(previewScreenTransition);
 		return () => {
 			withdraw();
+			withdrawTransition();
 			fxPreviewStop?.();
 			posedDisposed = true;
 			clearTimeout(posedSettle);

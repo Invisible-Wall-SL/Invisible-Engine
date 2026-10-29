@@ -53,14 +53,13 @@ import {
 	RendererType,
 	Sprite,
 	UniformGroup,
-	type Application,
 	type Renderer,
 	type Ticker,
 	type WebGLRenderer,
 } from 'pixi.js';
 import { playElementFx, stopElementFx, type ElementFxHost, type ElementFxPose } from '../elementFx';
 import { VERTEX, programLinks } from '../elementFx/shaders';
-import { BEFORE_RENDER, setStageFilters, stageFilters } from './stageFilters';
+import { BEFORE_RENDER, setStageFilters, stageFilters, type StageApp } from './stageFilters';
 
 /** The still's longest side, in pixels (design §10): a desktop at 2560 × 1440 × 2 is scaled to
  *  0.8. */
@@ -115,7 +114,7 @@ export function screenTransitionKindRoute(kind: string): 'in' | 'out' | undefine
 }
 
 interface Transition {
-	app: Application;
+	app: StageApp;
 	host: ElementFxHost;
 	renderer: Renderer;
 	play: ScreenTransitionPlay;
@@ -148,7 +147,7 @@ interface Transition {
 	watch: { prerender: () => void };
 }
 
-const playing = new WeakMap<Application, Transition>();
+const playing = new WeakMap<StageApp, Transition>();
 const VECTOR_TYPES = { vec2: 2, vec3: 3, vec4: 4 } as const;
 
 const finite = (v: unknown, fallback: number): number =>
@@ -180,7 +179,7 @@ const contextLost = (renderer: Renderer): boolean =>
  * The transition filter's frame, in the stage's units: the viewport on whole pixels, rounded out as
  * Pixi rounds a filter's bounds.
  */
-const stillFrame = (app: Application, renderer: Renderer): { width: number; height: number } => ({
+const stillFrame = (app: StageApp, renderer: Renderer): { width: number; height: number } => ({
 	width: Math.ceil(app.screen.width * renderer.resolution) / renderer.resolution,
 	height: Math.ceil(app.screen.height * renderer.resolution) / renderer.resolution,
 });
@@ -196,7 +195,7 @@ const stillFrame = (app: Application, renderer: Renderer): { width: number; heig
  * units.
  */
 const takeStill = (
-	app: Application,
+	app: StageApp,
 	renderer: Renderer,
 ): { still: RenderTexture; frame: { width: number; height: number } } => {
 	const { width, height } = app.screen;
@@ -425,7 +424,7 @@ const NOOP: ScreenTransitionHandle = {
  * screen once `captured` settles. Ends any transition already playing, at its end state.
  */
 export function playScreenTransition(
-	app: Application | undefined,
+	app: StageApp | undefined,
 	play: ScreenTransitionPlay,
 	host: ElementFxHost | undefined,
 ): ScreenTransitionHandle {
@@ -562,7 +561,7 @@ export function playScreenTransition(
 }
 
 /** Settles when no transition is playing on `app`: at once when none is. */
-export async function waitForScreenTransition(app: Application | undefined): Promise<void> {
+export async function waitForScreenTransition(app: StageApp | undefined): Promise<void> {
 	if (!app) return;
 	for (let t = playing.get(app); t; t = playing.get(app)) await t.done;
 }
@@ -571,7 +570,7 @@ export async function waitForScreenTransition(app: Application | undefined): Pro
  * End the transition playing on `app`, at its end state, freeing its still. Called when the app goes
  * away: a ticker-driven guard cannot notice (Pixi destroys the ticker first; `disposeCameraEffects`).
  */
-export function disposeScreenTransitions(app: Application | undefined): void {
+export function disposeScreenTransitions(app: StageApp | undefined): void {
 	const t = app && playing.get(app);
 	if (t) finish(t);
 }

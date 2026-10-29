@@ -1543,7 +1543,7 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 			/checked=\{authoredWin\}\s*disabled=\{!data\.canPublishShared\}/.test(page),
 			!page.includes('pilot pending — parity follow-up'),
 			/\.\.\.\(authoredWin \? \{ win: true \} : \{\}\)/.test(page),
-			/!bootLoader && !authoredOverlays\) return undefined/.test(page),
+			/!bootLoader && !authoredOverlays && !screenFxSet\) \{\s*return undefined;/.test(page),
 		],
 		[true, true, true, true, true],
 	);

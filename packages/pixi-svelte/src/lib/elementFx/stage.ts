@@ -21,8 +21,8 @@ import {
 	findElementFxSpec,
 	type ElementFxKindId,
 } from 'constants-shared/elementFx';
-import { Rectangle, type Application, type Container, type Filter } from 'pixi.js';
-import { stagePostFxSlot, type StagePostFxSlot } from '../screenFx/stageFilters';
+import { Rectangle, type Container, type Filter } from 'pixi.js';
+import { stagePostFxSlot, type StageApp, type StagePostFxSlot } from '../screenFx/stageFilters';
 import { kindImpl, passesOf } from './custom';
 
 export type { StagePostFxSlot };
@@ -49,7 +49,7 @@ export function bindStagePostFxSlot(stage: Container, slot: StagePostFxSlot): ()
  * while this bind is still the stage's, so a game torn down before its post FX stop leaves no filter
  * on the stage and a newer bind keeps its own.
  */
-export function bindStagePostFx(app: Application): () => void {
+export function bindStagePostFx(app: StageApp): () => void {
 	const slot = stagePostFxSlot(app);
 	const unbind = bindStagePostFxSlot(app.stage, slot);
 	return () => {
@@ -101,6 +101,13 @@ export const stageFxFilterCount = (kind: ElementFxKindId): number | undefined =>
 	const impl = kindImpl(kind);
 	return impl ? passesOf(impl).length : undefined;
 };
+
+/**
+ * What the stage knows of a kind, in the shape `engine-layout`'s `readPostFx` takes as its judge:
+ * the game and the Scene Editor read a doc's post FX through this one, so the editor shows exactly
+ * the entries the game plays.
+ */
+export const stageFxJudge = { refusal: stageFxRefusal, filters: stageFxFilterCount } as const;
 
 /**
  * Why one more effect drawing `filters` does not fit beside `others` (each the filter count of an
