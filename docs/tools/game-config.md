@@ -155,6 +155,7 @@ has no family control at all. Three more families exist
   | Free spins, Expanding symbol, Coins, Coin board, Coin overlay, Bonus modes, Game modes, Reel behaviour, Paylines | ✓    | —                             | —                                    | —      | —    |
   | Match-3                                                                                                          | —    | ✓                             | ✓                                    | —      | —    |
   | Arcade                                                                                                           | —    | —                             | —                                    | ✓      | —    |
+  | Online room, Online rules, Bots                                                                                  | —    | —                             | —                                    | ✓ (an online game only) | —    |
   | Card game                                                                                                        | —    | —                             | —                                    | —      | ✓    |
 
 - **Match-3** — the board's rules. The board itself is the **Grid**: its reels are the columns,
@@ -190,11 +191,44 @@ has no family control at all. Three more families exist
     sharing a component, a brain naming a state it does not have; a played character whose
     component has no body warns).
     See [Flow → Arcade](flow.md#arcade--the-play-field-signals-and-the-starter-flow) for the signals.
-  - **Online** — shown only for an online game (one whose config has an `arcade.online` block,
-    authored in raw JSON). **Netcode** picks who predicts your own player between the server's
-    states: **Engine** (the default) is our own prediction and reconciliation; **Colyseus** is the
-    Colyseus SDK's own `Predict` reconciler for your own player. The server is authoritative
-    either way, and other players are drawn the same in both.
+  - **Played online** — the game is played in rooms on the Invisible Game Server. Ticking it adds
+    an empty online block and shows the three sections below; unticking it asks first, then removes
+    the room, its rules and its bots. Their problems show in their own sections.
+- **Online room** (an online game only) — what a room is. Every empty number is its default:
+  - **Players a room holds** (16; 2–100), **Steps per second** (30), **Sub-steps** (2), **States
+    per second** (20; never more than the steps) and **Rejoin seconds** (60) — how long a dropped
+    player's place is held.
+  - **Netcode** picks who predicts your own player between the server's states: **Engine** (the
+    default) is our own prediction and reconciliation; **Colyseus** is the Colyseus SDK's own
+    `Predict` reconciler for your own player. The server is authoritative either way, and other
+    players are drawn the same in both.
+  - **Spawn x / y** (both, or neither for the field's centre), **Layer** (the spawn layer players
+    are drawn in, `field`) and **Nearby width / height** (both, or neither: each device is sent
+    only the players inside that box around its own; empty sends everyone).
+  - **Characters** — what a player can be: its id, the **Body** (one from the Arcade section),
+    **Speed** (px/s), **Most** (how many players may be it; empty for any) and **Spawns**
+    (`x, y; x, y`, taken in turn; empty for the room's spawn). **Add character** needs a body
+    first. Renaming a character renames it in every ability, zone rule and bot.
+- **Online rules** (an online game only) — what the server runs:
+  - **Round seconds** (empty: until someone reaches the goal), **Pause between rounds** (15),
+    **Goal score** (1) and a **Rules module** (a named module, e.g. `tag`, for what the data
+    cannot say).
+  - **Zone rules** — a zone (from the Arcade section) that **pushes** players (px/s, x and y: a
+    current) or is the round's **Goal**, for the listed characters (empty for every one). A rule
+    must push or be the goal: an edit that would leave it doing neither is not taken.
+  - **Abilities** — a **Character**'s **Button** (`ability1` / `ability2`) that **catches** or
+    **stuns** players of its **Targets** (a comma list) within its **Reach** (px), holding them for
+    **Holds ms** (3000), adding **Score** to the user per hit, usable again after **Cooldown ms**
+    (1000).
+- **Bots** (an online game only) — bots fill a room's empty places while anyone is in it, and a
+  joining player takes a bot's place. Each bot **Plays** an online character with a **Brain** (a
+  character from Invisible Characters). **Fill room to** (20), **A bot can win** (off) and **Bot
+  spawns** (`x, y; x, y`). **Add bot** needs an online character and a character with a brain;
+  removing the last bot removes the bots.
+- **A field per room:** an online config may name a field generator in raw JSON
+  (`arcade.online.generator`, e.g. `"salmonsRiver"`). Each room then plays a field of its own made
+  from a seed it picks, replacing the field's size, zones, zone rules and spawns; what these
+  sections show is the authored field, which `/editor` draws. An unknown generator is refused.
 - **Card game** — the duel's rules
   ([card-games.md](../design/card-games.md)). Each number is stored only when it departs from its
   default:
@@ -215,7 +249,9 @@ has no family control at all. Three more families exist
     [Localization](localization.md) under a **Cards** section.
 - **Publishing:** a **match-3** config publishes from Game Maker to the test server, free play or
   decided by the server (against the test server's match-3 mock), and so does a free-play
-  **arcade** or **card** config. A card or arcade config decided by the server is refused by Game Maker's publish and
+  **arcade** or **card** config. An online arcade game's launch names the game server
+  (`rooms_url`, the launcher's `GAME_SERVER_URL`); a launcher whose `GAME_SERVER_URL` is set empty
+  refuses to publish one. A card or arcade config decided by the server is refused by Game Maker's publish and
   the desktop bake, with no override, while the game runtime cannot play it. Neither family can be
   built for a partner delivery: free play has no wallet, and live real money for a server-decided
   match-3 waits on a real provider's match-3 wire. Set the family back to Slot to publish or

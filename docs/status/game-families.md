@@ -67,6 +67,90 @@ already-bundled `cards.js` values.
   deterministic; the save and the two grants; the registry and guide). `check:family-tools` and
   `check:card-family` re-pinned for the new exclusions.
 
+**P11.2 (c–e) — publish writes `rooms_url`, `/config` online sections, a new river per room
+(built 2026-10-29; in review, stacked on (a–b)).** [phase-11.md](../design/phase-11.md) §3 (P11.2
+c–e), §3.1; [realtime-multiplayer.md](../design/realtime-multiplayer.md) §10, §14 #4. The second of
+P11.2's two PRs. Not deployed.
+
+- **(c) The publish writes the game server's address.** `apps/launcher-api` `onlineLaunch.ts`:
+  for an online arcade game (`mechanicFor().room`) `withRoomsUrl` appends `&rooms_url=<address>`
+  to the launch URL `publishGame.ts` registers (the parameter `game/online.ts` boots from; the
+  game key is the URL's `project`). The address is the launcher's new **`GAME_SERVER_URL`**
+  (default `wss://rooms.invisiblewall.org`, the live service, per the launcher's code-default rule
+  for non-secret URLs; trimmed, a trailing slash dropped). Set **empty**, or to anything that is
+  not `ws(s)://` / `http(s)://`, an online game is refused with `PublishBlockedError` reason
+  **`no-game-server`** (no override), by the gates (`publishGateRefusal` too) and again on the
+  config the snapshot freezes. Slot, match-3, card and offline arcade launch URLs are unchanged.
+  An authoring launch keeps `rooms_url`.
+- **(d) `/config` sections for an online game** (`FamilySection.svelte` → `OnlineSection.svelte`,
+  setters in `onlineDoc.ts`, each writing what the normalizer stores): the Arcade section gains
+  **Played online** (on: an empty `arcade.online`; off: asks, then deletes the block); an online
+  arcade game then shows three sections: **Online room** (the five room numbers, Netcode, spawn,
+  layer, nearby box; characters: id (a rename renames every rule and bot that names it), body,
+  speed, most, spawns), **Online rules** (round seconds, pause, goal score, rules module; zone
+  rules: zone, push x / y, goal, characters; abilities: character, button, reach, targets, effect,
+  holds ms, score, cooldown) and **Bots** (fill to, can win, bot spawns; each bot's character and
+  brain). An entry the normalizer would drop is never made (Add needs a body / zone / character /
+  brain first) and an edit that would empty one is refused. Each section shows its own validator
+  issues; the Arcade section no longer repeats them.
+- **(e) A new river per room.** `game-config` `arcade.online.generator` (normalized, resolved;
+  `ONLINE_GENERATOR_IDS = ['salmonsRiver']`, the validator's error for an unknown one).
+  `engine-mechanics` `onlineGenerators.js` (+ `.d.ts`, exported): `generatedOnlineGame(game, seed)`
+  swaps the generator's geometry into the game (field, zones, zone rules, the spawn, characters'
+  and bots' spawns; everything else as configured) and returns what it made; a game with no
+  generator comes back as the same object. `salmons.js` gains `salmonsGeometry(river)` (what
+  `salmonsConfig` was built from, unchanged output) and `salmonsConfig` names the generator. Server:
+  `createRoomSim` runs it on its seed (`sim.seed`: one seed for the bots' brains and the river, so
+  a room replays from it); `arcadeRoom.ts` writes it into the room state's new `seed` (uint32) and
+  logs it. Device: `joinOnlineRoom` (only when the config names a generator) waits up to 5 s for the
+  room's first state, makes the room's game from its seed with the same function, and refuses the
+  boot if no seed arrives; `withRoomField(doc)` (the arcade seam; the `off` seam returns `doc`)
+  puts the generator's drawing (`engine-layout` `FIELD_DRAWINGS`, `salmonsRiverNode`, moved to
+  `referenceLayouts/salmonsRiver.ts` and exported) in place of the authored node of the same id
+  (`river`), called once in `Game.svelte` on the loaded doc. The probe gains `online.seed`,
+  `online.zones`, `online.field`.
+- **Gates:** new launcher **`check:online-publish`** (5 checks over the real `publishGame.ts`: an
+  online game with `GAME_SERVER_URL` empty / blank / schemeless / `ftp://` refused
+  `no-game-server` by the gate and the publish with nothing written; offline arcade and slot
+  publish without an address and without `rooms_url`; an online game's URL carries the address,
+  set, local and default, and its authoring launch keeps it; `online.ts` reads that parameter).
+  `check:game-config-family` 243 (16 new online setter steps re-normalized; the three sections
+  only on an online page, after Arcade, showing its values). `check:room-bots` 18 → **20** (a room
+  plays its seed's river and replays it, the device's function gives the server's game, a game
+  with no generator is untouched, an unknown generator is an error; live: two rooms of one game get
+  two seeds and two rivers, each salmon and bear where its room's river puts it).
+  `check:room-sim` 39 (source scans of the seed wait, `withRoomField` and the `off` seam).
+  `check:netcode` 25, `check:online-rules` 23, `check:pipeline-games` 35, `check:runtime-choice`,
+  `check:book-of-migration`: pass, unchanged.
+- **Verified by playing:** `salmons-play.mjs` **27 / 27** in each netcode (the 23 plus: pages A and
+  B, one room, make the river of the room's seed and draw it; page A's salmon started at that
+  river's sea, as the server put it; not the authored river; page C, another room, plays another
+  river). Its bots are now still bears (a room's river places them, so the old filter of their
+  spawns cannot hold them upstream). `online-play.mjs` 19 / 19 and `arcade-play.mjs` OK on the same
+  build.
+- **Runtime sizes** (`check:family-runtimes`, gzip -6; (a–b) → this branch): slot 1,303,338 →
+  1,303,424 B (+86), match3 1,311,697 → 1,311,802 B (+105), card 1,316,034 → 1,316,192 B (+158),
+  **arcade 1,401,737 → 1,403,015 B (+1.3 KB gz; 4,107,065 B raw)**. All within
+  `family-runtime-budget.json`. The non-arcade growth is shared config code every runtime boots
+  (`generator` normalized / resolved / validated) and the one `withRoomField` call; the river's
+  generator and drawing reach the arcade runtime only (no `whirlpool` in the slot build).
+- **Slot / match-3 / card / offline-arcade parity:** the publish changes only an online game's URL
+  and refusals; `/config` shows the online sections only for an arcade game played online (the
+  Played online box is new on every arcade page). On the device, the seed wait and the drawing run
+  only for a config that names a generator, behind `gameMechanic().room`; `withRoomField` returns
+  the same doc otherwise, and is the identity in a build without arcade. A config without
+  `generator` resolves and steps exactly as before (`createRoomSim` keeps the same game object).
+  Edited shared modules: `game-config` `family.ts`, `familyValidate.ts`; `engine-mechanics`
+  `index.ts`, `salmons.js`; `engine-layout` `referenceLayouts/index.ts`, `salmons.ts`;
+  `apps/lines` `Game.svelte` (one call), the two arcade seams.
+- **Chosen here, owner may overturn:** the address's default is the live service (the launcher's
+  rule for non-secret URLs) rather than no default; a generator owns the field's geometry and
+  replaces the authored zones and spawns wholesale; a device waits 5 s for the seed; the play test's
+  bots stand still.
+- **Known limits:** the Characters page and `/editor` still show the authored river, not a room's;
+  `/config` edits `generator` only through Raw JSON; a rename of an online character does not
+  rename a Flow or layout reference to it.
+
 **P11.2 (a–b) — online Flow events, server-owned variables, predicted abilities, `out` hidden
 (built 2026-10-29; in review).** [phase-11.md](../design/phase-11.md) §3 (P11.2 a–b), §3.1;
 [realtime-multiplayer.md](../design/realtime-multiplayer.md) §4, §6, §10. The first of P11.2's two
@@ -450,7 +534,8 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
   - a bot presses an ability whenever a target is within its reach (the rules' cooldown paces it);
     bots see only free, connected players;
   - Salmons' river is **one seed for every room**, written into the config at authoring time
-    (§14 #4 asked for generation; a new river per room needs the device to draw the room's seed);
+    (§14 #4 asked for generation; a new river per room needs the device to draw the room's seed) —
+    superseded by P11.2 (e): each room makes its own;
   - Salmons' numbers (speeds, reaches, catch times, currents, bank push, round length, goal score,
     the bear and fisherman maxima) are first guesses to tune in play;
   - the load-test devices start where people do (all salmon at the sea): the shoal at a round's
@@ -2307,14 +2392,14 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
    room's scores bound as read-only `var:` sources; the validator's `variable-server-owned`) — the
    design's P10.15 row names both; (b) predicted ability events (a swipe drawn when pressed) and
    hiding an `out` player~~ — done in P11.2 (a–b), 2026-10-29; (c) Salmons' own rules (the climb, the line) as `ONLINE_RULES_MODULES`
-   entries and `check:online-rules` on its recorded traces, with the P10.16 rebuild; (d) a `/config`
-   section for `arcade.online.rules`; (e) the online world camera following the predicted player.
+   entries and `check:online-rules` on its recorded traces, with the P10.16 rebuild; ~~(d) a
+   `/config` section for `arcade.online.rules`~~ — done in P11.2 (c–e), 2026-10-29; (e) the online
+   world camera following the predicted player.
 1. **P10.14 follow-ups:** (a) the **bundle cost** (+59 KB gz for every game; owner): accept it as
    static until the per-family runtime build (item 9), or ship the SDK as a separate file only an
-   online game fetches; (b) the **publish** writes `rooms_url` into an online game's launch URL and
-   refuses an online game with no server address (§10) — the game server already reads the
-   published snapshot's config (`/api/game-server/config`, 2026-10-27); (c) a `/config` section for
-   `arcade.online`; (d) the Railway service, DNS and the config credential (owner, INFRA steps),
+   online game fetches; ~~(b) the **publish** writes `rooms_url` into an online game's launch URL
+   and refuses an online game with no server address (§10); (c) a `/config` section for
+   `arcade.online`~~ — done in P11.2 (c–e), 2026-10-29; (d) the Railway service, DNS and the config credential (owner, INFRA steps),
    then the `deploy-drift` entry. (The read-only config token, once (e), is done: 2026-10-27.)
 2. **Live real-money match-3** waits on a real provider's match-3 wire (§9 #2); our wire
    (`docs/reference/match3-wire.md`) and its facade mapping are rewritten when one arrives.
@@ -2359,6 +2444,12 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
   [INFRA.md](../INFRA.md) "Invisible Game Server".
 
 ## Recent changes
+
+- 2026-10-29 — **P11.2 (c–e): publish writes `rooms_url`, `/config` online sections, a new river
+  per room** (launcher `GAME_SERVER_URL`, reason `no-game-server`, `check:online-publish`;
+  `OnlineSection.svelte`; `arcade.online.generator`, `onlineGenerators.js`, the room state's
+  `seed`). Arcade runtime +1.3 KB gz, the others +86 to +158 B. Open items 0 (d), 1 (b) and (c)
+  are done. Detail above.
 
 - 2026-10-29 — **P11.2 (a–b): online Flow events, server-owned variables, predicted abilities,
   `out` hidden** (`engine-mechanics` `onlineFlow.js`, `variable-server-owned`, Salmons' HUD and

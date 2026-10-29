@@ -71,6 +71,16 @@ A seed and the same keys replay the same game.
   (`packages/engine-mechanics/src/onlineBots.js`, `services/game-server/src/roomSim.ts`). A config
   with no `bots` makes none; with no `nearby` the room keeps the P10.14 state class
   (`check:room-bots`).
+- **A generated field is one function on both sides (P11.2 e).** A config naming
+  `arcade.online.generator` plays, in each room, the field `engine-mechanics`
+  `generatedOnlineGame(game, seed)` makes from the room's seed (state `seed`): `createRoomSim` runs
+  it on the server, `online.ts` on the device, and `engine-layout` `FIELD_DRAWINGS` draws it in
+  place of the authored node of its id. One seed seeds the bots and the field, so a room replays
+  from it. Change the generator, its geometry or the drawing together (`check:room-bots`,
+  `salmons-play.mjs`). A config without a generator keeps the same game object.
+- **Publish names the game server.** An online game's launch URL carries `rooms_url` (the
+  launcher's `GAME_SERVER_URL`; `onlineLaunch.ts`); an empty address refuses it
+  (`no-game-server`, `check:online-publish`).
 - **The Colyseus SDK is reached only through `packages/engine-rooms`**, imported dynamically from
   `apps/lines/src/game/online.ts`. `apps/lines` declares no new third-party package
   (`check:game-app-deps`).
