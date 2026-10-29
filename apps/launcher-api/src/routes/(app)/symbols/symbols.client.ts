@@ -827,6 +827,30 @@ export function setOverride(
 	return { ...doc, symbols: { ...doc.symbols, [symbol]: states } };
 }
 
+/**
+ * Bind `symbol`'s Static art (override, else default) to each of `states` as an override — the
+ * reskin shortcut: one new picture shown in every state until each gets its own animation. Each
+ * target gets its own copy, minus the tool-only `previewKey` (`applyDraft`'s whitelist drops it too).
+ * Returns `doc` unchanged when the symbol has no Static binding.
+ */
+export function copyStaticToStates(
+	doc: SymbolsDoc,
+	defaults: SymbolDefaults,
+	symbol: string,
+	states: readonly SymbolState[],
+): SymbolsDoc {
+	const source = doc.symbols[symbol]?.static ?? defaults.symbols[symbol]?.static;
+	if (!usable(source)) return doc;
+	let next = doc;
+	for (const state of states) {
+		if (state === 'static') continue;
+		const cell = JSON.parse(JSON.stringify(source)) as SymbolCell;
+		delete cell.previewKey;
+		next = setOverride(next, symbol, state, cell);
+	}
+	return next;
+}
+
 /** Remove an override (reset-to-default), pruning a now-empty symbol. New doc. */
 export function clearOverride(doc: SymbolsDoc, symbol: string, state: SymbolState): SymbolsDoc {
 	const current = doc.symbols[symbol];
