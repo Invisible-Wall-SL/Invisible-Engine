@@ -159,7 +159,6 @@ and `game-config`'s card normalizer reads `engine-mechanics` `cards.js`.
 
 **P11.1c — `lines` is slot only (merged 2026-10-29: #1449, then #1450 after the non-slot republish).**
 [phase-11.md](../design/phase-11.md) §2.5. Two PRs:
-
 - **c1, the listing and Director** (mergeable with P11.1b): the test server's public `/healthz`
   gains `gameRuntimes` (each game's `runtime` and `protocol`; `match3` / `freePlay` mean a non-slot
   game), so the strip can be proven safe without R2; Director's draft build picks its runtime with
@@ -221,9 +220,9 @@ and `game-config`'s card normalizer reads `engine-mechanics` `cards.js`.
     serves card as well as arcade.
   - `game-config`'s card reader and validator (`readLibrary` / `validateLibrary`): 2.7 KB gz. Any
     stub would change the normalizer's result.
-    A `moduleSideEffects` hint was tried and had no effect in the SvelteKit build.
+  A `moduleSideEffects` hint was tried and had no effect in the SvelteKit build.
 - **The gate.** `node scripts/check-family-runtime.mjs --id <lines|match3|arcade|card> --families
-<value> <buildDir>` checks one built `index.html`. Its `__IE_FAMILIES__` must equal the set the
+  <value> <buildDir>` checks one built `index.html`. Its `__IE_FAMILIES__` must equal the set the
   value compiles, and the id must fit the set. Each family's markers must be present exactly when
   the family is compiled in: its error strings, `@colyseus/schema` / `joinOrCreate` / `arseed`, and
   a vocabulary sentence. Its gzip -6 size must be within `scripts/family-runtime-budget.json`
@@ -233,13 +232,13 @@ and `game-config`'s card normalizer reads `engine-mechanics` `cards.js`.
   shared code imports a family's own module past its seam.
 - **Sizes** (release env, `index.html`, gzip -6). P11.1a's `all` built here: 4,141,645 / 1,415,680.
 
-  | Runtime (`PUBLIC_IE_FAMILIES`) | Raw B     | Gzip B    | vs `all`              | Budget B  |
-  | ------------------------------ | --------- | --------- | --------------------- | --------- |
-  | `lines` (`all`)                | 4,130,290 | 1,411,903 | — (−0.27 % vs P11.1a) | 1,440,127 |
-  | `lines` (`slot`, P11.1c)       | 3,778,566 | 1,295,481 | −8.2 %                | 1,321,383 |
-  | `match3`                       | 3,801,955 | 1,303,854 | −7.7 %                | 1,329,905 |
-  | `arcade`                       | 4,072,059 | 1,392,424 | −1.4 %                | 1,420,269 |
-  | `card`                         | 3,814,275 | 1,308,154 | −7.3 %                | 1,334,318 |
+  | Runtime (`PUBLIC_IE_FAMILIES`) | Raw B | Gzip B | vs `all` | Budget B |
+  |---|---|---|---|---|
+  | `lines` (`all`) | 4,130,290 | 1,411,903 | — (−0.27 % vs P11.1a) | 1,440,127 |
+  | `lines` (`slot`, P11.1c) | 3,778,566 | 1,295,481 | −8.2 % | 1,321,383 |
+  | `match3` | 3,801,955 | 1,303,854 | −7.7 % | 1,329,905 |
+  | `arcade` | 4,072,059 | 1,392,424 | −1.4 % | 1,420,269 |
+  | `card` | 3,814,275 | 1,308,154 | −7.3 % | 1,334,318 |
 
 **Card C3 — playable end to end (built 2026-10-28; in review).** [card-games.md](../design/card-games.md)
 §12's C3 row, in one PR; what it settled where §5–§9 were silent is in the design's new §5.4.
@@ -280,8 +279,8 @@ and `game-config`'s card normalizer reads `engine-mechanics` `cards.js`.
   Owner call (open item 0a).
 
 **Arcade netcode selectable per game (built 2026-10-27; in review).** The owner, on P10.15's "our
-own netcode, not Colyseus' `predict`" choice: _"own netcode is fine, but maybe we can make it
-optional"_. One small PR, on P10.15, merged with P10.16. Design:
+own netcode, not Colyseus' `predict`" choice: *"own netcode is fine, but maybe we can make it
+optional"*. One small PR, on P10.15, merged with P10.16. Design:
 [realtime-multiplayer.md](../design/realtime-multiplayer.md) §6.1 and §14 #9. Not deployed.
 
 - **The setting** (`game-config`): `arcade.online.netcode: 'engine' | 'colyseus'`
@@ -293,7 +292,7 @@ optional"_. One small PR, on P10.15, merged with P10.16. Design:
 - **`engine`** is P10.15 unchanged.
 - **`colyseus`** is the Colyseus SDK's (0.18.6) own prediction for the device's own player:
   `Predict.get(room)` and `predict.reconciler(player, { input, ...reconcilerOptions(game, id,
-player) })`, driven by `predict.tick(now)` each frame before the frame's inputs are sent.
+  player) })`, driven by `predict.tick(now)` each frame before the frame's inputs are sent.
   `Predict` comes from `engine-rooms/predict`, a separate entry imported only for this mode (the
   runtime's one bundle still carries it: see the bundle line). `reconcilerOptions`
   (`engine-mechanics` `netcode.js`) gives the fields (`RECONCILED_FIELDS`: `x`, `y`, `status`), the
@@ -422,7 +421,7 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
     `canWin`); a refused join changes no bot and a join evicts exactly one; a seeded room replays
     exactly; spawns in turn; off-field spawns warn. Salmons: the river is the seed's, the
     config validates with no issue, a salmon steering for the water's middle reaches the source and
-    wins, the current carries it down and a bank pushes it back, a bear bot catches it. _Live_ on a
+    wins, the current carries it down and a bank pushes it back, a bear bot catches it. *Live* on a
     real server with SDK clients: bots fill and are marked and give way; nearby — a far player is
     not sent, it is sent once it swims near and dropped once it leaves, a device gets its own `ack`
     and nobody else's, and is told of a near player's leave but nothing about a far one; a device is
@@ -477,13 +476,13 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
   - P10.15's limits stand (online Flow events, server-owned `var:` sources, predicted ability events,
     the `out` player still drawn) — all four lifted by P11.2 (a–b).
 
-| Run (Salmons, 100 devices, 60 ± 20 ms)                                          | Steps / s seen (of 30) | States / s (of 20) | KB/s per device: mean / max | Egress        | Step p50 / p99 / max     | Server CPU | RSS        |
-| ------------------------------------------------------------------------------- | ---------------------- | ------------------ | --------------------------- | ------------- | ------------------------ | ---------- | ---------- |
-| every player to every device (`--everyone`)                                     | 29.9                   | 19.9               | 29.2 / 29.2                 | 2.85 MB/s     | 0.40 / 0.75 / 3.5 ms     | 18 %       | 160 MB     |
-| `nearby`, but every player at one spawn and every `ack` to everyone (first try) | 29.8                   | 19.9               | 26.7 / 27.2                 | 2.6 MB/s      | 0.31 / 0.92 / 9.4 ms     | 32 %       | 162 MB     |
-| **as shipped:** `nearby` + own `ack` + spawns on the banks                      | **29.9**               | **19.9**           | **8.4 / 11.0**              | **0.82 MB/s** | **0.39 / 0.81 / 2.5 ms** | **26 %**   | **163 MB** |
-| 5 devices, bots fill the room to 20                                             | 29.9                   | 19.9               | 1.7 / 1.9                   | 0.008 MB/s    | 0.20 / 0.55 / 2.7 ms     | 6 %        | 151 MB     |
-| worst bots case: 1 device, 99 bots (`fillTo` 100, no maxima)                    | 30                     | 19.9               | 4.8 / 4.8                   | 0.005 MB/s    | 0.79 / 2.1 / 3.8 ms      | 6 %        | 159 MB     |
+| Run (Salmons, 100 devices, 60 ± 20 ms) | Steps / s seen (of 30) | States / s (of 20) | KB/s per device: mean / max | Egress | Step p50 / p99 / max | Server CPU | RSS |
+|---|---|---|---|---|---|---|---|
+| every player to every device (`--everyone`) | 29.9 | 19.9 | 29.2 / 29.2 | 2.85 MB/s | 0.40 / 0.75 / 3.5 ms | 18 % | 160 MB |
+| `nearby`, but every player at one spawn and every `ack` to everyone (first try) | 29.8 | 19.9 | 26.7 / 27.2 | 2.6 MB/s | 0.31 / 0.92 / 9.4 ms | 32 % | 162 MB |
+| **as shipped:** `nearby` + own `ack` + spawns on the banks | **29.9** | **19.9** | **8.4 / 11.0** | **0.82 MB/s** | **0.39 / 0.81 / 2.5 ms** | **26 %** | **163 MB** |
+| 5 devices, bots fill the room to 20 | 29.9 | 19.9 | 1.7 / 1.9 | 0.008 MB/s | 0.20 / 0.55 / 2.7 ms | 6 % | 151 MB |
+| worst bots case: 1 device, 99 bots (`fillTo` 100, no maxima) | 30 | 19.9 | 4.8 / 4.8 | 0.005 MB/s | 0.79 / 2.1 / 3.8 ms | 6 % | 159 MB |
 
 The step time covers the room's step and its events, not `onBeforePatch` (the schema writes, the
 nearby views) or the encoding: the CPU column covers everything.
@@ -588,8 +587,8 @@ row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-mu
   - `check:netcode` (root, 15 checks, ~7 s; discovered by `check:all`): the predictor, the
     interpolator and the render clock alone, then **a room of six devices** over the room's own code
     on a virtual clock, at 50 / 150 / 250 ms one-way latency, ±50 ms jitter and 2 / 3 / 5 % loss, on
-    two links — _reliable_ (the real WebSocket: a lost packet is resent after 200 ms + one round
-    trip and holds up what follows) and _datagram_ (lost messages are gone, late ones overtake).
+    two links — *reliable* (the real WebSocket: a lost packet is resent after 200 ms + one round
+    trip and holds up what follows) and *datagram* (lost messages are gone, late ones overtake).
     Reliable: **0 corrections** and every rest the room's place bit for bit. Datagram: 549–583
     corrections per run, every one converged — the own player is drawn within 0.01 px of the room
     200 ms after the state acknowledging its last input — and the own player never moves more than
@@ -605,7 +604,7 @@ row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-mu
     input, two on one button; no hit at a place left by a respawn; a config of huge zones and
     bodies stays cheap (600 steps well under 1.5 s); whole, bounded scores; lag compensation within / beyond the
     window and from the future; `tag`; 3 000 random steps replay to the same bodies, scores and
-    events. _Live_ on a real Colyseus server with SDK clients: the catch, score and status reach
+    events. *Live* on a real Colyseus server with SDK clients: the catch, score and status reach
     both devices, events after their patch; the goal ends the round for everyone and round 2 starts;
     a leave is told.
   - `check:room-sim`: unchanged but for `view` in the clamped input's keys (36 checks pass).
@@ -703,7 +702,7 @@ sample is a fixture.
 
 - **Gravity and levels** (`engine-mechanics` `motion.js`, new exports only; P10.8's and P10.11's
   functions and replays are unchanged): `stepPlatform(body, dt, {solids, tiles, field, gravity,
-maxFall})` integrates the pull exactly (so a jump's apex lands where its settings put it), caps
+  maxFall})` integrates the pull exactly (so a jump's apex lands where its settings put it), caps
   the fall at `maxFall`, and cuts the move into sub-steps no longer than half the thinnest thing it
   can meet (the body, a tile, a solid or platform; at most `MAX_SUB_STEPS` 64), each resolved x then
   y as `stepSolid` does. **One-way** bodies and tiles stop a body only from above, while it falls,
@@ -915,7 +914,7 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   that sends two a step is not faster, since a player never applies more inputs than steps have
   passed, and a saved-up dash is at most twice the speed for half a second), the schema written
   once per patch (`onBeforePatch`), `setPatchRate(1000 /
-patchHz)`. `configSource.ts` reads a game's config by key (a directory or a `{game}` URL, cached
+  patchHz)`. `configSource.ts` reads a game's config by key (a directory or a `{game}` URL, cached
   60 s, good or bad). `server.ts` adds `GET /healthz` (`commit`, `rooms`). Dockerfile at the repo
   root's context, mirroring `director-worker` (npm install, the two packages linked in, the
   `ts-loader` hook). [INFRA.md](../INFRA.md) "Invisible Game Server" has the env, local run, limits
@@ -982,8 +981,8 @@ patchHz)`. `configSource.ts` reads a game's config by key (a directory or a `{ga
   `moving`, `connected`, `ack` (the seq of the newest input applied); per room `phase` (`waiting` →
   `running`) and `step`. The level is not in the state.
 - **Config** (`game-config` `family.ts`): `GameConfigDoc.arcade.online` = `{ characters: [{ id,
-body, speed, max? }], maxPlayers?, tickHz?, subSteps?, patchHz?, rejoinSeconds?, spawn?, layer?
-}`, sparse (defaults 16 / 30 / 2 / 20 / 60 / field centre / `field` are dropped);
+  body, speed, max? }], maxPlayers?, tickHz?, subSteps?, patchHz?, rejoinSeconds?, spawn?, layer?
+  }`, sparse (defaults 16 / 30 / 2 / 20 / 60 / field centre / `field` are dropped);
   `ARCADE_ONLINE_DEFAULTS`, `ARCADE_ONLINE_LIMITS`, `resolveArcadeOnline`. A character's `body` is a
   key of `arcade.bodies` (its shape, tags and edges; the component it is drawn as). The validator
   refuses an online game with no `arcade.field` (the server has no screen), no character, or a
@@ -1006,7 +1005,7 @@ body, speed, max? }], maxPlayers?, tickHz?, subSteps?, patchHz?, rejoinSeconds?,
   server's last place (no prediction or smoothing: P10.15). The arcade probe reads the room. Free
   play, as every arcade game (`rgsSession: false`).
 - **Gates:** `check:room-sim` (root, 36 checks, ~30 s; discovered by `check:all`).
-  - _Headless, over the room's own code:_ 10 000 steps of six players at 30 Hz × 2, 60 × 1 and
+  - *Headless, over the room's own code:* 10 000 steps of six players at 30 Hz × 2, 60 × 1 and
     20 × 4 with hostile, repeated, stale, gapped and missing inputs and network stalls that release
     in bursts — the room's body equals the device's `stepPlayer` fold **bit for bit** on every step,
     and the backlog stays bounded (under one input waiting on average); replay; the clamp exact and
@@ -1018,7 +1017,7 @@ body, speed, max? }], maxPlayers?, tickHz?, subSteps?, patchHz?, rejoinSeconds?,
     its forgetting a gone or refused game; IPv6 addresses key by /64; the mechanic (only an online
     config sets `room`); source scans (the SDK reached only from `game/online.ts`, lazily; the
     layout and stage branch on `room`).
-  - _Live, a real Colyseus server on localhost with real SDK clients:_ `/healthz`; bad / missing /
+  - *Live, a real Colyseus server on localhost with real SDK clients:* `/healthz`; bad / missing /
     non-online / non-string game keys make no room and name no reason; `create`, a 10 KB body and a
     chunked body (411) are refused; a bad `x-forwarded-proto`, an absolute-form target, a bad
     `Host`, `TRACE`, `PROPFIND` and a bad upgrade are refused and the server still answers; one
@@ -1049,7 +1048,7 @@ body, speed, max? }], maxPlayers?, tickHz?, subSteps?, patchHz?, rejoinSeconds?,
   by every game, run by none but an online one. Almost all of it is `@colyseus/sdk` itself (its
   `Client` alone bundles to 169 KB / 53 KB gz; importing only `Client` and the serializer saves
   nothing). The runtime builds with SvelteKit's inline strategy, so the dynamic `import()` keeps the
-  SDK from being _run_ by offline games, not from being _downloaded_. **Owner decision (below).**
+  SDK from being *run* by offline games, not from being *downloaded*. **Owner decision (below).**
 - **Slot / match-3 / offline-arcade parity:** every new runtime path is keyed on
   `mechanic.room`, which only a config with `arcade.online` sets: `+layout.ts` skips the join,
   `<ArcadeStage />` starts the local loop exactly as before, and nothing else reads the SDK.
@@ -1066,7 +1065,7 @@ body, speed, max? }], maxPlayers?, tickHz?, subSteps?, patchHz?, rejoinSeconds?,
     starved steps, so a body is exactly the fold of
     `stepPlayer` over the inputs the server applied — the device can always replay it;
   - positions travel as **float32** (the design's §5), while the simulation is float64: the fold is
-    exact on both sides, but a reconciler that rewinds to the _synced_ place (P10.15) starts from
+    exact on both sides, but a reconciler that rewinds to the *synced* place (P10.15) starts from
     `Math.fround(x)` and will make sub-pixel corrections — P10.15 rewinds to its own fold, or moves
     `x` / `y` to float64 if that costs too much;
   - moves are **integers −127..127** on the wire (int8), aim float32 on the field;
@@ -1091,9 +1090,9 @@ body, speed, max? }], maxPlayers?, tickHz?, subSteps?, patchHz?, rejoinSeconds?,
     (`validateArcadeOnline` warns at `arcade.characters`); for the same reason the loop's Flow
     board effects and values are not registered online, so Flow that targets them does nothing;
   - keys typed into a text field are not inputs (P10.11's `typingInto` rule);
-  - _(lifted by P10.15)_ no prediction or smoothing: a device drew a player where the last 20 Hz
+  - *(lifted by P10.15)* no prediction or smoothing: a device drew a player where the last 20 Hz
     patch put it, so motion was steppy and the own player answered a round trip late;
-  - players do not collide; _(lifted by P10.15)_ they did not score or end a round, and `phase`
+  - players do not collide; *(lifted by P10.15)* they did not score or end a round, and `phase`
     never left `running`;
   - a dropped device's in-flight inputs are discarded on rejoin (Colyseus freezes the buffer), and a
     burst beyond 60 waiting inputs drops the oldest, so a device's own replay can then differ until it
@@ -1132,6 +1131,7 @@ body, speed, max? }], maxPlayers?, tickHz?, subSteps?, patchHz?, rejoinSeconds?,
     field): an online game's own flow is the author's, and the arcade starter flow is an offline one.
 - **Owner / infra steps:** stand up the Railway service and the `rooms.invisiblewall.org` record —
   the exact settings are in [INFRA.md](../INFRA.md) "Invisible Game Server" (steps 1–8).
+
 
 **P10.11 — Arcade A2: characters (merged 2026-10-26, #1377).** §8's P10.11 row (§4.3, §5.1, §5.2,
 §6.3, §6.5), in one PR. No live game uses any of it yet; the sample is a fixture.
@@ -1262,9 +1262,9 @@ body, speed, max? }], maxPlayers?, tickHz?, subSteps?, patchHz?, rejoinSeconds?,
   game's); P10.8's placeholder components draw half their size up and left of their bodies (a `rect`'s
   default anchor plus a `-w/2` offset; seen while building, not fixed here); a timeline's `alpha`
   multiplies the node's own, so a node stored at alpha 0 cannot be faded in by a timeline.
-  **P10.12 — Arcade A3a: world and camera (merged 2026-10-26, #1372).** §8's P10.12 row (§4.4,
-  §3.4, §5.1), in one PR. Built before P10.11, as §8 orders it for Salmons (its river is bigger than
-  the screen). No current game declares a world, so none of it runs in one.
+**P10.12 — Arcade A3a: world and camera (merged 2026-10-26, #1372).** §8's P10.12 row (§4.4,
+§3.4, §5.1), in one PR. Built before P10.11, as §8 orders it for Salmons (its river is bigger than
+the screen). No current game declares a world, so none of it runs in one.
 
 - **The camera** (`engine-mechanics` `camera.js` + `camera.d.ts`, plain ESM beside `motion.js`): a
   view rectangle in world px (`x` / `y` its top-left, the view the screen's design size).
@@ -1610,7 +1610,7 @@ on. In one launcher-side PR:
 any of it yet.
 
 - **The layout node** (`engine-layout` `types.ts`): `spawnLayer { spawnable: componentId[],
-placement: 'free'|'grid', grid?: {cols, rows, pitch}, cap? }`, in `LAYOUT_NODE_KINDS` (the save
+  placement: 'free'|'grid', grid?: {cols, rows, pitch}, cap? }`, in `LAYOUT_NODE_KINDS` (the save
   keeps it; `componentFields.ts` knows its four fields). Its fields are read defensively in
   `spawnLayerFields.ts` (`spawnableComponentIds`, `spawnLayerGrid`, `spawnLayerSpec`,
   `sceneSpawnLayers`); the caps live in `constants-shared/spawn.ts` (default 32, hard 256).
@@ -1623,10 +1623,10 @@ placement: 'free'|'grid', grid?: {cols, rows, pitch}, cap? }`, in `LAYOUT_NODE_K
   `engine-layout/svelte`'s `spawnStore()` (off the bare entry, which Node scripts load).
 - **Flow** (`engine-flow-v2`): nodes `spawn {layer, componentId, at?: 'xy'|'cell'}` (data-ins x / y or
   col / row; data-outs `instance`, `spawned`), `despawn` (data-in `instance`), `instanceRef
-{componentId}` (the component's interface pins, plus data-in `instance` and data-out `handle`),
+  {componentId}` (the component's interface pins, plus data-in `instance` and data-out `handle`),
   a spawned `waitForState` (`componentId` set, handle on `instance`); the type `instance<component>`;
   the accessor `$live.<layer>` (`list<instance<…>>`); `$item.id / layer / componentId / x / y / col /
-row` over it. Pins and lookups in `spawnNodes.ts`; env hooks `spawn`, `despawn`,
+  row` over it. Pins and lookups in `spawnNodes.ts`; env hooks `spawn`, `despawn`,
   `liveInstances`, `spawnedRef` (`env.ts` passes them through). A spawned instance's raised event
   runs the `event:<e>` chain of the Instance ref of its component (`runFlowSpawnedEvent`,
   `flowOwnsSpawnedEvent`), with the raiser in `$trigger.instance`.
@@ -1649,7 +1649,7 @@ row` over it. Pins and lookups in `spawnNodes.ts`; env hooks `spawn`, `despawn`,
 - **Launcher:** `projectSpawnLayers` (`flowV2Projection.ts`) feeds the `/flow-v2` loader, its
   validation and the publish gate. The Scene Editor inserts a Spawn layer on a screen (not in the
   Component Editor), draws it as a placeholder (its grid lattice or a dashed box, `⊕ name · N
-spawnable · cap C`) and edits its list, placement, grid and cap (`EditorSpawnLayer.svelte`).
+  spawnable · cap C`) and edits its list, placement, grid and cap (`EditorSpawnLayer.svelte`).
   `/flow-v2` has a Spawning palette section, inspector fields, `$live` in the accessor picker and
   spawn / refused / despawn rows in Preview. Guides: [tools/invisible-editor.md](../tools/invisible-editor.md#spawn-layer--a-field-flow-fills-while-the-game-runs),
   [tools/flow.md](../tools/flow.md#spawning--create-and-remove-components-in-play).
@@ -2292,29 +2292,29 @@ lands. (P11.1 replaces item 9's define + dead-code elimination with seam modules
 build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 0a. **Card C3 follow-ups:** (a) the **bundle cost** (+17.7 KB gz for every game; owner): accept
-until the per-family runtime build (item 9), as P10.14's; (b) the placeholder frame has looks but
-no state machine: an authored frame's states (§6) need timelines; (c) a real deck picker (the
-starter's deck pick is a tap); (d) hero portraits do not light `targetable`; a dragged card is not
-lifted above its neighbours; (e) the current-games `SCRIPT_FOR_KIND` gains `card` when a card
-game is first published, with its screen script; (f) `hard`'s 16 ms budget on a mid phone is not
-measured; (g) the Card Library (`/cards`) is built in C4 (below); (h) from the C3 review: the validator does not
-yet warn when `handLimit` / `boardLimit` exceed the table's zone cap (12) or a card names a frame
-the zones cannot spawn (the card would be missing from the table); the drop hit-test
-(`actionAt`, `release`) is covered by the browser playtest only, not a Node gate; the frame's
-trigger inputs (`hit`, `healed`, `summoned`) are declared but not yet fired; Concede works on the
-player's turn only.
+   until the per-family runtime build (item 9), as P10.14's; (b) the placeholder frame has looks but
+   no state machine: an authored frame's states (§6) need timelines; (c) a real deck picker (the
+   starter's deck pick is a tap); (d) hero portraits do not light `targetable`; a dragged card is not
+   lifted above its neighbours; (e) the current-games `SCRIPT_FOR_KIND` gains `card` when a card
+   game is first published, with its screen script; (f) `hard`'s 16 ms budget on a mid phone is not
+   measured; (g) the Card Library (`/cards`) is built in C4 (below); (h) from the C3 review: the validator does not
+   yet warn when `handLimit` / `boardLimit` exceed the table's zone cap (12) or a card names a frame
+   the zones cannot spawn (the card would be missing from the table); the drop hit-test
+   (`actionAt`, `release`) is covered by the browser playtest only, not a Node gate; the frame's
+   trigger inputs (`hit`, `healed`, `summoned`) are declared but not yet fired; Concede works on the
+   player's turn only.
 0b. **Card C4 follow-ups:** (a) the Card Library draws frames with its own DOM renderer, not the
-Scene Editor canvas (§8.2 named the canvas) — **accepted by the owner 2026-10-28; the canvas is a
-follow-up**: a rig, effect or flipbook in an authored frame is named, not drawn, until then; (b) the test match's table is a list of legal-action buttons, not drag; (c) a
-two-user check (`/cards` and `/config` open on one card project) is still to be done by hand; (d)
-the deck's AI weights take any number (the AI's own reader decides what it accepts). 0. **P10.15 follow-ups:** ~~(a) **online Flow events** (`onPlayerJoined`, `onPlayerLeft`, `onHit`,
-`onCaught`, `onRoundEnd`) from the room's `event` messages, and **server-owned variables** (the
-room's scores bound as read-only `var:` sources; the validator's `variable-server-owned`) — the
-design's P10.15 row names both; (b) predicted ability events (a swipe drawn when pressed) and
-hiding an `out` player~~ — done in P11.2 (a–b), 2026-10-29; (c) Salmons' own rules (the climb, the line) as `ONLINE_RULES_MODULES`
-entries and `check:online-rules` on its recorded traces, with the P10.16 rebuild; (d) a `/config`
-section for `arcade.online.rules`; (e) the online world camera following the predicted player.
-
+   Scene Editor canvas (§8.2 named the canvas) — **accepted by the owner 2026-10-28; the canvas is a
+   follow-up**: a rig, effect or flipbook in an authored frame is named, not drawn, until then; (b) the test match's table is a list of legal-action buttons, not drag; (c) a
+   two-user check (`/cards` and `/config` open on one card project) is still to be done by hand; (d)
+   the deck's AI weights take any number (the AI's own reader decides what it accepts).
+0. **P10.15 follow-ups:** ~~(a) **online Flow events** (`onPlayerJoined`, `onPlayerLeft`, `onHit`,
+   `onCaught`, `onRoundEnd`) from the room's `event` messages, and **server-owned variables** (the
+   room's scores bound as read-only `var:` sources; the validator's `variable-server-owned`) — the
+   design's P10.15 row names both; (b) predicted ability events (a swipe drawn when pressed) and
+   hiding an `out` player~~ — done in P11.2 (a–b), 2026-10-29; (c) Salmons' own rules (the climb, the line) as `ONLINE_RULES_MODULES`
+   entries and `check:online-rules` on its recorded traces, with the P10.16 rebuild; (d) a `/config`
+   section for `arcade.online.rules`; (e) the online world camera following the predicted player.
 1. **P10.14 follow-ups:** (a) the **bundle cost** (+59 KB gz for every game; owner): accept it as
    static until the per-family runtime build (item 9), or ship the SDK as a separate file only an
    online game fetches; (b) the **publish** writes `rooms_url` into an online game's launch URL and
@@ -2430,7 +2430,7 @@ section for `arcade.online.rules`; (e) the online world camera following the pre
   `apps/lines` only. A standalone game repo installs from its own root `package.json` (copied at
   scaffold), and the desktop launcher backfills engine workspace packages but never a third-party
   one, so every game repo's ☁ Publish failed with `Rollup failed to resolve import
-"@colyseus/sdk"`, online game or not. The SDK now lives in the new `packages/engine-rooms`
+  "@colyseus/sdk"`, online game or not. The SDK now lives in the new `packages/engine-rooms`
   workspace package (`online.ts` imports it, still dynamically), which the backfill declares and
   the workspace installs. New Lint gate `check:game-app-deps`: `apps/lines` may declare only the
   third-party packages game repos already carry. Proved on a scaffold from the pre-#1375 engine:
