@@ -239,7 +239,7 @@
 				/>
 			</Container>
 			{#if rider}
-				<Symbol state="static" rawSymbol={rider} instanceKey={props.instanceKey} />
+				<Symbol state="static" rawSymbol={rider} instanceKey={props.instanceKey} {held} />
 			{/if}
 		{/snippet}
 	</SymbolWrap>
