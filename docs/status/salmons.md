@@ -12,7 +12,8 @@ the placeholders when they are.
 
 ## Current state
 
-- **Salmons on the engine (P10.16)** — all generated from one seed, `SALMONS_SEED`:
+- **Salmons on the engine (P10.16)** — the authored config and layout are made from one seed,
+  `SALMONS_SEED`; each room plays a river of its own (P11.2 e, below):
   - **the river and the config**: `engine-mechanics` `src/salmons.js` (`salmonsRiver`,
     `salmonsConfig`): a 1800 × 7200 river of 15 bands from the sea to the source; `salmon`,
     `bear` (≤ 30) and `fisherman` (≤ 20); bears and fishermen start on the banks; 100 players; bots
@@ -25,7 +26,14 @@ the placeholders when they are.
   - **not yet built** (Salmons' own rules, a rules module each — P10.15 open item c): the climb up
     a waterfall by tapping, sandbanks that ground a salmon until it jumps, rocks and one-way
     waterfalls as solids, and the fisherman's line (hook, reel, land: today one catch); the golden
-    salmon; a new river per room (§14 #4: today every room plays the one seed's river);
+    salmon;
+  - **a new river per room (P11.2 e, built 2026-10-29; in review)**: the config names the
+    generator (`arcade.online.generator: 'salmonsRiver'`). Each room picks a seed and carries it in
+    its state (`seed`); the server and every device run `engine-mechanics` `generatedOnlineGame`
+    on it (the river's field, zones, currents, banks and spawns; characters, rules and bots stay as
+    the config says), and the device draws that river (`engine-layout` `salmonsRiverNode`) in
+    place of the authored one. A room replays from its seed (the bots' brains and the river). The
+    authored `salmons-1` river is what `/editor` and `/config` show;
   - **the layout and looks**: `engine-layout` `referenceLayouts/salmons.ts` — the river as the
     play field's world, a camera following the device's own player, placeholder looks
     (`salmonsSalmon`, `salmonsBear`, `salmonsFisherman`);
@@ -36,8 +44,10 @@ the placeholders when they are.
     swipe and the fisherman's cast are drawn on the press (placeholders `salmonsSwipe`,
     `salmonsCast`); a caught salmon is not drawn until it respawns;
   - **proof**: `check:room-bots` (a salmon swims the river to the source and wins; a bear bot
-    catches one; the config validates clean), `scripts/playtest/salmons-play.mjs` (23 / 23 with the
-    HUD, the swipe and a round over), and
+    catches one; the config validates clean; a room plays its seed's river and replays it; live,
+    two rooms of one game play two rivers, each the one its devices make),
+    `scripts/playtest/salmons-play.mjs` (28 / 28 in each netcode: the HUD, the swipe, a round over,
+    and two rooms with two rivers, each page's the server's), and
     the 100-device load test ([status/game-families](game-families.md) P10.16).
 - **The Salmons that players reach today is not built from this repository.** It lives in
   `GuiltyForever/Salmon-` (a Colyseus 0.15 server and a PixiJS client) and deploys from there.
@@ -76,9 +86,9 @@ the placeholders when they are.
    `invisible_wall/salmons/editor/flow-v2.json` (Salmons' flow, replacing the offline arcade
    starter) and the five `editor/salmons/components/salmons*.json`. Back up the current files first.
 2. (No longer needed since P11.2: the export now writes Salmons' own flow over the starter.)
-3. **Publish** `salmons` from Game Maker. The publish does not yet write the game server's address
-   into the launch URL (P10.14 open item 1b), so open it with
-   `?rooms_url=wss://rooms.invisiblewall.org` added.
+3. **Publish** `salmons` from Game Maker. Since P11.2 (c) the publish writes the game server's
+   address into the launch URL as `rooms_url` (the launcher's `GAME_SERVER_URL`, by default
+   `wss://rooms.invisiblewall.org`), so the published link plays as it is.
 4. **The game server's config credential** (INFRA "Invisible Game Server" steps 5–7), so the live
    server can read the published config; until then it plays no game.
 5. **Moving the players over** from the Salmon repository's own server: when the art and the
@@ -86,9 +96,9 @@ the placeholders when they are.
 
 ## Open items / next (S0)
 
-Salmons' own rules (the climb, sandbanks, solids, the line, the golden salmon), its HUD and
-round-over screen, the published `rooms_url`, a river per room and the isometric view are
-scheduled in [Phase 11](../design/phase-11.md) (P11.2–P11.4); S0 runs beside them.
+Salmons' own rules (the climb, sandbanks, solids, the line, the golden salmon) and the isometric
+view are scheduled in [Phase 11](../design/phase-11.md) (P11.3–P11.4); its HUD and round over, the
+published `rooms_url` and a river per room are built (P11.2). S0 runs beside them.
 
 1. **Generate the 22 character clips** in the project `salmons`, following the Salmon repository's
    `docs/art-pass.md` recipes: `salmon_pink` and `salmon_golden` (`swim`, `hop`, `caught`), `bear`
@@ -125,6 +135,11 @@ register. Tiles and characters get their chains in P10.13 and P10.11. S0 adds no
   launcher account, no R2 write and no ComfyUI. Items 1–3 need a person at those tools.
 
 ## Recent changes
+
+- 2026-10-29 — **P11.2 (c–e): a new river per room, and the publish writes `rooms_url`.** Each
+  room makes its own river from the seed it carries, on the server and on every device
+  (`onlineGenerators.js`); owner step 3 no longer needs a hand-added `rooms_url`.
+  `salmons-play.mjs` 28 / 28. Detail in [status/game-families](game-families.md) P11.2 (c–e).
 
 - 2026-10-27 — **P10.16: Salmons rebuilt as data on the engine.** The river generator and the
   online config (`engine-mechanics` `salmons.js`), its layout (`engine-layout`

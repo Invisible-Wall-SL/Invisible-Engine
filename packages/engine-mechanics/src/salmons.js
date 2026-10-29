@@ -7,10 +7,12 @@
  *
  * The river is GENERATED from a seed (§14 #4) by {@link salmonsRiver}: bands from the sea (the
  * bottom, where salmon spawn) up to the source (the top, the goal), each with its banks, a current
- * running down, and now and then rapids or a whirlpool. The config is made from it once, at
- * authoring time (`scripts/salmons/export.mjs`), so the room and every device read the very same
- * zones; a new river per room is not built (the device's layout would have to be drawn from the
- * room's seed).
+ * running down, and now and then rapids or a whirlpool. The config is made from one river at
+ * authoring time (`scripts/salmons/export.mjs`: what `/editor` and `/config` show) and names the
+ * generator (`arcade.online.generator: 'salmonsRiver'`), so each ROOM plays a river of its own
+ * (P11.2 (e)): the room picks a seed, `onlineGenerators.js` `generatedOnlineGame` swaps the river's
+ * geometry ({@link salmonsGeometry}) into the game on the server and, from the seed the room
+ * state carries, on every device, which also draws that river.
  *
  * Today's Salmons rules, as data (§4's table): the current and the whirlpools are zone forces; a
  * bank is a force that pushes a salmon back into the water; the bear's swipe and the fisherman's
@@ -19,13 +21,14 @@
  * the next starts 15 s later (§14 #6). Bots fill each room to 20 as bears and fishermen, and cannot
  * win (§14 #5).
  *
- * Plain, dependency-free ESM like the rest of the package, and not exported from its entry: no game
- * bundle carries it.
+ * Plain, dependency-free ESM like the rest of the package. Not exported from its entry itself,
+ * but reachable from it through `onlineGenerators.js`: only tree-shaking keeps it out of a
+ * runtime that never calls `generatedOnlineGame` (`check:family-runtimes` holds the sizes).
  */
 
 import { createRng } from './board.js';
 
-/** The river every published Salmons plays (until rivers are made per room). */
+/** The river the authored config and layout are made from (a room plays its own). */
 export const SALMONS_SEED = 'salmons-1';
 
 /** The river's size: a little wider than a desktop screen, nine screens tall. */
@@ -154,9 +157,12 @@ export const SALMONS_COMPONENTS = Object.freeze({
 /** The characters' speeds, px/s. */
 const SPEED = { salmon: 240, bear: 190, fisherman: 140 };
 
-/** The online game config (a `GameConfigDoc`) that plays `river`. */
-export function salmonsConfig(river = salmonsRiver()) {
-	const C = SALMONS_COMPONENTS;
+/**
+ * What of the game a river decides: the field, its zones and their rules (the current, the banks,
+ * the whirlpools, the source), where salmon start, and the banks the bears, fishermen and bots
+ * start on (`spawns` by online character id).
+ */
+export function salmonsGeometry(river) {
 	const banks = () => river.botSpawns.map((p) => ({ ...p }));
 	const zones = [];
 	const rules = [];
@@ -183,6 +189,20 @@ export function salmonsConfig(river = salmonsRiver()) {
 	zones.push({ id: 'source', ...river.source });
 	rules.push({ zone: 'source', goal: true, characters: ['salmon'] });
 	return {
+		field: { ...river.world },
+		zones,
+		zoneRules: rules,
+		spawn: { ...river.spawn },
+		spawns: { bear: banks(), fisherman: banks().reverse() },
+		botSpawns: banks(),
+	};
+}
+
+/** The online game config (a `GameConfigDoc`) that plays `river`, and a new river per room. */
+export function salmonsConfig(river = salmonsRiver()) {
+	const C = SALMONS_COMPONENTS;
+	const geometry = salmonsGeometry(river);
+	return {
 		version: 1,
 		family: 'arcade',
 		outcome: 'rules',
@@ -197,13 +217,13 @@ export function salmonsConfig(river = salmonsRiver()) {
 		symbols: {},
 		paddingReels: {},
 		arcade: {
-			field: { ...river.world },
+			field: geometry.field,
 			bodies: {
 				[C.salmon]: { shape: 'box', w: 90, h: 44, tags: ['salmon'] },
 				[C.bear]: { shape: 'circle', r: 46, tags: ['bear'] },
 				[C.fisherman]: { shape: 'box', w: 56, h: 88, tags: ['fisherman'] },
 			},
-			zones,
+			zones: geometry.zones,
 			characters: [
 				{ id: 'bearBot', name: 'Bear (bot)', component: C.bear, brain: brainChase(SPEED.bear) },
 				{
@@ -217,19 +237,26 @@ export function salmonsConfig(river = salmonsRiver()) {
 				maxPlayers: 100,
 				characters: [
 					{ id: 'salmon', body: C.salmon, speed: SPEED.salmon },
-					{ id: 'bear', body: C.bear, speed: SPEED.bear, max: 30, spawns: banks() },
+					{
+						id: 'bear',
+						body: C.bear,
+						speed: SPEED.bear,
+						max: 30,
+						spawns: geometry.spawns.bear,
+					},
 					{
 						id: 'fisherman',
 						body: C.fisherman,
 						speed: SPEED.fisherman,
 						max: 20,
-						spawns: banks().reverse(),
+						spawns: geometry.spawns.fisherman,
 					},
 				],
-				spawn: { ...river.spawn },
+				spawn: geometry.spawn,
+				generator: 'salmonsRiver',
 				nearby: { w: 2400, h: 1800 },
 				rules: {
-					zones: rules,
+					zones: geometry.zoneRules,
 					abilities: [
 						{
 							character: 'bear',
@@ -259,7 +286,7 @@ export function salmonsConfig(river = salmonsRiver()) {
 						{ character: 'bear', brain: 'bearBot' },
 						{ character: 'fisherman', brain: 'fishermanBot' },
 					],
-					spawns: banks(),
+					spawns: geometry.botSpawns,
 				},
 			},
 		},

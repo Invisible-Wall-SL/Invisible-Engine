@@ -577,6 +577,26 @@ await check('the runtime: the SDK is reached only through the online branch, and
 	assert.match(stage, /online\s+\? useOnlineCamera\(scenes,[\s\S]*?: useWorldCamera\(scenes\)/);
 	assert.match(stage, /online \? undefined : useArcadePaths\(/);
 	assert.match(stage, /if \(online \|\| !pixi\) return;\s+return useArcadeInput\(/);
+	// A field per room (P11.2 (e)): only a game that names a generator waits for the room's seed,
+	// makes the room's field with the server's own function and has the loaded doc draw it; every
+	// other game's doc loads as it always did.
+	assert.match(online, /const seed = generator \? await roomSeed\(room\) : undefined;/);
+	assert.match(online, /: generatedOnlineGame\(resolved, seed\);/);
+	assert.match(online, /if \(current\.field\) setRoomDocChange\(withRoomField\);/);
+	assert.match(online, /const field = current\?\.field;\s+if \(!current \|\| !field\) return doc;/);
+	// A layout with no node to draw the field in stops the game rather than draw the authored one:
+	// in the join, before the game mounts, leaving the room first (salmons-play page D plays it),
+	// and for a layout fetched at mount, leaving the room as it refuses.
+	assert.match(
+		online,
+		/if \(field && prepared && !holdsNode\(prepared, field\.id\)\) \{\s+room\.leave\(\)[^;]*;\s+return refuseOnlineBoot\(missingFieldNode\(field\.id\)\);/,
+	);
+	assert.match(
+		online,
+		/if \(!current\.fieldDrawn\) \{\s+current\.room\.leave\(\)[^;]*;\s+void refuseOnlineBoot\(/,
+	);
+	const scenes = readFileSync(join(src, 'editor-scenes.ts'), 'utf8');
+	assert.match(scenes, /return roomDocChange \? roomDocChange\(scenes\) : scenes;/);
 });
 
 // --- 2. live: a real Colyseus 0.18 server, real SDK clients -------------------------------------

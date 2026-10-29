@@ -6,6 +6,7 @@ import {
 	createBot,
 	createOnlineRules,
 	facingOf,
+	generatedOnlineGame,
 	onlineLevel,
 	stepContext,
 	stepPlayer,
@@ -80,7 +81,10 @@ export type SimPlayer = RulesPlayer & {
 export class RoomRefusal extends Error {}
 
 export type RoomSim = {
+	/** The game as this room plays it: with a field of its own when its config names a generator. */
 	readonly game: OnlineGame;
+	/** The room's seed: its bots' brains and its generated field, so a room replays from it. */
+	readonly seed: number;
 	readonly ctx: StepContext;
 	readonly players: ReadonlyMap<string, SimPlayer>;
 	readonly steps: number;
@@ -100,13 +104,15 @@ export type RoomSim = {
 };
 
 export type RoomSimOptions = {
-	/** Seeds the bots' brains, so a room replays exactly. Default: a random seed. */
+	/** Seeds the bots' brains and a generated field (`engine-mechanics` `generatedOnlineGame`), so a
+	 *  room replays exactly. Default: a random seed. */
 	seed?: number;
 };
 
-export function createRoomSim(game: OnlineGame, options: RoomSimOptions = {}): RoomSim {
-	const { online, field } = game;
+export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}): RoomSim {
 	const seed = options.seed ?? Math.floor(Math.random() * 0x7fffffff);
+	const { game } = generatedOnlineGame(authored, seed);
+	const { online, field } = game;
 	const bots = new Map<string, OnlineBot>();
 	let botsMade = 0;
 	/** People let in so far, by character: the next takes the next of its character's spawns. */
@@ -246,6 +252,7 @@ export function createRoomSim(game: OnlineGame, options: RoomSimOptions = {}): R
 
 	return {
 		game,
+		seed,
 		ctx,
 		players,
 		get steps() {

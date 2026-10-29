@@ -20,6 +20,7 @@ import {
 	createPredictor,
 	createRng,
 	createSnapshotClock,
+	generatedOnlineGame,
 	onlineLevel,
 	reconcilerOptions,
 	snapFor,
@@ -34,11 +35,25 @@ import {
 	type SnapshotClock,
 } from 'engine-mechanics';
 import { serverVariablesOf } from 'engine-flow-v2';
-import { sceneCamera, sceneWorld, worldCameraScene, type Scene } from 'engine-layout';
+import {
+	FIELD_DRAWINGS,
+	sceneCamera,
+	sceneWorld,
+	worldCameraScene,
+	type LayoutDoc,
+	type LayoutNode,
+	type Scene,
+} from 'engine-layout';
 import { setWorldCameraView, spawnStore } from 'engine-layout/svelte';
 import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-config';
 
-import { bakedFlowV2Doc, bakedGameConfig, refuseOnlineBoot } from '../editor-scenes';
+import {
+	bakedFlowV2Doc,
+	bakedGameConfig,
+	preparedEditorDoc,
+	refuseOnlineBoot,
+	setRoomDocChange,
+} from '../editor-scenes';
 import { typingInto } from './flowKeys';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 
@@ -67,6 +82,11 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
  * are raised on the press (`createAbilityPredictor`), not when the room answers, so a swipe is
  * drawn at once. A player that is out is not drawn until it respawns.
  *
+ * A FIELD PER ROOM (P11.2 (e)): when the config names a generator (`arcade.online.generator`),
+ * the join waits for the room's first state, makes the room's own field from the seed it carries
+ * (`generatedOnlineGame`, the very function the server ran) and draws it in place of the authored
+ * one ({@link withRoomField}, `FIELD_DRAWINGS`), as the scenes load.
+ *
  * Launch parameters: `?rooms_url=` the game server (`wss://rooms.invisiblewall.org`), the game
  * key `?rooms_game=` (else `?project=`), and optionally `?rooms_name=` / `?rooms_character=`.
  * `engine-rooms` (`@colyseus/sdk`) is imported only here, on this path, so an offline game never
@@ -94,8 +114,13 @@ type RoomState = {
 	round: number;
 	endsAt: number;
 	winner: string;
+	/** The room's seed, from which a generated field is made (P11.2 (e)). */
+	seed: number;
 	players: Map<string, PlayerState>;
 };
+
+/** How long a join waits for the room's first state, which carries the seed of its field. */
+const SEED_WAIT_MS = 5000;
 
 /** How many of the room's events, and of the flow signals raised, the probe keeps. */
 const EVENTS_KEPT = 32;
@@ -124,6 +149,11 @@ type Session = {
 	signals: OnlineFlowSignal[];
 	/** The flow's variables the room writes, read once the flow is up. */
 	serverVariables: { id: string; server: string }[] | undefined;
+	/** The room's seed, and the field made from it, drawn in place of the authored node of its id. */
+	seed: number | undefined;
+	field: LayoutNode | undefined;
+	/** Whether the loaded doc drew {@link field}: `undefined` until the scenes load. */
+	fieldDrawn: boolean | undefined;
 };
 
 let session: Session | undefined;
@@ -228,9 +258,24 @@ export async function joinOnlineRoom(): Promise<void> {
 		predict?.dispose();
 		if (code !== CONSENTED) void refuseOnlineBoot(`the room closed (code ${code})`, true);
 	});
+	const generator = resolved.online.generator;
+	const seed = generator ? await roomSeed(room) : undefined;
+	if (generator && seed === undefined) {
+		room.leave().catch(() => {});
+		return refuseOnlineBoot('the room did not say which field it plays');
+	}
+	const played =
+		seed === undefined ? { game: resolved, made: undefined } : generatedOnlineGame(resolved, seed);
+	const draw = generator ? FIELD_DRAWINGS[generator] : undefined;
+	const field = played.made && draw?.(played.made);
+	const prepared = preparedEditorDoc();
+	if (field && prepared && !holdsNode(prepared, field.id)) {
+		room.leave().catch(() => {});
+		return refuseOnlineBoot(missingFieldNode(field.id));
+	}
 	const current: Session = {
 		room,
-		game: resolved,
+		game: played.game,
 		clock: createFixedStep({ hz: resolved.online.tickHz }),
 		seq: 0,
 		me: undefined,
@@ -239,7 +284,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		others: createInterpolator({
 			snapPx: snapFor(
 				Math.max(...resolved.online.characters.map((c) => c.speed)) +
-					strongestForce(resolved.online.rules.zones),
+					strongestForce(played.game.online.rules.zones),
 				resolved.online.patchHz,
 			),
 		}),
@@ -250,8 +295,12 @@ export async function joinOnlineRoom(): Promise<void> {
 		abilities: undefined,
 		signals: [],
 		serverVariables: undefined,
+		seed,
+		field,
+		fieldDrawn: undefined,
 	};
 	session = current;
+	if (current.field) setRoomDocChange(withRoomField);
 	room.onStateChange(() => received(current, performance.now()));
 	room.onMessage(ONLINE_EVENT, (events: OnlineEvent[]) => {
 		current.events.push(...events);
@@ -268,6 +317,66 @@ export async function joinOnlineRoom(): Promise<void> {
 		))
 			raise(current, signal);
 	});
+}
+
+/** The seed the room's first state carries, or `undefined` if none comes in time. */
+function roomSeed(room: Room): Promise<number | undefined> {
+	const now = (room.state as Partial<RoomState> | undefined)?.seed;
+	if (typeof now === 'number') return Promise.resolve(now);
+	return new Promise((resolve) => {
+		const first = (state: Partial<RoomState>) => {
+			clearTimeout(timer);
+			resolve(typeof state.seed === 'number' ? state.seed : undefined);
+		};
+		const timer = setTimeout(() => {
+			room.onStateChange.remove(first);
+			resolve(undefined);
+		}, SEED_WAIT_MS);
+		room.onStateChange.once(first);
+	});
+}
+
+/** Whether a screen of `doc` has a top-level node `id`, where a generated field is drawn. */
+const holdsNode = (doc: LayoutDoc, id: string) =>
+	doc.scenes.some((scene) => scene.nodes.some((node) => node.id === id));
+
+/** Why a generator game with no node to draw its room's field in does not start. */
+const missingFieldNode = (id: string) =>
+	`the layout has no node "${id}" to draw the room's own field in: keep a node with id ` +
+	`"${id}", or remove arcade.online.generator`;
+
+/**
+ * `doc` with the room's own field drawn in place of the authored node of the same id, in every
+ * scene, and that scene's world sized to the room's field; `doc` itself when the room plays the
+ * field as authored (or there is no room). The loaded doc passes through it (`editor-scenes`
+ * `loadEditorScenes`) once a room made its own field. A layout with no node of that id would
+ * draw the authored field over the room's own: the join refuses it before the game mounts when the
+ * layout is already in hand, and here (a layout fetched at mount) the device leaves the room.
+ */
+function withRoomField(doc: LayoutDoc): LayoutDoc {
+	const current = session;
+	const field = current?.field;
+	if (!current || !field) return doc;
+	const size = current.game.field;
+	const holds = (scene: Scene) => scene.nodes.some((node) => node.id === field.id);
+	current.fieldDrawn = holdsNode(doc, field.id);
+	if (!current.fieldDrawn) {
+		current.room.leave().catch(() => {});
+		void refuseOnlineBoot(missingFieldNode(field.id), true);
+		return doc;
+	}
+	return {
+		...doc,
+		scenes: doc.scenes.map((scene) =>
+			holds(scene)
+				? {
+						...scene,
+						...(scene.world ? { world: { w: size.w, h: size.h } } : {}),
+						nodes: scene.nodes.map((node) => (node.id === field.id ? field : node)),
+					}
+				: scene,
+		),
+	};
 }
 
 /** Raise a room event in the flow (an online event). */
@@ -515,6 +624,9 @@ export function onlineProbe() {
 						drawn,
 						viewStep: current.viewStep,
 						netcode: current.game.online.netcode,
+						seed: current.seed ?? null,
+						zones: current.game.zones.map((z) => [z.id, z.x, z.y, z.w, z.h]),
+						fieldDrawn: current.fieldDrawn ?? null,
 						...(current.sdk
 							? {}
 							: { corrections: current.me?.corrections ?? 0, snaps: current.me?.snaps ?? 0 }),

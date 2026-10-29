@@ -66,12 +66,22 @@ casts. Open a second tab with `rooms_character=bear` to hunt.
    score (variables the room owns).
 8. Page B's J draws the bear's swipe on the press, before the room tells of it; the room then
    tells, the swipe is not drawn twice, and it is gone after 300 ms.
-9. Page C joins `salmons-short` (the same game with 5 s rounds, no bots): the round ends, the
-   round-over screen comes up counting down, and round 2 hides it again.
-10. No page sends the RGS anything; no page error.
+9. A river per room (P11.2 e): pages A and B (one room) report the room's seed and make the same
+   river from it, the very zones `generatedOnlineGame` makes from that seed in Node, and draw it
+   (`online.fieldDrawn`: the loaded doc held the `river` node it replaced); page A's salmon started at that river's sea, where the server put it;
+   it is not the authored river; page C (another room) plays another river, its own room's.
+10. Page C joins `salmons-short` (the same game with 5 s rounds, no bots): the round ends, the
+    round-over screen comes up counting down, and round 2 hides it again.
+11. Page D boots the same game with a layout that lost its `river` node: it stops on the failure
+    screen before the game mounts, saying to keep a node with id `river` or remove
+    `arcade.online.generator`, and leaves the room (the server's room count is back where it was).
+12. No page sends the RGS anything; no page error.
+
+The bots are bears with a brain that stands still: each room places them on its own river's
+banks, so the hunt (`check:room-bots`') stays out of this test. 28 verdicts.
 
 Screens: `01-salmon-at-the-sea.png`, `02-bear-on-its-bank.png`, `03-salmon-upstream.png`,
-`04-bear-swipes.png`, `05-round-over.png`.
+`04-bear-swipes.png`, `05-another-river.png`, `06-round-over.png`.
 
 ## What the gates already prove (not replayed here)
 

@@ -19,5 +19,6 @@ export * from './src/netcode.js';
 export * from './src/onlineRules.js';
 export * from './src/onlineFlow.js';
 export * from './src/onlineBots.js';
+export * from './src/onlineGenerators.js';
 export * from './src/cards.js';
 export * from './src/cardAi.js';
