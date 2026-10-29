@@ -834,8 +834,8 @@ runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 
 ## Recent changes
 - 2026-10-29 — **Step 8e.6: authoring in the Scene Editor and the Flow** (see "Current state").
   In review.
-  - **Proof.** `check:screen-fx-editor` 77 (now in Lint); `check:element-fx-flow` 31 (now in
-    Lint: the `stage` target, reserved ids keep their stored id and get no anchor, a flow naming a
+  - **Proof.** `check:screen-fx-editor` 77; `check:element-fx-flow` 31 (both run in CI's Checks
+    shards: the `stage` target, reserved ids keep their stored id and get no anchor, a flow naming a
     `reels` placement still passes the shipped-flow gate); `check:doc-readers-unknown-fields` 304;
     fx-spike `screen-fx-editor` 35 (set the cue row, ▶ a post FX in stage mode, Esc restores the
     stage, ▶ the cue into the free-spin intro and Esc before it lands, save, reopen identical) and
@@ -845,8 +845,7 @@ runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 
   - **Review.** Blocking, fixed: the first build renamed a node called `stage`/`reels` on every
     read, which would have broken Flow instance references (a publish-blocking error) and
     re-published games; now stored ids are never changed and reserved names win in the game.
-    Also fixed: a cancelled transition ▶ could leave a hidden screen drawn; the two new gates were
-    not in CI; built-in post FX had no load line (owner's call: twin cost, as transitions).
+    Also fixed: a cancelled transition ▶ could leave a hidden screen drawn; built-in post FX had no load line (owner's call: twin cost, as transitions).
 - 2026-10-29 — **Step 8e.4: transitions in the game — the Flow actions and the transition cue**
   (see "Current state"). Merged (#1461): CI green; Current games 8 pass, 0 fail, 0
   changed screens.
