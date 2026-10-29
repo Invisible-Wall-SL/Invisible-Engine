@@ -22,7 +22,9 @@ import { validateBonusModes } from './bonusGames';
 import { validateCoinBoard } from './coinBoard';
 import { validateBonusImports } from './bonusImports';
 import { validateExpandingSymbol } from './expandingSymbol';
+import { validateExpandingWilds } from './expandingWilds';
 import { validateFreeSpins } from './freeSpins';
+import { validateGrowingWild } from './growingWild';
 import { validatePotsOverlay } from './potsOverlay';
 import { symbolsInPlay } from './inPlay';
 import { resolveWinLevels } from './winLevels';
@@ -92,6 +94,8 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 	if (sections.has('winLevels')) issues.push(...winLevelIssues(doc));
 	if (sections.has('freeSpins')) issues.push(...validateFreeSpins(doc));
 	if (sections.has('expandingSymbol')) issues.push(...validateExpandingSymbol(doc));
+	if (sections.has('expandingWilds')) issues.push(...validateExpandingWilds(doc));
+	if (sections.has('growingWild')) issues.push(...validateGrowingWild(doc));
 	if (sections.has('bonusModes')) {
 		issues.push(...validateHoldAndWin(doc));
 		issues.push(...validatePotsOverlay(doc));

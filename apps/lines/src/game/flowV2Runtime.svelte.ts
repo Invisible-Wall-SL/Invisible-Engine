@@ -19,7 +19,7 @@
  * so a `fireCue` blocks on its subscribers' completion like the coded handlers' awaited broadcasts.
  *
  * Phase 4c — the game runs against the REAL template vocabulary resolved from the loaded doc's
- * `templateId` via the shared `templateVocabulary()` registry (only `book-of` today) — the SAME
+ * `templateId` via the registry of the vocabularies this build carries (`runtimeVocabularies`) — the SAME
  * contract the `/flow-v2` editor authors against — and BACKS every surface it declares: `actions` →
  * `flowEffect`, `cues` → `eventEmitter.broadcast`, `collections`/`$engine` reads → `linesEngineReader`.
  * `assertVocabBacked` warns (dev) if an authored action has no implementation.
@@ -86,8 +86,8 @@ import {
 	spawnedIdOf,
 	SCREEN_LIFECYCLE_SIGNALS,
 	signalChainCallsAction,
-	templateVocabulary,
 	variableValueSources,
+	vocabularyIn,
 	withAddOns,
 	withOutcome,
 	type ContainerMountModel,
@@ -111,7 +111,8 @@ import { recordDeterminismCue } from './determinism';
 import { eventEmitter } from './eventEmitter';
 import { stateApp } from './stateApp';
 import { stateLayoutDerived } from './stateLayout';
-import { boardEffect, boardEffectNames, boardValue } from './flowBoardEffects';
+import { familyBoardActions, runtimeVocabularies } from './familyFlow';
+import { boardEffect, boardValue } from './flowBoardEffects';
 import { flowEffect, flowEffectNames } from './flowEffects';
 import { withMissingScreenReport } from './flowV2MissingScreens';
 import { enginePotsScreen, type EnginePotsScreen } from './flowV2PotsScreen';
@@ -164,7 +165,7 @@ const assertVocabBacked = (vocab: TemplateVocabulary): void => {
 	// An action is backed by the `flowEffect` registry OR routed to the `invokeIntent` bridge.
 	const implemented = new Set([
 		...flowEffectNames,
-		...boardEffectNames,
+		...familyBoardActions(),
 		...Object.keys(INTENT_COMMANDS),
 	]);
 	const missing = vocab.actions.map((a) => a.name).filter((n) => !implemented.has(n));
@@ -394,7 +395,7 @@ export const createLinesFlowV2 = (
 	// checks (`composeFlowV2Vocab`). A slot with no add-on block ⇒ the kind's vocabulary alone.
 	const config = getActiveGameConfig();
 	const vocab = withAddOns(
-		withOutcome(templateVocabulary(doc.templateId), resolveOutcome(config)),
+		withOutcome(vocabularyIn(runtimeVocabularies(), doc.templateId), resolveOutcome(config)),
 		flowAddOnsOf(config),
 	);
 	assertVocabBacked(vocab); // dev: warn if the vocabulary declares an action the game doesn't implement.

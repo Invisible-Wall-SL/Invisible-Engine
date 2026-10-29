@@ -4,6 +4,7 @@
 
 	import { getContext } from '../game/context';
 	import { getSymbolInfo } from '../game/utils';
+	import { stackedGrowthFor } from '../game/wildRewrite.svelte';
 	import type { StackedPictureRun } from '../game/stateGame.svelte';
 
 	/**
@@ -60,12 +61,34 @@
 	// and crops (making the mechanic visible before real art is bound).
 	const boxW = $derived(geometry.cellWidthLocal);
 	const boxH = $derived(run.naturalCells * geometry.rowPitchLocal);
-	const maskH = $derived(run.visibleCells * geometry.rowPitchLocal);
-	// Vertical crop OFFSET: how far the picture's top sits ABOVE the visible run. 0 ⇒ top-aligned (reveal
-	// the top N/M). `hiddenAbove` cells (a top-edge partial) ⇒ the box slides UP so its BOTTOM N/M fills
-	// the run and the top M−N cells continue off-screen above, clipped by the board window mask — the tall
-	// symbol reads as cut off by the reel, not shrunk. See the run scan in stateGame.
-	const hiddenOffset = $derived(run.hiddenAbove * geometry.rowPitchLocal);
+	/**
+	 * Where the picture box and its visible window sit, in board rows. Settled: the box top is
+	 * `hiddenAbove` rows over the run (0 ⇒ top-aligned, the top N/M shows; a top-edge partial slides the
+	 * box UP so its BOTTOM N/M fills the run and the rest is clipped off-screen above by the board
+	 * window mask) and the window is the run. While an expanding wild GROWS over this reel
+	 * (`wildRewrite`), the window opens from the landed slice to the whole reel, and the run holding
+	 * the landed cell slides its box from where the slice showed it to where the full stack does.
+	 */
+	const frame = $derived.by(() => {
+		const boxTop = run.topRow - run.hiddenAbove;
+		const top = run.topRow;
+		const bottom = run.topRow + run.visibleCells;
+		const grow = stackedGrowthFor(run.reel);
+		if (!grow) return { boxTop, top, bottom };
+		const p = grow.progress.current;
+		const lerp = (from: number, to: number) => from + (to - from) * p;
+		const holdsOrigin = top <= grow.originRow && grow.originRow < bottom;
+		const windowTop = Math.max(top, lerp(grow.from.top, grow.to.top));
+		const windowBottom = Math.min(bottom, lerp(grow.from.bottom, grow.to.bottom));
+		return {
+			boxTop: holdsOrigin ? lerp(grow.fromBoxTop, boxTop) : boxTop,
+			top: windowTop,
+			bottom: Math.max(windowTop, windowBottom),
+		};
+	});
+	const boxOffset = $derived((frame.boxTop - run.topRow) * geometry.rowPitchLocal);
+	const maskOffset = $derived((frame.top - frame.boxTop) * geometry.rowPitchLocal);
+	const maskH = $derived((frame.bottom - frame.top) * geometry.rowPitchLocal);
 	// Generous horizontal span — the crop is VERTICAL only, so the mask must never clip the sides.
 	const maskW = $derived(boxW * 2);
 
@@ -85,7 +108,7 @@
 	const Z_INDEX = 0.75;
 </script>
 
-<Container x={run.x} y={run.topEdgeY - hiddenOffset + boxH / 2} zIndex={Z_INDEX}>
+<Container x={run.x} y={run.topEdgeY + boxOffset + boxH / 2} zIndex={Z_INDEX}>
 	{#if isSprite}
 		<Sprite key={info.assetKey} anchor={0.5} width={boxW} height={boxH} />
 	{:else if isFlipbook && clip}
@@ -116,5 +139,5 @@
 		</RigProvider>
 	{/if}
 
-	<Rectangle isMask x={-maskW / 2} y={-boxH / 2 + hiddenOffset} width={maskW} height={maskH} />
+	<Rectangle isMask x={-maskW / 2} y={-boxH / 2 + maskOffset} width={maskW} height={maskH} />
 </Container>

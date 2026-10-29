@@ -187,9 +187,14 @@ function buildSeeds(client: string, project: string, scenes: SeedLayout, flow: F
 /**
  * The reference scene set a LINES preset scaffolds from, when it is not the lines kind's own: the
  * Book of Thermopylae starts from the Book-of reference layout (Borut's look, saved as a lines
- * layout), so a new Book-of game opens on the screens a Book-of game has always had.
+ * layout), so a new Book-of game opens on the screens a Book-of game has always had. Fairy Clover is a
+ * plain lines game on a 5×4 board: the lines set, whose board takes its size from the config (the
+ * Book-of set carries a 5×3 reel-grid node).
  */
-const LINES_PRESET_SCENE_SET: Record<LinesPresetId, string> = { bookOfThermopylae: 'bookOf' };
+const LINES_PRESET_SCENE_SET: Record<LinesPresetId, string> = {
+	bookOfThermopylae: 'bookOf',
+	fairyClover: 'lines',
+};
 
 /**
  * Who decides a `match3` project's rounds (`docs/design/game-families.md` §6.1): the outcome asked

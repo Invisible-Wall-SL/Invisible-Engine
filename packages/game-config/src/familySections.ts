@@ -21,6 +21,8 @@ export const CONFIG_SECTIONS = [
 	'winModel',
 	'freeSpins',
 	'expandingSymbol',
+	'expandingWilds',
+	'growingWild',
 	'reelBehaviour',
 	'gameModes',
 	'sounds',

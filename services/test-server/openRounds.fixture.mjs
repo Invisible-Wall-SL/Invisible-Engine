@@ -207,6 +207,12 @@ try {
 	}
 	check(up, 'the test server boots from a local manifest');
 	if (!up) throw new Error('server never came up');
+	const listed = (await health())?.gameRuntimes ?? {};
+	check(
+		listed[STAMPED]?.runtime === null && listed[STAMPED]?.protocol === 'lines',
+		'/healthz lists each game with its runtime (none for a desktop build) and protocol',
+		JSON.stringify(listed),
+	);
 
 	const engine = (seq, gid, actions) =>
 		call(

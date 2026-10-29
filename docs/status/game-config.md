@@ -205,6 +205,7 @@ was already safe: `bookEventHandlerMap` and `flowEffects` walk the visible rows 
 `row < symbols.length - 1` guard, which bounds them by the column's own strip.
 
 **Open / not wired:**
+
 - A stepped board has not been driven through a full ROUND in a browser: the pane would not
   composite, which also throttles the animation clock, so a round never settles and a second spin
   never arms. A single spin DOES fire (spacebar). The RESTING board is verified live and
@@ -494,7 +495,7 @@ runtime. Fixture-verified + build-green; the dialog itself is owner-verify-owed 
   heartbeat with a fresh sid and a 10 s timeout (`fetchServerBootConfig`, now also behind the
   Paylines preview), maps names with the vocabulary-picked mapping, and returns
   `{ gameKey, gameKeys, mapping, mappingDetected, serverSymbols, serverNames, lines, scatter,
-  skipped }`. Failures are `json({ error }, { status })` — 404 "publish it first", 502 unreachable /
+skipped }`. Failures are `json({ error }, { status })` — 404 "publish it first", 502 unreachable /
   bad answer (the cause is named), 422 no paytable declared.
 - **One reading of the wire.** `pickMappingForConfig` moved from `engineFacade.ts` into
   `gameMappings.ts`, and the facade's scatter-symbol + name-mapping read became
@@ -506,7 +507,7 @@ runtime. Fixture-verified + build-green; the dialog itself is owner-verify-owed 
   paytable (see the next section). The plan updates dictionary symbols only — server symbols with no
   entry are `skipped`, authored rows the server does not price are `undeclared` and left alone.
 - **Page.** The review is the canonical `ConfirmDialog` with a `body` snippet (not another hand-rolled
-  `.modal-backdrop`): per symbol `now → server` or *unchanged*, the skipped/left-as-authored lists,
+  `.modal-backdrop`): per symbol `now → server` or _unchanged_, the skipped/left-as-authored lists,
   one scatter information line, and **Apply N changes** (locked when nothing differs). The plan is
   made against the page's LIVE doc, so unsaved edits count; Apply writes only changed rows and the
   page goes dirty. Disabled with "Publish the game first" when the project has no server.
@@ -703,7 +704,7 @@ check-all` shard 3 runs it), over the real `publishGame`.
    launcher does not send the table-capable claim yet (Blocked, below), so AFTER the rebuild stamp
    each build in `/admin` → Projects → **Desktop builds: table-capable stamp** → **Stamp
    table-capable** (the CLI equivalent is `node apps/launcher-api/scripts/publish-game-via-portal.mjs
-   <gameKey> <buildDir> --project <projectKey> --register-only --table-capable`). Every later desktop
+<gameKey> <buildDir> --project <projectKey> --register-only --table-capable`). Every later desktop
    ☁ Publish clears the stamp again until the launcher sends it, so stamp after the last rebuild.
    Until a build is stamped, the dry run blocks its project with "not stamped table-capable —
    rebuild it …, then stamp it under /admin → …".
@@ -711,7 +712,7 @@ check-all` shard 3 runs it), over the real `publishGame`.
    changes, its blockers (a gate refusal names what to fix: approve the sound, fix the flow, settle
    the paytable) and what is republished or skipped. Close any open `/config` or `/editor` tab on
    those projects.
-3. **Apply.** Tick *I read this dry run*, press **Apply to N projects**. Read each result as it
+3. **Apply.** Tick _I read this dry run_, press **Apply to N projects**. Read each result as it
    lands: `migrated` with its steps, `blocked` with why, `republish-pending` (the kind moved, the
    republish did not land: run the dry run and Apply again), `error` (its message says whether a
    re-run picks it up).
@@ -729,7 +730,7 @@ check-all` shard 3 runs it), over the real `publishGame`.
    would have caught the wild on the first spin. (The PAYTABLE half is done: the boot cross-check
    warns, and **Import paytable from server** fixes it — see above.)
 2. **Owner-verify the paytable import dialog** in a browser on a published project (Book of Borut
-   remake should show nine *unchanged* rows now that its config was authored from the server) —
+   remake should show nine _unchanged_ rows now that its config was authored from the server) —
    and the **pasted-capture** path: paste a partner `config` response, Keep as reference, Save, see
    the "matches" line; edit one price, see the red banner, and see Publish refuse (admin: publish
    anyway). Also click-test a config restore from **History…** (the flow restore was tested; same
@@ -769,15 +770,15 @@ check-all` shard 3 runs it), over the real `publishGame`.
    added on a retrigger, and so says nothing of a random award range either. The award is read from
    the server at runtime, so the game itself is right; only the copy is silent.
 10. _Closed 2026-10-08:_ a pot routed to free spins while free spins are off is refused by the
-   validator and by both mock hosts (see Recent changes).
+    validator and by both mock hosts (see Recent changes).
 11. **No max-win cap on either mock.** Neither the lines mock nor the book mock caps a round at the
-   config's `max_win` (the book mock only declares `maxWinMp`; the lines mock sends `maxWinCap: 0`),
-   so an Invisible Test Server round total — a long Book-of feature especially — is uncapped and
-   must not be read as what a capped real server would pay.
+    config's `max_win` (the book mock only declares `maxWinMp`; the lines mock sends `maxWinCap: 0`),
+    so an Invisible Test Server round total — a long Book-of feature especially — is uncapped and
+    must not be read as what a capped real server would pay.
 12. **`POST /api/launcher/projects` still accepts the retired `bookOf` kind, on purpose.** The
-   desktop launcher's ⬆ Setup registers existing desktop Book-of games under their own kind, and the
-   Phase 6 migration of [book-feature.md](../design/book-feature.md) is re-runnable for such a row.
-   Only the pickers stop offering it (Phase 5c). It goes with the kind in Phase 7.
+    desktop launcher's ⬆ Setup registers existing desktop Book-of games under their own kind, and the
+    Phase 6 migration of [book-feature.md](../design/book-feature.md) is re-runnable for such a row.
+    Only the pickers stop offering it (Phase 5c). It goes with the kind in Phase 7.
 
 **Not a gap:** `packages/game-spec`'s generator emits const-based `paytable.ts`/`infoManifest.ts`,
 but it is a standalone CLI that `new-game.mjs` does NOT call — the scaffold copies `src/` from an
@@ -792,6 +793,73 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   a desktop build is stamped by hand in `/admin` after each ☁ Publish (runbook step 1 above).
 
 ## Recent changes
+
+- 2026-10-28 — **Fairy Clover, a second lines preset** (branch `lines/fairys-charm-preset`).
+  `fairyCloverPreset()` (`packages/game-config/src/fairyCloverPreset.ts`) → generated
+  `lines.fairyClover.json`, from Slotmotion's _Fairy's Charm_ (`docs/reference/fairys-charm-capture.json`):
+  5×4, its 50 lines, its paytable in our ids (H1–H5, L1–L5), `W` (fairy) and `CL` (clover) wilds with
+  no paytable, `S` paying `{2: 1}` × total bet, free spins on 2 `S` → 10, +10 on 2 more (≈ +0.20 spins
+  per spin on its freegame strips), one base mode (cost 1, no buy), the lines win levels. Strips:
+  the boot-config base set as `basegame` (the reference draws one of five weighted sets) and its
+  free-spin set as `freegame`, so **RTP 0.96 and max win 5000 are placeholders** until the maths is
+  tuned. Registered as lines preset `fairyClover` ("Fairy Clover"): `/config`'s Reset to preset and
+  Game Maker's Preset picker, scaffolded from the **lines** scene set (its board sizes from the
+  config; the Book-of set carries a 5×3 reel-grid node). **Gates:** `check:fairy-clover-preset`
+  (in `check:rgs`: preset vs capture through `symbolMap`, committed JSON vs preset),
+  `check:lines-presets`, `check:project-scaffold`, `check:family-defaults-identity`,
+  `check:game-config-defaults`. **Test server:** a trigger below 3 now sends its places on the strips
+  (`freeSpinsTriggerStrips`, game-config → mock contract → `validGrid` → the lines mock's
+  `spinTriggerStrips`): each reel stops at a random cell of its `basegame` / `freegame` strip, the
+  trigger lands where that window holds it, every other cell is the usual draw with the trigger
+  redrawn. Only a count below 3 sends it, so every existing game's deal is byte-identical
+  (`check:deal-parity`, `check:lines-parity`). Before it the mock dealt SCAT on 4% of cells: the
+  feature opened on one 5×4 spin in five and most features ran to `MAX_ROUND_FREE_SPINS`; now it
+  opens on ~3.7% of base spins and retriggers on ~2% of free spins (`check:freespins` §16, 1500
+  rounds, longest feature 50; §17 keeps the flat-rate path and the cap). **Known gaps:** `CL` has no
+  stock art: a scaffolded project draws nothing in a `CL` cell (one console warning, "rendering
+  nothing for it") until art is bound in `/symbols`; the lines reference frame is a fixed 3-row
+  height (`FRAME_HEIGHT` in `referenceLayouts/lines.ts`), so the 5×4 board overhangs it top and
+  bottom until the frame is resized in the Scene Editor (seen in the playtest); scatter anticipation never arms
+  (`anticipation.ts` waits for `SCATTER_TRIGGER_COUNT`, 3). **Wilds** (after #1444 merged): the
+  preset carries `expandingWilds { symbols: ['W'] }` (the fairy, reels 2–4 from its strips, drawn
+  `onWin`) and `growingWild { symbol: 'CL', reels: [2], freeSpinReels: [1, 2, 3] }` (a plus). The
+  test server lands them through `mock-wild-rewrite.mjs` at the reference game's observed rates
+  (`EXPAND_RATE` 3% per reel, `GROW_RATE` 12% per spin): a fairy on ~8.5% of spins, a clover on
+  ~12%, unforced (`check:freespins` §16 holds the reels: fairy 2–4, clover 3 / 2–4 in free spins).
+  The boot-config strips alone would land a fairy on 39% and a clover on 34% of base spins: that set
+  is the richest of the reference's five, so the mock keeps the reference's rates.
+- 2026-10-28 — **The free-spin trigger floor is measured on the freegame strips** (branch
+  `lines/fairys-charm-preset`). A trigger count of 3 or more validates exactly as before. Below 3,
+  `retriggerSpinsPerSpin` computes, exactly, the spins a retrigger adds per free spin played: per reel
+  over every stop of the circular `freegame` strip and that reel's visible rows
+  (`triggerCountDistribution`), convolved across reels, times the retrigger row's award (the top of a
+  random range). It is an error at `MAX_RETRIGGER_SPINS_PER_SPIN` (0.5: a round then averages twice its
+  award) or with no `freegame` strip for every reel (the old floor). The 2026-10-07 note below chose
+  not to measure strips because the lines mock did not deal from them; for a count below 3 it now
+  deals the trigger from them (see the Fairy Clover entry above), and the cap still ends any round.
+  `/config`'s How many now allows 1. **Verified:** `check:freespins` — `freeSpins.fixture.ts` (exact
+  distribution, the 0.5 line at +40/+60, unmeasured strips keep the floor, 3+ is never measured) and
+  `check-freespin-protocol.mjs` §16 (a 2-SCAT trigger opens exactly at 2+, every retrigger lands 2+ and
+  adds 10, rounds close under the cap).
+- 2026-10-28 — **Expanding wilds and the growing wild: two optional lines blocks**
+  (`expandingWilds`, `growingWild`; plan `docs/design/expanding-and-growing-wilds.md`, branch
+  `lines/expanding-growing-wilds`). Absent ⇒ every config normalizes, deals and renders as before.
+  - `src/expandingWilds.ts` / `src/growingWild.ts`: normalize (presence is the feature; only
+    departures stored), one resolver each (`resolveExpandingWilds` adds the reels the base strips
+    deal each wild on and `show`, when the client draws an expansion — `onWin` by default, the
+    reference game, or `always`; `resolveGrowingWild` defaults to the centre reel, free spins = base,
+    `plus`), validate (a dealt, non-scatter, non-Hold-and-Win wild; lines win model; no tumble; no
+    base-game Hold and Win; reels on the grid; a wild expands or grows, not both; a warning when
+    the strips never deal the growing wild on its reels). `growCells` is the pattern, mirrored by
+    the mock and held equal by `check:wild-rewrite`.
+  - `/config`: an "Expanding wilds" and a "Growing wild" section (`WildsSections.svelte`,
+    setters in `wildsDoc.ts`), on lines games that do not tumble and are not Book-of or Hold and
+    Win; a stored block where it cannot play shows as a removal stub. Gate:
+    `check:game-config-family`.
+  - The mock contract carries both blocks in server names (`W` → `WILD`, any other wild by its own
+    name, which the facade passes through): `projectWildRewrite` in `mockContract.ts`, validated
+    by the test server's `validGrid`. Gate: `check:mock-contract`.
+  - Fixture: `packages/game-config/expandingWilds.fixture.ts` (in `check:wild-rewrite`).
 
 - 2026-10-23 — **Game families in the config: `family`, `outcome` and the `match3` / `arcade`
   blocks** (P10.1 of [game-families.md](../design/game-families.md)). All optional, defaults never
@@ -961,7 +1029,7 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   [engine.md](engine.md) (the `__IE_EXPAND_MIN_REELS__` bridge, `PIC8–10` lines markers); runtime
   release on merge. **Gates:** `pnpm check:lines-parity` (new, in `check:rgs`) — ten lines-mock
   configurations' seeded responses pinned to origin/main's digests (ebc2197); `pnpm
-  check:expanding-symbol` (new, in `check:rgs`) — the pickRandomly shape, the expansion pay and the
+check:expanding-symbol` (new, in `check:rgs`) — the pickRandomly shape, the expansion pay and the
   line pass on 3,640 free spins, buy/forced, in-play candidates only, the scatter-wild rule, the
   facade's engine-event grammar against the book mock's, the morph gate and the bridge, the test
   server forwarding, and the distributions side by side; `check:resume` §7 (fails with the resume
@@ -1022,7 +1090,8 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   imported reels mode keeps its stricter 50 (`MAX_STRIPS_ROUND_SPINS`). 200 because a default Book-of
   round reaches 60 in the parity transcripts — a cap of 50 changed four of them. **Validator:** a
   trigger count below `MIN_FREE_SPINS_TRIGGER_COUNT` (3) is an error, for any trigger symbol (any
-  symbol lands at least as often as a scatter); `/config`'s How many has `min="3"`. A strip-based
+  symbol lands at least as often as a scatter); `/config`'s How many has `min="3"` (superseded
+  2026-10-28, see above). A strip-based
   estimate of retrigger growth was not used: the mocks do not deal from the strips, so it would
   measure a different game than the one dealt. **Bounds:** an award row (or its To) above
   `MAX_FREE_SPINS_PER_ROUND` (200, held equal to the mocks' by `check:freespins`) and a table with

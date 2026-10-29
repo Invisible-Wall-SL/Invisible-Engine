@@ -97,7 +97,7 @@ function layoutRow({ text, fontSize, box }) {
 				s.kind === 'image' ? tallest : Math.max(tallest, measureRun(s.value, fontSize).height),
 			0,
 		) || fontSize;
-	const imageHeight = Math.min(textHeight * scale, contentHeight);
+	const imageHeight = Math.min(textHeight, contentHeight) * scale;
 	const imageMargin = fontSize * 0.22;
 	const imageSlot = imageHeight + imageMargin * 2;
 	const widths = segments.map((s) =>
@@ -266,7 +266,7 @@ check(
 
 // 7. The author's size option (Win Text `toast.symbolImageSize`) rides the sentinel as a scale on
 //    the text height: an unsized sentinel parses at 1 and keeps its old bytes, a sized one scales
-//    the picture without touching the words, and the plaque still bounds it.
+//    the picture without touching the words, and scales the height the plaque allowed at 100%.
 {
 	check('an unsized sentinel parses at scale 1', parseInlineImageSegments(RICH)[1].scale, 1);
 	check(
@@ -290,9 +290,26 @@ check(
 		fontSize: FONT,
 		box,
 	});
-	assert(
-		'a big symbol still stays inside the plaque',
-		boxed.imageHeight <= textBoxContentHeight(box.boxHeight, box.padding) + 0.5,
+	check(
+		'a sized symbol scales its plaque-bounded height',
+		boxed.imageHeight,
+		Math.min(boxed.textHeight, textBoxContentHeight(box.boxHeight, box.padding)) * 3,
+	);
+	// What a real bar does: the message auto-fits a plaque shallower than its font, so the 100%
+	// symbol is already as tall as the plaque allows. The size must still change it — the bug was
+	// the box capping the SIZED height, which sent 130% straight back to 100%.
+	const plaque = { ...CENTRED, boxWidth: 520, boxHeight: 20, padding: 4 };
+	const atFull = fitFont({ text: RICH, box: plaque, baseFontSize: FONT });
+	const sized = fitFont({
+		text: `You win $4.00 with 4 ${wrapInlineImage('H4', 'Cowboys', 1.3)}`,
+		box: plaque,
+		baseFontSize: FONT,
+	});
+	check('130% in a fitted plaque keeps the words’ size', sized.font, atFull.font);
+	check(
+		'130% in a fitted plaque draws 1.3× the 100% symbol',
+		sized.row.imageHeight,
+		atFull.row.imageHeight * 1.3,
 	);
 	check(
 		'a malformed scale falls back to 1',

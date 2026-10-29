@@ -105,7 +105,9 @@ Which reels a symbol lands on stays a fact of the **reel strips**, which a perso
 
 1. **Land** the board (`playedSpin` is the landed board).
 2. **Expand** each expanding wild over its reel. This always happens; `show` only decides what is
-   drawn (§4).
+   drawn (§4). An expansion leaves a scatter, the free-spin trigger symbol and a growing wild in
+   place, so a clover on the fairy's reel still grows over it next. Two wilds of the features
+   never land on one cell.
 3. **Grow** each growing wild into its pattern. It overwrites anything except a scatter and a Hold
    and Win symbol, and a copy does not grow again.
 4. **Count** the line and scatter wins on the final board. This is the only count that pays.
@@ -118,12 +120,17 @@ We take the reference game's event names, because they are already in the shape 
 - `symbolSetInMatrix { reel, row, symbol, oldSymbol }`: one per changed cell, after its parent
   event.
 
-`apps/lines/src/game/typesBookEvent.ts` gets one book event per feature:
-- `expandWild { reel, symbol }`;
-- `growWild { origin, cells }`.
+`apps/lines/src/game/typesBookEvent.ts` gets one book event per feature (rows in engine rows,
+the reveal's padding applied):
+- `expandWild { reel, row, symbol, cells, paid }`: `row` is the landed cell, `cells` the cells
+  that become the wild (the origin and any cell left in place excluded), `paid` whether a paying
+  line of the spin crosses the reel (what `show: 'onWin'` reads);
+- `growWild { origin, symbol, cells }`.
 
-The facade (`packages/rgs-translator-eagaming/src/engineFacade.ts`) builds them from the wire events
-and applies the cell changes to its board, so the win-line positions are read off the final board.
+The facade (`packages/rgs-translator-eagaming/src/wildRewrite.ts`, called from `engineFacade.ts`)
+builds them from the wire events, by spin, and presents them after the spin's `reveal` and before
+its `winInfo`, so the wins land on the final board. A `symbolSetInMatrix` with no `expandedWild` or
+`growingWild` before it is left to the facade's other paths.
 
 The lines mock (`scripts/mock-rgs-server.mjs`) deals both features from the config blocks.
 

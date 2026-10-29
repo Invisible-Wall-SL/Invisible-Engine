@@ -253,7 +253,9 @@ const LOOP_ACTIONS: ActionDecl[] = [
 ];
 
 /** Every action the arcade loop backs (`createArcadeLoop`'s effects). */
-export const ARCADE_LOOP_ACTIONS: readonly string[] = LOOP_ACTIONS.map((action) => action.name);
+export const ARCADE_LOOP_ACTIONS: readonly string[] = /* @__PURE__ */ LOOP_ACTIONS.map(
+	(action) => action.name,
+);
 
 /** The lifecycle and settings surfaces an arcade game keeps from the standard palette. */
 const KEPT_EVENTS = new Set(['load', 'tapToStart', 'settings', 'soundToggle', 'gameRules']);
@@ -303,9 +305,11 @@ export const ARCADE_LOOP_VALUES: readonly string[] = [
 	'viewHeight',
 ];
 
-const standard = standardVocabulary({ templateId: ARCADE_TEMPLATE_ID });
+// `@__PURE__`: a runtime built without this family drops it (`docs/design/phase-11.md` §2.2);
+// Rollup otherwise keeps a top-level call for its possible side effects.
+const standard = /* @__PURE__ */ standardVocabulary({ templateId: ARCADE_TEMPLATE_ID });
 
-export const ARCADE_VOCAB: TemplateVocabulary = {
+export const ARCADE_VOCAB: TemplateVocabulary = /* @__PURE__ */ (() => ({
 	templateId: ARCADE_TEMPLATE_ID,
 	structs: [],
 	enums: [
@@ -341,4 +345,4 @@ export const ARCADE_VOCAB: TemplateVocabulary = {
 		{ name: 'viewWidth', type: FLOAT, description: "The camera view's width, px." },
 		{ name: 'viewHeight', type: FLOAT, description: "The camera view's height, px." },
 	],
-};
+}))();

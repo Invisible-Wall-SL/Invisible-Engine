@@ -296,6 +296,15 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
+- 2026-10-28 — **Fix: the symbol size did nothing on a real info bar.** Owner report: 130% in game
+  looked the same as 100%. `InlineImageText` capped the SIZED height at the box
+  (`min(textHeight × scale, contentHeight)`), and a real bar's plaque is shallower than its font, so
+  the 100% symbol already filled the box and every size above 100 came back from the cap unchanged.
+  Now the cap applies first and the size after (`min(textHeight, contentHeight) × scale`), so 130% is
+  always 1.3× the 100% symbol and may overhang the box. 100% is unchanged. Guard:
+  `test-inline-image-box.mjs` §7 "130% in a fitted plaque draws 1.3× the 100% symbol" (fails on the
+  old order). Lesson in [`lessons/editor.md`](../knowledge/lessons/editor.md).
+
 - 2026-10-28 — **"Show the symbol as an image" has a size.** New `toast.symbolImageSize` (`winText.ts`
   type + `WIN_TEXT_DEFAULTS` 100 + `resolveWinText`; range `SYMBOL_IMAGE_SIZE_MIN`/`MAX` = 25–300):
   the inline symbol's height as a percent of the text's, info bar only. Storage validates it

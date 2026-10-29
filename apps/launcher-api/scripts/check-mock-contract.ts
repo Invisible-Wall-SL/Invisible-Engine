@@ -24,6 +24,7 @@ import { isHttpError } from '@sveltejs/kit';
 import {
 	addPotsOverlay,
 	bookOfThermopylaePreset,
+	fairyCloverPreset,
 	importBonus,
 	normalizeGameConfigDoc,
 	potsOverlayPreset,
@@ -559,6 +560,42 @@ await check('awarded spins ride last, only when they depart, with both tables re
 	eq([off.freeSpins, 'freeSpinsAwards' in off], [false, false], 'no awards while off');
 });
 
+await check('a trigger below 3 carries its places on the strips; 3 and up never do', async () => {
+	const fairy = linesGrid(normalizeGameConfigDoc(fairyCloverPreset())!);
+	const strips = fairy.freeSpinsTriggerStrips;
+	eq(fairy.expandingWilds, { symbols: [{ symbol: 'WILD', reels: [1, 2, 3] }] }, 'the fairy');
+	eq(fairy.growingWild?.symbol, 'CL', 'the clover');
+	eq(fairy.freeSpinsTrigger, { symbol: 'SCAT', count: 2 }, 'Fairy Clover: 2 SCAT');
+	eq(
+		[strips?.basegame?.map((s) => s.at.length), strips?.freegame?.map((s) => s.at.length)],
+		[
+			[2, 0, 0, 0, 2],
+			[2, 0, 0, 0, 2],
+		],
+		'two S on reels 1 and 5, base and free',
+	);
+	eq(
+		strips?.freegame?.map((s) => s.length),
+		[57, 69, 54, 58, 55],
+		'the free strips’ lengths',
+	);
+	eq(
+		'freeSpinsTriggerStrips' in linesGrid(withFreeSpins({ triggerCount: 5 })),
+		false,
+		'a count of 5',
+	);
+	eq('freeSpinsTriggerStrips' in linesGrid(template('lines')), false, 'un-authored');
+	const { validGrid } = await import('../../../services/test-server/makeMock.mjs');
+	eq(validGrid(fairy)?.freeSpinsTriggerStrips, strips, 'the test server keeps it');
+	const holed = {
+		...fairy,
+		freeSpinsTriggerStrips: { ...strips, freegame: strips?.freegame?.slice(1) },
+	};
+	eq(validGrid(holed)?.freeSpinsTriggerStrips, { basegame: strips?.basegame }, 'a short game type is dropped'); // prettier-ignore
+	const untriggered = { ...fairy, freeSpinsTrigger: undefined };
+	eq('freeSpinsTriggerStrips' in (validGrid(untriggered) ?? {}), false, 'no trigger, no strips');
+});
+
 await check(
 	'a trigger the server has no name for is omitted and said once, not swapped for SCAT',
 	() => {
@@ -809,6 +846,47 @@ await check('the Paylines preview and paytable import ask the AUTHORING mock', a
 	}
 	eq(asked.length, 1, 'one probe');
 	eq(new URL(asked[0]).pathname, '/api/remake/authoring/rgs/engine', 'path');
+});
+
+console.info('expanding and growing wilds (docs/design/expanding-and-growing-wilds.md §2)');
+
+/** The lines template dealing `W` on reels 2–4 and a second wild, `CLOVER`, on the centre reel. */
+const withWilds = (blocks: Record<string, unknown>, base = template('lines')): GameConfigDoc => {
+	const paddingReels = structuredClone(base.paddingReels);
+	for (const reel of [1, 2, 3]) paddingReels.basegame[reel].push({ name: 'W' });
+	paddingReels.basegame[2].push({ name: 'CLOVER' });
+	return normalizeGameConfigDoc({
+		...base,
+		symbols: { ...base.symbols, CLOVER: { special_properties: ['wild'] } },
+		paddingReels,
+		...blocks,
+	})!;
+};
+
+await check('both blocks ride in server names: W is WILD, any other wild its own name', () => {
+	const grid = linesGrid(
+		withWilds({
+			expandingWilds: { symbols: ['W'], show: 'always' },
+			growingWild: { symbol: 'CLOVER' },
+		}),
+	);
+	eq(
+		grid.expandingWilds?.symbols.map((w) => w.symbol),
+		['WILD'],
+		'expanding',
+	);
+	eq(grid.growingWild, { symbol: 'CLOVER', reels: [2], freeSpinReels: [2], pattern: 'plus' }, 'growing'); // prettier-ignore
+	const { expandingWilds: _e, growingWild: _g, ...rest } = grid;
+	eq(rest, linesGrid(withWilds({})), 'nothing else moves');
+	eq('expandingWilds' in linesGrid(withWilds({})), false, 'no block: nothing sent');
+});
+
+await check('they travel only where the lines mock can rewrite the board', () => {
+	const blocks = { expandingWilds: { symbols: ['W'] }, growingWild: { symbol: 'CLOVER' } };
+	const ways = mockContractOfBundle('ways', { config: withWilds(blocks, template('ways')), symbols: NO_SYMBOLS }, 'w').grid ?? {}; // prettier-ignore
+	eq('expandingWilds' in ways || 'growingWild' in ways, false, 'a ways game');
+	const tumbling = linesGrid(withWilds({ ...blocks, cascade: true }));
+	eq('expandingWilds' in tumbling || 'growingWild' in tumbling, false, 'a lines game that tumbles');
 });
 
 console.info('free play (game-families §2.3, §6.3)');

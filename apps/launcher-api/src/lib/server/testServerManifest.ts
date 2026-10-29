@@ -239,11 +239,10 @@ export function isMockProtocol(value: unknown): value is MockProtocol {
 }
 
 /**
- * The ONE shared prebuilt runtime bundle every online game is served from
- * (`test_server/_runtime/lines/`). The id is historical: it means "the shared engine runtime", NOT
- * "the lines game" — the bundle is built from `apps/lines`, which carries the whole engine, and a
- * published game behaves as ways/cluster/scatter because its CONFIG says so. See `runtimeFor` in
- * `publishGame.ts` for why there is deliberately only one.
+ * The slot runtime every slot game is served from (`test_server/_runtime/lines/`). The id is
+ * historical: it means "the slot runtime", NOT "the lines game" — a published game behaves as
+ * ways/cluster/scatter because its CONFIG says so. The other families have their own ids
+ * (`constants-shared/runtimes`); see `runtimeFor` in `runtimeChoice.ts`.
  */
 export const SHARED_RUNTIME_ID = 'lines';
 
@@ -387,10 +386,23 @@ export interface TestServerGameEntry {
 			retrigger: FreeSpinsAward[];
 			random: boolean;
 		};
+		/** The trigger symbol's places on each base and free-spin reel strip, sent only for a trigger
+		 *  below 3 (whose rate `/config` measured on those strips): the lines mock deals the trigger
+		 *  from a random stop of each strip instead of its flat scatter rate. Absent ⇒ the flat rate,
+		 *  exactly as before. See game-config's `freeSpinsTriggerStrips`. */
+		freeSpinsTriggerStrips?: Partial<
+			Record<'basegame' | 'freegame', { length: number; at: number[] }[]>
+		>;
 		/** The Book-of expanding special (lines mock, a `lines` win model only): every symbol it may be
 		 *  drawn as when free spins start, in SERVER names, with its draw weight and the fewest reels
 		 *  it must cover to expand and pay. Absent ⇒ no special. See `projectExpandingSymbol`. */
 		expandingSymbol?: { candidates: { symbol: string; weight: number; minReels: number }[] };
+		/** Expanding wilds (lines mock, a `lines` win model with no tumble): each wild in SERVER
+		 *  names with the reels its base strips deal it on. Absent ⇒ none.
+		 *  See `projectWildRewrite`. */
+		expandingWilds?: { symbols: { symbol: string; reels: number[] }[] };
+		/** The growing wild (same gate), in SERVER names, every default resolved. Absent ⇒ none. */
+		growingWild?: { symbol: string; reels: number[]; freeSpinReels: number[]; pattern: string };
 		/** `true` when the in-play scatter is also wild (a Book-of book): the lines mock substitutes
 		 *  `SCAT` on lines and declares it in `wildSymbols`. Absent ⇒ the scatter is only a scatter. */
 		scatterWild?: true;

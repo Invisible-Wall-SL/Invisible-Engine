@@ -228,10 +228,9 @@ const FACTS: readonly ChipSource[] = [
 	{
 		id: 'runtime',
 		title: 'The shared prebuilt engine bundle this published game is served from.',
-		// Deliberately NOT `${runtimeId} runtime`. Every online game is served from the same bundle,
-		// so naming it says nothing about THIS game — and because the id is historically `lines`, it
-		// read as a game type: a cluster game displaying "lines runtime" looked misconfigured, and
-		// cost a real double-take. Name the bundle only if a second one ever exists.
+		// The slot runtime is NOT shown as `${runtimeId} runtime`: every slot kind shares it, and
+		// because its id is historically `lines` it read as a game type (a cluster game displaying
+		// "lines runtime" looked misconfigured). The family runtimes (phase-11) are named.
 		text: (ctx) =>
 			ctx.runtimeId
 				? ctx.runtimeId === SHARED_RUNTIME_ID

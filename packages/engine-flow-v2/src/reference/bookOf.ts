@@ -4,15 +4,17 @@
  * The Book-of mechanic is the STANDARD shared-runtime vocabulary ({@link standardVocabulary}) plus
  * one expanding-symbol feature: a symbol is picked for the free-spin session, it expands to fill
  * whole reels, and a splash reveals it. Those six surfaces — two book events, two actions, two cues
- * — are the entire difference, so they are declared here and spliced into the standard palette at
- * the positions authors already know them by, rather than duplicating 600 lines that could drift.
+ * — plus the lines wilds that rewrite a landed board (two events, two actions) are the entire
+ * difference, so they are declared here and spliced into the standard palette at the positions
+ * authors already know them by, rather than duplicating 600 lines that could drift. This is the
+ * vocabulary `lines` resolves to (`VOCABULARY_FALLBACKS`).
  *
  * Transcribed VERBATIM from the reference game's real code, like the standard vocabulary itself:
  * the events are `apps/lines` `typesBookEvent.ts` members, the actions are `flowEffects.ts` registry
  * keys, and the cues are `SpecialBook.svelte`'s `EmitterEventSpecialBook` union.
  */
 
-import type { TemplateVocabulary } from '../types';
+import type { TemplateVocabulary, TypeRef } from '../types';
 
 import { SYMBOL, INT, list, insertAfter, insertBefore, standardVocabulary } from './standardVocab';
 
@@ -52,6 +54,78 @@ const BOOK_EVENTS: TemplateVocabulary['events'] = [
 	},
 ];
 
+const POSITION: TypeRef = { t: 'struct', name: 'Position' };
+const BOOL: TypeRef = { t: 'bool' };
+
+/**
+ * The wilds that rewrite a landed lines board (`docs/design/expanding-and-growing-wilds.md`): an
+ * expanding wild fills its reel, a growing wild copies itself onto its neighbours. Both follow the
+ * `reveal` and precede the spin's wins; the shared runtime presents them, so they ride this palette.
+ */
+const WILD_EVENTS: TemplateVocabulary['events'] = [
+	{
+		name: 'expandWild',
+		payload: [
+			{ name: 'reel', type: INT, description: 'The reel the wild fills (0 = leftmost).' },
+			{ name: 'row', type: INT, description: 'The row the wild landed on.' },
+			{ name: 'symbol', type: SYMBOL, description: 'The expanding wild.' },
+			{
+				name: 'cells',
+				type: list(POSITION),
+				description: 'The cells of that reel that become the wild (never the landed cell).',
+			},
+			{
+				name: 'paid',
+				type: BOOL,
+				description:
+					'A paying line of this spin crosses the reel. Under the default `show: onWin` an unpaid expansion is not drawn.',
+			},
+		],
+		category: 'book',
+		description:
+			'An expanding wild landed and fills its reel before the wins are counted. Play the reel fill with the expand-wild effect.',
+	},
+	{
+		name: 'growWild',
+		payload: [
+			{ name: 'origin', type: POSITION, description: 'The cell the growing wild landed on.' },
+			{ name: 'symbol', type: SYMBOL, description: 'The growing wild.' },
+			{
+				name: 'cells',
+				type: list(POSITION),
+				description: 'The cells it copies itself onto, in the order they turn.',
+			},
+		],
+		category: 'book',
+		description:
+			'A growing wild copies itself onto the cells next to it before the wins are counted. Play it with the grow-wild effect.',
+	},
+];
+
+/** Run the wild rewrites — mechanic ops, after the column expand. */
+const WILD_ACTIONS: TemplateVocabulary['actions'] = [
+	{
+		name: 'expandWild',
+		params: [
+			{ name: 'reel', type: INT },
+			{ name: 'row', type: INT },
+			{ name: 'symbol', type: SYMBOL },
+			{ name: 'cells', type: list(POSITION) },
+			{ name: 'paid', type: BOOL },
+		],
+		category: 'command',
+	},
+	{
+		name: 'growWild',
+		params: [
+			{ name: 'origin', type: POSITION },
+			{ name: 'symbol', type: SYMBOL },
+			{ name: 'cells', type: list(POSITION) },
+		],
+		category: 'command',
+	},
+];
+
 /** Arm the picked special symbol — leads the standard state/presentation effects. */
 const SET_SPECIAL_SYMBOL: TemplateVocabulary['actions'][number] = {
 	name: 'setSpecialSymbol',
@@ -84,10 +158,11 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 	// events sit right behind `reveal` (the spin they belong to), `setSpecialSymbol` leads the
 	// state/presentation effects, the column expand closes the commands, and the reveal splash opens
 	// the cue list.
-	events: insertAfter(standard.events, 'reveal', BOOK_EVENTS),
+	events: insertAfter(standard.events, 'reveal', [...BOOK_EVENTS, ...WILD_EVENTS]),
 	actions: [
 		...insertBefore(standard.actions, 'selectBetMode', [SET_SPECIAL_SYMBOL]),
 		EXPAND_BOOK_COLUMNS,
+		...WILD_ACTIONS,
 	],
 	cues: [...BOOK_CUES, ...standard.cues],
 };

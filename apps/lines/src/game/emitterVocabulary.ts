@@ -1341,6 +1341,14 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Effect',
 		},
 		{
+			name: 'expandWild',
+			group: 'Effect',
+		},
+		{
+			name: 'growWild',
+			group: 'Effect',
+		},
+		{
 			name: 'setFreeSpinCounterTotal',
 			group: 'Effect',
 		},
@@ -1506,6 +1514,12 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 		},
 		{
 			type: 'expandBookColumns',
+		},
+		{
+			type: 'expandWild',
+		},
+		{
+			type: 'growWild',
 		},
 		{
 			type: 'freeSpinRetrigger',
