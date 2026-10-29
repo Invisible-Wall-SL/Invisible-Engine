@@ -67,7 +67,7 @@ already-bundled `cards.js` values.
   deterministic; the save and the two grants; the registry and guide). `check:family-tools` and
   `check:card-family` re-pinned for the new exclusions.
 
-**P11.1a — family seams (built 2026-10-28; in review).** [phase-11.md](../design/phase-11.md) §2.2,
+**P11.1a — family seams (merged 2026-10-28, #1437).** [phase-11.md](../design/phase-11.md) §2.2,
 §2.5. Shared code reaches match-3, arcade and card code only through
 `apps/lines/src/families/{match3,arcade,card}.ts`; `families/off/*` are inert stubs with the same
 names and types. `config-vite` (`families.js`, in `baseConfig()`, so game repos get it) reads
@@ -80,7 +80,7 @@ play <family> games". Left for P11.1b:
 game, `engine-flow-v2` exports the family vocabularies and action lists to the shared flow code,
 and `game-config`'s card normalizer reads `engine-mechanics` `cards.js`.
 
-**P11.1c — `lines` is slot only (built 2026-10-28; in review, merge only after the republish).**
+**P11.1c — `lines` is slot only (merged 2026-10-29: #1449, then #1450 after the non-slot republish).**
 [phase-11.md](../design/phase-11.md) §2.5. Two PRs:
 - **c1, the listing and Director** (mergeable with P11.1b): the test server's public `/healthz`
   gains `gameRuntimes` (each game's `runtime` and `protocol`; `match3` / `freePlay` mean a non-slot
@@ -93,8 +93,8 @@ and `game-config`'s card normalizer reads `engine-mechanics` `cards.js`.
   non-slot game now): a family runtime with no release refuses the publish (`runtime-unreleased`).
   Every slot game downloads the slot runtime, about 1,296 KB gz against 1,412 KB (−8.2 %).
 
-**P11.1b — four runtimes, the baked-config default, `check:family-runtimes` (built 2026-10-28; in
-review).** [phase-11.md](../design/phase-11.md) §2.4, §3.1.
+**P11.1b — four runtimes, the baked-config default, `check:family-runtimes` (merged 2026-10-28,
+#1442).** [phase-11.md](../design/phase-11.md) §2.4, §3.1.
 
 - **Four runtimes.** `lines` (every slot kind; built `all` in P11.1b, `slot` since P11.1c), `match3`, `arcade`
   and `card`, listed once in `packages/constants-shared/runtimes.ts` (`RUNTIMES`, `RUNTIME_IDS`,
@@ -2289,6 +2289,9 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 ## Recent changes
 
+- 2026-10-29 — **P11.1 done.** #1449 (`/healthz` `gameRuntimes`, Director drafts on the family
+  runtime) and #1450 (`lines` built slot only, publish refuses an unreleased family runtime) merged
+  after the non-slot republish; every slot game's runtime is about 1,296 KB gz (−8.2 %).
 - 2026-10-28 — **P11.1b engine half: the family default and the gate.** Builds now default to the baked config's
   family. The runtime drops each left-out family's Flow vocabulary and seeds (`familyFlow.ts`,
   `vocabularyIn`, `@__PURE__` registries and builders). Adds `check:family-runtimes`
