@@ -67,6 +67,64 @@ already-bundled `cards.js` values.
   deterministic; the save and the two grants; the registry and guide). `check:family-tools` and
   `check:card-family` re-pinned for the new exclusions.
 
+**P11.5 — offline abilities and zone forces (built 2026-10-29; in review).**
+[phase-11.md](../design/phase-11.md) §3 (P11.5), §3.1; [game-families.md](../design/game-families.md)
+§4.3. Branch `engine/p11-5-offline-abilities`, from `main` with P11.2–P11.4 in (P11.4 #1472
+merged in). Not deployed.
+
+- **One module (`engine-mechanics` `abilities.js`, new).** `STATUS`, `GRACE_MS`, `stepsOf`,
+  `abilitySpecs` (steps), `abilityTargets`, `useAbilities` (cooldown, stun / catch status and
+  `until`, the nearest for a `hook`), `endStatuses`, `freeActor`, `zoneForces` / `addZoneForces`.
+  `onlineRules.js` `applied` / `afterStep` call it (its `STATUS` / `GRACE_MS` are re-exports),
+  `online.js` builds and adds its currents through it, `onlineFlow.js`'s predictor takes its
+  cooldowns from `abilitySpecs`. Salmons' traces replay unchanged (`check:online-rules`).
+- **The offline loop.** `engine-game` `arcadeAbilities.ts` (new), made only for a config with
+  characters and `arcade.abilities`: once a step after the move, in spawn order, a character uses
+  an ability while the input map's `ability1` / `ability2` is held (played), whenever a target is in
+  reach (brain), or on Flow's `useAbility`; a held character neither decides nor moves; an out one
+  touches nothing, is culled, and is back where it spawned. `arcade.forces` push a body in the zone
+  for the move (a character of the named ones, else every body) and the push is taken off after. A
+  config with neither takes the old path (every replay and playbook unchanged).
+- **Flow.** `ARCADE_VOCAB`: `useAbility` (`ArcadeAbilityButton`); `ability`, `hit` and `caught`
+  fire offline too, with `instance` / `byInstance` / `targetInstance` / `points` added (online
+  leaves them unset). `/flow-v2` guide updated.
+- **Config.** `arcade.abilities` (the online ability's shape, naming `arcade.characters`) and
+  `arcade.forces` (`{ zone, force, characters? }`), sparse, resolved with the room's limits
+  (`resolveAbility` / `resolveForce`, now shared with the online rules). Validator: unknown
+  characters / zones (errors), ranges, an offline `hook`, and either in an online game (warnings).
+- **Invisible Characters.** Abilities (per character: button, effect, reach, holds, cooldown,
+  score, targets) and Zone forces (per zone: push x / y, only these characters); rename and remove
+  follow them. Guide updated (rule 9).
+- **Proof.** `check:online-rules` 33 (4 new: the room calls the module; **a trace played by the room
+  and by the offline loop raises the same `ability` / `hit` / `caught` on the same steps and holds
+  the same characters out**; a body through a current lands on the same place to 1e-9 px; a force
+  with characters pushes only them). `check:arcade-characters` (launcher) 100 (11 new: played,
+  brain and Flow uses, stun holds, catch hides and returns with its grace, no stage without
+  abilities, the vocabulary). `check:characters-tool` 182 (28 new). `check:arcade-camera` 79 (two
+  source scans now allow the hiding switch). Unchanged: `check:room-sim` 39, `check:room-bots` 21,
+  `check:netcode` 28, root `check:arcade-motion` 18 / `-characters` 53 / `-platformer` 43,
+  `check:arcade-rules` 78, `check:arcade-platformer` 68, `check:game-config-family` 252.
+  `check:all` 603 / 603. Playbooks: `salmons-play.mjs` **37 / 37 in each netcode**, `arcade-play`
+  14, `arcade-characters-play` 14, `arcade-camera-play` 12, `arcade-platformer-play` 15.
+- **Runtime sizes** (`check:family-runtimes`, gzip -6, within budget): lines 1,308,744 B, match3
+  1,317,056, card 1,321,333, **arcade 1,412,073 (4,134,304 raw)**. Against P11.4's measure: slot
+  +948 B gz (`game-config`'s new resolver and validator text, which every runtime carries), arcade
+  +2.6 KB gz.
+- **Load test** (`scripts/room-load.mjs`, 100 devices, 60 ± 20 ms, this container, two runs):
+  30 steps / 19.9 states a second held, 9.0 KB/s per device (12.4 at most), 0.88 MB/s out, step
+  p50 0.87 / **p99 2.1–2.2** / max 4.0–10.3 ms, 29 % of a core, 221 MB. Within budget.
+- **Chosen here, owner may overturn:** offline abilities live in `arcade.abilities` (not on each
+  character) with the online shape; targets are characters only; a brain uses an ability whenever
+  a target is in reach; a spawned character has no grace (a room's players have one at their
+  join); a catch offline holds the target out for `ms` and puts it back where it spawned; offline
+  scores go to Flow as `points`; an offline `hook` raises `hit` on the nearest and holds nothing; a
+  held character is left out of brains' worlds; a zone force with no characters pushes every body;
+  a move that zeroes a pushed velocity (a wall) keeps 0; no grace event.
+- **Known limits.** No hit-zone shape, offset or live frames (a reach around the centre, as online);
+  no animation is played by an ability (Flow does it from `ability`); the `/characters` sandbox
+  does not run abilities or forces; no touch gesture for an ability; a held solid character stops
+  being solid while held; `/flow-v2`'s Preview does not run them.
+
 **P11.4 — isometric projection and diamond tiles (built 2026-10-29; in review).**
 [phase-11.md](../design/phase-11.md) §3 (P11.4), §3.1, §4 #8. Branch `engine/p11-4-isometric`, from
 `main` at a36a1fe (P11.2 and P11.3 in). Not deployed.
@@ -2641,8 +2699,8 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     culling and depth across layers on an isometric screen; the editor drawing the whole screen
     projected).
 14. `playCinematic` holding the arcade camera for a cutscene and handing it back (§4.4).
-15. Abilities (hit zones, cooldowns, `onHit`) and zone forces (§4.3) for the **offline** arcade
-    loop, left out of P10.11 (P10.15 built them for online rooms only, in `onlineRules.js`).
+15. ~~Abilities (hit zones, cooldowns, `onHit`) and zone forces (§4.3) for the **offline** arcade
+    loop~~ — done in P11.5, 2026-10-29 (left: a hit-zone shape and live frames, the sandbox).
 
 ## Blocked (owner / external)
 
@@ -2653,6 +2711,13 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
   [INFRA.md](../INFRA.md) "Invisible Game Server".
 
 ## Recent changes
+
+- 2026-10-29 — **P11.5: offline abilities and zone forces.** `engine-mechanics` `abilities.js` is
+  the one implementation the room and the offline loop call (`arcadeAbilities.ts`);
+  `arcade.abilities` / `arcade.forces`; `useAbility` and offline `ability` / `hit` / `caught`;
+  `/characters` edits both. Same trace, same events in both loops (`check:online-rules` 33);
+  `salmons-play.mjs` 37 / 37 in each netcode; slot +948 B gz, arcade +2.6 KB. Open item 15 is
+  done. Detail above.
 
 - 2026-10-29 — **P11.4: isometric projection and diamond tiles.** `Scene.projection: 'isometric'`;
   the arcade seam registers `IsoWorld` (ground 2:1, spawned instances upright in depth order,

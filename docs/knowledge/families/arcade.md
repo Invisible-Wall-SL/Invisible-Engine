@@ -9,18 +9,15 @@ An arcade game is a **real-time play field** on the shared runtime (`apps/lines`
 spawned on a spawn layer move on a fixed-step loop, collide by tag pair and raise Flow signals. Flow
 keeps the score and lives. On top of that (Phase 10, `docs/design/game-families.md` §4.2–§4.5):
 
-- **A1, P10.8:** `motion.js` and the fixed-step loop; the Game Maker `arcade` kind is a salmon
-  dodger with placeholder shapes.
-- **A2, P10.11:** characters (look, body, movement, controller, brain), authored in **Invisible
-  Characters** (`/characters`).
+- **A1, P10.8:** `motion.js`, the fixed-step loop, a salmon dodger kind. **A2, P10.11:** characters
+  (look, body, movement, controller, brain), authored in **Invisible Characters** (`/characters`).
 - **A3, P10.12–P10.13, P11.4:** a world bigger than the screen with a camera and parallax; gravity,
   jumps, one-way platforms and the `tilemap` node; an isometric projection per screen.
-- **A4, P10.14–P10.16, P11.3:** online rooms on `services/game-server` (Colyseus 0.18): server,
-  netcode, rules, bots, nearby state, the 100-device load test, Salmons as data and its rules.
+- **A4, P10.14–P10.16, P11.3, P11.5:** online rooms on `services/game-server` (Colyseus 0.18):
+  netcode, rules, bots, the load test, Salmons as data; abilities and zone forces offline too.
 
 Arcade is **rules-decided (free play) only**. An RGS-decided arcade config is `unplayable`: it does
-not boot and does not publish (P10.10 is optional and undecided). It never reaches a wallet, a
-partner RGS or a delivery build.
+not boot or publish (P10.10 undecided). It never reaches a wallet, a partner RGS or a delivery.
 
 **Salmons** (`docs/status/salmons.md`) is the target: a 100-player online game, live in the separate
 `GuiltyForever/Salmon-` repo (Colyseus 0.15), rebuilt here **as data** (P10.16), never ported in:
@@ -64,11 +61,14 @@ A seed and the same keys replay the same game.
   (`engine-mechanics` `onlineFlow.js` `flowSignalsOf`); its scores and round reach it only as
   variables with `server`, written by `online.ts` from each state. Flow never writes one
   (`variable-server-owned`). The own player's `ability` is raised on the press by
-  `createAbilityPredictor`, which mirrors `onlineRules.js`'s cooldown test: change one, change both
-  (`check:online-rules` compares them step for step). The room's echo of a press it raised is
+  `createAbilityPredictor`, over `abilities.js`' cooldowns (`check:online-rules`, step for step). The room's echo of a press it raised is
   dropped, per button; an echo with no press waiting is raised then (`predicted: false`); a
   refused press expires one state after its input is acknowledged; a round's start or the own join
   clears the cooldowns of inputs already taken, but not of a press whose echo is still due.
+- **One ability module (P11.5).** Abilities (reach, cooldown, stun / catch / hook, grace) and zone
+  forces are `engine-mechanics` `abilities.js`: the room (`onlineRules.js`, `online.js`) and the
+  offline loop (`engine-game` `arcadeAbilities.ts`; `arcade.abilities` / `arcade.forces`) both call
+  it, and one trace gives both the same hits (`check:online-rules`). None configured, no stage.
 - **A bot is a player whose input comes from a brain.** `botInput` turns a P10.11 brain's velocity
   into a clamped input; the room steps and rules it exactly as a device's
   (`packages/engine-mechanics/src/onlineBots.js`, `services/game-server/src/roomSim.ts`). A config
@@ -105,8 +105,8 @@ A seed and the same keys replay the same game.
 
 | Area                  | Paths                                                                                                                                                                                                                                 |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,online,netcode,onlineRules,onlineFlow,onlineBots,salmons,salmonsRules}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/`                                             |
-| Loop                  | `packages/engine-game/src/game/arcadeLoop.ts`, `arcadeCharacters.ts`, `mechanic.ts`                                                                                                                                                   |
+| Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,abilities,online,netcode,onlineRules,onlineFlow,onlineBots,salmons,salmonsRules}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/` |
+| Loop                  | `packages/engine-game/src/game/arcadeLoop.ts`, `arcadeCharacters.ts`, `arcadeAbilities.ts`, `mechanic.ts`                                                                                                                             |
 | Runtime               | `apps/lines/src/components/ArcadeStage.svelte`, `apps/lines/src/game/arcade.ts`, `online.ts`, `flowKeys.ts`, `flowBoardEffects.ts`                                                                                                    |
 | Layout                | `packages/engine-layout/src/lib/SpawnLayer.svelte`, `worldCamera.ts`, `worldCameraView.svelte.ts`, `tilemapNodes.ts`, `Tilemap.svelte`, `projection.ts`, `IsoWorld.svelte`, `IsoTilemap.svelte`, `pathNodes.ts`, `arcadeLifts.svelte.ts`, `templates/arcade.ts`, `referenceLayouts/arcade*.ts` |
 | Flow                  | `packages/engine-flow-v2/src/reference/arcade.ts` (`ARCADE_VOCAB`), `arcadeSeed.ts` (starter), the sample seeds, `salmonsSeed.ts`                                                                                                     |
